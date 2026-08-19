@@ -81,6 +81,7 @@ namespace Rylogic.Common
 			WParam = wparam;
 			LParam = lparam;
 			Handled = false;
+			Result = IntPtr.Zero;
 		}
 
 		/// <summary>Window handle</summary>
@@ -97,6 +98,9 @@ namespace Rylogic.Common
 
 		/// <summary>Message handled (prevents passing to DefWindowProc)</summary>
 		public bool Handled { get; set; }
+
+		/// <summary>The result returned to the message sender when <see cref="Handled"/> is true.</summary>
+		public IntPtr Result { get; set; }
 
 		/// <summary></summary>
 		public string Description => Win32.MsgIdToString(Message);

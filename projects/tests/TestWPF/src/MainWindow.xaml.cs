@@ -210,10 +210,8 @@ namespace TestWPF
 			});
 			ShowWin32Window = Command.Create(this, () =>
 			{
-				var props = new Win32Window<MessageLoop>.Props{ Title = "Win32 Window" };
-				using var wnd = new Win32Window<MessageLoop>();
-				wnd.Show();
-				wnd.MsgLoop.Run();
+				using var application = new Win32Application(new Win32ApplicationOptions { Title = "Win32 Window" });
+				application.Run();
 			});
 			Exit = Command.Create(this, Close);
 			DataContext = this;

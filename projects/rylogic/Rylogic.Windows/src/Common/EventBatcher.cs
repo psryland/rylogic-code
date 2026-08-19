@@ -4,8 +4,7 @@
 //***************************************************
 using System;
 using System.Threading;
-using System.Windows.Threading;
-using Rylogic.Extn;
+using System.Threading.Tasks;
 
 namespace Rylogic.Common
 {
@@ -19,8 +18,9 @@ namespace Rylogic.Common
 		// - Collect subsequent events,
 		// - Trigger every 'Delay' interval if events have been received since the last trigger
 
-		/// <summary>Condition variable to signal shutdown</summary>
-		private bool m_shutdown;
+		private readonly CancellationTokenSource m_shutdown;
+		private readonly SynchronizationContext m_sync_context;
+		private bool m_disposed;
 
 		/// <summary>The number of times Signal has been called since 'Action' was last raised</summary>
 		private int m_count;
@@ -38,34 +38,41 @@ namespace Rylogic.Common
 			: this(action, TimeSpan.FromMilliseconds(10))
 		{ }
 		public EventBatcher(Action action, TimeSpan delay)
-			: this(delay, Dispatcher.CurrentDispatcher, action)
+			: this(delay, CurrentContext(), action)
 		{ }
-		public EventBatcher(Action action, TimeSpan delay, Dispatcher dispatcher)
-			: this(delay, dispatcher, action)
+		public EventBatcher(Action action, TimeSpan delay, SynchronizationContext sync_context)
+			: this(delay, sync_context, action)
 		{ }
 		public EventBatcher(TimeSpan delay)
-			: this(delay, Dispatcher.CurrentDispatcher)
+			: this(delay, CurrentContext())
 		{ }
-		public EventBatcher(TimeSpan delay, Dispatcher dispatcher)
-			: this(delay, dispatcher, null)
+		public EventBatcher(TimeSpan delay, SynchronizationContext sync_context)
+			: this(delay, sync_context, null)
 		{ }
-		private EventBatcher(TimeSpan delay, Dispatcher dispatcher, Action? action)
+		private EventBatcher(TimeSpan delay, SynchronizationContext sync_context, Action? action)
 		{
-			m_shutdown = false;
-			Dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher), "dispatcher can't be null");
+			if (delay < TimeSpan.Zero)
+				throw new ArgumentOutOfRangeException(nameof(delay), delay, "The delay cannot be negative.");
+
+			m_shutdown = new CancellationTokenSource();
+			m_sync_context = sync_context ?? throw new ArgumentNullException(nameof(sync_context));
+			m_disposed = false;
 			Delay = delay;
 			m_count = 0;
 			Immediate = false;
 			TriggerOnFirst = false;
-			Priority = DispatcherPriority.Normal;
 
 			if (action != null)
 				Action += action;
 		}
 		public void Dispose()
 		{
-			m_shutdown = true;
+			if (m_disposed)
+				return;
+
+			m_disposed = true;
 			Action = null;
+			m_shutdown.Cancel();
 		}
 
 		/// <summary>The callback called when events have been signalled</summary>
@@ -77,11 +84,8 @@ namespace Rylogic.Common
 		/// <summary>The time between subsequent Action invocations</summary>
 		public TimeSpan Delay { get; set; }
 
-		/// <summary>Priority of the action</summary>
-		public DispatcherPriority Priority { get; set; }
-
-		/// <summary>The thread context in which to invoke 'Action'</summary>
-		public Dispatcher Dispatcher { get; }
+		/// <summary>The thread context in which to invoke <see cref="Action"/>.</summary>
+		public SynchronizationContext SynchronizationContext => m_sync_context;
 
 		/// <summary>Toggle switch for batching on/off</summary>
 		public bool Immediate
@@ -97,64 +101,80 @@ namespace Rylogic.Common
 		/// <summary>
 		/// Signal the event. Signal can be called multiple times.
 		/// Note: this can be called from any thread, the resulting event will be marshalled
-		/// to the Dispatcher provided in the constructor of the event batcher</summary>
+		/// to the synchronization context provided in the constructor of the event batcher.</summary>
 		public void Signal(object? sender = null, EventArgs? args = null)
 		{
-			// Silently handle Signal calls on this object after it's shutdown
-			// They can be coming from any threat.
-			if (Action == null || m_shutdown)
+			// Signals can race with disposal because event producers may be running on background threads.
+			if (Action == null || m_disposed)
 				return;
 
-			// If immediate mode is enabled, call Action now
+			// Immediate mode remains synchronous while preserving the owning thread contract.
 			if (Immediate)
 			{
-				Dispatcher.Invoke(Action);
+				InvokeSynchronously();
 				return;
 			}
 
-			// Increment the signal count
-			// If this is the first of a batch, start a dispatch timer
-			if (Interlocked.Increment(ref m_count) == 1)
-			{
-				if (TriggerOnFirst)
-				{
-					// Call the action on the first signal
-					// Using BeginInvoke because we don't want to block the calling thread.
-					Dispatcher.BeginInvoke(new Action(() =>
-					{
-						if (Action == null || m_shutdown)
-							return;
-						Action();
-					}));
-				}
+			// Only the first signal schedules work; later signals are represented by the shared count.
+			if (Interlocked.Increment(ref m_count) != 1)
+				return;
 
-				// Add a delayed call to Action. In the meantime, repeat calls will just increment 'm_count'
-				Dispatcher.BeginInvokeDelayed(new Action(() =>
-				{
-					// After the delay period, see how many more times we've been signalled.
-					// If still only once, don't call Action again
-					var count = Interlocked.Exchange(ref m_count, 0);
+			if (TriggerOnFirst)
+				m_sync_context.Post(_ => InvokeIfActive(), null);
 
-					// If there's still an outstanding signal count, raise the action
-					if (count > 1 || (count == 1 && !TriggerOnFirst))
-					{
-						if (Action == null || m_shutdown)
-							return;
-						Action();
-					}
-				}), Delay, Priority);
-			}
+			_ = CompleteBatchAsync(m_shutdown.Token);
 		}
 
 		/// <summary>
 		/// Signal the event synchronously.
 		/// Note: this can be called from any thread, the resulting event will be marshalled
-		/// to the Dispatcher provided in the constructor of the event batcher</summary>
+		/// to the synchronization context provided in the constructor of the event batcher.</summary>
 		public void SignalImmediate(object? sender = null, EventArgs? args = null)
 		{
-			if (Action == null || m_shutdown)
+			if (Action == null || m_disposed)
 				return;
-			Dispatcher.Invoke(Action);
+
+			InvokeSynchronously();
+		}
+
+		/// <summary>Capture the caller's synchronization context for the convenience constructors.</summary>
+		private static SynchronizationContext CurrentContext()
+		{
+			return SynchronizationContext.Current ?? throw new InvalidOperationException("EventBatcher requires a synchronization context.");
+		}
+
+		/// <summary>Complete the current batch after its collection interval.</summary>
+		private async Task CompleteBatchAsync(CancellationToken shutdown)
+		{
+			try
+			{
+				await Task.Delay(Delay, shutdown).ConfigureAwait(false);
+			}
+			catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
+			{
+				return;
+			}
+
+			// Reset before posting so a concurrent signal starts a distinct following batch.
+			var count = Interlocked.Exchange(ref m_count, 0);
+			if (count > 1 || (count == 1 && !TriggerOnFirst))
+				m_sync_context.Post(_ => InvokeIfActive(), null);
+		}
+
+		/// <summary>Invoke the current action unless disposal cancelled the batch.</summary>
+		private void InvokeIfActive()
+		{
+			if (!m_disposed)
+				Action?.Invoke();
+		}
+
+		/// <summary>Invoke on the owning context and wait for completion.</summary>
+		private void InvokeSynchronously()
+		{
+			if (ReferenceEquals(SynchronizationContext.Current, m_sync_context))
+				InvokeIfActive();
+			else
+				m_sync_context.Send(_ => InvokeIfActive(), null);
 		}
 	}
 
@@ -224,10 +244,11 @@ namespace Rylogic.UnitTests
 		[Test] public void TestEventBatch()
 		{
 			var count = new int[2];
-			var dis = Dispatcher.CurrentDispatcher;
 			var thread_id = Environment.CurrentManagedThreadId;
 			using var mre_eb1 = new ManualResetEvent(false);
 			using var mre_eb2 = new ManualResetEvent(false);
+			var sync_context = new TestSynchronizationContext();
+			SynchronizationContext.SetSynchronizationContext(sync_context);
 
 			// Not trigger on first, expect one call after the delay period
 			var eb1 = new EventBatcher(() =>
@@ -257,14 +278,10 @@ namespace Rylogic.UnitTests
 
 				mre_eb1.WaitOne();
 				mre_eb2.WaitOne();
-				dis.BeginInvokeShutdown(DispatcherPriority.Normal);
 			});
 
-			// The unit test framework runs the test in a worker thread.
-			// Dispatcher.CurrentDispatcher causes a new dispatcher to be
-			// created but it isn't running. Calling Run starts a message
-			// loop for this thread
-			Dispatcher.Run();
+			// Pump the test context until both delayed batches have returned to the owning thread.
+			sync_context.RunUntil(() => count[0] == 1 && count[1] == 2, TimeSpan.FromSeconds(5));
 
 			// Don't Signal() from this thread, need to test cross-thread support
 
@@ -272,6 +289,38 @@ namespace Rylogic.UnitTests
 			Assert.Equal(true, mre_eb2.WaitOne(0));
 			Assert.Equal(1, count[0]); // !TriggerOnFirst
 			Assert.Equal(2, count[1]); //  TriggerOnFirst
+		}
+
+		/// <summary>A deterministic single-thread synchronization context for batching tests.</summary>
+		private sealed class TestSynchronizationContext : SynchronizationContext
+		{
+			private readonly AutoResetEvent m_ready = new(false);
+			private readonly System.Collections.Concurrent.ConcurrentQueue<(SendOrPostCallback callback, object? state)> m_queue = new();
+
+			/// <summary>Queue work for the owning test thread.</summary>
+			public override void Post(SendOrPostCallback callback, object? state)
+			{
+				m_queue.Enqueue((callback, state));
+				m_ready.Set();
+			}
+
+			/// <summary>Run queued work until the completion condition is met.</summary>
+			public void RunUntil(Func<bool> complete, TimeSpan timeout)
+			{
+				var expiry = DateTime.UtcNow + timeout;
+				for (; !complete(); )
+				{
+					if (m_queue.TryDequeue(out var work))
+					{
+						work.callback(work.state);
+						continue;
+					}
+					if (DateTime.UtcNow >= expiry)
+						throw new TimeoutException("Timed out waiting for synchronization-context work.");
+
+					m_ready.WaitOne(TimeSpan.FromMilliseconds(10));
+				}
+			}
 		}
 	}
 }

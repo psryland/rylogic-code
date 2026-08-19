@@ -4,7 +4,6 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Threading;
-using System.Windows.Threading;
 using Rylogic.Common;
 using Rylogic.Interop.Win32;
 using Rylogic.Utility;
@@ -14,7 +13,7 @@ using HContext = System.IntPtr;
 public sealed class Audio :IDisposable
 {
 	private readonly HContext m_context;
-	private readonly Dispatcher m_dispatcher; // Thread marshaller
+	private readonly SynchronizationContext m_sync_context; // Thread marshaller
 	private readonly int m_thread_id;         // The main thread id
 	private ReportErrorCB m_error_cb;         // Reference to callback
 
@@ -23,7 +22,7 @@ public sealed class Audio :IDisposable
 		if (!ModuleLoaded)
 			throw new Exception("Audio.dll has not been loaded");
 
-		m_dispatcher = Dispatcher.CurrentDispatcher;
+		m_sync_context = SynchronizationContext.Current ?? throw new InvalidOperationException("Audio requires a synchronization context for error callbacks.");
 		m_thread_id = Thread.CurrentThread.ManagedThreadId;
 
 		// Initialise audio
@@ -37,7 +36,7 @@ public sealed class Audio :IDisposable
 		m_error_cb = (ctx, msg) =>
 		{
 			if (m_thread_id != Thread.CurrentThread.ManagedThreadId)
-				m_dispatcher.BeginInvoke(m_error_cb, ctx, msg);
+				m_sync_context.Post(_ => m_error_cb(ctx, msg), null);
 			else
 				Error?.Invoke(this, new MessageEventArgs(msg));
 		};

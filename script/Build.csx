@@ -343,9 +343,11 @@ public abstract class RylogicAssembly : Managed
 			package.Files.Add(new Nuget.File(Tools.Path([ProjDir, $"bin\\Release\\{fw}\\{ProjName}.pdb"]), $"lib/{FwToTarget(fw)}/"));
 		}
 	}
+
+	// Return the explicit NuGet TFM for the project's minimum supported Windows version.
 	protected static string FwToTarget(string fw)
 	{
-		return fw.EndsWith("windows") ? $"{fw}{UserVars.WinSDKVersion}" : fw;
+		return fw.EndsWith("windows", StringComparison.Ordinal) ? $"{fw}7.0" : fw;
 	}
 }
 public class RylogicCore : RylogicAssembly

@@ -200,7 +200,7 @@ namespace Rylogic.Gui.WinForms
 
 				// Set the tool tip for the control so we can detect expired
 				tt.SetToolTip(ctrl, msg);
-				Dispatcher_.BeginInvokeDelayed(() =>
+				SynchronizationContext_.BeginInvokeDelayed(() =>
 				{
 					if (tt.GetToolTip(ctrl) == msg)
 						tt.SetToolTip(ctrl, null);
@@ -257,7 +257,7 @@ namespace Rylogic.Gui.WinForms
 		}
 
 		/// <summary>BeginInvoke an action after 'delay' milliseconds (roughly)</summary>
-		[Obsolete("Use Dispatcher_.BeginInvokeDelayed")] public static void BeginInvokeDelayed(this IComponent ctrl, int delay, Action action)
+		[Obsolete("Use SynchronizationContext_.BeginInvokeDelayed")] public static void BeginInvokeDelayed(this IComponent ctrl, int delay, Action action)
 		{
 			new Timer{Enabled = true, Interval = Math.Max(delay,1)}.Tick += (s,a) =>
 			{
@@ -1872,7 +1872,7 @@ namespace Rylogic.Gui.WinForms
 
 			// Delay the column resize until the last triggering event (particularly scroll events)
 			grid_state.FitColumnsPending = true;
-			Dispatcher_.BeginInvokeDelayed(() =>
+			SynchronizationContext_.BeginInvokeDelayed(() =>
 			{
 				// If this event is a column/row header width changed event,
 				// record the user column widths before resizing.
@@ -1907,7 +1907,7 @@ namespace Rylogic.Gui.WinForms
 		
 			// Delay the column resize until the last triggering event (particularly scroll events)
 			grid_state.FitColumnsPending = true;
-			Dispatcher_.BeginInvokeDelayed(() =>
+			SynchronizationContext_.BeginInvokeDelayed(() =>
 			{
 				// If this event is a column/row header width changed event,
 				// record the user column widths before resizing.
@@ -3543,7 +3543,7 @@ namespace Rylogic.Gui.WinForms
 
 			tt.SetToolTip(parent, msg);
 			tt.Show(msg, parent, pt, duration);
-			Dispatcher_.BeginInvokeDelayed(() => tt.SetToolTip(parent, null), TimeSpan.FromMilliseconds(duration));
+			SynchronizationContext_.BeginInvokeDelayed(() => tt.SetToolTip(parent, null), TimeSpan.FromMilliseconds(duration));
 		}
 
 		/// <summary>Returns the location of this item in screen space</summary>

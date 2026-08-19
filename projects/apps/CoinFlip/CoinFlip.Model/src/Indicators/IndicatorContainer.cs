@@ -132,7 +132,7 @@ namespace CoinFlip
 		private void HandleIndicatorSettingChange(object? sender, SettingChangeEventArgs e)
 		{
 			if (m_save_pending) return;
-			Dispatcher_.BeginInvokeDelayed(Save, TimeSpan.FromSeconds(1));
+			SynchronizationContext_.BeginInvokeDelayed(Save, TimeSpan.FromSeconds(1));
 			m_save_pending = true;
 		}
 		private bool m_save_pending;

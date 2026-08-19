@@ -2,8 +2,8 @@
 using System.ComponentModel;
 using System.Windows;
 using Rylogic.Common;
-using Rylogic.Windows.Extn;
 using Rylogic.Gfx;
+using Rylogic.Gui.WPF;
 
 namespace Fishomatic
 {

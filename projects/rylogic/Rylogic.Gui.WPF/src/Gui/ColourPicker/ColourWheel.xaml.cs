@@ -6,7 +6,6 @@ using System.Windows.Input;
 using System.Windows.Media;
 using Rylogic.Gfx;
 using Rylogic.Maths;
-using Size_ = Rylogic.Windows.Extn.Size_;
 
 namespace Rylogic.Gui.WPF
 {

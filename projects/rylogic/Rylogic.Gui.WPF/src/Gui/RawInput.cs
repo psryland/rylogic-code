@@ -9,7 +9,7 @@ using Rylogic.Common;
 using Rylogic.Interop.Win32;
 using Rylogic.Utility;
 
-namespace Rylogic.Gui
+namespace Rylogic.Gui.WPF
 {
 	public class RawInput : IDisposable
 	{

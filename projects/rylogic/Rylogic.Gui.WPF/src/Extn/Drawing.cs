@@ -5,7 +5,7 @@ using System.Windows.Media;
 using Rylogic.Extn;
 using Rylogic.Maths;
 
-namespace Rylogic.Windows.Extn
+namespace Rylogic.Gui.WPF
 {
 	public static class Drawing_
 	{

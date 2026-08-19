@@ -86,7 +86,7 @@ namespace Rylogic.Gui.WinForms
 				if (Radio == null) return;
 				Radio.Discoverable = value;
 				m_chk_discoverable.Checked = value;
-				Dispatcher_.BeginInvokeDelayed(() => UpdateUI(), TimeSpan.FromMilliseconds(1000));
+				SynchronizationContext_.BeginInvokeDelayed(() => UpdateUI(), TimeSpan.FromMilliseconds(1000));
 			}
 		}
 

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Security.AccessControl;
@@ -23,39 +24,10 @@ namespace Rylogic.Hardware
 	{
 		static DeviceManager()
 		{
-			// Create a dummy window to receive the device notification messages
-			NotifyWnd = new DummyWindow("Rylogic.DeviceManager.NotifyWnd");
-			NotifyWnd.Message += HandleMessage;
-			NotifyWnd.Run(CancellationToken.None);
-			static void HandleMessage(object? sender, WndProcEventArgs args)
-			{
-				if (args.Message != Win32.WM_DEVICECHANGE)
-					return;
-
-				// Get the message event type
-				var event_type = (Win32.EDeviceChangedEventType)args.WParam.ToInt32();
-
-				// Check for devices being connected or disconnected
-				if (event_type == Win32.EDeviceChangedEventType.DeviceArrival ||
-					event_type == Win32.EDeviceChangedEventType.DeviceRemoveComplete)
-				{
-					// Convert lparam to DEV_BROADCAST_HDR structure
-					var hdr = Marshal.PtrToStructure<Win32.DEV_BROADCAST_HDR>(args.LParam);
-					if (hdr.dbch_devicetype == Win32.EDeviceBroadcaseType.DeviceInterface)
-					{
-						// Convert lparam to DEV_BROADCAST_DEVICEINTERFACE structure
-						var data = Marshal.PtrToStructure<Win32.DEV_BROADCAST_DEVICEINTERFACE>(args.LParam);
-
-						// Notify hardware changed
-						var dc = DevClass.From(data.class_guid);
-						var hcargs = new HardwareChangedEventArgs(dc, data.Name, event_type == Win32.EDeviceChangedEventType.DeviceArrival);
-						HardwareChanged?.Invoke(null, hcargs);
-					}
-				}
-			}
-
-			// Register for all device changes
-			var dbi = new Win32.DEV_BROADCAST_DEVICEINTERFACE
+			using var ready = new ManualResetEventSlim();
+			ExceptionDispatchInfo? startup_error = null;
+			EventHandler<WndProcEventArgs> message_handler = HandleMessage;
+			var filter = new Win32.DEV_BROADCAST_DEVICEINTERFACE
 			{
 				hdr = new Win32.DEV_BROADCAST_HDR
 				{
@@ -65,8 +37,65 @@ namespace Rylogic.Hardware
 				class_guid = Guid.Empty,
 				Name = string.Empty,
 			};
-			NotificationHandle = User32.RegisterDeviceNotification(NotifyWnd.Handle, dbi, Win32.EDeviceNotifyFlags.WindowHandle|Win32.EDeviceNotifyFlags.AllInterface_Classes);
+
+			// Device broadcasts need a permanently pumped owning thread even when callers do not provide an application message loop.
+			s_notify_thread = new Thread(() =>
+			{
+				try
+				{
+					using var notify_wnd = new DummyWindow("Rylogic.DeviceManager.NotifyWnd");
+					notify_wnd.Message += message_handler;
+					using var notification_handle = User32.RegisterDeviceNotification(
+						notify_wnd.Handle,
+						filter,
+						Win32.EDeviceNotifyFlags.WindowHandle | Win32.EDeviceNotifyFlags.AllInterface_Classes);
+					if (notification_handle.IsInvalid)
+						throw new Win32Exception("RegisterDeviceNotification failed.");
+
+					ready.Set();
+					notify_wnd.Run();
+				}
+				catch (Exception ex)
+				{
+					if (ready.IsSet)
+						throw;
+
+					startup_error = ExceptionDispatchInfo.Capture(ex);
+					ready.Set();
+				}
+			})
+			{
+				IsBackground = true,
+				Name = "Rylogic device notifications",
+			};
+			s_notify_thread.Start();
+			ready.Wait();
+			startup_error?.Throw();
 		}
+
+		/// <summary>Translate native device-interface broadcasts into managed hardware notifications.</summary>
+		private static void HandleMessage(object? sender, WndProcEventArgs args)
+		{
+			if (args.Message != Win32.WM_DEVICECHANGE)
+				return;
+
+			var event_type = (Win32.EDeviceChangedEventType)args.WParam.ToInt32();
+			if (event_type != Win32.EDeviceChangedEventType.DeviceArrival &&
+				event_type != Win32.EDeviceChangedEventType.DeviceRemoveComplete)
+				return;
+
+			var header = Marshal.PtrToStructure<Win32.DEV_BROADCAST_HDR>(args.LParam);
+			if (header.dbch_devicetype != Win32.EDeviceBroadcaseType.DeviceInterface)
+				return;
+
+			var data = Marshal.PtrToStructure<Win32.DEV_BROADCAST_DEVICEINTERFACE>(args.LParam);
+			var dev_class = DevClass.From(data.class_guid);
+			var changed = new HardwareChangedEventArgs(dev_class, data.Name, event_type == Win32.EDeviceChangedEventType.DeviceArrival);
+			HardwareChanged?.Invoke(null, changed);
+		}
+
+		/// <summary>The background thread owning the device-notification HWND and message pump.</summary>
+		private static readonly Thread s_notify_thread;
 
 		/// <summary>Enumerate all devices in the given device class</summary>
 		public static IEnumerable<Device> EnumDevices(DevClass dev_class, ESetupDiGetClassDevsFlags flags = ESetupDiGetClassDevsFlags.Present)
@@ -76,13 +105,7 @@ namespace Rylogic.Hardware
 				yield return new Device(dev_class_handle, did);
 		}
 
-		/// <summary>A message only window for receiving device notifications</summary>
-		private static DummyWindow NotifyWnd;
-
-		/// <summary></summary>
-		private static SafeDevNotifyHandle NotificationHandle;
-
-		/// <summary>Raised when a device is enabled/disabled</summary>
+		/// <summary>Raised on the device-notification thread when a device is enabled or disabled.</summary>
 		public static event EventHandler<HardwareChangedEventArgs>? HardwareChanged;
 
 		[DebuggerDisplay("{DevicePath,nq}")]

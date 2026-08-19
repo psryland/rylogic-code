@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Drawing.Imaging;
 using System.Windows.Input;
 using System.Windows.Threading;
+using Rylogic.Gui.WPF;
 using Rylogic.Interop.Win32;
 using Rylogic.Maths;
 using Rylogic.Windows.Extn;

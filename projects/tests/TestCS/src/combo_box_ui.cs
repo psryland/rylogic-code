@@ -55,7 +55,7 @@ namespace TestCS
 		{
 			m_tb_selected_item.Text = (string)m_cb0.SelectedItem ?? "<null>";
 			m_tb_selected_item.BackColor = Color.LightGreen;
-			Dispatcher_.BeginInvokeDelayed(() => m_tb_selected_item.BackColor = Color.White, TimeSpan.FromMilliseconds(200));
+			SynchronizationContext_.BeginInvokeDelayed(() => m_tb_selected_item.BackColor = Color.White, TimeSpan.FromMilliseconds(200));
 		}
 
 		#region Windows Form Designer generated code

@@ -43,7 +43,7 @@ namespace RyLogViewer
 
 			// Otherwise, the user wants to use the feature
 			m_licensed_features[key] = use;
-			Dispatcher_.BeginInvokeDelayed(() =>
+			SynchronizationContext_.BeginInvokeDelayed(() =>
 			{
 				ILicensedFeature feat;
 				if (!m_licensed_features.TryGetValue(key, out feat)) return;

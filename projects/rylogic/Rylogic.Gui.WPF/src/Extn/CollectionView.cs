@@ -1,7 +1,7 @@
 ﻿using System;
 using System.ComponentModel;
 
-namespace Rylogic.Extn
+namespace Rylogic.Gui.WPF
 {
 	public static class CollectionView_
 	{

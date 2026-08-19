@@ -301,7 +301,7 @@ namespace Rylogic.Gui.WinForms
 				Target = target;
 				Text = msg;
 				Duration = duration;
-				Dispatcher_.BeginInvokeDelayed(() => ShowHintInternal(issue, pin_to), TimeSpan.FromMilliseconds(ShowDelay));
+				SynchronizationContext_.BeginInvokeDelayed(() => ShowHintInternal(issue, pin_to), TimeSpan.FromMilliseconds(ShowDelay));
 			}
 		}
 
@@ -345,7 +345,7 @@ namespace Rylogic.Gui.WinForms
 					Owner.FormClosed += DetachFromOwner;
 				}
 
-				Dispatcher_.BeginInvokeDelayed(() => HideHintInternal(issue), TimeSpan.FromMilliseconds(Duration));
+				SynchronizationContext_.BeginInvokeDelayed(() => HideHintInternal(issue), TimeSpan.FromMilliseconds(Duration));
 			}
 		}
 
@@ -364,7 +364,7 @@ namespace Rylogic.Gui.WinForms
 				if (rect.Contains(pt))
 				{
 					Opacity = 1f;
-					Dispatcher_.BeginInvokeDelayed(() => HideHintInternal(issue), TimeSpan.FromMilliseconds(2000));
+					SynchronizationContext_.BeginInvokeDelayed(() => HideHintInternal(issue), TimeSpan.FromMilliseconds(2000));
 					return;
 				}
 
@@ -375,7 +375,7 @@ namespace Rylogic.Gui.WinForms
 					if (Opacity == 0)
 						Visible = false;
 					else
-						Dispatcher_.BeginInvokeDelayed(() => HideHintInternal(issue), TimeSpan.FromMilliseconds(FadeDuration / 10));
+						SynchronizationContext_.BeginInvokeDelayed(() => HideHintInternal(issue), TimeSpan.FromMilliseconds(FadeDuration / 10));
 					return;
 				}
 

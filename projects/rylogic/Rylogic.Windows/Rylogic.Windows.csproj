@@ -3,7 +3,6 @@
 	<PropertyGroup>
 		<OutputType>Library</OutputType>
 		<RootNamespace>Rylogic.Windows</RootNamespace>
-		<UseWpf>True</UseWpf>
 	</PropertyGroup>
 
 	<!-- Assembly Properties -->

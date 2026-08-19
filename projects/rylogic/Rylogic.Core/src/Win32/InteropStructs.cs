@@ -547,6 +547,27 @@ namespace Rylogic.Interop.Win32
 			public EWindowPos flags;
 		}
 
+		/// <summary>Position, visibility, and restored bounds for a top-level window.</summary>
+		[StructLayout(LayoutKind.Sequential)]
+		public struct WINDOWPLACEMENT
+		{
+			public uint length;
+			public uint flags;
+			public uint showCmd;
+			public POINT ptMinPosition;
+			public POINT ptMaxPosition;
+			public RECT rcNormalPosition;
+
+			/// <summary>Create a structure initialized for the native placement APIs.</summary>
+			public static WINDOWPLACEMENT Default
+			{
+				get
+				{
+					return new WINDOWPLACEMENT { length = (uint)Marshal.SizeOf<WINDOWPLACEMENT>() };
+				}
+			}
+		}
+
 		[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto), BestFitMapping(false)]
 		public struct WIN32_FIND_DATA
 		{
@@ -608,7 +629,7 @@ namespace Rylogic.Interop.Win32
 			public IntPtr hIcon;
 			public IntPtr hCursor;
 			public IntPtr hbrBackground;
-			[MarshalAs(UnmanagedType.LPWStr)] public string lpszMenuName;
+			[MarshalAs(UnmanagedType.LPWStr)] public string? lpszMenuName;
 			[MarshalAs(UnmanagedType.LPWStr)] public string lpszClassName;
 		}
 
@@ -624,7 +645,7 @@ namespace Rylogic.Interop.Win32
 			public IntPtr hIcon;
 			public IntPtr hCursor;
 			public IntPtr hbrBackground;
-			[MarshalAs(UnmanagedType.LPWStr)] public string lpszMenuName;
+			[MarshalAs(UnmanagedType.LPWStr)] public string? lpszMenuName;
 			[MarshalAs(UnmanagedType.LPWStr)] public string lpszClassName;
 			public IntPtr hIconSm;
 		}

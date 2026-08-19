@@ -25,6 +25,9 @@ namespace Rylogic.Interop.Win32
 	[System.Security.SuppressUnmanagedCodeSecurity] // We won't use this maliciously
 	public static partial class Win32
 	{
+		// Style Guidance:
+		// - Windows header constants should be in their own regions, grouped by the constant prefix.
+
 		#region Windows Versions
 		public static bool IsWindowsVistaOrLater
 		{
@@ -1747,6 +1750,7 @@ namespace Rylogic.Interop.Win32
 		public const int WM_XBUTTONDOWN = 0x020B;
 		public const int WM_XBUTTONUP = 0x020C;
 		public const int WM_XBUTTONDBLCLK = 0x020D;
+		public const int WM_DPICHANGED = 0x02E0;
 		public const int WM_MOUSEHWHEEL = 0x020E;
 		public const int WM_PARENTNOTIFY = 0x0210;
 		public const int WM_ENTERMENULOOP = 0x0211;
@@ -1856,6 +1860,14 @@ namespace Rylogic.Interop.Win32
 		public const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
 		public const uint WINEVENT_OUTOFCONTEXT = 0x0000;
 		public const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
+		#endregion
+
+		#region WM_SIZE state values SIZE_
+		public const int SIZE_RESTORED  = 0;
+		public const int SIZE_MINIMIZED = 1;
+		public const int SIZE_MAXIMIZED = 2;
+		public const int SIZE_MAXSHOW   = 3;
+		public const int SIZE_MAXHIDE   = 4;
 		#endregion
 
 		#region Window Styles WS_

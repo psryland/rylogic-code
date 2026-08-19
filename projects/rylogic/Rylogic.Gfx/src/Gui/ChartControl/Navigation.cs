@@ -267,7 +267,7 @@ namespace Rylogic.Gui.WPF
 
 			// Batch mouse wheel events into 100ms groups
 			var defer_nav_checkpoint = DeferNavCheckpoints();
-			Dispatcher_.BeginInvokeDelayed(() =>
+			SynchronizationContext_.BeginInvokeDelayed(() =>
 			{
 				Util.Dispose(ref defer_nav_checkpoint!);
 				SaveNavCheckpoint();

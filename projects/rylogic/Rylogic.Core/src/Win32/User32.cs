@@ -16,6 +16,20 @@ namespace Rylogic.Interop.Win32
 {
 	public static class User32
 	{
+		// Style Guidance:
+		// - The user32 API function wrappers should be in alphabetical order, so it's easy to tell if a function has been wrapped already.
+		// - The pattern should be public static function that wraps private static extern function. The public functions should handling marshalling and error checking.
+
+		/// <summary>Calculate the outer window bounds needed for a requested client area.</summary>
+		public static Win32.RECT AdjustWindowRect(Win32.RECT rect, int style, bool has_menu, int style_ex) => AdjustWindowRectEx_(ref rect, style, has_menu, style_ex) ? rect : throw new Win32Exception("AdjustWindowRectEx failed");
+		[DllImport("user32.dll", EntryPoint = "AdjustWindowRectEx", SetLastError = true)]
+		private static extern bool AdjustWindowRectEx_(ref Win32.RECT rect, int style, bool has_menu, int style_ex);
+
+		/// <summary>Calculate DPI-aware outer window bounds for a requested client area.</summary>
+		public static Win32.RECT AdjustWindowRectForDpi(Win32.RECT rect, int style, bool has_menu, int style_ex, uint dpi) => AdjustWindowRectExForDpi_(ref rect, style, has_menu, style_ex, dpi) ? rect : throw new Win32Exception("AdjustWindowRectExForDpi failed");
+		[DllImport("user32.dll", EntryPoint = "AdjustWindowRectExForDpi", SetLastError = true)]
+		private static extern bool AdjustWindowRectExForDpi_(ref Win32.RECT rect, int style, bool has_menu, int style_ex, uint dpi);
+
 		/// <summary></summary>
 		public static bool AppendMenu(IntPtr hMenu, uint uFlags, int uIDNewItem, string lpNewItem) => AppendMenu_(hMenu, uFlags, uIDNewItem, lpNewItem);
 		public static bool AppendMenu(IntPtr hMenu, uint uFlags, IntPtr uIDNewItem, string lpNewItem) => AppendMenu_(hMenu, uFlags, uIDNewItem, lpNewItem);
@@ -87,7 +101,7 @@ namespace Rylogic.Interop.Win32
 
 		/// <summary></summary>
 		public static bool DestroyWindow(HWND hwnd) => DestroyWindow_(hwnd);
-		[DllImport("user32.dll", EntryPoint = "DestroyWindow", CharSet = CharSet.Unicode)]
+		[DllImport("user32.dll", EntryPoint = "DestroyWindow", CharSet = CharSet.Unicode, SetLastError = true)]
 		private static extern bool DestroyWindow_(HWND hwnd);
 
 		/// <summary></summary>
@@ -203,7 +217,7 @@ namespace Rylogic.Interop.Win32
 
 		/// <summary></summary>
 		public static int GetMessage(out Win32.MESSAGE msg, IntPtr hWnd, uint messageFilterMin, uint messageFilterMax) => GetMessage_(out msg, hWnd, messageFilterMin, messageFilterMax);
-		[DllImport("user32.dll", EntryPoint = "GetMessageW", CharSet = CharSet.Unicode)]
+		[DllImport("user32.dll", EntryPoint = "GetMessageW", CharSet = CharSet.Unicode, SetLastError = true)]
 		private static extern int GetMessage_(out Win32.MESSAGE msg, IntPtr hWnd, uint messageFilterMin, uint messageFilterMax);
 
 		/// <summary></summary>
@@ -262,7 +276,27 @@ namespace Rylogic.Interop.Win32
 		public static extern uint GetWindowLong(HWND hWnd, int nIndex);
 
 		[DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", CharSet = CharSet.Unicode, SetLastError = true)]
-		public static extern long GetWindowLongPtr(HWND hWnd, int nIndex); // This is only defined in 64bit builds, otherwise it's a #define to GetWindowLong
+		private static extern IntPtr GetWindowLongPtr64(HWND hWnd, int nIndex);
+		[DllImport("user32.dll", EntryPoint = "GetWindowLongW", CharSet = CharSet.Unicode, SetLastError = true)]
+		private static extern int GetWindowLong32(HWND hWnd, int nIndex);
+
+		/// <summary>Read pointer-sized window data while preserving a legitimate zero value.</summary>
+		public static IntPtr GetWindowLongPtr(HWND hwnd, int index)
+		{
+			Kernel32.SetLastError(Win32.ERROR_SUCCESS);
+			var value = IntPtr.Size == 8
+				? GetWindowLongPtr64(hwnd, index)
+				: new IntPtr(GetWindowLong32(hwnd, index));
+			var error = Marshal.GetLastWin32Error();
+			if (value == IntPtr.Zero && error != Win32.ERROR_SUCCESS)
+				throw new Win32Exception(error);
+
+			return value;
+		}
+
+		/// <summary>Return the DPI currently assigned to a window.</summary>
+		[DllImport("user32.dll", SetLastError = true)]
+		public static extern uint GetDpiForWindow(HWND hwnd);
 
 		/// <summary>Retrieves a handle to a window that has the specified relationship to the specified window.</summary>
 		[DllImport("user32.dll", SetLastError = true)]
@@ -278,6 +312,17 @@ namespace Rylogic.Interop.Win32
 		}
 		[DllImport("user32.dll", EntryPoint = "GetWindowRect")]
 		private static extern bool GetWindowRect_(HWND hwnd, out Win32.RECT rect);
+
+		/// <summary>Return a top-level window's saved/restored placement.</summary>
+		public static Win32.WINDOWPLACEMENT GetWindowPlacement(HWND hwnd)
+		{
+			var placement = Win32.WINDOWPLACEMENT.Default;
+			return GetWindowPlacement_(hwnd, ref placement)
+				? placement
+				: throw new Win32Exception("GetWindowPlacement failed");
+		}
+		[DllImport("user32.dll", EntryPoint = "GetWindowPlacement", SetLastError = true)]
+		private static extern bool GetWindowPlacement_(HWND hwnd, ref Win32.WINDOWPLACEMENT placement);
 
 		[DllImport("user32.dll", CharSet = CharSet.Unicode)]
 		public static extern int GetWindowText(HWND hwnd, StringBuilder title, int size);
@@ -345,7 +390,7 @@ namespace Rylogic.Interop.Win32
 
 		/// <summary></summary>
 		public static int MsgWaitForMultipleObjects(int nCount, [MarshalAs(UnmanagedType.LPArray)] IntPtr []? pHandles, bool fWaitAll, int dwMilliseconds, int dwWakeMask) => MsgWaitForMultipleObjects_(nCount, pHandles, fWaitAll, dwMilliseconds, dwWakeMask);
-		[DllImport("user32", EntryPoint = "MsgWaitForMultipleObjects")]
+		[DllImport("user32", EntryPoint = "MsgWaitForMultipleObjects", SetLastError = true)]
 		private static extern int MsgWaitForMultipleObjects_(int nCount, [MarshalAs(UnmanagedType.LPArray)] IntPtr []? pHandles, bool fWaitAll, int dwMilliseconds, int dwWakeMask);
 
 		/// <summary></summary>
@@ -530,14 +575,30 @@ namespace Rylogic.Interop.Win32
 		// This static method is required because legacy OSes do not support SetWindowLongPtr 
 		public static IntPtr SetWindowLongPtr(HWND hWnd, int nIndex, IntPtr dwNewLong)
 		{
-			return IntPtr.Size == 8
+			Kernel32.SetLastError(Win32.ERROR_SUCCESS);
+			var previous = IntPtr.Size == 8
 				? SetWindowLongPtr64(hWnd, nIndex, dwNewLong)
 				: new IntPtr(SetWindowLong32(hWnd, nIndex, dwNewLong.ToInt32()));
+			var error = Marshal.GetLastWin32Error();
+			if (previous == IntPtr.Zero && error != Win32.ERROR_SUCCESS)
+				throw new Win32Exception(error);
+
+			return previous;
 		}
-		[DllImport("user32.dll", EntryPoint = "SetWindowLong")]
+		[DllImport("user32.dll", EntryPoint = "SetWindowLongW", SetLastError = true)]
 		private static extern int SetWindowLong32(HWND hWnd, int nIndex, int dwNewLong);
-		[DllImport("user32.dll", EntryPoint = "SetWindowLongPtr")]
+		[DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
 		private static extern IntPtr SetWindowLongPtr64(HWND hWnd, int nIndex, IntPtr dwNewLong);
+
+		/// <summary>Restore a top-level window's position and show state.</summary>
+		public static void SetWindowPlacement(HWND hwnd, Win32.WINDOWPLACEMENT placement)
+		{
+			placement.length = (uint)Marshal.SizeOf<Win32.WINDOWPLACEMENT>();
+			if (!SetWindowPlacement_(hwnd, ref placement))
+				throw new Win32Exception("SetWindowPlacement failed");
+		}
+		[DllImport("user32.dll", EntryPoint = "SetWindowPlacement", SetLastError = true)]
+		private static extern bool SetWindowPlacement_(HWND hwnd, ref Win32.WINDOWPLACEMENT placement);
 
 		[DllImport("uxtheme.dll")]
 		public static extern int SetWindowTheme(IntPtr hWnd, [MarshalAs(UnmanagedType.LPWStr)] string appname, [MarshalAs(UnmanagedType.LPWStr)] string idlist);

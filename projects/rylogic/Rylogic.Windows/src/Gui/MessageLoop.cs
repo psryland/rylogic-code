@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using Rylogic.Interop.Win32;
@@ -38,7 +39,7 @@ namespace Rylogic.Windows.Gui
 			{
 				// GetMessage returns negative values for errors
 				if (result <= 0)
-					throw new Exception("GetMessage failed");
+					throw new Win32Exception("GetMessage failed");
 
 				HandleMessage(ref msg);
 			}
@@ -134,7 +135,9 @@ namespace Rylogic.Windows.Gui
 				var timeout = StepLoops();
 
 				// Check for messages and pump any received until
-				User32.MsgWaitForMultipleObjects(0, null, true, timeout, Win32.QS_ALLPOSTMESSAGE | Win32.QS_ALLINPUT | Win32.QS_ALLEVENTS);
+				var wait_result = User32.MsgWaitForMultipleObjects(0, null, true, timeout, Win32.QS_ALLPOSTMESSAGE | Win32.QS_ALLINPUT | Win32.QS_ALLEVENTS);
+				if (wait_result == -1)
+					throw new Win32Exception("MsgWaitForMultipleObjects failed");
 				for (Win32.MESSAGE msg; User32.PeekMessage(out msg, IntPtr.Zero, 0, 0, Win32.EPeekMessageFlags.Remove);)
 				{
 					// Exit the message pump?
