@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -23,11 +24,15 @@ public class Nuget
 	public record class File(string Path, string Target, bool Sign = false) { }
 	public record class Dep(string AssemblyName, string Version, string? Framework = null) { }
 
+	// Identifies a runtime framework required by package consumers for a target framework.
+	public record class FrameworkRef(string Name, string Framework) { }
+
 	public string PackageName = "";
 	public string Version = "1.0.0";
 	public string Tags = "";
 	public List<File> Files = [];
 	public List<Dep> Deps = [];
+	public List<FrameworkRef> FrameworkRefs = [];
 	
 	// Set automatically by 'Package()'
 	public string PackagePath = "";
@@ -69,12 +74,38 @@ public class Nuget
 
 		// Add dependencies
 		var xml_dependencies = xml_metadata.Element(XName.Get("dependencies", ns)) ?? throw new Exception("dependencies element not found in nuspec template");
-		foreach (var dep in Deps)
+		foreach (var dep in Deps.Where(x => x.Framework == null))
 		{
 			xml_dependencies.Add2(new XElement(XName.Get("dependency", ns),
 				new XAttribute("id", dep.AssemblyName),
 				new XAttribute("version", dep.Version)
 			));
+		}
+		foreach (var group in Deps.Where(x => x.Framework != null).GroupBy(x => x.Framework))
+		{
+			xml_dependencies.Add2(new XElement(XName.Get("group", ns),
+				new XAttribute("targetFramework", group.Key!),
+				group.Select(dep => new XElement(XName.Get("dependency", ns),
+					new XAttribute("id", dep.AssemblyName),
+					new XAttribute("version", dep.Version)
+				))
+			));
+		}
+
+		// Declare runtime frameworks that package consumers must select.
+		if (FrameworkRefs.Count != 0)
+		{
+			var xml_framework_references = new XElement(XName.Get("frameworkReferences", ns));
+			foreach (var group in FrameworkRefs.GroupBy(x => x.Framework))
+			{
+				xml_framework_references.Add2(new XElement(XName.Get("group", ns),
+					new XAttribute("targetFramework", group.Key),
+					group.Select(framework => new XElement(XName.Get("frameworkReference", ns),
+						new XAttribute("name", framework.Name)
+					))
+				));
+			}
+			xml_dependencies.AddAfterSelf(xml_framework_references);
 		}
 
 		var objdir = Path.Combine(Path.GetTempPath(), "rylogic");

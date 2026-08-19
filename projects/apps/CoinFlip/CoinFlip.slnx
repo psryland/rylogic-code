@@ -7,6 +7,7 @@
   <Project Path="../../rylogic/Rylogic.Core/Rylogic.Core.csproj" />
   <Project Path="../../rylogic/Rylogic.DB/Rylogic.DB.csproj" />
   <Project Path="../../rylogic/Rylogic.Gfx/Rylogic.Gfx.csproj" />
+  <Project Path="../../rylogic/Rylogic.Gfx.WPF/Rylogic.Gfx.WPF.csproj" />
   <Project Path="../../rylogic/Rylogic.Gui.WPF/Rylogic.Gui.WPF.csproj" />
   <Project Path="../../rylogic/Rylogic.Net/Rylogic.Net.csproj" />
   <Project Path="../../rylogic/Rylogic.Windows/Rylogic.Windows.csproj" />

@@ -3,7 +3,6 @@
 		<OutputType>Library</OutputType>
 		<RootNamespace>Rylogic.Gfx</RootNamespace>
 		<AllowUnsafeBlocks>True</AllowUnsafeBlocks>
-		<UseWpf>True</UseWpf>
 	</PropertyGroup>
 
 	<!-- Assembly Properties -->
@@ -23,15 +22,11 @@
 		<CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
 	</PropertyGroup>
 
-	<!-- Resources -->
-	<ItemGroup>
-		<Resource Include="res\*.png" />
-	</ItemGroup>
-
 	<!-- Dependencies -->
 	<ItemGroup>
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Core\Rylogic.Core.csproj" />
-		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Gui.WPF\Rylogic.Gui.WPF.csproj" />
+		<PackageReference Include="Rylogic.Native" VersionOverride="$(RylogicLibraryVersion)" />
+		<PackageReference Include="System.Drawing.Common" Condition="'$(TargetFramework)' != 'net481'" />
 	</ItemGroup>
 
 	<!-- Post Build -->

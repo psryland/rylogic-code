@@ -31,6 +31,7 @@
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Core\Rylogic.Core.csproj" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Gui.WPF\Rylogic.Gui.WPF.csproj" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Gfx\Rylogic.Gfx.csproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Gfx.WPF\Rylogic.Gfx.WPF.csproj" />
 		<ProjectReference Include="..\Lab.Model\Lab.Model.csproj" />
 	</ItemGroup>
 

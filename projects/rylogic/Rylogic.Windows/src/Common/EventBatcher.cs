@@ -248,47 +248,54 @@ namespace Rylogic.UnitTests
 			using var mre_eb1 = new ManualResetEvent(false);
 			using var mre_eb2 = new ManualResetEvent(false);
 			var sync_context = new TestSynchronizationContext();
+			var previous_sync_context = SynchronizationContext.Current;
 			SynchronizationContext.SetSynchronizationContext(sync_context);
-
-			// Not trigger on first, expect one call after the delay period
-			var eb1 = new EventBatcher(() =>
+			try
 			{
-				if (thread_id != Environment.CurrentManagedThreadId)
-					throw new Exception("Event Batch should be called in the thread context that the batcher was created in");
-						
-				++count[0];
-				mre_eb1.Set();
-			}){TriggerOnFirst = false};
+				// Not trigger on first, expect one call after the delay period
+				using var eb1 = new EventBatcher(() =>
+				{
+					if (thread_id != Environment.CurrentManagedThreadId)
+						throw new Exception("Event Batch should be called in the thread context that the batcher was created in");
+							
+					++count[0];
+					mre_eb1.Set();
+				}){TriggerOnFirst = false};
 
-			// Trigger on first, expect one call at the start, and one after the delay period
-			var eb2 = new EventBatcher(() =>
+				// Trigger on first, expect one call at the start, and one after the delay period
+				using var eb2 = new EventBatcher(() =>
+				{
+					if (thread_id != Environment.CurrentManagedThreadId)
+						throw new Exception("Event Batch should be called in the thread context that the batcher was created in");
+
+					++count[1];
+					eb1.Signal();
+					mre_eb2.Set();
+				}){TriggerOnFirst = true};
+
+				// Track and join the producer so no test-owned work can outlive its synchronization primitives.
+				var signal_task = Task.Run(() =>
+				{
+					for (var i = 0; i != 10; ++i)
+						eb2.Signal();
+				});
+				signal_task.GetAwaiter().GetResult();
+
+				// Pump the test context until both delayed batches have returned to the owning thread.
+				sync_context.RunUntil(() => count[0] == 1 && count[1] == 2, TimeSpan.FromSeconds(5));
+
+				// Don't Signal() from this thread, need to test cross-thread support
+
+				Assert.Equal(true, mre_eb1.WaitOne(0));
+				Assert.Equal(true, mre_eb2.WaitOne(0));
+				Assert.Equal(1, count[0]); // !TriggerOnFirst
+				Assert.Equal(2, count[1]); //  TriggerOnFirst
+			}
+			finally
 			{
-				if (thread_id != Environment.CurrentManagedThreadId)
-					throw new Exception("Event Batch should be called in the thread context that the batcher was created in");
-
-				++count[1];
-				eb1.Signal();
-				mre_eb2.Set();
-			}){TriggerOnFirst = true};
-
-			ThreadPool.QueueUserWorkItem(x =>
-			{
-				for (var i = 0; i != 10; ++i)
-					eb2.Signal();
-
-				mre_eb1.WaitOne();
-				mre_eb2.WaitOne();
-			});
-
-			// Pump the test context until both delayed batches have returned to the owning thread.
-			sync_context.RunUntil(() => count[0] == 1 && count[1] == 2, TimeSpan.FromSeconds(5));
-
-			// Don't Signal() from this thread, need to test cross-thread support
-
-			Assert.Equal(true, mre_eb1.WaitOne(0));
-			Assert.Equal(true, mre_eb2.WaitOne(0));
-			Assert.Equal(1, count[0]); // !TriggerOnFirst
-			Assert.Equal(2, count[1]); //  TriggerOnFirst
+				// Keep the unit-test runner isolated from the synthetic context.
+				SynchronizationContext.SetSynchronizationContext(previous_sync_context);
+			}
 		}
 
 		/// <summary>A deterministic single-thread synchronization context for batching tests.</summary>

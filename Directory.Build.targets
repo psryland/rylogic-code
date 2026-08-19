@@ -72,7 +72,7 @@
 		<PropertyGroup>
 			<_PkgIdLower>$(PackageId.ToLowerInvariant())</_PkgIdLower>
 			<_NuGetCacheDir>$(UserProfile)\.nuget\packages\$(_PkgIdLower)\$(Version)</_NuGetCacheDir>
-			<_NuPkgPath>$(PackageOutputPath)$(PackageId).$(Version).nupkg</_NuPkgPath>
+			<_NuPkgPath>$([System.IO.Path]::Combine('$(PackageOutputPath)', '$(PackageId).$(Version).nupkg'))</_NuPkgPath>
 			<_NuPkgCacheName>$(_PkgIdLower).$(Version).nupkg</_NuPkgCacheName>
 			<_PurgeStamp>$(RylogicRoot)obj\.purge.$(_PkgIdLower).stamp</_PurgeStamp>
 			<_NeedsPurge>false</_NeedsPurge>

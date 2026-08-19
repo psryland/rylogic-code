@@ -8,6 +8,7 @@ using System.Windows.Threading;
 using Rylogic.Common;
 using Rylogic.Container;
 using Rylogic.Gfx;
+using Rylogic.LDraw;
 using Rylogic.Maths;
 using Rylogic.Utility;
 

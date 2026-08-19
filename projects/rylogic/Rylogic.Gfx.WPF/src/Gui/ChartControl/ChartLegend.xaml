@@ -14,11 +14,11 @@
 	>
 	<UserControl.Resources>
 		<ResourceDictionary>
-			<BitmapImage x:Key="plus" UriSource="/Rylogic.Gfx;component/res/plus.png" />
-			<BitmapImage x:Key="plus_gray" UriSource="/Rylogic.Gfx;component/res/plus_gray.png" />
-			<BitmapImage x:Key="minus_gray" UriSource="/Rylogic.Gfx;component/res/minus_gray.png" />
-			<BitmapImage x:Key="power_blue" UriSource="/Rylogic.Gfx;component/res/power_blue.png" />
-			<BitmapImage x:Key="power_gray" UriSource="/Rylogic.Gfx;component/res/power_gray.png" />
+			<BitmapImage x:Key="plus" UriSource="/Rylogic.Gfx.WPF;component/res/plus.png" />
+			<BitmapImage x:Key="plus_gray" UriSource="/Rylogic.Gfx.WPF;component/res/plus_gray.png" />
+			<BitmapImage x:Key="minus_gray" UriSource="/Rylogic.Gfx.WPF;component/res/minus_gray.png" />
+			<BitmapImage x:Key="power_blue" UriSource="/Rylogic.Gfx.WPF;component/res/power_blue.png" />
+			<BitmapImage x:Key="power_gray" UriSource="/Rylogic.Gfx.WPF;component/res/power_gray.png" />
 		</ResourceDictionary>
 	</UserControl.Resources>
 	<Grid

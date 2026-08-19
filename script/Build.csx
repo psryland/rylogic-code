@@ -30,6 +30,7 @@ public enum EProjects
 	RylogicDB,          // = "Rylogic.DB";
 	RylogicDirectShow,  // = "Rylogic.DirectShow";
 	RylogicGfx,         // = "Rylogic.Gfx";
+	RylogicGfxWPF,      // = "Rylogic.Gfx.WPF";
 	RylogicGuiWPF,      // = "Rylogic.Gui.WPF";
 	RylogicNet,         // = "Rylogic.Net";
 	RylogicScintilla,   // = "Rylogic.Scintilla";
@@ -389,6 +390,21 @@ public class RylogicGfx : RylogicAssembly
 		package.Tags += " view3d";
 		package.Deps.Add(new Nuget.Dep("Rylogic.Core", $"[{RylogicLibraryVersion},)"));
 		package.Deps.Add(new Nuget.Dep("Rylogic.Native", $"[{RylogicLibraryVersion},)"));
+		package.Deps.Add(new Nuget.Dep("System.Drawing.Common", "[9.0.0,)", "net10.0-windows7.0"));
+	}
+}
+public class RylogicGfxWPF : RylogicAssembly
+{
+	public RylogicGfxWPF(string workspace, List<string>? platforms = null, List<string>? configs = null)
+		:base("Rylogic.Gfx.WPF", ["net10.0-windows", "net481"], workspace, platforms, configs)
+	{}
+	protected override void Populate(Nuget package)
+	{
+		base.Populate(package);
+		package.Tags += " view3d wpf gui chart";
+		package.Deps.Add(new Nuget.Dep("Rylogic.Gfx", $"[{RylogicLibraryVersion},)"));
+		package.Deps.Add(new Nuget.Dep("Rylogic.Gui.WPF", $"[{RylogicLibraryVersion},)"));
+		package.FrameworkRefs.Add(new Nuget.FrameworkRef("Microsoft.WindowsDesktop.App.WPF", "net10.0-windows7.0"));
 	}
 }
 public class RylogicGuiWPF : RylogicAssembly
@@ -491,6 +507,7 @@ public class LDraw : Managed
 			"LDraw.dll",
 			"Rylogic.Core.dll",
 			"Rylogic.Gfx.dll",
+			"Rylogic.Gfx.WPF.dll",
 			"Rylogic.Gui.WPF.dll",
 			"Rylogic.Windows.dll",
 			"LDraw.runtimeconfig.json",

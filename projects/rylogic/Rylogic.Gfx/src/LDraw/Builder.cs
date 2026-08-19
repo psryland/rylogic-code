@@ -9,7 +9,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Windows;
 using Rylogic.Common;
 using Rylogic.Gfx;
 using Rylogic.Maths;
@@ -2840,10 +2839,6 @@ namespace Rylogic.LDraw
 		public LdrText padding(float horizontal, float vertical)
 		{
 			return padding(horizontal, vertical, horizontal, vertical);
-		}
-		public LdrText padding(Thickness p)
-		{
-			return padding((float)p.Left, (float)p.Top, (float)p.Right, (float)p.Bottom);
 		}
 		public LdrText padding(float p)
 		{

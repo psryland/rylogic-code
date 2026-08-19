@@ -2,7 +2,7 @@
 	x:Class="TestWPF.View3dUI"
 	xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
 	xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-	xmlns:gui="clr-namespace:Rylogic.Gui.WPF;assembly=Rylogic.Gfx"
+	xmlns:gui="clr-namespace:Rylogic.Gui.WPF;assembly=Rylogic.Gfx.WPF"
 	Title="view3d_ui" Height="415" Width="543"
 	UseLayoutRounding="True"
 	>
