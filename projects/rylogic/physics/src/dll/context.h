@@ -16,6 +16,7 @@ namespace pr::physics
 		InitSet              m_inits;    // A unique id assigned to each Initialise call
 		std::recursive_mutex m_mutex;
 		ReportErrorCB        m_error_cb; // Global error callback
+		std::unique_ptr<InteropState> m_interop;
 
 		Context(ReportErrorCB error_cb);
 		Context(Context&&) = delete;

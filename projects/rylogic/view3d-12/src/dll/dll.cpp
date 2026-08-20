@@ -117,6 +117,22 @@ VIEW3D_API void __stdcall View3D_Shutdown(DllHandle context)
 	g_ctx = nullptr;
 }
 
+// Acquire an independent COM reference so the device can safely outlive the View3D renderer.
+VIEW3D_API void* __stdcall View3D_DeviceLeaseAcquire(DllHandle context)
+{
+	try
+	{
+		DllLockGuard;
+		if (!Dll().m_inits.contains(context))
+			throw std::runtime_error("Invalid View3D context");
+
+		auto device = Dll().rdr().D3DDevice();
+		device->AddRef();
+		return device;
+	}
+	CatchAndReport(View3D_DeviceLeaseAcquire, , nullptr);
+}
+
 // Replace the global error handler
 VIEW3D_API void __stdcall View3D_GlobalErrorCBSet(view3d::ReportErrorCB error_cb, BOOL add)
 {

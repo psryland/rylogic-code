@@ -106,15 +106,6 @@
     <Filter Include="src\compute">
       <UniqueIdentifier>{7879aee1-a75e-4190-8ecb-93b3852f0f87}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\compute\particle_collision">
-      <UniqueIdentifier>{adf3bbd9-33d0-42a9-92b9-a813016c13b5}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="src\compute\spatial_partition">
-      <UniqueIdentifier>{05f79cfa-95c9-446b-a1d7-cc6a38a85b22}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="src\compute\radix_sort">
-      <UniqueIdentifier>{aabdb3b0-f4c1-4521-a660-578985c964fc}</UniqueIdentifier>
-    </Filter>
     <Filter Include="src\compute\fluid_simulation">
       <UniqueIdentifier>{177ba44e-8001-4c51-a5bc-0cc299bbec5f}</UniqueIdentifier>
     </Filter>
@@ -911,15 +902,6 @@
     <None Include="$(RylogicRoot)include\pr\hlsl\intercept.hlsli">
       <Filter>pr\hlsl</Filter>
     </None>
-    <None Include="src\compute\particle_collision\particle.hlsli">
-      <Filter>src\compute\particle_collision</Filter>
-    </None>
-    <None Include="src\compute\spatial_partition\spatial_partition.hlsli">
-      <Filter>src\compute\spatial_partition</Filter>
-    </None>
-    <None Include="src\compute\particle_collision\collision.hlsli">
-      <Filter>src\compute\particle_collision</Filter>
-    </None>
     <None Include="$(RylogicRoot)include\pr\hlsl\interop.hlsli">
       <Filter>pr\hlsl</Filter>
     </None>
@@ -927,20 +909,6 @@
       <Filter>src\shaders\hlsl\forward</Filter>
     </None>
     <None Include="$(RylogicRoot)include\pr\hlsl\bounding_box.hlsli" />
-  </ItemGroup>
-  <ItemGroup>
-    <FxCompile Include="src\compute\fluid_simulation\fluid_simulation.hlsl">
-      <Filter>src\compute\fluid_simulation</Filter>
-    </FxCompile>
-    <FxCompile Include="src\compute\particle_collision\particle_collision.hlsl">
-      <Filter>src\compute\particle_collision</Filter>
-    </FxCompile>
-    <FxCompile Include="src\compute\radix_sort\radix_sort.hlsl">
-      <Filter>src\compute\radix_sort</Filter>
-    </FxCompile>
-    <FxCompile Include="src\compute\spatial_partition\spatial_partition.hlsl">
-      <Filter>src\compute\spatial_partition</Filter>
-    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <CSharpScript Include="auto_gen.csx" />
@@ -957,9 +925,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="src\compute\view3d_compute_shaders.rc">
-      <Filter>src\compute</Filter>
-    </ResourceCompile>
     <ResourceCompile Include="src\shaders\view3d_render_shaders.rc">
       <Filter>src\shaders</Filter>
     </ResourceCompile>

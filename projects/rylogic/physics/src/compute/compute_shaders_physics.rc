@@ -1,0 +1,19 @@
+// HLSL compute shader sources for runtime compilation
+// Note: Don't include this rc file, add 'compute_shaders_physics.res' as a link dependency
+//
+// Touch this comment any time an .hlsl/.hlsli file referenced below is edited so MSBuild
+// invalidates compute_shaders_physics.res — RC dependency tracking does not follow .hlsl edits.
+// Touched: 2026-05-31 (gpu_buoyancy: phase 12 surface drag kernels CSBuoyancyDragSurfaceSamples/Reduce)
+src/compute/collide.hlsl        TEXT DISCARDABLE "src/compute/collide.hlsl"
+src/compute/collision.hlsli     TEXT DISCARDABLE "src/compute/collision.hlsli"
+src/compute/gjk.hlsli           TEXT DISCARDABLE "src/compute/gjk.hlsli"
+src/compute/integrate.hlsl      TEXT DISCARDABLE "src/compute/integrate.hlsl"
+src/compute/physics_types.hlsli TEXT DISCARDABLE "src/compute/physics_types.hlsli"
+src/compute/resolve.hlsl        TEXT DISCARDABLE "src/compute/resolve.hlsl"
+src/compute/selective.hlsl      TEXT DISCARDABLE "src/compute/selective.hlsl"
+src/compute/sleep.hlsl          TEXT DISCARDABLE "src/compute/sleep.hlsl"
+src/compute/sweep.hlsl          TEXT DISCARDABLE "src/compute/sweep.hlsl"
+src/buoyancy/gpu_buoyancy.hlsl  TEXT DISCARDABLE "src/buoyancy/gpu_buoyancy.hlsl"
+src/buoyancy/buoyancy_sampler.hlsli TEXT DISCARDABLE "src/buoyancy/buoyancy_sampler.hlsli"
+src/buoyancy/gpu_basic_waves.hlsli TEXT DISCARDABLE "src/buoyancy/gpu_basic_waves.hlsli"
+ 

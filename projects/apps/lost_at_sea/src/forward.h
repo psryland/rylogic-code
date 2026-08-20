@@ -28,6 +28,8 @@
 #include <filesystem>
 #include <variant>
 #include <atomic>
+#include <cstdlib>
+#include <fstream>
 
 // Windows
 #include <windows.h>
@@ -57,6 +59,9 @@
 #include "pr/collision/shape_polytope.h"
 #include "pr/win32/win32.h"
 #include "pr/view3d-12/imgui/imgui.h"
+#if PR_UNITTESTS
+#include "pr/common/unittests.h"
+#endif
 
 using namespace pr;
 

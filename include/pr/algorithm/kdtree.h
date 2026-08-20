@@ -929,7 +929,7 @@ namespace pr::algorithm::tests
 				PR_EXPECT(pair_sentinel.squared_distance == 42.0f);
 			}
 		}
-		PRUnitTestMethod(Robustness)
+		PRUnitTestMethodFamily(Robustness, Slow)
 		{
 			std::vector<Pt> points;
 			std::set<Pt> results;

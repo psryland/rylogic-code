@@ -42,17 +42,21 @@ namespace pr::physics
 
 		explicit GpuCollisionDetector(Gpu& gpu, EngineConfig const& config);
 
+		// Make the cached shape data resident on the GPU. Safe to call more than once per frame.
+		void UploadShapes(GpuJob& job, ShapeCache& shape_cache);
+
 		// Run collision detection on the GPU. Outputs GpuResolveContact directly.
-		void DetectCollisions(GpuJob& job, int max_contacts, int max_pairs, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, ShapeCache const& shape_cache);
-		void DetectCollisions(GpuJob& job, int max_contacts, int max_pairs, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> resolve_dispatch, ShapeCache const& shape_cache);
+		void DetectCollisions(GpuJob& job, int max_contacts, int max_pairs, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, ShapeCache& shape_cache);
+		void DetectCollisions(GpuJob& job, int max_contacts, int max_pairs, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> resolve_dispatch, ShapeCache& shape_cache);
 
 		// CPU-side testing: upload pairs, shapes, materials and read back contacts
-		std::span<GpuResolveContact> DetectCollisions(GpuJob& job, std::span<GpuCollisionPair const> pairs, ShapeCache const& shape_cache, std::span<GpuResolveContact> out_contacts);
+		std::span<GpuResolveContact> DetectCollisions(GpuJob& job, std::span<GpuCollisionPair const> pairs, ShapeCache& shape_cache, std::span<GpuResolveContact> out_contacts);
 
 		// Read back the results of the collision detection
 		std::span<GpuResolveContact> Readback(GpuJob& job, D3DPtr<ID3D12Resource> r_counters, std::span<GpuResolveContact> out_contacts);
 
 		// Get the GPU resources
+		D3DPtr<ID3D12Resource> Shapes() { return m_r_shapes; }
 		D3DPtr<ID3D12Resource> Contacts() { return m_r_contacts; }
 		D3DPtr<ID3D12Resource> ResolveDispatchArgs() { return m_r_resolve_dispatch; }
 

@@ -9,16 +9,27 @@ target directory.
 
 	<!-- Add a dependency on the dll (C#) -->
 	<ItemGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
-		<Content Include="$(RylogicRoot)lib\x64\debug\view3d-12.dll">
+		<Content Include="$(RylogicRoot)lib\x64\debug\view3d-12.dll" Condition="Exists('$(RylogicRoot)lib\x64\debug\view3d-12.dll')">
 			<Link>lib\x64\debug\view3d-12.dll</Link>
 			<CopyToOutputDirectory Condition="'$(Configuration)'=='Debug'">PreserveNewest</CopyToOutputDirectory>
+			<Pack>false</Pack>
 		</Content>
 
-		<Content Include="$(RylogicRoot)lib\x64\release\view3d-12.dll">
+		<Content Include="$(RylogicRoot)lib\x64\release\view3d-12.dll" Condition="Exists('$(RylogicRoot)lib\x64\release\view3d-12.dll')">
 			<Link>lib\x64\release\view3d-12.dll</Link>
 			<CopyToOutputDirectory Condition="'$(Configuration)'!='Debug'">PreserveNewest</CopyToOutputDirectory>
+			<Pack>false</Pack>
 		</Content>
 	</ItemGroup>
+
+	<!-- Source projects use the current repository build rather than a potentially older transitive Rylogic.Native package asset. -->
+	<Target Name="PreferSourceView3dRuntime" AfterTargets="ResolvePackageAssets" Condition="'$(MSBuildProjectExtension)' == '.csproj'">
+		<ItemGroup>
+			<RuntimeTargetsCopyLocalItems
+				Remove="@(RuntimeTargetsCopyLocalItems)"
+				Condition="Exists('$(RylogicRoot)lib\x64\$(Configuration)\view3d-12.dll') AND '%(RuntimeTargetsCopyLocalItems.NuGetPackageId)' == 'Rylogic.Native' AND '%(RuntimeTargetsCopyLocalItems.Filename)%(RuntimeTargetsCopyLocalItems.Extension)' == 'view3d-12.dll'" />
+		</ItemGroup>
+	</Target>
 
 	<!-- Add a dependency on the dll (C++) -->
 	<ItemGroup Condition="'$(MSBuildProjectExtension)' == '.vcxproj'">

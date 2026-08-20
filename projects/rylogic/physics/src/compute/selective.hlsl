@@ -189,12 +189,18 @@ void CSCompactSelectivePairs(int3 DTID(dtid))
 	if (slot >= g.max_pairs)
 		return;
 
+	// Carry the source pair's shape and child indices through unchanged. The broadphase already expanded
+	// compound bodies into convex leaf pairs, so re-deriving the shape from the body would lose the leaf.
 	GpuCollisionPair dst_pair;
 	dst_pair.body_idx_a = src_pair.body_idx_a;
 	dst_pair.body_idx_b = src_pair.body_idx_b;
-	dst_pair.shape_idx_a = body_a.shape_id;
-	dst_pair.shape_idx_b = body_b.shape_id;
+	dst_pair.shape_idx_a = src_pair.shape_idx_a;
+	dst_pair.shape_idx_b = src_pair.shape_idx_b;
 	dst_pair.b2a = mul(body_b.o2w, InvertOrthonormal(body_a.o2w));
+	dst_pair.child_idx_a = src_pair.child_idx_a;
+	dst_pair.child_idx_b = src_pair.child_idx_b;
+	dst_pair.pad0 = 0;
+	dst_pair.pad1 = 0;
 	g_dst_pairs[slot] = dst_pair;
 	InterlockedAdd(g_metrics[0].selected_pair_count, 1);
 }

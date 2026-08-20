@@ -20,7 +20,7 @@ namespace pr::physics
 		// Range check the material id
 		void Check(int id) const
 		{
-			if (id < 0 || id > Material::MaxMaterialId)
+			if (id < 0 || id >= Material::MaxMaterialId)
 				throw std::out_of_range("Material ID is out of range");
 		}
 

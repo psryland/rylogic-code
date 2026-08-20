@@ -257,7 +257,7 @@ namespace Rylogic.UnitTests
 				{
 					if (thread_id != Environment.CurrentManagedThreadId)
 						throw new Exception("Event Batch should be called in the thread context that the batcher was created in");
-							
+
 					++count[0];
 					mre_eb1.Set();
 				}){TriggerOnFirst = false};

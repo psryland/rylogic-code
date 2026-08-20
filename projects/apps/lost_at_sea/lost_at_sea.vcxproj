@@ -21,6 +21,12 @@
   -->
   <ItemDefinitionGroup>
     <ClCompile>
+      <PreprocessorDefinitions>
+        ;%(PreprocessorDefinitions)
+        ;PR_APP_MAIN_INCLUDE="src/unittests.h"
+        ;PR_APP_COMMAND_LINE_HANDLER=las::TryHandleCommandLine
+        ;PR_UNITTESTS=0
+      </PreprocessorDefinitions>
       <AdditionalIncludeDirectories>
         ;$(ProjectDir)
         ;$(RylogicRoot)include
@@ -37,8 +43,8 @@
         ;compute-static.lib
         ;view3d-12-static.lib
         ;physics-static.lib
-        ;view3d_compute_shaders.res
-        ;physics_compute_shaders.res
+        ;compute_shaders.res
+        ;compute_shaders_physics.res
         ;%(AdditionalDependencies)
       </AdditionalDependencies>
     </Link>
@@ -101,6 +107,8 @@
     <ClCompile Include="src\main.cpp" />
     <ClInclude Include="src\main.h" />
     <ClInclude Include="src\settings.h" />
+    <ClCompile Include="src\unittests.cpp" />
+    <ClInclude Include="src\unittests.h" />
     <ClCompile Include="src\world\ocean\ocean.cpp" />
     <ClInclude Include="src\world\ocean\ocean.h" />
     <ClCompile Include="src\world\ocean\shaders\ocean_shader.cpp" />
@@ -122,6 +130,10 @@
     <ClInclude Include="src\world\water\water_buoyancy_adapter.h" />
     <ClCompile Include="src\world\water\water_system.cpp" />
     <ClInclude Include="src\world\water\water_system.h" />
+    <ClCompile Include="src\world\water\tests\water_system_tests.cpp" Condition="'$(Configuration)'=='Debug'">
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);PR_UNITTESTS=1</PreprocessorDefinitions>
+      <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClInclude Include="src\diag\diag_ui.h" />
     <ClCompile Include="src\world\sky\procedural_sky.cpp" />
     <ClInclude Include="src\world\sky\procedural_sky.h" />

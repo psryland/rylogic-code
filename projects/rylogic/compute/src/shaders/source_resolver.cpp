@@ -6,6 +6,15 @@
 
 namespace pr::compute::shader_cache
 {
+	// Return the module that contains the shared resolver so default resource lookup also works when the compute library is statically linked into a DLL.
+	static HMODULE ResourceModule()
+	{
+		HMODULE module = nullptr;
+		auto flags = GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
+		Check(::GetModuleHandleExW(flags, reinterpret_cast<wchar_t const*>(&ResourceModule), &module), "GetModuleHandleExW failed");
+		return module;
+	}
+
 	// Return all bytes from 'path'.
 	std::vector<uint8_t> ReadBytes(std::filesystem::path const& path)
 	{
@@ -85,7 +94,7 @@ namespace pr::compute::shader_cache
 	// --------------------------------------------------------------- 
 
 	ResourceSourceResolver::ResourceSourceResolver(HMODULE module, std::wstring type)
-		: m_module(module)
+		: m_module(module != nullptr ? module : ResourceModule())
 		, m_type(std::move(type))
 	{
 	}
@@ -100,6 +109,9 @@ namespace pr::compute::shader_cache
 	Source ResourceSourceResolver::Resolve(std::string_view source_name) const
 	{
 		auto name = resource::Name(Widen(source_name));
+
+		// DXC versions use different directory separators for include names, while resource names use the separator declared in the RC file.
+		std::replace(name.begin(), name.end(), L'\\', L'/');
 		for (;;)
 		{
 			if (resource::Find(name, m_type.c_str(), m_module))
@@ -121,4 +133,3 @@ namespace pr::compute::shader_cache
 		};
 	}
 }
-

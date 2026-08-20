@@ -114,10 +114,16 @@
     <ClCompile Include="src\core\physics\physics_system.cpp">
       <Filter>src\core\physics</Filter>
     </ClCompile>
+    <ClCompile Include="src\unittests.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
     <ClCompile Include="src\world\water\water_buoyancy_adapter.cpp">
       <Filter>src\world\water</Filter>
     </ClCompile>
     <ClCompile Include="src\world\water\water_system.cpp">
+      <Filter>src\world\water</Filter>
+    </ClCompile>
+    <ClCompile Include="src\world\water\tests\water_system_tests.cpp">
       <Filter>src\world\water</Filter>
     </ClCompile>
   </ItemGroup>
@@ -129,6 +135,9 @@
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="src\settings.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\unittests.h">
       <Filter>src</Filter>
     </ClInclude>
     <ClInclude Include="src\world\ocean\ocean.h">

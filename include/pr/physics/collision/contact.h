@@ -31,6 +31,12 @@ namespace pr::physics
 		// The combined material properties of the two colliding objects
 		Material m_mat;
 
+		// Declaration-order index of the colliding convex child within each object's compound shape.
+		// Zero for objects with a single convex shape. Together with the object pointers this is the
+		// stable identity of the contact.
+		int m_child_idA;
+		int m_child_idB;
+
 		// The relative time of the collision (in seconds). 0 = now, -dt = previous step. (used to order collision resolution)
 		float m_time;
 

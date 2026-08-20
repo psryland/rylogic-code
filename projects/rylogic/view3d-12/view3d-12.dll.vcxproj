@@ -40,7 +40,7 @@
 			<AdditionalDependencies>
 				;view3d-12-static.lib
 				;compute-static.lib
-				;view3d_compute_shaders.res
+				;compute_shaders.res
 				;strmiids.lib
 				;comctl32.lib
 				;dxcompiler.lib

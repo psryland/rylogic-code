@@ -172,6 +172,7 @@ namespace pr::physics
 		// Get/Set the current forces applied to this body (measured at the centre of mass).
 		v8force ForceWS() const;
 		v8force ForceOS() const;
+		void ForceWS(v8force const& ws_force);
 
 		// Add a force acting on the rigid body at position 'ws_at' (world space, model origin relative).
 		// The force is shifted from the application point to the centre of mass before accumulation.
@@ -192,4 +193,3 @@ namespace pr::physics
 		float KineticEnergy() const;
 	};
 }
-

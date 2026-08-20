@@ -228,7 +228,7 @@ namespace pr::math::tests
 		using Q = Quat<S>;
 
 		inline static constexpr S Tol = S(0.002);
-		inline static constexpr bool CreateVisuals = true;
+		inline static constexpr bool CreateVisuals = false;
 
 		// Verify the normalised quintic polynomial independently of the physical-time wrapper.
 		PRUnitTestMethod(QuinticCurve3Constraints)
@@ -499,7 +499,7 @@ namespace pr::math::tests
 
 		#if PR_UNITTESTS_VISUALISE
 		// Generate an LDraw scene showing position, orientation, and derivative continuity across a C2 join.
-		PRUnitTestMethod(LdrHermite5Continuity)
+		PRUnitTestMethodFamily(LdrHermite5Continuity, Slow)
 		{
 			if constexpr (CreateVisuals)
 			{

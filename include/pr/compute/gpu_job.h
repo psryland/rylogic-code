@@ -213,6 +213,17 @@ namespace pr::compute
 			handle = {};
 		}
 
+		// Wait for submitted work during terminal cleanup without touching thread-affine recording state.
+		void Abandon(RunHandle& handle)
+		{
+			if (!handle || handle.m_sync_point != m_pending_sync_point)
+				throw std::runtime_error("GpuJob::Abandon called with an invalid or non-current run handle");
+
+			m_gsync.Wait(handle.m_sync_point);
+			m_pending_sync_point = 0;
+			handle = {};
+		}
+
 		// Run the job and block till complete.
 		void Run(RunProfile* profile = nullptr)
 		{

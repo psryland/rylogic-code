@@ -42,8 +42,8 @@
         ;view3d-12-static.lib
         ;compute-static.lib
         ;physics-static.lib
-        ;view3d_compute_shaders.res
-        ;physics_compute_shaders.res
+        ;compute_shaders.res
+        ;compute_shaders_physics.res
         ;%(AdditionalDependencies)
       </AdditionalDependencies>
     </Link>

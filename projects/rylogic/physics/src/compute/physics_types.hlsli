@@ -35,6 +35,11 @@ static const int SHAPE_TRIANGLE = 3;
 static const int SHAPE_POLYTOPE = 4;
 static const int SHAPE_ARRAY    = 5;
 
+// The largest number of convex leaf children a single compound shape may flatten to.
+// Child indices are packed into 16 bits within warm-start keys, and the broadphase expands
+// compound pairs as an N*M nested loop, so the bound keeps both cost and identity well defined.
+static const int MaxCompoundChildren = 1024;
+
 // Collision pair bins. These are unordered shape pairs canonicalised by shape type.
 static const int COLLISION_BIN_SPHERE_VS_SPHERE     = 0;
 static const int COLLISION_BIN_BOX_VS_SPHERE        = 1;
@@ -146,6 +151,11 @@ struct GpuSleepIslandStats
 struct GpuShape
 {
 	row_major float4x4 s2rb; // shape-to-rigidbody transform
+
+	// Shape bounds expressed in rigid-body space. The broadphase uses this to cull child pairs
+	// of compound shapes without having to know each shape type.
+	BBox rb_bbox;
+
 	int type;
 	int vert_offset;
 	int vert_count;
@@ -154,6 +164,19 @@ struct GpuShape
 	int face_count;
 	int edge_offset;
 	int edge_count;
+
+	// Compound (SHAPE_ARRAY) shapes describe a contiguous run of convex leaf shapes that follows
+	// this entry in the shape buffer. 'child_count == 0' identifies a convex primitive, which is
+	// the single-shape fast path used by the majority of bodies.
+	int child_offset;
+	int child_count;
+
+	// Shape flags (collision::Shape::EFlags), carried per leaf so child shapes keep their own behaviour.
+	int flags;
+
+	// Explicit padding keeps the structured-buffer stride a 16-byte multiple to match C++ alignment.
+	int pad0;
+
 	float4 data;            // type-specific: sphere(r), box(half_xyz), line(half_len,radius)
 };
 struct GpuPolytopeFace
@@ -180,9 +203,17 @@ struct GpuCollisionPair
 {
 	int body_idx_a;        // Rigid body index for A
 	int body_idx_b;        // Rigid body index for B
-	int shape_idx_a;       // Collision shape index for A
-	int shape_idx_b;       // Collision shape index for B
+	int shape_idx_a;       // Collision shape index for A (a convex leaf, never a compound root)
+	int shape_idx_b;       // Collision shape index for B (a convex leaf, never a compound root)
 	row_major float4x4 b2a; // transform B into A's space
+
+	// Declaration-order index of the leaf within its owning body's compound shape. Zero for a
+	// body with a single convex shape. This is the stable half of the contact identity; the other
+	// half is the body index.
+	int child_idx_a;
+	int child_idx_b;
+	int pad0;
+	int pad1;
 };
 struct GpuContact
 {
@@ -206,15 +237,19 @@ struct GpuResolveContact
 	float depth;            // Penetration depth (positive = overlapping).
 	float collision_time;   // Estimated sub-step collision time. Written by CSComputeCollisionTimes.
 	int feature;            // FEATURE_*; also the number of valid manifold points
-	int pad1;
+	int child_idx_a;        // Leaf index within body A's compound shape (0 for a single-shape body)
 	float4 warmstart_impulse; // Accumulated physical impulse from the velocity solver, in body A space.
+	int child_idx_b;        // Leaf index within body B's compound shape (0 for a single-shape body)
+	int pad1;
+	int pad2;
+	int pad3;
 };
 struct GpuWarmStartEntry
 {
 	uint key;
 	int body_idx_a;
 	int body_idx_b;
-	uint pad0;
+	uint child_key; // Packed (child_idx_a << 16) | child_idx_b, disambiguating leaves of the same body pair.
 	float4 impulse; // Cached physical impulse in body A space.
 };
 struct GpuCollisionCounters

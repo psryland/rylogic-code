@@ -588,7 +588,7 @@ namespace pr::algorithm::fft::tests
 			PR_EXPECT(impl::ChirpIndex(46341, 46342) == 1);
 		}
 
-		PRUnitTestMethod(DFTAndiDFTTests)
+		PRUnitTestMethodFamily(DFTAndiDFTTests, Slow)
 		{
 			double max_err0 = -99.0, max_err1 = -99.0; //db
 
@@ -627,7 +627,7 @@ namespace pr::algorithm::fft::tests
 			PR_EXPECT(max_err0 < -10);
 			PR_EXPECT(max_err1 < -10);
 		}
-		PRUnitTestMethod(ConvolutionTests)
+		PRUnitTestMethodFamily(ConvolutionTests, Slow)
 		{
 			double max_err = -99.0; // db
 

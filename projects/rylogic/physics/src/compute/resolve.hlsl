@@ -122,7 +122,14 @@ int ContactCount()
 	return min(g_counters[0].contact_count, g.max_contacts);
 }
 
-// Returns a stable non-zero cache key for a canonical body pair and quantised local contact point.
+// Returns the packed leaf identity of a contact. Bodies with a single convex shape use leaf 0, so
+// this is zero for non-compound scenes and the key is unchanged from a body-pair-only identity.
+uint WarmStartChildKey(GpuResolveContact c)
+{
+	return ((uint)c.child_idx_a << 16) | ((uint)c.child_idx_b & 0xFFFFu);
+}
+
+// Returns a stable non-zero cache key for a canonical body pair, its colliding leaves, and a quantised local contact point.
 uint WarmStartKey(GpuResolveContact c)
 {
 	int3 q = int3(
@@ -135,6 +142,7 @@ uint WarmStartKey(GpuResolveContact c)
 		(uint)q.x * 83492791u ^
 		(uint)q.y * 2654435761u ^
 		(uint)q.z * 1597334677u ^
+		WarmStartChildKey(c) * 2971215073u ^
 		0x9E3779B9u;
 	return key != 0 ? key : 1u;
 }
@@ -444,7 +452,7 @@ bool LoadWarmStartImpulse(GpuResolveContact c, out_(float3) impulse)
 		GpuWarmStartEntry entry = g_warm_start_prev[slot];
 		if (entry.key == 0)
 			return false;
-		if (entry.key == key && entry.body_idx_a == c.body_idx_a && entry.body_idx_b == c.body_idx_b)
+		if (entry.key == key && entry.body_idx_a == c.body_idx_a && entry.body_idx_b == c.body_idx_b && entry.child_key == WarmStartChildKey(c))
 		{
 			impulse = WarmStartNormalImpulse(c, g.warm_start_scale * entry.impulse.xyz);
 			return any(impulse != float3(0, 0, 0));
@@ -475,7 +483,7 @@ void StoreWarmStartImpulse(GpuResolveContact c)
 		{
 			g_warm_start_curr[slot].body_idx_a = c.body_idx_a;
 			g_warm_start_curr[slot].body_idx_b = c.body_idx_b;
-			g_warm_start_curr[slot].pad0 = 0;
+			g_warm_start_curr[slot].child_key = WarmStartChildKey(c);
 			g_warm_start_curr[slot].impulse = float4(impulse, 0);
 			return;
 		}
@@ -906,7 +914,7 @@ void CSWarmStartClear(int3 DTID(dtid))
 	g_warm_start_curr[dtid.x].key = 0;
 	g_warm_start_curr[dtid.x].body_idx_a = -1;
 	g_warm_start_curr[dtid.x].body_idx_b = -1;
-	g_warm_start_curr[dtid.x].pad0 = 0;
+	g_warm_start_curr[dtid.x].child_key = 0;
 	g_warm_start_curr[dtid.x].impulse = float4(0, 0, 0, 0);
 }
 

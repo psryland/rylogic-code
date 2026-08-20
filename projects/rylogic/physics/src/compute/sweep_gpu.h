@@ -43,6 +43,7 @@ namespace pr::physics
 		void Sort(GpuJob& job, int body_count, D3DPtr<ID3D12Resource> aabb, D3DPtr<ID3D12Resource> aabb_idx);
 		
 		// Enumerate overlapping pairs using pre-computed world-space AABBs from the GPU integrate step.
+		// 'shapes' is required because compound bodies are expanded into their convex leaves here.
 		void Sweep(
 			GpuJob& job,
 			int body_count,
@@ -51,6 +52,7 @@ namespace pr::physics
 			D3DPtr<ID3D12Resource> aabb_idx,
 			D3DPtr<ID3D12Resource> aabb_box,
 			D3DPtr<ID3D12Resource> bodies,
+			D3DPtr<ID3D12Resource> shapes,
 			int sleep_island_count,
 			D3DPtr<ID3D12Resource> sleep_islands,
 			bool sleeping_enabled);
@@ -59,7 +61,7 @@ namespace pr::physics
 		std::span<GpuCollisionPair> Readback(GpuJob& job, D3DPtr<ID3D12Resource> r_counters, std::span<GpuCollisionPair> pairs);
 
 		// CPU-side testing: upload bodies, sort AABB endpoints, sweep for overlapping pairs, readback pairs.
-		std::span<GpuCollisionPair> SortAndSweep(GpuJob& job, std::span<GpuRigidBody const> bodies, int sort_axis, std::span<GpuCollisionPair> out_pairs);
+		std::span<GpuCollisionPair> SortAndSweep(GpuJob& job, std::span<GpuRigidBody const> bodies, std::span<GpuShape const> shapes, int sort_axis, std::span<GpuCollisionPair> out_pairs);
 
 		// Get the GPU resources
 		D3DPtr<ID3D12Resource> CollisionPairs() { return m_r_col_pairs; }

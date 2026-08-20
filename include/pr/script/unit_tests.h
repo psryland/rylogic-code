@@ -119,7 +119,7 @@ namespace pr::script
 			PR_EXPECT(*file2 == *str2); ++file2; ++str2;
 			PR_EXPECT(*file2 == *str2); ++file2; ++str2;
 		}
-		PRUnitTestMethod(UTF16LittleEndianFileSource)
+		PRUnitTestMethodFamily(UTF16LittleEndianFileSource, Slow)
 		{
 			// UTF-16le data (if host system is little-endian)
 			unsigned short data[] = {0xfeff, 0x4f60, 0x597d}; //' ni hao
@@ -134,7 +134,7 @@ namespace pr::script
 			PR_EXPECT(*file == str[0]); ++file;
 			PR_EXPECT(*file == str[1]); ++file;
 		}
-		PRUnitTestMethod(UTF16BigEndianFileSource)
+		PRUnitTestMethodFamily(UTF16BigEndianFileSource, Slow)
 		{
 			// UTF-16be data (if host system is little-endian)
 			unsigned short data[] = {0xfffe, 0x604f, 0x7d59}; //' ni hao
@@ -213,7 +213,7 @@ namespace pr::script
 				PR_EXPECT(*src == '#');
 			}
 		}
-		PRUnitTestMethod(BufferFunctions)
+		PRUnitTestMethodFamily(BufferFunctions, Slow)
 		{
 			{
 				auto len = 0;
@@ -579,7 +579,7 @@ namespace pr::script
 		macros.Find(L"Two")->Expand(result, { L"A", L"B" }, Loc());
 		PR_EXPECT(result ==L"TwoExpanded A B");
 	}
-	PRUnitTest(IncludesTests)
+	PRUnitTestFamily(IncludesTests, Slow)
 	{
 		using namespace pr::str;
 		using string = pr::string<wchar_t>;

@@ -75,21 +75,6 @@
         ;SHADER_BUILD
       </PreprocessorDefinitions>
     </ShaderBuild>
-    <FxCompile>
-      <ShaderType>Compute</ShaderType>
-      <ShaderModel>6.6</ShaderModel>
-      <AdditionalIncludeDirectories>
-        ;$(ProjectDir)
-        ;$(RylogicRoot)include\
-        ;$(RylogicRoot)projects\rylogic\view3d-12\
-        ;%(AdditionalIncludeDirectories)
-      </AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>
-        ;%(PreprocessorDefinitions)
-        ;SHADER_BUILD
-      </PreprocessorDefinitions>
-      <AdditionalOptions>/HV 2021 %(AdditionalOptions)</AdditionalOptions>
-    </FxCompile>
     <!-- HLSL Compiler settings for IntelliSense
     <HLSLCompiler>
       <ShaderModel>6.6</ShaderModel>
@@ -376,14 +361,6 @@
     <ShaderBuild Include="src\shaders\hlsl\utility\mipmap_generator.hlsl" ComputeEntryPoints="mipmap_generator_cs=CSMipMapGenerator" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="src\compute\particle_collision\collision.hlsli" />
-    <None Include="src\compute\particle_collision\particle.hlsli" />
-    <None Include="src\compute\spatial_partition\spatial_partition.hlsli" />
-    <FxCompile Include="src\compute\fluid_simulation\fluid_simulation.hlsl" EntryPointName="ApplyForces" />
-    <FxCompile Include="src\compute\particle_collision\particle_collision.hlsl" EntryPointName="Integrate" />
-    <FxCompile Include="src\compute\radix_sort\radix_sort.hlsl" EntryPointName="SweepDown" />
-    <FxCompile Include="src\compute\spatial_partition\spatial_partition.hlsl" EntryPointName="BuildLookup" />
-    <ResourceCompile Include="src\compute\view3d_compute_shaders.rc" />
     <ResourceCompile Include="src\shaders\view3d_render_shaders.rc" />
   </ItemGroup>
   <!--
@@ -408,12 +385,6 @@
         ;$(RylogicRoot)projects\apps\LDraw\LDraw\res\LdrSyntaxRules.xshd
       </Outputs>
     </CSharpScript>
-  </ItemGroup>
-  <!--
-  Build Artifacts
-  -->
-  <ItemGroup>
-    <BuildArtifacts Include="$(OutDir)view3d_compute_shaders.res" />
   </ItemGroup>
   <!--
   Dependencies

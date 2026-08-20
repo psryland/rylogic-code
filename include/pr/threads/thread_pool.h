@@ -151,7 +151,7 @@ namespace pr::threads
 #include "pr/common/unittests.h"
 namespace pr::threads
 {
-	PRUnitTest(ThreadPoolTests)
+	PRUnitTestFamily(ThreadPoolTests, Slow)
 	{
 		using namespace std::chrono_literals;
 
@@ -235,7 +235,7 @@ namespace pr::threads
 	// that leaves 'WaitAll' blocked forever. Queuing tasks from several producer threads concurrently
 	// with workers draining the queue, repeated many times, makes that race window likely to be hit
 	// if it still exists.
-	PRUnitTest(ThreadPoolMissedWakeupStressTest)
+	PRUnitTestFamily(ThreadPoolMissedWakeupStressTest, Slow)
 	{
 		using namespace std::chrono_literals;
 
@@ -280,7 +280,7 @@ namespace pr::threads
 	// Constructing and immediately destroying pools with idle workers (no tasks queued, so workers are
 	// parked in 'wait' when shutdown happens), repeated many times, makes that race window likely to
 	// be hit if it still exists.
-	PRUnitTest(ThreadPoolShutdownStressTest)
+	PRUnitTestFamily(ThreadPoolShutdownStressTest, Slow)
 	{
 		using namespace std::chrono_literals;
 

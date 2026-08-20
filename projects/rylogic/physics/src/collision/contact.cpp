@@ -16,6 +16,8 @@ namespace pr::physics
 		, m_objA()
 		, m_objB()
 		, m_mat()
+		, m_child_idA()
+		, m_child_idB()
 		, m_time()
 	{
 	}
@@ -40,6 +42,8 @@ namespace pr::physics
 		m_depth = contact.depth;
 		m_mat_idA = contact.mat_id_a;
 		m_mat_idB = contact.mat_id_b;
+		m_child_idA = contact.child_idx_a;
+		m_child_idB = contact.child_idx_b;
 	}
 
 	// Adjust the collision data to the given sub-step time.
@@ -80,8 +84,9 @@ namespace pr::physics
 		// Depth is sign-symmetric — positive means overlap regardless of A/B assignment
 		// c.m_depth unchanged
 
-		// Swap material IDs and object pointers
+		// Swap material IDs, child IDs, and object pointers
 		std::swap(c.m_mat_idA, c.m_mat_idB);
+		std::swap(c.m_child_idA, c.m_child_idB);
 		std::swap(c.m_objA, c.m_objB);
 
 		// Recompute derived fields (m_b2a, m_velocity, m_point_at_t) for the swapped pair

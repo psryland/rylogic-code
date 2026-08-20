@@ -417,10 +417,8 @@
     <ClCompile Include="src\hlsl\quaternion_tests.cpp" />
     <ClCompile Include="src\hlsl\spatial_algebra_tests.cpp" />
     <ClCompile Include="src\hlsl\vector_tests.cpp" />
-    <ClCompile Include="$(RylogicRoot)projects\apps\lost_at_sea\src\world\water\water_system.cpp">
-      <AdditionalIncludeDirectories>$(RylogicRoot)projects\apps\lost_at_sea;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-    </ClCompile>
     <ClCompile Include="src\unittests.cpp" />
+    <ClInclude Include="src\dll_test.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\math\core\forward.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\math\math.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\math\tests\vector2_tests.h" />
@@ -513,6 +511,12 @@
   <ItemGroup>
     <ProjectReference Include="$(RylogicRoot)projects\rylogic\compute\compute.vcxproj" />
   </ItemGroup>
+  <Target Name="ReportCompiledUnitTests" BeforeTargets="ClCompile" Condition="'@(CompiledUnitTest)'!=''">
+    <Message Importance="high" Text="Compiled unit test: %(CompiledUnitTest.Identity)" />
+  </Target>
+  <!-- Module-owned compiled tests are listed beside their owning component. -->
+  <Import Project="$(RylogicRoot)projects\rylogic\physics\src\unittests\unittests.targets" />
   <!-- Targets -->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="$(TargetsPath)dxc.targets" />
 </Project>

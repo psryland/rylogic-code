@@ -34,8 +34,10 @@ namespace pr::physics
 	// Convert CPU collision shapes into the flat GPU format.
 	inline GpuShape PackShape(collision::ShapeSphere const& shape, m4x4 const& p2rb = m4x4::Identity())
 	{
+		auto s2rb = p2rb * shape.m_base.m_s2r;
 		return GpuShape {
-			.s2rb = p2rb * shape.m_base.m_s2r,
+			.s2rb = s2rb,
+			.rb_bbox = s2rb * shape.m_base.m_bbox,
 			.type = static_cast<int>(collision::EShape::Sphere),
 			.vert_offset = 0,
 			.vert_count = 0,
@@ -44,13 +46,19 @@ namespace pr::physics
 			.face_count = 0,
 			.edge_offset = 0,
 			.edge_count = 0,
+			.child_offset = 0,
+			.child_count = 0,
+			.flags = static_cast<int>(shape.m_base.m_flags),
+			.pad0 = 0,
 			.data = v4(shape.m_radius, 0, 0, 0),
 		};		
 	}
 	inline GpuShape PackShape(collision::ShapeBox const& shape, m4x4 const& p2rb = m4x4::Identity())
 	{
+		auto s2rb = p2rb * shape.m_base.m_s2r;
 		return GpuShape {
-			.s2rb = p2rb * shape.m_base.m_s2r,
+			.s2rb = s2rb,
+			.rb_bbox = s2rb * shape.m_base.m_bbox,
 			.type = static_cast<int>(collision::EShape::Box),
 			.vert_offset = 0,
 			.vert_count = 0,
@@ -59,13 +67,19 @@ namespace pr::physics
 			.face_count = 0,
 			.edge_offset = 0,
 			.edge_count = 0,
+			.child_offset = 0,
+			.child_count = 0,
+			.flags = static_cast<int>(shape.m_base.m_flags),
+			.pad0 = 0,
 			.data = shape.m_radius, // half-extents (xyz), w=0
 		};
 	}
 	inline GpuShape PackShape(collision::ShapeLine const& shape, m4x4 const& p2rb = m4x4::Identity())
 	{
+		auto s2rb = p2rb * shape.m_base.m_s2r;
 		return GpuShape {
-			.s2rb = p2rb * shape.m_base.m_s2r,
+			.s2rb = s2rb,
+			.rb_bbox = s2rb * shape.m_base.m_bbox,
 			.type = static_cast<int>(collision::EShape::Line),
 			.vert_offset = 0,
 			.vert_count = 0,
@@ -74,13 +88,19 @@ namespace pr::physics
 			.face_count = 0,
 			.edge_offset = 0,
 			.edge_count = 0,
+			.child_offset = 0,
+			.child_count = 0,
+			.flags = static_cast<int>(shape.m_base.m_flags),
+			.pad0 = 0,
 			.data = v4(shape.m_hlength, shape.m_radius, 0, 0),
 		};
 	}
 	inline GpuShape PackShape(collision::ShapeTriangle const& shape, int vert_offset, m4x4 const& p2rb = m4x4::Identity())
 	{
+		auto s2rb = p2rb * shape.m_base.m_s2r;
 		return GpuShape {
-			.s2rb = p2rb * shape.m_base.m_s2r,
+			.s2rb = s2rb,
+			.rb_bbox = s2rb * shape.m_base.m_bbox,
 			.type = static_cast<int>(collision::EShape::Triangle),
 			.vert_offset = vert_offset,
 			.vert_count = 3, // The 3 vertices are stored at vert_offset..vert_offset+2.
@@ -89,13 +109,19 @@ namespace pr::physics
 			.face_count = 0,
 			.edge_offset = 0,
 			.edge_count = 0,
+			.child_offset = 0,
+			.child_count = 0,
+			.flags = static_cast<int>(shape.m_base.m_flags),
+			.pad0 = 0,
 			.data = v4::Zero(),
 		};
 	}
 	inline GpuShape PackShape(collision::ShapePolytope const& shape, int vert_offset, int face_offset = 0, int edge_offset = 0, m4x4 const& p2rb = m4x4::Identity())
 	{
+		auto s2rb = p2rb * shape.m_base.m_s2r;
 		return GpuShape {
-			.s2rb = p2rb * shape.m_base.m_s2r,
+			.s2rb = s2rb,
+			.rb_bbox = s2rb * shape.m_base.m_bbox,
 			.type = static_cast<int>(collision::EShape::Polytope),
 			.vert_offset = vert_offset,
 			.vert_count = shape.m_vert_count,
@@ -104,6 +130,10 @@ namespace pr::physics
 			.face_count = shape.m_face_count,
 			.edge_offset = edge_offset,
 			.edge_count = shape.m_edge_count,
+			.child_offset = 0,
+			.child_count = 0,
+			.flags = static_cast<int>(shape.m_base.m_flags),
+			.pad0 = 0,
 			.data = v4::Zero(),
 		};
 	}
@@ -115,8 +145,10 @@ namespace pr::physics
 		{
 			case EShape::NoShape:
 			{
+				auto s2rb = p2rb * shape.m_s2r;
 				return GpuShape {
-					.s2rb = p2rb * shape.m_s2r,
+					.s2rb = s2rb,
+					.rb_bbox = s2rb * shape.m_bbox,
 					.type = static_cast<int>(collision::EShape::NoShape),
 					.vert_offset = 0,
 					.vert_count = 0,
@@ -125,6 +157,10 @@ namespace pr::physics
 					.face_count = 0,
 					.edge_offset = 0,
 					.edge_count = 0,
+					.child_offset = 0,
+					.child_count = 0,
+					.flags = static_cast<int>(shape.m_flags),
+					.pad0 = 0,
 					.data = v4::Zero(),
 				};
 			}
@@ -201,25 +237,26 @@ namespace pr::physics
 			}
 			case EShape::Array:
 			{
-				// Composite (array-of-convex) bodies have no single-convex GPU representation: the GPU
-				// narrowphase packs exactly one convex GpuShape per body, so a compound shape cannot be
-				// expressed here. True compound GPU collision (a body referencing several convex sub-shapes)
-				// is a separate, larger feature that is not yet implemented. Until then a compound body is
-				// packed as NoShape, meaning it participates in integration and (via its own buoyancy
-				// composite-hull representation) buoyancy, but generates no GPU collision contacts. The
-				// narrowphase bins NoShape into COLLISION_BIN_COUNT and drops any pair touching it, so this
-				// is safe; the only cost is that broadphase may still emit (then discard) pairs for such a
-				// body in dense scenes.
+				// A compound shape packs as a root entry that references a contiguous run of convex
+				// leaf shapes. The leaves themselves are appended by 'PackShapeTree', which is the
+				// only caller able to know where they land in the shape buffer; the root's child range
+				// is patched there. A root is never used as a narrowphase operand.
+				auto s2rb = p2rb * shape.m_s2r;
 				return GpuShape {
-					.s2rb = p2rb * shape.m_s2r,
-					.type = static_cast<int>(collision::EShape::NoShape),
+					.s2rb = s2rb,
+					.rb_bbox = s2rb * shape.m_bbox,
+					.type = static_cast<int>(collision::EShape::Array),
 					.vert_offset = 0,
 					.vert_count = 0,
-					.material_id = 0,
+					.material_id = shape.m_material_id,
 					.face_offset = 0,
 					.face_count = 0,
 					.edge_offset = 0,
 					.edge_count = 0,
+					.child_offset = 0,
+					.child_count = 0,
+					.flags = static_cast<int>(shape.m_flags),
+					.pad0 = 0,
 					.data = v4::Zero(),
 				};
 			}
@@ -229,6 +266,52 @@ namespace pr::physics
 				return {};
 			}
 		}
+	}
+
+	// Append the convex leaves of 'shape' to 'shapes'.
+	// Nested compound shapes are flattened depth-first in declaration order so that a leaf's index
+	// within the run is a stable identity for as long as the shape's declaration order is unchanged.
+	// Leaf transforms are already shape-to-root, so no parent transform accumulates during descent.
+	inline void PackShapeLeaves(collision::Shape const& shape, std::vector<GpuShape>& shapes, std::vector<v4>& vertex_buffer, std::vector<GpuPolytopeFace>* face_buffer, std::vector<GpuPolytopeEdge>* edge_buffer)
+	{
+		using namespace collision;
+
+		// Descend into nested compounds rather than emitting a root that no narrowphase kernel understands.
+		if (shape.m_type == EShape::Array)
+		{
+			auto const& arr = shape_cast<ShapeArray>(shape);
+			for (auto const* child = arr.begin(), *end = arr.end(); child != end; child = next(child))
+				PackShapeLeaves(*child, shapes, vertex_buffer, face_buffer, edge_buffer);
+
+			return;
+		}
+
+		shapes.push_back(PackShape(shape, vertex_buffer, face_buffer, edge_buffer));
+	}
+
+	// Append 'shape' to 'shapes' as a root entry, followed by its flattened convex leaves if it is a compound.
+	// Returns the index of the root entry, which is the value stored in 'GpuRigidBody::shape_id'.
+	// Single-shape bodies append exactly one entry with 'child_count == 0'; no child data is produced for them.
+	// Throws if the compound exceeds 'MaxCompoundChildren' so that capacity pressure is reported rather than silently truncated.
+	inline int PackShapeTree(collision::Shape const& shape, std::vector<GpuShape>& shapes, std::vector<v4>& vertex_buffer, std::vector<GpuPolytopeFace>* face_buffer = nullptr, std::vector<GpuPolytopeEdge>* edge_buffer = nullptr)
+	{
+		auto root_index = static_cast<int>(shapes.size());
+		shapes.push_back(PackShape(shape, vertex_buffer, face_buffer, edge_buffer));
+		if (shape.m_type != collision::EShape::Array)
+			return root_index;
+
+		auto child_offset = static_cast<int>(shapes.size());
+		PackShapeLeaves(shape, shapes, vertex_buffer, face_buffer, edge_buffer);
+		auto child_count = static_cast<int>(shapes.size()) - child_offset;
+
+		// Reject compounds that exceed the supported bound before they can corrupt child identity or pair budgets.
+		if (child_count > MaxCompoundChildren)
+			throw std::runtime_error(std::format("Compound collision shape has {} convex children which exceeds the maximum of {}", child_count, MaxCompoundChildren));
+
+		// An empty compound has no leaves to collide, so leave it looking like a shape that generates no pairs.
+		shapes[root_index].child_offset = child_offset;
+		shapes[root_index].child_count = child_count;
+		return root_index;
 	}
 
 	// Pack a RigidBody's dynamic state into the flat GPU buffer format.

@@ -25,9 +25,13 @@
 	<!-- Dependencies -->
 	<ItemGroup>
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Core\Rylogic.Core.csproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.D3D12\Rylogic.D3D12.csproj" />
 		<PackageReference Include="Rylogic.Native" VersionOverride="$(RylogicLibraryVersion)" />
 		<PackageReference Include="System.Drawing.Common" Condition="'$(TargetFramework)' != 'net481'" />
 	</ItemGroup>
+
+	<!-- Native Runtime -->
+	<Import Project="$(TargetsPath)view3d-12.targets" />
 
 	<!-- Post Build -->
 	<ItemGroup>

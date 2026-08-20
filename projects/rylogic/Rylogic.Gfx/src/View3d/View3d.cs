@@ -1563,6 +1563,16 @@ namespace Rylogic.Gfx
 			GC.SuppressFinalize(this);
 		}
 
+		/// <summary>Acquire an independently owned lease to the D3D12 device used by View3D.</summary>
+		public Rylogic.D3D12.DeviceLease AcquireDeviceLease()
+		{
+			var device = View3D_DeviceLeaseAcquire(m_context);
+			if (device == IntPtr.Zero)
+				throw LastError ?? new Exception("Failed to acquire the View3D D3D12 device");
+
+			return new Rylogic.D3D12.DeviceLease(device);
+		}
+
 		/// <summary>The last error reported from View3d</summary>
 		public Exception? LastError { get; private set; }
 
@@ -1738,6 +1748,7 @@ namespace Rylogic.Gfx
 		// Note: this function is not thread safe, avoid race calls
 		[DllImport(Dll)] private static extern HContext View3D_Initialise(ReportErrorCB global_error_cb);
 		[DllImport(Dll)] private static extern void View3D_Shutdown(HContext context);
+		[DllImport(Dll)] private static extern IntPtr View3D_DeviceLeaseAcquire(HContext context);
 
 		// This error callback is called for errors that are associated with the dll (rather than with a window).
 		[DllImport(Dll)] private static extern void View3D_GlobalErrorCBSet(ReportErrorCB error_cb, bool add);

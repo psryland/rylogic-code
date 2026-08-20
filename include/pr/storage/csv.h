@@ -453,7 +453,7 @@ namespace pr::storage
 			// Characters trailing the closing quote are not valid CSV and should still be rejected.
 			PR_THROWS(UnescapeString("\"a\"x"), std::exception);
 		}
-		PRUnitTestMethod(BasicCSV)
+		PRUnitTestMethodFamily(BasicCSV, Slow)
 		{
 			using namespace pr::csv;
 

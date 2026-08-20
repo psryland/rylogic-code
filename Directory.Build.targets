@@ -36,8 +36,11 @@
 		</Task>
 	</UsingTask>
 
+	<ItemGroup Condition="'$(MSBuildProjectName)' == 'unittests'">
+		<NativeUnitTestRun Include="-family:Header" />
+	</ItemGroup>
 	<Target Name="RunUnitTests" AfterTargets="Build" Condition="'$(MSBuildProjectName)' == 'unittests' AND '$(RunUnitTests)' != 'false'">
-		<RunRylogicUnitTests TargetPath="$(TargetPath)" IsManaged="false" ProjectRoot="$(RylogicRoot)" />
+		<RunRylogicUnitTests TargetPath="$(TargetPath)" IsManaged="false" ProjectRoot="$(RylogicRoot)" Arguments="%(NativeUnitTestRun.Identity)" />
 	</Target>
 
 	<!--

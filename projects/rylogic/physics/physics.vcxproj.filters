@@ -10,9 +10,6 @@
     <Filter Include="src\integrator">
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\unittests">
-      <UniqueIdentifier>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</UniqueIdentifier>
-    </Filter>
     <Filter Include="src\collision">
       <UniqueIdentifier>{48813738-03b8-4701-987d-48bcd9444531}</UniqueIdentifier>
     </Filter>
@@ -84,50 +81,8 @@
     <ClCompile Include="src\compute\sweep_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
-    <ClCompile Include="src\unittests\test_collision_pairs.cpp">
-      <Filter>src\unittests</Filter>
-    </ClCompile>
-    <ClCompile Include="src\unittests\test_gpu_compare.cpp">
-      <Filter>src\unittests</Filter>
-    </ClCompile>
-    <ClCompile Include="src\unittests\test_collision_resolution.cpp">
-      <Filter>src\unittests</Filter>
-    </ClCompile>
-    <ClCompile Include="src\unittests\test_gpu_collision.cpp">
-      <Filter>src\unittests</Filter>
-    </ClCompile>
-    <ClCompile Include="src\unittests\test_gpu_collision_detector.cpp">
-      <Filter>src\unittests</Filter>
-    </ClCompile>
-    <ClCompile Include="src\unittests\test_impulse.cpp">
-      <Filter>src\unittests</Filter>
-    </ClCompile>
-    <ClCompile Include="src\unittests\test_inertia.cpp">
-      <Filter>src\unittests</Filter>
-    </ClCompile>
-    <ClCompile Include="src\unittests\test_integrator.cpp">
-      <Filter>src\unittests</Filter>
-    </ClCompile>
-    <ClCompile Include="src\unittests\test_resolve_runner.cpp">
-      <Filter>src\unittests</Filter>
-    </ClCompile>
-    <ClCompile Include="src\unittests\test_rigid_body.cpp">
-      <Filter>src\unittests</Filter>
-    </ClCompile>
-    <ClCompile Include="src\unittests\test_shape_builder.cpp">
-      <Filter>src\unittests</Filter>
-    </ClCompile>
     <ClCompile Include="src\rigid_body\rigid_body.cpp">
       <Filter>src\rigid_body</Filter>
-    </ClCompile>
-    <ClCompile Include="src\unittests\test_interop_engine.cpp">
-      <Filter>src\unittests</Filter>
-    </ClCompile>
-    <ClCompile Include="src\unittests\test_buoyancy.cpp">
-      <Filter>src\unittests</Filter>
-    </ClCompile>
-    <ClCompile Include="src\unittests\test_buoyancy_sampler.cpp">
-      <Filter>src\unittests</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -248,12 +203,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\state_flags.h">
       <Filter>src\rigid_body</Filter>
     </ClInclude>
-    <ClInclude Include="src\unittests\force_link.h">
-      <Filter>src\unittests</Filter>
-    </ClInclude>
-    <ClInclude Include="src\unittests\shared_engine.h">
-      <Filter>src\unittests</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\..\include\pr\physics\rigid_body\sleep_data.h">
       <Filter>src\rigid_body</Filter>
     </ClInclude>
@@ -299,7 +248,7 @@
     </ShaderBuild>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="src\compute\physics_compute_shaders.rc">
+    <ResourceCompile Include="src\compute\compute_shaders_physics.rc">
       <Filter>src\compute</Filter>
     </ResourceCompile>
   </ItemGroup>

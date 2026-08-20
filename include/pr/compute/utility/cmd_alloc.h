@@ -175,7 +175,7 @@ namespace pr::compute
 		void Return(CmdAlloc<ListType>&& cmd_alloc)
 		{
 			PR_ASSERT(PR_DBG_RDR, m_gsync != nullptr, "This pool has already been destructed");
-			PR_ASSERT(PR_DBG_RDR, cmd_alloc != nullptr, "Don't add null allocators to the pool");
+			PR_ASSERT(PR_DBG_RDR, cmd_alloc.m_alloc != nullptr, "Don't add null allocators to the pool");
 			PR_ASSERT(PR_DBG_RDR, cmd_alloc.m_pool == this, "Returned object didn't come from this pool");
 			cmd_alloc.m_pool = nullptr;
 			m_pool.push_back(std::move(cmd_alloc));
@@ -188,4 +188,3 @@ namespace pr::compute
 	using GfxCmdAlloc = CmdAlloc<D3D12_COMMAND_LIST_TYPE_DIRECT>;
 	using ComCmdAlloc = CmdAlloc<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
 }
-

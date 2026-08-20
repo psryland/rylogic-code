@@ -904,6 +904,10 @@ extern "C"
 	VIEW3D_API pr::view3d::DllHandle __stdcall View3D_Initialise(pr::view3d::ReportErrorCB global_error_cb);
 	VIEW3D_API void __stdcall View3D_Shutdown(pr::view3d::DllHandle context);
 
+	// Acquire an owned ID3D12Device COM reference for lifetime-safe interop with independent subsystems.
+	// The caller must release the returned interface exactly once using IUnknown::Release.
+	VIEW3D_API void* __stdcall View3D_DeviceLeaseAcquire(pr::view3d::DllHandle context);
+
 	// This error callback is called for errors that are associated with the dll (rather than with a window).
 	VIEW3D_API void __stdcall View3D_GlobalErrorCBSet(pr::view3d::ReportErrorCB error_cb, BOOL add);
 

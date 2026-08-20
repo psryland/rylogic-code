@@ -470,7 +470,7 @@ namespace pr::common
 			return Len(diff[0], diff[1]) < lhs.radius + rhs.radius;
 		}
 	}
-	PRUnitTest(QuadTreeTests)
+	PRUnitTestFamily(QuadTreeTests, Slow)
 	{
 		using namespace unittests::quad_tree;
 

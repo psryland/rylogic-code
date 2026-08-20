@@ -13,6 +13,21 @@
     <Filter Include="src\utility">
       <UniqueIdentifier>{e7771e17-d2c4-4300-a319-59735308ee1c}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\compute">
+      <UniqueIdentifier>{4c35f14d-0188-4f8e-a230-24725e5b7a68}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\compute\radix_sort">
+      <UniqueIdentifier>{8be39e4f-8ef2-4958-a815-d450928f76bc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\compute\fluid_simulation">
+      <UniqueIdentifier>{71a0e8c7-5d58-4440-b3cb-9f2ea3f83325}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\compute\particle_collision">
+      <UniqueIdentifier>{1aa22ae8-ee7f-4234-ac32-34f92cadfbe1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\compute\spatial_partition">
+      <UniqueIdentifier>{697ef0be-a5d1-4e5f-ad9c-2761799113ac}</UniqueIdentifier>
+    </Filter>
     <Filter Include="pr">
       <UniqueIdentifier>{952e56ce-c850-45b7-ab09-14a846327e37}</UniqueIdentifier>
     </Filter>
@@ -37,6 +52,36 @@
     <Filter Include="pr\compute\shaders">
       <UniqueIdentifier>{af2c7502-34c8-4178-b5f7-bdbd43817e18}</UniqueIdentifier>
     </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="src\compute\particle_collision\collision.hlsli">
+      <Filter>src\compute\particle_collision</Filter>
+    </None>
+    <None Include="src\compute\particle_collision\particle.hlsli">
+      <Filter>src\compute\particle_collision</Filter>
+    </None>
+    <None Include="src\compute\spatial_partition\spatial_partition.hlsli">
+      <Filter>src\compute\spatial_partition</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="src\compute\fluid_simulation\fluid_simulation.hlsl">
+      <Filter>src\compute\fluid_simulation</Filter>
+    </FxCompile>
+    <FxCompile Include="src\compute\particle_collision\particle_collision.hlsl">
+      <Filter>src\compute\particle_collision</Filter>
+    </FxCompile>
+    <FxCompile Include="src\compute\radix_sort\radix_sort.hlsl">
+      <Filter>src\compute\radix_sort</Filter>
+    </FxCompile>
+    <FxCompile Include="src\compute\spatial_partition\spatial_partition.hlsl">
+      <Filter>src\compute\spatial_partition</Filter>
+    </FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="src\compute\compute_shaders.rc">
+      <Filter>src\compute</Filter>
+    </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\gpu.cpp">

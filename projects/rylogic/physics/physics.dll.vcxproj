@@ -38,6 +38,10 @@
       <AdditionalDependencies>
         ;physics-static.lib
         ;compute-static.lib
+        ;compute_shaders.res
+        ;compute_shaders_physics.res
+        ;d3d12.lib
+        ;dxguid.lib
         ;%(AdditionalDependencies)
       </AdditionalDependencies>
     </Link>
@@ -48,8 +52,10 @@
   <ItemGroup>
     <ClCompile Include="src\dll\dll.cpp" />
     <ClCompile Include="src\dll\context.cpp" />
+    <ClCompile Include="src\dll\interop.cpp" />
     <ClInclude Include="src\dll\dll_forward.h" />
     <ClInclude Include="src\dll\context.h" />
+    <ClInclude Include="src\dll\interop.h" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\include\pr\physics\physics-dll.h" />

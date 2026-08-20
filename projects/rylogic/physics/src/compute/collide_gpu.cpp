@@ -220,12 +220,62 @@ namespace pr::physics
 		return shapes_resized;
 	}
 
+	// Make the cached shape data resident on the GPU.
+	// The broadphase and the narrowphase both read this buffer, so it is uploaded once per frame before
+	// either runs and only when the cache has actually changed. Clearing the cache's dirty flag here is
+	// what keeps steady-state frames free of shape traffic.
+	void GpuCollisionDetector::UploadShapes(GpuJob& job, ShapeCache& shape_cache)
+	{
+		auto shape_count = static_cast<int>(shape_cache.m_shapes.size());
+		auto vert_count = static_cast<int>(shape_cache.m_verts.size());
+		auto face_count = static_cast<int>(shape_cache.m_faces.size());
+		auto edge_count = static_cast<int>(shape_cache.m_edges.size());
+
+		// A reallocated buffer contains garbage, so it must be re-uploaded regardless of the dirty flag.
+		auto upload_needed = shape_cache.m_changed;
+		upload_needed |= ResizeBuffers(job.m_cmd_list, m_max_contacts, m_max_pairs, shape_count, vert_count, face_count, edge_count);
+		if (!upload_needed)
+			return;
+
+		// Upload shapes and vertex buffers
+		job.m_barriers.Transition(m_r_shapes.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+		job.m_barriers.Transition(m_r_verts.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+		job.m_barriers.Transition(m_r_faces.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+		job.m_barriers.Transition(m_r_edges.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+		job.m_barriers.Commit();
+
+		auto shape_upload = job.m_upload.Alloc<GpuShape>(std::max(1, shape_count));
+		memcpy(shape_upload.ptr<GpuShape>(), shape_cache.m_shapes.data(), shape_count * sizeof(GpuShape));
+		job.m_cmd_list.CopyBufferRegion(m_r_shapes.get(), 0, shape_upload);
+
+		// Upload vertices buffer (may be empty if no polytopes/triangles), it can be uninitialised in this case.
+		auto vert_upload = job.m_upload.Alloc<v4>(std::max(1, vert_count));
+		memcpy(vert_upload.ptr<v4>(), shape_cache.m_verts.data(), vert_count * sizeof(v4));
+		job.m_cmd_list.CopyBufferRegion(m_r_verts.get(), 0, vert_upload);
+
+		auto face_upload = job.m_upload.Alloc<GpuPolytopeFace>(std::max(1, face_count));
+		memcpy(face_upload.ptr<GpuPolytopeFace>(), shape_cache.m_faces.data(), face_count * sizeof(GpuPolytopeFace));
+		job.m_cmd_list.CopyBufferRegion(m_r_faces.get(), 0, face_upload);
+
+		auto edge_upload = job.m_upload.Alloc<GpuPolytopeEdge>(std::max(1, edge_count));
+		memcpy(edge_upload.ptr<GpuPolytopeEdge>(), shape_cache.m_edges.data(), edge_count * sizeof(GpuPolytopeEdge));
+		job.m_cmd_list.CopyBufferRegion(m_r_edges.get(), 0, edge_upload);
+
+		job.m_barriers.Transition(m_r_shapes.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_r_verts.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_r_faces.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_r_edges.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Commit();
+
+		shape_cache.m_changed = false;
+	}
+
 	// Run collision detection on the GPU.
-	void GpuCollisionDetector::DetectCollisions(GpuJob& job, int max_contacts, int max_pairs, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, ShapeCache const& shape_cache)
+	void GpuCollisionDetector::DetectCollisions(GpuJob& job, int max_contacts, int max_pairs, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, ShapeCache& shape_cache)
 	{
 		DetectCollisions(job, max_contacts, max_pairs, dispatch, pairs, counters, nullptr, nullptr, shape_cache);
 	}
-	void GpuCollisionDetector::DetectCollisions(GpuJob& job, int max_contacts, int max_pairs, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> resolve_dispatch, ShapeCache const& shape_cache)
+	void GpuCollisionDetector::DetectCollisions(GpuJob& job, int max_contacts, int max_pairs, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> pairs, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> resolve_dispatch, ShapeCache& shape_cache)
 	{
 		// Notes:
 		//  - Assumes that the counters.contact_count has been zeroed already by the broad phase shader.
@@ -233,50 +283,20 @@ namespace pr::physics
 		auto vert_count = static_cast<int>(shape_cache.m_verts.size());
 		auto face_count = static_cast<int>(shape_cache.m_faces.size());
 		auto edge_count = static_cast<int>(shape_cache.m_edges.size());
-		auto shapes_upload_needed = shape_cache.m_changed;
 
 		pix::BeginEvent(job.m_cmd_list.get(), 0xFFf245bc, "Physics::Collide");
 
-		// If ResizeBuffers reallocated the shape/vert buffers, we must re-upload
-		// regardless of the caller's dirty flag (the new buffers contain garbage).
-		shapes_upload_needed |= ResizeBuffers(job.m_cmd_list, max_contacts, max_pairs, shape_count, vert_count, face_count, edge_count);
+		// Make the shape data resident. The broadphase reads the same buffer to expand compound bodies,
+		// so this is typically already done for the frame and costs nothing here.
+		UploadShapes(job, shape_cache);
+
+		// Size the contact and bin buffers. The shape buffers cannot move here because UploadShapes has
+		// already sized them for the same shape counts.
+		ResizeBuffers(job.m_cmd_list, max_contacts, max_pairs, shape_count, vert_count, face_count, edge_count);
 		if (contacts == nullptr)
 			contacts = m_r_contacts;
 		if (resolve_dispatch == nullptr)
 			resolve_dispatch = m_r_resolve_dispatch;
-
-		if (shapes_upload_needed)
-		{
-			// Upload shapes and vertex buffers
-			job.m_barriers.Transition(m_r_shapes.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			job.m_barriers.Transition(m_r_verts.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			job.m_barriers.Transition(m_r_faces.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			job.m_barriers.Transition(m_r_edges.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			job.m_barriers.Commit();
-
-			auto shape_upload = job.m_upload.Alloc<GpuShape>(shape_count);
-			memcpy(shape_upload.ptr<GpuShape>(), shape_cache.m_shapes.data(), shape_count * sizeof(GpuShape));
-			job.m_cmd_list.CopyBufferRegion(m_r_shapes.get(), 0, shape_upload);
-
-			// Upload vertices buffer (may be empty if no polytopes/triangles), it can be uninitialised in this case.
-			auto vert_upload = job.m_upload.Alloc<v4>(std::max(1, vert_count));
-			memcpy(vert_upload.ptr<v4>(), shape_cache.m_verts.data(), vert_count * sizeof(v4));
-			job.m_cmd_list.CopyBufferRegion(m_r_verts.get(), 0, vert_upload);
-
-			auto face_upload = job.m_upload.Alloc<GpuPolytopeFace>(std::max(1, face_count));
-			memcpy(face_upload.ptr<GpuPolytopeFace>(), shape_cache.m_faces.data(), face_count * sizeof(GpuPolytopeFace));
-			job.m_cmd_list.CopyBufferRegion(m_r_faces.get(), 0, face_upload);
-
-			auto edge_upload = job.m_upload.Alloc<GpuPolytopeEdge>(std::max(1, edge_count));
-			memcpy(edge_upload.ptr<GpuPolytopeEdge>(), shape_cache.m_edges.data(), edge_count * sizeof(GpuPolytopeEdge));
-			job.m_cmd_list.CopyBufferRegion(m_r_edges.get(), 0, edge_upload);
-
-			job.m_barriers.Transition(m_r_shapes.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			job.m_barriers.Transition(m_r_verts.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			job.m_barriers.Transition(m_r_faces.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			job.m_barriers.Transition(m_r_edges.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			job.m_barriers.Commit();
-		}
 
 		// Switch states for resources
 		{
@@ -393,7 +413,7 @@ namespace pr::physics
 	// Run collision detection on the GPU with CPU-side data.
 	// This overload uploads pairs from CPU, runs the GPU collision detection, reads back contacts.
 	// Used by unit tests and CPU-fallback paths. Returns the contacts found.
-	std::span<GpuResolveContact> GpuCollisionDetector::DetectCollisions(GpuJob& job, std::span<GpuCollisionPair const> pairs, ShapeCache const& shape_cache, std::span<GpuResolveContact> out_contacts)
+	std::span<GpuResolveContact> GpuCollisionDetector::DetectCollisions(GpuJob& job, std::span<GpuCollisionPair const> pairs, ShapeCache& shape_cache, std::span<GpuResolveContact> out_contacts)
 	{
 		auto pair_count = static_cast<int>(pairs.size());
 		if (pair_count == 0)

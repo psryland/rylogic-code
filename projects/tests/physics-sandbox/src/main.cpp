@@ -10,7 +10,6 @@
 #include "src/forward.h"
 #include "src/ui/sandbox_ui.h"
 #include "src/diagnostics/scene_diagnostic.h"
-#include "physics/src/unittests/force_link.h"
 
 // Enable ComCtl32 v6 visual styles (modern themed controls)
 #pragma comment(linker, "\"/manifestdependency:type='win32' \
@@ -63,11 +62,6 @@ namespace physics_sandbox
 		OpenConsoleOutput();
 
 		printf("Physics Sandbox: Running unit tests...\n");
-
-		// Ensure physics library test .obj files are linked in
-		#if PR_UNITTESTS
-		pr::physics::tests::ForceLink_PhysicsTests();
-		#endif
 
 		// Optionally tee unit-test output to a file for automation capture. This app reopens CONOUT$
 		// in OpenConsoleOutput(), which bypasses any inherited stdout redirection, so a console-less

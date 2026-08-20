@@ -365,6 +365,18 @@ namespace pr::physics
 		m_pending_step.Clear();
 	}
 
+	// Wait for a pending step during terminal cleanup without updating bodies or reusing command state.
+	void Engine::AbandonStep()
+	{
+		if (!m_pending_step.m_active)
+			return;
+
+		if (m_pending_step.m_submitted)
+			m_gpu->m_job.Abandon(m_pending_step.m_run);
+
+		m_pending_step.Clear();
+	}
+
 	// Explicitly initialise missing sleep islands for newly-created sleeping bodies.
 	void Engine::UpdateSleepIslands(std::span<RigidBody*> rigid_bodies)
 	{
@@ -446,6 +458,10 @@ namespace pr::physics
 	{
 		m_gpu_integrator->Upload(m_gpu->m_job, m_cache->m_rb_dynamics);
 		m_gpu_sleep_manager->Upload(m_gpu->m_job, m_cache->m_sleep_islands);
+
+		// The broadphase reads shape data to expand compound bodies into their convex leaves, so shapes
+		// must be resident before the sweep rather than only before the narrowphase.
+		m_gpu_collision_detector->UploadShapes(m_gpu->m_job, m_cache->m_shape_cache);
 	}
 
 	// Apply user-supplied GPU forces before integration.
@@ -501,8 +517,9 @@ namespace pr::physics
 		auto bodies = m_gpu_integrator->Bodies();
 		auto sleep_islands = m_gpu_sleep_manager->SleepIslands();
 		auto sleep_island_count = m_cache->SleepIslandCount();
+		auto shapes = m_gpu_collision_detector->Shapes();
 		m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb_sort, aabb_idx);
-		m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, aabb_box, bodies, sleep_island_count, sleep_islands, sleeping_enabled);
+		m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, aabb_box, bodies, shapes, sleep_island_count, sleep_islands, sleeping_enabled);
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{

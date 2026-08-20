@@ -81,7 +81,7 @@ namespace pr::compute
 		}
 		CmdList(CmdList&& rhs) noexcept
 			: m_list(std::move(rhs.m_list))
-			, m_cmd_allocator(std::move(m_cmd_allocator))
+			, m_cmd_allocator(std::move(rhs.m_cmd_allocator))
 			, m_thread_id(rhs.m_thread_id)
 			, m_res_state(std::move(rhs.m_res_state))
 			, m_pool(rhs.m_pool)
@@ -540,4 +540,3 @@ namespace pr::compute
 	using ComCmdListPool = CmdListPool<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
 
 }
-

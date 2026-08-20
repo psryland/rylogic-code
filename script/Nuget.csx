@@ -29,6 +29,7 @@ public class Nuget
 
 	public string PackageName = "";
 	public string Version = "1.0.0";
+	public string? Description;
 	public string Tags = "";
 	public List<File> Files = [];
 	public List<Dep> Deps = [];
@@ -51,6 +52,9 @@ public class Nuget
 		var xml_metadata = xml_nuspec.Element(XName.Get("metadata", ns)) ?? throw new Exception("metadata element not found in nuspec template");
 		xml_metadata.Element(XName.Get("id", ns))?.SetValue(PackageName);
 		xml_metadata.Element(XName.Get("version", ns))?.SetValue(Version);
+		if (Description is not null)
+			xml_metadata.Element(XName.Get("description", ns))?.SetValue(Description);
+
 		xml_metadata.Element(XName.Get("tags", ns))?.SetValue(Tags);
 
 		// Add each file to the spec
@@ -74,22 +78,37 @@ public class Nuget
 
 		// Add dependencies
 		var xml_dependencies = xml_metadata.Element(XName.Get("dependencies", ns)) ?? throw new Exception("dependencies element not found in nuspec template");
-		foreach (var dep in Deps.Where(x => x.Framework == null))
+		var has_framework_dependencies = Deps.Any(x => x.Framework != null);
+		if (!has_framework_dependencies)
 		{
-			xml_dependencies.Add2(new XElement(XName.Get("dependency", ns),
-				new XAttribute("id", dep.AssemblyName),
-				new XAttribute("version", dep.Version)
-			));
-		}
-		foreach (var group in Deps.Where(x => x.Framework != null).GroupBy(x => x.Framework))
-		{
-			xml_dependencies.Add2(new XElement(XName.Get("group", ns),
-				new XAttribute("targetFramework", group.Key!),
-				group.Select(dep => new XElement(XName.Get("dependency", ns),
+			foreach (var dep in Deps)
+			{
+				xml_dependencies.Add2(new XElement(XName.Get("dependency", ns),
 					new XAttribute("id", dep.AssemblyName),
 					new XAttribute("version", dep.Version)
-				))
-			));
+				));
+			}
+		}
+		else
+		{
+			// NuGet forbids mixing dependency and group elements, so common dependencies must be repeated for every packaged target framework.
+			var frameworks = Files
+				.Select(file => file.Target.Replace('\\', '/').Trim('/').Split('/'))
+				.Where(parts => parts.Length >= 2 && parts[0] == "lib")
+				.Select(parts => parts[1])
+				.Concat(Deps.Where(dep => dep.Framework != null).Select(dep => dep.Framework!))
+				.Distinct(StringComparer.OrdinalIgnoreCase);
+			foreach (var framework in frameworks)
+			{
+				var dependencies = Deps.Where(dep => dep.Framework == null || string.Equals(dep.Framework, framework, StringComparison.OrdinalIgnoreCase));
+				xml_dependencies.Add2(new XElement(XName.Get("group", ns),
+					new XAttribute("targetFramework", framework),
+					dependencies.Select(dep => new XElement(XName.Get("dependency", ns),
+						new XAttribute("id", dep.AssemblyName),
+						new XAttribute("version", dep.Version)
+					))
+				));
+			}
 		}
 
 		// Declare runtime frameworks that package consumers must select.

@@ -1,0 +1,53 @@
+<Project>
+	<!-- Physics compiled tests belong to the global runner rather than the production static library. -->
+	<ItemGroup>
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)buoyancy_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)buoyancy_sampler_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)collision_pairs_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)collision_resolution_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)gpu_collision_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)gpu_collision_detector_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)gpu_compare_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)impulse_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)inertia_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)integrator_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)interop_engine_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)resolve_runner_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)rigid_body_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)shape_builder_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)physics_dll_tests.cpp" />
+		<ClCompile Include="@(CompiledUnitTest)">
+			<PreprocessorDefinitions>
+				;PR_UNITTEST_FAMILY=Compiled
+				;%(PreprocessorDefinitions)
+			</PreprocessorDefinitions>
+			<AdditionalIncludeDirectories>
+				;$(RylogicRoot)projects\rylogic\physics
+				;$(RylogicRoot)projects\rylogic
+				;%(AdditionalIncludeDirectories)
+			</AdditionalIncludeDirectories>
+		</ClCompile>
+		<ClInclude Include="$(MSBuildThisFileDirectory)shared_engine.h" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\physics\physics.vcxproj">
+			<LinkLibraryDependencies>false</LinkLibraryDependencies>
+			<UseLibraryDependencyInputs>false</UseLibraryDependencyInputs>
+			<ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+		</ProjectReference>
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\physics\physics.dll.vcxproj">
+			<LinkLibraryDependencies>false</LinkLibraryDependencies>
+			<UseLibraryDependencyInputs>false</UseLibraryDependencyInputs>
+			<ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+		</ProjectReference>
+	</ItemGroup>
+	<ItemDefinitionGroup>
+		<Link>
+			<AdditionalDependencies>
+				;compute_shaders.res
+				;compute_shaders_physics.res
+				;d3d12.lib
+				;dxguid.lib
+				;%(AdditionalDependencies)
+			</AdditionalDependencies>
+		</Link>
+	</ItemDefinitionGroup>
+</Project>

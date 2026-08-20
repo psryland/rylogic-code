@@ -5273,7 +5273,7 @@ namespace pr::ldraw
 		PRUnitTestMethod(Circle)
 		{
 			Builder builder;
-			builder.Circle("c", 0xFF00FF00).radius(5).facets(16);
+			builder.Circle("c", 0xFF00FF00).circle(5).facets(16);
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Circle c ff00ff00 {*Data {5} *Facets {16}}");
 		}
@@ -5294,7 +5294,7 @@ namespace pr::ldraw
 		PRUnitTestMethod(Rect)
 		{
 			Builder builder;
-			builder.Rect("r", 0xFF00FF00).wh(10, 20).corner_radius(2).facets(8);
+			builder.Rect("r", 0xFF00FF00).rect(10, 20).corner_radius(2).facets(8);
 			auto ldr = builder.ToString();
 			PR_EXPECT(ldr ==
 			"*Rect r ff00ff00 {\n"

@@ -202,7 +202,7 @@ namespace pr::tri_table
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(TriangularTableTests)
+	PRUnitTestFamily(TriangularTableTests, Slow)
 	{
 		using namespace pr::tri_table;
 

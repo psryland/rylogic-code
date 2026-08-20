@@ -36,6 +36,13 @@ public sealed class RunRylogicUnitTests : Task
 		set;
 	} = string.Empty;
 
+	// Optional command-line arguments for a native unit-test process.
+	public string Arguments
+	{
+		get;
+		set;
+	} = string.Empty;
+
 	// Execute the unit-test entry point and report failures without failing the build.
 	public override bool Execute()
 	{
@@ -55,7 +62,7 @@ public sealed class RunRylogicUnitTests : Task
 
 			var result = IsManaged
 				? RunManagedTests()
-				: RunProcess(TargetPath, string.Empty, working_dir);
+				: RunProcess(TargetPath, Arguments, working_dir);
 
 			LogOutput(result.Item2, MessageImportance.High);
 			LogOutput(result.Item3, MessageImportance.High);

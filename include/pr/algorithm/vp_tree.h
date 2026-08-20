@@ -616,7 +616,7 @@ namespace pr::vp_tree::tests
 				CheckPairs(points, max_separation, pairs);
 			}
 		}
-		PRUnitTestMethod(Robustness)
+		PRUnitTestMethodFamily(Robustness, Slow)
 		{
 			std::vector<Pt> points;
 			std::set<Pt> results;

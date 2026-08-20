@@ -4064,7 +4064,7 @@ namespace pr::storage::zip
 
 namespace pr::storage
 {
-	PRUnitTest(ZipArchiveTests)
+	PRUnitTestFamily(ZipArchiveTests, Slow)
 	{
 		auto path = (std::filesystem::path(__FILE__).parent_path() / ".." / ".." / ".." / "projects" / "tests" / "unittests" / "res").lexically_normal();
 		if (!std::filesystem::exists(path))

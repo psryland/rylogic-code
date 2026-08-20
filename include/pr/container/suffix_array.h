@@ -446,7 +446,7 @@ namespace pr::suffix_array
 #include "pr/common/unittests.h"
 namespace pr::container
 {
-	PRUnitTest(SuffixArrayTests)
+	PRUnitTestFamily(SuffixArrayTests, Slow)
 	{
 		{// Empty data and empty index
 			std::string data;

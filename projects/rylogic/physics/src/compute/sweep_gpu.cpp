@@ -32,6 +32,7 @@ namespace pr::physics
 		inline static constexpr auto AABB_Idx = ESRVReg::t1;
 		inline static constexpr auto AABB_Box = ESRVReg::t2;
 		inline static constexpr auto SleepIslands = ESRVReg::t3;
+		inline static constexpr auto Shapes = ESRVReg::t4;
 	};
 
 	GpuSortAndSweep::GpuSortAndSweep(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache)
@@ -55,6 +56,7 @@ namespace pr::physics
 				.SRV(EReg::AABB_Idx)
 				.SRV(EReg::AABB_Box)
 				.SRV(EReg::SleepIslands)
+				.SRV(EReg::Shapes)
 				;
 		};
 
@@ -111,6 +113,7 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> aabb_idx,
 		D3DPtr<ID3D12Resource> aabb_box,
 		D3DPtr<ID3D12Resource> bodies,
+		D3DPtr<ID3D12Resource> shapes,
 		int sleep_island_count,
 		D3DPtr<ID3D12Resource> sleep_islands,
 		bool sleeping_enabled)
@@ -135,6 +138,7 @@ namespace pr::physics
 			job.m_barriers.Transition(aabb_idx.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(aabb_box.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(sleep_islands.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Transition(shapes.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Commit();
 		}
 
@@ -150,6 +154,7 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRootShaderResourceView(aabb_idx->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(aabb_box->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(sleep_islands->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(shapes->GetGPUVirtualAddress());
 
 			// One thread for each array element in the AABB index buffer
 			auto dispatch_count = (2*body_count + SweepThreadCount - 1) / SweepThreadCount;
@@ -219,9 +224,10 @@ namespace pr::physics
 	}
 
 	// CPU-side testing: upload bodies, sort + sweep, readback pairs. Calls job.Run() internally.
-	std::span<GpuCollisionPair> GpuSortAndSweep::SortAndSweep(GpuJob& job, std::span<GpuRigidBody const> bodies, int sort_axis, std::span<GpuCollisionPair> out_pairs)
+	std::span<GpuCollisionPair> GpuSortAndSweep::SortAndSweep(GpuJob& job, std::span<GpuRigidBody const> bodies, std::span<GpuShape const> shapes, int sort_axis, std::span<GpuCollisionPair> out_pairs)
 	{
 		auto body_count = static_cast<int>(bodies.size());
+		auto shape_count = std::max(static_cast<int>(shapes.size()), 1);
 		auto pair_count = static_cast<int>(out_pairs.size());
 		if (body_count < 2)
 			return {};
@@ -229,6 +235,7 @@ namespace pr::physics
 		// Create temporary GPU resources
 		auto r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempCounters");
 		auto r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(body_count, {}), job.m_cmd_list, "Physics:TempBodies");
+		auto r_shapes = m_gpu.CreateResource(ResDesc::Buf<GpuShape>(shape_count, {}), job.m_cmd_list, "Physics:TempShapes");
 		auto r_aabb_sort = m_gpu.CreateResource(ResDesc::Buf<float>(2 * body_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempAABB_Sort");
 		auto r_aabb_box = m_gpu.CreateResource(ResDesc::Buf<BBox>(body_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempAABB_Box");
 		auto r_aabb_idx = m_gpu.CreateResource(ResDesc::Buf<int>(2 * body_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempAABBIdx");
@@ -260,6 +267,21 @@ namespace pr::physics
 			job.m_cmd_list.CopyBufferRegion(r_bodies.get(), 0, upload);
 
 			job.m_barriers.Transition(r_bodies.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			job.m_barriers.Commit();
+		}
+
+		// Upload shapes. The sweep reads these to expand compound bodies into convex leaves.
+		{
+			job.m_barriers.Transition(r_shapes.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+
+			auto upload = job.m_upload.Alloc<GpuShape>(shape_count);
+			auto* dst = upload.ptr<GpuShape>();
+			memset(dst, 0, shape_count * sizeof(GpuShape));
+			memcpy(dst, shapes.data(), shapes.size() * sizeof(GpuShape));
+			job.m_cmd_list.CopyBufferRegion(r_shapes.get(), 0, upload);
+
+			job.m_barriers.Transition(r_shapes.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Commit();
 		}
 
@@ -321,7 +343,7 @@ namespace pr::physics
 		Sort(job, body_count, r_aabb_sort, r_aabb_idx);
 
 		// Run the sweep step
-		Sweep(job, body_count, pair_count, r_counters, r_aabb_idx, r_aabb_box, r_bodies, 0, r_sleep_islands, m_config.sleeping_enabled);
+		Sweep(job, body_count, pair_count, r_counters, r_aabb_idx, r_aabb_box, r_bodies, r_shapes, 0, r_sleep_islands, m_config.sleeping_enabled);
 
 		// Read back data from the GPU
 		return Readback(job, r_counters, out_pairs);

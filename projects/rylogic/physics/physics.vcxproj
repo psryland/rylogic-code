@@ -136,20 +136,6 @@
     <ClCompile Include="src\integrator\integrator.cpp" />
     <ClCompile Include="src\rigid_body\rigid_body.cpp" />
     <ClCompile Include="src\shape\inertia.cpp" />
-    <ClCompile Include="src\unittests\test_buoyancy.cpp" />
-    <ClCompile Include="src\unittests\test_buoyancy_sampler.cpp" />
-    <ClCompile Include="src\unittests\test_collision_pairs.cpp" />
-    <ClCompile Include="src\unittests\test_collision_resolution.cpp" />
-    <ClCompile Include="src\unittests\test_gpu_collision.cpp" />
-    <ClCompile Include="src\unittests\test_gpu_collision_detector.cpp" />
-    <ClCompile Include="src\unittests\test_gpu_compare.cpp" />
-    <ClCompile Include="src\unittests\test_impulse.cpp" />
-    <ClCompile Include="src\unittests\test_inertia.cpp" />
-    <ClCompile Include="src\unittests\test_integrator.cpp" />
-    <ClCompile Include="src\unittests\test_interop_engine.cpp" />
-    <ClCompile Include="src\unittests\test_resolve_runner.cpp" />
-    <ClCompile Include="src\unittests\test_rigid_body.cpp" />
-    <ClCompile Include="src\unittests\test_shape_builder.cpp" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\collision\broadphase_brute.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\collision\contact.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\constants.h" />
@@ -190,8 +176,6 @@
     <ClInclude Include="src\diagnostics\physics_log.h" />
     <ClInclude Include="src\integrator\engine_buffer_cache.h" />
     <ClInclude Include="src\materials\material_map.h" />
-    <ClInclude Include="src\unittests\force_link.h" />
-    <ClInclude Include="src\unittests\shared_engine.h" />
     <ClInclude Include="src\utility\gpu.h" />
   </ItemGroup>
   <!--
@@ -214,10 +198,10 @@
     <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl" ComputeEntryPoints="CSBuoyancyVolumeSamples;CSBuoyancyVolumeReduce;CSBuoyancyDragSurfaceSamples;CSBuoyancyDragSurfaceReduce" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="src\compute\physics_compute_shaders.rc" />
+    <ResourceCompile Include="src\compute\compute_shaders_physics.rc" />
   </ItemGroup>
   <ItemGroup>
-    <BuildArtifacts Include="$(OutDir)physics_compute_shaders.res" />
+    <BuildArtifacts Include="$(OutDir)compute_shaders_physics.res" />
   </ItemGroup>
   <!--
   Targets

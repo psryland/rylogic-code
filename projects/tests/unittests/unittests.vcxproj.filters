@@ -1252,7 +1252,6 @@
     <ClInclude Include="..\..\..\include\pr\geometry\obj.h">
       <Filter>pr\geometry</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\include\pr\algorithm\umap.h" />
     <ClInclude Include="..\..\..\include\pr\collision\col_box_vs_sphere.h">
       <Filter>pr\collision</Filter>
     </ClInclude>
@@ -1406,6 +1405,9 @@
     <ClInclude Include="..\..\..\include\pr\compute\resource\resource_state_store.h">
       <Filter>pr\compute\resource</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\..\include\pr\algorithm\umap.h">
+      <Filter>pr\algorithm</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="$(RylogicRoot)include\pr\hlsl\camera.hlsli">
@@ -1481,9 +1483,6 @@
     </ClCompile>
     <ClCompile Include="src\hlsl\spatial_algebra_tests.cpp">
       <Filter>src\hlsl</Filter>
-    </ClCompile>
-    <ClCompile Include="$(RylogicRoot)projects\apps\lost_at_sea\src\world\water\water_system.cpp">
-      <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

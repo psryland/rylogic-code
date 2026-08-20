@@ -15,6 +15,13 @@ int __stdcall WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR l
 {
 	(void)hInstance;
 	int nRet;
+	#ifdef PR_APP_COMMAND_LINE_HANDLER
+
+	// Give applications a pre-GUI command mode without duplicating the shared entry-point lifecycle.
+	if (PR_APP_COMMAND_LINE_HANDLER(lpstrCmdLine, nRet))
+		return nRet;
+
+	#endif
 	{
 		std::string err_msg;
 		std::unique_ptr<IAppMainUI> gui;

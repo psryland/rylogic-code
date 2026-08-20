@@ -35,6 +35,20 @@
       </AdditionalIncludeDirectories>
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <FxCompile>
+      <ShaderType>Compute</ShaderType>
+      <ShaderModel>6.6</ShaderModel>
+      <AdditionalIncludeDirectories>
+        ;$(ProjectDir)
+        ;$(RylogicRoot)include\
+        ;%(AdditionalIncludeDirectories)
+      </AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>
+        ;%(PreprocessorDefinitions)
+        ;SHADER_BUILD
+      </PreprocessorDefinitions>
+      <AdditionalOptions>/HV 2021 %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
   </ItemDefinitionGroup>
   <!--
   Source files
@@ -88,6 +102,21 @@
     <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\update_resource.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\utility.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\compute\utility\wrappers.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="src\compute\particle_collision\collision.hlsli" />
+    <None Include="src\compute\particle_collision\particle.hlsli" />
+    <None Include="src\compute\spatial_partition\spatial_partition.hlsli" />
+    <FxCompile Include="src\compute\fluid_simulation\fluid_simulation.hlsl" EntryPointName="ApplyForces" />
+    <FxCompile Include="src\compute\particle_collision\particle_collision.hlsl" EntryPointName="Integrate" />
+    <FxCompile Include="src\compute\radix_sort\radix_sort.hlsl" EntryPointName="SweepDown" />
+    <FxCompile Include="src\compute\spatial_partition\spatial_partition.hlsl" EntryPointName="BuildLookup" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="src\compute\compute_shaders.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <BuildArtifacts Include="$(OutDir)compute_shaders.res" />
   </ItemGroup>
   <!--
   Targets

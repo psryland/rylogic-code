@@ -351,6 +351,10 @@ namespace pr::physics
 	{
 		return m_ws_force;
 	}
+	void RigidBody::ForceWS(v8force const& ws_force)
+	{
+		m_ws_force = ws_force;
+	}
 	v8force RigidBody::ForceOS() const
 	{
 		return W2O().rot * ForceWS();

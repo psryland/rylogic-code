@@ -113,7 +113,7 @@ namespace pr::algorithm
 #include "pr/common/unittests.h"
 namespace pr::algorithm::tests
 {
-	PRUnitTest(FibonacciSphereTests)
+	PRUnitTestFamily(FibonacciSphereTests, Slow)
 	{
 		{// Test round trip of fib points
 			constexpr int N = 65536;

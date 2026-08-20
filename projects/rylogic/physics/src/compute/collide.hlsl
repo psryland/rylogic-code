@@ -193,8 +193,12 @@ void StoreContact(in_(GpuCollisionPair) pair, in_(GpuShape) shape_a, in_(GpuShap
 	contact.depth = col.depth;
 	contact.collision_time = 0;
 	contact.feature = col.feature;
-	contact.pad1 = 0;
+	contact.child_idx_a = pair.child_idx_a;
 	contact.warmstart_impulse = float4(0, 0, 0, 0);
+	contact.child_idx_b = pair.child_idx_b;
+	contact.pad1 = 0;
+	contact.pad2 = 0;
+	contact.pad3 = 0;
 	g_contacts[slot] = contact;
 }
 

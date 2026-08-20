@@ -151,7 +151,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEqlRelative(m2, M2, 0.0001f));
 		}
 
-		PRUnitTestMethod(MultiplyRoundTrip)
+		PRUnitTestMethodFamily(MultiplyRoundTrip, Slow)
 		{
 			const int SZ = 100;
 			Matrix<float> m(SZ, SZ);

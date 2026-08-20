@@ -93,6 +93,13 @@ namespace pr::unittests
 // Cannot include pr lib headers here because they are the headers
 // being unit tested. Also, this should be a standalone header
 
+// Assign tests to the header family unless the owning compiled-test target supplies another family.
+#ifndef PR_UNITTEST_FAMILY
+#define PR_UNITTEST_FAMILY Header
+#endif
+#define PR_UNITTEST_STRINGISE_IMPL(value) #value
+#define PR_UNITTEST_STRINGISE(value) PR_UNITTEST_STRINGISE_IMPL(value)
+
 namespace pr::unittests
 {
 	// Platform string constant
@@ -176,6 +183,7 @@ namespace pr::unittests
 		char const*      m_name;  // Test name (short)
 		TestFunc         m_func;  // The unit test function
 		type_info const* m_class; // Type info of the test class
+		char const*      m_family; // Test ownership family
 		char const*      m_file;  // The file that the test is in
 		int              m_line;  // Line number of the test function
 
@@ -197,12 +205,13 @@ namespace pr::unittests
 
 		// Append a unit test to the Tests() collection
 		template <typename T>
-		static bool AddTest(char const* name, UnitTestItem::TestFunc method, char const* file, int line)
+		static bool AddTest(char const* name, UnitTestItem::TestFunc method, char const* family, char const* file, int line)
 		{
 			Tests.push_back(UnitTestItem{
 				.m_name = name,
 				.m_func = method,
 				.m_class = &typeid(T),
+				.m_family = family,
 				.m_file = file,
 				.m_line = line,
 			});
@@ -310,9 +319,58 @@ namespace pr::unittests
 		}
 	};
 
-	// Run all of the registered unit tests.
-	// If 'filter' is non-empty, only test classes whose name contains one of the filter strings are run.
-	inline int RunAllTests(bool wordy, std::span<std::string_view const> filter = {})
+	// Match a class-name filter as an unanchored wildcard pattern while preserving plain substring filters.
+	inline bool MatchTestFilter(std::string_view value, std::string_view pattern)
+	{
+		if (pattern.find('*') == std::string_view::npos && pattern.find('?') == std::string_view::npos)
+			return value.find(pattern) != std::string_view::npos;
+
+		for (auto start = std::size_t{}; start <= value.size(); ++start)
+		{
+			auto value_index = start;
+			auto pattern_index = std::size_t{};
+			auto star_index = std::string_view::npos;
+			auto retry_index = start;
+			while (value_index < value.size())
+			{
+				if (pattern_index < pattern.size() && (pattern[pattern_index] == '?' || pattern[pattern_index] == value[value_index]))
+				{
+					++pattern_index;
+					++value_index;
+				}
+				else if (pattern_index < pattern.size() && pattern[pattern_index] == '*')
+				{
+					star_index = pattern_index++;
+					retry_index = value_index;
+				}
+				else if (star_index != std::string_view::npos)
+				{
+					pattern_index = star_index + 1;
+					value_index = ++retry_index;
+				}
+				else
+				{
+					break;
+				}
+
+				if (pattern_index == pattern.size())
+					return true;
+			}
+
+			while (pattern_index < pattern.size() && pattern[pattern_index] == '*')
+				++pattern_index;
+			if (pattern_index == pattern.size())
+				return true;
+		}
+		return false;
+	}
+
+	// Run registered tests selected by optional ownership-family and class-name filters.
+	inline int RunAllTests(
+		bool wordy,
+		std::span<std::string_view const> filter = {},
+		std::span<std::string_view const> exclude = {},
+		std::span<std::string_view const> family = {})
 	{
 		using namespace std::chrono;
 		try
@@ -326,12 +384,33 @@ namespace pr::unittests
 			// Run the tests
 			for (auto const& test : TestFramework::Tests)
 			{
-				// Apply the class name filter (substring match)
+				// Select whole module-owned test families independently of class naming.
+				if (!family.empty())
+				{
+					auto match = std::ranges::any_of(family, [&](auto const& f) { return MatchTestFilter(test.m_family, f); });
+					if (!match)
+					{
+						++skipped;
+						continue;
+					}
+				}
+
+				// Apply the class-name inclusion patterns.
 				if (!filter.empty())
 				{
 					auto class_name = std::string_view(test.m_class->name());
-					auto match = std::ranges::any_of(filter, [&](auto const& f) { return class_name.find(f) != std::string_view::npos; });
+					auto match = std::ranges::any_of(filter, [&](auto const& f) { return MatchTestFilter(class_name, f); });
 					if (!match)
+					{
+						++skipped;
+						continue;
+					}
+				}
+				if (!exclude.empty())
+				{
+					auto class_name = std::string_view(test.m_class->name());
+					auto match = std::ranges::any_of(exclude, [&](auto const& f) { return MatchTestFilter(class_name, f); });
+					if (match)
 					{
 						++skipped;
 						continue;
@@ -344,7 +423,7 @@ namespace pr::unittests
 					{
 						auto name_width = std::max(100, static_cast<int>(strlen(test.m_name)));
 						auto test_name = std::format("{}.{}", test.m_class->name() + 7, test.m_name);
-						TestFramework::out() << std::format("{:.<{}}", test_name, name_width);
+						TestFramework::out() << std::format("{:.<{}}", test_name, name_width) << std::flush;
 					}
 
 					TestFramework::TestCount = 0;
@@ -443,8 +522,8 @@ namespace pr::unittests
 #define PRUnitTestClass(classname)\
 struct TestClass_##classname : pr::unittests::UnitTestBase<TestClass_##classname>
 
-// Test method
-#define PRUnitTestMethod(methodname, ...)\
+// Test method with an explicit execution family
+#define PRUnitTestMethodFamily(methodname, family, ...)\
 	template <typename... Types>\
 	static void Test_##methodname##_()\
 	{\
@@ -462,19 +541,27 @@ struct TestClass_##classname : pr::unittests::UnitTestBase<TestClass_##classname
 	inline static bool s_registered_##methodname = pr::unittests::TestFramework::AddTest<test_class_type>(\
 		#methodname,\
 		+[](){ Test_##methodname##_<##__VA_ARGS__>(); },\
+		PR_UNITTEST_STRINGISE(family),\
 		__FILE__,\
 		__LINE__\
 	);\
 	template <typename T>\
 	void Test_##methodname()
 
+// Test method in the translation unit's default execution family
+#define PRUnitTestMethod(methodname, ...)\
+	PRUnitTestMethodFamily(methodname, PR_UNITTEST_FAMILY, __VA_ARGS__)
+
 // Test function
-#define PRUnitTest(testname, ...)\
+#define PRUnitTestFamily(testname, family, ...)\
 	PRUnitTestClass(testname)\
 	{\
-		PRUnitTestMethod(testname, __VA_ARGS__);\
+		PRUnitTestMethodFamily(testname, family, __VA_ARGS__);\
 	};\
 	template <typename T> void TestClass_##testname::Test_##testname()
+
+#define PRUnitTest(testname, ...)\
+	PRUnitTestFamily(testname, PR_UNITTEST_FAMILY, __VA_ARGS__)
 
 #define PR_EXPECT(expr)\
 	pr::unittests::TestFramework::IsTrue(expr, L#expr, __FILE__, __LINE__)
@@ -486,4 +573,3 @@ struct TestClass_##classname : pr::unittests::UnitTestBase<TestClass_##classname
 // test failures (via cout) rather than triggering an abort dialog.
 #undef assert
 #define assert(expr) pr::unittests::TestFramework::IsTrue(!!(expr), L#expr, __FILE__, __LINE__)
-

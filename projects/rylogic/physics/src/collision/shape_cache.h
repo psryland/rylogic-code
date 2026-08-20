@@ -26,6 +26,7 @@ namespace pr::physics
 			int face_count;     // For polytopes: number of faces
 			int edge_offset;    // For polytopes: offset into m_edges
 			int edge_count;     // For polytopes: number of edges
+			int child_count;    // For compounds: number of flattened convex leaves that follow the root entry
 			int last_used;      // Frame counter when last referenced
 		};
 
@@ -84,12 +85,13 @@ namespace pr::physics
 				return it->second.gpu_index;
 			}
 
-			// New shape — pack it into the GPU buffers
-			auto idx = static_cast<int>(m_shapes.size());
+			// New shape — pack it into the GPU buffers. Compound shapes also append their flattened
+			// convex leaves, which are immutable for the lifetime of the cache entry, so per-child data
+			// is built once rather than per step.
 			auto vert_offset = static_cast<int>(m_verts.size());
 			auto face_offset = static_cast<int>(m_faces.size());
 			auto edge_offset = static_cast<int>(m_edges.size());
-			m_shapes.push_back(PackShape(shape, m_verts, &m_faces, &m_edges));
+			auto idx = PackShapeTree(shape, m_shapes, m_verts, &m_faces, &m_edges);
 			auto vert_count = static_cast<int>(m_verts.size()) - vert_offset;
 			auto face_count = static_cast<int>(m_faces.size()) - face_offset;
 			auto edge_count = static_cast<int>(m_edges.size()) - edge_offset;
@@ -102,6 +104,7 @@ namespace pr::physics
 				.face_count = face_count,
 				.edge_offset = edge_offset,
 				.edge_count = edge_count,
+				.child_count = m_shapes[idx].child_count,
 				.last_used = m_frame,
 			};
 
@@ -140,11 +143,10 @@ namespace pr::physics
 					continue;
 
 				// Re-pack this shape at its new index
-				auto new_idx = static_cast<int>(m_shapes.size());
 				auto new_vert_offset = static_cast<int>(m_verts.size());
 				auto new_face_offset = static_cast<int>(m_faces.size());
 				auto new_edge_offset = static_cast<int>(m_edges.size());
-				m_shapes.push_back(PackShape(*ptr, m_verts, &m_faces, &m_edges));
+				auto new_idx = PackShapeTree(*ptr, m_shapes, m_verts, &m_faces, &m_edges);
 				auto new_vert_count = static_cast<int>(m_verts.size()) - new_vert_offset;
 				auto new_face_count = static_cast<int>(m_faces.size()) - new_face_offset;
 				auto new_edge_count = static_cast<int>(m_edges.size()) - new_edge_offset;
@@ -157,6 +159,7 @@ namespace pr::physics
 					.face_count = new_face_count,
 					.edge_offset = new_edge_offset,
 					.edge_count = new_edge_count,
+					.child_count = m_shapes[new_idx].child_count,
 					.last_used = entry.last_used,
 				};
 			}

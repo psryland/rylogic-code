@@ -335,7 +335,7 @@ namespace pr::algorithm
 			PR_EXPECT(peaks_high.size() < peaks_low.size());
 		}
 
-		PRUnitTestMethod(DetectPeaks_Visualise)
+		PRUnitTestMethodFamily(DetectPeaks_Visualise, Slow)
 		{
 			// Generate a multi-frequency signal for visualisation
 			constexpr int N = 1000;

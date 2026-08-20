@@ -192,6 +192,9 @@ namespace pr::physics
 		// Complete a previously-begun step and unpack the GPU results into the caller-owned bodies.
 		void CompleteStep();
 
+		// Wait for a pending step during terminal cleanup without updating bodies or reusing command state.
+		void AbandonStep();
+
 		// Build missing sleep-island ids for bodies created directly in the sleeping state.
 		// Call this after loading/creating sleeping bodies; Step() assumes sleep islands have already been established when needed.
 		void UpdateSleepIslands(std::span<RigidBody*> bodies);

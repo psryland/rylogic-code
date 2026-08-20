@@ -24,15 +24,18 @@ public enum EProjects
 	Audio,              // = "Audio";
 	Fbx,                // = "Fbx";
 	Compute,            // = "Compute";
+	Physics,            // = "Physics";
 	View3d,             // = "View3d";
 	P3d,                // = "P3d";
 	RylogicCore,        // = "Rylogic.Core";
+	RylogicD3D12,       // = "Rylogic.D3D12";
 	RylogicDB,          // = "Rylogic.DB";
 	RylogicDirectShow,  // = "Rylogic.DirectShow";
 	RylogicGfx,         // = "Rylogic.Gfx";
 	RylogicGfxWPF,      // = "Rylogic.Gfx.WPF";
 	RylogicGuiWPF,      // = "Rylogic.Gui.WPF";
 	RylogicNet,         // = "Rylogic.Net";
+	RylogicPhysics,     // = "Rylogic.Physics";
 	RylogicScintilla,   // = "Rylogic.Scintilla";
 	RylogicWindows,     // = "Rylogic.Windows";
 	Csex,               // = "Csex";
@@ -248,6 +251,37 @@ public class Compute : Native
 	}
 }
 
+// Physics
+public class Physics : Native
+{
+	public Physics(string workspace, List<string>? platforms = null, List<string>? configs = null)
+		: base("physics", Tools.Path([workspace, $"projects\\rylogic\\physics"]), workspace, platforms, configs)
+	{
+	}
+	public override void Clean()
+	{
+		Tools.CleanDir(Tools.Path([ObjDir, "physics"], check_exists: false));
+		Tools.CleanDir(Tools.Path([ObjDir, "physics.dll"], check_exists: false));
+	}
+	public override void Build()
+	{
+		Tools.MSBuild(RylogicSln, [@"Rylogic\physics"], Platforms, Configs);
+		Tools.MSBuild(RylogicSln, [@"Rylogic\physics.dll"], Platforms, Configs);
+	}
+	public override void Deploy()
+	{
+		// All configurations are retained locally; Rylogic.Native packages canonical Release runtime assets.
+		foreach (var p in Platforms)
+		{
+			foreach (var c in Configs)
+			{
+				Tools.DeployLib(Tools.Path([ObjDir, "physics", p, c, "physics-static.lib"]));
+				Tools.DeployLib(Tools.Path([ObjDir, "physics.dll", p, c, "physics.dll"]));
+			}
+		}
+	}
+}
+
 // View3d
 public class View3d : Native
 {
@@ -357,6 +391,18 @@ public class RylogicCore : RylogicAssembly
 		:base("Rylogic.Core", ["net10.0", "net10.0-windows", "net481"], workspace, platforms, configs)
 	{}
 }
+public class RylogicD3D12 : RylogicAssembly
+{
+	public RylogicD3D12(string workspace, List<string>? platforms = null, List<string>? configs = null)
+		:base("Rylogic.D3D12", ["net10.0-windows", "net481"], workspace, platforms, configs)
+	{}
+	protected override void Populate(Nuget package)
+	{
+		base.Populate(package);
+		package.Description = "Lifetime-safe managed COM leases for sharing Direct3D 12 devices between independent Rylogic packages.";
+		package.Tags += " d3d12 directx graphics interop";
+	}
+}
 public class RylogicDB : RylogicAssembly
 {
 	public RylogicDB(string workspace, List<string>? platforms = null, List<string>? configs = null)
@@ -389,6 +435,7 @@ public class RylogicGfx : RylogicAssembly
 		base.Populate(package);
 		package.Tags += " view3d";
 		package.Deps.Add(new Nuget.Dep("Rylogic.Core", $"[{RylogicLibraryVersion},)"));
+		package.Deps.Add(new Nuget.Dep("Rylogic.D3D12", $"[{RylogicLibraryVersion},)"));
 		package.Deps.Add(new Nuget.Dep("Rylogic.Native", $"[{RylogicLibraryVersion},)"));
 		package.Deps.Add(new Nuget.Dep("System.Drawing.Common", "[9.0.0,)", "net10.0-windows7.0"));
 	}
@@ -429,6 +476,22 @@ public class RylogicNet : RylogicAssembly
 	{
 		base.Populate(package);
 		package.Deps.Add(new Nuget.Dep("Rylogic.Core", $"[{RylogicLibraryVersion},)"));
+	}
+}
+public class RylogicPhysics : RylogicAssembly
+{
+	public RylogicPhysics(string workspace, List<string>? platforms = null, List<string>? configs = null)
+		:base("Rylogic.Physics", ["net10.0-windows", "net481"], workspace, platforms, configs)
+	{}
+	protected override void Populate(Nuget package)
+	{
+		base.Populate(package);
+		package.Description = "Managed ownership, bulk stepping, snapshots, events, checkpoints, and diagnostics for the Rylogic D3D12 rigid-body physics engine.";
+		package.Tags += " physics simulation rigid-body d3d12";
+		package.Deps.Add(new Nuget.Dep("Rylogic.Core", $"[{RylogicLibraryVersion},)"));
+		package.Deps.Add(new Nuget.Dep("Rylogic.D3D12", $"[{RylogicLibraryVersion},)"));
+		package.Deps.Add(new Nuget.Dep("Rylogic.Native", $"[{RylogicLibraryVersion},)"));
+		package.Deps.Add(new Nuget.Dep("System.Memory", "[4.6.0,)", "net481"));
 	}
 }
 public class RylogicScintilla : RylogicAssembly
@@ -579,7 +642,8 @@ public class AllNative : Group
 		{
 			PackageName = "Rylogic.Native",
 			Version = RylogicLibraryVersion,
-			Tags = "rylogic native library view3d",
+			Description = "Native runtime and development assets for Rylogic View3D, D3D12 compute, and rigid-body physics packages.",
+			Tags = "rylogic native library view3d physics d3d12",
 		};
 		Package.Files.AddRange([
 			new Nuget.File(Tools.Path([UserVars.Root, "include\\**\\*.*"], check_exists: false), "build/native/include/"),
