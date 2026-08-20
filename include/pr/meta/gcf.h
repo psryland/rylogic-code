@@ -29,7 +29,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::meta
 {
-	PRUnitTest(GcfTests)
+	PRUnitTest(GcfTests, Quick)
 	{
 		static_assert(meta::gcf<int,+20,+12>::value == +4, "");
 		static_assert(meta::gcf<int,+20,-12>::value == +4, "");

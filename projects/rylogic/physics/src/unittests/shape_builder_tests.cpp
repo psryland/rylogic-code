@@ -14,7 +14,7 @@ namespace pr::physics::tests
 	PRUnitTestClass(ShapeBuilderTests)
 	{
 		// Test that single-primitive shapes build correctly and produce valid mass properties.
-		PRUnitTestMethod(SingleBox)
+		PRUnitTestMethod(SingleBox, Extended)
 		{
 			ShapeBuilder sb;
 			sb.AddShape(ShapeBox(v4{0.5f, 0.5f, 0.5f, 0}));
@@ -31,7 +31,7 @@ namespace pr::physics::tests
 			PR_EXPECT(shape->m_type == EShape::Box);
 		}
 
-		PRUnitTestMethod(SingleSphere)
+		PRUnitTestMethod(SingleSphere, Extended)
 		{
 			ShapeBuilder sb;
 			sb.AddShape(ShapeSphere(1.0f));
@@ -47,7 +47,7 @@ namespace pr::physics::tests
 			PR_EXPECT(shape->m_type == EShape::Sphere);
 		}
 
-		PRUnitTestMethod(OffsetBox)
+		PRUnitTestMethod(OffsetBox, Extended)
 		{
 			// A box offset from the origin should produce a non-zero model_to_com shift
 			ShapeBuilder sb;
@@ -66,7 +66,7 @@ namespace pr::physics::tests
 		}
 
 		// Test that compound shapes calculate the correct combined CoM and have valid inertia.
-		PRUnitTestMethod(CompoundTwoBoxes)
+		PRUnitTestMethod(CompoundTwoBoxes, Extended)
 		{
 			ShapeBuilder sb;
 
@@ -92,7 +92,7 @@ namespace pr::physics::tests
 			PR_EXPECT(inertia.Check());
 		}
 
-		PRUnitTestMethod(CompoundAsymmetric)
+		PRUnitTestMethod(CompoundAsymmetric, Extended)
 		{
 			ShapeBuilder sb;
 

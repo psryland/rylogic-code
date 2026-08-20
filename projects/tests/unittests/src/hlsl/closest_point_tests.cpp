@@ -13,7 +13,7 @@ namespace pr::hlsl::tests
 
 	PRUnitTestClass(ClosestPointTests)
 	{
-		PRUnitTestMethod(PointVsRayOrigin)
+		PRUnitTestMethod(PointVsRayOrigin, Quick)
 		{
 			// Point at the ray origin: t = 0
 			auto s = float4(0, 0, 0, 1);
@@ -23,7 +23,7 @@ namespace pr::hlsl::tests
 			auto t = ClosestPoint_PointVsRay(pt, s, d);
 			PR_EXPECT(FEql(t, 0.0f));
 		}
-		PRUnitTestMethod(PointVsRayProjection)
+		PRUnitTestMethod(PointVsRayProjection, Quick)
 		{
 			// Point offset perpendicular to ray
 			auto s = float4(0, 0, 0, 1);
@@ -33,7 +33,7 @@ namespace pr::hlsl::tests
 			auto t = ClosestPoint_PointVsRay(pt, s, d);
 			PR_EXPECT(FEql(t, 3.0f));
 		}
-		PRUnitTestMethod(PointVsRayBehind)
+		PRUnitTestMethod(PointVsRayBehind, Quick)
 		{
 			// Point behind ray start
 			auto s = float4(0, 0, 0, 1);
@@ -43,7 +43,7 @@ namespace pr::hlsl::tests
 			auto t = ClosestPoint_PointVsRay(pt, s, d);
 			PR_EXPECT(FEql(t, -2.0f));
 		}
-		PRUnitTestMethod(RayToRayParallel)
+		PRUnitTestMethod(RayToRayParallel, Quick)
 		{
 			// Parallel rays
 			auto s0 = float4(0, 0, 0, 1);
@@ -60,7 +60,7 @@ namespace pr::hlsl::tests
 			auto dist = length(p0 - p1);
 			PR_EXPECT(FEql(dist, 1.0f));
 		}
-		PRUnitTestMethod(RayToRayPerpendicular)
+		PRUnitTestMethod(RayToRayPerpendicular, Quick)
 		{
 			// Two perpendicular skew rays
 			auto s0 = float4(0, 0, 0, 1);
@@ -74,7 +74,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(t.x, 0.0f));
 			PR_EXPECT(FEql(t.y, 0.0f));
 		}
-		PRUnitTestMethod(RayToRayIntersecting)
+		PRUnitTestMethod(RayToRayIntersecting, Quick)
 		{
 			// Two rays that actually intersect at (1, 1, 0)
 			auto s0 = float4(0, 0, 0, 1);
@@ -91,7 +91,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(p0.x, 1.0f));
 			PR_EXPECT(FEql(p0.y, 1.0f));
 		}
-		PRUnitTestMethod(RayToTriangleHit)
+		PRUnitTestMethod(RayToTriangleHit, Quick)
 		{
 			// Ray aimed at centre of triangle - use the 5-arg overload (no out param)
 			auto s = float4(0.2f, 0.2f, 2.0f, 1.0f);
@@ -109,7 +109,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(result.y >= -tol);
 			PR_EXPECT(result.z >= -tol);
 		}
-		PRUnitTestMethod(RayToTriangleMiss)
+		PRUnitTestMethod(RayToTriangleMiss, Quick)
 		{
 			// Ray that misses the triangle - should find closest edge point
 			auto s = float4(2, 2, 2, 1);

@@ -189,7 +189,7 @@ namespace pr::str::utf8
 #include "pr/common/unittests.h"
 namespace pr::str
 {
-	PRUnitTest(Utf8Tests)
+	PRUnitTest(Utf8Tests, Quick)
 	{
 		char const poo[] = u8"\U0001f4a9";
 		char const banana[] = u8"\U0001f34c";

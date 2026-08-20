@@ -1871,7 +1871,7 @@ namespace pr::console::tests
 	PRUnitTestClass(ConsoleTests)
 	{
 		// Exercise the private helper without opening a live console window.
-		PRUnitTestMethod(CloseHandleUsesGlobalApi)
+		PRUnitTestMethod(CloseHandleUsesGlobalApi, Quick)
 		{
 			using Console = pr::Console<char>;
 			alignas(Console) unsigned char storage[sizeof(Console)] = {};

@@ -386,7 +386,7 @@ namespace pr::geometry
 #include "pr/common/unittests.h"
 namespace pr::geometry
 {
-	PRUnitTest(TriangleAnglesTests)
+	PRUnitTest(TriangleAnglesTests, Quick)
 	{
 		{//TriangleAngles
 			v4 v0(+1.0f, +2.0f, 0.0f, 1.0f);
@@ -402,7 +402,7 @@ namespace pr::geometry
 			PR_EXPECT(FEql(angles.z, 108.4349f));
 		}
 	}
-	PRUnitTest(TriangulatePolygonTests)
+	PRUnitTest(TriangulatePolygonTests, Quick)
 	{
 		{
 			v2 poly[] =

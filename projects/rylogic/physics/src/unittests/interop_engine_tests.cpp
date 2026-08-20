@@ -148,7 +148,7 @@ namespace pr::physics::tests
 		// Box-vs-box head-on collision driven entirely through the C++ interop
 		// pipeline. Equivalent to CollisionPairTests.BoxVsBox but with no GPU
 		// involvement, so it can be debugged step-by-step when the GPU version hangs.
-		PRUnitTestMethod(BoxVsBoxHeadOn)
+		PRUnitTestMethod(BoxVsBoxHeadOn, Extended)
 		{
 			auto box_a = collision::ShapeBox(v4{0.5f, 0.5f, 0.5f, 0});
 			auto box_b = collision::ShapeBox(v4{0.5f, 0.5f, 0.5f, 0});
@@ -187,7 +187,7 @@ namespace pr::physics::tests
 
 		// Captured from DropOnGroundTests.BoxDropEnergyConservation at step 44, after integration. This keeps a CPU-debuggable
 		// repro for the box/ground narrow-phase arrangement that originally exposed the GPU dispatcher stall.
-		PRUnitTestMethod(BoxDropEnergyCapturedPreCollide)
+		PRUnitTestMethod(BoxDropEnergyCapturedPreCollide, Extended)
 		{
 			auto box = collision::ShapeBox(v4{0.5f, 0.65f, 0.9f, 0});
 			auto ground = collision::ShapeBox(v4{100, 100, 0.5f, 0});
@@ -219,7 +219,7 @@ namespace pr::physics::tests
 
 		// Mirror of collision_resolution_tests.cpp::BoxVsSphereCollisionTests.LightBoxHeavySphere driven entirely through the
 		// C++ interop pipeline. Running it through the C++-compiled HLSL isolates collision/resolve logic from the GPU runtime.
-		PRUnitTestMethod(LightBoxHeavySphere)
+		PRUnitTestMethod(LightBoxHeavySphere, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2, 2, 2, 0});
 			auto sphere = collision::ShapeSphere(1.5f);

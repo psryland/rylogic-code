@@ -758,7 +758,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::container
 {
-	PRUnitTest(ByteDataTests)
+	PRUnitTest(ByteDataTests, Quick)
 	{
 		{ // Constructors
 			byte_data buf0;

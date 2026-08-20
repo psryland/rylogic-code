@@ -108,7 +108,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(StaticCallbackTests)
+	PRUnitTest(StaticCallbackTests, Quick)
 	{
 		struct L
 		{

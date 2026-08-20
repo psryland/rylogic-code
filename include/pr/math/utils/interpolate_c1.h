@@ -469,7 +469,7 @@ namespace pr::math::tests
 			return std::span{ samples }.subspan(n);
 		}
 
-		PRUnitTestMethod(HermiteVec)
+		PRUnitTestMethod(HermiteVec, Quick)
 		{
 			auto tol = 0.001f;
 
@@ -536,7 +536,7 @@ namespace pr::math::tests
 				PR_EXPECT(FEqlAbsolute(V1, v1, tol));
 			}
 		}
-		PRUnitTestMethod(HermiteQuat)
+		PRUnitTestMethod(HermiteQuat, Quick)
 		{
 			auto tol = 0.001f;
 
@@ -607,7 +607,7 @@ namespace pr::math::tests
 				PR_EXPECT(FEqlAbsolute(W1, w1, tol));
 			}
 		}
-		PRUnitTestMethod(HermiteXform)
+		PRUnitTestMethod(HermiteXform, Quick)
 		{
 			auto tol = 0.001f;
 
@@ -665,7 +665,7 @@ namespace pr::math::tests
 				PR_EXPECT(FEqlAbsolute(x1.rot.xyzw, rot1.xyzw * rsign1, tol));
 			}
 		}
-		PRUnitTestMethod(HermiteVec_MidPoint)
+		PRUnitTestMethod(HermiteVec_MidPoint, Quick)
 		{
 			using S = float;
 			using vec4_t = Vec4<S>;
@@ -739,7 +739,7 @@ namespace pr::math::tests
 				}
 			}
 		}
-		PRUnitTestMethod(HermiteQuat_MidPoint)
+		PRUnitTestMethod(HermiteQuat_MidPoint, Quick)
 		{
 			auto tol = 0.01f;
 
@@ -788,7 +788,7 @@ namespace pr::math::tests
 				}
 			}
 		}
-		PRUnitTestMethod(HermiteXform_MidPoint)
+		PRUnitTestMethod(HermiteXform_MidPoint, Quick)
 		{
 			auto tol = 0.01f;
 
@@ -885,7 +885,7 @@ namespace pr::math::tests
 				boxes.Box("obj", 0x40008000).box(box_dim).o2w().quat(s.rot).pos(s.pos);
 			}
 		}
-		PRUnitTestMethod(LdrHermiteVec)
+		PRUnitTestMethod(LdrHermiteVec, Quick)
 		{
 			if constexpr (CreateVisuals)
 			{
@@ -930,7 +930,7 @@ namespace pr::math::tests
 				builder.Save(temp_dir() / "interpolation.ldr");
 			}
 		}
-		PRUnitTestMethod(LdrHermiteTransform)
+		PRUnitTestMethod(LdrHermiteTransform, Quick)
 		{
 			if constexpr (CreateVisuals)
 			{
@@ -972,7 +972,7 @@ namespace pr::math::tests
 				builder.Save(temp_dir() / "interpolation.ldr");
 			}
 		}
-		PRUnitTestMethod(LdrHermiteVector_MidPoint)
+		PRUnitTestMethod(LdrHermiteVector_MidPoint, Quick)
 		{
 			if constexpr (CreateVisuals)
 			{
@@ -1025,7 +1025,7 @@ namespace pr::math::tests
 				builder.Save(temp_dir() / "interpolation.ldr");
 			}
 		}
-		PRUnitTestMethod(LdrHermiteTransform_MidPoint)
+		PRUnitTestMethod(LdrHermiteTransform_MidPoint, Quick)
 		{
 			if constexpr (CreateVisuals)
 			{

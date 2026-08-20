@@ -12,7 +12,7 @@ namespace pr::physics::tests
 {
 	PRUnitTestClass(RigidBodyTests)
 	{
-		PRUnitTestMethod(SimpleCase)
+		PRUnitTestMethod(SimpleCase, Extended)
 		{
 			auto mass = 5.0f;
 			auto rb = RigidBody{};
@@ -49,7 +49,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(ws_vel, v8motion{0,0,0, 1/mass,0,0}));
 			PR_EXPECT(FEql(os_vel, v8motion{0,0,0, 1/mass,0,0}));
 		}
-		PRUnitTestMethod(SimpleCaseWithRotation)
+		PRUnitTestMethod(SimpleCaseWithRotation, Extended)
 		{
 			auto mass = 5.0f;
 			auto rb = RigidBody{};
@@ -95,7 +95,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(ws_vel, WS_VEL));
 			PR_EXPECT(FEql(os_vel, OS_VEL));
 		}
-		PRUnitTestMethod(OffCentreCoM)
+		PRUnitTestMethod(OffCentreCoM, Extended)
 		{
 			auto mass = 5.0f;
 			auto rb = RigidBody{};
@@ -144,7 +144,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(ws_vel, v8motion{0,0,0, 1/mass,0,0}));
 			PR_EXPECT(FEql(os_vel, v8motion{0,0,0, 1/mass,0,0}));
 		}
-		PRUnitTestMethod(OffCentreCoMWithRotation)
+		PRUnitTestMethod(OffCentreCoMWithRotation, Extended)
 		{
 			auto mass = 5.0f;
 			auto rb = RigidBody{};
@@ -209,7 +209,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlRelative(ws_vel_final, WS_VEL, 0.01f));
 			PR_EXPECT(FEqlRelative(os_vel_final, OS_VEL, 0.01f));
 		}
-		PRUnitTestMethod(OffCentreCoMWithComplexRotation)
+		PRUnitTestMethod(OffCentreCoMWithComplexRotation, Extended)
 		{
 			auto mass = 5.0f;
 			auto rb = RigidBody{};
@@ -251,7 +251,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlRelative(com_ws, expected_com_ws, 0.01f));
 			PR_EXPECT(IsOrthonormal(o2w.rot));
 		}
-		PRUnitTestMethod(AsymmetricPolytopeRotatesAboutCentreOfMass)
+		PRUnitTestMethod(AsymmetricPolytopeRotatesAboutCentreOfMass, Extended)
 		{
 			constexpr v4 verts[] = {
 				v4{-0.8f, -0.8f, -0.5f, 1},
@@ -297,7 +297,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(com_ws1, expected_com_ws1, 1e-4f));
 			PR_EXPECT(FEqlAbsolute(rb.CentreOfMassWS(), rb.O2W().rot * true_com, 1e-4f));
 		}
-		PRUnitTestMethod(Extrapolation)
+		PRUnitTestMethod(Extrapolation, Extended)
 		{
 			auto mass = 5.0f;
 			auto rb = RigidBody{};
@@ -322,7 +322,7 @@ namespace pr::physics::tests
 			auto O2W3 = m4x4::Transform(-2*vel.ang, (-2*vel.lin).w1());
 			PR_EXPECT(FEql(o2w3, O2W3));
 		}
-		PRUnitTestMethod(KineticEnergy)
+		PRUnitTestMethod(KineticEnergy, Extended)
 		{
 			auto mass = 5.0f;
 			std::default_random_engine rng;
@@ -337,7 +337,7 @@ namespace pr::physics::tests
 			auto os_ke = 0.5f * Dot(rb.VelocityOS(), rb.MomentumOS());
 			PR_EXPECT(FEql(ws_ke, os_ke));
 		}
-		PRUnitTestMethod(VelocityOS_ShiftsToCoM)
+		PRUnitTestMethod(VelocityOS_ShiftsToCoM, Extended)
 		{
 			// Verify that VelocityOS(ang, lin, os_at) shifts the velocity from os_at to the CoM.
 			auto mass = 5.0f;
@@ -358,7 +358,7 @@ namespace pr::physics::tests
 			auto ws_vel = rb.VelocityWS();
 			PR_EXPECT(FEql(ws_vel, v8motion{0, 0, 1, 2, 0, 0}));
 		}
-		PRUnitTestMethod(SleepState)
+		PRUnitTestMethod(SleepState, Extended)
 		{
 			auto rb = RigidBody{};
 			rb.SetMassProperties(Inertia::Sphere(1, 5.0f), v4{});
@@ -384,7 +384,7 @@ namespace pr::physics::tests
 			rb.Sleeping(true);
 			PR_EXPECT(rb.Sleeping());
 		}
-		PRUnitTestMethod(SleepWakeRules)
+		PRUnitTestMethod(SleepWakeRules, Extended)
 		{
 			auto rb = RigidBody{};
 			rb.SetMassProperties(Inertia::Sphere(1, 5.0f), v4{});
@@ -421,7 +421,7 @@ namespace pr::physics::tests
 			rb.Mass(10.0f);
 			PR_EXPECT(!rb.Sleeping());
 		}
-		PRUnitTestMethod(DzhanibekovEffect)
+		PRUnitTestMethod(DzhanibekovEffect, Extended)
 		{
 			// The Dzhanibekov effect (intermediate axis theorem / tennis racket theorem):
 			// Rotation about the intermediate principal axis of inertia is unstable.

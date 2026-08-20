@@ -11,7 +11,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(FrustumPrimitiveTests)
 	{
-		PRUnitTestMethod(WHFrustum, float, double)
+		PRUnitTestMethod(WHFrustum, Quick, float, double)
 		{
 			using V2 = Vec2<T>;
 			using V4 = Vec4<T>;
@@ -36,7 +36,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(aspect, T(2)));
 		}
 
-		PRUnitTestMethod(Corners, float, double)
+		PRUnitTestMethod(Corners, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using V2 = Vec2<T>;
@@ -53,7 +53,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(corners.w.z, T(-10)));
 		}
 
-		PRUnitTestMethod(IsWithinPoint, float, double)
+		PRUnitTestMethod(IsWithinPoint, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using V2 = Vec2<T>;
@@ -74,7 +74,7 @@ namespace pr::math::tests
 			PR_EXPECT(!beyond);
 		}
 
-		PRUnitTestMethod(ProjectionMatrix, float, double)
+		PRUnitTestMethod(ProjectionMatrix, Quick, float, double)
 		{
 			using V2 = Vec2<T>;
 			using M4 = Mat4x4<T>;
@@ -87,7 +87,7 @@ namespace pr::math::tests
 			PR_EXPECT(!FEql(proj, M4{}));
 		}
 
-		PRUnitTestMethod(OrthographicFrustum, float, double)
+		PRUnitTestMethod(OrthographicFrustum, Quick, float, double)
 		{
 			using V2 = Vec2<T>;
 			using FR = Frustum3<T>;
@@ -96,7 +96,7 @@ namespace pr::math::tests
 			PR_EXPECT(f.orthographic());
 		}
 
-		PRUnitTestMethod(Planes, float, double)
+		PRUnitTestMethod(Planes, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using FR = Frustum3<T>;
@@ -118,7 +118,7 @@ namespace pr::math::tests
 			PR_EXPECT(p2.direction().y * p3.direction().y < T(0));
 		}
 
-		PRUnitTestMethod(MakeFromProjection, float, double)
+		PRUnitTestMethod(MakeFromProjection, Quick, float, double)
 		{
 			using V2 = Vec2<T>;
 			using M4 = Mat4x4<T>;

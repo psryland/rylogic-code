@@ -52,7 +52,7 @@ namespace pr::physics::tests
 		}
 
 		// ---- Sphere vs Sphere ----
-		PRUnitTestMethod(SphereVsSphere)
+		PRUnitTestMethod(SphereVsSphere, Extended)
 		{
 			// Overlapping along X
 			{
@@ -112,7 +112,7 @@ namespace pr::physics::tests
 		}
 
 		// ---- Sphere vs Line ----
-		PRUnitTestMethod(SphereVsLine)
+		PRUnitTestMethod(SphereVsLine, Extended)
 		{
 			// Sphere near midpoint of Z-aligned line.
 			{
@@ -180,7 +180,7 @@ namespace pr::physics::tests
 		}
 
 		// ---- Sphere vs Box ----
-		PRUnitTestMethod(SphereVsBox)
+		PRUnitTestMethod(SphereVsBox, Extended)
 		{
 			// Separated
 			{
@@ -304,7 +304,7 @@ namespace pr::physics::tests
 		}
 
 		// ---- Line vs Line ----
-		PRUnitTestMethod(LineVsLine)
+		PRUnitTestMethod(LineVsLine, Extended)
 		{
 			// Perpendicular lines, separatedby 0.3 (thickness 0.1+0.1 < 0.3)
 			{
@@ -414,7 +414,7 @@ namespace pr::physics::tests
 		}
 
 		// ---- Line vs Box ----
-		PRUnitTestMethod(LineVsBox)
+		PRUnitTestMethod(LineVsBox, Extended)
 		{
 			// Separated
 			{
@@ -540,7 +540,7 @@ namespace pr::physics::tests
 		}
 
 		// ---- Box vs Box ----
-		PRUnitTestMethod(BoxVsBox)
+		PRUnitTestMethod(BoxVsBox, Extended)
 		{
 			// Axis-aligned overlap along X
 			{
@@ -835,7 +835,7 @@ namespace pr::physics::tests
 		}
 		
 		// ---- Polytope vs Sphere ----
-		PRUnitTestMethod(PolytopeVsSphere)
+		PRUnitTestMethod(PolytopeVsSphere, Extended)
 		{
 			constexpr v4 tet_pts[] = {
 				v4(-0.8f, -0.8f, -0.5f, 1),
@@ -896,7 +896,7 @@ namespace pr::physics::tests
 		}
 
 		// ---- Triangle vs Box ----
-		PRUnitTestMethod(TriangleVsBox)
+		PRUnitTestMethod(TriangleVsBox, Extended)
 		{
 			// Triangle face-on to a box face
 			{
@@ -942,7 +942,7 @@ namespace pr::physics::tests
 		}
 
 		// ---- Polytope vs Box ----
-		PRUnitTestMethod(PolytopeVsBox)
+		PRUnitTestMethod(PolytopeVsBox, Extended)
 		{
 			constexpr v4 tet_pts[] = {
 				v4(-0.8f, -0.8f, -0.5f, 1),
@@ -997,7 +997,7 @@ namespace pr::physics::tests
 			}
 		}
 
-		PRUnitTestMethod(PolytopeVsGround_ShallowFastTumble)
+		PRUnitTestMethod(PolytopeVsGround_ShallowFastTumble, Extended)
 		{
 			v4 poly_pts[] = {
 				v4{-1.0296705f,  0.2203998f, -0.1274743f, 1},
@@ -1039,7 +1039,7 @@ namespace pr::physics::tests
 		}
 
 		// ---- Polytope vs Line ----
-		PRUnitTestMethod(PolytopeVsLine)
+		PRUnitTestMethod(PolytopeVsLine, Extended)
 		{
 			constexpr v4 tet_pts[] = {
 				v4(-0.8f, -0.8f, -0.5f, 1),
@@ -1149,7 +1149,7 @@ namespace pr::physics::tests
 		}
 
 		// ---- Polytope vs Triangle ----
-		PRUnitTestMethod(PolytopeVsTriangle)
+		PRUnitTestMethod(PolytopeVsTriangle, Extended)
 		{
 			constexpr v4 tet_pts[] = {
 				v4(-0.8f, -0.8f, -0.5f, 1),
@@ -1270,7 +1270,7 @@ namespace pr::physics::tests
 		}
 
 		// ---- Polytope vs Polytope ----
-		PRUnitTestMethod(PolytopeVsPolytope)
+		PRUnitTestMethod(PolytopeVsPolytope, Extended)
 		{
 			// Two tetrahedra overlapping at origin
 			{
@@ -1413,7 +1413,7 @@ namespace pr::physics::tests
 			}
 		}
 
-		PRUnitTestMethod(BoxDropSupportFeatures)
+		PRUnitTestMethod(BoxDropSupportFeatures, Extended)
 		{
 			auto box = collision::ShapeBox(v4(1, 1, 1, 0));
 			auto grd = collision::ShapeBox(v4(100.0f, 100.0f, 1.0f, 0));
@@ -1446,7 +1446,7 @@ namespace pr::physics::tests
 			CheckBoxDropContact(contact);
 		}
 
-		PRUnitTestMethod(BoxDropBoxVsBox)
+		PRUnitTestMethod(BoxDropBoxVsBox, Extended)
 		{
 			auto box = collision::ShapeBox(v4(1, 1, 1, 0));
 			auto grd = collision::ShapeBox(v4(100.0f, 100.0f, 1.0f, 0));
@@ -1464,7 +1464,7 @@ namespace pr::physics::tests
 			CheckBoxDropContact(contact);
 		}
 
-		PRUnitTestMethod(NearFaceBoxVsBox)
+		PRUnitTestMethod(NearFaceBoxVsBox, Extended)
 		{
 			auto brick = collision::ShapeBox(v4(2, 1, 1, 0));
 			auto lower_to_world = m4x4::Identity();

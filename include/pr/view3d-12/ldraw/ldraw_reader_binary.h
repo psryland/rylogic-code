@@ -251,7 +251,7 @@ namespace pr::rdr12::ldraw::tests
 			}
 			#endif
 		}
-		PRUnitTestMethod(TestPoint)
+		PRUnitTestMethod(TestPoint, Quick)
 		{
 			Builder builder;
 			builder.Point("TestPoints", 0xFF00FF00).pt(v3(1, 1, 1)).pt(v3(2, 2, 2)).pt(v3(3, 3, 3));
@@ -280,7 +280,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestLine)
+		PRUnitTestMethod(TestLine, Quick)
 		{
 			Builder builder;
 			builder.Line("TestLines", 0xFF0000FF)
@@ -331,7 +331,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestSphere)
+		PRUnitTestMethod(TestSphere, Quick)
 		{
 			Builder builder;
 			builder.Sphere("TestSphere", 0xFFFF0000).sphere(1.0f);
@@ -358,7 +358,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestBox)
+		PRUnitTestMethod(TestBox, Quick)
 		{
 			Builder builder;
 			builder.Box("B", 0xFFFF0000).box(1, 2, 3);
@@ -385,7 +385,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestTriangle)
+		PRUnitTestMethod(TestTriangle, Quick)
 		{
 			Builder builder;
 			builder.Triangle("T", 0xFF00FF00).tri({0,0,0}, {1,0,0}, {0,1,0});
@@ -412,7 +412,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestQuad)
+		PRUnitTestMethod(TestQuad, Quick)
 		{
 			Builder builder;
 			builder.Quad("Q", 0xFF0000FF).quad({0,0,0}, {1,0,0}, {1,1,0}, {0,1,0});
@@ -440,7 +440,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestPlane)
+		PRUnitTestMethod(TestPlane, Quick)
 		{
 			Builder builder;
 			builder.Plane("P", 0xFFAAAA00).wh(10, 10);
@@ -466,7 +466,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestCircle)
+		PRUnitTestMethod(TestCircle, Quick)
 		{
 			Builder builder;
 			builder.Circle("C", 0xFF00AAFF).circle(2.0f);
@@ -491,7 +491,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestRect)
+		PRUnitTestMethod(TestRect, Quick)
 		{
 			Builder builder;
 			builder.Rect("R", 0xFFFF00FF).rect(3, 4);
@@ -517,7 +517,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestGroup)
+		PRUnitTestMethod(TestGroup, Quick)
 		{
 			Builder builder;
 			builder.Group("G", 0xFF808080).Box("inner", 0xFFFF0000).box(1);
@@ -554,7 +554,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestLineBox)
+		PRUnitTestMethod(TestLineBox, Quick)
 		{
 			Builder builder;
 			builder.LineBox("LB", 0xFF00FF00).dim(2, 3, 4);
@@ -581,7 +581,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestGrid)
+		PRUnitTestMethod(TestGrid, Quick)
 		{
 			Builder builder;
 			builder.Grid("Gr", 0xFFAAAAAA).wh(5, 5);
@@ -607,7 +607,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestCoordFrame)
+		PRUnitTestMethod(TestCoordFrame, Quick)
 		{
 			Builder builder;
 			builder.CoordFrame("CF");
@@ -628,7 +628,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestRibbon)
+		PRUnitTestMethod(TestRibbon, Quick)
 		{
 			Builder builder;
 			builder.Ribbon("Rb", 0xFFFF8800).pt({0,0,0}).pt({1,1,0}).pt({2,0,0});
@@ -655,7 +655,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestPie)
+		PRUnitTestMethod(TestPie, Quick)
 		{
 			Builder builder;
 			builder.Pie("Pi", 0xFF00FF88).wedge(0, 90, 0.5f, 1.0f);
@@ -683,7 +683,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestPolygon)
+		PRUnitTestMethod(TestPolygon, Quick)
 		{
 			Builder builder;
 			builder.Polygon("Pg", 0xFFFFFF00).pt({0,0}).pt({1,0}).pt({0.5f,1});
@@ -710,7 +710,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestCylinder)
+		PRUnitTestMethod(TestCylinder, Quick)
 		{
 			Builder builder;
 			builder.Cylinder("Cy", 0xFF00FFFF).cylinder(2, 0.5f);
@@ -736,7 +736,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestCone)
+		PRUnitTestMethod(TestCone, Quick)
 		{
 			Builder builder;
 			builder.Cone("Co", 0xFFFF00FF).angle(30).height(2);
@@ -763,7 +763,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestMesh)
+		PRUnitTestMethod(TestMesh, Quick)
 		{
 			Builder builder;
 			builder.Mesh("M", 0xFFFF0000).vert({0,0,0}).vert({1,0,0}).vert({0,1,0}).face(0,1,2);
@@ -796,7 +796,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestMeshWideIndices)
+		PRUnitTestMethod(TestMeshWideIndices, Quick)
 		{
 			// A mesh with at least one index above uint16_t max should select the *Faces32 keyword
 			// and serialise indices as 4-byte unsigned integers.
@@ -831,14 +831,14 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestMeshNegativeIndexThrows)
+		PRUnitTestMethod(TestMeshNegativeIndexThrows, Quick)
 		{
 			// Negative indices in mesh faces/lines/tetras are invalid; the writer must reject them.
 			Builder builder;
 			builder.Mesh("M", 0xFFFF0000).vert({0,0,0}).vert({1,0,0}).vert({0,1,0}).face(-1, 0, 1);
 			PR_THROWS(builder.ToBinary(), std::exception);
 		}
-		PRUnitTestMethod(TestConvexHull)
+		PRUnitTestMethod(TestConvexHull, Quick)
 		{
 			Builder builder;
 			builder.ConvexHull("CH", 0xFF00FF00).vert(0,0,0).vert(1,0,0).vert(0,1,0).vert(0,0,1);
@@ -867,7 +867,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestFrustum)
+		PRUnitTestMethod(TestFrustum, Quick)
 		{
 			Builder builder;
 			builder.Frustum("Fr", 0xFF0000FF).wh(2, 1, 0.1f, 10.0f);
@@ -895,7 +895,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestText)
+		PRUnitTestMethod(TestText, Quick)
 		{
 			Builder builder;
 			builder.Text("Txt", 0xFFFFFFFF).text("Hello");
@@ -920,7 +920,7 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
-		PRUnitTestMethod(TestLightSource)
+		PRUnitTestMethod(TestLightSource, Quick)
 		{
 			Builder builder;
 			builder.LightSource("L").style("Point");

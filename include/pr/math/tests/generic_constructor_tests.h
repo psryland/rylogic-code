@@ -45,7 +45,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(GenericConstructors)
 	{
-		PRUnitTestMethod(Vec2, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Vec2, Quick, float, double, int32_t, int64_t)
 		{
 			// Rank1VecSN constructor: external vector, same scalar, dimension 2
 			auto ext = ExtVec2<T>{T(3), T(7)};
@@ -78,7 +78,7 @@ namespace pr::math::tests
 				"Vec2 must not construct from a rank-2 matrix (rank-1 guard)");
 		}
 
-		PRUnitTestMethod(Vec3, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Vec3, Quick, float, double, int32_t, int64_t)
 		{
 			// Rank1VecSN constructor
 			auto ext = ExtVec3<T>{T(1), T(2), T(3)};
@@ -109,7 +109,7 @@ namespace pr::math::tests
 				"Vec3 must not construct from a rank-2 matrix (rank-1 guard)");
 		}
 
-		PRUnitTestMethod(Vec4, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Vec4, Quick, float, double, int32_t, int64_t)
 		{
 			// Rank1VecSN constructor
 			auto ext = ExtVec4<T>{T(1), T(2), T(3), T(4)};
@@ -140,7 +140,7 @@ namespace pr::math::tests
 				"Vec4 must not construct from a rank-2 matrix (rank-1 guard)");
 		}
 
-		PRUnitTestMethod(Quat, float, double)
+		PRUnitTestMethod(Quat, Quick, float, double)
 		{
 			// Rank1VecSN constructor
 			auto ext = ExtVec4<T>{T(0), T(0), T(0), T(1)};
@@ -165,7 +165,7 @@ namespace pr::math::tests
 
 		// Rank1VecSN requires same_as<element_t, S>, so cross-scalar external types
 		// must not construct (no silent narrowing through this path).
-		PRUnitTestMethod(ScalarConversionPolicy, float)
+		PRUnitTestMethod(ScalarConversionPolicy, Quick, float)
 		{
 			static_assert(std::is_constructible_v<Vec2<float>, ExtVec2<float>>);
 			static_assert(std::is_constructible_v<Vec3<float>, ExtVec3<float>>);

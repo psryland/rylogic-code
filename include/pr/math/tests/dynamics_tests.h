@@ -11,7 +11,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(DynamicsTests)
 	{
-		PRUnitTestMethod(ScalarDynamics, float, double)
+		PRUnitTestMethod(ScalarDynamics, Quick, float, double)
 		{
 			// Test with a simple constant velocity motion: x = v*t
 			// 5 samples at t=0,1,2,3,4 with dt=1, x = 2*t => x = 0,2,4,6,8
@@ -28,7 +28,7 @@ namespace pr::math::tests
 			PR_EXPECT(Abs(acc) < T(0.5));
 		}
 
-		PRUnitTestMethod(TranslationalDynamics, float, double)
+		PRUnitTestMethod(TranslationalDynamics, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using Q = Quat<T>;

@@ -224,7 +224,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(HalfTests)
 	{
-		PRUnitTestMethod(LiteralTests)
+		PRUnitTestMethod(LiteralTests, Quick)
 		{
 			constexpr half_t h0 = 1.2345_hf;
 			static_assert(sizeof(h0) == sizeof(half_t));
@@ -232,7 +232,7 @@ namespace pr::math::tests
 			auto h1 = F32toF16(1.2345f);
 			PR_EXPECT(h0 == h1);
 		}
-		PRUnitTestMethod(ScalarRoundTripTests)
+		PRUnitTestMethod(ScalarRoundTripTests, Quick)
 		{
 			{// Zero
 				auto x0 = 0.0f;
@@ -271,7 +271,7 @@ namespace pr::math::tests
 				PR_EXPECT(FEqlRelative(x0, x2, 0.005f));
 			}
 		}
-		PRUnitTestMethod(SpecialValueTests)
+		PRUnitTestMethod(SpecialValueTests, Quick)
 		{
 			{// +Inf
 				auto x0 = limits<float>::infinity();
@@ -292,7 +292,7 @@ namespace pr::math::tests
 				PR_EXPECT((x0 == x2) == false);
 			}
 		}
-		PRUnitTestMethod(VectorRoundTripTests)
+		PRUnitTestMethod(VectorRoundTripTests, Quick)
 		{
 			{// Zero vector
 				auto x0 = Vec4<float>{};
@@ -313,7 +313,7 @@ namespace pr::math::tests
 				PR_EXPECT(FEql(x2, x0));
 			}
 		}
-		PRUnitTestMethod(ConstexprTests)
+		PRUnitTestMethod(ConstexprTests, Quick)
 		{
 			// Constexpr round-trip
 			constexpr auto h = F32toF16(1.0f);
@@ -330,7 +330,7 @@ namespace pr::math::tests
 			constexpr auto fn = F16toF32(hn);
 			static_assert(fn == -1.0f);
 		}
-		PRUnitTestMethod(BoundaryTests)
+		PRUnitTestMethod(BoundaryTests, Quick)
 		{
 			// Max representable half value (~65504)
 			auto h_max = F32toF16(65504.0f);

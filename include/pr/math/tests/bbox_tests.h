@@ -11,7 +11,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(BBoxTests)
 	{
-		PRUnitTestMethod(Construction, float, double)
+		PRUnitTestMethod(Construction, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BB = BoundingBox<T>;
@@ -39,7 +39,7 @@ namespace pr::math::tests
 			PR_EXPECT(inf.Radius().x > T(1e30));
 		}
 
-		PRUnitTestMethod(MakeFromCorners, float, double)
+		PRUnitTestMethod(MakeFromCorners, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BB = BoundingBox<T>;
@@ -49,7 +49,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(b.Radius(), V4(2, 3, 4, 0)));
 		}
 
-		PRUnitTestMethod(LowerUpper, float, double)
+		PRUnitTestMethod(LowerUpper, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BB = BoundingBox<T>;
@@ -65,7 +65,7 @@ namespace pr::math::tests
 			PR_EXPECT(b.UpperZ() == T(9));
 		}
 
-		PRUnitTestMethod(SizeAndVolume, float, double)
+		PRUnitTestMethod(SizeAndVolume, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BB = BoundingBox<T>;
@@ -77,7 +77,7 @@ namespace pr::math::tests
 			PR_EXPECT(Volume(b) == T(192));
 		}
 
-		PRUnitTestMethod(IsPointAndHasVolume, float, double)
+		PRUnitTestMethod(IsPointAndHasVolume, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BB = BoundingBox<T>;
@@ -91,7 +91,7 @@ namespace pr::math::tests
 			PR_EXPECT(vol.has_volume());
 		}
 
-		PRUnitTestMethod(CornersTest, float, double)
+		PRUnitTestMethod(CornersTest, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BB = BoundingBox<T>;
@@ -107,7 +107,7 @@ namespace pr::math::tests
 			}
 		}
 
-		PRUnitTestMethod(UnionAndGrow, float, double)
+		PRUnitTestMethod(UnionAndGrow, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BB = BoundingBox<T>;
@@ -133,7 +133,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(g.Radius(), V4(1, 2, 3, 0)));
 		}
 
-		PRUnitTestMethod(IsWithinTests, float, double)
+		PRUnitTestMethod(IsWithinTests, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BB = BoundingBox<T>;
@@ -157,7 +157,7 @@ namespace pr::math::tests
 			PR_EXPECT(!IsWithin(b, outer));
 		}
 
-		PRUnitTestMethod(TranslationOps, float, double)
+		PRUnitTestMethod(TranslationOps, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BB = BoundingBox<T>;
@@ -172,7 +172,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(b2.Centre(), V4(0, 3, 0, 1)));
 		}
 
-		PRUnitTestMethod(ScaleOps, float, double)
+		PRUnitTestMethod(ScaleOps, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BB = BoundingBox<T>;
@@ -183,7 +183,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(b.Centre(), V4(0, 0, 0, 1)));
 		}
 
-		PRUnitTestMethod(GetBSphereTest, float, double)
+		PRUnitTestMethod(GetBSphereTest, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BB = BoundingBox<T>;
@@ -194,7 +194,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(s.Radius(), Sqrt(T(3))));
 		}
 
-		PRUnitTestMethod(SupportPointTest, float, double)
+		PRUnitTestMethod(SupportPointTest, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BB = BoundingBox<T>;

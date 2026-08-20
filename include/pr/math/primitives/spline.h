@@ -1149,7 +1149,7 @@ namespace pr::math
 	{
 		inline static constexpr bool CreateVisuals = false;
 
-		PRUnitTestMethod(CubicCurveLength, float, double)
+		PRUnitTestMethod(CubicCurveLength, Quick, float, double)
 		{
 			using Vec4 = Vec4<T>;
 			using CurveType = CurveType<T>;
@@ -1164,7 +1164,7 @@ namespace pr::math
 			auto len0 = Length(curve0, T(0), T(1));
 			PR_EXPECT(FEql(len0, T(2)));
 		}
-		PRUnitTestMethod(RasterTest, float, double)
+		PRUnitTestMethod(RasterTest, Quick, float, double)
 		{
 			using Vec4 = Vec4<T>;
 			using CurveType = CurveType<T>;

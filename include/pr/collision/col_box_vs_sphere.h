@@ -130,7 +130,7 @@ namespace pr::collision::tests
 		}
 
 		// Sphere inside box: centre coincident
-		PRUnitTestMethod(SphereInsideBox)
+		PRUnitTestMethod(SphereInsideBox, Quick)
 		{
 			auto lhs = ShapeBox{v4{2, 2, 2, 0}};
 			auto rhs = ShapeSphere{0.3f};
@@ -153,7 +153,7 @@ namespace pr::collision::tests
 		}
 
 		// Sphere touching box face
-		PRUnitTestMethod(SphereTouchingFace)
+		PRUnitTestMethod(SphereTouchingFace, Quick)
 		{
 			auto lhs = ShapeBox{v4{2, 2, 2, 0}};
 			auto rhs = ShapeSphere{0.5f};
@@ -176,7 +176,7 @@ namespace pr::collision::tests
 		}
 
 		// Sphere near box edge
-		PRUnitTestMethod(SphereNearEdge)
+		PRUnitTestMethod(SphereNearEdge, Quick)
 		{
 			auto lhs = ShapeBox{v4{2, 2, 2, 0}};
 			auto rhs = ShapeSphere{0.5f};
@@ -199,7 +199,7 @@ namespace pr::collision::tests
 		}
 
 		// Sphere near box corner
-		PRUnitTestMethod(SphereNearCorner)
+		PRUnitTestMethod(SphereNearCorner, Quick)
 		{
 			auto lhs = ShapeBox{v4{2, 2, 2, 0}};
 			auto rhs = ShapeSphere{0.5f};
@@ -222,7 +222,7 @@ namespace pr::collision::tests
 		}
 
 		// Separated: sphere far from box
-		PRUnitTestMethod(Separated)
+		PRUnitTestMethod(Separated, Quick)
 		{
 			auto lhs = ShapeBox{v4{2, 2, 2, 0}};
 			auto rhs = ShapeSphere{0.5f};
@@ -237,7 +237,7 @@ namespace pr::collision::tests
 		}
 
 		// Degenerate: zero-radius sphere inside box
-		PRUnitTestMethod(ZeroRadiusSphereInside)
+		PRUnitTestMethod(ZeroRadiusSphereInside, Quick)
 		{
 			auto lhs = ShapeBox{v4{2, 2, 2, 0}};
 			auto rhs = ShapeSphere{0.0f};
@@ -260,7 +260,7 @@ namespace pr::collision::tests
 		}
 
 		// Box-vs-Sphere with s2r transforms
-		PRUnitTestMethod(BoxVsSphereWithS2R)
+		PRUnitTestMethod(BoxVsSphereWithS2R, Quick)
 		{
 			auto lhs = ShapeBox{ v4{1, 1, 1, 0}, m4x4::TransformDeg(45, 30, -25, v4{0.5f, 0, 0, 1}) };
 			auto rhs = ShapeSphere{ 0.5f, m4x4::TransformDeg(30, 10, -80, v4{1.0f, 0, 0, 1}) };

@@ -518,7 +518,7 @@ namespace pr::str
 {
 	PRUnitTestClass(StringFilterTests)
 	{
-		PRUnitTestMethod(InLiteral)
+		PRUnitTestMethod(InLiteral, Quick)
 		{
 			{
 				// Escaped quotes are ignored
@@ -589,7 +589,7 @@ namespace pr::str
 				PR_EXPECT(*src == '\0');
 			}
 		}
-		PRUnitTestMethod(InComment)
+		PRUnitTestMethod(InComment, Quick)
 		{
 			{
 				// Simple block comment
@@ -670,7 +670,7 @@ namespace pr::str
 				PR_EXPECT(*src =='\0');
 			}
 		}
-		PRUnitTestMethod(Escape)
+		PRUnitTestMethod(Escape, Quick)
 		{
 			// Cover the Unicode width bug at the code-point formatting boundary.
 			// '\u' escapes must pad to 4 digits and '\U' escapes must pad to 8.
@@ -702,7 +702,7 @@ namespace pr::str
 			test_escape(std::u8string(u8"\u1234"), "\\u1234");
 			test_escape(std::u8string(u8"\U0001F4A9"), "\\U0001f4a9");
 		}
-		PRUnitTestMethod(Unescape)
+		PRUnitTestMethod(Unescape, Quick)
 		{
 			std::string str = "abc\\123\\u00b1\\a\\b\\f\\n\\r\\t\\v\\\\\\\"\\\'\\?";
 			std::u8string res = char8_ptr(u8"abc\123\u00b1\a\b\f\n\r\t\v\\\"\'\?");

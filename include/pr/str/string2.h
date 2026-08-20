@@ -578,7 +578,7 @@ namespace pr::str::experimental
 #include "pr/common/unittests.h"
 namespace pr::str
 {
-	PRUnitTest(String2Test)
+	PRUnitTest(String2Test, Quick)
 	{
 		using namespace pr::str::experimental;
 

@@ -153,7 +153,7 @@ namespace pr::audio
 #include "pr/audio/waves/wave_file.h"
 namespace pr::audio
 {
-	PRUnitTest(SynthTests)
+	PRUnitTest(SynthTests, Quick)
 	{
 		int const sample_rate = 100000;
 		Note const data[] =

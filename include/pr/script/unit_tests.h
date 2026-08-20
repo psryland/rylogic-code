@@ -27,7 +27,7 @@ namespace pr::script
 		{
 		}
 
-		PRUnitTestMethod(SimpleBuffering)
+		PRUnitTestMethod(SimpleBuffering, Quick)
 		{
 			char const str[] = "123abc";
 			StringSrc ptr(str);
@@ -42,7 +42,7 @@ namespace pr::script
 
 			PR_EXPECT(*(++ptr) == 0);
 		}
-		PRUnitTestMethod(LimitedSource)
+		PRUnitTestMethod(LimitedSource, Quick)
 		{
 			char const str[] = "1234567890";
 			StringSrc ptr(str);
@@ -87,7 +87,7 @@ namespace pr::script
 			PR_EXPECT(len1 == 3);
 			PR_EXPECT(ptr.Buffer().size() == 5);
 		}
-		PRUnitTestMethod(Matching)
+		PRUnitTestMethod(Matching, Quick)
 		{
 			wchar_t const str[] = L"0123456789";
 			StringSrc ptr(str);
@@ -97,7 +97,7 @@ namespace pr::script
 			ptr += 5;
 			PR_EXPECT(ptr.Match(L"567"));
 		}
-		PRUnitTestMethod(UTF8FileSource)
+		PRUnitTestMethod(UTF8FileSource, Quick)
 		{
 			// UTF-8 data
 			unsigned char data[] = {0xef, 0xbb, 0xbf, 0xe4, 0xbd, 0xa0, 0xe5, 0xa5, 0xbd}; //' ni hao
@@ -119,7 +119,7 @@ namespace pr::script
 			PR_EXPECT(*file2 == *str2); ++file2; ++str2;
 			PR_EXPECT(*file2 == *str2); ++file2; ++str2;
 		}
-		PRUnitTestMethodFamily(UTF16LittleEndianFileSource, Slow)
+		PRUnitTestMethod(UTF16LittleEndianFileSource, Stress)
 		{
 			// UTF-16le data (if host system is little-endian)
 			unsigned short data[] = {0xfeff, 0x4f60, 0x597d}; //' ni hao
@@ -134,7 +134,7 @@ namespace pr::script
 			PR_EXPECT(*file == str[0]); ++file;
 			PR_EXPECT(*file == str[1]); ++file;
 		}
-		PRUnitTestMethodFamily(UTF16BigEndianFileSource, Slow)
+		PRUnitTestMethod(UTF16BigEndianFileSource, Stress)
 		{
 			// UTF-16be data (if host system is little-endian)
 			unsigned short data[] = {0xfffe, 0x604f, 0x7d59}; //' ni hao
@@ -149,7 +149,7 @@ namespace pr::script
 			PR_EXPECT(*file == str[0]); ++file;
 			PR_EXPECT(*file == str[1]); ++file;
 		}
-		PRUnitTestMethod(EatFunctions)
+		PRUnitTestMethod(EatFunctions, Quick)
 		{
 			{
 				StringSrc src(" \t\n,Text");
@@ -213,7 +213,7 @@ namespace pr::script
 				PR_EXPECT(*src == '#');
 			}
 		}
-		PRUnitTestMethodFamily(BufferFunctions, Slow)
+		PRUnitTestMethod(BufferFunctions, Stress)
 		{
 			{
 				auto len = 0;
@@ -297,7 +297,7 @@ namespace pr::script
 	};
 	PRUnitTestClass(ScriptBufTests)
 	{
-		PRUnitTestMethod(BufW2)
+		PRUnitTestMethod(BufW2, Quick)
 		{
 			wchar_t const data[] = L"0123456789";
 			wchar_t const* const src = &data[0];
@@ -306,7 +306,7 @@ namespace pr::script
 			PR_EXPECT(buf[1] == L'1');
 			PR_EXPECT(*src == L'0');
 		}
-		PRUnitTestMethod(BufW4)
+		PRUnitTestMethod(BufW4, Quick)
 		{
 			wchar_t const data[] = L"0123456789";
 			wchar_t const* src = &data[0];
@@ -322,7 +322,7 @@ namespace pr::script
 			PR_EXPECT(buf[2] == L'3');
 			PR_EXPECT(buf[3] == L'4');
 		}
-		PRUnitTestMethod(BufW8)
+		PRUnitTestMethod(BufW8, Quick)
 		{
 			using namespace str;
 			using BufW8 = Buf<8, wchar_t>;
@@ -332,7 +332,7 @@ namespace pr::script
 			PR_EXPECT(BufW8(L"PaulWasHere").match(BufW8(L"Paul")) == false);
 			PR_EXPECT(BufW8(L"ABC") == BufW8(L"ABC"));
 		}
-		PRUnitTestMethod(Source)
+		PRUnitTestMethod(Source, Quick)
 		{
 			script::StringSrc src("0123456789");
 			Buf<4, wchar_t> buf(src);
@@ -348,7 +348,7 @@ namespace pr::script
 			PR_EXPECT(buf[3] == L'4');
 		}
 	};
-	PRUnitTest(LocationTests)
+	PRUnitTest(LocationTests, Quick)
 	{
 		char const* str =
 			"123\n"
@@ -362,7 +362,7 @@ namespace pr::script
 		PR_EXPECT(loc.Line() == 3);
 		PR_EXPECT(loc.Col() == 6);
 	}
-	PRUnitTest(SrcStackTests)
+	PRUnitTest(SrcStackTests, Quick)
 	{
 		char const str1[] = "one";
 		char const str2[] = "two";
@@ -385,7 +385,7 @@ namespace pr::script
 	}
 	PRUnitTestClass(ScriptFilterTests)
 	{
-		PRUnitTestMethod(StripLineContinuations)
+		PRUnitTestMethod(StripLineContinuations, Quick)
 		{
 			char const str_in[] = "Li\
 				on";
@@ -402,7 +402,7 @@ namespace pr::script
 			}
 			PR_EXPECT(*out == 0);
 		}
-		PRUnitTestMethod(StripComments)
+		PRUnitTestMethod(StripComments, Quick)
 		{
 			char const str_in[] = 
 				"123// comment         \n"
@@ -447,7 +447,7 @@ namespace pr::script
 			}
 			PR_EXPECT(*out == 0);
 		}
-		PRUnitTestMethod(StripASMComments)
+		PRUnitTestMethod(StripASMComments, Quick)
 		{
 			char const str_in[] =
 				"; asm comments start with a ; character\r\n"
@@ -469,7 +469,7 @@ namespace pr::script
 			}
 			PR_EXPECT(*out == 0);
 		}
-		PRUnitTestMethod(StripNewLines)
+		PRUnitTestMethod(StripNewLines, Quick)
 		{
 			char const str_in[] =
 				"  \n"
@@ -551,7 +551,7 @@ namespace pr::script
 			}
 		}
 	};
-	PRUnitTest(MacroTests)
+	PRUnitTest(MacroTests, Quick)
 	{
 		MacroDB macros;
 
@@ -579,7 +579,7 @@ namespace pr::script
 		macros.Find(L"Two")->Expand(result, { L"A", L"B" }, Loc());
 		PR_EXPECT(result ==L"TwoExpanded A B");
 	}
-	PRUnitTestFamily(IncludesTests, Slow)
+	PRUnitTest(IncludesTests, Stress)
 	{
 		using namespace pr::str;
 		using string = pr::string<wchar_t>;
@@ -606,7 +606,7 @@ namespace pr::script
 			PR_EXPECT(str::Equal(r, data));
 		}
 	}
-	PRUnitTest(TokeniserTests)
+	PRUnitTest(TokeniserTests, Quick)
 	{
 		char const str_in[] =
 			"auto double int struct break else long switch case enum register typedef "
@@ -703,7 +703,7 @@ namespace pr::script
 		PR_EXPECT(*tkr == EToken::EndOfStream   ); ++tkr;
 		PR_EXPECT(*tkr == EToken::EndOfStream   ); ++tkr;
 	}
-	PRUnitTest(InputStackTests)
+	PRUnitTest(InputStackTests, Quick)
 	{
 		using namespace pr::str;
 
@@ -725,7 +725,7 @@ namespace pr::script
 	}
 	PRUnitTestClass(PreprocessorTests)
 	{
-		PRUnitTestMethod(ConsecutiveStrings)
+		PRUnitTestMethod(ConsecutiveStrings, Quick)
 		{
 			char const* str_in = 
 				"\"consecutive \"  \t\"string\""
@@ -741,7 +741,7 @@ namespace pr::script
 			}
 			PR_EXPECT(*str_out == 0 && *pp == 0);
 		}
-		PRUnitTestMethod(IgnoredStuff)
+		PRUnitTestMethod(IgnoredStuff, Quick)
 		{
 			char const* str_in =
 				"\"#if ignore #define this stuff\"\n"
@@ -758,7 +758,7 @@ namespace pr::script
 			}
 			PR_EXPECT(*str_out == 0 && *pp == 0);
 		}
-		PRUnitTestMethod(LineContinuationLineEndings)
+		PRUnitTestMethod(LineContinuationLineEndings, Quick)
 		{
 			char const* str_in =
 				"#define BLAH(x)\\\r\n"
@@ -781,7 +781,7 @@ namespace pr::script
 			}
 			PR_EXPECT(*str_out == 0 && *pp == 0);
 		}
-		PRUnitTestMethod(SimpleMacros)
+		PRUnitTestMethod(SimpleMacros, Quick)
 		{
 			char const* str_in =
 				"#  define ONE 1 // ignore me \n"
@@ -807,7 +807,7 @@ namespace pr::script
 			}
 			PR_EXPECT(*str_out == 0 && *pp == 0);
 		}
-		PRUnitTestMethod(MultiLinePreprocessor)
+		PRUnitTestMethod(MultiLinePreprocessor, Quick)
 		{
 			char const* str_in =
 				"#define ml\\\n"
@@ -825,7 +825,7 @@ namespace pr::script
 			}
 			PR_EXPECT(*str_out == 0 && *pp == 0);
 		}
-		PRUnitTestMethod(SimpleMmacroFunctions)
+		PRUnitTestMethod(SimpleMmacroFunctions, Quick)
 		{
 			char const* str_in =
 				"#\tdefine PLUS(x,y) \\\n"
@@ -844,7 +844,7 @@ namespace pr::script
 			}
 			PR_EXPECT(*str_out == 0 && *pp == 0);
 		}
-		PRUnitTestMethod(RecursiveMacros)
+		PRUnitTestMethod(RecursiveMacros, Quick)
 		{
 			char const* str_in =
 				"#define C(x) A(x) B(x) C(x)\n"
@@ -864,7 +864,7 @@ namespace pr::script
 			}
 			PR_EXPECT(*str_out == 0 && *pp == 0);
 		}
-		PRUnitTestMethod(HashEval)
+		PRUnitTestMethod(HashEval, Quick)
 		{
 			char const* str_in =
 				"#eval{1+#eval{1+1}}\n"
@@ -881,7 +881,7 @@ namespace pr::script
 			}
 			PR_EXPECT(*str_out == 0 && *pp == 0);
 		}
-		PRUnitTestMethod(RecursiveMacrosEvals)
+		PRUnitTestMethod(RecursiveMacrosEvals, Quick)
 		{
 			char const* str_in =
 				"#define X 3.0\n"
@@ -899,7 +899,7 @@ namespace pr::script
 			}
 			PR_EXPECT(*str_out == 0 && *pp == 0);
 		}
-		PRUnitTestMethod(IfElseEndifEtc)
+		PRUnitTestMethod(IfElseEndifEtc, Quick)
 		{
 			char const* str_in =
 				"#  define ONE 1 // ignore me \n"
@@ -954,7 +954,7 @@ namespace pr::script
 			}
 			PR_EXPECT(*str_out == 0 && *pp == 0);
 		}
-		PRUnitTestMethod(Includes)
+		PRUnitTestMethod(Includes, Quick)
 		{
 			char const* str_in =
 				"#  define ONE 1 // ignore me \n"
@@ -977,7 +977,7 @@ namespace pr::script
 			}
 			PR_EXPECT(*str_out == 0 && *pp == 0);
 		}
-		PRUnitTestMethod(Miscellaneous)
+		PRUnitTestMethod(Miscellaneous, Quick)
 		{
 			char const* str_in =
 				"\"#error this would throw an error\"\n"
@@ -1012,7 +1012,7 @@ namespace pr::script
 			}
 			PR_EXPECT(*str_out == 0 && *pp == 0);
 		}
-		PRUnitTestMethod(PreloadedBuffer)
+		PRUnitTestMethod(PreloadedBuffer, Quick)
 		{
 			std::string str_in =
 				"#define BOB(x) #x\n"
@@ -1031,7 +1031,7 @@ namespace pr::script
 			}
 			PR_EXPECT(*str_out == 0 && *pp == 0);
 		}
-		PRUnitTestMethod(XMacros)
+		PRUnitTestMethod(XMacros, Quick)
 		{
 			char const* str_in =
 				"#define LINE(x) x = #x\n"

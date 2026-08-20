@@ -593,7 +593,7 @@ namespace pr::task_graph::unittests
 		Count,
 	};
 
-	PRUnitTest(TaskGraphBasicParallel)
+	PRUnitTest(TaskGraphBasicParallel, Quick)
 	{
 		// Independent tasks run in parallel without dependencies
 		std::atomic<int> sum = 0;
@@ -608,7 +608,7 @@ namespace pr::task_graph::unittests
 		PR_EXPECT(sum == 15);
 	}
 
-	PRUnitTest(TaskGraphDependency)
+	PRUnitTest(TaskGraphDependency, Quick)
 	{
 		// Task A depends on Task B — A must see B's result
 		std::atomic<int> order = 0;
@@ -633,7 +633,7 @@ namespace pr::task_graph::unittests
 		PR_EXPECT(a_saw == 1);
 	}
 
-	PRUnitTest(TaskGraphFanOut)
+	PRUnitTest(TaskGraphFanOut, Quick)
 	{
 		// Multiple tasks wait on the same signal (broadcast)
 		std::atomic<int> count = 0;
@@ -655,7 +655,7 @@ namespace pr::task_graph::unittests
 		PR_EXPECT(count == 3);
 	}
 
-	PRUnitTest(TaskGraphFanIn)
+	PRUnitTest(TaskGraphFanIn, Quick)
 	{
 		// One task waits on multiple signals
 		std::atomic<int> sum = 0;
@@ -679,7 +679,7 @@ namespace pr::task_graph::unittests
 		PR_EXPECT(sum == 7);
 	}
 
-	PRUnitTest(TaskGraphMidTaskSignal)
+	PRUnitTest(TaskGraphMidTaskSignal, Quick)
 	{
 		// A task signals an intermediate phase before completing
 		std::atomic<int> phase_value = 0;
@@ -707,7 +707,7 @@ namespace pr::task_graph::unittests
 		PR_EXPECT(final_value == 20);
 	}
 
-	PRUnitTest(TaskGraphStartWait)
+	PRUnitTest(TaskGraphStartWait, Quick)
 	{
 		// Start and Wait allow callers to run owner-thread work while graph tasks are in flight.
 		std::atomic<int> sum = 0;
@@ -730,7 +730,7 @@ namespace pr::task_graph::unittests
 		PR_EXPECT(sum == 3);
 	}
 
-	PRUnitTest(TaskGraphStartWaitNoTasks)
+	PRUnitTest(TaskGraphStartWaitNoTasks, Quick)
 	{
 		// Empty graph cycles are valid for callers that build task lists conditionally.
 		Graph<TestId> graph(2);
@@ -740,7 +740,7 @@ namespace pr::task_graph::unittests
 		graph.Reset();
 	}
 
-	PRUnitTest(TaskGraphExternalSignalAfterStart)
+	PRUnitTest(TaskGraphExternalSignalAfterStart, Quick)
 	{
 		// External signals release tasks that are waiting for work completed outside the worker pool.
 		std::atomic<int> value = 0;
@@ -760,7 +760,7 @@ namespace pr::task_graph::unittests
 		PR_EXPECT(value.load(std::memory_order_acquire) == 1);
 	}
 
-	PRUnitTest(TaskGraphExternalSignalBeforeStart)
+	PRUnitTest(TaskGraphExternalSignalBeforeStart, Quick)
 	{
 		// Signals raised before Start are remembered for tasks that later wait on them in the same graph cycle.
 		std::atomic<int> value = 0;
@@ -780,7 +780,7 @@ namespace pr::task_graph::unittests
 		PR_EXPECT(value.load(std::memory_order_acquire) == 1);
 	}
 
-	PRUnitTest(TaskGraphResetAndRerun)
+	PRUnitTest(TaskGraphResetAndRerun, Quick)
 	{
 		// Per-frame reuse: run, reset, run again
 		std::atomic<int> counter = 0;
@@ -803,7 +803,7 @@ namespace pr::task_graph::unittests
 		PR_EXPECT(counter == 6); // 2 tasks × 3 frames
 	}
 
-	PRUnitTest(TaskGraphException)
+	PRUnitTest(TaskGraphException, Quick)
 	{
 		// Exception in a task propagates to Run()
 		Graph<TestId> graph(2);
@@ -826,7 +826,7 @@ namespace pr::task_graph::unittests
 		PR_EXPECT(caught);
 	}
 
-	PRUnitTest(TaskGraphWaitReturnsException)
+	PRUnitTest(TaskGraphWaitReturnsException, Quick)
 	{
 		// Wait() drains the graph and returns task failures so callers can decide when to rethrow.
 		Graph<TestId> graph(2);
@@ -856,7 +856,7 @@ namespace pr::task_graph::unittests
 		PR_EXPECT(caught);
 	}
 
-	PRUnitTest(TaskGraphSingleThread)
+	PRUnitTest(TaskGraphSingleThread, Quick)
 	{
 		// Verify it works with a single worker thread
 		std::atomic<int> sum = 0;
@@ -880,7 +880,7 @@ namespace pr::task_graph::unittests
 		PR_EXPECT(sum == 7);
 	}
 
-	PRUnitTest(TaskGraphDestructWhileTaskInFlight)
+	PRUnitTest(TaskGraphDestructWhileTaskInFlight, Quick)
 	{
 		// Destroying the graph must not tear down task/signal state while a worker thread is still
 		// actively resuming a task coroutine. This starts a task, confirms it is running on a worker

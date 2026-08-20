@@ -302,7 +302,7 @@ namespace pr::common
 		static_assert(Range<float>::is_integral == false);
 		static_assert(Range<char*>::is_integral == true);
 
-		PRUnitTestMethod(General)
+		PRUnitTestMethod(General, Quick)
 		{
 			using IRange = pr::Range<int>;
 			IRange r0(0,5);
@@ -364,7 +364,7 @@ namespace pr::common
 			PR_EXPECT(8 == r5.m_end);
 			PR_EXPECT(returned == r6);
 		}
-		PRUnitTestMethod(IterRange)
+		PRUnitTestMethod(IterRange, Quick)
 		{
 			using Vec = std::vector<int>;
 			using IRange = pr::Range<Vec::const_iterator>;
@@ -418,7 +418,7 @@ namespace pr::common
 			PR_EXPECT(1 == r4.size());
 			PR_EXPECT(IsWithin(r4, vec.begin() + 4));
 		}
-		PRUnitTestMethod(FloatingPointRange)
+		PRUnitTestMethod(FloatingPointRange, Quick)
 		{
 			using FRange = pr::Range<float>;
 			FRange r0(0.0f, 5.0f);
@@ -470,7 +470,7 @@ namespace pr::common
 			PR_EXPECT(0.0f == r4.size());
 			PR_EXPECT(IsWithin(r4, 4.0f));
 		}
-		PRUnitTestMethod(ImplicitConversion)
+		PRUnitTestMethod(ImplicitConversion, Quick)
 		{
 			Range<uint16_t> r0(0, 65535);
 			Range<uint32_t> r1;

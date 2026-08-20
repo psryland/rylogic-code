@@ -11,7 +11,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(Vector4)
 	{
-		PRUnitTestMethod(Construction, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Construction, Quick, float, double, int32_t, int64_t)
 		{
 			using vec4_t = Vec4<T>;
 
@@ -56,14 +56,14 @@ namespace pr::math::tests
 			static_assert(V1[2] == T(3));
 			static_assert(V1[3] == T(4));
 		}
-		PRUnitTestMethod(Normal, float, double)
+		PRUnitTestMethod(Normal, Quick, float, double)
 		{
 			using vec4_t = Vec4<T>;
 
 			auto V0 = vec4_t::Normal(T(1), T(2), T(3), T(4));
 			PR_EXPECT(FEql(Length(V0), T(1)));
 		}
-		PRUnitTestMethod(SubVectors, float, double, int32_t, int64_t)
+		PRUnitTestMethod(SubVectors, Quick, float, double, int32_t, int64_t)
 		{
 			using vec4_t = Vec4<T>;
 
@@ -85,7 +85,7 @@ namespace pr::math::tests
 			auto V4 = V0.vec3(2, 1, 0);
 			PR_EXPECT(V4.x == T(3) && V4.y == T(2) && V4.z == T(1));
 		}
-		PRUnitTestMethod(Constants, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Constants, Quick, float, double, int32_t, int64_t)
 		{
 			using vec4_t = Vec4<T>;
 
@@ -97,7 +97,7 @@ namespace pr::math::tests
 			static_assert(All(WAxis<vec4_t>() == vec4_t(T(0), T(0), T(0), T(1))));
 			static_assert(All(Origin<vec4_t>() == vec4_t(T(0), T(0), T(0), T(1))));
 		}
-		PRUnitTestMethod(Operators, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Operators, Quick, float, double, int32_t, int64_t)
 		{
 			// Vec4 arithmetic operators are not constexpr-evaluable due to the use of intrinsics.
 			using vec4_t = Vec4<T>;
@@ -119,7 +119,7 @@ namespace pr::math::tests
 			PR_EXPECT(All((c == d) == !(c != d)));
 			PR_EXPECT(All((c != d) == !(c == d)));
 		}
-		PRUnitTestMethod(CrossWContract, float, double)
+		PRUnitTestMethod(CrossWContract, Quick, float, double)
 		{
 			using vec4_t = Vec4<T>;
 
@@ -147,7 +147,7 @@ namespace pr::math::tests
 			check(-std::numeric_limits<T>::infinity(), T(9));
 			check(T(7), -std::numeric_limits<T>::infinity());
 		}
-		PRUnitTestMethod(Dot4, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Dot4, Quick, float, double, int32_t, int64_t)
 		{
 			// Dot3 vs Dot4 (type-specific because Dot3 is Vec4-only)
 			using vec4_t = Vec4<T>;
@@ -159,7 +159,7 @@ namespace pr::math::tests
 		}
 
 		// Dot3 must ignore w in both operands — NaN or infinity in w must not contaminate xyz result.
-		PRUnitTestMethod(Dot3WContract, float, double)
+		PRUnitTestMethod(Dot3WContract, Quick, float, double)
 		{
 			using vec4_t = Vec4<T>;
 
@@ -183,7 +183,7 @@ namespace pr::math::tests
 		}
 
 		// Component-wise modulus for Vec%Vec, Vec%scalar, and scalar%Vec across all element types.
-		PRUnitTestMethod(Modulus, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Modulus, Quick, float, double, int32_t, int64_t)
 		{
 			using vec4_t = Vec4<T>;
 

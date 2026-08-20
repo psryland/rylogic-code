@@ -13,7 +13,7 @@ namespace pr::math::tests
 	{
 		std::default_random_engine rng = std::default_random_engine(1u);
 
-		PRUnitTestMethod(Construction, float, double)
+		PRUnitTestMethod(Construction, Quick, float, double)
 		{
 			using Quat = Quat<T>;
 			using Vec4 = Vec4<T>;
@@ -48,7 +48,7 @@ namespace pr::math::tests
 		}
 
 		// Keep the free ToMatrix helper on the proxy access path for quaternions constructed from raw components.
-		PRUnitTestMethod(ConstexprToMatrix, float, double)
+		PRUnitTestMethod(ConstexprToMatrix, Quick, float, double)
 		{
 			using Quat = Quat<T>;
 			using Vec3 = Vec3<T>;
@@ -63,7 +63,7 @@ namespace pr::math::tests
 			static_assert(All(m == expected));
 		}
 
-		PRUnitTestMethod(Operators, float, double)
+		PRUnitTestMethod(Operators, Quick, float, double)
 		{
 			using Quat = Quat<T>;
 
@@ -103,7 +103,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEqlAbsolute(Q3.z, T(0), T(0.0001)));
 			PR_EXPECT(FEqlAbsolute(Q3.w, T(1), T(0.0001)));
 		}
-		PRUnitTestMethod(AxisAngle, float, double)
+		PRUnitTestMethod(AxisAngle, Quick, float, double)
 		{
 			using Quat = Quat<T>;
 			using Vec4 = Vec4<T>;
@@ -120,7 +120,7 @@ namespace pr::math::tests
 			// Member functions
 			PR_EXPECT(FEqlAbsolute(Q.Angle(), angle, T(0.001)));
 		}
-		PRUnitTestMethod(Rotate, float, double)
+		PRUnitTestMethod(Rotate, Quick, float, double)
 		{
 			using Quat = Quat<T>;
 			using Vec4 = Vec4<T>;
@@ -138,7 +138,7 @@ namespace pr::math::tests
 			auto r4 = math::Rotate(Q, v4);
 			PR_EXPECT(FEql(r4, Vec4(T(0), T(1), T(0), T(0))));
 		}
-		PRUnitTestMethod(ToMatrixRoundTrip, float, double)
+		PRUnitTestMethod(ToMatrixRoundTrip, Quick, float, double)
 		{
 			using Quat = Quat<T>;
 			using Vec4 = Vec4<T>;
@@ -163,7 +163,7 @@ namespace pr::math::tests
 				PR_EXPECT(FEql(r0, r2));
 			}
 		}
-		PRUnitTestMethod(Slerp, float, double)
+		PRUnitTestMethod(Slerp, Quick, float, double)
 		{
 			using Quat = Quat<T>;
 			using Vec4 = Vec4<T>;
@@ -187,7 +187,7 @@ namespace pr::math::tests
 			auto q_half = Quat(axis, DegreesToRadians(T(45)));
 			PR_EXPECT(FEqlOrientation(s05, q_half));
 		}
-		PRUnitTestMethod(LogMapExpMap, float, double)
+		PRUnitTestMethod(LogMapExpMap, Quick, float, double)
 		{
 			using Quat = Quat<T>;
 			using Vec4 = Vec4<T>;
@@ -206,7 +206,7 @@ namespace pr::math::tests
 				PR_EXPECT(FEqlOrientation(q0, q1, T(0.001)));
 			}
 		}
-		PRUnitTestMethod(ScaleRotation, float, double)
+		PRUnitTestMethod(ScaleRotation, Quick, float, double)
 		{
 			using Quat = Quat<T>;
 			using Vec4 = Vec4<T>;
@@ -224,7 +224,7 @@ namespace pr::math::tests
 		}
 
 		// Regression: Axis(), Angle(), and SinAngle() must canonicalize consistently for w < 0.
-		PRUnitTestMethod(MemberAxisSinAngle, float, double)
+		PRUnitTestMethod(MemberAxisSinAngle, Quick, float, double)
 		{
 			using quat_t = Quat<T>;
 			using vec4_t = Vec4<T>;
@@ -252,7 +252,7 @@ namespace pr::math::tests
 		// Tests for quaternions in the negative-w hemisphere (w < 0), i.e. rotations > 180 degrees
 		// (half-angle > π/2). AxisAngle, Scale, and LogMap must all canonicalize to the positive-w
 		// form and return the equivalent shortest-arc result without changing the orientation.
-		PRUnitTestMethod(NegativeHemisphere, float, double)
+		PRUnitTestMethod(NegativeHemisphere, Quick, float, double)
 		{
 			using Quat = Quat<T>;
 			using Vec4 = Vec4<T>;
@@ -366,7 +366,7 @@ namespace pr::math::tests
 			}
 		}
 
-		PRUnitTestMethod(RotationAt, float, double)
+		PRUnitTestMethod(RotationAt, Quick, float, double)
 		{
 			using Quat = Quat<T>;
 			using Vec3 = Vec3<T>;
@@ -411,7 +411,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEqlOrientation(rot_q, ToQuat<Quat>(rot_m), tol));
 		}
 
-		PRUnitTestMethod(FEqlOrientation, float, double)
+		PRUnitTestMethod(FEqlOrientation, Quick, float, double)
 		{
 			using Quat = Quat<T>;
 

@@ -727,7 +727,7 @@ namespace pr::geometry
 #include "pr/common/unittests.h"
 namespace pr::geometry::unittests
 {
-	PRUnitTest(IdxBufTest, uint64_t, uint32_t, uint16_t, uint8_t, int8_t, int16_t, int32_t, int64_t)
+	PRUnitTest(IdxBufTest, Quick, uint64_t, uint32_t, uint16_t, uint8_t, int8_t, int16_t, int32_t, int64_t)
 	{
 		IdxBuf ibuf0(sizeof(T));
 		PR_EXPECT(ibuf0.empty());
@@ -883,7 +883,7 @@ namespace pr::geometry::unittests
 		auto byte_span = static_cast<std::span<std::byte const>>(ibuf0);
 		PR_EXPECT(byte_span.size() == ibuf0.size() * sizeof(T));
 	}
-	PRUnitTest(IdxSpanTest, uint8_t, uint16_t, uint32_t, int8_t, int16_t, int32_t, int64_t)
+	PRUnitTest(IdxSpanTest, Quick, uint8_t, uint16_t, uint32_t, int8_t, int16_t, int32_t, int64_t)
 	{
 		IdxBuf src(sizeof(T));
 		src.append<T>({ 0, 1, 2, 3, 4 });

@@ -17,10 +17,6 @@
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)shape_builder_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)physics_dll_tests.cpp" />
 		<ClCompile Include="@(CompiledUnitTest)">
-			<PreprocessorDefinitions>
-				;PR_UNITTEST_FAMILY=Compiled
-				;%(PreprocessorDefinitions)
-			</PreprocessorDefinitions>
 			<AdditionalIncludeDirectories>
 				;$(RylogicRoot)projects\rylogic\physics
 				;$(RylogicRoot)projects\rylogic

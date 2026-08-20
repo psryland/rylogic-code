@@ -40,7 +40,7 @@ namespace pr
 namespace pr::common
 {
 	struct NameofTestType;
-	PRUnitTest(NameofTests)
+	PRUnitTest(NameofTests, Quick)
 	{
 	}
 }

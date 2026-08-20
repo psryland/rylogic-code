@@ -493,7 +493,7 @@ namespace pr::common
 			template <typename TOut> static __declspec(noinline) void Func3(TOut out) { DumpStack(out); }
 		};
 	}
-	PRUnitTest(StackDumpTests)
+	PRUnitTest(StackDumpTests, Quick)
 	{
 		#if 0 // not working under VS2017... don't know why yet
 		std::stringstream out;

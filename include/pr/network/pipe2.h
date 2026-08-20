@@ -854,7 +854,7 @@ namespace pr::pipe
 #include <condition_variable>
 namespace pr::pipe
 {
-	PRUnitTest(PipeSimpleTest)
+	PRUnitTest(PipeSimpleTest, Quick)
 	{
 		// Start a server and a client.
 		// Send one message from the client to the server
@@ -933,7 +933,7 @@ namespace pr::pipe
 		ipc_server_thread.join();
 		ipc_client_thread.join();
 	}
-	PRUnitTest(PipeTest)
+	PRUnitTest(PipeTest, Quick)
 	{
 		char const UnitTestPipeName[] = "\\\\.\\pipe\\Pipe_UnitTest";
 		int ServerMsgsSent = 0;
@@ -1025,7 +1025,7 @@ namespace pr::pipe
 		ipc_server_thread.join();
 		ipc_client_thread.join();
 	}
-	PRUnitTest(PipeTest_ClientOnly)
+	PRUnitTest(PipeTest_ClientOnly, Quick)
 	{
 		// Create a client with no server
 		char const UnitTestPipeName[] = "\\\\.\\pipe\\Pipe_UnitTest";
@@ -1073,7 +1073,7 @@ namespace pr::pipe
 		shutdown.request_stop();
 		ipc_client_thread.join();
 	}
-	PRUnitTest(PipeTest_ServerOnly)
+	PRUnitTest(PipeTest_ServerOnly, Quick)
 	{
 		char const UnitTestPipeName[] = "\\\\.\\pipe\\Pipe_UnitTest";
 		int ServerMsgsRecv = 0;

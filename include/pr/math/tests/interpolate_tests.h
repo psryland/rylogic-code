@@ -11,7 +11,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(InterpolateTests)
 	{
-		PRUnitTestMethod(LerpScalar, float, double)
+		PRUnitTestMethod(LerpScalar, Quick, float, double)
 		{
 			PR_EXPECT(FEql(Lerp(T(0), T(10), T(0.5)), T(5)));
 			PR_EXPECT(FEql(Lerp(T(0), T(10), T(0)), T(0)));
@@ -19,7 +19,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(Lerp(T(-5), T(5), T(0.5)), T(0)));
 		}
 
-		PRUnitTestMethod(LerpVector, float, double)
+		PRUnitTestMethod(LerpVector, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 
@@ -29,7 +29,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(mid, V4(5, 10, 15, 1)));
 		}
 
-		PRUnitTestMethod(InterpolateVectorTest, float, double)
+		PRUnitTestMethod(InterpolateVectorTest, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using Q = Quat<T>;
@@ -52,7 +52,7 @@ namespace pr::math::tests
 			PR_EXPECT(mid.x > T(0) && mid.x < T(10));
 		}
 
-		PRUnitTestMethod(InterpolateRotationTest, float, double)
+		PRUnitTestMethod(InterpolateRotationTest, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using Q = Quat<T>;

@@ -771,7 +771,7 @@ namespace pr::str
 #include "pr/common/unittests.h"
 namespace pr::str::tests
 {
-	PRUnitTest(ExtractTests)
+	PRUnitTest(ExtractTests, Quick)
 	{
 		{// Line
 			wchar_t const* src = L"abcefg\nhijk\nlmnop", *s;

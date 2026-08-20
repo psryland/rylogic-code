@@ -207,7 +207,7 @@ namespace pr::common
 			{}
 		};
 	}
-	PRUnitTest(StridePtrTests)
+	PRUnitTest(StridePtrTests, Quick)
 	{
 		using namespace stride_ptr_tests;
 		Thing arr[300];

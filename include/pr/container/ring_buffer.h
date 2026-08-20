@@ -267,7 +267,7 @@ namespace pr
 #include <vector>
 namespace pr::container
 {
-	PRUnitTest(RingBufferTests)
+	PRUnitTest(RingBufferTests, Quick)
 	{
 		const int BufSize = 10;
 		struct GuardedBuffer

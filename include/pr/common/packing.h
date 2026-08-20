@@ -635,7 +635,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::maths
 {
-	PRUnitTest(CompressionTests)
+	PRUnitTest(CompressionTests, Quick)
 	{
 		{ // Norm64bit
 			float max_error = 0.0f;

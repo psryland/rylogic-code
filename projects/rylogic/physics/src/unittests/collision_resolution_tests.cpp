@@ -161,7 +161,7 @@ namespace pr::physics::tests
 		// Scenario 1: Two equal-mass boxes approaching each other head-on along X.
 		// The classic "Newton's cradle" setup. For perfectly elastic collisions between
 		// equal masses, velocities swap exactly: v1' = v2, v2' = v1.
-		PRUnitTestMethod(HeadOnEqualMass)
+		PRUnitTestMethod(HeadOnEqualMass, Extended)
 		{
 			auto box = ShapeBox(v4{2, 2, 2, 0});
 			auto r = RunCollisionScenario(box,
@@ -191,7 +191,7 @@ namespace pr::physics::tests
 		// The heavier body slows down, the lighter one speeds up.
 		// Analytic: v1' = ((m1-m2)*v1 + 2*m2*v2)/(m1+m2)
 		//           v2' = ((m2-m1)*v2 + 2*m1*v1)/(m1+m2)
-		PRUnitTestMethod(HeadOnDiffMass)
+		PRUnitTestMethod(HeadOnDiffMass, Extended)
 		{
 			auto box = ShapeBox(v4{2, 2, 2, 0});
 			auto r = RunCollisionScenario(box,
@@ -217,7 +217,7 @@ namespace pr::physics::tests
 		// Scenario 3: A moving box hits a stationary box of equal mass.
 		// The classic billiard ball scenario — the moving body stops and
 		// the stationary body takes on the original velocity.
-		PRUnitTestMethod(StationaryTarget)
+		PRUnitTestMethod(StationaryTarget, Extended)
 		{
 			auto box = ShapeBox(v4{2, 2, 2, 0});
 			auto r = RunCollisionScenario(box,
@@ -243,7 +243,7 @@ namespace pr::physics::tests
 		// Body A is offset in Y so the contact point is not aligned with either CoM.
 		// This produces angular impulse in addition to linear impulse, verifying
 		// that the collision mass matrix correctly couples translation and rotation.
-		PRUnitTestMethod(OffCentreRotation)
+		PRUnitTestMethod(OffCentreRotation, Extended)
 		{
 			auto box = ShapeBox(v4{2, 2, 2, 0});
 			auto r = RunCollisionScenario(box,
@@ -277,7 +277,7 @@ namespace pr::physics::tests
 		// purely along the contact normal. Tests that the impulse correctly
 		// resolves only the normal component (frictionless), leaving the
 		// tangential velocity unchanged.
-		PRUnitTestMethod(ObliqueCollision)
+		PRUnitTestMethod(ObliqueCollision, Extended)
 		{
 			auto box = ShapeBox(v4{2, 2, 2, 0});
 			auto r = RunCollisionScenario(box,
@@ -307,7 +307,7 @@ namespace pr::physics::tests
 		// Scenario 6: Heavy body hits a light stationary body.
 		// The heavy body barely slows down, the light body flies away fast.
 		// Tests the asymmetric mass case where one body is much heavier.
-		PRUnitTestMethod(HeavyHitsLight)
+		PRUnitTestMethod(HeavyHitsLight, Extended)
 		{
 			auto box = ShapeBox(v4{2, 2, 2, 0});
 			auto r = RunCollisionScenario(box,
@@ -331,7 +331,7 @@ namespace pr::physics::tests
 		// Scenario 7: Light body hits a heavy stationary body.
 		// The light body bounces back, the heavy body barely moves.
 		// In the limit of infinite mass ratio, the light body perfectly reflects.
-		PRUnitTestMethod(LightHitsHeavy)
+		PRUnitTestMethod(LightHitsHeavy, Extended)
 		{
 			auto box = ShapeBox(v4{2, 2, 2, 0});
 			auto r = RunCollisionScenario(box,
@@ -358,7 +358,7 @@ namespace pr::physics::tests
 		// Scenario 8: Symmetric oblique — bodies approach symmetrically about the X axis.
 		// By symmetry, post-collision should also be symmetric. Both should gain equal
 		// and opposite angular velocities and have mirrored linear velocities.
-		PRUnitTestMethod(SymmetricOblique)
+		PRUnitTestMethod(SymmetricOblique, Extended)
 		{
 			auto box = ShapeBox(v4{2, 2, 2, 0});
 			auto r = RunCollisionScenario(box,
@@ -379,7 +379,7 @@ namespace pr::physics::tests
 		// Scenario 9: Glancing contact — bodies barely overlap in Y.
 		// The contact area is small (edges just touching). This tests
 		// that the collision detection and impulse work for near-miss geometry.
-		PRUnitTestMethod(GlancingContact)
+		PRUnitTestMethod(GlancingContact, Extended)
 		{
 			auto box = ShapeBox(v4{2, 2, 2, 0});
 
@@ -406,7 +406,7 @@ namespace pr::physics::tests
 	// formulas exact for head-on configurations.
 	PRUnitTestClass(SphereVsSphereCollisionTests)
 	{
-		PRUnitTestMethod(HeadOnEqualMass)
+		PRUnitTestMethod(HeadOnEqualMass, Extended)
 		{
 			auto sphere = collision::ShapeSphere(1.0f);
 			auto ia = Inertia::Sphere(1.0f, 10.0f);
@@ -420,7 +420,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlRelative(r.vel_b.lin.x, +3.0f, 0.05f));
 		}
 
-		PRUnitTestMethod(HeadOnHeavyHitsLight)
+		PRUnitTestMethod(HeadOnHeavyHitsLight, Extended)
 		{
 			auto sphere_a = collision::ShapeSphere(1.5f);
 			auto sphere_b = collision::ShapeSphere(1.0f);
@@ -436,7 +436,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlRelative(r.vel_b.lin.x, ElasticVelocity1D(5.0f, -3.0f, 10.0f, +3.0f), 0.001f));
 		}
 
-		PRUnitTestMethod(StationaryTarget)
+		PRUnitTestMethod(StationaryTarget, Extended)
 		{
 			auto sphere = collision::ShapeSphere(1.0f);
 			auto ia = Inertia::Sphere(1.0f, 10.0f);
@@ -451,7 +451,7 @@ namespace pr::physics::tests
 		}
 
 		// Large mass ratio: light sphere bouncing off much heavier sphere
-		PRUnitTestMethod(LargeMassRatio)
+		PRUnitTestMethod(LargeMassRatio, Extended)
 		{
 			auto sphere_a = collision::ShapeSphere(0.5f);
 			auto sphere_b = collision::ShapeSphere(2.0f);
@@ -468,7 +468,7 @@ namespace pr::physics::tests
 		}
 
 		// Both moving same direction: fast sphere catches slow sphere
-		PRUnitTestMethod(SameDirectionCatchUp)
+		PRUnitTestMethod(SameDirectionCatchUp, Extended)
 		{
 			auto sphere = collision::ShapeSphere(1.0f);
 			auto ia = Inertia::Sphere(1.0f, 10.0f);
@@ -486,7 +486,7 @@ namespace pr::physics::tests
 	// ===== Box vs Sphere collision resolution tests =====
 	PRUnitTestClass(BoxVsSphereCollisionTests)
 	{
-		PRUnitTestMethod(HeadOnEqualMass)
+		PRUnitTestMethod(HeadOnEqualMass, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2, 2, 2, 0});
 			auto sphere = collision::ShapeSphere(1.0f);
@@ -502,7 +502,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlRelative(r.vel_b.lin.x, +3.0f, 0.05f));
 		}
 
-		PRUnitTestMethod(HeavyBoxLightSphere)
+		PRUnitTestMethod(HeavyBoxLightSphere, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2, 2, 2, 0});
 			auto sphere = collision::ShapeSphere(1.0f);
@@ -519,7 +519,7 @@ namespace pr::physics::tests
 		}
 
 		// Light box hits heavy sphere (sphere barely moves, box bounces back)
-		PRUnitTestMethod(LightBoxHeavySphere)
+		PRUnitTestMethod(LightBoxHeavySphere, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2, 2, 2, 0});
 			auto sphere = collision::ShapeSphere(1.5f);

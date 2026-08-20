@@ -491,7 +491,7 @@ namespace pr::vp_tree::tests
 			}
 		}
 
-		PRUnitTestMethod(NormalCase)
+		PRUnitTestMethod(NormalCase, Quick)
 		{
 			using namespace pr::vp_tree;
 
@@ -616,7 +616,7 @@ namespace pr::vp_tree::tests
 				CheckPairs(points, max_separation, pairs);
 			}
 		}
-		PRUnitTestMethodFamily(Robustness, Slow)
+		PRUnitTestMethod(Robustness, Stress)
 		{
 			std::vector<Pt> points;
 			std::set<Pt> results;
@@ -697,7 +697,7 @@ namespace pr::vp_tree::tests
 				CheckPairs(points, search_radius, pairs);
 			}
 		}
-		PRUnitTestMethod(Degenerates)
+		PRUnitTestMethod(Degenerates, Quick)
 		{
 			std::vector<Pt> points;
 			std::set<Pt> results;

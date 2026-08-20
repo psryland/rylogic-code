@@ -989,7 +989,7 @@ namespace pr::collision::tests
 	PRUnitTestClass(BuildPolytopeTests)
 	{
 		// Build a tetrahedron polytope and validate its structure
-		PRUnitTestMethod(TetrahedronPolytope)
+		PRUnitTestMethod(TetrahedronPolytope, Quick)
 		{
 			v4 pts[] = {
 				v4{0, 0, 0, 1},
@@ -1011,7 +1011,7 @@ namespace pr::collision::tests
 		}
 
 		// Build a cube polytope from 8 corner points
-		PRUnitTestMethod(CubePolytope)
+		PRUnitTestMethod(CubePolytope, Quick)
 		{
 			v4 pts[] = {
 				v4{-1, -1, -1, 1}, v4{ 1, -1, -1, 1},
@@ -1043,7 +1043,7 @@ namespace pr::collision::tests
 		}
 
 		// Build a polytope with interior points. Only hull verts should appear.
-		PRUnitTestMethod(InteriorPointsFiltered)
+		PRUnitTestMethod(InteriorPointsFiltered, Quick)
 		{
 			v4 pts[] = {
 				v4{-2, -2, -2, 1}, v4{ 2, -2, -2, 1},
@@ -1064,7 +1064,7 @@ namespace pr::collision::tests
 		}
 
 		// Bounding box should tightly contain all hull vertices
-		PRUnitTestMethod(BoundingBox)
+		PRUnitTestMethod(BoundingBox, Quick)
 		{
 			v4 pts[] = {
 				v4{0, 0, 0, 1},
@@ -1082,7 +1082,7 @@ namespace pr::collision::tests
 		}
 
 		// Support vertex should return the most extreme vertex in a given direction
-		PRUnitTestMethod(SupportVertex)
+		PRUnitTestMethod(SupportVertex, Quick)
 		{
 			v4 pts[] = {
 				v4{0, 0, 0, 1},
@@ -1113,7 +1113,7 @@ namespace pr::collision::tests
 		}
 
 		// Polytopes are not tessellated unless explicitly requested.
-		PRUnitTestMethod(NotTessellatedByDefault)
+		PRUnitTestMethod(NotTessellatedByDefault, Quick)
 		{
 			v4 pts[] = {
 				v4{-1, -1, -1, 1}, v4{ 1, -1, -1, 1},
@@ -1131,7 +1131,7 @@ namespace pr::collision::tests
 		}
 
 		// A grid-aligned cube tessellates into whole interior tets that exactly recover the volume.
-		PRUnitTestMethod(CubeTessellation)
+		PRUnitTestMethod(CubeTessellation, Quick)
 		{
 			v4 pts[] = {
 				v4{-1, -1, -1, 1}, v4{ 1, -1, -1, 1},
@@ -1171,7 +1171,7 @@ namespace pr::collision::tests
 
 		// A tetrahedron has a larger AABB than itself, so boundary tets are clipped; the clipped
 		// tessellation must still conserve the polytope volume.
-		PRUnitTestMethod(TetrahedronTessellation)
+		PRUnitTestMethod(TetrahedronTessellation, Quick)
 		{
 			v4 pts[] = {
 				v4{0, 0, 0, 1},
@@ -1202,7 +1202,7 @@ namespace pr::collision::tests
 		}
 
 		// An octahedron (non grid-aligned faces) exercises multi-plane clipping; volume must conserve.
-		PRUnitTestMethod(OctahedronTessellation)
+		PRUnitTestMethod(OctahedronTessellation, Quick)
 		{
 			v4 pts[] = {
 				v4{ 1.5f, 0, 0, 1}, v4{-1.5f, 0, 0, 1},

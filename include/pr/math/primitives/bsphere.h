@@ -322,7 +322,7 @@ namespace pr::math
 {
 	PRUnitTestClass(BoundingSphereTests)
 	{
-		PRUnitTestMethod(Grow, float)
+		PRUnitTestMethod(Grow, Quick, float)
 		{
 			Vec4<float> pt[] =
 			{

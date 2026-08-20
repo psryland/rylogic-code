@@ -1623,7 +1623,7 @@ namespace pr::container::tests
 			}
 		}
 
-		PRUnitTestMethod(Constructors)
+		PRUnitTestMethod(Constructors, Quick)
 		{
 			{
 				Check chk;
@@ -1711,7 +1711,7 @@ namespace pr::container::tests
 				}
 			}
 		}
-		PRUnitTestMethod(Assign)
+		PRUnitTestMethod(Assign, Quick)
 		{
 			{
 				Check chk;
@@ -1755,7 +1755,7 @@ namespace pr::container::tests
 				}
 			}
 		}
-		PRUnitTestMethod(Clear)
+		PRUnitTestMethod(Clear, Quick)
 		{
 			{
 				Check chk;
@@ -1769,7 +1769,7 @@ namespace pr::container::tests
 				}
 			}
 		}
-		PRUnitTestMethod(Erase)
+		PRUnitTestMethod(Erase, Quick)
 		{
 			{
 				Check chk;
@@ -1807,7 +1807,7 @@ namespace pr::container::tests
 				}
 			}
 		}
-		PRUnitTestMethod(Insert)
+		PRUnitTestMethod(Insert, Quick)
 		{
 			{
 				Check chk;
@@ -1833,7 +1833,7 @@ namespace pr::container::tests
 				}
 			}
 		}
-		PRUnitTestMethod(PushPop)
+		PRUnitTestMethod(PushPop, Quick)
 		{
 			{
 				Check chk;
@@ -1937,7 +1937,7 @@ namespace pr::container::tests
 				}
 			}
 		}
-		PRUnitTestMethod(Operators)
+		PRUnitTestMethod(Operators, Quick)
 		{
 			{
 				Check chk;
@@ -1976,7 +1976,7 @@ namespace pr::container::tests
 				}
 			}
 		}
-		PRUnitTestMethod(Mem)
+		PRUnitTestMethod(Mem, Quick)
 		{
 			Check chk;
 			{
@@ -2049,7 +2049,7 @@ namespace pr::container::tests
 			PR_EXPECT(stats.m_invalid_deallocs == 0);
 		}
 
-		PRUnitTestMethod(LedgerEmpty)
+		PRUnitTestMethod(LedgerEmpty, Quick)
 		{
 			Check chk;
 			{
@@ -2067,7 +2067,7 @@ namespace pr::container::tests
 				PR_EXPECT(stats->m_map_allocs == 1U);
 			}
 		}
-		PRUnitTestMethod(LedgerPartial)
+		PRUnitTestMethod(LedgerPartial, Quick)
 		{
 			Check chk;
 			{
@@ -2086,7 +2086,7 @@ namespace pr::container::tests
 				PR_EXPECT(stats->m_map_allocs == 1U);
 			}
 		}
-		PRUnitTestMethod(LedgerBackGrowth)
+		PRUnitTestMethod(LedgerBackGrowth, Quick)
 		{
 			Check chk;
 			{
@@ -2115,7 +2115,7 @@ namespace pr::container::tests
 				ExpectBalanced(*stats);
 			}
 		}
-		PRUnitTestMethod(LedgerFrontGrowth)
+		PRUnitTestMethod(LedgerFrontGrowth, Quick)
 		{
 			Check chk;
 			{

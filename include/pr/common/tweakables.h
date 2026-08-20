@@ -323,7 +323,7 @@ namespace pr::tweakables
 #include "pr/common/unittests.h"
 namespace pr::tweakables
 {
-	PRUnitTestFamily(TweakablesTests, Slow)
+	PRUnitTest(TweakablesTests, Stress)
 	{
 		#if 1
 		using namespace pr::tweakables;

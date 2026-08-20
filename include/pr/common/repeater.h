@@ -136,7 +136,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(RepeaterTests)
+	PRUnitTest(RepeaterTests, Quick)
 	{
 		{
 			std::vector<int> vec = { 0, 1, 2 };

@@ -263,7 +263,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::win32
 {
-	PRUnitTestFamily(DummyWindowTests, Slow)
+	PRUnitTest(DummyWindowTests, Stress)
 	{
 		SyncContext dw0;
 		SyncContext dw1;

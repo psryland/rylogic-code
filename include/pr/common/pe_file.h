@@ -211,7 +211,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(PeFileTests)
+	PRUnitTest(PeFileTests, Quick)
 	{
 		TCHAR name[256];
 		GetModuleFileName(nullptr, name, _countof(name));

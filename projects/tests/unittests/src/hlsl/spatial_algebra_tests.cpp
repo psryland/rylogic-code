@@ -13,14 +13,14 @@ namespace pr::hlsl::tests
 
 	PRUnitTestClass(SpatialAlgebraTests)
 	{
-		PRUnitTestMethod(RodriguesZeroRotation)
+		PRUnitTestMethod(RodriguesZeroRotation, Quick)
 		{
 			// Zero axis-angle => identity
 			auto R = rodrigues_rotation(float3(0, 0, 0));
 			auto I = float3x3(float3(1, 0, 0), float3(0, 1, 0), float3(0, 0, 1));
 			PR_EXPECT(FEql(R, I));
 		}
-		PRUnitTestMethod(Rodrigues90Z)
+		PRUnitTestMethod(Rodrigues90Z, Quick)
 		{
 			// 90 degrees around Z
 			float angle = 3.14159265f / 2.0f;
@@ -30,7 +30,7 @@ namespace pr::hlsl::tests
 			auto v = mul(float3(1, 0, 0), R);
 			PR_EXPECT(FEql(v, float3(0, 1, 0)));
 		}
-		PRUnitTestMethod(RodriguesSmallAngle)
+		PRUnitTestMethod(RodriguesSmallAngle, Quick)
 		{
 			// Very small rotation should still be orthonormal
 			auto R = rodrigues_rotation(float3(1e-10f, 0, 0));
@@ -40,7 +40,7 @@ namespace pr::hlsl::tests
 			auto I = float3x3(float3(1, 0, 0), float3(0, 1, 0), float3(0, 0, 1));
 			PR_EXPECT(FEql(RRt, I));
 		}
-		PRUnitTestMethod(RodriguesInverseProperty)
+		PRUnitTestMethod(RodriguesInverseProperty, Quick)
 		{
 			// R(v) * R(-v) = I
 			auto axis = float3(0.3f, -0.7f, 0.5f);
@@ -50,7 +50,7 @@ namespace pr::hlsl::tests
 			auto I = float3x3(float3(1, 0, 0), float3(0, 1, 0), float3(0, 0, 1));
 			PR_EXPECT(FEql(product, I));
 		}
-		PRUnitTestMethod(BuildSymmetric)
+		PRUnitTestMethod(BuildSymmetric, Quick)
 		{
 			auto m = build_symmetric_3x3(float3(1, 2, 3), float3(4, 5, 6));
 
@@ -64,7 +64,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(m[1][2], 6.0f)); // prod.z
 			PR_EXPECT(FEql(m[2][1], 6.0f)); // symmetric
 		}
-		PRUnitTestMethod(RotateInertiaInvIdentity)
+		PRUnitTestMethod(RotateInertiaInvIdentity, Quick)
 		{
 			// Rotating by identity should not change the inertia
 			auto I = float3x3(float3(1, 0, 0), float3(0, 1, 0), float3(0, 0, 1));
@@ -72,7 +72,7 @@ namespace pr::hlsl::tests
 			auto result = rotate_inertia_inv(iinv, I);
 			PR_EXPECT(FEql(result, iinv));
 		}
-		PRUnitTestMethod(RotateInertiaInvSymmetric)
+		PRUnitTestMethod(RotateInertiaInvSymmetric, Quick)
 		{
 			// Result should always be symmetric
 			auto rot = rodrigues_rotation(float3(0.5f, 0.3f, 0.7f));
@@ -84,7 +84,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(result[0][2], result[2][0]));
 			PR_EXPECT(FEql(result[1][2], result[2][1]));
 		}
-		PRUnitTestMethod(Orthonorm3x3)
+		PRUnitTestMethod(Orthonorm3x3, Quick)
 		{
 			// Start with a slightly non-orthonormal matrix
 			auto m = float3x3(
@@ -106,7 +106,7 @@ namespace pr::hlsl::tests
 			auto z = cross(o[0], o[1]);
 			PR_EXPECT(FEql(z, o[2]));
 		}
-		PRUnitTestMethod(SpatialDot)
+		PRUnitTestMethod(SpatialDot, Quick)
 		{
 			auto ang_a = float3(1, 0, 0);
 			auto lin_a = float3(0, 1, 0);

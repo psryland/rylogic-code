@@ -872,7 +872,7 @@ namespace pr::json
 #include "pr/common/unittests.h"
 namespace pr::storage
 {
-	PRUnitTest(JsonTests)
+	PRUnitTest(JsonTests, Quick)
 	{
 		{
 			char const test_data[] =

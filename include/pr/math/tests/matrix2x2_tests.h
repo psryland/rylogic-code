@@ -12,7 +12,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(Matrix2x2)
 	{
-		PRUnitTestMethod(Construction, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Construction, Quick, float, double, int32_t, int64_t)
 		{
 			using vec2_t = Vec2<T>;
 			using mat2_t = Mat2x2<T>;
@@ -63,7 +63,7 @@ namespace pr::math::tests
 			static_assert(All(V0[0] == vec2_t(T(1), T(2))));
 			static_assert(All(V0[1] == vec2_t(T(3), T(4))));
 		}
-		PRUnitTestMethod(Constants, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Constants, Quick, float, double, int32_t, int64_t)
 		{
 			using vec2_t = Vec2<T>;
 			using mat2_t = Mat2x2<T>;
@@ -75,7 +75,7 @@ namespace pr::math::tests
 			auto I = mat2_t::Identity();
 			PR_EXPECT(All(I * I == I));
 		}
-		PRUnitTestMethod(Rotation, float, double)
+		PRUnitTestMethod(Rotation, Quick, float, double)
 		{
 			using mat2_t = Mat2x2<T>;
 			using vec2_t = Vec2<T>;
@@ -91,7 +91,7 @@ namespace pr::math::tests
 			// Should be orthogonal
 			PR_EXPECT(IsOrthogonal(rot));
 		}
-		PRUnitTestMethod(ScaleFactory, float, double, int32_t, int64_t)
+		PRUnitTestMethod(ScaleFactory, Quick, float, double, int32_t, int64_t)
 		{
 			using mat2_t = Mat2x2<T>;
 			using vec2_t = Vec2<T>;
@@ -104,7 +104,7 @@ namespace pr::math::tests
 			auto s2 = mat2_t::Scale(T(2), T(3));
 			PR_EXPECT(All(s2 * vec2_t(T(1), T(1)) == vec2_t(T(2), T(3))));
 		}
-		PRUnitTestMethod(ShearFactory, float, double, int32_t, int64_t)
+		PRUnitTestMethod(ShearFactory, Quick, float, double, int32_t, int64_t)
 		{
 			using mat2_t = Mat2x2<T>;
 			using vec2_t = Vec2<T>;

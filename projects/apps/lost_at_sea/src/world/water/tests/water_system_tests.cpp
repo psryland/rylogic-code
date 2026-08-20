@@ -45,7 +45,7 @@ namespace pr::unittests
 	// Verify deterministic generation, bounded lifecycle, and the shared CPU/HLSL evaluator.
 	PRUnitTestClass(LostAtSeaWaterTests)
 	{
-		PRUnitTestMethod(DeterministicGeneration)
+		PRUnitTestMethod(DeterministicGeneration, Quick)
 		{
 			auto lhs = System{12345};
 			auto rhs = System{12345};
@@ -57,7 +57,7 @@ namespace pr::unittests
 			PR_EXPECT(lhs.ActiveEventCount() == rhs.ActiveEventCount());
 			PR_EXPECT(std::memcmp(lhs_snapshot.m_elements.data(), rhs_snapshot.m_elements.data(), sizeof(WaterFieldElement) * lhs_snapshot.m_element_count) == 0);
 		}
-		PRUnitTestMethod(ExpiryAndSnapshotAge)
+		PRUnitTestMethod(ExpiryAndSnapshotAge, Quick)
 		{
 			auto system = System{};
 			auto settings = system.GeneratorSettingsSnapshot();
@@ -73,7 +73,7 @@ namespace pr::unittests
 			system.Update(6.0, v2::Zero());
 			PR_EXPECT(system.ActiveEventCount() == 0);
 		}
-		PRUnitTestMethod(CapacityAndOldestEviction)
+		PRUnitTestMethod(CapacityAndOldestEviction, Quick)
 		{
 			auto system = System{};
 			auto settings = system.GeneratorSettingsSnapshot();
@@ -89,7 +89,7 @@ namespace pr::unittests
 			PR_EXPECT(snapshot.m_element_count == System::BaseWaveCount + System::MaxStoneDropCount);
 			PR_EXPECT(Abs(snapshot.m_elements[System::BaseWaveCount].position.x - 1.0f) < 1.0e-6f);
 		}
-		PRUnitTestMethod(StoneDropCompactSupport)
+		PRUnitTestMethod(StoneDropCompactSupport, Quick)
 		{
 			auto element = TestStoneDropElement(1.0f);
 			auto outside_packet = EvaluateStoneDrop(element, float2{6.0f, 0.0f});
@@ -99,7 +99,7 @@ namespace pr::unittests
 			PR_EXPECT(expired_packet.height == 0.0f);
 			PR_EXPECT(expired_packet.vertical_velocity == 0.0f);
 		}
-		PRUnitTestMethod(StoneDropRadialSymmetry)
+		PRUnitTestMethod(StoneDropRadialSymmetry, Quick)
 		{
 			auto element = TestStoneDropElement(0.75f);
 			auto positive_x = EvaluateStoneDrop(element, float2{2.5f, 0.0f});
@@ -109,7 +109,7 @@ namespace pr::unittests
 			PR_EXPECT(FEql(positive_x.radial_height_gradient, negative_x.radial_height_gradient));
 			PR_EXPECT(FEql(positive_x.radial_direction, -negative_x.radial_direction));
 		}
-		PRUnitTestMethod(OverlappingSuperposition)
+		PRUnitTestMethod(OverlappingSuperposition, Quick)
 		{
 			auto first = TestStoneDropElement(0.75f);
 			auto second = first;

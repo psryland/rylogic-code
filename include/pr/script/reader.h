@@ -1155,7 +1155,7 @@ namespace pr::script
 			"*Token 123token\n"
 			"*LastThing";
 
-		PRUnitTestMethod(BasicExtractMethods)
+		PRUnitTestMethod(BasicExtractMethods, Quick)
 		{
 			char kw[50];
 			int hashed_kw = 0;
@@ -1226,7 +1226,7 @@ namespace pr::script
 			PR_EXPECT(reader.IsSectionEnd() == false);
 			PR_EXPECT(reader.IsSourceEnd());
 		}
-		PRUnitTestMethod(DotDelimitedIdentifiers)
+		PRUnitTestMethod(DotDelimitedIdentifiers, Quick)
 		{
 			char const* s =
 				"A.B\n"
@@ -1240,7 +1240,7 @@ namespace pr::script
 			reader.Identifiers('.',s0,s1,s2);     PR_EXPECT(s0 == "a" && s1 == "b" && s2 == "c");
 			reader.Identifiers('.',s0,s1,s2,s3);  PR_EXPECT(s0 == "A" && s1 == "B" && s2 == "C" && s3 == "D");
 		}
-		PRUnitTestMethod(AddressAt)
+		PRUnitTestMethod(AddressAt, Quick)
 		{
 			wchar_t const* str0 = L""
 				L"*Group { *Width {1} *Smooth *Box\n" //33

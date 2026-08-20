@@ -58,7 +58,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(ToTests)
+	PRUnitTest(ToTests, Quick)
 	{
 		//struct TFrom {};
 		//struct TTo {};

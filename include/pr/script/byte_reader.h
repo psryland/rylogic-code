@@ -570,7 +570,7 @@ namespace pr::script
 #include "pr/common/unittests.h"
 namespace pr::script
 {
-	PRUnitTest(ByteReaderTests)
+	PRUnitTest(ByteReaderTests, Quick)
 	{
 		enum class ETestKeyword :int
 		{

@@ -12,7 +12,7 @@ namespace pr::physics::tests
 {
 	PRUnitTestClass(IntegratorTests)
 	{
-		PRUnitTestMethod(IntegratorTests)
+		PRUnitTestMethod(IntegratorTests, Extended)
 		{
 			auto mass = 5.0f;
 			auto force = v8force{1,1,1, 1,1,-1};
@@ -104,7 +104,7 @@ namespace pr::physics::tests
 		}
 
 		// Sphere at origin (CoM == 0, simplest case)
-		PRUnitTestMethod(Sphere_NoForce)
+		PRUnitTestMethod(Sphere_NoForce, Extended)
 		{
 			auto rb = RigidBody{};
 			rb.SetMassProperties(Inertia::Sphere(1.0f, 10.0f));
@@ -120,7 +120,7 @@ namespace pr::physics::tests
 		}
 
 		// Box at origin (CoM == 0, asymmetric inertia)
-		PRUnitTestMethod(Box_WithForce)
+		PRUnitTestMethod(Box_WithForce, Extended)
 		{
 			auto rb = RigidBody{};
 			rb.SetMassProperties(Inertia::Box(v4{1, 2, 0.5f, 0}, 10.0f));
@@ -138,7 +138,7 @@ namespace pr::physics::tests
 		}
 
 		// Box with angular velocity and torque (CoM == 0)
-		PRUnitTestMethod(Box_AngularMotion)
+		PRUnitTestMethod(Box_AngularMotion, Extended)
 		{
 			auto rb = RigidBody{};
 			rb.SetMassProperties(Inertia::Box(v4{1, 1, 1, 0}, 5.0f));
@@ -157,7 +157,7 @@ namespace pr::physics::tests
 
 		// Sphere with offset CoM (CoM != 0, tests the spatial coupling terms)
 		// This is the critical test case — polytopes typically have non-zero CoM.
-		PRUnitTestMethod(Sphere_OffsetCoM_NoForce)
+		PRUnitTestMethod(Sphere_OffsetCoM_NoForce, Extended)
 		{
 			// Create a sphere with CoM offset from the model origin.
 			// This exercises the full 6x6 spatial inverse inertia multiply.
@@ -176,7 +176,7 @@ namespace pr::physics::tests
 		}
 
 		// Box with offset CoM under gravity (CoM != 0, forces + coupling)
-		PRUnitTestMethod(Box_OffsetCoM_WithForce)
+		PRUnitTestMethod(Box_OffsetCoM_WithForce, Extended)
 		{
 			auto com = v4{0.5f, 0.0f, -0.3f, 0};
 			auto rb = RigidBody{};
@@ -195,7 +195,7 @@ namespace pr::physics::tests
 		}
 
 		// Box with offset CoM and torque (CoM != 0, angular-linear coupling)
-		PRUnitTestMethod(Box_OffsetCoM_Torque)
+		PRUnitTestMethod(Box_OffsetCoM_Torque, Extended)
 		{
 			auto com = v4{-0.2f, 0.4f, 0.1f, 0};
 			auto rb = RigidBody{};

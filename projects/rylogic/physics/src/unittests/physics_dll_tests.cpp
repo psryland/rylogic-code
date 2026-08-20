@@ -210,7 +210,7 @@ namespace pr::unittests
 	// Verify ABI discovery, fixed layouts, exception containment, and every required export.
 	PRUnitTestClass(PhysicsDllCoreTests)
 	{
-		PRUnitTestMethod(VersionsSizesAndErrors)
+		PRUnitTestMethod(VersionsSizesAndErrors, Extended)
 		{
 			auto api = PhysicsApi{};
 			PR_EXPECT(api.ApiVersion() == PHYSICS_API_VERSION);
@@ -246,7 +246,7 @@ namespace pr::unittests
 			PR_EXPECT(api.LastError(error.data(), static_cast<std::uint32_t>(error.size()), &required) == EStatus::Success);
 			PR_EXPECT(!error.empty() && error.front() != '\0');
 		}
-		PRUnitTestMethod(ShapesBodiesAndState)
+		PRUnitTestMethod(ShapesBodiesAndState, Extended)
 		{
 			auto fix = PhysicsFixture{};
 			auto shapes = std::vector<ShapeHandle>{};
@@ -319,7 +319,7 @@ namespace pr::unittests
 			for (auto shape : shapes)
 				PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
 		}
-		PRUnitTestMethod(HandlesThreadsStepsAndBuffers)
+		PRUnitTestMethod(HandlesThreadsStepsAndBuffers, Extended)
 		{
 			auto fix = PhysicsFixture{};
 			auto shape = MakeBox(fix.m_api, fix.m_engine, {1, 1, 1, 0});
@@ -361,7 +361,7 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
 			PR_EXPECT(fix.m_api.EngineDestroy(other) == EStatus::Success);
 		}
-		PRUnitTestMethod(CheckpointAndDeviceLease)
+		PRUnitTestMethod(CheckpointAndDeviceLease, Extended)
 		{
 			auto fix = PhysicsFixture{};
 			auto shape = MakeBox(fix.m_api, fix.m_engine, {1, 1, 1, 0});
@@ -395,7 +395,7 @@ namespace pr::unittests
 	// Verify compound ownership, bounded capacity, stable identities, and checkpoint behavior through the ABI.
 	PRUnitTestClass(PhysicsDllCompoundTests)
 	{
-		PRUnitTestMethod(RejectsMalformedForeignAndStaleChildren)
+		PRUnitTestMethod(RejectsMalformedForeignAndStaleChildren, Extended)
 		{
 			auto fix = PhysicsFixture{};
 			auto common = MakeCommon();
@@ -417,7 +417,7 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.ShapeCreateCompound(fix.m_engine, &common, &child, 1, &shape) == EStatus::StaleHandle);
 			PR_EXPECT(fix.m_api.EngineDestroy(other) == EStatus::Success);
 		}
-		PRUnitTestMethod(RetentionCapacityAndCheckpoint)
+		PRUnitTestMethod(RetentionCapacityAndCheckpoint, Extended)
 		{
 			auto fix = PhysicsFixture{};
 			auto child = MakeBox(fix.m_api, fix.m_engine, {1, 1, 1, 0});
@@ -439,7 +439,7 @@ namespace pr::unittests
 			auto too_many = std::vector<ShapeHandle>(PHYSICS_MAX_COMPOUND_CHILDREN + 1, child);
 			PR_EXPECT(fix.m_api.ShapeCreateCompound(fix.m_engine, &common, too_many.data(), static_cast<std::uint32_t>(too_many.size()), &compound) == EStatus::InvalidArgument);
 		}
-		PRUnitTestMethod(ContactEventsReportStableChildIdentity)
+		PRUnitTestMethod(ContactEventsReportStableChildIdentity, Extended)
 		{
 			auto fix = PhysicsFixture{};
 			auto ground_shape = MakeBox(fix.m_api, fix.m_engine, {100, 100, 1, 0});
@@ -481,7 +481,7 @@ namespace pr::unittests
 			PR_EXPECT(contacts != 0);
 			PR_EXPECT(observed[0] && observed[1]);
 		}
-		PRUnitTestMethod(CheckpointDrainsPendingStep)
+		PRUnitTestMethod(CheckpointDrainsPendingStep, Extended)
 		{
 			auto fix = PhysicsFixture{};
 			auto shape = MakeBox(fix.m_api, fix.m_engine, {1, 1, 1, 0});
@@ -506,7 +506,7 @@ namespace pr::unittests
 	// Verify cleanup and separate-engine concurrency using only public lifetime and stepping calls.
 	PRUnitTestClass(PhysicsDllConcurrencyTests)
 	{
-		PRUnitTestMethod(AbandonAndFinalShutdown)
+		PRUnitTestMethod(AbandonAndFinalShutdown, Extended)
 		{
 			{
 				auto fix = PhysicsFixture{};
@@ -538,7 +538,7 @@ namespace pr::unittests
 			fix.m_context = nullptr;
 			PR_EXPECT(errors == 1);
 		}
-		PRUnitTestMethod(SeparateEnginesStepConcurrently)
+		PRUnitTestMethod(SeparateEnginesStepConcurrently, Extended)
 		{
 			auto api = PhysicsApi{};
 			auto context = api.Initialise(ReportErrorCB{{}, &SwallowError});

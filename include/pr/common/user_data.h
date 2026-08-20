@@ -182,7 +182,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(UserDataTests)
+	PRUnitTest(UserDataTests, Quick)
 	{
 		struct Blob
 		{
@@ -217,7 +217,7 @@ namespace pr::common
 		PR_EXPECT(!udtest.has<double>());
 		PR_EXPECT(!udtest.has<Blob>());
 	}
-	PRUnitTest(UserDataDistinctInstIdTypesTests)
+	PRUnitTest(UserDataDistinctInstIdTypesTests, Quick)
 	{
 		// Same 'Data' type ('Info'), but accessed with two different 'InstId' types ('int' and 'Owner*').
 		// Each (Data,InstId) pair must be isolated: the map created for one 'InstId' type must not be

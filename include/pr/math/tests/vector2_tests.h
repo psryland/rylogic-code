@@ -11,7 +11,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(Vector2)
 	{
-		PRUnitTestMethod(Construction, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Construction, Quick, float, double, int32_t, int64_t)
 		{
 			using vec2_t = Vec2<T>;
 
@@ -43,7 +43,7 @@ namespace pr::math::tests
 			static_assert(V1[0] == T(1));
 			static_assert(V1[1] == T(2));
 		}
-		PRUnitTestMethod(Operators, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Operators, Quick, float, double, int32_t, int64_t)
 		{
 			// Test operators with non-uniform values for thorough coverage
 			using vec2_t = Vec2<T>;
@@ -76,7 +76,7 @@ namespace pr::math::tests
 			static_assert(All(V0 == vec2_t(T(10), T(8))));
 			static_assert(Any(V0 != vec2_t(T(2), T(1))));
 		}
-		PRUnitTestMethod(DotProduct, float, double, int32_t, int64_t)
+		PRUnitTestMethod(DotProduct, Quick, float, double, int32_t, int64_t)
 		{
 			using vec2_t = Vec2<T>;
 
@@ -89,7 +89,7 @@ namespace pr::math::tests
 			// Dot product with self = LengthSq
 			static_assert(LengthSq(V0) == T(25));
 		}
-		PRUnitTestMethod(CrossProduct, float, double, int32_t, int64_t)
+		PRUnitTestMethod(CrossProduct, Quick, float, double, int32_t, int64_t)
 		{
 			using vec2_t = Vec2<T>;
 
@@ -105,7 +105,7 @@ namespace pr::math::tests
 			// Anti-symmetric: Cross(a,b) == -Cross(b,a)
 			static_assert(Cross(V0, V1) == -Cross(V1, V0));
 		}
-		PRUnitTestMethod(Length, float, double)
+		PRUnitTestMethod(Length, Quick, float, double)
 		{
 			using vec2_t = Vec2<T>;
 
@@ -118,7 +118,7 @@ namespace pr::math::tests
 			static_assert(FEql(Length(XAxis<vec2_t>()), T(1)));
 			static_assert(FEql(Length(YAxis<vec2_t>()), T(1)));
 		}
-		PRUnitTestMethod(Permute, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Permute, Quick, float, double, int32_t, int64_t)
 		{
 			using vec2_t = Vec2<T>;
 
@@ -133,7 +133,7 @@ namespace pr::math::tests
 			// Permute by 2 is back to identity
 			static_assert(All(Permute(V0, 2) == vec2_t(T(1), T(2))));
 		}
-		PRUnitTestMethod(Orthant, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Orthant, Quick, float, double, int32_t, int64_t)
 		{
 			using vec2_t = Vec2<T>;
 
@@ -145,7 +145,7 @@ namespace pr::math::tests
 		}
 
 		#if 0 // todo: CosAngle and Angle functions not yet ported to math_new
-		PRUnitTestMethod(CosAngle, float, double)
+		PRUnitTestMethod(CosAngle, Quick, float, double)
 		{
 			using vec2_t = Vec2<T>;
 
@@ -160,7 +160,7 @@ namespace pr::math::tests
 		}
 		#endif
 
-		PRUnitTestMethod(Rotate90, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Rotate90, Quick, float, double, int32_t, int64_t)
 		{
 			using vec2_t = Vec2<T>;
 

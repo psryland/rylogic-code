@@ -11,7 +11,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(PolynomialUtilTests)
 	{
-		PRUnitTestMethod(MonicRoots)
+		PRUnitTestMethod(MonicRoots, Quick)
 		{
 			// Ax + B = 0 => x = -B/A
 			auto m = Monic{ 2.0, -6.0 }; // 2x - 6 = 0 => x = 3
@@ -21,7 +21,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(m.F(3.0), 0.0));
 		}
 
-		PRUnitTestMethod(MonicEvaluation)
+		PRUnitTestMethod(MonicEvaluation, Quick)
 		{
 			auto m = Monic{ 3.0, -1.0 }; // 3x - 1
 			PR_EXPECT(FEql(m.F(0.0), -1.0));
@@ -30,7 +30,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(m.ddF(5.0), 0.0));
 		}
 
-		PRUnitTestMethod(QuadraticRoots)
+		PRUnitTestMethod(QuadraticRoots, Quick)
 		{
 			// x² - 5x + 6 = 0 => x = 2, 3
 			auto q = Quadratic{ 1.0, -5.0, 6.0 };
@@ -44,7 +44,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(r1, 3.0));
 		}
 
-		PRUnitTestMethod(QuadraticNoRealRoots)
+		PRUnitTestMethod(QuadraticNoRealRoots, Quick)
 		{
 			// x² + 1 = 0 => no real roots
 			auto q = Quadratic{ 1.0, 0.0, 1.0 };
@@ -52,7 +52,7 @@ namespace pr::math::tests
 			PR_EXPECT(roots.m_count == 0);
 		}
 
-		PRUnitTestMethod(QuadraticRepeatedRoot)
+		PRUnitTestMethod(QuadraticRepeatedRoot, Quick)
 		{
 			// x² - 4x + 4 = 0 => x = 2 (repeated)
 			auto q = Quadratic{ 1.0, -4.0, 4.0 };
@@ -61,7 +61,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(roots[0], 2.0));
 		}
 
-		PRUnitTestMethod(QuadraticDegenerateRoots)
+		PRUnitTestMethod(QuadraticDegenerateRoots, Quick)
 		{
 			// 0x² + 2x - 6 = 0 => x = 3
 			auto quadratic = Quadratic{ 0.0, 2.0, -6.0 };
@@ -70,7 +70,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(roots[0], 3.0));
 		}
 
-		PRUnitTestMethod(QuadraticNearZeroLeadingCoefficient)
+		PRUnitTestMethod(QuadraticNearZeroLeadingCoefficient, Quick)
 		{
 			// Treat a tiny leading coefficient the same as zero so degenerate
 			// quadratics still collapse to the linear root.
@@ -80,7 +80,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(roots[0], 3.0));
 		}
 
-		PRUnitTestMethod(QuadraticEvaluation)
+		PRUnitTestMethod(QuadraticEvaluation, Quick)
 		{
 			auto q = Quadratic{ 2.0, -3.0, 1.0 }; // 2x² - 3x + 1
 			PR_EXPECT(FEql(q.F(0.0), 1.0));
@@ -90,7 +90,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(q.ddF(0.0), 4.0)); // 4
 		}
 
-		PRUnitTestMethod(CubicRoots)
+		PRUnitTestMethod(CubicRoots, Quick)
 		{
 			// x³ - 6x² + 11x - 6 = 0 => x = 1, 2, 3
 			auto c = Cubic{ 1.0, -6.0, 11.0, -6.0 };
@@ -102,7 +102,7 @@ namespace pr::math::tests
 				PR_EXPECT(Abs(c.F(roots[i])) < 1e-6);
 		}
 
-		PRUnitTestMethod(CubicEvaluation)
+		PRUnitTestMethod(CubicEvaluation, Quick)
 		{
 			auto c = Cubic{ 1.0, 0.0, 0.0, -8.0 }; // x³ - 8
 			PR_EXPECT(FEql(c.F(2.0), 0.0));
@@ -110,7 +110,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(c.ddF(2.0), 12.0)); // 6x
 		}
 
-		PRUnitTestMethod(QuarticRoots)
+		PRUnitTestMethod(QuarticRoots, Quick)
 		{
 			// Simple quartic: x⁴ = 0 has root x = 0 (multiplicity 4)
 			auto q1 = Quartic{ 1.0, 0.0, 0.0, 0.0, 0.0 };
@@ -120,7 +120,7 @@ namespace pr::math::tests
 				PR_EXPECT(Abs(r1[i]) < 0.01);
 		}
 
-		PRUnitTestMethod(StationaryPointsTest)
+		PRUnitTestMethod(StationaryPointsTest, Quick)
 		{
 			// x² - 4x + 3 has stationary point at x = 2
 			auto q = Quadratic{ 1.0, -4.0, 3.0 };
@@ -134,7 +134,7 @@ namespace pr::math::tests
 			PR_EXPECT(sp2.m_count == 2);
 		}
 
-		PRUnitTestMethod(DegenerateCubicStationaryPoints)
+		PRUnitTestMethod(DegenerateCubicStationaryPoints, Quick)
 		{
 			// 0x³ + 2x² - 6x has a stationary point at x = 1.5
 			auto cubic = Cubic{ 0.0, 2.0, -6.0, 0.0 };
@@ -143,7 +143,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(stationary_points[0], 1.5));
 		}
 
-		PRUnitTestMethod(FromPointsTests)
+		PRUnitTestMethod(FromPointsTests, Quick)
 		{
 			using V2 = Vec2<double>;
 

@@ -657,7 +657,7 @@ namespace pr::math::tests
 			:rng(5)
 		{}
 
-		PRUnitTestMethod(ProjectionRoundTrip, float, double)
+		PRUnitTestMethod(ProjectionRoundTrip, Quick, float, double)
 		{
 			auto f = Frustum3<T>::MakeFA(constants<T>::tau_by_8, T(1.75), T(10.0));
 			auto p = f.projection(T(2), T(10));
@@ -667,7 +667,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(F, f));
 			PR_EXPECT(FEql(P, p));
 		}
-		PRUnitTestMethod(FAFrustum, float, double)
+		PRUnitTestMethod(FAFrustum, Quick, float, double)
 		{
 			auto f = Frustum3<T>::MakeFA(constants<T>::tau_by_8, T(1.75), T(10.0));
 			
@@ -716,7 +716,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEqlAbsolute(corners.z, Vec4<T>(T(+0.724874), T(+0.414214), T(-1), 1), tol));
 			PR_EXPECT(FEqlAbsolute(corners.w, Vec4<T>(T(+0.724874), T(-0.414214), T(-1), 1), tol));
 		}
-		PRUnitTestMethod(WHFrustum, float, double)
+		PRUnitTestMethod(WHFrustum, Quick, float, double)
 		{
 			auto f = Frustum3<T>::MakeWH(Vec2<T>(T(16), T(9)), T(10), T(20));
 			
@@ -761,7 +761,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(corners.z, Vec4<T>(T(+1.6), T(+0.9), T(-2), 1)));
 			PR_EXPECT(FEql(corners.w, Vec4<T>(T(+1.6), T(-0.9), T(-2), 1)));
 		}
-		PRUnitTestMethod(OrthoFrustum, float, double)
+		PRUnitTestMethod(OrthoFrustum, Quick, float, double)
 		{
 			auto f = Frustum3<T>::MakeOrtho(Vec2<T>(T(1.6), T(0.9)));
 
@@ -804,7 +804,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(corners.z, Vec4<T>(T(+0.8), T(+0.45), T(-2), 1)));
 			PR_EXPECT(FEql(corners.w, Vec4<T>(T(+0.8), T(-0.45), T(-2), 1)));
 		}
-		PRUnitTestMethod(GrowWithPoints, float, double)
+		PRUnitTestMethod(GrowWithPoints, Quick, float, double)
 		{
 			using Vec4 = Vec4<T>;
 			using Vec2 = Vec2<T>;
@@ -839,7 +839,7 @@ namespace pr::math::tests
 				PR_EXPECT(within);
 			}
 		}
-		PRUnitTestMethod(GrowWithBBoxes, float, double)
+		PRUnitTestMethod(GrowWithBBoxes, Quick, float, double)
 		{
 			using Vec4 = Vec4<T>;
 			using Vec2 = Vec2<T>;
@@ -876,7 +876,7 @@ namespace pr::math::tests
 				PR_EXPECT(within);
 			}
 		}
-		PRUnitTestMethod(GrowWithSpheres, float, double)
+		PRUnitTestMethod(GrowWithSpheres, Quick, float, double)
 		{
 			using Vec4 = Vec4<T>;
 			using Vec2 = Vec2<T>;

@@ -22,7 +22,7 @@ namespace pr::hlsl::tests
 			return FEql(a, b) || FEql(a, -b);
 		}
 
-		PRUnitTestMethod(HermiteSplineEndpoints)
+		PRUnitTestMethod(HermiteSplineEndpoints, Quick)
 		{
 			auto x0 = float3(1, 2, 3);
 			auto v0 = float3(1, 0, 0);
@@ -36,7 +36,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(p0, x0));
 			PR_EXPECT(FEql(p1, x1));
 		}
-		PRUnitTestMethod(HermiteSplineTangents)
+		PRUnitTestMethod(HermiteSplineTangents, Quick)
 		{
 			auto x0 = float3(0, 0, 0);
 			auto v0 = float3(3, 0, 0);
@@ -50,7 +50,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(t0, v0));
 			PR_EXPECT(FEql(t1, v1));
 		}
-		PRUnitTestMethod(HermiteVectorCpuParity)
+		PRUnitTestMethod(HermiteVectorCpuParity, Quick)
 		{
 			// Compare HLSL HermiteVector against CPU HermiteVector at multiple time steps
 			auto x0 = float3(1, -2, 3);
@@ -74,7 +74,7 @@ namespace pr::hlsl::tests
 				PR_EXPECT(FEqlAbsolute(hlsl_vel, cpu_vel.xyz, 1e-4f));
 			}
 		}
-		PRUnitTestMethod(HermiteQuaternionCpuParity)
+		PRUnitTestMethod(HermiteQuaternionCpuParity, Quick)
 		{
 			// Compare HLSL HermiteQuaternion against CPU HermiteQuaternion
 			auto q0 = normalize(float4(1, 0, 0, 1));
@@ -105,7 +105,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEqlAbsolute(hlsl_w0, cpu_w0.xyz, 1e-3f));
 			PR_EXPECT(FEqlAbsolute(hlsl_w1, cpu_w1.xyz, 1e-3f));
 		}
-		PRUnitTestMethod(HermiteQuaternionUnitLength)
+		PRUnitTestMethod(HermiteQuaternionUnitLength, Quick)
 		{
 			// The interpolated quaternion should always be unit length
 			auto q0 = normalize(float4(1, 0, 0, 1));
@@ -124,7 +124,7 @@ namespace pr::hlsl::tests
 				PR_EXPECT(FEqlAbsolute(len, 1.0f, 1e-3f));
 			}
 		}
-		PRUnitTestMethod(HermiteVectorMidPointCpuParity)
+		PRUnitTestMethod(HermiteVectorMidPointCpuParity, Quick)
 		{
 			// Compare HLSL HermiteVector_MidPoint against CPU HermiteVector_MidPoint
 			auto prev = float3(0, 0, 0);
@@ -150,7 +150,7 @@ namespace pr::hlsl::tests
 				PR_EXPECT(FEqlAbsolute(hlsl_vel, cpu_vel.xyz, 1e-4f));
 			}
 		}
-		PRUnitTestMethod(HermiteQuaternionMidPointCpuParity)
+		PRUnitTestMethod(HermiteQuaternionMidPointCpuParity, Quick)
 		{
 			// Compare HLSL HermiteQuaternion_MidPoint against CPU HermiteQuaternion_MidPoint
 			auto rot_prev = normalize(float4(0, 0, 0, 1));

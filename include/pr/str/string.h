@@ -187,7 +187,7 @@ namespace pr::str::tests
 {
 	PRUnitTestClass(PrStringTests)
 	{
-		PRUnitTestMethod(ConstructorsAndAssignment)
+		PRUnitTestMethod(ConstructorsAndAssignment, Quick)
 		{
 			// TODO: Test the basic pr::string functionality
 		}

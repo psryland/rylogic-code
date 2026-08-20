@@ -138,7 +138,7 @@ namespace pr::common
 		};
 
 		// Null and self-comparisons must keep working once comparisons stop copying wrappers.
-		PRUnitTestMethod(NullAndReflexive)
+		PRUnitTestMethod(NullAndReflexive, Quick)
 		{
 			value_ptr<Thing> empty;
 			PR_EXPECT(empty == nullptr);
@@ -158,7 +158,7 @@ namespace pr::common
 		}
 
 		// Distinct pointers only have a defined ordering when they refer to the same array.
-		PRUnitTestMethod(DistinctAndOrdering)
+		PRUnitTestMethod(DistinctAndOrdering, Quick)
 		{
 			// Keep the pointers non-owning so the ordering check can use stack storage in one array.
 			struct NoDelete
@@ -184,7 +184,7 @@ namespace pr::common
 		}
 
 		// Copying must clone the pointee while keeping identity-based comparisons stable.
-		PRUnitTestMethod(CopyIsolation)
+		PRUnitTestMethod(CopyIsolation, Quick)
 		{
 			value_ptr<Thing> value(new Thing(4));
 			auto copied = value;

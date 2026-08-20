@@ -14,7 +14,7 @@ namespace pr::math::tests
 	{
 		std::default_random_engine rng = std::default_random_engine(1u);
 
-		PRUnitTestMethod(Construction, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Construction, Quick, float, double, int32_t, int64_t)
 		{
 			using vec3_t = Vec3<T>;
 			using vec4_t = Vec4<T>;
@@ -79,7 +79,7 @@ namespace pr::math::tests
 			PR_EXPECT(All(M1[1] == M1.y));
 			PR_EXPECT(All(M1[2] == M1.z));
 		}
-		PRUnitTestMethod(ColRow, float, double, int32_t, int64_t)
+		PRUnitTestMethod(ColRow, Quick, float, double, int32_t, int64_t)
 		{
 			using vec3_t = Vec3<T>;
 			using vec4_t = Vec4<T>;
@@ -109,7 +109,7 @@ namespace pr::math::tests
 			M3.row(1, vec3_t(T(20), T(50), T(80)));
 			PR_EXPECT(M3.x[1] == T(20) && M3.y[1] == T(50) && M3.z[1] == T(80));
 		}
-		PRUnitTestMethod(Constants, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Constants, Quick, float, double, int32_t, int64_t)
 		{
 			using vec3_t = Vec3<T>;
 			using mat3_t = Mat3x3<T>;
@@ -124,7 +124,7 @@ namespace pr::math::tests
 			// Identity * Identity = Identity
 			PR_EXPECT(All(I * I == I));
 		}
-		PRUnitTestMethod(W1Factory, float, double, int32_t, int64_t)
+		PRUnitTestMethod(W1Factory, Quick, float, double, int32_t, int64_t)
 		{
 			using vec4_t = Vec4<T>;
 			using mat3_t = Mat3x3<T>;
@@ -140,7 +140,7 @@ namespace pr::math::tests
 			PR_EXPECT(All(M.z == rot.z4));
 			PR_EXPECT(All(M.w == pos));
 		}
-		PRUnitTestMethod(TraceScaleUnscaled, float, double)
+		PRUnitTestMethod(TraceScaleUnscaled, Quick, float, double)
 		{
 			using vec4_t = Vec4<T>;
 			using mat3_t = Mat3x3<T>;
@@ -164,7 +164,7 @@ namespace pr::math::tests
 			auto us = M.unscaled();
 			PR_EXPECT(FEql(us, mat3_t::Identity()));
 		}
-		PRUnitTestMethod(MultiplyVector, float, double, int32_t, int64_t)
+		PRUnitTestMethod(MultiplyVector, Quick, float, double, int32_t, int64_t)
 		{
 			using vec3_t = Vec3<T>;
 			using vec4_t = Vec4<T>;
@@ -188,7 +188,7 @@ namespace pr::math::tests
 			auto R4 = vec4_t(R3.x, R3.y, R3.z, T(-2));
 			PR_EXPECT(All(m * v4 == R4));
 		}
-		PRUnitTestMethod(RotationFactories, float, double)
+		PRUnitTestMethod(RotationFactories, Quick, float, double)
 		{
 			using vec3_t = Vec3<T>;
 			using vec4_t = Vec4<T>;
@@ -215,7 +215,7 @@ namespace pr::math::tests
 			PR_EXPECT(IsOrthonormal(r2r));
 			PR_EXPECT(FEql(r2r * from, to));
 		}
-		PRUnitTestMethod(ScaleFactory, float, double)
+		PRUnitTestMethod(ScaleFactory, Quick, float, double)
 		{
 			using vec4_t = Vec4<T>;
 			using mat3_t = Mat3x3<T>;
@@ -228,7 +228,7 @@ namespace pr::math::tests
 			auto s2 = mat3_t::Scale(T(2), T(3), T(4));
 			PR_EXPECT(All(s2 * vec4_t(T(1), T(1), T(1), T(0)) == vec4_t(T(2), T(3), T(4), T(0))));
 		}
-		PRUnitTestMethod(IntrinsicValidation)
+		PRUnitTestMethod(IntrinsicValidation, Quick)
 		{
 			// Verify the optimised (SSE) implementations match the generic implementations.
 			// constexpr evaluation forces the 'if consteval' branch (generic scalar path).

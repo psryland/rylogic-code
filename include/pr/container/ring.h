@@ -59,7 +59,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::container
 {
-	PRUnitTest(RingTests)
+	PRUnitTest(RingTests, Quick)
 	{
 		int buf[5] = {};
 		auto rbuf = MakeRing(&buf[1], &buf[1] + 3);

@@ -158,7 +158,7 @@ namespace pr::collision::tests
 		}
 
 		// Triangle face-on to a box face: clear overlap
-		PRUnitTestMethod(FaceOnOverlap)
+		PRUnitTestMethod(FaceOnOverlap, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-0.5f, -0.5f, 0, 1}, v4{0.5f, -0.5f, 0, 1}, v4{0, 0.5f, 0, 1}};
 			auto rhs = ShapeBox{v4{1, 1, 1, 0}};
@@ -183,7 +183,7 @@ namespace pr::collision::tests
 		}
 
 		// Triangle entirely outside box
-		PRUnitTestMethod(Separated)
+		PRUnitTestMethod(Separated, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeBox{v4{0.5f, 0.5f, 0.5f, 0.0f}};
@@ -198,7 +198,7 @@ namespace pr::collision::tests
 		}
 
 		// Triangle edge intersects box face
-		PRUnitTestMethod(EdgeIntersectsBoxFace)
+		PRUnitTestMethod(EdgeIntersectsBoxFace, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-2, 0, 0, 1}, v4{2, 0, 0, 1}, v4{0, 2, 0, 1}};
 			auto rhs = ShapeBox{v4{0.3f, 0.3f, 0.3f, 0.0f}};
@@ -224,7 +224,7 @@ namespace pr::collision::tests
 		}
 
 		// Triangle vertex inside box
-		PRUnitTestMethod(VertexInsideBox)
+		PRUnitTestMethod(VertexInsideBox, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{0, 0, 0, 1}, v4{5, 0, 0, 1}, v4{0, 5, 0, 1}};
 			auto rhs = ShapeBox{v4{1, 1, 1, 0}};
@@ -250,7 +250,7 @@ namespace pr::collision::tests
 		}
 
 		// Triangle parallel to box face, barely touching
-		PRUnitTestMethod(BarleyTouching)
+		PRUnitTestMethod(BarleyTouching, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeBox{v4{2, 2, 1.0f, 0.0f}};
@@ -275,7 +275,7 @@ namespace pr::collision::tests
 		}
 
 		// Triangle parallel to box face, barely separated
-		PRUnitTestMethod(BarelySeparated)
+		PRUnitTestMethod(BarelySeparated, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeBox{v4{2, 2, 1.0f, 0.0f}};
@@ -290,7 +290,7 @@ namespace pr::collision::tests
 		}
 
 		// Rotated triangle intersecting rotated box: tests cross-product axes
-		PRUnitTestMethod(RotatedIntersection)
+		PRUnitTestMethod(RotatedIntersection, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, 0, 0, 1}, v4{1, 0, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeBox{v4{0.5f, 0.5f, 0.5f, 0.0f}};
@@ -313,7 +313,7 @@ namespace pr::collision::tests
 		}
 
 		// Triangle-vs-Box with s2r transforms 
-		PRUnitTestMethod(TriangleVsBoxWithS2R) 
+		PRUnitTestMethod(TriangleVsBoxWithS2R, Quick)
 		{ 
 			auto lhs = ShapeTriangle{v4{-1, 0, 0, 1}, v4{1, 0, 0, 1}, v4{0, 1, 0, 1}, m4x4::TransformDeg(45, 30, -25, v4{0.5f, 0, 0, 1}) };
 			auto rhs = ShapeBox{v4{0.5f, 0.5f, 0.5f, 0.0f}, m4x4::TransformDeg(30, 10, -80, v4{0.8f, 0, 0, 1}) };

@@ -188,7 +188,7 @@ namespace pr::algorithm::tests
 	{
 		inline static constexpr bool CreateVisuals = false;
 
-		PRUnitTestMethod(Basic)
+		PRUnitTestMethod(Basic, Quick)
 		{
 			std::vector<v2> points =
 			{
@@ -231,7 +231,7 @@ namespace pr::algorithm::tests
 				PR_EXPECT(std::ranges::any_of(results, [&](auto const& v) { return All(v == points[5]); }));
 			}
 		}
-		PRUnitTestMethod(Visualise)
+		PRUnitTestMethod(Visualise, Quick)
 		{
 			#if PR_UNITTESTS_VISUALISE
 			if constexpr (CreateVisuals)

@@ -14,7 +14,7 @@ namespace pr::geometry
 {
 	PRUnitTestClass(PointTests)
 	{
-		PRUnitTestMethod(PointWithinConvexPolygon)
+		PRUnitTestMethod(PointWithinConvexPolygon, Quick)
 		{
 			v4 poly[] =
 			{
@@ -31,7 +31,7 @@ namespace pr::geometry
 	};
 	PRUnitTestClass(DistanceTests)
 	{
-		PRUnitTestMethod(DistanceSq_PointToLine)
+		PRUnitTestMethod(DistanceSq_PointToLine, Quick)
 		{
 			auto s = pr::v4(1.0f, 1.0f, 0.0f, 1.0f);
 			auto e = pr::v4(3.0f, 2.0f, 0.0f, 1.0f);
@@ -46,10 +46,10 @@ namespace pr::geometry
 	{
 		inline static constexpr bool CreateVisuals = false;
 
-		PRUnitTestMethod(PointToPlane)
+		PRUnitTestMethod(PointToPlane, Quick)
 		{
 		}
-		PRUnitTestMethod(LineToBBox)
+		PRUnitTestMethod(LineToBBox, Quick)
 		{
 			std::default_random_engine rng;
 			for (int i = 0; i != 100; ++i)
@@ -77,7 +77,7 @@ namespace pr::geometry
 				#endif
 			}
 		}
-		PRUnitTestMethod(RayVsTriangle)
+		PRUnitTestMethod(RayVsTriangle, Quick)
 		{
 			using namespace pr::ldraw;
 
@@ -111,7 +111,7 @@ namespace pr::geometry
 	};
 	PRUnitTestClass(Intersect2DTests)
 	{
-		PRUnitTestMethod(RayVsRay)
+		PRUnitTestMethod(RayVsRay, Quick)
 		{
 			v2 pt;
 			PR_EXPECT(intersect::RayVsRay(v2{ 0, 2 }, v2{ 2, 0 }, v2{ 0, 0.5f }, v2{ 2, 1.5f }, pt));
@@ -123,7 +123,7 @@ namespace pr::geometry
 			// Colinear
 			PR_EXPECT(!intersect::RayVsRay(v2{ 0, 2 }, v2{ 1, 1 }, v2{ 2, 0 }, v2{ 1, 1 }, pt));
 		}
-		PRUnitTestMethod(LineVsLine)
+		PRUnitTestMethod(LineVsLine, Quick)
 		{
 			float ta, tb;
 
@@ -160,13 +160,13 @@ namespace pr::geometry
 			PR_EXPECT(FEql(ta, 0.0f));
 			PR_EXPECT(FEql(tb, 5.f / 6.f));
 		}
-		PRUnitTestMethod(LineVsBBox)
+		PRUnitTestMethod(LineVsBBox, Quick)
 		{
 		}
 	};
 	PRUnitTestClass(Intersect3DTests)
 	{
-		PRUnitTestMethod(LineToBBox)
+		PRUnitTestMethod(LineToBBox, Quick)
 		{
 			float tmin = 0.0f, tmax = 1.0f;
 			auto s = pr::v4(+1.0f, +0.2f, +0.5f, 1.0f);
@@ -183,7 +183,7 @@ namespace pr::geometry
 			r = intersect::RayVsBBox(s, d, bbox, tmin, tmax);
 			PR_EXPECT(!r);
 		}
-		PRUnitTestMethod(RayVsSphere)
+		PRUnitTestMethod(RayVsSphere, Quick)
 		{
 			float tmin = 0.0f, tmax = 1.0f;
 			auto s = pr::v4(+1.0f, +0.2f, +0.5f, 1.0f);
@@ -200,7 +200,7 @@ namespace pr::geometry
 			r = intersect::RayVsSphere(s, d, rad, tmin, tmax);
 			PR_EXPECT(!r);
 		}
-		PRUnitTestMethod(BBoxVsPlane)
+		PRUnitTestMethod(BBoxVsPlane, Quick)
 		{
 			auto p = Plane(v4(0.1f, 0.4f, -0.3f, 1), v4::Normal(0.3f, -0.4f, 0.5f, 0));
 			auto b = BBox(v4(0.0f, 0.2f, 0.0f, 1.0f), v4(0.25f, 0.15f, 0.2f, 0));

@@ -1471,7 +1471,7 @@ namespace pr::storage
 {
 	PRUnitTestClass(JsonTests)
 	{
-		PRUnitTestMethod(Reading)
+		PRUnitTestMethod(Reading, Quick)
 		{
 			char const test_data[] =
 				"{\n"
@@ -1522,7 +1522,7 @@ namespace pr::storage
 			PR_EXPECT(root["key6"]["key12"].to_object().size() == 5);
 			PR_EXPECT(root["key6"]["key18"].to_array().empty() == false);
 		}
-		PRUnitTestMethod(ReadingEscapedStrings)
+		PRUnitTestMethod(ReadingEscapedStrings, Quick)
 		{
 			char const test_data[] =
 				"{\n"
@@ -1536,7 +1536,7 @@ namespace pr::storage
 			PR_EXPECT(root["SearchPaths"][0].to<std::string>() == "C:\\Work\\Path");
 			PR_EXPECT(root["EscapedString"].to<std::string>() == "This is a string with a \"quote\" in it");
 		}
-		PRUnitTestMethod(UnescapingUnicode)
+		PRUnitTestMethod(UnescapingUnicode, Quick)
 		{
 			// Basic multilingual plane code points, upper and lower case hex digits
 			PR_EXPECT(json::UnescapeString("\\u00E9") == "\xC3\xA9"); // é (U+00E9)
@@ -1554,7 +1554,7 @@ namespace pr::storage
 			PR_THROWS(json::UnescapeString("\\uD83D\\u0041"), std::runtime_error); // High surrogate followed by a non-surrogate
 			PR_THROWS(json::UnescapeString("\\uDE00"), std::runtime_error); // Lone low surrogate
 		}
-		PRUnitTestMethod(ReadingStream)
+		PRUnitTestMethod(ReadingStream, Quick)
 		{
 			char const test_data[] =
 				"\xEF\xBB\xBF"
@@ -1568,7 +1568,7 @@ namespace pr::storage
 			root = json::Read(stream_with_estimate, {}, 4);
 			PR_EXPECT(root["key"].to<int>() == 456);
 		}
-		PRUnitTestMethod(Writing)
+		PRUnitTestMethod(Writing, Quick)
 		{
 			json::Document doc;
 			auto& root = doc.root();

@@ -5089,7 +5089,7 @@ namespace pr::ldraw
 {
 	PRUnitTestClass(LdrawBuilder)
 	{
-		PRUnitTestMethod(Point)
+		PRUnitTestMethod(Point, Quick)
 		{
 			Builder builder;
 			builder.Point("p", 0xFF00FF00)
@@ -5115,7 +5115,7 @@ namespace pr::ldraw
 
 			auto bdr = builder.ToBinary(); // @copilot ToBinary has unimplemented code paths for some property types - fix me
 		}
-		PRUnitTestMethod(Line)
+		PRUnitTestMethod(Line, Quick)
 		{
 			Builder builder;
 			builder.Line("l", 0xFF00FF00)
@@ -5164,7 +5164,7 @@ namespace pr::ldraw
 				"	*Data {-1 -1 -1 ffffffff 1 -1 -1 ffffffff 1 1 -1 ffffffff -1 1 -1 ffffffff}\n"
 				"}");
 		}
-		PRUnitTestMethod(Plane)
+		PRUnitTestMethod(Plane, Quick)
 		{
 			Builder builder;
 			builder.Plane("p", 0xFF00FF00)
@@ -5189,14 +5189,14 @@ namespace pr::ldraw
 				"	}\n"
 				"}");
 		}
-		PRUnitTestMethod(Box)
+		PRUnitTestMethod(Box, Quick)
 		{
 			Builder builder;
 			builder.Box("b", 0xFF00FF00).box(1, 2, 3);
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Box b ff00ff00 {*Data {1 2 3}}");
 		}
-		PRUnitTestMethod(Model)
+		PRUnitTestMethod(Model, Quick)
 		{
 			Builder builder;
 			builder.Model("m").filepath("my_model.fbx").no_materials().anim().frame(10);
@@ -5210,7 +5210,7 @@ namespace pr::ldraw
 				"	*NoMaterials {}\n"
 				"}");
 		}
-		PRUnitTestMethod(Group)
+		PRUnitTestMethod(Group, Quick)
 		{
 			Builder builder;
 			auto& grp = builder.Group("g");
@@ -5224,42 +5224,42 @@ namespace pr::ldraw
 				"	}\n"
 				"}");
 		}
-		PRUnitTestMethod(LineBox)
+		PRUnitTestMethod(LineBox, Quick)
 		{
 			Builder builder;
 			builder.LineBox("lb", 0xFF00FF00).dim(1, 2, 3);
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*LineBox lb ff00ff00 {*Data {1 2 3}}");
 		}
-		PRUnitTestMethod(Grid)
+		PRUnitTestMethod(Grid, Quick)
 		{
 			Builder builder;
 			builder.Grid("g", 0xFF00FF00).wh(10, 20).divisions(5, 10);
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Grid g ff00ff00 {*Data {10 20} *Divisions {5 10}}");
 		}
-		PRUnitTestMethod(CoordFrame)
+		PRUnitTestMethod(CoordFrame, Quick)
 		{
 			Builder builder;
 			builder.CoordFrame("cf").scale(2);
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*CoordFrame cf {*Scale {2}}");
 		}
-		PRUnitTestMethod(Triangle)
+		PRUnitTestMethod(Triangle, Quick)
 		{
 			Builder builder;
 			builder.Triangle("t", 0xFFFF0000).tri({ 0,0,0 }, { 1,0,0 }, { 0,1,0 });
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Triangle t ffff0000 {*Data {0 0 0 1 0 0 0 1 0}}");
 		}
-		PRUnitTestMethod(Quad)
+		PRUnitTestMethod(Quad, Quick)
 		{
 			Builder builder;
 			builder.Quad("q", 0xFF0000FF).quad({ 0,0,0 }, { 1,0,0 }, { 1,1,0 }, { 0,1,0 });
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Quad q ff0000ff {*Data {0 0 0 1 0 0 1 1 0 0 1 0}}");
 		}
-		PRUnitTestMethod(Ribbon)
+		PRUnitTestMethod(Ribbon, Quick)
 		{
 			Builder builder;
 			builder.Ribbon("r", 0xFF00FF00).width(2).pt(0, 0, 0).pt(1, 0, 0).pt(1, 1, 0);
@@ -5270,28 +5270,28 @@ namespace pr::ldraw
 			"	*Data {0 0 0 1 0 0 1 1 0}\n"
 			"}");
 		}
-		PRUnitTestMethod(Circle)
+		PRUnitTestMethod(Circle, Quick)
 		{
 			Builder builder;
 			builder.Circle("c", 0xFF00FF00).circle(5).facets(16);
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Circle c ff00ff00 {*Data {5} *Facets {16}}");
 		}
-		PRUnitTestMethod(Pie)
+		PRUnitTestMethod(Pie, Quick)
 		{
 			Builder builder;
 			builder.Pie("p", 0xFF00FF00).wedge(0, 90, 1, 5).facets(16);
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Pie p ff00ff00 {*Data {0 90 1 5} *Facets {16}}");
 		}
-		PRUnitTestMethod(PieMultiWedge)
+		PRUnitTestMethod(PieMultiWedge, Quick)
 		{
 			Builder builder;
 			builder.Pie("p", 0xFF00FF00).wedge(0, 90, 1, 5).wedge(100, 180, 2, 4, 3, 3).facets(16);
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Pie p ff00ff00 {*Data {0 90 1 5} *Data {100 180 2 4 3 3} *Facets {16}}");
 		}
-		PRUnitTestMethod(Rect)
+		PRUnitTestMethod(Rect, Quick)
 		{
 			Builder builder;
 			builder.Rect("r", 0xFF00FF00).rect(10, 20).corner_radius(2).facets(8);
@@ -5303,21 +5303,21 @@ namespace pr::ldraw
 			"	*Facets {8}\n"
 			"}");
 		}
-		PRUnitTestMethod(Polygon)
+		PRUnitTestMethod(Polygon, Quick)
 		{
 			Builder builder;
 			builder.Polygon("p", 0xFF00FF00).pt(0, 0).pt(1, 0).pt(1, 1).pt(0, 1);
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Polygon p ff00ff00 {*Data {0 0 1 0 1 1 0 1}}");
 		}
-		PRUnitTestMethod(Sphere)
+		PRUnitTestMethod(Sphere, Quick)
 		{
 			Builder builder;
 			builder.Sphere("s", 0xFF00FF00).sphere(5).facets(4);
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Sphere s ff00ff00 {*Data {5} *Facets {4}}");
 		}
-		PRUnitTestMethod(Cylinder)
+		PRUnitTestMethod(Cylinder, Quick)
 		{
 			{
 				Builder builder;
@@ -5340,14 +5340,14 @@ namespace pr::ldraw
 				PR_EXPECT(ldr == "*Cylinder c ff00ff00 {*Data {10 5 5} *EndCaps {6}}");
 			}
 		}
-		PRUnitTestMethod(Cone)
+		PRUnitTestMethod(Cone, Quick)
 		{
 			Builder builder;
 			builder.Cone("c", 0xFF00FF00).angle(45).near_dist(1).far_dist(10).facets(16);
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Cone c ff00ff00 {*Data {45 1 10} *Facets {16}}");
 		}
-		PRUnitTestMethod(Mesh)
+		PRUnitTestMethod(Mesh, Quick)
 		{
 			Builder builder;
 			builder.Mesh("m", 0xFF00FF00)
@@ -5360,7 +5360,7 @@ namespace pr::ldraw
 			"	*Faces {0 1 2}\n"
 			"}");
 		}
-		PRUnitTestMethod(ConvexHull)
+		PRUnitTestMethod(ConvexHull, Quick)
 		{
 			Builder builder;
 			builder.ConvexHull("ch", 0xFF00FF00)
@@ -5371,28 +5371,28 @@ namespace pr::ldraw
 			"	*Data {0 0 0 1 0 0 0 1 0 0 0 1}\n"
 			"}");
 		}
-		PRUnitTestMethod(Frustum)
+		PRUnitTestMethod(Frustum, Quick)
 		{
 			Builder builder;
 			builder.Frustum("f", 0xFF00FF00).wh(10, 20, 1, 100);
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*FrustumWH f ff00ff00 {*Data {10 20 1 100}}");
 		}
-		PRUnitTestMethod(Instance)
+		PRUnitTestMethod(Instance, Quick)
 		{
 			Builder builder;
 			builder.Instance("i", 0xFF00FF00).address("my_model");
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Instance i ff00ff00 {*Data {\"my_model\"}}");
 		}
-		PRUnitTestMethod(Text)
+		PRUnitTestMethod(Text, Quick)
 		{
 			Builder builder;
 			builder.Text("t", 0xFF00FF00).text("Hello");
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Text t ff00ff00 {*Data {\"Hello\"}}");
 		}
-		PRUnitTestMethod(LightSource)
+		PRUnitTestMethod(LightSource, Quick)
 		{
 			Builder builder;
 			builder.LightSource("ls", 0xFFFFFFFF).style("Directional").diffuse(0xFFFFFFFF).cast_shadow();

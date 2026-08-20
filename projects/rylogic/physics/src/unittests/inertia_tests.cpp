@@ -11,7 +11,7 @@ namespace pr::physics::tests
 {
 	PRUnitTestClass(InertiaTests)
 	{
-		PRUnitTestMethod(InertiaConstruction)
+		PRUnitTestMethod(InertiaConstruction, Extended)
 		{
 			auto mass = 5.0f;
 			constexpr auto moment = (1.0f/6.0f) * Sqr(2.0f);
@@ -30,7 +30,7 @@ namespace pr::physics::tests
 			auto I2 = Inertia{I1, -v4{3,2,1,0}};
 			PR_EXPECT(FEql(I2, Inertia{I2.To6x6()}));
 		}
-		PRUnitTestMethod(InertiaInvConstruction)
+		PRUnitTestMethod(InertiaInvConstruction, Extended)
 		{
 			auto mass = 5.0f;
 			constexpr auto moment = (1.0f/6.0f) * Sqr(2.0f);
@@ -46,14 +46,14 @@ namespace pr::physics::tests
 			auto I2_inv = InertiaInv{I1_inv, -v4{3,2,1,0}};
 			PR_EXPECT(FEql(I2_inv, InertiaInv{I2_inv.To6x6()}));
 		}
-		PRUnitTestMethod(Infinite)
+		PRUnitTestMethod(Infinite, Extended)
 		{
 			auto inf_inv = Invert(Inertia::Infinite());
 			PR_EXPECT(inf_inv == InertiaInv::Zero());
 			auto inf = Invert(inf_inv);
 			PR_EXPECT(inf == Inertia::Infinite());
 		}
-		PRUnitTestMethod(TranslateAndRotate)
+		PRUnitTestMethod(TranslateAndRotate, Extended)
 		{
 			auto mass = 5.0f;
 			constexpr auto moment = (1.0f/6.0f) * Sqr(2.0f);
@@ -67,7 +67,7 @@ namespace pr::physics::tests
 
 			PR_EXPECT(FEqlRelative(Ic0, Ic1, 0.0001f));
 		}
-		PRUnitTestMethod(Transform)
+		PRUnitTestMethod(Transform, Extended)
 		{
 			auto mass = 5.0f;
 			constexpr auto moment = (1.0f/6.0f) * Sqr(2.0f);
@@ -77,7 +77,7 @@ namespace pr::physics::tests
 			auto Ic2 = Transform(Ic0, a2b, ETranslateInertia::AwayFromCoM);
 			PR_EXPECT(FEql(Ic1, Ic2));
 		}
-		PRUnitTestMethod(TranslateInverse)
+		PRUnitTestMethod(TranslateInverse, Extended)
 		{
 			auto mass = 5.0f;
 			auto a2b = m4x4::Transform(RotationRad<m3x3>(constants<float>::tau_by_4, constants<float>::tau_by_4, 0), v4{0,0,1,1});
@@ -102,7 +102,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(Io1_inv, IO1_inv));
 			PR_EXPECT(FEql(Ic2_inv, IC2_inv));
 		}
-		PRUnitTestMethod(SixBySixVsThreeByThreeNoOffset)
+		PRUnitTestMethod(SixBySixVsThreeByThreeNoOffset, Extended)
 		{
 			auto mass = 5.0f;
 			auto avel = v4{0, 0, 1, 0}; //v4(-1,-2,-3,0);
@@ -127,7 +127,7 @@ namespace pr::physics::tests
 			auto mom2 = sIc2 * vel;
 			PR_EXPECT(FEql(mom, mom2));
 		}
-		PRUnitTestMethod(SixBySixWithOffset)
+		PRUnitTestMethod(SixBySixWithOffset, Extended)
 		{
 			auto mass = 5.0f;
 			auto avel = v4{0, 0, 1, 0};
@@ -173,7 +173,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(mom.ang, amom));
 			PR_EXPECT(FEql(mom.lin, lmom));
 		}
-		PRUnitTestMethod(AdditionSubtractionInertia)
+		PRUnitTestMethod(AdditionSubtractionInertia, Extended)
 		{
 			auto mass = 5.0f;
 			auto sph0 = Inertia::Sphere(0.5f, mass);
@@ -204,7 +204,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(sph10, SPH10));
 			PR_EXPECT(FEql(sph8, SPH11));
 		}
-		PRUnitTestMethod(AdditionSubtractionInverseInertia)
+		PRUnitTestMethod(AdditionSubtractionInverseInertia, Extended)
 		{
 			auto mass = 5.0f;
 			auto sph0 = Inertia::Sphere(0.5f, mass);
@@ -235,7 +235,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(Invert(sph10), SPH10));
 			PR_EXPECT(FEql(Invert(sph8), SPH11));
 		}
-		PRUnitTestMethod(InvertingSixBySixInertia)
+		PRUnitTestMethod(InvertingSixBySixInertia, Extended)
 		{
 			auto mass = 5.0f;
 			auto Ic = Inertia::Sphere(0.5f, 1);
@@ -256,7 +256,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlRelative(b6x6, B, 0.001f));
 			PR_EXPECT(FEqlRelative(c6x6, C, 0.001f));
 		}
-		PRUnitTestMethod(AccelerationFromForce)
+		PRUnitTestMethod(AccelerationFromForce, Extended)
 		{
 			auto mass = 5.0f;
 			auto F = 2.0f;
@@ -287,7 +287,7 @@ namespace pr::physics::tests
 			auto A = Ic_inv.To3x3() * Cross(r, f0.lin);
 			PR_EXPECT(FEql(a2, v8motion{A, a}));
 		}
-		PRUnitTestMethod(KineticEnergy)
+		PRUnitTestMethod(KineticEnergy, Extended)
 		{
 			auto mass = 5.0f;
 
@@ -310,7 +310,7 @@ namespace pr::physics::tests
 
 			PR_EXPECT(FEql(KE, ke));
 		}
-		PRUnitTestMethod(PolytopeVsBoxInertia_UnitCube)
+		PRUnitTestMethod(PolytopeVsBoxInertia_UnitCube, Extended)
 		{
 			// Validate that a cube-shaped polytope has the same inertia as the analytic ShapeBox formula.
 			// This catches errors in the polytope face integration (wrong divisors, sign errors, etc.)
@@ -350,7 +350,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(Ip.x.z, 0.0f));
 			PR_EXPECT(FEql(Ip.y.z, 0.0f));
 		}
-		PRUnitTestMethod(PolytopeVsBoxInertia_AsymmetricBox)
+		PRUnitTestMethod(PolytopeVsBoxInertia_AsymmetricBox, Extended)
 		{
 			// Validate polytope inertia for an asymmetric box (different dimensions per axis)
 			using namespace pr::collision;
@@ -383,7 +383,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(Ip.x.z, 0.0f));
 			PR_EXPECT(FEql(Ip.y.z, 0.0f));
 		}
-		PRUnitTestMethod(PolytopeVsBoxInertia_OffsetCube)
+		PRUnitTestMethod(PolytopeVsBoxInertia_OffsetCube, Extended)
 		{
 			// Validate polytope inertia for an offset cube. BuildPolytopeFromPoints keeps the local polytope centred and stores the offset in m_s2r.
 			using namespace pr::collision;
@@ -414,7 +414,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlRelative(Ip.x.z, Ib.x.z, 0.001f));
 			PR_EXPECT(FEqlRelative(Ip.y.z, Ib.y.z, 0.001f));
 		}
-		PRUnitTestMethod(PolytopeInertia_RegularTetrahedron)
+		PRUnitTestMethod(PolytopeInertia_RegularTetrahedron, Extended)
 		{
 			// Validate that a regular tetrahedron polytope has the correct inertia.
 			// Analytic formula: for a regular tetrahedron with edge length a,
@@ -457,7 +457,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlRelative(I.y.y, expected_I, 0.02f));
 			PR_EXPECT(FEqlRelative(I.z.z, expected_I, 0.02f));
 		}
-		PRUnitTestMethod(LineInertia)
+		PRUnitTestMethod(LineInertia, Extended)
 		{
 			auto mass = 3.0f;
 			auto half_length = 2.0f;
@@ -472,7 +472,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(I.Mass(), mass));
 			PR_EXPECT(FEql(I.CoM(), v4{}));
 		}
-		PRUnitTestMethod(LineInertia_MatchesDegenerateBox)
+		PRUnitTestMethod(LineInertia_MatchesDegenerateBox, Extended)
 		{
 			// A line along Z should match a box with zero X/Y half-extents
 			auto mass = 5.0f;
@@ -481,7 +481,7 @@ namespace pr::physics::tests
 			auto box = Inertia::Box(v4{0, 0, h, 0}, mass);
 			PR_EXPECT(FEql(line, box));
 		}
-		PRUnitTestMethod(LineInertia_WithOffset)
+		PRUnitTestMethod(LineInertia_WithOffset, Extended)
 		{
 			auto mass = 4.0f;
 			auto h = 1.0f;
@@ -493,7 +493,7 @@ namespace pr::physics::tests
 			I_manual = Translate(I_manual, offset, ETranslateInertia::AwayFromCoM);
 			PR_EXPECT(FEql(I, I_manual));
 		}
-		PRUnitTestMethod(LineInertia_Roundtrip6x6)
+		PRUnitTestMethod(LineInertia_Roundtrip6x6, Extended)
 		{
 			auto mass = 2.0f;
 			auto h = 3.0f;
@@ -503,7 +503,7 @@ namespace pr::physics::tests
 			// Roundtrip through 6x6 construction
 			PR_EXPECT(FEql(I, Inertia{I.To6x6()}));
 		}
-		PRUnitTestMethod(TriangleInertia_RightTriangleXY)
+		PRUnitTestMethod(TriangleInertia_RightTriangleXY, Extended)
 		{
 			// Right triangle in XY plane: (0,0,0), (3,0,0), (0,4,0)
 			auto mass = 6.0f;
@@ -529,7 +529,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(I.m_products.y, 0.0f));
 			PR_EXPECT(FEql(I.m_products.z, 0.0f));
 		}
-		PRUnitTestMethod(TriangleInertia_PerpendicularAxisTheorem)
+		PRUnitTestMethod(TriangleInertia_PerpendicularAxisTheorem, Extended)
 		{
 			// For any planar lamina in the XY plane: Izz = Ixx + Iyy
 			auto a = v4{1, 0, 0, 1};
@@ -538,7 +538,7 @@ namespace pr::physics::tests
 			auto I = Inertia::Triangle(a, b, c, 1.0f);
 			PR_EXPECT(FEqlRelative(I.m_diagonal.z, I.m_diagonal.x + I.m_diagonal.y, 0.0001f));
 		}
-		PRUnitTestMethod(TriangleInertia_EquilateralSymmetry)
+		PRUnitTestMethod(TriangleInertia_EquilateralSymmetry, Extended)
 		{
 			// Equilateral triangle centred at origin in XY plane.
 			// Vertices on the unit circle: (0,1,0), (-√3/2,-1/2,0), (√3/2,-1/2,0)
@@ -561,7 +561,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlRelative(I.m_products.y, 0.0f, 0.0001f));
 			PR_EXPECT(FEqlRelative(I.m_products.z, 0.0f, 0.0001f));
 		}
-		PRUnitTestMethod(TriangleInertia_3DIsotropic)
+		PRUnitTestMethod(TriangleInertia_3DIsotropic, Extended)
 		{
 			// Triangle with vertices (1,0,0), (0,1,0), (0,0,1) — symmetric under
 			// cyclic permutation of axes. Ixx = Iyy = Izz = 1/9, Ixy = Ixz = Iyz = 1/36.
@@ -583,7 +583,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlRelative(I.m_products.y, 1.0f / 36.0f, 0.0001f));
 			PR_EXPECT(FEqlRelative(I.m_products.z, 1.0f / 36.0f, 0.0001f));
 		}
-		PRUnitTestMethod(TriangleInertia_Roundtrip6x6)
+		PRUnitTestMethod(TriangleInertia_Roundtrip6x6, Extended)
 		{
 			// Roundtrip through 6x6 construction
 			auto a = v4{1, 0, 0, 1};

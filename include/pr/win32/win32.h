@@ -442,7 +442,7 @@ namespace pr::win32
 #include "pr/common/unittests.h"
 namespace pr::win32
 {
-	PRUnitTest(Win32Tests)
+	PRUnitTest(Win32Tests, Quick)
 	{
 		auto a = AppSettingsFilepath(false);
 	}

@@ -633,7 +633,7 @@ namespace pr::xml
 
 namespace pr::storage
 {
-	PRUnitTest(XmlTests)
+	PRUnitTest(XmlTests, Quick)
 	{
 		char const xml[] =
 R"(

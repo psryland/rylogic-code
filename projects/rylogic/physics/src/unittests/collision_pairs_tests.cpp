@@ -198,7 +198,7 @@ namespace pr::physics::tests
 
 	PRUnitTestClass(SleepingBroadphaseTests)
 	{
-		PRUnitTestMethod(ExternalForceEventRunsBeforeIntegrate)
+		PRUnitTestMethod(ExternalForceEventRunsBeforeIntegrate, Extended)
 		{
 			auto box = MakeBox();
 			auto& engine = SharedEngine();
@@ -230,7 +230,7 @@ namespace pr::physics::tests
 			PR_EXPECT(event_count == 1);
 		}
 
-		PRUnitTestMethod(SplitStepMatchesStepWrapper)
+		PRUnitTestMethod(SplitStepMatchesStepWrapper, Extended)
 		{
 			auto box = MakeBox();
 			auto& engine = SharedEngine();
@@ -254,7 +254,7 @@ namespace pr::physics::tests
 			ExpectSameRigidBodyState(step_body, split_body);
 		}
 
-		PRUnitTestMethod(SplitStepGuardsPendingState)
+		PRUnitTestMethod(SplitStepGuardsPendingState, Extended)
 		{
 			auto box = MakeBox();
 			auto& engine = SharedEngine();
@@ -276,7 +276,7 @@ namespace pr::physics::tests
 			PR_THROWS(engine.CompleteStep(), std::exception);
 		}
 
-		PRUnitTestMethod(EmptySplitStepStillRequiresComplete)
+		PRUnitTestMethod(EmptySplitStepStillRequiresComplete, Extended)
 		{
 			auto& engine = SharedEngine();
 			auto const dt = 1.0f / 60.0f;
@@ -290,7 +290,7 @@ namespace pr::physics::tests
 			PR_EXPECT(engine.LastStepProfile().m_gpu_run_ms == 0.0);
 		}
 
-		PRUnitTestMethod(LowVelocityBodySleepsAfterDelay)
+		PRUnitTestMethod(LowVelocityBodySleepsAfterDelay, Extended)
 		{
 			auto box = MakeBox();
 			auto& engine = SharedEngine();
@@ -308,7 +308,7 @@ namespace pr::physics::tests
 			PR_EXPECT(body.Sleeping());
 		}
 
-		PRUnitTestMethod(StaticContactsDoNotPreventSleep)
+		PRUnitTestMethod(StaticContactsDoNotPreventSleep, Extended)
 		{
 			auto box = MakeBox();
 			auto ground_shape = MakeGround();
@@ -329,7 +329,7 @@ namespace pr::physics::tests
 		}
 
 		// Check that steady support impulses do not keep resetting the sleep timer for an already-awake body.
-		PRUnitTestMethod(RestSupportImpulsesDoNotPreventSleep)
+		PRUnitTestMethod(RestSupportImpulsesDoNotPreventSleep, Extended)
 		{
 			auto box = MakeBox();
 			auto ground_shape = MakeGround();
@@ -362,7 +362,7 @@ namespace pr::physics::tests
 			PR_EXPECT(bodies[0].Sleeping());
 		}
 
-		PRUnitTestMethod(AllSleepingSceneSkipsGpuPipeline)
+		PRUnitTestMethod(AllSleepingSceneSkipsGpuPipeline, Extended)
 		{
 			auto box = MakeBox();
 			auto& engine = SharedEngine();
@@ -392,7 +392,7 @@ namespace pr::physics::tests
 			}));
 		}
 
-		PRUnitTestMethod(SleepingPairsAreFilteredUntilDisturbed)
+		PRUnitTestMethod(SleepingPairsAreFilteredUntilDisturbed, Extended)
 		{
 			auto box = MakeBox();
 			auto const dt = 1.0f / 60.0f;
@@ -427,7 +427,7 @@ namespace pr::physics::tests
 			}
 		}
 
-		PRUnitTestMethod(CreatedSleepingChainWakesAsOneIsland)
+		PRUnitTestMethod(CreatedSleepingChainWakesAsOneIsland, Extended)
 		{
 			auto box = MakeBox();
 			auto const dt = 1.0f / 60.0f;
@@ -469,7 +469,7 @@ namespace pr::physics::tests
 	// in typical scenes (everything falls onto a box ground plane).
 	PRUnitTestClass(DropOnGroundTests)
 	{
-		PRUnitTestMethod(SphereDrop)
+		PRUnitTestMethod(SphereDrop, Extended)
 		{
 			auto shape = MakeSphere();
 			auto r = RunDropCollisionTest("Sphere", collision::shape_cast(&shape), 10.0f);
@@ -477,7 +477,7 @@ namespace pr::physics::tests
 			PR_EXPECT(r.final_z > -1.0f);
 		}
 
-		PRUnitTestMethod(BoxDrop)
+		PRUnitTestMethod(BoxDrop, Extended)
 		{
 			auto shape = MakeBox();
 			auto r = RunDropCollisionTest("Box", collision::shape_cast(&shape), 10.0f);
@@ -485,7 +485,7 @@ namespace pr::physics::tests
 			PR_EXPECT(r.final_z > -1.0f);
 		}
 
-		PRUnitTestMethod(LineDrop)
+		PRUnitTestMethod(LineDrop, Extended)
 		{
 			auto shape = MakeLine();
 			auto r = RunDropCollisionTest("Line", collision::shape_cast(&shape), 10.0f);
@@ -493,7 +493,7 @@ namespace pr::physics::tests
 			PR_EXPECT(r.final_z > -1.0f);
 		}
 
-		PRUnitTestMethod(PolytopeDrop)
+		PRUnitTestMethod(PolytopeDrop, Extended)
 		{
 			auto buf = MakeTetra();
 			auto& poly = buf.as<collision::ShapePolytope>();
@@ -617,7 +617,7 @@ namespace pr::physics::tests
 		// Reproduces the failing 'drop_test.json' visual scene: a rotated, asymmetric box
 		// dropped onto the ground with a small lateral velocity. With the per-point Baumgarte
 		// resolver bug, the box explodes around frame 80 (z velocity → +158 m/s, KE → 264k J).
-		PRUnitTestMethod(BoxDropEnergyConservation)
+		PRUnitTestMethod(BoxDropEnergyConservation, Extended)
 		{
 			BoxDropEnergyImpl(/*rotated=*/true, "boxdrop_trace_rotated.log");
 		}
@@ -625,7 +625,7 @@ namespace pr::physics::tests
 		// Diagnostic variant: same scene but box NOT rotated. If this passes but the rotated
 		// variant fails, the bug is rotation-specific (e.g. SAT axis-selection producing a
 		// skewed contact normal that doesn't fully oppose gravity).
-		PRUnitTestMethod(BoxDropEnergyConservationAxisAligned)
+		PRUnitTestMethod(BoxDropEnergyConservationAxisAligned, Extended)
 		{
 			BoxDropEnergyImpl(/*rotated=*/false, "boxdrop_trace_aligned.log");
 		}
@@ -638,7 +638,7 @@ namespace pr::physics::tests
 	{
 		// ----- Sphere vs X -----
 
-		PRUnitTestMethod(SphereVsSphere)
+		PRUnitTestMethod(SphereVsSphere, Extended)
 		{
 			auto sa = MakeSphere();
 			auto sb = MakeSphere();
@@ -649,7 +649,7 @@ namespace pr::physics::tests
 			// Equal mass head-on: body A should reverse direction
 		}
 
-		PRUnitTestMethod(SphereVsBox)
+		PRUnitTestMethod(SphereVsBox, Extended)
 		{
 			auto sa = MakeSphere();
 			auto sb = MakeBox();
@@ -660,7 +660,7 @@ namespace pr::physics::tests
 			// Equal mass head-on: body A should reverse direction
 		}
 
-		PRUnitTestMethod(SphereVsLine)
+		PRUnitTestMethod(SphereVsLine, Extended)
 		{
 			auto sa = MakeSphere();
 			auto sb = MakeLine();
@@ -670,7 +670,7 @@ namespace pr::physics::tests
 			PR_EXPECT(r.collision_occurred);
 		}
 
-		PRUnitTestMethod(SphereVsPolytope)
+		PRUnitTestMethod(SphereVsPolytope, Extended)
 		{
 			auto sa = MakeSphere();
 			auto buf = MakeTetra();
@@ -687,7 +687,7 @@ namespace pr::physics::tests
 
 		// ----- Box vs X -----
 
-		PRUnitTestMethod(BoxVsBox)
+		PRUnitTestMethod(BoxVsBox, Extended)
 		{
 			auto sa = MakeBox();
 			auto sb = MakeBox();
@@ -699,7 +699,7 @@ namespace pr::physics::tests
 			PR_EXPECT(r.vel_b.lin.x > +1.0f);
 		}
 
-		PRUnitTestMethod(BoxVsLine)
+		PRUnitTestMethod(BoxVsLine, Extended)
 		{
 			auto sa = MakeBox();
 			auto sb = MakeLine();
@@ -709,7 +709,7 @@ namespace pr::physics::tests
 			PR_EXPECT(r.collision_occurred);
 		}
 
-		PRUnitTestMethod(BoxVsPolytope)
+		PRUnitTestMethod(BoxVsPolytope, Extended)
 		{
 			auto sa = MakeBox();
 			auto buf = MakeTetra();
@@ -726,7 +726,7 @@ namespace pr::physics::tests
 
 		// ----- Line vs X -----
 
-		PRUnitTestMethod(LineVsLine)
+		PRUnitTestMethod(LineVsLine, Extended)
 		{
 			auto sa = MakeLine();
 			auto sb = MakeLine();
@@ -736,7 +736,7 @@ namespace pr::physics::tests
 			PR_EXPECT(r.collision_occurred);
 		}
 
-		PRUnitTestMethod(LineVsPolytope)
+		PRUnitTestMethod(LineVsPolytope, Extended)
 		{
 			auto sa = MakeLine();
 			auto buf = MakeTetra();
@@ -753,7 +753,7 @@ namespace pr::physics::tests
 
 		// ----- Polytope vs Polytope -----
 
-		PRUnitTestMethod(PolytopeVsPolytope)
+		PRUnitTestMethod(PolytopeVsPolytope, Extended)
 		{
 			auto buf_a = MakeTetra();
 			auto buf_b = MakeTetra();
@@ -776,7 +776,7 @@ namespace pr::physics::tests
 	// Uses 30 bodies (12 spheres, 12 boxes, 6 polytopes) falling under gravity onto a box ground.
 	PRUnitTestClass(StressDropTests)
 	{
-		PRUnitTestMethod(ManyBodiesFalling)
+		PRUnitTestMethod(ManyBodiesFalling, Extended)
 		{
 			// ShapeBox(dim) stores half-extents = dim * 0.5, so v4{100,100,10} gives a
 			// 100x100x10 box. Centred at z=-5 this puts the top surface at z=0.
@@ -934,7 +934,7 @@ namespace pr::physics::tests
 		}
 
 		// A single convex shape must pack as one entry with no child data at all.
-		PRUnitTestMethod(SingleShapeFastPathHasNoChildData)
+		PRUnitTestMethod(SingleShapeFastPathHasNoChildData, Extended)
 		{
 			auto box = collision::ShapeBox(v4{0.5f, 0.5f, 0.5f, 0});
 
@@ -950,7 +950,7 @@ namespace pr::physics::tests
 		}
 
 		// A compound packs as a root entry followed by a contiguous run of convex leaves.
-		PRUnitTestMethod(CompoundPacksRootThenLeaves)
+		PRUnitTestMethod(CompoundPacksRootThenLeaves, Extended)
 		{
 			CompoundShape dumbbell;
 			BuildDumbbell(dumbbell, 0.5f, 7, 9);
@@ -973,7 +973,7 @@ namespace pr::physics::tests
 		}
 
 		// Nested compounds flatten depth-first so that leaf indices follow declaration order.
-		PRUnitTestMethod(NestedCompoundFlattensInDeclarationOrder)
+		PRUnitTestMethod(NestedCompoundFlattensInDeclarationOrder, Extended)
 		{
 			// Layout: outer[ box(11), inner[ box(12), sphere(13) ], box(14) ]
 			auto data = byte_data<16>{};
@@ -1006,7 +1006,7 @@ namespace pr::physics::tests
 
 		// Child identity is packed into 16 bits, so a compound larger than the supported bound must be
 		// rejected rather than silently truncated to an ambiguous set of proxies.
-		PRUnitTestMethod(OversizedCompoundIsRejected)
+		PRUnitTestMethod(OversizedCompoundIsRejected, Extended)
 		{
 			auto data = byte_data<16>{};
 			data.push_back<collision::ShapeArray>();
@@ -1033,7 +1033,7 @@ namespace pr::physics::tests
 
 		// Every child of a compound that overlaps a single-shape body must produce contacts, and the
 		// pair count must be exactly one per overlapping child rather than one per body.
-		PRUnitTestMethod(CompoundVsSingleCollidesPerChild)
+		PRUnitTestMethod(CompoundVsSingleCollidesPerChild, Extended)
 		{
 			CompoundShape dumbbell;
 			BuildDumbbell(dumbbell);
@@ -1073,7 +1073,7 @@ namespace pr::physics::tests
 
 		// Compound-vs-compound must pair every child combination that overlaps and only report contacts
 		// for the child pair that actually touches.
-		PRUnitTestMethod(CompoundVsCompoundIdentifiesBothChildren)
+		PRUnitTestMethod(CompoundVsCompoundIdentifiesBothChildren, Extended)
 		{
 			CompoundShape lhs, rhs;
 			BuildDumbbell(lhs);
@@ -1103,7 +1103,7 @@ namespace pr::physics::tests
 
 		// A child's shape-to-root transform and material must reach the narrowphase, so a body that can
 		// only touch one child must report that child's index, material and position.
-		PRUnitTestMethod(ChildTransformsAndMaterialsAreHonoured)
+		PRUnitTestMethod(ChildTransformsAndMaterialsAreHonoured, Extended)
 		{
 			CompoundShape dumbbell;
 			BuildDumbbell(dumbbell, 0.5f, 1, 2);
@@ -1142,7 +1142,7 @@ namespace pr::physics::tests
 		}
 
 		// Children of the same body are never paired with each other, even when they overlap.
-		PRUnitTestMethod(SelfChildPairsAreExcluded)
+		PRUnitTestMethod(SelfChildPairsAreExcluded, Extended)
 		{
 			// Two boxes whose extents overlap each other within the same compound.
 			ChildBox const children[] = {
@@ -1170,7 +1170,7 @@ namespace pr::physics::tests
 
 		// Child indices must stay bound to the same geometry for the life of the shape, because they are
 		// half of the warm-start and diagnostic contact key.
-		PRUnitTestMethod(ChildIdentityIsStableAcrossSteps)
+		PRUnitTestMethod(ChildIdentityIsStableAcrossSteps, Extended)
 		{
 			CompoundShape dumbbell;
 			BuildDumbbell(dumbbell);
@@ -1221,7 +1221,7 @@ namespace pr::physics::tests
 		}
 
 		// A resting compound must settle to sleep, and must wake again when a child is disturbed.
-		PRUnitTestMethod(CompoundSleepsAtRestAndWakesOnChildContact)
+		PRUnitTestMethod(CompoundSleepsAtRestAndWakesOnChildContact, Extended)
 		{
 			CompoundShape dumbbell;
 			BuildDumbbell(dumbbell);
@@ -1266,7 +1266,7 @@ namespace pr::physics::tests
 		}
 
 		// Single-shape bodies must not pay for the compound path: one body pair is still one collision pair.
-		PRUnitTestMethod(SingleShapeSceneKeepsOnePairPerBodyPair)
+		PRUnitTestMethod(SingleShapeSceneKeepsOnePairPerBodyPair, Extended)
 		{
 			auto box = MakeBox();
 

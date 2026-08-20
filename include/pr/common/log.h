@@ -549,7 +549,7 @@ namespace pr::log
 #include "pr/common/unittests.h"
 namespace pr::log
 {
-	PRUnitTest(LogTests)
+	PRUnitTest(LogTests, Quick)
 	{
 		std::string str;
 

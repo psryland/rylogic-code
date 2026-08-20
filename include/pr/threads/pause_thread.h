@@ -177,7 +177,7 @@ namespace pr::threads
 			}
 		};
 	}
-	PRUnitTest(PauseThreadTests)
+	PRUnitTest(PauseThreadTests, Quick)
 	{
 		using namespace unittests::threads;
 		

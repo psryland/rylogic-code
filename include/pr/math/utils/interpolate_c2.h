@@ -231,7 +231,7 @@ namespace pr::math::tests
 		inline static constexpr bool CreateVisuals = false;
 
 		// Verify the normalised quintic polynomial independently of the physical-time wrapper.
-		PRUnitTestMethod(QuinticCurve3Constraints)
+		PRUnitTestMethod(QuinticCurve3Constraints, Quick)
 		{
 			using VD = Vec4<double>;
 
@@ -263,7 +263,7 @@ namespace pr::math::tests
 		}
 
 		// Verify all six vector endpoint constraints over a non-unit interval.
-		PRUnitTestMethod(Hermite5Vec)
+		PRUnitTestMethod(Hermite5Vec, Quick)
 		{
 			auto x0 = V4(-2, 1, 3, 1);
 			auto v0 = V4(1, -2, 0.5f, 0);
@@ -284,7 +284,7 @@ namespace pr::math::tests
 		}
 
 		// Verify quaternion endpoint constraints and analytic angular acceleration.
-		PRUnitTestMethod(Hermite5Quat)
+		PRUnitTestMethod(Hermite5Quat, Quick)
 		{
 			auto q0 = Q(Normalise(V4(1, 2, -1, 0)), S(0.8));
 			auto w0 = V4(0.6f, -0.4f, 0.3f, 0);
@@ -330,7 +330,7 @@ namespace pr::math::tests
 		}
 
 		// Recover angular derivatives from orientation samples to check the complete SO(3) mapping independently.
-		PRUnitTestMethod(Hermite5QuatOrientationDerivatives)
+		PRUnitTestMethod(Hermite5QuatOrientationDerivatives, Quick)
 		{
 			using VD = Vec4<double>;
 			using QD = Quat<double>;
@@ -391,7 +391,7 @@ namespace pr::math::tests
 		}
 
 		// Demonstrate that cubic vector joins are C1 while quintic joins are C2.
-		PRUnitTestMethod(C1VersusC2Continuity)
+		PRUnitTestMethod(C1VersusC2Continuity, Quick)
 		{
 			auto x0 = V4(-2, 0, 0, 1);
 			auto x1 = V4(0, 1, 0, 1);
@@ -421,7 +421,7 @@ namespace pr::math::tests
 		}
 
 		// Demonstrate that cubic rotation joins are C1 while quintic joins are C2.
-		PRUnitTestMethod(C1VersusC2RotationContinuity)
+		PRUnitTestMethod(C1VersusC2RotationContinuity, Quick)
 		{
 			auto q0 = Q(V4::XAxis(), S(-0.4));
 			auto q1 = Q(Normalise(V4(1, 2, -1, 0)), S(0.8));
@@ -452,7 +452,7 @@ namespace pr::math::tests
 		}
 
 		// Verify complete transform continuity across adjacent unequal-duration segments.
-		PRUnitTestMethod(Hermite5XformContinuity)
+		PRUnitTestMethod(Hermite5XformContinuity, Quick)
 		{
 			auto p0 = V4(-2, 0, 0, 1);
 			auto v0 = V4(1, 0, 0, 0);
@@ -499,7 +499,7 @@ namespace pr::math::tests
 
 		#if PR_UNITTESTS_VISUALISE
 		// Generate an LDraw scene showing position, orientation, and derivative continuity across a C2 join.
-		PRUnitTestMethodFamily(LdrHermite5Continuity, Slow)
+		PRUnitTestMethod(LdrHermite5Continuity, Stress)
 		{
 			if constexpr (CreateVisuals)
 			{

@@ -498,7 +498,7 @@ namespace pr::maths
 {
 	PRUnitTestClass(BitFunctionTests)
 	{
-		PRUnitTestMethod(MakeLL)
+		PRUnitTestMethod(MakeLL, Quick)
 		{
 			auto [hi,lo] = BreakLL(0x0123456789abcdef);
 			PR_EXPECT(hi == 0x01234567U);
@@ -507,7 +507,7 @@ namespace pr::maths
 			auto ll = MakeLL(hi, lo);
 			PR_EXPECT(ll == 0x0123456789abcdefULL);
 		}
-		PRUnitTestMethod(BitsFromString)
+		PRUnitTestMethod(BitsFromString, Quick)
 		{
 			std::string_view mask_str = "1001010011";
 			auto mask = BitsFromString<long long>(mask_str);
@@ -524,7 +524,7 @@ namespace pr::maths
 			PR_EXPECT(bits[3] == 1U << 6);
 			PR_EXPECT(bits[4] == 1U << 9);
 		}
-		PRUnitTestMethod(PackGrabBits)
+		PRUnitTestMethod(PackGrabBits, Quick)
 		{
 			uint8_t bits = 0;
 			bits = PackBits(bits, 0b101, 6, 3);
@@ -536,7 +536,7 @@ namespace pr::maths
 			PR_EXPECT(bits == 0b11101100);
 			PR_EXPECT(GrabBits<uint8_t>(bits, 6, 3) == 0b101);
 		}
-		PRUnitTestMethod(FloorLog2)
+		PRUnitTestMethod(FloorLog2, Quick)
 		{
 			auto n0 = 0b1; // 1
 			PR_EXPECT(FloorLog2(n0) == 0);
@@ -549,7 +549,7 @@ namespace pr::maths
 			auto n4 = 0xFFFFFFFFFFFFFFFFULL; // 18446744073709551615
 			PR_EXPECT(FloorLog2(n4) == 63);
 		}
-		PRUnitTestMethod(HighLowBits)
+		PRUnitTestMethod(HighLowBits, Quick)
 		{
 			std::string_view mask_str = "1001110010";
 			auto mask = BitsFromString<uint32_t>(mask_str);
@@ -560,7 +560,7 @@ namespace pr::maths
 			PR_EXPECT(LowBit(mask) == 2U);
 			PR_EXPECT(HighBit(mask) == 0x200U);
 		}
-		PRUnitTestMethod(BitIndex)
+		PRUnitTestMethod(BitIndex, Quick)
 		{
 			auto bits = 0b001011000100;
 			PR_EXPECT(HighBitIndex(bits) == 9);
@@ -577,7 +577,7 @@ namespace pr::maths
 			PR_EXPECT(LowBit(mask) == 2);
 			PR_EXPECT(HighBit(mask) == 0x1000);
 		}
-		PRUnitTestMethod(PowerOfTwo)
+		PRUnitTestMethod(PowerOfTwo, Quick)
 		{
 			std::string_view mask_str = "1001001100110010101010010100111010010110010101110110000110100100";
 			auto mask = BitsFromString<unsigned long long>(mask_str);
@@ -599,7 +599,7 @@ namespace pr::maths
 			PR_EXPECT(PowerOfTwoGreaterEqualTo(int16_t(0x9a)) == int16_t(0x100));
 			PR_EXPECT(PowerOfTwoGreaterEqualTo(uint16_t(0x9a)) == uint16_t(0x100));
 		}
-		PRUnitTestMethod(Reverseits)
+		PRUnitTestMethod(Reverseits, Quick)
 		{
 			{
 				auto a = uint8_t(0b10110101);
@@ -636,7 +636,7 @@ namespace pr::maths
 				PR_EXPECT(ReverseBits64(a, 64) == b);
 			}
 		}
-		PRUnitTestMethod(IEEEFloats)
+		PRUnitTestMethod(IEEEFloats, Quick)
 		{
 			{
 				auto d1 = -9.887654321e126;

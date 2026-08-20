@@ -11,7 +11,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(PrimesTests)
 	{
-		PRUnitTestMethod(PrimeTable)
+		PRUnitTestMethod(PrimeTable, Quick)
 		{
 			// Verify the table count
 			auto count = std::size(primes);
@@ -30,7 +30,7 @@ namespace pr::math::tests
 			}
 		}
 
-		PRUnitTestMethod(IsPrimeBasic)
+		PRUnitTestMethod(IsPrimeBasic, Quick)
 		{
 			// Known non-primes
 			PR_EXPECT(!IsPrime(0));
@@ -56,7 +56,7 @@ namespace pr::math::tests
 			PR_EXPECT(!IsPrime(-7));
 		}
 
-		PRUnitTestMethod(IsPrimeAgainstTable)
+		PRUnitTestMethod(IsPrimeAgainstTable, Quick)
 		{
 			// Cross-check IsPrime against the prime table
 			auto count = std::size(primes);
@@ -68,7 +68,7 @@ namespace pr::math::tests
 			}
 		}
 
-		PRUnitTestMethod(IsPrimeConstexpr)
+		PRUnitTestMethod(IsPrimeConstexpr, Quick)
 		{
 			// Verify IsPrime works at compile time
 			static_assert(IsPrime(2));
@@ -78,7 +78,7 @@ namespace pr::math::tests
 			static_assert(!IsPrime(4));
 		}
 
-		PRUnitTestMethod(PrimeGtrThan)
+		PRUnitTestMethod(PrimeGtrThan, Quick)
 		{
 			// Edge cases
 			PR_EXPECT(PrimeGtrThan(0) == 2);
@@ -103,7 +103,7 @@ namespace pr::math::tests
 			PR_EXPECT(IsPrime(p));
 		}
 
-		PRUnitTestMethod(PrimeLessThan)
+		PRUnitTestMethod(PrimeLessThan, Quick)
 		{
 			// Edge cases
 			PR_EXPECT(PrimeLessThan(3) == 2);
@@ -127,7 +127,7 @@ namespace pr::math::tests
 			}
 		}
 
-		PRUnitTestMethod(PrimeGtrLessRoundTrip)
+		PRUnitTestMethod(PrimeGtrLessRoundTrip, Quick)
 		{
 			// For several primes, verify that PrimeLessThan(PrimeGtrThan(p)) == p
 			for (auto p : {2, 3, 5, 7, 11, 97, 997, 7919})

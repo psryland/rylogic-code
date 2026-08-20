@@ -310,7 +310,7 @@ namespace pr::space_filling::tests
 	{
 		inline static constexpr bool CreateVisualisations = false;
 
-		PRUnitTestMethod(COrderTest)
+		PRUnitTestMethod(COrderTest, Quick)
 		{
 			// Generate the indices for points around the origin
 			constexpr int range = 1;
@@ -349,7 +349,7 @@ namespace pr::space_filling::tests
 			}
 			#endif
 		}
-		PRUnitTestMethodFamily(JOrderTest, Slow)
+		PRUnitTestMethod(JOrderTest, Stress)
 		{
 			// Sign-extension boundary checks: verify SignExtend3D decodes the raw 21-bit patterns
 			// at and either side of the sign boundary (bit C_Bits3D - 1) to the expected signed values.

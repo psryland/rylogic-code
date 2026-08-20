@@ -24,7 +24,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::meta
 {
-	PRUnitTest(AbsTests)
+	PRUnitTest(AbsTests, Quick)
 	{
 		static_assert(meta::abs<int,+5>::value == +5, "");
 		static_assert(meta::abs<int,-5>::value == +5, "");

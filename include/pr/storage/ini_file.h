@@ -137,7 +137,7 @@ namespace pr::ini_file
 #include "pr/common/unittests.h"
 namespace pr::storage
 {
-	PRUnitTest(IniFileTests)
+	PRUnitTest(IniFileTests, Quick)
 	{
 		char const test_data[] =
 			"[Numbers]\n"

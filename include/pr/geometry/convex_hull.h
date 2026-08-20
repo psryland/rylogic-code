@@ -531,7 +531,7 @@ namespace pr::geometry::tests
 		}
 
 		// Four points forming a tetrahedron — simplest valid hull
-		PRUnitTestMethod(Tetrahedron)
+		PRUnitTestMethod(Tetrahedron, Quick)
 		{
 			v4 pts[] = {
 				v4{0, 0, 0, 1},
@@ -546,7 +546,7 @@ namespace pr::geometry::tests
 		}
 
 		// Cube: 8 vertices, expected hull is all 8 verts with 12 triangular faces
-		PRUnitTestMethod(Cube)
+		PRUnitTestMethod(Cube, Quick)
 		{
 			v4 pts[] = {
 				v4{-1, -1, -1, 1}, v4{ 1, -1, -1, 1},
@@ -561,7 +561,7 @@ namespace pr::geometry::tests
 		}
 
 		// Points with interior points — only hull verts should be counted
-		PRUnitTestMethod(InteriorPointsFiltered)
+		PRUnitTestMethod(InteriorPointsFiltered, Quick)
 		{
 			v4 pts[] = {
 				// Cube corners (hull vertices)
@@ -582,7 +582,7 @@ namespace pr::geometry::tests
 		}
 
 		// Degenerate: coplanar points should fail (no volume)
-		PRUnitTestMethod(CoplanarPointsFail)
+		PRUnitTestMethod(CoplanarPointsFail, Quick)
 		{
 			v4 pts[] = {
 				v4{0, 0, 0, 1},
@@ -596,7 +596,7 @@ namespace pr::geometry::tests
 		}
 
 		// Degenerate: collinear points should fail
-		PRUnitTestMethod(CollinearPointsFail)
+		PRUnitTestMethod(CollinearPointsFail, Quick)
 		{
 			v4 pts[] = {
 				v4{0, 0, 0, 1},
@@ -609,7 +609,7 @@ namespace pr::geometry::tests
 		}
 
 		// Irregular shape: 6 points forming an octahedron
-		PRUnitTestMethod(Octahedron)
+		PRUnitTestMethod(Octahedron, Quick)
 		{
 			v4 pts[] = {
 				v4{ 1, 0, 0, 1}, v4{-1, 0, 0, 1},

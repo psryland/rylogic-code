@@ -266,7 +266,7 @@ namespace pr::tetramesh
 #include "pr/common/unittests.h"
 namespace pr::tetramesh
 {
-	PRUnitTest(TetraMeshTests)
+	PRUnitTest(TetraMeshTests, Quick)
 	{
 		// Volume sign and magnitude of a canonical unit tetra
 		{

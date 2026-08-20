@@ -173,7 +173,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::str
 {
-	PRUnitTest(ToStringTests)
+	PRUnitTest(ToStringTests, Quick)
 	{
 		using std_cstr = std::string;
 		using std_wstr = std::wstring;

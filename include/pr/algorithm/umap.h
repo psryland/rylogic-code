@@ -666,7 +666,7 @@ namespace pr::algorithm
 {
 	PRUnitTestClass(UMAPTests)
 	{
-		PRUnitTestMethod(EmptyAndSingle)
+		PRUnitTestMethod(EmptyAndSingle, Quick)
 		{
 			auto r0 = umap::Embed(std::span<int const>{}, [](int, int) { return 0.0; });
 			PR_EXPECT(r0.empty());
@@ -675,14 +675,14 @@ namespace pr::algorithm
 			auto r1 = umap::Embed(one, [](int, int) { return 0.0; });
 			PR_EXPECT(r1.size() == 1);
 		}
-		PRUnitTestMethod(FitABParamsSanity)
+		PRUnitTestMethod(FitABParamsSanity, Quick)
 		{
 			// Default (spread=1, min_dist=0.1) should give the usual UMAP (a,b) ~ (1.577, 0.895).
 			auto [a, b] = umap::detail::FitABParams(1.0, 0.1);
 			PR_EXPECT(a > 1.0 && a < 2.5);
 			PR_EXPECT(b > 0.5 && b < 1.2);
 		}
-		PRUnitTestMethod(TwoClustersSeparate)
+		PRUnitTestMethod(TwoClustersSeparate, Quick)
 		{
 			// Two well-separated 2D Gaussian-ish clusters; UMAP should separate them.
 			struct Pt { double x, y; };
@@ -729,7 +729,7 @@ namespace pr::algorithm
 			// UMAP typically achieves 3-10× but the result varies with the random sample sequence.
 			PR_EXPECT(cluster_sep > 1.5f * spread0);
 		}
-		PRUnitTestMethod(SpectralInitChainIsMonotonic)
+		PRUnitTestMethod(SpectralInitChainIsMonotonic, Quick)
 		{
 			// Exercises the SpectralInit branch directly (which is skipped by Embed() when the
 			// k-NN graph has multiple components). Uses a path graph: N nodes connected in a
@@ -771,7 +771,7 @@ namespace pr::algorithm
 			auto corr = sxy / std::sqrt(sxx * syy);
 			PR_EXPECT(std::abs(corr) > 0.95);
 		}
-		PRUnitTestMethod(EmbedPadsSpectralInitWhenDimExceedsNodeCount)
+		PRUnitTestMethod(EmbedPadsSpectralInitWhenDimExceedsNodeCount, Quick)
 		{
 			// A connected graph with fewer nodes than requested embedding dimensions must still
 			// produce a full output vector. The spectral part should be used where available, and

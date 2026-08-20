@@ -246,7 +246,7 @@ namespace pr::threads
 				items.push_back(item.m_str);
 		}
 	}
-	PRUnitTest(ConcurrentQueueTests)
+	PRUnitTest(ConcurrentQueueTests, Quick)
 	{
 		using namespace unittests::threads;
 
@@ -285,7 +285,7 @@ namespace pr::threads
 	// be woken when a single 'Dequeue()' call pops the last item and empties the queue. Without a
 	// notify for that pop-to-empty transition, 'Flush()' would depend on a spurious wakeup and
 	// could block forever.
-	PRUnitTest(ConcurrentQueueFlushAfterSingleDequeueTests)
+	PRUnitTest(ConcurrentQueueFlushAfterSingleDequeueTests, Quick)
 	{
 		ConcurrentQueue<int> queue;
 		queue.Enqueue(42);

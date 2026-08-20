@@ -719,7 +719,7 @@ namespace pr::algorithm::astar::unittests
 {
 	PRUnitTestClass(AlgorithmTests)
 	{
-		PRUnitTestMethod(GroupBy)
+		PRUnitTestMethod(GroupBy, Quick)
 		{
 			char const src[] = "000011222233344";
 
@@ -737,7 +737,7 @@ namespace pr::algorithm::astar::unittests
 		}
 
 		// Exercise the stable value erase path with duplicates and each match position.
-		PRUnitTestMethod(EraseStable)
+		PRUnitTestMethod(EraseStable, Quick)
 		{
 			// The first matching element is removed and later duplicates keep their order.
 			{

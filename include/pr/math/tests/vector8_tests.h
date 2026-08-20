@@ -13,7 +13,7 @@ namespace pr::math::tests
 	{
 		std::default_random_engine rng = {};
 
-		PRUnitTestMethod(Construction, float, double)
+		PRUnitTestMethod(Construction, Quick, float, double)
 		{
 			using vec8_t = Vec8<T, void>;
 			using vec4_t = Vec4<T>;
@@ -40,7 +40,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(z.lin, vec4_t(0, 0, 0, 0)));
 		}
 		// Constant-evaluation indexing must stay on the active union view.
-		PRUnitTestMethod(ConstexprIndexing, float, double, int32_t, int64_t)
+		PRUnitTestMethod(ConstexprIndexing, Quick, float, double, int32_t, int64_t)
 		{
 			using vec8_t = Vec8<T, void>;
 			static_assert(std::same_as<decltype(std::declval<vec8_t const&>()[0]), T const&>);
@@ -78,7 +78,7 @@ namespace pr::math::tests
 			}());
 		}
 
-		PRUnitTestMethod(LinAt_AngAt, float, double)
+		PRUnitTestMethod(LinAt_AngAt, Quick, float, double)
 		{
 			using vec8_t = Vec8<T, void>;
 			using vec4_t = Vec4<T>;
@@ -121,7 +121,7 @@ namespace pr::math::tests
 				PR_EXPECT(FEql(ang4, vec4_t{ 0,0,-2,0 }));
 			}
 		}
-		PRUnitTestMethod(Projection, float, double)
+		PRUnitTestMethod(Projection, Quick, float, double)
 		{
 			using vec8_t = Vec8<T, void>;
 			using vec4_t = Vec4<T>;
@@ -134,7 +134,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(vt, vec8_t{ 1,-2,0,-3,2,0 }));
 			PR_EXPECT(FEql(r, v));
 		}
-		PRUnitTestMethod(Reflection, float, double)
+		PRUnitTestMethod(Reflection, Quick, float, double)
 		{
 			using vec8_t = Vec8<T, void>;
 			using vec4_t = Vec4<T>;
@@ -148,7 +148,7 @@ namespace pr::math::tests
 		}
 
 		// Verify that Vec8 preserves the underlying Vec4 any/all NaN contract across both sub-vectors.
-		PRUnitTestMethod(IsNaNAggregation, float, double)
+		PRUnitTestMethod(IsNaNAggregation, Quick, float, double)
 		{
 			using vec8_t = Vec8<T, void>;
 			using vec4_t = Vec4<T>;

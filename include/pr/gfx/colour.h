@@ -1076,7 +1076,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::gfx
 {
-	PRUnitTest(ColourTests)
+	PRUnitTest(ColourTests, Quick)
 	{
 		{
 			Colour32 c0(0xFF, 0xFF, 0xFF, 0xFF);

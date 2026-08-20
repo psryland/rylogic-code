@@ -144,7 +144,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(ScopeTests)
+	PRUnitTest(ScopeTests, Quick)
 	{
 		bool flag = false;
 		{

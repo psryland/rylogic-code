@@ -552,7 +552,7 @@ namespace pr::algorithm::fft::tests
 		}
 
 		// Length one reaches the bit-reversal path with zero levels, so keep that boundary covered directly.
-		PRUnitTestMethod(LengthOneRegression)
+		PRUnitTestMethod(LengthOneRegression, Quick)
 		{
 			std::vector<double> inputr{ 1.25 };
 			std::vector<double> inputi{ -0.5 };
@@ -567,7 +567,7 @@ namespace pr::algorithm::fft::tests
 			PR_EXPECT(actualr[0] == inputr[0]);
 			PR_EXPECT(actuali[0] == inputi[0]);
 		}
-		PRUnitTestMethod(RealInverseMatchesComplexZeroImag)
+		PRUnitTestMethod(RealInverseMatchesComplexZeroImag, Quick)
 		{
 			// The scalar inverse overload should behave like the complex overload with zero imaginary input.
 			std::vector<double> inputr{ 0.25, -0.5, 0.75, 1.0 };
@@ -582,13 +582,13 @@ namespace pr::algorithm::fft::tests
 				PR_EXPECT(std::abs(actual[i] - expectr[i]) < 1e-12);
 		}
 
-		PRUnitTestMethod(BluesteinChirpBoundaryRegression)
+		PRUnitTestMethod(BluesteinChirpBoundaryRegression, Quick)
 		{
 			// Length 46342 is the first non-power-of-two size that reaches i = 46341 in the chirp loop.
 			PR_EXPECT(impl::ChirpIndex(46341, 46342) == 1);
 		}
 
-		PRUnitTestMethodFamily(DFTAndiDFTTests, Slow)
+		PRUnitTestMethod(DFTAndiDFTTests, Stress)
 		{
 			double max_err0 = -99.0, max_err1 = -99.0; //db
 
@@ -627,7 +627,7 @@ namespace pr::algorithm::fft::tests
 			PR_EXPECT(max_err0 < -10);
 			PR_EXPECT(max_err1 < -10);
 		}
-		PRUnitTestMethodFamily(ConvolutionTests, Slow)
+		PRUnitTestMethod(ConvolutionTests, Stress)
 		{
 			double max_err = -99.0; // db
 
@@ -653,7 +653,7 @@ namespace pr::algorithm::fft::tests
 
 			PR_EXPECT(max_err < -10);
 		}
-		PRUnitTestMethod(OtherTests)
+		PRUnitTestMethod(OtherTests, Quick)
 		{
 			constexpr double freq0 = 2.0; // hz
 			constexpr double freq1 = 10.0; // hz

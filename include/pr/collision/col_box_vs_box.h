@@ -164,7 +164,7 @@ namespace pr::collision::tests
 		}
 
 		// Coincident boxes: maximum overlap
-		PRUnitTestMethod(CoincidentBoxes)
+		PRUnitTestMethod(CoincidentBoxes, Quick)
 		{
 			auto box = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
@@ -189,7 +189,7 @@ namespace pr::collision::tests
 		}
 
 		// Face-to-face overlap: boxes separated along X
-		PRUnitTestMethod(FaceToFaceOverlap)
+		PRUnitTestMethod(FaceToFaceOverlap, Quick)
 		{
 			auto box = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
@@ -214,7 +214,7 @@ namespace pr::collision::tests
 		}
 
 		// Face-to-face overlap, twisted
-		PRUnitTestMethod(FaceToFaceTwistedOverlap)
+		PRUnitTestMethod(FaceToFaceTwistedOverlap, Quick)
 		{
 			auto box = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
@@ -239,7 +239,7 @@ namespace pr::collision::tests
 		}
 
 		// Separated: gap between boxes
-		PRUnitTestMethod(Separated)
+		PRUnitTestMethod(Separated, Quick)
 		{
 			auto box = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
@@ -254,7 +254,7 @@ namespace pr::collision::tests
 		}
 
 		// Edge-to-Edge
-		PRUnitTestMethod(EdgeEdgeContact)
+		PRUnitTestMethod(EdgeEdgeContact, Quick)
 		{
 			auto box = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
@@ -280,7 +280,7 @@ namespace pr::collision::tests
 		}
 
 		// Edge-to-Face: rotated box touching via edges
-		PRUnitTestMethod(EdgeFaceContact)
+		PRUnitTestMethod(EdgeFaceContact, Quick)
 		{
 			auto box = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
@@ -306,7 +306,7 @@ namespace pr::collision::tests
 		}
 
 		// Corner-to-face: rotated box poking into face
-		PRUnitTestMethod(CornerToFace)
+		PRUnitTestMethod(CornerToFace, Quick)
 		{
 			auto box = ShapeBox{v4{1, 1, 1, 0}};
 			auto l2w = m4x4::Identity();
@@ -331,7 +331,7 @@ namespace pr::collision::tests
 		}
 
 		// Box-vs-Box with s2r transforms
-		PRUnitTestMethod(BoxVsBoxWithS2R)
+		PRUnitTestMethod(BoxVsBoxWithS2R, Quick)
 		{
 			auto lhs = ShapeBox{ v4{1, 1, 1, 0}, m4x4::TransformDeg(45, 30, -25, v4{0.5f, 0, 0, 1}) };
 			auto rhs = ShapeBox{ v4{1, 1, 1, 0}, m4x4::TransformDeg(30, 10, -80, v4{1.0f, 0, 0, 1}) };

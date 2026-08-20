@@ -119,7 +119,7 @@ namespace pr::physics::tests
 	{
 		// Test 1: Sphere with pure linear velocity (no rotation, no forces)
 		// Analytically: position should advance by v * dt exactly.
-		PRUnitTestMethod(SphereLinearOnly)
+		PRUnitTestMethod(SphereLinearOnly, Extended)
 		{
 			auto sphere = collision::ShapeSphere(1.0f);
 			auto const dt = 1.0f / 100.0f;
@@ -144,7 +144,7 @@ namespace pr::physics::tests
 		}
 
 		// Test 2: Box with angular velocity only (anisotropic inertia, tests rotation path)
-		PRUnitTestMethod(BoxAngularOnly)
+		PRUnitTestMethod(BoxAngularOnly, Extended)
 		{
 			auto box = collision::ShapeBox(v4{1, 2, 0.5f, 0});
 			auto const dt = 1.0f / 100.0f;
@@ -175,7 +175,7 @@ namespace pr::physics::tests
 		}
 
 		// Test 3: Polytope with off-centre CoM, combined angular and linear velocity
-		PRUnitTestMethod(PolytopeOffCentreCoM)
+		PRUnitTestMethod(PolytopeOffCentreCoM, Extended)
 		{
 			v4 pts[] = {
 				v4{-0.8f, -0.8f, -0.5f, 1},
@@ -204,7 +204,7 @@ namespace pr::physics::tests
 		}
 
 		// Test 4: Integration with external forces (gravity)
-		PRUnitTestMethod(SphereWithGravity)
+		PRUnitTestMethod(SphereWithGravity, Extended)
 		{
 			auto sphere = collision::ShapeSphere(1.0f);
 			auto const dt = 1.0f / 100.0f;
@@ -236,7 +236,7 @@ namespace pr::physics::tests
 		}
 
 		// Test 5: Multi-step integration comparison (accumulates errors over 100 steps)
-		PRUnitTestMethod(MultiStepBoxWithSpin)
+		PRUnitTestMethod(MultiStepBoxWithSpin, Extended)
 		{
 			auto box = collision::ShapeBox(v4{1, 2, 0.5f, 0});
 			auto const dt = 1.0f / 100.0f;
@@ -358,7 +358,7 @@ namespace pr::physics::tests
 		}
 
 		// Test: equal mass sphere head-on collision, GPU vs CPU resolve
-		PRUnitTestMethod(SphereHeadOn)
+		PRUnitTestMethod(SphereHeadOn, Extended)
 		{
 			auto sphere = collision::ShapeSphere(1.0f);
 			auto inertia = physics::Inertia::Sphere(1.0f, 10.0f);
@@ -393,7 +393,7 @@ namespace pr::physics::tests
 		}
 
 		// Test: box vs ground with GPU resolve (tests off-centre impulse application)
-		PRUnitTestMethod(BoxOnGround)
+		PRUnitTestMethod(BoxOnGround, Extended)
 		{
 			auto box = collision::ShapeBox(v4{0.5f, 0.5f, 0.5f, 0});
 			auto inertia_box = physics::Inertia::Box(v4{0.5f, 0.5f, 0.5f, 0}, 10.0f);
@@ -425,7 +425,7 @@ namespace pr::physics::tests
 	PRUnitTestClass(AnalyticPhysicsTests)
 	{
 		// Test: free-flight linear motion — verify position after N steps
-		PRUnitTestMethod(FreeFlight100Steps)
+		PRUnitTestMethod(FreeFlight100Steps, Extended)
 		{
 			auto sphere = collision::ShapeSphere(1.0f);
 			auto const dt = 1.0f / 100.0f;
@@ -462,7 +462,7 @@ namespace pr::physics::tests
 		}
 
 		// Test: KE conservation for spinning asymmetric body (1000 steps, no forces)
-		PRUnitTestMethod(AngularKEConservation)
+		PRUnitTestMethod(AngularKEConservation, Extended)
 		{
 			auto box = collision::ShapeBox(v4{1, 2, 0.5f, 0});
 			auto const dt = 1.0f / 100.0f;
@@ -503,7 +503,7 @@ namespace pr::physics::tests
 
 		// Test: Broadphase AABB diagnostic — verify AABBs are correct for stationary body
 		// This directly tests the failing scenario (one body stationary, one moving toward it)
-		PRUnitTestMethod(BroadphaseDiagnostic)
+		PRUnitTestMethod(BroadphaseDiagnostic, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2, 2, 2, 0});
 			auto const dt = 1.0f / 100.0f;
@@ -551,7 +551,7 @@ namespace pr::physics::tests
 		// Diagnostic: compare full GPU pipeline (GPU detect + GPU resolve) against
 		// full CPU pipeline (CPU SAT + CPU resolve) for a sphere-sphere collision.
 		// Prints the velocity differences to help diagnose GPU GJK accuracy.
-		PRUnitTestMethod(FullGpuVsCpuSphereSphere)
+		PRUnitTestMethod(FullGpuVsCpuSphereSphere, Extended)
 		{
 			auto sphere = collision::ShapeSphere(1.0f);
 			auto inertia = physics::Inertia::Sphere(1.0f, 10.0f);

@@ -513,7 +513,7 @@ namespace pr::math
 {
 	PRUnitTestClass(BoundingBoxTests)
 	{
-		PRUnitTestMethod(Union)
+		PRUnitTestMethod(Union, Quick)
 		{
 			using S = float;
 			using vec4_t = Vec4<S>;
@@ -543,7 +543,7 @@ namespace pr::math
 			PR_EXPECT(FEql(u3.Radius(), a.Radius()));
 		}
 
-		PRUnitTestMethod(IsWithin)
+		PRUnitTestMethod(IsWithin, Quick)
 		{
 			using S = float;
 			using vec4_t = Vec4<S>;
@@ -569,7 +569,7 @@ namespace pr::math
 			PR_EXPECT(!IsWithin(bb, outer));
 		}
 
-		PRUnitTestMethod(IsIntersection)
+		PRUnitTestMethod(IsIntersection, Quick)
 		{
 			using S = float;
 			using vec4_t = Vec4<S>;
@@ -592,7 +592,7 @@ namespace pr::math
 			PR_EXPECT(!IsIntersection(a, e));
 		}
 
-		PRUnitTestMethod(CornerTests)
+		PRUnitTestMethod(CornerTests, Quick)
 		{
 			using S = float;
 			using vec4_t = Vec4<S>;
@@ -615,7 +615,7 @@ namespace pr::math
 			}
 		}
 
-		PRUnitTestMethod(VolumeTest)
+		PRUnitTestMethod(VolumeTest, Quick)
 		{
 			using S = float;
 			using vec4_t = Vec4<S>;
@@ -634,7 +634,7 @@ namespace pr::math
 			PR_EXPECT(Volume(point) == S(0));
 		}
 
-		PRUnitTestMethod(SupportPointTest)
+		PRUnitTestMethod(SupportPointTest, Quick)
 		{
 			using S = float;
 			using vec4_t = Vec4<S>;
@@ -655,7 +655,7 @@ namespace pr::math
 			PR_EXPECT(sp3.x == S(2) && sp3.y == S(3) && sp3.z == S(4));
 		}
 
-		PRUnitTestMethod(MakeTest)
+		PRUnitTestMethod(MakeTest, Quick)
 		{
 			using S = float;
 			using vec4_t = Vec4<S>;
@@ -679,7 +679,7 @@ namespace pr::math
 			PR_EXPECT(bb2.Upper().z == S(5));
 		}
 
-		PRUnitTestMethod(TransformTest)
+		PRUnitTestMethod(TransformTest, Quick)
 		{
 			using S = float;
 			using vec4_t = Vec4<S>;
@@ -702,7 +702,7 @@ namespace pr::math
 			PR_EXPECT(FEqlAbsolute(rotated.Radius(), vec4_t(S(1), S(1), S(1), S(0)), S(0.001)));
 		}
 
-		PRUnitTestMethod(Grow)
+		PRUnitTestMethod(Grow, Quick)
 		{
 			Vec4<float> pt[] =
 			{

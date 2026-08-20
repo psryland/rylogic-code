@@ -302,7 +302,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(ArenaAllocatorTests)
+	PRUnitTest(ArenaAllocatorTests, Quick)
 	{
 		using Arena = ArenaAllocator<1024, 16>;
 		Arena arena;

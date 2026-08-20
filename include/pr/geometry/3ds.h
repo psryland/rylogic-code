@@ -757,7 +757,7 @@ namespace pr::geometry::max_3ds
 #include "pr/common/unittests.h"
 namespace pr::geometry
 {
-	PRUnitTest(Geometry3dsTests)
+	PRUnitTest(Geometry3dsTests, Quick)
 	{
 		//using namespace pr::geometry;
 		//std::ifstream ifile("\\dump\\test2.3ds", std::ifstream::binary);

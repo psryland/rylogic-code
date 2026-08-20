@@ -16,7 +16,7 @@ namespace pr::hlsl::tests
 	{
 		static constexpr float tol = 1e-4f;
 
-		PRUnitTestMethod(RayVsTriangleHit)
+		PRUnitTestMethod(RayVsTriangleHit, Quick)
 		{
 			// Ray along -Z hitting a triangle in the XY plane
 			auto s = float4(0.25f, 0.25f, 1.0f, 1.0f);
@@ -43,7 +43,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(pt.x, 0.25f));
 			PR_EXPECT(FEql(pt.y, 0.25f));
 		}
-		PRUnitTestMethod(RayVsTriangleMiss)
+		PRUnitTestMethod(RayVsTriangleMiss, Quick)
 		{
 			// Ray that misses the triangle
 			auto s = float4(5, 5, 1, 1);
@@ -58,7 +58,7 @@ namespace pr::hlsl::tests
 			bool miss = AllZero(bary) || bary.x < 0 || bary.y < 0 || bary.z < 0;
 			PR_EXPECT(miss);
 		}
-		PRUnitTestMethod(RayVsTriangleParallel)
+		PRUnitTestMethod(RayVsTriangleParallel, Quick)
 		{
 			// Ray parallel to the triangle plane
 			auto s = float4(0, 0, 0, 1);
@@ -72,7 +72,7 @@ namespace pr::hlsl::tests
 			// Should return zero (degenerate / parallel)
 			PR_EXPECT(AllZero(bary));
 		}
-		PRUnitTestMethod(RayVsTriangleAtVertex)
+		PRUnitTestMethod(RayVsTriangleAtVertex, Quick)
 		{
 			// Ray aimed directly at vertex 'a'
 			auto s = float4(0, 0, 1, 1);

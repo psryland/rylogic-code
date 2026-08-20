@@ -711,7 +711,7 @@ namespace pr::algorithm::tests
 			}
 		}
 
-		PRUnitTestMethod(NormalCase)
+		PRUnitTestMethod(NormalCase, Quick)
 		{
 			using namespace pr::kdtree;
 			
@@ -860,7 +860,7 @@ namespace pr::algorithm::tests
 				#endif
 			}
 		}
-		PRUnitTestMethod(EmptyOutputSpans)
+		PRUnitTestMethod(EmptyOutputSpans, Quick)
 		{
 			auto get_value = [](Pt const& p, int a)
 			{
@@ -929,7 +929,7 @@ namespace pr::algorithm::tests
 				PR_EXPECT(pair_sentinel.squared_distance == 42.0f);
 			}
 		}
-		PRUnitTestMethodFamily(Robustness, Slow)
+		PRUnitTestMethod(Robustness, Stress)
 		{
 			std::vector<Pt> points;
 			std::set<Pt> results;
@@ -1005,7 +1005,7 @@ namespace pr::algorithm::tests
 				CheckPairs(points, search_radius, pairs);
 			}
 		}
-		PRUnitTestMethod(Degenerates)
+		PRUnitTestMethod(Degenerates, Quick)
 		{
 			std::vector<Pt> points;
 			std::set<Pt> results;
@@ -1108,7 +1108,7 @@ namespace pr::algorithm::tests
 				CheckPairs(points, search_radius, pairs);
 			}
 		}
-		PRUnitTestMethod(Farthest)
+		PRUnitTestMethod(Farthest, Quick)
 		{
 			#if 0
 			std::default_random_engine rng(1u);

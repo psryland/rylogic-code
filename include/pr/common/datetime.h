@@ -139,7 +139,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(DateTimeTests)
+	PRUnitTest(DateTimeTests, Quick)
 	{
 		using namespace std::chrono;
 
@@ -657,7 +657,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(DateTimeTests)
+	PRUnitTest(DateTimeTests, Quick)
 	{
 		using namespace std::chrono;
 		using namespace pr::datetime;

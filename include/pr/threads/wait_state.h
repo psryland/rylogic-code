@@ -55,7 +55,7 @@ namespace pr
 #include <thread>
 namespace pr::threads
 {
-	PRUnitTest(WaitStateTests)
+	PRUnitTest(WaitStateTests, Quick)
 	{
 		bool flag = false;
 		threads::WaitState<bool> ws(false);

@@ -334,7 +334,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(CmdLineSinglePositional)
+	PRUnitTest(CmdLineSinglePositional, Quick)
 	{
 		char const* argv[] =
 		{
@@ -350,7 +350,7 @@ namespace pr::common
 		PR_EXPECT(cmd.args[0].values[0] == "one");
 	}
 
-	PRUnitTest(CmdLineMultiplePositionals)
+	PRUnitTest(CmdLineMultiplePositionals, Quick)
 	{
 		char const* argv[] =
 		{
@@ -368,7 +368,7 @@ namespace pr::common
 		PR_EXPECT(cmd.args[2].key.empty() && cmd.args[2].values.size() == 1 && cmd.args[2].values[0] == "three");
 	}
 
-	PRUnitTest(CmdLinePositionalsAndOptions)
+	PRUnitTest(CmdLinePositionalsAndOptions, Quick)
 	{
 		char const* argv[] =
 		{

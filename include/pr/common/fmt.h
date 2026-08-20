@@ -207,7 +207,7 @@ namespace pr
 
 namespace pr::common
 {
-	PRUnitTest(FmtTests)
+	PRUnitTest(FmtTests, Quick)
 	{
 		using namespace pr::str;
 		{// char - simple specifiers

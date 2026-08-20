@@ -126,7 +126,7 @@ namespace pr::common
 	inline int s_alloca_ctor_count = 0;
 	inline int s_alloca_dtor_count = 0;
 
-	PRUnitTest(AllocaTests)
+	PRUnitTest(AllocaTests, Quick)
 	{
 		struct Counter
 		{

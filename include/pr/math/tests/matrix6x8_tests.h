@@ -11,7 +11,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(Matrix6x8Tests)
 	{
-		PRUnitTestMethod(Construction, float, double)
+		PRUnitTestMethod(Construction, Quick, float, double)
 		{
 			using mat6_t = Mat6x8<T, void, void>;
 			using mat3_t = Mat3x3<T>;
@@ -29,7 +29,7 @@ namespace pr::math::tests
 		}
 
 		// Verifies all six column setter paths and that Vec8 padding values are discarded.
-		PRUnitTestMethod(ColSetGet, float, double)
+		PRUnitTestMethod(ColSetGet, Quick, float, double)
 		{
 			using mat6_t = Mat6x8<T, void, void>;
 			using vec8_t = Vec8<T, void>;
@@ -80,7 +80,7 @@ namespace pr::math::tests
 			PR_EXPECT(All(matrix.m11[2] == vec3_t(T(34), T(35), T(36))));
 		}
 
-		PRUnitTestMethod(MultiplyVector, float, double)
+		PRUnitTestMethod(MultiplyVector, Quick, float, double)
 		{
 			using mat6_t = Mat6x8<T, void, void>;
 			using mat3_t = Mat3x3<T>;
@@ -101,7 +101,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(R, V));
 		}
 
-		PRUnitTestMethod(Transpose, float, double)
+		PRUnitTestMethod(Transpose, Quick, float, double)
 		{
 			struct SpaceA {};
 			struct SpaceB {};
@@ -130,7 +130,7 @@ namespace pr::math::tests
 		}
 
 		// Exercise the dense case and check both product orders land on the identity.
-		PRUnitTestMethod(InverseDense, float, double)
+		PRUnitTestMethod(InverseDense, Quick, float, double)
 		{
 			using mat6_t = Mat6x8<T, void, void>;
 			using vec8_t = Vec8<T, void>;
@@ -152,7 +152,7 @@ namespace pr::math::tests
 		}
 
 		// Exercise the block-swap case where the diagonal 3x3 blocks are zero.
-		PRUnitTestMethod(InverseSwappedBlocks, float, double)
+		PRUnitTestMethod(InverseSwappedBlocks, Quick, float, double)
 		{
 			struct SpaceA {};
 			struct SpaceB {};
@@ -174,7 +174,7 @@ namespace pr::math::tests
 		}
 
 		// Exercise a full permutation that makes every 3x3 block singular on its own.
-		PRUnitTestMethod(InversePermutation, float, double)
+		PRUnitTestMethod(InversePermutation, Quick, float, double)
 		{
 			struct SpaceA {};
 			struct SpaceB {};
@@ -202,7 +202,7 @@ namespace pr::math::tests
 		}
 
 		// A zero matrix never finds a nonzero pivot, so the singular-matrix throw must remain intact.
-		PRUnitTestMethod(InverseSingularThrows, float, double)
+		PRUnitTestMethod(InverseSingularThrows, Quick, float, double)
 		{
 			using mat6_t = Mat6x8<T, void, void>;
 
@@ -210,7 +210,7 @@ namespace pr::math::tests
 		}
 
 		// Verify that Mat6x8 combines its Mat3x3 blocks with the same any/all NaN contract as the generic matrix helpers.
-		PRUnitTestMethod(IsNaNAggregation, float, double)
+		PRUnitTestMethod(IsNaNAggregation, Quick, float, double)
 		{
 			using mat3_t = Mat3x3<T>;
 			using mat6_t = Mat6x8<T, void, void>;

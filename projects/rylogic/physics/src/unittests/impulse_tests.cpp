@@ -14,7 +14,7 @@ namespace pr::physics::tests
 		// Head-on collision through CoM, unequal masses.
 		// ObjA (10kg, stationary) vs ObjB (5kg, moving at -1 m/s along X).
 		// Perfectly elastic, frictionless.
-		PRUnitTestMethod(HeadOnThroughCoM)
+		PRUnitTestMethod(HeadOnThroughCoM, Extended)
 		{
 			ShapeBox box(v4{constants<float>::inv_root2, constants<float>::inv_root2, constants<float>::inv_root2, 0},
 				m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4::Origin()));
@@ -49,7 +49,7 @@ namespace pr::physics::tests
 
 		// Off-normal collision with sticky (friction + tangential elasticity) material.
 		// Contact normal is at 45° between X and Y.
-		PRUnitTestMethod(OffNormalSticky)
+		PRUnitTestMethod(OffNormalSticky, Extended)
 		{
 			ShapeBox box(v4{constants<float>::inv_root2, constants<float>::inv_root2, constants<float>::inv_root2, 0},
 				m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4::Origin()));
@@ -87,7 +87,7 @@ namespace pr::physics::tests
 
 		// Off-normal frictionless collision between equal masses.
 		// Only the normal component should change; tangential velocity is preserved.
-		PRUnitTestMethod(OffNormalFrictionless)
+		PRUnitTestMethod(OffNormalFrictionless, Extended)
 		{
 			ShapeBox box(v4{constants<float>::inv_root2, constants<float>::inv_root2, constants<float>::inv_root2, 0},
 				m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4::Origin()));
@@ -129,7 +129,7 @@ namespace pr::physics::tests
 
 		// Glancing collision: rotating objects with nearly-zero normal approach.
 		// With frictionless material and tiny normal component, the impulse should be near zero.
-		PRUnitTestMethod(GlancingFrictionless)
+		PRUnitTestMethod(GlancingFrictionless, Extended)
 		{
 			ShapeBox box(v4{constants<float>::inv_root2, constants<float>::inv_root2, constants<float>::inv_root2, 0},
 				m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4::Origin()));
@@ -159,7 +159,7 @@ namespace pr::physics::tests
 
 		// Spinning objects with sticky material — contact point has opposing velocity.
 		// With tangential elasticity, this should produce an angular impulse.
-		PRUnitTestMethod(SpinningSticky)
+		PRUnitTestMethod(SpinningSticky, Extended)
 		{
 			ShapeBox box(v4{constants<float>::inv_root2, constants<float>::inv_root2, constants<float>::inv_root2, 0},
 				m4x4::Transform(RotationRad<m3x3>(0, 0, constants<float>::tau_by_8), v4::Origin()));

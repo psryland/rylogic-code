@@ -122,7 +122,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::geometry
 {
-	PRUnitTest(ReflectionTests)
+	PRUnitTest(ReflectionTests, Quick)
 	{
 		/*
 		constexpr v4 Walls[] = { v4::YAxis(), v4(1, 0, 0, 1), v4(-1, 0, 0, -1), v4(0, 0, 1, 1), v4(0, 0, -1, -1) };

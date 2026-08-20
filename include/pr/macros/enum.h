@@ -373,7 +373,7 @@ namespace pr::common
 		PR_ENUM_REFLECTION3(TestEnum5, PR_ENUM);
 		#undef PR_ENUM
 	}
-	PRUnitTest(Enum2Tests)
+	PRUnitTest(Enum2Tests, Quick)
 	{
 		using namespace pr::unittests;
 		using namespace unittests::enum2;

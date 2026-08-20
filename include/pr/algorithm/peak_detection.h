@@ -230,7 +230,7 @@ namespace pr::algorithm
 			return data;
 		}
 
-		PRUnitTestMethod(DetectPeaks_Empty)
+		PRUnitTestMethod(DetectPeaks_Empty, Quick)
 		{
 			// Empty data should produce no peaks
 			std::vector<float> empty;
@@ -239,7 +239,7 @@ namespace pr::algorithm
 			PR_EXPECT(peaks.empty());
 		}
 
-		PRUnitTestMethod(DetectPeaks_SingleValue)
+		PRUnitTestMethod(DetectPeaks_SingleValue, Quick)
 		{
 			// A single value is the global max, so it should be returned
 			std::vector<float> single = { 42.0f };
@@ -249,7 +249,7 @@ namespace pr::algorithm
 			PR_EXPECT(peaks[0] == 0);
 		}
 
-		PRUnitTestMethod(DetectPeaks_ZeroPersistenceSequences)
+		PRUnitTestMethod(DetectPeaks_ZeroPersistenceSequences, Quick)
 		{
 			// Sequences without finite-prominence peaks should return only the surviving global maximum.
 			auto expect_one_peak_with_value = [](std::vector<float> const& data, float peak_value)
@@ -268,7 +268,7 @@ namespace pr::algorithm
 			expect_one_peak_with_value({ 0.0f, 1.0f, 0.0f }, 1.0f);
 		}
 
-		PRUnitTestMethod(DetectPeaks_KnownPeaks)
+		PRUnitTestMethod(DetectPeaks_KnownPeaks, Quick)
 		{
 			// Hand-crafted signal: flat baseline at 0, with Gaussian bumps at known locations.
 			// Bump amplitudes: idx=100 -> 10, idx=300 -> 5, idx=500 -> 8, idx=700 -> 3
@@ -294,7 +294,7 @@ namespace pr::algorithm
 			PR_EXPECT(std::abs(peaks[3] - 700) <= 2); // Amplitude 3
 		}
 
-		PRUnitTestMethod(DetectPeaks_SineWave)
+		PRUnitTestMethod(DetectPeaks_SineWave, Quick)
 		{
 			// A simple sine wave with 5 full periods should have 5 peaks
 			constexpr int N = 1000;
@@ -314,7 +314,7 @@ namespace pr::algorithm
 			PR_EXPECT(peaks.size() >= 5);
 		}
 
-		PRUnitTestMethod(DetectPeaks_ThresholdFiltering)
+		PRUnitTestMethod(DetectPeaks_ThresholdFiltering, Quick)
 		{
 			// Higher threshold should produce fewer peaks
 			Bump bumps[] = { {200, 10.0f}, {500, 3.0f}, {800, 1.0f} };
@@ -335,7 +335,7 @@ namespace pr::algorithm
 			PR_EXPECT(peaks_high.size() < peaks_low.size());
 		}
 
-		PRUnitTestMethodFamily(DetectPeaks_Visualise, Slow)
+		PRUnitTestMethod(DetectPeaks_Visualise, Stress)
 		{
 			// Generate a multi-frequency signal for visualisation
 			constexpr int N = 1000;

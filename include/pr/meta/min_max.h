@@ -43,7 +43,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::meta
 {
-	PRUnitTest(MinMaxTests)
+	PRUnitTest(MinMaxTests, Quick)
 	{
 		static_assert(meta::min<int,+5,+2>::value == +2, "");
 		static_assert(meta::min<int,-5,+2>::value == -5, "");

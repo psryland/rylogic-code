@@ -158,7 +158,7 @@ namespace pr::collision::tests
 		}
 
 		// Two coplanar overlapping triangles
-		PRUnitTestMethod(CoplanarOverlapping)
+		PRUnitTestMethod(CoplanarOverlapping, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeTriangle{v4{0, -1, 0, 1}, v4{2, -1, 0, 1}, v4{1, 1, 0, 1}};
@@ -173,7 +173,7 @@ namespace pr::collision::tests
 		}
 
 		// Two intersecting triangles (crossing like an X)
-		PRUnitTestMethod(CrossingTriangles)
+		PRUnitTestMethod(CrossingTriangles, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeTriangle{v4{-1, 0, -1, 1}, v4{1, 0, -1, 1}, v4{0, 0, 1, 1}};
@@ -196,7 +196,7 @@ namespace pr::collision::tests
 		}
 
 		// Two separated triangles: parallel but offset
-		PRUnitTestMethod(ParallelSeparated)
+		PRUnitTestMethod(ParallelSeparated, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
@@ -211,7 +211,7 @@ namespace pr::collision::tests
 		}
 
 		// Edge-to-edge touching: triangles share a common edge
-		PRUnitTestMethod(SharedEdge)
+		PRUnitTestMethod(SharedEdge, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{0, 0, 0, 1}, v4{1, 0, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeTriangle{v4{0, 0, 0, 1}, v4{1, 0, 0, 1}, v4{0, -1, 0, 1}};
@@ -226,7 +226,7 @@ namespace pr::collision::tests
 		}
 
 		// Vertex touching: one triangle's vertex touches the other's face
-		PRUnitTestMethod(VertexTouchesFace)
+		PRUnitTestMethod(VertexTouchesFace, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-2, -2, 0, 1}, v4{2, -2, 0, 1}, v4{0, 2, 0, 1}};
 			auto rhs = ShapeTriangle{v4{0, 0, -0.00001f, 1}, v4{1, 0, 1, 1}, v4{0, 1, 1, 1}};
@@ -249,7 +249,7 @@ namespace pr::collision::tests
 		}
 
 		// Separated in all axes: no projection overlap
-		PRUnitTestMethod(ClearlySeparated)
+		PRUnitTestMethod(ClearlySeparated, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
@@ -264,7 +264,7 @@ namespace pr::collision::tests
 		}
 
 		// Perpendicular triangles intersecting: T-junction
-		PRUnitTestMethod(TJunction)
+		PRUnitTestMethod(TJunction, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-2, -2, 0, 1}, v4{2, -2, 0, 1}, v4{0, 2, 0, 1}};
 			auto rhs = ShapeTriangle{v4{0, 0, -1, 1}, v4{1, 0, -1, 1}, v4{0.5f, 0, 1, 1}};
@@ -287,7 +287,7 @@ namespace pr::collision::tests
 		}
 
 		// Intersecting degenerates
-		PRUnitTestMethod(Degenerates)
+		PRUnitTestMethod(Degenerates, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{0, -1, 0, 1}, v4{0, 0, 0, 1}, v4{0, +1, 0, 1}};
 			auto rhs = ShapeTriangle{v4{ 0, 0, -1, 1}, v4{1, 0, -1, 1}, v4{0.5f, 0, 1, 1}};
@@ -302,7 +302,7 @@ namespace pr::collision::tests
 		}
 
 		// Tri-vs-Tri with s2r transforms
-		PRUnitTestMethod(TriVsTriWithS2R)
+		PRUnitTestMethod(TriVsTriWithS2R, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-2, -2, 0, 1}, v4{2, -2, 0, 1}, v4{0, 2, 0, 1}, m4x4::TransformDeg(45, 30, -25, v4{0.5f, 0, 0, 1}) };
 			auto rhs = ShapeTriangle{v4{0, 0, -1, 1}, v4{1, 0, -1, 1}, v4{0.5f, 0, 1, 1}, m4x4::TransformDeg(30, 10, -80, v4{1.0f, 0, 0, 1}) };

@@ -56,7 +56,7 @@ namespace pr
 #include "pr/meta/prime_gtreq.h"
 namespace pr::meta
 {
-	PRUnitTest(SquareRootTests)
+	PRUnitTest(SquareRootTests, Quick)
 	{
 		// 0/1 boundaries, and exact vs non-exact squares
 		static_assert(square_root<0>::value == 0, "");

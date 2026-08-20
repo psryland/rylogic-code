@@ -1356,7 +1356,7 @@ namespace pr::ldraw::svg
 #include "pr/common/unittests.h"
 namespace pr::ldraw::svg
 {
-	PRUnitTest(SvgToLDrawBasicShapes)
+	PRUnitTest(SvgToLDrawBasicShapes, Quick)
 	{
 		auto const svg =
 			"<svg viewBox='0 0 10 10'>"
@@ -1375,7 +1375,7 @@ namespace pr::ldraw::svg
 		PR_EXPECT(ldr.find("0.01", ldr.find("*Line box_stroke")) != std::string::npos);
 	}
 
-	PRUnitTest(SvgToLDrawText)
+	PRUnitTest(SvgToLDrawText, Quick)
 	{
 		auto const svg =
 			"<svg viewBox='0 0 100 20'>"

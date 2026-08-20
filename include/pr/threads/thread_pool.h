@@ -151,7 +151,7 @@ namespace pr::threads
 #include "pr/common/unittests.h"
 namespace pr::threads
 {
-	PRUnitTestFamily(ThreadPoolTests, Slow)
+	PRUnitTest(ThreadPoolTests, Stress)
 	{
 		using namespace std::chrono_literals;
 
@@ -191,7 +191,7 @@ namespace pr::threads
 	// unchanged when the queue is empty. That meant a failed pop after a task finished left the
 	// just-run task sitting in the loop variable, which then bypassed the "do we have work" guard
 	// and got executed again instead of the next queued task.
-	PRUnitTest(ThreadPoolStaleTaskReplayTest)
+	PRUnitTest(ThreadPoolStaleTaskReplayTest, Quick)
 	{
 		// A single worker thread makes the interleaving deterministic: there's exactly one thread
 		// that can dequeue/execute tasks, so the only variable is timing between task 'A' finishing
@@ -235,7 +235,7 @@ namespace pr::threads
 	// that leaves 'WaitAll' blocked forever. Queuing tasks from several producer threads concurrently
 	// with workers draining the queue, repeated many times, makes that race window likely to be hit
 	// if it still exists.
-	PRUnitTestFamily(ThreadPoolMissedWakeupStressTest, Slow)
+	PRUnitTest(ThreadPoolMissedWakeupStressTest, Stress)
 	{
 		using namespace std::chrono_literals;
 
@@ -280,7 +280,7 @@ namespace pr::threads
 	// Constructing and immediately destroying pools with idle workers (no tasks queued, so workers are
 	// parked in 'wait' when shutdown happens), repeated many times, makes that race window likely to
 	// be hit if it still exists.
-	PRUnitTestFamily(ThreadPoolShutdownStressTest, Slow)
+	PRUnitTest(ThreadPoolShutdownStressTest, Stress)
 	{
 		using namespace std::chrono_literals;
 

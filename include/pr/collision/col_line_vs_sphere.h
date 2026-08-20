@@ -109,7 +109,7 @@ namespace pr::collision::tests
 		}
 
 		// Sphere centred on the line midpoint: maximum penetration
-		PRUnitTestMethod(SphereCentredOnLine)
+		PRUnitTestMethod(SphereCentredOnLine, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.0f};
 			auto rhs = ShapeSphere{0.5f};
@@ -132,7 +132,7 @@ namespace pr::collision::tests
 		}
 
 		// Sphere near the end of the line segment
-		PRUnitTestMethod(SphereVsLineEndpoint)
+		PRUnitTestMethod(SphereVsLineEndpoint, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.0f};
 			auto rhs = ShapeSphere{0.3f};
@@ -155,7 +155,7 @@ namespace pr::collision::tests
 		}
 
 		// Sphere clearly separated from line
-		PRUnitTestMethod(Separated)
+		PRUnitTestMethod(Separated, Quick)
 		{
 			auto lhs = ShapeLine{1.0f, 0.3f};
 			auto rhs = ShapeSphere{0.3f};
@@ -170,7 +170,7 @@ namespace pr::collision::tests
 		}
 
 		// Sphere beyond the line endpoint (closest point is the endpoint)
-		PRUnitTestMethod(SphereBeyondEndpoint)
+		PRUnitTestMethod(SphereBeyondEndpoint, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.0f};
 			auto rhs = ShapeSphere{0.5f};
@@ -185,7 +185,7 @@ namespace pr::collision::tests
 		}
 
 		// Degenerate: zero-length line (point vs sphere)
-		PRUnitTestMethod(ZeroLengthLine)
+		PRUnitTestMethod(ZeroLengthLine, Quick)
 		{
 			auto lhs = ShapeLine{0.0f, 0.0f};
 			auto rhs = ShapeSphere{1.0f};
@@ -208,7 +208,7 @@ namespace pr::collision::tests
 		}
 
 		// Rotated line: line along X-axis via rotation
-		PRUnitTestMethod(RotatedLine)
+		PRUnitTestMethod(RotatedLine, Quick)
 		{
 			auto lhs = ShapeLine{4.0f, 0.0f};
 			auto rhs = ShapeSphere{0.5f};
@@ -231,7 +231,7 @@ namespace pr::collision::tests
 		}
 
 		// Contact axis direction: should point from line toward sphere
-		PRUnitTestMethod(ContactAxisDirection)
+		PRUnitTestMethod(ContactAxisDirection, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.0f};
 			auto rhs = ShapeSphere{0.5f};
@@ -254,7 +254,7 @@ namespace pr::collision::tests
 		}
 
 		// Thick line: sphere within thickness envelope but beyond zero-thickness range
-		PRUnitTestMethod(ThickLineVsSphere)
+		PRUnitTestMethod(ThickLineVsSphere, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.2f};
 			auto rhs = ShapeSphere{0.3f};
@@ -277,7 +277,7 @@ namespace pr::collision::tests
 		}
 
 		// Thick line: sphere just outside thickness envelope
-		PRUnitTestMethod(ThickLineSeparated)
+		PRUnitTestMethod(ThickLineSeparated, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.2f};
 			auto rhs = ShapeSphere{0.3f};
@@ -292,7 +292,7 @@ namespace pr::collision::tests
 		}
 
 		// Thick line: sphere contacting end
-		PRUnitTestMethod(ThickLineEndVsSphere)
+		PRUnitTestMethod(ThickLineEndVsSphere, Quick)
 		{
 			auto lhs = ShapeLine{1.0f, 0.2f};
 			auto rhs = ShapeSphere{0.3f};
@@ -315,7 +315,7 @@ namespace pr::collision::tests
 		}
 
 		// Line-vs-Sphere with s2r transforms 
-		PRUnitTestMethod(LineVsSphereWithS2R) 
+		PRUnitTestMethod(LineVsSphereWithS2R, Quick)
 		{ 
 			auto lhs = ShapeLine{1.0f, 0.2f, m4x4::TransformDeg(45, 30, -25, v4{0.5f, 0, 0, 1}) };
 			auto rhs = ShapeSphere{0.3f, m4x4::TransformDeg(30, 10, -80, v4{1.0f, 0, 0, 1}) };

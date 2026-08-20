@@ -332,7 +332,7 @@ namespace pr
 
 namespace pr::hash
 {
-	PRUnitTest(Md5Tests)
+	PRUnitTest(Md5Tests, Quick)
 	{
 		char str0[] = "01234567890";
 		char str1[] = "0123456789a";

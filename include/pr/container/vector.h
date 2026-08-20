@@ -1516,7 +1516,7 @@ namespace pr::container
 				ints.push_back(Type(i));
 		}
 
-		PRUnitTestMethod(Constructors)
+		PRUnitTestMethod(Constructors, Quick)
 		{
 			{
 				Check chk;
@@ -1572,7 +1572,7 @@ namespace pr::container
 				}
 			}
 		}
-		PRUnitTestMethod(Assignment)
+		PRUnitTestMethod(Assignment, Quick)
 		{
 			{
 				Check chk;
@@ -1664,7 +1664,7 @@ namespace pr::container
 				}
 			}
 		}
-		PRUnitTestMethod(Assign)
+		PRUnitTestMethod(Assign, Quick)
 		{
 			Check chk;
 			{
@@ -1681,7 +1681,7 @@ namespace pr::container
 					PR_EXPECT(arr1[i].val == ints[i].val);
 			}
 		}
-		PRUnitTestMethod(Clear)
+		PRUnitTestMethod(Clear, Quick)
 		{
 			{
 				Check chk;
@@ -1700,7 +1700,7 @@ namespace pr::container
 				}
 			}
 		}
-		PRUnitTestMethod(Erase)
+		PRUnitTestMethod(Erase, Quick)
 		{
 			{
 				Check chk;
@@ -1792,7 +1792,7 @@ namespace pr::container
 				}
 			}
 		}
-		PRUnitTestMethod(Insert)
+		PRUnitTestMethod(Insert, Quick)
 		{
 			{
 				Check chk;
@@ -1851,7 +1851,7 @@ namespace pr::container
 				}
 			}
 		}
-		PRUnitTestMethod(AppendRange)
+		PRUnitTestMethod(AppendRange, Quick)
 		{
 			Check chk;
 			{
@@ -1892,7 +1892,7 @@ namespace pr::container
 				PR_EXPECT(arr[0].val == 99);
 			}
 		}
-		PRUnitTestMethod(PushPop)
+		PRUnitTestMethod(PushPop, Quick)
 		{
 			{
 				Check chk;
@@ -1932,7 +1932,7 @@ namespace pr::container
 				}
 			}
 		}
-		PRUnitTestMethod(Resize)
+		PRUnitTestMethod(Resize, Quick)
 		{
 			{
 				Check chk;
@@ -1986,7 +1986,7 @@ namespace pr::container
 				}
 			}
 		}
-		PRUnitTestMethod(Operators)
+		PRUnitTestMethod(Operators, Quick)
 		{
 			{
 				Check chk;
@@ -2040,7 +2040,7 @@ namespace pr::container
 				}
 			}
 		}
-		PRUnitTestMethod(Mem)
+		PRUnitTestMethod(Mem, Quick)
 		{
 			{
 				Check chk;
@@ -2057,7 +2057,7 @@ namespace pr::container
 				}
 			}
 		}
-		PRUnitTestMethod(Copy)
+		PRUnitTestMethod(Copy, Quick)
 		{
 			{
 				Check chk;
@@ -2073,7 +2073,7 @@ namespace pr::container
 				}
 			}
 		}
-		PRUnitTestMethod(Move)
+		PRUnitTestMethod(Move, Quick)
 		{
 			{
 				Check chk;
@@ -2129,7 +2129,7 @@ namespace pr::container
 				}
 			}
 		}
-		PRUnitTestMethod(NonCopyableTypes)
+		PRUnitTestMethod(NonCopyableTypes, Quick)
 		{
 			{
 				Check chk;
@@ -2207,7 +2207,7 @@ namespace pr::container
 				}
 			}
 		}
-		PRUnitTestMethod(NoLocalStorage)
+		PRUnitTestMethod(NoLocalStorage, Quick)
 		{
 			pr::vector<Type, 0, false> arr0;
 			for (int i = 0; i != 10; ++i)

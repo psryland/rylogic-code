@@ -247,7 +247,7 @@ namespace pr::math::spatial::tests
 		//	v4 ang(4,3,2,0);
 		//	auto o2w = Mat4x4::Transform(v4::ZAxis(), float(maths::tau_by_4), v4(1,1,1,1));
 		}
-		PRUnitTestMethod(ApiConstraints, float, double)
+		PRUnitTestMethod(ApiConstraints, Quick, float, double)
 		{
 			using v8motionT = Vec8<T, Motion>;
 			using v8forceT = Vec8<T, Force>;
@@ -272,7 +272,7 @@ namespace pr::math::spatial::tests
 			static_assert(!requires(v8forceT const& f) { CPM<Force>(f); });
 			static_assert(!requires(v8motionT const& m) { CPM<void>(m); });
 		}
-		PRUnitTestMethod(CrossProducts, float, double)
+		PRUnitTestMethod(CrossProducts, Quick, float, double)
 		{
 			using v8motionT = Vec8<T, Motion>;
 			using v8forceT = Vec8<T, Force>;
@@ -301,7 +301,7 @@ namespace pr::math::spatial::tests
 				PR_EXPECT(FEql(m0, m3));
 			}
 		}
-		PRUnitTestMethod(TransformsTests, float, double)
+		PRUnitTestMethod(TransformsTests, Quick, float, double)
 		{
 			using Mat6x8MM = Mat6x8<T, Motion, Motion>;
 			using Mat4x4 = Mat4x4<T>;
@@ -319,7 +319,7 @@ namespace pr::math::spatial::tests
 			auto r = B2C * A2B;
 			PR_EXPECT(FEql(A2C, r));
 		}
-		PRUnitTestMethod(TransformTests2, float, double)
+		PRUnitTestMethod(TransformTests2, Quick, float, double)
 		{
 			using Mat4x4 = Mat4x4<T>;
 			using Vec4 = Vec4<T>;
@@ -345,7 +345,7 @@ namespace pr::math::spatial::tests
 
 		// Keep the affine matrix on the canonical column members so constexpr evaluation
 		// exercises the active union view instead of the runtime rot/pos alias.
-		PRUnitTestMethod(ConstexprCanonicalColumns, float, double)
+		PRUnitTestMethod(ConstexprCanonicalColumns, Quick, float, double)
 		{
 			using Mat4x4 = Mat4x4<T>;
 			using Mat3x3 = Mat3x3<T>;
@@ -411,7 +411,7 @@ namespace pr::math::spatial::tests
 			PR_EXPECT(force_transform == force_transform_expected);
 		}
 
-		PRUnitTestMethod(TransformingSpatialVectors, float, double)
+		PRUnitTestMethod(TransformingSpatialVectors, Quick, float, double)
 		{
 			using v8motionT = Vec8<T, Motion>;
 			using v8forceT = Vec8<T, Force>;
@@ -555,7 +555,7 @@ namespace pr::math::spatial::tests
 				}
 			}
 		}
-		PRUnitTestMethod(ShiftTests, float, double)
+		PRUnitTestMethod(ShiftTests, Quick, float, double)
 		{
 			using v8motionT = Vec8<T, Motion>;
 			using v8forceT = Vec8<T, Force>;
@@ -601,7 +601,7 @@ namespace pr::math::spatial::tests
 				PR_EXPECT(FEql(shifted.lin, Vec4{T(-9), T(2), 0, 0}));
 			}
 		}
-		PRUnitTestMethod(BugTest_Inertia, float, double)
+		PRUnitTestMethod(BugTest_Inertia, Quick, float, double)
 		{
 			using Mat3x3 = Mat3x3<T>;
 			using Vec4 = Vec4<T>;

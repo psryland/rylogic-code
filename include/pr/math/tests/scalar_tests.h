@@ -11,7 +11,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(MathsCoreTests)
 	{
-		PRUnitTestMethod(PermutationTests)
+		PRUnitTestMethod(PermutationTests, Quick)
 		{
 			{// empty input
 				std::span<int> arr0{};
@@ -138,7 +138,7 @@ namespace pr::math::tests
 				PR_EXPECT(i == 362880); // == 9!
 			}
 		}
-		PRUnitTestMethod(FloatingPointCompareTests)
+		PRUnitTestMethod(FloatingPointCompareTests, Quick)
 		{
 			// Note: not testing double here, if it's correct for float it should be correct for double.
 			// Testing doubles would need different constants for each test.
@@ -255,7 +255,7 @@ namespace pr::math::tests
 			PR_EXPECT(!FEqlRelative(+limits<float>::min(), 0.000000001f, _6dp));
 			PR_EXPECT(!FEqlRelative(-limits<float>::min(), 0.000000001f, _6dp));
 		}
-		PRUnitTestMethod(FiniteTests)
+		PRUnitTestMethod(FiniteTests, Quick)
 		{
 			volatile auto f0 = 0.0f;
 			volatile auto d0 = 0.0;
@@ -265,13 +265,13 @@ namespace pr::math::tests
 			PR_EXPECT(!IsFinite(0.0 / d0));
 			PR_EXPECT(!IsFinite(11, 10));
 		}
-		PRUnitTestMethod(AbsTests, float, double)
+		PRUnitTestMethod(AbsTests, Quick, float, double)
 		{
 			PR_EXPECT(Abs(-T(1)) == Abs(-T(1)));
 			PR_EXPECT(Abs(-T(1)) == Abs(+T(1)));
 			PR_EXPECT(Abs(+T(1)) == Abs(+T(1)));
 		}
-		PRUnitTestMethod(AnyAllTests)
+		PRUnitTestMethod(AnyAllTests, Quick)
 		{
 			float arr0[] = {1.0f, 2.0f, 0.0f, -4.0f};
 			auto are_zero = [](float x) { return x == 0.0f; };
@@ -282,7 +282,7 @@ namespace pr::math::tests
 			PR_EXPECT(Any(arr0, not_zero));
 			PR_EXPECT(Any(arr0, are_zero));
 		}
-		PRUnitTestMethod(MinMaxClampTests)
+		PRUnitTestMethod(MinMaxClampTests, Quick)
 		{
 			PR_EXPECT(Min(1, 2, -3, 4, -5) == -5);
 			PR_EXPECT(Max(1, 2, -3, 4, -5) == 4);
@@ -290,7 +290,7 @@ namespace pr::math::tests
 			PR_EXPECT(Clamp(3, 0, 10) == 3);
 			PR_EXPECT(Clamp(12, 0, 10) == 10);
 		}
-		PRUnitTestMethod(WrapTests)
+		PRUnitTestMethod(WrapTests, Quick)
 		{
 			PR_EXPECT(Wrap(-1, 0, 3) == 2); // [0, 3)
 			PR_EXPECT(Wrap(+0, 0, 3) == 0);
@@ -344,7 +344,7 @@ namespace pr::math::tests
 			PR_EXPECT(Wrap(+1, -1, 0) == -1);
 			PR_EXPECT(Wrap(+2, -1, 0) == -1);
 		}
-		PRUnitTestMethod(SmallestLargestElementTests)
+		PRUnitTestMethod(SmallestLargestElementTests, Quick)
 		{
 			int arr0[] = {1, 2, 3, 4, 5};
 			int arr1[] = {2, 1, 3, 4, 5};
@@ -369,7 +369,7 @@ namespace pr::math::tests
 			PR_EXPECT(MaxElement(arr8) == 5);
 			PR_EXPECT(MaxElement(arr9) == 5);
 		}
-		PRUnitTestMethod(SmallestLargestElementIndexTests)
+		PRUnitTestMethod(SmallestLargestElementIndexTests, Quick)
 		{
 			int arr0[] = {1, 2, 3, 4, 5};
 			int arr1[] = {2, 1, 3, 4, 5};
@@ -394,23 +394,23 @@ namespace pr::math::tests
 			PR_EXPECT(MaxElementIndex(arr8) == 1);
 			PR_EXPECT(MaxElementIndex(arr9) == 0);
 		}
-		PRUnitTestMethod(TruncTests)
+		PRUnitTestMethod(TruncTests, Quick)
 		{
 			PR_EXPECT(Trunc(1.9f) == 1.0f);
 			PR_EXPECT(Trunc(1.9f, ETruncate::ToNearest) == 2.0f);
 			PR_EXPECT(Trunc(10000000000000.9) == 10000000000000.0);
 		}
-		PRUnitTestMethod(CosAngleTests, float, double)
+		PRUnitTestMethod(CosAngleTests, Quick, float, double)
 		{
 			PR_EXPECT(FEql(CosAngle(T(1), T(1), constants<T>::root2) - std::cos(DegreesToRadians(T(90))), T(0)));
 			PR_EXPECT(FEql(Angle(T(1), T(1), constants<T>::root2), DegreesToRadians(T(90))));
 			PR_EXPECT(FEql(Length(T(1), T(1), DegreesToRadians(T(90))), constants<T>::root2));
 		}
-		PRUnitTestMethod(FractionTests, float, double)
+		PRUnitTestMethod(FractionTests, Quick, float, double)
 		{
 			PR_EXPECT(FEql(Frac<T>(-T(5), T(2), T(5)), T(7) / T(10)));
 		}
-		PRUnitTestMethod(CubeRootTests)
+		PRUnitTestMethod(CubeRootTests, Quick)
 		{
 			{// 32bit
 				auto a = 1.23456789123456789f;
@@ -423,7 +423,7 @@ namespace pr::math::tests
 				PR_EXPECT(FEqlRelative(a, b, 0.000000000001));
 			}
 		}
-		PRUnitTestMethod(SqrtRootTests)
+		PRUnitTestMethod(SqrtRootTests, Quick)
 		{
 			PR_EXPECT(Sqrt(64.0) == 8.0);
 			static_assert(ISqrt(64) == 8);
@@ -431,7 +431,7 @@ namespace pr::math::tests
 			static_assert(ISqrt(10000000000000000000LL) == 3162277660LL);
 			static_assert(ISqrt(18446744065119617025LL) == 4294967295LL);
 		}
-		PRUnitTestMethod(ArithmeticSequenceTests)
+		PRUnitTestMethod(ArithmeticSequenceTests, Quick)
 		{
 			int i = 0;
 			constexpr int expected[] = { 2, 7, 12, 17 };
@@ -447,7 +447,7 @@ namespace pr::math::tests
 			PR_EXPECT(ArithmeticSum(1, 2, 0) == 1);
 			PR_EXPECT(ArithmeticSum(1, 2, 5) == 36);
 		}
-		PRUnitTestMethod(GeometricSequenceTests)
+		PRUnitTestMethod(GeometricSequenceTests, Quick)
 		{
 			int i = 0;
 			constexpr int expected[] = { 2, 10, 50, 250 };
@@ -463,7 +463,7 @@ namespace pr::math::tests
 			PR_EXPECT(GeometricSum(1, 3, 0) == 1);
 			PR_EXPECT(GeometricSum(1, 3, 5) == 364);
 		}
-		PRUnitTestMethod(GCFAndLCMTests)
+		PRUnitTestMethod(GCFAndLCMTests, Quick)
 		{
 			// --- GreatestCommonFactor ---
 
@@ -518,7 +518,7 @@ namespace pr::math::tests
 			// 64-bit large values: result fits despite large inputs
 			static_assert(LeastCommonMultiple(int64_t(2'000'000'000'000LL), int64_t(1'000'000'000'000LL)) == 2'000'000'000'000LL);
 		}
-		PRUnitTestMethod(PadTests)
+		PRUnitTestMethod(PadTests, Quick)
 		{
 			static_assert(Pad(5, 4) == 3);  // 5 → 8, pad = 3
 			static_assert(Pad(8, 4) == 0);  // already aligned

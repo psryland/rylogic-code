@@ -14,7 +14,7 @@ namespace pr::hlsl::tests
 
 	PRUnitTestClass(GeometryTests)
 	{
-		PRUnitTestMethod(FaceNormalSimple)
+		PRUnitTestMethod(FaceNormalSimple, Quick)
 		{
 			// Triangle in XY plane: normal should be +Z
 			auto a = float4(0, 0, 0, 1);
@@ -23,7 +23,7 @@ namespace pr::hlsl::tests
 			auto n = FaceNormal(a, b, c);
 			PR_EXPECT(FEql(n, float4(0, 0, 1, 0)));
 		}
-		PRUnitTestMethod(FaceNormalDegenerate)
+		PRUnitTestMethod(FaceNormalDegenerate, Quick)
 		{
 			// Degenerate triangle (collinear points) should return default
 			auto a = float4(0, 0, 0, 1);
@@ -33,7 +33,7 @@ namespace pr::hlsl::tests
 			auto n = FaceNormal(a, b, c, def);
 			PR_EXPECT(FEql(n, def));
 		}
-		PRUnitTestMethod(BarycentricAtVertices)
+		PRUnitTestMethod(BarycentricAtVertices, Quick)
 		{
 			auto a = float4(0, 0, 0, 1);
 			auto b = float4(1, 0, 0, 1);
@@ -60,7 +60,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(bc.z, 1.0f));
 			PR_EXPECT(FEql(bc, pr::geometry::Barycentric(c, a, b, c)));
 		}
-		PRUnitTestMethod(BarycentricCentroid)
+		PRUnitTestMethod(BarycentricCentroid, Quick)
 		{
 			auto a = float4(0, 0, 0, 1);
 			auto b = float4(3, 0, 0, 1);
@@ -75,7 +75,7 @@ namespace pr::hlsl::tests
 			// Compare HLSL vs CPU
 			PR_EXPECT(FEql(bary, pr::geometry::Barycentric(centroid, a, b, c)));
 		}
-		PRUnitTestMethod(BaryPointRoundtrip)
+		PRUnitTestMethod(BaryPointRoundtrip, Quick)
 		{
 			auto a = float4(1, 2, 3, 1);
 			auto b = float4(4, 0, -1, 1);
@@ -91,7 +91,7 @@ namespace pr::hlsl::tests
 			// Compare HLSL vs CPU
 			PR_EXPECT(FEql(bary2, pr::geometry::Barycentric(pt, a, b, c)));
 		}
-		PRUnitTestMethod(PointInTriangleInside)
+		PRUnitTestMethod(PointInTriangleInside, Quick)
 		{
 			auto a = float3(0, 0, 0);
 			auto b = float3(4, 0, 0);
@@ -103,7 +103,7 @@ namespace pr::hlsl::tests
 			// Vertex is inside
 			PR_EXPECT(FEql(PointInTriangle(a, a, b, c), 1.0f));
 		}
-		PRUnitTestMethod(PointInTriangleOutside)
+		PRUnitTestMethod(PointInTriangleOutside, Quick)
 		{
 			auto a = float3(0, 0, 0);
 			auto b = float3(4, 0, 0);
@@ -113,7 +113,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(PointInTriangle(float3(5, 5, 0), a, b, c), 0.0f));
 			PR_EXPECT(FEql(PointInTriangle(float3(-1, -1, 0), a, b, c), 0.0f));
 		}
-		PRUnitTestMethod(Coplanarity_Parallel)
+		PRUnitTestMethod(Coplanarity_Parallel, Quick)
 		{
 			// Two triangles sharing edge (a,c) with same normal
 			auto a = float4(0, 0, 0, 1);
@@ -124,7 +124,7 @@ namespace pr::hlsl::tests
 			auto cop = Coplanarity(a, b, c, d);
 			PR_EXPECT(FEql(cop, 1.0f));
 		}
-		PRUnitTestMethod(ProjectVector)
+		PRUnitTestMethod(ProjectVector, Quick)
 		{
 			// Project (1,1,0) onto the plane normal to (0,0,1) = (1,1,0)
 			auto pt = float4(1, 1, 1, 0);
@@ -132,7 +132,7 @@ namespace pr::hlsl::tests
 			auto proj = Project(pt, dir);
 			PR_EXPECT(FEql(proj, float4(1, 1, 0, 0)));
 		}
-		PRUnitTestMethod(Barycentric2D)
+		PRUnitTestMethod(Barycentric2D, Quick)
 		{
 			auto a = float2(0, 0);
 			auto b = float2(2, 0);
@@ -144,7 +144,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(pt.x, mid.x));
 			PR_EXPECT(FEql(pt.y, mid.y));
 		}
-		PRUnitTestMethod(FibonacciSpiralUnitSphere)
+		PRUnitTestMethod(FibonacciSpiralUnitSphere, Quick)
 		{
 			// All points from FibonacciSpiral should be on the unit sphere
 			int N = 32;

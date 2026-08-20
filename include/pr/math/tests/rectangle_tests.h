@@ -11,7 +11,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(RectangleTests)
 	{
-		PRUnitTestMethod(Construction, float, double)
+		PRUnitTestMethod(Construction, Quick, float, double)
 		{
 			using Rect = Rectangle<T>;
 			using V2 = Vec2<T>;
@@ -40,7 +40,7 @@ namespace pr::math::tests
 			PR_EXPECT(r4.m_max.y == T(4));
 		}
 
-		PRUnitTestMethod(Constants, float, double)
+		PRUnitTestMethod(Constants, Quick, float, double)
 		{
 			using Rect = Rectangle<T>;
 			using V2 = Vec2<T>;
@@ -57,7 +57,7 @@ namespace pr::math::tests
 			PR_EXPECT(reset.empty());
 		}
 
-		PRUnitTestMethod(EmptyAndReset, float, double)
+		PRUnitTestMethod(EmptyAndReset, Quick, float, double)
 		{
 			using Rect = Rectangle<T>;
 			using V2 = Vec2<T>;
@@ -79,7 +79,7 @@ namespace pr::math::tests
 			PR_EXPECT(!r3.empty());
 		}
 
-		PRUnitTestMethod(SizeAndEdges, float, double)
+		PRUnitTestMethod(SizeAndEdges, Quick, float, double)
 		{
 			using Rect = Rectangle<T>;
 			using V2 = Vec2<T>;
@@ -101,7 +101,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(r.Centre(), V2(3, 5)));
 		}
 
-		PRUnitTestMethod(DiametreAndArea, float, double)
+		PRUnitTestMethod(DiametreAndArea, Quick, float, double)
 		{
 			using Rect = Rectangle<T>;
 
@@ -120,7 +120,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(r.Aspect(), 0.75));
 		}
 
-		PRUnitTestMethod(Operators, float, double)
+		PRUnitTestMethod(Operators, Quick, float, double)
 		{
 			using Rect = Rectangle<T>;
 			using V2 = Vec2<T>;
@@ -155,7 +155,7 @@ namespace pr::math::tests
 			PR_EXPECT(!(r != r5));
 		}
 
-		PRUnitTestMethod(ShiftedAndInflated, float, double)
+		PRUnitTestMethod(ShiftedAndInflated, Quick, float, double)
 		{
 			using Rect = Rectangle<T>;
 
@@ -190,7 +190,7 @@ namespace pr::math::tests
 			PR_EXPECT(i3.m_max.y == T(44));
 		}
 
-		PRUnitTestMethod(Scale, float, double)
+		PRUnitTestMethod(Scale, Quick, float, double)
 		{
 			using Rect = Rectangle<T>;
 
@@ -209,7 +209,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(s0, r));
 		}
 
-		PRUnitTestMethod(GrowWithPoint, float, double)
+		PRUnitTestMethod(GrowWithPoint, Quick, float, double)
 		{
 			using Rect = Rectangle<T>;
 			using V2 = Vec2<T>;
@@ -240,7 +240,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(r2.m_max, V2(2, 2)));
 		}
 
-		PRUnitTestMethod(GrowWithRect, float, double)
+		PRUnitTestMethod(GrowWithRect, Quick, float, double)
 		{
 			using Rect = Rectangle<T>;
 			using V2 = Vec2<T>;
@@ -259,7 +259,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(r5.m_max, V2(7, 7)));
 		}
 
-		PRUnitTestMethod(IsWithin, float, double)
+		PRUnitTestMethod(IsWithin, Quick, float, double)
 		{
 			using Rect = Rectangle<T>;
 			using V2 = Vec2<T>;
@@ -284,7 +284,7 @@ namespace pr::math::tests
 			PR_EXPECT(!IsWithin(r, V2(5, 11)));
 		}
 
-		PRUnitTestMethod(IsIntersection, float, double)
+		PRUnitTestMethod(IsIntersection, Quick, float, double)
 		{
 			using Rect = Rectangle<T>;
 
@@ -305,7 +305,7 @@ namespace pr::math::tests
 			PR_EXPECT(!IsIntersection(r, Rect(T(-5), T(0), T(-1), T(10))));
 		}
 
-		PRUnitTestMethod(NormaliseScalePoint, float, double)
+		PRUnitTestMethod(NormaliseScalePoint, Quick, float, double)
 		{
 			using Rect = Rectangle<T>;
 			using V2 = Vec2<T>;
@@ -337,7 +337,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(nc, V2(T(0), T(0))));
 		}
 
-		PRUnitTestMethod(SizeSetters, float, double)
+		PRUnitTestMethod(SizeSetters, Quick, float, double)
 		{
 			using Rect = Rectangle<T>;
 

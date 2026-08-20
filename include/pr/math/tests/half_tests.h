@@ -11,7 +11,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(HalfTypeTests)
 	{
-		PRUnitTestMethod(ScalarRoundTrip)
+		PRUnitTestMethod(ScalarRoundTrip, Quick)
 		{
 			// Basic values round-trip through half
 			auto test = [](float f)
@@ -29,7 +29,7 @@ namespace pr::math::tests
 			PR_EXPECT(test(65504.0f)); // max finite half
 		}
 
-		PRUnitTestMethod(SpecialValues)
+		PRUnitTestMethod(SpecialValues, Quick)
 		{
 			// Positive and negative infinity
 			auto pos_inf = F32toF16(std::numeric_limits<float>::infinity());
@@ -46,7 +46,7 @@ namespace pr::math::tests
 			PR_EXPECT(F16toF32(zero) == 0.0f);
 		}
 
-		PRUnitTestMethod(CompileTimeConversion)
+		PRUnitTestMethod(CompileTimeConversion, Quick)
 		{
 			// Constexpr uses the public API so the test fails if constant evaluation ever falls back to the runtime-only path again.
 			constexpr auto h1 = F32toF16(1.0f);
@@ -89,7 +89,7 @@ namespace pr::math::tests
 			static_assert(std::bit_cast<uint32_t>(fv.w) == 0x80000000u);
 		}
 
-		PRUnitTestMethod(VectorConversion, float, double)
+		PRUnitTestMethod(VectorConversion, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 
@@ -99,7 +99,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(v, r));
 		}
 
-		PRUnitTestMethod(Overflow)
+		PRUnitTestMethod(Overflow, Quick)
 		{
 			// Values too large for half should become infinity
 			auto h = F32toF16(100000.0f);
@@ -109,7 +109,7 @@ namespace pr::math::tests
 			PR_EXPECT(F16toF32(hn) == -std::numeric_limits<float>::infinity());
 		}
 
-		PRUnitTestMethod(Denormals)
+		PRUnitTestMethod(Denormals, Quick)
 		{
 			// Small values near the denormal range
 			float small_val = 5.96046e-8f; // smallest positive half denormal
@@ -121,7 +121,7 @@ namespace pr::math::tests
 			PR_EXPECT(r <= small_val * 2.0f);
 		}
 
-		PRUnitTestMethod(UserDefinedLiteral)
+		PRUnitTestMethod(UserDefinedLiteral, Quick)
 		{
 			auto h = 1.0_hf;
 			PR_EXPECT(F16toF32(h) == 1.0f);
@@ -129,7 +129,7 @@ namespace pr::math::tests
 			auto h2 = F32toF16(-0.5f);
 			PR_EXPECT(F16toF32(h2) == -0.5f);
 		}
-		PRUnitTestMethod(RuntimeMatchesConstexpr)
+		PRUnitTestMethod(RuntimeMatchesConstexpr, Quick)
 		{
 			struct F32Case
 			{

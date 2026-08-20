@@ -773,7 +773,7 @@ namespace pr::coroutine
 		}
 	}
 
-	PRUnitTest(CoroutineTests)
+	PRUnitTest(CoroutineTests, Quick)
 	{
 		using namespace tests;
 		main_thread_id = std::this_thread::get_id();
@@ -852,7 +852,7 @@ namespace pr::coroutine
 		co_return;
 	}
 
-	PRUnitTest(CoroutineContinuationResumesAwaiter)
+	PRUnitTest(CoroutineContinuationResumesAwaiter, Quick)
 	{
 		using namespace std::chrono_literals;
 

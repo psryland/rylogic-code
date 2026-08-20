@@ -212,7 +212,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(CancellationTokenTests)
+	PRUnitTest(CancellationTokenTests, Quick)
 	{
 		auto cts1 = CancelTokenSource();
 		auto token1 = cts1.Token();

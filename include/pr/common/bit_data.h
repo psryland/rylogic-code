@@ -481,7 +481,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(BitReaderTests)
+	PRUnitTest(BitReaderTests, Quick)
 	{
 		{
 			uint8_t data[] = { 0x21, 0x43, 0x65, 0x87, 0xA9 };
@@ -569,7 +569,7 @@ namespace pr::common
 			PR_EXPECT(reader.Read<uint8_t>() == 0x56);
 		}
 	}
-	PRUnitTest(BitWriterTests)
+	PRUnitTest(BitWriterTests, Quick)
 	{
 		// Zero bits should leave both the writer output and reader position unchanged.
 		{

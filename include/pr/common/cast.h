@@ -238,7 +238,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(IntegralFromFloatingCastTests)
+	PRUnitTest(IntegralFromFloatingCastTests, Quick)
 	{
 		// Fractional values inside the truncation domain should survive unchanged apart
 		// from the normal toward-zero integer conversion.

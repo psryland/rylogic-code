@@ -261,7 +261,7 @@ namespace std
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(GuidTests)
+	PRUnitTest(GuidTests, Quick)
 	{
 		PR_EXPECT(To<std::string>(GuidInvalid) == "00000000-0000-0000-0000-000000000000");
 		PR_EXPECT(To<std::wstring>(GuidInvalid) == L"00000000-0000-0000-0000-000000000000");

@@ -126,7 +126,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(Base64Tests)
+	PRUnitTest(Base64Tests, Quick)
 	{
 		using namespace pr::base64;
 		unsigned char src[1024], dst[1024];

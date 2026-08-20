@@ -533,7 +533,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(ToStringTests)
 	{
-		PRUnitTestMethod(Vec2)
+		PRUnitTestMethod(Vec2, Quick)
 		{
 			using namespace pr::math;
 
@@ -546,7 +546,7 @@ namespace pr::math::tests
 			PR_EXPECT(All((To<Vec2<int>>("1 -2")      ) == (Vec2<int>(1, -2))));
 			PR_EXPECT(All((To<Vec2<int>>("AA 55", 16) ) == (Vec2<int>(170, 85))));
 		}
-		PRUnitTestMethod(Vec3)
+		PRUnitTestMethod(Vec3, Quick)
 		{
 			using namespace pr::math;
 
@@ -555,14 +555,14 @@ namespace pr::math::tests
 			PR_EXPECT(To<std::string>(Vec3<int>(12, -34, 56))              == "12 -34 56");
 			PR_EXPECT(To<std::string>(Vec3<long long>(12, -34, 56))        == "12 -34 56");
 		}
-		PRUnitTestMethod(Vec4)
+		PRUnitTestMethod(Vec4, Quick)
 		{
 			PR_EXPECT(To<std::string>(Vec4<float>(2.125f, 4.75f, -1.375f, -0.825f)) == "2.125 4.75 -1.375 -0.825");
 			PR_EXPECT(To<std::string>(Vec4<double>(2.125, 4.75, -1.375, -0.825))    == "2.125 4.75 -1.375 -0.825");
 			PR_EXPECT(To<std::string>(Vec4<int>(12, -34, 56, -78))                  == "12 -34 56 -78");
 			PR_EXPECT(To<std::string>(Vec4<long long>(12, -34, 56, -78))            == "12 -34 56 -78");
 		}
-		PRUnitTestMethod(Vec8)
+		PRUnitTestMethod(Vec8, Quick)
 		{
 			PR_EXPECT(To<std::string>(Vec8<float, void>(-1.125f, 2.25f, -3.375f, 4.4f, -5.5f, 6.675f)) == "-1.125 2.25 -3.375 0  4.4 -5.5 6.675 0");
 			PR_EXPECT(To<std::string>(Vec8<double, void>(-1.125, 2.25, -3.375, 4.4, -5.5, 6.675))      == "-1.125 2.25 -3.375 0  4.4 -5.5 6.675 0");
@@ -573,7 +573,7 @@ namespace pr::math::tests
 			PR_EXPECT((To<Vec8<int, void>>("12 -34 56 0  -78 90 -11 0"))                 == (Vec8<int, void>(12, -34, 56, 0, -78, 90, -11, 0)));
 			PR_EXPECT((To<Vec8<int, void>>("10 11 12 13  14 15 16 17", 16))              == (Vec8<int, void>(16, 17, 18, 19, 20, 21, 22, 23)));
 		}
-		PRUnitTestMethod(Mat2x2)
+		PRUnitTestMethod(Mat2x2, Quick)
 		{
 			PR_EXPECT(To<std::string>(Mat2x2<float>(
 				2.125f, -4.75f,
@@ -596,7 +596,7 @@ namespace pr::math::tests
 				"12 -34 "
 				"56 -78");
 		}
-		PRUnitTestMethod(Mat3x3)
+		PRUnitTestMethod(Mat3x3, Quick)
 		{
 			PR_EXPECT(To<std::string>(Mat3x3<float>(
 				Vec4<float>(1.2f, 2.4f, -4.8f, -8.16f),
@@ -627,7 +627,7 @@ namespace pr::math::tests
 				"5 6 -7 "
 				"9 0 -1");
 		}
-		PRUnitTestMethod(Mat4x4)
+		PRUnitTestMethod(Mat4x4, Quick)
 		{
 			PR_EXPECT(To<std::string>(Mat4x4<float>(
 				Vec4<float>(1.2f, 2.4f, -4.8f, -8.16f),
@@ -666,7 +666,7 @@ namespace pr::math::tests
 				"9 0 -1 -2 "
 				"3 4 -5 -6");
 		}
-		PRUnitTestMethod(Mat6x8)
+		PRUnitTestMethod(Mat6x8, Quick)
 		{
 			PR_EXPECT(To<std::string>(Mat6x8<float, void, void>(
 				Vec8<float, void>(1.1f, 2.2f, -3.25f, 4.5f, 5.25f, -6.125f),
@@ -721,7 +721,7 @@ namespace pr::math::tests
 				"1 -2 3 0  -4 5 -6 0 "
 				"1 -2 3 0  -4 5 -6 0");
 		}
-		PRUnitTestMethod(General)
+		PRUnitTestMethod(General, Quick)
 		{
 			PR_EXPECT(To<std::string>(v4(1, 2, 3, 4)) == "1 2 3 4");
 

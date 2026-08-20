@@ -44,7 +44,7 @@ namespace pr::physics::tests
 	PRUnitTestClass(BuoyancySamplerTests)
 	{
 		// Pin the low-discrepancy sequence + hash so future GPU implementations can match exactly.
-		PRUnitTestMethod(GoldenSampleGeneration)
+		PRUnitTestMethod(GoldenSampleGeneration, Extended)
 		{
 			// Radical inverse known values.
 			PR_EXPECT(FEqlAbsolute(RadicalInverse(1, 2), 0.5f, 1e-6f));
@@ -68,7 +68,7 @@ namespace pr::physics::tests
 
 		// Fully-submerged box, flat water: buoyancy force is exactly rho*g*V*up (all samples wet, zero
 		// gradient), volume is exact, and the centre of buoyancy is at the box centre.
-		PRUnitTestMethod(BoxFullySubmergedFlatWater)
+		PRUnitTestMethod(BoxFullySubmergedFlatWater, Extended)
 		{
 			auto const half = v4{1.0f, 1.0f, 0.5f, 0.0f};
 			auto box = ShapeBox(half * 2.0f);
@@ -92,7 +92,7 @@ namespace pr::physics::tests
 
 		// Partially-submerged box: sampled volume and centre of buoyancy converge to the analytic
 		// clipped-box result (with Monte-Carlo tolerance for the waterline discontinuity).
-		PRUnitTestMethod(BoxPartialVsAnalytic)
+		PRUnitTestMethod(BoxPartialVsAnalytic, Extended)
 		{
 			auto const half = v4{1.0f, 1.0f, 0.5f, 0.0f};
 			auto box = ShapeBox(half * 2.0f);
@@ -116,7 +116,7 @@ namespace pr::physics::tests
 
 		// Fully-submerged sphere: exact volume + force; partially-submerged sphere converges to the
 		// analytic spherical-cap volume.
-		PRUnitTestMethod(SphereVolume)
+		PRUnitTestMethod(SphereVolume, Extended)
 		{
 			auto sphere = ShapeSphere(1.0f);
 			auto const full = (4.0f / 3.0f) * static_cast<float>(math::constants<double>::tau_by_2);
@@ -145,7 +145,7 @@ namespace pr::physics::tests
 
 		// Two overlapping boxes: the volume pass deduplicates the overlap region (union volume, not
 		// the sum of the two volumes). This exercises the lowest-index-sibling cull.
-		PRUnitTestMethod(OverlappingBoxesUnionVolume)
+		PRUnitTestMethod(OverlappingBoxesUnionVolume, Extended)
 		{
 			// Two boxes, half-extents (1,0.5,0.5), centred at +/-0.5 along X. X spans [-1.5,1.5]=3,
 			// Y/Z cross-section 1x1 => union volume = 3. Each box volume = 2, sum = 4, overlap = 1.
@@ -173,7 +173,7 @@ namespace pr::physics::tests
 		// Gravity along -Y (up = +Y): a fully-submerged box must report the full volume and a buoyancy
 		// force purely along +up. This guards against any world-Z assumption leaking into the wet test
 		// or the FK force. A non-zero gradient field is also checked to exercise the lifted slope term.
-		PRUnitTestMethod(NonZGravityFrame)
+		PRUnitTestMethod(NonZGravityFrame, Extended)
 		{
 			auto box = ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 			auto const volume = 2.0f * 2.0f * 1.0f;
@@ -204,7 +204,7 @@ namespace pr::physics::tests
 		}
 
 		// Fully-dry hull: no submerged volume => invalid result, zero forces.
-		PRUnitTestMethod(FullyDryHull)
+		PRUnitTestMethod(FullyDryHull, Extended)
 		{
 			auto box = ShapeBox(v4{1.0f, 1.0f, 1.0f, 0.0f});
 			auto body = BodyState{};
@@ -221,7 +221,7 @@ namespace pr::physics::tests
 
 		// Quadratic drag on a translating fully-submerged box: only the leading (+X) face contributes
 		// (v_n > 0); the drag force opposes motion with magnitude ~ 0.5*rho*Cd*A_front*v^2.
-		PRUnitTestMethod(QuadraticDragTranslation)
+		PRUnitTestMethod(QuadraticDragTranslation, Extended)
 		{
 			auto const half = v4{0.5f, 0.5f, 0.5f, 0.0f};
 			auto box = ShapeBox(half * 2.0f);
@@ -249,7 +249,7 @@ namespace pr::physics::tests
 
 		// Tangential drag on a translating fully submerged unit box acts on the four faces parallel to
 		// motion. Their combined area is 4 m^2, giving F_x = -0.5*rho*Ct*A_tangent*|v_t|*v_t.
-		PRUnitTestMethod(TangentialDragTranslation)
+		PRUnitTestMethod(TangentialDragTranslation, Extended)
 		{
 			auto box = ShapeBox(v4{1.0f, 1.0f, 1.0f, 0.0f});
 			auto body = BodyState{};
@@ -281,7 +281,7 @@ namespace pr::physics::tests
 		// The optional debug collector records every sample classification and the per-primitive
 		// accepted buoyancy partials, without changing the physical result. It also forces the surface
 		// pass to run with drag disabled so surface classifications are still captured.
-		PRUnitTestMethod(DebugCollector)
+		PRUnitTestMethod(DebugCollector, Extended)
 		{
 			// Single fully-submerged box: every volume sample is wet and owned by primitive 0; the
 			// summed per-primitive partials reconstruct the total buoyancy force exactly.

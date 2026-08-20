@@ -749,7 +749,7 @@ namespace pr::common
 			}
 		};
 
-		PRUnitTestMethod(EventHander)
+		PRUnitTestMethod(EventHander, Quick)
 		{
 			{// lambda handler
 				Thing thg;
@@ -900,7 +900,7 @@ namespace pr::common
 				thg.Event2 -= sub1;
 			}
 		}
-		PRUnitTestMethod(MultiCast)
+		PRUnitTestMethod(MultiCast, Quick)
 		{
 			{// lambda handler
 				Thing thg;

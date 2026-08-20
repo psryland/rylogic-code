@@ -48,7 +48,7 @@ namespace pr::storage
 
 namespace pr::storage
 {
-	PRUnitTest(ZipTests)
+	PRUnitTest(ZipTests, Quick)
 	{
 		std::string input = "This is a string to be compressed compressed compressed, oh, This is a string to be compressed compressed compressed";
 		std::vector<unsigned char> buf(zip::GetCompressionBufferSize(input.size()));

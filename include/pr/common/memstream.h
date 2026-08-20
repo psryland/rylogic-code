@@ -371,7 +371,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(MemStreamTests)
+	PRUnitTest(MemStreamTests, Quick)
 	{
 		{ //' mem_istream
 			int data[] = { 1, 2, 3 };

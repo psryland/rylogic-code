@@ -144,7 +144,7 @@ namespace pr
 #include <vector>
 namespace pr::common
 {
-	PRUnitTest(LinqTests)
+	PRUnitTest(LinqTests, Quick)
 	{
 		#if PR_LINQ_TODO
 		{ // Simple array

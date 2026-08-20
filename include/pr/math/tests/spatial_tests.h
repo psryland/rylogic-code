@@ -32,7 +32,7 @@ namespace pr::math::spatial::tests
 
 	PRUnitTestClass(SpatialAlgebraTests)
 	{
-		PRUnitTestMethod(CrossProduct, float, double)
+		PRUnitTestMethod(CrossProduct, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using V8 = Vec8<T, math::spatial::Motion>;
@@ -46,7 +46,7 @@ namespace pr::math::spatial::tests
 			PR_EXPECT(FEql(c.lin, V4(0, 1, 0, 0)));
 		}
 
-		PRUnitTestMethod(DotProduct, float, double)
+		PRUnitTestMethod(DotProduct, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using VM = Vec8<T, math::spatial::Motion>;
@@ -61,7 +61,7 @@ namespace pr::math::spatial::tests
 			PR_EXPECT(FEql(power, T(5)));
 		}
 
-		PRUnitTestMethod(ShiftMotion, float, double)
+		PRUnitTestMethod(ShiftMotion, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using V8 = Vec8<T, math::spatial::Motion>;
@@ -77,7 +77,7 @@ namespace pr::math::spatial::tests
 			PR_EXPECT(FEql(shifted.lin, V4(0, 1, 0, 0)));
 		}
 
-		PRUnitTestMethod(ShiftForce, float, double)
+		PRUnitTestMethod(ShiftForce, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using V8 = Vec8<T, math::spatial::Force>;
@@ -93,7 +93,7 @@ namespace pr::math::spatial::tests
 			PR_EXPECT(FEql(shifted.ang, V4(0, 0, 1, 0)));
 		}
 
-		PRUnitTestMethod(InertiaTest, float, double)
+		PRUnitTestMethod(InertiaTest, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using M3 = Mat3x3<T>;

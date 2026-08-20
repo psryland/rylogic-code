@@ -11,7 +11,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(PlaneTests)
 	{
-		PRUnitTestMethod(Construction, float, double)
+		PRUnitTestMethod(Construction, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using P = Plane3<T>;
@@ -31,7 +31,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(p3.direction(), V4(0, 1, 0, 0)));
 		}
 
-		PRUnitTestMethod(FromTriangle, float, double)
+		PRUnitTestMethod(FromTriangle, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using P = Plane3<T>;
@@ -43,7 +43,7 @@ namespace pr::math::tests
 
 		// Verify that the best-fit plane passes through the input points, and that reversing
 		// the winding only flips the sign of the signed distance while preserving the magnitude.
-		PRUnitTestMethod(FromBestFit, float, double)
+		PRUnitTestMethod(FromBestFit, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using P = Plane3<T>;
@@ -82,7 +82,7 @@ namespace pr::math::tests
 			check(points_cw, T(5));
 		}
 
-		PRUnitTestMethod(NormaliseTest, float, double)
+		PRUnitTestMethod(NormaliseTest, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using P = Plane3<T>;
@@ -93,7 +93,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(n.distance(), T(3)));
 		}
 
-		PRUnitTestMethod(DistanceTest, float, double)
+		PRUnitTestMethod(DistanceTest, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using P = Plane3<T>;
@@ -110,7 +110,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(Distance(p2, V4(0, 0, 0, 1)), T(-2)));
 		}
 
-		PRUnitTestMethod(ProjectTest, float, double)
+		PRUnitTestMethod(ProjectTest, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using P = Plane3<T>;

@@ -37,7 +37,7 @@ namespace pr::macros
 		DECLARE_VAR((Thing2<int, float>), t2, (= { 10, 5.99f }));
 		#undef DECLARE_VAR
 
-		PRUnitTestMethod(General)
+		PRUnitTestMethod(General, Quick)
 		{
 			PR_EXPECT(pi == 3.14f);
 			PR_EXPECT(t1.val == 45);

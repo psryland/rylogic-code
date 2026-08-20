@@ -10,13 +10,13 @@
 #include "pr/common/unittests.h"
 namespace pr::unittests
 {
-	PRUnitTest(TestName)
+	PRUnitTest(TestName, Quick)
 	{
 		PR_EXPECT(1+1 == 2);
 	}
 	PRUnitTestClass(TestClassName)
 	{
-		PRUnitTestMethod(MethodName)
+		PRUnitTestMethod(MethodName, Quick)
 		{
 			auto tmp = temp_dir() / "file.ext";
 			PR_EXPECT(tmp != "");
@@ -93,10 +93,6 @@ namespace pr::unittests
 // Cannot include pr lib headers here because they are the headers
 // being unit tested. Also, this should be a standalone header
 
-// Assign tests to the header family unless the owning compiled-test target supplies another family.
-#ifndef PR_UNITTEST_FAMILY
-#define PR_UNITTEST_FAMILY Header
-#endif
 #define PR_UNITTEST_STRINGISE_IMPL(value) #value
 #define PR_UNITTEST_STRINGISE(value) PR_UNITTEST_STRINGISE_IMPL(value)
 
@@ -114,6 +110,97 @@ namespace pr::unittests
 	#else
 	constexpr wchar_t const* Config = L"debug";
 	#endif
+
+	// Properties controlling when a registered test should run.
+	enum class EUnitTestFlags : unsigned int
+	{
+		None     = 0,
+		Quick    = 1 << 0,
+		Extended = 1 << 1,
+		Stress   = 1 << 2,
+	};
+
+	// Combine test execution properties.
+	constexpr EUnitTestFlags operator | (EUnitTestFlags lhs, EUnitTestFlags rhs)
+	{
+		return static_cast<EUnitTestFlags>(static_cast<unsigned int>(lhs) | static_cast<unsigned int>(rhs));
+	}
+
+	// Return true when a test has every requested execution property.
+	constexpr bool HasAllUnitTestFlags(EUnitTestFlags flags, EUnitTestFlags required)
+	{
+		return (static_cast<unsigned int>(flags) & static_cast<unsigned int>(required)) == static_cast<unsigned int>(required);
+	}
+
+	// Parse a pipe-separated flag expression used by test declarations and command-line filters.
+	constexpr bool TryParseUnitTestFlags(std::string_view text, EUnitTestFlags& flags)
+	{
+		auto is_space = [](char ch)
+		{
+			return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
+		};
+
+		flags = EUnitTestFlags::None;
+		auto parsed = false;
+		for (auto index = std::size_t{}; index != text.size();)
+		{
+			// Isolate one flag name without making declaration formatting significant.
+			while (index != text.size() && is_space(text[index]))
+				++index;
+
+			auto const token_begin = index;
+			while (index != text.size() && text[index] != '|' && !is_space(text[index]))
+				++index;
+
+			// Reject unknown names so misspelled declaration flags fail at compile time.
+			auto const token = text.substr(token_begin, index - token_begin);
+			auto flag = EUnitTestFlags::None;
+			if (token == "Quick")
+				flag = EUnitTestFlags::Quick;
+			else if (token == "Extended")
+				flag = EUnitTestFlags::Extended;
+			else if (token == "Stress")
+				flag = EUnitTestFlags::Stress;
+			else
+				return false;
+
+			// Accumulate the property and require a separator before another name.
+			flags = flags | flag;
+			parsed = true;
+			while (index != text.size() && is_space(text[index]))
+				++index;
+
+			if (index == text.size())
+				break;
+			if (text[index] != '|')
+				return false;
+
+			++index;
+			if (index == text.size())
+				return false;
+		}
+		return parsed;
+	}
+
+	// Return true when an expression contains only supported flags and separators.
+	constexpr bool IsValidUnitTestFlags(std::string_view text)
+	{
+		auto flags = EUnitTestFlags::None;
+		return TryParseUnitTestFlags(text, flags);
+	}
+
+	// Parse an expression already proven valid by a declaration-level assertion.
+	constexpr EUnitTestFlags ParseUnitTestFlags(std::string_view text)
+	{
+		auto flags = EUnitTestFlags::None;
+		TryParseUnitTestFlags(text, flags);
+		return flags;
+	}
+
+	// Keep combined declarations and malformed-expression rejection compile-time checked.
+	static_assert(IsValidUnitTestFlags("Extended | Stress"));
+	static_assert(HasAllUnitTestFlags(ParseUnitTestFlags("Extended | Stress"), EUnitTestFlags::Extended | EUnitTestFlags::Stress));
+	static_assert(!IsValidUnitTestFlags("Extended |"));
 
 	// helpers
 	namespace impl
@@ -180,12 +267,12 @@ namespace pr::unittests
 		// Test function signature
 		using TestFunc = std::function<void(void)>;
 
-		char const*      m_name;  // Test name (short)
-		TestFunc         m_func;  // The unit test function
-		type_info const* m_class; // Type info of the test class
-		char const*      m_family; // Test ownership family
-		char const*      m_file;  // The file that the test is in
-		int              m_line;  // Line number of the test function
+		char const*       m_name;  // Test name (short)
+		TestFunc          m_func;  // The unit test function
+		type_info const*  m_class; // Type info of the test class
+		EUnitTestFlags    m_flags; // Test execution properties
+		char const*       m_file;  // The file that the test is in
+		int               m_line;  // Line number of the test function
 
 		friend bool operator < (UnitTestItem const& lhs, UnitTestItem const& rhs) { return strcmp(lhs.m_name, rhs.m_name) < 0; }
 	};
@@ -205,13 +292,13 @@ namespace pr::unittests
 
 		// Append a unit test to the Tests() collection
 		template <typename T>
-		static bool AddTest(char const* name, UnitTestItem::TestFunc method, char const* family, char const* file, int line)
+		static bool AddTest(char const* name, UnitTestItem::TestFunc method, EUnitTestFlags flags, char const* file, int line)
 		{
 			Tests.push_back(UnitTestItem{
 				.m_name = name,
 				.m_func = method,
 				.m_class = &typeid(T),
-				.m_family = family,
+				.m_flags = flags,
 				.m_file = file,
 				.m_line = line,
 			});
@@ -365,12 +452,12 @@ namespace pr::unittests
 		return false;
 	}
 
-	// Run registered tests selected by optional ownership-family and class-name filters.
+	// Run registered tests selected by optional execution-property and class-name filters.
 	inline int RunAllTests(
 		bool wordy,
 		std::span<std::string_view const> filter = {},
 		std::span<std::string_view const> exclude = {},
-		std::span<std::string_view const> family = {})
+		std::span<EUnitTestFlags const> flags = {})
 	{
 		using namespace std::chrono;
 		try
@@ -384,10 +471,10 @@ namespace pr::unittests
 			// Run the tests
 			for (auto const& test : TestFramework::Tests)
 			{
-				// Select whole module-owned test families independently of class naming.
-				if (!family.empty())
+				// A filter expression requires all its flags, while separate expressions are alternatives.
+				if (!flags.empty())
 				{
-					auto match = std::ranges::any_of(family, [&](auto const& f) { return MatchTestFilter(test.m_family, f); });
+					auto match = std::ranges::any_of(flags, [&](auto required) { return HasAllUnitTestFlags(test.m_flags, required); });
 					if (!match)
 					{
 						++skipped;
@@ -522,8 +609,8 @@ namespace pr::unittests
 #define PRUnitTestClass(classname)\
 struct TestClass_##classname : pr::unittests::UnitTestBase<TestClass_##classname>
 
-// Test method with an explicit execution family
-#define PRUnitTestMethodFamily(methodname, family, ...)\
+// Test method with its execution properties
+#define PRUnitTestMethod(methodname, flags, ...)\
 	template <typename... Types>\
 	static void Test_##methodname##_()\
 	{\
@@ -538,30 +625,24 @@ struct TestClass_##classname : pr::unittests::UnitTestBase<TestClass_##classname
 			t.Test_##methodname<void>();\
 		}\
 	}\
+	static_assert(pr::unittests::IsValidUnitTestFlags(PR_UNITTEST_STRINGISE(flags)), "Unknown unit-test flag");\
 	inline static bool s_registered_##methodname = pr::unittests::TestFramework::AddTest<test_class_type>(\
 		#methodname,\
 		+[](){ Test_##methodname##_<##__VA_ARGS__>(); },\
-		PR_UNITTEST_STRINGISE(family),\
+		pr::unittests::ParseUnitTestFlags(PR_UNITTEST_STRINGISE(flags)),\
 		__FILE__,\
 		__LINE__\
 	);\
 	template <typename T>\
 	void Test_##methodname()
 
-// Test method in the translation unit's default execution family
-#define PRUnitTestMethod(methodname, ...)\
-	PRUnitTestMethodFamily(methodname, PR_UNITTEST_FAMILY, __VA_ARGS__)
-
 // Test function
-#define PRUnitTestFamily(testname, family, ...)\
+#define PRUnitTest(testname, flags, ...)\
 	PRUnitTestClass(testname)\
 	{\
-		PRUnitTestMethodFamily(testname, family, __VA_ARGS__);\
+		PRUnitTestMethod(testname, flags, __VA_ARGS__);\
 	};\
 	template <typename T> void TestClass_##testname::Test_##testname()
-
-#define PRUnitTest(testname, ...)\
-	PRUnitTestFamily(testname, PR_UNITTEST_FAMILY, __VA_ARGS__)
 
 #define PR_EXPECT(expr)\
 	pr::unittests::TestFramework::IsTrue(expr, L#expr, __FILE__, __LINE__)

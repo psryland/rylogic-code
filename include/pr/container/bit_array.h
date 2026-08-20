@@ -654,7 +654,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::container
 {
-	PRUnitTest(BitArrayTests)
+	PRUnitTest(BitArrayTests, Quick)
 	{
 		{
 			bitsetRT<unsigned char> bs1;

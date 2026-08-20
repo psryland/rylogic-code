@@ -121,7 +121,7 @@ namespace pr::collision::tests
 		}
 
 		// Two crossing lines at the origin: should detect contact
-		PRUnitTestMethod(CrossingAtOrigin)
+		PRUnitTestMethod(CrossingAtOrigin, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.0f};
 			auto rhs = ShapeLine{2.0f, 0.0f};
@@ -144,7 +144,7 @@ namespace pr::collision::tests
 		}
 
 		// Parallel lines separated: should not detect contact
-		PRUnitTestMethod(ParallelSeparated)
+		PRUnitTestMethod(ParallelSeparated, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.0f};
 			auto rhs = ShapeLine{2.0f, 0.0f};
@@ -159,7 +159,7 @@ namespace pr::collision::tests
 		}
 
 		// Skew lines: close but not touching
-		PRUnitTestMethod(SkewSeparated)
+		PRUnitTestMethod(SkewSeparated, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.0f};
 			auto rhs = ShapeLine{2.0f, 0.0f};
@@ -174,7 +174,7 @@ namespace pr::collision::tests
 		}
 
 		// Collinear overlapping lines
-		PRUnitTestMethod(CollinearOverlapping)
+		PRUnitTestMethod(CollinearOverlapping, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.0f};
 			auto rhs = ShapeLine{2.0f, 0.0f};
@@ -198,7 +198,7 @@ namespace pr::collision::tests
 		}
 
 		// End-to-end touching: endpoints just meet
-		PRUnitTestMethod(EndToEndTouching)
+		PRUnitTestMethod(EndToEndTouching, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.0f};
 			auto rhs = ShapeLine{2.0f, 0.0f};
@@ -222,7 +222,7 @@ namespace pr::collision::tests
 		}
 
 		// Clearly separated: endpoints don't reach
-		PRUnitTestMethod(ClearlySeparated)
+		PRUnitTestMethod(ClearlySeparated, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.0f};
 			auto rhs = ShapeLine{2.0f, 0.0f};
@@ -237,7 +237,7 @@ namespace pr::collision::tests
 		}
 
 		// Thick lines: perpendicular, separated by less than combined thickness
-		PRUnitTestMethod(ThickLinesCrossing)
+		PRUnitTestMethod(ThickLinesCrossing, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.2f};
 			auto rhs = ShapeLine{2.0f, 0.2f};
@@ -260,7 +260,7 @@ namespace pr::collision::tests
 		}
 
 		// Thick lines: separated beyond combined thickness
-		PRUnitTestMethod(ThickLinesSeparated)
+		PRUnitTestMethod(ThickLinesSeparated, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.1f};
 			auto rhs = ShapeLine{2.0f, 0.1f};
@@ -275,7 +275,7 @@ namespace pr::collision::tests
 		}
 
 		// Zero thickness: backward compatible (crossing lines still touch)
-		PRUnitTestMethod(ZeroThicknessBackcompat)
+		PRUnitTestMethod(ZeroThicknessBackcompat, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.0f};
 			auto rhs = ShapeLine{2.0f};
@@ -298,7 +298,7 @@ namespace pr::collision::tests
 		}
 
 		// Line-vs-Line with s2r transforms 
-		PRUnitTestMethod(LineVsLineWithS2R) 
+		PRUnitTestMethod(LineVsLineWithS2R, Quick)
 		{ 
 			auto lhs = ShapeLine{1.0f, 0.3f, m4x4::TransformDeg(45, 30, -25, v4{0.5f, 0, 0, 1}) }; 
 			auto rhs = ShapeLine{1.0f, 0.3f, m4x4::TransformDeg(30, 10, -80, v4{1.0f, 0, 0, 1}) }; 

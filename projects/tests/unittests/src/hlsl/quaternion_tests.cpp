@@ -17,18 +17,18 @@ namespace pr::hlsl::tests
 		{
 			return FEql(a, b) || FEql(a, -b);
 		}
-		PRUnitTestMethod(Identity)
+		PRUnitTestMethod(Identity, Quick)
 		{
 			auto q = quat_identity();
 			PR_EXPECT(FEql(q, float4(0, 0, 0, 1)));
 		}
-		PRUnitTestMethod(Conjugate)
+		PRUnitTestMethod(Conjugate, Quick)
 		{
 			auto q = float4(0.1f, 0.2f, 0.3f, 0.9f);
 			auto qc = quat_conjugate(q);
 			PR_EXPECT(FEql(qc, float4(-0.1f, -0.2f, -0.3f, 0.9f)));
 		}
-		PRUnitTestMethod(MulIdentity)
+		PRUnitTestMethod(MulIdentity, Quick)
 		{
 			// q * identity == q
 			auto q = normalize(float4(1, 2, 3, 4));
@@ -38,14 +38,14 @@ namespace pr::hlsl::tests
 			r = quat_mul(quat_identity(), q);
 			PR_EXPECT(QuatEql(r, q));
 		}
-		PRUnitTestMethod(MulInverse)
+		PRUnitTestMethod(MulInverse, Quick)
 		{
 			// q * conjugate(q) == identity (for unit quaternions)
 			auto q = normalize(float4(1, 2, 3, 4));
 			auto r = quat_mul(q, quat_conjugate(q));
 			PR_EXPECT(QuatEql(r, quat_identity()));
 		}
-		PRUnitTestMethod(MulAssociativity)
+		PRUnitTestMethod(MulAssociativity, Quick)
 		{
 			auto a = normalize(float4(1, 0, 0, 1));
 			auto b = normalize(float4(0, 1, 0, 1));
@@ -55,14 +55,14 @@ namespace pr::hlsl::tests
 			auto a_bc = quat_mul(a, quat_mul(b, c));
 			PR_EXPECT(QuatEql(ab_c, a_bc));
 		}
-		PRUnitTestMethod(RotateIdentity)
+		PRUnitTestMethod(RotateIdentity, Quick)
 		{
 			// Rotating by identity leaves vector unchanged
 			auto v = float3(1, 2, 3);
 			auto r = quat_rotate(quat_identity(), v);
 			PR_EXPECT(FEql(r, v));
 		}
-		PRUnitTestMethod(Rotate90Z)
+		PRUnitTestMethod(Rotate90Z, Quick)
 		{
 			// 90 degree rotation around Z: (1,0,0) -> (0,1,0)
 			float half = 3.14159265f / 4.0f; // pi/4
@@ -75,7 +75,7 @@ namespace pr::hlsl::tests
 			auto cpu_r = pr::math::Rotate(cpu_q, float3(1, 0, 0));
 			PR_EXPECT(FEql(r, cpu_r));
 		}
-		PRUnitTestMethod(RotateUnrotateRoundtrip)
+		PRUnitTestMethod(RotateUnrotateRoundtrip, Quick)
 		{
 			auto q = normalize(float4(1, 2, 3, 4));
 			auto v = float3(5, -3, 7);
@@ -89,7 +89,7 @@ namespace pr::hlsl::tests
 			auto back = quat_unrotate(q, rotated);
 			PR_EXPECT(FEql(back, v));
 		}
-		PRUnitTestMethod(ToFloat3x3Roundtrip)
+		PRUnitTestMethod(ToFloat3x3Roundtrip, Quick)
 		{
 			// Convert to matrix and back
 			auto q = normalize(float4(1, 2, 3, 4));
@@ -108,7 +108,7 @@ namespace pr::hlsl::tests
 
 			PR_EXPECT(QuatEql(q, q2));
 		}
-		PRUnitTestMethod(ToFloat3x3RotatesLikeQuat)
+		PRUnitTestMethod(ToFloat3x3RotatesLikeQuat, Quick)
 		{
 			// Matrix rotation should match quaternion rotation
 			auto q = normalize(float4(1, -1, 2, 3));
@@ -129,7 +129,7 @@ namespace pr::hlsl::tests
 			auto cpu_r = pr::math::Rotate(cpu_q, v);
 			PR_EXPECT(FEql(qr, cpu_r));
 		}
-		PRUnitTestMethod(ToFloat4x4)
+		PRUnitTestMethod(ToFloat4x4, Quick)
 		{
 			auto q = normalize(float4(1, 2, 3, 4));
 			auto pos = float3(10, 20, 30);
@@ -147,7 +147,7 @@ namespace pr::hlsl::tests
 				for (int c = 0; c != 3; ++c)
 					PR_EXPECT(FEql(m[r][c], m3[r][c]));
 		}
-		PRUnitTestMethod(FromFloat3x3AxisAligned)
+		PRUnitTestMethod(FromFloat3x3AxisAligned, Quick)
 		{
 			// Identity matrix -> identity quaternion
 			auto m = float3x3(
@@ -176,14 +176,14 @@ namespace pr::hlsl::tests
 			auto cpu_qx = pr::math::ToQuat<pr::math::Quat<float>>(mx);
 			PR_EXPECT(QuatEql(qx, float4(cpu_qx.x, cpu_qx.y, cpu_qx.z, cpu_qx.w)));
 		}
-		PRUnitTestMethod(LogExpRoundtrip)
+		PRUnitTestMethod(LogExpRoundtrip, Quick)
 		{
 			auto q = normalize(float4(1, 2, 3, 4));
 			auto v = quat_log(q);
 			auto q2 = quat_exp(v);
 			PR_EXPECT(QuatEql(q, q2));
 		}
-		PRUnitTestMethod(LogExpIdentity)
+		PRUnitTestMethod(LogExpIdentity, Quick)
 		{
 			// log(identity) should be zero
 			auto v = quat_log(quat_identity());
@@ -193,7 +193,7 @@ namespace pr::hlsl::tests
 			auto q = quat_exp(float3(0, 0, 0));
 			PR_EXPECT(QuatEql(q, quat_identity()));
 		}
-		PRUnitTestMethod(RotationVector)
+		PRUnitTestMethod(RotationVector, Quick)
 		{
 			// Rotation from identity to a known rotation
 			float angle = 1.0f; // 1 radian around Z
@@ -205,7 +205,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(rv.y, 0.0f));
 			PR_EXPECT(FEql(rv.z, angle));
 		}
-		PRUnitTestMethod(RotationVectorSameQuat)
+		PRUnitTestMethod(RotationVectorSameQuat, Quick)
 		{
 			// Rotation from q to q should be zero
 			auto q = normalize(float4(1, 2, 3, 4));

@@ -11,7 +11,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(OrientedBoxTests)
 	{
-		PRUnitTestMethod(Construction, float, double)
+		PRUnitTestMethod(Construction, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using M3 = Mat3x3<T>;
@@ -31,7 +31,7 @@ namespace pr::math::tests
 			auto reset = OB::Reset();
 		}
 
-		PRUnitTestMethod(SizeAndVolume, float, double)
+		PRUnitTestMethod(SizeAndVolume, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using M3 = Mat3x3<T>;
@@ -44,7 +44,7 @@ namespace pr::math::tests
 			PR_EXPECT(Volume(ob) == T(192));
 		}
 
-		PRUnitTestMethod(DiametreTest, float, double)
+		PRUnitTestMethod(DiametreTest, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using M3 = Mat3x3<T>;
@@ -55,7 +55,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(ob.Diametre(), Sqrt(T(12))));
 		}
 
-		PRUnitTestMethod(GetBSphereTest, float, double)
+		PRUnitTestMethod(GetBSphereTest, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using M3 = Mat3x3<T>;
@@ -68,7 +68,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(bs.Radius(), Sqrt(T(3))));
 		}
 
-		PRUnitTestMethod(TranslationOps, float, double)
+		PRUnitTestMethod(TranslationOps, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using M3 = Mat3x3<T>;

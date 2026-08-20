@@ -429,7 +429,7 @@ namespace pr::storage
 
 		std::filesystem::path test_csv = temp_dir() / L"test_csv.csv";
 
-		PRUnitTestMethod(EscapeRoundTrip)
+		PRUnitTestMethod(EscapeRoundTrip, Quick)
 		{
 			using namespace pr::csv;
 
@@ -439,7 +439,7 @@ namespace pr::storage
 			auto ori = UnescapeString(esc);
 			PR_EXPECT(ori == str);
 		}
-		PRUnitTestMethod(UnescapeStringBounds)
+		PRUnitTestMethod(UnescapeStringBounds, Quick)
 		{
 			using namespace pr::csv;
 
@@ -453,7 +453,7 @@ namespace pr::storage
 			// Characters trailing the closing quote are not valid CSV and should still be rejected.
 			PR_THROWS(UnescapeString("\"a\"x"), std::exception);
 		}
-		PRUnitTestMethodFamily(BasicCSV, Slow)
+		PRUnitTestMethod(BasicCSV, Stress)
 		{
 			using namespace pr::csv;
 
@@ -479,7 +479,7 @@ namespace pr::storage
 			PR_EXPECT(ItemT(csv, 1,1) == "Hello");
 			PR_EXPECT(ItemT(csv, 1,2) == "World");
 		}
-		PRUnitTestMethod(SaveCSVWithEscapedItems)
+		PRUnitTestMethod(SaveCSVWithEscapedItems, Quick)
 		{
 			using namespace pr::csv;
 
@@ -516,7 +516,7 @@ namespace pr::storage
 			PR_EXPECT(csv2[3][2] == "3" );
 			PR_EXPECT(csv2[3][3] == "16");
 		}
-		PRUnitTestMethod(StreamCSV)
+		PRUnitTestMethod(StreamCSV, Quick)
 		{
 			using namespace pr::csv;
 

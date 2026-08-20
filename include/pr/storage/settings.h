@@ -316,7 +316,7 @@ namespace pr::settings::tests
 			}
 		};
 
-		PRUnitTestMethod(BasicUse)
+		PRUnitTestMethod(BasicUse, Quick)
 		{
 			Settings s;
 			PR_EXPECT(s.count == 2);

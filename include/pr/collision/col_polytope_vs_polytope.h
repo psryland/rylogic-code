@@ -194,7 +194,7 @@ namespace pr::collision::tests
 			return BuildPolytopeFromPoints(cube_pts);
 		}
 
-		PRUnitTestMethod(FaceFaceContact)
+		PRUnitTestMethod(FaceFaceContact, Quick)
 		{
 			auto buf_a = MakeCube();
 			auto buf_b = MakeCube();
@@ -219,7 +219,7 @@ namespace pr::collision::tests
 			}));
 		}
 
-		PRUnitTestMethod(EdgeFaceContact)
+		PRUnitTestMethod(EdgeFaceContact, Quick)
 		{
 			auto buf_a = MakeCube();
 			auto buf_b = MakeCube();
@@ -242,7 +242,7 @@ namespace pr::collision::tests
 			}));
 		}
 
-		PRUnitTestMethod(VertexFaceContact)
+		PRUnitTestMethod(VertexFaceContact, Quick)
 		{
 			v4 tet_pts[] = {
 				v4{-0.4f, 0.0f, 0.0f, 1},
@@ -271,7 +271,7 @@ namespace pr::collision::tests
 			}));
 		}
 
-		PRUnitTestMethod(CubeSeparated)
+		PRUnitTestMethod(CubeSeparated, Quick)
 		{
 			auto buf_a = MakeCube();
 			auto buf_b = MakeCube();
@@ -286,7 +286,7 @@ namespace pr::collision::tests
 			PR_EXPECT(CheckContact(c, nullptr));
 		}
 
-		PRUnitTestMethod(RotatedCubeContact)
+		PRUnitTestMethod(RotatedCubeContact, Quick)
 		{
 			auto buf_a = MakeCube();
 			auto buf_b = MakeCube();
@@ -304,7 +304,7 @@ namespace pr::collision::tests
 			PR_EXPECT(c.m_depth > 0.0f);
 		}
 
-		PRUnitTestMethod(AgreesWithGjkOnSimpleCases)
+		PRUnitTestMethod(AgreesWithGjkOnSimpleCases, Quick)
 		{
 			v4 pts_a[] = {
 				v4{-1, -1, -1, 1}, v4{+1, -1, -1, 1},

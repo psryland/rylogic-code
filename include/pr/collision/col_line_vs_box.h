@@ -140,7 +140,7 @@ namespace pr::collision::tests
 		}
 
 		// Line through centre of box along Z
-		PRUnitTestMethod(LineThroughCentre)
+		PRUnitTestMethod(LineThroughCentre, Quick)
 		{
 			auto lhs = ShapeLine{4.0f, 0.0f};
 			auto rhs = ShapeBox{v4{1, 1, 1, 0}};
@@ -164,7 +164,7 @@ namespace pr::collision::tests
 		}
 
 		// Line parallel to box face, outside
-		PRUnitTestMethod(LineParallelOutside)
+		PRUnitTestMethod(LineParallelOutside, Quick)
 		{
 			auto lhs = ShapeLine{4.0f, 0.0f};
 			auto rhs = ShapeBox{v4{1, 1, 1, 0}};
@@ -179,7 +179,7 @@ namespace pr::collision::tests
 		}
 
 		// Line endpoint inside box
-		PRUnitTestMethod(EndpointInsideBox)
+		PRUnitTestMethod(EndpointInsideBox, Quick)
 		{
 			auto lhs = ShapeLine{1.0f, 0.0f};
 			auto rhs = ShapeBox{v4{2, 2, 2, 0}};
@@ -203,7 +203,7 @@ namespace pr::collision::tests
 		}
 
 		// Line at 45° piercing a box face
-		PRUnitTestMethod(AngledPiercing)
+		PRUnitTestMethod(AngledPiercing, Quick)
 		{
 			auto lhs = ShapeLine{4.0f, 0.0f};
 			auto rhs = ShapeBox{v4{1, 1, 1, 0}};
@@ -227,7 +227,7 @@ namespace pr::collision::tests
 		}
 
 		// Separated: line well beyond box extents
-		PRUnitTestMethod(Separated)
+		PRUnitTestMethod(Separated, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.0f};
 			auto rhs = ShapeBox{v4{1, 1, 1, 0}};
@@ -242,7 +242,7 @@ namespace pr::collision::tests
 		}
 
 		// Thick line: collision detected when thickness bridges the gap
-		PRUnitTestMethod(ThickLineVsBox)
+		PRUnitTestMethod(ThickLineVsBox, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.6f};
 			auto rhs = ShapeBox{v4{2, 2, 2, 0}};
@@ -266,7 +266,7 @@ namespace pr::collision::tests
 		}
 
 		// Thick line: end vs box corner
-		PRUnitTestMethod(ThickLineVsBoxCorner)
+		PRUnitTestMethod(ThickLineVsBoxCorner, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.6f};
 			auto rhs = ShapeBox{v4{2, 2, 2, 0}};
@@ -290,7 +290,7 @@ namespace pr::collision::tests
 		}
 
 		// Thick line: end vs box corner
-		PRUnitTestMethod(ThickLineVsBoxCornerAngled)
+		PRUnitTestMethod(ThickLineVsBoxCornerAngled, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.6f};
 			auto rhs = ShapeBox{v4{2, 2, 2, 0}};
@@ -313,7 +313,7 @@ namespace pr::collision::tests
 		}
 
 		// Thick line: just outside the box + thickness envelope
-		PRUnitTestMethod(ThickLineSeparated)
+		PRUnitTestMethod(ThickLineSeparated, Quick)
 		{
 			auto lhs = ShapeLine{2.0f, 0.1f};
 			auto rhs = ShapeBox{v4{2, 2, 2, 0}};
@@ -328,7 +328,7 @@ namespace pr::collision::tests
 		}
  
 		// Box-vs-Box with s2r transforms 
-		PRUnitTestMethod(LineVsBoxWithS2R) 
+		PRUnitTestMethod(LineVsBoxWithS2R, Quick)
 		{ 
 			auto lhs = ShapeLine{2.0f, 0.6f,  m4x4::TransformDeg(45, 30, -25, v4{0.5f, 0, 0, 1}) };
 			auto rhs = ShapeBox{v4{2, 2, 2, 0},  m4x4::TransformDeg(30, 10, -80, v4{1.0f, 0, 0, 1}) };

@@ -278,7 +278,7 @@ namespace pr
 #include "pr/math/math.h"
 namespace pr::common
 {
-	PRUnitTest(NumberTests)
+	PRUnitTest(NumberTests, Quick)
 	{
 		// Keep values above LLONG_MAX in the unsigned domain so arithmetic preserves the intended bit pattern.
 		auto const big = Number{ 1ULL << 63 };

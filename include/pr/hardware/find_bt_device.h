@@ -215,14 +215,14 @@ namespace pr
 #include "pr/filesys/filesys.h"
 namespace pr::hardware
 {
-	PRUnitTest(FindBTRadiosTests)
+	PRUnitTest(FindBTRadiosTests, Quick)
 	{
 		for (FindBTRadios r; !r.done(); r.next())
 		{
 			OutputDebugStringW(L"Found BT Radio\n");
 		}
 	}
-	PRUnitTest(FindBTDevicesTests)
+	PRUnitTest(FindBTDevicesTests, Quick)
 	{
 		for (FindBTDevices f; !f.done(); f.next())
 		{

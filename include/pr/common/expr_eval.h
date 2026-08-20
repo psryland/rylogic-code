@@ -2390,7 +2390,7 @@ namespace pr::eval
 #include "pr/common/unittests.h"
 namespace pr::common::tests
 {
-	PRUnitTest(ExprEvalTests)
+	PRUnitTest(ExprEvalTests, Quick)
 	{
 		using namespace pr::eval;
 

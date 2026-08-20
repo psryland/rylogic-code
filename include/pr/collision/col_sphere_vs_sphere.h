@@ -77,7 +77,7 @@ namespace pr::collision::tests
 		}
 
 		// Overlapping: spheres centred at the same point
-		PRUnitTestMethod(CoincidentCentres)
+		PRUnitTestMethod(CoincidentCentres, Quick)
 		{
 			auto lhs = ShapeSphere{1.0f};
 			auto rhs = ShapeSphere{1.0f};
@@ -100,7 +100,7 @@ namespace pr::collision::tests
 		}
 
 		// Barely touching: distance = sum of radii
-		PRUnitTestMethod(BarelyTouching)
+		PRUnitTestMethod(BarelyTouching, Quick)
 		{
 			auto lhs = ShapeSphere{0.5f};
 			auto rhs = ShapeSphere{0.3f};
@@ -123,7 +123,7 @@ namespace pr::collision::tests
 		}
 
 		// Clearly separated
-		PRUnitTestMethod(Separated)
+		PRUnitTestMethod(Separated, Quick)
 		{
 			auto lhs = ShapeSphere{0.5f};
 			auto rhs = ShapeSphere{0.5f};
@@ -139,7 +139,7 @@ namespace pr::collision::tests
 		}
 
 		// Axis direction: should point from lhs centre to rhs centre
-		PRUnitTestMethod(AxisDirection)
+		PRUnitTestMethod(AxisDirection, Quick)
 		{
 			auto lhs = ShapeSphere{1.0f};
 			auto rhs = ShapeSphere{1.0f};
@@ -162,7 +162,7 @@ namespace pr::collision::tests
 		}
 
 		// Different radii: large sphere engulfing small sphere
-		PRUnitTestMethod(EngulfedSphere)
+		PRUnitTestMethod(EngulfedSphere, Quick)
 		{
 			auto lhs = ShapeSphere{5.0f};
 			auto rhs = ShapeSphere{0.5f};
@@ -185,7 +185,7 @@ namespace pr::collision::tests
 		}
 
 		// Sphere-vs-Spherewith s2r transforms 
-		PRUnitTestMethod(SphereVsSphereWithS2R) 
+		PRUnitTestMethod(SphereVsSphereWithS2R, Quick)
 		{ 
 			auto lhs = ShapeSphere{0.6f, m4x4::TransformDeg(45, 30, -25, v4{0.5f, 0, 0, 1}) }; 
 			auto rhs = ShapeSphere{0.5f, m4x4::TransformDeg(30, 10, -80, v4{1.0f, 0, 0, 1}) }; 

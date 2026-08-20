@@ -142,7 +142,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTestFamily(CrcTests, Slow)
+	PRUnitTest(CrcTests, Stress)
 	{
 		char const data[] = "Paul was here. CrC this, mofo";
 

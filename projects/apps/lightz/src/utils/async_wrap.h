@@ -68,7 +68,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(AsyncWrapTests)
+	PRUnitTest(AsyncWrapTests, Quick)
 	{
 		using async_vector_t = AsyncWrap<std::vector<int>>;
 

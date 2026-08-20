@@ -11,7 +11,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(Vector3)
 	{
-		PRUnitTestMethod(Construction, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Construction, Quick, float, double, int32_t, int64_t)
 		{
 			using vec3_t = Vec3<T>;
 
@@ -57,7 +57,7 @@ namespace pr::math::tests
 			static_assert(V1[1] == T(2));
 			static_assert(V1[2] == T(3));
 		}
-		PRUnitTestMethod(Normal, float, double)
+		PRUnitTestMethod(Normal, Quick, float, double)
 		{
 			using vec3_t = Vec3<T>;
 
@@ -66,7 +66,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(V0, vec3_t(T(3) / expected_len, T(4) / expected_len, T(5) / expected_len)));
 			PR_EXPECT(FEql(Length(V0), T(1)));
 		}
-		PRUnitTestMethod(SubVectors, float, double, int32_t, int64_t)
+		PRUnitTestMethod(SubVectors, Quick, float, double, int32_t, int64_t)
 		{
 			using vec3_t = Vec3<T>;
 
@@ -86,7 +86,7 @@ namespace pr::math::tests
 			auto V4 = V0.vec2(1, 0);
 			PR_EXPECT(V4.x == T(2) && V4.y == T(1));
 		}
-		PRUnitTestMethod(Constants, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Constants, Quick, float, double, int32_t, int64_t)
 		{
 			using vec3_t = Vec3<T>;
 
@@ -97,7 +97,7 @@ namespace pr::math::tests
 			static_assert(All(ZAxis<vec3_t>() == vec3_t(T(0), T(0), T(1))));
 			static_assert(All(Origin<vec3_t>() == vec3_t(T(0), T(0), T(0))));
 		}
-		PRUnitTestMethod(Operators, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Operators, Quick, float, double, int32_t, int64_t)
 		{
 			using vec3_t = Vec3<T>;
 			static constexpr auto Eql = [](auto lhs, auto rhs) constexpr

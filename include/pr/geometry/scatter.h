@@ -245,7 +245,7 @@ namespace pr::geometry::tests
 	{
 		inline static constexpr bool CreateVisuals = false;
 
-		PRUnitTestMethod(ScatterTest)
+		PRUnitTestMethod(ScatterTest, Quick)
 		{
 			constexpr int Dim = 3;
 			std::default_random_engine rng;

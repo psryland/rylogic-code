@@ -13,7 +13,7 @@ namespace pr::hlsl::tests
 
 	PRUnitTestClass(VectorTests)
 	{
-		PRUnitTestMethod(AllZero)
+		PRUnitTestMethod(AllZero, Quick)
 		{
 			PR_EXPECT(AllZero(float2(0, 0)));
 			PR_EXPECT(!AllZero(float2(1, 0)));
@@ -31,7 +31,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(!AllZero(float4(0, 0, 0, 1)));
 			PR_EXPECT(!AllZero(float4(1, 1, 1, 1)));
 		}
-		PRUnitTestMethod(AllZeroOrPositive)
+		PRUnitTestMethod(AllZeroOrPositive, Quick)
 		{
 			PR_EXPECT(AllZeroOrPositive(float3(0, 0, 0)));
 			PR_EXPECT(AllZeroOrPositive(float3(1, 0, 0)));
@@ -39,7 +39,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(!AllZeroOrPositive(float3(-1, 0, 0)));
 			PR_EXPECT(!AllZeroOrPositive(float3(0, -1, 0)));
 		}
-		PRUnitTestMethod(Triple)
+		PRUnitTestMethod(Triple, Quick)
 		{
 			// Triple product of orthogonal unit vectors = ±1
 			auto x = float4(1, 0, 0, 0);
@@ -48,7 +48,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(Triple(x, y, z), 1.0f));
 			PR_EXPECT(FEql(Triple(y, x, z), -1.0f));
 		}
-		PRUnitTestMethod(CrossProductMatrix)
+		PRUnitTestMethod(CrossProductMatrix, Quick)
 		{
 			// CPM(r) * v should equal cross(r, v)
 			auto r = float3(1, 2, 3);
@@ -58,7 +58,7 @@ namespace pr::hlsl::tests
 			auto expected = cross(r, v);
 			PR_EXPECT(FEql(result, expected));
 		}
-		PRUnitTestMethod(RotateCW_CCW)
+		PRUnitTestMethod(RotateCW_CCW, Quick)
 		{
 			auto v = float2(1, 0);
 			auto cw = RotateCW(v);
@@ -72,13 +72,13 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(ccw.x, 0.0f));
 			PR_EXPECT(FEql(ccw.y, 1.0f));
 		}
-		PRUnitTestMethod(Cross2D)
+		PRUnitTestMethod(Cross2D, Quick)
 		{
 			// Cross product of (1,0) x (0,1) = 1
 			PR_EXPECT(FEql(Cross2D(float2(1, 0), float2(0, 1)), 1.0f));
 			PR_EXPECT(FEql(Cross2D(float2(0, 1), float2(1, 0)), -1.0f));
 		}
-		PRUnitTestMethod(Perpendicular)
+		PRUnitTestMethod(Perpendicular, Quick)
 		{
 			// Result should be perpendicular to input
 			auto v = float3(1, 2, 3);
@@ -90,7 +90,7 @@ namespace pr::hlsl::tests
 			auto px = Perpendicular(float3(1, 0, 0));
 			PR_EXPECT(FEqlAbsolute(dot(float3(1, 0, 0), px), 0.0f, 1e-4f));
 		}
-		PRUnitTestMethod(NormaliseOrZero)
+		PRUnitTestMethod(NormaliseOrZero, Quick)
 		{
 			// Normal vector
 			auto v = NormaliseOrZero(float3(3, 0, 0));
@@ -100,7 +100,7 @@ namespace pr::hlsl::tests
 			auto z = NormaliseOrZero(float3(0, 0, 0));
 			PR_EXPECT(FEql(z, float3(0, 0, 0)));
 		}
-		PRUnitTestMethod(Orthonormalise3x3)
+		PRUnitTestMethod(Orthonormalise3x3, Quick)
 		{
 			// Start with a slightly skewed matrix
 			auto m = float3x3(
@@ -124,7 +124,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(dot(o[0], o[2]), 0.0f));
 			PR_EXPECT(FEql(dot(o[1], o[2]), 0.0f));
 		}
-		PRUnitTestMethod(InvertOrthonormal)
+		PRUnitTestMethod(InvertOrthonormal, Quick)
 		{
 			// Build an orthonormal matrix with rotation and translation
 			float a = 0.7f;
@@ -150,7 +150,7 @@ namespace pr::hlsl::tests
 				float4(0, 0, 0, 1));
 			PR_EXPECT(FEql(product, I));
 		}
-		PRUnitTestMethod(InvertAffine)
+		PRUnitTestMethod(InvertAffine, Quick)
 		{
 			// Build an affine matrix with rotation, scale, and translation
 			float a = 1.2f;
@@ -175,7 +175,7 @@ namespace pr::hlsl::tests
 				float4(0, 0, 0, 1));
 			PR_EXPECT(FEqlAbsolute(product, I, 1e-4f));
 		}
-		PRUnitTestMethod(Invert3x3)
+		PRUnitTestMethod(Invert3x3, Quick)
 		{
 			auto m = float3x3(
 				float3(1, 2, 3),
@@ -193,7 +193,7 @@ namespace pr::hlsl::tests
 			auto I = float3x3(float3(1, 0, 0), float3(0, 1, 0), float3(0, 0, 1));
 			PR_EXPECT(FEql(product, I));
 		}
-		PRUnitTestMethod(RotationVectorApprox)
+		PRUnitTestMethod(RotationVectorApprox, Quick)
 		{
 			// Small rotation around Z
 			float a = 0.01f;

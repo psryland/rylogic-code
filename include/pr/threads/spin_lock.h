@@ -138,7 +138,7 @@ namespace pr::threads
 			}
 		};
 	}
-	PRUnitTest(SpinLockTests)
+	PRUnitTest(SpinLockTests, Quick)
 	{
 		using namespace unittests::spinlock;
 
@@ -172,7 +172,7 @@ namespace pr::threads
 		PR_EXPECT(thing.m_count == 0);
 		PR_EXPECT(thing.m_calls >= 100);
 	}
-	PRUnitTest(SpinLockRecursionTests)
+	PRUnitTest(SpinLockRecursionTests, Quick)
 	{
 		// Same-thread re-entrant locking must not release the lock until the outer-most unlock.
 		SpinLock lock;
@@ -211,7 +211,7 @@ namespace pr::threads
 		PR_EXPECT(lock.try_lock());
 		lock.unlock();
 	}
-	PRUnitTest(SpinLockRecursionDepthTests)
+	PRUnitTest(SpinLockRecursionDepthTests, Quick)
 	{
 		// Multiple levels of recursion must all be unwound before the lock is released.
 		// try_lock() from the owning thread always succeeds (it is the same recursive re-entry),

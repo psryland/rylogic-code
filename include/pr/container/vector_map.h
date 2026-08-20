@@ -276,7 +276,7 @@ namespace pr::container
 			return map;
 		}
 
-		PRUnitTestMethod(LookupAndOrdering)
+		PRUnitTestMethod(LookupAndOrdering, Quick)
 		{
 			auto map = MakeMap();
 
@@ -294,7 +294,7 @@ namespace pr::container
 			PR_EXPECT((map.begin() + 2)->first == 9);
 		}
 
-		PRUnitTestMethod(ConstLookupAndAt)
+		PRUnitTestMethod(ConstLookupAndAt, Quick)
 		{
 			auto map = MakeMap();
 			auto const& cmap = map;
@@ -310,7 +310,7 @@ namespace pr::container
 			PR_EXPECT(cmap.at(3).m_id == 30);
 		}
 
-		PRUnitTestMethod(InsertAndEmplace)
+		PRUnitTestMethod(InsertAndEmplace, Quick)
 		{
 			auto map = MakeMap();
 
@@ -339,7 +339,7 @@ namespace pr::container
 			PR_EXPECT(inserted.first->second.m_id == 5);
 		}
 
-		PRUnitTestMethod(EraseAndClear)
+		PRUnitTestMethod(EraseAndClear, Quick)
 		{
 			auto map = MakeMap();
 
@@ -358,7 +358,7 @@ namespace pr::container
 			PR_EXPECT(map.empty());
 		}
 
-		PRUnitTestMethod(InitializerAndRangeConstruction)
+		PRUnitTestMethod(InitializerAndRangeConstruction, Quick)
 		{
 			Map map = {
 				{ 5, Thing(5) },
@@ -385,7 +385,7 @@ namespace pr::container
 			PR_EXPECT(map2.at(4).m_id == 4);
 		}
 
-		PRUnitTestMethod(CustomComparator)
+		PRUnitTestMethod(CustomComparator, Quick)
 		{
 			using DescMap = pr::vector_map<int, Thing, fixed_buffer, std::greater<int>>;
 

@@ -667,7 +667,7 @@ namespace pr::chain
 			Mixin(int i) :m_i(i) {}
 		};
 
-		PRUnitTestMethod(MemberChain)
+		PRUnitTestMethod(MemberChain, Quick)
 		{
 			Member m0(0), m1(1), m2(2);
 			Insert(m2, m1);
@@ -710,7 +710,7 @@ namespace pr::chain
 				PR_EXPECT(iter == 0);
 			}
 		}
-		PRUnitTestMethod(FieldChain)
+		PRUnitTestMethod(FieldChain, Quick)
 		{
 			Link<Field> head;
 			Field f0(0), f1(1), f2(2);
@@ -736,7 +736,7 @@ namespace pr::chain
 				PR_EXPECT(i == &head);
 			}
 		}
-		PRUnitTestMethod(MixinChain)
+		PRUnitTestMethod(MixinChain, Quick)
 		{
 			head<Mixin> chain;
 			Mixin m0(0), m1(1), m2(2), m3(3), m4(4);

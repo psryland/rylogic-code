@@ -584,7 +584,7 @@ namespace pr::algorithm::astar::unittests
 		}
 
 		// Validate the returned cumulative path costs using a simple weighted chain.
-		PRUnitTestMethod(PathCostReconstruction)
+		PRUnitTestMethod(PathCostReconstruction, Quick)
 		{
 			WeightedGraph weighted_graph;
 			WeightedAdptr adapter(weighted_graph, 3);
@@ -605,7 +605,7 @@ namespace pr::algorithm::astar::unittests
 			}
 		}
 
-		PRUnitTestMethod(General)
+		PRUnitTestMethod(General, Quick)
 		{
 			{ // Node0 -> Node8
 				int const expected[] = { 0, 10, 5, 8 };
@@ -631,7 +631,7 @@ namespace pr::algorithm::astar::unittests
 			}
 		}
 
-		PRUnitTestMethod(EdgeDataDefaultsToNoNode)
+		PRUnitTestMethod(EdgeDataDefaultsToNoNode, Quick)
 		{
 			auto edge = astar::EdgeData<EdgeDataConfig>{};
 			PR_EXPECT(edge.target_node == EdgeDataConfig::NoNode);

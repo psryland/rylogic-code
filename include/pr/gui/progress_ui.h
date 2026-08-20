@@ -436,7 +436,7 @@ namespace pr
 {
 	namespace unittests
 	{
-		PRUnitTest(pr_gui_progress_dlg)
+		PRUnitTest(pr_gui_progress_dlg, Quick)
 		{
 			using namespace pr::gui;
 			int arg = 42;

@@ -546,7 +546,7 @@ namespace pr::filesys
 #include "pr/common/unittests.h"
 namespace pr::filesys
 {
-	PRUnitTest(FilesysTests)
+	PRUnitTest(FilesysTests, Quick)
 	{
 		using namespace std::filesystem;
 
@@ -1420,7 +1420,7 @@ namespace pr::filesys
 #include "pr/common/flags_enum.h"
 namespace pr::filesys
 {
-	PRUnitTest(OldFilesysTests)
+	PRUnitTest(OldFilesysTests, Quick)
 	{
 		using namespace pr::filesys;
 

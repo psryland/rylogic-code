@@ -352,7 +352,7 @@ namespace pr::onebit
 #include <cstdint>
 namespace pr::onebit
 {
-	PRUnitTest(OneBitTests)
+	PRUnitTest(OneBitTests, Quick)
 	{
 		uint8_t const cross_data[] =
 		{

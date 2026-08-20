@@ -422,7 +422,7 @@ namespace pr::geometry
 		};
 	}
 
-	PRUnitTest(GenerateNormalsTests)
+	PRUnitTest(GenerateNormalsTests, Quick)
 	{
 		using Vert = unit_tests::Vert;
 		Vert verts[] =

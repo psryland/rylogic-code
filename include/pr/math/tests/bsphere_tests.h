@@ -11,7 +11,7 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(BSphereTests)
 	{
-		PRUnitTestMethod(Construction, float, double)
+		PRUnitTestMethod(Construction, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BS = BoundingSphere<T>;
@@ -39,7 +39,7 @@ namespace pr::math::tests
 			PR_EXPECT(!unit.is_point());
 		}
 
-		PRUnitTestMethod(VolumeTest, float, double)
+		PRUnitTestMethod(VolumeTest, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BS = BoundingSphere<T>;
@@ -50,7 +50,7 @@ namespace pr::math::tests
 			PR_EXPECT(Abs(vol - expected) < T(0.001));
 		}
 
-		PRUnitTestMethod(GrowTests, float, double)
+		PRUnitTestMethod(GrowTests, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BS = BoundingSphere<T>;
@@ -75,7 +75,7 @@ namespace pr::math::tests
 			PR_EXPECT(IsWithin(a, V4(6, 0, 0, 1)));
 		}
 
-		PRUnitTestMethod(UnionTests, float, double)
+		PRUnitTestMethod(UnionTests, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BS = BoundingSphere<T>;
@@ -93,7 +93,7 @@ namespace pr::math::tests
 			PR_EXPECT(IsWithin(s2, V4(0, 0, -1, 1)));
 		}
 
-		PRUnitTestMethod(GrowUnionCoincidentCentres, float, double)
+		PRUnitTestMethod(GrowUnionCoincidentCentres, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BS = BoundingSphere<T>;
@@ -136,7 +136,7 @@ namespace pr::math::tests
 			PR_EXPECT(unioned_equal.Radius() == T(4));
 		}
 
-		PRUnitTestMethod(IsWithinTests, float, double)
+		PRUnitTestMethod(IsWithinTests, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BS = BoundingSphere<T>;
@@ -168,7 +168,7 @@ namespace pr::math::tests
 			PR_EXPECT(!w6);
 		}
 
-		PRUnitTestMethod(IsIntersectionTests, float, double)
+		PRUnitTestMethod(IsIntersectionTests, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BS = BoundingSphere<T>;
@@ -181,7 +181,7 @@ namespace pr::math::tests
 			PR_EXPECT(!IsIntersection(a, c));
 		}
 
-		PRUnitTestMethod(TranslationOps, float, double)
+		PRUnitTestMethod(TranslationOps, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BS = BoundingSphere<T>;
@@ -192,7 +192,7 @@ namespace pr::math::tests
 			PR_EXPECT(shifted.Radius() == T(1));
 		}
 
-		PRUnitTestMethod(SupportPointTest, float, double)
+		PRUnitTestMethod(SupportPointTest, Quick, float, double)
 		{
 			using V4 = Vec4<T>;
 			using BS = BoundingSphere<T>;

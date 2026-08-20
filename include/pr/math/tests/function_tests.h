@@ -137,7 +137,7 @@ namespace pr::math::tests
 			}
 		}
 
-		PRUnitTestMethod(ExplicitCasts
+		PRUnitTestMethod(ExplicitCasts, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -241,7 +241,7 @@ namespace pr::math::tests
 			}
 		}
 
-		PRUnitTestMethod(ConstexprScale
+		PRUnitTestMethod(ConstexprScale, Quick
 		, ExtMat1x1<float>, ExtMat1x1<double>
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
 		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
@@ -313,7 +313,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Operators (functions.h line ~18) ----
-		PRUnitTestMethod(Operators
+		PRUnitTestMethod(Operators, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -388,7 +388,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Constants (functions.h line ~399) ----
-		PRUnitTestMethod(Constants
+		PRUnitTestMethod(Constants, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -436,7 +436,7 @@ namespace pr::math::tests
 		}
 
 		// ---- IsNaN (functions.h line ~573) ----
-		PRUnitTestMethod(IsNaNTests
+		PRUnitTestMethod(IsNaNTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -462,7 +462,7 @@ namespace pr::math::tests
 		}
 
 		// ---- IsFinite (functions.h line ~601) ----
-		PRUnitTestMethod(IsFiniteTests
+		PRUnitTestMethod(IsFiniteTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -488,7 +488,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Any, All (functions.h line ~651) ----
-		PRUnitTestMethod(AnyAllTests
+		PRUnitTestMethod(AnyAllTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -522,7 +522,7 @@ namespace pr::math::tests
 		}
 
 		// ---- CompOp (functions.h line ~855) ----
-		PRUnitTestMethod(CompOpTests
+		PRUnitTestMethod(CompOpTests, Quick
 		, float, double, int32_t, int64_t
 		) {
 			using S = T;
@@ -535,7 +535,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Abs (functions.h line ~675) ----
-		PRUnitTestMethod(Abs
+		PRUnitTestMethod(Abs, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -553,7 +553,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Min, Max, Clamp (functions.h line ~695) ----
-		PRUnitTestMethod(MinMaxClamp
+		PRUnitTestMethod(MinMaxClamp, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -576,7 +576,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Square, SignedSqr, Sqrt, CompSqrt (functions.h line ~750) ----
-		PRUnitTestMethod(SquareAndSqrt
+		PRUnitTestMethod(SquareAndSqrt, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -607,7 +607,7 @@ namespace pr::math::tests
 		}
 
 		// ---- SqrtCT (functions.h line ~770) ----
-		PRUnitTestMethod(SqrtCTTests
+		PRUnitTestMethod(SqrtCTTests, Quick
 		, float, double
 		) {
 			using S = T;
@@ -622,7 +622,7 @@ namespace pr::math::tests
 		}
 
 		// ---- SignedSqrt, CompSignedSqrt (functions.h line ~814) ----
-		PRUnitTestMethod(CompSignedSqrtTests
+		PRUnitTestMethod(CompSignedSqrtTests, Quick
 		, Vec2<float>, Vec2<double>
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
@@ -648,7 +648,7 @@ namespace pr::math::tests
 		}
 
 		// ---- ISqrt (functions.h line ~1133) ----
-		PRUnitTestMethod(ISqrtBoolTests
+		PRUnitTestMethod(ISqrtBoolTests, Quick
 		, bool
 		) {
 			static_assert(std::is_same_v<decltype(ISqrt(false)), bool>);
@@ -662,7 +662,7 @@ namespace pr::math::tests
 		}
 
 		// ---- ISqrt scalar values (functions.h line ~1133) ----
-		PRUnitTestMethod(ISqrtScalarTests
+		PRUnitTestMethod(ISqrtScalarTests, Quick
 		, int8_t, uint8_t
 		, int16_t, uint16_t
 		, int32_t, uint32_t
@@ -672,7 +672,7 @@ namespace pr::math::tests
 		}
 
 		// ---- CompISqrt (functions.h line ~1160) ----
-		PRUnitTestMethod(CompISqrtTests
+		PRUnitTestMethod(CompISqrtTests, Quick
 		, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<int32_t>, Vec4<int64_t>
@@ -692,7 +692,7 @@ namespace pr::math::tests
 		}
 
 		// ---- CompSum (functions.h line ~850) ----
-		PRUnitTestMethod(CompSumTests
+		PRUnitTestMethod(CompSumTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -720,7 +720,7 @@ namespace pr::math::tests
 		}
 
 		// ---- CompMul (functions.h line ~865) ----
-		PRUnitTestMethod(CompMulTests
+		PRUnitTestMethod(CompMulTests, Quick
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
 		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
@@ -739,7 +739,7 @@ namespace pr::math::tests
 		}
 
 		// ---- MinElement, MaxElement, MinElementAbs, MaxElementAbs (functions.h line ~876) ----
-		PRUnitTestMethod(MinMaxElement
+		PRUnitTestMethod(MinMaxElement, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -759,7 +759,7 @@ namespace pr::math::tests
 		}
 
 		// ---- MinElementIndex, MaxElementIndex (functions.h line ~930) ----
-		PRUnitTestMethod(MinMaxElementIndex
+		PRUnitTestMethod(MinMaxElementIndex, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -773,7 +773,7 @@ namespace pr::math::tests
 		}
 
 		// ---- FEqlAbsolute (functions.h line ~954) ----
-		PRUnitTestMethod(FEqlAbsoluteTests
+		PRUnitTestMethod(FEqlAbsoluteTests, Quick
 		, Vec2<float>, Vec2<double>
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
@@ -794,7 +794,7 @@ namespace pr::math::tests
 		}
 
 		// ---- FEqlRelative (functions.h line ~976) ----
-		PRUnitTestMethod(FEqlRelativeTests
+		PRUnitTestMethod(FEqlRelativeTests, Quick
 		, Vec2<float>, Vec2<double>
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
@@ -811,7 +811,7 @@ namespace pr::math::tests
 		}
 
 		// ---- FEql (functions.h line ~1014) ----
-		PRUnitTestMethod(FEqlTests
+		PRUnitTestMethod(FEqlTests, Quick
 		, Vec2<float>, Vec2<double>
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
@@ -829,7 +829,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Ceil, Floor, Round (functions.h line ~1030) ----
-		PRUnitTestMethod(CeilFloorRound
+		PRUnitTestMethod(CeilFloorRound, Quick
 		, Vec2<float>, Vec2<double>
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
@@ -855,7 +855,7 @@ namespace pr::math::tests
 		}
 
 		// ---- RoundSD (functions.h line ~1075) ----
-		PRUnitTestMethod(RoundSDTests
+		PRUnitTestMethod(RoundSDTests, Quick
 		, Vec2<float>, Vec2<double>
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
@@ -871,7 +871,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Modulus (functions.h line ~1104) ----
-		PRUnitTestMethod(ModulusTests
+		PRUnitTestMethod(ModulusTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -887,7 +887,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Wrap (functions.h line ~1163) ----
-		PRUnitTestMethod(WrapTests
+		PRUnitTestMethod(WrapTests, Quick
 		, float, double, int32_t, int64_t
 		) {
 			using S = T;
@@ -902,7 +902,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Bool2Sign, Sign (functions.h line ~1172) ----
-		PRUnitTestMethod(SignTests
+		PRUnitTestMethod(SignTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -929,7 +929,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Div (functions.h line ~1201) ----
-		PRUnitTestMethod(DivTests
+		PRUnitTestMethod(DivTests, Quick
 		, float, double, int32_t, int64_t
 		) {
 			using S = T;
@@ -940,7 +940,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Trunc (functions.h line ~1207) ----
-		PRUnitTestMethod(TruncTests
+		PRUnitTestMethod(TruncTests, Quick
 		, Vec2<float>, Vec2<double>
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
@@ -956,7 +956,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Frac (functions.h line ~1228) ----
-		PRUnitTestMethod(Frac
+		PRUnitTestMethod(Frac, Quick
 		, Vec2<float>, Vec2<double>
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
@@ -972,7 +972,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Sqr (functions.h line ~1255) ----
-		PRUnitTestMethod(SqrTests
+		PRUnitTestMethod(SqrTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -989,7 +989,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Cube (functions.h line ~1288) ----
-		PRUnitTestMethod(CubeTests
+		PRUnitTestMethod(CubeTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -1007,7 +1007,7 @@ namespace pr::math::tests
 		// ---- Pow (functions.h line ~1916) ----
 		// Scalar tests: positive/zero shared behavior, FP reciprocal semantics for negative
 		// exponents, integral domain_error rejection, and exponent-boundary behavior.
-		PRUnitTestMethod(PowTests
+		PRUnitTestMethod(PowTests, Quick
 		, float, double, int32_t, int64_t
 		) {
 			using S = T;
@@ -1044,7 +1044,7 @@ namespace pr::math::tests
 
 		// ---- Pow: vector overload ----
 		// Vector behavior follows the scalar Pow contract.
-		PRUnitTestMethod(PowVecTests
+		PRUnitTestMethod(PowVecTests, Quick
 		, Vec4<float>, Vec4<int32_t>
 		) {
 			using vec_t = T;
@@ -1066,7 +1066,7 @@ namespace pr::math::tests
 		}
 
 		// ---- DegreesToRadians, RadiansToDegrees (functions.h line ~1327) ----
-		PRUnitTestMethod(DegreesRadians
+		PRUnitTestMethod(DegreesRadians, Quick
 		, float, double
 		) {
 			using S = T;
@@ -1078,7 +1078,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Dot (functions.h line ~1338) ----
-		PRUnitTestMethod(DotProduct
+		PRUnitTestMethod(DotProduct, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -1098,7 +1098,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Dot3 (functions.h line ~1350) ----
-		PRUnitTestMethod(Dot3Tests
+		PRUnitTestMethod(Dot3Tests, Quick
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		) {
@@ -1114,7 +1114,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Cross 2D (functions.h line ~1363) ----
-		PRUnitTestMethod(CrossProduct2D
+		PRUnitTestMethod(CrossProduct2D, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		) {
 			using vec_t = T;
@@ -1129,7 +1129,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Cross 3D (functions.h line ~1369) ----
-		PRUnitTestMethod(CrossProduct3D
+		PRUnitTestMethod(CrossProduct3D, Quick
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		) {
 			using vec_t = T;
@@ -1147,7 +1147,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Cross 4D (functions.h line ~1379) ----
-		PRUnitTestMethod(CrossProduct4D
+		PRUnitTestMethod(CrossProduct4D, Quick
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
 		) {
 			using vec_t = T;
@@ -1164,7 +1164,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Triple, Triple3 (functions.h line ~1392) ----
-		PRUnitTestMethod(TripleProduct
+		PRUnitTestMethod(TripleProduct, Quick
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		) {
 			using vec_t = T;
@@ -1180,7 +1180,7 @@ namespace pr::math::tests
 		}
 
 		// ---- LengthSq (functions.h line ~1404) ----
-		PRUnitTestMethod(LengthSqTests
+		PRUnitTestMethod(LengthSqTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -1195,7 +1195,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Length (functions.h line ~1410) ----
-		PRUnitTestMethod(LengthTests
+		PRUnitTestMethod(LengthTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -1216,7 +1216,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Length (functions.h line ~2096) ----
-		PRUnitTestMethod(LenTests)
+		PRUnitTestMethod(LenTests, Quick)
 		{
 			PR_EXPECT(Len(3.0) == 3.0);
 			PR_EXPECT(Len(0.0) == 0.0);
@@ -1232,7 +1232,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Trace (functions.h line ~1429) ----
-		PRUnitTestMethod(TraceTests
+		PRUnitTestMethod(TraceTests, Quick
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
 		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
@@ -1246,7 +1246,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Determinant (functions.h line ~1444) ----
-		PRUnitTestMethod(DeterminantTests
+		PRUnitTestMethod(DeterminantTests, Quick
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
 		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
@@ -1267,7 +1267,7 @@ namespace pr::math::tests
 		}
 
 		// ---- DeterminantAffine (functions.h line ~1492) ----
-		PRUnitTestMethod(DeterminantAffineTests
+		PRUnitTestMethod(DeterminantAffineTests, Quick
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
@@ -1281,7 +1281,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Diagonal (functions.h line ~1502) ----
-		PRUnitTestMethod(DiagonalTests
+		PRUnitTestMethod(DiagonalTests, Quick
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
 		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
@@ -1303,7 +1303,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Kernel (functions.h line ~1527) ----
-		PRUnitTestMethod(KernelTests
+		PRUnitTestMethod(KernelTests, Quick
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
 		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
@@ -1333,7 +1333,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Normalise, IsNormalised (functions.h line ~1563) ----
-		PRUnitTestMethod(Normalise
+		PRUnitTestMethod(Normalise, Quick
 		, Vec2<float>, Vec2<double>
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
@@ -1353,7 +1353,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Normalise(Mat) (functions.h line ~1588) ----
-		PRUnitTestMethod(NormaliseMatTests
+		PRUnitTestMethod(NormaliseMatTests, Quick
 		, Mat2x2<float>, Mat2x2<double>
 		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
@@ -1373,7 +1373,7 @@ namespace pr::math::tests
 		}
 
 		// ---- IsOrthogonal (functions.h line ~1608) ----
-		PRUnitTestMethod(IsOrthogonalTests
+		PRUnitTestMethod(IsOrthogonalTests, Quick
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
 		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
@@ -1393,7 +1393,7 @@ namespace pr::math::tests
 		}
 
 		// ---- IsOrthonormal (functions.h line ~1639) ----
-		PRUnitTestMethod(IsOrthonormalTests
+		PRUnitTestMethod(IsOrthonormalTests, Quick
 		, Mat2x2<float>, Mat2x2<double>
 		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
@@ -1407,7 +1407,7 @@ namespace pr::math::tests
 		}
 
 		// ---- IsAffine (functions.h line ~1654) ----
-		PRUnitTestMethod(IsAffineTests
+		PRUnitTestMethod(IsAffineTests, Quick
 		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
@@ -1425,7 +1425,7 @@ namespace pr::math::tests
 		}
 
 		// ---- IsInvertible (functions.h line ~1674) ----
-		PRUnitTestMethod(IsInvertibleTests
+		PRUnitTestMethod(IsInvertibleTests, Quick
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
 		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
@@ -1437,7 +1437,7 @@ namespace pr::math::tests
 		}
 
 		// ---- IsSymmetric (functions.h line ~1684) ----
-		PRUnitTestMethod(IsSymmetricTests
+		PRUnitTestMethod(IsSymmetricTests, Quick
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
 		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
@@ -1449,7 +1449,7 @@ namespace pr::math::tests
 		}
 
 		// ---- IsAntiSymmetric (functions.h line ~1711) ----
-		PRUnitTestMethod(IsAntiSymmetricTests
+		PRUnitTestMethod(IsAntiSymmetricTests, Quick
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
 		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
@@ -1533,7 +1533,7 @@ namespace pr::math::tests
 		}
 
 		// ---- IsParallel (functions.h line ~1738) ----
-		PRUnitTestMethod(IsParallelTests
+		PRUnitTestMethod(IsParallelTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -1550,7 +1550,7 @@ namespace pr::math::tests
 		}
 
 		// ---- CreateNotParallelTo (functions.h line ~1757) ----
-		PRUnitTestMethod(CreateNotParallelToTests
+		PRUnitTestMethod(CreateNotParallelToTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -1565,7 +1565,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Rotate90CW and Rotate90CCW (functions.h line ~2432) ----
-		PRUnitTestMethod(Rotate90CWCCWTests
+		PRUnitTestMethod(Rotate90CWCCWTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		) {
 			using vec_t = T;
@@ -1634,7 +1634,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Perpendicular (functions.h line ~1775) ----
-		PRUnitTestMethod(PerpendicularTests
+		PRUnitTestMethod(PerpendicularTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -1655,7 +1655,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Perpendicular with previous (functions.h line ~1792) ----
-		PRUnitTestMethod(PerpendicularWithPreviousTests
+		PRUnitTestMethod(PerpendicularWithPreviousTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -1683,7 +1683,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Permute rank-1 (functions.h line ~1817) ----
-		PRUnitTestMethod(Permute
+		PRUnitTestMethod(Permute, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -1701,7 +1701,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Permute rank-2 (functions.h line ~1857) ----
-		PRUnitTestMethod(PermuteMatrix
+		PRUnitTestMethod(PermuteMatrix, Quick
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
 		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
@@ -1715,7 +1715,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Orthant (functions.h line ~1894) ----
-		PRUnitTestMethod(OrthantTests
+		PRUnitTestMethod(OrthantTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -1731,7 +1731,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Transpose (functions.h line ~1909) ----
-		PRUnitTestMethod(TransposeTests
+		PRUnitTestMethod(TransposeTests, Quick
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
 		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
@@ -1747,7 +1747,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Transpose3x3 (functions.h line ~1932) ----
-		PRUnitTestMethod(Transpose3x3Tests
+		PRUnitTestMethod(Transpose3x3Tests, Quick
 		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
 		) {
@@ -1784,7 +1784,7 @@ namespace pr::math::tests
 		}
 
 		// ---- InvertOrthonormal (functions.h line ~1945) ----
-		PRUnitTestMethod(InvertOrthonormalTests
+		PRUnitTestMethod(InvertOrthonormalTests, Quick
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
@@ -1810,7 +1810,7 @@ namespace pr::math::tests
 		}
 
 		// ---- InvertAffine (functions.h line ~1971) ----
-		PRUnitTestMethod(InvertAffineTests
+		PRUnitTestMethod(InvertAffineTests, Quick
 		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
 		) {
@@ -1876,7 +1876,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Invert (functions.h line ~2016) ----
-		PRUnitTestMethod(InvertTests
+		PRUnitTestMethod(InvertTests, Quick
 		, Mat2x2<float>, Mat2x2<double>
 		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
@@ -1893,7 +1893,7 @@ namespace pr::math::tests
 		}
 
 		// ---- InvertPrecise (functions.h line ~2117) ----
-		PRUnitTestMethod(InvertPreciseTests
+		PRUnitTestMethod(InvertPreciseTests, Quick
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
@@ -1924,7 +1924,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Sqrt matrix (functions.h line ~2159) ----
-		PRUnitTestMethod(MatrixSqrtTests
+		PRUnitTestMethod(MatrixSqrtTests, Quick
 		, Mat2x2<float>, Mat2x2<double>
 		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
@@ -1936,7 +1936,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Orthonorm (functions.h line ~2179) ----
-		PRUnitTestMethod(OrthonormTests
+		PRUnitTestMethod(OrthonormTests, Quick
 		, Mat2x2<float>, Mat2x2<double>
 		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
@@ -1975,7 +1975,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Matrix multiply (functions.h line ~2190) ----
-		PRUnitTestMethod(MatrixMultiply
+		PRUnitTestMethod(MatrixMultiply, Quick
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
 		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
@@ -2019,7 +2019,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Translation (functions.h line ~2246) ----
-		PRUnitTestMethod(TranslationTests
+		PRUnitTestMethod(TranslationTests, Quick
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
@@ -2038,7 +2038,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Rotation (functions.h line ~2269) ----
-		PRUnitTestMethod(Rotation2DTests
+		PRUnitTestMethod(Rotation2DTests, Quick
 		, Mat2x2<float>, Mat2x2<double>
 		) {
 			using mat_t = T;
@@ -2050,7 +2050,7 @@ namespace pr::math::tests
 			auto R90 = Rotation<mat_t>(constants<S>::tau / S(4));
 			PR_EXPECT(IsOrthonormal(R90));
 		}
-		PRUnitTestMethod(RotationTests
+		PRUnitTestMethod(RotationTests, Quick
 		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
@@ -2069,7 +2069,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Rotation overloads (functions.h line ~2340) ----
-		PRUnitTestMethod(RotationAxisAngleOverloads
+		PRUnitTestMethod(RotationAxisAngleOverloads, Quick
 		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
@@ -2111,7 +2111,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Scale (functions.h line ~2413) ----
-		PRUnitTestMethod(ScaleTests
+		PRUnitTestMethod(ScaleTests, Quick
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
 		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
@@ -2127,7 +2127,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Shear (functions.h line ~2441) ----
-		PRUnitTestMethod(ShearTests
+		PRUnitTestMethod(ShearTests, Quick
 		, Mat2x2<float>, Mat2x2<double>
 		) {
 			using mat_t = T;
@@ -2135,7 +2135,7 @@ namespace pr::math::tests
 
 			static_assert(All(Shear<mat_t>(S(0), S(0)) == Identity<mat_t>()));
 		}
-		PRUnitTestMethod(Shear3DTests
+		PRUnitTestMethod(Shear3DTests, Quick
 		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
@@ -2145,7 +2145,7 @@ namespace pr::math::tests
 		}
 
 		// ---- LookAt (functions.h line ~2493) ----
-		PRUnitTestMethod(LookAtTests
+		PRUnitTestMethod(LookAtTests, Quick
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
@@ -2161,7 +2161,7 @@ namespace pr::math::tests
 		}
 
 		// ---- ProjectionOrthographic (functions.h line ~2512) ----
-		PRUnitTestMethod(ProjectionOrthographicTests
+		PRUnitTestMethod(ProjectionOrthographicTests, Quick
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
@@ -2172,7 +2172,7 @@ namespace pr::math::tests
 		}
 
 		// ---- ProjectionPerspective (functions.h line ~2532) ----
-		PRUnitTestMethod(ProjectionPerspectiveTests
+		PRUnitTestMethod(ProjectionPerspectiveTests, Quick
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
@@ -2183,7 +2183,7 @@ namespace pr::math::tests
 		}
 
 		// ---- ProjectionPerspectiveFOV (functions.h line ~2578) ----
-		PRUnitTestMethod(ProjectionPerspectiveFOVTests
+		PRUnitTestMethod(ProjectionPerspectiveFOVTests, Quick
 		, Mat4x4<float>, Mat4x4<double>
 		) {
 			using mat_t = T;
@@ -2194,7 +2194,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Diagonalise (functions.h line ~2675) ----
-		PRUnitTestMethod(DiagonaliseTests
+		PRUnitTestMethod(DiagonaliseTests, Quick
 		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
@@ -2217,7 +2217,7 @@ namespace pr::math::tests
 		}
 
 		// ---- AxisAngle (functions.h line ~2679) ----
-		PRUnitTestMethod(AxisAngleTests
+		PRUnitTestMethod(AxisAngleTests, Quick
 		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
@@ -2228,7 +2228,7 @@ namespace pr::math::tests
 		}
 
 		// ---- ScaleFrom (functions.h line ~2706) ----
-		PRUnitTestMethod(ScaleFromTests
+		PRUnitTestMethod(ScaleFromTests, Quick
 		, Mat2x2<float>, Mat2x2<double>, Mat2x2<int32_t>, Mat2x2<int64_t>
 		, Mat3x3<float>, Mat3x3<double>, Mat3x3<int32_t>, Mat3x3<int64_t>
 		, Mat4x4<float>, Mat4x4<double>, Mat4x4<int32_t>, Mat4x4<int64_t>
@@ -2242,7 +2242,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Unscaled (functions.h line ~2721) ----
-		PRUnitTestMethod(UnscaledTests
+		PRUnitTestMethod(UnscaledTests, Quick
 		, Mat2x2<float>, Mat2x2<double>
 		, Mat3x3<float>, Mat3x3<double>
 		, Mat4x4<float>, Mat4x4<double>
@@ -2259,7 +2259,7 @@ namespace pr::math::tests
 		}
 
 		// ---- RotationToZAxis (functions.h line ~2739) ----
-		PRUnitTestMethod(RotationToZAxisTests
+		PRUnitTestMethod(RotationToZAxisTests, Quick
 		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
@@ -2277,7 +2277,7 @@ namespace pr::math::tests
 		}
 
 		// ---- OriFromDir (functions.h line ~2773) ----
-		PRUnitTestMethod(OriFromDirTests
+		PRUnitTestMethod(OriFromDirTests, Quick
 		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
@@ -2297,7 +2297,7 @@ namespace pr::math::tests
 		}
 
 		// ---- ScaledOriFromDir (functions.h line ~2795) ----
-		PRUnitTestMethod(ScaledOriFromDirTests
+		PRUnitTestMethod(ScaledOriFromDirTests, Quick
 		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
@@ -2315,7 +2315,7 @@ namespace pr::math::tests
 		}
 
 		// ---- RotationVectorApprox (functions.h line ~2805) ----
-		PRUnitTestMethod(RotationVectorApproxTests
+		PRUnitTestMethod(RotationVectorApproxTests, Quick
 		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
@@ -2328,7 +2328,7 @@ namespace pr::math::tests
 		}
 
 		// ---- CPM (functions.h line ~2824) ----
-		PRUnitTestMethod(CPMTests
+		PRUnitTestMethod(CPMTests, Quick
 		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
@@ -2346,7 +2346,7 @@ namespace pr::math::tests
 		}
 
 		// ---- ExpMap3x3 (functions.h line ~2841) ----
-		PRUnitTestMethod(ExpMap3x3Tests
+		PRUnitTestMethod(ExpMap3x3Tests, Quick
 		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
@@ -2359,7 +2359,7 @@ namespace pr::math::tests
 		}
 
 		// ---- LogMap3x3 (functions.h line ~2857) ----
-		PRUnitTestMethod(LogMap3x3Tests
+		PRUnitTestMethod(LogMap3x3Tests, Quick
 		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
@@ -2372,7 +2372,7 @@ namespace pr::math::tests
 		}
 
 		// ---- RotationAt (functions.h line ~2882) ----
-		PRUnitTestMethod(RotationAtTests
+		PRUnitTestMethod(RotationAtTests, Quick
 		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
@@ -2411,7 +2411,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Lerp (functions.h line ~1554) ----
-		PRUnitTestMethod(LerpTests
+		PRUnitTestMethod(LerpTests, Quick
 		, Vec2<float>, Vec2<double>
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
@@ -2433,7 +2433,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Slerp (functions.h line ~1565) ----
-		PRUnitTestMethod(SlerpTests
+		PRUnitTestMethod(SlerpTests, Quick
 		, Vec2<float>, Vec2<double>
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
@@ -2455,7 +2455,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Quantise (functions.h line ~1577) ----
-		PRUnitTestMethod(QuantiseTests
+		PRUnitTestMethod(QuantiseTests, Quick
 		, Vec2<float>, Vec2<double>
 		, Vec3<float>, Vec3<double>
 		, Vec4<float>, Vec4<double>
@@ -2482,7 +2482,7 @@ namespace pr::math::tests
 		}
 
 		// ---- SmoothStep (functions.h line ~1637) ----
-		PRUnitTestMethod(SmoothStepTests
+		PRUnitTestMethod(SmoothStepTests, Quick
 		, float, double
 		) {
 			using S = T;
@@ -2503,7 +2503,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Step (functions.h line ~1631) ----
-		PRUnitTestMethod(StepTests
+		PRUnitTestMethod(StepTests, Quick
 		, float, double, int32_t, int64_t
 		) {
 			using S = T;
@@ -2515,7 +2515,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Sigmoid (functions.h line ~1653) ----
-		PRUnitTestMethod(SigmoidTests
+		PRUnitTestMethod(SigmoidTests, Quick
 		, float, double
 		) {
 			using S = T;
@@ -2532,7 +2532,7 @@ namespace pr::math::tests
 		}
 
 		// ---- UnitCubic (functions.h line ~1662) ----
-		PRUnitTestMethod(UnitCubicTests
+		PRUnitTestMethod(UnitCubicTests, Quick
 		, float, double
 		) {
 			using S = T;
@@ -2544,7 +2544,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Rsqrt (functions.h line ~1669) ----
-		PRUnitTestMethod(RsqrtTests
+		PRUnitTestMethod(RsqrtTests, Quick
 		, float, double
 		) {
 			using S = T;
@@ -2560,7 +2560,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Log (functions.h line ~1477) ----
-		PRUnitTestMethod(LogTests
+		PRUnitTestMethod(LogTests, Quick
 		, float, double
 		) {
 			using S = T;
@@ -2576,7 +2576,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Sector (functions.h line ~3638) ----
-		PRUnitTestMethod(SectorTests
+		PRUnitTestMethod(SectorTests, Quick
 		, Vec2<float>, Vec2<double>
 		) {
 			using vec_t = T;
@@ -2595,7 +2595,7 @@ namespace pr::math::tests
 		}
 
 		// ---- RandomN (functions.h line ~2922) ----
-		PRUnitTestMethod(RandomNTests
+		PRUnitTestMethod(RandomNTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -2637,7 +2637,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Random (functions.h line ~2955) ----
-		PRUnitTestMethod(RandomRangeTests
+		PRUnitTestMethod(RandomRangeTests, Quick
 		, Vec2<float>, Vec2<double>, Vec2<int32_t>, Vec2<int64_t>
 		, Vec3<float>, Vec3<double>, Vec3<int32_t>, Vec3<int64_t>
 		, Vec4<float>, Vec4<double>, Vec4<int32_t>, Vec4<int64_t>
@@ -2670,7 +2670,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Random rotation (functions.h line ~3035) ----
-		PRUnitTestMethod(RandomRotationTests
+		PRUnitTestMethod(RandomRotationTests, Quick
 		, Mat3x3<float>, Mat3x3<double>
 		) {
 			using mat_t = T;
@@ -2686,7 +2686,7 @@ namespace pr::math::tests
 		}
 
 		// ---- Random 2D rotation (functions.h line ~3058) ----
-		PRUnitTestMethod(Random2DRotationTests
+		PRUnitTestMethod(Random2DRotationTests, Quick
 		, Mat2x2<float>, Mat2x2<double>
 		) {
 			using mat_t = T;

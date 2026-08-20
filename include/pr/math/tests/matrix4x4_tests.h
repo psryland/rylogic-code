@@ -13,7 +13,7 @@ namespace pr::math::tests
 	{
 		std::default_random_engine rng = std::default_random_engine(1u);
 
-		PRUnitTestMethod(Mul_Mat_Vec, float, double)
+		PRUnitTestMethod(Mul_Mat_Vec, Quick, float, double)
 		{
 			// Matrix * Vector convention: Vb = a2b * Va (right-to-left, column-vector)
 			// Use a 90° rotation around Z that maps X→Y, Y→-X, plus translation (10,20,30)
@@ -53,7 +53,7 @@ namespace pr::math::tests
 				PR_EXPECT(FEql(Vb, Vec4{ 9, 20, 30, 1 }));
 			}
 		}
-		PRUnitTestMethod(Mul_Mat_Mat, float, double)
+		PRUnitTestMethod(Mul_Mat_Mat, Quick, float, double)
 		{
 			using Mat4x4 = Mat4x4<T>;
 			using Vec4 = Vec4<T>;
@@ -96,7 +96,7 @@ namespace pr::math::tests
 				PR_EXPECT(FEql(Vc_1, Vc_0));
 			}
 		}
-		PRUnitTestMethod(Construction, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Construction, Quick, float, double, int32_t, int64_t)
 		{
 			using vec4_t = Vec4<T>;
 			using mat3_t = Mat3x3<T>;
@@ -133,7 +133,7 @@ namespace pr::math::tests
 			PR_EXPECT(All(M1[2] == M1.z));
 			PR_EXPECT(All(M1[3] == M1.w));
 		}
-		PRUnitTestMethod(ConstexprUnionAccess, float, double, int32_t, int64_t)
+		PRUnitTestMethod(ConstexprUnionAccess, Quick, float, double, int32_t, int64_t)
 		{
 			using vec3_t = Vec3<T>;
 			using vec4_t = Vec4<T>;
@@ -183,7 +183,7 @@ namespace pr::math::tests
 				vec4_t(T(9), T(8), T(7), T(1)));
 			static_assert(All(with_w == with_w_expected));
 		}
-		PRUnitTestMethod(ColRow, float, double, int32_t, int64_t)
+		PRUnitTestMethod(ColRow, Quick, float, double, int32_t, int64_t)
 		{
 			using vec4_t = Vec4<T>;
 			using mat4_t = Mat4x4<T>;
@@ -211,7 +211,7 @@ namespace pr::math::tests
 			M3.row(0, vec4_t(T(10), T(50), T(90), T(130)));
 			PR_EXPECT(M3.x[0] == T(10) && M3.y[0] == T(50) && M3.z[0] == T(90) && M3.w[0] == T(130));
 		}
-		PRUnitTestMethod(Constants, float, double, int32_t, int64_t)
+		PRUnitTestMethod(Constants, Quick, float, double, int32_t, int64_t)
 		{
 			using vec4_t = Vec4<T>;
 			using mat4_t = Mat4x4<T>;
@@ -227,7 +227,7 @@ namespace pr::math::tests
 			// Identity * Identity = Identity
 			PR_EXPECT(All(I * I == I));
 		}
-		PRUnitTestMethod(TraceScaleUnscaled, float, double)
+		PRUnitTestMethod(TraceScaleUnscaled, Quick, float, double)
 		{
 			using vec4_t = Vec4<T>;
 			using mat4_t = Mat4x4<T>;
@@ -242,7 +242,7 @@ namespace pr::math::tests
 			auto tr = M.diagonal();
 			PR_EXPECT(tr.x == T(2) && tr.y == T(3) && tr.z == T(4) && tr.w == T(1));
 		}
-		PRUnitTestMethod(TranslationFactory, float, double)
+		PRUnitTestMethod(TranslationFactory, Quick, float, double)
 		{
 			using vec4_t = Vec4<T>;
 			using mat4_t = Mat4x4<T>;
@@ -261,7 +261,7 @@ namespace pr::math::tests
 			auto d = vec4_t(T(1), T(0), T(0), T(0));
 			PR_EXPECT(All(M1 * d == d));
 		}
-		PRUnitTestMethod(TransformComposition, float, double)
+		PRUnitTestMethod(TransformComposition, Quick, float, double)
 		{
 			// Composing transforms: (B*A)*v should equal B*(A*v)
 			using vec4_t = Vec4<T>;
@@ -279,7 +279,7 @@ namespace pr::math::tests
 			auto V4 = a2c * V1;
 			PR_EXPECT(FEql(V3, V4));
 		}
-		PRUnitTestMethod(TransformFromQuat, float, double)
+		PRUnitTestMethod(TransformFromQuat, Quick, float, double)
 		{
 			// Transform from quaternion should match transform from euler angles
 			using vec4_t = Vec4<T>;
@@ -311,7 +311,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(m3, m4));
 			PR_EXPECT(FEql(m4 * vec4_t::Origin(), pos));
 		}
-		PRUnitTestMethod(W0, float, double, int32_t, int64_t)
+		PRUnitTestMethod(W0, Quick, float, double, int32_t, int64_t)
 		{
 			using vec4_t = Vec4<T>;
 			using mat4_t = Mat4x4<T>;
@@ -327,7 +327,7 @@ namespace pr::math::tests
 			PR_EXPECT(All(M0.w == vec4_t::Origin()));
 			PR_EXPECT(All(M0.x == M.x) && All(M0.y == M.y) && All(M0.z == M.z));
 		}
-		PRUnitTestMethod(IntrinsicValidation)
+		PRUnitTestMethod(IntrinsicValidation, Quick)
 		{
 			// Verify the optimised (SSE/AVX) implementations match the generic implementations.
 			// constexpr evaluation forces the 'if consteval' branch (generic scalar path).

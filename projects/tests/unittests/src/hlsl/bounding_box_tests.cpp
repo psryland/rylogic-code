@@ -13,17 +13,17 @@ namespace pr::hlsl::tests
 
 	PRUnitTestClass(BoundingBoxTests)
 	{
-		PRUnitTestMethod(ResetIsEmpty)
+		PRUnitTestMethod(ResetIsEmpty, Quick)
 		{
 			auto bbox = BBox_Reset();
 			PR_EXPECT(bbox.IsEmpty());
 		}
-		PRUnitTestMethod(CreateNotEmpty)
+		PRUnitTestMethod(CreateNotEmpty, Quick)
 		{
 			auto bbox = BBox_Create(float4(0, 0, 0, 1), float4(1, 1, 1, 0));
 			PR_EXPECT(!bbox.IsEmpty());
 		}
-		PRUnitTestMethod(MinMax)
+		PRUnitTestMethod(MinMax, Quick)
 		{
 			auto bbox = BBox_Create(float4(1, 2, 3, 1), float4(0.5f, 1, 1.5f, 0));
 			auto mn = bbox.Min();
@@ -31,13 +31,13 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(mn, float4(0.5f, 1, 1.5f, 1)));
 			PR_EXPECT(FEql(mx, float4(1.5f, 3, 4.5f, 1)));
 		}
-		PRUnitTestMethod(FromMinMax)
+		PRUnitTestMethod(FromMinMax, Quick)
 		{
 			auto bbox = BBox_FromMinMax(float4(-1, -2, -3, 1), float4(1, 2, 3, 1));
 			PR_EXPECT(FEql(bbox.centre, float4(0, 0, 0, 1)));
 			PR_EXPECT(FEql(bbox.radius, float4(1, 2, 3, 0)));
 		}
-		PRUnitTestMethod(GrowFromEmpty)
+		PRUnitTestMethod(GrowFromEmpty, Quick)
 		{
 			auto bbox = BBox_Reset();
 			bbox = bbox.Grow(float4(1, 2, 3, 1));
@@ -45,14 +45,14 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(bbox.centre, float4(1, 2, 3, 1)));
 			PR_EXPECT(FEql(bbox.radius, float4(0, 0, 0, 0)));
 		}
-		PRUnitTestMethod(GrowExpands)
+		PRUnitTestMethod(GrowExpands, Quick)
 		{
 			auto bbox = BBox_Create(float4(0, 0, 0, 1), float4(1, 1, 1, 0));
 			bbox = bbox.Grow(float4(3, 0, 0, 1));
 			auto mx = bbox.Max();
 			PR_EXPECT(FEql(mx.x, 3.0f));
 		}
-		PRUnitTestMethod(UnionTwoBoxes)
+		PRUnitTestMethod(UnionTwoBoxes, Quick)
 		{
 			auto a = BBox_Create(float4(0, 0, 0, 1), float4(1, 1, 1, 0));
 			auto b = BBox_Create(float4(3, 0, 0, 1), float4(1, 1, 1, 0));
@@ -62,7 +62,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(mn.x, -1.0f));
 			PR_EXPECT(FEql(mx.x, 4.0f));
 		}
-		PRUnitTestMethod(UnionWithEmpty)
+		PRUnitTestMethod(UnionWithEmpty, Quick)
 		{
 			auto a = BBox_Create(float4(1, 2, 3, 1), float4(0.5f, 0.5f, 0.5f, 0));
 			auto empty = BBox_Reset();
@@ -75,19 +75,19 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(u2.centre, a.centre));
 			PR_EXPECT(FEql(u2.radius, a.radius));
 		}
-		PRUnitTestMethod(IsIntersectionOverlap)
+		PRUnitTestMethod(IsIntersectionOverlap, Quick)
 		{
 			auto a = BBox_Create(float4(0, 0, 0, 1), float4(1, 1, 1, 0));
 			auto b = BBox_Create(float4(1.5f, 0, 0, 1), float4(1, 1, 1, 0));
 			PR_EXPECT(a.IsIntersection(b));
 		}
-		PRUnitTestMethod(IsIntersectionNoOverlap)
+		PRUnitTestMethod(IsIntersectionNoOverlap, Quick)
 		{
 			auto a = BBox_Create(float4(0, 0, 0, 1), float4(1, 1, 1, 0));
 			auto b = BBox_Create(float4(5, 0, 0, 1), float4(1, 1, 1, 0));
 			PR_EXPECT(!a.IsIntersection(b));
 		}
-		PRUnitTestMethod(TransformIdentity)
+		PRUnitTestMethod(TransformIdentity, Quick)
 		{
 			auto bbox = BBox_Create(float4(1, 2, 3, 1), float4(0.5f, 1, 1.5f, 0));
 			auto I = float4x4(
@@ -99,7 +99,7 @@ namespace pr::hlsl::tests
 			PR_EXPECT(FEql(result.centre, bbox.centre));
 			PR_EXPECT(FEql(result.radius, bbox.radius));
 		}
-		PRUnitTestMethod(TransformTranslation)
+		PRUnitTestMethod(TransformTranslation, Quick)
 		{
 			auto bbox = BBox_Create(float4(0, 0, 0, 1), float4(1, 1, 1, 0));
 			auto T = float4x4(

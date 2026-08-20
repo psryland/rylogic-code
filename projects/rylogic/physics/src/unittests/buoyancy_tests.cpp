@@ -20,7 +20,7 @@ namespace pr::physics::tests
 	PRUnitTestClass(BuoyancyAnalyticTests)
 	{
 		// Verify the CPU analytic clipped-box result for simple flat-water depths.
-		PRUnitTestMethod(FlatWaterBoxVolume)
+		PRUnitTestMethod(FlatWaterBoxVolume, Extended)
 		{
 			auto const half_extents = v4{1.0f, 1.0f, 0.5f, 0.0f};
 			auto check = [half_extents](float z, bool valid, float volume, v4 centroid)
@@ -47,7 +47,7 @@ namespace pr::physics::tests
 		}
 
 		// Verify water-surface wave normalisation, flat detection, and CPU height evaluation.
-		PRUnitTestMethod(WaterSurfaceEvaluation)
+		PRUnitTestMethod(WaterSurfaceEvaluation, Extended)
 		{
 			auto flat = GpuBuoyancy::WaterSurface{};
 			flat.m_waves.push_back(GpuBuoyancy::SineWave{
@@ -73,7 +73,7 @@ namespace pr::physics::tests
 
 		// Verify the analytic XY gradient agrees with a central finite difference of the
 		// height field used by rendering and wet/dry classification.
-		PRUnitTestMethod(WaterSurfaceGradient)
+		PRUnitTestMethod(WaterSurfaceGradient, Extended)
 		{
 			auto water = GpuBuoyancy::WaterSurface{};
 			water.m_level = 0.0f;
@@ -115,7 +115,7 @@ namespace pr::physics::tests
 
 		// The lateral pressure gradient follows configured orbital acceleration. It equals
 		// geometric slope only when the wave obeys deep-water gravity dispersion.
-		PRUnitTestMethod(WaterSurfacePressureGradient)
+		PRUnitTestMethod(WaterSurfacePressureGradient, Extended)
 		{
 			auto const gravity = 9.8f;
 			auto water = GpuBuoyancy::WaterSurface{};
@@ -142,7 +142,7 @@ namespace pr::physics::tests
 		// level the vertical component equals dh/dt (the linear kinematic free-surface condition),
 		// the orbital speed decays exponentially with depth, a single wave traces a circular orbit
 		// of radius A*omega, and flat water produces no flow.
-		PRUnitTestMethod(WaterSurfaceVelocity)
+		PRUnitTestMethod(WaterSurfaceVelocity, Extended)
 		{
 			// Flat water has no orbital flow anywhere.
 			auto flat = GpuBuoyancy::WaterSurface{};
@@ -259,7 +259,7 @@ namespace pr::physics::tests
 		};
 
 		// A single box flattens to one analytic Box primitive carrying its half-extents and no geometry.
-		PRUnitTestMethod(FlattenBoxSinglePrimitive)
+		PRUnitTestMethod(FlattenBoxSinglePrimitive, Extended)
 		{
 			auto const half = v4{1.5f, 0.5f, 0.25f, 0.0f};
 			auto box = collision::ShapeBox(half * 2.0f);
@@ -280,7 +280,7 @@ namespace pr::physics::tests
 
 		// The face fan for the stress-scene octahedron has one shared centre, one copy of each surface
 		// vertex, and one tetrahedron per face while preserving volume and first moment.
-		PRUnitTestMethod(FlattenOctahedronFaceFan)
+		PRUnitTestMethod(FlattenOctahedronFaceFan, Extended)
 		{
 			auto const points = std::array{
 				v4{+0.7f, 0.0f, 0.0f, 1.0f},
@@ -326,7 +326,7 @@ namespace pr::physics::tests
 		}
 
 		// A ShapeArray of two boxes flattens to two Box primitives in child order with distinct transforms.
-		PRUnitTestMethod(FlattenArrayTwoBoxes)
+		PRUnitTestMethod(FlattenArrayTwoBoxes, Extended)
 		{
 			ShapeBuilder sb;
 			sb.AddShape(collision::ShapeBox(v4{2.0f, 1.0f, 1.0f, 0.0f}, m4x4::Translation(+0.5f, 0.0f, 0.0f)));
@@ -356,7 +356,7 @@ namespace pr::physics::tests
 		// An empty ShapeArray flattens to an empty hull (no primitives). The array is constructed
 		// directly rather than via ShapeBuilder::BuildShape, which asserts that at least one shape
 		// has been added; a zero-child array is a degenerate input FlattenShape must still tolerate.
-		PRUnitTestMethod(FlattenEmptyArray)
+		PRUnitTestMethod(FlattenEmptyArray, Extended)
 		{
 			auto arr = collision::ShapeArray{};
 			arr.Complete(0);
@@ -367,7 +367,7 @@ namespace pr::physics::tests
 		}
 
 		// A sphere flattens to one Sphere primitive carrying its radius in m_params.x and no geometry.
-		PRUnitTestMethod(FlattenSphere)
+		PRUnitTestMethod(FlattenSphere, Extended)
 		{
 			auto sphere = collision::ShapeSphere(2.5f);
 			auto const hull = buoyancy::FlattenShape(collision::shape_cast(sphere));
@@ -380,7 +380,7 @@ namespace pr::physics::tests
 		}
 
 		// A triangle flattens to one Triangle primitive contributing its three surface corners.
-		PRUnitTestMethod(FlattenTriangle)
+		PRUnitTestMethod(FlattenTriangle, Extended)
 		{
 			auto tri = collision::ShapeTriangle(v4{0.0f, 0.0f, 0.0f, 1.0f}, v4{1.0f, 0.0f, 0.0f, 1.0f}, v4{0.0f, 1.0f, 0.0f, 1.0f});
 			auto const hull = buoyancy::FlattenShape(collision::shape_cast(tri));
@@ -395,7 +395,7 @@ namespace pr::physics::tests
 
 		// A tessellated polytope flattens to one Polytope primitive whose concatenated tet geometry
 		// conserves the polytope's volume.
-		PRUnitTestMethod(FlattenPolytopeTessellated)
+		PRUnitTestMethod(FlattenPolytopeTessellated, Extended)
 		{
 			v4 pts[] = {
 				v4{-1, -1, -1, 1}, v4{ 1, -1, -1, 1},
@@ -440,7 +440,7 @@ namespace pr::physics::tests
 		}
 
 		// A polytope without an interior tessellation cannot supply volume samples, so flattening throws.
-		PRUnitTestMethod(FlattenPolytopeMissingTetsThrows)
+		PRUnitTestMethod(FlattenPolytopeMissingTetsThrows, Extended)
 		{
 			v4 pts[] = {
 				v4{-1, -1, -1, 1}, v4{ 1, -1, -1, 1},
@@ -460,7 +460,7 @@ namespace pr::physics::tests
 
 		// A collision-only polytope can be converted to compact buoyancy geometry without changing the
 		// source shape. The face fan contributes one centre vertex and one tetrahedron per surface face.
-		PRUnitTestMethod(FlattenPolytopeDerivesMissingTets)
+		PRUnitTestMethod(FlattenPolytopeDerivesMissingTets, Extended)
 		{
 			v4 pts[] = {
 				v4{-1, -1, -1, 1}, v4{ 1, -1, -1, 1},
@@ -481,7 +481,7 @@ namespace pr::physics::tests
 		}
 
 		// A collision shape type the composite model does not understand (e.g. a line) is rejected.
-		PRUnitTestMethod(FlattenUnsupportedTypeThrows)
+		PRUnitTestMethod(FlattenUnsupportedTypeThrows, Extended)
 		{
 			auto line = collision::ShapeLine(2.0f);
 			auto threw = false;
@@ -491,7 +491,7 @@ namespace pr::physics::tests
 		}
 
 		// Registering a composite hull twice for the same body is an error.
-		PRUnitTestMethod(CompositeDoubleRegisterThrows)
+		PRUnitTestMethod(CompositeDoubleRegisterThrows, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 			Harness h;
@@ -510,7 +510,7 @@ namespace pr::physics::tests
 
 		// Registration derives an untessellated collision polytope directly from the rigid body. A
 		// fully submerged cube reports its exact total volume because every generated sample is wet.
-		PRUnitTestMethod(GpuCompositeDerivesBodyPolytope)
+		PRUnitTestMethod(GpuCompositeDerivesBodyPolytope, Extended)
 		{
 			v4 pts[] = {
 				v4{-1, -1, -1, 1}, v4{ 1, -1, -1, 1},
@@ -539,7 +539,7 @@ namespace pr::physics::tests
 
 		// A live registration follows RigidBody::ShapeChange. Replacing a submerged box with a sphere
 		// updates the cached geometry before the next step rather than applying forces from stale data.
-		PRUnitTestMethod(GpuCompositeRefreshesChangedBodyShape)
+		PRUnitTestMethod(GpuCompositeRefreshesChangedBodyShape, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 2.0f, 0.0f});
 			auto sphere = collision::ShapeSphere(1.0f);
@@ -562,7 +562,7 @@ namespace pr::physics::tests
 		}
 
 		// Registration marks the body NeverSleep, and releasing the handle restores the prior flag.
-		PRUnitTestMethod(CompositeUnregisterRestoresNeverSleep)
+		PRUnitTestMethod(CompositeUnregisterRestoresNeverSleep, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 			Harness h;
@@ -590,7 +590,7 @@ namespace pr::physics::tests
 		// (0, 0, rho*|g|*V) = (0, 0, 19620) N, COB (0, 0, -0.25), torque ~ 0.
 		//
 		// The composite path is checked directly against the known analytic expectations.
-		PRUnitTestMethod(GpuCompositeBoxMatchesAnalyticBox)
+		PRUnitTestMethod(GpuCompositeBoxMatchesAnalyticBox, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 			Harness h;
@@ -619,7 +619,7 @@ namespace pr::physics::tests
 		}
 
 		// Production stepping applies buoyancy without publishing validation readback.
-		PRUnitTestMethod(DiagnosticsAreOptIn)
+		PRUnitTestMethod(DiagnosticsAreOptIn, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 			Harness h(false);
@@ -650,7 +650,7 @@ namespace pr::physics::tests
 		// is a regression guard for the support-interval math driving the fast path, not a behaviour
 		// change. The body still receives m*g, so only buoyancy must be zero, verified via the
 		// diagnostic record.
-		PRUnitTestMethod(GpuCompositeBoxFullyDryContributesZero)
+		PRUnitTestMethod(GpuCompositeBoxFullyDryContributesZero, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 			Harness h;
@@ -681,7 +681,7 @@ namespace pr::physics::tests
 		// so its registration-time AABB dips below the surface and the cull is rejected. The body must
 		// be dispatched and report the normal half-submerged buoyancy (V=1 m^3, force=ρgV up), proving
 		// the cull's conservative lowest-extent test does not over-aggressively drop wetted bodies.
-		PRUnitTestMethod(GpuCompositeBoxStraddlingNotCulled)
+		PRUnitTestMethod(GpuCompositeBoxStraddlingNotCulled, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 			Harness h;
@@ -717,7 +717,7 @@ namespace pr::physics::tests
 		// A partially submerged resolution-5 polytope compares the GPU tet-CDF binary search with the
 		// CPU oracle. Partial submersion makes the result depend on the selected tet and sample position,
 		// unlike the fully submerged volume check where every selection contributes the same weight.
-		PRUnitTestMethod(GpuCompositePolytopeCdfMatchesOracle)
+		PRUnitTestMethod(GpuCompositePolytopeCdfMatchesOracle, Extended)
 		{
 			v4 pts[] = {
 				v4{+0.7f, 0.0f, 0.0f, 1.0f},
@@ -779,7 +779,7 @@ namespace pr::physics::tests
 		// the submerged union is exactly the outer box's half (2 m^3) rather than 2 + 0.25 = 2.25 m^3.
 		// This is the key composite-dedup test: without the cull the volume (and buoyancy force) would be
 		// inflated by the embedded inner primitive.
-		PRUnitTestMethod(GpuCompositeOverlappingBoxesUnionVolume)
+		PRUnitTestMethod(GpuCompositeOverlappingBoxesUnionVolume, Extended)
 		{
 			// Outer box is sibling 0, inner box is sibling 1; both concentric at the origin so the inner
 			// box is entirely contained within the outer one.
@@ -823,7 +823,7 @@ namespace pr::physics::tests
 		// positions differ slightly; with the sphere fully submerged every sample is wet, so the net volume
 		// and vertical force are insensitive to that difference and only the symmetric-cancellation
 		// quantities (lateral force, COB drift, torque) carry the residual noise.
-		PRUnitTestMethod(GpuCompositeSphereMatchesAnalytic)
+		PRUnitTestMethod(GpuCompositeSphereMatchesAnalytic, Extended)
 		{
 			auto const radius = 1.0f;
 			auto sphere = collision::ShapeSphere(radius);
@@ -864,7 +864,7 @@ namespace pr::physics::tests
 		// so the GPU combined force/torque must match the oracle's buoyancy+drag sum to within single-precision
 		// sampling noise. This validates both sampled integration passes, not just buoyancy. The GPU diagnostic
 		// force/torque are the combined buoyancy and drag values, which we compare against the oracle sum.
-		PRUnitTestMethod(GpuCompositeMatchesOracleWithDrag)
+		PRUnitTestMethod(GpuCompositeMatchesOracleWithDrag, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 			auto const o2w = m4x4::Translation(0.0f, 0.0f, -5.0f);
@@ -924,7 +924,7 @@ namespace pr::physics::tests
 
 		// Wet-volume linear damping should produce the same acceleration for equal-density geometrically
 		// similar bodies because their mass and damping force both scale with volume.
-		PRUnitTestMethod(LinearDragTimeConstantIsScaleIndependent)
+		PRUnitTestMethod(LinearDragTimeConstantIsScaleIndependent, Extended)
 		{
 			auto const frame = buoyancy::WaterFrame{};
 			auto const field = FlatField{};
@@ -958,7 +958,7 @@ namespace pr::physics::tests
 		// Rotational volume drag integrates the sampled lever arms independently of translational damping.
 		// A symmetric fully submerged box therefore receives negligible net force and the closed-form
 		// opposing torque -rho/tau * V*(dx^2+dy^2)/12 about its Z axis.
-		PRUnitTestMethod(AngularDragTimeConstantUsesWetGeometry)
+		PRUnitTestMethod(AngularDragTimeConstantUsesWetGeometry, Extended)
 		{
 			auto const dimensions = v4{2.0f, 2.0f, 1.0f, 0.0f};
 			auto const box = collision::ShapeBox(dimensions);
@@ -994,7 +994,7 @@ namespace pr::physics::tests
 
 		// A fully-submerged box under a long wave receives the configured orbital acceleration
 		// integrated over displaced volume: F_x = -rho*V*A*omega^2 at phase zero.
-		PRUnitTestMethod(GpuCompositeWavePressureHorizontalForce)
+		PRUnitTestMethod(GpuCompositeWavePressureHorizontalForce, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 			Harness h;
@@ -1049,7 +1049,7 @@ namespace pr::physics::tests
 		// A fully-submerged box translating at v = (1,0,0) in flat water sees a uniform relative flow at every
 		// wet volume sample, so the linear drag integral collapses to F = -c_lin * V * v, where c_lin is
 		// fluid_density / tau. Quadratic drag is disabled so the horizontal force is purely the linear term.
-		PRUnitTestMethod(GpuCompositeLinearDragForce)
+		PRUnitTestMethod(GpuCompositeLinearDragForce, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 			Harness h;
@@ -1091,7 +1091,7 @@ namespace pr::physics::tests
 
 		// The GPU volume pass must apply the angular coefficient only to rotational point velocity.
 		// Symmetric fully submerged geometry cancels the force while preserving its opposing drag torque.
-		PRUnitTestMethod(GpuCompositeAngularDragTorque)
+		PRUnitTestMethod(GpuCompositeAngularDragTorque, Extended)
 		{
 			auto const dimensions = v4{2.0f, 2.0f, 1.0f, 0.0f};
 			auto box = collision::ShapeBox(dimensions);
@@ -1137,7 +1137,7 @@ namespace pr::physics::tests
 		// integrated over the +X face: F_x = -0.5*rho*Cd*A_front*v_n^2. A_front = (2*hy)*(2*hz) = 2 m^2 and
 		// v_n = 1 m/s, giving F_x = -0.5*1000*1.05*2*1 = -1050 N. This closed form is independent of the
 		// surface sampler's distribution because every +X sample's dA sums exactly to the face area.
-		PRUnitTestMethod(GpuCompositeQuadraticDragLinearMotion)
+		PRUnitTestMethod(GpuCompositeQuadraticDragLinearMotion, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 			Harness h;
@@ -1183,7 +1183,7 @@ namespace pr::physics::tests
 		// Tangential surface drag acts on faces parallel to the motion. For this 2x2x1 box moving along
 		// +X, the +/-Y and +/-Z faces have 12 m^2 total area and unit tangential speed. With normal and
 		// linear drag disabled, F_x = -0.5*rho*Ct*A_tangent*|v_t|*v_t = -300 N for Ct=0.05.
-		PRUnitTestMethod(GpuCompositeTangentialDragLinearMotion)
+		PRUnitTestMethod(GpuCompositeTangentialDragLinearMotion, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 			Harness h;
@@ -1225,7 +1225,7 @@ namespace pr::physics::tests
 
 		// A quadratic drag impulse is limited at the minimum-relative-energy point so an explicit step
 		// cannot reverse the body's velocity and turn nominal damping into an energy source.
-		PRUnitTestMethod(GpuCompositeTangentialDragDoesNotOvershoot)
+		PRUnitTestMethod(GpuCompositeTangentialDragDoesNotOvershoot, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 			Harness h;
@@ -1260,7 +1260,7 @@ namespace pr::physics::tests
 		// captured purely for manual perf tracking across changes. The single PR_EXPECT only guards that
 		// the dispatch actually ran (a valid diagnostic came back), so the benchmark still fails loudly if
 		// the composite path regresses to producing nothing.
-		PRUnitTestMethod(GpuCompositeDispatchBenchmark)
+		PRUnitTestMethod(GpuCompositeDispatchBenchmark, Extended)
 		{
 			using clock = std::chrono::steady_clock;
 			auto& out = pr::unittests::TestFramework::out();

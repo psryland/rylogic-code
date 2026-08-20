@@ -314,7 +314,7 @@ namespace pr::network
 
 namespace pr::network
 {
-	PRUnitTestFamily(TcpIpTests, Slow)
+	PRUnitTest(TcpIpTests, Stress)
 	{
 		uint16_t TestPort = 54321;
 		if constexpr (sizeof(void*) == 8)

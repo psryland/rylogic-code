@@ -50,7 +50,7 @@ namespace pr::math::tests
 			return var / (count - 1);
 		}
 
-		PRUnitTestMethod(StatBasic, float, double)
+		PRUnitTestMethod(StatBasic, Quick, float, double)
 		{
 			// Known data set: {1, 2, 3, 4, 5}
 			T data[] = {T(1), T(2), T(3), T(4), T(5)};
@@ -76,7 +76,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEqlAbsolute(s.PopStdDev(), static_cast<T>(std::sqrt(T(2))), T(1e-5)));
 			PR_EXPECT(FEqlAbsolute(s.SamStdDev(), static_cast<T>(std::sqrt(T(2.5))), T(1e-5)));
 		}
-		PRUnitTestMethod(StatSingleValue, float, double)
+		PRUnitTestMethod(StatSingleValue, Quick, float, double)
 		{
 			auto s = Stat<T>{};
 			s.Add(T(42));
@@ -91,7 +91,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(s.PopStdVar(), T(0)));
 			PR_EXPECT(FEql(s.PopStdDev(), T(0)));
 		}
-		PRUnitTestMethod(StatReset, float, double)
+		PRUnitTestMethod(StatReset, Quick, float, double)
 		{
 			auto s = Stat<T>{};
 			s.Add(T(10));
@@ -108,7 +108,7 @@ namespace pr::math::tests
 			PR_EXPECT(s.Min() == T(100));
 			PR_EXPECT(s.Max() == T(100));
 		}
-		PRUnitTestMethod(StatConstantValues, float, double)
+		PRUnitTestMethod(StatConstantValues, Quick, float, double)
 		{
 			// All same values should give zero variance
 			auto s = Stat<T>{};
@@ -122,7 +122,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEqlAbsolute(s.PopStdVar(), T(0), T(1e-10)));
 			PR_EXPECT(FEqlAbsolute(s.PopStdDev(), T(0), T(1e-10)));
 		}
-		PRUnitTestMethod(StatBruteForce, float, double)
+		PRUnitTestMethod(StatBruteForce, Quick, float, double)
 		{
 			// Verify running stats match brute force for a non-trivial data set
 			T data[] = {T(2.5), T(-1.3), T(7.8), T(0.1), T(4.4), T(-3.2), T(9.9), T(1.1)};
@@ -142,7 +142,7 @@ namespace pr::math::tests
 			PR_EXPECT(s.Min() == T(-3.2));
 			PR_EXPECT(s.Max() == T(9.9));
 		}
-		PRUnitTestMethod(AvrBasic, float, double)
+		PRUnitTestMethod(AvrBasic, Quick, float, double)
 		{
 			T data[] = {T(1), T(2), T(3), T(4), T(5)};
 			auto count = 5;
@@ -162,7 +162,7 @@ namespace pr::math::tests
 			PR_EXPECT(avr.Count() == 1);
 			PR_EXPECT(FEql(avr.Mean(), T(42)));
 		}
-		PRUnitTestMethod(AvrVarBasic, float, double)
+		PRUnitTestMethod(AvrVarBasic, Quick, float, double)
 		{
 			T data[] = {T(1), T(2), T(3), T(4), T(5)};
 			auto count = 5;
@@ -181,7 +181,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEqlAbsolute(av.PopStdDev(), static_cast<T>(std::sqrt(T(2))), T(1e-5)));
 			PR_EXPECT(FEqlAbsolute(av.SamStdDev(), static_cast<T>(std::sqrt(T(2.5))), T(1e-5)));
 		}
-		PRUnitTestMethod(AvrVarBruteForce, float, double)
+		PRUnitTestMethod(AvrVarBruteForce, Quick, float, double)
 		{
 			// Compare running AvrVar against brute force
 			T data[] = {T(2.5), T(-1.3), T(7.8), T(0.1), T(4.4), T(-3.2), T(9.9), T(1.1)};
@@ -199,7 +199,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEqlAbsolute(av.PopStdVar(), expected_pop_var, T(1e-4)));
 			PR_EXPECT(FEqlAbsolute(av.SamStdVar(), expected_sam_var, T(1e-4)));
 		}
-		PRUnitTestMethod(AvrVarReset, float, double)
+		PRUnitTestMethod(AvrVarReset, Quick, float, double)
 		{
 			auto av = AvrVar<T>{};
 			av.Add(T(10));
@@ -213,7 +213,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(av.Mean(), T(5)));
 			PR_EXPECT(FEql(av.PopStdVar(), T(0)));
 		}
-		PRUnitTestMethod(ExpMovingAvrBasic, float, double)
+		PRUnitTestMethod(ExpMovingAvrBasic, Quick, float, double)
 		{
 			// Before window is full, should behave like standard running average
 			auto ema = ExpMovingAvr<T>(5);
@@ -232,7 +232,7 @@ namespace pr::math::tests
 			PR_EXPECT(ema.Count() == 3);
 			PR_EXPECT(FEql(ema.Mean(), T(3)));
 		}
-		PRUnitTestMethod(ExpMovingAvrSteadyState, float, double)
+		PRUnitTestMethod(ExpMovingAvrSteadyState, Quick, float, double)
 		{
 			// Once past window size, EMA should weight recent values more.
 			// For constant input, mean should converge to that constant.
@@ -243,7 +243,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEqlAbsolute(ema.Mean(), T(10), T(1e-6)));
 			PR_EXPECT(FEqlAbsolute(ema.PopStdVar(), T(0), T(1e-6)));
 		}
-		PRUnitTestMethod(ExpMovingAvrReset, float, double)
+		PRUnitTestMethod(ExpMovingAvrReset, Quick, float, double)
 		{
 			auto ema = ExpMovingAvr<T>(5);
 			for (int i = 0; i != 10; ++i)
@@ -257,7 +257,7 @@ namespace pr::math::tests
 			PR_EXPECT(ema.Count() == 1);
 			PR_EXPECT(FEql(ema.Mean(), T(42)));
 		}
-		PRUnitTestMethod(ExpMovingAvrResponsiveness, float, double)
+		PRUnitTestMethod(ExpMovingAvrResponsiveness, Quick, float, double)
 		{
 			// After a step change, the EMA should track toward the new value.
 			// Smaller window = faster tracking.
@@ -282,7 +282,7 @@ namespace pr::math::tests
 			PR_EXPECT(ema_fast.Mean() > ema_slow.Mean());
 			PR_EXPECT(ema_fast.Mean() > T(50)); // fast should have tracked most of the way
 		}
-		PRUnitTestMethod(MovingAvrBasic, float, double)
+		PRUnitTestMethod(MovingAvrBasic, Quick, float, double)
 		{
 			// Before window is full, should behave like standard running average
 			auto ma = MovingAvr<16, T>(4);
@@ -304,7 +304,7 @@ namespace pr::math::tests
 			PR_EXPECT(ma.Count() == 4);
 			PR_EXPECT(FEql(ma.Mean(), T(5)));
 		}
-		PRUnitTestMethod(MovingAvrWindowWrap, float, double)
+		PRUnitTestMethod(MovingAvrWindowWrap, Quick, float, double)
 		{
 			// Once full, the window should slide: oldest value dropped, newest added.
 			// Window = {2, 4, 6, 8} → mean = 5
@@ -325,7 +325,7 @@ namespace pr::math::tests
 			ma.Add(T(12));
 			PR_EXPECT(FEqlAbsolute(ma.Mean(), T(9), T(1e-5)));
 		}
-		PRUnitTestMethod(MovingAvrConstant, float, double)
+		PRUnitTestMethod(MovingAvrConstant, Quick, float, double)
 		{
 			// Constant values should give zero variance
 			auto ma = MovingAvr<16, T>(5);
@@ -335,7 +335,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEqlAbsolute(ma.Mean(), T(3), T(1e-6)));
 			PR_EXPECT(FEqlAbsolute(ma.PopStdVar(), T(0), T(1e-10)));
 		}
-		PRUnitTestMethod(MovingAvrReset, float, double)
+		PRUnitTestMethod(MovingAvrReset, Quick, float, double)
 		{
 			auto ma = MovingAvr<16, T>(4);
 			ma.Add(T(1));
@@ -349,7 +349,7 @@ namespace pr::math::tests
 			PR_EXPECT(ma.Count() == 1);
 			PR_EXPECT(FEql(ma.Mean(), T(10)));
 		}
-		PRUnitTestMethod(MovingAvrVariance, float, double)
+		PRUnitTestMethod(MovingAvrVariance, Quick, float, double)
 		{
 			// Window = {1, 2, 3, 4}, mean = 2.5
 			// Pop var = ((1-2.5)² + (2-2.5)² + (3-2.5)² + (4-2.5)²) / 4 = (2.25+0.25+0.25+2.25)/4 = 5/4 = 1.25
@@ -365,7 +365,7 @@ namespace pr::math::tests
 			// Sample var = 5/3 ≈ 1.6667
 			PR_EXPECT(FEqlAbsolute(ma.SamStdVar(), T(5.0/3.0), T(1e-4)));
 		}
-		PRUnitTestMethod(ComponentCount, float, double)
+		PRUnitTestMethod(ComponentCount, Quick, float, double)
 		{
 			auto c = stats::Count<T>{};
 			c.Reset();
@@ -376,7 +376,7 @@ namespace pr::math::tests
 			c.Add(T(3));
 			PR_EXPECT(c.m_count == 3);
 		}
-		PRUnitTestMethod(ComponentMinMax, float, double)
+		PRUnitTestMethod(ComponentMinMax, Quick, float, double)
 		{
 			auto mm = stats::MinMax<T>{};
 			mm.Reset();
@@ -397,7 +397,7 @@ namespace pr::math::tests
 			PR_EXPECT(mm.m_min == T(-3));
 			PR_EXPECT(mm.m_max == T(10));
 		}
-		PRUnitTestMethod(ComponentMean, float, double)
+		PRUnitTestMethod(ComponentMean, Quick, float, double)
 		{
 			auto m = stats::Mean<T>{};
 			m.Reset();
@@ -411,7 +411,7 @@ namespace pr::math::tests
 			m.Add(T(30), 3);
 			PR_EXPECT(FEql(m.m_mean, T(20)));
 		}
-		PRUnitTestMethod(SMABasic, float, double)
+		PRUnitTestMethod(SMABasic, Quick, float, double)
 		{
 			// The SMA component type uses a dynamic vector buffer
 			auto sma = stats::SMA<T>(3);
@@ -431,7 +431,7 @@ namespace pr::math::tests
 			PR_EXPECT(sma.Count() == 3);
 			PR_EXPECT(FEqlAbsolute(sma.Mean(), T(6), T(1e-5)));
 		}
-		PRUnitTestMethod(SMAReset, float, double)
+		PRUnitTestMethod(SMAReset, Quick, float, double)
 		{
 			auto sma = stats::SMA<T>(4);
 			sma.Add(T(1));
@@ -444,7 +444,7 @@ namespace pr::math::tests
 			PR_EXPECT(sma.Count() == 1);
 			PR_EXPECT(FEql(sma.Mean(), T(100)));
 		}
-		PRUnitTestMethod(EMAComponent, float, double)
+		PRUnitTestMethod(EMAComponent, Quick, float, double)
 		{
 			// The EMA component type
 			auto ema = stats::EMA<T>(5);
@@ -466,7 +466,7 @@ namespace pr::math::tests
 
 			PR_EXPECT(FEqlAbsolute(ema.Mean(), T(7), T(1e-6)));
 		}
-		PRUnitTestMethod(NegativeValues, float, double)
+		PRUnitTestMethod(NegativeValues, Quick, float, double)
 		{
 			// Verify stats work correctly with negative values
 			auto s = Stat<T>{};
@@ -482,7 +482,7 @@ namespace pr::math::tests
 			// Pop var: ((−5−(−3))²+(−3−(−3))²+(−1−(−3))²)/3 = (4+0+4)/3 ≈ 2.667
 			PR_EXPECT(FEqlAbsolute(s.PopStdVar(), T(8.0/3.0), T(1e-5)));
 		}
-		PRUnitTestMethod(LargeDataSet, float, double)
+		PRUnitTestMethod(LargeDataSet, Quick, float, double)
 		{
 			// Test numerical stability with a larger data set
 			auto s = Stat<T>{};

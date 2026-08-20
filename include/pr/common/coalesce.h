@@ -81,7 +81,7 @@ namespace pr::common
 			return &s_outside;
 		}
 	
-		PRUnitTestMethod(CoalesceTests)
+		PRUnitTestMethod(CoalesceTests, Quick)
 		{
 			int const s_inside = 24;
 			int const* inside = &s_inside;

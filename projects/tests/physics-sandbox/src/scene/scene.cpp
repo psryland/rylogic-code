@@ -1674,7 +1674,7 @@ namespace physics_sandbox::tests
 
 	PRUnitTestClass(SceneReloadTests)
 	{
-		PRUnitTestMethod(LoadSceneClearsEngineCachedShapeState)
+		PRUnitTestMethod(LoadSceneClearsEngineCachedShapeState, Quick)
 		{
 			auto scene = Scene(nullptr);
 			auto short_box = BoxScene(v4{ 1.0f, 1.0f, 1.0f, 0.0f }, 0.6f);

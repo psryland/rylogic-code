@@ -2553,7 +2553,7 @@ namespace pr::geometry::p3d
 #include "pr/common/unittests.h"
 namespace pr::geometry
 {
-	PRUnitTest(P3dTests)
+	PRUnitTest(P3dTests, Quick)
 	{
 		using namespace pr::geometry::p3d;
 

@@ -308,7 +308,7 @@ namespace pr::hash
 #include "pr/common/unittests.h"
 namespace pr::hash
 {
-	PRUnitTest(Blake2bTests)
+	PRUnitTest(Blake2bTests, Quick)
 	{
 		using namespace pr::hash;
 

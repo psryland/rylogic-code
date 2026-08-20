@@ -283,7 +283,7 @@ namespace pr::hash
 #include "pr/common/unittests.h"
 namespace pr::hash
 {
-	PRUnitTest(Sha512Tests)
+	PRUnitTest(Sha512Tests, Quick)
 	{
 		using namespace pr::hash;
 
@@ -305,7 +305,7 @@ namespace pr::hash
 	// block" branch in Final() exactly, leaving the size-field words as the only ones not set by
 	// message bytes. Expected hashes were computed independently (Python hashlib.sha512) for the
 	// deterministic byte pattern `i % 251`.
-	PRUnitTest(Sha512BlockBoundaryTests)
+	PRUnitTest(Sha512BlockBoundaryTests, Quick)
 	{
 		using namespace pr::hash;
 

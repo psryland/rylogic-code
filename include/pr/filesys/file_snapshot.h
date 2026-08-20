@@ -205,7 +205,7 @@ namespace pr::filesys
 #include "pr/common/unittests.h"
 namespace pr::filesys
 {
-	PRUnitTestFamily(FileSnapshotTests, Slow)
+	PRUnitTest(FileSnapshotTests, Stress)
 	{
 		auto const filepath = temp_dir() / std::format("pr_file_snapshot_{}_{}.tmp", ::GetCurrentProcessId(), ::GetTickCount64());
 

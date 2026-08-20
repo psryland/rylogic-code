@@ -485,7 +485,7 @@ namespace pr
 #include <thread>
 namespace pr::network
 {
-	PRUnitTest(PipeSimpleTest)
+	PRUnitTest(PipeSimpleTest, Quick)
 	{
 		// Start a server and a client.
 		// Send one message from the client to the server

@@ -610,7 +610,7 @@ namespace pr::hash
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(HashTests)
+	PRUnitTest(HashTests, Quick)
 	{
 		using namespace pr::hash;
 

@@ -16,7 +16,7 @@ namespace pr::math::tests
 			: rng(1)
 		{}
 
-		PRUnitTestMethod(ZeroFillIdentity)
+		PRUnitTestMethod(ZeroFillIdentity, Quick)
 		{
 			{
 				auto m = Matrix<double>::Fill(2, 3, 42.0);
@@ -37,7 +37,7 @@ namespace pr::math::tests
 		}
 
 		// Identity follows the logical dimensions of transposed rectangular matrices.
-		PRUnitTestMethod(IdentityTransposedNonSquare)
+		PRUnitTestMethod(IdentityTransposedNonSquare, Quick)
 		{
 			// Verify that every logical position holds 1 on the diagonal and 0 elsewhere.
 			auto check = [](int physical_vecs, int physical_cmps) noexcept
@@ -55,7 +55,7 @@ namespace pr::math::tests
 			check(3, 2);
 		}
 
-		PRUnitTestMethod(LUDecomposition)
+		PRUnitTestMethod(LUDecomposition, Quick)
 		{
 			auto m = MatrixLU<double>(4, 4, 
 			{
@@ -74,7 +74,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(m.lu, res));
 		}
 
-		PRUnitTestMethod(Invert)
+		PRUnitTestMethod(Invert, Quick)
 		{
 			auto m = Matrix<double>(4, 4, { 1, 2, 3, 1, 4, -5, 6, 5, 7, 8, 9, -9, -10, 11, 12, 0 });
 			auto inv = Invert(m);
@@ -88,7 +88,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(inv, INV));
 		}
 
-		PRUnitTestMethod(InvertCompareWithMat4x4)
+		PRUnitTestMethod(InvertCompareWithMat4x4, Quick)
 		{
 			// Verify Matrix<float> invert matches Mat4x4<float> invert
 			using v4f = Vec4<float>;
@@ -113,7 +113,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(m2, M2));
 		}
 
-		PRUnitTestMethod(Multiply)
+		PRUnitTestMethod(Multiply, Quick)
 		{
 			// Non-square multiply
 			double data0[] = {1, 2, 3, 4, 0.1, 0.2, 0.3, 0.4, -4, -3, -2, -1};
@@ -151,7 +151,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEqlRelative(m2, M2, 0.0001f));
 		}
 
-		PRUnitTestMethodFamily(MultiplyRoundTrip, Slow)
+		PRUnitTestMethod(MultiplyRoundTrip, Stress)
 		{
 			const int SZ = 100;
 			Matrix<float> m(SZ, SZ);
@@ -172,7 +172,7 @@ namespace pr::math::tests
 			}
 		}
 
-		PRUnitTestMethod(Transpose)
+		PRUnitTestMethod(Transpose, Quick)
 		{
 			const int vecs = 4, cmps = 3;
 			auto m = Matrix<double>::Random(rng, vecs, cmps, -5.0, 5.0);
@@ -188,7 +188,7 @@ namespace pr::math::tests
 					PR_EXPECT(m(r, c) == t(c, r));
 		}
 
-		PRUnitTestMethod(SubtractTransposeStates, float, double)
+		PRUnitTestMethod(SubtractTransposeStates, Quick, float, double)
 		{
 			using mat_t = Matrix<T>;
 
@@ -205,7 +205,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(m - mt, mat_t::Zero(2, 3)));
 		}
 
-		PRUnitTestMethod(Resizing)
+		PRUnitTestMethod(Resizing, Quick)
 		{
 			auto M = Matrix<double>::Random(rng, 4, 3, -5.0, 5.0);
 			auto m = M;
@@ -246,7 +246,7 @@ namespace pr::math::tests
 			}
 		}
 
-		PRUnitTestMethod(CopyAssignmentPreservesTranspose, float, double)
+		PRUnitTestMethod(CopyAssignmentPreservesTranspose, Quick, float, double)
 		{
 			using mat_t = Matrix<T>;
 
@@ -294,7 +294,7 @@ namespace pr::math::tests
 			});
 		}
 
-		PRUnitTestMethod(MoveAssignmentPreservesTranspose, float, double)
+		PRUnitTestMethod(MoveAssignmentPreservesTranspose, Quick, float, double)
 		{
 			using mat_t = Matrix<T>;
 
@@ -344,7 +344,7 @@ namespace pr::math::tests
 			});
 		}
 
-		PRUnitTestMethod(ResizePreserveData)
+		PRUnitTestMethod(ResizePreserveData, Quick)
 		{
 			// local→local: component count increases, both layouts fit in m_buf.
 			// 2×2 → 2×3: existing elements stay at their per-vector positions; new column is zeroed.
@@ -445,7 +445,7 @@ namespace pr::math::tests
 			}
 		}
 
-		PRUnitTestMethod(DotProduct)
+		PRUnitTestMethod(DotProduct, Quick)
 		{
 			auto a = Matrix<float>(1, 3, {1.0f, 2.0f, 3.0f});
 			auto b = Matrix<float>(1, 3, {3.0f, 2.0f, 1.0f});
@@ -453,7 +453,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(r, 10.0f));
 		}
 
-		PRUnitTestMethod(EigenSymmetricIdentity)
+		PRUnitTestMethod(EigenSymmetricIdentity, Quick)
 		{
 			// Identity matrix: eigenvalues all 1, eigenvectors are axis-aligned
 			auto I = Matrix<double>::Identity(3, 3);
@@ -464,7 +464,7 @@ namespace pr::math::tests
 				PR_EXPECT(std::abs(result.values(0, i) - 1.0) < 1e-10);
 		}
 
-		PRUnitTestMethod(EigenSymmetricDiagonal)
+		PRUnitTestMethod(EigenSymmetricDiagonal, Quick)
 		{
 			// Diagonal matrix: eigenvalues are the diagonal entries, sorted descending
 			auto D = Matrix<double>(3, 3, { 5,0,0, 0,2,0, 0,0,8 });
@@ -475,7 +475,7 @@ namespace pr::math::tests
 			PR_EXPECT(std::abs(result.values(0, 2) - 2.0) < 1e-10);
 		}
 
-		PRUnitTestMethod(EigenSymmetricKnown3x3)
+		PRUnitTestMethod(EigenSymmetricKnown3x3, Quick)
 		{
 			// M = [2 1 0; 1 3 1; 0 1 2] has eigenvalues 4, 2, 1.
 			auto M = Matrix<double>(3, 3, { 2,1,0, 1,3,1, 0,1,2 });
@@ -501,7 +501,7 @@ namespace pr::math::tests
 			}
 		}
 
-		PRUnitTestMethod(EigenSymmetricLarger)
+		PRUnitTestMethod(EigenSymmetricLarger, Quick)
 		{
 			// 5×5 symmetric matrix
 			auto M = Matrix<double>(5, 5, {
@@ -529,7 +529,7 @@ namespace pr::math::tests
 			}
 		}
 
-		PRUnitTestMethod(EigenSymmetricSingleElement)
+		PRUnitTestMethod(EigenSymmetricSingleElement, Quick)
 		{
 			// 1×1 matrix: eigenvalue is the single element
 			auto M = Matrix<double>(1, 1, { 7.0 });
@@ -538,7 +538,7 @@ namespace pr::math::tests
 			PR_EXPECT(std::abs(result.values(0, 0) - 7.0) < 1e-10);
 		}
 
-		PRUnitTestMethod(EigenSymmetricEmpty)
+		PRUnitTestMethod(EigenSymmetricEmpty, Quick)
 		{
 			// 0×0 matrix: empty result
 			auto M = Matrix<double>(0, 0);
@@ -547,7 +547,7 @@ namespace pr::math::tests
 			PR_EXPECT(result.vectors.cmps() == 0);
 		}
 
-		PRUnitTestMethod(EigenTopKSmall)
+		PRUnitTestMethod(EigenTopKSmall, Quick)
 		{
 			// Top-2 eigenpairs of a 3×3 matrix
 			auto M = Matrix<double>(3, 3, { 2,1,0, 1,3,1, 0,1,2 });
@@ -576,7 +576,7 @@ namespace pr::math::tests
 			}
 		}
 
-		PRUnitTestMethod(EigenTopKDoubleCentered)
+		PRUnitTestMethod(EigenTopKDoubleCentered, Quick)
 		{
 			// Regression test: the classical MDS Gram matrix B = -0.5·J·D²·J has 1 in its null
 			// space (B·1 = 0). A Lanczos implementation starting from [1,…,1]/√N collapses to

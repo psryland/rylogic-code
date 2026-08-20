@@ -295,7 +295,7 @@ namespace pr
 #include "pr/common/unittests.h"
 namespace pr::common
 {
-	PRUnitTest(RegistryKeyTests)
+	PRUnitTest(RegistryKeyTests, Quick)
 	{
 		char const* subkey = "Software\\Rylogic\\unittest\\";
 

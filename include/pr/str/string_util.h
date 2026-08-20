@@ -684,7 +684,7 @@ namespace pr::str
 {
 	PRUnitTestClass(StringUtilTests)
 	{
-		PRUnitTestMethod(EnsureNewline)
+		PRUnitTestMethod(EnsureNewline, Quick)
 		{
 			std::string thems_without   = "without";
 			std::wstring thems_with     = L"with\n";
@@ -693,7 +693,7 @@ namespace pr::str
 			PR_EXPECT(*(End(thems_without) - 1) ==  '\n');
 			PR_EXPECT(*(End(thems_with)    - 1) == L'\n');
 		}
-		PRUnitTestMethod(Contains)
+		PRUnitTestMethod(Contains, Quick)
 		{
 			std::string src = "string";
 			PR_EXPECT(Contains(src, "in") );
@@ -701,7 +701,7 @@ namespace pr::str
 			PR_EXPECT(ContainsI(src, "iNg"));
 			PR_EXPECT(ContainsI(src, "inG"));
 		}
-		PRUnitTestMethod(Compare)
+		PRUnitTestMethod(Compare, Quick)
 		{
 			std::string src = "string1";
 			PR_EXPECT(Compare(src, "string2")  == -1);
@@ -715,7 +715,7 @@ namespace pr::str
 			PR_EXPECT(CompareI(src, "string11") == -1);
 			PR_EXPECT(CompareI(src, "strinG"  ) ==  1);
 		}
-		PRUnitTestMethod(Count)
+		PRUnitTestMethod(Count, Quick)
 		{
 			char            aarr[] =  "s0tr0";
 			wchar_t         warr[] = L"s0tr0";
@@ -726,14 +726,14 @@ namespace pr::str
 			PR_EXPECT(Count(astr, "0")  == 2U);
 			PR_EXPECT(Count(wstr, "0t") == 1U);
 		}
-		PRUnitTestMethod(CompressDelimiters)
+		PRUnitTestMethod(CompressDelimiters, Quick)
 		{
 			char src[] = "\n\nstuff     with  \n  white\n   space   \n in   ";
 			char res[] = "stuff with\nwhite\nspace\nin";
 			CompressDelimiters(src, " \n", ' ', true);
 			PR_EXPECT(Equal(src, res));
 		}
-		PRUnitTestMethod(Tokenise)
+		PRUnitTestMethod(Tokenise, Quick)
 		{
 			char const src[] = "tok0 tok1 tok2 \"tok3 and tok3\" tok4 'tok5 & tok6'";
 			std::vector<std::string> tokens;
@@ -746,7 +746,7 @@ namespace pr::str
 			PR_EXPECT(tokens[4] == "tok4"          );
 			PR_EXPECT(tokens[5] == "tok5 & tok6"   );
 		}
-		PRUnitTestMethod(StripComments)
+		PRUnitTestMethod(StripComments, Quick)
 		{
 			char src[] =
 				"//Line Comment\n"
@@ -756,7 +756,7 @@ namespace pr::str
 			char res[] = "\nNot a comment\n";
 			PR_EXPECT(Equal(StripCppComments(src), res));
 		}
-		PRUnitTestMethod(Replace)
+		PRUnitTestMethod(Replace, Quick)
 		{
 			char empty_src[] = "";
 			char empty_res[] = "";
@@ -776,7 +776,7 @@ namespace pr::str
 			PR_EXPECT(ReplaceI(src, "DONKEY", "arse") == 2u);
 			PR_EXPECT(Equal(src, res1));
 		}
-		PRUnitTestMethod(ConvertToCString)
+		PRUnitTestMethod(ConvertToCString, Quick)
 		{
 			char const str[] = "Not a \"Cstring\". \a \b \f \n \r \t \v \\ \? \' ";
 			char const res[] = "Not a \\\"Cstring\\\". \\a \\b \\f \\n \\r \\t \\v \\\\ \\? \\\' ";
@@ -786,7 +786,7 @@ namespace pr::str
 			PR_EXPECT(Equal(cstr1, res));
 			PR_EXPECT(Equal(str1, str));
 		}
-		PRUnitTestMethod(FindIdentifier)
+		PRUnitTestMethod(FindIdentifier, Quick)
 		{
 			PR_EXPECT(2  == FindIdentifier(" 1token"        , "token"));
 			PR_EXPECT(2  == FindIdentifier(" 1token"        , "token", 2));
@@ -801,7 +801,7 @@ namespace pr::str
 			PR_EXPECT(11 == FindIdentifier(" _1111token"    , "token"));
 			PR_EXPECT(6  == FindIdentifier(" _1111token"    , "token", 2));
 		}
-		PRUnitTestMethod(NextIdentifier)
+		PRUnitTestMethod(NextIdentifier, Quick)
 		{
 			char const str[] = "_1st,;=2nd\n_3rd";
 			size_t idx = 0;
@@ -817,7 +817,7 @@ namespace pr::str
 			ident = NextIdentifier(str, idx);
 			PR_EXPECT(ident.empty());
 		}
-		PRUnitTestMethod(Quotes)
+		PRUnitTestMethod(Quotes, Quick)
 		{
 			char empty[3] = "";
 			wchar_t one[4] = L"1";
@@ -832,7 +832,7 @@ namespace pr::str
 			PR_EXPECT(str::Equal("two"    ,Quotes(two   ,false)));
 			PR_EXPECT(str::Equal(L"three" ,Quotes(three ,false)));
 		}
-		PRUnitTestMethod(PrettyBytes)
+		PRUnitTestMethod(PrettyBytes, Quick)
 		{
 			auto pretty = [](long long bytes)
 			{
@@ -852,20 +852,20 @@ namespace pr::str
 			PR_EXPECT(pretty(1855425871872)       ==   "1.9TB 1.7TiB"   );
 			PR_EXPECT(pretty(9223372036854775807) ==   "9.2EB 8.0EiB"   );
 		}
-		PRUnitTestMethod(PrettyNumber)
+		PRUnitTestMethod(PrettyNumber, Quick)
 		{
 			PR_EXPECT(PrettyNumber<std::wstring>(1.234e10, 6, 3)    == L"12,340.000"    );
 			PR_EXPECT(PrettyNumber<std::wstring>(1.234e10, 3, 3)    == L"12,340,000.000");
 			PR_EXPECT(PrettyNumber<std::wstring>(1.234e-10, -3, 3)  == L"0.000"         );
 			PR_EXPECT(PrettyNumber<std::wstring>(1.234e-10, -12, 3) == L"123.400"       );
 		}
-		PRUnitTestMethod(ProcessIndentedNewlines)
+		PRUnitTestMethod(ProcessIndentedNewlines, Quick)
 		{
 			std::string str = "\nwords    and     \n\t\t\tmore  words  \n\t\t and more\nwords\n";
 			ProcessIndentedNewlines(str);
 			PR_EXPECT(str == "\nwords    and\nmore  words\n and more\nwords\n");
 		}
-		PRUnitTestMethod(LevenshteinDistance)
+		PRUnitTestMethod(LevenshteinDistance, Quick)
 		{
 			PR_EXPECT(LevenshteinDistance("Book", "Back") == 2);
 			PR_EXPECT(LevenshteinDistance("Hippopotamus", "Giraffe") == 10);

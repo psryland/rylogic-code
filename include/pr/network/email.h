@@ -162,7 +162,7 @@ namespace pr::network
 
 namespace pr::network
 {
-	PRUnitTest(EmailTests)
+	PRUnitTest(EmailTests, Quick)
 	{
 		//Email()
 		//	.To("psryland@gmail.com")

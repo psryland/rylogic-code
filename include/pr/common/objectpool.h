@@ -271,7 +271,7 @@ namespace pr
 namespace pr::unittests
 {
 	// Verify the two-argument path forwards both values into placement-new.
-	PRUnitTest(ObjectPoolTwoArgConstruct)
+	PRUnitTest(ObjectPoolTwoArgConstruct, Quick)
 	{
 		struct TwoArgOnly
 		{

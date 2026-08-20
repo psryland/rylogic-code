@@ -548,19 +548,19 @@ namespace pr::algorithm
 	{
 		inline static constexpr bool CreateVisuals = false;
 
-		PRUnitTestMethod(Empty)
+		PRUnitTestMethod(Empty, Quick)
 		{
 			auto result = mds::Embed(std::span<int const>{}, [](int, int) { return 0.0f; });
 			PR_EXPECT(result.empty());
 		}
-		PRUnitTestMethod(Single)
+		PRUnitTestMethod(Single, Quick)
 		{
 			int items[] = { 42 };
 			auto result = mds::Embed(items, [](int, int) { return 0.0f; });
 			PR_EXPECT(result.size() == 1);
 			PR_EXPECT(std::abs(result[0].w - 1.0f) < 1e-5f);
 		}
-		PRUnitTestMethod(KnownSquare)
+		PRUnitTestMethod(KnownSquare, Quick)
 		{
 			// Four points forming a unit square. The distance function returns pre-computed distances.
 			// Points: (0,0), (1,0), (1,1), (0,1) — distances: adjacent=1, diagonal=sqrt(2)
@@ -596,7 +596,7 @@ namespace pr::algorithm
 				PR_EXPECT(std::abs(p.w - 1.0f) < 1e-5f);
 			}
 		}
-		PRUnitTestMethod(EmbedWithMissingDistances)
+		PRUnitTestMethod(EmbedWithMissingDistances, Quick)
 		{
 			// Square: only adjacent-edge distances are known; diagonals are unknown (nullopt).
 			// ISOMAP should impute the diagonal as 1+1=2 via a path through a corner.
@@ -628,7 +628,7 @@ namespace pr::algorithm
 				PR_EXPECT(std::isfinite(result[i].y));
 			}
 		}
-		PRUnitTestMethod(ImputeMissingDisconnected)
+		PRUnitTestMethod(ImputeMissingDisconnected, Quick)
 		{
 			// Two disconnected pairs: {0,1} and {2,3}. Floyd-Warshall cannot bridge them.
 			int items[] = { 0, 1, 2, 3 };
@@ -644,7 +644,7 @@ namespace pr::algorithm
 			catch (std::runtime_error const&) { threw = true; }
 			PR_EXPECT(threw);
 		}
-		PRUnitTestMethod(FitPerfectEmbedding)
+		PRUnitTestMethod(FitPerfectEmbedding, Quick)
 		{
 			// Unit square -> perfect 2D embedding. Stress should be ~0, Pearson ~1.
 			struct Point { float x, y; };
@@ -666,7 +666,7 @@ namespace pr::algorithm
 			PR_EXPECT(report.pearson > 0.99);
 			PR_EXPECT(report.max_abs_error < 1e-3);
 		}
-		PRUnitTestMethod(FitWithObservedPredicate)
+		PRUnitTestMethod(FitWithObservedPredicate, Quick)
 		{
 			// Fit report with is_observed flags only edges (unit distance) as observed.
 			struct Point { float x, y; };
@@ -687,7 +687,7 @@ namespace pr::algorithm
 			PR_EXPECT(report.observed_pair_count == 4); // 4 edges, 2 diagonals
 			PR_EXPECT(report.stress_observed < 0.01);
 		}
-		PRUnitTestMethod(EigenSpectrumPlanarPoints)
+		PRUnitTestMethod(EigenSpectrumPlanarPoints, Quick)
 		{
 			// 30 coplanar points sampled from a 3D space — the Gram matrix should have essentially
 			// two large positive eigenvalues (capturing the plane) and the rest near zero.
@@ -719,7 +719,7 @@ namespace pr::algorithm
 			// 2D fit ceiling should be > 99% (essentially perfect)
 			PR_EXPECT(spectrum.fit_ceiling(2) > 0.99);
 		}
-		PRUnitTestMethod(Visualise)
+		PRUnitTestMethod(Visualise, Quick)
 		{
 			constexpr int N = 100;
 
@@ -757,7 +757,7 @@ namespace pr::algorithm
 			}
 			#endif
 		}
-		PRUnitTestMethod(Visualise2)
+		PRUnitTestMethod(Visualise2, Quick)
 		{
 			// Cluster strings by edit distance, embed into 2D, visualise with ldraw.
 			// Three clusters of similar strings should separate in the embedding.

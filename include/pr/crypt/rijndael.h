@@ -1599,7 +1599,7 @@ namespace pr::crypt
 
 namespace pr::crypt
 {
-	PRUnitTest(RijndealTests)
+	PRUnitTest(RijndealTests, Quick)
 	{
 		typedef unsigned char byte;
 

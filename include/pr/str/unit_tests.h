@@ -20,7 +20,7 @@ namespace pr::str
 		//  - C# uses utf-16 for its strings and "".Length returns the array size,
 		//    not the number of characters.
 
-		PRUnitTestMethod(NarrowString)
+		PRUnitTestMethod(NarrowString, Quick)
 		{
 			using namespace unittests;
 			using namespace std::string_view_literals;
@@ -63,7 +63,7 @@ namespace pr::str
 				PR_EXPECT(UTEqual(r.c_str(), {0x7A_c8, 0xC3_c8, 0x9F_c8, 0xE6_c8, 0xB0_c8, 0xB4_c8, 0xF0_c8, 0x9F_c8, 0x8D_c8, 0x8C_c8, 0x00_c8}));
 			}
 		}
-		PRUnitTestMethod(WidenString)
+		PRUnitTestMethod(WidenString, Quick)
 		{
 			using namespace unittests;
 			using namespace std::string_view_literals;
@@ -106,7 +106,7 @@ namespace pr::str
 				PR_EXPECT(UTEqual(r.c_str(), {0x007a, 0x00df, 0x6c34, 0xd83c, 0xdf4c, 0}));
 			}
 		}
-		PRUnitTestMethod(ConvertUtf)
+		PRUnitTestMethod(ConvertUtf, Quick)
 		{
 			using namespace unittests;
 
@@ -137,7 +137,7 @@ namespace pr::str
 				PR_EXPECT(UTEqual(r.c_str(), { 0x005F, 0 }));
 			}
 		}
-		PRUnitTestMethod(Empty)
+		PRUnitTestMethod(Empty, Quick)
 		{
 			char const* aptr = "full";
 			char            aarr[] = "";
@@ -153,7 +153,7 @@ namespace pr::str
 			PR_EXPECT(!Empty(warr));
 			PR_EXPECT(!Empty(wstr));
 		}
-		PRUnitTestMethod(Size)
+		PRUnitTestMethod(Size, Quick)
 		{
 			char const* aptr = "length7";
 			char            aarr[] = "length7";
@@ -169,7 +169,7 @@ namespace pr::str
 			PR_EXPECT(Size(warr) == size_t(7));
 			PR_EXPECT(Size(wstr) == size_t(7));
 		}
-		PRUnitTestMethod(Range)
+		PRUnitTestMethod(Range, Quick)
 		{
 			char const* aptr = "range";
 			char            aarr[] = "range";
@@ -185,7 +185,7 @@ namespace pr::str
 			PR_EXPECT(*Begin(warr) == L'r' && *(End(warr) - 1) == L'e');
 			PR_EXPECT(*Begin(wstr) == L'r' && *(End(wstr) - 1) == L'e');
 		}
-		PRUnitTestMethod(Equal)
+		PRUnitTestMethod(Equal, Quick)
 		{
 			char const* aptr = "equal";
 			char            aarr[] = "equal";
@@ -207,7 +207,7 @@ namespace pr::str
 			PR_EXPECT(!Equal(warr, "equal!"));
 			PR_EXPECT(!Equal(wstr, "equal!"));
 		}
-		PRUnitTestMethod(EqualI)
+		PRUnitTestMethod(EqualI, Quick)
 		{
 			char const* aptr = "Equal";
 			char            aarr[] = "eQual";
@@ -229,7 +229,7 @@ namespace pr::str
 			PR_EXPECT(!EqualI(warr, "equal!"));
 			PR_EXPECT(!EqualI(wstr, "equal!"));
 		}
-		PRUnitTestMethod(EqualN)
+		PRUnitTestMethod(EqualN, Quick)
 		{
 			char const* aptr = "equal1";
 			char            aarr[] = "equal2";
@@ -251,7 +251,7 @@ namespace pr::str
 			PR_EXPECT(!EqualN(warr, "equal!", 6));
 			PR_EXPECT(!EqualN(wstr, "equal!", 6));
 		}
-		PRUnitTestMethod(EqualNI)
+		PRUnitTestMethod(EqualNI, Quick)
 		{
 			char const* aptr = "Equal1";
 			char            aarr[] = "eQual2";
@@ -273,7 +273,7 @@ namespace pr::str
 			PR_EXPECT(!EqualNI(warr, "equal!", 6));
 			PR_EXPECT(!EqualNI(wstr, "equal!", 6));
 		}
-		PRUnitTestMethod(FindChar)
+		PRUnitTestMethod(FindChar, Quick)
 		{
 			char const* aptr = "find char";
 			char            aarr[] = "find char";
@@ -289,7 +289,7 @@ namespace pr::str
 			PR_EXPECT(*FindChar(warr, L'i') == L'i' && *FindChar(warr, 'b') == 0);
 			PR_EXPECT(*FindChar(wstr, 'i') == L'i' && *FindChar(wstr, L'b') == 0);
 		}
-		PRUnitTestMethod(FindCharN)
+		PRUnitTestMethod(FindCharN, Quick)
 		{
 			char const* aptr = "find char";
 			char            aarr[] = "find char";
@@ -305,7 +305,7 @@ namespace pr::str
 			PR_EXPECT(*FindChar(warr, L'i', 2) == L'i' && *FindChar(warr, 'c', 4) == ' ');
 			PR_EXPECT(*FindChar(wstr, 'i', 2) == L'i' && *FindChar(wstr, L'c', 4) == ' ');
 		}
-		PRUnitTestMethod(FindStr)
+		PRUnitTestMethod(FindStr, Quick)
 		{
 			char const* aptr = "find in str";
 			char            aarr[] = "find in str";
@@ -324,7 +324,7 @@ namespace pr::str
 			PR_EXPECT(FindStr(aptr + 2, aptr + 9, "in") - Begin(aptr) == 5);
 			PR_EXPECT(FindStr(wptr + 2, wptr + 9, "in") - Begin(wptr) == 5);
 		}
-		PRUnitTestMethod(FindFirst)
+		PRUnitTestMethod(FindFirst, Quick)
 		{
 			//                         0123456789
 			char const* aptr = "find first";
@@ -354,7 +354,7 @@ namespace pr::str
 			PR_EXPECT(FindFirst(aptr, 2, 6, [](char ch) { return ch == 'i'; }) == &aptr[0] + 6);
 			PR_EXPECT(FindFirst(aptr, 2, 6, [](char ch) { return ch == 't'; }) == &aptr[0] + 8);
 		}
-		PRUnitTestMethod(FindLast)
+		PRUnitTestMethod(FindLast, Quick)
 		{
 			//                         0123456789
 			char const* aptr = "find flast";
@@ -384,7 +384,7 @@ namespace pr::str
 			PR_EXPECT(FindLast(aptr, 2, 6, [](char ch) { return ch == 'f'; }) == &aptr[0] + 6);
 			PR_EXPECT(FindLast(aptr, 2, 6, [](char ch) { return ch == 't'; }) == &aptr[0] + 2);
 		}
-		PRUnitTestMethod(FindFirstOf)
+		PRUnitTestMethod(FindFirstOf, Quick)
 		{
 			//                      0123456
 			char         aarr[] = "AaAaAa";
@@ -397,7 +397,7 @@ namespace pr::str
 			PR_EXPECT(FindFirstOf(astr, "B") == &astr[0] + 6);
 			PR_EXPECT(FindFirstOf(wstr, "B") == &wstr[0] + 6);
 		}
-		PRUnitTestMethod(FindLastOf)
+		PRUnitTestMethod(FindLastOf, Quick)
 		{
 			//                      0123456
 			char         aarr[] = "AaAaAa";
@@ -409,7 +409,7 @@ namespace pr::str
 			PR_EXPECT(FindLastOf(astr, L"B") == &astr[0]);
 			PR_EXPECT(FindLastOf(wstr, L"B") == &wstr[0]);
 		}
-		PRUnitTestMethod(FindFirstNotOf)
+		PRUnitTestMethod(FindFirstNotOf, Quick)
 		{
 			//                      01234567890123
 			char         aarr[] = "junk_str_junk";
@@ -421,7 +421,7 @@ namespace pr::str
 			PR_EXPECT(FindFirstNotOf(astr, "_knujstr") == &astr[0] + 13);
 			PR_EXPECT(FindFirstNotOf(wstr, "_knujstr") == &wstr[0] + 13);
 		}
-		PRUnitTestMethod(FindLastNotOf)
+		PRUnitTestMethod(FindLastNotOf, Quick)
 		{
 			//                      01234567890123
 			char         aarr[] = "junk_str_junk";
@@ -433,7 +433,7 @@ namespace pr::str
 			PR_EXPECT(FindLastNotOf(astr, "_knujstr") == &astr[0] + 0);
 			PR_EXPECT(FindLastNotOf(wstr, "_knujstr") == &wstr[0] + 0);
 		}
-		PRUnitTestMethod(Resize)
+		PRUnitTestMethod(Resize, Quick)
 		{
 			char            aarr[] = { 'a','a','a','a' };
 			wchar_t         warr[] = { L'a',L'a',L'a',L'a' };
@@ -450,7 +450,7 @@ namespace pr::str
 			Resize(astr, 3, 'b'); PR_EXPECT(Equal(astr, "aab"));
 			Resize(wstr, 3, 'b'); PR_EXPECT(Equal(wstr, "aab"));
 		}
-		PRUnitTestMethod(Append)
+		PRUnitTestMethod(Append, Quick)
 		{
 			char         aarr[5] = {};
 			wchar_t      warr[5] = {};
@@ -462,7 +462,7 @@ namespace pr::str
 			Append(astr, 'a'); Append(astr, L'b'); Append(astr, 'c'); PR_EXPECT(Equal(astr, "abc"));
 			Append(wstr, 'a'); Append(wstr, L'b'); Append(wstr, 'c'); PR_EXPECT(Equal(wstr, "abc"));
 		}
-		PRUnitTestMethod(AppendString)
+		PRUnitTestMethod(AppendString, Quick)
 		{
 			char         aarr[7] = {};
 			wchar_t      warr[7] = {};
@@ -474,7 +474,7 @@ namespace pr::str
 			Append(astr, "abc"); Append(astr, L"def"); PR_EXPECT(Equal(astr, "abcdef"));
 			Append(wstr, "abc"); Append(wstr, L"def"); PR_EXPECT(Equal(wstr, "abcdef"));
 		}
-		PRUnitTestMethod(Assign)
+		PRUnitTestMethod(Assign, Quick)
 		{
 			char const* asrc = "string";
 			wchar_t const* wsrc = L"string";
@@ -517,7 +517,7 @@ namespace pr::str
 			Assign(wstr, "done"); PR_EXPECT(Equal(wstr, "done"));
 			Assign(wstr, "done"); PR_EXPECT(Equal(wstr, "done"));
 		}
-		PRUnitTestMethod(UpperCase)
+		PRUnitTestMethod(UpperCase, Quick)
 		{
 			char         aarr[5] = "CaSe";
 			wchar_t      warr[5] = L"CaSe";
@@ -529,7 +529,7 @@ namespace pr::str
 			PR_EXPECT(Equal(UpperCase(astr), L"CASE") && Equal(astr, "CASE"));
 			PR_EXPECT(Equal(UpperCaseC(wstr), L"CASE") && Equal(wstr, "CaSe"));
 		}
-		PRUnitTestMethod(LowerCase)
+		PRUnitTestMethod(LowerCase, Quick)
 		{
 			char         aarr[5] = "CaSe";
 			wchar_t      warr[5] = L"CaSe";
@@ -541,7 +541,7 @@ namespace pr::str
 			PR_EXPECT(Equal(LowerCase(astr), L"case") && Equal(astr, "case"));
 			PR_EXPECT(Equal(LowerCaseC(wstr), L"case") && Equal(wstr, "CaSe"));
 		}
-		PRUnitTestMethod(SubStr)
+		PRUnitTestMethod(SubStr, Quick)
 		{
 			char    asrc[] = "SubstringExtract";
 			wchar_t wsrc[] = L"SubstringExtract";
@@ -561,7 +561,7 @@ namespace pr::str
 			SubStr(wsrc, 3, 6, astr); PR_EXPECT(Equal(astr, "string"));
 			SubStr(wsrc, 3, 6, wstr); PR_EXPECT(Equal(wstr, "string"));
 		}
-		PRUnitTestMethod(Split)
+		PRUnitTestMethod(Split, Quick)
 		{
 			char    astr[] = "1,,2,3,4";
 			wchar_t wstr[] = L"1,,2,3,4";
@@ -584,7 +584,7 @@ namespace pr::str
 			i = 0; for (auto& s : wbuf)
 				PR_EXPECT(Equal(s, res[i++]));
 		}
-		PRUnitTestMethod(Trim)
+		PRUnitTestMethod(Trim, Quick)
 		{
 			char            aarr[] = " \t,trim\n";
 			std::string     astr = " \t,trim\n";
@@ -615,7 +615,7 @@ namespace pr::str
 
 			PR_EXPECT(Equal(Trim(" \t ", aws, false, true), ""));
 		}
-		PRUnitTestMethod(ConvertUTFTests)
+		PRUnitTestMethod(ConvertUTFTests, Quick)
 		{
 			using namespace unittests;
 			using namespace std::string_view_literals;

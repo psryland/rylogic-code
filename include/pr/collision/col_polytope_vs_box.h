@@ -60,7 +60,7 @@ namespace pr::collision::tests
 			return BuildPolytopeFromPoints(cube_pts);
 		}
 
-		PRUnitTestMethod(FaceFaceContact)
+		PRUnitTestMethod(FaceFaceContact, Quick)
 		{
 			auto buf = MakeCube();
 			auto& poly = buf.as<ShapePolytope>();
@@ -86,7 +86,7 @@ namespace pr::collision::tests
 			}));
 		}
 
-		PRUnitTestMethod(Separated)
+		PRUnitTestMethod(Separated, Quick)
 		{
 			auto buf = MakeCube();
 			auto& poly = buf.as<ShapePolytope>();
@@ -99,7 +99,7 @@ namespace pr::collision::tests
 			PR_EXPECT(!c.contact());
 		}
 
-		PRUnitTestMethod(BoxWithS2R)
+		PRUnitTestMethod(BoxWithS2R, Quick)
 		{
 			auto buf = MakeCube();
 			auto& poly = buf.as<ShapePolytope>();

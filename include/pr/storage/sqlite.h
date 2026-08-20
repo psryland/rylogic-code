@@ -1629,7 +1629,7 @@ namespace pr::sqlite
 			//std::cout << "[Sqlite] " << code << " - " << msg << "\n";
 		}
 
-		PRUnitTestMethod(SimpleTypeStorage)
+		PRUnitTestMethod(SimpleTypeStorage, Quick)
 		{
 			struct Record
 			{
@@ -1756,7 +1756,7 @@ namespace pr::sqlite
 			for (size_t i = 0; i != r.m_empty_buf.size() && i != R.m_empty_buf.size(); ++i)
 				PR_EXPECT(R.m_empty_buf[i] == r.m_empty_buf[i]);
 		}
-		PRUnitTestMethod(Insert)
+		PRUnitTestMethod(Insert, Quick)
 		{
 			struct Record
 			{
@@ -1792,7 +1792,7 @@ namespace pr::sqlite
 			PR_EXPECT(table.Insert(Record(1, 'e'), EOnConstraint::Replace) == 1);
 			PR_EXPECT(table.Get(PKs(1)).m_char == 'e');
 		}
-		PRUnitTestMethod(PartialObjectUpdates)
+		PRUnitTestMethod(PartialObjectUpdates, Quick)
 		{
 			struct Record
 			{
@@ -1826,7 +1826,7 @@ namespace pr::sqlite
 			Record r2 = table.Get(PKs(r.m_key));
 			PR_EXPECT(r2.m_string == "Modified");
 		}
-		PRUnitTestMethod(MultiplePKs)
+		PRUnitTestMethod(MultiplePKs, Quick)
 		{
 			struct Record
 			{
@@ -1898,7 +1898,7 @@ namespace pr::sqlite
 			PR_EXPECT(R[3].m_bool   == r[3].m_bool   );
 			PR_EXPECT(R[3].m_string == r[3].m_string );
 		}
-		PRUnitTestMethod(Collation)
+		PRUnitTestMethod(Collation, Quick)
 		{
 			struct Record
 			{
@@ -2029,7 +2029,7 @@ namespace pr::sqlite
 				PR_EXPECT(!q.Step());
 			}
 		}
-		PRUnitTestMethod(Unique)
+		PRUnitTestMethod(Unique, Quick)
 		{
 			struct Record
 			{
@@ -2058,7 +2058,7 @@ namespace pr::sqlite
 			try { table.Insert(Record('b')); }
 			catch (sqlite::Exception const& ex) { PR_EXPECT(ex.code() == SQLITE_CONSTRAINT); }
 		}
-		PRUnitTestMethod(Find)
+		PRUnitTestMethod(Find, Quick)
 		{
 			struct Record
 			{
@@ -2094,7 +2094,7 @@ namespace pr::sqlite
 			PR_EXPECT( table.Find(PKs(3), R));
 			PR_EXPECT(!table.Find(PKs(6), R));
 		}
-		PRUnitTestMethod(Unicode)
+		PRUnitTestMethod(Unicode, Quick)
 		{
 			struct Record
 			{
@@ -2123,7 +2123,7 @@ namespace pr::sqlite
 			std::wstring STR = table.GetColumn<std::wstring>(PKs(row), 1);
 			PR_EXPECT(str == STR);
 		}
-		PRUnitTestMethod(GUIDs)
+		PRUnitTestMethod(GUIDs, Quick)
 		{
 			struct Record
 			{
@@ -2143,7 +2143,7 @@ namespace pr::sqlite
 
 			PR_EXPECT(table.Insert(Record()) == 1);
 		}
-		PRUnitTestMethod(Iteration)
+		PRUnitTestMethod(Iteration, Quick)
 		{
 			struct Record
 			{

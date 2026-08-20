@@ -133,7 +133,7 @@ namespace pr::common
 			}
 		};
 	}
-	PRUnitTest(EnumerableTests)
+	PRUnitTest(EnumerableTests, Quick)
 	{
 		using namespace unittests::enumerable;
 

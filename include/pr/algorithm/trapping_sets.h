@@ -1138,7 +1138,7 @@ namespace pr::trapping_sets::tests
 
 	PRUnitTestClass(TrappingSetTests)
 	{
-		PRUnitTestMethod(SingleNode)
+		PRUnitTestMethod(SingleNode, Quick)
 		{
 			// One node, no edges → one trapping set (the full graph)
 			auto adj = MakeSuccessors(1, {});
@@ -1149,7 +1149,7 @@ namespace pr::trapping_sets::tests
 			PR_EXPECT(result.node_owner[0] == 0);
 		}
 
-		PRUnitTestMethod(LinearChain)
+		PRUnitTestMethod(LinearChain, Quick)
 		{
 			// A→B→C→D (no cycles) → one trapping set (full graph)
 			// Chain contraction should merge the linear portion
@@ -1165,7 +1165,7 @@ namespace pr::trapping_sets::tests
 				PR_EXPECT(result.node_owner[i] == 0);
 		}
 
-		PRUnitTestMethod(SimpleCycle)
+		PRUnitTestMethod(SimpleCycle, Quick)
 		{
 			// 0→1→2→0 (simple cycle) → one trapping set (full graph)
 			auto adj = MakeSuccessors(3, {{0,1},{1,2},{2,0}});
@@ -1175,7 +1175,7 @@ namespace pr::trapping_sets::tests
 			PR_EXPECT(result.sets[0].total_node_count == 3);
 		}
 
-		PRUnitTestMethod(SelfLoop)
+		PRUnitTestMethod(SelfLoop, Quick)
 		{
 			// 0→0 (self-loop) → one trapping set
 			auto adj = MakeSuccessors(1, {{0,0}});
@@ -1185,7 +1185,7 @@ namespace pr::trapping_sets::tests
 			PR_EXPECT(result.sets[0].total_node_count == 1);
 		}
 
-		PRUnitTestMethod(ChainIntoCycle)
+		PRUnitTestMethod(ChainIntoCycle, Quick)
 		{
 			// 0→1→2→3→1 (node 0 leads into the cycle 1→2→3→1)
 			// Expected: full graph (set 0) + trapping set {1,2,3}
@@ -1212,7 +1212,7 @@ namespace pr::trapping_sets::tests
 			PR_EXPECT(result.node_owner[3] != 0);
 		}
 
-		PRUnitTestMethod(TwoDisjointCycles)
+		PRUnitTestMethod(TwoDisjointCycles, Quick)
 		{
 			// Cycle A: 0→1→0, Cycle B: 2→3→2
 			// No edges between them → full graph + 2 sub trapping sets
@@ -1230,7 +1230,7 @@ namespace pr::trapping_sets::tests
 				PR_EXPECT(result.sets[child].total_node_count == 2);
 		}
 
-		PRUnitTestMethod(NestedCycles)
+		PRUnitTestMethod(NestedCycles, Quick)
 		{
 			// Outer cycle: 0→1→2→0
 			// Inner cycle: 1→3→1 (3 can only reach itself and 1)
@@ -1264,7 +1264,7 @@ namespace pr::trapping_sets::tests
 			PR_EXPECT(found_inner);
 		}
 
-		PRUnitTestMethod(DiamondToSink)
+		PRUnitTestMethod(DiamondToSink, Quick)
 		{
 			// 0→1, 0→2, 1→3, 2→3 (diamond converging to sink node 3)
 			// No cycles → one trapping set (full graph)
@@ -1277,7 +1277,7 @@ namespace pr::trapping_sets::tests
 			PR_EXPECT(result.sets[0].total_node_count == 4);
 		}
 
-		PRUnitTestMethod(NodeOwnership)
+		PRUnitTestMethod(NodeOwnership, Quick)
 		{
 			// 0→1→2→1 (0 feeds into cycle {1,2})
 			// Node 0 owned by full graph, nodes 1,2 owned by inner set
@@ -1294,7 +1294,7 @@ namespace pr::trapping_sets::tests
 			PR_EXPECT(result.node_owner[1] != 0);
 		}
 
-		PRUnitTestMethod(ChainStatistics)
+		PRUnitTestMethod(ChainStatistics, Quick)
 		{
 			// 0→1→2→3→4→2 (long chain 0→1 into cycle 2→3→4→2)
 			auto adj = MakeSuccessors(5, {{0,1},{1,2},{2,3},{3,4},{4,2}});
@@ -1307,7 +1307,7 @@ namespace pr::trapping_sets::tests
 			PR_EXPECT(result.sets[0].total_node_count == 5);
 		}
 
-		PRUnitTestMethod(LargerGraph)
+		PRUnitTestMethod(LargerGraph, Quick)
 		{
 			// 10 nodes: two cycles connected by a bridge
 			// Cycle A: 0→1→2→3→0
@@ -1340,7 +1340,7 @@ namespace pr::trapping_sets::tests
 			PR_EXPECT(result.node_owner[0] != result.node_owner[6]);
 		}
 
-		PRUnitTestMethod(ContainmentHierarchy)
+		PRUnitTestMethod(ContainmentHierarchy, Quick)
 		{
 			// Full graph → set with cycle B+C → cycle C
 			// 0→1→0 (cycle A), 1→2, 2→3→2 (cycle B), 3→4, 4→5→4 (cycle C)
@@ -1375,7 +1375,7 @@ namespace pr::trapping_sets::tests
 			PR_EXPECT(found_nested);
 		}
 
-		PRUnitTestMethod(SquashChainsBasic)
+		PRUnitTestMethod(SquashChainsBasic, Quick)
 		{
 			// 0→1→2→3→4→5→3 (long funnel 0→1→2 into cycle 3→4→5→3)
 			// The hierarchy should have: full graph → cycle {3,4,5}
@@ -1393,7 +1393,7 @@ namespace pr::trapping_sets::tests
 				PR_EXPECT(squashed.node_owner[i] >= 0 && squashed.node_owner[i] < static_cast<int>(squashed.sets.size()));
 		}
 
-		PRUnitTestMethod(SquashChainsPreservesSimple)
+		PRUnitTestMethod(SquashChainsPreservesSimple, Quick)
 		{
 			// Simple case: 0→1→0 (single cycle, no chain to squash)
 			auto adj = MakeSuccessors(2, {{0,1},{1,0}});
@@ -1405,7 +1405,7 @@ namespace pr::trapping_sets::tests
 			PR_EXPECT(squashed.sets[0].total_node_count == 2);
 		}
 
-		PRUnitTestMethod(SquashChainsLinearFlag)
+		PRUnitTestMethod(SquashChainsLinearFlag, Quick)
 		{
 			// Build a graph that creates a chain of single-child trapping sets.
 			// Cycle A: 4→5→4 (innermost)
@@ -1444,7 +1444,7 @@ namespace pr::trapping_sets::tests
 			PR_EXPECT(squashed.avg_chain_length > 0.f);
 		}
 
-		PRUnitTestMethod(SquashChainsMultipleBranches)
+		PRUnitTestMethod(SquashChainsMultipleBranches, Quick)
 		{
 			// Graph with two branches, each leading to a different cycle.
 			// Neither branch forms a single-child chain in the hierarchy.
@@ -1463,7 +1463,7 @@ namespace pr::trapping_sets::tests
 				PR_EXPECT(ts.linear_chain == false);
 		}
 
-		PRUnitTestMethod(SquashChainsSingleNode)
+		PRUnitTestMethod(SquashChainsSingleNode, Quick)
 		{
 			// Single node, no edges
 			auto adj = MakeSuccessors(1, {});
@@ -1475,7 +1475,7 @@ namespace pr::trapping_sets::tests
 			PR_EXPECT(squashed.node_owner[0] == 0);
 		}
 
-		PRUnitTestMethod(SquashChainsNodeOwnerConsistency)
+		PRUnitTestMethod(SquashChainsNodeOwnerConsistency, Quick)
 		{
 			// After squashing, every node must be owned by a valid set,
 			// and the owning set must contain that node.
@@ -1499,7 +1499,7 @@ namespace pr::trapping_sets::tests
 			}
 		}
 
-		PRUnitTestMethod(TopologicalOrdering)
+		PRUnitTestMethod(TopologicalOrdering, Quick)
 		{
 			// Verify that parents appear before children in the result.
 			// 0→1→2→0, 2→3, 3→4→3 (cycle A contains cycle B)
@@ -1512,7 +1512,7 @@ namespace pr::trapping_sets::tests
 					PR_EXPECT(child > i);
 		}
 
-		PRUnitTestMethod(DisjointComponentsNoEdges)
+		PRUnitTestMethod(DisjointComponentsNoEdges, Quick)
 		{
 			// 4 isolated nodes, no edges
 			auto adj = MakeSuccessors(4, {});
@@ -1527,7 +1527,7 @@ namespace pr::trapping_sets::tests
 				PR_EXPECT(result.node_owner[i] >= 0 && result.node_owner[i] < static_cast<int>(result.sets.size()));
 		}
 
-		PRUnitTestMethod(SinkNodeTrappingSet)
+		PRUnitTestMethod(SinkNodeTrappingSet, Quick)
 		{
 			// 0→1→2, 0→3→2, 2 is a sink node (no outgoing edges)
 			// Node 2 forms a trivial trapping set (once there, you can't leave)
@@ -1548,7 +1548,7 @@ namespace pr::trapping_sets::tests
 			PR_EXPECT(found_sink);
 		}
 
-		PRUnitTestMethod(LongChainContraction)
+		PRUnitTestMethod(LongChainContraction, Quick)
 		{
 			// A very long linear chain: 0→1→2→...→19→20→20 (self-loop at end)
 			// Chain contraction should merge the linear portion efficiently
@@ -1580,7 +1580,7 @@ namespace pr::trapping_sets::tests
 			PR_EXPECT(result.avg_chain_length > 1.f);
 		}
 
-		PRUnitTestMethod(SquashChainsDeepNesting)
+		PRUnitTestMethod(SquashChainsDeepNesting, Quick)
 		{
 			// Create a deeply nested containment hierarchy:
 			// 0→1→2→3→4→5→6→7, 7→8→7 (cycle at the end)

@@ -15,7 +15,7 @@ namespace pr::physics::tests
 {
 	PRUnitTestClass(ResolveInteropRunnerTests)
 	{
-		PRUnitTestMethod(ContactPriorityScoresNewtonCradleOrder)
+		PRUnitTestMethod(ContactPriorityScoresNewtonCradleOrder, Extended)
 		{
 			auto settings = ContactPrioritySettings{};
 			settings.m_depth_bias = 0.0f;
@@ -54,7 +54,7 @@ namespace pr::physics::tests
 			PR_EXPECT(priority_order == ideal_order);
 		}
 
-		PRUnitTestMethod(ContactPriorityScoresSupportLoadOrder)
+		PRUnitTestMethod(ContactPriorityScoresSupportLoadOrder, Extended)
 		{
 			auto settings = ContactPrioritySettings{};
 			settings.m_depth_bias = 0.0f;
@@ -96,7 +96,7 @@ namespace pr::physics::tests
 			PR_EXPECT(priority_order == load_first_order);
 		}
 
-		PRUnitTestMethod(ContactPrioritySortsInteropCradleContacts)
+		PRUnitTestMethod(ContactPrioritySortsInteropCradleContacts, Extended)
 		{
 			auto config = EngineConfig{};
 			config.push_out_iterations = 0;
@@ -160,7 +160,7 @@ namespace pr::physics::tests
 			PR_EXPECT(priority.m_score > 0.99f);
 		}
 
-		PRUnitTestMethod(ContactPriorityParallelPropagatesAlongChain)
+		PRUnitTestMethod(ContactPriorityParallelPropagatesAlongChain, Extended)
 		{
 			auto config = EngineConfig{};
 			config.push_out_iterations = 0;
@@ -220,7 +220,7 @@ namespace pr::physics::tests
 			PR_EXPECT(runner.ContactTimes()[2] < -1e-4f);
 		}
 
-		PRUnitTestMethod(ContactPrioritySortsInteropSupportContactsBottomToTop)
+		PRUnitTestMethod(ContactPrioritySortsInteropSupportContactsBottomToTop, Extended)
 		{
 			auto config = EngineConfig{};
 			config.push_out_iterations = 0;
@@ -307,7 +307,7 @@ namespace pr::physics::tests
 				PR_EXPECT(runner.ContactOrder()[order_idx] == expected_order[order_idx]);
 		}
 
-		PRUnitTestMethod(SplitPositionSolveSeparatesBodies)
+		PRUnitTestMethod(SplitPositionSolveSeparatesBodies, Extended)
 		{
 			auto config = EngineConfig{};
 			config.solver_iterations = 0;
@@ -355,7 +355,7 @@ namespace pr::physics::tests
 			PR_EXPECT(runner.ContactOrder()[0] == 0);
 		}
 
-		PRUnitTestMethod(RotatedBodyVelocityResolveUsesContactSpace)
+		PRUnitTestMethod(RotatedBodyVelocityResolveUsesContactSpace, Extended)
 		{
 			auto config = EngineConfig{};
 			config.push_out_iterations = 0;
@@ -412,7 +412,7 @@ namespace pr::physics::tests
 			PR_EXPECT(body_a.KineticEnergy() <= ke_before + 1e-4f);
 		}
 
-		PRUnitTestMethod(VelocityBiasSurvivesEnergyGuard)
+		PRUnitTestMethod(VelocityBiasSurvivesEnergyGuard, Extended)
 		{
 			auto config = EngineConfig{};
 			config.push_out_iterations = 0;
@@ -469,7 +469,7 @@ namespace pr::physics::tests
 		// At that point the trace shows the rotated box at z=-0.32, vz=-8 m/s, with contact depth 0.55.
 		// The bias should reverse vz to ~+5 m/s but it doesn't — body keeps falling.
 		// This test runs ONE Resolve pass on that exact state and asserts vz separates.
-		PRUnitTestMethod(BoxDropFailingFrameDiagnostic)
+		PRUnitTestMethod(BoxDropFailingFrameDiagnostic, Extended)
 		{
 			auto config = EngineConfig{};
 			config.push_out_iterations = 0;     // isolate velocity solver

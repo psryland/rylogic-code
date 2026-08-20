@@ -508,7 +508,7 @@ namespace pr::math::tests
 	PRUnitTestClass(PolynomialTests)
 	{
 		using Vec2 = Vec2<double>;
-		PRUnitTestMethod(FromPoints)
+		PRUnitTestMethod(FromPoints, Quick)
 		{
 			Vec2 a(0.5, +0.3);
 			Vec2 b(0.7, -0.2);
@@ -519,7 +519,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(q.F(b.x), b.y));
 			PR_EXPECT(FEql(q.F(c.x), c.y));
 		}
-		PRUnitTestMethod(FromPoints2)
+		PRUnitTestMethod(FromPoints2, Quick)
 		{
 			double a[] = { 0.5,  0.3 };
 			double b[] = { 0.7, -0.2 };

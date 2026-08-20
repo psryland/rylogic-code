@@ -145,7 +145,7 @@ namespace pr::collision::tests
 		}
 
 		// Line piercing through the triangle
-		PRUnitTestMethod(LinePiercesTriangle)
+		PRUnitTestMethod(LinePiercesTriangle, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeLine{2.0f, 0.0f};
@@ -168,7 +168,7 @@ namespace pr::collision::tests
 		}
 
 		// Line parallel to triangle, in the plane
-		PRUnitTestMethod(LineInTrianglePlane)
+		PRUnitTestMethod(LineInTrianglePlane, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-2, -1, 0, 1}, v4{2, -1, 0, 1}, v4{0, 2, 0, 1}};
 			auto rhs = ShapeLine{2.0f, 0.0f};
@@ -183,7 +183,7 @@ namespace pr::collision::tests
 		}
 
 		// Line parallel to triangle but offset: should not collide
-		PRUnitTestMethod(LineParallelSeparated)
+		PRUnitTestMethod(LineParallelSeparated, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeLine{2.0f, 0.0f};
@@ -198,7 +198,7 @@ namespace pr::collision::tests
 		}
 
 		// Line endpoint touching the triangle
-		PRUnitTestMethod(EndpointTouchesTriangle)
+		PRUnitTestMethod(EndpointTouchesTriangle, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeLine{2.0f, 0.0f};
@@ -213,7 +213,7 @@ namespace pr::collision::tests
 		}
 
 		// Line misses the triangle entirely: passes beside it
-		PRUnitTestMethod(LineMissesTriangle)
+		PRUnitTestMethod(LineMissesTriangle, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeLine{2.0f, 0.0f};
@@ -228,7 +228,7 @@ namespace pr::collision::tests
 		}
 
 		// Line along a triangle edge: coplanar edge contact
-		PRUnitTestMethod(LineAlongTriangleEdge)
+		PRUnitTestMethod(LineAlongTriangleEdge, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, 0, 0, 1}, v4{1, 0, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeLine{2.0f};
@@ -243,7 +243,7 @@ namespace pr::collision::tests
 		}
 
 		// Thick line: collision detected when thickness bridges the gap to the triangle
-		PRUnitTestMethod(ThickLinePiercesTriangle)
+		PRUnitTestMethod(ThickLinePiercesTriangle, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeLine{2.0f, 0.4f};
@@ -266,7 +266,7 @@ namespace pr::collision::tests
 		}
 
 		// Thick line: parallel to triangle, within thickness envelope
-		PRUnitTestMethod(ThickLineParallelNearTriangle)
+		PRUnitTestMethod(ThickLineParallelNearTriangle, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-2, -2, 0, 1}, v4{2, -2, 0, 1}, v4{0, 2, 0, 1}};
 			auto rhs = ShapeLine{1.0f, 0.4f};
@@ -290,7 +290,7 @@ namespace pr::collision::tests
 		}
 
 		// Thick line: parallel but too far away
-		PRUnitTestMethod(ThickLineParallelSeparated)
+		PRUnitTestMethod(ThickLineParallelSeparated, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeLine{1.0f, 0.2f};
@@ -305,7 +305,7 @@ namespace pr::collision::tests
 		}
 
 		// Triangle-vs-Line with s2r transforms 
-		PRUnitTestMethod(TriangleVsLineWithS2R) 
+		PRUnitTestMethod(TriangleVsLineWithS2R, Quick)
 		{ 
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}, m4x4::TransformDeg(45, 30, -25, v4{0.5f, 0, 0, 1}) };
 			auto rhs = ShapeLine{1.0f, 0.2f, m4x4::TransformDeg(30, 10, -80, v4{1.0f, 0, 0, 1}) };

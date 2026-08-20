@@ -16,7 +16,7 @@ namespace pr::math::tests
 			: rng(1u)
 		{}
 
-		PRUnitTestMethod(ConstructionRoundTrip, float, double)
+		PRUnitTestMethod(ConstructionRoundTrip, Quick, float, double)
 		{
 			using xform_t = Xform<T>;
 			using m4x4_t = Mat4x4<T>;
@@ -29,7 +29,7 @@ namespace pr::math::tests
 
 			PR_EXPECT(FEql(xf1, xf2));
 		}
-		PRUnitTestMethod(ConstexprConversion, float, double)
+		PRUnitTestMethod(ConstexprConversion, Quick, float, double)
 		{
 			using xform_t = Xform<T>;
 			using m4x4_t = Mat4x4<T>;
@@ -49,7 +49,7 @@ namespace pr::math::tests
 				v4_t(T(5), T(6), T(7), T(1)));
 			static_assert(All(m == expected));
 		}
-		PRUnitTestMethod(Multiply, float, double)
+		PRUnitTestMethod(Multiply, Quick, float, double)
 		{
 			using xform_t = Xform<T>;
 			using m4x4_t = Mat4x4<T>;
@@ -70,7 +70,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(xf3, xf3_from_m));
 			PR_EXPECT(FEql(m3, m3_from_xf));
 		}
-		PRUnitTestMethod(MultiplyVector, float, double)
+		PRUnitTestMethod(MultiplyVector, Quick, float, double)
 		{
 			using xform_t = Xform<T>;
 			using m4x4_t = Mat4x4<T>;
@@ -91,7 +91,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(r0, R0));
 			PR_EXPECT(FEql(r1, R1));
 		}
-		PRUnitTestMethod(Inversion, float, double)
+		PRUnitTestMethod(Inversion, Quick, float, double)
 		{
 			using xform_t = Xform<T>;
 			using m4x4_t = Mat4x4<T>;
@@ -112,7 +112,7 @@ namespace pr::math::tests
 			PR_EXPECT(FEql(xf, xf2));
 			PR_EXPECT(FEql(m, m2));
 		}
-		PRUnitTestMethod(Identity, float, double)
+		PRUnitTestMethod(Identity, Quick, float, double)
 		{
 			using xform_t = Xform<T>;
 			using m4x4_t = Mat4x4<T>;
@@ -121,7 +121,7 @@ namespace pr::math::tests
 			auto m = m4x4_t(xf);
 			PR_EXPECT(FEql(m, m4x4_t::Identity()));
 		}
-		PRUnitTestMethod(S1, float, double)
+		PRUnitTestMethod(S1, Quick, float, double)
 		{
 			using xform_t = Xform<T>;
 			using v4_t = Vec4<T>;

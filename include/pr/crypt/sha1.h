@@ -248,7 +248,7 @@ namespace pr::hash
 #include "pr/common/unittests.h"
 namespace pr::hash
 {
-	PRUnitTest(Sha1Tests)
+	PRUnitTest(Sha1Tests, Quick)
 	{
 		using namespace pr::hash;
 

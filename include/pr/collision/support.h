@@ -721,7 +721,7 @@ namespace pr::collision::tests
 {
 	PRUnitTestClass(ContactManifoldTests)
 	{
-		PRUnitTestMethod(ReduceManifoldDegeneratesTest)
+		PRUnitTestMethod(ReduceManifoldDegeneratesTest, Quick)
 		{
 			auto axis = v4::ZAxis();
 
@@ -784,7 +784,7 @@ namespace pr::collision::tests
 			v4 quad[] = { v4{-1, -1, 0, 1}, v4{+1, -1, 0, 1}, v4{+1, +1, 0, 1}, v4{-1, +1, 0, 1} };
 			expect_positive_area(quad, EFeature::Quad);
 		}
-		PRUnitTestMethod(DegenerateTriangleSupportFeatureTest)
+		PRUnitTestMethod(DegenerateTriangleSupportFeatureTest, Quick)
 		{
 			auto axis = v4::ZAxis();
 			auto expect_feature = [&](ShapeTriangle const& tri, EFeature expected)

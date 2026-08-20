@@ -156,7 +156,7 @@ namespace pr::physics::tests
 		}
 
 		// 1. Overlapping spheres (same radius)
-		PRUnitTestMethod(SphereVsSphere_Overlap)
+		PRUnitTestMethod(SphereVsSphere_Overlap, Extended)
 		{
 			auto sa = collision::ShapeSphere{1.0f};
 			auto sb = collision::ShapeSphere{1.0f};
@@ -167,7 +167,7 @@ namespace pr::physics::tests
 		}
 
 		// 2. Overlapping aligned boxes
-		PRUnitTestMethod(BoxVsBox_Overlap)
+		PRUnitTestMethod(BoxVsBox_Overlap, Extended)
 		{
 			auto sa = collision::ShapeBox{v4{2, 2, 2, 0}};  // half-extents = 1,1,1
 			auto sb = collision::ShapeBox{v4{2, 2, 2, 0}};
@@ -178,7 +178,7 @@ namespace pr::physics::tests
 		}
 
 		// 3. Box vs sphere overlap
-		PRUnitTestMethod(BoxVsSphere_Overlap)
+		PRUnitTestMethod(BoxVsSphere_Overlap, Extended)
 		{
 			auto sa = collision::ShapeBox{v4{2, 2, 2, 0}};  // half-extents = 1,1,1
 			auto sb = collision::ShapeSphere{0.8f};
@@ -189,7 +189,7 @@ namespace pr::physics::tests
 		}
 
 		// 4. Line vs box overlap
-		PRUnitTestMethod(LineVsBox_Overlap)
+		PRUnitTestMethod(LineVsBox_Overlap, Extended)
 		{
 			auto sa = collision::ShapeLine{1.0f, 0.2f};
 			auto sb = collision::ShapeBox{v4{1, 1, 1, 0}};
@@ -200,7 +200,7 @@ namespace pr::physics::tests
 		}
 
 		// 5. Box vs line overlap
-		PRUnitTestMethod(BoxVsLine_Overlap)
+		PRUnitTestMethod(BoxVsLine_Overlap, Extended)
 		{
 			auto sa = collision::ShapeBox{v4{1, 1, 1, 0}};
 			auto sb = collision::ShapeLine{1.0f, 0.2f};
@@ -211,7 +211,7 @@ namespace pr::physics::tests
 		}
 
 		// 6. Triangle vs box overlap
-		PRUnitTestMethod(TriangleVsBox)
+		PRUnitTestMethod(TriangleVsBox, Extended)
 		{
 			auto sa = collision::ShapeTriangle{
 				v4{-0.5f, -0.5f, 0, 1},
@@ -225,7 +225,7 @@ namespace pr::physics::tests
 		}
 
 		// 7. Separated shapes (should both return no collision)
-		PRUnitTestMethod(SphereVsSphere_Separated)
+		PRUnitTestMethod(SphereVsSphere_Separated, Extended)
 		{
 			auto sa = collision::ShapeSphere{1.0f};
 			auto sb = collision::ShapeSphere{1.0f};
@@ -236,7 +236,7 @@ namespace pr::physics::tests
 		}
 
 		// 8. Rotated box vs sphere
-		PRUnitTestMethod(RotatedBoxVsSphere)
+		PRUnitTestMethod(RotatedBoxVsSphere, Extended)
 		{
 			auto sa = collision::ShapeBox{v4{2, 4, 2, 0}};  // half-extents = 1,2,1
 			auto sb = collision::ShapeSphere{0.5f};
@@ -249,7 +249,7 @@ namespace pr::physics::tests
 		}
 
 		// 9. Polytope (tetrahedron) vs box
-		PRUnitTestMethod(PolytopeVsBox)
+		PRUnitTestMethod(PolytopeVsBox, Extended)
 		{
 			// Build a tetrahedron from 4 points
 			v4 tet_pts[] = {
@@ -269,7 +269,7 @@ namespace pr::physics::tests
 		}
 
 		// 10. Polytope vs polytope face contact
-		PRUnitTestMethod(PolytopeVsTriangle)
+		PRUnitTestMethod(PolytopeVsTriangle, Extended)
 		{
 			v4 tet_pts[] = {
 				v4{-0.8f, -0.8f, -0.5f, 1},
@@ -292,7 +292,7 @@ namespace pr::physics::tests
 		}
 
 		// 11. Polytope vs polytope face contact
-		PRUnitTestMethod(PolytopeVsPolytope)
+		PRUnitTestMethod(PolytopeVsPolytope, Extended)
 		{
 			v4 cube_pts[] = {
 				v4{-1, -1, -1, 1}, v4{+1, -1, -1, 1},
@@ -314,7 +314,7 @@ namespace pr::physics::tests
 		// 11. Tumbling tetrahedron deeply penetrating a large ground box.
 		// Captured from the StressDropTests scenario to guard the deep polytope-vs-ground
 		// case that exposed resolver issues after the GPU and CPU GJK paths already agreed.
-		PRUnitTestMethod(PolytopeVsGround_DeepTumbling)
+		PRUnitTestMethod(PolytopeVsGround_DeepTumbling, Extended)
 		{
 			// Tetrahedron from StressDropTests
 			v4 tet_pts[] = {
@@ -348,7 +348,7 @@ namespace pr::physics::tests
 		// 12. Shallow polytope/ground contact captured from stress_test_1000.
 		// The CPU path detects contact before the body gets deeply embedded; the GPU
 		// path must not miss this or the eventual deep correction can launch the body.
-		PRUnitTestMethod(PolytopeVsGround_ShallowFastTumble)
+		PRUnitTestMethod(PolytopeVsGround_ShallowFastTumble, Extended)
 		{
 			v4 poly_pts[] = {
 				v4{-1.0296705f,  0.2203998f, -0.1274743f, 1},

@@ -103,7 +103,7 @@ namespace pr
 namespace pr::unittests
 {
 	// Copy construction should keep every code unit because BSTR length is explicit.
-	PRUnitTest(BstrCopyConstructionPreservesEmbeddedNul)
+	PRUnitTest(BstrCopyConstructionPreservesEmbeddedNul, Quick)
 	{
 		using namespace pr;
 
@@ -119,7 +119,7 @@ namespace pr::unittests
 	}
 
 	// Copy assignment and self-assignment should leave the full BSTR content intact.
-	PRUnitTest(BstrCopyAssignmentPreservesEmbeddedNul)
+	PRUnitTest(BstrCopyAssignmentPreservesEmbeddedNul, Quick)
 	{
 		using namespace pr;
 
@@ -141,7 +141,7 @@ namespace pr::unittests
 	}
 
 	// Move, attach, and null cases should remain length-safe and keep ownership state predictable.
-	PRUnitTest(BstrMoveAttachAndNullBehaviour)
+	PRUnitTest(BstrMoveAttachAndNullBehaviour, Quick)
 	{
 		using namespace pr;
 

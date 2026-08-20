@@ -351,7 +351,7 @@ namespace pr::common
 		{
 		};
 
-		PRUnitTestMethod(ConversionDirection)
+		PRUnitTestMethod(ConversionDirection, Quick)
 		{
 			// The safe upcast (derived -> base) must be implicit.
 			static_assert(std::is_convertible_v<RefPtr<Derived>, RefPtr<Thing>>, "RefPtr<Derived> should implicitly convert to RefPtr<Thing> (its base)");

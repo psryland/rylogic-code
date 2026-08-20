@@ -105,7 +105,7 @@ namespace pr::collision::tests
 		}
 
 		// Sphere directly above triangle centre: face collision
-		PRUnitTestMethod(SphereFaceCollision)
+		PRUnitTestMethod(SphereFaceCollision, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeSphere{0.5f};
@@ -128,7 +128,7 @@ namespace pr::collision::tests
 		}
 
 		// Sphere touching a triangle edge
-		PRUnitTestMethod(SphereEdgeCollision)
+		PRUnitTestMethod(SphereEdgeCollision, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{0, 0, 0, 1}, v4{2, 0, 0, 1}, v4{1, 2, 0, 1}};
 			auto rhs = ShapeSphere{0.5f};
@@ -151,7 +151,7 @@ namespace pr::collision::tests
 		}
 
 		// Sphere touching a triangle vertex
-		PRUnitTestMethod(SphereVertexCollision)
+		PRUnitTestMethod(SphereVertexCollision, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{0, 0, 0, 1}, v4{2, 0, 0, 1}, v4{1, 2, 0, 1}};
 			auto rhs = ShapeSphere{0.5f};
@@ -174,7 +174,7 @@ namespace pr::collision::tests
 		}
 
 		// Sphere clearly separated: below the triangle, beyond radius
-		PRUnitTestMethod(Separated)
+		PRUnitTestMethod(Separated, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeSphere{0.3f};
@@ -189,7 +189,7 @@ namespace pr::collision::tests
 		}
 
 		// Degenerate triangle (collinear vertices) — should not crash
-		PRUnitTestMethod(DegenerateTriangle)
+		PRUnitTestMethod(DegenerateTriangle, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, 0, 0, 1}, v4{0, 0, 0, 1}, v4{1, 0, 0, 1}};
 			auto rhs = ShapeSphere{0.5f};
@@ -212,7 +212,7 @@ namespace pr::collision::tests
 		}
 
 		// Sphere centred on the triangle surface
-		PRUnitTestMethod(SphereCentreOnSurface)
+		PRUnitTestMethod(SphereCentreOnSurface, Quick)
 		{
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}};
 			auto rhs = ShapeSphere{0.5f};
@@ -235,7 +235,7 @@ namespace pr::collision::tests
 		} 
 
 		// Triangle-vs-Sphere with s2r transforms 
-		PRUnitTestMethod(TriVsSphereWithS2R) 
+		PRUnitTestMethod(TriVsSphereWithS2R, Quick)
 		{ 
 			auto lhs = ShapeTriangle{v4{-1, -1, 0, 1}, v4{1, -1, 0, 1}, v4{0, 1, 0, 1}, m4x4::TransformDeg(45, 30, -25, v4{0.5f, 0, 0, 1}) }; 
 			auto rhs = ShapeSphere{0.5f, m4x4::TransformDeg(30, 10, -80, v4{1.0f, 0, 0, 1}) }; 

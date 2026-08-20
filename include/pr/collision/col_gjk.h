@@ -877,7 +877,7 @@ namespace pr::collision::tests
 		inline static constexpr bool CreateVisuals = false;
 
 		// Two overlapping spheres: GJK should detect contact
-		PRUnitTestMethod(OverlappingSpheres)
+		PRUnitTestMethod(OverlappingSpheres, Quick)
 		{
 			auto sa = ShapeSphere{1.0f};
 			auto sb = ShapeSphere{1.0f};
@@ -895,7 +895,7 @@ namespace pr::collision::tests
 		}
 
 		// Separated spheres: GJK should return false
-		PRUnitTestMethod(SeparatedSpheres)
+		PRUnitTestMethod(SeparatedSpheres, Quick)
 		{
 			auto sa = ShapeSphere{0.5f};
 			auto sb = ShapeSphere{0.5f};
@@ -907,7 +907,7 @@ namespace pr::collision::tests
 		}
 
 		// Two overlapping boxes
-		PRUnitTestMethod(OverlappingBoxes)
+		PRUnitTestMethod(OverlappingBoxes, Quick)
 		{
 			auto ba = ShapeBox{v4{2, 2, 2, 0}}; // half-extent = 1
 			auto bb = ShapeBox{v4{2, 2, 2, 0}};
@@ -924,7 +924,7 @@ namespace pr::collision::tests
 		}
 
 		// Separated boxes
-		PRUnitTestMethod(SeparatedBoxes)
+		PRUnitTestMethod(SeparatedBoxes, Quick)
 		{
 			auto ba = ShapeBox{v4{2, 2, 2, 0}};
 			auto bb = ShapeBox{v4{2, 2, 2, 0}};
@@ -936,7 +936,7 @@ namespace pr::collision::tests
 		}
 
 		// Box vs Sphere
-		PRUnitTestMethod(BoxVsSphereGjk)
+		PRUnitTestMethod(BoxVsSphereGjk, Quick)
 		{
 			auto box = ShapeBox{v4{2, 2, 2, 0}}; // half-extent = 1
 			auto sph = ShapeSphere{0.5f};
@@ -950,7 +950,7 @@ namespace pr::collision::tests
 		}
 
 		// Contact axis direction: should point from lhs to rhs
-		PRUnitTestMethod(AxisDirection)
+		PRUnitTestMethod(AxisDirection, Quick)
 		{
 			auto sa = ShapeSphere{1.0f};
 			auto sb = ShapeSphere{1.0f};
@@ -965,7 +965,7 @@ namespace pr::collision::tests
 		}
 
 		// Nearly touching: barely overlapping spheres
-		PRUnitTestMethod(BarelyOverlapping)
+		PRUnitTestMethod(BarelyOverlapping, Quick)
 		{
 			auto sa = ShapeSphere{1.0f};
 			auto sb = ShapeSphere{1.0f};
@@ -978,7 +978,7 @@ namespace pr::collision::tests
 		}
 
 		// Coincident shapes: centres at same position
-		PRUnitTestMethod(CoincidentCentres)
+		PRUnitTestMethod(CoincidentCentres, Quick)
 		{
 			auto sa = ShapeSphere{1.0f};
 			auto sb = ShapeSphere{1.0f};
@@ -991,7 +991,7 @@ namespace pr::collision::tests
 		}
 
 		// Rotated box vs sphere
-		PRUnitTestMethod(RotatedBoxVsSphere)
+		PRUnitTestMethod(RotatedBoxVsSphere, Quick)
 		{
 			auto box = ShapeBox{v4{2, 1, 1, 0}}; // half-extents: (1, 0.5, 0.5)
 			auto sph = ShapeSphere{0.3f};
@@ -1013,7 +1013,7 @@ namespace pr::collision::tests
 		}
 
 		// GJK collision between polytopes built from point clouds via BuildPolytopeFromPoints
-		PRUnitTestMethod(GjkBuiltPolytopes)
+		PRUnitTestMethod(GjkBuiltPolytopes, Quick)
 		{
 			v4 pts_a[] = {
 				v4{-1, -1, -1, 1}, v4{1, -1, -1, 1},
@@ -1037,7 +1037,7 @@ namespace pr::collision::tests
 			PR_EXPECT(!GjkCollide(pa, m4x4::Identity(), pb, m4x4::Translation(10, 0, 0), c));
 		}
 
-		PRUnitTestMethod(PolytopeFaceManifold)
+		PRUnitTestMethod(PolytopeFaceManifold, Quick)
 		{
 			v4 cube_pts[] = {
 				v4{-1, -1, -1, 1}, v4{+1, -1, -1, 1},
