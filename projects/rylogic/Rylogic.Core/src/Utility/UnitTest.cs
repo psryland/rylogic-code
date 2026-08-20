@@ -23,7 +23,17 @@ namespace Rylogic.UnitTests
 	//  - Set the DLL as the startup project
 	//  - Put a breakpoint in the test you care about
 	//  - Hit F5.
-		
+
+	/// <summary>Properties controlling when a managed unit test should run</summary>
+	[Flags]
+	public enum EUnitTestFlags
+	{
+		None     = 0,
+		Quick    = 1 << 0,
+		Extended = 1 << 1,
+		Stress   = 1 << 2,
+	}
+
 	public class UnitTest
 	{
 #if PR_UNITTESTS
@@ -35,7 +45,7 @@ namespace Rylogic.UnitTests
 		/// Loads a .NET assembly and searches for any 'TestFixture' marked classes.
 		/// Any found are then executed. Returns true if all tests passed.
 		/// Diagnostic output is written to 'output'</summary>
-		public static bool RunTests(Assembly ass, Stream? outstream = null)
+		public static bool RunTests(Assembly ass, Stream? outstream = null, EUnitTestFlags flags = EUnitTestFlags.Quick)
 		{
 			try
 			{
@@ -44,6 +54,7 @@ namespace Rylogic.UnitTests
 
 				int passed = 0;
 				int failed = 0;
+				int skipped = 0;
 				const string file_pattern = @" in " + Regex_.FullPathPattern + @":line\s(?<line>\d+)";
 
 				var banner =
@@ -60,6 +71,23 @@ namespace Rylogic.UnitTests
 				var test_fixtures = FindTestFixtures(ass).ToList();
 				foreach (var fixture in test_fixtures)
 				{
+					// Resolve method flags before fixture construction so an excluded fixture cannot perform disruptive setup.
+					var tests = fixture
+						.FindMethodsWithAttribute<TestAttribute>()
+						.Select(test => new
+						{
+							Method = test,
+							Flags = ResolveTestFlags(fixture, test),
+						})
+						.ToList();
+					var selected_tests = tests
+						.Where(test => (test.Flags & flags) == flags)
+						.Select(test => test.Method)
+						.ToList();
+					skipped += tests.Count - selected_tests.Count;
+					if (selected_tests.Count == 0)
+						continue;
+
 					// Create an instance of the unit test
 					object inst;
 					try { inst = Activator.CreateInstance(fixture) ?? throw new Exception($"Failed to create unit test {fixture.Name}"); }
@@ -102,7 +130,7 @@ namespace Rylogic.UnitTests
 
 					// Find the unit tests
 					int pass_count = 0;
-					foreach (var test in fixture.FindMethodsWithAttribute<TestAttribute>())
+					foreach (var test in selected_tests)
 					{
 						try
 						{
@@ -158,7 +186,7 @@ namespace Rylogic.UnitTests
 					passed += pass_count;
 				}
 
-				if (test_fixtures.Count == 0 || (passed == 0 && failed == 0))
+				if (test_fixtures.Count == 0 || (passed == 0 && failed == 0 && skipped == 0))
 				{
 					outp.WriteLine($"Unit Testing:  No unit tests found in assembly {ass.FullName}");
 					outp.Flush();
@@ -166,11 +194,15 @@ namespace Rylogic.UnitTests
 				else if (failed > 0)
 				{
 					outp.WriteLine($"Unit Testing:  ERROR - {failed} Unit tests failed");
+					if (skipped != 0)
+						outp.WriteLine($"Unit Testing:  {skipped} Unit tests skipped by flag filter");
 					outp.Flush();
 				}
-				else if (failed == 0 && passed > 0)
+				else
 				{
 					outp.WriteLine($"Unit Testing:  *** All {passed} unit tests passed ***");
+					if (skipped != 0)
+						outp.WriteLine($"Unit Testing:  {skipped} Unit tests skipped by flag filter");
 					outp.Flush();
 				}
 				return failed == 0;
@@ -193,6 +225,15 @@ namespace Rylogic.UnitTests
 
 				yield return type;
 			}
+		}
+
+		/// <summary>Resolve a method override, then a fixture override, then the Quick default</summary>
+		internal static EUnitTestFlags ResolveTestFlags(Type fixture, MethodInfo test)
+		{
+			return
+				test.FindAttribute<TestFlagsAttribute>(false)?.Flags ??
+				fixture.FindAttribute<TestFlagsAttribute>(false)?.Flags ??
+				EUnitTestFlags.Quick;
 		}
 
 		/// <summary>Find the repository root (at runtime)</summary>
@@ -364,6 +405,24 @@ namespace Rylogic.UnitTests
 	public abstract class AttributeBase :Attribute
 	{}
 
+	/// <summary>Overrides the default Quick execution properties for a test fixture or method</summary>
+	[AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple=false, Inherited=true)]
+	public sealed class TestFlagsAttribute :AttributeBase
+	{
+		/// <summary>Define the execution properties for a test fixture or method</summary>
+		public TestFlagsAttribute(EUnitTestFlags flags)
+		{
+			const EUnitTestFlags all_flags = EUnitTestFlags.Quick | EUnitTestFlags.Extended | EUnitTestFlags.Stress;
+			if (flags == EUnitTestFlags.None || (flags & ~all_flags) != 0)
+				throw new ArgumentOutOfRangeException(nameof(flags), flags, "At least one recognised unit-test flag is required.");
+
+			Flags = flags;
+		}
+
+		/// <summary>The execution properties declared for the target</summary>
+		public EUnitTestFlags Flags { get; }
+	}
+
 	/// <summary>Marks a class as a unit test class</summary>
 	[AttributeUsage(AttributeTargets.Class,AllowMultiple=true)]
 	public class TestFixtureAttribute :AttributeBase {}
@@ -387,5 +446,47 @@ namespace Rylogic.UnitTests
 	/// <summary>Marks a method as a unit test method</summary>
 	[AttributeUsage(AttributeTargets.Method)]
 	public class TestAttribute :AttributeBase {}
-}
 
+	/// <summary>Tests managed unit-test flag resolution independently of test execution</summary>
+	[TestFixture]
+	public class TestUnitTestFlags
+	{
+		/// <summary>Prove absent flags default to Quick and explicit method metadata overrides fixture metadata</summary>
+		[Test]
+		public void ResolvesDefaultsAndOverrides()
+		{
+			var default_test = typeof(DefaultFixture).GetMethod(nameof(DefaultFixture.Default)) ?? throw new MissingMethodException();
+			var extended_test = typeof(ExtendedFixture).GetMethod(nameof(ExtendedFixture.Extended)) ?? throw new MissingMethodException();
+			var stress_test = typeof(ExtendedFixture).GetMethod(nameof(ExtendedFixture.Stress)) ?? throw new MissingMethodException();
+
+			Assert.Equal(EUnitTestFlags.Quick, UnitTest.ResolveTestFlags(typeof(DefaultFixture), default_test));
+			Assert.Equal(EUnitTestFlags.Extended, UnitTest.ResolveTestFlags(typeof(ExtendedFixture), extended_test));
+			Assert.Equal(EUnitTestFlags.Extended | EUnitTestFlags.Stress, UnitTest.ResolveTestFlags(typeof(ExtendedFixture), stress_test));
+		}
+
+		/// <summary>Fixture with no explicit execution metadata</summary>
+		private sealed class DefaultFixture
+		{
+			/// <summary>Marker method that inherits the Quick default</summary>
+			public void Default()
+			{
+			}
+		}
+
+		/// <summary>Fixture whose methods are excluded from normal builds unless explicitly overridden</summary>
+		[TestFlags(EUnitTestFlags.Extended)]
+		private sealed class ExtendedFixture
+		{
+			/// <summary>Marker method that inherits its fixture metadata</summary>
+			public void Extended()
+			{
+			}
+
+			/// <summary>Marker method that overrides its fixture metadata</summary>
+			[TestFlags(EUnitTestFlags.Extended | EUnitTestFlags.Stress)]
+			public void Stress()
+			{
+			}
+		}
+	}
+}

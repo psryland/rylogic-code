@@ -65,7 +65,7 @@ public class TestWin32Application
 	}
 
 	/// <summary>Prove a show-time callback failure closes the HWND and returns through managed exception flow.</summary>
-	[Test]
+	[Test, TestFlags(EUnitTestFlags.Extended)]
 	public void ShowCallbackFailureDoesNotEnterThePump()
 	{
 		using var application = new Win32Application(new Win32ApplicationOptions
@@ -83,7 +83,7 @@ public class TestWin32Application
 	}
 
 	/// <summary>Prove direct show calls surface callback failures immediately rather than deferring them to disposal.</summary>
-	[Test]
+	[Test, TestFlags(EUnitTestFlags.Extended)]
 	public void ShowSurfacesCallbackFailure()
 	{
 		using var application = new Win32Application(new Win32ApplicationOptions
