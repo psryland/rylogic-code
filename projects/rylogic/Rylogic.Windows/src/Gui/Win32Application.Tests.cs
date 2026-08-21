@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Threading;
 using Rylogic.Common;
 using Rylogic.Interop.Win32;
 using Rylogic.Windows.Gui;
@@ -54,14 +55,100 @@ public class TestWin32Application
 	public void CancelledCloseDoesNotCommitExitCode()
 	{
 		using var application = new Win32Application(new Win32ApplicationOptions { Title = "Rylogic Win32 cancelled close test" });
+		var destroying_count = 0;
 		application.Closing += (_, args) => args.Cancel = args.ExitCode == 37;
+		application.Destroying += (_, _) => ++destroying_count;
 
 		application.Close(37);
 		Assert.Equal(false, application.IsClosed);
 		Assert.Equal(0, application.ExitCode);
+		Assert.Equal(0, destroying_count);
 
 		Assert.Equal(true, application.RequestClose());
 		Assert.Equal(0, application.Run());
+	}
+
+	/// <summary>Prove accepted close raises the one-shot destruction boundary before native ownership is released.</summary>
+	[Test]
+	public void CloseRaisesDestroyingBeforeClosed()
+	{
+		var events = new List<string>();
+		using var application = new Win32Application(new Win32ApplicationOptions { Title = "Rylogic Win32 destroying close test" });
+		TrackDestruction(application, events);
+
+		application.Close(37);
+		application.Dispose();
+
+		AssertDestroyedOnce(application, events);
+		Assert.Equal(37, application.ExitCode);
+	}
+
+	/// <summary>Prove cancellation closes through the same one-shot destruction boundary.</summary>
+	[Test, TestFlags(EUnitTestFlags.Extended)]
+	public void CancellationRaisesDestroyingBeforeClosed()
+	{
+		var events = new List<string>();
+		using var shutdown = new CancellationTokenSource();
+		using var application = new Win32Application(new Win32ApplicationOptions
+		{
+			Title = "Rylogic Win32 destroying cancellation test",
+			CancellationExitCode = 23,
+		});
+		TrackDestruction(application, events);
+		shutdown.Cancel();
+
+		Assert.Equal(23, application.Run(shutdown: shutdown.Token));
+		application.Dispose();
+
+		AssertDestroyedOnce(application, events);
+	}
+
+	/// <summary>Prove direct disposal raises the destruction boundary once and remains idempotent.</summary>
+	[Test]
+	public void DisposeRaisesDestroyingBeforeClosed()
+	{
+		var events = new List<string>();
+		var application = new Win32Application(new Win32ApplicationOptions { Title = "Rylogic Win32 destroying dispose test" });
+		TrackDestruction(application, events);
+
+		application.Dispose();
+		application.Dispose();
+
+		AssertDestroyedOnce(application, events);
+	}
+
+	/// <summary>Prove a WNDPROC callback failure still raises the destruction boundary and surfaces from Close.</summary>
+	[Test]
+	public void CallbackFailureRaisesDestroyingBeforeClosed()
+	{
+		var events = new List<string>();
+		using var application = new Win32Application(new Win32ApplicationOptions { Title = "Rylogic Win32 destroying callback test" });
+		TrackDestruction(application, events);
+		application.Message += (_, args) =>
+		{
+			if (args.Message == Win32.WM_CLOSE)
+				throw new InvalidOperationException("Expected close callback failure.");
+		};
+
+		Assert.Throws<InvalidOperationException>(() => application.Close());
+		application.Dispose();
+
+		AssertDestroyedOnce(application, events);
+	}
+
+	/// <summary>Prove destruction subscribers cannot cancel native teardown or prevent later subscribers from running.</summary>
+	[Test]
+	public void DestroyingFailureCannotCancelDestruction()
+	{
+		var events = new List<string>();
+		var application = new Win32Application(new Win32ApplicationOptions { Title = "Rylogic Win32 destroying failure test" });
+		application.Destroying += (_, _) => throw new InvalidOperationException("Expected destroying callback failure.");
+		TrackDestruction(application, events);
+
+		Assert.Throws<InvalidOperationException>(() => application.Dispose());
+		application.Dispose();
+
+		AssertDestroyedOnce(application, events);
 	}
 
 	/// <summary>Prove a show-time callback failure closes the HWND and returns through managed exception flow.</summary>
@@ -268,6 +355,32 @@ public class TestWin32Application
 		Assert.Equal(true, observed != null);
 		Assert.Equal(144U, observed!.DpiX);
 		Assert.Equal(144U, observed.DpiY);
+	}
+
+	/// <summary>Record the pre- and post-destruction boundaries while validating their thread and handle contracts.</summary>
+	private static void TrackDestruction(Win32Application application, List<string> events)
+	{
+		application.Destroying += (_, _) =>
+		{
+			Assert.Equal(application.OwnerThreadId, Environment.CurrentManagedThreadId);
+			Assert.Equal(false, application.IsClosed);
+			Assert.Equal(false, application.Handle == IntPtr.Zero);
+			events.Add("Destroying");
+		};
+		application.Closed += (_, _) =>
+		{
+			Assert.Equal(true, application.IsClosed);
+			events.Add("Closed");
+		};
+	}
+
+	/// <summary>Validate exactly one ordered destruction notification pair.</summary>
+	private static void AssertDestroyedOnce(Win32Application application, List<string> events)
+	{
+		Assert.Equal(true, application.IsClosed);
+		Assert.Equal(2, events.Count);
+		Assert.Equal("Destroying", events[0]);
+		Assert.Equal("Closed", events[1]);
 	}
 }
 #endif

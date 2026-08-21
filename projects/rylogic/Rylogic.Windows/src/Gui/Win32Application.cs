@@ -274,6 +274,9 @@ public sealed class Win32Application : IDisposable
 	private bool m_running;
 	private bool m_has_run;
 	private bool m_disposed;
+	private bool m_construction_complete;
+	private bool m_destroying_raised;
+	private bool m_destruction_in_progress;
 	private EWindowMode m_window_mode;
 
 	/// <summary>Create the native window on the current thread without showing it.</summary>
@@ -357,6 +360,7 @@ public sealed class Win32Application : IDisposable
 			m_client_height = client.height;
 			UpdateMonitor();
 			WindowMode = m_options.WindowMode;
+			m_construction_complete = true;
 		}
 		catch (Exception creation_error)
 		{
@@ -367,8 +371,17 @@ public sealed class Win32Application : IDisposable
 			var hwnd = m_hwnd != IntPtr.Zero
 				? m_hwnd
 				: !associated ? created_hwnd : IntPtr.Zero;
-			if (hwnd != IntPtr.Zero && !User32.DestroyWindow(hwnd))
-				cleanup_error = new Win32Exception(Marshal.GetLastWin32Error(), "DestroyWindow failed while unwinding window creation.");
+			if (hwnd != IntPtr.Zero)
+			{
+				try
+				{
+					DestroyOwnedWindow(false, hwnd);
+				}
+				catch (Win32Exception ex)
+				{
+					cleanup_error = ex;
+				}
+			}
 			if (m_self_handle.IsAllocated && m_hwnd == IntPtr.Zero)
 				m_self_handle.Free();
 
@@ -389,11 +402,9 @@ public sealed class Win32Application : IDisposable
 		if (m_disposed)
 			return;
 
-		lock (m_lifetime_lock)
-		{
-			if (m_hwnd != IntPtr.Zero && !User32.DestroyWindow(m_hwnd))
-				throw new Win32Exception("DestroyWindow failed.");
-		}
+		var destroyed = DestroyOwnedWindow(true);
+		if (!destroyed && m_hwnd != IntPtr.Zero)
+			return;
 
 		if (m_self_handle.IsAllocated)
 			m_self_handle.Free();
@@ -486,6 +497,12 @@ public sealed class Win32Application : IDisposable
 	/// <summary>Raised before a close request destroys the HWND.</summary>
 	public event EventHandler<WindowClosingEventArgs>? Closing;
 
+	/// <summary>
+	/// Raised once on the owner thread immediately before post-construction destruction of the owned HWND.
+	/// Subscriber failures cannot cancel destruction and are rethrown from the invoking managed boundary.
+	/// </summary>
+	public event EventHandler? Destroying;
+
 	/// <summary>Raised after native association and managed routing have been released.</summary>
 	public event EventHandler? Closed;
 
@@ -561,11 +578,7 @@ public sealed class Win32Application : IDisposable
 		{
 			// A foreign WM_QUIT must not leave the owned HWND alive after the pump exits.
 			m_running = false;
-			lock (m_lifetime_lock)
-			{
-				if (m_hwnd != IntPtr.Zero && !User32.DestroyWindow(m_hwnd))
-					throw new Win32Exception("DestroyWindow failed while stopping the message pump.");
-			}
+			DestroyOwnedWindow(true);
 		}
 
 		ThrowDispatchException();
@@ -640,11 +653,7 @@ public sealed class Win32Application : IDisposable
 					if (m_hwnd != hwnd)
 						return IntPtr.Zero;
 
-					lock (m_lifetime_lock)
-					{
-						if (m_hwnd == hwnd && !User32.DestroyWindow(hwnd))
-							throw new Win32Exception("DestroyWindow failed while closing.");
-					}
+					DestroyOwnedWindow(true);
 
 					return IntPtr.Zero;
 				}
@@ -954,20 +963,25 @@ public sealed class Win32Application : IDisposable
 	/// <summary>Capture a managed dispatch failure so it can be rethrown outside the unmanaged callback.</summary>
 	private void FailDispatch(Exception exception, int message)
 	{
-		m_dispatch_exception ??= ExceptionDispatchInfo.Capture(exception);
-		m_exit_code = 1;
+		CaptureDispatchFailure(exception);
 
 		// Stop native dispatch without allowing an exception to cross the unmanaged WNDPROC boundary.
 		var destroyed = false;
-		lock (m_lifetime_lock)
+		var native_controls_lifetime =
+			message == Win32.WM_NCCREATE ||
+			message == Win32.WM_CREATE ||
+			message == Win32.WM_DESTROY ||
+			message == Win32.WM_NCDESTROY;
+		if (!native_controls_lifetime)
 		{
-			var native_controls_lifetime =
-				message == Win32.WM_NCCREATE ||
-				message == Win32.WM_CREATE ||
-				message == Win32.WM_DESTROY ||
-				message == Win32.WM_NCDESTROY;
-			if (m_hwnd != IntPtr.Zero && !native_controls_lifetime)
-				destroyed = User32.DestroyWindow(m_hwnd);
+			try
+			{
+				destroyed = DestroyOwnedWindow(true);
+			}
+			catch (Exception destroy_error)
+			{
+				CaptureDispatchFailure(destroy_error);
+			}
 		}
 		if (m_running && !destroyed && m_hwnd != IntPtr.Zero)
 			User32.PostQuitMessage(m_exit_code);
@@ -992,6 +1006,80 @@ public sealed class Win32Application : IDisposable
 	private void ThrowDispatchException()
 	{
 		TakeDispatchException()?.Throw();
+	}
+
+	/// <summary>Record a callback failure for rethrow from the next managed lifecycle boundary.</summary>
+	private void CaptureDispatchFailure(Exception exception)
+	{
+		lock (m_lifetime_lock)
+		{
+			m_dispatch_exception ??= ExceptionDispatchInfo.Capture(exception);
+			m_exit_code = 1;
+		}
+	}
+
+	/// <summary>Raise every pre-destruction subscriber without allowing one failure to cancel later subscribers or native destruction.</summary>
+	private void RaiseDestroying()
+	{
+		var handlers = Destroying;
+		if (handlers == null)
+			return;
+
+		// Every owner gets its cleanup boundary even when an earlier subscriber fails.
+		foreach (EventHandler handler in handlers.GetInvocationList())
+		{
+			try
+			{
+				handler(this, EventArgs.Empty);
+			}
+			catch (Exception ex)
+			{
+				CaptureDispatchFailure(ex);
+			}
+		}
+	}
+
+	/// <summary>Destroy the owned HWND once while raising the pre-destruction notification on all post-construction teardown paths.</summary>
+	private bool DestroyOwnedWindow(bool raise_destroying, IntPtr unassociated_hwnd = default)
+	{
+		VerifyOwnerThread();
+
+		var hwnd = unassociated_hwnd;
+		var invoke_destroying = false;
+		lock (m_lifetime_lock)
+		{
+			if (m_destruction_in_progress)
+				return false;
+			if (m_hwnd != IntPtr.Zero)
+				hwnd = m_hwnd;
+			if (hwnd == IntPtr.Zero)
+				return false;
+
+			m_destruction_in_progress = true;
+			if (raise_destroying && m_construction_complete && !m_destroying_raised)
+			{
+				m_destroying_raised = true;
+				invoke_destroying = true;
+			}
+		}
+
+		try
+		{
+			if (invoke_destroying)
+				RaiseDestroying();
+
+			if (!User32.DestroyWindow(hwnd))
+				throw new Win32Exception(Marshal.GetLastWin32Error(), "DestroyWindow failed.");
+
+			return true;
+		}
+		finally
+		{
+			lock (m_lifetime_lock)
+			{
+				m_destruction_in_progress = false;
+			}
+		}
 	}
 
 	/// <summary>Consume a captured callback failure so managed entry points rethrow it only once.</summary>
