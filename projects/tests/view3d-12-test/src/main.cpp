@@ -338,10 +338,12 @@ int __stdcall WinMain(HINSTANCE hinstance, HINSTANCE, LPTSTR, int)
 		pr::InitCom com;
 		pr::win32::LoadDll<struct View3d>("view3d-12.dll");
 
+		// Register the owning message loop so window destruction can drain continuously posted renderer messages and observe WM_QUIT.
+		WinGuiMsgLoop loop;
 		Main main(hinstance);
+		main.cp().msg_loop(&loop);
 		main.Show();
 
-		WinGuiMsgLoop loop;
 		loop.AddMessageFilter(main);
 		loop.AddLoop(100.0, true, [&main](auto dt) { main.Step(dt); });
 		return loop.Run();
