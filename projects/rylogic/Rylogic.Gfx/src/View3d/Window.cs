@@ -676,9 +676,13 @@ namespace Rylogic.Gfx
 				set => View3D_WindowBackBufferSizeSet(Handle, value, false);
 			}
 
-			/// <summary>True while the swap chain owns an output in DXGI exclusive fullscreen mode</summary>
+			/// <summary>Get/Set whether the swap chain owns an output in DXGI exclusive fullscreen mode</summary>
 			[Browsable(false)]
-			public bool IsFullScreen => View3D_WindowFullScreenGet(Handle);
+			public bool IsFullScreen
+			{
+				get => View3D_WindowFullScreenGet(Handle);
+				set => View3D_WindowFullScreenSet(Handle, value);
+			}
 
 			/// <summary>Force recreate the back buffer with the given size</summary>
 			public void RecreateBackBuffer(Size size)

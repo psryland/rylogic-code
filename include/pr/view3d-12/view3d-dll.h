@@ -989,8 +989,9 @@ extern "C"
 	VIEW3D_API SIZE __stdcall View3D_WindowBackBufferSizeGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_WindowBackBufferSizeSet(pr::view3d::Window window, SIZE size, BOOL force_recreate);
 
-	// True while the swap chain owns an output in DXGI exclusive fullscreen mode
+	// Get/Set whether the swap chain owns an output in DXGI exclusive fullscreen mode
 	VIEW3D_API BOOL __stdcall View3D_WindowFullScreenGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_WindowFullScreenSet(pr::view3d::Window window, BOOL fullscreen);
 
 	// Get/Set the window viewport (and clipping area)
 	VIEW3D_API pr::view3d::Viewport __stdcall View3D_WindowViewportGet(pr::view3d::Window window);

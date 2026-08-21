@@ -272,10 +272,14 @@ namespace pr::rdr12
 		m_scene.m_cam.Aspect(aspect);
 	}
 
-	// True while the swap chain owns an output in DXGI exclusive fullscreen mode
+	// Get/Set whether the swap chain owns an output in DXGI exclusive fullscreen mode
 	bool V3dWindow::FullScreen() const
 	{
 		return m_wnd.FullScreen();
+	}
+	void V3dWindow::FullScreen(bool fullscreen)
+	{
+		m_wnd.FullScreen(fullscreen);
 	}
 
 	// Get/Set the scene viewport

@@ -371,7 +371,7 @@ namespace pr::rdr12
 		rdr().BackBufferSizeChanged(*this, args);
 	}
 
-	// True while the swap chain owns an output in DXGI exclusive fullscreen mode
+	// Get/Set whether the swap chain owns an output in DXGI exclusive fullscreen mode
 	bool Window::FullScreen() const
 	{
 		if (m_swap_chain == nullptr)
@@ -380,6 +380,20 @@ namespace pr::rdr12
 		auto fullscreen = BOOL{};
 		Check(m_swap_chain->GetFullscreenState(&fullscreen, nullptr));
 		return fullscreen != FALSE;
+	}
+	void Window::FullScreen(bool fullscreen)
+	{
+		if (m_swap_chain == nullptr)
+		{
+			if (fullscreen)
+				throw std::runtime_error("An off-screen window cannot enter exclusive fullscreen mode");
+
+			return;
+		}
+		if (FullScreen() == fullscreen)
+			return;
+
+		Check(m_swap_chain->SetFullscreenState(fullscreen ? TRUE : FALSE, nullptr));
 	}
 
 	// Get/Set the multi sampling used.

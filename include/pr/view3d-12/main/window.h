@@ -100,8 +100,9 @@ namespace pr::rdr12
 		iv2 BackBufferSize() const;
 		void BackBufferSize(iv2 size, bool force, MultiSamp const* multisamp = nullptr);
 
-		// True while the swap chain owns an output in DXGI exclusive fullscreen mode
+		// Get/Set whether the swap chain owns an output in DXGI exclusive fullscreen mode
 		bool FullScreen() const;
+		void FullScreen(bool fullscreen);
 
 		// Get/Set the multi sampling used. Changing the multi-sampling is like resizing the MSAA back buffer only.
 		MultiSamp MultiSampling() const;
