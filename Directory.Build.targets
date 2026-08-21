@@ -56,14 +56,12 @@
 		<None Include="$(MSBuildProjectDirectory)\Readme.md" Pack="true" PackagePath="\" Condition="Exists('$(MSBuildProjectDirectory)\Readme.md')" />
 	</ItemGroup>
 
-	<!--
-	Write the NuGet global-cache hash and metadata files in-process. This avoids paying the startup/cache cost of dotnet-script
-	for a tiny deterministic post-pack helper during Visual Studio builds. -->
-	<UsingTask TaskName="WriteNuGetCacheMetadata" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+	<!-- Install locally built packages in-process so Visual Studio consumers see the latest package without starting dotnet-script. -->
+	<UsingTask TaskName="InstallNuGetCache" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
 		<Task>
 			<Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Framework.dll" />
 			<Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Utilities.Core.dll" />
-			<Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)build\tasks\WriteNuGetCacheMetadata.cs" />
+			<Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)build\tasks\InstallNuGetCache.cs" />
 		</Task>
 	</UsingTask>
 
@@ -82,20 +80,23 @@
 			<_NeedsPurge Condition="!Exists('$(_PurgeStamp)')">true</_NeedsPurge>
 			<_NeedsPurge Condition="'$(_NeedsPurge)' == 'false' AND $([System.IO.File]::GetLastWriteTime('$(_NuPkgPath)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('$(_PurgeStamp)').Ticks)">true</_NeedsPurge>
 
-			<!-- Suppress MSB3936 ("failed to unzip") as a warning. This is expected when a concurrent script or test host
-			     holds a lock on cached DLLs. The cache already has a valid version in this case. -->
-			<MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3936</MSBuildWarningsAsMessages>
+			<_NuGetCacheInstalled>false</_NuGetCacheInstalled>
 		</PropertyGroup>
 
 		<!--
-		Overwrite cache in-place to avoid a window where the directory is absent (parallel-build safety).
-		ContinueOnError tolerates locked DLLs held by concurrent processes. -->
-		<MakeDir Condition="'$(_NeedsPurge)' == 'true'" Directories="$(_NuGetCacheDir)" />
-		<Unzip Condition="'$(_NeedsPurge)' == 'true'" SourceFiles="$(_NuPkgPath)" DestinationFolder="$(_NuGetCacheDir)" OverwriteReadOnlyFiles="true" ContinueOnError="WarnAndContinue" />
-		<Copy Condition="'$(_NeedsPurge)' == 'true'" SourceFiles="$(_NuPkgPath)" DestinationFiles="$(_NuGetCacheDir)\$(_NuPkgCacheName)" ContinueOnError="WarnAndContinue" />
-		<WriteNuGetCacheMetadata Condition="'$(_NeedsPurge)' == 'true'" NuPkgPath="$(_NuPkgPath)" CacheDir="$(_NuGetCacheDir)" NuPkgName="$(_NuPkgCacheName)" ContinueOnError="WarnAndContinue" />
-		<Touch Condition="'$(_NeedsPurge)' == 'true'" Files="$(_PurgeStamp)" AlwaysCreate="true" />
-		<Message Condition="'$(_NeedsPurge)' == 'true'" Text="Reinstalled $(_PkgIdLower) $(Version) into nuget cache" Importance="high" />
+		Serialise concurrent writers and retry transient file locks held by Visual Studio build processes.
+		Leave the stamp unchanged after a persistent failure so the next build retries the installation. -->
+		<InstallNuGetCache
+			Condition="'$(_NeedsPurge)' == 'true'"
+			NuPkgPath="$(_NuPkgPath)"
+			CacheDir="$(_NuGetCacheDir)"
+			NuPkgName="$(_NuPkgCacheName)"
+			RetryTimeoutMilliseconds="15000"
+			ContinueOnError="WarnAndContinue">
+			<Output TaskParameter="Installed" PropertyName="_NuGetCacheInstalled" />
+		</InstallNuGetCache>
+		<Touch Condition="'$(_NuGetCacheInstalled)' == 'true'" Files="$(_PurgeStamp)" AlwaysCreate="true" />
+		<Message Condition="'$(_NuGetCacheInstalled)' == 'true'" Text="Reinstalled $(_PkgIdLower) $(Version) into nuget cache" Importance="high" />
 	</Target>
 
 </Project>
