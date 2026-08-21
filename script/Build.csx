@@ -638,12 +638,14 @@ public class AllNative : Group
 	public override void Deploy()
 	{
 		base.Deploy();
+		// Stage the native package in the release feed so the canonical root package and cache can be refreshed exactly.
 		Package = new Nuget()
 		{
 			PackageName = "Rylogic.Native",
 			Version = RylogicLibraryVersion,
 			Description = "Native runtime and development assets for Rylogic View3D, D3D12 compute, and rigid-body physics packages.",
 			Tags = "rylogic native library view3d physics d3d12",
+			PackageOutputPath = Tools.Path([UserVars.Root, "lib\\packages\\release"], check_exists: false),
 		};
 		Package.Files.AddRange([
 			new Nuget.File(Tools.Path([UserVars.Root, "include\\**\\*.*"], check_exists: false), "build/native/include/"),

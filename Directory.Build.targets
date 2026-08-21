@@ -44,9 +44,9 @@
 	</Target>
 
 	<!--
-	Auto-pack library assemblies to lib/packages and purge the global cache.
+	Auto-pack library assemblies to the config-specific staging feed, then sync the canonical local feed and global cache.
 	This must be in .targets (not .props) so that IsPackable from individual .csproj files is available.
-	Skipped in CI where packaging is not needed and cache-purge scripts may not be available. -->
+	Skipped in CI where packaging is not needed and cache-sync scripts may not be available. -->
 	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj' AND '$(IsPackable)' == 'true' AND '$(GITHUB_ACTIONS)' != 'true' AND '$(RylogicGeneratePackageOnBuild)' != 'false'">
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<PackageOutputPath>$(RylogicRoot)lib\packages\$(Configuration.ToLowerInvariant())\</PackageOutputPath>
@@ -56,8 +56,8 @@
 		<None Include="$(MSBuildProjectDirectory)\Readme.md" Pack="true" PackagePath="\" Condition="Exists('$(MSBuildProjectDirectory)\Readme.md')" />
 	</ItemGroup>
 
-	<!-- Install locally built packages in-process so Visual Studio consumers see the latest package without starting dotnet-script. -->
-	<UsingTask TaskName="InstallNuGetCache" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll" Condition="'$(MSBuildProjectExtension)' == '.csproj'">
+	<!-- Sync locally built packages in-process so Visual Studio consumers see the latest package without starting dotnet-script. -->
+	<UsingTask TaskName="SyncNuGetPackageOutputs" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll" Condition="'$(MSBuildProjectExtension)' == '.csproj'">
 		<Task>
 			<Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Framework.dll" />
 			<Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Utilities.Core.dll" />
@@ -66,37 +66,41 @@
 	</UsingTask>
 
 	<!--
-	Refresh the global nuget cache for the current version after packing so consumers always get the latest build.
-	Overwrites in-place (no delete) for parallel-build safety.
+	Refresh the canonical local feed and global NuGet cache for the current version after packing so consumers always get the latest build.
+	Overwrites destination package files in-place and removes stale cache payload entries without deleting the package root.
 	Uses a stamp file per package to run only once across TFMs in multi-targeting builds. -->
-	<Target Name="PurgeNuGetCache" AfterTargets="Pack" Condition="'$(_RylogicNuGetPackage)' == 'true'">
+	<Target Name="SyncNuGetPackageOutputs" AfterTargets="Pack" Condition="'$(_RylogicNuGetPackage)' == 'true'">
 		<PropertyGroup>
 			<_PkgIdLower>$(PackageId.ToLowerInvariant())</_PkgIdLower>
 			<_NuGetCacheDir>$(UserProfile)\.nuget\packages\$(_PkgIdLower)\$(Version)</_NuGetCacheDir>
+			<_NuGetFeedPath>$(RylogicRoot)lib\packages\$(PackageId).$(Version).nupkg</_NuGetFeedPath>
 			<_NuPkgPath>$([System.IO.Path]::Combine('$(PackageOutputPath)', '$(PackageId).$(Version).nupkg'))</_NuPkgPath>
 			<_NuPkgCacheName>$(_PkgIdLower).$(Version).nupkg</_NuPkgCacheName>
-			<_PurgeStamp>$(RylogicRoot)obj\.purge.$(_PkgIdLower).stamp</_PurgeStamp>
-			<_NeedsPurge>false</_NeedsPurge>
-			<_NeedsPurge Condition="!Exists('$(_PurgeStamp)')">true</_NeedsPurge>
-			<_NeedsPurge Condition="'$(_NeedsPurge)' == 'false' AND $([System.IO.File]::GetLastWriteTime('$(_NuPkgPath)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('$(_PurgeStamp)').Ticks)">true</_NeedsPurge>
+			<_NuPkgCachePath>$([System.IO.Path]::Combine('$(_NuGetCacheDir)', '$(_NuPkgCacheName)'))</_NuPkgCachePath>
+			<_SyncStamp>$(RylogicRoot)obj\.sync.$(_PkgIdLower).stamp</_SyncStamp>
+			<_NeedsSync>false</_NeedsSync>
+			<_NeedsSync Condition="!Exists('$(_SyncStamp)')">true</_NeedsSync>
+			<_NeedsSync Condition="'$(_NeedsSync)' == 'false' AND !Exists('$(_NuGetFeedPath)')">true</_NeedsSync>
+			<_NeedsSync Condition="'$(_NeedsSync)' == 'false' AND !Exists('$(_NuPkgCachePath)')">true</_NeedsSync>
+			<_NeedsSync Condition="'$(_NeedsSync)' == 'false' AND $([System.IO.File]::GetLastWriteTime('$(_NuPkgPath)').Ticks) &gt; $([System.IO.File]::GetLastWriteTime('$(_SyncStamp)').Ticks)">true</_NeedsSync>
 
-			<_NuGetCacheInstalled>false</_NuGetCacheInstalled>
+			<_NuGetPackageSynced>false</_NuGetPackageSynced>
 		</PropertyGroup>
 
 		<!--
 		Serialise concurrent writers and retry transient file locks held by Visual Studio build processes.
 		Leave the stamp unchanged after a persistent failure so the next build retries the installation. -->
-		<InstallNuGetCache
-			Condition="'$(_NeedsPurge)' == 'true'"
+		<SyncNuGetPackageOutputs
+			Condition="'$(_NeedsSync)' == 'true'"
 			NuPkgPath="$(_NuPkgPath)"
+			FeedPkgPath="$(_NuGetFeedPath)"
 			CacheDir="$(_NuGetCacheDir)"
 			NuPkgName="$(_NuPkgCacheName)"
-			RetryTimeoutMilliseconds="15000"
-			ContinueOnError="WarnAndContinue">
-			<Output TaskParameter="Installed" PropertyName="_NuGetCacheInstalled" />
-		</InstallNuGetCache>
-		<Touch Condition="'$(_NuGetCacheInstalled)' == 'true'" Files="$(_PurgeStamp)" AlwaysCreate="true" />
-		<Message Condition="'$(_NuGetCacheInstalled)' == 'true'" Text="Reinstalled $(_PkgIdLower) $(Version) into nuget cache" Importance="high" />
+			RetryTimeoutMilliseconds="15000">
+			<Output TaskParameter="Synced" PropertyName="_NuGetPackageSynced" />
+		</SyncNuGetPackageOutputs>
+		<Touch Condition="'$(_NuGetPackageSynced)' == 'true'" Files="$(_SyncStamp)" AlwaysCreate="true" />
+		<Message Condition="'$(_NuGetPackageSynced)' == 'true'" Text="Synced $(_PkgIdLower) $(Version) into the local feed and NuGet cache" Importance="high" />
 	</Target>
 
 </Project>
