@@ -57,7 +57,7 @@
 	</ItemGroup>
 
 	<!-- Install locally built packages in-process so Visual Studio consumers see the latest package without starting dotnet-script. -->
-	<UsingTask TaskName="InstallNuGetCache" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+	<UsingTask TaskName="InstallNuGetCache" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll" Condition="'$(MSBuildProjectExtension)' == '.csproj'">
 		<Task>
 			<Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Framework.dll" />
 			<Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Utilities.Core.dll" />

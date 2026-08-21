@@ -2053,9 +2053,14 @@ namespace pr::container::tests
 		{
 			Check chk;
 			{
-				// Empty containers should tear down without touching either allocator.
-				// The debug pointer hook keeps one backing block alive so the view
-				// layer can always point at a valid element slot.
+				// Empty containers allocate only when the debug pointer hook materialises
+				// a valid element slot through the enabled assert expression.
+				#if defined(NDEBUG)
+				constexpr auto expected_allocs = 0U;
+				#else
+				constexpr auto expected_allocs = 1U;
+				#endif
+
 				auto stats = std::make_shared<AllocStats>();
 				{
 					TrackingAllocator<int> allocator(stats);
@@ -2063,8 +2068,8 @@ namespace pr::container::tests
 					PR_EXPECT(deq0.empty());
 				}
 				ExpectBalanced(*stats);
-				PR_EXPECT(stats->m_block_allocs == 1U);
-				PR_EXPECT(stats->m_map_allocs == 1U);
+				PR_EXPECT(stats->m_block_allocs == expected_allocs);
+				PR_EXPECT(stats->m_map_allocs == expected_allocs);
 			}
 		}
 		PRUnitTestMethod(LedgerPartial, Quick)
