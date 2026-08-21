@@ -18,10 +18,12 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <Import Project="$(PropsPath)build_configurations.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <ShaderBuildStampDir>$(ProjectDir)src\compute\compiled\$(Configuration)\</ShaderBuildStampDir>
+  </PropertyGroup>
   <Import Project="$(PropsPath)shader_build.props" />
   <Import Project="$(PropsPath)lib.props" />
   <PropertyGroup>
-    <ShaderBuildStampDir>$(ProjectDir)src\compute\compiled\$(Configuration)\</ShaderBuildStampDir>
     <PhysicsProfile Condition="'$(PhysicsProfile)'==''">Default</PhysicsProfile>
     <PhysicsDiagnostics Condition="'$(PhysicsDiagnostics)'==''">Default</PhysicsDiagnostics>
   </PropertyGroup>
@@ -195,7 +197,9 @@
     <ShaderBuild Include="src\compute\collide.hlsl" ComputeEntryPoints="CSClearCollisionBins;CSBinCollisionPairs;CSBuildCollisionBinDispatch;CSCollideSphereVsSphere;CSCollideBoxVsSphere;CSCollideBoxVsBox;CSCollideLineVsSphere;CSCollideLineVsBox;CSCollideLineVsLine;CSCollideTriangleVsSphere;CSCollideTriangleVsBox;CSCollideTriangleVsLine;CSCollideTriangleVsTriangle;CSCollidePolytopeVsSphere;CSCollidePolytopeVsBox;CSCollidePolytopeVsLine;CSCollidePolytopeVsTriangle;CSCollidePolytopeVsPolytope;CSCalcResolveDispatch" />
     <ShaderBuild Include="src\compute\resolve.hlsl" ComputeEntryPoints="CSComputeCollisionTimes;CSClearShockLists;CSSeedShockPriority;CSPropagateShockPriority;CSCommitShockPriority;CSFinalizeShockPriority;CSAssignColours;CSWarmStartClear;CSApplyWarmStart;CSStoreWarmStart;CSPositionSolve;CSResolve" />
     <ShaderBuild Include="src\compute\selective.hlsl" ComputeEntryPoints="CSPrepareSelectiveRefresh;CSScoreSelectiveContacts;CSCompactSelectivePairs;CSBuildSelectiveDispatch" />
-    <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl" ComputeEntryPoints="CSBuoyancyVolumeSamples;CSBuoyancyVolumeReduce;CSBuoyancyDragSurfaceSamples;CSBuoyancyDragSurfaceReduce" />
+    <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl" ComputeEntryPoints="CSBuoyancyVolumeSamples;CSBuoyancyVolumeReduce;CSBuoyancyDragSurfaceSamples;CSBuoyancyDragSurfaceReduce">
+      <StampDir>$(ProjectDir)src\buoyancy\compiled\$(Configuration)\</StampDir>
+    </ShaderBuild>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\compute\compute_shaders_physics.rc" />

@@ -11,17 +11,24 @@
 		<ShaderBuildStampDir Condition="'$(ShaderBuildStampDir)'==''">$(ProjectDir)src\shaders\hlsl\compiled\$(Configuration)\</ShaderBuildStampDir>
 	</PropertyGroup>
 
+	<!-- Allow shader items in different source roots to declare the directory where BuildShader writes their stamp. -->
+	<ItemDefinitionGroup>
+		<ShaderBuild>
+			<StampDir>$(ShaderBuildStampDir)</StampDir>
+		</ShaderBuild>
+	</ItemDefinitionGroup>
+
 	<ItemGroup>
 		<ShaderBuildDependency Include="$(ProjectDir)src\**\*.hlsli" />
 		<ShaderBuildDependency Include="$(RylogicRoot)include\pr\hlsl\*.hlsli" />
 	</ItemGroup>
 
-	<!-- Custom Target for Building Shaders -->
+	<!-- Batch incrementally by source file so one stale shader does not rebuild every item. -->
 	<Target
 		Name="ShaderBuildTarget"
 		BeforeTargets="CLCompile"
-		Inputs="@(ShaderBuild);@(ShaderBuildDependency);$(ScriptPath)BuildShader.csx;$(MSBuildThisFileFullPath)"
-		Outputs="@(ShaderBuild->'$(ShaderBuildStampDir)%(Filename).built')"
+		Inputs="%(ShaderBuild.FullPath);@(ShaderBuildDependency);$(ScriptPath)BuildShader.csx;$(MSBuildThisFileFullPath)"
+		Outputs="%(ShaderBuild.StampDir)%(ShaderBuild.Filename).built"
 	>
 		<!-- 
 		<Message Importance="high" Text="%(ShaderBuild.Filename)%(ShaderBuild.Extension)" />
@@ -43,10 +50,7 @@
 		Name="ShaderBuildClean"
 		BeforeTargets="Clean"
 	>
-		<ItemGroup>
-			<ShaderBuildStamps Include="$(ShaderBuildStampDir)*.built" />
-		</ItemGroup>
-		<Delete Files="@(ShaderBuildStamps)" />
+		<Delete Files="@(ShaderBuild->'%(StampDir)%(Filename).built')" />
 	</Target>
 
 	<!-- Hook the custom target into the build pipeline -->  
