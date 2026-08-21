@@ -153,6 +153,9 @@ namespace pr::rdr12
 		iv2 BackBufferSize() const;
 		void BackBufferSize(iv2 sz, bool force_recreate);
 
+		// True while the swap chain owns an output in DXGI exclusive fullscreen mode
+		bool FullScreen() const;
+
 		// Get/Set the window viewport
 		view3d::Viewport Viewport() const;
 		void Viewport(view3d::Viewport const& vp);

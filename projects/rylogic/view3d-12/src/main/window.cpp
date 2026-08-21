@@ -371,6 +371,17 @@ namespace pr::rdr12
 		rdr().BackBufferSizeChanged(*this, args);
 	}
 
+	// True while the swap chain owns an output in DXGI exclusive fullscreen mode
+	bool Window::FullScreen() const
+	{
+		if (m_swap_chain == nullptr)
+			return false;
+
+		auto fullscreen = BOOL{};
+		Check(m_swap_chain->GetFullscreenState(&fullscreen, nullptr));
+		return fullscreen != FALSE;
+	}
+
 	// Get/Set the multi sampling used.
 	MultiSamp Window::MultiSampling() const
 	{

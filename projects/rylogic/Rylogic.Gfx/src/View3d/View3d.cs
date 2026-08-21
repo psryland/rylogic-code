@@ -1831,6 +1831,9 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern Size View3D_WindowBackBufferSizeGet(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_WindowBackBufferSizeSet(HWindow window, Size size, bool force_recreate);
 
+		// True while the swap chain owns an output in DXGI exclusive fullscreen mode
+		[DllImport(Dll)] private static extern bool View3D_WindowFullScreenGet(HWindow window);
+
 		// Get/Set the window viewport (and clipping area)
 		[DllImport(Dll)] private static extern Viewport View3D_WindowViewportGet(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_WindowViewportSet(HWindow window, ref Viewport vp);

@@ -548,6 +548,19 @@ VIEW3D_API void __stdcall View3D_WindowBackBufferSizeSet(view3d::Window window, 
 	CatchAndReport(View3D_WindowBackBufferSizeSet, window,);
 }
 
+// True while the swap chain owns an output in DXGI exclusive fullscreen mode
+VIEW3D_API BOOL __stdcall View3D_WindowFullScreenGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->FullScreen() ? TRUE : FALSE;
+	}
+	CatchAndReport(View3D_WindowFullScreenGet, window, FALSE);
+}
+
 // Get/Set the window viewport (and clipping area)
 VIEW3D_API view3d::Viewport __stdcall View3D_WindowViewportGet(view3d::Window window)
 {
