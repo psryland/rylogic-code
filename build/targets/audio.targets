@@ -1,24 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-This targets file is used in the nuget package to add these native
-dlls to the target project. Links to the native dlls are added as
-copy-if-newer content to the project which copies them to the build
-target directory.
+This targets file copies the audio DLL to the output directory.
+Links to the native dlls are added as copy-if-newer content to
+the project which copies them to the build target directory.
 -->
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
 	<!-- Add a dependency on the dll (C#) -->
 	<ItemGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
-		<Content Include="$(RylogicRoot)lib\x64\debug\audio.dll">
+		<Content Include="$(RylogicRoot)lib\x64\debug\audio.dll" Condition="Exists('$(RylogicRoot)lib\x64\debug\audio.dll')">
 			<Link>lib\x64\debug\audio.dll</Link>
+			<Pack>false</Pack>
 			<CopyToOutputDirectory Condition="'$(Configuration)'=='Debug'">PreserveNewest</CopyToOutputDirectory>
 		</Content>
-		<Content Include="$(RylogicRoot)lib\x64\release\audio.dll">
+
+		<Content Include="$(RylogicRoot)lib\x64\release\audio.dll" Condition="Exists('$(RylogicRoot)lib\x64\release\audio.dll')">
 			<Link>lib\x64\release\audio.dll</Link>
-			<CopyToOutputDirectory Condition="'$(Configuration)'=='Release'">PreserveNewest</CopyToOutputDirectory>
+			<Pack>false</Pack>
+			<CopyToOutputDirectory Condition="'$(Configuration)'!='Debug'">PreserveNewest</CopyToOutputDirectory>
 		</Content>
 	</ItemGroup>
-	
+
+	<!-- Source projects use the current repository build rather than a potentially older transitive Rylogic.Native package asset. -->
+	<Target Name="PreferSourceAudioRuntime" AfterTargets="ResolvePackageAssets" Condition="'$(MSBuildProjectExtension)' == '.csproj'">
+		<ItemGroup>
+			<RuntimeTargetsCopyLocalItems
+				Remove="@(RuntimeTargetsCopyLocalItems)"
+				Condition="Exists('$(RylogicRoot)lib\x64\$(Configuration)\audio.dll') AND '%(RuntimeTargetsCopyLocalItems.NuGetPackageId)' == 'Rylogic.Native' AND '%(RuntimeTargetsCopyLocalItems.Filename)%(RuntimeTargetsCopyLocalItems.Extension)' == 'audio.dll'" />
+		</ItemGroup>
+	</Target>
+
 	<!-- Add a dependency on the dll (C++) -->
 	<ItemGroup Condition="'$(MSBuildProjectExtension)' == '.vcxproj'">
 		<DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\audio.dll">

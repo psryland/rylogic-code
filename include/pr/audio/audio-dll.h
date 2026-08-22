@@ -48,12 +48,14 @@ extern "C"
 {
 	AUDIO_API pr::audio::DllHandle __stdcall Audio_Initialise(pr::audio::ReportErrorCB global_error_cb);
 	AUDIO_API void __stdcall Audio_Shutdown(pr::audio::DllHandle context);
+	AUDIO_API void __stdcall Audio_ContextAbandon(pr::audio::DllHandle context);
 	AUDIO_API std::uint32_t __stdcall Audio_ApiVersion();
 	AUDIO_API pr::audio::EStatus __stdcall Audio_StructSize(pr::audio::EStructId struct_id, std::uint32_t* size);
 	AUDIO_API pr::audio::EStatus __stdcall Audio_LastError(char* buffer, std::uint32_t capacity, std::uint32_t* required);
 
 	AUDIO_API pr::audio::EStatus __stdcall Audio_EngineCreate(pr::audio::DllHandle context, pr::audio::Config const* config, pr::audio::EngineHandle* engine);
 	AUDIO_API pr::audio::EStatus __stdcall Audio_EngineDestroy(pr::audio::EngineHandle engine);
+	AUDIO_API void __stdcall Audio_EngineAbandon(pr::audio::EngineHandle engine);
 	AUDIO_API pr::audio::EStatus __stdcall Audio_EngineUpdate(pr::audio::EngineHandle engine);
 	AUDIO_API pr::audio::EStatus __stdcall Audio_ListenerSet(pr::audio::EngineHandle engine, pr::audio::ListenerState const* listener);
 	AUDIO_API pr::audio::EStatus __stdcall Audio_BusGainSet(pr::audio::EngineHandle engine, pr::audio::EBus bus, float gain);

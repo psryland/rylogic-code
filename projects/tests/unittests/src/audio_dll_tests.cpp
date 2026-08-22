@@ -23,11 +23,13 @@ namespace pr::unittests
 			DllModule m_module;
 			decltype(&Audio_Initialise) Initialise;
 			decltype(&Audio_Shutdown) Shutdown;
+			decltype(&Audio_ContextAbandon) ContextAbandon;
 			decltype(&Audio_ApiVersion) ApiVersion;
 			decltype(&Audio_StructSize) StructSize;
 			decltype(&Audio_LastError) LastError;
 			decltype(&Audio_EngineCreate) EngineCreate;
 			decltype(&Audio_EngineDestroy) EngineDestroy;
+			decltype(&Audio_EngineAbandon) EngineAbandon;
 			decltype(&Audio_EngineUpdate) EngineUpdate;
 			decltype(&Audio_ListenerSet) ListenerSet;
 			decltype(&Audio_ClipCreateWave) ClipCreateWave;
@@ -52,11 +54,13 @@ namespace pr::unittests
 				: m_module(__FILE__, L"audio.dll", L"audio.dll")
 				, Initialise(m_module.Proc<decltype(Initialise)>("Audio_Initialise"))
 				, Shutdown(m_module.Proc<decltype(Shutdown)>("Audio_Shutdown"))
+				, ContextAbandon(m_module.Proc<decltype(ContextAbandon)>("Audio_ContextAbandon"))
 				, ApiVersion(m_module.Proc<decltype(ApiVersion)>("Audio_ApiVersion"))
 				, StructSize(m_module.Proc<decltype(StructSize)>("Audio_StructSize"))
 				, LastError(m_module.Proc<decltype(LastError)>("Audio_LastError"))
 				, EngineCreate(m_module.Proc<decltype(EngineCreate)>("Audio_EngineCreate"))
 				, EngineDestroy(m_module.Proc<decltype(EngineDestroy)>("Audio_EngineDestroy"))
+				, EngineAbandon(m_module.Proc<decltype(EngineAbandon)>("Audio_EngineAbandon"))
 				, EngineUpdate(m_module.Proc<decltype(EngineUpdate)>("Audio_EngineUpdate"))
 				, ListenerSet(m_module.Proc<decltype(ListenerSet)>("Audio_ListenerSet"))
 				, ClipCreateWave(m_module.Proc<decltype(ClipCreateWave)>("Audio_ClipCreateWave"))
@@ -450,6 +454,53 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.VoiceDestroy(fix.m_engine, voice) == EStatus::Success);
 			PR_EXPECT(fix.m_api.VoicePlay(fix.m_engine, voice) == EStatus::StaleHandle);
 			PR_EXPECT(fix.m_api.ClipDestroy(fix.m_engine, clip) == EStatus::Success);
+		}
+
+		PRUnitTestMethod(FinalizerAbandonRetiresEngineFromAnyThread, Extended)
+		{
+			auto api = AudioApi{};
+			auto context = api.Initialise(ReportErrorCB{{}, &SwallowError});
+			PR_EXPECT(context != nullptr);
+			auto engine = EngineHandle{};
+			PR_EXPECT(api.EngineCreate(context, nullptr, &engine) == EStatus::Success);
+
+			auto worker = std::thread([&]
+				{
+					api.EngineAbandon(engine);
+				});
+			worker.join();
+
+			PR_EXPECT(api.EngineUpdate(engine) == EStatus::StaleHandle);
+			api.Shutdown(context);
+		}
+
+		PRUnitTestMethod(FinalizerContextAbandonReleasesLiveEngines, Extended)
+		{
+			auto api = AudioApi{};
+			auto context = api.Initialise(ReportErrorCB{{}, &SwallowError});
+			PR_EXPECT(context != nullptr);
+			auto engine = EngineHandle{};
+			PR_EXPECT(api.EngineCreate(context, nullptr, &engine) == EStatus::Success);
+
+			auto worker = std::thread([&]
+				{
+					api.ContextAbandon(context);
+				});
+			worker.join();
+			PR_EXPECT(api.EngineUpdate(engine) == EStatus::InternalError);
+
+			// The last abandoned token must not pin process context state or prevent clean reinitialization.
+			auto replacement_context = api.Initialise(ReportErrorCB{{}, &SwallowError});
+			PR_EXPECT(replacement_context != nullptr);
+			auto replacement_engine = EngineHandle{};
+			PR_EXPECT(api.EngineCreate(replacement_context, nullptr, &replacement_engine) == EStatus::Success);
+			PR_EXPECT(replacement_engine != engine);
+
+			// A delayed SafeHandle finalizer from the abandoned context must not alias the replacement engine.
+			api.EngineAbandon(engine);
+			PR_EXPECT(api.EngineUpdate(replacement_engine) == EStatus::Success);
+			PR_EXPECT(api.EngineDestroy(replacement_engine) == EStatus::Success);
+			api.Shutdown(replacement_context);
 		}
 
 		PRUnitTestMethod(VoiceVirtualizationReclaimsPhysicalSlotsByPriority, Extended)
