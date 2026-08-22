@@ -348,6 +348,15 @@ namespace pr::unittests
 			worker.join();
 			PR_EXPECT(wrong_thread == EStatus::WrongThread);
 
+			// The ABI rejects absolute homogeneous positions before applying any command in the batch.
+			auto invalid_force = BodyCommand{
+				.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
+				.body = body,
+				.type = ECommand::ApplyForce,
+				.at = {0, 0, 0, 1},
+			};
+			PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &invalid_force, 1) == EStatus::InvalidArgument);
+
 			auto other = EngineHandle{};
 			PR_EXPECT(fix.m_api.EngineCreate(fix.m_context, nullptr, nullptr, &other) == EStatus::Success);
 			auto command = BodyCommand{

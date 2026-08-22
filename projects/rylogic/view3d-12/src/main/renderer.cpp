@@ -265,14 +265,7 @@ namespace pr::rdr12
 				}
 			}
 
-			#if PR_DBG_RDR
-			auto rcnt = m_d3d_device.RefCount();
-			if (rcnt != 1)
-			{
-				OutputDebugStringA(std::format("{} outstanding references to the dx device", rcnt - 1).c_str());
-				_CrtDbgBreak(); // Outstanding references to the dx device
-			}
-			#endif
+			// Public device leases own independent COM references and may intentionally outlive the renderer.
 			m_d3d_device = nullptr;
 		}
 	}

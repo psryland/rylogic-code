@@ -190,10 +190,19 @@ public sealed class TestPhysics
 		var too_small = Array.Empty<BodySnapshot>();
 		ExpectStatus(EStatus.BufferTooSmall, () => first.CopySnapshots(too_small));
 
+		var invalid_force = new[]
+		{
+			new BodyCommand(body.Handle, EBodyCommand.ApplyForce, m4x4.Identity, SpatialVector.Zero, v4.Origin),
+		};
+		ExpectStatus(EStatus.InvalidArgument, () => first.ApplyCommands(invalid_force));
+
 		var stale_handle = body.Handle;
 		body.Dispose();
 		var stale = new[] { BodyCommand.Wake(stale_handle) };
 		ExpectStatus(EStatus.StaleHandle, () => first.ApplyCommands(stale));
+
+		// Application points are world-oriented offsets from the model origin, not absolute homogeneous positions.
+		Assert.Throws<ArgumentException>(() => BodyCommand.ApplyForce(stale_handle, SpatialVector.Zero, v4.Origin));
 	}
 
 	/// <summary>Compare one managed blittable record against native ABI discovery.</summary>

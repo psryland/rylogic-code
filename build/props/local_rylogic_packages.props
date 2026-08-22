@@ -1,0 +1,4 @@
+<Project>
+	<!-- Import this file from a consumer's Directory.Packages.props to select every locally published Rylogic development package. -->
+	<Import Project="$(MSBuildThisFileDirectory)..\..\lib\packages\local\packages\*.props" Condition="Exists('$(MSBuildThisFileDirectory)..\..\lib\packages\local\packages')" />
+</Project>

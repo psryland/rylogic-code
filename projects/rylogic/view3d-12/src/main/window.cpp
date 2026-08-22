@@ -394,6 +394,10 @@ namespace pr::rdr12
 			return;
 
 		Check(m_swap_chain->SetFullscreenState(fullscreen ? TRUE : FALSE, nullptr));
+
+		// Flip-model swap chains require ResizeBuffers after every fullscreen transition, even when the buffer dimensions do not change.
+		BackBufferSize(BackBufferSize(), true);
+		m_idle = false;
 	}
 
 	// Get/Set the multi sampling used.
@@ -654,6 +658,13 @@ namespace pr::rdr12
 					m_idle = true;
 					break;
 				}
+				case DXGI_STATUS_MODE_CHANGED:
+				case DXGI_STATUS_MODE_CHANGE_IN_PROGRESS:
+				{
+					// Fullscreen transitions can make one presentation invisible while DXGI and the window's resize messages converge.
+					m_idle = false;
+					break;
+				}
 				case DXGI_ERROR_DEVICE_RESET:
 				{
 					// The device failed due to a badly formed command. This is a run-time issue;
@@ -668,7 +679,7 @@ namespace pr::rdr12
 				}
 				default:
 				{
-					throw std::runtime_error("Unknown result from SwapChain::Present");
+					throw std::runtime_error(FmtS("Unexpected result from SwapChain::Present: 0x%08X", static_cast<unsigned>(res)));
 				}
 			}
 		}

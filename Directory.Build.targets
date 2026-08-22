@@ -47,9 +47,14 @@
 	Auto-pack library assemblies to the config-specific staging feed, then sync the canonical local feed and global cache.
 	This must be in .targets (not .props) so that IsPackable from individual .csproj files is available.
 	Skipped in CI where packaging is not needed and cache-sync scripts may not be available. -->
+	<Import Project="$(RylogicRoot)lib\packages\local\versions\$(MSBuildProjectName).props" Condition="'$(Configuration)' == 'Debug' AND '$(BuildProjectReferences)' == 'false' AND Exists('$(RylogicRoot)lib\packages\local\versions\$(MSBuildProjectName).props')" />
 	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj' AND '$(IsPackable)' == 'true' AND '$(GITHUB_ACTIONS)' != 'true' AND '$(RylogicGeneratePackageOnBuild)' != 'false'">
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<PackageOutputPath>$(RylogicRoot)lib\packages\$(Configuration.ToLowerInvariant())\</PackageOutputPath>
+		<PackageVersion Condition="'$(Configuration)' == 'Debug' AND '$(BuildProjectReferences)' == 'false' AND '$(RylogicLastLocalPackageVersion)' != ''">$(RylogicLastLocalPackageVersion)</PackageVersion>
+		<PackageVersion Condition="'$(Configuration)' == 'Debug' AND '$(BuildProjectReferences)' == 'false' AND '$(RylogicLastLocalPackageVersion)' == ''">$(RylogicLibraryVersion)</PackageVersion>
+		<PackageVersion Condition="'$(Configuration)' == 'Debug' AND '$(BuildProjectReferences)' != 'false' AND '$(RylogicLocalPackageVersion)' == ''">$(RylogicLibraryVersion)-dev.$([System.DateTime]::UtcNow.ToString('yyyyMMddHHmmssfff'))</PackageVersion>
+		<PackageVersion Condition="'$(RylogicLocalPackageVersion)' != ''">$(RylogicLocalPackageVersion)</PackageVersion>
 		<_RylogicNuGetPackage>true</_RylogicNuGetPackage>
 	</PropertyGroup>
 	<ItemGroup Condition="'$(_RylogicNuGetPackage)' == 'true'">
@@ -57,27 +62,41 @@
 	</ItemGroup>
 
 	<!-- Sync locally built packages in-process so Visual Studio consumers see the latest package without starting dotnet-script. -->
-	<UsingTask TaskName="SyncNuGetPackageOutputs" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll" Condition="'$(MSBuildProjectExtension)' == '.csproj'">
+	<UsingTask TaskName="SyncNuGetPackageOutputs" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
 		<Task>
 			<Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Framework.dll" />
 			<Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Utilities.Core.dll" />
 			<Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)build\tasks\InstallNuGetCache.cs" />
 		</Task>
 	</UsingTask>
+	<UsingTask TaskName="PublishLocalPackageVersion" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+		<Task>
+			<Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Framework.dll" />
+			<Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Utilities.Core.dll" />
+			<Code Type="Class" Language="cs" Source="$(MSBuildThisFileDirectory)build\tasks\PublishLocalPackageVersion.cs" />
+		</Task>
+	</UsingTask>
 
 	<!--
-	Refresh the canonical local feed and global NuGet cache for the current version after packing so consumers always get the latest build.
-	Overwrites destination package files in-place and removes stale cache payload entries without deleting the package root.
+	Install the packed version into the canonical local feed and global NuGet cache so consumers can restore the exact published artifact.
+	Refreshes cache payload entries without deleting the package root.
 	Uses a stamp file per package to run only once across TFMs in multi-targeting builds. -->
 	<Target Name="SyncNuGetPackageOutputs" AfterTargets="Pack" Condition="'$(_RylogicNuGetPackage)' == 'true'">
 		<PropertyGroup>
 			<_PkgIdLower>$(PackageId.ToLowerInvariant())</_PkgIdLower>
-			<_NuGetCacheDir>$(UserProfile)\.nuget\packages\$(_PkgIdLower)\$(Version)</_NuGetCacheDir>
-			<_NuGetFeedPath>$(RylogicRoot)lib\packages\$(PackageId).$(Version).nupkg</_NuGetFeedPath>
+			<_RylogicEffectivePackageVersion Condition="'$(PackageVersion)' != ''">$(PackageVersion)</_RylogicEffectivePackageVersion>
+			<_RylogicEffectivePackageVersion Condition="'$(_RylogicEffectivePackageVersion)' == ''">$(Version)</_RylogicEffectivePackageVersion>
+			<_NuGetCacheDir>$(UserProfile)\.nuget\packages\$(_PkgIdLower)\$(_RylogicEffectivePackageVersion)</_NuGetCacheDir>
+			<_NuGetFeedPath>$(RylogicRoot)lib\packages\$(PackageId).$(_RylogicEffectivePackageVersion).nupkg</_NuGetFeedPath>
 			<_NuPkgPath>$([System.IO.Path]::Combine('$(PackageOutputPath)', '$(PackageId).$(Version).nupkg'))</_NuPkgPath>
-			<_NuPkgCacheName>$(_PkgIdLower).$(Version).nupkg</_NuPkgCacheName>
+			<_NuPkgPath Condition="'$(PackageVersion)' != ''">$([System.IO.Path]::Combine('$(PackageOutputPath)', '$(PackageId).$(PackageVersion).nupkg'))</_NuPkgPath>
+			<_NuPkgCacheName>$(_PkgIdLower).$(_RylogicEffectivePackageVersion).nupkg</_NuPkgCacheName>
 			<_NuPkgCachePath>$([System.IO.Path]::Combine('$(_NuGetCacheDir)', '$(_NuPkgCacheName)'))</_NuPkgCachePath>
 			<_SyncStamp>$(RylogicRoot)obj\.sync.$(_PkgIdLower).stamp</_SyncStamp>
+			<_LocalCentralVersionPropsDir>$(RylogicRoot)lib\packages\local\packages</_LocalCentralVersionPropsDir>
+			<_LocalCentralVersionPropsPath>$(_LocalCentralVersionPropsDir)\$(_PkgIdLower).props</_LocalCentralVersionPropsPath>
+			<_LocalProjectVersionPropsDir>$(RylogicRoot)lib\packages\local\versions</_LocalProjectVersionPropsDir>
+			<_LocalProjectVersionPropsPath>$(_LocalProjectVersionPropsDir)\$(MSBuildProjectName).props</_LocalProjectVersionPropsPath>
 			<_NeedsSync>false</_NeedsSync>
 			<_NeedsSync Condition="!Exists('$(_SyncStamp)')">true</_NeedsSync>
 			<_NeedsSync Condition="'$(_NeedsSync)' == 'false' AND !Exists('$(_NuGetFeedPath)')">true</_NeedsSync>
@@ -100,7 +119,50 @@
 			<Output TaskParameter="Synced" PropertyName="_NuGetPackageSynced" />
 		</SyncNuGetPackageOutputs>
 		<Touch Condition="'$(_NuGetPackageSynced)' == 'true'" Files="$(_SyncStamp)" AlwaysCreate="true" />
-		<Message Condition="'$(_NuGetPackageSynced)' == 'true'" Text="Synced $(_PkgIdLower) $(Version) into the local feed and NuGet cache" Importance="high" />
+		<PublishLocalPackageVersion
+			Condition="'$(_NuGetPackageSynced)' == 'true' AND '$(Configuration)' == 'Debug'"
+			PackageId="$(PackageId)"
+			PackageVersion="$(_RylogicEffectivePackageVersion)"
+			CentralVersionPropsPath="$(_LocalCentralVersionPropsPath)"
+			ProjectVersionPropsPath="$(_LocalProjectVersionPropsPath)"
+			ProjectVersionProperty="RylogicLastLocalPackageVersion" />
+		<Message Condition="'$(_NuGetPackageSynced)' == 'true'" Text="Synced $(_PkgIdLower) $(_RylogicEffectivePackageVersion) into the local feed and NuGet cache" Importance="high" />
+		<Message Condition="'$(_NuGetPackageSynced)' == 'true' AND '$(Configuration)' == 'Debug'" Text="Published immutable local package $(PackageId) $(_RylogicEffectivePackageVersion)" Importance="high" />
+	</Target>
+
+	<!-- Every successful native Debug DLL build publishes one immutable aggregate runtime package for package-only consumer applications. -->
+	<Target Name="PublishLocalNativeDevelopmentPackage" AfterTargets="Build" Condition="'$(MSBuildProjectExtension)' == '.vcxproj' AND '$(Configuration)' == 'Debug' AND '$(Platform)' == 'x64' AND '$(ConfigurationType)' == 'DynamicLibrary' AND '$(GITHUB_ACTIONS)' != 'true' AND '$(RylogicGeneratePackageOnBuild)' != 'false'">
+		<PropertyGroup>
+			<_NativePackageId>Rylogic.Native</_NativePackageId>
+			<_NativePackageIdLower>rylogic.native</_NativePackageIdLower>
+			<_NativePackageVersion>$(RylogicLibraryVersion)-dev.$([System.DateTime]::UtcNow.ToString('yyyyMMddHHmmssfff'))</_NativePackageVersion>
+			<_NativePackageOutputDir>$(RylogicRoot)lib\packages\debug</_NativePackageOutputDir>
+			<_NativePackagePath>$(_NativePackageOutputDir)\$(_NativePackageId).$(_NativePackageVersion).nupkg</_NativePackagePath>
+			<_NativeFeedPath>$(RylogicRoot)lib\packages\$(_NativePackageId).$(_NativePackageVersion).nupkg</_NativeFeedPath>
+			<_NativeCacheDir>$(UserProfile)\.nuget\packages\$(_NativePackageIdLower)\$(_NativePackageVersion)</_NativeCacheDir>
+			<_NativeCacheName>$(_NativePackageIdLower).$(_NativePackageVersion).nupkg</_NativeCacheName>
+			<_NativeCentralVersionPropsPath>$(RylogicRoot)lib\packages\local\packages\$(_NativePackageIdLower).props</_NativeCentralVersionPropsPath>
+			<_NativeProjectVersionPropsPath>$(RylogicRoot)lib\packages\local\versions\$(_NativePackageId).props</_NativeProjectVersionPropsPath>
+		</PropertyGroup>
+
+		<MakeDir Directories="$(_NativePackageOutputDir)" />
+		<Exec Command="&quot;$(ToolsPath)nuget\nuget.exe&quot; pack &quot;$(RylogicRoot)build\nuget\rylogic.native.dev.nuspec&quot; -BasePath &quot;$(RylogicRoot)build\..&quot; -Version &quot;$(_NativePackageVersion)&quot; -OutputDirectory &quot;$(_NativePackageOutputDir)&quot; -NoPackageAnalysis -NonInteractive -Verbosity quiet" />
+		<SyncNuGetPackageOutputs
+			NuPkgPath="$(_NativePackagePath)"
+			FeedPkgPath="$(_NativeFeedPath)"
+			CacheDir="$(_NativeCacheDir)"
+			NuPkgName="$(_NativeCacheName)"
+			RetryTimeoutMilliseconds="15000">
+			<Output TaskParameter="Synced" PropertyName="_NativePackageSynced" />
+		</SyncNuGetPackageOutputs>
+		<PublishLocalPackageVersion
+			Condition="'$(_NativePackageSynced)' == 'true'"
+			PackageId="$(_NativePackageId)"
+			PackageVersion="$(_NativePackageVersion)"
+			CentralVersionPropsPath="$(_NativeCentralVersionPropsPath)"
+			ProjectVersionPropsPath="$(_NativeProjectVersionPropsPath)"
+			ProjectVersionProperty="RylogicNativePackageVersion" />
+		<Message Condition="'$(_NativePackageSynced)' == 'true'" Text="Published immutable local native package $(_NativePackageId) $(_NativePackageVersion)" Importance="high" />
 	</Target>
 
 </Project>

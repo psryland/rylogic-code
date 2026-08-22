@@ -19,6 +19,7 @@
 
 	<PropertyGroup>
 		<RylogicGeneratePackageOnBuild Condition="'$(RylogicGeneratePackageOnBuild)' == ''">true</RylogicGeneratePackageOnBuild>
+		<RylogicLibraryVersion>2.1.2</RylogicLibraryVersion>
 	</PropertyGroup>
 
 	<!-- C# -->
@@ -44,8 +45,6 @@
 		<PackageReadmeFile>Readme.md</PackageReadmeFile>
 		<Description>A toolbox of extension methods, data structures, and helper classes used in tools created by Rylogic.</Description>
 		<Copyright>Copyright (c) Rylogic 2007</Copyright>
-		<RylogicLibraryVersion>2.1.1</RylogicLibraryVersion>
-
 		<!-- Deterministic builds -->
 		<Deterministic>true</Deterministic>
 		<ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
@@ -57,6 +56,10 @@
 		<Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
 		<Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
 		<SubDir>$(MSBuildProjectName)\$(TargetFramework)\$(Platform)\$(Configuration)</SubDir>
+	</PropertyGroup>
+	<Import Project="$(RylogicRoot)lib\packages\local\versions\Rylogic.Native.props" Condition="'$(MSBuildProjectExtension)' == '.csproj' AND '$(Configuration)' == 'Debug' AND Exists('$(RylogicRoot)lib\packages\local\versions\Rylogic.Native.props')" />
+	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
+		<RylogicNativePackageVersion Condition="'$(RylogicNativePackageVersion)' == ''">$(RylogicLibraryVersion)</RylogicNativePackageVersion>
 	</PropertyGroup>
 
 	<!-- C++ -->

@@ -701,7 +701,6 @@ namespace pr::physics
 					case PhysicsBodyCommandType::SetVelocity:
 					case PhysicsBodyCommandType::SetMomentum:
 					case PhysicsBodyCommandType::SetForce:
-					case PhysicsBodyCommandType::ApplyForce:
 					case PhysicsBodyCommandType::ApplyImpulse:
 					case PhysicsBodyCommandType::SetGravity:
 					case PhysicsBodyCommandType::SetKinematicTransform:
@@ -709,6 +708,13 @@ namespace pr::physics
 					case PhysicsBodyCommandType::Wake:
 					case PhysicsBodyCommandType::Sleep:
 						break;
+					case PhysicsBodyCommandType::ApplyForce:
+					{
+						if (commands[i].at.w != 0.0f)
+							throw ApiException(PhysicsStatus::InvalidArgument, "Force application point must be an offset from the model origin");
+
+						break;
+					}
 					default:
 						throw ApiException(PhysicsStatus::InvalidArgument, "Unknown body command type");
 				}

@@ -367,9 +367,12 @@ public readonly struct BodyCommand
 		return new BodyCommand(body, EBodyCommand.SetForce, m4x4.Identity, force, v4.Zero);
 	}
 
-	/// <summary>Create a world-space torque and force accumulation command at a world-space point.</summary>
+	/// <summary>Create a world-space torque and force accumulation command at a world-oriented offset from the model origin.</summary>
 	public static BodyCommand ApplyForce(BodyHandle body, SpatialVector force, v4 at)
 	{
+		if (at.w != 0.0f)
+			throw new ArgumentException("The force application point must be an offset from the model origin.", nameof(at));
+
 		return new BodyCommand(body, EBodyCommand.ApplyForce, m4x4.Identity, force, at);
 	}
 
