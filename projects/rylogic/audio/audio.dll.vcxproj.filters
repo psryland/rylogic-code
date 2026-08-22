@@ -1,16 +1,18 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="src">
       <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
-      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
     </Filter>
     <Filter Include="src\dll">
       <UniqueIdentifier>{bdd963a9-1c46-4ccc-b906-4edc49eadc5a}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="$(RylogicRoot)include\pr\audio\dll\audio.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\audio\audio-dll.h">
+      <Filter>src\dll</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\audio\types.h">
       <Filter>src\dll</Filter>
     </ClInclude>
     <ClCompile Include="dll\audio.cpp">
@@ -19,10 +21,5 @@
     <ClInclude Include="dll\context.h">
       <Filter>src\dll</Filter>
     </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="$(RylogicRoot)projects\rylogic\Rylogic.Windows\src\Audio\Audio.cs">
-      <Filter>src\dll</Filter>
-    </None>
   </ItemGroup>
 </Project>

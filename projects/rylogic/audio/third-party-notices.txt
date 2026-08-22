@@ -1,0 +1,17 @@
+Rylogic Audio third-party notices
+=================================
+
+Ogg and Vorbis
+--------------
+
+The Ogg container and Vorbis codec sources under sdk/ogg and sdk/vorbis are from the
+Xiph.Org Foundation and are used under their BSD-style licenses. The vendored source
+headers identify the governing license and copyright:
+
+  Ogg:    Copyright (c) 1994-2002 Xiph.Org Foundation
+  Vorbis: Copyright (c) 1994-2007 Xiph.Org Foundation
+
+Project home: https://xiph.org/
+
+These sources are compiled into audio-static.lib. No proprietary codec or licensed
+audio middleware is bundled by Rylogic Audio.

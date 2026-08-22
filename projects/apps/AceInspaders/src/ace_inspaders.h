@@ -4,16 +4,9 @@
 #include "pr/app/main.h"
 #include "pr/app/main_ui.h"
 #include "pr/app/default_setup.h"
-#include "pr/container/byte_data.h"
-#include "pr/view3d-12/material/material_simple.h"
 #include "pr/audio/audio.h"
-#include "pr/audio/synth/note.h"
-#include "pr/audio/synth/synth.h"
-#include "pr/audio/waves/wave_file.h"
+#include "pr/view3d-12/material/material_simple.h"
 #include "src/space_invaders.h"
-
-#pragma comment(lib, "audio.lib")
-//#pragma comment(lib, "winmm.lib")
 
 namespace ace
 {
@@ -39,9 +32,16 @@ namespace ace
 		using UpdateSubresourceScope = pr::compute::GfxUpdateSubresourceScope;
 		using SpaceInvaders = pr::SpaceInvaders;
 		using Screen = pr::SpaceInvaders::Screen;
-		using SoundBank = std::vector<pr::ByteData<4>>;
-		using AudioManager = pr::audio::AudioManager;
 		static char const* AppName() { return "AceInspaders"; };
+		static constexpr auto SoundVoiceCount = 4;
+
+		// Cache one generated clip and a bounded overlap pool for one game effect.
+		struct SoundEffect
+		{
+			pr::audio::ClipHandle m_clip;
+			std::array<pr::audio::VoiceHandle, SoundVoiceCount> m_voices;
+			std::size_t m_next_voice;
+		};
 
 		struct ScreenQuad
 		{
@@ -56,8 +56,8 @@ namespace ace
 		ResourceFactory m_factory;
 		Texture2DPtr m_screen_tex;
 		ScreenQuad m_screen_quad;
-		AudioManager m_audio;
-		SoundBank m_sounds;
+		pr::audio::Engine m_audio;
+		std::array<SoundEffect, static_cast<std::size_t>(SpaceInvaders::ESound::NumberOf)> m_sounds;
 		Screen m_display;
 
 		Main(MainUI& ui)
@@ -95,7 +95,7 @@ namespace ace
 			// Add the quad to the scene
 			m_scene.OnUpdateScene += std::bind(&Main::UpdateScene, this, _1);
 
-			// Load sounds
+			// Generate and cache the complete procedural sound bank before gameplay starts.
 			InitSounds();
 
 			// Initialise the display
@@ -103,6 +103,17 @@ namespace ace
 		}
 		~Main()
 		{
+			// Voices retain clip references, so release each pool before destroying its cached clip.
+			for (auto& sound : m_sounds)
+			{
+				for (auto voice : sound.m_voices)
+				if (voice != 0)
+					m_audio.VoiceDestroy(voice);
+
+				if (sound.m_clip != 0)
+					m_audio.ClipDestroy(sound.m_clip);
+			}
+
 			// Clear the draw lists so that destructing models
 			// don't assert because they're still in a drawlist.
 			m_scene.ClearDrawlists();
@@ -111,6 +122,8 @@ namespace ace
 		// Step the game
 		void Step(double elapsed_s)
 		{
+			// Publish completions before gameplay requests another overlapping instance.
+			m_audio.Update();
 			m_space_invaders.Step(static_cast<int>(elapsed_s * 1000));
 		}
 
@@ -142,135 +155,116 @@ namespace ace
 			scene.AddInstance(m_screen_quad);
 		}
 
-		// Populate the sound bank
+		// Generate a complete mono PCM8 WAV file for one procedural note sequence.
+		static std::vector<std::byte> MakeWave(std::span<pr::audio::Note const> notes, pr::audio::ESampleRate sample_rate)
+		{
+			auto sample_count = pr::audio::Synth::SampleCount(notes, sample_rate);
+			auto data_size = static_cast<std::uint32_t>(sample_count);
+			auto wave = std::vector<std::byte>(44 + data_size);
+			auto write = [&](std::size_t offset, auto value)
+			{
+				std::memcpy(wave.data() + offset, &value, sizeof(value));
+			};
+
+			// Emit the canonical 44-byte PCM header expected by the resident clip loader.
+			write(0, std::uint32_t{0x46464952});
+			write(4, std::uint32_t{36 + data_size});
+			write(8, std::uint32_t{0x45564157});
+			write(12, std::uint32_t{0x20746D66});
+			write(16, std::uint32_t{16});
+			write(20, std::uint16_t{1});
+			write(22, std::uint16_t{1});
+			write(24, static_cast<std::uint32_t>(sample_rate));
+			write(28, static_cast<std::uint32_t>(sample_rate));
+			write(32, std::uint16_t{1});
+			write(34, std::uint16_t{8});
+			write(36, std::uint32_t{0x61746164});
+			write(40, data_size);
+
+			auto sample = std::size_t{44};
+			pr::audio::Synth::GenerateWaveData<std::uint8_t>(notes, sample_rate, [&](std::uint8_t value)
+				{
+					wave[sample++] = static_cast<std::byte>(value);
+				});
+			return wave;
+		}
+
+		// Cache one generated clip and pre-create its reusable non-spatial effect voices.
+		void InitSound(SpaceInvaders::ESound sound_id, std::span<pr::audio::Note const> notes)
+		{
+			auto& sound = m_sounds[static_cast<std::size_t>(sound_id)];
+			auto wave = MakeWave(notes, pr::audio::ESampleRate::_44100);
+			sound.m_clip = m_audio.ClipCreateWave(wave);
+			auto voice_desc = pr::audio::VoiceDesc{
+				.header = {sizeof(pr::audio::VoiceDesc), pr::audio::AUDIO_STRUCT_VERSION},
+				.clip = sound.m_clip,
+				.bus = pr::audio::EBus::Effects,
+				.spatial = false,
+				.loop_count = 0,
+				.priority = 100,
+				.volume = 1.0f,
+				.pitch = 1.0f,
+			};
+			for (auto& voice : sound.m_voices)
+				voice = m_audio.VoiceCreate(voice_desc);
+		}
+
+		// Build the original synthesized effect set once so gameplay never generates or parses audio on demand.
 		void InitSounds()
 		{
 			using namespace pr::audio;
-			pr::ByteData<4> buf; buf.reserve(1024);
-			ESampleRate const sample_rate = ESampleRate::_44100;
-			m_sounds.resize(static_cast<int>(SpaceInvaders::ESound::NumberOf));
 
-			// LevelStart
+			Note const level_start[] =
 			{
-				Note const data[] =
-				{
-					{"C4", 120, 0.8f},
-					{"C4", 120, 0.8f},
-					{"C4", 120, 0.8f},
-					{"G4", 600}
-				};
-				WaveHeader const hdr(Synth::SampleCount(data, sample_rate), sample_rate, 1, 8);
+				{"C4", 120, 0.8f},
+				{"C4", 120, 0.8f},
+				{"C4", 120, 0.8f},
+				{"G4", 600},
+			};
+			InitSound(SpaceInvaders::ESound::LevelStart, level_start);
 
-				buf.resize(0);
-				buf.push_back(hdr);
-				Synth::GenerateWaveData<uint8_t>(data, sample_rate, [&](auto b) { buf.push_back(b); });
-				m_sounds[static_cast<int>(SpaceInvaders::ESound::LevelStart)] = buf;
-			}
-			// AlienAdvance:
-			{
-				Note const data[] = {{"C2", 50, 1.0f, 0.1f}};
-				WaveHeader const hdr(Synth::SampleCount(data, sample_rate), sample_rate, 1, 8);
+			Note const alien_advance[] = {{"C2", 50, 1.0f, 0.1f}};
+			InitSound(SpaceInvaders::ESound::AlienAdvance, alien_advance);
 
-				buf.resize(0);
-				buf.push_back(hdr);
-				Synth::GenerateWaveData<uint8_t>(data, sample_rate, [&](auto b) { buf.push_back(b); });
-				m_sounds[static_cast<int>(SpaceInvaders::ESound::AlienAdvance)] = buf;
-			}
-			// PlayerShoot
-			{
-				Note const data[] = {{"G6", 10}, {"Gb6", 10}, {"F6", 10}, {"E6", 10}, {"Eb6", 10}, {"D6", 10}};
-				WaveHeader const hdr(Synth::SampleCount(data, sample_rate), sample_rate, 1, 8);
+			Note const player_shoot[] = {{"G6", 10}, {"Gb6", 10}, {"F6", 10}, {"E6", 10}, {"Eb6", 10}, {"D6", 10}};
+			InitSound(SpaceInvaders::ESound::PlayerShoot, player_shoot);
 
-				buf.resize(0);
-				buf.push_back(hdr);
-				Synth::GenerateWaveData<uint8_t>(data, sample_rate, [&](auto b) { buf.push_back(b); });
-				m_sounds[static_cast<int>(SpaceInvaders::ESound::PlayerShoot)] = buf;
-			}
-			// AlienBombDrop
-			{
-				//static speaker_tone_t const tune_data[] = {{NOTE_G5, 10}, {NOTE_Gb5, 10}, {NOTE_F5, 10}, {NOTE_E5, 10}, {NOTE_Eb5, 10}, {NOTE_D5, 10}};
-				//static tune_sequence_t const seq = {&tune_data[0], countof(tune_data), ALERT_PRIORITY_INFO, 0};
-				//Audio_PlayTune(&seq, 50, TUNE_SEQUENCING_TRANSIENT);
-				//SpaceInvaders::ESound::AlienBombDrop:
-			}
-			// AlienDestroyed
-			{
-				Note const data[] = {{"C5", 70, 1.0f, 0.5f, ETone::Noise}};
-				WaveHeader const hdr(Synth::SampleCount(data, sample_rate), sample_rate, 1, 8);
+			// AlienBombDrop had no generated waveform in the original sound bank and remains intentionally silent.
+			Note const alien_destroyed[] = {{"C5", 70, 1.0f, 0.5f, ETone::Noise}};
+			InitSound(SpaceInvaders::ESound::AlienDestroyed, alien_destroyed);
 
-				buf.resize(0);
-				buf.push_back(hdr);
-				Synth::GenerateWaveData<uint8_t>(data, sample_rate, [&](auto b) { buf.push_back(b); });
-				m_sounds[static_cast<int>(SpaceInvaders::ESound::AlienDestroyed)] = buf;
-			}
-			// PlayerDestroyed
+			Note const player_destroyed[] =
 			{
-				Note const data[] =
-				{
-					{"C3" , 30, 1.0f, 0.5f, ETone::Noise},
-					{"Db3", 30, 1.0f, 0.5f, ETone::Noise},
-					{"C3" , 30, 1.0f, 0.5f, ETone::Noise},
-				};
-				WaveHeader const hdr(Synth::SampleCount(data, sample_rate), sample_rate, 1, 8);
+				{"C3" , 30, 1.0f, 0.5f, ETone::Noise},
+				{"Db3", 30, 1.0f, 0.5f, ETone::Noise},
+				{"C3" , 30, 1.0f, 0.5f, ETone::Noise},
+			};
+			InitSound(SpaceInvaders::ESound::PlayerDestroyed, player_destroyed);
 
-				buf.resize(0);
-				buf.push_back(hdr);
-				Synth::GenerateWaveData<uint8_t>(data, sample_rate, [&](auto b) { buf.push_back(b); });
-				m_sounds[static_cast<int>(SpaceInvaders::ESound::PlayerDestroyed)] = buf;
-			}
-			// BunkerDamaged
+			Note const bunker_damaged[] = {{"C4", 20, 1.0f, 0.5f, ETone::Noise}};
+			InitSound(SpaceInvaders::ESound::BunkerDamaged, bunker_damaged);
+
+			Note const bomb_destroyed[] = {{"C6", 70, 1.0f, 0.5f, ETone::Noise}};
+			InitSound(SpaceInvaders::ESound::BombDestroyed, bomb_destroyed);
+
+			Note const level_completed[] =
 			{
-				Note const data[] = {{"C4", 20, 1.0f, 0.5f, ETone::Noise}};
-				WaveHeader const hdr(Synth::SampleCount(data, sample_rate), sample_rate, 1, 8);
+				{"F4", 220, 0.91f},
+				{"G4", 120, 0.8f},
+				{"F4", 120, 0.8f},
+				{"G4", 120, 0.8f},
+				{"Bb4", 1200},
+			};
+			InitSound(SpaceInvaders::ESound::LevelCompleted, level_completed);
 
-				buf.resize(0);
-				buf.push_back(hdr);
-				Synth::GenerateWaveData<uint8_t>(data, sample_rate, [&](auto b) { buf.push_back(b); });
-				m_sounds[static_cast<int>(SpaceInvaders::ESound::BunkerDamaged)] = buf;
-			}
-			// BombDestroyed
+			Note const game_over[] =
 			{
-				Note const data[] = {{"C6", 70, 1.0f, 0.5f, ETone::Noise}};
-				WaveHeader const hdr(Synth::SampleCount(data, sample_rate), sample_rate, 1, 8);
-
-				buf.resize(0);
-				buf.push_back(hdr);
-				Synth::GenerateWaveData<uint8_t>(data, sample_rate, [&](auto b) { buf.push_back(b); });
-				m_sounds[static_cast<int>(SpaceInvaders::ESound::BombDestroyed)] = buf;
-			}
-			// LevelCompleted
-			{
-				Note const data[] =
-				{
-					{"F4", 220, 0.91f},
-					{"G4", 120, 0.8f},
-					{"F4", 120, 0.8f},
-					{"G4", 120, 0.8f},
-					{"Bb4", 1200}
-				};
-				WaveHeader const hdr(Synth::SampleCount(data, sample_rate), sample_rate, 1, 8);
-
-				buf.resize(0);
-				buf.push_back(hdr);
-				Synth::GenerateWaveData<uint8_t>(data, sample_rate, [&](auto b) { buf.push_back(b); });
-				m_sounds[static_cast<int>(SpaceInvaders::ESound::LevelCompleted)] = buf;
-			}
-			// GameOver
-			{
-				Note const data[] =
-				{
-					{"Eb4", 220, 0.91f},
-					{"D4" , 220, 0.91f},
-					{"Db4", 220, 0.91f},
-					{"C4" , 1200}
-				};
-				WaveHeader const hdr(Synth::SampleCount(data, sample_rate), sample_rate, 1, 8);
-
-				buf.resize(0);
-				buf.push_back(hdr);
-				Synth::GenerateWaveData<uint8_t>(data, sample_rate, [&](auto b) { buf.push_back(b); });
-				m_sounds[static_cast<int>(SpaceInvaders::ESound::GameOver)] = buf;
-			}
+				{"Eb4", 220, 0.91f},
+				{"D4" , 220, 0.91f},
+				{"Db4", 220, 0.91f},
+				{"C4" , 1200},
+			};
+			InitSound(SpaceInvaders::ESound::GameOver, game_over);
 		}
 
 		// Play the indicated sound
@@ -302,9 +296,46 @@ namespace ace
 	// Play the indicated sound
 	inline void Main::PlaySound(SpaceInvaders::ESound sound)
 	{
-		(void)sound;
-		//auto data = reinterpret_cast<char const*>(m_sounds[static_cast<int>(sound)].data());
-		//::PlaySoundA(data, nullptr, SND_MEMORY | SND_ASYNC);
+		switch (sound)
+		{
+			case SpaceInvaders::ESound::LevelStart:
+			case SpaceInvaders::ESound::AlienAdvance:
+			case SpaceInvaders::ESound::PlayerShoot:
+			case SpaceInvaders::ESound::AlienDestroyed:
+			case SpaceInvaders::ESound::PlayerDestroyed:
+			case SpaceInvaders::ESound::BunkerDamaged:
+			case SpaceInvaders::ESound::BombDestroyed:
+			case SpaceInvaders::ESound::LevelCompleted:
+			case SpaceInvaders::ESound::GameOver:
+			{
+				break;
+			}
+			case SpaceInvaders::ESound::AlienBombDrop:
+			{
+				return;
+			}
+			case SpaceInvaders::ESound::NumberOf:
+			default:
+			{
+				throw std::out_of_range("Unknown AceInspaders sound effect");
+			}
+		}
+
+		// Prefer an idle instance so rapid effects overlap; if the pool is full, restart its oldest slot.
+		auto& effect = m_sounds[static_cast<std::size_t>(sound)];
+		for (auto offset = std::size_t{}; offset != effect.m_voices.size(); ++offset)
+		{
+			auto index = (effect.m_next_voice + offset) % effect.m_voices.size();
+			if (m_audio.VoiceStateGet(effect.m_voices[index]).playback != pr::audio::EPlaybackState::Stopped)
+				continue;
+
+			m_audio.VoicePlay(effect.m_voices[index]);
+			effect.m_next_voice = (index + 1) % effect.m_voices.size();
+			return;
+		}
+
+		m_audio.VoicePlay(effect.m_voices[effect.m_next_voice]);
+		effect.m_next_voice = (effect.m_next_voice + 1) % effect.m_voices.size();
 	}
 
 	// Return user input

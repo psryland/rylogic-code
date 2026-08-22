@@ -738,6 +738,9 @@ namespace pr::rdr12
 			}
 		}
 
+		// Preserve the renderer-only cube-map classification after loading or reconstructing a native resource description.
+		desc.m_rdesc.misc_flags(desc.m_rdesc.MiscFlags | ResDesc::EMiscFlags::CubeMap);
+
 		// Allocate a new texture instance
 		TextureCubePtr inst(::pr::compute::New<TextureCube>(rdr(), res.get(), desc), true);
 		assert(rdr().mem_tracker().add(inst.get()));
@@ -797,6 +800,9 @@ namespace pr::rdr12
 		{
 			res = CreateResource(desc.m_rdesc, desc.m_name);
 		}
+
+		// Preserve the renderer-only cube-map classification after loading or reconstructing a native resource description.
+		desc.m_rdesc.misc_flags(desc.m_rdesc.MiscFlags | ResDesc::EMiscFlags::CubeMap);
 
 		// Allocate a new texture instance and register it with the resource store.
 		TextureCubePtr inst(::pr::compute::New<TextureCube>(rdr(), res.get(), desc), true);

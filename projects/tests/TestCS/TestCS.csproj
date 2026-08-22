@@ -96,9 +96,6 @@
     <Compile Include="src\log_ui.Designer.cs">
       <DependentUpon>log_ui.cs</DependentUpon>
     </Compile>
-    <Compile Include="src\midi_ui.cs">
-      <SubType>Form</SubType>
-    </Compile>
     <Compile Include="src\rich_text_box_ui.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -185,9 +182,6 @@
       <DependentUpon>Resources.resx</DependentUpon>
       <DesignTime>True</DesignTime>
     </Compile>
-    <EmbeddedResource Include="src\midi_ui.resx">
-      <DependentUpon>midi_ui.cs</DependentUpon>
-    </EmbeddedResource>
     <EmbeddedResource Include="src\scintilla_ui.resx">
       <DependentUpon>scintilla_ui.cs</DependentUpon>
     </EmbeddedResource>

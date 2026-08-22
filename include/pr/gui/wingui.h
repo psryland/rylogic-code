@@ -2787,7 +2787,8 @@ namespace pr
 				// Call 'Step' on all loops that are pending. Returns the time in milliseconds until the next loop is due.
 				DWORD StepLoops()
 				{
-					if (m_loop.empty())
+					// No callback may run after the owner has entered its window-destruction path.
+					if (m_quit_pending || m_loop.empty())
 						return INFINITE;
 
 					auto now = clock_t::now();

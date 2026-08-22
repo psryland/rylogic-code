@@ -27,6 +27,7 @@ public enum EProjects
 	Physics,            // = "Physics";
 	View3d,             // = "View3d";
 	P3d,                // = "P3d";
+	RylogicAudio,       // = "Rylogic.Audio";
 	RylogicCore,        // = "Rylogic.Core";
 	RylogicD3D12,       // = "Rylogic.D3D12";
 	RylogicDB,          // = "Rylogic.DB";
@@ -217,7 +218,7 @@ public class Audio : Native
 		{
 			foreach (var c in Configs)
 			{
-				Tools.DeployLib(Tools.Path([ObjDir, "audio", p, c, "audio.lib"]));
+				Tools.DeployLib(Tools.Path([ObjDir, "audio", p, c, "audio-static.lib"]));
 				Tools.DeployLib(Tools.Path([ObjDir, "audio.dll", p, c, "audio.dll"]));
 			}
 		}
@@ -383,6 +384,21 @@ public abstract class RylogicAssembly : Managed
 	protected static string FwToTarget(string fw)
 	{
 		return fw.EndsWith("windows", StringComparison.Ordinal) ? $"{fw}7.0" : fw;
+	}
+}
+public class RylogicAudio : RylogicAssembly
+{
+	public RylogicAudio(string workspace, List<string>? platforms = null, List<string>? configs = null)
+		:base("Rylogic.Audio", ["net10.0-windows", "net481"], workspace, platforms, configs)
+	{}
+	protected override void Populate(Nuget package)
+	{
+		base.Populate(package);
+		package.Description = "Managed ownership, playback, event, and diagnostics API for the Rylogic spatial audio engine.";
+		package.Tags += " audio spatial-audio xaudio2 x3daudio ogg sound";
+		package.Deps.Add(new Nuget.Dep("Rylogic.Core", $"[{RylogicLibraryVersion},)"));
+		package.Deps.Add(new Nuget.Dep("Rylogic.Native", $"[{RylogicLibraryVersion},)"));
+		package.Deps.Add(new Nuget.Dep("System.Memory", "[4.6.0,)", "net481"));
 	}
 }
 public class RylogicCore : RylogicAssembly
@@ -643,8 +659,8 @@ public class AllNative : Group
 		{
 			PackageName = "Rylogic.Native",
 			Version = RylogicLibraryVersion,
-			Description = "Native runtime and development assets for Rylogic View3D, D3D12 compute, and rigid-body physics packages.",
-			Tags = "rylogic native library view3d physics d3d12",
+			Description = "Native runtime and development assets for Rylogic View3D, D3D12 compute, rigid-body physics, and spatial audio packages.",
+			Tags = "rylogic native library view3d physics d3d12 audio",
 			PackageOutputPath = Tools.Path([UserVars.Root, "lib\\packages\\release"], check_exists: false),
 		};
 		Package.Files.AddRange([

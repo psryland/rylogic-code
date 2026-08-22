@@ -271,6 +271,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Rylogic.D3D12", "projects\r
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Rylogic.Physics", "projects\rylogic\Rylogic.Physics\Rylogic.Physics.csproj", "{A1521E88-4A4A-4C42-8A62-C61525106F42}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Rylogic.Audio", "projects\rylogic\Rylogic.Audio\Rylogic.Audio.csproj", "{81C2660D-B7A6-4CAD-A6B7-6906331D1516}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -1323,6 +1325,22 @@ Global
 		{A1521E88-4A4A-4C42-8A62-C61525106F42}.Release|x64.Build.0 = Release|Any CPU
 		{A1521E88-4A4A-4C42-8A62-C61525106F42}.Release|x86.ActiveCfg = Release|Any CPU
 		{A1521E88-4A4A-4C42-8A62-C61525106F42}.Release|x86.Build.0 = Release|Any CPU
+		{81C2660D-B7A6-4CAD-A6B7-6906331D1516}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{81C2660D-B7A6-4CAD-A6B7-6906331D1516}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{81C2660D-B7A6-4CAD-A6B7-6906331D1516}.Debug|arm64.ActiveCfg = Debug|Any CPU
+		{81C2660D-B7A6-4CAD-A6B7-6906331D1516}.Debug|arm64.Build.0 = Debug|Any CPU
+		{81C2660D-B7A6-4CAD-A6B7-6906331D1516}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{81C2660D-B7A6-4CAD-A6B7-6906331D1516}.Debug|x64.Build.0 = Debug|Any CPU
+		{81C2660D-B7A6-4CAD-A6B7-6906331D1516}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{81C2660D-B7A6-4CAD-A6B7-6906331D1516}.Debug|x86.Build.0 = Debug|Any CPU
+		{81C2660D-B7A6-4CAD-A6B7-6906331D1516}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{81C2660D-B7A6-4CAD-A6B7-6906331D1516}.Release|Any CPU.Build.0 = Release|Any CPU
+		{81C2660D-B7A6-4CAD-A6B7-6906331D1516}.Release|arm64.ActiveCfg = Release|Any CPU
+		{81C2660D-B7A6-4CAD-A6B7-6906331D1516}.Release|arm64.Build.0 = Release|Any CPU
+		{81C2660D-B7A6-4CAD-A6B7-6906331D1516}.Release|x64.ActiveCfg = Release|Any CPU
+		{81C2660D-B7A6-4CAD-A6B7-6906331D1516}.Release|x64.Build.0 = Release|Any CPU
+		{81C2660D-B7A6-4CAD-A6B7-6906331D1516}.Release|x86.ActiveCfg = Release|Any CPU
+		{81C2660D-B7A6-4CAD-A6B7-6906331D1516}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -1402,6 +1420,7 @@ Global
 		{6DEBA5D4-79BC-4359-AEAE-7A93F8679C5E} = {F3863465-2D47-4787-8EEA-8A2BAEF62936}
 		{CB73A1E7-4F3B-4C25-86E2-741ED3B0EFE6} = {F3863465-2D47-4787-8EEA-8A2BAEF62936}
 		{A1521E88-4A4A-4C42-8A62-C61525106F42} = {F3863465-2D47-4787-8EEA-8A2BAEF62936}
+		{81C2660D-B7A6-4CAD-A6B7-6906331D1516} = {F3863465-2D47-4787-8EEA-8A2BAEF62936}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {7DD34DBC-7EE6-40E2-8641-CDA6D05E7838}

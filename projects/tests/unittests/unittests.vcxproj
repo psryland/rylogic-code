@@ -408,6 +408,8 @@
 			</PreprocessorDefinitions>
     </ClCompile>
     <ClCompile Include="src\dependecy_check_new_math.cpp" />
+    <ClCompile Include="src\audio_dll_tests.cpp" />
+    <ClCompile Include="src\message_loop_tests.cpp" />
     <ClCompile Include="src\hlsl\bounding_box_tests.cpp" />
     <ClCompile Include="src\hlsl\closest_point_tests.cpp" />
     <ClCompile Include="src\hlsl\core_tests.cpp" />
@@ -509,6 +511,9 @@
     <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="$(RylogicRoot)projects\rylogic\audio\audio.dll.vcxproj">
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
     <ProjectReference Include="$(RylogicRoot)projects\rylogic\compute\compute.vcxproj" />
   </ItemGroup>
   <Target Name="ReportCompiledUnitTests" BeforeTargets="ClCompile" Condition="'@(CompiledUnitTest)'!=''">
