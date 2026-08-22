@@ -1,58 +1,28 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="src">
       <UniqueIdentifier>{7a78f2d2-21a4-4286-b0e5-915f079e635b}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\audio">
+    <Filter Include="src\engine">
       <UniqueIdentifier>{0da7dbb2-0029-477a-820b-0989d19308cc}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="src\util">
-      <UniqueIdentifier>{ee6ccaf2-1819-4a29-a5c5-72b55ae5ccc0}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="src\config">
-      <UniqueIdentifier>{3b4bfac9-c599-416d-92f6-a71b0a7564fd}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="src\waves">
-      <UniqueIdentifier>{cbd49513-d5c9-4a5c-b3cc-abe734261021}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="src\directsound">
-      <UniqueIdentifier>{fbc7ddd8-a9be-4f1b-b6b7-1970bdaeb53d}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="src\midi">
-      <UniqueIdentifier>{8d7b1e3f-a9a1-4160-b6a4-00bb30d3a4a2}</UniqueIdentifier>
     </Filter>
     <Filter Include="src\synth">
       <UniqueIdentifier>{97d4739a-d10b-413a-9d70-94c4fe505079}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\sound">
-      <UniqueIdentifier>{32b64672-c1bf-4f5f-9275-24c54c64bdd3}</UniqueIdentifier>
+    <Filter Include="sdk">
+      <UniqueIdentifier>{c1b2a3d4-5e6f-4789-9abc-def012345678}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(RylogicRoot)include\pr\audio\audio.h">
       <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\audio\audio\audio_manager.h">
-      <Filter>src\audio</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\audio\config\config.h">
-      <Filter>src\config</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\audio\directsound\player.h">
-      <Filter>src\directsound</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\audio\directsound\sound.h">
-      <Filter>src\directsound</Filter>
+    <ClInclude Include="$(RylogicRoot)include\pr\audio\engine.h">
+      <Filter>src\engine</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\audio\forward.h">
       <Filter>src</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\audio\midi\midi.h">
-      <Filter>src\midi</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\audio\sound\sound.h">
-      <Filter>src\sound</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\audio\synth\note.h">
       <Filter>src\synth</Filter>
@@ -60,32 +30,30 @@
     <ClInclude Include="$(RylogicRoot)include\pr\audio\synth\synth.h">
       <Filter>src\synth</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\audio\util\util.h">
-      <Filter>src\util</Filter>
+    <ClInclude Include="$(RylogicRoot)include\pr\audio\types.h">
+      <Filter>src</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\audio\waves\wave_bank.h">
-      <Filter>src\waves</Filter>
+    <ClInclude Include="engine\handle_util.h">
+      <Filter>src\engine</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\audio\waves\wave_file.h">
-      <Filter>src\waves</Filter>
+    <ClInclude Include="engine\stream.h">
+      <Filter>src\engine</Filter>
     </ClInclude>
-    <ClCompile Include="audio\audio_manager.cpp">
-      <Filter>src\audio</Filter>
+    <ClCompile Include="engine\engine.cpp">
+      <Filter>src\engine</Filter>
     </ClCompile>
-    <ClInclude Include="config\config.cpp">
-      <Filter>src\config</Filter>
-    </ClInclude>
-    <ClCompile Include="midi\midi.cpp">
-      <Filter>src\midi</Filter>
+    <ClCompile Include="engine\stream.cpp">
+      <Filter>src\engine</Filter>
     </ClCompile>
-    <ClCompile Include="sound\sound.cpp">
-      <Filter>src\sound</Filter>
+    <ClCompile Include="$(RylogicRoot)sdk\ogg\ogg.c">
+      <Filter>sdk</Filter>
     </ClCompile>
-    <ClCompile Include="waves\wave_bank.cpp">
-      <Filter>src\waves</Filter>
+    <ClCompile Include="$(RylogicRoot)sdk\vorbis\vorbis.c">
+      <Filter>sdk</Filter>
     </ClCompile>
-    <ClCompile Include="waves\wave_file.cpp">
-      <Filter>src\waves</Filter>
-    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="readme.md" />
+    <None Include="third-party-notices.txt" />
   </ItemGroup>
 </Project>

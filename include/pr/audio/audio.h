@@ -7,5 +7,6 @@
 #pragma once
 
 #include "pr/audio/forward.h"
-#include "pr/audio/audio/audio_manager.h"
-#include "pr/audio/midi/midi.h"
+#include "pr/audio/engine.h"
+#include "pr/audio/synth/note.h"
+#include "pr/audio/synth/synth.h"

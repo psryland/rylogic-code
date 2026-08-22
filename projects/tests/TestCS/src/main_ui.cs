@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.Windows.Forms;
-using Rylogic.Audio;
 using Rylogic.Db;
 using Rylogic.Extn;
 using Rylogic.Gfx;
@@ -42,7 +41,6 @@ namespace TestCS
 		private ToolStripMenuItem m_menu_tests_bluetooth_ui;
 		private ToolStripMenuItem m_menu_tests_log_ui;
 		private ToolStripMenuItem m_menu_tests_prompt_ui;
-		private ToolStripMenuItem m_menu_tests_midi;
 		private ToolStripMenuItem m_menu_tests_graphcontrol;
 
 		/// <summary>The main entry point for the application.</summary>
@@ -55,7 +53,6 @@ namespace TestCS
 			Sci.LoadDll();
 			Sqlite.LoadDll();
 			View3d.LoadDll();
-			Audio.LoadDll();
 
 			Application.EnableVisualStyles();
 			Application.SetCompatibleTextRenderingDefault(false);
@@ -157,11 +154,6 @@ namespace TestCS
 					dlg.NeutralBtn.DialogResult = DialogResult.None;
 					dlg.ShowDialog();
 				}
-			};
-
-			m_menu_tests_midi.Click += (s,a) =>
-			{
-				new MidiUI().Show(this);
 			};
 
 			m_menu_tests_prompt_ui.Click += (s,a) =>
@@ -290,7 +282,6 @@ namespace TestCS
 			this.m_menu_tests_view3d_editor = new System.Windows.Forms.ToolStripMenuItem();
 			this.m_menu_tests_vt100 = new System.Windows.Forms.ToolStripMenuItem();
 			this.m_menu_tests_web_browser = new System.Windows.Forms.ToolStripMenuItem();
-			this.m_menu_tests_midi = new System.Windows.Forms.ToolStripMenuItem();
 			this.m_menu.SuspendLayout();
 			this.SuspendLayout();
 			// 
@@ -337,7 +328,6 @@ namespace TestCS
             this.m_menu_tests_listbox,
             this.m_menu_tests_log_ui,
             this.m_menu_tests_message_box,
-            this.m_menu_tests_midi,
             this.m_menu_tests_prompt_ui,
             this.m_menu_tests_rtb,
             this.m_menu_tests_scintilla,
@@ -508,12 +498,6 @@ namespace TestCS
 			this.m_menu_tests_web_browser.Name = "m_menu_tests_web_browser";
 			this.m_menu_tests_web_browser.Size = new System.Drawing.Size(180, 22);
 			this.m_menu_tests_web_browser.Text = "&Web Browser";
-			// 
-			// m_menu_tests_midi
-			// 
-			this.m_menu_tests_midi.Name = "m_menu_tests_midi";
-			this.m_menu_tests_midi.Size = new System.Drawing.Size(180, 22);
-			this.m_menu_tests_midi.Text = "&Midi";
 			// 
 			// MainUI
 			// 

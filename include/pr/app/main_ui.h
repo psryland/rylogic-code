@@ -70,13 +70,20 @@ namespace pr::app
 			,m_down_at()
 			,m_exit_code()
 		{
+			// Route main-window destruction through the loop that owns this UI's scheduled callbacks.
+			cp().msg_loop(&m_msg_loop);
+
 			// Note: derived classes may need to set up a method for rendering,
 			// By default, rendering occurs in OnPaint(), however if a SimMsgLoop
 			// is used, the derived class will need to register a step context that
 			// calls Render()
 			Show();
 		}
-		virtual ~MainUI() {}
+		virtual ~MainUI()
+		{
+			// The base Form can outlive member destruction, so do not leave it pointing at the loop member.
+			cp().msg_loop(nullptr);
+		}
 
 		// Pump messages
 		virtual int Run() override
@@ -206,4 +213,3 @@ namespace pr::app
 		}
 	};
 }
-

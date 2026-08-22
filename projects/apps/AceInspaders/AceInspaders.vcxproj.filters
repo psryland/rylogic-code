@@ -17,9 +17,6 @@
     <Filter Include="pr\audio">
       <UniqueIdentifier>{7f80021c-39d8-4fa2-ac96-60e1cbf77701}</UniqueIdentifier>
     </Filter>
-    <Filter Include="pr\audio\waves">
-      <UniqueIdentifier>{122a3463-41a1-47c7-9edd-1b589a22cf61}</UniqueIdentifier>
-    </Filter>
     <Filter Include="pr\gfx">
       <UniqueIdentifier>{6a7e03a2-b7c1-427d-81aa-471909a682f1}</UniqueIdentifier>
     </Filter>
@@ -40,8 +37,8 @@
     <ClInclude Include="$(RylogicRoot)include\pr\app\main_ui.h">
       <Filter>pr\app</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\audio\waves\wave_file.h">
-      <Filter>pr\audio\waves</Filter>
+    <ClInclude Include="$(RylogicRoot)include\pr\audio\audio.h">
+      <Filter>pr\audio</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\gfx\onebit.h">
       <Filter>pr\gfx</Filter>
