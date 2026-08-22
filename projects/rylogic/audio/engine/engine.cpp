@@ -396,7 +396,9 @@ namespace pr::audio
 			if (m_xaudio != nullptr)
 				m_xaudio->UnregisterForCallbacks(this);
 			m_xaudio = nullptr;
-			if (m_com_initialized)
+			// COM apartment counts can only be balanced by the initializing thread. Finalizer-only
+			// abandonment releases all audio resources but must leave this count for process teardown.
+			if (m_com_initialized && std::this_thread::get_id() == m_owner_thread)
 				CoUninitialize();
 		}
 

@@ -14,6 +14,7 @@ namespace
 	thread_local std::string g_last_error;
 	std::mutex g_context_mutex;
 	std::shared_ptr<Context> g_ctx;
+	std::atomic<std::uint32_t> g_next_engine_generation{1};
 
 	// Encode a generation and slot index into a non-zero engine handle.
 	EngineHandle MakeEngineHandle(std::size_t index, std::uint32_t generation)
@@ -37,6 +38,17 @@ namespace
 		++generation;
 		if (generation == 0)
 			generation = 1;
+	}
+
+	// Allocate a process-wide generation so handles can never alias across recreated DLL contexts.
+	std::uint32_t NextEngineGeneration()
+	{
+		for (;;)
+		{
+			auto generation = g_next_engine_generation.fetch_add(1, std::memory_order_relaxed);
+			if (generation != 0)
+				return generation;
+		}
 	}
 
 	// Store and report one synchronous ABI diagnostic.
@@ -236,6 +248,34 @@ AUDIO_API void __stdcall Audio_Shutdown(DllHandle context_handle)
 		Fail(context, EStatus::InvalidHandle, error, __FILE__, __LINE__);
 }
 
+// Release a forgotten context token and any final native context from any thread.
+AUDIO_API void __stdcall Audio_ContextAbandon(DllHandle context_handle)
+{
+	try
+	{
+		auto abandoned = std::shared_ptr<Context>{};
+		{
+			auto context_lock = std::lock_guard{g_context_mutex};
+			auto context = g_ctx;
+			if (!context)
+				return;
+
+			auto state_lock = LockGuard{context->m_mutex};
+			if (!context->m_inits.contains(context_handle))
+				return;
+
+			context->m_inits.erase(context_handle);
+			if (context->m_inits.empty())
+				abandoned = std::move(g_ctx);
+		}
+
+		// Destruction can join decoder workers, so keep it outside the process and context locks.
+		abandoned.reset();
+	}
+	catch (...)
+	{}
+}
+
 // Return the implemented ABI version.
 AUDIO_API std::uint32_t __stdcall Audio_ApiVersion()
 {
@@ -298,6 +338,7 @@ AUDIO_API EStatus __stdcall Audio_EngineCreate(DllHandle context_handle, Config 
 				auto& slot = context.m_engines[i];
 				if (!slot.m_engine)
 				{
+					slot.m_generation = NextEngineGeneration();
 					slot.m_owner_thread = std::this_thread::get_id();
 					slot.m_engine = std::move(instance);
 					*engine = MakeEngineHandle(i, slot.m_generation);
@@ -307,6 +348,7 @@ AUDIO_API EStatus __stdcall Audio_EngineCreate(DllHandle context_handle, Config 
 
 			context.m_engines.push_back({});
 			auto& slot = context.m_engines.back();
+			slot.m_generation = NextEngineGeneration();
 			slot.m_owner_thread = std::this_thread::get_id();
 			slot.m_engine = std::move(instance);
 			*engine = MakeEngineHandle(context.m_engines.size() - 1, slot.m_generation);
@@ -323,6 +365,31 @@ AUDIO_API EStatus __stdcall Audio_EngineDestroy(EngineHandle engine)
 			slot.m_engine.reset();
 			AdvanceGeneration(slot.m_generation);
 		}, __FILE__, __LINE__);
+}
+
+// Release a forgotten engine from any thread without allowing finalizer failures to escape.
+AUDIO_API void __stdcall Audio_EngineAbandon(EngineHandle engine)
+{
+	try
+	{
+		auto context = TryPinDll();
+		if (!context)
+			return;
+
+		auto lock = LockGuard{context->m_mutex};
+		auto index = EngineIndex(engine);
+		if (index >= context->m_engines.size())
+			return;
+
+		auto& slot = context->m_engines[index];
+		if (slot.m_generation != static_cast<std::uint32_t>(engine >> 32) || !slot.m_engine)
+			return;
+
+		slot.m_engine.reset();
+		AdvanceGeneration(slot.m_generation);
+	}
+	catch (...)
+	{}
 }
 
 #define AUDIO_ENGINE_CALL(name, parameters, expression) \
