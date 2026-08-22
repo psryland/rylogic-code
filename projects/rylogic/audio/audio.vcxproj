@@ -6,6 +6,7 @@
 	<!-- Globals -->
 	<PropertyGroup Label="Globals">
 		<ProjectName>audio</ProjectName>
+		<TargetName>audio-static</TargetName>
 		<RootNamespace>pr::audio</RootNamespace>
 		<ProjectGuid>{7CC6930C-889B-4B6E-958F-BEE16ED2FF44}</ProjectGuid>
 		<ConfigurationType>StaticLibrary</ConfigurationType>
@@ -25,6 +26,8 @@
 			<PreprocessorDefinitions>PR_MATHS_USE_DIRECTMATH=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
 			<AdditionalIncludeDirectories>
 				;$(RylogicRoot)projects\rylogic
+				;$(RylogicRoot)sdk\ogg\include
+				;$(RylogicRoot)sdk\vorbis\include
 				;%(AdditionalIncludeDirectories)
 			</AdditionalIncludeDirectories>
 		</ClCompile>
@@ -33,26 +36,27 @@
 	<!-- Files -->
 	<ItemGroup>
 		<ClInclude Include="$(RylogicRoot)include\pr\audio\audio.h" />
-		<ClInclude Include="$(RylogicRoot)include\pr\audio\audio\audio_manager.h" />
-		<ClInclude Include="$(RylogicRoot)include\pr\audio\config\config.h" />
-		<ClInclude Include="$(RylogicRoot)include\pr\audio\directsound\player.h" />
-		<ClInclude Include="$(RylogicRoot)include\pr\audio\directsound\sound.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\audio\engine.h" />
 		<ClInclude Include="$(RylogicRoot)include\pr\audio\forward.h" />
-		<ClInclude Include="$(RylogicRoot)include\pr\audio\midi\midi.h" />
-		<ClInclude Include="$(RylogicRoot)include\pr\audio\sound\sound.h" />
 		<ClInclude Include="$(RylogicRoot)include\pr\audio\synth\note.h" />
 		<ClInclude Include="$(RylogicRoot)include\pr\audio\synth\synth.h" />
-		<ClInclude Include="$(RylogicRoot)include\pr\audio\util\util.h" />
-		<ClInclude Include="$(RylogicRoot)include\pr\audio\waves\wave_bank.h" />
-		<ClInclude Include="$(RylogicRoot)include\pr\audio\waves\wave_file.h" />
-		<ClInclude Include="config\config.cpp" />
-		<ClCompile Include="midi\midi.cpp" />
-		<ClCompile Include="sound\sound.cpp" />
-		<ClCompile Include="waves\wave_bank.cpp" />
-		<ClCompile Include="waves\wave_file.cpp" />
-		<ClCompile Include="audio\audio_manager.cpp">
+		<ClInclude Include="$(RylogicRoot)include\pr\audio\types.h" />
+		<ClInclude Include="engine\handle_util.h" />
+		<ClInclude Include="engine\stream.h" />
+		<ClCompile Include="engine\engine.cpp">
 			<PrecompiledHeader>Create</PrecompiledHeader>
 		</ClCompile>
+		<ClCompile Include="engine\stream.cpp" />
+		<ClCompile Include="$(RylogicRoot)sdk\ogg\ogg.c">
+			<PrecompiledHeader>NotUsing</PrecompiledHeader>
+			<AdditionalIncludeDirectories>$(RylogicRoot)sdk\ogg\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+		</ClCompile>
+		<ClCompile Include="$(RylogicRoot)sdk\vorbis\vorbis.c">
+			<PrecompiledHeader>NotUsing</PrecompiledHeader>
+			<AdditionalIncludeDirectories>$(RylogicRoot)sdk\ogg\include;$(RylogicRoot)sdk\vorbis\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+		</ClCompile>
+		<None Include="readme.md" />
+		<None Include="third-party-notices.txt" />
 	</ItemGroup>
 	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

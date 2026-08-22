@@ -4,8 +4,7 @@
 //***************************************************************************************************
 // A basic tone generator
 #pragma once
-#include <cstdint>
-#include <stdexcept>
+#include "pr/audio/forward.h"
 
 namespace pr::audio
 {
@@ -128,7 +127,7 @@ namespace pr::audio
 				(note[1 + (ofs != 0)] - '0');
 
 			static ENote const notes[] = {ENote::A, ENote::B, ENote::C, ENote::D, ENote::E, ENote::F, ENote::G};
-			if (idx < 0 || idx > _countof(notes) || oct < 0 || oct > OctaveMax)
+			if (idx < 0 || idx >= _countof(notes) || oct < 0 || oct >= OctaveMax)
 				throw std::runtime_error("Invalid note");
 
 			auto n = (static_cast<int>(notes[idx]) + ofs + NotesPerOctave) % NotesPerOctave;

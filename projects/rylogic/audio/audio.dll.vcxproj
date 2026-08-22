@@ -25,12 +25,14 @@
 			</PreprocessorDefinitions>
 			<AdditionalIncludeDirectories>
 				;$(RylogicRoot)projects\rylogic
+				;$(RylogicRoot)sdk\ogg\include
+				;$(RylogicRoot)sdk\vorbis\include
 				;%(AdditionalIncludeDirectories)
 			</AdditionalIncludeDirectories>
 		</ClCompile>
 		<Link>
 			<AdditionalDependencies>
-				;audio.lib
+				;audio-static.lib
 				;%(AdditionalDependencies)
 			</AdditionalDependencies>
 		</Link>
@@ -38,12 +40,13 @@
 
 	<!-- Files -->
 	<ItemGroup>
-		<ClInclude Include="$(RylogicRoot)include\pr\audio\dll\audio.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\audio\audio-dll.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\audio\types.h" />
 		<ClCompile Include="$(RylogicRoot)projects\rylogic\audio\dll\audio.cpp" />
 		<ClInclude Include="$(RylogicRoot)projects\rylogic\audio\dll\context.h" />
-		<None Include="$(RylogicRoot)projects\rylogic\Rylogic.Windows\src\Audio\Audio.cs">
-			<ExcludedFromBuild>true</ExcludedFromBuild>
-		</None>
+	</ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\audio\audio.vcxproj" />
 	</ItemGroup>
 
 	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

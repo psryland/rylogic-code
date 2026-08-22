@@ -24,11 +24,14 @@
 			<AdditionalIncludeDirectories>
 				;$(ProjectDir)
 				;$(RylogicRoot)include
+				;$(RylogicRoot)sdk\ogg\include
+				;$(RylogicRoot)sdk\vorbis\include
 				;%(AdditionalIncludeDirectories)
 			</AdditionalIncludeDirectories>
 		</ClCompile>
 		<Link>
 			<AdditionalDependencies>
+				;audio-static.lib
 				;compute-static.lib
 				;view3d-12-static.lib
 				;%(AdditionalDependencies)
@@ -43,18 +46,19 @@
 
 	<!-- Files -->
 	<ItemGroup>
+		<ClInclude Include="$(RylogicRoot)include\pr\audio\audio.h" />
 		<ClCompile Include="$(RylogicRoot)include\pr\app\entry_point.cpp" />
 		<ClInclude Include="$(RylogicRoot)include\pr\app\default_setup.h" />
 		<ClInclude Include="$(RylogicRoot)include\pr\app\forward.h" />
 		<ClInclude Include="$(RylogicRoot)include\pr\app\main.h" />
 		<ClInclude Include="$(RylogicRoot)include\pr\app\main_ui.h" />
-		<ClInclude Include="$(RylogicRoot)include\pr\audio\waves\wave_file.h" />
 		<ClInclude Include="$(RylogicRoot)include\pr\gfx\onebit.h" />
 		<ClInclude Include="$(RylogicRoot)include\pr\gui\wingui.h" />
 		<ClInclude Include="src\space_invaders.h" />
 		<ClInclude Include="src\ace_inspaders.h" />
 	</ItemGroup>
 	<ItemGroup>
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\audio\audio.vcxproj" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\compute\compute.vcxproj" />
 	</ItemGroup>
 	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

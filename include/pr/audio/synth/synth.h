@@ -4,14 +4,6 @@
 //***************************************************************************************************
 // A basic tone generator
 #pragma once
-#include <stdexcept>
-#include <type_traits>
-#include <chrono>
-#include <limits>
-#include <cassert>
-#include <random>
-#include "pr/math/math.h"
-#include "pr/container/span.h"
 #include "pr/audio/forward.h"
 #include "pr/audio/synth/note.h"
 
@@ -80,7 +72,7 @@ namespace pr::audio
 					{
 					case ETone::Sine:
 						{
-							value = std::sinf(time * freq * constants<float>::tau);
+							value = std::sin(time * freq * constants<float>::tau);
 							break;
 						}
 					case ETone::Square:
@@ -122,8 +114,6 @@ namespace pr::audio
 					// When we reach the end of the duty cycle, wait for the signal to cross zero
 					if (s > duty && std::signbit(prev_value) != std::signbit(value))
 					{
-						value = 0.0f;
-						out(ScaleSample(note, value));
 						break;
 					}
 					else
@@ -147,34 +137,43 @@ namespace pr::audio
 }
 
 #if PR_UNITTESTS
-#include <fstream>
 #include "pr/common/unittests.h"
-#include "pr/container/byte_data.h"
-#include "pr/audio/waves/wave_file.h"
 namespace pr::audio
 {
 	PRUnitTest(SynthTests, Quick)
 	{
-		int const sample_rate = 100000;
+		int const sample_rate = 48000;
 		Note const data[] =
 		{
-			{"C0", 300, 1.0f, 0.9f, ETone::Sine},
-			{"G1", 300, 0.5f, 0.9f, ETone::Sine},
-			{"G2", 300, 1.0f, 0.9f, ETone::Square},
-			{"D1", 300, 1.0f, 0.9f, ETone::Square},
-			{"D1", 300, 1.0f, 0.9f, ETone::Triangle},
-			{"D1", 300, 1.0f, 0.9f, ETone::SawTooth},
-			{"G0", 300, 1.0f, 0.9f, ETone::Noise},
-			{"G2", 300, 1.0f, 0.9f, ETone::Noise},
-			{"G5", 300, 1.0f, 0.9f, ETone::Noise},
+			{"A4", 1000, 1.0f, 1.0f, ETone::Sine},
 		};
 
-		pr::ByteData<4> buf;
-		buf.push_back(WaveHeader(Synth::SampleCount(data, sample_rate), sample_rate, 1, 8));
-		Synth::GenerateWaveData<uint8_t>(data, sample_rate, [&](auto b){ buf.push_back(b); });
+		auto samples = std::vector<float>{};
+		samples.reserve(Synth::SampleCount(data, sample_rate));
+		Synth::GenerateWaveData<float>(data, sample_rate, [&](auto sample)
+			{
+				samples.push_back(sample);
+			});
 
-		// Use Audacity to view the audio file data
-		//std::ofstream("P:\\dump\\audio.wav", std::ios::binary).write((char const*)buf.data(), buf.size());
+		PR_EXPECT(samples.size() == static_cast<std::size_t>(sample_rate));
+		PR_EXPECT(std::abs(Frequency(data[0].m_note) - 440.0f) < 0.01f);
+		auto peak = *std::max_element(samples.begin(), samples.end());
+		PR_EXPECT(peak > 0.99f && peak <= 1.0f);
+		PR_EXPECT(std::abs(samples.front()) < 1.0e-6f);
+
+		// Duty-cycle termination must not emit the first silent sample twice.
+		Note const clipped[] =
+		{
+			{"C4", 120, 0.8f},
+			{"G4", 600, 0.5f},
+			{"C5", 70, 1.0f, 0.5f, ETone::Noise},
+		};
+		auto clipped_count = 0;
+		Synth::GenerateWaveData<std::uint8_t>(clipped, sample_rate, [&](std::uint8_t)
+			{
+				++clipped_count;
+			});
+		PR_EXPECT(clipped_count == Synth::SampleCount(clipped, sample_rate));
 	}
 }
 #endif

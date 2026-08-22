@@ -9,6 +9,7 @@
 #include "pr/view3d-12/view3d.h"
 #include "pr/view3d-12/view3d-dll.h"
 #include "pr/view3d-12/utility/conversion.h"
+#include "pr/audio/audio-dll.h"
 
 using namespace pr;
 using namespace pr::gui;
@@ -35,6 +36,14 @@ struct Main :Form
 	view3d::CubeMap m_envmap;
 	view3d::Object m_obj0;
 	view3d::Object m_obj1;
+	audio::DllHandle m_audio;
+	audio::EngineHandle m_audio_engine;
+	audio::ClipHandle m_audio_clip;
+	audio::VoiceHandle m_stationary_voice;
+	audio::VoiceHandle m_moving_voice;
+	audio::Vector3 m_previous_listener_position;
+	bool m_listener_initialized;
+	bool m_audio_occluded;
 	GUID m_file_ctx;
 	EStepMode m_step_mode;
 	int m_pending_steps;
@@ -45,6 +54,54 @@ struct Main :Form
 	{
 		std::cout << filepath << "(" << line << "): " << msg << std::endl;
 		throw std::runtime_error(std::string(msg));
+	}
+
+	// Surface synchronous audio failures through the same visible test-host path.
+	static void __stdcall ReportAudioError(void*, char const* msg, char const* filepath, int line)
+	{
+		std::cout << filepath << "(" << line << "): " << msg << std::endl;
+	}
+
+	// Reject a failed audio ABI operation at its call site.
+	static void CheckAudio(audio::EStatus status, char const* operation)
+	{
+		if (status != audio::EStatus::Success)
+			throw std::runtime_error(std::format("{} failed with audio status {}", operation, static_cast<int>(status)));
+	}
+
+	// Generate a small loopable mono PCM16 tone without adding a demo asset dependency.
+	static std::vector<std::byte> MakeToneWave(float frequency_hz)
+	{
+		constexpr auto sample_rate = std::uint32_t{48000};
+		constexpr auto sample_count = sample_rate;
+		auto data_size = sample_count * sizeof(std::int16_t);
+		auto bytes = std::vector<std::byte>(44 + data_size);
+		auto write = [&](std::size_t offset, auto value)
+		{
+			std::memcpy(bytes.data() + offset, &value, sizeof(value));
+		};
+
+		write(0, std::uint32_t{0x46464952});
+		write(4, std::uint32_t{36 + static_cast<std::uint32_t>(data_size)});
+		write(8, std::uint32_t{0x45564157});
+		write(12, std::uint32_t{0x20746D66});
+		write(16, std::uint32_t{16});
+		write(20, std::uint16_t{1});
+		write(22, std::uint16_t{1});
+		write(24, sample_rate);
+		write(28, sample_rate * sizeof(std::int16_t));
+		write(32, std::uint16_t{sizeof(std::int16_t)});
+		write(34, std::uint16_t{16});
+		write(36, std::uint32_t{0x61746164});
+		write(40, data_size);
+
+		auto samples = reinterpret_cast<std::int16_t*>(bytes.data() + 44);
+		for (auto i = std::uint32_t{}; i != sample_count; ++i)
+		{
+			auto phase = constants<float>::tau * frequency_hz * i / sample_rate;
+			samples[i] = static_cast<std::int16_t>(std::sin(phase) * 5000.0f);
+		}
+		return bytes;
 	}
 	static view3d::WindowOptions WndOptions(Main& main)
 	{
@@ -71,10 +128,41 @@ struct Main :Form
 		, m_envmap(View3D_CubeMapCreateFromUri((RylogicAssets / "textures/cubemaps/hanger/hanger-??.jpg").string().c_str(), {}))
 		, m_obj0()
 		, m_obj1()
+		, m_audio(Audio_Initialise({this, ReportAudioError}))
+		, m_audio_engine()
+		, m_audio_clip()
+		, m_stationary_voice()
+		, m_moving_voice()
+		, m_previous_listener_position()
+		, m_listener_initialized(false)
+		, m_audio_occluded(false)
 		, m_file_ctx()
 		, m_step_mode(EStepMode::Single)
 		, m_pending_steps()
 	{
+		if (m_audio == nullptr)
+			throw std::runtime_error("Audio initialization failed");
+
+		// Create a looping clip and two independently spatialized playback instances.
+		CheckAudio(Audio_EngineCreate(m_audio, nullptr, &m_audio_engine), "Audio_EngineCreate");
+		auto tone = MakeToneWave(220.0f);
+		CheckAudio(Audio_ClipCreateWave(m_audio_engine, tone.data(), tone.size(), &m_audio_clip), "Audio_ClipCreateWave");
+		auto voice_desc = audio::VoiceDesc{
+			.header = {sizeof(audio::VoiceDesc), audio::AUDIO_STRUCT_VERSION},
+			.clip = m_audio_clip,
+			.bus = audio::EBus::Effects,
+			.spatial = true,
+			.loop_count = audio::AUDIO_INFINITE_LOOP,
+			.priority = 100,
+			.volume = 0.3f,
+			.pitch = 1.0f,
+		};
+		CheckAudio(Audio_VoiceCreate(m_audio_engine, &voice_desc, &m_stationary_voice), "Audio_VoiceCreate");
+		voice_desc.pitch = 1.5f;
+		CheckAudio(Audio_VoiceCreate(m_audio_engine, &voice_desc, &m_moving_voice), "Audio_VoiceCreate");
+		CheckAudio(Audio_VoicePlay(m_audio_engine, m_stationary_voice), "Audio_VoicePlay");
+		CheckAudio(Audio_VoicePlay(m_audio_engine, m_moving_voice), "Audio_VoicePlay");
+
 		// Set up the scene
 		//View3D_CameraPositionSet(m_win3d, {0, +35, +40, 1}, {0, 0, 0, 1}, {0, 1, 0, 0});
 		View3D_CameraPositionSet(m_win3d, {2, 0, 0, 1}, {0, 0, 1, 1}, {0, 0, 1, 0});
@@ -152,6 +240,18 @@ struct Main :Form
 	}
 	~Main()
 	{
+		// Release audio children before their owning engine and DLL context.
+		if (m_stationary_voice != 0)
+			Audio_VoiceDestroy(m_audio_engine, m_stationary_voice);
+		if (m_moving_voice != 0)
+			Audio_VoiceDestroy(m_audio_engine, m_moving_voice);
+		if (m_audio_clip != 0)
+			Audio_ClipDestroy(m_audio_engine, m_audio_clip);
+		if (m_audio_engine != 0)
+			Audio_EngineDestroy(m_audio_engine);
+		if (m_audio != nullptr)
+			Audio_Shutdown(m_audio);
+
 		View3D_CubeMapRelease(m_envmap);
 		View3D_WindowDestroy(m_win3d);
 		View3D_ObjectDelete(m_obj0);
@@ -199,6 +299,55 @@ struct Main :Form
 
 
 		auto c2w = View3D_CameraToWorldGet(m_win3d);
+
+		// Drive the rendered listener from the same camera pose used for the frame.
+		auto listener_position = audio::Vector3{c2w.w.x, c2w.w.y, c2w.w.z};
+		auto listener_velocity = m_listener_initialized && dt > 0.0 && dt < 0.25
+			? audio::Vector3{
+				static_cast<float>((listener_position.x - m_previous_listener_position.x) / dt),
+				static_cast<float>((listener_position.y - m_previous_listener_position.y) / dt),
+				static_cast<float>((listener_position.z - m_previous_listener_position.z) / dt)}
+			: audio::Vector3{};
+		auto listener = audio::ListenerState{
+			.header = {sizeof(audio::ListenerState), audio::AUDIO_STRUCT_VERSION},
+			.position = listener_position,
+			.forward = {-c2w.z.x, -c2w.z.y, -c2w.z.z},
+			.up = {c2w.y.x, c2w.y.y, c2w.y.z},
+			.velocity = listener_velocity,
+		};
+		CheckAudio(Audio_ListenerSet(m_audio_engine, &listener), "Audio_ListenerSet");
+		m_previous_listener_position = listener_position;
+		m_listener_initialized = true;
+
+		// Keep one directional source fixed and move the other in a circle to demonstrate Doppler and panning.
+		auto stationary = audio::EmitterState{
+			.header = {sizeof(audio::EmitterState), audio::AUDIO_STRUCT_VERSION},
+			.position = {0, 0, 1},
+			.forward = {1, 0, 0},
+			.up = {0, 0, 1},
+			.velocity = {},
+			.min_distance = 0.5f,
+			.max_distance = 30.0f,
+			.cone_inner_angle = constants<float>::tau / 8.0f,
+			.cone_outer_angle = constants<float>::tau / 3.0f,
+			.cone_outer_gain = 0.1f,
+			.doppler_scale = 1.0f,
+			.obstruction = 0.0f,
+			.occlusion = m_audio_occluded ? 0.8f : 0.0f,
+			.reverb_send = 0.25f,
+		};
+		auto angle = static_cast<float>(m_time * 0.8);
+		auto moving = stationary;
+		moving.position = {5.0f * std::cos(angle), 5.0f * std::sin(angle), 1.0f};
+		moving.forward = {-std::cos(angle), -std::sin(angle), 0.0f};
+		moving.velocity = {-4.0f * std::sin(angle), 4.0f * std::cos(angle), 0.0f};
+		moving.cone_inner_angle = constants<float>::tau;
+		moving.cone_outer_angle = constants<float>::tau;
+		CheckAudio(Audio_VoiceEmitterSet(m_audio_engine, m_stationary_voice, &stationary), "Audio_VoiceEmitterSet");
+		CheckAudio(Audio_VoiceEmitterSet(m_audio_engine, m_moving_voice, &moving), "Audio_VoiceEmitterSet");
+		CheckAudio(Audio_EngineUpdate(m_audio_engine), "Audio_EngineUpdate");
+
+		View3D_ObjectO2WSet(m_obj0, To<view3d::Mat4x4>(m4x4::Translation(v4{moving.position.x, moving.position.y, moving.position.z, 1})), nullptr);
 		SetWindowTextA(*this, pr::FmtS("View3d 12 Test - Cam: %3.3f %3.3f %3.3f  Dir: %3.3f %3.3f %3.3f", c2w.w.x, c2w.w.y, c2w.w.z, -c2w.z.x, -c2w.z.y, -c2w.z.z));
 		View3D_WindowRender(m_win3d);
 	}
@@ -301,6 +450,12 @@ struct Main :Form
 				args.m_handled = true;
 				break;
 			}
+			case 'O':
+			{
+				m_audio_occluded = !m_audio_occluded;
+				args.m_handled = true;
+				break;
+			}
 			case VK_SPACE:
 			{
 				if (m_step_mode == EStepMode::Single)
@@ -336,6 +491,7 @@ int __stdcall WinMain(HINSTANCE hinstance, HINSTANCE, LPTSTR, int)
 	try
 	{
 		pr::InitCom com;
+		pr::win32::LoadDll<struct Audio>("audio.dll");
 		pr::win32::LoadDll<struct View3d>("view3d-12.dll");
 
 		// Register the owning message loop so window destruction can drain continuously posted renderer messages and observe WM_QUIT.

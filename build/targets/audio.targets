@@ -21,8 +21,8 @@ target directory.
 	
 	<!-- Add a dependency on the dll (C++) -->
 	<ItemGroup Condition="'$(MSBuildProjectExtension)' == '.vcxproj'">
-		<DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\audio.dll" />
-			<OutDir>$(OutDir)lib\$(Platform)\</OutDir>
+		<DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\audio.dll">
+			<OutDir>$(OutDir)lib\$(Platform)\$(Configuration)\</OutDir>
 		</DependencyLink>
 	</ItemGroup>
 </Project>
