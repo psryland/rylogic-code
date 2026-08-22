@@ -44,11 +44,12 @@
 	</Target>
 
 	<!--
-	Auto-pack library assemblies to the config-specific staging feed, then sync the canonical local feed and global cache.
+	Auto-pack Debug library assemblies to the staging feed, then sync the canonical local feed and global cache.
+	Release packaging remains an explicit Build.csx deploy/publish operation so source builds do not depend on an unpublished native release package.
 	This must be in .targets (not .props) so that IsPackable from individual .csproj files is available.
 	Skipped in CI where packaging is not needed and cache-sync scripts may not be available. -->
 	<Import Project="$(RylogicRoot)lib\packages\local\versions\$(MSBuildProjectName).props" Condition="'$(Configuration)' == 'Debug' AND '$(BuildProjectReferences)' == 'false' AND Exists('$(RylogicRoot)lib\packages\local\versions\$(MSBuildProjectName).props')" />
-	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj' AND '$(IsPackable)' == 'true' AND '$(GITHUB_ACTIONS)' != 'true' AND '$(RylogicGeneratePackageOnBuild)' != 'false'">
+	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj' AND '$(IsPackable)' == 'true' AND '$(Configuration)' == 'Debug' AND '$(GITHUB_ACTIONS)' != 'true' AND '$(RylogicGeneratePackageOnBuild)' != 'false'">
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<PackageOutputPath>$(RylogicRoot)lib\packages\$(Configuration.ToLowerInvariant())\</PackageOutputPath>
 		<PackageVersion Condition="'$(Configuration)' == 'Debug' AND '$(BuildProjectReferences)' == 'false' AND '$(RylogicLastLocalPackageVersion)' != ''">$(RylogicLastLocalPackageVersion)</PackageVersion>
