@@ -15,6 +15,7 @@ namespace pr::physics::tests::articulation_oracle
 		constraint_oracle::DenseMatrix m_mass;
 		std::vector<double> m_bias;
 		std::vector<double> m_acceleration;
+		std::vector<std::array<double, 6>> m_link_acceleration;
 	};
 
 	// Solve forward dynamics through double-precision recursive Newton-Euler probes and a dense pivoted solve.

@@ -139,6 +139,41 @@ namespace pr::physics::tests
 				v4{-0.31f * scale, +0.19f * scale, +0.29f * scale, 0},
 			};
 		}
+
+		// Require every production link acceleration to agree with the independent spatial recursion.
+		void ExpectLinkAccelerationsNear(Articulation const& articulation, std::span<std::array<double, 6> const> expected, double tolerance)
+		{
+			PR_EXPECT(articulation.LinkCount() == isize(expected));
+			for (int link_index = 0; link_index != articulation.LinkCount(); ++link_index)
+			{
+				auto const actual = articulation.LinkAcceleration(articulation.LinkAt(link_index));
+				auto const actual_values = std::array<double, 6>{
+					actual.ang.x, actual.ang.y, actual.ang.z,
+					actual.lin.x, actual.lin.y, actual.lin.z,
+				};
+				for (int component = 0; component != 6; ++component)
+				{
+					auto const scale = std::max({1.0, std::abs(actual_values[component]), std::abs(expected[link_index][component])});
+					PR_EXPECT(std::abs(actual_values[component] - expected[link_index][component]) <= tolerance * scale);
+				}
+			}
+		}
+
+		// A deterministic generator keeps randomized articulation coverage reproducible.
+		struct RandomSource
+		{
+			uint64_t m_state;
+
+			// Return a deterministic float in [-1,+1).
+			float NextSigned()
+			{
+				m_state ^= m_state << 13;
+				m_state ^= m_state >> 7;
+				m_state ^= m_state << 17;
+				auto const unit = static_cast<double>(m_state >> 11) * (1.0 / 9007199254740992.0);
+				return static_cast<float>(2.0 * unit - 1.0);
+			}
+		};
 	}
 
 	PRUnitTestClass(ArticulationDynamicsTests)
@@ -180,6 +215,7 @@ namespace pr::physics::tests
 			auto const expected = articulation_oracle::SolveForwardDynamics(articulation);
 			articulation.ForwardDynamics();
 			ExpectGeneralizedNear(GeneralizedAcceleration(articulation), expected.m_acceleration, 8.0e-4);
+			ExpectLinkAccelerationsNear(articulation, expected.m_link_acceleration, 8.0e-4);
 		}
 
 		// Match a floating, branching, asymmetric tree with fixed welds, generalized loading, and external link wrenches.
@@ -207,6 +243,7 @@ namespace pr::physics::tests
 			auto const expected = articulation_oracle::SolveForwardDynamics(articulation);
 			articulation.ForwardDynamics();
 			ExpectGeneralizedNear(GeneralizedAcceleration(articulation), expected.m_acceleration, 8.0e-4);
+			ExpectLinkAccelerationsNear(articulation, expected.m_link_acceleration, 8.0e-4);
 		}
 
 		// Match the uncoupled floating-root gyroscopic solve before child-link reductions are introduced.
@@ -243,6 +280,78 @@ namespace pr::physics::tests
 			auto const actual = GeneralizedAcceleration(articulation);
 			ExpectGeneralizedNear(actual, expected.m_acceleration, 8.0e-4);
 			PR_EXPECT(std::ranges::any_of(actual, [](double value) { return std::abs(value) > 1.0e-3; }));
+		}
+
+		// Match randomized fixed and floating trees with varied branching and one-to-six-DOF ordered joints.
+		PRUnitTestMethod(RandomizedTreesMatchOracle, Quick)
+		{
+			auto random = RandomSource{0xD6E8FEB86659FD93ull};
+			for (int trial = 0; trial != 12; ++trial)
+			{
+				auto builder = ArticulationBuilder{};
+				auto handles = std::vector<LinkHandle>{};
+				auto const root_rotation = v3{
+					0.35f * random.NextSigned(),
+					0.35f * random.NextSigned(),
+					0.35f * random.NextSigned(),
+				};
+				auto const root_transform = m4x4{
+					m3x3::Rotation(root_rotation),
+					v4{random.NextSigned(), random.NextSigned(), random.NextSigned(), 1},
+				};
+				if ((trial & 1) == 0)
+				{
+					handles.push_back(builder.AddFixedRoot({}, root_transform));
+				}
+				else
+				{
+					auto const root_velocity = v8motion{
+						v4{random.NextSigned(), random.NextSigned(), random.NextSigned(), 0},
+						v4{random.NextSigned(), random.NextSigned(), random.NextSigned(), 0},
+					};
+					handles.push_back(builder.AddFloatingRoot(DynamicLink(trial, 1.0f + std::abs(random.NextSigned())), root_transform, root_velocity));
+				}
+
+				// Parent selection spans chains and branches while preserving builder topological order.
+				auto const child_count = 2 + trial % 5;
+				for (int child_index = 0; child_index != child_count; ++child_index)
+				{
+					auto const dof_count = 1 + (trial + 2 * child_index) % 6;
+					auto joint = DynamicJoint(dof_count, trial + child_index);
+					for (int axis_index = 0; axis_index != dof_count; ++axis_index)
+					{
+						joint.m_initial_position[axis_index] = 0.3f * random.NextSigned();
+						joint.m_initial_velocity[axis_index] = 0.8f * random.NextSigned();
+					}
+					auto const parent_index = child_index == 0 ? 0 : (trial + child_index) % isize(handles);
+					handles.push_back(builder.AddLink(
+						handles[parent_index],
+						joint,
+						DynamicLink(trial * 7 + child_index, 0.4f + std::abs(random.NextSigned()))));
+				}
+				auto articulation = builder.Build();
+
+				// Excite every force path so signs and transform directions cannot pass through cancellation.
+				if (articulation.RootType() == EArticulationRootType::Floating)
+					articulation.RootForce(TestWrench(random.NextSigned()));
+				for (int link_index = 0; link_index != articulation.LinkCount(); ++link_index)
+				{
+					auto const link = articulation.LinkAt(link_index);
+					articulation.ExternalForce(link, TestWrench(random.NextSigned()));
+					if (link_index == 0)
+						continue;
+
+					auto force = std::array<float, 6>{};
+					for (int axis_index = 0; axis_index != articulation.JointDofCount(link); ++axis_index)
+						force[axis_index] = random.NextSigned();
+					articulation.JointForce(link, std::span{force}.first(articulation.JointDofCount(link)));
+				}
+
+				auto const expected = articulation_oracle::SolveForwardDynamics(articulation);
+				articulation.ForwardDynamics();
+				ExpectGeneralizedNear(GeneralizedAcceleration(articulation), expected.m_acceleration, 2.0e-3);
+				ExpectLinkAccelerationsNear(articulation, expected.m_link_acceleration, 2.0e-3);
+			}
 		}
 
 		// Apply simultaneous link impulses through the same global articulated response as the dense mass-matrix oracle.

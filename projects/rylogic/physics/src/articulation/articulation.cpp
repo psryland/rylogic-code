@@ -614,6 +614,13 @@ namespace pr::physics
 
 		builder.m_consumed = true;
 		auto articulation = Articulation{std::move(builder.m_articulation)};
+
+		// Reserve fixed-size integration scratch once so stepping performs no generalized-state allocation.
+		auto& state = *articulation.m_state;
+		state.m_position_start.resize(state.m_position.size());
+		state.m_velocity_start.resize(state.m_velocity.size());
+		state.m_velocity_midpoint.resize(state.m_velocity.size());
+		state.m_acceleration_start.resize(state.m_acceleration.size());
 		articulation.UpdateKinematics();
 		return articulation;
 	}

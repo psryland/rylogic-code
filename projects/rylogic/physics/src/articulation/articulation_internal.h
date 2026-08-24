@@ -26,6 +26,7 @@ namespace pr::physics::detail
 		v8motion m_joint_bias = {};          // Complete velocity-product acceleration c = cJ + v x vJ.
 		v8motion m_link_velocity = {};
 		v8motion m_link_acceleration = {};
+		v8motion m_link_acceleration_start = {};
 		v8motion m_response_acceleration = {};
 		v8force m_external_force = {};
 		v8force m_response_impulse = {};
@@ -48,6 +49,10 @@ namespace pr::physics::detail
 		std::vector<float> m_force;
 		std::vector<float> m_acceleration;
 		std::vector<float> m_response;
+		std::vector<float> m_position_start;
+		std::vector<float> m_velocity_start;
+		std::vector<float> m_velocity_midpoint;
+		std::vector<float> m_acceleration_start;
 		bool m_kinematics_dirty = true;
 	};
 

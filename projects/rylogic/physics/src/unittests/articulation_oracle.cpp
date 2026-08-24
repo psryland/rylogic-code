@@ -264,10 +264,28 @@ namespace pr::physics::tests::articulation_oracle
 			return links;
 		}
 
+		// Propagate generalized acceleration into each link frame independently of the production outward ABA pass.
+		std::vector<DMotion> LinkAccelerations(std::span<OracleLink const> links, std::span<double const> acceleration)
+		{
+			auto result = std::vector<DMotion>(links.size());
+			for (int link_index = 0; link_index != isize(links); ++link_index)
+			{
+				auto const& link = links[link_index];
+				auto value = link.m_bias_acceleration;
+				if (link.m_parent_index != -1)
+					value += link.m_parent_to_child * result[link.m_parent_index];
+				for (int axis_index = 0; axis_index != link.m_dof_count; ++axis_index)
+					value += link.m_motion_subspace[axis_index] * acceleration[link.m_velocity_offset + axis_index];
+
+				result[link_index] = value;
+			}
+			return result;
+		}
+
 		// Return generalized inverse dynamics for one acceleration probe using recursive Newton-Euler accumulation.
 		std::vector<double> InverseDynamics(std::span<OracleLink const> links, EArticulationRootType root_type, std::span<double const> acceleration)
 		{
-			auto link_acceleration = std::vector<DMotion>(links.size());
+			auto const link_acceleration = LinkAccelerations(links, acceleration);
 			auto link_force = std::vector<DForce>(links.size());
 			auto generalized_force = std::vector<double>(acceleration.size(), 0.0);
 
@@ -275,15 +293,8 @@ namespace pr::physics::tests::articulation_oracle
 			for (int link_index = 0; link_index != isize(links); ++link_index)
 			{
 				auto const& link = links[link_index];
-				auto value = link.m_bias_acceleration;
-				if (link.m_parent_index != -1)
-					value += link.m_parent_to_child * link_acceleration[link.m_parent_index];
-				for (int axis_index = 0; axis_index != link.m_dof_count; ++axis_index)
-					value += link.m_motion_subspace[axis_index] * acceleration[link.m_velocity_offset + axis_index];
-
-				link_acceleration[link_index] = value;
 				auto const momentum = link.m_inertia * link.m_velocity;
-				link_force[link_index] = link.m_inertia * value + Cross(link.m_velocity, momentum) - link.m_external_force;
+				link_force[link_index] = link.m_inertia * link_acceleration[link_index] + Cross(link.m_velocity, momentum) - link.m_external_force;
 			}
 
 			// Accumulate child wrenches toward the root and project each joint wrench onto its motion subspace.
@@ -415,10 +426,26 @@ namespace pr::physics::tests::articulation_oracle
 		for (int index = 0; index != isize(rhs); ++index)
 			rhs[index] -= bias[index];
 
+		// Preserve double precision through the independent acceleration propagation before exposing plain scalar records to tests.
+		auto solve_mass = mass;
+		auto acceleration = SolveLinear(std::move(solve_mass), rhs);
+		auto const links = BuildModel(articulation, true);
+		auto const spatial_acceleration = LinkAccelerations(links, acceleration);
+		auto link_acceleration = std::vector<std::array<double, 6>>(spatial_acceleration.size());
+		for (int link_index = 0; link_index != isize(spatial_acceleration); ++link_index)
+		{
+			auto const value = spatial_acceleration[link_index];
+			link_acceleration[link_index] = {
+				value.ang.x, value.ang.y, value.ang.z,
+				value.lin.x, value.lin.y, value.lin.z,
+			};
+		}
+
 		return DynamicsSolution{
-			.m_mass = mass,
+			.m_mass = std::move(mass),
 			.m_bias = std::move(bias),
-			.m_acceleration = SolveLinear(std::move(mass), rhs),
+			.m_acceleration = std::move(acceleration),
+			.m_link_acceleration = std::move(link_acceleration),
 		};
 	}
 

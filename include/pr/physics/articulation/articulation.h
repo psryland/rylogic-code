@@ -75,6 +75,15 @@ namespace pr::physics
 		// Return the current link-frame spatial velocity after lazily refreshing kinematics.
 		v8motion LinkVelocity(LinkHandle link) const;
 
+		// Return the most recently solved link-frame spatial acceleration.
+		v8motion LinkAcceleration(LinkHandle link) const;
+
+		// Return the articulation's total world-space momentum about the world origin.
+		v8force MomentumWS() const;
+
+		// Return the sum of the physical links' kinetic energies.
+		float KineticEnergy() const;
+
 		// Return the root world transform.
 		m4x4 const& RootToWorld() const;
 
@@ -134,6 +143,9 @@ namespace pr::physics
 
 		// Solve unconstrained generalized and link accelerations with Featherstone's force ABA.
 		void ForwardDynamics();
+
+		// Advance unconstrained state with a bounded implicit-midpoint solve and consume the applied forces.
+		void Integrate(float elapsed_seconds);
 
 		// Apply one link-frame impulse through the complete tree response.
 		void ApplyImpulse(LinkHandle link, v8force impulse);

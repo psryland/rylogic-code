@@ -56,7 +56,12 @@ namespace pr::physics
 			auto scale = 1.0f;
 			for (int row = 0; row != count; ++row)
 			for (int column = 0; column != count; ++column)
+			{
+				if (!IsFinite(matrix[row * 6 + column]))
+					throw std::runtime_error("Articulation joint inertia became non-finite");
+
 				scale = std::max(scale, Abs(matrix[row * 6 + column]));
+			}
 
 			// Symmetrize round-off before factorization because the exact S-transpose-I-S operator is symmetric.
 			for (int row = 0; row != count; ++row)
