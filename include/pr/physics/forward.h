@@ -10,6 +10,7 @@
 #include <functional>
 #include <vector>
 #include <array>
+#include <initializer_list>
 #include <ranges>
 #include <unordered_set>
 #include <unordered_map>
@@ -21,6 +22,8 @@
 #include <cstdio>
 #include <cstdint>
 #include <cassert>
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 
 #include "pr/common/assert.h"

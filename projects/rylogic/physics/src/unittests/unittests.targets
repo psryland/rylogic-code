@@ -5,6 +5,8 @@
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)buoyancy_sampler_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)collision_pairs_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)collision_resolution_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_oracle.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_oracle_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)gpu_collision_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)gpu_collision_detector_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)gpu_compare_tests.cpp" />
@@ -23,6 +25,7 @@
 				;%(AdditionalIncludeDirectories)
 			</AdditionalIncludeDirectories>
 		</ClCompile>
+		<ClInclude Include="$(MSBuildThisFileDirectory)constraint_oracle.h" />
 		<ClInclude Include="$(MSBuildThisFileDirectory)shared_engine.h" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\physics\physics.vcxproj">
 			<LinkLibraryDependencies>false</LinkLibraryDependencies>
