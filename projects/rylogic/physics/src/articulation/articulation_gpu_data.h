@@ -22,6 +22,9 @@ namespace pr::physics
 		std::vector<uint32_t> m_children;
 		std::vector<GpuArticulationLevel> m_levels;
 		std::vector<uint32_t> m_level_links;
+
+		// Number of scalar floats required for tightly packed active inverse joint-inertia blocks.
+		int m_joint_matrix_scratch_count = 0;
 	};
 
 	// Validate and flatten independent articulation trees into deterministic linear GPU ranges and traversal schedules.

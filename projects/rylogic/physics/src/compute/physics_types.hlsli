@@ -405,7 +405,7 @@ struct GpuArticulationLink
 
 	int proxy_body_index;
 	int depth;
-	int pad0;
+	int joint_matrix_offset;
 	int pad1;
 
 	GpuConstraintFrame joint_to_parent;
@@ -429,6 +429,49 @@ struct GpuArticulationLevel
 	int link_offset;
 	int link_count;
 	int pad0;
+};
+
+// One padded angular-then-linear spatial vector shared by ABA inputs, outputs, and scratch.
+struct GpuArticulationSpatialVector
+{
+	float4 ang;
+	float4 lin;
+};
+
+// One six-column spatial matrix; each padded column keeps StructuredBuffer layout identical in C++ and HLSL.
+struct GpuArticulationSpatialMatrix
+{
+	GpuArticulationSpatialVector columns[6];
+};
+
+// One padded six-by-six joint matrix stored by columns for bounded zero-to-six-DOF solves.
+struct GpuArticulationJointMatrix
+{
+	float4 columns_low[6];
+	float4 columns_high[6];
+};
+
+// Per-generalized-DOF force-ABA factors retained from prepare/inward until outward recovery.
+struct GpuArticulationAbaDofScratch
+{
+	GpuArticulationSpatialVector motion_subspace;
+	GpuArticulationSpatialVector u_column;
+};
+
+// Compact per-link force-ABA state retained between deterministic level dispatches.
+struct GpuArticulationAbaScratch
+{
+	GpuConstraintFrame child_to_parent;
+	GpuArticulationSpatialMatrix articulated_inertia;
+
+	// This field is articulated bias through every inward level, then solved link acceleration during root/outward traversal.
+	GpuArticulationSpatialVector articulated_bias_or_acceleration;
+	GpuArticulationSpatialVector link_velocity;
+	GpuArticulationSpatialVector joint_bias;
+	int solve_valid;
+	int pad0;
+	int pad1;
+	int pad2;
 };
 
 // Aggregate counters and bounded-event status copied back once after all internal substeps.

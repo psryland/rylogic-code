@@ -137,6 +137,7 @@ namespace pr::physics
 				auto position_index = -1;
 				auto velocity_index = -1;
 				auto packed_dof_offset = -1;
+				auto joint_matrix_offset = -1;
 				auto dof_count = 0;
 				auto depth = 0;
 				auto joint_to_parent = m4x4::Identity();
@@ -159,6 +160,10 @@ namespace pr::physics
 					packed_dof_offset = isize(upload.m_dofs);
 					joint_to_parent = joint.m_joint_to_parent;
 					joint_to_child = joint.m_joint_to_child;
+
+					// Assign the active inverse its exact scalar range; zero-DOF joints consume an empty range.
+					joint_matrix_offset = upload.m_joint_matrix_scratch_count;
+					upload.m_joint_matrix_scratch_count += dof_count * dof_count;
 
 					// Generalized arrays and ordered screw axes share the same per-joint scalar order.
 					auto const position = articulation->JointPosition(link_handle);
@@ -184,7 +189,7 @@ namespace pr::physics
 					.child_count = 0,
 					.proxy_body_index = -1,
 					.depth = depth,
-					.pad0 = 0,
+					.joint_matrix_offset = joint_matrix_offset,
 					.pad1 = 0,
 					.joint_to_parent = PackGpuTransform(joint_to_parent),
 					.joint_to_child = PackGpuTransform(joint_to_child),
