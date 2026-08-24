@@ -15,7 +15,13 @@ namespace pr::physics::shader_code
 	using ByteCode = ::pr::compute::ByteCode;
 
 	// Integration
+	extern ByteCode const seed_working_forces;
 	extern ByteCode const integrate;
+
+	// Gathered per-frame output
+	extern ByteCode const prepare_substep_output;
+	extern ByteCode const append_collision_events;
+	extern ByteCode const gather_frame_bodies;
 
 	// Sleep/wake state management
 	extern ByteCode const disturb_islands;

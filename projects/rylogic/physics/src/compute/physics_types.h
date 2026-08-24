@@ -36,6 +36,10 @@ namespace pr::physics
 	static_assert(sizeof(GpuConstraintRow) == 96);
 	static_assert(sizeof(GpuConstraintPseudoVelocity) == 32);
 	static_assert((sizeof(GpuCollisionCounters) & 0xf) == 0);
+	static_assert(sizeof(GpuFrameForce) == 32);
+	static_assert(sizeof(GpuFrameOutputHeader) == 64);
+	static_assert(sizeof(GpuSubstepOutputState) == 16);
+	static_assert(sizeof(GpuCollisionEvent) == sizeof(GpuResolveContact) + 16);
 	static_assert((sizeof(GpuSelectiveRefreshMetrics) & 0xf) == 0);
 	static_assert((sizeof(GpuMaterial) & 0xf) == 0);
 

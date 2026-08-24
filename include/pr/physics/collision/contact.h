@@ -37,6 +37,9 @@ namespace pr::physics
 		int m_child_idA;
 		int m_child_idB;
 
+		// Zero-based internal substep that generated this contact.
+		int m_substep_index;
+
 		// The relative time of the collision (in seconds). 0 = now, -dt = previous step. (used to order collision resolution)
 		float m_time;
 

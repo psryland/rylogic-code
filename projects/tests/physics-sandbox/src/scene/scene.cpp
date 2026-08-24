@@ -15,11 +15,15 @@ namespace physics_sandbox
 		{
 			return std::chrono::duration<double, std::milli>(end - beg).count();
 		}
+
+		// Accumulate one engine frame profile into the sandbox's reporting interval.
 		void AddProfile(physics::Engine::StepProfile& lhs, physics::Engine::StepProfile const& rhs)
 		{
 			lhs.m_new_frame_ms += rhs.m_new_frame_ms;
 			lhs.m_pack_ms += rhs.m_pack_ms;
+			lhs.m_constraint_pack_ms += rhs.m_constraint_pack_ms;
 			lhs.m_upload_ms += rhs.m_upload_ms;
+			lhs.m_constraint_upload_ms += rhs.m_constraint_upload_ms;
 			lhs.m_external_forces_ms += rhs.m_external_forces_ms;
 			lhs.m_integrate_ms += rhs.m_integrate_ms;
 			lhs.m_sleepwake_ms += rhs.m_sleepwake_ms;
@@ -42,6 +46,10 @@ namespace physics_sandbox
 			lhs.m_sleep_island_unpack_ms += rhs.m_sleep_island_unpack_ms;
 			lhs.m_body_unpack_ms += rhs.m_body_unpack_ms;
 			lhs.m_unpack_diagnostics_ms += rhs.m_unpack_diagnostics_ms;
+			lhs.m_substep_count += rhs.m_substep_count;
+			lhs.m_submission_count += rhs.m_submission_count;
+			lhs.m_wait_count += rhs.m_wait_count;
+			lhs.m_readback_copy_count += rhs.m_readback_copy_count;
 		}
 		bool SameVec(v4 const& lhs, v4 const& rhs)
 		{
@@ -208,7 +216,6 @@ namespace physics_sandbox
 		, m_clock()
 		, m_step_pending(false)
 		, m_pending_elapsed_seconds()
-		, m_pending_substeps()
 		, m_pending_step_profile()
 		, m_current_scenario()
 		, m_diag()
@@ -546,7 +553,7 @@ namespace physics_sandbox
 		return CompleteStep();
 	}
 
-	// Submit the first physics substep without waiting for its GPU results.
+	// Submit one frame containing all configured internal GPU substeps.
 	void Scene::BeginStep(double elapsed_seconds)
 	{
 		if (m_step_pending)
@@ -555,14 +562,12 @@ namespace physics_sandbox
 		auto const step_beg = Clock::now();
 		m_step_pending = true;
 		m_pending_elapsed_seconds = elapsed_seconds;
-		m_pending_substeps = std::max(m_physics_substeps, 1);
 		m_pending_step_profile = {};
 		m_diag.occurred = false;
 
 		try
 		{
-			auto const dt = static_cast<float>(elapsed_seconds / m_pending_substeps);
-			BeginPhysicsSubstep(dt, m_clock, m_pending_step_profile);
+			BeginPhysicsFrame(static_cast<float>(elapsed_seconds), m_clock, m_pending_step_profile);
 			m_pending_step_profile.m_total_ms = ElapsedMs(step_beg, Clock::now());
 		}
 		catch (...)
@@ -572,7 +577,7 @@ namespace physics_sandbox
 		}
 	}
 
-	// Complete a submitted step, including dependent substeps that cannot overlap rendering.
+	// Complete a submitted frame after all internal substeps have executed on the GPU.
 	bool Scene::CompleteStep()
 	{
 		if (!m_step_pending)
@@ -581,15 +586,8 @@ namespace physics_sandbox
 		auto const complete_beg = Clock::now();
 		try
 		{
-			CompletePhysicsSubstep(m_pending_step_profile);
+			CompletePhysicsFrame(m_pending_step_profile);
 
-			auto const dt = static_cast<float>(m_pending_elapsed_seconds / m_pending_substeps);
-			for (int substep = 1; substep != m_pending_substeps; ++substep)
-			{
-				auto const time_s = m_clock + m_pending_elapsed_seconds * static_cast<double>(substep) / static_cast<double>(m_pending_substeps);
-				BeginPhysicsSubstep(dt, time_s, m_pending_step_profile);
-				CompletePhysicsSubstep(m_pending_step_profile);
-			}
 			if (m_diag.occurred)
 				++m_diag.count;
 
@@ -666,10 +664,10 @@ namespace physics_sandbox
 		}
 	}
 
-	// Apply gravity and submit one physics substep without waiting for its result.
-	void Scene::BeginPhysicsSubstep(float dt, double time_s, StepProfile& profile)
+	// Apply frame-constant gravity and submit all internal GPU substeps without waiting.
+	void Scene::BeginPhysicsFrame(float dt, double time_s, StepProfile& profile)
 	{
-		// Forces are cleared by integration, so gravity must be restored before every substep.
+		// The engine snapshots this frame force and restores it before every GPU-resident substep.
 		auto const gravity_beg = Clock::now();
 		if (LengthSq(m_gravity) != 0)
 		{
@@ -679,12 +677,16 @@ namespace physics_sandbox
 		profile.m_gravity_ms += ElapsedMs(gravity_beg, Clock::now());
 
 		auto const physics_beg = Clock::now();
-		m_physics.BeginStep(dt, std::span{ m_body }, time_s);
+		m_physics.BeginStep(physics::Engine::StepInput{
+			.m_elapsed_seconds = dt,
+			.m_substep_count = std::max(m_physics_substeps, 1),
+			.m_time_s = time_s,
+		}, m_body);
 		profile.m_physics_ms += ElapsedMs(physics_beg, Clock::now());
 	}
 
-	// Complete one submitted physics substep and accumulate its profiling and collision results.
-	void Scene::CompletePhysicsSubstep(StepProfile& profile)
+	// Complete one submitted frame and accumulate its profiling and collision results.
+	void Scene::CompletePhysicsFrame(StepProfile& profile)
 	{
 		PrepareStepVisuals();
 

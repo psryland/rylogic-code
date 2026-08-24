@@ -81,6 +81,9 @@
     <ClCompile Include="src\compute\integrate_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
+    <ClCompile Include="src\compute\frame_output_gpu.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
     <ClCompile Include="src\compute\resolve_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
@@ -188,6 +191,9 @@
     <ClInclude Include="src\compute\integrate_gpu.h">
       <Filter>src\compute</Filter>
     </ClInclude>
+    <ClInclude Include="src\compute\frame_output_gpu.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
     <ClInclude Include="src\compute\resolve_gpu.h">
       <Filter>src\compute</Filter>
     </ClInclude>
@@ -259,6 +265,9 @@
       <Filter>src\compute</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\compute\integrate.hlsl">
+      <Filter>src\compute</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\compute\frame_output.hlsl">
       <Filter>src\compute</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\compute\resolve.hlsl">

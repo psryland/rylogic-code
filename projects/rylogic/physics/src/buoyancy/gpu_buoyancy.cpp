@@ -1418,9 +1418,9 @@ namespace pr::physics
 				RecordSurfacePass(args, cb_surf, addresses);
 			}
 
-			// Phase 8: diagnostic publication is opt-in because it adds GPU copy/readback work that
-			// production force application does not require.
-			if (m_config.m_enable_diagnostics)
+			// Diagnostic publication is opt-in and only the final substep is observable after the frame's single wait.
+			// Production force application does not allocate or record this diagnostic transfer.
+			if (m_config.m_enable_diagnostics && args.m_substep_index + 1 == args.m_substep_count)
 				RecordDiagnosticReadback(args, hull_count);
 		}
 

@@ -20,6 +20,7 @@ namespace pr::physics
 		//    even if it is a zero vector.
 		//  - Only supporting step on the GPU, if you want a CPU step, use HLSL interop.
 
+		// Timing and GPU-boundary counts collected for the most recent submitted frame.
 		struct StepProfile
 		{
 			double m_new_frame_ms = 0;
@@ -49,15 +50,25 @@ namespace pr::physics
 			double m_sleep_island_unpack_ms = 0;
 			double m_body_unpack_ms = 0;
 			double m_unpack_diagnostics_ms = 0;
+			int m_substep_count = 0;
+			int m_submission_count = 0;
+			int m_wait_count = 0;
+			int m_readback_copy_count = 0;
 		};
+		// Peak collision demand and bounded event-queue status across one submitted frame.
 		struct CollisionStats
 		{
 			int m_pair_count = 0;
 			int m_contact_count = 0;
 			int m_max_pairs = 0;
 			int m_max_contacts = 0;
+			int m_event_count = 0;
+			int m_event_capacity = 0;
+			int m_pair_limit_substep = -1;
+			int m_contact_limit_substep = -1;
+			int m_event_overflow_substep = -1;
 
-			// Number of contacts stored during the most recent call to Step().
+			// Peak number of solver contacts retained by any internal substep.
 			int LastContactCount() const
 			{
 				return std::min(m_contact_count, m_max_contacts);
@@ -78,10 +89,14 @@ namespace pr::physics
 			{
 				return m_max_contacts != 0 && m_contact_count > m_max_contacts;
 			}
+			bool EventLimitReached() const
+			{
+				return m_event_overflow_substep >= 0;
+			}
 		};
+		// GPU command-recording context for one pre-integration internal substep.
 		struct ExternalForceArgs
 		{
-			// Context supplied to pre-integrate GPU force callbacks.
 			GpuJob& m_job;
 			ID3D12Resource* m_bodies;
 			int m_body_count;
@@ -91,8 +106,20 @@ namespace pr::physics
 			int m_substep_count;
 		};
 
+		// Complete input for one submitted frame. Intermediate substeps remain GPU-resident and do not permit CPU state inspection.
+		struct StepInput
+		{
+			std::span<RigidBody*> m_bodies;
+			std::span<Articulation*> m_articulations;
+			ConstraintSet const* m_constraints = nullptr;
+			float m_elapsed_seconds = 0.0f;
+			int m_substep_count = 1;
+			double m_time_s = 0.0;
+		};
+
 	private:
 
+		// Caller-owned bodies and GPU output that remain live between BeginStep and CompleteStep.
 		struct PendingStep
 		{
 			std::vector<RigidBody*> m_bodies;
@@ -143,6 +170,9 @@ namespace pr::physics
 		// Lazily created GPU persistent-constraint solver.
 		GpuConstraintSolverPtr m_gpu_constraint_solver;
 
+		// Gathered frame output and bounded substep event queue.
+		GpuFrameOutputPtr m_gpu_frame_output;
+
 		// GPU resolver for compact selective-refresh work sets
 		GpuResolverPtr m_gpu_selective_resolver;
 
@@ -166,7 +196,7 @@ namespace pr::physics
 		friend struct DbgPhysics;
 
 		// Submit one frame with an optional persistent constraint collection.
-		void BeginStepInternal(float dt, std::span<RigidBody*> bodies, ConstraintSet const* constraints, double time_s);
+		void BeginStepInternal(StepInput const& input);
 
 	public:
 
@@ -184,6 +214,9 @@ namespace pr::physics
 
 		// Evolve bodies with persistent constraints; every enabled rigid endpoint must occur in 'bodies'.
 		void Step(float dt, std::span<RigidBody*> bodies, ConstraintSet const& constraints, double time_s = 0.0);
+
+		// Evolve a complete frame using one GPU submission regardless of the requested internal substep count.
+		void Step(StepInput const& input);
 		void Step(float dt, RigidBodyRange auto&& bodies, double time_s = 0.0)
 		{
 			BeginStep(dt, bodies, time_s);
@@ -195,11 +228,21 @@ namespace pr::physics
 			CompleteStep();
 		}
 
+		// Supply a concrete body range for a StepInput while preserving the engine's stable pending-step pointer copy.
+		void Step(StepInput input, RigidBodyRange auto&& bodies)
+		{
+			BeginStep(input, bodies);
+			CompleteStep();
+		}
+
 		// Begin evolving the physics objects by submitting GPU work without waiting for it to finish.
 		void BeginStep(float dt, std::span<RigidBody*> bodies, double time_s = 0.0);
 
 		// Submit constrained work without waiting; every enabled rigid endpoint must occur in 'bodies' until completion.
 		void BeginStep(float dt, std::span<RigidBody*> bodies, ConstraintSet const& constraints, double time_s = 0.0);
+
+		// Submit a complete frame without waiting; all input topology and endpoints must remain valid until completion.
+		void BeginStep(StepInput const& input);
 		void BeginStep(float dt, RigidBodyRange auto&& bodies, double time_s = 0.0)
 		{
 			if (m_pending_step.m_active)
@@ -215,6 +258,17 @@ namespace pr::physics
 
 			m_pending_step.AssignBodies(bodies);
 			BeginStep(dt, std::span{ m_pending_step.m_bodies }, constraints, time_s);
+		}
+
+		// Supply a concrete body range for a StepInput without exposing a transient pointer container to the caller.
+		void BeginStep(StepInput input, RigidBodyRange auto&& bodies)
+		{
+			if (m_pending_step.m_active)
+				throw std::runtime_error("Engine::BeginStep called while a previous step is pending");
+
+			m_pending_step.AssignBodies(bodies);
+			input.m_bodies = std::span{ m_pending_step.m_bodies };
+			BeginStep(input);
 		}
 
 		// Complete a previously-begun step and unpack the GPU results into the caller-owned bodies.
@@ -280,7 +334,7 @@ namespace pr::physics
 		void Integrate(float dt);
 		
 		// Apply user-supplied GPU forces before integration.
-		void ApplyExternalForces(float dt, double time_s);
+		void ApplyExternalForces(float dt, double time_s, int substep_index, int substep_count);
 
 		// Mark sleeping islands disturbed by awake bodies before broadphase filtering.
 		void SleepWake();
@@ -299,6 +353,9 @@ namespace pr::physics
 
 		// Persist wake-ups and update sleep state after collision resolution.
 		void SleepUpdate(float dt);
+
+		// Append aggregate counters and optional collision records for one completed GPU substep.
+		void CaptureSubstepOutput(int substep_index, int substep_count, bool collect_events);
 
 		// Read buffers back to CPU memory
 		void Readback(GpuBuffers& buffers);

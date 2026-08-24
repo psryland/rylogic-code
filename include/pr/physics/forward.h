@@ -95,6 +95,7 @@ namespace pr::physics
 	struct BodyId;
 	struct ConstraintHandle;
 	struct LinkHandle;
+	struct Articulation;
 	struct BodyRef;
 	struct BodyFrame;
 	struct ConstraintAxisDesc;
@@ -113,6 +114,7 @@ namespace pr::physics
 	struct GpuCollisionExclusion;
 	struct GpuConstraintUpload;
 	struct GpuConstraintSolver;
+	struct GpuFrameOutput;
 
 	struct Gpu;
 	struct GpuIntegrator;
@@ -128,6 +130,10 @@ namespace pr::physics
 	struct GpuContact;
 	struct GpuResolveContact;
 	struct GpuCollisionCounters;
+	struct GpuFrameForce;
+	struct GpuFrameOutputHeader;
+	struct GpuSubstepOutputState;
+	struct GpuCollisionEvent;
 	struct GpuMaterial;
 	struct GpuBuffers;
 	struct EngineBufferCache;
@@ -140,6 +146,7 @@ namespace pr::physics
 	using GpuSortAndSweepPtr = std::unique_ptr<GpuSortAndSweep, Deleter<GpuSortAndSweep>>;
 	using GpuCollisionDetectorPtr = std::unique_ptr<GpuCollisionDetector, Deleter<GpuCollisionDetector>>;
 	using GpuConstraintSolverPtr = std::unique_ptr<GpuConstraintSolver, Deleter<GpuConstraintSolver>>;
+	using GpuFrameOutputPtr = std::unique_ptr<GpuFrameOutput, Deleter<GpuFrameOutput>>;
 	using GpuSelectiveRefresherPtr = std::unique_ptr<GpuSelectiveRefresher, Deleter<GpuSelectiveRefresher>>;
 	using GpuResolverPtr = std::unique_ptr<GpuResolver, Deleter<GpuResolver>>;
 	using CachePtr = std::unique_ptr<EngineBufferCache, Deleter<EngineBufferCache>>;

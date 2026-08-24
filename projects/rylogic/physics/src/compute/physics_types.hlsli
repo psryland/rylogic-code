@@ -18,6 +18,7 @@ static const int CollideThreadCount = 32;
 static const int ResolveThreadCount = 64;
 static const int ConstraintThreadCount = 64;
 static const int SelectiveRefreshThreadCount = 64;
+static const int FrameOutputThreadCount = 64;
 static const int MaxColours = 32;
 static const int GpuContactMaxPoints = 4;
 static const int GpuConstraintRowsPerBlock = 6;
@@ -352,6 +353,50 @@ struct GpuCollisionCounters
 	int contact_count; // The number of contact points found
 	int pad0;
 	int pad1;
+};
+
+// Frame-constant spatial force restored before every internal GPU substep.
+struct GpuFrameForce
+{
+	float4 force_ang;
+	float4 force_lin;
+};
+
+// Aggregate counters and bounded-event status copied back once after all internal substeps.
+struct GpuFrameOutputHeader
+{
+	GpuCollisionCounters final_counters;
+	int max_pair_count;
+	int max_contact_count;
+	int event_count;
+	int event_capacity;
+	int event_overflow;
+	int pair_limit_substep;
+	int contact_limit_substep;
+	int event_overflow_substep;
+	int substep_count;
+	int pad0;
+	int pad1;
+	int pad2;
+};
+
+// Transient reservation shared by the serial event-queue setup and parallel event copy.
+struct GpuSubstepOutputState
+{
+	int event_base;
+	int event_count;
+	int substep_index;
+	int pad0;
+};
+
+// One resolved collision retained in deterministic substep and solver order.
+struct GpuCollisionEvent
+{
+	GpuResolveContact contact;
+	int substep_index;
+	int pad0;
+	int pad1;
+	int pad2;
 };
 struct GpuSelectiveRefreshMetrics
 {

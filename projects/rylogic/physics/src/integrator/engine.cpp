@@ -16,6 +16,7 @@
 #include "src/compute/collide_gpu.h"
 #include "src/compute/resolve_gpu.h"
 #include "src/compute/constraint_solver_gpu.h"
+#include "src/compute/frame_output_gpu.h"
 #include "src/constraint/constraint_gpu.h"
 #include "src/compute/selective_gpu.h"
 #include "src/integrator/engine_buffer_cache.h"
@@ -48,7 +49,7 @@ namespace pr::physics
 			}
 			~StepProfileScope()
 			{
-				m_profile.*Field = ElapsedMs(m_beg, Clock::now());
+				m_profile.*Field += ElapsedMs(m_beg, Clock::now());
 			}
 		};
 		template <auto Field> struct StepProfileScope<false, Field>
@@ -63,6 +64,7 @@ namespace pr::physics
 		}
 		GpuJob::RunHandle SubmitGpuJob(GpuJob& job, Engine::StepProfile& profile)
 		{
+			++profile.m_submission_count;
 			if constexpr (PR_PHYSICS_PROFILE != 0)
 			{
 				auto run_profile = GpuJob::RunProfile{};
@@ -78,6 +80,7 @@ namespace pr::physics
 		}
 		void CompleteGpuJob(GpuJob& job, GpuJob::RunHandle& run, Engine::StepProfile& profile)
 		{
+			++profile.m_wait_count;
 			if constexpr (PR_PHYSICS_PROFILE != 0)
 			{
 				auto run_profile = GpuJob::RunProfile{};
@@ -122,12 +125,9 @@ namespace pr::physics
 	// Readback resources and flags that must survive between GPU submission and CPU unpack.
 	struct GpuBuffers
 	{
-		::pr::compute::GpuReadbackBuffer::Allocation rb_bodies;
-		::pr::compute::GpuReadbackBuffer::Allocation rb_counters;
-		::pr::compute::GpuReadbackBuffer::Allocation rb_contacts;
-		::pr::compute::GpuReadbackBuffer::Allocation rb_contact_order;
+		GpuFrameOutputReadback rb_output;
 		bool emit_collisions = true;
-		bool read_contacts = false;
+		bool read_collision_events = false;
 	};
 
 	// Keep the opaque GPU readback state allocated once with the pending-step state.
@@ -171,6 +171,7 @@ namespace pr::physics
 		, m_gpu_collision_detector(new GpuCollisionDetector(*m_gpu, m_config))
 		, m_gpu_resolver(new GpuResolver(*m_gpu, m_config, shader_cache))
 		, m_gpu_constraint_solver()
+		, m_gpu_frame_output(new GpuFrameOutput(*m_gpu))
 		, m_gpu_selective_resolver(new GpuResolver(*m_gpu, m_config, shader_cache))
 		, m_gpu_selective_refresher(new GpuSelectiveRefresher(*m_gpu, m_config))
 		, m_materials(new MaterialMap)
@@ -229,31 +230,60 @@ namespace pr::physics
 	// Evolve the physics objects forward in time and resolve any collisions.
 	void Engine::Step(float dt, std::span<RigidBody*> rigid_bodies, double time_s)
 	{
-		BeginStep(dt, rigid_bodies, time_s);
-		CompleteStep();
+		Step(StepInput{
+			.m_bodies = rigid_bodies,
+			.m_elapsed_seconds = dt,
+			.m_time_s = time_s,
+		});
 	}
 
 	// Evolve rigid bodies while resolving one persistent constraint collection in the same GPU submission.
 	void Engine::Step(float dt, std::span<RigidBody*> rigid_bodies, ConstraintSet const& constraints, double time_s)
 	{
-		BeginStep(dt, rigid_bodies, constraints, time_s);
+		Step(StepInput{
+			.m_bodies = rigid_bodies,
+			.m_constraints = &constraints,
+			.m_elapsed_seconds = dt,
+			.m_time_s = time_s,
+		});
+	}
+
+	// Evolve a complete frame using one GPU submission regardless of the requested internal substep count.
+	void Engine::Step(StepInput const& input)
+	{
+		BeginStep(input);
 		CompleteStep();
 	}
 
 	// Begin evolving the physics objects by submitting GPU work without waiting for it to finish.
 	void Engine::BeginStep(float dt, std::span<RigidBody*> rigid_bodies, double time_s)
 	{
-		BeginStepInternal(dt, rigid_bodies, nullptr, time_s);
+		BeginStep(StepInput{
+			.m_bodies = rigid_bodies,
+			.m_elapsed_seconds = dt,
+			.m_time_s = time_s,
+		});
 	}
 
 	// Begin a constrained step while retaining the same single GPU submission and gathered readback contract.
 	void Engine::BeginStep(float dt, std::span<RigidBody*> rigid_bodies, ConstraintSet const& constraints, double time_s)
 	{
-		BeginStepInternal(dt, rigid_bodies, &constraints, time_s);
+		BeginStep(StepInput{
+			.m_bodies = rigid_bodies,
+			.m_constraints = &constraints,
+			.m_elapsed_seconds = dt,
+			.m_time_s = time_s,
+		});
 	}
 
-	// Submit one frame with an optional persistent constraint collection.
-	void Engine::BeginStepInternal(float dt, std::span<RigidBody*> rigid_bodies, ConstraintSet const* constraints, double time_s)
+	// Submit a complete frame without waiting; intermediate substeps remain entirely GPU-resident.
+	void Engine::BeginStep(StepInput const& input)
+	{
+		BeginStepInternal(input);
+	}
+
+	// Submit one frame with optional persistent constraints and internal GPU substeps.
+	void Engine::BeginStepInternal(StepInput const& input)
 	{
 		// Notes:
 		//  - There is a limitation on the number of collision pairs that can be generated per frame.
@@ -261,14 +291,25 @@ namespace pr::physics
 		//    or run Engine::Step() multiple times on "islands" of physics objects
 		if (m_pending_step.m_active)
 			throw std::runtime_error("Engine::BeginStep called while a previous step is pending");
+		if (!input.m_articulations.empty())
+			throw std::runtime_error("Engine::BeginStep articulation inputs require the articulation milestone");
+		if (input.m_substep_count < 1 || input.m_substep_count > m_config.max_internal_substeps)
+			throw std::runtime_error(std::format("Engine::BeginStep substep count {} is outside the configured range [1, {}]", input.m_substep_count, m_config.max_internal_substeps));
+		if (m_config.max_collision_pairs < 1)
+			throw std::runtime_error("EngineConfig::max_collision_pairs must be positive");
+		if (m_config.max_collision_events < 0)
+			throw std::runtime_error("EngineConfig::max_collision_events must be non-negative");
+		if (!std::isfinite(input.m_elapsed_seconds) || input.m_elapsed_seconds < 0.0f)
+			throw std::runtime_error("Engine::BeginStep elapsed time must be finite and non-negative");
 
-		m_pending_step.Begin(rigid_bodies);
+		m_pending_step.Begin(input.m_bodies);
 		auto bodies = std::span{ m_pending_step.m_bodies };
 
 		if (bodies.empty())
 		{
 			m_constraints_active = false;
 			m_last_step_profile = {};
+			m_last_step_profile.m_substep_count = input.m_substep_count;
 			m_last_collision_stats = {};
 			return;
 		}
@@ -280,11 +321,12 @@ namespace pr::physics
 		#endif
 
 		m_last_step_profile = {};
+		m_last_step_profile.m_substep_count = input.m_substep_count;
 		m_last_collision_stats = {};
 
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_new_frame_ms>(m_last_step_profile);
-			m_cache->NewFrame(bodies, m_config.max_collision_pairs);
+			m_cache->NewFrame(bodies);
 		}
 
 		// Pack all bodies into a GPU-friendly format
@@ -295,10 +337,10 @@ namespace pr::physics
 
 		// Resolve stable identities before submission and retain only compact transfer data for the GPU upload.
 		auto constraint_upload = GpuConstraintUpload{};
-		if (constraints != nullptr)
+		if (input.m_constraints != nullptr)
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_constraint_pack_ms>(m_last_step_profile);
-			constraint_upload = PackGpuConstraints(*constraints, BodyRemap(bodies));
+			constraint_upload = PackGpuConstraints(*input.m_constraints, BodyRemap(bodies));
 		}
 		m_constraints_active = constraint_upload.m_active_count != 0;
 		if (!m_constraints_active && m_gpu_constraint_solver != nullptr)
@@ -323,52 +365,61 @@ namespace pr::physics
 			m_gpu_constraint_solver->Upload(m_gpu->m_job, constraint_upload);
 		}
 
-		// ExternalForces -> allows callers to add custom GPU-resident forces before integration
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_external_forces_ms>(m_last_step_profile);
-			ApplyExternalForces(dt, time_s);
-		}
+		// Allocate optional event storage only when the caller has requested collision records.
+		auto const collect_collision_events = static_cast<bool>(Collisions);
+		auto const event_capacity = collect_collision_events ? m_config.max_collision_events : 0;
+		m_gpu_frame_output->BeginFrame(m_gpu->m_job, m_cache->RigidBodyCount(), event_capacity, input.m_substep_count);
 
-		// Integrate -> Updates dynamics, generates AABBs, debug data
+		// Record every substep into the same command list so state, warm starts, and counters stay GPU-resident.
+		auto const dt = input.m_elapsed_seconds / input.m_substep_count;
+		for (int substep_index = 0; substep_index != input.m_substep_count; ++substep_index)
 		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
-			Integrate(dt);
-		}
+			// Upload resets the first substep counters; later substeps reset only transient collision state.
+			if (substep_index != 0)
+				m_gpu_integrator->ResetCounters(m_gpu->m_job);
 
-		// SleepWake -> marks sleeping islands disturbed by awake body AABBs
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepwake_ms>(m_last_step_profile);
-			SleepWake();
-		}
+			// Restore CPU frame-constant inputs before GPU modules add state-dependent forces.
+			m_gpu_integrator->SeedWorkingForces(m_gpu->m_job, m_cache->RigidBodyCount());
+			{
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_external_forces_ms>(m_last_step_profile);
+				auto const substep_time_s = input.m_time_s + static_cast<double>(dt) * substep_index;
+				ApplyExternalForces(dt, substep_time_s, substep_index, input.m_substep_count);
+			}
 
-		// Broadphase -> uses AABBs from integrate -> generates collision pairs
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_broadphase_ms>(m_last_step_profile);
-			BroadPhase(m_config.sleeping_enabled, constraint_upload.m_collision_exclusions.m_slots);
-		}
+			// Ordinary rigid prediction consumes and clears the working force accumulator.
+			{
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
+				Integrate(dt);
+			}
 
-		// Narrow phase -> uses collision pairs -> generates contacts
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_collide_ms>(m_last_step_profile);
-			Collide();
-		}
+			// Collision and constraint phases operate on the predicted body state for this substep.
+			{
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepwake_ms>(m_last_step_profile);
+				SleepWake();
+			}
+			{
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_broadphase_ms>(m_last_step_profile);
+				BroadPhase(m_config.sleeping_enabled, constraint_upload.m_collision_exclusions.m_slots);
+			}
+			{
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_collide_ms>(m_last_step_profile);
+				Collide();
+			}
+			{
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_resolve_ms>(m_last_step_profile);
+				Resolve(dt);
+			}
+			{
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_selective_ms>(m_last_step_profile);
+				SelectiveRefresh(dt);
+			}
+			{
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepupdate_ms>(m_last_step_profile);
+				SleepUpdate(dt);
+			}
 
-		// Resolve -> uses contacts -> applies impulses to bodies
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_resolve_ms>(m_last_step_profile);
-			Resolve(dt);
-		}
-
-		// SelectiveRefresh -> retries only problematic contacts with refreshed manifolds
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_selective_ms>(m_last_step_profile);
-			SelectiveRefresh(dt);
-		}
-
-		// SleepUpdate -> persists wake-ups caused by resolver impulses
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepupdate_ms>(m_last_step_profile);
-			SleepUpdate(dt);
+			// Preserve raw capacity counters and resolved collision records before transient buffers are reused.
+			CaptureSubstepOutput(substep_index, input.m_substep_count, collect_collision_events);
 		}
 
 		// ReadBody -> read back body dynamics and contact data
@@ -442,7 +493,7 @@ namespace pr::physics
 			// Rebuild the staging state from the caller-owned bodies. Bodies that are already sleeping but have no island id are deliberately
 			// left out of the uploaded island list; the GPU contact graph below creates their first transient ids.
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_new_frame_ms>(m_last_step_profile);
-			m_cache->NewFrame(rigid_bodies, m_config.max_collision_pairs);
+			m_cache->NewFrame(rigid_bodies);
 		}
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_pack_ms>(m_last_step_profile);
@@ -452,6 +503,7 @@ namespace pr::physics
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_upload_ms>(m_last_step_profile);
 			Upload();
 		}
+		m_gpu_frame_output->BeginFrame(m_gpu->m_job, m_cache->RigidBodyCount(), 0, 1);
 		{
 			// A zero-length integrate pass updates the GPU AABBs from the current transforms without advancing the simulation.
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
@@ -465,6 +517,7 @@ namespace pr::physics
 			Collide();
 			SleepUpdate(0.0f);
 		}
+		CaptureSubstepOutput(0, 1, false);
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_ms>(m_last_step_profile);
 			Readback(buffers);
@@ -510,8 +563,8 @@ namespace pr::physics
 		m_gpu_collision_detector->UploadShapes(m_gpu->m_job, m_cache->m_shape_cache);
 	}
 
-	// Apply user-supplied GPU forces before integration.
-	void Engine::ApplyExternalForces(float dt, double time_s)
+	// Apply user-supplied GPU forces before one internal substep.
+	void Engine::ApplyExternalForces(float dt, double time_s, int substep_index, int substep_count)
 	{
 		if (!ExternalForces)
 			return;
@@ -523,8 +576,8 @@ namespace pr::physics
 			.m_body_count = m_cache->RigidBodyCount(),
 			.m_dt = dt,
 			.m_time_s = time_s,
-			.m_substep_index = 0,
-			.m_substep_count = 1,
+			.m_substep_index = substep_index,
+			.m_substep_count = substep_count,
 		};
 		ExternalForces(*this, args);
 	}
@@ -703,100 +756,82 @@ namespace pr::physics
 		m_gpu_sleep_manager->SleepUpdate(m_gpu->m_job, dt, body_count, island_count, m_config.max_collision_pairs, counters, contacts, contact_dispatch, bodies);
 	}
 
-	// Read buffers back to CPU memory
-	void Engine::Readback(GpuBuffers& buffers)
+	// Append aggregate counters and optional collision records for one completed GPU substep.
+	void Engine::CaptureSubstepOutput(int substep_index, int substep_count, bool collect_events)
 	{
-		auto body_count = m_cache->RigidBodyCount();
-		auto contacts_count = m_cache->MaxContactsCount();
-		auto bodies = m_gpu_integrator->Bodies();
 		auto counters = m_gpu_integrator->Counters();
 		auto contacts = m_gpu_collision_detector->Contacts();
 		auto contact_order = m_gpu_resolver->ContactOrder();
-		buffers.read_contacts = buffers.emit_collisions && static_cast<bool>(Collisions);
+		auto contact_dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
+		m_gpu_frame_output->CaptureSubstep(
+			m_gpu->m_job,
+			m_config.max_collision_pairs,
+			m_config.max_collision_pairs,
+			substep_index,
+			substep_count,
+			collect_events,
+			counters.get(),
+			contacts.get(),
+			contact_order,
+			contact_dispatch.get());
+	}
 
-		{
-			m_gpu->m_job.m_barriers.Transition(bodies.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			m_gpu->m_job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-			if (buffers.read_contacts)
-			{
-				m_gpu->m_job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-				m_gpu->m_job.m_barriers.Transition(contact_order, D3D12_RESOURCE_STATE_COPY_SOURCE);
-			}
-			m_gpu->m_job.m_barriers.Commit();
-		}
-		{
-			buffers.rb_bodies = m_gpu->m_job.m_readback.template Alloc<GpuRigidBody>(body_count);
-			m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_bodies, bodies.get(), 0);
-
-			buffers.rb_counters = m_gpu->m_job.m_readback.template Alloc<GpuCollisionCounters>(1);
-			m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_counters, counters.get(), 0);
-
-			if (buffers.read_contacts)
-			{
-				buffers.rb_contacts = m_gpu->m_job.m_readback.template Alloc<GpuResolveContact>(contacts_count);
-				m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_contacts, contacts.get(), 0);
-
-				buffers.rb_contact_order = m_gpu->m_job.m_readback.template Alloc<uint32_t>(contacts_count);
-				m_gpu->m_job.m_cmd_list.CopyBufferRegion(buffers.rb_contact_order, contact_order, 0);
-			}
-		}
-		{
-			m_gpu->m_job.m_barriers.Transition(bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			m_gpu->m_job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			if (buffers.read_contacts)
-			{
-				m_gpu->m_job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-				m_gpu->m_job.m_barriers.Transition(contact_order, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			}
-			m_gpu->m_job.m_barriers.Commit();
-		}
+	// Gather selected output and record exactly one core GPU-to-CPU copy.
+	void Engine::Readback(GpuBuffers& buffers)
+	{
+		auto body_count = m_cache->RigidBodyCount();
+		auto bodies = m_gpu_integrator->Bodies();
+		buffers.read_collision_events = buffers.emit_collisions && static_cast<bool>(Collisions);
+		buffers.rb_output = m_gpu_frame_output->GatherAndReadback(m_gpu->m_job, body_count, bodies.get());
+		++m_last_step_profile.m_readback_copy_count;
 	}
 
 	// Update rigid bodies with results from the step
 	void Engine::Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies)
 	{
 		auto body_count = m_cache->RigidBodyCount();
-		auto max_contacts = m_cache->MaxContactsCount();
+		auto max_contacts = m_config.max_collision_pairs;
 
-		auto counts = GpuCollisionCounters{};
+		auto const& output_header = GpuFrameOutput::Header(buffers.rb_output);
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_access_ms>(m_last_step_profile);
-			counts = *buffers.rb_counters.ptr<GpuCollisionCounters>();
 			m_last_collision_stats = Engine::CollisionStats{
-				.m_pair_count = counts.pair_count,
-				.m_contact_count = counts.contact_count,
+				.m_pair_count = output_header.max_pair_count,
+				.m_contact_count = output_header.max_contact_count,
 				.m_max_pairs = m_config.max_collision_pairs,
 				.m_max_contacts = max_contacts,
+				.m_event_count = output_header.event_count,
+				.m_event_capacity = output_header.event_capacity,
+				.m_pair_limit_substep = output_header.pair_limit_substep,
+				.m_contact_limit_substep = output_header.contact_limit_substep,
+				.m_event_overflow_substep = output_header.event_overflow_substep,
 			};
 			CheckCollisionCapacity(m_last_collision_stats);
 		}
 
-		auto contact_count = std::min(counts.contact_count, max_contacts);
+		auto const output_bodies = GpuFrameOutput::Bodies(buffers.rb_output);
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_body_readback_copy_ms>(m_last_step_profile);
-			std::memcpy(m_cache->m_rb_dynamics.data(), buffers.rb_bodies.ptr<GpuRigidBody>(), body_count * sizeof(GpuRigidBody));
-		}
-		if (buffers.read_contacts)
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_contact_readback_copy_ms>(m_last_step_profile);
-			std::memcpy(m_cache->m_contacts.data(), buffers.rb_contacts.ptr<GpuResolveContact>(), contact_count * sizeof(GpuResolveContact));
+			std::memcpy(m_cache->m_rb_dynamics.data(), output_bodies.data(), body_count * sizeof(GpuRigidBody));
 		}
 
 		// Before updating the bodies with new dynamics, raise the collision events
-		if (contact_count != 0 && buffers.read_contacts)
+		auto const event_count = std::min(output_header.event_count, output_header.event_capacity);
+		if (event_count != 0 && buffers.read_collision_events)
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_collision_events_ms>(m_last_step_profile);
 			m_cache->m_contacts_cpu.resize(0);
-			m_cache->m_contacts_cpu.reserve(contact_count);
-			auto const contact_order = std::span{ buffers.rb_contact_order.ptr<uint32_t>(), static_cast<size_t>(contact_count) };
-			for (int order_idx = 0; order_idx != contact_count; ++order_idx)
+			m_cache->m_contacts_cpu.reserve(event_count);
+			auto const events = GpuFrameOutput::Events(buffers.rb_output);
+			for (int event_index = 0; event_index != event_count; ++event_index)
 			{
-				auto const contact_idx = static_cast<int>(contact_order[order_idx]);
-				if (contact_idx < 0 || contact_idx >= contact_count)
-					throw std::runtime_error("GPU resolver returned an invalid contact order index");
+				auto const& collision_event = events[event_index];
+				auto const& contact = collision_event.contact;
+				if (contact.body_idx_a < 0 || contact.body_idx_a >= body_count || contact.body_idx_b < 0 || contact.body_idx_b >= body_count)
+					throw std::runtime_error("GPU frame output returned an invalid collision endpoint");
 
-				auto const& c = m_cache->m_contacts[contact_idx];
-				m_cache->m_contacts_cpu.push_back(RbContact(*rigid_bodies[c.body_idx_a], *rigid_bodies[c.body_idx_b], c));
+				auto& cpu_contact = m_cache->m_contacts_cpu.emplace_back(*rigid_bodies[contact.body_idx_a], *rigid_bodies[contact.body_idx_b], contact);
+				cpu_contact.m_substep_index = collision_event.substep_index;
 			}
 
 			Collisions(*this, m_cache->m_contacts_cpu);

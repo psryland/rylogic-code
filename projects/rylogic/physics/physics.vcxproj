@@ -134,6 +134,7 @@
     <ClCompile Include="src\compute\interop\resolve_interop_runner.cpp" />
     <ClCompile Include="src\compute\interop\constraint_interop_runner.cpp" />
     <ClCompile Include="src\compute\constraint_solver_gpu.cpp" />
+    <ClCompile Include="src\compute\frame_output_gpu.cpp" />
     <ClCompile Include="src\compute\integrate_gpu.cpp" />
     <ClCompile Include="src\compute\resolve_gpu.cpp" />
     <ClCompile Include="src\compute\selective_gpu.cpp" />
@@ -180,6 +181,7 @@
     <ClInclude Include="src\constraint\constraint_solver.h" />
     <ClInclude Include="src\compute\collide_gpu.h" />
     <ClInclude Include="src\compute\constraint_solver_gpu.h" />
+    <ClInclude Include="src\compute\frame_output_gpu.h" />
     <ClInclude Include="src\compute\interop\resolve_runner.h" />
     <ClInclude Include="src\compute\interop\constraint_runner.h" />
     <ClInclude Include="src\compute\integrate_gpu.h" />
@@ -206,7 +208,8 @@
     <None Include="src\buoyancy\gpu_basic_waves.hlsli" />
   </ItemGroup>
   <ItemGroup>
-    <ShaderBuild Include="src\compute\integrate.hlsl" ComputeEntryPoints="CSIntegrate" />
+    <ShaderBuild Include="src\compute\integrate.hlsl" ComputeEntryPoints="CSSeedWorkingForces;CSIntegrate" />
+    <ShaderBuild Include="src\compute\frame_output.hlsl" ComputeEntryPoints="CSPrepareSubstepOutput;CSAppendCollisionEvents;CSGatherFrameBodies" />
     <ShaderBuild Include="src\compute\sleep.hlsl" ComputeEntryPoints="CSDisturbIslands;CSInitSleepState;CSUnionSleepContacts;CSCanonicaliseSleepRoots;CSReduceSleepStats;CSApplySleepState" />
     <ShaderBuild Include="src\compute\sweep.hlsl" ComputeEntryPoints="CSSweep;CSSweepFiltered;CSCalcCDDispatch" />
     <ShaderBuild Include="src\compute\collide.hlsl" ComputeEntryPoints="CSClearCollisionBins;CSBinCollisionPairs;CSBuildCollisionBinDispatch;CSCollideSphereVsSphere;CSCollideBoxVsSphere;CSCollideBoxVsBox;CSCollideLineVsSphere;CSCollideLineVsBox;CSCollideLineVsLine;CSCollideTriangleVsSphere;CSCollideTriangleVsBox;CSCollideTriangleVsLine;CSCollideTriangleVsTriangle;CSCollidePolytopeVsSphere;CSCollidePolytopeVsBox;CSCollidePolytopeVsLine;CSCollidePolytopeVsTriangle;CSCollidePolytopeVsPolytope;CSCalcResolveDispatch" />

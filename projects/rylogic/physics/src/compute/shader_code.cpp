@@ -16,9 +16,22 @@ namespace pr::physics::shader_code
 	// Integration
 	namespace compiled
 	{
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(seed_working_forces_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(integrate_cs.h)
 	}
+	ByteCode const seed_working_forces(compiled::seed_working_forces_cs);
 	ByteCode const integrate(compiled::integrate_cs);
+
+	// Gathered per-frame output
+	namespace compiled
+	{
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(prepare_substep_output_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(append_collision_events_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(gather_frame_bodies_cs.h)
+	}
+	ByteCode const prepare_substep_output(compiled::prepare_substep_output_cs);
+	ByteCode const append_collision_events(compiled::append_collision_events_cs);
+	ByteCode const gather_frame_bodies(compiled::gather_frame_bodies_cs);
 
 	// Sleep/wake state management
 	namespace compiled

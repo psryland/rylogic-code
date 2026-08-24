@@ -88,7 +88,7 @@ namespace physics_sandbox
 		// and accumulating extreme float values that corrupt the simulation.
 		float m_kill_zone_height;
 
-		// Number of physics updates to run for each scene update.
+		// Number of GPU-resident internal substeps recorded for each scene update.
 		int m_physics_substeps;
 
 		// Whether the engine is allowed to put low-energy bodies to sleep.
@@ -126,7 +126,6 @@ namespace physics_sandbox
 		double m_clock;
 		bool m_step_pending;
 		double m_pending_elapsed_seconds;
-		int m_pending_substeps;
 		StepProfile m_pending_step_profile;
 
 		// The currently active scenario.
@@ -147,10 +146,10 @@ namespace physics_sandbox
 		// Returns true if a collision occurred during this step.
 		bool Step(double elapsed_seconds);
 
-		// Submit the first physics substep without waiting for its GPU results.
+		// Submit one frame containing all configured internal GPU substeps.
 		void BeginStep(double elapsed_seconds);
 
-		// Complete a submitted step, including any remaining dependent substeps.
+		// Complete one submitted frame and consume its gathered readback.
 		// Returns true if a collision occurred during this step.
 		bool CompleteStep();
 
@@ -197,11 +196,11 @@ namespace physics_sandbox
 		// Prepare visual state before collision readback updates it for a completed substep.
 		void PrepareStepVisuals();
 
-		// Apply gravity and submit one physics substep.
-		void BeginPhysicsSubstep(float dt, double time_s, StepProfile& profile);
+		// Apply gravity and submit one frame containing all internal GPU substeps.
+		void BeginPhysicsFrame(float dt, double time_s, StepProfile& profile);
 
-		// Wait for one submitted physics substep and collect its results.
-		void CompletePhysicsSubstep(StepProfile& profile);
+		// Wait for one submitted physics frame and collect its gathered results.
+		void CompletePhysicsFrame(StepProfile& profile);
 
 		// Calculate the bounding box for the scene (excluding terrain)
 		BBox CalculateSceneBBox(scene_loader::SceneDesc const& scene_desc) const;

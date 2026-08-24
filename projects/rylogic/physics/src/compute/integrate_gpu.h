@@ -12,9 +12,11 @@ namespace pr::physics
 	{
 		Gpu& m_gpu;                          // Lightweight D3D12 wrapper (device + command queue)
 		EngineConfig const& m_config;        // Engine configuration parameters
+		ComputeStep m_cs_seed_forces;        // Root signature + PSO for restoring frame-constant forces
 		ComputeStep m_cs_integrate;          // Root signature + PSO for the integration shader
 		D3DPtr<ID3D12Resource> m_r_counters; // GPU buffer: RWStructuredBuffer<GpuCollisionCounters> for storing the number of bodies, pairs, and contacts
 		D3DPtr<ID3D12Resource> m_r_bodies;   // GPU buffer: RWStructuredBuffer<GpuRigidBody>
+		D3DPtr<ID3D12Resource> m_r_frame_forces; // GPU buffer: StructuredBuffer<GpuFrameForce>
 		D3DPtr<ID3D12Resource> m_r_aabb_sort;// GPU buffer: RWStructuredBuffer<float> expanded sort-axis bounds
 		D3DPtr<ID3D12Resource> m_r_aabb_idx; // GPU buffer: RWStructuredBuffer<int> rigid body indices for the AABB bounds
 		D3DPtr<ID3D12Resource> m_r_aabb_box; // GPU buffer: RWStructuredBuffer<BBox> exact world-space bounding boxes
@@ -27,6 +29,9 @@ namespace pr::physics
 
 		// Reset the collision counters without changing the body buffer.
 		void ResetCounters(GpuJob& job);
+
+		// Restore frame-constant forces before one internal substep.
+		void SeedWorkingForces(GpuJob& job, int body_count);
 
 		// Integrate bodies on GPU and write AABBs (but keep bodies GPU-resident for later readback).
 		void Integrate(GpuJob& job, int body_count, float dt, int broadphase_sort_axis);

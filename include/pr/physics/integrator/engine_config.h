@@ -15,6 +15,13 @@ namespace pr::physics
 	{
 		// Maximum number of collision pairs that the engine can handle per frame.
 		int max_collision_pairs = 65536;
+
+		// Maximum number of collision events retained across all internal substeps. Storage is
+		// allocated only while the Collisions event has subscribers.
+		int max_collision_events = 65536;
+
+		// Bound command recording and force-module invocations for a single submitted frame.
+		int max_internal_substeps = 64;
 		
 		// Sleep thresholds: if a body has linear velocity below 'sleep_velocity_threshold_lin' and
 		// angular velocity below 'sleep_velocity_threshold_ang' for some time, it can be put to sleep.

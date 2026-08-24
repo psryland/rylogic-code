@@ -3,11 +3,12 @@
 //
 // Touch this comment any time an .hlsl/.hlsli file referenced below is edited so MSBuild
 // invalidates compute_shaders_physics.res — RC dependency tracking does not follow .hlsl edits.
-// Touched: 2026-08-25 (resolve: fast-path serial fallback when graph colouring exhausts its bounded mask)
+// Touched: 2026-08-26 (frame output: gather internal substeps into one bounded readback)
 src/compute/collide.hlsl        TEXT DISCARDABLE "src/compute/collide.hlsl"
 src/compute/collision.hlsli     TEXT DISCARDABLE "src/compute/collision.hlsli"
 src/compute/gjk.hlsli           TEXT DISCARDABLE "src/compute/gjk.hlsli"
 src/compute/integrate.hlsl      TEXT DISCARDABLE "src/compute/integrate.hlsl"
+src/compute/frame_output.hlsl   TEXT DISCARDABLE "src/compute/frame_output.hlsl"
 src/compute/physics_types.hlsli TEXT DISCARDABLE "src/compute/physics_types.hlsli"
 src/compute/resolve.hlsl        TEXT DISCARDABLE "src/compute/resolve.hlsl"
 src/compute/selective.hlsl      TEXT DISCARDABLE "src/compute/selective.hlsl"

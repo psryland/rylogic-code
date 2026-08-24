@@ -29,6 +29,7 @@ namespace pr::physics
 	struct EReg
 	{
 		inline static constexpr auto Params = ECBufReg::b0;
+		inline static constexpr auto FrameForces = ESRVReg::t0;
 		inline static constexpr auto Counters = EUAVReg::u0;
 		inline static constexpr auto Bodies = EUAVReg::u1;
 		inline static constexpr auto AABB_Idx = EUAVReg::u2;
@@ -39,14 +40,28 @@ namespace pr::physics
 	GpuIntegrator::GpuIntegrator(Gpu& gpu, EngineConfig const& config)
 		: m_gpu(gpu)
 		, m_config(config)
+		, m_cs_seed_forces()
 		, m_cs_integrate()
 		, m_r_counters()
 		, m_r_bodies()
+		, m_r_frame_forces()
 		, m_r_aabb_sort()
 		, m_r_aabb_idx()
 		, m_r_aabb_box()
 		, m_capacity()
 	{
+		// The seed pass restores immutable frame inputs before each substep mutates and clears the working force accumulators.
+		{
+			auto sig = RootSig(ERootSigFlags::ComputeOnly)
+				.U32<cbIntegrate>(EReg::Params)
+				.SRV(EReg::FrameForces)
+				.UAV(EReg::Bodies)
+				;
+
+			m_cs_seed_forces.m_sig = sig.Create(m_gpu, "Physics:SeedWorkingForcesSig");
+			m_cs_seed_forces.m_pso = ComputePSO(m_cs_seed_forces.m_sig.get(), shader_code::seed_working_forces).Create(m_gpu, "Physics:SeedWorkingForcesPSO");
+		}
+
 		// m_cs_integrate
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
@@ -75,6 +90,7 @@ namespace pr::physics
 		if (m_r_bodies == nullptr || m_capacity < capacity)
 		{
 			m_r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:BodyDynamics");
+			m_r_frame_forces = m_gpu.CreateResource(ResDesc::Buf<GpuFrameForce>(capacity, {}), cmd_list, "Physics:FrameForces");
 			m_r_aabb_sort = m_gpu.CreateResource(ResDesc::Buf<float>(2 * capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_Sort");
 			m_r_aabb_idx = m_gpu.CreateResource(ResDesc::Buf<int>(2 * capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_Idx");
 			m_r_aabb_box = m_gpu.CreateResource(ResDesc::Buf<BBox>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_Box");
@@ -118,20 +134,61 @@ namespace pr::physics
 
 		ResetCounters(job);
 
-		// Upload bodies to the GPU
+		// Upload body state and its immutable per-frame force seed together before any substep is recorded.
 		{
 			job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Transition(m_r_frame_forces.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 			job.m_barriers.Commit();
 
-			auto upload = job.m_upload.template Alloc<GpuRigidBody>(body_count);
-			memcpy(upload.template ptr<GpuRigidBody>(), bodies.data(), body_count * sizeof(GpuRigidBody));
-			job.m_cmd_list.CopyBufferRegion(m_r_bodies.get(), 0, upload);
+			auto upload_bodies = job.m_upload.template Alloc<GpuRigidBody>(body_count);
+			memcpy(upload_bodies.template ptr<GpuRigidBody>(), bodies.data(), body_count * sizeof(GpuRigidBody));
+			job.m_cmd_list.CopyBufferRegion(m_r_bodies.get(), 0, upload_bodies);
+
+			auto upload_forces = job.m_upload.template Alloc<GpuFrameForce>(body_count);
+			auto frame_forces = upload_forces.template ptr<GpuFrameForce>();
+			for (int body_index = 0; body_index != body_count; ++body_index)
+			{
+				frame_forces[body_index] = GpuFrameForce{
+					.force_ang = bodies[body_index].force_ang,
+					.force_lin = bodies[body_index].force_lin,
+				};
+			}
+			job.m_cmd_list.CopyBufferRegion(m_r_frame_forces.get(), 0, upload_forces);
 
 			job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_frame_forces.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Commit();
 		}
 
 		pix::EndEvent(job.m_cmd_list.get());
+	}
+
+	// Restore frame-constant forces before one internal substep.
+	void GpuIntegrator::SeedWorkingForces(GpuJob& job, int body_count)
+	{
+		if (body_count == 0)
+			return;
+
+		assert(m_r_bodies != nullptr && m_capacity >= body_count);
+		assert(m_r_frame_forces != nullptr);
+
+		auto cb_integrate = cbIntegrate{
+			.g_body_count = body_count,
+		};
+
+		// The seed is read-only for the complete frame while the body accumulator is overwritten for this substep.
+		job.m_barriers.Transition(m_r_frame_forces.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Commit();
+
+		job.m_cmd_list.SetPipelineState(m_cs_seed_forces.m_pso.get());
+		job.m_cmd_list.SetComputeRootSignature(m_cs_seed_forces.m_sig.get());
+		job.m_cmd_list.AddComputeRoot32BitConstants(cb_integrate);
+		job.m_cmd_list.AddComputeRootShaderResourceView(m_r_frame_forces->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_bodies->GetGPUVirtualAddress());
+		job.m_cmd_list.Dispatch((body_count + IntegrateThreadCount - 1) / IntegrateThreadCount, 1, 1);
+
+		job.m_barriers.UAV(m_r_bodies.get()).Commit();
 	}
 
 	// Integrate bodies on GPU

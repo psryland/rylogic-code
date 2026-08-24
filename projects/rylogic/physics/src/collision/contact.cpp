@@ -18,6 +18,7 @@ namespace pr::physics
 		, m_mat()
 		, m_child_idA()
 		, m_child_idB()
+		, m_substep_index()
 		, m_time()
 	{
 	}

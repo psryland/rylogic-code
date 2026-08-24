@@ -17,6 +17,7 @@
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)impulse_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)inertia_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)integrator_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)internal_substep_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)interop_engine_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)resolve_runner_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)rigid_body_tests.cpp" />

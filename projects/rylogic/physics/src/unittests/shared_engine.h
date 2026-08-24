@@ -31,13 +31,13 @@ namespace pr::physics::tests
 	}
 
 	// Reset per-test engine state before a test runs. Clears registered event
-	// handlers, restores the default material (matches MaterialMap's defaults:
-	// frictionless, perfectly elastic), and drops the engine's internal caches so
-	// stale Shape pointers from previous tests cannot be hit by ShapeCache lookups.
+	// handlers, restores the default runtime configuration and material, and drops
+	// the engine's internal caches so stale caller-owned pointers cannot be reused.
 	inline void ResetEngineForNextTest(physics::Engine& engine)
 	{
 		engine.Collisions.reset();
 		engine.ExternalForces.reset();
+		engine.Config(physics::EngineConfig{});
 		engine.Material(physics::Material{
 			.m_id = physics::Material::DefaultID,
 			.m_friction_static = 0.0f,
