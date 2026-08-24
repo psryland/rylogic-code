@@ -132,6 +132,9 @@ namespace pr::physics
 			EvaluateJoint(link, position, velocity);
 			link.m_link_to_world = parent.m_link_to_world * link.m_child_to_parent;
 			link.m_link_velocity = link.m_parent_to_child * parent.m_link_velocity + link.m_joint_velocity;
+
+			// Complete the serial joint's internal bias with the parent/joint velocity coupling required by spatial acceleration recursion.
+			link.m_joint_bias += Cross(link.m_link_velocity, link.m_joint_velocity);
 		}
 
 		state.m_kinematics_dirty = false;

@@ -48,6 +48,9 @@
     <ClCompile Include="src\articulation\articulation_desc.cpp">
       <Filter>src\articulation</Filter>
     </ClCompile>
+    <ClCompile Include="src\articulation\articulation_dynamics.cpp">
+      <Filter>src\articulation</Filter>
+    </ClCompile>
     <ClCompile Include="src\articulation\articulation_kinematics.cpp">
       <Filter>src\articulation</Filter>
     </ClCompile>

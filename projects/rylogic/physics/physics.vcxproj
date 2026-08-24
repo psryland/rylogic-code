@@ -124,6 +124,7 @@
   <ItemGroup>
     <ClCompile Include="src\articulation\articulation.cpp" />
     <ClCompile Include="src\articulation\articulation_desc.cpp" />
+    <ClCompile Include="src\articulation\articulation_dynamics.cpp" />
     <ClCompile Include="src\articulation\articulation_kinematics.cpp" />
     <ClCompile Include="src\buoyancy\gpu_buoyancy.cpp" />
     <ClCompile Include="src\collision\broadphase_brute.cpp" />

@@ -60,6 +60,15 @@ namespace pr::physics
 		// Return the parent link, or an invalid handle for the root.
 		LinkHandle Parent(LinkHandle link) const;
 
+		// Return a link handle by stable topological order.
+		LinkHandle LinkAt(int link_index) const;
+
+		// Return immutable mass and collision-proxy data for a link.
+		ArticulationLinkDesc const& LinkDescription(LinkHandle link) const;
+
+		// Return immutable reduced-joint topology for a non-root link.
+		ArticulationJointDesc const& JointDescription(LinkHandle link) const;
+
 		// Return the current world transform of a link after lazily refreshing kinematics.
 		m4x4 const& LinkToWorld(LinkHandle link) const;
 
@@ -96,8 +105,41 @@ namespace pr::physics
 		// Replace all applied generalized forces for one non-root joint.
 		void JointForce(LinkHandle link, std::span<float const> force);
 
+		// Return the floating root's applied generalized wrench, or zero for a fixed root.
+		v8force RootForce() const;
+
+		// Replace the floating root's applied generalized wrench.
+		void RootForce(v8force force);
+
+		// Return the external link-frame wrench applied at a link origin.
+		v8force ExternalForce(LinkHandle link) const;
+
+		// Replace the external link-frame wrench applied at a link origin.
+		void ExternalForce(LinkHandle link, v8force force);
+
+		// Accumulate an external link-frame wrench at a link origin.
+		void ApplyExternalForce(LinkHandle link, v8force force);
+
+		// Clear every applied generalized force and external link wrench.
+		void ClearForces();
+
+		// Return the most recently solved floating-root spatial acceleration, or zero for a fixed root.
+		v8motion RootAcceleration() const;
+
+		// Return the most recently solved reduced accelerations for one non-root joint.
+		std::span<float const> JointAcceleration(LinkHandle link) const;
+
 		// Refresh all world transforms, motion subspaces, bias accelerations, and link velocities in parent-before-child order.
 		void UpdateKinematics();
+
+		// Solve unconstrained generalized and link accelerations with Featherstone's force ABA.
+		void ForwardDynamics();
+
+		// Apply one link-frame impulse through the complete tree response.
+		void ApplyImpulse(LinkHandle link, v8force impulse);
+
+		// Accumulate link-frame impulses and apply them through one complete tree response.
+		void ApplyImpulses(std::span<ArticulationImpulse const> impulses);
 	};
 
 	// Builds a topologically sorted articulation while rejecting stale or cross-builder link handles.

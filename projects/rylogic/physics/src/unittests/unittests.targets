@@ -2,6 +2,8 @@
 	<!-- Physics compiled tests belong to the global runner rather than the production static library. -->
 	<ItemGroup>
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_topology_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_oracle.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_dynamics_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)buoyancy_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)buoyancy_sampler_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)collision_pairs_tests.cpp" />
@@ -32,6 +34,7 @@
 			</AdditionalIncludeDirectories>
 		</ClCompile>
 		<ClInclude Include="$(MSBuildThisFileDirectory)constraint_oracle.h" />
+		<ClInclude Include="$(MSBuildThisFileDirectory)articulation_oracle.h" />
 		<ClInclude Include="$(MSBuildThisFileDirectory)shared_engine.h" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\physics\physics.vcxproj">
 			<LinkLibraryDependencies>false</LinkLibraryDependencies>

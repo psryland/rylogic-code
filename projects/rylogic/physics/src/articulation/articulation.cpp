@@ -121,6 +121,7 @@ namespace pr::physics
 				state.m_velocity.resize(6);
 				state.m_force.resize(6);
 				state.m_acceleration.resize(6);
+				state.m_response.resize(6);
 				detail::StoreSpatialMotion(state.m_velocity, 0, velocity);
 			}
 
@@ -259,6 +260,34 @@ namespace pr::physics
 			: state.m_links[link_state.m_parent_index].m_handle;
 	}
 
+	// Return a link handle by stable topological order.
+	LinkHandle Articulation::LinkAt(int link_index) const
+	{
+		auto const& state = CheckedState(m_state);
+		if (link_index < 0 || link_index >= isize(state.m_links))
+			throw std::out_of_range("Articulation link index is out of range");
+
+		return state.m_links[link_index].m_handle;
+	}
+
+	// Return immutable mass and collision-proxy data for a link.
+	ArticulationLinkDesc const& Articulation::LinkDescription(LinkHandle link) const
+	{
+		auto const& state = CheckedState(m_state);
+		return detail::CheckedLink(state, link).m_link;
+	}
+
+	// Return immutable reduced-joint topology for a non-root link.
+	ArticulationJointDesc const& Articulation::JointDescription(LinkHandle link) const
+	{
+		auto const& state = CheckedState(m_state);
+		auto const& link_state = detail::CheckedLink(state, link);
+		if (link_state.m_parent_index == -1)
+			throw std::invalid_argument("The articulation root does not have a reduced joint");
+
+		return link_state.m_joint;
+	}
+
 	// Return the current world transform of a link after lazily refreshing kinematics.
 	m4x4 const& Articulation::LinkToWorld(LinkHandle link) const
 	{
@@ -394,6 +423,118 @@ namespace pr::physics
 		std::ranges::copy(force, state.m_force.begin() + link_state.m_velocity_offset);
 	}
 
+	// Return the floating root's applied generalized wrench, or zero for a fixed root.
+	v8force Articulation::RootForce() const
+	{
+		auto const& state = CheckedState(m_state);
+		switch (state.m_root_type)
+		{
+			case EArticulationRootType::Fixed:
+			{
+				return {};
+			}
+			case EArticulationRootType::Floating:
+			{
+				auto const motion = detail::LoadSpatialMotion(state.m_force, 0);
+				return v8force{motion.ang, motion.lin};
+			}
+			default:
+			{
+				throw std::runtime_error("Articulation root type is invalid");
+			}
+		}
+	}
+
+	// Replace the floating root's applied generalized wrench.
+	void Articulation::RootForce(v8force force)
+	{
+		auto& state = CheckedState(m_state);
+		switch (state.m_root_type)
+		{
+			case EArticulationRootType::Fixed:
+			{
+				throw std::logic_error("A fixed articulation root cannot have a generalized wrench");
+			}
+			case EArticulationRootType::Floating:
+			{
+				break;
+			}
+			default:
+			{
+				throw std::runtime_error("Articulation root type is invalid");
+			}
+		}
+		if (!IsFinite(force.ang) || !IsFinite(force.lin))
+			throw std::invalid_argument("Articulation root force must be finite");
+
+		detail::StoreSpatialMotion(state.m_force, 0, v8motion{force.ang, force.lin});
+	}
+
+	// Return the external link-frame wrench applied at a link origin.
+	v8force Articulation::ExternalForce(LinkHandle link) const
+	{
+		auto const& state = CheckedState(m_state);
+		return detail::CheckedLink(state, link).m_external_force;
+	}
+
+	// Replace the external link-frame wrench applied at a link origin.
+	void Articulation::ExternalForce(LinkHandle link, v8force force)
+	{
+		auto& state = CheckedState(m_state);
+		if (!IsFinite(force.ang) || !IsFinite(force.lin))
+			throw std::invalid_argument("Articulation external force must be finite");
+
+		detail::CheckedLink(state, link).m_external_force = force;
+	}
+
+	// Accumulate an external link-frame wrench at a link origin.
+	void Articulation::ApplyExternalForce(LinkHandle link, v8force force)
+	{
+		auto& state = CheckedState(m_state);
+		if (!IsFinite(force.ang) || !IsFinite(force.lin))
+			throw std::invalid_argument("Articulation external force must be finite");
+
+		detail::CheckedLink(state, link).m_external_force += force;
+	}
+
+	// Clear every applied generalized force and external link wrench.
+	void Articulation::ClearForces()
+	{
+		auto& state = CheckedState(m_state);
+		std::ranges::fill(state.m_force, 0.0f);
+		for (auto& link : state.m_links)
+			link.m_external_force = {};
+	}
+
+	// Return the most recently solved floating-root spatial acceleration, or zero for a fixed root.
+	v8motion Articulation::RootAcceleration() const
+	{
+		auto const& state = CheckedState(m_state);
+		switch (state.m_root_type)
+		{
+			case EArticulationRootType::Fixed:
+			{
+				return {};
+			}
+			case EArticulationRootType::Floating:
+			{
+				return detail::LoadSpatialMotion(state.m_acceleration, 0);
+			}
+			default:
+			{
+				throw std::runtime_error("Articulation root type is invalid");
+			}
+		}
+	}
+
+	// Return the most recently solved reduced accelerations for one non-root joint.
+	std::span<float const> Articulation::JointAcceleration(LinkHandle link) const
+	{
+		auto const& state = CheckedState(m_state);
+		auto const& link_state = detail::CheckedLink(state, link);
+		return std::span<float const>{state.m_acceleration}.subspan(link_state.m_velocity_offset, link_state.m_joint.m_dof_count);
+	}
+
 	// Begin an empty articulation topology.
 	ArticulationBuilder::ArticulationBuilder()
 		:m_state(std::make_unique<detail::ArticulationBuilderState>())
@@ -445,6 +586,7 @@ namespace pr::physics
 			state.m_velocity.push_back(joint.m_initial_velocity[axis_index]);
 			state.m_force.push_back(0.0f);
 			state.m_acceleration.push_back(0.0f);
+			state.m_response.push_back(0.0f);
 		}
 
 		auto handle = LinkHandle{

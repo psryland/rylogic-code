@@ -23,10 +23,17 @@ namespace pr::physics::detail
 		m4x4 m_parent_to_child = m4x4::Identity();
 		std::array<v8motion, 6> m_motion_subspace = {};
 		v8motion m_joint_velocity = {};
-		v8motion m_joint_bias = {};
+		v8motion m_joint_bias = {};          // Complete velocity-product acceleration c = cJ + v x vJ.
 		v8motion m_link_velocity = {};
 		v8motion m_link_acceleration = {};
+		v8motion m_response_acceleration = {};
 		v8force m_external_force = {};
+		v8force m_response_impulse = {};
+		SpatialInertia m_articulated_inertia = SpatialInertia::Zero();
+		v8force m_articulated_bias = {};
+		std::array<v8force, 6> m_u_columns = {};
+		std::array<float, 36> m_inverse_joint_inertia = {};
+		std::array<float, 6> m_reduced_force = {};
 	};
 
 	// Complete CPU-owned topology, generalized arrays, and lazily refreshed link state.
@@ -40,6 +47,7 @@ namespace pr::physics::detail
 		std::vector<float> m_velocity;
 		std::vector<float> m_force;
 		std::vector<float> m_acceleration;
+		std::vector<float> m_response;
 		bool m_kinematics_dirty = true;
 	};
 
@@ -64,4 +72,7 @@ namespace pr::physics::detail
 
 	// Store one padded spatial motion vector into six contiguous generalized values.
 	void StoreSpatialMotion(std::span<float> values, int offset, v8motion motion);
+
+	// Run force or impulse ABA into the selected persistent output buffers.
+	void SolveArticulationDynamics(ArticulationState& state, bool impulse_response);
 }

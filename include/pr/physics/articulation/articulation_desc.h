@@ -56,4 +56,11 @@ namespace pr::physics
 		collision::Shape const* m_shape = nullptr;
 		m4x4 m_shape_to_link = m4x4::Identity();
 	};
+
+	// One link-frame spatial impulse to accumulate before a single linear-time impulse ABA traversal.
+	struct ArticulationImpulse
+	{
+		LinkHandle m_link = {};
+		v8force m_impulse = {};
+	};
 }
