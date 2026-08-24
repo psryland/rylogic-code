@@ -37,8 +37,20 @@
     <Filter Include="src\constraint">
       <UniqueIdentifier>{b7807510-dde7-4b37-9ad1-1a36ef805e57}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\articulation">
+      <UniqueIdentifier>{4be09e2a-dd5a-467d-b35a-b8c9817300b8}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\articulation\articulation.cpp">
+      <Filter>src\articulation</Filter>
+    </ClCompile>
+    <ClCompile Include="src\articulation\articulation_desc.cpp">
+      <Filter>src\articulation</Filter>
+    </ClCompile>
+    <ClCompile Include="src\articulation\articulation_kinematics.cpp">
+      <Filter>src\articulation</Filter>
+    </ClCompile>
     <ClCompile Include="src\buoyancy\gpu_buoyancy.cpp">
       <Filter>src\buoyancy</Filter>
     </ClCompile>
@@ -104,6 +116,18 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\articulation\articulation.h">
+      <Filter>src\articulation</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\articulation\articulation_desc.h">
+      <Filter>src\articulation</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\articulation\articulation_ids.h">
+      <Filter>src\articulation</Filter>
+    </ClInclude>
+    <ClInclude Include="src\articulation\articulation_internal.h">
+      <Filter>src\articulation</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\rigid_body.h">
       <Filter>src\rigid_body</Filter>
     </ClInclude>

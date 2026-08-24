@@ -94,8 +94,10 @@ namespace pr::physics
 	struct Material;
 	struct BodyId;
 	struct ConstraintHandle;
+	struct ArticulationId;
 	struct LinkHandle;
-	struct Articulation;
+	class Articulation;
+	class ArticulationBuilder;
 	struct BodyRef;
 	struct BodyFrame;
 	struct ConstraintAxisDesc;

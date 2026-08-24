@@ -3,7 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
 #pragma once
-#include "pr/physics/forward.h"
+#include "pr/physics/articulation/articulation_ids.h"
 
 namespace pr::physics
 {
@@ -56,28 +56,4 @@ namespace pr::physics
 		}
 	};
 
-	// Generational identity for a future articulation link; it never denotes a transient proxy index.
-	struct LinkHandle
-	{
-		uint32_t m_index = std::numeric_limits<uint32_t>::max();
-		uint32_t m_generation = 0;
-
-		// True when this handle has a potentially addressable link slot.
-		explicit operator bool() const
-		{
-			return m_index != std::numeric_limits<uint32_t>::max() && m_generation != 0;
-		}
-
-		// Compare articulation link handles.
-		friend bool operator==(LinkHandle lhs, LinkHandle rhs)
-		{
-			return lhs.m_index == rhs.m_index && lhs.m_generation == rhs.m_generation;
-		}
-
-		// Compare articulation link handles.
-		friend bool operator!=(LinkHandle lhs, LinkHandle rhs)
-		{
-			return !(lhs == rhs);
-		}
-	};
 }

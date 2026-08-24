@@ -1,6 +1,7 @@
 <Project>
 	<!-- Physics compiled tests belong to the global runner rather than the production static library. -->
 	<ItemGroup>
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_topology_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)buoyancy_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)buoyancy_sampler_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)collision_pairs_tests.cpp" />

@@ -122,6 +122,9 @@
   Source files
   -->
   <ItemGroup>
+    <ClCompile Include="src\articulation\articulation.cpp" />
+    <ClCompile Include="src\articulation\articulation_desc.cpp" />
+    <ClCompile Include="src\articulation\articulation_kinematics.cpp" />
     <ClCompile Include="src\buoyancy\gpu_buoyancy.cpp" />
     <ClCompile Include="src\collision\broadphase_brute.cpp" />
     <ClCompile Include="src\collision\contact.cpp" />
@@ -175,6 +178,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\misc.h" />
     <ClInclude Include="..\..\..\include\pr\physics\rigid_body\sleep_data.h" />
     <ClInclude Include="src\buoyancy\buoyancy_analytical.h" />
+    <ClInclude Include="src\articulation\articulation_internal.h" />
     <ClInclude Include="src\collision\shape_cache.h" />
     <ClInclude Include="src\constraint\constraint_compiler.h" />
     <ClInclude Include="src\constraint\constraint_gpu.h" />
@@ -208,6 +212,9 @@
     <None Include="src\buoyancy\gpu_basic_waves.hlsli" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\articulation\articulation.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\articulation\articulation_desc.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\articulation\articulation_ids.h" />
     <ShaderBuild Include="src\compute\integrate.hlsl" ComputeEntryPoints="CSSeedWorkingForces;CSIntegrate" />
     <ShaderBuild Include="src\compute\frame_output.hlsl" ComputeEntryPoints="CSPrepareSubstepOutput;CSAppendCollisionEvents;CSGatherFrameBodies" />
     <ShaderBuild Include="src\compute\sleep.hlsl" ComputeEntryPoints="CSDisturbIslands;CSInitSleepState;CSUnionSleepContacts;CSCanonicaliseSleepRoots;CSReduceSleepStats;CSApplySleepState" />
