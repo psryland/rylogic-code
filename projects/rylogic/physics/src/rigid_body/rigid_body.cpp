@@ -8,10 +8,31 @@
 
 namespace pr::physics
 {
+	namespace
+	{
+		// Allocate a process-local nonzero identity for a newly constructed rigid body.
+		BodyId NextBodyId()
+		{
+			static auto s_next_id = std::atomic_uint64_t{1};
+			auto value = s_next_id.load(std::memory_order_relaxed);
+
+			// Reserve one identity without allowing counter wrap to reissue an earlier value.
+			for (;;)
+			{
+				if (value == std::numeric_limits<uint64_t>::max())
+					throw std::overflow_error("Rigid-body identity space exhausted");
+
+				if (s_next_id.compare_exchange_weak(value, value + 1, std::memory_order_relaxed))
+					return BodyId{.m_value = value};
+			}
+		}
+	}
+
 	// Construct the rigid body with a collision shape
 	// Inertia is not automatically derived from the collision shape, that is left to the caller.
 	RigidBody::RigidBody(collision::Shape const* shape, m4x4 const& o2w, Inertia const& inertia)
 		:m_o2w(o2w)
+		,m_id(NextBodyId())
 		,m_os_com()
 		,m_ws_momentum()
 		,m_ws_force()
@@ -22,6 +43,12 @@ namespace pr::physics
 		,m_sleep()
 	{
 		SetMassProperties(inertia);
+	}
+
+	// Return the stable identity used by persistent constraints.
+	BodyId RigidBody::Id() const
+	{
+		return m_id;
 	}
 
 	// Get/Set the collision shape for the rigid body
@@ -135,14 +162,22 @@ namespace pr::physics
 		m_os_inertia_inv.InvMass(invmass);
 	}
 
-	// Offset to the centre of mass (w = 0) (Object relative)
+	// Return the model-origin-to-centre-of-mass offset in object space.
 	v4 RigidBody::CentreOfMassOS() const
 	{
 		return m_os_com;
 	}
-	v4 RigidBody::CentreOfMassWS() const
+
+	// Return the model-origin-to-centre-of-mass offset in world orientation.
+	v4 RigidBody::CentreOfMassOffsetWS() const
 	{
-		return O2W() * CentreOfMassOS();
+		return (O2W().rot * CentreOfMassOS()).w0();
+	}
+
+	// Return the absolute world-space position of the centre of mass.
+	v4 RigidBody::CentreOfMassPositionWS() const
+	{
+		return (O2W().pos + CentreOfMassOffsetWS()).w1();
 	}
 
 	// InertiaInv (use 'SetMassProperties' to change)

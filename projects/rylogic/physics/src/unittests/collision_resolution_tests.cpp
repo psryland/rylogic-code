@@ -43,8 +43,8 @@ namespace pr::physics::tests
 
 			// Momentum is stored at the CoM. The orbital angular momentum about the world
 			// origin requires using the CoM position: L = L_spin + r_com × p.
-			auto La = a.MomentumWS().ang + Cross(a.CentreOfMassWS(), a.MomentumWS().lin);
-			auto Lb = b.MomentumWS().ang + Cross(b.CentreOfMassWS(), b.MomentumWS().lin);
+			auto La = a.MomentumWS().ang + Cross(a.CentreOfMassPositionWS(), a.MomentumWS().lin);
+			auto Lb = b.MomentumWS().ang + Cross(b.CentreOfMassPositionWS(), b.MomentumWS().lin);
 			s.total_ang_momentum = La + Lb;
 
 			s.total_ke = a.KineticEnergy() + b.KineticEnergy();

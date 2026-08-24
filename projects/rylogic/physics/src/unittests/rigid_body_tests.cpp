@@ -113,7 +113,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(inertia_at_origin.To3x3(1), m3x3::Scale(1.4f, 0.4f, 1.4f)));
 
 			// Apply a force at the CoM (no torque about CoM).
-			rb.ApplyForceWS(v4{1,0,0,0}, v4{}, rb.CentreOfMassWS());
+			rb.ApplyForceWS(v4{1,0,0,0}, v4{}, rb.CentreOfMassOffsetWS());
 
 			// Check force applied.
 			// Spatial force measured at the CoM. Since ws_at == CoM, zero moment arm — no torque.
@@ -295,7 +295,8 @@ namespace pr::physics::tests
 			auto com_ws1 = rb.O2W().pos + rb.O2W().rot * true_com;
 			auto expected_com_ws1 = com_ws0 + lin_vel * dt;
 			PR_EXPECT(FEqlAbsolute(com_ws1, expected_com_ws1, 1e-4f));
-			PR_EXPECT(FEqlAbsolute(rb.CentreOfMassWS(), rb.O2W().rot * true_com, 1e-4f));
+			PR_EXPECT(FEqlAbsolute(rb.CentreOfMassOffsetWS(), rb.O2W().rot * true_com, 1e-4f));
+			PR_EXPECT(FEqlAbsolute(rb.CentreOfMassPositionWS(), expected_com_ws1, 1e-4f));
 		}
 		PRUnitTestMethod(Extrapolation, Extended)
 		{

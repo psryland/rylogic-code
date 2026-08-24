@@ -34,6 +34,9 @@
     <Filter Include="src\buoyancy">
       <UniqueIdentifier>{c76d630e-0e6d-42eb-92b3-cdd6fca41b68}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\constraint">
+      <UniqueIdentifier>{b7807510-dde7-4b37-9ad1-1a36ef805e57}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\buoyancy\gpu_buoyancy.cpp">
@@ -56,6 +59,15 @@
     </ClCompile>
     <ClCompile Include="src\collision\broadphase_brute.cpp">
       <Filter>src\collision</Filter>
+    </ClCompile>
+    <ClCompile Include="src\constraint\constraint_compiler.cpp">
+      <Filter>src\constraint</Filter>
+    </ClCompile>
+    <ClCompile Include="src\constraint\constraint_desc.cpp">
+      <Filter>src\constraint</Filter>
+    </ClCompile>
+    <ClCompile Include="src\constraint\constraint_set.cpp">
+      <Filter>src\constraint</Filter>
     </ClCompile>
     <ClCompile Include="src\compute\collide_gpu.cpp">
       <Filter>src\compute</Filter>
@@ -131,6 +143,15 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\constants.h">
       <Filter>src</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\constraint\constraint_desc.h">
+      <Filter>src\constraint</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\constraint\constraint_ids.h">
+      <Filter>src\constraint</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\constraint\constraint_set.h">
+      <Filter>src\constraint</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\forward.h">
       <Filter>src</Filter>
     </ClInclude>
@@ -142,6 +163,9 @@
     </ClInclude>
     <ClInclude Include="src\collision\shape_cache.h">
       <Filter>src\collision</Filter>
+    </ClInclude>
+    <ClInclude Include="src\constraint\constraint_compiler.h">
+      <Filter>src\constraint</Filter>
     </ClInclude>
     <ClInclude Include="src\materials\material_map.h">
       <Filter>src\materials</Filter>

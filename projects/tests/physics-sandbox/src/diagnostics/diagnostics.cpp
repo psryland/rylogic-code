@@ -36,7 +36,7 @@ namespace physics_sandbox
 	{
 		auto vel = rb.VelocityWS();
 		auto snap = BodySnapshot{};
-		snap.com_pos = rb.CentreOfMassWS();
+		snap.com_pos = rb.CentreOfMassPositionWS();
 		snap.lin_vel = vel.lin;
 		snap.ang_vel = vel.ang;
 		snap.momentum = rb.MomentumWS();

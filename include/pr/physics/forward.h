@@ -4,6 +4,7 @@
 //*********************************************
 #pragma once
 #include <concepts>
+#include <compare>
 #include <type_traits>
 #include <span>
 #include <memory>
@@ -16,12 +17,14 @@
 #include <unordered_map>
 #include <algorithm>
 #include <numeric>
+#include <utility>
 #include <fstream>
 #include <format>
 #include <chrono>
 #include <cstdio>
 #include <cstdint>
 #include <cassert>
+#include <atomic>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -88,6 +91,24 @@ namespace pr::physics
 	struct RbContact;
 	struct MaterialMap;
 	struct Material;
+	struct BodyId;
+	struct ConstraintHandle;
+	struct LinkHandle;
+	struct BodyRef;
+	struct BodyFrame;
+	struct ConstraintAxisDesc;
+	struct D6ConstraintDesc;
+	struct BallSocketConstraintDesc;
+	struct HingeConstraintDesc;
+	struct SliderConstraintDesc;
+	struct WeldConstraintDesc;
+	struct ConstraintDirtyRange;
+	class ConstraintSet;
+
+	struct BodyRemap;
+	struct CompiledConstraintRow;
+	struct CompiledConstraintBlock;
+	struct CompiledConstraintSet;
 
 	struct Gpu;
 	struct GpuIntegrator;

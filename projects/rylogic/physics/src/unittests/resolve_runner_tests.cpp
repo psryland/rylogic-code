@@ -503,7 +503,7 @@ namespace pr::physics::tests
 
 			UnpackDynamics(bodies[0], body_a);
 			auto const vel_after = body_a.VelocityWS();
-			auto const vel_at_contact = vel_after.LinAt(contact_point_ws - body_a.CentreOfMassWS());
+			auto const vel_at_contact = vel_after.LinAt(contact_point_ws - body_a.CentreOfMassPositionWS());
 			auto const closing_after = Dot3(-vel_at_contact, axis_ws);
 			PR_EXPECT(vel_after.lin.z > -9.0f);
 			PR_EXPECT(closing_after > -0.1f);
@@ -558,7 +558,7 @@ namespace pr::physics::tests
 
 			UnpackDynamics(bodies[0], body_a);
 			auto const vel_after = body_a.VelocityWS();
-			auto const vel_at_contact = vel_after.LinAt(contact_point_ws - body_a.CentreOfMassWS());
+			auto const vel_at_contact = vel_after.LinAt(contact_point_ws - body_a.CentreOfMassPositionWS());
 			auto const sep_speed = Dot3(-vel_at_contact, axis_ws);
 			PR_EXPECT(sep_speed > 0.5f);
 		}
