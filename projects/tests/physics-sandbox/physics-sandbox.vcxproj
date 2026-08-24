@@ -6,7 +6,7 @@
     <VCProjectVersion>16.0</VCProjectVersion>
     <ProjectGuid>{D40BFF46-FB1F-4452-B71C-57DC0AC0180C}</ProjectGuid>
     <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
-    <RootNamespace>physics2</RootNamespace>
+    <RootNamespace>physics</RootNamespace>
     <ProjectName>physics-sandbox</ProjectName>
   </PropertyGroup>
   <!-- Property Sheets -->

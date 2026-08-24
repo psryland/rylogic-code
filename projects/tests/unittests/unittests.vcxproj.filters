@@ -799,34 +799,34 @@
     <ClInclude Include="$(RylogicRoot)include\pr\network\winsock.h">
       <Filter>pr\network</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\constants.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\constants.h">
       <Filter>pr\physics</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\forward.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\forward.h">
       <Filter>pr\physics</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\integrator\impulse.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\impulse.h">
       <Filter>pr\physics\integrater</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\physics.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\physics.h">
       <Filter>pr\physics</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\rigid_body\rigid_body.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\rigid_body.h">
       <Filter>pr\physics\rigid_body</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\shape\inertia.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\inertia.h">
       <Filter>pr\physics\shape</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\shape\mass.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\mass.h">
       <Filter>pr\physics\shape</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\shape\shape_builder.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\shape_builder.h">
       <Filter>pr\physics\shape</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\shape\shape_mass.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\shape_mass.h">
       <Filter>pr\physics\shape</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\utility\field.h">
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\field.h">
       <Filter>pr\physics\utility</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\script\buf.h">
