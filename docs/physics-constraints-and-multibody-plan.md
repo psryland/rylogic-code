@@ -967,7 +967,7 @@ Absolute frame budgets are fixed after milestone-zero baselines are collected on
 | **4. GPU rigid constraints** | General block buffers, GPU row compiler, colouring, adjacency, and coherent fallback | HLSL interop and GPU parity; 100,000-row scaling measurement |
 | **5. Internal GPU substeps** | One submission/readback, per-substep force lifecycle, and event queues | GPU capture proves one copy/wait; force and intermediate-overflow tests pass |
 | **6. CPU Featherstone ABA** | Fixed/floating roots, 1-6 DOF joints, forward kinematics, force ABA, and impulse ABA | Dense dynamics oracle, Coriolis/gyroscopic, free-floating conservation, and Dzhanibekov gates pass |
-| **7. Effective-mass feasibility gate** | Measure exact and approximate articulation block preconditioners | Prove exact setup complexity or select a positive-definite approximation with monotone convergence |
+| **7. Effective-mass feasibility gate** | Measure exact and approximate articulation block preconditioners | **Passed:** select exact self-link mobility blocks with monotone relaxation; reject general exact cross-link block setup |
 | **8. GPU pure-tree articulations** | GPU traversals, link proxies, sleep, collision, and force gathering | CPU/GPU ABA parity; buoyant articulation demo; near-linear link scaling |
 | **9. Coupled hybrid solver** | Articulation contact/loop rows, projected ABA iteration, outer coupling, and generalized correction | Mixed stack, four-bar, two-articulation, and self-loop tests pass |
 | **10. Robustness and energy hardening** | Work accounting, line search, regularization, breakage, and diagnostics | Pathology suite fails boundedly; passive soaks have no secular energy gain |
@@ -975,7 +975,8 @@ Absolute frame budgets are fixed after milestone-zero baselines are collected on
 
 ## Articulation Preconditioner Go/No-Go Gate
 
-Do not assume every exact articulation Delassus block can be obtained cheaply.
+**Decision: go.** Use exact self-link spatial mobilities, assembled into a block-local approximation, with $\omega=0.9$ and bounded monotone
+backtracking. Do not precompute exact cross-link Delassus blocks for the general case.
 
 For small systems, explicitly form:
 
@@ -983,11 +984,77 @@ $$
 A=JH^{-1}J^T
 $$
 
-using repeated dense or ABA probes, then measure the spectral behavior of candidate preconditioners.
+using independent double-precision mass-matrix and Jacobian probes, then compare it with production impulse ABA and candidate preconditioners.
 
-Proceed with an exact block method only if its complete setup is demonstrably $O(L+R)$. Otherwise use a positive-definite articulated-inertia approximation
-plus GPU monotone backtracking. If that cannot reach the required residual reduction on canonical mixed scenes within the iteration budget, redesign the coupled
-solver before implementing the full GPU path.
+### Exact setup result
+
+Factoring one articulation is $O(L+D)$, but a general exact block containing two links of the same articulation needs their cross mobility. Repeated row probes
+cost:
+
+$$
+O\left(L+D+\sum_b r_b(L+D)\right)
+$$
+
+in the worst case, or $O(RL)$ for bounded-DOF deep trees. Hoisting the configuration-dependent ABA factorization removes repeated factor work but does not remove
+the traversal required by every arbitrary cross-link probe. No $O(L+R)$ construction for all arbitrary cross-link blocks has been established, so exact
+per-block probing is rejected as the production default. The production matrix-free operation remains linear: all accepted endpoint impulses are gathered and
+one impulse ABA applies their combined response in $O(L+D+R)$ per coupled sweep.
+
+### Selected linear-time approximation
+
+The ABA factorization does permit every exact **self-link** mobility $K_i$ to be computed in one outward pass. For link $i$, define:
+
+$$
+P_i=I-S_iD_i^{-1}U_i^T
+$$
+
+For a floating root, $K_0=(I_0^A)^{-1}$; for a fixed root, $K_0=0$. Each child self mobility is:
+
+$$
+K_i=P_iX_iK_{\operatorname{parent}(i)}X_i^TP_i^T+S_iD_i^{-1}S_i^T
+$$
+
+All matrices have fixed maximum dimension six, so this pass is $O(L+D)$ time and $O(L)$ optional storage. A coupled block uses:
+
+$$
+\widehat A_b=\Gamma_b+\sum_{e\in b}J_{be}K_eJ_{be}^T+A_b^{\text{rigid}}
+$$
+
+where $\Gamma_b$ is compliance/regularization and the rigid endpoint contribution is exact. This block is exact for one articulation endpoint, for endpoints on
+different articulations, and for articulation-to-rigid blocks. A block joining two links of the same articulation omits their cross term. Blocks also omit
+cross-block response through a shared articulation; the subsequent impulse ABA still applies that response exactly.
+
+The approximation is symmetric positive definite after the same rank-aware proximal regularization used by the solver, but it is not a global majorizer.
+Canonical fixed, floating, and loop systems all produced negative minimum eigenvalues for $\widehat A-A$. The solver therefore uses simultaneous block updates
+with $\omega=0.9$ and the bounded island-merit backtracking already required by the coupled lane. A repeated-block hub can use a conservative fallback formed
+from free-link physical inverse inertias scaled by the articulation's active coupled-block degree; this restores a majorizing step at the cost of slower
+convergence.
+
+Joint-coordinate limit and drive rows use the corresponding cached $D_i^{-1}$ block directly rather than passing through the link-space approximation.
+
+### Measured gate
+
+The Debug double-precision gate forms $A$, measures the generalized spectrum of $\widehat A^{-1}A$, and runs the same simultaneous block update shape intended
+for the GPU. The required relative $A$-norm error is below 0.1 after 16 sweeps and below 0.01 after 64 sweeps.
+
+| Canonical system | $\kappa(A)$ | $\kappa(\widehat A^{-1}A)$ | $\lambda_{\max}(\widehat A^{-1}A)$ | Error after 16 | Error after 64 |
+|---|---:|---:|---:|---:|---:|
+| Floating seven-link tree, three blocks | 53.40 | 10.00 | 1.436 | 0.0844 | $1.10\times10^{-4}$ |
+| Fixed eight-link tree, three blocks | 10.74 | 1.99 | 1.307 | $5.83\times10^{-7}$ | Numerical floor |
+| Same-articulation loop plus another block | 16.54 | 13.08 | 1.955 | 0.0611 | $5.94\times10^{-5}$ |
+| Articulation-to-rigid, $10^4:1$ mass ratio | 3.23 | 1.00 | 1.000 | Numerical floor | Numerical floor |
+| Two articulations joined by one block | 3.33 | 1.00 | 1.000 | Numerical floor | Numerical floor |
+
+No canonical case required a backtrack at $\omega=0.9$. Separate gates prove exact dense/ABA response parity, fixed- and floating-root recurrence parity, and the
+repeated-hub majorizing fallback. Counters inside the actual recurrence and block assembly approximately double when links and rows are doubled together,
+confirming the selected setup's linear implementation. The rejected exact cross-link probe cost is the worst-case traversal analysis above, not a timing claim.
+
+GPU storage is optional and only allocated for coupled articulations. A symmetric $6\times6$ self-link mobility needs 21 floats and should be padded to 96
+bytes per participating link. A symmetric block inverse has the same 96-byte upper bound for a six-row block. Setup is $O(L+R)$ time and memory; each fixed
+coupled iteration remains $O(L+R)$.
+
+This gate covers tiny bilateral systems and the preconditioner's numerical role. Projected bounds, Coulomb cones, large mixed islands, and GPU float parity
+remain milestone-nine acceptance work rather than being inferred from these results.
 
 Pure-tree ABA is not conditional on this gate.
 

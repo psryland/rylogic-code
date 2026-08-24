@@ -14,6 +14,7 @@ namespace pr::physics::tests::articulation_oracle
 		using DMotion = math::Vec8<double, Motion>;
 		using DForce = math::Vec8<double, Force>;
 		using DInertia = math::Mat6x8<double, Motion, Force>;
+		using DMobility = math::Mat6x8<double, Force, Motion>;
 
 		// One double-precision link record used by the independent inverse-dynamics recursion.
 		struct OracleLink
@@ -57,6 +58,15 @@ namespace pr::physics::tests::articulation_oracle
 		DForce ToDouble(v8force force)
 		{
 			return DForce{ToDouble(force.ang), ToDouble(force.lin)};
+		}
+
+		// Convert angular-then-linear scalar components into a double-precision spatial force.
+		DForce ToDouble(std::array<double, 6> const& force)
+		{
+			return DForce{
+				DVector{force[0], force[1], force[2], 0.0},
+				DVector{force[3], force[4], force[5], 0.0},
+			};
 		}
 
 		// Convert the physical spatial inertia into a double-precision matrix.
@@ -282,6 +292,34 @@ namespace pr::physics::tests::articulation_oracle
 			return result;
 		}
 
+		// Propagate one generalized velocity delta into every link without adding configuration-velocity bias.
+		std::vector<DMotion> LinkVelocityDeltas(std::span<OracleLink const> links, std::span<double const> velocity)
+		{
+			auto result = std::vector<DMotion>(links.size());
+			for (int link_index = 0; link_index != isize(links); ++link_index)
+			{
+				auto const& link = links[link_index];
+				auto value = link.m_parent_index != -1
+					? link.m_parent_to_child * result[link.m_parent_index]
+					: DMotion{};
+				for (int axis_index = 0; axis_index != link.m_dof_count; ++axis_index)
+					value += link.m_motion_subspace[axis_index] * velocity[link.m_velocity_offset + axis_index];
+
+				result[link_index] = value;
+			}
+			return result;
+		}
+
+		// Resolve one public link handle into the stable topological index used by the oracle.
+		int LinkIndex(Articulation const& articulation, LinkHandle link)
+		{
+			for (int link_index = 0; link_index != articulation.LinkCount(); ++link_index)
+				if (articulation.LinkAt(link_index) == link)
+					return link_index;
+
+			throw std::invalid_argument("Articulation constraint row references a foreign or stale link");
+		}
+
 		// Return generalized inverse dynamics for one acceleration probe using recursive Newton-Euler accumulation.
 		std::vector<double> InverseDynamics(std::span<OracleLink const> links, EArticulationRootType root_type, std::span<double const> acceleration)
 		{
@@ -395,6 +433,246 @@ namespace pr::physics::tests::articulation_oracle
 			return solution;
 		}
 
+		// Return one angular-then-linear component of a double-precision spatial force.
+		double SpatialComponent(DForce force, int index)
+		{
+			if (index < 0 || index >= 6)
+				throw std::out_of_range("Spatial force component is out of range");
+
+			return index < 3 ? force.ang[index] : force.lin[index - 3];
+		}
+
+		// Return one angular-then-linear motion basis vector.
+		DMotion MotionBasis(int index)
+		{
+			if (index < 0 || index >= 6)
+				throw std::out_of_range("Spatial motion basis index is out of range");
+
+			auto result = DMotion{};
+			if (index < 3)
+				result.ang[index] = 1.0;
+			else
+				result.lin[index - 3] = 1.0;
+			return result;
+		}
+
+		// Return one angular-then-linear force basis vector.
+		DForce ForceBasis(int index)
+		{
+			if (index < 0 || index >= 6)
+				throw std::out_of_range("Spatial force basis index is out of range");
+
+			auto result = DForce{};
+			if (index < 3)
+				result.ang[index] = 1.0;
+			else
+				result.lin[index - 3] = 1.0;
+			return result;
+		}
+
+		// Multiply one bounded dense joint matrix by a joint vector.
+		std::array<double, 6> MultiplyJointMatrix(constraint_oracle::DenseMatrix const& matrix, std::span<double const> vector, int count)
+		{
+			auto result = std::array<double, 6>{};
+			for (int row = 0; row != count; ++row)
+				for (int column = 0; column != count; ++column)
+					result[row] += matrix(row, column) * vector[column];
+
+			return result;
+		}
+
+		// Accumulate scaled spatial-force columns without constructing an intermediate matrix.
+		DForce MultiplyColumns(std::array<DForce, 6> const& columns, std::span<double const> values, int count)
+		{
+			auto result = DForce{};
+			for (int index = 0; index != count; ++index)
+				result += columns[index] * values[index];
+
+			return result;
+		}
+
+		// Accumulate scaled motion-subspace columns without constructing an intermediate matrix.
+		DMotion MultiplyColumns(std::array<DMotion, 6> const& columns, std::span<double const> values, int count)
+		{
+			auto result = DMotion{};
+			for (int index = 0; index != count; ++index)
+				result += columns[index] * values[index];
+
+			return result;
+		}
+
+		// Invert one positive-definite reduced joint matrix through independent pivoted solves.
+		constraint_oracle::DenseMatrix InvertJointMatrix(constraint_oracle::DenseMatrix const& matrix)
+		{
+			auto inverse = constraint_oracle::DenseMatrix(matrix.RowCount(), matrix.ColumnCount());
+			auto unit = std::vector<double>(matrix.RowCount(), 0.0);
+			for (int column = 0; column != matrix.ColumnCount(); ++column)
+			{
+				unit[column] = 1.0;
+				auto const solution = SolveLinear(matrix, unit);
+				unit[column] = 0.0;
+				for (int row = 0; row != matrix.RowCount(); ++row)
+					inverse(row, column) = solution[row];
+			}
+			return inverse;
+		}
+
+		// One configuration-only ABA factor used to prove the linear-time self-link mobility recurrence.
+		struct MobilityFactor
+		{
+			DInertia m_articulated_inertia = DInertia::Zero();
+			std::array<DForce, 6> m_u_columns = {};
+			constraint_oracle::DenseMatrix m_inverse_joint_inertia = {};
+		};
+
+		// Return U*D^-1*U-transpose as a double-precision spatial inertia.
+		DInertia JointInertiaReduction(MobilityFactor const& factor, int dof_count)
+		{
+			auto reduction = DInertia::Zero();
+			for (int spatial_column = 0; spatial_column != 6; ++spatial_column)
+			{
+				auto dual_projection = std::array<double, 6>{};
+				for (int joint_row = 0; joint_row != dof_count; ++joint_row)
+					dual_projection[joint_row] = SpatialComponent(factor.m_u_columns[joint_row], spatial_column);
+
+				auto const coefficients = MultiplyJointMatrix(factor.m_inverse_joint_inertia, dual_projection, dof_count);
+				reduction.col(spatial_column, MultiplyColumns(factor.m_u_columns, coefficients, dof_count));
+			}
+			return reduction;
+		}
+
+		// Return S*D^-1*S-transpose as the joint's direct spatial mobility.
+		DMobility JointMobility(OracleLink const& link, MobilityFactor const& factor)
+		{
+			auto mobility = DMobility::Zero();
+			for (int spatial_column = 0; spatial_column != 6; ++spatial_column)
+			{
+				auto dual_projection = std::array<double, 6>{};
+				auto const force_basis = ForceBasis(spatial_column);
+				for (int joint_row = 0; joint_row != link.m_dof_count; ++joint_row)
+					dual_projection[joint_row] = Dot(link.m_motion_subspace[joint_row], force_basis);
+
+				auto const coefficients = MultiplyJointMatrix(factor.m_inverse_joint_inertia, dual_projection, link.m_dof_count);
+				mobility.col(spatial_column, MultiplyColumns(link.m_motion_subspace, coefficients, link.m_dof_count));
+			}
+			return mobility;
+		}
+
+		// Return I-S*D^-1*U-transpose, which propagates parent acceleration into the child after joint elimination.
+		math::Mat6x8<double, Motion, Motion> MotionProjection(OracleLink const& link, MobilityFactor const& factor)
+		{
+			auto projection = math::Mat6x8<double, Motion, Motion>::Zero();
+			for (int spatial_column = 0; spatial_column != 6; ++spatial_column)
+			{
+				auto const basis = MotionBasis(spatial_column);
+				auto dual_projection = std::array<double, 6>{};
+				for (int joint_row = 0; joint_row != link.m_dof_count; ++joint_row)
+					dual_projection[joint_row] = Dot(basis, factor.m_u_columns[joint_row]);
+
+				auto const coefficients = MultiplyJointMatrix(factor.m_inverse_joint_inertia, dual_projection, link.m_dof_count);
+				projection.col(spatial_column, basis - MultiplyColumns(link.m_motion_subspace, coefficients, link.m_dof_count));
+			}
+			return projection;
+		}
+
+		// Convert one spatial mobility to the row-major dense representation used by the test oracle.
+		constraint_oracle::DenseMatrix ToDense(DMobility const& mobility)
+		{
+			auto result = constraint_oracle::DenseMatrix(6, 6);
+			for (int column = 0; column != 6; ++column)
+			{
+				auto const value = mobility.col(column);
+				result(0, column) = value.ang.x;
+				result(1, column) = value.ang.y;
+				result(2, column) = value.ang.z;
+				result(3, column) = value.lin.x;
+				result(4, column) = value.lin.y;
+				result(5, column) = value.lin.z;
+			}
+			return result;
+		}
+
+		// Compute all exact self-link mobilities with one inward factorization and one outward recurrence.
+		std::vector<constraint_oracle::DenseMatrix> RecursiveLinkMobilities(std::span<OracleLink const> links, EArticulationRootType root_type, int64_t& work_count)
+		{
+			auto factors = std::vector<MobilityFactor>(links.size());
+			for (int link_index = 0; link_index != isize(links); ++link_index)
+			{
+				factors[link_index].m_articulated_inertia = links[link_index].m_inertia;
+				++work_count;
+			}
+
+			// Eliminate each child joint once and accumulate its reduced articulated inertia into the parent.
+			for (int link_index = isize(links); link_index-- != 1;)
+			{
+				++work_count;
+				auto const& link = links[link_index];
+				auto& factor = factors[link_index];
+				auto joint_inertia = constraint_oracle::DenseMatrix(link.m_dof_count, link.m_dof_count);
+				for (int row = 0; row != link.m_dof_count; ++row)
+					factor.m_u_columns[row] = factor.m_articulated_inertia * link.m_motion_subspace[row];
+				for (int row = 0; row != link.m_dof_count; ++row)
+					for (int column = 0; column != link.m_dof_count; ++column)
+						joint_inertia(row, column) = Dot(link.m_motion_subspace[row], factor.m_u_columns[column]);
+				if (link.m_dof_count != 0)
+					factor.m_inverse_joint_inertia = InvertJointMatrix(joint_inertia);
+
+				auto const reduced_inertia = factor.m_articulated_inertia - JointInertiaReduction(factor, link.m_dof_count);
+				auto const motion_parent_to_child = math::spatial::Transform<Motion>(link.m_parent_to_child);
+				auto const force_child_to_parent = math::spatial::Transform<Force>(link.m_child_to_parent);
+				factors[link.m_parent_index].m_articulated_inertia =
+					factors[link.m_parent_index].m_articulated_inertia +
+					force_child_to_parent * reduced_inertia * motion_parent_to_child;
+			}
+
+			auto mobility = std::vector<DMobility>(links.size(), DMobility::Zero());
+			switch (root_type)
+			{
+				case EArticulationRootType::Fixed:
+				{
+					break;
+				}
+				case EArticulationRootType::Floating:
+				{
+					mobility.front() = Invert(factors.front().m_articulated_inertia);
+					break;
+				}
+				default:
+				{
+					throw std::runtime_error("Articulation oracle encountered an invalid root type");
+				}
+			}
+
+			// Propagate parent mobility through the joint and add the joint's direct D-inverse response.
+			for (int link_index = 1; link_index != isize(links); ++link_index)
+			{
+				++work_count;
+				auto const& link = links[link_index];
+				auto const projection = MotionProjection(link, factors[link_index]);
+				auto const parent_to_child = math::spatial::Transform<Motion>(link.m_parent_to_child);
+				auto const propagation = projection * parent_to_child;
+				auto propagation_transpose = Transpose(propagation);
+				auto const& dual_propagation = static_cast<math::Mat6x8<double, Force, Force> const&>(propagation_transpose);
+				auto const joint_mobility = JointMobility(link, factors[link_index]);
+				for (int spatial_column = 0; spatial_column != 6; ++spatial_column)
+				{
+					auto const force = ForceBasis(spatial_column);
+					auto const parent_force = dual_propagation * force;
+					auto const parent_motion = mobility[link.m_parent_index] * parent_force;
+					mobility[link_index].col(spatial_column, propagation * parent_motion + joint_mobility * force);
+				}
+			}
+
+			auto result = std::vector<constraint_oracle::DenseMatrix>{};
+			result.reserve(mobility.size());
+			for (auto const& value : mobility)
+			{
+				result.push_back(ToDense(value));
+				++work_count;
+			}
+			return result;
+		}
+
 		// Replace external force fields with the requested simultaneous impulses.
 		std::vector<OracleLink> BuildImpulseModel(Articulation const& articulation, std::span<ArticulationImpulse const> impulses)
 		{
@@ -462,5 +740,105 @@ namespace pr::physics::tests::articulation_oracle
 			impulse_force[index] = baseline_force[index] - impulse_force[index];
 
 		return SolveLinear(std::move(mass), impulse_force);
+	}
+
+	// Form J and A=J*H^-1*J-transpose independently in double precision for a tiny articulation constraint system.
+	ConstraintSystem BuildConstraintSystem(Articulation const& articulation, std::span<ConstraintJacobianRow const> rows)
+	{
+		if (rows.empty())
+			throw std::invalid_argument("Articulation constraint system requires at least one row");
+
+		auto [mass, unused_bias] = EquationOfMotion(articulation, false);
+		auto const links = BuildModel(articulation, false);
+		auto resolved_links = std::vector<std::array<int, 2>>(rows.size());
+		for (int row_index = 0; row_index != isize(rows); ++row_index)
+		{
+			auto const& row = rows[row_index];
+			if (row.m_term_count < 1 || row.m_term_count > isize(row.m_terms))
+				throw std::invalid_argument("Articulation constraint row must contain one or two endpoints");
+
+			for (int term_index = 0; term_index != row.m_term_count; ++term_index)
+			{
+				for (auto component : row.m_terms[term_index].m_wrench)
+					if (!std::isfinite(component))
+						throw std::invalid_argument("Articulation constraint row contains a non-finite wrench");
+
+				resolved_links[row_index][term_index] = LinkIndex(articulation, row.m_terms[term_index].m_link);
+			}
+		}
+
+		// Probe generalized unit velocities to form both the requested rows and every link's spatial Jacobian.
+		auto jacobian = constraint_oracle::DenseMatrix(isize(rows), articulation.DofCount());
+		auto link_jacobian = std::vector<constraint_oracle::DenseMatrix>{};
+		link_jacobian.reserve(links.size());
+		for (int link_index = 0; link_index != isize(links); ++link_index)
+			link_jacobian.emplace_back(6, articulation.DofCount());
+		auto generalized_velocity = std::vector<double>(articulation.DofCount(), 0.0);
+		for (int column = 0; column != articulation.DofCount(); ++column)
+		{
+			generalized_velocity[column] = 1.0;
+			auto const link_velocity = LinkVelocityDeltas(links, generalized_velocity);
+			generalized_velocity[column] = 0.0;
+			for (int link_index = 0; link_index != isize(links); ++link_index)
+			{
+				auto const velocity = link_velocity[link_index];
+				link_jacobian[link_index](0, column) = velocity.ang.x;
+				link_jacobian[link_index](1, column) = velocity.ang.y;
+				link_jacobian[link_index](2, column) = velocity.ang.z;
+				link_jacobian[link_index](3, column) = velocity.lin.x;
+				link_jacobian[link_index](4, column) = velocity.lin.y;
+				link_jacobian[link_index](5, column) = velocity.lin.z;
+			}
+			for (int row_index = 0; row_index != isize(rows); ++row_index)
+			{
+				auto const& row = rows[row_index];
+				for (int term_index = 0; term_index != row.m_term_count; ++term_index)
+					jacobian(row_index, column) += Dot(ToDouble(row.m_terms[term_index].m_wrench), link_velocity[resolved_links[row_index][term_index]]);
+			}
+		}
+
+		// Apply H^-1 to every Jacobian row so the exact Delassus matrix remains independent of production impulse ABA.
+		auto response = constraint_oracle::DenseMatrix(isize(rows), isize(rows));
+		auto generalized_impulse = std::vector<double>(articulation.DofCount(), 0.0);
+		for (int response_column = 0; response_column != isize(rows); ++response_column)
+		{
+			for (int dof_index = 0; dof_index != articulation.DofCount(); ++dof_index)
+				generalized_impulse[dof_index] = jacobian(response_column, dof_index);
+
+			auto const velocity_delta = SolveLinear(mass, generalized_impulse);
+			for (int response_row = 0; response_row != isize(rows); ++response_row)
+				for (int dof_index = 0; dof_index != articulation.DofCount(); ++dof_index)
+					response(response_row, response_column) += jacobian(response_row, dof_index) * velocity_delta[dof_index];
+		}
+
+		// Exact self-link mobility matrices provide the reference for the linear-time articulated-inertia recurrence selected by the gate.
+		auto link_response = std::vector<constraint_oracle::DenseMatrix>{};
+		link_response.reserve(links.size());
+		for (int link_index = 0; link_index != isize(links); ++link_index)
+		{
+			auto mobility = constraint_oracle::DenseMatrix(6, 6);
+			for (int response_column = 0; response_column != 6; ++response_column)
+			{
+				for (int dof_index = 0; dof_index != articulation.DofCount(); ++dof_index)
+					generalized_impulse[dof_index] = link_jacobian[link_index](response_column, dof_index);
+
+				auto const velocity_delta = SolveLinear(mass, generalized_impulse);
+				for (int response_row = 0; response_row != 6; ++response_row)
+					for (int dof_index = 0; dof_index != articulation.DofCount(); ++dof_index)
+						mobility(response_row, response_column) += link_jacobian[link_index](response_row, dof_index) * velocity_delta[dof_index];
+			}
+			link_response.push_back(std::move(mobility));
+		}
+
+		auto recursive_work = int64_t{};
+		auto recursive_link_response = RecursiveLinkMobilities(links, articulation.RootType(), recursive_work);
+		return ConstraintSystem{
+			.m_mass = std::move(mass),
+			.m_jacobian = std::move(jacobian),
+			.m_response = std::move(response),
+			.m_link_response = std::move(link_response),
+			.m_recursive_link_response = std::move(recursive_link_response),
+			.m_recursive_work = recursive_work,
+		};
 	}
 }
