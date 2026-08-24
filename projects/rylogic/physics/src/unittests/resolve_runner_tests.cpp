@@ -7,6 +7,7 @@
 #include "pr/common/unittests.h"
 #include "pr/physics/physics.h"
 #include "src/compute/interop/resolve_runner.h"
+#include "src/compute/resolve_gpu.h"
 #include <filesystem>
 #include <fstream>
 #include <format>
@@ -353,6 +354,103 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(bodies[1].o2w.pos.x, 0.9f + expected_shift, 1e-5f));
 			PR_EXPECT(runner.Colours()[0] == 0);
 			PR_EXPECT(runner.ContactOrder()[0] == 0);
+		}
+
+		PRUnitTestMethod(ColourExhaustionUsesCoherentFallback, Extended)
+		{
+			// Disable unrelated corrections so the final contact's velocity impulse is the only observable solver change.
+			auto config = EngineConfig{};
+			config.push_out_iterations = 0;
+			config.solver_iterations = 1;
+			config.velocity_baumgarte = 0.0f;
+			config.contact_sort_propagation_scale = 0.0f;
+			config.warm_start_scale = 0.0f;
+
+			// One dynamic hub and 33 static leaves require 33 edge colours because every contact shares the hub.
+			auto box = collision::ShapeBox{v4{1, 1, 1, 0}};
+			auto hub = RigidBody{&box, m4x4::Identity(), Inertia::Box(box.m_radius, 1.0f)};
+			auto leaf = RigidBody{&box, m4x4::Identity(), Inertia::Infinite()};
+			hub.VelocityWS(v4::Zero(), v4{1, 0, 0, 0});
+
+			auto bodies = std::vector<GpuRigidBody>{};
+			bodies.reserve(MaxColours + 2);
+			bodies.push_back(PackDynamics(hub, 0));
+			for (int leaf_idx = 0; leaf_idx != MaxColours + 1; ++leaf_idx)
+				bodies.push_back(PackDynamics(leaf, leaf_idx + 1));
+
+			// The first 32 contacts are separating but still consume colours. The final contact is closing, so its impulse proves the overflow fallback ran.
+			auto contacts = std::vector<GpuResolveContact>{};
+			contacts.reserve(MaxColours + 1);
+			for (int contact_idx = 0; contact_idx != MaxColours + 1; ++contact_idx)
+			{
+				auto const axis = contact_idx != MaxColours ? v4{-1, 0, 0, 0} : v4{+1, 0, 0, 0};
+				contacts.push_back(GpuResolveContact{
+					.axis = axis,
+					.contact_point = v4{0, 0, 0, 1},
+					.manifold = {v4{0, 0, 0, 1}},
+					.b2a = m4x4::Identity(),
+					.body_idx_a = 0,
+					.body_idx_b = contact_idx + 1,
+					.mat_id_a = 0,
+					.mat_id_b = 0,
+					.feature = 1,
+				});
+			}
+			auto materials = std::vector<GpuMaterial>{
+				GpuMaterial{
+					.friction_static = 0.0f,
+					.elasticity_norm = 0.0f,
+				},
+			};
+			auto buffers = ResolveRunnerBuffers{
+				.m_dt = 1.0f / 60.0f,
+				.m_bodies = bodies,
+				.m_contacts = contacts,
+				.m_materials = materials,
+			};
+			auto gpu_bodies = bodies;
+
+			// Assign colours in declaration order so the closing contact is the first edge that cannot acquire a free bit.
+			auto runner = ResolveInteropRunner{config};
+			runner.Load(buffers);
+			runner.ComputeCollisionTimes();
+			runner.AssignColours();
+
+			// Overflow invalidates every partial colour so later parallel dispatches cannot repeat work already handled by the serial colour-zero sweep.
+			for (auto const colour : runner.Colours())
+				PR_EXPECT(colour == MaxColours);
+
+			PR_EXPECT(runner.ColourOverflow());
+
+			// Colour zero owns the serial overflow sweep. The closing sentinel contact must still reduce the hub's positive x momentum.
+			auto const momentum_before = bodies[0].momentum_lin.x;
+			runner.ResolveVelocity(0);
+			runner.Store(buffers);
+			PR_EXPECT(std::isfinite(bodies[0].momentum_lin.x));
+			PR_EXPECT(bodies[0].momentum_lin.x < momentum_before);
+
+			// Run the complete production D3D12 path to prove its sorted graph also selects the fallback and resolves the enabled closing contact.
+			auto gpu = Gpu{};
+			auto gpu_resolver = GpuResolver{gpu, config, nullptr};
+			gpu_resolver.Resolve(gpu.m_job, buffers.m_dt, contacts, gpu_bodies, materials);
+
+			// Read only the reserved diagnostic slot after the test resolve; production frames never add this readback.
+			auto overflow_readback = ReadbackAlloc{};
+			{
+				gpu.m_job.m_barriers.Transition(gpu_resolver.m_r_colours.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+				gpu.m_job.m_barriers.Commit();
+
+				overflow_readback = gpu.m_job.m_readback.Alloc<uint32_t>(1);
+				gpu.m_job.m_cmd_list.CopyBufferRegion(overflow_readback, gpu_resolver.m_r_colours.get(), gpu_resolver.m_max_contacts * sizeof(uint32_t));
+
+				gpu.m_job.m_barriers.Transition(gpu_resolver.m_r_colours.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				gpu.m_job.m_barriers.Commit();
+			}
+			gpu.m_job.Run();
+
+			PR_EXPECT(*overflow_readback.ptr<uint32_t>() != 0);
+			PR_EXPECT(std::isfinite(gpu_bodies[0].momentum_lin.x));
+			PR_EXPECT(gpu_bodies[0].momentum_lin.x < momentum_before);
 		}
 
 		PRUnitTestMethod(RotatedBodyVelocityResolveUsesContactSpace, Extended)

@@ -247,7 +247,8 @@ namespace pr::physics
 		}
 		if (m_r_colours == nullptr || m_max_contacts < max_contacts)
 		{
-			m_r_colours = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ResolveColours");
+			// Reserve one element beyond the sortable contact capacity for the frame-wide colour-overflow flag.
+			m_r_colours = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts + 1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ResolveColours");
 			m_r_contact_times = m_gpu.CreateResource(ResDesc::Buf<float>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ContactTimes");
 			m_r_contact_order = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ContactOrder");
 			m_r_contact_next_a = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ContactNextA");
@@ -602,7 +603,7 @@ namespace pr::physics
 
 		// Create temporary GPU resources
 		auto r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}), job.m_cmd_list, "Physics:TempCounters");
-		auto r_contacts = m_gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(contact_count, {}), job.m_cmd_list, "Physics:TempContacts");
+		auto r_contacts = m_gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(contact_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempContacts");
 		auto r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(body_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempBodies");
 		auto r_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempDispatch");
 

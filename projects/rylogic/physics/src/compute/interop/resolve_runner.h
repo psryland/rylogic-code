@@ -42,6 +42,9 @@ namespace pr::physics
 		void ResolveVelocity(int colour);
 
 		std::span<uint32_t const> Colours() const;
+
+		// Return true when the bounded graph-colour mask selected the coherent serial fallback.
+		bool ColourOverflow() const;
 		std::span<uint32_t const> ContactOrder() const;
 		std::span<float const> ContactTimes() const;
 		ContactPriorityResult ContactPriority(ContactPrioritySettings const& settings = {}) const;

@@ -129,7 +129,8 @@ namespace pr::physics
 		m_bodies.assign(buffers.m_bodies.begin(), buffers.m_bodies.end());
 		m_contacts.assign(buffers.m_contacts.begin(), buffers.m_contacts.end());
 		m_materials.assign(buffers.m_materials.begin(), buffers.m_materials.end());
-		m_colours.assign(m_max_contacts, 0);
+		// Mirror the GPU allocation: contact colours occupy the sortable capacity and one trailing element stores the whole-pass overflow flag.
+		m_colours.assign(m_max_contacts + 1, 0);
 		m_contact_order.resize(m_max_contacts);
 		m_contact_times.assign(m_max_contacts, 1e30f);
 		m_body_contact_head.assign(std::max(1, m_body_count), 0);
@@ -269,7 +270,13 @@ namespace pr::physics
 
 	std::span<uint32_t const> ResolveInteropRunner::Colours() const
 	{
-		return m_colours;
+		return std::span<uint32_t const>{m_colours}.first(m_max_contacts);
+	}
+
+	// Return whether graph colouring exhausted its bounded mask and selected the coherent serial fallback.
+	bool ResolveInteropRunner::ColourOverflow() const
+	{
+		return m_colours[m_max_contacts] != 0;
 	}
 
 	std::span<uint32_t const> ResolveInteropRunner::ContactOrder() const
