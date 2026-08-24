@@ -44,6 +44,7 @@ namespace pr::physics
 		static void Validate(D6ConstraintDesc const& desc);
 
 		friend CompiledConstraintSet CompileConstraints(ConstraintSet const& constraints, BodyRemap const& remap);
+		friend GpuConstraintUpload PackGpuConstraints(ConstraintSet const& constraints, BodyRemap const& remap);
 
 	public:
 

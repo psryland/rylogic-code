@@ -110,6 +110,8 @@ namespace pr::physics
 	struct CompiledConstraintRow;
 	struct CompiledConstraintBlock;
 	struct CompiledConstraintSet;
+	struct GpuConstraintUpload;
+	struct GpuConstraintSolver;
 
 	struct Gpu;
 	struct GpuIntegrator;

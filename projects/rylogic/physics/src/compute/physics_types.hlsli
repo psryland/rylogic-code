@@ -16,9 +16,23 @@ static const int SleepThreadCount = 64;
 static const int SweepThreadCount = 64;
 static const int CollideThreadCount = 32;
 static const int ResolveThreadCount = 64;
+static const int ConstraintThreadCount = 64;
 static const int SelectiveRefreshThreadCount = 64;
 static const int MaxColours = 32;
 static const int GpuContactMaxPoints = 4;
+static const int GpuConstraintRowsPerBlock = 6;
+
+// GPU constraint endpoint flags:
+static const uint GpuConstraintEndpointFlags_None = 0;
+static const uint GpuConstraintEndpointFlags_Enabled = 1 << 0;
+static const uint GpuConstraintEndpointFlags_CollideConnected = 1 << 1;
+static const uint GpuConstraintEndpointFlags_ResetWarmStart = 1 << 2;
+
+// GPU constraint axis modes mirror EConstraintAxisMode without exposing the public enum to HLSL.
+static const int GpuConstraintAxisMode_Free = 0;
+static const int GpuConstraintAxisMode_Locked = 1;
+static const int GpuConstraintAxisMode_Limited = 2;
+static const int GpuConstraintAxisMode_Driven = 3;
 
 // Rigid body state flags:
 static const int ERigidBodyStateFlags_None = 0;
@@ -251,6 +265,71 @@ struct GpuWarmStartEntry
 	int body_idx_b;
 	uint child_key; // Packed (child_idx_a << 16) | child_idx_b, disambiguating leaves of the same body pair.
 	float4 impulse; // Cached physical impulse in body A space.
+};
+
+// Compact endpoint-local constraint frame. Rotation is a normalised {x,y,z,w} quaternion and position is a point.
+struct GpuConstraintFrame
+{
+	float4 rotation;
+	float4 position;
+};
+
+// Persistent parameters for one canonical D6 axis.
+struct GpuConstraintAxisDesc
+{
+	int mode;
+	float lower_limit;
+	float upper_limit;
+	float target_position;
+	float target_velocity;
+	float stiffness;
+	float damping;
+	float max_force;
+};
+
+// Persistent D6 parameters occupy exactly 256 bytes independently of frame-local endpoint indices.
+struct GpuD6ConstraintDesc
+{
+	GpuConstraintFrame frame_a;
+	GpuConstraintFrame frame_b;
+	GpuConstraintAxisDesc axes[GpuConstraintRowsPerBlock];
+};
+
+// Frame-local stable-slot metadata uploaded after remapping endpoint identities to packed body indices.
+struct GpuConstraintEndpoint
+{
+	int body_idx_a;
+	int body_idx_b;
+	uint flags;
+	uint generation;
+	float break_force;
+	float break_torque;
+	uint pad0;
+	uint pad1;
+};
+
+// Runtime block state written by the GPU row compiler and retained for warm-start continuity.
+struct GpuConstraintBlock
+{
+	int body_idx_a;
+	int body_idx_b;
+	uint velocity_mask;
+	uint position_mask;
+	uint colour;
+	uint row_states;
+	uint flags;
+	uint pad0;
+};
+
+// Runtime scalar row. Jacobians use world-space [angular,linear] endpoint wrenches.
+struct GpuConstraintRow
+{
+	float4 jacobian_a_ang;
+	float4 jacobian_a_lin;
+	float4 jacobian_b_ang;
+	float4 jacobian_b_lin;
+	float4 solve;  // {position_error, target_velocity, bias, gamma}
+	float4 bounds; // {lower_impulse, upper_impulse, accumulated_impulse, reserved}
 };
 struct GpuCollisionCounters
 {

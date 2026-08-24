@@ -6,6 +6,7 @@
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)collision_pairs_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)collision_resolution_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_foundation_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_gpu_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_oracle.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_oracle_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_solver_tests.cpp" />
