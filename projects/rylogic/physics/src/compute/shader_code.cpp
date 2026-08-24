@@ -152,6 +152,19 @@ namespace pr::physics::shader_code
 	ByteCode const apply_constraint_position(compiled::apply_constraint_position_cs);
 	ByteCode const solve_constraint_velocity(compiled::solve_constraint_velocity_cs);
 
+	// Pure-tree articulation force ABA
+	namespace compiled
+	{
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(articulation_prepare_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(articulation_inward_dynamics_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(articulation_root_dynamics_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(articulation_outward_dynamics_cs.h)
+	}
+	ByteCode const articulation_prepare(compiled::articulation_prepare_cs);
+	ByteCode const articulation_inward_dynamics(compiled::articulation_inward_dynamics_cs);
+	ByteCode const articulation_root_dynamics(compiled::articulation_root_dynamics_cs);
+	ByteCode const articulation_outward_dynamics(compiled::articulation_outward_dynamics_cs);
+
 	// Selective refresh
 	namespace compiled
 	{

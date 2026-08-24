@@ -21,59 +21,6 @@ namespace pr::physics
 			return (item_count + ArticulationThreadCount - 1) / ArticulationThreadCount;
 		}
 
-		// Validate packed range sizes and schedule references before replay indexes shader resources.
-		void ValidateArticulationUpload(GpuArticulationUpload const& upload)
-		{
-			if (upload.m_velocities.size() != upload.m_forces.size() ||
-				upload.m_velocities.size() != upload.m_accelerations.size())
-				throw std::invalid_argument("GPU articulation generalized velocity, force, and acceleration ranges must match");
-			if (upload.m_links.size() != upload.m_external_forces.size() ||
-				upload.m_links.size() != upload.m_level_links.size())
-				throw std::invalid_argument("GPU articulation link, wrench, and schedule ranges must match");
-			if (upload.m_dofs.size() > upload.m_velocities.size() ||
-				upload.m_joint_matrix_scratch_count < 0)
-				throw std::invalid_argument("GPU articulation scratch ranges are invalid");
-
-			// Every level range and link reference must remain inside the immutable packed schedule.
-			for (auto const& level : upload.m_levels)
-			{
-				if (level.link_offset < 0 || level.link_count < 0 ||
-					level.link_offset + level.link_count > isize(upload.m_level_links))
-					throw std::invalid_argument("GPU articulation level range is invalid");
-			}
-			for (auto link_index : upload.m_level_links)
-			{
-				if (link_index >= upload.m_links.size())
-					throw std::invalid_argument("GPU articulation schedule references an invalid link");
-			}
-			for (auto const& link : upload.m_links)
-			{
-				if (link.parent_link_index < 0)
-					continue;
-
-				auto const matrix_count = link.dof_count * link.dof_count;
-				if (link.dof_offset < 0 ||
-					link.dof_count < 0 ||
-					link.dof_count > 6 ||
-					link.dof_offset + link.dof_count > isize(upload.m_dofs) ||
-					link.joint_matrix_offset < 0 ||
-					link.joint_matrix_offset + matrix_count > upload.m_joint_matrix_scratch_count)
-					throw std::invalid_argument("GPU articulation link scratch range is invalid");
-			}
-
-			// Tree headers own contiguous roots and generalized ranges required by root dispatch lanes.
-			for (auto const& articulation : upload.m_articulations)
-			{
-				if (articulation.link_count <= 0 ||
-					articulation.link_offset < 0 ||
-					articulation.link_offset + articulation.link_count > isize(upload.m_links) ||
-					articulation.velocity_offset < 0 ||
-					articulation.velocity_count < 0 ||
-					articulation.velocity_offset + articulation.velocity_count > isize(upload.m_velocities))
-					throw std::invalid_argument("GPU articulation header range is invalid");
-			}
-		}
-
 		// Select one breadth-level range for the next emulated kernel dispatch.
 		void SetArticulationLevelConstants(GpuArticulationLevel const& level, int articulation_count, int link_count)
 		{
@@ -89,7 +36,7 @@ namespace pr::physics
 	// Execute the same parent-owned level order intended for the future D3D12 host path.
 	void ArticulationForceAbaInteropRunner::Run(GpuArticulationUpload& upload)
 	{
-		ValidateArticulationUpload(upload);
+		ValidateGpuArticulationUpload(upload);
 		std::ranges::fill(upload.m_accelerations, 0.0f);
 
 		// Empty optional input performs no emulated dispatch and retains no scratch allocation.

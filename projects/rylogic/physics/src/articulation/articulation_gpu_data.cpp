@@ -81,6 +81,32 @@ namespace pr::physics
 				.force_lin = force.lin,
 			};
 		}
+
+		// Return true when a non-negative packed subrange fits inside its owning stream.
+		bool PackedRangeValid(int offset, int count, size_t size)
+		{
+			return offset >= 0 && count >= 0 && static_cast<uint64_t>(offset) + static_cast<uint64_t>(count) <= size;
+		}
+
+		// Return the generalized root width for one validated packed root-type encoding.
+		int PackedRootVelocityCount(int root_type)
+		{
+			switch (root_type)
+			{
+				case GpuArticulationRootType_Fixed:
+				{
+					return 0;
+				}
+				case GpuArticulationRootType_Floating:
+				{
+					return 6;
+				}
+				default:
+				{
+					throw std::invalid_argument("GPU articulation root type is invalid");
+				}
+			}
+		}
 	}
 
 	// Validate and flatten independent articulation trees into deterministic linear GPU ranges and traversal schedules.
@@ -268,5 +294,192 @@ namespace pr::physics
 			upload.m_level_links[level_cursors[upload.m_links[link_index].depth]++] = static_cast<uint32_t>(link_index);
 
 		return upload;
+	}
+
+	// Reject malformed packed ranges and topology before shared replay or GPU kernels can index them.
+	void ValidateGpuArticulationUpload(GpuArticulationUpload const& upload)
+	{
+		if (upload.m_velocities.size() != upload.m_forces.size() ||
+			upload.m_velocities.size() != upload.m_accelerations.size())
+			throw std::invalid_argument("GPU articulation generalized velocity, force, and acceleration ranges must match");
+		if (upload.m_links.size() != upload.m_external_forces.size() ||
+			upload.m_links.size() != upload.m_level_links.size())
+			throw std::invalid_argument("GPU articulation link, wrench, and schedule ranges must match");
+		if (upload.m_joint_matrix_scratch_count < 0)
+			throw std::invalid_argument("GPU articulation matrix scratch count is invalid");
+
+		// Empty forests have no partial ABI image because no dispatch may legally consume one.
+		if (upload.m_articulations.empty())
+		{
+			if (!upload.m_links.empty() ||
+				!upload.m_dofs.empty() ||
+				!upload.m_positions.empty() ||
+				!upload.m_velocities.empty() ||
+				!upload.m_forces.empty() ||
+				!upload.m_accelerations.empty() ||
+				!upload.m_external_forces.empty() ||
+				!upload.m_children.empty() ||
+				!upload.m_levels.empty() ||
+				!upload.m_level_links.empty() ||
+				upload.m_joint_matrix_scratch_count != 0)
+				throw std::invalid_argument("Empty GPU articulation forests cannot contain packed feature ranges");
+			return;
+		}
+
+		// Breadth levels are contiguous, depth ordered, and cover every link exactly once.
+		auto scheduled = std::vector<int>(upload.m_links.size(), 0);
+		auto level_cursor = 0;
+		for (int level_index = 0; level_index != isize(upload.m_levels); ++level_index)
+		{
+			auto const& level = upload.m_levels[level_index];
+			if (level.depth != level_index ||
+				level.link_offset != level_cursor ||
+				level.link_count <= 0 ||
+				!PackedRangeValid(level.link_offset, level.link_count, upload.m_level_links.size()))
+				throw std::invalid_argument("GPU articulation breadth-level schedule is invalid");
+
+			for (int offset = 0; offset != level.link_count; ++offset)
+			{
+				auto const link_index = upload.m_level_links[level.link_offset + offset];
+				if (link_index >= upload.m_links.size() ||
+					upload.m_links[link_index].depth != level.depth ||
+					++scheduled[link_index] != 1)
+					throw std::invalid_argument("GPU articulation schedule contains an invalid or duplicate link");
+			}
+			level_cursor += level.link_count;
+		}
+		if (level_cursor != isize(upload.m_level_links) ||
+			std::ranges::find(scheduled, 1) == scheduled.end() ||
+			std::ranges::any_of(scheduled, [](int count) { return count != 1; }))
+			throw std::invalid_argument("GPU articulation schedule does not cover the packed forest exactly once");
+
+		// Tree headers partition every packed stream and establish each root's generalized-state convention.
+		auto link_cursor = 0;
+		auto position_cursor = 0;
+		auto velocity_cursor = 0;
+		auto dof_cursor = 0;
+		for (int articulation_index = 0; articulation_index != isize(upload.m_articulations); ++articulation_index)
+		{
+			auto const& articulation = upload.m_articulations[articulation_index];
+			if (articulation.link_offset != link_cursor ||
+				articulation.position_offset != position_cursor ||
+				articulation.velocity_offset != velocity_cursor ||
+				articulation.dof_offset != dof_cursor ||
+				articulation.link_count <= 0 ||
+				!PackedRangeValid(articulation.link_offset, articulation.link_count, upload.m_links.size()) ||
+				!PackedRangeValid(articulation.position_offset, articulation.position_count, upload.m_positions.size()) ||
+				!PackedRangeValid(articulation.velocity_offset, articulation.velocity_count, upload.m_velocities.size()) ||
+				!PackedRangeValid(articulation.dof_offset, articulation.dof_count, upload.m_dofs.size()) ||
+				articulation.position_count != articulation.dof_count)
+				throw std::invalid_argument("GPU articulation header partition is invalid");
+
+			auto const root_velocity_count = PackedRootVelocityCount(articulation.root_type);
+			if (articulation.velocity_count != articulation.dof_count + root_velocity_count)
+				throw std::invalid_argument("GPU articulation root type or generalized range is invalid");
+
+			auto const& root = upload.m_links[articulation.link_offset];
+			if (root.parent_link_index != -1 ||
+				root.articulation_index != articulation_index ||
+				root.depth != 0 ||
+				root.position_offset != -1 ||
+				root.dof_offset != -1 ||
+				root.dof_count != 0 ||
+				root.joint_matrix_offset != -1 ||
+				root.velocity_offset != (root_velocity_count != 0 ? articulation.velocity_offset : -1))
+				throw std::invalid_argument("GPU articulation root descriptor is invalid");
+
+			link_cursor += articulation.link_count;
+			position_cursor += articulation.position_count;
+			velocity_cursor += articulation.velocity_count;
+			dof_cursor += articulation.dof_count;
+		}
+		if (link_cursor != isize(upload.m_links) ||
+			position_cursor != isize(upload.m_positions) ||
+			velocity_cursor != isize(upload.m_velocities) ||
+			dof_cursor != isize(upload.m_dofs))
+			throw std::invalid_argument("GPU articulation headers do not partition their packed streams");
+
+		// Link ranges preserve topological order, exact compact matrix packing, and complete direct-child adjacency.
+		auto adjacency_seen = std::vector<int>(upload.m_links.size(), 0);
+		auto matrix_cursor = 0;
+		auto child_cursor = 0;
+		auto joint_position_cursor = 0;
+		auto joint_velocity_cursor = 0;
+		auto joint_dof_cursor = 0;
+		for (int link_index = 0; link_index != isize(upload.m_links); ++link_index)
+		{
+			auto const& link = upload.m_links[link_index];
+			if (link.articulation_index < 0 ||
+				link.articulation_index >= isize(upload.m_articulations) ||
+				link.child_offset != child_cursor ||
+				!PackedRangeValid(link.child_offset, link.child_count, upload.m_children.size()))
+				throw std::invalid_argument("GPU articulation link ownership or child range is invalid");
+			child_cursor += link.child_count;
+
+			auto const& articulation = upload.m_articulations[link.articulation_index];
+			if (!PackedRangeValid(articulation.link_offset, articulation.link_count, upload.m_links.size()) ||
+				link_index < articulation.link_offset ||
+				link_index >= articulation.link_offset + articulation.link_count)
+				throw std::invalid_argument("GPU articulation link lies outside its owning tree");
+
+			if (link.parent_link_index >= 0)
+			{
+				if (link.dof_count < 0 || link.dof_count > 6)
+					throw std::invalid_argument("GPU articulation joint dimension is invalid");
+
+				auto const matrix_count = link.dof_count * link.dof_count;
+				if (link.parent_link_index >= link_index ||
+					upload.m_links[link.parent_link_index].articulation_index != link.articulation_index ||
+					upload.m_links[link.parent_link_index].depth + 1 != link.depth ||
+					link.position_offset != joint_position_cursor ||
+					link.velocity_offset != joint_velocity_cursor ||
+					link.dof_offset != joint_dof_cursor ||
+					!PackedRangeValid(link.position_offset, link.dof_count, upload.m_positions.size()) ||
+					!PackedRangeValid(link.velocity_offset, link.dof_count, upload.m_velocities.size()) ||
+					!PackedRangeValid(link.dof_offset, link.dof_count, upload.m_dofs.size()) ||
+					link.joint_matrix_offset != matrix_cursor ||
+					!PackedRangeValid(link.joint_matrix_offset, matrix_count, static_cast<size_t>(upload.m_joint_matrix_scratch_count)))
+					throw std::invalid_argument("GPU articulation non-root link range is invalid");
+
+				if (link.position_offset < articulation.position_offset ||
+					link.position_offset + link.dof_count > articulation.position_offset + articulation.position_count ||
+					link.velocity_offset < articulation.velocity_offset ||
+					link.velocity_offset + link.dof_count > articulation.velocity_offset + articulation.velocity_count ||
+					link.dof_offset < articulation.dof_offset ||
+					link.dof_offset + link.dof_count > articulation.dof_offset + articulation.dof_count)
+					throw std::invalid_argument("GPU articulation link generalized range crosses its owning tree");
+				joint_position_cursor += link.dof_count;
+				joint_velocity_cursor += link.dof_count;
+				joint_dof_cursor += link.dof_count;
+				matrix_cursor += matrix_count;
+			}
+			else
+			{
+				joint_position_cursor = articulation.position_offset;
+				joint_velocity_cursor = articulation.velocity_offset + PackedRootVelocityCount(articulation.root_type);
+				joint_dof_cursor = articulation.dof_offset;
+			}
+
+			for (int offset = 0; offset != link.child_count; ++offset)
+			{
+				auto const child_index = upload.m_children[link.child_offset + offset];
+				if (child_index >= upload.m_links.size() ||
+					upload.m_links[child_index].parent_link_index != link_index ||
+					++adjacency_seen[child_index] != 1)
+					throw std::invalid_argument("GPU articulation child adjacency is invalid");
+			}
+		}
+		if (child_cursor != isize(upload.m_children) ||
+			joint_position_cursor != isize(upload.m_positions) ||
+			joint_velocity_cursor != isize(upload.m_velocities) ||
+			joint_dof_cursor != isize(upload.m_dofs) ||
+			matrix_cursor != upload.m_joint_matrix_scratch_count)
+			throw std::invalid_argument("GPU articulation child, generalized, or inverse ranges are not tightly packed");
+		for (int link_index = 0; link_index != isize(upload.m_links); ++link_index)
+		{
+			auto const is_root = upload.m_links[link_index].parent_link_index < 0;
+			if (adjacency_seen[link_index] != (is_root ? 0 : 1))
+				throw std::invalid_argument("GPU articulation child adjacency does not cover every non-root link exactly once");
+		}
 	}
 }

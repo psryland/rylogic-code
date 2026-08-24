@@ -29,4 +29,7 @@ namespace pr::physics
 
 	// Validate and flatten independent articulation trees into deterministic linear GPU ranges and traversal schedules.
 	GpuArticulationUpload PackGpuArticulations(std::span<Articulation* const> articulations);
+
+	// Reject malformed packed ranges and topology before shared replay or GPU kernels can index them.
+	void ValidateGpuArticulationUpload(GpuArticulationUpload const& upload);
 }

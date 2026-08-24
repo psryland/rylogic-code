@@ -216,9 +216,27 @@ namespace pr::physics::tests
 			PR_THROWS(PackGpuArticulations(duplicate_sources), std::exception);
 
 			auto const empty = PackGpuArticulations({});
+			ValidateGpuArticulationUpload(empty);
 			PR_EXPECT(empty.m_articulations.empty());
 			PR_EXPECT(empty.m_links.empty());
 			PR_EXPECT(empty.m_levels.empty());
+
+			// Shared replay and hardware validation reject schedule, adjacency, and compact-matrix corruption before indexing.
+			auto sources = std::array{&fixture.m_articulation};
+			auto valid = PackGpuArticulations(sources);
+			ValidateGpuArticulationUpload(valid);
+			auto malformed_schedule = valid;
+			malformed_schedule.m_level_links[0] = static_cast<uint32_t>(malformed_schedule.m_links.size());
+			PR_THROWS(ValidateGpuArticulationUpload(malformed_schedule), std::exception);
+			auto malformed_adjacency = valid;
+			malformed_adjacency.m_children[0] = 0;
+			PR_THROWS(ValidateGpuArticulationUpload(malformed_adjacency), std::exception);
+			auto malformed_dimension = valid;
+			malformed_dimension.m_links[1].dof_count = std::numeric_limits<int>::max();
+			PR_THROWS(ValidateGpuArticulationUpload(malformed_dimension), std::exception);
+			auto malformed_matrix = valid;
+			++malformed_matrix.m_links[1].joint_matrix_offset;
+			PR_THROWS(ValidateGpuArticulationUpload(malformed_matrix), std::exception);
 		}
 	};
 }

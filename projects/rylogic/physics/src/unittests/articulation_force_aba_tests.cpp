@@ -7,6 +7,7 @@
 #include "pr/common/unittests.h"
 #include "pr/physics/physics.h"
 #include "src/articulation/articulation_gpu_data.h"
+#include "src/compute/articulation_force_aba_gpu.h"
 #include "src/compute/interop/articulation_force_aba_runner.h"
 #include "src/unittests/articulation_oracle.h"
 
@@ -251,6 +252,44 @@ namespace pr::physics::tests
 			}
 			return articulation;
 		}
+
+		// Reuse one D3D12 device and command job across hardware articulation tests.
+		Gpu& ForceAbaTestGpu()
+		{
+			static auto gpu = Gpu{};
+			return gpu;
+		}
+
+		// Compare real D3D12 output against the exact shared-code replay, then reuse CPU and double-oracle acceptance checks.
+		void ExpectForceAbaHardwareForest(std::span<Articulation* const> articulations, float hardware_tolerance, float reference_tolerance)
+		{
+			auto upload = PackGpuArticulations(articulations);
+			auto replay_upload = upload;
+			auto replay = ArticulationForceAbaInteropRunner{};
+			replay.Run(replay_upload);
+
+			// Production upload and all level passes execute in one submission owned only by the test readback surface.
+			auto solver = GpuArticulationForceAba{ForceAbaTestGpu()};
+			auto const hardware = solver.Solve(ForceAbaTestGpu().m_job, upload);
+			PR_EXPECT(hardware.AllValid());
+			PR_EXPECT(hardware.m_accelerations.size() == replay_upload.m_accelerations.size());
+			PR_EXPECT(hardware.m_link_accelerations.size() == replay.Scratch().size());
+			for (int index = 0; index != isize(hardware.m_accelerations); ++index)
+				ExpectForceAbaNear(hardware.m_accelerations[index], replay_upload.m_accelerations[index], hardware_tolerance);
+			for (int link_index = 0; link_index != isize(hardware.m_link_accelerations); ++link_index)
+			{
+				auto const& expected = replay.LinkAcceleration(link_index);
+				ExpectForceAbaNear(hardware.m_link_accelerations[link_index].ang.x, expected.ang.x, hardware_tolerance);
+				ExpectForceAbaNear(hardware.m_link_accelerations[link_index].ang.y, expected.ang.y, hardware_tolerance);
+				ExpectForceAbaNear(hardware.m_link_accelerations[link_index].ang.z, expected.ang.z, hardware_tolerance);
+				ExpectForceAbaNear(hardware.m_link_accelerations[link_index].lin.x, expected.lin.x, hardware_tolerance);
+				ExpectForceAbaNear(hardware.m_link_accelerations[link_index].lin.y, expected.lin.y, hardware_tolerance);
+				ExpectForceAbaNear(hardware.m_link_accelerations[link_index].lin.z, expected.lin.z, hardware_tolerance);
+			}
+
+			// Existing acceptance checks compare that same replay result with production float ABA and an independent double solve.
+			ExpectForceAbaForest(articulations, reference_tolerance);
+		}
 	}
 
 	PRUnitTestClass(ArticulationForceAbaTests)
@@ -406,6 +445,104 @@ namespace pr::physics::tests
 			auto upload = PackGpuArticulations(forest);
 			auto runner = ArticulationForceAbaInteropRunner{};
 			PR_THROWS(runner.Run(upload), std::exception);
+		}
+
+		// Match real D3D12 and shared replay for a branched fixed/floating forest containing every zero-to-six-DOF case.
+		PRUnitTestMethod(HardwareMixedForestMatchesReplayAndCpu, Extended)
+		{
+			auto random = ForceAbaRandomSource{0x8EBC6AF09C88C6E3ull};
+			auto fixed = BuildRandomForceAbaArticulation(random, 6, false);
+			auto floating = BuildRandomForceAbaArticulation(random, 7, true);
+			auto forest = std::array{&fixed, &floating};
+			ExpectForceAbaHardwareForest(forest, 2.0e-4f, 1.0e-2f);
+		}
+
+		// Preserve exact repeated hardware output and report singular reduced inertia through explicit per-link status.
+		PRUnitTestMethod(HardwareDeterminismAndSingularStatus, Extended)
+		{
+			auto random = ForceAbaRandomSource{0x589965CC75374CC3ull};
+			auto articulation = BuildRandomForceAbaArticulation(random, 9, true);
+			auto forest = std::array{&articulation};
+			auto upload = PackGpuArticulations(forest);
+			auto solver = GpuArticulationForceAba{ForceAbaTestGpu()};
+			auto const first = solver.Solve(ForceAbaTestGpu().m_job, upload);
+			auto const second = solver.Solve(ForceAbaTestGpu().m_job, upload);
+			PR_EXPECT(first.AllValid());
+			PR_EXPECT(second.AllValid());
+			PR_EXPECT(first.m_accelerations == second.m_accelerations);
+			PR_EXPECT(first.m_solve_valid == second.m_solve_valid);
+			PR_EXPECT(first.m_link_accelerations.size() == second.m_link_accelerations.size());
+			PR_EXPECT(std::memcmp(first.m_link_accelerations.data(), second.m_link_accelerations.data(), first.m_link_accelerations.size() * sizeof(GpuArticulationSpatialVector)) == 0);
+
+			// Duplicate screw axes make the active two-dimensional joint inertia rank deficient.
+			auto joint = ArticulationJointDesc::Fixed();
+			joint.m_dof_count = 2;
+			joint.m_axes[0] = ArticulationAxisDesc{.m_type = EArticulationAxisType::Revolute, .m_axis = v4::XAxis()};
+			joint.m_axes[1] = joint.m_axes[0];
+			auto singular_builder = ArticulationBuilder{};
+			auto const singular_root = singular_builder.AddFixedRoot(ForceAbaLink(0));
+			singular_builder.AddLink(singular_root, joint, ForceAbaLink(1));
+			auto singular = singular_builder.Build();
+			auto singular_forest = std::array{&singular};
+			auto const singular_result = solver.Solve(ForceAbaTestGpu().m_job, PackGpuArticulations(singular_forest));
+			PR_EXPECT(!singular_result.AllValid());
+			PR_EXPECT(std::ranges::find(singular_result.m_solve_valid, 0) != singular_result.m_solve_valid.end());
+		}
+
+		// Empty forests retain no feature allocation or dispatch, while a root-only tree uses valid shared sentinels.
+		PRUnitTestMethod(HardwareEmptyAndScratchFormula, Extended)
+		{
+			auto solver = GpuArticulationForceAba{ForceAbaTestGpu()};
+			auto const empty_upload = PackGpuArticulations({});
+			auto const empty_result = solver.Solve(ForceAbaTestGpu().m_job, empty_upload);
+			auto const& empty_stats = solver.Stats();
+			auto const empty_capacity =
+				empty_stats.m_articulation_capacity +
+				empty_stats.m_link_capacity +
+				empty_stats.m_dof_capacity +
+				empty_stats.m_position_capacity +
+				empty_stats.m_velocity_capacity +
+				empty_stats.m_force_capacity +
+				empty_stats.m_external_force_capacity +
+				empty_stats.m_child_capacity +
+				empty_stats.m_level_link_capacity +
+				empty_stats.m_acceleration_capacity +
+				empty_stats.m_scratch_capacity +
+				empty_stats.m_dof_scratch_capacity +
+				empty_stats.m_joint_matrix_capacity;
+			PR_EXPECT(empty_result.m_accelerations.empty());
+			PR_EXPECT(empty_result.m_link_accelerations.empty());
+			PR_EXPECT(empty_capacity == 0);
+			PR_EXPECT(empty_stats.m_logical_scratch_bytes == 0);
+			PR_EXPECT(empty_stats.m_allocated_feature_bytes == 0);
+			PR_EXPECT(empty_stats.m_dispatch_count == 0);
+
+			// A fixed root exercises zero-sized DOF, position, generalized-output, child, and inverse streams.
+			auto root_builder = ArticulationBuilder{};
+			root_builder.AddFixedRoot(ForceAbaLink(0));
+			auto root_only = root_builder.Build();
+			auto root_forest = std::array{&root_only};
+			auto const root_upload = PackGpuArticulations(root_forest);
+			auto const root_result = solver.Solve(ForceAbaTestGpu().m_job, root_upload);
+			PR_EXPECT(root_result.AllValid());
+			PR_EXPECT(root_result.m_accelerations.empty());
+			PR_EXPECT(root_result.m_link_accelerations.size() == 1);
+			PR_EXPECT(solver.Stats().m_logical_scratch_bytes == sizeof(GpuArticulationAbaScratch));
+			PR_EXPECT(solver.Stats().m_dispatch_count == 3);
+
+			// Mixed fixed, scalar, and full joints retain only the documented active-dimension scratch.
+			auto mixed_builder = ArticulationBuilder{};
+			auto const root = mixed_builder.AddFixedRoot(ForceAbaLink(0));
+			mixed_builder.AddLink(root, ForceAbaJoint(0, 1), ForceAbaLink(1));
+			mixed_builder.AddLink(root, ForceAbaJoint(1, 2), ForceAbaLink(2));
+			mixed_builder.AddLink(root, ForceAbaJoint(6, 3), ForceAbaLink(3));
+			auto mixed = mixed_builder.Build();
+			auto mixed_forest = std::array{&mixed};
+			auto const mixed_upload = PackGpuArticulations(mixed_forest);
+			auto const mixed_result = solver.Solve(ForceAbaTestGpu().m_job, mixed_upload);
+			PR_EXPECT(mixed_result.AllValid());
+			PR_EXPECT(solver.Stats().m_logical_scratch_bytes == 336u * 4u + 64u * 7u + 4u * 37u);
+			PR_EXPECT(solver.Stats().m_dispatch_count == 3 * isize(mixed_upload.m_levels));
 		}
 	};
 }

@@ -80,6 +80,12 @@ namespace pr::physics::shader_code
 	extern ByteCode const apply_constraint_position;
 	extern ByteCode const solve_constraint_velocity;
 
+	// Pure-tree articulation force ABA
+	extern ByteCode const articulation_prepare;
+	extern ByteCode const articulation_inward_dynamics;
+	extern ByteCode const articulation_root_dynamics;
+	extern ByteCode const articulation_outward_dynamics;
+
 	// Selective refresh
 	extern ByteCode const prepare_selective_refresh;
 	extern ByteCode const score_selective_contacts;
