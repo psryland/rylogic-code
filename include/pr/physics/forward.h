@@ -12,6 +12,7 @@
 #include <vector>
 #include <array>
 #include <initializer_list>
+#include <iterator>
 #include <ranges>
 #include <unordered_set>
 #include <unordered_map>

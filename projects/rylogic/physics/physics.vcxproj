@@ -128,6 +128,7 @@
     <ClCompile Include="src\constraint\constraint_compiler.cpp" />
     <ClCompile Include="src\constraint\constraint_desc.cpp" />
     <ClCompile Include="src\constraint\constraint_set.cpp" />
+    <ClCompile Include="src\constraint\constraint_solver.cpp" />
     <ClCompile Include="src\compute\collide_gpu.cpp" />
     <ClCompile Include="src\compute\interop\resolve_interop_runner.cpp" />
     <ClCompile Include="src\compute\integrate_gpu.cpp" />
@@ -172,6 +173,7 @@
     <ClInclude Include="src\buoyancy\buoyancy_analytical.h" />
     <ClInclude Include="src\collision\shape_cache.h" />
     <ClInclude Include="src\constraint\constraint_compiler.h" />
+    <ClInclude Include="src\constraint\constraint_solver.h" />
     <ClInclude Include="src\compute\collide_gpu.h" />
     <ClInclude Include="src\compute\interop\resolve_runner.h" />
     <ClInclude Include="src\compute\integrate_gpu.h" />

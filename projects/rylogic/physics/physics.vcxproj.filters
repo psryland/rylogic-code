@@ -69,6 +69,9 @@
     <ClCompile Include="src\constraint\constraint_set.cpp">
       <Filter>src\constraint</Filter>
     </ClCompile>
+    <ClCompile Include="src\constraint\constraint_solver.cpp">
+      <Filter>src\constraint</Filter>
+    </ClCompile>
     <ClCompile Include="src\compute\collide_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
@@ -165,6 +168,9 @@
       <Filter>src\collision</Filter>
     </ClInclude>
     <ClInclude Include="src\constraint\constraint_compiler.h">
+      <Filter>src\constraint</Filter>
+    </ClInclude>
+    <ClInclude Include="src\constraint\constraint_solver.h">
       <Filter>src\constraint</Filter>
     </ClInclude>
     <ClInclude Include="src\materials\material_map.h">

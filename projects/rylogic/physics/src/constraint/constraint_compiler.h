@@ -14,12 +14,19 @@ namespace pr::physics
 		Angular,
 	};
 
+	// Projection applied to the accumulated impulses of one solver block.
+	enum class EConstraintProjection
+	{
+		Independent,
+		FrictionCone,
+	};
+
 	// Stable-identity remap and body access for one packed simulation step.
 	struct BodyRemap
 	{
 	private:
 
-		std::vector<RigidBody const*> m_bodies;
+		std::vector<RigidBody*> m_bodies;
 		std::unordered_map<uint64_t, int> m_rigid_indices;
 
 	public:
@@ -32,6 +39,9 @@ namespace pr::physics
 
 		// Return a remapped rigid body by current packed index.
 		RigidBody const& Body(int index) const;
+
+		// Return a mutable remapped rigid body by current packed index.
+		RigidBody& MutableBody(int index) const;
 
 		// Return the number of remapped rigid bodies.
 		int BodyCount() const;
@@ -65,12 +75,17 @@ namespace pr::physics
 		uint32_t m_row_count = 0;
 		float m_break_force = 0.0f;
 		float m_break_torque = 0.0f;
+		float m_friction = 0.0f;
+		EConstraintProjection m_projection = EConstraintProjection::Independent;
 		bool m_collide_connected = false;
 	};
 
 	// Deterministic active block and scalar-row streams for CPU reference or later GPU upload.
 	struct CompiledConstraintSet
 	{
+		ConstraintSet const* m_source = nullptr;
+		uint64_t m_topology_revision = 0;
+		uint64_t m_parameter_revision = 0;
 		std::vector<CompiledConstraintBlock> m_blocks;
 		std::vector<CompiledConstraintRow> m_rows;
 	};

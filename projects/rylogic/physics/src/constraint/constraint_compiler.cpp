@@ -116,7 +116,7 @@ namespace pr::physics
 		m_rigid_indices.reserve(bodies.size());
 		for (int index = 0; index != isize(bodies); ++index)
 		{
-			auto const* body = bodies[index];
+			auto* body = bodies[index];
 			if (body == nullptr)
 				throw std::invalid_argument("Body remap cannot contain a null rigid-body pointer");
 			if (!body->Id())
@@ -164,6 +164,15 @@ namespace pr::physics
 		return *m_bodies[index];
 	}
 
+	// Return a mutable remapped rigid body by current packed index.
+	RigidBody& BodyRemap::MutableBody(int index) const
+	{
+		if (index < 0 || index >= isize(m_bodies))
+			throw std::out_of_range("Remapped rigid-body index is out of range");
+
+		return *m_bodies[index];
+	}
+
 	// Return the number of remapped rigid bodies.
 	int BodyRemap::BodyCount() const
 	{
@@ -173,7 +182,11 @@ namespace pr::physics
 	// Resolve endpoints and compile enabled D6 descriptors in stable slot and axis order.
 	CompiledConstraintSet CompileConstraints(ConstraintSet const& constraints, BodyRemap const& remap)
 	{
-		auto compiled = CompiledConstraintSet{};
+		auto compiled = CompiledConstraintSet{
+			.m_source = &constraints,
+			.m_topology_revision = constraints.TopologyRevision(),
+			.m_parameter_revision = constraints.ParameterRevision(),
+		};
 		compiled.m_blocks.reserve(constraints.m_count);
 		compiled.m_rows.reserve(6 * constraints.m_count);
 
