@@ -25,8 +25,18 @@ struct cbSweep
 	int sleep_island_count;
 };
 
+// Optional constants for the filtered entry point. Keeping these in b1 lets the ordinary entry point retain its exact root contract.
+struct cbSweepFilter
+{
+	uint collision_exclusion_mask;
+	uint pad0;
+	uint pad1;
+	uint pad2;
+};
+
 // Shader Resources
 ConstantBuffer<cbSweep> resource(g, b0);
+ConstantBuffer<cbSweepFilter> resource(g_filter, b1);
 RWStructuredBuffer<GpuCollisionCounters> resource(g_counters, u0);
 RWStructuredBuffer<GpuCollisionPair> resource(g_collision_pairs, u1);
 RWStructuredBuffer<DispatchArguments> resource(g_dispatch_args, u2);
@@ -35,6 +45,7 @@ StructuredBuffer<int> resource(g_aabb_idx, t1);
 StructuredBuffer<BBox> resource(g_aabb_box, t2);
 StructuredBuffer<GpuSleepIsland> resource(g_sleep_islands, t3);
 StructuredBuffer<GpuShape> resource(g_shapes, t4);
+StructuredBuffer<GpuCollisionExclusion> resource(g_collision_exclusions, t5);
 
 odr bool DynamicBody(in_(GpuRigidBody) body)
 {
@@ -60,13 +71,45 @@ odr bool CachedBoundsOverlap(int body_a, int body_b)
 	return g_aabb_box[body_a].IsIntersection(g_aabb_box[body_b]);
 }
 
+// Mix the encoded canonical body pair using the same 32-bit operations as the CPU table builder.
+odr uint CollisionExclusionHash(uint body_idx_a_plus_one, uint body_idx_b_plus_one)
+{
+	uint hash = body_idx_a_plus_one * 0x9E3779B9U;
+	hash ^= body_idx_b_plus_one + 0x85EBCA6BU + (hash << 6) + (hash >> 2);
+	hash ^= hash >> 16;
+	hash *= 0x7FEB352DU;
+	hash ^= hash >> 15;
+	return hash;
+}
+
+// Return true when this canonical body pair appears in the half-full open-addressed exclusion table.
+odr bool CollisionExcluded(int body_idx_a, int body_idx_b)
+{
+	uint key_a = (uint)min(body_idx_a, body_idx_b) + 1U;
+	uint key_b = (uint)max(body_idx_a, body_idx_b) + 1U;
+	uint slot = CollisionExclusionHash(key_a, key_b) & g_filter.collision_exclusion_mask;
+	for (uint probe = 0; probe <= g_filter.collision_exclusion_mask; ++probe)
+	{
+		GpuCollisionExclusion entry = g_collision_exclusions[slot];
+		if (entry.body_idx_a_plus_one == 0)
+			return false;
+		if (entry.body_idx_a_plus_one == key_a && entry.body_idx_b_plus_one == key_b)
+			return true;
+		slot = (slot + 1U) & g_filter.collision_exclusion_mask;
+	}
+	return false;
+}
+
 // Emit the narrowphase pairs for two bodies whose bounds overlap.
 // The narrowphase only understands convex operands, so a compound body is expanded here into its
 // flattened convex leaves. A body with a single convex shape has one leaf and therefore emits
 // exactly one pair, which keeps the common case identical to a non-compound scene.
 // Returns false when the pair buffer is full, telling the caller to stop emitting.
-odr bool StorePair(int rbA_idx, int rbB_idx, in_(GpuRigidBody) rb, in_(GpuRigidBody) other_rb)
+odr bool StorePair(int rbA_idx, int rbB_idx, in_(GpuRigidBody) rb, in_(GpuRigidBody) other_rb, bool filter_connected)
 {
+	if (filter_connected && CollisionExcluded(rbA_idx, rbB_idx))
+		return true;
+
 	if (!EffectiveAwake(rb) && !EffectiveAwake(other_rb))
 		return true;
 
@@ -128,8 +171,8 @@ odr bool StorePair(int rbA_idx, int rbB_idx, in_(GpuRigidBody) rb, in_(GpuRigidB
 	return true;
 }
 
-numthreads(CSSweep, SweepThreadCount, 1, 1)
-void CSSweep(int3 dtid : SV_DispatchThreadID)
+// Enumerate overlaps for one bound using the selected connected-body filtering mode.
+odr void SweepBound(int3 dtid, bool filter_connected)
 {
 	// 'aabb_idx' is a list of encoded body indices sorted on some axes.
 	// There is one thread per aabb_idx array element. Indexes that are 'end' bounds, return early.
@@ -176,10 +219,24 @@ void CSSweep(int3 dtid : SV_DispatchThreadID)
 		// Canonicalise pair so lower body index is always 'a'.
 		if (CachedBoundsOverlap(rbA_idx, rbB_idx))
 		{
-			if (!StorePair(rbA_idx, rbB_idx, rb, other_rb))
+			if (!StorePair(rbA_idx, rbB_idx, rb, other_rb, filter_connected))
 				return;
 		}
 	}
+}
+
+// Preserve the original collision-only entry point and resource contract.
+numthreads(CSSweep, SweepThreadCount, 1, 1)
+void CSSweep(int3 dtid : SV_DispatchThreadID)
+{
+	SweepBound(dtid, false);
+}
+
+// Apply the optional connected-body collision-exclusion table.
+numthreads(CSSweepFiltered, SweepThreadCount, 1, 1)
+void CSSweepFiltered(int3 dtid : SV_DispatchThreadID)
+{
+	SweepBound(dtid, true);
 }
 
 // This shader is dispatched with 1 thread. It calculates the number of thread groups needed for the collision detection

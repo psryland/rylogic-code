@@ -110,6 +110,7 @@ namespace pr::physics
 	struct CompiledConstraintRow;
 	struct CompiledConstraintBlock;
 	struct CompiledConstraintSet;
+	struct GpuCollisionExclusion;
 	struct GpuConstraintUpload;
 	struct GpuConstraintSolver;
 
@@ -138,6 +139,7 @@ namespace pr::physics
 	using GpuSleepManagerPtr = std::unique_ptr<GpuSleepManager, Deleter<GpuSleepManager>>;
 	using GpuSortAndSweepPtr = std::unique_ptr<GpuSortAndSweep, Deleter<GpuSortAndSweep>>;
 	using GpuCollisionDetectorPtr = std::unique_ptr<GpuCollisionDetector, Deleter<GpuCollisionDetector>>;
+	using GpuConstraintSolverPtr = std::unique_ptr<GpuConstraintSolver, Deleter<GpuConstraintSolver>>;
 	using GpuSelectiveRefresherPtr = std::unique_ptr<GpuSelectiveRefresher, Deleter<GpuSelectiveRefresher>>;
 	using GpuResolverPtr = std::unique_ptr<GpuResolver, Deleter<GpuResolver>>;
 	using CachePtr = std::unique_ptr<EngineBufferCache, Deleter<EngineBufferCache>>;

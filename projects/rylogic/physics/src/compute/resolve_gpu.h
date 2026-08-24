@@ -45,7 +45,7 @@ namespace pr::physics
 		explicit GpuResolver(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache);
 
 		// Resolve collisions on the GPU using graph-coloured batches.
-		void Resolve(GpuJob& job, float dt, int body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale = 1.0f, int solver_iterations = -1, int position_iterations = -1, float restitution_scale = 1.0f, bool support_only = false);
+		void Resolve(GpuJob& job, float dt, int body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale = 1.0f, int solver_iterations = -1, int position_iterations = -1, float restitution_scale = 1.0f, bool support_only = false, GpuConstraintSolver* constraint_solver = nullptr);
 
 		// Mark the material buffer dirty so it is re-uploaded on the next resolve.
 		void MaterialsDirty();

@@ -15,6 +15,8 @@
 #include "src/compute/sweep_gpu.h"
 #include "src/compute/collide_gpu.h"
 #include "src/compute/resolve_gpu.h"
+#include "src/compute/constraint_solver_gpu.h"
+#include "src/constraint/constraint_gpu.h"
 #include "src/compute/selective_gpu.h"
 #include "src/integrator/engine_buffer_cache.h"
 #include "src/collision/shape_cache.h"
@@ -168,11 +170,13 @@ namespace pr::physics
 		, m_gpu_sort_and_sweep(new GpuSortAndSweep(*m_gpu, m_config, shader_cache))
 		, m_gpu_collision_detector(new GpuCollisionDetector(*m_gpu, m_config))
 		, m_gpu_resolver(new GpuResolver(*m_gpu, m_config, shader_cache))
+		, m_gpu_constraint_solver()
 		, m_gpu_selective_resolver(new GpuResolver(*m_gpu, m_config, shader_cache))
 		, m_gpu_selective_refresher(new GpuSelectiveRefresher(*m_gpu, m_config))
 		, m_materials(new MaterialMap)
 		, m_cache(new EngineBufferCache())
 		, m_pending_step()
+		, m_constraints_active()
 		, m_last_step_profile()
 		, m_last_collision_stats()
 	{
@@ -217,6 +221,8 @@ namespace pr::physics
 			throw std::runtime_error("Engine::ResetCaches cannot run while a step is pending");
 
 		m_cache->Reset();
+		m_gpu_constraint_solver.reset();
+		m_constraints_active = false;
 		m_last_collision_stats = {};
 	}
 
@@ -227,8 +233,27 @@ namespace pr::physics
 		CompleteStep();
 	}
 
+	// Evolve rigid bodies while resolving one persistent constraint collection in the same GPU submission.
+	void Engine::Step(float dt, std::span<RigidBody*> rigid_bodies, ConstraintSet const& constraints, double time_s)
+	{
+		BeginStep(dt, rigid_bodies, constraints, time_s);
+		CompleteStep();
+	}
+
 	// Begin evolving the physics objects by submitting GPU work without waiting for it to finish.
 	void Engine::BeginStep(float dt, std::span<RigidBody*> rigid_bodies, double time_s)
+	{
+		BeginStepInternal(dt, rigid_bodies, nullptr, time_s);
+	}
+
+	// Begin a constrained step while retaining the same single GPU submission and gathered readback contract.
+	void Engine::BeginStep(float dt, std::span<RigidBody*> rigid_bodies, ConstraintSet const& constraints, double time_s)
+	{
+		BeginStepInternal(dt, rigid_bodies, &constraints, time_s);
+	}
+
+	// Submit one frame with an optional persistent constraint collection.
+	void Engine::BeginStepInternal(float dt, std::span<RigidBody*> rigid_bodies, ConstraintSet const* constraints, double time_s)
 	{
 		// Notes:
 		//  - There is a limitation on the number of collision pairs that can be generated per frame.
@@ -242,6 +267,7 @@ namespace pr::physics
 
 		if (bodies.empty())
 		{
+			m_constraints_active = false;
 			m_last_step_profile = {};
 			m_last_collision_stats = {};
 			return;
@@ -267,14 +293,34 @@ namespace pr::physics
 			Pack(bodies);
 		}
 
-		// If nothing dynamic is awake then no GPU stage can change the world state.
-		if (m_config.sleeping_enabled && m_cache->AwakeDynamicCount() == 0)
+		// Resolve stable identities before submission and retain only compact transfer data for the GPU upload.
+		auto constraint_upload = GpuConstraintUpload{};
+		if (constraints != nullptr)
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_constraint_pack_ms>(m_last_step_profile);
+			constraint_upload = PackGpuConstraints(*constraints, BodyRemap(bodies));
+		}
+		m_constraints_active = constraint_upload.m_active_count != 0;
+		if (!m_constraints_active && m_gpu_constraint_solver != nullptr)
+			m_gpu_constraint_solver->Deactivate();
+
+		// Persistent constraints may wake sleeping bodies through motors or drift correction, so only the completely unconstrained state may skip the GPU.
+		if (m_config.sleeping_enabled && m_cache->AwakeDynamicCount() == 0 && !m_constraints_active)
 			return;
 
 		// Upload -> transfers staged body dynamics and resets GPU counters
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_upload_ms>(m_last_step_profile);
 			Upload();
+		}
+
+		// Allocate and upload the optional constraint lane only after the caller supplies active persistent constraints.
+		if (m_constraints_active)
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_constraint_upload_ms>(m_last_step_profile);
+			if (m_gpu_constraint_solver == nullptr)
+				m_gpu_constraint_solver.reset(new GpuConstraintSolver(*m_gpu, m_config));
+			m_gpu_constraint_solver->Upload(m_gpu->m_job, constraint_upload);
 		}
 
 		// ExternalForces -> allows callers to add custom GPU-resident forces before integration
@@ -298,7 +344,7 @@ namespace pr::physics
 		// Broadphase -> uses AABBs from integrate -> generates collision pairs
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_broadphase_ms>(m_last_step_profile);
-			BroadPhase(m_config.sleeping_enabled);
+			BroadPhase(m_config.sleeping_enabled, constraint_upload.m_collision_exclusions.m_slots);
 		}
 
 		// Narrow phase -> uses collision pairs -> generates contacts
@@ -504,8 +550,8 @@ namespace pr::physics
 		m_gpu_sleep_manager->SleepWake(m_gpu->m_job, body_count, island_count, bodies);
 	}
 
-	// Broadphase collision detection to generate potential collision pairs.
-	void Engine::BroadPhase(bool sleeping_enabled)
+	// Broadphase collision detection with optional connected-body pair suppression.
+	void Engine::BroadPhase(bool sleeping_enabled, std::span<GpuCollisionExclusion const> collision_exclusions)
 	{
 		auto body_count = m_cache->RigidBodyCount();
 
@@ -519,7 +565,7 @@ namespace pr::physics
 		auto sleep_island_count = m_cache->SleepIslandCount();
 		auto shapes = m_gpu_collision_detector->Shapes();
 		m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb_sort, aabb_idx);
-		m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, aabb_box, bodies, shapes, sleep_island_count, sleep_islands, sleeping_enabled);
+		m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, aabb_box, bodies, shapes, sleep_island_count, sleep_islands, sleeping_enabled, collision_exclusions);
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{
@@ -550,7 +596,8 @@ namespace pr::physics
 		auto dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
 		auto contacts = m_gpu_collision_detector->Contacts();
 		auto bodies = m_gpu_integrator->Bodies();
-		m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, m_config.max_collision_pairs, dispatch, counters, contacts, bodies, m_materials->span());
+		auto* constraint_solver = m_constraints_active ? m_gpu_constraint_solver.get() : nullptr;
+		m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, m_config.max_collision_pairs, dispatch, counters, contacts, bodies, m_materials->span(), 1.0f, -1, -1, 1.0f, false, constraint_solver);
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{

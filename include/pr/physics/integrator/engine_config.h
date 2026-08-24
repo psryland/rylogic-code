@@ -57,6 +57,14 @@ namespace pr::physics
 		float support_contact_slop_scale = 0.005f;
 		float warm_start_scale = 0.90f;
 
+		// Persistent D6 constraints share the fixed outer iteration counts above while retaining independent numerical controls.
+		float constraint_relaxation = 1.0f;
+		float constraint_position_relaxation = 1.0f;
+		float constraint_position_beta = 0.2f;
+		float constraint_max_position_speed = 2.0f;
+		float constraint_regularization = 1.0e-6f;
+		float constraint_warm_start_factor = 0.85f;
+
 		// Existing deep-penetration positional correction parameters.
 		float deep_penetration_threshold = 0.3f;
 		float deep_penetration_range = 0.4f;

@@ -21,10 +21,21 @@ namespace pr::physics
 	};
 	static_assert(sizeof(cbSweep) == 16);
 
+	// Optional filtered-sweep constants kept separate so the ordinary sweep retains its exact root contract.
+	struct alignas(16) cbSweepFilter
+	{
+		uint32_t collision_exclusion_mask;
+		uint32_t pad0;
+		uint32_t pad1;
+		uint32_t pad2;
+	};
+	static_assert(sizeof(cbSweepFilter) == 16);
+
 	// Register assignments for the root signature
 	struct EReg
 	{
 		inline static constexpr auto Params = ECBufReg::b0;
+		inline static constexpr auto FilterParams = ECBufReg::b1;
 		inline static constexpr auto Counters = EUAVReg::u0;
 		inline static constexpr auto ColPairs = EUAVReg::u1;
 		inline static constexpr auto DispatchArgs = EUAVReg::u2;
@@ -33,6 +44,7 @@ namespace pr::physics
 		inline static constexpr auto AABB_Box = ESRVReg::t2;
 		inline static constexpr auto SleepIslands = ESRVReg::t3;
 		inline static constexpr auto Shapes = ESRVReg::t4;
+		inline static constexpr auto CollisionExclusions = ESRVReg::t5;
 	};
 
 	GpuSortAndSweep::GpuSortAndSweep(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache)
@@ -40,10 +52,13 @@ namespace pr::physics
 		, m_config(config)
 		, m_sorter(gpu.m_gpu, BoundsSorter::TuningParams{}, shader_cache)
 		, m_cs_sweep()
+		, m_cs_sweep_filtered()
 		, m_cs_calc_dispatch()
 		, m_r_col_pairs()
 		, m_r_cd_dispatch()
+		, m_r_collision_exclusions()
 		, m_max_col_pairs()
+		, m_collision_exclusion_capacity()
 	{
 		auto make_sweep_sig = [&]()
 		{
@@ -80,8 +95,31 @@ namespace pr::physics
 		}
 	}
 
-	// Resize the buffers to support
-	void GpuSortAndSweep::ResizeBuffers(CmdList& cmd_list, int max_col_pairs)
+	// Lazily create the filtered sweep pipeline so collision-only users retain the original runtime resource cost.
+	void GpuSortAndSweep::EnsureFilteredSweep()
+	{
+		if (m_cs_sweep_filtered.m_pso != nullptr)
+			return;
+
+		auto sig = RootSig(ERootSigFlags::ComputeOnly)
+			.U32<cbSweep>(EReg::Params)
+			.U32<cbSweepFilter>(EReg::FilterParams)
+			.UAV(EReg::Counters)
+			.UAV(EReg::ColPairs)
+			.UAV(EReg::DispatchArgs)
+			.SRV(EReg::Bodies)
+			.SRV(EReg::AABB_Idx)
+			.SRV(EReg::AABB_Box)
+			.SRV(EReg::SleepIslands)
+			.SRV(EReg::Shapes)
+			.SRV(EReg::CollisionExclusions);
+
+		m_cs_sweep_filtered.m_sig = sig.Create(m_gpu, "Physics:SweepFilteredSig");
+		m_cs_sweep_filtered.m_pso = ComputePSO(m_cs_sweep_filtered.m_sig.get(), shader_code::sweep_filtered).Create(m_gpu, "Physics:SweepFilteredPSO");
+	}
+
+	// Resize the broadphase output and optional collision-exclusion buffers.
+	void GpuSortAndSweep::ResizeBuffers(CmdList& cmd_list, int max_col_pairs, int collision_exclusion_count)
 	{
 		max_col_pairs = std::max(1, max_col_pairs);
 		
@@ -93,6 +131,11 @@ namespace pr::physics
 		if (m_r_cd_dispatch == nullptr)
 		{
 			m_r_cd_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CDDispatchArgs");
+		}
+		if (collision_exclusion_count != 0 && (m_r_collision_exclusions == nullptr || m_collision_exclusion_capacity < collision_exclusion_count))
+		{
+			m_r_collision_exclusions = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionExclusion>(collision_exclusion_count, {}), cmd_list, "Physics:CollisionExclusions");
+			m_collision_exclusion_capacity = collision_exclusion_count;
 		}
 	}
 	
@@ -116,17 +159,34 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> shapes,
 		int sleep_island_count,
 		D3DPtr<ID3D12Resource> sleep_islands,
-		bool sleeping_enabled)
+		bool sleeping_enabled,
+		std::span<GpuCollisionExclusion const> collision_exclusions)
 	{
 		pix::BeginEvent(job.m_cmd_list.get(), 0xFF45bcf2, "Physics::Sweep");
 
-		ResizeBuffers(job.m_cmd_list, max_col_pairs);
+		auto const filtered = !collision_exclusions.empty();
+		ResizeBuffers(job.m_cmd_list, max_col_pairs, s_cast<int>(collision_exclusions.size()));
+		if (filtered)
+		{
+			EnsureFilteredSweep();
+
+			// Endpoint remapping can change packed body indices each frame, so refresh the compact exclusion table in the existing upload batch.
+			job.m_barriers.Transition(m_r_collision_exclusions.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+
+			auto upload = job.m_upload.Alloc<GpuCollisionExclusion>(s_cast<int>(collision_exclusions.size()));
+			memcpy(upload.ptr<GpuCollisionExclusion>(), collision_exclusions.data(), collision_exclusions.size_bytes());
+			job.m_cmd_list.CopyBufferRegion(m_r_collision_exclusions.get(), 0, upload);
+		}
 
 		cbSweep cb_sweep = {
 			.max_pair_count = max_col_pairs,
 			.body_count = body_count,
 			.sleeping_enabled = sleeping_enabled ? 1 : 0,
 			.sleep_island_count = sleep_island_count,
+		};
+		auto const cb_filter = cbSweepFilter{
+			.collision_exclusion_mask = filtered ? s_cast<uint32_t>(collision_exclusions.size() - 1) : 0U,
 		};
 
 		// Switch states for resources
@@ -139,14 +199,19 @@ namespace pr::physics
 			job.m_barriers.Transition(aabb_box.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(sleep_islands.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Transition(shapes.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+			if (filtered)
+				job.m_barriers.Transition(m_r_collision_exclusions.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Commit();
 		}
 
-		// Dispatch the compute shader
+		// Dispatch the original sweep unchanged unless a constrained pair actually suppresses collisions.
 		{
-			job.m_cmd_list.SetPipelineState(m_cs_sweep.m_pso.get());
-			job.m_cmd_list.SetComputeRootSignature(m_cs_sweep.m_sig.get());
+			auto& step = filtered ? m_cs_sweep_filtered : m_cs_sweep;
+			job.m_cmd_list.SetPipelineState(step.m_pso.get());
+			job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
 			job.m_cmd_list.AddComputeRoot32BitConstants(cb_sweep);
+			if (filtered)
+				job.m_cmd_list.AddComputeRoot32BitConstants(cb_filter);
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_col_pairs->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_cd_dispatch->GetGPUVirtualAddress());
@@ -155,6 +220,8 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRootShaderResourceView(aabb_box->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(sleep_islands->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(shapes->GetGPUVirtualAddress());
+			if (filtered)
+				job.m_cmd_list.AddComputeRootShaderResourceView(m_r_collision_exclusions->GetGPUVirtualAddress());
 
 			// One thread for each array element in the AABB index buffer
 			auto dispatch_count = (2*body_count + SweepThreadCount - 1) / SweepThreadCount;

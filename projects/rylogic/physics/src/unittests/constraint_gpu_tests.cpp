@@ -77,6 +77,57 @@ namespace pr::physics::tests
 			PR_EXPECT(upload.m_endpoints[handle.m_index].body_idx_b == -1);
 			PR_EXPECT(!AllSet(upload.m_endpoints[handle.m_index].flags, GpuConstraintEndpointFlags_Enabled));
 		}
+
+		// Enabled all-free descriptors preserve their slot but do not activate or allocate the solver lane by themselves.
+		PRUnitTestMethod(AllFreeDescriptorsHaveNoSolverWork, Quick)
+		{
+			auto body_a = RigidBody{};
+			auto body_b = RigidBody{};
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body_a);
+			desc.m_frame_b.m_body = BodyRef::Rigid(body_b);
+
+			auto constraints = ConstraintSet{};
+			auto const handle = constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 2>{&body_a, &body_b};
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+
+			PR_EXPECT(upload.m_active_count == 0);
+			PR_EXPECT(AllSet(upload.m_endpoints[handle.m_index].flags, GpuConstraintEndpointFlags_Enabled));
+		}
+
+		// Connected-body collision suppression is deduplicated into a compact canonical hash table.
+		PRUnitTestMethod(PacksCollisionExclusions, Quick)
+		{
+			auto body_a = RigidBody{};
+			auto body_b = RigidBody{};
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body_a);
+			desc.m_frame_b.m_body = BodyRef::Rigid(body_b);
+			desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
+
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			constraints.Add(desc);
+			auto collide_desc = desc;
+			collide_desc.m_collide_connected = true;
+			constraints.Add(collide_desc);
+			auto disabled_desc = desc;
+			disabled_desc.m_enabled = false;
+			constraints.Add(disabled_desc);
+
+			auto body_ptrs = std::array<RigidBody*, 2>{&body_b, &body_a};
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			auto const& exclusions = upload.m_collision_exclusions;
+
+			PR_EXPECT(exclusions.m_count == 1);
+			PR_EXPECT(exclusions.m_slots.size() == 4);
+			PR_EXPECT(exclusions.Mask() == 3);
+			PR_EXPECT(std::ranges::count_if(exclusions.m_slots, [](GpuCollisionExclusion const& entry)
+			{
+				return entry.body_idx_a_plus_one == 1 && entry.body_idx_b_plus_one == 2;
+			}) == 1);
+		}
 	};
 }
 #endif

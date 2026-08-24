@@ -41,9 +41,11 @@ namespace pr::physics::shader_code
 	namespace compiled
 	{
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(sweep_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(sweep_filtered_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(calc_cd_dispatch_cs.h)
 	}
 	ByteCode const sweep(compiled::sweep_cs);
+	ByteCode const sweep_filtered(compiled::sweep_filtered_cs);
 	ByteCode const calc_cd_dispatch(compiled::calc_cd_dispatch_cs);
 
 	// Narrowphase collision detection
@@ -117,6 +119,25 @@ namespace pr::physics::shader_code
 	ByteCode const store_warm_start(compiled::store_warm_start_cs);
 	ByteCode const position_solve(compiled::position_solve_cs);
 	ByteCode const resolve(compiled::resolve_cs);
+
+	// Persistent rigid constraints
+	namespace compiled
+	{
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(compile_constraints_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(assign_constraint_colours_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(apply_constraint_warm_start_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(clear_constraint_pseudo_velocity_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(solve_constraint_position_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(apply_constraint_position_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(solve_constraint_velocity_cs.h)
+	}
+	ByteCode const compile_constraints(compiled::compile_constraints_cs);
+	ByteCode const assign_constraint_colours(compiled::assign_constraint_colours_cs);
+	ByteCode const apply_constraint_warm_start(compiled::apply_constraint_warm_start_cs);
+	ByteCode const clear_constraint_pseudo_velocity(compiled::clear_constraint_pseudo_velocity_cs);
+	ByteCode const solve_constraint_position(compiled::solve_constraint_position_cs);
+	ByteCode const apply_constraint_position(compiled::apply_constraint_position_cs);
+	ByteCode const solve_constraint_velocity(compiled::solve_constraint_velocity_cs);
 
 	// Selective refresh
 	namespace compiled

@@ -132,6 +132,8 @@
     <ClCompile Include="src\constraint\constraint_solver.cpp" />
     <ClCompile Include="src\compute\collide_gpu.cpp" />
     <ClCompile Include="src\compute\interop\resolve_interop_runner.cpp" />
+    <ClCompile Include="src\compute\interop\constraint_interop_runner.cpp" />
+    <ClCompile Include="src\compute\constraint_solver_gpu.cpp" />
     <ClCompile Include="src\compute\integrate_gpu.cpp" />
     <ClCompile Include="src\compute\resolve_gpu.cpp" />
     <ClCompile Include="src\compute\selective_gpu.cpp" />
@@ -177,7 +179,9 @@
     <ClInclude Include="src\constraint\constraint_gpu.h" />
     <ClInclude Include="src\constraint\constraint_solver.h" />
     <ClInclude Include="src\compute\collide_gpu.h" />
+    <ClInclude Include="src\compute\constraint_solver_gpu.h" />
     <ClInclude Include="src\compute\interop\resolve_runner.h" />
+    <ClInclude Include="src\compute\interop\constraint_runner.h" />
     <ClInclude Include="src\compute\integrate_gpu.h" />
     <ClInclude Include="src\compute\physics_types.h" />
     <ClInclude Include="src\compute\resolve_gpu.h" />
@@ -204,9 +208,10 @@
   <ItemGroup>
     <ShaderBuild Include="src\compute\integrate.hlsl" ComputeEntryPoints="CSIntegrate" />
     <ShaderBuild Include="src\compute\sleep.hlsl" ComputeEntryPoints="CSDisturbIslands;CSInitSleepState;CSUnionSleepContacts;CSCanonicaliseSleepRoots;CSReduceSleepStats;CSApplySleepState" />
-    <ShaderBuild Include="src\compute\sweep.hlsl" ComputeEntryPoints="CSSweep;CSCalcCDDispatch" />
+    <ShaderBuild Include="src\compute\sweep.hlsl" ComputeEntryPoints="CSSweep;CSSweepFiltered;CSCalcCDDispatch" />
     <ShaderBuild Include="src\compute\collide.hlsl" ComputeEntryPoints="CSClearCollisionBins;CSBinCollisionPairs;CSBuildCollisionBinDispatch;CSCollideSphereVsSphere;CSCollideBoxVsSphere;CSCollideBoxVsBox;CSCollideLineVsSphere;CSCollideLineVsBox;CSCollideLineVsLine;CSCollideTriangleVsSphere;CSCollideTriangleVsBox;CSCollideTriangleVsLine;CSCollideTriangleVsTriangle;CSCollidePolytopeVsSphere;CSCollidePolytopeVsBox;CSCollidePolytopeVsLine;CSCollidePolytopeVsTriangle;CSCollidePolytopeVsPolytope;CSCalcResolveDispatch" />
     <ShaderBuild Include="src\compute\resolve.hlsl" ComputeEntryPoints="CSComputeCollisionTimes;CSClearShockLists;CSSeedShockPriority;CSPropagateShockPriority;CSCommitShockPriority;CSFinalizeShockPriority;CSAssignColours;CSWarmStartClear;CSApplyWarmStart;CSStoreWarmStart;CSPositionSolve;CSResolve" />
+    <ShaderBuild Include="src\compute\constraint_solver.hlsl" ComputeEntryPoints="CSCompileConstraints;CSAssignConstraintColours;CSApplyConstraintWarmStart;CSClearConstraintPseudoVelocity;CSSolveConstraintPosition;CSApplyConstraintPosition;CSSolveConstraintVelocity" />
     <ShaderBuild Include="src\compute\selective.hlsl" ComputeEntryPoints="CSPrepareSelectiveRefresh;CSScoreSelectiveContacts;CSCompactSelectivePairs;CSBuildSelectiveDispatch" />
     <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl" ComputeEntryPoints="CSBuoyancyVolumeSamples;CSBuoyancyVolumeReduce;CSBuoyancyDragSurfaceSamples;CSBuoyancyDragSurfaceReduce">
       <StampDir>$(ProjectDir)src\buoyancy\compiled\$(Configuration)\</StampDir>

@@ -48,16 +48,89 @@ namespace pr::physics
 			}
 			return packed;
 		}
+
+		// Return true when an enabled descriptor contains at least one scalar solver row.
+		bool HasSolverRows(D6ConstraintDesc const& desc)
+		{
+			for (auto const& axis : desc.m_linear)
+				if (axis.m_mode != EConstraintAxisMode::Free)
+					return true;
+			for (auto const& axis : desc.m_angular)
+				if (axis.m_mode != EConstraintAxisMode::Free)
+					return true;
+			return false;
+		}
+
+		// Mix a canonical pair of encoded body indices for deterministic open addressing on both CPU and GPU.
+		uint32_t CollisionExclusionHash(uint32_t body_idx_a_plus_one, uint32_t body_idx_b_plus_one)
+		{
+			auto hash = body_idx_a_plus_one * 0x9E3779B9U;
+			hash ^= body_idx_b_plus_one + 0x85EBCA6BU + (hash << 6) + (hash >> 2);
+			hash ^= hash >> 16;
+			hash *= 0x7FEB352DU;
+			hash ^= hash >> 15;
+			return hash;
+		}
+
+		// Build a deterministic half-full hash table so broadphase lookups require expected constant work and no GPU construction pass.
+		GpuCollisionExclusionTable BuildCollisionExclusions(std::span<GpuConstraintEndpoint const> endpoints)
+		{
+			auto candidates = std::vector<GpuCollisionExclusion>{};
+			candidates.reserve(endpoints.size());
+			for (auto const& endpoint : endpoints)
+			{
+				if (!AllSet(endpoint.flags, GpuConstraintEndpointFlags_Enabled) ||
+					AllSet(endpoint.flags, GpuConstraintEndpointFlags_CollideConnected) ||
+					endpoint.body_idx_a < 0 ||
+					endpoint.body_idx_b < 0)
+					continue;
+
+				auto const body_idx_a = s_cast<uint32_t>(std::min(endpoint.body_idx_a, endpoint.body_idx_b)) + 1U;
+				auto const body_idx_b = s_cast<uint32_t>(std::max(endpoint.body_idx_a, endpoint.body_idx_b)) + 1U;
+				candidates.push_back(GpuCollisionExclusion{
+					.body_idx_a_plus_one = body_idx_a,
+					.body_idx_b_plus_one = body_idx_b,
+				});
+			}
+			if (candidates.empty())
+				return {};
+
+			auto table_size = std::bit_ceil(std::max<size_t>(2, candidates.size() * 2));
+			auto table = GpuCollisionExclusionTable{
+				.m_slots = std::vector<GpuCollisionExclusion>(table_size),
+			};
+			auto const mask = table.Mask();
+			for (auto const& candidate : candidates)
+			{
+				auto slot = CollisionExclusionHash(candidate.body_idx_a_plus_one, candidate.body_idx_b_plus_one) & mask;
+				for (;; slot = (slot + 1U) & mask)
+				{
+					auto& entry = table.m_slots[slot];
+					if (entry.body_idx_a_plus_one == candidate.body_idx_a_plus_one &&
+						entry.body_idx_b_plus_one == candidate.body_idx_b_plus_one)
+						break;
+					if (entry.body_idx_a_plus_one != 0)
+						continue;
+
+					entry = candidate;
+					++table.m_count;
+					break;
+				}
+			}
+			return table;
+		}
 	}
 
 	// Pack persistent descriptors and resolve enabled endpoints into current frame-local rigid-body indices.
 	GpuConstraintUpload PackGpuConstraints(ConstraintSet const& constraints, BodyRemap const& remap)
 	{
 		auto upload = GpuConstraintUpload{
+			.m_source = &constraints,
 			.m_topology_revision = constraints.m_topology_revision,
 			.m_parameter_revision = constraints.m_parameter_revision,
 		};
 		upload.m_endpoints.resize(constraints.m_slots.size());
+		upload.m_endpoint_identities.resize(constraints.m_slots.size());
 		upload.m_descriptors.resize(constraints.m_slots.size());
 
 		// Slot-preserving output lets removed descriptors become disabled tombstones without changing any surviving row or warm-start identity.
@@ -71,12 +144,16 @@ namespace pr::physics
 			}
 
 			auto const& desc = slot.m_desc;
+			upload.m_endpoint_identities[slot_index] = ConstraintEndpointIdentity{
+				.m_body_a = desc.m_frame_a.m_body,
+				.m_body_b = desc.m_frame_b.m_body,
+			};
 			upload.m_descriptors[slot_index] = PackDescriptor(desc);
 			auto flags = desc.m_collide_connected ? GpuConstraintEndpointFlags_CollideConnected : GpuConstraintEndpointFlags_None;
 			if (desc.m_enabled)
 			{
 				flags |= GpuConstraintEndpointFlags_Enabled;
-				++upload.m_active_count;
+				upload.m_active_count += HasSolverRows(desc) ? 1 : 0;
 			}
 
 			// Disabled constraints deliberately do not require their bodies to be submitted until they are re-enabled.
@@ -91,6 +168,7 @@ namespace pr::physics
 				.break_torque = desc.m_break_torque,
 			};
 		}
+		upload.m_collision_exclusions = BuildCollisionExclusions(upload.m_endpoints);
 		return upload;
 	}
 }

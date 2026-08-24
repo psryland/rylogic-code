@@ -24,7 +24,9 @@ namespace pr::physics
 		{
 			double m_new_frame_ms = 0;
 			double m_pack_ms = 0;
+			double m_constraint_pack_ms = 0;
 			double m_upload_ms = 0;
+			double m_constraint_upload_ms = 0;
 			double m_external_forces_ms = 0;
 			double m_integrate_ms = 0;
 			double m_sleepwake_ms = 0;
@@ -138,6 +140,9 @@ namespace pr::physics
 		// GPU collision resolver
 		GpuResolverPtr m_gpu_resolver;
 
+		// Lazily created GPU persistent-constraint solver.
+		GpuConstraintSolverPtr m_gpu_constraint_solver;
+
 		// GPU resolver for compact selective-refresh work sets
 		GpuResolverPtr m_gpu_selective_resolver;
 
@@ -152,12 +157,16 @@ namespace pr::physics
 
 		// State for a BeginStep/CompleteStep pair.
 		PendingStep m_pending_step;
+		bool m_constraints_active;
 
 		// Diagnostics
 		StepProfile m_last_step_profile;
 		CollisionStats m_last_collision_stats;
 		
 		friend struct DbgPhysics;
+
+		// Submit one frame with an optional persistent constraint collection.
+		void BeginStepInternal(float dt, std::span<RigidBody*> bodies, ConstraintSet const* constraints, double time_s);
 
 	public:
 
@@ -172,14 +181,25 @@ namespace pr::physics
 
 		// Evolve the physics objects forward in time and resolve any collisions.
 		void Step(float dt, std::span<RigidBody*> bodies, double time_s = 0.0);
+
+		// Evolve bodies with persistent constraints; every enabled rigid endpoint must occur in 'bodies'.
+		void Step(float dt, std::span<RigidBody*> bodies, ConstraintSet const& constraints, double time_s = 0.0);
 		void Step(float dt, RigidBodyRange auto&& bodies, double time_s = 0.0)
 		{
 			BeginStep(dt, bodies, time_s);
 			CompleteStep();
 		}
+		void Step(float dt, RigidBodyRange auto&& bodies, ConstraintSet const& constraints, double time_s = 0.0)
+		{
+			BeginStep(dt, bodies, constraints, time_s);
+			CompleteStep();
+		}
 
 		// Begin evolving the physics objects by submitting GPU work without waiting for it to finish.
 		void BeginStep(float dt, std::span<RigidBody*> bodies, double time_s = 0.0);
+
+		// Submit constrained work without waiting; every enabled rigid endpoint must occur in 'bodies' until completion.
+		void BeginStep(float dt, std::span<RigidBody*> bodies, ConstraintSet const& constraints, double time_s = 0.0);
 		void BeginStep(float dt, RigidBodyRange auto&& bodies, double time_s = 0.0)
 		{
 			if (m_pending_step.m_active)
@@ -187,6 +207,14 @@ namespace pr::physics
 
 			m_pending_step.AssignBodies(bodies);
 			BeginStep(dt, std::span{ m_pending_step.m_bodies }, time_s);
+		}
+		void BeginStep(float dt, RigidBodyRange auto&& bodies, ConstraintSet const& constraints, double time_s = 0.0)
+		{
+			if (m_pending_step.m_active)
+				throw std::runtime_error("Engine::BeginStep called while a previous step is pending");
+
+			m_pending_step.AssignBodies(bodies);
+			BeginStep(dt, std::span{ m_pending_step.m_bodies }, constraints, time_s);
 		}
 
 		// Complete a previously-begun step and unpack the GPU results into the caller-owned bodies.
@@ -257,8 +285,8 @@ namespace pr::physics
 		// Mark sleeping islands disturbed by awake bodies before broadphase filtering.
 		void SleepWake();
 
-		// Broadphase collision detection to generate potential collision pairs.
-		void BroadPhase(bool sleeping_enabled);
+		// Broadphase collision detection with optional connected-body pair suppression.
+		void BroadPhase(bool sleeping_enabled, std::span<GpuCollisionExclusion const> collision_exclusions = {});
 
 		// Narrow phase collision detection to generate contact points.
 		void Collide();

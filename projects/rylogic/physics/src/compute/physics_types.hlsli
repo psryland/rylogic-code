@@ -308,6 +308,14 @@ struct GpuConstraintEndpoint
 	uint pad1;
 };
 
+// One canonical body pair in the open-addressed connected-body collision-exclusion table.
+// Body indices are stored plus one so {0,0} remains the empty-slot sentinel.
+struct GpuCollisionExclusion
+{
+	uint body_idx_a_plus_one;
+	uint body_idx_b_plus_one;
+};
+
 // Runtime block state written by the GPU row compiler and retained for warm-start continuity.
 struct GpuConstraintBlock
 {
@@ -329,7 +337,14 @@ struct GpuConstraintRow
 	float4 jacobian_b_ang;
 	float4 jacobian_b_lin;
 	float4 solve;  // {position_error, target_velocity, bias, gamma}
-	float4 bounds; // {lower_impulse, upper_impulse, accumulated_impulse, reserved}
+	float4 bounds; // {lower_impulse, upper_impulse, physical_impulse, pseudo_impulse}
+};
+
+// Per-body pseudo twist accumulated by split correction without changing physical momentum.
+struct GpuConstraintPseudoVelocity
+{
+	float4 angular_velocity;
+	float4 linear_velocity;
 };
 struct GpuCollisionCounters
 {

@@ -8,11 +8,37 @@
 
 namespace pr::physics
 {
+	// Open-addressed GPU hash table for enabled constrained body pairs whose mutual collisions are disabled.
+	struct GpuCollisionExclusionTable
+	{
+		std::vector<GpuCollisionExclusion> m_slots;
+		size_t m_count = 0;
+
+		// The power-of-two table mask, or zero when the table is empty.
+		uint32_t Mask() const
+		{
+			return m_slots.empty() ? 0U : s_cast<uint32_t>(m_slots.size() - 1);
+		}
+	};
+
+	// Stable host-side endpoint identities used to invalidate only the warm-start rows whose connected bodies changed.
+	struct ConstraintEndpointIdentity
+	{
+		BodyRef m_body_a;
+		BodyRef m_body_b;
+
+		// Compare the stable identities of both endpoints.
+		friend bool operator==(ConstraintEndpointIdentity const&, ConstraintEndpointIdentity const&) = default;
+	};
+
 	// Sparse stable-slot streams used to upload persistent D6 descriptors and frame-local endpoint remaps.
 	struct GpuConstraintUpload
 	{
+		ConstraintSet const* m_source = nullptr;
 		std::vector<GpuConstraintEndpoint> m_endpoints;
+		std::vector<ConstraintEndpointIdentity> m_endpoint_identities;
 		std::vector<GpuD6ConstraintDesc> m_descriptors;
+		GpuCollisionExclusionTable m_collision_exclusions;
 		size_t m_active_count = 0;
 		uint64_t m_topology_revision = 0;
 		uint64_t m_parameter_revision = 0;

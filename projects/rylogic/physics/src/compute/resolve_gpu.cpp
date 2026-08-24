@@ -4,6 +4,7 @@
 //*********************************************
 #include "pr/physics/integrator/engine_config.h"
 #include "src/compute/resolve_gpu.h"
+#include "src/compute/constraint_solver_gpu.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/shader_code.h"
 
@@ -270,7 +271,7 @@ namespace pr::physics
 	}
 
 	// Resolve collisions on the GPU using graph-coloured batches.
-	void GpuResolver::Resolve(GpuJob& job, float dt, int body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale, int solver_iterations_, int push_out_iterations, float restitution_scale, bool support_only)
+	void GpuResolver::Resolve(GpuJob& job, float dt, int body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale, int solver_iterations_, int push_out_iterations, float restitution_scale, bool support_only, GpuConstraintSolver* constraint_solver)
 	{
 		auto material_count = static_cast<int>(materials.size());
 		pix::BeginEvent(job.m_cmd_list.get(), 0xFF6799Ab, "Physics::Resolve");
@@ -500,6 +501,10 @@ namespace pr::physics
 			job.m_barriers.Commit();
 		}
 
+		// Compile and independently colour persistent D6 blocks after integration has produced the current body transforms.
+		if (constraint_solver != nullptr)
+			constraint_solver->Prepare(job, dt, body_count, bodies);
+
 		// Apply cached physical impulses before the iterative solves so resting stacks start close to last frame's support solution.
 		if (m_config.warm_start_scale > 0.0f)
 		{
@@ -513,23 +518,33 @@ namespace pr::physics
 			}
 			cb_resolve.colour = 0;
 		}
+		if (constraint_solver != nullptr)
+			constraint_solver->ApplyWarmStart(job, dt, body_count, bodies);
 
 		// Split position correction in colour batches.
 		if (push_out_steps != 0)
 		{
 			// The contact depths are from the collision pass, so the correction is split
 			// across iterations rather than re-applying the full depth each sweep.
-			job.m_cmd_list.SetPipelineState(m_cs_position_solve.m_pso.get());
-			job.m_cmd_list.SetComputeRootSignature(m_cs_position_solve.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
-			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
+			auto bind_position_solve = [&]
+			{
+				job.m_cmd_list.SetPipelineState(m_cs_position_solve.m_pso.get());
+				job.m_cmd_list.SetComputeRootSignature(m_cs_position_solve.m_sig.get());
+				job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
+				job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
+			};
+			bind_position_solve();
 
 			for (int iter = 0; iter != push_out_steps; ++iter)
 			{
+				// A preceding constraint sweep leaves its root signature active, so restore every contact root binding before resuming.
+				if (iter != 0 && constraint_solver != nullptr)
+					bind_position_solve();
+
 				for (int colour = 0; colour != MaxColours; ++colour)
 				{
 					cb_resolve.colour = colour;
@@ -539,27 +554,39 @@ namespace pr::physics
 					job.m_barriers.UAV(bodies.get());
 					job.m_barriers.Commit();
 				}
+				if (constraint_solver != nullptr)
+					constraint_solver->SolvePositionIteration(job, dt, body_count, push_out_steps, bodies);
 			}
 			cb_resolve.colour = 0;
 		}
+		if (constraint_solver != nullptr)
+			constraint_solver->ApplyPosition(job, dt, body_count, push_out_steps, bodies);
 
 		// Velocity resolve each colour batch.
 		{
 			// Multiple solver iterations (Gauss-Seidel) allow stacked contacts to converge.
 			// Each iteration sweeps all colour batches, re-reading body momenta updated by prior contacts.
 			// The energy guard in CSResolve prevents energy injection across iterations.
-			job.m_cmd_list.SetPipelineState(m_cs_resolve.m_pso.get());
-			job.m_cmd_list.SetComputeRootSignature(m_cs_resolve.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
-			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_materials->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
+			auto bind_velocity_solve = [&]
+			{
+				job.m_cmd_list.SetPipelineState(m_cs_resolve.m_pso.get());
+				job.m_cmd_list.SetComputeRootSignature(m_cs_resolve.m_sig.get());
+				job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
+				job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootShaderResourceView(m_r_materials->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
+			};
+			bind_velocity_solve();
 
 			for (int iter = 0; iter != solver_iterations; ++iter)
 			{
+				// Constraint velocity sweeps use a separate root layout and require the contact table to be rebound on the next outer sweep.
+				if (iter != 0 && constraint_solver != nullptr)
+					bind_velocity_solve();
+
 				for (int colour = 0; colour != MaxColours; ++colour)
 				{
 					cb_resolve.colour = colour;
@@ -569,6 +596,8 @@ namespace pr::physics
 					job.m_barriers.UAV(bodies.get());
 					job.m_barriers.Commit();
 				}
+				if (constraint_solver != nullptr)
+					constraint_solver->SolveVelocityIteration(job, dt, body_count, bodies);
 			}
 			cb_resolve.colour = 0;
 		}

@@ -27,6 +27,7 @@ namespace pr::physics::shader_code
 
 	// Broadphase sort-and-sweep
 	extern ByteCode const sweep;
+	extern ByteCode const sweep_filtered;
 	extern ByteCode const calc_cd_dispatch;
 
 	// Narrowphase collision detection
@@ -63,6 +64,15 @@ namespace pr::physics::shader_code
 	extern ByteCode const store_warm_start;
 	extern ByteCode const position_solve;
 	extern ByteCode const resolve;
+
+	// Persistent rigid constraints
+	extern ByteCode const compile_constraints;
+	extern ByteCode const assign_constraint_colours;
+	extern ByteCode const apply_constraint_warm_start;
+	extern ByteCode const clear_constraint_pseudo_velocity;
+	extern ByteCode const solve_constraint_position;
+	extern ByteCode const apply_constraint_position;
+	extern ByteCode const solve_constraint_velocity;
 
 	// Selective refresh
 	extern ByteCode const prepare_selective_refresh;
