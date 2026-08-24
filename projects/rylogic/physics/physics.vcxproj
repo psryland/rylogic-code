@@ -128,6 +128,7 @@
     <ClCompile Include="src\articulation\articulation_dynamics.cpp" />
     <ClCompile Include="src\articulation\articulation_integrator.cpp" />
     <ClCompile Include="src\articulation\articulation_kinematics.cpp" />
+    <ClCompile Include="src\articulation\articulation_gpu_data.cpp" />
     <ClCompile Include="src\buoyancy\gpu_buoyancy.cpp" />
     <ClCompile Include="src\collision\broadphase_brute.cpp" />
     <ClCompile Include="src\collision\contact.cpp" />
@@ -182,6 +183,7 @@
     <ClInclude Include="..\..\..\include\pr\physics\rigid_body\sleep_data.h" />
     <ClInclude Include="src\buoyancy\buoyancy_analytical.h" />
     <ClInclude Include="src\articulation\articulation_internal.h" />
+    <ClInclude Include="src\articulation\articulation_gpu_data.h" />
     <ClInclude Include="src\collision\shape_cache.h" />
     <ClInclude Include="src\constraint\constraint_compiler.h" />
     <ClInclude Include="src\constraint\constraint_gpu.h" />

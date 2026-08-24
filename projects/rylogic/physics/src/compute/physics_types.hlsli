@@ -17,11 +17,18 @@ static const int SweepThreadCount = 64;
 static const int CollideThreadCount = 32;
 static const int ResolveThreadCount = 64;
 static const int ConstraintThreadCount = 64;
+static const int ArticulationThreadCount = 64;
 static const int SelectiveRefreshThreadCount = 64;
 static const int FrameOutputThreadCount = 64;
 static const int MaxColours = 32;
 static const int GpuContactMaxPoints = 4;
 static const int GpuConstraintRowsPerBlock = 6;
+
+// GPU articulation enum values mirror their public CPU counterparts without exposing C++ enum types to HLSL.
+static const int GpuArticulationRootType_Fixed = 0;
+static const int GpuArticulationRootType_Floating = 1;
+static const int GpuArticulationAxisType_Revolute = 0;
+static const int GpuArticulationAxisType_Prismatic = 1;
 
 // GPU constraint endpoint flags:
 static const uint GpuConstraintEndpointFlags_None = 0;
@@ -360,6 +367,68 @@ struct GpuFrameForce
 {
 	float4 force_ang;
 	float4 force_lin;
+};
+
+// One reduced-coordinate tree and its contiguous ranges in the packed articulation buffers.
+struct GpuArticulation
+{
+	uint identity_low;
+	uint identity_high;
+	int link_offset;
+	int link_count;
+
+	int position_offset;
+	int position_count;
+	int velocity_offset;
+	int velocity_count;
+
+	int dof_offset;
+	int dof_count;
+	int root_type;
+	int max_depth;
+
+	GpuConstraintFrame root_to_world;
+};
+
+// Immutable topology, joint frames, and compact physical inertia for one articulation link.
+struct GpuArticulationLink
+{
+	int parent_link_index;
+	int articulation_index;
+	int position_offset;
+	int velocity_offset;
+
+	int dof_offset;
+	int dof_count;
+	int child_offset;
+	int child_count;
+
+	int proxy_body_index;
+	int depth;
+	int pad0;
+	int pad1;
+
+	GpuConstraintFrame joint_to_parent;
+	GpuConstraintFrame joint_to_child;
+
+	float4 inertia_diagonal;
+	float4 inertia_products;
+	float4 inertia_com_and_mass;
+};
+
+// One ordered scalar screw axis; xyz is a unit direction and w stores the exact integer axis type.
+struct GpuArticulationDof
+{
+	float4 axis_and_type;
+};
+
+// One breadth level in the shared outward schedule; reversing the levels gives the inward order.
+struct GpuArticulationLevel
+{
+	int depth;
+	int link_offset;
+	int link_count;
+	int pad0;
 };
 
 // Aggregate counters and bounded-event status copied back once after all internal substeps.

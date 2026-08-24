@@ -6,6 +6,7 @@
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_dynamics_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_conservation_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_effective_mass_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_gpu_data_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)buoyancy_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)buoyancy_sampler_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)collision_pairs_tests.cpp" />

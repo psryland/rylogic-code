@@ -37,11 +37,43 @@ namespace pr::physics
 	static_assert(sizeof(GpuConstraintPseudoVelocity) == 32);
 	static_assert((sizeof(GpuCollisionCounters) & 0xf) == 0);
 	static_assert(sizeof(GpuFrameForce) == 32);
+	static_assert(sizeof(GpuArticulation) == 80);
+	static_assert(sizeof(GpuArticulationLink) == 160);
+	static_assert(sizeof(GpuArticulationDof) == 16);
+	static_assert(sizeof(GpuArticulationLevel) == 16);
 	static_assert(sizeof(GpuFrameOutputHeader) == 64);
 	static_assert(sizeof(GpuSubstepOutputState) == 16);
 	static_assert(sizeof(GpuCollisionEvent) == sizeof(GpuResolveContact) + 16);
 	static_assert((sizeof(GpuSelectiveRefreshMetrics) & 0xf) == 0);
 	static_assert((sizeof(GpuMaterial) & 0xf) == 0);
+
+	// Convert a rigid transform to the quaternion-and-position representation shared by GPU descriptors.
+	inline GpuConstraintFrame PackGpuTransform(m4x4 const& transform)
+	{
+		auto const rotation = ToQuat<quat>(transform.rot);
+		return GpuConstraintFrame{
+			.rotation = float4{rotation.x, rotation.y, rotation.z, rotation.w},
+			.position = transform.pos,
+		};
+	}
+
+	// Reconstruct a rigid transform from the representation shared by GPU descriptors.
+	inline m4x4 UnpackGpuTransform(GpuConstraintFrame const& transform)
+	{
+		auto const rotation = quat{
+			transform.rotation.x,
+			transform.rotation.y,
+			transform.rotation.z,
+			transform.rotation.w,
+		};
+		auto position = v4{
+			transform.position.x,
+			transform.position.y,
+			transform.position.z,
+			1.0f,
+		};
+		return m4x4{ToMatrix<m3x3>(rotation), position};
+	}
 
 	// Convert CPU collision shapes into the flat GPU format.
 	inline GpuShape PackShape(collision::ShapeSphere const& shape, m4x4 const& p2rb = m4x4::Identity())

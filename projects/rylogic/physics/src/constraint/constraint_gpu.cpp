@@ -9,16 +9,6 @@ namespace pr::physics
 {
 	namespace
 	{
-		// Convert an endpoint-local matrix to the compact quaternion-and-position GPU representation.
-		GpuConstraintFrame PackFrame(m4x4 const& constraint_to_body)
-		{
-			auto const rotation = ToQuat<quat>(constraint_to_body.rot);
-			return GpuConstraintFrame{
-				.rotation = float4{rotation.x, rotation.y, rotation.z, rotation.w},
-				.position = constraint_to_body.pos,
-			};
-		}
-
 		// Convert one public D6 axis descriptor without changing its canonical enum values.
 		GpuConstraintAxisDesc PackAxis(ConstraintAxisDesc const& axis)
 		{
@@ -38,8 +28,8 @@ namespace pr::physics
 		GpuD6ConstraintDesc PackDescriptor(D6ConstraintDesc const& desc)
 		{
 			auto packed = GpuD6ConstraintDesc{
-				.frame_a = PackFrame(desc.m_frame_a.m_constraint_to_body),
-				.frame_b = PackFrame(desc.m_frame_b.m_constraint_to_body),
+				.frame_a = PackGpuTransform(desc.m_frame_a.m_constraint_to_body),
+				.frame_b = PackGpuTransform(desc.m_frame_b.m_constraint_to_body),
 			};
 			for (int axis = 0; axis != 3; ++axis)
 			{
