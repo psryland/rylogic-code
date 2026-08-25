@@ -13,6 +13,7 @@ namespace pr::physics
 	struct GpuArticulationMobility;
 	struct GpuArticulationImpulseAba;
 	struct GpuArticulationLinkProxies;
+	struct GpuCoupledConstraintPrepare;
 
 	// Observable allocation and dispatch state for validating the optional articulation lane.
 	struct GpuArticulationForceAbaStats
@@ -58,6 +59,7 @@ namespace pr::physics
 		friend GpuArticulationMobility;
 		friend GpuArticulationImpulseAba;
 		friend GpuArticulationLinkProxies;
+		friend GpuCoupledConstraintPrepare;
 
 		Gpu& m_gpu;
 		ComputeStep m_cs_prepare;

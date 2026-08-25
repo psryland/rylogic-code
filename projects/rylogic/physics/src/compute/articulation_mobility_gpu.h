@@ -9,6 +9,7 @@
 namespace pr::physics
 {
 	struct GpuArticulationImpulseAba;
+struct GpuCoupledConstraintPrepare;
 
 	// Observable resource and dispatch costs for the optional articulation self-link mobility lane.
 	struct GpuArticulationMobilityStats
@@ -40,6 +41,7 @@ namespace pr::physics
 	{
 	private:
 		friend GpuArticulationImpulseAba;
+		friend GpuCoupledConstraintPrepare;
 
 		GpuArticulationForceAba& m_aba;
 		ComputeStep m_cs_prepare;

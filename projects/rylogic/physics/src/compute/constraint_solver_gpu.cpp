@@ -126,12 +126,9 @@ namespace pr::physics
 		return true;
 	}
 
-	// Upload frame-local endpoints and changed persistent descriptors, returning whether solver work is active.
+	// Upload shared frame-local endpoints and changed persistent descriptors, returning whether independent rigid work is active.
 	bool GpuConstraintSolver::Upload(GpuJob& job, GpuConstraintUpload const& upload)
 	{
-		if (upload.m_coupled_active_count != 0)
-			throw std::logic_error("The rigid GPU constraint solver cannot process articulation-link constraints");
-
 		m_slot_count = static_cast<int>(upload.m_endpoints.size());
 		m_active_count = static_cast<int>(upload.m_rigid_active_count);
 		if (m_slot_count == 0)

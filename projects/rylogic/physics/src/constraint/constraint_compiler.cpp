@@ -295,6 +295,15 @@ namespace pr::physics
 		return *m_articulations[index];
 	}
 
+	// Return one articulation's first index in the packed forest-wide link stream.
+	int BodyRemap::ArticulationLinkOffset(int index) const
+	{
+		if (index < 0 || index >= isize(m_articulation_link_offsets))
+			throw std::out_of_range("Remapped articulation index is out of range");
+
+		return m_articulation_link_offsets[index] - BodyCount();
+	}
+
 	// Return the number of remapped rigid bodies.
 	int BodyRemap::BodyCount() const
 	{

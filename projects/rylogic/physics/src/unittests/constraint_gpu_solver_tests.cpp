@@ -308,6 +308,37 @@ namespace pr::physics::tests
 			PR_EXPECT(runner.Rows()[0].bounds.z == 0.0f);
 		}
 
+		// Leave coupled runtime storage exclusively owned by its compiler even when a descriptor change requests warm-start reset.
+		PRUnitTestMethod(RigidCompilerNeverMutatesCoupledSlots, Quick)
+		{
+			auto body = MakeConstraintGpuBody();
+			auto constraints = ConstraintSet{};
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body);
+			desc.m_frame_b.m_body = BodyRef::World();
+			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+			auto runner = ConstraintInteropRunner{};
+			auto buffers = ConstraintRunnerBuffers{1.0f / 60.0f, bodies, upload.m_endpoints, upload.m_descriptors};
+			runner.Load(buffers);
+			runner.CompileConstraints();
+			auto const block_before = runner.Blocks()[0];
+			auto rows_before = std::array<GpuConstraintRow, GpuConstraintRowsPerBlock>{};
+			std::copy_n(runner.Rows().begin(), rows_before.size(), rows_before.begin());
+
+			auto coupled_endpoints = upload.m_endpoints;
+			coupled_endpoints[0].flags |= GpuConstraintEndpointFlags_Coupled | GpuConstraintEndpointFlags_ResetWarmStart;
+			buffers.m_endpoints = coupled_endpoints;
+			runner.Load(buffers);
+			runner.CompileConstraints();
+
+			PR_EXPECT(std::memcmp(&runner.Blocks()[0], &block_before, sizeof(block_before)) == 0);
+			PR_EXPECT(std::memcmp(runner.Rows().data(), rows_before.data(), sizeof(rows_before)) == 0);
+		}
+
 		// Convert force caps to timestep-scaled impulse bounds and reject invalid timesteps before mutation.
 		PRUnitTestMethod(TimestepAndForceBoundsRemainFinite, Quick)
 		{
@@ -705,8 +736,8 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(body.MomentumWS().lin, momentum_before.lin, 1.0e-6f));
 		}
 
-		// Reject coupled work before staging an Engine step or uploading it to the rigid-only GPU solver.
-		PRUnitTestMethod(CoupledConstraintsCannotEnterRigidSolver, Quick)
+		// Stage shared coupled metadata without rigid work while retaining the Engine boundary until the coupled sweeps are wired.
+		PRUnitTestMethod(CoupledConstraintsUseSharedGpuStorage, Quick)
 		{
 			auto [articulation, child] = MakeConstraintGpuArticulation();
 			auto desc = D6ConstraintDesc{};
@@ -719,7 +750,8 @@ namespace pr::physics::tests
 			auto const upload = PackGpuConstraints(constraints, BodyRemap({}, articulation_ptrs));
 
 			auto solver = GpuConstraintSolver{ConstraintTestGpu(), EngineConfig{}};
-			PR_THROWS(solver.Upload(ConstraintTestGpu().m_job, upload), std::logic_error);
+			PR_EXPECT(!solver.Upload(ConstraintTestGpu().m_job, upload));
+			ConstraintTestGpu().m_job.Run();
 
 			auto& engine = SharedEngine();
 			ResetEngineForNextTest(engine);

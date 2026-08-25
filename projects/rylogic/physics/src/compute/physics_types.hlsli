@@ -41,6 +41,11 @@ static const uint GpuConstraintEndpointFlags_CollideConnected = 1 << 1;
 static const uint GpuConstraintEndpointFlags_ResetWarmStart = 1 << 2;
 static const uint GpuConstraintEndpointFlags_Coupled = 1 << 3;
 
+// GPU runtime constraint-block flags shared by rigid and articulation-coupled lanes.
+static const uint ConstraintBlockFlags_Active = 1u << 0;
+static const uint ConstraintBlockFlags_ResetWarmStart = 1u << 1;
+static const uint ConstraintBlockFlags_CoupledPreconditionerValid = 1u << 2;
+
 // GPU constraint axis modes mirror EConstraintAxisMode without exposing the public enum to HLSL.
 static const int GpuConstraintAxisMode_Free = 0;
 static const int GpuConstraintAxisMode_Locked = 1;
@@ -321,13 +326,18 @@ struct GpuConstraintEndpoint
 	uint pad1;
 };
 
-// Optional articulation ownership for one stable constraint slot; negative indices identify non-link endpoints.
+// Optional articulation ownership and compact mobility addressing for one stable constraint slot; negative indices identify non-link endpoints.
 struct GpuCoupledConstraintEndpoint
 {
 	int articulation_idx_a;
 	int link_idx_a;
+	int mobility_idx_a;
+	int root_link_idx_a;
+
 	int articulation_idx_b;
 	int link_idx_b;
+	int mobility_idx_b;
+	int root_link_idx_b;
 };
 
 // One canonical body pair in the open-addressed connected-body collision-exclusion table.
@@ -351,7 +361,7 @@ struct GpuConstraintBlock
 	uint pad0;
 };
 
-// Runtime scalar row. Jacobians use world-space [angular,linear] endpoint wrenches.
+// Runtime scalar row. Rigid Jacobians are world-space wrenches; articulation Jacobians use link coordinates at the link origin.
 struct GpuConstraintRow
 {
 	float4 jacobian_a_ang;
@@ -360,6 +370,12 @@ struct GpuConstraintRow
 	float4 jacobian_b_lin;
 	float4 solve;  // {position_error, target_velocity, bias, gamma}
 	float4 bounds; // {lower_impulse, upper_impulse, physical_impulse, pseudo_impulse}
+};
+
+// Symmetric inverse of one coupled block's exact-self approximate response, packed as 21 upper-triangular values plus padding.
+struct GpuCoupledConstraintPreconditioner
+{
+	float4 packed[6];
 };
 
 // Per-body pseudo twist accumulated by split correction without changing physical momentum.

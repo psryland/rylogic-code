@@ -135,8 +135,12 @@ namespace pr::physics::tests
 			PR_EXPECT(upload.m_coupled_endpoints.size() == upload.m_endpoints.size());
 			PR_EXPECT(upload.m_coupled_endpoints[handle.m_index].articulation_idx_a == 0);
 			PR_EXPECT(upload.m_coupled_endpoints[handle.m_index].link_idx_a == 1);
+			PR_EXPECT(upload.m_coupled_endpoints[handle.m_index].mobility_idx_a == 1);
+			PR_EXPECT(upload.m_coupled_endpoints[handle.m_index].root_link_idx_a == 0);
 			PR_EXPECT(upload.m_coupled_endpoints[handle.m_index].articulation_idx_b == -1);
 			PR_EXPECT(upload.m_coupled_endpoints[handle.m_index].link_idx_b == -1);
+			PR_EXPECT(upload.m_coupled_endpoints[handle.m_index].mobility_idx_b == -1);
+			PR_EXPECT(upload.m_coupled_endpoints[handle.m_index].root_link_idx_b == -1);
 			PR_EXPECT(upload.m_coupled_articulation_indices == std::vector<int>{0});
 			PR_EXPECT(upload.m_endpoints[handle.m_index].body_idx_a == 1);
 			PR_EXPECT(upload.m_endpoints[handle.m_index].body_idx_b == -1);

@@ -19,6 +19,7 @@
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_foundation_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_gpu_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_gpu_solver_tests.cpp" />
+		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)coupled_constraint_prepare_gpu_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_oracle.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_oracle_tests.cpp" />
 		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_hybrid_solver_tests.cpp" />

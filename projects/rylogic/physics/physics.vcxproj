@@ -142,6 +142,7 @@
     <ClCompile Include="src\compute\articulation_force_aba_gpu.cpp" />
     <ClCompile Include="src\compute\articulation_mobility_gpu.cpp" />
     <ClCompile Include="src\compute\articulation_impulse_aba_gpu.cpp" />
+    <ClCompile Include="src\compute\coupled_constraint_prepare_gpu.cpp" />
     <ClCompile Include="src\compute\articulation_link_proxies_gpu.cpp" />
     <ClCompile Include="src\compute\articulation_midpoint_gpu.cpp" />
     <ClCompile Include="src\compute\interop\articulation_force_aba_interop_runner.cpp" />
@@ -150,6 +151,7 @@
     <ClCompile Include="src\compute\interop\articulation_midpoint_interop_runner.cpp" />
     <ClCompile Include="src\compute\interop\resolve_interop_runner.cpp" />
     <ClCompile Include="src\compute\interop\constraint_interop_runner.cpp" />
+    <ClCompile Include="src\compute\interop\coupled_constraint_prepare_interop_runner.cpp" />
     <ClCompile Include="src\compute\constraint_solver_gpu.cpp" />
     <ClCompile Include="src\compute\frame_output_gpu.cpp" />
     <ClCompile Include="src\compute\integrate_gpu.cpp" />
@@ -203,6 +205,7 @@
     <ClInclude Include="src\compute\articulation_force_aba_gpu.h" />
     <ClInclude Include="src\compute\articulation_mobility_gpu.h" />
     <ClInclude Include="src\compute\articulation_impulse_aba_gpu.h" />
+    <ClInclude Include="src\compute\coupled_constraint_prepare_gpu.h" />
     <ClInclude Include="src\compute\articulation_link_proxies_gpu.h" />
     <ClInclude Include="src\compute\articulation_midpoint_gpu.h" />
     <ClInclude Include="src\compute\constraint_solver_gpu.h" />
@@ -213,6 +216,7 @@
     <ClInclude Include="src\compute\interop\articulation_midpoint_runner.h" />
     <ClInclude Include="src\compute\interop\resolve_runner.h" />
     <ClInclude Include="src\compute\interop\constraint_runner.h" />
+    <ClInclude Include="src\compute\interop\coupled_constraint_prepare_runner.h" />
     <ClInclude Include="src\compute\integrate_gpu.h" />
     <ClInclude Include="src\compute\physics_types.h" />
     <ClInclude Include="src\compute\resolve_gpu.h" />
@@ -247,6 +251,7 @@
     <ShaderBuild Include="src\compute\collide.hlsl" ComputeEntryPoints="CSClearCollisionBins;CSBinCollisionPairs;CSBuildCollisionBinDispatch;CSCollideSphereVsSphere;CSCollideBoxVsSphere;CSCollideBoxVsBox;CSCollideLineVsSphere;CSCollideLineVsBox;CSCollideLineVsLine;CSCollideTriangleVsSphere;CSCollideTriangleVsBox;CSCollideTriangleVsLine;CSCollideTriangleVsTriangle;CSCollidePolytopeVsSphere;CSCollidePolytopeVsBox;CSCollidePolytopeVsLine;CSCollidePolytopeVsTriangle;CSCollidePolytopeVsPolytope;CSCalcResolveDispatch" />
     <ShaderBuild Include="src\compute\resolve.hlsl" ComputeEntryPoints="CSComputeCollisionTimes;CSClearShockLists;CSSeedShockPriority;CSPropagateShockPriority;CSCommitShockPriority;CSFinalizeShockPriority;CSAssignColours;CSWarmStartClear;CSApplyWarmStart;CSStoreWarmStart;CSPositionSolve;CSResolve" />
     <ShaderBuild Include="src\compute\constraint_solver.hlsl" ComputeEntryPoints="CSCompileConstraints;CSAssignConstraintColours;CSApplyConstraintWarmStart;CSClearConstraintPseudoVelocity;CSSolveConstraintPosition;CSApplyConstraintPosition;CSSolveConstraintVelocity" />
+    <ShaderBuild Include="src\compute\coupled_constraint_prepare.hlsl" ComputeEntryPoints="CSPrepareCoupledConstraints" />
     <ShaderBuild Include="src\compute\articulation_force_aba.hlsl" ComputeEntryPoints="CSArticulationPrepare;CSArticulationInwardDynamics;CSArticulationRootDynamics;CSArticulationOutwardDynamics" />
     <ShaderBuild Include="src\compute\articulation_mobility.hlsl" ComputeEntryPoints="CSArticulationPrepareMobility" />
     <ShaderBuild Include="src\compute\articulation_impulse_aba.hlsl" ComputeEntryPoints="CSArticulationApplyImpulses" />

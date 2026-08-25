@@ -84,6 +84,9 @@ namespace pr::physics
 		// Return a mutable remapped articulation by current packed forest index.
 		Articulation& MutableArticulation(int index) const;
 
+		// Return one articulation's first index in the packed forest-wide link stream.
+		int ArticulationLinkOffset(int index) const;
+
 		// Return the number of remapped rigid bodies.
 		int BodyCount() const;
 

@@ -145,6 +145,7 @@ namespace pr::physics::shader_code
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(solve_constraint_position_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(apply_constraint_position_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(solve_constraint_velocity_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(prepare_coupled_constraints_cs.h)
 	}
 	ByteCode const compile_constraints(compiled::compile_constraints_cs);
 	ByteCode const assign_constraint_colours(compiled::assign_constraint_colours_cs);
@@ -153,6 +154,7 @@ namespace pr::physics::shader_code
 	ByteCode const solve_constraint_position(compiled::solve_constraint_position_cs);
 	ByteCode const apply_constraint_position(compiled::apply_constraint_position_cs);
 	ByteCode const solve_constraint_velocity(compiled::solve_constraint_velocity_cs);
+	ByteCode const prepare_coupled_constraints(compiled::prepare_coupled_constraints_cs);
 
 	// Pure-tree articulation force ABA
 	namespace compiled

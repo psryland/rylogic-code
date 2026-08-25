@@ -60,40 +60,9 @@ RWStructuredBuffer<GpuConstraintRow> resource(g_rows, u2);
 RWStructuredBuffer<uint> resource(g_colour_overflow, u3);
 RWStructuredBuffer<GpuConstraintPseudoVelocity> resource(g_pseudo_velocities, u4);
 
-static const uint ConstraintBlockFlags_Active = 1u << 0;
-static const uint ConstraintBlockFlags_ResetWarmStart = 1u << 1;
-static const uint ConstraintLimitState_Inactive = 0u;
-static const uint ConstraintLimitState_Lower = 1u;
-static const uint ConstraintLimitState_Upper = 2u;
-static const uint ConstraintLimitState_Bilateral = 3u;
-
-// Return an explicitly initialized runtime row in both HLSL and C++ replay builds.
-GpuConstraintRow EmptyConstraintRow()
-{
-	GpuConstraintRow row;
-	row.jacobian_a_ang = float4(0, 0, 0, 0);
-	row.jacobian_a_lin = float4(0, 0, 0, 0);
-	row.jacobian_b_ang = float4(0, 0, 0, 0);
-	row.jacobian_b_lin = float4(0, 0, 0, 0);
-	row.solve = float4(0, 0, 0, 0);
-	row.bounds = float4(0, 0, 0, 0);
-	return row;
-}
-
-// Return an explicitly initialized runtime block in both HLSL and C++ replay builds.
-GpuConstraintBlock EmptyConstraintBlock()
-{
-	GpuConstraintBlock block;
-	block.body_idx_a = -1;
-	block.body_idx_b = -1;
-	block.velocity_mask = 0u;
-	block.position_mask = 0u;
-	block.colour = MaxColours;
-	block.row_states = 0u;
-	block.flags = 0u;
-	block.pad0 = 0u;
-	return block;
-}
+#define PR_CONSTRAINT_SOLVER_OPS_CPP_NAMESPACE constraint_solver_ops_detail
+#include "physics/src/compute/constraint_solver_ops.hlsli"
+#undef PR_CONSTRAINT_SOLVER_OPS_CPP_NAMESPACE
 
 // Return true when a packed body is dynamic and may be mutated by a solve pass.
 bool ConstraintBodyDynamic(int body_idx)
@@ -132,80 +101,6 @@ float4x4 ConstraintFrameToWorld(GpuConstraintFrame frame, int body_idx)
 {
 	float4x4 local = quat_to_float4x4(frame.rotation, frame.position.xyz);
 	return body_idx >= 0 ? mul(local, g_constraint_bodies[body_idx].o2w) : local;
-}
-
-// Return a stable two-bit row state for warm-start identity and impulse-bound selection.
-uint ConstraintRowState(GpuConstraintAxisDesc axis, float position, out_(float) position_error)
-{
-	position_error = 0.0f;
-	switch (axis.mode)
-	{
-		case GpuConstraintAxisMode_Free:
-		{
-			return ConstraintLimitState_Inactive;
-		}
-		case GpuConstraintAxisMode_Locked:
-		{
-			position_error = position - axis.target_position;
-			return ConstraintLimitState_Bilateral;
-		}
-		case GpuConstraintAxisMode_Limited:
-		{
-			if (axis.lower_limit == axis.upper_limit)
-			{
-				position_error = position - axis.lower_limit;
-				return ConstraintLimitState_Bilateral;
-			}
-			if (position <= axis.lower_limit)
-			{
-				position_error = position - axis.lower_limit;
-				return ConstraintLimitState_Lower;
-			}
-			if (position >= axis.upper_limit)
-			{
-				position_error = position - axis.upper_limit;
-				return ConstraintLimitState_Upper;
-			}
-			return ConstraintLimitState_Inactive;
-		}
-		case GpuConstraintAxisMode_Driven:
-		{
-			position_error = position - axis.target_position;
-			return ConstraintLimitState_Bilateral;
-		}
-		default:
-		{
-			return ConstraintLimitState_Inactive;
-		}
-	}
-}
-
-// Intersect a row's unilateral or bilateral state with its per-step force cap.
-float2 ConstraintImpulseBounds(uint state, float max_impulse)
-{
-	switch (state)
-	{
-		case ConstraintLimitState_Inactive:
-		{
-			return float2(0.0f, 0.0f);
-		}
-		case ConstraintLimitState_Lower:
-		{
-			return float2(0.0f, max_impulse);
-		}
-		case ConstraintLimitState_Upper:
-		{
-			return float2(-max_impulse, 0.0f);
-		}
-		case ConstraintLimitState_Bilateral:
-		{
-			return float2(-max_impulse, max_impulse);
-		}
-		default:
-		{
-			return float2(0.0f, 0.0f);
-		}
-	}
 }
 
 // Return a finite scale for a retained physical impulse across ordinary timestep changes.
@@ -308,15 +203,18 @@ void CSCompileConstraints(int3 DTID(dtid))
 	block.body_idx_a = endpoint.body_idx_a;
 	block.body_idx_b = endpoint.body_idx_b;
 
-	// Disabled/tombstone and coupled slots retain their stable allocation but emit no independent rigid-body work.
-	if (!AllSet(endpoint.flags, GpuConstraintEndpointFlags_Enabled) ||
-		AllSet(endpoint.flags, GpuConstraintEndpointFlags_Coupled))
+	// Disabled and tombstone slots discard stale runtime state immediately.
+	if (!AllSet(endpoint.flags, GpuConstraintEndpointFlags_Enabled))
 	{
 		for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
 			g_rows[slot_idx * GpuConstraintRowsPerBlock + axis_idx] = EmptyConstraintRow();
 		g_blocks[slot_idx] = block;
 		return;
 	}
+
+	// The separate coupled compiler exclusively owns link blocks and rows, making preparation order independent of the rigid compiler.
+	if (AllSet(endpoint.flags, GpuConstraintEndpointFlags_Coupled))
+		return;
 
 	bool any_non_free = false;
 	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
@@ -375,6 +273,14 @@ void CSAssignConstraintColours(int3 DTID(dtid))
 	bool overflow = false;
 	for (int slot_idx = 0; slot_idx != g.slot_count; ++slot_idx)
 	{
+		if (AllSet(g_endpoints[slot_idx].flags, GpuConstraintEndpointFlags_Coupled))
+		{
+			GpuConstraintBlock coupled_block = g_blocks[slot_idx];
+			coupled_block.colour = MaxColours;
+			g_blocks[slot_idx] = coupled_block;
+			continue;
+		}
+
 		GpuConstraintBlock block = g_blocks[slot_idx];
 		if (!AllSet(block.flags, ConstraintBlockFlags_Active) || block.velocity_mask == 0u)
 		{
@@ -449,6 +355,9 @@ void ApplyConstraintRowImpulse(GpuConstraintBlock block, GpuConstraintRow row, f
 // Apply all retained physical impulses for one block.
 void ApplyConstraintBlockWarmStart(uint slot_idx)
 {
+	if (AllSet(g_endpoints[slot_idx].flags, GpuConstraintEndpointFlags_Coupled))
+		return;
+
 	GpuConstraintBlock block = g_blocks[slot_idx];
 	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
 	{
@@ -524,66 +433,6 @@ float ConstraintResponse(GpuConstraintBlock block, GpuConstraintRow lhs, GpuCons
 	return response;
 }
 
-// Invert a dense matrix of at most six rows using fixed-order deterministic pivoting.
-bool InvertConstraintMatrix(float matrix[36], int dimension, float pivot_tolerance, arrayout_(float, inverse, 36))
-{
-	float augmented[72];
-	for (int idx = 0; idx != 72; ++idx)
-		augmented[idx] = 0.0f;
-	for (int row = 0; row != dimension; ++row)
-	{
-		for (int column = 0; column != dimension; ++column)
-			augmented[row * 12 + column] = matrix[row * 6 + column];
-		augmented[row * 12 + 6 + row] = 1.0f;
-	}
-
-	for (int pivot_column = 0; pivot_column != dimension; ++pivot_column)
-	{
-		int pivot_row = pivot_column;
-		float pivot_size = abs(augmented[pivot_row * 12 + pivot_column]);
-		for (int row = pivot_column + 1; row != dimension; ++row)
-		{
-			float candidate = abs(augmented[row * 12 + pivot_column]);
-			if (candidate > pivot_size)
-			{
-				pivot_row = row;
-				pivot_size = candidate;
-			}
-		}
-		if (!(pivot_size > pivot_tolerance))
-			return false;
-
-		if (pivot_row != pivot_column)
-		{
-			for (int column = 0; column != 12; ++column)
-			{
-				float temporary = augmented[pivot_column * 12 + column];
-				augmented[pivot_column * 12 + column] = augmented[pivot_row * 12 + column];
-				augmented[pivot_row * 12 + column] = temporary;
-			}
-		}
-
-		float pivot = augmented[pivot_column * 12 + pivot_column];
-		for (int column = 0; column != 12; ++column)
-			augmented[pivot_column * 12 + column] /= pivot;
-
-		for (int row = 0; row != dimension; ++row)
-		{
-			if (row == pivot_column)
-				continue;
-
-			float factor = augmented[row * 12 + pivot_column];
-			for (int column = 0; column != 12; ++column)
-				augmented[row * 12 + column] -= factor * augmented[pivot_column * 12 + column];
-		}
-	}
-
-	for (int row = 0; row != dimension; ++row)
-		for (int column = 0; column != dimension; ++column)
-			inverse[row * 6 + column] = augmented[row * 12 + 6 + column];
-	return true;
-}
-
 // Build and invert the active block response, regularizing only a singular nonzero matrix.
 bool PrepareConstraintInverse(uint slot_idx, uint active_mask, bool physical_solve, arrayout_(uint, active_axes, 6), out_(int) row_count, arrayout_(float, inverse, 36))
 {
@@ -627,6 +476,9 @@ bool PrepareConstraintInverse(uint slot_idx, uint active_mask, bool physical_sol
 // Solve one warm-started physical D6 block and commit finite projected impulses immediately.
 void SolveConstraintVelocityBlock(uint slot_idx)
 {
+	if (AllSet(g_endpoints[slot_idx].flags, GpuConstraintEndpointFlags_Coupled))
+		return;
+
 	GpuConstraintBlock block = g_blocks[slot_idx];
 	uint active_axes[6];
 	int row_count;
@@ -728,6 +580,9 @@ void ApplyConstraintRowPseudoImpulse(GpuConstraintBlock block, GpuConstraintRow 
 // Solve one hard passive position block against the accumulated split pseudo-twist.
 void SolveConstraintPositionBlock(uint slot_idx)
 {
+	if (AllSet(g_endpoints[slot_idx].flags, GpuConstraintEndpointFlags_Coupled))
+		return;
+
 	GpuConstraintBlock block = g_blocks[slot_idx];
 	uint active_axes[6];
 	int row_count;

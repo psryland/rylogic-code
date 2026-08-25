@@ -9,10 +9,13 @@
 
 namespace pr::physics
 {
+	struct GpuCoupledConstraintPrepare;
+
 	// Lazily allocated GPU lane for persistent rigid D6 constraints.
 	struct GpuConstraintSolver
 	{
 	private:
+		friend GpuCoupledConstraintPrepare;
 
 		Gpu& m_gpu;
 		EngineConfig const& m_config;
@@ -45,7 +48,7 @@ namespace pr::physics
 		// Create pipeline state without allocating feature-dependent buffers.
 		explicit GpuConstraintSolver(Gpu& gpu, EngineConfig const& config);
 
-		// Upload frame-local endpoints and changed persistent descriptors, returning whether solver work is active.
+		// Upload shared frame-local endpoints and changed persistent descriptors, returning whether independent rigid work is active.
 		bool Upload(GpuJob& job, GpuConstraintUpload const& upload);
 
 		// Compile current world-space rows and graph-colour active blocks after body integration.
@@ -63,7 +66,7 @@ namespace pr::physics
 		// Execute one complete coloured physical block-PGS sweep.
 		void SolveVelocityIteration(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies);
 
-		// True when the most recently uploaded set contains enabled persistent constraints.
+		// True when the most recently uploaded set contains enabled independent rigid constraints.
 		bool Active() const;
 
 		// Invalidate retained frame timing when a step does not submit this optional solver lane.

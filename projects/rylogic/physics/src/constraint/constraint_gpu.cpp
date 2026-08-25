@@ -3,6 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
 #include "pr/physics/rigid_body/rigid_body.h"
+#include "pr/physics/articulation/articulation.h"
 #include "src/constraint/constraint_gpu.h"
 
 namespace pr::physics
@@ -185,7 +186,16 @@ namespace pr::physics
 			if (coupled && desc.m_enabled && HasSolverRows(desc))
 			{
 				if (coupled_endpoints.empty())
-					coupled_endpoints.resize(constraints.m_slots.size(), GpuCoupledConstraintEndpoint{-1, -1, -1, -1});
+					coupled_endpoints.resize(constraints.m_slots.size(), GpuCoupledConstraintEndpoint{
+						.articulation_idx_a = -1,
+						.link_idx_a = -1,
+						.mobility_idx_a = -1,
+						.root_link_idx_a = -1,
+						.articulation_idx_b = -1,
+						.link_idx_b = -1,
+						.mobility_idx_b = -1,
+						.root_link_idx_b = -1,
+					});
 
 				auto& coupled_endpoint = coupled_endpoints[slot_index];
 				if (endpoint_a.IsLink())
@@ -208,6 +218,28 @@ namespace pr::physics
 		for (int articulation_index = 0; articulation_index != remap.ArticulationCount(); ++articulation_index)
 			if (participating_articulations[articulation_index])
 				upload.m_coupled_articulation_indices.push_back(articulation_index);
+
+		// Resolve global link indices into the canonical compact mobility stream once on the CPU so every GPU row remains constant-time.
+		auto mobility_offsets = std::vector<int>(remap.ArticulationCount(), -1);
+		auto mobility_count = 0;
+		for (auto const articulation_index : upload.m_coupled_articulation_indices)
+		{
+			mobility_offsets[articulation_index] = mobility_count;
+			mobility_count += remap.ArticulationBody(articulation_index).LinkCount();
+		}
+		for (auto& endpoint : upload.m_coupled_endpoints)
+		{
+			if (endpoint.articulation_idx_a >= 0)
+			{
+				endpoint.mobility_idx_a = mobility_offsets[endpoint.articulation_idx_a] + endpoint.link_idx_a - remap.ArticulationLinkOffset(endpoint.articulation_idx_a);
+				endpoint.root_link_idx_a = remap.ArticulationLinkOffset(endpoint.articulation_idx_a);
+			}
+			if (endpoint.articulation_idx_b >= 0)
+			{
+				endpoint.mobility_idx_b = mobility_offsets[endpoint.articulation_idx_b] + endpoint.link_idx_b - remap.ArticulationLinkOffset(endpoint.articulation_idx_b);
+				endpoint.root_link_idx_b = remap.ArticulationLinkOffset(endpoint.articulation_idx_b);
+			}
+		}
 
 		upload.m_collision_exclusions = BuildCollisionExclusions(upload.m_endpoints);
 		return upload;
