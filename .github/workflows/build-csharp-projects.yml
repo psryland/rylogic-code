@@ -80,8 +80,9 @@ jobs:
             projects\apps\LDraw\LDraw\LDraw.csproj `
             projects\tests\TestWPF\TestWPF.csproj
 
+      # Match the build configuration so Debug-only local runtime package references stay excluded.
       - name: Restore
-        run: dotnet restore Rylogic.sln
+        run: dotnet restore Rylogic.sln -p:Configuration=Release
 
       - name: Build
         run: dotnet build Rylogic.sln --no-restore -c Release
