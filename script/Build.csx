@@ -175,8 +175,8 @@ public abstract class Managed : Common
 		}
 	}
 
-	// Restore nuget packages
-	public static void DotNetRestore(string sln_or_proj)
+	// Restores managed package references for every configuration that the subsequent build will use.
+	public static void DotNetRestore(string sln_or_proj, IList<string> configs)
 	{
 		if (!BuildOptions.Restore)
 		{
@@ -184,19 +184,21 @@ public abstract class Managed : Common
 			return;
 		}
 
-		// Avoid repeating the same solution restore for each managed package builder.
-		if (m_restored.Contains(sln_or_proj))
-			return;
-
 		// MSBuild restore needs the same discovered Visual Studio environment as compilation.
 		Tools.SetupVcEnvironment();
 
-		// Restore through MSBuild so project and solution imports are evaluated consistently.
-		Console.WriteLine($"Nuget restore: {sln_or_proj}");
-		Tools.Run([UserVars.MSBuild, sln_or_proj, "/t:restore", "/verbosity:minimal", "/nologo"]);
-		//Tools.Run([UserVars.dotnet, "restore", sln_or_proj, "--verbosity", "quiet"])
-		//Tools.Run([UserVars.nuget, "restore", sln_or_proj, "-Verbosity", "quiet"])
-		m_restored.Add(sln_or_proj);
+		// Restore each requested configuration once because conditional package references can differ between Debug and Release.
+		foreach (var config in configs.Distinct(StringComparer.OrdinalIgnoreCase))
+		{
+			var restore_key = $"{sln_or_proj}|{config}";
+			if (m_restored.Contains(restore_key))
+				continue;
+
+			// Restore through MSBuild so project and solution imports are evaluated consistently.
+			Console.WriteLine($"Nuget restore: {sln_or_proj} ({config})");
+			Tools.Run([UserVars.MSBuild, sln_or_proj, "/t:restore", $"/p:Configuration={config}", "/verbosity:minimal", "/nologo"]);
+			m_restored.Add(restore_key);
+		}
 	}
 	private static List<string> m_restored = [];
 }
@@ -459,7 +461,7 @@ public abstract class RylogicAssembly : Managed
 	}
 	public override void Build()
 	{
-		DotNetRestore(RylogicSln);
+		DotNetRestore(RylogicSln, Configs);
 		Tools.MSBuild(RylogicSln, [$"Rylogic\\{ProjName}"], Platforms, Configs);
 	}
 	public override void Deploy()
@@ -751,7 +753,7 @@ public class LDraw : Managed
 
 	public override void Build()
 	{
-		DotNetRestore(RylogicSln);
+		DotNetRestore(RylogicSln, Configs);
 		Tools.MSBuild(RylogicSln, projects: [$"Apps\\LDraw\\{ProjName}", "Apps\\LDraw\\LDrawMcpHost"], platforms: Platforms, configs: Configs);
 	}
 
@@ -962,6 +964,18 @@ void SetupWorkspace(string workspace)
 		return;
 	}
 
+	// Discover only repository project dependencies so managed PackageReference projects remain outside this legacy restore.
+	var projects_dir = IOPath.Combine(workspace, "projects");
+	var package_configs = Directory
+		.EnumerateFiles(projects_dir, "packages.config", SearchOption.AllDirectories)
+		.OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+		.ToArray();
+	if (package_configs.Length == 0)
+	{
+		Console.WriteLine("No packages.config dependencies found.\n");
+		return;
+	}
+
 	// Ensure the repository-local NuGet client exists before restoring packages.config projects.
 	var nuget_exe = IOPath.Combine(workspace, "tools", "nuget", "nuget.exe");
 	if (!File.Exists(nuget_exe))
@@ -970,13 +984,19 @@ void SetupWorkspace(string workspace)
 		var get_nuget = IOPath.Combine(workspace, "tools", "nuget", "_get.ps1");
 		Tools.Run(["pwsh", "-NonInteractive", "-NoProfile", "-File", get_nuget], return_output: false);
 	}
-	if (File.Exists(nuget_exe))
+	if (!File.Exists(nuget_exe))
+		throw new FileNotFoundException("NuGet client download completed without producing the expected executable.", nuget_exe);
+
+	// Restore each legacy dependency file into the shared repository package directory without traversing managed projects.
+	var packages_dir = IOPath.Combine(workspace, "packages");
+	Console.WriteLine("Restoring NuGet packages (packages.config)...");
+	foreach (var package_config in package_configs)
 	{
-		var sln = IOPath.Combine(workspace, "Rylogic.sln");
-		Console.WriteLine("Restoring NuGet packages (packages.config)...");
-		Tools.Run([nuget_exe, "restore", sln, "-Verbosity", "quiet", "-NonInteractive"], return_output: false);
-		Console.WriteLine("");
+		var relative_path = IOPath.GetRelativePath(workspace, package_config);
+		Console.WriteLine($"  Restoring {relative_path}...");
+		Tools.Run([nuget_exe, "restore", package_config, "-PackagesDirectory", packages_dir, "-Verbosity", "quiet", "-NonInteractive"], return_output: false);
 	}
+	Console.WriteLine("");
 }
 
 // Configure shared MSBuild arguments from the parsed command line.
