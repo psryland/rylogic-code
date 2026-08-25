@@ -52,7 +52,7 @@ namespace pr::physics
 			int m_mobility_count;
 			int m_work_count;
 			int m_island_block_count;
-			int m_selection_mode;
+			int m_phase;
 			int m_attempt_index;
 			int m_backtrack_limit;
 			float m_relaxation;
@@ -134,11 +134,13 @@ namespace pr::physics
 		,m_prepare(prepare)
 		,m_impulse_aba(impulse_aba)
 		,m_cs_begin()
-		,m_cs_candidates()
-		,m_cs_gather()
-		,m_cs_select_trees()
-		,m_cs_validate_trees()
-		,m_cs_evaluate_merit()
+		, m_cs_build_warm_start()
+		, m_cs_candidates()
+		, m_cs_gather()
+		, m_cs_select_trees()
+		, m_cs_validate_trees()
+		, m_cs_validate_warm_start()
+		, m_cs_evaluate_merit()
 		,m_cs_commit()
 		,m_cs_finalize_islands()
 		,m_r_block_topology()
@@ -191,6 +193,8 @@ namespace pr::physics
 			.Create(m_gpu, "Physics:CoupledConstraintVelocitySig");
 		m_cs_begin.m_sig = root_sig;
 		m_cs_begin.m_pso = ComputePSO(root_sig.get(), shader_code::begin_coupled_velocity).Create(m_gpu, "Physics:BeginCoupledVelocityPSO");
+		m_cs_build_warm_start.m_sig = root_sig;
+		m_cs_build_warm_start.m_pso = ComputePSO(root_sig.get(), shader_code::build_coupled_velocity_warm_start).Create(m_gpu, "Physics:BuildCoupledVelocityWarmStartPSO");
 		m_cs_candidates.m_sig = root_sig;
 		m_cs_candidates.m_pso = ComputePSO(root_sig.get(), shader_code::build_coupled_velocity_candidates).Create(m_gpu, "Physics:BuildCoupledVelocityCandidatesPSO");
 		m_cs_gather.m_sig = root_sig;
@@ -199,6 +203,8 @@ namespace pr::physics
 		m_cs_select_trees.m_pso = ComputePSO(root_sig.get(), shader_code::select_coupled_velocity_trees).Create(m_gpu, "Physics:SelectCoupledVelocityTreesPSO");
 		m_cs_validate_trees.m_sig = root_sig;
 		m_cs_validate_trees.m_pso = ComputePSO(root_sig.get(), shader_code::validate_coupled_velocity_trees).Create(m_gpu, "Physics:ValidateCoupledVelocityTreesPSO");
+		m_cs_validate_warm_start.m_sig = root_sig;
+		m_cs_validate_warm_start.m_pso = ComputePSO(root_sig.get(), shader_code::validate_coupled_velocity_warm_start).Create(m_gpu, "Physics:ValidateCoupledVelocityWarmStartPSO");
 		m_cs_evaluate_merit.m_sig = root_sig;
 		m_cs_evaluate_merit.m_pso = ComputePSO(root_sig.get(), shader_code::evaluate_coupled_velocity_merit).Create(m_gpu, "Physics:EvaluateCoupledVelocityMeritPSO");
 		m_cs_commit.m_sig = root_sig;
@@ -277,10 +283,35 @@ namespace pr::physics
 		return true;
 	}
 
-	// Execute one fixed-relaxation transactional simultaneous coupled velocity sweep.
+	// Apply projected retained impulses atomically through rigid and complete-tree articulation responses.
+	void GpuCoupledConstraintVelocity::ApplyWarmStart(GpuJob& job, int body_count, ID3D12Resource* bodies)
+	{
+		if (m_source == nullptr || !(m_prepare.m_frame_warm_start_scale > 0.0f))
+			return;
+		if (body_count < 0 || bodies == nullptr)
+			throw std::invalid_argument("Coupled warm start requires a valid rigid-body stream");
+		if (m_impulse_aba.LinkImpulses() == nullptr || m_impulse_aba.Work() == nullptr)
+			throw std::logic_error("Coupled warm start requires prepared articulation impulse resources");
+
+		auto const work_count = std::max({m_slot_count, m_target_count, m_island_count, m_articulation_range_count, m_mobility_count});
+
+		// Retained rows are gathered and evaluated without mutation before complete islands are selected for one commit.
+		Dispatch(job, m_cs_begin, GpuCoupledConstraintPhase_Evaluate, 0, work_count, body_count, bodies);
+		Dispatch(job, m_cs_build_warm_start, GpuCoupledConstraintPhase_Evaluate, 0, m_slot_count, body_count, bodies);
+		Dispatch(job, m_cs_gather, GpuCoupledConstraintPhase_Evaluate, 0, m_target_count, body_count, bodies);
+		Dispatch(job, m_cs_select_trees, GpuCoupledConstraintPhase_Evaluate, 0, m_articulation_range_count, body_count, bodies);
+		m_impulse_aba.Evaluate(job, m_r_tree_selection.get(), m_r_tree_results.get());
+		Dispatch(job, m_cs_validate_trees, GpuCoupledConstraintPhase_Evaluate, 0, m_articulation_range_count, body_count, bodies);
+		Dispatch(job, m_cs_validate_warm_start, GpuCoupledConstraintPhase_Evaluate, 0, m_island_count, body_count, bodies);
+		Dispatch(job, m_cs_select_trees, GpuCoupledConstraintPhase_CommitWarmStart, 0, m_articulation_range_count, body_count, bodies);
+		Dispatch(job, m_cs_commit, GpuCoupledConstraintPhase_CommitWarmStart, 0, work_count, body_count, bodies);
+		m_impulse_aba.Commit(job, m_r_tree_selection.get(), m_r_tree_results.get());
+		Dispatch(job, m_cs_finalize_islands, GpuCoupledConstraintPhase_CommitWarmStart, 0, m_island_count, body_count, bodies);
+	}
+
+	// Execute one bounded-backtracking simultaneous coupled velocity sweep.
 	void GpuCoupledConstraintVelocity::Run(GpuJob& job, int body_count, ID3D12Resource* bodies)
 	{
-		m_stats.m_dispatch_count = 0;
 		if (m_source == nullptr)
 			return;
 		if (body_count < 0 || bodies == nullptr)
@@ -295,22 +326,22 @@ namespace pr::physics
 		auto const work_count = std::max({m_slot_count, m_target_count, m_island_count, m_articulation_range_count, m_mobility_count});
 
 		// Every bounded attempt remains detached; accepted islands become no-ops while pending islands halve relaxation and retry.
-		Dispatch(job, m_cs_begin, 0, 0, work_count, body_count, bodies);
+		Dispatch(job, m_cs_begin, GpuCoupledConstraintPhase_Evaluate, 0, work_count, body_count, bodies);
 		for (int attempt_index = 0; attempt_index != m_config.constraint_coupled_backtrack_limit + 1; ++attempt_index)
 		{
-			Dispatch(job, m_cs_candidates, 0, attempt_index, m_slot_count, body_count, bodies);
-			Dispatch(job, m_cs_gather, 0, attempt_index, m_target_count, body_count, bodies);
-			Dispatch(job, m_cs_select_trees, 0, attempt_index, m_articulation_range_count, body_count, bodies);
+			Dispatch(job, m_cs_candidates, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_slot_count, body_count, bodies);
+			Dispatch(job, m_cs_gather, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_target_count, body_count, bodies);
+			Dispatch(job, m_cs_select_trees, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_articulation_range_count, body_count, bodies);
 			m_impulse_aba.Evaluate(job, m_r_tree_selection.get(), m_r_tree_results.get());
-			Dispatch(job, m_cs_validate_trees, 0, attempt_index, m_articulation_range_count, body_count, bodies);
-			Dispatch(job, m_cs_evaluate_merit, 0, attempt_index, m_island_count, body_count, bodies);
+			Dispatch(job, m_cs_validate_trees, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_articulation_range_count, body_count, bodies);
+			Dispatch(job, m_cs_evaluate_merit, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_island_count, body_count, bodies);
 		}
-		Dispatch(job, m_cs_select_trees, 1, m_config.constraint_coupled_backtrack_limit, m_articulation_range_count, body_count, bodies);
+		Dispatch(job, m_cs_select_trees, GpuCoupledConstraintPhase_CommitVelocity, m_config.constraint_coupled_backtrack_limit, m_articulation_range_count, body_count, bodies);
 
 		// Rigid, row, and articulation state commit under the same accepted island selection.
-		Dispatch(job, m_cs_commit, 1, m_config.constraint_coupled_backtrack_limit, work_count, body_count, bodies);
+		Dispatch(job, m_cs_commit, GpuCoupledConstraintPhase_CommitVelocity, m_config.constraint_coupled_backtrack_limit, work_count, body_count, bodies);
 		m_impulse_aba.Commit(job, m_r_tree_selection.get(), m_r_tree_results.get());
-		Dispatch(job, m_cs_finalize_islands, 1, m_config.constraint_coupled_backtrack_limit, m_island_count, body_count, bodies);
+		Dispatch(job, m_cs_finalize_islands, GpuCoupledConstraintPhase_CommitVelocity, m_config.constraint_coupled_backtrack_limit, m_island_count, body_count, bodies);
 	}
 
 	// Prepare all dependent production lanes and read one coupled sweep through exactly one GPU submission.
@@ -321,7 +352,8 @@ namespace pr::physics
 		GpuArticulationUpload const& articulation_upload,
 		std::span<GpuRigidBody const> bodies,
 		std::span<GpuConstraintFrame const> link_to_world,
-		std::span<GpuCoupledConstraintPreconditioner const> preconditioner_override)
+		std::span<GpuCoupledConstraintPreconditioner const> preconditioner_override,
+		std::span<GpuConstraintRow const> prepared_row_override)
 	{
 		if (!(timestep > 0.0f) || !std::isfinite(timestep))
 			throw std::invalid_argument("Coupled velocity diagnostics require a finite positive timestep");
@@ -355,6 +387,17 @@ namespace pr::physics
 			memcpy(allocation.ptr<GpuCoupledConstraintPreconditioner>(), preconditioner_override.data(), preconditioner_override.size_bytes());
 			job.m_cmd_list.CopyBufferRegion(m_prepare.m_r_preconditioners.get(), 0, allocation);
 		}
+		if (!prepared_row_override.empty())
+		{
+			if (prepared_row_override.size() != static_cast<size_t>(GpuConstraintRowsPerBlock * m_slot_count))
+				throw std::invalid_argument("Coupled velocity prepared-row override must contain six rows per stable slot");
+
+			job.m_barriers.Transition(constraints.m_r_rows.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+			auto allocation = job.m_upload.Alloc<GpuConstraintRow>(isize(prepared_row_override));
+			memcpy(allocation.ptr<GpuConstraintRow>(), prepared_row_override.data(), prepared_row_override.size_bytes());
+			job.m_cmd_list.CopyBufferRegion(constraints.m_r_rows.get(), 0, allocation);
+		}
+		ApplyWarmStart(job, isize(bodies), r_bodies.get());
 		Run(job, isize(bodies), r_bodies.get());
 
 		// Capture all authoritative outputs and transaction diagnostics before the caller's single submission.
@@ -485,7 +528,7 @@ namespace pr::physics
 	void GpuCoupledConstraintVelocity::Dispatch(
 		GpuJob& job,
 		ComputeStep& step,
-		int selection_mode,
+		int phase,
 		int attempt_index,
 		int item_count,
 		int body_count,
@@ -505,7 +548,7 @@ namespace pr::physics
 			.m_mobility_count = m_mobility_count,
 			.m_work_count = std::max({m_slot_count, m_target_count, m_island_count, m_articulation_range_count, m_mobility_count}),
 			.m_island_block_count = m_island_block_count,
-			.m_selection_mode = selection_mode,
+			.m_phase = phase,
 			.m_attempt_index = attempt_index,
 			.m_backtrack_limit = m_config.constraint_coupled_backtrack_limit,
 			.m_relaxation = m_config.constraint_coupled_relaxation,

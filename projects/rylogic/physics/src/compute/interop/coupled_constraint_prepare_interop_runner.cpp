@@ -39,7 +39,9 @@ namespace pr::physics
 		std::span<GpuRigidBody const> bodies,
 		std::span<GpuConstraintFrame const> link_to_world,
 		std::span<GpuArticulationSpatialMobility const> mobilities,
-		std::span<GpuArticulationAbaScratch const> aba_scratch)
+		std::span<GpuArticulationAbaScratch const> aba_scratch,
+		std::span<GpuConstraintBlock const> retained_blocks,
+		std::span<GpuConstraintRow const> retained_rows)
 	{
 		if (upload.m_coupled_endpoints.size() != upload.m_endpoints.size())
 			throw std::invalid_argument("Coupled replay requires stable-slot link metadata");
@@ -49,7 +51,13 @@ namespace pr::physics
 			throw std::invalid_argument("Coupled replay requires a finite positive timestep");
 
 		auto const slot_count = isize(upload.m_endpoints);
+		if ((!retained_blocks.empty() || !retained_rows.empty()) &&
+			(isize(retained_blocks) != slot_count || isize(retained_rows) != GpuConstraintRowsPerBlock * slot_count))
+			throw std::invalid_argument("Coupled replay retained runtime streams do not match the stable-slot layout");
+
 		m_bodies.assign(bodies.begin(), bodies.end());
+		m_blocks.assign(retained_blocks.begin(), retained_blocks.end());
+		m_rows.assign(retained_rows.begin(), retained_rows.end());
 		m_blocks.resize(slot_count);
 		m_rows.resize(GpuConstraintRowsPerBlock * slot_count);
 		m_preconditioners.resize(slot_count);

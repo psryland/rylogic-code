@@ -46,10 +46,12 @@ namespace pr::physics
 		GpuCoupledConstraintPrepare& m_prepare;
 		GpuArticulationImpulseAba& m_impulse_aba;
 		ComputeStep m_cs_begin;
+		ComputeStep m_cs_build_warm_start;
 		ComputeStep m_cs_candidates;
 		ComputeStep m_cs_gather;
 		ComputeStep m_cs_select_trees;
 		ComputeStep m_cs_validate_trees;
+		ComputeStep m_cs_validate_warm_start;
 		ComputeStep m_cs_evaluate_merit;
 		ComputeStep m_cs_commit;
 		ComputeStep m_cs_finalize_islands;
@@ -84,7 +86,10 @@ namespace pr::physics
 		// Upload deterministic persistent topology after matching constraint and articulation participation streams.
 		bool Upload(GpuJob& job, GpuConstraintUpload const& upload);
 
-		// Execute one fixed-relaxation transactional simultaneous coupled velocity sweep.
+		// Apply projected retained impulses atomically through rigid and complete-tree articulation responses.
+		void ApplyWarmStart(GpuJob& job, int body_count, ID3D12Resource* bodies);
+
+		// Execute one bounded-backtracking simultaneous coupled velocity sweep.
 		void Run(GpuJob& job, int body_count, ID3D12Resource* bodies);
 
 		// Prepare all dependent production lanes and read one coupled sweep through exactly one GPU submission.
@@ -95,7 +100,8 @@ namespace pr::physics
 			GpuArticulationUpload const& articulation_upload,
 			std::span<GpuRigidBody const> bodies,
 			std::span<GpuConstraintFrame const> link_to_world,
-			std::span<GpuCoupledConstraintPreconditioner const> preconditioner_override = {});
+			std::span<GpuCoupledConstraintPreconditioner const> preconditioner_override = {},
+			std::span<GpuConstraintRow const> prepared_row_override = {});
 
 		// Return current logical usage, retained capacities, and most recent coupled dispatch count.
 		GpuCoupledConstraintVelocityStats const& Stats() const;
@@ -109,7 +115,7 @@ namespace pr::physics
 		void ResizeBuffers(CmdList& cmd_list);
 
 		// Bind one coupled phase against the complete stable resource layout.
-		void Dispatch(GpuJob& job, ComputeStep& step, int selection_mode, int attempt_index, int item_count, int body_count, ID3D12Resource* bodies);
+		void Dispatch(GpuJob& job, ComputeStep& step, int phase, int attempt_index, int item_count, int body_count, ID3D12Resource* bodies);
 
 		// Transition the common coupled resources into the states required by a coupled shader phase.
 		void PrepareResources(GpuJob& job, ID3D12Resource* bodies);

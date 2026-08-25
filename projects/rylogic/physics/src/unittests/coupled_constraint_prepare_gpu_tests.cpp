@@ -262,6 +262,58 @@ namespace pr::physics::tests
 			}
 		}
 
+		// Retain, scale, project, and explicitly invalidate cached coupled impulses under the same stable-row contract as rigid constraints.
+		PRUnitTestMethod(ReplayRetainsCompatibleWarmStart, Quick)
+		{
+			auto fixture = CoupledPrepareFixture{};
+			auto inputs = MakeCoupledPrepareInputs(fixture);
+			auto initial = CoupledConstraintPrepareInteropRunner{};
+			initial.Run(
+				1.0f / 60.0f,
+				1.0e-6f,
+				0.0f,
+				inputs.m_constraints,
+				inputs.m_bodies,
+				inputs.m_link_to_world,
+				inputs.m_mobilities,
+				inputs.m_aba_scratch);
+
+			auto retained_blocks = std::vector<GpuConstraintBlock>(initial.Blocks().begin(), initial.Blocks().end());
+			auto retained_rows = std::vector<GpuConstraintRow>(initial.Rows().begin(), initial.Rows().end());
+			auto const row_idx = fixture.m_constraint.m_index * GpuConstraintRowsPerBlock;
+			retained_rows[row_idx].bounds.z = 0.5f;
+
+			auto scaled = CoupledConstraintPrepareInteropRunner{};
+			scaled.Run(
+				1.0f / 60.0f,
+				1.0e-6f,
+				0.4f,
+				inputs.m_constraints,
+				inputs.m_bodies,
+				inputs.m_link_to_world,
+				inputs.m_mobilities,
+				inputs.m_aba_scratch,
+				retained_blocks,
+				retained_rows);
+			PR_EXPECT(FEqlAbsolute(scaled.Rows()[row_idx].bounds.z, 0.2f, 1.0e-6f));
+
+			auto reset_upload = inputs.m_constraints;
+			reset_upload.m_endpoints[fixture.m_constraint.m_index].flags |= GpuConstraintEndpointFlags_ResetWarmStart;
+			auto reset = CoupledConstraintPrepareInteropRunner{};
+			reset.Run(
+				1.0f / 60.0f,
+				1.0e-6f,
+				0.4f,
+				reset_upload,
+				inputs.m_bodies,
+				inputs.m_link_to_world,
+				inputs.m_mobilities,
+				inputs.m_aba_scratch,
+				retained_blocks,
+				retained_rows);
+			PR_EXPECT(reset.Rows()[row_idx].bounds.z == 0.0f);
+		}
+
 		// Match CPU compilation and suppress the impulse Jacobian for a fixed world endpoint.
 		PRUnitTestMethod(WorldEndpointHasNoJacobian, Quick)
 		{

@@ -47,6 +47,8 @@ namespace pr::physics
 		ConstraintSet const* m_source;
 		int m_slot_count;
 		int m_active_count;
+		float m_previous_timestep;
+		float m_frame_warm_start_scale;
 		GpuCoupledConstraintPrepareStats m_stats;
 
 	public:

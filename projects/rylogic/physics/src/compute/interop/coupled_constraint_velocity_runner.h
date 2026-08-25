@@ -13,7 +13,7 @@ namespace pr::physics
 	{
 	public:
 
-		// Apply one bounded-backtracking simultaneous sweep from prepared coupled rows and articulation factors.
+		// Apply an optional once-per-substep warm start followed by one bounded-backtracking simultaneous sweep.
 		void Run(
 			float relaxation,
 			GpuConstraintUpload const& constraint_upload,
@@ -22,7 +22,8 @@ namespace pr::physics
 			std::span<GpuConstraintRow const> rows,
 			std::span<GpuCoupledConstraintPreconditioner const> preconditioners,
 			std::span<GpuRigidBody const> bodies,
-			int backtrack_limit = 4);
+			int backtrack_limit = 4,
+			bool apply_warm_start = false);
 
 		// Return committed rigid-body state after accepted island updates.
 		std::span<GpuRigidBody const> Bodies() const;

@@ -399,7 +399,9 @@ namespace pr::physics
 				for (int row = 0; row != runtime.m_row_count; ++row)
 				{
 					auto const& runtime_row = runtime.m_rows[row];
-					merit_change += 0.5f * runtime_row.m_pending_delta * (runtime_row.m_residual_before + residual(runtime_row, block));
+					merit_change +=
+						0.5f * runtime_row.m_pending_delta * runtime_row.m_residual_before +
+						0.5f * runtime_row.m_pending_delta * residual(runtime_row, block);
 				}
 			}
 			return merit_change;

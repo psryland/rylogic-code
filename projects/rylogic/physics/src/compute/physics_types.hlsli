@@ -56,6 +56,11 @@ static const uint GpuCoupledConstraintIslandStatus_Accepted = 1u;
 static const uint GpuCoupledConstraintIslandStatus_Committed = 2u;
 static const uint GpuCoupledConstraintIslandStatus_Rejected = 3u;
 
+// Coupled phase modes distinguish detached evaluation from velocity and warm-start commit behavior.
+static const int GpuCoupledConstraintPhase_Evaluate = 0;
+static const int GpuCoupledConstraintPhase_CommitVelocity = 1;
+static const int GpuCoupledConstraintPhase_CommitWarmStart = 2;
+
 // Integer failure bits are reduced atomically without introducing non-deterministic floating-point reductions.
 static const uint GpuCoupledConstraintFailure_None = 0u;
 static const uint GpuCoupledConstraintFailure_Preconditioner = 1u << 0;

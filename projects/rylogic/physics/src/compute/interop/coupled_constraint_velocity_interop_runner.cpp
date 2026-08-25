@@ -57,7 +57,8 @@ namespace pr::physics
 		std::span<GpuConstraintRow const> rows,
 		std::span<GpuCoupledConstraintPreconditioner const> preconditioners,
 		std::span<GpuRigidBody const> bodies,
-		int backtrack_limit)
+		int backtrack_limit,
+		bool apply_warm_start)
 	{
 		auto const slot_count = isize(constraint_upload.m_endpoints);
 		if (!(relaxation > 0.0f) || !std::isfinite(relaxation))
@@ -111,7 +112,7 @@ namespace pr::physics
 			.mobility_count = mobility_count,
 			.work_count = work_count,
 			.island_block_count = isize(constraint_upload.m_coupled_island_blocks),
-			.selection_mode = 0,
+			.phase = GpuCoupledConstraintPhase_Evaluate,
 			.attempt_index = 0,
 			.backtrack_limit = backtrack_limit,
 			.relaxation = relaxation,
@@ -140,40 +141,72 @@ namespace pr::physics
 		g_coupled_velocity_articulation_work.assign(m_impulse_aba.Work());
 
 		hlsl::GpuEmulator begin(CSBeginCoupledVelocity, CSBeginCoupledVelocity_NumThreads);
-		begin.Dispatch({CoupledVelocityThreadGroupCount(work_count), 1, 1});
+		hlsl::GpuEmulator build_warm_start(CSBuildCoupledVelocityWarmStart, CSBuildCoupledVelocityWarmStart_NumThreads);
 		hlsl::GpuEmulator candidates(CSBuildCoupledVelocityCandidates, CSBuildCoupledVelocityCandidates_NumThreads);
 		hlsl::GpuEmulator gather(CSGatherCoupledVelocityTargets, CSGatherCoupledVelocityTargets_NumThreads);
 		hlsl::GpuEmulator select_evaluation(CSSelectCoupledVelocityTrees, CSSelectCoupledVelocityTrees_NumThreads);
 		hlsl::GpuEmulator validate(CSValidateCoupledVelocityTrees, CSValidateCoupledVelocityTrees_NumThreads);
+		hlsl::GpuEmulator validate_warm_start(CSValidateCoupledVelocityWarmStart, CSValidateCoupledVelocityWarmStart_NumThreads);
 		hlsl::GpuEmulator merit(CSEvaluateCoupledVelocityMerit, CSEvaluateCoupledVelocityMerit_NumThreads);
-		for (int attempt_index = 0; attempt_index != backtrack_limit + 1; ++attempt_index)
-		{
-			g_coupled_velocity.attempt_index = attempt_index;
-			candidates.Dispatch({CoupledVelocityThreadGroupCount(slot_count), 1, 1});
-			gather.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_targets)), 1, 1});
-			select_evaluation.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_articulation_indices)), 1, 1});
+		hlsl::GpuEmulator commit(CSCommitCoupledVelocity, CSCommitCoupledVelocity_NumThreads);
+		hlsl::GpuEmulator finalize(CSFinalizeCoupledVelocityIslands, CSFinalizeCoupledVelocityIslands_NumThreads);
 
-			// Each pending complete tree is evaluated into detached work while accepted disjoint ranges retain their winning response.
+		// Evaluate selected complete trees into detached work and publish their deterministic success flags.
+		auto EvaluateSelectedTrees = [&]
+		{
 			m_link_impulses.assign(g_coupled_velocity_link_impulses.begin(), g_coupled_velocity_link_impulses.end());
 			m_tree_selection.assign(g_coupled_velocity_tree_selection.begin(), g_coupled_velocity_tree_selection.end());
 			auto const results = m_impulse_aba.Evaluate(m_link_impulses, m_tree_selection);
 			m_tree_results.assign(results.begin(), results.end());
 			g_coupled_velocity_tree_results.assign(CoupledVelocitySpanOf(m_tree_results));
 			g_coupled_velocity_articulation_work.assign(m_impulse_aba.Work());
+		};
 
+		// Apply nonzero retained impulses as one island transaction before the first new velocity candidate.
+		auto const has_warm_start = apply_warm_start && std::ranges::any_of(m_rows, [](GpuConstraintRow const& row)
+		{
+			return row.bounds.z != 0.0f;
+		});
+		if (has_warm_start)
+		{
+			begin.Dispatch({CoupledVelocityThreadGroupCount(work_count), 1, 1});
+			build_warm_start.Dispatch({CoupledVelocityThreadGroupCount(slot_count), 1, 1});
+			gather.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_targets)), 1, 1});
+			select_evaluation.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_articulation_indices)), 1, 1});
+			EvaluateSelectedTrees();
+			validate.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_articulation_indices)), 1, 1});
+			validate_warm_start.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_islands)), 1, 1});
+
+			g_coupled_velocity.phase = GpuCoupledConstraintPhase_CommitWarmStart;
+			hlsl::GpuEmulator select_warm_start_commit(CSSelectCoupledVelocityTrees, CSSelectCoupledVelocityTrees_NumThreads);
+			select_warm_start_commit.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_articulation_indices)), 1, 1});
+			commit.Dispatch({CoupledVelocityThreadGroupCount(work_count), 1, 1});
+			m_tree_selection.assign(g_coupled_velocity_tree_selection.begin(), g_coupled_velocity_tree_selection.end());
+			m_impulse_aba.Commit(m_tree_selection);
+			finalize.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_islands)), 1, 1});
+			g_coupled_velocity_aba_scratch.assign(m_impulse_aba.Scratch());
+		}
+
+		g_coupled_velocity.phase = GpuCoupledConstraintPhase_Evaluate;
+		begin.Dispatch({CoupledVelocityThreadGroupCount(work_count), 1, 1});
+		for (int attempt_index = 0; attempt_index != backtrack_limit + 1; ++attempt_index)
+		{
+			g_coupled_velocity.attempt_index = attempt_index;
+			candidates.Dispatch({CoupledVelocityThreadGroupCount(slot_count), 1, 1});
+			gather.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_targets)), 1, 1});
+			select_evaluation.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_articulation_indices)), 1, 1});
+			EvaluateSelectedTrees();
 			validate.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_articulation_indices)), 1, 1});
 			merit.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_islands)), 1, 1});
 		}
-		g_coupled_velocity.selection_mode = 1;
+		g_coupled_velocity.phase = GpuCoupledConstraintPhase_CommitVelocity;
 		hlsl::GpuEmulator select_commit(CSSelectCoupledVelocityTrees, CSSelectCoupledVelocityTrees_NumThreads);
 		select_commit.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_articulation_indices)), 1, 1});
 
 		// Commit each accepted island exactly once across rigid, row, and articulation-owned state.
-		hlsl::GpuEmulator commit(CSCommitCoupledVelocity, CSCommitCoupledVelocity_NumThreads);
 		commit.Dispatch({CoupledVelocityThreadGroupCount(work_count), 1, 1});
 		m_tree_selection.assign(g_coupled_velocity_tree_selection.begin(), g_coupled_velocity_tree_selection.end());
 		m_impulse_aba.Commit(m_tree_selection);
-		hlsl::GpuEmulator finalize(CSFinalizeCoupledVelocityIslands, CSFinalizeCoupledVelocityIslands_NumThreads);
 		finalize.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_islands)), 1, 1});
 
 		m_bodies.assign(g_coupled_velocity_bodies.begin(), g_coupled_velocity_bodies.end());

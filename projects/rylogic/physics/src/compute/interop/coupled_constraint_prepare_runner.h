@@ -29,7 +29,9 @@ namespace pr::physics
 			std::span<GpuRigidBody const> bodies,
 			std::span<GpuConstraintFrame const> link_to_world,
 			std::span<GpuArticulationSpatialMobility const> mobilities,
-			std::span<GpuArticulationAbaScratch const> aba_scratch);
+			std::span<GpuArticulationAbaScratch const> aba_scratch,
+			std::span<GpuConstraintBlock const> retained_blocks = {},
+			std::span<GpuConstraintRow const> retained_rows = {});
 
 		// Return compiled stable-slot runtime blocks.
 		std::span<GpuConstraintBlock const> Blocks() const;

@@ -198,8 +198,14 @@ void CompileCoupledConstraintRow(
 
 	float max_impulse = max(axis.max_force * g_coupled_prepare.timestep, 0.0f);
 	float2 bounds = ConstraintImpulseBounds(state, max_impulse);
-	// Coupled warm start remains zero until retained impulses can be applied transactionally to rigid bodies and complete articulation trees.
 	float retained = 0.0f;
+	if (!reset_warm_start && state == old_state && velocity_active)
+	{
+		float warm_start_scale = isfinite(g_coupled_prepare.warm_start_scale) && g_coupled_prepare.warm_start_scale > 0.0f
+			? g_coupled_prepare.warm_start_scale
+			: 0.0f;
+		retained = clamp(old_row.bounds.z * warm_start_scale, bounds.x, bounds.y);
+	}
 	row.solve = float4(position_error, axis.mode == GpuConstraintAxisMode_Driven ? axis.target_velocity : 0.0f, bias, gamma);
 	row.bounds = float4(bounds, retained, 0.0f);
 	g_coupled_rows[row_idx] = row;
