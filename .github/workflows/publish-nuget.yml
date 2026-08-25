@@ -67,8 +67,15 @@ jobs:
             throw "Release tag '$tag' must have the form rylogic-v1.2.3."
           }
 
+          # Select the exact element because projecting across every PropertyGroup also returns formatting whitespace.
           [xml]$props = Get-Content -Path Directory.Build.props
-          $project_version = [string]$props.Project.PropertyGroup.RylogicLibraryVersion
+          $version_nodes = @($props.SelectNodes('/Project/PropertyGroup/RylogicLibraryVersion'))
+          if ($version_nodes.Count -ne 1) {
+            throw "Directory.Build.props must define RylogicLibraryVersion exactly once."
+          }
+          $project_version = $version_nodes[0].InnerText.Trim()
+
+          # Require the immutable release tag to match the package version exactly.
           if ($matches.version -cne $project_version) {
             throw "Tag version '$($matches.version)' does not match RylogicLibraryVersion '$project_version'."
           }
