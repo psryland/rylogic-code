@@ -43,7 +43,7 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2025
 
     steps:
       - name: Checkout
@@ -55,17 +55,15 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Install dotnet-script
-        run: dotnet tool install -g dotnet-script
+        run: dotnet tool install -g dotnet-script --version 2.0.0
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
+        with:
+          vs-version: '[18.0,19.0)'
+          msbuild-architecture: x64
 
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
-
-      # The repo nuget.config references a local package source that only
-      # exists on the dev machine. Replace it with just nuget.org for CI.
-      # dotnet-script also uses this config when restoring its internal project.
+      # GitHub-hosted runners restore public dependencies directly from nuget.org.
       - name: Configure NuGet for CI
         shell: pwsh
         run: |
@@ -80,6 +78,7 @@ jobs:
               <add key="automatic" value="true" />
             </packageRestore>
             <packageSources>
+              <clear />
               <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
             </packageSources>
           </configuration>
@@ -124,7 +123,6 @@ jobs:
         shell: pwsh
         run: nuget restore Rylogic.sln
 
-      # Override PlatformToolset since CI has VS 2022 (v143) but some
-      # projects target older toolsets not available on the runner.
+      # Directory.Build.props selects the VS 2026 v145 toolset.
       - name: Build
-        run: msbuild Rylogic.sln /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /m
+        run: msbuild Rylogic.sln /p:Configuration=Release /p:Platform=x64 /m

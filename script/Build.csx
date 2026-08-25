@@ -13,6 +13,7 @@ using System;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Runtime.InteropServices;
+using System.Xml.Linq;
 using Rylogic.Extn;
 using Console = System.Console;
 using IOPath = System.IO.Path;
@@ -183,11 +184,14 @@ public abstract class Managed : Common
 			return;
 		}
 
+		// Avoid repeating the same solution restore for each managed package builder.
 		if (m_restored.Contains(sln_or_proj))
 			return;
 
+		// MSBuild restore needs the same discovered Visual Studio environment as compilation.
 		Tools.SetupVcEnvironment();
 
+		// Restore through MSBuild so project and solution imports are evaluated consistently.
 		Console.WriteLine($"Nuget restore: {sln_or_proj}");
 		Tools.Run([UserVars.MSBuild, sln_or_proj, "/t:restore", "/verbosity:minimal", "/nologo"]);
 		//Tools.Run([UserVars.dotnet, "restore", sln_or_proj, "--verbosity", "quiet"])
@@ -639,16 +643,96 @@ public class RylogicWindows : RylogicAssembly
 		package.Deps.Add(new Nuget.Dep("Rylogic.Core", $"[{RylogicLibraryVersion},)"));
 	}
 }
+// Builds the complete public Rylogic package set and rejects unclassified managed assemblies.
 public class AllRylogic : Group
 {
+	private readonly AllNative m_native;
+	private readonly IReadOnlyList<RylogicAssembly> m_assemblies;
+	private readonly IReadOnlyList<string> m_platforms;
+	private readonly IReadOnlyList<string> m_configs;
+
 	public AllRylogic(string workspace, List<string>? platforms = null, List<string>? configs = null)
 		: base(workspace)
 	{
-		Items.Add(new AllNative(workspace, platforms, configs));
+		m_platforms = platforms ?? ["x64"];
+		m_configs = configs ?? ["Release", "Debug"];
+		m_native = new AllNative(workspace, platforms, configs);
+		Items.Add(m_native);
+
+		// Discover package builders so newly registered public assemblies join the aggregate release automatically.
+		var assemblies = new List<RylogicAssembly>();
 		foreach (var type in typeof(RylogicAssembly).Assembly.GetTypes().Where(t => t.IsClass && !t.IsAbstract && t.IsSubclassOf(typeof(RylogicAssembly))))
 		{
-			var instance = (Common?)Activator.CreateInstance(type, workspace, platforms, configs) ?? throw new Exception($"Failed to create instance of type {type}");
+			var instance = (RylogicAssembly?)Activator.CreateInstance(type, workspace, platforms, configs) ?? throw new Exception($"Failed to create instance of type {type}");
+			assemblies.Add(instance);
 			Items.Add(instance);
+		}
+		m_assemblies = assemblies;
+
+		// Reject missing or contradictory package declarations before any build or deployment work begins.
+		ValidatePackageCoverage();
+	}
+
+	// Packages the complete Release set and writes the validated manifest consumed by the publishing workflow.
+	public override void Deploy()
+	{
+		base.Deploy();
+		if (!m_platforms.Contains("x64", StringComparer.OrdinalIgnoreCase) || !m_configs.Contains("Release", StringComparer.OrdinalIgnoreCase))
+			return;
+
+		// Validate the exact aggregate package set only after every constituent deployment has completed.
+		var packages = new List<Nuget>
+		{
+			m_native.Package ?? throw new Exception("Rylogic.Native was not packaged by the Release deployment"),
+		};
+		packages.AddRange(m_assemblies.Select(x => x.Package ?? throw new Exception($"{x.ProjName} was not packaged by the Release deployment")));
+		Nuget.ValidateReleasePackageSet(
+			RylogicLibraryVersion,
+			packages,
+			Tools.Path([Workspace, "lib\\packages\\release\\manifest.json"], check_exists: false));
+	}
+
+	// Requires every canonical managed assembly to be either represented by a package builder or explicitly marked non-packable.
+	private void ValidatePackageCoverage()
+	{
+		var projects_root = Tools.Path([Workspace, "projects\\rylogic"]);
+		var projects = Directory.EnumerateDirectories(projects_root)
+			.Select(dir =>
+			{
+				var project_name = IOPath.GetFileName(dir) ?? throw new Exception($"Unable to determine the project name for '{dir}'");
+				return (ProjectName: project_name, ProjectPath: IOPath.Combine(dir, $"{project_name}.csproj"));
+			})
+			.Where(x => File.Exists(x.ProjectPath))
+			.ToDictionary(x => x.ProjectName, x => x.ProjectPath, StringComparer.OrdinalIgnoreCase);
+
+		// Keep one authoritative builder per public package ID.
+		foreach (var duplicate in m_assemblies.GroupBy(x => x.ProjName, StringComparer.OrdinalIgnoreCase).Where(x => x.Count() != 1))
+			throw new Exception($"Multiple Rylogic package builders target '{duplicate.Key}'");
+
+		// Prevent stale builders from silently targeting renamed or removed projects.
+		var builders = m_assemblies.ToDictionary(x => x.ProjName, StringComparer.OrdinalIgnoreCase);
+		foreach (var builder in builders.Keys.Except(projects.Keys, StringComparer.OrdinalIgnoreCase))
+			throw new Exception($"Rylogic package builder '{builder}' has no canonical project at projects\\rylogic\\{builder}\\{builder}.csproj");
+
+		// Require every canonical assembly to make its public-package intent explicit.
+		foreach (var (project_name, project_path) in projects.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
+		{
+			var project = XDocument.Load(project_path);
+			var is_packable = project.Descendants()
+				.Where(x => x.Name.LocalName == "IsPackable")
+				.Select(x => x.Value.Trim())
+				.LastOrDefault();
+
+			// Builder presence and IsPackable must agree so either source of truth can expose configuration drift.
+			if (builders.ContainsKey(project_name))
+			{
+				if (!string.Equals(is_packable, "true", StringComparison.OrdinalIgnoreCase))
+					throw new Exception($"Public package project '{project_name}' must explicitly set <IsPackable>true</IsPackable>");
+			}
+			else if (!string.Equals(is_packable, "false", StringComparison.OrdinalIgnoreCase))
+			{
+				throw new Exception($"Managed assembly '{project_name}' is not classified for release. Add a RylogicAssembly builder or explicitly set <IsPackable>false</IsPackable>");
+			}
 		}
 	}
 }
@@ -681,6 +765,7 @@ public class LDraw : Managed
 		// Ensure output directories exist and are empty
 		Tools.CleanDir(DeployDir);
 
+		// Declare the complete application payload separately from generated or harvested installer content.
 		var file_list = (List<string>)[
 			"LDraw.exe",
 			"dxcompiler.dll",
@@ -743,9 +828,10 @@ public class LDraw : Managed
 // All Native projects
 public class AllNative : Group
 {
-	private Nuget? Package = null;
 	private readonly IReadOnlyList<string> m_platforms;
 	private readonly IReadOnlyList<string> m_configs;
+
+	public Nuget? Package { get; private set; }
 
 	public AllNative(string workspace, List<string>? platforms = null, List<string>? configs = null)
 		: base(workspace)
@@ -799,6 +885,7 @@ public class AllNative : Group
 		if (Package is null)
 			throw new Exception("Call Deploy before calling Publish");
 
+		// Delegate the policy decision so every local publish attempt is rejected consistently.
 		Package.Publish();
 	}
 }
@@ -841,21 +928,25 @@ void SetupWorkspace(string workspace)
 		(IOPath.Combine(workspace, "sdk", "openxr", "openxr"), IOPath.Combine(workspace, "sdk", "openxr", "_get.csx")),
 	];
 
+	// Track whether any download occurred so progress output stays concise.
 	bool any_fetched = false;
 	foreach (var (marker, script) in sdk_deps)
 	{
 		if (Directory.Exists(marker) || File.Exists(marker))
 			continue;
 
+		// Ignore optional dependencies whose repository does not provide a fetch script.
 		if (!File.Exists(script))
 			continue;
 
+		// Print the section heading once before the first dependency is fetched.
 		if (!any_fetched)
 		{
 			Console.WriteLine("Fetching SDK dependencies...");
 			any_fetched = true;
 		}
 
+		// Fetch dependencies sequentially because concurrent dotnet-script restores share global state.
 		var sdk_name = IOPath.GetFileName(IOPath.GetDirectoryName(script));
 		Console.WriteLine($"  Fetching {sdk_name}...");
 		Tools.Run(["dotnet-script", script], return_output: false);
@@ -871,6 +962,7 @@ void SetupWorkspace(string workspace)
 		return;
 	}
 
+	// Ensure the repository-local NuGet client exists before restoring packages.config projects.
 	var nuget_exe = IOPath.Combine(workspace, "tools", "nuget", "nuget.exe");
 	if (!File.Exists(nuget_exe))
 	{
@@ -896,6 +988,7 @@ void ConfigureMSBuildOptions(string workspace)
 	if (!BuildOptions.GeneratePackageOnBuild)
 		Tools.DefaultMSBuildArgs.Add("/p:RylogicGeneratePackageOnBuild=false");
 
+	// Apply profiling settings once so every subsequent MSBuild invocation follows the same policy.
 	Tools.MSBuildProfiling = BuildOptions.Profile;
 	Tools.MSBuildProfileDir = !string.IsNullOrEmpty(BuildOptions.ProfileDir)
 		? BuildOptions.ProfileDir
@@ -915,6 +1008,7 @@ void Main(IList<string> args)
 	bool deploy = false;
 	bool publish = false;
 
+	// Distinguish option values from the next command-line switch.
 	bool IsDataArg(int i) => i != args.Count && args[i].StartsWith('-') == false;
 
 	// Parse command line
@@ -1073,6 +1167,7 @@ void Main(IList<string> args)
 		if (builder_type == null)
 			throw new Exception($"Builder type '{project}' not found");
 
+		// Instantiate the selected builder with the command-line platform and configuration scope.
 		var builder = (Common?)Activator.CreateInstance(builder_type, workspace, platforms, configs)
 			?? throw new Exception($"Failed to create the builder type foe {project}");
 
@@ -1100,10 +1195,12 @@ void Main(IList<string> args)
 			builder.Publish();
 	}
 
+	// Report completion only after every requested project operation succeeds.
 	Console.WriteLine($"\nComplete: {workspace}");
 	return;
 }
 
+// Convert an unhandled build failure into a process exit code that CI can observe.
 try
 {
 	// Testing
@@ -1119,6 +1216,7 @@ try
 	if (!args.SequenceEqual(Args))
 	    Console.WriteLine("WARNING: Command line overridden for testing");
 
+	// Execute the script with either the real arguments or the temporary local override above.
 	Main(args);
 }
 catch (Exception ex)

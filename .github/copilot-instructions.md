@@ -43,8 +43,10 @@ For faster local Visual Studio builds, copy `Directory.Build.user.props.template
 # Build and deploy to /lib folder
 dotnet-script ./script/Build.csx -project AllNative -build -deploy
 
-# Publish to NuGet
-dotnet-script ./script/Build.csx -project RylogicCore -deploy -publish
+# Build and validate every public NuGet package locally
+dotnet-script ./script/Build.csx -project AllRylogic -build -deploy -config Release -notests -nopack
+
+# Public releases are published by .github/workflows/publish-nuget.yml from an approved version tag.
 ```
 
 ## Testing

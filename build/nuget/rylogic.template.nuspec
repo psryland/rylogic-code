@@ -12,7 +12,7 @@
             Visit: https://www.rylogic.co.nz/
         </description>
         <tags>TAGS</tags>
-        <repository type="git" url="https://github.com/psryland/rylogic_code" />
+        <repository type="git" url="https://github.com/psryland/rylogic-code" />
         <requireLicenseAcceptance>false</requireLicenseAcceptance>
         <releaseNotes>
             Rylogic Library service release

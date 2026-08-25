@@ -86,14 +86,6 @@ public class UserVars
 	/// <summary>Nuget package manager</summary>
 	public static string Nuget => Path([Root, "tools\\nuget\\nuget.exe"]);
 
-	/// <summary>API Key for publishing nuget packages (regenerated every 6months)</summary>
-	public static string NugetApiKey
-	{
-		get => m_nuget_api_key ??= UserSecret("RylogicNugetAPIKey") ?? throw new Exception("Nuget API Key no set");
-		set => m_nuget_api_key = value;
-	}
-	private static string? m_nuget_api_key = null;
-
 	/// <summary>The full path to the windows sdk</summary>
 	public static string WinSDK => m_win_sdk ??= FindWinSDK();
 	private static string? m_win_sdk;

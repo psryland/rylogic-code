@@ -49,7 +49,7 @@
 		<Deterministic>true</Deterministic>
 		<ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
 		<EmbedUntrackedSources>true</EmbedUntrackedSources>
-		<RepositoryUrl>https://github.com/psryland/rylogic_code</RepositoryUrl>
+		<RepositoryUrl>https://github.com/psryland/rylogic-code</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
 
 		<!-- Default build configuration -->

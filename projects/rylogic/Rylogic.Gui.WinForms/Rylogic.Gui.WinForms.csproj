@@ -11,7 +11,8 @@
 	<PropertyGroup>
 		<ApplicationIcon>icon_128x128.ico</ApplicationIcon>
 		<Version>$(RylogicLibraryVersion)</Version>
-		<IsPackable>true</IsPackable>
+		<!-- Retained for legacy tools and tests; new applications use Rylogic.Gui.WPF. -->
+		<IsPackable>false</IsPackable>
 	</PropertyGroup>
 
 	<!-- Build Options -->

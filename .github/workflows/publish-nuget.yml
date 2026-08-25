@@ -1,0 +1,186 @@
+name: Publish NuGet Packages
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+concurrency:
+  group: nuget-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and validate packages
+    runs-on: windows-2025
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Visual Studio 2026 MSBuild
+        uses: microsoft/setup-msbuild@v2
+        with:
+          vs-version: '[18.0,19.0)'
+          msbuild-architecture: x64
+
+      # GitHub-hosted runners restore public dependencies directly from nuget.org.
+      - name: Configure NuGet for CI
+        shell: pwsh
+        run: |
+          @'
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <config>
+              <add key="repositoryPath" value="packages" />
+            </config>
+            <packageRestore>
+              <add key="enabled" value="true" />
+              <add key="automatic" value="true" />
+            </packageRestore>
+            <packageSources>
+              <clear />
+              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+            </packageSources>
+          </configuration>
+          '@ | Set-Content -Path nuget.config
+
+      - name: Install dotnet-script
+        run: dotnet tool install --global dotnet-script --version 2.0.0
+
+      - name: Validate tag version
+        id: version
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          if ($tag -notmatch '^v(?<version>\d+\.\d+\.\d+)$') {
+            throw "Release tag '$tag' must have the form v1.2.3."
+          }
+
+          [xml]$props = Get-Content -Path Directory.Build.props
+          $project_version = [string]$props.Project.PropertyGroup.RylogicLibraryVersion
+          if ($matches.version -cne $project_version) {
+            throw "Tag version '$($matches.version)' does not match RylogicLibraryVersion '$project_version'."
+          }
+
+          "version=$project_version" >> $env:GITHUB_OUTPUT
+
+      - name: Build public package set
+        shell: pwsh
+        run: dotnet-script .\script\Build.csx -project AllRylogic -build -deploy -config Release -notests -nopack
+
+      - name: Restore representative consumers
+        shell: pwsh
+        run: |
+          $release_dir = Resolve-Path 'lib\packages\release'
+          $manifest = Get-Content "$release_dir\manifest.json" -Raw | ConvertFrom-Json
+          $consumer_dir = Join-Path $env:RUNNER_TEMP 'rylogic-package-consumer'
+          New-Item -ItemType Directory -Path $consumer_dir -Force | Out-Null
+          $references = $manifest.packages |
+            ForEach-Object { "    <PackageReference Include=`"$($_.id)`" Version=`"$($manifest.version)`" />" }
+          @"
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <TargetFrameworks>net10.0-windows7.0;net481</TargetFrameworks>
+              <UseWPF>true</UseWPF>
+              <UseWindowsForms>true</UseWindowsForms>
+            </PropertyGroup>
+            <ItemGroup>
+          $($references -join [Environment]::NewLine)
+            </ItemGroup>
+          </Project>
+          "@ | Set-Content -Path (Join-Path $consumer_dir 'Consumer.csproj')
+          @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="RylogicRelease" value="$release_dir" />
+              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+            </packageSources>
+          </configuration>
+          "@ | Set-Content -Path (Join-Path $consumer_dir 'nuget.config')
+          dotnet restore (Join-Path $consumer_dir 'Consumer.csproj') `
+            --configfile (Join-Path $consumer_dir 'nuget.config')
+
+      - name: Upload immutable package set
+        uses: actions/upload-artifact@v4
+        with:
+          name: rylogic-nuget-${{ steps.version.outputs.version }}
+          path: |
+            lib/packages/release/*.${{ steps.version.outputs.version }}.nupkg
+            lib/packages/release/manifest.json
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish approved package set
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: nuget-release
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Download validated packages
+        uses: actions/download-artifact@v4
+        with:
+          name: rylogic-nuget-${{ needs.build.outputs.version }}
+          path: packages
+
+      - name: Verify transferred package set
+        shell: pwsh
+        run: |
+          $manifest = Get-Content 'packages/manifest.json' -Raw | ConvertFrom-Json
+          if ($manifest.version -cne '${{ needs.build.outputs.version }}') {
+            throw "Downloaded manifest version '$($manifest.version)' does not match the build output."
+          }
+
+          $expected = $manifest.packages.file_name | Sort-Object
+          $actual = Get-ChildItem 'packages' -File -Filter '*.nupkg' |
+            Select-Object -ExpandProperty Name |
+            Sort-Object
+          if (Compare-Object $expected $actual) {
+            throw "Downloaded package inventory does not match the validated manifest."
+          }
+
+          foreach ($package in $manifest.packages) {
+            $hash = (Get-FileHash "packages/$($package.file_name)" -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($hash -cne $package.sha256) {
+              throw "Hash mismatch for '$($package.file_name)'."
+            }
+          }
+
+      - name: Authenticate to nuget.org
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - name: Publish packages
+        shell: pwsh
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: |
+          Get-ChildItem 'packages' -File -Filter '*.nupkg' |
+            Sort-Object Name |
+            ForEach-Object {
+              dotnet nuget push $_.FullName `
+                --api-key $env:NUGET_API_KEY `
+                --source 'https://www.nuget.org/api/v2/package'
+              if ($LASTEXITCODE -ne 0) {
+                throw "Publishing '$($_.Name)' failed with exit code $LASTEXITCODE."
+              }
+            }
