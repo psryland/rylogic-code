@@ -41,6 +41,37 @@ GpuConstraintBlock EmptyConstraintBlock()
 	return block;
 }
 
+// Return the packed upper-triangular scalar index for one symmetric six-dimensional matrix component.
+int ConstraintPackedSymmetricIndex(int row, int column)
+{
+	int low = min(row, column);
+	int high = max(row, column);
+	return low * 6 - low * (low - 1) / 2 + high - low;
+}
+
+// Return a zeroed packed coupled-block preconditioner.
+GpuCoupledConstraintPreconditioner EmptyCoupledConstraintPreconditioner()
+{
+	GpuCoupledConstraintPreconditioner preconditioner;
+	for (int index = 0; index != 6; ++index)
+		preconditioner.packed[index] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	return preconditioner;
+}
+
+// Store one symmetric component in a packed coupled-block preconditioner.
+void SetCoupledPreconditionerComponent(inout_(GpuCoupledConstraintPreconditioner) preconditioner, int row, int column, float value)
+{
+	int packed_index = ConstraintPackedSymmetricIndex(row, column);
+	preconditioner.packed[packed_index / 4][packed_index % 4] = value;
+}
+
+// Return one symmetric component from a packed coupled-block preconditioner.
+float CoupledPreconditionerComponent(GpuCoupledConstraintPreconditioner preconditioner, int row, int column)
+{
+	int packed_index = ConstraintPackedSymmetricIndex(row, column);
+	return preconditioner.packed[packed_index / 4][packed_index % 4];
+}
+
 // Return a stable two-bit row state for warm-start identity and impulse-bound selection.
 uint ConstraintRowState(GpuConstraintAxisDesc axis, float position, out_(float) position_error)
 {

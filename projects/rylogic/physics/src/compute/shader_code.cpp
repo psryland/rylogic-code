@@ -146,6 +146,14 @@ namespace pr::physics::shader_code
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(apply_constraint_position_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(solve_constraint_velocity_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(prepare_coupled_constraints_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(begin_coupled_velocity_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(build_coupled_velocity_candidates_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(gather_coupled_velocity_targets_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(select_coupled_velocity_trees_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(validate_coupled_velocity_trees_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(accept_coupled_velocity_islands_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(commit_coupled_velocity_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(finalize_coupled_velocity_islands_cs.h)
 	}
 	ByteCode const compile_constraints(compiled::compile_constraints_cs);
 	ByteCode const assign_constraint_colours(compiled::assign_constraint_colours_cs);
@@ -155,6 +163,14 @@ namespace pr::physics::shader_code
 	ByteCode const apply_constraint_position(compiled::apply_constraint_position_cs);
 	ByteCode const solve_constraint_velocity(compiled::solve_constraint_velocity_cs);
 	ByteCode const prepare_coupled_constraints(compiled::prepare_coupled_constraints_cs);
+	ByteCode const begin_coupled_velocity(compiled::begin_coupled_velocity_cs);
+	ByteCode const build_coupled_velocity_candidates(compiled::build_coupled_velocity_candidates_cs);
+	ByteCode const gather_coupled_velocity_targets(compiled::gather_coupled_velocity_targets_cs);
+	ByteCode const select_coupled_velocity_trees(compiled::select_coupled_velocity_trees_cs);
+	ByteCode const validate_coupled_velocity_trees(compiled::validate_coupled_velocity_trees_cs);
+	ByteCode const accept_coupled_velocity_islands(compiled::accept_coupled_velocity_islands_cs);
+	ByteCode const commit_coupled_velocity(compiled::commit_coupled_velocity_cs);
+	ByteCode const finalize_coupled_velocity_islands(compiled::finalize_coupled_velocity_islands_cs);
 
 	// Pure-tree articulation force ABA
 	namespace compiled

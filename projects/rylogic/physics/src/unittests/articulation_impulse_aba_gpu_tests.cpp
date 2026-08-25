@@ -230,6 +230,7 @@ namespace pr::physics::tests
 			auto runner = ArticulationImpulseAbaInteropRunner{};
 			runner.Run(upload, participants, zero_impulses);
 			auto const velocities_before = std::vector<float>(runner.Velocities().begin(), runner.Velocities().end());
+			auto const accelerations_before = std::vector<float>(runner.Accelerations().begin(), runner.Accelerations().end());
 			auto const scratch_before = std::vector<GpuArticulationAbaScratch>(runner.Scratch().begin(), runner.Scratch().end());
 
 			auto const selected = std::array<uint32_t, 1>{1};
@@ -237,6 +238,7 @@ namespace pr::physics::tests
 			PR_EXPECT(results.size() == 1);
 			PR_EXPECT(results[0] == 1);
 			PR_EXPECT(std::memcmp(runner.Velocities().data(), velocities_before.data(), runner.Velocities().size_bytes()) == 0);
+			PR_EXPECT(std::memcmp(runner.Accelerations().data(), accelerations_before.data(), runner.Accelerations().size_bytes()) == 0);
 			PR_EXPECT(std::memcmp(runner.Scratch().data(), scratch_before.data(), runner.Scratch().size_bytes()) == 0);
 			PR_EXPECT(std::ranges::any_of(runner.Work(), [](GpuArticulationSpatialVector const& value)
 			{
@@ -261,6 +263,7 @@ namespace pr::physics::tests
 			auto runner = ArticulationImpulseAbaInteropRunner{};
 			runner.Run(upload, participants, zero_impulses);
 			auto const velocities_before = std::vector<float>(runner.Velocities().begin(), runner.Velocities().end());
+			auto const accelerations_before = std::vector<float>(runner.Accelerations().begin(), runner.Accelerations().end());
 			auto const scratch_before = std::vector<GpuArticulationAbaScratch>(runner.Scratch().begin(), runner.Scratch().end());
 
 			auto impulses = zero_impulses;
@@ -270,10 +273,12 @@ namespace pr::physics::tests
 			PR_EXPECT(results[0] == 0);
 			PR_EXPECT(runner.Scratch()[0].solve_valid != 0);
 			PR_EXPECT(std::memcmp(runner.Velocities().data(), velocities_before.data(), runner.Velocities().size_bytes()) == 0);
+			PR_EXPECT(std::memcmp(runner.Accelerations().data(), accelerations_before.data(), runner.Accelerations().size_bytes()) == 0);
 			PR_EXPECT(std::memcmp(runner.Scratch().data(), scratch_before.data(), runner.Scratch().size_bytes()) == 0);
 
 			runner.Commit(selected);
 			PR_EXPECT(std::memcmp(runner.Velocities().data(), velocities_before.data(), runner.Velocities().size_bytes()) == 0);
+			PR_EXPECT(std::memcmp(runner.Accelerations().data(), accelerations_before.data(), runner.Accelerations().size_bytes()) == 0);
 			PR_EXPECT(std::memcmp(runner.Scratch().data(), scratch_before.data(), runner.Scratch().size_bytes()) == 0);
 		}
 
@@ -364,7 +369,11 @@ namespace pr::physics::tests
 				ExpectImpulseSpatialNear(hardware.m_link_velocities[link_index], v8motion{expected.ang, expected.lin}, 2.0e-3f);
 			}
 			PR_EXPECT(solver.Stats().m_dispatch_count == 1);
-			PR_EXPECT(solver.Stats().m_logical_buffer_bytes == static_cast<size_t>(floating.LinkCount() * 2) * sizeof(GpuArticulationSpatialVector));
+			auto const& floating_header = upload.m_articulations[1];
+			PR_EXPECT(
+				solver.Stats().m_logical_buffer_bytes ==
+				static_cast<size_t>(floating.LinkCount() * 2) * sizeof(GpuArticulationSpatialVector) +
+				static_cast<size_t>(floating_header.velocity_count) * sizeof(float));
 
 			// Singular retained factors produce an explicit invalid result and no accepted response.
 			auto singular_joint = ArticulationJointDesc::Fixed();

@@ -50,6 +50,19 @@ static const uint ConstraintBlockFlags_CoupledPreconditionerValid = 1u << 2;
 static const int GpuCoupledConstraintTargetType_Rigid = 0;
 static const int GpuCoupledConstraintTargetType_Link = 1;
 
+// Coupled island states separate candidate construction, validation, and transactional commit.
+static const uint GpuCoupledConstraintIslandStatus_Pending = 0u;
+static const uint GpuCoupledConstraintIslandStatus_Accepted = 1u;
+static const uint GpuCoupledConstraintIslandStatus_Committed = 2u;
+static const uint GpuCoupledConstraintIslandStatus_Rejected = 3u;
+
+// Integer failure bits are reduced atomically without introducing non-deterministic floating-point reductions.
+static const uint GpuCoupledConstraintFailure_None = 0u;
+static const uint GpuCoupledConstraintFailure_Preconditioner = 1u << 0;
+static const uint GpuCoupledConstraintFailure_NonFinite = 1u << 1;
+static const uint GpuCoupledConstraintFailure_Topology = 1u << 2;
+static const uint GpuCoupledConstraintFailure_Articulation = 1u << 3;
+
 // GPU constraint axis modes mirror EConstraintAxisMode without exposing the public enum to HLSL.
 static const int GpuConstraintAxisMode_Free = 0;
 static const int GpuConstraintAxisMode_Locked = 1;
@@ -376,6 +389,24 @@ struct GpuCoupledConstraintIsland
 	int pad1;
 };
 
+// Detached candidate values for all six canonical rows of one stable coupled block.
+struct GpuCoupledConstraintSolveScratch
+{
+	float4 impulse_delta_low;
+	float4 impulse_delta_high;
+	float4 residual_before_low;
+	float4 residual_before_high;
+};
+
+// Mutable transaction state for one independent coupled island.
+struct GpuCoupledConstraintIslandState
+{
+	uint status;
+	uint failure_flags;
+	float relaxation;
+	float pad0;
+};
+
 // One canonical body pair in the open-addressed connected-body collision-exclusion table.
 // Body indices are stored plus one so {0,0} remains the empty-slot sentinel.
 struct GpuCollisionExclusion
@@ -523,7 +554,7 @@ struct GpuArticulationMobilityRange
 	int articulation_index;
 	int mobility_offset;
 	int link_count;
-	int pad0;
+	int velocity_delta_offset;
 };
 
 // One padded six-by-six joint matrix stored by columns for bounded zero-to-six-DOF solves.

@@ -49,6 +49,7 @@ struct GpuCoupledConstraintPrepare;
 		D3DPtr<ID3D12Resource> m_r_mobilities;
 		std::vector<GpuArticulationMobilityRange> m_ranges;
 		int m_mobility_count;
+		int m_velocity_delta_count;
 		GpuArticulationMobilityStats m_stats;
 
 	public:

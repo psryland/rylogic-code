@@ -10,11 +10,14 @@
 
 namespace pr::physics
 {
+	struct GpuCoupledConstraintVelocity;
+
 	// Observable resource and dispatch state for the optional articulation impulse-response lane.
 	struct GpuArticulationImpulseAbaStats
 	{
 		int m_link_impulse_capacity;
 		int m_work_capacity;
+		int m_velocity_delta_capacity;
 		int m_dispatch_count;
 		size_t m_logical_buffer_bytes;
 		size_t m_allocated_feature_bytes;
@@ -36,6 +39,8 @@ namespace pr::physics
 	struct GpuArticulationImpulseAba
 	{
 	private:
+		friend GpuCoupledConstraintVelocity;
+
 		Gpu& m_gpu;
 		GpuArticulationForceAba& m_aba;
 		GpuArticulationMobility& m_mobility;
@@ -44,8 +49,10 @@ namespace pr::physics
 		ComputeStep m_cs_commit_impulses;
 		D3DPtr<ID3D12Resource> m_r_link_impulses;
 		D3DPtr<ID3D12Resource> m_r_work;
+		D3DPtr<ID3D12Resource> m_r_velocity_deltas;
 		int m_impulse_count;
 		int m_work_count;
+		int m_velocity_delta_count;
 		GpuArticulationImpulseAbaStats m_stats;
 
 	public:
@@ -89,8 +96,8 @@ namespace pr::physics
 		// Release every lazily allocated impulse-response resource when no tree participates.
 		void ReleaseBuffers();
 
-		// Create or grow typed impulse and work buffers for the active packed forest.
-		void ResizeBuffers(CmdList& cmd_list, int link_count, int work_count);
+		// Create or grow typed impulse, link-response, and generalized-response buffers for the active packed forest.
+		void ResizeBuffers(CmdList& cmd_list, int link_count, int work_count, int velocity_count);
 
 		// Bind and dispatch one transactional evaluate or commit pass using caller-owned selection and result streams.
 		void DispatchTransactional(GpuJob& job, ComputeStep& step, ID3D12Resource* selection, ID3D12Resource* results);

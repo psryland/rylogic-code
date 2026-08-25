@@ -42,6 +42,7 @@ RWStructuredBuffer<GpuArticulationAbaDofScratch> resource(g_aba_dof_scratch, u3)
 RWStructuredBuffer<float> resource(g_aba_inverse_joint_inertia, u4);
 RWStructuredBuffer<GpuArticulationSpatialVector> resource(g_impulse_work, u5);
 RWStructuredBuffer<uint> resource(g_impulse_results, u6);
+RWStructuredBuffer<float> resource(g_impulse_velocity_deltas, u7);
 
 #ifdef __cplusplus
 }
@@ -104,7 +105,8 @@ void ImpulseReduceChild(GpuArticulationMobilityRange range, GpuArticulation arti
 	{
 		float reduced_force = -AbaSpatialDot(g_aba_dof_scratch[link.dof_offset + row].motion_subspace, child_bias);
 		AbaSetJointVectorComponent(reduced_force_low, reduced_force_high, row, reduced_force);
-		g_aba_accelerations[link.velocity_offset + row] = reduced_force;
+		int local_velocity_index = link.velocity_offset - articulation.velocity_offset + row;
+		g_impulse_velocity_deltas[range.velocity_delta_offset + local_velocity_index] = reduced_force;
 	}
 
 	float4 coefficients_low;
@@ -149,7 +151,7 @@ void ImpulseRecoverChild(GpuArticulationMobilityRange range, GpuArticulation art
 	for (int row = 0; row != link.dof_count; ++row)
 	{
 		float value =
-			g_aba_accelerations[link.velocity_offset + row] -
+			g_impulse_velocity_deltas[range.velocity_delta_offset + link.velocity_offset - articulation.velocity_offset + row] -
 			AbaSpatialDot(link_delta, g_aba_dof_scratch[link.dof_offset + row].u_column);
 		AbaSetJointVectorComponent(rhs_low, rhs_high, row, value);
 	}
@@ -166,7 +168,7 @@ void ImpulseRecoverChild(GpuArticulationMobilityRange range, GpuArticulation art
 	for (int row = 0; row != link.dof_count; ++row)
 	{
 		float joint_delta = AbaJointVectorComponent(joint_delta_low, joint_delta_high, row);
-		g_aba_accelerations[link.velocity_offset + row] = joint_delta;
+		g_impulse_velocity_deltas[range.velocity_delta_offset + link.velocity_offset - articulation.velocity_offset + row] = joint_delta;
 		link_delta = AbaAddSpatial(
 			link_delta,
 			AbaScaleSpatial(g_aba_dof_scratch[link.dof_offset + row].motion_subspace, joint_delta));
@@ -238,7 +240,7 @@ bool ImpulseEvaluateTree(GpuArticulationMobilityRange range, GpuArticulation art
 		GpuArticulationLink link = g_aba_links[link_index];
 		for (int row = 0; row != link.dof_count; ++row)
 		{
-			float joint_delta = g_aba_accelerations[link.velocity_offset + row];
+			float joint_delta = g_impulse_velocity_deltas[range.velocity_delta_offset + link.velocity_offset - articulation.velocity_offset + row];
 			if (!isfinite(joint_delta) || !isfinite(g_aba_velocities[link.velocity_offset + row] + joint_delta))
 				return ImpulseRejectCandidate(articulation.link_offset, invalidate_tree);
 		}
@@ -269,7 +271,7 @@ void ImpulseCommitTree(GpuArticulationMobilityRange range, GpuArticulation artic
 	{
 		GpuArticulationLink link = g_aba_links[articulation.link_offset + local_link_index];
 		for (int row = 0; row != link.dof_count; ++row)
-			g_aba_velocities[link.velocity_offset + row] += g_aba_accelerations[link.velocity_offset + row];
+			g_aba_velocities[link.velocity_offset + row] += g_impulse_velocity_deltas[range.velocity_delta_offset + link.velocity_offset - articulation.velocity_offset + row];
 	}
 	for (int local_link_index = 0; local_link_index != articulation.link_count; ++local_link_index)
 	{

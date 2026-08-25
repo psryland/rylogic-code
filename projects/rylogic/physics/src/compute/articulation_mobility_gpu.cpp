@@ -85,19 +85,23 @@ namespace pr::physics
 		auto ranges = std::vector<GpuArticulationMobilityRange>{};
 		ranges.reserve(canonical_indices.size());
 		auto mobility_offset = 0;
+		auto velocity_delta_offset = 0;
 		for (auto articulation_index : canonical_indices)
 		{
 			auto const& articulation = upload.m_articulations[articulation_index];
 			if (articulation.link_count > std::numeric_limits<int>::max() - mobility_offset)
 				throw std::overflow_error("Articulation mobility link count exceeds the packed index range");
+			if (articulation.velocity_count > std::numeric_limits<int>::max() - velocity_delta_offset)
+				throw std::overflow_error("Articulation mobility velocity count exceeds the packed index range");
 
 			ranges.push_back(GpuArticulationMobilityRange{
 				.articulation_index = articulation_index,
 				.mobility_offset = mobility_offset,
 				.link_count = articulation.link_count,
-				.pad0 = 0,
+				.velocity_delta_offset = velocity_delta_offset,
 			});
 			mobility_offset += articulation.link_count;
+			velocity_delta_offset += articulation.velocity_count;
 		}
 		return ranges;
 	}
@@ -110,6 +114,7 @@ namespace pr::physics
 		, m_r_mobilities()
 		, m_ranges()
 		, m_mobility_count()
+		, m_velocity_delta_count()
 		, m_stats()
 	{
 		auto root_sig = RootSig(ERootSigFlags::ComputeOnly)
@@ -140,6 +145,7 @@ namespace pr::physics
 		m_r_mobilities = nullptr;
 		m_ranges.clear();
 		m_mobility_count = 0;
+		m_velocity_delta_count = 0;
 		m_stats = {};
 	}
 
@@ -182,6 +188,8 @@ namespace pr::physics
 
 		auto const& final_range = m_ranges.back();
 		m_mobility_count = final_range.mobility_offset + final_range.link_count;
+		auto const& final_articulation = upload.m_articulations[final_range.articulation_index];
+		m_velocity_delta_count = final_range.velocity_delta_offset + final_articulation.velocity_count;
 		ResizeBuffers(job.m_cmd_list);
 
 		// Participating ranges are immutable for the frame while mobility output is regenerated per substep.

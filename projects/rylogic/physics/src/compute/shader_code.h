@@ -81,6 +81,14 @@ namespace pr::physics::shader_code
 	extern ByteCode const apply_constraint_position;
 	extern ByteCode const solve_constraint_velocity;
 	extern ByteCode const prepare_coupled_constraints;
+	extern ByteCode const begin_coupled_velocity;
+	extern ByteCode const build_coupled_velocity_candidates;
+	extern ByteCode const gather_coupled_velocity_targets;
+	extern ByteCode const select_coupled_velocity_trees;
+	extern ByteCode const validate_coupled_velocity_trees;
+	extern ByteCode const accept_coupled_velocity_islands;
+	extern ByteCode const commit_coupled_velocity;
+	extern ByteCode const finalize_coupled_velocity_islands;
 
 	// Pure-tree articulation force ABA
 	extern ByteCode const articulation_prepare;

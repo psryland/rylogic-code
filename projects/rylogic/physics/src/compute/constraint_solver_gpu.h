@@ -10,12 +10,14 @@
 namespace pr::physics
 {
 	struct GpuCoupledConstraintPrepare;
+	struct GpuCoupledConstraintVelocity;
 
 	// Lazily allocated GPU lane for persistent rigid D6 constraints.
 	struct GpuConstraintSolver
 	{
 	private:
 		friend GpuCoupledConstraintPrepare;
+		friend GpuCoupledConstraintVelocity;
 
 		Gpu& m_gpu;
 		EngineConfig const& m_config;

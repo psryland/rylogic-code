@@ -35,6 +35,7 @@ namespace pr::physics
 			inline static constexpr auto InverseJointInertia = EUAVReg::u4;
 			inline static constexpr auto ImpulseWork = EUAVReg::u5;
 			inline static constexpr auto Results = EUAVReg::u6;
+			inline static constexpr auto VelocityDeltas = EUAVReg::u7;
 		};
 
 		// Match the HLSL participation and packed-buffer bounds constant buffer.
@@ -96,8 +97,10 @@ namespace pr::physics
 		,m_cs_commit_impulses()
 		,m_r_link_impulses()
 		,m_r_work()
+		,m_r_velocity_deltas()
 		,m_impulse_count()
 		,m_work_count()
+		,m_velocity_delta_count()
 		,m_stats()
 	{
 		auto root_sig = RootSig(ERootSigFlags::ComputeOnly)
@@ -118,6 +121,7 @@ namespace pr::physics
 			.UAV(EReg::AbaDofScratch)
 			.UAV(EReg::InverseJointInertia)
 			.UAV(EReg::ImpulseWork)
+			.UAV(EReg::VelocityDeltas)
 			.Create(m_gpu, "Physics:ArticulationImpulseAbaSig");
 		m_cs_apply_impulses.m_sig = root_sig;
 		m_cs_apply_impulses.m_pso = ComputePSO(root_sig.get(), shader_code::articulation_apply_impulses).Create(m_gpu, "Physics:ArticulationApplyImpulsesPSO");
@@ -143,6 +147,7 @@ namespace pr::physics
 			.UAV(EReg::InverseJointInertia)
 			.UAV(EReg::ImpulseWork)
 			.UAV(EReg::Results)
+			.UAV(EReg::VelocityDeltas)
 			.Create(m_gpu, "Physics:ArticulationImpulseTransactionalSig");
 		m_cs_evaluate_impulses.m_sig = transactional_root_sig;
 		m_cs_evaluate_impulses.m_pso = ComputePSO(transactional_root_sig.get(), shader_code::articulation_evaluate_impulses).Create(m_gpu, "Physics:ArticulationEvaluateImpulsesPSO");
@@ -163,12 +168,14 @@ namespace pr::physics
 			throw std::runtime_error("GPU articulation impulse response requires prepared mobility storage");
 
 		// Both impulse and work streams follow the compact canonical mobility ranges.
-		ResizeBuffers(job.m_cmd_list, m_mobility.m_mobility_count, m_mobility.m_mobility_count);
+		auto const velocity_delta_count = m_mobility.m_velocity_delta_count;
+		ResizeBuffers(job.m_cmd_list, m_mobility.m_mobility_count, m_mobility.m_mobility_count, velocity_delta_count);
 		m_impulse_count = m_mobility.m_mobility_count;
 		m_work_count = m_mobility.m_mobility_count;
+		m_velocity_delta_count = velocity_delta_count;
 		m_stats.m_logical_buffer_bytes =
-			static_cast<size_t>(m_impulse_count + m_work_count) *
-			sizeof(GpuArticulationSpatialVector);
+			static_cast<size_t>(m_impulse_count + m_work_count) * sizeof(GpuArticulationSpatialVector) +
+			static_cast<size_t>(m_velocity_delta_count) * sizeof(float);
 		return true;
 	}
 
@@ -218,6 +225,7 @@ namespace pr::physics
 		job.m_barriers.Transition((m_aba.m_dof_count != 0 ? m_aba.m_r_dof_scratch : m_aba.m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition((m_aba.m_joint_matrix_count != 0 ? m_aba.m_r_joint_matrix_scratch : m_aba.m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_work.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition((m_velocity_delta_count != 0 ? m_r_velocity_deltas : m_aba.m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Commit();
 
 		auto const constants = cbArticulationImpulseAba{
@@ -245,6 +253,7 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_dof_count != 0 ? m_aba.m_r_dof_scratch : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_joint_matrix_count != 0 ? m_aba.m_r_joint_matrix_scratch : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_work->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_velocity_delta_count != 0 ? m_r_velocity_deltas : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
 		job.m_cmd_list.Dispatch(ImpulseThreadGroupCount(isize(m_mobility.m_ranges)), 1, 1);
 		++m_stats.m_dispatch_count;
 
@@ -255,6 +264,8 @@ namespace pr::physics
 			job.m_barriers.UAV(m_aba.m_r_accelerations.get());
 		job.m_barriers.UAV(m_aba.m_r_scratch.get());
 		job.m_barriers.UAV(m_r_work.get());
+		if (m_velocity_delta_count != 0)
+			job.m_barriers.UAV(m_r_velocity_deltas.get());
 		job.m_barriers.Commit();
 	}
 
@@ -358,19 +369,23 @@ namespace pr::physics
 	{
 		m_r_link_impulses = nullptr;
 		m_r_work = nullptr;
+		m_r_velocity_deltas = nullptr;
 		m_impulse_count = 0;
 		m_work_count = 0;
+		m_velocity_delta_count = 0;
 		m_stats = {};
 	}
 
-	// Create or grow typed impulse and work buffers for the active packed forest.
-	void GpuArticulationImpulseAba::ResizeBuffers(CmdList& cmd_list, int link_count, int work_count)
+	// Create or grow typed impulse, link-response, and generalized-response buffers for the active packed forest.
+	void GpuArticulationImpulseAba::ResizeBuffers(CmdList& cmd_list, int link_count, int work_count, int velocity_count)
 	{
 		EnsureBuffer<GpuArticulationSpatialVector>(m_gpu, cmd_list, m_r_link_impulses, link_count, m_stats.m_link_impulse_capacity, "Articulation impulse ABA link impulses");
 		EnsureBuffer<GpuArticulationSpatialVector>(m_gpu, cmd_list, m_r_work, work_count, m_stats.m_work_capacity, "Articulation impulse ABA work");
+		EnsureBuffer<float>(m_gpu, cmd_list, m_r_velocity_deltas, velocity_count, m_stats.m_velocity_delta_capacity, "Articulation impulse ABA velocity deltas");
 		m_stats.m_allocated_feature_bytes =
 			static_cast<size_t>(m_stats.m_link_impulse_capacity + m_stats.m_work_capacity) *
-			sizeof(GpuArticulationSpatialVector);
+				sizeof(GpuArticulationSpatialVector) +
+			static_cast<size_t>(m_stats.m_velocity_delta_capacity) * sizeof(float);
 	}
 
 	// Bind and dispatch one transactional evaluate or commit pass using caller-owned selection and result streams.
@@ -401,6 +416,7 @@ namespace pr::physics
 		job.m_barriers.Transition((m_aba.m_dof_count != 0 ? m_aba.m_r_dof_scratch : m_aba.m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition((m_aba.m_joint_matrix_count != 0 ? m_aba.m_r_joint_matrix_scratch : m_aba.m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_work.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition((m_velocity_delta_count != 0 ? m_r_velocity_deltas : m_aba.m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(results, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Commit();
 
@@ -431,6 +447,7 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_joint_matrix_count != 0 ? m_aba.m_r_joint_matrix_scratch : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_work->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(results->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_velocity_delta_count != 0 ? m_r_velocity_deltas : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
 		job.m_cmd_list.Dispatch(ImpulseThreadGroupCount(isize(m_mobility.m_ranges)), 1, 1);
 		++m_stats.m_dispatch_count;
 
@@ -441,6 +458,8 @@ namespace pr::physics
 			job.m_barriers.UAV(m_aba.m_r_accelerations.get());
 		job.m_barriers.UAV(m_aba.m_r_scratch.get());
 		job.m_barriers.UAV(m_r_work.get());
+		if (m_velocity_delta_count != 0)
+			job.m_barriers.UAV(m_r_velocity_deltas.get());
 		job.m_barriers.UAV(results);
 		job.m_barriers.Commit();
 	}

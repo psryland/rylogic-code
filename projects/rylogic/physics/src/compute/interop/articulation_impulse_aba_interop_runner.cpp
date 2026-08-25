@@ -25,6 +25,7 @@
 #define g_impulse_selection g_impulse_replay_selection
 #define g_impulse_work g_impulse_replay_work
 #define g_impulse_results g_impulse_replay_results
+#define g_impulse_velocity_deltas g_impulse_replay_velocity_deltas
 #include "src/compute/articulation_impulse_aba.hlsl"
 
 namespace pr::physics
@@ -60,6 +61,7 @@ namespace pr::physics
 			m_mobilities.clear();
 			m_velocities.clear();
 			m_accelerations.clear();
+			m_velocity_deltas.clear();
 			m_scratch.clear();
 			m_dof_scratch.clear();
 			m_inverse_joint_inertia.clear();
@@ -76,6 +78,7 @@ namespace pr::physics
 		m_mobilities.assign(mobility.Mobilities().begin(), mobility.Mobilities().end());
 		m_velocities = upload.m_velocities;
 		m_accelerations.assign(mobility.Accelerations().begin(), mobility.Accelerations().end());
+		m_velocity_deltas.assign(m_velocities.size(), 0.0f);
 		m_scratch.assign(mobility.Scratch().begin(), mobility.Scratch().end());
 		m_dof_scratch.assign(mobility.DofScratch().begin(), mobility.DofScratch().end());
 		m_inverse_joint_inertia.assign(mobility.InverseJointInertia().begin(), mobility.InverseJointInertia().end());
@@ -117,6 +120,7 @@ namespace pr::physics
 		g_aba_dof_scratch.assign(ImpulseSpanOf(m_dof_scratch));
 		g_aba_inverse_joint_inertia.assign(ImpulseSpanOf(m_inverse_joint_inertia));
 		g_impulse_work.assign(ImpulseSpanOf(m_work));
+		g_impulse_velocity_deltas.assign(ImpulseSpanOf(m_velocity_deltas));
 
 		hlsl::GpuEmulator emulator(CSArticulationApplyImpulses, CSArticulationApplyImpulses_NumThreads);
 		emulator.Dispatch({ImpulseThreadGroupCount(isize(m_ranges)), 1, 1});
@@ -126,6 +130,7 @@ namespace pr::physics
 		m_dof_scratch.assign(g_aba_dof_scratch.begin(), g_aba_dof_scratch.end());
 		m_inverse_joint_inertia.assign(g_aba_inverse_joint_inertia.begin(), g_aba_inverse_joint_inertia.end());
 		m_work.assign(g_impulse_work.begin(), g_impulse_work.end());
+		m_velocity_deltas.assign(g_impulse_velocity_deltas.begin(), g_impulse_velocity_deltas.end());
 	}
 
 	// Evaluate selected impulses into detached response buffers without changing committed articulation state.
@@ -166,12 +171,13 @@ namespace pr::physics
 		g_aba_inverse_joint_inertia.assign(ImpulseSpanOf(m_inverse_joint_inertia));
 		g_impulse_work.assign(ImpulseSpanOf(m_work));
 		g_impulse_results.assign(ImpulseSpanOf(m_results));
+		g_impulse_velocity_deltas.assign(ImpulseSpanOf(m_velocity_deltas));
 
 		hlsl::GpuEmulator emulator(CSArticulationEvaluateImpulses, CSArticulationEvaluateImpulses_NumThreads);
 		emulator.Dispatch({ImpulseThreadGroupCount(isize(m_ranges)), 1, 1});
-		m_accelerations.assign(g_aba_accelerations.begin(), g_aba_accelerations.end());
 		m_work.assign(g_impulse_work.begin(), g_impulse_work.end());
 		m_results.assign(g_impulse_results.begin(), g_impulse_results.end());
+		m_velocity_deltas.assign(g_impulse_velocity_deltas.begin(), g_impulse_velocity_deltas.end());
 		return m_results;
 	}
 
@@ -210,6 +216,7 @@ namespace pr::physics
 		g_aba_inverse_joint_inertia.assign(ImpulseSpanOf(m_inverse_joint_inertia));
 		g_impulse_work.assign(ImpulseSpanOf(m_work));
 		g_impulse_results.assign(ImpulseSpanOf(m_results));
+		g_impulse_velocity_deltas.assign(ImpulseSpanOf(m_velocity_deltas));
 
 		hlsl::GpuEmulator emulator(CSArticulationCommitImpulses, CSArticulationCommitImpulses_NumThreads);
 		emulator.Dispatch({ImpulseThreadGroupCount(isize(m_ranges)), 1, 1});
@@ -236,11 +243,18 @@ namespace pr::physics
 #undef g_impulse_selection
 #undef g_impulse_work
 #undef g_impulse_results
+#undef g_impulse_velocity_deltas
 
 	// Return committed packed generalized velocities after impulse application.
 	std::span<float const> ArticulationImpulseAbaInteropRunner::Velocities() const
 	{
 		return m_velocities;
+	}
+
+	// Return authoritative generalized accelerations preserved across detached impulse evaluation.
+	std::span<float const> ArticulationImpulseAbaInteropRunner::Accelerations() const
+	{
+		return m_accelerations;
 	}
 
 	// Return retained ABA scratch containing committed cached link velocities.

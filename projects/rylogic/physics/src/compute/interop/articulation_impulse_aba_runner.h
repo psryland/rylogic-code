@@ -28,6 +28,9 @@ namespace pr::physics
 		// Return committed packed generalized velocities after impulse application.
 		std::span<float const> Velocities() const;
 
+		// Return authoritative generalized accelerations preserved across detached impulse evaluation.
+		std::span<float const> Accelerations() const;
+
 		// Return retained ABA scratch containing committed cached link velocities.
 		std::span<GpuArticulationAbaScratch const> Scratch() const;
 
@@ -41,6 +44,7 @@ namespace pr::physics
 		std::vector<GpuArticulationSpatialMobility> m_mobilities;
 		std::vector<float> m_velocities;
 		std::vector<float> m_accelerations;
+		std::vector<float> m_velocity_deltas;
 		std::vector<GpuArticulationAbaScratch> m_scratch;
 		std::vector<GpuArticulationAbaDofScratch> m_dof_scratch;
 		std::vector<float> m_inverse_joint_inertia;

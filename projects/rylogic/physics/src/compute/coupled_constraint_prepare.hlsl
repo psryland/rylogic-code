@@ -56,34 +56,10 @@ RWStructuredBuffer<GpuCoupledConstraintPreconditioner> resource(g_coupled_precon
 #include "physics/src/compute/constraint_solver_ops.hlsli"
 #undef PR_CONSTRAINT_SOLVER_OPS_CPP_NAMESPACE
 
-// Return a zeroed packed block preconditioner.
-GpuCoupledConstraintPreconditioner EmptyCoupledPreconditioner()
-{
-	GpuCoupledConstraintPreconditioner preconditioner;
-	for (int index = 0; index != 6; ++index)
-		preconditioner.packed[index] = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	return preconditioner;
-}
-
-// Return the packed upper-triangular scalar index for one symmetric six-dimensional matrix component.
-int CoupledPackedIndex(int row, int column)
-{
-	int low = min(row, column);
-	int high = max(row, column);
-	return low * 6 - low * (low - 1) / 2 + high - low;
-}
-
-// Store one symmetric component in a packed block preconditioner.
-void CoupledSetPreconditionerComponent(inout_(GpuCoupledConstraintPreconditioner) preconditioner, int row, int column, float value)
-{
-	int packed_index = CoupledPackedIndex(row, column);
-	preconditioner.packed[packed_index / 4][packed_index % 4] = value;
-}
-
 // Return one symmetric component from a compact self-link mobility.
 float CoupledMobilityComponent(GpuArticulationSpatialMobility mobility, int row, int column)
 {
-	int packed_index = CoupledPackedIndex(row, column);
+	int packed_index = ConstraintPackedSymmetricIndex(row, column);
 	return mobility.packed[packed_index / 4][packed_index % 4];
 }
 
@@ -222,10 +198,8 @@ void CompileCoupledConstraintRow(
 
 	float max_impulse = max(axis.max_force * g_coupled_prepare.timestep, 0.0f);
 	float2 bounds = ConstraintImpulseBounds(state, max_impulse);
+	// Coupled warm start remains zero until retained impulses can be applied transactionally to rigid bodies and complete articulation trees.
 	float retained = 0.0f;
-	if (!reset_warm_start && state == old_state && velocity_active)
-		retained = clamp(old_row.bounds.z * g_coupled_prepare.warm_start_scale, bounds.x, bounds.y);
-
 	row.solve = float4(position_error, axis.mode == GpuConstraintAxisMode_Driven ? axis.target_velocity : 0.0f, bias, gamma);
 	row.bounds = float4(bounds, retained, 0.0f);
 	g_coupled_rows[row_idx] = row;
@@ -279,7 +253,7 @@ bool PrepareCoupledPreconditioner(
 	GpuCoupledConstraintEndpoint endpoint,
 	out_(GpuCoupledConstraintPreconditioner) preconditioner)
 {
-	preconditioner = EmptyCoupledPreconditioner();
+	preconditioner = EmptyCoupledConstraintPreconditioner();
 	uint active_axes[6];
 	int row_count = 0;
 	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
@@ -325,7 +299,7 @@ bool PrepareCoupledPreconditioner(
 		float value = 0.5f * (inverse[row * 6 + column] + inverse[column * 6 + row]);
 		if (!isfinite(value))
 			return false;
-		CoupledSetPreconditionerComponent(preconditioner, row, column, value);
+		SetCoupledPreconditionerComponent(preconditioner, row, column, value);
 	}
 	return true;
 }
@@ -383,7 +357,7 @@ void CSPrepareCoupledConstraints(int3 DTID(dtid))
 	GpuConstraintBlock block = EmptyConstraintBlock();
 	block.body_idx_a = endpoint.link_idx_a >= 0 ? -1 : packed_endpoint.body_idx_a;
 	block.body_idx_b = endpoint.link_idx_b >= 0 ? -1 : packed_endpoint.body_idx_b;
-	g_coupled_preconditioners[slot_idx] = EmptyCoupledPreconditioner();
+	g_coupled_preconditioners[slot_idx] = EmptyCoupledConstraintPreconditioner();
 
 	// Invalid retained factors disable the complete block rather than allowing partial or non-finite tree response.
 	if (!CoupledEndpointMetadataValid(endpoint))

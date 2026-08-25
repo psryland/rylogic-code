@@ -11,6 +11,7 @@
 namespace pr::physics
 {
 	struct GpuArticulationMobility;
+	struct GpuCoupledConstraintVelocity;
 
 	// Observable storage and dispatch costs for the optional coupled-row preparation lane.
 	struct GpuCoupledConstraintPrepareStats
@@ -35,6 +36,7 @@ namespace pr::physics
 	struct GpuCoupledConstraintPrepare
 	{
 	private:
+		friend GpuCoupledConstraintVelocity;
 
 		Gpu& m_gpu;
 		EngineConfig const& m_config;
@@ -45,8 +47,6 @@ namespace pr::physics
 		ConstraintSet const* m_source;
 		int m_slot_count;
 		int m_active_count;
-		float m_previous_timestep;
-		float m_frame_warm_start_scale;
 		GpuCoupledConstraintPrepareStats m_stats;
 
 	public:

@@ -71,8 +71,6 @@ namespace pr::physics
 		, m_source()
 		, m_slot_count()
 		, m_active_count()
-		, m_previous_timestep()
-		, m_frame_warm_start_scale()
 		, m_stats()
 	{
 		auto root_sig = RootSig(ERootSigFlags::ComputeOnly)
@@ -100,8 +98,6 @@ namespace pr::physics
 		m_source = nullptr;
 		m_slot_count = 0;
 		m_active_count = 0;
-		m_previous_timestep = 0.0f;
-		m_frame_warm_start_scale = 0.0f;
 		m_stats = {};
 	}
 
@@ -203,16 +199,6 @@ namespace pr::physics
 		if (bodies == nullptr || link_to_world == nullptr || mobilities == nullptr || aba_scratch == nullptr)
 			throw std::invalid_argument("Coupled constraint preparation requires every bound resource");
 
-		// Scale retained impulses across ordinary timestep changes while rejecting estimates from discontinuous changes.
-		m_frame_warm_start_scale = 0.0f;
-		if (m_previous_timestep > 0.0f)
-		{
-			auto const timestep_ratio = timestep / m_previous_timestep;
-			if (timestep_ratio >= 0.25f && timestep_ratio <= 4.0f)
-				m_frame_warm_start_scale = m_config.constraint_warm_start_factor * timestep_ratio;
-		}
-		m_previous_timestep = timestep;
-
 		job.m_barriers.Transition(bodies, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_constraints.m_r_endpoints.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition(m_constraints.m_r_descriptors.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -232,7 +218,7 @@ namespace pr::physics
 			.mobility_count = mobility_count,
 			.timestep = timestep,
 			.regularization = m_config.constraint_regularization,
-			.warm_start_scale = m_frame_warm_start_scale,
+			.warm_start_scale = 0.0f,
 			.pad0 = 0.0f,
 		};
 		job.m_cmd_list.SetPipelineState(m_cs_prepare.m_pso.get());

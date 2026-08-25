@@ -11,6 +11,7 @@ src/compute/articulation_mobility_ops.hlsli TEXT DISCARDABLE "src/compute/articu
 src/compute/constraint_solver.hlsl TEXT DISCARDABLE "src/compute/constraint_solver.hlsl"
 src/compute/constraint_solver_ops.hlsli TEXT DISCARDABLE "src/compute/constraint_solver_ops.hlsli"
 src/compute/coupled_constraint_prepare.hlsl TEXT DISCARDABLE "src/compute/coupled_constraint_prepare.hlsl"
+src/compute/coupled_constraint_velocity.hlsl TEXT DISCARDABLE "src/compute/coupled_constraint_velocity.hlsl"
 src/compute/collide.hlsl        TEXT DISCARDABLE "src/compute/collide.hlsl"
 src/compute/collision.hlsli     TEXT DISCARDABLE "src/compute/collision.hlsli"
 src/compute/gjk.hlsli           TEXT DISCARDABLE "src/compute/gjk.hlsli"
