@@ -2,47 +2,12 @@
 // Physics Engine
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
-#include "pr/physics/rigid_body/rigid_body.h"
-#include "src/constraint/constraint_solver.h"
+#include "src/constraint/constraint_solver_internal.h"
 
 namespace pr::physics
 {
-	namespace
+	namespace detail::constraint_solver
 	{
-		constexpr int MaxBlockRows = 6;
-
-		// Mutable state for one scalar row during a physical or pseudo-velocity solve.
-		struct RuntimeRow
-		{
-			uint32_t m_compiled_index = 0;
-			float m_impulse = 0.0f;
-			float m_lower = 0.0f;
-			float m_upper = 0.0f;
-			float m_target_velocity = 0.0f;
-			float m_bias = 0.0f;
-			float m_gamma = 0.0f;
-			float m_position_error = 0.0f;
-		};
-
-		// Precomputed local response and mutable rows for one active solver block.
-		struct RuntimeBlock
-		{
-			uint32_t m_compiled_index = 0;
-			std::array<RuntimeRow, MaxBlockRows> m_rows = {};
-			std::array<float, MaxBlockRows * MaxBlockRows> m_inverse_response = {};
-			float m_response_scale = 0.0f;
-			int m_row_count = 0;
-			bool m_solvable = false;
-		};
-
-		// Current twist, inverse inertia, and accumulated physical impulse for one submitted body.
-		struct SolverBody
-		{
-			v8motion m_velocity = {};
-			v8force m_momentum_delta = {};
-			InertiaInv m_inertia_inv = {};
-		};
-
 		// Describe which side of a scalar limit is currently active.
 		enum class ELimitState
 		{
@@ -53,7 +18,7 @@ namespace pr::physics
 		};
 
 		// Return a finite-state check that includes every physically meaningful spatial component.
-		bool IsFinite(v8motion const& value)
+		bool IsFiniteMotion(v8motion const& value)
 		{
 			return
 				std::isfinite(value.ang.x) &&
@@ -91,7 +56,7 @@ namespace pr::physics
 		}
 
 		// Return the current relative velocity represented by one compiled Jacobian row.
-		float RowVelocity(CompiledConstraintRow const& row, CompiledConstraintBlock const& block, std::span<SolverBody const> bodies)
+		float RigidRowVelocity(CompiledConstraintRow const& row, CompiledConstraintBlock const& block, std::span<SolverBody const> bodies)
 		{
 			auto velocity = 0.0f;
 			if (block.m_endpoint_a.m_rigid_index >= 0)
@@ -102,7 +67,7 @@ namespace pr::physics
 		}
 
 		// Apply one scalar row impulse immediately so later PGS blocks observe its response.
-		void ApplyImpulse(CompiledConstraintRow const& row, CompiledConstraintBlock const& block, float impulse, std::span<SolverBody> bodies, bool accumulate_momentum)
+		void ApplyRigidImpulse(CompiledConstraintRow const& row, CompiledConstraintBlock const& block, float impulse, std::span<SolverBody> bodies, bool accumulate_momentum)
 		{
 			if (impulse == 0.0f)
 				return;
@@ -129,7 +94,7 @@ namespace pr::physics
 		}
 
 		// Return one entry of J M^-1 J^T for two rows belonging to the same block.
-		float Response(CompiledConstraintRow const& lhs, CompiledConstraintRow const& rhs, CompiledConstraintBlock const& block, std::span<SolverBody const> bodies)
+		float RigidResponse(CompiledConstraintRow const& lhs, CompiledConstraintRow const& rhs, CompiledConstraintBlock const& block, std::span<SolverBody const> bodies)
 		{
 			auto response = 0.0f;
 			if (block.m_endpoint_a.m_rigid_index >= 0)
@@ -194,20 +159,12 @@ namespace pr::physics
 			return true;
 		}
 
-		// Build and invert one local response, adding explicit diagonal regularization only for a singular nonzero block.
-		void PrepareResponse(RuntimeBlock& runtime, CompiledConstraintSet const& constraints, std::span<SolverBody const> bodies, CpuConstraintSolverConfig const& config, CpuConstraintSolveMetrics& metrics)
+		// Factor one local response, adding explicit diagonal regularization only for a singular nonzero block.
+		void PrepareResponse(RuntimeBlock& runtime, std::array<float, MaxBlockRows * MaxBlockRows> response, CpuConstraintSolverConfig const& config, CpuConstraintSolveMetrics& metrics)
 		{
-			auto const& block = constraints.m_blocks[runtime.m_compiled_index];
-			auto response = std::array<float, MaxBlockRows * MaxBlockRows>{};
 			auto scale = 0.0f;
 			for (int row = 0; row != runtime.m_row_count; ++row)
 			{
-				auto const& lhs = constraints.m_rows[runtime.m_rows[row].m_compiled_index];
-				for (int column = 0; column != runtime.m_row_count; ++column)
-				{
-					auto const& rhs = constraints.m_rows[runtime.m_rows[column].m_compiled_index];
-					response[row * MaxBlockRows + column] = Response(lhs, rhs, block, bodies);
-				}
 				response[row * MaxBlockRows + row] += runtime.m_rows[row].m_gamma;
 				scale = Max(scale, std::abs(response[row * MaxBlockRows + row]));
 			}
@@ -239,6 +196,23 @@ namespace pr::physics
 
 			runtime.m_solvable = true;
 			++metrics.m_regularized_blocks;
+		}
+
+		// Build and factor one local response using only ordinary rigid endpoints.
+		void PrepareRigidResponse(RuntimeBlock& runtime, CompiledConstraintSet const& constraints, std::span<SolverBody const> bodies, CpuConstraintSolverConfig const& config, CpuConstraintSolveMetrics& metrics)
+		{
+			auto const& block = constraints.m_blocks[runtime.m_compiled_index];
+			auto response = std::array<float, MaxBlockRows * MaxBlockRows>{};
+			for (int row = 0; row != runtime.m_row_count; ++row)
+			{
+				auto const& lhs = constraints.m_rows[runtime.m_rows[row].m_compiled_index];
+				for (int column = 0; column != runtime.m_row_count; ++column)
+				{
+					auto const& rhs = constraints.m_rows[runtime.m_rows[column].m_compiled_index];
+					response[row * MaxBlockRows + column] = RigidResponse(lhs, rhs, block, bodies);
+				}
+			}
+			PrepareResponse(runtime, response, config, metrics);
 		}
 
 		// Classify a limited row and return its signed error from the active boundary.
@@ -428,7 +402,7 @@ namespace pr::physics
 		}
 
 		// Execute fixed-iteration block PGS over the supplied mutable row and body state.
-		void SolveBlocks(std::span<RuntimeBlock> runtime_blocks, CompiledConstraintSet const& constraints, std::span<SolverBody> bodies, int iterations, float relaxation, bool accumulate_momentum)
+		void SolveRigidBlocks(std::span<RuntimeBlock> runtime_blocks, CompiledConstraintSet const& constraints, std::span<SolverBody> bodies, int iterations, float relaxation, bool accumulate_momentum)
 		{
 			for (int iteration = 0; iteration != iterations; ++iteration)
 			{
@@ -446,7 +420,7 @@ namespace pr::physics
 						auto const& runtime_row = runtime.m_rows[row];
 						auto const& compiled_row = constraints.m_rows[runtime_row.m_compiled_index];
 						residual[row] =
-							RowVelocity(compiled_row, block, bodies) -
+							RigidRowVelocity(compiled_row, block, bodies) -
 							runtime_row.m_target_velocity +
 							runtime_row.m_bias +
 							runtime_row.m_gamma * runtime_row.m_impulse;
@@ -471,7 +445,7 @@ namespace pr::physics
 						auto& runtime_row = runtime.m_rows[row];
 						auto const delta = candidate[row] - runtime_row.m_impulse;
 						auto const& compiled_row = constraints.m_rows[runtime_row.m_compiled_index];
-						ApplyImpulse(compiled_row, block, delta, bodies, accumulate_momentum);
+						ApplyRigidImpulse(compiled_row, block, delta, bodies, accumulate_momentum);
 						runtime_row.m_impulse = candidate[row];
 					}
 				}
@@ -479,7 +453,7 @@ namespace pr::physics
 		}
 
 		// Return the fixed-point projection residual and any scalar-bound violation after a solve.
-		void MeasureResidual(std::span<RuntimeBlock const> runtime_blocks, CompiledConstraintSet const& constraints, std::span<SolverBody const> bodies, CpuConstraintSolveMetrics& metrics)
+		void MeasureRigidResidual(std::span<RuntimeBlock const> runtime_blocks, CompiledConstraintSet const& constraints, std::span<SolverBody const> bodies, CpuConstraintSolveMetrics& metrics)
 		{
 			for (auto const& runtime : runtime_blocks)
 			{
@@ -494,7 +468,7 @@ namespace pr::physics
 					auto const& runtime_row = runtime.m_rows[row];
 					auto const& compiled_row = constraints.m_rows[runtime_row.m_compiled_index];
 					auto const residual =
-						RowVelocity(compiled_row, block, bodies) -
+						RigidRowVelocity(compiled_row, block, bodies) -
 						runtime_row.m_target_velocity +
 						runtime_row.m_bias +
 						runtime_row.m_gamma * runtime_row.m_impulse;
@@ -511,7 +485,7 @@ namespace pr::physics
 		}
 
 		// Validate finite fixed-work settings before mutating any body state.
-		void Validate(CpuConstraintSolverConfig const& config, float timestep)
+		void ValidateSolverInputs(CpuConstraintSolverConfig const& config, float timestep)
 		{
 			if (!std::isfinite(timestep) || timestep <= 0.0f)
 				throw std::invalid_argument("Constraint timestep must be finite and positive");
@@ -519,6 +493,8 @@ namespace pr::physics
 				throw std::invalid_argument("Constraint iteration counts cannot be negative");
 			if (!std::isfinite(config.m_relaxation) || config.m_relaxation <= 0.0f || config.m_relaxation > 2.0f)
 				throw std::invalid_argument("Velocity relaxation must be finite and in (0,2]");
+			if (!std::isfinite(config.m_coupled_relaxation) || config.m_coupled_relaxation <= 0.0f || config.m_coupled_relaxation > 1.0f)
+				throw std::invalid_argument("Coupled relaxation must be finite and in (0,1]");
 			if (!std::isfinite(config.m_position_relaxation) || config.m_position_relaxation <= 0.0f || config.m_position_relaxation > 2.0f)
 				throw std::invalid_argument("Position relaxation must be finite and in (0,2]");
 			if (!std::isfinite(config.m_position_beta) || config.m_position_beta < 0.0f || config.m_position_beta > 1.0f)
@@ -529,10 +505,12 @@ namespace pr::physics
 				throw std::invalid_argument("Constraint regularization must be finite and nonnegative");
 			if (!std::isfinite(config.m_warm_start_factor) || config.m_warm_start_factor < 0.0f || config.m_warm_start_factor > 1.0f)
 				throw std::invalid_argument("Warm-start factor must be finite and in [0,1]");
+			if (config.m_coupled_backtrack_limit < 0 || config.m_coupled_backtrack_limit > 16)
+				throw std::invalid_argument("Coupled backtrack limit must be between zero and sixteen");
 		}
 
 		// Sum kinetic energy without allocating per-body diagnostic state.
-		float KineticEnergy(BodyRemap const& remap)
+		float RigidKineticEnergy(BodyRemap const& remap)
 		{
 			auto energy = 0.0f;
 			for (int index = 0; index != remap.BodyCount(); ++index)
@@ -540,6 +518,8 @@ namespace pr::physics
 			return energy;
 		}
 	}
+
+	using namespace detail::constraint_solver;
 
 	// Project a normal and two tangent impulses onto an exact circular Coulomb cone.
 	std::array<float, 3> ProjectFrictionCone(std::array<float, 3> impulse, float friction)
@@ -584,14 +564,7 @@ namespace pr::physics
 	// Solve physical velocities and optional split position correction in deterministic block order.
 	CpuConstraintSolveMetrics CpuConstraintSolver::Solve(CompiledConstraintSet const& constraints, BodyRemap const& remap, float timestep, CpuConstraintSolverConfig const& config)
 	{
-		Validate(config, timestep);
-		auto metrics = CpuConstraintSolveMetrics{};
-		auto const energy_before = KineticEnergy(remap);
-
-		// The rigid reference solver must never approximate a reduced-coordinate link as an independent body.
-		for (auto const& block : constraints.m_blocks)
-			if (block.m_endpoint_a.IsLink() || block.m_endpoint_b.IsLink())
-				throw std::invalid_argument("CpuConstraintSolver supports only world and ordinary rigid-body endpoints");
+		ValidateSolverInputs(config, timestep);
 
 		// Descriptor or topology changes invalidate cached impulses before any warm start can target stale row semantics.
 		if (m_source != constraints.m_source || m_topology_revision != constraints.m_topology_revision || m_parameter_revision != constraints.m_parameter_revision)
@@ -599,6 +572,17 @@ namespace pr::physics
 		m_source = constraints.m_source;
 		m_topology_revision = constraints.m_topology_revision;
 		m_parameter_revision = constraints.m_parameter_revision;
+
+		// Preserve the minimal rigid-only path unless at least one active block requires complete-tree articulation response.
+		auto const has_coupled_blocks = std::ranges::any_of(constraints.m_blocks, [](CompiledConstraintBlock const& block)
+		{
+			return block.m_endpoint_a.IsLink() || block.m_endpoint_b.IsLink();
+		});
+		if (has_coupled_blocks)
+			return SolveHybrid(constraints, remap, timestep, config);
+
+		auto metrics = CpuConstraintSolveMetrics{};
+		auto const energy_before = RigidKineticEnergy(remap);
 
 		// Snapshot mutable solver state while retaining physical momentum as the authoritative body quantity.
 		auto bodies = std::vector<SolverBody>(remap.BodyCount());
@@ -633,7 +617,7 @@ namespace pr::physics
 				continue;
 
 			metrics.m_active_velocity_rows += runtime.m_row_count;
-			PrepareResponse(runtime, constraints, bodies, config, metrics);
+			PrepareRigidResponse(runtime, constraints, bodies, config, metrics);
 			velocity_blocks.push_back(runtime);
 		}
 
@@ -665,13 +649,13 @@ namespace pr::physics
 				auto& runtime_row = runtime.m_rows[row];
 				auto const& compiled_row = constraints.m_rows[runtime_row.m_compiled_index];
 				runtime_row.m_impulse = candidate[row];
-				ApplyImpulse(compiled_row, block, candidate[row], bodies, true);
+				ApplyRigidImpulse(compiled_row, block, candidate[row], bodies, true);
 			}
 		}
 
 		// Fixed iteration counts make runtime linear in active rows and reproducible for identical inputs.
-		SolveBlocks(velocity_blocks, constraints, bodies, config.m_velocity_iterations, config.m_relaxation, true);
-		MeasureResidual(velocity_blocks, constraints, bodies, metrics);
+		SolveRigidBlocks(velocity_blocks, constraints, bodies, config.m_velocity_iterations, config.m_relaxation, true);
+		MeasureRigidResidual(velocity_blocks, constraints, bodies, metrics);
 
 		// Commit physical impulses without reconstructing momentum from possibly singular static inertia.
 		for (int index = 0; index != remap.BodyCount(); ++index)
@@ -679,7 +663,7 @@ namespace pr::physics
 			if (bodies[index].m_momentum_delta != v8force{})
 				remap.MutableBody(index).MomentumWS(remap.Body(index).MomentumWS() + bodies[index].m_momentum_delta);
 		}
-		metrics.m_physical_kinetic_energy_change = KineticEnergy(remap) - energy_before;
+		metrics.m_physical_kinetic_energy_change = RigidKineticEnergy(remap) - energy_before;
 
 		// Replace the cache with exactly the active persistent blocks so removed and inactive rows cannot reappear later.
 		auto active_handles = std::unordered_set<uint64_t>{};
@@ -738,17 +722,17 @@ namespace pr::physics
 					continue;
 
 				metrics.m_active_position_rows += runtime.m_row_count;
-				PrepareResponse(runtime, constraints, pseudo_bodies, config, metrics);
+				PrepareRigidResponse(runtime, constraints, pseudo_bodies, config, metrics);
 				position_blocks.push_back(runtime);
 			}
 
-			SolveBlocks(position_blocks, constraints, pseudo_bodies, config.m_position_iterations, config.m_position_relaxation, false);
+			SolveRigidBlocks(position_blocks, constraints, pseudo_bodies, config.m_position_iterations, config.m_position_relaxation, false);
 
 			// Integrate pseudo twists once about each CoM and retain the original physical momentum.
 			for (int index = 0; index != remap.BodyCount(); ++index)
 			{
 				auto const& pseudo_velocity = pseudo_bodies[index].m_velocity;
-				if (!IsFinite(pseudo_velocity))
+				if (!IsFiniteMotion(pseudo_velocity))
 					throw std::runtime_error("Position solve produced a non-finite pseudo velocity");
 				if (pseudo_velocity == v8motion{})
 					continue;

@@ -103,6 +103,51 @@ namespace pr::physics
 
 	namespace detail
 	{
+		// Integrate a detached generalized pseudo velocity into articulation coordinates without changing physical momentum.
+		void ApplyArticulationPositionCorrection(Articulation& articulation, std::span<float const> generalized_velocity, float timestep)
+		{
+			if (!articulation.m_state)
+				throw std::logic_error("Articulation has been moved from");
+			if (!IsFinite(timestep) || timestep <= 0.0f)
+				throw std::invalid_argument("Articulation position-correction timestep must be finite and positive");
+			if (isize(generalized_velocity) != articulation.DofCount())
+				throw std::invalid_argument("Articulation pseudo-velocity dimension does not match the articulation");
+			if (!std::ranges::all_of(generalized_velocity, [](float value) { return IsFinite(value); }))
+				throw std::invalid_argument("Articulation pseudo velocity must be finite");
+			if (std::ranges::all_of(generalized_velocity, [](float value) { return value == 0.0f; }))
+				return;
+
+			auto& state = *articulation.m_state;
+			articulation.Wake();
+
+			// Reduced-coordinate drift follows the same generalized ordering as physical articulation integration.
+			for (auto const& link : state.m_links | std::views::drop(1))
+			{
+				for (int axis_index = 0; axis_index != link.m_joint.m_dof_count; ++axis_index)
+					state.m_position[link.m_position_offset + axis_index] += timestep * generalized_velocity[link.m_velocity_offset + axis_index];
+			}
+
+			// A floating root uses its body-frame pseudo twist while a fixed root contributes no generalized root entries.
+			switch (state.m_root_type)
+			{
+				case EArticulationRootType::Fixed:
+				{
+					break;
+				}
+				case EArticulationRootType::Floating:
+				{
+					auto& root_to_world = state.m_links.front().m_link_to_world;
+					root_to_world = IntegrateRootTransform(root_to_world, LoadSpatialMotion(generalized_velocity, 0), timestep);
+					break;
+				}
+				default:
+				{
+					throw std::runtime_error("Articulation root type is invalid");
+				}
+			}
+			state.m_kinematics_dirty = true;
+		}
+
 		// Validate a detached GPU integration result without changing its articulation.
 		void ValidateArticulationIntegrationOutput(Articulation const& articulation, ArticulationIntegrationOutput const& output)
 		{

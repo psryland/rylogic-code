@@ -258,6 +258,22 @@ namespace pr::physics
 		{
 			return impulse_response ? link.m_response_acceleration : link.m_link_acceleration;
 		}
+
+		// Accumulate validated link impulses and solve one complete-tree response into persistent articulation scratch.
+		void SolveImpulseResponse(detail::ArticulationState& state, std::span<ArticulationImpulse const> impulses)
+		{
+			std::ranges::fill(state.m_response, 0.0f);
+			for (auto& link : state.m_links)
+				link.m_response_impulse = {};
+			for (auto const& request : impulses)
+			{
+				if (!IsFinite(request.m_impulse.ang) || !IsFinite(request.m_impulse.lin))
+					throw std::invalid_argument("Articulation impulses must be finite");
+
+				detail::CheckedLink(state, request.m_link).m_response_impulse += request.m_impulse;
+			}
+			detail::SolveArticulationDynamics(state, true);
+		}
 	}
 
 	namespace detail
@@ -409,6 +425,26 @@ namespace pr::physics
 				}
 			}
 		}
+
+		// Evaluate one batched impulse ABA without committing its generalized or link-velocity response.
+		void ComputeArticulationImpulseResponse(Articulation& articulation, std::span<ArticulationImpulse const> impulses, std::span<float> generalized_delta, std::span<v8motion> link_velocity_delta)
+		{
+			if (!articulation.m_state)
+				throw std::logic_error("Articulation has been moved from");
+			if (isize(generalized_delta) != articulation.DofCount())
+				throw std::invalid_argument("Articulation generalized-response output dimension does not match the articulation");
+			if (isize(link_velocity_delta) != articulation.LinkCount())
+				throw std::invalid_argument("Articulation link-response output count does not match the articulation");
+			if (articulation.m_state->m_kinematics_dirty)
+				articulation.UpdateKinematics();
+
+			// Persistent ABA scratch keeps repeated coupled iterations allocation-free while caller-owned outputs remain detached.
+			auto& state = *articulation.m_state;
+			SolveImpulseResponse(state, impulses);
+			std::ranges::copy(state.m_response, generalized_delta.begin());
+			for (int link_index = 0; link_index != isize(state.m_links); ++link_index)
+				link_velocity_delta[link_index] = state.m_links[link_index].m_response_acceleration;
+		}
 	}
 
 	// Solve unconstrained generalized and link accelerations with Featherstone's force ABA.
@@ -440,10 +476,6 @@ namespace pr::physics
 		if (m_state->m_kinematics_dirty)
 			UpdateKinematics();
 
-		// Reuse persistent scratch so a batched constraint iteration allocates no temporary tree-sized storage.
-		std::ranges::fill(m_state->m_response, 0.0f);
-		for (auto& link : m_state->m_links)
-			link.m_response_impulse = {};
 		auto wake_tree = false;
 		for (auto const& request : impulses)
 		{
@@ -451,13 +483,12 @@ namespace pr::physics
 				throw std::invalid_argument("Articulation impulses must be finite");
 
 			wake_tree |= detail::HasNonZeroComponent(request.m_impulse);
-			detail::CheckedLink(*m_state, request.m_link).m_response_impulse += request.m_impulse;
 		}
 		if (wake_tree)
 			Wake();
 
-		// Impulse ABA maps accumulated impulses directly to generalized velocity deltas at fixed configuration.
-		detail::SolveArticulationDynamics(*m_state, true);
+		// Reuse persistent scratch so a batched constraint iteration allocates no temporary tree-sized storage.
+		SolveImpulseResponse(*m_state, impulses);
 		for (int index = 0; index != isize(m_state->m_velocity); ++index)
 			m_state->m_velocity[index] += m_state->m_response[index];
 		m_state->m_kinematics_dirty = true;

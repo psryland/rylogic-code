@@ -25,6 +25,12 @@ namespace pr::physics
 
 		// Compute every exact self-link impulse mobility with one linear-time tree factorization and recurrence.
 		void ComputeArticulationLinkMobilities(Articulation const& articulation, std::span<SpatialMobility> mobilities);
+
+		// Evaluate one batched impulse ABA without committing its generalized or link-velocity response.
+		void ComputeArticulationImpulseResponse(Articulation& articulation, std::span<ArticulationImpulse const> impulses, std::span<float> generalized_delta, std::span<v8motion> link_velocity_delta);
+
+		// Integrate a detached generalized pseudo velocity into articulation coordinates without changing physical momentum.
+		void ApplyArticulationPositionCorrection(Articulation& articulation, std::span<float const> generalized_velocity, float timestep);
 	}
 
 	class ArticulationBuilder;
@@ -39,6 +45,8 @@ namespace pr::physics
 		friend void detail::ValidateArticulationIntegrationOutput(Articulation const& articulation, detail::ArticulationIntegrationOutput const& output);
 		friend void detail::CommitArticulationIntegrationOutput(Articulation& articulation, detail::ArticulationIntegrationOutput const& output);
 		friend void detail::ComputeArticulationLinkMobilities(Articulation const& articulation, std::span<detail::SpatialMobility> mobilities);
+		friend void detail::ComputeArticulationImpulseResponse(Articulation& articulation, std::span<ArticulationImpulse const> impulses, std::span<float> generalized_delta, std::span<v8motion> link_velocity_delta);
+		friend void detail::ApplyArticulationPositionCorrection(Articulation& articulation, std::span<float const> generalized_velocity, float timestep);
 
 		// Construct a validated articulation from a consumed builder state.
 		explicit Articulation(std::unique_ptr<detail::ArticulationState> state);
