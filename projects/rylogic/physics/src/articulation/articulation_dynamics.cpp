@@ -136,6 +136,78 @@ namespace pr::physics
 			return reduction;
 		}
 
+		// Factor one joint's articulated inertia and return the inertia remaining after its free coordinates are eliminated.
+		detail::SpatialInertia FactorJointInertia(detail::ArticulationLinkState& link)
+		{
+			auto const dof_count = link.m_joint.m_dof_count;
+			auto joint_inertia = std::array<float, 36>{};
+			for (int row = 0; row != dof_count; ++row)
+				link.m_u_columns[row] = link.m_articulated_inertia * link.m_motion_subspace[row];
+			for (int row = 0; row != dof_count; ++row)
+				for (int column = 0; column != dof_count; ++column)
+					joint_inertia[row * 6 + column] = Dot(link.m_motion_subspace[row], link.m_u_columns[column]);
+			link.m_inverse_joint_inertia = InvertJointInertia(joint_inertia, dof_count);
+			return link.m_articulated_inertia - JointInertiaReduction(link);
+		}
+
+		// Return one unit spatial-force basis vector in angular-then-linear ordering.
+		v8force SpatialForceBasis(int index)
+		{
+			if (index < 0 || index >= 6)
+				throw std::out_of_range("Spatial force basis index is out of range");
+
+			auto basis = v8force{};
+			(index < 3 ? basis.ang[index] : basis.lin[index - 3]) = 1.0f;
+			return basis;
+		}
+
+		// Return one unit spatial-motion basis vector in angular-then-linear ordering.
+		v8motion SpatialMotionBasis(int index)
+		{
+			if (index < 0 || index >= 6)
+				throw std::out_of_range("Spatial motion basis index is out of range");
+
+			auto basis = v8motion{};
+			(index < 3 ? basis.ang[index] : basis.lin[index - 3]) = 1.0f;
+			return basis;
+		}
+
+		// Return S*D^-1*S-transpose, which is the link's direct joint-space mobility.
+		detail::SpatialMobility JointMobility(detail::ArticulationLinkState const& link)
+		{
+			auto mobility = detail::SpatialMobility::Zero();
+			auto const dof_count = link.m_joint.m_dof_count;
+			for (int spatial_column = 0; spatial_column != 6; ++spatial_column)
+			{
+				auto const force_basis = SpatialForceBasis(spatial_column);
+				auto projection = std::array<float, 6>{};
+				for (int joint_row = 0; joint_row != dof_count; ++joint_row)
+					projection[joint_row] = Dot(link.m_motion_subspace[joint_row], force_basis);
+
+				auto const coefficients = MultiplyJointMatrix(link.m_inverse_joint_inertia, projection, dof_count);
+				mobility.col(spatial_column, MultiplyColumns(link.m_motion_subspace, coefficients, dof_count));
+			}
+			return mobility;
+		}
+
+		// Return I-S*D^-1*U-transpose, which propagates parent motion through an eliminated joint.
+		Mat6x8<float, Motion, Motion> MotionProjection(detail::ArticulationLinkState const& link)
+		{
+			auto projection_matrix = Mat6x8<float, Motion, Motion>::Zero();
+			auto const dof_count = link.m_joint.m_dof_count;
+			for (int spatial_column = 0; spatial_column != 6; ++spatial_column)
+			{
+				auto const basis = SpatialMotionBasis(spatial_column);
+				auto projection = std::array<float, 6>{};
+				for (int joint_row = 0; joint_row != dof_count; ++joint_row)
+					projection[joint_row] = Dot(basis, link.m_u_columns[joint_row]);
+
+				auto const coefficients = MultiplyJointMatrix(link.m_inverse_joint_inertia, projection, dof_count);
+				projection_matrix.col(spatial_column, basis - MultiplyColumns(link.m_motion_subspace, coefficients, dof_count));
+			}
+			return projection_matrix;
+		}
+
 		// Return the selected persistent generalized input array.
 		std::span<float const> GeneralizedInput(detail::ArticulationState const& state, bool impulse_response)
 		{
@@ -212,19 +284,11 @@ namespace pr::physics
 			{
 				auto& link = state.m_links[link_index];
 				auto const dof_count = link.m_joint.m_dof_count;
-				auto joint_inertia = std::array<float, 36>{};
+				auto const reduced_inertia = FactorJointInertia(link);
 				for (int row = 0; row != dof_count; ++row)
-				{
-					link.m_u_columns[row] = link.m_articulated_inertia * link.m_motion_subspace[row];
 					link.m_reduced_force[row] = generalized_input[link.m_velocity_offset + row] - Dot(link.m_motion_subspace[row], link.m_articulated_bias);
-				}
-				for (int row = 0; row != dof_count; ++row)
-				for (int column = 0; column != dof_count; ++column)
-					joint_inertia[row * 6 + column] = Dot(link.m_motion_subspace[row], link.m_u_columns[column]);
-				link.m_inverse_joint_inertia = InvertJointInertia(joint_inertia, dof_count);
 
 				// Remove the joint-space response while retaining its force and kinematic-bias contribution.
-				auto const reduced_inertia = link.m_articulated_inertia - JointInertiaReduction(link);
 				auto const reduced_coefficients = MultiplyJointMatrix(link.m_inverse_joint_inertia, link.m_reduced_force, dof_count);
 				auto reduced_bias = link.m_articulated_bias + MultiplyColumns(link.m_u_columns, reduced_coefficients, dof_count);
 				if (!impulse_response)
@@ -280,6 +344,69 @@ namespace pr::physics
 				LinkOutput(link, impulse_response) = link_acceleration;
 				for (int row = 0; row != dof_count; ++row)
 					generalized_output[link.m_velocity_offset + row] = joint_acceleration[row];
+			}
+		}
+
+		// Compute every exact self-link impulse mobility with one linear-time tree factorization and recurrence.
+		void ComputeArticulationLinkMobilities(Articulation const& articulation, std::span<SpatialMobility> mobilities)
+		{
+			if (!articulation.m_state)
+				throw std::logic_error("Articulation has been moved from");
+			if (isize(mobilities) != isize(articulation.m_state->m_links))
+				throw std::invalid_argument("Articulation mobility output count must match the link count");
+			if (articulation.m_state->m_kinematics_dirty)
+				const_cast<Articulation&>(articulation).UpdateKinematics();
+
+			auto& state = *articulation.m_state;
+			for (auto& link : state.m_links)
+				link.m_articulated_inertia = link.m_link.m_inertia.To6x6();
+
+			// Eliminate every child once so the cached joint factors describe the complete subtree response.
+			for (int link_index = isize(state.m_links); link_index-- != 1;)
+			{
+				auto& link = state.m_links[link_index];
+				auto const reduced_inertia = FactorJointInertia(link);
+				auto const motion_parent_to_child = math::spatial::Transform<Motion>(link.m_parent_to_child);
+				auto const force_child_to_parent = math::spatial::Transform<Force>(link.m_child_to_parent);
+				auto& parent = state.m_links[link.m_parent_index];
+				parent.m_articulated_inertia = parent.m_articulated_inertia + force_child_to_parent * reduced_inertia * motion_parent_to_child;
+			}
+
+			std::ranges::fill(mobilities, SpatialMobility::Zero());
+			switch (state.m_root_type)
+			{
+				case EArticulationRootType::Fixed:
+				{
+					break;
+				}
+				case EArticulationRootType::Floating:
+				{
+					mobilities.front() = Invert(state.m_links.front().m_articulated_inertia);
+					break;
+				}
+				default:
+				{
+					throw std::runtime_error("Articulation root type is invalid");
+				}
+			}
+
+			// Propagate the parent mobility through each joint and add that joint's direct response.
+			for (int link_index = 1; link_index != isize(state.m_links); ++link_index)
+			{
+				auto const& link = state.m_links[link_index];
+				auto const projection = MotionProjection(link);
+				auto const parent_to_child = math::spatial::Transform<Motion>(link.m_parent_to_child);
+				auto const propagation = projection * parent_to_child;
+				auto propagation_transpose = Transpose(propagation);
+				auto const& dual_propagation = static_cast<Mat6x8<float, Force, Force> const&>(propagation_transpose);
+				auto const joint_mobility = JointMobility(link);
+				for (int spatial_column = 0; spatial_column != 6; ++spatial_column)
+				{
+					auto const force = SpatialForceBasis(spatial_column);
+					auto const parent_force = dual_propagation * force;
+					auto const parent_motion = mobilities[link.m_parent_index] * parent_force;
+					mobilities[link_index].col(spatial_column, propagation * parent_motion + joint_mobility * force);
+				}
 			}
 		}
 	}

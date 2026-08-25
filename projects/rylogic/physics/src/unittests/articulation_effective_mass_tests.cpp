@@ -6,6 +6,7 @@
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
 #include "pr/physics/physics.h"
+#include "src/articulation/articulation_internal.h"
 #include "src/unittests/articulation_oracle.h"
 
 namespace pr::physics::tests
@@ -733,6 +734,32 @@ namespace pr::physics::tests
 			auto fixed_tree = BuildTestTree(EArticulationRootType::Fixed, 6);
 			auto const fixed_rows = std::array{OneEndpointRow(fixed_tree.m_links.back(), LinearWrench(v4::XAxis()))};
 			ExpectRecursiveMobilitiesNear(articulation_oracle::BuildConstraintSystem(fixed_tree.m_articulation, fixed_rows));
+		}
+
+		// Match the production linear-time self-link recurrence against the independent double-precision construction.
+		PRUnitTestMethod(ProductionLinkMobilitiesMatchOracle, Quick)
+		{
+			for (auto const root_type : {EArticulationRootType::Fixed, EArticulationRootType::Floating})
+			{
+				auto tree = BuildTestTree(root_type, 8);
+				auto const rows = std::array{OneEndpointRow(tree.m_links.back(), LinearWrench(v4::XAxis()))};
+				auto const system = articulation_oracle::BuildConstraintSystem(tree.m_articulation, rows);
+				auto mobilities = std::vector<detail::SpatialMobility>(tree.m_articulation.LinkCount());
+				detail::ComputeArticulationLinkMobilities(tree.m_articulation, mobilities);
+
+				for (int link_index = 0; link_index != tree.m_articulation.LinkCount(); ++link_index)
+				for (int column = 0; column != 6; ++column)
+				{
+					auto const actual = mobilities[link_index].col(column);
+					auto const actual_components = std::array{actual.ang.x, actual.ang.y, actual.ang.z, actual.lin.x, actual.lin.y, actual.lin.z};
+					for (int row = 0; row != 6; ++row)
+					{
+						auto const expected = system.m_recursive_link_response[link_index](row, column);
+						auto const scale = std::max({1.0, std::abs(expected), std::abs(static_cast<double>(actual_components[row]))});
+						PR_EXPECT(std::abs(static_cast<double>(actual_components[row]) - expected) < 3.0e-4 * scale);
+					}
+				}
+			}
 		}
 
 		// Select the O(R) free-link block approximation only if canonical fixed, floating, loop, and mixed systems converge monotonically.

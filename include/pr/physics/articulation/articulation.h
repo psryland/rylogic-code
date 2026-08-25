@@ -11,6 +11,8 @@ namespace pr::physics
 
 	namespace detail
 	{
+		using SpatialMobility = Mat6x8<float, Force, Motion>;
+
 		struct ArticulationState;
 		struct ArticulationBuilderState;
 		struct ArticulationIntegrationOutput;
@@ -20,6 +22,9 @@ namespace pr::physics
 
 		// Commit one prevalidated GPU integration result and reconstruct its midpoint link accelerations.
 		void CommitArticulationIntegrationOutput(Articulation& articulation, ArticulationIntegrationOutput const& output);
+
+		// Compute every exact self-link impulse mobility with one linear-time tree factorization and recurrence.
+		void ComputeArticulationLinkMobilities(Articulation const& articulation, std::span<SpatialMobility> mobilities);
 	}
 
 	class ArticulationBuilder;
@@ -33,6 +38,7 @@ namespace pr::physics
 		friend struct Engine;
 		friend void detail::ValidateArticulationIntegrationOutput(Articulation const& articulation, detail::ArticulationIntegrationOutput const& output);
 		friend void detail::CommitArticulationIntegrationOutput(Articulation& articulation, detail::ArticulationIntegrationOutput const& output);
+		friend void detail::ComputeArticulationLinkMobilities(Articulation const& articulation, std::span<detail::SpatialMobility> mobilities);
 
 		// Construct a validated articulation from a consumed builder state.
 		explicit Articulation(std::unique_ptr<detail::ArticulationState> state);
