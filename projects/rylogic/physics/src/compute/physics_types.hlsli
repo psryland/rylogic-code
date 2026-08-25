@@ -414,6 +414,7 @@ struct GpuArticulationLink
 
 	GpuConstraintFrame joint_to_parent;
 	GpuConstraintFrame joint_to_child;
+	GpuConstraintFrame shape_to_link;
 
 	float4 inertia_diagonal;
 	float4 inertia_products;

@@ -88,6 +88,58 @@ namespace pr::physics::tests
 			return builder.Build();
 		}
 
+		// One articulation and stable handles used to compare hidden-proxy force routing with direct CPU link loading.
+		struct ProxyMidpointFixture
+		{
+			Articulation m_articulation;
+			LinkHandle m_root;
+			LinkHandle m_child;
+		};
+
+		// Build a floating two-link tree whose non-identity proxy frame exposes force-frame and centre-of-mass conversion errors.
+		ProxyMidpointFixture BuildProxyMidpointFixture()
+		{
+			auto builder = ArticulationBuilder{};
+			auto root_desc = MidpointLink(0, 2.1f);
+			root_desc.m_shape_to_link = m4x4::Transform(v4::YAxis(), 0.23f, v4{0.08f, -0.04f, 0.05f, 1});
+			auto child_desc = MidpointLink(1, 1.3f);
+			child_desc.m_shape_to_link = m4x4::Transform(Normalise(v4{1, -1, 2, 0}), -0.31f, v4{-0.06f, 0.09f, 0.03f, 1});
+			auto const root = builder.AddFloatingRoot(
+				root_desc,
+				m4x4::Transform(v4::ZAxis(), 0.37f, v4{0.4f, -0.2f, 0.8f, 1}),
+				v8motion{v4{0.13f, -0.09f, 0.07f, 0}, v4{-0.04f, 0.06f, 0.08f, 0}});
+			auto const child = builder.AddLink(root, MidpointJoint(2, 2), child_desc);
+			return ProxyMidpointFixture{
+				.m_articulation = builder.Build(),
+				.m_root = root,
+				.m_child = child,
+			};
+		}
+
+		// Return the link-frame wrench produced by a world-space force applied at the physical centre of mass.
+		v8force LinkWrenchAtCentreOfMass(Articulation const& articulation, LinkHandle link, v4 force_ws)
+		{
+			auto const force_link = InvertOrthonormal(articulation.LinkToWorld(link).rot) * force_ws;
+			auto const centre_link = articulation.LinkDescription(link).m_inertia.CoM();
+			return v8force{Cross(centre_link, force_link), force_link};
+		}
+
+		// Overwrite one GPU body's world-space force at its centre of mass during the external-force recording phase.
+		void WriteBodyLinearForce(Engine::ExternalForceArgs const& args, int body_index, v4 force_ws)
+		{
+			if (body_index < 0 || body_index >= args.m_body_count)
+				throw std::out_of_range("External-force test body index is out of range");
+
+			auto upload = args.m_job.m_upload.Alloc<v4>(1);
+			*upload.ptr<v4>() = force_ws;
+			args.m_job.m_barriers.Transition(args.m_bodies, D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+			args.m_job.m_cmd_list.CopyBufferRegion(
+				args.m_bodies,
+				static_cast<uint64_t>(body_index) * sizeof(GpuRigidBody) + offsetof(GpuRigidBody, force_lin),
+				upload);
+			args.m_job.m_barriers.Transition(args.m_bodies, D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+		}
+
 		// Reapply deterministic frame-constant generalized and link forces after CPU integration clears them.
 		void ApplyMidpointForces(Articulation& articulation)
 		{
@@ -146,6 +198,22 @@ namespace pr::physics::tests
 			ExpectMidpointNear(actual.position.x, expected.position.x, tolerance);
 			ExpectMidpointNear(actual.position.y, expected.position.y, tolerance);
 			ExpectMidpointNear(actual.position.z, expected.position.z, tolerance);
+		}
+
+		// Require the generalized primary state and floating-root pose of two completed articulations to agree.
+		void ExpectArticulationPrimaryNear(Articulation& actual, Articulation& expected, float tolerance)
+		{
+			auto actual_sources = std::array{&actual};
+			auto expected_sources = std::array{&expected};
+			auto const actual_upload = PackGpuArticulations(actual_sources);
+			auto const expected_upload = PackGpuArticulations(expected_sources);
+			PR_EXPECT(actual_upload.m_positions.size() == expected_upload.m_positions.size());
+			PR_EXPECT(actual_upload.m_velocities.size() == expected_upload.m_velocities.size());
+			for (int index = 0; index != isize(actual_upload.m_positions); ++index)
+				ExpectMidpointNear(actual_upload.m_positions[index], expected_upload.m_positions[index], tolerance);
+			for (int index = 0; index != isize(actual_upload.m_velocities); ++index)
+				ExpectMidpointNear(actual_upload.m_velocities[index], expected_upload.m_velocities[index], tolerance);
+			ExpectMidpointFrameNear(actual_upload.m_articulations[0].root_to_world, expected_upload.m_articulations[0].root_to_world, tolerance);
 		}
 
 		// Require one link-frame spatial acceleration to agree component-wise.
@@ -519,6 +587,58 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(body.ForceWS(), v8force{}));
 			ExpectMidpointCpuNear(expected, replay.Articulations(), replay, forest, 1.0e-2f);
 			ExpectArticulationForcesCleared(PackGpuArticulations(forest));
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+		}
+
+		// Hidden link proxies route persistent gravity and substep GPU forces into ABA without exposing links as independent rigid bodies.
+		PRUnitTestMethod(EngineLinkProxyForcesMatchCpuArticulation, Quick)
+		{
+			auto actual = BuildProxyMidpointFixture();
+			auto expected = BuildProxyMidpointFixture();
+			auto const root_gravity = v4{0.7f, -1.1f, -8.9f, 0};
+			auto const child_gravity = v4{-0.4f, 0.3f, -9.4f, 0};
+			auto const force_ws = v4{2.3f, -1.7f, 0.9f, 0};
+			actual.m_articulation.GravityWS(actual.m_root, root_gravity);
+			actual.m_articulation.GravityWS(actual.m_child, child_gravity);
+			expected.m_articulation.GravityWS(expected.m_root, root_gravity);
+			expected.m_articulation.GravityWS(expected.m_child, child_gravity);
+
+			auto const elapsed_seconds = 0.002f;
+			auto const substep_count = 2;
+			auto const dt = elapsed_seconds / substep_count;
+			for (int substep_index = 0; substep_index != substep_count; ++substep_index)
+			{
+				expected.m_articulation.ExternalForce(
+					expected.m_child,
+					LinkWrenchAtCentreOfMass(expected.m_articulation, expected.m_child, force_ws));
+				expected.m_articulation.Integrate(dt);
+			}
+
+			auto engine = Engine{MidpointEngineConfig()};
+			auto callback_count = 0;
+			auto const child_force_seed_ws = actual.m_articulation.LinkDescription(actual.m_child).m_inertia.Mass() * child_gravity;
+			engine.ExternalForces += [&](Engine& sender, Engine::ExternalForceArgs const& args)
+			{
+				PR_EXPECT(args.m_rigid_body_count == 0);
+				PR_EXPECT(args.m_body_count == actual.m_articulation.LinkCount());
+				auto const proxy_index = sender.ArticulationLinkStepIndex(actual.m_articulation.Id(), actual.m_child);
+				PR_EXPECT(proxy_index == 1);
+				WriteBodyLinearForce(args, proxy_index, child_force_seed_ws + force_ws);
+				++callback_count;
+			};
+			auto forest = std::array{&actual.m_articulation};
+			engine.Step(Engine::StepInput{
+				.m_articulations = std::span{forest},
+				.m_elapsed_seconds = elapsed_seconds,
+				.m_substep_count = substep_count,
+			});
+
+			PR_EXPECT(callback_count == substep_count);
+			ExpectArticulationPrimaryNear(actual.m_articulation, expected.m_articulation, 1.2e-2f);
+			PR_EXPECT(FEql(actual.m_articulation.GravityWS(actual.m_root), root_gravity));
+			PR_EXPECT(FEql(actual.m_articulation.GravityWS(actual.m_child), child_gravity));
 			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
 			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
 			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);

@@ -219,6 +219,7 @@ namespace pr::physics
 					.pad1 = 0,
 					.joint_to_parent = PackGpuTransform(joint_to_parent),
 					.joint_to_child = PackGpuTransform(joint_to_child),
+					.shape_to_link = PackGpuTransform(link_desc.m_shape_to_link),
 					.inertia_diagonal = link_desc.m_inertia.m_diagonal,
 					.inertia_products = link_desc.m_inertia.m_products,
 					.inertia_com_and_mass = link_desc.m_inertia.m_com_and_mass,
@@ -294,6 +295,81 @@ namespace pr::physics
 			upload.m_level_links[level_cursors[upload.m_links[link_index].depth]++] = static_cast<uint32_t>(link_index);
 
 		return upload;
+	}
+
+	// Pack one hidden force/collision proxy per link and assign its contiguous body-buffer index.
+	std::vector<GpuRigidBody> PackGpuArticulationProxies(GpuArticulationUpload& upload, std::span<Articulation* const> articulations, std::span<int const> shape_ids, int first_body_index)
+	{
+		ValidateGpuArticulationUpload(upload);
+		if (first_body_index < 0)
+			throw std::invalid_argument("GPU articulation proxy body offset must be non-negative");
+		if (shape_ids.size() != upload.m_links.size())
+			throw std::invalid_argument("GPU articulation proxy shape ids must match the packed link count");
+		if (articulations.size() != upload.m_articulations.size())
+			throw std::invalid_argument("GPU articulation proxy sources must match the packed articulation count");
+
+		auto proxies = std::vector<GpuRigidBody>{};
+		proxies.reserve(upload.m_links.size());
+
+		// Preserve the forest's deterministic articulation/link order so every proxy index is a direct packed-link offset.
+		for (int articulation_index = 0; articulation_index != isize(articulations); ++articulation_index)
+		{
+			auto const* articulation = articulations[articulation_index];
+			if (articulation == nullptr)
+				throw std::invalid_argument("GPU articulation proxy sources cannot contain null pointers");
+
+			auto const& packed_articulation = upload.m_articulations[articulation_index];
+			for (int local_link_index = 0; local_link_index != articulation->LinkCount(); ++local_link_index)
+			{
+				auto const packed_link_index = packed_articulation.link_offset + local_link_index;
+				auto const link = articulation->LinkAt(local_link_index);
+				auto const& desc = articulation->LinkDescription(link);
+				auto const proxy_body_index = first_body_index + packed_link_index;
+				auto const proxy_to_world = articulation->LinkToWorld(link) * desc.m_shape_to_link;
+				auto const link_to_proxy = InvertOrthonormal(desc.m_shape_to_link);
+				auto const proxy_velocity = link_to_proxy * articulation->LinkVelocity(link);
+				auto const proxy_com = (link_to_proxy * desc.m_inertia.CoM().w1()).w0();
+				auto proxy_inertia = Rotate(desc.m_inertia, link_to_proxy.rot);
+				proxy_inertia.CoM(proxy_com);
+
+				// Rigid force modules consume world momentum measured at the centre of mass.
+				auto const angular_velocity_proxy = proxy_velocity.ang;
+				auto const linear_velocity_com_proxy = proxy_velocity.lin + Cross(angular_velocity_proxy, proxy_com);
+				auto const momentum_ang_ws = proxy_to_world.rot * (proxy_inertia.Ic3x3() * angular_velocity_proxy);
+				auto const momentum_lin_ws = proxy_to_world.rot * (proxy_inertia.Mass() * linear_velocity_com_proxy);
+				auto const fixed_root = local_link_index == 0 && articulation->RootType() == EArticulationRootType::Fixed;
+				auto const inertia_inv = fixed_root ? InertiaInv::Zero() : Invert(proxy_inertia);
+				auto const gravity_ws = articulation->GravityWS(link);
+				auto const gravity_force_ws = fixed_root ? v4{} : proxy_inertia.Mass() * gravity_ws;
+				auto const shape_id = shape_ids[packed_link_index];
+				auto const os_bbox = desc.m_shape != nullptr ? desc.m_shape->m_s2r * desc.m_shape->m_bbox : BBox::Zero();
+
+				upload.m_links[packed_link_index].proxy_body_index = proxy_body_index;
+				proxies.push_back(GpuRigidBody{
+					.o2w = proxy_to_world,
+					.momentum_ang = momentum_ang_ws,
+					.momentum_lin = momentum_lin_ws,
+					.force_ang = {},
+					.force_lin = gravity_force_ws,
+					.ws_gravity = gravity_ws,
+					.inertia_inv_diagonal = inertia_inv.m_diagonal,
+					.inertia_inv_products = inertia_inv.m_products,
+					.os_com_and_invmass = v4{proxy_com.xyz, inertia_inv.InvMass()},
+					.os_bbox = os_bbox,
+					.state_flags = fixed_root ? static_cast<int>(ERigidBodyStateFlags::Static) : static_cast<int>(ERigidBodyStateFlags::None),
+					.shape_id = shape_id,
+					.colour_used = 0,
+					.pad0 = 0,
+					.sleep = GpuSleepData{
+						.timer_s = 0.0f,
+						.island_id = -1,
+						.generation = 0,
+						.flags = 0,
+					},
+				});
+			}
+		}
+		return proxies;
 	}
 
 	// Reject malformed packed ranges and topology before shared replay or GPU kernels can index them.

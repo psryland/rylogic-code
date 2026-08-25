@@ -99,6 +99,9 @@
     <ClCompile Include="src\compute\articulation_force_aba_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
+    <ClCompile Include="src\compute\articulation_link_proxies_gpu.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
     <ClCompile Include="src\compute\articulation_midpoint_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
@@ -228,6 +231,9 @@
       <Filter>src\compute</Filter>
     </ClInclude>
     <ClInclude Include="src\compute\articulation_force_aba_gpu.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\articulation_link_proxies_gpu.h">
       <Filter>src\compute</Filter>
     </ClInclude>
     <ClInclude Include="src\compute\articulation_midpoint_gpu.h">

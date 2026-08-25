@@ -82,8 +82,8 @@ namespace pr::physics
 		// Record exactly one fused dispatch per requested internal substep with explicit inter-substep ordering.
 		void Run(GpuJob& job, float dt, int substep_count);
 
-		// Record one fused internal substep while retaining sticky status and accumulated dispatch diagnostics.
-		void Integrate(GpuJob& job, float dt);
+		// Record one fused internal substep using either uploaded baseline or caller-gathered link wrenches.
+		void Integrate(GpuJob& job, float dt, ID3D12Resource* external_forces = nullptr);
 
 		// Upload, record all substeps, submit once, and read back focused integration diagnostics.
 		GpuArticulationMidpointResult Solve(GpuJob& job, GpuArticulationUpload const& upload, float dt, int substep_count);
@@ -103,7 +103,7 @@ namespace pr::physics
 		void ResizeBuffers(CmdList& cmd_list);
 
 		// Bind shared ABA resources and integration-only scratch for one fused substep.
-		void Dispatch(GpuJob& job, float dt);
+		void Dispatch(GpuJob& job, float dt, ID3D12Resource* external_forces);
 
 		// Order all primary, ABA, and integration scratch writes before another substep or readback.
 		void CommitUavBarriers(GpuJob& job);

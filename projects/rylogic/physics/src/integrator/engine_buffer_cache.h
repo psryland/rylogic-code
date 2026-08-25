@@ -60,6 +60,7 @@ namespace pr::physics
 
 		// Staging buffer for packing body dynamics
 		std::vector<GpuRigidBody> m_rb_dynamics;
+		int m_rigid_body_count;
 
 		// Contact information in CPU format
 		std::vector<RbContact> m_contacts_cpu;
@@ -82,6 +83,7 @@ namespace pr::physics
 		EngineBufferCache()
 			: m_shape_cache()
 			, m_rb_dynamics()
+			, m_rigid_body_count()
 			, m_contacts_cpu()
 			, m_sleep_islands()
 			, m_sleep_gpu_to_cpu_island_id()
@@ -103,6 +105,7 @@ namespace pr::physics
 			
 			// Reset the GPU staging buffer for body dynamics.
 			m_rb_dynamics.resize(0);
+			m_rigid_body_count = 0;
 			m_awake_dynamic_count = 0;
 			m_broadphase_axis_sum[0] = 0.0;
 			m_broadphase_axis_sum[1] = 0.0;
@@ -127,6 +130,7 @@ namespace pr::physics
 			// Called when the previously-seen shapes/bodies may no longer be valid (e.g. between independent unit-test scenarios that share a single engine).
 			m_shape_cache.Reset();
 			m_rb_dynamics.clear();
+			m_rigid_body_count = 0;
 			m_contacts_cpu.clear();
 			m_sleep_islands.clear();
 			m_sleep_gpu_to_cpu_island_id.clear();
@@ -148,7 +152,19 @@ namespace pr::physics
 		// Number of cached rigid bodies staged for GPU upload this frame.
 		int RigidBodyCount() const
 		{
+			return m_rigid_body_count;
+		}
+
+		// Number of ordinary bodies plus hidden articulation link proxies staged for GPU upload.
+		int BodyCount() const
+		{
 			return static_cast<int>(m_rb_dynamics.size());
+		}
+
+		// Freeze the ordinary rigid prefix before optional articulation proxies are appended.
+		void FinaliseRigidBodyPack()
+		{
+			m_rigid_body_count = static_cast<int>(m_rb_dynamics.size());
 		}
 
 		// Number of dense frame-local GPU sleep islands staged this frame.

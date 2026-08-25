@@ -140,6 +140,12 @@ namespace pr::physics
 		// Accumulate an external link-frame wrench at a link origin.
 		void ApplyExternalForce(LinkHandle link, v8force force);
 
+		// Return the world-space gravity field sampled by one link.
+		v4 GravityWS(LinkHandle link) const;
+
+		// Set the world-space gravity field evaluated at one link during each dynamics solve.
+		void GravityWS(LinkHandle link, v4 gravity);
+
 		// Clear every applied generalized force and external link wrench.
 		void ClearForces();
 

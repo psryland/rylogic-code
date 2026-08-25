@@ -117,6 +117,7 @@ namespace pr::physics
 	struct GpuConstraintUpload;
 	struct GpuConstraintSolver;
 	struct GpuArticulationForceAba;
+	struct GpuArticulationLinkProxies;
 	struct GpuArticulationMidpoint;
 	struct GpuFrameOutput;
 
@@ -153,6 +154,7 @@ namespace pr::physics
 	using GpuCollisionDetectorPtr = std::unique_ptr<GpuCollisionDetector, Deleter<GpuCollisionDetector>>;
 	using GpuConstraintSolverPtr = std::unique_ptr<GpuConstraintSolver, Deleter<GpuConstraintSolver>>;
 	using GpuArticulationForceAbaPtr = std::unique_ptr<GpuArticulationForceAba, Deleter<GpuArticulationForceAba>>;
+	using GpuArticulationLinkProxiesPtr = std::unique_ptr<GpuArticulationLinkProxies, Deleter<GpuArticulationLinkProxies>>;
 	using GpuArticulationMidpointPtr = std::unique_ptr<GpuArticulationMidpoint, Deleter<GpuArticulationMidpoint>>;
 	using GpuFrameOutputPtr = std::unique_ptr<GpuFrameOutput, Deleter<GpuFrameOutput>>;
 	using GpuSelectiveRefresherPtr = std::unique_ptr<GpuSelectiveRefresher, Deleter<GpuSelectiveRefresher>>;

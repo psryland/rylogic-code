@@ -10,6 +10,7 @@
 namespace pr::physics
 {
 	struct GpuArticulationMidpoint;
+	struct GpuArticulationLinkProxies;
 
 	// Observable allocation and dispatch state for validating the optional articulation lane.
 	struct GpuArticulationForceAbaStats
@@ -52,6 +53,7 @@ namespace pr::physics
 	{
 	private:
 		friend GpuArticulationMidpoint;
+		friend GpuArticulationLinkProxies;
 
 		Gpu& m_gpu;
 		ComputeStep m_cs_prepare;

@@ -144,10 +144,27 @@ namespace pr::physics
 				: std::span<float const>{state.m_force};
 		}
 
+		// Return gravity as a link-frame wrench at the link origin so its world direction follows current kinematics.
+		v8force GravityInput(detail::ArticulationLinkState const& link)
+		{
+			auto const mass = link.m_link.m_inertia.Mass();
+			if (mass <= ZeroMass || mass >= InfiniteMass * 0.5f)
+				return {};
+
+			auto const world_to_link = InvertOrthonormal(link.m_link_to_world.rot);
+			auto const force_link = world_to_link * (mass * link.m_gravity_ws);
+			return v8force{
+				Cross(link.m_link.m_inertia.CoM(), force_link),
+				force_link,
+			};
+		}
+
 		// Return the selected link-space external input.
 		v8force ExternalInput(detail::ArticulationLinkState const& link, bool impulse_response)
 		{
-			return impulse_response ? link.m_response_impulse : link.m_external_force;
+			return impulse_response
+				? link.m_response_impulse
+				: link.m_external_force + GravityInput(link);
 		}
 
 		// Return the selected persistent generalized output array.

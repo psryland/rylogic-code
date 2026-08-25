@@ -38,7 +38,7 @@ namespace pr::physics
 	static_assert((sizeof(GpuCollisionCounters) & 0xf) == 0);
 	static_assert(sizeof(GpuFrameForce) == 32);
 	static_assert(sizeof(GpuArticulation) == 80);
-	static_assert(sizeof(GpuArticulationLink) == 160);
+	static_assert(sizeof(GpuArticulationLink) == 192);
 	static_assert(sizeof(GpuArticulationDof) == 16);
 	static_assert(sizeof(GpuArticulationLevel) == 16);
 	static_assert(sizeof(GpuArticulationSpatialVector) == 32);

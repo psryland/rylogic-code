@@ -206,6 +206,50 @@ namespace pr::physics::tests
 			}
 		}
 
+		// Pack shaped and shape-less links into one contiguous hidden-body suffix while preserving frame, force, and ownership conventions.
+		PRUnitTestMethod(PackArticulationLinkProxies, Quick)
+		{
+			auto shape = collision::ShapeSphere{0.35f};
+			auto root_desc = GpuDataLink(0);
+			root_desc.m_shape = collision::shape_cast(&shape);
+			root_desc.m_shape_to_link = m4x4::Transform(v4::YAxis(), 0.21f, v4{0.04f, -0.03f, 0.07f, 1});
+			auto child_desc = GpuDataLink(1);
+			child_desc.m_shape_to_link = m4x4::Transform(v4::XAxis(), -0.17f, v4{-0.06f, 0.02f, 0.05f, 1});
+
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFixedRoot(root_desc, m4x4::Transform(v4::ZAxis(), 0.32f, v4{1.1f, -0.8f, 0.6f, 1}));
+			auto const child = builder.AddLink(root, GpuDataJoint(1, 2), child_desc);
+			auto articulation = builder.Build();
+			auto const gravity_ws = v4{0.4f, -0.7f, -9.2f, 0};
+			articulation.GravityWS(root, v4{0, 0, -9.8f, 0});
+			articulation.GravityWS(child, gravity_ws);
+
+			auto sources = std::array{&articulation};
+			auto upload = PackGpuArticulations(sources);
+			auto const shape_ids = std::array{17, -1};
+			auto const proxies = PackGpuArticulationProxies(upload, sources, shape_ids, 5);
+
+			PR_EXPECT(proxies.size() == 2);
+			PR_EXPECT(upload.m_links[0].proxy_body_index == 5);
+			PR_EXPECT(upload.m_links[1].proxy_body_index == 6);
+			PR_EXPECT(proxies[0].shape_id == 17);
+			PR_EXPECT(proxies[1].shape_id == -1);
+			PR_EXPECT(AllSet(static_cast<ERigidBodyStateFlags>(proxies[0].state_flags), ERigidBodyStateFlags::Static));
+			PR_EXPECT(!AllSet(static_cast<ERigidBodyStateFlags>(proxies[1].state_flags), ERigidBodyStateFlags::Static));
+			PR_EXPECT(FEql(proxies[0].o2w, articulation.LinkToWorld(root) * root_desc.m_shape_to_link));
+			PR_EXPECT(FEql(proxies[1].o2w, articulation.LinkToWorld(child) * child_desc.m_shape_to_link));
+			PR_EXPECT(FEql(proxies[0].force_lin, v4{}));
+			PR_EXPECT(FEql(proxies[1].force_lin, child_desc.m_inertia.Mass() * gravity_ws));
+			PR_EXPECT(FEql(proxies[1].ws_gravity, gravity_ws));
+			PR_EXPECT(FEql(proxies[1].os_bbox.m_centre, v4{0, 0, 0, 1}));
+			PR_EXPECT(FEql(proxies[1].os_bbox.m_radius, v4{}));
+			PR_EXPECT(FEql(UnpackGpuTransform(upload.m_links[1].shape_to_link), child_desc.m_shape_to_link));
+
+			auto const wrong_shape_ids = std::array{17};
+			PR_THROWS(PackGpuArticulationProxies(upload, sources, wrong_shape_ids, 5), std::exception);
+			PR_THROWS(PackGpuArticulationProxies(upload, sources, shape_ids, -1), std::exception);
+		}
+
 		// Reject pointer and identity aliasing before any GPU resource can observe an ambiguous tree.
 		PRUnitTestMethod(RejectsInvalidSubmission, Quick)
 		{

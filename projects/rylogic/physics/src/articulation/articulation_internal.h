@@ -29,6 +29,7 @@ namespace pr::physics::detail
 		v8motion m_link_acceleration_start = {};
 		v8motion m_response_acceleration = {};
 		v8force m_external_force = {};
+		v4 m_gravity_ws = {};
 		v8force m_response_impulse = {};
 		SpatialInertia m_articulated_inertia = SpatialInertia::Zero();
 		v8force m_articulated_bias = {};

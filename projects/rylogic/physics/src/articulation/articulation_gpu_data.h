@@ -30,6 +30,9 @@ namespace pr::physics
 	// Validate and flatten independent articulation trees into deterministic linear GPU ranges and traversal schedules.
 	GpuArticulationUpload PackGpuArticulations(std::span<Articulation* const> articulations);
 
+	// Pack one hidden force/collision proxy per link and assign its contiguous body-buffer index.
+	std::vector<GpuRigidBody> PackGpuArticulationProxies(GpuArticulationUpload& upload, std::span<Articulation* const> articulations, std::span<int const> shape_ids, int first_body_index);
+
 	// Reject malformed packed ranges and topology before shared replay or GPU kernels can index them.
 	void ValidateGpuArticulationUpload(GpuArticulationUpload const& upload);
 }

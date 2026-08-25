@@ -176,21 +176,23 @@ namespace pr::physics
 	}
 
 	// Bind shared ABA resources and integration-only scratch for one fused substep.
-	void GpuArticulationMidpoint::Dispatch(GpuJob& job, float dt)
+	void GpuArticulationMidpoint::Dispatch(GpuJob& job, float dt, ID3D12Resource* external_forces)
 	{
+		external_forces = external_forces != nullptr ? external_forces : m_aba.m_r_external_forces.get();
 		auto const constants = cbArticulationMidpoint{
 			.dt = dt,
 			.articulation_count = m_aba.m_articulation_count,
 			.link_count = m_aba.m_link_count,
 			.velocity_count = m_aba.m_velocity_count,
 		};
+		job.m_barriers.Transition(external_forces, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).Commit();
 		job.m_cmd_list.SetPipelineState(m_cs_midpoint.m_pso.get());
 		job.m_cmd_list.SetComputeRootSignature(m_cs_midpoint.m_sig.get());
 		job.m_cmd_list.AddComputeRoot32BitConstants(constants);
 		job.m_cmd_list.AddComputeRootShaderResourceView(m_aba.m_r_links->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootShaderResourceView((m_aba.m_dof_count != 0 ? m_aba.m_r_dofs : m_aba.m_r_srv_sentinel)->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootShaderResourceView((m_aba.m_force_count != 0 ? m_aba.m_r_forces : m_aba.m_r_srv_sentinel)->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootShaderResourceView(m_aba.m_r_external_forces->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(external_forces->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootShaderResourceView((m_aba.m_child_count != 0 ? m_aba.m_r_children : m_aba.m_r_srv_sentinel)->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_aba.m_r_articulations->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_position_count != 0 ? m_aba.m_r_positions : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
@@ -250,14 +252,14 @@ namespace pr::physics
 	}
 
 	// Record one fused internal substep while retaining sticky status and accumulated dispatch diagnostics.
-	void GpuArticulationMidpoint::Integrate(GpuJob& job, float dt)
+	void GpuArticulationMidpoint::Integrate(GpuJob& job, float dt, ID3D12Resource* external_forces)
 	{
 		if (!std::isfinite(dt) || dt < 0.0f)
 			throw std::invalid_argument("GPU articulation midpoint timestep must be finite and non-negative");
 		if (m_aba.m_articulation_count == 0)
 			return;
 
-		Dispatch(job, dt);
+		Dispatch(job, dt, external_forces);
 		CommitUavBarriers(job);
 	}
 

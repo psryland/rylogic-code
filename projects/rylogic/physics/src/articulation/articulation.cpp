@@ -497,6 +497,23 @@ namespace pr::physics
 		detail::CheckedLink(state, link).m_external_force += force;
 	}
 
+	// Return the world-space gravity field sampled by one link.
+	v4 Articulation::GravityWS(LinkHandle link) const
+	{
+		auto const& state = CheckedState(m_state);
+		return detail::CheckedLink(state, link).m_gravity_ws;
+	}
+
+	// Set the world-space gravity field evaluated at one link during each dynamics solve.
+	void Articulation::GravityWS(LinkHandle link, v4 gravity)
+	{
+		auto& state = CheckedState(m_state);
+		if (!IsFinite(gravity) || gravity.w != 0.0f)
+			throw std::invalid_argument("Articulation gravity must be a finite direction vector");
+
+		detail::CheckedLink(state, link).m_gravity_ws = gravity;
+	}
+
 	// Clear every applied generalized force and external link wrench.
 	void Articulation::ClearForces()
 	{

@@ -377,6 +377,66 @@ namespace pr::physics::tests
 			ExpectLinkAccelerationsNear(articulation, expected.m_link_acceleration, 8.0e-4);
 		}
 
+		// World-space per-link gravity is reevaluated in current link frames and remains persistent when transient loads are cleared.
+		PRUnitTestMethod(LinkGravityMatchesEquivalentExternalWrenches, Quick)
+		{
+			auto build = []()
+			{
+				auto builder = ArticulationBuilder{};
+				auto const root = builder.AddFloatingRoot(
+					DynamicLink(0, 2.8f),
+					m4x4::Transform(Normalise(v4{1, 2, -1, 0}), 0.43f, v4{0.7f, -0.5f, 1.2f, 1}),
+					v8motion{v4{0.19f, -0.23f, 0.17f, 0}, v4{-0.11f, 0.07f, 0.13f, 0}});
+				auto const child = builder.AddLink(root, DynamicJoint(2, 3), DynamicLink(2, 1.1f));
+				builder.AddLink(child, DynamicJoint(1, 5), DynamicLink(4, 0.6f));
+				return builder.Build();
+			};
+			auto gravity_driven = build();
+			auto wrench_driven = build();
+			auto const gravity_values = std::array{
+				v4{+0.3f, -0.5f, -9.4f, 0},
+				v4{-0.7f, +0.2f, -8.8f, 0},
+				v4{+0.4f, +0.6f, -9.1f, 0},
+			};
+
+			// Express each equivalent load in its current link frame at the link origin.
+			for (int link_index = 0; link_index != gravity_driven.LinkCount(); ++link_index)
+			{
+				auto const gravity_link = gravity_driven.LinkAt(link_index);
+				auto const wrench_link = wrench_driven.LinkAt(link_index);
+				auto const gravity_ws = gravity_values[link_index];
+				gravity_driven.GravityWS(gravity_link, gravity_ws);
+				auto const& inertia = wrench_driven.LinkDescription(wrench_link).m_inertia;
+				auto const force_link = InvertOrthonormal(wrench_driven.LinkToWorld(wrench_link).rot) * (inertia.Mass() * gravity_ws);
+				wrench_driven.ExternalForce(wrench_link, v8force{Cross(inertia.CoM(), force_link), force_link});
+			}
+
+			gravity_driven.ForwardDynamics();
+			wrench_driven.ForwardDynamics();
+			auto expected_link_accelerations = std::vector<std::array<double, 6>>{};
+			expected_link_accelerations.reserve(wrench_driven.LinkCount());
+			for (int link_index = 0; link_index != wrench_driven.LinkCount(); ++link_index)
+			{
+				auto const acceleration = wrench_driven.LinkAcceleration(wrench_driven.LinkAt(link_index));
+				expected_link_accelerations.push_back({
+					acceleration.ang.x,
+					acceleration.ang.y,
+					acceleration.ang.z,
+					acceleration.lin.x,
+					acceleration.lin.y,
+					acceleration.lin.z,
+				});
+			}
+
+			ExpectGeneralizedNear(GeneralizedAcceleration(gravity_driven), GeneralizedAcceleration(wrench_driven), 8.0e-4);
+			ExpectLinkAccelerationsNear(gravity_driven, expected_link_accelerations, 8.0e-4);
+
+			gravity_driven.ClearForces();
+			for (int link_index = 0; link_index != gravity_driven.LinkCount(); ++link_index)
+				PR_EXPECT(FEql(gravity_driven.GravityWS(gravity_driven.LinkAt(link_index)), gravity_values[link_index]));
+			PR_THROWS(gravity_driven.GravityWS(gravity_driven.Root(), v4{NAN, 0, 0, 0}), std::exception);
+		}
+
 		// Match the uncoupled floating-root gyroscopic solve before child-link reductions are introduced.
 		PRUnitTestMethod(FloatingRootMatchesOracle, Quick)
 		{

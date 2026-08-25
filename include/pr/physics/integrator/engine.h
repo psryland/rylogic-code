@@ -104,6 +104,7 @@ namespace pr::physics
 			GpuJob& m_job;
 			ID3D12Resource* m_bodies;
 			int m_body_count;
+			int m_rigid_body_count;
 			float m_dt;
 			double m_time_s;
 			int m_substep_index;
@@ -134,11 +135,14 @@ namespace pr::physics
 				int m_position_count = 0;
 				int m_velocity_offset = 0;
 				int m_velocity_count = 0;
+				int m_proxy_body_offset = 0;
+				int m_link_count = 0;
 			};
 
 			std::vector<RigidBody*> m_bodies;
 			std::vector<Articulation*> m_articulations;
 			std::vector<ArticulationOutputRange> m_articulation_ranges;
+			std::unordered_map<uint64_t, int> m_articulation_range_lookup;
 			std::unique_ptr<GpuBuffers, Deleter<GpuBuffers>> m_buffers;
 			GpuJob::RunHandle m_run;
 			float m_substep_seconds = 0.0f;
@@ -189,6 +193,9 @@ namespace pr::physics
 
 		// Lazily created shared articulation dynamics resources.
 		GpuArticulationForceAbaPtr m_gpu_articulation_force_aba;
+
+		// Lazily created hidden link-proxy force and kinematics lane.
+		GpuArticulationLinkProxiesPtr m_gpu_articulation_link_proxies;
 
 		// Lazily created fused pure-tree midpoint integration lane.
 		GpuArticulationMidpointPtr m_gpu_articulation_midpoint;
@@ -318,6 +325,9 @@ namespace pr::physics
 		
 		// Raised after body upload and before integration so subscribers can add GPU-resident forces.
 		EventHandler<Engine&, ExternalForceArgs const&> ExternalForces;
+
+		// Resolve a stable articulation link to its hidden body index during ExternalForces, or return -1 when its tree is absent.
+		int ArticulationLinkStepIndex(ArticulationId articulation_id, LinkHandle link) const;
 
 		// Get/set the physics material properties for a given material ID.
 		physics::Material Material(int id) const;
