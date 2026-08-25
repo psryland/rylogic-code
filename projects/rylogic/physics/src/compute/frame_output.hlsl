@@ -21,6 +21,10 @@ struct cbFrameOutput
 	int substep_count;
 	int body_count;
 	int pad0;
+	int articulation_count;
+	int position_count;
+	int velocity_count;
+	int pad1;
 };
 
 ConstantBuffer<cbFrameOutput> resource(g, b0);
@@ -32,6 +36,15 @@ RWStructuredBuffer<GpuSubstepOutputState> resource(g_substep_state, u4);
 RWStructuredBuffer<GpuCollisionEvent> resource(g_events, u5);
 RWStructuredBuffer<GpuRigidBody> resource(g_bodies, u6);
 RWStructuredBuffer<GpuRigidBody> resource(g_output_bodies, u7);
+RWStructuredBuffer<GpuArticulation> resource(g_articulations, u8);
+RWStructuredBuffer<GpuArticulationIntegrationState> resource(g_articulation_states, u9);
+RWStructuredBuffer<float> resource(g_articulation_positions, u10);
+RWStructuredBuffer<float> resource(g_articulation_velocities, u11);
+RWStructuredBuffer<float> resource(g_articulation_accelerations, u12);
+RWStructuredBuffer<GpuArticulationFrameOutput> resource(g_output_articulations, u13);
+RWStructuredBuffer<float> resource(g_output_positions, u14);
+RWStructuredBuffer<float> resource(g_output_velocities, u15);
+RWStructuredBuffer<float> resource(g_output_accelerations, u16);
 
 // Reserve a deterministic contiguous event range and retain capacity diagnostics before counters are reset.
 numthreads(CSPrepareSubstepOutput, 1, 1, 1)
@@ -98,6 +111,33 @@ void CSGatherFrameBodies(int3 DTID(dtid))
 		return;
 
 	g_output_bodies[body_index] = g_bodies[body_index];
+}
+
+// Gather final generalized state and one compact identity/root/status record per articulation.
+numthreads(CSGatherFrameArticulations, FrameOutputThreadCount, 1, 1)
+void CSGatherFrameArticulations(int3 DTID(dtid))
+{
+	int index = dtid.x;
+	if (index < g.articulation_count)
+	{
+		GpuArticulation articulation = g_articulations[index];
+		GpuArticulationIntegrationState state = g_articulation_states[index];
+		GpuArticulationFrameOutput output = (GpuArticulationFrameOutput)0;
+		output.root_to_world = articulation.root_to_world;
+		output.identity_low = articulation.identity_low;
+		output.identity_high = articulation.identity_high;
+		output.status = state.status;
+		output.iteration_count = state.iteration_count;
+		output.residual = state.residual;
+		g_output_articulations[index] = output;
+	}
+	if (index < g.position_count)
+		g_output_positions[index] = g_articulation_positions[index];
+	if (index < g.velocity_count)
+	{
+		g_output_velocities[index] = g_articulation_velocities[index];
+		g_output_accelerations[index] = g_articulation_accelerations[index];
+	}
 }
 
 #ifdef __cplusplus

@@ -488,6 +488,20 @@ struct GpuArticulationIntegrationState
 	float pad;
 };
 
+// Compact final articulation state gathered once per frame without copying topology or midpoint rollback scratch.
+struct GpuArticulationFrameOutput
+{
+	GpuConstraintFrame root_to_world;
+	uint identity_low;
+	uint identity_high;
+	int status;
+	int iteration_count;
+	float residual;
+	float pad0;
+	int pad1;
+	int pad2;
+};
+
 // Aggregate counters and bounded-event status copied back once after all internal substeps.
 struct GpuFrameOutputHeader
 {

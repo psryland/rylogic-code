@@ -8,6 +8,20 @@
 
 namespace pr::physics
 {
+	// GPU resources containing one completed or in-progress packed articulation forest.
+	struct GpuArticulationMidpointOutput
+	{
+		ID3D12Resource* m_articulations;
+		ID3D12Resource* m_positions;
+		ID3D12Resource* m_velocities;
+		ID3D12Resource* m_accelerations;
+		ID3D12Resource* m_states;
+		int m_articulation_count;
+		int m_position_count;
+		int m_velocity_count;
+		int m_pad0;
+	};
+
 	// Observable allocation, logical-memory, and dispatch state for fused articulation integration.
 	struct GpuArticulationMidpointStats
 	{
@@ -68,8 +82,14 @@ namespace pr::physics
 		// Record exactly one fused dispatch per requested internal substep with explicit inter-substep ordering.
 		void Run(GpuJob& job, float dt, int substep_count);
 
+		// Record one fused internal substep while retaining sticky status and accumulated dispatch diagnostics.
+		void Integrate(GpuJob& job, float dt);
+
 		// Upload, record all substeps, submit once, and read back focused integration diagnostics.
 		GpuArticulationMidpointResult Solve(GpuJob& job, GpuArticulationUpload const& upload, float dt, int substep_count);
+
+		// Return the current packed primary state and diagnostics for the final gathered frame output.
+		GpuArticulationMidpointOutput Output();
 
 		// Return current integration-only capacities, logical usage, and most recent dispatch count.
 		GpuArticulationMidpointStats const& Stats() const;

@@ -9,6 +9,9 @@
 #include "pr/physics/collision/contact.h"
 #include "pr/physics/shape/inertia.h"
 #include "pr/physics/diagnostics/body_history.h"
+#include "src/articulation/articulation_gpu_data.h"
+#include "src/articulation/articulation_internal.h"
+#include "src/compute/articulation_midpoint_gpu.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/integrate_gpu.h"
 #include "src/compute/sleep_gpu.h"
@@ -120,6 +123,40 @@ namespace pr::physics
 					stats.m_max_contacts));
 			}
 		}
+
+		// Return a stable diagnostic label for every known sticky midpoint failure state.
+		char const* ArticulationIntegrationStatusName(int status)
+		{
+			switch (status)
+			{
+				case GpuArticulationIntegrationStatus_Success:
+				{
+					return "success";
+				}
+				case GpuArticulationIntegrationStatus_Singular:
+				{
+					return "singular";
+				}
+				case GpuArticulationIntegrationStatus_NonFinite:
+				{
+					return "non-finite";
+				}
+				case GpuArticulationIntegrationStatus_NonConverged:
+				{
+					return "non-converged";
+				}
+				default:
+				{
+					return "unknown";
+				}
+			}
+		}
+
+		// Return whether a compact non-negative range is contained by its gathered scalar stream.
+		bool ArticulationOutputRangeValid(int offset, int count, size_t size)
+		{
+			return offset >= 0 && count >= 0 && static_cast<uint64_t>(offset) + static_cast<uint64_t>(count) <= size;
+		}
 	}
 
 	// Readback resources and flags that must survive between GPU submission and CPU unpack.
@@ -133,21 +170,28 @@ namespace pr::physics
 	// Keep the opaque GPU readback state allocated once with the pending-step state.
 	Engine::PendingStep::PendingStep()
 		: m_bodies()
+		, m_articulations()
+		, m_articulation_ranges()
 		, m_buffers(new GpuBuffers())
 		, m_run()
+		, m_substep_seconds()
 		, m_active()
 		, m_submitted()
 	{
 	}
 
-	// Start tracking a begin/complete step pair using a stable copy of the caller's body list.
-	void Engine::PendingStep::Begin(std::span<RigidBody*> bodies)
+	// Start tracking a begin/complete step pair using stable copies of every caller-owned object pointer.
+	void Engine::PendingStep::Begin(std::span<RigidBody*> bodies, std::span<Articulation*> articulations, float substep_seconds)
 	{
 		if (bodies.data() != m_bodies.data() || bodies.size() != m_bodies.size())
 			m_bodies.assign(bodies.begin(), bodies.end());
+		if (articulations.data() != m_articulations.data() || articulations.size() != m_articulations.size())
+			m_articulations.assign(articulations.begin(), articulations.end());
 
+		m_articulation_ranges.clear();
 		*m_buffers = {};
 		m_run = {};
+		m_substep_seconds = substep_seconds;
 		m_active = true;
 		m_submitted = false;
 	}
@@ -156,8 +200,11 @@ namespace pr::physics
 	void Engine::PendingStep::Clear()
 	{
 		m_bodies.clear();
+		m_articulations.clear();
+		m_articulation_ranges.clear();
 		*m_buffers = {};
 		m_run = {};
+		m_substep_seconds = 0.0f;
 		m_active = false;
 		m_submitted = false;
 	}
@@ -171,6 +218,8 @@ namespace pr::physics
 		, m_gpu_collision_detector(new GpuCollisionDetector(*m_gpu, m_config))
 		, m_gpu_resolver(new GpuResolver(*m_gpu, m_config, shader_cache))
 		, m_gpu_constraint_solver()
+		, m_gpu_articulation_force_aba()
+		, m_gpu_articulation_midpoint()
 		, m_gpu_frame_output(new GpuFrameOutput(*m_gpu))
 		, m_gpu_selective_resolver(new GpuResolver(*m_gpu, m_config, shader_cache))
 		, m_gpu_selective_refresher(new GpuSelectiveRefresher(*m_gpu, m_config))
@@ -291,8 +340,6 @@ namespace pr::physics
 		//    or run Engine::Step() multiple times on "islands" of physics objects
 		if (m_pending_step.m_active)
 			throw std::runtime_error("Engine::BeginStep called while a previous step is pending");
-		if (!input.m_articulations.empty())
-			throw std::runtime_error("Engine::BeginStep articulation inputs require the articulation milestone");
 		if (input.m_substep_count < 1 || input.m_substep_count > m_config.max_internal_substeps)
 			throw std::runtime_error(std::format("Engine::BeginStep substep count {} is outside the configured range [1, {}]", input.m_substep_count, m_config.max_internal_substeps));
 		if (m_config.max_collision_pairs < 1)
@@ -302,11 +349,17 @@ namespace pr::physics
 		if (!std::isfinite(input.m_elapsed_seconds) || input.m_elapsed_seconds < 0.0f)
 			throw std::runtime_error("Engine::BeginStep elapsed time must be finite and non-negative");
 
-		m_pending_step.Begin(input.m_bodies);
+		auto const dt = input.m_elapsed_seconds / input.m_substep_count;
+		m_pending_step.Begin(input.m_bodies, input.m_articulations, dt);
 		auto bodies = std::span{ m_pending_step.m_bodies };
+		auto articulations = std::span{ m_pending_step.m_articulations };
 
-		if (bodies.empty())
+		if (bodies.empty() && articulations.empty())
 		{
+			// Empty input also releases retained optional articulation buffers after their last completed use.
+			if (m_gpu_articulation_midpoint != nullptr)
+				m_gpu_articulation_midpoint->Upload(m_gpu->m_job, GpuArticulationUpload{});
+
 			m_constraints_active = false;
 			m_last_step_profile = {};
 			m_last_step_profile.m_substep_count = input.m_substep_count;
@@ -335,6 +388,25 @@ namespace pr::physics
 			Pack(bodies);
 		}
 
+		// Flatten each independent tree once; all internal substeps retain these immutable topology and force ranges on the GPU.
+		auto articulation_upload = GpuArticulationUpload{};
+		if (!articulations.empty())
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_articulation_pack_ms>(m_last_step_profile);
+			articulation_upload = PackGpuArticulations(articulations);
+			m_pending_step.m_articulation_ranges.reserve(articulation_upload.m_articulations.size());
+			for (auto const& articulation : articulation_upload.m_articulations)
+			{
+				m_pending_step.m_articulation_ranges.push_back(PendingStep::ArticulationOutputRange{
+					.m_identity = static_cast<uint64_t>(articulation.identity_low) | (static_cast<uint64_t>(articulation.identity_high) << 32),
+					.m_position_offset = articulation.position_offset,
+					.m_position_count = articulation.position_count,
+					.m_velocity_offset = articulation.velocity_offset,
+					.m_velocity_count = articulation.velocity_count,
+				});
+			}
+		}
+
 		// Resolve stable identities before submission and retain only compact transfer data for the GPU upload.
 		auto constraint_upload = GpuConstraintUpload{};
 		if (input.m_constraints != nullptr)
@@ -346,11 +418,16 @@ namespace pr::physics
 		if (!m_constraints_active && m_gpu_constraint_solver != nullptr)
 			m_gpu_constraint_solver->Deactivate();
 
-		// Persistent constraints may wake sleeping bodies through motors or drift correction, so only the completely unconstrained state may skip the GPU.
-		if (m_config.sleeping_enabled && m_cache->AwakeDynamicCount() == 0 && !m_constraints_active)
+		// Persistent constraints may wake sleeping bodies, while active articulations always require their independent pure-tree dispatch.
+		if (m_config.sleeping_enabled && m_cache->AwakeDynamicCount() == 0 && !m_constraints_active && articulations.empty())
+		{
+			if (m_gpu_articulation_midpoint != nullptr)
+				m_gpu_articulation_midpoint->Upload(m_gpu->m_job, GpuArticulationUpload{});
 			return;
+		}
 
 		// Upload -> transfers staged body dynamics and resets GPU counters
+		if (!bodies.empty())
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_upload_ms>(m_last_step_profile);
 			Upload();
@@ -365,67 +442,95 @@ namespace pr::physics
 			m_gpu_constraint_solver->Upload(m_gpu->m_job, constraint_upload);
 		}
 
+		// Instantiate and populate articulation resources only when a frame actually contains reduced-coordinate trees.
+		auto articulation_output = GpuArticulationMidpointOutput{};
+		if (!articulations.empty())
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_articulation_upload_ms>(m_last_step_profile);
+			if (m_gpu_articulation_force_aba == nullptr)
+				m_gpu_articulation_force_aba.reset(new GpuArticulationForceAba(*m_gpu));
+			if (m_gpu_articulation_midpoint == nullptr)
+				m_gpu_articulation_midpoint.reset(new GpuArticulationMidpoint(*m_gpu_articulation_force_aba));
+			if (!m_gpu_articulation_midpoint->Upload(m_gpu->m_job, articulation_upload))
+				throw std::runtime_error("GPU articulation midpoint rejected a non-empty packed forest");
+
+			articulation_output = m_gpu_articulation_midpoint->Output();
+		}
+		else if (m_gpu_articulation_midpoint != nullptr)
+		{
+			m_gpu_articulation_midpoint->Upload(m_gpu->m_job, articulation_upload);
+		}
+
 		// Allocate optional event storage only when the caller has requested collision records.
-		auto const collect_collision_events = static_cast<bool>(Collisions);
+		auto const collect_collision_events = !bodies.empty() && static_cast<bool>(Collisions);
 		auto const event_capacity = collect_collision_events ? m_config.max_collision_events : 0;
-		m_gpu_frame_output->BeginFrame(m_gpu->m_job, m_cache->RigidBodyCount(), event_capacity, input.m_substep_count);
+		m_gpu_frame_output->BeginFrame(m_gpu->m_job, m_cache->RigidBodyCount(), event_capacity, input.m_substep_count, articulation_output);
 
 		// Record every substep into the same command list so state, warm starts, and counters stay GPU-resident.
-		auto const dt = input.m_elapsed_seconds / input.m_substep_count;
 		for (int substep_index = 0; substep_index != input.m_substep_count; ++substep_index)
 		{
-			// Upload resets the first substep counters; later substeps reset only transient collision state.
-			if (substep_index != 0)
-				m_gpu_integrator->ResetCounters(m_gpu->m_job);
+			if (!bodies.empty())
+			{
+				// Upload resets the first substep counters; later substeps reset only transient collision state.
+				if (substep_index != 0)
+					m_gpu_integrator->ResetCounters(m_gpu->m_job);
 
-			// Restore CPU frame-constant inputs before GPU modules add state-dependent forces.
-			m_gpu_integrator->SeedWorkingForces(m_gpu->m_job, m_cache->RigidBodyCount());
-			{
-				auto profile_scope = ProfileScope<&Engine::StepProfile::m_external_forces_ms>(m_last_step_profile);
-				auto const substep_time_s = input.m_time_s + static_cast<double>(dt) * substep_index;
-				ApplyExternalForces(dt, substep_time_s, substep_index, input.m_substep_count);
+				// Restore CPU frame-constant inputs before GPU modules add state-dependent forces.
+				m_gpu_integrator->SeedWorkingForces(m_gpu->m_job, m_cache->RigidBodyCount());
+				{
+					auto profile_scope = ProfileScope<&Engine::StepProfile::m_external_forces_ms>(m_last_step_profile);
+					auto const substep_time_s = input.m_time_s + static_cast<double>(dt) * substep_index;
+					ApplyExternalForces(dt, substep_time_s, substep_index, input.m_substep_count);
+				}
+
+				// Ordinary rigid prediction consumes and clears the working force accumulator.
+				{
+					auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
+					Integrate(dt);
+				}
+
+				// Collision and constraint phases operate on the predicted body state for this substep.
+				{
+					auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepwake_ms>(m_last_step_profile);
+					SleepWake();
+				}
+				{
+					auto profile_scope = ProfileScope<&Engine::StepProfile::m_broadphase_ms>(m_last_step_profile);
+					BroadPhase(m_config.sleeping_enabled, constraint_upload.m_collision_exclusions.m_slots);
+				}
+				{
+					auto profile_scope = ProfileScope<&Engine::StepProfile::m_collide_ms>(m_last_step_profile);
+					Collide();
+				}
+				{
+					auto profile_scope = ProfileScope<&Engine::StepProfile::m_resolve_ms>(m_last_step_profile);
+					Resolve(dt);
+				}
+				{
+					auto profile_scope = ProfileScope<&Engine::StepProfile::m_selective_ms>(m_last_step_profile);
+					SelectiveRefresh(dt);
+				}
+				{
+					auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepupdate_ms>(m_last_step_profile);
+					SleepUpdate(dt);
+				}
+
+				// Preserve raw capacity counters and resolved collision records before transient buffers are reused.
+				CaptureSubstepOutput(substep_index, input.m_substep_count, collect_collision_events);
 			}
 
-			// Ordinary rigid prediction consumes and clears the working force accumulator.
+			// Pure-tree articulation integration is independent of rigid collision work until projected impulse coupling is enabled.
+			if (!articulations.empty())
 			{
-				auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
-				Integrate(dt);
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_articulation_integrate_ms>(m_last_step_profile);
+				m_gpu_articulation_midpoint->Integrate(m_gpu->m_job, dt);
 			}
-
-			// Collision and constraint phases operate on the predicted body state for this substep.
-			{
-				auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepwake_ms>(m_last_step_profile);
-				SleepWake();
-			}
-			{
-				auto profile_scope = ProfileScope<&Engine::StepProfile::m_broadphase_ms>(m_last_step_profile);
-				BroadPhase(m_config.sleeping_enabled, constraint_upload.m_collision_exclusions.m_slots);
-			}
-			{
-				auto profile_scope = ProfileScope<&Engine::StepProfile::m_collide_ms>(m_last_step_profile);
-				Collide();
-			}
-			{
-				auto profile_scope = ProfileScope<&Engine::StepProfile::m_resolve_ms>(m_last_step_profile);
-				Resolve(dt);
-			}
-			{
-				auto profile_scope = ProfileScope<&Engine::StepProfile::m_selective_ms>(m_last_step_profile);
-				SelectiveRefresh(dt);
-			}
-			{
-				auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepupdate_ms>(m_last_step_profile);
-				SleepUpdate(dt);
-			}
-
-			// Preserve raw capacity counters and resolved collision records before transient buffers are reused.
-			CaptureSubstepOutput(substep_index, input.m_substep_count, collect_collision_events);
 		}
 
 		// ReadBody -> read back body dynamics and contact data
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_ms>(m_last_step_profile);
-			Readback(*m_pending_step.m_buffers);
+			Readback(*m_pending_step.m_buffers, articulation_output);
 		}
 
 		// Submit all GPU work for this step without waiting so callers can overlap other CPU work.
@@ -451,7 +556,13 @@ namespace pr::physics
 		try
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_unpack_ms>(m_last_step_profile);
-			Unpack(*m_pending_step.m_buffers, m_pending_step.m_bodies);
+			Unpack(
+				*m_pending_step.m_buffers,
+				m_pending_step.m_bodies,
+				m_pending_step.m_articulations,
+				m_pending_step.m_articulation_ranges,
+				m_pending_step.m_substep_seconds
+			);
 		}
 		catch (...)
 		{
@@ -520,14 +631,14 @@ namespace pr::physics
 		CaptureSubstepOutput(0, 1, false);
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_ms>(m_last_step_profile);
-			Readback(buffers);
+			Readback(buffers, GpuArticulationMidpointOutput{});
 		}
 		{
 			RunGpuJob(m_gpu->m_job, m_last_step_profile);
 		}
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_unpack_ms>(m_last_step_profile);
-			Unpack(buffers, rigid_bodies);
+			Unpack(buffers, rigid_bodies, {}, {}, 0.0f);
 		}
 	}
 
@@ -536,14 +647,12 @@ namespace pr::physics
 	{
 		for (auto body : rigid_bodies)
 		{
-			// Clear flags from the previous frame
-			body->m_state_flags = SetBits(body->m_state_flags, ERigidBodyStateFlags::Collided, false);
-
 			// Populate the shape cache
 			auto shape_id = m_cache->m_shape_cache.GetOrAdd(body->Shape());
 
-			// Copy the body data into the GPU staging buffer
+			// Clear prior-frame collision state only in detached staging so a rejected mixed frame cannot mutate caller-owned bodies.
 			auto dyn = PackDynamics(*body, shape_id);
+			dyn.state_flags = static_cast<uint32_t>(SetBits(static_cast<ERigidBodyStateFlags>(dyn.state_flags), ERigidBodyStateFlags::Collided, false));
 			m_cache->CountAwakeDynamic(*body);
 			m_cache->PackSleepIsland(*body, dyn);
 			m_cache->AddBroadphaseSortSample(dyn);
@@ -777,17 +886,17 @@ namespace pr::physics
 	}
 
 	// Gather selected output and record exactly one core GPU-to-CPU copy.
-	void Engine::Readback(GpuBuffers& buffers)
+	void Engine::Readback(GpuBuffers& buffers, GpuArticulationMidpointOutput const& articulations)
 	{
 		auto body_count = m_cache->RigidBodyCount();
 		auto bodies = m_gpu_integrator->Bodies();
 		buffers.read_collision_events = buffers.emit_collisions && static_cast<bool>(Collisions);
-		buffers.rb_output = m_gpu_frame_output->GatherAndReadback(m_gpu->m_job, body_count, bodies.get());
+		buffers.rb_output = m_gpu_frame_output->GatherAndReadback(m_gpu->m_job, body_count, bodies.get(), articulations);
 		++m_last_step_profile.m_readback_copy_count;
 	}
 
-	// Update rigid bodies with results from the step
-	void Engine::Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies)
+	// Validate the complete gathered frame before publishing rigid or articulation state.
+	void Engine::Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies, std::span<Articulation*> articulations, std::span<PendingStep::ArticulationOutputRange const> articulation_ranges, float articulation_substep_seconds)
 	{
 		auto body_count = m_cache->RigidBodyCount();
 		auto max_contacts = m_config.max_collision_pairs;
@@ -809,7 +918,61 @@ namespace pr::physics
 			CheckCollisionCapacity(m_last_collision_stats);
 		}
 
+		// Validate every tree, identity, status, range, and scalar before any collision callback or caller-owned state mutation.
+		auto articulation_outputs = std::vector<detail::ArticulationIntegrationOutput>{};
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_articulation_unpack_ms>(m_last_step_profile);
+			auto const output_articulations = GpuFrameOutput::Articulations(buffers.rb_output);
+			auto const output_positions = GpuFrameOutput::Positions(buffers.rb_output);
+			auto const output_velocities = GpuFrameOutput::Velocities(buffers.rb_output);
+			auto const output_accelerations = GpuFrameOutput::Accelerations(buffers.rb_output);
+			if (articulations.size() != articulation_ranges.size() || output_articulations.size() != articulations.size())
+				throw std::runtime_error("GPU frame output articulation count does not match the pending forest");
+
+			articulation_outputs.reserve(articulations.size());
+			auto position_cursor = 0;
+			auto velocity_cursor = 0;
+			for (int articulation_index = 0; articulation_index != isize(articulations); ++articulation_index)
+			{
+				auto* articulation = articulations[articulation_index];
+				auto const& range = articulation_ranges[articulation_index];
+				auto const& gathered = output_articulations[articulation_index];
+				auto const gathered_identity = static_cast<uint64_t>(gathered.identity_low) | (static_cast<uint64_t>(gathered.identity_high) << 32);
+				if (articulation == nullptr || articulation->Id().m_value != range.m_identity || gathered_identity != range.m_identity)
+					throw std::runtime_error(std::format("GPU frame output articulation identity mismatch at packed index {}", articulation_index));
+				if (range.m_position_offset != position_cursor || range.m_velocity_offset != velocity_cursor ||
+					!ArticulationOutputRangeValid(range.m_position_offset, range.m_position_count, output_positions.size()) ||
+					!ArticulationOutputRangeValid(range.m_velocity_offset, range.m_velocity_count, output_velocities.size()) ||
+					!ArticulationOutputRangeValid(range.m_velocity_offset, range.m_velocity_count, output_accelerations.size()))
+					throw std::runtime_error(std::format("GPU frame output articulation range mismatch at packed index {}", articulation_index));
+				if (gathered.status != GpuArticulationIntegrationStatus_Success)
+					throw std::runtime_error(std::format(
+						"GPU articulation {} failed implicit-midpoint integration with {} status after {} iterations (residual {})",
+						range.m_identity,
+						ArticulationIntegrationStatusName(gathered.status),
+						gathered.iteration_count,
+						gathered.residual));
+				if (gathered.iteration_count < 0 || !std::isfinite(gathered.residual) || gathered.residual < 0.0f)
+					throw std::runtime_error(std::format("GPU articulation {} returned invalid convergence diagnostics", range.m_identity));
+
+				auto output = detail::ArticulationIntegrationOutput{
+					.m_root_to_world = UnpackGpuTransform(gathered.root_to_world),
+					.m_positions = output_positions.subspan(range.m_position_offset, range.m_position_count),
+					.m_velocities = output_velocities.subspan(range.m_velocity_offset, range.m_velocity_count),
+					.m_accelerations = output_accelerations.subspan(range.m_velocity_offset, range.m_velocity_count),
+					.m_substep_seconds = articulation_substep_seconds,
+				};
+				detail::ValidateArticulationIntegrationOutput(*articulation, output);
+				articulation_outputs.push_back(output);
+				position_cursor += range.m_position_count;
+				velocity_cursor += range.m_velocity_count;
+			}
+			if (position_cursor != isize(output_positions) || velocity_cursor != isize(output_velocities) || velocity_cursor != isize(output_accelerations))
+				throw std::runtime_error("GPU frame output generalized streams are not partitioned by the pending articulation forest");
+		}
+
 		auto const output_bodies = GpuFrameOutput::Bodies(buffers.rb_output);
+		if (body_count != 0)
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_body_readback_copy_ms>(m_last_step_profile);
 			std::memcpy(m_cache->m_rb_dynamics.data(), output_bodies.data(), body_count * sizeof(GpuRigidBody));
@@ -847,6 +1010,13 @@ namespace pr::physics
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_body_unpack_ms>(m_last_step_profile);
 			for (auto [body, i] : with_index(rigid_bodies))
 				UnpackDynamics(m_cache->m_rb_dynamics[i], *body);
+		}
+
+		// Publish the already-validated forest only after callbacks and rigid output validation have succeeded.
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_articulation_unpack_ms>(m_last_step_profile);
+			for (int articulation_index = 0; articulation_index != isize(articulations); ++articulation_index)
+				detail::CommitArticulationIntegrationOutput(*articulations[articulation_index], articulation_outputs[articulation_index]);
 		}
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)

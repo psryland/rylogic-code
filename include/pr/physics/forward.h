@@ -116,6 +116,8 @@ namespace pr::physics
 	struct GpuCollisionExclusion;
 	struct GpuConstraintUpload;
 	struct GpuConstraintSolver;
+	struct GpuArticulationForceAba;
+	struct GpuArticulationMidpoint;
 	struct GpuFrameOutput;
 
 	struct Gpu;
@@ -134,6 +136,8 @@ namespace pr::physics
 	struct GpuCollisionCounters;
 	struct GpuFrameForce;
 	struct GpuFrameOutputHeader;
+	struct GpuArticulationFrameOutput;
+	struct GpuArticulationMidpointOutput;
 	struct GpuSubstepOutputState;
 	struct GpuCollisionEvent;
 	struct GpuMaterial;
@@ -148,6 +152,8 @@ namespace pr::physics
 	using GpuSortAndSweepPtr = std::unique_ptr<GpuSortAndSweep, Deleter<GpuSortAndSweep>>;
 	using GpuCollisionDetectorPtr = std::unique_ptr<GpuCollisionDetector, Deleter<GpuCollisionDetector>>;
 	using GpuConstraintSolverPtr = std::unique_ptr<GpuConstraintSolver, Deleter<GpuConstraintSolver>>;
+	using GpuArticulationForceAbaPtr = std::unique_ptr<GpuArticulationForceAba, Deleter<GpuArticulationForceAba>>;
+	using GpuArticulationMidpointPtr = std::unique_ptr<GpuArticulationMidpoint, Deleter<GpuArticulationMidpoint>>;
 	using GpuFrameOutputPtr = std::unique_ptr<GpuFrameOutput, Deleter<GpuFrameOutput>>;
 	using GpuSelectiveRefresherPtr = std::unique_ptr<GpuSelectiveRefresher, Deleter<GpuSelectiveRefresher>>;
 	using GpuResolverPtr = std::unique_ptr<GpuResolver, Deleter<GpuResolver>>;

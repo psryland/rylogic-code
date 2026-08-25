@@ -422,4 +422,10 @@ namespace pr::physics
 	{
 		return m_stats;
 	}
+
+	// Destroy lazily owned force-ABA resources where the implementation type is complete.
+	void Deleter<GpuArticulationForceAba>::operator()(GpuArticulationForceAba* solver) const
+	{
+		delete solver;
+	}
 }

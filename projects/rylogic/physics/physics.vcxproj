@@ -229,7 +229,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\articulation\articulation_desc.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\articulation\articulation_ids.h" />
     <ShaderBuild Include="src\compute\integrate.hlsl" ComputeEntryPoints="CSSeedWorkingForces;CSIntegrate" />
-    <ShaderBuild Include="src\compute\frame_output.hlsl" ComputeEntryPoints="CSPrepareSubstepOutput;CSAppendCollisionEvents;CSGatherFrameBodies" />
+    <ShaderBuild Include="src\compute\frame_output.hlsl" ComputeEntryPoints="CSPrepareSubstepOutput;CSAppendCollisionEvents;CSGatherFrameBodies;CSGatherFrameArticulations" />
     <ShaderBuild Include="src\compute\sleep.hlsl" ComputeEntryPoints="CSDisturbIslands;CSInitSleepState;CSUnionSleepContacts;CSCanonicaliseSleepRoots;CSReduceSleepStats;CSApplySleepState" />
     <ShaderBuild Include="src\compute\sweep.hlsl" ComputeEntryPoints="CSSweep;CSSweepFiltered;CSCalcCDDispatch" />
     <ShaderBuild Include="src\compute\collide.hlsl" ComputeEntryPoints="CSClearCollisionBins;CSBinCollisionPairs;CSBuildCollisionBinDispatch;CSCollideSphereVsSphere;CSCollideBoxVsSphere;CSCollideBoxVsBox;CSCollideLineVsSphere;CSCollideLineVsBox;CSCollideLineVsLine;CSCollideTriangleVsSphere;CSCollideTriangleVsBox;CSCollideTriangleVsLine;CSCollideTriangleVsTriangle;CSCollidePolytopeVsSphere;CSCollidePolytopeVsBox;CSCollidePolytopeVsLine;CSCollidePolytopeVsTriangle;CSCollidePolytopeVsPolytope;CSCalcResolveDispatch" />

@@ -12,8 +12,8 @@ namespace pr::physics
 	struct Engine
 	{
 		// Notes:
-		//  - The engine does not own the bodies. The caller is responsible for managing their
-		//    lifetime and ensuring they remain valid while being used by the engine.
+		//  - The engine does not own bodies or articulations. The caller must keep them alive and
+		//    unchanged until each BeginStep call is paired with CompleteStep or AbandonStep.
 		//  - The engine does not have a universal gravity setting, Gravity should be applied
 		//    as a force to bodies each frame before calling Step().
 		//  - Collision resolution and 'sleeping objects' require a concept of "down" however,
@@ -26,10 +26,13 @@ namespace pr::physics
 			double m_new_frame_ms = 0;
 			double m_pack_ms = 0;
 			double m_constraint_pack_ms = 0;
+			double m_articulation_pack_ms = 0;
 			double m_upload_ms = 0;
 			double m_constraint_upload_ms = 0;
+			double m_articulation_upload_ms = 0;
 			double m_external_forces_ms = 0;
 			double m_integrate_ms = 0;
+			double m_articulation_integrate_ms = 0;
 			double m_sleepwake_ms = 0;
 			double m_broadphase_ms = 0;
 			double m_collide_ms = 0;
@@ -49,6 +52,7 @@ namespace pr::physics
 			double m_collision_events_ms = 0;
 			double m_sleep_island_unpack_ms = 0;
 			double m_body_unpack_ms = 0;
+			double m_articulation_unpack_ms = 0;
 			double m_unpack_diagnostics_ms = 0;
 			int m_substep_count = 0;
 			int m_submission_count = 0;
@@ -119,12 +123,25 @@ namespace pr::physics
 
 	private:
 
-		// Caller-owned bodies and GPU output that remain live between BeginStep and CompleteStep.
+		// Caller-owned simulation objects and GPU output that remain live between BeginStep and CompleteStep.
 		struct PendingStep
 		{
+			// Expected packed ranges bind each compact readback record to one stable caller-owned articulation.
+			struct ArticulationOutputRange
+			{
+				uint64_t m_identity = 0;
+				int m_position_offset = 0;
+				int m_position_count = 0;
+				int m_velocity_offset = 0;
+				int m_velocity_count = 0;
+			};
+
 			std::vector<RigidBody*> m_bodies;
+			std::vector<Articulation*> m_articulations;
+			std::vector<ArticulationOutputRange> m_articulation_ranges;
 			std::unique_ptr<GpuBuffers, Deleter<GpuBuffers>> m_buffers;
 			GpuJob::RunHandle m_run;
+			float m_substep_seconds = 0.0f;
 			bool m_active = false;
 			bool m_submitted = false;
 
@@ -139,8 +156,8 @@ namespace pr::physics
 					m_bodies.push_back(&body);
 			}
 
-			// Start tracking a begin/complete step pair using a stable copy of the caller's body list.
-			void Begin(std::span<RigidBody*> bodies);
+			// Start tracking a begin/complete step pair using stable copies of every caller-owned object pointer.
+			void Begin(std::span<RigidBody*> bodies, std::span<Articulation*> articulations, float substep_seconds);
 
 			// Clear all per-step state once the GPU result has been consumed.
 			void Clear();
@@ -170,6 +187,12 @@ namespace pr::physics
 		// Lazily created GPU persistent-constraint solver.
 		GpuConstraintSolverPtr m_gpu_constraint_solver;
 
+		// Lazily created shared articulation dynamics resources.
+		GpuArticulationForceAbaPtr m_gpu_articulation_force_aba;
+
+		// Lazily created fused pure-tree midpoint integration lane.
+		GpuArticulationMidpointPtr m_gpu_articulation_midpoint;
+
 		// Gathered frame output and bounded substep event queue.
 		GpuFrameOutputPtr m_gpu_frame_output;
 
@@ -195,7 +218,7 @@ namespace pr::physics
 		
 		friend struct DbgPhysics;
 
-		// Submit one frame with an optional persistent constraint collection.
+		// Submit one frame containing optional rigid bodies, pure-tree articulations, and persistent constraints.
 		void BeginStepInternal(StepInput const& input);
 
 	public:
@@ -357,11 +380,11 @@ namespace pr::physics
 		// Append aggregate counters and optional collision records for one completed GPU substep.
 		void CaptureSubstepOutput(int substep_index, int substep_count, bool collect_events);
 
-		// Read buffers back to CPU memory
-		void Readback(GpuBuffers& buffers);
+		// Record one packed readback using the same explicit articulation layout supplied at frame start.
+		void Readback(GpuBuffers& buffers, GpuArticulationMidpointOutput const& articulations);
 
-		// Update rigid bodies with results from the step
-		void Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies);
+		// Validate the complete gathered frame before publishing rigid or articulation state.
+		void Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies, std::span<Articulation*> articulations, std::span<PendingStep::ArticulationOutputRange const> articulation_ranges, float articulation_substep_seconds);
 
 		// Narrow phase collision detection.
 		// Tests whether the two bodies in 'c' are geometrically in contact using GJK/SAT.

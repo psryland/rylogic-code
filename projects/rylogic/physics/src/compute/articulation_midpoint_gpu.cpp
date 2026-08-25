@@ -246,10 +246,19 @@ namespace pr::physics
 			return;
 
 		for (int substep_index = 0; substep_index != substep_count; ++substep_index)
-		{
-			Dispatch(job, dt);
-			CommitUavBarriers(job);
-		}
+			Integrate(job, dt);
+	}
+
+	// Record one fused internal substep while retaining sticky status and accumulated dispatch diagnostics.
+	void GpuArticulationMidpoint::Integrate(GpuJob& job, float dt)
+	{
+		if (!std::isfinite(dt) || dt < 0.0f)
+			throw std::invalid_argument("GPU articulation midpoint timestep must be finite and non-negative");
+		if (m_aba.m_articulation_count == 0)
+			return;
+
+		Dispatch(job, dt);
+		CommitUavBarriers(job);
 	}
 
 	// Upload, record all substeps, submit once, and read back focused integration diagnostics.
@@ -308,9 +317,34 @@ namespace pr::physics
 		return result;
 	}
 
+	// Return the current packed primary state and diagnostics for the final gathered frame output.
+	GpuArticulationMidpointOutput GpuArticulationMidpoint::Output()
+	{
+		if (m_aba.m_articulation_count == 0)
+			return {};
+
+		return GpuArticulationMidpointOutput{
+			.m_articulations = m_aba.m_r_articulations.get(),
+			.m_positions = (m_aba.m_position_count != 0 ? m_aba.m_r_positions : m_aba.m_r_uav_sentinel).get(),
+			.m_velocities = (m_aba.m_velocity_count != 0 ? m_aba.m_r_velocities : m_aba.m_r_uav_sentinel).get(),
+			.m_accelerations = (m_aba.m_acceleration_count != 0 ? m_aba.m_r_accelerations : m_aba.m_r_uav_sentinel).get(),
+			.m_states = m_r_integration_state.get(),
+			.m_articulation_count = m_aba.m_articulation_count,
+			.m_position_count = m_aba.m_position_count,
+			.m_velocity_count = m_aba.m_velocity_count,
+			.m_pad0 = 0,
+		};
+	}
+
 	// Return current integration-only capacities, logical usage, and most recent dispatch count.
 	GpuArticulationMidpointStats const& GpuArticulationMidpoint::Stats() const
 	{
 		return m_stats;
+	}
+
+	// Destroy lazily owned midpoint resources where the implementation type is complete.
+	void Deleter<GpuArticulationMidpoint>::operator()(GpuArticulationMidpoint* integrator) const
+	{
+		delete integrator;
 	}
 }

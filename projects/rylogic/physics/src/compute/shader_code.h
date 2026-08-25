@@ -22,6 +22,7 @@ namespace pr::physics::shader_code
 	extern ByteCode const prepare_substep_output;
 	extern ByteCode const append_collision_events;
 	extern ByteCode const gather_frame_bodies;
+	extern ByteCode const gather_frame_articulations;
 
 	// Sleep/wake state management
 	extern ByteCode const disturb_islands;

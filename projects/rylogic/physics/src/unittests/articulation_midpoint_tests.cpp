@@ -8,6 +8,7 @@
 #include "pr/physics/physics.h"
 #include "src/articulation/articulation_gpu_data.h"
 #include "src/compute/articulation_midpoint_gpu.h"
+#include "src/compute/frame_output_gpu.h"
 #include "src/compute/interop/articulation_midpoint_runner.h"
 
 namespace pr::physics::tests
@@ -215,6 +216,50 @@ namespace pr::physics::tests
 			return 0.5f * mass * (Dot(centre_velocity, centre_velocity) + Dot(angular, inertia_angular));
 		}
 
+		// Require all CPU-owned primary, acceleration, and applied-force streams to remain bitwise unchanged.
+		void ExpectPackedArticulationStateExact(GpuArticulationUpload const& actual, GpuArticulationUpload const& expected)
+		{
+			PR_EXPECT(actual.m_articulations.size() == expected.m_articulations.size());
+			PR_EXPECT(actual.m_positions == expected.m_positions);
+			PR_EXPECT(actual.m_velocities == expected.m_velocities);
+			PR_EXPECT(actual.m_forces == expected.m_forces);
+			PR_EXPECT(actual.m_accelerations == expected.m_accelerations);
+			PR_EXPECT(actual.m_external_forces.size() == expected.m_external_forces.size());
+			for (int articulation_index = 0; articulation_index != isize(actual.m_articulations); ++articulation_index)
+			{
+				PR_EXPECT(actual.m_articulations[articulation_index].identity_low == expected.m_articulations[articulation_index].identity_low);
+				PR_EXPECT(actual.m_articulations[articulation_index].identity_high == expected.m_articulations[articulation_index].identity_high);
+				PR_EXPECT(std::memcmp(
+					&actual.m_articulations[articulation_index].root_to_world,
+					&expected.m_articulations[articulation_index].root_to_world,
+					sizeof(GpuConstraintFrame)) == 0);
+			}
+			for (int link_index = 0; link_index != isize(actual.m_external_forces); ++link_index)
+			{
+				PR_EXPECT(FEql(actual.m_external_forces[link_index].force_ang, expected.m_external_forces[link_index].force_ang));
+				PR_EXPECT(FEql(actual.m_external_forces[link_index].force_lin, expected.m_external_forces[link_index].force_lin));
+			}
+		}
+
+		// Require successful Engine publication to consume every caller-applied generalized and link force exactly once.
+		void ExpectArticulationForcesCleared(GpuArticulationUpload const& upload)
+		{
+			PR_EXPECT(std::ranges::all_of(upload.m_forces, [](float value) { return value == 0.0f; }));
+			PR_EXPECT(std::ranges::all_of(upload.m_external_forces, [](GpuFrameForce const& force)
+			{
+				return FEql(force.force_ang, v4{}) && FEql(force.force_lin, v4{});
+			}));
+		}
+
+		// Return a deterministic Engine configuration that retains core GPU work while avoiding unrelated selective passes.
+		EngineConfig MidpointEngineConfig()
+		{
+			auto config = EngineConfig{};
+			config.sleeping_enabled = false;
+			config.selective_refresh_passes = 0;
+			return config;
+		}
+
 		// Return one long scalar-joint chain for bounded serial-lane scaling coverage.
 		Articulation BuildMidpointChain(int link_count)
 		{
@@ -333,6 +378,201 @@ namespace pr::physics::tests
 			PR_EXPECT(found_nonconverged);
 		}
 
+		// Begin/Complete keeps an articulation-only mixed forest detached until one-copy publication and matches replay across internal substeps.
+		PRUnitTestMethod(EngineArticulationOnlyBeginCompleteMatchesReplay, Quick)
+		{
+			auto fixed = BuildMidpointArticulation(false);
+			auto floating = BuildMidpointArticulation(true);
+			ApplyMidpointForces(fixed);
+			ApplyMidpointForces(floating);
+			auto forest = std::array{&fixed, &floating};
+			auto const accepted = PackGpuArticulations(forest);
+			auto expected = accepted;
+			auto replay = ArticulationMidpointInteropRunner{};
+			replay.Run(expected, 0.0005f, 3);
+
+			auto engine = Engine{MidpointEngineConfig()};
+			engine.BeginStep(Engine::StepInput{
+				.m_articulations = std::span{forest},
+				.m_elapsed_seconds = 0.0015f,
+				.m_substep_count = 3,
+			});
+
+			// Submission never consumes caller state; forces and accepted generalized values remain available until validation completes.
+			ExpectPackedArticulationStateExact(PackGpuArticulations(forest), accepted);
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_wait_count == 0);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+			engine.CompleteStep();
+
+			ExpectMidpointCpuNear(expected, replay.Articulations(), replay, forest, 1.0e-2f);
+			ExpectArticulationForcesCleared(PackGpuArticulations(forest));
+			PR_EXPECT(engine.LastStepProfile().m_substep_count == 3);
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+		}
+
+		// A fixed root with no generalized scalars still publishes its compact record while padded empty-range UAV addresses remain valid.
+		PRUnitTestMethod(EngineFixedRootOnlyArticulationStep, Quick)
+		{
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFixedRoot(MidpointLink(0));
+			auto articulation = builder.Build();
+			articulation.ExternalForce(root, v8force{v4{0.1f, -0.2f, 0.3f, 0.0f}, v4{-0.4f, 0.5f, -0.6f, 0.0f}});
+			auto forest = std::array{&articulation};
+			auto const root_to_world = articulation.RootToWorld();
+
+			auto engine = Engine{MidpointEngineConfig()};
+			engine.Step(Engine::StepInput{
+				.m_articulations = std::span{forest},
+				.m_elapsed_seconds = 0.001f,
+			});
+
+			auto const output = PackGpuArticulations(forest);
+			PR_EXPECT(output.m_positions.empty());
+			PR_EXPECT(output.m_velocities.empty());
+			PR_EXPECT(output.m_accelerations.empty());
+			PR_EXPECT(FEql(articulation.RootToWorld(), root_to_world));
+			ExpectArticulationForcesCleared(output);
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+		}
+
+		// Zero elapsed time preserves every accepted primary value while still consuming the frame's applied forces.
+		PRUnitTestMethod(EngineZeroTimeArticulationStepIsIdentity, Quick)
+		{
+			auto articulation = BuildMidpointArticulation(true);
+			ApplyMidpointForces(articulation);
+			auto forest = std::array{&articulation};
+			auto const accepted = PackGpuArticulations(forest);
+
+			auto engine = Engine{MidpointEngineConfig()};
+			engine.Step(Engine::StepInput{
+				.m_articulations = std::span{forest},
+				.m_elapsed_seconds = 0.0f,
+				.m_substep_count = 3,
+			});
+
+			auto const output = PackGpuArticulations(forest);
+			PR_EXPECT(output.m_positions == accepted.m_positions);
+			PR_EXPECT(output.m_velocities == accepted.m_velocities);
+			PR_EXPECT(output.m_accelerations == accepted.m_accelerations);
+			PR_EXPECT(std::memcmp(&output.m_articulations[0].root_to_world, &accepted.m_articulations[0].root_to_world, sizeof(GpuConstraintFrame)) == 0);
+			ExpectArticulationForcesCleared(output);
+			PR_EXPECT(engine.LastStepProfile().m_substep_count == 3);
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+		}
+
+		// A rigid-only maintenance frame uses its explicit empty layout instead of stale output retained by an earlier articulation step.
+		PRUnitTestMethod(EngineSleepIslandRefreshAfterArticulationStep, Quick)
+		{
+			auto articulation = BuildMidpointArticulation(false);
+			ApplyMidpointForces(articulation);
+			auto forest = std::array{&articulation};
+			auto engine = Engine{MidpointEngineConfig()};
+			engine.Step(Engine::StepInput{
+				.m_articulations = std::span{forest},
+				.m_elapsed_seconds = 0.001f,
+			});
+
+			auto shape = collision::ShapeSphere{0.25f};
+			auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(shape.m_radius, 1.0f)};
+			body.Sleep();
+			auto bodies = std::array<RigidBody*, 1>{&body};
+			engine.UpdateSleepIslands(bodies);
+
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+		}
+
+		// Mixed rigid and pure-tree inputs advance independently inside the same one-submission, one-copy, one-wait frame.
+		PRUnitTestMethod(EngineMixedRigidAndArticulationStep, Quick)
+		{
+			auto articulation = BuildMidpointArticulation(true);
+			ApplyMidpointForces(articulation);
+			auto forest = std::array{&articulation};
+			auto expected = PackGpuArticulations(forest);
+			auto replay = ArticulationMidpointInteropRunner{};
+			replay.Run(expected, 0.0005f, 2);
+
+			auto shape = collision::ShapeSphere{0.25f};
+			auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(shape.m_radius, 1.0f)};
+			body.VelocityWS(v8motion{v4{}, v4{1.0f, 0.0f, 0.0f, 0.0f}});
+			body.ForceWS(v8force{v4{}, v4{0.2f, -0.1f, 0.3f, 0.0f}});
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto const position_x = body.O2W().pos.x;
+
+			auto engine = Engine{MidpointEngineConfig()};
+			engine.Step(Engine::StepInput{
+				.m_bodies = std::span{body_ptrs},
+				.m_articulations = std::span{forest},
+				.m_elapsed_seconds = 0.001f,
+				.m_substep_count = 2,
+			});
+
+			PR_EXPECT(body.O2W().pos.x > position_x);
+			PR_EXPECT(FEql(body.ForceWS(), v8force{}));
+			ExpectMidpointCpuNear(expected, replay.Articulations(), replay, forest, 1.0e-2f);
+			ExpectArticulationForcesCleared(PackGpuArticulations(forest));
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+		}
+
+		// One failed tree rejects the complete mixed frame, preserves all forces and state, and permits a clean subsequent upload.
+		PRUnitTestMethod(EngineFailureIsTransactionalAndRecovers, Quick)
+		{
+			auto valid = BuildMidpointArticulation(true);
+			auto singular = BuildSingularMidpointArticulation();
+			ApplyMidpointForces(valid);
+			auto failed_forest = std::array{&valid, &singular};
+			auto const articulation_state = PackGpuArticulations(failed_forest);
+
+			auto shape = collision::ShapeSphere{0.25f};
+			auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(shape.m_radius, 1.0f)};
+			body.VelocityWS(v8motion{v4{}, v4{0.4f, -0.2f, 0.1f, 0.0f}});
+			body.ForceWS(v8force{v4{0.1f, 0.2f, -0.1f, 0.0f}, v4{0.3f, -0.4f, 0.2f, 0.0f}});
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto const body_to_world = body.O2W();
+			auto const body_momentum = body.MomentumWS();
+			auto const body_force = body.ForceWS();
+			auto const body_flags = body.StateFlags();
+
+			auto engine = Engine{MidpointEngineConfig()};
+			PR_THROWS(engine.Step(Engine::StepInput{
+				.m_bodies = std::span{body_ptrs},
+				.m_articulations = std::span{failed_forest},
+				.m_elapsed_seconds = 0.001f,
+				.m_substep_count = 2,
+			}), std::exception);
+
+			ExpectPackedArticulationStateExact(PackGpuArticulations(failed_forest), articulation_state);
+			PR_EXPECT(FEql(body.O2W(), body_to_world));
+			PR_EXPECT(FEql(body.MomentumWS(), body_momentum));
+			PR_EXPECT(FEql(body.ForceWS(), body_force));
+			PR_EXPECT(body.StateFlags() == body_flags);
+
+			// Reuploading the valid tree resets sticky GPU diagnostics and consumes the force preserved by the rejected frame.
+			auto valid_forest = std::array{&valid};
+			auto expected = PackGpuArticulations(valid_forest);
+			auto replay = ArticulationMidpointInteropRunner{};
+			replay.Run(expected, 0.001f, 1);
+			engine.Step(Engine::StepInput{
+				.m_articulations = std::span{valid_forest},
+				.m_elapsed_seconds = 0.001f,
+			});
+			ExpectMidpointCpuNear(expected, replay.Articulations(), replay, valid_forest, 1.0e-2f);
+			ExpectArticulationForcesCleared(PackGpuArticulations(valid_forest));
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+		}
+
 		// Extra persistent integration storage follows exactly 4P + 8V + 48A.
 		PRUnitTestMethod(HardwareEmptyRootOnlyAndScratchFormula, Extended)
 		{
@@ -400,6 +640,61 @@ namespace pr::physics::tests
 			fixed.Integrate(0.001f);
 			floating.Integrate(0.001f);
 			ExpectMidpointCpuNear(replay_upload, replay.Articulations(), replay, forest, 1.0e-2f);
+		}
+
+		// An articulation-only frame gathers compact roots, diagnostics, and generalized state through one contiguous readback.
+		PRUnitTestMethod(HardwareCompactFrameOutputMatchesReplay, Extended)
+		{
+			auto fixed = BuildMidpointArticulation(false);
+			auto floating = BuildMidpointArticulation(true);
+			ApplyMidpointForces(fixed);
+			ApplyMidpointForces(floating);
+			auto forest = std::array{&fixed, &floating};
+			auto upload = PackGpuArticulations(forest);
+			auto replay_upload = upload;
+			auto replay = ArticulationMidpointInteropRunner{};
+			replay.Run(replay_upload, 0.001f, 1);
+
+			// Record initialization, one fused integration substep, compact gather, and the only final copy in one job.
+			auto& gpu = MidpointTestGpu();
+			auto aba = GpuArticulationForceAba{gpu};
+			auto midpoint = GpuArticulationMidpoint{aba};
+			auto frame_output = GpuFrameOutput{gpu};
+			PR_EXPECT(midpoint.Upload(gpu.m_job, upload));
+			frame_output.BeginFrame(gpu.m_job, 0, 0, 1, midpoint.Output());
+			midpoint.Integrate(gpu.m_job, 0.001f);
+			auto readback = frame_output.GatherAndReadback(gpu.m_job, 0, nullptr, midpoint.Output());
+			gpu.m_job.Run();
+
+			auto const gathered_articulations = GpuFrameOutput::Articulations(readback);
+			auto const gathered_positions = GpuFrameOutput::Positions(readback);
+			auto const gathered_velocities = GpuFrameOutput::Velocities(readback);
+			auto const gathered_accelerations = GpuFrameOutput::Accelerations(readback);
+			PR_EXPECT(GpuFrameOutput::Bodies(readback).empty());
+			PR_EXPECT(gathered_articulations.size() == replay.Articulations().size());
+			PR_EXPECT(gathered_positions.size() == replay_upload.m_positions.size());
+			PR_EXPECT(gathered_velocities.size() == replay_upload.m_velocities.size());
+			PR_EXPECT(gathered_accelerations.size() == replay_upload.m_accelerations.size());
+
+			// Preserve stable identity and convergence metadata while compacting the larger persistent records.
+			for (int articulation_index = 0; articulation_index != isize(gathered_articulations); ++articulation_index)
+			{
+				auto const& actual = gathered_articulations[articulation_index];
+				auto const& expected_articulation = replay.Articulations()[articulation_index];
+				auto const& expected_state = replay.States()[articulation_index];
+				ExpectMidpointFrameNear(actual.root_to_world, expected_articulation.root_to_world, 2.0e-4f);
+				PR_EXPECT(actual.identity_low == expected_articulation.identity_low);
+				PR_EXPECT(actual.identity_high == expected_articulation.identity_high);
+				PR_EXPECT(actual.status == expected_state.status);
+				PR_EXPECT(actual.iteration_count == expected_state.iteration_count);
+				ExpectMidpointNear(actual.residual, expected_state.residual, 2.0e-4f);
+			}
+			for (int index = 0; index != isize(gathered_positions); ++index)
+				ExpectMidpointNear(gathered_positions[index], replay_upload.m_positions[index], 2.0e-4f);
+			for (int index = 0; index != isize(gathered_velocities); ++index)
+				ExpectMidpointNear(gathered_velocities[index], replay_upload.m_velocities[index], 2.0e-4f);
+			for (int index = 0; index != isize(gathered_accelerations); ++index)
+				ExpectMidpointNear(gathered_accelerations[index], replay_upload.m_accelerations[index], 2.0e-4f);
 		}
 
 		// Mixed-success readback remains detached so a later caller can reject the complete forest before publishing any tree.

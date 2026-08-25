@@ -3,7 +3,7 @@
 //
 // Touch this comment any time an .hlsl/.hlsli file referenced below is edited so MSBuild
 // invalidates compute_shaders_physics.res — RC dependency tracking does not follow .hlsl edits.
-// Touched: 2026-08-26 (pure-tree articulation force ABA)
+// Touched: 2026-08-26 (compact articulation frame output)
 src/compute/articulation_force_aba.hlsl TEXT DISCARDABLE "src/compute/articulation_force_aba.hlsl"
 src/compute/collide.hlsl        TEXT DISCARDABLE "src/compute/collide.hlsl"
 src/compute/collision.hlsli     TEXT DISCARDABLE "src/compute/collision.hlsli"
