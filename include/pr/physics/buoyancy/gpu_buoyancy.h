@@ -231,7 +231,8 @@ namespace pr::physics
 		// continue to run; the original flag is restored on unregister.
 		Registration RegisterCompositeHull(RigidBody& body, int body_index, int body_generation);
 
-		// Register one articulation link's immutable collision shape as a buoyancy hull. The articulation and registration handle must outlive any pending step.
+		// Register one articulation link's immutable collision shape as a buoyancy hull. The complete tree stays awake while registered, and both objects must
+		// outlive any pending step.
 		Registration RegisterCompositeHull(Articulation& articulation, LinkHandle link, int body_index, int body_generation);
 	};
 }

@@ -177,24 +177,37 @@ namespace pr::physics
 		, m_buffers(new GpuBuffers())
 		, m_run()
 		, m_substep_seconds()
+		, m_elapsed_seconds()
 		, m_active()
 		, m_submitted()
 	{
 	}
 
 	// Start tracking a begin/complete step pair using stable copies of every caller-owned object pointer.
-	void Engine::PendingStep::Begin(std::span<RigidBody*> bodies, std::span<Articulation*> articulations, float substep_seconds)
+	void Engine::PendingStep::Begin(std::span<RigidBody*> bodies, std::span<Articulation*> articulations, float substep_seconds, float elapsed_seconds, bool sleeping_enabled)
 	{
 		if (bodies.data() != m_bodies.data() || bodies.size() != m_bodies.size())
 			m_bodies.assign(bodies.begin(), bodies.end());
-		if (articulations.data() != m_articulations.data() || articulations.size() != m_articulations.size())
-			m_articulations.assign(articulations.begin(), articulations.end());
+
+		// Sleeping is owned by the complete tree, so inactive trees are omitted before any topology, proxy, or GPU storage is packed.
+		m_articulations.clear();
+		m_articulations.reserve(articulations.size());
+		for (auto* articulation : articulations)
+		{
+			if (articulation == nullptr)
+				throw std::invalid_argument("Engine articulation inputs cannot contain null pointers");
+			if ((!sleeping_enabled || articulation->NeverSleep()) && articulation->Sleeping())
+				articulation->Wake();
+			if (!articulation->Sleeping())
+				m_articulations.push_back(articulation);
+		}
 
 		m_articulation_ranges.clear();
 		m_articulation_range_lookup.clear();
 		*m_buffers = {};
 		m_run = {};
 		m_substep_seconds = substep_seconds;
+		m_elapsed_seconds = elapsed_seconds;
 		m_active = true;
 		m_submitted = false;
 	}
@@ -209,6 +222,7 @@ namespace pr::physics
 		*m_buffers = {};
 		m_run = {};
 		m_substep_seconds = 0.0f;
+		m_elapsed_seconds = 0.0f;
 		m_active = false;
 		m_submitted = false;
 	}
@@ -353,9 +367,14 @@ namespace pr::physics
 			throw std::runtime_error("EngineConfig::max_collision_events must be non-negative");
 		if (!std::isfinite(input.m_elapsed_seconds) || input.m_elapsed_seconds < 0.0f)
 			throw std::runtime_error("Engine::BeginStep elapsed time must be finite and non-negative");
+		if (m_config.sleeping_enabled &&
+			(!std::isfinite(m_config.sleep_velocity_threshold_lin) || m_config.sleep_velocity_threshold_lin < 0.0f ||
+			 !std::isfinite(m_config.sleep_velocity_threshold_ang) || m_config.sleep_velocity_threshold_ang < 0.0f ||
+			 !std::isfinite(m_config.sleep_delay_s) || m_config.sleep_delay_s < 0.0f))
+			throw std::runtime_error("Engine articulation sleep thresholds and delay must be finite and non-negative");
 
 		auto const dt = input.m_elapsed_seconds / input.m_substep_count;
-		m_pending_step.Begin(input.m_bodies, input.m_articulations, dt);
+		m_pending_step.Begin(input.m_bodies, input.m_articulations, dt, input.m_elapsed_seconds, m_config.sleeping_enabled);
 		auto bodies = std::span{ m_pending_step.m_bodies };
 		auto articulations = std::span{ m_pending_step.m_articulations };
 
@@ -601,7 +620,8 @@ namespace pr::physics
 				m_pending_step.m_bodies,
 				m_pending_step.m_articulations,
 				m_pending_step.m_articulation_ranges,
-				m_pending_step.m_substep_seconds
+				m_pending_step.m_substep_seconds,
+				m_pending_step.m_elapsed_seconds
 			);
 		}
 		catch (...)
@@ -678,7 +698,7 @@ namespace pr::physics
 		}
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_unpack_ms>(m_last_step_profile);
-			Unpack(buffers, rigid_bodies, {}, {}, 0.0f);
+			Unpack(buffers, rigid_bodies, {}, {}, 0.0f, 0.0f);
 		}
 	}
 
@@ -957,7 +977,7 @@ namespace pr::physics
 	}
 
 	// Validate the complete gathered frame before publishing rigid or articulation state.
-	void Engine::Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies, std::span<Articulation*> articulations, std::span<PendingStep::ArticulationOutputRange const> articulation_ranges, float articulation_substep_seconds)
+	void Engine::Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies, std::span<Articulation*> articulations, std::span<PendingStep::ArticulationOutputRange const> articulation_ranges, float articulation_substep_seconds, float articulation_elapsed_seconds)
 	{
 		auto body_count = m_cache->RigidBodyCount();
 		auto max_contacts = m_config.max_collision_pairs;
@@ -1077,7 +1097,17 @@ namespace pr::physics
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_articulation_unpack_ms>(m_last_step_profile);
 			for (int articulation_index = 0; articulation_index != isize(articulations); ++articulation_index)
+			{
 				detail::CommitArticulationIntegrationOutput(*articulations[articulation_index], articulation_outputs[articulation_index]);
+				if (m_config.sleeping_enabled)
+				{
+					articulations[articulation_index]->UpdateSleeping(
+						articulation_elapsed_seconds,
+						m_config.sleep_velocity_threshold_lin,
+						m_config.sleep_velocity_threshold_ang,
+						m_config.sleep_delay_s);
+				}
+			}
 		}
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)

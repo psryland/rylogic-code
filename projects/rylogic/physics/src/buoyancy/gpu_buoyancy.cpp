@@ -747,8 +747,10 @@ namespace pr::physics
 			slot.m_active = true;
 			slot.m_articulation = &articulation;
 			slot.m_link = link;
+			slot.m_prev_never_sleep = articulation.NeverSleep();
 			slot.m_hull_id = static_cast<uint32_t>(body_index);
 			slot.m_shape_data = std::move(shape_data);
+			articulation.NeverSleep(true);
 		}
 
 		// Remove the buoyancy hull for a stable physics body index.
@@ -768,6 +770,10 @@ namespace pr::physics
 					if (slot.m_body != nullptr)
 					{
 						slot.m_body->NeverSleep(slot.m_prev_never_sleep);
+					}
+					if (slot.m_articulation != nullptr)
+					{
+						slot.m_articulation->NeverSleep(slot.m_prev_never_sleep);
 					}
 
 					slot = CompositeSlot{};

@@ -320,6 +320,7 @@ namespace pr::physics
 	{
 		auto& state = CheckedState(m_state);
 		detail::ValidateArticulationTransform(root_to_world, "Articulation root transform");
+		Wake();
 		state.m_links.front().m_link_to_world = root_to_world;
 		state.m_kinematics_dirty = true;
 	}
@@ -354,6 +355,7 @@ namespace pr::physics
 		if (!IsFinite(velocity.ang) || !IsFinite(velocity.lin))
 			throw std::invalid_argument("Articulation root velocity must be finite");
 
+		Wake();
 		detail::StoreSpatialMotion(state.m_velocity, 0, velocity);
 		state.m_kinematics_dirty = true;
 	}
@@ -376,6 +378,7 @@ namespace pr::physics
 		if (!std::ranges::all_of(position, [](float value) { return IsFinite(value); }))
 			throw std::invalid_argument("Joint positions must be finite");
 
+		Wake();
 		std::ranges::copy(position, state.m_position.begin() + link_state.m_position_offset);
 		state.m_kinematics_dirty = true;
 	}
@@ -398,6 +401,7 @@ namespace pr::physics
 		if (!std::ranges::all_of(velocity, [](float value) { return IsFinite(value); }))
 			throw std::invalid_argument("Joint velocities must be finite");
 
+		Wake();
 		std::ranges::copy(velocity, state.m_velocity.begin() + link_state.m_velocity_offset);
 		state.m_kinematics_dirty = true;
 	}
@@ -419,6 +423,9 @@ namespace pr::physics
 			throw std::invalid_argument("Joint force dimension does not match its articulation joint");
 		if (!std::ranges::all_of(force, [](float value) { return IsFinite(value); }))
 			throw std::invalid_argument("Joint forces must be finite");
+
+		if (std::ranges::any_of(force, [](float value) { return value != 0.0f; }))
+			Wake();
 
 		std::ranges::copy(force, state.m_force.begin() + link_state.m_velocity_offset);
 	}
@@ -467,6 +474,9 @@ namespace pr::physics
 		if (!IsFinite(force.ang) || !IsFinite(force.lin))
 			throw std::invalid_argument("Articulation root force must be finite");
 
+		if (detail::HasNonZeroComponent(force))
+			Wake();
+
 		detail::StoreSpatialMotion(state.m_force, 0, v8motion{force.ang, force.lin});
 	}
 
@@ -484,6 +494,9 @@ namespace pr::physics
 		if (!IsFinite(force.ang) || !IsFinite(force.lin))
 			throw std::invalid_argument("Articulation external force must be finite");
 
+		if (detail::HasNonZeroComponent(force))
+			Wake();
+
 		detail::CheckedLink(state, link).m_external_force = force;
 	}
 
@@ -493,6 +506,9 @@ namespace pr::physics
 		auto& state = CheckedState(m_state);
 		if (!IsFinite(force.ang) || !IsFinite(force.lin))
 			throw std::invalid_argument("Articulation external force must be finite");
+
+		if (detail::HasNonZeroComponent(force))
+			Wake();
 
 		detail::CheckedLink(state, link).m_external_force += force;
 	}
@@ -511,7 +527,119 @@ namespace pr::physics
 		if (!IsFinite(gravity) || gravity.w != 0.0f)
 			throw std::invalid_argument("Articulation gravity must be a finite direction vector");
 
-		detail::CheckedLink(state, link).m_gravity_ws = gravity;
+		auto& link_state = detail::CheckedLink(state, link);
+		if (Any(link_state.m_gravity_ws != gravity))
+			Wake();
+
+		link_state.m_gravity_ws = gravity;
+	}
+
+	// Return whether the complete articulation tree is asleep.
+	bool Articulation::Sleeping() const
+	{
+		return CheckedState(m_state).m_sleeping;
+	}
+
+	// Put the complete articulation tree to sleep or wake it immediately.
+	void Articulation::Sleeping(bool sleeping)
+	{
+		if (sleeping)
+			Sleep();
+		else
+			Wake();
+	}
+
+	// Put the complete articulation tree to sleep and discard all generalized motion and transient loads.
+	void Articulation::Sleep()
+	{
+		auto& state = CheckedState(m_state);
+		assert(!state.m_never_sleep);
+		if (state.m_never_sleep)
+			return;
+
+		// A sleeping articulation owns one indivisible state, so no link can retain motion or a transient load independently.
+		state.m_sleeping = true;
+		state.m_sleep_timer_s = 0.0f;
+		state.m_sleep_activity = false;
+		std::ranges::fill(state.m_velocity, 0.0f);
+		std::ranges::fill(state.m_acceleration, 0.0f);
+		std::ranges::fill(state.m_response, 0.0f);
+		std::ranges::fill(state.m_velocity_start, 0.0f);
+		std::ranges::fill(state.m_velocity_midpoint, 0.0f);
+		std::ranges::fill(state.m_acceleration_start, 0.0f);
+		ClearForces();
+		for (auto& link_state : state.m_links)
+		{
+			link_state.m_link_acceleration = {};
+			link_state.m_link_acceleration_start = {};
+			link_state.m_response_acceleration = {};
+			link_state.m_response_impulse = {};
+		}
+		state.m_kinematics_dirty = true;
+	}
+
+	// Wake the complete articulation tree and restart its inactivity timer.
+	void Articulation::Wake()
+	{
+		auto& state = CheckedState(m_state);
+		state.m_sleeping = false;
+		state.m_sleep_timer_s = 0.0f;
+		state.m_sleep_activity = true;
+	}
+
+	// Return whether the complete articulation tree is immune to automatic sleeping.
+	bool Articulation::NeverSleep() const
+	{
+		return CheckedState(m_state).m_never_sleep;
+	}
+
+	// Enable or disable automatic sleeping for the complete tree; enabling immunity also wakes it.
+	void Articulation::NeverSleep(bool never_sleep)
+	{
+		auto& state = CheckedState(m_state);
+		if (never_sleep)
+			Wake();
+
+		state.m_never_sleep = never_sleep;
+	}
+
+	// Advance the complete-tree sleep timer after one accepted frame and sleep only when every link remains below threshold.
+	void Articulation::UpdateSleeping(float elapsed_seconds, float linear_velocity_threshold, float angular_velocity_threshold, float sleep_delay_s)
+	{
+		auto& state = CheckedState(m_state);
+		if (state.m_sleeping)
+			return;
+		if (state.m_never_sleep)
+		{
+			state.m_sleep_timer_s = 0.0f;
+			state.m_sleep_activity = false;
+			return;
+		}
+		if (state.m_sleep_activity)
+		{
+			state.m_sleep_timer_s = 0.0f;
+			state.m_sleep_activity = false;
+			return;
+		}
+		if (state.m_kinematics_dirty)
+			UpdateKinematics();
+
+		// Any moving link resets the one tree-owned timer; links never enter or leave sleep independently.
+		auto const linear_threshold_sq = Sqr(linear_velocity_threshold);
+		auto const angular_threshold_sq = Sqr(angular_velocity_threshold);
+		for (auto const& link_state : state.m_links)
+		{
+			if (LengthSq(link_state.m_link_velocity.lin) > linear_threshold_sq ||
+				LengthSq(link_state.m_link_velocity.ang) > angular_threshold_sq)
+			{
+				state.m_sleep_timer_s = 0.0f;
+				return;
+			}
+		}
+
+		state.m_sleep_timer_s += elapsed_seconds;
+		if (state.m_sleep_timer_s >= sleep_delay_s)
+			Sleep();
 	}
 
 	// Clear every applied generalized force and external link wrench.

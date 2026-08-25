@@ -437,6 +437,58 @@ namespace pr::physics::tests
 			PR_THROWS(gravity_driven.GravityWS(gravity_driven.Root(), v4{NAN, 0, 0, 0}), std::exception);
 		}
 
+		// Sleep state belongs to the complete tree: sleeping clears every link's motion, while any non-zero load or impulse wakes all links together.
+		PRUnitTestMethod(CompleteTreeSleepOwnership, Quick)
+		{
+			auto joint = DynamicJoint(2, 1);
+			joint.m_initial_velocity[0] = 0.0f;
+			joint.m_initial_velocity[1] = 0.0f;
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFloatingRoot(DynamicLink(0, 2.0f));
+			auto const child = builder.AddLink(root, joint, DynamicLink(1, 1.0f));
+			auto articulation = builder.Build();
+
+			// Sleeping atomically discards root, joint, and link motion together with transient loads.
+			articulation.RootVelocity(v8motion{v4{0.2f, -0.1f, 0.3f, 0}, v4{-0.4f, 0.5f, -0.2f, 0}});
+			articulation.JointVelocity(child, std::array{0.7f, -0.6f});
+			articulation.RootForce(TestWrench(0.4f));
+			articulation.JointForce(child, std::array{0.3f, -0.2f});
+			articulation.ExternalForce(child, TestWrench(-0.5f));
+			articulation.Sleep();
+			PR_EXPECT(articulation.Sleeping());
+			PR_EXPECT(FEql(articulation.RootVelocity(), v8motion{}));
+			PR_EXPECT(std::ranges::all_of(articulation.JointVelocity(child), [](float value) { return value == 0.0f; }));
+			PR_EXPECT(FEql(articulation.RootForce(), v8force{}));
+			PR_EXPECT(std::ranges::all_of(articulation.JointForce(child), [](float value) { return value == 0.0f; }));
+			PR_EXPECT(FEql(articulation.ExternalForce(child), v8force{}));
+			PR_EXPECT(FEql(articulation.LinkVelocity(root), v8motion{}));
+			PR_EXPECT(FEql(articulation.LinkVelocity(child), v8motion{}));
+
+			// Environmental field changes, direct loads, and projected impulses all wake the same complete tree.
+			auto const gravity = v4{0.0f, 0.0f, -9.8f, 0.0f};
+			articulation.GravityWS(child, gravity);
+			PR_EXPECT(!articulation.Sleeping());
+			articulation.Sleep();
+			articulation.GravityWS(child, gravity);
+			PR_EXPECT(articulation.Sleeping());
+			articulation.ExternalForce(child, TestWrench(0.2f));
+			PR_EXPECT(!articulation.Sleeping());
+			articulation.Sleep();
+			articulation.ApplyImpulse(child, TestWrench(-0.3f));
+			PR_EXPECT(!articulation.Sleeping());
+
+			// Never-sleep mode is tree-wide and wakes an already sleeping articulation.
+			articulation.Sleep();
+			articulation.NeverSleep(true);
+			PR_EXPECT(articulation.NeverSleep());
+			PR_EXPECT(!articulation.Sleeping());
+			articulation.NeverSleep(false);
+			articulation.Sleeping(true);
+			PR_EXPECT(articulation.Sleeping());
+			articulation.Sleeping(false);
+			PR_EXPECT(!articulation.Sleeping());
+		}
+
 		// Match the uncoupled floating-root gyroscopic solve before child-link reductions are introduced.
 		PRUnitTestMethod(FloatingRootMatchesOracle, Quick)
 		{

@@ -1284,6 +1284,7 @@ namespace pr::physics::tests
 
 			auto rigid_registration = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 			auto link_registration = h.m_buoyancy.RegisterCompositeHull(articulation, root, 1, 0);
+			PR_EXPECT(articulation.NeverSleep());
 			auto bodies = std::array<RigidBody*, 1>{&h.m_bodies[0]};
 
 			// Both mostly submerged low-density targets receive more upward buoyancy than downward gravity.
@@ -1304,6 +1305,8 @@ namespace pr::physics::tests
 			PR_EXPECT(link_diagnostic.m_force_ws.z > 0.0f);
 			PR_EXPECT(h.m_bodies[0].VelocityWS().lin.z > 0.0f);
 			PR_EXPECT(articulation.RootVelocity().lin.z > 0.0f);
+			link_registration.Reset();
+			PR_EXPECT(!articulation.NeverSleep());
 		}
 
 		// Performance benchmark for the SampledComposite dispatch. This drives 1, 10, and 100 identical

@@ -30,11 +30,15 @@ namespace pr::physics
 		std::unique_ptr<detail::ArticulationState> m_state;
 
 		friend class ArticulationBuilder;
+		friend struct Engine;
 		friend void detail::ValidateArticulationIntegrationOutput(Articulation const& articulation, detail::ArticulationIntegrationOutput const& output);
 		friend void detail::CommitArticulationIntegrationOutput(Articulation& articulation, detail::ArticulationIntegrationOutput const& output);
 
 		// Construct a validated articulation from a consumed builder state.
 		explicit Articulation(std::unique_ptr<detail::ArticulationState> state);
+
+		// Advance the complete-tree sleep timer after one accepted frame and sleep only when every link remains below threshold.
+		void UpdateSleeping(float elapsed_seconds, float linear_velocity_threshold, float angular_velocity_threshold, float sleep_delay_s);
 
 	public:
 
@@ -145,6 +149,24 @@ namespace pr::physics
 
 		// Set the world-space gravity field evaluated at one link during each dynamics solve.
 		void GravityWS(LinkHandle link, v4 gravity);
+
+		// Return whether the complete articulation tree is asleep.
+		bool Sleeping() const;
+
+		// Put the complete articulation tree to sleep or wake it immediately.
+		void Sleeping(bool sleeping);
+
+		// Put the complete articulation tree to sleep and discard all generalized motion and transient loads.
+		void Sleep();
+
+		// Wake the complete articulation tree and restart its inactivity timer.
+		void Wake();
+
+		// Return whether the complete articulation tree is immune to automatic sleeping.
+		bool NeverSleep() const;
+
+		// Enable or disable automatic sleeping for the complete tree; enabling immunity also wakes it.
+		void NeverSleep(bool never_sleep);
 
 		// Clear every applied generalized force and external link wrench.
 		void ClearForces();

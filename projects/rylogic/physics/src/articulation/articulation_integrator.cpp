@@ -191,6 +191,11 @@ namespace pr::physics
 			throw std::logic_error("Articulation has been moved from");
 		if (!IsFinite(elapsed_seconds) || elapsed_seconds < 0.0f)
 			throw std::invalid_argument("Articulation integration timestep must be finite and non-negative");
+		if (Sleeping())
+		{
+			ClearForces();
+			return;
+		}
 		if (elapsed_seconds == 0.0f)
 		{
 			ClearForces();

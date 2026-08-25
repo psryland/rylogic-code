@@ -146,6 +146,7 @@ namespace pr::physics
 			std::unique_ptr<GpuBuffers, Deleter<GpuBuffers>> m_buffers;
 			GpuJob::RunHandle m_run;
 			float m_substep_seconds = 0.0f;
+			float m_elapsed_seconds = 0.0f;
 			bool m_active = false;
 			bool m_submitted = false;
 
@@ -161,7 +162,7 @@ namespace pr::physics
 			}
 
 			// Start tracking a begin/complete step pair using stable copies of every caller-owned object pointer.
-			void Begin(std::span<RigidBody*> bodies, std::span<Articulation*> articulations, float substep_seconds);
+			void Begin(std::span<RigidBody*> bodies, std::span<Articulation*> articulations, float substep_seconds, float elapsed_seconds, bool sleeping_enabled);
 
 			// Clear all per-step state once the GPU result has been consumed.
 			void Clear();
@@ -394,7 +395,7 @@ namespace pr::physics
 		void Readback(GpuBuffers& buffers, GpuArticulationMidpointOutput const& articulations);
 
 		// Validate the complete gathered frame before publishing rigid or articulation state.
-		void Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies, std::span<Articulation*> articulations, std::span<PendingStep::ArticulationOutputRange const> articulation_ranges, float articulation_substep_seconds);
+		void Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies, std::span<Articulation*> articulations, std::span<PendingStep::ArticulationOutputRange const> articulation_ranges, float articulation_substep_seconds, float articulation_elapsed_seconds);
 
 		// Narrow phase collision detection.
 		// Tests whether the two bodies in 'c' are geometrically in contact using GJK/SAT.

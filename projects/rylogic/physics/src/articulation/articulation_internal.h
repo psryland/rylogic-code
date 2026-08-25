@@ -9,6 +9,12 @@ namespace pr::physics::detail
 {
 	using SpatialInertia = Mat6x8<float, Motion, Force>;
 
+	// Return whether a spatial force or impulse contains any non-zero component that must wake a sleeping tree.
+	inline bool HasNonZeroComponent(v8force value)
+	{
+		return Any(value.ang != v4{}) || Any(value.lin != v4{});
+	}
+
 	// Cached topology, state ranges, and kinematic intermediates for one physical link.
 	struct ArticulationLinkState
 	{
@@ -54,6 +60,10 @@ namespace pr::physics::detail
 		std::vector<float> m_velocity_start;
 		std::vector<float> m_velocity_midpoint;
 		std::vector<float> m_acceleration_start;
+		float m_sleep_timer_s = 0.0f;
+		bool m_sleeping = false;
+		bool m_never_sleep = false;
+		bool m_sleep_activity = false;
 		bool m_kinematics_dirty = true;
 	};
 

@@ -317,13 +317,17 @@ namespace pr::physics
 		std::ranges::fill(m_state->m_response, 0.0f);
 		for (auto& link : m_state->m_links)
 			link.m_response_impulse = {};
+		auto wake_tree = false;
 		for (auto const& request : impulses)
 		{
 			if (!IsFinite(request.m_impulse.ang) || !IsFinite(request.m_impulse.lin))
 				throw std::invalid_argument("Articulation impulses must be finite");
 
+			wake_tree |= detail::HasNonZeroComponent(request.m_impulse);
 			detail::CheckedLink(*m_state, request.m_link).m_response_impulse += request.m_impulse;
 		}
+		if (wake_tree)
+			Wake();
 
 		// Impulse ABA maps accumulated impulses directly to generalized velocity deltas at fixed configuration.
 		detail::SolveArticulationDynamics(*m_state, true);

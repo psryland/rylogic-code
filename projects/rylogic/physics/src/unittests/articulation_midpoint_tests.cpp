@@ -508,6 +508,65 @@ namespace pr::physics::tests
 			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
 		}
 
+		// Automatic sleeping evaluates the complete tree after accepted readback and omits an inactive tree's topology, proxies, dispatch, and readback.
+		PRUnitTestMethod(EngineCompleteTreeSleepingSkipsGpuWork, Quick)
+		{
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFixedRoot(MidpointLink(0));
+			auto articulation = builder.Build();
+			auto forest = std::array{&articulation};
+			auto config = MidpointEngineConfig();
+			config.sleeping_enabled = true;
+			config.sleep_velocity_threshold_lin = 0.01f;
+			config.sleep_velocity_threshold_ang = 0.01f;
+			config.sleep_delay_s = 0.015f;
+			auto engine = Engine{config};
+
+			// Two quiet frames cross the tree-owned delay without allowing individual links to sleep early.
+			engine.Step(Engine::StepInput{
+				.m_articulations = std::span{forest},
+				.m_elapsed_seconds = 0.01f,
+			});
+			PR_EXPECT(!articulation.Sleeping());
+			engine.Step(Engine::StepInput{
+				.m_articulations = std::span{forest},
+				.m_elapsed_seconds = 0.01f,
+			});
+			PR_EXPECT(articulation.Sleeping());
+
+			// A sleeping-only frame performs no GPU submission or readback because the complete tree is absent from the packed forest.
+			engine.Step(Engine::StepInput{
+				.m_articulations = std::span{forest},
+				.m_elapsed_seconds = 0.01f,
+			});
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 0);
+			PR_EXPECT(engine.LastStepProfile().m_wait_count == 0);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 0);
+
+			// A link wrench wakes and repacks the full articulation rather than a single proxy.
+			articulation.ExternalForce(root, v8force{v4{}, v4{0.0f, 0.0f, 1.0f, 0.0f}});
+			PR_EXPECT(!articulation.Sleeping());
+			engine.Step(Engine::StepInput{
+				.m_articulations = std::span{forest},
+				.m_elapsed_seconds = 0.01f,
+			});
+			PR_EXPECT(!articulation.Sleeping());
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+
+			// Disabling sleeping wakes an explicitly sleeping tree before the next pack and leaves it awake.
+			articulation.Sleep();
+			config.sleeping_enabled = false;
+			engine.Config(config);
+			engine.Step(Engine::StepInput{
+				.m_articulations = std::span{forest},
+				.m_elapsed_seconds = 0.01f,
+			});
+			PR_EXPECT(!articulation.Sleeping());
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+		}
+
 		// Zero elapsed time preserves every accepted primary value while still consuming the frame's applied forces.
 		PRUnitTestMethod(EngineZeroTimeArticulationStepIsIdentity, Quick)
 		{
