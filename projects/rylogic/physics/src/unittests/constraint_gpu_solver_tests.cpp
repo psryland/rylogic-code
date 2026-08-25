@@ -62,6 +62,18 @@ namespace pr::physics::tests
 			static auto gpu = Gpu{};
 			return gpu;
 		}
+
+		// Build a minimal floating tree for testing the unsupported coupled-solver boundary.
+		std::pair<Articulation, LinkHandle> MakeConstraintGpuArticulation()
+		{
+			auto const link = ArticulationLinkDesc{
+				.m_inertia = Inertia::Sphere(0.25f, 1.0f),
+			};
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFloatingRoot(link);
+			auto const child = builder.AddLink(root, ArticulationJointDesc::Revolute(v4::ZAxis()), link);
+			return {builder.Build(), child};
+		}
 	}
 
 	PRUnitTestClass(ConstraintGpuSolverTests)
@@ -523,7 +535,7 @@ namespace pr::physics::tests
 				upload.m_endpoints.resize(slot_count);
 				upload.m_endpoint_identities.resize(slot_count);
 				upload.m_descriptors.resize(slot_count);
-				upload.m_active_count = slot_count;
+				upload.m_rigid_active_count = slot_count;
 				for (int slot_idx = 0; slot_idx != slot_count; ++slot_idx)
 				{
 					auto& endpoint = upload.m_endpoints[slot_idx];
@@ -691,6 +703,39 @@ namespace pr::physics::tests
 			PR_EXPECT(body.O2W().pos.x < 0.5f);
 			PR_EXPECT(FEqlAbsolute(body.MomentumWS().ang, momentum_before.ang, 1.0e-6f));
 			PR_EXPECT(FEqlAbsolute(body.MomentumWS().lin, momentum_before.lin, 1.0e-6f));
+		}
+
+		// Reject coupled work before staging an Engine step or uploading it to the rigid-only GPU solver.
+		PRUnitTestMethod(CoupledConstraintsCannotEnterRigidSolver, Quick)
+		{
+			auto [articulation, child] = MakeConstraintGpuArticulation();
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Link(articulation, child);
+			desc.m_frame_b.m_body = BodyRef::World();
+			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+			auto const upload = PackGpuConstraints(constraints, BodyRemap({}, articulation_ptrs));
+
+			auto solver = GpuConstraintSolver{ConstraintTestGpu(), EngineConfig{}};
+			PR_THROWS(solver.Upload(ConstraintTestGpu().m_job, upload), std::logic_error);
+
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			auto begin_coupled_step = [&]
+			{
+				engine.BeginStep(Engine::StepInput{
+					.m_articulations = articulation_ptrs,
+					.m_constraints = &constraints,
+					.m_elapsed_seconds = 1.0f / 60.0f,
+				});
+			};
+			PR_THROWS(begin_coupled_step(), std::logic_error);
+
+			// A rejected call must leave the engine ready for another step.
+			engine.BeginStep(Engine::StepInput{});
+			engine.CompleteStep();
 		}
 
 		// Suppress connected-body collisions through the filtered broadphase without activating solver rows.

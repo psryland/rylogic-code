@@ -308,8 +308,9 @@ void CSCompileConstraints(int3 DTID(dtid))
 	block.body_idx_a = endpoint.body_idx_a;
 	block.body_idx_b = endpoint.body_idx_b;
 
-	// Disabled/tombstone and all-free slots retain their stable allocation but emit no solver work.
-	if (!AllSet(endpoint.flags, GpuConstraintEndpointFlags_Enabled))
+	// Disabled/tombstone and coupled slots retain their stable allocation but emit no independent rigid-body work.
+	if (!AllSet(endpoint.flags, GpuConstraintEndpointFlags_Enabled) ||
+		AllSet(endpoint.flags, GpuConstraintEndpointFlags_Coupled))
 	{
 		for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
 			g_rows[slot_idx * GpuConstraintRowsPerBlock + axis_idx] = EmptyConstraintRow();

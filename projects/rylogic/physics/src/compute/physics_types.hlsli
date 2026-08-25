@@ -39,6 +39,7 @@ static const uint GpuConstraintEndpointFlags_None = 0;
 static const uint GpuConstraintEndpointFlags_Enabled = 1 << 0;
 static const uint GpuConstraintEndpointFlags_CollideConnected = 1 << 1;
 static const uint GpuConstraintEndpointFlags_ResetWarmStart = 1 << 2;
+static const uint GpuConstraintEndpointFlags_Coupled = 1 << 3;
 
 // GPU constraint axis modes mirror EConstraintAxisMode without exposing the public enum to HLSL.
 static const int GpuConstraintAxisMode_Free = 0;

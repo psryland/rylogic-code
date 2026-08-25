@@ -372,6 +372,8 @@ namespace pr::physics
 			 !std::isfinite(m_config.sleep_velocity_threshold_ang) || m_config.sleep_velocity_threshold_ang < 0.0f ||
 			 !std::isfinite(m_config.sleep_delay_s) || m_config.sleep_delay_s < 0.0f))
 			throw std::runtime_error("Engine articulation sleep thresholds and delay must be finite and non-negative");
+		if (input.m_constraints != nullptr && HasCoupledConstraintWork(*input.m_constraints))
+			throw std::logic_error("Articulation-link constraints require projected articulation coupling, which is not implemented");
 
 		auto const dt = input.m_elapsed_seconds / input.m_substep_count;
 		m_pending_step.Begin(input.m_bodies, input.m_articulations, dt, input.m_elapsed_seconds, m_config.sleeping_enabled);
@@ -456,9 +458,9 @@ namespace pr::physics
 		if (input.m_constraints != nullptr)
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_constraint_pack_ms>(m_last_step_profile);
-			constraint_upload = PackGpuConstraints(*input.m_constraints, BodyRemap(bodies));
+			constraint_upload = PackGpuConstraints(*input.m_constraints, BodyRemap(bodies, articulations));
 		}
-		m_constraints_active = constraint_upload.m_active_count != 0;
+		m_constraints_active = constraint_upload.m_rigid_active_count != 0;
 		if (!m_constraints_active && m_gpu_constraint_solver != nullptr)
 			m_gpu_constraint_solver->Deactivate();
 

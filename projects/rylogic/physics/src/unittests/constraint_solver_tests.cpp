@@ -45,10 +45,10 @@ namespace pr::physics::tests
 		float RowVelocity(CompiledConstraintRow const& row, CompiledConstraintBlock const& block, BodyRemap const& remap)
 		{
 			auto velocity = 0.0f;
-			if (block.m_body_index_a >= 0)
-				velocity += Dot(row.m_jacobian_a, remap.Body(block.m_body_index_a).VelocityWS());
-			if (block.m_body_index_b >= 0)
-				velocity += Dot(row.m_jacobian_b, remap.Body(block.m_body_index_b).VelocityWS());
+			if (block.m_endpoint_a.m_rigid_index >= 0)
+				velocity += Dot(row.m_jacobian_a, remap.Body(block.m_endpoint_a.m_rigid_index).VelocityWS());
+			if (block.m_endpoint_b.m_rigid_index >= 0)
+				velocity += Dot(row.m_jacobian_b, remap.Body(block.m_endpoint_b.m_rigid_index).VelocityWS());
 			return velocity;
 		}
 
@@ -56,10 +56,10 @@ namespace pr::physics::tests
 		double Response(CompiledConstraintRow const& lhs, CompiledConstraintRow const& rhs, CompiledConstraintBlock const& block, BodyRemap const& remap)
 		{
 			auto response = 0.0;
-			if (block.m_body_index_a >= 0)
-				response += Dot(lhs.m_jacobian_a, remap.Body(block.m_body_index_a).InertiaInvWS() * rhs.m_jacobian_a);
-			if (block.m_body_index_b >= 0)
-				response += Dot(lhs.m_jacobian_b, remap.Body(block.m_body_index_b).InertiaInvWS() * rhs.m_jacobian_b);
+			if (block.m_endpoint_a.m_rigid_index >= 0)
+				response += Dot(lhs.m_jacobian_a, remap.Body(block.m_endpoint_a.m_rigid_index).InertiaInvWS() * rhs.m_jacobian_a);
+			if (block.m_endpoint_b.m_rigid_index >= 0)
+				response += Dot(lhs.m_jacobian_b, remap.Body(block.m_endpoint_b.m_rigid_index).InertiaInvWS() * rhs.m_jacobian_b);
 			return response;
 		}
 

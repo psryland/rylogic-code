@@ -41,6 +41,18 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(actual.ang, expected_angular, 1.0e-5f));
 			PR_EXPECT(FEqlAbsolute(actual.lin, expected_linear, 1.0e-5f));
 		}
+
+		// Build a two-link floating tree with a controllable root orientation and one translated child attachment.
+		std::pair<Articulation, LinkHandle> MakeConstraintTree(float root_x, float root_angle = 0.0f)
+		{
+			auto const link = ArticulationLinkDesc{
+				.m_inertia = Inertia::Sphere(0.25f, 1.0f),
+			};
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFloatingRoot(link, m4x4::Transform(v4::ZAxis(), root_angle, v4{root_x, 0.0f, 0.0f, 1}));
+			auto const child = builder.AddLink(root, ArticulationJointDesc::Revolute(v4::ZAxis(), m4x4::Translation(1.0f, 0.0f, 0.0f)), link);
+			return {builder.Build(), child};
+		}
 	}
 
 	PRUnitTestClass(ConstraintFoundationTests)
@@ -165,8 +177,8 @@ namespace pr::physics::tests
 			PR_EXPECT(compiled.m_rows.size() == 4);
 			auto const& block = compiled.m_blocks[0];
 			PR_EXPECT(block.m_source == handle);
-			PR_EXPECT(block.m_body_index_a == 0);
-			PR_EXPECT(block.m_body_index_b == 1);
+			PR_EXPECT(block.m_endpoint_a.m_rigid_index == 0);
+			PR_EXPECT(block.m_endpoint_b.m_rigid_index == 1);
 			PR_EXPECT(block.m_row_begin == 0);
 			PR_EXPECT(block.m_row_count == 4);
 
@@ -220,10 +232,10 @@ namespace pr::physics::tests
 			auto const original = CompileConstraints(constraints, BodyRemap(original_order));
 			auto const remapped = CompileConstraints(constraints, BodyRemap(reordered));
 
-			PR_EXPECT(original.m_blocks[0].m_body_index_a == 0);
-			PR_EXPECT(original.m_blocks[0].m_body_index_b == 1);
-			PR_EXPECT(remapped.m_blocks[0].m_body_index_a == 2);
-			PR_EXPECT(remapped.m_blocks[0].m_body_index_b == 1);
+			PR_EXPECT(original.m_blocks[0].m_endpoint_a.m_rigid_index == 0);
+			PR_EXPECT(original.m_blocks[0].m_endpoint_b.m_rigid_index == 1);
+			PR_EXPECT(remapped.m_blocks[0].m_endpoint_a.m_rigid_index == 2);
+			PR_EXPECT(remapped.m_blocks[0].m_endpoint_b.m_rigid_index == 1);
 			PR_THROWS(CompileConstraints(constraints, BodyRemap(missing_endpoint)), std::exception);
 		}
 
@@ -279,11 +291,61 @@ namespace pr::physics::tests
 
 			auto const compiled = CompileConstraints(constraints, BodyRemap(body_ptrs));
 
-			PR_EXPECT(compiled.m_blocks[0].m_body_index_a == 0);
-			PR_EXPECT(compiled.m_blocks[0].m_body_index_b == -1);
+			PR_EXPECT(compiled.m_blocks[0].m_endpoint_a.m_rigid_index == 0);
+			PR_EXPECT(compiled.m_blocks[0].m_endpoint_b.IsWorld());
 			ExpectSpatial(compiled.m_rows[0].m_jacobian_a, v4::Zero(), v4{-1, 0, 0, 0});
 			ExpectSpatial(compiled.m_rows[0].m_jacobian_b, v4::Zero(), v4::Zero());
 			ExpectNear(compiled.m_rows[0].m_position, 1.0f);
+		}
+
+		// Resolve stable articulation/link identities to their hidden-proxy slots and compile rows in link coordinates.
+		PRUnitTestMethod(ArticulationLinkEndpointsCompileInLinkFrame, Quick)
+		{
+			auto [articulation, child] = MakeConstraintTree(10.0f, constants<float>::tau_by_4);
+			auto desc = MakeD6(BodyRef::Link(articulation, child), BodyRef::World());
+			desc.m_frame_a.m_constraint_to_body = m4x4::Translation(0.0f, 1.0f, 0.0f);
+			desc.m_frame_b.m_constraint_to_body = m4x4::Translation(9.0f, 1.0f, 0.0f);
+			desc.m_linear[0] = LockedAxis();
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+			auto remap = BodyRemap({}, articulation_ptrs);
+
+			auto const endpoint = remap.ResolveEndpoint(desc.m_frame_a.m_body);
+			PR_EXPECT(endpoint.IsLink());
+			PR_EXPECT(endpoint.m_articulation_index == 0);
+			PR_EXPECT(endpoint.m_link_index == 1);
+			PR_EXPECT(endpoint.m_packed_body_index == 1);
+			PR_EXPECT(endpoint.m_link == child);
+
+			auto const compiled = CompileConstraints(constraints, remap);
+			PR_EXPECT(compiled.m_blocks.size() == 1);
+			PR_EXPECT(compiled.m_blocks[0].m_endpoint_a.IsLink());
+			PR_EXPECT(compiled.m_blocks[0].m_endpoint_b.IsWorld());
+			PR_EXPECT(compiled.m_rows.size() == 1);
+			ExpectNear(compiled.m_rows[0].m_position, 0.0f);
+			ExpectSpatial(compiled.m_rows[0].m_jacobian_a, v4{0, 0, +1, 0}, v4{-1, 0, 0, 0});
+			ExpectSpatial(compiled.m_rows[0].m_jacobian_b, v4::Zero(), v4::Zero());
+		}
+
+		// Reject missing, duplicate, stale, and cross-articulation link identities before compiling solver rows.
+		PRUnitTestMethod(ArticulationLinkEndpointValidation, Quick)
+		{
+			auto [articulation_a, child_a] = MakeConstraintTree(0.0f);
+			auto [articulation_b, child_b] = MakeConstraintTree(2.0f);
+			PR_THROWS(BodyRef::Link(articulation_a, child_b), std::exception);
+
+			auto const endpoint = BodyRef::Link(articulation_a, child_a);
+			auto articulation_a_ptrs = std::array<Articulation*, 1>{&articulation_a};
+			auto duplicate_ptrs = std::array<Articulation*, 2>{&articulation_a, &articulation_a};
+			auto missing_remap = BodyRemap({}, std::span<Articulation* const>{});
+			PR_THROWS(missing_remap.ResolveEndpoint(endpoint), std::exception);
+			PR_THROWS((void)BodyRemap({}, duplicate_ptrs), std::exception);
+
+			auto remap = BodyRemap({}, articulation_a_ptrs);
+			auto stale = endpoint;
+			++stale.m_link.m_generation;
+			PR_THROWS(remap.ResolveEndpoint(stale), std::exception);
 		}
 
 		// Reject invalid endpoint topology, frames, axis modes, and position limits before persistent storage changes.

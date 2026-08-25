@@ -10,6 +10,21 @@
 
 namespace pr::physics::tests
 {
+	namespace
+	{
+		// Build one translated child link for exercising the coupled constraint packing lane.
+		std::pair<Articulation, LinkHandle> MakeConstraintGpuTree()
+		{
+			auto const link = ArticulationLinkDesc{
+				.m_inertia = Inertia::Sphere(0.25f, 1.0f),
+			};
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFloatingRoot(link);
+			auto const child = builder.AddLink(root, ArticulationJointDesc::Revolute(v4::ZAxis(), m4x4::Translation(1.0f, 0.0f, 0.0f)), link);
+			return {builder.Build(), child};
+		}
+	}
+
 	PRUnitTestClass(ConstraintGpuPackingTests)
 	{
 		// Preserve stable slots, canonical axis order, endpoint remapping, and compact transfer-layout contracts.
@@ -40,7 +55,8 @@ namespace pr::physics::tests
 			auto body_ptrs = std::array<RigidBody*, 2>{&body_b, &body_a};
 			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
 
-			PR_EXPECT(upload.m_active_count == 1);
+			PR_EXPECT(upload.m_rigid_active_count == 1);
+			PR_EXPECT(upload.m_coupled_active_count == 0);
 			PR_EXPECT(upload.m_endpoints.size() == 2);
 			PR_EXPECT(upload.m_descriptors.size() == 2);
 			PR_EXPECT(upload.m_endpoints[removed.m_index].flags == GpuConstraintEndpointFlags_None);
@@ -72,7 +88,8 @@ namespace pr::physics::tests
 			auto body_ptrs = std::array<RigidBody*, 1>{&submitted_body};
 			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
 
-			PR_EXPECT(upload.m_active_count == 0);
+			PR_EXPECT(upload.m_rigid_active_count == 0);
+			PR_EXPECT(upload.m_coupled_active_count == 0);
 			PR_EXPECT(upload.m_endpoints[handle.m_index].body_idx_a == -1);
 			PR_EXPECT(upload.m_endpoints[handle.m_index].body_idx_b == -1);
 			PR_EXPECT(!AllSet(upload.m_endpoints[handle.m_index].flags, GpuConstraintEndpointFlags_Enabled));
@@ -92,8 +109,34 @@ namespace pr::physics::tests
 			auto body_ptrs = std::array<RigidBody*, 2>{&body_a, &body_b};
 			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
 
-			PR_EXPECT(upload.m_active_count == 0);
+			PR_EXPECT(upload.m_rigid_active_count == 0);
+			PR_EXPECT(upload.m_coupled_active_count == 0);
 			PR_EXPECT(AllSet(upload.m_endpoints[handle.m_index].flags, GpuConstraintEndpointFlags_Enabled));
+		}
+
+		// Classify link constraints separately so hidden proxies can never enter the independent rigid-body solver lane.
+		PRUnitTestMethod(ClassifiesArticulationLinkConstraints, Quick)
+		{
+			auto [articulation, child] = MakeConstraintGpuTree();
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Link(articulation, child);
+			desc.m_frame_b.m_body = BodyRef::World();
+			desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
+			auto constraints = ConstraintSet{};
+			auto const handle = constraints.Add(desc);
+			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+
+			PR_EXPECT(HasCoupledConstraintWork(constraints));
+			auto const upload = PackGpuConstraints(constraints, BodyRemap({}, articulation_ptrs));
+			PR_EXPECT(upload.m_rigid_active_count == 0);
+			PR_EXPECT(upload.m_coupled_active_count == 1);
+			PR_EXPECT(upload.m_endpoints[handle.m_index].body_idx_a == 1);
+			PR_EXPECT(upload.m_endpoints[handle.m_index].body_idx_b == -1);
+			PR_EXPECT(AllSet(upload.m_endpoints[handle.m_index].flags, GpuConstraintEndpointFlags_Enabled));
+			PR_EXPECT(AllSet(upload.m_endpoints[handle.m_index].flags, GpuConstraintEndpointFlags_Coupled));
+
+			constraints.SetEnabled(handle, false);
+			PR_EXPECT(!HasCoupledConstraintWork(constraints));
 		}
 
 		// Connected-body collision suppression is deduplicated into a compact canonical hash table.

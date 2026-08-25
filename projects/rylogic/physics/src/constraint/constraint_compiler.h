@@ -21,18 +21,53 @@ namespace pr::physics
 		FrictionCone,
 	};
 
+	// One stable endpoint resolved against the caller-owned objects submitted for the current step.
+	struct CompiledConstraintEndpoint
+	{
+		EConstraintBodyType m_type = EConstraintBodyType::World;
+		int m_rigid_index = -1;
+		int m_articulation_index = -1;
+		int m_link_index = -1;
+		int m_packed_body_index = -1;
+		LinkHandle m_link = {};
+
+		// True when this endpoint is fixed world space.
+		bool IsWorld() const
+		{
+			return m_type == EConstraintBodyType::World;
+		}
+
+		// True when this endpoint is an ordinary rigid body.
+		bool IsRigid() const
+		{
+			return m_type == EConstraintBodyType::Rigid;
+		}
+
+		// True when this endpoint belongs to a reduced-coordinate articulation.
+		bool IsLink() const
+		{
+			return m_type == EConstraintBodyType::ArticulationLink;
+		}
+	};
+
 	// Stable-identity remap and body access for one packed simulation step.
 	struct BodyRemap
 	{
 	private:
 
 		std::vector<RigidBody*> m_bodies;
+		std::vector<Articulation*> m_articulations;
 		std::unordered_map<uint64_t, int> m_rigid_indices;
+		std::unordered_map<uint64_t, int> m_articulation_indices;
+		std::vector<int> m_articulation_link_offsets;
 
 	public:
 
-		// Build a remap and reject null pointers, invalid identities, or duplicates before submission.
-		explicit BodyRemap(std::span<RigidBody* const> bodies);
+		// Build a remap and reject null pointers, invalid identities, duplicate objects, or malformed links before submission.
+		explicit BodyRemap(std::span<RigidBody* const> bodies, std::span<Articulation* const> articulations = {});
+
+		// Resolve a stable endpoint to its current object owner and packed proxy index.
+		CompiledConstraintEndpoint ResolveEndpoint(BodyRef body) const;
 
 		// Resolve a stable endpoint to its current packed index, using -1 for fixed world space.
 		int Resolve(BodyRef body) const;
@@ -43,8 +78,17 @@ namespace pr::physics
 		// Return a mutable remapped rigid body by current packed index.
 		RigidBody& MutableBody(int index) const;
 
+		// Return a remapped articulation by current packed forest index.
+		Articulation const& ArticulationBody(int index) const;
+
+		// Return a mutable remapped articulation by current packed forest index.
+		Articulation& MutableArticulation(int index) const;
+
 		// Return the number of remapped rigid bodies.
 		int BodyCount() const;
+
+		// Return the number of remapped articulations.
+		int ArticulationCount() const;
 	};
 
 	// One deterministic scalar row compiled from an active D6 axis.
@@ -69,8 +113,8 @@ namespace pr::physics
 	struct CompiledConstraintBlock
 	{
 		ConstraintHandle m_source = {};
-		int m_body_index_a = -1;
-		int m_body_index_b = -1;
+		CompiledConstraintEndpoint m_endpoint_a = {};
+		CompiledConstraintEndpoint m_endpoint_b = {};
 		uint32_t m_row_begin = 0;
 		uint32_t m_row_count = 0;
 		float m_break_force = 0.0f;

@@ -21,14 +21,24 @@ namespace pr::physics
 			{
 				case EConstraintBodyType::World:
 				{
-					if (frame.m_body.m_body_id)
-						throw std::invalid_argument("World constraint endpoint cannot carry a rigid-body identity");
+					if (frame.m_body.m_body_id || frame.m_body.m_articulation_id || frame.m_body.m_link)
+						throw std::invalid_argument("World constraint endpoint cannot carry an object identity");
 					break;
 				}
 				case EConstraintBodyType::Rigid:
 				{
 					if (!frame.m_body.m_body_id)
 						throw std::invalid_argument("Rigid constraint endpoint requires a valid body identity");
+					if (frame.m_body.m_articulation_id || frame.m_body.m_link)
+						throw std::invalid_argument("Rigid constraint endpoint cannot carry an articulation identity");
+					break;
+				}
+				case EConstraintBodyType::ArticulationLink:
+				{
+					if (!frame.m_body.m_articulation_id || !frame.m_body.m_link)
+						throw std::invalid_argument("Articulation-link constraint endpoint requires valid articulation and link identities");
+					if (frame.m_body.m_body_id)
+						throw std::invalid_argument("Articulation-link constraint endpoint cannot carry a rigid-body identity");
 					break;
 				}
 				default:
@@ -122,8 +132,8 @@ namespace pr::physics
 		ValidateFrame(desc.m_frame_b);
 		if (desc.m_frame_a.m_body.IsWorld() && desc.m_frame_b.m_body.IsWorld())
 			throw std::invalid_argument("A constraint cannot connect world space to itself");
-		if (desc.m_frame_a.m_body.IsRigid() && desc.m_frame_a.m_body == desc.m_frame_b.m_body)
-			throw std::invalid_argument("A constraint cannot connect a rigid body to itself");
+		if (!desc.m_frame_a.m_body.IsWorld() && desc.m_frame_a.m_body == desc.m_frame_b.m_body)
+			throw std::invalid_argument("A constraint cannot connect an endpoint to itself");
 
 		for (auto const& axis : desc.m_linear)
 			ValidateAxis(axis);

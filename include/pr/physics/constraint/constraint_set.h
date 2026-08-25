@@ -45,6 +45,7 @@ namespace pr::physics
 
 		friend CompiledConstraintSet CompileConstraints(ConstraintSet const& constraints, BodyRemap const& remap);
 		friend GpuConstraintUpload PackGpuConstraints(ConstraintSet const& constraints, BodyRemap const& remap);
+		friend bool HasCoupledConstraintWork(ConstraintSet const& constraints);
 
 	public:
 

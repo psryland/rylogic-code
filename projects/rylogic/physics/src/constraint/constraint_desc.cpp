@@ -3,6 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
 #include "pr/physics/constraint/constraint_desc.h"
+#include "pr/physics/articulation/articulation.h"
 #include "pr/physics/rigid_body/rigid_body.h"
 
 namespace pr::physics
@@ -38,6 +39,8 @@ namespace pr::physics
 		return BodyRef{
 			.m_type = EConstraintBodyType::World,
 			.m_body_id = {},
+			.m_articulation_id = {},
+			.m_link = {},
 		};
 	}
 
@@ -47,6 +50,21 @@ namespace pr::physics
 		return BodyRef{
 			.m_type = EConstraintBodyType::Rigid,
 			.m_body_id = body.Id(),
+			.m_articulation_id = {},
+			.m_link = {},
+		};
+	}
+
+	// Return a stable endpoint for one validated articulation link.
+	BodyRef BodyRef::Link(Articulation const& articulation, LinkHandle link)
+	{
+		// Validate ownership immediately so a foreign or stale handle never enters persistent constraint storage.
+		(void)articulation.LinkDescription(link);
+		return BodyRef{
+			.m_type = EConstraintBodyType::ArticulationLink,
+			.m_body_id = {},
+			.m_articulation_id = articulation.Id(),
+			.m_link = link,
 		};
 	}
 
@@ -60,6 +78,12 @@ namespace pr::physics
 	bool BodyRef::IsRigid() const
 	{
 		return m_type == EConstraintBodyType::Rigid;
+	}
+
+	// True when this endpoint represents a reduced-coordinate articulation link.
+	bool BodyRef::IsLink() const
+	{
+		return m_type == EConstraintBodyType::ArticulationLink;
 	}
 
 	// Convert a ball-and-socket descriptor to the general D6 representation.

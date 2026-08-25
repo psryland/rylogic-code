@@ -39,10 +39,14 @@ namespace pr::physics
 		std::vector<ConstraintEndpointIdentity> m_endpoint_identities;
 		std::vector<GpuD6ConstraintDesc> m_descriptors;
 		GpuCollisionExclusionTable m_collision_exclusions;
-		size_t m_active_count = 0;
+		size_t m_rigid_active_count = 0;
+		size_t m_coupled_active_count = 0;
 		uint64_t m_topology_revision = 0;
 		uint64_t m_parameter_revision = 0;
 	};
+
+	// True when an enabled descriptor with solver rows touches at least one articulation link.
+	bool HasCoupledConstraintWork(ConstraintSet const& constraints);
 
 	// Pack persistent descriptors and resolve enabled endpoints into current frame-local rigid-body indices.
 	GpuConstraintUpload PackGpuConstraints(ConstraintSet const& constraints, BodyRemap const& remap);

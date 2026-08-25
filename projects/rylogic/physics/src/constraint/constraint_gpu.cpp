@@ -51,6 +51,12 @@ namespace pr::physics
 			return false;
 		}
 
+		// True when a descriptor needs a whole-tree response rather than independent rigid-body inverse inertia.
+		bool RequiresCoupledSolver(D6ConstraintDesc const& desc)
+		{
+			return desc.m_frame_a.m_body.IsLink() || desc.m_frame_b.m_body.IsLink();
+		}
+
 		// Mix a canonical pair of encoded body indices for deterministic open addressing on both CPU and GPU.
 		uint32_t CollisionExclusionHash(uint32_t body_idx_a_plus_one, uint32_t body_idx_b_plus_one)
 		{
@@ -111,6 +117,17 @@ namespace pr::physics
 		}
 	}
 
+	// True when an enabled descriptor with solver rows touches at least one articulation link.
+	bool HasCoupledConstraintWork(ConstraintSet const& constraints)
+	{
+		for (auto const& slot : constraints.m_slots)
+		{
+			if (slot.m_occupied && slot.m_desc.m_enabled && HasSolverRows(slot.m_desc) && RequiresCoupledSolver(slot.m_desc))
+				return true;
+		}
+		return false;
+	}
+
 	// Pack persistent descriptors and resolve enabled endpoints into current frame-local rigid-body indices.
 	GpuConstraintUpload PackGpuConstraints(ConstraintSet const& constraints, BodyRemap const& remap)
 	{
@@ -140,10 +157,14 @@ namespace pr::physics
 			};
 			upload.m_descriptors[slot_index] = PackDescriptor(desc);
 			auto flags = desc.m_collide_connected ? GpuConstraintEndpointFlags_CollideConnected : GpuConstraintEndpointFlags_None;
+			auto const coupled = RequiresCoupledSolver(desc);
+			if (coupled)
+				flags |= GpuConstraintEndpointFlags_Coupled;
 			if (desc.m_enabled)
 			{
 				flags |= GpuConstraintEndpointFlags_Enabled;
-				upload.m_active_count += HasSolverRows(desc) ? 1 : 0;
+				if (HasSolverRows(desc))
+				(coupled ? upload.m_coupled_active_count : upload.m_rigid_active_count) += 1;
 			}
 
 			// Disabled constraints deliberately do not require their bodies to be submitted until they are re-enabled.

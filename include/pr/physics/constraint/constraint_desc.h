@@ -4,6 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/physics/constraint/constraint_ids.h"
+#include "pr/physics/articulation/articulation_ids.h"
 
 namespace pr::physics
 {
@@ -16,18 +17,21 @@ namespace pr::physics
 		Driven,
 	};
 
-	// Identifies whether a constraint endpoint is fixed world space or a caller-owned rigid body.
+	// Identifies the dynamics owner represented by one stable constraint endpoint.
 	enum class EConstraintBodyType
 	{
 		World,
 		Rigid,
+		ArticulationLink,
 	};
 
-	// A stable constraint endpoint that never stores a body pointer or transient packed index.
+	// A stable constraint endpoint that never stores an object pointer or transient packed index.
 	struct BodyRef
 	{
 		EConstraintBodyType m_type = EConstraintBodyType::World;
 		BodyId m_body_id = {};
+		ArticulationId m_articulation_id = {};
+		LinkHandle m_link = {};
 
 		// Return the fixed world endpoint.
 		static BodyRef World();
@@ -35,16 +39,26 @@ namespace pr::physics
 		// Return a stable endpoint for a caller-owned rigid body.
 		static BodyRef Rigid(RigidBody const& body);
 
+		// Return a stable endpoint for one validated articulation link.
+		static BodyRef Link(Articulation const& articulation, LinkHandle link);
+
 		// True when this endpoint represents fixed world space.
 		bool IsWorld() const;
 
 		// True when this endpoint represents an ordinary rigid body.
 		bool IsRigid() const;
 
+		// True when this endpoint represents a reduced-coordinate articulation link.
+		bool IsLink() const;
+
 		// Compare stable constraint endpoints.
 		friend bool operator==(BodyRef lhs, BodyRef rhs)
 		{
-			return lhs.m_type == rhs.m_type && lhs.m_body_id == rhs.m_body_id;
+			return
+				lhs.m_type == rhs.m_type &&
+				lhs.m_body_id == rhs.m_body_id &&
+				lhs.m_articulation_id == rhs.m_articulation_id &&
+				lhs.m_link == rhs.m_link;
 		}
 
 		// Compare stable constraint endpoints.

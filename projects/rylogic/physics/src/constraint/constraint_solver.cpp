@@ -94,10 +94,10 @@ namespace pr::physics
 		float RowVelocity(CompiledConstraintRow const& row, CompiledConstraintBlock const& block, std::span<SolverBody const> bodies)
 		{
 			auto velocity = 0.0f;
-			if (block.m_body_index_a >= 0)
-				velocity += Dot(row.m_jacobian_a, bodies[block.m_body_index_a].m_velocity);
-			if (block.m_body_index_b >= 0)
-				velocity += Dot(row.m_jacobian_b, bodies[block.m_body_index_b].m_velocity);
+			if (block.m_endpoint_a.m_rigid_index >= 0)
+				velocity += Dot(row.m_jacobian_a, bodies[block.m_endpoint_a.m_rigid_index].m_velocity);
+			if (block.m_endpoint_b.m_rigid_index >= 0)
+				velocity += Dot(row.m_jacobian_b, bodies[block.m_endpoint_b.m_rigid_index].m_velocity);
 			return velocity;
 		}
 
@@ -108,18 +108,18 @@ namespace pr::physics
 				return;
 
 			// Apply equal row-coordinate impulses through each endpoint's inverse spatial inertia.
-			if (block.m_body_index_a >= 0)
+			if (block.m_endpoint_a.m_rigid_index >= 0)
 			{
-				auto& body = bodies[block.m_body_index_a];
+				auto& body = bodies[block.m_endpoint_a.m_rigid_index];
 				auto const momentum = row.m_jacobian_a * impulse;
 				auto const velocity_delta = body.m_inertia_inv * momentum;
 				body.m_velocity += velocity_delta;
 				if (accumulate_momentum && velocity_delta != v8motion{})
 					body.m_momentum_delta += momentum;
 			}
-			if (block.m_body_index_b >= 0)
+			if (block.m_endpoint_b.m_rigid_index >= 0)
 			{
-				auto& body = bodies[block.m_body_index_b];
+				auto& body = bodies[block.m_endpoint_b.m_rigid_index];
 				auto const momentum = row.m_jacobian_b * impulse;
 				auto const velocity_delta = body.m_inertia_inv * momentum;
 				body.m_velocity += velocity_delta;
@@ -132,10 +132,10 @@ namespace pr::physics
 		float Response(CompiledConstraintRow const& lhs, CompiledConstraintRow const& rhs, CompiledConstraintBlock const& block, std::span<SolverBody const> bodies)
 		{
 			auto response = 0.0f;
-			if (block.m_body_index_a >= 0)
-				response += Dot(lhs.m_jacobian_a, bodies[block.m_body_index_a].m_inertia_inv * rhs.m_jacobian_a);
-			if (block.m_body_index_b >= 0)
-				response += Dot(lhs.m_jacobian_b, bodies[block.m_body_index_b].m_inertia_inv * rhs.m_jacobian_b);
+			if (block.m_endpoint_a.m_rigid_index >= 0)
+				response += Dot(lhs.m_jacobian_a, bodies[block.m_endpoint_a.m_rigid_index].m_inertia_inv * rhs.m_jacobian_a);
+			if (block.m_endpoint_b.m_rigid_index >= 0)
+				response += Dot(lhs.m_jacobian_b, bodies[block.m_endpoint_b.m_rigid_index].m_inertia_inv * rhs.m_jacobian_b);
 			return response;
 		}
 
@@ -587,6 +587,11 @@ namespace pr::physics
 		Validate(config, timestep);
 		auto metrics = CpuConstraintSolveMetrics{};
 		auto const energy_before = KineticEnergy(remap);
+
+		// The rigid reference solver must never approximate a reduced-coordinate link as an independent body.
+		for (auto const& block : constraints.m_blocks)
+			if (block.m_endpoint_a.IsLink() || block.m_endpoint_b.IsLink())
+				throw std::invalid_argument("CpuConstraintSolver supports only world and ordinary rigid-body endpoints");
 
 		// Descriptor or topology changes invalidate cached impulses before any warm start can target stale row semantics.
 		if (m_source != constraints.m_source || m_topology_revision != constraints.m_topology_revision || m_parameter_revision != constraints.m_parameter_revision)
