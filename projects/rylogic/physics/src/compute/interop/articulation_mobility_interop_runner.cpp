@@ -144,4 +144,22 @@ namespace pr::physics
 	{
 		return m_scratch;
 	}
+
+	// Return phase-reused generalized response scratch after factorization.
+	std::span<float const> ArticulationMobilityInteropRunner::Accelerations() const
+	{
+		return m_accelerations;
+	}
+
+	// Return retained per-DOF motion subspaces and articulated columns.
+	std::span<GpuArticulationAbaDofScratch const> ArticulationMobilityInteropRunner::DofScratch() const
+	{
+		return m_dof_scratch;
+	}
+
+	// Return retained packed inverse joint matrices.
+	std::span<float const> ArticulationMobilityInteropRunner::InverseJointInertia() const
+	{
+		return m_joint_matrix_scratch;
+	}
 }
