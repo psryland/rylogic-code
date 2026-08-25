@@ -38,6 +38,8 @@ namespace pr::physics
 		std::vector<GpuConstraintEndpoint> m_endpoints;
 		std::vector<ConstraintEndpointIdentity> m_endpoint_identities;
 		std::vector<GpuD6ConstraintDesc> m_descriptors;
+		std::vector<GpuCoupledConstraintEndpoint> m_coupled_endpoints;
+		std::vector<int> m_coupled_articulation_indices;
 		GpuCollisionExclusionTable m_collision_exclusions;
 		size_t m_rigid_active_count = 0;
 		size_t m_coupled_active_count = 0;

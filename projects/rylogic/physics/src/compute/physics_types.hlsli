@@ -321,6 +321,15 @@ struct GpuConstraintEndpoint
 	uint pad1;
 };
 
+// Optional articulation ownership for one stable constraint slot; negative indices identify non-link endpoints.
+struct GpuCoupledConstraintEndpoint
+{
+	int articulation_idx_a;
+	int link_idx_a;
+	int articulation_idx_b;
+	int link_idx_b;
+};
+
 // One canonical body pair in the open-addressed connected-body collision-exclusion table.
 // Body indices are stored plus one so {0,0} remains the empty-slot sentinel.
 struct GpuCollisionExclusion

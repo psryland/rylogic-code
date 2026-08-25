@@ -31,6 +31,7 @@ namespace pr::physics
 	static_assert(sizeof(GpuConstraintAxisDesc) == 32);
 	static_assert(sizeof(GpuD6ConstraintDesc) == 256);
 	static_assert(sizeof(GpuConstraintEndpoint) == 32);
+	static_assert(sizeof(GpuCoupledConstraintEndpoint) == 16);
 	static_assert(sizeof(GpuCollisionExclusion) == 8);
 	static_assert(sizeof(GpuConstraintBlock) == 32);
 	static_assert(sizeof(GpuConstraintRow) == 96);

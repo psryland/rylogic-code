@@ -57,6 +57,8 @@ namespace pr::physics::tests
 
 			PR_EXPECT(upload.m_rigid_active_count == 1);
 			PR_EXPECT(upload.m_coupled_active_count == 0);
+			PR_EXPECT(upload.m_coupled_endpoints.empty());
+			PR_EXPECT(upload.m_coupled_articulation_indices.empty());
 			PR_EXPECT(upload.m_endpoints.size() == 2);
 			PR_EXPECT(upload.m_descriptors.size() == 2);
 			PR_EXPECT(upload.m_endpoints[removed.m_index].flags == GpuConstraintEndpointFlags_None);
@@ -130,6 +132,12 @@ namespace pr::physics::tests
 			auto const upload = PackGpuConstraints(constraints, BodyRemap({}, articulation_ptrs));
 			PR_EXPECT(upload.m_rigid_active_count == 0);
 			PR_EXPECT(upload.m_coupled_active_count == 1);
+			PR_EXPECT(upload.m_coupled_endpoints.size() == upload.m_endpoints.size());
+			PR_EXPECT(upload.m_coupled_endpoints[handle.m_index].articulation_idx_a == 0);
+			PR_EXPECT(upload.m_coupled_endpoints[handle.m_index].link_idx_a == 1);
+			PR_EXPECT(upload.m_coupled_endpoints[handle.m_index].articulation_idx_b == -1);
+			PR_EXPECT(upload.m_coupled_endpoints[handle.m_index].link_idx_b == -1);
+			PR_EXPECT(upload.m_coupled_articulation_indices == std::vector<int>{0});
 			PR_EXPECT(upload.m_endpoints[handle.m_index].body_idx_a == 1);
 			PR_EXPECT(upload.m_endpoints[handle.m_index].body_idx_b == -1);
 			PR_EXPECT(AllSet(upload.m_endpoints[handle.m_index].flags, GpuConstraintEndpointFlags_Enabled));

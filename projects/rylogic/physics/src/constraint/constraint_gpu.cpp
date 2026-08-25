@@ -139,6 +139,8 @@ namespace pr::physics
 		upload.m_endpoints.resize(constraints.m_slots.size());
 		upload.m_endpoint_identities.resize(constraints.m_slots.size());
 		upload.m_descriptors.resize(constraints.m_slots.size());
+		auto coupled_endpoints = std::vector<GpuCoupledConstraintEndpoint>{};
+		auto participating_articulations = std::vector<uint8_t>(remap.ArticulationCount(), false);
 
 		// Slot-preserving output lets removed descriptors become disabled tombstones without changing any surviving row or warm-start identity.
 		for (uint32_t slot_index = 0; slot_index != constraints.m_slots.size(); ++slot_index)
@@ -168,17 +170,45 @@ namespace pr::physics
 			}
 
 			// Disabled constraints deliberately do not require their bodies to be submitted until they are re-enabled.
-			auto const body_idx_a = desc.m_enabled ? remap.Resolve(desc.m_frame_a.m_body) : -1;
-			auto const body_idx_b = desc.m_enabled ? remap.Resolve(desc.m_frame_b.m_body) : -1;
+			auto const endpoint_a = desc.m_enabled ? remap.ResolveEndpoint(desc.m_frame_a.m_body) : CompiledConstraintEndpoint{};
+			auto const endpoint_b = desc.m_enabled ? remap.ResolveEndpoint(desc.m_frame_b.m_body) : CompiledConstraintEndpoint{};
 			upload.m_endpoints[slot_index] = GpuConstraintEndpoint{
-				.body_idx_a = body_idx_a,
-				.body_idx_b = body_idx_b,
+				.body_idx_a = endpoint_a.m_packed_body_index,
+				.body_idx_b = endpoint_b.m_packed_body_index,
 				.flags = flags,
 				.generation = slot.m_generation,
 				.break_force = desc.m_break_force,
 				.break_torque = desc.m_break_torque,
 			};
+
+			// Coupled metadata remains absent on rigid-only frames and records global packed link indices without changing the rigid endpoint ABI.
+			if (coupled && desc.m_enabled && HasSolverRows(desc))
+			{
+				if (coupled_endpoints.empty())
+					coupled_endpoints.resize(constraints.m_slots.size(), GpuCoupledConstraintEndpoint{-1, -1, -1, -1});
+
+				auto& coupled_endpoint = coupled_endpoints[slot_index];
+				if (endpoint_a.IsLink())
+				{
+					coupled_endpoint.articulation_idx_a = endpoint_a.m_articulation_index;
+					coupled_endpoint.link_idx_a = endpoint_a.m_packed_body_index - remap.BodyCount();
+					participating_articulations[endpoint_a.m_articulation_index] = true;
+				}
+				if (endpoint_b.IsLink())
+				{
+					coupled_endpoint.articulation_idx_b = endpoint_b.m_articulation_index;
+					coupled_endpoint.link_idx_b = endpoint_b.m_packed_body_index - remap.BodyCount();
+					participating_articulations[endpoint_b.m_articulation_index] = true;
+				}
+			}
 		}
+
+		// Canonical articulation order makes compact mobility layout independent of constraint insertion order.
+		upload.m_coupled_endpoints = std::move(coupled_endpoints);
+		for (int articulation_index = 0; articulation_index != remap.ArticulationCount(); ++articulation_index)
+			if (participating_articulations[articulation_index])
+				upload.m_coupled_articulation_indices.push_back(articulation_index);
+
 		upload.m_collision_exclusions = BuildCollisionExclusions(upload.m_endpoints);
 		return upload;
 	}
