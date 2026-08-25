@@ -20,8 +20,14 @@
 
 #ifdef __cplusplus
 namespace pr::physics {
+#ifndef PR_ARTICULATION_ABA_CPP_NAMESPACE
+#define PR_ARTICULATION_ABA_CPP_NAMESPACE articulation_force_aba_detail
+#define PR_ARTICULATION_ABA_CPP_NAMESPACE_OWNED
+#endif
+namespace PR_ARTICULATION_ABA_CPP_NAMESPACE {
 #endif
 
+#ifndef PR_ARTICULATION_ABA_CUSTOM_RESOURCES
 // Per-dispatch schedule range and packed-buffer bounds.
 struct cbArticulationForceAba
 {
@@ -45,6 +51,7 @@ RWStructuredBuffer<float> resource(g_aba_accelerations, u0);
 RWStructuredBuffer<GpuArticulationAbaScratch> resource(g_aba_scratch, u1);
 RWStructuredBuffer<GpuArticulationAbaDofScratch> resource(g_aba_dof_scratch, u2);
 RWStructuredBuffer<float> resource(g_aba_inverse_joint_inertia, u3);
+#endif
 
 // Return an explicitly initialized spatial vector.
 GpuArticulationSpatialVector AbaSpatialVector(float3 ang, float3 lin)
@@ -538,17 +545,9 @@ void AbaAddSpatialMatrix(inout_(GpuArticulationSpatialMatrix) destination, GpuAr
 		destination.columns[column] = AbaAddSpatial(destination.columns[column], source.columns[column]);
 }
 
-// Prepare one scheduled link's kinematics, physical articulated inertia, and force bias.
-numthreads(CSArticulationPrepare, ArticulationThreadCount, 1, 1)
-void CSArticulationPrepare(int3 DTID(dtid))
+// Prepare one link's kinematics, physical articulated inertia, and force bias.
+void AbaPrepareLink(int link_index)
 {
-	if (dtid.x >= g_aba.level_count)
-		return;
-
-	int link_index = (int)g_aba_level_links[g_aba.level_offset + dtid.x];
-	if (link_index < 0 || link_index >= g_aba.link_count)
-		return;
-
 	GpuArticulationLink link = g_aba_links[link_index];
 	GpuArticulationAbaScratch scratch = g_aba_scratch[link_index];
 	scratch.articulated_inertia = AbaPhysicalInertia(link);
@@ -587,17 +586,9 @@ void CSArticulationPrepare(int3 DTID(dtid))
 	g_aba_scratch[link_index] = scratch;
 }
 
-// Eliminate every direct child joint and reduce its articulated operator into one parent-owned lane.
-numthreads(CSArticulationInwardDynamics, ArticulationThreadCount, 1, 1)
-void CSArticulationInwardDynamics(int3 DTID(dtid))
+// Eliminate every direct child joint and reduce its articulated operator into the selected parent.
+void AbaInwardLink(int parent_index)
 {
-	if (dtid.x >= g_aba.level_count)
-		return;
-
-	int parent_index = (int)g_aba_level_links[g_aba.level_offset + dtid.x];
-	if (parent_index < 0 || parent_index >= g_aba.link_count)
-		return;
-
 	GpuArticulationLink parent_link = g_aba_links[parent_index];
 	GpuArticulationAbaScratch parent = g_aba_scratch[parent_index];
 
@@ -681,14 +672,10 @@ void CSArticulationInwardDynamics(int3 DTID(dtid))
 	g_aba_scratch[parent_index] = parent;
 }
 
-// Solve each floating root's complete articulated inertia or impose zero acceleration on a fixed root.
-numthreads(CSArticulationRootDynamics, ArticulationThreadCount, 1, 1)
-void CSArticulationRootDynamics(int3 DTID(dtid))
+// Solve one floating root's complete articulated inertia or impose zero acceleration on a fixed root.
+void AbaRootDynamics(int articulation_index)
 {
-	if (dtid.x >= g_aba.articulation_count)
-		return;
-
-	GpuArticulation articulation = g_aba_articulations[dtid.x];
+	GpuArticulation articulation = g_aba_articulations[articulation_index];
 	int root_index = articulation.link_offset;
 	GpuArticulationAbaScratch root = g_aba_scratch[root_index];
 	GpuArticulationSpatialVector root_acceleration = AbaZeroSpatialVector();
@@ -742,20 +729,9 @@ void CSArticulationRootDynamics(int3 DTID(dtid))
 }
 
 // Recover one non-root link and its ordered generalized accelerations from its solved parent.
-numthreads(CSArticulationOutwardDynamics, ArticulationThreadCount, 1, 1)
-void CSArticulationOutwardDynamics(int3 DTID(dtid))
+void AbaOutwardLink(int link_index)
 {
-	if (dtid.x >= g_aba.level_count)
-		return;
-
-	int link_index = (int)g_aba_level_links[g_aba.level_offset + dtid.x];
-	if (link_index < 0 || link_index >= g_aba.link_count)
-		return;
-
 	GpuArticulationLink link = g_aba_links[link_index];
-	if (link.parent_link_index < 0)
-		return;
-
 	GpuArticulationAbaScratch scratch = g_aba_scratch[link_index];
 	GpuArticulationSpatialVector parent_acceleration = g_aba_scratch[link.parent_link_index].articulated_bias_or_acceleration;
 	GpuArticulationSpatialVector link_acceleration = AbaAddSpatial(
@@ -807,6 +783,65 @@ void CSArticulationOutwardDynamics(int3 DTID(dtid))
 	g_aba_scratch[link_index] = scratch;
 }
 
+#ifndef PR_ARTICULATION_ABA_NO_ENTRYPOINTS
+// Prepare one scheduled link through the canonical resource operation.
+numthreads(CSArticulationPrepare, ArticulationThreadCount, 1, 1)
+void CSArticulationPrepare(int3 DTID(dtid))
+{
+	if (dtid.x >= g_aba.level_count)
+		return;
+
+	int link_index = (int)g_aba_level_links[g_aba.level_offset + dtid.x];
+	if (link_index < 0 || link_index >= g_aba.link_count)
+		return;
+
+	AbaPrepareLink(link_index);
+}
+
+// Reduce one scheduled parent through the canonical resource operation.
+numthreads(CSArticulationInwardDynamics, ArticulationThreadCount, 1, 1)
+void CSArticulationInwardDynamics(int3 DTID(dtid))
+{
+	if (dtid.x >= g_aba.level_count)
+		return;
+
+	int parent_index = (int)g_aba_level_links[g_aba.level_offset + dtid.x];
+	if (parent_index < 0 || parent_index >= g_aba.link_count)
+		return;
+
+	AbaInwardLink(parent_index);
+}
+
+// Solve one scheduled root through the canonical resource operation.
+numthreads(CSArticulationRootDynamics, ArticulationThreadCount, 1, 1)
+void CSArticulationRootDynamics(int3 DTID(dtid))
+{
+	if (dtid.x >= g_aba.articulation_count)
+		return;
+
+	AbaRootDynamics(dtid.x);
+}
+
+// Recover one scheduled non-root link through the canonical resource operation.
+numthreads(CSArticulationOutwardDynamics, ArticulationThreadCount, 1, 1)
+void CSArticulationOutwardDynamics(int3 DTID(dtid))
+{
+	if (dtid.x >= g_aba.level_count)
+		return;
+
+	int link_index = (int)g_aba_level_links[g_aba.level_offset + dtid.x];
+	if (link_index < 0 || link_index >= g_aba.link_count)
+		return;
+
+	AbaOutwardLink(link_index);
+}
+#endif
+
 #ifdef __cplusplus
+}
+#ifdef PR_ARTICULATION_ABA_CPP_NAMESPACE_OWNED
+#undef PR_ARTICULATION_ABA_CPP_NAMESPACE_OWNED
+#undef PR_ARTICULATION_ABA_CPP_NAMESPACE
+#endif
 }
 #endif

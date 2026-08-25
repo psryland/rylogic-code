@@ -173,11 +173,11 @@ namespace pr::physics
 	// Create or grow all typed buffers required by the current packed forest.
 	void GpuArticulationForceAba::ResizeBuffers(CmdList& cmd_list, GpuArticulationUpload const& upload)
 	{
-		EnsureArticulationBuffer<GpuArticulation>(m_gpu, cmd_list, m_r_articulations, isize(upload.m_articulations), m_stats.m_articulation_capacity, EUsage::Default, "Physics:ArticulationForceAbaArticulations");
+		EnsureArticulationBuffer<GpuArticulation>(m_gpu, cmd_list, m_r_articulations, isize(upload.m_articulations), m_stats.m_articulation_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaArticulations");
 		EnsureArticulationBuffer<GpuArticulationLink>(m_gpu, cmd_list, m_r_links, isize(upload.m_links), m_stats.m_link_capacity, EUsage::Default, "Physics:ArticulationForceAbaLinks");
 		EnsureArticulationBuffer<GpuArticulationDof>(m_gpu, cmd_list, m_r_dofs, isize(upload.m_dofs), m_stats.m_dof_capacity, EUsage::Default, "Physics:ArticulationForceAbaDofs");
-		EnsureArticulationBuffer<float>(m_gpu, cmd_list, m_r_positions, isize(upload.m_positions), m_stats.m_position_capacity, EUsage::Default, "Physics:ArticulationForceAbaPositions");
-		EnsureArticulationBuffer<float>(m_gpu, cmd_list, m_r_velocities, isize(upload.m_velocities), m_stats.m_velocity_capacity, EUsage::Default, "Physics:ArticulationForceAbaVelocities");
+		EnsureArticulationBuffer<float>(m_gpu, cmd_list, m_r_positions, isize(upload.m_positions), m_stats.m_position_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaPositions");
+		EnsureArticulationBuffer<float>(m_gpu, cmd_list, m_r_velocities, isize(upload.m_velocities), m_stats.m_velocity_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaVelocities");
 		EnsureArticulationBuffer<float>(m_gpu, cmd_list, m_r_forces, isize(upload.m_forces), m_stats.m_force_capacity, EUsage::Default, "Physics:ArticulationForceAbaForces");
 		EnsureArticulationBuffer<GpuFrameForce>(m_gpu, cmd_list, m_r_external_forces, isize(upload.m_external_forces), m_stats.m_external_force_capacity, EUsage::Default, "Physics:ArticulationForceAbaExternalForces");
 		EnsureArticulationBuffer<uint32_t>(m_gpu, cmd_list, m_r_children, isize(upload.m_children), m_stats.m_child_capacity, EUsage::Default, "Physics:ArticulationForceAbaChildren");
@@ -255,12 +255,7 @@ namespace pr::physics
 		CopyArticulationUpload(job, m_r_external_forces.get(), upload.m_external_forces);
 		CopyArticulationUpload(job, m_r_children.get(), upload.m_children);
 		CopyArticulationUpload(job, m_r_level_links.get(), upload.m_level_links);
-		if (!upload.m_accelerations.empty())
-		{
-			auto allocation = job.m_upload.Alloc<float>(m_acceleration_count);
-			memset(allocation.ptr<float>(), 0, upload.m_accelerations.size() * sizeof(float));
-			job.m_cmd_list.CopyBufferRegion(m_r_accelerations.get(), 0, allocation);
-		}
+		CopyArticulationUpload(job, m_r_accelerations.get(), upload.m_accelerations);
 
 		// Every declared root resource reaches its required state, including shared sentinels for empty streams.
 		job.m_barriers.Transition(m_r_articulations.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);

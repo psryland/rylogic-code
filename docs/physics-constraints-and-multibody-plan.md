@@ -301,6 +301,30 @@ $$
 
 The outward pass calculates $\ddot q_i$, link accelerations, and updated velocities. This path is $O(L+D)$.
 
+The production integrator evaluates ABA inside a bounded implicit-midpoint fixed-point solve:
+
+$$
+\dot q_{m}=\dot q_n+\frac{\Delta t}{2}\ddot q(q_m,\dot q_m)
+$$
+
+$$
+q_m=q_n+\frac{\Delta t}{2}\dot q_m
+$$
+
+$$
+\dot q_{n+1}=\dot q_n+\Delta t\,\ddot q(q_m,\dot q_m)
+\qquad
+q_{n+1}=q_n+\Delta t\,\dot q_m
+$$
+
+Floating-root translation and orientation use the same midpoint velocity, with orientation advanced by the quaternion exponential map rather than component-wise
+addition. A fixed iteration ceiling keeps frame work bounded. Non-finite state, a singular joint/root solve, or failure to meet the residual threshold sets a
+sticky GPU status; the CPU publishes none of the frame's articulation results unless every returned tree is valid. This transactional boundary prevents a
+partially failed forest from entering the caller's state.
+
+The fused GPU kernel assigns one invocation to one articulation. That invocation reuses global tree scratch across the start-state solve and all midpoint
+iterations, so fixed iteration work remains linear in links and scalar degrees of freedom without multiplying command-list barriers by tree depth.
+
 Any loop-closing joint remains an external constraint edge. An arbitrary mechanism is therefore represented as:
 
 - One or more reduced-coordinate spanning trees.
@@ -412,9 +436,10 @@ BeginStep(frame_dt, substep_count)
         Record each GPU external-force module
         CSIntegrateOrdinaryBodies
 
-        CSArticulationInwardDynamics
-        CSArticulationOutwardDynamics
-        CSWriteLinkProxyTransformsAndBounds
+        CSIntegrateArticulationsImplicitMidpoint
+            one invocation serially traverses one articulation
+            solve start acceleration and bounded midpoint iterations
+            publish final generalized state and link proxies transactionally
 
         CSSleepWake
         CSBroadPhase
@@ -461,7 +486,14 @@ CompleteStep()
     Unpack bodies, articulations, counters, and events
 ```
 
-There are multiple compute dispatches and UAV barriers, but there is no CPU wait, state readback, or resubmission between internal substeps.
+Pure-tree integration uses one articulation dispatch per internal substep. One invocation owns each articulation's disjoint packed ranges and serially performs
+its inward/outward ABA traversals and bounded implicit-midpoint iterations. Tree-sized state remains in global buffers and is streamed one link at a time,
+rather than being retained in registers or group-shared memory. This avoids replaying a depth-dependent dispatch schedule for every nonlinear iteration while
+still exposing parallelism across independent articulations. The breadth schedules and level kernels remain available for the coupled impulse-ABA passes,
+where many constraint endpoints must be gathered before one tree response.
+
+There are multiple compute dispatches and UAV barriers in the complete frame, but there is no CPU wait, state readback, or resubmission between internal
+substeps.
 
 ## External Forces and Orthogonality
 

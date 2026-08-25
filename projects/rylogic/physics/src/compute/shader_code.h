@@ -85,6 +85,7 @@ namespace pr::physics::shader_code
 	extern ByteCode const articulation_inward_dynamics;
 	extern ByteCode const articulation_root_dynamics;
 	extern ByteCode const articulation_outward_dynamics;
+	extern ByteCode const articulation_midpoint;
 
 	// Selective refresh
 	extern ByteCode const prepare_selective_refresh;

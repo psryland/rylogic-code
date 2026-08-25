@@ -29,6 +29,10 @@ static const int GpuArticulationRootType_Fixed = 0;
 static const int GpuArticulationRootType_Floating = 1;
 static const int GpuArticulationAxisType_Revolute = 0;
 static const int GpuArticulationAxisType_Prismatic = 1;
+static const int GpuArticulationIntegrationStatus_Success = 0;
+static const int GpuArticulationIntegrationStatus_Singular = 1;
+static const int GpuArticulationIntegrationStatus_NonFinite = 2;
+static const int GpuArticulationIntegrationStatus_NonConverged = 3;
 
 // GPU constraint endpoint flags:
 static const uint GpuConstraintEndpointFlags_None = 0;
@@ -472,6 +476,16 @@ struct GpuArticulationAbaScratch
 	int pad0;
 	int pad1;
 	int pad2;
+};
+
+// Per-articulation transactional midpoint state; failure status remains sticky across later substep dispatches.
+struct GpuArticulationIntegrationState
+{
+	GpuConstraintFrame root_to_world_start;
+	int status;
+	int iteration_count;
+	float residual;
+	float pad;
 };
 
 // Aggregate counters and bounded-event status copied back once after all internal substeps.

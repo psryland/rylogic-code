@@ -63,6 +63,16 @@ namespace pr::physics::detail
 		bool m_consumed = false;
 	};
 
+	// Detached final generalized state returned by one successful GPU articulation step.
+	struct ArticulationIntegrationOutput
+	{
+		m4x4 m_root_to_world = m4x4::Identity();
+		std::span<float const> m_positions;
+		std::span<float const> m_velocities;
+		std::span<float const> m_accelerations;
+		float m_substep_seconds = 0.0f;
+	};
+
 	// Return a validated link state or throw without indexing caller-controlled handle data.
 	ArticulationLinkState& CheckedLink(ArticulationState& state, LinkHandle link);
 

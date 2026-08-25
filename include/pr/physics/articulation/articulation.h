@@ -7,10 +7,19 @@
 
 namespace pr::physics
 {
+	class Articulation;
+
 	namespace detail
 	{
 		struct ArticulationState;
 		struct ArticulationBuilderState;
+		struct ArticulationIntegrationOutput;
+
+		// Validate a detached GPU integration result without changing its articulation.
+		void ValidateArticulationIntegrationOutput(Articulation const& articulation, ArticulationIntegrationOutput const& output);
+
+		// Commit one prevalidated GPU integration result and reconstruct its midpoint link accelerations.
+		void CommitArticulationIntegrationOutput(Articulation& articulation, ArticulationIntegrationOutput const& output);
 	}
 
 	class ArticulationBuilder;
@@ -21,6 +30,8 @@ namespace pr::physics
 		std::unique_ptr<detail::ArticulationState> m_state;
 
 		friend class ArticulationBuilder;
+		friend void detail::ValidateArticulationIntegrationOutput(Articulation const& articulation, detail::ArticulationIntegrationOutput const& output);
+		friend void detail::CommitArticulationIntegrationOutput(Articulation& articulation, detail::ArticulationIntegrationOutput const& output);
 
 		// Construct a validated articulation from a consumed builder state.
 		explicit Articulation(std::unique_ptr<detail::ArticulationState> state);

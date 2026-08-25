@@ -51,6 +51,8 @@ namespace pr::physics
 	static_assert(alignof(GpuArticulationAbaDofScratch) == 16);
 	static_assert(sizeof(GpuArticulationAbaScratch) == 336);
 	static_assert(alignof(GpuArticulationAbaScratch) == 16);
+	static_assert(sizeof(GpuArticulationIntegrationState) == 48);
+	static_assert(alignof(GpuArticulationIntegrationState) == 16);
 	static_assert(sizeof(GpuFrameOutputHeader) == 64);
 	static_assert(sizeof(GpuSubstepOutputState) == 16);
 	static_assert(sizeof(GpuCollisionEvent) == sizeof(GpuResolveContact) + 16);

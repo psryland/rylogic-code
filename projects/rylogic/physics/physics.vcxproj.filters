@@ -99,6 +99,12 @@
     <ClCompile Include="src\compute\articulation_force_aba_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
+    <ClCompile Include="src\compute\articulation_midpoint_gpu.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\interop\articulation_midpoint_interop_runner.cpp">
+      <Filter>src\compute\interop</Filter>
+    </ClCompile>
     <ClCompile Include="src\compute\interop\resolve_interop_runner.cpp">
       <Filter>src\compute\interop</Filter>
     </ClCompile>
@@ -223,6 +229,12 @@
     </ClInclude>
     <ClInclude Include="src\compute\articulation_force_aba_gpu.h">
       <Filter>src\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\articulation_midpoint_gpu.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\interop\articulation_midpoint_runner.h">
+      <Filter>src\compute\interop</Filter>
     </ClInclude>
     <ClInclude Include="src\compute\interop\resolve_runner.h">
       <Filter>src\compute\interop</Filter>

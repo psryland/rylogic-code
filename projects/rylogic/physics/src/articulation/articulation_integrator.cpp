@@ -38,6 +38,41 @@ namespace pr::physics
 			return magnitude;
 		}
 
+		// Reconstruct link-frame accelerations at the accepted midpoint from generalized acceleration and refreshed midpoint kinematics.
+		void ReconstructMidpointAccelerations(detail::ArticulationState& state)
+		{
+			auto& root = state.m_links.front();
+			switch (state.m_root_type)
+			{
+				case EArticulationRootType::Fixed:
+				{
+					root.m_link_acceleration = {};
+					break;
+				}
+				case EArticulationRootType::Floating:
+				{
+					root.m_link_acceleration = detail::LoadSpatialMotion(state.m_acceleration, 0);
+					break;
+				}
+				default:
+				{
+					throw std::runtime_error("Articulation root type is invalid");
+				}
+			}
+
+			// Builder order is topological, so each child consumes an already reconstructed parent acceleration.
+			for (int link_index = 1; link_index != isize(state.m_links); ++link_index)
+			{
+				auto& link = state.m_links[link_index];
+				auto const& parent = state.m_links[link.m_parent_index];
+				auto acceleration = link.m_parent_to_child * parent.m_link_acceleration + link.m_joint_bias;
+				for (int axis_index = 0; axis_index != link.m_joint.m_dof_count; ++axis_index)
+					acceleration += link.m_motion_subspace[axis_index] * state.m_acceleration[link.m_velocity_offset + axis_index];
+
+				link.m_link_acceleration = acceleration;
+			}
+		}
+
 		// Restore the accepted state after a failed nonlinear midpoint solve.
 		void RestoreState(detail::ArticulationState& state, m4x4 const& root_to_world)
 		{
@@ -64,6 +99,89 @@ namespace pr::physics
 					RestoreState(m_state, m_root_to_world);
 			}
 		};
+	}
+
+	namespace detail
+	{
+		// Validate a detached GPU integration result without changing its articulation.
+		void ValidateArticulationIntegrationOutput(Articulation const& articulation, ArticulationIntegrationOutput const& output)
+		{
+			if (!articulation.m_state)
+				throw std::logic_error("Articulation has been moved from");
+
+			auto const& state = *articulation.m_state;
+			if (!IsFinite(output.m_substep_seconds) || output.m_substep_seconds < 0.0f)
+				throw std::invalid_argument("GPU articulation substep duration must be finite and non-negative");
+			if (output.m_positions.size() != state.m_position.size() ||
+				output.m_velocities.size() != state.m_velocity.size() ||
+				output.m_accelerations.size() != state.m_acceleration.size())
+				throw std::invalid_argument("GPU articulation generalized output dimensions do not match the articulation");
+
+			ValidateArticulationTransform(output.m_root_to_world, "GPU articulation root transform");
+			if (!std::ranges::all_of(output.m_positions, [](float value) { return IsFinite(value); }) ||
+				!std::ranges::all_of(output.m_velocities, [](float value) { return IsFinite(value); }) ||
+				!std::ranges::all_of(output.m_accelerations, [](float value) { return IsFinite(value); }))
+				throw std::invalid_argument("GPU articulation generalized output must be finite");
+		}
+
+		// Commit one prevalidated GPU integration result and reconstruct its midpoint link accelerations.
+		void CommitArticulationIntegrationOutput(Articulation& articulation, ArticulationIntegrationOutput const& output)
+		{
+			ValidateArticulationIntegrationOutput(articulation, output);
+			if (output.m_substep_seconds == 0.0f)
+			{
+				articulation.ClearForces();
+				return;
+			}
+
+			auto& state = *articulation.m_state;
+			auto const half_dt = 0.5f * output.m_substep_seconds;
+
+			// Stage detached final output in persistent scratch so reconstruction remains safe even if the source spans alias articulation storage.
+			std::ranges::copy(output.m_positions, state.m_position_start.begin());
+			std::ranges::copy(output.m_velocities, state.m_velocity_start.begin());
+			std::ranges::copy(output.m_accelerations, state.m_acceleration_start.begin());
+
+			// The converged midpoint follows directly from final velocity and acceleration, independent of earlier internal substeps.
+			for (int index = 0; index != isize(state.m_velocity); ++index)
+				state.m_velocity_midpoint[index] = state.m_velocity_start[index] - half_dt * state.m_acceleration_start[index];
+			std::ranges::copy(state.m_velocity_midpoint, state.m_velocity.begin());
+			std::ranges::copy(state.m_acceleration_start, state.m_acceleration.begin());
+			for (auto const& link : state.m_links | std::views::drop(1))
+			{
+				for (int axis_index = 0; axis_index != link.m_joint.m_dof_count; ++axis_index)
+				{
+					state.m_position[link.m_position_offset + axis_index] =
+						state.m_position_start[link.m_position_offset + axis_index] -
+						half_dt * state.m_velocity_midpoint[link.m_velocity_offset + axis_index];
+				}
+			}
+			state.m_kinematics_dirty = true;
+			articulation.UpdateKinematics();
+			ReconstructMidpointAccelerations(state);
+
+			// Publish only the final generalized state; midpoint kinematic caches remain deliberately dirty just like CPU integration.
+			std::ranges::copy(state.m_position_start, state.m_position.begin());
+			std::ranges::copy(state.m_velocity_start, state.m_velocity.begin());
+			switch (state.m_root_type)
+			{
+				case EArticulationRootType::Fixed:
+				{
+					break;
+				}
+				case EArticulationRootType::Floating:
+				{
+					state.m_links.front().m_link_to_world = output.m_root_to_world;
+					break;
+				}
+				default:
+				{
+					throw std::runtime_error("Articulation root type is invalid");
+				}
+			}
+			state.m_kinematics_dirty = true;
+			articulation.ClearForces();
+		}
 	}
 
 	// Advance unconstrained state with a bounded implicit-midpoint solve and consume the applied forces.

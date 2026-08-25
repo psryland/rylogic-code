@@ -6,6 +6,7 @@
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
 #include "pr/physics/physics.h"
+#include "src/articulation/articulation_internal.h"
 #include "src/unittests/articulation_oracle.h"
 
 namespace pr::physics::tests
@@ -138,6 +139,136 @@ namespace pr::physics::tests
 				v4{+0.17f * scale, -0.23f * scale, +0.11f * scale, 0},
 				v4{-0.31f * scale, +0.19f * scale, +0.29f * scale, 0},
 			};
+		}
+
+		// Own a detached generalized result and expose the non-owning view accepted by the GPU commit boundary.
+		struct CapturedIntegrationOutput
+		{
+			m4x4 m_root_to_world;
+			std::vector<float> m_positions;
+			std::vector<float> m_velocities;
+			std::vector<float> m_accelerations;
+
+			// Return a view whose spans remain valid for this capture's lifetime.
+			detail::ArticulationIntegrationOutput View(float substep_seconds) const
+			{
+				return detail::ArticulationIntegrationOutput{
+					.m_root_to_world = m_root_to_world,
+					.m_positions = m_positions,
+					.m_velocities = m_velocities,
+					.m_accelerations = m_accelerations,
+					.m_substep_seconds = substep_seconds,
+				};
+			}
+		};
+
+		// Capture public articulation state in the same root-then-topological order used by GPU buffers.
+		CapturedIntegrationOutput CaptureIntegrationOutput(Articulation const& articulation)
+		{
+			auto output = CapturedIntegrationOutput{
+				.m_root_to_world = articulation.RootToWorld(),
+			};
+			output.m_positions.reserve(articulation.DofCount());
+			output.m_velocities.reserve(articulation.DofCount());
+			output.m_accelerations.reserve(articulation.DofCount());
+
+			switch (articulation.RootType())
+			{
+				case EArticulationRootType::Fixed:
+				{
+					break;
+				}
+				case EArticulationRootType::Floating:
+				{
+					auto const velocity = articulation.RootVelocity();
+					auto const acceleration = articulation.RootAcceleration();
+					output.m_velocities.insert(output.m_velocities.end(), {
+						velocity.ang.x, velocity.ang.y, velocity.ang.z,
+						velocity.lin.x, velocity.lin.y, velocity.lin.z,
+					});
+					output.m_accelerations.insert(output.m_accelerations.end(), {
+						acceleration.ang.x, acceleration.ang.y, acceleration.ang.z,
+						acceleration.lin.x, acceleration.lin.y, acceleration.lin.z,
+					});
+					break;
+				}
+				default:
+				{
+					throw std::runtime_error("Articulation root type is invalid");
+				}
+			}
+
+			// Reduced coordinates follow builder order after the optional floating-root range.
+			for (int link_index = 1; link_index != articulation.LinkCount(); ++link_index)
+			{
+				auto const link = articulation.LinkAt(link_index);
+				auto const position = articulation.JointPosition(link);
+				auto const velocity = articulation.JointVelocity(link);
+				auto const acceleration = articulation.JointAcceleration(link);
+				output.m_positions.insert(output.m_positions.end(), position.begin(), position.end());
+				output.m_velocities.insert(output.m_velocities.end(), velocity.begin(), velocity.end());
+				output.m_accelerations.insert(output.m_accelerations.end(), acceleration.begin(), acceleration.end());
+			}
+			return output;
+		}
+
+		// Build a moving floating tree whose final midpoint differs from the frame-start midpoint after multiple substeps.
+		Articulation BuildIntegrationCommitFixture()
+		{
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFloatingRoot(
+				DynamicLink(0, 2.8f),
+				m4x4::Transform(v4::ZAxis(), 0.31f, v4{0.7f, -1.2f, 0.4f, 1}),
+				v8motion{v4{0.43f, -0.27f, 0.38f, 0}, v4{-0.14f, 0.21f, 0.33f, 0}});
+			auto const branch = builder.AddLink(root, DynamicJoint(2, 2), DynamicLink(2, 1.1f));
+			builder.AddLink(root, DynamicJoint(1, 3), DynamicLink(3, 0.8f));
+			builder.AddLink(branch, DynamicJoint(3, 4), DynamicLink(4, 0.6f));
+			return builder.Build();
+		}
+
+		// Reapply one frame-constant load image because CPU integration consumes forces after each internal substep.
+		void ApplyIntegrationCommitLoads(Articulation& articulation)
+		{
+			articulation.RootForce(TestWrench(+0.45f));
+			for (int link_index = 0; link_index != articulation.LinkCount(); ++link_index)
+			{
+				auto const link = articulation.LinkAt(link_index);
+				articulation.ExternalForce(link, TestWrench(-0.18f + 0.11f * static_cast<float>(link_index)));
+				if (link_index == 0)
+					continue;
+
+				auto force = std::array<float, 6>{};
+				for (int axis_index = 0; axis_index != articulation.JointDofCount(link); ++axis_index)
+					force[axis_index] = 0.13f * static_cast<float>((link_index + 1) * (axis_index + 1)) - 0.21f;
+				articulation.JointForce(link, std::span{force}.first(articulation.JointDofCount(link)));
+			}
+		}
+
+		// Require two spatial motions to agree under a component-wise mixed tolerance.
+		void ExpectSpatialNear(v8motion actual, v8motion expected, float tolerance)
+		{
+			auto const actual_values = std::array{actual.ang.x, actual.ang.y, actual.ang.z, actual.lin.x, actual.lin.y, actual.lin.z};
+			auto const expected_values = std::array{expected.ang.x, expected.ang.y, expected.ang.z, expected.lin.x, expected.lin.y, expected.lin.z};
+			for (int component = 0; component != isize(actual_values); ++component)
+			{
+				auto const scale = std::max({1.0f, Abs(actual_values[component]), Abs(expected_values[component])});
+				PR_EXPECT(Abs(actual_values[component] - expected_values[component]) <= tolerance * scale);
+			}
+		}
+
+		// Require two transforms to agree component-wise under an absolute tolerance.
+		void ExpectTransformNear(m4x4 const& actual, m4x4 const& expected, float tolerance)
+		{
+			if (tolerance == 0.0f)
+			{
+				PR_EXPECT(std::memcmp(&actual, &expected, sizeof(actual)) == 0);
+				return;
+			}
+
+			PR_EXPECT(FEqlAbsolute(actual.x, expected.x, tolerance));
+			PR_EXPECT(FEqlAbsolute(actual.y, expected.y, tolerance));
+			PR_EXPECT(FEqlAbsolute(actual.z, expected.z, tolerance));
+			PR_EXPECT(FEqlAbsolute(actual.w, expected.w, tolerance));
 		}
 
 		// Require every production link acceleration to agree with the independent spatial recursion.
@@ -409,6 +540,69 @@ namespace pr::physics::tests
 			PR_THROWS(articulation_a.ExternalForce(root_a, v8force{v4{NAN, 0, 0, 0}, v4{}}), std::exception);
 			PR_THROWS(articulation_a.ApplyImpulse(root_b, TestWrench(1.0f)), std::exception);
 			PR_THROWS(articulation_b.RootForce(v8force{v4{}, v4{0, INFINITY, 0, 0}}), std::exception);
+		}
+
+		// Reconstruct the last internal substep's midpoint accelerations while committing only compact generalized GPU output.
+		PRUnitTestMethod(GpuIntegrationOutputCommitsTransactionally, Quick)
+		{
+			auto reference = BuildIntegrationCommitFixture();
+			auto target = BuildIntegrationCommitFixture();
+			constexpr auto substep_seconds = 0.0025f;
+			constexpr auto substep_count = 3;
+
+			// CPU integration supplies the detached final state expected from several GPU-resident internal substeps.
+			for (int substep = 0; substep != substep_count; ++substep)
+			{
+				ApplyIntegrationCommitLoads(reference);
+				reference.Integrate(substep_seconds);
+			}
+			auto const output = CaptureIntegrationOutput(reference);
+			auto expected_link_accelerations = std::vector<v8motion>{};
+			expected_link_accelerations.reserve(reference.LinkCount());
+			for (int link_index = 0; link_index != reference.LinkCount(); ++link_index)
+				expected_link_accelerations.push_back(reference.LinkAcceleration(reference.LinkAt(link_index)));
+
+			// Validation is side-effect free; commit consumes the target's frame force image only after all output has passed.
+			ApplyIntegrationCommitLoads(target);
+			detail::ValidateArticulationIntegrationOutput(target, output.View(substep_seconds));
+			detail::CommitArticulationIntegrationOutput(target, output.View(substep_seconds));
+			ExpectTransformNear(target.RootToWorld(), reference.RootToWorld(), 1.0e-5f);
+			ExpectSpatialNear(target.RootVelocity(), reference.RootVelocity(), 1.0e-6f);
+			ExpectSpatialNear(target.RootAcceleration(), reference.RootAcceleration(), 1.0e-6f);
+			PR_EXPECT(target.RootForce() == v8force{});
+			for (int link_index = 0; link_index != target.LinkCount(); ++link_index)
+			{
+				auto const target_link = target.LinkAt(link_index);
+				auto const reference_link = reference.LinkAt(link_index);
+				PR_EXPECT(std::ranges::equal(target.JointPosition(target_link), reference.JointPosition(reference_link)));
+				PR_EXPECT(std::ranges::equal(target.JointVelocity(target_link), reference.JointVelocity(reference_link)));
+				PR_EXPECT(std::ranges::equal(target.JointAcceleration(target_link), reference.JointAcceleration(reference_link)));
+				PR_EXPECT(target.ExternalForce(target_link) == v8force{});
+				ExpectSpatialNear(target.LinkAcceleration(target_link), expected_link_accelerations[link_index], 5.0e-5f);
+			}
+		}
+
+		// Reject malformed detached output before any caller-owned articulation state or force is changed.
+		PRUnitTestMethod(GpuIntegrationOutputRejectsInvalidData, Quick)
+		{
+			auto articulation = BuildIntegrationCommitFixture();
+			ApplyIntegrationCommitLoads(articulation);
+			auto output = CaptureIntegrationOutput(articulation);
+			auto const root_before = articulation.RootToWorld();
+			auto const velocity_before = articulation.RootVelocity();
+
+			output.m_accelerations.front() = std::numeric_limits<float>::quiet_NaN();
+			PR_THROWS(detail::ValidateArticulationIntegrationOutput(articulation, output.View(0.01f)), std::exception);
+			PR_THROWS(detail::CommitArticulationIntegrationOutput(articulation, output.View(0.01f)), std::exception);
+			ExpectTransformNear(articulation.RootToWorld(), root_before, 0.0f);
+			ExpectSpatialNear(articulation.RootVelocity(), velocity_before, 0.0f);
+			PR_EXPECT(articulation.RootForce() != v8force{});
+
+			output = CaptureIntegrationOutput(articulation);
+			output.m_positions.pop_back();
+			PR_THROWS(detail::ValidateArticulationIntegrationOutput(articulation, output.View(0.01f)), std::exception);
+			ExpectTransformNear(articulation.RootToWorld(), root_before, 0.0f);
+			ExpectSpatialNear(articulation.RootVelocity(), velocity_before, 0.0f);
 		}
 	};
 }

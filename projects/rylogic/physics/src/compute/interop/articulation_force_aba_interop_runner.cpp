@@ -7,6 +7,8 @@
 
 namespace pr::physics
 {
+	using namespace articulation_force_aba_detail;
+
 	namespace
 	{
 		// Return a const span suitable for assigning one emulated shader resource.
