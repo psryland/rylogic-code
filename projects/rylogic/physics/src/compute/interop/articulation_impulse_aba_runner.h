@@ -37,6 +37,12 @@ namespace pr::physics
 		// Return detached per-link velocity deltas from the most recent evaluation.
 		std::span<GpuArticulationSpatialVector const> Work() const;
 
+		// Return canonical compact generalized velocity deltas from the most recent evaluation.
+		std::span<float const> VelocityDeltas() const;
+
+		// Return canonical participating-tree ranges for detached response consumers.
+		std::span<GpuArticulationMobilityRange const> Ranges() const;
+
 	private:
 
 		GpuArticulationUpload m_upload;

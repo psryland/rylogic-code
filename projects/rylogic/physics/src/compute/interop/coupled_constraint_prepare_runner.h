@@ -33,6 +33,9 @@ namespace pr::physics
 			std::span<GpuConstraintBlock const> retained_blocks = {},
 			std::span<GpuConstraintRow const> retained_rows = {});
 
+		// Replace physical preconditioners with exact hard-passive inverses for detached position correction.
+		void PreparePositionPreconditioners();
+
 		// Return compiled stable-slot runtime blocks.
 		std::span<GpuConstraintBlock const> Blocks() const;
 

@@ -252,18 +252,20 @@ float CoupledConstraintResponse(GpuConstraintBlock block, GpuCoupledConstraintEn
 	return response;
 }
 
-// Build and invert one exact-self block response with the same bounded singular regularization as the rigid lane.
+// Build and invert one exact-self block response for the selected velocity or pseudo-position row subset.
 bool PrepareCoupledPreconditioner(
 	uint slot_idx,
 	GpuConstraintBlock block,
 	GpuCoupledConstraintEndpoint endpoint,
+	uint active_mask,
+	bool include_gamma,
 	out_(GpuCoupledConstraintPreconditioner) preconditioner)
 {
 	preconditioner = EmptyCoupledConstraintPreconditioner();
 	uint active_axes[6];
 	int row_count = 0;
 	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
-		if ((block.velocity_mask & (1u << axis_idx)) != 0u)
+		if ((active_mask & (1u << axis_idx)) != 0u)
 			active_axes[row_count++] = axis_idx;
 	if (row_count == 0)
 		return false;
@@ -280,7 +282,8 @@ bool PrepareCoupledPreconditioner(
 			GpuConstraintRow rhs = g_coupled_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[column]];
 			matrix[row * 6 + column] = CoupledConstraintResponse(block, endpoint, lhs, rhs);
 		}
-		matrix[row * 6 + row] += lhs.solve.w;
+		if (include_gamma)
+			matrix[row * 6 + row] += lhs.solve.w;
 		scale = max(scale, abs(matrix[row * 6 + row]));
 	}
 	if (!(scale > 1.0e-20f) || !isfinite(scale))
@@ -433,8 +436,35 @@ void CSPrepareCoupledConstraints(int3 DTID(dtid))
 	block.colour = MaxColours;
 	block.flags = ConstraintBlockFlags_Active | (reset_warm_start ? ConstraintBlockFlags_ResetWarmStart : 0u);
 	GpuCoupledConstraintPreconditioner preconditioner;
-	if (PrepareCoupledPreconditioner(slot_idx, block, endpoint, preconditioner))
+	if (PrepareCoupledPreconditioner(slot_idx, block, endpoint, block.velocity_mask, true, preconditioner))
 		block.flags |= ConstraintBlockFlags_CoupledPreconditionerValid;
+	g_coupled_preconditioners[slot_idx] = preconditioner;
+	g_coupled_blocks[slot_idx] = block;
+}
+
+// Replace the physical exact-self inverse with the hard passive row subset used by detached position correction.
+numthreads(CSPrepareCoupledPositionPreconditioners, ConstraintThreadCount, 1, 1)
+void CSPrepareCoupledPositionPreconditioners(int3 DTID(dtid))
+{
+	if (dtid.x >= g_coupled_prepare.slot_count)
+		return;
+
+	uint slot_idx = (uint)dtid.x;
+	GpuConstraintEndpoint packed_endpoint = g_coupled_constraint_endpoints[slot_idx];
+	if (!AllSet(packed_endpoint.flags, GpuConstraintEndpointFlags_Enabled) ||
+		!AllSet(packed_endpoint.flags, GpuConstraintEndpointFlags_Coupled))
+		return;
+
+	GpuConstraintBlock block = g_coupled_blocks[slot_idx];
+	block.flags = SetFlag(block.flags, ConstraintBlockFlags_CoupledPreconditionerValid, false);
+	GpuCoupledConstraintPreconditioner preconditioner = EmptyCoupledConstraintPreconditioner();
+	if (block.position_mask != 0u)
+	{
+		GpuCoupledConstraintEndpoint endpoint = g_coupled_link_endpoints[slot_idx];
+		if (CoupledEndpointMetadataValid(endpoint) &&
+			PrepareCoupledPreconditioner(slot_idx, block, endpoint, block.position_mask, false, preconditioner))
+			block.flags |= ConstraintBlockFlags_CoupledPreconditionerValid;
+	}
 	g_coupled_preconditioners[slot_idx] = preconditioner;
 	g_coupled_blocks[slot_idx] = block;
 }

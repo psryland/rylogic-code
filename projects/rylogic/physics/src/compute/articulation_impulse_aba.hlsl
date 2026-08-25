@@ -224,6 +224,11 @@ bool ImpulseEvaluateTree(GpuArticulationMobilityRange range, GpuArticulation art
 		g_link_mobilities[range.mobility_offset],
 		AbaScaleSpatial(g_impulse_work[range.mobility_offset], -1.0f));
 	g_impulse_work[range.mobility_offset] = root_delta;
+	if (articulation.root_type == GpuArticulationRootType_Floating)
+	{
+		for (int component = 0; component != 6; ++component)
+			g_impulse_velocity_deltas[range.velocity_delta_offset + component] = AbaSpatialComponent(root_delta, component);
+	}
 
 	// Recover every child response in parent-before-child order.
 	for (int local_link_index = 1; local_link_index != articulation.link_count; ++local_link_index)

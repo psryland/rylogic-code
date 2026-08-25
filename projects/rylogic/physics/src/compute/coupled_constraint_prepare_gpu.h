@@ -11,6 +11,7 @@
 namespace pr::physics
 {
 	struct GpuArticulationMobility;
+	struct GpuCoupledConstraintPosition;
 	struct GpuCoupledConstraintVelocity;
 
 	// Observable storage and dispatch costs for the optional coupled-row preparation lane.
@@ -37,11 +38,13 @@ namespace pr::physics
 	{
 	private:
 		friend GpuCoupledConstraintVelocity;
+		friend GpuCoupledConstraintPosition;
 
 		Gpu& m_gpu;
 		EngineConfig const& m_config;
 		GpuConstraintSolver& m_constraints;
 		ComputeStep m_cs_prepare;
+		ComputeStep m_cs_prepare_position;
 		D3DPtr<ID3D12Resource> m_r_coupled_endpoints;
 		D3DPtr<ID3D12Resource> m_r_preconditioners;
 		ConstraintSet const* m_source;
@@ -61,6 +64,9 @@ namespace pr::physics
 
 		// Compile link-coordinate rows and exact-self preconditioners from retained final-configuration mobility factors.
 		void Run(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies, ID3D12Resource* link_to_world, GpuArticulationMobility& mobility);
+
+		// Replace physical preconditioners with exact hard-passive inverses immediately before coupled position iterations.
+		void PreparePositionPreconditioners(GpuJob& job, int body_count, ID3D12Resource* bodies, ID3D12Resource* link_to_world, GpuArticulationMobility& mobility);
 
 		// Upload, execute, and read back focused diagnostics using exactly one GPU submission.
 		GpuCoupledConstraintPrepareResult Solve(

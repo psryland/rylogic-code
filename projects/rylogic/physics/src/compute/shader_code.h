@@ -81,6 +81,18 @@ namespace pr::physics::shader_code
 	extern ByteCode const apply_constraint_position;
 	extern ByteCode const solve_constraint_velocity;
 	extern ByteCode const prepare_coupled_constraints;
+	extern ByteCode const prepare_coupled_position_preconditioners;
+	extern ByteCode const clear_coupled_position_state;
+	extern ByteCode const begin_coupled_position;
+	extern ByteCode const build_coupled_position_candidates;
+	extern ByteCode const gather_coupled_position_targets;
+	extern ByteCode const select_coupled_position_trees;
+	extern ByteCode const validate_coupled_position_trees;
+	extern ByteCode const evaluate_coupled_position_merit;
+	extern ByteCode const commit_coupled_position_state;
+	extern ByteCode const commit_coupled_position_articulations;
+	extern ByteCode const finalize_coupled_position_islands;
+	extern ByteCode const apply_coupled_position;
 	extern ByteCode const begin_coupled_velocity;
 	extern ByteCode const build_coupled_velocity_warm_start;
 	extern ByteCode const build_coupled_velocity_candidates;

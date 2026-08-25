@@ -66,6 +66,7 @@ namespace pr::physics
 		, m_config(config)
 		, m_constraints(constraints)
 		, m_cs_prepare()
+		, m_cs_prepare_position()
 		, m_r_coupled_endpoints()
 		, m_r_preconditioners()
 		, m_source()
@@ -90,6 +91,62 @@ namespace pr::physics
 			.Create(m_gpu, "Physics:CoupledConstraintPrepareSig");
 		m_cs_prepare.m_sig = root_sig;
 		m_cs_prepare.m_pso = ComputePSO(root_sig.get(), shader_code::prepare_coupled_constraints).Create(m_gpu, "Physics:PrepareCoupledConstraintsPSO");
+		m_cs_prepare_position.m_sig = root_sig;
+		m_cs_prepare_position.m_pso = ComputePSO(root_sig.get(), shader_code::prepare_coupled_position_preconditioners).Create(m_gpu, "Physics:PrepareCoupledPositionPreconditionersPSO");
+	}
+
+	// Replace physical preconditioners with exact hard-passive inverses immediately before coupled position iterations.
+	void GpuCoupledConstraintPrepare::PreparePositionPreconditioners(GpuJob& job, int body_count, ID3D12Resource* bodies, ID3D12Resource* link_to_world, GpuArticulationMobility& mobility)
+	{
+		if (m_active_count == 0)
+			return;
+		if (mobility.m_mobility_count == 0 || mobility.m_r_mobilities == nullptr)
+			throw std::logic_error("Coupled position preconditioning requires retained articulation mobilities");
+		if (body_count < 0 || bodies == nullptr || link_to_world == nullptr)
+			throw std::invalid_argument("Coupled position preconditioning requires valid rigid and link-frame streams");
+
+		auto& aba = mobility.m_aba;
+		job.m_barriers.Transition(bodies, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_constraints.m_r_endpoints.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_constraints.m_r_descriptors.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_r_coupled_endpoints.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(link_to_world, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(mobility.m_r_mobilities.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(aba.m_r_scratch.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_constraints.m_r_blocks.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_constraints.m_r_rows.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_r_preconditioners.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Commit();
+
+		// The position pass reuses the preparation ABI because all response inputs remain at the same fixed configuration.
+		auto const constants = cbCoupledConstraintPrepare{
+			.slot_count = m_slot_count,
+			.body_count = body_count,
+			.link_count = aba.m_link_count,
+			.mobility_count = mobility.m_mobility_count,
+			.timestep = 1.0f,
+			.regularization = m_config.constraint_regularization,
+			.warm_start_scale = 0.0f,
+			.pad0 = 0.0f,
+		};
+		job.m_cmd_list.SetPipelineState(m_cs_prepare_position.m_pso.get());
+		job.m_cmd_list.SetComputeRootSignature(m_cs_prepare_position.m_sig.get());
+		job.m_cmd_list.AddComputeRoot32BitConstants(constants);
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(m_constraints.m_r_endpoints->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(m_constraints.m_r_descriptors->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(m_r_coupled_endpoints->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(link_to_world->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(mobility.m_r_mobilities->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(aba.m_r_scratch->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_constraints.m_r_blocks->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_constraints.m_r_rows->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_preconditioners->GetGPUVirtualAddress());
+		job.m_cmd_list.Dispatch(static_cast<UINT>((m_slot_count + ConstraintThreadCount - 1) / ConstraintThreadCount), 1, 1);
+		job.m_barriers.UAV(m_constraints.m_r_blocks.get());
+		job.m_barriers.UAV(m_r_preconditioners.get());
+		job.m_barriers.Commit();
+		++m_stats.m_dispatch_count;
 	}
 
 	// Release every coupled-owned resource when no coupled slot is active.

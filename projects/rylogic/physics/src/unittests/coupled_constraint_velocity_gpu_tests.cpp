@@ -14,6 +14,7 @@
 #include "src/compute/coupled_constraint_velocity_gpu.h"
 #include "src/compute/interop/articulation_mobility_runner.h"
 #include "src/compute/interop/coupled_constraint_prepare_runner.h"
+#include "src/compute/interop/coupled_constraint_position_runner.h"
 #include "src/compute/interop/coupled_constraint_velocity_runner.h"
 #include "src/constraint/constraint_solver.h"
 
@@ -109,6 +110,8 @@ namespace pr::physics::tests
 			std::vector<GpuConstraintBlock> m_blocks;
 			std::vector<GpuConstraintRow> m_rows;
 			std::vector<GpuCoupledConstraintPreconditioner> m_preconditioners;
+			std::vector<GpuConstraintBlock> m_position_blocks;
+			std::vector<GpuCoupledConstraintPreconditioner> m_position_preconditioners;
 		};
 
 		// Compile arbitrary independent fixtures through the same final-configuration replay kernels as production.
@@ -139,13 +142,19 @@ namespace pr::physics::tests
 				link_to_world,
 				mobility.Mobilities(),
 				mobility.Scratch());
+			auto velocity_blocks = std::vector<GpuConstraintBlock>(prepare.Blocks().begin(), prepare.Blocks().end());
+			auto velocity_rows = std::vector<GpuConstraintRow>(prepare.Rows().begin(), prepare.Rows().end());
+			auto velocity_preconditioners = std::vector<GpuCoupledConstraintPreconditioner>(prepare.Preconditioners().begin(), prepare.Preconditioners().end());
+			prepare.PreparePositionPreconditioners();
 			return CoupledVelocityInputs{
 				.m_constraint_upload = std::move(constraint_upload),
 				.m_articulation_upload = std::move(articulation_upload),
 				.m_bodies = std::move(packed_bodies),
-				.m_blocks = std::vector<GpuConstraintBlock>(prepare.Blocks().begin(), prepare.Blocks().end()),
-				.m_rows = std::vector<GpuConstraintRow>(prepare.Rows().begin(), prepare.Rows().end()),
-				.m_preconditioners = std::vector<GpuCoupledConstraintPreconditioner>(prepare.Preconditioners().begin(), prepare.Preconditioners().end()),
+				.m_blocks = std::move(velocity_blocks),
+				.m_rows = std::move(velocity_rows),
+				.m_preconditioners = std::move(velocity_preconditioners),
+				.m_position_blocks = std::vector<GpuConstraintBlock>(prepare.Blocks().begin(), prepare.Blocks().end()),
+				.m_position_preconditioners = std::vector<GpuCoupledConstraintPreconditioner>(prepare.Preconditioners().begin(), prepare.Preconditioners().end()),
 			};
 		}
 
@@ -249,6 +258,114 @@ namespace pr::physics::tests
 
 			auto const row_offset = inputs.m_constraint_upload.m_coupled_island_blocks[0] * GpuConstraintRowsPerBlock;
 			PR_EXPECT(std::abs(replay.Rows()[row_offset + 0].bounds.z) > 1.0e-5f);
+		}
+
+		// Match one CPU hybrid pseudo sweep while preserving all physical momentum and articulation velocity state.
+		PRUnitTestMethod(PositionReplayMatchesCpuHybridAndPreservesPhysicalState, Quick)
+		{
+			constexpr auto timestep = 1.0f / 60.0f;
+			auto replay_fixture = CoupledVelocityFixture{};
+			auto inputs = MakeCoupledVelocityInputs(replay_fixture);
+			auto const rigid_before = inputs.m_bodies;
+
+			auto baseline_aba = ArticulationImpulseAbaInteropRunner{};
+			auto zero_impulses = std::vector<GpuArticulationSpatialVector>(inputs.m_articulation_upload.m_links.size());
+			baseline_aba.Run(inputs.m_articulation_upload, inputs.m_constraint_upload.m_coupled_articulation_indices, zero_impulses);
+			auto const velocities_before = std::vector<float>(baseline_aba.Velocities().begin(), baseline_aba.Velocities().end());
+			auto const accelerations_before = std::vector<float>(baseline_aba.Accelerations().begin(), baseline_aba.Accelerations().end());
+			auto const scratch_before = std::vector<GpuArticulationAbaScratch>(baseline_aba.Scratch().begin(), baseline_aba.Scratch().end());
+
+			auto replay = CoupledConstraintPositionInteropRunner{};
+			replay.Run(
+				timestep,
+				0.9f,
+				0.2f,
+				2.0f,
+				1,
+				inputs.m_constraint_upload,
+				inputs.m_articulation_upload,
+				inputs.m_position_blocks,
+				inputs.m_rows,
+				inputs.m_position_preconditioners,
+				inputs.m_bodies,
+				4);
+			PR_EXPECT(replay.IslandStates().size() == 1);
+			PR_EXPECT(replay.IslandStates()[0].status == GpuCoupledConstraintIslandStatus_Committed);
+			PR_EXPECT(replay.IslandStates()[0].failure_flags == GpuCoupledConstraintFailure_None);
+
+			auto cpu_fixture = CoupledVelocityFixture{};
+			auto cpu_bodies = std::array<RigidBody*, 1>{&cpu_fixture.m_body};
+			auto cpu_articulations = std::array<Articulation*, 1>{&cpu_fixture.m_articulation};
+			auto cpu_remap = BodyRemap(cpu_bodies, cpu_articulations);
+			auto cpu_solver = CpuConstraintSolver{};
+			auto config = CpuConstraintSolverConfig{
+				.m_velocity_iterations = 0,
+				.m_position_iterations = 1,
+				.m_coupled_relaxation = 0.9f,
+				.m_position_relaxation = 1.0f,
+				.m_position_beta = 0.2f,
+				.m_max_position_speed = 2.0f,
+				.m_warm_start_factor = 0.0f,
+				.m_coupled_backtrack_limit = 4,
+			};
+			auto const metrics = cpu_solver.Solve(
+				CompileConstraints(cpu_fixture.m_constraints, cpu_remap),
+				cpu_remap,
+				timestep,
+				config);
+			PR_EXPECT(metrics.m_rejected_coupled_sweeps == 0);
+
+			auto const expected_articulations = PackGpuArticulations(cpu_articulations);
+			PR_EXPECT(FEqlAbsolute(replay.Bodies()[0].o2w, cpu_fixture.m_body.O2W(), 3.0e-3f));
+			PR_EXPECT(FEqlAbsolute(
+				UnpackGpuTransform(replay.Articulations()[0].root_to_world),
+				UnpackGpuTransform(expected_articulations.m_articulations[0].root_to_world),
+				3.0e-3f));
+			PR_EXPECT(replay.Positions().size() == expected_articulations.m_positions.size());
+			for (int position_idx = 0; position_idx != isize(replay.Positions()); ++position_idx)
+				ExpectCoupledVelocityNear(replay.Positions()[position_idx], expected_articulations.m_positions[position_idx], 3.0e-3f);
+
+			// Position correction changes only coordinates; physical state remains bitwise untouched.
+			PR_EXPECT(std::memcmp(&replay.Bodies()[0].momentum_ang, &rigid_before[0].momentum_ang, sizeof(float4)) == 0);
+			PR_EXPECT(std::memcmp(&replay.Bodies()[0].momentum_lin, &rigid_before[0].momentum_lin, sizeof(float4)) == 0);
+			PR_EXPECT(replay.PhysicalVelocities().size_bytes() == std::span<float const>{velocities_before}.size_bytes());
+			PR_EXPECT(std::memcmp(replay.PhysicalVelocities().data(), velocities_before.data(), replay.PhysicalVelocities().size_bytes()) == 0);
+			PR_EXPECT(replay.PhysicalAccelerations().size_bytes() == std::span<float const>{accelerations_before}.size_bytes());
+			PR_EXPECT(std::memcmp(replay.PhysicalAccelerations().data(), accelerations_before.data(), replay.PhysicalAccelerations().size_bytes()) == 0);
+			PR_EXPECT(replay.PhysicalScratch().size_bytes() == std::span<GpuArticulationAbaScratch const>{scratch_before}.size_bytes());
+			PR_EXPECT(std::memcmp(replay.PhysicalScratch().data(), scratch_before.data(), replay.PhysicalScratch().size_bytes()) == 0);
+		}
+
+		// Reject a non-finite exact-self candidate without changing any rigid or articulation coordinate.
+		PRUnitTestMethod(PositionReplayRejectsTransactionally, Quick)
+		{
+			auto fixture = CoupledVelocityFixture{};
+			auto inputs = MakeCoupledVelocityInputs(fixture);
+			inputs.m_position_preconditioners[0].packed[0].x = std::numeric_limits<float>::quiet_NaN();
+			auto const bodies_before = inputs.m_bodies;
+			auto const articulations_before = inputs.m_articulation_upload.m_articulations;
+			auto const positions_before = inputs.m_articulation_upload.m_positions;
+
+			auto replay = CoupledConstraintPositionInteropRunner{};
+			replay.Run(
+				1.0f / 60.0f,
+				0.9f,
+				0.2f,
+				2.0f,
+				1,
+				inputs.m_constraint_upload,
+				inputs.m_articulation_upload,
+				inputs.m_position_blocks,
+				inputs.m_rows,
+				inputs.m_position_preconditioners,
+				inputs.m_bodies,
+				4);
+
+			PR_EXPECT(replay.IslandStates()[0].status == GpuCoupledConstraintIslandStatus_Rejected);
+			PR_EXPECT(AllSet(replay.IslandStates()[0].failure_flags, GpuCoupledConstraintFailure_NonFinite));
+			PR_EXPECT(std::memcmp(replay.Bodies().data(), bodies_before.data(), replay.Bodies().size_bytes()) == 0);
+			PR_EXPECT(std::memcmp(replay.Articulations().data(), articulations_before.data(), replay.Articulations().size_bytes()) == 0);
+			PR_EXPECT(std::memcmp(replay.Positions().data(), positions_before.data(), replay.Positions().size_bytes()) == 0);
 		}
 
 		// Halve an over-large finite step until merit decreases, and reject the same step when its retry budget is exhausted.

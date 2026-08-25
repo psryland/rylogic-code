@@ -268,4 +268,16 @@ namespace pr::physics
 	{
 		return m_work;
 	}
+
+	// Return canonical compact generalized velocity deltas from the most recent evaluation.
+	std::span<float const> ArticulationImpulseAbaInteropRunner::VelocityDeltas() const
+	{
+		return m_velocity_deltas;
+	}
+
+	// Return canonical participating-tree ranges for detached response consumers.
+	std::span<GpuArticulationMobilityRange const> ArticulationImpulseAbaInteropRunner::Ranges() const
+	{
+		return m_ranges;
+	}
 }

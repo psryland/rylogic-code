@@ -146,6 +146,18 @@ namespace pr::physics::shader_code
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(apply_constraint_position_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(solve_constraint_velocity_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(prepare_coupled_constraints_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(prepare_coupled_position_preconditioners_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(clear_coupled_position_state_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(begin_coupled_position_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(build_coupled_position_candidates_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(gather_coupled_position_targets_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(select_coupled_position_trees_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(validate_coupled_position_trees_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(evaluate_coupled_position_merit_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(commit_coupled_position_state_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(commit_coupled_position_articulations_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(finalize_coupled_position_islands_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(apply_coupled_position_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(begin_coupled_velocity_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(build_coupled_velocity_warm_start_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(build_coupled_velocity_candidates_cs.h)
@@ -165,6 +177,18 @@ namespace pr::physics::shader_code
 	ByteCode const apply_constraint_position(compiled::apply_constraint_position_cs);
 	ByteCode const solve_constraint_velocity(compiled::solve_constraint_velocity_cs);
 	ByteCode const prepare_coupled_constraints(compiled::prepare_coupled_constraints_cs);
+	ByteCode const prepare_coupled_position_preconditioners(compiled::prepare_coupled_position_preconditioners_cs);
+	ByteCode const clear_coupled_position_state(compiled::clear_coupled_position_state_cs);
+	ByteCode const begin_coupled_position(compiled::begin_coupled_position_cs);
+	ByteCode const build_coupled_position_candidates(compiled::build_coupled_position_candidates_cs);
+	ByteCode const gather_coupled_position_targets(compiled::gather_coupled_position_targets_cs);
+	ByteCode const select_coupled_position_trees(compiled::select_coupled_position_trees_cs);
+	ByteCode const validate_coupled_position_trees(compiled::validate_coupled_position_trees_cs);
+	ByteCode const evaluate_coupled_position_merit(compiled::evaluate_coupled_position_merit_cs);
+	ByteCode const commit_coupled_position_state(compiled::commit_coupled_position_state_cs);
+	ByteCode const commit_coupled_position_articulations(compiled::commit_coupled_position_articulations_cs);
+	ByteCode const finalize_coupled_position_islands(compiled::finalize_coupled_position_islands_cs);
+	ByteCode const apply_coupled_position(compiled::apply_coupled_position_cs);
 	ByteCode const begin_coupled_velocity(compiled::begin_coupled_velocity_cs);
 	ByteCode const build_coupled_velocity_warm_start(compiled::build_coupled_velocity_warm_start_cs);
 	ByteCode const build_coupled_velocity_candidates(compiled::build_coupled_velocity_candidates_cs);

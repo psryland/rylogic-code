@@ -93,6 +93,22 @@ namespace pr::physics
 		m_preconditioners.assign(g_coupled_preconditioners.begin(), g_coupled_preconditioners.end());
 	}
 
+	// Replace physical preconditioners with exact hard-passive inverses for detached position correction.
+	void CoupledConstraintPrepareInteropRunner::PreparePositionPreconditioners()
+	{
+		if (m_blocks.empty())
+			return;
+
+		g_coupled_blocks.assign(CoupledSpanOf(m_blocks));
+		g_coupled_rows.assign(CoupledSpanOf(m_rows));
+		g_coupled_preconditioners.assign(CoupledSpanOf(m_preconditioners));
+		auto const group_count = std::max(1, (isize(m_blocks) + ConstraintThreadCount - 1) / ConstraintThreadCount);
+		hlsl::GpuEmulator emulator(CSPrepareCoupledPositionPreconditioners, CSPrepareCoupledPositionPreconditioners_NumThreads);
+		emulator.Dispatch({group_count, 1, 1});
+		m_blocks.assign(g_coupled_blocks.begin(), g_coupled_blocks.end());
+		m_preconditioners.assign(g_coupled_preconditioners.begin(), g_coupled_preconditioners.end());
+	}
+
 	// Return compiled stable-slot runtime blocks.
 	std::span<GpuConstraintBlock const> CoupledConstraintPrepareInteropRunner::Blocks() const
 	{
