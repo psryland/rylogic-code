@@ -39,12 +39,27 @@ namespace pr::physics
 			inline static constexpr auto AABB_Sort = EUAVReg::u7;
 			inline static constexpr auto AABB_Box = EUAVReg::u8;
 			inline static constexpr auto WorkingExternalForces = EUAVReg::u9;
+			inline static constexpr auto LinkToWorld = EUAVReg::u12;
 		};
 
 		// Return the number of dispatch groups needed for a non-empty linear item range.
 		int ThreadGroupCount(int item_count)
 		{
 			return (item_count + ArticulationThreadCount - 1) / ArticulationThreadCount;
+		}
+
+		// Create or geometrically grow one typed proxy-owned resource.
+		template <typename T>
+		void EnsureProxyBuffer(Gpu& gpu, CmdList& cmd_list, D3DPtr<ID3D12Resource>& resource, int count, int& capacity, EUsage usage, char const* name)
+		{
+			if (resource != nullptr && capacity >= count)
+				return;
+
+			auto const doubled_capacity = capacity <= std::numeric_limits<int>::max() / 2
+				? 2 * capacity
+				: std::numeric_limits<int>::max();
+			capacity = std::max(count, std::max(1, doubled_capacity));
+			resource = gpu.CreateResource(ResDesc::Buf<T>(capacity, {}).usage(usage), cmd_list, name);
 		}
 	}
 
@@ -55,6 +70,7 @@ namespace pr::physics
 		,m_cs_gather_forces()
 		,m_cs_refresh()
 		,m_r_external_forces()
+		,m_r_link_to_world()
 		,m_stats()
 	{
 		auto root_sig = RootSig(ERootSigFlags::ComputeOnly)
@@ -72,6 +88,7 @@ namespace pr::physics
 			.UAV(EReg::AABB_Sort)
 			.UAV(EReg::AABB_Box)
 			.UAV(EReg::WorkingExternalForces)
+			.UAV(EReg::LinkToWorld)
 			.Create(m_aba.m_gpu, "Physics:ArticulationLinkProxiesSig");
 
 		m_cs_gather_forces.m_sig = root_sig;
@@ -80,10 +97,11 @@ namespace pr::physics
 		m_cs_refresh.m_pso = ComputePSO(root_sig.get(), shader_code::articulation_refresh_proxies).Create(m_aba.m_gpu, "Physics:ArticulationRefreshProxiesPSO");
 	}
 
-	// Release the sole link-dependent resource when no forest is active.
+	// Release every link-dependent resource when no forest is active.
 	void GpuArticulationLinkProxies::ReleaseBuffers()
 	{
 		m_r_external_forces = nullptr;
+		m_r_link_to_world = nullptr;
 		m_stats = {};
 	}
 
@@ -98,21 +116,28 @@ namespace pr::physics
 			return;
 		}
 
-		// Geometric growth avoids reallocating a per-link working stream when forest sizes fluctuate modestly.
-		if (m_r_external_forces == nullptr || m_stats.m_external_force_capacity < m_aba.m_link_count)
-		{
-			auto const doubled_capacity = m_stats.m_external_force_capacity <= std::numeric_limits<int>::max() / 2
-				? 2 * m_stats.m_external_force_capacity
-				: std::numeric_limits<int>::max();
-			m_stats.m_external_force_capacity = std::max(m_aba.m_link_count, std::max(1, doubled_capacity));
-			m_r_external_forces = m_aba.m_gpu.CreateResource(
-				ResDesc::Buf<GpuFrameForce>(m_stats.m_external_force_capacity, {}).usage(EUsage::UnorderedAccess),
-				job.m_cmd_list,
-				"Physics:ArticulationLinkWorkingForces");
-		}
+		// Geometric growth avoids reallocating per-link working and persistent frame streams when forest sizes fluctuate modestly.
+		EnsureProxyBuffer<GpuFrameForce>(
+			m_aba.m_gpu,
+			job.m_cmd_list,
+			m_r_external_forces,
+			m_aba.m_link_count,
+			m_stats.m_external_force_capacity,
+			EUsage::UnorderedAccess,
+			"Physics:ArticulationLinkWorkingForces");
+		EnsureProxyBuffer<GpuConstraintFrame>(
+			m_aba.m_gpu,
+			job.m_cmd_list,
+			m_r_link_to_world,
+			m_aba.m_link_count,
+			m_stats.m_link_frame_capacity,
+			EUsage::UnorderedAccess,
+			"Physics:ArticulationLinkToWorld");
 
-		m_stats.m_logical_bytes = static_cast<size_t>(m_aba.m_link_count) * sizeof(GpuFrameForce);
-		m_stats.m_allocated_feature_bytes = static_cast<size_t>(m_stats.m_external_force_capacity) * sizeof(GpuFrameForce);
+		m_stats.m_logical_bytes = static_cast<size_t>(m_aba.m_link_count) * (sizeof(GpuFrameForce) + sizeof(GpuConstraintFrame));
+		m_stats.m_allocated_feature_bytes =
+			static_cast<size_t>(m_stats.m_external_force_capacity) * sizeof(GpuFrameForce) +
+			static_cast<size_t>(m_stats.m_link_frame_capacity) * sizeof(GpuConstraintFrame);
 	}
 
 	// Convert world-space proxy force accumulators into link-frame ABA wrenches.
@@ -135,6 +160,7 @@ namespace pr::physics
 		job.m_barriers.Transition(m_aba.m_r_external_forces.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition(bodies, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_external_forces.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_r_link_to_world.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Commit();
 
 		job.m_cmd_list.SetPipelineState(m_cs_gather_forces.m_pso.get());
@@ -153,6 +179,7 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_external_forces->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_link_to_world->GetGPUVirtualAddress());
 		job.m_cmd_list.Dispatch(ThreadGroupCount(m_aba.m_link_count), 1, 1);
 		++m_stats.m_gather_dispatch_count;
 
@@ -195,6 +222,7 @@ namespace pr::physics
 		job.m_barriers.Transition(aabb_idx, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(aabb_sort, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(aabb_box, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_r_link_to_world.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Commit();
 
 		job.m_cmd_list.SetPipelineState(m_cs_refresh.m_pso.get());
@@ -213,6 +241,7 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(aabb_sort->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(aabb_box->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_external_forces->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_link_to_world->GetGPUVirtualAddress());
 		job.m_cmd_list.Dispatch(ThreadGroupCount(m_aba.m_articulation_count), 1, 1);
 		++m_stats.m_refresh_dispatch_count;
 
@@ -223,7 +252,15 @@ namespace pr::physics
 		job.m_barriers.UAV(aabb_idx);
 		job.m_barriers.UAV(aabb_sort);
 		job.m_barriers.UAV(aabb_box);
+		job.m_barriers.UAV(m_r_link_to_world.get());
 		job.m_barriers.Commit();
+		job.m_barriers.Transition(m_r_link_to_world.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).Commit();
+	}
+
+	// Return persistent link-to-world frames indexed by the packed forest link index.
+	ID3D12Resource* GpuArticulationLinkProxies::LinkToWorld()
+	{
+		return m_r_link_to_world.get();
 	}
 
 	// Return current logical usage, retained capacity, and dispatch counts.

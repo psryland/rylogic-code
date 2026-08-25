@@ -13,9 +13,9 @@ namespace pr::physics
 	struct GpuArticulationLinkProxyStats
 	{
 		int m_external_force_capacity;
+		int m_link_frame_capacity;
 		int m_gather_dispatch_count;
 		int m_refresh_dispatch_count;
-		int m_pad0;
 		size_t m_logical_bytes;
 		size_t m_allocated_feature_bytes;
 	};
@@ -30,6 +30,7 @@ namespace pr::physics
 		ComputeStep m_cs_gather_forces;
 		ComputeStep m_cs_refresh;
 		D3DPtr<ID3D12Resource> m_r_external_forces;
+		D3DPtr<ID3D12Resource> m_r_link_to_world;
 		GpuArticulationLinkProxyStats m_stats;
 
 	public:
@@ -46,12 +47,15 @@ namespace pr::physics
 		// Refresh proxy transforms, momenta, and broadphase bounds from committed generalized state.
 		void Refresh(GpuJob& job, GpuIntegrator& integrator, int broadphase_sort_axis);
 
+		// Return persistent link-to-world frames indexed by the packed forest link index.
+		ID3D12Resource* LinkToWorld();
+
 		// Return current logical usage, retained capacity, and dispatch counts.
 		GpuArticulationLinkProxyStats const& Stats() const;
 
 	private:
 
-		// Release the sole link-dependent resource when no forest is active.
+		// Release every link-dependent resource when no forest is active.
 		void ReleaseBuffers();
 	};
 }

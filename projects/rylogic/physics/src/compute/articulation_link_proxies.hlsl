@@ -38,6 +38,7 @@ RWStructuredBuffer<BBox> resource(g_proxy_aabb_box, u8);
 RWStructuredBuffer<GpuFrameForce> resource(g_proxy_external_forces, u9);
 RWStructuredBuffer<float> resource(g_aba_accelerations, u10);
 RWStructuredBuffer<float> resource(g_aba_inverse_joint_inertia, u11);
+RWStructuredBuffer<GpuConstraintFrame> resource(g_link_to_world, u12);
 
 #ifdef __cplusplus
 }
@@ -69,25 +70,6 @@ GpuArticulationSpatialVector ProxyLinkWrench(GpuArticulationLink link, GpuRigidB
 		quat_rotate(world_to_proxy_rotation, torque_at_proxy_origin_ws),
 		quat_rotate(world_to_proxy_rotation, force_ws));
 	return AbaTransformForce(link.shape_to_link, proxy_wrench);
-}
-
-// Preserve one link world transform in phase-reused matrix storage after the ABA solve has completed.
-void ProxyStoreLinkToWorld(int link_index, GpuConstraintFrame link_to_world)
-{
-	GpuArticulationAbaScratch scratch = g_aba_scratch[link_index];
-	scratch.articulated_inertia.columns[0].ang = link_to_world.rotation;
-	scratch.articulated_inertia.columns[0].lin = link_to_world.position;
-	g_aba_scratch[link_index] = scratch;
-}
-
-// Recover one parent world transform written earlier in topological order.
-GpuConstraintFrame ProxyLoadLinkToWorld(int link_index)
-{
-	GpuArticulationAbaScratch scratch = g_aba_scratch[link_index];
-	GpuConstraintFrame transform;
-	transform.rotation = scratch.articulated_inertia.columns[0].ang;
-	transform.position = scratch.articulated_inertia.columns[0].lin;
-	return transform;
 }
 
 // Refresh one link's joint transform and velocity without evaluating force or acceleration state.
@@ -216,9 +198,9 @@ void CSArticulationRefreshProxies(int3 DTID(dtid))
 		if (link.parent_link_index < 0)
 			link_to_world = articulation.root_to_world;
 		else
-			link_to_world = AbaMultiplyTransform(ProxyLoadLinkToWorld(link.parent_link_index), g_aba_scratch[link_index].child_to_parent);
+			link_to_world = AbaMultiplyTransform(g_link_to_world[link.parent_link_index], g_aba_scratch[link_index].child_to_parent);
 
-		ProxyStoreLinkToWorld(link_index, link_to_world);
+		g_link_to_world[link_index] = link_to_world;
 		ProxyWriteBody(link, link_to_world, g_aba_scratch[link_index].link_velocity);
 	}
 }
