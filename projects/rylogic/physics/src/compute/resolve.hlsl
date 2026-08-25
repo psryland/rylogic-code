@@ -98,7 +98,7 @@ struct cbResolve
 	float warm_start_scale;           // Scale applied to cached physical impulses before they are applied this frame
 
 	int warm_start_capacity;  // Number of entries in the open-addressed warm-start cache
-	int pad_i0;
+	int rigid_body_count;     // Ordinary rigid prefix; larger body indices are articulation-link proxies
 	int pad_i1;
 	int pad_i2;
 };
@@ -122,6 +122,14 @@ RWStructuredBuffer<GpuWarmStartEntry> resource(g_warm_start_curr, u9); // curren
 int ContactCount()
 {
 	return min(g_counters[0].contact_count, g.max_contacts);
+}
+
+// Return true when both endpoints belong to the ordinary rigid-body prefix handled by this solver.
+bool RigidContact(GpuResolveContact contact)
+{
+	return
+		contact.body_idx_a >= 0 && contact.body_idx_a < g.rigid_body_count &&
+		contact.body_idx_b >= 0 && contact.body_idx_b < g.rigid_body_count;
 }
 
 // Return the reserved colour-buffer slot that records whether any enabled contact exhausted the bounded colour mask.
@@ -565,7 +573,7 @@ bool ContactEnabled(GpuResolveContact c, GpuRigidBody bodyA)
 bool ContactEnabledAt(uint idx)
 {
 	GpuResolveContact c = g_contacts[idx];
-	return ContactEnabled(c, g_bodies[c.body_idx_a]);
+	return RigidContact(c) && ContactEnabled(c, g_bodies[c.body_idx_a]);
 }
 
 // Compute the local contact-priority tie-breaker that is folded into the collision-time radix key.
@@ -819,6 +827,8 @@ void CSSeedShockPriority(int3 DTID(dtid))
 	g_colours[contact_idx] = asuint(priority);
 	g_contact_next_a[contact_idx] = 0;
 	g_contact_next_b[contact_idx] = 0;
+	if (!RigidContact(c))
+		return;
 
 	LinkContactToBody(contact_idx, c.body_idx_a, true);
 	LinkContactToBody(contact_idx, c.body_idx_b, false);
@@ -838,6 +848,9 @@ void CSPropagateShockPriority(int3 DTID(dtid))
 		return;
 
 	GpuResolveContact src = g_contacts[src_idx];
+	if (!RigidContact(src))
+		return;
+
 	PropagateShockThroughBody(src_idx, src, src.body_idx_a, src_priority);
 	PropagateShockThroughBody(src_idx, src, src.body_idx_b, src_priority);
 }
@@ -899,7 +912,7 @@ void CSAssignColours(int3 DTID(dtid))
 		int idx = g_contact_order[i]; // get contact index from sorted order
 		GpuResolveContact c = g_contacts[idx];
 
-		if (!ContactEnabled(c, g_bodies[c.body_idx_a]))
+		if (!RigidContact(c) || !ContactEnabled(c, g_bodies[c.body_idx_a]))
 		{
 			g_colours[idx] = MaxColours;
 			continue;

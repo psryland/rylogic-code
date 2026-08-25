@@ -343,6 +343,13 @@ namespace pr::physics
 				auto const gravity_force_ws = fixed_root ? v4{} : proxy_inertia.Mass() * gravity_ws;
 				auto const shape_id = shape_ids[packed_link_index];
 				auto const os_bbox = desc.m_shape != nullptr ? desc.m_shape->m_s2r * desc.m_shape->m_bbox : BBox::Zero();
+				if (static_cast<uint32_t>(articulation_index + 1) > GpuBodyArticulationCollision_IdentityMask)
+					throw std::overflow_error("GPU articulation collision identity exceeds the packed body ABI");
+
+				auto const articulation_collision =
+					GpuBodyArticulationCollision_Proxy |
+					(desc.m_collide_self ? GpuBodyArticulationCollision_CollideSelf : 0U) |
+					static_cast<uint32_t>(articulation_index + 1);
 
 				upload.m_links[packed_link_index].proxy_body_index = proxy_body_index;
 				proxies.push_back(GpuRigidBody{
@@ -359,7 +366,7 @@ namespace pr::physics
 					.state_flags = fixed_root ? static_cast<int>(ERigidBodyStateFlags::Static) : static_cast<int>(ERigidBodyStateFlags::None),
 					.shape_id = shape_id,
 					.colour_used = 0,
-					.pad0 = 0,
+					.articulation_collision = articulation_collision,
 					.sleep = GpuSleepData{
 						.timer_s = 0.0f,
 						.island_id = -1,

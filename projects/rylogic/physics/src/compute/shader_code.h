@@ -20,6 +20,7 @@ namespace pr::physics::shader_code
 
 	// Gathered per-frame output
 	extern ByteCode const prepare_substep_output;
+	extern ByteCode const compact_collision_events;
 	extern ByteCode const append_collision_events;
 	extern ByteCode const gather_frame_bodies;
 	extern ByteCode const gather_frame_articulations;

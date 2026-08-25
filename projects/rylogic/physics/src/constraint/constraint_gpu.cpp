@@ -278,53 +278,63 @@ namespace pr::physics
 			return hash;
 		}
 
-		// Build a deterministic half-full hash table so broadphase lookups require expected constant work and no GPU construction pass.
-		GpuCollisionExclusionTable BuildCollisionExclusions(std::span<GpuConstraintEndpoint const> endpoints)
+	}
+
+	// Build one deterministic collision-exclusion table from persistent constraints and additional canonical body pairs.
+	GpuCollisionExclusionTable BuildGpuCollisionExclusions(std::span<GpuConstraintEndpoint const> endpoints, std::span<GpuCollisionExclusion const> additional_pairs)
+	{
+		auto candidates = std::vector<GpuCollisionExclusion>{};
+		candidates.reserve(endpoints.size() + additional_pairs.size());
+		for (auto const& endpoint : endpoints)
 		{
-			auto candidates = std::vector<GpuCollisionExclusion>{};
-			candidates.reserve(endpoints.size());
-			for (auto const& endpoint : endpoints)
+			if (!AllSet(endpoint.flags, GpuConstraintEndpointFlags_Enabled) ||
+				AllSet(endpoint.flags, GpuConstraintEndpointFlags_CollideConnected) ||
+				endpoint.body_idx_a < 0 ||
+				endpoint.body_idx_b < 0)
+				continue;
+
+			candidates.push_back(GpuCollisionExclusion{
+				.body_idx_a_plus_one = s_cast<uint32_t>(std::min(endpoint.body_idx_a, endpoint.body_idx_b)) + 1U,
+				.body_idx_b_plus_one = s_cast<uint32_t>(std::max(endpoint.body_idx_a, endpoint.body_idx_b)) + 1U,
+			});
+		}
+		for (auto const& pair : additional_pairs)
+		{
+			if (pair.body_idx_a_plus_one == 0 || pair.body_idx_b_plus_one == 0 || pair.body_idx_a_plus_one == pair.body_idx_b_plus_one)
+				throw std::invalid_argument("Additional collision exclusions require two distinct one-based body indices");
+
+			candidates.push_back(GpuCollisionExclusion{
+				.body_idx_a_plus_one = std::min(pair.body_idx_a_plus_one, pair.body_idx_b_plus_one),
+				.body_idx_b_plus_one = std::max(pair.body_idx_a_plus_one, pair.body_idx_b_plus_one),
+			});
+		}
+		if (candidates.empty())
+			return {};
+
+		// A half-full open-addressed table keeps expected GPU lookup work constant while duplicate sources collapse into one slot.
+		auto const table_size = std::bit_ceil(std::max<size_t>(2, candidates.size() * 2));
+		auto table = GpuCollisionExclusionTable{
+			.m_slots = std::vector<GpuCollisionExclusion>(table_size),
+		};
+		auto const mask = table.Mask();
+		for (auto const& candidate : candidates)
+		{
+			auto slot = CollisionExclusionHash(candidate.body_idx_a_plus_one, candidate.body_idx_b_plus_one) & mask;
+			for (;; slot = (slot + 1U) & mask)
 			{
-				if (!AllSet(endpoint.flags, GpuConstraintEndpointFlags_Enabled) ||
-					AllSet(endpoint.flags, GpuConstraintEndpointFlags_CollideConnected) ||
-					endpoint.body_idx_a < 0 ||
-					endpoint.body_idx_b < 0)
+				auto& entry = table.m_slots[slot];
+				if (entry.body_idx_a_plus_one == candidate.body_idx_a_plus_one &&
+					entry.body_idx_b_plus_one == candidate.body_idx_b_plus_one)
+					break;
+				if (entry.body_idx_a_plus_one != 0)
 					continue;
 
-				auto const body_idx_a = s_cast<uint32_t>(std::min(endpoint.body_idx_a, endpoint.body_idx_b)) + 1U;
-				auto const body_idx_b = s_cast<uint32_t>(std::max(endpoint.body_idx_a, endpoint.body_idx_b)) + 1U;
-				candidates.push_back(GpuCollisionExclusion{
-					.body_idx_a_plus_one = body_idx_a,
-					.body_idx_b_plus_one = body_idx_b,
-				});
+				entry = candidate;
+				++table.m_count;
+				break;
 			}
-			if (candidates.empty())
-				return {};
-
-			auto table_size = std::bit_ceil(std::max<size_t>(2, candidates.size() * 2));
-			auto table = GpuCollisionExclusionTable{
-				.m_slots = std::vector<GpuCollisionExclusion>(table_size),
-			};
-			auto const mask = table.Mask();
-			for (auto const& candidate : candidates)
-			{
-				auto slot = CollisionExclusionHash(candidate.body_idx_a_plus_one, candidate.body_idx_b_plus_one) & mask;
-				for (;; slot = (slot + 1U) & mask)
-				{
-					auto& entry = table.m_slots[slot];
-					if (entry.body_idx_a_plus_one == candidate.body_idx_a_plus_one &&
-						entry.body_idx_b_plus_one == candidate.body_idx_b_plus_one)
-						break;
-					if (entry.body_idx_a_plus_one != 0)
-						continue;
-
-					entry = candidate;
-					++table.m_count;
-					break;
-				}
-			}
-			return table;
 		}
+		return table;
 	}
 
 	// True when an enabled descriptor with solver rows touches at least one articulation link.
@@ -373,8 +383,8 @@ namespace pr::physics
 		}
 	}
 
-	// Pack persistent descriptors and resolve enabled endpoints into current frame-local rigid-body indices.
-	GpuConstraintUpload PackGpuConstraints(ConstraintSet const& constraints, BodyRemap const& remap)
+	// Pack persistent descriptors, resolve current endpoints, and merge frame-local collision exclusions.
+	GpuConstraintUpload PackGpuConstraints(ConstraintSet const& constraints, BodyRemap const& remap, std::span<GpuCollisionExclusion const> additional_collision_exclusions)
 	{
 		auto upload = GpuConstraintUpload{
 			.m_source = &constraints,
@@ -487,7 +497,7 @@ namespace pr::physics
 
 		// Persistent D6 rows can build their topology once on the CPU; transient contact rows will append GPU-built substep topology later.
 		BuildCoupledTopology(upload, remap);
-		upload.m_collision_exclusions = BuildCollisionExclusions(upload.m_endpoints);
+		upload.m_collision_exclusions = BuildGpuCollisionExclusions(upload.m_endpoints, additional_collision_exclusions);
 		return upload;
 	}
 }

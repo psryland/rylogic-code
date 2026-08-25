@@ -399,7 +399,7 @@ namespace pr::physics
 			.state_flags = static_cast<int>(rb.m_state_flags),
 			.shape_id = shape_id,
 			.colour_used = 0,
-			.pad0 = 0,
+			.articulation_collision = 0,
 			.sleep = GpuSleepData{
 				.timer_s = rb.m_sleep.m_timer_s,
 				.island_id = rb.m_sleep.m_island_id,

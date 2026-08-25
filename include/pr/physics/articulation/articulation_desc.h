@@ -49,12 +49,18 @@ namespace pr::physics
 		static ArticulationJointDesc Prismatic(v4 axis = v4::ZAxis(), m4x4 const& joint_to_parent = m4x4::Identity(), m4x4 const& joint_to_child = m4x4::Identity());
 	};
 
-	// Immutable mass and future collision-proxy data for one articulation link.
+	// Immutable mass and collision policy for one articulation link.
 	struct ArticulationLinkDesc
 	{
 		Inertia m_inertia = {};
 		collision::Shape const* m_shape = nullptr;
 		m4x4 m_shape_to_link = m4x4::Identity();
+
+		// Allow this link's collision shape to contact its immediate parent link.
+		bool m_collide_parent = false;
+
+		// Allow this link's collision shape to contact non-adjacent links in the same articulation.
+		bool m_collide_self = true;
 	};
 
 	// One link-frame spatial impulse to accumulate before a single linear-time impulse ABA traversal.

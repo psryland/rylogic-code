@@ -46,7 +46,7 @@ RWStructuredBuffer<float> resource(g_output_positions, u14);
 RWStructuredBuffer<float> resource(g_output_velocities, u15);
 RWStructuredBuffer<float> resource(g_output_accelerations, u16);
 
-// Reserve a deterministic contiguous event range and retain capacity diagnostics before counters are reset.
+// Retain capacity diagnostics and reset the per-substep event range before transient collision buffers are reused.
 numthreads(CSPrepareSubstepOutput, 1, 1, 1)
 void CSPrepareSubstepOutput(int3 DTID(dtid))
 {
@@ -54,7 +54,6 @@ void CSPrepareSubstepOutput(int3 DTID(dtid))
 	GpuFrameOutputHeader header = g_header[0];
 	int pair_count = max(counters.pair_count, 0);
 	int contact_count = max(counters.contact_count, 0);
-	int retained_contacts = min(contact_count, g.max_contacts);
 
 	header.final_counters = counters;
 	header.max_pair_count = max(header.max_pair_count, pair_count);
@@ -65,10 +64,39 @@ void CSPrepareSubstepOutput(int3 DTID(dtid))
 	if (header.contact_limit_substep < 0 && g.max_contacts > 0 && contact_count >= g.max_contacts)
 		header.contact_limit_substep = g.substep_index;
 
+	g_header[0] = header;
+	g_substep_state[0] = (GpuSubstepOutputState)0;
+	g_substep_state[0].substep_index = g.substep_index;
+}
+
+// Compact rigid-only contacts and reserve their deterministic contiguous range in the optional event stream.
+numthreads(CSCompactCollisionEvents, 1, 1, 1)
+void CSCompactCollisionEvents(int3 DTID(dtid))
+{
+	GpuFrameOutputHeader header = g_header[0];
+	int contact_count = max(header.final_counters.contact_count, 0);
+	int retained_contacts = min(contact_count, g.max_contacts);
+
+	// The public collision callback currently addresses caller-owned rigid bodies. Compact that subset in place so hidden proxy indices never escape through
+	// the rigid-only event ABI; a dedicated articulation-contact event surface can be added without changing this safety boundary.
+	int rigid_contact_count = 0;
+	for (int contact_order_index = 0; contact_order_index != retained_contacts; ++contact_order_index)
+	{
+		int contact_index = (int)g_contact_order[contact_order_index];
+		if (contact_index < 0 || contact_index >= g.max_contacts)
+			continue;
+
+		GpuResolveContact contact = g_contacts[contact_index];
+		if (
+			contact.body_idx_a >= 0 && contact.body_idx_a < g.body_count &&
+			contact.body_idx_b >= 0 && contact.body_idx_b < g.body_count)
+			g_contact_order[rigid_contact_count++] = (uint)contact_index;
+	}
+
 	int event_base = header.event_count;
 	int available = max(header.event_capacity - event_base, 0);
-	int event_count = g.collect_events != 0 ? min(retained_contacts, available) : 0;
-	if (g.collect_events != 0 && retained_contacts > available)
+	int event_count = min(rigid_contact_count, available);
+	if (rigid_contact_count > available)
 	{
 		header.event_overflow = 1;
 		if (header.event_overflow_substep < 0)
@@ -77,10 +105,8 @@ void CSPrepareSubstepOutput(int3 DTID(dtid))
 	header.event_count = event_base + event_count;
 
 	g_header[0] = header;
-	g_substep_state[0] = (GpuSubstepOutputState)0;
 	g_substep_state[0].event_base = event_base;
 	g_substep_state[0].event_count = event_count;
-	g_substep_state[0].substep_index = g.substep_index;
 }
 
 // Copy resolved contacts in their deterministic solver order into the frame-wide event stream.

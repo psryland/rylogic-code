@@ -59,6 +59,9 @@ namespace pr::physics
 	// Wake complete articulation trees referenced by active coupled rows before sleeping trees are omitted from frame packing.
 	void WakeCoupledConstraintArticulations(ConstraintSet const& constraints, std::span<Articulation*> articulations);
 
-	// Pack persistent descriptors and resolve enabled endpoints into current frame-local rigid-body indices.
-	GpuConstraintUpload PackGpuConstraints(ConstraintSet const& constraints, BodyRemap const& remap);
+	// Pack persistent descriptors, resolve current endpoints, and merge frame-local collision exclusions.
+	GpuConstraintUpload PackGpuConstraints(ConstraintSet const& constraints, BodyRemap const& remap, std::span<GpuCollisionExclusion const> additional_collision_exclusions = {});
+
+	// Build one deterministic collision-exclusion table from persistent constraints and additional canonical body pairs.
+	GpuCollisionExclusionTable BuildGpuCollisionExclusions(std::span<GpuConstraintEndpoint const> endpoints, std::span<GpuCollisionExclusion const> additional_pairs = {});
 }

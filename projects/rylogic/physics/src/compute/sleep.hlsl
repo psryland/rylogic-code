@@ -197,6 +197,11 @@ void CSUnionSleepContacts(int3 dtid : SV_DispatchThreadID)
 		return;
 
 	GpuResolveContact contact = g_contacts[contact_idx];
+	if (
+		contact.body_idx_a < 0 || contact.body_idx_a >= g.body_count ||
+		contact.body_idx_b < 0 || contact.body_idx_b >= g.body_count)
+		return;
+
 	GpuRigidBody body_a = g_rw_bodies[contact.body_idx_a];
 	GpuRigidBody body_b = g_rw_bodies[contact.body_idx_b];
 	if (DynamicBody(body_a) && DynamicBody(body_b))

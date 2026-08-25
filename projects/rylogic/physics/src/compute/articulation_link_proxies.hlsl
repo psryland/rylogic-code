@@ -119,7 +119,7 @@ void ProxyWriteBody(GpuArticulationLink link, GpuConstraintFrame link_to_world, 
 	body.momentum_lin = float4(momentum_lin_ws, 0.0f);
 	g_proxy_bodies[body_index] = body;
 
-	// Shape-less force proxies retain a degenerate bound but never enter broadphase until coupled collision support enables them.
+	// Shape-less force proxies retain a degenerate bound and are rejected by broadphase before shape access.
 	BBox ws_bbox;
 	if (body.shape_id >= 0)
 	{

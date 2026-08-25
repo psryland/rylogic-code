@@ -44,7 +44,7 @@ namespace pr::physics
 		static void Validate(D6ConstraintDesc const& desc);
 
 		friend CompiledConstraintSet CompileConstraints(ConstraintSet const& constraints, BodyRemap const& remap);
-		friend GpuConstraintUpload PackGpuConstraints(ConstraintSet const& constraints, BodyRemap const& remap);
+		friend GpuConstraintUpload PackGpuConstraints(ConstraintSet const& constraints, BodyRemap const& remap, std::span<GpuCollisionExclusion const> additional_collision_exclusions);
 		friend bool HasCoupledConstraintWork(ConstraintSet const& constraints);
 		friend void WakeCoupledConstraintArticulations(ConstraintSet const& constraints, std::span<Articulation*> articulations);
 

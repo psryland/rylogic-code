@@ -56,7 +56,7 @@ namespace pr::physics
 				.support_contact_slop_scale = config.support_contact_slop_scale,
 				.warm_start_scale = config.warm_start_scale,
 				.warm_start_capacity = 0,
-				.pad_i0 = 0,
+				.rigid_body_count = body_count,
 				.pad_i1 = 0,
 				.pad_i2 = 0,
 			};

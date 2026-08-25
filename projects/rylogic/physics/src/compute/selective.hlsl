@@ -137,6 +137,11 @@ void CSScoreSelectiveContacts(int3 DTID(dtid))
 	InterlockedAdd(g_metrics[0].scored_contact_count, 1);
 
 	GpuResolveContact contact = g_source_contacts[contact_idx];
+	if (
+		contact.body_idx_a < 0 || contact.body_idx_a >= g.body_count ||
+		contact.body_idx_b < 0 || contact.body_idx_b >= g.body_count)
+		return;
+
 	GpuRigidBody body_a = g_bodies[contact.body_idx_a];
 	GpuRigidBody body_b = g_bodies[contact.body_idx_b];
 	if (!DynamicBody(body_a) && !DynamicBody(body_b))
@@ -172,6 +177,11 @@ void CSCompactSelectivePairs(int3 DTID(dtid))
 		return;
 
 	GpuCollisionPair src_pair = g_full_pairs[pair_idx];
+	if (
+		src_pair.body_idx_a < 0 || src_pair.body_idx_a >= g.body_count ||
+		src_pair.body_idx_b < 0 || src_pair.body_idx_b >= g.body_count)
+		return;
+
 	if (g_problem_bodies[src_pair.body_idx_a] == 0 && g_problem_bodies[src_pair.body_idx_b] == 0)
 		return;
 

@@ -71,6 +71,22 @@ odr bool CachedBoundsOverlap(int body_a, int body_b)
 	return g_aabb_box[body_a].IsIntersection(g_aabb_box[body_b]);
 }
 
+// Suppress same-tree pairs when either link opts out without materialising a quadratic exclusion table.
+odr bool ArticulationSelfCollisionExcluded(in_(GpuRigidBody) body_a, in_(GpuRigidBody) body_b)
+{
+	uint metadata_a = body_a.articulation_collision;
+	uint metadata_b = body_b.articulation_collision;
+	if (!AllSet(metadata_a, GpuBodyArticulationCollision_Proxy) || !AllSet(metadata_b, GpuBodyArticulationCollision_Proxy))
+		return false;
+
+	uint identity_a = metadata_a & GpuBodyArticulationCollision_IdentityMask;
+	uint identity_b = metadata_b & GpuBodyArticulationCollision_IdentityMask;
+	return
+		identity_a == identity_b &&
+		(!AllSet(metadata_a, GpuBodyArticulationCollision_CollideSelf) ||
+		 !AllSet(metadata_b, GpuBodyArticulationCollision_CollideSelf));
+}
+
 // Mix the encoded canonical body pair using the same 32-bit operations as the CPU table builder.
 odr uint CollisionExclusionHash(uint body_idx_a_plus_one, uint body_idx_b_plus_one)
 {
@@ -198,6 +214,8 @@ odr void SweepBound(int3 dtid, bool filter_connected)
 	// Get the object we're testing against the other objects
 	int rbA_idx = g_aabb_idx[idx] >> 1;
 	GpuRigidBody rb = g_bodies[rbA_idx];
+	if (rb.shape_id < 0)
+		return;
 	
 	// Get the index value that ends our search
 	int end_idx = g_aabb_idx[idx] | 1;
@@ -214,6 +232,8 @@ odr void SweepBound(int3 dtid, bool filter_connected)
 		int rbB_idx = payload >> 1;
 		
 		GpuRigidBody other_rb = g_bodies[rbB_idx];
+		if (other_rb.shape_id < 0 || ArticulationSelfCollisionExcluded(rb, other_rb))
+			continue;
 		
 		// If intersection on all three axes, add a pair to the output buffer.
 		// Canonicalise pair so lower body index is always 'a'.

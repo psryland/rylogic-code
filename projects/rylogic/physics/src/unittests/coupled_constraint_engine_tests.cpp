@@ -70,6 +70,26 @@ namespace pr::physics::tests
 			config.constraint_warm_start_factor = 0.0f;
 			engine.Config(config);
 		}
+
+		// Build a fixed three-link chain whose spherical proxies all share one world-space centre.
+		Articulation MakeOverlappingContactTree(collision::ShapeSphere const& shape, bool collide_parent, bool collide_self)
+		{
+			auto make_link = [&](float shape_offset_x)
+			{
+				auto link_desc = CoupledEngineLink();
+				link_desc.m_shape = collision::shape_cast(&shape);
+				link_desc.m_shape_to_link = m4x4::Translation(shape_offset_x, 0.0f, 0.0f);
+				link_desc.m_collide_parent = collide_parent;
+				link_desc.m_collide_self = collide_self;
+				return link_desc;
+			};
+
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFixedRoot(make_link(0.0f), m4x4::Identity());
+			auto const child = builder.AddLink(root, ArticulationJointDesc::Fixed(), make_link(0.2f));
+			builder.AddLink(child, ArticulationJointDesc::Fixed(), make_link(0.4f));
+			return builder.Build();
+		}
 	}
 
 	// Prove production Engine scheduling covers mixed and articulation-only coupled topologies.
@@ -218,6 +238,86 @@ namespace pr::physics::tests
 			auto const constraint_error = Abs(tree.m_articulation.LinkToWorld(tree.m_link).pos.z - body.O2W().pos.z);
 			PR_EXPECT(saw_contact);
 			PR_EXPECT(constraint_error < 0.002f);
+		}
+
+		// Admit shaped proxies to broadphase and narrowphase without exposing or resolving them through rigid-only paths.
+		PRUnitTestMethod(ArticulationProxyContactsRemainCoupledOnly, Quick)
+		{
+			auto shape = collision::ShapeSphere{0.5f};
+			auto link_desc = CoupledEngineLink();
+			link_desc.m_shape = collision::shape_cast(&shape);
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFloatingRoot(link_desc, m4x4::Identity());
+			auto articulation = builder.Build();
+			auto body = RigidBody{&shape, m4x4::Translation(0.6f, 0.0f, 0.0f), Inertia::Sphere(shape.m_radius, 1.0f)};
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+			auto const initial_body_transform = body.O2W();
+			auto const initial_root_transform = articulation.RootToWorld();
+			auto collision_event_count = 0;
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			engine.Collisions += [&](Engine&, std::span<RbContact const> contacts)
+			{
+				collision_event_count += isize(contacts);
+			};
+
+			engine.Step(Engine::StepInput{
+				.m_bodies = body_ptrs,
+				.m_articulations = articulation_ptrs,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+
+			PR_EXPECT(engine.LastCollisionStats().m_pair_count == 1);
+			PR_EXPECT(engine.LastCollisionStats().m_contact_count != 0);
+			PR_EXPECT(collision_event_count == 0);
+			PR_EXPECT(FEqlAbsolute(body.O2W(), initial_body_transform, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(body.MomentumWS().ang, v4::Zero(), 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(body.MomentumWS().lin, v4::Zero(), 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(articulation.RootToWorld(), initial_root_transform, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).ang, v4::Zero(), 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).lin, v4::Zero(), 1.0e-6f));
+		}
+
+		// Enforce adjacent and broader same-tree collision policies without growing exclusion storage quadratically.
+		PRUnitTestMethod(ArticulationProxySelfCollisionPolicy, Quick)
+		{
+			auto shape = collision::ShapeSphere{0.5f};
+			auto articulation_ptrs = std::array<Articulation*, 1>{};
+			auto& engine = SharedEngine();
+
+			// Default parent suppression leaves only the non-adjacent root-to-grandchild pair.
+			auto default_tree = MakeOverlappingContactTree(shape, false, true);
+			articulation_ptrs[0] = &default_tree;
+			ConfigureCoupledEngine(engine);
+			engine.Step(Engine::StepInput{
+				.m_articulations = articulation_ptrs,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+			PR_EXPECT(engine.LastCollisionStats().m_pair_count == 1);
+			PR_EXPECT(engine.LastCollisionStats().m_contact_count != 0);
+
+			// Disabling same-tree collision on each link removes the remaining non-adjacent pair as well.
+			auto filtered_tree = MakeOverlappingContactTree(shape, false, false);
+			articulation_ptrs[0] = &filtered_tree;
+			ConfigureCoupledEngine(engine);
+			engine.Step(Engine::StepInput{
+				.m_articulations = articulation_ptrs,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+			PR_EXPECT(engine.LastCollisionStats().m_pair_count == 0);
+			PR_EXPECT(engine.LastCollisionStats().m_contact_count == 0);
+
+			// Explicit adjacent collision restores all three pairs independently of the default policy.
+			auto enabled_tree = MakeOverlappingContactTree(shape, true, true);
+			articulation_ptrs[0] = &enabled_tree;
+			ConfigureCoupledEngine(engine);
+			engine.Step(Engine::StepInput{
+				.m_articulations = articulation_ptrs,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+			PR_EXPECT(engine.LastCollisionStats().m_pair_count == 3);
+			PR_EXPECT(engine.LastCollisionStats().m_contact_count != 0);
 		}
 	};
 }

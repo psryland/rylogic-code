@@ -424,6 +424,8 @@ namespace pr::physics
 
 		// Flatten each independent tree once; all internal substeps retain these immutable topology and force ranges on the GPU.
 		auto articulation_upload = GpuArticulationUpload{};
+		auto articulation_collision_exclusions = std::vector<GpuCollisionExclusion>{};
+		auto articulation_contacts_active = false;
 		if (!articulations.empty())
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_articulation_pack_ms>(m_last_step_profile);
@@ -455,10 +457,39 @@ namespace pr::physics
 				{
 					auto const& link = articulation->LinkDescription(articulation->LinkAt(link_index));
 					proxy_shape_ids.push_back(link.m_shape != nullptr ? m_cache->m_shape_cache.GetOrAdd(*link.m_shape) : -1);
+					articulation_contacts_active |= link.m_shape != nullptr;
 				}
 			}
 			auto proxies = PackGpuArticulationProxies(articulation_upload, articulations, proxy_shape_ids, m_cache->RigidBodyCount());
 			m_cache->m_rb_dynamics.insert(m_cache->m_rb_dynamics.end(), proxies.begin(), proxies.end());
+
+			// Adjacent-link suppression needs one pair per tree edge, while broader same-tree policy remains compactly encoded in each proxy body.
+			articulation_collision_exclusions.reserve(articulation_upload.m_links.size());
+			for (int articulation_index = 0; articulation_index != isize(articulations); ++articulation_index)
+			{
+				auto const* articulation = articulations[articulation_index];
+				auto const& packed_articulation = articulation_upload.m_articulations[articulation_index];
+				for (int local_link_index = 0; local_link_index != articulation->LinkCount(); ++local_link_index)
+				{
+					auto const packed_link_index = packed_articulation.link_offset + local_link_index;
+					auto const parent_link_index = articulation_upload.m_links[packed_link_index].parent_link_index;
+					auto const& desc = articulation->LinkDescription(articulation->LinkAt(local_link_index));
+					if (parent_link_index < 0 || desc.m_collide_parent || desc.m_shape == nullptr)
+						continue;
+
+					auto const parent_local_link_index = parent_link_index - packed_articulation.link_offset;
+					auto const& parent_desc = articulation->LinkDescription(articulation->LinkAt(parent_local_link_index));
+					if (parent_desc.m_shape == nullptr)
+						continue;
+
+					auto const body_index = m_cache->RigidBodyCount() + packed_link_index;
+					auto const parent_body_index = m_cache->RigidBodyCount() + parent_link_index;
+					articulation_collision_exclusions.push_back(GpuCollisionExclusion{
+						.body_idx_a_plus_one = static_cast<uint32_t>(std::min(body_index, parent_body_index) + 1),
+						.body_idx_b_plus_one = static_cast<uint32_t>(std::max(body_index, parent_body_index) + 1),
+					});
+				}
+			}
 		}
 
 		// Resolve stable identities before submission and retain only compact transfer data for the GPU upload.
@@ -466,7 +497,11 @@ namespace pr::physics
 		if (input.m_constraints != nullptr)
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_constraint_pack_ms>(m_last_step_profile);
-			constraint_upload = PackGpuConstraints(*input.m_constraints, BodyRemap(bodies, articulations));
+			constraint_upload = PackGpuConstraints(*input.m_constraints, BodyRemap(bodies, articulations), articulation_collision_exclusions);
+		}
+		else
+		{
+			constraint_upload.m_collision_exclusions = BuildGpuCollisionExclusions({}, articulation_collision_exclusions);
 		}
 		m_constraints_active = constraint_upload.m_rigid_active_count != 0;
 		m_coupled_constraints_active = constraint_upload.m_coupled_active_count != 0;
@@ -580,9 +615,9 @@ namespace pr::physics
 					m_gpu_articulation_link_proxies->Refresh(m_gpu->m_job, *m_gpu_integrator, m_cache->BroadphaseSortAxis());
 				}
 
-				if (!bodies.empty() || m_coupled_constraints_active)
+				if (!bodies.empty() || articulation_contacts_active || m_coupled_constraints_active)
 				{
-					// Collision phases retain the ordinary rigid prefix while coupled rows may operate on articulation-only frames.
+					// Broadphase admits shaped proxies, while rigid-only consumers retain the caller-owned body prefix.
 					if (!bodies.empty())
 					{
 						auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepwake_ms>(m_last_step_profile);
@@ -616,7 +651,7 @@ namespace pr::physics
 					}
 
 					// Preserve raw capacity counters and resolved collision records before transient buffers are reused.
-					if (!bodies.empty())
+					if (!bodies.empty() || articulation_contacts_active)
 						CaptureSubstepOutput(substep_index, input.m_substep_count, collect_collision_events);
 				}
 			}
@@ -832,7 +867,7 @@ namespace pr::physics
 	// Broadphase collision detection with optional connected-body pair suppression.
 	void Engine::BroadPhase(bool sleeping_enabled, std::span<GpuCollisionExclusion const> collision_exclusions)
 	{
-		auto body_count = m_cache->RigidBodyCount();
+		auto body_count = m_cache->BodyCount();
 
 		// GPU broadphase is only useful when GPU detect will consume the pairs
 		auto counters = m_gpu_integrator->Counters();
@@ -870,7 +905,8 @@ namespace pr::physics
 	// Apply impulses to resolve collisions and update body dynamics.
 	void Engine::Resolve(float dt)
 	{
-		auto body_count = m_cache->RigidBodyCount();
+		auto body_count = m_cache->BodyCount();
+		auto rigid_body_count = m_cache->RigidBodyCount();
 
 		auto counters = m_gpu_integrator->Counters();
 		auto dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
@@ -878,7 +914,7 @@ namespace pr::physics
 		auto bodies = m_gpu_integrator->Bodies();
 		auto* constraint_solver = m_constraints_active ? m_gpu_constraint_solver.get() : nullptr;
 		auto* coupled_constraint_solver = m_coupled_constraints_active ? m_gpu_coupled_constraint_solver.get() : nullptr;
-		m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, m_config.max_collision_pairs, dispatch, counters, contacts, bodies, m_materials->span(), 1.0f, -1, -1, 1.0f, false, constraint_solver, coupled_constraint_solver);
+		m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, rigid_body_count, m_config.max_collision_pairs, dispatch, counters, contacts, bodies, m_materials->span(), 1.0f, -1, -1, 1.0f, false, constraint_solver, coupled_constraint_solver);
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{
@@ -954,6 +990,7 @@ namespace pr::physics
 			m_gpu_selective_resolver->Resolve(
 				m_gpu->m_job,
 				dt,
+				body_count,
 				body_count,
 				work_set.m_max_contacts,
 				work_set.m_resolve_dispatch,

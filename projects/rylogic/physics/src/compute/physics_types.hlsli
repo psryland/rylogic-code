@@ -136,6 +136,11 @@ static const uint GpuSleepIslandStatsFlags_AllLow = 1 << 1;
 static const uint GpuSleepIslandStatsFlags_AllReady = 1 << 2;
 static const uint GpuSleepIslandStatsFlags_Wake = 1 << 3;
 
+// Articulation collision metadata packed into GpuRigidBody without widening the per-body transfer format.
+static const uint GpuBodyArticulationCollision_IdentityMask = 0x3FFFFFFFU;
+static const uint GpuBodyArticulationCollision_CollideSelf = 1U << 30;
+static const uint GpuBodyArticulationCollision_Proxy = 1U << 31;
+
 // ---- GPU data structures ----
 struct GpuSleepData
 {
@@ -183,8 +188,8 @@ struct GpuRigidBody
 	// Written by CSComputeCollisionTimes, read by CSAssignColours.
 	uint colour_used;
 
-	// Explicit padding keeps the structured-buffer stride a 16-byte multiple to match C++ alignment.
-	uint pad0;
+	// Zero for ordinary rigid bodies; articulation proxies encode their forest identity and self-collision policy.
+	uint articulation_collision;
 
 	// Sleeping state for this body.
 	GpuSleepData sleep;

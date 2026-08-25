@@ -65,6 +65,7 @@ namespace pr::physics
 	GpuFrameOutput::GpuFrameOutput(Gpu& gpu)
 		: m_gpu(gpu)
 		, m_cs_prepare_substep()
+		, m_cs_compact_events()
 		, m_cs_append_events()
 		, m_cs_gather_bodies()
 		, m_cs_gather_articulations()
@@ -85,6 +86,20 @@ namespace pr::physics
 
 			m_cs_prepare_substep.m_sig = sig.Create(m_gpu, "Physics:PrepareSubstepOutputSig");
 			m_cs_prepare_substep.m_pso = ComputePSO(m_cs_prepare_substep.m_sig.get(), shader_code::prepare_substep_output).Create(m_gpu, "Physics:PrepareSubstepOutputPSO");
+		}
+
+		// Event compaction is a separate optional pass so frames without public collision events do not require resolver-owned resources.
+		{
+			auto sig = RootSig(ERootSigFlags::ComputeOnly)
+				.U32<cbFrameOutput>(EReg::Params)
+				.UAV(EReg::Contacts)
+				.UAV(EReg::ContactOrder)
+				.UAV(EReg::Header)
+				.UAV(EReg::SubstepState)
+				;
+
+			m_cs_compact_events.m_sig = sig.Create(m_gpu, "Physics:CompactCollisionEventsSig");
+			m_cs_compact_events.m_pso = ComputePSO(m_cs_compact_events.m_sig.get(), shader_code::compact_collision_events).Create(m_gpu, "Physics:CompactCollisionEventsPSO");
 		}
 
 		// The event pass consumes the resolver's indirect dispatch so idle contact capacity is never scanned.
@@ -235,6 +250,10 @@ namespace pr::physics
 	{
 		if (m_r_output == nullptr || m_r_substep_state == nullptr)
 			throw std::runtime_error("GPU frame output must begin before capturing a substep");
+		if (counters == nullptr)
+			throw std::invalid_argument("GPU frame output requires collision counters");
+		if (collect_events && (contacts == nullptr || contact_order == nullptr || contact_dispatch == nullptr))
+			throw std::invalid_argument("GPU collision events require resolved contacts, contact order, and dispatch arguments");
 
 		auto cb = cbFrameOutput{
 			.max_pairs = max_pairs,
@@ -246,7 +265,7 @@ namespace pr::physics
 			.body_count = m_layout.m_body_count,
 		};
 
-		// Snapshot raw counts and reserve an event range with one thread so substep ordering is stable.
+		// Snapshot raw counts and reset the event range with one thread so substep ordering is stable.
 		job.m_barriers.Transition(counters, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_substep_state.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -260,13 +279,33 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_substep_state->GetGPUVirtualAddress());
 		job.m_cmd_list.Dispatch(1, 1, 1);
 
-		job.m_barriers.UAV(counters);
 		job.m_barriers.UAV(m_r_substep_state.get());
 		job.m_barriers.UAV(m_r_output.get());
 		job.m_barriers.Commit();
 
 		if (!collect_events)
 			return;
+
+		// Compact hidden proxy contacts out of the rigid-only event stream before reserving the substep's range.
+		job.m_barriers.Transition(contacts, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(contact_order, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_r_substep_state.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Commit();
+
+		job.m_cmd_list.SetPipelineState(m_cs_compact_events.m_pso.get());
+		job.m_cmd_list.SetComputeRootSignature(m_cs_compact_events.m_sig.get());
+		job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(contact_order->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_substep_state->GetGPUVirtualAddress());
+		job.m_cmd_list.Dispatch(1, 1, 1);
+
+		job.m_barriers.UAV(contact_order);
+		job.m_barriers.UAV(m_r_substep_state.get());
+		job.m_barriers.UAV(m_r_output.get());
+		job.m_barriers.Commit();
 
 		// Copy only generated contacts using the resolver's bounded indirect dispatch.
 		job.m_barriers.Transition(contacts, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);

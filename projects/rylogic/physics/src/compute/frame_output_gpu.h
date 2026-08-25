@@ -41,6 +41,7 @@ namespace pr::physics
 	{
 		Gpu& m_gpu;
 		ComputeStep m_cs_prepare_substep;
+		ComputeStep m_cs_compact_events;
 		ComputeStep m_cs_append_events;
 		ComputeStep m_cs_gather_bodies;
 		ComputeStep m_cs_gather_articulations;
