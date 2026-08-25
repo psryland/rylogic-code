@@ -151,7 +151,7 @@ namespace pr::physics::shader_code
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(gather_coupled_velocity_targets_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(select_coupled_velocity_trees_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(validate_coupled_velocity_trees_cs.h)
-		#include PR_PHYSICS_SHADER_COMPILED_DIR(accept_coupled_velocity_islands_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(evaluate_coupled_velocity_merit_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(commit_coupled_velocity_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(finalize_coupled_velocity_islands_cs.h)
 	}
@@ -168,7 +168,7 @@ namespace pr::physics::shader_code
 	ByteCode const gather_coupled_velocity_targets(compiled::gather_coupled_velocity_targets_cs);
 	ByteCode const select_coupled_velocity_trees(compiled::select_coupled_velocity_trees_cs);
 	ByteCode const validate_coupled_velocity_trees(compiled::validate_coupled_velocity_trees_cs);
-	ByteCode const accept_coupled_velocity_islands(compiled::accept_coupled_velocity_islands_cs);
+	ByteCode const evaluate_coupled_velocity_merit(compiled::evaluate_coupled_velocity_merit_cs);
 	ByteCode const commit_coupled_velocity(compiled::commit_coupled_velocity_cs);
 	ByteCode const finalize_coupled_velocity_islands(compiled::finalize_coupled_velocity_islands_cs);
 

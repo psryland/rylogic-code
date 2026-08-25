@@ -67,6 +67,7 @@ namespace pr::physics
 		// Persistent D6 constraints share the fixed outer iteration counts above while retaining independent numerical controls.
 		float constraint_relaxation = 1.0f;
 		float constraint_coupled_relaxation = 0.9f;
+		int constraint_coupled_backtrack_limit = 4;
 		float constraint_position_relaxation = 1.0f;
 		float constraint_position_beta = 0.2f;
 		float constraint_max_position_speed = 2.0f;

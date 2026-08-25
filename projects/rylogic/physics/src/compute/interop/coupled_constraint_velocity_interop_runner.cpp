@@ -15,6 +15,8 @@
 #define g_coupled_velocity_preconditioners g_coupled_velocity_replay_preconditioners
 #define g_coupled_velocity_aba_scratch g_coupled_velocity_replay_aba_scratch
 #define g_coupled_velocity_articulation_islands g_coupled_velocity_replay_articulation_islands
+#define g_coupled_velocity_islands g_coupled_velocity_replay_islands
+#define g_coupled_velocity_island_blocks g_coupled_velocity_replay_island_blocks
 #define g_coupled_velocity_blocks g_coupled_velocity_replay_blocks
 #define g_coupled_velocity_rows g_coupled_velocity_replay_rows
 #define g_coupled_velocity_scratch g_coupled_velocity_replay_scratch
@@ -25,6 +27,7 @@
 #define g_coupled_velocity_tree_selection g_coupled_velocity_replay_tree_selection
 #define g_coupled_velocity_tree_results g_coupled_velocity_replay_tree_results
 #define g_coupled_velocity_island_failures g_coupled_velocity_replay_island_failures
+#define g_coupled_velocity_articulation_work g_coupled_velocity_replay_articulation_work
 #include "src/compute/coupled_constraint_velocity.hlsl"
 
 namespace pr::physics
@@ -45,7 +48,7 @@ namespace pr::physics
 		}
 	}
 
-	// Apply one fixed-relaxation simultaneous sweep from prepared coupled rows and articulation factors.
+	// Apply one bounded-backtracking simultaneous sweep from prepared coupled rows and articulation factors.
 	void CoupledConstraintVelocityInteropRunner::Run(
 		float relaxation,
 		GpuConstraintUpload const& constraint_upload,
@@ -53,11 +56,14 @@ namespace pr::physics
 		std::span<GpuConstraintBlock const> blocks,
 		std::span<GpuConstraintRow const> rows,
 		std::span<GpuCoupledConstraintPreconditioner const> preconditioners,
-		std::span<GpuRigidBody const> bodies)
+		std::span<GpuRigidBody const> bodies,
+		int backtrack_limit)
 	{
 		auto const slot_count = isize(constraint_upload.m_endpoints);
 		if (!(relaxation > 0.0f) || !std::isfinite(relaxation))
 			throw std::invalid_argument("Coupled velocity replay requires finite positive relaxation");
+		if (backtrack_limit < 0 || backtrack_limit > 8)
+			throw std::invalid_argument("Coupled velocity replay backtracking must be between zero and eight retries");
 		if (constraint_upload.m_coupled_active_count == 0)
 			throw std::invalid_argument("Coupled velocity replay requires active coupled constraints");
 		if (
@@ -104,7 +110,10 @@ namespace pr::physics
 			.articulation_range_count = isize(constraint_upload.m_coupled_articulation_indices),
 			.mobility_count = mobility_count,
 			.work_count = work_count,
+			.island_block_count = isize(constraint_upload.m_coupled_island_blocks),
 			.selection_mode = 0,
+			.attempt_index = 0,
+			.backtrack_limit = backtrack_limit,
 			.relaxation = relaxation,
 		};
 		g_coupled_velocity_bodies.assign(CoupledVelocitySpanOf(m_bodies));
@@ -116,6 +125,8 @@ namespace pr::physics
 		g_coupled_velocity_preconditioners.assign(preconditioners);
 		g_coupled_velocity_aba_scratch.assign(m_impulse_aba.Scratch());
 		g_coupled_velocity_articulation_islands.assign(CoupledVelocitySpanOf(constraint_upload.m_coupled_articulation_islands));
+		g_coupled_velocity_islands.assign(CoupledVelocitySpanOf(constraint_upload.m_coupled_islands));
+		g_coupled_velocity_island_blocks.assign(CoupledVelocitySpanOf(constraint_upload.m_coupled_island_blocks));
 		g_coupled_velocity_blocks.assign(CoupledVelocitySpanOf(m_blocks));
 		g_coupled_velocity_rows.assign(CoupledVelocitySpanOf(m_rows));
 		g_coupled_velocity_scratch.assign(CoupledVelocitySpanOf(m_scratch));
@@ -126,27 +137,33 @@ namespace pr::physics
 		g_coupled_velocity_link_impulses.assign(CoupledVelocitySpanOf(m_link_impulses));
 		g_coupled_velocity_tree_selection.assign(CoupledVelocitySpanOf(m_tree_selection));
 		g_coupled_velocity_tree_results.assign(CoupledVelocitySpanOf(m_tree_results));
+		g_coupled_velocity_articulation_work.assign(m_impulse_aba.Work());
 
 		hlsl::GpuEmulator begin(CSBeginCoupledVelocity, CSBeginCoupledVelocity_NumThreads);
 		begin.Dispatch({CoupledVelocityThreadGroupCount(work_count), 1, 1});
 		hlsl::GpuEmulator candidates(CSBuildCoupledVelocityCandidates, CSBuildCoupledVelocityCandidates_NumThreads);
-		candidates.Dispatch({CoupledVelocityThreadGroupCount(slot_count), 1, 1});
 		hlsl::GpuEmulator gather(CSGatherCoupledVelocityTargets, CSGatherCoupledVelocityTargets_NumThreads);
-		gather.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_targets)), 1, 1});
 		hlsl::GpuEmulator select_evaluation(CSSelectCoupledVelocityTrees, CSSelectCoupledVelocityTrees_NumThreads);
-		select_evaluation.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_articulation_indices)), 1, 1});
-
-		// The production impulse ABA evaluates complete trees into detached work before any rigid or generalized state is committed.
-		m_link_impulses.assign(g_coupled_velocity_link_impulses.begin(), g_coupled_velocity_link_impulses.end());
-		m_tree_selection.assign(g_coupled_velocity_tree_selection.begin(), g_coupled_velocity_tree_selection.end());
-		auto const results = m_impulse_aba.Evaluate(m_link_impulses, m_tree_selection);
-		m_tree_results.assign(results.begin(), results.end());
-		g_coupled_velocity_tree_results.assign(CoupledVelocitySpanOf(m_tree_results));
-
 		hlsl::GpuEmulator validate(CSValidateCoupledVelocityTrees, CSValidateCoupledVelocityTrees_NumThreads);
-		validate.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_articulation_indices)), 1, 1});
-		hlsl::GpuEmulator accept(CSAcceptCoupledVelocityIslands, CSAcceptCoupledVelocityIslands_NumThreads);
-		accept.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_islands)), 1, 1});
+		hlsl::GpuEmulator merit(CSEvaluateCoupledVelocityMerit, CSEvaluateCoupledVelocityMerit_NumThreads);
+		for (int attempt_index = 0; attempt_index != backtrack_limit + 1; ++attempt_index)
+		{
+			g_coupled_velocity.attempt_index = attempt_index;
+			candidates.Dispatch({CoupledVelocityThreadGroupCount(slot_count), 1, 1});
+			gather.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_targets)), 1, 1});
+			select_evaluation.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_articulation_indices)), 1, 1});
+
+			// Each pending complete tree is evaluated into detached work while accepted disjoint ranges retain their winning response.
+			m_link_impulses.assign(g_coupled_velocity_link_impulses.begin(), g_coupled_velocity_link_impulses.end());
+			m_tree_selection.assign(g_coupled_velocity_tree_selection.begin(), g_coupled_velocity_tree_selection.end());
+			auto const results = m_impulse_aba.Evaluate(m_link_impulses, m_tree_selection);
+			m_tree_results.assign(results.begin(), results.end());
+			g_coupled_velocity_tree_results.assign(CoupledVelocitySpanOf(m_tree_results));
+			g_coupled_velocity_articulation_work.assign(m_impulse_aba.Work());
+
+			validate.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_articulation_indices)), 1, 1});
+			merit.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_islands)), 1, 1});
+		}
 		g_coupled_velocity.selection_mode = 1;
 		hlsl::GpuEmulator select_commit(CSSelectCoupledVelocityTrees, CSSelectCoupledVelocityTrees_NumThreads);
 		select_commit.Dispatch({CoupledVelocityThreadGroupCount(isize(constraint_upload.m_coupled_articulation_indices)), 1, 1});
@@ -178,6 +195,8 @@ namespace pr::physics
 #undef g_coupled_velocity_preconditioners
 #undef g_coupled_velocity_aba_scratch
 #undef g_coupled_velocity_articulation_islands
+#undef g_coupled_velocity_islands
+#undef g_coupled_velocity_island_blocks
 #undef g_coupled_velocity_blocks
 #undef g_coupled_velocity_rows
 #undef g_coupled_velocity_scratch
@@ -188,6 +207,7 @@ namespace pr::physics
 #undef g_coupled_velocity_tree_selection
 #undef g_coupled_velocity_tree_results
 #undef g_coupled_velocity_island_failures
+#undef g_coupled_velocity_articulation_work
 
 	// Return committed rigid-body state after accepted island updates.
 	std::span<GpuRigidBody const> CoupledConstraintVelocityInteropRunner::Bodies() const

@@ -16,6 +16,7 @@ namespace pr::physics
 		int m_target_capacity;
 		int m_adjacency_capacity;
 		int m_island_capacity;
+		int m_island_block_capacity;
 		int m_articulation_range_capacity;
 		int m_dispatch_count;
 		int m_active_count;
@@ -49,13 +50,15 @@ namespace pr::physics
 		ComputeStep m_cs_gather;
 		ComputeStep m_cs_select_trees;
 		ComputeStep m_cs_validate_trees;
-		ComputeStep m_cs_accept_islands;
+		ComputeStep m_cs_evaluate_merit;
 		ComputeStep m_cs_commit;
 		ComputeStep m_cs_finalize_islands;
 		D3DPtr<ID3D12Resource> m_r_block_topology;
 		D3DPtr<ID3D12Resource> m_r_targets;
 		D3DPtr<ID3D12Resource> m_r_adjacency;
 		D3DPtr<ID3D12Resource> m_r_articulation_islands;
+		D3DPtr<ID3D12Resource> m_r_islands;
+		D3DPtr<ID3D12Resource> m_r_island_blocks;
 		D3DPtr<ID3D12Resource> m_r_scratch;
 		D3DPtr<ID3D12Resource> m_r_contributions;
 		D3DPtr<ID3D12Resource> m_r_target_impulses;
@@ -68,6 +71,7 @@ namespace pr::physics
 		int m_target_count;
 		int m_adjacency_count;
 		int m_island_count;
+		int m_island_block_count;
 		int m_articulation_range_count;
 		int m_mobility_count;
 		GpuCoupledConstraintVelocityStats m_stats;
@@ -105,7 +109,7 @@ namespace pr::physics
 		void ResizeBuffers(CmdList& cmd_list);
 
 		// Bind one coupled phase against the complete stable resource layout.
-		void Dispatch(GpuJob& job, ComputeStep& step, int selection_mode, int item_count, int body_count, ID3D12Resource* bodies);
+		void Dispatch(GpuJob& job, ComputeStep& step, int selection_mode, int attempt_index, int item_count, int body_count, ID3D12Resource* bodies);
 
 		// Transition the common coupled resources into the states required by a coupled shader phase.
 		void PrepareResources(GpuJob& job, ID3D12Resource* bodies);

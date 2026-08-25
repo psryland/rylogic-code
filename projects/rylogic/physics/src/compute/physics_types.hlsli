@@ -62,6 +62,7 @@ static const uint GpuCoupledConstraintFailure_Preconditioner = 1u << 0;
 static const uint GpuCoupledConstraintFailure_NonFinite = 1u << 1;
 static const uint GpuCoupledConstraintFailure_Topology = 1u << 2;
 static const uint GpuCoupledConstraintFailure_Articulation = 1u << 3;
+static const uint GpuCoupledConstraintFailure_Merit = 1u << 4;
 
 // GPU constraint axis modes mirror EConstraintAxisMode without exposing the public enum to HLSL.
 static const int GpuConstraintAxisMode_Free = 0;
@@ -404,7 +405,7 @@ struct GpuCoupledConstraintIslandState
 	uint status;
 	uint failure_flags;
 	float relaxation;
-	float pad0;
+	float merit_change;
 };
 
 // One canonical body pair in the open-addressed connected-body collision-exclusion table.
