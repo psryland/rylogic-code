@@ -4,6 +4,7 @@
 //*********************************************
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
+#include "pr/physics/articulation/articulation.h"
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/buoyancy/gpu_buoyancy.h"
 #include "pr/physics/buoyancy/buoyancy_sampler.h"
@@ -1251,6 +1252,58 @@ namespace pr::physics::tests
 			auto const velocity = h.m_bodies[0].VelocityWS().lin;
 			PR_EXPECT(velocity.x >= -1e-4f);
 			PR_EXPECT(velocity.x <= 0.05f);
+		}
+
+		// Rigid and articulation registrations share one dispatch while resolving the ordinary-body prefix and hidden-proxy suffix independently.
+		PRUnitTestMethod(GpuCompositeMixedRigidAndArticulationLinks, Extended)
+		{
+			auto const dimensions = v4{1.0f, 1.0f, 1.0f, 0.0f};
+			auto box = collision::ShapeBox(dimensions);
+			Harness h;
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 100.0f);
+			h.m_bodies[0].O2W(m4x4::Translation(2.0f, 0.0f, -0.25f));
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+
+			auto link_desc = ArticulationLinkDesc{
+				.m_inertia = Inertia::Box(dimensions, 100.0f),
+				.m_shape = collision::shape_cast(&box),
+			};
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFloatingRoot(link_desc, m4x4::Translation(0.0f, 0.0f, -0.25f));
+			auto articulation = builder.Build();
+			articulation.GravityWS(root, AnalyticGravityWS);
+			auto forest = std::array{&articulation};
+			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
+				.m_linear_drag_time_constant_s = 0.0f,
+				.m_angular_drag_time_constant_s = 0.0f,
+				.m_quadratic_drag_coefficient = 0.0f,
+				.m_tangential_drag_coefficient = 0.0f,
+				.m_enable_diagnostics = true,
+			});
+
+			auto rigid_registration = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
+			auto link_registration = h.m_buoyancy.RegisterCompositeHull(articulation, root, 1, 0);
+			auto bodies = std::array<RigidBody*, 1>{&h.m_bodies[0]};
+
+			// Both mostly submerged low-density targets receive more upward buoyancy than downward gravity.
+			h.m_engine.Step(Engine::StepInput{
+				.m_bodies = std::span{bodies},
+				.m_articulations = std::span{forest},
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+			h.m_buoyancy.CompleteStep();
+
+			auto const rigid_diagnostic = h.m_buoyancy.LatestDiagnostics(0, 0);
+			auto const link_diagnostic = h.m_buoyancy.LatestDiagnostics(1, 0);
+			PR_EXPECT(rigid_diagnostic.m_valid);
+			PR_EXPECT(link_diagnostic.m_valid);
+			PR_EXPECT(rigid_diagnostic.m_volume_m3 > 0.70f);
+			PR_EXPECT(link_diagnostic.m_volume_m3 > 0.70f);
+			PR_EXPECT(rigid_diagnostic.m_force_ws.z > 0.0f);
+			PR_EXPECT(link_diagnostic.m_force_ws.z > 0.0f);
+			PR_EXPECT(h.m_bodies[0].VelocityWS().lin.z > 0.0f);
+			PR_EXPECT(articulation.RootVelocity().lin.z > 0.0f);
 		}
 
 		// Performance benchmark for the SampledComposite dispatch. This drives 1, 10, and 100 identical
