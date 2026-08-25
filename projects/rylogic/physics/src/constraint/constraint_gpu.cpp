@@ -58,6 +58,215 @@ namespace pr::physics
 			return desc.m_frame_a.m_body.IsLink() || desc.m_frame_b.m_body.IsLink();
 		}
 
+		// Return true when the packed descriptor contributes at least one runtime scalar row.
+		bool HasSolverRows(GpuD6ConstraintDesc const& desc)
+		{
+			for (auto const& axis : desc.axes)
+				if (axis.mode != GpuConstraintAxisMode_Free)
+					return true;
+			return false;
+		}
+
+		// Return true when a packed rigid endpoint can receive an impulse and therefore couples constraints dynamically.
+		bool DynamicRigidEndpoint(BodyRemap const& remap, int body_idx)
+		{
+			if (body_idx < 0 || body_idx >= remap.BodyCount())
+				return false;
+
+			auto const& body = remap.Body(body_idx);
+			return body.InvMass() > 0.0f && !AllSet(body.StateFlags(), ERigidBodyStateFlags::Static);
+		}
+
+		// Encode a disjoint-set or target key without conflating rigid-body and articulation/link index spaces.
+		uint64_t CoupledKey(int type, int index)
+		{
+			return (static_cast<uint64_t>(static_cast<uint32_t>(type)) << 32) | static_cast<uint32_t>(index);
+		}
+
+		// Build stable independent islands and deterministic target adjacency for persistent coupled rows.
+		void BuildCoupledTopology(GpuConstraintUpload& upload, BodyRemap const& remap)
+		{
+			if (upload.m_coupled_active_count == 0)
+				return;
+
+			upload.m_coupled_block_topology.resize(upload.m_endpoints.size(), GpuCoupledConstraintBlockTopology{
+				.island_idx = -1,
+				.target_idx_a = -1,
+				.target_idx_b = -1,
+			});
+
+			auto const slot_active = [&](size_t slot_idx)
+			{
+				auto const& endpoint = upload.m_endpoints[slot_idx];
+				return
+					AllSet(endpoint.flags, GpuConstraintEndpointFlags_Enabled) &&
+					AllSet(endpoint.flags, GpuConstraintEndpointFlags_Coupled) &&
+					HasSolverRows(upload.m_descriptors[slot_idx]);
+			};
+
+			// Give dynamic rigid bodies and whole articulations distinct graph nodes; fixed endpoints deliberately do not connect islands.
+			auto node_indices = std::unordered_map<uint64_t, int>{};
+			auto parents = std::vector<int>{};
+			auto node_index = [&](int type, int index)
+			{
+				auto const [iter, inserted] = node_indices.emplace(CoupledKey(type, index), isize(parents));
+				if (inserted)
+					parents.push_back(iter->second);
+				return iter->second;
+			};
+			auto find_root = [&](int node)
+			{
+				auto root = node;
+				while (parents[root] != root)
+					root = parents[root];
+				while (parents[node] != node)
+				node = std::exchange(parents[node], root);
+				return root;
+			};
+			auto union_nodes = [&](int lhs, int rhs)
+			{
+				if (lhs < 0 || rhs < 0)
+					return;
+
+				auto const lhs_root = find_root(lhs);
+				auto const rhs_root = find_root(rhs);
+				if (lhs_root != rhs_root)
+					parents[rhs_root] = lhs_root;
+			};
+			auto endpoint_node = [&](size_t slot_idx, bool endpoint_b)
+			{
+				auto const& endpoint = upload.m_endpoints[slot_idx];
+				auto const& coupled = upload.m_coupled_endpoints[slot_idx];
+				auto const articulation_idx = endpoint_b ? coupled.articulation_idx_b : coupled.articulation_idx_a;
+				if (articulation_idx >= 0)
+					return node_index(GpuCoupledConstraintTargetType_Link, articulation_idx);
+
+				auto const body_idx = endpoint_b ? endpoint.body_idx_b : endpoint.body_idx_a;
+				return DynamicRigidEndpoint(remap, body_idx)
+					? node_index(GpuCoupledConstraintTargetType_Rigid, body_idx)
+					: -1;
+			};
+
+			// A constraint joins only owners that can exchange momentum; sharing world or a static body does not create physical coupling.
+			for (size_t slot_idx = 0; slot_idx != upload.m_endpoints.size(); ++slot_idx)
+			{
+				if (!slot_active(slot_idx))
+					continue;
+
+				union_nodes(endpoint_node(slot_idx, false), endpoint_node(slot_idx, true));
+			}
+
+			// Assign compact islands by first stable-block occurrence so repeat packing produces byte-identical topology.
+			auto island_by_root = std::unordered_map<int, int>{};
+			auto island_counts = std::vector<int>{};
+			for (size_t slot_idx = 0; slot_idx != upload.m_endpoints.size(); ++slot_idx)
+			{
+				if (!slot_active(slot_idx))
+					continue;
+
+				auto node = endpoint_node(slot_idx, false);
+				if (node < 0)
+					node = endpoint_node(slot_idx, true);
+				if (node < 0)
+					throw std::runtime_error("Coupled constraint has no dynamic or articulation owner");
+
+				auto const root = find_root(node);
+				auto const [iter, inserted] = island_by_root.emplace(root, isize(island_counts));
+				if (inserted)
+					island_counts.push_back(0);
+				upload.m_coupled_block_topology[slot_idx].island_idx = iter->second;
+				++island_counts[iter->second];
+			}
+
+			// Pack each island's stable block indices contiguously for deterministic reductions without floating-point atomics.
+			upload.m_coupled_islands.resize(island_counts.size());
+			auto island_cursors = std::vector<int>(island_counts.size());
+			auto block_offset = 0;
+			for (int island_idx = 0; island_idx != isize(island_counts); ++island_idx)
+			{
+				upload.m_coupled_islands[island_idx] = GpuCoupledConstraintIsland{
+					.block_offset = block_offset,
+					.block_count = island_counts[island_idx],
+				};
+				island_cursors[island_idx] = block_offset;
+				block_offset += island_counts[island_idx];
+			}
+			upload.m_coupled_island_blocks.resize(block_offset);
+			for (size_t slot_idx = 0; slot_idx != upload.m_endpoints.size(); ++slot_idx)
+			{
+				auto const island_idx = upload.m_coupled_block_topology[slot_idx].island_idx;
+				if (island_idx >= 0)
+					upload.m_coupled_island_blocks[island_cursors[island_idx]++] = s_cast<uint32_t>(slot_idx);
+			}
+
+			// Map canonical participating-articulation ranges to their owning islands for selective impulse evaluation and commit.
+			upload.m_coupled_articulation_islands.reserve(upload.m_coupled_articulation_indices.size());
+			for (auto const articulation_idx : upload.m_coupled_articulation_indices)
+			{
+				auto const node = node_indices.at(CoupledKey(GpuCoupledConstraintTargetType_Link, articulation_idx));
+				upload.m_coupled_articulation_islands.push_back(island_by_root.at(find_root(node)));
+			}
+
+			// Create targets in stable block/endpoint order and count their fixed contribution ranges.
+			auto target_by_key = std::unordered_map<uint64_t, int>{};
+			auto target_for_endpoint = [&](size_t slot_idx, bool endpoint_b)
+			{
+				auto const& endpoint = upload.m_endpoints[slot_idx];
+				auto const& coupled = upload.m_coupled_endpoints[slot_idx];
+				auto const mobility_idx = endpoint_b ? coupled.mobility_idx_b : coupled.mobility_idx_a;
+				auto const body_idx = endpoint_b ? endpoint.body_idx_b : endpoint.body_idx_a;
+				auto const target_type = mobility_idx >= 0 ? GpuCoupledConstraintTargetType_Link : GpuCoupledConstraintTargetType_Rigid;
+				auto const target_owner = mobility_idx >= 0 ? mobility_idx : body_idx;
+				if (mobility_idx < 0 && !DynamicRigidEndpoint(remap, body_idx))
+					return -1;
+
+				auto const island_idx = upload.m_coupled_block_topology[slot_idx].island_idx;
+				auto const [iter, inserted] = target_by_key.emplace(CoupledKey(target_type, target_owner), isize(upload.m_coupled_targets));
+				if (inserted)
+				upload.m_coupled_targets.push_back(GpuCoupledConstraintTarget{
+					.target_type = target_type,
+					.target_idx = target_owner,
+					.island_idx = island_idx,
+				});
+				else if (upload.m_coupled_targets[iter->second].island_idx != island_idx)
+					throw std::runtime_error("Coupled target belongs to more than one independent island");
+
+				++upload.m_coupled_targets[iter->second].adjacency_count;
+				return iter->second;
+			};
+			for (size_t slot_idx = 0; slot_idx != upload.m_endpoints.size(); ++slot_idx)
+			{
+				if (!slot_active(slot_idx))
+					continue;
+
+				auto& topology = upload.m_coupled_block_topology[slot_idx];
+				topology.target_idx_a = target_for_endpoint(slot_idx, false);
+				topology.target_idx_b = target_for_endpoint(slot_idx, true);
+			}
+
+			// Prefix ranges and replay the same stable scan to fill each target's contribution indices in deterministic order.
+			auto adjacency_count = 0;
+			auto target_cursors = std::vector<int>(upload.m_coupled_targets.size());
+			for (size_t target_idx = 0; target_idx != upload.m_coupled_targets.size(); ++target_idx)
+			{
+				auto& target = upload.m_coupled_targets[target_idx];
+				target.adjacency_offset = adjacency_count;
+				target_cursors[target_idx] = adjacency_count;
+				adjacency_count += target.adjacency_count;
+			}
+			upload.m_coupled_target_adjacency.resize(adjacency_count);
+			for (size_t slot_idx = 0; slot_idx != upload.m_coupled_block_topology.size(); ++slot_idx)
+			{
+				auto const& topology = upload.m_coupled_block_topology[slot_idx];
+				if (topology.island_idx < 0)
+					continue;
+				if (topology.target_idx_a >= 0)
+					upload.m_coupled_target_adjacency[target_cursors[topology.target_idx_a]++] = s_cast<uint32_t>(2 * slot_idx);
+				if (topology.target_idx_b >= 0)
+					upload.m_coupled_target_adjacency[target_cursors[topology.target_idx_b]++] = s_cast<uint32_t>(2 * slot_idx + 1);
+			}
+		}
+
 		// Mix a canonical pair of encoded body indices for deterministic open addressing on both CPU and GPU.
 		uint32_t CollisionExclusionHash(uint32_t body_idx_a_plus_one, uint32_t body_idx_b_plus_one)
 		{
@@ -241,6 +450,8 @@ namespace pr::physics
 			}
 		}
 
+		// Persistent D6 rows can build their topology once on the CPU; transient contact rows will append GPU-built substep topology later.
+		BuildCoupledTopology(upload, remap);
 		upload.m_collision_exclusions = BuildCollisionExclusions(upload.m_endpoints);
 		return upload;
 	}

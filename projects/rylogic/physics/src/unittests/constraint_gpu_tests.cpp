@@ -32,6 +32,9 @@ namespace pr::physics::tests
 		{
 			PR_EXPECT(sizeof(GpuD6ConstraintDesc) == 256);
 			PR_EXPECT(sizeof(GpuConstraintEndpoint) == 32);
+			PR_EXPECT(sizeof(GpuCoupledConstraintBlockTopology) == 16);
+			PR_EXPECT(sizeof(GpuCoupledConstraintTarget) == 32);
+			PR_EXPECT(sizeof(GpuCoupledConstraintIsland) == 16);
 			PR_EXPECT(sizeof(GpuConstraintBlock) == 32);
 			PR_EXPECT(sizeof(GpuConstraintRow) == 96);
 
@@ -149,6 +152,62 @@ namespace pr::physics::tests
 
 			constraints.SetEnabled(handle, false);
 			PR_EXPECT(!HasCoupledConstraintWork(constraints));
+		}
+
+		// Pack stable target adjacency while keeping articulations attached through the same fixed body in independent islands.
+		PRUnitTestMethod(PacksDeterministicCoupledTopology, Quick)
+		{
+			auto [articulation_a, child_a] = MakeConstraintGpuTree();
+			auto [articulation_b, child_b] = MakeConstraintGpuTree();
+			auto shape = collision::ShapeSphere{0.25f};
+			auto dynamic_body = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(shape.m_radius, 1.0f)};
+			auto fixed_body = RigidBody{&shape, m4x4::Identity(), Inertia::Infinite()};
+
+			auto constraint = [](BodyRef body_a, BodyRef body_b)
+			{
+				auto desc = D6ConstraintDesc{};
+				desc.m_frame_a.m_body = body_a;
+				desc.m_frame_b.m_body = body_b;
+				desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
+				return desc;
+			};
+			auto constraints = ConstraintSet{};
+			auto const articulation_dynamic = constraints.Add(constraint(BodyRef::Link(articulation_a, child_a), BodyRef::Rigid(dynamic_body)));
+			auto const articulation_fixed = constraints.Add(constraint(BodyRef::Link(articulation_b, child_b), BodyRef::Rigid(fixed_body)));
+			auto const repeated_link = constraints.Add(constraint(BodyRef::Link(articulation_a, child_a), BodyRef::Rigid(fixed_body)));
+			auto body_ptrs = std::array<RigidBody*, 2>{&dynamic_body, &fixed_body};
+			auto articulation_ptrs = std::array<Articulation*, 2>{&articulation_a, &articulation_b};
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs, articulation_ptrs));
+
+			PR_EXPECT(upload.m_coupled_islands.size() == 2);
+			PR_EXPECT(upload.m_coupled_articulation_indices == std::vector<int>({0, 1}));
+			PR_EXPECT(upload.m_coupled_articulation_islands == std::vector<int>({0, 1}));
+			PR_EXPECT(upload.m_coupled_block_topology[articulation_dynamic.m_index].island_idx == 0);
+			PR_EXPECT(upload.m_coupled_block_topology[articulation_fixed.m_index].island_idx == 1);
+			PR_EXPECT(upload.m_coupled_block_topology[repeated_link.m_index].island_idx == 0);
+			PR_EXPECT(upload.m_coupled_island_blocks == std::vector<uint32_t>({
+				articulation_dynamic.m_index,
+				repeated_link.m_index,
+				articulation_fixed.m_index,
+			}));
+
+			PR_EXPECT(upload.m_coupled_targets.size() == 3);
+			PR_EXPECT(upload.m_coupled_targets[0].target_type == GpuCoupledConstraintTargetType_Link);
+			PR_EXPECT(upload.m_coupled_targets[0].target_idx == 1);
+			PR_EXPECT(upload.m_coupled_targets[0].island_idx == 0);
+			PR_EXPECT(upload.m_coupled_targets[1].target_type == GpuCoupledConstraintTargetType_Rigid);
+			PR_EXPECT(upload.m_coupled_targets[1].target_idx == 0);
+			PR_EXPECT(upload.m_coupled_targets[2].target_type == GpuCoupledConstraintTargetType_Link);
+			PR_EXPECT(upload.m_coupled_targets[2].target_idx == 3);
+			PR_EXPECT(upload.m_coupled_targets[2].island_idx == 1);
+			PR_EXPECT(upload.m_coupled_target_adjacency == std::vector<uint32_t>({
+				2U * articulation_dynamic.m_index,
+				2U * repeated_link.m_index,
+				2U * articulation_dynamic.m_index + 1U,
+				2U * articulation_fixed.m_index,
+			}));
+			PR_EXPECT(upload.m_coupled_block_topology[articulation_fixed.m_index].target_idx_b == -1);
+			PR_EXPECT(upload.m_coupled_block_topology[repeated_link.m_index].target_idx_b == -1);
 		}
 
 		// Connected-body collision suppression is deduplicated into a compact canonical hash table.

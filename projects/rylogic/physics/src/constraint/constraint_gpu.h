@@ -40,6 +40,12 @@ namespace pr::physics
 		std::vector<GpuD6ConstraintDesc> m_descriptors;
 		std::vector<GpuCoupledConstraintEndpoint> m_coupled_endpoints;
 		std::vector<int> m_coupled_articulation_indices;
+		std::vector<int> m_coupled_articulation_islands;
+		std::vector<GpuCoupledConstraintBlockTopology> m_coupled_block_topology;
+		std::vector<GpuCoupledConstraintTarget> m_coupled_targets;
+		std::vector<uint32_t> m_coupled_target_adjacency;
+		std::vector<GpuCoupledConstraintIsland> m_coupled_islands;
+		std::vector<uint32_t> m_coupled_island_blocks;
 		GpuCollisionExclusionTable m_collision_exclusions;
 		size_t m_rigid_active_count = 0;
 		size_t m_coupled_active_count = 0;

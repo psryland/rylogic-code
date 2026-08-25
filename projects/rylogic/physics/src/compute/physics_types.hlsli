@@ -46,6 +46,10 @@ static const uint ConstraintBlockFlags_Active = 1u << 0;
 static const uint ConstraintBlockFlags_ResetWarmStart = 1u << 1;
 static const uint ConstraintBlockFlags_CoupledPreconditionerValid = 1u << 2;
 
+// Coupled gather targets identify the state owner updated by one deterministic adjacency reduction.
+static const int GpuCoupledConstraintTargetType_Rigid = 0;
+static const int GpuCoupledConstraintTargetType_Link = 1;
+
 // GPU constraint axis modes mirror EConstraintAxisMode without exposing the public enum to HLSL.
 static const int GpuConstraintAxisMode_Free = 0;
 static const int GpuConstraintAxisMode_Locked = 1;
@@ -338,6 +342,38 @@ struct GpuCoupledConstraintEndpoint
 	int link_idx_b;
 	int mobility_idx_b;
 	int root_link_idx_b;
+};
+
+// Stable-slot topology for one coupled block; negative target indices identify fixed endpoints.
+struct GpuCoupledConstraintBlockTopology
+{
+	int island_idx;
+	int target_idx_a;
+	int target_idx_b;
+	int pad0;
+};
+
+// One compact deterministic reduction target and its contiguous contribution-index range.
+struct GpuCoupledConstraintTarget
+{
+	int target_type;
+	int target_idx;
+	int island_idx;
+	int adjacency_offset;
+
+	int adjacency_count;
+	int pad0;
+	int pad1;
+	int pad2;
+};
+
+// One independent coupled island and its contiguous stable-block-index range.
+struct GpuCoupledConstraintIsland
+{
+	int block_offset;
+	int block_count;
+	int pad0;
+	int pad1;
 };
 
 // One canonical body pair in the open-addressed connected-body collision-exclusion table.
