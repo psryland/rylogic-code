@@ -162,6 +162,18 @@ namespace pr::audio
 		return frames;
 	}
 
+	// Return the frames queued after XAudio2's current buffer, whose consumed fraction is not observable.
+	std::uint64_t Stream::BufferedSuccessorFrameCount() const
+	{
+		auto frames = m_pending_frames;
+		if (!m_inflight.empty())
+		{
+			for (auto i = std::size_t{1}; i != m_inflight.size(); ++i)
+				frames += m_inflight[i].m_frame_count;
+		}
+		return frames;
+	}
+
 	bool Stream::DecodeOneChunk(std::size_t target_bytes)
 	{
 		if (m_decode_ended)

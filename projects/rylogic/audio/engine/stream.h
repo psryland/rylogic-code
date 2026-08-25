@@ -101,6 +101,9 @@ namespace pr::audio
 		// Return the total number of frames currently buffered ahead of playback (pending plus in-flight).
 		std::uint64_t BufferedFrameCount() const;
 
+		// Return the frames queued after XAudio2's current buffer, whose consumed fraction is not observable.
+		std::uint64_t BufferedSuccessorFrameCount() const;
+
 		// Decode one bounded chunk of PCM if the stream is not already at a permanent end. Returns true if a
 		// real chunk of audio was appended to m_pending, or false if none was produced (either because decode
 		// had already ended, or because this call is what discovered the end - m_decode_ended is then set).
