@@ -45,6 +45,9 @@ namespace pr::physics
 	static_assert(alignof(GpuArticulationSpatialVector) == 16);
 	static_assert(sizeof(GpuArticulationSpatialMatrix) == 192);
 	static_assert(alignof(GpuArticulationSpatialMatrix) == 16);
+	static_assert(sizeof(GpuArticulationSpatialMobility) == 96);
+	static_assert(alignof(GpuArticulationSpatialMobility) == 16);
+	static_assert(sizeof(GpuArticulationMobilityRange) == 16);
 	static_assert(sizeof(GpuArticulationJointMatrix) == 192);
 	static_assert(alignof(GpuArticulationJointMatrix) == 16);
 	static_assert(sizeof(GpuArticulationAbaDofScratch) == 64);

@@ -450,6 +450,21 @@ struct GpuArticulationSpatialMatrix
 	GpuArticulationSpatialVector columns[6];
 };
 
+// Symmetric force-to-motion self-link mobility packed as its 21 upper-triangular values plus three padding scalars.
+struct GpuArticulationSpatialMobility
+{
+	float4 packed[6];
+};
+
+// One participating articulation and its compact output range in the optional mobility stream.
+struct GpuArticulationMobilityRange
+{
+	int articulation_index;
+	int mobility_offset;
+	int link_count;
+	int pad0;
+};
+
 // One padded six-by-six joint matrix stored by columns for bounded zero-to-six-DOF solves.
 struct GpuArticulationJointMatrix
 {
