@@ -9,6 +9,8 @@
 
 namespace pr::physics
 {
+	struct GpuCoupledConstraintPosition;
+
 	// Observable resource and dispatch costs for the optional coupled velocity lane.
 	struct GpuCoupledConstraintVelocityStats
 	{
@@ -40,6 +42,7 @@ namespace pr::physics
 	struct GpuCoupledConstraintVelocity
 	{
 	private:
+		friend GpuCoupledConstraintPosition;
 
 		Gpu& m_gpu;
 		EngineConfig const& m_config;

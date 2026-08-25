@@ -143,6 +143,7 @@
     <ClCompile Include="src\compute\articulation_mobility_gpu.cpp" />
     <ClCompile Include="src\compute\articulation_impulse_aba_gpu.cpp" />
     <ClCompile Include="src\compute\coupled_constraint_prepare_gpu.cpp" />
+    <ClCompile Include="src\compute\coupled_constraint_position_gpu.cpp" />
     <ClCompile Include="src\compute\coupled_constraint_velocity_gpu.cpp" />
     <ClCompile Include="src\compute\articulation_link_proxies_gpu.cpp" />
     <ClCompile Include="src\compute\articulation_midpoint_gpu.cpp" />
@@ -209,6 +210,7 @@
     <ClInclude Include="src\compute\articulation_mobility_gpu.h" />
     <ClInclude Include="src\compute\articulation_impulse_aba_gpu.h" />
     <ClInclude Include="src\compute\coupled_constraint_prepare_gpu.h" />
+    <ClInclude Include="src\compute\coupled_constraint_position_gpu.h" />
     <ClInclude Include="src\compute\coupled_constraint_velocity_gpu.h" />
     <ClInclude Include="src\compute\articulation_link_proxies_gpu.h" />
     <ClInclude Include="src\compute\articulation_midpoint_gpu.h" />

@@ -11,6 +11,7 @@
 #include "src/compute/articulation_mobility_gpu.h"
 #include "src/compute/constraint_solver_gpu.h"
 #include "src/compute/coupled_constraint_prepare_gpu.h"
+#include "src/compute/coupled_constraint_position_gpu.h"
 #include "src/compute/coupled_constraint_velocity_gpu.h"
 #include "src/compute/interop/articulation_mobility_runner.h"
 #include "src/compute/interop/coupled_constraint_prepare_runner.h"
@@ -101,6 +102,72 @@ namespace pr::physics::tests
 			}
 		};
 
+		// One fixed-root articulation coupled to a dynamic rigid body through a hard positional row.
+		struct FixedCoupledPositionFixture
+		{
+			Articulation m_articulation;
+			LinkHandle m_child;
+			RigidBody m_body;
+			ConstraintSet m_constraints;
+			ConstraintHandle m_constraint;
+
+			// Build the fixed two-link tree before the owning fixture because Articulation has no empty state.
+			static std::pair<Articulation, LinkHandle> BuildArticulation()
+			{
+				auto builder = ArticulationBuilder{};
+				auto const root = builder.AddFixedRoot(
+					ArticulationLinkDesc{.m_inertia = Inertia::Box(v4{0.3f, 0.2f, 0.25f, 0}, 2.0f)},
+					m4x4::Transform(v4::YAxis(), 0.2f, v4{-0.4f, 0.1f, 0.2f, 1}));
+				auto joint = ArticulationJointDesc::Revolute(
+					v4::ZAxis(),
+					m4x4::Transform(v4::XAxis(), 0.1f, v4{0.3f, 0.0f, 0.0f, 1}),
+					m4x4::Transform(v4::YAxis(), -0.1f, v4{-0.2f, 0.0f, 0.0f, 1}));
+				joint.m_initial_position[0] = 0.35f;
+				joint.m_initial_velocity[0] = -0.12f;
+				auto const child = builder.AddLink(
+					root,
+					joint,
+					ArticulationLinkDesc{.m_inertia = Inertia::Box(v4{0.15f, 0.22f, 0.18f, 0}, 1.1f)});
+				return {builder.Build(), child};
+			}
+
+			// Build deterministic fixed-root position-correction inputs with measurable linear drift.
+			FixedCoupledPositionFixture()
+				: FixedCoupledPositionFixture(BuildArticulation())
+			{
+			}
+
+		private:
+
+			// Finish construction while retaining the generated child handle.
+			explicit FixedCoupledPositionFixture(std::pair<Articulation, LinkHandle> tree)
+				: m_articulation(std::move(tree.first))
+				, m_child(tree.second)
+				, m_body()
+				, m_constraints()
+				, m_constraint()
+			{
+				m_body.SetMassProperties(Inertia::Box(v4{0.2f, 0.24f, 0.28f, 0}, 1.5f));
+				m_body.O2W(m4x4::Transform(v4::XAxis(), -0.15f, v4{0.9f, 0.35f, -0.1f, 1}));
+				m_body.VelocityWS(v8motion{v4{0.02f, -0.03f, 0.04f, 0}, v4{-0.05f, 0.07f, 0.01f, 0}});
+
+				auto desc = D6ConstraintDesc{};
+				desc.m_frame_a = BodyFrame{
+					.m_body = BodyRef::Link(m_articulation, m_child),
+					.m_constraint_to_body = m4x4::Translation(v4{0.1f, -0.05f, 0.08f, 1}),
+				};
+				desc.m_frame_b = BodyFrame{
+					.m_body = BodyRef::Rigid(m_body),
+					.m_constraint_to_body = m4x4::Translation(v4{-0.06f, 0.04f, -0.03f, 1}),
+				};
+				desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
+				desc.m_linear[0].m_max_force = 120.0f;
+				desc.m_angular[2].m_mode = EConstraintAxisMode::Locked;
+				desc.m_angular[2].m_max_force = 120.0f;
+				m_constraint = m_constraints.Add(desc);
+			}
+		};
+
 		// Prepared immutable inputs for one coupled velocity replay.
 		struct CoupledVelocityInputs
 		{
@@ -184,6 +251,16 @@ namespace pr::physics::tests
 		}
 
 		// Pack current articulation link frames in the canonical order consumed by coupled preparation.
+		std::vector<GpuConstraintFrame> CoupledLinkFrames(std::span<Articulation* const> articulations)
+		{
+			auto frames = std::vector<GpuConstraintFrame>{};
+			for (auto const* articulation : articulations)
+				for (int link_idx = 0; link_idx != articulation->LinkCount(); ++link_idx)
+					frames.push_back(PackGpuTransform(articulation->LinkToWorld(articulation->LinkAt(link_idx))));
+			return frames;
+		}
+
+		// Pack the canonical mixed fixture's articulation link frames.
 		std::vector<GpuConstraintFrame> CoupledVelocityLinkFrames(CoupledVelocityFixture const& fixture)
 		{
 			auto frames = std::vector<GpuConstraintFrame>{};
@@ -682,6 +759,233 @@ namespace pr::physics::tests
 			PR_EXPECT(AllSet(replay.IslandStates()[0].failure_flags, GpuCoupledConstraintFailure_NonFinite));
 			PR_EXPECT(std::memcmp(replay.Bodies().data(), &body_before, sizeof(body_before)) == 0);
 			PR_EXPECT(replay.Rows()[slot_idx * GpuConstraintRowsPerBlock].bounds.z == 0.0f);
+		}
+
+		// Match detached generalized replay on real D3D12 while preserving physical state and optional allocation behavior.
+		PRUnitTestMethod(PositionHardwareMatchesReplayAndOptionalCost, Extended)
+		{
+			constexpr auto timestep = 1.0f / 60.0f;
+			auto fixture = CoupledVelocityFixture{};
+			auto inputs = MakeCoupledVelocityInputs(fixture);
+			auto replay = CoupledConstraintPositionInteropRunner{};
+			replay.Run(
+				timestep,
+				0.9f,
+				0.2f,
+				2.0f,
+				2,
+				inputs.m_constraint_upload,
+				inputs.m_articulation_upload,
+				inputs.m_position_blocks,
+				inputs.m_rows,
+				inputs.m_position_preconditioners,
+				inputs.m_bodies,
+				4);
+
+			auto config = EngineConfig{};
+			config.constraint_coupled_relaxation = 0.9f;
+			config.constraint_position_relaxation = 1.0f;
+			config.constraint_position_beta = 0.2f;
+			config.constraint_max_position_speed = 2.0f;
+			config.push_out_iterations = 2;
+			auto constraints = GpuConstraintSolver{CoupledVelocityTestGpu(), config};
+			auto force_aba = GpuArticulationForceAba{CoupledVelocityTestGpu()};
+			auto mobility = GpuArticulationMobility{force_aba};
+			auto impulse_aba = GpuArticulationImpulseAba{CoupledVelocityTestGpu(), force_aba, mobility};
+			auto prepare = GpuCoupledConstraintPrepare{constraints, config};
+			auto velocity = GpuCoupledConstraintVelocity{prepare, impulse_aba, config};
+			auto solver = GpuCoupledConstraintPosition{velocity, config};
+			auto const hardware = solver.Solve(
+				CoupledVelocityTestGpu().m_job,
+				timestep,
+				inputs.m_constraint_upload,
+				inputs.m_articulation_upload,
+				inputs.m_bodies,
+				CoupledVelocityLinkFrames(fixture));
+
+			PR_EXPECT(hardware.m_bodies.size() == replay.Bodies().size());
+			PR_EXPECT(hardware.m_articulations.size() == replay.Articulations().size());
+			PR_EXPECT(hardware.m_positions.size() == replay.Positions().size());
+			PR_EXPECT(FEqlAbsolute(hardware.m_bodies[0].o2w, replay.Bodies()[0].o2w, 2.0e-3f));
+			PR_EXPECT(std::memcmp(&hardware.m_bodies[0].momentum_ang, &inputs.m_bodies[0].momentum_ang, sizeof(float4)) == 0);
+			PR_EXPECT(std::memcmp(&hardware.m_bodies[0].momentum_lin, &inputs.m_bodies[0].momentum_lin, sizeof(float4)) == 0);
+			PR_EXPECT(FEqlAbsolute(
+				UnpackGpuTransform(hardware.m_articulations[0].root_to_world),
+				UnpackGpuTransform(replay.Articulations()[0].root_to_world),
+				2.0e-3f));
+			for (int position_idx = 0; position_idx != isize(hardware.m_positions); ++position_idx)
+				ExpectCoupledVelocityNear(hardware.m_positions[position_idx], replay.Positions()[position_idx], 2.0e-3f);
+			for (int velocity_idx = 0; velocity_idx != isize(hardware.m_articulation_velocities); ++velocity_idx)
+				ExpectCoupledVelocityNear(hardware.m_articulation_velocities[velocity_idx], replay.PhysicalVelocities()[velocity_idx], 2.0e-3f);
+			for (int acceleration_idx = 0; acceleration_idx != isize(hardware.m_articulation_accelerations); ++acceleration_idx)
+				ExpectCoupledVelocityNear(hardware.m_articulation_accelerations[acceleration_idx], replay.PhysicalAccelerations()[acceleration_idx], 2.0e-3f);
+			for (int link_idx = 0; link_idx != isize(hardware.m_articulation_scratch); ++link_idx)
+			{
+				PR_EXPECT(FEqlAbsolute(hardware.m_articulation_scratch[link_idx].link_velocity.ang, replay.PhysicalScratch()[link_idx].link_velocity.ang, 2.0e-3f));
+				PR_EXPECT(FEqlAbsolute(hardware.m_articulation_scratch[link_idx].link_velocity.lin, replay.PhysicalScratch()[link_idx].link_velocity.lin, 2.0e-3f));
+			}
+			PR_EXPECT(hardware.m_island_states[0].status == replay.IslandStates()[0].status);
+			PR_EXPECT(hardware.m_island_states[0].failure_flags == replay.IslandStates()[0].failure_flags);
+			PR_EXPECT(FEqlAbsolute(hardware.m_island_states[0].relaxation, replay.IslandStates()[0].relaxation, 1.0e-6f));
+			ExpectCoupledVelocityNear(hardware.m_island_states[0].merit_change, replay.IslandStates()[0].merit_change, 2.0e-3f);
+			PR_EXPECT(solver.Stats().m_dispatch_count == 2 + config.push_out_iterations * (5 * (config.constraint_coupled_backtrack_limit + 1) + 5));
+			PR_EXPECT(solver.Stats().m_logical_bytes != 0);
+
+			auto empty = GpuConstraintUpload{};
+			constraints.Upload(CoupledVelocityTestGpu().m_job, empty);
+			prepare.Upload(CoupledVelocityTestGpu().m_job, empty);
+			velocity.Upload(CoupledVelocityTestGpu().m_job, empty);
+			PR_EXPECT(!solver.Prepare(CoupledVelocityTestGpu().m_job, timestep, 0, nullptr, nullptr));
+			PR_EXPECT(solver.Stats().m_allocated_feature_bytes == 0);
+		}
+
+		// Reject a non-finite D3D12 position candidate without changing either coordinate stream.
+		PRUnitTestMethod(PositionHardwareRejectsTransactionally, Extended)
+		{
+			auto fixture = CoupledVelocityFixture{};
+			auto inputs = MakeCoupledVelocityInputs(fixture);
+			inputs.m_position_preconditioners[0].packed[0].x = std::numeric_limits<float>::quiet_NaN();
+
+			auto config = EngineConfig{};
+			config.push_out_iterations = 1;
+			auto constraints = GpuConstraintSolver{CoupledVelocityTestGpu(), config};
+			auto force_aba = GpuArticulationForceAba{CoupledVelocityTestGpu()};
+			auto mobility = GpuArticulationMobility{force_aba};
+			auto impulse_aba = GpuArticulationImpulseAba{CoupledVelocityTestGpu(), force_aba, mobility};
+			auto prepare = GpuCoupledConstraintPrepare{constraints, config};
+			auto velocity = GpuCoupledConstraintVelocity{prepare, impulse_aba, config};
+			auto solver = GpuCoupledConstraintPosition{velocity, config};
+			auto const hardware = solver.Solve(
+				CoupledVelocityTestGpu().m_job,
+				1.0f / 60.0f,
+				inputs.m_constraint_upload,
+				inputs.m_articulation_upload,
+				inputs.m_bodies,
+				CoupledVelocityLinkFrames(fixture),
+				inputs.m_position_preconditioners,
+				inputs.m_rows);
+
+			PR_EXPECT(hardware.m_island_states[0].status == GpuCoupledConstraintIslandStatus_Rejected);
+			PR_EXPECT(AllSet(hardware.m_island_states[0].failure_flags, GpuCoupledConstraintFailure_NonFinite));
+			PR_EXPECT(std::memcmp(hardware.m_bodies.data(), inputs.m_bodies.data(), hardware.m_bodies.size() * sizeof(GpuRigidBody)) == 0);
+			PR_EXPECT(std::memcmp(hardware.m_articulations.data(), inputs.m_articulation_upload.m_articulations.data(), hardware.m_articulations.size() * sizeof(GpuArticulation)) == 0);
+			PR_EXPECT(std::memcmp(hardware.m_positions.data(), inputs.m_articulation_upload.m_positions.data(), hardware.m_positions.size() * sizeof(float)) == 0);
+		}
+
+		// Preserve fixed-root coordinates while matching child-joint pseudo correction between replay and real D3D12.
+		PRUnitTestMethod(PositionHardwareMatchesFixedRootReplay, Extended)
+		{
+			auto fixture = FixedCoupledPositionFixture{};
+			auto bodies = std::array<RigidBody*, 1>{&fixture.m_body};
+			auto articulations = std::array<Articulation*, 1>{&fixture.m_articulation};
+			auto inputs = MakeCoupledVelocityInputs(fixture.m_constraints, bodies, articulations);
+			auto const link_frames = CoupledLinkFrames(articulations);
+			auto replay = CoupledConstraintPositionInteropRunner{};
+			replay.Run(
+				1.0f / 60.0f,
+				0.9f,
+				0.2f,
+				2.0f,
+				2,
+				inputs.m_constraint_upload,
+				inputs.m_articulation_upload,
+				inputs.m_position_blocks,
+				inputs.m_rows,
+				inputs.m_position_preconditioners,
+				inputs.m_bodies,
+				4);
+
+			auto config = EngineConfig{};
+			config.push_out_iterations = 2;
+			auto constraints = GpuConstraintSolver{CoupledVelocityTestGpu(), config};
+			auto force_aba = GpuArticulationForceAba{CoupledVelocityTestGpu()};
+			auto mobility = GpuArticulationMobility{force_aba};
+			auto impulse_aba = GpuArticulationImpulseAba{CoupledVelocityTestGpu(), force_aba, mobility};
+			auto prepare = GpuCoupledConstraintPrepare{constraints, config};
+			auto velocity = GpuCoupledConstraintVelocity{prepare, impulse_aba, config};
+			auto solver = GpuCoupledConstraintPosition{velocity, config};
+			auto const hardware = solver.Solve(
+				CoupledVelocityTestGpu().m_job,
+				1.0f / 60.0f,
+				inputs.m_constraint_upload,
+				inputs.m_articulation_upload,
+				inputs.m_bodies,
+				link_frames);
+
+			PR_EXPECT(replay.IslandStates()[0].status == GpuCoupledConstraintIslandStatus_Committed);
+			PR_EXPECT(hardware.m_island_states[0].status == GpuCoupledConstraintIslandStatus_Committed);
+			PR_EXPECT(std::memcmp(&replay.Articulations()[0].root_to_world, &inputs.m_articulation_upload.m_articulations[0].root_to_world, sizeof(GpuConstraintFrame)) == 0);
+			PR_EXPECT(std::memcmp(&hardware.m_articulations[0].root_to_world, &inputs.m_articulation_upload.m_articulations[0].root_to_world, sizeof(GpuConstraintFrame)) == 0);
+			PR_EXPECT(!FEqlAbsolute(replay.Positions()[0], inputs.m_articulation_upload.m_positions[0], 1.0e-6f));
+			ExpectCoupledVelocityNear(hardware.m_positions[0], replay.Positions()[0], 2.0e-3f);
+			PR_EXPECT(FEqlAbsolute(hardware.m_bodies[0].o2w, replay.Bodies()[0].o2w, 2.0e-3f));
+			PR_EXPECT(std::memcmp(hardware.m_articulation_velocities.data(), inputs.m_articulation_upload.m_velocities.data(), hardware.m_articulation_velocities.size() * sizeof(float)) == 0);
+		}
+
+		// Commit a valid island while independently rejecting a non-finite island on replay and real D3D12.
+		PRUnitTestMethod(PositionHardwareRejectsOnlyInvalidIsland, Extended)
+		{
+			auto first = CoupledVelocityFixture{};
+			auto second = CoupledVelocityFixture{};
+			auto constraints_set = ConstraintSet{};
+			auto const first_constraint = constraints_set.Add(first.Description());
+			auto const second_constraint = constraints_set.Add(second.Description());
+			auto bodies = std::array<RigidBody*, 2>{&first.m_body, &second.m_body};
+			auto articulations = std::array<Articulation*, 2>{&first.m_articulation, &second.m_articulation};
+			auto inputs = MakeCoupledVelocityInputs(constraints_set, bodies, articulations);
+			inputs.m_position_preconditioners[second_constraint.m_index].packed[0].x = std::numeric_limits<float>::quiet_NaN();
+			auto const link_frames = CoupledLinkFrames(articulations);
+
+			auto replay = CoupledConstraintPositionInteropRunner{};
+			replay.Run(
+				1.0f / 60.0f,
+				0.9f,
+				0.2f,
+				2.0f,
+				1,
+				inputs.m_constraint_upload,
+				inputs.m_articulation_upload,
+				inputs.m_position_blocks,
+				inputs.m_rows,
+				inputs.m_position_preconditioners,
+				inputs.m_bodies,
+				4);
+			auto const first_island = inputs.m_constraint_upload.m_coupled_block_topology[first_constraint.m_index].island_idx;
+			auto const second_island = inputs.m_constraint_upload.m_coupled_block_topology[second_constraint.m_index].island_idx;
+			PR_EXPECT(replay.IslandStates()[first_island].status == GpuCoupledConstraintIslandStatus_Committed);
+			PR_EXPECT(replay.IslandStates()[second_island].status == GpuCoupledConstraintIslandStatus_Rejected);
+			PR_EXPECT(std::memcmp(&replay.Bodies()[1].o2w, &inputs.m_bodies[1].o2w, sizeof(float4x4)) == 0);
+			PR_EXPECT(std::memcmp(&replay.Articulations()[1].root_to_world, &inputs.m_articulation_upload.m_articulations[1].root_to_world, sizeof(GpuConstraintFrame)) == 0);
+			PR_EXPECT(std::memcmp(&replay.Bodies()[0].o2w, &inputs.m_bodies[0].o2w, sizeof(float4x4)) != 0);
+
+			auto config = EngineConfig{};
+			config.push_out_iterations = 1;
+			auto constraints = GpuConstraintSolver{CoupledVelocityTestGpu(), config};
+			auto force_aba = GpuArticulationForceAba{CoupledVelocityTestGpu()};
+			auto mobility = GpuArticulationMobility{force_aba};
+			auto impulse_aba = GpuArticulationImpulseAba{CoupledVelocityTestGpu(), force_aba, mobility};
+			auto prepare = GpuCoupledConstraintPrepare{constraints, config};
+			auto velocity = GpuCoupledConstraintVelocity{prepare, impulse_aba, config};
+			auto solver = GpuCoupledConstraintPosition{velocity, config};
+			auto const hardware = solver.Solve(
+				CoupledVelocityTestGpu().m_job,
+				1.0f / 60.0f,
+				inputs.m_constraint_upload,
+				inputs.m_articulation_upload,
+				inputs.m_bodies,
+				link_frames,
+				inputs.m_position_preconditioners,
+				inputs.m_rows);
+
+			PR_EXPECT(hardware.m_island_states[first_island].status == GpuCoupledConstraintIslandStatus_Committed);
+			PR_EXPECT(hardware.m_island_states[second_island].status == GpuCoupledConstraintIslandStatus_Rejected);
+			PR_EXPECT(FEqlAbsolute(hardware.m_bodies[0].o2w, replay.Bodies()[0].o2w, 2.0e-3f));
+			PR_EXPECT(std::memcmp(&hardware.m_bodies[1].o2w, &inputs.m_bodies[1].o2w, sizeof(float4x4)) == 0);
+			PR_EXPECT(FEqlAbsolute(
+				UnpackGpuTransform(hardware.m_articulations[0].root_to_world),
+				UnpackGpuTransform(replay.Articulations()[0].root_to_world),
+				2.0e-3f));
+			PR_EXPECT(std::memcmp(&hardware.m_articulations[1].root_to_world, &inputs.m_articulation_upload.m_articulations[1].root_to_world, sizeof(GpuConstraintFrame)) == 0);
 		}
 
 		// Match the deterministic replay on real D3D12 in one submission and release all velocity-lane storage when idle.

@@ -10,6 +10,7 @@
 namespace pr::physics
 {
 	struct GpuCoupledConstraintPrepare;
+	struct GpuCoupledConstraintPosition;
 	struct GpuCoupledConstraintVelocity;
 
 	// Lazily allocated GPU lane for persistent rigid D6 constraints.
@@ -17,6 +18,7 @@ namespace pr::physics
 	{
 	private:
 		friend GpuCoupledConstraintPrepare;
+		friend GpuCoupledConstraintPosition;
 		friend GpuCoupledConstraintVelocity;
 
 		Gpu& m_gpu;
@@ -81,6 +83,9 @@ namespace pr::physics
 
 		// Create or grow feature-dependent buffers while preserving stable-slot capacity.
 		bool ResizeBuffers(CmdList& cmd_list, int capacity);
+
+		// Create or grow shared rigid pseudo-twist storage for either independent or coupled position correction.
+		void EnsurePseudoVelocityStorage(CmdList& cmd_list, int body_count);
 
 		// Bind the common constraint root signature and resources for one compute step.
 		void Bind(GpuJob& job, ComputeStep& step, float timestep, int body_count, int colour, int position_iterations, D3DPtr<ID3D12Resource> bodies);

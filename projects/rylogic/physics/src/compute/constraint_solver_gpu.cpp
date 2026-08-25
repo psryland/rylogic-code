@@ -126,6 +126,18 @@ namespace pr::physics
 		return true;
 	}
 
+	// Create or grow shared rigid pseudo-twist storage for either independent or coupled position correction.
+	void GpuConstraintSolver::EnsurePseudoVelocityStorage(CmdList& cmd_list, int body_count)
+	{
+		if (body_count < 0)
+			throw std::invalid_argument("Constraint pseudo-velocity body count cannot be negative");
+		if (m_r_pseudo_velocities != nullptr && m_body_capacity >= body_count)
+			return;
+
+		m_body_capacity = std::max(1, body_count);
+		m_r_pseudo_velocities = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintPseudoVelocity>(m_body_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ConstraintPseudoVelocities");
+	}
+
 	// Upload shared frame-local endpoints and changed persistent descriptors, returning whether independent rigid work is active.
 	bool GpuConstraintSolver::Upload(GpuJob& job, GpuConstraintUpload const& upload)
 	{
@@ -260,11 +272,7 @@ namespace pr::physics
 		pix::BeginEvent(job.m_cmd_list.get(), 0xFF8A5FD3, "Physics::CompileConstraints");
 
 		// Allocate split-correction state only after the optional lane has active work.
-		if (m_r_pseudo_velocities == nullptr || m_body_capacity < body_count)
-		{
-			m_body_capacity = std::max(1, body_count);
-			m_r_pseudo_velocities = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintPseudoVelocity>(m_body_capacity, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:ConstraintPseudoVelocities");
-		}
+		EnsurePseudoVelocityStorage(job.m_cmd_list, body_count);
 
 		// Scale retained impulses by the timestep ratio only within the range where they remain a useful estimate.
 		m_frame_warm_start_scale = 0.0f;
