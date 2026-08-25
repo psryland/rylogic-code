@@ -20,7 +20,7 @@ exchanges it for a short-lived API key; no persistent nuget.org API key is store
 
 1. Set `RylogicLibraryVersion` in `Directory.Build.props` to a stable three-part version.
 2. Merge the release changes and ensure the normal build workflows pass.
-3. Create and push the matching version tag, such as `v2.1.3`.
+3. Create and push the matching product-prefixed version tag, such as `rylogic-v2.1.3`.
 4. Review the package artifact produced by the build job, then approve the `nuget-release`
    environment deployment.
 

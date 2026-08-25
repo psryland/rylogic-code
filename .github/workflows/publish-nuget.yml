@@ -3,7 +3,7 @@ name: Publish NuGet Packages
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - 'rylogic-v*.*.*'
 
 concurrency:
   group: nuget-release
@@ -63,8 +63,8 @@ jobs:
         shell: pwsh
         run: |
           $tag = '${{ github.ref_name }}'
-          if ($tag -notmatch '^v(?<version>\d+\.\d+\.\d+)$') {
-            throw "Release tag '$tag' must have the form v1.2.3."
+          if ($tag -notmatch '^rylogic-v(?<version>\d+\.\d+\.\d+)$') {
+            throw "Release tag '$tag' must have the form rylogic-v1.2.3."
           }
 
           [xml]$props = Get-Content -Path Directory.Build.props
