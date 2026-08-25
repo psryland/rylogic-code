@@ -22,7 +22,7 @@ namespace pr::physics
 		}
 
 		// Mirror the shader constant-buffer layout for the current replay pass.
-		cbConstraintSolver MakeConstraintConstants(CpuConstraintSolverConfig const& config, float dt, float previous_dt, int body_count, int slot_count, int colour = 0)
+		cbConstraintSolver MakeConstraintConstants(CpuConstraintSolverConfig const& config, float dt, float previous_dt, int body_count, int slot_count, int colour = 0, int breakable_count = 0, int break_substep_index = -1)
 		{
 			auto warm_start_scale = 0.0f;
 			if (previous_dt > 0.0f)
@@ -44,6 +44,8 @@ namespace pr::physics
 				.regularization = config.m_regularization,
 				.warm_start_factor = config.m_warm_start_factor,
 				.warm_start_scale = warm_start_scale,
+				.breakable_count = breakable_count,
+				.break_substep_index = break_substep_index,
 			};
 		}
 	}
@@ -60,6 +62,7 @@ namespace pr::physics
 		, m_descriptors()
 		, m_blocks()
 		, m_rows()
+		, m_break_states()
 		, m_pseudo_velocities()
 		, m_colours()
 		, m_colour_overflow(1, 0u)
@@ -95,6 +98,7 @@ namespace pr::physics
 		ApplyPosition();
 		for (int iteration = 0; iteration != m_config.m_velocity_iterations; ++iteration)
 			SolveVelocity();
+		DetectBreakage();
 
 		Store(buffers);
 		m_previous_dt = m_dt;
@@ -117,6 +121,14 @@ namespace pr::physics
 		m_endpoints.assign(buffers.m_endpoints.begin(), buffers.m_endpoints.end());
 		m_descriptors.assign(buffers.m_descriptors.begin(), buffers.m_descriptors.end());
 		m_pseudo_velocities.assign(buffers.m_bodies.size(), GpuConstraintPseudoVelocity{});
+		m_break_states.resize(buffers.m_endpoints.size());
+		for (int index = 0; index != m_slot_count; ++index)
+		{
+			m_break_states[index] = GpuConstraintBreakState{
+				.generation = m_endpoints[index].generation,
+				.substep_index = -1,
+			};
+		}
 
 		// A topology-size change has no stable row correspondence, so only that case reallocates retained state.
 		if (m_blocks.size() != buffers.m_endpoints.size())
@@ -220,6 +232,30 @@ namespace pr::physics
 		}
 	}
 
+	// Latch force or torque threshold crossings from the committed canonical row impulses.
+	void ConstraintInteropRunner::DetectBreakage()
+	{
+		auto const breakable_count = static_cast<int>(std::ranges::count_if(m_endpoints, [](GpuConstraintEndpoint const& endpoint)
+		{
+			return
+				AllSet(endpoint.flags, GpuConstraintEndpointFlags_Enabled) &&
+				(std::isfinite(endpoint.break_force) || std::isfinite(endpoint.break_torque));
+		}));
+		if (breakable_count == 0)
+			return;
+
+		g = MakeConstraintConstants(m_config, m_dt, m_previous_dt, m_body_count, m_slot_count, 0, breakable_count, 0);
+		g_endpoints.assign(ConstraintSpanOf(m_endpoints));
+		g_blocks.assign(ConstraintSpanOf(m_blocks));
+		g_rows.assign(ConstraintSpanOf(m_rows));
+		g_break_states.assign(ConstraintSpanOf(m_break_states));
+
+		hlsl::GpuEmulator emulator(CSDetectBrokenConstraints, CSDetectBrokenConstraints_NumThreads);
+		emulator.Dispatch({ConstraintThreadGroupCount(m_slot_count), 1, 1});
+		m_blocks.assign(g_blocks.begin(), g_blocks.end());
+		m_break_states.assign(g_break_states.begin(), g_break_states.end());
+	}
+
 	// Execute one fixed-order coloured split-position sweep.
 	void ConstraintInteropRunner::SolvePosition()
 	{
@@ -261,6 +297,12 @@ namespace pr::physics
 	std::span<GpuConstraintRow const> ConstraintInteropRunner::Rows() const
 	{
 		return m_rows;
+	}
+
+	// Return frame-local stable-slot overload latches.
+	std::span<GpuConstraintBreakState const> ConstraintInteropRunner::BreakStates() const
+	{
+		return m_break_states;
 	}
 
 	// Return the colour assignment materialized by the latest colouring pass.

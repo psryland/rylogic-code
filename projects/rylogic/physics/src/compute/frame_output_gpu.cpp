@@ -4,6 +4,7 @@
 //*********************************************
 #include "src/compute/frame_output_gpu.h"
 #include "src/compute/articulation_midpoint_gpu.h"
+#include "src/compute/constraint_solver_gpu.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/shader_code.h"
 
@@ -186,12 +187,20 @@ namespace pr::physics
 	// Reset aggregate state and establish rigid, event, and articulation sections before any substep writes output.
 	void GpuFrameOutput::BeginFrame(GpuJob& job, int body_count, int event_capacity, int substep_count, GpuArticulationMidpointOutput const& articulations)
 	{
+		BeginFrame(job, body_count, event_capacity, substep_count, articulations, GpuConstraintBreakOutput{});
+	}
+
+	// Reset aggregate state and establish rigid, event, articulation, and optional constraint-break sections before any substep writes output.
+	void GpuFrameOutput::BeginFrame(GpuJob& job, int body_count, int event_capacity, int substep_count, GpuArticulationMidpointOutput const& articulations, GpuConstraintBreakOutput const& constraint_breaks)
+	{
 		if (body_count < 0 || event_capacity < 0 || substep_count < 1)
 			throw std::runtime_error("GPU frame output requires non-negative capacities and at least one substep");
 		if (articulations.m_articulation_count < 0 || articulations.m_position_count < 0 || articulations.m_velocity_count < 0)
 			throw std::runtime_error("GPU frame output articulation counts must be non-negative");
 		if (articulations.m_articulation_count == 0 && (articulations.m_position_count != 0 || articulations.m_velocity_count != 0))
 			throw std::runtime_error("GPU frame output cannot gather generalized state without articulations");
+		if (constraint_breaks.m_slot_count < 0 || (constraint_breaks.m_slot_count != 0 && constraint_breaks.m_states == nullptr))
+			throw std::runtime_error("GPU frame output constraint-break dimensions are incomplete");
 
 		auto body_offset = static_cast<int64_t>(sizeof(GpuFrameOutputHeader));
 		auto event_offset = body_offset + static_cast<int64_t>(body_count) * static_cast<int64_t>(sizeof(GpuRigidBody));
@@ -200,7 +209,8 @@ namespace pr::physics
 		auto position_offset = articulation_offset + static_cast<int64_t>(articulations.m_articulation_count) * static_cast<int64_t>(sizeof(GpuArticulationFrameOutput));
 		auto velocity_offset = FrameOutputAlign(position_offset + static_cast<int64_t>(articulations.m_position_count) * static_cast<int64_t>(sizeof(float)));
 		auto acceleration_offset = FrameOutputAlign(velocity_offset + static_cast<int64_t>(articulations.m_velocity_count) * static_cast<int64_t>(sizeof(float)));
-		auto readback_size = acceleration_offset + static_cast<int64_t>(articulations.m_velocity_count) * static_cast<int64_t>(sizeof(float));
+		auto constraint_break_offset = FrameOutputAlign(acceleration_offset + static_cast<int64_t>(articulations.m_velocity_count) * static_cast<int64_t>(sizeof(float)));
+		auto readback_size = constraint_break_offset + static_cast<int64_t>(constraint_breaks.m_slot_count) * static_cast<int64_t>(sizeof(GpuConstraintBreakState));
 		auto resource_size = std::max(
 			readback_size,
 			event_offset + static_cast<int64_t>(std::max(1, event_capacity)) * static_cast<int64_t>(sizeof(GpuCollisionEvent)));
@@ -215,13 +225,14 @@ namespace pr::physics
 			.m_articulation_count = articulations.m_articulation_count,
 			.m_position_count = articulations.m_position_count,
 			.m_velocity_count = articulations.m_velocity_count,
-			.m_pad0 = 0,
+			.m_constraint_break_count = constraint_breaks.m_slot_count,
 			.m_body_offset = body_offset,
 			.m_event_offset = event_offset,
 			.m_articulation_offset = articulation_offset,
 			.m_position_offset = position_offset,
 			.m_velocity_offset = velocity_offset,
 			.m_acceleration_offset = acceleration_offset,
+			.m_constraint_break_offset = constraint_break_offset,
 			.m_readback_size = readback_size,
 			.m_resource_size = resource_size,
 		};
@@ -338,12 +349,21 @@ namespace pr::physics
 	// Gather final rigid and articulation state before recording the frame's sole GPU-to-CPU copy.
 	GpuFrameOutputReadback GpuFrameOutput::GatherAndReadback(GpuJob& job, int body_count, ID3D12Resource* bodies, GpuArticulationMidpointOutput const& articulations)
 	{
+		return GatherAndReadback(job, body_count, bodies, articulations, GpuConstraintBreakOutput{});
+	}
+
+	// Gather final rigid, articulation, and constraint-break state before recording the frame's sole GPU-to-CPU copy.
+	GpuFrameOutputReadback GpuFrameOutput::GatherAndReadback(GpuJob& job, int body_count, ID3D12Resource* bodies, GpuArticulationMidpointOutput const& articulations, GpuConstraintBreakOutput const& constraint_breaks)
+	{
 		if (body_count != m_layout.m_body_count)
 			throw std::runtime_error("GPU frame output body count changed after BeginFrame");
 		if (articulations.m_articulation_count != m_layout.m_articulation_count ||
 			articulations.m_position_count != m_layout.m_position_count ||
 			articulations.m_velocity_count != m_layout.m_velocity_count)
 			throw std::runtime_error("GPU frame output articulation dimensions changed after BeginFrame");
+		if (constraint_breaks.m_slot_count != m_layout.m_constraint_break_count ||
+			(constraint_breaks.m_slot_count != 0 && constraint_breaks.m_states == nullptr))
+			throw std::runtime_error("GPU frame output constraint-break dimensions changed after BeginFrame");
 
 		auto cb = cbFrameOutput{
 			.body_count = body_count,
@@ -369,6 +389,20 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress() + m_layout.m_body_offset);
 			job.m_cmd_list.Dispatch((body_count + FrameOutputThreadCount - 1) / FrameOutputThreadCount, 1, 1);
 			job.m_barriers.UAV(m_r_output.get()).Commit();
+		}
+
+		// Copy the complete optional stable-slot latch so break application cannot overflow or lose a required disable transition.
+		if (constraint_breaks.m_slot_count != 0)
+		{
+			job.m_barriers.Transition(constraint_breaks.m_states, D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+			job.m_cmd_list.CopyBufferRegion(
+				m_r_output.get(),
+				m_layout.m_constraint_break_offset,
+				constraint_breaks.m_states,
+				0,
+				static_cast<uint64_t>(constraint_breaks.m_slot_count) * sizeof(GpuConstraintBreakState));
 		}
 
 		// Compact final root/status and generalized state without copying topology or per-link ABA scratch.
@@ -464,6 +498,13 @@ namespace pr::physics
 	{
 		auto ptr = reinterpret_cast<float const*>(readback.m_allocation.ptr<uint8_t>() + readback.m_layout.m_acceleration_offset);
 		return { ptr, static_cast<size_t>(readback.m_layout.m_velocity_count) };
+	}
+
+	// Access the optional full stable-slot overload stream.
+	std::span<GpuConstraintBreakState const> GpuFrameOutput::ConstraintBreaks(GpuFrameOutputReadback const& readback)
+	{
+		auto ptr = reinterpret_cast<GpuConstraintBreakState const*>(readback.m_allocation.ptr<uint8_t>() + readback.m_layout.m_constraint_break_offset);
+		return { ptr, static_cast<size_t>(readback.m_layout.m_constraint_break_count) };
 	}
 
 	// Custom deleter implementation.

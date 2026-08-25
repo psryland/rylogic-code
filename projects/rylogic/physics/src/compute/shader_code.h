@@ -96,6 +96,7 @@ namespace pr::physics::shader_code
 	extern ByteCode const solve_constraint_position;
 	extern ByteCode const apply_constraint_position;
 	extern ByteCode const solve_constraint_velocity;
+	extern ByteCode const detect_broken_constraints;
 	extern ByteCode const prepare_coupled_constraints;
 	extern ByteCode const prepare_coupled_position_preconditioners;
 	extern ByteCode const clear_coupled_position_state;

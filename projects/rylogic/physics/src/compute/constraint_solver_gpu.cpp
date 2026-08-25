@@ -28,8 +28,8 @@ namespace pr::physics
 			float warm_start_factor;
 			float warm_start_scale;
 			int retain_current_impulses;
-			int pad0;
-			int pad1;
+			int breakable_count;
+			int break_substep_index;
 			int pad2;
 		};
 		static_assert(sizeof(cbConstraintSolve) == 64);
@@ -45,6 +45,7 @@ namespace pr::physics
 			inline static constexpr auto Rows = EUAVReg::u2;
 			inline static constexpr auto Overflow = EUAVReg::u3;
 			inline static constexpr auto PseudoVelocities = EUAVReg::u4;
+			inline static constexpr auto BreakStates = EUAVReg::u5;
 		};
 
 		// Compare endpoint semantics while ignoring frame-local body-index changes caused only by submission order.
@@ -70,23 +71,28 @@ namespace pr::physics
 		, m_cs_solve_position()
 		, m_cs_apply_position()
 		, m_cs_solve_velocity()
+		, m_cs_detect_breakage()
 		, m_r_endpoints()
 		, m_r_descriptors()
 		, m_r_blocks()
 		, m_r_rows()
 		, m_r_overflow()
 		, m_r_pseudo_velocities()
+		, m_r_break_states()
 		, m_endpoint_shadow()
 		, m_endpoint_identity_shadow()
 		, m_descriptor_shadow()
 		, m_source()
 		, m_capacity()
 		, m_body_capacity()
+		, m_break_capacity()
 		, m_slot_count()
 		, m_active_count()
+		, m_breakable_count()
 		, m_previous_timestep()
 		, m_frame_warm_start_scale()
 		, m_retain_current_impulses()
+		, m_break_substep_index(-1)
 	{
 		// Every entry point uses one root layout so phase changes only replace pipeline state.
 		auto sig = RootSig(ERootSigFlags::ComputeOnly)
@@ -97,7 +103,8 @@ namespace pr::physics
 			.UAV(EReg::Blocks)
 			.UAV(EReg::Rows)
 			.UAV(EReg::Overflow)
-			.UAV(EReg::PseudoVelocities);
+			.UAV(EReg::PseudoVelocities)
+			.UAV(EReg::BreakStates);
 		auto const root_sig = sig.Create(m_gpu, "Physics:ConstraintSolverSig");
 
 		auto compile_step = [&](ComputeStep& step, shader_code::ByteCode const& bytecode, char const* name)
@@ -113,6 +120,7 @@ namespace pr::physics
 		compile_step(m_cs_solve_position, shader_code::solve_constraint_position, "SolveConstraintPosition");
 		compile_step(m_cs_apply_position, shader_code::apply_constraint_position, "ApplyConstraintPosition");
 		compile_step(m_cs_solve_velocity, shader_code::solve_constraint_velocity, "SolveConstraintVelocity");
+		compile_step(m_cs_detect_breakage, shader_code::detect_broken_constraints, "DetectBrokenConstraints");
 	}
 
 	// Create or grow feature-dependent buffers while preserving stable-slot capacity.
@@ -143,13 +151,32 @@ namespace pr::physics
 		m_r_pseudo_velocities = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintPseudoVelocity>(m_body_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ConstraintPseudoVelocities");
 	}
 
+	// Create or geometrically grow the optional per-slot overload latch.
+	void GpuConstraintSolver::EnsureBreakStateStorage(CmdList& cmd_list, int slot_count)
+	{
+		if (slot_count < 0)
+			throw std::invalid_argument("Constraint break-state slot count cannot be negative");
+		if (m_r_break_states != nullptr && m_break_capacity >= slot_count)
+			return;
+
+		auto const doubled_capacity = m_break_capacity <= std::numeric_limits<int>::max() / 2
+			? 2 * m_break_capacity
+			: std::numeric_limits<int>::max();
+		m_break_capacity = std::max(slot_count, std::max(1, doubled_capacity));
+		m_r_break_states = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintBreakState>(m_break_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ConstraintBreakStates");
+	}
+
 	// Upload shared frame-local endpoints and changed persistent descriptors, returning whether independent rigid work is active.
 	bool GpuConstraintSolver::Upload(GpuJob& job, GpuConstraintUpload const& upload)
 	{
 		m_slot_count = static_cast<int>(upload.m_endpoints.size());
 		m_active_count = static_cast<int>(upload.m_rigid_active_count);
+		m_breakable_count = static_cast<int>(upload.m_breakable_count);
 		if (m_slot_count == 0)
 		{
+			m_r_break_states = nullptr;
+			m_break_capacity = 0;
+			m_breakable_count = 0;
 			m_source = upload.m_source;
 			m_previous_timestep = 0.0f;
 			m_frame_warm_start_scale = 0.0f;
@@ -159,15 +186,23 @@ namespace pr::physics
 			throw std::invalid_argument("GPU constraint endpoint and descriptor slot counts must match");
 		if (upload.m_endpoint_identities.size() != upload.m_endpoints.size())
 			throw std::invalid_argument("GPU constraint endpoint identities and endpoint slot counts must match");
+		if (m_breakable_count < 0 || m_breakable_count > m_slot_count)
+			throw std::invalid_argument("GPU breakable constraint count is outside the stable-slot range");
 
 		auto const resized = ResizeBuffers(job.m_cmd_list, m_slot_count);
 		auto endpoints = upload.m_endpoints;
 		auto descriptor_dirty = std::vector<bool>(m_slot_count, resized || m_descriptor_shadow.size() != upload.m_descriptors.size());
 		auto const reset_all = resized || m_source != upload.m_source;
+		auto reset_runtime = std::vector<bool>(m_slot_count, reset_all);
 
 		// Mark only semantically changed stable slots for warm-start invalidation; packed-body reordering is harmless.
 		for (int index = 0; index != m_slot_count; ++index)
 		{
+			auto const previously_enabled =
+				!reset_all &&
+				index < isize(m_endpoint_shadow) &&
+				AllSet(m_endpoint_shadow[index].flags, GpuConstraintEndpointFlags_Enabled);
+			auto const currently_enabled = AllSet(endpoints[index].flags, GpuConstraintEndpointFlags_Enabled);
 			auto const descriptor_changed =
 				resized ||
 				index >= isize(m_descriptor_shadow) ||
@@ -183,6 +218,50 @@ namespace pr::physics
 				endpoint_identity_changed;
 			if (descriptor_changed || endpoint_changed)
 				endpoints[index].flags |= GpuConstraintEndpointFlags_ResetWarmStart;
+
+			// A newly active slot must not inherit a break latch or row state from an earlier occupant or an immediately repaired constraint.
+			reset_runtime[index] = reset_runtime[index] || (currently_enabled && !previously_enabled);
+		}
+
+		// Clear only newly valid runtime ranges, while a source or capacity replacement resets every retained slot.
+		auto const any_runtime_reset = std::ranges::find(reset_runtime, true) != reset_runtime.end();
+		if (any_runtime_reset)
+		{
+			job.m_barriers.Transition(m_r_blocks.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Transition(m_r_rows.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+
+			for (int begin = 0; begin != m_slot_count;)
+			{
+				if (!reset_runtime[begin])
+				{
+					++begin;
+					continue;
+				}
+
+				auto end = begin + 1;
+				while (end != m_slot_count && reset_runtime[end])
+					++end;
+
+				auto const count = end - begin;
+				auto block_upload = job.m_upload.Alloc<GpuConstraintBlock>(count);
+				std::fill_n(block_upload.ptr<GpuConstraintBlock>(), count, GpuConstraintBlock{
+					.body_idx_a = -1,
+					.body_idx_b = -1,
+					.colour = MaxColours,
+				});
+				job.m_cmd_list.CopyBufferRegion(m_r_blocks.get(), static_cast<uint64_t>(begin) * sizeof(GpuConstraintBlock), block_upload);
+
+				auto const row_count = GpuConstraintRowsPerBlock * count;
+				auto row_upload = job.m_upload.Alloc<GpuConstraintRow>(row_count);
+				std::fill_n(row_upload.ptr<GpuConstraintRow>(), row_count, GpuConstraintRow{});
+				job.m_cmd_list.CopyBufferRegion(m_r_rows.get(), static_cast<uint64_t>(GpuConstraintRowsPerBlock * begin) * sizeof(GpuConstraintRow), row_upload);
+				begin = end;
+			}
+
+			job.m_barriers.Transition(m_r_blocks.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_rows.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Commit();
 		}
 
 		// Endpoint indices are frame-local, so upload the complete compact endpoint stream every submitted constrained frame.
@@ -221,6 +300,28 @@ namespace pr::physics
 			job.m_barriers.Transition(m_r_descriptors.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Commit();
 
+		// Break latches are frame-local and exist only when at least one active descriptor has a finite threshold.
+		if (m_breakable_count != 0)
+		{
+			EnsureBreakStateStorage(job.m_cmd_list, m_slot_count);
+			auto break_upload = job.m_upload.Alloc<GpuConstraintBreakState>(m_slot_count);
+			for (int index = 0; index != m_slot_count; ++index)
+			{
+				break_upload.ptr<GpuConstraintBreakState>()[index] = GpuConstraintBreakState{
+					.generation = upload.m_endpoints[index].generation,
+					.substep_index = -1,
+				};
+			}
+			job.m_barriers.Transition(m_r_break_states.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+			job.m_cmd_list.CopyBufferRegion(m_r_break_states.get(), 0, break_upload);
+			job.m_barriers.Transition(m_r_break_states.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+		}
+		else
+		{
+			m_r_break_states = nullptr;
+			m_break_capacity = 0;
+		}
+
 		m_endpoint_shadow = upload.m_endpoints;
 		m_endpoint_identity_shadow = upload.m_endpoint_identities;
 		m_descriptor_shadow = upload.m_descriptors;
@@ -245,8 +346,8 @@ namespace pr::physics
 			.warm_start_factor = m_config.constraint_warm_start_factor,
 			.warm_start_scale = m_frame_warm_start_scale,
 			.retain_current_impulses = m_retain_current_impulses ? 1 : 0,
-			.pad0 = 0,
-			.pad1 = 0,
+			.breakable_count = m_breakable_count,
+			.break_substep_index = m_break_substep_index,
 			.pad2 = 0,
 		};
 		job.m_cmd_list.SetPipelineState(step.m_pso.get());
@@ -258,7 +359,10 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_blocks->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_rows->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_overflow->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_pseudo_velocities->GetGPUVirtualAddress());
+		auto* pseudo_velocities = m_r_pseudo_velocities != nullptr ? m_r_pseudo_velocities.get() : m_r_overflow.get();
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(pseudo_velocities->GetGPUVirtualAddress());
+		auto* break_states = m_r_break_states != nullptr ? m_r_break_states.get() : m_r_overflow.get();
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(break_states->GetGPUVirtualAddress());
 	}
 
 	// Insert UAV ordering between dependent compiler, colouring, and solver passes.
@@ -383,6 +487,82 @@ namespace pr::physics
 		}
 	}
 
+	// Latch force or torque threshold crossings after one main or selective velocity solve.
+	void GpuConstraintSolver::DetectBreakage(GpuJob& job, float timestep, int substep_index, int body_count, D3DPtr<ID3D12Resource> bodies)
+	{
+		if (m_breakable_count == 0)
+			return;
+		if (!(timestep > 0.0f) || !std::isfinite(timestep))
+			throw std::invalid_argument("Constraint break detection requires a finite positive timestep");
+		if (substep_index < 0)
+			throw std::invalid_argument("Constraint break detection requires a non-negative substep index");
+		if (m_r_break_states == nullptr)
+			throw std::logic_error("Constraint break detection requires its optional state resource");
+
+		// All six canonical impulses are already committed before this pass, so one lane can compute and latch each block's load independently.
+		m_break_substep_index = substep_index;
+		job.m_barriers.Transition(bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_r_endpoints.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_r_blocks.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_r_rows.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_r_break_states.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Commit();
+
+		Bind(job, m_cs_detect_breakage, timestep, body_count, 0, std::max(1, m_config.push_out_iterations), bodies);
+		auto const group_count = static_cast<UINT>((m_slot_count + ConstraintThreadCount - 1) / ConstraintThreadCount);
+		job.m_cmd_list.Dispatch(group_count, 1, 1);
+		job.m_barriers.UAV(m_r_blocks.get());
+		job.m_barriers.UAV(m_r_break_states.get());
+		job.m_barriers.Commit();
+		m_break_substep_index = -1;
+	}
+
+	// Return the optional full stable-slot break stream for the final frame gather.
+	GpuConstraintBreakOutput GpuConstraintSolver::BreakOutput()
+	{
+		if (m_breakable_count != 0)
+		{
+			return GpuConstraintBreakOutput{
+				.m_states = m_r_break_states.get(),
+				.m_slot_count = m_slot_count,
+			};
+		}
+
+		return {};
+	}
+
+	// Mirror completed breaks into the endpoint shadow so an immediate explicit repair invalidates stale GPU runtime state.
+	void GpuConstraintSolver::AcknowledgeBreaks(std::span<GpuConstraintBreakState const> states)
+	{
+		if (states.empty())
+			return;
+		if (states.size() != m_endpoint_shadow.size())
+			throw std::invalid_argument("Constraint break acknowledgement does not match the retained stable-slot stream");
+
+		for (auto [state, index] : with_index(states))
+		{
+			if (!AllSet(state.flags, GpuConstraintBreakFlags_Broken))
+				continue;
+			if (state.generation != m_endpoint_shadow[index].generation)
+				throw std::runtime_error("Constraint break acknowledgement generation does not match the uploaded endpoint");
+
+			m_endpoint_shadow[index].flags = SetFlag(m_endpoint_shadow[index].flags, GpuConstraintEndpointFlags_Enabled, false);
+		}
+	}
+
+	// Force the next upload to clear retained blocks after an abandoned or failed frame.
+	void GpuConstraintSolver::InvalidateRuntimeState()
+	{
+		m_source = nullptr;
+		m_previous_timestep = 0.0f;
+		m_frame_warm_start_scale = 0.0f;
+		m_retain_current_impulses = false;
+		m_break_substep_index = -1;
+		m_r_break_states = nullptr;
+		m_break_capacity = 0;
+		m_breakable_count = 0;
+	}
+
 	// True when the most recently uploaded set contains enabled persistent constraints.
 	bool GpuConstraintSolver::Active() const
 	{
@@ -393,18 +573,24 @@ namespace pr::physics
 	void GpuConstraintSolver::Deactivate()
 	{
 		m_active_count = 0;
+		m_breakable_count = 0;
 		m_previous_timestep = 0.0f;
 		m_frame_warm_start_scale = 0.0f;
 		m_retain_current_impulses = false;
+		m_break_substep_index = -1;
+		m_r_break_states = nullptr;
+		m_break_capacity = 0;
 	}
 
 	// CPU-side testing: upload, solve, and read back bodies and runtime state in one GPU job.
-	void GpuConstraintSolver::Solve(GpuJob& job, float timestep, GpuConstraintUpload const& upload, std::span<GpuRigidBody> bodies, std::span<GpuConstraintBlock> blocks, std::span<GpuConstraintRow> rows)
+	void GpuConstraintSolver::Solve(GpuJob& job, float timestep, GpuConstraintUpload const& upload, std::span<GpuRigidBody> bodies, std::span<GpuConstraintBlock> blocks, std::span<GpuConstraintRow> rows, std::span<GpuConstraintBreakState> break_states)
 	{
 		if (blocks.size() != 0 && blocks.size() < upload.m_endpoints.size())
 			throw std::invalid_argument("Constraint block readback span is smaller than the stable-slot stream");
 		if (rows.size() != 0 && rows.size() < GpuConstraintRowsPerBlock * upload.m_endpoints.size())
 			throw std::invalid_argument("Constraint row readback span is smaller than the canonical stable-slot stream");
+		if (break_states.size() != 0 && break_states.size() < upload.m_endpoints.size())
+			throw std::invalid_argument("Constraint break-state readback span is smaller than the stable-slot stream");
 
 		auto const body_count = static_cast<int>(bodies.size());
 		auto r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(std::max(1, body_count), {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:ConstraintTestBodies");
@@ -425,18 +611,22 @@ namespace pr::physics
 			ApplyPosition(job, timestep, body_count, m_config.push_out_iterations, r_bodies);
 			for (int iteration = 0; iteration != std::max(0, m_config.solver_iterations); ++iteration)
 				SolveVelocityIteration(job, timestep, body_count, r_bodies);
+			DetectBreakage(job, timestep, 0, body_count, r_bodies);
 		}
-		// Gather optional body, block, and row diagnostics into the same readback transaction.
+		// Gather optional body, block, row, and break diagnostics into the same readback transaction.
 		job.m_barriers.Transition(r_bodies.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
 		if (!blocks.empty())
 			job.m_barriers.Transition(m_r_blocks.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
 		if (!rows.empty())
 			job.m_barriers.Transition(m_r_rows.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+		if (!break_states.empty() && m_r_break_states != nullptr)
+			job.m_barriers.Transition(m_r_break_states.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
 		job.m_barriers.Commit();
 		auto body_readback = job.m_readback.Alloc<GpuRigidBody>(std::max(1, body_count));
 		job.m_cmd_list.CopyBufferRegion(body_readback, r_bodies.get(), 0);
 		auto block_readback = ReadbackAlloc{};
 		auto row_readback = ReadbackAlloc{};
+		auto break_readback = ReadbackAlloc{};
 		if (!blocks.empty())
 		{
 			block_readback = job.m_readback.Alloc<GpuConstraintBlock>(static_cast<int>(upload.m_endpoints.size()));
@@ -447,6 +637,11 @@ namespace pr::physics
 			row_readback = job.m_readback.Alloc<GpuConstraintRow>(GpuConstraintRowsPerBlock * static_cast<int>(upload.m_endpoints.size()));
 			job.m_cmd_list.CopyBufferRegion(row_readback, m_r_rows.get(), 0);
 		}
+		if (!break_states.empty() && m_r_break_states != nullptr)
+		{
+			break_readback = job.m_readback.Alloc<GpuConstraintBreakState>(static_cast<int>(upload.m_endpoints.size()));
+			job.m_cmd_list.CopyBufferRegion(break_readback, m_r_break_states.get(), 0);
+		}
 		job.Run();
 
 		memcpy(bodies.data(), body_readback.ptr<GpuRigidBody>(), bodies.size_bytes());
@@ -454,6 +649,13 @@ namespace pr::physics
 			memcpy(blocks.data(), block_readback.ptr<GpuConstraintBlock>(), upload.m_endpoints.size() * sizeof(GpuConstraintBlock));
 		if (!rows.empty())
 			memcpy(rows.data(), row_readback.ptr<GpuConstraintRow>(), GpuConstraintRowsPerBlock * upload.m_endpoints.size() * sizeof(GpuConstraintRow));
+		if (!break_states.empty())
+		{
+			if (m_r_break_states == nullptr)
+				std::fill(break_states.begin(), break_states.end(), GpuConstraintBreakState{});
+			else
+				memcpy(break_states.data(), break_readback.ptr<GpuConstraintBreakState>(), upload.m_endpoints.size() * sizeof(GpuConstraintBreakState));
+		}
 	}
 
 	// Custom deleter implementation keeps the incomplete type out of public Engine headers.

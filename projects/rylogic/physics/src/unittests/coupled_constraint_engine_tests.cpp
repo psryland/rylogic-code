@@ -162,6 +162,39 @@ namespace pr::physics::tests
 			PR_EXPECT(profile.m_readback_copy_count == 1);
 		}
 
+		// Break an articulation-to-world row from committed generalized impulse without requiring an ordinary rigid body.
+		PRUnitTestMethod(CoupledConstraintBreaksFromLinkLoad, Quick)
+		{
+			auto tree = MakeEnginePrismaticTree(v4::XAxis(), 0.0f, 0.0f);
+			tree.m_articulation.JointVelocity(tree.m_link, std::array{5.0f});
+			auto desc = CoupledEngineLinear(BodyRef::Link(tree.m_articulation, tree.m_link), BodyRef::World());
+			desc.m_break_force = 10.0f;
+			auto constraints = ConstraintSet{};
+			auto const handle = constraints.Add(desc);
+			auto articulation_ptrs = std::array<Articulation*, 1>{&tree.m_articulation};
+			auto events = std::vector<ConstraintBreakEvent>{};
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			engine.ConstraintsBroken += [&](auto&, auto broken)
+			{
+				events.insert(events.end(), broken.begin(), broken.end());
+			};
+
+			engine.Step(Engine::StepInput{
+				.m_articulations = articulation_ptrs,
+				.m_constraints = &constraints,
+				.m_elapsed_seconds = 1.0f / 30.0f,
+				.m_substep_count = 4,
+			});
+
+			PR_EXPECT(constraints.IsBroken(handle));
+			PR_EXPECT(events.size() == 1);
+			PR_EXPECT(events[0].m_constraint == handle);
+			PR_EXPECT(events[0].m_substep_index == 0);
+			PR_EXPECT(events[0].m_force > desc.m_break_force);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+		}
+
 		// Release every optional coupled stream on an inactive frame and rebuild it when the same persistent slot is re-enabled.
 		PRUnitTestMethod(CoupledResourcesDeactivateAndReuse, Quick)
 		{

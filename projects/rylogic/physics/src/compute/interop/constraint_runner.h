@@ -63,6 +63,9 @@ namespace pr::physics
 		// Execute one complete coloured split-position sweep.
 		void SolvePosition();
 
+		// Latch force or torque threshold crossings from the committed canonical row impulses.
+		void DetectBreakage();
+
 		// Integrate converged pseudo twists once without changing physical momentum.
 		void ApplyPosition();
 
@@ -71,6 +74,9 @@ namespace pr::physics
 
 		// Return six canonical runtime rows per stable slot.
 		std::span<GpuConstraintRow const> Rows() const;
+
+		// Return frame-local stable-slot overload latches.
+		std::span<GpuConstraintBreakState const> BreakStates() const;
 
 		// Return stable-slot colour assignments.
 		std::span<uint32_t const> Colours() const;
@@ -90,6 +96,7 @@ namespace pr::physics
 		std::vector<GpuD6ConstraintDesc> m_descriptors;
 		std::vector<GpuConstraintBlock> m_blocks;
 		std::vector<GpuConstraintRow> m_rows;
+		std::vector<GpuConstraintBreakState> m_break_states;
 		std::vector<GpuConstraintPseudoVelocity> m_pseudo_velocities;
 		std::vector<uint32_t> m_colours;
 		std::vector<uint32_t> m_colour_overflow;

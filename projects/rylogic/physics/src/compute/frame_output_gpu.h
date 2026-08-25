@@ -9,6 +9,7 @@
 namespace pr::physics
 {
 	struct GpuArticulationMidpointOutput;
+	struct GpuConstraintBreakOutput;
 
 	// Byte offsets for one packed output containing rigid, event, and compact articulation state.
 	struct GpuFrameOutputLayout
@@ -18,13 +19,14 @@ namespace pr::physics
 		int m_articulation_count;
 		int m_position_count;
 		int m_velocity_count;
-		int m_pad0;
+		int m_constraint_break_count;
 		int64_t m_body_offset;
 		int64_t m_event_offset;
 		int64_t m_articulation_offset;
 		int64_t m_position_offset;
 		int64_t m_velocity_offset;
 		int64_t m_acceleration_offset;
+		int64_t m_constraint_break_offset;
 		int64_t m_readback_size;
 		int64_t m_resource_size;
 	};
@@ -59,6 +61,9 @@ namespace pr::physics
 		// Reset aggregate state and append compact articulation sections to the legacy rigid/event layout.
 		void BeginFrame(GpuJob& job, int body_count, int event_capacity, int substep_count, GpuArticulationMidpointOutput const& articulations);
 
+		// Reset aggregate state and append optional articulation and stable-slot constraint-break sections.
+		void BeginFrame(GpuJob& job, int body_count, int event_capacity, int substep_count, GpuArticulationMidpointOutput const& articulations, GpuConstraintBreakOutput const& constraint_breaks);
+
 		// Retain counters and optional resolved contacts before the next substep resets transient collision buffers.
 		void CaptureSubstep(GpuJob& job, int max_pairs, int max_contacts, int substep_index, int substep_count, bool collect_events, ID3D12Resource* counters, ID3D12Resource* contacts, ID3D12Resource* contact_order, ID3D12Resource* contact_dispatch);
 
@@ -68,6 +73,9 @@ namespace pr::physics
 		// Gather final rigid and articulation state before recording the frame's sole GPU-to-CPU copy.
 		GpuFrameOutputReadback GatherAndReadback(GpuJob& job, int body_count, ID3D12Resource* bodies, GpuArticulationMidpointOutput const& articulations);
 
+		// Gather final rigid, articulation, and constraint-break state before recording the frame's sole GPU-to-CPU copy.
+		GpuFrameOutputReadback GatherAndReadback(GpuJob& job, int body_count, ID3D12Resource* bodies, GpuArticulationMidpointOutput const& articulations, GpuConstraintBreakOutput const& constraint_breaks);
+
 		// Access typed sections after the owning GPU job has completed.
 		static GpuFrameOutputHeader const& Header(GpuFrameOutputReadback const& readback);
 		static std::span<GpuRigidBody const> Bodies(GpuFrameOutputReadback const& readback);
@@ -76,6 +84,7 @@ namespace pr::physics
 		static std::span<float const> Positions(GpuFrameOutputReadback const& readback);
 		static std::span<float const> Velocities(GpuFrameOutputReadback const& readback);
 		static std::span<float const> Accelerations(GpuFrameOutputReadback const& readback);
+		static std::span<GpuConstraintBreakState const> ConstraintBreaks(GpuFrameOutputReadback const& readback);
 
 	private:
 

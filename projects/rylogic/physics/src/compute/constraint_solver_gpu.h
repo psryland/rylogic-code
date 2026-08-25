@@ -13,6 +13,13 @@ namespace pr::physics
 	struct GpuCoupledConstraintPosition;
 	struct GpuCoupledConstraintVelocity;
 
+	// Optional stable-slot overload stream copied into the frame's single packed readback.
+	struct GpuConstraintBreakOutput
+	{
+		ID3D12Resource* m_states = nullptr;
+		int m_slot_count = 0;
+	};
+
 	// Lazily allocated GPU lane for persistent rigid D6 constraints.
 	struct GpuConstraintSolver
 	{
@@ -30,23 +37,28 @@ namespace pr::physics
 		ComputeStep m_cs_solve_position;
 		ComputeStep m_cs_apply_position;
 		ComputeStep m_cs_solve_velocity;
+		ComputeStep m_cs_detect_breakage;
 		D3DPtr<ID3D12Resource> m_r_endpoints;
 		D3DPtr<ID3D12Resource> m_r_descriptors;
 		D3DPtr<ID3D12Resource> m_r_blocks;
 		D3DPtr<ID3D12Resource> m_r_rows;
 		D3DPtr<ID3D12Resource> m_r_overflow;
 		D3DPtr<ID3D12Resource> m_r_pseudo_velocities;
+		D3DPtr<ID3D12Resource> m_r_break_states;
 		std::vector<GpuConstraintEndpoint> m_endpoint_shadow;
 		std::vector<ConstraintEndpointIdentity> m_endpoint_identity_shadow;
 		std::vector<GpuD6ConstraintDesc> m_descriptor_shadow;
 		ConstraintSet const* m_source;
 		int m_capacity;
 		int m_body_capacity;
+		int m_break_capacity;
 		int m_slot_count;
 		int m_active_count;
+		int m_breakable_count;
 		float m_previous_timestep;
 		float m_frame_warm_start_scale;
 		bool m_retain_current_impulses;
+		int m_break_substep_index;
 
 	public:
 
@@ -71,6 +83,18 @@ namespace pr::physics
 		// Execute one complete coloured physical block-PGS sweep.
 		void SolveVelocityIteration(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies);
 
+		// Latch force or torque threshold crossings after one main or selective velocity solve.
+		void DetectBreakage(GpuJob& job, float timestep, int substep_index, int body_count, D3DPtr<ID3D12Resource> bodies);
+
+		// Return the optional full stable-slot break stream for the final frame gather.
+		GpuConstraintBreakOutput BreakOutput();
+
+		// Mirror completed breaks into the endpoint shadow so an immediate explicit repair invalidates stale GPU runtime state.
+		void AcknowledgeBreaks(std::span<GpuConstraintBreakState const> states);
+
+		// Force the next upload to clear retained blocks after an abandoned or failed frame.
+		void InvalidateRuntimeState();
+
 		// True when the most recently uploaded set contains enabled independent rigid constraints.
 		bool Active() const;
 
@@ -78,7 +102,7 @@ namespace pr::physics
 		void Deactivate();
 
 		// CPU-side testing: upload, solve, and read back bodies and runtime state in one GPU job.
-		void Solve(GpuJob& job, float timestep, GpuConstraintUpload const& upload, std::span<GpuRigidBody> bodies, std::span<GpuConstraintBlock> blocks = {}, std::span<GpuConstraintRow> rows = {});
+		void Solve(GpuJob& job, float timestep, GpuConstraintUpload const& upload, std::span<GpuRigidBody> bodies, std::span<GpuConstraintBlock> blocks = {}, std::span<GpuConstraintRow> rows = {}, std::span<GpuConstraintBreakState> break_states = {});
 
 	private:
 
@@ -87,6 +111,9 @@ namespace pr::physics
 
 		// Create or grow shared rigid pseudo-twist storage for either independent or coupled position correction.
 		void EnsurePseudoVelocityStorage(CmdList& cmd_list, int body_count);
+
+		// Create or geometrically grow the optional per-slot overload latch.
+		void EnsureBreakStateStorage(CmdList& cmd_list, int slot_count);
 
 		// Bind the common constraint root signature and resources for one compute step.
 		void Bind(GpuJob& job, ComputeStep& step, float timestep, int body_count, int colour, int position_iterations, D3DPtr<ID3D12Resource> bodies);

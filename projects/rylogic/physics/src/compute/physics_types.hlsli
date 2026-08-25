@@ -45,6 +45,11 @@ static const uint GpuConstraintEndpointFlags_Coupled = 1 << 3;
 static const uint ConstraintBlockFlags_Active = 1u << 0;
 static const uint ConstraintBlockFlags_ResetWarmStart = 1u << 1;
 static const uint ConstraintBlockFlags_CoupledPreconditionerValid = 1u << 2;
+static const uint ConstraintBlockFlags_Broken = 1u << 3;
+
+// GPU constraint-break state flags are latched until the owning frame is gathered.
+static const uint GpuConstraintBreakFlags_None = 0u;
+static const uint GpuConstraintBreakFlags_Broken = 1u << 0;
 
 // Coupled gather targets identify the state owner updated by one deterministic adjacency reduction.
 static const int GpuCoupledConstraintTargetType_Rigid = 0;
@@ -467,6 +472,20 @@ struct GpuConstraintBlock
 	uint row_states;
 	uint flags;
 	uint pad0;
+};
+
+// Optional per-slot overload state. A full stable-slot stream prevents event-capacity overflow from dropping a required break.
+struct GpuConstraintBreakState
+{
+	uint flags;
+	uint generation;
+	int substep_index;
+	uint pad0;
+
+	float peak_force;
+	float peak_torque;
+	float pad1;
+	float pad2;
 };
 
 // Runtime scalar row. Rigid Jacobians are world-space wrenches; articulation Jacobians use link coordinates at the link origin.

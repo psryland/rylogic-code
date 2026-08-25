@@ -370,6 +370,15 @@ void CSPrepareCoupledConstraints(int3 DTID(dtid))
 	block.body_idx_b = endpoint.link_idx_b >= 0 ? -1 : packed_endpoint.body_idx_b;
 	g_coupled_preconditioners[slot_idx] = EmptyCoupledConstraintPreconditioner();
 
+	// Preserve a break latched by an earlier substep while clearing every stale row and preconditioner contribution.
+	if (AllSet(old_block.flags, ConstraintBlockFlags_Broken))
+	{
+		for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
+			g_coupled_rows[slot_idx * GpuConstraintRowsPerBlock + axis_idx] = EmptyConstraintRow();
+		g_coupled_blocks[slot_idx] = old_block;
+		return;
+	}
+
 	// Invalid retained factors disable the complete block rather than allowing partial or non-finite tree response.
 	if (!CoupledEndpointMetadataValid(endpoint))
 	{

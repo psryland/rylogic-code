@@ -177,6 +177,7 @@ namespace pr::physics::shader_code
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(solve_constraint_position_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(apply_constraint_position_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(solve_constraint_velocity_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(detect_broken_constraints_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(prepare_coupled_constraints_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(prepare_coupled_position_preconditioners_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(clear_coupled_position_state_cs.h)
@@ -208,6 +209,7 @@ namespace pr::physics::shader_code
 	ByteCode const solve_constraint_position(compiled::solve_constraint_position_cs);
 	ByteCode const apply_constraint_position(compiled::apply_constraint_position_cs);
 	ByteCode const solve_constraint_velocity(compiled::solve_constraint_velocity_cs);
+	ByteCode const detect_broken_constraints(compiled::detect_broken_constraints_cs);
 	ByteCode const prepare_coupled_constraints(compiled::prepare_coupled_constraints_cs);
 	ByteCode const prepare_coupled_position_preconditioners(compiled::prepare_coupled_position_preconditioners_cs);
 	ByteCode const clear_coupled_position_state(compiled::clear_coupled_position_state_cs);

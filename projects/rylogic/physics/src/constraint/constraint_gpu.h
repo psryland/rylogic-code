@@ -49,6 +49,7 @@ namespace pr::physics
 		GpuCollisionExclusionTable m_collision_exclusions;
 		size_t m_rigid_active_count = 0;
 		size_t m_coupled_active_count = 0;
+		size_t m_breakable_count = 0;
 		uint64_t m_topology_revision = 0;
 		uint64_t m_parameter_revision = 0;
 	};

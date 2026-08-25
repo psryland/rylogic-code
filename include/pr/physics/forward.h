@@ -94,6 +94,7 @@ namespace pr::physics
 	struct Material;
 	struct BodyId;
 	struct ConstraintHandle;
+	struct ConstraintBreakEvent;
 	struct ArticulationId;
 	struct LinkHandle;
 	class Articulation;
@@ -142,6 +143,7 @@ namespace pr::physics
 	struct GpuFrameOutputHeader;
 	struct GpuArticulationFrameOutput;
 	struct GpuArticulationMidpointOutput;
+	struct GpuConstraintBreakState;
 	struct GpuSubstepOutputState;
 	struct GpuCollisionEvent;
 	struct GpuMaterial;

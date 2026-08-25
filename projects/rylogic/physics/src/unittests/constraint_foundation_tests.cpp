@@ -97,6 +97,8 @@ namespace pr::physics::tests
 			PR_THROWS(constraints.Get(original), std::exception);
 			PR_THROWS(constraints.Update(original, desc), std::exception);
 			PR_THROWS(constraints.SetEnabled(original, false), std::exception);
+			PR_THROWS(constraints.Repair(original), std::exception);
+			PR_THROWS(constraints.IsBroken(original), std::exception);
 			PR_THROWS(constraints.Remove(original), std::exception);
 
 			auto const replacement = constraints.Add(desc);

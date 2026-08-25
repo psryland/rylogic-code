@@ -176,6 +176,9 @@ namespace pr::physics
 		, m_articulations()
 		, m_articulation_ranges()
 		, m_articulation_range_lookup()
+		, m_constraints()
+		, m_constraint_topology_revision()
+		, m_constraint_parameter_revision()
 		, m_buffers(new GpuBuffers())
 		, m_run()
 		, m_substep_seconds()
@@ -186,7 +189,7 @@ namespace pr::physics
 	}
 
 	// Start tracking a begin/complete step pair using stable copies of every caller-owned object pointer.
-	void Engine::PendingStep::Begin(std::span<RigidBody*> bodies, std::span<Articulation*> articulations, float substep_seconds, float elapsed_seconds, bool sleeping_enabled)
+	void Engine::PendingStep::Begin(std::span<RigidBody*> bodies, std::span<Articulation*> articulations, ConstraintSet const* constraints, float substep_seconds, float elapsed_seconds, bool sleeping_enabled)
 	{
 		if (bodies.data() != m_bodies.data() || bodies.size() != m_bodies.size())
 			m_bodies.assign(bodies.begin(), bodies.end());
@@ -206,6 +209,9 @@ namespace pr::physics
 
 		m_articulation_ranges.clear();
 		m_articulation_range_lookup.clear();
+		m_constraints = constraints;
+		m_constraint_topology_revision = constraints != nullptr ? constraints->TopologyRevision() : 0;
+		m_constraint_parameter_revision = constraints != nullptr ? constraints->ParameterRevision() : 0;
 		*m_buffers = {};
 		m_run = {};
 		m_substep_seconds = substep_seconds;
@@ -221,6 +227,9 @@ namespace pr::physics
 		m_articulations.clear();
 		m_articulation_ranges.clear();
 		m_articulation_range_lookup.clear();
+		m_constraints = nullptr;
+		m_constraint_topology_revision = 0;
+		m_constraint_parameter_revision = 0;
 		*m_buffers = {};
 		m_run = {};
 		m_substep_seconds = 0.0f;
@@ -389,7 +398,7 @@ namespace pr::physics
 		if (input.m_constraints != nullptr)
 			WakeCoupledConstraintArticulations(*input.m_constraints, input.m_articulations);
 
-		m_pending_step.Begin(input.m_bodies, input.m_articulations, dt, input.m_elapsed_seconds, m_config.sleeping_enabled);
+		m_pending_step.Begin(input.m_bodies, input.m_articulations, input.m_constraints, dt, input.m_elapsed_seconds, m_config.sleeping_enabled);
 		auto bodies = std::span{ m_pending_step.m_bodies };
 		auto articulations = std::span{ m_pending_step.m_articulations };
 
@@ -603,7 +612,10 @@ namespace pr::physics
 		// Allocate optional event storage only when the caller has requested collision records.
 		auto const collect_collision_events = !bodies.empty() && static_cast<bool>(Collisions);
 		auto const event_capacity = collect_collision_events ? m_config.max_collision_events : 0;
-		m_gpu_frame_output->BeginFrame(m_gpu->m_job, m_cache->RigidBodyCount(), event_capacity, input.m_substep_count, articulation_output);
+		auto const constraint_break_output = m_gpu_constraint_solver != nullptr
+			? m_gpu_constraint_solver->BreakOutput()
+			: GpuConstraintBreakOutput{};
+		m_gpu_frame_output->BeginFrame(m_gpu->m_job, m_cache->RigidBodyCount(), event_capacity, input.m_substep_count, articulation_output, constraint_break_output);
 
 		// Record every substep into the same command list so state, warm starts, and counters stay GPU-resident.
 		for (int substep_index = 0; substep_index != input.m_substep_count; ++substep_index)
@@ -659,7 +671,7 @@ namespace pr::physics
 					}
 					{
 						auto profile_scope = ProfileScope<&Engine::StepProfile::m_resolve_ms>(m_last_step_profile);
-						Resolve(dt);
+						Resolve(dt, substep_index);
 					}
 
 					// Publish the main coupled solve before selective passes recompile rows against the corrected articulation configuration.
@@ -668,7 +680,7 @@ namespace pr::physics
 					{
 						auto profile_scope = ProfileScope<&Engine::StepProfile::m_selective_ms>(m_last_step_profile);
 						if (!bodies.empty())
-							SelectiveRefresh(dt);
+							SelectiveRefresh(dt, substep_index);
 					}
 					{
 						auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepupdate_ms>(m_last_step_profile);
@@ -717,12 +729,15 @@ namespace pr::physics
 				m_pending_step.m_bodies,
 				m_pending_step.m_articulations,
 				m_pending_step.m_articulation_ranges,
+				m_pending_step.m_constraints,
 				m_pending_step.m_substep_seconds,
 				m_pending_step.m_elapsed_seconds
 			);
 		}
 		catch (...)
 		{
+			if (m_gpu_constraint_solver != nullptr)
+				m_gpu_constraint_solver->InvalidateRuntimeState();
 			m_pending_step.Clear();
 			throw;
 		}
@@ -738,6 +753,8 @@ namespace pr::physics
 
 		if (m_pending_step.m_submitted)
 			m_gpu->m_job.Abandon(m_pending_step.m_run);
+		if (m_gpu_constraint_solver != nullptr)
+			m_gpu_constraint_solver->InvalidateRuntimeState();
 
 		m_pending_step.Clear();
 	}
@@ -795,7 +812,7 @@ namespace pr::physics
 		}
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_unpack_ms>(m_last_step_profile);
-			Unpack(buffers, rigid_bodies, {}, {}, 0.0f, 0.0f);
+			Unpack(buffers, rigid_bodies, {}, {}, nullptr, 0.0f, 0.0f);
 		}
 	}
 
@@ -929,7 +946,7 @@ namespace pr::physics
 	}
 
 	// Apply impulses to resolve collisions and update body dynamics.
-	void Engine::Resolve(float dt)
+	void Engine::Resolve(float dt, int substep_index)
 	{
 		auto body_count = m_cache->BodyCount();
 		auto rigid_body_count = m_cache->RigidBodyCount();
@@ -942,6 +959,8 @@ namespace pr::physics
 		auto* coupled_constraint_solver = m_coupled_constraints_active ? m_gpu_coupled_constraint_solver.get() : nullptr;
 		auto* coupled_contact_solver = m_coupled_contacts_active ? m_gpu_coupled_contact_solver.get() : nullptr;
 		m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, rigid_body_count, m_config.max_collision_pairs, dispatch, counters, contacts, bodies, m_materials->span(), 1.0f, -1, -1, 1.0f, false, constraint_solver, coupled_constraint_solver, coupled_contact_solver);
+		if (m_gpu_constraint_solver != nullptr)
+			m_gpu_constraint_solver->DetectBreakage(m_gpu->m_job, dt, substep_index, body_count, bodies);
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{
@@ -950,7 +969,7 @@ namespace pr::physics
 	}
 
 	// Extra narrowphase/resolve passes over problematic contacts.
-	void Engine::SelectiveRefresh(float dt)
+	void Engine::SelectiveRefresh(float dt, int substep_index)
 	{
 		auto const pass_count = std::max(0, m_config.selective_refresh_passes);
 		if (pass_count == 0)
@@ -1034,6 +1053,8 @@ namespace pr::physics
 				coupled_constraint_solver,
 				nullptr,
 				true);
+			if (m_gpu_constraint_solver != nullptr)
+				m_gpu_constraint_solver->DetectBreakage(m_gpu->m_job, dt, substep_index, body_count, bodies);
 
 			// Each continuation may change generalized coordinates, so the next pass must consume current link frames.
 			if (coupled_constraint_solver != nullptr)
@@ -1083,16 +1104,23 @@ namespace pr::physics
 	{
 		auto body_count = m_cache->RigidBodyCount();
 		auto bodies = m_gpu_integrator->Bodies();
+		auto const constraint_break_output = m_gpu_constraint_solver != nullptr
+			? m_gpu_constraint_solver->BreakOutput()
+			: GpuConstraintBreakOutput{};
 		buffers.read_collision_events = buffers.emit_collisions && static_cast<bool>(Collisions);
-		buffers.rb_output = m_gpu_frame_output->GatherAndReadback(m_gpu->m_job, body_count, bodies.get(), articulations);
+		buffers.rb_output = m_gpu_frame_output->GatherAndReadback(m_gpu->m_job, body_count, bodies.get(), articulations, constraint_break_output);
 		++m_last_step_profile.m_readback_copy_count;
 	}
 
 	// Validate the complete gathered frame before publishing rigid or articulation state.
-	void Engine::Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies, std::span<Articulation*> articulations, std::span<PendingStep::ArticulationOutputRange const> articulation_ranges, float articulation_substep_seconds, float articulation_elapsed_seconds)
+	void Engine::Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies, std::span<Articulation*> articulations, std::span<PendingStep::ArticulationOutputRange const> articulation_ranges, ConstraintSet const* constraints, float articulation_substep_seconds, float articulation_elapsed_seconds)
 	{
 		auto body_count = m_cache->RigidBodyCount();
 		auto max_contacts = m_config.max_collision_pairs;
+		if (constraints != nullptr &&
+			(constraints->TopologyRevision() != m_pending_step.m_constraint_topology_revision ||
+			 constraints->ParameterRevision() != m_pending_step.m_constraint_parameter_revision))
+			throw std::runtime_error("Constraint topology or parameters changed while an Engine step was pending");
 
 		auto const& output_header = GpuFrameOutput::Header(buffers.rb_output);
 		{
@@ -1164,6 +1192,42 @@ namespace pr::physics
 				throw std::runtime_error("GPU frame output generalized streams are not partitioned by the pending articulation forest");
 		}
 
+		// Validate every overload latch before any caller-owned body, articulation, or constraint state is changed.
+		auto const constraint_break_states = GpuFrameOutput::ConstraintBreaks(buffers.rb_output);
+		auto constraint_break_events = std::vector<ConstraintBreakEvent>{};
+		if (!constraint_break_states.empty())
+		{
+			if (constraints == nullptr || constraint_break_states.size() != constraints->CapacitySlots())
+				throw std::runtime_error("GPU frame output constraint-break slots do not match the pending constraint set");
+
+			constraint_break_events.reserve(constraint_break_states.size());
+			for (auto const [state, slot_index] : with_index(constraint_break_states))
+			{
+				if ((state.flags & ~GpuConstraintBreakFlags_Broken) != 0u)
+					throw std::runtime_error("GPU frame output returned unknown constraint-break flags");
+				if (!AllSet(state.flags, GpuConstraintBreakFlags_Broken))
+					continue;
+				if (!std::isfinite(state.peak_force) || state.peak_force < 0.0f ||
+					!std::isfinite(state.peak_torque) || state.peak_torque < 0.0f ||
+					state.substep_index < 0 || state.substep_index >= output_header.substep_count)
+					throw std::runtime_error("GPU frame output returned invalid constraint-break diagnostics");
+
+				auto const handle = ConstraintHandle{
+					.m_index = s_cast<uint32_t>(slot_index),
+					.m_generation = state.generation,
+				};
+				if (!constraints->Contains(handle))
+					throw std::runtime_error("GPU frame output constraint-break generation does not match the pending constraint set");
+
+				constraint_break_events.push_back(ConstraintBreakEvent{
+					.m_constraint = handle,
+					.m_force = state.peak_force,
+					.m_torque = state.peak_torque,
+					.m_substep_index = state.substep_index,
+				});
+			}
+		}
+
 		auto const output_bodies = GpuFrameOutput::Bodies(buffers.rb_output);
 		if (body_count != 0)
 		{
@@ -1220,6 +1284,20 @@ namespace pr::physics
 						m_config.sleep_delay_s);
 				}
 			}
+		}
+
+		// Publish each break exactly once after every gathered simulation output has passed validation and committed successfully.
+		if (!constraint_break_events.empty())
+		{
+			for (auto const& event : constraint_break_events)
+				if (!constraints->MarkBroken(event.m_constraint.m_index, event.m_constraint.m_generation))
+					throw std::runtime_error("GPU frame output attempted to publish an already-broken constraint");
+
+			if (m_gpu_constraint_solver == nullptr)
+				throw std::logic_error("Constraint break output requires its owning GPU solver");
+			m_gpu_constraint_solver->AcknowledgeBreaks(constraint_break_states);
+			if (ConstraintsBroken)
+				ConstraintsBroken(*this, constraint_break_events);
 		}
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)

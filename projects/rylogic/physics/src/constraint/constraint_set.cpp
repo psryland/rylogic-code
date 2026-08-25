@@ -168,6 +168,7 @@ namespace pr::physics
 		slot.m_desc = desc;
 		slot.m_occupied = true;
 		slot.m_dirty = true;
+		slot.m_broken = false;
 		++m_count;
 		++m_topology_revision;
 		++m_parameter_revision;
@@ -220,8 +221,23 @@ namespace pr::physics
 		if (slot.m_desc.m_enabled == enabled)
 			return;
 
+		// Only an actual disabled-to-enabled transition is a repair signal; repeated SetEnabled(true) calls cannot silently reconnect a broken joint.
+		auto const re_enabled = !slot.m_desc.m_enabled && enabled;
 		slot.m_desc.m_enabled = enabled;
+		if (re_enabled)
+			slot.m_broken = false;
 		slot.m_dirty = true;
+		++m_parameter_revision;
+	}
+
+	// Explicitly repair a broken constraint while preserving its descriptor and stable handle.
+	void ConstraintSet::Repair(ConstraintHandle handle)
+	{
+		auto& slot = Require(handle);
+		if (!slot.m_broken)
+			return;
+
+		slot.m_broken = false;
 		++m_parameter_revision;
 	}
 
@@ -233,6 +249,7 @@ namespace pr::physics
 		slot.m_desc.m_enabled = false;
 		slot.m_occupied = false;
 		slot.m_dirty = true;
+		slot.m_broken = false;
 		AdvanceGeneration(slot.m_generation);
 		m_free_slots.push_back(handle.m_index);
 		--m_count;
@@ -254,6 +271,12 @@ namespace pr::physics
 			handle.m_generation != 0 &&
 			m_slots[handle.m_index].m_occupied &&
 			m_slots[handle.m_index].m_generation == handle.m_generation;
+	}
+
+	// True when overload detection has disabled the live constraint until an explicit repair or disable/enable transition.
+	bool ConstraintSet::IsBroken(ConstraintHandle handle) const
+	{
+		return Require(handle).m_broken;
 	}
 
 	// Return the number of live constraints.
@@ -308,5 +331,21 @@ namespace pr::physics
 	uint64_t ConstraintSet::ParameterRevision() const
 	{
 		return m_parameter_revision;
+	}
+
+	// Latch one validated GPU overload result and return whether it generated a new edge event.
+	bool ConstraintSet::MarkBroken(uint32_t slot_index, uint32_t generation) const
+	{
+		auto const handle = ConstraintHandle{
+			.m_index = slot_index,
+			.m_generation = generation,
+		};
+		auto& slot = Require(handle);
+		if (slot.m_broken)
+			return false;
+
+		slot.m_broken = true;
+		++m_parameter_revision;
+		return true;
 	}
 }

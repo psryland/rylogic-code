@@ -60,6 +60,7 @@ namespace pr::physics::tests
 
 			PR_EXPECT(upload.m_rigid_active_count == 1);
 			PR_EXPECT(upload.m_coupled_active_count == 0);
+			PR_EXPECT(upload.m_breakable_count == 0);
 			PR_EXPECT(upload.m_coupled_endpoints.empty());
 			PR_EXPECT(upload.m_coupled_articulation_indices.empty());
 			PR_EXPECT(upload.m_endpoints.size() == 2);
@@ -75,6 +76,32 @@ namespace pr::physics::tests
 			PR_EXPECT(upload.m_descriptors[live.m_index].axes[5].mode == GpuConstraintAxisMode_Driven);
 			PR_EXPECT(upload.m_descriptors[live.m_index].axes[5].target_velocity == 2.0f);
 			PR_EXPECT(upload.m_descriptors[live.m_index].axes[5].max_force == 7.0f);
+		}
+
+		// Request overload storage only while at least one active constraint has a finite force or torque threshold.
+		PRUnitTestMethod(PacksBreakableCountWithoutChargingOrdinaryConstraints, Quick)
+		{
+			auto body = RigidBody{};
+			auto ordinary = D6ConstraintDesc{};
+			ordinary.m_frame_a.m_body = BodyRef::Rigid(body);
+			ordinary.m_frame_b.m_body = BodyRef::World();
+			ordinary.m_linear[0].m_mode = EConstraintAxisMode::Locked;
+			auto breakable = ordinary;
+			breakable.m_break_torque = 12.0f;
+			auto disabled = breakable;
+			disabled.m_enabled = false;
+			auto constraints = ConstraintSet{};
+			constraints.Add(ordinary);
+			auto const breakable_handle = constraints.Add(breakable);
+			constraints.Add(disabled);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+
+			auto upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			PR_EXPECT(upload.m_breakable_count == 1);
+
+			constraints.SetEnabled(breakable_handle, false);
+			upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			PR_EXPECT(upload.m_breakable_count == 0);
 		}
 
 		// Disabled descriptors retain their stable slot without requiring missing endpoint bodies in the submitted frame.

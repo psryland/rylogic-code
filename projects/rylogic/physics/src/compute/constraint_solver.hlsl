@@ -20,6 +20,7 @@
 //   u2: RWStructuredBuffer<GpuConstraintRow>       - six canonical rows per stable slot
 //   u3: RWStructuredBuffer<uint>                   - one-element colour-overflow flag
 //   u4: RWStructuredBuffer<GpuConstraintPseudoVelocity> - per-body split-correction state
+//   u5: RWStructuredBuffer<GpuConstraintBreakState> - optional stable-slot overload latches
 //
 // Matrices use the row-vector convention from resolve.hlsl. HLSL rows map to C++ columns,
 // mul(v, M) transforms a vector, and mul(local, parent) composes local-to-parent-to-world.
@@ -50,8 +51,8 @@ struct cbConstraintSolver
 	float warm_start_factor;
 	float warm_start_scale;
 	int retain_current_impulses;
-	int pad0;
-	int pad1;
+	int breakable_count;
+	int break_substep_index;
 	int pad2;
 };
 
@@ -63,6 +64,7 @@ RWStructuredBuffer<GpuConstraintBlock> resource(g_blocks, u1);
 RWStructuredBuffer<GpuConstraintRow> resource(g_rows, u2);
 RWStructuredBuffer<uint> resource(g_colour_overflow, u3);
 RWStructuredBuffer<GpuConstraintPseudoVelocity> resource(g_pseudo_velocities, u4);
+RWStructuredBuffer<GpuConstraintBreakState> resource(g_break_states, u5);
 
 #define PR_CONSTRAINT_SOLVER_OPS_CPP_NAMESPACE constraint_solver_ops_detail
 #include "physics/src/compute/constraint_solver_ops.hlsli"
@@ -223,6 +225,15 @@ void CSCompileConstraints(int3 DTID(dtid))
 	if (AllSet(endpoint.flags, GpuConstraintEndpointFlags_Coupled))
 		return;
 
+	// A break detected earlier in this submitted frame remains disabled across every later substep and selective continuation.
+	if (AllSet(old_block.flags, ConstraintBlockFlags_Broken))
+	{
+		for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
+			g_rows[slot_idx * GpuConstraintRowsPerBlock + axis_idx] = EmptyConstraintRow();
+		g_blocks[slot_idx] = old_block;
+		return;
+	}
+
 	bool any_non_free = false;
 	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
 		any_non_free = any_non_free || desc.axes[axis_idx].mode != GpuConstraintAxisMode_Free;
@@ -267,6 +278,63 @@ void CSCompileConstraints(int3 DTID(dtid))
 	block.colour = MaxColours;
 	block.flags = ConstraintBlockFlags_Active | (reset_warm_start ? ConstraintBlockFlags_ResetWarmStart : 0u);
 	g_blocks[slot_idx] = block;
+}
+
+// Latch the first threshold crossing and its substep while retaining per-frame peak load diagnostics.
+numthreads(CSDetectBrokenConstraints, ConstraintThreadCount, 1, 1)
+void CSDetectBrokenConstraints(int3 DTID(dtid))
+{
+	if (g.breakable_count == 0 || dtid.x >= g.slot_count)
+		return;
+
+	uint slot_idx = (uint)dtid.x;
+	GpuConstraintEndpoint endpoint = g_endpoints[slot_idx];
+	GpuConstraintBlock block = g_blocks[slot_idx];
+	GpuConstraintBreakState state = g_break_states[slot_idx];
+	if (!AllSet(endpoint.flags, GpuConstraintEndpointFlags_Enabled) ||
+		!AllSet(block.flags, ConstraintBlockFlags_Active) ||
+		AllSet(state.flags, GpuConstraintBreakFlags_Broken))
+		return;
+
+	// Frame-A axes are orthonormal, so the Euclidean norm of their canonical scalar impulses is the world-space load magnitude.
+	float linear_impulse_squared = 0.0f;
+	float angular_impulse_squared = 0.0f;
+	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
+	{
+		if ((block.velocity_mask & (1u << axis_idx)) == 0u)
+			continue;
+
+		float impulse = g_rows[slot_idx * GpuConstraintRowsPerBlock + axis_idx].bounds.z;
+		if (!isfinite(impulse))
+			return;
+		if (axis_idx < 3u)
+			linear_impulse_squared += impulse * impulse;
+		else
+			angular_impulse_squared += impulse * impulse;
+	}
+
+	float inverse_timestep = g.timestep > 0.0f ? 1.0f / g.timestep : 0.0f;
+	float force = sqrt(max(linear_impulse_squared, 0.0f)) * inverse_timestep;
+	float torque = sqrt(max(angular_impulse_squared, 0.0f)) * inverse_timestep;
+	if (!isfinite(force) || !isfinite(torque))
+		return;
+
+	state.peak_force = max(state.peak_force, force);
+	state.peak_torque = max(state.peak_torque, torque);
+	if ((isfinite(endpoint.break_force) && force > endpoint.break_force) ||
+		(isfinite(endpoint.break_torque) && torque > endpoint.break_torque))
+	{
+		state.flags |= GpuConstraintBreakFlags_Broken;
+		state.substep_index = g.break_substep_index;
+
+		// Later work in the same command list sees an inert block while the retained rows remain available for diagnostics.
+		block.velocity_mask = 0u;
+		block.position_mask = 0u;
+		block.colour = MaxColours;
+		block.flags = ConstraintBlockFlags_Broken;
+		g_blocks[slot_idx] = block;
+	}
+	g_break_states[slot_idx] = state;
 }
 
 // Assign deterministic greedy colours after resetting per-body masks.

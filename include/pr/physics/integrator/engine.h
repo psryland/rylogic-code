@@ -143,6 +143,9 @@ namespace pr::physics
 			std::vector<Articulation*> m_articulations;
 			std::vector<ArticulationOutputRange> m_articulation_ranges;
 			std::unordered_map<uint64_t, int> m_articulation_range_lookup;
+			ConstraintSet const* m_constraints;
+			uint64_t m_constraint_topology_revision;
+			uint64_t m_constraint_parameter_revision;
 			std::unique_ptr<GpuBuffers, Deleter<GpuBuffers>> m_buffers;
 			GpuJob::RunHandle m_run;
 			float m_substep_seconds = 0.0f;
@@ -162,7 +165,7 @@ namespace pr::physics
 			}
 
 			// Start tracking a begin/complete step pair using stable copies of every caller-owned object pointer.
-			void Begin(std::span<RigidBody*> bodies, std::span<Articulation*> articulations, float substep_seconds, float elapsed_seconds, bool sleeping_enabled);
+			void Begin(std::span<RigidBody*> bodies, std::span<Articulation*> articulations, ConstraintSet const* constraints, float substep_seconds, float elapsed_seconds, bool sleeping_enabled);
 
 			// Clear all per-step state once the GPU result has been consumed.
 			void Clear();
@@ -335,6 +338,9 @@ namespace pr::physics
 		// Raised after body upload and before integration so subscribers can add GPU-resident forces.
 		EventHandler<Engine&, ExternalForceArgs const&> ExternalForces;
 
+		// Raised once for each frame that newly breaks one or more persistent constraints.
+		EventHandler<Engine&, std::span<ConstraintBreakEvent const>> ConstraintsBroken;
+
 		// Resolve a stable articulation link to its hidden body index during ExternalForces, or return -1 when its tree is absent.
 		int ArticulationLinkStepIndex(ArticulationId articulation_id, LinkHandle link) const;
 
@@ -388,10 +394,10 @@ namespace pr::physics
 		void Collide();
 
 		// Apply impulses to resolve collisions and update body dynamics.
-		void Resolve(float dt);
+		void Resolve(float dt, int substep_index);
 
 		// Extra narrowphase/resolve passes over problematic contacts.
-		void SelectiveRefresh(float dt);
+		void SelectiveRefresh(float dt, int substep_index);
 
 		// Persist wake-ups and update sleep state after collision resolution.
 		void SleepUpdate(float dt);
@@ -403,7 +409,7 @@ namespace pr::physics
 		void Readback(GpuBuffers& buffers, GpuArticulationMidpointOutput const& articulations);
 
 		// Validate the complete gathered frame before publishing rigid or articulation state.
-		void Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies, std::span<Articulation*> articulations, std::span<PendingStep::ArticulationOutputRange const> articulation_ranges, float articulation_substep_seconds, float articulation_elapsed_seconds);
+		void Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies, std::span<Articulation*> articulations, std::span<PendingStep::ArticulationOutputRange const> articulation_ranges, ConstraintSet const* constraints, float articulation_substep_seconds, float articulation_elapsed_seconds);
 
 		// Narrow phase collision detection.
 		// Tests whether the two bodies in 'c' are geometrically in contact using GJK/SAT.

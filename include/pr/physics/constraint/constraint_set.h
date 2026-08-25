@@ -7,6 +7,15 @@
 
 namespace pr::physics
 {
+	// One edge-triggered overload notification for a persistent constraint.
+	struct ConstraintBreakEvent
+	{
+		ConstraintHandle m_constraint = {};
+		float m_force = 0.0f;
+		float m_torque = 0.0f;
+		int m_substep_index = -1;
+	};
+
 	// A half-open range of persistent descriptor slots requiring a GPU upload.
 	struct ConstraintDirtyRange
 	{
@@ -26,13 +35,14 @@ namespace pr::physics
 			uint32_t m_generation = 1;
 			bool m_occupied = false;
 			bool m_dirty = false;
+			mutable bool m_broken = false;
 		};
 
 		std::vector<Slot> m_slots;
 		std::vector<uint32_t> m_free_slots;
 		size_t m_count;
 		uint64_t m_topology_revision;
-		uint64_t m_parameter_revision;
+		mutable uint64_t m_parameter_revision;
 
 		// Return a live slot or reject an invalid or stale handle.
 		Slot& Require(ConstraintHandle handle);
@@ -47,6 +57,7 @@ namespace pr::physics
 		friend GpuConstraintUpload PackGpuConstraints(ConstraintSet const& constraints, BodyRemap const& remap, std::span<GpuCollisionExclusion const> additional_collision_exclusions);
 		friend bool HasCoupledConstraintWork(ConstraintSet const& constraints);
 		friend void WakeCoupledConstraintArticulations(ConstraintSet const& constraints, std::span<Articulation*> articulations);
+		friend struct Engine;
 
 	public:
 
@@ -74,6 +85,9 @@ namespace pr::physics
 		// Enable or disable a persistent descriptor without changing topology.
 		void SetEnabled(ConstraintHandle handle, bool enabled);
 
+		// Explicitly repair a broken constraint while preserving its descriptor and stable handle.
+		void Repair(ConstraintHandle handle);
+
 		// Remove a persistent descriptor and invalidate every handle to its generation.
 		void Remove(ConstraintHandle handle);
 
@@ -82,6 +96,9 @@ namespace pr::physics
 
 		// True when a handle names a currently occupied slot with the same generation.
 		bool Contains(ConstraintHandle handle) const;
+
+		// True when overload detection has disabled the live constraint until an explicit repair or disable/enable transition.
+		bool IsBroken(ConstraintHandle handle) const;
 
 		// Return the number of live constraints.
 		size_t Count() const;
@@ -100,5 +117,10 @@ namespace pr::physics
 
 		// Return the revision changed by any descriptor parameter update.
 		uint64_t ParameterRevision() const;
+
+	private:
+
+		// Latch one validated GPU overload result and return whether it generated a new edge event.
+		bool MarkBroken(uint32_t slot_index, uint32_t generation) const;
 	};
 }

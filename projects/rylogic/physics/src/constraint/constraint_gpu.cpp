@@ -342,7 +342,7 @@ namespace pr::physics
 	{
 		for (auto const& slot : constraints.m_slots)
 		{
-			if (slot.m_occupied && slot.m_desc.m_enabled && HasSolverRows(slot.m_desc) && RequiresCoupledSolver(slot.m_desc))
+			if (slot.m_occupied && slot.m_desc.m_enabled && !slot.m_broken && HasSolverRows(slot.m_desc) && RequiresCoupledSolver(slot.m_desc))
 				return true;
 		}
 		return false;
@@ -375,7 +375,7 @@ namespace pr::physics
 		// Disabled, free-axis, and rigid-only descriptors do not make an articulation participate in this frame.
 		for (auto const& slot : constraints.m_slots)
 		{
-			if (!slot.m_occupied || !slot.m_desc.m_enabled || !HasSolverRows(slot.m_desc) || !RequiresCoupledSolver(slot.m_desc))
+			if (!slot.m_occupied || !slot.m_desc.m_enabled || slot.m_broken || !HasSolverRows(slot.m_desc) || !RequiresCoupledSolver(slot.m_desc))
 				continue;
 
 			wake_endpoint(slot.m_desc.m_frame_a.m_body);
@@ -408,6 +408,7 @@ namespace pr::physics
 			}
 
 			auto const& desc = slot.m_desc;
+			auto const active = desc.m_enabled && !slot.m_broken;
 			upload.m_endpoint_identities[slot_index] = ConstraintEndpointIdentity{
 				.m_body_a = desc.m_frame_a.m_body,
 				.m_body_b = desc.m_frame_b.m_body,
@@ -417,16 +418,20 @@ namespace pr::physics
 			auto const coupled = RequiresCoupledSolver(desc);
 			if (coupled)
 				flags |= GpuConstraintEndpointFlags_Coupled;
-			if (desc.m_enabled)
+			if (active)
 			{
 				flags |= GpuConstraintEndpointFlags_Enabled;
 				if (HasSolverRows(desc))
+				{
 				(coupled ? upload.m_coupled_active_count : upload.m_rigid_active_count) += 1;
+				if (std::isfinite(desc.m_break_force) || std::isfinite(desc.m_break_torque))
+					++upload.m_breakable_count;
+				}
 			}
 
-			// Disabled constraints deliberately do not require their bodies to be submitted until they are re-enabled.
-			auto const endpoint_a = desc.m_enabled ? remap.ResolveEndpoint(desc.m_frame_a.m_body) : CompiledConstraintEndpoint{};
-			auto const endpoint_b = desc.m_enabled ? remap.ResolveEndpoint(desc.m_frame_b.m_body) : CompiledConstraintEndpoint{};
+			// Disabled and broken constraints deliberately do not require their bodies to be submitted until they are explicitly activated again.
+			auto const endpoint_a = active ? remap.ResolveEndpoint(desc.m_frame_a.m_body) : CompiledConstraintEndpoint{};
+			auto const endpoint_b = active ? remap.ResolveEndpoint(desc.m_frame_b.m_body) : CompiledConstraintEndpoint{};
 			upload.m_endpoints[slot_index] = GpuConstraintEndpoint{
 				.body_idx_a = endpoint_a.m_packed_body_index,
 				.body_idx_b = endpoint_b.m_packed_body_index,
@@ -437,7 +442,7 @@ namespace pr::physics
 			};
 
 			// Coupled metadata remains absent on rigid-only frames and records global packed link indices without changing the rigid endpoint ABI.
-			if (coupled && desc.m_enabled && HasSolverRows(desc))
+			if (coupled && active && HasSolverRows(desc))
 			{
 				if (coupled_endpoints.empty())
 					coupled_endpoints.resize(constraints.m_slots.size(), GpuCoupledConstraintEndpoint{

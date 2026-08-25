@@ -368,6 +368,109 @@ namespace pr::physics::tests
 			PR_THROWS(runner.Run(buffers), std::invalid_argument);
 		}
 
+		// Convert canonical linear impulses to force, latch the first overload, and disable later work in the same submitted frame.
+		PRUnitTestMethod(BreakThresholdLatchesCanonicalLoad, Quick)
+		{
+			auto body = MakeConstraintGpuBody();
+			body.VelocityWS(v8motion{v4::Zero(), v4{5.0f, 0.0f, 0.0f, 0.0f}});
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body);
+			desc.m_frame_b.m_body = BodyRef::World();
+			desc.m_linear[0] = MakeConstraintGpuLockedAxis(1000.0f);
+			desc.m_break_force = 10.0f;
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+			auto config = CpuConstraintSolverConfig{};
+			config.m_position_iterations = 0;
+			config.m_warm_start_factor = 0.0f;
+			auto runner = ConstraintInteropRunner{config};
+
+			runner.Run(ConstraintRunnerBuffers{
+				.m_dt = 1.0f / 60.0f,
+				.m_bodies = bodies,
+				.m_endpoints = upload.m_endpoints,
+				.m_descriptors = upload.m_descriptors,
+			});
+
+			auto const& state = runner.BreakStates()[0];
+			PR_EXPECT(upload.m_breakable_count == 1);
+			PR_EXPECT(AllSet(state.flags, GpuConstraintBreakFlags_Broken));
+			PR_EXPECT(state.generation == upload.m_endpoints[0].generation);
+			PR_EXPECT(state.substep_index == 0);
+			PR_EXPECT(state.peak_force > desc.m_break_force);
+			PR_EXPECT(state.peak_torque == 0.0f);
+			PR_EXPECT(AllSet(runner.Blocks()[0].flags, ConstraintBlockFlags_Broken));
+			PR_EXPECT(runner.Blocks()[0].velocity_mask == 0u);
+		}
+
+		// Distinguish torque from force and report the canonical angular load that crossed the configured threshold.
+		PRUnitTestMethod(BreakTorqueUsesAngularImpulse, Quick)
+		{
+			auto body = MakeConstraintGpuBody();
+			body.VelocityWS(v8motion{v4{5.0f, 0.0f, 0.0f, 0.0f}, v4::Zero()});
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body);
+			desc.m_frame_b.m_body = BodyRef::World();
+			desc.m_angular[0] = MakeConstraintGpuLockedAxis(1000.0f);
+			desc.m_break_torque = 10.0f;
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+			auto config = CpuConstraintSolverConfig{};
+			config.m_position_iterations = 0;
+			config.m_warm_start_factor = 0.0f;
+			auto runner = ConstraintInteropRunner{config};
+
+			runner.Run(ConstraintRunnerBuffers{
+				.m_dt = 1.0f / 60.0f,
+				.m_bodies = bodies,
+				.m_endpoints = upload.m_endpoints,
+				.m_descriptors = upload.m_descriptors,
+			});
+
+			auto const& state = runner.BreakStates()[0];
+			PR_EXPECT(AllSet(state.flags, GpuConstraintBreakFlags_Broken));
+			PR_EXPECT(state.peak_force == 0.0f);
+			PR_EXPECT(state.peak_torque > desc.m_break_torque);
+		}
+
+		// Respect per-axis force clamps before overload testing, making an aggregate threshold above the clamp unreachable for one active axis.
+		PRUnitTestMethod(BreakForceObservesAxisForceLimit, Quick)
+		{
+			auto body = MakeConstraintGpuBody();
+			body.VelocityWS(v8motion{v4::Zero(), v4{100.0f, 0.0f, 0.0f, 0.0f}});
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body);
+			desc.m_frame_b.m_body = BodyRef::World();
+			desc.m_linear[0] = MakeConstraintGpuLockedAxis(2.0f);
+			desc.m_break_force = 2.1f;
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+			auto config = CpuConstraintSolverConfig{};
+			config.m_position_iterations = 0;
+			config.m_warm_start_factor = 0.0f;
+			auto runner = ConstraintInteropRunner{config};
+
+			runner.Run(ConstraintRunnerBuffers{
+				.m_dt = 0.25f,
+				.m_bodies = bodies,
+				.m_endpoints = upload.m_endpoints,
+				.m_descriptors = upload.m_descriptors,
+			});
+
+			auto const& state = runner.BreakStates()[0];
+			PR_EXPECT(!AllSet(state.flags, GpuConstraintBreakFlags_Broken));
+			PR_EXPECT(Abs(state.peak_force - desc.m_linear[0].m_max_force) < 1.0e-5f);
+		}
+
 		// Reordering independent stable slots does not change their disjoint body results.
 		PRUnitTestMethod(IndependentInsertionPermutationsAgree, Quick)
 		{
@@ -555,6 +658,35 @@ namespace pr::physics::tests
 			}
 		}
 
+		// Read a production compute-shader overload latch back through the solver's single diagnostic transaction.
+		PRUnitTestMethod(HardwareReportsBreakState, Extended)
+		{
+			auto body = MakeConstraintGpuBody();
+			body.VelocityWS(v8motion{v4::Zero(), v4{5.0f, 0.0f, 0.0f, 0.0f}});
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body);
+			desc.m_frame_b.m_body = BodyRef::World();
+			desc.m_linear[0] = MakeConstraintGpuLockedAxis(1000.0f);
+			desc.m_break_force = 10.0f;
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+			auto break_states = std::vector<GpuConstraintBreakState>(upload.m_endpoints.size());
+			auto config = EngineConfig{};
+			config.push_out_iterations = 0;
+			config.constraint_warm_start_factor = 0.0f;
+			auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
+
+			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, upload, bodies, {}, {}, break_states);
+
+			PR_EXPECT(AllSet(break_states[0].flags, GpuConstraintBreakFlags_Broken));
+			PR_EXPECT(break_states[0].generation == upload.m_endpoints[0].generation);
+			PR_EXPECT(break_states[0].substep_index == 0);
+			PR_EXPECT(break_states[0].peak_force > desc.m_break_force);
+		}
+
 		// Measure end-to-end GPU solver scaling through at least one hundred thousand active scalar rows.
 		PRUnitTestMethod(HardwareHundredThousandRowScaling, Extended)
 		{
@@ -734,6 +866,70 @@ namespace pr::physics::tests
 			PR_EXPECT(body.O2W().pos.x < 0.5f);
 			PR_EXPECT(FEqlAbsolute(body.MomentumWS().ang, momentum_before.ang, 1.0e-6f));
 			PR_EXPECT(FEqlAbsolute(body.MomentumWS().lin, momentum_before.lin, 1.0e-6f));
+		}
+
+		// Detect an early-substep overload, publish one edge event through the sole frame readback, and require explicit repair.
+		PRUnitTestMethod(EngineBreaksAndRepairsConstraint, Quick)
+		{
+			auto shape = collision::ShapeSphere{0.25f};
+			auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(shape.m_radius, 1.0f)};
+			body.VelocityWS(v8motion{v4::Zero(), v4{5.0f, 0.0f, 0.0f, 0.0f}});
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body);
+			desc.m_frame_b.m_body = BodyRef::World();
+			desc.m_linear[0] = MakeConstraintGpuLockedAxis(1000.0f);
+			desc.m_break_force = 10.0f;
+			auto constraints = ConstraintSet{};
+			auto const handle = constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto events = std::vector<ConstraintBreakEvent>{};
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			engine.ConstraintsBroken += [&](auto&, auto broken)
+			{
+				events.insert(events.end(), broken.begin(), broken.end());
+			};
+
+			engine.Step(Engine::StepInput{
+				.m_bodies = body_ptrs,
+				.m_constraints = &constraints,
+				.m_elapsed_seconds = 1.0f / 30.0f,
+				.m_substep_count = 4,
+			});
+
+			PR_EXPECT(constraints.IsBroken(handle));
+			PR_EXPECT(events.size() == 1);
+			PR_EXPECT(events[0].m_constraint == handle);
+			PR_EXPECT(events[0].m_substep_index == 0);
+			PR_EXPECT(events[0].m_force > desc.m_break_force);
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+
+			// Routine descriptor updates preserve the broken state and cannot emit duplicate events.
+			auto updated = constraints.Get(handle);
+			updated.m_linear[0].m_target_position = 0.1f;
+			constraints.Update(handle, updated);
+			body.VelocityWS(v8motion{v4::Zero(), v4{5.0f, 0.0f, 0.0f, 0.0f}});
+			engine.Step(1.0f / 60.0f, body_ptrs, constraints);
+			PR_EXPECT(constraints.IsBroken(handle));
+			PR_EXPECT(events.size() == 1);
+
+			// Explicit repair reactivates the same stable handle and permits a later overload to generate a new edge event.
+			constraints.Repair(handle);
+			body.VelocityWS(v8motion{v4::Zero(), v4{5.0f, 0.0f, 0.0f, 0.0f}});
+			engine.Step(1.0f / 60.0f, body_ptrs, constraints);
+			PR_EXPECT(constraints.IsBroken(handle));
+			PR_EXPECT(events.size() == 2);
+			PR_EXPECT(events[1].m_constraint == handle);
+
+			// Repeated enable calls do not repair; a real disable-to-enable transition intentionally does.
+			constraints.SetEnabled(handle, true);
+			PR_EXPECT(constraints.IsBroken(handle));
+			constraints.SetEnabled(handle, false);
+			PR_EXPECT(constraints.IsBroken(handle));
+			constraints.SetEnabled(handle, true);
+			PR_EXPECT(!constraints.IsBroken(handle));
 		}
 
 		// Run articulation-only coupled work through shared stable-slot storage and the Engine's one-submission substep schedule.
