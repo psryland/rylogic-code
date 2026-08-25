@@ -243,6 +243,52 @@ namespace pr::compute::gpu_radix_sort
 			m_bound_to_external = true;
 		}
 
+		// Release every size-dependent and static resource while retaining compiled pipeline state for later reuse.
+		void ReleaseBuffers()
+		{
+			m_sort[0] = nullptr;
+			m_sort[1] = nullptr;
+			m_payload[0] = nullptr;
+			m_payload[1] = nullptr;
+			m_pass_histogram = nullptr;
+			m_global_histogram = nullptr;
+			m_error_count = nullptr;
+			m_size = 0;
+			m_bound_to_external = false;
+		}
+
+		// Return the exact number of dispatch commands recorded by one sort at the current bound size.
+		int SortDispatchCount() const
+		{
+			if (m_size == 0)
+				return 0;
+
+			auto const thread_blocks = s_cast<uint32_t>(DispatchCount(s_cast<int>(m_size), m_tuning.partition_size));
+			auto const full_blocks = thread_blocks / MaxDispatchDimension;
+			auto const partial_blocks = thread_blocks - full_blocks * MaxDispatchDimension;
+			auto const sweep_dispatch_count = (full_blocks != 0 ? 1 : 0) + (partial_blocks != 0 ? 1 : 0);
+			return 1 + RadixPasses * (2 * sweep_dispatch_count + 1);
+		}
+
+		// Return retained bytes owned by the sorter without charging externally bound key and payload streams.
+		size_t AllocatedBufferBytes() const
+		{
+			auto resource_bytes = [](D3DPtr<ID3D12Resource> const& resource)
+			{
+				return resource != nullptr ? static_cast<size_t>(resource->GetDesc().Width) : 0;
+			};
+			auto bytes =
+				resource_bytes(m_sort[1]) +
+				resource_bytes(m_payload[1]) +
+				resource_bytes(m_pass_histogram) +
+				resource_bytes(m_global_histogram) +
+				resource_bytes(m_error_count);
+			if (!m_bound_to_external)
+				bytes += resource_bytes(m_sort[0]) + resource_bytes(m_payload[0]);
+
+			return bytes;
+		}
+
 		// Resize the GPU buffers in preparation for sorting 'size' elements
 		void Resize(CmdList& cmd_list, int64_t size)
 		{
@@ -498,4 +544,3 @@ namespace pr::compute::gpu_radix_sort
 		}
 	};
 }
-

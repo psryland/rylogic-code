@@ -21,6 +21,7 @@
 #include "src/compute/resolve_gpu.h"
 #include "src/compute/constraint_solver_gpu.h"
 #include "src/compute/coupled_constraint_solver_gpu.h"
+#include "src/compute/coupled_contact_gpu.h"
 #include "src/compute/frame_output_gpu.h"
 #include "src/constraint/constraint_gpu.h"
 #include "src/compute/selective_gpu.h"
@@ -238,6 +239,7 @@ namespace pr::physics
 		, m_gpu_resolver(new GpuResolver(*m_gpu, m_config, shader_cache))
 		, m_gpu_constraint_solver()
 		, m_gpu_coupled_constraint_solver()
+		, m_gpu_coupled_contact_solver()
 		, m_gpu_articulation_force_aba()
 		, m_gpu_articulation_link_proxies()
 		, m_gpu_articulation_midpoint()
@@ -249,6 +251,7 @@ namespace pr::physics
 		, m_pending_step()
 		, m_constraints_active()
 		, m_coupled_constraints_active()
+		, m_coupled_contacts_active()
 		, m_last_step_profile()
 		, m_last_collision_stats()
 	{
@@ -292,11 +295,16 @@ namespace pr::physics
 		if (m_pending_step.m_active)
 			throw std::runtime_error("Engine::ResetCaches cannot run while a step is pending");
 
+		// Forget every topology-derived cache so subsequent caller-owned objects cannot inherit stale warm starts or resources.
 		m_cache->Reset();
 		m_gpu_coupled_constraint_solver.reset();
 		m_gpu_constraint_solver.reset();
+		if (m_gpu_coupled_contact_solver != nullptr)
+			m_gpu_coupled_contact_solver->Deactivate();
+
 		m_constraints_active = false;
 		m_coupled_constraints_active = false;
+		m_coupled_contacts_active = false;
 		m_last_collision_stats = {};
 	}
 
@@ -505,8 +513,11 @@ namespace pr::physics
 		}
 		m_constraints_active = constraint_upload.m_rigid_active_count != 0;
 		m_coupled_constraints_active = constraint_upload.m_coupled_active_count != 0;
+		m_coupled_contacts_active = articulation_contacts_active;
 		if (!m_constraints_active && !m_coupled_constraints_active && m_gpu_constraint_solver != nullptr)
 			m_gpu_constraint_solver->Deactivate();
+		if (!m_coupled_contacts_active && m_gpu_coupled_contact_solver != nullptr)
+			m_gpu_coupled_contact_solver->Deactivate();
 
 		// Persistent constraints may wake sleeping bodies, while active articulations always require their independent pure-tree dispatch.
 		if (m_config.sleeping_enabled && m_cache->AwakeDynamicCount() == 0 && !m_constraints_active && !m_coupled_constraints_active && articulations.empty())
@@ -574,6 +585,21 @@ namespace pr::physics
 			m_gpu_coupled_constraint_solver->Deactivate();
 		}
 
+		// Transient contact response exists only for frames containing shaped articulation links.
+		if (m_coupled_contacts_active)
+		{
+			if (m_gpu_articulation_force_aba == nullptr || m_gpu_articulation_link_proxies == nullptr)
+				throw std::logic_error("Coupled contact upload requires matching articulation resources");
+			if (m_gpu_coupled_contact_solver == nullptr)
+				m_gpu_coupled_contact_solver.reset(new GpuCoupledContactSolver(*m_gpu, *m_gpu_articulation_force_aba, *m_gpu_articulation_link_proxies, m_config));
+			if (!m_gpu_coupled_contact_solver->Upload(m_gpu->m_job, articulation_upload))
+				throw std::logic_error("GPU coupled contact solver rejected active packed topology");
+		}
+		else if (m_gpu_coupled_contact_solver != nullptr)
+		{
+			m_gpu_coupled_contact_solver->Deactivate();
+		}
+
 		// Allocate optional event storage only when the caller has requested collision records.
 		auto const collect_collision_events = !bodies.empty() && static_cast<bool>(Collisions);
 		auto const event_capacity = collect_collision_events ? m_config.max_collision_events : 0;
@@ -637,7 +663,7 @@ namespace pr::physics
 					}
 
 					// Publish the main coupled solve before selective passes recompile rows against the corrected articulation configuration.
-					if (m_coupled_constraints_active)
+					if (m_coupled_constraints_active || m_coupled_contacts_active)
 						m_gpu_articulation_link_proxies->Refresh(m_gpu->m_job, *m_gpu_integrator, m_cache->BroadphaseSortAxis());
 					{
 						auto profile_scope = ProfileScope<&Engine::StepProfile::m_selective_ms>(m_last_step_profile);
@@ -914,7 +940,8 @@ namespace pr::physics
 		auto bodies = m_gpu_integrator->Bodies();
 		auto* constraint_solver = m_constraints_active ? m_gpu_constraint_solver.get() : nullptr;
 		auto* coupled_constraint_solver = m_coupled_constraints_active ? m_gpu_coupled_constraint_solver.get() : nullptr;
-		m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, rigid_body_count, m_config.max_collision_pairs, dispatch, counters, contacts, bodies, m_materials->span(), 1.0f, -1, -1, 1.0f, false, constraint_solver, coupled_constraint_solver);
+		auto* coupled_contact_solver = m_coupled_contacts_active ? m_gpu_coupled_contact_solver.get() : nullptr;
+		m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, rigid_body_count, m_config.max_collision_pairs, dispatch, counters, contacts, bodies, m_materials->span(), 1.0f, -1, -1, 1.0f, false, constraint_solver, coupled_constraint_solver, coupled_contact_solver);
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{
@@ -1005,6 +1032,7 @@ namespace pr::physics
 				m_config.selective_refresh_resolve_support_only,
 				constraint_solver,
 				coupled_constraint_solver,
+				nullptr,
 				true);
 
 			// Each continuation may change generalized coordinates, so the next pass must consume current link frames.

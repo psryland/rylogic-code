@@ -21,6 +21,7 @@ namespace pr::physics
 		ComputeStep m_cs_finalize_shock_priority; // Parallel: finalise shock-biased sort keys
 		ComputeStep m_cs_assign_colours;          // Serial: greedy graph colouring on sorted contacts
 		ComputeStep m_cs_warm_start_clear;        // Parallel: clear current-frame warm-start cache
+		ComputeStep m_cs_load_warm_start;         // Parallel: load cached impulses into every current contact
 		ComputeStep m_cs_apply_warm_start;        // Parallel by colour: apply cached physical impulses
 		ComputeStep m_cs_store_warm_start;        // Parallel: store final physical impulses for next frame
 		ComputeStep m_cs_position_solve;          // Parallel: split position correction in colour batches
@@ -45,7 +46,7 @@ namespace pr::physics
 		explicit GpuResolver(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache);
 
 		// Resolve ordinary rigid contacts while retaining proxy-touching contacts for the coupled articulation lane.
-		void Resolve(GpuJob& job, float dt, int body_count, int rigid_body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale = 1.0f, int solver_iterations = -1, int position_iterations = -1, float restitution_scale = 1.0f, bool support_only = false, GpuConstraintSolver* constraint_solver = nullptr, GpuCoupledConstraintSolver* coupled_constraint_solver = nullptr, bool retain_constraint_impulses = false);
+		void Resolve(GpuJob& job, float dt, int body_count, int rigid_body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale = 1.0f, int solver_iterations = -1, int position_iterations = -1, float restitution_scale = 1.0f, bool support_only = false, GpuConstraintSolver* constraint_solver = nullptr, GpuCoupledConstraintSolver* coupled_constraint_solver = nullptr, GpuCoupledContactSolver* coupled_contact_solver = nullptr, bool retain_constraint_impulses = false);
 
 		// Mark the material buffer dirty so it is re-uploaded on the next resolve.
 		void MaterialsDirty();

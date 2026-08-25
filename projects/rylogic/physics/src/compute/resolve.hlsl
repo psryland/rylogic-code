@@ -972,12 +972,23 @@ void CSWarmStartClear(int3 DTID(dtid))
 	g_warm_start_curr[dtid.x].impulse = float4(0, 0, 0, 0);
 }
 
-// Apply one cached physical impulse to a contact. Callers guarantee that no other executing invocation can write either dynamic endpoint.
-void ApplyWarmStartContact(uint idx)
+// Load one cached physical impulse into the shared per-contact accumulator without mutating either endpoint.
+void LoadWarmStartContact(uint idx)
 {
 	GpuResolveContact c = g_contacts[idx];
 	float3 impulse = float3(0, 0, 0);
-	if (!LoadWarmStartImpulse(c, impulse))
+	LoadWarmStartImpulse(c, impulse);
+	c.warmstart_impulse = float4(impulse, 0);
+	g_contacts[idx] = c;
+}
+
+// Apply one previously loaded physical impulse to an ordinary rigid contact.
+// Callers guarantee that no other executing invocation can write either dynamic endpoint.
+void ApplyWarmStartContact(uint idx)
+{
+	GpuResolveContact c = g_contacts[idx];
+	float3 impulse = c.warmstart_impulse.xyz;
+	if (!any(impulse != float3(0, 0, 0)))
 		return;
 
 	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
@@ -1007,6 +1018,17 @@ void ApplyWarmStartContact(uint idx)
 	g_contacts[idx] = c;
 	g_bodies[c.body_idx_a] = bodyA;
 	g_bodies[c.body_idx_b] = bodyB;
+}
+
+// ----- CSLoadWarmStart -----
+// Loads every current contact before the rigid and articulation-coupled lanes consume their disjoint subsets.
+numthreads(CSLoadWarmStart, ResolveThreadCount, 1, 1)
+void CSLoadWarmStart(int3 DTID(dtid))
+{
+	if (dtid.x >= ContactCount())
+		return;
+
+	LoadWarmStartContact(dtid.x);
 }
 
 // ----- CSApplyWarmStart -----

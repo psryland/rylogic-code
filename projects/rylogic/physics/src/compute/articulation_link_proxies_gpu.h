@@ -9,6 +9,7 @@
 
 namespace pr::physics
 {
+	struct GpuCoupledContactSolver;
 	// Observable resource and dispatch costs for the optional articulation link-proxy lane.
 	struct GpuArticulationLinkProxyStats
 	{
@@ -24,6 +25,7 @@ namespace pr::physics
 	struct GpuArticulationLinkProxies
 	{
 	private:
+		friend GpuCoupledContactSolver;
 
 		GpuArticulationForceAba& m_aba;
 		EngineConfig const& m_config;

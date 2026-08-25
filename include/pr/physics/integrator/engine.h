@@ -195,6 +195,9 @@ namespace pr::physics
 		// Lazily created articulation-coupled constraint orchestration and transaction lanes.
 		GpuCoupledConstraintSolverPtr m_gpu_coupled_constraint_solver;
 
+		// Lazily created transient whole-tree contact response lane.
+		GpuCoupledContactSolverPtr m_gpu_coupled_contact_solver;
+
 		// Lazily created shared articulation dynamics resources.
 		GpuArticulationForceAbaPtr m_gpu_articulation_force_aba;
 
@@ -223,6 +226,7 @@ namespace pr::physics
 		PendingStep m_pending_step;
 		bool m_constraints_active;
 		bool m_coupled_constraints_active;
+		bool m_coupled_contacts_active;
 
 		// Diagnostics
 		StepProfile m_last_step_profile;

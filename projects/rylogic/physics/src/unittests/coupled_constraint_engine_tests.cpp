@@ -49,6 +49,16 @@ namespace pr::physics::tests
 			return {builder.Build(), root};
 		}
 
+		// Build one shaped floating root for transient articulation-contact acceptance cases.
+		std::pair<Articulation, LinkHandle> MakeContactFloatingRoot(collision::Shape const& shape, float position_x, float velocity_x = 0.0f)
+		{
+			auto link_desc = CoupledEngineLink();
+			link_desc.m_shape = &shape;
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFloatingRoot(link_desc, m4x4::Translation(position_x, 0.0f, 0.0f), v8motion{v4::Zero(), velocity_x * v4::XAxis()});
+			return {builder.Build(), root};
+		}
+
 		// Return one hard linear row between arbitrary supported endpoints.
 		D6ConstraintDesc CoupledEngineLinear(BodyRef endpoint_a, BodyRef endpoint_b, int axis = 0)
 		{
@@ -240,23 +250,27 @@ namespace pr::physics::tests
 			PR_EXPECT(constraint_error < 0.002f);
 		}
 
-		// Admit shaped proxies to broadphase and narrowphase without exposing or resolving them through rigid-only paths.
-		PRUnitTestMethod(ArticulationProxyContactsRemainCoupledOnly, Quick)
+		// Transfer one proxy impact through the floating tree while keeping proxy contacts private to the coupled lane.
+		PRUnitTestMethod(ArticulationProxyContactTransfersMomentumThroughWholeTree, Quick)
 		{
 			auto shape = collision::ShapeSphere{0.5f};
 			auto link_desc = CoupledEngineLink();
 			link_desc.m_shape = collision::shape_cast(&shape);
 			auto builder = ArticulationBuilder{};
-			auto const root = builder.AddFloatingRoot(link_desc, m4x4::Identity());
+			auto const initial_speed = 2.0f;
+			auto const root = builder.AddFloatingRoot(link_desc, m4x4::Identity(), v8motion{v4::Zero(), initial_speed * v4::XAxis()});
 			auto articulation = builder.Build();
-			auto body = RigidBody{&shape, m4x4::Translation(0.6f, 0.0f, 0.0f), Inertia::Sphere(shape.m_radius, 1.0f)};
+			auto body = RigidBody{&shape, m4x4::Translation(0.9f, 0.0f, 0.0f), Inertia::Sphere(shape.m_radius, 1.0f)};
 			auto body_ptrs = std::array<RigidBody*, 1>{&body};
 			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
-			auto const initial_body_transform = body.O2W();
-			auto const initial_root_transform = articulation.RootToWorld();
 			auto collision_event_count = 0;
 			auto& engine = SharedEngine();
 			ConfigureCoupledEngine(engine);
+			engine.Material(Material{
+				.m_id = Material::DefaultID,
+				.m_friction_static = 0.0f,
+				.m_elasticity_norm = 0.0f,
+			});
 			engine.Collisions += [&](Engine&, std::span<RbContact const> contacts)
 			{
 				collision_event_count += isize(contacts);
@@ -271,12 +285,257 @@ namespace pr::physics::tests
 			PR_EXPECT(engine.LastCollisionStats().m_pair_count == 1);
 			PR_EXPECT(engine.LastCollisionStats().m_contact_count != 0);
 			PR_EXPECT(collision_event_count == 0);
-			PR_EXPECT(FEqlAbsolute(body.O2W(), initial_body_transform, 1.0e-6f));
 			PR_EXPECT(FEqlAbsolute(body.MomentumWS().ang, v4::Zero(), 1.0e-6f));
-			PR_EXPECT(FEqlAbsolute(body.MomentumWS().lin, v4::Zero(), 1.0e-6f));
-			PR_EXPECT(FEqlAbsolute(articulation.RootToWorld(), initial_root_transform, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).ang, v4::Zero(), 1.0e-6f));
+			PR_EXPECT(body.MomentumWS().lin.x > 0.1f);
+			PR_EXPECT(articulation.LinkVelocity(root).lin.x < initial_speed - 0.1f);
+			PR_EXPECT(Abs(body.MomentumWS().lin.x + articulation.LinkVelocity(root).lin.x - initial_speed) < 1.0e-3f);
+			auto const uncorrected_separation = 0.9f - initial_speed / 60.0f;
+			auto const corrected_separation = body.O2W().pos.x - articulation.LinkToWorld(root).pos.x;
+			PR_EXPECT(corrected_separation > uncorrected_separation + 0.01f);
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+		}
+
+		// Preserve a rigid impulse when its body index and contact index occupy different GPU groups.
+		PRUnitTestMethod(RigidEndpointIndexDoesNotAliasContactIndex, Quick)
+		{
+			auto proxy_shape = collision::ShapeSphere{0.5f};
+			auto filler_shape = collision::ShapeSphere{0.1f};
+			auto [articulation, root] = MakeContactFloatingRoot(proxy_shape, 0.0f, 2.0f);
+			auto bodies = std::vector<RigidBody>{};
+			bodies.reserve(65);
+
+			// Keep the first 64 ordinary bodies isolated so the only contact has contact index zero and rigid endpoint index 64.
+			for (int index = 0; index != 64; ++index)
+				bodies.emplace_back(&filler_shape, m4x4::Translation(100.0f + 2.0f * index, 0.0f, 0.0f), Inertia::Sphere(filler_shape.m_radius, 1.0f));
+
+			bodies.emplace_back(&proxy_shape, m4x4::Translation(0.9f, 0.0f, 0.0f), Inertia::Sphere(proxy_shape.m_radius, 1.0f));
+			auto body_ptrs = std::vector<RigidBody*>{};
+			body_ptrs.reserve(bodies.size());
+			for (auto& body : bodies)
+				body_ptrs.push_back(&body);
+
+			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			engine.Material(Material{
+				.m_id = Material::DefaultID,
+				.m_friction_static = 0.0f,
+				.m_elasticity_norm = 0.0f,
+			});
+
+			engine.Step(Engine::StepInput{
+				.m_bodies = body_ptrs,
+				.m_articulations = articulation_ptrs,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+
+			auto const rigid_momentum = bodies.back().MomentumWS().lin.x;
+			auto const articulation_momentum = articulation.LinkVelocity(root).lin.x;
+			PR_EXPECT(engine.LastCollisionStats().m_pair_count == 1);
+			PR_EXPECT(engine.LastCollisionStats().m_contact_count != 0);
+			PR_EXPECT(rigid_momentum > 0.1f);
+			PR_EXPECT(Abs(rigid_momentum + articulation_momentum - 2.0f) < 1.0e-3f);
+		}
+
+		// Separate an initially resting floating tree from fixed geometry without changing physical momentum.
+		PRUnitTestMethod(ArticulationProxyContactCorrectsPositionWithoutMomentum, Quick)
+		{
+			auto shape = collision::ShapeSphere{0.5f};
+			auto link_desc = CoupledEngineLink();
+			link_desc.m_shape = collision::shape_cast(&shape);
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFloatingRoot(link_desc);
+			auto articulation = builder.Build();
+			auto ground = RigidBody{&shape, m4x4::Translation(0.9f, 0.0f, 0.0f), Inertia::Infinite()};
+			auto body_ptrs = std::array<RigidBody*, 1>{&ground};
+			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			engine.Material(Material{
+				.m_id = Material::DefaultID,
+				.m_friction_static = 0.0f,
+				.m_elasticity_norm = 0.0f,
+			});
+
+			engine.Step(Engine::StepInput{
+				.m_bodies = body_ptrs,
+				.m_articulations = articulation_ptrs,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+
+			auto const separation = ground.O2W().pos.x - articulation.LinkToWorld(root).pos.x;
+			PR_EXPECT(engine.LastCollisionStats().m_contact_count != 0);
+			PR_EXPECT(separation > 0.91f);
+			PR_EXPECT(FEqlAbsolute(ground.O2W().pos, v4{0.9f, 0.0f, 0.0f, 1.0f}, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(ground.MomentumWS().ang, v4::Zero(), 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(ground.MomentumWS().lin, v4::Zero(), 1.0e-6f));
 			PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).ang, v4::Zero(), 1.0e-6f));
 			PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).lin, v4::Zero(), 1.0e-6f));
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+		}
+
+		// Exchange momentum directly between two independent trees without introducing a rigid-body intermediary.
+		PRUnitTestMethod(ArticulationToArticulationContactTransfersMomentum, Quick)
+		{
+			auto shape = collision::ShapeSphere{0.5f};
+			auto [articulation_a, root_a] = MakeContactFloatingRoot(shape, 0.0f, 2.0f);
+			auto [articulation_b, root_b] = MakeContactFloatingRoot(shape, 0.9f);
+			auto articulation_ptrs = std::array<Articulation*, 2>{&articulation_a, &articulation_b};
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			engine.Material(Material{
+				.m_id = Material::DefaultID,
+				.m_friction_static = 0.0f,
+				.m_elasticity_norm = 0.0f,
+			});
+
+			engine.Step(Engine::StepInput{
+				.m_articulations = articulation_ptrs,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+
+			auto const velocity_a = articulation_a.LinkVelocity(root_a).lin.x;
+			auto const velocity_b = articulation_b.LinkVelocity(root_b).lin.x;
+			PR_EXPECT(engine.LastCollisionStats().m_pair_count == 1);
+			PR_EXPECT(engine.LastCollisionStats().m_contact_count != 0);
+			PR_EXPECT(velocity_a < 1.9f);
+			PR_EXPECT(velocity_b > 0.1f);
+			PR_EXPECT(Abs(velocity_a + velocity_b - 2.0f) < 1.0e-3f);
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+		}
+
+		// Drive a fixed-root prismatic coordinate from an external impact while preserving passive contact response.
+		PRUnitTestMethod(FixedRootContactDrivesJointVelocityWithoutEnergyGain, Quick)
+		{
+			auto shape = collision::ShapeSphere{0.5f};
+			auto link_desc = CoupledEngineLink();
+			link_desc.m_shape = collision::shape_cast(&shape);
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFixedRoot(CoupledEngineLink(2.0f));
+			auto const link = builder.AddLink(root, ArticulationJointDesc::Prismatic(v4::XAxis()), link_desc);
+			auto articulation = builder.Build();
+			auto body = RigidBody{&shape, m4x4::Translation(0.9f, 0.0f, 0.0f), Inertia::Sphere(shape.m_radius, 1.0f)};
+			body.VelocityWS(v4::Zero(), -2.0f * v4::XAxis());
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			engine.Material(Material{
+				.m_id = Material::DefaultID,
+				.m_friction_static = 0.0f,
+				.m_elasticity_norm = 0.0f,
+			});
+
+			engine.Step(Engine::StepInput{
+				.m_bodies = body_ptrs,
+				.m_articulations = articulation_ptrs,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+
+			auto const body_speed = body.VelocityWS().lin.x;
+			auto const joint_speed = articulation.JointVelocity(link)[0];
+			auto const final_energy = 0.5f * (Sqr(body_speed) + Sqr(joint_speed));
+			PR_EXPECT(engine.LastCollisionStats().m_contact_count != 0);
+			PR_EXPECT(body_speed > -1.9f);
+			PR_EXPECT(joint_speed < -0.1f);
+			PR_EXPECT(final_energy <= 2.001f);
+		}
+
+		// Correct a non-adjacent same-tree overlap through a reduced coordinate while leaving physical velocity untouched.
+		PRUnitTestMethod(SelfContactCorrectsFixedRootJointWithoutMomentum, Quick)
+		{
+			auto shape = collision::ShapeSphere{0.5f};
+			auto root_desc = CoupledEngineLink(2.0f);
+			root_desc.m_shape = collision::shape_cast(&shape);
+			root_desc.m_collide_self = true;
+			auto moving_desc = CoupledEngineLink();
+			moving_desc.m_shape = collision::shape_cast(&shape);
+			moving_desc.m_collide_self = true;
+			auto joint = ArticulationJointDesc::Prismatic(v4::XAxis());
+			joint.m_initial_position[0] = 0.9f;
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFixedRoot(root_desc);
+			auto const middle = builder.AddLink(root, ArticulationJointDesc::Fixed(), CoupledEngineLink());
+			auto const moving = builder.AddLink(middle, joint, moving_desc);
+			auto articulation = builder.Build();
+			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			engine.Material(Material{
+				.m_id = Material::DefaultID,
+				.m_friction_static = 0.0f,
+				.m_elasticity_norm = 0.0f,
+			});
+
+			engine.Step(Engine::StepInput{
+				.m_articulations = articulation_ptrs,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+
+			PR_EXPECT(engine.LastCollisionStats().m_pair_count == 1);
+			PR_EXPECT(engine.LastCollisionStats().m_contact_count != 0);
+			PR_EXPECT(articulation.JointPosition(moving)[0] > 0.91f);
+			PR_EXPECT(Abs(articulation.JointVelocity(moving)[0]) < 1.0e-6f);
+		}
+
+		// Keep equal-key endpoint reduction deterministic and passive across warm-started internal substeps and resource reuse.
+		PRUnitTestMethod(EqualKeyContactReductionIsDeterministicAndPassive, Quick)
+		{
+			auto shape = collision::ShapeSphere{0.5f};
+			auto& engine = SharedEngine();
+
+			// Run a symmetric pair of contacts that reduce two endpoint contributions into the same articulation link.
+			auto run_scenario = [&]
+			{
+				auto [articulation, root] = MakeContactFloatingRoot(shape, 0.0f);
+				auto body_a = RigidBody{&shape, m4x4::Translation(-0.9f, 0.0f, 0.0f), Inertia::Sphere(shape.m_radius, 1.0f)};
+				auto body_b = RigidBody{&shape, m4x4::Translation(+0.9f, 0.0f, 0.0f), Inertia::Sphere(shape.m_radius, 1.0f)};
+				body_a.VelocityWS(v4::Zero(), +v4::XAxis());
+				body_b.VelocityWS(v4::Zero(), -v4::XAxis());
+				auto body_ptrs = std::array<RigidBody*, 2>{&body_a, &body_b};
+				auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+				ConfigureCoupledEngine(engine);
+				engine.Material(Material{
+					.m_id = Material::DefaultID,
+					.m_friction_static = 0.0f,
+					.m_elasticity_norm = 0.0f,
+				});
+
+				engine.Step(Engine::StepInput{
+					.m_bodies = body_ptrs,
+					.m_articulations = articulation_ptrs,
+					.m_elapsed_seconds = 1.0f / 30.0f,
+					.m_substep_count = 4,
+				});
+
+				auto const velocity_a = body_a.VelocityWS().lin.x;
+				auto const velocity_b = body_b.VelocityWS().lin.x;
+				auto const root_velocity = articulation.LinkVelocity(root).lin.x;
+				auto const final_energy = 0.5f * (Sqr(velocity_a) + Sqr(velocity_b) + Sqr(root_velocity));
+				PR_EXPECT(final_energy <= 1.001f);
+				PR_EXPECT(Abs(velocity_a + velocity_b + root_velocity) < 2.0e-3f);
+				PR_EXPECT(engine.LastStepProfile().m_substep_count == 4);
+				PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+				PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
+				PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+				return std::array{
+					body_a.O2W().pos.x,
+					body_b.O2W().pos.x,
+					articulation.RootToWorld().pos.x,
+					velocity_a,
+					velocity_b,
+					root_velocity,
+				};
+			};
+
+			auto const result_a = run_scenario();
+			auto const result_b = run_scenario();
+			for (int index = 0; index != isize(result_a); ++index)
+				PR_EXPECT(Abs(result_a[index] - result_b[index]) < 1.0e-6f);
 		}
 
 		// Enforce adjacent and broader same-tree collision policies without growing exclusion storage quadratically.

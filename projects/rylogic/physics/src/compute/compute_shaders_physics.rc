@@ -3,7 +3,7 @@
 //
 // Touch this comment any time an .hlsl/.hlsli file referenced below is edited so MSBuild
 // invalidates compute_shaders_physics.res — RC dependency tracking does not follow .hlsl edits.
-// Touched: 2026-08-28 (detached articulation impulse evaluation and selective commit)
+// Touched: 2026-08-29 (transient whole-tree articulation contact response)
 src/compute/articulation_force_aba.hlsl TEXT DISCARDABLE "src/compute/articulation_force_aba.hlsl"
 src/compute/articulation_mobility.hlsl TEXT DISCARDABLE "src/compute/articulation_mobility.hlsl"
 src/compute/articulation_impulse_aba.hlsl TEXT DISCARDABLE "src/compute/articulation_impulse_aba.hlsl"
@@ -12,6 +12,7 @@ src/compute/constraint_solver.hlsl TEXT DISCARDABLE "src/compute/constraint_solv
 src/compute/constraint_solver_ops.hlsli TEXT DISCARDABLE "src/compute/constraint_solver_ops.hlsli"
 src/compute/coupled_constraint_prepare.hlsl TEXT DISCARDABLE "src/compute/coupled_constraint_prepare.hlsl"
 src/compute/coupled_constraint_velocity.hlsl TEXT DISCARDABLE "src/compute/coupled_constraint_velocity.hlsl"
+src/compute/coupled_contact.hlsl TEXT DISCARDABLE "src/compute/coupled_contact.hlsl"
 src/compute/collide.hlsl        TEXT DISCARDABLE "src/compute/collide.hlsl"
 src/compute/collision.hlsli     TEXT DISCARDABLE "src/compute/collision.hlsli"
 src/compute/gjk.hlsli           TEXT DISCARDABLE "src/compute/gjk.hlsli"

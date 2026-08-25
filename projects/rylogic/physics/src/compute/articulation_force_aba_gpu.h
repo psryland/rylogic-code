@@ -9,6 +9,7 @@
 
 namespace pr::physics
 {
+	struct GpuCoupledContactSolver;
 	struct GpuArticulationMidpoint;
 	struct GpuArticulationMobility;
 	struct GpuArticulationImpulseAba;
@@ -62,6 +63,7 @@ namespace pr::physics
 		friend GpuArticulationMobility;
 		friend GpuArticulationImpulseAba;
 		friend GpuArticulationLinkProxies;
+		friend GpuCoupledContactSolver;
 		friend GpuCoupledConstraintSolver;
 		friend GpuCoupledConstraintPrepare;
 		friend GpuCoupledConstraintPosition;

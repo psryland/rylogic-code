@@ -314,6 +314,35 @@ struct GpuWarmStartEntry
 	float4 impulse; // Cached physical impulse in body A space.
 };
 
+// Exact-self contact block data retained while transient proxy contacts are solved at one fixed configuration.
+struct GpuCoupledContactBlock
+{
+	float4 inverse_response_0; // First row of the inverse 3x3 point-response matrix in body A space.
+	float4 inverse_response_1; // Second row of the inverse 3x3 point-response matrix in body A space.
+	float4 inverse_response_2; // Third row of the inverse 3x3 point-response matrix in body A space.
+	float target_normal_speed; // Restitution target captured before warm starting.
+	float friction;            // Coulomb cone slope for the combined material pair.
+	int participant_a;         // Degree-damping participant, or -1 for an immovable endpoint.
+	int participant_b;         // Degree-damping participant, or -1 for an immovable endpoint.
+};
+
+// Detached physical and position-level candidates for one transient proxy contact.
+struct GpuCoupledContactScratch
+{
+	float4 candidate_impulse; // Candidate accumulated physical impulse in body A space; w is one for a valid active block.
+	float4 position_impulse; // Committed position-only accumulated impulse in body A space.
+	float4 candidate_position_impulse; // Candidate position-only accumulated impulse in body A space.
+};
+
+// One global finite transaction shared by all transient contacts in a resolver pass.
+struct GpuCoupledContactState
+{
+	uint valid;
+	uint failure_flags;
+	uint pad0;
+	uint pad1;
+};
+
 // Compact endpoint-local constraint frame. Rotation is a normalised {x,y,z,w} quaternion and position is a point.
 struct GpuConstraintFrame
 {

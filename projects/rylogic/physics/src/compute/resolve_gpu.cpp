@@ -6,6 +6,7 @@
 #include "src/compute/resolve_gpu.h"
 #include "src/compute/constraint_solver_gpu.h"
 #include "src/compute/coupled_constraint_solver_gpu.h"
+#include "src/compute/coupled_contact_gpu.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/shader_code.h"
 
@@ -88,6 +89,7 @@ namespace pr::physics
 		, m_cs_finalize_shock_priority()
 		, m_cs_assign_colours()
 		, m_cs_warm_start_clear()
+		, m_cs_load_warm_start()
 		, m_cs_apply_warm_start()
 		, m_cs_store_warm_start()
 		, m_cs_position_solve()
@@ -186,6 +188,7 @@ namespace pr::physics
 			};
 
 			compile_step(m_cs_warm_start_clear, shader_code::warm_start_clear, "WarmStartClear");
+			compile_step(m_cs_load_warm_start, shader_code::load_warm_start, "LoadWarmStart");
 			compile_step(m_cs_apply_warm_start, shader_code::apply_warm_start, "ApplyWarmStart");
 			compile_step(m_cs_store_warm_start, shader_code::store_warm_start, "StoreWarmStart");
 		}
@@ -272,7 +275,7 @@ namespace pr::physics
 	}
 
 	// Resolve ordinary rigid contacts while retaining proxy-touching contacts for the coupled articulation lane.
-	void GpuResolver::Resolve(GpuJob& job, float dt, int body_count, int rigid_body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale, int solver_iterations_, int push_out_iterations, float restitution_scale, bool support_only, GpuConstraintSolver* constraint_solver, GpuCoupledConstraintSolver* coupled_constraint_solver, bool retain_constraint_impulses)
+	void GpuResolver::Resolve(GpuJob& job, float dt, int body_count, int rigid_body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale, int solver_iterations_, int push_out_iterations, float restitution_scale, bool support_only, GpuConstraintSolver* constraint_solver, GpuCoupledConstraintSolver* coupled_constraint_solver, GpuCoupledContactSolver* coupled_contact_solver, bool retain_constraint_impulses)
 	{
 		if (rigid_body_count < 0 || rigid_body_count > body_count)
 			throw std::invalid_argument("GPU resolver rigid-body prefix is outside the submitted body range");
@@ -511,7 +514,19 @@ namespace pr::physics
 		if (coupled_constraint_solver != nullptr)
 			coupled_constraint_solver->PrepareVelocity(job, dt, rigid_body_count, bodies.get(), retain_constraint_impulses);
 
-		// Apply cached physical impulses before the iterative solves so resting stacks start close to last frame's support solution.
+		// Load cached contact impulses once so the rigid and articulation-coupled lanes consume one shared accumulator without duplicate cache probes.
+		if (m_config.warm_start_scale > 0.0f)
+		{
+			bind_warm_start_step(m_cs_load_warm_start, m_r_warm_start_curr.get());
+			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
+			commit_warm_start_barriers();
+		}
+
+		// Exact articulation self-mobility and contact blocks depend on the collision frame and the loaded warm-start accumulator.
+		if (coupled_contact_solver != nullptr)
+			coupled_contact_solver->PrepareVelocity(job, dt, body_count, rigid_body_count, max_contacts, counters, contacts, bodies, m_r_materials, restitution_scale);
+
+		// Apply the loaded physical impulses before the iterative solves so resting contacts start close to the previous support solution.
 		if (m_config.warm_start_scale > 0.0f)
 		{
 			for (int colour = 0; colour != MaxColours; ++colour)
@@ -523,6 +538,8 @@ namespace pr::physics
 				commit_warm_start_barriers();
 			}
 			cb_resolve.colour = 0;
+			if (coupled_contact_solver != nullptr)
+				coupled_contact_solver->ApplyWarmStart(job);
 		}
 		if (!retain_constraint_impulses)
 		{
@@ -533,12 +550,15 @@ namespace pr::physics
 		}
 
 		// Keep the long-established contact-only ordering unchanged while coupled rows use velocity-first fixed-configuration solving.
-		auto const has_constraint_work = constraint_solver != nullptr || coupled_constraint_solver != nullptr;
+		auto const has_constraint_work = constraint_solver != nullptr || coupled_constraint_solver != nullptr || coupled_contact_solver != nullptr;
 		auto solve_position = [&]
 		{
 			auto const coupled_position_active =
 				coupled_constraint_solver != nullptr &&
 				coupled_constraint_solver->PreparePosition(job, dt, rigid_body_count, bodies.get());
+			auto const coupled_contact_position_active =
+				coupled_contact_solver != nullptr &&
+				coupled_contact_solver->PreparePosition(job, push_out_steps);
 
 			// Split position correction in colour batches.
 			if (push_out_steps != 0)
@@ -576,6 +596,8 @@ namespace pr::physics
 						constraint_solver->SolvePositionIteration(job, dt, rigid_body_count, push_out_steps, bodies);
 					if (coupled_position_active)
 						coupled_constraint_solver->SolvePositionIteration(job, bodies.get());
+					if (coupled_contact_position_active)
+						coupled_contact_solver->SolvePositionIteration(job);
 				}
 				cb_resolve.colour = 0;
 			}
@@ -585,6 +607,8 @@ namespace pr::physics
 				coupled_constraint_solver->ApplyPosition(job, bodies.get());
 			else if (constraint_solver != nullptr)
 				constraint_solver->ApplyPosition(job, dt, rigid_body_count, push_out_steps, bodies);
+			if (coupled_contact_position_active)
+				coupled_contact_solver->ApplyPosition(job);
 		};
 
 		auto solve_velocity = [&]
@@ -625,11 +649,13 @@ namespace pr::physics
 					constraint_solver->SolveVelocityIteration(job, dt, rigid_body_count, bodies);
 				if (coupled_constraint_solver != nullptr)
 					coupled_constraint_solver->SolveVelocityIteration(job, rigid_body_count, bodies.get());
+				if (coupled_contact_solver != nullptr)
+					coupled_contact_solver->SolveVelocityIteration(job);
 			}
 			cb_resolve.colour = 0;
 		};
 
-		if (coupled_constraint_solver != nullptr)
+		if (coupled_constraint_solver != nullptr || coupled_contact_solver != nullptr)
 		{
 			// Physical impulses establish the fixed-configuration state before any detached coordinate correction.
 			solve_velocity();

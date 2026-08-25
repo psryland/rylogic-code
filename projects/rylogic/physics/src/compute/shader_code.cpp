@@ -119,10 +119,25 @@ namespace pr::physics::shader_code
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(finalize_shock_priority_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(assign_colours_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(warm_start_clear_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(load_warm_start_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(apply_warm_start_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(store_warm_start_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(position_solve_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(resolve_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(clear_coupled_contacts_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(prepare_coupled_contacts_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(prepare_coupled_contact_position_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(begin_coupled_contact_transaction_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(build_coupled_contact_warm_start_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(build_coupled_contact_candidates_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(build_coupled_contact_position_candidates_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(gather_coupled_contact_targets_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(validate_coupled_contact_trees_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(validate_coupled_contact_position_trees_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(select_coupled_contact_trees_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(commit_coupled_contacts_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(commit_coupled_contact_position_articulations_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(apply_coupled_contact_position_cs.h)
 	}
 	ByteCode const compute_collision_times(compiled::compute_collision_times_cs);
 	ByteCode const clear_shock_lists(compiled::clear_shock_lists_cs);
@@ -132,10 +147,25 @@ namespace pr::physics::shader_code
 	ByteCode const finalize_shock_priority(compiled::finalize_shock_priority_cs);
 	ByteCode const assign_colours(compiled::assign_colours_cs);
 	ByteCode const warm_start_clear(compiled::warm_start_clear_cs);
+	ByteCode const load_warm_start(compiled::load_warm_start_cs);
 	ByteCode const apply_warm_start(compiled::apply_warm_start_cs);
 	ByteCode const store_warm_start(compiled::store_warm_start_cs);
 	ByteCode const position_solve(compiled::position_solve_cs);
 	ByteCode const resolve(compiled::resolve_cs);
+	ByteCode const clear_coupled_contacts(compiled::clear_coupled_contacts_cs);
+	ByteCode const prepare_coupled_contacts(compiled::prepare_coupled_contacts_cs);
+	ByteCode const prepare_coupled_contact_position(compiled::prepare_coupled_contact_position_cs);
+	ByteCode const begin_coupled_contact_transaction(compiled::begin_coupled_contact_transaction_cs);
+	ByteCode const build_coupled_contact_warm_start(compiled::build_coupled_contact_warm_start_cs);
+	ByteCode const build_coupled_contact_candidates(compiled::build_coupled_contact_candidates_cs);
+	ByteCode const build_coupled_contact_position_candidates(compiled::build_coupled_contact_position_candidates_cs);
+	ByteCode const gather_coupled_contact_targets(compiled::gather_coupled_contact_targets_cs);
+	ByteCode const validate_coupled_contact_trees(compiled::validate_coupled_contact_trees_cs);
+	ByteCode const validate_coupled_contact_position_trees(compiled::validate_coupled_contact_position_trees_cs);
+	ByteCode const select_coupled_contact_trees(compiled::select_coupled_contact_trees_cs);
+	ByteCode const commit_coupled_contacts(compiled::commit_coupled_contacts_cs);
+	ByteCode const commit_coupled_contact_position_articulations(compiled::commit_coupled_contact_position_articulations_cs);
+	ByteCode const apply_coupled_contact_position(compiled::apply_coupled_contact_position_cs);
 
 	// Persistent rigid constraints
 	namespace compiled

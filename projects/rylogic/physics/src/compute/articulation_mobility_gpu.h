@@ -9,6 +9,7 @@
 namespace pr::physics
 {
 	struct GpuArticulationImpulseAba;
+	struct GpuCoupledContactSolver;
 	struct GpuCoupledConstraintPosition;
 	struct GpuCoupledConstraintPrepare;
 	struct GpuCoupledConstraintSolver;
@@ -43,6 +44,7 @@ namespace pr::physics
 	{
 	private:
 		friend GpuArticulationImpulseAba;
+		friend GpuCoupledContactSolver;
 		friend GpuCoupledConstraintPosition;
 		friend GpuCoupledConstraintPrepare;
 		friend GpuCoupledConstraintSolver;

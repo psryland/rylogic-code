@@ -24,6 +24,7 @@ namespace pr::physics
 	using ReadbackAlloc = ::pr::compute::GpuReadbackBuffer::Allocation;
 	using BoundsSorter = ::pr::compute::gpu_radix_sort::GpuRadixSort<float, uint32_t, true, D3D12_COMMAND_LIST_TYPE_COMPUTE>;
 	using ContactSorter = ::pr::compute::gpu_radix_sort::GpuRadixSort<float, uint32_t, true, D3D12_COMMAND_LIST_TYPE_COMPUTE>;
+	using ContactEndpointSorter = ::pr::compute::gpu_radix_sort::GpuRadixSort<uint32_t, uint32_t, true, D3D12_COMMAND_LIST_TYPE_COMPUTE>;
 
 	struct Gpu
 	{

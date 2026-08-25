@@ -27,6 +27,9 @@ namespace pr::physics
 	static_assert((sizeof(GpuContact) & 0xf) == 0);
 	static_assert((sizeof(GpuResolveContact) & 0xf) == 0);
 	static_assert((sizeof(GpuWarmStartEntry) & 0xf) == 0);
+	static_assert(sizeof(GpuCoupledContactBlock) == 64);
+	static_assert(sizeof(GpuCoupledContactScratch) == 48);
+	static_assert(sizeof(GpuCoupledContactState) == 16);
 	static_assert(sizeof(GpuConstraintFrame) == 32);
 	static_assert(sizeof(GpuConstraintAxisDesc) == 32);
 	static_assert(sizeof(GpuD6ConstraintDesc) == 256);
