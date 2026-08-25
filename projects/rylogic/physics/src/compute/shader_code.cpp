@@ -166,6 +166,8 @@ namespace pr::physics::shader_code
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(articulation_midpoint_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(articulation_prepare_mobility_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(articulation_apply_impulses_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(articulation_evaluate_impulses_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(articulation_commit_impulses_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(articulation_gather_proxy_forces_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(articulation_refresh_proxies_cs.h)
 	}
@@ -176,6 +178,8 @@ namespace pr::physics::shader_code
 	ByteCode const articulation_midpoint(compiled::articulation_midpoint_cs);
 	ByteCode const articulation_prepare_mobility(compiled::articulation_prepare_mobility_cs);
 	ByteCode const articulation_apply_impulses(compiled::articulation_apply_impulses_cs);
+	ByteCode const articulation_evaluate_impulses(compiled::articulation_evaluate_impulses_cs);
+	ByteCode const articulation_commit_impulses(compiled::articulation_commit_impulses_cs);
 	ByteCode const articulation_gather_proxy_forces(compiled::articulation_gather_proxy_forces_cs);
 	ByteCode const articulation_refresh_proxies(compiled::articulation_refresh_proxies_cs);
 

@@ -217,6 +217,66 @@ namespace pr::physics::tests
 			PR_EXPECT(std::memcmp(first.Scratch().data(), second.Scratch().data(), first.Scratch().size_bytes()) == 0);
 		}
 
+		// Detached evaluation exposes the exact link response without changing state, and selective commit matches immediate application.
+		PRUnitTestMethod(ReplayEvaluatesBeforeSelectiveCommit, Quick)
+		{
+			auto articulation = BuildImpulseTree(EArticulationRootType::Floating, 8);
+			auto requests = std::vector<ArticulationImpulse>{};
+			auto const impulses = BuildImpulseStream(articulation, requests);
+			auto forest = std::array{&articulation};
+			auto const upload = PackGpuArticulations(forest);
+			auto const participants = std::array{0};
+			auto const zero_impulses = std::vector<GpuArticulationSpatialVector>(articulation.LinkCount());
+			auto runner = ArticulationImpulseAbaInteropRunner{};
+			runner.Run(upload, participants, zero_impulses);
+			auto const velocities_before = std::vector<float>(runner.Velocities().begin(), runner.Velocities().end());
+			auto const scratch_before = std::vector<GpuArticulationAbaScratch>(runner.Scratch().begin(), runner.Scratch().end());
+
+			auto const selected = std::array<uint32_t, 1>{1};
+			auto const results = runner.Evaluate(impulses, selected);
+			PR_EXPECT(results.size() == 1);
+			PR_EXPECT(results[0] == 1);
+			PR_EXPECT(std::memcmp(runner.Velocities().data(), velocities_before.data(), runner.Velocities().size_bytes()) == 0);
+			PR_EXPECT(std::memcmp(runner.Scratch().data(), scratch_before.data(), runner.Scratch().size_bytes()) == 0);
+			PR_EXPECT(std::ranges::any_of(runner.Work(), [](GpuArticulationSpatialVector const& value)
+			{
+				return LengthSq(value.ang) + LengthSq(value.lin) > 1.0e-8f;
+			}));
+
+			auto expected = ArticulationImpulseAbaInteropRunner{};
+			expected.Run(upload, participants, impulses);
+			runner.Commit(selected);
+			PR_EXPECT(std::memcmp(runner.Velocities().data(), expected.Velocities().data(), runner.Velocities().size_bytes()) == 0);
+			PR_EXPECT(std::memcmp(runner.Scratch().data(), expected.Scratch().data(), runner.Scratch().size_bytes()) == 0);
+		}
+
+		// A failed detached candidate remains transient so a later bounded retry can reuse the valid retained factors.
+		PRUnitTestMethod(ReplayRejectedEvaluationPreservesFactors, Quick)
+		{
+			auto articulation = BuildImpulseTree(EArticulationRootType::Floating, 9);
+			auto forest = std::array{&articulation};
+			auto const upload = PackGpuArticulations(forest);
+			auto const participants = std::array{0};
+			auto const zero_impulses = std::vector<GpuArticulationSpatialVector>(articulation.LinkCount());
+			auto runner = ArticulationImpulseAbaInteropRunner{};
+			runner.Run(upload, participants, zero_impulses);
+			auto const velocities_before = std::vector<float>(runner.Velocities().begin(), runner.Velocities().end());
+			auto const scratch_before = std::vector<GpuArticulationAbaScratch>(runner.Scratch().begin(), runner.Scratch().end());
+
+			auto impulses = zero_impulses;
+			impulses.back().lin.x = std::numeric_limits<float>::quiet_NaN();
+			auto const selected = std::array<uint32_t, 1>{1};
+			auto const results = runner.Evaluate(impulses, selected);
+			PR_EXPECT(results[0] == 0);
+			PR_EXPECT(runner.Scratch()[0].solve_valid != 0);
+			PR_EXPECT(std::memcmp(runner.Velocities().data(), velocities_before.data(), runner.Velocities().size_bytes()) == 0);
+			PR_EXPECT(std::memcmp(runner.Scratch().data(), scratch_before.data(), runner.Scratch().size_bytes()) == 0);
+
+			runner.Commit(selected);
+			PR_EXPECT(std::memcmp(runner.Velocities().data(), velocities_before.data(), runner.Velocities().size_bytes()) == 0);
+			PR_EXPECT(std::memcmp(runner.Scratch().data(), scratch_before.data(), runner.Scratch().size_bytes()) == 0);
+		}
+
 		// Reject invalid gathered impulses transactionally without changing any generalized velocity.
 		PRUnitTestMethod(ReplayRejectsNonFiniteImpulse, Quick)
 		{

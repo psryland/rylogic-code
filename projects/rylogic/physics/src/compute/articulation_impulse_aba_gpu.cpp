@@ -27,12 +27,14 @@ namespace pr::physics
 			inline static constexpr auto Children = ESRVReg::t7;
 			inline static constexpr auto LinkMobilities = ESRVReg::t8;
 			inline static constexpr auto LinkImpulses = ESRVReg::t9;
+			inline static constexpr auto Selection = ESRVReg::t10;
 			inline static constexpr auto Velocities = EUAVReg::u0;
 			inline static constexpr auto Accelerations = EUAVReg::u1;
 			inline static constexpr auto AbaScratch = EUAVReg::u2;
 			inline static constexpr auto AbaDofScratch = EUAVReg::u3;
 			inline static constexpr auto InverseJointInertia = EUAVReg::u4;
 			inline static constexpr auto ImpulseWork = EUAVReg::u5;
+			inline static constexpr auto Results = EUAVReg::u6;
 		};
 
 		// Match the HLSL participation and packed-buffer bounds constant buffer.
@@ -90,6 +92,8 @@ namespace pr::physics
 		,m_aba(aba)
 		,m_mobility(mobility)
 		,m_cs_apply_impulses()
+		,m_cs_evaluate_impulses()
+		,m_cs_commit_impulses()
 		,m_r_link_impulses()
 		,m_r_work()
 		,m_impulse_count()
@@ -117,6 +121,33 @@ namespace pr::physics
 			.Create(m_gpu, "Physics:ArticulationImpulseAbaSig");
 		m_cs_apply_impulses.m_sig = root_sig;
 		m_cs_apply_impulses.m_pso = ComputePSO(root_sig.get(), shader_code::articulation_apply_impulses).Create(m_gpu, "Physics:ArticulationApplyImpulsesPSO");
+
+		// Transactional passes add caller-owned selection and result streams while retaining identical ABA resource ordering.
+		auto transactional_root_sig = RootSig(ERootSigFlags::ComputeOnly)
+			.U32<cbArticulationImpulseAba>(EReg::Params)
+			.SRV(EReg::MobilityRanges)
+			.SRV(EReg::Articulations)
+			.SRV(EReg::Links)
+			.SRV(EReg::Dofs)
+			.SRV(EReg::Positions)
+			.SRV(EReg::Forces)
+			.SRV(EReg::ExternalForces)
+			.SRV(EReg::Children)
+			.SRV(EReg::LinkMobilities)
+			.SRV(EReg::LinkImpulses)
+			.SRV(EReg::Selection)
+			.UAV(EReg::Velocities)
+			.UAV(EReg::Accelerations)
+			.UAV(EReg::AbaScratch)
+			.UAV(EReg::AbaDofScratch)
+			.UAV(EReg::InverseJointInertia)
+			.UAV(EReg::ImpulseWork)
+			.UAV(EReg::Results)
+			.Create(m_gpu, "Physics:ArticulationImpulseTransactionalSig");
+		m_cs_evaluate_impulses.m_sig = transactional_root_sig;
+		m_cs_evaluate_impulses.m_pso = ComputePSO(transactional_root_sig.get(), shader_code::articulation_evaluate_impulses).Create(m_gpu, "Physics:ArticulationEvaluateImpulsesPSO");
+		m_cs_commit_impulses.m_sig = transactional_root_sig;
+		m_cs_commit_impulses.m_pso = ComputePSO(transactional_root_sig.get(), shader_code::articulation_commit_impulses).Create(m_gpu, "Physics:ArticulationCommitImpulsesPSO");
 	}
 
 	// Allocate compact participating-link impulse and work buffers without initializing the impulse stream.
@@ -227,6 +258,18 @@ namespace pr::physics
 		job.m_barriers.Commit();
 	}
 
+	// Evaluate selected tree responses into detached work buffers and one caller-owned validity result per range.
+	void GpuArticulationImpulseAba::Evaluate(GpuJob& job, ID3D12Resource* selection, ID3D12Resource* results)
+	{
+		DispatchTransactional(job, m_cs_evaluate_impulses, selection, results);
+	}
+
+	// Commit previously evaluated responses for the caller-selected valid ranges.
+	void GpuArticulationImpulseAba::Commit(GpuJob& job, ID3D12Resource* selection, ID3D12Resource* results)
+	{
+		DispatchTransactional(job, m_cs_commit_impulses, selection, results);
+	}
+
 	// Prepare factors, apply impulses, and read focused output through exactly one GPU submission.
 	GpuArticulationImpulseAbaResult GpuArticulationImpulseAba::Apply(
 		GpuJob& job,
@@ -298,6 +341,12 @@ namespace pr::physics
 		return m_r_link_impulses.get();
 	}
 
+	// Return detached per-link velocity deltas from the most recent impulse evaluation.
+	ID3D12Resource* GpuArticulationImpulseAba::Work()
+	{
+		return m_r_work.get();
+	}
+
 	// Return current logical usage, retained capacities, and the most recent dispatch count.
 	GpuArticulationImpulseAbaStats const& GpuArticulationImpulseAba::Stats() const
 	{
@@ -322,5 +371,77 @@ namespace pr::physics
 		m_stats.m_allocated_feature_bytes =
 			static_cast<size_t>(m_stats.m_link_impulse_capacity + m_stats.m_work_capacity) *
 			sizeof(GpuArticulationSpatialVector);
+	}
+
+	// Bind and dispatch one transactional evaluate or commit pass using caller-owned selection and result streams.
+	void GpuArticulationImpulseAba::DispatchTransactional(GpuJob& job, ComputeStep& step, ID3D12Resource* selection, ID3D12Resource* results)
+	{
+		if (m_mobility.m_ranges.empty())
+			return;
+		if (selection == nullptr || results == nullptr)
+			throw std::invalid_argument("Transactional articulation impulse response requires selection and result resources");
+		if (m_impulse_count != m_mobility.m_mobility_count || m_work_count != m_mobility.m_mobility_count)
+			throw std::runtime_error("GPU articulation impulse buffers do not match the prepared articulation factors");
+
+		// Preserve resource identity across evaluation and commit while making each dependency explicit to D3D12.
+		job.m_barriers.Transition(m_mobility.m_r_ranges.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_aba.m_r_articulations.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_aba.m_r_links.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition((m_aba.m_dof_count != 0 ? m_aba.m_r_dofs : m_aba.m_r_srv_sentinel).get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition((m_aba.m_position_count != 0 ? m_aba.m_r_positions : m_aba.m_r_srv_sentinel).get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition((m_aba.m_force_count != 0 ? m_aba.m_r_forces : m_aba.m_r_srv_sentinel).get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_aba.m_r_external_forces.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition((m_aba.m_child_count != 0 ? m_aba.m_r_children : m_aba.m_r_srv_sentinel).get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_mobility.m_r_mobilities.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_r_link_impulses.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(selection, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition((m_aba.m_velocity_count != 0 ? m_aba.m_r_velocities : m_aba.m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition((m_aba.m_acceleration_count != 0 ? m_aba.m_r_accelerations : m_aba.m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_aba.m_r_scratch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition((m_aba.m_dof_count != 0 ? m_aba.m_r_dof_scratch : m_aba.m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition((m_aba.m_joint_matrix_count != 0 ? m_aba.m_r_joint_matrix_scratch : m_aba.m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_r_work.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(results, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Commit();
+
+		auto const constants = cbArticulationImpulseAba{
+			.m_participating_articulation_count = isize(m_mobility.m_ranges),
+			.m_articulation_count = m_aba.m_articulation_count,
+			.m_link_count = m_aba.m_link_count,
+			.m_mobility_count = m_work_count,
+		};
+		job.m_cmd_list.SetPipelineState(step.m_pso.get());
+		job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
+		job.m_cmd_list.AddComputeRoot32BitConstants(constants);
+		job.m_cmd_list.AddComputeRootShaderResourceView(m_mobility.m_r_ranges->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(m_aba.m_r_articulations->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(m_aba.m_r_links->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView((m_aba.m_dof_count != 0 ? m_aba.m_r_dofs : m_aba.m_r_srv_sentinel)->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView((m_aba.m_position_count != 0 ? m_aba.m_r_positions : m_aba.m_r_srv_sentinel)->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView((m_aba.m_force_count != 0 ? m_aba.m_r_forces : m_aba.m_r_srv_sentinel)->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(m_aba.m_r_external_forces->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView((m_aba.m_child_count != 0 ? m_aba.m_r_children : m_aba.m_r_srv_sentinel)->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(m_mobility.m_r_mobilities->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(m_r_link_impulses->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(selection->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_velocity_count != 0 ? m_aba.m_r_velocities : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_acceleration_count != 0 ? m_aba.m_r_accelerations : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_aba.m_r_scratch->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_dof_count != 0 ? m_aba.m_r_dof_scratch : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_joint_matrix_count != 0 ? m_aba.m_r_joint_matrix_scratch : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_work->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(results->GetGPUVirtualAddress());
+		job.m_cmd_list.Dispatch(ImpulseThreadGroupCount(isize(m_mobility.m_ranges)), 1, 1);
+		++m_stats.m_dispatch_count;
+
+		// Either pass may feed another coupled kernel immediately, so order every writable transactional resource once.
+		if (m_aba.m_velocity_count != 0)
+			job.m_barriers.UAV(m_aba.m_r_velocities.get());
+		if (m_aba.m_acceleration_count != 0)
+			job.m_barriers.UAV(m_aba.m_r_accelerations.get());
+		job.m_barriers.UAV(m_aba.m_r_scratch.get());
+		job.m_barriers.UAV(m_r_work.get());
+		job.m_barriers.UAV(results);
+		job.m_barriers.Commit();
 	}
 }

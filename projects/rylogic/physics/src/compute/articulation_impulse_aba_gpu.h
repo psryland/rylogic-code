@@ -40,6 +40,8 @@ namespace pr::physics
 		GpuArticulationForceAba& m_aba;
 		GpuArticulationMobility& m_mobility;
 		ComputeStep m_cs_apply_impulses;
+		ComputeStep m_cs_evaluate_impulses;
+		ComputeStep m_cs_commit_impulses;
 		D3DPtr<ID3D12Resource> m_r_link_impulses;
 		D3DPtr<ID3D12Resource> m_r_work;
 		int m_impulse_count;
@@ -60,6 +62,12 @@ namespace pr::physics
 		// Apply every participating tree's gathered impulses through one fixed-configuration ABA response.
 		void Run(GpuJob& job);
 
+		// Evaluate selected tree responses into detached work buffers and one caller-owned validity result per range.
+		void Evaluate(GpuJob& job, ID3D12Resource* selection, ID3D12Resource* results);
+
+		// Commit previously evaluated responses for the caller-selected valid ranges.
+		void Commit(GpuJob& job, ID3D12Resource* selection, ID3D12Resource* results);
+
 		// Prepare factors, apply impulses, and read focused output through exactly one GPU submission.
 		GpuArticulationImpulseAbaResult Apply(
 			GpuJob& job,
@@ -69,6 +77,9 @@ namespace pr::physics
 
 		// Return the GPU impulse stream so deterministic gather passes can populate it directly.
 		ID3D12Resource* LinkImpulses();
+
+		// Return detached per-link velocity deltas from the most recent impulse evaluation.
+		ID3D12Resource* Work();
 
 		// Return current logical usage, retained capacities, and the most recent dispatch count.
 		GpuArticulationImpulseAbaStats const& Stats() const;
@@ -80,5 +91,8 @@ namespace pr::physics
 
 		// Create or grow typed impulse and work buffers for the active packed forest.
 		void ResizeBuffers(CmdList& cmd_list, int link_count, int work_count);
+
+		// Bind and dispatch one transactional evaluate or commit pass using caller-owned selection and result streams.
+		void DispatchTransactional(GpuJob& job, ComputeStep& step, ID3D12Resource* selection, ID3D12Resource* results);
 	};
 }

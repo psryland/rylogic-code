@@ -254,7 +254,7 @@
     <ShaderBuild Include="src\compute\coupled_constraint_prepare.hlsl" ComputeEntryPoints="CSPrepareCoupledConstraints" />
     <ShaderBuild Include="src\compute\articulation_force_aba.hlsl" ComputeEntryPoints="CSArticulationPrepare;CSArticulationInwardDynamics;CSArticulationRootDynamics;CSArticulationOutwardDynamics" />
     <ShaderBuild Include="src\compute\articulation_mobility.hlsl" ComputeEntryPoints="CSArticulationPrepareMobility" />
-    <ShaderBuild Include="src\compute\articulation_impulse_aba.hlsl" ComputeEntryPoints="CSArticulationApplyImpulses" />
+    <ShaderBuild Include="src\compute\articulation_impulse_aba.hlsl" ComputeEntryPoints="CSArticulationApplyImpulses;CSArticulationEvaluateImpulses;CSArticulationCommitImpulses" />
     <ShaderBuild Include="src\compute\articulation_link_proxies.hlsl" ComputeEntryPoints="CSArticulationGatherProxyForces;CSArticulationRefreshProxies" />
     <ShaderBuild Include="src\compute\articulation_midpoint.hlsl" ComputeEntryPoints="CSArticulationMidpoint" />
     <ShaderBuild Include="src\compute\selective.hlsl" ComputeEntryPoints="CSPrepareSelectiveRefresh;CSScoreSelectiveContacts;CSCompactSelectivePairs;CSBuildSelectiveDispatch" />

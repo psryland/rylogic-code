@@ -34,12 +34,14 @@ StructuredBuffer<GpuFrameForce> resource(g_aba_external_forces, t6);
 StructuredBuffer<uint> resource(g_aba_children, t7);
 StructuredBuffer<GpuArticulationSpatialMobility> resource(g_link_mobilities, t8);
 StructuredBuffer<GpuArticulationSpatialVector> resource(g_link_impulses, t9);
+StructuredBuffer<uint> resource(g_impulse_selection, t10);
 RWStructuredBuffer<float> resource(g_aba_velocities, u0);
 RWStructuredBuffer<float> resource(g_aba_accelerations, u1);
 RWStructuredBuffer<GpuArticulationAbaScratch> resource(g_aba_scratch, u2);
 RWStructuredBuffer<GpuArticulationAbaDofScratch> resource(g_aba_dof_scratch, u3);
 RWStructuredBuffer<float> resource(g_aba_inverse_joint_inertia, u4);
 RWStructuredBuffer<GpuArticulationSpatialVector> resource(g_impulse_work, u5);
+RWStructuredBuffer<uint> resource(g_impulse_results, u6);
 
 #ifdef __cplusplus
 }
@@ -77,6 +79,14 @@ void ImpulseInvalidateTree(int root_link_index)
 	GpuArticulationAbaScratch root_scratch = g_aba_scratch[root_link_index];
 	root_scratch.solve_valid = 0;
 	g_aba_scratch[root_link_index] = root_scratch;
+}
+
+// Return false for one invalid candidate, optionally invalidating persistent factor state for the legacy immediate-apply path.
+bool ImpulseRejectCandidate(int root_link_index, bool invalidate_tree)
+{
+	if (invalidate_tree)
+		ImpulseInvalidateTree(root_link_index);
+	return false;
 }
 
 // Reduce one child impulse through its retained joint factors and add it to the parent accumulator.
@@ -164,38 +174,36 @@ void ImpulseRecoverChild(GpuArticulationMobilityRange range, GpuArticulation art
 	g_impulse_work[work_index] = link_delta;
 }
 
-// Apply one complete simultaneous impulse response without rebuilding the fixed-configuration factors.
-numthreads(CSArticulationApplyImpulses, ArticulationThreadCount, 1, 1)
-void CSArticulationApplyImpulses(int3 DTID(dtid))
+// Validate one compact range and return its packed articulation without mutating any resource.
+bool ImpulseLoadTree(int range_index, out_(GpuArticulationMobilityRange) range, out_(GpuArticulation) articulation)
 {
-	if (dtid.x >= g_impulse.participating_articulation_count)
-		return;
-
-	GpuArticulationMobilityRange range = g_mobility_ranges[dtid.x];
+	range = g_mobility_ranges[range_index];
 	if (
 		range.articulation_index < 0 || range.articulation_index >= g_impulse.articulation_count ||
 		range.mobility_offset < 0 || range.link_count < 1 ||
 		range.mobility_offset + range.link_count > g_impulse.mobility_count)
-		return;
+		return false;
 
-	GpuArticulation articulation = g_aba_articulations[range.articulation_index];
+	articulation = g_aba_articulations[range.articulation_index];
 	if (
 		articulation.link_count != range.link_count ||
 		articulation.link_offset < 0 ||
 		articulation.link_offset + articulation.link_count > g_impulse.link_count ||
 		g_aba_scratch[articulation.link_offset].solve_valid == 0)
-		return;
+		return false;
+	return true;
+}
 
+// Evaluate one complete simultaneous response into detached work buffers without changing generalized or cached link velocities.
+bool ImpulseEvaluateTree(GpuArticulationMobilityRange range, GpuArticulation articulation, bool invalidate_tree)
+{
 	// Reject the complete tree before mutation if any gathered impulse is non-finite.
 	for (int local_link_index = 0; local_link_index != articulation.link_count; ++local_link_index)
 	{
 		int work_index = range.mobility_offset + local_link_index;
 		int link_index = articulation.link_offset + local_link_index;
 		if (!ImpulseSpatialFinite(g_link_impulses[work_index]) || g_aba_scratch[link_index].solve_valid == 0)
-		{
-			ImpulseInvalidateTree(articulation.link_offset);
-			return;
-		}
+			return ImpulseRejectCandidate(articulation.link_offset, invalidate_tree);
 	}
 
 	// Convert the compact participating-link impulses into ABA bias sign convention.
@@ -225,20 +233,14 @@ void CSArticulationApplyImpulses(int3 DTID(dtid))
 		int link_index = articulation.link_offset + local_link_index;
 		GpuArticulationSpatialVector link_delta = g_impulse_work[range.mobility_offset + local_link_index];
 		if (!ImpulseSpatialFinite(link_delta) || !ImpulseSpatialFinite(AbaAddSpatial(g_aba_scratch[link_index].link_velocity, link_delta)))
-		{
-			ImpulseInvalidateTree(articulation.link_offset);
-			return;
-		}
+			return ImpulseRejectCandidate(articulation.link_offset, invalidate_tree);
 
 		GpuArticulationLink link = g_aba_links[link_index];
 		for (int row = 0; row != link.dof_count; ++row)
 		{
 			float joint_delta = g_aba_accelerations[link.velocity_offset + row];
 			if (!isfinite(joint_delta) || !isfinite(g_aba_velocities[link.velocity_offset + row] + joint_delta))
-			{
-				ImpulseInvalidateTree(articulation.link_offset);
-				return;
-			}
+				return ImpulseRejectCandidate(articulation.link_offset, invalidate_tree);
 		}
 	}
 	if (articulation.root_type == GpuArticulationRootType_Floating)
@@ -246,12 +248,16 @@ void CSArticulationApplyImpulses(int3 DTID(dtid))
 		for (int component = 0; component != 6; ++component)
 		{
 			if (!isfinite(g_aba_velocities[articulation.velocity_offset + component] + AbaSpatialComponent(root_delta, component)))
-			{
-				ImpulseInvalidateTree(articulation.link_offset);
-				return;
-			}
+				return ImpulseRejectCandidate(articulation.link_offset, invalidate_tree);
 		}
 	}
+	return true;
+}
+
+// Commit a previously validated detached response as one complete articulation state transition.
+void ImpulseCommitTree(GpuArticulationMobilityRange range, GpuArticulation articulation)
+{
+	GpuArticulationSpatialVector root_delta = g_impulse_work[range.mobility_offset];
 
 	// Commit generalized and cached link velocities together so later coupled residuals observe one complete-tree update.
 	if (articulation.root_type == GpuArticulationRootType_Floating)
@@ -272,6 +278,61 @@ void CSArticulationApplyImpulses(int3 DTID(dtid))
 		scratch.link_velocity = AbaAddSpatial(scratch.link_velocity, g_impulse_work[range.mobility_offset + local_link_index]);
 		g_aba_scratch[link_index] = scratch;
 	}
+}
+
+// Apply one complete simultaneous impulse response without rebuilding the fixed-configuration factors.
+numthreads(CSArticulationApplyImpulses, ArticulationThreadCount, 1, 1)
+void CSArticulationApplyImpulses(int3 DTID(dtid))
+{
+	if (dtid.x >= g_impulse.participating_articulation_count)
+		return;
+
+	GpuArticulationMobilityRange range;
+	GpuArticulation articulation;
+	if (!ImpulseLoadTree(dtid.x, range, articulation))
+		return;
+	if (!ImpulseEvaluateTree(range, articulation, true))
+		return;
+
+	ImpulseCommitTree(range, articulation);
+}
+
+// Evaluate selected trees transactionally and publish one validity result per compact articulation range.
+numthreads(CSArticulationEvaluateImpulses, ArticulationThreadCount, 1, 1)
+void CSArticulationEvaluateImpulses(int3 DTID(dtid))
+{
+	if (dtid.x >= g_impulse.participating_articulation_count)
+		return;
+	if (g_impulse_selection[dtid.x] == 0)
+	{
+		g_impulse_results[dtid.x] = 1;
+		return;
+	}
+
+	GpuArticulationMobilityRange range;
+	GpuArticulation articulation;
+	g_impulse_results[dtid.x] =
+		ImpulseLoadTree(dtid.x, range, articulation) &&
+		ImpulseEvaluateTree(range, articulation, false)
+			? 1
+			: 0;
+}
+
+// Commit only selected trees whose preceding detached evaluation completed successfully.
+numthreads(CSArticulationCommitImpulses, ArticulationThreadCount, 1, 1)
+void CSArticulationCommitImpulses(int3 DTID(dtid))
+{
+	if (dtid.x >= g_impulse.participating_articulation_count)
+		return;
+	if (g_impulse_selection[dtid.x] == 0 || g_impulse_results[dtid.x] == 0)
+		return;
+
+	GpuArticulationMobilityRange range;
+	GpuArticulation articulation;
+	if (!ImpulseLoadTree(dtid.x, range, articulation))
+		return;
+
+	ImpulseCommitTree(range, articulation);
 }
 
 #ifdef __cplusplus
