@@ -27,8 +27,12 @@ namespace pr::physics
 			float regularization;
 			float warm_start_factor;
 			float warm_start_scale;
+			int retain_current_impulses;
+			int pad0;
+			int pad1;
+			int pad2;
 		};
-		static_assert(sizeof(cbConstraintSolve) == 48);
+		static_assert(sizeof(cbConstraintSolve) == 64);
 
 		// Register assignments shared by every persistent-constraint compute entry point.
 		struct EReg
@@ -82,6 +86,7 @@ namespace pr::physics
 		, m_active_count()
 		, m_previous_timestep()
 		, m_frame_warm_start_scale()
+		, m_retain_current_impulses()
 	{
 		// Every entry point uses one root layout so phase changes only replace pipeline state.
 		auto sig = RootSig(ERootSigFlags::ComputeOnly)
@@ -239,6 +244,10 @@ namespace pr::physics
 			.regularization = m_config.constraint_regularization,
 			.warm_start_factor = m_config.constraint_warm_start_factor,
 			.warm_start_scale = m_frame_warm_start_scale,
+			.retain_current_impulses = m_retain_current_impulses ? 1 : 0,
+			.pad0 = 0,
+			.pad1 = 0,
+			.pad2 = 0,
 		};
 		job.m_cmd_list.SetPipelineState(step.m_pso.get());
 		job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
@@ -263,8 +272,8 @@ namespace pr::physics
 		job.m_barriers.Commit();
 	}
 
-	// Compile current world-space rows and graph-colour active blocks after body integration.
-	void GpuConstraintSolver::Prepare(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies)
+	// Compile current world-space rows and graph-colour active blocks, optionally retaining already-applied current-frame impulses for a continuation sweep.
+	void GpuConstraintSolver::Prepare(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies, bool retain_current_impulses)
 	{
 		if (!Active())
 			return;
@@ -274,15 +283,24 @@ namespace pr::physics
 		// Allocate split-correction state only after the optional lane has active work.
 		EnsurePseudoVelocityStorage(job.m_cmd_list, body_count);
 
-		// Scale retained impulses by the timestep ratio only within the range where they remain a useful estimate.
-		m_frame_warm_start_scale = 0.0f;
-		if (m_previous_timestep > 0.0f)
+		// A continuation recompiles changed geometry but retains the accumulator that has already been applied to authoritative momentum.
+		m_retain_current_impulses = retain_current_impulses;
+		if (m_retain_current_impulses)
 		{
-			auto const timestep_ratio = timestep / m_previous_timestep;
-			if (timestep_ratio >= 0.25f && timestep_ratio <= 4.0f)
-				m_frame_warm_start_scale = m_config.constraint_warm_start_factor * timestep_ratio;
+			m_frame_warm_start_scale = 1.0f;
 		}
-		m_previous_timestep = timestep;
+		else
+		{
+			// Cross-frame warm starts are scaled only across ordinary timestep changes.
+			m_frame_warm_start_scale = 0.0f;
+			if (m_previous_timestep > 0.0f)
+			{
+				auto const timestep_ratio = timestep / m_previous_timestep;
+				if (timestep_ratio >= 0.25f && timestep_ratio <= 4.0f)
+					m_frame_warm_start_scale = m_config.constraint_warm_start_factor * timestep_ratio;
+			}
+			m_previous_timestep = timestep;
+		}
 
 		job.m_barriers.Transition(bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_endpoints.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -312,7 +330,7 @@ namespace pr::physics
 	// Apply retained physical impulses before the new velocity solve.
 	void GpuConstraintSolver::ApplyWarmStart(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies)
 	{
-		if (!Active() || m_config.constraint_warm_start_factor <= 0.0f)
+		if (!Active() || m_retain_current_impulses || m_config.constraint_warm_start_factor <= 0.0f)
 			return;
 
 		auto const group_count = static_cast<UINT>((m_slot_count + ConstraintThreadCount - 1) / ConstraintThreadCount);
@@ -377,6 +395,7 @@ namespace pr::physics
 		m_active_count = 0;
 		m_previous_timestep = 0.0f;
 		m_frame_warm_start_scale = 0.0f;
+		m_retain_current_impulses = false;
 	}
 
 	// CPU-side testing: upload, solve, and read back bodies and runtime state in one GPU job.

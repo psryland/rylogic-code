@@ -11,6 +11,7 @@
 namespace pr::physics
 {
 	struct GpuCoupledConstraintPosition;
+	struct GpuCoupledConstraintSolver;
 	struct GpuCoupledConstraintVelocity;
 
 	// Observable resource and dispatch state for the optional articulation impulse-response lane.
@@ -41,6 +42,7 @@ namespace pr::physics
 	{
 	private:
 		friend GpuCoupledConstraintPosition;
+		friend GpuCoupledConstraintSolver;
 		friend GpuCoupledConstraintVelocity;
 
 		Gpu& m_gpu;

@@ -23,7 +23,7 @@ namespace pr::physics
 			float timestep;
 			float regularization;
 			float warm_start_scale;
-			float pad0;
+			int retain_current_impulses;
 		};
 		static_assert(sizeof(cbCoupledConstraintPrepare) == 32);
 
@@ -127,7 +127,7 @@ namespace pr::physics
 			.timestep = 1.0f,
 			.regularization = m_config.constraint_regularization,
 			.warm_start_scale = 0.0f,
-			.pad0 = 0.0f,
+			.retain_current_impulses = 0,
 		};
 		job.m_cmd_list.SetPipelineState(m_cs_prepare_position.m_pso.get());
 		job.m_cmd_list.SetComputeRootSignature(m_cs_prepare_position.m_sig.get());
@@ -223,8 +223,8 @@ namespace pr::physics
 		return true;
 	}
 
-	// Compile link-coordinate rows and exact-self preconditioners from retained final-configuration mobility factors.
-	void GpuCoupledConstraintPrepare::Run(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies, ID3D12Resource* link_to_world, GpuArticulationMobility& mobility)
+	// Compile link-coordinate rows and exact-self preconditioners, optionally retaining already-applied current-frame impulses.
+	void GpuCoupledConstraintPrepare::Run(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies, ID3D12Resource* link_to_world, GpuArticulationMobility& mobility, bool retain_current_impulses)
 	{
 		if (m_active_count == 0)
 			return;
@@ -240,7 +240,8 @@ namespace pr::physics
 			bodies,
 			link_to_world,
 			mobility.m_r_mobilities.get(),
-			mobility.m_aba.m_r_scratch.get());
+			mobility.m_aba.m_r_scratch.get(),
+			retain_current_impulses);
 	}
 
 	// Record the preparation pass against explicit production or diagnostic resources.
@@ -253,7 +254,8 @@ namespace pr::physics
 		ID3D12Resource* bodies,
 		ID3D12Resource* link_to_world,
 		ID3D12Resource* mobilities,
-		ID3D12Resource* aba_scratch)
+		ID3D12Resource* aba_scratch,
+		bool retain_current_impulses)
 	{
 		m_stats.m_dispatch_count = 0;
 		if (m_active_count == 0)
@@ -265,15 +267,23 @@ namespace pr::physics
 		if (bodies == nullptr || link_to_world == nullptr || mobilities == nullptr || aba_scratch == nullptr)
 			throw std::invalid_argument("Coupled constraint preparation requires every bound resource");
 
-		// Scale retained impulses only across ordinary timestep changes; large discontinuities intentionally cold-start.
-		m_frame_warm_start_scale = 0.0f;
-		if (m_previous_timestep > 0.0f)
+		// Continuation rows retain current-frame accumulators because their impulses are already present in authoritative state.
+		if (retain_current_impulses)
 		{
-			auto const timestep_ratio = timestep / m_previous_timestep;
-			if (timestep_ratio >= 0.25f && timestep_ratio <= 4.0f)
-				m_frame_warm_start_scale = m_config.constraint_warm_start_factor * timestep_ratio;
+			m_frame_warm_start_scale = 1.0f;
 		}
-		m_previous_timestep = timestep;
+		else
+		{
+			// Cross-frame warm starts remain bounded across timestep discontinuities.
+			m_frame_warm_start_scale = 0.0f;
+			if (m_previous_timestep > 0.0f)
+			{
+				auto const timestep_ratio = timestep / m_previous_timestep;
+				if (timestep_ratio >= 0.25f && timestep_ratio <= 4.0f)
+					m_frame_warm_start_scale = m_config.constraint_warm_start_factor * timestep_ratio;
+			}
+			m_previous_timestep = timestep;
+		}
 
 		job.m_barriers.Transition(bodies, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_constraints.m_r_endpoints.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -295,7 +305,7 @@ namespace pr::physics
 			.timestep = timestep,
 			.regularization = m_config.constraint_regularization,
 			.warm_start_scale = m_frame_warm_start_scale,
-			.pad0 = 0.0f,
+			.retain_current_impulses = retain_current_impulses ? 1 : 0,
 		};
 		job.m_cmd_list.SetPipelineState(m_cs_prepare.m_pso.get());
 		job.m_cmd_list.SetComputeRootSignature(m_cs_prepare.m_sig.get());
@@ -351,7 +361,8 @@ namespace pr::physics
 			r_bodies.get(),
 			r_link_to_world.get(),
 			r_mobilities.get(),
-			r_aba_scratch.get());
+			r_aba_scratch.get(),
+			false);
 
 		// Gather all stable-slot diagnostics in the caller's existing one-submission job.
 		result.m_blocks.resize(m_slot_count);

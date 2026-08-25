@@ -37,7 +37,7 @@ struct cbCoupledConstraintPrepare
 	float timestep;
 	float regularization;
 	float warm_start_scale;
-	float pad0;
+	int retain_current_impulses;
 };
 
 ConstantBuffer<cbCoupledConstraintPrepare> resource(g_coupled_prepare, b0);
@@ -201,9 +201,11 @@ void CompileCoupledConstraintRow(
 	float retained = 0.0f;
 	if (!reset_warm_start && state == old_state && velocity_active)
 	{
-		float warm_start_scale = isfinite(g_coupled_prepare.warm_start_scale) && g_coupled_prepare.warm_start_scale > 0.0f
-			? g_coupled_prepare.warm_start_scale
-			: 0.0f;
+		float warm_start_scale = g_coupled_prepare.retain_current_impulses != 0
+			? 1.0f
+			: isfinite(g_coupled_prepare.warm_start_scale) && g_coupled_prepare.warm_start_scale > 0.0f
+				? g_coupled_prepare.warm_start_scale
+				: 0.0f;
 		retained = clamp(old_row.bounds.z * warm_start_scale, bounds.x, bounds.y);
 	}
 	row.solve = float4(position_error, axis.mode == GpuConstraintAxisMode_Driven ? axis.target_velocity : 0.0f, bias, gamma);
@@ -397,7 +399,9 @@ void CSPrepareCoupledConstraints(int3 DTID(dtid))
 	float3 angular_error = quat_rotation_vector(quat_a, quat_b);
 	float3 anchor_offset_a = frame_a[3].xyz - CoupledEndpointOrigin(packed_endpoint.body_idx_a, endpoint.link_idx_a);
 	float3 anchor_offset_b = frame_b[3].xyz - CoupledEndpointOrigin(packed_endpoint.body_idx_b, endpoint.link_idx_b);
-	bool reset_warm_start = AllSet(packed_endpoint.flags, GpuConstraintEndpointFlags_ResetWarmStart);
+	bool reset_warm_start =
+		g_coupled_prepare.retain_current_impulses == 0 &&
+		AllSet(packed_endpoint.flags, GpuConstraintEndpointFlags_ResetWarmStart);
 
 	// Frame A defines all six canonical world axes before link endpoint wrenches rotate into local coordinates.
 	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)

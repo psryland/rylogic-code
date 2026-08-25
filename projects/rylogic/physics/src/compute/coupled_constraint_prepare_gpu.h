@@ -12,6 +12,7 @@ namespace pr::physics
 {
 	struct GpuArticulationMobility;
 	struct GpuCoupledConstraintPosition;
+	struct GpuCoupledConstraintSolver;
 	struct GpuCoupledConstraintVelocity;
 
 	// Observable storage and dispatch costs for the optional coupled-row preparation lane.
@@ -39,6 +40,7 @@ namespace pr::physics
 	private:
 		friend GpuCoupledConstraintVelocity;
 		friend GpuCoupledConstraintPosition;
+		friend GpuCoupledConstraintSolver;
 
 		Gpu& m_gpu;
 		EngineConfig const& m_config;
@@ -62,8 +64,8 @@ namespace pr::physics
 		// Upload stable-slot link ownership after the shared constraint streams have been uploaded.
 		bool Upload(GpuJob& job, GpuConstraintUpload const& upload);
 
-		// Compile link-coordinate rows and exact-self preconditioners from retained final-configuration mobility factors.
-		void Run(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies, ID3D12Resource* link_to_world, GpuArticulationMobility& mobility);
+		// Compile link-coordinate rows and exact-self preconditioners, optionally retaining already-applied current-frame impulses.
+		void Run(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies, ID3D12Resource* link_to_world, GpuArticulationMobility& mobility, bool retain_current_impulses = false);
 
 		// Replace physical preconditioners with exact hard-passive inverses immediately before coupled position iterations.
 		void PreparePositionPreconditioners(GpuJob& job, int body_count, ID3D12Resource* bodies, ID3D12Resource* link_to_world, GpuArticulationMobility& mobility);
@@ -99,6 +101,7 @@ namespace pr::physics
 			ID3D12Resource* bodies,
 			ID3D12Resource* link_to_world,
 			ID3D12Resource* mobilities,
-			ID3D12Resource* aba_scratch);
+			ID3D12Resource* aba_scratch,
+			bool retain_current_impulses);
 	};
 }

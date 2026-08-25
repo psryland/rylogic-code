@@ -20,6 +20,7 @@
 #include "src/compute/collide_gpu.h"
 #include "src/compute/resolve_gpu.h"
 #include "src/compute/constraint_solver_gpu.h"
+#include "src/compute/coupled_constraint_solver_gpu.h"
 #include "src/compute/frame_output_gpu.h"
 #include "src/constraint/constraint_gpu.h"
 #include "src/compute/selective_gpu.h"
@@ -236,6 +237,7 @@ namespace pr::physics
 		, m_gpu_collision_detector(new GpuCollisionDetector(*m_gpu, m_config))
 		, m_gpu_resolver(new GpuResolver(*m_gpu, m_config, shader_cache))
 		, m_gpu_constraint_solver()
+		, m_gpu_coupled_constraint_solver()
 		, m_gpu_articulation_force_aba()
 		, m_gpu_articulation_link_proxies()
 		, m_gpu_articulation_midpoint()
@@ -246,6 +248,7 @@ namespace pr::physics
 		, m_cache(new EngineBufferCache())
 		, m_pending_step()
 		, m_constraints_active()
+		, m_coupled_constraints_active()
 		, m_last_step_profile()
 		, m_last_collision_stats()
 	{
@@ -290,8 +293,10 @@ namespace pr::physics
 			throw std::runtime_error("Engine::ResetCaches cannot run while a step is pending");
 
 		m_cache->Reset();
+		m_gpu_coupled_constraint_solver.reset();
 		m_gpu_constraint_solver.reset();
 		m_constraints_active = false;
+		m_coupled_constraints_active = false;
 		m_last_collision_stats = {};
 	}
 
@@ -372,10 +377,10 @@ namespace pr::physics
 			 !std::isfinite(m_config.sleep_velocity_threshold_ang) || m_config.sleep_velocity_threshold_ang < 0.0f ||
 			 !std::isfinite(m_config.sleep_delay_s) || m_config.sleep_delay_s < 0.0f))
 			throw std::runtime_error("Engine articulation sleep thresholds and delay must be finite and non-negative");
-		if (input.m_constraints != nullptr && HasCoupledConstraintWork(*input.m_constraints))
-			throw std::logic_error("Articulation-link constraints require projected articulation coupling, which is not implemented");
-
 		auto const dt = input.m_elapsed_seconds / input.m_substep_count;
+		if (input.m_constraints != nullptr)
+			WakeCoupledConstraintArticulations(*input.m_constraints, input.m_articulations);
+
 		m_pending_step.Begin(input.m_bodies, input.m_articulations, dt, input.m_elapsed_seconds, m_config.sleeping_enabled);
 		auto bodies = std::span{ m_pending_step.m_bodies };
 		auto articulations = std::span{ m_pending_step.m_articulations };
@@ -385,8 +390,11 @@ namespace pr::physics
 			// Empty input also releases retained optional articulation buffers after their last completed use.
 			if (m_gpu_articulation_midpoint != nullptr)
 				m_gpu_articulation_midpoint->Upload(m_gpu->m_job, GpuArticulationUpload{});
+			if (m_gpu_coupled_constraint_solver != nullptr)
+				m_gpu_coupled_constraint_solver->Deactivate();
 
 			m_constraints_active = false;
+			m_coupled_constraints_active = false;
 			m_last_step_profile = {};
 			m_last_step_profile.m_substep_count = input.m_substep_count;
 			m_last_collision_stats = {};
@@ -461,11 +469,12 @@ namespace pr::physics
 			constraint_upload = PackGpuConstraints(*input.m_constraints, BodyRemap(bodies, articulations));
 		}
 		m_constraints_active = constraint_upload.m_rigid_active_count != 0;
-		if (!m_constraints_active && m_gpu_constraint_solver != nullptr)
+		m_coupled_constraints_active = constraint_upload.m_coupled_active_count != 0;
+		if (!m_constraints_active && !m_coupled_constraints_active && m_gpu_constraint_solver != nullptr)
 			m_gpu_constraint_solver->Deactivate();
 
 		// Persistent constraints may wake sleeping bodies, while active articulations always require their independent pure-tree dispatch.
-		if (m_config.sleeping_enabled && m_cache->AwakeDynamicCount() == 0 && !m_constraints_active && articulations.empty())
+		if (m_config.sleeping_enabled && m_cache->AwakeDynamicCount() == 0 && !m_constraints_active && !m_coupled_constraints_active && articulations.empty())
 		{
 			if (m_gpu_articulation_midpoint != nullptr)
 				m_gpu_articulation_midpoint->Upload(m_gpu->m_job, GpuArticulationUpload{});
@@ -481,8 +490,8 @@ namespace pr::physics
 			Upload();
 		}
 
-		// Allocate and upload the optional constraint lane only after the caller supplies active persistent constraints.
-		if (m_constraints_active)
+		// Shared stable-slot streams back both the independent and articulation-coupled constraint lanes.
+		if (m_constraints_active || m_coupled_constraints_active)
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_constraint_upload_ms>(m_last_step_profile);
 			if (m_gpu_constraint_solver == nullptr)
@@ -512,6 +521,22 @@ namespace pr::physics
 			m_gpu_articulation_midpoint->Upload(m_gpu->m_job, articulation_upload);
 			if (m_gpu_articulation_link_proxies != nullptr)
 				m_gpu_articulation_link_proxies->Upload(m_gpu->m_job);
+		}
+
+		// Coupled topology depends on both preceding uploads and remains absent for rigid-only or articulation-only frames.
+		if (m_coupled_constraints_active)
+		{
+			auto profile_scope = ProfileScope<&Engine::StepProfile::m_constraint_upload_ms>(m_last_step_profile);
+			if (m_gpu_articulation_force_aba == nullptr || m_gpu_articulation_link_proxies == nullptr || m_gpu_constraint_solver == nullptr)
+				throw std::logic_error("Coupled constraint upload requires matching shared constraint and articulation resources");
+			if (m_gpu_coupled_constraint_solver == nullptr)
+				m_gpu_coupled_constraint_solver.reset(new GpuCoupledConstraintSolver(*m_gpu, *m_gpu_constraint_solver, *m_gpu_articulation_force_aba, *m_gpu_articulation_link_proxies, m_config));
+			if (!m_gpu_coupled_constraint_solver->Upload(m_gpu->m_job, constraint_upload, articulation_upload))
+				throw std::logic_error("GPU coupled constraint solver rejected active packed topology");
+		}
+		else if (m_gpu_coupled_constraint_solver != nullptr)
+		{
+			m_gpu_coupled_constraint_solver->Deactivate();
 		}
 
 		// Allocate optional event storage only when the caller has requested collision records.
@@ -555,9 +580,10 @@ namespace pr::physics
 					m_gpu_articulation_link_proxies->Refresh(m_gpu->m_job, *m_gpu_integrator, m_cache->BroadphaseSortAxis());
 				}
 
-				if (!bodies.empty())
+				if (!bodies.empty() || m_coupled_constraints_active)
 				{
-					// Collision and constraint phases operate only on the ordinary rigid prefix while link collision coupling remains disabled.
+					// Collision phases retain the ordinary rigid prefix while coupled rows may operate on articulation-only frames.
+					if (!bodies.empty())
 					{
 						auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepwake_ms>(m_last_step_profile);
 						SleepWake();
@@ -574,17 +600,24 @@ namespace pr::physics
 						auto profile_scope = ProfileScope<&Engine::StepProfile::m_resolve_ms>(m_last_step_profile);
 						Resolve(dt);
 					}
+
+					// Publish the main coupled solve before selective passes recompile rows against the corrected articulation configuration.
+					if (m_coupled_constraints_active)
+						m_gpu_articulation_link_proxies->Refresh(m_gpu->m_job, *m_gpu_integrator, m_cache->BroadphaseSortAxis());
 					{
 						auto profile_scope = ProfileScope<&Engine::StepProfile::m_selective_ms>(m_last_step_profile);
-						SelectiveRefresh(dt);
+						if (!bodies.empty())
+							SelectiveRefresh(dt);
 					}
 					{
 						auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepupdate_ms>(m_last_step_profile);
-						SleepUpdate(dt);
+						if (!bodies.empty())
+							SleepUpdate(dt);
 					}
 
 					// Preserve raw capacity counters and resolved collision records before transient buffers are reused.
-					CaptureSubstepOutput(substep_index, input.m_substep_count, collect_collision_events);
+					if (!bodies.empty())
+						CaptureSubstepOutput(substep_index, input.m_substep_count, collect_collision_events);
 				}
 			}
 		}
@@ -810,7 +843,8 @@ namespace pr::physics
 		auto sleep_islands = m_gpu_sleep_manager->SleepIslands();
 		auto sleep_island_count = m_cache->SleepIslandCount();
 		auto shapes = m_gpu_collision_detector->Shapes();
-		m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb_sort, aabb_idx);
+		if (body_count != 0)
+			m_gpu_sort_and_sweep->Sort(m_gpu->m_job, body_count, aabb_sort, aabb_idx);
 		m_gpu_sort_and_sweep->Sweep(m_gpu->m_job, body_count, m_config.max_collision_pairs, counters, aabb_idx, aabb_box, bodies, shapes, sleep_island_count, sleep_islands, sleeping_enabled, collision_exclusions);
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)
@@ -843,7 +877,8 @@ namespace pr::physics
 		auto contacts = m_gpu_collision_detector->Contacts();
 		auto bodies = m_gpu_integrator->Bodies();
 		auto* constraint_solver = m_constraints_active ? m_gpu_constraint_solver.get() : nullptr;
-		m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, m_config.max_collision_pairs, dispatch, counters, contacts, bodies, m_materials->span(), 1.0f, -1, -1, 1.0f, false, constraint_solver);
+		auto* coupled_constraint_solver = m_coupled_constraints_active ? m_gpu_coupled_constraint_solver.get() : nullptr;
+		m_gpu_resolver->Resolve(m_gpu->m_job, dt, body_count, m_config.max_collision_pairs, dispatch, counters, contacts, bodies, m_materials->span(), 1.0f, -1, -1, 1.0f, false, constraint_solver, coupled_constraint_solver);
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{
@@ -880,6 +915,8 @@ namespace pr::physics
 		auto source_dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
 		auto source_max_contacts = full_max_pairs;
 		auto solver_iterations = m_config.selective_refresh_solver_iterations;
+		auto* constraint_solver = m_constraints_active ? m_gpu_constraint_solver.get() : nullptr;
+		auto* coupled_constraint_solver = m_coupled_constraints_active ? m_gpu_coupled_constraint_solver.get() : nullptr;
 		if (m_config.selective_refresh_adaptive_body_limit > 0 && body_count <= m_config.selective_refresh_adaptive_body_limit)
 			solver_iterations = std::max(solver_iterations, m_config.selective_refresh_adaptive_solver_iterations);
 
@@ -928,7 +965,14 @@ namespace pr::physics
 				solver_iterations,
 				m_config.selective_refresh_position_iterations,
 				m_config.selective_refresh_restitution_scale,
-				m_config.selective_refresh_resolve_support_only);
+				m_config.selective_refresh_resolve_support_only,
+				constraint_solver,
+				coupled_constraint_solver,
+				true);
+
+			// Each continuation may change generalized coordinates, so the next pass must consume current link frames.
+			if (coupled_constraint_solver != nullptr)
+				m_gpu_articulation_link_proxies->Refresh(m_gpu->m_job, *m_gpu_integrator, m_cache->BroadphaseSortAxis());
 
 			source_counters = work_set.m_counters;
 			source_contacts = work_set.m_contacts;

@@ -312,6 +312,22 @@ namespace pr::physics::tests
 				retained_blocks,
 				retained_rows);
 			PR_EXPECT(reset.Rows()[row_idx].bounds.z == 0.0f);
+
+			// A same-frame continuation must preserve an already-applied accumulator even when the original upload requested a reset.
+			auto continuation = CoupledConstraintPrepareInteropRunner{};
+			continuation.Run(
+				1.0f / 60.0f,
+				1.0e-6f,
+				0.4f,
+				reset_upload,
+				inputs.m_bodies,
+				inputs.m_link_to_world,
+				inputs.m_mobilities,
+				inputs.m_aba_scratch,
+				retained_blocks,
+				retained_rows,
+				true);
+			PR_EXPECT(FEqlAbsolute(continuation.Rows()[row_idx].bounds.z, 0.5f, 1.0e-6f));
 		}
 
 		// Match CPU compilation and suppress the impulse Jacobian for a fixed world endpoint.

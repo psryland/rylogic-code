@@ -49,6 +49,10 @@ struct cbConstraintSolver
 	float regularization;
 	float warm_start_factor;
 	float warm_start_scale;
+	int retain_current_impulses;
+	int pad0;
+	int pad1;
+	int pad2;
 };
 
 ConstantBuffer<cbConstraintSolver> resource(g, b0);
@@ -106,6 +110,9 @@ float4x4 ConstraintFrameToWorld(GpuConstraintFrame frame, int body_idx)
 // Return a finite scale for a retained physical impulse across ordinary timestep changes.
 float ConstraintWarmStartScale()
 {
+	if (g.retain_current_impulses != 0)
+		return 1.0f;
+
 	return isfinite(g.warm_start_scale) && g.warm_start_scale > 0.0f ? g.warm_start_scale : 0.0f;
 }
 
@@ -235,7 +242,9 @@ void CSCompileConstraints(int3 DTID(dtid))
 	float3 angular_error = quat_rotation_vector(quat_a, quat_b);
 	float3 anchor_offset_a = endpoint.body_idx_a >= 0 ? frame_a[3].xyz - ConstraintCentreOfMass(endpoint.body_idx_a) : float3(0, 0, 0);
 	float3 anchor_offset_b = endpoint.body_idx_b >= 0 ? frame_b[3].xyz - ConstraintCentreOfMass(endpoint.body_idx_b) : float3(0, 0, 0);
-	bool reset_warm_start = AllSet(endpoint.flags, GpuConstraintEndpointFlags_ResetWarmStart);
+	bool reset_warm_start =
+		g.retain_current_impulses == 0 &&
+		AllSet(endpoint.flags, GpuConstraintEndpointFlags_ResetWarmStart);
 
 	// Frame A defines all six canonical world axes, matching the CPU compiler.
 	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)

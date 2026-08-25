@@ -31,7 +31,8 @@ namespace pr::physics
 			std::span<GpuArticulationSpatialMobility const> mobilities,
 			std::span<GpuArticulationAbaScratch const> aba_scratch,
 			std::span<GpuConstraintBlock const> retained_blocks = {},
-			std::span<GpuConstraintRow const> retained_rows = {});
+			std::span<GpuConstraintRow const> retained_rows = {},
+			bool retain_current_impulses = false);
 
 		// Replace physical preconditioners with exact hard-passive inverses for detached position correction.
 		void PreparePositionPreconditioners();

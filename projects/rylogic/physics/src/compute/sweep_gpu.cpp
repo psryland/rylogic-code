@@ -205,6 +205,8 @@ namespace pr::physics
 		}
 
 		// Dispatch the original sweep unchanged unless a constrained pair actually suppresses collisions.
+		// Zero-body articulation-only frames still run the dispatch-size pass below so collision and resolve indirect arguments are reset deterministically.
+		if (body_count != 0)
 		{
 			auto& step = filtered ? m_cs_sweep_filtered : m_cs_sweep;
 			job.m_cmd_list.SetPipelineState(step.m_pso.get());

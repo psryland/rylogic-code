@@ -736,7 +736,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(body.MomentumWS().lin, momentum_before.lin, 1.0e-6f));
 		}
 
-		// Stage shared coupled metadata without rigid work while retaining the Engine boundary until the coupled sweeps are wired.
+		// Run articulation-only coupled work through shared stable-slot storage and the Engine's one-submission substep schedule.
 		PRUnitTestMethod(CoupledConstraintsUseSharedGpuStorage, Quick)
 		{
 			auto [articulation, child] = MakeConstraintGpuArticulation();
@@ -755,19 +755,22 @@ namespace pr::physics::tests
 
 			auto& engine = SharedEngine();
 			ResetEngineForNextTest(engine);
-			auto begin_coupled_step = [&]
-			{
-				engine.BeginStep(Engine::StepInput{
-					.m_articulations = articulation_ptrs,
-					.m_constraints = &constraints,
-					.m_elapsed_seconds = 1.0f / 60.0f,
-				});
-			};
-			PR_THROWS(begin_coupled_step(), std::logic_error);
+			articulation.Sleep();
+			engine.Step(Engine::StepInput{
+				.m_articulations = articulation_ptrs,
+				.m_constraints = &constraints,
+				.m_elapsed_seconds = 1.0f / 30.0f,
+				.m_substep_count = 4,
+			});
 
-			// A rejected call must leave the engine ready for another step.
-			engine.BeginStep(Engine::StepInput{});
-			engine.CompleteStep();
+			auto const& profile = engine.LastStepProfile();
+			PR_EXPECT(!articulation.Sleeping());
+			PR_EXPECT(profile.m_submission_count == 1);
+			PR_EXPECT(profile.m_wait_count == 1);
+			PR_EXPECT(profile.m_readback_copy_count == 1);
+			PR_EXPECT(std::ranges::all_of(articulation.JointPosition(child), [](float value) { return std::isfinite(value); }));
+			PR_EXPECT(std::ranges::all_of(articulation.JointVelocity(child), [](float value) { return std::isfinite(value); }));
+			PR_EXPECT(IsFinite(articulation.LinkToWorld(child).pos));
 		}
 
 		// Suppress connected-body collisions through the filtered broadphase without activating solver rows.

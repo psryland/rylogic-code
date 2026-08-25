@@ -46,6 +46,7 @@ namespace pr::physics
 		int m_active_count;
 		float m_previous_timestep;
 		float m_frame_warm_start_scale;
+		bool m_retain_current_impulses;
 
 	public:
 
@@ -55,8 +56,8 @@ namespace pr::physics
 		// Upload shared frame-local endpoints and changed persistent descriptors, returning whether independent rigid work is active.
 		bool Upload(GpuJob& job, GpuConstraintUpload const& upload);
 
-		// Compile current world-space rows and graph-colour active blocks after body integration.
-		void Prepare(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies);
+		// Compile current world-space rows and graph-colour active blocks, optionally retaining already-applied current-frame impulses for a continuation sweep.
+		void Prepare(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies, bool retain_current_impulses = false);
 
 		// Apply retained physical impulses before the new velocity solve.
 		void ApplyWarmStart(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies);

@@ -56,6 +56,9 @@ namespace pr::physics
 	// True when an enabled descriptor with solver rows touches at least one articulation link.
 	bool HasCoupledConstraintWork(ConstraintSet const& constraints);
 
+	// Wake complete articulation trees referenced by active coupled rows before sleeping trees are omitted from frame packing.
+	void WakeCoupledConstraintArticulations(ConstraintSet const& constraints, std::span<Articulation*> articulations);
+
 	// Pack persistent descriptors and resolve enabled endpoints into current frame-local rigid-body indices.
 	GpuConstraintUpload PackGpuConstraints(ConstraintSet const& constraints, BodyRemap const& remap);
 }

@@ -338,6 +338,41 @@ namespace pr::physics
 		return false;
 	}
 
+	// Wake complete articulation trees referenced by active coupled rows before sleeping trees are omitted from frame packing.
+	void WakeCoupledConstraintArticulations(ConstraintSet const& constraints, std::span<Articulation*> articulations)
+	{
+		// Stable-id lookup keeps wake discovery expected O(A + C) without retaining pointers in persistent descriptors.
+		auto articulation_lookup = std::unordered_map<uint64_t, Articulation*>{};
+		articulation_lookup.reserve(articulations.size());
+		for (auto* articulation : articulations)
+		{
+			if (articulation == nullptr)
+				throw std::invalid_argument("Engine articulation inputs cannot contain null pointers");
+
+			articulation_lookup.emplace(articulation->Id().m_value, articulation);
+		}
+
+		auto wake_endpoint = [&](BodyRef const& endpoint)
+		{
+			if (!endpoint.IsLink())
+				return;
+
+			auto const iter = articulation_lookup.find(endpoint.m_articulation_id.m_value);
+			if (iter != articulation_lookup.end())
+				iter->second->Wake();
+		};
+
+		// Disabled, free-axis, and rigid-only descriptors do not make an articulation participate in this frame.
+		for (auto const& slot : constraints.m_slots)
+		{
+			if (!slot.m_occupied || !slot.m_desc.m_enabled || !HasSolverRows(slot.m_desc) || !RequiresCoupledSolver(slot.m_desc))
+				continue;
+
+			wake_endpoint(slot.m_desc.m_frame_a.m_body);
+			wake_endpoint(slot.m_desc.m_frame_b.m_body);
+		}
+	}
+
 	// Pack persistent descriptors and resolve enabled endpoints into current frame-local rigid-body indices.
 	GpuConstraintUpload PackGpuConstraints(ConstraintSet const& constraints, BodyRemap const& remap)
 	{

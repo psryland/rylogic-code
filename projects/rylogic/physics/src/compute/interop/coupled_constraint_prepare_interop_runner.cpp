@@ -41,7 +41,8 @@ namespace pr::physics
 		std::span<GpuArticulationSpatialMobility const> mobilities,
 		std::span<GpuArticulationAbaScratch const> aba_scratch,
 		std::span<GpuConstraintBlock const> retained_blocks,
-		std::span<GpuConstraintRow const> retained_rows)
+		std::span<GpuConstraintRow const> retained_rows,
+		bool retain_current_impulses)
 	{
 		if (upload.m_coupled_endpoints.size() != upload.m_endpoints.size())
 			throw std::invalid_argument("Coupled replay requires stable-slot link metadata");
@@ -71,7 +72,7 @@ namespace pr::physics
 			.timestep = timestep,
 			.regularization = regularization,
 			.warm_start_scale = warm_start_scale,
-			.pad0 = 0.0f,
+			.retain_current_impulses = retain_current_impulses ? 1 : 0,
 		};
 		g_coupled_bodies.assign(CoupledSpanOf(m_bodies));
 		g_coupled_constraint_endpoints.assign(std::span<GpuConstraintEndpoint const>{upload.m_endpoints});

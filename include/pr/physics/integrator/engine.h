@@ -192,6 +192,9 @@ namespace pr::physics
 		// Lazily created GPU persistent-constraint solver.
 		GpuConstraintSolverPtr m_gpu_constraint_solver;
 
+		// Lazily created articulation-coupled constraint orchestration and transaction lanes.
+		GpuCoupledConstraintSolverPtr m_gpu_coupled_constraint_solver;
+
 		// Lazily created shared articulation dynamics resources.
 		GpuArticulationForceAbaPtr m_gpu_articulation_force_aba;
 
@@ -219,6 +222,7 @@ namespace pr::physics
 		// State for a BeginStep/CompleteStep pair.
 		PendingStep m_pending_step;
 		bool m_constraints_active;
+		bool m_coupled_constraints_active;
 
 		// Diagnostics
 		StepProfile m_last_step_profile;
