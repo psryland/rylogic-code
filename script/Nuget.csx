@@ -38,6 +38,10 @@ public class Nuget
 	public List<File> Files = [];
 	public List<Dep> Deps = [];
 	public List<FrameworkRef> FrameworkRefs = [];
+
+	// Validates a newly packed archive before it is signed or synchronized to shared package locations.
+	public Action<string>? ValidateStagedPackage { get; set; }
+
 	// The config-specific feed used to stage the package before synchronisation.
 	public string PackageOutputPath = "";
 	
@@ -153,9 +157,10 @@ public class Nuget
 			"-Verbosity", "detailed",
 		]);
 
-		// Sign the staged package before publishing it into the canonical feed and cache.
+		// Validate and sign the staged package before publishing it into the canonical feed and cache.
 		StagedPackagePath = Tools.Path([package_output_path, $"{PackageName}.{Version}.nupkg"]);
-		PackagePath = Tools.Path([UserVars.Root, $"lib\\packages\\{PackageName}.{Version}.nupkg"]);
+		PackagePath = Tools.Path([UserVars.Root, $"lib\\packages\\{PackageName}.{Version}.nupkg"], check_exists: false);
+		ValidateStagedPackage?.Invoke(StagedPackagePath);
 		Tools.SignNugetPackage(StagedPackagePath);
 		SyncPackageOutputs(StagedPackagePath, PackagePath);
 	}

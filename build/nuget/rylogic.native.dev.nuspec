@@ -6,19 +6,12 @@
 		<authors>Rylogic</authors>
 		<copyright>Copyright (c) Rylogic 2007</copyright>
 		<license type="expression">MIT</license>
-		<description>Native Debug runtime and development assets for local Rylogic library development.</description>
+		<description>Native Debug runtime assets for local Rylogic library development.</description>
 		<tags>rylogic native library local development</tags>
 		<repository type="git" url="https://github.com/psryland/rylogic_code" />
 		<requireLicenseAcceptance>false</requireLicenseAcceptance>
 	</metadata>
 	<files>
-		<file src="include\**\*.*" target="build\native\include" />
-		<file src="build\props\**\*.*" target="build\native\props" />
-		<file src="build\targets\**\*.*" target="build\native\targets" />
-		<file src="obj\*\x64\Debug\*.dll" target="runtimes\win-x64\native" exclude="obj\*\x64\Debug\dxcompiler.dll;obj\*\x64\Debug\dxil.dll" />
-		<file src="obj\*\x64\Debug\*.imp" target="runtimes\win-x64\native" />
-		<file src="obj\compute\x64\Debug\dxcompiler.dll" target="runtimes\win-x64\native" />
-		<file src="obj\compute\x64\Debug\dxil.dll" target="runtimes\win-x64\native" />
-		<file src="lib\x64\Release\WinPixEventRuntime.dll" target="runtimes\win-x64\native" />
+		<file src="*.dll" target="runtimes\win-x64\native" />
 	</files>
 </package>

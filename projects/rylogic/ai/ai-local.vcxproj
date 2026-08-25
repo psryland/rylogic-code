@@ -10,6 +10,8 @@
     <TargetName>ai-local</TargetName>
     <RootNamespace>pr::ai</RootNamespace>
     <ResolveNuGetPackages>false</ResolveNuGetPackages>
+    <RylogicNativeRuntimePackage>Exclude</RylogicNativeRuntimePackage>
+    <RylogicNativeRuntimePackageReason>The optional local-inference backend is not a released Rylogic runtime dependency.</RylogicNativeRuntimePackageReason>
   </PropertyGroup>
   <!--
   Property Sheets
@@ -54,6 +56,7 @@
         ;$(RylogicRoot)sdk\llama-cpp\llama.cpp\build\ggml\src\ggml-vulkan\$(Configuration)\ggml-vulkan.lib
         ;%(AdditionalDependencies)
       </AdditionalDependencies>
+    </Link>
   </ItemDefinitionGroup>
   <!--
   Files

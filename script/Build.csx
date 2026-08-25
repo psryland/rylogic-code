@@ -6,6 +6,7 @@
 #load "Tools.csx"
 #load "BuildInstaller.csx"
 #load "Nuget.csx"
+#load "NativeRuntimePackage.csx"
 #nullable enable
 
 using System;
@@ -23,6 +24,8 @@ public enum EProjects
 	Scintilla,          // = "Scintilla";
 	Audio,              // = "Audio";
 	Fbx,                // = "Fbx";
+	Gltf,               // = "Gltf";
+	Imgui,              // = "Imgui";
 	Compute,            // = "Compute";
 	Physics,            // = "Physics";
 	View3d,             // = "View3d";
@@ -341,6 +344,106 @@ public class Fbx : Native
 	}
 }
 
+// Builds the dynamically loaded glTF scene importer.
+public class Gltf : Native
+{
+	public Gltf(string workspace, List<string>? platforms = null, List<string>? configs = null)
+		: base("gltf", Tools.Path([workspace, $"projects\\rylogic\\gltf"]), workspace, platforms, configs)
+	{
+	}
+	public override void Clean()
+	{
+		Tools.CleanDir(Tools.Path([ObjDir, "gltf"], check_exists: false));
+	}
+	public override void Build()
+	{
+		Tools.MSBuild(RylogicSln, [@"Rylogic\gltf"], Platforms, Configs);
+	}
+	public override void Deploy()
+	{
+		foreach (var p in Platforms)
+		{
+			foreach (var c in Configs)
+				Tools.DeployLib(Tools.Path([ObjDir, "gltf", p, c, "gltf.dll"]));
+		}
+	}
+}
+
+// Builds the dynamically loaded Dear ImGui integration used by View3D diagnostics.
+public class Imgui : Native
+{
+	public Imgui(string workspace, List<string>? platforms = null, List<string>? configs = null)
+		: base("imgui", Tools.Path([workspace, $"projects\\rylogic\\imgui"]), workspace, platforms, configs)
+	{
+	}
+	public override void Clean()
+	{
+		Tools.CleanDir(Tools.Path([ObjDir, "imgui"], check_exists: false));
+	}
+	public override void Build()
+	{
+		Tools.MSBuild(RylogicSln, [@"Rylogic\imgui"], Platforms, Configs);
+	}
+	public override void Deploy()
+	{
+		foreach (var p in Platforms)
+		{
+			foreach (var c in Configs)
+				Tools.DeployLib(Tools.Path([ObjDir, "imgui", p, c, "imgui.dll"]));
+		}
+	}
+}
+
+// Builds the native SQLite runtime consumed by Rylogic.DB.
+public class Sqlite3 : Native
+{
+	public Sqlite3(string workspace, List<string>? platforms = null, List<string>? configs = null)
+		: base("sqlite", Tools.Path([workspace, $"sdk\\sqlite3"]), workspace, platforms, configs)
+	{
+	}
+	public override void Clean()
+	{
+		Tools.CleanDir(Tools.Path([ObjDir, "sqlite"], check_exists: false));
+	}
+	public override void Build()
+	{
+		Tools.MSBuild(ProjFile, platforms: Platforms, configs: Configs);
+	}
+	public override void Deploy()
+	{
+		foreach (var p in Platforms)
+		{
+			foreach (var c in Configs)
+				Tools.DeployLib(Tools.Path([ObjDir, "sqlite", p, c, "sqlite3.dll"]));
+		}
+	}
+}
+
+// Builds the native editor control consumed by Rylogic.Scintilla.
+public class Scintilla : Native
+{
+	public Scintilla(string workspace, List<string>? platforms = null, List<string>? configs = null)
+		: base("scintilla", Tools.Path([workspace, $"sdk\\scintilla"]), workspace, platforms, configs)
+	{
+	}
+	public override void Clean()
+	{
+		Tools.CleanDir(Tools.Path([ObjDir, "scintilla"], check_exists: false));
+	}
+	public override void Build()
+	{
+		Tools.MSBuild(ProjFile, platforms: Platforms, configs: Configs);
+	}
+	public override void Deploy()
+	{
+		foreach (var p in Platforms)
+		{
+			foreach (var c in Configs)
+				Tools.DeployLib(Tools.Path([ObjDir, "scintilla", p, c, "scintilla.dll"]));
+		}
+	}
+}
+
 // Rylogic .NET assemblies
 public abstract class RylogicAssembly : Managed
 {
@@ -641,34 +744,52 @@ public class LDraw : Managed
 public class AllNative : Group
 {
 	private Nuget? Package = null;
+	private readonly IReadOnlyList<string> m_platforms;
+	private readonly IReadOnlyList<string> m_configs;
 
 	public AllNative(string workspace, List<string>? platforms = null, List<string>? configs = null)
 		: base(workspace)
 	{
+		m_platforms = platforms ?? ["x64"];
+		m_configs = configs ?? ["Release", "Debug"];
 		foreach (var type in typeof(Native).Assembly.GetTypes().Where(t => t.IsClass && !t.IsAbstract && t.IsSubclassOf(typeof(Native))))
 		{
 			var instance = (Common?)Activator.CreateInstance(type, workspace, platforms, configs) ?? throw new Exception($"Failed to create instance of type {type}");
 			Items.Add(instance);
 		}
 	}
+	public override void Build()
+	{
+		// A complete aggregate build must regenerate every included project's runtime declaration.
+		NativeRuntimePackage.ClearManifests(Workspace, m_platforms, m_configs);
+		base.Build();
+	}
 	public override void Deploy()
 	{
 		base.Deploy();
+		if (!m_platforms.Contains("x64", StringComparer.OrdinalIgnoreCase) || !m_configs.Contains("Release", StringComparer.OrdinalIgnoreCase))
+			return;
+
+		// Package only the complete x64 Release closure from a clean private staging directory.
+		var staging_dir = NativeRuntimePackage.Stage(
+			Workspace,
+			"x64",
+			"Release",
+			Tools.Path([UserVars.Root, "obj\\nuget\\Rylogic.Native\\x64\\Release\\runtime"], check_exists: false),
+			require_all_projects: true);
+
 		// Stage the native package in the release feed so the canonical root package and cache can be refreshed exactly.
 		Package = new Nuget()
 		{
 			PackageName = "Rylogic.Native",
 			Version = RylogicLibraryVersion,
-			Description = "Native runtime and development assets for Rylogic View3D, D3D12 compute, rigid-body physics, and spatial audio packages.",
+			Description = "Native runtime assets for Rylogic View3D, database, editor, rigid-body physics, and spatial audio packages.",
 			Tags = "rylogic native library view3d physics d3d12 audio",
 			PackageOutputPath = Tools.Path([UserVars.Root, "lib\\packages\\release"], check_exists: false),
+			ValidateStagedPackage = package_path => NativeRuntimePackage.ValidatePackage(package_path, staging_dir),
 		};
 		Package.Files.AddRange([
-			new Nuget.File(Tools.Path([UserVars.Root, "include\\**\\*.*"], check_exists: false), "build/native/include/"),
-			new Nuget.File(Tools.Path([UserVars.Root, "build\\props\\**\\*.*"], check_exists: false), "build/native/props/"),
-			new Nuget.File(Tools.Path([UserVars.Root, "build\\targets\\**\\*.*"], check_exists: false), "build/native/targets/"),
-			new Nuget.File(Tools.Path([UserVars.Root, $"lib\\x64\\Release\\*.dll"], check_exists: false), "runtimes/win-x64/native/"),
-			new Nuget.File(Tools.Path([UserVars.Root, $"lib\\x64\\Release\\*.imp"], check_exists: false), "runtimes/win-x64/native/"),
+			new Nuget.File(Tools.Path([staging_dir, "*.dll"], check_exists: false), "runtimes/win-x64/native/"),
 		]);
 		Package.Package();
 	}
@@ -1003,4 +1124,5 @@ try
 catch (Exception ex)
 {
 	Console.WriteLine(ex.Message);
+	Environment.ExitCode = 1;
 }

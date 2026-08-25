@@ -11,9 +11,14 @@
 	
 	Projects that import lib.props or dll.props get sensible defaults automatically.
 	Add extra BuildArtifacts items in the .vcxproj to deploy additional files.
+
+	Production dynamic-library projects must set RylogicNativeRuntimePackage to Include or Exclude.
+	Included projects contribute every DLL BuildArtifact to the runtime-only Rylogic.Native package.
 	-->
 	<PropertyGroup>
 		<DeployDir>$(DeployPath)$(PlatformTarget)\$(Configuration)\</DeployDir>
+		<RylogicNativeRuntimeManifestDir>$(RylogicRoot)obj\native-runtime-manifests\$(PlatformTarget)\$(Configuration)\</RylogicNativeRuntimeManifestDir>
+		<RylogicNativeRuntimeManifest>$(RylogicNativeRuntimeManifestDir)$(MSBuildProjectName).txt</RylogicNativeRuntimeManifest>
 	</PropertyGroup>
 
 	<Target Name="Deploy" AfterTargets="Build" Condition="'@(BuildArtifacts)' != ''">
@@ -29,5 +34,16 @@
 			Importance="normal"
 			Condition="Exists('%(Identity)')"
 		/>
+	</Target>
+
+	<!-- Persist the evaluated DLL artifact list so package creation follows project-owned build metadata. -->
+	<Target Name="WriteRylogicNativeRuntimeManifest" AfterTargets="Deploy" Condition="'$(RylogicNativeRuntimePackage)' == 'Include'">
+		<ItemGroup>
+			<_RylogicNativeRuntimeAsset Include="@(BuildArtifacts)" Condition="'%(BuildArtifacts.Extension)' == '.dll'" />
+		</ItemGroup>
+		<Error Condition="'@(_RylogicNativeRuntimeAsset)' == ''" Text="$(MSBuildProjectFullPath) is included in Rylogic.Native but declares no DLL BuildArtifacts." />
+		<MakeDir Directories="$(RylogicNativeRuntimeManifestDir)" />
+		<WriteLinesToFile File="$(RylogicNativeRuntimeManifest)" Lines="@(_RylogicNativeRuntimeAsset->'%(FullPath)')" Overwrite="true" Encoding="UTF-8" />
+		<Message Text="Declared Rylogic.Native runtime assets --> $(RylogicNativeRuntimeManifest)" Importance="normal" />
 	</Target>
 </Project>
