@@ -541,14 +541,22 @@ namespace pr::physics
 					? m_gpu_articulation_link_proxies->GatherForces(m_gpu->m_job, m_gpu_integrator->Bodies().get())
 					: nullptr;
 
-				// Ordinary rigid prediction and reduced-coordinate articulation prediction remain independent until projected impulse coupling is enabled.
+				// Advance both independent prediction lanes before any shared collision or constraint work so every broadphase consumer sees current-substep poses.
 				if (!bodies.empty())
 				{
-					{
-						auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
-						Integrate(dt);
-					}
+					auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
+					Integrate(dt);
+				}
 
+				if (!articulations.empty())
+				{
+					auto profile_scope = ProfileScope<&Engine::StepProfile::m_articulation_integrate_ms>(m_last_step_profile);
+					m_gpu_articulation_midpoint->Integrate(m_gpu->m_job, dt, articulation_external_forces);
+					m_gpu_articulation_link_proxies->Refresh(m_gpu->m_job, *m_gpu_integrator, m_cache->BroadphaseSortAxis());
+				}
+
+				if (!bodies.empty())
+				{
 					// Collision and constraint phases operate only on the ordinary rigid prefix while link collision coupling remains disabled.
 					{
 						auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepwake_ms>(m_last_step_profile);
@@ -577,13 +585,6 @@ namespace pr::physics
 
 					// Preserve raw capacity counters and resolved collision records before transient buffers are reused.
 					CaptureSubstepOutput(substep_index, input.m_substep_count, collect_collision_events);
-				}
-
-				if (!articulations.empty())
-				{
-					auto profile_scope = ProfileScope<&Engine::StepProfile::m_articulation_integrate_ms>(m_last_step_profile);
-					m_gpu_articulation_midpoint->Integrate(m_gpu->m_job, dt, articulation_external_forces);
-					m_gpu_articulation_link_proxies->Refresh(m_gpu->m_job, *m_gpu_integrator, m_cache->BroadphaseSortAxis());
 				}
 			}
 		}
