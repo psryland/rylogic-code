@@ -1,11 +1,12 @@
-# GPU Constraint and Multibody Physics Plan
+# GPU Constraint and Multibody Physics Architecture
 
-**Status:** Design proposal
-**Date:** 2026-08-25
+**Status:** Implemented and accepted
+**Original design date:** 2026-08-25
+**Last verified:** 2026-08-26
 
 ## Summary
 
-The recommended design is a hybrid, matrix-free impulse system:
+The implemented design is a hybrid, matrix-free impulse system:
 
 - Use graph-coloured block projected Gauss-Seidel (PGS) for contacts and constraints involving only ordinary rigid bodies.
 - Retain Featherstone's articulated-body algorithm (ABA) as the reduced-coordinate fast path for tree articulations.
@@ -14,12 +15,32 @@ The recommended design is a hybrid, matrix-free impulse system:
 - Correct positional drift through pseudo velocities and generalized-coordinate projection, separately from physical momentum.
 - Record all internal substeps into one GPU submission, then perform one contiguous readback and one CPU wait per rendered frame.
 
-This preserves the current impulse-based design, supports arbitrary constraint topology without assembling a global LCP matrix, and allows users who do not create
+This preserves the engine's impulse-based design, supports arbitrary constraint topology without assembling a global LCP matrix, and allows users who do not create
 constraints or articulations to avoid their CPU, GPU, and memory costs.
+
+## Implemented Outcome
+
+The production implementation includes the native C++ API, versioned ABI 2.0 DLL surface, compute-shader solvers, diagnostics, unit and GPU-oracle coverage,
+and 19 physics-sandbox demonstrations.
+
+| Design requirement | Verified outcome |
+|---|---|
+| Fixed-iteration scaling | 50,004 rows solved in 21.683 ms and 100,002 rows in 43.290 ms on an RTX 3080 Ti: 2.00x time for 2.00x rows |
+| One host boundary per frame | Every 120-frame demo soak reported one command-list submission, one fence wait, and one GPU-to-CPU readback copy per frame, including 2- and 4-substep demos |
+| Optional feature cost | Empty constraint and articulation inputs allocate and dispatch no constraint, articulation, or coupled-solver resources; collision-event and multi-substep force storage are also demand-created |
+| Featherstone fast path | Fixed- and floating-root trees run force ABA and bounded implicit-midpoint integration without entering the arbitrary-constraint lane |
+| Dynamics preservation | Dense ABA oracles, zero-torque Coriolis cases, free-floating conservation, torque-free rigid motion, and Dzhanibekov regressions pass |
+| Robust arbitrary constraints | D6 joints, loops, rigid/tree and tree/tree coupling, link contacts, split position correction, breakage, and bounded non-convergence diagnostics pass targeted suites |
+| Real-time demonstrations | All 19 Release demos measured at least 41 FPS interactively and at least 43.60 physics FPS in warmed headless measurement |
+| Legacy performance | 19 of 22 baseline scenes remained within the 10% tolerance or improved; the other three generated 31.8-33.3% more contacts while taking 13.8-19.5% more time, improving contact throughput |
+
+The final native validation passed all 1,188 Quick tests and the complete targeted internal-substep, coupled-engine, collision-pair, compound-shape, and
+articulation-midpoint suites. Independent reviews of the architecture, acceptance coverage, demonstrations, and final GPU frame-path optimization found no
+high-confidence correctness or design issues.
 
 ## Goals
 
-The system should provide:
+The system provides:
 
 - Linear work and memory per fixed solver iteration.
 - A high-performance ABA path for explicitly declared tree articulations.
@@ -32,9 +53,9 @@ The system should provide:
 - Bounded, diagnostic failure for contradictory, singular, or insufficiently converged systems.
 - Initial practical capacity of approximately 10,000 bodies and 100,000 scalar constraint rows.
 
-## Non-goals
+## Deliberate Limitations
 
-The first implementation will not:
+The current implementation does not:
 
 - Assemble or factor a global LCP/KKT matrix in production.
 - Guarantee exact fixed-accuracy convergence in linear time for every topology.
@@ -44,9 +65,9 @@ The first implementation will not:
 - Replace continuous collision detection.
 - Guarantee that physically contradictory constraints can be satisfied.
 
-## Current Engine Integration Points
+## Legacy Baseline and Implemented Integration Points
 
-The current production step in `projects/rylogic/physics/src/integrator/engine.cpp` is:
+The production step at the start of this work was:
 
 ```text
 NewFrame
@@ -66,12 +87,15 @@ Submit
 
 `CompleteStep` waits for the submitted work and unpacks the readback.
 
-The existing GPU integration is a full kick-drift-kick step before contact resolution. The ordinary rigid-body angular drift stores world angular momentum and
+The rigid-body integration remains a full kick-drift-kick step before contact resolution. The ordinary rigid-body angular drift stores world angular momentum and
 recomputes angular velocity through orientation-dependent world inertia. Non-isotropic bodies use symplectic or implicit-midpoint angular drift, which preserves
 the torque-free gyroscopic dynamics required for the Dzhanibekov effect.
 
-The existing resolver is graph-coloured sequential impulses with a fixed 32-colour mask. Its current saturation behavior assigns excess edges to colour 31.
-Once a dynamic body has more than 32 incident constraints, several same-body edges can therefore execute concurrently. Correcting this race is milestone zero.
+The resolver still uses graph-coloured sequential impulses, but colour exhaustion no longer aliases conflicting blocks into the final parallel colour. Excess
+work is routed through a coherent fallback, so high-degree graphs trade parallelism for correctness instead of racing on shared bodies.
+
+Constraint, articulation, coupled-contact, coupled-constraint, break-state, collision-event, and multi-substep force resources are created only when their
+owning feature first participates. `EngineFeatureStats` and ABI `Diagnostics` expose both logical bytes and retained high-water allocation for every optional lane.
 
 ## Constraint Model
 
@@ -98,7 +122,7 @@ Typical row counts are:
 | Weld | 6 |
 | Active hinge limit or motor | 1 selected/additional row |
 
-Related rows are compiled into one constraint block. Contacts should be three-row normal/friction-cone blocks, and multi-axis joints should be solved as small
+Related rows are compiled into one constraint block. Contacts are three-row normal/friction-cone blocks, and multi-axis joints are solved as small
 blocks where this materially improves conditioning.
 
 The unconstrained prediction produces $v^*$. Accumulated impulse $\lambda$ changes velocity by:
@@ -399,9 +423,9 @@ Special cases remain cheap:
 
 ## Exact Frame Pipeline
 
-### Current-to-proposed mapping
+### Legacy-to-implemented mapping
 
-| Current phase | Proposed behavior |
+| Legacy phase | Implemented behavior |
 |---|---|
 | `NewFrame` | Reset frame output and establish frame/substep timing |
 | `Pack` | Pack ordinary bodies, bind stable endpoints, and append hidden articulation link proxies |
@@ -425,15 +449,20 @@ Special cases remain cheap:
 BeginStep(frame_dt, substep_count)
     Validate topology and endpoint lifetimes
     Build BodyId/LinkHandle -> current GPU index remap
-    Pack ordinary bodies and articulation proxy capacity
-    Upload dirty descriptors and frame-constant force data
-    CSResetFrameOutput
+    Pack ordinary bodies, articulation forest, hidden link proxies, and constraints
+    Upload body state, dirty constraint ranges, and articulation topology/state
+    If substep_count > 1:
+        Lazily create the force-replay pipeline and upload 32 B/body of immutable CPU-authored force
+    Establish the bounded packed frame-output layout
+    Upload/reset only the 64-byte frame-output header
 
     for substep_index in [0, substep_count):
-        CSResetSubstepCounters
-        CSSeedWorkingForces
+        if substep_index > 0:
+            Reset collision counters
+            CSSeedWorkingForces from immutable frame-force storage
 
         Record each GPU external-force module
+        CSGatherArticulationLinkForces
         CSIntegrateOrdinaryBodies
 
         CSIntegrateArticulationsImplicitMidpoint
@@ -474,10 +503,16 @@ BeginStep(frame_dt, substep_count)
         CSSelectiveContactRefresh
         CSConstraintCleanupAndBreakDetection
         CSSleepUpdate
-        CSAppendSubstepEvents
+        if collision subscribers exist:
+            CSCompactCollisionEventsAndReserveRange
+            CSAppendCompactCollisionEvents
+        else:
+            CSPrepareSubstepCounters
 
-    CSGatherFrameOutput
-    CopyBufferRegion(one contiguous output)
+    GPU-to-GPU CopyBufferRegion final ordinary-body range into packed output
+    GPU-to-GPU CopyBufferRegion optional break and coupled-failure ranges
+    CSGatherFrameArticulations when articulations exist
+    GPU-to-CPU CopyBufferRegion(one contiguous packed output)
     ExecuteCommandLists once
 
 CompleteStep()
@@ -492,18 +527,18 @@ rather than being retained in registers or group-shared memory. This avoids repl
 still exposing parallelism across independent articulations. The breadth schedules and level kernels remain available for the coupled impulse-ABA passes,
 where many constraint endpoints must be gathered before one tree response.
 
-There are multiple compute dispatches and UAV barriers in the complete frame, but there is no CPU wait, state readback, or resubmission between internal
-substeps.
+There are multiple compute dispatches, UAV barriers, and GPU-to-GPU copies in the complete frame, but there is no CPU wait, state readback, or resubmission
+between internal substeps. Only the final contiguous copy targets CPU-visible readback memory.
 
 ## External Forces and Orthogonality
 
 Every solver node has a per-substep working spatial wrench:
 
-1. Clear the working wrench.
-2. Restore frame-constant forces and gravity.
-3. Let GPU modules add state-dependent forces.
-4. Consume the wrench during ordinary rigid integration or articulation inward dynamics.
-5. Clear it before the next substep.
+1. The body upload supplies CPU-authored force, torque, and gravity directly for substep zero.
+2. When the frame has more than one internal substep, retain the authored force and torque in optional 32-byte-per-body immutable storage.
+3. Before each later substep, restore that immutable force and torque after resetting transient collision counters.
+4. Let GPU modules add state-dependent forces for the current substep.
+5. Consume and clear the working wrench during ordinary rigid integration or articulation inward dynamics.
 
 Articulation link proxies follow this lifecycle even though the ordinary-body integration dispatch skips them.
 
@@ -520,7 +555,7 @@ A CPU callback cannot inspect intermediate GPU state while preserving the one-re
 
 | Evaluation mode | Internal substeps |
 |---|---|
-| Frame-constant CPU data | Uploaded once and reapplied each substep |
+| Frame-constant CPU data | Uploaded in body state for substep zero; retained once and reapplied only when later substeps exist |
 | GPU per-substep module | Records a shader dispatch for every substep |
 | CPU state-dependent callback | Rejected when internal one-readback substeps are requested |
 
@@ -535,8 +570,8 @@ never waits for the CPU to resize a buffer.
 
 ## Public API Shape
 
-The native API should retain the engine's non-owning body model while introducing stable identities. A GPU buffer index must never become a persistent API
-identity.
+The native API retains the engine's non-owning ordinary-body model while using stable identities for persistent endpoints. A GPU buffer index never becomes a
+persistent API identity.
 
 ```cpp
 namespace pr::physics
@@ -600,32 +635,29 @@ namespace pr::physics
 	class ConstraintSet
 	{
 	public:
-		ConstraintHandle Add(DistanceConstraintDesc const& desc);
+		ConstraintHandle Add(D6ConstraintDesc const& desc);
 		ConstraintHandle Add(BallSocketConstraintDesc const& desc);
 		ConstraintHandle Add(HingeConstraintDesc const& desc);
 		ConstraintHandle Add(SliderConstraintDesc const& desc);
 		ConstraintHandle Add(WeldConstraintDesc const& desc);
-		ConstraintHandle Add(D6ConstraintDesc const& desc);
 
 		void Update(ConstraintHandle handle, D6ConstraintDesc const& desc);
 		void SetEnabled(ConstraintHandle handle, bool enabled);
+		void Repair(ConstraintHandle handle);
 		void Remove(ConstraintHandle handle);
+		D6ConstraintDesc const& Get(ConstraintHandle handle) const;
+		bool Contains(ConstraintHandle handle) const;
+		bool IsBroken(ConstraintHandle handle) const;
 	};
 
-	struct StepInput
+	struct Engine::StepInput
 	{
 		std::span<RigidBody*> m_bodies;
 		std::span<Articulation*> m_articulations;
-		ConstraintSet const* m_constraints;
-		float m_elapsed_seconds;
-		int m_substep_count;
-	};
-
-	struct StepOutputOptions
-	{
-		bool m_constraint_events;
-		bool m_link_transforms;
-		bool m_solver_diagnostics;
+		ConstraintSet const* m_constraints = nullptr;
+		float m_elapsed_seconds = 0.0f;
+		int m_substep_count = 1;
+		double m_time_s = 0.0;
 	};
 }
 ```
@@ -640,24 +672,34 @@ Additional API rules:
 - Every rigid body has a stable `BodyId`; remapping uses it rather than current vector position.
 - Missing or duplicate endpoint identities fail `BeginStep` before submission.
 - Constraint and articulation topology cannot change while a step is pending.
-- Parameter changes upload as dirty ranges.
+- Parameter changes upload as merged dirty stable-slot ranges.
 - Link self-collision and connected-body collision are configurable.
 - Per-row impulses remain GPU-resident unless diagnostics explicitly request them.
-- The DLL surface mirrors the existing generational engine, shape, and body handles.
+- `ConstraintsBroken` and `CoupledConstraintFailures` deliver bounded post-readback events; GPU break disabling takes effect during the substep that detects it.
+- `LastFeatureStats()` reports active counts, retained capacities, dispatches, logical bytes, allocated bytes, packed output size, and terminal failure state.
+- The ABI 2.0 DLL surface mirrors the generational engine, shape, and body handles.
 
 Articulation creation is explicit:
 
 ```cpp
 ArticulationBuilder builder;
 
-auto root = builder.AddFloatingRoot(root_desc);
-auto upper = builder.AddLink(root, revolute_joint_desc, upper_link_desc);
-auto lower = builder.AddLink(upper, revolute_joint_desc, lower_link_desc);
+auto root = builder.AddFloatingRoot(root_desc, root_to_world, root_velocity);
+auto upper = builder.AddLink(root, ArticulationJointDesc::Revolute(v4::ZAxis()), upper_link_desc);
+auto lower = builder.AddLink(upper, ArticulationJointDesc::Revolute(v4::ZAxis()), lower_link_desc);
 
 auto articulation = builder.Build();
 ```
 
-The articulation owns generalized state and hidden link proxies, but it does not own unrelated ordinary rigid bodies.
+`Articulation` owns immutable tree topology, generalized state, stable link handles, link kinematics, per-link gravity/external wrenches, and whole-tree sleeping
+state. Hidden link proxies are transient engine resources; the articulation does not own unrelated ordinary rigid bodies.
+
+The versioned C ABI exposes the same model through:
+
+- `Physics_ArticulationCreate`, state get/set, link-state copy, link force, and link gravity calls.
+- `Physics_ConstraintCreateD6`, get/update, enable/disable, repair, and destroy calls.
+- `Physics_BeginStepEx`/`Physics_StepEx` for one submitted frame with one to 64 internal substeps.
+- `Physics_EventsCopy` and `Physics_DiagnosticsGet` for bounded events and exact resource/transaction diagnostics.
 
 ## Complexity
 
@@ -689,93 +731,129 @@ remain constant. Long chains, loops, redundancy, mass ratios, and large timestep
 GPU adjacency is built once per substep and reused by every coupled iteration. Endpoint wrench gathering therefore scans each adjacency entry once instead of
 sorting contributions on every iteration.
 
-ABA performs linear work per tree, but one deep tree has a depth-dependent GPU critical path. The implementation is expected to perform best with many
+ABA performs linear work per tree, but one deep tree has a depth-dependent GPU critical path. The implementation performs best with many
 small-to-medium articulations.
 
 ## Resource Costs
 
 ### Constraint resources
 
-Target layouts are:
+The production rigid-constraint layouts are enforced by `static_assert`:
 
 | Resource | Cost |
 |---|---:|
-| Compiled block header | 32 B/block |
+| Stable endpoint | 32 B/slot |
+| Persistent D6 descriptor | 256 B/slot |
+| Compiled block header | 32 B/slot |
 | Compiled scalar row, including accumulated impulse | 96 B/row |
-| Colour/island schedule | 16 B/block |
-| Two endpoint adjacency entries | 16 B/block |
-| Residual/candidate scratch | 16 B/row |
-| Reusable node wrench/pseudo state | 32 B/node |
-| Maximum-size persistent D6 descriptor | 256 B/declared block |
-| Persistent warm-start cache | 32 B/declared block |
+| Six-row block storage | 576 B/slot |
+| Complete persistent slot | **896 B/slot** |
+| Rigid split-correction pseudo velocity | 32 B/participating body |
+| Break latch, when any slot is breakable | 32 B/slot |
+| Overflow word, when slots exist | 4 B total |
 
-Core active solve storage is:
-
-$$
-64B + 112R + 32N
-$$
-
-Scheduling and radix/union-find scratch should be provisioned to approximately:
+For $S$ stable slots, $N$ participating rigid bodies, and $K$ breakable constraints, exact logical storage is:
 
 $$
-32B + 16N
+896S + 4[S>0] + 32N + 32S[K>0]
 $$
 
-For 40,000 blocks, 100,000 rows, and 10,000 nodes:
+Retained allocation substitutes the reported slot, body, and break capacities for the logical counts. Capacities grow geometrically and can therefore exceed
+current logical use after a workload shrinks. An empty `ConstraintSet` reports zero constraint allocation and dispatches.
 
-- Core active storage is approximately 14.08 MB.
-- Scheduling scratch is approximately 1.44 MB.
-- The transient target is approximately 15.5 MB.
-- 40,000 maximum-size persistent D6 descriptors and caches consume approximately 11.52 MB.
+Articulation-coupled persistent constraints allocate additional matrix-free transaction storage only when a constraint touches a link:
 
-The existing contact buffer is excluded from this incremental estimate. Generalising `GpuResolveContact` may recover some of the apparent additional cost.
-Final structure sizes must be enforced with `static_assert` and exposed through engine diagnostics.
+| Coupled stream | Exact logical cost |
+|---|---:|
+| Endpoint and block-local preconditioner | 128 B/slot |
+| Velocity block topology, transaction scratch, and two link contributions | 144 B/slot |
+| Target plus target impulse | 64 B/target |
+| Endpoint adjacency | 4 B/entry |
+| Island state, failure state, and selection | 68 B/island |
+| Island block index | 4 B/index |
+| Participating articulation range | 12 B/range |
+| Exact self-link mobility | 96 B/participating link plus 16 B/range |
+| Detached impulse ABA | 64 B/participating link plus 4 B/generalized velocity |
+| Position transaction | 32 B/participating link plus 4 B/generalized velocity |
+
+The coupled-contact lane similarly uses 192 B/contact, 32 B/target, 4 B/participant, 8 B/participating tree, and a 16-byte transaction state before optional
+position-correction, mobility, impulse-ABA, and deterministic-sort storage. All terms and retained capacities are exposed through
+`EngineFeatureStats::m_coupled`.
 
 ### Articulation resources
 
-The initial planning target is:
+The pure-tree lane accounts for the exact packed arrays rather than a planning estimate. Let:
+
+- $A$ be articulation count.
+- $L$ be link count.
+- $D$ be packed joint-DOF record count.
+- $P$, $V$, $F$, and $X$ be generalized position, velocity, force, and acceleration scalar counts.
+- $C$ and $K$ be child-index and level-link counts.
+- $M=\sum_j d_j^2$ be small joint-factor scalar count.
+
+Force ABA topology, state, and scratch use:
 
 $$
-608L + 64D + 8\sum_j d_j^2
+80A + 192L + 16D + 4(P+V+F+X) + 32L + 4C + 4K + 336L + 64D + 4M
 $$
 
-where:
+The terms respectively represent articulation headers, link topology/inertia, DOF records, generalized arrays, link wrenches, traversal schedules, link ABA
+scratch, DOF scratch, and joint factors. Bounded midpoint integration adds:
 
-- 352 B/link is ABA spatial state and working data.
-- 256 B/link is the collision/force proxy.
-- 64 B/scalar DOF covers generalized state and work arrays.
-- $8d_j^2$ stores small per-joint factor matrices and inverses.
+$$
+48A + 4P + 8V
+$$
 
-For 10,000 one-DOF links, this is approximately 6.8 MB, excluding shapes and constraint rows. The representation remains a feasibility result until shader
-access and alignment are measured.
+Hidden link force/transform proxies add 64 B/link. Coupled lanes add the exact mobility and impulse terms listed above only for participating trees. As with
+constraints, retained buffers use geometric high-water capacities and the current logical/allocated totals are queryable through
+`EngineFeatureStats::m_articulations`.
 
 ### Final readback
 
-One gathered output buffer has approximate size:
+The packed frame output has the following exact 16-byte-aligned layout:
 
 $$
-256N_r + 4(Q+D) + 48L_{\mathrm{visible}} + 32E + 256
+\begin{aligned}
+o_b &= 64 \\
+o_e &= o_b + 256N_r \\
+o_a &= \operatorname{align}_{16}(o_e + 144E_c) \\
+o_p &= o_a + 64A \\
+o_v &= \operatorname{align}_{16}(o_p + 4P) \\
+o_{\dot v} &= \operatorname{align}_{16}(o_v + 4V) \\
+o_k &= \operatorname{align}_{16}(o_{\dot v} + 4V) \\
+o_f &= \operatorname{align}_{16}(o_k + 32S) \\
+\text{readback bytes} &= o_f + 32I
+\end{aligned}
 $$
 
 where:
 
 - $N_r$ is the number of ordinary rigid bodies.
-- $Q$ is generalized position scalar count.
-- $D$ is generalized velocity count.
-- $L_{\mathrm{visible}}$ is the number of requested host link transforms.
-- $E$ is returned event count.
+- $E_c$ is collision-event capacity; it is zero unless the `Collisions` event has a subscriber.
+- $A$, $P$, and $V$ are articulation, generalized-position, and generalized-velocity counts; acceleration contributes the second $4V$ term.
+- $S$ is the persistent constraint slot count when break latches are present.
+- $I$ is the coupled-island count when failure records are present.
 
-The current 10,000-body readback remains 2.56 MB. Constraint rows and warm-start impulses remain GPU-resident.
+The 64-byte header carries final and peak collision counters, bounded event state, and substep provenance. Each public collision event is 144 bytes and excludes
+solver-only transforms, timing, warm-start, and response state. Articulation output is 64 bytes/tree plus generalized position, velocity, and acceleration
+scalars; link transforms are reconstructed from accepted generalized state. Break and coupled-failure records are 32 bytes each.
+
+The packed UAV retains at least one 144-byte event element as a safe zero-capacity binding, and a 16-byte substep reservation exists only when collision counters
+must be accumulated. The readback itself excludes these sentinels. A multi-substep frame additionally retains 32 B/packed body of immutable frame force, but
+single-substep frames never create that resource or its pipeline state.
+
+At 10,000 ordinary bodies with no event subscriber or optional output, body state remains 2.56 MB plus the 64-byte header and alignment. Constraint rows,
+warm-start impulses, ABA topology/scratch, and collision solver state remain GPU-resident.
 
 ### Memory traffic
 
-A coupled iteration should move approximately 160 to 240 bytes per active row plus articulation traversal data. At 100,000 rows:
+A coupled iteration moves approximately 160 to 240 bytes per active row plus articulation traversal data. At 100,000 rows:
 
 - Approximately 16 to 24 MB per coupled iteration.
 - Approximately 128 to 192 MB for eight iterations.
 
-This should be bandwidth-friendly, but dispatch barriers, adjacency imbalance, and articulation depth can dominate. Absolute millisecond targets should be
-fixed only after milestone-zero measurements on a named GPU.
+This is bandwidth-friendly on the target RTX 3080 Ti, but dispatch barriers, adjacency imbalance, low-clock behavior for tiny headless workloads, and
+articulation depth can dominate. Production measurements therefore report both row scaling and complete-scene frame times.
 
 ## Stability and Energy Policy
 
@@ -831,7 +909,7 @@ not implied by ordinary inertial-frame multibody dynamics.
 | Redundant constraints | $A$ becomes semidefinite; regularization selects a bounded solution and reports poor conditioning |
 | Contradictory constraints | Residual remains nonzero instead of allowing unbounded impulses |
 | Extreme mass ratios | Poor conditioning; stress tests cover at least $10^6:1$ |
-| High-degree body hub | Exhausts bounded colours; route the coherent component through projected Jacobi |
+| High-degree body hub | Exhausts bounded colours; route conflicting excess blocks through the coherent fallback, preserving correctness with less parallelism |
 | Many constraints on one articulation | ABA remains linear per iteration, but the projected iteration may need stronger damping |
 | Deep single articulation | Linear work but depth-dependent critical path and low GPU occupancy |
 | Many small articulations | Good GPU occupancy across independent trees |
@@ -889,7 +967,7 @@ A bounded oscillating error is acceptable. A statistically significant positive 
 
 ### Dynamics acceptance gates
 
-These are milestone-six exit conditions and permanent regression tests.
+These are permanent regression tests retained from the dynamics milestone.
 
 #### Zero-feature identity
 
@@ -979,31 +1057,59 @@ For both the asymmetric rigid body and free-floating articulation:
 ### Performance gates
 
 - No-feature path: zero new feature allocations and dispatches.
-- Exactly one GPU submission, one final `CopyBufferRegion`, and one fence wait per rendered frame.
+- Exactly one GPU submission, one final GPU-to-CPU `CopyBufferRegion`, and one fence wait per rendered frame.
 - No CPU queue wait between internal substeps.
 - Measured allocation within 5 percent of the published capacity formula.
 - Once occupancy is saturated, doubling rows or links must not exceed approximately 2.2 times fixed-iteration solve time.
 - The 100,000-row scene runs without capacity growth, CPU synchronization, or superlinear scheduling.
 - Pure-tree ABA demonstrates the same near-linear doubling behavior independently of the constraint solver.
 
-Absolute frame budgets are fixed after milestone-zero baselines are collected on the target GPU.
+### Completed acceptance results
+
+| Gate | Result |
+|---|---|
+| Native regression suite | All 1,188 Quick tests passed |
+| Internal GPU substeps | All 9 tests passed, covering force replay, one-boundary scheduling, event ordering/overflow, and warm starts |
+| Coupled engine integration | All 17 tests passed, including rigid/tree transfer, private proxy contacts, failure transactions, and split correction |
+| Collision pair and compounds | All 10 collision-pair and 11 compound-shape tests passed |
+| Articulation midpoint | All 21 tests passed, including fixed/floating roots, force ABA, midpoint convergence, rollback, and resource accounting |
+| Saturated row scaling | 50,004 rows: 21.683 ms; 100,002 rows: 43.290 ms; ratio 2.00, below the 2.2 limit |
+| Resource accounting | Logical and retained formulas match exact typed buffer sizes, including shrink/high-water and break-state cases |
+| Zero-feature identity | Empty overlay preserves output, transaction counts, and ordinary rigid trajectory with zero constraint/articulation/coupled allocation |
+| Coriolis and gyroscopic ABA | Dense force-ABA oracle and zero-applied-force bias cases pass for fixed and floating trees |
+| Conservation and Dzhanibekov | Rigid and floating-root torque-free regressions preserve qualitative flips, momentum envelopes, and bounded energy |
+| Passive constraints and restitution | Passive work guard, soft rows, friction, motors, split correction, and elastic restitution regressions pass without artificial energy clamps |
+| Pathological systems | Redundancy, contradiction, colour exhaustion, $10^6:1$ mass ratio, loops, capacity, stale handles, and bounded failure tests pass |
+| Submission/readback contract | Every measured 1-, 2-, and 4-substep demo frame reports one submission, one wait, and one GPU-to-CPU readback copy |
+
+The legacy benchmark uses warmed medians on the same RTX 3080 Ti. Nineteen of 22 scenes are within 10% of baseline or faster. The remaining three are not
+equivalent workloads after correctness changes increased their generated contacts:
+
+| Scene | Contact change | Physics-time change | Contact-throughput change |
+|---|---:|---:|---:|
+| `generated_stress.json` | +31.81% | +13.77% | +15.86% |
+| `simultaneous_impact_1000.json` | +33.33% | +19.48% | +11.60% |
+| `stress_test_1000.json` | +32.15% | +18.89% | +11.16% |
+
+The 2,000-brick legacy stress scene remains within the 10% gate at +9.36%. Instrumented profiling showed it is GPU dominated; compact events and copy-engine
+body gathering reduced the final measured frame to approximately 8.33 ms.
 
 ## Incremental Roadmap
 
-| Milestone | Deliverable | Required exit proof |
-|---|---|---|
-| **0. Baseline and colour correctness** | Instrument current stages, resources, residuals, and energy; fix colour-31 saturation | Degree-above-32 test is race-free; current scenes remain stable; baseline report is recorded |
-| **1. Mathematical oracle** | Dense double-precision bilateral, inequality, and friction-cone solver for tiny systems | Analytic cases and random KKT systems agree to double-precision tolerance |
-| **2. Constraint identities and row compiler** | `BodyId`, handles, `ConstraintSet`, D6 compiler, and endpoint remapping | Reorder/add/remove/stale-handle tests; no GPU solve work yet |
-| **3. Deterministic CPU rigid solver** | Block PGS, warm start, limits, motors, compliance, cone friction, and split correction | Joint gallery passes residual, momentum, bounds, energy, and determinism tests |
-| **4. GPU rigid constraints** | General block buffers, GPU row compiler, colouring, adjacency, and coherent fallback | HLSL interop and GPU parity; 100,000-row scaling measurement |
-| **5. Internal GPU substeps** | One submission/readback, per-substep force lifecycle, and event queues | GPU capture proves one copy/wait; force and intermediate-overflow tests pass |
-| **6. CPU Featherstone ABA** | Fixed/floating roots, 1-6 DOF joints, forward kinematics, force ABA, and impulse ABA | Dense dynamics oracle, Coriolis/gyroscopic, free-floating conservation, and Dzhanibekov gates pass |
-| **7. Effective-mass feasibility gate** | Measure exact and approximate articulation block preconditioners | **Passed:** select exact self-link mobility blocks with monotone relaxation; reject general exact cross-link block setup |
-| **8. GPU pure-tree articulations** | GPU traversals, link proxies, sleep, collision, and force gathering | CPU/GPU ABA parity; buoyant articulation demo; near-linear link scaling |
-| **9. Coupled hybrid solver** | Articulation contact/loop rows, projected ABA iteration, outer coupling, and generalized correction | Mixed stack, four-bar, two-articulation, and self-loop tests pass |
-| **10. Robustness and energy hardening** | Work accounting, line search, regularization, breakage, and diagnostics | Pathology suite fails boundedly; passive soaks have no secular energy gain |
-| **11. API and productionisation** | DLL handles, diagnostics, documentation, demos, and capacity controls | Zero-feature, 100,000-row, API, and full regression gates pass |
+| Milestone | Status | Deliverable | Exit proof |
+|---|---|---|---|
+| **0. Baseline and colour correctness** | Complete | Instrument stages/resources and fix colour saturation | Degree-above-32 race test and saved baseline |
+| **1. Mathematical oracle** | Complete | Dense double-precision bilateral, inequality, and friction-cone reference | Analytic and random tiny systems agree |
+| **2. Constraint identities and row compiler** | Complete | `BodyId`, handles, `ConstraintSet`, D6 compiler, and endpoint remapping | Reorder/add/remove and stale-handle tests |
+| **3. Deterministic CPU rigid solver** | Complete | Block PGS, warm start, limits, motors, compliance, friction, and split correction | Residual, momentum, bounds, energy, and determinism tests |
+| **4. GPU rigid constraints** | Complete | GPU blocks, rows, colouring, adjacency, and coherent fallback | HLSL/GPU parity and 100,002-row scaling |
+| **5. Internal GPU substeps** | Complete | One submission/readback, force lifecycle, and bounded event queues | 1/2/4/8-substep and overflow tests |
+| **6. CPU Featherstone ABA** | Complete | Fixed/floating roots, 0-6 DOF joints, kinematics, force ABA, and impulse ABA | Dense dynamics, Coriolis, conservation, and Dzhanibekov gates |
+| **7. Effective-mass feasibility gate** | Complete | Exact and approximate articulation block preconditioners | Exact self-link mobility selected; general exact cross-link setup rejected |
+| **8. GPU pure-tree articulations** | Complete | GPU ABA, midpoint integration, link proxies, sleeping, collision, and force gathering | CPU/GPU parity, buoyancy, and scaling gates |
+| **9. Coupled hybrid solver** | Complete | Link contacts/loops, projected impulse ABA, outer coupling, and generalized correction | Mixed stack, four-bar, two-tree, and self-loop tests |
+| **10. Robustness and energy hardening** | Complete | Work accounting, backtracking, regularization, breakage, and diagnostics | Bounded pathology behavior and passive energy gates |
+| **11. API and productionisation** | Complete | ABI 2.0, diagnostics, documentation, demos, capacities, and performance hardening | Zero-feature, 100,000-row, API, demo, and full regression gates |
 
 ## Articulation Preconditioner Go/No-Go Gate
 
@@ -1081,34 +1187,41 @@ No canonical case required a backtrack at $\omega=0.9$. Separate gates prove exa
 repeated-hub majorizing fallback. Counters inside the actual recurrence and block assembly approximately double when links and rows are doubled together,
 confirming the selected setup's linear implementation. The rejected exact cross-link probe cost is the worst-case traversal analysis above, not a timing claim.
 
-GPU storage is optional and only allocated for coupled articulations. A symmetric $6\times6$ self-link mobility needs 21 floats and should be padded to 96
-bytes per participating link. A symmetric block inverse has the same 96-byte upper bound for a six-row block. Setup is $O(L+R)$ time and memory; each fixed
+GPU storage is optional and only allocated for coupled articulations. A symmetric $6\times6$ self-link mobility occupies 96 bytes per participating link.
+A symmetric block inverse has the same 96-byte upper bound for a six-row block. Setup is $O(L+R)$ time and memory; each fixed
 coupled iteration remains $O(L+R)$.
 
-This gate covers tiny bilateral systems and the preconditioner's numerical role. Projected bounds, Coulomb cones, large mixed islands, and GPU float parity
-remain milestone-nine acceptance work rather than being inferred from these results.
+This gate covers tiny bilateral systems and the preconditioner's numerical role. Separate completed acceptance suites cover projected bounds, Coulomb cones,
+large mixed islands, transaction backtracking, and GPU float parity.
 
 Pure-tree ABA is not conditional on this gate.
 
 ## Demonstration Catalogue
 
-| Demo | Features proved |
-|---|---|
-| Single distance pendulum | Analytic period and passive energy behavior |
-| 100-link chain | Iteration propagation and articulation comparison |
-| Joint gallery | Ball, hinge, slider, weld, D6, limits, motors, and compliance |
-| Torque-free asymmetric body | Dzhanibekov effect and angular-momentum conservation |
-| Free-floating articulation | Coriolis/gyroscopic ABA and momentum conservation |
-| Ragdoll | Many small tree articulations and contacts |
-| Robot arm and gripper | Motors, limits, manipulation, and contact feedback |
-| Vehicle suspension | Mixed links, limits, springs, and wheel contacts |
-| Four-bar linkage | Closed-loop external constraints |
-| Bridge or crane | Large rigid constraint graph |
-| Floating articulated object | GPU buoyancy acting through link wrenches |
-| Articulation pushing a rigid stack | Correct multiplicative coupling |
-| Two robots carrying one load | Constraint between separate articulations |
-| 100,000-row stress scene | Memory and fixed-iteration scaling |
-| Pathology gallery | Redundancy, contradiction, high-degree hubs, stiff servos, long chains, and extreme mass ratios |
+Each command is available through `physics-sandbox.exe -demo <command>`. Interactive FPS is the minimum of five observed post-warm-up samples; headless physics
+FPS is the warmed production Release median.
+
+| Command | Features proved | Interactive min FPS | Headless physics FPS |
+|---|---|---:|---:|
+| `pendulum` | Passive physical pendulum and analytic small-angle period | 60 | 69.36 |
+| `rigid-joints` | Ball, hinge, slider, weld, motor, breakable D6, limits, and compliance | 60 | 63.47 |
+| `rigid-chain` | Long graph-coloured rigid chain and iteration propagation | 60 | 55.68 |
+| `four-bar` | Closed-loop mechanism that cannot be represented by one tree | 60 | 57.58 |
+| `fixed-articulations` | Fixed-root Featherstone chains of several sizes | 60 | 89.23 |
+| `ragdolls` | Many branched floating articulations and contacts | 60 | 108.10 |
+| `robot-motors` | Reduced-coordinate links controlled by driven and limited rows | 41 | 43.60 |
+| `robot-gripper` | Motors, prismatic fingers, manipulation contact, and tree feedback | 44 | 45.69 |
+| `vehicle-suspension` | Driven compliant suspension, travel limits, and wheel contacts | 60 | 57.33 |
+| `suspension-bridge` | Cyclic rigid graph with pinned corners and distributed load | 60 | 53.63 |
+| `mixed-coupling` | Rigid-to-tree and direct tree-to-tree persistent constraints | 44 | 47.39 |
+| `articulation-push` | Driven articulation transferring momentum to a rigid stack | 45 | 45.74 |
+| `two-robot-load` | Two independent trees supporting one constrained payload | 47 | 48.34 |
+| `mixed-contacts` | Rigid/tree, tree/tree, and non-adjacent same-tree contacts | 60 | 126.74 |
+| `buoyant-articulation` | GPU buoyancy applied independently to floating-tree links | 60 | 67.55 |
+| `floating-conservation` | Coriolis effects, momentum conservation, and bounded energy | 60 | 81.70 |
+| `dzhanibekov` | Rigid and floating-root intermediate-axis instability | 60 | 75.38 |
+| `constraint-pathologies` | Redundancy, extreme mass ratios, and near-singular loops | 60 | 59.94 |
+| `constraint-stress` | Cyclic two-dimensional graph and fixed-iteration scaling | 60 | 92.32 |
 
 ## Final Design Position
 
@@ -1121,5 +1234,5 @@ The architecture preserves Rylogic's existing impulse philosophy:
 - No production path constructs a global constraint matrix.
 - Users pay only for the solver features they instantiate.
 
-Implementation should begin with milestone zero and should not proceed to GPU articulation coupling until the milestone-seven effective-mass feasibility gate
-has passed.
+All roadmap milestones and the effective-mass feasibility gate are complete. The resulting architecture retains the pure-tree ABA fast path while adding
+arbitrary graph topology without introducing a global matrix, per-substep host synchronization, or mandatory feature overhead.
