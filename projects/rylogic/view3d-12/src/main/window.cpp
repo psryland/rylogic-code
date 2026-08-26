@@ -86,6 +86,9 @@ namespace pr::rdr12
 		, m_vsync(settings.m_vsync)
 		, m_idle(false)
 		, m_name(settings.m_name)
+		, m_resolved_depth()
+		, m_resolved_depth_size()
+		, m_resolved_depth_format(DXGI_FORMAT_UNKNOWN)
 	{
 		// Notes:
 		//  The swap chain is the data that's sent to the monitor, and monitors can't display MSAA textures.
@@ -349,6 +352,16 @@ namespace pr::rdr12
 			bb.Release(*this);
 		}
 
+		// The resolved-depth copy is sized to the back buffer, so it is dropped here and recreated
+		// on demand by the next pass that needs it.
+		if (m_resolved_depth != nullptr)
+		{
+			m_res_state.Forget(m_resolved_depth.get());
+			m_resolved_depth = nullptr;
+			m_resolved_depth_size = iv2{};
+			m_resolved_depth_format = DXGI_FORMAT_UNKNOWN;
+		}
+
 		// Finished releasing references. Now to create new resources.
 
 		// Swap chain render targets
@@ -520,6 +533,8 @@ namespace pr::rdr12
 		auto heaps = { m_heap_view.get() };
 		m_frame.m_prepare.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
 		m_frame.m_resolve.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
+		m_frame.m_composite.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
+		m_frame.m_final_overlay.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
 		m_frame.m_present.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
 
 		// Prepare
@@ -558,8 +573,8 @@ namespace pr::rdr12
 				m_frame.m_resolve.ResolveSubresource(bb_post.m_render_target.get(), bb_main.m_render_target.get(), m_rt_props.Format);
 				m_alpha_kbuffer.CopyOpaqueBuffer(m_frame.m_resolve, bb_main.m_render_target.get(), m_rt_props.Format, true);
 
-				// The swap chain render target goes to the 'render target' state
-				bb.Transition(bb_post.m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+				// Each phase restores the swap target's declared boundary state.
+				bb.Transition(bb_post.m_render_target.get(), D3D12_RESOURCE_STATE_PRESENT);
 				bb.Transition(bb_main.m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
 				bb.Commit();
 			}
@@ -574,23 +589,16 @@ namespace pr::rdr12
 				m_frame.m_resolve.CopyResource(bb_post.m_render_target.get(), bb_main.m_render_target.get());
 				m_alpha_kbuffer.CopyOpaqueBuffer(m_frame.m_resolve, bb_main.m_render_target.get(), m_rt_props.Format, false);
 
-				// The swap chain render target goes to the 'render target' state
-				bb.Transition(bb_post.m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+				// Each phase restores the swap target's declared boundary state.
+				bb.Transition(bb_post.m_render_target.get(), D3D12_RESOURCE_STATE_PRESENT);
 				bb.Transition(bb_main.m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
 				bb.Commit();
 			}
 		}
 
-		// Present
+		// Composite transparent scene content before any final overlay.
 		if (bb_post.m_render_target != nullptr)
-		{
-			m_alpha_kbuffer.ResolveAlpha(m_frame.m_present, m_heap_view, bb_post, vp, scissor);
-
-			// The swap chain render target goes to the 'present' state
-			BarrierBatch bb(m_frame.m_present);
-			bb.Transition(bb_post.m_render_target.get(), D3D12_RESOURCE_STATE_PRESENT);
-			bb.Commit();
-		}
+			m_alpha_kbuffer.ResolveAlpha(m_frame.m_composite, m_heap_view, bb_post, vp, scissor);
 
 		// Return the frame object
 		return m_frame;
@@ -610,7 +618,12 @@ namespace pr::rdr12
 			return;
 
 		frame.m_prepare.Close();
+		frame.m_world_depth.Close();
 		frame.m_resolve.Close();
+		frame.m_composite.Close();
+		frame.m_depth_resolve.Close();
+		frame.m_world_overlay.Close();
+		frame.m_final_overlay.Close();
 		frame.m_present.Close();
 
 		#if PR_PIX_ENABLED
@@ -619,12 +632,21 @@ namespace pr::rdr12
 		capture = false;
 		#endif
 
-		// Submit the command lists to the GPU
+		// Submit the command lists to the GPU. World-depth work is scene-adjacent so it runs
+		// against the multi-sampled target before the resolve; the depth resolve runs after all
+		// scene depth writes (including post-processing) so the copy it produces is complete; and
+		// world overlays run after alpha compositing but before screen-space overlays, which stay
+		// strictly last.
 		rdr().ExecuteGfxCommandLists({
 			frame.m_prepare,
 			frame.m_main,
+			frame.m_world_depth,
 			frame.m_resolve,
 			frame.m_post,
+			frame.m_composite,
+			frame.m_depth_resolve,
+			frame.m_world_overlay,
+			frame.m_final_overlay,
 			frame.m_present,
 		});
 
@@ -774,6 +796,87 @@ namespace pr::rdr12
 		}
 
 		return bb;
+	}
+
+	// A single-sample, read-only copy of 'bb's depth buffer, owned by this window.
+	ID3D12Resource* Window::ResolvedDepth(BackBuffer const& bb)
+	{
+		if (bb.m_depth_stencil == nullptr)
+			return nullptr;
+
+		auto desc = bb.m_depth_stencil->GetDesc();
+		auto size = iv2{ s_cast<int>(desc.Width), s_cast<int>(desc.Height) };
+
+		// Reuse the existing resource whenever it still matches the source; a mismatch can only
+		// arise from a resize or a depth-format change, both of which are rare.
+		if (m_resolved_depth != nullptr && All(m_resolved_depth_size == size) && m_resolved_depth_format == m_ds_props.Format)
+			return m_resolved_depth.get();
+
+		if (m_resolved_depth != nullptr)
+		{
+			m_res_state.Forget(m_resolved_depth.get());
+			m_resolved_depth = nullptr;
+		}
+
+		// Created with the same typeless resource format as the source depth buffer, so a
+		// multi-sample resolve into it is always format-compatible, but single-sampled and without
+		// the depth-stencil flag so it can be sampled as an ordinary texture.
+		auto device = rdr().D3DDevice();
+		ResDesc rddesc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, DepthResourceFormat(m_ds_props.Format) }, 1U, EUsage::Default)
+			.multisamp(MultiSamp{ 1, 0 });
+		assert(rddesc.Check());
+		Check(device->CreateCommittedResource(
+			&HeapProps::Default(), D3D12_HEAP_FLAG_NONE, &rddesc, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+			nullptr, __uuidof(ID3D12Resource), (void**)m_resolved_depth.address_of()));
+		DefaultResState(m_resolved_depth.get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+		DebugName(m_resolved_depth, "ResolvedDepth");
+
+		m_resolved_depth_size = size;
+		m_resolved_depth_format = m_ds_props.Format;
+		return m_resolved_depth.get();
+	}
+
+	// The single-sample R-typed format a shader resource view of ResolvedDepth must use.
+	DXGI_FORMAT Window::ResolvedDepthSrvFormat() const
+	{
+		return DepthSrvFormat(m_ds_props.Format);
+	}
+
+	// Record the resolve/copy of 'bb's depth buffer into the window's resolved-depth resource.
+	void Window::RecordDepthResolve(GfxCmdList& cmd_list, BackBuffer const& bb)
+	{
+		auto dst = ResolvedDepth(bb);
+		if (dst == nullptr)
+			return;
+
+		// D3DPtr propagates const from the back buffer reference, but the transfer does not modify the
+		// source depth buffer's identity, only its contents' visibility to the copy engine.
+		auto src = const_cast<ID3D12Resource*>(bb.m_depth_stencil.get());
+		auto srv_format = ResolvedDepthSrvFormat();
+
+		// Both resources are moved out of their declared boundary states for the transfer and back
+		// again afterwards, so every other phase observes them exactly as before.
+		BarrierBatch bb_transfer(cmd_list);
+		bb_transfer.Transition(src, bb.m_multisamp.Count > 1 ? D3D12_RESOURCE_STATE_RESOLVE_SOURCE : D3D12_RESOURCE_STATE_COPY_SOURCE);
+		bb_transfer.Transition(dst, bb.m_multisamp.Count > 1 ? D3D12_RESOURCE_STATE_RESOLVE_DEST : D3D12_RESOURCE_STATE_COPY_DEST);
+		bb_transfer.Commit();
+
+		if (bb.m_multisamp.Count > 1)
+		{
+			// MAX keeps the farthest sample, so a UI element only fades where every sample of the
+			// pixel is occluded, which avoids shimmering along geometry silhouettes.
+			D3DPtr<ID3D12GraphicsCommandList1> cmd_list1;
+			Check(cmd_list.get()->QueryInterface(__uuidof(ID3D12GraphicsCommandList1), (void**)cmd_list1.address_of()));
+			cmd_list1->ResolveSubresourceRegion(dst, 0, 0, 0, src, 0, nullptr, srv_format, D3D12_RESOLVE_MODE_MAX);
+		}
+		else
+		{
+			cmd_list.CopyResource(dst, src);
+		}
+
+		bb_transfer.Transition(dst, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+		bb_transfer.Transition(src, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+		bb_transfer.Commit();
 	}
 
 	// Create the swap chain back buffers

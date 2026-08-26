@@ -338,7 +338,7 @@ namespace pr::rdr12
 	}
 
 	// Record the ray dispatch and presentation commands for the selected screen-space pass.
-	void RayTracingDiagnostic::Record(GfxCmdList& cmd_list, Frame& frame, Scene const& scene, RayTracingScene const& ray_tracing_scene, ERayTracingScreenPass pass, RayTracingReflectionBuffer const* reflections, bool restore_present_state)
+	void RayTracingDiagnostic::Record(GfxCmdList& cmd_list, Frame& frame, Scene const& scene, RayTracingScene const& ray_tracing_scene, ERayTracingScreenPass pass, RayTracingReflectionBuffer const* reflections)
 	{
 		if (m_data == nullptr || m_data->m_output == nullptr || !ray_tracing_scene.Built())
 			return;
@@ -652,12 +652,6 @@ namespace pr::rdr12
 			{
 				BarrierBatch bb(cmd_list);
 				bb.Transition(target, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
-				bb.Commit();
-			}
-			else if (restore_present_state)
-			{
-				BarrierBatch bb(cmd_list);
-				bb.Transition(frame.bb_post().m_render_target.get(), D3D12_RESOURCE_STATE_PRESENT);
 				bb.Commit();
 			}
 		}

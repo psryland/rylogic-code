@@ -9,6 +9,7 @@
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/utility/ray_cast.h"
 #include "pr/view3d-12/lighting/light_ui.h"
+#include "pr/view3d-12/view3d-ui-bridge.h"
 #include "view3d-12/src/dll/dll_forward.h"
 #include "view3d-12/src/ldraw/sources/ldraw_sources.h"
 
@@ -83,15 +84,16 @@ namespace pr::rdr12
 		EStockObject  m_visible_objects; // Visible stock objects
 
 		// Misc
-		mutable std::string m_settings;       // Window settings
-		AnimData            m_anim_data;      // Animation time in seconds
-		HitTestRays         m_ht_rays;        // The set of async hit test rays
-		HitTestResults      m_ht_results;     // The results of async hit tests
-		mutable pr::BBox    m_bbox_scene;     // Bounding box for all objects in the scene (Lazy updated)
-		std::thread::id     m_main_thread_id; // The thread that created this window
-		AutoSub             m_eh_hittests;    // Event handler for async hit test results
-		bool                m_invalidated;    // True after Invalidate has been called but before Render has been called
-		bool                m_ht_invalidated; // True if async hit tests need to be performed
+		mutable std::string  m_settings;       // Window settings
+		AnimData             m_anim_data;      // Animation time in seconds
+		HitTestRays          m_ht_rays;        // The set of async hit test rays
+		HitTestResults       m_ht_results;     // The results of async hit tests
+		mutable pr::BBox     m_bbox_scene;     // Bounding box for all objects in the scene (Lazy updated)
+		std::thread::id      m_main_thread_id; // The thread that created this window
+		view3d::ui::Provider m_ui_provider;    // Optional final-overlay provider copied from the attached satellite
+		AutoSub              m_eh_hittests;    // Event handler for async hit test results
+		bool                 m_invalidated;    // True after Invalidate has been called but before Render has been called
+		bool                 m_ht_invalidated; // True if async hit tests need to be performed
 		
 		// UI Tools
 		LightingUIPtr m_ui_lighting;               // A UI for controlling the lighting of the scene
@@ -198,6 +200,10 @@ namespace pr::rdr12
 		// Render this window into whatever render target is currently set
 		void Render();
 
+		// Attach or detach the optional View3DUI provider.
+		view3d::ui::EHostStatus UIProviderAttach(view3d::ui::Provider const& provider);
+		view3d::ui::EHostStatus UIProviderDetach(void* provider_context);
+
 		// Wait for any previous frames to complete rendering within the GPU
 		void GSyncWait() const;
 
@@ -215,6 +221,17 @@ namespace pr::rdr12
 
 		// Clear the invalidated state for the window
 		void Validate();
+
+	private:
+
+		// Record one optional provider stage into a View3D-owned command list.
+		void RecordUIProvider(view3d::ui::EPass pass_id, Frame& frame);
+
+		// The scene camera expressed in the bridge's right-handed convention, so a provider can
+		// reconstruct the exact projection without calling back into any View3D API.
+		view3d::ui::Camera UIProviderCamera() const;
+
+	public:
 		
 		// Reset the scene camera, using it's current forward and up directions, to view all objects in the scene
 		void ResetView();

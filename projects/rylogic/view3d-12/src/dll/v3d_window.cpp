@@ -62,6 +62,7 @@ namespace pr::rdr12
 		, m_ht_results()
 		, m_bbox_scene(BBox::Reset())
 		, m_main_thread_id(std::this_thread::get_id())
+		, m_ui_provider()
 		, m_invalidated(false)
 		, m_ht_invalidated(false)
 		, m_ui_lighting()
@@ -138,6 +139,13 @@ namespace pr::rdr12
 	V3dWindow::~V3dWindow()
 	{
 		AnimControl(view3d::EAnimCommand::Stop);
+
+		// Invalidate the copied provider before notifying a satellite that outlived its documented detach point.
+		auto detached_cb = m_ui_provider.m_detached;
+		auto provider_context = m_ui_provider.m_context;
+		m_ui_provider = {};
+		if (detached_cb != nullptr)
+			detached_cb(provider_context);
 
 		// Disable the flight camera before tearing down the renderer / scene.
 		// FlightCameraController owns a renderer poll-callback registration and
@@ -706,11 +714,209 @@ namespace pr::rdr12
 
 		// Render the scene
 		auto& frame = m_wnd.NewFrame();
+
+		// Capture UI setup commands
+		RecordUIProvider(view3d::ui::EPass::Prepare, frame);
+
+		// Render the scene into the multi-sampled scene target
 		m_scene.Render(frame);
+
+		// Depth-tested world UI is scene-adjacent: it draws into the multi-sampled scene target
+		// while the scene depth buffer is still bound and writable, so scene geometry occludes it.
+		RecordUIProvider(view3d::ui::EPass::DepthTested, frame);
+
+		// Composite is an independently recorded phase, so restore its documented boundary state
+		// before a later command list begins the optional final overlay.
+		if (frame.bb_post().m_render_target != nullptr)
+		{
+			BarrierBatch bb(frame.m_composite);
+			bb.Transition(frame.bb_post().m_render_target.get(), D3D12_RESOURCE_STATE_PRESENT);
+			bb.Commit();
+		}
+
+		// Produce the single-sample depth copy after every scene depth writer has run, then record
+		// the two world overlay passes that consume it. Occlusion-faded work is recorded before
+		// plain world overlays so unoccluded world UI always composites on top.
+		if (m_ui_provider.m_record != nullptr)
+			m_wnd.RecordDepthResolve(frame.m_depth_resolve, frame.bb_main());
+
+		// Draw world-anchored roots that fade per pixel when the resolved scene depth occludes them.
+		RecordUIProvider(view3d::ui::EPass::OcclusionFaded, frame);
+
+		// Draw unoccluded world-anchored roots above scene output but below screen-space UI.
+		RecordUIProvider(view3d::ui::EPass::Overlay, frame);
+
+		// Draw screen-space roots as the final back-buffer writer before presentation.
+		RecordUIProvider(view3d::ui::EPass::FinalOverlay, frame);
+
+		// Present the frame to the swap chain
 		m_wnd.Present(frame);
 
 		// No longer invalidated
 		Validate();
+	}
+
+	// Attach the one optional provider supported by this bridge version.
+	view3d::ui::EHostStatus V3dWindow::UIProviderAttach(view3d::ui::Provider const& provider)
+	{
+		using namespace view3d::ui;
+
+		if (std::this_thread::get_id() != m_main_thread_id)
+			return EHostStatus::WrongThread;
+		if (provider.m_header.m_size < sizeof(Provider) || provider.m_header.m_version != HostStructVersion)
+			return EHostStatus::InvalidStruct;
+		if (provider.m_context == nullptr || provider.m_record == nullptr)
+			return EHostStatus::InvalidArgument;
+		if (m_ui_provider.m_record != nullptr)
+			return EHostStatus::AlreadyAttached;
+
+		m_ui_provider = provider;
+		return EHostStatus::Success;
+	}
+
+	// Detach the provider only when the supplied identity matches the attached context.
+	view3d::ui::EHostStatus V3dWindow::UIProviderDetach(void* provider_context)
+	{
+		using namespace view3d::ui;
+
+		if (std::this_thread::get_id() != m_main_thread_id)
+			return EHostStatus::WrongThread;
+		if (m_ui_provider.m_record == nullptr)
+			return EHostStatus::NotAttached;
+		if (provider_context == nullptr || provider_context != m_ui_provider.m_context)
+			return EHostStatus::InvalidArgument;
+
+		m_ui_provider = {};
+		return EHostStatus::Success;
+	}
+
+	// Record one provider pass without transferring command-list or target ownership.
+	void V3dWindow::RecordUIProvider(view3d::ui::EPass pass_id, Frame& frame)
+	{
+		using namespace view3d::ui;
+
+		if (m_ui_provider.m_record == nullptr)
+			return;
+
+		auto& bb_main = frame.bb_main();
+		auto& bb_post = frame.bb_post();
+		if (bb_post.m_render_target == nullptr)
+			return;
+
+		// Each pass names one host command list recorded at a fixed point in the frame. Depth-tested
+		// world UI is scene-adjacent so it draws into the multi-sampled scene target while the scene
+		// depth buffer is still live; the two world overlay passes draw into the resolved swap target
+		// after alpha compositing; screen UI stays last in the true final overlay.
+		auto& cmd_list = [&]() -> GfxCmdList&
+		{
+			switch (pass_id)
+			{
+				case EPass::Prepare: return frame.m_prepare;
+				case EPass::DepthTested: return frame.m_world_depth;
+				case EPass::OcclusionFaded: return frame.m_world_overlay;
+				case EPass::Overlay: return frame.m_world_overlay;
+				case EPass::FinalOverlay: return frame.m_final_overlay;
+				default: throw std::runtime_error(std::format("Unsupported View3DUI provider pass {}", static_cast<std::uint32_t>(pass_id)));
+			}
+		}();
+
+		// Depth-tested work targets the multi-sampled scene buffer; every other drawing pass targets
+		// the resolved swap target.
+		auto scene_target = pass_id == EPass::DepthTested;
+		auto const& target_bb = scene_target ? bb_main : bb_post;
+
+		// Only the passes that draw into the swap target need it made writable; the MSAA scene target
+		// is already in its render-target boundary state when the scene-adjacent pass runs.
+		auto brackets_swap_target = pass_id == EPass::OcclusionFaded || pass_id == EPass::Overlay || pass_id == EPass::FinalOverlay;
+		if (brackets_swap_target)
+		{
+			// The host command list owns the transition that brackets a provider draw. The provider
+			// receives the target and RTV but is never allowed to transition host resources.
+			BarrierBatch bb(cmd_list);
+			bb.Transition(bb_post.m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
+			bb.Commit();
+		}
+
+		// The single-sample depth copy is offered only to the pass that samples it, and only after
+		// the host has recorded the resolve that fills it.
+		auto resolved_depth = ResolvedDepth{ .m_resource = nullptr, .m_srv_format = DXGI_FORMAT_UNKNOWN, .m_width = 0, .m_height = 0 };
+		if (pass_id == EPass::OcclusionFaded && bb_main.m_depth_stencil != nullptr)
+		{
+			auto size = bb_main.rt_size();
+			resolved_depth = ResolvedDepth{
+				.m_resource = m_wnd.ResolvedDepth(bb_main),
+				.m_srv_format = m_wnd.ResolvedDepthSrvFormat(),
+				.m_width = s_cast<std::uint32_t>(size.x),
+				.m_height = s_cast<std::uint32_t>(size.y),
+			};
+		}
+
+		auto size = target_bb.rt_size();
+		auto dpi = Dpi();
+		auto viewport = static_cast<D3D12_VIEWPORT const&>(m_scene.m_viewport);
+		auto scissor = m_scene.m_viewport.m_clip[0];
+		auto pass = Pass{
+			.m_header = {sizeof(Pass), HostStructVersion},
+			.m_pass = pass_id,
+			.m_reserved = 0,
+			.m_command_list = cmd_list.get(),
+			.m_colour_target = target_bb.m_render_target.get(),
+			.m_depth_target = bb_main.m_depth_stencil.get(),
+			.m_rtv = target_bb.m_rtv,
+			.m_dsv = scene_target ? bb_main.m_dsv : D3D12_CPU_DESCRIPTOR_HANDLE{},
+			.m_width = s_cast<std::uint32_t>(size.x),
+			.m_height = s_cast<std::uint32_t>(size.y),
+			.m_colour_format = ::pr::compute::ToSRGB(m_wnd.m_rt_props.Format),
+			.m_depth_format = m_wnd.m_ds_props.Format,
+			.m_sample_count = target_bb.m_multisamp.Count,
+			.m_sample_quality = target_bb.m_multisamp.Quality,
+			.m_frame_number = s_cast<std::uint64_t>(m_wnd.FrameNumber()),
+			.m_dpi_x = dpi.x,
+			.m_dpi_y = dpi.y,
+			.m_viewport = viewport,
+			.m_scissor = scissor,
+			.m_camera = UIProviderCamera(),
+			.m_resolved_depth = resolved_depth,
+		};
+		auto status = m_ui_provider.m_record(m_ui_provider.m_context, &pass);
+
+		// Restore the swap target in the same command list that made it writable, so the bridge
+		// phase remains self-contained even when no earlier composite writer ran this frame.
+		if (brackets_swap_target)
+		{
+			BarrierBatch bb(cmd_list);
+			bb.Transition(bb_post.m_render_target.get(), D3D12_RESOURCE_STATE_PRESENT);
+			bb.Commit();
+		}
+
+		if (status != EHostStatus::Success)
+			throw std::runtime_error(std::format("View3DUI provider failed with status {}", static_cast<std::int32_t>(status)));
+	}
+
+	// Snapshot the scene camera in the bridge's right-handed convention.
+	view3d::ui::Camera V3dWindow::UIProviderCamera() const
+	{
+		auto const& cam = m_scene.m_cam;
+		auto c2w = cam.CameraToWorld();
+
+		// pr::Camera's camera-space z axis points backwards along the look direction, so the look
+		// direction handed to the provider is -z. Orthographic height is derived from the same
+		// focus distance and field of view the projection matrix is built from.
+		auto forward = -c2w.z;
+		auto fov_y = s_cast<float>(cam.FovY());
+		auto ortho_height = s_cast<float>(2.0 * cam.FocusDist() * std::tan(cam.FovY() * 0.5));
+		return view3d::ui::Camera{
+			.m_position = { c2w.pos.x, c2w.pos.y, c2w.pos.z },
+			.m_right = { c2w.x.x, c2w.x.y, c2w.x.z },
+			.m_up = { c2w.y.x, c2w.y.y, c2w.y.z },
+			.m_forward = { forward.x, forward.y, forward.z },
+			.m_near_plane = s_cast<float>(cam.Near(false)),
+			.m_far_plane = s_cast<float>(cam.Far(false)),
+			.m_fov_y_rad = fov_y,
+			.m_ortho_height = ortho_height,
+			.m_orthographic = cam.Orthographic() ? 1U : 0U,
+			.m_valid = 1U,
+		};
 	}
 	
 	// Wait for any previous frames to complete rendering within the GPU

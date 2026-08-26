@@ -120,14 +120,14 @@ namespace pr::rdr12
 			m_cmd_list.Reset(frame.m_cmd_alloc_pool.Get());
 			frame.m_post.push_back(m_cmd_list);
 			m_cmd_list.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
-			m_diagnostic.Record(m_cmd_list, frame, scn(), m_ray_tracing, pass, use_reflections ? &m_reflections : nullptr, false);
+			m_diagnostic.Record(m_cmd_list, frame, scn(), m_ray_tracing, pass, use_reflections ? &m_reflections : nullptr);
 			m_cmd_list.Close();
 			return;
 		}
 
-		// Present-list commands execute after View3D's alpha resolve, so diagnostic/shadow output is not overwritten by the normal forward-composite path.
-		frame.m_present.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
-		m_diagnostic.Record(frame.m_present, frame, scn(), m_ray_tracing, pass, nullptr, true);
+		// Composite commands execute after alpha resolve and before the optional final overlay.
+		frame.m_composite.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
+		m_diagnostic.Record(frame.m_composite, frame, scn(), m_ray_tracing, pass, nullptr);
 	}
 
 	// Add model nuggets to the draw list for this render step.

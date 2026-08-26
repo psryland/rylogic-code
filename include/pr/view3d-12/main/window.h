@@ -53,6 +53,7 @@ namespace pr::rdr12
 		using GpuSync = ::pr::compute::GpuSync;
 		using GfxCmdAllocPool = ::pr::compute::GfxCmdAllocPool;
 		using GfxCmdListPool = ::pr::compute::GfxCmdListPool;
+		using GfxCmdList = ::pr::compute::GfxCmdList;
 		using ResStateStore = ::pr::compute::ResStateStore;
 		using OpenXRPtr = std::unique_ptr<openxr::OpenXR>;
 
@@ -124,7 +125,25 @@ namespace pr::rdr12
 		// Create an MSAA render target and depth stencil
 		BackBuffer CreateRenderTarget(iv2 size, MultiSamp ms, ClearValue rt_clear, ClearValue ds_clear);
 
+		// A single-sample, read-only copy of 'bb's depth buffer, owned by this window and recreated
+		// on demand when the back buffer size or depth format changes. Returns null when 'bb' has no
+		// depth buffer. The returned resource is only meaningful after RecordDepthResolve has
+		// recorded the resolve/copy for the current frame.
+		ID3D12Resource* ResolvedDepth(BackBuffer const& bb);
+
+		// The single-sample R-typed format a shader resource view of ResolvedDepth must use.
+		DXGI_FORMAT ResolvedDepthSrvFormat() const;
+
+		// Record the multi-sample resolve (or plain copy) of 'bb's depth buffer into the window's
+		// resolved-depth resource, leaving it in a pixel-shader-readable state. The window owns
+		// every barrier involved; callers only choose when in the frame this happens.
+		void RecordDepthResolve(GfxCmdList& cmd_list, BackBuffer const& bb);
+
 	private:
+
+		D3DPtr<ID3D12Resource> m_resolved_depth; // Single-sample copy of the scene depth buffer, created on demand
+		iv2 m_resolved_depth_size;               // Dimensions 'm_resolved_depth' was created with
+		DXGI_FORMAT m_resolved_depth_format;     // Depth format 'm_resolved_depth' was created from
 
 		// Create the swap chain back buffers
 		void CreateSwapChain(iv2 size);

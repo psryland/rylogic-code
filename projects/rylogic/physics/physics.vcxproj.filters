@@ -223,6 +223,9 @@
     <None Include="src\buoyancy\buoyancy_sampler.hlsli">
       <Filter>src\buoyancy</Filter>
     </None>
+    <None Include="src\buoyancy\gpu_basic_waves.hlsli">
+      <Filter>src\buoyancy</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ShaderBuild Include="src\compute\collide.hlsl">

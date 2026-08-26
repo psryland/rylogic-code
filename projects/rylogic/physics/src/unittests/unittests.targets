@@ -1,29 +1,81 @@
 <Project>
-	<!-- Physics compiled tests belong to the global runner rather than the production static library. -->
+	<!-- Keep one authoritative list for the build project and its companion Solution Explorer filters. -->
 	<ItemGroup>
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)buoyancy_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)buoyancy_sampler_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)collision_pairs_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)collision_resolution_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)gpu_collision_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)gpu_collision_detector_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)gpu_compare_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)impulse_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)inertia_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)integrator_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)interop_engine_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)resolve_runner_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)rigid_body_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)shape_builder_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)physics_dll_tests.cpp" />
-		<ClCompile Include="@(CompiledUnitTest)">
+		<ClCompile Include="$(MSBuildThisFileDirectory)buoyancy_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)buoyancy_sampler_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)collision_pairs_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)collision_resolution_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)gpu_collision_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)gpu_collision_detector_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)gpu_compare_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)impulse_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)inertia_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)integrator_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)interop_engine_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)resolve_runner_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)rigid_body_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)shape_builder_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)physics_dll_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClInclude Include="$(MSBuildThisFileDirectory)shared_engine.h">
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClInclude>
+	</ItemGroup>
+
+	<!-- Physics compiled tests belong to the global runner rather than the production static library. -->
+	<ItemGroup Condition="'$(MSBuildProjectExtension)' == '.vcxproj'">
+		<ClCompile Update="@(ClCompile->WithMetadataValue('PhysicsUnitTest', 'true'))">
 			<AdditionalIncludeDirectories>
 				;$(RylogicRoot)projects\rylogic\physics
 				;$(RylogicRoot)projects\rylogic
 				;%(AdditionalIncludeDirectories)
 			</AdditionalIncludeDirectories>
 		</ClCompile>
-		<ClInclude Include="$(MSBuildThisFileDirectory)shared_engine.h" />
+		<CompiledUnitTest Include="@(ClCompile->WithMetadataValue('PhysicsUnitTest', 'true'))" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\physics\physics.vcxproj">
 			<LinkLibraryDependencies>false</LinkLibraryDependencies>
 			<UseLibraryDependencyInputs>false</UseLibraryDependencyInputs>
@@ -35,7 +87,15 @@
 			<ReferenceOutputAssembly>false</ReferenceOutputAssembly>
 		</ProjectReference>
 	</ItemGroup>
-	<ItemDefinitionGroup>
+
+	<!-- Imported sources remain module-owned while appearing with the runner's local sources in Solution Explorer. -->
+	<ItemGroup Condition="'$(MSBuildProjectExtension)' == '.filters'">
+		<Filter Include="src\physics">
+			<UniqueIdentifier>{37c84008-bc16-437d-80e3-9c5542f75787}</UniqueIdentifier>
+		</Filter>
+	</ItemGroup>
+
+	<ItemDefinitionGroup Condition="'$(MSBuildProjectExtension)' == '.vcxproj'">
 		<Link>
 			<AdditionalDependencies>
 				;compute_shaders.res

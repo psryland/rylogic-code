@@ -30,6 +30,7 @@ public enum EProjects
 	Compute,            // = "Compute";
 	Physics,            // = "Physics";
 	View3d,             // = "View3d";
+	View3dUI,           // = "View3dUI";
 	P3d,                // = "P3d";
 	RylogicAudio,       // = "Rylogic.Audio";
 	RylogicCore,        // = "Rylogic.Core";
@@ -323,6 +324,36 @@ public class View3d : Native
 			{
 				Tools.DeployLib(Tools.Path([ObjDir, "view3d-12", p, c, "view3d-12-static.lib"]));
 				Tools.DeployLib(Tools.Path([ObjDir, "view3d-12.dll", p, c, "view3d-12.dll"]));
+			}
+		}
+	}
+}
+
+// View3dUI
+public class View3dUI : Native
+{
+	public View3dUI(string workspace, List<string>? platforms, List<string>? configs)
+		: base("view3d-ui", Tools.Path([workspace, $"projects\\rylogic\\view3d-ui"]), workspace, platforms, configs)
+	{
+	}
+	public override void Clean()
+	{
+		Tools.CleanDir(Tools.Path([ObjDir, "view3d-ui"], check_exists: false));
+		Tools.CleanDir(Tools.Path([ObjDir, "view3d-ui.dll"], check_exists: false));
+	}
+	public override void Build()
+	{
+		Tools.MSBuild(RylogicSln, [@"Rylogic\view3d-ui"], Platforms, Configs);
+		Tools.MSBuild(RylogicSln, [@"Rylogic\view3d-ui.dll"], Platforms, Configs);
+	}
+	public override void Deploy()
+	{
+		foreach (var p in Platforms)
+		{
+			foreach (var c in Configs)
+			{
+				Tools.DeployLib(Tools.Path([ObjDir, "view3d-ui", p, c, "view3d-ui-static.lib"]));
+				Tools.DeployLib(Tools.Path([ObjDir, "view3d-ui.dll", p, c, "view3d-ui.dll"]));
 			}
 		}
 	}

@@ -10,6 +10,9 @@
     <Filter Include="pr\view3d-12">
       <UniqueIdentifier>{f316f652-7aad-4bc4-8933-598866fc5134}</UniqueIdentifier>
     </Filter>
+    <Filter Include="pr\view3d-ui">
+      <UniqueIdentifier>{c77f458e-b344-4a84-b6bf-f97519362609}</UniqueIdentifier>
+    </Filter>
     <Filter Include="pr\gui">
       <UniqueIdentifier>{3bb34c24-2632-4e3b-93b5-a86007b8566a}</UniqueIdentifier>
     </Filter>
@@ -24,7 +27,16 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\view3d.h">
       <Filter>pr\view3d-12</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\view3d-ui.h">
+      <Filter>pr\view3d-ui</Filter>
+    </ClInclude>
+    <ClInclude Include="src\view3d_ui_demo.h">
+      <Filter>src</Filter>
+    </ClInclude>
     <ClCompile Include="src\main.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d_ui_demo.cpp">
       <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>
