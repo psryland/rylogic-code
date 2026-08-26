@@ -156,9 +156,14 @@ namespace physics_sandbox::diag
 				m_physics_ms += profile.m_physics_ms;
 				m_engine.m_new_frame_ms += profile.m_engine.m_new_frame_ms;
 				m_engine.m_pack_ms += profile.m_engine.m_pack_ms;
+				m_engine.m_constraint_pack_ms += profile.m_engine.m_constraint_pack_ms;
+				m_engine.m_articulation_pack_ms += profile.m_engine.m_articulation_pack_ms;
 				m_engine.m_upload_ms += profile.m_engine.m_upload_ms;
+				m_engine.m_constraint_upload_ms += profile.m_engine.m_constraint_upload_ms;
+				m_engine.m_articulation_upload_ms += profile.m_engine.m_articulation_upload_ms;
 				m_engine.m_external_forces_ms += profile.m_engine.m_external_forces_ms;
 				m_engine.m_integrate_ms += profile.m_engine.m_integrate_ms;
+				m_engine.m_articulation_integrate_ms += profile.m_engine.m_articulation_integrate_ms;
 				m_engine.m_sleepwake_ms += profile.m_engine.m_sleepwake_ms;
 				m_engine.m_broadphase_ms += profile.m_engine.m_broadphase_ms;
 				m_engine.m_collide_ms += profile.m_engine.m_collide_ms;
@@ -178,7 +183,12 @@ namespace physics_sandbox::diag
 				m_engine.m_collision_events_ms += profile.m_engine.m_collision_events_ms;
 				m_engine.m_sleep_island_unpack_ms += profile.m_engine.m_sleep_island_unpack_ms;
 				m_engine.m_body_unpack_ms += profile.m_engine.m_body_unpack_ms;
+				m_engine.m_articulation_unpack_ms += profile.m_engine.m_articulation_unpack_ms;
 				m_engine.m_unpack_diagnostics_ms += profile.m_engine.m_unpack_diagnostics_ms;
+				m_engine.m_substep_count += profile.m_engine.m_substep_count;
+				m_engine.m_submission_count += profile.m_engine.m_submission_count;
+				m_engine.m_wait_count += profile.m_engine.m_wait_count;
+				m_engine.m_readback_copy_count += profile.m_engine.m_readback_copy_count;
 			}
 
 			void Reset()
@@ -629,39 +639,59 @@ namespace physics_sandbox::diag
 		void PrintEngineProfile(std::ofstream& log, int step, double time_s, EngineProfileAccumulator const& profile)
 		{
 			auto count = std::max(profile.m_sample_count, 1);
-			Emit(log, std::format(
-				"profile,{},{:.4f},{},{:.2f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}\n",
-				step,
-				time_s,
-				profile.m_sample_count,
-				static_cast<double>(profile.m_contact_count) / count,
-				profile.m_scene_step_ms / count,
-				profile.m_physics_ms / count,
-				profile.m_engine.m_new_frame_ms / count,
-				profile.m_engine.m_pack_ms / count,
-				profile.m_engine.m_upload_ms / count,
-				profile.m_engine.m_external_forces_ms / count,
-				profile.m_engine.m_integrate_ms / count,
-				profile.m_engine.m_sleepwake_ms / count,
-				profile.m_engine.m_broadphase_ms / count,
-				profile.m_engine.m_collide_ms / count,
-				profile.m_engine.m_resolve_ms / count,
-				profile.m_engine.m_selective_ms / count,
-				profile.m_engine.m_sleepupdate_ms / count,
-				profile.m_engine.m_readback_ms / count,
-				profile.m_engine.m_gpu_run_ms / count,
-				profile.m_engine.m_unpack_ms / count,
-				profile.m_engine.m_gpu_prepare_ms / count,
-				profile.m_engine.m_gpu_execute_ms / count,
-				profile.m_engine.m_gpu_wait_ms / count,
-				profile.m_engine.m_gpu_reset_ms / count,
-				profile.m_engine.m_readback_access_ms / count,
-				profile.m_engine.m_body_readback_copy_ms / count,
-				profile.m_engine.m_contact_readback_copy_ms / count,
-				profile.m_engine.m_collision_events_ms / count,
-				profile.m_engine.m_sleep_island_unpack_ms / count,
-				profile.m_engine.m_body_unpack_ms / count,
-				profile.m_engine.m_unpack_diagnostics_ms / count));
+			auto const average = [count](auto value)
+			{
+				return static_cast<double>(value) / count;
+			};
+
+			// Keep the row assembled in field order so benchmark readers can map it directly from the emitted header.
+			auto row = std::ostringstream{};
+			row << std::fixed << std::setprecision(4);
+			row
+				<< "profile," << step
+				<< ',' << time_s
+				<< ',' << profile.m_sample_count
+				<< ',' << std::setprecision(2) << average(profile.m_contact_count)
+				<< std::setprecision(4)
+				<< ',' << average(profile.m_scene_step_ms)
+				<< ',' << average(profile.m_physics_ms)
+				<< ',' << average(profile.m_engine.m_new_frame_ms)
+				<< ',' << average(profile.m_engine.m_pack_ms)
+				<< ',' << average(profile.m_engine.m_constraint_pack_ms)
+				<< ',' << average(profile.m_engine.m_articulation_pack_ms)
+				<< ',' << average(profile.m_engine.m_upload_ms)
+				<< ',' << average(profile.m_engine.m_constraint_upload_ms)
+				<< ',' << average(profile.m_engine.m_articulation_upload_ms)
+				<< ',' << average(profile.m_engine.m_external_forces_ms)
+				<< ',' << average(profile.m_engine.m_integrate_ms)
+				<< ',' << average(profile.m_engine.m_articulation_integrate_ms)
+				<< ',' << average(profile.m_engine.m_sleepwake_ms)
+				<< ',' << average(profile.m_engine.m_broadphase_ms)
+				<< ',' << average(profile.m_engine.m_collide_ms)
+				<< ',' << average(profile.m_engine.m_resolve_ms)
+				<< ',' << average(profile.m_engine.m_selective_ms)
+				<< ',' << average(profile.m_engine.m_sleepupdate_ms)
+				<< ',' << average(profile.m_engine.m_readback_ms)
+				<< ',' << average(profile.m_engine.m_gpu_run_ms)
+				<< ',' << average(profile.m_engine.m_unpack_ms)
+				<< ',' << average(profile.m_engine.m_gpu_prepare_ms)
+				<< ',' << average(profile.m_engine.m_gpu_execute_ms)
+				<< ',' << average(profile.m_engine.m_gpu_wait_ms)
+				<< ',' << average(profile.m_engine.m_gpu_reset_ms)
+				<< ',' << average(profile.m_engine.m_readback_access_ms)
+				<< ',' << average(profile.m_engine.m_body_readback_copy_ms)
+				<< ',' << average(profile.m_engine.m_contact_readback_copy_ms)
+				<< ',' << average(profile.m_engine.m_collision_events_ms)
+				<< ',' << average(profile.m_engine.m_sleep_island_unpack_ms)
+				<< ',' << average(profile.m_engine.m_body_unpack_ms)
+				<< ',' << average(profile.m_engine.m_articulation_unpack_ms)
+				<< ',' << average(profile.m_engine.m_unpack_diagnostics_ms)
+				<< ',' << average(profile.m_engine.m_substep_count)
+				<< ',' << average(profile.m_engine.m_submission_count)
+				<< ',' << average(profile.m_engine.m_wait_count)
+				<< ',' << average(profile.m_engine.m_readback_copy_count)
+				<< '\n';
+			Emit(log, row.str());
 		}
 		void PrintSleepScan(std::ofstream& log, int step, double time_s, Scene const& scene, bool non_spheres_only)
 		{
@@ -1081,10 +1111,12 @@ namespace physics_sandbox::diag
 			throw std::runtime_error("Scene diagnostic metrics are mutually exclusive: use one of -column_metric, -pyramid_metric, -cradle_metric, -dzhanibekov_metric, or -sleep_metric");
 
 		Emit(log, std::format("Scene diagnostic log: {}\n", log_path.string()));
-		Emit(log, std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
+		Emit(log, options.m_demo
+			? std::format("Scene diagnostic demo: {}\n", GetDemoInfo(*options.m_demo).m_name)
+			: std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
 		Emit(log, std::format("steps={} dt={:.8f} report_interval={}\n", options.m_steps, options.m_dt, options.m_report_interval));
 		if (options.m_engine_profile)
-			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,upload_ms,external_forces_ms,integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms,gpu_prepare_ms,gpu_execute_ms,gpu_wait_ms,gpu_reset_ms,readback_access_ms,body_readback_copy_ms,contact_readback_copy_ms,collision_events_ms,sleep_island_unpack_ms,body_unpack_ms,unpack_diagnostics_ms\n");
+			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,constraint_pack_ms,articulation_pack_ms,upload_ms,constraint_upload_ms,articulation_upload_ms,external_forces_ms,integrate_ms,articulation_integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms,gpu_prepare_ms,gpu_execute_ms,gpu_wait_ms,gpu_reset_ms,readback_access_ms,body_readback_copy_ms,contact_readback_copy_ms,collision_events_ms,sleep_island_unpack_ms,body_unpack_ms,articulation_unpack_ms,unpack_diagnostics_ms,substeps,submissions,waits,readback_copies\n");
 		else if (options.m_column_metric)
 			Emit(log, "column_metric=true\n");
 		else if (options.m_pyramid_metric)
@@ -1102,10 +1134,13 @@ namespace physics_sandbox::diag
 		else
 			Emit(log, std::format("trace_body={} trace_start={} trace_end={} ke_jump={:.3f}\n", options.m_trace_body, options.m_trace_start, options.m_trace_end, options.m_trace_ke_jump));
 
-		if (!std::filesystem::exists(options.m_scene_filepath))
+		// Programmatic demos own their complete scene setup, so avoid parsing an unrelated default JSON scene.
+		if (!options.m_demo && !std::filesystem::exists(options.m_scene_filepath))
 			throw std::runtime_error(std::format("Scene file not found: {}", options.m_scene_filepath.string()));
 
-		auto scene_desc = scene_loader::LoadFromFile(options.m_scene_filepath);
+		auto scene_desc = options.m_demo
+			? scene_loader::SceneDesc{}
+			: scene_loader::LoadFromFile(options.m_scene_filepath);
 		if (options.m_physics_substeps)
 		{
 			if (*options.m_physics_substeps < 1)
@@ -1237,7 +1272,16 @@ namespace physics_sandbox::diag
 		auto pyramid_metric = options.m_pyramid_metric ? CreatePyramidMetric(scene_desc) : PyramidMetricState{};
 		auto cradle_metric = options.m_cradle_metric ? CreateCradleMetric(scene_desc) : CradleMetricState{};
 		auto scene = Scene(nullptr);
-		scene.LoadScene(std::move(scene_desc));
+		if (options.m_demo)
+		{
+			scene.LoadDemo(*options.m_demo);
+			if (options.m_physics_substeps)
+				scene.m_physics_substeps = *options.m_physics_substeps;
+		}
+		else
+		{
+			scene.LoadScene(std::move(scene_desc));
+		}
 		if (
 			options.m_buoyancy_linear_drag_time_constant_s ||
 			options.m_buoyancy_angular_drag_time_constant_s ||
@@ -1256,14 +1300,16 @@ namespace physics_sandbox::diag
 			scene.m_gpu_buoyancy->SetConfig(config);
 		}
 		Emit(log, std::format(
-			"load_profile,total_ms={:.4f},prepare_ms={:.4f},bbox_ms={:.4f},shapes_ms={:.4f},bodies_ms={:.4f},buoyancy_ms={:.4f},bodies={},shapes={}\n",
+			"load_profile,total_ms={:.4f},prepare_ms={:.4f},bbox_ms={:.4f},shapes_ms={:.4f},bodies_ms={:.4f},buoyancy_ms={:.4f},bodies={},articulations={},constraints={},shapes={}\n",
 			scene.m_last_load_profile.m_total_ms,
 			scene.m_last_load_profile.m_prepare_ms,
 			scene.m_last_load_profile.m_bbox_ms,
 			scene.m_last_load_profile.m_shapes_ms,
 			scene.m_last_load_profile.m_bodies_ms,
 			scene.m_last_load_profile.m_buoyancy_ms,
-			scene.m_last_load_profile.m_body_count,
+			scene.m_body.size(),
+			scene.m_articulation.size(),
+			scene.m_constraints.Count(),
 			scene.m_last_load_profile.m_shape_count));
 		if (scene.m_gpu_buoyancy)
 		{

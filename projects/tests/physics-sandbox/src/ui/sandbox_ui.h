@@ -29,6 +29,7 @@ namespace physics_sandbox
 
 		// The scenario to load on reset.
 		EScenario m_scenario;
+		std::optional<EDemo> m_demo;
 
 		// Path of the last loaded scene file, so Reset reloads the same scene
 		std::filesystem::path m_scene_filepath;
@@ -76,6 +77,9 @@ namespace physics_sandbox
 
 		// Load a scene from a JSON file path (by value to avoid dangling references)
 		void LoadSceneFile(std::filesystem::path filepath);
+
+		// Load one programmatic constraint or articulation demonstration.
+		void LoadDemo(EDemo demo);
 
 		// Complete submitted physics work before an operation that needs current body state.
 		bool CompletePendingStep();

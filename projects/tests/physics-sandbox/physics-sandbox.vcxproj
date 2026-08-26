@@ -80,6 +80,13 @@
     <ClCompile Include="src\diagnostics\diagnostics.cpp" />
     <ClCompile Include="src\diagnostics\scene_diagnostic.cpp" />
     <ClCompile Include="src\scene\body.cpp" />
+    <ClCompile Include="src\scene\articulation_visual.cpp" />
+    <ClCompile Include="src\scene\demo.cpp" />
+    <ClCompile Include="src\scene\demo_articulations.cpp" />
+    <ClCompile Include="src\scene\demo_builder.cpp" />
+    <ClCompile Include="src\scene\demo_constraints.cpp" />
+    <ClCompile Include="src\scene\demo_showcase.cpp" />
+    <ClCompile Include="src\scene\demo_stress.cpp" />
     <ClCompile Include="src\scene\procedural_sky.cpp" />
     <ClCompile Include="src\scene\scene.cpp" />
     <ClCompile Include="src\scene\water\water_visual.cpp" />
@@ -143,6 +150,9 @@
     <ClInclude Include="src\diagnostics\diagnostics.h" />
     <ClInclude Include="src\diagnostics\scene_diagnostic.h" />
     <ClInclude Include="src\scene\body.h" />
+    <ClInclude Include="src\scene\articulation_visual.h" />
+    <ClInclude Include="src\scene\demo.h" />
+    <ClInclude Include="src\scene\demo_builder.h" />
     <ClInclude Include="src\scene\procedural_sky.h" />
     <ClInclude Include="src\scene\scenario.h" />
     <ClInclude Include="src\scene\scene.h" />

@@ -1,11 +1,13 @@
 #pragma once
 #include "src/forward.h"
+#include "src/scene/demo.h"
 
 namespace physics_sandbox::diag
 {
 	struct SceneDiagnosticOptions
 	{
 		std::filesystem::path m_scene_filepath;
+		std::optional<EDemo> m_demo = {};
 		int m_steps = 600;
 		double m_dt = 1.0 / 60.0;
 		int m_report_interval = 60;

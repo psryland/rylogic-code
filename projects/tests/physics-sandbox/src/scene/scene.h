@@ -6,6 +6,8 @@
 #include "src/utils/scene_loader.h"
 #include "src/scene/water/water_visual.h"
 #include "src/scene/scenario.h"
+#include "src/scene/demo.h"
+#include "src/scene/articulation_visual.h"
 
 namespace physics_sandbox
 {
@@ -58,8 +60,21 @@ namespace physics_sandbox
 		physics::Engine m_physics;
 		collision::ShapeBox m_box;
 
-		// Bodies in the scene
+		// Programmatic-demo shapes precede every referring simulation object so explicit clearing and ordinary destruction both preserve pointer lifetime.
+		std::deque<collision::ShapeBox> m_owned_boxes;
+		std::deque<collision::ShapeSphere> m_owned_spheres;
+
+		// Caller-owned dynamics objects and optional persistent graph edges.
 		std::vector<Body> m_body;
+		std::vector<physics::Articulation> m_articulation;
+		physics::ConstraintSet m_constraints;
+
+		// Stable pointer views rebuilt only after scene construction has finished growing object containers.
+		std::vector<physics::RigidBody*> m_body_ptrs;
+		std::vector<physics::Articulation*> m_articulation_ptrs;
+
+		// One renderer binding per shaped articulation link.
+		std::vector<ArticulationVisual> m_articulation_visuals;
 
 		// Storage for shapes loaded in the scene file.
 		byte_data<16> m_shape_buffer;
@@ -93,6 +108,9 @@ namespace physics_sandbox
 
 		// Whether the engine is allowed to put low-energy bodies to sleep.
 		bool m_allow_sleeping;
+
+		// Scene body index of the broad ground plane, or -1 when the scene has no ground body.
+		int m_ground_body_index;
 
 		// Ground plane visual. This is an LDraw object rendered as a large textured
 		// quad. The physics ground is a static body in m_body[] with a thin box shape.
@@ -130,6 +148,7 @@ namespace physics_sandbox
 
 		// The currently active scenario.
 		EScenario m_current_scenario;
+		std::optional<EDemo> m_current_demo;
 
 		// Diagnostics
 		CollisionDiag m_diag;
@@ -159,6 +178,9 @@ namespace physics_sandbox
 		// Configure bodies for the current scenario
 		void SetupScenario(EScenario scenario);
 
+		// Build one programmatic constraint or articulation demonstration.
+		void LoadDemo(EDemo demo);
+
 		// Load a scene from a JSON file.
 		// Replaces the current scenario with bodies defined in the file.
 		void LoadScene(scene_loader::SceneDesc scene_desc);
@@ -177,6 +199,12 @@ namespace physics_sandbox
 
 		// Create/update the graphics objects for
 		void UpdateCollisionGfx(std::span<physics::RbContact const> contacts);
+
+		// Synchronise all articulation-link graphics with the latest accepted simulation state.
+		void UpdateArticulationGfx();
+
+		// Add visible articulation-link graphics to the current renderer draw list.
+		void AddArticulationsToScene(rdr12::Scene& scene, m4x4 const& w2c, Frustum const& frustum, v2 const& clip_planes);
 
 		// Get/set the active visualisation mode.
 		EVisualMode VisualMode() const;
@@ -201,6 +229,12 @@ namespace physics_sandbox
 
 		// Wait for one submitted physics frame and collect its gathered results.
 		void CompletePhysicsFrame(StepProfile& profile);
+
+		// Release all caller-owned simulation objects in dependency order after engine work is complete.
+		void ClearSimulationObjects();
+
+		// Rebuild stable pointer spans after all object containers have reached their final addresses.
+		void RebuildStepInputs();
 
 		// Calculate the bounding box for the scene (excluding terrain)
 		BBox CalculateSceneBBox(scene_loader::SceneDesc const& scene_desc) const;

@@ -32,6 +32,27 @@ namespace physics_sandbox
 			{L"&View", Menu(Menu::EKind::Popup, {
 				MenuItem(L"&Normal", MenuID::VisualModeNormal, MenuItem::EState::Checked),
 				MenuItem(L"&Contact Priority", MenuID::VisualModeContactPriority),
+			})},
+			{L"&Demos", Menu(Menu::EKind::Popup, {
+				MenuItem(L"Single Pendulum", MenuID::DemoBase + 0),
+				MenuItem(L"Rigid Joint Gallery", MenuID::DemoBase + 1),
+				MenuItem(L"Long Rigid Chain", MenuID::DemoBase + 2),
+				MenuItem(L"Four-Bar Closed Loop", MenuID::DemoBase + 3),
+				MenuItem(L"Fixed Articulations", MenuID::DemoBase + 4),
+				MenuItem(L"Ragdoll Drop", MenuID::DemoBase + 5),
+				MenuItem(L"Robot Motors and Limits", MenuID::DemoBase + 6),
+				MenuItem(L"Robot Arm and Gripper", MenuID::DemoBase + 7),
+				MenuItem(L"Vehicle Suspension", MenuID::DemoBase + 8),
+				MenuItem(L"Suspension Bridge", MenuID::DemoBase + 9),
+				MenuItem(L"Mixed Rigid/Tree Coupling", MenuID::DemoBase + 10),
+				MenuItem(L"Articulation Pushes Stack", MenuID::DemoBase + 11),
+				MenuItem(L"Two Robots Carrying a Load", MenuID::DemoBase + 12),
+				MenuItem(L"Mixed and Self Contacts", MenuID::DemoBase + 13),
+				MenuItem(L"Buoyant Articulation", MenuID::DemoBase + 14),
+				MenuItem(L"Floating Conservation", MenuID::DemoBase + 15),
+				MenuItem(L"Dzhanibekov Effect", MenuID::DemoBase + 16),
+				MenuItem(L"Constraint Pathologies", MenuID::DemoBase + 17),
+				MenuItem(L"Constraint Stress Grid", MenuID::DemoBase + 18),
 			})} })
 			.main_wnd(true)
 			.wndclass(RegisterWndClass<SandboxUI>()))
@@ -47,6 +68,7 @@ namespace physics_sandbox
 		, m_pause_on_collision(false)
 		, m_physics_accumulator(0)
 		, m_scenario(EScenario::Sandbox)
+		, m_demo()
 		, m_scene_filepath()
 		, m_recent()
 		, m_last_status()
@@ -99,6 +121,8 @@ namespace physics_sandbox
 			if (args.m_vk_key >= '0' && args.m_vk_key <= '5')
 			{
 				m_scenario = static_cast<EScenario>(args.m_vk_key - '0');
+				m_demo.reset();
+				m_scene_filepath.clear();
 				ResetScene();
 				m_steps_remaining = -1; // Auto-start
 			}
@@ -156,6 +180,7 @@ namespace physics_sandbox
 			auto const clip_planes = scene.m_cam.ClipPlanes(false);
 			for (int i = 0; i != std::ssize(m_scene.m_body); ++i)
 				m_scene.m_body[i].AddToScene(scene, w2c, frustum, clip_planes);
+			m_scene.AddArticulationsToScene(scene, w2c, frustum, clip_planes);
 
 			if (m_scene.m_ground_gfx)
 				m_scene.m_ground_gfx->AddToScene(scene);
@@ -237,6 +262,17 @@ namespace physics_sandbox
 				return true;
 			}
 
+			if (id >= MenuID::DemoBase && id < MenuID::DemoBase + MenuID::DemoCount)
+			{
+				auto const demo_index = id - MenuID::DemoBase;
+				auto const catalogue = DemoCatalogue();
+				if (demo_index >= 0 && demo_index < isize(catalogue))
+					LoadDemo(catalogue[demo_index].m_demo);
+
+				result = 0;
+				return true;
+			}
+
 			// Recent Files submenu items (IDs in range RecentFileBase..RecentFileBase+MaxRecentFiles-1)
 			if (id >= MenuID::RecentFileBase && id < MenuID::RecentFileBase + MaxRecentFiles)
 			{
@@ -260,15 +296,19 @@ namespace physics_sandbox
 
 		// Make sure the GPU has finished with the models before releasing them.
 		m_view3d.WaitForGpu();
-		m_scene.Reset();
 
-		// Reset to the last loaded scene file
-		if (!m_scene_filepath.empty())
+		// Recreate whichever source currently owns the scene rather than retaining stale dynamics objects.
+		if (m_demo)
+		{
+			LoadDemo(*m_demo);
+		}
+		else if (!m_scene_filepath.empty())
 		{
 			LoadSceneFile(m_scene_filepath);
 		}
 		else
 		{
+			m_scene.Reset();
 			m_scene.SetupScenario(m_scenario);
 
 			// Frame the camera to see the whole scene: look from +Y toward origin, Z-up
@@ -385,6 +425,7 @@ namespace physics_sandbox
 
 			// Remember the filepath so Reset can reload it
 			m_scene_filepath = filepath;
+			m_demo.reset();
 
 			// Add to the recent files list (MRU order) and rebuild the submenu
 			m_recent.Add(filepath);
@@ -436,6 +477,29 @@ namespace physics_sandbox
 		}
 	}
 
+	// Load one programmatic constraint or articulation demonstration.
+	void SandboxUI::LoadDemo(EDemo demo)
+	{
+		try
+		{
+			PauseSimulation();
+			m_view3d.WaitForGpu();
+			m_scene_filepath.clear();
+			m_demo = demo;
+			m_scene.LoadDemo(demo);
+
+			auto const bounds = ComputeSceneBBox();
+			m_view3d.m_cam.View(bounds, v4{0.0f, -1.0f, -0.2f, 0.0f}, v4::ZAxis());
+			Render(0);
+		}
+		catch (std::exception const& ex)
+		{
+			auto const message = std::format("Failed to load demo '{}':\n{}", GetDemoInfo(demo).m_display_name, ex.what());
+			OutputDebugStringA(message.c_str());
+			::MessageBoxA(m_hwnd, message.c_str(), "Demo Load Error", MB_OK | MB_ICONERROR);
+		}
+	}
+
 	// Complete submitted physics work before inspecting or replacing scene state.
 	bool SandboxUI::CompletePendingStep()
 	{
@@ -470,7 +534,7 @@ namespace physics_sandbox
 	{
 		static constexpr double PhysicsStepSeconds = 1.0 / 60.0;
 		static constexpr double MaxFrameSeconds = 0.25;
-		static constexpr int MaxStepsPerTick = 4;
+		static constexpr int MaxStepsPerTick = 1;
 
 		// Don't step after close begins
 		if (m_closing)
@@ -508,8 +572,8 @@ namespace physics_sandbox
 		}
 		else
 		{
-			// The resolver tuning assumes a fixed physics step. Convert wall-clock time into a bounded
-			// number of fixed ticks rather than making the simulation unstable when rendering is slow.
+			// The resolver tuning assumes a fixed physics step. Submit at most one fixed tick before
+			// yielding to rendering so overload slows simulated time instead of starving the viewport.
 			m_physics_accumulator += std::min(elapsed_seconds, MaxFrameSeconds) * std::max(0.0, static_cast<double>(m_media.TimeScale()));
 			auto submitted_count = 0;
 			while (m_physics_accumulator >= PhysicsStepSeconds && submitted_count != MaxStepsPerTick)
@@ -556,6 +620,7 @@ namespace physics_sandbox
 		auto const sync_beg = Clock::now();
 		for (int i = 0; i != std::ssize(m_scene.m_body); ++i)
 			m_scene.m_body[i].UpdateGfx();
+		m_scene.UpdateArticulationGfx();
 		auto const sync_end = Clock::now();
 
 		// Render the 3D viewport. Objects are added to the scene via the
@@ -616,9 +681,11 @@ namespace physics_sandbox
 			// Keep the slider's speed label text in sync with the trackbar position
 			m_media.UpdateSpeedLabel();
 
-			SetWindowTextA(*this, std::format("Physics Sandbox [{}: {}] t={:.3f} frame={} col={}  FPS: {:.0f}",
-				static_cast<int>(m_scene.m_current_scenario),
-				ScenarioName(m_scene.m_current_scenario),
+			auto const active_name = m_scene.m_current_demo
+				? GetDemoInfo(*m_scene.m_current_demo).m_display_name
+				: std::string_view(ScenarioName(m_scene.m_current_scenario));
+			SetWindowTextA(*this, std::format("Physics Sandbox [{}] t={:.3f} frame={} col={}  FPS: {:.0f}",
+				active_name,
 				m_scene.m_clock,
 				m_scene.m_step_count,
 				m_scene.m_diag.count,
@@ -633,9 +700,12 @@ namespace physics_sandbox
 		{
 			m_status_elapsed = 0;
 			auto const status_beg = Clock::now();
+			auto const active_name = m_scene.m_current_demo
+				? GetDemoInfo(*m_scene.m_current_demo).m_display_name
+				: std::string_view(ScenarioName(m_scene.m_current_scenario));
 			auto new_status = std::format(L"t={:.3f}  {}  Collisions: {}  {}  FPS: {:.0f}",
 				m_scene.m_clock,
-				pr::Widen(ScenarioName(m_scene.m_current_scenario)),
+				pr::Widen(active_name),
 				m_scene.m_diag.count,
 				m_steps_remaining == 0 ? L"[Paused]" : L"[Running]",
 				m_fps);
@@ -667,19 +737,35 @@ namespace physics_sandbox
 	// Used to frame the camera when loading a new scene.
 	BBox SandboxUI::ComputeSceneBBox() const
 	{
-		if (m_scene.m_body.empty())
+		if (m_scene.m_body.empty() && m_scene.m_articulation_visuals.empty())
 			return BBox{ v4{0, 0, 0, 1}, v4{5, 5, 5, 0} };
 
+		// Include complete transformed shape bounds so long rods and offset link geometry cannot be clipped.
+		// Defer the broad ground plane because its horizontal collision extent is not useful camera content.
 		auto bbox = BBox::Reset();
-		for (auto const& body : m_scene.m_body)
-			Grow(bbox, body.O2W().pos);
+		auto ground_top = std::optional<v4>{};
+		for (auto body_index = 0; body_index != isize(m_scene.m_body); ++body_index)
+		{
+			auto const bounds = m_scene.m_body[body_index].BBoxWS();
+			if (body_index == m_scene.m_ground_body_index)
+			{
+				ground_top = (bounds.m_centre + v4{0.0f, 0.0f, bounds.m_radius.z, 0.0f}).w1();
+				continue;
+			}
 
-		// If there's a ground visual, include the ground height in the bbox
-		// so the camera can see where objects will land.
-		if (m_scene.m_ground_gfx)
-			Grow(bbox, v4::Origin());
+			Grow(bbox, bounds);
+		}
+		for (auto const& visual : m_scene.m_articulation_visuals)
+			Grow(bbox, visual.Bounds(m_scene.m_articulation));
 
-		bbox *= 1.2f;
+		// Keep ground height visible without allowing a deliberately oversized floor to zoom out the scene.
+		if (!bbox.valid())
+			bbox = BBox{ground_top.value_or(v4::Origin()), v4{5.0f, 5.0f, 5.0f, 0.0f}};
+		else if (ground_top)
+			Grow(bbox, *ground_top);
+
+		// Reserve perspective and window-layout margin around the exact geometry bounds.
+		bbox *= 1.5f;
 		return bbox;
 	}
 }
