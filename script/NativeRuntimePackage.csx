@@ -88,6 +88,40 @@ public static class NativeRuntimePackage
 		return staging_dir;
 	}
 
+	// Reports whether every included native project has a usable manifest so a local package selector can advance safely.
+	public static bool HasCompleteManifestSet(string workspace, string platform, string config, out IReadOnlyList<string> unavailable_inputs)
+	{
+		var unavailable = new List<string>();
+		var manifest_dir = ManifestDirectory(workspace, platform, config);
+
+		// Require each package-owned project to have declared at least one available DLL from its latest build.
+		foreach (var project in DiscoverRuntimeProjects(workspace).Where(x => x.Disposition == IncludeDisposition))
+		{
+			var manifest_path = IOPath.Combine(manifest_dir, $"{project.ProjectName}.txt");
+			if (!File.Exists(manifest_path))
+			{
+				unavailable.Add($"missing manifest: {project.ProjectPath}");
+				continue;
+			}
+
+			var source_paths = File.ReadLines(manifest_path)
+				.Select(x => x.Trim())
+				.Where(x => x.Length != 0 && string.Equals(IOPath.GetExtension(x), ".dll", StringComparison.OrdinalIgnoreCase))
+				.ToList();
+			if (source_paths.Count == 0)
+			{
+				unavailable.Add($"manifest declares no DLLs: {manifest_path}");
+				continue;
+			}
+
+			foreach (var source_path in source_paths.Where(x => !File.Exists(x)))
+				unavailable.Add($"missing runtime asset: {source_path}");
+		}
+
+		unavailable_inputs = unavailable;
+		return unavailable.Count == 0;
+	}
+
 	// Confirms that the generated package contains exactly the staged runtime DLLs.
 	public static void ValidatePackage(string package_path, string staging_dir)
 	{

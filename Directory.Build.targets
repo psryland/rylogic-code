@@ -131,7 +131,7 @@
 		<Message Condition="'$(_NuGetPackageSynced)' == 'true' AND '$(Configuration)' == 'Debug'" Text="Published immutable local package $(PackageId) $(_RylogicEffectivePackageVersion)" Importance="high" />
 	</Target>
 
-	<!-- Every included native Debug DLL build publishes one immutable aggregate runtime package for package-only consumer applications. -->
+	<!-- An included native Debug DLL build advances the immutable aggregate only when every package-owned runtime manifest is available. -->
 	<Target Name="PublishLocalNativeDevelopmentPackage" AfterTargets="WriteRylogicNativeRuntimeManifest" Condition="'$(MSBuildProjectExtension)' == '.vcxproj' AND '$(Configuration)' == 'Debug' AND '$(Platform)' == 'x64' AND '$(ConfigurationType)' == 'DynamicLibrary' AND '$(RylogicNativeRuntimePackage)' == 'Include' AND '$(GITHUB_ACTIONS)' != 'true' AND '$(RylogicGeneratePackageOnBuild)' != 'false'">
 		<PropertyGroup>
 			<_NativePackageId>Rylogic.Native</_NativePackageId>
@@ -148,9 +148,13 @@
 		</PropertyGroup>
 
 		<MakeDir Directories="$(_NativePackageOutputDir)" />
-		<Exec Command="dotnet-script &quot;$(ScriptPath)StageNativeRuntimePackage.csx&quot; -platform x64 -config Debug -output &quot;$(_NativeRuntimeStageDir)&quot;" />
-		<Exec Command="&quot;$(ToolsPath)nuget\nuget.exe&quot; pack &quot;$(RylogicRoot)build\nuget\rylogic.native.dev.nuspec&quot; -BasePath &quot;$(_NativeRuntimeStageDir)&quot; -Version &quot;$(_NativePackageVersion)&quot; -OutputDirectory &quot;$(_NativePackageOutputDir)&quot; -NoPackageAnalysis -NonInteractive -Verbosity quiet" />
+		<Exec Command="dotnet-script &quot;$(ScriptPath)StageNativeRuntimePackage.csx&quot; -platform x64 -config Debug -output &quot;$(_NativeRuntimeStageDir)&quot; -requireall -skipincomplete" />
+		<PropertyGroup>
+			<_NativePackageComplete Condition="Exists('$(_NativeRuntimeStageDir)\.complete')">true</_NativePackageComplete>
+		</PropertyGroup>
+		<Exec Condition="'$(_NativePackageComplete)' == 'true'" Command="&quot;$(ToolsPath)nuget\nuget.exe&quot; pack &quot;$(RylogicRoot)build\nuget\rylogic.native.dev.nuspec&quot; -BasePath &quot;$(_NativeRuntimeStageDir)&quot; -Version &quot;$(_NativePackageVersion)&quot; -OutputDirectory &quot;$(_NativePackageOutputDir)&quot; -NoPackageAnalysis -NonInteractive -Verbosity quiet" />
 		<SyncNuGetPackageOutputs
+			Condition="'$(_NativePackageComplete)' == 'true'"
 			NuPkgPath="$(_NativePackagePath)"
 			FeedPkgPath="$(_NativeFeedPath)"
 			CacheDir="$(_NativeCacheDir)"
@@ -159,13 +163,14 @@
 			<Output TaskParameter="Synced" PropertyName="_NativePackageSynced" />
 		</SyncNuGetPackageOutputs>
 		<PublishLocalPackageVersion
-			Condition="'$(_NativePackageSynced)' == 'true'"
+			Condition="'$(_NativePackageComplete)' == 'true' AND '$(_NativePackageSynced)' == 'true'"
 			PackageId="$(_NativePackageId)"
 			PackageVersion="$(_NativePackageVersion)"
 			CentralVersionPropsPath="$(_NativeCentralVersionPropsPath)"
 			ProjectVersionPropsPath="$(_NativeProjectVersionPropsPath)"
 			ProjectVersionProperty="RylogicNativePackageVersion" />
 		<Message Condition="'$(_NativePackageSynced)' == 'true'" Text="Published immutable local native package $(_NativePackageId) $(_NativePackageVersion)" Importance="high" />
+		<Message Condition="'$(_NativePackageComplete)' != 'true'" Text="Retained the preceding Rylogic.Native package because the local native Debug closure is incomplete; build AllNative to advance it." Importance="high" />
 	</Target>
 
 </Project>
