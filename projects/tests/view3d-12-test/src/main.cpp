@@ -11,8 +11,8 @@
 #include "pr/view3d-12/view3d.h"
 #include "pr/view3d-12/view3d-dll.h"
 #include "pr/view3d-12/utility/conversion.h"
-#include "pr/view3d-ui/view3d-ui.h"
 #include "pr/audio/audio-dll.h"
+#include "view3d_ui_demo.h"
 
 using namespace pr;
 using namespace pr::gui;
@@ -27,167 +27,6 @@ enum class EStepMode
 	Run,
 };
 
-namespace
-{
-	using namespace pr::view3d::ui;
-	using UIColour = pr::view3d::ui::Colour;
-
-	inline constexpr ControlId UI_Root = 1;
-	inline constexpr ControlId UI_Panel = 2;
-	inline constexpr ControlId UI_Label = 3;
-	inline constexpr ControlId UI_Dimension = 4;
-	inline constexpr ControlId UI_Update = 5;
-	inline constexpr ResourceId UI_Font = 100;
-	inline constexpr StyleId UI_RootStyle = 200;
-	inline constexpr StyleId UI_PanelStyle = 201;
-	inline constexpr StyleId UI_TextStyle = 202;
-	inline constexpr StyleId UI_TextBoxStyle = 203;
-	inline constexpr StyleId UI_ButtonStyle = 204;
-	inline constexpr TemplateId UI_TextBoxTemplate = 300;
-	inline constexpr TemplateId UI_ButtonTemplate = 301;
-
-	// Populate a current-version structure header for one public View3DUI record.
-	template <typename T>
-	StructHeader UIHeader()
-	{
-		return StructHeader{sizeof(T), VIEW3D_UI_STRUCT_VERSION};
-	}
-
-	// Build one fixed-layout control description before its strings are packed into a transaction.
-	ControlDesc UIControl(ControlId id, ControlId parent_id, EControlType type, ELayoutMode layout_mode, LayoutParams layout, StyleId style_id, TemplateId template_id = 0)
-	{
-		auto desc = ControlDesc{};
-		desc.header = UIHeader<ControlDesc>();
-		desc.id = id;
-		desc.parent_id = parent_id;
-		desc.type = type;
-		desc.root_policy = ERootPolicy::Screen;
-		desc.layout_mode = layout_mode;
-		desc.template_id = template_id;
-		desc.style_id = style_id;
-		desc.enabled = 1;
-		desc.visible = 1;
-		desc.focusable = type == EControlType::TextBox || type == EControlType::Button;
-		desc.validation_state = EValidationState::NotApplicable;
-		desc.layout = layout;
-		desc.max_text_length = 32;
-		desc.font_resource_id = type == EControlType::Root || type == EControlType::Panel ? 0 : UI_Font;
-		return desc;
-	}
-
-	// Create a layout value with explicit size and alignment while leaving optional spacing at zero.
-	LayoutParams UILayout(float width, float height, EHAlign h_align = EHAlign::Left, EVAlign v_align = EVAlign::Top)
-	{
-		auto layout = LayoutParams{};
-		layout.width = width;
-		layout.height = height;
-		layout.h_align = h_align;
-		layout.v_align = v_align;
-		return layout;
-	}
-
-	// Create one style with an identical base visual in every state channel.
-	StyleDesc UIStyle(StyleId id, UIColour fill, UIColour border, float border_thickness, float corner_radius, float opacity = 1.0f)
-	{
-		auto style = StyleDesc{};
-		style.header = UIHeader<StyleDesc>();
-		style.id = id;
-		for (auto i = std::size_t{}; i != static_cast<std::size_t>(EStateChannel::Count); ++i)
-		{
-			style.visuals[i] = StyleVisual{fill, border, border_thickness, corner_radius, opacity};
-			style.transitions[i] = TransitionDesc{100.0f, EEasing::EaseInOut};
-		}
-		return style;
-	}
-
-	// Add one application-owned font resource to a public transaction builder.
-	void AddUIFont(TransactionBuilder& builder, ResourceId id, std::string_view family, float size, UIColour colour)
-	{
-		auto resource = ResourceDesc{};
-		resource.header = UIHeader<ResourceDesc>();
-		resource.id = id;
-		resource.kind = EResourceKind::Font;
-		resource.colour = colour;
-		resource.font_size = size;
-		builder.AddNamedResource(resource, family);
-	}
-
-	// Parsed numeric state owned by the demonstration application.
-	struct DimensionValue
-	{
-		EValidationState m_validation;
-		float m_value;
-	};
-
-	// Parse the deliberately invariant positive-decimal grammar used by the demonstration.
-	DimensionValue ParseDimension(std::string_view text)
-	{
-		if (text.empty() || text == "." || text == "+" || text == "-")
-			return {EValidationState::Pending, 0.0f};
-
-		auto index = std::size_t{};
-		auto negative = false;
-		if (text[index] == '+' || text[index] == '-')
-		{
-			negative = text[index] == '-';
-			++index;
-		}
-
-		auto value = 0.0;
-		auto digit_count = 0;
-		while (index != text.size() && text[index] >= '0' && text[index] <= '9')
-		{
-			value = value * 10.0 + (text[index] - '0');
-			++digit_count;
-			++index;
-		}
-
-		if (index != text.size() && text[index] == '.')
-		{
-			++index;
-			if (index == text.size())
-				return {EValidationState::Pending, 0.0f};
-
-			auto scale = 0.1;
-			while (index != text.size() && text[index] >= '0' && text[index] <= '9')
-			{
-				value += (text[index] - '0') * scale;
-				scale *= 0.1;
-				++digit_count;
-				++index;
-			}
-		}
-
-		if (index != text.size() || digit_count == 0)
-			return {EValidationState::Invalid, 0.0f};
-
-		value = negative ? -value : value;
-		return std::isfinite(value) && value > 0.0 && value <= std::numeric_limits<float>::max()
-			? DimensionValue{EValidationState::Valid, static_cast<float>(value)}
-			: DimensionValue{EValidationState::Invalid, 0.0f};
-	}
-
-	// Create a UI context while balancing the temporary View3D device lease on every path.
-	view3d::ui::UiContext CreateUIContext(view3d::ui::Runtime const& runtime, view3d::DllHandle view3d_context, view3d::Window window)
-	{
-		auto device = static_cast<IUnknown*>(View3D_DeviceLeaseAcquire(view3d_context));
-		if (device == nullptr)
-			throw std::runtime_error("Failed to acquire the View3D device for View3DUI");
-
-		try
-		{
-			auto ui = view3d::ui::UiContext(runtime, device, window);
-			device->Release();
-			return ui;
-		}
-		catch (...)
-		{
-			device->Release();
-			throw;
-		}
-	}
-}
-
 // Application window
 struct Main :Form
 {
@@ -198,8 +37,7 @@ struct Main :Form
 	bool m_ui_ready;
 	view3d::DllHandle m_view3d;
 	view3d::Window m_win3d;
-	std::optional<view3d::ui::Runtime> m_ui_runtime;
-	std::optional<view3d::ui::UiContext> m_ui;
+	std::optional<view3d_test::View3dUiDemo> m_ui_demo;
 	view3d::CubeMap m_envmap;
 	view3d::Object m_obj0;
 	view3d::Object m_obj1;
@@ -214,13 +52,7 @@ struct Main :Form
 	EStepMode m_step_mode;
 	int m_pending_steps;
 	double m_time = 0.0;
-	double m_ui_time_ms = 0.0;
-	std::uint64_t m_ui_revision = 0;
-	std::string m_dimension_text = "1.23";
-	DimensionValue m_dimension = ParseDimension(m_dimension_text);
-	float m_box_dimension = m_dimension.m_value;
-	std::vector<view3d::ui::Event> m_ui_events;
-	std::vector<std::byte> m_ui_event_payload;
+	float m_box_dimension = 1.23f;
 	
 	// Error handler
 	static void __stdcall ReportError(void*, char const* msg, char const* filepath, int line, int64_t)
@@ -299,8 +131,7 @@ struct Main :Form
 		, m_ui_ready(false)
 		, m_view3d(View3D_Initialise({ this, ReportError }))
 		, m_win3d(View3D_WindowCreate(CreateHandle(), WndOptions(*this)))
-		, m_ui_runtime(std::in_place)
-		, m_ui(CreateUIContext(*m_ui_runtime, m_view3d, m_win3d))
+		, m_ui_demo(std::in_place, m_view3d, m_win3d, [this](float value) { UpdateBoxDimensions(value); })
 		, m_envmap(View3D_CubeMapCreateFromUri((RylogicAssets / "textures/cubemaps/hanger/hanger-??.jpg").string().c_str(), {}))
 		, m_obj0()
 		, m_obj1()
@@ -410,16 +241,14 @@ struct Main :Form
 		// Streaming
 		View3D_StreamingEnable(true, 1976);
 
-		// Create the retained View3DUI demonstration tree and its application-authored look.
-		ApplyInitialUI();
-		UpdateUI();
+		// Refresh the retained View3DUI demonstration tree once against this window's real size/DPI/camera.
+		m_ui_demo->Update(*this, 0.0);
 	}
 	~Main()
 	{
 		// Detach and release View3DUI before destroying its View3D host window and device.
 		m_ui_ready = false;
-		m_ui.reset();
-		m_ui_runtime.reset();
+		m_ui_demo.reset();
 
 		// Release audio children before their owning engine and DLL context.
 		if (m_box_voice != 0)
@@ -439,7 +268,8 @@ struct Main :Form
 	}
 	void Step(double dt)
 	{
-		m_ui_time_ms += dt * 1000.0;
+		// The demo's UI clock advances at real elapsed time, independent of the scene's simulated time scale.
+		auto ui_elapsed_seconds = dt;
 
 		static double time_scale = 1.0;
 		dt *= time_scale;
@@ -518,23 +348,14 @@ struct Main :Form
 		CheckAudio(Audio_EngineUpdate(m_audio_engine), "Audio_EngineUpdate");
 
 		SetWindowTextA(*this, pr::FmtS("View3d 12 Test - Cam: %3.3f %3.3f %3.3f  Dir: %3.3f %3.3f %3.3f", c2w.w.x, c2w.w.y, c2w.w.z, -c2w.z.x, -c2w.z.y, -c2w.z.z));
-		DrainUIEvents();
-		UpdateUI();
+		m_ui_demo->Update(*this, ui_elapsed_seconds);
 		View3D_WindowRender(m_win3d);
 	}
 	bool ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, LRESULT& result) override
 	{
 		// UI receives untouched Win32 messages before Form translates them into camera input.
-		if (m_ui_ready && m_ui)
-		{
-			auto invalidate = std::int32_t{};
-			auto ui_result = LRESULT{};
-			if (m_ui->ProcessWindowMessage(hwnd, message, wparam, lparam, ui_result, invalidate) != 0)
-			{
-				result = ui_result;
-				return true;
-			}
-		}
+		if (m_ui_ready && m_ui_demo && m_ui_demo->ProcessWindowMessage(hwnd, message, wparam, lparam, result))
+			return true;
 
 		return Form::ProcessWindowMessage(hwnd, message, wparam, lparam, result);
 	}
@@ -668,176 +489,6 @@ struct Main :Form
 		}
 	}
 
-	// Apply the complete initial UI tree, resources, templates, and styles in one revision.
-	void ApplyInitialUI()
-	{
-		using namespace view3d::ui;
-
-		TransactionBuilder builder;
-		AddUIFont(builder, UI_Font, "Segoe UI", 18.0f, UIColour{1, 1, 1, 1});
-
-		auto root_style = UIStyle(UI_RootStyle, UIColour{0, 0, 0, 0}, UIColour{0, 0, 0, 0}, 0, 0, 0);
-		auto panel_style = UIStyle(UI_PanelStyle, UIColour{0.16f, 0.13f, 0.13f, 0.82f}, UIColour{0.3f, 0.3f, 0.3f, 0.8f}, 1.0f, 0.0f);
-		auto text_style = UIStyle(UI_TextStyle, UIColour{0, 0, 0, 0}, UIColour{1, 1, 1, 1}, 0, 0);
-		auto textbox_style = UIStyle(UI_TextBoxStyle, UIColour{0.12f, 0.10f, 0.10f, 1}, UIColour{0.5f, 0.5f, 0.5f, 1}, 1.0f, 3.0f);
-		textbox_style.visuals[static_cast<std::size_t>(EStateChannel::Hover)].border_colour = UIColour{0.7f, 0.7f, 0.7f, 1};
-		textbox_style.visuals[static_cast<std::size_t>(EStateChannel::Focused)].border_colour = UIColour{0.15f, 0.5f, 1.0f, 1};
-		textbox_style.visuals[static_cast<std::size_t>(EStateChannel::Focused)].border_thickness = 2.0f;
-		textbox_style.visuals[static_cast<std::size_t>(EStateChannel::Invalid)].border_colour = UIColour{1.0f, 0.2f, 0.2f, 1};
-		textbox_style.visuals[static_cast<std::size_t>(EStateChannel::Invalid)].border_thickness = 2.0f;
-		auto button_style = UIStyle(UI_ButtonStyle, UIColour{0.46f, 0.46f, 0.46f, 1}, UIColour{0.55f, 0.55f, 0.55f, 1}, 1.0f, 10.0f);
-		button_style.visuals[static_cast<std::size_t>(EStateChannel::Hover)].fill = UIColour{0.58f, 0.58f, 0.58f, 1};
-		button_style.visuals[static_cast<std::size_t>(EStateChannel::Pressed)].fill = UIColour{0.32f, 0.32f, 0.32f, 1};
-		button_style.visuals[static_cast<std::size_t>(EStateChannel::Focused)].border_colour = UIColour{0.15f, 0.5f, 1.0f, 1};
-		button_style.visuals[static_cast<std::size_t>(EStateChannel::Focused)].border_thickness = 2.0f;
-		button_style.visuals[static_cast<std::size_t>(EStateChannel::Disabled)].opacity = 0.45f;
-		builder.AddStyle(root_style);
-		builder.AddStyle(panel_style);
-		builder.AddStyle(text_style);
-		builder.AddStyle(textbox_style);
-		builder.AddStyle(button_style);
-
-		auto textbox_template = TemplateDesc{};
-		textbox_template.header = UIHeader<TemplateDesc>();
-		textbox_template.id = UI_TextBoxTemplate;
-		textbox_template.applies_to = EControlType::TextBox;
-		builder.AddTemplatePart(textbox_template, "PART_Text", EVisualPrimitive::TextPresenter);
-		builder.AddTemplatePart(textbox_template, "PART_Selection", EVisualPrimitive::SolidBox);
-		builder.AddTemplatePart(textbox_template, "PART_Caret", EVisualPrimitive::SolidBox);
-		builder.AddTemplatePart(textbox_template, "PART_ValidationOutline", EVisualPrimitive::Border);
-		builder.AddTemplatePart(textbox_template, "PART_FocusOutline", EVisualPrimitive::Border);
-		builder.AddTemplate(textbox_template);
-
-		auto button_template = TemplateDesc{};
-		button_template.header = UIHeader<TemplateDesc>();
-		button_template.id = UI_ButtonTemplate;
-		button_template.applies_to = EControlType::Button;
-		builder.AddTemplatePart(button_template, "PART_ContentPresenter", EVisualPrimitive::ContentPresenter);
-		builder.AddTemplatePart(button_template, "PART_FocusOutline", EVisualPrimitive::Border);
-		builder.AddTemplate(button_template);
-
-		auto root_layout = UILayout(0, 0, EHAlign::Stretch, EVAlign::Stretch);
-		auto panel_layout = UILayout(320, 180, EHAlign::Right, EVAlign::Top);
-		panel_layout.margin_top = 28;
-		panel_layout.margin_right = 28;
-		panel_layout.padding_left = 20;
-		panel_layout.padding_top = 20;
-		panel_layout.padding_right = 20;
-		panel_layout.padding_bottom = 20;
-		panel_layout.stack_spacing = 10;
-		auto label_layout = UILayout(280, 26, EHAlign::Stretch);
-		auto textbox_layout = UILayout(280, 36, EHAlign::Stretch);
-		auto button_layout = UILayout(280, 48, EHAlign::Stretch);
-
-		builder.Upsert(UIControl(UI_Root, 0, EControlType::Root, ELayoutMode::Overlay, root_layout, UI_RootStyle), {}, "Dimension editor");
-		builder.Upsert(UIControl(UI_Panel, UI_Root, EControlType::Panel, ELayoutMode::StackVertical, panel_layout, UI_PanelStyle), {}, "Box dimensions panel");
-		builder.Upsert(UIControl(UI_Label, UI_Panel, EControlType::Text, ELayoutMode::Overlay, label_layout, UI_TextStyle), "Enter the box dimensions:", "Box dimension label");
-		auto textbox = UIControl(UI_Dimension, UI_Panel, EControlType::TextBox, ELayoutMode::Overlay, textbox_layout, UI_TextBoxStyle, UI_TextBoxTemplate);
-		textbox.validation_state = m_dimension.m_validation;
-		builder.Upsert(textbox, m_dimension_text, "Box dimensions", "A positive decimal value applied uniformly to the box");
-		auto button = UIControl(UI_Update, UI_Panel, EControlType::Button, ELayoutMode::Overlay, button_layout, UI_ButtonStyle, UI_ButtonTemplate);
-		button.enabled = m_dimension.m_validation == EValidationState::Valid;
-		builder.Upsert(button, "Update", "Update box dimensions");
-		builder.Reorder(UI_Root, {UI_Panel});
-		builder.Reorder(UI_Panel, {UI_Label, UI_Dimension, UI_Update});
-
-		m_ui->TransactionApply(builder.Build(m_ui_revision, m_ui_revision + 1));
-		++m_ui_revision;
-	}
-
-	// Reconcile application-owned text, validation, and command enablement in one revision.
-	void ApplyUIState()
-	{
-		using namespace view3d::ui;
-
-		TransactionBuilder builder;
-		auto textbox = UIControl(UI_Dimension, UI_Panel, EControlType::TextBox, ELayoutMode::Overlay, UILayout(280, 36, EHAlign::Stretch), UI_TextBoxStyle, UI_TextBoxTemplate);
-		textbox.validation_state = m_dimension.m_validation;
-		builder.Upsert(textbox, m_dimension_text, "Box dimensions", "A positive decimal value applied uniformly to the box");
-		auto button = UIControl(UI_Update, UI_Panel, EControlType::Button, ELayoutMode::Overlay, UILayout(280, 48, EHAlign::Stretch), UI_ButtonStyle, UI_ButtonTemplate);
-		button.enabled = m_dimension.m_validation == EValidationState::Valid;
-		builder.Upsert(button, "Update", "Update box dimensions");
-
-		m_ui->TransactionApply(builder.Build(m_ui_revision, m_ui_revision + 1));
-		++m_ui_revision;
-	}
-
-	// Drain typed UI events and dispatch centrally by stable control id.
-	void DrainUIEvents()
-	{
-		if (!m_ui)
-			return;
-
-		auto pending = m_ui->EventsPendingSizes();
-		if (pending.m_count == 0)
-			return;
-
-		m_ui_events.resize(pending.m_count);
-		m_ui_event_payload.resize(pending.m_payload_bytes);
-		m_ui->EventsCopy(m_ui_events, m_ui_event_payload);
-
-		for (auto const& event : m_ui_events)
-		{
-			switch (event.kind)
-			{
-				case view3d::ui::EEventKind::TextChangeProposed:
-				{
-					if (event.control_id != UI_Dimension)
-						break;
-
-					auto const* text = reinterpret_cast<char const*>(m_ui_event_payload.data() + event.payload_offset);
-					m_dimension_text.assign(text, event.payload_length);
-					m_dimension = ParseDimension(m_dimension_text);
-					ApplyUIState();
-					break;
-				}
-				case view3d::ui::EEventKind::CommandInvoked:
-				{
-					if (event.control_id == UI_Update && m_dimension.m_validation == view3d::ui::EValidationState::Valid)
-						UpdateBoxDimensions(m_dimension.m_value);
-					break;
-				}
-				case view3d::ui::EEventKind::FocusChanged:
-				case view3d::ui::EEventKind::PointerCaptureChanged:
-				case view3d::ui::EEventKind::QueueOverflow:
-				case view3d::ui::EEventKind::Diagnostic:
-				{
-					break;
-				}
-				case view3d::ui::EEventKind::Count:
-				default:
-				{
-					throw std::runtime_error("Unknown View3DUI event kind");
-				}
-			}
-		}
-	}
-
-	// Recompute deterministic layout, semantics, transitions, and draw packets at explicit UI time.
-	void UpdateUI()
-	{
-		if (!m_ui)
-			return;
-
-		auto client = ClientRect(false);
-		auto target = View3D_WindowBackBufferSizeGet(m_win3d);
-		auto viewport = View3D_WindowViewportGet(m_win3d);
-		auto state = view3d::ui::ViewportState{
-			UIHeader<view3d::ui::ViewportState>(),
-			s_cast<std::uint32_t>(std::max(0, client.width())),
-			s_cast<std::uint32_t>(std::max(0, client.height())),
-			s_cast<std::uint32_t>(std::max(0L, target.cx)),
-			s_cast<std::uint32_t>(std::max(0L, target.cy)),
-			viewport.m_x,
-			viewport.m_y,
-			viewport.m_width,
-			viewport.m_height,
-			static_cast<float>(GetDpiForWindow(*this)),
-			m_ui_time_ms,
-		};
-		m_ui->Update(state);
-	}
-
 	// Replace only the existing box model so its object identity and per-frame transform remain stable.
 	void UpdateBoxDimensions(float value)
 	{
@@ -873,7 +524,6 @@ int __stdcall WinMain(HINSTANCE hinstance, HINSTANCE, LPTSTR, int)
 		pr::InitCom com;
 		pr::win32::LoadDll<struct Audio>("audio.dll");
 		pr::win32::LoadDll<struct View3d>("view3d-12.dll");
-		(void)view3d::ui::Dll::Get();
 
 		// Register the owning message loop so window destruction can drain continuously posted renderer messages and observe WM_QUIT.
 		WinGuiMsgLoop loop;

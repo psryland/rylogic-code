@@ -53,7 +53,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\audio\audio-dll.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\view3d.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\view3d-ui.h" />
+    <ClInclude Include="src\view3d_ui_demo.h" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\view3d_ui_demo.cpp" />
   </ItemGroup>
   <!--
   Dependencies

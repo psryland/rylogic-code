@@ -1,8 +1,8 @@
 # View3DUI Implementation Plan
 
-**Status:** Reviewed and approved; implementation not started  
+**Status:** Implemented and validated
 **Scope:** Project-agnostic retained UI for native View3D applications, followed by a WPF-free managed API in `Rylogic.Gfx`  
-**Implementation state:** No View3DUI source code exists yet
+**Implementation state:** Native satellite, managed API, JSON tooling, world roots, Unicode/IME, UI Automation, packaging, tests, and demonstration are implemented
 
 ## 1. Objective
 
@@ -19,6 +19,10 @@ The first production-shaped vertical slice proves the architecture in `view3d-12
 - an update of the existing `m_obj0` box to uniform dimensions from an accepted value such as `1.23`.
 
 The mock-up is directional only. Existing View3D conventions and the declarative template/style model determine the implementation.
+
+After the first slice was implemented, the same test application was expanded into a broader retained-UI gallery. It keeps the functional dimension editor,
+demonstrates every closed control and layout mode with several corner/colour/state treatments, and adds clickable world-anchored buttons for the `Overlay`,
+`DepthTested`, and `OcclusionFaded` policies.
 
 ## 2. Repository Findings That Shape the Plan
 
@@ -101,15 +105,24 @@ Physics is the direct device-sharing precedent: `Physics_EngineCreate()` accepts
 
 ### 2.6 Existing input and test-application surfaces
 
-`projects/tests/view3d-12-test/src/main.cpp` derives `Main` from `gui::Form` and currently handles:
+`projects/tests/view3d-12-test/src/main.cpp` derives `Main` from `gui::Form` and handles:
 
 - resize in `OnWindowPosChange`;
 - scene navigation in `OnMouseButton`, `OnMouseMove`, and `OnMouseWheel`;
 - key commands in `OnKey`;
 - rendering in `Step`;
-- window messages through the overridable `ProcessWindowMessage` path in `wingui.h`.
+- window messages through the overridable `ProcessWindowMessage` path in `wingui.h`; and
+- scene-owned application of accepted box dimensions through a callback supplied to `view3d_test::View3dUiDemo`.
 
-`WinGuiMsgLoop` calls message filters before Win32 `TranslateMessage`/`DispatchMessageW`. The production View3DUI path must receive raw HWND messages at `Main::ProcessWindowMessage` before `Form` converts them into higher-level mouse/key events. Filtering at the message-loop stage would prevent `TranslateMessage` from generating `WM_CHAR`. This preserves access to `WM_CHAR`, dead-key, cursor, capture, focus, clipboard, and IME semantics and allows consumed messages to bypass camera handlers. The current form has dialog behaviour disabled; enabling `IsDialogMessage` or accelerators later would need an earlier UI-aware message-filter rule for Tab/Enter/Space.
+`projects/tests/view3d-12-test/src/view3d_ui_demo.h/.cpp` owns the demonstration's UI runtime, context, retained descriptors, managed-equivalent
+application state, event draining, viewport/camera publication, and action dispatch. `Main` retains only the early-construction readiness guard,
+message/update delegation, and scene callback so View3DUI details do not dominate the test application's scene and audio code.
+
+`WinGuiMsgLoop` calls message filters before Win32 `TranslateMessage`/`DispatchMessageW`. The production View3DUI path receives raw HWND messages through
+`Main::ProcessWindowMessage`, which delegates to `View3dUiDemo` before `Form` converts them into higher-level mouse/key events. Filtering at the
+message-loop stage would prevent `TranslateMessage` from generating `WM_CHAR`. This preserves access to `WM_CHAR`, dead-key, cursor, capture, focus,
+clipboard, and IME semantics and allows consumed messages to bypass camera handlers. The current form has dialog behaviour disabled; enabling
+`IsDialogMessage` or accelerators later would need an earlier UI-aware message-filter rule for Tab/Enter/Space.
 
 The test window is per-monitor-DPI-aware V2. `GetClientRect` therefore already returns physical client pixels, but the current `OnWindowPosChange` multiplies those dimensions by `dpi / 96` and uses outer-window dimensions for viewport screen size. The demonstration must correct this existing host mapping before using it as DPI evidence.
 
@@ -682,7 +695,8 @@ The existing public `View3D_WindowRenderingCB` remains unchanged but is not used
 | --- | --- |
 | `projects/tests/view3d-ui-tests/view3d-ui-tests.vcxproj[.filters]` | Focused native test runner for core logic, ABI, bridge, and deterministic render packets |
 | `projects/tests/view3d-ui-tests/src/...` | Transaction, layout, input, focus, semantics, lifecycle, thread, DPI, queue, and render-order tests |
-| `projects/tests/view3d-12-test/src/main.cpp` | Create/destroy UI in lifetime order, forward raw messages first, drain events, own numeric state, update `m_obj0`, and render |
+| `projects/tests/view3d-12-test/src/main.cpp` | Own the scene callback and lifetime/readiness guard, forward raw messages first, update `m_obj0`, and render |
+| `projects/tests/view3d-12-test/src/view3d_ui_demo.h/.cpp` | Encapsulate the gallery runtime/context, retained descriptors, state, events, camera/viewport publication, and application action dispatch |
 | `projects/tests/view3d-12-test/view3d-12-test.vcxproj[.filters]` | Add the facade header/project reference and `view3d-ui.targets` copy rule |
 | `Rylogic.sln` | Add View3DUI native, DLL, native-test, and later managed projects with dependencies/configurations |
 
@@ -1056,7 +1070,6 @@ Run the M6 managed build/tests with JSON equivalence fixtures.
 - Data binding, dependency properties, routed events, MVVM framework integration, or automatic application-state ownership.
 - Full UI Automation in the first slice.
 - Full multilingual editing/IME presentation in the first slice.
-- World-root rendering in the demonstration.
 - Pixel-perfect reproduction of the orientation mock-up.
 - Replacing the existing `m_obj0` handle or introducing a separate demonstration box.
 - Backward-compatibility adapters before a concrete compatibility need is approved.

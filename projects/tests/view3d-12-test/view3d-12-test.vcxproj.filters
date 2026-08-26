@@ -30,7 +30,13 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\view3d-ui.h">
       <Filter>pr\view3d-ui</Filter>
     </ClInclude>
+    <ClInclude Include="src\view3d_ui_demo.h">
+      <Filter>src</Filter>
+    </ClInclude>
     <ClCompile Include="src\main.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d_ui_demo.cpp">
       <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>
