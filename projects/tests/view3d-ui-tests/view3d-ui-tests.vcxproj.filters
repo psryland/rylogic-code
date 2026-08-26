@@ -1,0 +1,98 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="src">
+      <UniqueIdentifier>{ee8a2d94-2570-4a47-9448-646eb4cb9676}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="lib">
+      <UniqueIdentifier>{347f538b-81ca-490d-bf96-16cc8fe7d2c9}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\test_support.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClCompile Include="src\main.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m0_abi_lifetime.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m1_transactions.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m1_events.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m2_layout.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m2_input_focus.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m2_semantics.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m3_glyph_cache.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m3_text_shaper.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m3_draw_packet.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m3_renderer.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m3_input_activation.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m3_bridge_and_lifecycle.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m3_text_reconciliation.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m5_hardening.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m8_world_roots.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m9_text_unicode.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m9_text_layout.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m9_text_editing.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m9_win32_input.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m9_abi.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m9_corrections.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tests_m10_uia.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(RylogicRoot)projects\rylogic\view3d-ui\dll\renderer.h">
+      <Filter>lib</Filter>
+    </ClInclude>
+    <ClCompile Include="$(RylogicRoot)projects\rylogic\view3d-ui\dll\renderer.cpp">
+      <Filter>lib</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\view3d-ui.dll">
+      <Filter>lib</Filter>
+    </DependencyLink>
+  </ItemGroup>
+</Project>

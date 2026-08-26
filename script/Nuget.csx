@@ -155,7 +155,7 @@ public class Nuget
 
 		// Sign the staged package before publishing it into the canonical feed and cache.
 		StagedPackagePath = Tools.Path([package_output_path, $"{PackageName}.{Version}.nupkg"]);
-		PackagePath = Tools.Path([UserVars.Root, $"lib\\packages\\{PackageName}.{Version}.nupkg"]);
+		PackagePath = Tools.Path([UserVars.Root, $"lib\\packages\\{PackageName}.{Version}.nupkg"], check_exists: false);
 		Tools.SignNugetPackage(StagedPackagePath);
 		SyncPackageOutputs(StagedPackagePath, PackagePath);
 	}

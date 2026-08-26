@@ -1,0 +1,55 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+	<!-- Globals -->
+	<PropertyGroup Label="Globals">
+		<ProjectGuid>{9A2D5C6E-1B3F-4A8D-BE0C-7F2E4D9A6C51}</ProjectGuid>
+		<ProjectName>view3d-ui.dll</ProjectName>
+		<TargetName>view3d-ui</TargetName>
+		<RootNamespace>ViewUI</RootNamespace>
+		<ConfigurationType>DynamicLibrary</ConfigurationType>
+	</PropertyGroup>
+
+	<!-- Property Sheets -->
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+	<Import Project="$(PropsPath)build_configurations.props" />
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+	<Import Project="$(PropsPath)dll.props" />
+
+	<!-- Build options -->
+	<ItemDefinitionGroup>
+		<ClCompile>
+			<PreprocessorDefinitions>
+				;VIEW3D_UI_EXPORTS
+				;%(PreprocessorDefinitions)
+			</PreprocessorDefinitions>
+			<AdditionalIncludeDirectories>
+				;$(RylogicRoot)projects\rylogic
+				;%(AdditionalIncludeDirectories)
+			</AdditionalIncludeDirectories>
+		</ClCompile>
+		<Link>
+			<AdditionalDependencies>
+				;view3d-ui-static.lib
+				;%(AdditionalDependencies)
+			</AdditionalDependencies>
+		</Link>
+	</ItemDefinitionGroup>
+
+	<!-- Files -->
+	<ItemGroup>
+		<ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\view3d-ui-dll.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\types.h" />
+		<ClCompile Include="$(RylogicRoot)projects\rylogic\view3d-ui\dll\view3d-ui.cpp" />
+		<ClInclude Include="$(RylogicRoot)projects\rylogic\view3d-ui\dll\context.h" />
+		<ClInclude Include="$(RylogicRoot)projects\rylogic\view3d-ui\dll\host_bridge.h" />
+		<ClCompile Include="$(RylogicRoot)projects\rylogic\view3d-ui\dll\host_bridge.cpp" />
+		<ClInclude Include="$(RylogicRoot)projects\rylogic\view3d-ui\dll\renderer.h" />
+		<ClCompile Include="$(RylogicRoot)projects\rylogic\view3d-ui\dll\renderer.cpp" />
+	</ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-ui\view3d-ui.vcxproj" />
+	</ItemGroup>
+
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

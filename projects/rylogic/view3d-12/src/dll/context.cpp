@@ -23,6 +23,32 @@ namespace pr::rdr12
 {
 	namespace
 	{
+		// Temporarily detach an object from exactly the windows that currently contain it.
+		vector<V3dWindow*, 4> DetachObjectFromWindows(Context::WindowCont const& windows, ldraw::LdrObject* object)
+		{
+			vector<V3dWindow*, 4> memberships = {};
+			for (auto* window : windows)
+			{
+				if (window->Has(object, false))
+					memberships.push_back(window);
+			}
+
+			for (auto* window : memberships)
+				window->Remove(object);
+
+			return memberships;
+		}
+
+		// Restore captured memberships only for windows that still belong to the context.
+		void RestoreObjectToWindows(Context::WindowCont const& windows, std::span<V3dWindow*> memberships, ldraw::LdrObject* object)
+		{
+			for (auto* window : memberships)
+			{
+				if (std::find(windows.begin(), windows.end(), window) != windows.end())
+					window->Add(object);
+			}
+		}
+
 		// Create renderer settings with ray tracing capability available to per-window settings.
 		RdrSettings MakeRdrSettings(HINSTANCE instance)
 		{
@@ -470,9 +496,10 @@ namespace pr::rdr12
 	}
 	void Context::ObjectEdit(ldraw::LdrObject* object, view3d::EditObjectCB edit_cb)
 	{
-		// Remove the object from any windows it might be in
-		for (auto& wnd : m_windows)
-			wnd->Remove(object);
+		// Model mutation requires temporary scene removal, but public object identity includes its
+		// existing window memberships and they must survive both success and failure.
+		auto memberships = DetachObjectFromWindows(m_windows, object);
+		auto restore = Scope<void>{[&] { RestoreObjectToWindows(m_windows, memberships, object); }};
 
 		// Callback to edit the geometry
 		Edit(m_rdr, object, { &edit_cb, EditModel });
@@ -482,13 +509,15 @@ namespace pr::rdr12
 	template <typename Char>
 	void Context::UpdateObject(ldraw::LdrObject* object, std::basic_string_view<Char> ldr_script, ldraw::EUpdateObject flags)
 	{
-		// Remove the object from any windows it might be in
-		for (auto& wnd : m_windows)
-			wnd->Remove(object);
+		// Model mutation requires temporary scene removal, but public object identity includes its
+		// existing window memberships and they must survive both success and failure.
+		auto memberships = DetachObjectFromWindows(m_windows, object);
+		auto restore = Scope<void>{[&] { RestoreObjectToWindows(m_windows, memberships, object); }};
 
 		// Update the object model
 		mem_istream<Char> src{ ldr_script, 0 };
-		rdr12::ldraw::TextReader reader(src, {});
+		auto encoding = std::is_same_v<Char, wchar_t> ? EEncoding::already_decoded : EEncoding::utf8;
+		rdr12::ldraw::TextReader reader(src, {}, encoding);
 		ldraw::Update(m_rdr, object, reader, flags);
 	}
 	template void Context::UpdateObject<wchar_t>(ldraw::LdrObject* object, std::wstring_view, ldraw::EUpdateObject flags);

@@ -3607,3 +3607,76 @@ VIEW3D_API void __stdcall View3D_LightingControlsUI(view3d::Window window, BOOL 
 	}
 	CatchAndReport(View3D_LightShowDialog, window,);
 }
+
+// UI *******************************************
+
+// Return the private View3DUI host bridge version.
+extern "C" VIEW3D_API std::uint32_t __stdcall View3D_UIHostApiVersion()
+{
+	return view3d::ui::HostApiVersion;
+}
+
+// Return the exact native size of a private bridge structure.
+extern "C" VIEW3D_API view3d::ui::EHostStatus __stdcall View3D_UIHostStructSize(view3d::ui::EHostStructId struct_id, std::uint32_t* size)
+{
+	using UIStatus = view3d::ui::EHostStatus;
+
+	if (size == nullptr)
+		return UIStatus::InvalidArgument;
+
+	switch (struct_id)
+	{
+		case view3d::ui::EHostStructId::Provider:
+		{
+			*size = sizeof(view3d::ui::Provider);
+			return UIStatus::Success;
+		}
+		case view3d::ui::EHostStructId::Pass:
+		{
+			*size = sizeof(view3d::ui::Pass);
+			return UIStatus::Success;
+		}
+		default:
+		{
+			return UIStatus::InvalidArgument;
+		}
+	}
+}
+
+// Attach one optional View3DUI provider to a View3D window.
+extern "C" VIEW3D_API view3d::ui::EHostStatus __stdcall View3D_UIHostAttach(void* window, view3d::ui::Provider const* provider)
+{
+	using UIStatus = view3d::ui::EHostStatus;
+
+	if (window == nullptr || provider == nullptr)
+		return UIStatus::InvalidArgument;
+
+	try
+	{
+		DllLockGuard;
+		return static_cast<V3dWindow*>(window)->UIProviderAttach(*provider);
+	}
+	catch (...)
+	{
+		return UIStatus::ProviderFailed;
+	}
+}
+
+// Detach the matching optional View3DUI provider from a View3D window.
+extern "C" VIEW3D_API view3d::ui::EHostStatus __stdcall View3D_UIHostDetach(void* window, void* provider_context)
+{
+	using UIStatus = view3d::ui::EHostStatus;
+
+	if (window == nullptr || provider_context == nullptr)
+		return UIStatus::InvalidArgument;
+
+	try
+	{
+		DllLockGuard;
+		return static_cast<V3dWindow*>(window)->UIProviderDetach(provider_context);
+	}
+	catch (...)
+	{
+		return UIStatus::ProviderFailed;
+	}
+}

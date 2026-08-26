@@ -255,21 +255,17 @@ namespace pr::rdr12
 			if (post_alpha_start != s_cast<int>(drawlist->size()) && frame.bb_post().m_render_target != nullptr)
 			{
 				auto post_alpha_heaps = { wnd().m_heap_view.get(), wnd().m_heap_samp.get() };
-				frame.m_present.SetDescriptorHeaps({ post_alpha_heaps.begin(), post_alpha_heaps.size() });
+				frame.m_composite.SetDescriptorHeaps({ post_alpha_heaps.begin(), post_alpha_heaps.size() });
 
-				BarrierBatch bb(frame.m_present);
+				BarrierBatch bb(frame.m_composite);
 				bb.Transition(frame.bb_post().m_render_target.get(), D3D12_RESOURCE_STATE_RENDER_TARGET);
 				bb.Commit();
 
-				BindFrameResources(frame.m_present);
-				frame.m_present.RSSetViewports({ &vp, 1 });
-				frame.m_present.RSSetScissorRects(vp.m_clip);
-				frame.m_present.OMSetRenderTargets({ &frame.bb_post().m_rtv, 1 }, FALSE, nullptr);
-				DrawNuggets(frame, frame.m_present, m_post_alpha_pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(post_alpha_start)), false);
-
-				BarrierBatch bb_end(frame.m_present);
-				bb_end.Transition(frame.bb_post().m_render_target.get(), D3D12_RESOURCE_STATE_PRESENT);
-				bb_end.Commit();
+				BindFrameResources(frame.m_composite);
+				frame.m_composite.RSSetViewports({ &vp, 1 });
+				frame.m_composite.RSSetScissorRects(vp.m_clip);
+				frame.m_composite.OMSetRenderTargets({ &frame.bb_post().m_rtv, 1 }, FALSE, nullptr);
+				DrawNuggets(frame, frame.m_composite, m_post_alpha_pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(post_alpha_start)), false);
 			}
 		}
 

@@ -1,0 +1,74 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+	<!-- Globals -->
+	<PropertyGroup Label="Globals">
+		<ProjectName>view3d-ui</ProjectName>
+		<TargetName>view3d-ui-static</TargetName>
+		<RootNamespace>pr::view3d::ui</RootNamespace>
+		<ProjectGuid>{6E9F4B3A-2C7D-4E1A-9B5E-8D3C6A1F0B27}</ProjectGuid>
+		<ConfigurationType>StaticLibrary</ConfigurationType>
+	</PropertyGroup>
+
+	<!-- Property Sheets -->
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+	<Import Project="$(PropsPath)build_configurations.props" />
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+	<Import Project="$(PropsPath)lib.props" />
+
+	<!-- Build options -->
+	<ItemDefinitionGroup>
+		<ClCompile>
+			<AdditionalIncludeDirectories>
+				;$(RylogicRoot)projects\rylogic
+				;%(AdditionalIncludeDirectories)
+			</AdditionalIncludeDirectories>
+		</ClCompile>
+	</ItemDefinitionGroup>
+
+	<!-- Files -->
+	<ItemGroup>
+		<ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\draw_packet.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\engine.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\forward.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\transaction_builder.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\types.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\view3d-ui-dll.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\view3d-ui.h" />
+		<ClInclude Include="src\draw_packet_builder.h" />
+		<ClInclude Include="src\events.h" />
+		<ClInclude Include="src\glyph_cache.h" />
+		<ClInclude Include="src\input.h" />
+		<ClInclude Include="src\layout.h" />
+		<ClInclude Include="src\semantics.h" />
+		<ClInclude Include="src\style.h" />
+		<ClInclude Include="src\text_layout.h" />
+		<ClInclude Include="src\text_shaper.h" />
+		<ClInclude Include="src\text_unicode.h" />
+		<ClInclude Include="src\tree.h" />
+		<ClInclude Include="src\uia_bridge.h" />
+		<ClInclude Include="src\uia_provider.h" />
+		<ClInclude Include="src\uia_snapshot.h" />
+		<ClInclude Include="src\win32_input.h" />
+		<ClInclude Include="src\world.h" />
+		<ClCompile Include="src\engine.cpp" />
+		<ClCompile Include="src\draw_packet_builder.cpp" />
+		<ClCompile Include="src\events.cpp" />
+		<ClCompile Include="src\glyph_cache.cpp" />
+		<ClCompile Include="src\input.cpp" />
+		<ClCompile Include="src\layout.cpp" />
+		<ClCompile Include="src\semantics.cpp" />
+		<ClCompile Include="src\style.cpp" />
+		<ClCompile Include="src\text_layout.cpp" />
+		<ClCompile Include="src\text_shaper.cpp" />
+		<ClCompile Include="src\text_unicode.cpp" />
+		<ClCompile Include="src\tree.cpp" />
+		<ClCompile Include="src\uia_bridge.cpp" />
+		<ClCompile Include="src\uia_provider.cpp" />
+		<ClCompile Include="src\uia_snapshot.cpp" />
+		<ClCompile Include="src\win32_input.cpp" />
+		<ClCompile Include="src\world.cpp" />
+		<None Include="implementation-plan.md" />
+	</ItemGroup>
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

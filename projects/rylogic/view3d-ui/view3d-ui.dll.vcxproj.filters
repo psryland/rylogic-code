@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="src">
+      <UniqueIdentifier>{c2b3d4e5-6f70-4891-9abc-def012345602}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\dll">
+      <UniqueIdentifier>{d3c4e5f6-7081-4902-9abc-def012345603}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\view3d-ui-dll.h">
+      <Filter>src\dll</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\types.h">
+      <Filter>src\dll</Filter>
+    </ClInclude>
+    <ClCompile Include="dll\view3d-ui.cpp">
+      <Filter>src\dll</Filter>
+    </ClCompile>
+    <ClInclude Include="dll\context.h">
+      <Filter>src\dll</Filter>
+    </ClInclude>
+    <ClInclude Include="dll\host_bridge.h">
+      <Filter>src\dll</Filter>
+    </ClInclude>
+    <ClCompile Include="dll\host_bridge.cpp">
+      <Filter>src\dll</Filter>
+    </ClCompile>
+    <ClInclude Include="dll\renderer.h">
+      <Filter>src\dll</Filter>
+    </ClInclude>
+    <ClCompile Include="dll\renderer.cpp">
+      <Filter>src\dll</Filter>
+    </ClCompile>
+  </ItemGroup>
+</Project>
