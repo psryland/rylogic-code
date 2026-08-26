@@ -13,7 +13,7 @@
 //
 // All sharing tests must call ResetEngineForNextTest() at the start of each method
 // (or at the start of any helper that runs a scenario) to clear the materials map and
-// Collisions event handler list. EngineConfig is const at construction and cannot be
+// event handler lists. EngineConfig is const at construction and cannot be
 // modified, so any test that needs a non-default config must construct its own Engine
 // (and pay the shader-compile cost).
 #pragma once
@@ -38,6 +38,7 @@ namespace pr::physics::tests
 		engine.Collisions.reset();
 		engine.ExternalForces.reset();
 		engine.ConstraintsBroken.reset();
+		engine.CoupledConstraintFailures.reset();
 		engine.Config(physics::EngineConfig{});
 		engine.Material(physics::Material{
 			.m_id = physics::Material::DefaultID,

@@ -144,6 +144,7 @@ namespace physics_sandbox
 		double m_clock;
 		bool m_step_pending;
 		double m_pending_elapsed_seconds;
+		int m_pending_tick_count;
 		StepProfile m_pending_step_profile;
 
 		// The currently active scenario.
@@ -165,8 +166,8 @@ namespace physics_sandbox
 		// Returns true if a collision occurred during this step.
 		bool Step(double elapsed_seconds);
 
-		// Submit one frame containing all configured internal GPU substeps.
-		void BeginStep(double elapsed_seconds);
+		// Submit one frame spanning 'tick_count' fixed scene ticks while retaining the configured substeps per tick.
+		void BeginStep(double elapsed_seconds, int tick_count = 1);
 
 		// Complete one submitted frame and consume its gathered readback.
 		// Returns true if a collision occurred during this step.
@@ -224,8 +225,8 @@ namespace physics_sandbox
 		// Prepare visual state before collision readback updates it for a completed substep.
 		void PrepareStepVisuals();
 
-		// Apply gravity and submit one frame containing all internal GPU substeps.
-		void BeginPhysicsFrame(float dt, double time_s, StepProfile& profile);
+		// Apply gravity and submit one frame containing the requested number of internal GPU substeps.
+		void BeginPhysicsFrame(float dt, int substep_count, double time_s, StepProfile& profile);
 
 		// Wait for one submitted physics frame and collect its gathered results.
 		void CompletePhysicsFrame(StepProfile& profile);

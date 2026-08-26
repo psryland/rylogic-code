@@ -223,6 +223,15 @@
     <ClInclude Include="src\scene\body.h">
       <Filter>src\scene</Filter>
     </ClInclude>
+    <ClInclude Include="src\scene\articulation_visual.h">
+      <Filter>src\scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\scene\demo_builder.h">
+      <Filter>src\scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\scene\demo.h">
+      <Filter>src\scene</Filter>
+    </ClInclude>
     <ClInclude Include="src\scene\procedural_sky.h">
       <Filter>src\scene</Filter>
     </ClInclude>
@@ -390,6 +399,27 @@
       <Filter>src\utils</Filter>
     </ClCompile>
     <ClCompile Include="src\scene\body.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\scene\articulation_visual.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\scene\demo_articulations.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\scene\demo_builder.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\scene\demo_constraints.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\scene\demo_showcase.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\scene\demo_stress.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\scene\demo.cpp">
       <Filter>src\scene</Filter>
     </ClCompile>
     <ClCompile Include="src\scene\procedural_sky.cpp">

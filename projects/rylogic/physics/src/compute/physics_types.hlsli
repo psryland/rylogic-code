@@ -24,6 +24,11 @@ static const int MaxColours = 32;
 static const int GpuContactMaxPoints = 4;
 static const int GpuConstraintRowsPerBlock = 6;
 
+#ifdef __cplusplus
+// Collision-event gathering reuses resolver-generated indirect dispatch arguments and therefore requires identical group widths.
+static_assert(FrameOutputThreadCount == ResolveThreadCount, "Frame-output and resolver thread counts must remain identical");
+#endif
+
 // GPU articulation enum values mirror their public CPU counterparts without exposing C++ enum types to HLSL.
 static const int GpuArticulationRootType_Fixed = 0;
 static const int GpuArticulationRootType_Floating = 1;

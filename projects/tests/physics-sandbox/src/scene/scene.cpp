@@ -228,6 +228,7 @@ namespace physics_sandbox
 		, m_clock()
 		, m_step_pending(false)
 		, m_pending_elapsed_seconds()
+		, m_pending_tick_count()
 		, m_pending_step_profile()
 		, m_current_scenario()
 		, m_current_demo()
@@ -602,21 +603,29 @@ namespace physics_sandbox
 		return CompleteStep();
 	}
 
-	// Submit one frame containing all configured internal GPU substeps.
-	void Scene::BeginStep(double elapsed_seconds)
+	// Submit one frame spanning one or more fixed scene ticks without adding another GPU boundary.
+	void Scene::BeginStep(double elapsed_seconds, int tick_count)
 	{
 		if (m_step_pending)
 			throw std::runtime_error("Scene::BeginStep called while a previous step is pending");
 
+		// Preserve each scene's configured solver interval when fixed ticks are batched into one submitted frame.
+		auto const substeps_per_tick = std::max(m_physics_substeps, 1);
+		auto const max_internal_substeps = m_physics.Config().max_internal_substeps;
+		if (tick_count < 1 || tick_count > max_internal_substeps / substeps_per_tick)
+			throw std::runtime_error("Scene::BeginStep tick count exceeds the engine's internal substep capacity");
+		auto const substep_count = tick_count * substeps_per_tick;
+
 		auto const step_beg = Clock::now();
 		m_step_pending = true;
 		m_pending_elapsed_seconds = elapsed_seconds;
+		m_pending_tick_count = tick_count;
 		m_pending_step_profile = {};
 		m_diag.occurred = false;
 
 		try
 		{
-			BeginPhysicsFrame(static_cast<float>(elapsed_seconds), m_clock, m_pending_step_profile);
+			BeginPhysicsFrame(static_cast<float>(elapsed_seconds), substep_count, m_clock, m_pending_step_profile);
 			m_pending_step_profile.m_total_ms = ElapsedMs(step_beg, Clock::now());
 		}
 		catch (...)
@@ -640,7 +649,7 @@ namespace physics_sandbox
 			if (m_diag.occurred)
 				++m_diag.count;
 
-			++m_step_count;
+			m_step_count += m_pending_tick_count;
 			m_clock += m_pending_elapsed_seconds;
 
 			#ifdef PR_PHYSICS_DIAGNOSTICS
@@ -720,8 +729,8 @@ namespace physics_sandbox
 		}
 	}
 
-	// Apply frame-constant gravity and submit all internal GPU substeps without waiting.
-	void Scene::BeginPhysicsFrame(float dt, double time_s, StepProfile& profile)
+	// Apply frame-constant gravity and submit all requested internal GPU substeps without waiting.
+	void Scene::BeginPhysicsFrame(float dt, int substep_count, double time_s, StepProfile& profile)
 	{
 		// The engine snapshots this frame force and restores it before every GPU-resident substep.
 		auto const gravity_beg = Clock::now();
@@ -743,7 +752,7 @@ namespace physics_sandbox
 			.m_articulations = m_articulation_ptrs,
 			.m_constraints = m_constraints.Count() != 0 ? &m_constraints : nullptr,
 			.m_elapsed_seconds = dt,
-			.m_substep_count = std::max(m_physics_substeps, 1),
+			.m_substep_count = substep_count,
 			.m_time_s = time_s,
 		});
 		profile.m_physics_ms += ElapsedMs(physics_beg, Clock::now());

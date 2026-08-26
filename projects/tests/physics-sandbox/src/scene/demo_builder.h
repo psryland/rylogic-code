@@ -125,7 +125,7 @@ namespace physics_sandbox
 	void BuildFloatingConservation(DemoBuilder& demo);
 	void BuildDzhanibekov(DemoBuilder& demo);
 
-	// Build the difficult and scaling demonstrations implemented in demo_pathologies.cpp.
+	// Build the difficult and scaling demonstrations implemented in demo_stress.cpp.
 	void BuildConstraintPathologies(DemoBuilder& demo);
 	void BuildConstraintStress(DemoBuilder& demo);
 }

@@ -138,6 +138,63 @@ namespace pr::physics::tests
 			}
 		}
 
+		// World-space proxy force and torque gather into the matching link-frame ABA wrench without losing the uploaded baseline.
+		PRUnitTestMethod(HardwareGatheredWrenchesMatchCpuTransform, Extended)
+		{
+			auto articulation = BuildProxyFrameTree(EArticulationRootType::Floating, 2);
+			auto forest = std::array{&articulation};
+			auto upload = PackGpuArticulations(forest);
+			auto shape_ids = std::vector<int>(upload.m_links.size(), -1);
+			auto bodies = PackGpuArticulationProxies(upload, forest, shape_ids, 0);
+
+			// Seed independent world-space proxy accumulators and link-frame articulation baselines across every non-identity shape frame.
+			for (int link_index = 0; link_index != isize(upload.m_links); ++link_index)
+			{
+				auto const scale = static_cast<float>(link_index + 1);
+				bodies[link_index].force_ang = v4{0.17f * scale, -0.11f * scale, 0.07f * scale, 0};
+				bodies[link_index].force_lin = v4{-0.23f * scale, 0.19f * scale, 0.13f * scale, 0};
+				upload.m_external_forces[link_index].force_ang = v4{0.03f * scale, 0.05f * scale, -0.02f * scale, 0};
+				upload.m_external_forces[link_index].force_lin = v4{-0.04f * scale, 0.01f * scale, 0.06f * scale, 0};
+			}
+
+			// Dispatch the production gather pass and retain its per-link wrench stream for an independent CPU comparison.
+			auto& gpu = ProxyFrameTestGpu();
+			auto config = EngineConfig{};
+			auto integrator = GpuIntegrator{gpu, config};
+			auto aba = GpuArticulationForceAba{gpu};
+			auto proxies = GpuArticulationLinkProxies{aba, config};
+			PR_EXPECT(aba.Upload(gpu.m_job, upload));
+			integrator.Upload(gpu.m_job, bodies);
+			proxies.Upload(gpu.m_job);
+			auto* gathered_forces = proxies.GatherForces(gpu.m_job, integrator.Bodies().get());
+			PR_EXPECT(gathered_forces != nullptr);
+			gpu.m_job.m_barriers.Transition(gathered_forces, D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+			auto readback = gpu.m_job.m_readback.Alloc<GpuFrameForce>(isize(upload.m_links));
+			gpu.m_job.m_cmd_list.CopyBufferRegion(readback, gathered_forces, 0);
+			gpu.m_job.Run();
+
+			// Reproduce the centre-of-mass torque transport and source-to-link force transform directly from packed CPU values.
+			auto const* actual = readback.ptr<GpuFrameForce>();
+			for (int link_index = 0; link_index != isize(upload.m_links); ++link_index)
+			{
+				auto const& body = bodies[link_index];
+				auto const& baseline = upload.m_external_forces[link_index];
+				auto const proxy_to_world = body.o2w;
+				auto const world_to_proxy = InvertOrthonormal(proxy_to_world);
+				auto const com_offset_ws = proxy_to_world * v4{body.os_com_and_invmass.x, body.os_com_and_invmass.y, body.os_com_and_invmass.z, 0};
+				auto const torque_at_proxy_origin_ws = body.force_ang + Cross(com_offset_ws, body.force_lin);
+				auto const force_proxy = world_to_proxy.rot * body.force_lin;
+				auto const torque_proxy = world_to_proxy.rot * torque_at_proxy_origin_ws;
+				auto const shape_to_link = UnpackGpuTransform(upload.m_links[link_index].shape_to_link);
+				auto const force_link = shape_to_link.rot * force_proxy;
+				auto const torque_link = shape_to_link.rot * torque_proxy + Cross(shape_to_link.pos, force_link);
+
+				PR_EXPECT(FEqlAbsolute(actual[link_index].force_ang, baseline.force_ang + torque_link, 2.0e-5f));
+				PR_EXPECT(FEqlAbsolute(actual[link_index].force_lin, baseline.force_lin + force_link, 2.0e-5f));
+			}
+			PR_EXPECT(proxies.Stats().m_gather_dispatch_count == 1);
+		}
+
 		// Link-frame storage is absent for an empty forest and reported exactly when proxies are active.
 		PRUnitTestMethod(HardwareOptionalFrameCostIsExplicit, Extended)
 		{

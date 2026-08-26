@@ -60,6 +60,9 @@
     <ClCompile Include="src\articulation\articulation_kinematics.cpp">
       <Filter>src\articulation</Filter>
     </ClCompile>
+    <ClCompile Include="src\articulation\articulation_gpu_data.cpp">
+      <Filter>src\articulation</Filter>
+    </ClCompile>
     <ClCompile Include="src\buoyancy\gpu_buoyancy.cpp">
       <Filter>src\buoyancy</Filter>
     </ClCompile>
@@ -93,10 +96,37 @@
     <ClCompile Include="src\constraint\constraint_solver.cpp">
       <Filter>src\constraint</Filter>
     </ClCompile>
+    <ClCompile Include="src\constraint\constraint_gpu.cpp">
+      <Filter>src\constraint</Filter>
+    </ClCompile>
+    <ClCompile Include="src\constraint\constraint_hybrid_solver.cpp">
+      <Filter>src\constraint</Filter>
+    </ClCompile>
     <ClCompile Include="src\compute\collide_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
     <ClCompile Include="src\compute\articulation_force_aba_gpu.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\articulation_impulse_aba_gpu.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\articulation_mobility_gpu.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\constraint_solver_gpu.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\coupled_constraint_position_gpu.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\coupled_constraint_prepare_gpu.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\coupled_constraint_solver_gpu.cpp">
+      <Filter>src\compute</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\coupled_constraint_velocity_gpu.cpp">
       <Filter>src\compute</Filter>
     </ClCompile>
     <ClCompile Include="src\compute\articulation_link_proxies_gpu.cpp">
@@ -106,6 +136,27 @@
       <Filter>src\compute</Filter>
     </ClCompile>
     <ClCompile Include="src\compute\interop\articulation_midpoint_interop_runner.cpp">
+      <Filter>src\compute\interop</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\interop\articulation_force_aba_interop_runner.cpp">
+      <Filter>src\compute\interop</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\interop\articulation_impulse_aba_interop_runner.cpp">
+      <Filter>src\compute\interop</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\interop\articulation_mobility_interop_runner.cpp">
+      <Filter>src\compute\interop</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\interop\constraint_interop_runner.cpp">
+      <Filter>src\compute\interop</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\interop\coupled_constraint_position_interop_runner.cpp">
+      <Filter>src\compute\interop</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\interop\coupled_constraint_prepare_interop_runner.cpp">
+      <Filter>src\compute\interop</Filter>
+    </ClCompile>
+    <ClCompile Include="src\compute\interop\coupled_constraint_velocity_interop_runner.cpp">
       <Filter>src\compute\interop</Filter>
     </ClCompile>
     <ClCompile Include="src\compute\interop\resolve_interop_runner.cpp">
@@ -150,6 +201,9 @@
       <Filter>src\articulation</Filter>
     </ClInclude>
     <ClInclude Include="src\articulation\articulation_internal.h">
+      <Filter>src\articulation</Filter>
+    </ClInclude>
+    <ClInclude Include="src\articulation\articulation_gpu_data.h">
       <Filter>src\articulation</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\rigid_body.h">
@@ -224,6 +278,12 @@
     <ClInclude Include="src\constraint\constraint_solver.h">
       <Filter>src\constraint</Filter>
     </ClInclude>
+    <ClInclude Include="src\constraint\constraint_gpu.h">
+      <Filter>src\constraint</Filter>
+    </ClInclude>
+    <ClInclude Include="src\constraint\constraint_solver_internal.h">
+      <Filter>src\constraint</Filter>
+    </ClInclude>
     <ClInclude Include="src\materials\material_map.h">
       <Filter>src\materials</Filter>
     </ClInclude>
@@ -236,6 +296,27 @@
     <ClInclude Include="src\compute\articulation_force_aba_gpu.h">
       <Filter>src\compute</Filter>
     </ClInclude>
+    <ClInclude Include="src\compute\articulation_impulse_aba_gpu.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\articulation_mobility_gpu.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\constraint_solver_gpu.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\coupled_constraint_position_gpu.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\coupled_constraint_prepare_gpu.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\coupled_constraint_solver_gpu.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\coupled_constraint_velocity_gpu.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
     <ClInclude Include="src\compute\articulation_link_proxies_gpu.h">
       <Filter>src\compute</Filter>
     </ClInclude>
@@ -243,6 +324,27 @@
       <Filter>src\compute</Filter>
     </ClInclude>
     <ClInclude Include="src\compute\interop\articulation_midpoint_runner.h">
+      <Filter>src\compute\interop</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\interop\articulation_force_aba_runner.h">
+      <Filter>src\compute\interop</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\interop\articulation_impulse_aba_runner.h">
+      <Filter>src\compute\interop</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\interop\articulation_mobility_runner.h">
+      <Filter>src\compute\interop</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\interop\constraint_runner.h">
+      <Filter>src\compute\interop</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\interop\coupled_constraint_position_runner.h">
+      <Filter>src\compute\interop</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\interop\coupled_constraint_prepare_runner.h">
+      <Filter>src\compute\interop</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\interop\coupled_constraint_velocity_runner.h">
       <Filter>src\compute\interop</Filter>
     </ClInclude>
     <ClInclude Include="src\compute\interop\resolve_runner.h">
@@ -322,12 +424,42 @@
     <None Include="src\buoyancy\buoyancy_sampler.hlsli">
       <Filter>src\buoyancy</Filter>
     </None>
+    <None Include="src\buoyancy\gpu_basic_waves.hlsli">
+      <Filter>src\buoyancy</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ShaderBuild Include="src\compute\collide.hlsl">
       <Filter>src\compute</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\compute\integrate.hlsl">
+      <Filter>src\compute</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\compute\articulation_force_aba.hlsl">
+      <Filter>src\compute</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\compute\articulation_impulse_aba.hlsl">
+      <Filter>src\compute</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\compute\articulation_link_proxies.hlsl">
+      <Filter>src\compute</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\compute\articulation_midpoint.hlsl">
+      <Filter>src\compute</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\compute\articulation_mobility.hlsl">
+      <Filter>src\compute</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\compute\constraint_solver.hlsl">
+      <Filter>src\compute</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\compute\coupled_constraint_position.hlsl">
+      <Filter>src\compute</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\compute\coupled_constraint_prepare.hlsl">
+      <Filter>src\compute</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\compute\coupled_constraint_velocity.hlsl">
       <Filter>src\compute</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\compute\frame_output.hlsl">

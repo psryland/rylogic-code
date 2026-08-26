@@ -8,6 +8,46 @@ namespace physics_sandbox
 	{
 		using Clock = std::chrono::steady_clock;
 
+		// Fixed-tick batching preserves the 60 Hz solver interval while limiting each UI update to one bounded GPU submission.
+		constexpr double PhysicsStepSeconds = 1.0 / 60.0;
+		constexpr double MaxFrameSeconds = 0.25;
+		constexpr int MaxTicksPerSubmission = 2;
+
+		// Return the number of fixed ticks that can share one submission within the requested and engine-owned bounds.
+		constexpr int ScheduledTickCount(double accumulated_seconds, int requested_tick_capacity, int substeps_per_tick, int max_internal_substeps, bool require_tick_boundary)
+		{
+			auto const available_tick_count = static_cast<int>(accumulated_seconds / PhysicsStepSeconds);
+			if (available_tick_count == 0)
+				return 0;
+
+			auto const engine_tick_capacity = max_internal_substeps / std::max(substeps_per_tick, 1);
+			if (engine_tick_capacity < 1)
+				return 1;
+
+			auto const submission_tick_capacity = require_tick_boundary ? 1 : std::min(requested_tick_capacity, engine_tick_capacity);
+			return std::clamp(available_tick_count, 0, submission_tick_capacity);
+		}
+
+		// Bound whole-tick backlog while retaining the fractional phase needed for stable fixed-step pacing.
+		constexpr double BoundedAccumulatedTime(double accumulated_seconds, int requested_tick_capacity)
+		{
+			auto const accumulated_tick_count = static_cast<int>(accumulated_seconds / PhysicsStepSeconds);
+			return accumulated_tick_count > requested_tick_capacity
+				? accumulated_seconds - (accumulated_tick_count - requested_tick_capacity) * PhysicsStepSeconds
+				: accumulated_seconds;
+		}
+
+		static_assert(ScheduledTickCount(2.0 * PhysicsStepSeconds, 2, 1, 64, false) == 2);
+		static_assert(ScheduledTickCount(2.0 * PhysicsStepSeconds, 1, 1, 64, false) == 1);
+		static_assert(ScheduledTickCount(2.0 * PhysicsStepSeconds, 2, 64, 64, false) == 1);
+		static_assert(ScheduledTickCount(2.0 * PhysicsStepSeconds, 2, 1, 64, true) == 1);
+		static_assert(ScheduledTickCount(PhysicsStepSeconds, 2, 65, 64, false) == 1);
+		static_assert(BoundedAccumulatedTime(0.5 * PhysicsStepSeconds, 1) == 0.5 * PhysicsStepSeconds);
+		static_assert(BoundedAccumulatedTime(2.5 * PhysicsStepSeconds, 1) > PhysicsStepSeconds);
+		static_assert(BoundedAccumulatedTime(2.5 * PhysicsStepSeconds, 1) < 2.0 * PhysicsStepSeconds);
+		static_assert(BoundedAccumulatedTime(3.5 * PhysicsStepSeconds, 2) > 2.0 * PhysicsStepSeconds);
+		static_assert(BoundedAccumulatedTime(3.5 * PhysicsStepSeconds, 2) < 3.0 * PhysicsStepSeconds);
+
 		double ElapsedMs(Clock::time_point beg, Clock::time_point end)
 		{
 			return std::chrono::duration<double, std::milli>(end - beg).count();
@@ -532,10 +572,6 @@ namespace physics_sandbox
 	// Pipeline continuous simulation so rendering overlaps the next submitted physics step.
 	void SandboxUI::Step(double elapsed_seconds)
 	{
-		static constexpr double PhysicsStepSeconds = 1.0 / 60.0;
-		static constexpr double MaxFrameSeconds = 0.25;
-		static constexpr int MaxStepsPerTick = 1;
-
 		// Don't step after close begins
 		if (m_closing)
 			return;
@@ -572,26 +608,27 @@ namespace physics_sandbox
 		}
 		else
 		{
-			// The resolver tuning assumes a fixed physics step. Submit at most one fixed tick before
-			// yielding to rendering so overload slows simulated time instead of starving the viewport.
-			m_physics_accumulator += std::min(elapsed_seconds, MaxFrameSeconds) * std::max(0.0, static_cast<double>(m_media.TimeScale()));
-			auto submitted_count = 0;
-			while (m_physics_accumulator >= PhysicsStepSeconds && submitted_count != MaxStepsPerTick)
+			// Cap each submission at the requested playback-rate ceiling so 1x overload slows rather than adding catch-up work.
+			auto const time_scale = std::max(0.0, static_cast<double>(m_media.TimeScale()));
+			auto const requested_tick_capacity = std::clamp(static_cast<int>(std::ceil(time_scale)), 1, MaxTicksPerSubmission);
+			auto const scaled_elapsed_seconds = std::min(elapsed_seconds, MaxFrameSeconds) * time_scale;
+			m_physics_accumulator += scaled_elapsed_seconds;
+
+			// Discard only excess whole ticks so render-rate jitter cannot erase the fractional phase of the fixed-step clock.
+			m_physics_accumulator = BoundedAccumulatedTime(m_physics_accumulator, requested_tick_capacity);
+
+			// Multiple fixed ticks remain internal GPU substeps, preserving solver dt and one submission/wait/readback per UI update.
+			auto const tick_count = ScheduledTickCount(
+				m_physics_accumulator,
+				requested_tick_capacity,
+				m_scene.m_physics_substeps,
+				m_scene.m_physics.Config().max_internal_substeps,
+				m_pause_on_collision);
+			if (tick_count != 0)
 			{
-				m_scene.BeginStep(PhysicsStepSeconds);
-				m_physics_accumulator -= PhysicsStepSeconds;
-				++submitted_count;
-
-				// Only the newest step can overlap rendering; dependent catch-up steps remain sequential.
-				if (m_physics_accumulator < PhysicsStepSeconds || submitted_count == MaxStepsPerTick)
-					break;
-
-				if (complete_pending_step())
-					break;
+				m_scene.BeginStep(tick_count * PhysicsStepSeconds, tick_count);
+				m_physics_accumulator -= tick_count * PhysicsStepSeconds;
 			}
-
-			if (submitted_count == MaxStepsPerTick && m_physics_accumulator >= PhysicsStepSeconds)
-				m_physics_accumulator = 0;
 		}
 
 		// Pause on first collision if requested
