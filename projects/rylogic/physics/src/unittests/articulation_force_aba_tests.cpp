@@ -514,6 +514,7 @@ namespace pr::physics::tests
 			PR_EXPECT(empty_result.m_link_accelerations.empty());
 			PR_EXPECT(empty_capacity == 0);
 			PR_EXPECT(empty_stats.m_logical_scratch_bytes == 0);
+			PR_EXPECT(empty_stats.m_logical_feature_bytes == 0);
 			PR_EXPECT(empty_stats.m_allocated_feature_bytes == 0);
 			PR_EXPECT(empty_stats.m_dispatch_count == 0);
 

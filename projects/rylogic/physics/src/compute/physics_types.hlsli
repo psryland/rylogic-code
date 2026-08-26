@@ -75,6 +75,10 @@ static const uint GpuCoupledConstraintFailure_Topology = 1u << 2;
 static const uint GpuCoupledConstraintFailure_Articulation = 1u << 3;
 static const uint GpuCoupledConstraintFailure_Merit = 1u << 4;
 
+// Failure records distinguish physical velocity updates from detached position correction.
+static const int GpuCoupledConstraintFailurePhase_Velocity = 0;
+static const int GpuCoupledConstraintFailurePhase_Position = 1;
+
 // GPU constraint axis modes mirror EConstraintAxisMode without exposing the public enum to HLSL.
 static const int GpuConstraintAxisMode_Free = 0;
 static const int GpuConstraintAxisMode_Locked = 1;
@@ -451,6 +455,20 @@ struct GpuCoupledConstraintIslandState
 	uint failure_flags;
 	float relaxation;
 	float merit_change;
+};
+
+// First bounded transaction rejection retained for one coupled island during a complete owning frame.
+struct GpuCoupledConstraintFailureState
+{
+	uint failure_flags;
+	int substep_index;
+	int phase;
+	int iteration_count;
+
+	float relaxation;
+	float merit_change;
+	uint status;
+	uint pad0;
 };
 
 // One canonical body pair in the open-addressed connected-body collision-exclusion table.

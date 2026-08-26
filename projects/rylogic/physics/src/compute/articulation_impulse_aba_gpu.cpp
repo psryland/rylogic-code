@@ -158,7 +158,6 @@ namespace pr::physics
 	// Allocate compact participating-link impulse and work buffers without initializing the impulse stream.
 	bool GpuArticulationImpulseAba::Prepare(GpuJob& job)
 	{
-		m_stats.m_dispatch_count = 0;
 		if (m_mobility.m_ranges.empty())
 		{
 			ReleaseBuffers();
@@ -288,6 +287,7 @@ namespace pr::physics
 		std::span<int const> articulation_indices,
 		std::span<GpuArticulationSpatialVector const> link_impulses)
 	{
+		ResetDispatchCount();
 		auto result = GpuArticulationImpulseAbaResult{};
 		if (articulation_indices.empty())
 		{
@@ -362,6 +362,12 @@ namespace pr::physics
 	GpuArticulationImpulseAbaStats const& GpuArticulationImpulseAba::Stats() const
 	{
 		return m_stats;
+	}
+
+	// Begin a new owning frame or focused diagnostic run without releasing retained buffers.
+	void GpuArticulationImpulseAba::ResetDispatchCount()
+	{
+		m_stats.m_dispatch_count = 0;
 	}
 
 	// Release every lazily allocated impulse-response resource when no tree participates.

@@ -631,7 +631,24 @@ namespace pr::physics::tests
 			auto reference = ConstraintInteropRunner{config};
 			reference.Run(ConstraintRunnerBuffers{1.0f / 120.0f, expected, upload.m_endpoints, upload.m_descriptors});
 			auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
+			auto const empty_stats = solver.Stats();
+			PR_EXPECT(empty_stats.m_slot_capacity == 0);
+			PR_EXPECT(empty_stats.m_body_capacity == 0);
+			PR_EXPECT(empty_stats.m_break_capacity == 0);
+			PR_EXPECT(empty_stats.m_dispatch_count == 0);
+			PR_EXPECT(empty_stats.m_logical_bytes == 0);
+			PR_EXPECT(empty_stats.m_allocated_feature_bytes == 0);
 			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 120.0f, upload, actual);
+			auto const first_stats = solver.Stats();
+			PR_EXPECT(first_stats.m_slot_count == 1);
+			PR_EXPECT(first_stats.m_active_count == 1);
+			PR_EXPECT(first_stats.m_breakable_count == 0);
+			PR_EXPECT(first_stats.m_slot_capacity >= 1);
+			PR_EXPECT(first_stats.m_body_capacity >= 2);
+			PR_EXPECT(first_stats.m_break_capacity == 0);
+			PR_EXPECT(first_stats.m_dispatch_count > 0);
+			PR_EXPECT(first_stats.m_logical_bytes > 0);
+			PR_EXPECT(first_stats.m_allocated_feature_bytes >= first_stats.m_logical_bytes);
 
 			for (int body_idx = 0; body_idx != isize(actual); ++body_idx)
 			{
@@ -855,7 +872,7 @@ namespace pr::physics::tests
 			desc.m_frame_b.m_body = BodyRef::World();
 			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
 			auto constraints = ConstraintSet{};
-			constraints.Add(desc);
+			auto const handle = constraints.Add(desc);
 			auto bodies = std::array<RigidBody*, 1>{&body};
 			auto const momentum_before = body.MomentumWS();
 			auto& engine = SharedEngine();
@@ -866,6 +883,60 @@ namespace pr::physics::tests
 			PR_EXPECT(body.O2W().pos.x < 0.5f);
 			PR_EXPECT(FEqlAbsolute(body.MomentumWS().ang, momentum_before.ang, 1.0e-6f));
 			PR_EXPECT(FEqlAbsolute(body.MomentumWS().lin, momentum_before.lin, 1.0e-6f));
+			auto const& stats = engine.LastFeatureStats();
+			PR_EXPECT(stats.m_constraints.m_declared_count == 1);
+			PR_EXPECT(stats.m_constraints.m_active_count == 1);
+			PR_EXPECT(stats.m_constraints.m_breakable_count == 0);
+			PR_EXPECT(stats.m_constraints.m_slot_capacity >= 1);
+			PR_EXPECT(stats.m_constraints.m_body_capacity >= 1);
+			PR_EXPECT(stats.m_constraints.m_resources.m_dispatch_count > 0);
+			PR_EXPECT(stats.m_constraints.m_resources.m_logical_bytes > 0);
+			PR_EXPECT(stats.m_constraints.m_resources.m_allocated_bytes >= stats.m_constraints.m_resources.m_logical_bytes);
+			PR_EXPECT(stats.m_articulations.m_articulation_count == 0);
+			PR_EXPECT(stats.m_articulations.m_resources.m_dispatch_count == 0);
+			PR_EXPECT(stats.m_coupled.m_constraint_count == 0);
+			PR_EXPECT(stats.m_coupled.m_resources.m_dispatch_count == 0);
+			PR_EXPECT(stats.m_frame_output.m_readback_count == 1);
+			PR_EXPECT(stats.m_frame_output.m_readback_bytes > 0);
+			PR_EXPECT(stats.m_failure.Succeeded());
+
+			// Removing the live descriptor leaves one reusable stable slot, but declared diagnostics report only caller-visible constraints.
+			constraints.Remove(handle);
+			engine.Step(1.0f / 60.0f, bodies, constraints);
+			auto const& removed_stats = engine.LastFeatureStats();
+			PR_EXPECT(constraints.CapacitySlots() == 1);
+			PR_EXPECT(removed_stats.m_constraints.m_declared_count == 0);
+			PR_EXPECT(removed_stats.m_constraints.m_active_count == 0);
+		}
+
+		// Empty simulation input still validates live constraint endpoints while allowing disabled descriptors to remain declared.
+		PRUnitTestMethod(EmptyFrameValidatesLiveConstraints, Quick)
+		{
+			auto shape = collision::ShapeSphere{0.25f};
+			auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(shape.m_radius, 1.0f)};
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body);
+			desc.m_frame_b.m_body = BodyRef::World();
+			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
+			auto constraints = ConstraintSet{};
+			auto const handle = constraints.Add(desc);
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+
+			PR_THROWS(engine.Step(Engine::StepInput{
+				.m_constraints = &constraints,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			}), std::invalid_argument);
+
+			constraints.SetEnabled(handle, false);
+			engine.Step(Engine::StepInput{
+				.m_constraints = &constraints,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+			auto const& stats = engine.LastFeatureStats();
+			PR_EXPECT(stats.m_constraints.m_declared_count == 1);
+			PR_EXPECT(stats.m_constraints.m_active_count == 0);
+			PR_EXPECT(stats.m_frame_output.m_readback_count == 0);
 		}
 
 		// Detect an early-substep overload, publish one edge event through the sole frame readback, and require explicit repair.

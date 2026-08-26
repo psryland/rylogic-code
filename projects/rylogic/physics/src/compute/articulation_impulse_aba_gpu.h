@@ -99,6 +99,9 @@ namespace pr::physics
 
 	private:
 
+		// Begin a new owning frame or focused diagnostic run without releasing retained buffers.
+		void ResetDispatchCount();
+
 		// Release every lazily allocated impulse-response resource when no tree participates.
 		void ReleaseBuffers();
 

@@ -30,7 +30,7 @@ struct cbCoupledConstraintPosition
 	int phase;
 	int attempt_index;
 	int backtrack_limit;
-	int pad0;
+	int substep_index;
 
 	float timestep;
 	float relaxation;
@@ -67,6 +67,7 @@ RWStructuredBuffer<GpuArticulationSpatialVector> resource(g_coupled_position_lin
 RWStructuredBuffer<float> resource(g_coupled_position_generalized_pseudo, u15);
 RWStructuredBuffer<GpuArticulation> resource(g_coupled_position_articulations, u16);
 RWStructuredBuffer<float> resource(g_coupled_position_positions, u17);
+RWStructuredBuffer<GpuCoupledConstraintFailureState> resource(g_coupled_position_frame_failures, u18);
 
 #define PR_CONSTRAINT_SOLVER_OPS_CPP_NAMESPACE coupled_constraint_position_ops_detail
 #include "physics/src/compute/constraint_solver_ops.hlsli"
@@ -766,6 +767,21 @@ void CSFinalizeCoupledPositionIslands(int3 DTID(dtid))
 		return;
 
 	GpuCoupledConstraintIslandState state = g_coupled_position_island_states[dtid.x];
+	if (
+		state.status == GpuCoupledConstraintIslandStatus_Rejected &&
+		g_coupled_position_frame_failures[dtid.x].substep_index < 0)
+	{
+		GpuCoupledConstraintFailureState failure;
+		failure.failure_flags = state.failure_flags;
+		failure.substep_index = g_coupled_position.substep_index;
+		failure.phase = GpuCoupledConstraintFailurePhase_Position;
+		failure.iteration_count = g_coupled_position.backtrack_limit + 1;
+		failure.relaxation = state.relaxation;
+		failure.merit_change = state.merit_change;
+		failure.status = state.status;
+		failure.pad0 = 0u;
+		g_coupled_position_frame_failures[dtid.x] = failure;
+	}
 	if (state.status == GpuCoupledConstraintIslandStatus_Accepted)
 		state.status = GpuCoupledConstraintIslandStatus_Committed;
 	g_coupled_position_island_states[dtid.x] = state;

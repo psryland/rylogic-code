@@ -17,6 +17,8 @@ namespace
 	using PhysicsEngineHandle = pr::physics::EngineHandle;
 	using PhysicsShapeHandle = pr::physics::ShapeHandle;
 	using PhysicsBodyHandle = pr::physics::BodyHandle;
+	using PhysicsArticulationHandle = pr::physics::ArticulationHandle;
+	using PhysicsConstraintHandle = pr::physics::PersistentConstraintHandle;
 	using PhysicsStatus = pr::physics::EStatus;
 	using PhysicsStructId = pr::physics::EStructId;
 	using PhysicsMotionType = pr::physics::EMotionType;
@@ -24,6 +26,13 @@ namespace
 	using PhysicsBodyCommandType = pr::physics::ECommand;
 	using PhysicsEventType = pr::physics::EEvent;
 	using PhysicsBodyFlags = pr::physics::EBodyFlags;
+	using PhysicsArticulationRoot = pr::physics::EArticulationRoot;
+	using PhysicsArticulationAxis = pr::physics::EArticulationAxis;
+	using PhysicsArticulationFlags = pr::physics::EArticulationFlags;
+	using PhysicsArticulationLinkFlags = pr::physics::EArticulationLinkFlags;
+	using PhysicsConstraintEndpoint = pr::physics::EConstraintEndpoint;
+	using PhysicsConstraintMode = pr::physics::EConstraintMode;
+	using PhysicsConstraintFlags = pr::physics::EConstraintFlags;
 	using PhysicsStructHeader = pr::physics::StructHeader;
 	using PhysicsVector4 = pr::physics::Vector4;
 	using PhysicsMatrix4 = pr::physics::Matrix4;
@@ -40,8 +49,22 @@ namespace
 	using PhysicsBodyState = pr::physics::BodyState;
 	using PhysicsBodyCommand = pr::physics::BodyCommand;
 	using PhysicsBodySnapshot = pr::physics::BodySnapshot;
+	using PhysicsArticulationDesc = pr::physics::ArticulationDesc;
+	using PhysicsArticulationLink = pr::physics::ArticulationLinkProperties;
+	using PhysicsArticulationJoint = pr::physics::ArticulationJointProperties;
+	using PhysicsArticulationState = pr::physics::ArticulationState;
+	using PhysicsArticulationLinkState = pr::physics::ArticulationLinkState;
+	using PhysicsConstraintFrame = pr::physics::ConstraintFrameProperties;
+	using PhysicsConstraintAxis = pr::physics::ConstraintAxisProperties;
+	using PhysicsD6Constraint = pr::physics::D6ConstraintProperties;
 	using PhysicsEvent = pr::physics::Event;
 	using PhysicsStepProfile = pr::physics::StepProfile;
+	using PhysicsFeatureResourceDiagnostics = pr::physics::FeatureResourceDiagnostics;
+	using PhysicsConstraintFeatureDiagnostics = pr::physics::ConstraintFeatureDiagnostics;
+	using PhysicsArticulationFeatureDiagnostics = pr::physics::ArticulationFeatureDiagnostics;
+	using PhysicsCoupledFeatureDiagnostics = pr::physics::CoupledFeatureDiagnostics;
+	using PhysicsFrameOutputFeatureDiagnostics = pr::physics::FrameOutputFeatureDiagnostics;
+	using PhysicsStepFailureDiagnostics = pr::physics::StepFailureDiagnostics;
 	using PhysicsDiagnostics = pr::physics::Diagnostics;
 }
 
@@ -79,6 +102,7 @@ namespace pr::physics
 
 			std::uint32_t m_body_refs = 0;
 			std::uint32_t m_compound_refs = 0;
+			std::uint32_t m_articulation_refs = 0;
 
 			collision::Shape* Shape()
 			{
@@ -98,6 +122,26 @@ namespace pr::physics
 			PhysicsMotionType m_motion_type = PhysicsMotionType::Dynamic;
 			bool m_enabled = true;
 			bool m_sleep_before_step = false;
+			std::uint32_t m_constraint_refs = 0;
+		};
+
+		// Owns one immutable articulation topology and the shape handles retained by its physical links.
+		struct ArticulationRecord
+		{
+			std::unique_ptr<Articulation> m_articulation;
+			std::vector<PhysicsShapeHandle> m_shapes;
+			std::uint64_t m_user_tag = {};
+			bool m_enabled = true;
+			std::uint32_t m_constraint_refs = 0;
+		};
+
+		// Couples one ABI generation slot to the native persistent slot and its endpoint lifetime references.
+		struct ConstraintRecord
+		{
+			ConstraintHandle m_constraint = {};
+			PhysicsD6Constraint m_desc = {};
+			std::array<PhysicsBodyHandle, 2> m_body_refs = {};
+			std::array<PhysicsArticulationHandle, 2> m_articulation_refs = {};
 		};
 
 		// Translate an engine-side contact child index into the ABI's child identity.
@@ -109,6 +153,12 @@ namespace pr::physics
 				return PHYSICS_NO_CHILD;
 
 			return static_cast<std::uint32_t>(child_id);
+		}
+
+		// Pack a native persistent handle into one collision-free lookup key.
+		std::uint64_t NativeConstraintKey(ConstraintHandle handle)
+		{
+			return (std::uint64_t{handle.m_generation} << 32) | handle.m_index;
 		}
 
 		struct EngineRecord
@@ -128,8 +178,13 @@ namespace pr::physics
 			DWORD m_owner_thread_id;
 			std::vector<ObjectSlot<ShapeRecord>> m_shapes;
 			std::vector<ObjectSlot<BodyRecord>> m_bodies;
+			std::vector<ObjectSlot<ArticulationRecord>> m_articulations;
+			std::vector<ObjectSlot<ConstraintRecord>> m_constraints;
 			std::unordered_map<RigidBody const*, PhysicsBodyHandle> m_body_handles;
+			std::unordered_map<std::uint64_t, PhysicsConstraintHandle> m_constraint_handles;
+			ConstraintSet m_constraint_set;
 			std::vector<RigidBody*> m_step_bodies;
+			std::vector<Articulation*> m_step_articulations;
 			std::vector<PhysicsEvent> m_events;
 			std::uint64_t m_submitted_step;
 			std::uint64_t m_completed_step;
@@ -142,15 +197,26 @@ namespace pr::physics
 				, m_owner_thread_id(GetCurrentThreadId())
 				, m_shapes()
 				, m_bodies()
+				, m_articulations()
+				, m_constraints()
 				, m_body_handles()
+				, m_constraint_handles()
+				, m_constraint_set()
 				, m_step_bodies()
+				, m_step_articulations()
 				, m_events()
 				, m_submitted_step()
 				, m_completed_step()
 				, m_engine(new Engine(config, nullptr, external_device))
 			{
+				BindEvents(*m_engine);
+			}
+
+			// Bind native callbacks to ABI-owned maps and buffered events before publishing an engine instance.
+			void BindEvents(Engine& engine)
+			{
 				// Contacts are buffered while CompleteStep unpacks native results; no managed callback occurs from stepping.
-				m_engine->Collisions += [this](Engine&, std::span<RbContact const> contacts)
+				engine.Collisions += [this](Engine&, std::span<RbContact const> contacts)
 				{
 					for (auto const& contact : contacts)
 					{
@@ -172,6 +238,7 @@ namespace pr::physics
 							.material_b = contact.m_mat_idB,
 							.child_a = ContactChildId(contact.m_objA, contact.m_child_idA),
 							.child_b = ContactChildId(contact.m_objB, contact.m_child_idB),
+							.substep_index = contact.m_substep_index,
 						};
 
 						// Contact geometry is reported in world space so snapshots and events share one coordinate frame.
@@ -187,6 +254,69 @@ namespace pr::physics
 					}
 				};
 
+				// Constraint overloads share the buffered event stream and expose only ABI-owned handles.
+				engine.ConstraintsBroken += [this](Engine&, std::span<ConstraintBreakEvent const> events)
+				{
+					for (auto const& event : events)
+					{
+						auto iter = m_constraint_handles.find(NativeConstraintKey(event.m_constraint));
+						if (iter == m_constraint_handles.end())
+							continue;
+
+						m_events.push_back(PhysicsEvent{
+							.header = {sizeof(PhysicsEvent), PHYSICS_STRUCT_VERSION},
+							.type = PhysicsEventType::ConstraintBreak,
+							.point_count = 0,
+							.body_a = {},
+							.body_b = {},
+							.normal = {},
+							.points = {},
+							.depth = 0.0f,
+							.material_a = 0,
+							.material_b = 0,
+							.child_a = PHYSICS_NO_CHILD,
+							.child_b = PHYSICS_NO_CHILD,
+							.constraint = iter->second,
+							.break_force = event.m_force,
+							.break_torque = event.m_torque,
+							.substep_index = event.m_substep_index,
+							.reserved = 0,
+						});
+					}
+				};
+
+				// Bounded coupled-solver rejections are post-publication events and require no caller-owned object handles.
+				engine.CoupledConstraintFailures += [this](Engine&, std::span<CoupledConstraintFailureEvent const> events)
+				{
+					for (auto const& event : events)
+					{
+						m_events.push_back(PhysicsEvent{
+							.header = {sizeof(PhysicsEvent), PHYSICS_STRUCT_VERSION},
+							.type = PhysicsEventType::CoupledConstraintFailure,
+							.point_count = 0,
+							.body_a = {},
+							.body_b = {},
+							.normal = {},
+							.points = {},
+							.depth = 0.0f,
+							.material_a = 0,
+							.material_b = 0,
+							.child_a = PHYSICS_NO_CHILD,
+							.child_b = PHYSICS_NO_CHILD,
+							.constraint = {},
+							.break_force = 0.0f,
+							.break_torque = 0.0f,
+							.substep_index = event.m_substep_index,
+							.reserved = 0,
+							.failure_flags = event.m_failure_flags,
+							.failure_phase = event.m_phase,
+							.failure_island_index = event.m_island_index,
+							.failure_iteration_count = event.m_iteration_count,
+							.failure_relaxation = event.m_relaxation,
+							.failure_merit_change = event.m_merit_change,
+						});
+					}
+				};
 			}
 		};
 
@@ -343,6 +473,9 @@ namespace pr::physics
 		// together under the registry lock rather than sampling other engines' state unsynchronised.
 		void ClaimEngineCookie(EngineRecord& engine, std::uint16_t cookie)
 		{
+			if (cookie == 0)
+				throw ApiException(PhysicsStatus::InvalidArgument, "Checkpoint engine identity is null");
+
 			auto dll = PinDll();
 			LockGuard lock(dll->m_mutex);
 			for (auto const& slot : dll->m_interop->m_engines)
@@ -352,6 +485,27 @@ namespace pr::physics
 			}
 
 			engine.m_cookie = cookie;
+		}
+
+		// Allocate one nonzero child-handle namespace that cannot alias any live or restored engine.
+		std::uint16_t AllocateEngineCookie(InteropState& state)
+		{
+			auto used = std::bitset<std::numeric_limits<std::uint16_t>::max() + 1>{};
+			used.set(0);
+			for (auto const& slot : state.m_engines)
+			{
+				if (slot->m_record)
+					used.set(slot->m_record->m_cookie);
+			}
+
+			for (auto attempt = std::uint32_t{}; attempt != used.size(); ++attempt)
+			{
+				auto const cookie = static_cast<std::uint16_t>(state.m_next_cookie++);
+				if (!used.test(cookie))
+					return cookie;
+			}
+
+			throw ApiException(PhysicsStatus::InternalError, "Physics engine identity capacity is exhausted");
 		}
 
 		// Scoped access to one engine's state for the duration of an ABI call.
@@ -423,6 +577,18 @@ namespace pr::physics
 			return RequireChild(engine, handle, engine.m_bodies).first;
 		}
 
+		// Resolve one engine-owned articulation after validating its cookie, slot, and generation.
+		ArticulationRecord& RequireArticulation(EngineRecord& engine, PhysicsArticulationHandle handle)
+		{
+			return RequireChild(engine, handle, engine.m_articulations).first;
+		}
+
+		// Resolve one ABI-owned persistent constraint after validating its cookie, slot, and generation.
+		ConstraintRecord& RequireConstraint(EngineRecord& engine, PhysicsConstraintHandle handle)
+		{
+			return RequireChild(engine, handle, engine.m_constraints).first;
+		}
+
 		// Allocate from an inactive generation slot before growing the registry.
 		template <typename T>
 		std::pair<ObjectSlot<T>&, std::size_t> AllocateSlot(std::vector<ObjectSlot<T>>& slots)
@@ -467,6 +633,8 @@ namespace pr::physics
 				value.centre_of_mass_and_mass.w,
 				ToNative(value.centre_of_mass_and_mass).w0()};
 		}
+
+		// Copy between ABI and native records whose layouts are deliberately identical.
 		template <typename TNative, typename TAbi>
 		void CopyLayout(TAbi& dst, TNative const& src)
 		{
@@ -474,10 +642,56 @@ namespace pr::physics
 			memcpy(&dst, &src, sizeof(dst));
 		}
 
+		// Preserve the fixed wire/native vector layout without exposing the native SIMD type.
+		PhysicsVector4 FromNative(v4 const& value)
+		{
+			auto result = PhysicsVector4{};
+			CopyLayout(result, value);
+			return result;
+		}
+
+		// Preserve the fixed wire/native matrix layout without exposing the native SIMD type.
+		PhysicsMatrix4 FromNative(m4x4 const& value)
+		{
+			auto result = PhysicsMatrix4{};
+			CopyLayout(result, value);
+			return result;
+		}
+
+		// Return a wire spatial force in angular-then-linear order.
+		PhysicsSpatialVector FromNative(v8force const& value)
+		{
+			return PhysicsSpatialVector{
+				.angular = FromNative(value.ang),
+				.linear = FromNative(value.lin),
+			};
+		}
+
+		// Return a wire spatial motion in angular-then-linear order.
+		PhysicsSpatialVector FromNative(v8motion const& value)
+		{
+			return PhysicsSpatialVector{
+				.angular = FromNative(value.ang),
+				.linear = FromNative(value.lin),
+			};
+		}
+
+		// Return mass, inertia tensor, and centre of mass in the stable wire representation.
+		PhysicsInertia FromNative(Inertia const& value)
+		{
+			return PhysicsInertia{
+				.diagonal = FromNative(value.m_diagonal),
+				.products = FromNative(value.m_products),
+				.centre_of_mass_and_mass = FromNative(value.m_com_and_mass),
+			};
+		}
+
 		EngineConfig ToNative(PhysicsEngineConfig const& value)
 		{
 			auto config = EngineConfig{};
 			config.max_collision_pairs = value.max_collision_pairs;
+			config.max_collision_events = value.max_collision_events;
+			config.max_internal_substeps = value.max_internal_substeps;
 			config.sleeping_enabled = value.sleeping_enabled != 0;
 			config.sleep_velocity_threshold_lin = value.sleep_velocity_threshold_linear;
 			config.sleep_velocity_threshold_ang = value.sleep_velocity_threshold_angular;
@@ -497,6 +711,14 @@ namespace pr::physics
 			config.contact_slop_scale = value.contact_slop_scale;
 			config.support_contact_slop_scale = value.support_contact_slop_scale;
 			config.warm_start_scale = value.warm_start_scale;
+			config.constraint_relaxation = value.constraint_relaxation;
+			config.constraint_coupled_relaxation = value.constraint_coupled_relaxation;
+			config.constraint_coupled_backtrack_limit = value.constraint_coupled_backtrack_limit;
+			config.constraint_position_relaxation = value.constraint_position_relaxation;
+			config.constraint_position_beta = value.constraint_position_beta;
+			config.constraint_max_position_speed = value.constraint_max_position_speed;
+			config.constraint_regularization = value.constraint_regularization;
+			config.constraint_warm_start_factor = value.constraint_warm_start_factor;
 			config.deep_penetration_threshold = value.deep_penetration_threshold;
 			config.deep_penetration_range = value.deep_penetration_range;
 			config.deep_penetration_baumgarte_min = value.deep_penetration_baumgarte_min;
@@ -526,6 +748,8 @@ namespace pr::physics
 			value = {};
 			value.header = {sizeof(value), PHYSICS_STRUCT_VERSION};
 			value.max_collision_pairs = config.max_collision_pairs;
+			value.max_collision_events = config.max_collision_events;
+			value.max_internal_substeps = config.max_internal_substeps;
 			value.sleeping_enabled = config.sleeping_enabled;
 			value.sleep_velocity_threshold_linear = config.sleep_velocity_threshold_lin;
 			value.sleep_velocity_threshold_angular = config.sleep_velocity_threshold_ang;
@@ -545,6 +769,14 @@ namespace pr::physics
 			value.contact_slop_scale = config.contact_slop_scale;
 			value.support_contact_slop_scale = config.support_contact_slop_scale;
 			value.warm_start_scale = config.warm_start_scale;
+			value.constraint_relaxation = config.constraint_relaxation;
+			value.constraint_coupled_relaxation = config.constraint_coupled_relaxation;
+			value.constraint_coupled_backtrack_limit = config.constraint_coupled_backtrack_limit;
+			value.constraint_position_relaxation = config.constraint_position_relaxation;
+			value.constraint_position_beta = config.constraint_position_beta;
+			value.constraint_max_position_speed = config.constraint_max_position_speed;
+			value.constraint_regularization = config.constraint_regularization;
+			value.constraint_warm_start_factor = config.constraint_warm_start_factor;
 			value.deep_penetration_threshold = config.deep_penetration_threshold;
 			value.deep_penetration_range = config.deep_penetration_range;
 			value.deep_penetration_baumgarte_min = config.deep_penetration_baumgarte_min;
@@ -566,6 +798,101 @@ namespace pr::physics
 			value.selective_refresh_closing_speed_slop = config.selective_refresh_closing_speed_slop;
 			value.selective_refresh_support_alignment = config.selective_refresh_support_alignment;
 			value.selective_refresh_aabb_margin = config.selective_refresh_aabb_margin;
+		}
+
+		// Translate shared optional-lane work and storage costs to fixed-width ABI fields.
+		PhysicsFeatureResourceDiagnostics ToAbi(FeatureResourceStats const& value)
+		{
+			return PhysicsFeatureResourceDiagnostics{
+				.dispatch_count = value.m_dispatch_count,
+				.reserved = 0,
+				.logical_bytes = value.m_logical_bytes,
+				.allocated_bytes = value.m_allocated_bytes,
+			};
+		}
+
+		// Translate persistent-constraint usage and retained capacities to the public diagnostics record.
+		PhysicsConstraintFeatureDiagnostics ToAbi(ConstraintFeatureStats const& value)
+		{
+			return PhysicsConstraintFeatureDiagnostics{
+				.declared_count = value.m_declared_count,
+				.active_count = value.m_active_count,
+				.breakable_count = value.m_breakable_count,
+				.slot_capacity = value.m_slot_capacity,
+				.body_capacity = value.m_body_capacity,
+				.break_capacity = value.m_break_capacity,
+				.resources = ToAbi(value.m_resources),
+			};
+		}
+
+		// Translate reduced-coordinate topology dimensions and storage costs to fixed-width ABI fields.
+		PhysicsArticulationFeatureDiagnostics ToAbi(ArticulationFeatureStats const& value)
+		{
+			return PhysicsArticulationFeatureDiagnostics{
+				.articulation_count = value.m_articulation_count,
+				.link_count = value.m_link_count,
+				.dof_count = value.m_dof_count,
+				.position_count = value.m_position_count,
+				.velocity_count = value.m_velocity_count,
+				.articulation_capacity = value.m_articulation_capacity,
+				.link_capacity = value.m_link_capacity,
+				.dof_capacity = value.m_dof_capacity,
+				.position_capacity = value.m_position_capacity,
+				.velocity_capacity = value.m_velocity_capacity,
+				.resources = ToAbi(value.m_resources),
+			};
+		}
+
+		// Translate coupled persistent/contact topology bounds and resource costs to the public record.
+		PhysicsCoupledFeatureDiagnostics ToAbi(CoupledFeatureStats const& value)
+		{
+			return PhysicsCoupledFeatureDiagnostics{
+				.constraint_count = value.m_constraint_count,
+				.constraint_slot_capacity = value.m_constraint_slot_capacity,
+				.target_capacity = value.m_target_capacity,
+				.island_capacity = value.m_island_capacity,
+				.island_block_capacity = value.m_island_block_capacity,
+				.contact_capacity = value.m_contact_capacity,
+				.contact_target_capacity = value.m_contact_target_capacity,
+				.contact_participant_capacity = value.m_contact_participant_capacity,
+				.contact_tree_capacity = value.m_contact_tree_capacity,
+				.reserved = 0,
+				.resources = ToAbi(value.m_resources),
+			};
+		}
+
+		// Translate the packed output and sole-readback boundary accounting to the public record.
+		PhysicsFrameOutputFeatureDiagnostics ToAbi(FrameOutputFeatureStats const& value)
+		{
+			return PhysicsFrameOutputFeatureDiagnostics{
+				.body_count = value.m_body_count,
+				.event_capacity = value.m_event_capacity,
+				.articulation_count = value.m_articulation_count,
+				.constraint_break_count = value.m_constraint_break_count,
+				.coupled_failure_count = value.m_coupled_failure_count,
+				.dispatch_count = value.m_dispatch_count,
+				.readback_count = value.m_readback_count,
+				.reserved1 = 0,
+				.logical_bytes = value.m_logical_bytes,
+				.allocated_bytes = value.m_allocated_bytes,
+				.readback_bytes = value.m_readback_bytes,
+			};
+		}
+
+		// Translate terminal bounded failure details without exposing native enum layout.
+		PhysicsStepFailureDiagnostics ToAbi(StepFailureStats const& value)
+		{
+			return PhysicsStepFailureDiagnostics{
+				.reason = static_cast<std::int32_t>(value.m_reason),
+				.substep_index = value.m_substep_index,
+				.item_index = value.m_item_index,
+				.status = value.m_status,
+				.iteration_count = value.m_iteration_count,
+				.reserved = 0,
+				.identity = value.m_identity,
+				.residual = value.m_residual,
+				.reserved1 = 0,
+			};
 		}
 
 		// Require a material slot that can be indexed safely by both CPU and GPU material arrays.
@@ -648,9 +975,366 @@ namespace pr::physics
 			if (record.m_body->NeverSleep()) flags = static_cast<PhysicsBodyFlags>(static_cast<std::uint32_t>(flags) | static_cast<std::uint32_t>(PhysicsBodyFlags::NeverSleep));
 			return flags;
 		}
-		bool HasFlag(PhysicsBodyFlags flags, PhysicsBodyFlags bit)
+		// Test one strongly typed ABI flag without relying on enum arithmetic operators.
+		template <typename TEnum>
+		bool HasFlag(TEnum flags, TEnum bit)
 		{
 			return (static_cast<std::uint32_t>(flags) & static_cast<std::uint32_t>(bit)) != 0;
+		}
+
+		// Reject flag bits that this ABI version does not define.
+		template <typename TEnum>
+		void RequireKnownFlags(TEnum flags, std::uint32_t known, char const* name)
+		{
+			if ((static_cast<std::uint32_t>(flags) & ~known) != 0)
+				throw ApiException(PhysicsStatus::InvalidArgument, std::format("{} contains unknown flag bits", name));
+		}
+
+		// Sleeping and NeverSleep describe mutually exclusive policies and must be rejected before native state changes.
+		template <typename TEnum>
+		void RequireConsistentSleepFlags(TEnum flags, TEnum sleeping, TEnum never_sleep, char const* name)
+		{
+			if (HasFlag(flags, sleeping) && HasFlag(flags, never_sleep))
+				throw ApiException(PhysicsStatus::InvalidArgument, std::format("{} cannot request Sleeping and NeverSleep together", name));
+		}
+
+		// Reject unknown body participation modes before constructing or mutating native state.
+		void RequireMotionType(PhysicsMotionType motion_type)
+		{
+			switch (motion_type)
+			{
+				case PhysicsMotionType::Static:
+				case PhysicsMotionType::Dynamic:
+				case PhysicsMotionType::Kinematic:
+				{
+					return;
+				}
+				default:
+				{
+					throw ApiException(PhysicsStatus::InvalidArgument, "Body motion type is invalid");
+				}
+			}
+		}
+
+		// Return one stable native link handle from the ABI's immutable topological index.
+		LinkHandle RequireLink(ArticulationRecord const& record, std::uint32_t link_index)
+		{
+			if (link_index >= static_cast<std::uint32_t>(record.m_articulation->LinkCount()))
+				throw ApiException(PhysicsStatus::InvalidArgument, "Articulation link index is out of range");
+
+			return record.m_articulation->LinkAt(static_cast<int>(link_index));
+		}
+
+		// Translate the wire root policy through an exhaustive switch.
+		EArticulationRootType ToNative(PhysicsArticulationRoot value)
+		{
+			switch (value)
+			{
+				case PhysicsArticulationRoot::Fixed:
+				{
+					return EArticulationRootType::Fixed;
+				}
+				case PhysicsArticulationRoot::Floating:
+				{
+					return EArticulationRootType::Floating;
+				}
+				default:
+				{
+					throw ApiException(PhysicsStatus::InvalidArgument, "Articulation root type is invalid");
+				}
+			}
+		}
+
+		// Translate one wire joint-axis type through an exhaustive switch.
+		EArticulationAxisType ToNative(PhysicsArticulationAxis value)
+		{
+			switch (value)
+			{
+				case PhysicsArticulationAxis::Revolute:
+				{
+					return EArticulationAxisType::Revolute;
+				}
+				case PhysicsArticulationAxis::Prismatic:
+				{
+					return EArticulationAxisType::Prismatic;
+				}
+				default:
+				{
+					throw ApiException(PhysicsStatus::InvalidArgument, "Articulation axis type is invalid");
+				}
+			}
+		}
+
+		// Translate one wire D6 mode through an exhaustive switch.
+		EConstraintAxisMode ToNative(PhysicsConstraintMode value)
+		{
+			switch (value)
+			{
+				case PhysicsConstraintMode::Free:
+				{
+					return EConstraintAxisMode::Free;
+				}
+				case PhysicsConstraintMode::Locked:
+				{
+					return EConstraintAxisMode::Locked;
+				}
+				case PhysicsConstraintMode::Limited:
+				{
+					return EConstraintAxisMode::Limited;
+				}
+				case PhysicsConstraintMode::Driven:
+				{
+					return EConstraintAxisMode::Driven;
+				}
+				default:
+				{
+					throw ApiException(PhysicsStatus::InvalidArgument, "Constraint axis mode is invalid");
+				}
+			}
+		}
+
+		// Build one native immutable articulation link while retaining its ABI shape identity for ownership checks.
+		ArticulationLinkDesc ToNative(EngineRecord& engine, PhysicsArticulationLink const& value, PhysicsShapeHandle& shape_handle)
+		{
+			RequireKnownFlags(value.flags, static_cast<std::uint32_t>(PhysicsArticulationLinkFlags::CollideParent) | static_cast<std::uint32_t>(PhysicsArticulationLinkFlags::CollideSelf), "Articulation link flags");
+			auto shape = static_cast<collision::Shape const*>(nullptr);
+			if (value.shape != 0)
+			{
+				shape = RequireShape(engine, value.shape).Shape();
+				shape_handle = value.shape;
+			}
+
+			return ArticulationLinkDesc{
+				.m_inertia = ToNative(value.inertia),
+				.m_shape = shape,
+				.m_shape_to_link = ToNative(value.shape_to_link),
+				.m_collide_parent = HasFlag(value.flags, PhysicsArticulationLinkFlags::CollideParent),
+				.m_collide_self = HasFlag(value.flags, PhysicsArticulationLinkFlags::CollideSelf),
+			};
+		}
+
+		// Build one native reduced joint from its fixed-size wire representation.
+		ArticulationJointDesc ToNative(PhysicsArticulationJoint const& value)
+		{
+			if (value.dof_count > 6)
+				throw ApiException(PhysicsStatus::InvalidArgument, "Articulation joint degree count exceeds six");
+
+			auto result = ArticulationJointDesc{
+				.m_joint_to_parent = ToNative(value.joint_to_parent),
+				.m_joint_to_child = ToNative(value.joint_to_child),
+				.m_axes = {},
+				.m_initial_position = {},
+				.m_initial_velocity = {},
+				.m_dof_count = static_cast<int>(value.dof_count),
+			};
+			for (auto axis_index = std::uint32_t{}; axis_index != value.dof_count; ++axis_index)
+			{
+				result.m_axes[axis_index] = ArticulationAxisDesc{
+					.m_type = ToNative(value.axis_types[axis_index]),
+					.m_axis = ToNative(value.axes[axis_index]),
+				};
+				result.m_initial_position[axis_index] = value.initial_positions[axis_index];
+				result.m_initial_velocity[axis_index] = value.initial_velocities[axis_index];
+			}
+			return result;
+		}
+
+		// Return the flattened non-root joint dimension used by all articulation scalar transfers.
+		std::uint32_t JointDofCount(Articulation const& articulation)
+		{
+			auto count = std::uint32_t{};
+			for (auto link_index = 1; link_index != articulation.LinkCount(); ++link_index)
+				count += static_cast<std::uint32_t>(articulation.JointDofCount(articulation.LinkAt(link_index)));
+
+			return count;
+		}
+
+		// Return current whole-tree participation and sleeping policy in wire flags.
+		PhysicsArticulationFlags ArticulationFlags(ArticulationRecord const& record)
+		{
+			auto flags = PhysicsArticulationFlags::None;
+			if (record.m_enabled) flags = static_cast<PhysicsArticulationFlags>(static_cast<std::uint32_t>(flags) | static_cast<std::uint32_t>(PhysicsArticulationFlags::Enabled));
+			if (record.m_articulation->Sleeping()) flags = static_cast<PhysicsArticulationFlags>(static_cast<std::uint32_t>(flags) | static_cast<std::uint32_t>(PhysicsArticulationFlags::Sleeping));
+			if (record.m_articulation->NeverSleep()) flags = static_cast<PhysicsArticulationFlags>(static_cast<std::uint32_t>(flags) | static_cast<std::uint32_t>(PhysicsArticulationFlags::NeverSleep));
+			return flags;
+		}
+
+		// Fill whole-tree state without exposing the native articulation identity or storage.
+		void FillArticulationState(PhysicsArticulationState& state, PhysicsArticulationHandle handle, ArticulationRecord const& record)
+		{
+			state = PhysicsArticulationState{
+				.header = {sizeof(PhysicsArticulationState), PHYSICS_STRUCT_VERSION},
+				.articulation = handle,
+				.root_to_world = FromNative(record.m_articulation->RootToWorld()),
+				.root_velocity = FromNative(record.m_articulation->RootVelocity()),
+				.root_force = FromNative(record.m_articulation->RootForce()),
+				.user_tag = record.m_user_tag,
+				.link_count = static_cast<std::uint32_t>(record.m_articulation->LinkCount()),
+				.joint_dof_count = JointDofCount(*record.m_articulation),
+				.flags = ArticulationFlags(record),
+				.reserved = 0,
+			};
+		}
+
+		// Validate all wire articulation state before any native field is changed.
+		void ValidateArticulationState(PhysicsArticulationState const& state, PhysicsArticulationHandle handle, ArticulationRecord const& record, float const* positions, float const* velocities, float const* forces, std::uint32_t scalar_count)
+		{
+			auto const expected_count = JointDofCount(*record.m_articulation);
+			if (state.articulation != handle || state.link_count != static_cast<std::uint32_t>(record.m_articulation->LinkCount()) || state.joint_dof_count != expected_count)
+				throw ApiException(PhysicsStatus::InvalidArgument, "Articulation state identity or dimensions do not match the target");
+			if (scalar_count != expected_count || (scalar_count != 0 && (positions == nullptr || velocities == nullptr || forces == nullptr)))
+				throw ApiException(PhysicsStatus::InvalidArgument, "Articulation scalar arrays do not match the topology");
+			RequireKnownFlags(state.flags, static_cast<std::uint32_t>(PhysicsArticulationFlags::Enabled) | static_cast<std::uint32_t>(PhysicsArticulationFlags::Sleeping) | static_cast<std::uint32_t>(PhysicsArticulationFlags::NeverSleep), "Articulation state flags");
+			RequireConsistentSleepFlags(state.flags, PhysicsArticulationFlags::Sleeping, PhysicsArticulationFlags::NeverSleep, "Articulation state flags");
+
+			auto finite = [](float value) { return IsFinite(value); };
+			if ((scalar_count != 0 &&
+				(!std::ranges::all_of(std::span{positions, scalar_count}, finite) ||
+				 !std::ranges::all_of(std::span{velocities, scalar_count}, finite) ||
+				 !std::ranges::all_of(std::span{forces, scalar_count}, finite))) ||
+				!IsFinite(ToMotion(state.root_velocity).ang) ||
+				!IsFinite(ToMotion(state.root_velocity).lin) ||
+				!IsFinite(ToForce(state.root_force).ang) ||
+				!IsFinite(ToForce(state.root_force).lin))
+				throw ApiException(PhysicsStatus::InvalidArgument, "Articulation state contains a non-finite scalar");
+		}
+
+		// Apply one fully validated whole-tree state in stable topological order.
+		void ApplyArticulationState(ArticulationRecord& record, PhysicsArticulationState const& state, float const* positions, float const* velocities, float const* forces)
+		{
+			auto& articulation = *record.m_articulation;
+			articulation.RootToWorld(ToNative(state.root_to_world));
+			if (articulation.RootType() == EArticulationRootType::Floating)
+			{
+				articulation.RootVelocity(ToMotion(state.root_velocity));
+				articulation.RootForce(ToForce(state.root_force));
+			}
+
+			auto scalar_offset = std::uint32_t{};
+			for (auto link_index = 1; link_index != articulation.LinkCount(); ++link_index)
+			{
+				auto link = articulation.LinkAt(link_index);
+				auto count = static_cast<std::uint32_t>(articulation.JointDofCount(link));
+				if (count == 0)
+					continue;
+
+				articulation.JointPosition(link, std::span{positions + scalar_offset, count});
+				articulation.JointVelocity(link, std::span{velocities + scalar_offset, count});
+				articulation.JointForce(link, std::span{forces + scalar_offset, count});
+				scalar_offset += count;
+			}
+
+			articulation.NeverSleep(HasFlag(state.flags, PhysicsArticulationFlags::NeverSleep));
+			articulation.Sleeping(HasFlag(state.flags, PhysicsArticulationFlags::Sleeping));
+			record.m_enabled = HasFlag(state.flags, PhysicsArticulationFlags::Enabled);
+			record.m_user_tag = state.user_tag;
+		}
+
+		// Translate one scalar wire coordinate into the native D6 representation.
+		ConstraintAxisDesc ToNative(PhysicsConstraintAxis const& value)
+		{
+			return ConstraintAxisDesc{
+				.m_mode = ToNative(value.mode),
+				.m_limits = {value.lower_limit, value.upper_limit},
+				.m_target_position = value.target_position,
+				.m_target_velocity = value.target_velocity,
+				.m_stiffness = value.stiffness,
+				.m_damping = value.damping,
+				.m_max_force = value.max_force,
+			};
+		}
+
+		// Resolve one wire endpoint to a stable native identity and capture the referenced ABI handle.
+		BodyFrame ToNative(EngineRecord& engine, PhysicsConstraintFrame const& value, PhysicsBodyHandle& body_ref, PhysicsArticulationHandle& articulation_ref)
+		{
+			auto body = BodyRef::World();
+			switch (value.type)
+			{
+				case PhysicsConstraintEndpoint::World:
+				{
+					if (value.object_handle != 0)
+						throw ApiException(PhysicsStatus::InvalidArgument, "World constraint endpoint must not name an object");
+
+					break;
+				}
+				case PhysicsConstraintEndpoint::RigidBody:
+				{
+					auto handle = static_cast<PhysicsBodyHandle>(value.object_handle);
+					auto& record = RequireBody(engine, handle);
+					body = BodyRef::Rigid(*record.m_body);
+					body_ref = handle;
+					break;
+				}
+				case PhysicsConstraintEndpoint::ArticulationLink:
+				{
+					auto handle = static_cast<PhysicsArticulationHandle>(value.object_handle);
+					auto& record = RequireArticulation(engine, handle);
+					body = BodyRef::Link(*record.m_articulation, RequireLink(record, value.link_index));
+					articulation_ref = handle;
+					break;
+				}
+				default:
+				{
+					throw ApiException(PhysicsStatus::InvalidArgument, "Constraint endpoint type is invalid");
+				}
+			}
+
+			return BodyFrame{
+				.m_body = body,
+				.m_constraint_to_body = ToNative(value.constraint_to_body),
+			};
+		}
+
+		// Resolve and validate one complete D6 descriptor before mutating persistent storage or references.
+		D6ConstraintDesc ToNative(EngineRecord& engine, PhysicsD6Constraint const& value, std::array<PhysicsBodyHandle, 2>& body_refs, std::array<PhysicsArticulationHandle, 2>& articulation_refs)
+		{
+			RequireKnownFlags(value.flags, static_cast<std::uint32_t>(PhysicsConstraintFlags::Enabled) | static_cast<std::uint32_t>(PhysicsConstraintFlags::CollideConnected), "Constraint flags");
+			auto result = D6ConstraintDesc{
+				.m_frame_a = ToNative(engine, value.frame_a, body_refs[0], articulation_refs[0]),
+				.m_frame_b = ToNative(engine, value.frame_b, body_refs[1], articulation_refs[1]),
+				.m_linear = {},
+				.m_angular = {},
+				.m_break_force = value.break_force,
+				.m_break_torque = value.break_torque,
+				.m_collide_connected = HasFlag(value.flags, PhysicsConstraintFlags::CollideConnected),
+				.m_enabled = HasFlag(value.flags, PhysicsConstraintFlags::Enabled),
+			};
+			for (auto axis_index = 0; axis_index != 3; ++axis_index)
+			{
+				result.m_linear[axis_index] = ToNative(value.linear[axis_index]);
+				result.m_angular[axis_index] = ToNative(value.angular[axis_index]);
+			}
+			return result;
+		}
+
+		// Retain all endpoint owners after the native constraint has accepted its descriptor.
+		void RetainConstraintReferences(EngineRecord& engine, ConstraintRecord const& constraint)
+		{
+			for (auto handle : constraint.m_body_refs)
+			{
+				if (handle != 0)
+					++RequireBody(engine, handle).m_constraint_refs;
+			}
+			for (auto handle : constraint.m_articulation_refs)
+			{
+				if (handle != 0)
+					++RequireArticulation(engine, handle).m_constraint_refs;
+			}
+		}
+
+		// Release exactly the references retained for one accepted persistent descriptor.
+		void ReleaseConstraintReferences(EngineRecord& engine, ConstraintRecord const& constraint)
+		{
+			for (auto handle : constraint.m_body_refs)
+			{
+				if (handle != 0)
+					--RequireBody(engine, handle).m_constraint_refs;
+			}
+			for (auto handle : constraint.m_articulation_refs)
+			{
+				if (handle != 0)
+					--RequireArticulation(engine, handle).m_constraint_refs;
+			}
 		}
 
 		// Fill a complete body state without exposing the native body's address.
@@ -799,17 +1483,21 @@ namespace pr::physics
 			}
 		}
 
-		void BeginStep(EngineRecord& engine, float elapsed_seconds, double absolute_time_seconds, PhysicsBodyCommand const* commands, std::uint32_t command_count)
+		// Validate, gather every enabled object lane, and submit one frame with all internal substeps GPU-resident.
+		void BeginStep(EngineRecord& engine, float elapsed_seconds, double absolute_time_seconds, std::uint32_t substep_count, PhysicsBodyCommand const* commands, std::uint32_t command_count)
 		{
 			RequireOwner(engine);
 			RequireIdle(engine);
 			if (!(elapsed_seconds > 0.0f) || !std::isfinite(elapsed_seconds))
 				throw ApiException(PhysicsStatus::InvalidArgument, "Step duration must be finite and positive");
+			if (substep_count == 0 || substep_count > static_cast<std::uint32_t>(engine.m_engine->Config().max_internal_substeps))
+				throw ApiException(PhysicsStatus::InvalidArgument, "Internal substep count is outside the configured bound");
 
 			ApplyCommands(engine, commands, command_count);
 
-			// Stable slot ordering makes replay checksums and event ordering deterministic.
+			// Stable slot ordering makes replay checksums, topology packing, and event ordering deterministic.
 			engine.m_step_bodies.clear();
+			engine.m_step_articulations.clear();
 			engine.m_events.clear();
 			for (auto& slot : engine.m_bodies)
 			{
@@ -819,8 +1507,20 @@ namespace pr::physics
 				slot.m_object->m_sleep_before_step = slot.m_object->m_body->Sleeping();
 				engine.m_step_bodies.push_back(slot.m_object->m_body.get());
 			}
+			for (auto& slot : engine.m_articulations)
+			{
+				if (slot.m_object && slot.m_object->m_enabled)
+					engine.m_step_articulations.push_back(slot.m_object->m_articulation.get());
+			}
 
-			engine.m_engine->BeginStep(elapsed_seconds, engine.m_step_bodies, absolute_time_seconds);
+			engine.m_engine->BeginStep(Engine::StepInput{
+				.m_bodies = engine.m_step_bodies,
+				.m_articulations = engine.m_step_articulations,
+				.m_constraints = engine.m_constraint_set.Count() != 0 ? &engine.m_constraint_set : nullptr,
+				.m_elapsed_seconds = elapsed_seconds,
+				.m_substep_count = static_cast<int>(substep_count),
+				.m_time_s = absolute_time_seconds,
+			});
 			++engine.m_submitted_step;
 		}
 
@@ -830,7 +1530,20 @@ namespace pr::physics
 			if (engine.m_submitted_step == engine.m_completed_step)
 				throw ApiException(PhysicsStatus::NoStepPending, "CompleteStep called without a pending step");
 
-			engine.m_engine->CompleteStep();
+			try
+			{
+				engine.m_engine->CompleteStep();
+			}
+			catch (...)
+			{
+				// Output validation consumes the submitted native frame; synchronize the ABI transaction so cleanup and correction remain possible.
+				if (!engine.m_engine->StepPending())
+				{
+					engine.m_completed_step = engine.m_submitted_step;
+					engine.m_events.clear();
+				}
+				throw;
+			}
 
 			// Lifecycle events are derived only after native readback has produced the completed state.
 			for (auto i = std::size_t{}; i != engine.m_bodies.size(); ++i)
@@ -905,6 +1618,43 @@ namespace pr::physics
 				auto snapshot = MakeSnapshot(MakeChildHandle(engine.m_cookie, i, slot.m_generation), *slot.m_object);
 				hash = HashBytes(hash, &snapshot.body, sizeof(snapshot) - offsetof(PhysicsBodySnapshot, body));
 			}
+
+			// Hash articulation state in stable slot and topology order so deterministic replay covers every simulated degree of freedom.
+			for (auto i = std::size_t{}; i != engine.m_articulations.size(); ++i)
+			{
+				auto const& slot = engine.m_articulations[i];
+				if (!slot.m_object)
+					continue;
+
+				auto const& record = *slot.m_object;
+				auto const& articulation = *record.m_articulation;
+				auto const handle = MakeChildHandle(engine.m_cookie, i, slot.m_generation);
+				auto const enabled = std::uint32_t{record.m_enabled ? 1U : 0U};
+				auto const sleeping = std::uint32_t{articulation.Sleeping() ? 1U : 0U};
+				auto const never_sleep = std::uint32_t{articulation.NeverSleep() ? 1U : 0U};
+				auto const root_to_world = articulation.RootToWorld();
+				auto const root_velocity = articulation.RootVelocity();
+				auto const root_force = articulation.RootForce();
+				hash = HashBytes(hash, &handle, sizeof(handle));
+				hash = HashBytes(hash, &record.m_user_tag, sizeof(record.m_user_tag));
+				hash = HashBytes(hash, &enabled, sizeof(enabled));
+				hash = HashBytes(hash, &sleeping, sizeof(sleeping));
+				hash = HashBytes(hash, &never_sleep, sizeof(never_sleep));
+				hash = HashBytes(hash, &root_to_world, sizeof(root_to_world));
+				hash = HashBytes(hash, &root_velocity, sizeof(root_velocity));
+				hash = HashBytes(hash, &root_force, sizeof(root_force));
+
+				for (auto link_index = 1; link_index != articulation.LinkCount(); ++link_index)
+				{
+					auto const link = articulation.LinkAt(link_index);
+					auto const position = articulation.JointPosition(link);
+					auto const velocity = articulation.JointVelocity(link);
+					auto const force = articulation.JointForce(link);
+					hash = HashBytes(hash, position.data(), position.size_bytes());
+					hash = HashBytes(hash, velocity.data(), velocity.size_bytes());
+					hash = HashBytes(hash, force.data(), force.size_bytes());
+				}
+			}
 			return hash;
 		}
 
@@ -941,6 +1691,11 @@ namespace pr::physics
 
 		std::uint64_t CheckpointRequiredSize(EngineRecord const& engine)
 		{
+			// Version three rejects optional topology explicitly rather than silently omitting unrecoverable state.
+			if (std::ranges::any_of(engine.m_articulations, [](auto const& slot) { return slot.m_object != nullptr; }) ||
+				std::ranges::any_of(engine.m_constraints, [](auto const& slot) { return slot.m_object != nullptr; }))
+				throw ApiException(PhysicsStatus::InvalidArgument, "Checkpoint serialization does not yet support articulations or persistent constraints");
+
 			auto size = std::uint64_t{sizeof(CheckpointHeader)} +
 				std::uint64_t{Material::MaxMaterialId} * sizeof(PhysicsMaterial);
 			for (auto const& slot : engine.m_shapes)
@@ -1084,6 +1839,12 @@ extern "C"
 				case PhysicsStructId::Event: *size = sizeof(PhysicsEvent); break;
 				case PhysicsStructId::Diagnostics: *size = sizeof(PhysicsDiagnostics); break;
 				case PhysicsStructId::Material: *size = sizeof(PhysicsMaterial); break;
+				case PhysicsStructId::ArticulationDesc: *size = sizeof(PhysicsArticulationDesc); break;
+				case PhysicsStructId::ArticulationLink: *size = sizeof(PhysicsArticulationLink); break;
+				case PhysicsStructId::ArticulationJoint: *size = sizeof(PhysicsArticulationJoint); break;
+				case PhysicsStructId::ArticulationState: *size = sizeof(PhysicsArticulationState); break;
+				case PhysicsStructId::ArticulationLinkState: *size = sizeof(PhysicsArticulationLinkState); break;
+				case PhysicsStructId::D6Constraint: *size = sizeof(PhysicsD6Constraint); break;
 				default: throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Unknown physics structure identifier");
 			}
 		});
@@ -1135,9 +1896,7 @@ extern "C"
 			if (index == state.m_engines.size())
 				state.m_engines.push_back(std::make_unique<pr::physics::EngineSlot>());
 
-			auto cookie = static_cast<std::uint16_t>(state.m_next_cookie++);
-			if (cookie == 0)
-				cookie = static_cast<std::uint16_t>(state.m_next_cookie++);
+			auto const cookie = pr::physics::AllocateEngineCookie(state);
 
 			auto& slot = *state.m_engines[index];
 			slot.m_record = std::make_unique<pr::physics::EngineRecord>(cookie, native_config, static_cast<ID3D12Device4*>(external_d3d12_device));
@@ -1488,6 +2247,8 @@ extern "C"
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Shape is still referenced by one or more rigid bodies");
 			if (shape_record.m_compound_refs != 0)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Shape is still referenced by one or more compound shapes");
+			if (shape_record.m_articulation_refs != 0)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Shape is still referenced by one or more articulation links");
 
 			// Releasing a compound releases the children it retained. The retention is only a lifetime link;
 			// the compound already owns a private copy of each child's collision data.
@@ -1512,6 +2273,9 @@ extern "C"
 			auto const& value = pr::physics::RequireStruct(desc);
 			if (body == nullptr)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Body output pointer is null");
+			pr::physics::RequireKnownFlags(value.flags, static_cast<std::uint32_t>(PhysicsBodyFlags::Enabled) | static_cast<std::uint32_t>(PhysicsBodyFlags::Sleeping) | static_cast<std::uint32_t>(PhysicsBodyFlags::NeverSleep), "Body flags");
+			pr::physics::RequireConsistentSleepFlags(value.flags, PhysicsBodyFlags::Sleeping, PhysicsBodyFlags::NeverSleep, "Body flags");
+			pr::physics::RequireMotionType(value.motion_type);
 
 			auto& shape_record = pr::physics::RequireShape(record, value.shape);
 			auto body_record = std::make_unique<pr::physics::BodyRecord>();
@@ -1577,6 +2341,8 @@ extern "C"
 			pr::physics::RequireOwner(record);
 			pr::physics::RequireIdle(record);
 			auto [body_record, index] = pr::physics::RequireChild(record, body, record.m_bodies);
+			if (body_record.m_constraint_refs != 0)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Body is still referenced by one or more persistent constraints");
 
 			record.m_body_handles.erase(body_record.m_body.get());
 			--pr::physics::RequireShape(record, body_record.m_shape).m_body_refs;
@@ -1614,6 +2380,9 @@ extern "C"
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Body state identifies a different body");
 			if (value.shape != body_record.m_shape)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Body shape cannot be changed through BodyStateSet");
+			pr::physics::RequireKnownFlags(value.flags, static_cast<std::uint32_t>(PhysicsBodyFlags::Enabled) | static_cast<std::uint32_t>(PhysicsBodyFlags::Sleeping) | static_cast<std::uint32_t>(PhysicsBodyFlags::NeverSleep), "Body state flags");
+			pr::physics::RequireConsistentSleepFlags(value.flags, PhysicsBodyFlags::Sleeping, PhysicsBodyFlags::NeverSleep, "Body state flags");
+			pr::physics::RequireMotionType(value.motion_type);
 
 			pr::physics::ApplyBodyState(body_record, value);
 		});
@@ -1631,12 +2400,390 @@ extern "C"
 		});
 	}
 
+	PhysicsStatus __stdcall Physics_ArticulationCreate(PhysicsEngineHandle engine, PhysicsArticulationDesc const* desc, PhysicsArticulationLink const* links, PhysicsArticulationJoint const* joints, PhysicsArticulationHandle* articulation)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			auto const& value = pr::physics::RequireStruct(desc);
+			if (articulation == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Articulation output pointer is null");
+			if (value.link_count == 0 || links == nullptr || (value.link_count > 1 && joints == nullptr))
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Articulation topology arrays are incomplete");
+			pr::physics::RequireKnownFlags(value.flags, static_cast<std::uint32_t>(PhysicsArticulationFlags::Enabled) | static_cast<std::uint32_t>(PhysicsArticulationFlags::Sleeping) | static_cast<std::uint32_t>(PhysicsArticulationFlags::NeverSleep), "Articulation flags");
+			pr::physics::RequireConsistentSleepFlags(value.flags, PhysicsArticulationFlags::Sleeping, PhysicsArticulationFlags::NeverSleep, "Articulation flags");
+			pr::physics::ToNative(value.root_type);
+
+			// Validate and translate the complete topology before the builder consumes any link.
+			auto native_links = std::vector<pr::physics::ArticulationLinkDesc>{};
+			auto native_joints = std::vector<pr::physics::ArticulationJointDesc>{};
+			auto retained_shapes = std::vector<PhysicsShapeHandle>(value.link_count);
+			native_links.reserve(value.link_count);
+			native_joints.reserve(value.link_count - 1);
+			for (auto link_index = std::uint32_t{}; link_index != value.link_count; ++link_index)
+			{
+				auto const& link = pr::physics::RequireStruct(&links[link_index]);
+				if ((link_index == 0 && link.parent_index != -1) ||
+					(link_index != 0 && (link.parent_index < 0 || static_cast<std::uint32_t>(link.parent_index) >= link_index)))
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Articulation links must be in parent-before-child order with root parent -1");
+
+				native_links.push_back(pr::physics::ToNative(record, link, retained_shapes[link_index]));
+				if (link_index != 0)
+					native_joints.push_back(pr::physics::ToNative(pr::physics::RequireStruct(&joints[link_index - 1])));
+			}
+
+			// Consume the validated topology into one immutable native tree.
+			auto builder = pr::physics::ArticulationBuilder{};
+			auto native_handles = std::vector<pr::physics::LinkHandle>{};
+			native_handles.reserve(value.link_count);
+			switch (value.root_type)
+			{
+				case PhysicsArticulationRoot::Fixed:
+				{
+					native_handles.push_back(builder.AddFixedRoot(native_links[0], pr::physics::ToNative(value.root_to_world)));
+					break;
+				}
+				case PhysicsArticulationRoot::Floating:
+				{
+					native_handles.push_back(builder.AddFloatingRoot(native_links[0], pr::physics::ToNative(value.root_to_world), pr::physics::ToMotion(value.root_velocity)));
+					break;
+				}
+				default:
+				{
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Articulation root type is invalid");
+				}
+			}
+			for (auto link_index = std::uint32_t{1}; link_index != value.link_count; ++link_index)
+			{
+				auto parent_index = static_cast<std::uint32_t>(links[link_index].parent_index);
+				native_handles.push_back(builder.AddLink(native_handles[parent_index], native_joints[link_index - 1], native_links[link_index]));
+			}
+
+			auto articulation_record = std::make_unique<pr::physics::ArticulationRecord>();
+			articulation_record->m_articulation = std::make_unique<pr::physics::Articulation>(builder.Build());
+			articulation_record->m_shapes = retained_shapes;
+			articulation_record->m_user_tag = value.user_tag;
+			articulation_record->m_enabled = pr::physics::HasFlag(value.flags, PhysicsArticulationFlags::Enabled);
+			articulation_record->m_articulation->NeverSleep(pr::physics::HasFlag(value.flags, PhysicsArticulationFlags::NeverSleep));
+			articulation_record->m_articulation->Sleeping(pr::physics::HasFlag(value.flags, PhysicsArticulationFlags::Sleeping));
+
+			// Publish the ABI handle only after all topology construction and allocation has succeeded.
+			auto [slot, index] = pr::physics::AllocateSlot(record.m_articulations);
+			auto handle = pr::physics::MakeChildHandle(record.m_cookie, index, slot.m_generation);
+			slot.m_object = std::move(articulation_record);
+			for (auto shape : retained_shapes)
+			{
+				if (shape != 0)
+					++pr::physics::RequireShape(record, shape).m_articulation_refs;
+			}
+			*articulation = handle;
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_ArticulationDestroy(PhysicsEngineHandle engine, PhysicsArticulationHandle articulation)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			auto [articulation_record, index] = pr::physics::RequireChild(record, articulation, record.m_articulations);
+			if (articulation_record.m_constraint_refs != 0)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Articulation is still referenced by one or more persistent constraints");
+
+			for (auto shape : articulation_record.m_shapes)
+			{
+				if (shape != 0)
+					--pr::physics::RequireShape(record, shape).m_articulation_refs;
+			}
+			auto& slot = record.m_articulations[index];
+			slot.m_object.reset();
+			pr::physics::AdvanceGeneration(slot.m_generation);
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_ArticulationStateGet(PhysicsEngineHandle engine, PhysicsArticulationHandle articulation, PhysicsArticulationState* state, float* positions, float* velocities, float* accelerations, float* forces, std::uint32_t scalar_capacity, std::uint32_t* scalar_required)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireIdle(record);
+			if (state == nullptr || scalar_required == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Articulation state output pointers are incomplete");
+
+			auto& articulation_record = pr::physics::RequireArticulation(record, articulation);
+			pr::physics::FillArticulationState(*state, articulation, articulation_record);
+			*scalar_required = state->joint_dof_count;
+			if (scalar_capacity < *scalar_required || (*scalar_required != 0 && (positions == nullptr || velocities == nullptr || accelerations == nullptr || forces == nullptr)))
+				throw pr::physics::ApiException(PhysicsStatus::BufferTooSmall, "Articulation scalar buffers are too small");
+
+			// Flatten only non-root reduced coordinates; floating-root spatial state remains in ArticulationState.
+			auto scalar_offset = std::uint32_t{};
+			auto& native = *articulation_record.m_articulation;
+			for (auto link_index = 1; link_index != native.LinkCount(); ++link_index)
+			{
+				auto link = native.LinkAt(link_index);
+				auto position = native.JointPosition(link);
+				auto velocity = native.JointVelocity(link);
+				auto acceleration = native.JointAcceleration(link);
+				auto force = native.JointForce(link);
+				if (position.empty())
+					continue;
+
+				std::ranges::copy(position, positions + scalar_offset);
+				std::ranges::copy(velocity, velocities + scalar_offset);
+				std::ranges::copy(acceleration, accelerations + scalar_offset);
+				std::ranges::copy(force, forces + scalar_offset);
+				scalar_offset += static_cast<std::uint32_t>(position.size());
+			}
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_ArticulationStateSet(PhysicsEngineHandle engine, PhysicsArticulationHandle articulation, PhysicsArticulationState const* state, float const* positions, float const* velocities, float const* forces, std::uint32_t scalar_count)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			auto const& value = pr::physics::RequireStruct(state);
+			auto& articulation_record = pr::physics::RequireArticulation(record, articulation);
+			pr::physics::ValidateArticulationState(value, articulation, articulation_record, positions, velocities, forces, scalar_count);
+			pr::physics::ApplyArticulationState(articulation_record, value, positions, velocities, forces);
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_ArticulationLinksCopy(PhysicsEngineHandle engine, PhysicsArticulationHandle articulation, PhysicsArticulationLinkState* links, std::uint32_t capacity, std::uint32_t* required)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireIdle(record);
+			if (required == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Articulation link required-count pointer is null");
+
+			auto& articulation_record = pr::physics::RequireArticulation(record, articulation);
+			auto& native = *articulation_record.m_articulation;
+			*required = static_cast<std::uint32_t>(native.LinkCount());
+			if (capacity < *required || (*required != 0 && links == nullptr))
+				throw pr::physics::ApiException(PhysicsStatus::BufferTooSmall, "Articulation link buffer is too small");
+
+			// Refresh derived kinematics once, then copy every link in stable topological order.
+			native.UpdateKinematics();
+			for (auto link_index = std::uint32_t{}; link_index != *required; ++link_index)
+			{
+				auto link = native.LinkAt(static_cast<int>(link_index));
+				auto parent = native.Parent(link);
+				links[link_index] = PhysicsArticulationLinkState{
+					.header = {sizeof(PhysicsArticulationLinkState), PHYSICS_STRUCT_VERSION},
+					.articulation = articulation,
+					.link_index = link_index,
+					.parent_index = parent ? static_cast<std::int32_t>(parent.m_index) : -1,
+					.shape = articulation_record.m_shapes[link_index],
+					.link_to_world = pr::physics::FromNative(native.LinkToWorld(link)),
+					.velocity = pr::physics::FromNative(native.LinkVelocity(link)),
+					.acceleration = pr::physics::FromNative(native.LinkAcceleration(link)),
+					.external_force = pr::physics::FromNative(native.ExternalForce(link)),
+					.gravity = pr::physics::FromNative(native.GravityWS(link)),
+				};
+			}
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_ArticulationLinkForceSet(PhysicsEngineHandle engine, PhysicsArticulationHandle articulation, std::uint32_t link_index, PhysicsSpatialVector const* force)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			if (force == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Articulation link force pointer is null");
+
+			auto& articulation_record = pr::physics::RequireArticulation(record, articulation);
+			articulation_record.m_articulation->ExternalForce(pr::physics::RequireLink(articulation_record, link_index), pr::physics::ToForce(*force));
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_ArticulationLinkForceApply(PhysicsEngineHandle engine, PhysicsArticulationHandle articulation, std::uint32_t link_index, PhysicsSpatialVector const* force)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			if (force == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Articulation link force pointer is null");
+
+			auto& articulation_record = pr::physics::RequireArticulation(record, articulation);
+			articulation_record.m_articulation->ApplyExternalForce(pr::physics::RequireLink(articulation_record, link_index), pr::physics::ToForce(*force));
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_ArticulationLinkGravitySet(PhysicsEngineHandle engine, PhysicsArticulationHandle articulation, std::uint32_t link_index, PhysicsVector4 const* gravity)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			if (gravity == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Articulation link gravity pointer is null");
+
+			auto& articulation_record = pr::physics::RequireArticulation(record, articulation);
+			articulation_record.m_articulation->GravityWS(pr::physics::RequireLink(articulation_record, link_index), pr::physics::ToNative(*gravity));
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_ConstraintCreateD6(PhysicsEngineHandle engine, PhysicsD6Constraint const* desc, PhysicsConstraintHandle* constraint)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			auto const& value = pr::physics::RequireStruct(desc);
+			if (constraint == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Constraint output pointer is null");
+
+			auto constraint_record = std::make_unique<pr::physics::ConstraintRecord>();
+			constraint_record->m_desc = value;
+			constraint_record->m_desc.header = {sizeof(PhysicsD6Constraint), PHYSICS_STRUCT_VERSION};
+			constraint_record->m_desc.reserved = 0;
+			auto native_desc = pr::physics::ToNative(record, value, constraint_record->m_body_refs, constraint_record->m_articulation_refs);
+			auto [slot, index] = pr::physics::AllocateSlot(record.m_constraints);
+			auto handle = pr::physics::MakeChildHandle(record.m_cookie, index, slot.m_generation);
+			constraint_record->m_constraint = record.m_constraint_set.Add(native_desc);
+			try
+			{
+				record.m_constraint_handles.emplace(pr::physics::NativeConstraintKey(constraint_record->m_constraint), handle);
+			}
+			catch (...)
+			{
+				record.m_constraint_set.Remove(constraint_record->m_constraint);
+				throw;
+			}
+
+			slot.m_object = std::move(constraint_record);
+			pr::physics::RetainConstraintReferences(record, *slot.m_object);
+			*constraint = handle;
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_ConstraintGetD6(PhysicsEngineHandle engine, PhysicsConstraintHandle constraint, PhysicsD6Constraint* desc, std::int32_t* broken)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireIdle(record);
+			if (desc == nullptr || broken == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Constraint output pointers are incomplete");
+
+			auto& constraint_record = pr::physics::RequireConstraint(record, constraint);
+			*desc = constraint_record.m_desc;
+			*broken = record.m_constraint_set.IsBroken(constraint_record.m_constraint);
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_ConstraintUpdateD6(PhysicsEngineHandle engine, PhysicsConstraintHandle constraint, PhysicsD6Constraint const* desc)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			auto const& value = pr::physics::RequireStruct(desc);
+			auto& constraint_record = pr::physics::RequireConstraint(record, constraint);
+			auto body_refs = std::array<PhysicsBodyHandle, 2>{};
+			auto articulation_refs = std::array<PhysicsArticulationHandle, 2>{};
+			auto native_desc = pr::physics::ToNative(record, value, body_refs, articulation_refs);
+
+			record.m_constraint_set.Update(constraint_record.m_constraint, native_desc);
+			pr::physics::ReleaseConstraintReferences(record, constraint_record);
+			constraint_record.m_desc = value;
+			constraint_record.m_desc.header = {sizeof(PhysicsD6Constraint), PHYSICS_STRUCT_VERSION};
+			constraint_record.m_desc.reserved = 0;
+			constraint_record.m_body_refs = body_refs;
+			constraint_record.m_articulation_refs = articulation_refs;
+			pr::physics::RetainConstraintReferences(record, constraint_record);
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_ConstraintSetEnabled(PhysicsEngineHandle engine, PhysicsConstraintHandle constraint, std::int32_t enabled)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			auto& constraint_record = pr::physics::RequireConstraint(record, constraint);
+			record.m_constraint_set.SetEnabled(constraint_record.m_constraint, enabled != 0);
+			auto flags = static_cast<std::uint32_t>(constraint_record.m_desc.flags);
+			auto enabled_bit = static_cast<std::uint32_t>(PhysicsConstraintFlags::Enabled);
+			constraint_record.m_desc.flags = static_cast<PhysicsConstraintFlags>(enabled != 0 ? flags | enabled_bit : flags & ~enabled_bit);
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_ConstraintRepair(PhysicsEngineHandle engine, PhysicsConstraintHandle constraint)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			auto& constraint_record = pr::physics::RequireConstraint(record, constraint);
+			record.m_constraint_set.Repair(constraint_record.m_constraint);
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_ConstraintDestroy(PhysicsEngineHandle engine, PhysicsConstraintHandle constraint)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			auto [constraint_record, index] = pr::physics::RequireChild(record, constraint, record.m_constraints);
+			record.m_constraint_set.Remove(constraint_record.m_constraint);
+			record.m_constraint_handles.erase(pr::physics::NativeConstraintKey(constraint_record.m_constraint));
+			pr::physics::ReleaseConstraintReferences(record, constraint_record);
+			auto& slot = record.m_constraints[index];
+			slot.m_object.reset();
+			pr::physics::AdvanceGeneration(slot.m_generation);
+		});
+	}
+
 	PhysicsStatus __stdcall Physics_BeginStep(PhysicsEngineHandle engine, float elapsed_seconds, double absolute_time_seconds, PhysicsBodyCommand const* commands, std::uint32_t command_count)
 	{
 		return pr::physics::ApiCall([&]
 		{
 			auto scope = pr::physics::EngineScope(engine);
-			pr::physics::BeginStep(*scope, elapsed_seconds, absolute_time_seconds, commands, command_count);
+			pr::physics::BeginStep(*scope, elapsed_seconds, absolute_time_seconds, 1, commands, command_count);
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_BeginStepEx(PhysicsEngineHandle engine, float elapsed_seconds, double absolute_time_seconds, std::uint32_t substep_count, PhysicsBodyCommand const* commands, std::uint32_t command_count)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			pr::physics::BeginStep(*scope, elapsed_seconds, absolute_time_seconds, substep_count, commands, command_count);
 		});
 	}
 
@@ -1655,7 +2802,18 @@ extern "C"
 		{
 			auto scope = pr::physics::EngineScope(engine);
 			auto& record = *scope;
-			pr::physics::BeginStep(record, elapsed_seconds, absolute_time_seconds, commands, command_count);
+			pr::physics::BeginStep(record, elapsed_seconds, absolute_time_seconds, 1, commands, command_count);
+			pr::physics::CompleteStep(record);
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_StepEx(PhysicsEngineHandle engine, float elapsed_seconds, double absolute_time_seconds, std::uint32_t substep_count, PhysicsBodyCommand const* commands, std::uint32_t command_count)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::BeginStep(record, elapsed_seconds, absolute_time_seconds, substep_count, commands, command_count);
 			pr::physics::CompleteStep(record);
 		});
 	}
@@ -1721,9 +2879,12 @@ extern "C"
 
 			auto const& profile = record.m_engine->LastStepProfile();
 			auto const& collisions = record.m_engine->LastCollisionStats();
+			auto const& features = record.m_engine->LastFeatureStats();
 			auto device_removed_reason = record.m_engine->Device()->GetDeviceRemovedReason();
 			auto body_count = std::ranges::count_if(record.m_bodies, [](auto const& slot) { return slot.m_object != nullptr; });
 			auto shape_count = std::ranges::count_if(record.m_shapes, [](auto const& slot) { return slot.m_object != nullptr; });
+			auto articulation_count = std::ranges::count_if(record.m_articulations, [](auto const& slot) { return slot.m_object != nullptr; });
+			auto constraint_count = std::ranges::count_if(record.m_constraints, [](auto const& slot) { return slot.m_object != nullptr; });
 
 			*diagnostics = PhysicsDiagnostics{
 				.header = {sizeof(PhysicsDiagnostics), PHYSICS_STRUCT_VERSION},
@@ -1756,8 +2917,18 @@ extern "C"
 				.contact_count = collisions.m_contact_count,
 				.max_pairs = collisions.m_max_pairs,
 				.max_contacts = collisions.m_max_contacts,
+				.collision_event_count = std::min(collisions.m_event_count, collisions.m_event_capacity),
+				.collision_event_capacity = collisions.m_event_capacity,
+				.collision_event_overflow_substep = collisions.m_event_overflow_substep,
 				.step_pending = record.m_submitted_step != record.m_completed_step,
 				.device_removed_reason = device_removed_reason == S_OK ? 0 : device_removed_reason,
+				.articulation_count = static_cast<std::int32_t>(articulation_count),
+				.constraint_count = static_cast<std::int32_t>(constraint_count),
+				.constraints = pr::physics::ToAbi(features.m_constraints),
+				.articulations = pr::physics::ToAbi(features.m_articulations),
+				.coupled = pr::physics::ToAbi(features.m_coupled),
+				.frame_output = pr::physics::ToAbi(features.m_frame_output),
+				.failure = pr::physics::ToAbi(features.m_failure),
 			};
 		});
 	}
@@ -1880,7 +3051,9 @@ extern "C"
 			if (buffer == nullptr || size < sizeof(pr::physics::CheckpointHeader))
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint buffer is null or truncated");
 			if (std::ranges::any_of(record.m_shapes, [](auto const& slot) { return slot.m_object != nullptr; }) ||
-				std::ranges::any_of(record.m_bodies, [](auto const& slot) { return slot.m_object != nullptr; }))
+				std::ranges::any_of(record.m_bodies, [](auto const& slot) { return slot.m_object != nullptr; }) ||
+				std::ranges::any_of(record.m_articulations, [](auto const& slot) { return slot.m_object != nullptr; }) ||
+				std::ranges::any_of(record.m_constraints, [](auto const& slot) { return slot.m_object != nullptr; }))
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint import requires an empty engine");
 
 			auto input = static_cast<std::byte const*>(buffer);
@@ -1899,6 +3072,8 @@ extern "C"
 				static_cast<std::size_t>(end - input));
 			if (checksum != header.m_payload_checksum)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint checksum is invalid");
+			if (header.m_submitted_step != header.m_completed_step)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint cannot contain an in-flight GPU step");
 
 			// Parse and validate the complete checkpoint into temporary storage before changing live state.
 			auto materials = std::array<PhysicsMaterial, pr::physics::Material::MaxMaterialId>{};
@@ -1963,6 +3138,9 @@ extern "C"
 				pr::physics::RequireStruct(&entry.m_state);
 				if (pr::physics::ChildCookie(entry.m_state.body) != header.m_engine_cookie)
 					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint body cookie is invalid");
+				pr::physics::RequireKnownFlags(entry.m_state.flags, static_cast<std::uint32_t>(PhysicsBodyFlags::Enabled) | static_cast<std::uint32_t>(PhysicsBodyFlags::Sleeping) | static_cast<std::uint32_t>(PhysicsBodyFlags::NeverSleep), "Checkpoint body flags");
+				pr::physics::RequireConsistentSleepFlags(entry.m_state.flags, PhysicsBodyFlags::Sleeping, PhysicsBodyFlags::NeverSleep, "Checkpoint body flags");
+				pr::physics::RequireMotionType(entry.m_state.motion_type);
 
 				bodies.push_back(entry.m_state);
 				max_body_index = std::max(max_body_index, pr::physics::ChildIndex(entry.m_state.body));
@@ -1990,46 +3168,45 @@ extern "C"
 					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint contains duplicate body slots");
 			}
 
-			pr::physics::ClaimEngineCookie(record, header.m_engine_cookie);
-
-			// Materialise validated state using the checkpoint cookie so managed-visible object identities survive restart.
-			record.m_engine->Config(pr::physics::ToNative(pr::physics::RequireStruct(&header.m_config)));
-			for (auto const& value : materials)
-			{
-				record.m_engine->Material(pr::physics::Material{
-					value.id,
-					value.static_friction,
-					value.normal_elasticity,
-					value.tangential_elasticity,
-					value.torsional_elasticity,
-					value.density});
-			}
-
-			record.m_shapes.resize(shapes.empty() ? 0 : max_shape_index + 1);
+			// Materialise every owning object and lookup table off to the side so any allocation or state-validation failure leaves the live engine untouched.
+			auto imported_shapes = std::vector<pr::physics::ObjectSlot<pr::physics::ShapeRecord>>(shapes.empty() ? 0 : max_shape_index + 1);
 			for (auto& value : shapes)
 			{
 				auto index = pr::physics::ChildIndex(value.m_handle);
-				auto& slot = record.m_shapes[index];
+				auto& slot = imported_shapes[index];
 				slot.m_generation = pr::physics::ChildGeneration(value.m_handle);
 				slot.m_object = std::make_unique<pr::physics::ShapeRecord>();
 				slot.m_object->m_data = std::move(value.m_data);
 				slot.m_object->m_children = std::move(value.m_children);
 			}
-			for (auto const& slot : record.m_shapes)
+			auto require_imported_shape = [&](PhysicsShapeHandle handle) -> pr::physics::ShapeRecord&
+			{
+				auto const index = pr::physics::ChildIndex(handle);
+				if (pr::physics::ChildCookie(handle) != header.m_engine_cookie ||
+					index >= imported_shapes.size() ||
+					imported_shapes[index].m_generation != pr::physics::ChildGeneration(handle) ||
+					!imported_shapes[index].m_object)
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint shape identity is inconsistent");
+
+				return *imported_shapes[index].m_object;
+			};
+			for (auto const& slot : imported_shapes)
 			{
 				if (!slot.m_object)
 					continue;
 
 				for (auto child : slot.m_object->m_children)
-					++pr::physics::RequireShape(record, child).m_compound_refs;
+					++require_imported_shape(child).m_compound_refs;
 			}
 
-			record.m_bodies.resize(bodies.empty() ? 0 : max_body_index + 1);
+			auto imported_bodies = std::vector<pr::physics::ObjectSlot<pr::physics::BodyRecord>>(bodies.empty() ? 0 : max_body_index + 1);
+			auto imported_body_handles = std::unordered_map<pr::physics::RigidBody const*, PhysicsBodyHandle>{};
+			imported_body_handles.reserve(bodies.size());
 			for (auto const& value : bodies)
 			{
 				auto index = pr::physics::ChildIndex(value.body);
-				auto& shape_record = pr::physics::RequireShape(record, value.shape);
-				auto& slot = record.m_bodies[index];
+				auto& shape_record = require_imported_shape(value.shape);
+				auto& slot = imported_bodies[index];
 				slot.m_generation = pr::physics::ChildGeneration(value.body);
 				slot.m_object = std::make_unique<pr::physics::BodyRecord>();
 				slot.m_object->m_body = std::make_unique<pr::physics::RigidBody>(
@@ -2038,13 +3215,42 @@ extern "C"
 					pr::physics::ToNative(value.inertia));
 				slot.m_object->m_shape = value.shape;
 				pr::physics::ApplyBodyState(*slot.m_object, value);
-				record.m_body_handles.emplace(slot.m_object->m_body.get(), value.body);
+				imported_body_handles.emplace(slot.m_object->m_body.get(), value.body);
 				++shape_record.m_body_refs;
 			}
+
+			// Build a fresh native engine on the existing D3D device so configuration and material setup also complete before the live state changes.
+			auto imported_engine = std::make_unique<pr::physics::Engine>(
+				pr::physics::ToNative(pr::physics::RequireStruct(&header.m_config)),
+				nullptr,
+				record.m_engine->Device());
+			for (auto const& value : materials)
+			{
+				imported_engine->Material(pr::physics::Material{
+					value.id,
+					value.static_friction,
+					value.normal_elasticity,
+					value.tangential_elasticity,
+					value.torsional_elasticity,
+					value.density});
+			}
+			record.BindEvents(*imported_engine);
+
+			// Claim the restored namespace and commit only noexcept ownership swaps after all fallible work has succeeded.
+			pr::physics::ClaimEngineCookie(record, header.m_engine_cookie);
+			record.m_shapes.swap(imported_shapes);
+			record.m_bodies.swap(imported_bodies);
+			record.m_body_handles.swap(imported_body_handles);
+			record.m_articulations.clear();
+			record.m_constraints.clear();
+			record.m_constraint_handles.clear();
+			record.m_constraint_set = {};
+			record.m_step_bodies.clear();
+			record.m_step_articulations.clear();
+			record.m_engine.swap(imported_engine);
 			record.m_submitted_step = header.m_submitted_step;
 			record.m_completed_step = header.m_completed_step;
 			record.m_events.clear();
-			record.m_engine->ResetCaches();
 		});
 	}
 }

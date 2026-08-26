@@ -162,6 +162,139 @@ namespace pr::physics::tests
 			PR_EXPECT(profile.m_readback_copy_count == 1);
 		}
 
+		// Report every coupled dispatch recorded across internal substeps rather than only the final preparation pass.
+		PRUnitTestMethod(CoupledDispatchDiagnosticsCoverCompleteFrame, Quick)
+		{
+			auto run = [](int substep_count)
+			{
+				auto tree_a = MakeEnginePrismaticTree(v4::XAxis(), 0.0f, 0.2f);
+				auto tree_b = MakeEnginePrismaticTree(v4::XAxis(), 1.0f, -0.2f);
+				auto constraints = ConstraintSet{};
+				constraints.Add(CoupledEngineLinear(
+					BodyRef::Link(tree_a.m_articulation, tree_a.m_link),
+					BodyRef::Link(tree_b.m_articulation, tree_b.m_link)));
+				auto articulation_ptrs = std::array<Articulation*, 2>{&tree_a.m_articulation, &tree_b.m_articulation};
+				auto& engine = SharedEngine();
+				ConfigureCoupledEngine(engine);
+				engine.Step(Engine::StepInput{
+					.m_articulations = articulation_ptrs,
+					.m_constraints = &constraints,
+					.m_elapsed_seconds = 1.0f / 30.0f,
+					.m_substep_count = substep_count,
+				});
+				return engine.LastFeatureStats().m_coupled.m_resources.m_dispatch_count;
+			};
+
+			auto const single_substep_dispatches = run(1);
+			auto const four_substep_dispatches = run(4);
+			PR_EXPECT(single_substep_dispatches > 0);
+			PR_EXPECT(four_substep_dispatches > single_substep_dispatches);
+		}
+
+		// A zero-mobility coupled island reports bounded rejection without aborting publication or adding a readback.
+		PRUnitTestMethod(CoupledNonConvergenceUsesFrameReadback, Extended)
+		{
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFixedRoot(CoupledEngineLink());
+			auto articulation = builder.Build();
+			auto constraints = ConstraintSet{};
+			constraints.Add(CoupledEngineLinear(BodyRef::Link(articulation, root), BodyRef::World()));
+			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+			auto failures = std::vector<CoupledConstraintFailureEvent>{};
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			engine.CoupledConstraintFailures += [&](Engine&, std::span<CoupledConstraintFailureEvent const> events)
+			{
+				failures.insert(failures.end(), events.begin(), events.end());
+			};
+
+			engine.Step(Engine::StepInput{
+				.m_articulations = articulation_ptrs,
+				.m_constraints = &constraints,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+				.m_substep_count = 2,
+			});
+
+			PR_EXPECT(failures.size() == 1);
+			if (!failures.empty())
+			{
+				PR_EXPECT(failures[0].m_substep_index == 0);
+				PR_EXPECT(failures[0].m_island_index == 0);
+				PR_EXPECT(failures[0].m_iteration_count > 0);
+				PR_EXPECT(failures[0].m_failure_flags != 0);
+			}
+			auto const& stats = engine.LastFeatureStats();
+			PR_EXPECT(stats.m_failure.m_reason == EStepFailure::CoupledConstraintNonConvergence);
+			PR_EXPECT(stats.m_frame_output.m_coupled_failure_count == 1);
+			PR_EXPECT(stats.m_frame_output.m_readback_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+		}
+
+		// A rejected frame must not expose the temporary wake-up required to stage a coupled constraint.
+		PRUnitTestMethod(PreSubmitFailureRestoresSleepingArticulation, Extended)
+		{
+			auto tree = MakeEnginePrismaticTree(v4::XAxis(), 0.0f, 0.0f);
+			tree.m_articulation.Sleep();
+			auto constraints = ConstraintSet{};
+			constraints.Add(CoupledEngineLinear(BodyRef::Link(tree.m_articulation, tree.m_link), BodyRef::World()));
+			auto articulation_ptrs = std::array<Articulation*, 1>{&tree.m_articulation};
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			engine.ExternalForces += [](Engine&, Engine::ExternalForceArgs const&)
+			{
+				throw std::runtime_error("Intentional coupled pre-submit failure");
+			};
+
+			PR_THROWS(engine.Step(Engine::StepInput{
+				.m_articulations = articulation_ptrs,
+				.m_constraints = &constraints,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			}), std::runtime_error);
+			PR_EXPECT(tree.m_articulation.Sleeping());
+		}
+
+		// A throwing post-commit notification propagates without restoring the pre-step articulation sleep state over published motion.
+		PRUnitTestMethod(PostCommitNotificationPreservesPublishedState, Extended)
+		{
+			auto tree = MakeEnginePrismaticTree(v4::XAxis(), 0.0f, 0.0f);
+			tree.m_articulation.Sleep();
+			auto shape = collision::ShapeSphere{0.2f};
+			auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Sphere(shape.m_radius, 1.0f)};
+			body.VelocityWS(v8motion{v4::Zero(), 5.0f * v4::XAxis()});
+			auto desc = CoupledEngineLinear(BodyRef::Link(tree.m_articulation, tree.m_link), BodyRef::Rigid(body));
+			desc.m_break_force = 10.0f;
+			auto constraints = ConstraintSet{};
+			auto const handle = constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto articulation_ptrs = std::array<Articulation*, 1>{&tree.m_articulation};
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			engine.ConstraintsBroken += [](auto&, auto)
+			{
+				throw std::runtime_error("Intentional post-commit notification failure");
+			};
+
+			PR_THROWS(engine.Step(Engine::StepInput{
+				.m_bodies = body_ptrs,
+				.m_articulations = articulation_ptrs,
+				.m_constraints = &constraints,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			}), std::runtime_error);
+
+			PR_EXPECT(constraints.IsBroken(handle));
+			PR_EXPECT(!tree.m_articulation.Sleeping());
+			PR_EXPECT(!engine.StepPending());
+
+			// The consumed frame leaves the engine immediately reusable after the throwing observer is removed.
+			engine.ConstraintsBroken.reset();
+			engine.Step(Engine::StepInput{
+				.m_bodies = body_ptrs,
+				.m_articulations = articulation_ptrs,
+				.m_constraints = &constraints,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+		}
+
 		// Break an articulation-to-world row from committed generalized impulse without requiring an ordinary rigid body.
 		PRUnitTestMethod(CoupledConstraintBreaksFromLinkLoad, Quick)
 		{

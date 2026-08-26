@@ -278,6 +278,18 @@ namespace pr::physics
 			static_cast<size_t>(m_link_count) * sizeof(GpuArticulationAbaScratch) +
 			static_cast<size_t>(m_dof_count) * sizeof(GpuArticulationAbaDofScratch) +
 			static_cast<size_t>(m_joint_matrix_count) * sizeof(float);
+		m_stats.m_logical_feature_bytes =
+			static_cast<size_t>(m_articulation_count) * sizeof(GpuArticulation) +
+			static_cast<size_t>(m_link_count) * sizeof(GpuArticulationLink) +
+			static_cast<size_t>(m_dof_count) * sizeof(GpuArticulationDof) +
+			static_cast<size_t>(m_position_count) * sizeof(float) +
+			static_cast<size_t>(m_velocity_count) * sizeof(float) +
+			static_cast<size_t>(m_force_count) * sizeof(float) +
+			static_cast<size_t>(m_acceleration_count) * sizeof(float) +
+			upload.m_external_forces.size() * sizeof(GpuFrameForce) +
+			static_cast<size_t>(m_child_count) * sizeof(uint32_t) +
+			upload.m_level_links.size() * sizeof(uint32_t) +
+			m_stats.m_logical_scratch_bytes;
 		m_stats.m_allocated_feature_bytes =
 			static_cast<size_t>(m_stats.m_articulation_capacity) * sizeof(GpuArticulation) +
 			static_cast<size_t>(m_stats.m_link_capacity) * sizeof(GpuArticulationLink) +

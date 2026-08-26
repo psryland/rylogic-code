@@ -213,7 +213,6 @@ namespace pr::physics
 	// Rebuild final-configuration ABA factors and exact self-link mobilities for all participating trees.
 	void GpuArticulationMobility::Run(GpuJob& job)
 	{
-		m_stats.m_dispatch_count = 0;
 		if (m_ranges.empty())
 			return;
 

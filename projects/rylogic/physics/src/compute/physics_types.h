@@ -70,6 +70,7 @@ namespace pr::physics
 	static_assert(sizeof(GpuArticulationFrameOutput) == 64);
 	static_assert(alignof(GpuArticulationFrameOutput) == 16);
 	static_assert(sizeof(GpuFrameOutputHeader) == 64);
+	static_assert(sizeof(GpuCoupledConstraintFailureState) == 32);
 	static_assert(sizeof(GpuSubstepOutputState) == 16);
 	static_assert(sizeof(GpuCollisionEvent) == sizeof(GpuResolveContact) + 16);
 	static_assert((sizeof(GpuSelectiveRefreshMetrics) & 0xf) == 0);

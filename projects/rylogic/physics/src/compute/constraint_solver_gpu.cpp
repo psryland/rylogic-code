@@ -89,6 +89,8 @@ namespace pr::physics
 		, m_slot_count()
 		, m_active_count()
 		, m_breakable_count()
+		, m_body_count()
+		, m_dispatch_count()
 		, m_previous_timestep()
 		, m_frame_warm_start_scale()
 		, m_retain_current_impulses()
@@ -144,6 +146,8 @@ namespace pr::physics
 	{
 		if (body_count < 0)
 			throw std::invalid_argument("Constraint pseudo-velocity body count cannot be negative");
+
+		m_body_count = body_count;
 		if (m_r_pseudo_velocities != nullptr && m_body_capacity >= body_count)
 			return;
 
@@ -172,6 +176,8 @@ namespace pr::physics
 		m_slot_count = static_cast<int>(upload.m_endpoints.size());
 		m_active_count = static_cast<int>(upload.m_rigid_active_count);
 		m_breakable_count = static_cast<int>(upload.m_breakable_count);
+		m_body_count = 0;
+		m_dispatch_count = 0;
 		if (m_slot_count == 0)
 		{
 			m_r_break_states = nullptr;
@@ -389,6 +395,7 @@ namespace pr::physics
 
 		// A continuation recompiles changed geometry but retains the accumulator that has already been applied to authoritative momentum.
 		m_retain_current_impulses = retain_current_impulses;
+		m_body_count = body_count;
 		if (m_retain_current_impulses)
 		{
 			m_frame_warm_start_scale = 1.0f;
@@ -418,15 +425,18 @@ namespace pr::physics
 		auto const group_count = static_cast<UINT>((m_slot_count + ConstraintThreadCount - 1) / ConstraintThreadCount);
 		Bind(job, m_cs_compile, timestep, body_count, 0, std::max(1, m_config.push_out_iterations), bodies);
 		job.m_cmd_list.Dispatch(group_count, 1, 1);
+		++m_dispatch_count;
 		CommitUavBarriers(job, bodies);
 
 		Bind(job, m_cs_assign_colours, timestep, body_count, 0, std::max(1, m_config.push_out_iterations), bodies);
 		job.m_cmd_list.Dispatch(1, 1, 1);
+		++m_dispatch_count;
 		CommitUavBarriers(job, bodies);
 
 		// Each constrained frame starts with zero pseudo velocity independently of physical momentum.
 		Bind(job, m_cs_clear_pseudo_velocity, timestep, body_count, 0, std::max(1, m_config.push_out_iterations), bodies);
 		job.m_cmd_list.Dispatch(static_cast<UINT>((body_count + ConstraintThreadCount - 1) / ConstraintThreadCount), 1, 1);
+		++m_dispatch_count;
 		CommitUavBarriers(job, bodies);
 		pix::EndEvent(job.m_cmd_list.get());
 	}
@@ -442,6 +452,7 @@ namespace pr::physics
 		{
 			Bind(job, m_cs_apply_warm_start, timestep, body_count, colour, std::max(1, m_config.push_out_iterations), bodies);
 			job.m_cmd_list.Dispatch(group_count, 1, 1);
+			++m_dispatch_count;
 			CommitUavBarriers(job, bodies);
 		}
 	}
@@ -457,6 +468,7 @@ namespace pr::physics
 		{
 			Bind(job, m_cs_solve_position, timestep, body_count, colour, position_iterations, bodies);
 			job.m_cmd_list.Dispatch(group_count, 1, 1);
+			++m_dispatch_count;
 			CommitUavBarriers(job, bodies);
 		}
 	}
@@ -469,6 +481,7 @@ namespace pr::physics
 
 		Bind(job, m_cs_apply_position, timestep, body_count, 0, position_iterations, bodies);
 		job.m_cmd_list.Dispatch(static_cast<UINT>((body_count + ConstraintThreadCount - 1) / ConstraintThreadCount), 1, 1);
+		++m_dispatch_count;
 		CommitUavBarriers(job, bodies);
 	}
 
@@ -483,6 +496,7 @@ namespace pr::physics
 		{
 			Bind(job, m_cs_solve_velocity, timestep, body_count, colour, std::max(1, m_config.push_out_iterations), bodies);
 			job.m_cmd_list.Dispatch(group_count, 1, 1);
+			++m_dispatch_count;
 			CommitUavBarriers(job, bodies);
 		}
 	}
@@ -511,6 +525,7 @@ namespace pr::physics
 		Bind(job, m_cs_detect_breakage, timestep, body_count, 0, std::max(1, m_config.push_out_iterations), bodies);
 		auto const group_count = static_cast<UINT>((m_slot_count + ConstraintThreadCount - 1) / ConstraintThreadCount);
 		job.m_cmd_list.Dispatch(group_count, 1, 1);
+		++m_dispatch_count;
 		job.m_barriers.UAV(m_r_blocks.get());
 		job.m_barriers.UAV(m_r_break_states.get());
 		job.m_barriers.Commit();
@@ -561,6 +576,8 @@ namespace pr::physics
 		m_r_break_states = nullptr;
 		m_break_capacity = 0;
 		m_breakable_count = 0;
+		m_body_count = 0;
+		m_dispatch_count = 0;
 	}
 
 	// True when the most recently uploaded set contains enabled persistent constraints.
@@ -569,9 +586,42 @@ namespace pr::physics
 		return m_active_count != 0;
 	}
 
+	// Return current logical usage, retained capacities, and the most recent frame dispatch count.
+	GpuConstraintSolverStats GpuConstraintSolver::Stats() const
+	{
+		auto const slot_bytes =
+			sizeof(GpuConstraintEndpoint) +
+			sizeof(GpuD6ConstraintDesc) +
+			sizeof(GpuConstraintBlock) +
+			GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow);
+		auto const logical_bytes =
+			static_cast<size_t>(m_slot_count) * slot_bytes +
+			(m_slot_count != 0 ? sizeof(uint32_t) : 0) +
+			static_cast<size_t>(m_body_count) * sizeof(GpuConstraintPseudoVelocity) +
+			(m_breakable_count != 0 ? static_cast<size_t>(m_slot_count) * sizeof(GpuConstraintBreakState) : 0);
+		auto const allocated_bytes =
+			static_cast<size_t>(m_capacity) * slot_bytes +
+			(m_r_overflow != nullptr ? sizeof(uint32_t) : 0) +
+			static_cast<size_t>(m_body_capacity) * sizeof(GpuConstraintPseudoVelocity) +
+			static_cast<size_t>(m_break_capacity) * sizeof(GpuConstraintBreakState);
+		return GpuConstraintSolverStats{
+			.m_slot_count = m_slot_count,
+			.m_active_count = m_active_count,
+			.m_breakable_count = m_breakable_count,
+			.m_slot_capacity = m_capacity,
+			.m_body_capacity = m_body_capacity,
+			.m_break_capacity = m_break_capacity,
+			.m_dispatch_count = m_dispatch_count,
+			.m_pad0 = 0,
+			.m_logical_bytes = logical_bytes,
+			.m_allocated_feature_bytes = allocated_bytes,
+		};
+	}
+
 	// Invalidate retained frame timing when a step does not submit this optional solver lane.
 	void GpuConstraintSolver::Deactivate()
 	{
+		m_slot_count = 0;
 		m_active_count = 0;
 		m_breakable_count = 0;
 		m_previous_timestep = 0.0f;
@@ -580,6 +630,8 @@ namespace pr::physics
 		m_break_substep_index = -1;
 		m_r_break_states = nullptr;
 		m_break_capacity = 0;
+		m_body_count = 0;
+		m_dispatch_count = 0;
 	}
 
 	// CPU-side testing: upload, solve, and read back bodies and runtime state in one GPU job.

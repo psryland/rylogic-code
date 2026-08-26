@@ -40,6 +40,9 @@ namespace pr::physics
 		// Active scratch follows 336L + 64D + 4*sum(d_j^2), independent of retained high-water capacity.
 		size_t m_logical_scratch_bytes;
 
+		// Sum of every active typed buffer width, excluding inactive sentinel storage and heap-alignment overhead.
+		size_t m_logical_feature_bytes;
+
 		// Sum of typed D3D buffer widths, including any active 64-byte sentinels but excluding heap-alignment overhead.
 		size_t m_allocated_feature_bytes;
 	};

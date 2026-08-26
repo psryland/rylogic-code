@@ -21,6 +21,8 @@ namespace pr::physics
 	// Upload frame-local coupled topology after the matching shared constraint and articulation streams.
 	bool GpuCoupledConstraintSolver::Upload(GpuJob& job, GpuConstraintUpload const& constraint_upload, GpuArticulationUpload const& articulation_upload)
 	{
+		m_impulse_aba.ResetDispatchCount();
+		m_position.ResetDispatchCount();
 		if (constraint_upload.m_coupled_active_count == 0)
 		{
 			Deactivate();
@@ -60,10 +62,10 @@ namespace pr::physics
 	}
 
 	// Execute one transactional coupled velocity sweep.
-	void GpuCoupledConstraintSolver::SolveVelocityIteration(GpuJob& job, int body_count, ID3D12Resource* bodies)
+	void GpuCoupledConstraintSolver::SolveVelocityIteration(GpuJob& job, int body_count, ID3D12Resource* bodies, int substep_index)
 	{
 		if (m_active)
-			m_velocity.Run(job, body_count, bodies);
+			m_velocity.Run(job, body_count, bodies, substep_index);
 	}
 
 	// Prepare exact position preconditioners and clear detached pseudo state once for the substep.
@@ -73,10 +75,10 @@ namespace pr::physics
 	}
 
 	// Execute one transactional detached coupled position sweep.
-	void GpuCoupledConstraintSolver::SolvePositionIteration(GpuJob& job, ID3D12Resource* bodies)
+	void GpuCoupledConstraintSolver::SolvePositionIteration(GpuJob& job, ID3D12Resource* bodies, int substep_index)
 	{
 		if (m_active)
-			m_position.Run(job, bodies);
+			m_position.Run(job, bodies, substep_index);
 	}
 
 	// Apply all shared rigid and articulation pseudo state exactly once.
@@ -92,6 +94,12 @@ namespace pr::physics
 		return m_active;
 	}
 
+	// Forward the velocity-owned stable stream because it spans velocity and position rejection phases.
+	GpuCoupledConstraintFailureOutput GpuCoupledConstraintSolver::FailureOutput()
+	{
+		return m_velocity.FailureOutput();
+	}
+
 	// Release all topology-dependent coupled resources and invalidate retained warm-start timing.
 	void GpuCoupledConstraintSolver::Deactivate()
 	{
@@ -103,7 +111,7 @@ namespace pr::physics
 		m_active = false;
 	}
 
-	// Return aggregate logical, retained, and dispatch costs for the latest substep.
+	// Return aggregate logical, retained, and dispatch costs for the complete current frame.
 	GpuCoupledConstraintSolverStats GpuCoupledConstraintSolver::Stats() const
 	{
 		auto const mobility = m_mobility.Stats();
@@ -119,6 +127,10 @@ namespace pr::physics
 				velocity.m_dispatch_count +
 				position.m_dispatch_count,
 			.m_active_count = m_active ? velocity.m_active_count : 0,
+			.m_slot_capacity = velocity.m_slot_capacity,
+			.m_target_capacity = velocity.m_target_capacity,
+			.m_island_capacity = velocity.m_island_capacity,
+			.m_island_block_capacity = velocity.m_island_block_capacity,
 			.m_logical_bytes =
 				mobility.m_logical_bytes +
 				impulse.m_logical_buffer_bytes +

@@ -257,7 +257,6 @@ namespace pr::physics
 		ID3D12Resource* aba_scratch,
 		bool retain_current_impulses)
 	{
-		m_stats.m_dispatch_count = 0;
 		if (m_active_count == 0)
 			return;
 		if (!(timestep > 0.0f) || !std::isfinite(timestep))

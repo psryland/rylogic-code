@@ -479,6 +479,30 @@ namespace pr::physics::tests
 			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
 			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
 			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+			auto const& stats = engine.LastFeatureStats();
+			PR_EXPECT(stats.m_articulations.m_articulation_count == 2);
+			PR_EXPECT(stats.m_articulations.m_link_count == isize(accepted.m_links));
+			PR_EXPECT(stats.m_articulations.m_dof_count == isize(accepted.m_dofs));
+			PR_EXPECT(stats.m_articulations.m_articulation_capacity >= 2);
+			PR_EXPECT(stats.m_articulations.m_link_capacity >= isize(accepted.m_links));
+			PR_EXPECT(stats.m_articulations.m_resources.m_dispatch_count > 0);
+			PR_EXPECT(stats.m_articulations.m_resources.m_logical_bytes > 0);
+			PR_EXPECT(stats.m_articulations.m_resources.m_allocated_bytes >= stats.m_articulations.m_resources.m_logical_bytes);
+			PR_EXPECT(stats.m_constraints.m_resources.m_allocated_bytes == 0);
+			PR_EXPECT(stats.m_frame_output.m_articulation_count == 2);
+			PR_EXPECT(stats.m_frame_output.m_readback_count == 1);
+			PR_EXPECT(stats.m_failure.Succeeded());
+
+			// An empty frame releases articulation-dependent buffers while retaining only the reusable packed-output allocation.
+			auto const retained_frame_output_bytes = stats.m_frame_output.m_allocated_bytes;
+			engine.Step(Engine::StepInput{.m_elapsed_seconds = 1.0f / 60.0f});
+			auto const& empty_stats = engine.LastFeatureStats();
+			PR_EXPECT(empty_stats.m_articulations.m_articulation_count == 0);
+			PR_EXPECT(empty_stats.m_articulations.m_resources.m_logical_bytes == 0);
+			PR_EXPECT(empty_stats.m_articulations.m_resources.m_allocated_bytes == 0);
+			PR_EXPECT(empty_stats.m_frame_output.m_logical_bytes == 0);
+			PR_EXPECT(empty_stats.m_frame_output.m_allocated_bytes == retained_frame_output_bytes);
+			PR_EXPECT(empty_stats.m_frame_output.m_readback_count == 0);
 		}
 
 		// A fixed root with no generalized scalars still publishes its compact record while padded empty-range UAV addresses remain valid.

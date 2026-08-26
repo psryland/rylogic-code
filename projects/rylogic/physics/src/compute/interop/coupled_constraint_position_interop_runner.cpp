@@ -33,6 +33,7 @@
 #define g_coupled_position_generalized_pseudo interop_coupled_position_generalized_pseudo
 #define g_coupled_position_articulations interop_coupled_position_articulations
 #define g_coupled_position_positions interop_coupled_position_positions
+#define g_coupled_position_frame_failures interop_coupled_position_frame_failures
 #include "src/compute/coupled_constraint_position.hlsl"
 
 namespace pr::physics
@@ -111,6 +112,7 @@ namespace pr::physics
 		m_target_impulses.resize(constraint_upload.m_coupled_targets.size());
 		m_island_states.resize(constraint_upload.m_coupled_islands.size());
 		m_island_failures.resize(constraint_upload.m_coupled_islands.size());
+		m_frame_failures.assign(constraint_upload.m_coupled_islands.size(), GpuCoupledConstraintFailureState{.substep_index = -1});
 		m_link_impulses.resize(mobility_count);
 		m_tree_selection.resize(constraint_upload.m_coupled_articulation_indices.size());
 		m_tree_results.resize(constraint_upload.m_coupled_articulation_indices.size());
@@ -135,7 +137,7 @@ namespace pr::physics
 			.phase = GpuCoupledConstraintPhase_Evaluate,
 			.attempt_index = 0,
 			.backtrack_limit = backtrack_limit,
-			.pad0 = 0,
+			.substep_index = 0,
 			.timestep = timestep,
 			.relaxation = relaxation,
 			.position_beta = position_beta,
@@ -169,6 +171,7 @@ namespace pr::physics
 		g_coupled_position_generalized_pseudo.assign(CoupledPositionSpanOf(m_generalized_pseudo));
 		g_coupled_position_articulations.assign(CoupledPositionSpanOf(m_articulations));
 		g_coupled_position_positions.assign(CoupledPositionSpanOf(m_positions));
+		g_coupled_position_frame_failures.assign(CoupledPositionSpanOf(m_frame_failures));
 
 		hlsl::GpuEmulator clear(CSClearCoupledPositionState, CSClearCoupledPositionState_NumThreads);
 		hlsl::GpuEmulator begin(CSBeginCoupledPosition, CSBeginCoupledPosition_NumThreads);

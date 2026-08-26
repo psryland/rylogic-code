@@ -5,6 +5,7 @@
 #include "src/compute/frame_output_gpu.h"
 #include "src/compute/articulation_midpoint_gpu.h"
 #include "src/compute/constraint_solver_gpu.h"
+#include "src/compute/coupled_constraint_velocity_gpu.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/shader_code.h"
 
@@ -75,6 +76,9 @@ namespace pr::physics
 		, m_r_substep_state()
 		, m_layout()
 		, m_capacity()
+		, m_substep_state_active()
+		, m_dispatch_count()
+		, m_readback_count()
 	{
 		// The serial reservation pass snapshots raw counters before the next substep resets them.
 		{
@@ -187,12 +191,15 @@ namespace pr::physics
 	// Reset aggregate state and establish rigid, event, and articulation sections before any substep writes output.
 	void GpuFrameOutput::BeginFrame(GpuJob& job, int body_count, int event_capacity, int substep_count, GpuArticulationMidpointOutput const& articulations)
 	{
-		BeginFrame(job, body_count, event_capacity, substep_count, articulations, GpuConstraintBreakOutput{});
+		BeginFrame(job, body_count, event_capacity, substep_count, articulations, GpuConstraintBreakOutput{}, GpuCoupledConstraintFailureOutput{}, body_count != 0);
 	}
 
-	// Reset aggregate state and establish rigid, event, articulation, and optional constraint-break sections before any substep writes output.
-	void GpuFrameOutput::BeginFrame(GpuJob& job, int body_count, int event_capacity, int substep_count, GpuArticulationMidpointOutput const& articulations, GpuConstraintBreakOutput const& constraint_breaks)
+	// Reset aggregate state and establish all optional packed sections before any substep writes output.
+	void GpuFrameOutput::BeginFrame(GpuJob& job, int body_count, int event_capacity, int substep_count, GpuArticulationMidpointOutput const& articulations, GpuConstraintBreakOutput const& constraint_breaks, GpuCoupledConstraintFailureOutput const& coupled_failures, bool capture_substep_state)
 	{
+		m_dispatch_count = 0;
+		m_readback_count = 0;
+		m_substep_state_active = capture_substep_state;
 		if (body_count < 0 || event_capacity < 0 || substep_count < 1)
 			throw std::runtime_error("GPU frame output requires non-negative capacities and at least one substep");
 		if (articulations.m_articulation_count < 0 || articulations.m_position_count < 0 || articulations.m_velocity_count < 0)
@@ -201,6 +208,8 @@ namespace pr::physics
 			throw std::runtime_error("GPU frame output cannot gather generalized state without articulations");
 		if (constraint_breaks.m_slot_count < 0 || (constraint_breaks.m_slot_count != 0 && constraint_breaks.m_states == nullptr))
 			throw std::runtime_error("GPU frame output constraint-break dimensions are incomplete");
+		if (coupled_failures.m_island_count < 0 || (coupled_failures.m_island_count != 0 && coupled_failures.m_states == nullptr))
+			throw std::runtime_error("GPU frame output coupled-failure dimensions are incomplete");
 
 		auto body_offset = static_cast<int64_t>(sizeof(GpuFrameOutputHeader));
 		auto event_offset = body_offset + static_cast<int64_t>(body_count) * static_cast<int64_t>(sizeof(GpuRigidBody));
@@ -210,7 +219,8 @@ namespace pr::physics
 		auto velocity_offset = FrameOutputAlign(position_offset + static_cast<int64_t>(articulations.m_position_count) * static_cast<int64_t>(sizeof(float)));
 		auto acceleration_offset = FrameOutputAlign(velocity_offset + static_cast<int64_t>(articulations.m_velocity_count) * static_cast<int64_t>(sizeof(float)));
 		auto constraint_break_offset = FrameOutputAlign(acceleration_offset + static_cast<int64_t>(articulations.m_velocity_count) * static_cast<int64_t>(sizeof(float)));
-		auto readback_size = constraint_break_offset + static_cast<int64_t>(constraint_breaks.m_slot_count) * static_cast<int64_t>(sizeof(GpuConstraintBreakState));
+		auto coupled_failure_offset = FrameOutputAlign(constraint_break_offset + static_cast<int64_t>(constraint_breaks.m_slot_count) * static_cast<int64_t>(sizeof(GpuConstraintBreakState)));
+		auto readback_size = coupled_failure_offset + static_cast<int64_t>(coupled_failures.m_island_count) * static_cast<int64_t>(sizeof(GpuCoupledConstraintFailureState));
 		auto resource_size = std::max(
 			readback_size,
 			event_offset + static_cast<int64_t>(std::max(1, event_capacity)) * static_cast<int64_t>(sizeof(GpuCollisionEvent)));
@@ -226,6 +236,7 @@ namespace pr::physics
 			.m_position_count = articulations.m_position_count,
 			.m_velocity_count = articulations.m_velocity_count,
 			.m_constraint_break_count = constraint_breaks.m_slot_count,
+			.m_coupled_failure_count = coupled_failures.m_island_count,
 			.m_body_offset = body_offset,
 			.m_event_offset = event_offset,
 			.m_articulation_offset = articulation_offset,
@@ -233,12 +244,13 @@ namespace pr::physics
 			.m_velocity_offset = velocity_offset,
 			.m_acceleration_offset = acceleration_offset,
 			.m_constraint_break_offset = constraint_break_offset,
+			.m_coupled_failure_offset = coupled_failure_offset,
 			.m_readback_size = readback_size,
 			.m_resource_size = resource_size,
 		};
 		if (articulations.m_articulation_count != 0)
 			EnsureArticulationGatherPipeline();
-		ResizeBuffers(job.m_cmd_list, resource_size, body_count != 0);
+		ResizeBuffers(job.m_cmd_list, resource_size, capture_substep_state);
 
 		// Only the header needs clearing; logical counts make stale body/event storage unreachable.
 		auto header = GpuFrameOutputHeader{
@@ -289,6 +301,7 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_substep_state->GetGPUVirtualAddress());
 		job.m_cmd_list.Dispatch(1, 1, 1);
+		++m_dispatch_count;
 
 		job.m_barriers.UAV(m_r_substep_state.get());
 		job.m_barriers.UAV(m_r_output.get());
@@ -312,6 +325,7 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_substep_state->GetGPUVirtualAddress());
 		job.m_cmd_list.Dispatch(1, 1, 1);
+		++m_dispatch_count;
 
 		job.m_barriers.UAV(contact_order);
 		job.m_barriers.UAV(m_r_substep_state.get());
@@ -332,6 +346,7 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_substep_state->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress() + m_layout.m_event_offset);
 		job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, contact_dispatch);
+		++m_dispatch_count;
 
 		job.m_barriers.UAV(contacts);
 		job.m_barriers.UAV(contact_order);
@@ -349,11 +364,11 @@ namespace pr::physics
 	// Gather final rigid and articulation state before recording the frame's sole GPU-to-CPU copy.
 	GpuFrameOutputReadback GpuFrameOutput::GatherAndReadback(GpuJob& job, int body_count, ID3D12Resource* bodies, GpuArticulationMidpointOutput const& articulations)
 	{
-		return GatherAndReadback(job, body_count, bodies, articulations, GpuConstraintBreakOutput{});
+		return GatherAndReadback(job, body_count, bodies, articulations, GpuConstraintBreakOutput{}, GpuCoupledConstraintFailureOutput{});
 	}
 
-	// Gather final rigid, articulation, and constraint-break state before recording the frame's sole GPU-to-CPU copy.
-	GpuFrameOutputReadback GpuFrameOutput::GatherAndReadback(GpuJob& job, int body_count, ID3D12Resource* bodies, GpuArticulationMidpointOutput const& articulations, GpuConstraintBreakOutput const& constraint_breaks)
+	// Gather final state and sparse diagnostic streams before recording the frame's sole GPU-to-CPU copy.
+	GpuFrameOutputReadback GpuFrameOutput::GatherAndReadback(GpuJob& job, int body_count, ID3D12Resource* bodies, GpuArticulationMidpointOutput const& articulations, GpuConstraintBreakOutput const& constraint_breaks, GpuCoupledConstraintFailureOutput const& coupled_failures)
 	{
 		if (body_count != m_layout.m_body_count)
 			throw std::runtime_error("GPU frame output body count changed after BeginFrame");
@@ -364,6 +379,9 @@ namespace pr::physics
 		if (constraint_breaks.m_slot_count != m_layout.m_constraint_break_count ||
 			(constraint_breaks.m_slot_count != 0 && constraint_breaks.m_states == nullptr))
 			throw std::runtime_error("GPU frame output constraint-break dimensions changed after BeginFrame");
+		if (coupled_failures.m_island_count != m_layout.m_coupled_failure_count ||
+			(coupled_failures.m_island_count != 0 && coupled_failures.m_states == nullptr))
+			throw std::runtime_error("GPU frame output coupled-failure dimensions changed after BeginFrame");
 
 		auto cb = cbFrameOutput{
 			.body_count = body_count,
@@ -388,6 +406,7 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress() + m_layout.m_body_offset);
 			job.m_cmd_list.Dispatch((body_count + FrameOutputThreadCount - 1) / FrameOutputThreadCount, 1, 1);
+			++m_dispatch_count;
 			job.m_barriers.UAV(m_r_output.get()).Commit();
 		}
 
@@ -403,6 +422,20 @@ namespace pr::physics
 				constraint_breaks.m_states,
 				0,
 				static_cast<uint64_t>(constraint_breaks.m_slot_count) * sizeof(GpuConstraintBreakState));
+		}
+
+		// Copy the sparse first-rejection stream in island order without adding another CPU-visible transfer.
+		if (coupled_failures.m_island_count != 0)
+		{
+			job.m_barriers.Transition(coupled_failures.m_states, D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+			job.m_cmd_list.CopyBufferRegion(
+				m_r_output.get(),
+				m_layout.m_coupled_failure_offset,
+				coupled_failures.m_states,
+				0,
+				static_cast<uint64_t>(coupled_failures.m_island_count) * sizeof(GpuCoupledConstraintFailureState));
 		}
 
 		// Compact final root/status and generalized state without copying topology or per-link ABA scratch.
@@ -437,6 +470,7 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress() + m_layout.m_acceleration_offset);
 			auto const item_count = std::max({articulations.m_articulation_count, articulations.m_position_count, articulations.m_velocity_count});
 			job.m_cmd_list.Dispatch((item_count + FrameOutputThreadCount - 1) / FrameOutputThreadCount, 1, 1);
+			++m_dispatch_count;
 			job.m_barriers.UAV(m_r_output.get()).Commit();
 		}
 
@@ -444,11 +478,30 @@ namespace pr::physics
 		job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
 		auto allocation = job.m_readback.Alloc(m_layout.m_readback_size, alignof(GpuFrameOutputHeader));
 		job.m_cmd_list.CopyBufferRegion(allocation, m_r_output.get(), 0);
+		++m_readback_count;
 		job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
 
 		return GpuFrameOutputReadback{
 			.m_allocation = std::move(allocation),
 			.m_layout = m_layout,
+		};
+	}
+
+	// Return packed output usage, retained allocation, and work recorded for the current frame.
+	GpuFrameOutputStats GpuFrameOutput::Stats() const
+	{
+		return GpuFrameOutputStats{
+			.m_body_count = m_layout.m_body_count,
+			.m_event_capacity = m_layout.m_event_capacity,
+			.m_articulation_count = m_layout.m_articulation_count,
+			.m_constraint_break_count = m_layout.m_constraint_break_count,
+			.m_coupled_failure_count = m_layout.m_coupled_failure_count,
+			.m_dispatch_count = m_dispatch_count,
+			.m_readback_count = m_readback_count,
+			.m_pad1 = 0,
+			.m_logical_bytes = static_cast<size_t>(m_layout.m_resource_size) + (m_substep_state_active ? sizeof(GpuSubstepOutputState) : 0),
+			.m_allocated_feature_bytes = static_cast<size_t>(m_capacity) + (m_r_substep_state != nullptr ? sizeof(GpuSubstepOutputState) : 0),
+			.m_readback_bytes = static_cast<size_t>(m_layout.m_readback_size),
 		};
 	}
 
@@ -505,6 +558,13 @@ namespace pr::physics
 	{
 		auto ptr = reinterpret_cast<GpuConstraintBreakState const*>(readback.m_allocation.ptr<uint8_t>() + readback.m_layout.m_constraint_break_offset);
 		return { ptr, static_cast<size_t>(readback.m_layout.m_constraint_break_count) };
+	}
+
+	// Access the optional per-island first-rejection stream.
+	std::span<GpuCoupledConstraintFailureState const> GpuFrameOutput::CoupledFailures(GpuFrameOutputReadback const& readback)
+	{
+		auto ptr = reinterpret_cast<GpuCoupledConstraintFailureState const*>(readback.m_allocation.ptr<uint8_t>() + readback.m_layout.m_coupled_failure_offset);
+		return { ptr, static_cast<size_t>(readback.m_layout.m_coupled_failure_count) };
 	}
 
 	// Custom deleter implementation.

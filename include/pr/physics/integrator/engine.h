@@ -6,6 +6,7 @@
 #include "pr/physics/forward.h"
 #include "pr/physics/collision/contact.h"
 #include "pr/physics/integrator/engine_config.h"
+#include "pr/physics/integrator/engine_diagnostics.h"
 
 namespace pr::physics
 {
@@ -141,6 +142,7 @@ namespace pr::physics
 
 			std::vector<RigidBody*> m_bodies;
 			std::vector<Articulation*> m_articulations;
+			std::vector<Articulation*> m_sleep_rollback;
 			std::vector<ArticulationOutputRange> m_articulation_ranges;
 			std::unordered_map<uint64_t, int> m_articulation_range_lookup;
 			ConstraintSet const* m_constraints;
@@ -166,6 +168,9 @@ namespace pr::physics
 
 			// Start tracking a begin/complete step pair using stable copies of every caller-owned object pointer.
 			void Begin(std::span<RigidBody*> bodies, std::span<Articulation*> articulations, ConstraintSet const* constraints, float substep_seconds, float elapsed_seconds, bool sleeping_enabled);
+
+			// Restore trees that were asleep before a frame whose CPU-visible result is rejected.
+			void RestoreRejectedSleepState();
 
 			// Clear all per-step state once the GPU result has been consumed.
 			void Clear();
@@ -234,6 +239,7 @@ namespace pr::physics
 		// Diagnostics
 		StepProfile m_last_step_profile;
 		CollisionStats m_last_collision_stats;
+		EngineFeatureStats m_last_feature_stats;
 		
 		friend struct DbgPhysics;
 
@@ -316,6 +322,9 @@ namespace pr::physics
 		// Complete a previously-begun step and unpack the GPU results into the caller-owned bodies.
 		void CompleteStep();
 
+		// Report whether a submitted or recorded frame still owns pending engine state.
+		bool StepPending() const;
+
 		// Wait for a pending step during terminal cleanup without updating bodies or reusing command state.
 		void AbandonStep();
 
@@ -340,6 +349,9 @@ namespace pr::physics
 
 		// Raised once for each frame that newly breaks one or more persistent constraints.
 		EventHandler<Engine&, std::span<ConstraintBreakEvent const>> ConstraintsBroken;
+
+		// Raised after publication for coupled islands that exhausted bounded backtracking during the frame.
+		EventHandler<Engine&, std::span<CoupledConstraintFailureEvent const>> CoupledConstraintFailures;
 
 		// Resolve a stable articulation link to its hidden body index during ExternalForces, or return -1 when its tree is absent.
 		int ArticulationLinkStepIndex(ArticulationId articulation_id, LinkHandle link) const;
@@ -370,10 +382,19 @@ namespace pr::physics
 			return m_last_collision_stats;
 		}
 
+		// Optional-lane counts, retained capacities, resource costs, and bounded failure status for the most recent frame.
+		EngineFeatureStats const& LastFeatureStats() const
+		{
+			return m_last_feature_stats;
+		}
+
 	private:
 
 		// Pack the body data into GPU buffers for the current frame.
 		void Pack(std::span<RigidBody*> rigid_bodies);
+
+		// Snapshot optional GPU lane capacities and work without exposing implementation-specific resource types.
+		void UpdateFeatureResourceStats(bool include_frame_output);
 
 		// Upload staged body data into GPU buffers for the current frame.
 		void Upload();
@@ -408,8 +429,8 @@ namespace pr::physics
 		// Record one packed readback using the same explicit articulation layout supplied at frame start.
 		void Readback(GpuBuffers& buffers, GpuArticulationMidpointOutput const& articulations);
 
-		// Validate the complete gathered frame before publishing rigid or articulation state.
-		void Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies, std::span<Articulation*> articulations, std::span<PendingStep::ArticulationOutputRange const> articulation_ranges, ConstraintSet const* constraints, float articulation_substep_seconds, float articulation_elapsed_seconds);
+		// Validate the complete gathered frame before publishing rigid or articulation state, and report when rollback is no longer safe.
+		void Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies, std::span<Articulation*> articulations, std::span<PendingStep::ArticulationOutputRange const> articulation_ranges, ConstraintSet const* constraints, float articulation_substep_seconds, float articulation_elapsed_seconds, bool& output_committed);
 
 		// Narrow phase collision detection.
 		// Tests whether the two bodies in 'c' are geometrically in contact using GJK/SAT.

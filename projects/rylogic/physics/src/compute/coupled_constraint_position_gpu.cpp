@@ -44,6 +44,7 @@ namespace pr::physics
 			inline static constexpr auto GeneralizedPseudo = EUAVReg::u15;
 			inline static constexpr auto Articulations = EUAVReg::u16;
 			inline static constexpr auto Positions = EUAVReg::u17;
+			inline static constexpr auto FrameFailures = EUAVReg::u18;
 		};
 
 		// Match the HLSL bounds, controls, and phase-mode constant buffer exactly.
@@ -60,7 +61,7 @@ namespace pr::physics
 			int m_phase;
 			int m_attempt_index;
 			int m_backtrack_limit;
-			int m_pad0;
+			int m_substep_index;
 			float m_timestep;
 			float m_relaxation;
 			float m_position_beta;
@@ -123,9 +124,9 @@ namespace pr::physics
 		, m_velocity_delta_count()
 		, m_stats()
 	{
-		// The common layout deliberately occupies exactly 64 DWORDs: 16 constants, eight SRVs, and sixteen UAVs.
+		// A root CBV leaves headroom for the frame-failure UAV while retaining direct root descriptors for the hot resource set.
 		auto common_sig = RootSig(ERootSigFlags::ComputeOnly)
-			.U32<cbCoupledConstraintPosition>(EReg::Params)
+			.CBuf(EReg::Params)
 			.SRV(EReg::LinkEndpoints)
 			.SRV(EReg::BlockTopology)
 			.SRV(EReg::Targets)
@@ -150,6 +151,7 @@ namespace pr::physics
 			.UAV(EReg::RigidPseudo)
 			.UAV(EReg::LinkPseudo)
 			.UAV(EReg::GeneralizedPseudo)
+			.UAV(EReg::FrameFailures)
 			.Create(m_gpu, "Physics:CoupledConstraintPositionCommonSig");
 		auto CompileCommon = [&](ComputeStep& step, shader_code::ByteCode const& bytecode, char const* name)
 		{
@@ -204,7 +206,6 @@ namespace pr::physics
 	// Prepare position-only exact-self inverses and clear detached pseudo state once per substep.
 	bool GpuCoupledConstraintPosition::Prepare(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies, ID3D12Resource* link_to_world)
 	{
-		m_stats.m_dispatch_count = 0;
 		if (m_config.push_out_iterations <= 0 || m_velocity.m_source == nullptr)
 		{
 			ReleaseBuffers();
@@ -257,12 +258,12 @@ namespace pr::physics
 			m_velocity.m_mobility_count,
 			m_velocity_delta_count,
 		});
-		DispatchCommon(job, m_cs_clear, GpuCoupledConstraintPhase_Evaluate, 0, work_count, bodies);
+		DispatchCommon(job, m_cs_clear, GpuCoupledConstraintPhase_Evaluate, 0, work_count, bodies, -1);
 		return true;
 	}
 
 	// Execute one bounded-backtracking simultaneous pseudo-position sweep.
-	void GpuCoupledConstraintPosition::Run(GpuJob& job, ID3D12Resource* bodies)
+	void GpuCoupledConstraintPosition::Run(GpuJob& job, ID3D12Resource* bodies, int substep_index)
 	{
 		if (m_source == nullptr)
 			return;
@@ -277,21 +278,21 @@ namespace pr::physics
 			m_velocity.m_mobility_count,
 			m_velocity_delta_count,
 		});
-		DispatchCommon(job, m_cs_begin, GpuCoupledConstraintPhase_Evaluate, 0, work_count, bodies);
+		DispatchCommon(job, m_cs_begin, GpuCoupledConstraintPhase_Evaluate, 0, work_count, bodies, substep_index);
 		for (int attempt_index = 0; attempt_index != m_config.constraint_coupled_backtrack_limit + 1; ++attempt_index)
 		{
-			DispatchCommon(job, m_cs_candidates, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_velocity.m_slot_count, bodies);
-			DispatchCommon(job, m_cs_gather, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_velocity.m_target_count, bodies);
-			DispatchArticulations(job, m_cs_select_trees, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_velocity.m_articulation_range_count);
+			DispatchCommon(job, m_cs_candidates, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_velocity.m_slot_count, bodies, substep_index);
+			DispatchCommon(job, m_cs_gather, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_velocity.m_target_count, bodies, substep_index);
+			DispatchArticulations(job, m_cs_select_trees, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_velocity.m_articulation_range_count, substep_index);
 			m_impulse_aba.Evaluate(job, m_velocity.m_r_tree_selection.get(), m_velocity.m_r_tree_results.get());
-			DispatchArticulations(job, m_cs_validate_trees, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_velocity.m_articulation_range_count);
-			DispatchCommon(job, m_cs_evaluate_merit, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_velocity.m_island_count, bodies);
+			DispatchArticulations(job, m_cs_validate_trees, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_velocity.m_articulation_range_count, substep_index);
+			DispatchCommon(job, m_cs_evaluate_merit, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_velocity.m_island_count, bodies, substep_index);
 		}
 
-		DispatchArticulations(job, m_cs_select_trees, GpuCoupledConstraintPhase_CommitPosition, m_config.constraint_coupled_backtrack_limit, m_velocity.m_articulation_range_count);
-		DispatchCommon(job, m_cs_commit_state, GpuCoupledConstraintPhase_CommitPosition, m_config.constraint_coupled_backtrack_limit, std::max(m_velocity.m_slot_count, m_velocity.m_target_count), bodies);
-		DispatchArticulations(job, m_cs_commit_articulations, GpuCoupledConstraintPhase_CommitPosition, m_config.constraint_coupled_backtrack_limit, m_velocity.m_articulation_range_count);
-		DispatchCommon(job, m_cs_finalize_islands, GpuCoupledConstraintPhase_CommitPosition, m_config.constraint_coupled_backtrack_limit, m_velocity.m_island_count, bodies);
+		DispatchArticulations(job, m_cs_select_trees, GpuCoupledConstraintPhase_CommitPosition, m_config.constraint_coupled_backtrack_limit, m_velocity.m_articulation_range_count, substep_index);
+		DispatchCommon(job, m_cs_commit_state, GpuCoupledConstraintPhase_CommitPosition, m_config.constraint_coupled_backtrack_limit, std::max(m_velocity.m_slot_count, m_velocity.m_target_count), bodies, substep_index);
+		DispatchArticulations(job, m_cs_commit_articulations, GpuCoupledConstraintPhase_CommitPosition, m_config.constraint_coupled_backtrack_limit, m_velocity.m_articulation_range_count, substep_index);
+		DispatchCommon(job, m_cs_finalize_islands, GpuCoupledConstraintPhase_CommitPosition, m_config.constraint_coupled_backtrack_limit, m_velocity.m_island_count, bodies, substep_index);
 	}
 
 	// Integrate converged rigid and articulation pseudo state exactly once into coordinates.
@@ -316,6 +317,7 @@ namespace pr::physics
 		std::span<GpuCoupledConstraintPreconditioner const> preconditioner_override,
 		std::span<GpuConstraintRow const> prepared_row_override)
 	{
+		ResetDispatchCount();
 		if (!(timestep > 0.0f) || !std::isfinite(timestep))
 			throw std::invalid_argument("Coupled position diagnostics require a finite positive timestep");
 		if (link_to_world.size() != articulation_upload.m_links.size())
@@ -439,6 +441,12 @@ namespace pr::physics
 		return m_stats;
 	}
 
+	// Begin a new owning frame or focused diagnostic run without releasing retained buffers.
+	void GpuCoupledConstraintPosition::ResetDispatchCount()
+	{
+		m_stats.m_dispatch_count = 0;
+	}
+
 	// Release position-owned pseudo resources when no coupled push-out work remains.
 	void GpuCoupledConstraintPosition::ReleaseBuffers()
 	{
@@ -466,8 +474,8 @@ namespace pr::physics
 		}
 	}
 
-	// Bind and dispatch one phase using the 64-DWORD common transaction layout.
-	void GpuCoupledConstraintPosition::DispatchCommon(GpuJob& job, ComputeStep& step, int phase, int attempt_index, int item_count, ID3D12Resource* bodies)
+	// Bind and dispatch one phase using the bounded common transaction layout.
+	void GpuCoupledConstraintPosition::DispatchCommon(GpuJob& job, ComputeStep& step, int phase, int attempt_index, int item_count, ID3D12Resource* bodies, int substep_index)
 	{
 		if (item_count <= 0)
 			return;
@@ -485,7 +493,7 @@ namespace pr::physics
 			.m_phase = phase,
 			.m_attempt_index = attempt_index,
 			.m_backtrack_limit = m_config.constraint_coupled_backtrack_limit,
-			.m_pad0 = 0,
+			.m_substep_index = substep_index,
 			.m_timestep = m_timestep,
 			.m_relaxation = std::min(m_config.constraint_position_relaxation, m_config.constraint_coupled_relaxation),
 			.m_position_beta = m_config.constraint_position_beta,
@@ -498,7 +506,7 @@ namespace pr::physics
 			: aba.m_r_uav_sentinel.get();
 		job.m_cmd_list.SetPipelineState(step.m_pso.get());
 		job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
-		job.m_cmd_list.AddComputeRoot32BitConstants(constants);
+		job.m_cmd_list.AddComputeRootConstantBufferView(job.m_upload.Add(constants, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false));
 		job.m_cmd_list.AddComputeRootShaderResourceView(m_prepare.m_r_coupled_endpoints->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootShaderResourceView(m_velocity.m_r_block_topology->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootShaderResourceView(m_velocity.m_r_targets->GetGPUVirtualAddress());
@@ -523,13 +531,14 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(constraints.m_r_pseudo_velocities->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_link_pseudo->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_generalized_pseudo->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_velocity.m_r_frame_failures->GetGPUVirtualAddress());
 		job.m_cmd_list.Dispatch(CoupledPositionThreadGroupCount(item_count), 1, 1);
 		++m_stats.m_dispatch_count;
 		CommitUavBarriers(job, bodies);
 	}
 
 	// Bind and dispatch one complete-tree validation or commit phase.
-	void GpuCoupledConstraintPosition::DispatchArticulations(GpuJob& job, ComputeStep& step, int phase, int attempt_index, int item_count)
+	void GpuCoupledConstraintPosition::DispatchArticulations(GpuJob& job, ComputeStep& step, int phase, int attempt_index, int item_count, int substep_index)
 	{
 		if (item_count <= 0)
 			return;
@@ -547,7 +556,7 @@ namespace pr::physics
 			.m_phase = phase,
 			.m_attempt_index = attempt_index,
 			.m_backtrack_limit = m_config.constraint_coupled_backtrack_limit,
-			.m_pad0 = 0,
+			.m_substep_index = substep_index,
 			.m_timestep = m_timestep,
 			.m_relaxation = std::min(m_config.constraint_position_relaxation, m_config.constraint_coupled_relaxation),
 			.m_position_beta = m_config.constraint_position_beta,
@@ -614,7 +623,7 @@ namespace pr::physics
 			.m_phase = GpuCoupledConstraintPhase_CommitPosition,
 			.m_attempt_index = m_config.constraint_coupled_backtrack_limit,
 			.m_backtrack_limit = m_config.constraint_coupled_backtrack_limit,
-			.m_pad0 = 0,
+			.m_substep_index = -1,
 			.m_timestep = m_timestep,
 			.m_relaxation = std::min(m_config.constraint_position_relaxation, m_config.constraint_coupled_relaxation),
 			.m_position_beta = m_config.constraint_position_beta,
@@ -670,6 +679,7 @@ namespace pr::physics
 		job.m_barriers.Transition(constraints.m_r_pseudo_velocities.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_link_pseudo.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_generalized_pseudo.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_velocity.m_r_frame_failures.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Commit();
 	}
 
@@ -719,6 +729,7 @@ namespace pr::physics
 		job.m_barriers.UAV(constraints.m_r_pseudo_velocities.get());
 		job.m_barriers.UAV(m_r_link_pseudo.get());
 		job.m_barriers.UAV(m_r_generalized_pseudo.get());
+		job.m_barriers.UAV(m_velocity.m_r_frame_failures.get());
 		job.m_barriers.Commit();
 	}
 }

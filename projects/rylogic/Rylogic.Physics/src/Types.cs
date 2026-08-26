@@ -42,6 +42,38 @@ public enum EPhysicsEvent
 	Contact = 0,
 	Wake = 1,
 	Sleep = 2,
+	ConstraintBreak = 3,
+	CoupledConstraintFailure = 4,
+}
+
+/// <summary>Identifies the first bounded numerical or capacity failure retained for a completed frame.</summary>
+public enum EStepFailure
+{
+	None = 0,
+	CollisionPairCapacity = 1,
+	CollisionContactCapacity = 2,
+	ArticulationIntegration = 3,
+	CoupledConstraintNonConvergence = 4,
+}
+
+/// <summary>Identifies the coupled transaction phase that exhausted its bounded recovery attempts.</summary>
+public enum ECoupledConstraintFailurePhase
+{
+	Unknown = -1,
+	Velocity = 0,
+	Position = 1,
+}
+
+/// <summary>Classifies independent reasons why a coupled island transaction could not be committed.</summary>
+[Flags]
+public enum ECoupledConstraintFailure :uint
+{
+	None = 0,
+	Preconditioner = 1U << 0,
+	NonFinite = 1U << 1,
+	Topology = 1U << 2,
+	Articulation = 1U << 3,
+	Merit = 1U << 4,
 }
 
 /// <summary>Flags represented in body state, commands, and snapshots.</summary>
@@ -274,6 +306,16 @@ public sealed class EngineOptions
 	public float SelectiveRefreshClosingSpeedSlop { get; set; } = 0.02f;
 	public float SelectiveRefreshSupportAlignment { get; set; } = 0.65f;
 	public float SelectiveRefreshAabbMargin { get; set; } = 0.03f;
+	public int MaxCollisionEvents { get; set; } = 65536;
+	public int MaxInternalSubsteps { get; set; } = 64;
+	public float ConstraintRelaxation { get; set; } = 1.0f;
+	public float ConstraintCoupledRelaxation { get; set; } = 0.9f;
+	public int ConstraintCoupledBacktrackLimit { get; set; } = 4;
+	public float ConstraintPositionRelaxation { get; set; } = 1.0f;
+	public float ConstraintPositionBeta { get; set; } = 0.2f;
+	public float ConstraintMaxPositionSpeed { get; set; } = 2.0f;
+	public float ConstraintRegularization { get; set; } = 1.0e-6f;
+	public float ConstraintWarmStartFactor { get; set; } = 0.85f;
 }
 
 /// <summary>Material properties consumed by native contact resolution.</summary>
@@ -459,7 +501,7 @@ public readonly struct RigidBodyState
 	}
 }
 
-/// <summary>A buffered contact or body lifecycle event copied after CompleteStep.</summary>
+/// <summary>A buffered contact, body lifecycle, constraint break, or coupled failure event copied after CompleteStep.</summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct PhysicsEvent
 {
@@ -478,6 +520,17 @@ public struct PhysicsEvent
 	public int m_material_b;
 	public uint m_child_a;
 	public uint m_child_b;
+	public PersistentConstraintHandle m_constraint;
+	public float m_break_force;
+	public float m_break_torque;
+	public int m_substep_index;
+	private uint m_reserved;
+	public ECoupledConstraintFailure m_failure_flags;
+	public ECoupledConstraintFailurePhase m_failure_phase;
+	public int m_failure_island_index;
+	public int m_failure_iteration_count;
+	public float m_failure_relaxation;
+	public float m_failure_merit_change;
 }
 
 /// <summary>Timing and capacity measurements for the most recently completed step.</summary>
@@ -504,6 +557,95 @@ public struct StepProfile
 	public double m_unpack_ms;
 }
 
+/// <summary>Work and storage accounting shared by every optional GPU feature lane.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct FeatureResourceDiagnostics
+{
+	public int m_dispatch_count;
+	private uint m_reserved;
+	public ulong m_logical_bytes;
+	public ulong m_allocated_bytes;
+}
+
+/// <summary>Stable-slot, active-work, and optional buffer costs for persistent constraints.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct ConstraintFeatureDiagnostics
+{
+	public int m_declared_count;
+	public int m_active_count;
+	public int m_breakable_count;
+	public int m_slot_capacity;
+	public int m_body_capacity;
+	public int m_break_capacity;
+	public FeatureResourceDiagnostics m_resources;
+}
+
+/// <summary>Packed topology dimensions and optional GPU resource costs for articulations.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct ArticulationFeatureDiagnostics
+{
+	public int m_articulation_count;
+	public int m_link_count;
+	public int m_dof_count;
+	public int m_position_count;
+	public int m_velocity_count;
+	public int m_articulation_capacity;
+	public int m_link_capacity;
+	public int m_dof_capacity;
+	public int m_position_capacity;
+	public int m_velocity_capacity;
+	public FeatureResourceDiagnostics m_resources;
+}
+
+/// <summary>Topology bounds and resource costs for articulation-coupled constraints and contacts.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct CoupledFeatureDiagnostics
+{
+	public int m_constraint_count;
+	public int m_constraint_slot_capacity;
+	public int m_target_capacity;
+	public int m_island_capacity;
+	public int m_island_block_capacity;
+	public int m_contact_capacity;
+	public int m_contact_target_capacity;
+	public int m_contact_participant_capacity;
+	public int m_contact_tree_capacity;
+	private uint m_reserved;
+	public FeatureResourceDiagnostics m_resources;
+}
+
+/// <summary>Packed frame-output dimensions and the owning frame's sole-readback accounting.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct FrameOutputFeatureDiagnostics
+{
+	public int m_body_count;
+	public int m_event_capacity;
+	public int m_articulation_count;
+	public int m_constraint_break_count;
+	public int m_coupled_failure_count;
+	public int m_dispatch_count;
+	public int m_readback_count;
+	private uint m_reserved;
+	public ulong m_logical_bytes;
+	public ulong m_allocated_bytes;
+	public ulong m_readback_bytes;
+}
+
+/// <summary>The first bounded failure retained from the most recently completed or rejected frame.</summary>
+[StructLayout(LayoutKind.Sequential)]
+public struct StepFailureDiagnostics
+{
+	public EStepFailure m_reason;
+	public int m_substep_index;
+	public int m_item_index;
+	public int m_status;
+	public int m_iteration_count;
+	private uint m_reserved;
+	public ulong m_identity;
+	public float m_residual;
+	private uint m_reserved1;
+}
+
 /// <summary>Generic engine state, capacity, device, and deterministic replay diagnostics.</summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct Diagnostics
@@ -519,8 +661,18 @@ public struct Diagnostics
 	public int m_contact_count;
 	public int m_max_pairs;
 	public int m_max_contacts;
+	public int m_collision_event_count;
+	public int m_collision_event_capacity;
+	public int m_collision_event_overflow_substep;
 	private int m_step_pending;
 	public int m_device_removed_reason;
+	public int m_articulation_count;
+	public int m_constraint_count;
+	public ConstraintFeatureDiagnostics m_constraints;
+	public ArticulationFeatureDiagnostics m_articulations;
+	public CoupledFeatureDiagnostics m_coupled;
+	public FrameOutputFeatureDiagnostics m_frame_output;
+	public StepFailureDiagnostics m_failure;
 
 	/// <summary>True while a split step has submitted work that has not been completed.</summary>
 	public bool StepPending

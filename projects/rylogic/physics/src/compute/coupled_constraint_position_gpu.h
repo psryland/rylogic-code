@@ -73,7 +73,7 @@ namespace pr::physics
 		bool Prepare(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies, ID3D12Resource* link_to_world);
 
 		// Execute one bounded-backtracking simultaneous pseudo-position sweep.
-		void Run(GpuJob& job, ID3D12Resource* bodies);
+		void Run(GpuJob& job, ID3D12Resource* bodies, int substep_index = 0);
 
 		// Integrate converged rigid and articulation pseudo state exactly once into coordinates.
 		void Apply(GpuJob& job, ID3D12Resource* bodies);
@@ -94,6 +94,9 @@ namespace pr::physics
 
 	private:
 
+		// Begin a new owning frame or focused diagnostic run without releasing retained buffers.
+		void ResetDispatchCount();
+
 		// Release position-owned pseudo resources when no coupled push-out work remains.
 		void ReleaseBuffers();
 
@@ -101,10 +104,10 @@ namespace pr::physics
 		void ResizeBuffers(CmdList& cmd_list);
 
 		// Bind and dispatch one phase using the 64-DWORD common transaction layout.
-		void DispatchCommon(GpuJob& job, ComputeStep& step, int phase, int attempt_index, int item_count, ID3D12Resource* bodies);
+		void DispatchCommon(GpuJob& job, ComputeStep& step, int phase, int attempt_index, int item_count, ID3D12Resource* bodies, int substep_index);
 
 		// Bind and dispatch one complete-tree validation or commit phase.
-		void DispatchArticulations(GpuJob& job, ComputeStep& step, int phase, int attempt_index, int item_count);
+		void DispatchArticulations(GpuJob& job, ComputeStep& step, int phase, int attempt_index, int item_count, int substep_index);
 
 		// Bind and dispatch final rigid and articulation coordinate integration.
 		void DispatchApply(GpuJob& job, ID3D12Resource* bodies);

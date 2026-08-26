@@ -74,6 +74,7 @@ namespace pr::physics
 		std::vector<GpuArticulationSpatialVector> m_target_impulses;
 		std::vector<GpuCoupledConstraintIslandState> m_island_states;
 		std::vector<uint32_t> m_island_failures;
+		std::vector<GpuCoupledConstraintFailureState> m_frame_failures;
 		std::vector<GpuArticulationSpatialVector> m_link_impulses;
 		std::vector<uint32_t> m_tree_selection;
 		std::vector<uint32_t> m_tree_results;

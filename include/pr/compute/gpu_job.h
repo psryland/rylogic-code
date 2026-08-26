@@ -224,6 +224,16 @@ namespace pr::compute
 			handle = {};
 		}
 
+		// Submit and retire a partially recorded list so staged allocations and tracked resource states reach a completed fence boundary.
+		void RetireRecordedWork()
+		{
+			// Executing the valid prefix keeps CPU-side resource-state tracking consistent with the actual GPU state.
+			auto handle = Submit();
+
+			// Complete normally so transient allocations are reclaimed and the command list is reset for reuse.
+			Complete(handle);
+		}
+
 		// Run the job and block till complete.
 		void Run(RunProfile* profile = nullptr)
 		{

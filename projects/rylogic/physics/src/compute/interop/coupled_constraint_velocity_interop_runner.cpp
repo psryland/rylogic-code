@@ -28,6 +28,7 @@
 #define g_coupled_velocity_tree_results g_coupled_velocity_replay_tree_results
 #define g_coupled_velocity_island_failures g_coupled_velocity_replay_island_failures
 #define g_coupled_velocity_articulation_work g_coupled_velocity_replay_articulation_work
+#define g_coupled_velocity_frame_failures g_coupled_velocity_replay_frame_failures
 #include "src/compute/coupled_constraint_velocity.hlsl"
 
 namespace pr::physics
@@ -92,6 +93,7 @@ namespace pr::physics
 		m_target_impulses.resize(constraint_upload.m_coupled_targets.size());
 		m_island_states.resize(constraint_upload.m_coupled_islands.size());
 		m_island_failures.resize(constraint_upload.m_coupled_islands.size());
+		m_frame_failures.assign(constraint_upload.m_coupled_islands.size(), GpuCoupledConstraintFailureState{.substep_index = -1});
 		m_link_impulses.resize(mobility_count);
 		m_tree_selection.resize(constraint_upload.m_coupled_articulation_indices.size());
 		m_tree_results.resize(constraint_upload.m_coupled_articulation_indices.size());
@@ -116,6 +118,7 @@ namespace pr::physics
 			.attempt_index = 0,
 			.backtrack_limit = backtrack_limit,
 			.relaxation = relaxation,
+			.substep_index = 0,
 		};
 		g_coupled_velocity_bodies.assign(CoupledVelocitySpanOf(m_bodies));
 		g_coupled_velocity_endpoints.assign(CoupledVelocitySpanOf(constraint_upload.m_endpoints));
@@ -139,6 +142,7 @@ namespace pr::physics
 		g_coupled_velocity_tree_selection.assign(CoupledVelocitySpanOf(m_tree_selection));
 		g_coupled_velocity_tree_results.assign(CoupledVelocitySpanOf(m_tree_results));
 		g_coupled_velocity_articulation_work.assign(m_impulse_aba.Work());
+		g_coupled_velocity_frame_failures.assign(CoupledVelocitySpanOf(m_frame_failures));
 
 		hlsl::GpuEmulator begin(CSBeginCoupledVelocity, CSBeginCoupledVelocity_NumThreads);
 		hlsl::GpuEmulator build_warm_start(CSBuildCoupledVelocityWarmStart, CSBuildCoupledVelocityWarmStart_NumThreads);

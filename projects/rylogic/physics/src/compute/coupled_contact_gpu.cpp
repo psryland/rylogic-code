@@ -235,6 +235,7 @@ namespace pr::physics
 	bool GpuCoupledContactSolver::Upload(GpuJob& job, GpuArticulationUpload const& upload)
 	{
 		m_stats.m_dispatch_count = 0;
+		m_impulse_aba.ResetDispatchCount();
 		if (upload.m_articulations.empty())
 		{
 			Deactivate();
@@ -321,7 +322,6 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> materials,
 		float restitution_scale)
 	{
-		m_stats.m_dispatch_count = 0;
 		if (!m_active)
 			return;
 		if (!(dt > 0.0f) || !std::isfinite(dt))
@@ -362,6 +362,7 @@ namespace pr::physics
 		// Stable radix order gives every target a deterministic contiguous endpoint segment reused by all outer sweeps.
 		m_endpoint_sorter.Bind(job.m_cmd_list, 2 * m_max_contacts, m_r_endpoint_keys, m_r_endpoint_order);
 		m_endpoint_sorter.Sort(job.m_cmd_list);
+		m_stats.m_dispatch_count += m_endpoint_sorter.SortDispatchCount();
 		job.m_barriers.UAV(m_r_endpoint_keys.get());
 		job.m_barriers.UAV(m_r_endpoint_order.get());
 		job.m_barriers.Commit();
@@ -422,7 +423,7 @@ namespace pr::physics
 		DispatchApplyPosition(job);
 	}
 
-	// Return aggregate logical usage, retained storage, and dispatch cost for the latest substep.
+	// Return aggregate logical usage, retained storage, and dispatch cost for the complete current frame.
 	GpuCoupledContactStats GpuCoupledContactSolver::Stats() const
 	{
 		auto stats = m_stats;
@@ -433,7 +434,7 @@ namespace pr::physics
 		auto const mobility = m_mobility.Stats();
 		auto const impulse = m_impulse_aba.Stats();
 		auto const sort_bytes = m_endpoint_sorter.AllocatedBufferBytes();
-		stats.m_dispatch_count += mobility.m_dispatch_count + impulse.m_dispatch_count + m_endpoint_sorter.SortDispatchCount();
+		stats.m_dispatch_count += mobility.m_dispatch_count + impulse.m_dispatch_count;
 		stats.m_logical_bytes += mobility.m_logical_bytes + impulse.m_logical_buffer_bytes + sort_bytes;
 		stats.m_allocated_feature_bytes += mobility.m_allocated_feature_bytes + impulse.m_allocated_feature_bytes + sort_bytes;
 		return stats;

@@ -122,7 +122,7 @@ namespace pr::physics
 		// Apply converged pseudo state once to rigid transforms and articulation coordinates.
 		void ApplyPosition(GpuJob& job);
 
-		// Return aggregate logical usage, retained storage, and dispatch cost for the latest substep.
+		// Return aggregate logical usage, retained storage, and dispatch cost for the complete current frame.
 		GpuCoupledContactStats Stats() const;
 
 	private:

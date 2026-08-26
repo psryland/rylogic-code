@@ -13,6 +13,8 @@ public sealed class Engine :IDisposable
 	private readonly uint m_owner_thread_id;
 	private readonly HashSet<Shape> m_shapes;
 	private readonly HashSet<RigidBody> m_bodies;
+	private readonly HashSet<Articulation> m_articulations;
+	private readonly HashSet<PersistentConstraint> m_constraints;
 	private EngineSafeHandle? m_handle;
 
 	/// <summary>Adopt a newly-created native engine.</summary>
@@ -22,6 +24,8 @@ public sealed class Engine :IDisposable
 		m_owner_thread_id = owner_thread_id;
 		m_shapes = new HashSet<Shape>();
 		m_bodies = new HashSet<RigidBody>();
+		m_articulations = new HashSet<Articulation>();
+		m_constraints = new HashSet<PersistentConstraint>();
 		m_handle = new EngineSafeHandle(handle, runtime);
 	}
 
@@ -180,6 +184,68 @@ public sealed class Engine :IDisposable
 		return body;
 	}
 
+	/// <summary>Create a reduced-coordinate articulation from topologically ordered links and one joint per non-root link.</summary>
+	public unsafe Articulation CreateArticulation(ArticulationOptions options, IReadOnlyList<ArticulationLinkOptions> links, IReadOnlyList<ArticulationJointOptions> joints)
+	{
+		EnsureOwner();
+		if (options == null)
+			throw new ArgumentNullException(nameof(options));
+		if (links == null)
+			throw new ArgumentNullException(nameof(links));
+		if (joints == null)
+			throw new ArgumentNullException(nameof(joints));
+		if (links.Count == 0)
+			throw new ArgumentException("An articulation requires at least one root link.", nameof(links));
+		if (joints.Count != links.Count - 1)
+			throw new ArgumentException("An articulation requires exactly one joint for each non-root link.", nameof(joints));
+
+		var native_links = new Native.ArticulationLink[links.Count];
+		var native_joints = new Native.ArticulationJoint[joints.Count];
+		var shapes = new Shape[links.Count];
+
+		// Reject malformed topology and cross-engine shapes before native storage acquires any references.
+		for (var i = 0; i != links.Count; ++i)
+		{
+			var link = links[i] ?? throw new ArgumentException("Articulation link declarations cannot contain null entries.", nameof(links));
+			if (!ReferenceEquals(link.Shape.Engine, this))
+				throw new ArgumentException("Every articulation link shape must belong to this engine.", nameof(links));
+			if (i == 0 && link.ParentIndex != -1)
+				throw new ArgumentException("The first articulation link must be the root and have parent index -1.", nameof(links));
+			if (i != 0 && (link.ParentIndex < 0 || link.ParentIndex >= i))
+				throw new ArgumentException("Every non-root articulation link must reference an earlier parent link.", nameof(links));
+
+			shapes[i] = link.Shape;
+			native_links[i] = Native.ArticulationLink.From(link);
+		}
+		for (var i = 0; i != joints.Count; ++i)
+			native_joints[i] = Native.ArticulationJoint.From(joints[i] ?? throw new ArgumentException("Articulation joint declarations cannot contain null entries.", nameof(joints)));
+
+		var desc = Native.ArticulationDesc.From(options, links.Count);
+		fixed (Native.ArticulationLink* link_ptr = native_links)
+		fixed (Native.ArticulationJoint* joint_ptr = native_joints)
+		{
+			Native.Check(Native.Physics_ArticulationCreate(Handle, &desc, link_ptr, joint_ptr, out var handle));
+			var articulation = new Articulation(this, new ArticulationHandle(handle), shapes);
+			m_articulations.Add(articulation);
+			return articulation;
+		}
+	}
+
+	/// <summary>Create an engine-owned persistent D6 constraint between validated world, body, or articulation-link endpoints.</summary>
+	public unsafe PersistentConstraint CreateConstraint(D6ConstraintOptions options)
+	{
+		EnsureOwner();
+		if (options == null)
+			throw new ArgumentNullException(nameof(options));
+
+		ValidateConstraintEndpoints(options);
+		var desc = Native.D6Constraint.From(options);
+		Native.Check(Native.Physics_ConstraintCreateD6(Handle, &desc, out var handle));
+		var constraint = new PersistentConstraint(this, new PersistentConstraintHandle(handle));
+		m_constraints.Add(constraint);
+		return constraint;
+	}
+
 	/// <summary>Open an object wrapper for a body identity recovered from a checkpoint snapshot.</summary>
 	public unsafe RigidBody OpenBody(BodyHandle handle)
 	{
@@ -237,11 +303,14 @@ public sealed class Engine :IDisposable
 	}
 
 	/// <summary>Submit one simulation step without waiting for GPU completion.</summary>
-	public unsafe void BeginStep(float elapsed_seconds, double absolute_time_seconds = 0.0, ReadOnlySpan<BodyCommand> commands = default)
+	public unsafe void BeginStep(float elapsed_seconds, double absolute_time_seconds = 0.0, ReadOnlySpan<BodyCommand> commands = default, int substep_count = 1)
 	{
 		EnsureOwner();
+		if (substep_count <= 0)
+			throw new ArgumentOutOfRangeException(nameof(substep_count));
+
 		fixed (BodyCommand* command_ptr = commands)
-			Native.Check(Native.Physics_BeginStep(Handle, elapsed_seconds, absolute_time_seconds, command_ptr, (uint)commands.Length));
+			Native.Check(Native.Physics_BeginStepEx(Handle, elapsed_seconds, absolute_time_seconds, checked((uint)substep_count), command_ptr, (uint)commands.Length));
 	}
 
 	/// <summary>Wait for and unpack the pending simulation step.</summary>
@@ -252,11 +321,14 @@ public sealed class Engine :IDisposable
 	}
 
 	/// <summary>Submit and complete one simulation step synchronously.</summary>
-	public unsafe void Step(float elapsed_seconds, double absolute_time_seconds = 0.0, ReadOnlySpan<BodyCommand> commands = default)
+	public unsafe void Step(float elapsed_seconds, double absolute_time_seconds = 0.0, ReadOnlySpan<BodyCommand> commands = default, int substep_count = 1)
 	{
 		EnsureOwner();
+		if (substep_count <= 0)
+			throw new ArgumentOutOfRangeException(nameof(substep_count));
+
 		fixed (BodyCommand* command_ptr = commands)
-			Native.Check(Native.Physics_Step(Handle, elapsed_seconds, absolute_time_seconds, command_ptr, (uint)commands.Length));
+			Native.Check(Native.Physics_StepEx(Handle, elapsed_seconds, absolute_time_seconds, checked((uint)substep_count), command_ptr, (uint)commands.Length));
 	}
 
 	/// <summary>Return the number of body snapshots required for a complete copy.</summary>
@@ -329,8 +401,8 @@ public sealed class Engine :IDisposable
 	public unsafe void ReadCheckpoint(ReadOnlySpan<byte> checkpoint)
 	{
 		EnsureOwner();
-		if (m_shapes.Count != 0 || m_bodies.Count != 0)
-			throw new InvalidOperationException("Checkpoint restore requires an engine with no managed shape or body wrappers.");
+		if (m_shapes.Count != 0 || m_bodies.Count != 0 || m_articulations.Count != 0 || m_constraints.Count != 0)
+			throw new InvalidOperationException("Checkpoint restore requires an engine with no managed object wrappers.");
 
 		fixed (byte* checkpoint_ptr = checkpoint)
 			Native.Check(Native.Physics_CheckpointRead(Handle, checkpoint_ptr, (ulong)checkpoint.Length));
@@ -345,11 +417,19 @@ public sealed class Engine :IDisposable
 		EnsureOwner();
 		var bodies = new RigidBody[m_bodies.Count];
 		m_bodies.CopyTo(bodies);
+		var articulations = new Articulation[m_articulations.Count];
+		m_articulations.CopyTo(articulations);
+		var constraints = new PersistentConstraint[m_constraints.Count];
+		m_constraints.CopyTo(constraints);
 		var shapes = new Shape[m_shapes.Count];
 		m_shapes.CopyTo(shapes);
 
 		// Native destruction drains pending GPU work and owns all body/shape dependency ordering, including checkpoint-only objects.
 		Native.Check(Native.Physics_EngineDestroy(Handle));
+		foreach (var constraint in constraints)
+			constraint.ReleaseFromEngine();
+		foreach (var articulation in articulations)
+			articulation.ReleaseFromEngine();
 		foreach (var body in bodies)
 			body.ReleaseFromEngine();
 		foreach (var shape in shapes)
@@ -391,6 +471,49 @@ public sealed class Engine :IDisposable
 	internal void Remove(RigidBody body)
 	{
 		m_bodies.Remove(body);
+	}
+
+	/// <summary>Remove a disposed articulation from managed ownership tracking.</summary>
+	internal void Remove(Articulation articulation)
+	{
+		m_articulations.Remove(articulation);
+	}
+
+	/// <summary>Remove a disposed persistent constraint from managed ownership tracking.</summary>
+	internal void Remove(PersistentConstraint constraint)
+	{
+		m_constraints.Remove(constraint);
+	}
+
+	/// <summary>Resolve a stable body identity returned by native constraint state.</summary>
+	internal RigidBody ResolveBody(BodyHandle handle)
+	{
+		foreach (var body in m_bodies)
+		{
+			if (body.Handle == handle)
+				return body;
+		}
+		throw new InvalidOperationException("Native constraint state references a body without a managed owner.");
+	}
+
+	/// <summary>Resolve a stable articulation identity returned by native constraint state.</summary>
+	internal Articulation ResolveArticulation(ArticulationHandle handle)
+	{
+		foreach (var articulation in m_articulations)
+		{
+			if (articulation.Handle == handle)
+				return articulation;
+		}
+		throw new InvalidOperationException("Native constraint state references an articulation without a managed owner.");
+	}
+
+	/// <summary>Reject cross-engine constraint endpoints before native persistent storage changes.</summary>
+	internal void ValidateConstraintEndpoints(D6ConstraintOptions options)
+	{
+		if (options.FrameA.OwnerEngine != null && !ReferenceEquals(options.FrameA.OwnerEngine, this))
+			throw new ArgumentException("The first constraint endpoint belongs to a different engine.", nameof(options));
+		if (options.FrameB.OwnerEngine != null && !ReferenceEquals(options.FrameB.OwnerEngine, this))
+			throw new ArgumentException("The second constraint endpoint belongs to a different engine.", nameof(options));
 	}
 
 	/// <summary>Register a native shape handle as an owned object wrapper.</summary>

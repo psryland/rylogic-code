@@ -95,6 +95,7 @@ namespace pr::physics
 	struct BodyId;
 	struct ConstraintHandle;
 	struct ConstraintBreakEvent;
+	struct CoupledConstraintFailureEvent;
 	struct ArticulationId;
 	struct LinkHandle;
 	class Articulation;

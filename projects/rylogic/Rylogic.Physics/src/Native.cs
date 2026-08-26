@@ -7,11 +7,11 @@ using Rylogic.Maths;
 namespace Rylogic.Physics;
 
 /// <summary>Fixed-layout P/Invoke surface for the versioned native Physics ABI.</summary>
-internal static unsafe class Native
+internal static unsafe partial class Native
 {
 	internal const string Dll = "physics";
-	internal const uint ApiVersion = 0x00010000U;
-	internal const uint StructVersion = 1U;
+	internal const uint ApiVersion = 0x00020000U;
+	internal const uint StructVersion = 2U;
 	private static IntPtr m_module;
 
 	/// <summary>Load the configuration-appropriate native runtime before the first P/Invoke.</summary>
@@ -80,6 +80,16 @@ internal static unsafe class Native
 		internal float m_selective_refresh_closing_speed_slop;
 		internal float m_selective_refresh_support_alignment;
 		internal float m_selective_refresh_aabb_margin;
+		internal int m_max_collision_events;
+		internal int m_max_internal_substeps;
+		internal float m_constraint_relaxation;
+		internal float m_constraint_coupled_relaxation;
+		internal int m_constraint_coupled_backtrack_limit;
+		internal float m_constraint_position_relaxation;
+		internal float m_constraint_position_beta;
+		internal float m_constraint_max_position_speed;
+		internal float m_constraint_regularization;
+		internal float m_constraint_warm_start_factor;
 
 		/// <summary>Convert caller-facing options into the exact ABI layout.</summary>
 		internal static EngineConfig From(EngineOptions options)
@@ -128,6 +138,16 @@ internal static unsafe class Native
 				m_selective_refresh_closing_speed_slop = options.SelectiveRefreshClosingSpeedSlop,
 				m_selective_refresh_support_alignment = options.SelectiveRefreshSupportAlignment,
 				m_selective_refresh_aabb_margin = options.SelectiveRefreshAabbMargin,
+				m_max_collision_events = options.MaxCollisionEvents,
+				m_max_internal_substeps = options.MaxInternalSubsteps,
+				m_constraint_relaxation = options.ConstraintRelaxation,
+				m_constraint_coupled_relaxation = options.ConstraintCoupledRelaxation,
+				m_constraint_coupled_backtrack_limit = options.ConstraintCoupledBacktrackLimit,
+				m_constraint_position_relaxation = options.ConstraintPositionRelaxation,
+				m_constraint_position_beta = options.ConstraintPositionBeta,
+				m_constraint_max_position_speed = options.ConstraintMaxPositionSpeed,
+				m_constraint_regularization = options.ConstraintRegularization,
+				m_constraint_warm_start_factor = options.ConstraintWarmStartFactor,
 			};
 		}
 
@@ -177,6 +197,16 @@ internal static unsafe class Native
 				SelectiveRefreshClosingSpeedSlop = m_selective_refresh_closing_speed_slop,
 				SelectiveRefreshSupportAlignment = m_selective_refresh_support_alignment,
 				SelectiveRefreshAabbMargin = m_selective_refresh_aabb_margin,
+				MaxCollisionEvents = m_max_collision_events,
+				MaxInternalSubsteps = m_max_internal_substeps,
+				ConstraintRelaxation = m_constraint_relaxation,
+				ConstraintCoupledRelaxation = m_constraint_coupled_relaxation,
+				ConstraintCoupledBacktrackLimit = m_constraint_coupled_backtrack_limit,
+				ConstraintPositionRelaxation = m_constraint_position_relaxation,
+				ConstraintPositionBeta = m_constraint_position_beta,
+				ConstraintMaxPositionSpeed = m_constraint_max_position_speed,
+				ConstraintRegularization = m_constraint_regularization,
+				ConstraintWarmStartFactor = m_constraint_warm_start_factor,
 			};
 		}
 	}
@@ -351,8 +381,10 @@ internal static unsafe class Native
 	[DllImport(Dll)] internal static extern EStatus Physics_BodyStateSet(ulong engine, ulong body, BodyState* state);
 	[DllImport(Dll)] internal static extern EStatus Physics_CommandsApply(ulong engine, BodyCommand* commands, uint command_count);
 	[DllImport(Dll)] internal static extern EStatus Physics_BeginStep(ulong engine, float elapsed_seconds, double absolute_time_seconds, BodyCommand* commands, uint command_count);
+	[DllImport(Dll)] internal static extern EStatus Physics_BeginStepEx(ulong engine, float elapsed_seconds, double absolute_time_seconds, uint substep_count, BodyCommand* commands, uint command_count);
 	[DllImport(Dll)] internal static extern EStatus Physics_CompleteStep(ulong engine);
 	[DllImport(Dll)] internal static extern EStatus Physics_Step(ulong engine, float elapsed_seconds, double absolute_time_seconds, BodyCommand* commands, uint command_count);
+	[DllImport(Dll)] internal static extern EStatus Physics_StepEx(ulong engine, float elapsed_seconds, double absolute_time_seconds, uint substep_count, BodyCommand* commands, uint command_count);
 	[DllImport(Dll)] internal static extern EStatus Physics_SnapshotCopy(ulong engine, BodySnapshot* snapshots, uint capacity, out uint required);
 	[DllImport(Dll)] internal static extern EStatus Physics_EventsCopy(ulong engine, PhysicsEvent* events, uint capacity, out uint required);
 	[DllImport(Dll)] internal static extern EStatus Physics_DiagnosticsGet(ulong engine, Diagnostics* diagnostics);

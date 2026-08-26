@@ -48,9 +48,9 @@ namespace pr::physics
 
 namespace pr::physics
 {
-	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00010000U;
-	inline constexpr std::uint32_t PHYSICS_STRUCT_VERSION = 1U;
-	inline constexpr std::uint32_t PHYSICS_CHECKPOINT_VERSION = 2U;
+	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00020000U;
+	inline constexpr std::uint32_t PHYSICS_STRUCT_VERSION = 2U;
+	inline constexpr std::uint32_t PHYSICS_CHECKPOINT_VERSION = 3U;
 
 	// Reported in place of a compound child index when the shape involved has no child identity.
 	inline constexpr std::uint32_t PHYSICS_NO_CHILD = 0xFFFFFFFFU;
@@ -61,6 +61,8 @@ namespace pr::physics
 	using EngineHandle = std::uint64_t;
 	using ShapeHandle = std::uint64_t;
 	using BodyHandle = std::uint64_t;
+	using ArticulationHandle = std::uint64_t;
+	using PersistentConstraintHandle = std::uint64_t;
 
 	enum class EStatus : std::int32_t
 	{
@@ -93,6 +95,12 @@ namespace pr::physics
 		Event = 11,
 		Diagnostics = 12,
 		Material = 13,
+		ArticulationDesc = 14,
+		ArticulationLink = 15,
+		ArticulationJoint = 16,
+		ArticulationState = 17,
+		ArticulationLinkState = 18,
+		D6Constraint = 19,
 	};
 
 	enum class EMotionType : std::int32_t
@@ -129,6 +137,39 @@ namespace pr::physics
 		Contact = 0,
 		Wake = 1,
 		Sleep = 2,
+		ConstraintBreak = 3,
+		CoupledConstraintFailure = 4,
+	};
+
+	// Selects whether an articulation root is fixed to world or contributes a floating six-velocity base.
+	enum class EArticulationRoot : std::int32_t
+	{
+		Fixed = 0,
+		Floating = 1,
+	};
+
+	// Selects the scalar screw motion represented by one articulation joint coordinate.
+	enum class EArticulationAxis : std::int32_t
+	{
+		Revolute = 0,
+		Prismatic = 1,
+	};
+
+	// Selects the dynamics owner addressed by a persistent constraint endpoint.
+	enum class EConstraintEndpoint : std::int32_t
+	{
+		World = 0,
+		RigidBody = 1,
+		ArticulationLink = 2,
+	};
+
+	// Selects how one translational or rotational D6 coordinate contributes to the projected solve.
+	enum class EConstraintMode : std::int32_t
+	{
+		Free = 0,
+		Locked = 1,
+		Limited = 2,
+		Driven = 3,
 	};
 
 	enum class EBodyFlags : std::uint32_t
@@ -137,6 +178,31 @@ namespace pr::physics
 		Enabled = 1U << 0,
 		Sleeping = 1U << 1,
 		NeverSleep = 1U << 2,
+	};
+
+	// Bit flags controlling articulation participation and whole-tree sleeping.
+	enum class EArticulationFlags : std::uint32_t
+	{
+		None = 0,
+		Enabled = 1U << 0,
+		Sleeping = 1U << 1,
+		NeverSleep = 1U << 2,
+	};
+
+	// Bit flags controlling immutable per-link collision policy.
+	enum class EArticulationLinkFlags : std::uint32_t
+	{
+		None = 0,
+		CollideParent = 1U << 0,
+		CollideSelf = 1U << 1,
+	};
+
+	// Bit flags controlling persistent-constraint participation and connected-body collision policy.
+	enum class EConstraintFlags : std::uint32_t
+	{
+		None = 0,
+		Enabled = 1U << 0,
+		CollideConnected = 1U << 1,
 	};
 
 	struct StructHeader
@@ -218,6 +284,16 @@ namespace pr::physics
 		float selective_refresh_closing_speed_slop;
 		float selective_refresh_support_alignment;
 		float selective_refresh_aabb_margin;
+		std::int32_t max_collision_events;
+		std::int32_t max_internal_substeps;
+		float constraint_relaxation;
+		float constraint_coupled_relaxation;
+		std::int32_t constraint_coupled_backtrack_limit;
+		float constraint_position_relaxation;
+		float constraint_position_beta;
+		float constraint_max_position_speed;
+		float constraint_regularization;
+		float constraint_warm_start_factor;
 	};
 
 	struct MaterialProperties
@@ -322,6 +398,110 @@ namespace pr::physics
 		EBodyFlags flags;
 	};
 
+	// Immutable articulation topology metadata supplied with ordered link and joint arrays.
+	struct ArticulationDesc
+	{
+		StructHeader header;
+		Matrix4 root_to_world;
+		SpatialVector root_velocity;
+		std::uint64_t user_tag;
+		std::uint32_t link_count;
+		EArticulationRoot root_type;
+		EArticulationFlags flags;
+		std::uint32_t reserved;
+	};
+
+	// Immutable mass, shape, parent, and collision policy for one topologically ordered articulation link.
+	struct ArticulationLinkProperties
+	{
+		StructHeader header;
+		ShapeHandle shape;
+		InertiaProperties inertia;
+		Matrix4 shape_to_link;
+		std::int32_t parent_index;
+		EArticulationLinkFlags flags;
+	};
+
+	// Immutable reduced-coordinate joint joining ordered link i+1 to its earlier parent link.
+	struct ArticulationJointProperties
+	{
+		StructHeader header;
+		Matrix4 joint_to_parent;
+		Matrix4 joint_to_child;
+		Vector4 axes[6];
+		float initial_positions[6];
+		float initial_velocities[6];
+		EArticulationAxis axis_types[6];
+		std::uint32_t dof_count;
+		std::uint32_t reserved;
+	};
+
+	// Whole-tree mutable state plus the dimensions of the flattened non-root joint arrays.
+	struct ArticulationState
+	{
+		StructHeader header;
+		ArticulationHandle articulation;
+		Matrix4 root_to_world;
+		SpatialVector root_velocity;
+		SpatialVector root_force;
+		std::uint64_t user_tag;
+		std::uint32_t link_count;
+		std::uint32_t joint_dof_count;
+		EArticulationFlags flags;
+		std::uint32_t reserved;
+	};
+
+	// Current state and persistent external fields for one topologically indexed articulation link.
+	struct ArticulationLinkState
+	{
+		StructHeader header;
+		ArticulationHandle articulation;
+		std::uint32_t link_index;
+		std::int32_t parent_index;
+		ShapeHandle shape;
+		Matrix4 link_to_world;
+		SpatialVector velocity;
+		SpatialVector acceleration;
+		SpatialVector external_force;
+		Vector4 gravity;
+	};
+
+	// One endpoint-local constraint frame; object_handle is a body or articulation handle according to type.
+	struct ConstraintFrameProperties
+	{
+		EConstraintEndpoint type;
+		std::uint32_t link_index;
+		std::uint64_t object_handle;
+		Matrix4 constraint_to_body;
+	};
+
+	// Scalar D6 coordinate configuration using force units for linear rows and torque units for angular rows.
+	struct ConstraintAxisProperties
+	{
+		EConstraintMode mode;
+		float lower_limit;
+		float upper_limit;
+		float target_position;
+		float target_velocity;
+		float stiffness;
+		float damping;
+		float max_force;
+	};
+
+	// General persistent six-degree-of-freedom constraint between two stable engine-owned endpoints.
+	struct D6ConstraintProperties
+	{
+		StructHeader header;
+		ConstraintFrameProperties frame_a;
+		ConstraintFrameProperties frame_b;
+		ConstraintAxisProperties linear[3];
+		ConstraintAxisProperties angular[3];
+		float break_force;
+		float break_torque;
+		EConstraintFlags flags;
+		std::uint32_t reserved;
+	};
+
 	struct Event
 	{
 		StructHeader header;
@@ -341,6 +521,17 @@ namespace pr::physics
 		// events that are not contacts.
 		std::uint32_t child_a;
 		std::uint32_t child_b;
+		PersistentConstraintHandle constraint;
+		float break_force;
+		float break_torque;
+		std::int32_t substep_index;
+		std::uint32_t reserved;
+		std::uint32_t failure_flags;
+		std::int32_t failure_phase;
+		std::int32_t failure_island_index;
+		std::int32_t failure_iteration_count;
+		float failure_relaxation;
+		float failure_merit_change;
 	};
 
 	struct StepProfile
@@ -365,6 +556,89 @@ namespace pr::physics
 		double unpack_ms;
 	};
 
+	// Common work and storage accounting for one optional GPU feature lane.
+	struct FeatureResourceDiagnostics
+	{
+		std::int32_t dispatch_count;
+		std::uint32_t reserved;
+		std::uint64_t logical_bytes;
+		std::uint64_t allocated_bytes;
+	};
+
+	// Stable-slot, scratch, and break-latch costs for persistent constraints.
+	struct ConstraintFeatureDiagnostics
+	{
+		std::int32_t declared_count;
+		std::int32_t active_count;
+		std::int32_t breakable_count;
+		std::int32_t slot_capacity;
+		std::int32_t body_capacity;
+		std::int32_t break_capacity;
+		FeatureResourceDiagnostics resources;
+	};
+
+	// Packed topology and optional GPU resource costs for reduced-coordinate articulations.
+	struct ArticulationFeatureDiagnostics
+	{
+		std::int32_t articulation_count;
+		std::int32_t link_count;
+		std::int32_t dof_count;
+		std::int32_t position_count;
+		std::int32_t velocity_count;
+		std::int32_t articulation_capacity;
+		std::int32_t link_capacity;
+		std::int32_t dof_capacity;
+		std::int32_t position_capacity;
+		std::int32_t velocity_capacity;
+		FeatureResourceDiagnostics resources;
+	};
+
+	// Topology bounds and costs for articulation-coupled persistent constraints and contacts.
+	struct CoupledFeatureDiagnostics
+	{
+		std::int32_t constraint_count;
+		std::int32_t constraint_slot_capacity;
+		std::int32_t target_capacity;
+		std::int32_t island_capacity;
+		std::int32_t island_block_capacity;
+		std::int32_t contact_capacity;
+		std::int32_t contact_target_capacity;
+		std::int32_t contact_participant_capacity;
+		std::int32_t contact_tree_capacity;
+		std::uint32_t reserved;
+		FeatureResourceDiagnostics resources;
+	};
+
+	// Packed frame output, submission-boundary counts, and sole-readback accounting.
+	struct FrameOutputFeatureDiagnostics
+	{
+		std::int32_t body_count;
+		std::int32_t event_capacity;
+		std::int32_t articulation_count;
+		std::int32_t constraint_break_count;
+		std::int32_t coupled_failure_count;
+		std::int32_t dispatch_count;
+		std::int32_t readback_count;
+		std::uint32_t reserved1;
+		std::uint64_t logical_bytes;
+		std::uint64_t allocated_bytes;
+		std::uint64_t readback_bytes;
+	};
+
+	// First bounded failure from the most recently completed or rejected frame.
+	struct StepFailureDiagnostics
+	{
+		std::int32_t reason;
+		std::int32_t substep_index;
+		std::int32_t item_index;
+		std::int32_t status;
+		std::int32_t iteration_count;
+		std::uint32_t reserved;
+		std::uint64_t identity;
+		float residual;
+		std::uint32_t reserved1;
+	};
+
 	struct Diagnostics
 	{
 		StructHeader header;
@@ -378,8 +652,18 @@ namespace pr::physics
 		std::int32_t contact_count;
 		std::int32_t max_pairs;
 		std::int32_t max_contacts;
+		std::int32_t collision_event_count;
+		std::int32_t collision_event_capacity;
+		std::int32_t collision_event_overflow_substep;
 		std::int32_t step_pending;
 		std::int32_t device_removed_reason;
+		std::int32_t articulation_count;
+		std::int32_t constraint_count;
+		ConstraintFeatureDiagnostics constraints;
+		ArticulationFeatureDiagnostics articulations;
+		CoupledFeatureDiagnostics coupled;
+		FrameOutputFeatureDiagnostics frame_output;
+		StepFailureDiagnostics failure;
 	};
 
 	static_assert(std::is_standard_layout_v<Config>);
@@ -429,10 +713,30 @@ extern "C"
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_BodyStateSet(pr::physics::EngineHandle engine, pr::physics::BodyHandle body, pr::physics::BodyState const* state);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_CommandsApply(pr::physics::EngineHandle engine, pr::physics::BodyCommand const* commands, std::uint32_t command_count);
 
+	// Reduced-coordinate articulation creation, lifetime, state, and external fields.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ArticulationCreate(pr::physics::EngineHandle engine, pr::physics::ArticulationDesc const* desc, pr::physics::ArticulationLinkProperties const* links, pr::physics::ArticulationJointProperties const* joints, pr::physics::ArticulationHandle* articulation);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ArticulationDestroy(pr::physics::EngineHandle engine, pr::physics::ArticulationHandle articulation);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ArticulationStateGet(pr::physics::EngineHandle engine, pr::physics::ArticulationHandle articulation, pr::physics::ArticulationState* state, float* positions, float* velocities, float* accelerations, float* forces, std::uint32_t scalar_capacity, std::uint32_t* scalar_required);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ArticulationStateSet(pr::physics::EngineHandle engine, pr::physics::ArticulationHandle articulation, pr::physics::ArticulationState const* state, float const* positions, float const* velocities, float const* forces, std::uint32_t scalar_count);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ArticulationLinksCopy(pr::physics::EngineHandle engine, pr::physics::ArticulationHandle articulation, pr::physics::ArticulationLinkState* links, std::uint32_t capacity, std::uint32_t* required);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ArticulationLinkForceSet(pr::physics::EngineHandle engine, pr::physics::ArticulationHandle articulation, std::uint32_t link_index, pr::physics::SpatialVector const* force);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ArticulationLinkForceApply(pr::physics::EngineHandle engine, pr::physics::ArticulationHandle articulation, std::uint32_t link_index, pr::physics::SpatialVector const* force);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ArticulationLinkGravitySet(pr::physics::EngineHandle engine, pr::physics::ArticulationHandle articulation, std::uint32_t link_index, pr::physics::Vector4 const* gravity);
+
+	// Engine-owned persistent D6 constraints with explicit overload repair.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ConstraintCreateD6(pr::physics::EngineHandle engine, pr::physics::D6ConstraintProperties const* desc, pr::physics::PersistentConstraintHandle* constraint);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ConstraintGetD6(pr::physics::EngineHandle engine, pr::physics::PersistentConstraintHandle constraint, pr::physics::D6ConstraintProperties* desc, std::int32_t* broken);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ConstraintUpdateD6(pr::physics::EngineHandle engine, pr::physics::PersistentConstraintHandle constraint, pr::physics::D6ConstraintProperties const* desc);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ConstraintSetEnabled(pr::physics::EngineHandle engine, pr::physics::PersistentConstraintHandle constraint, std::int32_t enabled);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ConstraintRepair(pr::physics::EngineHandle engine, pr::physics::PersistentConstraintHandle constraint);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ConstraintDestroy(pr::physics::EngineHandle engine, pr::physics::PersistentConstraintHandle constraint);
+
 	// Split and synchronous stepping. Commands are applied before submission.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_BeginStep(pr::physics::EngineHandle engine, float elapsed_seconds, double absolute_time_seconds, pr::physics::BodyCommand const* commands, std::uint32_t command_count);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_BeginStepEx(pr::physics::EngineHandle engine, float elapsed_seconds, double absolute_time_seconds, std::uint32_t substep_count, pr::physics::BodyCommand const* commands, std::uint32_t command_count);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_CompleteStep(pr::physics::EngineHandle engine);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_Step(pr::physics::EngineHandle engine, float elapsed_seconds, double absolute_time_seconds, pr::physics::BodyCommand const* commands, std::uint32_t command_count);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_StepEx(pr::physics::EngineHandle engine, float elapsed_seconds, double absolute_time_seconds, std::uint32_t substep_count, pr::physics::BodyCommand const* commands, std::uint32_t command_count);
 
 	// Completed immutable state, buffered events, and diagnostics.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_SnapshotCopy(pr::physics::EngineHandle engine, pr::physics::BodySnapshot* snapshots, std::uint32_t capacity, std::uint32_t* required);

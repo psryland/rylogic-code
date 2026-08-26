@@ -38,6 +38,7 @@ namespace pr::physics
 			inline static constexpr auto TreeResults = EUAVReg::u9;
 			inline static constexpr auto IslandFailures = EUAVReg::u10;
 			inline static constexpr auto ArticulationWork = EUAVReg::u11;
+			inline static constexpr auto FrameFailures = EUAVReg::u12;
 		};
 
 		// Match the HLSL bounds and phase-mode constant buffer exactly.
@@ -56,7 +57,7 @@ namespace pr::physics
 			int m_attempt_index;
 			int m_backtrack_limit;
 			float m_relaxation;
-			float m_pad0;
+			int m_substep_index;
 			float m_pad1;
 			float m_pad2;
 		};
@@ -154,6 +155,7 @@ namespace pr::physics
 		,m_r_target_impulses()
 		,m_r_island_states()
 		,m_r_island_failures()
+		,m_r_frame_failures()
 		,m_r_tree_selection()
 		,m_r_tree_results()
 		,m_source()
@@ -190,6 +192,7 @@ namespace pr::physics
 			.UAV(EReg::TreeResults)
 			.UAV(EReg::IslandFailures)
 			.UAV(EReg::ArticulationWork)
+			.UAV(EReg::FrameFailures)
 			.Create(m_gpu, "Physics:CoupledConstraintVelocitySig");
 		m_cs_begin.m_sig = root_sig;
 		m_cs_begin.m_pso = ComputePSO(root_sig.get(), shader_code::begin_coupled_velocity).Create(m_gpu, "Physics:BeginCoupledVelocityPSO");
@@ -259,6 +262,22 @@ namespace pr::physics
 		UploadCoupledVelocityStream(job, m_r_islands.get(), std::span{upload.m_coupled_islands});
 		UploadCoupledVelocityStream(job, m_r_island_blocks.get(), std::span{upload.m_coupled_island_blocks});
 
+		// Clear the sticky frame stream once so later internal substeps preserve each island's first rejection.
+		job.m_barriers.Transition(m_r_frame_failures.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+		auto frame_failures = job.m_upload.Alloc<GpuCoupledConstraintFailureState>(m_island_count);
+		std::fill_n(frame_failures.ptr<GpuCoupledConstraintFailureState>(), m_island_count, GpuCoupledConstraintFailureState{
+			.failure_flags = GpuCoupledConstraintFailure_None,
+			.substep_index = -1,
+			.phase = -1,
+			.iteration_count = 0,
+			.relaxation = 0.0f,
+			.merit_change = 0.0f,
+			.status = GpuCoupledConstraintIslandStatus_Pending,
+			.pad0 = 0u,
+		});
+		job.m_cmd_list.CopyBufferRegion(m_r_frame_failures.get(), 0, frame_failures);
+		job.m_barriers.Transition(m_r_frame_failures.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+
 		m_stats.m_active_count = s_cast<int>(upload.m_coupled_active_count);
 		m_stats.m_logical_bytes =
 			static_cast<size_t>(m_slot_count) *
@@ -267,7 +286,7 @@ namespace pr::physics
 				(sizeof(GpuCoupledConstraintTarget) + sizeof(GpuArticulationSpatialVector)) +
 			static_cast<size_t>(m_adjacency_count) * sizeof(uint32_t) +
 			static_cast<size_t>(m_island_count) *
-				(sizeof(GpuCoupledConstraintIsland) + sizeof(GpuCoupledConstraintIslandState) + sizeof(uint32_t)) +
+				(sizeof(GpuCoupledConstraintIsland) + sizeof(GpuCoupledConstraintIslandState) + sizeof(GpuCoupledConstraintFailureState) + sizeof(uint32_t)) +
 			static_cast<size_t>(m_island_block_count) * sizeof(uint32_t) +
 			static_cast<size_t>(m_articulation_range_count) * 3 * sizeof(uint32_t);
 		m_stats.m_allocated_feature_bytes =
@@ -277,7 +296,7 @@ namespace pr::physics
 				(sizeof(GpuCoupledConstraintTarget) + sizeof(GpuArticulationSpatialVector)) +
 			static_cast<size_t>(m_stats.m_adjacency_capacity) * sizeof(uint32_t) +
 			static_cast<size_t>(m_stats.m_island_capacity) *
-				(sizeof(GpuCoupledConstraintIsland) + sizeof(GpuCoupledConstraintIslandState) + sizeof(uint32_t)) +
+				(sizeof(GpuCoupledConstraintIsland) + sizeof(GpuCoupledConstraintIslandState) + sizeof(GpuCoupledConstraintFailureState) + sizeof(uint32_t)) +
 			static_cast<size_t>(m_stats.m_island_block_capacity) * sizeof(uint32_t) +
 			static_cast<size_t>(m_stats.m_articulation_range_capacity) * 3 * sizeof(uint32_t);
 		return true;
@@ -296,21 +315,21 @@ namespace pr::physics
 		auto const work_count = std::max({m_slot_count, m_target_count, m_island_count, m_articulation_range_count, m_mobility_count});
 
 		// Retained rows are gathered and evaluated without mutation before complete islands are selected for one commit.
-		Dispatch(job, m_cs_begin, GpuCoupledConstraintPhase_Evaluate, 0, work_count, body_count, bodies);
-		Dispatch(job, m_cs_build_warm_start, GpuCoupledConstraintPhase_Evaluate, 0, m_slot_count, body_count, bodies);
-		Dispatch(job, m_cs_gather, GpuCoupledConstraintPhase_Evaluate, 0, m_target_count, body_count, bodies);
-		Dispatch(job, m_cs_select_trees, GpuCoupledConstraintPhase_Evaluate, 0, m_articulation_range_count, body_count, bodies);
+		Dispatch(job, m_cs_begin, GpuCoupledConstraintPhase_Evaluate, 0, work_count, body_count, bodies, -1);
+		Dispatch(job, m_cs_build_warm_start, GpuCoupledConstraintPhase_Evaluate, 0, m_slot_count, body_count, bodies, -1);
+		Dispatch(job, m_cs_gather, GpuCoupledConstraintPhase_Evaluate, 0, m_target_count, body_count, bodies, -1);
+		Dispatch(job, m_cs_select_trees, GpuCoupledConstraintPhase_Evaluate, 0, m_articulation_range_count, body_count, bodies, -1);
 		m_impulse_aba.Evaluate(job, m_r_tree_selection.get(), m_r_tree_results.get());
-		Dispatch(job, m_cs_validate_trees, GpuCoupledConstraintPhase_Evaluate, 0, m_articulation_range_count, body_count, bodies);
-		Dispatch(job, m_cs_validate_warm_start, GpuCoupledConstraintPhase_Evaluate, 0, m_island_count, body_count, bodies);
-		Dispatch(job, m_cs_select_trees, GpuCoupledConstraintPhase_CommitWarmStart, 0, m_articulation_range_count, body_count, bodies);
-		Dispatch(job, m_cs_commit, GpuCoupledConstraintPhase_CommitWarmStart, 0, work_count, body_count, bodies);
+		Dispatch(job, m_cs_validate_trees, GpuCoupledConstraintPhase_Evaluate, 0, m_articulation_range_count, body_count, bodies, -1);
+		Dispatch(job, m_cs_validate_warm_start, GpuCoupledConstraintPhase_Evaluate, 0, m_island_count, body_count, bodies, -1);
+		Dispatch(job, m_cs_select_trees, GpuCoupledConstraintPhase_CommitWarmStart, 0, m_articulation_range_count, body_count, bodies, -1);
+		Dispatch(job, m_cs_commit, GpuCoupledConstraintPhase_CommitWarmStart, 0, work_count, body_count, bodies, -1);
 		m_impulse_aba.Commit(job, m_r_tree_selection.get(), m_r_tree_results.get());
-		Dispatch(job, m_cs_finalize_islands, GpuCoupledConstraintPhase_CommitWarmStart, 0, m_island_count, body_count, bodies);
+		Dispatch(job, m_cs_finalize_islands, GpuCoupledConstraintPhase_CommitWarmStart, 0, m_island_count, body_count, bodies, -1);
 	}
 
 	// Execute one bounded-backtracking simultaneous coupled velocity sweep.
-	void GpuCoupledConstraintVelocity::Run(GpuJob& job, int body_count, ID3D12Resource* bodies)
+	void GpuCoupledConstraintVelocity::Run(GpuJob& job, int body_count, ID3D12Resource* bodies, int substep_index)
 	{
 		if (m_source == nullptr)
 			return;
@@ -326,22 +345,22 @@ namespace pr::physics
 		auto const work_count = std::max({m_slot_count, m_target_count, m_island_count, m_articulation_range_count, m_mobility_count});
 
 		// Every bounded attempt remains detached; accepted islands become no-ops while pending islands halve relaxation and retry.
-		Dispatch(job, m_cs_begin, GpuCoupledConstraintPhase_Evaluate, 0, work_count, body_count, bodies);
+		Dispatch(job, m_cs_begin, GpuCoupledConstraintPhase_Evaluate, 0, work_count, body_count, bodies, substep_index);
 		for (int attempt_index = 0; attempt_index != m_config.constraint_coupled_backtrack_limit + 1; ++attempt_index)
 		{
-			Dispatch(job, m_cs_candidates, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_slot_count, body_count, bodies);
-			Dispatch(job, m_cs_gather, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_target_count, body_count, bodies);
-			Dispatch(job, m_cs_select_trees, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_articulation_range_count, body_count, bodies);
+			Dispatch(job, m_cs_candidates, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_slot_count, body_count, bodies, substep_index);
+			Dispatch(job, m_cs_gather, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_target_count, body_count, bodies, substep_index);
+			Dispatch(job, m_cs_select_trees, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_articulation_range_count, body_count, bodies, substep_index);
 			m_impulse_aba.Evaluate(job, m_r_tree_selection.get(), m_r_tree_results.get());
-			Dispatch(job, m_cs_validate_trees, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_articulation_range_count, body_count, bodies);
-			Dispatch(job, m_cs_evaluate_merit, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_island_count, body_count, bodies);
+			Dispatch(job, m_cs_validate_trees, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_articulation_range_count, body_count, bodies, substep_index);
+			Dispatch(job, m_cs_evaluate_merit, GpuCoupledConstraintPhase_Evaluate, attempt_index, m_island_count, body_count, bodies, substep_index);
 		}
-		Dispatch(job, m_cs_select_trees, GpuCoupledConstraintPhase_CommitVelocity, m_config.constraint_coupled_backtrack_limit, m_articulation_range_count, body_count, bodies);
+		Dispatch(job, m_cs_select_trees, GpuCoupledConstraintPhase_CommitVelocity, m_config.constraint_coupled_backtrack_limit, m_articulation_range_count, body_count, bodies, substep_index);
 
 		// Rigid, row, and articulation state commit under the same accepted island selection.
-		Dispatch(job, m_cs_commit, GpuCoupledConstraintPhase_CommitVelocity, m_config.constraint_coupled_backtrack_limit, work_count, body_count, bodies);
+		Dispatch(job, m_cs_commit, GpuCoupledConstraintPhase_CommitVelocity, m_config.constraint_coupled_backtrack_limit, work_count, body_count, bodies, substep_index);
 		m_impulse_aba.Commit(job, m_r_tree_selection.get(), m_r_tree_results.get());
-		Dispatch(job, m_cs_finalize_islands, GpuCoupledConstraintPhase_CommitVelocity, m_config.constraint_coupled_backtrack_limit, m_island_count, body_count, bodies);
+		Dispatch(job, m_cs_finalize_islands, GpuCoupledConstraintPhase_CommitVelocity, m_config.constraint_coupled_backtrack_limit, m_island_count, body_count, bodies, substep_index);
 	}
 
 	// Prepare all dependent production lanes and read one coupled sweep through exactly one GPU submission.
@@ -459,6 +478,15 @@ namespace pr::physics
 		return m_stats;
 	}
 
+	// Return the complete stable island range so the frame gather can retain sparse failure slots.
+	GpuCoupledConstraintFailureOutput GpuCoupledConstraintVelocity::FailureOutput()
+	{
+		return GpuCoupledConstraintFailureOutput{
+			.m_states = m_r_frame_failures.get(),
+			.m_island_count = m_island_count,
+		};
+	}
+
 	// Release every optional coupled velocity resource when no coupled work remains.
 	void GpuCoupledConstraintVelocity::ReleaseBuffers()
 	{
@@ -473,6 +501,7 @@ namespace pr::physics
 		m_r_target_impulses = nullptr;
 		m_r_island_states = nullptr;
 		m_r_island_failures = nullptr;
+		m_r_frame_failures = nullptr;
 		m_r_tree_selection = nullptr;
 		m_r_tree_results = nullptr;
 		m_source = nullptr;
@@ -512,6 +541,7 @@ namespace pr::physics
 			m_r_islands = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledConstraintIsland>(m_stats.m_island_capacity, {}).usage(EUsage::Default), cmd_list, "Physics:CoupledVelocityIslands");
 			m_r_island_states = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledConstraintIslandState>(m_stats.m_island_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledVelocityIslandStates");
 			m_r_island_failures = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(m_stats.m_island_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledVelocityIslandFailures");
+			m_r_frame_failures = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledConstraintFailureState>(m_stats.m_island_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledVelocityFrameFailures");
 		}
 		EnsureCoupledVelocityBuffer<uint32_t>(m_gpu, cmd_list, m_r_island_blocks, m_island_block_count, m_stats.m_island_block_capacity, EUsage::Default, "Physics:CoupledVelocityIslandBlocks");
 
@@ -532,7 +562,8 @@ namespace pr::physics
 		int attempt_index,
 		int item_count,
 		int body_count,
-		ID3D12Resource* bodies)
+		ID3D12Resource* bodies,
+		int substep_index)
 	{
 		if (item_count <= 0)
 			return;
@@ -552,6 +583,7 @@ namespace pr::physics
 			.m_attempt_index = attempt_index,
 			.m_backtrack_limit = m_config.constraint_coupled_backtrack_limit,
 			.m_relaxation = m_config.constraint_coupled_relaxation,
+			.m_substep_index = substep_index,
 		};
 		auto& constraints = m_prepare.m_constraints;
 		auto& aba = m_impulse_aba.m_aba;
@@ -580,6 +612,7 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_tree_results->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_island_failures->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_impulse_aba.Work()->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_frame_failures->GetGPUVirtualAddress());
 		job.m_cmd_list.Dispatch(CoupledVelocityThreadGroupCount(item_count), 1, 1);
 		++m_stats.m_dispatch_count;
 		CommitUavBarriers(job, bodies);
@@ -612,6 +645,7 @@ namespace pr::physics
 		job.m_barriers.Transition(m_r_tree_results.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_island_failures.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_impulse_aba.Work(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_r_frame_failures.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Commit();
 	}
 
@@ -631,6 +665,7 @@ namespace pr::physics
 		job.m_barriers.UAV(m_r_tree_results.get());
 		job.m_barriers.UAV(m_r_island_failures.get());
 		job.m_barriers.UAV(m_impulse_aba.Work());
+		job.m_barriers.UAV(m_r_frame_failures.get());
 		job.m_barriers.Commit();
 	}
 }

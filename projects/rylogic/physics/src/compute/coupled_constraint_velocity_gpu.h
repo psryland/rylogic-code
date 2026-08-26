@@ -12,6 +12,13 @@ namespace pr::physics
 	struct GpuCoupledConstraintPosition;
 	struct GpuCoupledConstraintSolver;
 
+	// GPU-resident first-failure stream appended to the owning frame's sole readback.
+	struct GpuCoupledConstraintFailureOutput
+	{
+		ID3D12Resource* m_states = nullptr;
+		int m_island_count = 0;
+	};
+
 	// Observable resource and dispatch costs for the optional coupled velocity lane.
 	struct GpuCoupledConstraintVelocityStats
 	{
@@ -71,6 +78,7 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_r_target_impulses;
 		D3DPtr<ID3D12Resource> m_r_island_states;
 		D3DPtr<ID3D12Resource> m_r_island_failures;
+		D3DPtr<ID3D12Resource> m_r_frame_failures;
 		D3DPtr<ID3D12Resource> m_r_tree_selection;
 		D3DPtr<ID3D12Resource> m_r_tree_results;
 		ConstraintSet const* m_source;
@@ -95,7 +103,10 @@ namespace pr::physics
 		void ApplyWarmStart(GpuJob& job, int body_count, ID3D12Resource* bodies);
 
 		// Execute one bounded-backtracking simultaneous coupled velocity sweep.
-		void Run(GpuJob& job, int body_count, ID3D12Resource* bodies);
+		void Run(GpuJob& job, int body_count, ID3D12Resource* bodies, int substep_index = 0);
+
+		// Return the frame-sticky per-island failure stream without exposing solver-owned resource lifetime.
+		GpuCoupledConstraintFailureOutput FailureOutput();
 
 		// Prepare all dependent production lanes and read one coupled sweep through exactly one GPU submission.
 		GpuCoupledConstraintVelocityResult Solve(
@@ -120,7 +131,7 @@ namespace pr::physics
 		void ResizeBuffers(CmdList& cmd_list);
 
 		// Bind one coupled phase against the complete stable resource layout.
-		void Dispatch(GpuJob& job, ComputeStep& step, int phase, int attempt_index, int item_count, int body_count, ID3D12Resource* bodies);
+		void Dispatch(GpuJob& job, ComputeStep& step, int phase, int attempt_index, int item_count, int body_count, ID3D12Resource* bodies, int substep_index);
 
 		// Transition the common coupled resources into the states required by a coupled shader phase.
 		void PrepareResources(GpuJob& job, ID3D12Resource* bodies);

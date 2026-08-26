@@ -117,6 +117,81 @@ namespace pr::physics::tests
 			}
 		}
 
+		// Verify a pre-submit callback failure retires recorded GPU work and leaves the engine reusable.
+		PRUnitTestMethod(RecordingFailureRetiresGpuWork, Extended)
+		{
+			auto shape = collision::ShapeSphere{0.25f};
+			auto body = MakeSubstepSphere(shape, m4x4::Translation(0, 0, 1));
+			auto bodies = std::array<RigidBody*, 1>{&body};
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			auto callback_count = 0;
+			engine.ExternalForces += [&](Engine&, Engine::ExternalForceArgs const& args)
+			{
+				++callback_count;
+				if (args.m_substep_index == 1)
+					throw std::runtime_error("Intentional later-substep recording failure");
+			};
+
+			// The failed frame must retire one complete substep before rejecting the next recorded pass.
+			PR_THROWS(engine.Step(Engine::StepInput{
+				.m_bodies = bodies,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+				.m_substep_count = 2,
+			}), std::runtime_error);
+			PR_EXPECT(callback_count == 2);
+
+			// A clean frame proves command-list, resource-state, and engine pending-state recovery.
+			engine.ExternalForces.reset();
+			engine.Step(Engine::StepInput{
+				.m_bodies = bodies,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+				.m_substep_count = 2,
+			});
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+		}
+
+		// A collision observer that rejects publication must not leave its solved contact impulses available to the retry.
+		PRUnitTestMethod(CompletionFailureInvalidatesContactWarmStart, Extended)
+		{
+			auto shape = collision::ShapeSphere{0.5f};
+			auto const initial_a = MakeSubstepSphere(shape, m4x4::Translation(-0.4f, 0, 0), v8motion{v4::Zero(), +v4::XAxis()});
+			auto const initial_b = MakeSubstepSphere(shape, m4x4::Translation(+0.4f, 0, 0), v8motion{v4::Zero(), -v4::XAxis()});
+			auto retry_a = initial_a;
+			auto retry_b = initial_b;
+			auto retry_bodies = std::array<RigidBody*, 2>{&retry_a, &retry_b};
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			engine.Collisions += [](Engine&, std::span<RbContact const>)
+			{
+				throw std::runtime_error("Intentional pre-publication collision rejection");
+			};
+
+			PR_THROWS(engine.Step(Engine::StepInput{
+				.m_bodies = retry_bodies,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			}), std::runtime_error);
+			engine.Collisions.reset();
+			engine.Step(Engine::StepInput{
+				.m_bodies = retry_bodies,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+
+			// A fresh cache and identical initial state define the retry result when no rejected warm start leaks through.
+			auto reference_a = initial_a;
+			auto reference_b = initial_b;
+			auto reference_bodies = std::array<RigidBody*, 2>{&reference_a, &reference_b};
+			ResetEngineForNextTest(engine);
+			engine.Step(Engine::StepInput{
+				.m_bodies = reference_bodies,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+			ExpectSubstepBodyState(retry_a, reference_a, 1.0e-6f);
+			ExpectSubstepBodyState(retry_b, reference_b, 1.0e-6f);
+		}
+
 		// Verify immutable CPU-authored frame forces are restored before every internal integration pass.
 		PRUnitTestMethod(FrameForcesMatchRepeatedExternalSteps, Quick)
 		{

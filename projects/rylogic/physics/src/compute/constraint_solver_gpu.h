@@ -13,6 +13,21 @@ namespace pr::physics
 	struct GpuCoupledConstraintPosition;
 	struct GpuCoupledConstraintVelocity;
 
+	// Observable stable-slot storage and dispatch costs for the optional persistent-constraint lane.
+	struct GpuConstraintSolverStats
+	{
+		int m_slot_count;
+		int m_active_count;
+		int m_breakable_count;
+		int m_slot_capacity;
+		int m_body_capacity;
+		int m_break_capacity;
+		int m_dispatch_count;
+		int m_pad0;
+		size_t m_logical_bytes;
+		size_t m_allocated_feature_bytes;
+	};
+
 	// Optional stable-slot overload stream copied into the frame's single packed readback.
 	struct GpuConstraintBreakOutput
 	{
@@ -55,6 +70,8 @@ namespace pr::physics
 		int m_slot_count;
 		int m_active_count;
 		int m_breakable_count;
+		int m_body_count;
+		int m_dispatch_count;
 		float m_previous_timestep;
 		float m_frame_warm_start_scale;
 		bool m_retain_current_impulses;
@@ -97,6 +114,9 @@ namespace pr::physics
 
 		// True when the most recently uploaded set contains enabled independent rigid constraints.
 		bool Active() const;
+
+		// Return current logical usage, retained capacities, and the most recent frame dispatch count.
+		GpuConstraintSolverStats Stats() const;
 
 		// Invalidate retained frame timing when a step does not submit this optional solver lane.
 		void Deactivate();
