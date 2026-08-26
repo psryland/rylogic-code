@@ -74,6 +74,33 @@ public abstract class Common
 	public virtual void Build() { }
 	public virtual void Deploy() { }
 	public virtual void Publish() { }
+
+	// Restores package references for every configuration that the subsequent build will use.
+	public static void DotNetRestore(string sln_or_proj, IList<string> configs)
+	{
+		if (!BuildOptions.Restore)
+		{
+			Console.WriteLine($"Nuget restore skipped: {sln_or_proj}");
+			return;
+		}
+
+		// MSBuild restore needs the same discovered Visual Studio environment as compilation.
+		Tools.SetupVcEnvironment();
+
+		// Restore each requested configuration once because conditional package references can differ between Debug and Release.
+		foreach (var config in configs.Distinct(StringComparer.OrdinalIgnoreCase))
+		{
+			var restore_key = $"{sln_or_proj}|{config}";
+			if (m_restored.Contains(restore_key))
+				continue;
+
+			// Restore through MSBuild so project and solution imports are evaluated consistently.
+			Console.WriteLine($"Nuget restore: {sln_or_proj} ({config})");
+			Tools.Run([UserVars.MSBuild, sln_or_proj, "/t:restore", $"/p:Configuration={config}", "/verbosity:minimal", "/nologo"]);
+			m_restored.Add(restore_key);
+		}
+	}
+	private static List<string> m_restored = [];
 }
 
 // Options parsed from the Build.csx command line.
@@ -175,32 +202,6 @@ public abstract class Managed : Common
 		}
 	}
 
-	// Restores managed package references for every configuration that the subsequent build will use.
-	public static void DotNetRestore(string sln_or_proj, IList<string> configs)
-	{
-		if (!BuildOptions.Restore)
-		{
-			Console.WriteLine($"Nuget restore skipped: {sln_or_proj}");
-			return;
-		}
-
-		// MSBuild restore needs the same discovered Visual Studio environment as compilation.
-		Tools.SetupVcEnvironment();
-
-		// Restore each requested configuration once because conditional package references can differ between Debug and Release.
-		foreach (var config in configs.Distinct(StringComparer.OrdinalIgnoreCase))
-		{
-			var restore_key = $"{sln_or_proj}|{config}";
-			if (m_restored.Contains(restore_key))
-				continue;
-
-			// Restore through MSBuild so project and solution imports are evaluated consistently.
-			Console.WriteLine($"Nuget restore: {sln_or_proj} ({config})");
-			Tools.Run([UserVars.MSBuild, sln_or_proj, "/t:restore", $"/p:Configuration={config}", "/verbosity:minimal", "/nologo"]);
-			m_restored.Add(restore_key);
-		}
-	}
-	private static List<string> m_restored = [];
 }
 
 // Audio
@@ -247,6 +248,8 @@ public class Compute : Native
 	}
 	public override void Build()
 	{
+		// Restore DXC before native compilation because its imported PackageReference owns the compiler runtime files.
+		DotNetRestore(ProjFile, Configs);
 		Tools.MSBuild(RylogicSln, [@"Rylogic\compute"], Platforms, Configs);
 	}
 	public override void Deploy()
@@ -306,6 +309,8 @@ public class View3d : Native
 	}
 	public override void Build()
 	{
+		// Restore DXC before native compilation because both View3D projects consume its runtime files.
+		DotNetRestore(ProjFile, Configs);
 		Tools.MSBuild(RylogicSln, [@"Rylogic\view3d-12"], Platforms, Configs);
 		Tools.MSBuild(RylogicSln, [@"Rylogic\view3d-12.dll"], Platforms, Configs);
 	}
