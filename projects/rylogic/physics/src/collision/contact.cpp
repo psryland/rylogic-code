@@ -9,6 +9,26 @@
 
 namespace pr::physics
 {
+	namespace
+	{
+		// Copy the geometric and material fields shared by transient resolver contacts and compact public events.
+		template <typename Contact> void AssignGpuContact(RbContact& output, Contact const& contact)
+		{
+			output.m_axis = contact.axis;
+			output.m_manifold = {};
+			output.m_feature = static_cast<collision::EFeature>(contact.feature);
+			for (int i = 0, iend = output.Count(); i != iend; ++i)
+				output.m_manifold[i] = contact.manifold[i];
+			if (output.Count() == 0)
+				output.SetPoint(contact.contact_point);
+			output.m_depth = contact.depth;
+			output.m_mat_idA = contact.mat_id_a;
+			output.m_mat_idB = contact.mat_id_b;
+			output.m_child_idA = contact.child_idx_a;
+			output.m_child_idB = contact.child_idx_b;
+		}
+	}
+
 	RbContact::RbContact()
 		: m_b2a()
 		, m_velocity()
@@ -32,19 +52,15 @@ namespace pr::physics
 	RbContact::RbContact(RigidBody const& objA, RigidBody const& objB, GpuResolveContact const& contact)
 		:RbContact(objA, objB)
 	{
-		// Copy geometric data from GPU contact (already in objA's space)
-		m_axis = contact.axis;
-		m_manifold = {};
-		m_feature = static_cast<collision::EFeature>(contact.feature);
-		for (int i = 0, iend = Count(); i != iend; ++i)
-			m_manifold[i] = contact.manifold[i];
-		if (Count() == 0)
-			SetPoint(contact.contact_point);
-		m_depth = contact.depth;
-		m_mat_idA = contact.mat_id_a;
-		m_mat_idB = contact.mat_id_b;
-		m_child_idA = contact.child_idx_a;
-		m_child_idB = contact.child_idx_b;
+		AssignGpuContact(*this, contact);
+	}
+
+	// Construct a public contact from the compact frame event stream.
+	RbContact::RbContact(RigidBody const& objA, RigidBody const& objB, GpuCollisionEvent const& collision_event)
+		:RbContact(objA, objB)
+	{
+		AssignGpuContact(*this, collision_event);
+		m_substep_index = collision_event.substep_index;
 	}
 
 	// Adjust the collision data to the given sub-step time.

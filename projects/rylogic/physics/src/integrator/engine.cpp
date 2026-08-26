@@ -707,7 +707,7 @@ namespace pr::physics
 		if (m_cache->BodyCount() != 0)
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_upload_ms>(m_last_step_profile);
-			Upload();
+			Upload(input.m_substep_count > 1);
 		}
 
 		// Shared stable-slot streams back both the independent and articulation-coupled constraint lanes.
@@ -791,12 +791,12 @@ namespace pr::physics
 		{
 			if (m_cache->BodyCount() != 0)
 			{
-				// Upload resets the first substep counters; later substeps reset only transient collision state.
+				// Upload supplies the first substep's counters and working forces; later substeps restore both transient inputs.
 				if (substep_index != 0)
+				{
 					m_gpu_integrator->ResetCounters(m_gpu->m_job);
-
-				// Restore CPU frame-constant inputs before GPU modules add state-dependent forces.
-				m_gpu_integrator->SeedWorkingForces(m_gpu->m_job, m_cache->BodyCount());
+					m_gpu_integrator->SeedWorkingForces(m_gpu->m_job, m_cache->BodyCount());
+				}
 				{
 					auto profile_scope = ProfileScope<&Engine::StepProfile::m_external_forces_ms>(m_last_step_profile);
 					auto const substep_time_s = input.m_time_s + static_cast<double>(dt) * substep_index;
@@ -973,7 +973,7 @@ namespace pr::physics
 		}
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_upload_ms>(m_last_step_profile);
-			Upload();
+			Upload(false);
 		}
 		m_gpu_frame_output->BeginFrame(m_gpu->m_job, m_cache->RigidBodyCount(), 0, 1);
 		{
@@ -1024,10 +1024,10 @@ namespace pr::physics
 		m_cache->FinaliseRigidBodyPack();
 	}
 
-	// Upload staged body data into GPU buffers for the current frame.
-	void Engine::Upload()
+	// Upload staged body data and retain immutable forces only when later internal substeps need them.
+	void Engine::Upload(bool retain_frame_forces)
 	{
-		m_gpu_integrator->Upload(m_gpu->m_job, m_cache->m_rb_dynamics);
+		m_gpu_integrator->Upload(m_gpu->m_job, m_cache->m_rb_dynamics, retain_frame_forces);
 		m_gpu_sleep_manager->Upload(m_gpu->m_job, m_cache->m_sleep_islands);
 
 		// The broadphase reads shape data to expand compound bodies into their convex leaves, so shapes
@@ -1281,6 +1281,7 @@ namespace pr::physics
 			substep_index,
 			substep_count,
 			collect_events,
+			m_coupled_contacts_active,
 			counters.get(),
 			contacts.get(),
 			contact_order,
@@ -1514,12 +1515,10 @@ namespace pr::physics
 			for (int event_index = 0; event_index != event_count; ++event_index)
 			{
 				auto const& collision_event = events[event_index];
-				auto const& contact = collision_event.contact;
-				if (contact.body_idx_a < 0 || contact.body_idx_a >= body_count || contact.body_idx_b < 0 || contact.body_idx_b >= body_count)
+				if (collision_event.body_idx_a < 0 || collision_event.body_idx_a >= body_count || collision_event.body_idx_b < 0 || collision_event.body_idx_b >= body_count)
 					throw std::runtime_error("GPU frame output returned an invalid collision endpoint");
 
-				auto& cpu_contact = m_cache->m_contacts_cpu.emplace_back(*rigid_bodies[contact.body_idx_a], *rigid_bodies[contact.body_idx_b], contact);
-				cpu_contact.m_substep_index = collision_event.substep_index;
+				m_cache->m_contacts_cpu.emplace_back(*rigid_bodies[collision_event.body_idx_a], *rigid_bodies[collision_event.body_idx_b], collision_event);
 			}
 
 			Collisions(*this, m_cache->m_contacts_cpu);

@@ -16,7 +16,7 @@ struct cbFrameOutput
 	int max_pairs;
 	int max_contacts;
 	int event_capacity;
-	int collect_events;
+	int filter_hidden_proxies;
 	int substep_index;
 	int substep_count;
 	int body_count;
@@ -35,7 +35,6 @@ RWStructuredBuffer<GpuFrameOutputHeader> resource(g_header, u3);
 RWStructuredBuffer<GpuSubstepOutputState> resource(g_substep_state, u4);
 RWStructuredBuffer<GpuCollisionEvent> resource(g_events, u5);
 RWStructuredBuffer<GpuRigidBody> resource(g_bodies, u6);
-RWStructuredBuffer<GpuRigidBody> resource(g_output_bodies, u7);
 RWStructuredBuffer<GpuArticulation> resource(g_articulations, u8);
 RWStructuredBuffer<GpuArticulationIntegrationState> resource(g_articulation_states, u9);
 RWStructuredBuffer<float> resource(g_articulation_positions, u10);
@@ -46,12 +45,10 @@ RWStructuredBuffer<float> resource(g_output_positions, u14);
 RWStructuredBuffer<float> resource(g_output_velocities, u15);
 RWStructuredBuffer<float> resource(g_output_accelerations, u16);
 
-// Retain capacity diagnostics and reset the per-substep event range before transient collision buffers are reused.
-numthreads(CSPrepareSubstepOutput, 1, 1, 1)
-void CSPrepareSubstepOutput(int3 DTID(dtid))
+// Snapshot capacity diagnostics and initialise the deterministic event range for one completed substep.
+void PrepareSubstepState(inout GpuFrameOutputHeader header, inout GpuSubstepOutputState state)
 {
 	GpuCollisionCounters counters = g_counters[0];
-	GpuFrameOutputHeader header = g_header[0];
 	int pair_count = max(counters.pair_count, 0);
 	int contact_count = max(counters.contact_count, 0);
 
@@ -64,33 +61,48 @@ void CSPrepareSubstepOutput(int3 DTID(dtid))
 	if (header.contact_limit_substep < 0 && g.max_contacts > 0 && contact_count >= g.max_contacts)
 		header.contact_limit_substep = g.substep_index;
 
-	g_header[0] = header;
-	g_substep_state[0] = (GpuSubstepOutputState)0;
-	g_substep_state[0].substep_index = g.substep_index;
+	state = (GpuSubstepOutputState)0;
+	state.substep_index = g.substep_index;
 }
 
-// Compact rigid-only contacts and reserve their deterministic contiguous range in the optional event stream.
+// Retain capacity diagnostics without binding optional resolver-owned event resources.
+numthreads(CSPrepareSubstepOutput, 1, 1, 1)
+void CSPrepareSubstepOutput(int3 DTID(dtid))
+{
+	GpuFrameOutputHeader header = g_header[0];
+	GpuSubstepOutputState state = (GpuSubstepOutputState)0;
+	PrepareSubstepState(header, state);
+	g_header[0] = header;
+	g_substep_state[0] = state;
+}
+
+// Snapshot counters, compact public contacts when hidden proxies exist, and reserve one deterministic event range.
 numthreads(CSCompactCollisionEvents, 1, 1, 1)
 void CSCompactCollisionEvents(int3 DTID(dtid))
 {
 	GpuFrameOutputHeader header = g_header[0];
+	GpuSubstepOutputState state = (GpuSubstepOutputState)0;
+	PrepareSubstepState(header, state);
 	int contact_count = max(header.final_counters.contact_count, 0);
 	int retained_contacts = min(contact_count, g.max_contacts);
 
-	// The public collision callback currently addresses caller-owned rigid bodies. Compact that subset in place so hidden proxy indices never escape through
-	// the rigid-only event ABI; a dedicated articulation-contact event surface can be added without changing this safety boundary.
-	int rigid_contact_count = 0;
-	for (int contact_order_index = 0; contact_order_index != retained_contacts; ++contact_order_index)
+	// Rigid-only contact order is already public. Articulation frames compact the rigid subset so hidden proxy indices never escape through this ABI.
+	int rigid_contact_count = retained_contacts;
+	if (g.filter_hidden_proxies != 0)
 	{
-		int contact_index = (int)g_contact_order[contact_order_index];
-		if (contact_index < 0 || contact_index >= g.max_contacts)
-			continue;
+		rigid_contact_count = 0;
+		for (int contact_order_index = 0; contact_order_index != retained_contacts; ++contact_order_index)
+		{
+			int contact_index = (int)g_contact_order[contact_order_index];
+			if (contact_index < 0 || contact_index >= g.max_contacts)
+				continue;
 
-		GpuResolveContact contact = g_contacts[contact_index];
-		if (
-			contact.body_idx_a >= 0 && contact.body_idx_a < g.body_count &&
-			contact.body_idx_b >= 0 && contact.body_idx_b < g.body_count)
-			g_contact_order[rigid_contact_count++] = (uint)contact_index;
+			GpuResolveContact contact = g_contacts[contact_index];
+			if (
+				contact.body_idx_a >= 0 && contact.body_idx_a < g.body_count &&
+				contact.body_idx_b >= 0 && contact.body_idx_b < g.body_count)
+				g_contact_order[rigid_contact_count++] = (uint)contact_index;
+		}
 	}
 
 	int event_base = header.event_count;
@@ -105,8 +117,9 @@ void CSCompactCollisionEvents(int3 DTID(dtid))
 	header.event_count = event_base + event_count;
 
 	g_header[0] = header;
-	g_substep_state[0].event_base = event_base;
-	g_substep_state[0].event_count = event_count;
+	state.event_base = event_base;
+	state.event_count = event_count;
+	g_substep_state[0] = state;
 }
 
 // Copy resolved contacts in their deterministic solver order into the frame-wide event stream.
@@ -122,21 +135,22 @@ void CSAppendCollisionEvents(int3 DTID(dtid))
 	if (contact_index < 0 || contact_index >= g.max_contacts)
 		return;
 
+	GpuResolveContact contact = g_contacts[contact_index];
 	GpuCollisionEvent collision_event = (GpuCollisionEvent)0;
-	collision_event.contact = g_contacts[contact_index];
+	collision_event.axis = contact.axis;
+	collision_event.contact_point = contact.contact_point;
+	for (int manifold_index = 0; manifold_index != GpuContactMaxPoints; ++manifold_index)
+		collision_event.manifold[manifold_index] = contact.manifold[manifold_index];
+	collision_event.body_idx_a = contact.body_idx_a;
+	collision_event.body_idx_b = contact.body_idx_b;
+	collision_event.mat_id_a = contact.mat_id_a;
+	collision_event.mat_id_b = contact.mat_id_b;
+	collision_event.depth = contact.depth;
+	collision_event.feature = contact.feature;
+	collision_event.child_idx_a = contact.child_idx_a;
+	collision_event.child_idx_b = contact.child_idx_b;
 	collision_event.substep_index = state.substep_index;
 	g_events[state.event_base + local_index] = collision_event;
-}
-
-// Gather final body state into the contiguous output allocation after all substeps complete.
-numthreads(CSGatherFrameBodies, FrameOutputThreadCount, 1, 1)
-void CSGatherFrameBodies(int3 DTID(dtid))
-{
-	int body_index = dtid.x;
-	if (body_index >= g.body_count)
-		return;
-
-	g_output_bodies[body_index] = g_bodies[body_index];
 }
 
 // Gather final generalized state and one compact identity/root/status record per articulation.

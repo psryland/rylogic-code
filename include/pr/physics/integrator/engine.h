@@ -396,8 +396,8 @@ namespace pr::physics
 		// Snapshot optional GPU lane capacities and work without exposing implementation-specific resource types.
 		void UpdateFeatureResourceStats(bool include_frame_output);
 
-		// Upload staged body data into GPU buffers for the current frame.
-		void Upload();
+		// Upload staged body data and retain immutable forces only when later internal substeps need them.
+		void Upload(bool retain_frame_forces);
 
 		// Apply forces, evolve body dynamics forward in time, and generate AABBs for broadphase.
 		void Integrate(float dt);

@@ -45,7 +45,12 @@ namespace pr::physics
 
 		RbContact();
 		RbContact(RigidBody const& objA, RigidBody const& objB);
+
+		// Construct a public contact from the resolver's complete transient record.
 		RbContact(RigidBody const& objA, RigidBody const& objB, GpuResolveContact const& contact);
+
+		// Construct a public contact from the compact frame event stream.
+		RbContact(RigidBody const& objA, RigidBody const& objB, GpuCollisionEvent const& collision_event);
 
 		// Adjust the collision data to the given sub-step time.
 		void Update(float dt_sub);

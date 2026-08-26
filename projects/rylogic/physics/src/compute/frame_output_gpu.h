@@ -65,7 +65,6 @@ namespace pr::physics
 		ComputeStep m_cs_prepare_substep;
 		ComputeStep m_cs_compact_events;
 		ComputeStep m_cs_append_events;
-		ComputeStep m_cs_gather_bodies;
 		ComputeStep m_cs_gather_articulations;
 		D3DPtr<ID3D12CommandSignature> m_cmd_sig;
 		D3DPtr<ID3D12Resource> m_r_output;
@@ -89,7 +88,8 @@ namespace pr::physics
 		void BeginFrame(GpuJob& job, int body_count, int event_capacity, int substep_count, GpuArticulationMidpointOutput const& articulations, GpuConstraintBreakOutput const& constraint_breaks, GpuCoupledConstraintFailureOutput const& coupled_failures, bool capture_substep_state);
 
 		// Retain counters and optional resolved contacts before the next substep resets transient collision buffers.
-		void CaptureSubstep(GpuJob& job, int max_pairs, int max_contacts, int substep_index, int substep_count, bool collect_events, ID3D12Resource* counters, ID3D12Resource* contacts, ID3D12Resource* contact_order, ID3D12Resource* contact_dispatch);
+		// Hidden-proxy filtering remains optional because rigid-only contact order already contains only public bodies.
+		void CaptureSubstep(GpuJob& job, int max_pairs, int max_contacts, int substep_index, int substep_count, bool collect_events, bool filter_hidden_proxies, ID3D12Resource* counters, ID3D12Resource* contacts, ID3D12Resource* contact_order, ID3D12Resource* contact_dispatch);
 
 		// Gather final bodies and record the frame's sole GPU-to-CPU CopyBufferRegion.
 		GpuFrameOutputReadback GatherAndReadback(GpuJob& job, int body_count, ID3D12Resource* bodies);

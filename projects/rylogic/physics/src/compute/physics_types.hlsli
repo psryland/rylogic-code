@@ -716,10 +716,20 @@ struct GpuSubstepOutputState
 	int pad0;
 };
 
-// One resolved collision retained in deterministic substep and solver order.
+// Public collision data retained in deterministic substep and solver order without solver-only transforms, timing, or warm-start state.
 struct GpuCollisionEvent
 {
-	GpuResolveContact contact;
+	float4 axis;
+	float4 contact_point;
+	float4 manifold[GpuContactMaxPoints];
+	int body_idx_a;
+	int body_idx_b;
+	int mat_id_a;
+	int mat_id_b;
+	float depth;
+	int feature;
+	int child_idx_a;
+	int child_idx_b;
 	int substep_index;
 	int pad0;
 	int pad1;

@@ -29,7 +29,7 @@ namespace pr::physics
 		int max_pairs;
 		int max_contacts;
 		int event_capacity;
-		int collect_events;
+		int filter_hidden_proxies;
 		int substep_index;
 		int substep_count;
 		int body_count;
@@ -52,7 +52,6 @@ namespace pr::physics
 		inline static constexpr auto SubstepState = EUAVReg::u4;
 		inline static constexpr auto Events = EUAVReg::u5;
 		inline static constexpr auto Bodies = EUAVReg::u6;
-		inline static constexpr auto OutputBodies = EUAVReg::u7;
 		inline static constexpr auto Articulations = EUAVReg::u8;
 		inline static constexpr auto ArticulationStates = EUAVReg::u9;
 		inline static constexpr auto ArticulationPositions = EUAVReg::u10;
@@ -69,7 +68,6 @@ namespace pr::physics
 		, m_cs_prepare_substep()
 		, m_cs_compact_events()
 		, m_cs_append_events()
-		, m_cs_gather_bodies()
 		, m_cs_gather_articulations()
 		, m_cmd_sig()
 		, m_r_output()
@@ -93,10 +91,11 @@ namespace pr::physics
 			m_cs_prepare_substep.m_pso = ComputePSO(m_cs_prepare_substep.m_sig.get(), shader_code::prepare_substep_output).Create(m_gpu, "Physics:PrepareSubstepOutputPSO");
 		}
 
-		// Event compaction is a separate optional pass so frames without public collision events do not require resolver-owned resources.
+		// Event compaction also snapshots counters so subscribed frames need only one serial setup pass.
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
 				.U32<cbFrameOutput>(EReg::Params)
+				.UAV(EReg::Counters)
 				.UAV(EReg::Contacts)
 				.UAV(EReg::ContactOrder)
 				.UAV(EReg::Header)
@@ -119,18 +118,6 @@ namespace pr::physics
 
 			m_cs_append_events.m_sig = sig.Create(m_gpu, "Physics:AppendCollisionEventsSig");
 			m_cs_append_events.m_pso = ComputePSO(m_cs_append_events.m_sig.get(), shader_code::append_collision_events).Create(m_gpu, "Physics:AppendCollisionEventsPSO");
-		}
-
-		// Final body gather writes directly into the body section of the packed output resource.
-		{
-			auto sig = RootSig(ERootSigFlags::ComputeOnly)
-				.U32<cbFrameOutput>(EReg::Params)
-				.UAV(EReg::Bodies)
-				.UAV(EReg::OutputBodies)
-				;
-
-			m_cs_gather_bodies.m_sig = sig.Create(m_gpu, "Physics:GatherFrameBodiesSig");
-			m_cs_gather_bodies.m_pso = ComputePSO(m_cs_gather_bodies.m_sig.get(), shader_code::gather_frame_bodies).Create(m_gpu, "Physics:GatherFrameBodiesPSO");
 		}
 
 		// Reuse the resolver's standard D3D12 dispatch-argument layout for event copies.
@@ -269,7 +256,7 @@ namespace pr::physics
 	}
 
 	// Retain counters and optional resolved contacts before the next substep resets transient collision buffers.
-	void GpuFrameOutput::CaptureSubstep(GpuJob& job, int max_pairs, int max_contacts, int substep_index, int substep_count, bool collect_events, ID3D12Resource* counters, ID3D12Resource* contacts, ID3D12Resource* contact_order, ID3D12Resource* contact_dispatch)
+	void GpuFrameOutput::CaptureSubstep(GpuJob& job, int max_pairs, int max_contacts, int substep_index, int substep_count, bool collect_events, bool filter_hidden_proxies, ID3D12Resource* counters, ID3D12Resource* contacts, ID3D12Resource* contact_order, ID3D12Resource* contact_dispatch)
 	{
 		if (m_r_output == nullptr || m_r_substep_state == nullptr)
 			throw std::runtime_error("GPU frame output must begin before capturing a substep");
@@ -282,35 +269,37 @@ namespace pr::physics
 			.max_pairs = max_pairs,
 			.max_contacts = max_contacts,
 			.event_capacity = m_layout.m_event_capacity,
-			.collect_events = collect_events ? 1 : 0,
+			.filter_hidden_proxies = filter_hidden_proxies ? 1 : 0,
 			.substep_index = substep_index,
 			.substep_count = substep_count,
 			.body_count = m_layout.m_body_count,
 		};
 
-		// Snapshot raw counts and reset the event range with one thread so substep ordering is stable.
-		job.m_barriers.Transition(counters, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		job.m_barriers.Transition(m_r_substep_state.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		job.m_barriers.Commit();
-
-		job.m_cmd_list.SetPipelineState(m_cs_prepare_substep.m_pso.get());
-		job.m_cmd_list.SetComputeRootSignature(m_cs_prepare_substep.m_sig.get());
-		job.m_cmd_list.AddComputeRoot32BitConstants(cb);
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_substep_state->GetGPUVirtualAddress());
-		job.m_cmd_list.Dispatch(1, 1, 1);
-		++m_dispatch_count;
-
-		job.m_barriers.UAV(m_r_substep_state.get());
-		job.m_barriers.UAV(m_r_output.get());
-		job.m_barriers.Commit();
-
+		// Frames without public events snapshot only the counters and therefore keep the resolver resources unbound.
 		if (!collect_events)
-			return;
+		{
+			job.m_barriers.Transition(counters, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_substep_state.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Commit();
 
-		// Compact hidden proxy contacts out of the rigid-only event stream before reserving the substep's range.
+			job.m_cmd_list.SetPipelineState(m_cs_prepare_substep.m_pso.get());
+			job.m_cmd_list.SetComputeRootSignature(m_cs_prepare_substep.m_sig.get());
+			job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_substep_state->GetGPUVirtualAddress());
+			job.m_cmd_list.Dispatch(1, 1, 1);
+			++m_dispatch_count;
+
+			job.m_barriers.UAV(m_r_substep_state.get());
+			job.m_barriers.UAV(m_r_output.get());
+			job.m_barriers.Commit();
+			return;
+		}
+
+		// Snapshot counters, optionally filter hidden proxies, and reserve the event range in one serial pass.
+		job.m_barriers.Transition(counters, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(contacts, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(contact_order, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -320,6 +309,7 @@ namespace pr::physics
 		job.m_cmd_list.SetPipelineState(m_cs_compact_events.m_pso.get());
 		job.m_cmd_list.SetComputeRootSignature(m_cs_compact_events.m_sig.get());
 		job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(counters->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(contact_order->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress());
@@ -390,24 +380,19 @@ namespace pr::physics
 			.velocity_count = articulations.m_velocity_count,
 		};
 
-		// Copy final body state into the contiguous output without disturbing the retained event section.
+		// The copy engine moves the contiguous body stream more efficiently than expanding each large record into scalar compute-shader loads and stores.
 		if (body_count != 0)
 		{
 			if (bodies == nullptr)
 				throw std::runtime_error("GPU frame output requires a body resource for non-empty rigid state");
 
+			job.m_barriers.Transition(bodies, D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+			job.m_cmd_list.CopyBufferRegion(m_r_output.get(), m_layout.m_body_offset, bodies, 0, static_cast<uint64_t>(body_count) * sizeof(GpuRigidBody));
 			job.m_barriers.Transition(bodies, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Commit();
-
-			job.m_cmd_list.SetPipelineState(m_cs_gather_bodies.m_pso.get());
-			job.m_cmd_list.SetComputeRootSignature(m_cs_gather_bodies.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cb);
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress() + m_layout.m_body_offset);
-			job.m_cmd_list.Dispatch((body_count + FrameOutputThreadCount - 1) / FrameOutputThreadCount, 1, 1);
-			++m_dispatch_count;
-			job.m_barriers.UAV(m_r_output.get()).Commit();
 		}
 
 		// Copy the complete optional stable-slot latch so break application cannot overflow or lose a required disable transition.

@@ -21,11 +21,12 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_r_aabb_idx; // GPU buffer: RWStructuredBuffer<int> rigid body indices for the AABB bounds
 		D3DPtr<ID3D12Resource> m_r_aabb_box; // GPU buffer: RWStructuredBuffer<BBox> exact world-space bounding boxes
 		int m_capacity;                      // Maximum number of bodies the buffers can hold
+		int m_frame_force_capacity;          // Maximum number of immutable frame-force records retained for internal substeps
 
 		explicit GpuIntegrator(Gpu& gpu, EngineConfig const& config);
 
-		// Upload staged body dynamics and reset collision counters.
-		void Upload(GpuJob& job, std::span<GpuRigidBody> bodies);
+		// Upload staged body dynamics and optionally retain immutable forces for later internal substeps.
+		void Upload(GpuJob& job, std::span<GpuRigidBody> bodies, bool retain_frame_forces = false);
 
 		// Reset the collision counters without changing the body buffer.
 		void ResetCounters(GpuJob& job);
@@ -51,7 +52,10 @@ namespace pr::physics
 
 	private:
 
-		// Resize the buffers to hold 'capacity' bodies.
-		void ResizeBuffers(CmdList& cmd_list, int capacity);
+		// Create the optional force-restoration pipeline when a frame first requests multiple internal substeps.
+		void EnsureSeedForcesPipeline();
+
+		// Resize the core buffers and optional immutable force storage to hold 'capacity' bodies.
+		void ResizeBuffers(CmdList& cmd_list, int capacity, bool retain_frame_forces);
 	};
 }
