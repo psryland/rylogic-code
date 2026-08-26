@@ -57,7 +57,7 @@ namespace pr::physics
 				.warm_start_scale = config.warm_start_scale,
 				.warm_start_capacity = 0,
 				.rigid_body_count = body_count,
-				.pad_i1 = 0,
+				.warm_start_preloaded = 0,
 				.pad_i2 = 0,
 			};
 		}

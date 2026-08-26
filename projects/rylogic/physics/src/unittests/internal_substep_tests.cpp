@@ -192,6 +192,49 @@ namespace pr::physics::tests
 			ExpectSubstepBodyState(retry_b, reference_b, 1.0e-6f);
 		}
 
+		// Preserve rigid-only contact warm starting when its cache lookup is fused into the colour-batched application pass.
+		PRUnitTestMethod(RigidOnlyWarmStartLoadsOnApply, Extended)
+		{
+			auto shape = collision::ShapeSphere{0.5f};
+			auto const initial_o2w_a = m4x4::Translation(-0.4f, 0, 0);
+			auto const initial_o2w_b = m4x4::Translation(+0.4f, 0, 0);
+			auto const initial_velocity_a = v8motion{v4::Zero(), +v4::XAxis()};
+			auto const initial_velocity_b = v8motion{v4::Zero(), -v4::XAxis()};
+			auto body_a = MakeSubstepSphere(shape, initial_o2w_a, initial_velocity_a);
+			auto body_b = MakeSubstepSphere(shape, initial_o2w_b, initial_velocity_b);
+			auto bodies = std::array<RigidBody*, 2>{&body_a, &body_b};
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			auto config = EngineConfig{};
+			config.sleeping_enabled = false;
+			config.selective_refresh_passes = 0;
+			config.push_out_iterations = 0;
+			config.solver_iterations = 1;
+			config.velocity_baumgarte = 0.0f;
+			config.warm_start_scale = 1.0f;
+			engine.Config(config);
+
+			// Populate the previous-frame cache with the impulse needed to separate the overlapping equal-mass pair.
+			engine.Step(Engine::StepInput{
+				.m_bodies = bodies,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+
+			// Replay the same contact with iterative solving disabled so any response must come from the retained rigid-only warm start.
+			body_a.O2W(initial_o2w_a);
+			body_b.O2W(initial_o2w_b);
+			body_a.VelocityWS(initial_velocity_a);
+			body_b.VelocityWS(initial_velocity_b);
+			config.solver_iterations = 0;
+			engine.Config(config);
+			engine.Step(Engine::StepInput{
+				.m_bodies = bodies,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+			PR_EXPECT(body_a.VelocityWS().lin.x < 0.0f);
+			PR_EXPECT(body_b.VelocityWS().lin.x > 0.0f);
+		}
+
 		// Verify immutable CPU-authored frame forces are restored before every internal integration pass.
 		PRUnitTestMethod(FrameForcesMatchRepeatedExternalSteps, Quick)
 		{

@@ -99,7 +99,7 @@ struct cbResolve
 
 	int warm_start_capacity;  // Number of entries in the open-addressed warm-start cache
 	int rigid_body_count;     // Ordinary rigid prefix; larger body indices are articulation-link proxies
-	int pad_i1;
+	int warm_start_preloaded; // Non-zero when the coupled-contact lane required a separate cache-load pass
 	int pad_i2;
 };
 
@@ -982,12 +982,20 @@ void LoadWarmStartContact(uint idx)
 	g_contacts[idx] = c;
 }
 
-// Apply one previously loaded physical impulse to an ordinary rigid contact.
+// Apply one cached physical impulse to an ordinary rigid contact, loading it on demand when no coupled consumer required the separate preload pass.
 // Callers guarantee that no other executing invocation can write either dynamic endpoint.
 void ApplyWarmStartContact(uint idx)
 {
 	GpuResolveContact c = g_contacts[idx];
-	float3 impulse = c.warmstart_impulse.xyz;
+	float3 impulse = float3(0, 0, 0);
+	if (g.warm_start_preloaded != 0)
+	{
+		impulse = c.warmstart_impulse.xyz;
+	}
+	else if (!LoadWarmStartImpulse(c, impulse))
+	{
+		return;
+	}
 	if (!any(impulse != float3(0, 0, 0)))
 		return;
 

@@ -54,7 +54,7 @@ namespace pr::physics
 
 		int warm_start_capacity;
 		int rigid_body_count;
-		int pad_i1;
+		int warm_start_preloaded;
 		int pad_i2;
 	};
 	static_assert((sizeof(cbResolve) & 0xf) == 0);
@@ -323,7 +323,7 @@ namespace pr::physics
 			.warm_start_scale = m_config.warm_start_scale,
 			.warm_start_capacity = m_warm_start_capacity,
 			.rigid_body_count = rigid_body_count,
-			.pad_i1 = 0,
+			.warm_start_preloaded = coupled_contact_solver != nullptr ? 1 : 0,
 			.pad_i2 = 0,
 		};
 		if (m_config.warm_start_scale <= 0.0f)
@@ -514,8 +514,8 @@ namespace pr::physics
 		if (coupled_constraint_solver != nullptr)
 			coupled_constraint_solver->PrepareVelocity(job, dt, rigid_body_count, bodies.get(), retain_constraint_impulses);
 
-		// Load cached contact impulses once so the rigid and articulation-coupled lanes consume one shared accumulator without duplicate cache probes.
-		if (m_config.warm_start_scale > 0.0f)
+		// Articulation contacts need every cache result before their topology pass; rigid-only frames retain the original fused load-and-apply path.
+		if (m_config.warm_start_scale > 0.0f && coupled_contact_solver != nullptr)
 		{
 			bind_warm_start_step(m_cs_load_warm_start, m_r_warm_start_curr.get());
 			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
