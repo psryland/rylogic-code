@@ -11,6 +11,7 @@
 		<RootNamespace>View3d</RootNamespace>
 		<ResolveNuGetPackages>false</ResolveNuGetPackages>
 		<DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
+		<RylogicNativeRuntimePackage>Include</RylogicNativeRuntimePackage>
 	</PropertyGroup>
 	<!--
 	Property Sheets

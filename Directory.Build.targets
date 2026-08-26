@@ -44,11 +44,12 @@
 	</Target>
 
 	<!--
-	Auto-pack library assemblies to the config-specific staging feed, then sync the canonical local feed and global cache.
+	Auto-pack Debug library assemblies to the staging feed, then sync the canonical local feed and global cache.
+	Release packaging remains an explicit Build.csx deploy/publish operation so source builds do not depend on an unpublished native release package.
 	This must be in .targets (not .props) so that IsPackable from individual .csproj files is available.
 	Skipped in CI where packaging is not needed and cache-sync scripts may not be available. -->
 	<Import Project="$(RylogicRoot)lib\packages\local\versions\$(MSBuildProjectName).props" Condition="'$(Configuration)' == 'Debug' AND '$(BuildProjectReferences)' == 'false' AND Exists('$(RylogicRoot)lib\packages\local\versions\$(MSBuildProjectName).props')" />
-	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj' AND '$(IsPackable)' == 'true' AND '$(GITHUB_ACTIONS)' != 'true' AND '$(RylogicGeneratePackageOnBuild)' != 'false'">
+	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj' AND '$(IsPackable)' == 'true' AND '$(Configuration)' == 'Debug' AND '$(GITHUB_ACTIONS)' != 'true' AND '$(RylogicGeneratePackageOnBuild)' != 'false'">
 		<GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 		<PackageOutputPath>$(RylogicRoot)lib\packages\$(Configuration.ToLowerInvariant())\</PackageOutputPath>
 		<PackageVersion Condition="'$(Configuration)' == 'Debug' AND '$(BuildProjectReferences)' == 'false' AND '$(RylogicLastLocalPackageVersion)' != ''">$(RylogicLastLocalPackageVersion)</PackageVersion>
@@ -130,8 +131,8 @@
 		<Message Condition="'$(_NuGetPackageSynced)' == 'true' AND '$(Configuration)' == 'Debug'" Text="Published immutable local package $(PackageId) $(_RylogicEffectivePackageVersion)" Importance="high" />
 	</Target>
 
-	<!-- Every successful native Debug DLL build publishes one immutable aggregate runtime package for package-only consumer applications. -->
-	<Target Name="PublishLocalNativeDevelopmentPackage" AfterTargets="Build" Condition="'$(MSBuildProjectExtension)' == '.vcxproj' AND '$(Configuration)' == 'Debug' AND '$(Platform)' == 'x64' AND '$(ConfigurationType)' == 'DynamicLibrary' AND '$(GITHUB_ACTIONS)' != 'true' AND '$(RylogicGeneratePackageOnBuild)' != 'false'">
+	<!-- Every included native Debug DLL build publishes one immutable aggregate runtime package for package-only consumer applications. -->
+	<Target Name="PublishLocalNativeDevelopmentPackage" AfterTargets="WriteRylogicNativeRuntimeManifest" Condition="'$(MSBuildProjectExtension)' == '.vcxproj' AND '$(Configuration)' == 'Debug' AND '$(Platform)' == 'x64' AND '$(ConfigurationType)' == 'DynamicLibrary' AND '$(RylogicNativeRuntimePackage)' == 'Include' AND '$(GITHUB_ACTIONS)' != 'true' AND '$(RylogicGeneratePackageOnBuild)' != 'false'">
 		<PropertyGroup>
 			<_NativePackageId>Rylogic.Native</_NativePackageId>
 			<_NativePackageIdLower>rylogic.native</_NativePackageIdLower>
@@ -143,10 +144,12 @@
 			<_NativeCacheName>$(_NativePackageIdLower).$(_NativePackageVersion).nupkg</_NativeCacheName>
 			<_NativeCentralVersionPropsPath>$(RylogicRoot)lib\packages\local\packages\$(_NativePackageIdLower).props</_NativeCentralVersionPropsPath>
 			<_NativeProjectVersionPropsPath>$(RylogicRoot)lib\packages\local\versions\$(_NativePackageId).props</_NativeProjectVersionPropsPath>
+			<_NativeRuntimeStageDir>$(RylogicRoot)obj\nuget\Rylogic.Native\x64\Debug\$(_NativePackageVersion)\$(MSBuildProjectName)</_NativeRuntimeStageDir>
 		</PropertyGroup>
 
 		<MakeDir Directories="$(_NativePackageOutputDir)" />
-		<Exec Command="&quot;$(ToolsPath)nuget\nuget.exe&quot; pack &quot;$(RylogicRoot)build\nuget\rylogic.native.dev.nuspec&quot; -BasePath &quot;$(RylogicRoot)build\..&quot; -Version &quot;$(_NativePackageVersion)&quot; -OutputDirectory &quot;$(_NativePackageOutputDir)&quot; -NoPackageAnalysis -NonInteractive -Verbosity quiet" />
+		<Exec Command="dotnet-script &quot;$(ScriptPath)StageNativeRuntimePackage.csx&quot; -platform x64 -config Debug -output &quot;$(_NativeRuntimeStageDir)&quot;" />
+		<Exec Command="&quot;$(ToolsPath)nuget\nuget.exe&quot; pack &quot;$(RylogicRoot)build\nuget\rylogic.native.dev.nuspec&quot; -BasePath &quot;$(_NativeRuntimeStageDir)&quot; -Version &quot;$(_NativePackageVersion)&quot; -OutputDirectory &quot;$(_NativePackageOutputDir)&quot; -NoPackageAnalysis -NonInteractive -Verbosity quiet" />
 		<SyncNuGetPackageOutputs
 			NuPkgPath="$(_NativePackagePath)"
 			FeedPkgPath="$(_NativeFeedPath)"

@@ -4,6 +4,7 @@
 	<!-- Properties -->
 	<PropertyGroup Label="Globals">
 		<ConfigurationType>DynamicLibrary</ConfigurationType>
+		<RylogicNativeRuntimePackage>Include</RylogicNativeRuntimePackage>
 		<ProjectGuid>{F4A1B209-47CA-4F5D-A80E-87004C91D52E}</ProjectGuid>
 		<ProjectName>sqlite3</ProjectName>
 		<RootNamespace>sqlite</RootNamespace>

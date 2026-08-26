@@ -10,6 +10,7 @@
     <TargetName>imgui</TargetName>
     <RootNamespace>pr::rdr12::imgui</RootNamespace>
     <ResolveNuGetPackages>false</ResolveNuGetPackages>
+    <RylogicNativeRuntimePackage>Include</RylogicNativeRuntimePackage>
   </PropertyGroup>
   <!--
   Property Sheets

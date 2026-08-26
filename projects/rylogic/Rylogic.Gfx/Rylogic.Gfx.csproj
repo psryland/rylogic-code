@@ -26,7 +26,7 @@
 	<ItemGroup>
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Core\Rylogic.Core.csproj" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.D3D12\Rylogic.D3D12.csproj" />
-		<PackageReference Include="Rylogic.Native" VersionOverride="$(RylogicNativePackageVersion)" />
+		<PackageReference Include="Rylogic.Native" VersionOverride="$(RylogicNativePackageVersion)" Condition="'$(Configuration)' == 'Debug'" />
 		<PackageReference Include="System.Drawing.Common" Condition="'$(TargetFramework)' != 'net481'" />
 		<PackageReference Include="System.Text.Json" Condition="'$(TargetFramework)' == 'net481'" />
 	</ItemGroup>

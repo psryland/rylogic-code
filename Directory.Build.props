@@ -19,7 +19,7 @@
 
 	<PropertyGroup>
 		<RylogicGeneratePackageOnBuild Condition="'$(RylogicGeneratePackageOnBuild)' == ''">true</RylogicGeneratePackageOnBuild>
-		<RylogicLibraryVersion>2.1.2</RylogicLibraryVersion>
+		<RylogicLibraryVersion>2.1.3</RylogicLibraryVersion>
 	</PropertyGroup>
 
 	<!-- C# -->
@@ -49,7 +49,7 @@
 		<Deterministic>true</Deterministic>
 		<ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
 		<EmbedUntrackedSources>true</EmbedUntrackedSources>
-		<RepositoryUrl>https://github.com/psryland/rylogic_code</RepositoryUrl>
+		<RepositoryUrl>https://github.com/psryland/rylogic-code</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
 
 		<!-- Default build configuration -->

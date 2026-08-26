@@ -10,6 +10,8 @@
     <TargetName>ai</TargetName>
     <RootNamespace>pr::ai</RootNamespace>
     <ResolveNuGetPackages>false</ResolveNuGetPackages>
+    <RylogicNativeRuntimePackage>Exclude</RylogicNativeRuntimePackage>
+    <RylogicNativeRuntimePackageReason>No released Rylogic package consumes the experimental AI runtime.</RylogicNativeRuntimePackageReason>
   </PropertyGroup>
   <!--
   Property Sheets
