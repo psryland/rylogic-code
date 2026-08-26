@@ -215,6 +215,113 @@ namespace pr::physics::tests
 			}
 		}
 
+		// Resolve a scalar constraint across the required mass-ratio range without losing passivity, momentum, or finite state.
+		PRUnitTestMethod(ExtremeMassRatiosRemainFiniteAndPassive, Quick)
+		{
+			for (auto const heavy_mass : {1.0f, 1.0e2f, 1.0e4f, 1.0e6f})
+			{
+				auto body_a = MakeConstraintGpuBody(1.0f);
+				auto body_b = MakeConstraintGpuBody(heavy_mass);
+				body_a.VelocityWS(v8motion{v4::Zero(), v4::XAxis()});
+				body_b.VelocityWS(v8motion{});
+
+				// A single bilateral scalar row has a closed-form shared velocity that remains well-conditioned at 10^6:1.
+				auto desc = D6ConstraintDesc{};
+				desc.m_frame_a.m_body = BodyRef::Rigid(body_a);
+				desc.m_frame_b.m_body = BodyRef::Rigid(body_b);
+				desc.m_linear[0] = MakeConstraintGpuLockedAxis();
+				auto constraints = ConstraintSet{};
+				constraints.Add(desc);
+				auto body_ptrs = std::array<RigidBody*, 2>{&body_a, &body_b};
+				auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+				auto bodies = std::vector<GpuRigidBody>{PackDynamics(body_a, 0), PackDynamics(body_b, 1)};
+				auto config = CpuConstraintSolverConfig{};
+				config.m_velocity_iterations = 1;
+				config.m_position_iterations = 0;
+				config.m_warm_start_factor = 0.0f;
+
+				auto runner = ConstraintInteropRunner{config};
+				runner.Run(ConstraintRunnerBuffers{1.0f / 60.0f, bodies, upload.m_endpoints, upload.m_descriptors});
+
+				// The projected update must converge to the analytic inelastic velocity without creating kinetic energy.
+				auto const velocity_a = bodies[0].momentum_lin.x * bodies[0].os_com_and_invmass.w;
+				auto const velocity_b = bodies[1].momentum_lin.x * bodies[1].os_com_and_invmass.w;
+				auto const expected_velocity = 1.0f / (1.0f + heavy_mass);
+				auto const momentum_after = bodies[0].momentum_lin.x + bodies[1].momentum_lin.x;
+				auto const energy_after = 0.5f * (
+					Sqr(bodies[0].momentum_lin.x) * bodies[0].os_com_and_invmass.w +
+					Sqr(bodies[1].momentum_lin.x) * bodies[1].os_com_and_invmass.w);
+				PR_EXPECT(ConstraintGpuBodyFinite(bodies[0]));
+				PR_EXPECT(ConstraintGpuBodyFinite(bodies[1]));
+				PR_EXPECT(Abs(velocity_a - expected_velocity) < 2.0e-6f);
+				PR_EXPECT(Abs(velocity_b - expected_velocity) < 2.0e-6f);
+				PR_EXPECT(Abs(velocity_a - velocity_b) < 2.0e-6f);
+				PR_EXPECT(Abs(momentum_after - 1.0f) < 2.0e-5f);
+				PR_EXPECT(energy_after <= 0.50001f);
+			}
+		}
+
+		// Preserve constraint results under arbitrary common world translations and rotations.
+		PRUnitTestMethod(WorldTransformMetamorphicEquivalence, Quick)
+		{
+			auto const base_o2w_a = m4x4::Transform(v4::YAxis(), +0.23f, v4{-0.4f, +0.2f, -0.1f, 1});
+			auto const base_o2w_b = m4x4::Transform(v4::XAxis(), -0.31f, v4{+0.5f, -0.3f, +0.2f, 1});
+			auto const base_velocity_a = v8motion{v4{+0.3f, -0.2f, +0.1f, 0}, v4{+1.1f, -0.4f, +0.7f, 0}};
+			auto const base_velocity_b = v8motion{v4{-0.1f, +0.4f, -0.3f, 0}, v4{-0.6f, +0.8f, -0.2f, 0}};
+
+			// Solve the same endpoint-local problem after applying one common rigid world transform.
+			auto run = [&](m4x4 const& transformed_from_base)
+			{
+				auto body_a = MakeConstraintGpuBody(2.0f, transformed_from_base * base_o2w_a, v4{+0.2f, -0.1f, +0.05f, 0});
+				auto body_b = MakeConstraintGpuBody(3.0f, transformed_from_base * base_o2w_b, v4{-0.1f, +0.15f, -0.05f, 0});
+				body_a.VelocityWS(v8motion{transformed_from_base.rot * base_velocity_a.ang, transformed_from_base.rot * base_velocity_a.lin});
+				body_b.VelocityWS(v8motion{transformed_from_base.rot * base_velocity_b.ang, transformed_from_base.rot * base_velocity_b.lin});
+
+				auto desc = D6ConstraintDesc{};
+				desc.m_frame_a = BodyFrame{BodyRef::Rigid(body_a), m4x4::Transform(v4::ZAxis(), +0.17f, v4{+0.3f, -0.2f, +0.1f, 1})};
+				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body_b), m4x4::Transform(v4::YAxis(), -0.11f, v4{-0.2f, +0.25f, -0.15f, 1})};
+				for (int axis = 0; axis != 3; ++axis)
+				{
+					desc.m_linear[axis] = MakeConstraintGpuLockedAxis(5000.0f);
+					desc.m_angular[axis] = MakeConstraintGpuLockedAxis(5000.0f);
+				}
+				auto constraints = ConstraintSet{};
+				constraints.Add(desc);
+				auto body_ptrs = std::array<RigidBody*, 2>{&body_a, &body_b};
+				auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+				auto bodies = std::vector<GpuRigidBody>{PackDynamics(body_a, 0), PackDynamics(body_b, 1)};
+				auto config = CpuConstraintSolverConfig{};
+				config.m_velocity_iterations = 6;
+				config.m_position_iterations = 4;
+				config.m_warm_start_factor = 0.0f;
+
+				auto runner = ConstraintInteropRunner{config};
+				runner.Run(ConstraintRunnerBuffers{1.0f / 120.0f, bodies, upload.m_endpoints, upload.m_descriptors});
+				return bodies;
+			};
+
+			auto const baseline = run(m4x4::Identity());
+			auto const transforms = std::array{
+				m4x4::Translation(+1000.0f, -2000.0f, +3000.0f),
+				m4x4::Transform(Normalise(v4{0.3f, -0.5f, 0.7f, 0}), 0.63f, v4{+7.0f, -11.0f, +13.0f, 1}),
+			};
+
+			// Momentum is translation-invariant about each centre of mass and rotates covariantly with the complete scene.
+			for (auto const& transformed_from_base : transforms)
+			{
+				auto const transformed = run(transformed_from_base);
+				for (int body_idx = 0; body_idx != isize(transformed); ++body_idx)
+				{
+					auto const expected_o2w = transformed_from_base * baseline[body_idx].o2w;
+					auto const expected_momentum_ang = transformed_from_base.rot * baseline[body_idx].momentum_ang;
+					auto const expected_momentum_lin = transformed_from_base.rot * baseline[body_idx].momentum_lin;
+					PR_EXPECT(FEqlAbsolute(transformed[body_idx].o2w, expected_o2w, 2.0e-4f));
+					PR_EXPECT(FEqlAbsolute(transformed[body_idx].momentum_ang, expected_momentum_ang, 2.0e-3f));
+					PR_EXPECT(FEqlAbsolute(transformed[body_idx].momentum_lin, expected_momentum_lin, 2.0e-3f));
+				}
+			}
+		}
+
 		// Match split position correction for a hard world lock while preserving physical momentum and an off-origin CoM.
 		PRUnitTestMethod(PositionSolveMatchesCpuReference, Quick)
 		{
@@ -650,6 +757,24 @@ namespace pr::physics::tests
 			PR_EXPECT(first_stats.m_logical_bytes > 0);
 			PR_EXPECT(first_stats.m_allocated_feature_bytes >= first_stats.m_logical_bytes);
 
+			// Report exact logical and retained-capacity costs from the published per-slot and per-body resource formula.
+			auto const slot_bytes =
+				sizeof(GpuConstraintEndpoint) +
+				sizeof(GpuD6ConstraintDesc) +
+				sizeof(GpuConstraintBlock) +
+				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow);
+			auto const expected_logical_bytes =
+				static_cast<size_t>(first_stats.m_slot_count) * slot_bytes +
+				sizeof(uint32_t) +
+				actual.size() * sizeof(GpuConstraintPseudoVelocity);
+			auto const expected_allocated_bytes =
+				static_cast<size_t>(first_stats.m_slot_capacity) * slot_bytes +
+				sizeof(uint32_t) +
+				static_cast<size_t>(first_stats.m_body_capacity) * sizeof(GpuConstraintPseudoVelocity) +
+				static_cast<size_t>(first_stats.m_break_capacity) * sizeof(GpuConstraintBreakState);
+			PR_EXPECT(first_stats.m_logical_bytes == expected_logical_bytes);
+			PR_EXPECT(first_stats.m_allocated_feature_bytes == expected_allocated_bytes);
+
 			for (int body_idx = 0; body_idx != isize(actual); ++body_idx)
 			{
 				PR_EXPECT(FEqlAbsolute(actual[body_idx].o2w, expected[body_idx].o2w, 2.0e-3f));
@@ -702,13 +827,35 @@ namespace pr::physics::tests
 			PR_EXPECT(break_states[0].generation == upload.m_endpoints[0].generation);
 			PR_EXPECT(break_states[0].substep_index == 0);
 			PR_EXPECT(break_states[0].peak_force > desc.m_break_force);
+
+			// Breakable slots add one stable-slot latch to both logical and retained resource accounting.
+			auto const stats = solver.Stats();
+			auto const slot_bytes =
+				sizeof(GpuConstraintEndpoint) +
+				sizeof(GpuD6ConstraintDesc) +
+				sizeof(GpuConstraintBlock) +
+				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow);
+			auto const expected_logical_bytes =
+				slot_bytes +
+				sizeof(uint32_t) +
+				sizeof(GpuConstraintPseudoVelocity) +
+				sizeof(GpuConstraintBreakState);
+			auto const expected_allocated_bytes =
+				static_cast<size_t>(stats.m_slot_capacity) * slot_bytes +
+				sizeof(uint32_t) +
+				static_cast<size_t>(stats.m_body_capacity) * sizeof(GpuConstraintPseudoVelocity) +
+				static_cast<size_t>(stats.m_break_capacity) * sizeof(GpuConstraintBreakState);
+			PR_EXPECT(stats.m_breakable_count == 1);
+			PR_EXPECT(stats.m_logical_bytes == expected_logical_bytes);
+			PR_EXPECT(stats.m_allocated_feature_bytes == expected_allocated_bytes);
 		}
 
 		// Measure end-to-end GPU solver scaling through at least one hundred thousand active scalar rows.
 		PRUnitTestMethod(HardwareHundredThousandRowScaling, Extended)
 		{
-			constexpr auto SmallSlotCount = 1667;
+			constexpr auto SmallSlotCount = 8334;
 			constexpr auto LargeSlotCount = 16667;
+			constexpr auto SampleCount = 5;
 			auto make_upload = [](int slot_count)
 			{
 				auto upload = GpuConstraintUpload{};
@@ -753,6 +900,28 @@ namespace pr::physics::tests
 			// Allocate the maximum resources before timing so the comparison measures steady-state work rather than one-time growth.
 			auto warmup_bodies = make_bodies(LargeSlotCount);
 			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, large_upload, warmup_bodies);
+			auto const warmup_stats = solver.Stats();
+
+			// Load the smaller working set against retained maximum capacity so logical and allocated accounting must diverge correctly.
+			auto small_probe_bodies = make_bodies(SmallSlotCount);
+			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, small_upload, small_probe_bodies);
+			auto const small_stats = solver.Stats();
+			auto const slot_bytes =
+				sizeof(GpuConstraintEndpoint) +
+				sizeof(GpuD6ConstraintDesc) +
+				sizeof(GpuConstraintBlock) +
+				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow);
+			auto const expected_small_logical_bytes =
+				static_cast<size_t>(SmallSlotCount) * slot_bytes +
+				sizeof(uint32_t) +
+				static_cast<size_t>(SmallSlotCount) * sizeof(GpuConstraintPseudoVelocity);
+			PR_EXPECT(small_stats.m_logical_bytes == expected_small_logical_bytes);
+			PR_EXPECT(small_stats.m_allocated_feature_bytes == warmup_stats.m_allocated_feature_bytes);
+			PR_EXPECT(small_stats.m_logical_bytes < small_stats.m_allocated_feature_bytes);
+
+			// Restore the larger workload immediately before timing so both measured sizes start from an active, saturated GPU.
+			warmup_bodies = make_bodies(LargeSlotCount);
+			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, large_upload, warmup_bodies);
 			auto measure = [&](GpuConstraintUpload const& upload)
 			{
 				auto bodies = make_bodies(isize(upload.m_endpoints));
@@ -764,8 +933,18 @@ namespace pr::physics::tests
 				return std::chrono::duration<double, std::milli>(elapsed).count();
 			};
 
-			auto const small_ms = measure(small_upload);
-			auto const large_ms = measure(large_upload);
+			// Interleaved medians reject transient GPU clock and queue noise without concealing persistent superlinear work.
+			auto small_samples = std::array<double, SampleCount>{};
+			auto large_samples = std::array<double, SampleCount>{};
+			for (int sample = 0; sample != SampleCount; ++sample)
+			{
+				small_samples[sample] = measure(small_upload);
+				large_samples[sample] = measure(large_upload);
+			}
+			std::ranges::sort(small_samples);
+			std::ranges::sort(large_samples);
+			auto const small_ms = small_samples[SampleCount / 2];
+			auto const large_ms = large_samples[SampleCount / 2];
 			auto const small_rows = SmallSlotCount * GpuConstraintRowsPerBlock;
 			auto const large_rows = LargeSlotCount * GpuConstraintRowsPerBlock;
 			pr::unittests::TestFramework::out() << std::format(
@@ -777,7 +956,19 @@ namespace pr::physics::tests
 				large_ms / small_ms,
 				static_cast<double>(large_rows) / small_rows);
 			PR_EXPECT(large_rows >= 100000);
-			PR_EXPECT(large_ms / small_ms < 20.0);
+			PR_EXPECT(large_ms / small_ms < 2.2);
+
+			// Repeated smaller submissions must reuse the maximum allocation, whose accounting follows the capacity formula exactly.
+			auto const final_stats = solver.Stats();
+			auto const expected_allocated_bytes =
+				static_cast<size_t>(final_stats.m_slot_capacity) * slot_bytes +
+				sizeof(uint32_t) +
+				static_cast<size_t>(final_stats.m_body_capacity) * sizeof(GpuConstraintPseudoVelocity) +
+				static_cast<size_t>(final_stats.m_break_capacity) * sizeof(GpuConstraintBreakState);
+			PR_EXPECT(final_stats.m_slot_capacity == warmup_stats.m_slot_capacity);
+			PR_EXPECT(final_stats.m_body_capacity == warmup_stats.m_body_capacity);
+			PR_EXPECT(final_stats.m_allocated_feature_bytes == warmup_stats.m_allocated_feature_bytes);
+			PR_EXPECT(final_stats.m_allocated_feature_bytes == expected_allocated_bytes);
 		}
 
 		// Preserve coherent stable-slot execution when a real GPU hub requires one hundred edge colours.
@@ -860,6 +1051,70 @@ namespace pr::physics::tests
 			auto replaced = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
 			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 60.0f, PackGpuConstraints(constraints_b, BodyRemap(body_ptrs)), replaced);
 			PR_EXPECT(std::abs(replaced[0].momentum_lin.x) < 1.0e-6f);
+		}
+
+		// An empty constraint overlay must leave ordinary rigid-body output and the established frame transaction bit-identical.
+		PRUnitTestMethod(EmptyConstraintSetPreservesOrdinaryStep, Extended)
+		{
+			auto shape = collision::ShapeBox{v4{0.4f, 0.6f, 0.8f, 0}};
+			auto initial_o2w = m4x4::Transform(Normalise(v4{0.2f, 0.7f, -0.3f, 0}), 0.37f, v4{+1.0f, -2.0f, +3.0f, 1});
+			auto overlay_body = RigidBody{&shape, initial_o2w, Inertia::Box(shape.m_radius, 2.5f)};
+			auto baseline_body = RigidBody{&shape, initial_o2w, Inertia::Box(shape.m_radius, 2.5f)};
+			auto const initial_velocity = v8motion{v4{+1.2f, -0.8f, +0.4f, 0}, v4{+0.3f, -0.2f, +0.5f, 0}};
+			overlay_body.VelocityWS(initial_velocity);
+			baseline_body.VelocityWS(initial_velocity);
+			auto overlay_bodies = std::array<RigidBody*, 1>{&overlay_body};
+			auto baseline_bodies = std::array<RigidBody*, 1>{&baseline_body};
+			auto constraints = ConstraintSet{};
+			auto engine = Engine{};
+
+			// Warm the ordinary one-body path without touching optional lanes so first-frame setup cannot masquerade as overlay cost.
+			auto warmup_body = RigidBody{&shape, initial_o2w, Inertia::Box(shape.m_radius, 2.5f)};
+			warmup_body.VelocityWS(initial_velocity);
+			auto warmup_bodies = std::array<RigidBody*, 1>{&warmup_body};
+			engine.Step(Engine::StepInput{
+				.m_bodies = warmup_bodies,
+				.m_elapsed_seconds = 1.0f / 120.0f,
+			});
+
+			// Submit the optional empty overlay before any feature allocation can weaken the zero-cost assertion.
+			engine.Step(Engine::StepInput{
+				.m_bodies = overlay_bodies,
+				.m_constraints = &constraints,
+				.m_elapsed_seconds = 1.0f / 120.0f,
+			});
+			auto const overlay_stats = engine.LastFeatureStats();
+			auto const overlay_profile = engine.LastStepProfile();
+
+			// Repeat the same ordinary path without a constraint pointer and compare the complete published dynamic state.
+			engine.Step(Engine::StepInput{
+				.m_bodies = baseline_bodies,
+				.m_elapsed_seconds = 1.0f / 120.0f,
+			});
+			auto const baseline_profile = engine.LastStepProfile();
+			auto const overlay_o2w = overlay_body.O2W();
+			auto const baseline_o2w = baseline_body.O2W();
+			auto const overlay_momentum = overlay_body.MomentumWS();
+			auto const baseline_momentum = baseline_body.MomentumWS();
+			PR_EXPECT(std::memcmp(&overlay_o2w, &baseline_o2w, sizeof(m4x4)) == 0);
+			PR_EXPECT(std::memcmp(&overlay_momentum, &baseline_momentum, sizeof(v8force)) == 0);
+			PR_EXPECT(overlay_body.Sleeping() == baseline_body.Sleeping());
+
+			// Optional lanes retain no feature storage or work, and the empty overlay adds no submission, wait, or readback.
+			PR_EXPECT(overlay_stats.m_constraints.m_declared_count == 0);
+			PR_EXPECT(overlay_stats.m_constraints.m_active_count == 0);
+			PR_EXPECT(overlay_stats.m_constraints.m_resources.m_dispatch_count == 0);
+			PR_EXPECT(overlay_stats.m_constraints.m_resources.m_logical_bytes == 0);
+			PR_EXPECT(overlay_stats.m_constraints.m_resources.m_allocated_bytes == 0);
+			PR_EXPECT(overlay_stats.m_articulations.m_resources.m_dispatch_count == 0);
+			PR_EXPECT(overlay_stats.m_articulations.m_resources.m_logical_bytes == 0);
+			PR_EXPECT(overlay_stats.m_articulations.m_resources.m_allocated_bytes == 0);
+			PR_EXPECT(overlay_stats.m_coupled.m_resources.m_dispatch_count == 0);
+			PR_EXPECT(overlay_stats.m_coupled.m_resources.m_logical_bytes == 0);
+			PR_EXPECT(overlay_stats.m_coupled.m_resources.m_allocated_bytes == 0);
+			PR_EXPECT(overlay_profile.m_submission_count == baseline_profile.m_submission_count);
+			PR_EXPECT(overlay_profile.m_wait_count == baseline_profile.m_wait_count);
+			PR_EXPECT(overlay_profile.m_readback_copy_count == baseline_profile.m_readback_copy_count);
 		}
 
 		// Exercise the public constrained Engine step and prove a hard world lock corrects drift without physical momentum injection.

@@ -563,6 +563,67 @@ namespace pr::physics::tests
 			PR_EXPECT(sep_speed > 0.5f);
 		}
 
+		// Preserve a legitimate energy-neutral restitution target while the passive-work guard rejects only numerical energy gain.
+		PRUnitTestMethod(RestitutionSurvivesPassiveEnergyGuard, Quick)
+		{
+			auto config = EngineConfig{};
+			config.push_out_iterations = 0;
+			config.solver_iterations = 2;
+			config.velocity_baumgarte = 0.0f;
+
+			auto sphere = collision::ShapeSphere{0.5f};
+			auto body_a = RigidBody{&sphere, m4x4::Translation(-0.5f, 0, 0), Inertia::Sphere(sphere.m_radius, 1.0f)};
+			auto body_b = RigidBody{&sphere, m4x4::Translation(+0.5f, 0, 0), Inertia::Sphere(sphere.m_radius, 1.0f)};
+			body_a.VelocityWS(v4::Zero(), +v4::XAxis());
+			body_b.VelocityWS(v4::Zero(), -v4::XAxis());
+			auto bodies = std::vector<GpuRigidBody>{
+				PackDynamics(body_a, 0),
+				PackDynamics(body_b, 1),
+			};
+
+			// The symmetric contact has a closed-form perfectly elastic result: equal masses exchange velocities without changing energy.
+			auto const contact_point = v4{0.5f, 0, 0, 1};
+			auto contacts = std::vector<GpuResolveContact>{
+				GpuResolveContact{
+					.axis = v4::XAxis(),
+					.contact_point = contact_point,
+					.manifold = {contact_point},
+					.b2a = InvertOrthonormal(body_a.O2W()) * body_b.O2W(),
+					.body_idx_a = 0,
+					.body_idx_b = 1,
+					.mat_id_a = 0,
+					.mat_id_b = 0,
+					.depth = 0.0f,
+					.feature = 1,
+				},
+			};
+			auto materials = std::vector<GpuMaterial>{
+				GpuMaterial{
+					.friction_static = 0.0f,
+					.elasticity_norm = 1.0f,
+				},
+			};
+			auto const energy_before = body_a.KineticEnergy() + body_b.KineticEnergy();
+
+			auto runner = ResolveInteropRunner{config};
+			runner.Run(ResolveRunnerBuffers{
+				.m_dt = 1.0f / 60.0f,
+				.m_bodies = bodies,
+				.m_contacts = contacts,
+				.m_materials = materials,
+			});
+			UnpackDynamics(bodies[0], body_a);
+			UnpackDynamics(bodies[1], body_b);
+
+			// A passive clamp that accidentally treats restitution as zero-target work would leave both normal velocities near zero.
+			auto const energy_after = body_a.KineticEnergy() + body_b.KineticEnergy();
+			PR_EXPECT(FEqlAbsolute(body_a.VelocityWS().lin.x, -1.0f, 2.0e-4f));
+			PR_EXPECT(FEqlAbsolute(body_b.VelocityWS().lin.x, +1.0f, 2.0e-4f));
+			PR_EXPECT(FEqlAbsolute(body_a.MomentumWS().lin.x + body_b.MomentumWS().lin.x, 0.0f, 2.0e-5f));
+			PR_EXPECT(energy_after <= energy_before + 2.0e-4f);
+			PR_EXPECT(energy_after >= energy_before - 2.0e-4f);
+		}
+
 		// Diagnostic: replicate the failing-frame state of BoxDropEnergyConservation around frame 100.
 		// At that point the trace shows the rotated box at z=-0.32, vz=-8 m/s, with contact depth 0.55.
 		// The bias should reverse vz to ~+5 m/s but it doesn't — body keeps falling.
