@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using Rylogic.Common;
+using Rylogic.Gui.WPF;
 
 namespace LDraw.MCP.Host.UI;
 
@@ -25,6 +26,9 @@ public partial class TrayWindow :Window, IDisposable
 		m_server = server;
 		m_launcher = new InstanceLauncher(settings);
 		InitializeComponent();
+
+		// Make launching LDraw the primary tray action.
+		m_notify_icon.LeftClickCommand = Command.Create(this, LaunchLDrawInternal);
 
 		// The status header lives in the context menu held in Window.Resources, which is not part of the named
 		// element tree, so resolve it from the resource dictionary rather than relying on a generated field.
@@ -72,6 +76,12 @@ public partial class TrayWindow :Window, IDisposable
 
 	/// <summary>Launch a new MCP-enabled LDraw instance that Copilot can control</summary>
 	private void HandleLaunchLDraw(object sender, RoutedEventArgs e)
+	{
+		LaunchLDrawInternal();
+	}
+
+	/// <summary>Launch a new MCP-enabled LDraw instance that Copilot can control</summary>
+	private void LaunchLDrawInternal()
 	{
 		try
 		{

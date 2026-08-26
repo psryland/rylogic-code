@@ -13,9 +13,9 @@
 	>
 	<Window.Resources>
 		<ContextMenu x:Key="TrayMenu">
-			<MenuItem x:Name="m_menu_status" Header="MCP host" IsEnabled="False" FontWeight="Bold"/>
+			<MenuItem x:Name="m_menu_status" Header="MCP host" IsEnabled="False"/>
 			<Separator/>
-			<MenuItem x:Name="m_menu_launch" Header="Launch LDraw" Click="HandleLaunchLDraw"/>
+			<MenuItem x:Name="m_menu_launch" Header="Launch LDraw" Click="HandleLaunchLDraw" FontWeight="Bold"/>
 			<Separator/>
 			<MenuItem x:Name="m_menu_copy" Header="Copy MCP config" Click="HandleCopyConfig"/>
 			<MenuItem x:Name="m_menu_settings" Header="Settings..." Click="HandleSettings"/>
