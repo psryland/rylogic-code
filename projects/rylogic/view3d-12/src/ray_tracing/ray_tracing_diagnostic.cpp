@@ -416,9 +416,10 @@ namespace pr::rdr12
 			barriers.Transition(output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			barriers.Commit();
 
+			// Sample the raster target through its sRGB view so the DXR shader receives linear colour values.
 			auto input_desc = input->GetDesc();
 			auto input_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC{
-				.Format = input_desc.Format,
+				.Format = ::pr::compute::ToSRGB(input_desc.Format),
 				.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
 				.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
 				.Texture2D = {
