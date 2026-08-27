@@ -98,6 +98,8 @@ namespace pr::rdr12
 			// Enable the debug layer. Must be done before creating the d3d12 device.
 			if (AllSet(m_settings.m_options, ERdrOptions::DeviceDebug))
 			{
+				compute::EnableDeviceRemovedDiagnostics();
+
 				D3DPtr<ID3D12Debug> dbg;
 				Check(D3D12GetDebugInterface(__uuidof(ID3D12Debug), (void**)dbg.address_of()));
 				dbg->EnableDebugLayer();

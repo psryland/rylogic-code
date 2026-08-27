@@ -95,6 +95,12 @@ namespace pr::rdr12
 		if (msg.back() != '\n')
 			msg.push_back('\n');
 
+		// Preserve actionable GPU evidence at the ABI boundary, where native exception types would otherwise be lost.
+		auto device = rdr().D3DDevice();
+		auto reason = device->GetDeviceRemovedReason();
+		if (FAILED(reason) && dynamic_cast<compute::DeviceRemovedException const*>(ex) == nullptr)
+			msg.append(compute::DeviceRemovedReport(device, reason));
+
 		// If a window handle is provided, report via the window's event.
 		// Otherwise, fall back to the global error handler
 		if (wnd != nullptr)

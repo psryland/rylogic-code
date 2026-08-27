@@ -8,6 +8,7 @@
 		<TargetName>view3d-ui</TargetName>
 		<RootNamespace>ViewUI</RootNamespace>
 		<ConfigurationType>DynamicLibrary</ConfigurationType>
+		<RylogicNativeRuntimePackage>Include</RylogicNativeRuntimePackage>
 	</PropertyGroup>
 
 	<!-- Property Sheets -->

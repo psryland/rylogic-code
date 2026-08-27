@@ -27,6 +27,8 @@ namespace pr::compute
 			// Enable the D3D Debug layer (must be before create device)
 			if constexpr (IsDebug)
 			{
+				EnableDeviceRemovedDiagnostics();
+
 				D3DPtr<ID3D12Debug> dbg;
 				Check(D3D12GetDebugInterface(__uuidof(ID3D12Debug), (void**)dbg.address_of()));
 				dbg->EnableDebugLayer();
@@ -141,4 +143,3 @@ namespace pr::compute
 	template class Gpu<D3D12_COMMAND_LIST_TYPE_DIRECT>;
 	template class Gpu<D3D12_COMMAND_LIST_TYPE_COMPUTE>;
 }
-

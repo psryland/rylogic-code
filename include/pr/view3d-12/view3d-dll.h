@@ -908,6 +908,12 @@ extern "C"
 	// The caller must release the returned interface exactly once using IUnknown::Release.
 	VIEW3D_API void* __stdcall View3D_DeviceLeaseAcquire(pr::view3d::DllHandle context);
 
+	// Return the D3D12 device-removal reason, or S_OK while the device remains usable.
+	VIEW3D_API HRESULT __stdcall View3D_DeviceRemovedReasonGet(pr::view3d::DllHandle context);
+
+	// Return a bounded DRED report after device removal, or an empty view while the device remains usable.
+	VIEW3D_API pr::view3d::StrView __stdcall View3D_DeviceRemovedReportGet(pr::view3d::DllHandle context);
+
 	// This error callback is called for errors that are associated with the dll (rather than with a window).
 	VIEW3D_API void __stdcall View3D_GlobalErrorCBSet(pr::view3d::ReportErrorCB error_cb, BOOL add);
 

@@ -133,6 +133,48 @@ VIEW3D_API void* __stdcall View3D_DeviceLeaseAcquire(DllHandle context)
 	CatchAndReport(View3D_DeviceLeaseAcquire, , nullptr);
 }
 
+// Query the removal reason while pinning the process-global context against concurrent shutdown.
+VIEW3D_API HRESULT __stdcall View3D_DeviceRemovedReasonGet(DllHandle context)
+{
+	try
+	{
+		DllLockGuard;
+		if (!Dll().m_inits.contains(context))
+			return E_HANDLE;
+
+		return Dll().rdr().D3DDevice()->GetDeviceRemovedReason();
+	}
+	catch (...)
+	{
+		return E_HANDLE;
+	}
+}
+
+// Capture DRED evidence on demand so a preflight removal check remains as actionable as an API failure.
+VIEW3D_API view3d::StrView __stdcall View3D_DeviceRemovedReportGet(DllHandle context)
+{
+	static thread_local std::string report;
+	try
+	{
+		DllLockGuard;
+		if (!Dll().m_inits.contains(context))
+			return {};
+
+		auto device = Dll().rdr().D3DDevice();
+		auto reason = device->GetDeviceRemovedReason();
+		if (!FAILED(reason))
+			return {};
+
+		report = compute::DeviceRemovedReport(device, reason);
+		return {report.data(), report.size()};
+	}
+	catch (...)
+	{
+		report.clear();
+		return {};
+	}
+}
+
 // Replace the global error handler
 VIEW3D_API void __stdcall View3D_GlobalErrorCBSet(view3d::ReportErrorCB error_cb, BOOL add)
 {
