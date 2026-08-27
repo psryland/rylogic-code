@@ -35,7 +35,7 @@ namespace physics_sandbox
 					v4::YAxis(),
 					m4x4::Translation(side * 0.25f, 0.0f, -0.82f),
 					m4x4::Translation(0.0f, 0.0f, +0.68f));
-				hip.m_initial_position[0] = 0.12f * side;
+				hip.m_initial_position[0] = -0.12f * side;
 				auto const thigh = builder.AddLink(torso, hip, demo.BoxLink(v4{0.38f, 0.38f, 1.36f, 0.0f}, 1.3f, false, true));
 				auto knee = physics::ArticulationJointDesc::Revolute(v4::YAxis(), m4x4::Translation(0.0f, 0.0f, -0.68f), m4x4::Translation(0.0f, 0.0f, +0.62f));
 				knee.m_initial_position[0] = 0.2f;

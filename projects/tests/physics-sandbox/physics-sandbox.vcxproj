@@ -82,6 +82,7 @@
     <ClCompile Include="src\scene\body.cpp" />
     <ClCompile Include="src\scene\articulation_visual.cpp" />
     <ClCompile Include="src\scene\demo.cpp" />
+    <ClCompile Include="src\scene\demo_catalogue.cpp" />
     <ClCompile Include="src\scene\demo_articulations.cpp" />
     <ClCompile Include="src\scene\demo_builder.cpp" />
     <ClCompile Include="src\scene\demo_constraints.cpp" />
@@ -226,6 +227,12 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Import Project="$(TargetsPath)WinPixEventRuntime.targets" />
   <Import Project="$(TargetsPath)dxc.targets" />
+  <Target Name="CopyDemoScenes" AfterTargets="Build">
+    <ItemGroup>
+      <DemoScene Include="$(ProjectDir)scenes\*.json" />
+    </ItemGroup>
+    <Copy SourceFiles="@(DemoScene)" DestinationFolder="$(TargetDir)scenes" SkipUnchangedFiles="true" />
+  </Target>
   <!--
   Run unit tests as a post-build step in Debug builds.
   IgnoreExitCode allows the build to succeed even if tests fail,

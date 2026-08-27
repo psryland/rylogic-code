@@ -11,7 +11,7 @@ namespace physics_sandbox
 		static constexpr int VisualModeNormal = 3001;
 		static constexpr int VisualModeContactPriority = 3002;
 		static constexpr int DemoBase = 4000;
-		static constexpr int DemoCount = 19;
+		static constexpr int SceneDemoBase = 5000;
 	}
 	namespace MenuItemIndex
 	{

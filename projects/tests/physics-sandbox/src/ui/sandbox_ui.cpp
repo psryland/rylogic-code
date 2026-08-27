@@ -13,6 +13,41 @@ namespace physics_sandbox
 		constexpr double MaxFrameSeconds = 0.25;
 		constexpr int MaxTicksPerSubmission = 2;
 
+		// Build behavior-oriented submenus from both programmatic and file-backed demonstration catalogues.
+		HMENU CreateDemoMenu()
+		{
+			auto menu = Menu(Menu::EKind::Popup);
+			for (auto const& category : DemoCategoryCatalogue())
+			{
+				auto category_menu = Menu(Menu::EKind::Popup);
+
+				// Keep command identifiers tied to stable catalogue indexes while grouping entries by demonstrated behavior.
+				auto const demos = DemoCatalogue();
+				for (auto index = 0; index != isize(demos); ++index)
+				{
+					if (demos[index].m_category != category.m_category)
+						continue;
+
+					auto const label = pr::Widen(demos[index].m_display_name);
+					category_menu.Insert(MenuItem(label.c_str(), MenuID::DemoBase + index));
+				}
+				auto const scene_demos = SceneDemoCatalogue();
+				for (auto index = 0; index != isize(scene_demos); ++index)
+				{
+					if (scene_demos[index].m_category != category.m_category)
+						continue;
+
+					auto const label = pr::Widen(scene_demos[index].m_display_name);
+					category_menu.Insert(MenuItem(label.c_str(), MenuID::SceneDemoBase + index));
+				}
+
+				// Categories own the conceptual grouping regardless of whether their demos are code- or data-defined.
+				auto const label = pr::Widen(category.m_display_name);
+				menu.Insert(MenuItem(label.c_str(), category_menu));
+			}
+			return menu;
+		}
+
 		// Return the number of fixed ticks that can share one submission within the requested and engine-owned bounds.
 		constexpr int ScheduledTickCount(double accumulated_seconds, int requested_tick_capacity, int substeps_per_tick, int max_internal_substeps, bool require_tick_boundary)
 		{
@@ -73,27 +108,7 @@ namespace physics_sandbox
 				MenuItem(L"&Normal", MenuID::VisualModeNormal, MenuItem::EState::Checked),
 				MenuItem(L"&Contact Priority", MenuID::VisualModeContactPriority),
 			})},
-			{L"&Demos", Menu(Menu::EKind::Popup, {
-				MenuItem(L"Single Pendulum", MenuID::DemoBase + 0),
-				MenuItem(L"Rigid Joint Gallery", MenuID::DemoBase + 1),
-				MenuItem(L"Long Rigid Chain", MenuID::DemoBase + 2),
-				MenuItem(L"Four-Bar Closed Loop", MenuID::DemoBase + 3),
-				MenuItem(L"Fixed Articulations", MenuID::DemoBase + 4),
-				MenuItem(L"Ragdoll Drop", MenuID::DemoBase + 5),
-				MenuItem(L"Robot Motors and Limits", MenuID::DemoBase + 6),
-				MenuItem(L"Robot Arm and Gripper", MenuID::DemoBase + 7),
-				MenuItem(L"Vehicle Suspension", MenuID::DemoBase + 8),
-				MenuItem(L"Suspension Bridge", MenuID::DemoBase + 9),
-				MenuItem(L"Mixed Rigid/Tree Coupling", MenuID::DemoBase + 10),
-				MenuItem(L"Articulation Pushes Stack", MenuID::DemoBase + 11),
-				MenuItem(L"Two Robots Carrying a Load", MenuID::DemoBase + 12),
-				MenuItem(L"Mixed and Self Contacts", MenuID::DemoBase + 13),
-				MenuItem(L"Buoyant Articulation", MenuID::DemoBase + 14),
-				MenuItem(L"Floating Conservation", MenuID::DemoBase + 15),
-				MenuItem(L"Dzhanibekov Effect", MenuID::DemoBase + 16),
-				MenuItem(L"Constraint Pathologies", MenuID::DemoBase + 17),
-				MenuItem(L"Constraint Stress Grid", MenuID::DemoBase + 18),
-			})} })
+			{L"&Demos", CreateDemoMenu()} })
 			.main_wnd(true)
 			.wndclass(RegisterWndClass<SandboxUI>()))
 		, m_status(StatusBar::Params<>().parent(this_).dock(EDock::Bottom))
@@ -302,12 +317,21 @@ namespace physics_sandbox
 				return true;
 			}
 
-			if (id >= MenuID::DemoBase && id < MenuID::DemoBase + MenuID::DemoCount)
+			auto const demos = DemoCatalogue();
+			if (id >= MenuID::DemoBase && id < MenuID::DemoBase + isize(demos))
 			{
 				auto const demo_index = id - MenuID::DemoBase;
-				auto const catalogue = DemoCatalogue();
-				if (demo_index >= 0 && demo_index < isize(catalogue))
-					LoadDemo(catalogue[demo_index].m_demo);
+				LoadDemo(demos[demo_index].m_demo);
+
+				result = 0;
+				return true;
+			}
+
+			auto const scene_demos = SceneDemoCatalogue();
+			if (id >= MenuID::SceneDemoBase && id < MenuID::SceneDemoBase + isize(scene_demos))
+			{
+				auto const demo_index = id - MenuID::SceneDemoBase;
+				LoadSceneFile(SceneDemoPath(scene_demos[demo_index]));
 
 				result = 0;
 				return true;

@@ -422,6 +422,9 @@
     <ClCompile Include="src\scene\demo.cpp">
       <Filter>src\scene</Filter>
     </ClCompile>
+    <ClCompile Include="src\scene\demo_catalogue.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
     <ClCompile Include="src\scene\procedural_sky.cpp">
       <Filter>src\scene</Filter>
     </ClCompile>
