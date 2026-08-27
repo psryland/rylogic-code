@@ -17,9 +17,6 @@ internal sealed partial class LDrawInstanceHost
 			return await m_model.InvokeAsync(() =>
 			{
 				var scene = ResolveExplicitScene(parameters.SceneName, "ldraw_close_scene");
-				if (m_model.Scenes.Count <= 1)
-					throw new InvalidOperationException("ldraw_close_scene cannot close the last remaining scene.");
-
 				var user_sources = UserSourcesInScene(scene);
 				if (user_sources.Count != 0)
 				{

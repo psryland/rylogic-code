@@ -12,6 +12,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\view3d-dll.h">
       <Filter>src</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\view3d-ui-bridge.h">
+      <Filter>src</Filter>
+    </ClInclude>
     <ClCompile Include="src\dll\context.cpp">
       <Filter>src\dll</Filter>
     </ClCompile>

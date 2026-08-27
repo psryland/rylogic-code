@@ -7,7 +7,8 @@
 		<ProjectName>audio.dll</ProjectName>
 		<TargetName>audio</TargetName>
 		<RootNamespace>Audio</RootNamespace>
-	    <ConfigurationType>DynamicLibrary</ConfigurationType>
+		<ConfigurationType>DynamicLibrary</ConfigurationType>
+		<RylogicNativeRuntimePackage>Include</RylogicNativeRuntimePackage>
 	</PropertyGroup>
 
 	<!-- Property Sheets -->

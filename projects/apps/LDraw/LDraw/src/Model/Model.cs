@@ -106,6 +106,26 @@ namespace LDraw
 			(SceneHost ?? throw new InvalidOperationException("No LDraw scene host is available.")).ActivateScene(scene);
 		}
 
+		/// <summary>Rename 'scene' while preserving settings and source memberships</summary>
+		internal void RenameScene(SceneUI scene, string? name)
+		{
+			if (!Scenes.Contains(scene))
+				throw new InvalidOperationException($"Scene '{scene.SceneName}' is not owned by this LDraw instance.");
+			if (string.IsNullOrWhiteSpace(name))
+				throw new InvalidOperationException("A scene name is required.");
+
+			var new_name = name.Trim();
+			if (Scenes.Any(x => x != scene && string.Equals(x.SceneName, new_name, StringComparison.OrdinalIgnoreCase)))
+				throw new InvalidOperationException($"A scene named '{new_name}' already exists.");
+
+			// Keep loaded-source membership attached to the renamed scene.
+			var old_name = scene.SceneName;
+			foreach (var source in Sources)
+				source.RenameSceneMembership(old_name, new_name);
+
+			scene.SceneName = new_name;
+		}
+
 		/// <summary>Close 'scene' through the UI host</summary>
 		internal void CloseScene(SceneUI scene)
 		{

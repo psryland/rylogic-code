@@ -332,16 +332,16 @@
     <ClInclude Include="$(RylogicRoot)include\pr\network\tcpip.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\network\web_get.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\network\winsock.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\constants.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\forward.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\integrator\impulse.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\physics.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\rigid_body\rigid_body.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\shape\inertia.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\shape\mass.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\shape\shape_builder.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\shape\shape_mass.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics2\utility\field.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\constants.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\forward.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\impulse.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\physics.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\rigid_body.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\inertia.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\mass.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\shape_builder.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\shape\shape_mass.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\field.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\script\unit_tests.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\storage\ini_file.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\storage\json.h" />
@@ -407,9 +407,8 @@
 				;PR_MATHS_USE_DIRECTMATH=1
 			</PreprocessorDefinitions>
     </ClCompile>
-    <ClCompile Include="src\dependecy_check_new_math.cpp" />
-    <ClCompile Include="src\audio_dll_tests.cpp" />
-    <ClCompile Include="src\message_loop_tests.cpp" />
+    <ClCompile Include="src\maths\dependecy_check_new_math.cpp" />
+    <ClCompile Include="src\gui\message_loop_tests.cpp" />
     <ClCompile Include="src\hlsl\bounding_box_tests.cpp" />
     <ClCompile Include="src\hlsl\closest_point_tests.cpp" />
     <ClCompile Include="src\hlsl\core_tests.cpp" />
@@ -511,16 +510,16 @@
     <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="$(RylogicRoot)projects\rylogic\audio\audio.dll.vcxproj">
-      <LinkLibraryDependencies>false</LinkLibraryDependencies>
-    </ProjectReference>
     <ProjectReference Include="$(RylogicRoot)projects\rylogic\compute\compute.vcxproj" />
   </ItemGroup>
   <Target Name="ReportCompiledUnitTests" BeforeTargets="ClCompile" Condition="'@(CompiledUnitTest)'!=''">
     <Message Importance="high" Text="Compiled unit test: %(CompiledUnitTest.Identity)" />
   </Target>
+ 
   <!-- Module-owned compiled tests are listed beside their owning component. -->
+  <Import Project="$(RylogicRoot)projects\rylogic\audio\src\unittests\unittests.targets" />
   <Import Project="$(RylogicRoot)projects\rylogic\physics\src\unittests\unittests.targets" />
+  
   <!-- Targets -->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Import Project="$(TargetsPath)dxc.targets" />

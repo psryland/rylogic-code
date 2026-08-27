@@ -28,7 +28,7 @@
 	<!-- Dependencies -->
 	<ItemGroup>
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\Rylogic.Core\Rylogic.Core.csproj" />
-		<PackageReference Include="Rylogic.Native" VersionOverride="$(RylogicLibraryVersion)" />
+		<PackageReference Include="Rylogic.Native" VersionOverride="$(RylogicNativePackageVersion)" Condition="'$(Configuration)' == 'Debug'" />
 		<PackageReference Include="System.Memory" Condition="'$(TargetFramework)' == 'net481'" />
 	</ItemGroup>
 

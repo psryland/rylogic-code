@@ -1,0 +1,26 @@
+<Project>
+	<!-- Keep one authoritative list for the build project and its companion Solution Explorer filters. -->
+	<ItemGroup>
+		<ClCompile Include="$(MSBuildThisFileDirectory)audio_dll_tests.cpp">
+			<AudioUnitTest>true</AudioUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\audio</Filter>
+		</ClCompile>
+	</ItemGroup>
+
+	<!-- Audio compiled tests belong to the global runner rather than the production DLL. -->
+	<ItemGroup Condition="'$(MSBuildProjectExtension)' == '.vcxproj'">
+		<CompiledUnitTest Include="@(ClCompile->WithMetadataValue('AudioUnitTest', 'true'))" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\audio\audio.dll.vcxproj">
+			<LinkLibraryDependencies>false</LinkLibraryDependencies>
+			<UseLibraryDependencyInputs>false</UseLibraryDependencyInputs>
+			<ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+		</ProjectReference>
+	</ItemGroup>
+
+	<!-- Imported sources remain module-owned while appearing with the runner's local sources in Solution Explorer. -->
+	<ItemGroup Condition="'$(MSBuildProjectExtension)' == '.filters'">
+		<Filter Include="src\audio">
+			<UniqueIdentifier>{80e83c94-9805-467c-8bfc-d4de2d342338}</UniqueIdentifier>
+		</Filter>
+	</ItemGroup>
+</Project>

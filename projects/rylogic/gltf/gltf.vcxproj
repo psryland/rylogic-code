@@ -10,6 +10,7 @@
     <TargetName>gltf</TargetName>
     <RootNamespace>pr::geometry::gltf</RootNamespace>
     <ResolveNuGetPackages>false</ResolveNuGetPackages>
+    <RylogicNativeRuntimePackage>Include</RylogicNativeRuntimePackage>
   </PropertyGroup>
   <!--
   Property Sheets

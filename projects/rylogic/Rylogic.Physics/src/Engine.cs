@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using Rylogic.D3D12;
 using Rylogic.Maths;
@@ -424,8 +425,36 @@ public sealed class Engine :IDisposable
 		var shapes = new Shape[m_shapes.Count];
 		m_shapes.CopyTo(shapes);
 
-		// Native destruction drains pending GPU work and owns all body/shape dependency ordering, including checkpoint-only objects.
-		Native.Check(Native.Physics_EngineDestroy(Handle));
+		// A terminal native cleanup failure still retires the engine, so preserve it while invalidating every managed identity exactly once.
+		var destroy_status = Native.Physics_EngineDestroy(Handle);
+		ExceptionDispatchInfo? destroy_failure = null;
+		switch (destroy_status)
+		{
+			case EStatus.Success:
+			{
+				break;
+			}
+			case EStatus.DeviceRemoved:
+			case EStatus.InternalError:
+			{
+				try
+				{
+					Native.Check(destroy_status);
+				}
+				catch (PhysicsException exception)
+				{
+					destroy_failure = ExceptionDispatchInfo.Capture(exception);
+				}
+				break;
+			}
+			default:
+			{
+				Native.Check(destroy_status);
+				throw new InvalidOperationException($"Unexpected successful engine-destroy status {destroy_status}.");
+			}
+		}
+
+		// Native destruction owns dependency ordering, including checkpoint-only objects.
 		foreach (var constraint in constraints)
 			constraint.ReleaseFromEngine();
 		foreach (var articulation in articulations)
@@ -440,6 +469,7 @@ public sealed class Engine :IDisposable
 		m_handle = null;
 		m_runtime.Remove(this);
 		GC.SuppressFinalize(this);
+		destroy_failure?.Throw();
 	}
 
 	/// <summary>The current stable native engine identity.</summary>

@@ -15,6 +15,7 @@
 #include "pr/compute/resource/resource_state.h"
 #include "pr/compute/resource/resource_state_store.h"
 #include "pr/compute/utility/wrappers.h"
+#include "pr/compute/utility/device_removed.h"
 #include "pr/compute/utility/gpu_sync.h"
 #include "pr/compute/utility/cmd_alloc.h"
 #include "pr/compute/utility/cmd_list.h"
@@ -40,4 +41,3 @@
 #include "pr/compute/spatial_partition/spatial_partition.h"
 #include "pr/compute/particle_collision/collision_builder.h"
 #include "pr/compute/particle_collision/particle_collision.h"
-

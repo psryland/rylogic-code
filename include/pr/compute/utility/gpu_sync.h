@@ -4,6 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/compute/forward.h"
+#include "pr/compute/utility/device_removed.h"
 
 namespace pr::compute
 {
@@ -100,10 +101,26 @@ namespace pr::compute
 			return m_fence->GetCompletedValue();
 		}
 
+		// Return the reason that the owning D3D12 device was removed, or S_OK while it remains usable.
+		HRESULT DeviceRemovedReason() const
+		{
+			return m_device != nullptr ? m_device->GetDeviceRemovedReason() : S_OK;
+		}
+
 		// Add a synchronisation point to 'queue'. Returns the sync point number to wait for.
 		uint64_t AddSyncPoint(ID3D12CommandQueue* queue)
 		{
-			Check(queue->Signal(m_fence.get(), ++m_sync));
+			auto next_sync = m_sync + 1;
+			auto signal_result = queue->Signal(m_fence.get(), next_sync);
+			if (FAILED(signal_result))
+			{
+				auto reason = DeviceRemovedReason();
+				if (FAILED(reason))
+					throw DeviceRemovedException(m_device, reason);
+
+				Check(signal_result);
+			}
+			m_sync = next_sync;
 			SyncPointAdded(*this);
 			return m_sync;
 		}
@@ -124,7 +141,7 @@ namespace pr::compute
 					case WAIT_ABANDONED: throw std::runtime_error("Wait for sync point abandoned");
 				}
 			}
-			return true;
+			return !FAILED(DeviceRemovedReason());
 		}
 		
 		// Wait till the last sync point is reached
@@ -158,4 +175,3 @@ namespace pr::compute
 		}
 	};
 }
-

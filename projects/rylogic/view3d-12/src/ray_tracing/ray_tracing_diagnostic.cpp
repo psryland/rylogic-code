@@ -338,7 +338,7 @@ namespace pr::rdr12
 	}
 
 	// Record the ray dispatch and presentation commands for the selected screen-space pass.
-	void RayTracingDiagnostic::Record(GfxCmdList& cmd_list, Frame& frame, Scene const& scene, RayTracingScene const& ray_tracing_scene, ERayTracingScreenPass pass, RayTracingReflectionBuffer const* reflections, bool restore_present_state)
+	void RayTracingDiagnostic::Record(GfxCmdList& cmd_list, Frame& frame, Scene const& scene, RayTracingScene const& ray_tracing_scene, ERayTracingScreenPass pass, RayTracingReflectionBuffer const* reflections)
 	{
 		if (m_data == nullptr || m_data->m_output == nullptr || !ray_tracing_scene.Built())
 			return;
@@ -416,9 +416,10 @@ namespace pr::rdr12
 			barriers.Transition(output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			barriers.Commit();
 
+			// Sample the raster target through its sRGB view so the DXR shader receives linear colour values.
 			auto input_desc = input->GetDesc();
 			auto input_srv_desc = D3D12_SHADER_RESOURCE_VIEW_DESC{
-				.Format = input_desc.Format,
+				.Format = ::pr::compute::ToSRGB(input_desc.Format),
 				.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
 				.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
 				.Texture2D = {
@@ -652,12 +653,6 @@ namespace pr::rdr12
 			{
 				BarrierBatch bb(cmd_list);
 				bb.Transition(target, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
-				bb.Commit();
-			}
-			else if (restore_present_state)
-			{
-				BarrierBatch bb(cmd_list);
-				bb.Transition(frame.bb_post().m_render_target.get(), D3D12_RESOURCE_STATE_PRESENT);
 				bb.Commit();
 			}
 		}

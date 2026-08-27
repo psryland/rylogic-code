@@ -13,6 +13,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Runtime;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
@@ -31,6 +32,12 @@ public class Nuget
 	// Identifies a runtime framework required by package consumers for a target framework.
 	public record class FrameworkRef(string Name, string Framework) { }
 
+	// Describes one immutable archive in a validated public release.
+	private sealed record ReleasePackageManifestEntry(string Id, string FileName, long SizeBytes, string Sha256);
+
+	// Describes the exact archive set transferred between the build and publish jobs.
+	private sealed record ReleasePackageManifest(int SchemaVersion, string Version, IReadOnlyList<ReleasePackageManifestEntry> Packages);
+
 	public string PackageName = "";
 	public string Version = "1.0.0";
 	public string? Description;
@@ -38,6 +45,10 @@ public class Nuget
 	public List<File> Files = [];
 	public List<Dep> Deps = [];
 	public List<FrameworkRef> FrameworkRefs = [];
+
+	// Validates a newly packed archive before it is signed or synchronized to shared package locations.
+	public Action<string>? ValidateStagedPackage { get; set; }
+
 	// The config-specific feed used to stage the package before synchronisation.
 	public string PackageOutputPath = "";
 	
@@ -62,7 +73,6 @@ public class Nuget
 		xml_metadata.Element(XName.Get("version", ns))?.SetValue(Version);
 		if (Description is not null)
 			xml_metadata.Element(XName.Get("description", ns))?.SetValue(Description);
-
 		xml_metadata.Element(XName.Get("tags", ns))?.SetValue(Tags);
 
 		// Add each file to the spec
@@ -135,9 +145,11 @@ public class Nuget
 			xml_dependencies.AddAfterSelf(xml_framework_references);
 		}
 
+		// Keep generated nuspec files under the repository object directory for diagnostics and cleanup.
 		var objdir = Tools.Path([UserVars.Root, "obj", "nuget"], check_exists: false);
 		Directory.CreateDirectory(objdir);
 
+		// Stage into the caller's feed when supplied, otherwise use the stable Release feed.
 		var package_output_path = string.IsNullOrWhiteSpace(PackageOutputPath)
 			? Tools.Path([UserVars.Root, "lib\\packages\\release"], check_exists: false)
 			: Tools.Path([PackageOutputPath], check_exists: false);
@@ -153,18 +165,133 @@ public class Nuget
 			"-Verbosity", "detailed",
 		]);
 
-		// Sign the staged package before publishing it into the canonical feed and cache.
+		// Validate and sign the staged package before publishing it into the canonical feed and cache.
 		StagedPackagePath = Tools.Path([package_output_path, $"{PackageName}.{Version}.nupkg"]);
-		PackagePath = Tools.Path([UserVars.Root, $"lib\\packages\\{PackageName}.{Version}.nupkg"]);
+		PackagePath = Tools.Path([UserVars.Root, $"lib\\packages\\{PackageName}.{Version}.nupkg"], check_exists: false);
+		ValidateStagedPackage?.Invoke(StagedPackagePath);
 		Tools.SignNugetPackage(StagedPackagePath);
 		SyncPackageOutputs(StagedPackagePath, PackagePath);
 	}
 
-	// Push a NuGet package to 'nuget.org'.
+	// Prevents local long-lived credentials from bypassing the approved OIDC release workflow.
 	public void Publish()
 	{
-		if (PackagePath.Length == 0) throw new Exception("Call Package() first");
-		Tools.Run([UserVars.Nuget, "push", PackagePath, UserVars.NugetApiKey, "-source", "https://api.nuget.org/v3/index.json"]);
+		throw new NotSupportedException("Public Rylogic packages are published by .github/workflows/publish-nuget.yml from an approved version tag.");
+	}
+
+	// Validates the complete stable package set and writes its deterministic transfer manifest.
+	public static void ValidateReleasePackageSet(string version, IReadOnlyCollection<Nuget> packages, string manifest_path)
+	{
+		if (!Regex.IsMatch(version, @"^\d+\.\d+\.\d+$"))
+			throw new Exception($"Public package version '{version}' is not a stable three-part version");
+		if (packages.Count == 0)
+			throw new Exception("The public package set is empty");
+
+		// Package IDs must be unique because they are the stable identity used by NuGet consumers.
+		var duplicate_ids = packages
+			.GroupBy(x => x.PackageName, StringComparer.OrdinalIgnoreCase)
+			.Where(x => x.Count() != 1)
+			.Select(x => x.Key)
+			.ToArray();
+		if (duplicate_ids.Length != 0)
+			throw new Exception($"Duplicate public package IDs: {string.Join(", ", duplicate_ids)}");
+
+		// The same-version staging directory must contain exactly the archives produced by these builders.
+		var package_ids = packages.Select(x => x.PackageName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+		var expected_paths = packages
+			.Select(x => Path.GetFullPath(x.StagedPackagePath))
+			.ToHashSet(StringComparer.OrdinalIgnoreCase);
+		var release_dir = Path.GetDirectoryName(expected_paths.First()) ?? throw new Exception("Unable to determine the release package directory");
+		var actual_paths = Directory.EnumerateFiles(release_dir, $"*.{version}.nupkg", SearchOption.TopDirectoryOnly)
+			.Select(Path.GetFullPath)
+			.ToHashSet(StringComparer.OrdinalIgnoreCase);
+		if (!expected_paths.SetEquals(actual_paths))
+		{
+			var missing = expected_paths.Except(actual_paths, StringComparer.OrdinalIgnoreCase).Select(Path.GetFileName);
+			var unexpected = actual_paths.Except(expected_paths, StringComparer.OrdinalIgnoreCase).Select(Path.GetFileName);
+			throw new Exception($"Release package inventory mismatch. Missing: [{string.Join(", ", missing)}]. Unexpected: [{string.Join(", ", unexpected)}]");
+		}
+
+		// Inspect the archives rather than trusting their filenames or the inputs used to create them.
+		var entries = packages
+			.OrderBy(x => x.PackageName, StringComparer.OrdinalIgnoreCase)
+			.Select(package => ValidateReleasePackage(package, version, package_ids))
+			.ToArray();
+
+		// Persist the verified identities and hashes used to transfer the immutable set into the publish job.
+		var manifest = new ReleasePackageManifest(1, version, entries);
+		var options = new JsonSerializerOptions
+		{
+			PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+			WriteIndented = true,
+		};
+		Directory.CreateDirectory(Path.GetDirectoryName(manifest_path) ?? throw new Exception($"Unable to determine the manifest directory for '{manifest_path}'"));
+		IOFile.WriteAllText(manifest_path, JsonSerializer.Serialize(manifest, options) + Environment.NewLine);
+		Console.WriteLine($"Validated {entries.Length} release packages and wrote '{manifest_path}'.");
+	}
+
+	// Verifies package identity, framework payloads, internal dependencies, and transfer hash.
+	private static ReleasePackageManifestEntry ValidateReleasePackage(Nuget package, string version, IReadOnlySet<string> package_ids)
+	{
+		if (!IOFile.Exists(package.StagedPackagePath))
+			throw new Exception($"Release package is missing: {package.StagedPackagePath}");
+
+		// Match the archive filename to the package identity before opening untrusted package content.
+		var expected_name = $"{package.PackageName}.{version}.nupkg";
+		if (!string.Equals(Path.GetFileName(package.StagedPackagePath), expected_name, StringComparison.Ordinal))
+			throw new Exception($"Release package filename '{Path.GetFileName(package.StagedPackagePath)}' does not match '{expected_name}'");
+
+		// Require one release nuspec and reject paths that reveal Debug or development-version leakage.
+		using var archive = ZipFile.OpenRead(package.StagedPackagePath);
+		var nuspecs = archive.Entries.Where(x => x.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)).ToArray();
+		if (nuspecs.Length != 1)
+			throw new Exception($"Package '{expected_name}' contains {nuspecs.Length} nuspec files");
+		if (archive.Entries.Any(x => x.FullName.Contains("/Debug/", StringComparison.OrdinalIgnoreCase) || x.FullName.Contains("-dev.", StringComparison.OrdinalIgnoreCase)))
+			throw new Exception($"Package '{expected_name}' contains Debug or development-version content");
+
+		// Trust the embedded metadata only when it declares the builder's exact package identity.
+		using var nuspec_stream = nuspecs[0].Open();
+		var nuspec = XDocument.Load(nuspec_stream);
+		var metadata = nuspec.Descendants().Single(x => x.Name.LocalName == "metadata");
+		var archive_id = metadata.Elements().Single(x => x.Name.LocalName == "id").Value;
+		var archive_version = metadata.Elements().Single(x => x.Name.LocalName == "version").Value;
+		if (!string.Equals(archive_id, package.PackageName, StringComparison.Ordinal) || !string.Equals(archive_version, version, StringComparison.Ordinal))
+			throw new Exception($"Package '{expected_name}' declares identity '{archive_id} {archive_version}'");
+
+		// Every declared managed target must contain its corresponding assembly and no undeclared target assembly.
+		var expected_frameworks = package.Files
+			.Select(x => x.Target.Replace('\\', '/').Trim('/').Split('/'))
+			.Where(x => x.Length >= 2 && x[0].Equals("lib", StringComparison.OrdinalIgnoreCase))
+			.Select(x => x[1])
+			.ToHashSet(StringComparer.OrdinalIgnoreCase);
+		var actual_frameworks = archive.Entries
+			.Select(x => x.FullName.Trim('/').Split('/'))
+			.Where(x => x.Length == 3 && x[0].Equals("lib", StringComparison.OrdinalIgnoreCase) && x[2].Equals($"{package.PackageName}.dll", StringComparison.OrdinalIgnoreCase))
+			.Select(x => x[1])
+			.ToHashSet(StringComparer.OrdinalIgnoreCase);
+		if (!expected_frameworks.SetEquals(actual_frameworks))
+			throw new Exception($"Package '{expected_name}' framework payload mismatch. Expected [{string.Join(", ", expected_frameworks)}], found [{string.Join(", ", actual_frameworks)}]");
+
+		// Internal dependencies must be part of this release and use its version as their minimum.
+		foreach (var dependency in metadata.Descendants().Where(x => x.Name.LocalName == "dependency"))
+		{
+			var dependency_id = dependency.Attribute("id")?.Value ?? throw new Exception($"Package '{expected_name}' contains a dependency without an ID");
+			if (!dependency_id.StartsWith("Rylogic.", StringComparison.OrdinalIgnoreCase))
+				continue;
+			if (!package_ids.Contains(dependency_id))
+				throw new Exception($"Package '{expected_name}' depends on unpublished package '{dependency_id}'");
+
+			// NuGet may normalize an inclusive open range to its equivalent bare minimum version.
+			var dependency_version = dependency.Attribute("version")?.Value ?? string.Empty;
+			if (!string.Equals(dependency_version, version, StringComparison.Ordinal) &&
+				!string.Equals(dependency_version, $"[{version},)", StringComparison.Ordinal))
+				throw new Exception($"Package '{expected_name}' depends on '{dependency_id}' using release-inconsistent version '{dependency_version}'");
+		}
+
+		// Hash the validated bytes so the publish job can detect any transfer-time mutation.
+		using var package_stream = IOFile.OpenRead(package.StagedPackagePath);
+		var hash = Convert.ToHexString(SHA256.HashData(package_stream)).ToLowerInvariant();
+		return new ReleasePackageManifestEntry(package.PackageName, expected_name, package_stream.Length, hash);
 	}
 
 	// Synchronise a staged package into the canonical local feed and NuGet cache without leaving stale extracted
@@ -189,9 +316,11 @@ public class Nuget
 			cache_root,
 		};
 
+		// Create every destination before acquiring the cross-process mutation lock.
 		Directory.CreateDirectory(cache_root);
 		Directory.CreateDirectory(Path.GetDirectoryName(feed_nupkg_full) ?? throw new InvalidOperationException($"Unable to determine the feed directory for '{feed_nupkg_full}'"));
 
+		// Serialize writers for this package cache entry while allowing unrelated packages to proceed.
 		using var mutex = new Mutex(false, MutexName(cache_root));
 		var acquired = false;
 		try
@@ -205,6 +334,7 @@ public class Nuget
 				acquired = true;
 			}
 
+			// Never mutate the feed or cache unless this process owns the package lock.
 			if (!acquired)
 				throw new IOException($"Timed out waiting to synchronise package outputs for '{cache_root}'.");
 
@@ -219,9 +349,11 @@ public class Nuget
 				IOFile.Delete(cache_metadata);
 			}, cache_metadata);
 
+			// Publish identical archive bytes to the repository feed and the global package cache.
 			WritePackageAtomically(feed_nupkg_full, package_bytes);
 			WritePackageAtomically(cache_nupkg, package_bytes);
 
+			// Extract each archive entry while retaining an exact inventory for stale-payload removal.
 			using (var package_stream = new MemoryStream(package_bytes, false))
 			using (var archive = new ZipArchive(package_stream, ZipArchiveMode.Read))
 			{
@@ -229,6 +361,7 @@ public class Nuget
 				{
 					var target_path = GetCachePath(cache_root, entry.FullName);
 
+					// Directory entries establish empty package directories without producing payload files.
 					if (string.IsNullOrEmpty(entry.Name))
 					{
 						AddDirectoryWithParents(keep_dirs, cache_root, target_path);
@@ -236,8 +369,10 @@ public class Nuget
 						continue;
 					}
 
+					// Every extracted file becomes part of the authoritative cache payload.
 					keep_files.Add(target_path);
 
+					// Materialize and retain parent directories before writing the file.
 					var target_dir = Path.GetDirectoryName(target_path);
 					if (!string.IsNullOrEmpty(target_dir))
 					{
@@ -245,6 +380,7 @@ public class Nuget
 						Directory.CreateDirectory(target_dir);
 					}
 
+					// Replace each payload file while tolerating short-lived reader locks.
 					RetryLockedFile(() =>
 					{
 						ClearReadOnly(target_path);
@@ -255,14 +391,17 @@ public class Nuget
 				}
 			}
 
+			// Remove files left behind by an older archive of the same package version.
 			RemoveStalePayload(cache_root, keep_files, keep_dirs, cache_nupkg, cache_metadata);
 
+			// NuGet records the archive SHA-512 beside the cached package.
 			string hash;
 			using (var sha = SHA512.Create())
 			{
 				hash = Convert.ToBase64String(sha.ComputeHash(package_bytes));
 			}
 
+			// Write the completion metadata last so readers never accept a partially refreshed cache.
 			RetryLockedFile(() => IOFile.WriteAllText(cache_sha512, hash), cache_sha512);
 			var metadata = $@"{{""version"":2,""contentHash"":""{hash}"",""source"":null}}";
 			RetryLockedFile(() => IOFile.WriteAllText(cache_metadata, metadata), cache_metadata);
@@ -314,6 +453,7 @@ public class Nuget
 			if (keep_files.Contains(file))
 				continue;
 
+			// Preserve NuGet's package archive, checksum, and completion metadata.
 			if (string.Equals(file, cache_nupkg, StringComparison.OrdinalIgnoreCase) ||
 				string.Equals(file, cache_nupkg + ".sha512", StringComparison.OrdinalIgnoreCase) ||
 				string.Equals(file, cache_metadata, StringComparison.OrdinalIgnoreCase))
@@ -321,9 +461,11 @@ public class Nuget
 				continue;
 			}
 
+			// Queue payload removal until enumeration has completed.
 			files_to_delete.Add(file);
 		}
 
+		// Delete stale files with the same bounded lock retry used during extraction.
 		foreach (var file in files_to_delete)
 		{
 			RetryLockedFile(() =>
@@ -333,15 +475,18 @@ public class Nuget
 			}, file);
 		}
 
+		// Collect stale directories separately so they can be removed from deepest to shallowest.
 		var dirs_to_delete = new List<string>();
 		foreach (var dir in Directory.EnumerateDirectories(cache_root, "*", SearchOption.AllDirectories))
 		{
 			if (keep_dirs.Contains(dir))
 				continue;
 
+			// Queue directory removal until enumeration has completed.
 			dirs_to_delete.Add(dir);
 		}
 
+		// Delete children before parents so every queued directory is empty when removed.
 		dirs_to_delete.Sort((lhs, rhs) => rhs.Length.CompareTo(lhs.Length));
 		foreach (var dir in dirs_to_delete)
 		{
@@ -359,6 +504,7 @@ public class Nuget
 		var timer = Stopwatch.StartNew();
 		var delay = 50;
 
+		// Retry with bounded exponential backoff while another process holds a transient file lock.
 		for (;;)
 		{
 			try
@@ -384,6 +530,7 @@ public class Nuget
 		if (!IOFile.Exists(path) && !Directory.Exists(path))
 			return;
 
+		// Preserve every attribute except read-only so replacement and deletion can proceed.
 		var attributes = IOFile.GetAttributes(path);
 		if ((attributes & FileAttributes.ReadOnly) != 0)
 		{
@@ -409,6 +556,7 @@ public class Nuget
 			throw new InvalidDataException($"Package entry '{entry_name}' is outside the cache directory.");
 		}
 
+		// Return only paths proven to remain beneath the package cache root.
 		return target_path;
 	}
 
@@ -420,6 +568,7 @@ public class Nuget
 			keep_dirs.Add(dir);
 		}
 
+		// Retain the cache root itself even when the package has no nested directories.
 		keep_dirs.Add(cache_root);
 	}
 
@@ -438,6 +587,7 @@ public class Nuget
 			hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(Path.GetFullPath(cache_dir).ToUpperInvariant()));
 		}
 
+		// Encode the path hash as a Windows-safe local mutex name.
 		return "Local\\Rylogic.NuGetCache." + BitConverter.ToString(hash).Replace("-", string.Empty);
 	}
 }

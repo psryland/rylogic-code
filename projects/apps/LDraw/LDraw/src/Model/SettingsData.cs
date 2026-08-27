@@ -174,6 +174,30 @@ namespace LDraw
 			private set => set(nameof(SceneState), value);
 		}
 
+		/// <summary>Access the persisted state for 'name', creating it when the scene is new</summary>
+		public SceneStateData GetOrAddSceneState(string name)
+		{
+			var scene_state = SceneState.FirstOrDefault(x => x.Name == name);
+			if (scene_state != null)
+				return scene_state;
+
+			// Parent dynamically added state so its changes participate in profile notifications and auto-save.
+			scene_state = new SceneStateData { Name = name, Parent = this };
+			SceneState.Add(scene_state);
+			NotifySettingChanged(nameof(SceneState));
+			return scene_state;
+		}
+
+		/// <summary>Remove persisted state for a scene that no longer exists</summary>
+		public void RemoveSceneState(SceneStateData scene_state)
+		{
+			if (!SceneState.Remove(scene_state))
+				return;
+
+			scene_state.Parent = null;
+			NotifySettingChanged(nameof(SceneState));
+		}
+
 		/// <summary>Layout state of the main UI</summary>
 		public XElement? UILayout
 		{
@@ -483,15 +507,4 @@ namespace LDraw
 		}
 	}
 
-	/// <summary>Extensions</summary>
-	public static class SettingsData_
-	{
-		/// <summary>Access the scene state data for a scene by name</summary>
-		public static SceneStateData get(this IList<SceneStateData> container, string name)
-		{
-			var ssd = container.FirstOrDefault(x => x.Name == name);
-			ssd ??= container.Add2(new SceneStateData { Name = name });
-			return ssd;
-		}
-	}
 }

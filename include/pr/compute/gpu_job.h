@@ -182,7 +182,11 @@ namespace pr::compute
 			auto const wait_beg = timestamp();
 
 			// Wait for the GPU to finish
-			m_gsync.Wait(handle.m_sync_point);
+			if (!m_gsync.Wait(handle.m_sync_point))
+			{
+				auto reason = m_gsync.DeviceRemovedReason();
+				throw DeviceRemovedException(m_device.get(), reason);
+			}
 
 			auto const reset_beg = timestamp();
 
@@ -219,7 +223,7 @@ namespace pr::compute
 			if (!handle || handle.m_sync_point != m_pending_sync_point)
 				throw std::runtime_error("GpuJob::Abandon called with an invalid or non-current run handle");
 
-			m_gsync.Wait(handle.m_sync_point);
+			(void)m_gsync.Wait(handle.m_sync_point);
 			m_pending_sync_point = 0;
 			handle = {};
 		}

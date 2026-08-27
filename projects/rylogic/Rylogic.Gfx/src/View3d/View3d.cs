@@ -1460,6 +1460,20 @@ namespace Rylogic.Gfx
 			public Exception(string message, System.Exception innerException) : base(message, innerException) {}
 		}
 
+		/// <summary>A terminal D3D12 device failure carrying the native removal reason.</summary>
+		public sealed class DeviceLostException :Exception
+		{
+			public DeviceLostException(int removal_reason, string message, System.Exception inner_exception)
+				: base(message, inner_exception)
+			{
+				RemovalReason = removal_reason;
+				HResult = removal_reason;
+			}
+
+			/// <summary>The HRESULT returned by ID3D12Device::GetDeviceRemovedReason.</summary>
+			public int RemovalReason { get; }
+		}
+
 		private readonly List<Window> m_windows;            // Groups of objects to render
 		private readonly HContext m_context;                // Unique id per Initialise call
 		private readonly SynchronizationContext m_sync;     // Thread marshaller
@@ -1571,6 +1585,24 @@ namespace Rylogic.Gfx
 				throw LastError ?? new Exception("Failed to acquire the View3D D3D12 device");
 
 			return new Rylogic.D3D12.DeviceLease(device);
+		}
+
+		/// <summary>The D3D12 device-removal reason, or zero while the device remains usable.</summary>
+		public int DeviceRemovedReason
+		{
+			get
+			{
+				return View3D_DeviceRemovedReasonGet(m_context);
+			}
+		}
+
+		/// <summary>Bounded DRED breadcrumbs and page-fault evidence after D3D12 device removal.</summary>
+		public string DeviceRemovedReport
+		{
+			get
+			{
+				return View3D_DeviceRemovedReportGet(m_context);
+			}
 		}
 
 		/// <summary>The last error reported from View3d</summary>
@@ -1749,6 +1781,8 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern HContext View3D_Initialise(ReportErrorCB global_error_cb);
 		[DllImport(Dll)] private static extern void View3D_Shutdown(HContext context);
 		[DllImport(Dll)] private static extern IntPtr View3D_DeviceLeaseAcquire(HContext context);
+		[DllImport(Dll)] private static extern int View3D_DeviceRemovedReasonGet(HContext context);
+		[DllImport(Dll)] private static extern StrView View3D_DeviceRemovedReportGet(HContext context);
 
 		// This error callback is called for errors that are associated with the dll (rather than with a window).
 		[DllImport(Dll)] private static extern void View3D_GlobalErrorCBSet(ReportErrorCB error_cb, bool add);

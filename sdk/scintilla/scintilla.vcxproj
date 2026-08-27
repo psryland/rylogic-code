@@ -4,6 +4,7 @@
 	<!-- Globals -->
 	<PropertyGroup Label="Globals">
 		<ConfigurationType>DynamicLibrary</ConfigurationType>
+		<RylogicNativeRuntimePackage>Include</RylogicNativeRuntimePackage>
 		<ProjectGuid>{599D9118-2445-476A-9877-060417FE5FA5}</ProjectGuid>
 		<RootNamespace>scintilla</RootNamespace>
 	</PropertyGroup>

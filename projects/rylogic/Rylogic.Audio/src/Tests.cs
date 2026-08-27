@@ -206,7 +206,7 @@ public sealed class TestAudio
 		voice.Stop();
 	}
 
-	/// <summary>Exercise the embedded Ogg Vorbis fixture's lifecycle, seek, natural completion, and malformed rejection.</summary>
+	/// <summary>Exercise Ogg lifecycle, gapless short looping, seek, natural completion, and malformed rejection.</summary>
 	[Test]
 	public void OggStreamLifecycle()
 	{
@@ -226,6 +226,7 @@ public sealed class TestAudio
 				engine.Update();
 				foreach (var evt in engine.DrainEvents())
 				{
+					Assert.NotEqual(EAudioEvent.StreamUnderrun, evt.m_type);
 					if (evt.m_type == EAudioEvent.StreamStopped && evt.m_stream == stream.Handle)
 						completed = true;
 				}
@@ -234,13 +235,24 @@ public sealed class TestAudio
 			}
 			Assert.True(completed);
 			Assert.Equal(EPlaybackState.Stopped, stream.GetState().m_playback);
+			Assert.Equal(0U, stream.GetState().m_underrun_count);
 		}
 
-		using (var stream = engine.CreateStream(data))
+		using (var stream = engine.CreateStream(data, new StreamOptions
+		{
+			LoopCount = StreamOptions.InfiniteLoopCount,
+		}))
 		{
 			stream.Play();
-			Thread.Sleep(20);
-			engine.Update();
+			for (var attempt = 0; attempt != 100; ++attempt)
+			{
+				engine.Update();
+				foreach (var evt in engine.DrainEvents())
+					Assert.NotEqual(EAudioEvent.StreamUnderrun, evt.m_type);
+
+				Thread.Sleep(5);
+			}
+			Assert.Equal(0U, stream.GetState().m_underrun_count);
 			stream.Pause();
 			Assert.Equal(EPlaybackState.Paused, stream.GetState().m_playback);
 			stream.Seek(0);

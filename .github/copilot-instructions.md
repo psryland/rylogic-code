@@ -43,8 +43,10 @@ For faster local Visual Studio builds, copy `Directory.Build.user.props.template
 # Build and deploy to /lib folder
 dotnet-script ./script/Build.csx -project AllNative -build -deploy
 
-# Publish to NuGet
-dotnet-script ./script/Build.csx -project RylogicCore -deploy -publish
+# Build and validate every public NuGet package locally
+dotnet-script ./script/Build.csx -project AllRylogic -build -deploy -config Release -notests -nopack
+
+# Public releases are published by .github/workflows/publish-nuget.yml from an approved version tag.
 ```
 
 ## Testing
@@ -136,7 +138,7 @@ Each C++ library has a `forward.h` that acts as a **pseudo-precompiled header**.
 ```
 include/pr/maths/forward.h     → STL, concepts, forward decls for all math types
 include/pr/view3d-12/forward.h → STL, DirectX, 200+ forward decls for rendering types
-include/pr/physics2/forward.h  → STL, spatial algebra types, forward decls
+include/pr/physics/forward.h   → STL, spatial algebra types, forward decls
 ```
 
 ### C++ Library Dependency Layers
@@ -144,7 +146,7 @@ include/pr/physics2/forward.h  → STL, spatial algebra types, forward decls
 Layer 0: common, macros, meta, str, container (no pr/ dependencies)
 Layer 1: maths (depends on common)
 Layer 2: collision, geometry, camera (depend on maths)
-Layer 3: physics2 (depends on collision + maths)
+Layer 3: physics (depends on collision + maths)
 Layer 4: view3d-12 (depends on most lower layers — camera, geometry, gfx, maths, etc.)
 ```
 

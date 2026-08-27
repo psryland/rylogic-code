@@ -849,7 +849,7 @@ namespace pr::audio
 			}
 
 			auto underrun = stream.m_callback.m_underrun.exchange(false, std::memory_order_acq_rel);
-			if (underrun && stream.m_playback == EPlaybackState::Playing && !(stream.m_decode_ended && stream.m_pending.empty() && stream.m_inflight.empty()))
+			if (underrun && stream.m_source_started && stream.m_playback == EPlaybackState::Playing && !(stream.m_decode_ended && stream.m_pending.empty() && stream.m_inflight.empty()))
 			{
 				++stream.m_underrun_count;
 				AddEvent(EEvent::StreamUnderrun, handle);
@@ -862,6 +862,7 @@ namespace pr::audio
 				SubmitStreamChunk(stream, std::move(*chunk));
 			if (!stream.m_source_started && !stream.m_inflight.empty())
 			{
+				stream.m_callback.m_underrun.store(false, std::memory_order_release);
 				CheckHR(stream.m_source_voice->Start(), "IXAudio2SourceVoice::Start");
 				stream.m_source_started = true;
 			}
@@ -889,7 +890,9 @@ namespace pr::audio
 
 					auto& stream = *slot.m_object;
 					auto target_frames = FrameCountForMs(stream.m_sample_rate, m_config.max_engine_buffer_ms);
-					while (!stream.m_decode_ended && stream.BufferedFrameCount() < target_frames)
+
+					// Maintain the requested look-ahead beyond XAudio2's current buffer because its consumed fraction is not observable until the buffer completes.
+					while (!stream.m_decode_ended && stream.BufferedSuccessorFrameCount() < target_frames)
 					{
 						if (!stream.DecodeOneChunk(k_stream_decode_chunk_bytes))
 							break;
@@ -1197,6 +1200,7 @@ namespace pr::audio
 			stream.m_playback = EPlaybackState::Playing;
 			if (!stream.m_inflight.empty())
 			{
+				stream.m_callback.m_underrun.store(false, std::memory_order_release);
 				CheckHR(stream.m_source_voice->Start(), "IXAudio2SourceVoice::Start");
 				stream.m_source_started = true;
 			}

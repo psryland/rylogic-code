@@ -396,6 +396,11 @@ namespace pr::physics
 				g_last_error = ex.what();
 				return ex.m_status;
 			}
+			catch (compute::DeviceRemovedException const& ex)
+			{
+				g_last_error = ex.what();
+				return PhysicsStatus::DeviceRemoved;
+			}
 			catch (std::exception const& ex)
 			{
 				g_last_error = ex.what();
@@ -1568,6 +1573,20 @@ namespace pr::physics
 			engine.m_completed_step = engine.m_submitted_step;
 		}
 
+		// Clear terminal GPU work before destroying children whose addresses remain in the pending-step body list.
+		void PrepareChildDestroy(EngineRecord& engine)
+		{
+			if (engine.m_submitted_step == engine.m_completed_step)
+				return;
+
+			auto reason = engine.m_engine->Device()->GetDeviceRemovedReason();
+			if (!FAILED(reason))
+				throw ApiException(PhysicsStatus::StepPending, "The engine has a pending simulation step");
+
+			engine.m_engine->AbandonStep();
+			engine.m_completed_step = engine.m_submitted_step;
+		}
+
 		// Bring the engine to an idle state so that complete, self-consistent results can be serialised.
 		// A pending step is drained rather than refused, because the caller has no way to describe a
 		// half-submitted step and would otherwise have to complete the step itself just to save state.
@@ -1912,14 +1931,35 @@ extern "C"
 			auto& record = *scope;
 			pr::physics::RequireOwner(record);
 
-			// Drain submitted GPU work before releasing bodies, shapes, and the device reference.
-			if (record.m_submitted_step != record.m_completed_step)
-				pr::physics::CompleteStep(record);
+			// Release pending CPU references without resetting command state after device removal; otherwise finish the step normally.
+			auto failure = std::exception_ptr{};
+			try
+			{
+				if (record.m_submitted_step != record.m_completed_step)
+				{
+					if (FAILED(record.m_engine->Device()->GetDeviceRemovedReason()))
+					{
+						record.m_engine->AbandonStep();
+						record.m_completed_step = record.m_submitted_step;
+					}
+					else
+					{
+						pr::physics::CompleteStep(record);
+					}
+				}
+			}
+			catch (...)
+			{
+				failure = std::current_exception();
+			}
 
 			// Retire under the engine lock so a caller that pinned this record concurrently observes a stale
 			// handle. The record itself is released when the scope unwinds, after the engine lock is dropped.
 			record.m_retired = true;
 			pr::physics::RetireEngineSlot(engine);
+
+			if (failure)
+				std::rethrow_exception(failure);
 		});
 	}
 
@@ -2241,7 +2281,7 @@ extern "C"
 			auto scope = pr::physics::EngineScope(engine);
 			auto& record = *scope;
 			pr::physics::RequireOwner(record);
-			pr::physics::RequireIdle(record);
+			pr::physics::PrepareChildDestroy(record);
 			auto [shape_record, index] = pr::physics::RequireChild(record, shape, record.m_shapes);
 			if (shape_record.m_body_refs != 0)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Shape is still referenced by one or more rigid bodies");
@@ -2339,7 +2379,7 @@ extern "C"
 			auto scope = pr::physics::EngineScope(engine);
 			auto& record = *scope;
 			pr::physics::RequireOwner(record);
-			pr::physics::RequireIdle(record);
+			pr::physics::PrepareChildDestroy(record);
 			auto [body_record, index] = pr::physics::RequireChild(record, body, record.m_bodies);
 			if (body_record.m_constraint_refs != 0)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Body is still referenced by one or more persistent constraints");

@@ -54,6 +54,6 @@ namespace pr::rdr12
 		bool Prepare(Renderer& rdr, GfxCmdList& cmd_list, GpuUploadBuffer& upload, iv2 output_size, DXGI_FORMAT present_format);
 
 		// Record the ray dispatch and presentation commands for the selected screen-space pass.
-		void Record(GfxCmdList& cmd_list, Frame& frame, Scene const& scene, RayTracingScene const& ray_tracing_scene, ERayTracingScreenPass pass, RayTracingReflectionBuffer const* reflections, bool restore_present_state);
+		void Record(GfxCmdList& cmd_list, Frame& frame, Scene const& scene, RayTracingScene const& ray_tracing_scene, ERayTracingScreenPass pass, RayTracingReflectionBuffer const* reflections);
 	};
 }

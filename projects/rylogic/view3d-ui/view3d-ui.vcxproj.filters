@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="src">
+      <UniqueIdentifier>{b1a2c3d4-5e6f-4789-9abc-def012345601}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\draw_packet.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\engine.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\forward.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\transaction_builder.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\types.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\view3d-ui-dll.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-ui\view3d-ui.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\draw_packet_builder.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\events.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\glyph_cache.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\input.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\layout.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\semantics.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\style.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\text_shaper.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\text_layout.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\text_unicode.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\tree.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\uia_bridge.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\uia_provider.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\uia_snapshot.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\win32_input.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\world.h">
+      <Filter>src</Filter>
+    </ClInclude>
+    <ClCompile Include="src\engine.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\draw_packet_builder.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\events.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\glyph_cache.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\input.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\layout.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\semantics.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\style.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\text_shaper.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\text_layout.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\text_unicode.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\tree.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\uia_bridge.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\uia_provider.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\uia_snapshot.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\win32_input.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\world.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="implementation-plan.md" />
+  </ItemGroup>
+</Project>

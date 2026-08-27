@@ -1,4 +1,6 @@
 ﻿#include <stdexcept>
+#include <charconv>
+#include <optional>
 #include <windows.h>
 #include "pr/math/math.h"
 #include "pr/gui/wingui.h"
@@ -10,6 +12,7 @@
 #include "pr/view3d-12/view3d-dll.h"
 #include "pr/view3d-12/utility/conversion.h"
 #include "pr/audio/audio-dll.h"
+#include "view3d_ui_demo.h"
 
 using namespace pr;
 using namespace pr::gui;
@@ -31,16 +34,17 @@ struct Main :Form
 	enum { ID_FILE, ID_FILE_EXIT };
 	enum { IDC_PROGRESS = 100, IDC_NM_PROGRESS, IDC_MODELESS, IDC_CONTEXTMENU, IDC_POSTEST, IDC_ABOUT, IDC_MSGBOX, IDC_SCINT, IDC_TAB, IDC_TAB1, IDC_TAB2, IDC_SPLITL, IDC_SPLITR };
 
+	bool m_ui_ready;
 	view3d::DllHandle m_view3d;
 	view3d::Window m_win3d;
+	std::optional<view3d_test::View3dUiDemo> m_ui_demo;
 	view3d::CubeMap m_envmap;
 	view3d::Object m_obj0;
 	view3d::Object m_obj1;
 	audio::DllHandle m_audio;
 	audio::EngineHandle m_audio_engine;
 	audio::ClipHandle m_audio_clip;
-	audio::VoiceHandle m_stationary_voice;
-	audio::VoiceHandle m_moving_voice;
+	audio::VoiceHandle m_box_voice;
 	audio::Vector3 m_previous_listener_position;
 	bool m_listener_initialized;
 	bool m_audio_occluded;
@@ -48,6 +52,7 @@ struct Main :Form
 	EStepMode m_step_mode;
 	int m_pending_steps;
 	double m_time = 0.0;
+	float m_box_dimension = 1.23f;
 	
 	// Error handler
 	static void __stdcall ReportError(void*, char const* msg, char const* filepath, int line, int64_t)
@@ -123,27 +128,30 @@ struct Main :Form
 			.main_wnd(true)
 			.dbl_buffer(true)
 			.wndclass(RegisterWndClass<Main>()))
+		, m_ui_ready(false)
 		, m_view3d(View3D_Initialise({ this, ReportError }))
 		, m_win3d(View3D_WindowCreate(CreateHandle(), WndOptions(*this)))
+		, m_ui_demo(std::in_place, m_view3d, m_win3d, [this](float value) { UpdateBoxDimensions(value); })
 		, m_envmap(View3D_CubeMapCreateFromUri((RylogicAssets / "textures/cubemaps/hanger/hanger-??.jpg").string().c_str(), {}))
 		, m_obj0()
 		, m_obj1()
 		, m_audio(Audio_Initialise({this, ReportAudioError}))
 		, m_audio_engine()
 		, m_audio_clip()
-		, m_stationary_voice()
-		, m_moving_voice()
+		, m_box_voice()
 		, m_previous_listener_position()
 		, m_listener_initialized(false)
 		, m_audio_occluded(false)
 		, m_file_ctx()
-		, m_step_mode(EStepMode::Single)
+		, m_step_mode(EStepMode::Run)
 		, m_pending_steps()
 	{
+		m_ui_ready = true;
+
 		if (m_audio == nullptr)
 			throw std::runtime_error("Audio initialization failed");
 
-		// Create a looping clip and two independently spatialized playback instances.
+		// Create one looping spatial voice owned by the rotating box demonstration.
 		CheckAudio(Audio_EngineCreate(m_audio, nullptr, &m_audio_engine), "Audio_EngineCreate");
 		auto tone = MakeToneWave(220.0f);
 		CheckAudio(Audio_ClipCreateWave(m_audio_engine, tone.data(), tone.size(), &m_audio_clip), "Audio_ClipCreateWave");
@@ -157,16 +165,11 @@ struct Main :Form
 			.volume = 0.3f,
 			.pitch = 1.0f,
 		};
-		CheckAudio(Audio_VoiceCreate(m_audio_engine, &voice_desc, &m_stationary_voice), "Audio_VoiceCreate");
-		voice_desc.pitch = 1.5f;
-		CheckAudio(Audio_VoiceCreate(m_audio_engine, &voice_desc, &m_moving_voice), "Audio_VoiceCreate");
-		CheckAudio(Audio_VoicePlay(m_audio_engine, m_stationary_voice), "Audio_VoicePlay");
-		CheckAudio(Audio_VoicePlay(m_audio_engine, m_moving_voice), "Audio_VoicePlay");
+		CheckAudio(Audio_VoiceCreate(m_audio_engine, &voice_desc, &m_box_voice), "Audio_VoiceCreate");
+		CheckAudio(Audio_VoicePlay(m_audio_engine, m_box_voice), "Audio_VoicePlay");
 
 		// Set up the scene
-		//View3D_CameraPositionSet(m_win3d, {0, +35, +40, 1}, {0, 0, 0, 1}, {0, 1, 0, 0});
-		View3D_CameraPositionSet(m_win3d, {2, 0, 0, 1}, {0, 0, 1, 1}, {0, 0, 1, 0});
-		//View3D_CameraPositionSet(m_win3d, {0, 0, 10, 1}, {0, 0, 0, 1}, {0, 1, 0, 0});
+		View3D_CameraPositionSet(m_win3d, {5, -5, 4, 1}, {0, 0, 0, 1}, {0, 0, 1, 0});
 	
 		// Cast shadows
 		auto light = View3D_LightPropertiesGet(m_win3d);
@@ -183,7 +186,7 @@ struct Main :Form
 
 			m_obj0 = View3D_ObjectCreateLdrA(
 				//"*Triangle nice_tri FF00FF00 { *Data { -1 -1 0  +1 -1 0  0 +1 0} }"
-				"*Box nice_box FF00FF00 { *Data {1 2 3} }"
+				"*Box nice_box FF00FF00 { *Data {1.23 1.23 1.23} }"
 				//"*Model { *Filepath { \"E:\\Rylogic\\Code\\art\\models\\Pendulum\\Pendulum.fbx\" } }"
 				//"*Model { *Filepath { \"E:\\Rylogic\\Code\\art\\models\\AnimCharacter\\AnimatedCharacter.fbx\" } }"
 				//"*Model { *Filepath { \"E:\\Rylogic\\Code\\art\\models\\Pendulum\\Pendulum.fbx\" } *Animation{*Style{Repeat}} }"
@@ -237,14 +240,19 @@ struct Main :Form
 
 		// Streaming
 		View3D_StreamingEnable(true, 1976);
+
+		// Refresh the retained View3DUI demonstration tree once against this window's real size/DPI/camera.
+		m_ui_demo->Update(*this, 0.0);
 	}
 	~Main()
 	{
+		// Detach and release View3DUI before destroying its View3D host window and device.
+		m_ui_ready = false;
+		m_ui_demo.reset();
+
 		// Release audio children before their owning engine and DLL context.
-		if (m_stationary_voice != 0)
-			Audio_VoiceDestroy(m_audio_engine, m_stationary_voice);
-		if (m_moving_voice != 0)
-			Audio_VoiceDestroy(m_audio_engine, m_moving_voice);
+		if (m_box_voice != 0)
+			Audio_VoiceDestroy(m_audio_engine, m_box_voice);
 		if (m_audio_clip != 0)
 			Audio_ClipDestroy(m_audio_engine, m_audio_clip);
 		if (m_audio_engine != 0)
@@ -260,8 +268,12 @@ struct Main :Form
 	}
 	void Step(double dt)
 	{
+		// The demo's UI clock advances at real elapsed time, independent of the scene's simulated time scale.
+		auto ui_elapsed_seconds = dt;
+
 		static double time_scale = 1.0;
 		dt *= time_scale;
+		auto previous_time = m_time;
 
 		switch (m_step_mode)
 		{
@@ -285,19 +297,6 @@ struct Main :Form
 			}
 		}
 
-		//auto i2w = m4x4::Transform(time*0.5f, time*0.3f, time*0.1f, v4::Origin());
-		//View3D_ObjectO2WSet(m_obj0, To<view3d::Mat4x4>(i2w), nullptr);
-		//m_inst0.m_i2w = m4x4::Transform(time*0.5f, time*0.3f, time*0.1f, v4::Origin());
-		//m_inst1.m_i2w = m4x4::Transform(time*0.5f, time*0.3f, time*0.1f, v4::Origin());
-
-		// Animation
-		static bool animate = true;
-		if (animate)
-			View3D_ObjectAnimTimeSet(m_obj0, static_cast<float>(m_time), "");
-		else
-			View3D_ObjectAnimTimeSet(m_obj0, 0, "");
-
-
 		auto c2w = View3D_CameraToWorldGet(m_win3d);
 
 		// Drive the rendered listener from the same camera pose used for the frame.
@@ -319,13 +318,22 @@ struct Main :Form
 		m_previous_listener_position = listener_position;
 		m_listener_initialized = true;
 
-		// Keep one directional source fixed and move the other in a circle to demonstrate Doppler and panning.
-		auto stationary = audio::EmitterState{
+		// Spin the box about world Z at the origin and derive the sound pose from the same transform.
+		constexpr auto spin_rate = 0.8f;
+		auto angle = static_cast<float>(m_time) * spin_rate;
+		auto box_o2w = m4x4::Transform(v4::ZAxis(), angle, v4::Origin());
+		View3D_ObjectO2WSet(m_obj0, To<view3d::Mat4x4>(box_o2w), nullptr);
+
+		auto emitter_position = box_o2w * v4{m_box_dimension * 0.5f, 0, 0, 1};
+		auto emitter_forward = box_o2w * v4::XAxis();
+		auto angular_speed = dt > 0.0 ? static_cast<float>((m_time - previous_time) / dt) * spin_rate : 0.0f;
+		auto emitter_velocity = v4{-angular_speed * emitter_position.y, angular_speed * emitter_position.x, 0, 0};
+		auto emitter = audio::EmitterState{
 			.header = {sizeof(audio::EmitterState), audio::AUDIO_STRUCT_VERSION},
-			.position = {0, 0, 1},
-			.forward = {1, 0, 0},
+			.position = {emitter_position.x, emitter_position.y, emitter_position.z},
+			.forward = {emitter_forward.x, emitter_forward.y, emitter_forward.z},
 			.up = {0, 0, 1},
-			.velocity = {},
+			.velocity = {emitter_velocity.x, emitter_velocity.y, emitter_velocity.z},
 			.min_distance = 0.5f,
 			.max_distance = 30.0f,
 			.cone_inner_angle = constants<float>::tau / 8.0f,
@@ -336,20 +344,20 @@ struct Main :Form
 			.occlusion = m_audio_occluded ? 0.8f : 0.0f,
 			.reverb_send = 0.25f,
 		};
-		auto angle = static_cast<float>(m_time * 0.8);
-		auto moving = stationary;
-		moving.position = {5.0f * std::cos(angle), 5.0f * std::sin(angle), 1.0f};
-		moving.forward = {-std::cos(angle), -std::sin(angle), 0.0f};
-		moving.velocity = {-4.0f * std::sin(angle), 4.0f * std::cos(angle), 0.0f};
-		moving.cone_inner_angle = constants<float>::tau;
-		moving.cone_outer_angle = constants<float>::tau;
-		CheckAudio(Audio_VoiceEmitterSet(m_audio_engine, m_stationary_voice, &stationary), "Audio_VoiceEmitterSet");
-		CheckAudio(Audio_VoiceEmitterSet(m_audio_engine, m_moving_voice, &moving), "Audio_VoiceEmitterSet");
+		CheckAudio(Audio_VoiceEmitterSet(m_audio_engine, m_box_voice, &emitter), "Audio_VoiceEmitterSet");
 		CheckAudio(Audio_EngineUpdate(m_audio_engine), "Audio_EngineUpdate");
 
-		View3D_ObjectO2WSet(m_obj0, To<view3d::Mat4x4>(m4x4::Translation(v4{moving.position.x, moving.position.y, moving.position.z, 1})), nullptr);
 		SetWindowTextA(*this, pr::FmtS("View3d 12 Test - Cam: %3.3f %3.3f %3.3f  Dir: %3.3f %3.3f %3.3f", c2w.w.x, c2w.w.y, c2w.w.z, -c2w.z.x, -c2w.z.y, -c2w.z.z));
+		m_ui_demo->Update(*this, ui_elapsed_seconds);
 		View3D_WindowRender(m_win3d);
+	}
+	bool ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, LRESULT& result) override
+	{
+		// UI receives untouched Win32 messages before Form translates them into camera input.
+		if (m_ui_ready && m_ui_demo && m_ui_demo->ProcessWindowMessage(hwnd, message, wparam, lparam, result))
+			return true;
+
+		return Form::ProcessWindowMessage(hwnd, message, wparam, lparam, result);
 	}
 	void OnWindowPosChange(WindowPosEventArgs const& args) override
 	{
@@ -357,9 +365,8 @@ struct Main :Form
 		if (!args.m_before && args.IsResize() && !IsIconic(*this))
 		{
 			auto rect = ClientRect(false);
-			auto dpi = GetDpiForWindow(*this);
-			auto w = s_cast<int>(rect.width() * dpi / 96.0);
-			auto h = s_cast<int>(rect.height() * dpi / 96.0);
+			auto w = rect.width();
+			auto h = rect.height();
 			View3D_WindowBackBufferSizeSet(m_win3d, { w, h }, false);
 			View3D_WindowViewportSet(m_win3d, view3d::Viewport{
 				.m_x = 0,
@@ -368,11 +375,9 @@ struct Main :Form
 				.m_height = 1.f * h,
 				.m_min_depth = 0,
 				.m_max_depth = 1,
-				.m_screen_w = args.m_wp->cx,
-				.m_screen_h = args.m_wp->cy,
+				.m_screen_w = w,
+				.m_screen_h = h,
 				});
-			//m_wnd.BackBufferSize(sz, false);
-			//m_scn.m_viewport.Set(sz);
 		}
 	}
 	void OnMouseButton(MouseEventArgs& args) override
@@ -482,6 +487,32 @@ struct Main :Form
 			auto o2w = m4x4::Translation(To<v4>(hit.m_ws_intercept));
 			View3D_ObjectO2WSet(m_obj1, To<view3d::Mat4x4>(o2w), nullptr);
 		}
+	}
+
+	// Replace only the existing box model so its object identity and per-frame transform remain stable.
+	void UpdateBoxDimensions(float value)
+	{
+		char buffer[64] = {};
+		auto [end, error] = std::to_chars(std::begin(buffer), std::end(buffer), value, std::chars_format::general, 9);
+		if (error != std::errc{})
+			throw std::runtime_error("Failed to format box dimensions");
+
+		auto value_text = std::string(buffer, end);
+		auto value_wide = std::wstring(value_text.begin(), value_text.end());
+		auto script = L"*Box nice_box FF00FF00 { *Data {" + value_wide + L" " + value_wide + L" " + value_wide + L"} }";
+		auto object_count = View3D_WindowObjectCount(m_win3d);
+		View3D_ObjectUpdate(m_obj0, script.c_str(), view3d::EUpdateObject::Model);
+
+		// The update must preserve the existing object's scene membership.
+		if (View3D_WindowObjectCount(m_win3d) != object_count)
+			throw std::runtime_error("Updating box dimensions changed its scene membership");
+
+		auto bounds = View3D_ObjectBBoxMS(m_obj0, view3d::EBBoxFlags::None);
+		auto expected_radius = value * 0.5f;
+		if (std::abs(bounds.radius.x - expected_radius) > 1e-5f || std::abs(bounds.radius.y - expected_radius) > 1e-5f || std::abs(bounds.radius.z - expected_radius) > 1e-5f)
+			throw std::runtime_error("Updated box dimensions do not match the accepted value");
+
+		m_box_dimension = value;
 	}
 };
 

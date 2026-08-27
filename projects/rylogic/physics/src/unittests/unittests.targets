@@ -1,53 +1,175 @@
 <Project>
-	<!-- Physics compiled tests belong to the global runner rather than the production static library. -->
+	<!-- Keep one authoritative list for the build project and its companion Solution Explorer filters. -->
 	<ItemGroup>
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_topology_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_oracle.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_dynamics_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_conservation_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_effective_mass_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_force_aba_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_midpoint_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_link_proxies_gpu_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_impulse_aba_gpu_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_mobility_gpu_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)articulation_gpu_data_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)buoyancy_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)buoyancy_sampler_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)collision_pairs_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)collision_resolution_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_foundation_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_gpu_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_gpu_solver_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)coupled_constraint_prepare_gpu_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)coupled_constraint_velocity_gpu_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)coupled_constraint_engine_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_oracle.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_oracle_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_hybrid_solver_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)constraint_solver_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)gpu_collision_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)gpu_collision_detector_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)gpu_compare_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)impulse_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)inertia_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)integrator_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)internal_substep_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)interop_engine_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)resolve_runner_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)rigid_body_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)shape_builder_tests.cpp" />
-		<CompiledUnitTest Include="$(MSBuildThisFileDirectory)physics_dll_tests.cpp" />
-		<ClCompile Include="@(CompiledUnitTest)">
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_topology_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_oracle.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_dynamics_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_conservation_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_effective_mass_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_force_aba_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_midpoint_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_link_proxies_gpu_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_impulse_aba_gpu_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_mobility_gpu_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_gpu_data_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)buoyancy_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)buoyancy_sampler_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)collision_pairs_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)collision_resolution_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)constraint_foundation_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)constraint_gpu_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)constraint_gpu_solver_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)coupled_constraint_prepare_gpu_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)coupled_constraint_velocity_gpu_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)coupled_constraint_engine_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)constraint_oracle.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)constraint_oracle_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)constraint_hybrid_solver_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)constraint_solver_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)gpu_collision_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)gpu_collision_detector_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)gpu_compare_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)impulse_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)inertia_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)integrator_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)internal_substep_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)interop_engine_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)resolve_runner_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)rigid_body_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)shape_builder_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)physics_dll_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClInclude Include="$(MSBuildThisFileDirectory)shared_engine.h">
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClInclude>
+		<ClInclude Include="$(MSBuildThisFileDirectory)constraint_oracle.h">
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClInclude>
+		<ClInclude Include="$(MSBuildThisFileDirectory)articulation_oracle.h">
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClInclude>
+	</ItemGroup>
+
+	<!-- Physics compiled tests belong to the global runner rather than the production static library. -->
+	<ItemGroup Condition="'$(MSBuildProjectExtension)' == '.vcxproj'">
+		<ClCompile Update="@(ClCompile->WithMetadataValue('PhysicsUnitTest', 'true'))">
 			<AdditionalIncludeDirectories>
 				;$(RylogicRoot)projects\rylogic\physics
 				;$(RylogicRoot)projects\rylogic
 				;%(AdditionalIncludeDirectories)
 			</AdditionalIncludeDirectories>
 		</ClCompile>
-		<ClInclude Include="$(MSBuildThisFileDirectory)constraint_oracle.h" />
-		<ClInclude Include="$(MSBuildThisFileDirectory)articulation_oracle.h" />
-		<ClInclude Include="$(MSBuildThisFileDirectory)shared_engine.h" />
+		<CompiledUnitTest Include="@(ClCompile->WithMetadataValue('PhysicsUnitTest', 'true'))" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\physics\physics.vcxproj">
 			<LinkLibraryDependencies>false</LinkLibraryDependencies>
 			<UseLibraryDependencyInputs>false</UseLibraryDependencyInputs>
@@ -59,7 +181,15 @@
 			<ReferenceOutputAssembly>false</ReferenceOutputAssembly>
 		</ProjectReference>
 	</ItemGroup>
-	<ItemDefinitionGroup>
+
+	<!-- Imported sources remain module-owned while appearing with the runner's local sources in Solution Explorer. -->
+	<ItemGroup Condition="'$(MSBuildProjectExtension)' == '.filters'">
+		<Filter Include="src\physics">
+			<UniqueIdentifier>{37c84008-bc16-437d-80e3-9c5542f75787}</UniqueIdentifier>
+		</Filter>
+	</ItemGroup>
+
+	<ItemDefinitionGroup Condition="'$(MSBuildProjectExtension)' == '.vcxproj'">
 		<Link>
 			<AdditionalDependencies>
 				;compute_shaders.res

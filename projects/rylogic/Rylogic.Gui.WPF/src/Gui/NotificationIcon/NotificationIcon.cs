@@ -167,7 +167,7 @@ namespace Rylogic.Gui.WPF
 					{
 						case MouseButton.Left:
 						{
-							if (LeftClickCommand is ICommand cmd && cmd.CanExecute(null) && e.ButtonState == MouseButtonState.Released)
+							if (LeftClickCommand is ICommand cmd && cmd.CanExecute(null) && e.RoutedEvent == Mouse.MouseUpEvent)
 								cmd.Execute(null);
 							break;
 						}
@@ -177,7 +177,7 @@ namespace Rylogic.Gui.WPF
 						}
 						case MouseButton.Right:
 						{
-							if (RightClickCommand is ICommand cmd && cmd.CanExecute(null) && e.ButtonState == MouseButtonState.Released)
+							if (RightClickCommand is ICommand cmd && cmd.CanExecute(null) && e.RoutedEvent == Mouse.MouseUpEvent)
 								cmd.Execute(null);
 							break;
 						}
