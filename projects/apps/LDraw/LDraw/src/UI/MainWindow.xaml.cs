@@ -509,8 +509,7 @@ namespace LDraw
 		{
 			try
 			{
-				var scene = Model.Scenes.Add2(new SceneUI(Model, Model.GenerateSceneName()));
-				m_dc.Add(scene, EDockSite.Centre);
+				Model.CreateScene(name: null, activate: true);
 			}
 			catch (Exception ex)
 			{

@@ -32,12 +32,10 @@ internal sealed partial class LDrawInstanceHost
 				var new_name = ResolveRenameTarget(parameters.NewSceneName, scene.SceneName);
 				var old_name = scene.SceneName;
 
-				foreach (var source in m_model.Sources)
-					source.RenameSceneMembership(old_name, new_name);
 				RenameOverlaySceneMembership(old_name, new_name);
 				RenameChartSceneMembership(old_name, new_name);
 
-				scene.SceneName = new_name;
+				m_model.RenameScene(scene, new_name);
 				return CreateSceneMutationResult("rename_scene", new_name, CreateSceneInfo(scene), OverlayStatesInScene(scene));
 			}, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
 		}

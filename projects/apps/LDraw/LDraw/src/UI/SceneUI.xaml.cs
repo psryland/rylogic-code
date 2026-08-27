@@ -29,13 +29,12 @@ namespace LDraw.UI
 				ShowTitle = false,
 				TabText = name,
 				TabCMenu = this.FindCMenu("TabCMenu", this),
-				DestroyOnClose = true,
 			};
 			OtherScenesView = new ListCollectionView(new List<SceneWrapper>());
 			Model = model;
 			SceneView = m_scene;
+			SceneState = Model.Profile.GetOrAddSceneState(name);
 			SceneName = name;
-			SceneState = Model.Profile.SceneState.get(name);
 			SceneView.Background = Colour32.LightSteelBlue.ToMediaBrush();
 			SceneView.Scene.Window.OnRendering += HandleSceneRendering;
 			SceneView.Scene.ContextMenu.DataContext = this;
@@ -104,6 +103,7 @@ namespace LDraw.UI
 				if (field != null)
 				{
 					field.ActiveChanged -= HandleSceneActive;
+					field.Closed -= HandleSceneClosed;
 					field.SavingLayout -= HandleSavingLayout;
 					field.LoadingLayout -= HandleLoadingLayout;
 					Util.Dispose(ref field!);
@@ -113,12 +113,17 @@ namespace LDraw.UI
 				{
 					field.LoadingLayout += HandleLoadingLayout;
 					field.SavingLayout += HandleSavingLayout;
+					field.Closed += HandleSceneClosed;
 					field.ActiveChanged += HandleSceneActive;
 				}
 
 				// Handlers
 				void HandleSceneActive(object? sender, ActiveContentChangedEventArgs args)
 				{
+				}
+				void HandleSceneClosed(object? sender, EventArgs args)
+				{
+					Model.CloseScene(this);
 				}
 				void HandleLoadingLayout(object? sender, DockContainerLoadingLayoutEventArgs e)
 				{
@@ -374,7 +379,10 @@ namespace LDraw.UI
 			{
 				if (field == value) return;
 				field = value;
+				SceneState.Name = field;
+				DockControl.PersistName = field;
 				DockControl.TabText = field;
+				DockControl.DockContainer?.NotifyLayoutChanged();
 				NotifyPropertyChanged(nameof(SceneName));
 			}
 		} = null!;
@@ -437,7 +445,14 @@ namespace LDraw.UI
 			};
 			if (prompt.ShowDialog() == true)
 			{
-				SceneName = prompt.Value;
+				try
+				{
+					Model.RenameScene(this, prompt.Value);
+				}
+				catch (Exception ex)
+				{
+					MsgBox.Show(Window.GetWindow(this), $"Rename scene failed.\n{ex.Message}", Util.AppProductName, MsgBox.EButtons.OK, MsgBox.EIcon.Information);
+				}
 			}
 		}
 
@@ -445,8 +460,7 @@ namespace LDraw.UI
 		public Command CloseScene { get; }
 		private void CloseSceneInternal()
 		{
-			Model.Scenes.Remove(this);
-			Dispose();
+			DockControl.Close();
 		}
 
 		/// <summary>Show the link cameras UI</summary>

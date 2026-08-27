@@ -152,24 +152,36 @@ namespace Rylogic.Gui.WPF.NotifyIcon
 					break;
 				}
 				case Win32.WM_LBUTTONDOWN:
-				case Win32.WM_LBUTTONUP:
 				case Win32.WM_LBUTTONDBLCLK:
 				{
-					MouseButton?.Invoke(this, new MouseButtonEventArgs(Mouse.PrimaryDevice, User32.GetMessageTime(), System.Windows.Input.MouseButton.Left));
+					RaiseMouseButton(System.Windows.Input.MouseButton.Left, Mouse.MouseDownEvent);
+					break;
+				}
+				case Win32.WM_LBUTTONUP:
+				{
+					RaiseMouseButton(System.Windows.Input.MouseButton.Left, Mouse.MouseUpEvent);
 					break;
 				}
 				case Win32.WM_RBUTTONDOWN:
-				case Win32.WM_RBUTTONUP:
 				case Win32.WM_RBUTTONDBLCLK:
 				{
-					MouseButton?.Invoke(this, new MouseButtonEventArgs(Mouse.PrimaryDevice, User32.GetMessageTime(), System.Windows.Input.MouseButton.Right));
+					RaiseMouseButton(System.Windows.Input.MouseButton.Right, Mouse.MouseDownEvent);
+					break;
+				}
+				case Win32.WM_RBUTTONUP:
+				{
+					RaiseMouseButton(System.Windows.Input.MouseButton.Right, Mouse.MouseUpEvent);
 					break;
 				}
 				case Win32.WM_MBUTTONDOWN:
-				case Win32.WM_MBUTTONUP:
 				case Win32.WM_MBUTTONDBLCLK:
 				{
-					MouseButton?.Invoke(this, new MouseButtonEventArgs(Mouse.PrimaryDevice, User32.GetMessageTime(), System.Windows.Input.MouseButton.Middle));
+					RaiseMouseButton(System.Windows.Input.MouseButton.Middle, Mouse.MouseDownEvent);
+					break;
+				}
+				case Win32.WM_MBUTTONUP:
+				{
+					RaiseMouseButton(System.Windows.Input.MouseButton.Middle, Mouse.MouseUpEvent);
 					break;
 				}
 				case Win32.WM_MOUSEWHEEL:
@@ -182,6 +194,15 @@ namespace Rylogic.Gui.WPF.NotifyIcon
 					//Debug.WriteLine("Unhandled NotifyIcon message ID: " + lParam);
 					break;
 				}
+			}
+
+			// Preserve the Win32 transition explicitly because WPF does not track button state for the hidden message window.
+			void RaiseMouseButton(System.Windows.Input.MouseButton button, System.Windows.RoutedEvent routed_event)
+			{
+				MouseButton?.Invoke(this, new MouseButtonEventArgs(Mouse.PrimaryDevice, User32.GetMessageTime(), button)
+				{
+					RoutedEvent = routed_event,
+				});
 			}
 		}
 
