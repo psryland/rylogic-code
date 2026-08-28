@@ -21,6 +21,15 @@ namespace physics_sandbox
 	// the interactive sandbox and the headless unit test mode.
 	struct Scene
 	{
+		// Identifies either a rigid body or one articulation link rendered by the CPU buoyancy diagnostic.
+		struct BuoyancyDebugTarget
+		{
+			int m_body_index = -1;
+			int m_articulation_index = -1;
+			int m_link_index = -1;
+			uint32_t m_hull_id = 0;
+		};
+
 		struct StepProfile
 		{
 			double m_total_ms = 0;
@@ -77,7 +86,7 @@ namespace physics_sandbox
 		// Optional diagnostic buoyancy module and the RAII hull registrations owned by the loaded scene.
 		std::unique_ptr<physics::GpuBuoyancy> m_gpu_buoyancy;
 		std::vector<physics::GpuBuoyancy::Registration> m_buoyancy_hulls;
-		std::vector<int> m_buoyancy_body_indices;
+		std::vector<BuoyancyDebugTarget> m_buoyancy_debug_targets;
 		int m_buoyancy_generation;
 
 		// When set, BuildBuoyancyDebugGfx() is run each frame and the resulting sample-cloud/force

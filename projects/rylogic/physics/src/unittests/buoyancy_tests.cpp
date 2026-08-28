@@ -1317,6 +1317,17 @@ namespace pr::physics::tests
 			});
 
 			auto rigid_registration = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
+
+			// Releasing one of several link registrations must not restore the shared tree policy early.
+			{
+				auto first_sleep_owner = h.m_buoyancy.RegisterCompositeHull(articulation, root, 2, 0);
+				auto second_sleep_owner = h.m_buoyancy.RegisterCompositeHull(articulation, root, 3, 0);
+				first_sleep_owner.Reset();
+				PR_EXPECT(articulation.NeverSleep());
+				second_sleep_owner.Reset();
+				PR_EXPECT(!articulation.NeverSleep());
+			}
+
 			auto link_registration = h.m_buoyancy.RegisterCompositeHull(articulation, root, 1, 0);
 			PR_EXPECT(articulation.NeverSleep());
 			auto bodies = std::array<RigidBody*, 1>{&h.m_bodies[0]};

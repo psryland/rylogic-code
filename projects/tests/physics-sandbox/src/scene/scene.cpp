@@ -222,7 +222,7 @@ namespace physics_sandbox
 		, m_shape_buffer()
 		, m_gpu_buoyancy()
 		, m_buoyancy_hulls()
-		, m_buoyancy_body_indices()
+		, m_buoyancy_debug_targets()
 		, m_buoyancy_generation()
 		, m_show_buoyancy_debug(false)
 		, m_buoyancy_debug_gfx()
@@ -267,7 +267,7 @@ namespace physics_sandbox
 	void Scene::ClearBuoyancy()
 	{
 		m_buoyancy_hulls.clear();
-		m_buoyancy_body_indices.clear();
+		m_buoyancy_debug_targets.clear();
 		m_buoyancy_debug_gfx = nullptr;
 		m_gpu_buoyancy.reset();
 		++m_buoyancy_generation;
@@ -353,7 +353,7 @@ namespace physics_sandbox
 				buoyant_link_count += link.m_buoyant ? 1 : 0;
 		}
 		m_buoyancy_hulls.reserve(scene_desc.bodies.size() + buoyant_link_count);
-		m_buoyancy_body_indices.reserve(scene_desc.bodies.size());
+		m_buoyancy_debug_targets.reserve(scene_desc.bodies.size() + buoyant_link_count);
 		for (auto body_index = 0; body_index != isize(scene_desc.bodies); ++body_index)
 		{
 			auto& body = m_body[body_index];
@@ -361,10 +361,14 @@ namespace physics_sandbox
 				continue;
 
 			m_buoyancy_hulls.push_back(m_gpu_buoyancy->RegisterCompositeHull(body, body_index, m_buoyancy_generation));
-			m_buoyancy_body_indices.push_back(body_index);
+			m_buoyancy_debug_targets.push_back(BuoyancyDebugTarget{
+				.m_body_index = body_index,
+				.m_hull_id = static_cast<uint32_t>(body_index),
+			});
 		}
 
 		// Articulation buoyancy is opt-in per link because each registration participates through the complete tree response.
+		auto buoyant_link_index = 0;
 		for (auto articulation_index = 0; articulation_index != isize(scene_desc.articulations); ++articulation_index)
 		{
 			auto const& source = scene_desc.articulations[articulation_index];
@@ -374,12 +378,17 @@ namespace physics_sandbox
 				if (!link.m_buoyant)
 					return;
 
-				auto const stable_index = 1'000'000 + isize(m_buoyancy_hulls);
+				auto const stable_index = isize(m_body) + buoyant_link_index++;
 				m_buoyancy_hulls.push_back(m_gpu_buoyancy->RegisterCompositeHull(
 					articulation,
 					articulation.LinkAt(link_index),
 					stable_index,
 					m_buoyancy_generation));
+				m_buoyancy_debug_targets.push_back(BuoyancyDebugTarget{
+					.m_articulation_index = articulation_index,
+					.m_link_index = link_index,
+					.m_hull_id = static_cast<uint32_t>(stable_index),
+				});
 			};
 
 			register_link(source.m_root, 0);
@@ -454,7 +463,7 @@ namespace physics_sandbox
 		using namespace pr::physics::buoyancy;
 
 		m_buoyancy_debug_gfx = nullptr;
-		if (m_rdr == nullptr || m_gpu_buoyancy == nullptr || !m_water.has_value() || m_buoyancy_body_indices.empty())
+		if (m_rdr == nullptr || m_gpu_buoyancy == nullptr || !m_water.has_value() || m_buoyancy_debug_targets.empty())
 			return;
 
 		// Adapter exposing the scene's WaterSurface through the sampler's water-field concept. Only
@@ -523,10 +532,40 @@ namespace physics_sandbox
 		//arrows.no_ztest();
 
 		auto any_geometry = false;
-		for (size_t h = 0; h != m_buoyancy_body_indices.size(); ++h)
+		for (auto const& target : m_buoyancy_debug_targets)
 		{
-			auto const& body = m_body[m_buoyancy_body_indices[h]];
-			auto const* shape = &body.Shape();
+			auto state = BodyState{};
+			auto shape = static_cast<collision::Shape const*>(nullptr);
+
+			// Resolve rigid and reduced-coordinate targets to the same shape-root sampler representation.
+			if (target.m_body_index != -1)
+			{
+				auto const& body = m_body[target.m_body_index];
+				auto const vel = body.VelocityWS();
+				shape = &body.Shape();
+				state.m_o2w = body.O2W();
+				state.m_centre_of_mass_os = body.CentreOfMassOS();
+				state.m_gravity_ws = body.GravityWS();
+				state.m_vel_lin_ws = vel.lin;
+				state.m_omega_ws = vel.ang;
+			}
+			else
+			{
+				auto const& articulation = m_articulation[target.m_articulation_index];
+				auto const link = articulation.LinkAt(target.m_link_index);
+				auto const& desc = articulation.LinkDescription(link);
+				auto const link_to_shape = InvertOrthonormal(desc.m_shape_to_link);
+				auto const shape_to_world = articulation.LinkToWorld(link) * desc.m_shape_to_link;
+				auto const shape_velocity = link_to_shape * articulation.LinkVelocity(link);
+				auto const shape_com = (link_to_shape * desc.m_inertia.CoM().w1()).w0();
+				shape = desc.m_shape;
+				state.m_o2w = shape_to_world;
+				state.m_centre_of_mass_os = shape_com;
+				state.m_gravity_ws = articulation.GravityWS(link);
+				state.m_vel_lin_ws = shape_to_world.rot * (shape_velocity.lin + Cross(shape_velocity.ang, shape_com));
+				state.m_omega_ws = shape_to_world.rot * shape_velocity.ang;
+			}
+			assert("A buoyancy diagnostic target must have a collision shape" && shape != nullptr);
 
 			// The collision polytope intentionally omits volume-only tetrahedra. Rebuild them only
 			// while the expensive CPU debug overlay is enabled so ordinary scene loading and stepping
@@ -542,23 +581,13 @@ namespace physics_sandbox
 				}
 			}
 
-			// The floater bodies have their centre of mass at the model origin, so O2W (model->world)
-			// coincides with the sampler's COM-root->world transform and the body's linear velocity is
-			// already the velocity at the centre of mass.
-			auto const vel = body.VelocityWS();
-			auto state = BodyState{};
-			state.m_o2w = body.O2W();
-			state.m_gravity_ws = body.GravityWS();
-			state.m_vel_lin_ws = vel.lin;
-			state.m_omega_ws = vel.ang;
-
 			// The flat-water adapter is only valid when gravity is ~ -Z. Assert so a future tilted-gravity
 			// scene fails loudly here instead of silently mis-classifying samples.
 			assert("BuildBuoyancyDebugGfx assumes a flat -Z gravity water frame" &&
 				(Sqr(state.m_gravity_ws.x) + Sqr(state.m_gravity_ws.y)) <= 1e-3f * Max(1e-6f, LengthSq(state.m_gravity_ws.w0())));
 
 			auto debug = SampleDebug{};
-			auto const result = SampleHull(*shape, static_cast<uint32_t>(h), state, WaterFrame{}, water, cfg, VolumeSamples, SurfaceSamples, &debug);
+			auto const result = SampleHull(*shape, target.m_hull_id, state, WaterFrame{}, water, cfg, VolumeSamples, SurfaceSamples, &debug);
 
 			// Decimated sample cloud, with green whiskers on active surface samples.
 			auto const stride = std::max<size_t>(1, debug.m_samples.size() / MaxDrawSamples);

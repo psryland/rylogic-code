@@ -385,7 +385,7 @@ namespace pr::physics
 		struct CompositeSlot
 		{
 			// Per-target registration state. Expensive shape-derived data is shared; only identity,
-			// lifetime, deterministic sample seeding, target resolution, and wake-state bookkeeping remain per target.
+			// lifetime, deterministic sample seeding, target resolution, and rigid-body wake state remain per target.
 			int m_generation = -1;
 			bool m_active = false;
 			RigidBody* m_body = nullptr;
@@ -395,6 +395,14 @@ namespace pr::physics
 			uint32_t m_hull_id = 0;
 			multicast::AutoSub m_shape_change_sub;
 			std::shared_ptr<CompositeShape const> m_shape_data;
+		};
+
+		// Shares one tree-wide NeverSleep override among all buoyant links in the same articulation.
+		struct ArticulationSleepOwner
+		{
+			Articulation* m_articulation;
+			int m_registration_count;
+			bool m_prev_never_sleep;
 		};
 
 		// A compact reference to a registered hull participating in the current dispatch. Instances live in
@@ -471,6 +479,7 @@ namespace pr::physics
 		Config m_config;
 		std::unordered_map<ShapeCacheKey, std::weak_ptr<CompositeShape const>, ShapeCacheHash> m_shape_cache;
 		std::vector<CompositeSlot> m_composite_hulls;
+		std::vector<ArticulationSleepOwner> m_articulation_sleep_owners;
 
 		// Reusable host-side dispatch state. Capacity tracks m_composite_hulls and is established during
 		// registration so the per-step Apply/DispatchComposite path only clears and repopulates storage.
@@ -514,6 +523,7 @@ namespace pr::physics
 			,m_config()
 			,m_shape_cache()
 			,m_composite_hulls()
+			,m_articulation_sleep_owners()
 			,m_active_hulls()
 			,m_active_shapes()
 			,m_active_shape_lookup()
@@ -715,6 +725,46 @@ namespace pr::physics
 			body.Wake();
 		}
 
+		// Retain one tree-wide wake override until the last buoyant link registration is released.
+		void AcquireArticulationSleepOwnership(Articulation& articulation)
+		{
+			for (auto& owner : m_articulation_sleep_owners)
+			{
+				if (owner.m_articulation != &articulation)
+					continue;
+
+				++owner.m_registration_count;
+				return;
+			}
+
+			m_articulation_sleep_owners.push_back(ArticulationSleepOwner{
+				.m_articulation = &articulation,
+				.m_registration_count = 1,
+				.m_prev_never_sleep = articulation.NeverSleep(),
+			});
+			articulation.NeverSleep(true);
+		}
+
+		// Restore the caller's tree-wide sleep policy after its final buoyant link is released.
+		void ReleaseArticulationSleepOwnership(Articulation& articulation) noexcept
+		{
+			for (auto iter = m_articulation_sleep_owners.begin(); iter != m_articulation_sleep_owners.end(); ++iter)
+			{
+				if (iter->m_articulation != &articulation)
+					continue;
+
+				assert(iter->m_registration_count > 0);
+				if (--iter->m_registration_count != 0)
+					return;
+
+				articulation.NeverSleep(iter->m_prev_never_sleep);
+				m_articulation_sleep_owners.erase(iter);
+				return;
+			}
+
+			assert("Articulation buoyancy sleep ownership was released without a matching registration" && false);
+		}
+
 		// Register an articulation link's immutable collision shape as its buoyancy hull.
 		void RegisterCompositeHull(Articulation& articulation, LinkHandle link, int body_index, int body_generation)
 		{
@@ -743,14 +793,13 @@ namespace pr::physics
 				diagnostic.m_body_generation = body_generation;
 			}
 
+			AcquireArticulationSleepOwnership(articulation);
 			slot.m_generation = body_generation;
 			slot.m_active = true;
 			slot.m_articulation = &articulation;
 			slot.m_link = link;
-			slot.m_prev_never_sleep = articulation.NeverSleep();
 			slot.m_hull_id = static_cast<uint32_t>(body_index);
 			slot.m_shape_data = std::move(shape_data);
-			articulation.NeverSleep(true);
 		}
 
 		// Remove the buoyancy hull for a stable physics body index.
@@ -773,7 +822,7 @@ namespace pr::physics
 					}
 					if (slot.m_articulation != nullptr)
 					{
-						slot.m_articulation->NeverSleep(slot.m_prev_never_sleep);
+						ReleaseArticulationSleepOwnership(*slot.m_articulation);
 					}
 
 					slot = CompositeSlot{};

@@ -277,4 +277,3 @@ the engine-owned publication path.
 - every established Release sandbox benchmark remains within its existing regression tolerance;
 - every new Release demo, including the comprehensive showcase, sustains at least 40 FPS; and
 - every measured frame reports exactly one GPU submission, one wait, and one readback copy.
-
