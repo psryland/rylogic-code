@@ -19,7 +19,7 @@
 
 	<PropertyGroup>
 		<RylogicGeneratePackageOnBuild Condition="'$(RylogicGeneratePackageOnBuild)' == ''">true</RylogicGeneratePackageOnBuild>
-		<RylogicLibraryVersion>2.1.3</RylogicLibraryVersion>
+		<RylogicLibraryVersion>2.1.4</RylogicLibraryVersion>
 	</PropertyGroup>
 
 	<!-- C# -->
