@@ -264,9 +264,9 @@ namespace pr::physics
 		m_submitted = false;
 	}
 
-	Engine::Engine(EngineConfig const& config, IShaderCache* shader_cache, ID3D12Device4* existing_device)
+	Engine::Engine(EngineConfig const& config, IShaderCache* shader_cache, ID3D12Device4* existing_device, ID3D12CommandQueue* existing_queue)
 		: m_config(config)
-		, m_gpu(new Gpu(existing_device))
+		, m_gpu(new Gpu(existing_device, existing_queue))
 		, m_gpu_integrator(new GpuIntegrator(*m_gpu, m_config))
 		, m_gpu_sleep_manager(new GpuSleepManager(*m_gpu, m_config))
 		, m_gpu_sort_and_sweep(new GpuSortAndSweep(*m_gpu, m_config, shader_cache))

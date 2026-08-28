@@ -13,6 +13,7 @@
 #include "pr/collision/shape_sphere.h"
 #include "pr/collision/shape_array.h"
 #include "src/buoyancy/buoyancy_analytical.h"
+#include "src/unittests/shared_gpu.h"
 #include <chrono>
 #include <algorithm>
 
@@ -230,7 +231,11 @@ namespace pr::physics::tests
 
 			explicit HarnessStorage(bool enable_diagnostics)
 				: m_bodies()
-				, m_engine()
+				, m_engine(
+					EngineConfig{},
+					nullptr,
+					SharedTestGpu().m_gpu.device(),
+					SharedTestGpu().m_gpu.queue())
 				, m_buoyancy(
 					m_engine.Device(),
 					m_engine,

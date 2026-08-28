@@ -10,6 +10,7 @@
 #include "physics/src/compute/physics_types.h"
 #include "physics/src/dll/context.h"
 #include "physics/src/dll/interop.h"
+#include "physics/src/utility/gpu.h"
 
 namespace
 {
@@ -144,6 +145,18 @@ namespace pr::physics
 			std::array<PhysicsArticulationHandle, 2> m_articulation_refs = {};
 		};
 
+		// Owns one compute device and queue for all ABI engines created against the same caller-supplied device identity.
+		struct InteropGpuBackend
+		{
+			void* m_external_device;
+			ComGpu m_gpu;
+
+			explicit InteropGpuBackend(void* external_device)
+				: m_external_device(external_device)
+				, m_gpu(static_cast<ID3D12Device4*>(external_device))
+			{}
+		};
+
 		// Translate an engine-side contact child index into the ABI's child identity.
 		// The engine indexes convex leaves from zero for every body, so a body with a primitive root would
 		// otherwise be indistinguishable from the first child of a compound.
@@ -190,7 +203,7 @@ namespace pr::physics
 			std::uint64_t m_completed_step;
 			std::unique_ptr<Engine> m_engine;
 
-			EngineRecord(std::uint16_t cookie, EngineConfig const& config, ID3D12Device4* external_device)
+			EngineRecord(std::uint16_t cookie, EngineConfig const& config, ID3D12Device4* device, ID3D12CommandQueue* queue)
 				: m_lock()
 				, m_retired(false)
 				, m_cookie(cookie)
@@ -207,7 +220,7 @@ namespace pr::physics
 				, m_events()
 				, m_submitted_step()
 				, m_completed_step()
-				, m_engine(new Engine(config, nullptr, external_device))
+				, m_engine(new Engine(config, nullptr, device, queue))
 			{
 				BindEvents(*m_engine);
 			}
@@ -1814,7 +1827,8 @@ namespace pr::physics
 				throw ApiException(PhysicsStatus::InvalidArgument, "Checkpoint shape size does not match its blob");
 		}
 	InteropState::InteropState()
-		: m_engines()
+		: m_gpu_backends()
+		, m_engines()
 		, m_next_cookie(1)
 	{}
 	InteropState::~InteropState() = default;
@@ -1824,6 +1838,26 @@ namespace pr::physics
 		{
 			return slot->m_record != nullptr;
 		});
+	}
+
+	// Retain one queue per device for the context lifetime so repeated engine construction cannot exhaust heavyweight D3D12 queue resources.
+	InteropGpuBackend& InteropState::GpuBackend(void* external_device)
+	{
+		assert(external_device != nullptr);
+
+		auto iter = std::ranges::find_if(m_gpu_backends, [=](auto const& backend)
+		{
+			return
+				backend->m_external_device == external_device ||
+				backend->m_gpu.device() == external_device;
+		});
+		if (iter != m_gpu_backends.end())
+			return **iter;
+
+		auto backend = std::make_unique<InteropGpuBackend>(external_device);
+		auto& result = *backend;
+		m_gpu_backends.push_back(std::move(backend));
+		return result;
 	}
 }
 
@@ -1918,7 +1952,17 @@ extern "C"
 			auto const cookie = pr::physics::AllocateEngineCookie(state);
 
 			auto& slot = *state.m_engines[index];
-			slot.m_record = std::make_unique<pr::physics::EngineRecord>(cookie, native_config, static_cast<ID3D12Device4*>(external_d3d12_device));
+			if (external_d3d12_device != nullptr)
+			{
+				// Engines using an explicit device share its context-owned queue while retaining independent jobs, allocators, fences, and buffers.
+				auto& backend = state.GpuBackend(external_d3d12_device);
+				slot.m_record = std::make_unique<pr::physics::EngineRecord>(cookie, native_config, backend.m_gpu.device(), backend.m_gpu.queue());
+			}
+			else
+			{
+				// A null device preserves the public contract that each engine owns an independent D3D12 device and queue.
+				slot.m_record = std::make_unique<pr::physics::EngineRecord>(cookie, native_config, nullptr, nullptr);
+			}
 			*engine = pr::physics::MakeEngineHandle(index, slot.m_generation);
 		});
 	}

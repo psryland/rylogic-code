@@ -17,6 +17,7 @@
 #include "src/compute/physics_types.h"
 #include "src/compute/collide_gpu.h"
 #include "src/collision/shape_cache.h"
+#include "src/unittests/shared_gpu.h"
 
 namespace pr::physics::tests
 {
@@ -27,11 +28,11 @@ namespace pr::physics::tests
 		static constexpr float AxisAngleTol = 0.001f; // radians
 		static constexpr float PointTol = 0.001f;     // world units
 
-		Gpu m_gpu;
+		Gpu& m_gpu;
 		EngineConfig m_config;
 		GpuCollisionDetector m_detector;
 			TestClass_GpuCollisionDetectorTests()
-				: m_gpu()
+				: m_gpu(SharedTestGpu())
 				, m_config()
 				, m_detector(m_gpu, m_config)
 			{}

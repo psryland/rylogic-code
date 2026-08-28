@@ -248,7 +248,8 @@ namespace pr::physics
 
 	public:
 
-		explicit Engine(EngineConfig const& config = {}, IShaderCache* shader_cache = nullptr, ID3D12Device4* existing_device = nullptr);
+		// Create an engine with independent GPU ownership, or borrow a matching device and compute queue from a longer-lived host.
+		explicit Engine(EngineConfig const& config = {}, IShaderCache* shader_cache = nullptr, ID3D12Device4* existing_device = nullptr, ID3D12CommandQueue* existing_queue = nullptr);
 
 		// Engine configuration in use by this instance.
 		EngineConfig const& Config() const;

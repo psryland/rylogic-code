@@ -8,6 +8,7 @@
 #include <unknwn.h>
 #include "pr/physics/physics-dll.h"
 #include "src/dll_test.h"
+#include "src/unittests/shared_gpu.h"
 
 namespace pr::unittests
 {
@@ -135,6 +136,63 @@ namespace pr::unittests
 			++*static_cast<int*>(context);
 		}
 
+		// Return the long-lived external device used to avoid artificial device churn in DLL contract tests.
+		void* SharedPhysicsTestDevice()
+		{
+			return physics::tests::SharedTestGpu().m_gpu.device();
+		}
+
+		// Retain an ordinary process context so context-owned GPU backends survive independently executed test methods.
+		struct SharedPhysicsContextStorage
+		{
+			PhysicsApi m_api;
+			DllHandle m_context;
+
+			SharedPhysicsContextStorage()
+				: m_api()
+				, m_context()
+			{}
+			~SharedPhysicsContextStorage()
+			{
+				Release();
+			}
+			SharedPhysicsContextStorage(SharedPhysicsContextStorage const&) = delete;
+			SharedPhysicsContextStorage& operator=(SharedPhysicsContextStorage const&) = delete;
+
+			// Add one fixture-owned initialisation token while ensuring the retaining token exists first.
+			DllHandle Acquire(PhysicsApi const& api)
+			{
+				if (m_context == nullptr)
+				m_context = m_api.Initialise(ReportErrorCB{{}, &SwallowError});
+
+				if (m_context == nullptr)
+					throw std::runtime_error("Failed to retain the shared Physics DLL test context");
+
+				auto context = api.Initialise(ReportErrorCB{{}, &SwallowError});
+				if (context == nullptr)
+					throw std::runtime_error("Failed to acquire a Physics DLL test context");
+
+				return context;
+			}
+
+			// Release the retaining token so final-shutdown behavior can be tested in isolation.
+			void Release()
+			{
+				if (m_context == nullptr)
+					return;
+
+				m_api.Shutdown(m_context);
+				m_context = nullptr;
+			}
+		};
+
+		// Return the process-long context owner used by ordinary DLL contract fixtures.
+		SharedPhysicsContextStorage& SharedPhysicsContext()
+		{
+			static auto storage = SharedPhysicsContextStorage{};
+			return storage;
+		}
+
 		// Return a column-major identity transform in the public wire layout.
 		Matrix4 Identity()
 		{
@@ -159,18 +217,26 @@ namespace pr::unittests
 		{
 			PhysicsApi m_api;
 			DllHandle m_context;
+			void* m_external_device;
 			EngineHandle m_engine;
 
 			PhysicsFixture()
-				: PhysicsFixture(ReportErrorCB{{}, &SwallowError})
+				: PhysicsFixture(ReportErrorCB{{}, &SwallowError}, SharedPhysicsTestDevice(), true)
 			{}
 			explicit PhysicsFixture(ReportErrorCB error_cb)
+				: PhysicsFixture(error_cb, SharedPhysicsTestDevice(), false)
+			{}
+			PhysicsFixture(ReportErrorCB error_cb, void* external_device)
+				: PhysicsFixture(error_cb, external_device, true)
+			{}
+			PhysicsFixture(ReportErrorCB error_cb, void* external_device, bool retain_process_context)
 				: m_api()
-				, m_context(m_api.Initialise(error_cb))
+				, m_context(retain_process_context ? SharedPhysicsContext().Acquire(m_api) : m_api.Initialise(error_cb))
+				, m_external_device(external_device)
 				, m_engine()
 			{
 				PR_EXPECT(m_context != nullptr);
-				PR_EXPECT(m_api.EngineCreate(m_context, nullptr, nullptr, &m_engine) == EStatus::Success);
+				PR_EXPECT(m_api.EngineCreate(m_context, nullptr, m_external_device, &m_engine) == EStatus::Success);
 			}
 			~PhysicsFixture()
 			{
@@ -595,7 +661,7 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &invalid_force, 1) == EStatus::InvalidArgument);
 
 			auto other = EngineHandle{};
-			PR_EXPECT(fix.m_api.EngineCreate(fix.m_context, nullptr, nullptr, &other) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineCreate(fix.m_context, nullptr, fix.m_external_device, &other) == EStatus::Success);
 			auto command = BodyCommand{
 				.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
 				.body = body,
@@ -673,7 +739,7 @@ namespace pr::unittests
 
 		PRUnitTestMethod(CheckpointAndDeviceLease, Extended)
 		{
-			auto fix = PhysicsFixture{};
+			auto fix = PhysicsFixture{ReportErrorCB{{}, &SwallowError}, nullptr};
 			auto shape = MakeBox(fix.m_api, fix.m_engine, {1, 1, 1, 0});
 			static_cast<void>(MakeBody(fix.m_api, fix.m_engine, shape, Identity(), EMotionType::Dynamic));
 			auto checkpoint = WriteCheckpoint(fix.m_api, fix.m_engine);
@@ -681,6 +747,17 @@ namespace pr::unittests
 			void* device = nullptr;
 			PR_EXPECT(fix.m_api.EngineDeviceLeaseAcquire(fix.m_engine, &device) == EStatus::Success);
 			PR_EXPECT(device != nullptr);
+
+			// A second null-device engine must retain an independent engine-owned GPU lifetime.
+			auto isolated = EngineHandle{};
+			auto isolated_device = static_cast<void*>(nullptr);
+			PR_EXPECT(fix.m_api.EngineCreate(fix.m_context, nullptr, nullptr, &isolated) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineDeviceLeaseAcquire(isolated, &isolated_device) == EStatus::Success);
+			PR_EXPECT(isolated_device != nullptr);
+			PR_EXPECT(fix.m_api.EngineDestroy(isolated) == EStatus::Success);
+			static_cast<IUnknown*>(isolated_device)->Release();
+			PR_EXPECT(fix.m_api.Step(fix.m_engine, 1.0f / 60.0f, 0.0, nullptr, 0) == EStatus::Success);
+
 			PR_EXPECT(fix.m_api.EngineDestroy(fix.m_engine) == EStatus::Success);
 			fix.m_engine = 0;
 
@@ -689,16 +766,16 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.EngineCreate(fix.m_context, nullptr, device, &shared) == EStatus::Success);
 			PR_EXPECT(fix.m_api.Step(shared, 1.0f / 60.0f, 0.0, nullptr, 0) == EStatus::Success);
 			PR_EXPECT(fix.m_api.EngineDestroy(shared) == EStatus::Success);
-			static_cast<IUnknown*>(device)->Release();
 
 			// Corrupt data is rejected transactionally, leaving the empty engine able to read the original.
 			auto restored = EngineHandle{};
-			PR_EXPECT(fix.m_api.EngineCreate(fix.m_context, nullptr, nullptr, &restored) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineCreate(fix.m_context, nullptr, device, &restored) == EStatus::Success);
 			auto corrupt = checkpoint;
 			corrupt[corrupt.size() / 2] ^= std::byte{0x5A};
 			PR_EXPECT(fix.m_api.CheckpointRead(restored, corrupt.data(), corrupt.size()) != EStatus::Success);
 			PR_EXPECT(fix.m_api.CheckpointRead(restored, checkpoint.data(), checkpoint.size()) == EStatus::Success);
 			PR_EXPECT(fix.m_api.EngineDestroy(restored) == EStatus::Success);
+			static_cast<IUnknown*>(device)->Release();
 		}
 		PRUnitTestMethod(RestoredCookieRemainsUnique, Extended)
 		{
@@ -719,7 +796,7 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.CheckpointRead(fix.m_engine, checkpoint.data(), checkpoint.size()) == EStatus::Success);
 
 			auto other = EngineHandle{};
-			PR_EXPECT(fix.m_api.EngineCreate(fix.m_context, nullptr, nullptr, &other) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineCreate(fix.m_context, nullptr, fix.m_external_device, &other) == EStatus::Success);
 			auto other_shape = MakeBox(fix.m_api, other, {1, 1, 1, 0});
 			PR_EXPECT(fix.m_api.ShapeDestroy(other, restored_shape) == EStatus::InvalidHandle);
 			PR_EXPECT(fix.m_api.ShapeDestroy(other, other_shape) == EStatus::Success);
@@ -847,7 +924,7 @@ namespace pr::unittests
 
 			// Cross-engine and stale endpoint identities are rejected before persistent storage changes.
 			auto other = EngineHandle{};
-			PR_EXPECT(fix.m_api.EngineCreate(fix.m_context, nullptr, nullptr, &other) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineCreate(fix.m_context, nullptr, fix.m_external_device, &other) == EStatus::Success);
 			auto other_shape = MakeBox(fix.m_api, other, {1, 1, 1, 0});
 			auto other_body = MakeBody(fix.m_api, other, other_shape, Identity(), EMotionType::Dynamic);
 			auto foreign = desc;
@@ -989,7 +1066,7 @@ namespace pr::unittests
 			PR_EXPECT(fix.m_api.ShapeCreateCompound(fix.m_engine, &common, &child, 0, &shape) == EStatus::InvalidArgument);
 
 			auto other = EngineHandle{};
-			PR_EXPECT(fix.m_api.EngineCreate(fix.m_context, nullptr, nullptr, &other) == EStatus::Success);
+			PR_EXPECT(fix.m_api.EngineCreate(fix.m_context, nullptr, fix.m_external_device, &other) == EStatus::Success);
 			auto foreign = MakeBox(fix.m_api, other, {1, 1, 1, 0});
 			PR_EXPECT(fix.m_api.ShapeCreateCompound(fix.m_engine, &common, &foreign, 1, &shape) == EStatus::InvalidHandle);
 			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, child) == EStatus::Success);
@@ -1109,6 +1186,7 @@ namespace pr::unittests
 			}
 
 			// Start a new process context so this test owns the callback whose final-shutdown diagnostic it observes.
+			SharedPhysicsContext().Release();
 			auto errors = 0;
 			auto fix = PhysicsFixture{ReportErrorCB{{&errors}, &CountError}};
 			fix.m_api.Shutdown(fix.m_context);
@@ -1127,6 +1205,7 @@ namespace pr::unittests
 			auto api = PhysicsApi{};
 			auto context = api.Initialise(ReportErrorCB{{}, &SwallowError});
 			PR_EXPECT(context != nullptr);
+			auto external_device = SharedPhysicsTestDevice();
 			std::atomic_int failures = 0;
 			std::atomic_int steps = 0;
 
@@ -1142,7 +1221,7 @@ namespace pr::unittests
 				};
 
 				auto engine = EngineHandle{};
-				if (!ok(api.EngineCreate(context, nullptr, nullptr, &engine)))
+				if (!ok(api.EngineCreate(context, nullptr, external_device, &engine)))
 					return;
 
 				auto box = BoxShape{

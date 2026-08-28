@@ -9,6 +9,7 @@
 #include "src/compute/articulation_impulse_aba_gpu.h"
 #include "src/compute/interop/articulation_impulse_aba_runner.h"
 #include "src/unittests/articulation_oracle.h"
+#include "src/unittests/shared_gpu.h"
 
 namespace pr::physics::tests
 {
@@ -136,8 +137,7 @@ namespace pr::physics::tests
 		// Reuse one D3D12 device and command job across focused hardware impulse-response tests.
 		Gpu& ImpulseTestGpu()
 		{
-			static auto gpu = Gpu{};
-			return gpu;
+			return SharedTestGpu();
 		}
 	}
 

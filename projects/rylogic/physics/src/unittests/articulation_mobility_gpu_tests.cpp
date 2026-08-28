@@ -8,6 +8,7 @@
 #include "pr/physics/physics.h"
 #include "src/compute/articulation_mobility_gpu.h"
 #include "src/compute/interop/articulation_mobility_runner.h"
+#include "src/unittests/shared_gpu.h"
 
 namespace pr::physics::tests
 {
@@ -124,8 +125,7 @@ namespace pr::physics::tests
 		// Reuse one D3D12 device and command job across hardware mobility tests.
 		Gpu& MobilityTestGpu()
 		{
-			static auto gpu = Gpu{};
-			return gpu;
+			return SharedTestGpu();
 		}
 	}
 

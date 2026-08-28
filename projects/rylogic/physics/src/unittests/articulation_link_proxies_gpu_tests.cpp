@@ -9,6 +9,7 @@
 #include "src/articulation/articulation_gpu_data.h"
 #include "src/compute/articulation_link_proxies_gpu.h"
 #include "src/compute/articulation_mobility_gpu.h"
+#include "src/unittests/shared_gpu.h"
 
 namespace pr::physics::tests
 {
@@ -85,8 +86,7 @@ namespace pr::physics::tests
 		// Reuse one D3D12 device and command job across persistent link-frame tests.
 		Gpu& ProxyFrameTestGpu()
 		{
-			static auto gpu = Gpu{};
-			return gpu;
+			return SharedTestGpu();
 		}
 	}
 

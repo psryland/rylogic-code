@@ -10,6 +10,7 @@
 #include "src/compute/articulation_midpoint_gpu.h"
 #include "src/compute/frame_output_gpu.h"
 #include "src/compute/interop/articulation_midpoint_runner.h"
+#include "src/unittests/shared_gpu.h"
 
 namespace pr::physics::tests
 {
@@ -261,8 +262,7 @@ namespace pr::physics::tests
 		// Reuse one D3D12 device and command job across hardware midpoint tests.
 		Gpu& MidpointTestGpu()
 		{
-			static auto gpu = Gpu{};
-			return gpu;
+			return SharedTestGpu();
 		}
 
 		// Return root-only kinetic energy directly from packed body-frame inertia and generalized velocity.

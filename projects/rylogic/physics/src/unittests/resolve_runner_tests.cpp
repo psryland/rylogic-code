@@ -7,6 +7,7 @@
 #include "pr/common/unittests.h"
 #include "pr/physics/physics.h"
 #include "src/compute/interop/resolve_runner.h"
+#include "src/unittests/shared_gpu.h"
 #include "src/compute/resolve_gpu.h"
 #include <filesystem>
 #include <fstream>
@@ -430,7 +431,7 @@ namespace pr::physics::tests
 			PR_EXPECT(bodies[0].momentum_lin.x < momentum_before);
 
 			// Run the complete production D3D12 path to prove its sorted graph also selects the fallback and resolves the enabled closing contact.
-			auto gpu = Gpu{};
+			auto& gpu = SharedTestGpu();
 			auto gpu_resolver = GpuResolver{gpu, config, nullptr};
 			gpu_resolver.Resolve(gpu.m_job, buffers.m_dt, contacts, gpu_bodies, materials);
 

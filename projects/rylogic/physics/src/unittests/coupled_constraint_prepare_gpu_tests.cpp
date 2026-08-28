@@ -11,6 +11,7 @@
 #include "src/compute/interop/articulation_mobility_runner.h"
 #include "src/compute/interop/coupled_constraint_prepare_runner.h"
 #include "src/constraint/constraint_compiler.h"
+#include "src/unittests/shared_gpu.h"
 
 namespace pr::physics::tests
 {
@@ -201,8 +202,7 @@ namespace pr::physics::tests
 		// Reuse one D3D12 device and command job across coupled preparation hardware tests.
 		Gpu& CoupledPrepareTestGpu()
 		{
-			static auto gpu = Gpu{};
-			return gpu;
+			return SharedTestGpu();
 		}
 	}
 

@@ -18,6 +18,7 @@
 #include "src/compute/interop/coupled_constraint_position_runner.h"
 #include "src/compute/interop/coupled_constraint_velocity_runner.h"
 #include "src/constraint/constraint_solver.h"
+#include "src/unittests/shared_gpu.h"
 
 namespace pr::physics::tests
 {
@@ -273,8 +274,7 @@ namespace pr::physics::tests
 		// Reuse one D3D12 device and command job across coupled velocity hardware tests.
 		Gpu& CoupledVelocityTestGpu()
 		{
-			static auto gpu = Gpu{};
-			return gpu;
+			return SharedTestGpu();
 		}
 	}
 

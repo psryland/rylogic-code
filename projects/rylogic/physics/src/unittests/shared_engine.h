@@ -18,13 +18,19 @@
 
 #if PR_UNITTESTS
 #include "pr/physics/physics.h"
+#include "src/unittests/shared_gpu.h"
 
 namespace pr::physics::tests
 {
 	// Lazy-initialised default-config Engine shared by every test that uses it.
 	inline physics::Engine& SharedEngine()
 	{
-		static physics::Engine s_engine;
+		static physics::Engine s_engine{
+			physics::EngineConfig{},
+			nullptr,
+			SharedTestGpu().m_gpu.device(),
+			SharedTestGpu().m_gpu.queue(),
+		};
 		return s_engine;
 	}
 

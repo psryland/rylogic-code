@@ -152,6 +152,9 @@
 		<ClInclude Include="$(MSBuildThisFileDirectory)shared_engine.h">
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
 		</ClInclude>
+		<ClInclude Include="$(MSBuildThisFileDirectory)shared_gpu.h">
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClInclude>
 		<ClInclude Include="$(MSBuildThisFileDirectory)constraint_oracle.h">
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
 		</ClInclude>

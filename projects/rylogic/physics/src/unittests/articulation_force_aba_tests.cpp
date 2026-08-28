@@ -10,6 +10,7 @@
 #include "src/compute/articulation_force_aba_gpu.h"
 #include "src/compute/interop/articulation_force_aba_runner.h"
 #include "src/unittests/articulation_oracle.h"
+#include "src/unittests/shared_gpu.h"
 
 namespace pr::physics::tests
 {
@@ -256,8 +257,7 @@ namespace pr::physics::tests
 		// Reuse one D3D12 device and command job across hardware articulation tests.
 		Gpu& ForceAbaTestGpu()
 		{
-			static auto gpu = Gpu{};
-			return gpu;
+			return SharedTestGpu();
 		}
 
 		// Compare real D3D12 output against the exact shared-code replay, then reuse CPU and double-oracle acceptance checks.

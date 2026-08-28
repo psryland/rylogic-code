@@ -59,8 +59,7 @@ namespace pr::physics::tests
 		// Reuse one D3D12 device and command job across hardware constraint tests.
 		Gpu& ConstraintTestGpu()
 		{
-			static auto gpu = Gpu{};
-			return gpu;
+			return SharedTestGpu();
 		}
 
 		// Build a minimal floating tree for testing the unsupported coupled-solver boundary.
@@ -1066,7 +1065,12 @@ namespace pr::physics::tests
 			auto overlay_bodies = std::array<RigidBody*, 1>{&overlay_body};
 			auto baseline_bodies = std::array<RigidBody*, 1>{&baseline_body};
 			auto constraints = ConstraintSet{};
-			auto engine = Engine{};
+			auto engine = Engine{
+				EngineConfig{},
+				nullptr,
+				SharedTestGpu().m_gpu.device(),
+				SharedTestGpu().m_gpu.queue(),
+			};
 
 			// Warm the ordinary one-body path without touching optional lanes so first-frame setup cannot masquerade as overlay cost.
 			auto warmup_body = RigidBody{&shape, initial_o2w, Inertia::Box(shape.m_radius, 2.5f)};
