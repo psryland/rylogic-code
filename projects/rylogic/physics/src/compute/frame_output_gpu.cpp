@@ -90,6 +90,13 @@ namespace pr::physics
 			m_cs_prepare_substep.m_sig = sig.Create(m_gpu, "Physics:PrepareSubstepOutputSig");
 			m_cs_prepare_substep.m_pso = ComputePSO(m_cs_prepare_substep.m_sig.get(), shader_code::prepare_substep_output).Create(m_gpu, "Physics:PrepareSubstepOutputPSO");
 		}
+	}
+
+	// Create collision-event compaction and append pipelines only when a subscriber requests event capture.
+	void GpuFrameOutput::EnsureCollisionEventPipeline()
+	{
+		if (m_cs_append_events.m_pso != nullptr)
+			return;
 
 		// Event compaction also snapshots counters so subscribed frames need only one serial setup pass.
 		{
@@ -106,7 +113,7 @@ namespace pr::physics
 			m_cs_compact_events.m_pso = ComputePSO(m_cs_compact_events.m_sig.get(), shader_code::compact_collision_events).Create(m_gpu, "Physics:CompactCollisionEventsPSO");
 		}
 
-		// The event pass consumes the resolver's indirect dispatch so idle contact capacity is never scanned.
+		// The append pass retains post-solve body state and consumes the resolver's indirect dispatch.
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
 				.U32<cbFrameOutput>(EReg::Params)
@@ -114,6 +121,7 @@ namespace pr::physics
 				.UAV(EReg::ContactOrder)
 				.UAV(EReg::SubstepState)
 				.UAV(EReg::Events)
+				.UAV(EReg::Bodies)
 				;
 
 			m_cs_append_events.m_sig = sig.Create(m_gpu, "Physics:AppendCollisionEventsSig");
@@ -256,14 +264,14 @@ namespace pr::physics
 	}
 
 	// Retain counters and optional resolved contacts before the next substep resets transient collision buffers.
-	void GpuFrameOutput::CaptureSubstep(GpuJob& job, int max_pairs, int max_contacts, int substep_index, int substep_count, bool collect_events, bool filter_hidden_proxies, ID3D12Resource* counters, ID3D12Resource* contacts, ID3D12Resource* contact_order, ID3D12Resource* contact_dispatch)
+	void GpuFrameOutput::CaptureSubstep(GpuJob& job, int max_pairs, int max_contacts, int substep_index, int substep_count, bool collect_events, bool filter_hidden_proxies, ID3D12Resource* counters, ID3D12Resource* contacts, ID3D12Resource* contact_order, ID3D12Resource* contact_dispatch, ID3D12Resource* bodies)
 	{
 		if (m_r_output == nullptr || m_r_substep_state == nullptr)
 			throw std::runtime_error("GPU frame output must begin before capturing a substep");
 		if (counters == nullptr)
 			throw std::invalid_argument("GPU frame output requires collision counters");
-		if (collect_events && (contacts == nullptr || contact_order == nullptr || contact_dispatch == nullptr))
-			throw std::invalid_argument("GPU collision events require resolved contacts, contact order, and dispatch arguments");
+		if (collect_events && (contacts == nullptr || contact_order == nullptr || contact_dispatch == nullptr || bodies == nullptr))
+			throw std::invalid_argument("GPU collision events require resolved contacts, contact order, dispatch arguments, and body state");
 
 		auto cb = cbFrameOutput{
 			.max_pairs = max_pairs,
@@ -298,6 +306,8 @@ namespace pr::physics
 			return;
 		}
 
+		EnsureCollisionEventPipeline();
+
 		// Snapshot counters, optionally filter hidden proxies, and reserve the event range in one serial pass.
 		job.m_barriers.Transition(counters, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(contacts, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -326,6 +336,11 @@ namespace pr::physics
 		job.m_barriers.Transition(contacts, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(contact_order, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(contact_dispatch, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+		job.m_barriers.Transition(bodies, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Commit();
+
+		// Order all post-solve body writes before the append shader snapshots endpoint velocities.
+		job.m_barriers.UAV(bodies);
 		job.m_barriers.Commit();
 
 		job.m_cmd_list.SetPipelineState(m_cs_append_events.m_pso.get());
@@ -335,6 +350,7 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(contact_order->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_substep_state->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress() + m_layout.m_event_offset);
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
 		job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, contact_dispatch);
 		++m_dispatch_count;
 

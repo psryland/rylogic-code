@@ -89,7 +89,7 @@ namespace pr::physics
 
 		// Retain counters and optional resolved contacts before the next substep resets transient collision buffers.
 		// Hidden-proxy filtering remains optional because rigid-only contact order already contains only public bodies.
-		void CaptureSubstep(GpuJob& job, int max_pairs, int max_contacts, int substep_index, int substep_count, bool collect_events, bool filter_hidden_proxies, ID3D12Resource* counters, ID3D12Resource* contacts, ID3D12Resource* contact_order, ID3D12Resource* contact_dispatch);
+		void CaptureSubstep(GpuJob& job, int max_pairs, int max_contacts, int substep_index, int substep_count, bool collect_events, bool filter_hidden_proxies, ID3D12Resource* counters, ID3D12Resource* contacts, ID3D12Resource* contact_order, ID3D12Resource* contact_dispatch, ID3D12Resource* bodies);
 
 		// Gather final bodies and record the frame's sole GPU-to-CPU CopyBufferRegion.
 		GpuFrameOutputReadback GatherAndReadback(GpuJob& job, int body_count, ID3D12Resource* bodies);
@@ -115,6 +115,9 @@ namespace pr::physics
 		GpuFrameOutputStats Stats() const;
 
 	private:
+
+		// Create collision-event compaction and append pipelines only when a subscriber requests event capture.
+		void EnsureCollisionEventPipeline();
 
 		// Create the optional articulation gather pipeline only when a frame first supplies a reduced-coordinate forest.
 		void EnsureArticulationGatherPipeline();

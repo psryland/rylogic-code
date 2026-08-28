@@ -1274,6 +1274,7 @@ namespace pr::physics
 		auto contacts = m_gpu_collision_detector->Contacts();
 		auto contact_order = m_gpu_resolver->ContactOrder();
 		auto contact_dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
+		auto bodies = m_gpu_integrator->Bodies();
 		m_gpu_frame_output->CaptureSubstep(
 			m_gpu->m_job,
 			m_config.max_collision_pairs,
@@ -1285,7 +1286,8 @@ namespace pr::physics
 			counters.get(),
 			contacts.get(),
 			contact_order,
-			contact_dispatch.get());
+			contact_dispatch.get(),
+			bodies.get());
 	}
 
 	// Gather selected output and record exactly one core GPU-to-CPU copy.
