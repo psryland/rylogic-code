@@ -12,10 +12,8 @@
 // that survives across every test in the executable.
 //
 // All sharing tests must call ResetEngineForNextTest() at the start of each method
-// (or at the start of any helper that runs a scenario) to clear the materials map and
-// event handler lists. EngineConfig is const at construction and cannot be
-// modified, so any test that needs a non-default config must construct its own Engine
-// (and pay the shader-compile cost).
+// (or at the start of any helper that runs a scenario) to clear the materials map,
+// event handler lists, mutable configuration, and caller-owned pointer caches.
 #pragma once
 
 #if PR_UNITTESTS

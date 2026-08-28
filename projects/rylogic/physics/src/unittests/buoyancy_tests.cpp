@@ -221,17 +221,14 @@ namespace pr::physics::tests
 	// GPU-vs-oracle cases validate deterministic sampling as well as force and diagnostic readback.
 	PRUnitTestClass(BuoyancyCompositeHostTests)
 	{
-		// GpuBuoyancy is neither copyable nor movable, so it cannot be returned from a factory. This
-		// stack-resident harness owns the engine, body list, and buoyancy module together, constructing
-		// the module in-place with the resolver pair the existing analytic-box tests use. Bodies are
-		// added by each test after construction; the body-state resolver reads them lazily at call time.
-		struct Harness
+		// Retain the heavyweight GPU queue across test methods while keeping the body resolver bound to stable storage.
+		struct HarnessStorage
 		{
 			std::vector<RigidBody> m_bodies;
 			Engine m_engine;
 			GpuBuoyancy m_buoyancy;
 
-			explicit Harness(bool enable_diagnostics = true)
+			explicit HarnessStorage(bool enable_diagnostics)
 				: m_bodies()
 				, m_engine()
 				, m_buoyancy(
@@ -257,6 +254,43 @@ namespace pr::physics::tests
 						return body_state;
 					})
 			{}
+		};
+
+		// Return independent retained fixtures for diagnostic and production configurations.
+		static HarnessStorage& SharedHarnessStorage(bool enable_diagnostics)
+		{
+			if (enable_diagnostics)
+			{
+				static auto storage = HarnessStorage(true);
+				return storage;
+			}
+
+			static auto storage = HarnessStorage(false);
+			return storage;
+		}
+
+		// Present isolated per-method body state while reusing the configuration's long-lived GPU resources.
+		struct Harness
+		{
+			HarnessStorage& m_storage;
+			std::vector<RigidBody>& m_bodies;
+			Engine& m_engine;
+			GpuBuoyancy& m_buoyancy;
+
+			explicit Harness(bool enable_diagnostics = true)
+				: m_storage(SharedHarnessStorage(enable_diagnostics))
+				, m_bodies(m_storage.m_bodies)
+				, m_engine(m_storage.m_engine)
+				, m_buoyancy(m_storage.m_buoyancy)
+			{
+				// Restore all mutable fixture state so retained GPU resources cannot couple otherwise-independent test methods.
+				m_bodies.clear();
+				m_engine.ResetCaches();
+				m_buoyancy.SetWaterSurface({});
+				m_buoyancy.SetConfig(GpuBuoyancy::Config{
+					.m_enable_diagnostics = enable_diagnostics,
+				});
+			}
 		};
 
 		// A single box flattens to one analytic Box primitive carrying its half-extents and no geometry.
