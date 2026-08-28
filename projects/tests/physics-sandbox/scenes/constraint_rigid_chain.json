@@ -1,0 +1,2186 @@
+{
+	"scene": {
+		"demo": {
+			"name": "Long Rigid Chain",
+			"group": "Constraints and Mechanisms",
+			"order": 30,
+			"command": "rigid-chain"
+		},
+		"description": "A long graph-coloured rigid chain under gravity.",
+		"gravity": [
+			0.0,
+			0.0,
+			-9.81000042
+		],
+		"material": {
+			"friction": 0.60000002,
+			"elasticity": 0.05
+		},
+		"physics": {
+			"substeps": 1
+		},
+		"bodies": [
+			{
+				"name": "link-00",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96690226
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.0,
+					11.52499962
+				],
+				"z_axis": [
+					0.18616152,
+					0.0,
+					-0.98251915
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-01",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96702772
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.00778837,
+					10.57499981
+				],
+				"z_axis": [
+					-0.18613738,
+					0.01610785,
+					-0.98239166
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-02",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96732795
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.02992386,
+					9.625
+				],
+				"z_axis": [
+					0.18607961,
+					0.02966341,
+					-0.98208678
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-03",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96762073
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.06291176,
+					8.67500019
+				],
+				"z_axis": [
+					-0.18602329,
+					0.03852911,
+					-0.98178959
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-04",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96772861
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.10154402,
+					7.7249999
+				],
+				"z_axis": [
+					0.18600257,
+					0.04131628,
+					-0.98168021
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-05",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.9675861
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.13972144,
+					6.7750001
+				],
+				"z_axis": [
+					-0.18602996,
+					0.03759035,
+					-0.98182476
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-06",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96727967
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.17141664,
+					5.82499981
+				],
+				"z_axis": [
+					0.18608889,
+					0.02793249,
+					-0.98213577
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-07",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96699512
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.19162567,
+					4.875
+				],
+				"z_axis": [
+					-0.18614365,
+					0.01385687,
+					-0.9824248
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-08",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96690512
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.19715795,
+					3.92499995
+				],
+				"z_axis": [
+					0.18616098,
+					-0.00241489,
+					-0.98251629
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-09",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96706426
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.18714006,
+					2.9749999
+				],
+				"z_axis": [
+					-0.18613033,
+					-0.01830366,
+					-0.98235458
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-10",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96737605
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.1631536,
+					2.0250001
+				],
+				"z_axis": [
+					0.18607035,
+					-0.031293,
+					-0.98203796
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-11",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96765119
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.12898551,
+					1.07500005
+				],
+				"z_axis": [
+					-0.18601744,
+					-0.03933657,
+					-0.98175871
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-12",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96772295
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.09003018,
+					0.125
+				],
+				"z_axis": [
+					0.18600364,
+					-0.04117561,
+					-0.98168588
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-13",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96754783
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.05243779,
+					-0.82499999
+				],
+				"z_axis": [
+					-0.18603732,
+					-0.03652345,
+					-0.98186362
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-14",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96723193
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.02214337,
+					-1.77499998
+				],
+				"z_axis": [
+					0.18609807,
+					-0.02610611,
+					-0.98218429
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-15",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96696687
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.00392972,
+					-2.7249999
+				],
+				"z_axis": [
+					-0.18614909,
+					-0.01155843,
+					-0.98245353
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-16",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96691352
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.0006724,
+					-3.67499995
+				],
+				"z_axis": [
+					0.18615936,
+					0.00482149,
+					-0.98250771
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-17",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96710426
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.01288565,
+					-4.625
+				],
+				"z_axis": [
+					-0.18612264,
+					0.02043682,
+					-0.98231393
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-18",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96742332
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.03864127,
+					-5.57499981
+				],
+				"z_axis": [
+					0.18606126,
+					0.03281574,
+					-0.98198998
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-19",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96767712
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.07387302,
+					-6.5250001
+				],
+				"z_axis": [
+					-0.18601246,
+					0.04001003,
+					-0.98173243
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-20",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96771181
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.11301858,
+					-7.4749999
+				],
+				"z_axis": [
+					0.18600579,
+					0.04089475,
+					-0.98169726
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-21",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96750635
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.14989772,
+					-8.42500019
+				],
+				"z_axis": [
+					-0.18604529,
+					0.03533202,
+					-0.9819057
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-22",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96718532
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.17868805,
+					-9.375
+				],
+				"z_axis": [
+					0.18610704,
+					0.02419049,
+					-0.98223162
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-23",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96694338
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.19484419,
+					-10.32499981
+				],
+				"z_axis": [
+					-0.18615361,
+					0.00922039,
+					-0.98247737
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-24",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96692741
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.19581546,
+					-11.27499962
+				],
+				"z_axis": [
+					0.18615669,
+					-0.00721158,
+					-0.98249358
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-25",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96714711
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.18144849,
+					-12.22500038
+				],
+				"z_axis": [
+					-0.1861144,
+					-0.02250004,
+					-0.98227042
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-26",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.9674691
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.15401155,
+					-13.17500019
+				],
+				"z_axis": [
+					0.18605246,
+					-0.03422648,
+					-0.98194349
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-27",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.9676981
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.11783629,
+					-14.125
+				],
+				"z_axis": [
+					-0.18600842,
+					-0.0405472,
+					-0.98171115
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-28",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96769524
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.07863401,
+					-15.07499981
+				],
+				"z_axis": [
+					0.18600897,
+					-0.04047463,
+					-0.98171407
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-29",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.9674623
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.04259388,
+					-16.02499962
+				],
+				"z_axis": [
+					-0.18605377,
+					-0.03402008,
+					-0.9819504
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-30",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96714044
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.01540585,
+					-16.97500038
+				],
+				"z_axis": [
+					0.18611568,
+					-0.02219214,
+					-0.98227715
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-31",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96692497
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.00136231,
+					-17.92499924
+				],
+				"z_axis": [
+					-0.18615715,
+					-0.00685076,
+					-0.98249608
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-32",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.9669466
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.00268042,
+					-18.875
+				],
+				"z_axis": [
+					0.18615298,
+					0.00957694,
+					-0.98247409
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-33",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96719229
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.01915209,
+					-19.82500076
+				],
+				"z_axis": [
+					-0.18610571,
+					0.02448628,
+					-0.98222458
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-34",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96751285
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.0481768,
+					-20.77499962
+				],
+				"z_axis": [
+					0.18604405,
+					0.03552043,
+					-0.98189914
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-35",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96771383
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.08517218,
+					-21.72500038
+				],
+				"z_axis": [
+					-0.1860054,
+					0.04094629,
+					-0.98169518
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-36",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96767348
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.12429748,
+					-22.67499924
+				],
+				"z_axis": [
+					0.18601316,
+					0.03991668,
+					-0.98173612
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-37",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96741623
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.15937568,
+					-23.625
+				],
+				"z_axis": [
+					-0.18606262,
+					0.03259205,
+					-0.98199719
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-38",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.967098
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.18486869,
+					-24.57500076
+				],
+				"z_axis": [
+					0.18612385,
+					0.02011787,
+					-0.98232031
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-39",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96691185
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.19675174,
+					-25.52499962
+				],
+				"z_axis": [
+					-0.18615967,
+					0.00445764,
+					-0.98250937
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-40",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96697086
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.19314875,
+					-26.47500038
+				],
+				"z_axis": [
+					0.18614832,
+					-0.01190949,
+					-0.98244947
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-41",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96723908
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.17462854,
+					-27.42499924
+				],
+				"z_axis": [
+					-0.1860967,
+					-0.02638879,
+					-0.98217702
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-42",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96755385
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.14411508,
+					-28.375
+				],
+				"z_axis": [
+					0.18603615,
+					-0.03669323,
+					-0.98185748
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-43",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.9677242
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.10642573,
+					-29.32500076
+				],
+				"z_axis": [
+					-0.18600342,
+					-0.04120596,
+					-0.98168468
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-44",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.9676469
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.06751084,
+					-30.27499962
+				],
+				"z_axis": [
+					0.18601827,
+					-0.03922276,
+					-0.98176312
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-45",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96736878
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.03351421,
+					-31.22500038
+				],
+				"z_axis": [
+					-0.18607175,
+					-0.03105278,
+					-0.98204535
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "link-46",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96705848
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.00980315,
+					-32.17499924
+				],
+				"z_axis": [
+					0.18613145,
+					-0.01797474,
+					-0.98236042
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "link-47",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.31999999,
+						0.31999999,
+						0.96690428
+					]
+				},
+				"mass": 0.69999999,
+				"position": [
+					0.09,
+					0.00012112,
+					-33.125
+				],
+				"z_axis": [
+					-0.18616113,
+					-0.00204925,
+					-0.98251706
+				],
+				"colour": "0xFF40A0FF"
+			}
+		],
+		"constraints": [
+			{
+				"name": "joint-00",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "world",
+					"position": [
+						0.0,
+						0.0,
+						12.0
+					]
+				},
+				"frame_b": {
+					"body": "link-00",
+					"space": "world",
+					"position": [
+						0.0,
+						0.0,
+						12.0
+					]
+				}
+			},
+			{
+				"name": "joint-01",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-00",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.0,
+						11.05000019
+					]
+				},
+				"frame_b": {
+					"body": "link-01",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.0,
+						11.05000019
+					]
+				}
+			},
+			{
+				"name": "joint-02",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-01",
+					"space": "world",
+					"position": [
+						0.0,
+						0.01557673,
+						10.10000038
+					]
+				},
+				"frame_b": {
+					"body": "link-02",
+					"space": "world",
+					"position": [
+						0.0,
+						0.01557673,
+						10.10000038
+					]
+				}
+			},
+			{
+				"name": "joint-03",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-02",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.04427098,
+						9.14999962
+					]
+				},
+				"frame_b": {
+					"body": "link-03",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.04427098,
+						9.14999962
+					]
+				}
+			},
+			{
+				"name": "joint-04",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-03",
+					"space": "world",
+					"position": [
+						0.0,
+						0.08155254,
+						8.19999981
+					]
+				},
+				"frame_b": {
+					"body": "link-04",
+					"space": "world",
+					"position": [
+						0.0,
+						0.08155254,
+						8.19999981
+					]
+				}
+			},
+			{
+				"name": "joint-05",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-04",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.12153549,
+						7.25
+					]
+				},
+				"frame_b": {
+					"body": "link-05",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.12153549,
+						7.25
+					]
+				}
+			},
+			{
+				"name": "joint-06",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-05",
+					"space": "world",
+					"position": [
+						0.0,
+						0.15790738,
+						6.30000019
+					]
+				},
+				"frame_b": {
+					"body": "link-06",
+					"space": "world",
+					"position": [
+						0.0,
+						0.15790738,
+						6.30000019
+					]
+				}
+			},
+			{
+				"name": "joint-07",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-06",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.18492591,
+						5.3499999
+					]
+				},
+				"frame_b": {
+					"body": "link-07",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.18492591,
+						5.3499999
+					]
+				}
+			},
+			{
+				"name": "joint-08",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-07",
+					"space": "world",
+					"position": [
+						0.0,
+						0.19832544,
+						4.4000001
+					]
+				},
+				"frame_b": {
+					"body": "link-08",
+					"space": "world",
+					"position": [
+						0.0,
+						0.19832544,
+						4.4000001
+					]
+				}
+			},
+			{
+				"name": "joint-09",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-08",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.19599047,
+						3.45000005
+					]
+				},
+				"frame_b": {
+					"body": "link-09",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.19599047,
+						3.45000005
+					]
+				}
+			},
+			{
+				"name": "joint-10",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-09",
+					"space": "world",
+					"position": [
+						0.0,
+						0.17828965,
+						2.5
+					]
+				},
+				"frame_b": {
+					"body": "link-10",
+					"space": "world",
+					"position": [
+						0.0,
+						0.17828965,
+						2.5
+					]
+				}
+			},
+			{
+				"name": "joint-11",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-10",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.14801756,
+						1.54999995
+					]
+				},
+				"frame_b": {
+					"body": "link-11",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.14801756,
+						1.54999995
+					]
+				}
+			},
+			{
+				"name": "joint-12",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-11",
+					"space": "world",
+					"position": [
+						0.0,
+						0.10995347,
+						0.60000002
+					]
+				},
+				"frame_b": {
+					"body": "link-12",
+					"space": "world",
+					"position": [
+						0.0,
+						0.10995347,
+						0.60000002
+					]
+				}
+			},
+			{
+				"name": "joint-13",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-12",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.07010689,
+						-0.34999999
+					]
+				},
+				"frame_b": {
+					"body": "link-13",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.07010689,
+						-0.34999999
+					]
+				}
+			},
+			{
+				"name": "joint-14",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-13",
+					"space": "world",
+					"position": [
+						0.0,
+						0.0347687,
+						-1.29999995
+					]
+				},
+				"frame_b": {
+					"body": "link-14",
+					"space": "world",
+					"position": [
+						0.0,
+						0.0347687,
+						-1.29999995
+					]
+				}
+			},
+			{
+				"name": "joint-15",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-14",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.00951803,
+						-2.25
+					]
+				},
+				"frame_b": {
+					"body": "link-15",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.00951803,
+						-2.25
+					]
+				}
+			},
+			{
+				"name": "joint-16",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-15",
+					"space": "world",
+					"position": [
+						0.0,
+						-0.00165859,
+						-3.20000005
+					]
+				},
+				"frame_b": {
+					"body": "link-16",
+					"space": "world",
+					"position": [
+						0.0,
+						-0.00165859,
+						-3.20000005
+					]
+				}
+			},
+			{
+				"name": "joint-17",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-16",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.00300338,
+						-4.1500001
+					]
+				},
+				"frame_b": {
+					"body": "link-17",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.00300338,
+						-4.1500001
+					]
+				}
+			},
+			{
+				"name": "joint-18",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-17",
+					"space": "world",
+					"position": [
+						0.0,
+						0.02276791,
+						-5.0999999
+					]
+				},
+				"frame_b": {
+					"body": "link-18",
+					"space": "world",
+					"position": [
+						0.0,
+						0.02276791,
+						-5.0999999
+					]
+				}
+			},
+			{
+				"name": "joint-19",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-18",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.05451463,
+						-6.05000019
+					]
+				},
+				"frame_b": {
+					"body": "link-19",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.05451463,
+						-6.05000019
+					]
+				}
+			},
+			{
+				"name": "joint-20",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-19",
+					"space": "world",
+					"position": [
+						0.0,
+						0.09323142,
+						-7.0
+					]
+				},
+				"frame_b": {
+					"body": "link-20",
+					"space": "world",
+					"position": [
+						0.0,
+						0.09323142,
+						-7.0
+					]
+				}
+			},
+			{
+				"name": "joint-21",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-20",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.13280575,
+						-7.94999981
+					]
+				},
+				"frame_b": {
+					"body": "link-21",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.13280575,
+						-7.94999981
+					]
+				}
+			},
+			{
+				"name": "joint-22",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-21",
+					"space": "world",
+					"position": [
+						0.0,
+						0.1669897,
+						-8.89999962
+					]
+				},
+				"frame_b": {
+					"body": "link-22",
+					"space": "world",
+					"position": [
+						0.0,
+						0.1669897,
+						-8.89999962
+					]
+				}
+			},
+			{
+				"name": "joint-23",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-22",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.19038638,
+						-9.85000038
+					]
+				},
+				"frame_b": {
+					"body": "link-23",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.19038638,
+						-9.85000038
+					]
+				}
+			},
+			{
+				"name": "joint-24",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-23",
+					"space": "world",
+					"position": [
+						0.0,
+						0.19930199,
+						-10.80000019
+					]
+				},
+				"frame_b": {
+					"body": "link-24",
+					"space": "world",
+					"position": [
+						0.0,
+						0.19930199,
+						-10.80000019
+					]
+				}
+			},
+			{
+				"name": "joint-25",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-24",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.19232891,
+						-11.75
+					]
+				},
+				"frame_b": {
+					"body": "link-25",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.19232891,
+						-11.75
+					]
+				}
+			},
+			{
+				"name": "joint-26",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-25",
+					"space": "world",
+					"position": [
+						0.0,
+						0.17056808,
+						-12.69999981
+					]
+				},
+				"frame_b": {
+					"body": "link-26",
+					"space": "world",
+					"position": [
+						0.0,
+						0.17056808,
+						-12.69999981
+					]
+				}
+			},
+			{
+				"name": "joint-27",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-26",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.13745502,
+						-13.64999962
+					]
+				},
+				"frame_b": {
+					"body": "link-27",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.13745502,
+						-13.64999962
+					]
+				}
+			},
+			{
+				"name": "joint-28",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-27",
+					"space": "world",
+					"position": [
+						0.0,
+						0.09821756,
+						-14.60000038
+					]
+				},
+				"frame_b": {
+					"body": "link-28",
+					"space": "world",
+					"position": [
+						0.0,
+						0.09821756,
+						-14.60000038
+					]
+				}
+			},
+			{
+				"name": "joint-29",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-28",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.05905046,
+						-15.55000019
+					]
+				},
+				"frame_b": {
+					"body": "link-29",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.05905046,
+						-15.55000019
+					]
+				}
+			},
+			{
+				"name": "joint-30",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-29",
+					"space": "world",
+					"position": [
+						0.0,
+						0.02613731,
+						-16.5
+					]
+				},
+				"frame_b": {
+					"body": "link-30",
+					"space": "world",
+					"position": [
+						0.0,
+						0.02613731,
+						-16.5
+					]
+				}
+			},
+			{
+				"name": "joint-31",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-30",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.00467439,
+						-17.45000076
+					]
+				},
+				"frame_b": {
+					"body": "link-31",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.00467439,
+						-17.45000076
+					]
+				}
+			},
+			{
+				"name": "joint-32",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-31",
+					"space": "world",
+					"position": [
+						0.0,
+						-0.00194977,
+						-18.39999962
+					]
+				},
+				"frame_b": {
+					"body": "link-32",
+					"space": "world",
+					"position": [
+						0.0,
+						-0.00194977,
+						-18.39999962
+					]
+				}
+			},
+			{
+				"name": "joint-33",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-32",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.00731062,
+						-19.35000038
+					]
+				},
+				"frame_b": {
+					"body": "link-33",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.00731062,
+						-19.35000038
+					]
+				}
+			},
+			{
+				"name": "joint-34",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-33",
+					"space": "world",
+					"position": [
+						0.0,
+						0.03099356,
+						-20.29999924
+					]
+				},
+				"frame_b": {
+					"body": "link-34",
+					"space": "world",
+					"position": [
+						0.0,
+						0.03099356,
+						-20.29999924
+					]
+				}
+			},
+			{
+				"name": "joint-35",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-34",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.06536003,
+						-21.25
+					]
+				},
+				"frame_b": {
+					"body": "link-35",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.06536003,
+						-21.25
+					]
+				}
+			},
+			{
+				"name": "joint-36",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-35",
+					"space": "world",
+					"position": [
+						0.0,
+						0.10498433,
+						-22.20000076
+					]
+				},
+				"frame_b": {
+					"body": "link-36",
+					"space": "world",
+					"position": [
+						0.0,
+						0.10498433,
+						-22.20000076
+					]
+				}
+			},
+			{
+				"name": "joint-37",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-36",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.14361064,
+						-23.14999962
+					]
+				},
+				"frame_b": {
+					"body": "link-37",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.14361064,
+						-23.14999962
+					]
+				}
+			},
+			{
+				"name": "joint-38",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-37",
+					"space": "world",
+					"position": [
+						0.0,
+						0.17514072,
+						-24.10000038
+					]
+				},
+				"frame_b": {
+					"body": "link-38",
+					"space": "world",
+					"position": [
+						0.0,
+						0.17514072,
+						-24.10000038
+					]
+				}
+			},
+			{
+				"name": "joint-39",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-38",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.19459666,
+						-25.04999924
+					]
+				},
+				"frame_b": {
+					"body": "link-39",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.19459666,
+						-25.04999924
+					]
+				}
+			},
+			{
+				"name": "joint-40",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-39",
+					"space": "world",
+					"position": [
+						0.0,
+						0.19890681,
+						-26.0
+					]
+				},
+				"frame_b": {
+					"body": "link-40",
+					"space": "world",
+					"position": [
+						0.0,
+						0.19890681,
+						-26.0
+					]
+				}
+			},
+			{
+				"name": "joint-41",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-40",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.18739069,
+						-26.95000076
+					]
+				},
+				"frame_b": {
+					"body": "link-41",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.18739069,
+						-26.95000076
+					]
+				}
+			},
+			{
+				"name": "joint-42",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-41",
+					"space": "world",
+					"position": [
+						0.0,
+						0.16186641,
+						-27.89999962
+					]
+				},
+				"frame_b": {
+					"body": "link-42",
+					"space": "world",
+					"position": [
+						0.0,
+						0.16186641,
+						-27.89999962
+					]
+				}
+			},
+			{
+				"name": "joint-43",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-42",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.12636374,
+						-28.85000038
+					]
+				},
+				"frame_b": {
+					"body": "link-43",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.12636374,
+						-28.85000038
+					]
+				}
+			},
+			{
+				"name": "joint-44",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-43",
+					"space": "world",
+					"position": [
+						0.0,
+						0.08648773,
+						-29.79999924
+					]
+				},
+				"frame_b": {
+					"body": "link-44",
+					"space": "world",
+					"position": [
+						0.0,
+						0.08648773,
+						-29.79999924
+					]
+				}
+			},
+			{
+				"name": "joint-45",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-44",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.04853395,
+						-30.75
+					]
+				},
+				"frame_b": {
+					"body": "link-45",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.04853395,
+						-30.75
+					]
+				}
+			},
+			{
+				"name": "joint-46",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-45",
+					"space": "world",
+					"position": [
+						0.0,
+						0.01849446,
+						-31.70000076
+					]
+				},
+				"frame_b": {
+					"body": "link-46",
+					"space": "world",
+					"position": [
+						0.0,
+						0.01849446,
+						-31.70000076
+					]
+				}
+			},
+			{
+				"name": "joint-47",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "link-46",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.00111184,
+						-32.65000153
+					]
+				},
+				"frame_b": {
+					"body": "link-47",
+					"space": "world",
+					"position": [
+						0.18000001,
+						0.00111184,
+						-32.65000153
+					]
+				}
+			}
+		]
+	}
+}

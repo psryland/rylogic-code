@@ -72,7 +72,25 @@ namespace physics_sandbox
 
 			if (scene_bbox.valid())
 			{
-				auto extent = 4.0f * Max(scene_bbox.Radius().xy, v2{ 5.0f, 5.0f });
+				auto const radius_from_origin = Abs(scene_bbox.Centre().xy) + scene_bbox.Radius().xy;
+				auto extent = 4.0f * Max(radius_from_origin, v2{ 5.0f, 5.0f });
+				if (extent.x > 0.0f && extent.y > 0.0f && IsFinite(extent))
+					return extent;
+			}
+
+			return v2{ 20.0f, 20.0f };
+		}
+
+		// Return the requested ground size, or derive a generous origin-centred extent that contains all constructed geometry.
+		v2 GroundExtent(scene_loader::GroundPlaneDesc const& ground, BBox const& scene_bbox)
+		{
+			if (ground.size.x > 0.0f && ground.size.y > 0.0f)
+				return ground.size;
+
+			if (scene_bbox.valid())
+			{
+				auto const radius_from_origin = Abs(scene_bbox.Centre().xy) + scene_bbox.Radius().xy;
+				auto const extent = v2(10.0f * Length(radius_from_origin));
 				if (extent.x > 0.0f && extent.y > 0.0f && IsFinite(extent))
 					return extent;
 			}
@@ -195,8 +213,6 @@ namespace physics_sandbox
 		, m_shader_cache(AppDataPath() / "shader_cache", "physics-sandbox")
 		, m_physics(physics::EngineConfig{}, &m_shader_cache, rdr ? rdr->d3d() : nullptr)
 		, m_box(v4{ 2, 2, 2, 0 })
-		, m_owned_boxes()
-		, m_owned_spheres()
 		, m_body()
 		, m_articulation()
 		, m_constraints()
@@ -231,7 +247,6 @@ namespace physics_sandbox
 		, m_pending_tick_count()
 		, m_pending_step_profile()
 		, m_current_scenario()
-		, m_current_demo()
 		, m_diag()
 		, m_step_count()
 	{
@@ -279,8 +294,6 @@ namespace physics_sandbox
 
 		// Shapes are released last because both rigid bodies and articulation descriptors refer to them by pointer.
 		m_shape_buffer.clear();
-		m_owned_boxes.clear();
-		m_owned_spheres.clear();
 	}
 
 	// Rebuild stable pointer spans after all object containers have reached their final addresses.
@@ -332,7 +345,14 @@ namespace physics_sandbox
 
 		// Ground and other infinite-mass bodies cannot respond to buoyancy. All dynamic bodies use
 		// their existing collision shapes, so scene descriptions need no parallel hull geometry.
-		m_buoyancy_hulls.reserve(scene_desc.bodies.size());
+		auto buoyant_link_count = 0;
+		for (auto const& articulation : scene_desc.articulations)
+		{
+			buoyant_link_count += articulation.m_root.m_buoyant ? 1 : 0;
+			for (auto const& link : articulation.m_links)
+				buoyant_link_count += link.m_buoyant ? 1 : 0;
+		}
+		m_buoyancy_hulls.reserve(scene_desc.bodies.size() + buoyant_link_count);
 		m_buoyancy_body_indices.reserve(scene_desc.bodies.size());
 		for (auto body_index = 0; body_index != isize(scene_desc.bodies); ++body_index)
 		{
@@ -342,6 +362,29 @@ namespace physics_sandbox
 
 			m_buoyancy_hulls.push_back(m_gpu_buoyancy->RegisterCompositeHull(body, body_index, m_buoyancy_generation));
 			m_buoyancy_body_indices.push_back(body_index);
+		}
+
+		// Articulation buoyancy is opt-in per link because each registration participates through the complete tree response.
+		for (auto articulation_index = 0; articulation_index != isize(scene_desc.articulations); ++articulation_index)
+		{
+			auto const& source = scene_desc.articulations[articulation_index];
+			auto& articulation = m_articulation[articulation_index];
+			auto register_link = [&](scene_loader::ArticulationChildDesc const& link, int link_index)
+			{
+				if (!link.m_buoyant)
+					return;
+
+				auto const stable_index = 1'000'000 + isize(m_buoyancy_hulls);
+				m_buoyancy_hulls.push_back(m_gpu_buoyancy->RegisterCompositeHull(
+					articulation,
+					articulation.LinkAt(link_index),
+					stable_index,
+					m_buoyancy_generation));
+			};
+
+			register_link(source.m_root, 0);
+			for (auto link_index = 0; link_index != isize(source.m_links); ++link_index)
+				register_link(source.m_links[link_index], link_index + 1);
 		}
 	}
 
@@ -583,7 +626,6 @@ namespace physics_sandbox
 		m_env_map = nullptr;
 		m_sky_gfx = nullptr;
 
-		m_current_demo.reset();
 		UpdateCollisionReadback();
 
 		// Set up perfectly elastic, frictionless material for clean collision tests
@@ -888,19 +930,7 @@ namespace physics_sandbox
 		DbgLog("  Total KE: %.6f\n", m_body[0].KineticEnergy() + m_body[1].KineticEnergy());
 
 		m_current_scenario = scenario;
-		m_current_demo.reset();
 		RebuildStepInputs();
-		UpdateCollisionReadback();
-	}
-
-	// Build one programmatic constraint or articulation demonstration.
-	void Scene::LoadDemo(EDemo demo)
-	{
-		Reset();
-		BuildDemo(*this, demo);
-		m_current_demo = demo;
-		RebuildStepInputs();
-		UpdateArticulationGfx();
 		UpdateCollisionReadback();
 	}
 
@@ -928,8 +958,6 @@ namespace physics_sandbox
 		m_water_gfx = nullptr;
 		m_env_map = nullptr;
 		m_sky_gfx = nullptr;
-
-		m_current_demo.reset();
 
 		// Apply gravity from the scene file
 		m_gravity = scene_desc.gravity;
@@ -980,11 +1008,29 @@ namespace physics_sandbox
 		m_last_load_profile.m_prepare_ms = ElapsedMs(mark, prepare_end);
 		mark = prepare_end;
 
-		// Count total bodies: scene bodies + optional ground plane body
+		// Count rigid bodies and shaped articulation links before allocating stable collision storage.
 		auto num_scene_bodies = static_cast<int>(scene_desc.bodies.size());
 		auto total_bodies = num_scene_bodies + (scene_desc.ground ? 1 : 0);
-		m_last_load_profile.m_body_count = total_bodies;
-		auto scene_bbox = CalculateSceneBBox(scene_desc);
+		auto articulation_link_count = 0;
+		auto physical_descs = std::vector<scene_loader::BodyDesc const*>{};
+		physical_descs.reserve(num_scene_bodies);
+		for (auto const& body : scene_desc.bodies)
+			physical_descs.push_back(&body);
+		for (auto const& articulation : scene_desc.articulations)
+		{
+			++articulation_link_count;
+			if (articulation.m_root.m_has_shape)
+				physical_descs.push_back(&articulation.m_root.m_body);
+			for (auto const& link : articulation.m_links)
+			{
+				++articulation_link_count;
+				if (link.m_has_shape)
+					physical_descs.push_back(&link.m_body);
+			}
+		}
+		auto const shaped_articulation_link_count = isize(physical_descs) - num_scene_bodies;
+		m_last_load_profile.m_body_count = total_bodies + articulation_link_count;
+		auto scene_bbox = BBox::Reset();
 		const auto ground_thickness = 10.0f;
 		auto scene_rng = std::default_random_engine(scene_desc.seed);
 		auto const bbox_end = Clock::now();
@@ -993,15 +1039,15 @@ namespace physics_sandbox
 
 		// Shapes for the bodies in the scene. Generated bodies deliberately reuse a small shape palette, and this de-duplicates identical
 		// descriptors across the whole scene so collision shapes are shared instead of rebuilt per body.
-		auto shape_lookup = std::vector<int>(num_scene_bodies, -1);
-		auto unique_shape_body_index = std::vector<int>{};
-		unique_shape_body_index.reserve(num_scene_bodies);
-		for (auto i = 0; i != num_scene_bodies; ++i)
+		auto shape_lookup = std::vector<int>(physical_descs.size(), -1);
+		auto unique_shape_desc_index = std::vector<int>{};
+		unique_shape_desc_index.reserve(physical_descs.size());
+		for (auto i = 0; i != isize(physical_descs); ++i)
 		{
-			auto const& bd = scene_desc.bodies[i];
-			for (auto j = 0; j != isize(unique_shape_body_index); ++j)
+			auto const& physical_desc = *physical_descs[i];
+			for (auto j = 0; j != isize(unique_shape_desc_index); ++j)
 			{
-				if (SameShapeDesc(bd, scene_desc.bodies[unique_shape_body_index[j]]))
+				if (SameShapeDesc(physical_desc, *physical_descs[unique_shape_desc_index[j]]))
 				{
 					shape_lookup[i] = j;
 					break;
@@ -1010,25 +1056,24 @@ namespace physics_sandbox
 
 			if (shape_lookup[i] == -1)
 			{
-				shape_lookup[i] = isize(unique_shape_body_index);
-				unique_shape_body_index.push_back(i);
+				shape_lookup[i] = isize(unique_shape_desc_index);
+				unique_shape_desc_index.push_back(i);
 			}
 		}
 
-		m_last_load_profile.m_shape_count = isize(unique_shape_body_index) + (scene_desc.ground ? 1 : 0);
+		m_last_load_profile.m_shape_count = isize(unique_shape_desc_index) + (scene_desc.ground ? 1 : 0);
 		{
 			m_shape_buffer.reserve(m_last_load_profile.m_shape_count * 512);
-			for (auto body_index : unique_shape_body_index)
-				AppendShape(m_shape_buffer, scene_desc.bodies[body_index]);
+			for (auto physical_desc_index : unique_shape_desc_index)
+				AppendShape(m_shape_buffer, *physical_descs[physical_desc_index]);
 
 			// Create a collision shape for the ground plane
 			if (scene_desc.ground)
 			{
 				// Create the ground plane body as a large thin box with infinite mass.
-				v2 extent = scene_desc.ground->size;
-				if (LengthSq(extent) == 0) extent = v2(10.0f * Length(scene_bbox.Radius().xy));
 				auto bd = scene_loader::BodyDesc{};
 				bd.shape_type = scene_loader::BodyDesc::EShape::Box;
+				auto const extent = GroundExtent(*scene_desc.ground, BBox::Reset());
 				bd.box_dimensions = v4{ extent.x, extent.y, ground_thickness, 0 };
 				AppendShape(m_shape_buffer, bd);
 			}
@@ -1054,7 +1099,9 @@ namespace physics_sandbox
 			{
 				auto const& bd = scene_desc.bodies[body_index];
 				Body body(nullptr);
-				auto o2w = m4x4::TransformDeg(bd.rotation.x, bd.rotation.y, bd.rotation.z, bd.position);
+				auto o2w = bd.z_axis
+					? m4x4::Transform(v4::ZAxis(), *bd.z_axis, bd.position)
+					: m4x4::TransformDeg(bd.rotation.x, bd.rotation.y, bd.rotation.z, bd.position);
 				body.O2W(o2w);
 				auto const* shape = shape_ptrs[shape_lookup[body_index]];
 
@@ -1066,16 +1113,36 @@ namespace physics_sandbox
 					body.Shape(shape, bd.mass);
 
 				body.VelocityWS(bd.angular_velocity, bd.velocity);
+				body.NeverSleep(bd.never_sleep);
 				if (bd.sleeping)
 					body.Sleep();
 				body.m_colour = bd.colour ? *bd.colour : RandomRGB(scene_rng, 0.0f, 1.0f);
 				m_body.push_back(std::move(body));
 			}
 
-			// Create the ground plane body as a large thin box with infinite mass.
-			// The box is thin in Z (0.5 units) and wide in XY, centred at the ground height.
+			// Map each shaped articulation link to its de-duplicated immutable collision shape.
+			auto articulation_shapes = std::vector<collision::Shape const*>{};
+			articulation_shapes.reserve(shaped_articulation_link_count);
+			for (auto physical_desc_index = num_scene_bodies; physical_desc_index != isize(physical_descs); ++physical_desc_index)
+				articulation_shapes.push_back(shape_ptrs[shape_lookup[physical_desc_index]]);
+			BuildMultibodyObjects(scene_desc, articulation_shapes);
+
+			// Size automatic terrain from fully constructed rigid and articulated geometry, whose transforms now include shape and joint frames.
+			auto const bbox_beg = Clock::now();
+			scene_bbox = CalculateSceneBBox();
+			m_last_load_profile.m_bbox_ms = ElapsedMs(bbox_beg, Clock::now());
+
+			// Create the ground body after resizing its placeholder shape without invalidating shape pointers retained by simulation objects.
 			if (scene_desc.ground)
 			{
+				auto& ground_shape = collision::shape_cast<collision::ShapeBox>(const_cast<collision::Shape&>(*shape_ptrs.back()));
+				if (LengthSq(scene_desc.ground->size) == 0.0f)
+				{
+					auto const extent = GroundExtent(*scene_desc.ground, scene_bbox);
+					ground_shape.m_radius = v4{0.5f * extent.x, 0.5f * extent.y, 0.5f * ground_thickness, 0.0f};
+					ground_shape.m_base.m_bbox = collision::CalcBBox(ground_shape);
+				}
+
 				Body ground(nullptr);
 				ground.O2W(m4x4::Translation(0, 0, scene_desc.ground->height - 0.5f * ground_thickness));
 				ground.Shape(shape_ptrs.back(), -1.0f);
@@ -1239,6 +1306,14 @@ namespace physics_sandbox
 					.group_tint(body.m_colour.argb)
 					.o2w(body.O2W() * body.m_gfx_o2b);
 			}
+
+			// Articulation links retain their own immutable collision geometry and follow link kinematics after each completed step.
+			for (auto visual_index = 0; visual_index != isize(m_articulation_visuals); ++visual_index)
+			{
+				auto const& visual = m_articulation_visuals[visual_index];
+				builder.Add<LdrCollisionShape>(std::format("ArticulationLink{}", visual_index), visual.m_colour.argb)
+					.shape(*visual.m_shape);
+			}
 			auto const ldraw_build_end = Clock::now();
 			m_last_load_profile.m_ldraw_build_ms = ElapsedMs(mark, ldraw_build_end);
 			mark = ldraw_build_end;
@@ -1269,6 +1344,16 @@ namespace physics_sandbox
 
 				body.UpdateGfx();
 			}
+
+			// Parsed articulation objects follow all shape prototypes and rigid-body instances in the batched result.
+			auto const articulation_object_beg = prototype_count + total_bodies;
+			for (auto visual_index = 0; visual_index != isize(m_articulation_visuals); ++visual_index)
+			{
+				auto const object_index = articulation_object_beg + visual_index;
+				if (object_index < isize(result.m_objects))
+					m_articulation_visuals[visual_index].m_gfx = result.m_objects[object_index];
+			}
+			UpdateArticulationGfx();
 			auto const ldraw_assign_end = Clock::now();
 			m_last_load_profile.m_ldraw_assign_ms = ElapsedMs(mark, ldraw_assign_end);
 			mark = ldraw_assign_end;
@@ -1677,30 +1762,32 @@ namespace physics_sandbox
 		}
 	}
 
-	// Calculate the bounding box for the scene (excluding terrain)
-	BBox Scene::CalculateSceneBBox(scene_loader::SceneDesc const& scene_desc) const
+	// Calculate world-space bounds for the constructed rigid bodies and shaped articulation links, excluding terrain.
+	BBox Scene::CalculateSceneBBox() const
 	{
 		auto bbox = BBox::Reset();
-		for (auto const& bd : scene_desc.bodies)
+		for (int body_index = 0; body_index != isize(m_body); ++body_index)
 		{
-			auto pos = bd.position;
-			auto rad = v4::Zero();
-			switch (bd.shape_type)
-			{
-				case scene_loader::BodyDesc::EShape::Box:      rad = bd.box_dimensions * 0.5f; break;
-				case scene_loader::BodyDesc::EShape::Sphere:   rad = v4(bd.sphere_radius, bd.sphere_radius, bd.sphere_radius, 0); break;
-				case scene_loader::BodyDesc::EShape::Line:     rad = v4(0, 0, bd.line_length * 0.5f, 0); break;
-				case scene_loader::BodyDesc::EShape::Triangle: rad = v4(1, 1, 1, 0); break;
-				case scene_loader::BodyDesc::EShape::Polytope:
-				{
-					for (auto const& v : bd.polytope_verts)
-						Grow(bbox, (pos + v.w0()).w1());
-					continue;
-				}
-				default: break;
-			}
-			Grow(bbox, BBox(pos, rad));
+			if (body_index == m_ground_body_index || !m_body[body_index].HasShape())
+				continue;
+
+			Grow(bbox, m_body[body_index].BBoxWS());
 		}
+
+		for (auto const& articulation : m_articulation)
+		{
+			for (int link_index = 0; link_index != articulation.LinkCount(); ++link_index)
+			{
+				auto const link = articulation.LinkAt(link_index);
+				auto const& link_desc = articulation.LinkDescription(link);
+				if (link_desc.m_shape == nullptr)
+					continue;
+
+				auto const shape_to_world = articulation.LinkToWorld(link) * link_desc.m_shape_to_link;
+				Grow(bbox, shape_to_world * (link_desc.m_shape->m_s2r * link_desc.m_shape->m_bbox));
+			}
+		}
+
 		return bbox;
 	}
 }
@@ -1786,6 +1873,35 @@ namespace physics_sandbox::tests
 			auto const reloaded = RunScene(scene, short_box, 1);
 
 			ExpectSameState("short_box_after_tall_box", baseline, reloaded);
+		}
+	};
+
+	PRUnitTestClass(SceneBoundsTests)
+	{
+		PRUnitTestMethod(IncludesArticulationShapeTransformsInAutomaticGroundExtent, Quick)
+		{
+			// An articulation-only scene exercises the bounds path that previously saw only top-level rigid-body descriptors.
+			auto scene_desc = scene_loader::SceneDesc{};
+			scene_desc.ground = scene_loader::GroundPlaneDesc{};
+			auto articulation = scene_loader::ArticulationDesc{};
+			articulation.m_name = "offset_root";
+			articulation.m_root_to_world = m4x4::Translation(10.0f, 0.0f, 2.0f);
+			articulation.m_root.m_body.name = "root";
+			articulation.m_root.m_body.shape_type = scene_loader::BodyDesc::EShape::Box;
+			articulation.m_root.m_body.box_dimensions = v4{2.0f, 4.0f, 6.0f, 0.0f};
+			articulation.m_root.m_body.mass = 1.0f;
+			articulation.m_root.m_shape_to_link = m4x4::Translation(5.0f, 0.0f, 0.0f);
+			scene_desc.articulations.push_back(std::move(articulation));
+
+			// Runtime bounds and the generated origin-centred ground must both contain the transformed link geometry.
+			auto scene = Scene(nullptr);
+			scene.LoadScene(std::move(scene_desc));
+			auto const bbox = scene.CalculateSceneBBox();
+			auto const& ground_shape = collision::shape_cast<collision::ShapeBox>(scene.m_body[scene.m_ground_body_index].Shape());
+			PR_EXPECT(FEql(bbox.Centre(), v4{15.0f, 0.0f, 2.0f, 1.0f}));
+			PR_EXPECT(FEql(bbox.Radius(), v4{1.0f, 2.0f, 3.0f, 0.0f}));
+			PR_EXPECT(ground_shape.m_radius.x >= Abs(bbox.Centre().x) + bbox.Radius().x);
+			PR_EXPECT(ground_shape.m_radius.y >= Abs(bbox.Centre().y) + bbox.Radius().y);
 		}
 	};
 }

@@ -1,0 +1,609 @@
+{
+	"scene": {
+		"demo": {
+			"name": "Robot Motors and Limits",
+			"group": "Articulations and Robotics",
+			"order": 70,
+			"command": "robot-motors"
+		},
+		"description": "Reduced-coordinate links controlled by persistent driven and limited rows.",
+		"gravity": [
+			0.0,
+			0.0,
+			-9.81000042
+		],
+		"material": {
+			"friction": 0.60000002,
+			"elasticity": 0.05
+		},
+		"physics": {
+			"substeps": 1,
+			"solver_iterations": 4,
+			"position_iterations": 1
+		},
+		"ground_plane": {
+			"size": [
+				24.0,
+				24.0
+			],
+			"height": 0.0,
+			"colour": "0xFF606068"
+		},
+		"shapes": {
+			"root-shape": {
+				"name": "root-shape",
+				"type": "box",
+				"dimensions": [
+					0.64999998,
+					0.64999998,
+					0.64999998
+				]
+			},
+			"link-shape": {
+				"name": "link-shape",
+				"type": "box",
+				"dimensions": [
+					0.34999999,
+					0.34999999,
+					0.89999998
+				]
+			}
+		},
+		"articulations": [
+			{
+				"name": "robot",
+				"root_type": "fixed",
+				"root_transform": {
+					"position": [
+						0.0,
+						0.0,
+						8.0
+					]
+				},
+				"root": {
+					"name": "root",
+					"shape": "root-shape",
+					"mass": 2.0,
+					"collide_parent": false,
+					"collide_self": false
+				},
+				"links": [
+					{
+						"name": "link-01",
+						"parent": "root",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.0
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.05153741
+								}
+							]
+						}
+					},
+					{
+						"name": "link-02",
+						"parent": "link-01",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.07883598
+								}
+							]
+						}
+					},
+					{
+						"name": "link-03",
+						"parent": "link-02",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.06905675
+								}
+							]
+						}
+					},
+					{
+						"name": "link-04",
+						"parent": "link-03",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.02679905
+								}
+							]
+						}
+					},
+					{
+						"name": "link-05",
+						"parent": "link-04",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": -0.02806266
+								}
+							]
+						}
+					},
+					{
+						"name": "link-06",
+						"parent": "link-05",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": -0.06972606
+								}
+							]
+						}
+					},
+					{
+						"name": "link-07",
+						"parent": "link-06",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": -0.07859621
+								}
+							]
+						}
+					}
+				]
+			}
+		],
+		"constraints": [
+			{
+				"name": "joint-control-01",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "robot",
+					"link": "root",
+					"position": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"articulation": "robot",
+					"link": "link-01",
+					"position": [
+						0.0,
+						0.0,
+						0.44999999
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"angular": [
+					{
+						"mode": "driven",
+						"target_position": -0.34999999,
+						"stiffness": 90.0,
+						"damping": 18.0,
+						"max_force": 180.0
+					}
+				]
+			},
+			{
+				"name": "joint-control-02",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "robot",
+					"link": "link-01",
+					"position": [
+						0.0,
+						0.0,
+						-0.44999999
+					],
+					"x_axis": [
+						1.0,
+						0.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"articulation": "robot",
+					"link": "link-02",
+					"position": [
+						0.0,
+						0.0,
+						0.44999999
+					],
+					"x_axis": [
+						1.0,
+						0.0,
+						0.0
+					]
+				},
+				"angular": [
+					{
+						"mode": "driven",
+						"target_position": 0.44999999,
+						"stiffness": 90.0,
+						"damping": 18.0,
+						"max_force": 180.0
+					}
+				]
+			},
+			{
+				"name": "joint-control-03",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "robot",
+					"link": "link-02",
+					"position": [
+						0.0,
+						0.0,
+						-0.44999999
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"articulation": "robot",
+					"link": "link-03",
+					"position": [
+						0.0,
+						0.0,
+						0.44999999
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"angular": [
+					{
+						"mode": "driven",
+						"target_position": -0.34999999,
+						"stiffness": 90.0,
+						"damping": 18.0,
+						"max_force": 180.0
+					}
+				]
+			},
+			{
+				"name": "joint-control-04",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "robot",
+					"link": "link-03",
+					"position": [
+						0.0,
+						0.0,
+						-0.44999999
+					],
+					"x_axis": [
+						1.0,
+						0.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"articulation": "robot",
+					"link": "link-04",
+					"position": [
+						0.0,
+						0.0,
+						0.44999999
+					],
+					"x_axis": [
+						1.0,
+						0.0,
+						0.0
+					]
+				},
+				"angular": [
+					{
+						"mode": "driven",
+						"target_position": 0.44999999,
+						"stiffness": 90.0,
+						"damping": 18.0,
+						"max_force": 180.0
+					}
+				]
+			},
+			{
+				"name": "joint-control-05",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "robot",
+					"link": "link-04",
+					"position": [
+						0.0,
+						0.0,
+						-0.44999999
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"articulation": "robot",
+					"link": "link-05",
+					"position": [
+						0.0,
+						0.0,
+						0.44999999
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"angular": [
+					{
+						"mode": "driven",
+						"target_position": -0.34999999,
+						"stiffness": 90.0,
+						"damping": 18.0,
+						"max_force": 180.0
+					}
+				]
+			},
+			{
+				"name": "joint-control-06",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "robot",
+					"link": "link-05",
+					"position": [
+						0.0,
+						0.0,
+						-0.44999999
+					],
+					"x_axis": [
+						1.0,
+						0.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"articulation": "robot",
+					"link": "link-06",
+					"position": [
+						0.0,
+						0.0,
+						0.44999999
+					],
+					"x_axis": [
+						1.0,
+						0.0,
+						0.0
+					]
+				},
+				"angular": [
+					{
+						"mode": "driven",
+						"target_position": 0.44999999,
+						"stiffness": 90.0,
+						"damping": 18.0,
+						"max_force": 180.0
+					}
+				]
+			},
+			{
+				"name": "joint-control-07",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "robot",
+					"link": "link-06",
+					"position": [
+						0.0,
+						0.0,
+						-0.44999999
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"articulation": "robot",
+					"link": "link-07",
+					"position": [
+						0.0,
+						0.0,
+						0.44999999
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"angular": [
+					{
+						"mode": "limited",
+						"limits": [
+							-0.34999999,
+							0.34999999
+						]
+					}
+				]
+			}
+		]
+	}
+}

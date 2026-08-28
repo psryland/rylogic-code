@@ -1,0 +1,223 @@
+{
+	"scene": {
+		"demo": {
+			"name": "Mixed Rigid/Tree Coupling",
+			"group": "Articulations and Robotics",
+			"order": 110,
+			"command": "mixed-coupling"
+		},
+		"description": "Rigid-to-tree and direct tree-to-tree persistent constraints.",
+		"gravity": [
+			0.0,
+			0.0,
+			-9.81000042
+		],
+		"material": {
+			"friction": 0.60000002,
+			"elasticity": 0.05
+		},
+		"physics": {
+			"substeps": 1,
+			"solver_iterations": 4,
+			"position_iterations": 1
+		},
+		"shapes": {
+			"fixed-root-shape": {
+				"name": "fixed-root-shape",
+				"type": "sphere",
+				"radius": 0.44999999
+			},
+			"fixed-slider-shape": {
+				"name": "fixed-slider-shape",
+				"type": "sphere",
+				"radius": 0.44999999
+			},
+			"floating-a-shape": {
+				"name": "floating-a-shape",
+				"type": "sphere",
+				"radius": 0.44999999
+			},
+			"floating-b-shape": {
+				"name": "floating-b-shape",
+				"type": "sphere",
+				"radius": 0.5
+			}
+		},
+		"bodies": [
+			{
+				"name": "coupling-rod",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.5,
+						0.5,
+						4.0
+					]
+				},
+				"mass": 3.0,
+				"position": [
+					-1.0,
+					0.0,
+					6.0
+				],
+				"z_axis": [
+					1.0,
+					0.0,
+					0.0
+				],
+				"colour": "0xFFFFA040"
+			}
+		],
+		"articulations": [
+			{
+				"name": "fixed-tree",
+				"root_type": "fixed",
+				"root_transform": {
+					"position": [
+						-5.0,
+						0.0,
+						6.0
+					]
+				},
+				"root": {
+					"name": "root",
+					"shape": "fixed-root-shape",
+					"mass": 2.0,
+					"collide_parent": false,
+					"collide_self": false
+				},
+				"links": [
+					{
+						"name": "slider",
+						"parent": "root",
+						"shape": "fixed-slider-shape",
+						"mass": 1.0,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"axes": [
+								{
+									"type": "prismatic",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 2.0
+								}
+							]
+						}
+					}
+				]
+			},
+			{
+				"name": "floating-tree-a",
+				"root_type": "floating",
+				"root_transform": {
+					"position": [
+						1.0,
+						0.0,
+						6.0
+					]
+				},
+				"root": {
+					"name": "root",
+					"shape": "floating-a-shape",
+					"mass": 1.0,
+					"collide_parent": false,
+					"collide_self": true
+				}
+			},
+			{
+				"name": "floating-tree-b",
+				"root_type": "floating",
+				"root_transform": {
+					"position": [
+						5.0,
+						0.0,
+						6.0
+					]
+				},
+				"root": {
+					"name": "root",
+					"shape": "floating-b-shape",
+					"mass": 1.0,
+					"collide_parent": false,
+					"collide_self": true
+				}
+			}
+		],
+		"constraints": [
+			{
+				"name": "fixed-to-rod",
+				"type": "ball_socket",
+				"frame_a": {
+					"articulation": "fixed-tree",
+					"link": "slider",
+					"space": "world",
+					"position": [
+						-3.0,
+						0.0,
+						6.0
+					]
+				},
+				"frame_b": {
+					"body": "coupling-rod",
+					"space": "world",
+					"position": [
+						-3.0,
+						0.0,
+						6.0
+					]
+				}
+			},
+			{
+				"name": "rod-to-floating-a",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "coupling-rod",
+					"space": "world",
+					"position": [
+						1.0,
+						0.0,
+						6.0
+					]
+				},
+				"frame_b": {
+					"articulation": "floating-tree-a",
+					"link": "root",
+					"space": "world",
+					"position": [
+						1.0,
+						0.0,
+						6.0
+					]
+				}
+			},
+			{
+				"name": "floating-a-to-floating-b",
+				"type": "ball_socket",
+				"frame_a": {
+					"articulation": "floating-tree-a",
+					"link": "root",
+					"space": "world",
+					"position": [
+						3.0,
+						0.0,
+						6.0
+					]
+				},
+				"frame_b": {
+					"articulation": "floating-tree-b",
+					"link": "root",
+					"space": "world",
+					"position": [
+						3.0,
+						0.0,
+						6.0
+					]
+				}
+			}
+		]
+	}
+}

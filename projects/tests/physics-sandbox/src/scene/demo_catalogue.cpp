@@ -1,10 +1,13 @@
+#include "src/forward.h"
 #include "src/scene/demo.h"
+#include "src/utils/scene_loader.h"
 
 namespace physics_sandbox
 {
 	namespace
 	{
-		constexpr auto Categories = std::array{
+		constexpr auto Categories = std::array
+		{
 			DemoCategoryInfo{EDemoCategory::DynamicsAndConservation, "Dynamics and Conservation"},
 			DemoCategoryInfo{EDemoCategory::CollisionAndContacts, "Collision and Contacts"},
 			DemoCategoryInfo{EDemoCategory::StacksAndStability, "Stacks and Stability"},
@@ -12,115 +15,184 @@ namespace physics_sandbox
 			DemoCategoryInfo{EDemoCategory::ArticulationsAndRobotics, "Articulations and Robotics"},
 			DemoCategoryInfo{EDemoCategory::Buoyancy, "Buoyancy"},
 			DemoCategoryInfo{EDemoCategory::StressAndScaling, "Stress and Scaling"},
+			DemoCategoryInfo{EDemoCategory::FeatureShowcases, "Feature Showcases"},
 		};
 
-		constexpr auto Demos = std::array{
-			DemoInfo{EDemo::Pendulum, EDemoCategory::ConstraintsAndMechanisms, "pendulum", "Single Pendulum", "A passive physical pendulum with an analytic small-angle period."},
-			DemoInfo{EDemo::RigidJointGallery, EDemoCategory::ConstraintsAndMechanisms, "rigid-joints", "Rigid Joint Gallery", "Ball, hinge, slider, weld, motor, and breakable D6 constraints."},
-			DemoInfo{EDemo::RigidChain, EDemoCategory::ConstraintsAndMechanisms, "rigid-chain", "Long Rigid Chain", "A long graph-coloured rigid chain under gravity."},
-			DemoInfo{EDemo::FourBarLinkage, EDemoCategory::ConstraintsAndMechanisms, "four-bar", "Four-Bar Closed Loop", "A planar closed-loop mechanism that cannot be represented by a tree alone."},
-			DemoInfo{EDemo::FixedArticulations, EDemoCategory::ArticulationsAndRobotics, "fixed-articulations", "Fixed Articulations", "Several fixed-root Featherstone chains with different link counts."},
-			DemoInfo{EDemo::Ragdolls, EDemoCategory::ArticulationsAndRobotics, "ragdolls", "Ragdoll Drop", "Many small branched floating articulations colliding with each other and the ground."},
-			DemoInfo{EDemo::RobotMotors, EDemoCategory::ArticulationsAndRobotics, "robot-motors", "Robot Motors and Limits", "Reduced-coordinate links controlled by persistent driven and limited rows."},
-			DemoInfo{EDemo::RobotGripper, EDemoCategory::ArticulationsAndRobotics, "robot-gripper", "Robot Arm and Gripper", "Joint motors, prismatic fingers, manipulation contact, and feedback through one tree."},
-			DemoInfo{EDemo::VehicleSuspension, EDemoCategory::ConstraintsAndMechanisms, "vehicle-suspension", "Vehicle Suspension", "Driven compliant suspension rows, travel limits, and wheel contacts."},
-			DemoInfo{EDemo::SuspensionBridge, EDemoCategory::ConstraintsAndMechanisms, "suspension-bridge", "Suspension Bridge", "A cyclic rigid constraint graph with pinned corners and distributed load."},
-			DemoInfo{EDemo::MixedCoupling, EDemoCategory::ArticulationsAndRobotics, "mixed-coupling", "Mixed Rigid/Tree Coupling", "Rigid-to-tree and direct tree-to-tree persistent constraints."},
-			DemoInfo{EDemo::ArticulationPush, EDemoCategory::ArticulationsAndRobotics, "articulation-push", "Articulation Pushes Stack", "A driven reduced-coordinate link transfers momentum into an ordinary rigid stack."},
-			DemoInfo{EDemo::TwoRobotLoad, EDemoCategory::ArticulationsAndRobotics, "two-robot-load", "Two Robots Carrying a Load", "Two independent articulations support one shared constrained rigid payload."},
-			DemoInfo{EDemo::MixedContacts, EDemoCategory::CollisionAndContacts, "mixed-contacts", "Mixed and Self Contacts", "Rigid/tree, tree/tree, and non-adjacent same-tree collision response."},
-			DemoInfo{EDemo::BuoyantArticulation, EDemoCategory::Buoyancy, "buoyant-articulation", "Buoyant Articulation", "GPU buoyancy applied independently to the links of a floating tree."},
-			DemoInfo{EDemo::FloatingConservation, EDemoCategory::DynamicsAndConservation, "floating-conservation", "Floating Conservation", "Force-free internal motion preserving Coriolis effects, momentum, and bounded energy."},
-			DemoInfo{EDemo::Dzhanibekov, EDemoCategory::DynamicsAndConservation, "dzhanibekov", "Dzhanibekov Effect (Rigid and Articulated)", "Rigid and floating-root intermediate-axis instability side by side."},
-			DemoInfo{EDemo::ConstraintPathologies, EDemoCategory::StressAndScaling, "constraint-pathologies", "Constraint Pathologies", "Redundant rows, extreme mass ratios, and near-singular closed loops."},
-			DemoInfo{EDemo::ConstraintStress, EDemoCategory::StressAndScaling, "constraint-stress", "Constraint Stress Grid", "A cyclic two-dimensional constraint graph used to measure scaling."},
+		// Existing general-purpose scenes predate embedded demo metadata, so retain their catalogue presentation while still loading all content from JSON.
+		struct LegacyDemoInfo
+		{
+			std::string_view m_filename;
+			EDemoCategory m_category;
+			std::string_view m_name;
+			std::string_view m_display_name;
+			int m_order;
 		};
 
-		constexpr auto SceneDemos = std::array{
-			SceneDemoInfo{EDemoCategory::CollisionAndContacts, "all_shapes_drop.json", "All Shape Types"},
-			SceneDemoInfo{EDemoCategory::DynamicsAndConservation, "angular_integration_stress.json", "Angular Integration"},
-			SceneDemoInfo{EDemoCategory::CollisionAndContacts, "box_vs_sphere.json", "Box vs Sphere"},
-			SceneDemoInfo{EDemoCategory::StacksAndStability, "brick_pyramid.json", "Brick Pyramid"},
-			SceneDemoInfo{EDemoCategory::StressAndScaling, "brick_wall.json", "Brick Wall"},
-			SceneDemoInfo{EDemoCategory::StressAndScaling, "brick_wall_2000.json", "Brick Wall (2,000 Bricks)"},
-			SceneDemoInfo{EDemoCategory::Buoyancy, "buoyancy_stress_1000.json", "Buoyancy Stress (1,000 Bodies)"},
-			SceneDemoInfo{EDemoCategory::CollisionAndContacts, "drop_test.json", "Single Box Drop"},
-			SceneDemoInfo{EDemoCategory::DynamicsAndConservation, "dzhanibekov_effect.json", "Dzhanibekov Effect (Rigid Body)"},
-			SceneDemoInfo{EDemoCategory::Buoyancy, "floater.json", "Floating Shapes"},
-			SceneDemoInfo{EDemoCategory::StressAndScaling, "generated_stress.json", "Generated Body Stress"},
-			SceneDemoInfo{EDemoCategory::CollisionAndContacts, "gravity_playground.json", "Gravity and Shape Playground"},
-			SceneDemoInfo{EDemoCategory::StacksAndStability, "newtons_cradle.json", "Shock Propagation"},
-			SceneDemoInfo{EDemoCategory::CollisionAndContacts, "oblique_spheres.json", "Oblique Sphere Collision"},
-			SceneDemoInfo{EDemoCategory::StressAndScaling, "pancake.json", "Large Column Stack"},
-			SceneDemoInfo{EDemoCategory::StacksAndStability, "plate_drop.json", "Thin Plate Settling"},
-			SceneDemoInfo{EDemoCategory::CollisionAndContacts, "polytope_drop.json", "Polytope Drop"},
-			SceneDemoInfo{EDemoCategory::StressAndScaling, "simultaneous_impact_1000.json", "Simultaneous Impact (1,000 Bodies)"},
-			SceneDemoInfo{EDemoCategory::DynamicsAndConservation, "spinning_tops.json", "Spinning Tops"},
-			SceneDemoInfo{EDemoCategory::StacksAndStability, "stacked_column.json", "Stacked Column"},
-			SceneDemoInfo{EDemoCategory::StressAndScaling, "stress_test_1000.json", "Mixed Shape Stress (1,000 Bodies)"},
-			SceneDemoInfo{EDemoCategory::CollisionAndContacts, "three_body_chain.json", "Three-Body Collision Chain"},
+		constexpr auto LegacyDemos = std::array
+		{
+			LegacyDemoInfo{"all_shapes_drop.json", EDemoCategory::CollisionAndContacts, "all-shapes-drop", "All Shape Types", 0},
+			LegacyDemoInfo{"angular_integration_stress.json", EDemoCategory::DynamicsAndConservation, "angular-integration-stress", "Angular Integration", 0},
+			LegacyDemoInfo{"box_vs_sphere.json", EDemoCategory::CollisionAndContacts, "box-vs-sphere", "Box vs Sphere", 1},
+			LegacyDemoInfo{"brick_pyramid.json", EDemoCategory::StacksAndStability, "brick-pyramid", "Brick Pyramid", 0},
+			LegacyDemoInfo{"brick_wall.json", EDemoCategory::StressAndScaling, "brick-wall", "Brick Wall", 0},
+			LegacyDemoInfo{"brick_wall_2000.json", EDemoCategory::StressAndScaling, "brick-wall-2000", "Brick Wall (2,000 Bricks)", 1},
+			LegacyDemoInfo{"buoyancy_stress_1000.json", EDemoCategory::Buoyancy, "buoyancy-stress-1000", "Buoyancy Stress (1,000 Bodies)", 0},
+			LegacyDemoInfo{"drop_test.json", EDemoCategory::CollisionAndContacts, "drop-test", "Single Box Drop", 2},
+			LegacyDemoInfo{"dzhanibekov_effect.json", EDemoCategory::DynamicsAndConservation, "dzhanibekov-effect", "Dzhanibekov Effect (Rigid Body)", 1},
+			LegacyDemoInfo{"floater.json", EDemoCategory::Buoyancy, "floater", "Floating Shapes", 1},
+			LegacyDemoInfo{"generated_stress.json", EDemoCategory::StressAndScaling, "generated-stress", "Generated Body Stress", 2},
+			LegacyDemoInfo{"gravity_playground.json", EDemoCategory::CollisionAndContacts, "gravity-playground", "Gravity and Shape Playground", 3},
+			LegacyDemoInfo{"newtons_cradle.json", EDemoCategory::StacksAndStability, "newtons-cradle", "Shock Propagation", 1},
+			LegacyDemoInfo{"oblique_spheres.json", EDemoCategory::CollisionAndContacts, "oblique-spheres", "Oblique Sphere Collision", 4},
+			LegacyDemoInfo{"pancake.json", EDemoCategory::StressAndScaling, "pancake", "Large Column Stack", 3},
+			LegacyDemoInfo{"plate_drop.json", EDemoCategory::StacksAndStability, "plate-drop", "Thin Plate Settling", 2},
+			LegacyDemoInfo{"polytope_drop.json", EDemoCategory::CollisionAndContacts, "polytope-drop", "Polytope Drop", 5},
+			LegacyDemoInfo{"simultaneous_impact_1000.json", EDemoCategory::StressAndScaling, "simultaneous-impact-1000", "Simultaneous Impact (1,000 Bodies)", 4},
+			LegacyDemoInfo{"spinning_tops.json", EDemoCategory::DynamicsAndConservation, "spinning-tops", "Spinning Tops", 2},
+			LegacyDemoInfo{"stacked_column.json", EDemoCategory::StacksAndStability, "stacked-column", "Stacked Column", 3},
+			LegacyDemoInfo{"stress_test_1000.json", EDemoCategory::StressAndScaling, "stress-test-1000", "Mixed Shape Stress (1,000 Bodies)", 5},
+			LegacyDemoInfo{"three_body_chain.json", EDemoCategory::CollisionAndContacts, "three-body-chain", "Three-Body Collision Chain", 6},
 		};
 
-		// Compare command-line names without making punctuation or ASCII case significant.
+		// Compare command names without making CLI spelling depend on punctuation or letter case.
 		bool EquivalentName(std::string_view lhs, std::string_view rhs)
 		{
 			if (lhs.size() != rhs.size())
 				return false;
 
-			for (auto index = 0; index != isize(lhs); ++index)
+			for (auto i = size_t{}; i != lhs.size(); ++i)
 			{
-				auto const normalise = [](char ch)
-				{
-					return ch == '_' ? '-' : static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-				};
-				if (normalise(lhs[index]) != normalise(rhs[index]))
+				auto const left = lhs[i] == '_' ? '-' : static_cast<char>(std::tolower(static_cast<unsigned char>(lhs[i])));
+				auto const right = rhs[i] == '_' ? '-' : static_cast<char>(std::tolower(static_cast<unsigned char>(rhs[i])));
+				if (left != right)
 					return false;
 			}
 			return true;
 		}
+
+		// Scan for the optional metadata key without materialising large non-demo scene documents during menu construction.
+		bool ContainsDemoToken(std::filesystem::path const& filepath)
+		{
+			auto stream = std::ifstream(filepath);
+			if (!stream)
+				throw std::runtime_error(std::format("Failed to read physics scene catalogue candidate: {}", filepath.string()));
+
+			constexpr auto token = std::string_view{"\"demo\""};
+			auto matched = size_t{};
+			for (auto ch = char{}; stream.get(ch);)
+			{
+				matched = ch == token[matched] ? matched + 1 : ch == token[0] ? 1 : 0;
+				if (matched == token.size())
+					return true;
+			}
+			return false;
+		}
+
+		// Resolve metadata group text to the stable category used by menus and ordering.
+		EDemoCategory ParseCategory(std::string_view group)
+		{
+			auto const iter = std::ranges::find_if(Categories, [=](DemoCategoryInfo const& category)
+			{
+				return EquivalentName(group, category.m_display_name);
+			});
+			if (iter == Categories.end())
+				throw std::runtime_error(std::format("Unknown physics demo group '{}'", group));
+
+			return iter->m_category;
+		}
+
+		// Convert one legacy catalogue entry into the same runtime representation as metadata-backed scenes.
+		DemoInfo MakeDemoInfo(LegacyDemoInfo const& legacy, std::filesystem::path const& filepath)
+		{
+			return DemoInfo
+			{
+				.m_category = legacy.m_category,
+				.m_name = std::string(legacy.m_name),
+				.m_display_name = std::string(legacy.m_display_name),
+				.m_description = {},
+				.m_order = legacy.m_order,
+				.m_filepath = filepath,
+			};
+		}
+
+		// Discover classified JSON files from the deployed scene directory so demo content and metadata remain runtime-editable.
+		std::vector<DemoInfo> BuildDemoCatalogue()
+		{
+			auto const scene_dir = win32::ExeDir() / "scenes";
+			if (!std::filesystem::is_directory(scene_dir))
+				throw std::runtime_error(std::format("Physics demo directory not found: {}", scene_dir.string()));
+
+			auto demos = std::vector<DemoInfo>{};
+			for (auto const& entry : std::filesystem::directory_iterator(scene_dir))
+			{
+				if (!entry.is_regular_file() || !EquivalentName(entry.path().extension().string(), ".json"))
+					continue;
+
+				// Embedded metadata owns newly-authored presentation; unchanged legacy files use the stable fallback without constructing a JSON DOM.
+				auto const filename = entry.path().filename().string();
+				auto const legacy = std::ranges::find_if(LegacyDemos, [&](LegacyDemoInfo const& info)
+				{
+					return EquivalentName(filename, info.m_filename);
+				});
+				auto const metadata = ContainsDemoToken(entry.path())
+					? scene_loader::LoadMetadataFromFile(entry.path())
+					: std::optional<scene_loader::SceneMetadata>{};
+				if (metadata.has_value())
+				{
+					demos.push_back(DemoInfo
+					{
+						.m_category = ParseCategory(metadata->m_group),
+						.m_name = metadata->m_command.empty() ? entry.path().stem().string() : metadata->m_command,
+						.m_display_name = metadata->m_name,
+						.m_description = metadata->m_description,
+						.m_order = metadata->m_order,
+						.m_filepath = entry.path(),
+					});
+					continue;
+				}
+
+				if (legacy != LegacyDemos.end())
+					demos.push_back(MakeDemoInfo(*legacy, entry.path()));
+			}
+
+			// Category declaration order and per-file order make menu placement deterministic across filesystems.
+			std::ranges::sort(demos, {}, [](DemoInfo const& demo)
+			{
+				return std::tuple(static_cast<int>(demo.m_category), demo.m_order, demo.m_display_name);
+			});
+			for (auto lhs = size_t{}; lhs != demos.size(); ++lhs)
+			{
+				for (auto rhs = lhs + 1; rhs != demos.size(); ++rhs)
+				{
+					if (EquivalentName(demos[lhs].m_name, demos[rhs].m_name))
+						throw std::runtime_error(std::format("Duplicate physics demo command '{}'", demos[lhs].m_name));
+				}
+			}
+			return demos;
+		}
 	}
 
-	// Return the stable behavior-oriented category order used by the demonstration menu.
+	// Return demonstration categories in stable menu order.
 	std::span<DemoCategoryInfo const> DemoCategoryCatalogue()
 	{
 		return Categories;
 	}
 
-	// Return the complete programmatic demonstration catalogue in stable menu order.
+	// Discover deployed JSON demonstrations and return them in stable grouped order.
 	std::span<DemoInfo const> DemoCatalogue()
 	{
-		return Demos;
+		static auto const demos = BuildDemoCatalogue();
+		return demos;
 	}
 
-	// Return the complete file-backed scene catalogue in stable menu order.
-	std::span<SceneDemoInfo const> SceneDemoCatalogue()
+	// Resolve a case-insensitive command-line demonstration name.
+	DemoInfo const* FindDemo(std::string_view name)
 	{
-		return SceneDemos;
-	}
-
-	// Return metadata for one programmatic demonstration.
-	DemoInfo const& GetDemoInfo(EDemo demo)
-	{
-		auto const iter = std::ranges::find(Demos, demo, &DemoInfo::m_demo);
-		if (iter == Demos.end())
-			throw std::runtime_error("Unknown physics demonstration");
-
-		return *iter;
-	}
-
-	// Return the deployed JSON path for one file-backed scene demonstration.
-	std::filesystem::path SceneDemoPath(SceneDemoInfo const& demo)
-	{
-		return win32::ExeDir() / "scenes" / demo.m_filename;
-	}
-
-	// Resolve a case-insensitive command-line name, accepting '-' and '_' interchangeably.
-	std::optional<EDemo> FindDemo(std::string_view name)
-	{
-		auto const iter = std::ranges::find_if(Demos, [&](DemoInfo const& info)
+		auto const demos = DemoCatalogue();
+		auto const iter = std::ranges::find_if(demos, [=](DemoInfo const& info)
 		{
 			return EquivalentName(name, info.m_name);
 		});
-		return iter != Demos.end() ? std::optional(iter->m_demo) : std::nullopt;
+		return iter != demos.end() ? &*iter : nullptr;
 	}
 }

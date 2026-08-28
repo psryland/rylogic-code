@@ -8,6 +8,7 @@
 //     Optional class name filters are substring-matched against test class names.
 //   (default) : Launch the interactive physics sandbox window.
 #include "src/forward.h"
+#include "src/scene/demo.h"
 #include "src/ui/sandbox_ui.h"
 #include "src/diagnostics/scene_diagnostic.h"
 
@@ -125,9 +126,11 @@ namespace physics_sandbox
 		if (cmd.count("demo"))
 		{
 			auto const name = cmd("demo").as<std::string>();
-			options.m_demo = FindDemo(name);
-			if (!options.m_demo)
+			auto const* demo = FindDemo(name);
+			if (demo == nullptr)
 				throw std::runtime_error(std::format("Unknown physics demo '{}'", name));
+
+			options.m_scene_filepath = demo->m_filepath;
 		}
 		if (cmd.count("steps"))
 			options.m_steps = cmd("steps").as<int>();
@@ -298,15 +301,15 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 		SandboxUI sandbox(cmd.count("profile") != 0);
 		sandbox.cp().msg_loop(&loop);
 
-		// Load a named programmatic demo or a JSON scene on startup.
+		// Load a named catalogue demo or an explicit JSON scene on startup.
 		if (cmd.count("demo"))
 		{
 			auto const name = cmd("demo").as<std::string>();
-			auto const demo = FindDemo(name);
-			if (!demo)
+			auto const* demo = FindDemo(name);
+			if (demo == nullptr)
 				throw std::runtime_error(std::format("Unknown physics demo '{}'", name));
 
-			sandbox.LoadDemo(*demo);
+			sandbox.LoadSceneFile(demo->m_filepath);
 		}
 		else if (cmd.count("scene"))
 			sandbox.LoadSceneFile(cmd("scene").as<std::filesystem::path>());

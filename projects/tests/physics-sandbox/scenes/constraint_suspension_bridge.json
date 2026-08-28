@@ -1,0 +1,2200 @@
+{
+	"scene": {
+		"demo": {
+			"name": "Suspension Bridge",
+			"group": "Constraints and Mechanisms",
+			"order": 100,
+			"command": "suspension-bridge"
+		},
+		"description": "A cyclic rigid constraint graph with pinned corners and distributed load.",
+		"gravity": [
+			0.0,
+			0.0,
+			-9.81000042
+		],
+		"material": {
+			"friction": 0.60000002,
+			"elasticity": 0.05
+		},
+		"physics": {
+			"substeps": 1,
+			"solver_iterations": 4,
+			"position_iterations": 2
+		},
+		"ground_plane": {
+			"size": [
+				36.0,
+				36.0
+			],
+			"height": 0.0,
+			"colour": "0xFF606068"
+		},
+		"shapes": {
+			"plank-shape": {
+				"name": "plank-shape",
+				"type": "box",
+				"dimensions": [
+					0.81999999,
+					1.45000005,
+					0.23999999
+				]
+			}
+		},
+		"bodies": [
+			{
+				"name": "plank-r0-c00",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-10.35000038,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r0-c01",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-9.44999981,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r0-c02",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-8.55000019,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r0-c03",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-7.6500001,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r0-c04",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-6.75,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r0-c05",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-5.8499999,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r0-c06",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-4.94999981,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r0-c07",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-4.05000019,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r0-c08",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-3.1500001,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r0-c09",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-2.25,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r0-c10",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-1.35000002,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r0-c11",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-0.44999999,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r0-c12",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					0.44999999,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r0-c13",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					1.35000002,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r0-c14",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					2.25,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r0-c15",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					3.1500001,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r0-c16",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					4.05000019,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r0-c17",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					4.94999981,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r0-c18",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					5.8499999,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r0-c19",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					6.75,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r0-c20",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					7.6500001,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r0-c21",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					8.55000019,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r0-c22",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					9.44999981,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r0-c23",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					10.35000038,
+					-0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r1-c00",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-10.35000038,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r1-c01",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-9.44999981,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r1-c02",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-8.55000019,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r1-c03",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-7.6500001,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r1-c04",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-6.75,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r1-c05",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-5.8499999,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r1-c06",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-4.94999981,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r1-c07",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-4.05000019,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r1-c08",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-3.1500001,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r1-c09",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-2.25,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r1-c10",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-1.35000002,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r1-c11",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					-0.44999999,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r1-c12",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					0.44999999,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r1-c13",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					1.35000002,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r1-c14",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					2.25,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r1-c15",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					3.1500001,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r1-c16",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					4.05000019,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r1-c17",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					4.94999981,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r1-c18",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					5.8499999,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r1-c19",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					6.75,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r1-c20",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					7.6500001,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r1-c21",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					8.55000019,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "plank-r1-c22",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					9.44999981,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "plank-r1-c23",
+				"shape": "plank-shape",
+				"mass": 0.80000001,
+				"position": [
+					10.35000038,
+					0.85000002,
+					5.0
+				],
+				"colour": "0xFF40A0FF"
+			}
+		],
+		"constraints": [
+			{
+				"name": "long-r0-c00",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c00",
+					"space": "world",
+					"position": [
+						-9.89999962,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c01",
+					"space": "world",
+					"position": [
+						-9.89999962,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c01",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c01",
+					"space": "world",
+					"position": [
+						-9.0,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c02",
+					"space": "world",
+					"position": [
+						-9.0,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c02",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c02",
+					"space": "world",
+					"position": [
+						-8.10000038,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c03",
+					"space": "world",
+					"position": [
+						-8.10000038,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c03",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c03",
+					"space": "world",
+					"position": [
+						-7.19999981,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c04",
+					"space": "world",
+					"position": [
+						-7.19999981,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c04",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c04",
+					"space": "world",
+					"position": [
+						-6.30000019,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c05",
+					"space": "world",
+					"position": [
+						-6.30000019,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c05",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c05",
+					"space": "world",
+					"position": [
+						-5.4000001,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c06",
+					"space": "world",
+					"position": [
+						-5.4000001,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c06",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c06",
+					"space": "world",
+					"position": [
+						-4.5,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c07",
+					"space": "world",
+					"position": [
+						-4.5,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c07",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c07",
+					"space": "world",
+					"position": [
+						-3.5999999,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c08",
+					"space": "world",
+					"position": [
+						-3.5999999,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c08",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c08",
+					"space": "world",
+					"position": [
+						-2.70000005,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c09",
+					"space": "world",
+					"position": [
+						-2.70000005,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c09",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c09",
+					"space": "world",
+					"position": [
+						-1.79999995,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c10",
+					"space": "world",
+					"position": [
+						-1.79999995,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c10",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c10",
+					"space": "world",
+					"position": [
+						-0.89999998,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c11",
+					"space": "world",
+					"position": [
+						-0.89999998,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c11",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c11",
+					"space": "world",
+					"position": [
+						0.0,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c12",
+					"space": "world",
+					"position": [
+						0.0,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c12",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c12",
+					"space": "world",
+					"position": [
+						0.89999998,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c13",
+					"space": "world",
+					"position": [
+						0.89999998,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c13",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c13",
+					"space": "world",
+					"position": [
+						1.79999995,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c14",
+					"space": "world",
+					"position": [
+						1.79999995,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c14",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c14",
+					"space": "world",
+					"position": [
+						2.70000005,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c15",
+					"space": "world",
+					"position": [
+						2.70000005,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c15",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c15",
+					"space": "world",
+					"position": [
+						3.5999999,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c16",
+					"space": "world",
+					"position": [
+						3.5999999,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c16",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c16",
+					"space": "world",
+					"position": [
+						4.5,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c17",
+					"space": "world",
+					"position": [
+						4.5,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c17",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c17",
+					"space": "world",
+					"position": [
+						5.4000001,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c18",
+					"space": "world",
+					"position": [
+						5.4000001,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c18",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c18",
+					"space": "world",
+					"position": [
+						6.30000019,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c19",
+					"space": "world",
+					"position": [
+						6.30000019,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c19",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c19",
+					"space": "world",
+					"position": [
+						7.19999981,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c20",
+					"space": "world",
+					"position": [
+						7.19999981,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c20",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c20",
+					"space": "world",
+					"position": [
+						8.10000038,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c21",
+					"space": "world",
+					"position": [
+						8.10000038,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c21",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c21",
+					"space": "world",
+					"position": [
+						9.0,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c22",
+					"space": "world",
+					"position": [
+						9.0,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r0-c22",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c22",
+					"space": "world",
+					"position": [
+						9.89999962,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c23",
+					"space": "world",
+					"position": [
+						9.89999962,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c00",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c00",
+					"space": "world",
+					"position": [
+						-9.89999962,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c01",
+					"space": "world",
+					"position": [
+						-9.89999962,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c01",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c01",
+					"space": "world",
+					"position": [
+						-9.0,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c02",
+					"space": "world",
+					"position": [
+						-9.0,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c02",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c02",
+					"space": "world",
+					"position": [
+						-8.10000038,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c03",
+					"space": "world",
+					"position": [
+						-8.10000038,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c03",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c03",
+					"space": "world",
+					"position": [
+						-7.19999981,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c04",
+					"space": "world",
+					"position": [
+						-7.19999981,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c04",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c04",
+					"space": "world",
+					"position": [
+						-6.30000019,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c05",
+					"space": "world",
+					"position": [
+						-6.30000019,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c05",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c05",
+					"space": "world",
+					"position": [
+						-5.4000001,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c06",
+					"space": "world",
+					"position": [
+						-5.4000001,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c06",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c06",
+					"space": "world",
+					"position": [
+						-4.5,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c07",
+					"space": "world",
+					"position": [
+						-4.5,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c07",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c07",
+					"space": "world",
+					"position": [
+						-3.5999999,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c08",
+					"space": "world",
+					"position": [
+						-3.5999999,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c08",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c08",
+					"space": "world",
+					"position": [
+						-2.70000005,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c09",
+					"space": "world",
+					"position": [
+						-2.70000005,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c09",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c09",
+					"space": "world",
+					"position": [
+						-1.79999995,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c10",
+					"space": "world",
+					"position": [
+						-1.79999995,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c10",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c10",
+					"space": "world",
+					"position": [
+						-0.89999998,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c11",
+					"space": "world",
+					"position": [
+						-0.89999998,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c11",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c11",
+					"space": "world",
+					"position": [
+						0.0,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c12",
+					"space": "world",
+					"position": [
+						0.0,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c12",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c12",
+					"space": "world",
+					"position": [
+						0.89999998,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c13",
+					"space": "world",
+					"position": [
+						0.89999998,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c13",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c13",
+					"space": "world",
+					"position": [
+						1.79999995,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c14",
+					"space": "world",
+					"position": [
+						1.79999995,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c14",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c14",
+					"space": "world",
+					"position": [
+						2.70000005,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c15",
+					"space": "world",
+					"position": [
+						2.70000005,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c15",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c15",
+					"space": "world",
+					"position": [
+						3.5999999,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c16",
+					"space": "world",
+					"position": [
+						3.5999999,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c16",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c16",
+					"space": "world",
+					"position": [
+						4.5,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c17",
+					"space": "world",
+					"position": [
+						4.5,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c17",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c17",
+					"space": "world",
+					"position": [
+						5.4000001,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c18",
+					"space": "world",
+					"position": [
+						5.4000001,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c18",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c18",
+					"space": "world",
+					"position": [
+						6.30000019,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c19",
+					"space": "world",
+					"position": [
+						6.30000019,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c19",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c19",
+					"space": "world",
+					"position": [
+						7.19999981,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c20",
+					"space": "world",
+					"position": [
+						7.19999981,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c20",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c20",
+					"space": "world",
+					"position": [
+						8.10000038,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c21",
+					"space": "world",
+					"position": [
+						8.10000038,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c21",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c21",
+					"space": "world",
+					"position": [
+						9.0,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c22",
+					"space": "world",
+					"position": [
+						9.0,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "long-r1-c22",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r1-c22",
+					"space": "world",
+					"position": [
+						9.89999962,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c23",
+					"space": "world",
+					"position": [
+						9.89999962,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c00",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c00",
+					"space": "world",
+					"position": [
+						-10.35000038,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c00",
+					"space": "world",
+					"position": [
+						-10.35000038,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c01",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c01",
+					"space": "world",
+					"position": [
+						-9.44999981,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c01",
+					"space": "world",
+					"position": [
+						-9.44999981,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c02",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c02",
+					"space": "world",
+					"position": [
+						-8.55000019,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c02",
+					"space": "world",
+					"position": [
+						-8.55000019,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c03",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c03",
+					"space": "world",
+					"position": [
+						-7.6500001,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c03",
+					"space": "world",
+					"position": [
+						-7.6500001,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c04",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c04",
+					"space": "world",
+					"position": [
+						-6.75,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c04",
+					"space": "world",
+					"position": [
+						-6.75,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c05",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c05",
+					"space": "world",
+					"position": [
+						-5.8499999,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c05",
+					"space": "world",
+					"position": [
+						-5.8499999,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c06",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c06",
+					"space": "world",
+					"position": [
+						-4.94999981,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c06",
+					"space": "world",
+					"position": [
+						-4.94999981,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c07",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c07",
+					"space": "world",
+					"position": [
+						-4.05000019,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c07",
+					"space": "world",
+					"position": [
+						-4.05000019,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c08",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c08",
+					"space": "world",
+					"position": [
+						-3.1500001,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c08",
+					"space": "world",
+					"position": [
+						-3.1500001,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c09",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c09",
+					"space": "world",
+					"position": [
+						-2.25,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c09",
+					"space": "world",
+					"position": [
+						-2.25,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c10",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c10",
+					"space": "world",
+					"position": [
+						-1.35000002,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c10",
+					"space": "world",
+					"position": [
+						-1.35000002,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c11",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c11",
+					"space": "world",
+					"position": [
+						-0.44999999,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c11",
+					"space": "world",
+					"position": [
+						-0.44999999,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c12",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c12",
+					"space": "world",
+					"position": [
+						0.44999999,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c12",
+					"space": "world",
+					"position": [
+						0.44999999,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c13",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c13",
+					"space": "world",
+					"position": [
+						1.35000002,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c13",
+					"space": "world",
+					"position": [
+						1.35000002,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c14",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c14",
+					"space": "world",
+					"position": [
+						2.25,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c14",
+					"space": "world",
+					"position": [
+						2.25,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c15",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c15",
+					"space": "world",
+					"position": [
+						3.1500001,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c15",
+					"space": "world",
+					"position": [
+						3.1500001,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c16",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c16",
+					"space": "world",
+					"position": [
+						4.05000019,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c16",
+					"space": "world",
+					"position": [
+						4.05000019,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c17",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c17",
+					"space": "world",
+					"position": [
+						4.94999981,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c17",
+					"space": "world",
+					"position": [
+						4.94999981,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c18",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c18",
+					"space": "world",
+					"position": [
+						5.8499999,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c18",
+					"space": "world",
+					"position": [
+						5.8499999,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c19",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c19",
+					"space": "world",
+					"position": [
+						6.75,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c19",
+					"space": "world",
+					"position": [
+						6.75,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c20",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c20",
+					"space": "world",
+					"position": [
+						7.6500001,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c20",
+					"space": "world",
+					"position": [
+						7.6500001,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c21",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c21",
+					"space": "world",
+					"position": [
+						8.55000019,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c21",
+					"space": "world",
+					"position": [
+						8.55000019,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c22",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c22",
+					"space": "world",
+					"position": [
+						9.44999981,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c22",
+					"space": "world",
+					"position": [
+						9.44999981,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "cross-c23",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "plank-r0-c23",
+					"space": "world",
+					"position": [
+						10.35000038,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c23",
+					"space": "world",
+					"position": [
+						10.35000038,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "anchor-r0-c00",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "world",
+					"position": [
+						-10.35000038,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c00",
+					"space": "world",
+					"position": [
+						-10.35000038,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "anchor-r0-c23",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "world",
+					"position": [
+						10.35000038,
+						-0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r0-c23",
+					"space": "world",
+					"position": [
+						10.35000038,
+						-0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "anchor-r1-c00",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "world",
+					"position": [
+						-10.35000038,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c00",
+					"space": "world",
+					"position": [
+						-10.35000038,
+						0.85000002,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "anchor-r1-c23",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "world",
+					"position": [
+						10.35000038,
+						0.85000002,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "plank-r1-c23",
+					"space": "world",
+					"position": [
+						10.35000038,
+						0.85000002,
+						5.0
+					]
+				}
+			}
+		]
+	}
+}

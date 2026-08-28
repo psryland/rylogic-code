@@ -6,7 +6,6 @@
 #include "src/utils/scene_loader.h"
 #include "src/scene/water/water_visual.h"
 #include "src/scene/scenario.h"
-#include "src/scene/demo.h"
 #include "src/scene/articulation_visual.h"
 
 namespace physics_sandbox
@@ -59,10 +58,6 @@ namespace physics_sandbox
 		// Owned via unique_ptr to allow runtime selection based on GPU availability.
 		physics::Engine m_physics;
 		collision::ShapeBox m_box;
-
-		// Programmatic-demo shapes precede every referring simulation object so explicit clearing and ordinary destruction both preserve pointer lifetime.
-		std::deque<collision::ShapeBox> m_owned_boxes;
-		std::deque<collision::ShapeSphere> m_owned_spheres;
 
 		// Caller-owned dynamics objects and optional persistent graph edges.
 		std::vector<Body> m_body;
@@ -149,7 +144,6 @@ namespace physics_sandbox
 
 		// The currently active scenario.
 		EScenario m_current_scenario;
-		std::optional<EDemo> m_current_demo;
 
 		// Diagnostics
 		CollisionDiag m_diag;
@@ -178,9 +172,6 @@ namespace physics_sandbox
 
 		// Configure bodies for the current scenario
 		void SetupScenario(EScenario scenario);
-
-		// Build one programmatic constraint or articulation demonstration.
-		void LoadDemo(EDemo demo);
 
 		// Load a scene from a JSON file.
 		// Replaces the current scenario with bodies defined in the file.
@@ -237,8 +228,11 @@ namespace physics_sandbox
 		// Rebuild stable pointer spans after all object containers have reached their final addresses.
 		void RebuildStepInputs();
 
-		// Calculate the bounding box for the scene (excluding terrain)
-		BBox CalculateSceneBBox(scene_loader::SceneDesc const& scene_desc) const;
+		// Build JSON-described articulation trees and persistent constraints after all collision-shape addresses are stable.
+		void BuildMultibodyObjects(scene_loader::SceneDesc const& scene_desc, std::span<collision::Shape const* const> articulation_shapes);
+
+		// Calculate world-space bounds for the constructed rigid bodies and shaped articulation links, excluding terrain.
+		BBox CalculateSceneBBox() const;
 
 		// Release all scene-owned diagnostic buoyancy resources before replacing bodies or the module.
 		void ClearBuoyancy();

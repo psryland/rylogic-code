@@ -1,4 +1,5 @@
 #include "src/forward.h"
+#include "src/scene/demo.h"
 #include "src/ui/menu_id.h"
 #include "src/ui/sandbox_ui.h"
 
@@ -13,7 +14,7 @@ namespace physics_sandbox
 		constexpr double MaxFrameSeconds = 0.25;
 		constexpr int MaxTicksPerSubmission = 2;
 
-		// Build behavior-oriented submenus from both programmatic and file-backed demonstration catalogues.
+		// Build behavior-oriented submenus from the runtime-discovered JSON demonstration catalogue.
 		HMENU CreateDemoMenu()
 		{
 			auto menu = Menu(Menu::EKind::Popup);
@@ -31,17 +32,8 @@ namespace physics_sandbox
 					auto const label = pr::Widen(demos[index].m_display_name);
 					category_menu.Insert(MenuItem(label.c_str(), MenuID::DemoBase + index));
 				}
-				auto const scene_demos = SceneDemoCatalogue();
-				for (auto index = 0; index != isize(scene_demos); ++index)
-				{
-					if (scene_demos[index].m_category != category.m_category)
-						continue;
 
-					auto const label = pr::Widen(scene_demos[index].m_display_name);
-					category_menu.Insert(MenuItem(label.c_str(), MenuID::SceneDemoBase + index));
-				}
-
-				// Categories own the conceptual grouping regardless of whether their demos are code- or data-defined.
+				// Categories own the conceptual grouping while scene files own each entry's placement and label.
 				auto const label = pr::Widen(category.m_display_name);
 				menu.Insert(MenuItem(label.c_str(), category_menu));
 			}
@@ -123,8 +115,8 @@ namespace physics_sandbox
 		, m_pause_on_collision(false)
 		, m_physics_accumulator(0)
 		, m_scenario(EScenario::Sandbox)
-		, m_demo()
 		, m_scene_filepath()
+		, m_active_name(ScenarioName(EScenario::Sandbox))
 		, m_recent()
 		, m_last_status()
 		, m_frame_count(0)
@@ -176,8 +168,8 @@ namespace physics_sandbox
 			if (args.m_vk_key >= '0' && args.m_vk_key <= '5')
 			{
 				m_scenario = static_cast<EScenario>(args.m_vk_key - '0');
-				m_demo.reset();
 				m_scene_filepath.clear();
+				m_active_name = ScenarioName(m_scenario);
 				ResetScene();
 				m_steps_remaining = -1; // Auto-start
 			}
@@ -321,17 +313,7 @@ namespace physics_sandbox
 			if (id >= MenuID::DemoBase && id < MenuID::DemoBase + isize(demos))
 			{
 				auto const demo_index = id - MenuID::DemoBase;
-				LoadDemo(demos[demo_index].m_demo);
-
-				result = 0;
-				return true;
-			}
-
-			auto const scene_demos = SceneDemoCatalogue();
-			if (id >= MenuID::SceneDemoBase && id < MenuID::SceneDemoBase + isize(scene_demos))
-			{
-				auto const demo_index = id - MenuID::SceneDemoBase;
-				LoadSceneFile(SceneDemoPath(scene_demos[demo_index]));
+				LoadSceneFile(demos[demo_index].m_filepath);
 
 				result = 0;
 				return true;
@@ -362,11 +344,7 @@ namespace physics_sandbox
 		m_view3d.WaitForGpu();
 
 		// Recreate whichever source currently owns the scene rather than retaining stale dynamics objects.
-		if (m_demo)
-		{
-			LoadDemo(*m_demo);
-		}
-		else if (!m_scene_filepath.empty())
+		if (!m_scene_filepath.empty())
 		{
 			LoadSceneFile(m_scene_filepath);
 		}
@@ -374,6 +352,7 @@ namespace physics_sandbox
 		{
 			m_scene.Reset();
 			m_scene.SetupScenario(m_scenario);
+			m_active_name = ScenarioName(m_scenario);
 
 			// Frame the camera to see the whole scene: look from +Y toward origin, Z-up
 			m_view3d.m_cam.LookAt(v4(0, -35, 10, 1), v4::Origin(), v4{0, 0, 1, 0});
@@ -487,10 +466,6 @@ namespace physics_sandbox
 			// Pause the simulation
 			PauseSimulation();
 
-			// Remember the filepath so Reset can reload it
-			m_scene_filepath = filepath;
-			m_demo.reset();
-
 			// Add to the recent files list (MRU order) and rebuild the submenu
 			m_recent.Add(filepath);
 			RebuildRecentFilesMenu();
@@ -508,6 +483,8 @@ namespace physics_sandbox
 			mark = json_end;
 
 			m_scene.LoadScene(scene_desc);
+			m_scene_filepath = filepath;
+			m_active_name = scene_desc.metadata ? scene_desc.metadata->m_name : filepath.stem().string();
 			auto const scene_load_end = Clock::now();
 
 			// Frame the camera to see all loaded bodies
@@ -538,29 +515,6 @@ namespace physics_sandbox
 				log << msg;
 			
 			::MessageBoxA(m_hwnd, msg.c_str(), "Load Error", MB_OK | MB_ICONERROR);
-		}
-	}
-
-	// Load one programmatic constraint or articulation demonstration.
-	void SandboxUI::LoadDemo(EDemo demo)
-	{
-		try
-		{
-			PauseSimulation();
-			m_view3d.WaitForGpu();
-			m_scene_filepath.clear();
-			m_demo = demo;
-			m_scene.LoadDemo(demo);
-
-			auto const bounds = ComputeSceneBBox();
-			m_view3d.m_cam.View(bounds, v4{0.0f, -1.0f, -0.2f, 0.0f}, v4::ZAxis());
-			Render(0);
-		}
-		catch (std::exception const& ex)
-		{
-			auto const message = std::format("Failed to load demo '{}':\n{}", GetDemoInfo(demo).m_display_name, ex.what());
-			OutputDebugStringA(message.c_str());
-			::MessageBoxA(m_hwnd, message.c_str(), "Demo Load Error", MB_OK | MB_ICONERROR);
 		}
 	}
 
@@ -742,11 +696,8 @@ namespace physics_sandbox
 			// Keep the slider's speed label text in sync with the trackbar position
 			m_media.UpdateSpeedLabel();
 
-			auto const active_name = m_scene.m_current_demo
-				? GetDemoInfo(*m_scene.m_current_demo).m_display_name
-				: std::string_view(ScenarioName(m_scene.m_current_scenario));
 			SetWindowTextA(*this, std::format("Physics Sandbox [{}] t={:.3f} frame={} col={}  FPS: {:.0f}",
-				active_name,
+				m_active_name,
 				m_scene.m_clock,
 				m_scene.m_step_count,
 				m_scene.m_diag.count,
@@ -761,12 +712,9 @@ namespace physics_sandbox
 		{
 			m_status_elapsed = 0;
 			auto const status_beg = Clock::now();
-			auto const active_name = m_scene.m_current_demo
-				? GetDemoInfo(*m_scene.m_current_demo).m_display_name
-				: std::string_view(ScenarioName(m_scene.m_current_scenario));
 			auto new_status = std::format(L"t={:.3f}  {}  Collisions: {}  {}  FPS: {:.0f}",
 				m_scene.m_clock,
-				pr::Widen(active_name),
+				pr::Widen(m_active_name),
 				m_scene.m_diag.count,
 				m_steps_remaining == 0 ? L"[Paused]" : L"[Running]",
 				m_fps);

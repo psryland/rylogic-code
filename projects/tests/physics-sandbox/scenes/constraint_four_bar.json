@@ -1,0 +1,239 @@
+{
+	"scene": {
+		"demo": {
+			"name": "Four-Bar Closed Loop",
+			"group": "Constraints and Mechanisms",
+			"order": 40,
+			"command": "four-bar"
+		},
+		"description": "A planar closed-loop mechanism that cannot be represented by a tree alone.",
+		"gravity": [
+			0.0,
+			0.0,
+			-9.81000042
+		],
+		"material": {
+			"friction": 0.60000002,
+			"elasticity": 0.05
+		},
+		"physics": {
+			"substeps": 1
+		},
+		"bodies": [
+			{
+				"name": "crank",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.55000001,
+						0.55000001,
+						2.48696613
+					]
+				},
+				"mass": 2.0,
+				"position": [
+					-1.875,
+					0.0,
+					6.57499981
+				],
+				"z_axis": [
+					0.50262046,
+					0.0,
+					0.8645072
+				],
+				"colour": "0xFFFFA040",
+				"angular_velocity": [
+					0.0,
+					1.25,
+					0.0
+				]
+			},
+			{
+				"name": "coupler",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.55000001,
+						0.55000001,
+						2.20907211
+					]
+				},
+				"mass": 2.79999995,
+				"position": [
+					-0.15000001,
+					0.0,
+					7.55000019
+				],
+				"z_axis": [
+					0.99589318,
+					0.0,
+					-0.09053575
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "rocker",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.55000001,
+						0.55000001,
+						2.49098372
+					]
+				},
+				"mass": 2.20000005,
+				"position": [
+					1.72500002,
+					0.0,
+					6.4749999
+				],
+				"z_axis": [
+					0.62224412,
+					0.0,
+					-0.78282326
+				],
+				"colour": "0xFF50D080"
+			}
+		],
+		"constraints": [
+			{
+				"name": "hinge-a",
+				"type": "hinge",
+				"frame_a": {
+					"body": "world",
+					"position": [
+						-2.5,
+						0.0,
+						5.5
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"body": "crank",
+					"space": "world",
+					"position": [
+						-2.5,
+						0.0,
+						5.5
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"axis": {
+					"mode": "free"
+				}
+			},
+			{
+				"name": "hinge-c",
+				"type": "hinge",
+				"frame_a": {
+					"body": "crank",
+					"space": "world",
+					"position": [
+						-1.25,
+						0.0,
+						7.6500001
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"body": "coupler",
+					"space": "world",
+					"position": [
+						-1.25,
+						0.0,
+						7.6500001
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"axis": {
+					"mode": "free"
+				}
+			},
+			{
+				"name": "hinge-d",
+				"type": "hinge",
+				"frame_a": {
+					"body": "coupler",
+					"space": "world",
+					"position": [
+						0.94999999,
+						0.0,
+						7.44999981
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"body": "rocker",
+					"space": "world",
+					"position": [
+						0.94999999,
+						0.0,
+						7.44999981
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"axis": {
+					"mode": "free"
+				}
+			},
+			{
+				"name": "hinge-b",
+				"type": "hinge",
+				"frame_a": {
+					"body": "rocker",
+					"space": "world",
+					"position": [
+						2.5,
+						0.0,
+						5.5
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"body": "world",
+					"position": [
+						2.5,
+						0.0,
+						5.5
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"axis": {
+					"mode": "free"
+				}
+			}
+		]
+	}
+}

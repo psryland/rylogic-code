@@ -2,7 +2,7 @@
 
 **Status:** Implemented and accepted
 **Original design date:** 2026-08-25
-**Last verified:** 2026-08-26
+**Last verified:** 2026-08-28
 
 ## Summary
 
@@ -21,7 +21,7 @@ constraints or articulations to avoid their CPU, GPU, and memory costs.
 ## Implemented Outcome
 
 The production implementation includes the native C++ API, versioned ABI 2.0 DLL surface, compute-shader solvers, diagnostics, unit and GPU-oracle coverage,
-and 19 physics-sandbox demonstrations.
+and 20 runtime-editable JSON physics-sandbox demonstrations.
 
 | Design requirement | Verified outcome |
 |---|---|
@@ -31,8 +31,8 @@ and 19 physics-sandbox demonstrations.
 | Featherstone fast path | Fixed- and floating-root trees run force ABA and bounded implicit-midpoint integration without entering the arbitrary-constraint lane |
 | Dynamics preservation | Dense ABA oracles, zero-torque Coriolis cases, free-floating conservation, torque-free rigid motion, and Dzhanibekov regressions pass |
 | Robust arbitrary constraints | D6 joints, loops, rigid/tree and tree/tree coupling, link contacts, split position correction, breakage, and bounded non-convergence diagnostics pass targeted suites |
-| Real-time demonstrations | All 19 Release demos measured at least 41 FPS interactively and at least 43.60 physics FPS in warmed headless measurement |
-| Legacy performance | 19 of 22 baseline scenes remained within the 10% tolerance or improved; the other three generated 31.8-33.3% more contacts while taking 13.8-19.5% more time, improving contact throughput |
+| Real-time demonstrations | All 20 Release demos exceeded 40 FPS, spanning 43.42-151.84 physics FPS in warmed headless measurement |
+| Legacy performance | 19 of 22 baseline scenes remained within the 10% tolerance or improved; the other three generated 31.8-33.3% more contacts while taking 16.0-17.7% more time, improving contact throughput |
 
 The final native validation passed all 1,188 Quick tests and the complete targeted internal-substep, coupled-engine, collision-pair, compound-shape, and
 articulation-midpoint suites. Independent reviews of the architecture, acceptance coverage, demonstrations, and final GPU frame-path optimization found no
@@ -673,7 +673,8 @@ Additional API rules:
 - Missing or duplicate endpoint identities fail `BeginStep` before submission.
 - Constraint and articulation topology cannot change while a step is pending.
 - Parameter changes upload as merged dirty stable-slot ranges.
-- Link self-collision and connected-body collision are configurable.
+- Link self-collision and connected-body collision are configurable: an adjacent parent/child pair requires the child link's `collide_parent`, while a
+  non-adjacent pair in the same articulation requires `collide_self` on both links.
 - Per-row impulses remain GPU-resident unless diagnostics explicitly request them.
 - `ConstraintsBroken` and `CoupledConstraintFailures` deliver bounded post-readback events; GPU break disabling takes effect during the substep that detects it.
 - `LastFeatureStats()` reports active counts, retained capacities, dispatches, logical bytes, allocated bytes, packed output size, and terminal failure state.
@@ -816,7 +817,7 @@ $$
 \begin{aligned}
 o_b &= 64 \\
 o_e &= o_b + 256N_r \\
-o_a &= \operatorname{align}_{16}(o_e + 144E_c) \\
+o_a &= \operatorname{align}_{16}(o_e + 240E_c) \\
 o_p &= o_a + 64A \\
 o_v &= \operatorname{align}_{16}(o_p + 4P) \\
 o_{\dot v} &= \operatorname{align}_{16}(o_v + 4V) \\
@@ -834,11 +835,12 @@ where:
 - $S$ is the persistent constraint slot count when break latches are present.
 - $I$ is the coupled-island count when failure records are present.
 
-The 64-byte header carries final and peak collision counters, bounded event state, and substep provenance. Each public collision event is 144 bytes and excludes
-solver-only transforms, timing, warm-start, and response state. Articulation output is 64 bytes/tree plus generalized position, velocity, and acceleration
-scalars; link transforms are reconstructed from accepted generalized state. Break and coupled-failure records are 32 bytes each.
+The 64-byte header carries final and peak collision counters, bounded event state, and substep provenance. Each public collision event is 240 bytes and retains
+the event-time relative transform, post-solve relative velocity, and collision timing needed to publish a coherent `RbContact`; warm-start and solver-response
+state remain excluded. Articulation output is 64 bytes/tree plus generalized position, velocity, and acceleration scalars; link transforms are reconstructed
+from accepted generalized state. Break and coupled-failure records are 32 bytes each.
 
-The packed UAV retains at least one 144-byte event element as a safe zero-capacity binding, and a 16-byte substep reservation exists only when collision counters
+The packed UAV retains at least one 240-byte event element as a safe zero-capacity binding, and a 16-byte substep reservation exists only when collision counters
 must be accumulated. The readback itself excludes these sentinels. A multi-substep frame additionally retains 32 B/packed body of immutable frame force, but
 single-substep frames never create that resource or its pipeline state.
 
@@ -1087,9 +1089,9 @@ equivalent workloads after correctness changes increased their generated contact
 
 | Scene | Contact change | Physics-time change | Contact-throughput change |
 |---|---:|---:|---:|
-| `generated_stress.json` | +31.81% | +13.77% | +15.86% |
-| `simultaneous_impact_1000.json` | +33.33% | +19.48% | +11.60% |
-| `stress_test_1000.json` | +32.15% | +18.89% | +11.16% |
+| `generated_stress.json` | +31.81% | +17.66% | +12.03% |
+| `simultaneous_impact_1000.json` | +33.33% | +15.99% | +14.95% |
+| `stress_test_1000.json` | +31.75% | +16.55% | +13.04% |
 
 The 2,000-brick legacy stress scene remains within the 10% gate at +9.36%. Instrumented profiling showed it is GPU dominated; compact events and copy-engine
 body gathering reduced the final measured frame to approximately 8.33 ms.
@@ -1203,25 +1205,26 @@ FPS is the warmed production Release median.
 
 | Command | Features proved | Interactive min FPS | Headless physics FPS |
 |---|---|---:|---:|
-| `pendulum` | Passive physical pendulum and analytic small-angle period | 60 | 69.36 |
-| `rigid-joints` | Ball, hinge, slider, weld, motor, breakable D6, limits, and compliance | 60 | 63.47 |
-| `rigid-chain` | Long graph-coloured rigid chain and iteration propagation | 60 | 55.68 |
-| `four-bar` | Closed-loop mechanism that cannot be represented by one tree | 60 | 57.58 |
-| `fixed-articulations` | Fixed-root Featherstone chains of several sizes | 60 | 89.23 |
-| `ragdolls` | Many branched floating articulations and contacts | 60 | 108.10 |
-| `robot-motors` | Reduced-coordinate links controlled by driven and limited rows | 41 | 43.60 |
-| `robot-gripper` | Motors, prismatic fingers, manipulation contact, and tree feedback | 44 | 45.69 |
-| `vehicle-suspension` | Driven compliant suspension, travel limits, and wheel contacts | 60 | 57.33 |
-| `suspension-bridge` | Cyclic rigid graph with pinned corners and distributed load | 60 | 53.63 |
-| `mixed-coupling` | Rigid-to-tree and direct tree-to-tree persistent constraints | 44 | 47.39 |
-| `articulation-push` | Driven articulation transferring momentum to a rigid stack | 45 | 45.74 |
-| `two-robot-load` | Two independent trees supporting one constrained payload | 47 | 48.34 |
-| `mixed-contacts` | Rigid/tree, tree/tree, and non-adjacent same-tree contacts | 60 | 126.74 |
-| `buoyant-articulation` | GPU buoyancy applied independently to floating-tree links | 60 | 67.55 |
-| `floating-conservation` | Coriolis effects, momentum conservation, and bounded energy | 60 | 81.70 |
-| `dzhanibekov` | Rigid and floating-root intermediate-axis instability | 60 | 75.38 |
-| `constraint-pathologies` | Redundancy, extreme mass ratios, and near-singular loops | 60 | 59.94 |
-| `constraint-stress` | Cyclic two-dimensional graph and fixed-iteration scaling | 60 | 92.32 |
+| `pendulum` | Passive physical pendulum and analytic small-angle period | 60 | 65.26 |
+| `rigid-joints` | Ball, hinge, slider, weld, motor, breakable D6, limits, and compliance | 60 | 60.22 |
+| `rigid-chain` | Long graph-coloured rigid chain and iteration propagation | 60 | 53.63 |
+| `four-bar` | Closed-loop mechanism that cannot be represented by one tree | 60 | 54.17 |
+| `fixed-articulations` | Fixed-root Featherstone chains of several sizes | 60 | 151.84 |
+| `ragdolls` | Many branched floating articulations and contacts | 60 | 123.34 |
+| `robot-motors` | Reduced-coordinate links controlled by driven and limited rows | 41 | 46.01 |
+| `robot-gripper` | Motors, prismatic fingers, manipulation contact, and tree feedback | 44 | 48.54 |
+| `vehicle-suspension` | Driven compliant suspension, travel limits, and wheel contacts | 60 | 53.59 |
+| `suspension-bridge` | Cyclic rigid graph with pinned corners and distributed load | 60 | 49.48 |
+| `mixed-coupling` | Rigid-to-tree and direct tree-to-tree persistent constraints | 44 | 50.10 |
+| `articulation-push` | Driven articulation transferring momentum to a rigid stack | 45 | 48.93 |
+| `two-robot-load` | Two independent trees supporting one constrained payload | 47 | 52.03 |
+| `mixed-contacts` | Rigid/tree, tree/tree, and non-adjacent same-tree contacts | 60 | 119.62 |
+| `buoyant-articulation` | GPU buoyancy applied independently to floating-tree links | 60 | 58.76 |
+| `floating-conservation` | Coriolis effects, momentum conservation, and bounded energy | 60 | 75.11 |
+| `dzhanibekov` | Rigid and floating-root intermediate-axis instability | 60 | 72.08 |
+| `constraint-pathologies` | Redundancy, extreme mass ratios, and near-singular loops | 60 | 58.48 |
+| `constraint-stress` | Cyclic two-dimensional graph and fixed-iteration scaling | 60 | 86.78 |
+| `constraints-full-showcase` | Rigid joints, loops, breakage, fixed/floating articulations, motors, limits, mixed coupling, and self-contact | 60 | 43.42 |
 
 ## Final Design Position
 

@@ -1,0 +1,284 @@
+{
+	"scene": {
+		"demo": {
+			"name": "Two Robots Carrying a Load",
+			"group": "Articulations and Robotics",
+			"order": 130,
+			"command": "two-robot-load"
+		},
+		"description": "Two independent articulations support one shared constrained rigid payload.",
+		"gravity": [
+			0.0,
+			0.0,
+			-9.81000042
+		],
+		"material": {
+			"friction": 0.60000002,
+			"elasticity": 0.05
+		},
+		"physics": {
+			"substeps": 1,
+			"solver_iterations": 4,
+			"position_iterations": 1
+		},
+		"ground_plane": {
+			"size": [
+				28.0,
+				28.0
+			],
+			"height": 0.0,
+			"colour": "0xFF606068"
+		},
+		"shapes": {
+			"base-shape": {
+				"name": "base-shape",
+				"type": "sphere",
+				"radius": 0.44999999
+			},
+			"carriage-shape": {
+				"name": "carriage-shape",
+				"type": "sphere",
+				"radius": 0.55000001
+			}
+		},
+		"bodies": [
+			{
+				"name": "load",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.64999998,
+						0.64999998,
+						8.0
+					]
+				},
+				"mass": 8.0,
+				"position": [
+					0.0,
+					0.0,
+					6.0
+				],
+				"z_axis": [
+					1.0,
+					0.0,
+					0.0
+				],
+				"colour": "0xFFFF6060"
+			}
+		],
+		"articulations": [
+			{
+				"name": "left-lifter",
+				"root_type": "fixed",
+				"root_transform": {
+					"position": [
+						-6.0,
+						0.0,
+						6.0
+					]
+				},
+				"root": {
+					"name": "base",
+					"shape": "base-shape",
+					"mass": 2.0,
+					"collide_parent": false,
+					"collide_self": false
+				},
+				"links": [
+					{
+						"name": "carriage",
+						"parent": "base",
+						"shape": "carriage-shape",
+						"mass": 1.5,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"axes": [
+								{
+									"type": "prismatic",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 2.0
+								}
+							]
+						}
+					}
+				]
+			},
+			{
+				"name": "right-lifter",
+				"root_type": "fixed",
+				"root_transform": {
+					"position": [
+						6.0,
+						0.0,
+						6.0
+					]
+				},
+				"root": {
+					"name": "base",
+					"shape": "base-shape",
+					"mass": 2.0,
+					"collide_parent": false,
+					"collide_self": false
+				},
+				"links": [
+					{
+						"name": "carriage",
+						"parent": "base",
+						"shape": "carriage-shape",
+						"mass": 1.5,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"axes": [
+								{
+									"type": "prismatic",
+									"axis": [
+										-1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 2.0
+								}
+							]
+						}
+					}
+				]
+			}
+		],
+		"constraints": [
+			{
+				"name": "left-coupling",
+				"type": "ball_socket",
+				"frame_a": {
+					"articulation": "left-lifter",
+					"link": "carriage",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						6.0
+					]
+				},
+				"frame_b": {
+					"body": "load",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						6.0
+					]
+				}
+			},
+			{
+				"name": "right-coupling",
+				"type": "ball_socket",
+				"frame_a": {
+					"articulation": "right-lifter",
+					"link": "carriage",
+					"space": "world",
+					"position": [
+						4.0,
+						0.0,
+						6.0
+					]
+				},
+				"frame_b": {
+					"body": "load",
+					"space": "world",
+					"position": [
+						4.0,
+						0.0,
+						6.0
+					]
+				}
+			},
+			{
+				"name": "left-drive",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "left-lifter",
+					"link": "base",
+					"position": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"x_axis": [
+						1.0,
+						0.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"articulation": "left-lifter",
+					"link": "carriage",
+					"position": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"x_axis": [
+						1.0,
+						0.0,
+						0.0
+					]
+				},
+				"linear": [
+					{
+						"mode": "driven",
+						"target_position": 2.0,
+						"stiffness": 120.0,
+						"damping": 24.0,
+						"max_force": 500.0
+					}
+				]
+			},
+			{
+				"name": "right-drive",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "right-lifter",
+					"link": "base",
+					"position": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"x_axis": [
+						-1.0,
+						0.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"articulation": "right-lifter",
+					"link": "carriage",
+					"position": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"x_axis": [
+						-1.0,
+						0.0,
+						0.0
+					]
+				},
+				"linear": [
+					{
+						"mode": "driven",
+						"target_position": 2.0,
+						"stiffness": 120.0,
+						"damping": 24.0,
+						"max_force": 500.0
+					}
+				]
+			}
+		]
+	}
+}

@@ -1,0 +1,239 @@
+{
+	"scene": {
+		"demo": {
+			"name": "Buoyant Articulation",
+			"group": "Buoyancy",
+			"order": 150,
+			"command": "buoyant-articulation"
+		},
+		"description": "GPU buoyancy applied independently to the links of a floating tree.",
+		"gravity": [
+			0.0,
+			0.0,
+			-9.81000042
+		],
+		"material": {
+			"friction": 0.60000002,
+			"elasticity": 0.05
+		},
+		"physics": {
+			"substeps": 1
+		},
+		"water": {
+			"level": 0.0,
+			"size": [
+				24.0,
+				18.0
+			],
+			"grid": [
+				48,
+				48
+			],
+			"colour": "0x602080FF",
+			"waves": [
+				{
+					"direction": [
+						1.0,
+						0.34999999
+					],
+					"wavelength": 8.0,
+					"amplitude": 0.18000001,
+					"phase_speed": 1.0
+				}
+			]
+		},
+		"shapes": {
+			"root-shape": {
+				"name": "root-shape",
+				"type": "box",
+				"dimensions": [
+					2.20000005,
+					1.29999995,
+					0.80000001
+				]
+			},
+			"link-shape": {
+				"name": "link-shape",
+				"type": "box",
+				"dimensions": [
+					1.60000002,
+					0.69999999,
+					0.55000001
+				]
+			}
+		},
+		"articulations": [
+			{
+				"name": "buoyant-tree",
+				"root_type": "floating",
+				"root_transform": {
+					"position": [
+						0.0,
+						0.0,
+						-0.2
+					],
+					"rotation_axis": [
+						0.0,
+						1.0,
+						0.0
+					],
+					"rotation_angle": 10.31324005
+				},
+				"root": {
+					"name": "root",
+					"shape": "root-shape",
+					"mass": 420.0,
+					"collide_parent": false,
+					"collide_self": false,
+					"buoyant": true
+				},
+				"links": [
+					{
+						"name": "link-01",
+						"parent": "root",
+						"shape": "link-shape",
+						"mass": 95.0,
+						"collide_parent": false,
+						"collide_self": false,
+						"buoyant": true,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									1.20000005,
+									0.0,
+									0.0
+								]
+							},
+							"child_frame": {
+								"position": [
+									-0.80000001,
+									0.0,
+									0.0
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.12
+								}
+							]
+						}
+					},
+					{
+						"name": "link-02",
+						"parent": "link-01",
+						"shape": "link-shape",
+						"mass": 95.0,
+						"collide_parent": false,
+						"collide_self": false,
+						"buoyant": true,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.80000001,
+									0.0,
+									0.0
+								]
+							},
+							"child_frame": {
+								"position": [
+									-0.80000001,
+									0.0,
+									0.0
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": -0.12
+								}
+							]
+						}
+					},
+					{
+						"name": "link-03",
+						"parent": "link-02",
+						"shape": "link-shape",
+						"mass": 95.0,
+						"collide_parent": false,
+						"collide_self": false,
+						"buoyant": true,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.80000001,
+									0.0,
+									0.0
+								]
+							},
+							"child_frame": {
+								"position": [
+									-0.80000001,
+									0.0,
+									0.0
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.12
+								}
+							]
+						}
+					},
+					{
+						"name": "link-04",
+						"parent": "link-03",
+						"shape": "link-shape",
+						"mass": 95.0,
+						"collide_parent": false,
+						"collide_self": false,
+						"buoyant": true,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.80000001,
+									0.0,
+									0.0
+								]
+							},
+							"child_frame": {
+								"position": [
+									-0.80000001,
+									0.0,
+									0.0
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": -0.12
+								}
+							]
+						}
+					}
+				]
+			}
+		]
+	}
+}

@@ -1111,9 +1111,7 @@ namespace physics_sandbox::diag
 			throw std::runtime_error("Scene diagnostic metrics are mutually exclusive: use one of -column_metric, -pyramid_metric, -cradle_metric, -dzhanibekov_metric, or -sleep_metric");
 
 		Emit(log, std::format("Scene diagnostic log: {}\n", log_path.string()));
-		Emit(log, options.m_demo
-			? std::format("Scene diagnostic demo: {}\n", GetDemoInfo(*options.m_demo).m_name)
-			: std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
+		Emit(log, std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
 		Emit(log, std::format("steps={} dt={:.8f} report_interval={}\n", options.m_steps, options.m_dt, options.m_report_interval));
 		if (options.m_engine_profile)
 			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,constraint_pack_ms,articulation_pack_ms,upload_ms,constraint_upload_ms,articulation_upload_ms,external_forces_ms,integrate_ms,articulation_integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms,gpu_prepare_ms,gpu_execute_ms,gpu_wait_ms,gpu_reset_ms,readback_access_ms,body_readback_copy_ms,contact_readback_copy_ms,collision_events_ms,sleep_island_unpack_ms,body_unpack_ms,articulation_unpack_ms,unpack_diagnostics_ms,substeps,submissions,waits,readback_copies\n");
@@ -1134,13 +1132,10 @@ namespace physics_sandbox::diag
 		else
 			Emit(log, std::format("trace_body={} trace_start={} trace_end={} ke_jump={:.3f}\n", options.m_trace_body, options.m_trace_start, options.m_trace_end, options.m_trace_ke_jump));
 
-		// Programmatic demos own their complete scene setup, so avoid parsing an unrelated default JSON scene.
-		if (!options.m_demo && !std::filesystem::exists(options.m_scene_filepath))
+		if (!std::filesystem::exists(options.m_scene_filepath))
 			throw std::runtime_error(std::format("Scene file not found: {}", options.m_scene_filepath.string()));
 
-		auto scene_desc = options.m_demo
-			? scene_loader::SceneDesc{}
-			: scene_loader::LoadFromFile(options.m_scene_filepath);
+		auto scene_desc = scene_loader::LoadFromFile(options.m_scene_filepath);
 		if (options.m_physics_substeps)
 		{
 			if (*options.m_physics_substeps < 1)
@@ -1272,16 +1267,7 @@ namespace physics_sandbox::diag
 		auto pyramid_metric = options.m_pyramid_metric ? CreatePyramidMetric(scene_desc) : PyramidMetricState{};
 		auto cradle_metric = options.m_cradle_metric ? CreateCradleMetric(scene_desc) : CradleMetricState{};
 		auto scene = Scene(nullptr);
-		if (options.m_demo)
-		{
-			scene.LoadDemo(*options.m_demo);
-			if (options.m_physics_substeps)
-				scene.m_physics_substeps = *options.m_physics_substeps;
-		}
-		else
-		{
-			scene.LoadScene(std::move(scene_desc));
-		}
+		scene.LoadScene(std::move(scene_desc));
 		if (
 			options.m_buoyancy_linear_drag_time_constant_s ||
 			options.m_buoyancy_angular_drag_time_constant_s ||

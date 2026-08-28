@@ -1,0 +1,440 @@
+{
+	"scene": {
+		"demo": {
+			"name": "Robot Arm and Gripper",
+			"group": "Articulations and Robotics",
+			"order": 80,
+			"command": "robot-gripper"
+		},
+		"description": "Joint motors, prismatic fingers, manipulation contact, and feedback through one tree.",
+		"gravity": [
+			0.0,
+			0.0,
+			-9.81000042
+		],
+		"material": {
+			"friction": 0.60000002,
+			"elasticity": 0.05
+		},
+		"physics": {
+			"substeps": 1,
+			"solver_iterations": 4,
+			"position_iterations": 1
+		},
+		"ground_plane": {
+			"size": [
+				20.0,
+				20.0
+			],
+			"height": 0.0,
+			"colour": "0xFF606068"
+		},
+		"shapes": {
+			"base-shape": {
+				"name": "base-shape",
+				"type": "sphere",
+				"radius": 0.44999999
+			},
+			"shoulder-shape": {
+				"name": "shoulder-shape",
+				"type": "box",
+				"dimensions": [
+					0.44999999,
+					0.44999999,
+					2.4000001
+				]
+			},
+			"elbow-shape": {
+				"name": "elbow-shape",
+				"type": "box",
+				"dimensions": [
+					0.40000001,
+					0.40000001,
+					1.89999998
+				]
+			},
+			"palm-shape": {
+				"name": "palm-shape",
+				"type": "box",
+				"dimensions": [
+					1.79999995,
+					0.64999998,
+					0.44999999
+				]
+			},
+			"finger-shape": {
+				"name": "finger-shape",
+				"type": "box",
+				"dimensions": [
+					0.28,
+					0.44999999,
+					1.29999995
+				]
+			},
+			"payload-shape": {
+				"name": "payload-shape",
+				"type": "sphere",
+				"radius": 0.47999999
+			}
+		},
+		"bodies": [
+			{
+				"name": "payload",
+				"shape": "payload-shape",
+				"mass": 0.80000001,
+				"position": [
+					-0.90787399,
+					-0.74501002,
+					1.9929688
+				],
+				"colour": "0xFFFF6060"
+			}
+		],
+		"articulations": [
+			{
+				"name": "robot-gripper",
+				"root_type": "fixed",
+				"root_transform": {
+					"position": [
+						0.0,
+						0.0,
+						8.0
+					]
+				},
+				"root": {
+					"name": "base",
+					"shape": "base-shape",
+					"mass": 2.0,
+					"collide_parent": false,
+					"collide_self": false
+				},
+				"links": [
+					{
+						"name": "shoulder",
+						"parent": "base",
+						"shape": "shoulder-shape",
+						"mass": 2.0,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.0
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									1.20000005
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.15000001
+								}
+							]
+						}
+					},
+					{
+						"name": "elbow",
+						"parent": "shoulder",
+						"shape": "elbow-shape",
+						"mass": 1.5,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-1.20000005
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.94999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": -0.2
+								}
+							]
+						}
+					},
+					{
+						"name": "palm",
+						"parent": "elbow",
+						"shape": "palm-shape",
+						"mass": 1.0,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-1.64999998
+								]
+							},
+							"axes": []
+						}
+					},
+					{
+						"name": "finger-a",
+						"parent": "palm",
+						"shape": "finger-shape",
+						"mass": 0.44999999,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									-0.68000001,
+									0.0,
+									-0.5
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.64999998
+								]
+							},
+							"axes": [
+								{
+									"type": "prismatic",
+									"axis": [
+										-1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.34999999
+								}
+							]
+						}
+					},
+					{
+						"name": "finger-b",
+						"parent": "palm",
+						"shape": "finger-shape",
+						"mass": 0.44999999,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.68000001,
+									0.0,
+									-0.5
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.64999998
+								]
+							},
+							"axes": [
+								{
+									"type": "prismatic",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.34999999
+								}
+							]
+						}
+					}
+				]
+			}
+		],
+		"constraints": [
+			{
+				"name": "shoulder-drive",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "robot-gripper",
+					"link": "base",
+					"position": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"articulation": "robot-gripper",
+					"link": "shoulder",
+					"position": [
+						0.0,
+						0.0,
+						1.20000005
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"angular": [
+					{
+						"mode": "driven",
+						"target_position": 0.34999999,
+						"stiffness": 90.0,
+						"damping": 18.0,
+						"max_force": 180.0
+					}
+				]
+			},
+			{
+				"name": "elbow-drive",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "robot-gripper",
+					"link": "shoulder",
+					"position": [
+						0.0,
+						0.0,
+						-1.20000005
+					],
+					"x_axis": [
+						1.0,
+						0.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"articulation": "robot-gripper",
+					"link": "elbow",
+					"position": [
+						0.0,
+						0.0,
+						0.94999999
+					],
+					"x_axis": [
+						1.0,
+						0.0,
+						0.0
+					]
+				},
+				"angular": [
+					{
+						"mode": "driven",
+						"target_position": -0.44999999,
+						"stiffness": 90.0,
+						"damping": 18.0,
+						"max_force": 180.0
+					}
+				]
+			},
+			{
+				"name": "finger-a-drive",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "robot-gripper",
+					"link": "palm",
+					"position": [
+						-0.68000001,
+						0.0,
+						-0.5
+					],
+					"x_axis": [
+						-1.0,
+						0.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"articulation": "robot-gripper",
+					"link": "finger-a",
+					"position": [
+						0.0,
+						0.0,
+						0.64999998
+					],
+					"x_axis": [
+						-1.0,
+						0.0,
+						0.0
+					]
+				},
+				"linear": [
+					{
+						"mode": "driven",
+						"target_position": 0.0,
+						"stiffness": 120.0,
+						"damping": 24.0,
+						"max_force": 90.0
+					}
+				]
+			},
+			{
+				"name": "finger-b-drive",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "robot-gripper",
+					"link": "palm",
+					"position": [
+						0.68000001,
+						0.0,
+						-0.5
+					],
+					"x_axis": [
+						1.0,
+						0.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"articulation": "robot-gripper",
+					"link": "finger-b",
+					"position": [
+						0.0,
+						0.0,
+						0.64999998
+					],
+					"x_axis": [
+						1.0,
+						0.0,
+						0.0
+					]
+				},
+				"linear": [
+					{
+						"mode": "driven",
+						"target_position": 0.0,
+						"stiffness": 120.0,
+						"damping": 24.0,
+						"max_force": 90.0
+					}
+				]
+			}
+		]
+	}
+}
