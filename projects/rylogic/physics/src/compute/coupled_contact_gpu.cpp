@@ -66,7 +66,7 @@ namespace pr::physics
 			float m_position_slop;
 			float m_position_beta;
 			float m_max_position_speed;
-			float m_pad0;
+			int m_position_iteration_index;
 			float m_pad1;
 		};
 		static_assert(sizeof(cbCoupledContact) == 80);
@@ -375,7 +375,7 @@ namespace pr::physics
 	{
 		if (!m_active || !(m_config.warm_start_scale > 0.0f))
 			return;
-		RunTransaction(job, m_cs_build_warm_start, static_cast<int>(ECoupledContactPhase::WarmStart));
+		RunTransaction(job, m_cs_build_warm_start, static_cast<int>(ECoupledContactPhase::WarmStart), -1);
 	}
 
 	// Execute one degree-damped block-Jacobi velocity iteration through a complete-tree ABA response.
@@ -383,7 +383,7 @@ namespace pr::physics
 	{
 		if (!m_active)
 			return;
-		RunTransaction(job, m_cs_build_candidates, static_cast<int>(ECoupledContactPhase::Velocity));
+		RunTransaction(job, m_cs_build_candidates, static_cast<int>(ECoupledContactPhase::Velocity), -1);
 	}
 
 	// Clear contact-owned pseudo state before detached penetration correction.
@@ -407,12 +407,15 @@ namespace pr::physics
 		return true;
 	}
 
-	// Execute one degree-damped detached penetration-correction iteration.
-	void GpuCoupledContactSolver::SolvePositionIteration(GpuJob& job)
+	// Execute one zero-based monotone detached penetration-correction iteration with acceleration confined to the initial sweep.
+	void GpuCoupledContactSolver::SolvePositionIteration(GpuJob& job, int position_iteration_index)
 	{
 		if (!m_active)
 			return;
-		RunTransaction(job, m_cs_build_position_candidates, static_cast<int>(ECoupledContactPhase::Position));
+		if (position_iteration_index < 0)
+			throw std::invalid_argument("Coupled contact position iteration index must be non-negative");
+
+		RunTransaction(job, m_cs_build_position_candidates, static_cast<int>(ECoupledContactPhase::Position), position_iteration_index);
 	}
 
 	// Apply converged pseudo state once to rigid transforms and articulation coordinates.
@@ -507,7 +510,7 @@ namespace pr::physics
 	}
 
 	// Run one warm-start, velocity, or position candidate through deterministic gather and detached ABA evaluation.
-	void GpuCoupledContactSolver::RunTransaction(GpuJob& job, ComputeStep& build_step, int phase)
+	void GpuCoupledContactSolver::RunTransaction(GpuJob& job, ComputeStep& build_step, int phase, int position_iteration_index)
 	{
 		if (
 			m_r_counters == nullptr ||
@@ -518,7 +521,7 @@ namespace pr::physics
 			throw std::logic_error("Coupled contact transaction requires prepared frame resources");
 
 		DispatchCommon(job, m_cs_begin, phase, m_work_count);
-		DispatchCommon(job, build_step, phase, m_max_contacts);
+		DispatchCommon(job, build_step, phase, m_max_contacts, position_iteration_index);
 		DispatchCommon(job, m_cs_gather, phase, m_max_contacts);
 		m_impulse_aba.Evaluate(job, m_r_tree_selection.get(), m_r_tree_results.get());
 		switch (static_cast<ECoupledContactPhase>(phase))
@@ -548,7 +551,7 @@ namespace pr::physics
 	}
 
 	// Bind and dispatch one common contact phase over a non-empty logical work range.
-	void GpuCoupledContactSolver::DispatchCommon(GpuJob& job, ComputeStep& step, int phase, int item_count)
+	void GpuCoupledContactSolver::DispatchCommon(GpuJob& job, ComputeStep& step, int phase, int item_count, int position_iteration_index)
 	{
 		if (item_count <= 0)
 			return;
@@ -576,7 +579,7 @@ namespace pr::physics
 			.m_position_slop = m_config.position_slop,
 			.m_position_beta = m_config.position_baumgarte,
 			.m_max_position_speed = m_config.constraint_max_position_speed,
-			.m_pad0 = 0.0f,
+			.m_position_iteration_index = position_iteration_index,
 			.m_pad1 = 0.0f,
 		};
 		job.m_cmd_list.SetPipelineState(step.m_pso.get());
@@ -648,7 +651,7 @@ namespace pr::physics
 			.m_position_slop = m_config.position_slop,
 			.m_position_beta = m_config.position_baumgarte,
 			.m_max_position_speed = m_config.constraint_max_position_speed,
-			.m_pad0 = 0.0f,
+			.m_position_iteration_index = -1,
 			.m_pad1 = 0.0f,
 		};
 		job.m_cmd_list.SetPipelineState(step.m_pso.get());
@@ -711,7 +714,7 @@ namespace pr::physics
 			.m_position_slop = m_config.position_slop,
 			.m_position_beta = m_config.position_baumgarte,
 			.m_max_position_speed = m_config.constraint_max_position_speed,
-			.m_pad0 = 0.0f,
+			.m_position_iteration_index = -1,
 			.m_pad1 = 0.0f,
 		};
 		job.m_cmd_list.SetPipelineState(m_cs_apply_position.m_pso.get());

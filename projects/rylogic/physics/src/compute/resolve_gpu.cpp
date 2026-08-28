@@ -597,7 +597,7 @@ namespace pr::physics
 					if (coupled_position_active)
 						coupled_constraint_solver->SolvePositionIteration(job, bodies.get(), substep_index);
 					if (coupled_contact_position_active)
-						coupled_contact_solver->SolvePositionIteration(job);
+						coupled_contact_solver->SolvePositionIteration(job, iter);
 				}
 				cb_resolve.colour = 0;
 			}

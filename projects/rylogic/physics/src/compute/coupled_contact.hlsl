@@ -41,7 +41,7 @@ struct cbCoupledContact
 
 	float position_beta;
 	float max_position_speed;
-	float pad0;
+	int position_iteration_index;
 	float pad1;
 };
 
@@ -694,7 +694,7 @@ void CSBuildCoupledContactCandidates(int3 DTID(dtid))
 		block.inverse_response_1.xyz,
 		block.inverse_response_2.xyz);
 
-	// One over the largest endpoint degree is a conservative additive-Jacobi partition of unity for arbitrary rigid/tree contact graphs.
+	// Partition simultaneous physical impulses by maximum endpoint degree so arbitrary contact graphs cannot inject kinetic energy through additive overlap.
 	uint degree_a = block.participant_a >= 0 ? g_coupled_contact_participant_degrees[block.participant_a] : 0u;
 	uint degree_b = block.participant_b >= 0 ? g_coupled_contact_participant_degrees[block.participant_b] : 0u;
 	float damping = g_coupled_contact.relaxation / max(1.0f, (float)max(degree_a, degree_b));
@@ -743,15 +743,22 @@ void CSBuildCoupledContactPositionCandidates(int3 DTID(dtid))
 		block.inverse_response_1.xyz,
 		block.inverse_response_2.xyz);
 
-	// Degree damping bounds simultaneous additive corrections when arbitrary graphs share one rigid body or complete tree.
+	float3 old_impulse = scratch.position_impulse.xyz;
 	uint degree_a = block.participant_a >= 0 ? g_coupled_contact_participant_degrees[block.participant_a] : 0u;
 	uint degree_b = block.participant_b >= 0 ? g_coupled_contact_participant_degrees[block.participant_b] : 0u;
-	float damping = g_coupled_contact.relaxation / max(1.0f, (float)max(degree_a, degree_b));
-	float3 old_impulse = scratch.position_impulse.xyz;
+	float participant_degree = max(1.0f, (float)max(degree_a, degree_b));
+
+	// Accelerate only the zero-pseudo-velocity first sweep; later contacts need conservative damping even when their accumulated impulse is still zero.
+	float damping = g_coupled_contact.position_iteration_index == 0
+		? g_coupled_contact.relaxation * min(1.0f, 1.0f / max(g_coupled_contact.position_beta * participant_degree, 1.0f))
+		: g_coupled_contact.relaxation / participant_degree;
 	float3 candidate = CoupledContactProjectImpulse(
 		old_impulse - damping * mul(inverse_response, residual),
 		contact.axis.xyz,
 		0.0f);
+
+	// Retain accepted normal push-out because stale residuals from another shared-tree contact must not retract separation within the fixed manifold.
+	candidate = max(dot(candidate, contact.axis.xyz), dot(old_impulse, contact.axis.xyz)) * contact.axis.xyz;
 	float3 impulse_delta = candidate - old_impulse;
 	if (
 		!CoupledContactVectorFinite(relative_velocity) ||

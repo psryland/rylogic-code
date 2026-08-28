@@ -31,7 +31,7 @@ and 20 runtime-editable JSON physics-sandbox demonstrations.
 | Featherstone fast path | Fixed- and floating-root trees run force ABA and bounded implicit-midpoint integration without entering the arbitrary-constraint lane |
 | Dynamics preservation | Dense ABA oracles, zero-torque Coriolis cases, free-floating conservation, torque-free rigid motion, and Dzhanibekov regressions pass |
 | Robust arbitrary constraints | D6 joints, loops, rigid/tree and tree/tree coupling, link contacts, split position correction, breakage, and bounded non-convergence diagnostics pass targeted suites |
-| Real-time demonstrations | All 20 Release demos exceeded 40 FPS, spanning 43.42-151.84 physics FPS in warmed headless measurement |
+| Real-time demonstrations | All 20 Release demos exceeded 40 FPS, spanning 40.44-279.16 physics FPS in the final warmed headless acceptance run |
 | Legacy performance | 19 of 22 baseline scenes remained within the 10% tolerance or improved; the other three generated 31.8-33.3% more contacts while taking 16.0-17.7% more time, improving contact throughput |
 
 The final native validation passed all 1,188 Quick tests and the complete targeted internal-substep, coupled-engine, collision-pair, compound-shape, and
@@ -234,6 +234,12 @@ never be corrected independently of the articulation tree.
 
 Position projection can alter potential energy despite leaving kinetic momentum unchanged. Corrections must therefore be capped, measured, and kept small by
 using internal substeps.
+
+For an articulation participant with simultaneous contact degree $d$, the first fixed-manifold sweep uses
+$\rho\min(1,1/\max(\beta d,1))$ relaxation and later sweeps use $\rho/d$. A coherent equal-depth response therefore moves by at most $\rho C$ on the
+accelerated sweep, independent of $d$, so $\rho\leq1$ introduces no intentional support gap. The maximum correction speed can only reduce this bound.
+A contact that first requires correction on a later sweep always uses the conservative $\rho/d$ rule. Accepted normal correction remains monotone only within
+the current manifold; pseudo state and position impulses are cleared before the next frame.
 
 ### Restitution and motors
 
@@ -875,7 +881,8 @@ The implementation uses:
 - Monotone merit checks for coupled projected iterations.
 - Warm-start scaling when $h$ changes.
 - Warm-start invalidation after material feature, normal, topology, or endpoint changes.
-- Capped position correction separated from physical velocity.
+- Maximum-endpoint-degree partitioning of simultaneous physical contact impulses, preserving passivity for redundant shared-tree contacts.
+- Capped position correction separated from physical velocity, with penetration-limited initial acceleration and degree-damped monotone refinements inside each fixed manifold.
 - Bounded rotation-log errors for angular correction.
 - Finite-state validation in debug kernels.
 - Explicit regularization and diagnostics for singular systems.
@@ -912,7 +919,7 @@ not implied by ordinary inertial-frame multibody dynamics.
 | Contradictory constraints | Residual remains nonzero instead of allowing unbounded impulses |
 | Extreme mass ratios | Poor conditioning; stress tests cover at least $10^6:1$ |
 | High-degree body hub | Exhausts bounded colours; route conflicting excess blocks through the coherent fallback, preserving correctness with less parallelism |
-| Many constraints on one articulation | ABA remains linear per iteration, but the projected iteration may need stronger damping |
+| Many constraints on one articulation | ABA remains linear per iteration; degree-partitioned physical impulses preserve passivity but can converge slowly, so use internal substeps or more iterations |
 | Deep single articulation | Linear work but depth-dependent critical path and low GPU occupancy |
 | Many small articulations | Good GPU occupancy across independent trees |
 | Stiff servo | Deliberately adds energy; require finite force/torque and work limits |
@@ -1052,6 +1059,7 @@ For both the asymmetric rigid body and free-floating articulation:
 - World translation and rotation metamorphic tests.
 - Constraint insertion-order permutations.
 - Warm-start on/off convergence comparisons.
+- Nine and 100 coherent support contacts on one floating tree, including one, two, and four detached position sweeps.
 - CPU determinism hashes.
 - Long-duration non-bitwise GPU soak tests.
 - Zero-feature allocation, dispatch, and readback identity.
@@ -1070,9 +1078,9 @@ For both the asymmetric rigid body and free-floating articulation:
 
 | Gate | Result |
 |---|---|
-| Native regression suite | All 1,188 Quick tests passed |
+| Native regression suite | All 1,188 Quick, 270 Extended, and 26 Stress tests passed |
 | Internal GPU substeps | All 9 tests passed, covering force replay, one-boundary scheduling, event ordering/overflow, and warm starts |
-| Coupled engine integration | All 17 tests passed, including rigid/tree transfer, private proxy contacts, failure transactions, and split correction |
+| Coupled engine integration | All 19 tests passed, including rigid/tree transfer, private proxy contacts, failure transactions, split correction, late-activating contacts, and coherent degree-nine/degree-100 support without positive support gaps |
 | Collision pair and compounds | All 10 collision-pair and 11 compound-shape tests passed |
 | Articulation midpoint | All 21 tests passed, including fixed/floating roots, force ABA, midpoint convergence, rollback, and resource accounting |
 | Saturated row scaling | 50,004 rows: 21.683 ms; 100,002 rows: 43.290 ms; ratio 2.00, below the 2.2 limit |
@@ -1089,11 +1097,11 @@ equivalent workloads after correctness changes increased their generated contact
 
 | Scene | Contact change | Physics-time change | Contact-throughput change |
 |---|---:|---:|---:|
-| `generated_stress.json` | +31.81% | +17.66% | +12.03% |
-| `simultaneous_impact_1000.json` | +33.33% | +15.99% | +14.95% |
-| `stress_test_1000.json` | +31.75% | +16.55% | +13.04% |
+| `generated_stress.json` | +31.81% | +11.99% | +17.70% |
+| `simultaneous_impact_1000.json` | +33.33% | +18.13% | +12.87% |
+| `stress_test_1000.json` | +31.75% | +16.99% | +12.62% |
 
-The 2,000-brick legacy stress scene remains within the 10% gate at +9.36%. Instrumented profiling showed it is GPU dominated; compact events and copy-engine
+The 2,000-brick legacy stress scene remains within the 10% gate at +8.95%. Instrumented profiling showed it is GPU dominated; compact events and copy-engine
 body gathering reduced the final measured frame to approximately 8.33 ms.
 
 ## Incremental Roadmap
@@ -1201,30 +1209,35 @@ Pure-tree ABA is not conditional on this gate.
 ## Demonstration Catalogue
 
 Each command is available through `physics-sandbox.exe -demo <command>`. Interactive FPS is the minimum of five observed post-warm-up samples; headless physics
-FPS is the warmed production Release median.
+FPS is the measured interval after a 300-step warm-up in the final production Release acceptance run.
 
 | Command | Features proved | Interactive min FPS | Headless physics FPS |
 |---|---|---:|---:|
-| `pendulum` | Passive physical pendulum and analytic small-angle period | 60 | 65.26 |
-| `rigid-joints` | Ball, hinge, slider, weld, motor, breakable D6, limits, and compliance | 60 | 60.22 |
-| `rigid-chain` | Long graph-coloured rigid chain and iteration propagation | 60 | 53.63 |
-| `four-bar` | Closed-loop mechanism that cannot be represented by one tree | 60 | 54.17 |
-| `fixed-articulations` | Fixed-root Featherstone chains of several sizes | 60 | 151.84 |
-| `ragdolls` | Many branched floating articulations and contacts | 60 | 123.34 |
-| `robot-motors` | Reduced-coordinate links controlled by driven and limited rows | 41 | 46.01 |
-| `robot-gripper` | Motors, prismatic fingers, manipulation contact, and tree feedback | 44 | 48.54 |
-| `vehicle-suspension` | Driven compliant suspension, travel limits, and wheel contacts | 60 | 53.59 |
-| `suspension-bridge` | Cyclic rigid graph with pinned corners and distributed load | 60 | 49.48 |
-| `mixed-coupling` | Rigid-to-tree and direct tree-to-tree persistent constraints | 44 | 50.10 |
-| `articulation-push` | Driven articulation transferring momentum to a rigid stack | 45 | 48.93 |
-| `two-robot-load` | Two independent trees supporting one constrained payload | 47 | 52.03 |
-| `mixed-contacts` | Rigid/tree, tree/tree, and non-adjacent same-tree contacts | 60 | 119.62 |
-| `buoyant-articulation` | GPU buoyancy applied independently to floating-tree links | 60 | 58.76 |
-| `floating-conservation` | Coriolis effects, momentum conservation, and bounded energy | 60 | 75.11 |
-| `dzhanibekov` | Rigid and floating-root intermediate-axis instability | 60 | 72.08 |
-| `constraint-pathologies` | Redundancy, extreme mass ratios, and near-singular loops | 60 | 58.48 |
-| `constraint-stress` | Cyclic two-dimensional graph and fixed-iteration scaling | 60 | 86.78 |
-| `constraints-full-showcase` | Rigid joints, loops, breakage, fixed/floating articulations, motors, limits, mixed coupling, and self-contact | 60 | 43.42 |
+| `pendulum` | Passive physical pendulum and analytic small-angle period | 60 | 63.45 |
+| `rigid-joints` | Ball, hinge, slider, weld, motor, breakable D6, limits, and compliance | 60 | 60.33 |
+| `rigid-chain` | Long graph-coloured rigid chain and iteration propagation | 60 | 51.86 |
+| `four-bar` | Closed-loop mechanism that cannot be represented by one tree | 60 | 49.65 |
+| `fixed-articulations` | Fixed-root Featherstone chains of several sizes | 60 | 150.83 |
+| `ragdolls` | Many branched floating articulations and sustained ground contacts | 60 | 40.44 |
+| `robot-motors` | Reduced-coordinate links controlled by driven and limited rows | 41 | 45.20 |
+| `robot-gripper` | Motors, prismatic fingers, manipulation contact, and tree feedback | 44 | 50.06 |
+| `vehicle-suspension` | Driven compliant suspension, travel limits, and wheel contacts | 60 | 62.60 |
+| `suspension-bridge` | Cyclic rigid graph with pinned corners and distributed load | 60 | 56.55 |
+| `mixed-coupling` | Rigid-to-tree and direct tree-to-tree persistent constraints | 44 | 50.92 |
+| `articulation-push` | Driven articulation transferring momentum to a rigid stack | 45 | 48.74 |
+| `two-robot-load` | Two independent trees supporting one constrained payload | 47 | 53.43 |
+| `mixed-contacts` | Rigid/tree, tree/tree, and non-adjacent same-tree contacts | 60 | 137.22 |
+| `buoyant-articulation` | GPU buoyancy applied independently to floating-tree links | 60 | 279.16 |
+| `floating-conservation` | Coriolis effects, momentum conservation, and bounded energy | 60 | 77.55 |
+| `dzhanibekov` | Rigid and floating-root intermediate-axis instability | 60 | 72.52 |
+| `constraint-pathologies` | Redundancy, extreme mass ratios, and near-singular loops | 60 | 60.99 |
+| `constraint-stress` | Cyclic two-dimensional graph and fixed-iteration scaling | 60 | 92.23 |
+| `constraints-full-showcase` | Rigid joints, loops, breakage, fixed/floating articulations, motors, limits, mixed coupling, and self-contact | 60 | 43.68 |
+
+The final ragdoll scene uses three internal substeps, 10 physical contact sweeps, and one detached position sweep while retaining one submission, wait, and
+readback per frame. Three 10-second runs settled to 35.4-50.7 mm maximum ground penetration with a 54.0 mm worst impact transient. Its warmed three-run median
+was 49.65 physics FPS; the conservative final all-demo acceptance sample was 40.44 FPS. Visual checks at construction and after settling confirmed six
+separated bodies, outward-facing arms, uncrossed legs, and no deep ground clipping.
 
 ## Final Design Position
 

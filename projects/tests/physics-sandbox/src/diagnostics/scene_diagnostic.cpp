@@ -14,6 +14,8 @@ namespace physics_sandbox::diag
 			int m_contact_count = 0;
 			int m_body_a = -1;
 			int m_body_b = -1;
+			int m_articulation = -1;
+			int m_link = -1;
 			float m_kinetic_energy = 0.0f;
 		};
 
@@ -203,7 +205,10 @@ namespace physics_sandbox::diag
 
 			for (auto const& body : scene.m_body)
 				sample.m_kinetic_energy += body.KineticEnergy();
+			for (auto const& articulation : scene.m_articulation)
+				sample.m_kinetic_energy += articulation.KineticEnergy();
 
+			// Measure ordinary rigid-body overlaps, including contacts with the scene ground.
 			for (int i = 0; i != std::ssize(scene.m_body); ++i)
 			{
 				auto const& body_a = scene.m_body[i];
@@ -226,6 +231,39 @@ namespace physics_sandbox::diag
 						sample.m_max_depth = contact.m_depth;
 						sample.m_body_a = i;
 						sample.m_body_b = j;
+					}
+				}
+			}
+
+			// Articulation links are not present in m_body, so measure their ground overlap explicitly using the same packed-proxy index order as the engine.
+			if (scene.m_ground_body_index != -1)
+			{
+				auto const& ground = scene.m_body[scene.m_ground_body_index];
+				auto proxy_index = static_cast<int>(scene.m_body.size());
+				for (int articulation_index = 0; articulation_index != std::ssize(scene.m_articulation); ++articulation_index)
+				{
+					auto const& articulation = scene.m_articulation[articulation_index];
+					for (int link_index = 0; link_index != articulation.LinkCount(); ++link_index, ++proxy_index)
+					{
+						auto const link = articulation.LinkAt(link_index);
+						auto const& link_desc = articulation.LinkDescription(link);
+						if (link_desc.m_shape == nullptr)
+							continue;
+
+						auto contact = collision::Contact{};
+						auto const shape_to_world = articulation.LinkToWorld(link) * link_desc.m_shape_to_link;
+						if (!collision::Collide(ground.Shape(), ground.O2W(), *link_desc.m_shape, shape_to_world, contact))
+							continue;
+
+						++sample.m_contact_count;
+						if (contact.m_depth > sample.m_max_depth)
+						{
+							sample.m_max_depth = contact.m_depth;
+							sample.m_body_a = scene.m_ground_body_index;
+							sample.m_body_b = proxy_index;
+							sample.m_articulation = articulation_index;
+							sample.m_link = link_index;
+						}
 					}
 				}
 			}
@@ -1578,6 +1616,8 @@ namespace physics_sandbox::diag
 					result.m_max_depth_step = step + 1;
 					result.m_body_a = sample.m_body_a;
 					result.m_body_b = sample.m_body_b;
+					result.m_articulation = sample.m_articulation;
+					result.m_link = sample.m_link;
 				}
 
 				auto report_interval = std::max(options.m_report_interval, 1);
@@ -1593,11 +1633,13 @@ namespace physics_sandbox::diag
 
 		if (options.m_trace_body == -1 && !options.m_engine_profile && !options.m_scan_bodies && !options.m_cradle_metric && !options.m_dzhanibekov_metric)
 		{
-			Emit(log, std::format("worst: step={} max_depth={:.6f} pair=({},{})\n",
+			Emit(log, std::format("worst: step={} max_depth={:.6f} pair=({},{}) articulation={} link={}\n",
 				result.m_max_depth_step,
 				result.m_max_depth,
 				result.m_body_a,
-				result.m_body_b));
+				result.m_body_b,
+				result.m_articulation,
+				result.m_link));
 		}
 
 		return result;

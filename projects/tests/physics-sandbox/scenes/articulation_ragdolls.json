@@ -17,8 +17,8 @@
 			"elasticity": 0.05
 		},
 		"physics": {
-			"substeps": 1,
-			"solver_iterations": 4,
+			"substeps": 3,
+			"solver_iterations": 10,
 			"position_iterations": 1
 		},
 		"ground_plane": {
@@ -87,8 +87,8 @@
 				"root_type": "floating",
 				"root_transform": {
 					"position": [
+						-6.0,
 						-4.0,
-						-1.20000005,
 						6.0
 					],
 					"rotation_axis": [
@@ -171,7 +171,7 @@
 									1.0,
 									0.0
 								],
-								"rotation_angle": -90.0
+								"rotation_angle": 90.0
 							},
 							"child_frame": {
 								"position": [
@@ -317,7 +317,7 @@
 									1.0,
 									0.0
 								],
-								"rotation_angle": 90.0
+								"rotation_angle": -90.0
 							},
 							"child_frame": {
 								"position": [
@@ -451,8 +451,8 @@
 				"root_type": "floating",
 				"root_transform": {
 					"position": [
-						-2.4000001,
-						-1.20000005,
+						0.0,
+						-4.0,
 						7.69999981
 					],
 					"rotation_axis": [
@@ -535,7 +535,7 @@
 									1.0,
 									0.0
 								],
-								"rotation_angle": -90.0
+								"rotation_angle": 90.0
 							},
 							"child_frame": {
 								"position": [
@@ -681,7 +681,7 @@
 									1.0,
 									0.0
 								],
-								"rotation_angle": 90.0
+								"rotation_angle": -90.0
 							},
 							"child_frame": {
 								"position": [
@@ -815,8 +815,8 @@
 				"root_type": "floating",
 				"root_transform": {
 					"position": [
-						-0.80000001,
-						-1.20000005,
+						6.0,
+						-4.0,
 						9.39999962
 					],
 					"rotation_axis": [
@@ -899,7 +899,7 @@
 									1.0,
 									0.0
 								],
-								"rotation_angle": -90.0
+								"rotation_angle": 90.0
 							},
 							"child_frame": {
 								"position": [
@@ -1045,7 +1045,7 @@
 									1.0,
 									0.0
 								],
-								"rotation_angle": 90.0
+								"rotation_angle": -90.0
 							},
 							"child_frame": {
 								"position": [
@@ -1179,8 +1179,8 @@
 				"root_type": "floating",
 				"root_transform": {
 					"position": [
-						-4.0,
-						1.20000005,
+						-6.0,
+						4.0,
 						11.10000038
 					],
 					"rotation_axis": [
@@ -1263,7 +1263,7 @@
 									1.0,
 									0.0
 								],
-								"rotation_angle": -90.0
+								"rotation_angle": 90.0
 							},
 							"child_frame": {
 								"position": [
@@ -1409,7 +1409,7 @@
 									1.0,
 									0.0
 								],
-								"rotation_angle": 90.0
+								"rotation_angle": -90.0
 							},
 							"child_frame": {
 								"position": [
@@ -1543,8 +1543,8 @@
 				"root_type": "floating",
 				"root_transform": {
 					"position": [
-						-2.4000001,
-						1.20000005,
+						0.0,
+						4.0,
 						12.80000019
 					],
 					"rotation_axis": [
@@ -1627,7 +1627,7 @@
 									1.0,
 									0.0
 								],
-								"rotation_angle": -90.0
+								"rotation_angle": 90.0
 							},
 							"child_frame": {
 								"position": [
@@ -1773,7 +1773,7 @@
 									1.0,
 									0.0
 								],
-								"rotation_angle": 90.0
+								"rotation_angle": -90.0
 							},
 							"child_frame": {
 								"position": [
@@ -1907,8 +1907,8 @@
 				"root_type": "floating",
 				"root_transform": {
 					"position": [
-						-0.80000001,
-						1.20000005,
+						6.0,
+						4.0,
 						14.5
 					],
 					"rotation_axis": [
@@ -1991,7 +1991,7 @@
 									1.0,
 									0.0
 								],
-								"rotation_angle": -90.0
+								"rotation_angle": 90.0
 							},
 							"child_frame": {
 								"position": [
@@ -2137,7 +2137,7 @@
 									1.0,
 									0.0
 								],
-								"rotation_angle": 90.0
+								"rotation_angle": -90.0
 							},
 							"child_frame": {
 								"position": [

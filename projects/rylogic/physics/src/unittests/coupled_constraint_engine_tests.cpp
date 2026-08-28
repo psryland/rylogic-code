@@ -19,6 +19,20 @@ namespace pr::physics::tests
 			LinkHandle m_link;
 		};
 
+		// Settled metrics from one high-degree articulation support run.
+		struct HighDegreeSupportResult
+		{
+			float m_max_settled_penetration = 0.0f;
+			float m_max_support_gap = 0.0f;
+			float m_max_energy = 0.0f;
+			float m_max_settled_energy = 0.0f;
+			int m_max_contact_count = 0;
+			bool m_all_finite = true;
+			int m_submission_count = 0;
+			int m_wait_count = 0;
+			int m_readback_copy_count = 0;
+		};
+
 		// Return finite spherical mass properties for compact engine-level articulation fixtures.
 		ArticulationLinkDesc CoupledEngineLink(float mass = 1.0f)
 		{
@@ -99,6 +113,89 @@ namespace pr::physics::tests
 			auto const child = builder.AddLink(root, ArticulationJointDesc::Fixed(), make_link(0.2f));
 			builder.AddLink(child, ArticulationJointDesc::Fixed(), make_link(0.4f));
 			return builder.Build();
+		}
+
+		// Rest a high-degree floating tree on fixed geometry and report its sustained support quality.
+		HighDegreeSupportResult RunHighDegreeSupport(int support_link_count, int velocity_iteration_count, int position_iteration_count)
+		{
+			if (support_link_count <= 0)
+				throw std::invalid_argument("High-degree support requires at least one articulation link");
+
+			auto sphere_shape = collision::ShapeSphere{0.25f};
+			auto link_desc = ArticulationLinkDesc{
+				.m_inertia = Inertia::Sphere(sphere_shape.m_radius, 1.0f),
+				.m_shape = collision::shape_cast(&sphere_shape),
+				.m_collide_self = false,
+			};
+			auto builder = ArticulationBuilder{};
+			auto links = std::vector<LinkHandle>(support_link_count);
+			auto link_count = 0;
+			auto const root = builder.AddFloatingRoot(
+				link_desc,
+				m4x4::Translation(0.0f, 0.0f, 0.24f),
+				v8motion{v4::Zero(), -2.0f * v4::ZAxis()});
+			links[link_count++] = root;
+
+			// Coincident fixed links create the coherent redundant-contact worst case at the requested participant degree.
+			for (; link_count != isize(links); ++link_count)
+				links[link_count] = builder.AddLink(root, ArticulationJointDesc::Fixed(), link_desc);
+
+			auto articulation = builder.Build();
+			for (auto const link : links)
+				articulation.GravityWS(link, v4{0.0f, 0.0f, -9.81f, 0.0f});
+
+			// Exercise a deliberately low fixed velocity budget while varying only the detached position sweep count.
+			auto ground_shape = collision::ShapeBox{v4{8.0f, 8.0f, 1.0f, 0.0f}};
+			auto ground = RigidBody{collision::shape_cast(&ground_shape), m4x4::Translation(0.0f, 0.0f, -0.5f), Inertia::Infinite()};
+			auto body_ptrs = std::array<RigidBody*, 1>{&ground};
+			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			auto config = engine.Config();
+			config.solver_iterations = velocity_iteration_count;
+			config.push_out_iterations = position_iteration_count;
+			engine.Config(config);
+			engine.Material(Material{
+				.m_id = Material::DefaultID,
+				.m_friction_static = 0.0f,
+				.m_elasticity_norm = 0.0f,
+			});
+
+			// Retain only aggregate metrics over the settled second half so the regression remains allocation-free inside the frame loop.
+			auto result = HighDegreeSupportResult{};
+			for (int frame = 0; frame != 180; ++frame)
+			{
+				engine.Step(Engine::StepInput{
+					.m_bodies = body_ptrs,
+					.m_articulations = articulation_ptrs,
+					.m_elapsed_seconds = 1.0f / 60.0f,
+				});
+
+				auto penetration = 0.0f;
+				for (auto const link : links)
+				{
+					auto const link_z = articulation.LinkToWorld(link).pos.z;
+					result.m_all_finite &= std::isfinite(link_z);
+					penetration = std::max(penetration, sphere_shape.m_radius - link_z);
+					result.m_max_support_gap = std::max(result.m_max_support_gap, link_z - sphere_shape.m_radius);
+				}
+				auto const energy = articulation.KineticEnergy();
+				result.m_all_finite &= std::isfinite(energy);
+				result.m_max_energy = std::max(result.m_max_energy, energy);
+				result.m_max_contact_count = std::max(result.m_max_contact_count, engine.LastCollisionStats().m_contact_count);
+				if (frame >= 90)
+				{
+					result.m_max_settled_penetration = std::max(result.m_max_settled_penetration, penetration);
+					result.m_max_settled_energy = std::max(result.m_max_settled_energy, energy);
+				}
+			}
+
+			// Preserve the frame-level GPU contract while exposing the physical acceptance metrics.
+			auto const& profile = engine.LastStepProfile();
+			result.m_submission_count = profile.m_submission_count;
+			result.m_wait_count = profile.m_wait_count;
+			result.m_readback_copy_count = profile.m_readback_copy_count;
+			return result;
 		}
 	}
 
@@ -540,6 +637,114 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).ang, v4::Zero(), 1.0e-6f));
 			PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).lin, v4::Zero(), 1.0e-6f));
 			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+		}
+
+		// Keep sustained high-degree support bounded and passive for every practical detached position sweep count.
+		PRUnitTestMethod(HighDegreeArticulationSupportRemainsStable, Extended)
+		{
+			for (auto const position_iteration_count : std::array{1, 2, 4})
+			{
+				auto const result = RunHighDegreeSupport(9, 4, position_iteration_count);
+				pr::unittests::TestFramework::out() << std::format(
+					"  [high-degree-support] velocity_iterations=4 position_iterations={} max_contacts={} max_penetration={:.6g} max_gap={:.6g} max_energy={:.6g} settled_energy={:.6g}\n",
+					position_iteration_count,
+					result.m_max_contact_count,
+					result.m_max_settled_penetration,
+					result.m_max_support_gap,
+					result.m_max_energy,
+					result.m_max_settled_energy);
+				PR_EXPECT(result.m_all_finite);
+				PR_EXPECT(result.m_max_contact_count >= 9);
+				PR_EXPECT(result.m_max_settled_penetration < 0.01f);
+				PR_EXPECT(result.m_max_support_gap < 0.005f);
+				PR_EXPECT(result.m_max_energy < 0.01f);
+				PR_EXPECT(result.m_max_settled_energy < 0.001f);
+				PR_EXPECT(result.m_submission_count == 1);
+				PR_EXPECT(result.m_wait_count == 1);
+				PR_EXPECT(result.m_readback_copy_count == 1);
+			}
+
+			// A single legal velocity sweep must remain passive even when every coherent contact updates simultaneously.
+			auto const single_sweep = RunHighDegreeSupport(9, 1, 1);
+			pr::unittests::TestFramework::out() << std::format(
+				"  [high-degree-support] velocity_iterations=1 position_iterations=1 max_contacts={} max_energy={:.6g}\n",
+				single_sweep.m_max_contact_count,
+				single_sweep.m_max_energy);
+			PR_EXPECT(single_sweep.m_all_finite);
+			PR_EXPECT(single_sweep.m_max_contact_count >= 9);
+			PR_EXPECT(single_sweep.m_max_energy < 0.5f);
+			PR_EXPECT(single_sweep.m_submission_count == 1);
+			PR_EXPECT(single_sweep.m_wait_count == 1);
+			PR_EXPECT(single_sweep.m_readback_copy_count == 1);
+
+			// A degree-one-hundred coherent manifold must receive the same bounded geometric treatment as the practical support case.
+			auto const hundred_contact = RunHighDegreeSupport(100, 4, 1);
+			pr::unittests::TestFramework::out() << std::format(
+				"  [high-degree-support] velocity_iterations=4 position_iterations=1 max_contacts={} max_gap={:.6g} max_energy={:.6g}\n",
+				hundred_contact.m_max_contact_count,
+				hundred_contact.m_max_support_gap,
+				hundred_contact.m_max_energy);
+			PR_EXPECT(hundred_contact.m_all_finite);
+			PR_EXPECT(hundred_contact.m_max_contact_count >= 100);
+			PR_EXPECT(hundred_contact.m_max_support_gap < 0.005f);
+			PR_EXPECT(hundred_contact.m_max_energy < 0.01f);
+			PR_EXPECT(hundred_contact.m_submission_count == 1);
+			PR_EXPECT(hundred_contact.m_wait_count == 1);
+			PR_EXPECT(hundred_contact.m_readback_copy_count == 1);
+		}
+
+		// Use conservative damping when a contact first requires correction after the fixed-manifold initial sweep.
+		PRUnitTestMethod(LateActivatingPositionContactsUseConservativeDamping, Extended)
+		{
+			// Place nine shallow contacts opposite one deep contact so only the deep side contributes during the first position sweep.
+			auto shape = collision::ShapeSphere{0.5f};
+			auto link_desc = CoupledEngineLink();
+			link_desc.m_shape = collision::shape_cast(&shape);
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFloatingRoot(link_desc);
+			auto articulation = builder.Build();
+			auto fixed_bodies = std::vector<RigidBody>{};
+			fixed_bodies.reserve(10);
+			for (int body_index = 0; body_index != 9; ++body_index)
+				fixed_bodies.emplace_back(&shape, m4x4::Translation(-0.997f, 0.0f, 0.0f), Inertia::Infinite());
+
+			fixed_bodies.emplace_back(&shape, m4x4::Translation(+0.9f, 0.0f, 0.0f), Inertia::Infinite());
+			auto body_ptrs = std::vector<RigidBody*>{};
+			body_ptrs.reserve(fixed_bodies.size());
+			for (auto& body : fixed_bodies)
+				body_ptrs.push_back(&body);
+
+			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+
+			// Two sweeps expose late activation while disabling physical impulses keeps the observed motion purely positional.
+			auto& engine = SharedEngine();
+			ConfigureCoupledEngine(engine);
+			auto config = engine.Config();
+			config.solver_iterations = 0;
+			config.push_out_iterations = 2;
+			config.constraint_max_position_speed = 100.0f;
+			engine.Config(config);
+			engine.Material(Material{
+				.m_id = Material::DefaultID,
+				.m_friction_static = 0.0f,
+				.m_elasticity_norm = 0.0f,
+			});
+			engine.Step(Engine::StepInput{
+				.m_bodies = body_ptrs,
+				.m_articulations = articulation_ptrs,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+
+			// The shallow side may close its initial three-millimetre overlap but must not be over-corrected into a support gap.
+			auto const root_x = articulation.LinkToWorld(root).pos.x;
+			auto const shallow_support_gap = std::max(root_x - 0.003f, 0.0f);
+			PR_EXPECT(engine.LastCollisionStats().m_contact_count >= 10);
+			PR_EXPECT(shallow_support_gap < 0.005f);
+			PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).ang, v4::Zero(), 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(articulation.LinkVelocity(root).lin, v4::Zero(), 1.0e-6f));
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
 			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
 		}
 

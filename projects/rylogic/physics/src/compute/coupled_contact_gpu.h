@@ -116,8 +116,8 @@ namespace pr::physics
 		// Clear contact-owned pseudo state before detached penetration correction.
 		bool PreparePosition(GpuJob& job, int iteration_count);
 
-		// Execute one degree-damped detached penetration-correction iteration.
-		void SolvePositionIteration(GpuJob& job);
+		// Execute one zero-based monotone detached penetration-correction iteration with acceleration confined to the initial sweep.
+		void SolvePositionIteration(GpuJob& job, int position_iteration_index);
 
 		// Apply converged pseudo state once to rigid transforms and articulation coordinates.
 		void ApplyPosition(GpuJob& job);
@@ -134,10 +134,10 @@ namespace pr::physics
 		void UpdateMemoryStats();
 
 		// Run one warm-start, velocity, or position candidate through deterministic gather and detached ABA evaluation.
-		void RunTransaction(GpuJob& job, ComputeStep& build_step, int phase);
+		void RunTransaction(GpuJob& job, ComputeStep& build_step, int phase, int position_iteration_index);
 
-		// Bind and dispatch one common contact phase over a non-empty logical work range.
-		void DispatchCommon(GpuJob& job, ComputeStep& step, int phase, int item_count);
+		// Bind and dispatch one common contact phase over a non-empty logical work range with an optional zero-based position-sweep index.
+		void DispatchCommon(GpuJob& job, ComputeStep& step, int phase, int item_count, int position_iteration_index = -1);
 
 		// Bind and dispatch one complete-tree position validation or pseudo-state commit phase.
 		void DispatchPositionArticulations(GpuJob& job, ComputeStep& step, int phase);
