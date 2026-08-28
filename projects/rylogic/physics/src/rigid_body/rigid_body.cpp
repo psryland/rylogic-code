@@ -169,6 +169,12 @@ namespace pr::physics
 	}
 
 	// Return the model-origin-to-centre-of-mass offset in world orientation.
+	v4 RigidBody::CentreOfMassWS() const
+	{
+		return CentreOfMassOffsetWS();
+	}
+
+	// Return the model-origin-to-centre-of-mass offset in world orientation.
 	v4 RigidBody::CentreOfMassOffsetWS() const
 	{
 		return (O2W().rot * CentreOfMassOS()).w0();

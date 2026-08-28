@@ -53,13 +53,22 @@ namespace pr::physics
 		:RbContact(objA, objB)
 	{
 		AssignGpuContact(*this, contact);
+		Update(contact.collision_time);
 	}
 
 	// Construct a public contact from the compact frame event stream.
 	RbContact::RbContact(RigidBody const& objA, RigidBody const& objB, GpuCollisionEvent const& collision_event)
-		:RbContact(objA, objB)
+		:RbContact()
 	{
+		// Retain the exact substep state because caller-owned bodies are not updated until after collision publication.
+		m_objA = &objA;
+		m_objB = &objB;
 		AssignGpuContact(*this, collision_event);
+		m_b2a = collision_event.b2a;
+		m_velocity = v8motion{collision_event.relative_velocity_ang, collision_event.relative_velocity_lin};
+		m_time = collision_event.collision_time;
+		auto const point = Point();
+		m_point_at_t = point + 0.5f * m_time * m_velocity.LinAt(point);
 		m_substep_index = collision_event.substep_index;
 	}
 
@@ -106,9 +115,11 @@ namespace pr::physics
 		std::swap(c.m_child_idA, c.m_child_idB);
 		std::swap(c.m_objA, c.m_objB);
 
-		// Recompute derived fields (m_b2a, m_velocity, m_point_at_t) for the swapped pair
-		auto time = c.m_time;
-		c.Update(time);
+		// Transform the retained relative state so flipping a published event does not consult caller bodies that have not been unpacked yet.
+		c.m_b2a = a2b;
+		c.m_velocity = -(a2b * c.m_velocity);
+		auto const point = c.Point();
+		c.m_point_at_t = point + 0.5f * c.m_time * c.m_velocity.LinAt(point);
 	}
 
 	// Dump the collision scene to LDraw script (best-effort, won't throw)

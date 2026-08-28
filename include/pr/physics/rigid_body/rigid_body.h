@@ -126,6 +126,9 @@ namespace pr::physics
 		v4 CentreOfMassOS() const;
 
 		// Return the model-origin-to-centre-of-mass offset in world orientation.
+		v4 CentreOfMassWS() const;
+
+		// Return the model-origin-to-centre-of-mass offset in world orientation.
 		v4 CentreOfMassOffsetWS() const;
 
 		// Return the absolute world-space position of the centre of mass.

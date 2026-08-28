@@ -304,7 +304,19 @@ public sealed class Engine :IDisposable
 	}
 
 	/// <summary>Submit one simulation step without waiting for GPU completion.</summary>
-	public unsafe void BeginStep(float elapsed_seconds, double absolute_time_seconds = 0.0, ReadOnlySpan<BodyCommand> commands = default, int substep_count = 1)
+	public void BeginStep(float elapsed_seconds, double absolute_time_seconds = 0.0, ReadOnlySpan<BodyCommand> commands = default)
+	{
+		BeginStep(elapsed_seconds, absolute_time_seconds, commands, 1);
+	}
+
+	/// <summary>Submit one internally-substepped simulation interval without waiting for GPU completion.</summary>
+	public void BeginStep(float elapsed_seconds, int substep_count)
+	{
+		BeginStep(elapsed_seconds, 0.0, default, substep_count);
+	}
+
+	/// <summary>Submit one internally-substepped simulation interval with explicit timing and commands.</summary>
+	public unsafe void BeginStep(float elapsed_seconds, double absolute_time_seconds, ReadOnlySpan<BodyCommand> commands, int substep_count)
 	{
 		EnsureOwner();
 		if (substep_count <= 0)
@@ -322,7 +334,19 @@ public sealed class Engine :IDisposable
 	}
 
 	/// <summary>Submit and complete one simulation step synchronously.</summary>
-	public unsafe void Step(float elapsed_seconds, double absolute_time_seconds = 0.0, ReadOnlySpan<BodyCommand> commands = default, int substep_count = 1)
+	public void Step(float elapsed_seconds, double absolute_time_seconds = 0.0, ReadOnlySpan<BodyCommand> commands = default)
+	{
+		Step(elapsed_seconds, absolute_time_seconds, commands, 1);
+	}
+
+	/// <summary>Submit and complete one internally-substepped simulation interval.</summary>
+	public void Step(float elapsed_seconds, int substep_count)
+	{
+		Step(elapsed_seconds, 0.0, default, substep_count);
+	}
+
+	/// <summary>Submit and complete one internally-substepped simulation interval with explicit timing and commands.</summary>
+	public unsafe void Step(float elapsed_seconds, double absolute_time_seconds, ReadOnlySpan<BodyCommand> commands, int substep_count)
 	{
 		EnsureOwner();
 		if (substep_count <= 0)

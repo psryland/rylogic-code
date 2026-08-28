@@ -296,6 +296,7 @@ namespace pr::physics::tests
 			auto expected_com_ws1 = com_ws0 + lin_vel * dt;
 			PR_EXPECT(FEqlAbsolute(com_ws1, expected_com_ws1, 1e-4f));
 			PR_EXPECT(FEqlAbsolute(rb.CentreOfMassOffsetWS(), rb.O2W().rot * true_com, 1e-4f));
+			PR_EXPECT(FEqlAbsolute(rb.CentreOfMassWS(), rb.CentreOfMassOffsetWS(), 1e-6f));
 			PR_EXPECT(FEqlAbsolute(rb.CentreOfMassPositionWS(), expected_com_ws1, 1e-4f));
 		}
 		PRUnitTestMethod(Extrapolation, Extended)

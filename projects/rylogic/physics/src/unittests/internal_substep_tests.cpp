@@ -279,12 +279,21 @@ namespace pr::physics::tests
 			auto bodies = MakeTimedCollisionPairs(shape);
 			auto body_ptrs = SubstepBodyPointers(bodies);
 			auto substep_indices = std::vector<int>{};
+			auto retained_contacts = std::vector<RbContact>{};
 			auto& engine = SharedEngine();
 			ResetEngineForNextTest(engine);
 			engine.Collisions += [&](Engine&, std::span<RbContact const> contacts)
 			{
 				for (auto const& contact : contacts)
+				{
 					substep_indices.push_back(contact.m_substep_index);
+					retained_contacts.push_back(contact);
+					auto const point = contact.Point();
+					auto const expected_point_at_t = point + 0.5f * contact.m_time * contact.m_velocity.LinAt(point);
+					PR_EXPECT(FEqlAbsolute(contact.m_point_at_t, expected_point_at_t, 1.0e-5f));
+					PR_EXPECT(IsFinite(contact.m_b2a.x) && IsFinite(contact.m_b2a.y) && IsFinite(contact.m_b2a.z) && IsFinite(contact.m_b2a.pos));
+					PR_EXPECT(IsFinite(contact.m_velocity.ang) && IsFinite(contact.m_velocity.lin));
+				}
 			};
 
 			engine.Step(Engine::StepInput{
@@ -297,6 +306,17 @@ namespace pr::physics::tests
 			PR_EXPECT(std::ranges::is_sorted(substep_indices));
 			for (int substep_index = 0; substep_index != 4; ++substep_index)
 				PR_EXPECT(std::ranges::find(substep_indices, substep_index) != substep_indices.end());
+
+			// The last substep snapshot must match the final GPU state even though callbacks ran before that state was unpacked into caller bodies.
+			auto const& final_contact = retained_contacts.back();
+			PR_EXPECT(final_contact.m_substep_index == 3);
+			auto const expected_b2a = InvertOrthonormal(final_contact.m_objA->O2W()) * final_contact.m_objB->O2W();
+			auto const velocity_a = Shift(final_contact.m_objA->VelocityOS(), -final_contact.m_objA->CentreOfMassOS());
+			auto const velocity_b = Shift(final_contact.m_objB->VelocityOS(), -final_contact.m_objB->CentreOfMassOS());
+			auto const expected_velocity = expected_b2a * velocity_b - velocity_a;
+			PR_EXPECT(FEqlAbsolute(final_contact.m_b2a, expected_b2a, 1.0e-5f));
+			PR_EXPECT(FEqlAbsolute(final_contact.m_velocity.ang, expected_velocity.ang, 1.0e-5f));
+			PR_EXPECT(FEqlAbsolute(final_contact.m_velocity.lin, expected_velocity.lin, 1.0e-5f));
 		}
 
 		// Verify a bounded event queue reports the first overflowing substep instead of overwriting retained records.

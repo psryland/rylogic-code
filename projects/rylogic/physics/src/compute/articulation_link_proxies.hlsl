@@ -117,6 +117,11 @@ void ProxyWriteBody(GpuArticulationLink link, GpuConstraintFrame link_to_world, 
 	body.o2w = quat_to_float4x4(proxy_to_world.rotation, proxy_to_world.position.xyz);
 	body.momentum_ang = float4(momentum_ang_ws, 0.0f);
 	body.momentum_lin = float4(momentum_lin_ws, 0.0f);
+
+	// Preserve the adjacent-link identity through broadphase; contact colouring reclaims this scratch field after pairs have been emitted.
+	body.colour_used = link.parent_link_index >= 0
+		? (uint)g_aba_links[link.parent_link_index].proxy_body_index + 1U
+		: 0U;
 	g_proxy_bodies[body_index] = body;
 
 	// Shape-less force proxies retain a degenerate bound and are rejected by broadphase before shape access.

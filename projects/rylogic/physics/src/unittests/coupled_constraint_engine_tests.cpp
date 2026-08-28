@@ -733,7 +733,18 @@ namespace pr::physics::tests
 			PR_EXPECT(engine.LastCollisionStats().m_pair_count == 0);
 			PR_EXPECT(engine.LastCollisionStats().m_contact_count == 0);
 
-			// Explicit adjacent collision restores all three pairs independently of the default policy.
+			// Parent collision remains independent of broader self-collision and restores only the two tree edges.
+			auto adjacent_only_tree = MakeOverlappingContactTree(shape, true, false);
+			articulation_ptrs[0] = &adjacent_only_tree;
+			ConfigureCoupledEngine(engine);
+			engine.Step(Engine::StepInput{
+				.m_articulations = articulation_ptrs,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+			PR_EXPECT(engine.LastCollisionStats().m_pair_count == 2);
+			PR_EXPECT(engine.LastCollisionStats().m_contact_count != 0);
+
+			// Enabling both policies admits every adjacent and non-adjacent pair.
 			auto enabled_tree = MakeOverlappingContactTree(shape, true, true);
 			articulation_ptrs[0] = &enabled_tree;
 			ConfigureCoupledEngine(engine);

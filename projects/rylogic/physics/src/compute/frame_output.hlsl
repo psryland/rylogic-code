@@ -4,6 +4,8 @@
 //*********************************************
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/interop.hlsli"
+#include "pr/hlsl/spatial_algebra.hlsli"
+#include "pr/hlsl/vector.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
 
 #ifdef __cplusplus
@@ -44,6 +46,36 @@ RWStructuredBuffer<GpuArticulationFrameOutput> resource(g_output_articulations, 
 RWStructuredBuffer<float> resource(g_output_positions, u14);
 RWStructuredBuffer<float> resource(g_output_velocities, u15);
 RWStructuredBuffer<float> resource(g_output_accelerations, u16);
+
+// Return one body's world-space angular velocity from its compact inverse inertia and momentum.
+float3 CollisionEventAngularVelocityWS(GpuRigidBody body)
+{
+	float inv_mass = body.os_com_and_invmass.w;
+	float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
+	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
+	return mul(ws_iinv, body.momentum_ang.xyz);
+}
+
+// Capture B's post-solve velocity field relative to A at A's model origin, expressed in A space.
+void CollisionEventRelativeVelocity(GpuRigidBody body_a, GpuRigidBody body_b, out_(float4) relative_angular, out_(float4) relative_linear)
+{
+	float3x3 rot_a = (float3x3)body_a.o2w;
+	float3x3 rot_b = (float3x3)body_b.o2w;
+	float3 omega_a_ws = CollisionEventAngularVelocityWS(body_a);
+	float3 omega_b_ws = CollisionEventAngularVelocityWS(body_b);
+	float3 origin_a_ws = body_a.o2w[3].xyz;
+	float3 com_a_ws = body_a.o2w[3].xyz + mul(body_a.os_com_and_invmass.xyz, rot_a);
+	float3 com_b_ws = body_b.o2w[3].xyz + mul(body_b.os_com_and_invmass.xyz, rot_b);
+	float3 velocity_a_ws =
+		body_a.os_com_and_invmass.w * body_a.momentum_lin.xyz +
+		cross(omega_a_ws, origin_a_ws - com_a_ws);
+	float3 velocity_b_ws =
+		body_b.os_com_and_invmass.w * body_b.momentum_lin.xyz +
+		cross(omega_b_ws, origin_a_ws - com_b_ws);
+
+	relative_angular = float4(mul(rot_a, omega_b_ws - omega_a_ws), 0.0f);
+	relative_linear = float4(mul(rot_a, velocity_b_ws - velocity_a_ws), 0.0f);
+}
 
 // Snapshot capacity diagnostics and initialise the deterministic event range for one completed substep.
 void PrepareSubstepState(inout GpuFrameOutputHeader header, inout GpuSubstepOutputState state)
@@ -136,16 +168,21 @@ void CSAppendCollisionEvents(int3 DTID(dtid))
 		return;
 
 	GpuResolveContact contact = g_contacts[contact_index];
+	GpuRigidBody body_a = g_bodies[contact.body_idx_a];
+	GpuRigidBody body_b = g_bodies[contact.body_idx_b];
 	GpuCollisionEvent collision_event = (GpuCollisionEvent)0;
 	collision_event.axis = contact.axis;
 	collision_event.contact_point = contact.contact_point;
 	for (int manifold_index = 0; manifold_index != GpuContactMaxPoints; ++manifold_index)
 		collision_event.manifold[manifold_index] = contact.manifold[manifold_index];
+	collision_event.b2a = mul(body_b.o2w, InvertOrthonormal(body_a.o2w));
+	CollisionEventRelativeVelocity(body_a, body_b, collision_event.relative_velocity_ang, collision_event.relative_velocity_lin);
 	collision_event.body_idx_a = contact.body_idx_a;
 	collision_event.body_idx_b = contact.body_idx_b;
 	collision_event.mat_id_a = contact.mat_id_a;
 	collision_event.mat_id_b = contact.mat_id_b;
 	collision_event.depth = contact.depth;
+	collision_event.collision_time = contact.collision_time;
 	collision_event.feature = contact.feature;
 	collision_event.child_idx_a = contact.child_idx_a;
 	collision_event.child_idx_b = contact.child_idx_b;

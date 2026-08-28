@@ -71,8 +71,8 @@ odr bool CachedBoundsOverlap(int body_a, int body_b)
 	return g_aabb_box[body_a].IsIntersection(g_aabb_box[body_b]);
 }
 
-// Suppress same-tree pairs when either link opts out without materialising a quadratic exclusion table.
-odr bool ArticulationSelfCollisionExcluded(in_(GpuRigidBody) body_a, in_(GpuRigidBody) body_b)
+// Suppress non-adjacent same-tree pairs when either link opts out; adjacent pairs are governed independently by the linear parent-exclusion table.
+odr bool ArticulationSelfCollisionExcluded(int body_idx_a, int body_idx_b, in_(GpuRigidBody) body_a, in_(GpuRigidBody) body_b)
 {
 	uint metadata_a = body_a.articulation_collision;
 	uint metadata_b = body_b.articulation_collision;
@@ -81,8 +81,14 @@ odr bool ArticulationSelfCollisionExcluded(in_(GpuRigidBody) body_a, in_(GpuRigi
 
 	uint identity_a = metadata_a & GpuBodyArticulationCollision_IdentityMask;
 	uint identity_b = metadata_b & GpuBodyArticulationCollision_IdentityMask;
+	if (identity_a != identity_b)
+		return false;
+
+	bool adjacent =
+		body_a.colour_used == (uint)body_idx_b + 1U ||
+		body_b.colour_used == (uint)body_idx_a + 1U;
 	return
-		identity_a == identity_b &&
+		!adjacent &&
 		(!AllSet(metadata_a, GpuBodyArticulationCollision_CollideSelf) ||
 		 !AllSet(metadata_b, GpuBodyArticulationCollision_CollideSelf));
 }
@@ -232,7 +238,7 @@ odr void SweepBound(int3 dtid, bool filter_connected)
 		int rbB_idx = payload >> 1;
 		
 		GpuRigidBody other_rb = g_bodies[rbB_idx];
-		if (other_rb.shape_id < 0 || ArticulationSelfCollisionExcluded(rb, other_rb))
+		if (other_rb.shape_id < 0 || ArticulationSelfCollisionExcluded(rbA_idx, rbB_idx, rb, other_rb))
 			continue;
 		
 		// If intersection on all three axes, add a pair to the output buffer.
