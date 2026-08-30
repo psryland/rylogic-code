@@ -12,6 +12,7 @@
 #include "pr/algorithm/kdtree.h"
 #include "pr/algorithm/multi_dimensional_scaling.h"
 #include "pr/algorithm/peak_detection.h"
+#include "pr/algorithm/perlin_noise.h"
 #include "pr/algorithm/space_filling.h"
 #include "pr/algorithm/trapping_sets.h"
 #include "pr/algorithm/umap.h"

@@ -4,12 +4,13 @@
 // (copyright Ken Perlin) - This is the improved version
 //*****************************************************************************
 // Usage:
-//  float x,y,z = [-1, 1];
+//  std::default_random_engine rng(seed);
+//  PerlinNoiseGenerator perlin(rng);
+//  float x,y,z = sample coordinates;
 //  float freq = the 'frequency' of the noise
 //  float amp = the amplitude of the noise
 //  float offset = bias for the noise.
-//  PerlinNoiseGenerator Perlin;
-//  [-1, 1] * amp + offset = Perlin.Noise(x * freq, y * freq, z * freq) * amp + offset;
+//  [-1, 1] * amp + offset = perlin.Noise(x * freq, y * freq, z * freq) * amp + offset;
 
 #pragma once
 #include <random>
@@ -27,13 +28,11 @@ namespace pr::algorithm
 			PermTableMask = PermTableSize - 1,
 		};
 
-		Rng* m_rng;
 		int  m_perm[PermTableSize * 2];
 
 	public:
 
 		explicit PerlinNoiseGenerator(Rng& rng)
-			:m_rng(&rng)
 		{
 			// Can also use this pre-generated one if you want...
 			//const int table[PermTableSize] =
@@ -60,13 +59,8 @@ namespace pr::algorithm
 			for (int i = 0; i != PermTableSize; ++i)
 				m_perm[i] = i;
 
-			// Shuffle
-			std::uniform_int_distribution<int> dist(0, PermTableSize-1); // (inclusive-inclusive)
-			for (int i = 0; i != PermTableSize; ++i)
-			{
-				int j = dist(*m_rng);
-				std::swap(m_perm[i], m_perm[j]);
-			}
+			// Give every permutation equal probability so seeds do not favour particular gradient layouts.
+			std::shuffle(m_perm, m_perm + PermTableSize, rng);
 			for (int i = 0; i != PermTableSize; ++i)
 				m_perm[i+PermTableSize] = m_perm[i];
 		}
@@ -74,9 +68,9 @@ namespace pr::algorithm
 		float Noise(float x, float y, float z) const
 		{
 			// Pick valid points within the permutation table
-			int X = (int)(x) & PermTableMask;
-			int Y = (int)(y) & PermTableMask;
-			int Z = (int)(z) & PermTableMask;
+			int X = static_cast<int>(std::floor(x)) & PermTableMask;
+			int Y = static_cast<int>(std::floor(y)) & PermTableMask;
+			int Z = static_cast<int>(std::floor(z)) & PermTableMask;
 			
 			// Find the relative x, y, z of the point in the cube
 			x -= std::floor(x);
@@ -122,3 +116,24 @@ namespace pr::algorithm
 		}
 	};
 }
+
+#if PR_UNITTESTS
+#include "pr/common/unittests.h"
+namespace pr::algorithm::tests
+{
+	PRUnitTestClass(PerlinNoiseTests)
+	{
+		PRUnitTestMethod(NegativeCoordinatesUseTheContainingCell, Quick)
+		{
+			std::default_random_engine rng(42);
+			PerlinNoiseGenerator noise(rng);
+
+			// The permutation table makes noise periodic, including coordinates below zero.
+			constexpr auto period = 1024.0f;
+			auto const negative = noise.Noise(-0.25f, -3.75f, -12.5f);
+			auto const wrapped = noise.Noise(-0.25f + period, -3.75f + period, -12.5f + period);
+			PR_EXPECT(std::abs(negative - wrapped) < 1e-6f);
+		}
+	};
+}
+#endif
