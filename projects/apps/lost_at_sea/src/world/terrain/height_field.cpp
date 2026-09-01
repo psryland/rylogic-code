@@ -13,8 +13,7 @@ namespace las
 		,m_persistence(0.5f)
 		,m_amplitude(300.0f)       // Islands peak ~200m above sea level
 		,m_sea_level_bias(-0.3f)   // Ensures ~65% water coverage
-		,m_rng(seed)
-		,m_noise(m_rng)
+		,m_noise(seed)
 	{}
 
 	float HeightField::HeightAt(float world_x, float world_y) const

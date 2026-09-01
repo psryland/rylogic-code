@@ -650,7 +650,7 @@ namespace TestTriangulate
 //		
 //		image::Image2D img = image::Create2DImage(ctx, info);
 //
-//		PerlinNoiseGenerator perlin;
+//		PerlinNoiseGenerator perlin(42);
 //
 //		float freq = 32.0f;
 //		float amp  = 0.8f;
