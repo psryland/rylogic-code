@@ -74,6 +74,7 @@ namespace pr::script::v2
 
 		// Remaining bytes in the UTF-8 scalar whose lead byte was already validated.
 		int m_continuations;
+		size_t m_peak_retained_bytes;
 
 		// Once the consumed prefix of the window exceeds this many bytes, it is
 		// erased. This bounds the cursor's memory to roughly one unbroken token's
@@ -95,6 +96,7 @@ namespace pr::script::v2
 			, m_input_exhausted(false)
 			, m_loc(IsDefaultLocation(loc) ? Loc(m_input->Filepath()) : loc)
 			, m_continuations(0)
+			, m_peak_retained_bytes()
 		{
 			// Preserve caller-owned memory as a zero-copy byte range.
 			if (auto memory = dynamic_cast<MemoryInput const*>(m_input.get()))
@@ -106,6 +108,7 @@ namespace pr::script::v2
 			else
 			{
 				m_win.reserve(BlockSize);
+				m_peak_retained_bytes = m_win.capacity() * sizeof(char);
 			}
 
 			// A byte-order-mark, if present, is not part of the script content.
@@ -135,6 +138,18 @@ namespace pr::script::v2
 		bool IsMemory() const noexcept
 		{
 			return m_is_memory;
+		}
+
+		// Return bytes currently retained by this cursor's transport window.
+		size_t RetainedBytes() const noexcept
+		{
+			return m_win.capacity() * sizeof(char);
+		}
+
+		// Return the largest transport-window capacity observed by this cursor.
+		size_t PeakRetainedBytes() const noexcept
+		{
+			return m_peak_retained_bytes;
 		}
 
 		// Look ahead 'i' bytes without consuming, refilling the window as needed.
@@ -332,6 +347,7 @@ namespace pr::script::v2
 				return;
 			}
 			m_win.insert(m_win.end(), block, block + n);
+			m_peak_retained_bytes = std::max(m_peak_retained_bytes, RetainedBytes());
 		}
 
 		// Drop the already-consumed prefix of the window once it grows large enough

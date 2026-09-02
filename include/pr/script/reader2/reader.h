@@ -150,6 +150,18 @@ namespace pr::script::v2
 			return m_pp;
 		}
 
+		// Return transport storage retained by currently active physical sources.
+		size_t TransportRetainedBytes() const noexcept
+		{
+			return m_pp.TransportRetainedBytes();
+		}
+
+		// Return the largest aggregate transport capacity observed across physical sources.
+		size_t TransportPeakBytes() const noexcept
+		{
+			return m_pp.TransportPeakBytes();
+		}
+
 		// Return the current source location.
 		Loc Location() noexcept
 		{
@@ -1571,6 +1583,18 @@ namespace pr::script::v2::testing
 			PR_EXPECT(Reader::AddressAt(std::string_view(script, 21)) == "Group"); // literal parses cleanly; '*Note' isn't followed by '{'.
 			PR_EXPECT(Reader::AddressAt(std::string_view(script, 23)) == "");      // 'Group's section closes, popping the path.
 			PR_EXPECT(Reader::AddressAt(std::string_view(script, 18)) == "");      // truncated mid-codepoint: 'EatLiteral' throws, caught, path cleared.
+		}
+		PRUnitTestMethod(TransportPeakSurvivesExhaustedFrames, Quick)
+		{
+			// Force a streamed physical frame through the preprocessing stack and then discard it at EOF.
+			auto script = std::string("#if 1\n") + std::string(3 * BlockSize, ' ') + "1\n#endif\n";
+			auto stream = std::istringstream(script);
+			auto reader = Reader(stream);
+			auto value = int{};
+			PR_EXPECT(reader.Int(value, 10) && value == 1);
+			PR_EXPECT(reader.IsSourceEnd());
+			PR_EXPECT(reader.TransportRetainedBytes() == 0);
+			PR_EXPECT(reader.TransportPeakBytes() >= BlockSize);
 		}
 	};
 }

@@ -44,6 +44,7 @@ namespace pr::script_bench
 			EWorkload::Strings, EWorkload::Macros, EWorkload::Boundary,
 		};
 		std::vector<EInputMode> m_input_modes = { EInputMode::Memory };
+		bool m_memory_scaling = false;
 		int m_warmups = 4;
 		int m_reps = 16;
 		uint64_t m_seed = 20240517ull;
@@ -175,6 +176,7 @@ namespace pr::script_bench
 			"                               Names: number, ident-empty, ident-populated, strings, macros, boundary\n"
 			"  --inputs <list>              Comma-separated input modes. Default: memory.\n"
 			"                               Names: memory, stream, file\n"
+			"  --memory-scaling             Measure Reader2 transport memory at 10 and 100 MiB, then exit.\n"
 			"  --warmups <N>                Warm-up parses per backend. Default: 4, minimum: 4, must be even.\n"
 			"  --reps <N>                   Measured parses per backend. Default: 16, minimum: 16, must be even.\n"
 			"  --seed <N>                   Base seed for deterministic fixture generation. Default: 20240517.\n"
@@ -245,6 +247,10 @@ namespace pr::script_bench
 					else if (tok == "file") opt.m_input_modes.push_back(EInputMode::File);
 					else throw std::invalid_argument("unknown input mode: " + tok);
 				}
+			}
+			else if (arg == "--memory-scaling")
+			{
+				opt.m_memory_scaling = true;
 			}
 			else if (arg.starts_with("--warmups"))
 			{
@@ -590,7 +596,62 @@ namespace pr::script_bench
 		}
 
 		// Note: no memory/allocation telemetry is captured here (see the project README / final report);
-		// this summary intentionally reports only wall-clock throughput so that column is not misleading.
+		// ordinary comparative samples intentionally report only wall-clock throughput. Use
+		// '--memory-scaling' for Reader2's transport peak and retained capacity.
+	}
+
+	// Generate and parse large streamed sources whose semantic output remains one integer.
+	void RunMemoryScaling()
+	{
+		constexpr size_t MiB = 1024 * 1024;
+		auto block = std::array<char, 64 * 1024>{};
+		block.fill(' ');
+		std::cout << "input_bytes,elapsed_s,transport_peak_bytes,transport_retained_bytes,checksum,block_size\n";
+
+		for (auto input_size : { 10 * MiB, 100 * MiB })
+		{
+			// Materialize the input without retaining an input-sized benchmark buffer.
+			auto nonce = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+			auto filepath = std::filesystem::temp_directory_path() / ("reader2-memory-" + std::to_string(nonce) + ".ldr");
+			{
+				auto file = std::ofstream(filepath, std::ios::binary);
+				for (auto remaining = input_size - 1; remaining != 0;)
+				{
+					auto count = std::min(remaining, block.size());
+					file.write(block.data(), static_cast<std::streamsize>(count));
+					remaining -= count;
+				}
+				file.put('1');
+				if (!file)
+					throw std::runtime_error("failed to write memory-scaling fixture: " + filepath.string());
+			}
+
+			// Time one complete streamed parse and retain only the scalar semantic result.
+			auto stream = std::ifstream(filepath, std::ios::binary);
+			auto reader = pr::script::v2::Reader(stream, false, filepath);
+			auto value = int{};
+			auto t0 = std::chrono::steady_clock::now();
+			reader.Int(value, 10);
+			auto t1 = std::chrono::steady_clock::now();
+			auto elapsed = std::chrono::duration<double>(t1 - t0).count();
+			auto checksum = Checksum{};
+			checksum.Add(int64_t(value));
+
+			std::cout
+				<< input_size << ','
+				<< std::setprecision(9) << elapsed << ','
+				<< reader.TransportPeakBytes() << ','
+				<< reader.TransportRetainedBytes() << ','
+				<< "0x" << std::hex << checksum.m_value << std::dec << ','
+				<< pr::script::v2::BlockSize << '\n';
+
+			// Remove only the generated fixture after the stream releases its handle.
+			stream.close();
+			std::error_code error;
+			std::filesystem::remove(filepath, error);
+			if (error)
+				throw std::runtime_error("failed to remove memory-scaling fixture: " + error.message());
+		}
 	}
 }
 
@@ -603,6 +664,11 @@ int main(int argc, char** argv)
 		if (opt.m_show_help)
 		{
 			PrintHelp();
+			return 0;
+		}
+		if (opt.m_memory_scaling)
+		{
+			RunMemoryScaling();
 			return 0;
 		}
 		if (opt.m_warmups < 4 || (opt.m_warmups % 2) != 0)

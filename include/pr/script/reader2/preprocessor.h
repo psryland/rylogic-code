@@ -359,6 +359,18 @@ namespace pr::script::v2
 		{
 			return **this == 0;
 		}
+
+		// Return transport storage retained by the raw physical cursor.
+		size_t TransportRetainedBytes() const noexcept
+		{
+			return m_raw.RetainedBytes();
+		}
+
+		// Return the raw physical cursor's peak transport storage.
+		size_t TransportPeakBytes() const noexcept
+		{
+			return m_raw.PeakRetainedBytes();
+		}
 		bool Match(std::string_view s, bool consume, bool case_sensitive = true)
 		{
 			for (size_t i = 0; i != s.size(); ++i)
@@ -567,6 +579,18 @@ namespace pr::script::v2
 			return m_no_expand;
 		}
 
+		// Return transport storage retained by this frame's physical source.
+		size_t TransportRetainedBytes() const noexcept
+		{
+			return m_file ? m_file->TransportRetainedBytes() : 0;
+		}
+
+		// Return peak transport storage observed by this frame's physical source.
+		size_t TransportPeakBytes() const noexcept
+		{
+			return m_file ? m_file->TransportPeakBytes() : 0;
+		}
+
 		bool Match(std::string_view s, bool consume, bool case_sensitive = true)
 		{
 			if (m_file)
@@ -605,6 +629,7 @@ namespace pr::script::v2
 		bool m_passthrough_screened;
 		size_t m_passthrough_safe;
 		std::vector<Frame> m_stack;
+		size_t m_transport_peak_bytes;
 		MacroDB m_macros;
 		std::unique_ptr<IIncludeHandler2> m_default_includes;
 		IIncludeHandler2* m_includes;
@@ -636,6 +661,7 @@ namespace pr::script::v2
 			, m_passthrough_screened(false)
 			, m_passthrough_safe()
 			, m_stack()
+			, m_transport_peak_bytes()
 			, m_macros()
 			, m_default_includes()
 			, m_includes(includes)
@@ -855,7 +881,37 @@ namespace pr::script::v2
 			return **this == 0;
 		}
 
+		// Return transport storage retained by currently active physical sources.
+		size_t TransportRetainedBytes() const noexcept
+		{
+			auto bytes = m_passthrough ? m_passthrough->RetainedBytes() : 0;
+			for (auto const& frame : m_stack)
+				bytes += frame.TransportRetainedBytes();
+			return bytes;
+		}
+
+		// Return the largest aggregate transport capacity observed across physical sources.
+		size_t TransportPeakBytes() const noexcept
+		{
+			return std::max(m_transport_peak_bytes, ActiveTransportPeakBytes());
+		}
+
 	private:
+
+		// Sum per-source high-water marks while their physical frames remain active.
+		size_t ActiveTransportPeakBytes() const noexcept
+		{
+			auto bytes = m_passthrough ? m_passthrough->PeakRetainedBytes() : 0;
+			for (auto const& frame : m_stack)
+				bytes += frame.TransportPeakBytes();
+			return bytes;
+		}
+
+		// Preserve the aggregate high-water mark before an exhausted frame is discarded.
+		void RecordTransportPeak() noexcept
+		{
+			m_transport_peak_bytes = std::max(m_transport_peak_bytes, ActiveTransportPeakBytes());
+		}
 
 		// Promote a passthrough source into the full preprocessing pipeline.
 		void ActivatePipeline()
@@ -932,6 +988,7 @@ namespace pr::script::v2
 				auto& top = m_stack.back();
 				if (top.AtEnd())
 				{
+					RecordTransportPeak();
 					m_stack.pop_back();
 					continue;
 				}
