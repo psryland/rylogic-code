@@ -95,10 +95,15 @@ namespace pr::script_bench
 		return checksum;
 	}
 
-	// Parse one production-shaped legacy snapshot stream.
-	Checksum RunLegacy(std::string const& source, int point_count)
+	// Parse one production-shaped legacy snapshot through a reusable stream so
+	// measured work excludes the input-sized stream-buffer copy.
+	Checksum RunLegacy(std::istringstream& stream, int point_count)
 	{
-		auto stream = std::istringstream(source);
+		stream.clear();
+		stream.seekg(0, std::ios::beg);
+		if (!stream)
+			throw std::runtime_error("failed to rewind legacy benchmark stream");
+
 		auto reader = TextReader(stream, {});
 		return FingerprintLDrawPoints(reader, point_count);
 	}
@@ -149,7 +154,8 @@ int main(int argc, char** argv)
 		// Generate once so timing includes only adapter construction and extraction.
 		auto options = ParseLDrawOptions(argc, argv);
 		auto source = GenerateLDrawPoints(options.m_point_count);
-		auto expected = RunLegacy(source, options.m_point_count);
+		auto legacy_stream = std::istringstream(source);
+		auto expected = RunLegacy(legacy_stream, options.m_point_count);
 		auto actual = RunReader2(source, options.m_point_count);
 		if (actual.m_value != expected.m_value)
 			throw std::runtime_error("legacy and Reader2 LDraw fingerprints differ");
@@ -157,7 +163,7 @@ int main(int argc, char** argv)
 		// Revalidate every timed parse rather than relying only on the initial equivalence check.
 		auto run = [&](bool reader2)
 		{
-			auto checksum = reader2 ? RunReader2(source, options.m_point_count) : RunLegacy(source, options.m_point_count);
+			auto checksum = reader2 ? RunReader2(source, options.m_point_count) : RunLegacy(legacy_stream, options.m_point_count);
 			if (checksum.m_value != expected.m_value)
 				throw std::runtime_error("LDraw fingerprint changed during measurement");
 			return checksum;
