@@ -458,10 +458,14 @@ namespace pr::script::v2
 				return;
 			}
 
-			// Track whether we're inside a string literal so the comment checks above
-			// (and any '#' directive recognition further up the stack) ignore content
-			// that merely looks like a comment or directive but is actually string data.
-			if (*m_raw == '"' || *m_raw == '\'')
+			// Script literals are line-bounded, allowing inactive conditional branches
+			// containing malformed literals to resume directive recognition on the next line.
+			if (m_in_string && *m_raw == '\n')
+			{
+				m_in_string = false;
+				m_quote = 0;
+			}
+			else if (*m_raw == '"' || *m_raw == '\'')
 			{
 				if (!m_in_string) { m_in_string = true; m_quote = *m_raw; }
 				else if (*m_raw == m_quote) { m_in_string = false; }
@@ -988,8 +992,12 @@ namespace pr::script::v2
 				auto& top = m_stack.back();
 				if (top.AtEnd())
 				{
+					auto end_loc = top.Location();
 					RecordTransportPeak();
 					m_stack.pop_back();
+					if (m_stack.empty() && !m_if_stack.empty())
+						throw ScriptException(EResult::UnmatchedPreprocessorDirective, end_loc, "conditional block does not have a closing #endif");
+
 					continue;
 				}
 
@@ -1019,7 +1027,7 @@ namespace pr::script::v2
 				// Recognise and expand macro invocations while in an active region. A
 				// frame flagged 'NoExpand' is already a macro's fully-resolved output,
 				// so it is excluded from this lookup (see 'Frame::NoExpand').
-				if (Emitting() && !top.NoExpand() && str::IsIdentifier(c, true) && m_macros.CanStart(c) && TryExpandMacro())
+				if (Emitting() && m_literal_quote == 0 && !top.NoExpand() && str::IsIdentifier(c, true) && m_macros.CanStart(c) && TryExpandMacro())
 					continue;
 
 				loc = top.Location();
@@ -1038,6 +1046,13 @@ namespace pr::script::v2
 		// literals remains ordinary data.
 		void UpdateLiteralState(char ch)
 		{
+			if (m_literal_quote != 0 && ch == '\n')
+			{
+				m_literal_quote = 0;
+				m_literal_escape = false;
+				return;
+			}
+
 			if (m_literal_escape)
 			{
 				m_literal_escape = false;
@@ -1105,8 +1120,8 @@ namespace pr::script::v2
 
 		// Consume and interpret one directive; 'top' is already positioned just past
 		// the leading '#'. Side effects (defining macros, pushing include/eval/embedded
-		// frames, reporting errors) only occur while 'Emitting()' - directive syntax is
-		// always parsed regardless, so nesting and location tracking stay correct.
+		// frames, reporting errors) only occur while 'Emitting()'. Inactive branches
+		// parse conditional structure only, matching the legacy line-skipping contract.
 		void DoDirective(Loc const& loc)
 		{
 			// Remember which physical frame holds the directive text: a handler such as
@@ -1127,7 +1142,35 @@ namespace pr::script::v2
 				word.push_back(*top), ++top;
 
 			auto kw = pr::Enum<EPPKeyword>::TryParse(std::string_view(word), true);
-			switch (kw ? *kw : EPPKeyword::Invalid)
+			auto directive = kw ? *kw : EPPKeyword::Invalid;
+
+			// Inactive branches only interpret conditional structure. All other text,
+			// including unknown directives, is discarded without validating its syntax.
+			auto conditional = false;
+			switch (directive)
+			{
+				case EPPKeyword::If:
+				case EPPKeyword::Ifdef:
+				case EPPKeyword::Ifndef:
+				case EPPKeyword::Elif:
+				case EPPKeyword::Else:
+				case EPPKeyword::Endif:
+				{
+					conditional = true;
+					break;
+				}
+				default:
+				{
+					break;
+				}
+			}
+			if (!Emitting() && !conditional)
+			{
+				SkipToLineEnd(frame_index);
+				return;
+			}
+
+			switch (directive)
 			{
 				case EPPKeyword::IncludePath:   { DoIncludePath(loc); break; }
 				case EPPKeyword::Include:       { DoInclude(loc); break; }

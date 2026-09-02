@@ -694,6 +694,80 @@ namespace pr::script::v2::testing
 			PR_EXPECT(legacy.Token(lrest) && modern.Token(mrest));
 			PR_EXPECT(lrest == mrest && lrest == "tail");
 		}
+
+		PRUnitTestMethod(LiteralAndMacroExpansionCompatibility, Quick)
+		{
+			auto script =
+				"#define VALUE replaced\n"
+				"#define REPEAT(x) #x x\n"
+				"#define PAIR(x,y) x##y y\n"
+				"*Literal \"VALUE\" \"tail\"\n"
+				"*Repeat REPEAT(longer)\n"
+				"*Paste PAIR(Value,Suffix)\n";
+			pr::script::Reader legacy(script, false);
+			pr::script::v2::Reader modern(std::string_view(script), false);
+			char legacy_keyword[32], modern_keyword[32];
+			std::string legacy_string, modern_string;
+			std::string legacy_identifier, modern_identifier;
+
+			// Literal contents bypass macro lookup and adjacent strings concatenate.
+			PR_EXPECT(legacy.NextKeywordS(legacy_keyword) && modern.NextKeywordS(modern_keyword));
+			PR_EXPECT(legacy.String(legacy_string) && modern.String(modern_string));
+			PR_EXPECT(legacy_string == modern_string);
+			PR_EXPECT(modern_string == "VALUEtail");
+
+			// Stringising one occurrence must not consume a later occurrence.
+			PR_EXPECT(legacy.NextKeywordS(legacy_keyword) && modern.NextKeywordS(modern_keyword));
+			PR_EXPECT(legacy.String(legacy_string) && modern.String(modern_string));
+			PR_EXPECT(legacy_string == modern_string && modern_string == "longer");
+			PR_EXPECT(legacy.Identifier(legacy_identifier) && modern.Identifier(modern_identifier));
+			PR_EXPECT(legacy_identifier == modern_identifier && modern_identifier == "longer");
+
+			// Token pasting likewise preserves later uses of the same parameter.
+			PR_EXPECT(legacy.NextKeywordS(legacy_keyword) && modern.NextKeywordS(modern_keyword));
+			PR_EXPECT(legacy.Identifier(legacy_identifier) && modern.Identifier(modern_identifier));
+			PR_EXPECT(legacy_identifier == modern_identifier && modern_identifier == "ValueSuffix");
+			PR_EXPECT(legacy.Identifier(legacy_identifier) && modern.Identifier(modern_identifier));
+			PR_EXPECT(legacy_identifier == modern_identifier && modern_identifier == "Suffix");
+		}
+
+		PRUnitTestMethod(InactiveConditionalCompatibility, Quick)
+		{
+			auto script =
+				"#if 0\n"
+				"#unknown ignored\n"
+				"\"unterminated\n"
+				"#endif\n"
+				"*Done\n";
+			pr::script::Reader legacy(script, false);
+			pr::script::v2::Reader modern(std::string_view(script), false);
+			char legacy_keyword[32], modern_keyword[32];
+
+			// Dead source is line-scanned only, so malformed literals and unknown
+			// directives cannot hide the conditional terminator.
+			PR_EXPECT(legacy.NextKeywordS(legacy_keyword) && modern.NextKeywordS(modern_keyword));
+			PR_EXPECT(std::string_view(legacy_keyword) == modern_keyword);
+			PR_EXPECT(std::string_view(modern_keyword) == "done");
+		}
+
+		PRUnitTestMethod(UnmatchedConditionalFailsAtEnd, Quick)
+		{
+			auto modern = pr::script::v2::Reader(std::string_view("#if 1\n*Done\n"), false);
+			char keyword[32];
+			PR_EXPECT(modern.NextKeywordS(keyword));
+			PR_EXPECT(std::string_view(keyword) == "done");
+
+			auto result = EResult::Success;
+			try
+			{
+				modern.IsSourceEnd();
+			}
+			catch (ScriptException const& ex)
+			{
+				result = ex.m_result;
+			}
+			PR_EXPECT(result == EResult::UnmatchedPreprocessorDirective);
+		}
 	};
 
 	// A v2 include handler that counts physical opens for include/dependency

@@ -170,13 +170,17 @@ namespace pr::script::v2
 			for (size_t i = 0; i != m_params.size(); ++i)
 			{
 				auto const& what = m_params[i];
-				auto len = what.size();
-				if (len == 0)
+				if (what.empty())
 					continue;
 
 				std::string with;
-				for (size_t j = str::FindIdentifier(exp, what, 0); j != exp.size(); j = str::FindIdentifier(exp, what, j += len))
+				for (size_t search = 0;;)
 				{
+					auto j = str::FindIdentifier(exp, what, search);
+					if (j == exp.size())
+						break;
+
+					auto len = what.size();
 					if (j >= 2 && exp[j - 1] == '#' && exp[j - 2] == '#')
 					{
 						// Paste: drop the '##' and substitute the raw argument text.
@@ -201,12 +205,10 @@ namespace pr::script::v2
 					exp.erase(j, len);
 					exp.insert(j, with);
 
-					// Advance the search past the just-inserted text (which may be shorter than
-					// what it replaced), so a fresh substitution can never re-match part of it.
-					if (with.size() >= len)
-						j += with.size() - len;
-					else
-						j = (j > len - with.size()) ? j - (len - with.size()) : 0;
+					// Each occurrence starts with the parameter's original width; paste
+					// and stringise syntax consumed for one occurrence must not affect
+					// how much source text a later occurrence replaces.
+					search = j + with.size();
 				}
 			}
 			return exp;

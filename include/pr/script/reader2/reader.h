@@ -508,8 +508,24 @@ namespace pr::script::v2
 		{
 			auto& src = m_pp;
 			str::Resize(string, 0);
+			EatDelimiters(src, m_delim);
+			auto quote = *src;
 			if (TryFastString(string) || str::ExtractString<StrType>(string, src, m_delim))
 			{
+				// The legacy preprocessor joins adjacent literals before the reader sees
+				// them. Preserve that contract when preprocessing prevents the fast path.
+				for (;;)
+				{
+					EatDelimiters(src, m_delim);
+					if (*src != quote)
+						break;
+
+					StrType part;
+					if (!str::ExtractString<StrType>(part, src, m_delim))
+						break;
+
+					string += part;
+				}
 				str::ProcessIndentedNewlines(string);
 				return true;
 			}
@@ -535,7 +551,26 @@ namespace pr::script::v2
 		{
 			auto& src = m_pp;
 			str::Resize(cstring, 0);
-			return str::ExtractString<StrType>(cstring, src, '\\', {}, m_delim) || ReportError(EResult::TokenNotFound, Location(), "'cstring' expected");
+			EatDelimiters(src, m_delim);
+			auto quote = *src;
+			if (!str::ExtractString<StrType>(cstring, src, '\\', {}, m_delim))
+				return ReportError(EResult::TokenNotFound, Location(), "'cstring' expected");
+
+			// Adjacent C-style literals are one logical value, with escape handling
+			// applied independently to each source literal.
+			for (;;)
+			{
+				EatDelimiters(src, m_delim);
+				if (*src != quote)
+					break;
+
+				StrType part;
+				if (!str::ExtractString<StrType>(part, src, '\\', {}, m_delim))
+					break;
+
+				cstring += part;
+			}
+			return true;
 		}
 		template <typename StrType> bool CStringS(StrType& cstring)
 		{
@@ -1285,13 +1320,29 @@ namespace pr::script::v2
 				auto text = src.RemainingContiguous();
 				if (text.empty() || (text.front() != '"' && text.front() != '\''))
 					return false;
-				auto close = text.find(text.front(), 1);
-				if (close == std::string_view::npos)
-					return false;
+				// Concatenate adjacent literals as one value, matching the legacy
+				// preprocessor's normalization before string extraction.
+				auto quote = text.front();
+				auto open = size_t{0};
+				auto consumed = size_t{0};
+				for (;;)
+				{
+					auto close = text.find(quote, open + 1);
+					if (close == std::string_view::npos)
+						return false;
+
+					string.append(text.data() + open + 1, close - open - 1);
+					consumed = close + 1;
+					auto next = consumed;
+					for (; next != text.size() && str::IsWhiteSpace(text[next]); ++next) {}
+					if (next == text.size() || text[next] != quote)
+						break;
+
+					open = next;
+				}
 
 				// Preserve the UTF-8 bytes while validating and locating decoded text.
-				string.assign(text.data() + 1, close - 1);
-				src.ConsumeContiguousUtf8(close + 1);
+				src.ConsumeContiguousUtf8(consumed);
 				return true;
 			}
 		}
