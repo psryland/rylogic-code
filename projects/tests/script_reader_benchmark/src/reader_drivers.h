@@ -35,7 +35,9 @@ namespace pr::script_bench
 	{
 		std::string const& m_text;
 		std::filesystem::path const& m_filepath;
+		std::filesystem::path const& m_include_root;
 		EInputMode m_input_mode;
+		uint64_t m_total_bytes;
 	};
 
 	// Result of driving one full parse: a black-box checksum, the number of items extracted, and the
@@ -55,6 +57,7 @@ namespace pr::script_bench
 	template <>
 	class ReaderOwner<pr::script::Reader>
 	{
+		std::unique_ptr<pr::script::Includes> m_includes;
 		std::unique_ptr<pr::mem_istream<char>> m_stream;
 		std::unique_ptr<pr::script::StreamSrc<char>> m_stream_src;
 		std::unique_ptr<pr::script::FileSrc> m_file_src;
@@ -65,24 +68,31 @@ namespace pr::script_bench
 		// Construct the legacy reader through the selected memory, stream, or file source.
 		explicit ReaderOwner(BenchmarkSource const& source)
 		{
+			// Configure production file-include resolution only for the include-tree workload.
+			if (!source.m_include_root.empty())
+			{
+				m_includes = std::make_unique<pr::script::Includes>(pr::script::EIncludeTypes::Files);
+				m_includes->SearchPaths({ source.m_include_root });
+			}
+
 			switch (source.m_input_mode)
 			{
 				case EInputMode::Memory:
 				{
-					m_reader = std::make_unique<pr::script::Reader>(source.m_text.c_str());
+					m_reader = std::make_unique<pr::script::Reader>(source.m_text.c_str(), false, m_includes.get());
 					break;
 				}
 				case EInputMode::Stream:
 				{
 					m_stream = std::make_unique<pr::mem_istream<char>>(std::string_view(source.m_text), 0);
 					m_stream_src = std::make_unique<pr::script::StreamSrc<char>>(*m_stream, pr::EEncoding::utf8);
-					m_reader = std::make_unique<pr::script::Reader>(*m_stream_src);
+					m_reader = std::make_unique<pr::script::Reader>(*m_stream_src, false, m_includes.get());
 					break;
 				}
 				case EInputMode::File:
 				{
 					m_file_src = std::make_unique<pr::script::FileSrc>(source.m_filepath, pr::EEncoding::utf8);
-					m_reader = std::make_unique<pr::script::Reader>(*m_file_src);
+					m_reader = std::make_unique<pr::script::Reader>(*m_file_src, false, m_includes.get());
 					break;
 				}
 				default:
@@ -103,6 +113,7 @@ namespace pr::script_bench
 	template <>
 	class ReaderOwner<pr::script::v2::Reader>
 	{
+		std::unique_ptr<pr::script::v2::FileIncludeHandler2> m_includes;
 		std::unique_ptr<pr::mem_istream<char>> m_memory_stream;
 		std::unique_ptr<std::ifstream> m_file_stream;
 		std::unique_ptr<pr::script::v2::Reader> m_reader;
@@ -112,17 +123,24 @@ namespace pr::script_bench
 		// Construct Reader2 through the selected memory, stream, or file source.
 		explicit ReaderOwner(BenchmarkSource const& source)
 		{
+			// Configure Reader2's UTF-8 file include handler only when the fixture owns an include tree.
+			if (!source.m_include_root.empty())
+			{
+				m_includes = std::make_unique<pr::script::v2::FileIncludeHandler2>();
+				m_includes->AddSearchPath(source.m_include_root);
+			}
+
 			switch (source.m_input_mode)
 			{
 				case EInputMode::Memory:
 				{
-					m_reader = std::make_unique<pr::script::v2::Reader>(std::string_view(source.m_text));
+					m_reader = std::make_unique<pr::script::v2::Reader>(std::string_view(source.m_text), false, source.m_filepath, m_includes.get());
 					break;
 				}
 				case EInputMode::Stream:
 				{
 					m_memory_stream = std::make_unique<pr::mem_istream<char>>(std::string_view(source.m_text), 0);
-					m_reader = std::make_unique<pr::script::v2::Reader>(*m_memory_stream);
+					m_reader = std::make_unique<pr::script::v2::Reader>(*m_memory_stream, false, source.m_filepath, m_includes.get());
 					break;
 				}
 				case EInputMode::File:
@@ -131,7 +149,7 @@ namespace pr::script_bench
 					if (!m_file_stream->is_open())
 						throw std::runtime_error("failed to open benchmark fixture: " + source.m_filepath.string());
 
-					m_reader = std::make_unique<pr::script::v2::Reader>(*m_file_stream, false, source.m_filepath);
+					m_reader = std::make_unique<pr::script::v2::Reader>(*m_file_stream, false, source.m_filepath, m_includes.get());
 					break;
 				}
 				default:
@@ -222,7 +240,7 @@ namespace pr::script_bench
 		reader.SectionEnd();
 
 		reader.SectionEnd(); // Mesh
-		return ParseResult{ cs, items, source.m_text.size() };
+		return ParseResult{ cs, items, source.m_total_bytes };
 	}
 
 	// Identifier-heavy (both empty- and populated-macro variants): reads the flat identifier list
@@ -247,7 +265,7 @@ namespace pr::script_bench
 		}
 		reader.SectionEnd();
 
-		return ParseResult{ cs, items, source.m_text.size() };
+		return ParseResult{ cs, items, source.m_total_bytes };
 	}
 
 	// Strings/non-ASCII: reads the quoted-string list written by 'GenerateStringsUtf8'. Legacy 'Reader'
@@ -283,7 +301,7 @@ namespace pr::script_bench
 		}
 		reader.SectionEnd();
 
-		return ParseResult{ cs, items, source.m_text.size() };
+		return ParseResult{ cs, items, source.m_total_bytes };
 	}
 
 	// Directive/macro-heavy: reads the Flags/Values sections written by 'GenerateDirectiveMacroHeavy'.
@@ -320,7 +338,7 @@ namespace pr::script_bench
 		}
 		reader.SectionEnd();
 
-		return ParseResult{ cs, items, source.m_text.size() };
+		return ParseResult{ cs, items, source.m_total_bytes };
 	}
 
 	// Token-boundary adversary: reads the mixed-kind, comment-padded sequence written by
@@ -377,6 +395,31 @@ namespace pr::script_bench
 		}
 		reader.SectionEnd();
 
-		return ParseResult{ cs, items, source.m_text.size() };
+		return ParseResult{ cs, items, source.m_total_bytes };
+	}
+
+	// Include-tree: read the values emitted depth-first across the generated physical source tree.
+	template <typename ReaderType>
+	ParseResult DriveIncludeTree(BenchmarkSource const& source, SizeParams const& p)
+	{
+		auto owner = ReaderOwner<ReaderType>(source);
+		auto& reader = owner.Reader();
+		auto cs = Checksum{};
+		auto items = uint64_t{};
+
+		ExpectKeyword(reader, "Includes");
+		reader.SectionStart();
+		for (int index = 0, count = p.m_include_file_count * p.m_include_value_count; index != count; ++index)
+		{
+			auto value = int{};
+			reader.Int(value, 10);
+			cs.Add(int64_t(value));
+			++items;
+		}
+		reader.SectionEnd();
+		if (!reader.IsSourceEnd())
+			throw std::runtime_error("include-tree fixture contains unexpected trailing data");
+
+		return ParseResult{ cs, items, source.m_total_bytes };
 	}
 }

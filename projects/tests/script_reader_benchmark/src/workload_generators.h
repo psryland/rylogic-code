@@ -27,6 +27,7 @@ namespace pr::script_bench
 		Strings,
 		Macros,
 		Boundary,
+		Includes,
 	};
 
 	// Fixture size selection.
@@ -47,6 +48,8 @@ namespace pr::script_bench
 		int m_macro_define_count;   // Macros: distinct numeric object-macros defined
 		int m_macro_value_count;    // Macros: values read back, each resolved through one of the macros
 		int m_boundary_item_count;  // Boundary: mixed-kind token count
+		int m_include_file_count;   // Includes: number of physical include files in the binary tree
+		int m_include_value_count;  // Includes: numeric values emitted by each physical file
 	};
 
 	// Returns the fixed size parameters for 'size'. Values are chosen so the default CLI configuration
@@ -67,6 +70,8 @@ namespace pr::script_bench
 					.m_macro_define_count = 64,
 					.m_macro_value_count = 40000,
 					.m_boundary_item_count = 15000,
+					.m_include_file_count = 31,
+					.m_include_value_count = 128,
 				};
 			}
 			case ESize::Large:
@@ -81,6 +86,8 @@ namespace pr::script_bench
 					.m_macro_define_count = 128,
 					.m_macro_value_count = 400000,
 					.m_boundary_item_count = 150000,
+					.m_include_file_count = 255,
+					.m_include_value_count = 512,
 				};
 			}
 			default:
@@ -104,6 +111,15 @@ namespace pr::script_bench
 		char buf[32];
 		auto n = std::snprintf(buf, sizeof(buf), "%0*d", width, v);
 		out.append(buf, size_t(n));
+	}
+
+	// Return the deterministic filename for one node in the generated include tree.
+	inline std::string IncludeFileName(int index)
+	{
+		auto name = std::string("include-");
+		AppendPadded(name, index, 6);
+		name += ".inc";
+		return name;
 	}
 
 	// Appends a fixed-precision real followed by a separating space.
@@ -352,5 +368,43 @@ namespace pr::script_bench
 		}
 		out += "}\n";
 		return out;
+	}
+
+	// Generate the root source for a binary tree of physical includes materialized by the benchmark harness.
+	inline std::string GenerateIncludeTreeRoot()
+	{
+		return "*Includes\n{\n#include <include-000000.inc>\n}\n";
+	}
+
+	// Materialize deterministic include files and return their aggregate byte count.
+	inline uint64_t MaterializeIncludeTree(std::filesystem::path const& directory, SizeParams const& p)
+	{
+		auto total_bytes = uint64_t{};
+		for (int index = 0; index != p.m_include_file_count; ++index)
+		{
+			// Emit this node's values before its children so both readers observe a stable depth-first sequence.
+			auto text = std::string{};
+			text.reserve(size_t(p.m_include_value_count) * 8 + 96);
+			for (int value_index = 0; value_index != p.m_include_value_count; ++value_index)
+				AppendInt(text, int64_t(index) * p.m_include_value_count + value_index);
+
+			auto left = 2 * index + 1;
+			auto right = left + 1;
+			if (left < p.m_include_file_count)
+				text += "\n#include <" + IncludeFileName(left) + ">";
+			if (right < p.m_include_file_count)
+				text += "\n#include <" + IncludeFileName(right) + ">";
+			text += '\n';
+
+			// Write each physical source before timing starts.
+			auto filepath = directory / IncludeFileName(index);
+			auto file = std::ofstream(filepath, std::ios::binary);
+			file.write(text.data(), static_cast<std::streamsize>(text.size()));
+			if (!file)
+				throw std::runtime_error("failed to write include-tree fixture: " + filepath.string());
+
+			total_bytes += text.size();
+		}
+		return total_bytes;
 	}
 }

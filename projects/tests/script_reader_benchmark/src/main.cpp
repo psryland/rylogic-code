@@ -41,7 +41,7 @@ namespace pr::script_bench
 		std::vector<EWorkload> m_workloads =
 		{
 			EWorkload::NumberHeavy, EWorkload::IdentEmpty, EWorkload::IdentPopulated,
-			EWorkload::Strings, EWorkload::Macros, EWorkload::Boundary,
+			EWorkload::Strings, EWorkload::Macros, EWorkload::Boundary, EWorkload::Includes,
 		};
 		std::vector<EInputMode> m_input_modes = { EInputMode::Memory };
 		bool m_memory_scaling = false;
@@ -87,6 +87,7 @@ namespace pr::script_bench
 			case EWorkload::Strings:         return "strings-utf8";
 			case EWorkload::Macros:          return "directive-macro-heavy";
 			case EWorkload::Boundary:        return "token-boundary";
+			case EWorkload::Includes:        return "include-tree-warm";
 			default: throw std::invalid_argument("unknown EWorkload value");
 		}
 	}
@@ -126,6 +127,7 @@ namespace pr::script_bench
 		if (s == "strings") return EWorkload::Strings;
 		if (s == "macros") return EWorkload::Macros;
 		if (s == "boundary") return EWorkload::Boundary;
+		if (s == "includes") return EWorkload::Includes;
 		return std::nullopt;
 	}
 
@@ -173,7 +175,7 @@ namespace pr::script_bench
 			"  --help, -h                   Show this help and exit.\n"
 			"  --size <small|large|both>    Fixture size(s) to run. Default: small.\n"
 			"  --workloads <list>           Comma-separated workload names to run. Default: all.\n"
-			"                               Names: number, ident-empty, ident-populated, strings, macros, boundary\n"
+			"                               Names: number, ident-empty, ident-populated, strings, macros, boundary, includes\n"
 			"  --inputs <list>              Comma-separated input modes. Default: memory.\n"
 			"                               Names: memory, stream, file\n"
 			"  --memory-scaling             Measure Reader2 transport memory at 10 and 100 MiB, then exit.\n"
@@ -311,6 +313,10 @@ namespace pr::script_bench
 			{
 				return WorkloadSpec{ &DriveTokenBoundaryAdversary<pr::script::Reader>, &DriveTokenBoundaryAdversary<pr::script::v2::Reader> };
 			}
+			case EWorkload::Includes:
+			{
+				return WorkloadSpec{ &DriveIncludeTree<pr::script::Reader>, &DriveIncludeTree<pr::script::v2::Reader> };
+			}
 			default:
 			{
 				throw std::invalid_argument("unknown EWorkload value");
@@ -329,6 +335,7 @@ namespace pr::script_bench
 			case EWorkload::Strings:         return GenerateStringsUtf8(p, seed);
 			case EWorkload::Macros:          return GenerateDirectiveMacroHeavy(p, seed);
 			case EWorkload::Boundary:        return GenerateTokenBoundaryAdversary(p, seed);
+			case EWorkload::Includes:        return GenerateIncludeTreeRoot();
 			default: throw std::invalid_argument("unknown EWorkload value");
 		}
 	}
@@ -364,19 +371,36 @@ namespace pr::script_bench
 		auto spec = GetWorkloadSpec(w);
 		auto fixture = GenerateFixture(w, p, seed); // Untimed: fixture generation is never measured.
 		auto filepath = std::filesystem::path{};
+		auto include_root = std::filesystem::path{};
+		auto total_bytes = uint64_t(fixture.size());
 		bool ok = true;
 
-		// File-backed runs materialize the generated fixture before any timed reader construction.
-		if (input_mode == EInputMode::File)
+		// Include-tree sources use production file resolvers while keeping all fixture generation outside timing.
+		if (w == EWorkload::Includes)
+		{
+			auto nonce = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+			include_root = std::filesystem::temp_directory_path() / ("reader2-includes-" + std::to_string(nonce));
+			if (!std::filesystem::create_directory(include_root))
+				throw std::runtime_error("failed to create include-tree directory: " + include_root.string());
+
+			total_bytes += MaterializeIncludeTree(include_root, p);
+			filepath = include_root / "root.ldr";
+		}
+		else if (input_mode == EInputMode::File)
 		{
 			auto nonce = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 			filepath = std::filesystem::temp_directory_path() / ("reader2-benchmark-" + std::to_string(nonce) + ".ldr");
+		}
+
+		// File-backed runs materialize the generated root fixture before any timed reader construction.
+		if (input_mode == EInputMode::File)
+		{
 			auto file = std::ofstream(filepath, std::ios::binary);
 			file.write(fixture.data(), static_cast<std::streamsize>(fixture.size()));
 			if (!file)
 				throw std::runtime_error("failed to write benchmark fixture: " + filepath.string());
 		}
-		auto source = BenchmarkSource{ fixture, filepath, input_mode };
+		auto source = BenchmarkSource{ fixture, filepath, include_root, input_mode, total_bytes };
 
 		// Warm-ups prime caches/branch predictors for both backends before any measured sample; failures
 		// here still abort the workload since a warm-up that throws indicates a broken fixture/driver.
@@ -457,8 +481,15 @@ namespace pr::script_bench
 			}
 		}
 
-		// Remove only the concrete temporary fixture created for this workload.
-		if (!filepath.empty())
+		// Remove only the concrete temporary fixtures created for this workload.
+		if (!include_root.empty())
+		{
+			std::error_code error;
+			std::filesystem::remove_all(include_root, error);
+			if (error)
+				std::cerr << "WARNING: failed to remove temporary include tree '" << include_root << "': " << error.message() << "\n";
+		}
+		else if (!filepath.empty())
 		{
 			std::error_code error;
 			std::filesystem::remove(filepath, error);
