@@ -298,7 +298,12 @@ namespace pr::script::v2
 				probe[i] = PeekByte(i);
 
 			if (Utf8BomLength(std::string_view(probe, 3)) == 3)
+			{
 				m_pos += 3;
+				auto column = m_loc.Col();
+				m_loc.IncAscii(std::string_view(probe, 3));
+				m_loc.Col(column);
+			}
 		}
 
 		// Determine the byte-length of the UTF-8 sequence starting with lead byte

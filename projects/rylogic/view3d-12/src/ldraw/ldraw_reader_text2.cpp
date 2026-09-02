@@ -296,7 +296,7 @@ namespace pr::rdr12::ldraw
 		Impl(std::string_view source, script::Loc const& loc, IPathResolver const& resolver)
 			: m_includes(resolver)
 			, m_reader(std::make_unique<script::v2::Reader>(std::make_unique<script::v2::MemoryInput>(source, loc.Filepath()), loc, false, &m_includes))
-			, m_location()
+			, m_location(ToLocation(loc, loc.FileSize() != 0 ? loc.FileSize() : static_cast<int64_t>(source.size())))
 			, m_keyword()
 			, m_pseudo_tokens()
 			, m_pseudo_value{ EPseudoValue::None, {} }
@@ -323,6 +323,7 @@ namespace pr::rdr12::ldraw
 		{
 			auto loc = SourceLocation(stream, filepath);
 			m_filesize = loc.FileSize();
+			m_location = ToLocation(loc, m_filesize);
 			m_reader = std::make_unique<script::v2::Reader>(std::make_unique<script::v2::StreamInput>(stream, loc.Filepath()), loc, false, &m_includes);
 			m_reader->ReportError = [](script::EResult, script::Loc const&, std::string_view)
 			{
@@ -377,7 +378,15 @@ namespace pr::rdr12::ldraw
 	// Return the current location in the source.
 	Location const& TextReader2::Loc() const
 	{
-		m_impl->m_location = ToLocation(m_impl->m_reader->Location(), m_impl->m_filesize);
+		auto loc = m_impl->m_reader->Location();
+		if (script::v2::IsDefaultLocation(loc) && (!m_impl->m_location.m_filepath.empty() || m_impl->m_location.m_filesize != 0))
+		{
+			// Preserve the source identity at EOF while reporting complete progress.
+			m_impl->m_location.m_offset = m_impl->m_filesize;
+			return m_impl->m_location;
+		}
+
+		m_impl->m_location = ToLocation(loc, m_impl->m_filesize);
 		return m_impl->m_location;
 	}
 

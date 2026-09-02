@@ -768,6 +768,24 @@ namespace pr::script::v2::testing
 			}
 			PR_EXPECT(result == EResult::UnmatchedPreprocessorDirective);
 		}
+
+		PRUnitTestMethod(TransportErrorsAndBomOffsets, Quick)
+		{
+			auto failed_stream = std::istringstream("unread");
+			failed_stream.setstate(std::ios::badbit);
+			auto input = StreamInput(failed_stream);
+			char byte = 0;
+			PR_THROWS(input.Read(&byte, 1), std::ios_base::failure);
+
+			// A BOM occupies physical source bytes without changing the decoded
+			// character column of the first script token.
+			auto source = std::string("\xEF\xBB\xBF*Done");
+			auto cursor = Cursor(std::make_unique<MemoryInput>(source, "bom.ldr"));
+			PR_EXPECT(cursor.Location().Pos() == 3);
+			PR_EXPECT(cursor.Location().Line() == 1);
+			PR_EXPECT(cursor.Location().Col() == 1);
+			PR_EXPECT(*cursor == '*');
+		}
 	};
 
 	// A v2 include handler that counts physical opens for include/dependency

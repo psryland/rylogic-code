@@ -160,6 +160,23 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(memory_loc.m_column == 3);
 			PR_EXPECT(memory_loc.m_line == 2);
 		}
+		PRUnitTestMethod(SourceEndLocation, Quick)
+		{
+			auto source = std::string("*Point {}");
+			auto filepath = std::filesystem::path("finished.ldr");
+			TextReader2 reader(source, filepath);
+			EKeyword keyword;
+			PR_EXPECT(reader.NextKeyword(keyword));
+			{
+				auto section = reader.SectionScope();
+			}
+			PR_EXPECT(reader.IsSourceEnd());
+
+			auto const& loc = reader.Loc();
+			PR_EXPECT(loc.m_filepath == filepath);
+			PR_EXPECT(loc.m_filesize == static_cast<int64_t>(source.size()));
+			PR_EXPECT(loc.m_offset == static_cast<int64_t>(source.size()));
+		}
 	};
 }
 #endif

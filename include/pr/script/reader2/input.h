@@ -102,6 +102,11 @@ namespace pr::script::v2
 			m_stream->read(buf, static_cast<std::streamsize>(count));
 			auto n = static_cast<size_t>(m_stream->gcount());
 
+			// EOF commonly sets failbit after returning a partial final block, but
+			// badbit represents a hard transport failure and must not look like clean EOF.
+			if (m_stream->bad())
+				throw std::ios_base::failure("failed to read script input stream");
+
 			// A stream that has hit EOF still reports the bytes it managed to read on
 			// this call, so only treat 'n == 0' as exhaustion; clear a benign EOF flag
 			// so a subsequent (empty) read behaves consistently instead of throwing.

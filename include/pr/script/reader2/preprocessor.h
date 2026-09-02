@@ -169,9 +169,9 @@ namespace pr::script::v2
 		// The language tag this handler executes (e.g. "lua").
 		virtual std::string_view Lang() const = 0;
 
-		// Execute 'code', appending any generated output text to 'result'. Returns
-		// false if this code could not be executed (caller reports 'EmbeddedCodeError').
-		virtual bool Execute(std::string_view code, std::string& result) = 0;
+		// Execute 'code', appending any generated output text to 'result'. 'support'
+		// reflects the optional directive flag. Returns false on execution failure.
+		virtual bool Execute(std::string_view code, bool support, std::string& result) = 0;
 	};
 
 	// Interface for resolving and opening '#include' targets as UTF-8 byte sources.
@@ -710,7 +710,7 @@ namespace pr::script::v2
 		Preprocessor(Preprocessor const&) = delete;
 		Preprocessor& operator =(Preprocessor const&) = delete;
 
-		// Register a handler used to execute '#embedded(lang) ... #end' blocks.
+		// Register a handler used to execute '#embedded(lang[,support]) ... #end' blocks.
 		void EmbeddedLookup(std::function<IEmbeddedCode2*(std::string_view)> lookup)
 		{
 			m_embedded_lookup = std::move(lookup);
@@ -863,8 +863,7 @@ namespace pr::script::v2
 		{
 			if (m_passthrough)
 			{
-				// Legacy preprocessing discards the exhausted physical frame, so
-				// source-end location queries return its default sentinel location.
+				// Preserve the legacy preprocessor's exhausted-source sentinel.
 				if (m_passthrough->AtEnd())
 				{
 					static Loc const end_loc;
@@ -1563,10 +1562,16 @@ namespace pr::script::v2
 
 		void DoLit(Loc const& loc)
 		{
-			// '#lit' content is copied through completely verbatim (no comment
-			// stripping, no macro expansion, no nested directive recognition) up to
-			// the matching '#end'.
+			// Discard directive-line spacing and its line break before capturing the
+			// literal body, matching the legacy block boundary.
 			auto& top = m_stack.back();
+			for (; *top == ' ' || *top == '\t';)
+				++top;
+			if (*top == '\r')
+				++top;
+			if (*top == '\n')
+				++top;
+
 			std::string text;
 			for (;;)
 			{
@@ -1599,17 +1604,42 @@ namespace pr::script::v2
 				++top;
 
 			if (*top != '(')
-				throw ScriptException(EResult::EmbeddedCodeError, loc, "expected '(lang)' after #embedded");
+				throw ScriptException(EResult::InvalidPreprocessorDirective, loc, "expected '#embedded(lang[,support])'");
 
 			++top;
 			std::string lang;
-			for (; *top != 0 && *top != ')';)
+			for (; str::IsIdentifier(*top, lang.empty());)
 				lang.push_back(*top), ++top;
+			if (lang.empty())
+				throw ScriptException(EResult::InvalidPreprocessorDirective, loc, "embedded language identifier expected");
 
+			for (; *top == ' ' || *top == '\t';)
+				++top;
+
+			auto support = false;
+			if (*top == ',')
+			{
+				++top;
+				for (; *top == ' ' || *top == '\t';)
+					++top;
+				if (!top.Match("support", true, false))
+					throw ScriptException(EResult::InvalidPreprocessorDirective, loc, "expected 'support' after ','");
+
+				support = true;
+				for (; *top == ' ' || *top == '\t';)
+					++top;
+			}
 			if (*top != ')')
-				throw ScriptException(EResult::EmbeddedCodeError, loc, "unterminated #embedded language tag");
+				throw ScriptException(EResult::InvalidPreprocessorDirective, loc, "expected ')' after embedded language");
 
+			// The directive's trailing whitespace and line break are not embedded code.
 			++top;
+			for (; *top == ' ' || *top == '\t';)
+				++top;
+			if (*top == '\r')
+				++top;
+			if (*top == '\n')
+				++top;
 
 			std::string code;
 			for (;;)
@@ -1629,12 +1659,19 @@ namespace pr::script::v2
 			if (!Emitting())
 				return;
 
+			// Embedded source sees the same recursively expanded macro text as legacy.
+			code = RecursiveExpandMacros(code, m_macros, nullptr, loc);
 			auto* handler = m_embedded_lookup ? m_embedded_lookup(lang) : nullptr;
 			if (handler == nullptr)
+			{
+				if (m_ignore_missing)
+					return;
+
 				throw ScriptException(EResult::EmbeddedCodeNotSupported, loc, "no handler registered for embedded code language");
+			}
 
 			std::string result;
-			if (!handler->Execute(code, result))
+			if (!handler->Execute(code, support, result))
 				throw ScriptException(EResult::EmbeddedCodeError, loc, "embedded code execution failed");
 
 			m_stack.emplace_back(std::move(result), loc);
@@ -1742,8 +1779,39 @@ namespace pr::script::v2::testing
 		}
 		PRUnitTestMethod(LitBlock, Quick)
 		{
-			Preprocessor pp("#lit\n#define X 1\n#end");
-			PR_EXPECT(Drain(pp) == "\n#define X 1\n");
+			Preprocessor pp("#lit  \r\n#define X 1\n#end");
+			PR_EXPECT(Drain(pp) == "#define X 1\n");
+		}
+		PRUnitTestMethod(EmbeddedBlock, Quick)
+		{
+			struct Handler :IEmbeddedCode2
+			{
+				std::string m_code;
+				bool m_support = false;
+
+				std::string_view Lang() const override
+				{
+					return "test";
+				}
+				bool Execute(std::string_view code, bool support, std::string& result) override
+				{
+					m_code = code;
+					m_support = support;
+					result = "result";
+					return true;
+				}
+			};
+
+			auto handler = Handler{};
+			Preprocessor pp("#define VALUE 42\n#embedded(test,support)  \r\nVALUE\n#end");
+			pp.EmbeddedLookup([&](std::string_view lang)
+			{
+				return lang == handler.Lang() ? &handler : nullptr;
+			});
+
+			PR_EXPECT(Drain(pp) == "result");
+			PR_EXPECT(handler.m_code == "42\n");
+			PR_EXPECT(handler.m_support);
 		}
 		PRUnitTestMethod(ErrorInsideStringIsNotADirective, Quick)
 		{
