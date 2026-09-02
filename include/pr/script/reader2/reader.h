@@ -516,10 +516,12 @@ namespace pr::script::v2
 				// them. Preserve that contract when preprocessing prevents the fast path.
 				for (;;)
 				{
-					EatDelimiters(src, m_delim);
-					if (*src != quote)
+					auto join = size_t{};
+					for (; str::IsWhiteSpace(src[join]); ++join) {}
+					if (src[join] != quote)
 						break;
 
+					src += join;
 					StrType part;
 					if (!str::ExtractString<StrType>(part, src, m_delim))
 						break;
@@ -560,10 +562,12 @@ namespace pr::script::v2
 			// applied independently to each source literal.
 			for (;;)
 			{
-				EatDelimiters(src, m_delim);
-				if (*src != quote)
+				auto join = size_t{};
+				for (; str::IsWhiteSpace(src[join]); ++join) {}
+				if (src[join] != quote)
 					break;
 
+				src += join;
 				StrType part;
 				if (!str::ExtractString<StrType>(part, src, '\\', {}, m_delim))
 					break;
