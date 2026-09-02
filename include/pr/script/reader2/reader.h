@@ -1244,6 +1244,8 @@ namespace pr::script::v2
 					return false;
 				auto length = size_t{1};
 				for (; length != text.size() && str::IsIdentifier(text[length], false); ++length) {}
+				if (length == text.size() && !src.ContiguousRangeIsComplete())
+					return false;
 
 				// Copy only the caller-owned result and consume its ASCII bytes in bulk.
 				word.assign(text.data(), length);
@@ -1317,6 +1319,8 @@ namespace pr::script::v2
 				if (cur != last && (*cur == 'l' || *cur == 'L'))
 					++cur;
 			}
+			if (cur == last && !src.ContiguousRangeIsComplete())
+				return false;
 
 			// Convert through the same 64-bit domain as the legacy parser before
 			// narrowing to the caller's requested result type.
@@ -1390,6 +1394,8 @@ namespace pr::script::v2
 			auto number_last = cur;
 			if (cur != last && (*cur == 'f' || *cur == 'F'))
 				++cur;
+			if (cur == last && !src.ContiguousRangeIsComplete())
+				return false;
 
 			// Convert without the fixed temporary string and C locale machinery.
 			auto number_first = first;

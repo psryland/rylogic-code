@@ -179,10 +179,18 @@ namespace pr::script::v2
 			return std::string_view(m_win.data() + m_pos, count);
 		}
 
-		// Return all unread bytes for a memory input, or an empty view for a stream.
-		std::string_view RemainingView() const noexcept
+		// Return the currently contiguous unread bytes, refilling an empty stream window once.
+		std::string_view RemainingView()
 		{
-			return m_is_memory ? m_memory.substr(m_pos) : std::string_view{};
+			if (m_is_memory)
+				return m_memory.substr(m_pos);
+
+			if (m_pos == m_win.size() && !m_input_exhausted)
+				Refill();
+			if (m_pos == m_win.size())
+				return {};
+
+			return std::string_view(m_win.data() + m_pos, m_win.size() - m_pos);
 		}
 
 		// Consume a caller-validated ASCII run with one location update.

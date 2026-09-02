@@ -3,7 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2015
 //**********************************
 // Standalone Release/x64 console benchmark that times the legacy 'pr::script::Reader' against the
-// new 'pr::script::v2::Reader' ("Reader2") across a fixed set of deterministic, memory-only workloads.
+// new 'pr::script::v2::Reader' ("Reader2") across deterministic memory-, stream-, and file-backed workloads.
 //
 // Style Guidance:
 //  - This benchmark exists purely to measure and report; it must never modify 'pr/script/reader.h' or
@@ -43,6 +43,7 @@ namespace pr::script_bench
 			EWorkload::NumberHeavy, EWorkload::IdentEmpty, EWorkload::IdentPopulated,
 			EWorkload::Strings, EWorkload::Macros, EWorkload::Boundary,
 		};
+		std::vector<EInputMode> m_input_modes = { EInputMode::Memory };
 		int m_warmups = 4;
 		int m_reps = 16;
 		uint64_t m_seed = 20240517ull;
@@ -54,6 +55,7 @@ namespace pr::script_bench
 		EWorkload m_workload;
 		ESize m_size;
 		EBackend m_backend;
+		EInputMode m_input_mode;
 		int m_repetition;
 		uint64_t m_bytes;
 		uint64_t m_items;
@@ -103,6 +105,16 @@ namespace pr::script_bench
 			case EBackend::Legacy: return "legacy";
 			case EBackend::New:    return "reader2";
 			default: throw std::invalid_argument("unknown EBackend value");
+		}
+	}
+	char const* InputModeName(EInputMode mode)
+	{
+		switch (mode)
+		{
+			case EInputMode::Memory: return "memory";
+			case EInputMode::Stream: return "stream";
+			case EInputMode::File:   return "file";
+			default: throw std::invalid_argument("unknown EInputMode value");
 		}
 	}
 	std::optional<EWorkload> ParseWorkloadName(std::string_view s)
@@ -161,6 +173,8 @@ namespace pr::script_bench
 			"  --size <small|large|both>    Fixture size(s) to run. Default: small.\n"
 			"  --workloads <list>           Comma-separated workload names to run. Default: all.\n"
 			"                               Names: number, ident-empty, ident-populated, strings, macros, boundary\n"
+			"  --inputs <list>              Comma-separated input modes. Default: memory.\n"
+			"                               Names: memory, stream, file\n"
 			"  --warmups <N>                Warm-up parses per backend. Default: 4, minimum: 4, must be even.\n"
 			"  --reps <N>                   Measured parses per backend. Default: 16, minimum: 16, must be even.\n"
 			"  --seed <N>                   Base seed for deterministic fixture generation. Default: 20240517.\n"
@@ -218,6 +232,20 @@ namespace pr::script_bench
 					opt.m_workloads.push_back(*w);
 				}
 			}
+			else if (arg.starts_with("--inputs"))
+			{
+				auto value = NextOptionValue(argc, argv, i);
+				opt.m_input_modes.clear();
+				std::stringstream ss{ value };
+				std::string tok;
+				while (std::getline(ss, tok, ','))
+				{
+					if (tok == "memory") opt.m_input_modes.push_back(EInputMode::Memory);
+					else if (tok == "stream") opt.m_input_modes.push_back(EInputMode::Stream);
+					else if (tok == "file") opt.m_input_modes.push_back(EInputMode::File);
+					else throw std::invalid_argument("unknown input mode: " + tok);
+				}
+			}
 			else if (arg.starts_with("--warmups"))
 			{
 				opt.m_warmups = std::stoi(NextOptionValue(argc, argv, i));
@@ -243,7 +271,7 @@ namespace pr::script_bench
 	// Plain function pointer to a fully-instantiated 'Drive*<ReaderType>' specialisation: dispatching
 	// through this indirection (rather than branching on backend inside the timed region) keeps the
 	// instantiated parse code itself branch-free with respect to which backend is running.
-	using DriveFn = ParseResult(*)(std::string const&, SizeParams const&);
+	using DriveFn = ParseResult(*)(BenchmarkSource const&, SizeParams const&);
 
 	struct WorkloadSpec
 	{
@@ -325,11 +353,24 @@ namespace pr::script_bench
 
 	// Generates the fixture, runs ABBA warm-ups (discarded) then ABBA measured repetitions (recorded),
 	// and verifies both per-backend internal consistency and cross-backend equality before returning.
-	WorkloadRunOutcome RunWorkload(EWorkload w, ESize size, SizeParams const& p, Options const& opt, uint64_t seed)
+	WorkloadRunOutcome RunWorkload(EWorkload w, ESize size, EInputMode input_mode, SizeParams const& p, Options const& opt, uint64_t seed)
 	{
 		auto spec = GetWorkloadSpec(w);
 		auto fixture = GenerateFixture(w, p, seed); // Untimed: fixture generation is never measured.
+		auto filepath = std::filesystem::path{};
 		bool ok = true;
+
+		// File-backed runs materialize the generated fixture before any timed reader construction.
+		if (input_mode == EInputMode::File)
+		{
+			auto nonce = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+			filepath = std::filesystem::temp_directory_path() / ("reader2-benchmark-" + std::to_string(nonce) + ".ldr");
+			auto file = std::ofstream(filepath, std::ios::binary);
+			file.write(fixture.data(), static_cast<std::streamsize>(fixture.size()));
+			if (!file)
+				throw std::runtime_error("failed to write benchmark fixture: " + filepath.string());
+		}
+		auto source = BenchmarkSource{ fixture, filepath, input_mode };
 
 		// Warm-ups prime caches/branch predictors for both backends before any measured sample; failures
 		// here still abort the workload since a warm-up that throws indicates a broken fixture/driver.
@@ -338,7 +379,7 @@ namespace pr::script_bench
 			RunAbba(opt.m_warmups, [&](EBackend backend, int)
 			{
 				auto fn = backend == EBackend::Legacy ? spec.m_legacy : spec.m_new;
-				auto result = fn(fixture, p);
+				auto result = fn(source, p);
 				g_black_hole.fetch_xor(result.m_checksum.m_value, std::memory_order_relaxed);
 			});
 		}
@@ -359,12 +400,12 @@ namespace pr::script_bench
 
 					// One parse per timing sample: construction and full extraction are both inside the timed region.
 					auto t0 = std::chrono::steady_clock::now();
-					auto result = fn(fixture, p);
+					auto result = fn(source, p);
 					auto t1 = std::chrono::steady_clock::now();
 					g_black_hole.fetch_xor(result.m_checksum.m_value, std::memory_order_relaxed);
 
 					auto elapsed = std::chrono::duration<double>(t1 - t0).count();
-					samples.push_back(TimedSample{ w, size, backend, round, result.m_bytes, result.m_items, elapsed, result.m_checksum.m_value });
+					samples.push_back(TimedSample{ w, size, backend, input_mode, round, result.m_bytes, result.m_items, elapsed, result.m_checksum.m_value });
 				});
 			}
 			catch (std::exception const& e)
@@ -410,6 +451,14 @@ namespace pr::script_bench
 			}
 		}
 
+		// Remove only the concrete temporary fixture created for this workload.
+		if (!filepath.empty())
+		{
+			std::error_code error;
+			std::filesystem::remove(filepath, error);
+			if (error)
+				std::cerr << "WARNING: failed to remove temporary fixture '" << filepath << "': " << error.message() << "\n";
+		}
 		if (!ok)
 			samples.clear();
 
@@ -455,7 +504,7 @@ namespace pr::script_bench
 
 	void PrintCsvHeader()
 	{
-		std::cout << "workload,size,backend,repetition,bytes,items,elapsed_s,bytes_per_s,items_per_s,checksum,block_size,config,arch,compiler\n";
+		std::cout << "workload,size,input_mode,backend,repetition,bytes,items,elapsed_s,bytes_per_s,items_per_s,checksum,block_size,config,arch,compiler\n";
 	}
 
 	void PrintCsvRow(TimedSample const& s)
@@ -466,6 +515,7 @@ namespace pr::script_bench
 		std::cout
 			<< WorkloadName(s.m_workload) << ','
 			<< SizeName(s.m_size) << ','
+			<< InputModeName(s.m_input_mode) << ','
 			<< BackendName(s.m_backend) << ','
 			<< s.m_repetition << ','
 			<< s.m_bytes << ','
@@ -485,13 +535,13 @@ namespace pr::script_bench
 	// stats and speedup, flags >5% regressions, and prints the geometric-mean Reader-only speedup.
 	void PrintSummary(std::vector<TimedSample> const& samples)
 	{
-		using Key = std::pair<EWorkload, ESize>;
+		using Key = std::tuple<EWorkload, ESize, EInputMode>;
 		std::map<Key, std::vector<double>> legacy_elapsed, new_elapsed;
 		std::map<Key, uint64_t> bytes_by_key, items_by_key;
 
 		for (auto const& s : samples)
 		{
-			Key key{ s.m_workload, s.m_size };
+			Key key{ s.m_workload, s.m_size, s.m_input_mode };
 			(s.m_backend == EBackend::Legacy ? legacy_elapsed : new_elapsed)[key].push_back(s.m_elapsed_s);
 			bytes_by_key[key] = s.m_bytes;
 			items_by_key[key] = s.m_items;
@@ -513,7 +563,7 @@ namespace pr::script_bench
 			speedups.push_back(speedup);
 
 			std::cerr
-				<< WorkloadName(key.first) << " (" << SizeName(key.second) << "), "
+				<< WorkloadName(std::get<0>(key)) << " (" << SizeName(std::get<1>(key)) << ", " << InputModeName(std::get<2>(key)) << "), "
 				<< bytes_by_key[key] << " bytes, " << items_by_key[key] << " items:\n"
 				<< "  legacy : median=" << legacy_stats.m_median << "s  p10=" << legacy_stats.m_p10 << "s  p90=" << legacy_stats.m_p90
 				<< "s  mean=" << legacy_stats.m_mean << "s  stddev=" << legacy_stats.m_stddev << "s  cv=" << legacy_stats.m_cv << "\n"
@@ -568,20 +618,23 @@ int main(int argc, char** argv)
 		for (auto size : opt.m_sizes)
 		{
 			auto p = GetSizeParams(size);
-			for (auto w : opt.m_workloads)
+			for (auto input_mode : opt.m_input_modes)
 			{
-				// Each (workload, size) pair gets its own derived seed so results stay stable regardless
-				// of which subset of workloads/sizes a given run selects.
-				uint64_t seed = opt.m_seed
-					+ uint64_t(w) * 0x9E3779B97F4A7C15ull
-					+ uint64_t(size) * 0xD1B54A32D192ED03ull;
+				for (auto w : opt.m_workloads)
+				{
+					// Each (workload, size) pair gets its own derived seed so results stay stable regardless
+					// of which subset of workloads/sizes a given run selects.
+					uint64_t seed = opt.m_seed
+						+ uint64_t(w) * 0x9E3779B97F4A7C15ull
+						+ uint64_t(size) * 0xD1B54A32D192ED03ull;
 
-				auto outcome = RunWorkload(w, size, p, opt, seed);
-				for (auto const& s : outcome.m_samples)
-					PrintCsvRow(s);
+					auto outcome = RunWorkload(w, size, input_mode, p, opt, seed);
+					for (auto const& s : outcome.m_samples)
+						PrintCsvRow(s);
 
-				all_samples.insert(all_samples.end(), outcome.m_samples.begin(), outcome.m_samples.end());
-				overall_ok = overall_ok && outcome.m_ok;
+					all_samples.insert(all_samples.end(), outcome.m_samples.begin(), outcome.m_samples.end());
+					overall_ok = overall_ok && outcome.m_ok;
+				}
 			}
 		}
 

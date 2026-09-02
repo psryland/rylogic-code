@@ -22,6 +22,22 @@
 
 namespace pr::script_bench
 {
+	// The physical source used to construct each reader inside the timed region.
+	enum class EInputMode
+	{
+		Memory,
+		Stream,
+		File,
+	};
+
+	// A generated fixture and its optional materialized file representation.
+	struct BenchmarkSource
+	{
+		std::string const& m_text;
+		std::filesystem::path const& m_filepath;
+		EInputMode m_input_mode;
+	};
+
 	// Result of driving one full parse: a black-box checksum, the number of items extracted, and the
 	// input size, used both for cross-backend correctness comparison and for throughput reporting.
 	struct ParseResult
@@ -31,21 +47,106 @@ namespace pr::script_bench
 		uint64_t m_bytes;
 	};
 
-	// Constructs 'ReaderType' over 'src', bridging the legacy (narrow 'char const*') and Reader2
-	// (std::string_view') construction styles. Both branches return the same 'ReaderType' prvalue, so
-	// mandatory C++17 copy elision applies and neither reader needs to be copyable or movable.
+	// Owns the transport and legacy source objects that must outlive one timed reader parse.
 	template <typename ReaderType>
-	ReaderType MakeReader(std::string const& src)
+	class ReaderOwner;
+
+	// Owns a legacy reader and the selected byte source feeding it.
+	template <>
+	class ReaderOwner<pr::script::Reader>
 	{
-		if constexpr (std::is_same_v<ReaderType, pr::script::Reader>)
+		std::unique_ptr<pr::mem_istream<char>> m_stream;
+		std::unique_ptr<pr::script::StreamSrc<char>> m_stream_src;
+		std::unique_ptr<pr::script::FileSrc> m_file_src;
+		std::unique_ptr<pr::script::Reader> m_reader;
+
+	public:
+
+		// Construct the legacy reader through the selected memory, stream, or file source.
+		explicit ReaderOwner(BenchmarkSource const& source)
 		{
-			return ReaderType(src.c_str());
+			switch (source.m_input_mode)
+			{
+				case EInputMode::Memory:
+				{
+					m_reader = std::make_unique<pr::script::Reader>(source.m_text.c_str());
+					break;
+				}
+				case EInputMode::Stream:
+				{
+					m_stream = std::make_unique<pr::mem_istream<char>>(std::string_view(source.m_text), 0);
+					m_stream_src = std::make_unique<pr::script::StreamSrc<char>>(*m_stream, pr::EEncoding::utf8);
+					m_reader = std::make_unique<pr::script::Reader>(*m_stream_src);
+					break;
+				}
+				case EInputMode::File:
+				{
+					m_file_src = std::make_unique<pr::script::FileSrc>(source.m_filepath, pr::EEncoding::utf8);
+					m_reader = std::make_unique<pr::script::Reader>(*m_file_src);
+					break;
+				}
+				default:
+				{
+					throw std::invalid_argument("unknown EInputMode value");
+				}
+			}
 		}
-		else
+
+		// Return the constructed reader.
+		pr::script::Reader& Reader()
 		{
-			return ReaderType(std::string_view(src));
+			return *m_reader;
 		}
-	}
+	};
+
+	// Owns a Reader2 reader and the selected stream object feeding it.
+	template <>
+	class ReaderOwner<pr::script::v2::Reader>
+	{
+		std::unique_ptr<pr::mem_istream<char>> m_memory_stream;
+		std::unique_ptr<std::ifstream> m_file_stream;
+		std::unique_ptr<pr::script::v2::Reader> m_reader;
+
+	public:
+
+		// Construct Reader2 through the selected memory, stream, or file source.
+		explicit ReaderOwner(BenchmarkSource const& source)
+		{
+			switch (source.m_input_mode)
+			{
+				case EInputMode::Memory:
+				{
+					m_reader = std::make_unique<pr::script::v2::Reader>(std::string_view(source.m_text));
+					break;
+				}
+				case EInputMode::Stream:
+				{
+					m_memory_stream = std::make_unique<pr::mem_istream<char>>(std::string_view(source.m_text), 0);
+					m_reader = std::make_unique<pr::script::v2::Reader>(*m_memory_stream);
+					break;
+				}
+				case EInputMode::File:
+				{
+					m_file_stream = std::make_unique<std::ifstream>(source.m_filepath, std::ios::binary);
+					if (!m_file_stream->is_open())
+						throw std::runtime_error("failed to open benchmark fixture: " + source.m_filepath.string());
+
+					m_reader = std::make_unique<pr::script::v2::Reader>(*m_file_stream, false, source.m_filepath);
+					break;
+				}
+				default:
+				{
+					throw std::invalid_argument("unknown EInputMode value");
+				}
+			}
+		}
+
+		// Return the constructed reader.
+		pr::script::v2::Reader& Reader()
+		{
+			return *m_reader;
+		}
+	};
 
 	// Scans forward to the named keyword, bridging the legacy/Reader2 'Keyword' signature difference.
 	template <typename ReaderType>
@@ -64,9 +165,10 @@ namespace pr::script_bench
 
 	// Number-heavy: reads the Verts/Normals/UVs/Indices sections written by 'GenerateNumberHeavy'.
 	template <typename ReaderType>
-	ParseResult DriveNumberHeavy(std::string const& src, SizeParams const& p)
+	ParseResult DriveNumberHeavy(BenchmarkSource const& source, SizeParams const& p)
 	{
-		auto reader = MakeReader<ReaderType>(src);
+		auto owner = ReaderOwner<ReaderType>(source);
+		auto& reader = owner.Reader();
 		Checksum cs;
 		uint64_t items = 0;
 
@@ -120,16 +222,17 @@ namespace pr::script_bench
 		reader.SectionEnd();
 
 		reader.SectionEnd(); // Mesh
-		return ParseResult{ cs, items, src.size() };
+		return ParseResult{ cs, items, source.m_text.size() };
 	}
 
 	// Identifier-heavy (both empty- and populated-macro variants): reads the flat identifier list
 	// written by 'GenerateIdentifierHeavy'. The extraction sequence is identical for both variants;
 	// only the fixture text (and therefore the reader's macro-table state) differs between them.
 	template <typename ReaderType>
-	ParseResult DriveIdentifierHeavy(std::string const& src, SizeParams const& p)
+	ParseResult DriveIdentifierHeavy(BenchmarkSource const& source, SizeParams const& p)
 	{
-		auto reader = MakeReader<ReaderType>(src);
+		auto owner = ReaderOwner<ReaderType>(source);
+		auto& reader = owner.Reader();
 		Checksum cs;
 		uint64_t items = 0;
 
@@ -144,7 +247,7 @@ namespace pr::script_bench
 		}
 		reader.SectionEnd();
 
-		return ParseResult{ cs, items, src.size() };
+		return ParseResult{ cs, items, source.m_text.size() };
 	}
 
 	// Strings/non-ASCII: reads the quoted-string list written by 'GenerateStringsUtf8'. Legacy 'Reader'
@@ -153,9 +256,10 @@ namespace pr::script_bench
 	// then narrowing via 'pr::Narrow' round-trips UTF-8 correctly and matches Reader2's native
 	// UTF-8 'std::string' output, so both backends are checksummed against the same decoded text.
 	template <typename ReaderType>
-	ParseResult DriveStringsUtf8(std::string const& src, SizeParams const& p)
+	ParseResult DriveStringsUtf8(BenchmarkSource const& source, SizeParams const& p)
 	{
-		auto reader = MakeReader<ReaderType>(src);
+		auto owner = ReaderOwner<ReaderType>(source);
+		auto& reader = owner.Reader();
 		Checksum cs;
 		uint64_t items = 0;
 
@@ -179,16 +283,17 @@ namespace pr::script_bench
 		}
 		reader.SectionEnd();
 
-		return ParseResult{ cs, items, src.size() };
+		return ParseResult{ cs, items, source.m_text.size() };
 	}
 
 	// Directive/macro-heavy: reads the Flags/Values sections written by 'GenerateDirectiveMacroHeavy'.
 	template <typename ReaderType>
-	ParseResult DriveDirectiveMacroHeavy(std::string const& src, SizeParams const& p)
+	ParseResult DriveDirectiveMacroHeavy(BenchmarkSource const& source, SizeParams const& p)
 	{
 		constexpr int FlagToggleCount = 16; // Must match 'GenerateDirectiveMacroHeavy'.
 
-		auto reader = MakeReader<ReaderType>(src);
+		auto owner = ReaderOwner<ReaderType>(source);
+		auto& reader = owner.Reader();
 		Checksum cs;
 		uint64_t items = 0;
 
@@ -215,16 +320,17 @@ namespace pr::script_bench
 		}
 		reader.SectionEnd();
 
-		return ParseResult{ cs, items, src.size() };
+		return ParseResult{ cs, items, source.m_text.size() };
 	}
 
 	// Token-boundary adversary: reads the mixed-kind, comment-padded sequence written by
 	// 'GenerateTokenBoundaryAdversary', cycling through int/real/string/identifier extraction in the
 	// same fixed order the generator used to decide what to emit.
 	template <typename ReaderType>
-	ParseResult DriveTokenBoundaryAdversary(std::string const& src, SizeParams const& p)
+	ParseResult DriveTokenBoundaryAdversary(BenchmarkSource const& source, SizeParams const& p)
 	{
-		auto reader = MakeReader<ReaderType>(src);
+		auto owner = ReaderOwner<ReaderType>(source);
+		auto& reader = owner.Reader();
 		Checksum cs;
 		uint64_t items = 0;
 
@@ -271,6 +377,6 @@ namespace pr::script_bench
 		}
 		reader.SectionEnd();
 
-		return ParseResult{ cs, items, src.size() };
+		return ParseResult{ cs, items, source.m_text.size() };
 	}
 }

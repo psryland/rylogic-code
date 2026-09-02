@@ -19,6 +19,7 @@
 		<ClCompile>
 			<PrecompiledHeader>Use</PrecompiledHeader>
 			<PrecompiledHeaderFile>src/forward.h</PrecompiledHeaderFile>
+			<PreprocessorDefinitions Condition="'$(Reader2BlockSize)' != ''">PR_SCRIPT_READER2_BLOCK_SIZE=$(Reader2BlockSize);%(PreprocessorDefinitions)</PreprocessorDefinitions>
 			<AdditionalIncludeDirectories>
 				;$(ProjectDir)
 				;$(RylogicRoot)include

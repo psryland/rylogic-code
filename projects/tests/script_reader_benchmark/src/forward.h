@@ -11,6 +11,8 @@
 #include <string_view>
 #include <vector>
 #include <array>
+#include <span>
+#include <tuple>
 #include <chrono>
 #include <random>
 #include <atomic>
@@ -28,8 +30,12 @@
 #include <stdexcept>
 #include <type_traits>
 #include <optional>
+#include <memory>
+#include <fstream>
+#include <filesystem>
 
 // Rylogic
+#include "pr/common/memstream.h"
 #include "pr/math/math.h"
 #include "pr/str/string_core.h"
 #include "pr/script/reader.h"

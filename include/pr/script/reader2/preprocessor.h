@@ -600,10 +600,10 @@ namespace pr::script::v2
 	// source stack ('Frame') is UTF-8 byte oriented from the ground up.
 	class Preprocessor
 	{
-	// A screened memory source can bypass preprocessing until mutable macro
-	// state is requested; all other sources use the full frame stack.
-	std::unique_ptr<Cursor> m_passthrough;
-	std::vector<Frame> m_stack;
+		// Plain source spans bypass preprocessing until syntax requiring the full pipeline is reached.
+		std::unique_ptr<Cursor> m_passthrough;
+		bool m_passthrough_screened;
+		std::vector<Frame> m_stack;
 		MacroDB m_macros;
 		std::unique_ptr<IIncludeHandler2> m_default_includes;
 		IIncludeHandler2* m_includes;
@@ -632,6 +632,7 @@ namespace pr::script::v2
 		// with 'EResult::IncludesNotSupported', matching the legacy default.
 		explicit Preprocessor(std::unique_ptr<IInput> input, IIncludeHandler2* includes = nullptr, Loc const& loc = {})
 			: m_passthrough()
+			, m_passthrough_screened(false)
 			, m_stack()
 			, m_macros()
 			, m_default_includes()
@@ -650,13 +651,22 @@ namespace pr::script::v2
 				m_includes = m_default_includes.get();
 			}
 
-			// Sources without preprocessing syntax can retain the cursor's direct
-			// byte path instead of crossing filter, frame, and lookahead buffers.
+			// Fully screen memory sources once; streamed sources remain direct until
+			// their current window reaches syntax that needs filtering or preprocessing.
 			auto memory = dynamic_cast<MemoryInput const*>(input.get());
 			if (memory != nullptr && memory->m_data.find_first_of("#/\\") == std::string_view::npos)
+			{
 				m_passthrough = std::make_unique<Cursor>(std::move(input), loc);
+				m_passthrough_screened = true;
+			}
+			else if (memory == nullptr)
+			{
+				m_passthrough = std::make_unique<Cursor>(std::move(input), loc);
+			}
 			else
+			{
 				m_stack.emplace_back(FilterCursor(Cursor(std::move(input), loc)));
+			}
 		}
 
 		// Convenience constructor over a caller-owned UTF-8 memory buffer, which must
@@ -700,18 +710,30 @@ namespace pr::script::v2
 			return m_passthrough != nullptr;
 		}
 
-		// Return a contiguous view only when the screened direct-memory path is
-		// active; callers fall back to cursor-generic parsing for expanded input.
+		// Return a contiguous view while the direct-source path is active.
 		std::string_view Contiguous(size_t count)
 		{
 			return m_passthrough ? m_passthrough->View(count) : std::string_view{};
 		}
 
-		// Return the unread contiguous memory source, or an empty view while the
-		// full preprocessing pipeline is active.
-		std::string_view RemainingContiguous() const noexcept
+		// Return the direct bytes known not to contain syntax that needs the full pipeline.
+		std::string_view RemainingContiguous()
 		{
-			return m_passthrough ? m_passthrough->RemainingView() : std::string_view{};
+			if (!m_passthrough)
+				return {};
+
+			auto text = m_passthrough->RemainingView();
+			if (m_passthrough_screened)
+				return text;
+
+			auto special = text.find_first_of("#/\\\"'");
+			return text.substr(0, special);
+		}
+
+		// True when the direct source was screened to its physical end.
+		bool ContiguousRangeIsComplete() const noexcept
+		{
+			return m_passthrough_screened;
 		}
 
 		// Consume a caller-validated ASCII span from the contiguous memory path.
@@ -732,7 +754,11 @@ namespace pr::script::v2
 		char operator *()
 		{
 			if (m_passthrough)
-				return **m_passthrough;
+			{
+				ActivatePipelineForLookahead(0);
+				if (m_passthrough)
+					return **m_passthrough;
+			}
 
 			Fill(0);
 			return m_look[0];
@@ -740,7 +766,11 @@ namespace pr::script::v2
 		char operator [](size_t i)
 		{
 			if (m_passthrough)
-				return (*m_passthrough)[i];
+			{
+				ActivatePipelineForLookahead(i);
+				if (m_passthrough)
+					return (*m_passthrough)[i];
+			}
 
 			Fill(i);
 			return m_look[i];
@@ -799,8 +829,7 @@ namespace pr::script::v2
 
 	private:
 
-		// Promote a screened passthrough source into the full preprocessing
-		// pipeline before exposing mutable macro state.
+		// Promote a passthrough source into the full preprocessing pipeline.
 		void ActivatePipeline()
 		{
 			if (!m_passthrough)
@@ -808,6 +837,19 @@ namespace pr::script::v2
 
 			m_stack.emplace_back(FilterCursor(std::move(*m_passthrough)));
 			m_passthrough.reset();
+			m_passthrough_screened = false;
+		}
+
+		// Promote an unscreened source when requested lookahead reaches syntax that
+		// needs continuation, comment, directive, or literal-aware processing.
+		void ActivatePipelineForLookahead(size_t count)
+		{
+			if (!m_passthrough || m_passthrough_screened)
+				return;
+
+			auto text = m_passthrough->View(count + 1);
+			if (text.find_first_of("#/\\\"'") != std::string_view::npos)
+				ActivatePipeline();
 		}
 
 		// Ensure the lookahead buffer holds at least 'n + 1' entries, pulling and
