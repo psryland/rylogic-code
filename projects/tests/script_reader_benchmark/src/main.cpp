@@ -21,6 +21,7 @@
 //    that verification or throws during parsing.
 #include "src/forward.h"
 #include "src/checksum.h"
+#include "src/statistics.h"
 #include "src/workload_generators.h"
 #include "src/reader_drivers.h"
 
@@ -62,17 +63,6 @@ namespace pr::script_bench
 		uint64_t m_items;
 		double m_elapsed_s;
 		uint64_t m_checksum;
-	};
-
-	// Robust summary statistics over a set of elapsed-time samples.
-	struct Stats
-	{
-		double m_median;
-		double m_p10;
-		double m_p90;
-		double m_mean;
-		double m_stddev;
-		double m_cv; // coefficient of variation: stddev / mean
 	};
 
 	// --- Naming ----------------------------------------------------------------------------------
@@ -500,41 +490,6 @@ namespace pr::script_bench
 			samples.clear();
 
 		return WorkloadRunOutcome{ ok, std::move(samples) };
-	}
-
-	// --- Statistics ----------------------------------------------------------------------------
-
-	Stats ComputeStats(std::vector<double> values)
-	{
-		std::sort(values.begin(), values.end());
-		auto n = values.size();
-
-		// Linear-interpolated percentile between the two nearest order statistics.
-		auto percentile = [&](double q)
-		{
-			double idx = q * double(n - 1);
-			auto lo = size_t(std::floor(idx));
-			auto hi = size_t(std::ceil(idx));
-			double frac = idx - double(lo);
-			return values[lo] + (values[hi] - values[lo]) * frac;
-		};
-
-		double mean = std::accumulate(values.begin(), values.end(), 0.0) / double(n);
-		double variance = 0.0;
-		for (auto v : values)
-			variance += (v - mean) * (v - mean);
-		variance /= double(n);
-
-		double stddev = std::sqrt(variance);
-		return Stats
-		{
-			.m_median = percentile(0.5),
-			.m_p10 = percentile(0.10),
-			.m_p90 = percentile(0.90),
-			.m_mean = mean,
-			.m_stddev = stddev,
-			.m_cv = mean != 0.0 ? stddev / mean : 0.0,
-		};
 	}
 
 	// --- Reporting -----------------------------------------------------------------------------

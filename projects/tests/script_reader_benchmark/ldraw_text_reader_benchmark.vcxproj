@@ -3,8 +3,8 @@
 
 	<!-- Properties -->
 	<PropertyGroup Label="Globals">
-		<ProjectGuid>{CF7A8FFD-2AFF-4B3D-ACDC-AB0D4483D35F}</ProjectGuid>
-		<RootNamespace>script_reader_benchmark</RootNamespace>
+		<ProjectGuid>{887A4141-51CA-4AD9-9A82-44B1E277CE79}</ProjectGuid>
+		<RootNamespace>ldraw_text_reader_benchmark</RootNamespace>
 		<ConfigurationType>Application</ConfigurationType>
 	</PropertyGroup>
 
@@ -14,7 +14,7 @@
 	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
 	<Import Project="$(PropsPath)app.props" />
 	<PropertyGroup>
-		<IntDir>$(ProjectDir)obj\$(PlatformTarget)\$(Configuration)\reader\</IntDir>
+		<IntDir>$(ProjectDir)obj\$(PlatformTarget)\$(Configuration)\ldraw\</IntDir>
 	</PropertyGroup>
 
 	<!-- Build Options -->
@@ -22,7 +22,6 @@
 		<ClCompile>
 			<PrecompiledHeader>Use</PrecompiledHeader>
 			<PrecompiledHeaderFile>src/forward.h</PrecompiledHeaderFile>
-			<PreprocessorDefinitions Condition="'$(Reader2BlockSize)' != ''">PR_SCRIPT_READER2_BLOCK_SIZE=$(Reader2BlockSize);%(PreprocessorDefinitions)</PreprocessorDefinitions>
 			<AdditionalIncludeDirectories>
 				;$(ProjectDir)
 				;$(RylogicRoot)include
@@ -30,19 +29,27 @@
 		</ClCompile>
 		<Link>
 			<SubSystem>Console</SubSystem>
+			<AdditionalLibraryDirectories>
+				;$(RylogicRoot)lib\$(PlatformTarget)\$(Configuration)
+				;%(AdditionalLibraryDirectories)
+			</AdditionalLibraryDirectories>
+			<AdditionalDependencies>
+				;view3d-12-static.lib
+				;compute-static.lib
+				;%(AdditionalDependencies)
+			</AdditionalDependencies>
 		</Link>
 	</ItemDefinitionGroup>
 
 	<!-- Files -->
 	<ItemGroup>
-		<ClCompile Include="src/main.cpp">
+		<ClCompile Include="src/ldraw_main.cpp">
 			<PrecompiledHeader>Create</PrecompiledHeader>
 		</ClCompile>
 		<ClInclude Include="src/forward.h" />
 		<ClInclude Include="src/checksum.h" />
 		<ClInclude Include="src/statistics.h" />
 		<ClInclude Include="src/workload_generators.h" />
-		<ClInclude Include="src/reader_drivers.h" />
 	</ItemGroup>
 
 	<!-- Targets -->
