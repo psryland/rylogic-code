@@ -53,8 +53,14 @@ namespace pr::rdr12::ldraw
 		// Read an integral value from the current section.
 		int64_t IntImpl(int byte_count, int radix) override;
 
+		// Read a dense sequence of integral values without repeated interface dispatch.
+		void IntsImpl(int byte_count, std::span<int64_t> values, int radix) override;
+
 		// Read a floating point value from the current section.
 		double RealImpl(int byte_count) override;
+
+		// Read a dense sequence of floating-point values without repeated interface dispatch.
+		void RealsImpl(int byte_count, std::span<double> values) override;
 
 		// Read an enum value from the current section.
 		int64_t EnumImpl(int byte_count, ParseEnumIdentCB parse) override;

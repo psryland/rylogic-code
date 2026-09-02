@@ -555,6 +555,13 @@ namespace pr::rdr12::ldraw
 		return value;
 	}
 
+	// Read a dense sequence of integral values without repeated interface dispatch.
+	void TextReader2::IntsImpl(int byte_count, std::span<int64_t> values, int radix)
+	{
+		for (auto& value : values)
+			value = IntImpl(byte_count, radix);
+	}
+
 	// Read a floating point value from the current section.
 	double TextReader2::RealImpl(int)
 	{
@@ -567,6 +574,13 @@ namespace pr::rdr12::ldraw
 			return {};
 		}
 		return value;
+	}
+
+	// Read a dense sequence of floating-point values without repeated interface dispatch.
+	void TextReader2::RealsImpl(int byte_count, std::span<double> values)
+	{
+		for (auto& value : values)
+			value = RealImpl(byte_count);
 	}
 
 	// Read an enum value from the current section.
