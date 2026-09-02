@@ -587,7 +587,7 @@ namespace pr::script
 		template <typename TEnum> bool EnumValue(TEnum& enum_)
 		{
 			auto& src = m_pp;
-			return str::ExtractEnumValue(enum_, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "enum integral value expected");
+			return str::ExtractEnumValue(enum_, 10, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "enum integral value expected");
 		}
 		template <typename TEnum> bool EnumValueS(TEnum& enum_)
 		{

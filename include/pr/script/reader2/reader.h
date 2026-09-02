@@ -17,21 +17,29 @@
 //    bytes (an in-memory buffer or a binary-mode 'std::istream'); converting a
 //    legacy wide-character or other-encoding source into UTF-8 is the caller's
 //    responsibility (or an integration concern outside this library).
-//  - The heavy math-vector/matrix extraction methods (Vector2/3/4, Vector2i/3i/4i,
-//    Quaternion, Matrix3x3/4x4, Rotation, Transform, Data, EnumValue, Enum) are an
-//    explicit, documented gap: porting them would require pulling in the full
-//    'pr::maths' dependency graph, which is out of scope for this milestone.
+//  - The math-vector/matrix/transform extraction methods (Vector2/3/4, Vector2i/3i/4i,
+//    Quaternion, Matrix3x3/4x4, Rotation, Transform, Data, EnumValue, Enum) mirror the
+//    legacy signatures using 'pr::maths' types directly; they are plain compositions of
+//    'Real'/'Int' (or, for 'Transform', of those plus the shared 'pr::maths' functions),
+//    so parsing rules stay identical to the legacy reader. 'AddressAt' takes a
+//    'std::string_view' rather than a legacy 'Src&', since reader2 has no shareable
+//    positioned-source abstraction to construct a nested reader over.
 #pragma once
 #include <string>
 #include <string_view>
 #include <functional>
 #include <filesystem>
 #include <istream>
+#include <regex>
+#include <random>
+#include <vector>
+#include "pr/math/math.h"
 #include "pr/script/forward.h"
 #include "pr/script/location.h"
 #include "pr/script/fail_policy.h"
 #include "pr/script/script_core.h"
 #include "pr/str/extract.h"
+#include "pr/str/char8.h"
 #include "pr/str/string_core.h"
 #include "pr/str/string_filter.h"
 #include "pr/common/hash.h"
@@ -40,6 +48,12 @@
 
 namespace pr::script::v2
 {
+	// Convert UTF-8 script text to a filesystem path without using the process code page.
+	inline std::filesystem::path PathFromUtf8(std::string_view utf8)
+	{
+		return std::filesystem::path(std::u8string(pr::char8_ptr(utf8.data()), utf8.size()));
+	}
+
 	// A UTF-8 native, pull-based script reader. Reads keywords, sections, and
 	// scalar/array values from a preprocessed character stream, reporting errors
 	// via the same 'EResult' codes and 'Loc' locations as 'pr::script::Reader' so
@@ -60,6 +74,9 @@ namespace pr::script::v2
 
 		// Whether keyword text/hashing is case-sensitive.
 		bool m_case_sensitive;
+
+		// Whether the caller supplied an include handler that can resolve extracted filepaths.
+		bool m_has_includes;
 
 	public:
 
@@ -82,6 +99,7 @@ namespace pr::script::v2
 			, m_delim(" \t\r\n\v,;")
 			, m_last_keyword()
 			, m_case_sensitive(case_sensitive)
+			, m_has_includes(inc != nullptr)
 			, ReportError(DefaultErrorHandler)
 		{}
 
@@ -92,6 +110,7 @@ namespace pr::script::v2
 			, m_delim(" \t\r\n\v,;")
 			, m_last_keyword()
 			, m_case_sensitive(case_sensitive)
+			, m_has_includes(inc != nullptr)
 			, ReportError(DefaultErrorHandler)
 		{}
 
@@ -207,6 +226,35 @@ namespace pr::script::v2
 		bool IsValue()
 		{
 			return !IsKeyword() && !IsSectionEnd() && !IsSourceEnd();
+		}
+
+		// Buffer the next 'n' decoded characters without consuming them and test them against a wide regex.
+		bool IsMatch(int n, std::wregex const& pattern)
+		{
+			auto& src = m_pp;
+			EatDelimiters(src, m_delim);
+
+			// Preserve complete UTF-8 sequences so 'n' has the same decoded-character meaning as the legacy reader.
+			std::string utf8;
+			for (size_t offset = 0, chars = 0; chars != static_cast<size_t>(n);)
+			{
+				auto byte = static_cast<unsigned char>(src[offset]);
+				if (byte == 0)
+					break;
+
+				utf8.push_back(static_cast<char>(byte));
+				++offset;
+				if ((byte & 0xC0) != 0x80)
+					++chars;
+
+				// A decoded character includes all continuation bytes following its lead byte.
+				if (chars == static_cast<size_t>(n))
+				{
+					for (; (static_cast<unsigned char>(src[offset]) & 0xC0) == 0x80; ++offset)
+						utf8.push_back(src[offset]);
+				}
+			}
+			return std::regex_match(pr::Widen(utf8), pattern);
 		}
 
 		// Move to the start/end of a section and then one past it.
@@ -352,6 +400,29 @@ namespace pr::script::v2
 			return SectionStart() && Token(token) && SectionEnd();
 		}
 
+		// As above, but additionally splitting on 'delim' (beyond the reader's normal 'Delimiters()').
+		// Unlike legacy's 'wchar_t const*' overload, 'delim' is UTF-8 bytes.
+		template <typename StrType> StrType Token(std::string_view delim)
+		{
+			StrType token;
+			return Token(token, delim) ? token : StrType();
+		}
+		template <typename StrType> StrType TokenS(std::string_view delim)
+		{
+			StrType token;
+			return TokenS(token, delim) ? token : StrType{};
+		}
+		template <typename StrType> bool Token(StrType& token, std::string_view delim)
+		{
+			auto& src = m_pp;
+			str::Resize(token, 0);
+			return str::ExtractToken(token, src, std::string(m_delim).append(delim)) || ReportError(EResult::TokenNotFound, Location(), "token expected");
+		}
+		template <typename StrType> bool TokenS(StrType& token, std::string_view delim)
+		{
+			return SectionStart() && Token(token, delim) && SectionEnd();
+		}
+
 		// Read an identifier from the source. An identifier is one of (A-Z,a-z,'_') followed by (A-Z,a-z,'_',0-9) in a contiguous block.
 		template <typename StrType> StrType Identifier()
 		{
@@ -459,9 +530,11 @@ namespace pr::script::v2
 			std::string s;
 			if (!String(s)) return ReportError(EResult::InvalidString, Location(), "'filepath' string expected");
 
-			// Resolve relative to the include search path, same as the legacy reader.
-			path = s;
-			path = Includes().ResolveInclude(path, EIncludeFlags::IncludeLocalDir | EIncludeFlags::IgnoreMissing, Location());
+			// Interpret the source spelling as UTF-8 before optionally resolving it through the configured include handler.
+			path = PathFromUtf8(s);
+			if (m_has_includes)
+				path = Includes().ResolveInclude(path, EIncludeFlags::IncludeLocalDir | EIncludeFlags::IgnoreMissing, Location());
+
 			return true;
 		}
 		bool FilepathS(std::filesystem::path& path)
@@ -559,6 +632,473 @@ namespace pr::script::v2
 			return SectionStart() && Real(reals, num_reals) && SectionEnd();
 		}
 
+		// Extract an enum value (its underlying integral representation) from the source.
+		template <typename TEnum> TEnum EnumValue(int radix = 10)
+		{
+			TEnum enum_;
+			return EnumValue(enum_, radix) ? enum_ : TEnum{};
+		}
+		template <typename TEnum> TEnum EnumValueS(int radix = 10)
+		{
+			TEnum enum_;
+			return EnumValueS(enum_, radix) ? enum_ : TEnum{};
+		}
+		template <typename TEnum> bool EnumValue(TEnum& enum_, int radix = 10)
+		{
+			auto& src = m_pp;
+			return str::ExtractEnumValue(enum_, radix, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "enum integral value expected");
+		}
+		template <typename TEnum> bool EnumValueS(TEnum& enum_, int radix = 10)
+		{
+			return SectionStart() && EnumValue(enum_, radix) && SectionEnd();
+		}
+
+		// Extract an enum identifier (its member name) from the source.
+		template <typename TEnum> TEnum Enum()
+		{
+			TEnum enum_;
+			return Enum(enum_) ? enum_ : TEnum{};
+		}
+		template <typename TEnum> TEnum EnumS()
+		{
+			TEnum enum_;
+			return EnumS(enum_) ? enum_ : TEnum{};
+		}
+		template <typename TEnum> bool Enum(TEnum& enum_)
+		{
+			auto& src = m_pp;
+			return str::ExtractEnum(enum_, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "enum member string name expected");
+		}
+		template <typename TEnum> bool EnumS(TEnum& enum_)
+		{
+			return SectionStart() && Enum(enum_) && SectionEnd();
+		}
+
+		// Extract a 2D real vector from the source.
+		pr::v2 Vector2()
+		{
+			pr::v2 vector;
+			return Vector2(vector) ? vector : pr::v2{};
+		}
+		pr::v2 Vector2S()
+		{
+			pr::v2 vector;
+			return Vector2S(vector) ? vector : pr::v2{};
+		}
+		bool Vector2(pr::v2& vector)
+		{
+			return Real(vector.x) && Real(vector.y);
+		}
+		bool Vector2S(pr::v2& vector)
+		{
+			return SectionStart() && Vector2(vector) && SectionEnd();
+		}
+
+		// Extract a 2D integer vector from the source.
+		iv2 Vector2i(int radix = 10)
+		{
+			iv2 vector;
+			return Vector2i(vector, radix) ? vector : iv2{};
+		}
+		iv2 Vector2iS(int radix = 10)
+		{
+			iv2 vector;
+			return Vector2iS(vector, radix) ? vector : iv2{};
+		}
+		bool Vector2i(iv2& vector, int radix = 10)
+		{
+			return Int(vector.x, radix) && Int(vector.y, radix);
+		}
+		bool Vector2iS(iv2& vector, int radix = 10)
+		{
+			return SectionStart() && Vector2i(vector, radix) && SectionEnd();
+		}
+
+		// Extract a 3D real vector from the source. 'w' fills in the unread 4th component.
+		v4 Vector3(float w)
+		{
+			v4 vector;
+			return Vector3(vector, w) ? vector : v4{};
+		}
+		v4 Vector3S(float w)
+		{
+			v4 vector;
+			return Vector3S(vector, w) ? vector : v4{};
+		}
+		bool Vector3(v4& vector, float w)
+		{
+			vector.w = w;
+			return Real(vector.x) && Real(vector.y) && Real(vector.z);
+		}
+		bool Vector3S(v4& vector, float w)
+		{
+			return SectionStart() && Vector3(vector, w) && SectionEnd();
+		}
+
+		// Extract a 3D integer vector from the source. 'w' fills in the unread 4th component.
+		iv4 Vector3i(int w, int radix = 10)
+		{
+			iv4 vector;
+			return Vector3i(vector, w, radix) ? vector : iv4{};
+		}
+		iv4 Vector3iS(int w, int radix = 10)
+		{
+			iv4 vector;
+			return Vector3iS(vector, w, radix) ? vector : iv4{};
+		}
+		bool Vector3i(iv4& vector, int w, int radix = 10)
+		{
+			vector.w = w;
+			return Int(vector.x, radix) && Int(vector.y, radix) && Int(vector.z, radix);
+		}
+		bool Vector3iS(iv4& vector, int w, int radix = 10)
+		{
+			return SectionStart() && Vector3i(vector, w, radix) && SectionEnd();
+		}
+
+		// Extract a 4D real vector from the source.
+		v4 Vector4()
+		{
+			v4 vector;
+			return Vector4(vector) ? vector : v4{};
+		}
+		v4 Vector4S()
+		{
+			v4 vector;
+			return Vector4S(vector) ? vector : v4{};
+		}
+		bool Vector4(v4& vector)
+		{
+			return Real(vector.x) && Real(vector.y) && Real(vector.z) && Real(vector.w);
+		}
+		bool Vector4S(v4& vector)
+		{
+			return SectionStart() && Vector4(vector) && SectionEnd();
+		}
+
+		// Extract a 4D integer vector from the source.
+		iv4 Vector4i(int radix = 10)
+		{
+			iv4 vector;
+			return Vector4i(vector, radix) ? vector : iv4{};
+		}
+		iv4 Vector4iS(int radix = 10)
+		{
+			iv4 vector;
+			return Vector4iS(vector, radix) ? vector : iv4{};
+		}
+		bool Vector4i(iv4& vector, int radix = 10)
+		{
+			return Int(vector.x, radix) && Int(vector.y, radix) && Int(vector.z, radix) && Int(vector.w, radix);
+		}
+		bool Vector4iS(iv4& vector, int radix = 10)
+		{
+			return SectionStart() && Vector4i(vector, radix) && SectionEnd();
+		}
+
+		// Extract a quaternion from the source.
+		quat Quaternion()
+		{
+			quat quaternion;
+			return Quaternion(quaternion) ? quaternion : quat{};
+		}
+		quat QuaternionS()
+		{
+			quat quaternion;
+			return QuaternionS(quaternion) ? quaternion : quat{};
+		}
+		bool Quaternion(quat& quaternion)
+		{
+			return Real(quaternion.x) && Real(quaternion.y) && Real(quaternion.z) && Real(quaternion.w);
+		}
+		bool QuaternionS(quat& quaternion)
+		{
+			return SectionStart() && Quaternion(quaternion) && SectionEnd();
+		}
+
+		// Extract a 3x3 matrix from the source.
+		m3x3 Matrix3x3()
+		{
+			m3x3 transform;
+			return Matrix3x3(transform) ? transform : m3x3{};
+		}
+		m3x3 Matrix3x3S()
+		{
+			m3x3 transform;
+			return Matrix3x3S(transform) ? transform : m3x3{};
+		}
+		bool Matrix3x3(m3x3& transform)
+		{
+			return Vector3(transform.x4, 0) && Vector3(transform.y4, 0) && Vector3(transform.z4, 0);
+		}
+		bool Matrix3x3S(m3x3& transform)
+		{
+			return SectionStart() && Matrix3x3(transform) && SectionEnd();
+		}
+
+		// Extract a 4x4 matrix from the source.
+		m4x4 Matrix4x4()
+		{
+			m4x4 transform;
+			return Matrix4x4(transform) ? transform : m4x4{};
+		}
+		m4x4 Matrix4x4S()
+		{
+			m4x4 transform;
+			return Matrix4x4S(transform) ? transform : m4x4{};
+		}
+		bool Matrix4x4(m4x4& transform)
+		{
+			return Vector4(transform.x) && Vector4(transform.y) && Vector4(transform.z) && Vector4(transform.w);
+		}
+		bool Matrix4x4S(m4x4& transform)
+		{
+			return SectionStart() && Matrix4x4(transform) && SectionEnd();
+		}
+
+		// Extract a byte array from the source.
+		std::vector<uint8_t> Data(size_t length, int radix = 16)
+		{
+			std::vector<uint8_t> data(length);
+			return Data(data.data(), length, radix) ? std::move(data) : std::vector<uint8_t>{};
+		}
+		std::vector<uint8_t> DataS(size_t length, int radix = 16)
+		{
+			std::vector<uint8_t> data(length);
+			return DataS(data.data(), length, radix) ? std::move(data) : std::vector<uint8_t>{};
+		}
+		bool Data(void* data, size_t length, int radix = 16)
+		{
+			return Int(static_cast<uint8_t*>(data), length, radix);
+		}
+		bool DataS(void* data, size_t length, int radix = 16)
+		{
+			return SectionStart() && Data(data, length, radix) && SectionEnd();
+		}
+
+		// Extract a rotation, pre-multiplying it onto 'rot'. 'rot' must already be a valid
+		// (finite) rotation, since the result is 'read_rotation * rot', not a replacement.
+		m3x3 Rotation()
+		{
+			auto rot = m3x3::Identity();
+			return Rotation(rot) ? rot : m3x3::Identity();
+		}
+		m3x3 RotationS()
+		{
+			auto rot = m3x3::Identity();
+			return RotationS(rot) ? rot : m3x3::Identity();
+		}
+		bool Rotation(m3x3& rot)
+		{
+			pr_assert(IsFinite(rot) && "A valid 'rot' must be passed to this function as it pre-multiplies the transform with the one read from the script");
+
+			// Route through 'Transform', which accepts any 'ETransformKeyword', not just rotation ones.
+			auto o2w = m4x4{rot, v4::Origin()};
+			return Transform(o2w) ? (rot = o2w.rot, true) : false;
+		}
+		bool RotationS(m3x3& rot)
+		{
+			return SectionStart() && Rotation(rot) && SectionEnd();
+		}
+
+		// Extract a transform description accumulatively, pre-multiplying it onto 'o2w'. 'o2w' must
+		// already be a valid (finite) transform, since the result is 'read_transform * o2w', not a
+		// replacement; pass 'm4x4::Identity()' to build a transform from scratch.
+		m4x4 Transform()
+		{
+			auto o2w = m4x4::Identity();
+			return Transform(o2w) ? o2w : m4x4{};
+		}
+		m4x4 TransformS()
+		{
+			auto o2w = m4x4::Identity();
+			return TransformS(o2w) ? o2w : m4x4{};
+		}
+		bool Transform(m4x4& o2w)
+		{
+			pr_assert(IsFinite(o2w) && "A valid 'o2w' must be passed to this function as it pre-multiplies the transform with the one read from the script");
+			auto p2w = m4x4::Identity();
+			auto affine = IsAffine(o2w);
+			static std::default_random_engine rng;
+
+			// Parse one transform keyword at a time, pre-multiplying 'p2w' by each, until a
+			// non-transform keyword (or the source end) is reached.
+			for (ETransformKeyword kw; NextKeywordH(kw);)
+			{
+				switch (kw)
+				{
+					case ETransformKeyword::NonAffine:
+					{
+						// A following 'M4x4' is allowed to be non-affine (e.g. contain a projection).
+						affine = false;
+						break;
+					}
+					case ETransformKeyword::M4x4:
+					{
+						auto m = m4x4::Identity();
+						Matrix4x4S(m);
+						if (affine && m.w.w != 1)
+						{
+							// Reporting is deferred to the switch's 'default' arm's error path; jump straight there.
+							ReportError(EResult::UnknownValue, Location(), "Specify 'NonAffine' if M4x4 is intentionally non-affine.");
+							goto transform_parse_done;
+						}
+						p2w = m * p2w;
+						break;
+					}
+					case ETransformKeyword::M3x3:
+					{
+						auto m = m4x4::Identity();
+						Matrix3x3S(m.rot);
+						p2w = m * p2w;
+						break;
+					}
+					case ETransformKeyword::Pos:
+					{
+						auto m = m4x4::Identity();
+						Vector3S(m.pos, 1.0f);
+						p2w = m * p2w;
+						break;
+					}
+					case ETransformKeyword::Align:
+					{
+						// {axis_id, direction}: rotate the world axis 'axis_id' (\xc2\xb1""1/\xc2\xb1""2/\xc2\xb1""3, i.e. \xc2\xb1""X/\xc2\xb1""Y/\xc2\xb1""Z) to point along 'direction'.
+						int axis_id;
+						v4 direction;
+						SectionStart();
+						Int(axis_id, 10);
+						Vector3(direction, 0.0f);
+						SectionEnd();
+
+						v4 axis = AxisId(axis_id);
+						if (LengthSq(axis) == 0)
+						{
+							ReportError(EResult::UnknownValue, Location(), "axis_id must one of \xc2\xb1""1, \xc2\xb1""2, \xc2\xb1""3");
+							goto transform_parse_done;
+						}
+
+						p2w = m4x4::Transform(axis, direction, v4::Origin()) * p2w;
+						break;
+					}
+					case ETransformKeyword::Quat:
+					{
+						quat q;
+						Vector4S(q.xyzw);
+						p2w = m4x4::Transform(q, v4::Origin()) * p2w;
+						break;
+					}
+					case ETransformKeyword::QuatPos:
+					{
+						v4 p;
+						quat q;
+						SectionStart();
+						Vector4(q.xyzw);
+						Vector3(p, 1.0f);
+						SectionEnd();
+						p2w = m4x4::Transform(q, p) * p2w;
+						break;
+					}
+					case ETransformKeyword::Rand4x4:
+					{
+						// {centre, radius}: a uniformly random orientation and a random position within 'radius' of 'centre'.
+						float radius;
+						v4 centre;
+						SectionStart();
+						Vector3(centre, 1.0f);
+						Real(radius);
+						SectionEnd();
+						auto rot = Random<m3x3>(rng);
+						auto pos = Random<v4>(rng, centre, radius);
+						p2w = m4x4{rot, pos} * p2w;
+						break;
+					}
+					case ETransformKeyword::RandPos:
+					{
+						// {centre, radius}: a random position within 'radius' of 'centre'; orientation is unchanged.
+						float radius;
+						v4 centre;
+						SectionStart();
+						Vector3(centre, 1.0f);
+						Real(radius);
+						SectionEnd();
+						p2w = m4x4::Translation(Random<v4>(rng, centre, radius).w1()) * p2w;
+						break;
+					}
+					case ETransformKeyword::RandOri:
+					{
+						auto m = m4x4(Random<m3x3>(rng), v4::Origin());
+						p2w = m * p2w;
+						break;
+					}
+					case ETransformKeyword::Euler:
+					{
+						v4 angles;
+						Vector3S(angles, 0.0f);
+						p2w = m4x4::TransformDeg(angles.x, angles.y, angles.z, v4::Origin()) * p2w;
+						break;
+					}
+					case ETransformKeyword::Scale:
+					{
+						// {s} scales uniformly; {sx, sy, sz} scales per-axis.
+						v4 scale;
+						SectionStart();
+						Real(scale.x);
+						if (IsSectionEnd())
+						{
+							scale.z = scale.y = scale.x;
+						}
+						else
+						{
+							Real(scale.y);
+							Real(scale.z);
+						}
+						SectionEnd();
+						p2w = m4x4::Scale(scale.x, scale.y, scale.z, v4::Origin()) * p2w;
+						break;
+					}
+					case ETransformKeyword::Transpose:
+					{
+						p2w = Transpose(p2w);
+						break;
+					}
+					case ETransformKeyword::Inverse:
+					{
+						p2w = IsOrthonormal(p2w) ? InvertOrthonormal(p2w) : Invert(p2w);
+						break;
+					}
+					case ETransformKeyword::Normalise:
+					{
+						p2w.x = Normalise(p2w.x);
+						p2w.y = Normalise(p2w.y);
+						p2w.z = Normalise(p2w.z);
+						break;
+					}
+					case ETransformKeyword::Orthonormalise:
+					{
+						p2w = Orthonorm(p2w);
+						break;
+					}
+					default:
+					{
+						// An unrecognised transform keyword ends the accumulative parse; 'ReportError's
+						// default handler throws, matching the "switch on enum -> default throws" convention,
+						// while a caller-supplied handler that merely records the error can still recover here.
+						ReportError(EResult::UnknownToken, Location(), std::string(m_last_keyword).append(" is not a valid Transform keyword"));
+						goto transform_parse_done;
+					}
+				}
+			}
+			transform_parse_done:
+
+			// Pre-multiply the object-to-world transform by the accumulated parsed transform.
+			o2w = p2w * o2w;
+			return true;
+		}
+		bool TransformS(m4x4& o2w)
+		{
+			return SectionStart() && Transform(o2w) && SectionEnd();
+		}
+
 		// Extract a complete section as a preprocessed string. Note: to embed
 		// arbitrary text in a script use '#lit'/'#end' and then 'Section()'.
 		template <typename String> String Section(bool include_braces)
@@ -585,6 +1125,79 @@ namespace pr::script::v2
 			if (include_braces) pr::str::Append(str, '}');
 			if (IsSectionEnd()) ++src; else return ReportError(EResult::TokenNotFound, Location(), "expected '}'");
 			return true;
+		}
+
+		// Allow extension methods, e.g: 'template <> bool Reader::Extract<MyType>(MyType& my_type) { return Int(my_type.field, 10); }'.
+		template <typename Type> Type Extract()
+		{
+			Type type;
+			return Extract(type) ? std::move(type) : Type{};
+		}
+		template <typename Type> Type ExtractS()
+		{
+			Type type;
+			return ExtractS(type) ? std::move(type) : Type{};
+		}
+		template <typename Type> bool Extract(Type&)
+		{
+			static_assert(dependent_false<Type>, "Extract method not implemented for this type");
+		}
+		template <typename Type> bool ExtractS(Type& type)
+		{
+			// Parses 'type' via 'Extract' once inside the section (not via itself, which would recurse forever).
+			return SectionStart() && Extract(type) && SectionEnd();
+		}
+
+		// Return the dot-delimited keyword "address" (e.g. "Group.Box.o2w.pos") for the position at
+		// the end of 'utf8_up_to_cursor'. Unlike legacy's 'Reader::AddressAt(Src&)', which reads from
+		// a shared, already-positioned 'Src', this takes the UTF-8 text truncated to the cursor
+		// position (the caller's equivalent of legacy's 'Src::Limit()') and parses it with a private,
+		// disposable reader. Returns an empty string if the truncated script doesn't parse cleanly.
+		static std::string AddressAt(std::string_view utf8_up_to_cursor)
+		{
+			// The format of the returned address is: "keyword.keyword.keyword..."
+			// e.g. for:
+			//   *Group { *Width {1} *Smooth *Box
+			//   {
+			//       *other {}
+			//       /* *something { */
+			//       // *something {
+			//       "my { string"
+			//       *o2w { *pos { <-- address should be: Group.Box.o2w.pos
+
+			// Use a case-sensitive reader so the reported address matches the source's case.
+			Reader reader(utf8_up_to_cursor, true);
+
+			std::string path, kw;
+			try
+			{
+				for (; !reader.IsSourceEnd();)
+				{
+					// Find the next keyword in the current scope.
+					if (reader.NextKeywordS(kw))
+					{
+						// A keyword followed by a section start extends the address while inside that section.
+						if (reader.FindSectionStart())
+						{
+							path.append(path.empty() ? "" : ".").append(kw);
+							reader.SectionStart();
+						}
+					}
+					else if (reader.IsSectionEnd())
+					{
+						// Reaching the end of a scope means the cursor isn't within it; pop the last keyword.
+						for (; !path.empty() && path.back() != '.'; path.pop_back()) {}
+						if (!path.empty()) path.pop_back();
+						reader.SectionEnd();
+					}
+				}
+			}
+			catch (std::exception const&)
+			{
+				// If the truncated script contains errors, the accumulated path can't be trusted.
+				path.clear();
+			}
+			return path;
 		}
 	};
 }
@@ -684,13 +1297,10 @@ namespace pr::script::v2::testing
 		}
 		PRUnitTestMethod(FilepathExtraction, Quick)
 		{
-			// With no include handler, resolution degrades to the default 'NoIncludes2'
-			// handler, matching the legacy reader's default 'NoIncludes' behaviour: the
-			// call succeeds (because 'IgnoreMissing' is set) but yields an empty path
-			// rather than throwing 'EResult::IncludesNotSupported'.
-			Reader reader("\"foo/bar.txt\"");
-			auto path = reader.Filepath();
-			PR_EXPECT(path.empty());
+			// Filepath extraction preserves the source spelling when no include resolver is configured.
+			Reader reader("\"foo/bar.txt\" \"unicode-\xC2\xB1.txt\"");
+			PR_EXPECT(reader.Filepath() == PathFromUtf8("foo/bar.txt"));
+			PR_EXPECT(reader.Filepath() == PathFromUtf8("unicode-\xC2\xB1.txt"));
 		}
 		PRUnitTestMethod(SpansMultipleBlocks, Quick)
 		{
@@ -705,6 +1315,52 @@ namespace pr::script::v2::testing
 			PR_EXPECT(reader.NextKeywordS(kw) && std::string(kw) == "value");
 			PR_EXPECT(reader.Int(ival, 10) && ival == 42);
 			PR_EXPECT(reader.IsSourceEnd());
+		}
+		PRUnitTestMethod(EnumValueRadixParsing, Quick)
+		{
+			// Reader2-only: the legacy 'EnumValue' overload calls 'str::ExtractEnumValue'
+			// with only 3 of its 4 required arguments, so it fails to compile if ever
+			// instantiated - a latent bug in the untouched legacy header, not something to
+			// replicate here. 'EnumValue' reads a raw integer at the given radix and blindly
+			// casts it to the enum type, with no membership validation (unlike 'Enum', which
+			// parses a member name via 'str::ExtractEnum').
+			char const* script = "*Hex A\n*Bin 101\n*OutOfRange 999";
+
+			Reader reader(script, false);
+			char kw[64];
+
+			PR_EXPECT(reader.NextKeywordS(kw));
+			auto hex_val = reader.EnumValue<EResult>(16);
+			PR_EXPECT(static_cast<int>(hex_val) == 0xA);
+
+			PR_EXPECT(reader.NextKeywordS(kw));
+			auto bin_val = reader.EnumValue<EResult>(2);
+			PR_EXPECT(static_cast<int>(bin_val) == 5);
+
+			PR_EXPECT(reader.NextKeywordS(kw));
+			EResult out_of_range = EResult::Success;
+			PR_EXPECT(reader.EnumValue(out_of_range, 10)); // succeeds even though 999 names no member.
+			PR_EXPECT(static_cast<int>(out_of_range) == 999);
+		}
+		PRUnitTestMethod(AddressAtUtf8MultibyteBoundaries, Quick)
+		{
+			// Reader2-only: 'AddressAt' is a fresh, disposable-reader-based implementation
+			// (see its declaration comment above) rather than a port of legacy's algorithm,
+			// so exact byte-offset parity with legacy is only meaningful for pure-ASCII
+			// scripts (covered by 'AddressAtDifferential' in 'reader2.h'). This test instead
+			// checks reader2's own handling of a truncation landing mid multi-byte UTF-8
+			// character.
+			//
+			// Byte layout (23 bytes total); '\xF0\x9F\x92\xA9' is one 4-byte UTF-8 codepoint
+			// (U+1F4A9) occupying indices 16-19, with the closing quote at index 20:
+			//   *Group { *Note "????" }
+			//   0123456789
+			char const* script = "*Group { *Note \"\xF0\x9F\x92\xA9\" }";
+
+			PR_EXPECT(Reader::AddressAt(std::string_view(script, 9)) == "Group");  // before '*Note' is even scanned.
+			PR_EXPECT(Reader::AddressAt(std::string_view(script, 21)) == "Group"); // literal parses cleanly; '*Note' isn't followed by '{'.
+			PR_EXPECT(Reader::AddressAt(std::string_view(script, 23)) == "");      // 'Group's section closes, popping the path.
+			PR_EXPECT(Reader::AddressAt(std::string_view(script, 18)) == "");      // truncated mid-codepoint: 'EatLiteral' throws, caught, path cleared.
 		}
 	};
 }
