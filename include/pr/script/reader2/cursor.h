@@ -60,6 +60,9 @@ namespace pr::script::v2
 		// The current location (line/column/character offset) of 'm_pos'.
 		Loc m_loc;
 
+		// Remaining bytes in the UTF-8 scalar whose lead byte was already validated.
+		int m_continuations;
+
 		// Once the consumed prefix of the window exceeds this many bytes, it is
 		// erased. This bounds the cursor's memory to roughly one unbroken token's
 		// worth of lookahead rather than growing for the lifetime of the source,
@@ -79,6 +82,7 @@ namespace pr::script::v2
 			, m_pos(0)
 			, m_input_exhausted(false)
 			, m_loc(loc.Filepath().empty() ? Loc(m_input->Filepath()) : loc)
+			, m_continuations(0)
 		{
 			// Preserve caller-owned memory as a zero-copy byte range.
 			if (auto memory = dynamic_cast<MemoryInput const*>(m_input.get()))
@@ -113,6 +117,12 @@ namespace pr::script::v2
 		bool AtEnd()
 		{
 			return PeekByte(0) == 0;
+		}
+
+		// True when this cursor borrows one complete caller-owned memory range.
+		bool IsMemory() const noexcept
+		{
+			return m_is_memory;
 		}
 
 		// Look ahead 'i' bytes without consuming, refilling the window as needed.
@@ -166,10 +176,43 @@ namespace pr::script::v2
 		// Consume a caller-validated ASCII run with one location update.
 		void AdvanceAscii(size_t count)
 		{
+			assert(m_continuations == 0);
 			auto text = View(count);
 			assert(text.size() == count);
 			assert(std::all_of(text.begin(), text.end(), [](char ch) { return static_cast<unsigned char>(ch) < 0x80; }));
 			m_loc.IncAscii(text);
+			m_pos += count;
+			Compact();
+		}
+
+		// Consume and validate a contiguous UTF-8 run while advancing decoded
+		// character locations in ASCII batches.
+		void AdvanceUtf8(size_t count)
+		{
+			assert(m_continuations == 0);
+			auto text = View(count);
+			assert(text.size() == count);
+			for (size_t i = 0; i != text.size();)
+			{
+				// Ordinary ASCII runs update line and column state in bulk.
+				auto ascii_end = i;
+				for (; ascii_end != text.size() && static_cast<unsigned char>(text[ascii_end]) < 0x80; ++ascii_end) {}
+				if (ascii_end != i)
+				{
+					m_loc.IncAscii(text.substr(i, ascii_end - i));
+					i = ascii_end;
+					continue;
+				}
+
+				// Validate one non-ASCII scalar before advancing its decoded location.
+				auto lead = static_cast<unsigned char>(text[i]);
+				auto len = ValidateUtf8(lead, [&](size_t offset)
+				{
+					return i + offset < text.size() ? static_cast<unsigned char>(text[i + offset]) : 0;
+				});
+				m_loc.inc(static_cast<char>(lead));
+				i += static_cast<size_t>(len);
+			}
 			m_pos += count;
 			Compact();
 		}
@@ -220,7 +263,7 @@ namespace pr::script::v2
 				probe[i] = PeekByte(i);
 
 			if (Utf8BomLength(std::string_view(probe, 3)) == 3)
-				*this += 3;
+				m_pos += 3;
 		}
 
 		// Determine the byte-length of the UTF-8 sequence starting with lead byte
@@ -232,6 +275,30 @@ namespace pr::script::v2
 			if ((b & 0xF0) == 0xE0) return 3;
 			if ((b & 0xF8) == 0xF0) return b <= 0xF4 ? 4 : 0; // reject lead bytes beyond the Unicode range
 			return 0;
+		}
+
+		// Validate one complete UTF-8 scalar using caller-provided byte lookahead.
+		template <typename Peek> int ValidateUtf8(unsigned char lead, Peek&& peek) const
+		{
+			auto len = Utf8SeqLen(lead);
+			if (len == 0)
+				throw ScriptException(EResult::WrongEncoding, m_loc, "invalid UTF-8 lead byte");
+			for (int k = 1; k != len; ++k)
+			{
+				auto byte = peek(static_cast<size_t>(k));
+				if ((byte & 0xC0) != 0x80)
+					throw ScriptException(EResult::WrongEncoding, m_loc, "invalid UTF-8 continuation byte");
+			}
+
+			// Exclude overlong scalars, UTF-16 surrogates, and values beyond U+10FFFF.
+			auto second = len != 1 ? peek(1) : 0;
+			if ((lead == 0xE0 && second < 0xA0) ||
+				(lead == 0xED && second > 0x9F) ||
+				(lead == 0xF0 && second < 0x90) ||
+				(lead == 0xF4 && second > 0x8F))
+				throw ScriptException(EResult::WrongEncoding, m_loc, "invalid UTF-8 scalar value");
+
+			return len;
 		}
 
 		// Refill the window with the next physical block of bytes from 'm_input'.
@@ -270,20 +337,22 @@ namespace pr::script::v2
 
 			auto ub = static_cast<unsigned char>(b);
 			auto continuation = (ub & 0xC0) == 0x80;
-			if (!continuation)
+			if (continuation)
+			{
+				if (m_continuations == 0)
+					throw ScriptException(EResult::WrongEncoding, m_loc, "unexpected UTF-8 continuation byte");
+
+				--m_continuations;
+			}
+			else
 			{
 				// Validate that a multi-byte lead byte is followed by the expected
 				// number of well-formed continuation bytes before accepting it.
-				auto len = Utf8SeqLen(ub);
-				if (len == 0)
-					throw ScriptException(EResult::WrongEncoding, m_loc, "invalid UTF-8 lead byte");
-
-				for (int k = 1; k != len; ++k)
+				auto len = ValidateUtf8(ub, [&](size_t offset)
 				{
-					auto c = static_cast<unsigned char>(PeekByte(static_cast<size_t>(k)));
-					if ((c & 0xC0) != 0x80)
-						throw ScriptException(EResult::WrongEncoding, m_loc, "invalid UTF-8 continuation byte");
-				}
+					return static_cast<unsigned char>(PeekByte(offset));
+				});
+				m_continuations = len - 1;
 
 				// Only the lead byte of a sequence advances the decoded-character
 				// location; ASCII bytes are their own (single-byte) sequence. The raw

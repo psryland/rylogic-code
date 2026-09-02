@@ -23,6 +23,7 @@
 //    derived from this header's own '__FILE__', so these tests work regardless of the
 //    process's current working directory.
 #pragma once
+#include <array>
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -223,6 +224,74 @@ namespace pr::script::v2::testing
 			PR_EXPECT(!legacy_overflow.Int(legacy_value, 10));
 			PR_EXPECT(!modern_overflow.Int(modern_value, 10));
 			PR_EXPECT(legacy_overflow.Location().Pos() == modern_overflow.Location().Pos());
+		}
+
+		PRUnitTestMethod(StrictUtf8Validation, Quick)
+		{
+			// Reject malformed scalar encodings through the batched contiguous path.
+			std::array<std::string, 5> invalid =
+			{
+				std::string("\xE0\x80\x80", 3),     // Overlong three-byte scalar.
+				std::string("\xED\xA0\x80", 3),     // UTF-16 high surrogate.
+				std::string("\xF4\x90\x80\x80", 4), // Beyond U+10FFFF.
+				std::string("\xF0\x9F\x92", 3),     // Truncated four-byte scalar.
+				std::string("\x80", 1),             // Standalone continuation byte.
+			};
+			for (auto const& bytes : invalid)
+			{
+				auto script = std::string("\"").append(bytes).append("\"");
+				auto rejected = false;
+				try
+				{
+					Reader reader(script);
+					std::string value;
+					reader.String(value);
+				}
+				catch (ScriptException const& ex)
+				{
+					rejected = ex.m_result == EResult::WrongEncoding;
+				}
+				PR_EXPECT(rejected);
+			}
+
+			// The character-at-a-time filtered path enforces the same scalar rules.
+			auto filtered_script = std::string("\"/").append(invalid[1]).append("\"");
+			auto filtered_rejected = false;
+			try
+			{
+				Reader reader(filtered_script);
+				std::string value;
+				reader.String(value);
+			}
+			catch (ScriptException const& ex)
+			{
+				filtered_rejected = ex.m_result == EResult::WrongEncoding;
+			}
+			PR_EXPECT(filtered_rejected);
+
+			// A continuation byte is only legal after its validated lead byte.
+			auto continuation_script = std::string("\"/").append(invalid[4]).append("\"");
+			auto continuation_rejected = false;
+			try
+			{
+				Reader reader(continuation_script);
+				std::string value;
+				reader.String(value);
+			}
+			catch (ScriptException const& ex)
+			{
+				continuation_rejected = ex.m_result == EResult::WrongEncoding;
+			}
+			PR_EXPECT(continuation_rejected);
+
+			// Boundary scalar values, including a supplementary character, remain
+			// byte-for-byte intact after validation.
+			auto valid = std::string("\xE0\xA0\x80\xED\x9F\xBF\xF4\x8F\xBF\xBF", 10);
+			auto valid_script = std::string("\"").append(valid).append("\"");
+			Reader valid_reader(valid_script);
+			std::string value;
+			PR_EXPECT(valid_reader.String(value));
+			PR_EXPECT(value == valid);
 		}
 
 		PRUnitTestMethod(MatchingErrorCodeAndLocation, Quick)

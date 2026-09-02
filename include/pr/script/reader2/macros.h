@@ -13,6 +13,7 @@
 #pragma once
 #include <string>
 #include <string_view>
+#include <array>
 #include <vector>
 #include <unordered_map>
 #include "pr/script/forward.h"
@@ -264,7 +265,31 @@ namespace pr::script::v2
 	// The default 'IMacroHandler': an unordered map of tag to 'Macro'.
 	struct MacroDB :IMacroHandler
 	{
-		std::unordered_map<std::string, Macro> m_db;
+		// Transparent hashing lets unsuccessful lookups borrow identifier text
+		// without allocating a temporary owning string.
+		struct StringHash
+		{
+			using is_transparent = void;
+
+			size_t operator ()(std::string_view value) const noexcept
+			{
+				return std::hash<std::string_view>{}(value);
+			}
+		};
+
+		std::unordered_map<std::string, Macro, StringHash, std::equal_to<>> m_db;
+		std::array<size_t, 256> m_initial_counts;
+
+		MacroDB()
+			: m_db()
+			, m_initial_counts()
+		{}
+
+		// True when at least one macro can match an identifier beginning with 'ch'.
+		bool CanStart(char ch) const noexcept
+		{
+			return m_initial_counts[static_cast<unsigned char>(ch)] != 0;
+		}
 
 		void Add(Macro const& macro) override
 		{
@@ -277,16 +302,22 @@ namespace pr::script::v2
 				throw ScriptException(EResult::MacroAlreadyDefined, macro.m_loc, "macro already defined");
 			}
 			m_db.emplace(macro.m_tag, macro);
+			if (!macro.m_tag.empty())
+				++m_initial_counts[static_cast<unsigned char>(macro.m_tag.front())];
 		}
 		void Remove(std::string_view tag) override
 		{
-			auto i = m_db.find(std::string(tag));
+			auto i = m_db.find(tag);
 			if (i != std::end(m_db))
+			{
+				if (!i->first.empty())
+					--m_initial_counts[static_cast<unsigned char>(i->first.front())];
 				m_db.erase(i);
+			}
 		}
 		Macro const* Find(std::string_view tag) const override
 		{
-			auto i = m_db.find(std::string(tag));
+			auto i = m_db.find(tag);
 			return i != std::end(m_db) ? &i->second : nullptr;
 		}
 	};

@@ -441,6 +441,9 @@ namespace pr::script::v2
 		{
 			auto& src = m_pp;
 			str::Resize(word, 0);
+			if (TryFastIdentifier(word))
+				return true;
+
 			return str::ExtractIdentifier(word, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "{identifier} expected");
 		}
 		template <typename StrType> bool IdentifierS(StrType& word)
@@ -483,7 +486,7 @@ namespace pr::script::v2
 		{
 			auto& src = m_pp;
 			str::Resize(string, 0);
-			if (str::ExtractString<StrType>(string, src, m_delim))
+			if (TryFastString(string) || str::ExtractString<StrType>(string, src, m_delim))
 			{
 				str::ProcessIndentedNewlines(string);
 				return true;
@@ -1210,6 +1213,64 @@ namespace pr::script::v2
 		}
 
 	private:
+
+		// Borrow a plain ASCII identifier directly from a contiguous source.
+		template <typename StrType> bool TryFastIdentifier(StrType& word)
+		{
+			if constexpr (!std::is_same_v<StrType, std::string>)
+			{
+				return false;
+			}
+			else
+			{
+				if (!m_pp.HasContiguousInput())
+					return false;
+
+				// Scan identifier syntax directly in the borrowed source.
+				auto& src = m_pp;
+				EatDelimiters(src, m_delim);
+				auto text = src.RemainingContiguous();
+				if (text.empty() || !str::IsIdentifier(text.front(), true))
+					return false;
+				auto length = size_t{1};
+				for (; length != text.size() && str::IsIdentifier(text[length], false); ++length) {}
+
+				// Copy only the caller-owned result and consume its ASCII bytes in bulk.
+				word.assign(text.data(), length);
+				src.ConsumeContiguous(length);
+				return true;
+			}
+		}
+
+		// Borrow a simple quoted UTF-8 string directly from a contiguous source.
+		template <typename StrType> bool TryFastString(StrType& string)
+		{
+			if constexpr (!std::is_same_v<StrType, std::string>)
+			{
+				return false;
+			}
+			else
+			{
+				if (!m_pp.HasContiguousInput())
+					return false;
+
+				// Plain strings close at the next matching quote; escape processing
+				// belongs exclusively to 'CString'.
+				auto& src = m_pp;
+				EatDelimiters(src, m_delim);
+				auto text = src.RemainingContiguous();
+				if (text.empty() || (text.front() != '"' && text.front() != '\''))
+					return false;
+				auto close = text.find(text.front(), 1);
+				if (close == std::string_view::npos)
+					return false;
+
+				// Preserve the UTF-8 bytes while validating and locating decoded text.
+				string.assign(text.data() + 1, close - 1);
+				src.ConsumeContiguousUtf8(close + 1);
+				return true;
+			}
+		}
 
 		// Parse the common decimal integer form directly from contiguous UTF-8.
 		// Prefixes and non-decimal radices retain the compatibility parser.

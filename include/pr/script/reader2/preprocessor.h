@@ -279,7 +279,10 @@ namespace pr::script::v2
 	// 'Ptr' concept used by 'pr::str::Extract*' and by 'Macro::ReadParams'.
 	class FilterCursor
 	{
+		// Memory sources without comment or continuation markers can delegate
+		// directly; all other sources retain filtered output and locations.
 		Cursor m_raw;
+		bool m_passthrough;
 		std::vector<char> m_out;
 		std::vector<Loc> m_loc;
 		size_t m_pos;
@@ -292,6 +295,7 @@ namespace pr::script::v2
 
 		explicit FilterCursor(Cursor raw)
 			: m_raw(std::move(raw))
+			, m_passthrough(m_raw.IsMemory() && m_raw.RemainingView().find_first_of("/\\") == std::string_view::npos)
 			, m_out()
 			, m_loc()
 			, m_pos(0)
@@ -301,16 +305,28 @@ namespace pr::script::v2
 
 		char operator *()
 		{
+			if (m_passthrough)
+				return *m_raw;
+
 			Ensure(0);
 			return m_pos < m_out.size() ? m_out[m_pos] : 0;
 		}
 		char operator [](size_t i)
 		{
+			if (m_passthrough)
+				return m_raw[i];
+
 			Ensure(i);
 			return (m_pos + i) < m_out.size() ? m_out[m_pos + i] : 0;
 		}
 		FilterCursor& operator ++()
 		{
+			if (m_passthrough)
+			{
+				++m_raw;
+				return *this;
+			}
+
 			Ensure(0);
 			if (m_pos < m_out.size())
 				++m_pos;
@@ -320,6 +336,12 @@ namespace pr::script::v2
 		}
 		FilterCursor& operator +=(size_t n)
 		{
+			if (m_passthrough)
+			{
+				m_raw += n;
+				return *this;
+			}
+
 			for (; n-- != 0;)
 				++*this;
 
@@ -327,6 +349,9 @@ namespace pr::script::v2
 		}
 		Loc const& Location()
 		{
+			if (m_passthrough)
+				return m_raw.Location();
+
 			Ensure(0);
 			return m_pos < m_loc.size() ? m_loc[m_pos] : m_raw.Location();
 		}
@@ -696,6 +721,13 @@ namespace pr::script::v2
 			m_passthrough->AdvanceAscii(count);
 		}
 
+		// Consume and validate UTF-8 from the contiguous memory path.
+		void ConsumeContiguousUtf8(size_t count)
+		{
+			assert(m_passthrough != nullptr);
+			m_passthrough->AdvanceUtf8(count);
+		}
+
 		// Forward-cursor access to the fully preprocessed character stream.
 		char operator *()
 		{
@@ -851,7 +883,7 @@ namespace pr::script::v2
 				// Recognise and expand macro invocations while in an active region. A
 				// frame flagged 'NoExpand' is already a macro's fully-resolved output,
 				// so it is excluded from this lookup (see 'Frame::NoExpand').
-				if (Emitting() && !top.NoExpand() && str::IsIdentifier(c, true) && TryExpandMacro())
+				if (Emitting() && !top.NoExpand() && str::IsIdentifier(c, true) && m_macros.CanStart(c) && TryExpandMacro())
 					continue;
 
 				loc = top.Location();
