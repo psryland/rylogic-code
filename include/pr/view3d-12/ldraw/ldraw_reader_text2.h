@@ -139,6 +139,24 @@ namespace pr::rdr12::ldraw::tests
 			auto extended = std::string("\xE9", 1);
 			PR_EXPECT(ToUtf8Source(extended, EEncoding::ascii_extended) == "\xC3\xA9");
 		}
+		PRUnitTestMethod(AdjacentStrings, Quick)
+		{
+			auto source = std::string("*Text {\"foo\" \"bar\"} *Text {\"left\", \"right\"}");
+			TextReader2 reader(source);
+
+			EKeyword keyword;
+			PR_EXPECT(reader.NextKeyword(keyword) && keyword == EKeyword::Text);
+			{
+				auto section = reader.SectionScope();
+				PR_EXPECT(reader.StringImpl(0) == "foobar");
+			}
+			PR_EXPECT(reader.NextKeyword(keyword) && keyword == EKeyword::Text);
+			{
+				auto section = reader.SectionScope();
+				PR_EXPECT(reader.StringImpl(0) == "left");
+				PR_EXPECT(reader.StringImpl(0) == "right");
+			}
+		}
 		PRUnitTestMethod(StreamSourceLocation, Quick)
 		{
 			auto filepath = std::filesystem::path("snapshot.ldr");

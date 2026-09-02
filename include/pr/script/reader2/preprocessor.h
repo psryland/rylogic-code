@@ -261,7 +261,13 @@ namespace pr::script::v2
 				size_t Read(char* buf, size_t count) override
 				{
 					m_owned->read(buf, static_cast<std::streamsize>(count));
-					return static_cast<size_t>(m_owned->gcount());
+					auto n = static_cast<size_t>(m_owned->gcount());
+
+					// Propagate hard include transport failures instead of treating a truncated include as clean EOF.
+					if (m_owned->bad())
+						throw std::ios_base::failure("failed to read script include stream");
+
+					return n;
 				}
 				std::filesystem::path const& Filepath() const override
 				{

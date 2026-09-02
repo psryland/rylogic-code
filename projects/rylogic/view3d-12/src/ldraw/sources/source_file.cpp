@@ -18,7 +18,7 @@ namespace pr::rdr12::ldraw
 		{
 			wchar_t value[16] = {};
 			auto length = GetEnvironmentVariableW(L"RYLOGIC_LDRAW_TEXT_READER", value, _countof(value));
-			return length == 0 || _wcsicmp(value, L"legacy") != 0;
+			return length == 0 || length >= _countof(value) || _wcsicmp(value, L"legacy") != 0;
 		}
 	}
 
@@ -83,6 +83,7 @@ namespace pr::rdr12::ldraw
 				{
 					case EEncoding::utf8:
 					{
+						utf8_source.remove_prefix(static_cast<size_t>(bom_size));
 						break;
 					}
 					case EEncoding::ascii:

@@ -157,6 +157,9 @@ namespace pr::rdr12::ldraw
 					filepath = snapshot->filepath();
 
 				std::string bytes(std::istreambuf_iterator<char>(*stream), {});
+				if (stream->bad())
+					throw std::ios_base::failure("failed to read LDraw include stream");
+
 				auto source = ToUtf8Source(bytes, EEncoding::auto_detect, filepath);
 				return std::make_unique<OwnedUtf8Input>(std::move(source), std::move(filepath));
 			}
@@ -538,12 +541,31 @@ namespace pr::rdr12::ldraw
 	string32 TextReader2::StringImpl(char escape_char)
 	{
 		m_impl->PrepareValue();
+		auto& source = m_impl->Source();
+		script::EatDelimiters(source, m_impl->m_reader->Delimiters());
+		auto quote = *source;
 		string32 value;
-		if (!str::ExtractString(value, m_impl->Source(), escape_char, {}, m_impl->m_reader->Delimiters()))
+		if (!str::ExtractString(value, source, escape_char, {}, m_impl->m_reader->Delimiters()))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), "string expected");
-			str::AdvanceToDelim(m_impl->Source(), m_impl->m_reader->Delimiters());
+			str::AdvanceToDelim(source, m_impl->m_reader->Delimiters());
 			return {};
+		}
+
+		// The legacy preprocessor presents whitespace-adjacent literals as one logical string.
+		for (;;)
+		{
+			auto join = size_t{};
+			for (; str::IsWhiteSpace(source[join]); ++join) {}
+			if (source[join] != quote)
+				break;
+
+			source += join;
+			string32 part;
+			if (!str::ExtractString(part, source, escape_char, {}, m_impl->m_reader->Delimiters()))
+				break;
+
+			value.append(part);
 		}
 		str::ProcessIndentedNewlines(value);
 		return value;
