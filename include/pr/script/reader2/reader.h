@@ -1575,7 +1575,7 @@ namespace pr::script::v2::testing
 		PRUnitTestMethod(FilepathExtraction, Quick)
 		{
 			// Filepath extraction preserves the source spelling when no include resolver is configured.
-			Reader reader("\"foo/bar.txt\" \"unicode-\xC2\xB1.txt\"");
+			Reader reader("\"foo/bar.txt\", \"unicode-\xC2\xB1.txt\"");
 			PR_EXPECT(reader.Filepath() == PathFromUtf8("foo/bar.txt"));
 			PR_EXPECT(reader.Filepath() == PathFromUtf8("unicode-\xC2\xB1.txt"));
 		}
