@@ -117,6 +117,16 @@ namespace pr::script::v2
 			, ReportError(DefaultErrorHandler)
 		{}
 
+		// Construct a reader over a custom UTF-8 input with explicit initial source metadata.
+		explicit Reader(std::unique_ptr<IInput> utf8_input, Loc const& loc, bool case_sensitive = false, IIncludeHandler2* inc = nullptr)
+			: m_pp(std::move(utf8_input), inc, loc)
+			, m_delim(" \t\r\n\v,;")
+			, m_last_keyword()
+			, m_case_sensitive(case_sensitive)
+			, m_has_includes(inc != nullptr)
+			, ReportError(DefaultErrorHandler)
+		{}
+
 		// Readers own a non-copyable, non-movable 'Preprocessor', so they are
 		// themselves non-copyable and non-movable; construct in place instead.
 		Reader(Reader const&) = delete;

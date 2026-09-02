@@ -630,7 +630,7 @@ namespace pr::script::v2
 		// Construct a preprocessor reading UTF-8 bytes from 'input'. 'includes', if
 		// non-null, resolves '#include' directives; otherwise includes are rejected
 		// with 'EResult::IncludesNotSupported', matching the legacy default.
-		explicit Preprocessor(std::unique_ptr<IInput> input, IIncludeHandler2* includes = nullptr)
+		explicit Preprocessor(std::unique_ptr<IInput> input, IIncludeHandler2* includes = nullptr, Loc const& loc = {})
 			: m_passthrough()
 			, m_stack()
 			, m_macros()
@@ -654,9 +654,9 @@ namespace pr::script::v2
 			// byte path instead of crossing filter, frame, and lookahead buffers.
 			auto memory = dynamic_cast<MemoryInput const*>(input.get());
 			if (memory != nullptr && memory->m_data.find_first_of("#/\\") == std::string_view::npos)
-				m_passthrough = std::make_unique<Cursor>(std::move(input));
+				m_passthrough = std::make_unique<Cursor>(std::move(input), loc);
 			else
-				m_stack.emplace_back(FilterCursor(Cursor(std::move(input))));
+				m_stack.emplace_back(FilterCursor(Cursor(std::move(input), loc)));
 		}
 
 		// Convenience constructor over a caller-owned UTF-8 memory buffer, which must
@@ -1155,7 +1155,8 @@ namespace pr::script::v2
 			if (input == nullptr)
 				return; // Missing, but 'IgnoreMissing' was requested by the handler's policy.
 
-			m_stack.emplace_back(FilterCursor(Cursor(std::move(input), Loc(resolved))));
+			auto source_path = input->Filepath().empty() ? resolved : input->Filepath();
+			m_stack.emplace_back(FilterCursor(Cursor(std::move(input), Loc(source_path))));
 		}
 		void DoIncludePath(Loc const& loc)
 		{
