@@ -71,7 +71,7 @@ namespace pr::script::v2
 			, m_win()
 			, m_pos(0)
 			, m_input_exhausted(false)
-			, m_loc(loc)
+			, m_loc(loc.Filepath().empty() ? Loc(m_input->Filepath()) : loc)
 		{
 			m_win.reserve(BlockSize);
 

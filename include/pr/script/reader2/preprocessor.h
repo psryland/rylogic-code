@@ -206,8 +206,11 @@ namespace pr::script::v2
 
 			throw ScriptException(EResult::IncludesNotSupported, loc, "includes are not supported by this reader");
 		}
-		std::unique_ptr<IInput> Open(std::filesystem::path const&, EIncludeFlags, Loc const& loc) override
+		std::unique_ptr<IInput> Open(std::filesystem::path const&, EIncludeFlags flags, Loc const& loc) override
 		{
+			if (AllSet(flags, EIncludeFlags::IgnoreMissing))
+				return nullptr;
+
 			throw ScriptException(EResult::IncludesNotSupported, loc, "includes are not supported by this reader");
 		}
 	};
@@ -218,7 +221,6 @@ namespace pr::script::v2
 	struct FileIncludeHandler2 :IIncludeHandler2
 	{
 		std::vector<std::filesystem::path> m_paths;
-		std::filesystem::path m_current_dir;
 
 		void AddSearchPath(std::filesystem::path const& path) override
 		{
@@ -228,10 +230,11 @@ namespace pr::script::v2
 		{
 			// A quoted '#include "file"' also checks the directory of the including
 			// file first; an angle-bracket '#include <file>' searches only 'm_paths'.
-			auto local_dir = AllSet(flags, EIncludeFlags::IncludeLocalDir) ? &m_current_dir : nullptr;
+			auto source_dir = loc.Filepath().parent_path();
+			auto local_dir = AllSet(flags, EIncludeFlags::IncludeLocalDir) ? &source_dir : nullptr;
 			auto resolved = pr::filesys::ResolvePath(include, m_paths, local_dir);
 			if (resolved.empty() && !AllSet(flags, EIncludeFlags::IgnoreMissing))
-				throw ScriptException(EResult::MissingInclude, loc, "cannot find include file");
+				throw ScriptException(EResult::MissingInclude, loc, "cannot find include file: " + include.string() + " from " + loc.Filepath().string());
 
 			return resolved;
 		}
@@ -457,6 +460,7 @@ namespace pr::script::v2
 		size_t m_tpos;
 		Loc m_tloc;
 		size_t m_echo; // Remaining char count (from 'm_tpos') to emit verbatim, bypassing directive/macro recognition (used only for '#lit' bodies).
+		bool m_no_expand; // True once this frame's text is already the final, fully-resolved output of a macro invocation - 'Pump' must not look up macros in it again.
 
 	public:
 
@@ -464,13 +468,15 @@ namespace pr::script::v2
 			: m_file(std::make_unique<FilterCursor>(std::move(file)))
 			, m_tpos(0)
 			, m_echo(0)
+			, m_no_expand(false)
 		{}
-		Frame(std::string text, Loc const& loc)
+		Frame(std::string text, Loc const& loc, bool no_expand = false)
 			: m_file()
 			, m_text(std::move(text))
 			, m_tpos(0)
 			, m_tloc(loc)
 			, m_echo(0)
+			, m_no_expand(no_expand)
 		{}
 
 		bool IsFile() const
@@ -526,6 +532,16 @@ namespace pr::script::v2
 				--m_echo;
 		}
 
+		// True for a frame holding the already-resolved output of a macro invocation.
+		// Such text must never be re-scanned for macro identifiers: doing so would
+		// re-attempt to expand any macro tag left un-expanded by the recursion guard
+		// (e.g. a mutually-recursive macro's terminal, deliberately-unexpanded tag),
+		// looping forever as each attempt re-produces the same unresolved text.
+		bool NoExpand() const
+		{
+			return m_no_expand;
+		}
+
 		bool Match(std::string_view s, bool consume, bool case_sensitive = true)
 		{
 			if (m_file)
@@ -564,6 +580,7 @@ namespace pr::script::v2
 		std::unique_ptr<IIncludeHandler2> m_default_includes;
 		IIncludeHandler2* m_includes;
 		std::function<IEmbeddedCode2*(std::string_view)> m_embedded_lookup;
+		bool m_ignore_missing;
 
 		// One level of '#if'/'#ifdef'/'#ifndef' ... '#endif' nesting.
 		struct IfFrame
@@ -574,7 +591,8 @@ namespace pr::script::v2
 		};
 		std::vector<IfFrame> m_if_stack;
 
-		bool m_bol; // True if only whitespace has been seen since the last newline (candidate position for a directive '#').
+		char m_literal_quote;
+		bool m_literal_escape;
 
 		std::deque<char> m_look;
 		std::deque<Loc> m_look_loc;
@@ -590,8 +608,10 @@ namespace pr::script::v2
 			, m_default_includes()
 			, m_includes(includes)
 			, m_embedded_lookup()
+			, m_ignore_missing(false)
 			, m_if_stack()
-			, m_bol(true)
+			, m_literal_quote(0)
+			, m_literal_escape(false)
 			, m_look()
 			, m_look_loc()
 		{
@@ -733,11 +753,9 @@ namespace pr::script::v2
 					return true;
 				}
 
-				// A '#' at the start of a line (only horizontal whitespace since the
-				// previous newline) introduces a directive. The location is captured
-				// at the '#' itself, before consuming anything, so directive-level
-				// diagnostics point at the same place a legacy 'Preprocessor' would.
-				if (m_bol && c == '#')
+				// A '#' outside a literal introduces a directive at any output position,
+				// matching legacy support for constructs such as '*Value #eval{...}'.
+				if (m_literal_quote == 0 && c == '#')
 				{
 					auto directive_loc = top.Location();
 					++top;
@@ -745,23 +763,47 @@ namespace pr::script::v2
 					continue;
 				}
 
-				// Recognise and expand macro invocations while in an active region.
-				if (Emitting() && str::IsIdentifier(c, true) && TryExpandMacro())
+				// Recognise and expand macro invocations while in an active region. A
+				// frame flagged 'NoExpand' is already a macro's fully-resolved output,
+				// so it is excluded from this lookup (see 'Frame::NoExpand').
+				if (Emitting() && !top.NoExpand() && str::IsIdentifier(c, true) && TryExpandMacro())
 					continue;
-
-				// Beginning-of-line tracking: only intervening horizontal whitespace
-				// (not any other character) keeps a subsequent '#' eligible as a directive.
-				m_bol = c == '\n' || (m_bol && (c == ' ' || c == '\t' || c == '\r'));
 
 				loc = top.Location();
 				++top;
 
+				UpdateLiteralState(c);
 				if (!Emitting())
 					continue; // Swallow content inside an inactive '#if' branch.
 
 				ch = c;
 				return true;
 			}
+		}
+
+		// Track quoted output so directive-looking text inside string/character
+		// literals remains ordinary data.
+		void UpdateLiteralState(char ch)
+		{
+			if (m_literal_escape)
+			{
+				m_literal_escape = false;
+				return;
+			}
+			if (m_literal_quote != 0 && ch == '\\')
+			{
+				m_literal_escape = true;
+				return;
+			}
+			if (m_literal_quote != 0)
+			{
+				if (ch == m_literal_quote)
+					m_literal_quote = 0;
+
+				return;
+			}
+			if (ch == '"' || ch == '\'')
+				m_literal_quote = ch;
 		}
 
 		// If the top frame is positioned at an identifier that names a macro, consume
@@ -791,14 +833,20 @@ namespace pr::script::v2
 			if (!is_call)
 			{
 				// Not actually invoked (e.g. a parameterised macro's bare tag with no
-				// following '('): emit the tag text unchanged.
-				m_stack.emplace_back(tag, loc);
+				// following '('): emit the tag text unchanged, flagged so it is not
+				// looked up as a macro again.
+				m_stack.emplace_back(tag, loc, true);
 				return true;
 			}
 
+			// Guard the recursive expansion below with 'macro' as the chain's root, so a
+			// macro that (directly or via another macro) expands back to itself is caught
+			// here rather than only once a *nested* 'RecursiveExpandMacros' call re-enters -
+			// omitting this let mutually-recursive macros (e.g. 'A -> B -> A') expand forever.
 			auto exp = macro->Expand(params, loc);
-			exp = RecursiveExpandMacros(exp, m_macros, nullptr, loc);
-			m_stack.emplace_back(std::move(exp), loc);
+			Macro::Ancestor ancestor(macro, nullptr);
+			exp = RecursiveExpandMacros(exp, m_macros, &ancestor, loc);
+			m_stack.emplace_back(std::move(exp), loc, true);
 			return true;
 		}
 
@@ -841,7 +889,7 @@ namespace pr::script::v2
 				case EPPKeyword::Elif:          { DoElif(loc); break; }
 				case EPPKeyword::Else:          { DoElse(loc); break; }
 				case EPPKeyword::Endif:         { DoEndif(loc); break; }
-				case EPPKeyword::End:           { break; /* stray #end outside #embedded/#lit: no-op */ }
+				case EPPKeyword::End:           { throw ScriptException(EResult::UnmatchedPreprocessorDirective, loc, "#end without matching #lit or #embedded"); }
 				case EPPKeyword::Eval:          { DoEval(loc); break; }
 				case EPPKeyword::Embedded:      { DoEmbedded(loc); break; }
 				case EPPKeyword::Lit:           { DoLit(loc); break; }
@@ -875,7 +923,6 @@ namespace pr::script::v2
 			if (*top == '\n')
 				++top;
 
-			m_bol = true;
 		}
 
 		// Read a raw identifier directly from the current top frame (bypassing macro
@@ -912,16 +959,42 @@ namespace pr::script::v2
 			if (Emitting())
 				m_macros.Remove(tag);
 		}
-		void DoDepend(Loc const&)
+		void DoDepend(Loc const& loc)
 		{
-			// Dependency tracking is integration-specific; the directive is accepted
-			// and its (already-skipped) argument text is otherwise ignored.
+			bool quoted;
+			auto path = ReadIncludePath(loc, quoted);
+			if (!Emitting())
+				return;
+
+			// Opening then immediately releasing the dependency preserves include-handler
+			// notifications without adding its contents to the preprocessed stream.
+			auto flags = quoted ? EIncludeFlags::IncludeLocalDir : EIncludeFlags::None;
+			if (m_ignore_missing)
+				flags |= EIncludeFlags::IgnoreMissing;
+
+			auto resolved = m_includes->ResolveInclude(path, flags, loc);
+			m_includes->Open(resolved, flags, loc);
 		}
-		void DoIgnoreMissing(Loc const&)
+		void DoIgnoreMissing(Loc const& loc)
 		{
-			// Applies as a modifier to an immediately following '#include'; reader2's
-			// simplified include model instead expects the flag on the include itself
-			// (see 'DoInclude'), so a bare '#ignore_missing' is accepted as a no-op.
+			auto& top = m_stack.back();
+			for (; *top == ' ' || *top == '\t';)
+				++top;
+
+			if (*top != '"')
+				throw ScriptException(EResult::InvalidInclude, loc, "expected a string following #ignore_missing");
+
+			++top;
+			std::string state;
+			for (; *top != 0 && *top != '"';)
+				state.push_back(*top), ++top;
+
+			if (*top != '"')
+				throw ScriptException(EResult::InvalidInclude, loc, "#ignore_missing string incomplete");
+
+			++top;
+			if (Emitting())
+				m_ignore_missing = str::EqualI(state, "on");
 		}
 
 		// Read a '#include' path of the form '"file"' or '<file>', returning the
@@ -957,6 +1030,9 @@ namespace pr::script::v2
 				return;
 
 			auto flags = quoted ? EIncludeFlags::IncludeLocalDir : EIncludeFlags::None;
+			if (m_ignore_missing)
+				flags |= EIncludeFlags::IgnoreMissing;
+
 			auto resolved = m_includes->ResolveInclude(path, flags, loc);
 			auto input = m_includes->Open(resolved, flags, loc);
 			if (input == nullptr)
@@ -964,14 +1040,14 @@ namespace pr::script::v2
 
 			m_stack.emplace_back(FilterCursor(Cursor(std::move(input), Loc(resolved))));
 		}
-		void DoIncludePath(Loc const&)
+		void DoIncludePath(Loc const& loc)
 		{
 			auto& top = m_stack.back();
 			for (; *top == ' ' || *top == '\t';)
 				++top;
 
 			bool quoted;
-			auto path = ReadIncludePath(Location(), quoted);
+			auto path = ReadIncludePath(loc, quoted);
 			if (Emitting())
 				m_includes->AddSearchPath(path);
 		}
@@ -1347,10 +1423,20 @@ namespace pr::script::v2::testing
 			Preprocessor pp("#eval{1+#eval{1+1}}");
 			PR_EXPECT(Drain(pp) == "3");
 		}
+		PRUnitTestMethod(MidLineEval, Quick)
+		{
+			Preprocessor pp("*Value #eval{1+2}");
+			PR_EXPECT(Drain(pp) == "*Value 3");
+		}
 		PRUnitTestMethod(IfElseEndif, Quick)
 		{
 			Preprocessor pp("#if 0\nA\n#elif 1\nB\n#else\nC\n#endif");
 			PR_EXPECT(Drain(pp) == "B\n");
+		}
+		PRUnitTestMethod(DirectivesInsideInactiveStrings, Quick)
+		{
+			Preprocessor pp("#if 0\n*Value \"#endif\"\n#endif\nAfter");
+			PR_EXPECT(Drain(pp) == "After");
 		}
 		PRUnitTestMethod(IfDefUndef, Quick)
 		{
@@ -1366,6 +1452,11 @@ namespace pr::script::v2::testing
 		{
 			Preprocessor pp("\"#error not real\"");
 			PR_EXPECT(Drain(pp) == "\"#error not real\"");
+		}
+		PRUnitTestMethod(UnmatchedEnd, Quick)
+		{
+			Preprocessor pp("#end");
+			PR_THROWS(pp.AtEnd(), ScriptException);
 		}
 	};
 }

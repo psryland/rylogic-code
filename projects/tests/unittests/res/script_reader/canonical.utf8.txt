@@ -1,0 +1,119 @@
+﻿// Canonical Reader2 conformance fixture (checked in with a UTF-8 byte-order-mark).
+// Exercises, in one human-readable master script, the feature surface shared by
+// legacy 'pr::script::Reader' and 'pr::script::v2::Reader'. Math/vector/matrix/
+// transform extraction already has thorough dedicated coverage in the relocated
+// 'Reader2DifferentialTests' (see 'conformance_tests.h'), so this fixture instead
+// focuses on file-based/preprocessor features plus a light scalar/section sampler.
+//
+// All paths below are relative to this file's own directory. The test driver
+// points each reader's include handler at this directory, so resolution stays
+// independent of the process's current working directory.
+/* Block comments,
+   spanning multiple lines,
+   are skipped identically by both readers. */
+
+#include_path "includes/search"
+
+// Object and function-style macros, including '#'-stringise, '##'-paste, and
+// mutual-recursion suppression (expanding 'Recursive' leaves the final 'Self'
+// token un-expanded, since re-entering an ancestor macro is blocked).
+#define GREETING "hello"
+#define COUNT 3
+#define ADD(a, b) (a + b)
+#define STR(x) #x
+#define PASTE(a, b) a##b
+#define Self SelfTail
+#define SelfTail Self
+
+*Comment true
+*Continuation "first line \
+continues here"
+*Message GREETING
+*Sum #eval{ADD(2, 3)}
+*Stringised STR(payload)
+*Pasted PASTE(fo, o)
+*Recursive Self
+
+// '#ifdef'/'#ifndef'/'#if'/'#elif'/'#else'/'#endif' conditional compilation.
+#ifdef COUNT
+*IfdefTaken true
+#endif
+#ifndef COUNT
+*IfndefNotTaken true
+#else
+*IfndefElse true
+#endif
+#if COUNT == 3
+*IfTaken true
+#elif COUNT == 4
+*ElifNotTaken true
+#else
+*ElseNotTaken true
+#endif
+
+// '#undef' removes a macro from subsequent visibility.
+#undef COUNT
+#ifdef COUNT
+*UndefFailed true
+#else
+*UndefOk true
+#endif
+
+// Identifiers, strings, c-strings (escape-processed) and booleans.
+*Ident an_identifier_123
+*Str "plain string"
+*CStr "line1\nline2"
+*FlagTrue true
+*FlagFalse false
+
+// Numeric forms: signed decimal, hex (explicit radix and "0x"-prefixed), octal
+// ("0o"-prefixed), binary ("0b"-prefixed), plain real, negative scientific
+// notation, and the IEEE special forms 'nan'/'inf'.
+*Dec -123
+*HexRadix ABCDEF00
+*HexPrefix 0x2A
+*Octal 0o17
+*Binary 0b1010
+*Pi 3.14159
+*Neg -2.5e-2
+*NotANumber nan
+*Infinity inf
+
+// Nested sections.
+*Group
+{
+	*Nested
+	{
+		*Deep 42
+	}
+	*Sibling "value"
+}
+
+// Named-value and integral-value enum extraction (see 'pr::script::EResult').
+*Status Success
+*StatusValue 0
+
+// '#lit'/'#end': the enclosed text is copied verbatim - no comment stripping,
+// macro expansion, or directive recognition. 'GREETING' would normally expand
+// to '"hello"' (see above); reading it back unexpanded proves '#lit' suppressed
+// macro expansion rather than merely suppressing directive/comment scanning.
+*Lit
+#lit
+GREETING
+#end
+
+// '#ignore_missing' suppresses a missing include. Quoted includes resolve
+// against each including file's own directory, including nested includes;
+// angle-bracket includes resolve only through the search path list.
+#ignore_missing "on"
+#include "does_not_exist.inc"
+#include "still_does_not_exist.inc"
+#include "includes/local.inc"
+#ignore_missing "off"
+#include <angle.inc>
+
+// '#depend' records a file as a build dependency without pushing its content
+// onto the source stack.
+#depend "dependencies/dependency.txt"
+
+*Done
