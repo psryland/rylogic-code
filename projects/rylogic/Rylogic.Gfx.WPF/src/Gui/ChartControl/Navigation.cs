@@ -42,7 +42,7 @@ namespace Rylogic.Gui.WPF
 		}
 
 		/// <summary>
-		/// HwndSource hook for coalescing WM_MOUSEMOVE messages.
+		/// HwndSource hook for coalescing WM_MOUSEMOVE messages intended for this chart.
 		/// WPF does not coalesce mouse moves from the hardware input queue, so during
 		/// mouse drags the queue can grow unboundedly. This hook drains all pending
 		/// WM_MOUSEMOVE messages before allowing the current one through, ensuring only
@@ -51,7 +51,12 @@ namespace Rylogic.Gui.WPF
 		private IntPtr WndProcHook(IntPtr hwnd, int msg, IntPtr wparam, IntPtr lparam, ref bool handled)
 		{
 			static void DrainPending(IntPtr hwnd, int msg) { while (User32.PeekMessage(out _, hwnd, (uint)msg, (uint)msg, Win32.EPeekMessageFlags.Remove)) { } }
-			bool required = true;
+
+			// Every chart in the top-level window receives this hook, so only the chart under interaction may coalesce or suppress shared input messages.
+			if (!IsVisible || (!IsMouseOver && !IsMouseCaptureWithin && MouseOperations?.Active == null))
+				return IntPtr.Zero;
+
+			var required = true;
 
 			// Drain all pending WM_MOUSEMOVE messages from the hardware input queue
 			if (msg == Win32.WM_MOUSEMOVE)
