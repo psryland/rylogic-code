@@ -8,15 +8,17 @@
 //  - This is the top-level facade of the reader2 stack: it wraps a 'Preprocessor'
 //    (itself wrapping a 'Cursor') and exposes the same keyword/section/value
 //    extraction vocabulary as the legacy 'pr::script::Reader', so that call sites
-//    can be ported by swapping the type name. Extraction is implemented by
-//    delegating to the same char-generic 'pr::str::Extract*' family used by the
-//    legacy reader (via 'm_pp', which satisfies the 'Ptr' concept), so parsing
-//    rules for numbers/strings/bools stay bit-for-bit identical between readers.
+//    can be ported by swapping the type name. Compatibility extraction uses the
+//    char-generic 'pr::str::Extract*' family via 'm_pp', which satisfies its
+//    forward-pointer concept.
 //  - Deliberately NOT supported: constructing from the legacy virtual 'Src'
 //    hierarchy, or from a 'wchar_t const*' source. Reader2 only accepts UTF-8
 //    bytes (an in-memory buffer or a binary-mode 'std::istream'); converting a
 //    legacy wide-character or other-encoding source into UTF-8 is the caller's
 //    responsibility (or an integration concern outside this library).
+//  - Plain decimal integers and reals use a contiguous 'from_chars' path when
+//    preprocessing is inactive. Less common syntax and expanded input retain the
+//    shared generic extractors as the compatibility path.
 //  - The math-vector/matrix/transform extraction methods (Vector2/3/4, Vector2i/3i/4i,
 //    Quaternion, Matrix3x3/4x4, Rotation, Transform, Data, EnumValue, Enum) mirror the
 //    legacy signatures using 'pr::maths' types directly; they are plain compositions of
@@ -27,6 +29,7 @@
 #pragma once
 #include <string>
 #include <string_view>
+#include <charconv>
 #include <functional>
 #include <filesystem>
 #include <istream>
@@ -150,7 +153,7 @@ namespace pr::script::v2
 		}
 
 		// Access the macro table backing '#define'/'#undef' and macro expansion.
-		IMacroHandler& Macros() noexcept
+		IMacroHandler& Macros()
 		{
 			return m_pp.Macros();
 		}
@@ -586,6 +589,9 @@ namespace pr::script::v2
 		template <typename TInt> bool Int(TInt& int_, int radix)
 		{
 			auto& src = m_pp;
+			if (TryFastInt(int_, radix))
+				return true;
+
 			return str::ExtractInt(int_, radix, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "integral value expected");
 		}
 		template <typename TInt> bool IntS(TInt& int_, int radix)
@@ -616,6 +622,9 @@ namespace pr::script::v2
 		template <typename TReal> bool Real(TReal& real_)
 		{
 			auto& src = m_pp;
+			if (TryFastReal(real_))
+				return true;
+
 			return str::ExtractReal(real_, src, m_delim) || ReportError(EResult::TokenNotFound, Location(), "real expected");
 		}
 		template <typename TReal> bool RealS(TReal& real_)
@@ -1198,6 +1207,130 @@ namespace pr::script::v2
 				path.clear();
 			}
 			return path;
+		}
+
+	private:
+
+		// Parse the common decimal integer form directly from contiguous UTF-8.
+		// Prefixes and non-decimal radices retain the compatibility parser.
+		template <typename TInt> bool TryFastInt(TInt& int_, int radix)
+		{
+			if (radix != 10 || !m_pp.HasContiguousInput())
+				return false;
+
+			// Locate one plain decimal token without materialising it.
+			auto& src = m_pp;
+			EatDelimiters(src, m_delim);
+			auto text = src.RemainingContiguous();
+			auto first = text.data();
+			auto last = first + text.size();
+			auto cur = first;
+			if (cur == last)
+				return false;
+			auto negative = *cur == '-';
+			if (negative || *cur == '+')
+				++cur;
+			if (cur == last || *cur < '0' || *cur > '9')
+				return false;
+			if (last - cur >= 2 && *cur == '0' && (cur[1] == 'x' || cur[1] == 'X' || cur[1] == 'o' || cur[1] == 'O' || cur[1] == 'b' || cur[1] == 'B'))
+				return false;
+			for (; cur != last && *cur >= '0' && *cur <= '9'; ++cur) {}
+			auto number_last = cur;
+
+			// Integer suffixes affect the consumed text but not the converted value.
+			if (cur != last && (*cur == 'u' || *cur == 'U'))
+				++cur;
+			if (cur != last && (*cur == 'l' || *cur == 'L'))
+			{
+				++cur;
+				if (cur != last && (*cur == 'l' || *cur == 'L'))
+					++cur;
+			}
+
+			// Convert through the same 64-bit domain as the legacy parser before
+			// narrowing to the caller's requested result type.
+			auto number_first = first;
+			if constexpr (std::is_unsigned_v<TInt>)
+			{
+				number_first += negative || *number_first == '+';
+				uint64_t value;
+				auto result = std::from_chars(number_first, number_last, value, 10);
+				if (result.ec != std::errc{} || result.ptr != number_last)
+					return false;
+
+				int_ = static_cast<TInt>(negative ? uint64_t{} - value : value);
+			}
+			else
+			{
+				number_first += *number_first == '+';
+				int64_t value;
+				auto result = std::from_chars(number_first, number_last, value, 10);
+				if (result.ec != std::errc{} || result.ptr != number_last)
+					return false;
+
+				int_ = static_cast<TInt>(value);
+			}
+
+			src.ConsumeContiguous(static_cast<size_t>(cur - first));
+			return true;
+		}
+
+		// Parse the common decimal real form directly from contiguous UTF-8.
+		// Hexadecimal values and D exponents retain the compatibility parser.
+		template <typename TReal> bool TryFastReal(TReal& real_)
+		{
+			if (!m_pp.HasContiguousInput())
+				return false;
+
+			// Locate the decimal significand and optional E exponent.
+			auto& src = m_pp;
+			EatDelimiters(src, m_delim);
+			auto text = src.RemainingContiguous();
+			auto first = text.data();
+			auto last = first + text.size();
+			auto cur = first;
+			if (cur == last)
+				return false;
+			if (*cur == '+' || *cur == '-')
+				++cur;
+			if (last - cur >= 2 && *cur == '0' && (cur[1] == 'x' || cur[1] == 'X' || cur[1] == 'o' || cur[1] == 'O' || cur[1] == 'b' || cur[1] == 'B'))
+				return false;
+			auto digit_count = size_t{};
+			for (; cur != last && *cur >= '0' && *cur <= '9'; ++cur, ++digit_count) {}
+			if (cur != last && *cur == '.')
+			{
+				++cur;
+				for (; cur != last && *cur >= '0' && *cur <= '9'; ++cur, ++digit_count) {}
+			}
+			if (digit_count == 0)
+				return false;
+			if (cur != last && (*cur == 'd' || *cur == 'D'))
+				return false;
+			if (cur != last && (*cur == 'e' || *cur == 'E'))
+			{
+				++cur;
+				if (cur != last && (*cur == '+' || *cur == '-'))
+					++cur;
+				auto exponent_begin = cur;
+				for (; cur != last && *cur >= '0' && *cur <= '9'; ++cur) {}
+				if (cur == exponent_begin)
+					return false;
+			}
+			auto number_last = cur;
+			if (cur != last && (*cur == 'f' || *cur == 'F'))
+				++cur;
+
+			// Convert without the fixed temporary string and C locale machinery.
+			auto number_first = first;
+			number_first += *number_first == '+';
+			double value;
+			auto result = std::from_chars(number_first, number_last, value, std::chars_format::general);
+			if (result.ec != std::errc{} || result.ptr != number_last)
+				return false;
+
+			real_ = static_cast<TReal>(value);
+			src.ConsumeContiguous(static_cast<size_t>(cur - first));
+			return true;
 		}
 	};
 }

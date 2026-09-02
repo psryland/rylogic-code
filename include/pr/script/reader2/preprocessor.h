@@ -575,7 +575,10 @@ namespace pr::script::v2
 	// source stack ('Frame') is UTF-8 byte oriented from the ground up.
 	class Preprocessor
 	{
-		std::vector<Frame> m_stack;
+	// A screened memory source can bypass preprocessing until mutable macro
+	// state is requested; all other sources use the full frame stack.
+	std::unique_ptr<Cursor> m_passthrough;
+	std::vector<Frame> m_stack;
 		MacroDB m_macros;
 		std::unique_ptr<IIncludeHandler2> m_default_includes;
 		IIncludeHandler2* m_includes;
@@ -603,7 +606,8 @@ namespace pr::script::v2
 		// non-null, resolves '#include' directives; otherwise includes are rejected
 		// with 'EResult::IncludesNotSupported', matching the legacy default.
 		explicit Preprocessor(std::unique_ptr<IInput> input, IIncludeHandler2* includes = nullptr)
-			: m_stack()
+			: m_passthrough()
+			, m_stack()
 			, m_macros()
 			, m_default_includes()
 			, m_includes(includes)
@@ -620,7 +624,14 @@ namespace pr::script::v2
 				m_default_includes = std::make_unique<NoIncludes2>();
 				m_includes = m_default_includes.get();
 			}
-			m_stack.emplace_back(FilterCursor(Cursor(std::move(input))));
+
+			// Sources without preprocessing syntax can retain the cursor's direct
+			// byte path instead of crossing filter, frame, and lookahead buffers.
+			auto memory = dynamic_cast<MemoryInput const*>(input.get());
+			if (memory != nullptr && memory->m_data.find_first_of("#/\\") == std::string_view::npos)
+				m_passthrough = std::make_unique<Cursor>(std::move(input));
+			else
+				m_stack.emplace_back(FilterCursor(Cursor(std::move(input))));
 		}
 
 		// Convenience constructor over a caller-owned UTF-8 memory buffer, which must
@@ -641,12 +652,14 @@ namespace pr::script::v2
 		// Directly define a macro programmatically (equivalent to a '#define').
 		void Define(std::string_view tag, std::string_view expansion)
 		{
+			ActivatePipeline();
 			m_macros.Add(Macro(tag, expansion));
 		}
 
 		// Access the macro table backing '#define'/'#undef' and macro expansion.
-		IMacroHandler& Macros() noexcept
+		IMacroHandler& Macros()
 		{
+			ActivatePipeline();
 			return m_macros;
 		}
 
@@ -656,19 +669,58 @@ namespace pr::script::v2
 			return *m_includes;
 		}
 
+		// True when the current source is the screened contiguous memory path.
+		bool HasContiguousInput() const noexcept
+		{
+			return m_passthrough != nullptr;
+		}
+
+		// Return a contiguous view only when the screened direct-memory path is
+		// active; callers fall back to cursor-generic parsing for expanded input.
+		std::string_view Contiguous(size_t count)
+		{
+			return m_passthrough ? m_passthrough->View(count) : std::string_view{};
+		}
+
+		// Return the unread contiguous memory source, or an empty view while the
+		// full preprocessing pipeline is active.
+		std::string_view RemainingContiguous() const noexcept
+		{
+			return m_passthrough ? m_passthrough->RemainingView() : std::string_view{};
+		}
+
+		// Consume a caller-validated ASCII span from the contiguous memory path.
+		void ConsumeContiguous(size_t count)
+		{
+			assert(m_passthrough != nullptr);
+			m_passthrough->AdvanceAscii(count);
+		}
+
 		// Forward-cursor access to the fully preprocessed character stream.
 		char operator *()
 		{
+			if (m_passthrough)
+				return **m_passthrough;
+
 			Fill(0);
 			return m_look[0];
 		}
 		char operator [](size_t i)
 		{
+			if (m_passthrough)
+				return (*m_passthrough)[i];
+
 			Fill(i);
 			return m_look[i];
 		}
 		Preprocessor& operator ++()
 		{
+			if (m_passthrough)
+			{
+				++*m_passthrough;
+				return *this;
+			}
+
 			Fill(0);
 			m_look.pop_front();
 			m_look_loc.pop_front();
@@ -676,6 +728,12 @@ namespace pr::script::v2
 		}
 		Preprocessor& operator +=(size_t n)
 		{
+			if (m_passthrough)
+			{
+				*m_passthrough += n;
+				return *this;
+			}
+
 			for (; n-- != 0;)
 				++*this;
 
@@ -683,15 +741,42 @@ namespace pr::script::v2
 		}
 		Loc const& Location()
 		{
+			if (m_passthrough)
+			{
+				// Legacy preprocessing discards the exhausted physical frame, so
+				// source-end location queries return its default sentinel location.
+				if (m_passthrough->AtEnd())
+				{
+					static Loc const end_loc;
+					return end_loc;
+				}
+
+				return m_passthrough->Location();
+			}
+
 			Fill(0);
 			return m_look_loc[0];
 		}
 		bool AtEnd()
 		{
+			if (m_passthrough)
+				return m_passthrough->AtEnd();
+
 			return **this == 0;
 		}
 
 	private:
+
+		// Promote a screened passthrough source into the full preprocessing
+		// pipeline before exposing mutable macro state.
+		void ActivatePipeline()
+		{
+			if (!m_passthrough)
+				return;
+
+			m_stack.emplace_back(FilterCursor(std::move(*m_passthrough)));
+			m_passthrough.reset();
+		}
 
 		// Ensure the lookahead buffer holds at least 'n + 1' entries, pulling and
 		// interpreting further preprocessor input as needed. Once the input is

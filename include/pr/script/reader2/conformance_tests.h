@@ -23,6 +23,7 @@
 //    derived from this header's own '__FILE__', so these tests work regardless of the
 //    process's current working directory.
 #pragma once
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -177,6 +178,51 @@ namespace pr::script::v2::testing
 
 			PR_EXPECT(legacy.IsSourceEnd());
 			PR_EXPECT(modern.IsSourceEnd());
+		}
+
+		PRUnitTestMethod(PlainNumericFastPathMatchesLegacy, Quick)
+		{
+			// Exercise direct decimal conversion and every compatibility fallback
+			// from a source that remains on the screened contiguous path.
+			char const* script = "-23 +42 -1 456LL -1.25e-4 +2.0 .5 2 -0.2f 1e+2 0x10 0b1 0o7";
+			pr::script::Reader legacy(script, false);
+			pr::script::v2::Reader modern(std::string_view(script), false);
+
+			int legacy_ints[2] = {}, modern_ints[2] = {};
+			unsigned legacy_unsigned = 0, modern_unsigned = 0;
+			int64_t legacy_suffix = 0, modern_suffix = 0;
+			PR_EXPECT(legacy.Int(legacy_ints[0], 10) && modern.Int(modern_ints[0], 10));
+			PR_EXPECT(legacy.Int(legacy_ints[1], 10) && modern.Int(modern_ints[1], 10));
+			PR_EXPECT(legacy.Int(legacy_unsigned, 10) && modern.Int(modern_unsigned, 10));
+			PR_EXPECT(legacy.Int(legacy_suffix, 10) && modern.Int(modern_suffix, 10));
+			PR_EXPECT(legacy_ints[0] == modern_ints[0]);
+			PR_EXPECT(legacy_ints[1] == modern_ints[1]);
+			PR_EXPECT(legacy_unsigned == modern_unsigned);
+			PR_EXPECT(legacy_suffix == modern_suffix);
+
+			double legacy_reals[9] = {}, modern_reals[9] = {};
+			for (size_t i = 0; i != std::size(legacy_reals); ++i)
+			{
+				PR_EXPECT(legacy.Real(legacy_reals[i]) && modern.Real(modern_reals[i]));
+				if (std::isnan(legacy_reals[i]))
+					PR_EXPECT(std::isnan(modern_reals[i]));
+				else
+					PR_EXPECT(std::bit_cast<uint64_t>(legacy_reals[i]) == std::bit_cast<uint64_t>(modern_reals[i]));
+			}
+			PR_EXPECT(legacy.IsSourceEnd());
+			PR_EXPECT(modern.IsSourceEnd());
+
+			// Overflow remains a reported conversion failure after the fast parser
+			// delegates to the compatibility path.
+			char const* overflow = "9223372036854775808";
+			pr::script::Reader legacy_overflow(overflow, false);
+			pr::script::v2::Reader modern_overflow(std::string_view(overflow), false);
+			legacy_overflow.ReportError = [](EResult, Loc const&, std::string_view) { return false; };
+			modern_overflow.ReportError = [](EResult, Loc const&, std::string_view) { return false; };
+			int64_t legacy_value = 0, modern_value = 0;
+			PR_EXPECT(!legacy_overflow.Int(legacy_value, 10));
+			PR_EXPECT(!modern_overflow.Int(modern_value, 10));
+			PR_EXPECT(legacy_overflow.Location().Pos() == modern_overflow.Location().Pos());
 		}
 
 		PRUnitTestMethod(MatchingErrorCodeAndLocation, Quick)

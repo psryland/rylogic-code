@@ -6,6 +6,7 @@
 #pragma once
 #include <vector>
 #include <string_view>
+#include <algorithm>
 #include <cstring>
 #include <cctype>
 #include "pr/script/forward.h"
@@ -42,6 +43,10 @@ namespace pr::script::v2
 		// exactly as long as the cursor itself needs it.
 		std::unique_ptr<IInput> m_input;
 
+		// Memory inputs remain borrowed in place; streamed inputs use 'm_win'.
+		std::string_view m_memory;
+		bool m_is_memory;
+
 		// A sliding window of buffered bytes. 'm_pos' is the index of the "current"
 		// character; bytes before it have already been consumed and are candidates
 		// for compaction, bytes at/after it are unread lookahead.
@@ -68,12 +73,24 @@ namespace pr::script::v2
 		// Takes ownership of 'input' so the cursor controls its lifetime.
 		explicit Cursor(std::unique_ptr<IInput> input, Loc const& loc = Loc())
 			: m_input(std::move(input))
+			, m_memory()
+			, m_is_memory(false)
 			, m_win()
 			, m_pos(0)
 			, m_input_exhausted(false)
 			, m_loc(loc.Filepath().empty() ? Loc(m_input->Filepath()) : loc)
 		{
-			m_win.reserve(BlockSize);
+			// Preserve caller-owned memory as a zero-copy byte range.
+			if (auto memory = dynamic_cast<MemoryInput const*>(m_input.get()))
+			{
+				m_memory = memory->m_data;
+				m_is_memory = true;
+				m_input_exhausted = true;
+			}
+			else
+			{
+				m_win.reserve(BlockSize);
+			}
 
 			// A byte-order-mark, if present, is not part of the script content.
 			SkipBom();
@@ -103,6 +120,9 @@ namespace pr::script::v2
 		// past the end of the input.
 		char PeekByte(size_t i)
 		{
+			if (m_is_memory)
+				return m_pos + i < m_memory.size() ? m_memory[m_pos + i] : 0;
+
 			while (m_pos + i >= m_win.size() && !m_input_exhausted)
 				Refill();
 
@@ -119,6 +139,41 @@ namespace pr::script::v2
 		{
 			return PeekByte(i);
 		}
+
+		// Return the next 'count' bytes as one borrowed span. The view remains
+		// valid only until this cursor is advanced or another refill is requested.
+		std::string_view View(size_t count)
+		{
+			if (count == 0)
+				return {};
+
+			if (m_is_memory)
+				return m_pos + count <= m_memory.size() ? m_memory.substr(m_pos, count) : std::string_view{};
+
+			PeekByte(count - 1);
+			if (m_pos + count > m_win.size())
+				return {};
+
+			return std::string_view(m_win.data() + m_pos, count);
+		}
+
+		// Return all unread bytes for a memory input, or an empty view for a stream.
+		std::string_view RemainingView() const noexcept
+		{
+			return m_is_memory ? m_memory.substr(m_pos) : std::string_view{};
+		}
+
+		// Consume a caller-validated ASCII run with one location update.
+		void AdvanceAscii(size_t count)
+		{
+			auto text = View(count);
+			assert(text.size() == count);
+			assert(std::all_of(text.begin(), text.end(), [](char ch) { return static_cast<unsigned char>(ch) < 0x80; }));
+			m_loc.IncAscii(text);
+			m_pos += count;
+			Compact();
+		}
+
 		Cursor& operator ++()
 		{
 			AdvanceOne();
@@ -196,7 +251,7 @@ namespace pr::script::v2
 		// to be worth reclaiming, keeping the cursor's memory footprint bounded.
 		void Compact()
 		{
-			if (m_pos < CompactThreshold)
+			if (m_is_memory || m_pos < CompactThreshold)
 				return;
 
 			m_win.erase(m_win.begin(), m_win.begin() + static_cast<ptrdiff_t>(m_pos));
