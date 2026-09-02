@@ -161,6 +161,7 @@
 #include "pr/network/tcpip.h"
 #include "pr/script/byte_reader.h"
 #include "pr/script/reader.h"
+#include "pr/script/reader2.h"
 #include "pr/script/unit_tests.h"
 #include "pr/storage/csv.h"
 #include "pr/storage/ini_file.h"
