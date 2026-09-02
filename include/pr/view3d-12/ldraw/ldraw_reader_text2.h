@@ -19,6 +19,7 @@ namespace pr::rdr12::ldraw
 		std::unique_ptr<Impl> m_impl;
 
 		TextReader2(std::string_view utf8_source, std::filesystem::path src_filepath = {}, ReportErrorCB report_error_cb = nullptr, ParseProgressCB progress_cb = nullptr, IPathResolver const& resolver = NoIncludes::Instance());
+		TextReader2(std::string_view utf8_source, Location const& source_location, ReportErrorCB report_error_cb = nullptr, ParseProgressCB progress_cb = nullptr, IPathResolver const& resolver = NoIncludes::Instance());
 		TextReader2(std::istream& utf8_stream, std::filesystem::path src_filepath = {}, ReportErrorCB report_error_cb = nullptr, ParseProgressCB progress_cb = nullptr, IPathResolver const& resolver = NoIncludes::Instance());
 		TextReader2(TextReader2&&) = delete;
 		TextReader2(TextReader2 const&) = delete;
@@ -148,6 +149,16 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(loc.m_filepath == filepath);
 			PR_EXPECT(loc.m_filesize == 11);
 			PR_EXPECT(loc.m_offset == 2);
+
+			auto source = std::string("*Point {}");
+			auto source_location = Location{ .m_filesize = 40, .m_offset = 12, .m_column = 3, .m_line = 2 };
+			TextReader2 memory_reader(source, source_location);
+			auto const& memory_loc = memory_reader.Loc();
+			PR_EXPECT(memory_loc.m_filepath.empty());
+			PR_EXPECT(memory_loc.m_filesize == 40);
+			PR_EXPECT(memory_loc.m_offset == 12);
+			PR_EXPECT(memory_loc.m_column == 3);
+			PR_EXPECT(memory_loc.m_line == 2);
 		}
 	};
 }

@@ -201,6 +201,12 @@ namespace pr::rdr12::ldraw
 		switch (encoding)
 		{
 			case EEncoding::ascii:
+			{
+				if (std::any_of(source.begin(), source.end(), [](char ch) { return static_cast<unsigned char>(ch) > 0x7F; }))
+					throw script::ScriptException(script::EResult::WrongEncoding, loc, "non-ASCII byte in ASCII source");
+
+				return std::string(source);
+			}
 			case EEncoding::utf8:
 			{
 				return std::string(source);
@@ -287,14 +293,14 @@ namespace pr::rdr12::ldraw
 		int m_section_level;
 		int m_nest_level;
 
-		Impl(std::string_view source, std::filesystem::path filepath, IPathResolver const& resolver)
+		Impl(std::string_view source, script::Loc const& loc, IPathResolver const& resolver)
 			: m_includes(resolver)
-			, m_reader(std::make_unique<script::v2::Reader>(source, false, std::move(filepath), &m_includes))
+			, m_reader(std::make_unique<script::v2::Reader>(std::make_unique<script::v2::MemoryInput>(source, loc.Filepath()), loc, false, &m_includes))
 			, m_location()
 			, m_keyword()
 			, m_pseudo_tokens()
 			, m_pseudo_value{ EPseudoValue::None, {} }
-			, m_filesize(static_cast<int64_t>(source.size()))
+			, m_filesize(loc.FileSize() != 0 ? loc.FileSize() : static_cast<int64_t>(source.size()))
 			, m_section_level()
 			, m_nest_level()
 		{
@@ -350,7 +356,13 @@ namespace pr::rdr12::ldraw
 
 	TextReader2::TextReader2(std::string_view utf8_source, std::filesystem::path src_filepath, ReportErrorCB report_error_cb, ParseProgressCB progress_cb, IPathResolver const& resolver)
 		: IReader(report_error_cb, progress_cb, resolver)
-		, m_impl(std::make_unique<Impl>(utf8_source, std::move(src_filepath), resolver))
+		, m_impl(std::make_unique<Impl>(utf8_source, script::Loc(src_filepath, static_cast<std::streamsize>(utf8_source.size()), 0, 0, 1, 1, true), resolver))
+	{
+	}
+
+	TextReader2::TextReader2(std::string_view utf8_source, Location const& source_location, ReportErrorCB report_error_cb, ParseProgressCB progress_cb, IPathResolver const& resolver)
+		: IReader(report_error_cb, progress_cb, resolver)
+		, m_impl(std::make_unique<Impl>(utf8_source, script::Loc(source_location.m_filepath, source_location.m_filesize, source_location.m_offset, source_location.m_offset, source_location.m_line, source_location.m_column, true), resolver))
 	{
 	}
 

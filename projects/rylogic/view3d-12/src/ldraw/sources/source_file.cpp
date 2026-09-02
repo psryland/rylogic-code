@@ -4,12 +4,24 @@
 //*********************************************
 #include "view3d-12/src/ldraw/sources/source_file.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_text.h"
+#include "pr/view3d-12/ldraw/ldraw_reader_text2.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_binary.h"
 #include "pr/view3d-12/ldraw/ldraw_parsing.h"
 #include "pr/view3d-12/ldraw/ldraw_svg.h"
 
 namespace pr::rdr12::ldraw
 {
+	namespace
+	{
+		// Reader2 is the production default; the environment override provides a one-point diagnostic rollback.
+		bool UseReader2()
+		{
+			wchar_t value[16] = {};
+			auto length = GetEnvironmentVariableW(L"RYLOGIC_LDRAW_TEXT_READER", value, _countof(value));
+			return length == 0 || _wcsicmp(value, L"legacy") != 0;
+		}
+	}
+
 	SourceFile::SourceFile(Guid const* context_id, filepath_t const& filepath, EEncoding enc, PathResolver const& includes)
 		: SourceBase(context_id)
 		, m_filepath(filepath.lexically_normal())
@@ -43,6 +55,68 @@ namespace pr::rdr12::ldraw
 		m_includes.LocalDir("");
 		m_includes.FileOpened(m_includes, m_filepath);
 
+		// Keep text-reader selection in one place so every text-backed source follows the same diagnostic override.
+		auto parse_text = [&](std::string_view source, std::filesystem::path const& filepath, EEncoding encoding = EEncoding::utf8)
+		{
+			auto bom_size = 0;
+			if (encoding == EEncoding::auto_detect)
+				encoding = filesys::DetectFileEncoding(std::span(source.data(), source.size()), bom_size);
+			else if (encoding == EEncoding::utf8)
+				bom_size = source.size() >= 3 &&
+					static_cast<unsigned char>(source[0]) == 0xEF &&
+					static_cast<unsigned char>(source[1]) == 0xBB &&
+					static_cast<unsigned char>(source[2]) == 0xBF
+					? 3
+					: 0;
+			else if (source.size() >= 2)
+				bom_size =
+					(encoding == EEncoding::utf16_le && static_cast<unsigned char>(source[0]) == 0xFF && static_cast<unsigned char>(source[1]) == 0xFE) ||
+					(encoding == EEncoding::utf16_be && static_cast<unsigned char>(source[0]) == 0xFE && static_cast<unsigned char>(source[1]) == 0xFF)
+					? 2
+					: 0;
+
+			if (UseReader2())
+			{
+				auto utf8 = std::string{};
+				auto utf8_source = source;
+				switch (encoding)
+				{
+					case EEncoding::utf8:
+					{
+						break;
+					}
+					case EEncoding::ascii:
+					case EEncoding::ascii_extended:
+					case EEncoding::utf16_le:
+					case EEncoding::utf16_be:
+					{
+						utf8 = ToUtf8Source(source, encoding, filepath);
+						utf8_source = utf8;
+						break;
+					}
+					default:
+					{
+						throw std::runtime_error(std::format("Unsupported file encoding: {}", int(encoding)));
+					}
+				}
+
+				auto location = Location
+				{
+					.m_filepath = filepath,
+					.m_filesize = static_cast<int64_t>(source.size()),
+					.m_offset = bom_size,
+					.m_column = 1,
+					.m_line = 1,
+				};
+				TextReader2 reader(utf8_source, location, { this, OnReportError }, { this, OnProgress }, m_includes);
+				return Parse(rdr, reader, m_context_id, stop_token);
+			}
+
+			auto stream = filesys::FileSnapshotStream(filepath, std::string(source), static_cast<size_t>(bom_size));
+			TextReader reader(stream, {}, encoding, { this, OnReportError }, { this, OnProgress }, m_includes);
+			return Parse(rdr, reader, m_context_id, stop_token);
+		};
+
 		// Handle based on file extension
 		auto extn = m_filepath.extension().string();
 		switch (HashI(extn.c_str()))
@@ -51,31 +125,10 @@ namespace pr::rdr12::ldraw
 			case HashI(".ldr"):
 			{
 				auto snapshot = filesys::FileSnapshot(m_filepath);
-				auto bom_size = 0;
-				auto encoding = m_encoding;
-				if (encoding == EEncoding::auto_detect)
-					encoding = filesys::DetectFileEncoding(snapshot.bytes(), bom_size);
-
 				m_text_format = true;
 
-				// Parse the ldr script text file
-				switch (encoding)
-				{
-					case EEncoding::ascii:
-					case EEncoding::ascii_extended:
-					case EEncoding::utf8:
-					case EEncoding::utf16_le:
-					case EEncoding::utf16_be:
-					{
-						auto src = filesys::FileSnapshotStream(std::move(snapshot), static_cast<size_t>(bom_size));
-						TextReader reader(src, {}, encoding, { this, OnReportError }, { this, OnProgress }, m_includes);
-						return Parse(rdr, reader, m_context_id, stop_token);
-					}
-					default:
-					{
-						throw std::runtime_error(std::format("Unsupported file encoding: {}", int(encoding)));
-					}
-				}
+				// Normalize the stable snapshot once at the LDraw source boundary.
+				return parse_text(snapshot.str(), m_filepath, m_encoding);
 			}
 
 			// BDR = Binary ldr script file
@@ -97,9 +150,7 @@ namespace pr::rdr12::ldraw
 				auto ldr_script = pr::ldraw::svg::Read(snapshot.str()).ToString();
 				m_text_format = true;
 
-				mem_istream<char> src{ ldr_script, 0 };
-				TextReader reader(src, m_filepath, EEncoding::utf8, { this, OnReportError }, { this, OnProgress }, m_includes);
-				return Parse(rdr, reader, m_context_id, stop_token);
+				return parse_text(ldr_script, m_filepath);
 			}
 
 			// P3D = My custom binary model file format
@@ -113,9 +164,7 @@ namespace pr::rdr12::ldraw
 				auto ldr_script = std::format("*Model {{ *FilePath {{\"{}\"}} }}", m_filepath.string());
 				m_text_format = false;
 
-				mem_istream<char> src{ ldr_script, 0 };
-				TextReader reader(src, m_filepath, EEncoding::utf8, { this, OnReportError }, { this, OnProgress }, m_includes);
-				return Parse(rdr, reader, m_context_id, stop_token);
+				return parse_text(ldr_script, m_filepath);
 			}
 
 			// FBX/GLTF/GLB can contain animation data. Direct file opening should expose it when present without treating static models as errors.
@@ -126,9 +175,7 @@ namespace pr::rdr12::ldraw
 				auto ldr_script = std::format("*Model {{ *FilePath {{\"{}\"}} *Animation {{}} }}", m_filepath.string());
 				m_text_format = false;
 
-				mem_istream<char> src{ ldr_script, 0 };
-				TextReader reader(src, m_filepath, EEncoding::utf8, { this, OnReportError }, { this, OnProgress }, m_includes);
-				return Parse(rdr, reader, m_context_id, stop_token);
+				return parse_text(ldr_script, m_filepath);
 			}
 
 			// CSV data, create a chart to graph the data
@@ -137,9 +184,7 @@ namespace pr::rdr12::ldraw
 				auto ldr_script = std::format("*Chart {{ *FilePath {{\"{}\"}} }}", m_filepath.string());
 				m_text_format = true;
 
-				mem_istream<char> src{ ldr_script, 0 };
-				TextReader reader(src, m_filepath, EEncoding::utf8, { this, OnReportError }, { this, OnProgress }, m_includes);
-				return Parse(rdr, reader, m_context_id, stop_token);
+				return parse_text(ldr_script, m_filepath);
 			}
 
 			// Unknown file type

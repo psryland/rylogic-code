@@ -16,6 +16,18 @@
 
 namespace pr::script::v2
 {
+	// True when a location carries no caller-supplied source identity or position metadata.
+	inline bool IsDefaultLocation(Loc const& loc)
+	{
+		return
+			loc.Filepath().empty() &&
+			loc.FileSize() == 0 &&
+			loc.Pos() == 0 &&
+			loc.LinePos() == 0 &&
+			loc.Line() == 1 &&
+			loc.Col() == 1;
+	}
+
 	// A forward-only cursor over the UTF-8 bytes produced by an 'IInput'.
 	//
 	// 'Cursor' is the lowest level of the reader2 stack: it owns a sliding window of
@@ -81,7 +93,7 @@ namespace pr::script::v2
 			, m_win()
 			, m_pos(0)
 			, m_input_exhausted(false)
-			, m_loc(loc.Filepath().empty() ? Loc(m_input->Filepath()) : loc)
+			, m_loc(IsDefaultLocation(loc) ? Loc(m_input->Filepath()) : loc)
 			, m_continuations(0)
 		{
 			// Preserve caller-owned memory as a zero-copy byte range.
