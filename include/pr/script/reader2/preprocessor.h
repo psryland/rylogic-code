@@ -603,6 +603,7 @@ namespace pr::script::v2
 		// Plain source spans bypass preprocessing until syntax requiring the full pipeline is reached.
 		std::unique_ptr<Cursor> m_passthrough;
 		bool m_passthrough_screened;
+		size_t m_passthrough_safe;
 		std::vector<Frame> m_stack;
 		MacroDB m_macros;
 		std::unique_ptr<IIncludeHandler2> m_default_includes;
@@ -633,6 +634,7 @@ namespace pr::script::v2
 		explicit Preprocessor(std::unique_ptr<IInput> input, IIncludeHandler2* includes = nullptr, Loc const& loc = {})
 			: m_passthrough()
 			, m_passthrough_screened(false)
+			, m_passthrough_safe()
 			, m_stack()
 			, m_macros()
 			, m_default_includes()
@@ -726,8 +728,12 @@ namespace pr::script::v2
 			if (m_passthrough_screened)
 				return text;
 
-			auto special = text.find_first_of("#/\\\"'");
-			return text.substr(0, special);
+			if (m_passthrough_safe == 0)
+			{
+				auto special = text.find_first_of("#/\\\"'");
+				m_passthrough_safe = special != std::string_view::npos ? special : text.size();
+			}
+			return text.substr(0, m_passthrough_safe);
 		}
 
 		// True when the direct source was screened to its physical end.
@@ -740,14 +746,20 @@ namespace pr::script::v2
 		void ConsumeContiguous(size_t count)
 		{
 			assert(m_passthrough != nullptr);
+			assert(m_passthrough_screened || count <= m_passthrough_safe);
 			m_passthrough->AdvanceAscii(count);
+			if (!m_passthrough_screened)
+				m_passthrough_safe -= count;
 		}
 
 		// Consume and validate UTF-8 from the contiguous memory path.
 		void ConsumeContiguousUtf8(size_t count)
 		{
 			assert(m_passthrough != nullptr);
+			assert(m_passthrough_screened || count <= m_passthrough_safe);
 			m_passthrough->AdvanceUtf8(count);
+			if (!m_passthrough_screened)
+				m_passthrough_safe -= count;
 		}
 
 		// Forward-cursor access to the fully preprocessed character stream.
@@ -755,7 +767,8 @@ namespace pr::script::v2
 		{
 			if (m_passthrough)
 			{
-				ActivatePipelineForLookahead(0);
+				if (!m_passthrough_screened && m_passthrough_safe == 0)
+					ActivatePipelineForLookahead(0);
 				if (m_passthrough)
 					return **m_passthrough;
 			}
@@ -779,8 +792,15 @@ namespace pr::script::v2
 		{
 			if (m_passthrough)
 			{
-				++*m_passthrough;
-				return *this;
+				if (!m_passthrough_screened && m_passthrough_safe == 0)
+					ActivatePipelineForLookahead(0);
+				if (m_passthrough)
+				{
+					++*m_passthrough;
+					if (!m_passthrough_screened && m_passthrough_safe != 0)
+						--m_passthrough_safe;
+					return *this;
+				}
 			}
 
 			Fill(0);
@@ -792,8 +812,16 @@ namespace pr::script::v2
 		{
 			if (m_passthrough)
 			{
+				if (n != 0 && !m_passthrough_screened && n > m_passthrough_safe)
+				ActivatePipelineForLookahead(n - 1);
+				if (m_passthrough)
+				{
+				assert(m_passthrough_screened || n <= m_passthrough_safe);
 				*m_passthrough += n;
+				if (!m_passthrough_screened)
+					m_passthrough_safe -= n;
 				return *this;
+				}
 			}
 
 			for (; n-- != 0;)
@@ -838,6 +866,7 @@ namespace pr::script::v2
 			m_stack.emplace_back(FilterCursor(std::move(*m_passthrough)));
 			m_passthrough.reset();
 			m_passthrough_screened = false;
+			m_passthrough_safe = 0;
 		}
 
 		// Promote an unscreened source when requested lookahead reaches syntax that
@@ -848,7 +877,15 @@ namespace pr::script::v2
 				return;
 
 			auto text = m_passthrough->View(count + 1);
-			if (text.find_first_of("#/\\\"'") != std::string_view::npos)
+			if (text.empty())
+				return;
+
+			if (m_passthrough_safe == 0 || count >= m_passthrough_safe)
+			{
+				auto special = text.find_first_of("#/\\\"'");
+				m_passthrough_safe = special != std::string_view::npos ? special : text.size();
+			}
+			if (count >= m_passthrough_safe && m_passthrough_safe != text.size())
 				ActivatePipeline();
 		}
 

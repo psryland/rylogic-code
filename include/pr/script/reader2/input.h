@@ -27,8 +27,10 @@ namespace pr::script::v2
 	// The size of the physical read block used to pull bytes out of an 'IInput'.
 	// This is the "fixed transport buffer" referred to by the reader2 design: bulk
 	// reads are always requested in chunks of this size (or the remaining tail).
+	// Large streamed/file numeric and boundary workloads selected 32 KiB as the
+	// best representative geometric mean without a material boundary regression.
 	#if !defined(PR_SCRIPT_READER2_BLOCK_SIZE)
-	#define PR_SCRIPT_READER2_BLOCK_SIZE 4096
+	#define PR_SCRIPT_READER2_BLOCK_SIZE 32768
 	#endif
 	constexpr size_t BlockSize = PR_SCRIPT_READER2_BLOCK_SIZE;
 
