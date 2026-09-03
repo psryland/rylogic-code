@@ -1340,7 +1340,8 @@ namespace pr::script::v2
 				return; // Missing, but 'IgnoreMissing' was requested by the handler's policy.
 
 			auto source_path = input->Filepath().empty() ? resolved : input->Filepath();
-			m_stack.emplace_back(FilterCursor(Cursor(std::move(input), Loc(source_path))));
+			auto source_offset = input->InitialOffset();
+			m_stack.emplace_back(FilterCursor(Cursor(std::move(input), Loc(source_path, source_offset))));
 		}
 		void DoIncludePath(Loc const& loc)
 		{

@@ -49,6 +49,12 @@ namespace pr::script::v2
 		// The path associated with this input, used for 'Loc::Filepath()'. Empty for
 		// anonymous in-memory sources.
 		virtual std::filesystem::path const& Filepath() const = 0;
+
+		// The source offset represented by the first returned byte, allowing caller-side encoding conversion to preserve a stripped byte-order-mark.
+		virtual std::streamoff InitialOffset() const
+		{
+			return 0;
+		}
 	};
 
 	// An 'IInput' over a caller-owned, contiguous block of UTF-8 memory. The memory

@@ -84,11 +84,13 @@ namespace pr::rdr12::ldraw
 			std::string m_source;
 			size_t m_position;
 			std::filesystem::path m_filepath;
+			std::streamoff m_initial_offset;
 
-			OwnedUtf8Input(std::string source, std::filesystem::path filepath)
+			OwnedUtf8Input(std::string source, std::filesystem::path filepath, std::streamoff initial_offset)
 				: m_source(std::move(source))
 				, m_position()
 				, m_filepath(std::move(filepath))
+				, m_initial_offset(initial_offset)
 			{
 			}
 
@@ -109,6 +111,12 @@ namespace pr::rdr12::ldraw
 			std::filesystem::path const& Filepath() const override
 			{
 				return m_filepath;
+			}
+
+			// Return the physical offset retained when caller-side conversion removed a source byte-order-mark.
+			std::streamoff InitialOffset() const override
+			{
+				return m_initial_offset;
 			}
 		};
 
@@ -160,8 +168,10 @@ namespace pr::rdr12::ldraw
 				if (stream->bad())
 					throw std::ios_base::failure("failed to read LDraw include stream");
 
-				auto source = ToUtf8Source(bytes, EEncoding::auto_detect, filepath);
-				return std::make_unique<OwnedUtf8Input>(std::move(source), std::move(filepath));
+				auto bom_size = 0;
+				auto encoding = filesys::DetectFileEncoding(std::span(bytes.data(), bytes.size()), bom_size);
+				auto source = ToUtf8Source(bytes, encoding, filepath);
+				return std::make_unique<OwnedUtf8Input>(std::move(source), std::move(filepath), bom_size);
 			}
 		};
 

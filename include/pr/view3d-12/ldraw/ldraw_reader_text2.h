@@ -157,6 +157,23 @@ namespace pr::rdr12::ldraw::tests
 				PR_EXPECT(reader.StringImpl(0) == "right");
 			}
 		}
+		PRUnitTestMethod(IncludeBomLocation, Quick)
+		{
+			// Compare equivalent includes so the only location difference is the stripped physical BOM.
+			auto include_offset = [](std::string child)
+			{
+				PathResolver resolver;
+				resolver.AddString("child", std::move(child));
+				TextReader2 reader("#include \"child\"\n", "root.ldr", nullptr, nullptr, resolver);
+				EKeyword keyword;
+				PR_EXPECT(reader.NextKeyword(keyword) && keyword == EKeyword::Point);
+				return reader.Loc().m_offset;
+			};
+
+			auto plain_offset = include_offset("*Point {}");
+			auto bom_offset = include_offset("\xEF\xBB\xBF*Point {}");
+			PR_EXPECT(bom_offset == plain_offset + 3);
+		}
 		PRUnitTestMethod(StreamSourceLocation, Quick)
 		{
 			auto filepath = std::filesystem::path("snapshot.ldr");
