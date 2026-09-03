@@ -599,7 +599,7 @@ namespace pr::rdr12
 		auto vptr = cache.m_vcont.data();
 		auto iptr = cache.m_icont.begin<int>();
 		auto props = geometry::Points(points, colours,
-			[&](v4 p, Colour32 c, auto, auto) { SetPC(*vptr++, p, Colour(c)); },
+			[&](v4 p, Colour32 c, v4 n, v2 t) { SetPCNT(*vptr++, p, Colour(c), n, t); },
 			[&](int idx) { *iptr++ = idx; }
 		);
 
