@@ -297,10 +297,11 @@ namespace pr::rdr12::ldraw
 		};
 
 		IncludeAdapter m_includes;
-		std::unique_ptr<script::reader::Reader> m_reader;
+		script::Reader m_reader;
 		mutable Location m_location;
 		string32 m_keyword;
-		std::deque<PseudoToken> m_pseudo_tokens;
+		std::array<PseudoToken, 2> m_pseudo_tokens;
+		size_t m_pseudo_count;
 		PseudoToken m_pseudo_value;
 		int64_t m_filesize;
 		int m_section_level;
@@ -308,37 +309,41 @@ namespace pr::rdr12::ldraw
 
 		Impl(std::string_view source, script::Loc const& loc, IPathResolver const& resolver)
 			: m_includes(resolver)
-			, m_reader(std::make_unique<script::reader::Reader>(std::make_unique<script::reader::MemoryInput>(source, loc.Filepath()), loc, false, &m_includes))
+			, m_reader(std::make_unique<script::reader::MemoryInput>(source, loc.Filepath()), loc, false, &m_includes)
 			, m_location(ToLocation(loc, loc.FileSize() != 0 ? loc.FileSize() : static_cast<int64_t>(source.size())))
 			, m_keyword()
 			, m_pseudo_tokens()
+			, m_pseudo_count()
 			, m_pseudo_value{ EPseudoValue::None, {} }
 			, m_filesize(loc.FileSize() != 0 ? loc.FileSize() : static_cast<int64_t>(source.size()))
 			, m_section_level()
 			, m_nest_level()
 		{
-			m_reader->ReportError = [](script::EResult, script::Loc const&, std::string_view)
+			m_reader.ReportError = [](script::EResult, script::Loc const&, std::string_view)
 			{
 				return false;
 			};
 		}
 
 		Impl(std::istream& stream, std::filesystem::path filepath, IPathResolver const& resolver)
+			: Impl(stream, SourceLocation(stream, filepath), resolver)
+		{
+		}
+
+		// Construct a stream reader after source metadata has been captured once.
+		Impl(std::istream& stream, script::Loc const& loc, IPathResolver const& resolver)
 			: m_includes(resolver)
-			, m_reader()
-			, m_location()
+			, m_reader(std::make_unique<script::reader::StreamInput>(stream, loc.Filepath()), loc, false, &m_includes)
+			, m_location(ToLocation(loc, loc.FileSize()))
 			, m_keyword()
 			, m_pseudo_tokens()
+			, m_pseudo_count()
 			, m_pseudo_value{ EPseudoValue::None, {} }
-			, m_filesize()
+			, m_filesize(loc.FileSize())
 			, m_section_level()
 			, m_nest_level()
 		{
-			auto loc = SourceLocation(stream, filepath);
-			m_filesize = loc.FileSize();
-			m_location = ToLocation(loc, m_filesize);
-			m_reader = std::make_unique<script::reader::Reader>(std::make_unique<script::reader::StreamInput>(stream, loc.Filepath()), loc, false, &m_includes);
-			m_reader->ReportError = [](script::EResult, script::Loc const&, std::string_view)
+			m_reader.ReportError = [](script::EResult, script::Loc const&, std::string_view)
 			{
 				return false;
 			};
@@ -347,7 +352,7 @@ namespace pr::rdr12::ldraw
 		// Access the preprocessed byte stream underlying the Reader facade.
 		script::reader::Preprocessor& Source()
 		{
-			return m_reader->Source();
+			return m_reader.Source();
 		}
 
 		// Consume a data section opening brace before scalar extraction.
@@ -391,7 +396,7 @@ namespace pr::rdr12::ldraw
 	// Return the current location in the source.
 	Location const& TextReader::Loc() const
 	{
-		auto loc = m_impl->m_reader->Location();
+		auto loc = m_impl->m_reader.Location();
 		if (script::reader::IsDefaultLocation(loc) && (!m_impl->m_location.m_filepath.empty() || m_impl->m_location.m_filesize != 0))
 		{
 			// Preserve the source identity at EOF while reporting complete progress.
@@ -407,11 +412,11 @@ namespace pr::rdr12::ldraw
 	void TextReader::PushSection()
 	{
 		auto& source = m_impl->Source();
-		script::EatDelimiters(source, m_impl->m_reader->Delimiters());
+		script::EatDelimiters(source, m_impl->m_reader.Delimiters());
 		if (*source != '{')
 		{
 			ReportError(EParseError::NotFound, Loc(), "section start expected");
-			str::AdvanceToDelim(source, m_impl->m_reader->Delimiters());
+			str::AdvanceToDelim(source, m_impl->m_reader.Delimiters());
 			return;
 		}
 
@@ -424,11 +429,11 @@ namespace pr::rdr12::ldraw
 	void TextReader::PopSection()
 	{
 		auto& source = m_impl->Source();
-		script::EatDelimiters(source, m_impl->m_reader->Delimiters());
+		script::EatDelimiters(source, m_impl->m_reader.Delimiters());
 		if (*source != '}')
 		{
 			ReportError(EParseError::NotFound, Loc(), "section end expected");
-			str::AdvanceToDelim(source, m_impl->m_reader->Delimiters());
+			str::AdvanceToDelim(source, m_impl->m_reader.Delimiters());
 			return;
 		}
 
@@ -442,7 +447,7 @@ namespace pr::rdr12::ldraw
 	{
 		m_impl->PrepareValue();
 		auto& source = m_impl->Source();
-		script::EatDelimiters(source, m_impl->m_reader->Delimiters());
+		script::EatDelimiters(source, m_impl->m_reader.Delimiters());
 		return *source == '}' || *source == 0;
 	}
 
@@ -451,17 +456,20 @@ namespace pr::rdr12::ldraw
 	{
 		m_impl->PrepareValue();
 		auto& source = m_impl->Source();
-		script::EatDelimiters(source, m_impl->m_reader->Delimiters());
+		script::EatDelimiters(source, m_impl->m_reader.Delimiters());
 		return *source == 0;
 	}
 
 	// Get the next keyword within the current section.
 	bool TextReader::NextKeywordImpl(int& kw)
 	{
-		if (!m_impl->m_pseudo_tokens.empty())
+		if (m_impl->m_pseudo_count != 0)
 		{
-			m_impl->m_pseudo_value = std::move(m_impl->m_pseudo_tokens.front());
-			m_impl->m_pseudo_tokens.pop_front();
+			m_impl->m_pseudo_value = std::move(m_impl->m_pseudo_tokens[0]);
+			--m_impl->m_pseudo_count;
+			if (m_impl->m_pseudo_count != 0)
+				m_impl->m_pseudo_tokens[0] = std::move(m_impl->m_pseudo_tokens[1]);
+
 			switch (m_impl->m_pseudo_value.m_kind)
 			{
 				case Impl::EPseudoValue::Name: { m_impl->m_keyword = "Name"; break; }
@@ -494,7 +502,7 @@ namespace pr::rdr12::ldraw
 			return false;
 
 		m_impl->m_keyword.clear();
-		if (!str::ExtractIdentifier(m_impl->m_keyword, source, m_impl->m_reader->Delimiters()))
+		if (!str::ExtractIdentifier(m_impl->m_keyword, source, m_impl->m_reader.Delimiters()))
 			return false;
 
 		kw = HashI(m_impl->m_keyword);
@@ -502,25 +510,25 @@ namespace pr::rdr12::ldraw
 		// Capture optional compact name/colour fields and expose them as ordinary keyword/value pairs.
 		for (int index = 0; index != 2; ++index)
 		{
-			script::EatDelimiters(source, m_impl->m_reader->Delimiters());
+			script::EatDelimiters(source, m_impl->m_reader.Delimiters());
 			if (*source == '{')
 				break;
 
 			std::string token;
-			if (!str::ExtractToken(token, source, m_impl->m_reader->Delimiters()))
+			if (!str::ExtractToken(token, source, m_impl->m_reader.Delimiters()))
 				break;
 
 			if (IsColour(token))
-				m_impl->m_pseudo_tokens.push_back({ Impl::EPseudoValue::Colour, std::move(token) });
+				m_impl->m_pseudo_tokens[m_impl->m_pseudo_count++] = { Impl::EPseudoValue::Colour, std::move(token) };
 			else if (IsName(token))
-				m_impl->m_pseudo_tokens.push_back({ Impl::EPseudoValue::Name, std::move(token) });
+				m_impl->m_pseudo_tokens[m_impl->m_pseudo_count++] = { Impl::EPseudoValue::Name, std::move(token) };
 		}
 
-		script::EatDelimiters(source, m_impl->m_reader->Delimiters());
+		script::EatDelimiters(source, m_impl->m_reader.Delimiters());
 		if (*source != '{')
 		{
 			ReportError(EParseError::UnexpectedToken, Loc(), "expected '{'");
-			str::AdvanceToDelim(source, m_impl->m_reader->Delimiters());
+			str::AdvanceToDelim(source, m_impl->m_reader.Delimiters());
 			return false;
 		}
 		return true;
@@ -538,10 +546,10 @@ namespace pr::rdr12::ldraw
 
 		m_impl->PrepareValue();
 		string32 value;
-		if (!str::ExtractIdentifier(value, m_impl->Source(), m_impl->m_reader->Delimiters(), incl_dot))
+		if (!str::ExtractIdentifier(value, m_impl->Source(), m_impl->m_reader.Delimiters(), incl_dot))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), "identifier expected");
-			str::AdvanceToDelim(m_impl->Source(), m_impl->m_reader->Delimiters());
+			str::AdvanceToDelim(m_impl->Source(), m_impl->m_reader.Delimiters());
 			return {};
 		}
 		return value;
@@ -552,13 +560,13 @@ namespace pr::rdr12::ldraw
 	{
 		m_impl->PrepareValue();
 		auto& source = m_impl->Source();
-		script::EatDelimiters(source, m_impl->m_reader->Delimiters());
+		script::EatDelimiters(source, m_impl->m_reader.Delimiters());
 		auto quote = *source;
 		string32 value;
-		if (!str::ExtractString(value, source, escape_char, {}, m_impl->m_reader->Delimiters()))
+		if (!str::ExtractString(value, source, escape_char, {}, m_impl->m_reader.Delimiters()))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), "string expected");
-			str::AdvanceToDelim(source, m_impl->m_reader->Delimiters());
+			str::AdvanceToDelim(source, m_impl->m_reader.Delimiters());
 			return {};
 		}
 
@@ -572,7 +580,7 @@ namespace pr::rdr12::ldraw
 
 			source += join;
 			string32 part;
-			if (!str::ExtractString(part, source, escape_char, {}, m_impl->m_reader->Delimiters()))
+			if (!str::ExtractString(part, source, escape_char, {}, m_impl->m_reader.Delimiters()))
 				break;
 
 			value.append(part);
@@ -599,10 +607,10 @@ namespace pr::rdr12::ldraw
 
 		m_impl->PrepareValue();
 		int64_t value = {};
-		if (!m_impl->m_reader->Int(value, radix))
+		if (!m_impl->m_reader.Int(value, radix))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), "integer value expected");
-			str::AdvanceToDelim(m_impl->Source(), m_impl->m_reader->Delimiters());
+			str::AdvanceToDelim(m_impl->Source(), m_impl->m_reader.Delimiters());
 			return {};
 		}
 		return value;
@@ -620,10 +628,10 @@ namespace pr::rdr12::ldraw
 	{
 		m_impl->PrepareValue();
 		double value = {};
-		if (!m_impl->m_reader->Real(value) || std::isnan(value) || !std::isfinite(value))
+		if (!m_impl->m_reader.Real(value) || std::isnan(value) || !std::isfinite(value))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), std::isnan(value) ? "real value is Not-a-Number" : !std::isfinite(value) ? "real value is not finite" : "real value expected");
-			str::AdvanceToDelim(m_impl->Source(), m_impl->m_reader->Delimiters());
+			str::AdvanceToDelim(m_impl->Source(), m_impl->m_reader.Delimiters());
 			return {};
 		}
 		return value;
@@ -651,10 +659,10 @@ namespace pr::rdr12::ldraw
 	{
 		m_impl->PrepareValue();
 		bool value = {};
-		if (!m_impl->m_reader->Bool(value))
+		if (!m_impl->m_reader.Bool(value))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), "boolean value expected");
-			str::AdvanceToDelim(m_impl->Source(), m_impl->m_reader->Delimiters());
+			str::AdvanceToDelim(m_impl->Source(), m_impl->m_reader.Delimiters());
 			return {};
 		}
 		return value;
