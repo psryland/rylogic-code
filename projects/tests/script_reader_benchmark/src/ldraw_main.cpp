@@ -95,23 +95,10 @@ namespace pr::script_bench
 		return checksum;
 	}
 
-	// Parse one production-shaped legacy snapshot through a reusable stream so
-	// measured work excludes the input-sized stream-buffer copy.
-	Checksum RunLegacy(std::istringstream& stream, int point_count)
+	// Parse one production-shaped borrowed UTF-8 snapshot.
+	Checksum RunTextReader(std::string const& source, int point_count)
 	{
-		stream.clear();
-		stream.seekg(0, std::ios::beg);
-		if (!stream)
-			throw std::runtime_error("failed to rewind legacy benchmark stream");
-
-		auto reader = TextReader(stream, {});
-		return FingerprintLDrawPoints(reader, point_count);
-	}
-
-	// Parse one production-shaped Reader2 borrowed UTF-8 snapshot.
-	Checksum RunReader2(std::string const& source, int point_count)
-	{
-		auto reader = TextReader2(source);
+		auto reader = TextReader(source);
 		return FingerprintLDrawPoints(reader, point_count);
 	}
 
@@ -135,13 +122,13 @@ namespace pr::script_bench
 				throw std::invalid_argument("unknown option: " + std::string(arg));
 		}
 
-		// Keep the workload meaningful and the ABBA schedule balanced.
+		// Keep the workload and sample set meaningful.
 		if (options.m_point_count <= 0)
 			throw std::invalid_argument("--points must be positive");
-		if (options.m_warmups < 4 || options.m_warmups % 2 != 0)
-			throw std::invalid_argument("--warmups must be even and at least 4");
-		if (options.m_reps < 16 || options.m_reps % 2 != 0)
-			throw std::invalid_argument("--reps must be even and at least 16");
+		if (options.m_warmups < 1)
+			throw std::invalid_argument("--warmups must be at least 1");
+		if (options.m_reps < 3)
+			throw std::invalid_argument("--reps must be at least 3");
 		return options;
 	}
 }
@@ -154,76 +141,50 @@ int main(int argc, char** argv)
 		// Generate once so timing includes only adapter construction and extraction.
 		auto options = ParseLDrawOptions(argc, argv);
 		auto source = GenerateLDrawPoints(options.m_point_count);
-		auto legacy_stream = std::istringstream(source);
-		auto expected = RunLegacy(legacy_stream, options.m_point_count);
-		auto actual = RunReader2(source, options.m_point_count);
-		if (actual.m_value != expected.m_value)
-			throw std::runtime_error("legacy and Reader2 LDraw fingerprints differ");
+		auto expected = RunTextReader(source, options.m_point_count);
 
 		// Revalidate every timed parse rather than relying only on the initial equivalence check.
-		auto run = [&](bool reader2)
+		auto run = [&]
 		{
-			auto checksum = reader2 ? RunReader2(source, options.m_point_count) : RunLegacy(legacy_stream, options.m_point_count);
+			auto checksum = RunTextReader(source, options.m_point_count);
 			if (checksum.m_value != expected.m_value)
 				throw std::runtime_error("LDraw fingerprint changed during measurement");
 			return checksum;
 		};
 
-		// Warm both implementations in alternating order before collecting samples.
+		// Warm the parser before collecting samples.
 		for (int round = 0; round != options.m_warmups; ++round)
 		{
-			auto forward = round % 2 == 0;
-			auto first = run(!forward);
-			auto second = run(forward);
-			g_black_hole.fetch_xor(first.m_value ^ second.m_value, std::memory_order_relaxed);
+			auto checksum = run();
+			g_black_hole.fetch_xor(checksum.m_value, std::memory_order_relaxed);
 		}
 
-		// Measure in ABBA order so drift cannot systematically favour one implementation.
-		auto legacy_elapsed = std::vector<double>{};
-		auto reader2_elapsed = std::vector<double>{};
-		legacy_elapsed.reserve(options.m_reps);
-		reader2_elapsed.reserve(options.m_reps);
+		// Measure complete adapter construction and parsing.
+		auto elapsed = std::vector<double>{};
+		elapsed.reserve(options.m_reps);
 		for (int round = 0; round != options.m_reps; ++round)
 		{
-			auto forward = round % 2 == 0;
-			for (auto reader2 : { !forward, forward })
-			{
-				auto start = std::chrono::steady_clock::now();
-				auto checksum = run(reader2);
-				auto stop = std::chrono::steady_clock::now();
-				g_black_hole.fetch_xor(checksum.m_value, std::memory_order_relaxed);
-				(reader2 ? reader2_elapsed : legacy_elapsed).push_back(std::chrono::duration<double>(stop - start).count());
-			}
+			auto start = std::chrono::steady_clock::now();
+			auto checksum = run();
+			auto stop = std::chrono::steady_clock::now();
+			g_black_hole.fetch_xor(checksum.m_value, std::memory_order_relaxed);
+			elapsed.push_back(std::chrono::duration<double>(stop - start).count());
 		}
 
 		// Report the measured adapter-level result and semantic checksum.
-		auto legacy_stats = ComputeStats(legacy_elapsed);
-		auto reader2_stats = ComputeStats(reader2_elapsed);
+		auto stats = ComputeStats(elapsed);
 		std::cout
-			<< "backend,points,bytes,median_s,p10_s,p90_s,mean_s,stddev_s,cv,checksum,config,arch\n"
-			<< "legacy,"
+			<< "points,bytes,median_s,p10_s,p90_s,mean_s,stddev_s,cv,checksum,config,arch\n"
 			<< options.m_point_count << ','
 			<< source.size() << ','
-			<< std::setprecision(9) << legacy_stats.m_median << ','
-			<< legacy_stats.m_p10 << ','
-			<< legacy_stats.m_p90 << ','
-			<< legacy_stats.m_mean << ','
-			<< legacy_stats.m_stddev << ','
-			<< legacy_stats.m_cv << ','
+			<< std::setprecision(9) << stats.m_median << ','
+			<< stats.m_p10 << ','
+			<< stats.m_p90 << ','
+			<< stats.m_mean << ','
+			<< stats.m_stddev << ','
+			<< stats.m_cv << ','
 			<< "0x" << std::hex << expected.m_value << std::dec << ','
-			<< LDrawBuildConfig() << ',' << LDrawArchitecture() << '\n'
-			<< "reader2,"
-			<< options.m_point_count << ','
-			<< source.size() << ','
-			<< std::setprecision(9) << reader2_stats.m_median << ','
-			<< reader2_stats.m_p10 << ','
-			<< reader2_stats.m_p90 << ','
-			<< reader2_stats.m_mean << ','
-			<< reader2_stats.m_stddev << ','
-			<< reader2_stats.m_cv << ','
-			<< "0x" << std::hex << expected.m_value << std::dec << ','
-			<< LDrawBuildConfig() << ',' << LDrawArchitecture() << '\n'
-			<< "speedup," << legacy_stats.m_median / reader2_stats.m_median << '\n';
+			<< LDrawBuildConfig() << ',' << LDrawArchitecture() << '\n';
 		return 0;
 	}
 	catch (std::exception const& ex)

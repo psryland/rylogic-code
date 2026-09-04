@@ -2,23 +2,16 @@
 // Script Reader Benchmark
 //  Copyright (c) Rylogic Ltd 2015
 //**********************************
-// Standalone Release/x64 console benchmark that times the legacy 'pr::script::Reader' against the
-// new 'pr::script::v2::Reader' ("Reader2") across deterministic memory-, stream-, and file-backed workloads.
+// Standalone Release/x64 throughput and memory regression benchmark for 'pr::script::Reader'.
 //
 // Style Guidance:
 //  - This benchmark exists purely to measure and report; it must never modify 'pr/script/reader.h' or
-//    'pr/script/reader2/*'. It links against both readers unmodified and only owns the fixture
-//    generators, drivers, timing/statistics, and reporting in this project.
+//    'pr/script/reader/*'. It owns only the fixture generators, drivers, timing/statistics, and reporting.
 //  - Workload fixtures are generated once per (workload, size) before any timing starts (see
 //    'workload_generators.h'); only the construct-and-parse step performed by 'reader_drivers.h' is
 //    ever timed.
-//  - Backends are always run in ABBA order (alternating which backend goes first each round) for
-//    both the warm-up and measured phases, so slow drift across the run (thermal throttling, OS
-//    scheduling noise, cache state) cannot systematically favour one backend.
-//  - Every measured parse is verified for internal consistency (repeated parses of one backend must
-//    all agree) and cross-backend equality (legacy and Reader2 must produce the same checksum and
-//    item count) before any speedup is reported; the process exits non-zero if any workload fails
-//    that verification or throws during parsing.
+//  - Every measured parse is verified against the first successful parse so timing results cannot
+//    hide semantic instability.
 #include "src/forward.h"
 #include "src/checksum.h"
 #include "src/statistics.h"
@@ -27,13 +20,6 @@
 
 namespace pr::script_bench
 {
-	// Which reader implementation produced a given timed sample.
-	enum class EBackend
-	{
-		Legacy,
-		New,
-	};
-
 	// Parsed command-line configuration.
 	struct Options
 	{
@@ -56,7 +42,6 @@ namespace pr::script_bench
 	{
 		EWorkload m_workload;
 		ESize m_size;
-		EBackend m_backend;
 		EInputMode m_input_mode;
 		int m_repetition;
 		uint64_t m_bytes;
@@ -88,15 +73,6 @@ namespace pr::script_bench
 			case ESize::Small: return "small";
 			case ESize::Large: return "large";
 			default: throw std::invalid_argument("unknown ESize value");
-		}
-	}
-	char const* BackendName(EBackend b)
-	{
-		switch (b)
-		{
-			case EBackend::Legacy: return "legacy";
-			case EBackend::New:    return "reader2";
-			default: throw std::invalid_argument("unknown EBackend value");
 		}
 	}
 	char const* InputModeName(EInputMode mode)
@@ -157,7 +133,7 @@ namespace pr::script_bench
 	void PrintHelp()
 	{
 		std::cout <<
-			"script_reader_benchmark - times pr::script::Reader (legacy) against pr::script::v2::Reader (Reader2)\n"
+			"script_reader_benchmark - measures pr::script::Reader throughput and transport memory\n"
 			"\n"
 			"Usage: script_reader_benchmark [options]\n"
 			"\n"
@@ -168,15 +144,13 @@ namespace pr::script_bench
 			"                               Names: number, ident-empty, ident-populated, strings, macros, boundary, includes\n"
 			"  --inputs <list>              Comma-separated input modes. Default: memory.\n"
 			"                               Names: memory, stream, file\n"
-			"  --memory-scaling             Measure Reader2 transport memory at 10 and 100 MiB, then exit.\n"
-			"  --warmups <N>                Warm-up parses per backend. Default: 4, minimum: 4, must be even.\n"
-			"  --reps <N>                   Measured parses per backend. Default: 16, minimum: 16, must be even.\n"
+			"  --memory-scaling             Measure streamed transport memory at 10 and 100 MiB, then exit.\n"
+			"  --warmups <N>                Warm-up parses. Default: 4, minimum: 1.\n"
+			"  --reps <N>                   Measured parses. Default: 16, minimum: 3.\n"
 			"  --seed <N>                   Base seed for deterministic fixture generation. Default: 20240517.\n"
 			"\n"
-			"Backends are timed in ABBA order (alternating which goes first each round). Every workload's\n"
-			"legacy and Reader2 checksums and item counts must match, or the process exits with a non-zero\n"
-			"status. The default configuration (small size, all workloads) is designed to finish in about a\n"
-			"minute.\n";
+			"Every repetition must produce the same checksum and item count. The default configuration\n"
+			"(small size, all workloads) is designed to finish in about a minute.\n";
 	}
 
 	// Returns the value for an option, accepting both '--opt value' and '--opt=value' forms.
@@ -266,46 +240,38 @@ namespace pr::script_bench
 
 	// --- Workload dispatch table ---------------------------------------------------------------
 
-	// Plain function pointer to a fully-instantiated 'Drive*<ReaderType>' specialisation: dispatching
-	// through this indirection (rather than branching on backend inside the timed region) keeps the
-	// instantiated parse code itself branch-free with respect to which backend is running.
+	// Plain function pointer to a workload driver.
 	using DriveFn = ParseResult(*)(BenchmarkSource const&, SizeParams const&);
 
-	struct WorkloadSpec
-	{
-		DriveFn m_legacy;
-		DriveFn m_new;
-	};
-
-	WorkloadSpec GetWorkloadSpec(EWorkload w)
+	// Return the parse driver for a workload.
+	DriveFn GetWorkloadDriver(EWorkload w)
 	{
 		switch (w)
 		{
 			case EWorkload::NumberHeavy:
 			{
-				return WorkloadSpec{ &DriveNumberHeavy<pr::script::Reader>, &DriveNumberHeavy<pr::script::v2::Reader> };
+				return &DriveNumberHeavy;
 			}
 			case EWorkload::IdentEmpty:
 			case EWorkload::IdentPopulated:
 			{
-				// Same extraction sequence for both; only the generated fixture text differs.
-				return WorkloadSpec{ &DriveIdentifierHeavy<pr::script::Reader>, &DriveIdentifierHeavy<pr::script::v2::Reader> };
+				return &DriveIdentifierHeavy;
 			}
 			case EWorkload::Strings:
 			{
-				return WorkloadSpec{ &DriveStringsUtf8<pr::script::Reader>, &DriveStringsUtf8<pr::script::v2::Reader> };
+				return &DriveStringsUtf8;
 			}
 			case EWorkload::Macros:
 			{
-				return WorkloadSpec{ &DriveDirectiveMacroHeavy<pr::script::Reader>, &DriveDirectiveMacroHeavy<pr::script::v2::Reader> };
+				return &DriveDirectiveMacroHeavy;
 			}
 			case EWorkload::Boundary:
 			{
-				return WorkloadSpec{ &DriveTokenBoundaryAdversary<pr::script::Reader>, &DriveTokenBoundaryAdversary<pr::script::v2::Reader> };
+				return &DriveTokenBoundaryAdversary;
 			}
 			case EWorkload::Includes:
 			{
-				return WorkloadSpec{ &DriveIncludeTree<pr::script::Reader>, &DriveIncludeTree<pr::script::v2::Reader> };
+				return &DriveIncludeTree;
 			}
 			default:
 			{
@@ -330,22 +296,6 @@ namespace pr::script_bench
 		}
 	}
 
-	// --- ABBA scheduling ---------------------------------------------------------------------------
-
-	// Invokes 'run_one(backend, round)' 'count' times per backend, alternating which backend runs
-	// first each round (round 0: Legacy,New; round 1: New,Legacy; round 2: Legacy,New; ...), so
-	// systematic drift over the run affects both backends symmetrically.
-	template <typename F>
-	void RunAbba(int count, F&& run_one)
-	{
-		for (int round = 0; round != count; ++round)
-		{
-			bool forward = (round % 2) == 0;
-			run_one(forward ? EBackend::Legacy : EBackend::New, round);
-			run_one(forward ? EBackend::New : EBackend::Legacy, round);
-		}
-	}
-
 	// --- Running one workload ------------------------------------------------------------------
 
 	struct WorkloadRunOutcome
@@ -354,11 +304,10 @@ namespace pr::script_bench
 		std::vector<TimedSample> m_samples; // measured repetitions only
 	};
 
-	// Generates the fixture, runs ABBA warm-ups (discarded) then ABBA measured repetitions (recorded),
-	// and verifies both per-backend internal consistency and cross-backend equality before returning.
+	// Generate the fixture, warm the reader, measure complete parses, and verify stable results.
 	WorkloadRunOutcome RunWorkload(EWorkload w, ESize size, EInputMode input_mode, SizeParams const& p, Options const& opt, uint64_t seed)
 	{
-		auto spec = GetWorkloadSpec(w);
+		auto driver = GetWorkloadDriver(w);
 		auto fixture = GenerateFixture(w, p, seed); // Untimed: fixture generation is never measured.
 		auto filepath = std::filesystem::path{};
 		auto include_root = std::filesystem::path{};
@@ -369,7 +318,7 @@ namespace pr::script_bench
 		if (w == EWorkload::Includes)
 		{
 			auto nonce = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-			include_root = std::filesystem::temp_directory_path() / ("reader2-includes-" + std::to_string(nonce));
+			include_root = std::filesystem::temp_directory_path() / ("script-reader-includes-" + std::to_string(nonce));
 			if (!std::filesystem::create_directory(include_root))
 				throw std::runtime_error("failed to create include-tree directory: " + include_root.string());
 
@@ -379,7 +328,7 @@ namespace pr::script_bench
 		else if (input_mode == EInputMode::File)
 		{
 			auto nonce = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-			filepath = std::filesystem::temp_directory_path() / ("reader2-benchmark-" + std::to_string(nonce) + ".ldr");
+			filepath = std::filesystem::temp_directory_path() / ("script-reader-benchmark-" + std::to_string(nonce) + ".ldr");
 		}
 
 		// File-backed runs materialize the generated root fixture before any timed reader construction.
@@ -392,16 +341,14 @@ namespace pr::script_bench
 		}
 		auto source = BenchmarkSource{ fixture, filepath, include_root, input_mode, total_bytes };
 
-		// Warm-ups prime caches/branch predictors for both backends before any measured sample; failures
-		// here still abort the workload since a warm-up that throws indicates a broken fixture/driver.
+		// Warm-ups prime caches and branch predictors before any measured sample.
 		try
 		{
-			RunAbba(opt.m_warmups, [&](EBackend backend, int)
+			for (int round = 0; round != opt.m_warmups; ++round)
 			{
-				auto fn = backend == EBackend::Legacy ? spec.m_legacy : spec.m_new;
-				auto result = fn(source, p);
+				auto result = driver(source, p);
 				g_black_hole.fetch_xor(result.m_checksum.m_value, std::memory_order_relaxed);
-			});
+			}
 		}
 		catch (std::exception const& e)
 		{
@@ -414,19 +361,17 @@ namespace pr::script_bench
 		{
 			try
 			{
-				RunAbba(opt.m_reps, [&](EBackend backend, int round)
+				for (int round = 0; round != opt.m_reps; ++round)
 				{
-					auto fn = backend == EBackend::Legacy ? spec.m_legacy : spec.m_new;
-
 					// One parse per timing sample: construction and full extraction are both inside the timed region.
 					auto t0 = std::chrono::steady_clock::now();
-					auto result = fn(source, p);
+					auto result = driver(source, p);
 					auto t1 = std::chrono::steady_clock::now();
 					g_black_hole.fetch_xor(result.m_checksum.m_value, std::memory_order_relaxed);
 
 					auto elapsed = std::chrono::duration<double>(t1 - t0).count();
-					samples.push_back(TimedSample{ w, size, backend, input_mode, round, result.m_bytes, result.m_items, elapsed, result.m_checksum.m_value });
-				});
+					samples.push_back(TimedSample{ w, size, input_mode, round, result.m_bytes, result.m_items, elapsed, result.m_checksum.m_value });
+				}
 			}
 			catch (std::exception const& e)
 			{
@@ -437,37 +382,16 @@ namespace pr::script_bench
 
 		if (ok)
 		{
-			// Internal consistency: every repetition of a given backend must produce the same checksum/items.
-			uint64_t legacy_cs = 0, new_cs = 0, legacy_items = 0, new_items = 0;
-			bool have_legacy = false, have_new = false;
+			// Every measured parse must produce the same semantic result.
+			auto checksum = samples.front().m_checksum;
+			auto items = samples.front().m_items;
 			for (auto const& s : samples)
 			{
-				bool is_legacy = s.m_backend == EBackend::Legacy;
-				auto& have = is_legacy ? have_legacy : have_new;
-				auto& cs = is_legacy ? legacy_cs : new_cs;
-				auto& items = is_legacy ? legacy_items : new_items;
-				if (!have)
+				if (s.m_checksum != checksum || s.m_items != items)
 				{
-					cs = s.m_checksum;
-					items = s.m_items;
-					have = true;
-				}
-				else if (s.m_checksum != cs || s.m_items != items)
-				{
-					std::cerr << "ERROR: " << BackendName(s.m_backend) << " produced inconsistent results across repetitions for workload '"
-						<< WorkloadName(w) << "' (" << SizeName(size) << ")\n";
+					std::cerr << "ERROR: inconsistent results across repetitions for workload '" << WorkloadName(w) << "' (" << SizeName(size) << ")\n";
 					ok = false;
 				}
-			}
-
-			// Cross-backend equality: legacy and Reader2 must agree on both checksum and item count.
-			if (ok && (legacy_cs != new_cs || legacy_items != new_items))
-			{
-				std::cerr
-					<< "ERROR: checksum/item-count mismatch for workload '" << WorkloadName(w) << "' (" << SizeName(size) << "): "
-					<< "legacy checksum=0x" << std::hex << legacy_cs << std::dec << " items=" << legacy_items
-					<< " vs reader2 checksum=0x" << std::hex << new_cs << std::dec << " items=" << new_items << "\n";
-				ok = false;
 			}
 		}
 
@@ -496,7 +420,7 @@ namespace pr::script_bench
 
 	void PrintCsvHeader()
 	{
-		std::cout << "workload,size,input_mode,backend,repetition,bytes,items,elapsed_s,bytes_per_s,items_per_s,checksum,block_size,config,arch,compiler\n";
+		std::cout << "workload,size,input_mode,repetition,bytes,items,elapsed_s,bytes_per_s,items_per_s,checksum,block_size,config,arch,compiler\n";
 	}
 
 	void PrintCsvRow(TimedSample const& s)
@@ -508,7 +432,6 @@ namespace pr::script_bench
 			<< WorkloadName(s.m_workload) << ','
 			<< SizeName(s.m_size) << ','
 			<< InputModeName(s.m_input_mode) << ','
-			<< BackendName(s.m_backend) << ','
 			<< s.m_repetition << ','
 			<< s.m_bytes << ','
 			<< s.m_items << ','
@@ -516,74 +439,40 @@ namespace pr::script_bench
 			<< std::setprecision(9) << bytes_per_s << ','
 			<< std::setprecision(9) << items_per_s << ','
 			<< "0x" << std::hex << s.m_checksum << std::dec << ','
-			<< pr::script::v2::BlockSize << ','
+			<< pr::script::reader::BlockSize << ','
 			<< BuildConfigName() << ','
 			<< ArchName() << ','
 			<< CompilerName()
 			<< '\n';
 	}
 
-	// Aggregates every (workload, size) pair's legacy/reader2 elapsed-time samples, prints per-pair
-	// stats and speedup, flags >5% regressions, and prints the geometric-mean Reader-only speedup.
+	// Aggregate and report elapsed-time statistics for every workload, size, and input-mode combination.
 	void PrintSummary(std::vector<TimedSample> const& samples)
 	{
 		using Key = std::tuple<EWorkload, ESize, EInputMode>;
-		std::map<Key, std::vector<double>> legacy_elapsed, new_elapsed;
+		std::map<Key, std::vector<double>> elapsed_by_key;
 		std::map<Key, uint64_t> bytes_by_key, items_by_key;
 
 		for (auto const& s : samples)
 		{
 			Key key{ s.m_workload, s.m_size, s.m_input_mode };
-			(s.m_backend == EBackend::Legacy ? legacy_elapsed : new_elapsed)[key].push_back(s.m_elapsed_s);
+			elapsed_by_key[key].push_back(s.m_elapsed_s);
 			bytes_by_key[key] = s.m_bytes;
 			items_by_key[key] = s.m_items;
 		}
 
 		std::cerr << "\n=== Summary (elapsed time per parse) ===\n";
-		std::vector<double> speedups;
-		bool any_regression = false;
-
-		for (auto const& [key, legacy_samples] : legacy_elapsed)
+		for (auto const& [key, elapsed] : elapsed_by_key)
 		{
-			auto it_new = new_elapsed.find(key);
-			if (it_new == new_elapsed.end())
-				continue; // Workload failed before producing any Reader2 samples; already reported above.
-
-			auto legacy_stats = ComputeStats(legacy_samples);
-			auto new_stats = ComputeStats(it_new->second);
-			double speedup = legacy_stats.m_median / new_stats.m_median; // >1 means Reader2 is faster.
-			speedups.push_back(speedup);
-
+			auto stats = ComputeStats(elapsed);
 			std::cerr
 				<< WorkloadName(std::get<0>(key)) << " (" << SizeName(std::get<1>(key)) << ", " << InputModeName(std::get<2>(key)) << "), "
 				<< bytes_by_key[key] << " bytes, " << items_by_key[key] << " items:\n"
-				<< "  legacy : median=" << legacy_stats.m_median << "s  p10=" << legacy_stats.m_p10 << "s  p90=" << legacy_stats.m_p90
-				<< "s  mean=" << legacy_stats.m_mean << "s  stddev=" << legacy_stats.m_stddev << "s  cv=" << legacy_stats.m_cv << "\n"
-				<< "  reader2: median=" << new_stats.m_median << "s  p10=" << new_stats.m_p10 << "s  p90=" << new_stats.m_p90
-				<< "s  mean=" << new_stats.m_mean << "s  stddev=" << new_stats.m_stddev << "s  cv=" << new_stats.m_cv << "\n"
-				<< "  speedup (legacy median / reader2 median): " << speedup << "x\n";
-
-			if (speedup < (1.0 / 1.05))
-			{
-				any_regression = true;
-				std::cerr << "  ** REGRESSION: reader2 is " << ((1.0 / speedup - 1.0) * 100.0) << "% slower than legacy (exceeds the 5% threshold) **\n";
-			}
+				<< "  median=" << stats.m_median << "s  p10=" << stats.m_p10 << "s  p90=" << stats.m_p90
+				<< "s  mean=" << stats.m_mean << "s  stddev=" << stats.m_stddev << "s  cv=" << stats.m_cv << "\n";
 		}
 
-		if (!speedups.empty())
-		{
-			double log_sum = std::accumulate(speedups.begin(), speedups.end(), 0.0, [](double acc, double s) { return acc + std::log(s); });
-			double geo_mean = std::exp(log_sum / double(speedups.size()));
-			std::cerr << "\nGeometric mean Reader-only speedup across " << speedups.size() << " workload/size combination(s): " << geo_mean << "x\n";
-		}
-		if (any_regression)
-		{
-			std::cerr << "\nWARNING: one or more workloads show a >5% regression for reader2 versus legacy.\n";
-		}
-
-		// Note: no memory/allocation telemetry is captured here (see the project README / final report);
-		// ordinary comparative samples intentionally report only wall-clock throughput. Use
-		// '--memory-scaling' for Reader2's transport peak and retained capacity.
+		// Ordinary samples report wall-clock throughput; use '--memory-scaling' for transport capacity.
 	}
 
 	// Generate and parse large streamed sources whose semantic output remains one integer.
@@ -598,7 +487,7 @@ namespace pr::script_bench
 		{
 			// Materialize the input without retaining an input-sized benchmark buffer.
 			auto nonce = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-			auto filepath = std::filesystem::temp_directory_path() / ("reader2-memory-" + std::to_string(nonce) + ".ldr");
+			auto filepath = std::filesystem::temp_directory_path() / ("script-reader-memory-" + std::to_string(nonce) + ".ldr");
 			{
 				auto file = std::ofstream(filepath, std::ios::binary);
 				for (auto remaining = input_size - 1; remaining != 0;)
@@ -614,7 +503,7 @@ namespace pr::script_bench
 
 			// Time one complete streamed parse and retain only the scalar semantic result.
 			auto stream = std::ifstream(filepath, std::ios::binary);
-			auto reader = pr::script::v2::Reader(stream, false, filepath);
+			auto reader = pr::script::Reader(stream, false, filepath);
 			auto value = int{};
 			auto t0 = std::chrono::steady_clock::now();
 			reader.Int(value, 10);
@@ -629,7 +518,7 @@ namespace pr::script_bench
 				<< reader.TransportPeakBytes() << ','
 				<< reader.TransportRetainedBytes() << ','
 				<< "0x" << std::hex << checksum.m_value << std::dec << ','
-				<< pr::script::v2::BlockSize << '\n';
+				<< pr::script::reader::BlockSize << '\n';
 
 			// Remove only the generated fixture after the stream releases its handle.
 			stream.close();
@@ -657,10 +546,10 @@ int main(int argc, char** argv)
 			RunMemoryScaling();
 			return 0;
 		}
-		if (opt.m_warmups < 4 || (opt.m_warmups % 2) != 0)
-			throw std::invalid_argument("--warmups must be even and >= 4");
-		if (opt.m_reps < 16 || (opt.m_reps % 2) != 0)
-			throw std::invalid_argument("--reps must be even and >= 16");
+		if (opt.m_warmups < 1)
+			throw std::invalid_argument("--warmups must be >= 1");
+		if (opt.m_reps < 3)
+			throw std::invalid_argument("--reps must be >= 3");
 
 		PrintCsvHeader();
 
@@ -694,8 +583,8 @@ int main(int argc, char** argv)
 
 		std::cerr << "\nBlack-hole sink (ignore; proves outputs were consumed): 0x" << std::hex << g_black_hole.load() << std::dec << "\n";
 		std::cerr << (overall_ok
-			? "\nRESULT: PASS - all workloads matched between legacy and reader2.\n"
-			: "\nRESULT: FAIL - see ERROR lines above for the mismatching workload(s).\n");
+			? "\nRESULT: PASS - all workload repetitions produced stable results.\n"
+			: "\nRESULT: FAIL - see ERROR lines above for the failing workload(s).\n");
 
 		return overall_ok ? 0 : 1;
 	}

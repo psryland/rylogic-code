@@ -2,19 +2,12 @@
 // Script Reader Benchmark
 //  Copyright (c) Rylogic Ltd 2015
 //**********************************
-// Templated parse-and-checksum drivers, one per workload, each instantiated once per reader backend.
+// Parse-and-checksum drivers for the supported workloads.
 //
 // Style Guidance:
-//  - Every 'Drive*' function is a template parameterised on the concrete reader type so that no
-//    runtime backend branch exists inside the parsing loop: 'if constexpr' in 'MakeReader' below is
-//    resolved entirely at compile time, so 'DriveX<pr::script::Reader>' and
-//    'DriveX<pr::script::v2::Reader>' are two independent, monomorphic functions.
 //  - Each function performs exactly one full parse of its input buffer and folds every extracted
 //    value through 'Checksum::Add', matching the fixture shape written by the corresponding
 //    generator in 'workload_generators.h'.
-//  - Legacy 'pr::script::Reader::Keyword' takes a 'wchar_t const*' while 'pr::script::v2::Reader::Keyword'
-//    takes a 'std::string_view'; 'ExpectKeyword' below is the one place that difference is bridged,
-//    since every keyword name used here is plain ASCII and so widens losslessly.
 #pragma once
 #include "forward.h"
 #include "checksum.h"
@@ -40,8 +33,7 @@ namespace pr::script_bench
 		uint64_t m_total_bytes;
 	};
 
-	// Result of driving one full parse: a black-box checksum, the number of items extracted, and the
-	// input size, used both for cross-backend correctness comparison and for throughput reporting.
+	// Result of driving one full parse: a black-box checksum, the number of items extracted, and the input size.
 	struct ParseResult
 	{
 		Checksum m_checksum;
@@ -49,50 +41,46 @@ namespace pr::script_bench
 		uint64_t m_bytes;
 	};
 
-	// Owns the transport and legacy source objects that must outlive one timed reader parse.
-	template <typename ReaderType>
-	class ReaderOwner;
-
-	// Owns a legacy reader and the selected byte source feeding it.
-	template <>
-	class ReaderOwner<pr::script::Reader>
+	// Owns the reader and any stream object that must outlive one timed parse.
+	class ReaderOwner
 	{
-		std::unique_ptr<pr::script::Includes> m_includes;
-		std::unique_ptr<pr::mem_istream<char>> m_stream;
-		std::unique_ptr<pr::script::StreamSrc<char>> m_stream_src;
-		std::unique_ptr<pr::script::FileSrc> m_file_src;
+		std::unique_ptr<pr::script::reader::FileIncludeHandler> m_includes;
+		std::unique_ptr<pr::mem_istream<char>> m_memory_stream;
+		std::unique_ptr<std::ifstream> m_file_stream;
 		std::unique_ptr<pr::script::Reader> m_reader;
 
 	public:
 
-		// Construct the legacy reader through the selected memory, stream, or file source.
+		// Construct the reader through the selected memory, stream, or file source.
 		explicit ReaderOwner(BenchmarkSource const& source)
 		{
-			// Configure production file-include resolution only for the include-tree workload.
+			// Configure UTF-8 file includes only when the fixture owns an include tree.
 			if (!source.m_include_root.empty())
 			{
-				m_includes = std::make_unique<pr::script::Includes>(pr::script::EIncludeTypes::Files);
-				m_includes->SearchPaths({ source.m_include_root });
+				m_includes = std::make_unique<pr::script::reader::FileIncludeHandler>();
+				m_includes->AddSearchPath(source.m_include_root);
 			}
 
 			switch (source.m_input_mode)
 			{
 				case EInputMode::Memory:
 				{
-					m_reader = std::make_unique<pr::script::Reader>(source.m_text.c_str(), false, m_includes.get());
+					m_reader = std::make_unique<pr::script::Reader>(std::string_view(source.m_text), false, source.m_filepath, m_includes.get());
 					break;
 				}
 				case EInputMode::Stream:
 				{
-					m_stream = std::make_unique<pr::mem_istream<char>>(std::string_view(source.m_text), 0);
-					m_stream_src = std::make_unique<pr::script::StreamSrc<char>>(*m_stream, pr::EEncoding::utf8);
-					m_reader = std::make_unique<pr::script::Reader>(*m_stream_src, false, m_includes.get());
+					m_memory_stream = std::make_unique<pr::mem_istream<char>>(std::string_view(source.m_text), 0);
+					m_reader = std::make_unique<pr::script::Reader>(*m_memory_stream, false, source.m_filepath, m_includes.get());
 					break;
 				}
 				case EInputMode::File:
 				{
-					m_file_src = std::make_unique<pr::script::FileSrc>(source.m_filepath, pr::EEncoding::utf8);
-					m_reader = std::make_unique<pr::script::Reader>(*m_file_src, false, m_includes.get());
+					m_file_stream = std::make_unique<std::ifstream>(source.m_filepath, std::ios::binary);
+					if (!m_file_stream->is_open())
+						throw std::runtime_error("failed to open benchmark fixture: " + source.m_filepath.string());
+
+					m_reader = std::make_unique<pr::script::Reader>(*m_file_stream, false, source.m_filepath, m_includes.get());
 					break;
 				}
 				default:
@@ -109,83 +97,16 @@ namespace pr::script_bench
 		}
 	};
 
-	// Owns a Reader2 reader and the selected stream object feeding it.
-	template <>
-	class ReaderOwner<pr::script::v2::Reader>
+	// Scan forward to the named keyword.
+	void ExpectKeyword(pr::script::Reader& reader, char const* name)
 	{
-		std::unique_ptr<pr::script::v2::FileIncludeHandler2> m_includes;
-		std::unique_ptr<pr::mem_istream<char>> m_memory_stream;
-		std::unique_ptr<std::ifstream> m_file_stream;
-		std::unique_ptr<pr::script::v2::Reader> m_reader;
-
-	public:
-
-		// Construct Reader2 through the selected memory, stream, or file source.
-		explicit ReaderOwner(BenchmarkSource const& source)
-		{
-			// Configure Reader2's UTF-8 file include handler only when the fixture owns an include tree.
-			if (!source.m_include_root.empty())
-			{
-				m_includes = std::make_unique<pr::script::v2::FileIncludeHandler2>();
-				m_includes->AddSearchPath(source.m_include_root);
-			}
-
-			switch (source.m_input_mode)
-			{
-				case EInputMode::Memory:
-				{
-					m_reader = std::make_unique<pr::script::v2::Reader>(std::string_view(source.m_text), false, source.m_filepath, m_includes.get());
-					break;
-				}
-				case EInputMode::Stream:
-				{
-					m_memory_stream = std::make_unique<pr::mem_istream<char>>(std::string_view(source.m_text), 0);
-					m_reader = std::make_unique<pr::script::v2::Reader>(*m_memory_stream, false, source.m_filepath, m_includes.get());
-					break;
-				}
-				case EInputMode::File:
-				{
-					m_file_stream = std::make_unique<std::ifstream>(source.m_filepath, std::ios::binary);
-					if (!m_file_stream->is_open())
-						throw std::runtime_error("failed to open benchmark fixture: " + source.m_filepath.string());
-
-					m_reader = std::make_unique<pr::script::v2::Reader>(*m_file_stream, false, source.m_filepath, m_includes.get());
-					break;
-				}
-				default:
-				{
-					throw std::invalid_argument("unknown EInputMode value");
-				}
-			}
-		}
-
-		// Return the constructed reader.
-		pr::script::v2::Reader& Reader()
-		{
-			return *m_reader;
-		}
-	};
-
-	// Scans forward to the named keyword, bridging the legacy/Reader2 'Keyword' signature difference.
-	template <typename ReaderType>
-	void ExpectKeyword(ReaderType& reader, char const* name)
-	{
-		if constexpr (std::is_same_v<ReaderType, pr::script::Reader>)
-		{
-			std::wstring wname(name, name + std::strlen(name)); // ASCII-only names widen losslessly.
-			reader.Keyword(wname.c_str());
-		}
-		else
-		{
-			reader.Keyword(std::string_view(name));
-		}
+		reader.Keyword(std::string_view(name));
 	}
 
 	// Number-heavy: reads the Verts/Normals/UVs/Indices sections written by 'GenerateNumberHeavy'.
-	template <typename ReaderType>
 	ParseResult DriveNumberHeavy(BenchmarkSource const& source, SizeParams const& p)
 	{
-		auto owner = ReaderOwner<ReaderType>(source);
+		auto owner = ReaderOwner(source);
 		auto& reader = owner.Reader();
 		Checksum cs;
 		uint64_t items = 0;
@@ -246,10 +167,9 @@ namespace pr::script_bench
 	// Identifier-heavy (both empty- and populated-macro variants): reads the flat identifier list
 	// written by 'GenerateIdentifierHeavy'. The extraction sequence is identical for both variants;
 	// only the fixture text (and therefore the reader's macro-table state) differs between them.
-	template <typename ReaderType>
 	ParseResult DriveIdentifierHeavy(BenchmarkSource const& source, SizeParams const& p)
 	{
-		auto owner = ReaderOwner<ReaderType>(source);
+		auto owner = ReaderOwner(source);
 		auto& reader = owner.Reader();
 		Checksum cs;
 		uint64_t items = 0;
@@ -268,15 +188,10 @@ namespace pr::script_bench
 		return ParseResult{ cs, items, source.m_total_bytes };
 	}
 
-	// Strings/non-ASCII: reads the quoted-string list written by 'GenerateStringsUtf8'. Legacy 'Reader'
-	// decodes source bytes into 'wchar_t' internally, so extracting into a narrow 'std::string' would
-	// truncate every non-ASCII code point instead of re-encoding it; extracting into 'std::wstring' and
-	// then narrowing via 'pr::Narrow' round-trips UTF-8 correctly and matches Reader2's native
-	// UTF-8 'std::string' output, so both backends are checksummed against the same decoded text.
-	template <typename ReaderType>
+	// Strings/non-ASCII: read and checksum the UTF-8 quoted-string list.
 	ParseResult DriveStringsUtf8(BenchmarkSource const& source, SizeParams const& p)
 	{
-		auto owner = ReaderOwner<ReaderType>(source);
+		auto owner = ReaderOwner(source);
 		auto& reader = owner.Reader();
 		Checksum cs;
 		uint64_t items = 0;
@@ -285,18 +200,9 @@ namespace pr::script_bench
 		reader.SectionStart();
 		for (int i = 0; i != p.m_string_count; ++i)
 		{
-			if constexpr (std::is_same_v<ReaderType, pr::script::Reader>)
-			{
-				std::wstring w;
-				reader.String(w);
-				cs.Add(std::string_view(pr::Narrow(w)));
-			}
-			else
-			{
-				std::string s;
-				reader.String(s);
-				cs.Add(std::string_view(s));
-			}
+			auto string = std::string{};
+			reader.String(string);
+			cs.Add(std::string_view(string));
 			++items;
 		}
 		reader.SectionEnd();
@@ -305,12 +211,11 @@ namespace pr::script_bench
 	}
 
 	// Directive/macro-heavy: reads the Flags/Values sections written by 'GenerateDirectiveMacroHeavy'.
-	template <typename ReaderType>
 	ParseResult DriveDirectiveMacroHeavy(BenchmarkSource const& source, SizeParams const& p)
 	{
 		constexpr int FlagToggleCount = 16; // Must match 'GenerateDirectiveMacroHeavy'.
 
-		auto owner = ReaderOwner<ReaderType>(source);
+		auto owner = ReaderOwner(source);
 		auto& reader = owner.Reader();
 		Checksum cs;
 		uint64_t items = 0;
@@ -344,10 +249,9 @@ namespace pr::script_bench
 	// Token-boundary adversary: reads the mixed-kind, comment-padded sequence written by
 	// 'GenerateTokenBoundaryAdversary', cycling through int/real/string/identifier extraction in the
 	// same fixed order the generator used to decide what to emit.
-	template <typename ReaderType>
 	ParseResult DriveTokenBoundaryAdversary(BenchmarkSource const& source, SizeParams const& p)
 	{
-		auto owner = ReaderOwner<ReaderType>(source);
+		auto owner = ReaderOwner(source);
 		auto& reader = owner.Reader();
 		Checksum cs;
 		uint64_t items = 0;
@@ -399,10 +303,9 @@ namespace pr::script_bench
 	}
 
 	// Include-tree: read the values emitted depth-first across the generated physical source tree.
-	template <typename ReaderType>
 	ParseResult DriveIncludeTree(BenchmarkSource const& source, SizeParams const& p)
 	{
-		auto owner = ReaderOwner<ReaderType>(source);
+		auto owner = ReaderOwner(source);
 		auto& reader = owner.Reader();
 		auto cs = Checksum{};
 		auto items = uint64_t{};

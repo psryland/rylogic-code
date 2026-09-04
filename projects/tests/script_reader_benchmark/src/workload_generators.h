@@ -11,8 +11,7 @@
 //  - Generation happens entirely outside the timed region (see main.cpp), so these functions are
 //    free to be simple and unoptimized; only the parsing side of the benchmark is measured.
 //  - Output is plain LDraw-style script text (leading '*Keyword' sections, '{'/'}' blocks) built
-//    directly as UTF-8 bytes, matching what both 'pr::script::Reader' and 'pr::script::v2::Reader'
-//    already parse identically per the existing differential/conformance tests.
+//    directly as UTF-8 bytes.
 #pragma once
 #include "forward.h"
 
@@ -184,7 +183,7 @@ namespace pr::script_bench
 
 	// Generates a section of many bare identifiers, optionally preceded by a large number of unrelated,
 	// never-referenced object-macro definitions. Both variants drive the same extraction sequence, so
-	// the only cost difference measured is how each backend's macro lookup behaves once "populated".
+	// their difference isolates macro-table lookup overhead.
 	inline std::string GenerateIdentifierHeavy(SizeParams const& p, uint64_t seed, bool populated)
 	{
 		(void)seed; // No randomisation needed: identifier names are a plain enumerated sequence.
@@ -216,11 +215,6 @@ namespace pr::script_bench
 
 	// Generates a section of quoted string literals drawn from a fixed pool of ASCII and non-ASCII
 	// (accented, CJK, Cyrillic) UTF-8 phrases, exercising the string/UTF-8 extraction path.
-	// Note: astral-plane characters (e.g. emoji, which require a UTF-16 surrogate pair) are deliberately
-	// excluded from the pool. Legacy 'pr::script::Src' (script_core.h) decodes UTF-8 one 'char16_t' per
-	// 'Read()' call via 'std::mbrtoc16' and does not loop to emit the trailing low surrogate for 4-byte
-	// UTF-8 sequences, so astral characters fail to round-trip; this is a pre-existing decode limitation
-	// in the legacy reader, not a bug in this benchmark or in Reader2, and is out of scope to fix here.
 	inline std::string GenerateStringsUtf8(SizeParams const& p, uint64_t seed)
 	{
 		static char const* s_ascii[] =
@@ -382,7 +376,7 @@ namespace pr::script_bench
 		auto total_bytes = uint64_t{};
 		for (int index = 0; index != p.m_include_file_count; ++index)
 		{
-			// Emit this node's values before its children so both readers observe a stable depth-first sequence.
+			// Emit this node's values before its children to produce a stable depth-first sequence.
 			auto text = std::string{};
 			text.reserve(size_t(p.m_include_value_count) * 8 + 96);
 			for (int value_index = 0; value_index != p.m_include_value_count; ++value_index)

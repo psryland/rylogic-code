@@ -39,6 +39,4 @@
 #include "pr/math/math.h"
 #include "pr/str/string_core.h"
 #include "pr/script/reader.h"
-#include "pr/script/reader2.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_text.h"
-#include "pr/view3d-12/ldraw/ldraw_reader_text2.h"
