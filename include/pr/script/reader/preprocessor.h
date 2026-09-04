@@ -12,8 +12,8 @@
 #include <string>
 #include <string_view>
 #include <vector>
-#include <deque>
 #include <memory>
+#include <optional>
 #include <functional>
 #include <filesystem>
 #include <fstream>
@@ -620,13 +620,13 @@ namespace pr::script::reader
 	class Preprocessor
 	{
 		// Plain source spans bypass preprocessing until syntax requiring the full pipeline is reached.
-		std::unique_ptr<Cursor> m_passthrough;
+		std::optional<Cursor> m_passthrough;
 		bool m_passthrough_screened;
 		size_t m_passthrough_safe;
 		std::vector<Frame> m_stack;
 		size_t m_transport_peak_bytes;
 		MacroDB m_macros;
-		std::unique_ptr<IIncludeHandler> m_default_includes;
+		NoIncludes m_default_includes;
 		IIncludeHandler* m_includes;
 		std::function<IEmbeddedCode*(std::string_view)> m_embedded_lookup;
 		bool m_ignore_missing;
@@ -643,8 +643,14 @@ namespace pr::script::reader
 		char m_literal_quote;
 		bool m_literal_escape;
 
-		std::deque<char> m_look;
-		std::deque<Loc> m_look_loc;
+		// One buffered output byte and its source location.
+		struct Lookahead
+		{
+			char m_char;
+			Loc m_loc;
+		};
+		std::vector<Lookahead> m_look;
+		size_t m_look_head;
 
 	public:
 
@@ -658,32 +664,26 @@ namespace pr::script::reader
 			, m_transport_peak_bytes()
 			, m_macros()
 			, m_default_includes()
-			, m_includes(includes)
+			, m_includes(includes != nullptr ? includes : &m_default_includes)
 			, m_embedded_lookup()
 			, m_ignore_missing(false)
 			, m_if_stack()
 			, m_literal_quote(0)
 			, m_literal_escape(false)
 			, m_look()
-			, m_look_loc()
+			, m_look_head()
 		{
-			if (m_includes == nullptr)
-			{
-				m_default_includes = std::make_unique<NoIncludes>();
-				m_includes = m_default_includes.get();
-			}
-
 			// Fully screen memory sources once; streamed sources remain direct until
 			// their current window reaches syntax that needs filtering or preprocessing.
 			auto memory = dynamic_cast<MemoryInput const*>(input.get());
 			if (memory != nullptr && memory->m_data.find_first_of("#/\\") == std::string_view::npos)
 			{
-				m_passthrough = std::make_unique<Cursor>(std::move(input), loc);
+				m_passthrough.emplace(std::move(input), loc);
 				m_passthrough_screened = true;
 			}
 			else if (memory == nullptr)
 			{
-				m_passthrough = std::make_unique<Cursor>(std::move(input), loc);
+				m_passthrough.emplace(std::move(input), loc);
 			}
 			else
 			{
@@ -729,7 +729,7 @@ namespace pr::script::reader
 		// True when the current source is the screened contiguous memory path.
 		bool HasContiguousInput() const noexcept
 		{
-			return m_passthrough != nullptr;
+			return m_passthrough.has_value();
 		}
 
 		// Return a contiguous view while the direct-source path is active.
@@ -765,7 +765,7 @@ namespace pr::script::reader
 		// Consume a caller-validated ASCII span from the contiguous memory path.
 		void ConsumeContiguous(size_t count)
 		{
-			assert(m_passthrough != nullptr);
+			assert(m_passthrough.has_value());
 			assert(m_passthrough_screened || count <= m_passthrough_safe);
 			m_passthrough->AdvanceAscii(count);
 			if (!m_passthrough_screened)
@@ -775,7 +775,7 @@ namespace pr::script::reader
 		// Consume and validate UTF-8 from the contiguous memory path.
 		void ConsumeContiguousUtf8(size_t count)
 		{
-			assert(m_passthrough != nullptr);
+			assert(m_passthrough.has_value());
 			assert(m_passthrough_screened || count <= m_passthrough_safe);
 			m_passthrough->AdvanceUtf8(count);
 			if (!m_passthrough_screened)
@@ -794,7 +794,7 @@ namespace pr::script::reader
 			}
 
 			Fill(0);
-			return m_look[0];
+			return m_look[m_look_head].m_char;
 		}
 		char operator [](size_t i)
 		{
@@ -806,7 +806,7 @@ namespace pr::script::reader
 			}
 
 			Fill(i);
-			return m_look[i];
+			return m_look[m_look_head + i].m_char;
 		}
 		Preprocessor& operator ++()
 		{
@@ -824,8 +824,17 @@ namespace pr::script::reader
 			}
 
 			Fill(0);
-			m_look.pop_front();
-			m_look_loc.pop_front();
+			++m_look_head;
+			if (m_look_head == m_look.size())
+			{
+				m_look.clear();
+				m_look_head = 0;
+			}
+			else if (m_look_head >= 256 && m_look_head * 2 >= m_look.size())
+			{
+				m_look.erase(m_look.begin(), m_look.begin() + static_cast<std::ptrdiff_t>(m_look_head));
+				m_look_head = 0;
+			}
 			return *this;
 		}
 		Preprocessor& operator +=(size_t n)
@@ -864,7 +873,7 @@ namespace pr::script::reader
 			}
 
 			Fill(0);
-			return m_look_loc[0];
+			return m_look[m_look_head].m_loc;
 		}
 		bool AtEnd()
 		{
@@ -943,19 +952,18 @@ namespace pr::script::reader
 		// genuinely exhausted, the buffer is padded with sentinel zero characters.
 		void Fill(size_t n)
 		{
-			while (m_look.size() <= n)
+			while (m_look.size() - m_look_head <= n)
 			{
 				char ch;
 				Loc loc;
 				if (Pump(ch, loc))
 				{
-					m_look.push_back(ch);
-					m_look_loc.push_back(loc);
+					m_look.push_back(Lookahead{ ch, std::move(loc) });
 				}
 				else
 				{
-					m_look.push_back(0);
-					m_look_loc.push_back(m_look_loc.empty() ? Loc() : m_look_loc.back());
+					auto end_loc = m_look_head == m_look.size() ? Loc() : m_look.back().m_loc;
+					m_look.push_back(Lookahead{ 0, std::move(end_loc) });
 				}
 			}
 		}
