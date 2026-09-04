@@ -31,8 +31,26 @@ namespace pr::rdr12::ldraw
 		m_filepaths.resize(0);
 		m_includes.LocalDir("");
 
-		mem_istream<Char> src{ m_script, 0 };
-		TextReader reader(src, {}, m_encoding, { this, OnReportError }, { this, OnProgress }, m_includes);
+		// Borrow UTF-8 strings directly and convert other encodings once.
+		auto utf8 = std::string{};
+		auto source = std::string_view{};
+		if constexpr (std::is_same_v<Char, char>)
+		{
+			source = m_script;
+			if (m_encoding != EEncoding::utf8)
+			{
+				utf8 = ToUtf8Source(source, m_encoding);
+				source = utf8;
+			}
+		}
+		else
+		{
+			auto bytes = std::string_view(reinterpret_cast<char const*>(m_script.data()), m_script.size() * sizeof(Char));
+			utf8 = ToUtf8Source(bytes, EEncoding::utf16_le);
+			source = utf8;
+		}
+
+		TextReader reader(source, std::filesystem::path{}, { this, OnReportError }, { this, OnProgress }, m_includes);
 		return Parse(rdr, reader, m_context_id, std::move(stop_token));
 	}
 

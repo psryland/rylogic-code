@@ -171,7 +171,7 @@ namespace pr::script::reader
 		}
 
 		// Register a handler used to execute '#embedded(lang) ... #end' blocks.
-		void EmbeddedLookup(std::function<IEmbeddedCode2*(std::string_view)> lookup)
+		void EmbeddedLookup(std::function<IEmbeddedCode*(std::string_view)> lookup)
 		{
 			m_pp.EmbeddedLookup(std::move(lookup));
 		}

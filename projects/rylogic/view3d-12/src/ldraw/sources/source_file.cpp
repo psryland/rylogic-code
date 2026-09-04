@@ -4,24 +4,12 @@
 //*********************************************
 #include "view3d-12/src/ldraw/sources/source_file.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_text.h"
-#include "pr/view3d-12/ldraw/ldraw_reader_text2.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_binary.h"
 #include "pr/view3d-12/ldraw/ldraw_parsing.h"
 #include "pr/view3d-12/ldraw/ldraw_svg.h"
 
 namespace pr::rdr12::ldraw
 {
-	namespace
-	{
-		// Reader2 is the production default; the environment override provides a one-point diagnostic rollback.
-		bool UseReader2()
-		{
-			wchar_t value[16] = {};
-			auto length = GetEnvironmentVariableW(L"RYLOGIC_LDRAW_TEXT_READER", value, _countof(value));
-			return length == 0 || length >= _countof(value) || _wcsicmp(value, L"legacy") != 0;
-		}
-	}
-
 	SourceFile::SourceFile(Guid const* context_id, filepath_t const& filepath, EEncoding enc, PathResolver const& includes)
 		: SourceBase(context_id)
 		, m_filepath(filepath.lexically_normal())
@@ -55,7 +43,7 @@ namespace pr::rdr12::ldraw
 		m_includes.LocalDir("");
 		m_includes.FileOpened(m_includes, m_filepath);
 
-		// Keep text-reader selection in one place so every text-backed source follows the same diagnostic override.
+		// Convert the stable snapshot to UTF-8 once at the source boundary.
 		auto parse_text = [&](std::string_view source, std::filesystem::path const& filepath, EEncoding encoding = EEncoding::utf8)
 		{
 			auto bom_size = 0;
@@ -75,46 +63,39 @@ namespace pr::rdr12::ldraw
 					? 2
 					: 0;
 
-			if (UseReader2())
+			auto utf8 = std::string{};
+			auto utf8_source = source;
+			switch (encoding)
 			{
-				auto utf8 = std::string{};
-				auto utf8_source = source;
-				switch (encoding)
+				case EEncoding::utf8:
 				{
-					case EEncoding::utf8:
-					{
-						utf8_source.remove_prefix(static_cast<size_t>(bom_size));
-						break;
-					}
-					case EEncoding::ascii:
-					case EEncoding::ascii_extended:
-					case EEncoding::utf16_le:
-					case EEncoding::utf16_be:
-					{
-						utf8 = ToUtf8Source(source, encoding, filepath);
-						utf8_source = utf8;
-						break;
-					}
-					default:
-					{
-						throw std::runtime_error(std::format("Unsupported file encoding: {}", int(encoding)));
-					}
+					utf8_source.remove_prefix(static_cast<size_t>(bom_size));
+					break;
 				}
-
-				auto location = Location
+				case EEncoding::ascii:
+				case EEncoding::ascii_extended:
+				case EEncoding::utf16_le:
+				case EEncoding::utf16_be:
 				{
-					.m_filepath = filepath,
-					.m_filesize = static_cast<int64_t>(source.size()),
-					.m_offset = bom_size,
-					.m_column = 1,
-					.m_line = 1,
-				};
-				TextReader2 reader(utf8_source, location, { this, OnReportError }, { this, OnProgress }, m_includes);
-				return Parse(rdr, reader, m_context_id, stop_token);
+					utf8 = ToUtf8Source(source, encoding, filepath);
+					utf8_source = utf8;
+					break;
+				}
+				default:
+				{
+					throw std::runtime_error(std::format("Unsupported file encoding: {}", int(encoding)));
+				}
 			}
 
-			auto stream = filesys::FileSnapshotStream(filepath, std::string(source), static_cast<size_t>(bom_size));
-			TextReader reader(stream, {}, encoding, { this, OnReportError }, { this, OnProgress }, m_includes);
+			auto location = Location
+			{
+				.m_filepath = filepath,
+				.m_filesize = static_cast<int64_t>(source.size()),
+				.m_offset = bom_size,
+				.m_column = 1,
+				.m_line = 1,
+			};
+			TextReader reader(utf8_source, location, { this, OnReportError }, { this, OnProgress }, m_includes);
 			return Parse(rdr, reader, m_context_id, stop_token);
 		};
 

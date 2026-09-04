@@ -157,9 +157,9 @@ namespace pr::script::reader
 	}
 
 	// Executes an embedded UTF-8 code block such as '#embedded(lua) ... #end'.
-	struct IEmbeddedCode2
+	struct IEmbeddedCode
 	{
-		virtual ~IEmbeddedCode2() = default;
+		virtual ~IEmbeddedCode() = default;
 
 		// The language tag this handler executes (e.g. "lua").
 		virtual std::string_view Lang() const = 0;
@@ -628,7 +628,7 @@ namespace pr::script::reader
 		MacroDB m_macros;
 		std::unique_ptr<IIncludeHandler> m_default_includes;
 		IIncludeHandler* m_includes;
-		std::function<IEmbeddedCode2*(std::string_view)> m_embedded_lookup;
+		std::function<IEmbeddedCode*(std::string_view)> m_embedded_lookup;
 		bool m_ignore_missing;
 
 		// One level of '#if'/'#ifdef'/'#ifndef' ... '#endif' nesting.
@@ -701,7 +701,7 @@ namespace pr::script::reader
 		Preprocessor& operator =(Preprocessor const&) = delete;
 
 		// Register a handler used to execute '#embedded(lang[,support]) ... #end' blocks.
-		void EmbeddedLookup(std::function<IEmbeddedCode2*(std::string_view)> lookup)
+		void EmbeddedLookup(std::function<IEmbeddedCode*(std::string_view)> lookup)
 		{
 			m_embedded_lookup = std::move(lookup);
 		}
@@ -1772,7 +1772,7 @@ namespace pr::script::reader::testing
 		}
 		PRUnitTestMethod(EmbeddedBlock, Quick)
 		{
-			struct Handler :IEmbeddedCode2
+			struct Handler :IEmbeddedCode
 			{
 				std::string m_code;
 				bool m_support = false;

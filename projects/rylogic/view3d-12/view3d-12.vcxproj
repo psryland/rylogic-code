@@ -102,7 +102,6 @@
     <ClCompile Include="src\ldraw\ldraw_object.cpp" />
     <ClCompile Include="src\ldraw\ldraw_parsing.cpp" />
     <ClCompile Include="src\ldraw\ldraw_reader_text.cpp" />
-    <ClCompile Include="src\ldraw\ldraw_reader_text2.cpp" />
     <ClCompile Include="src\ldraw\ldraw_templates.cpp" />
     <ClCompile Include="src\ldraw\sources\ldraw_sources.cpp" />
     <ClCompile Include="src\ldraw\sources\source_base.cpp" />
@@ -218,7 +217,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_parsing.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_reader_binary.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_reader_text.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_reader_text2.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_serialiser.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_ui_angle_tool.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_ui_measure_tool.h" />

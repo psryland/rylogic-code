@@ -1,15 +1,28 @@
-﻿//********************************
-// Ldraw Script Text Serialiser
-//  Copyright (c) Rylogic Ltd 2025
+//********************************
+// Ldraw Script Text Reader
+//  Copyright (c) Rylogic Ltd 2026
 //********************************
 #include "pr/view3d-12/ldraw/ldraw_reader_text.h"
-#include "pr/script/script.h"
+#include "pr/script/reader.h"
 
 namespace pr::rdr12::ldraw
 {
 	namespace
 	{
-		// Generate a 'Loc' from a stream and associated source file
+		// Convert a script location to the location shape exposed by the LDraw parser.
+		Location ToLocation(script::Loc const& loc, int64_t filesize)
+		{
+			return
+			{
+				.m_filepath = loc.Filepath(),
+				.m_filesize = loc.FileSize() != 0 ? loc.FileSize() : filesize,
+				.m_offset = loc.Pos(),
+				.m_column = loc.Col(),
+				.m_line = loc.Line(),
+			};
+		}
+
+		// Preserve snapshot source metadata when adapting an existing stream.
 		script::Loc SourceLocation(std::istream const& stream, std::filesystem::path const& src_filepath)
 		{
 			auto const* snapshot = dynamic_cast<filesys::FileSnapshotStream const*>(&stream);
@@ -18,317 +31,638 @@ namespace pr::rdr12::ldraw
 
 			return script::Loc(src_filepath);
 		}
-		bool IsDefaultLocation(script::Loc const& loc)
+
+		// Append one Unicode scalar to a UTF-8 byte string.
+		void AppendUtf8(std::string& output, uint32_t code_point, script::Loc const& loc)
 		{
-			return
-				loc.Filepath().empty() &&
-				loc.FileSize() == 0 &&
-				loc.Pos() == 0 &&
-				loc.LinePos() == 0 &&
-				loc.Line() == 1 &&
-				loc.Col() == 1;
-		}
-		Location ToLocation(script::Loc const& loc)
-		{
-			return
+			if (code_point <= 0x7F)
 			{
-				.m_filepath = loc.Filepath(),
-				.m_filesize = loc.FileSize(),
-				.m_offset = loc.Pos(),
-				.m_column = loc.Col(),
-				.m_line = loc.Line(),
+				output.push_back(static_cast<char>(code_point));
+			}
+			else if (code_point <= 0x7FF)
+			{
+				output.push_back(static_cast<char>(0xC0 | (code_point >> 6)));
+				output.push_back(static_cast<char>(0x80 | (code_point & 0x3F)));
+			}
+			else if (code_point <= 0xFFFF)
+			{
+				if (code_point >= 0xD800 && code_point <= 0xDFFF)
+					throw script::ScriptException(script::EResult::WrongEncoding, loc, "unpaired UTF-16 surrogate");
+
+				output.push_back(static_cast<char>(0xE0 | (code_point >> 12)));
+				output.push_back(static_cast<char>(0x80 | ((code_point >> 6) & 0x3F)));
+				output.push_back(static_cast<char>(0x80 | (code_point & 0x3F)));
+			}
+			else if (code_point <= 0x10FFFF)
+			{
+				output.push_back(static_cast<char>(0xF0 | (code_point >> 18)));
+				output.push_back(static_cast<char>(0x80 | ((code_point >> 12) & 0x3F)));
+				output.push_back(static_cast<char>(0x80 | ((code_point >> 6) & 0x3F)));
+				output.push_back(static_cast<char>(0x80 | (code_point & 0x3F)));
+			}
+			else
+			{
+				throw script::ScriptException(script::EResult::WrongEncoding, loc, "Unicode scalar is out of range");
+			}
+		}
+
+		// Convert Reader include flags to the shared path-resolver flags.
+		IPathResolver::EFlags ToResolverFlags(script::EIncludeFlags flags)
+		{
+			auto result = IPathResolver::EFlags::None;
+			if (AllSet(flags, script::EIncludeFlags::IncludeLocalDir))
+				result |= IPathResolver::EFlags::IncludeLocalDir;
+			if (AllSet(flags, script::EIncludeFlags::IgnoreMissing))
+				result |= IPathResolver::EFlags::IgnoreMissing;
+
+			return result;
+		}
+
+		// Owns converted include bytes while exposing Reader's bulk input contract.
+		struct OwnedUtf8Input : script::reader::IInput
+		{
+			std::string m_source;
+			size_t m_position;
+			std::filesystem::path m_filepath;
+			std::streamoff m_initial_offset;
+
+			OwnedUtf8Input(std::string source, std::filesystem::path filepath, std::streamoff initial_offset)
+				: m_source(std::move(source))
+				, m_position()
+				, m_filepath(std::move(filepath))
+				, m_initial_offset(initial_offset)
+			{
+			}
+
+			// Copy the next UTF-8 block into Reader's transport buffer.
+			size_t Read(char* buffer, size_t count) override
+			{
+				auto available = m_source.size() - m_position;
+				auto length = std::min(available, count);
+				if (length != 0)
+				{
+					std::memcpy(buffer, m_source.data() + m_position, length);
+					m_position += length;
+				}
+				return length;
+			}
+
+			// Return the physical identity used for source locations.
+			std::filesystem::path const& Filepath() const override
+			{
+				return m_filepath;
+			}
+
+			// Return the physical offset retained when caller-side conversion removed a source byte-order-mark.
+			std::streamoff InitialOffset() const override
+			{
+				return m_initial_offset;
+			}
+		};
+
+		// Bridge LDraw's resolver to Reader's UTF-8 include contract.
+		struct IncludeAdapter : script::reader::IIncludeHandler
+		{
+			IPathResolver const* m_resolver;
+			std::optional<PathResolver> m_path_resolver;
+
+			explicit IncludeAdapter(IPathResolver const& resolver)
+				: m_resolver(&resolver)
+				, m_path_resolver()
+			{
+				if (auto path_resolver = dynamic_cast<PathResolver const*>(&resolver); path_resolver != nullptr)
+				{
+					m_path_resolver.emplace(*path_resolver);
+					m_resolver = &*m_path_resolver;
+				}
+			}
+
+			// Append source-declared search paths to an isolated copy of the standard resolver.
+			void AddSearchPath(std::filesystem::path const& path) override
+			{
+				if (m_path_resolver)
+					m_path_resolver->AddSearchPath(path);
+			}
+
+			// Preserve the include spelling because the shared resolver owns file, resource, and string lookup.
+			std::filesystem::path ResolveInclude(std::filesystem::path const& include, script::EIncludeFlags flags, script::Loc const& loc) override
+			{
+				if (m_path_resolver && AllSet(flags, script::EIncludeFlags::IncludeLocalDir))
+					m_path_resolver->LocalDir(loc.Filepath().parent_path());
+
+				return include;
+			}
+
+			// Snapshot and convert each include before Reader begins scanning it.
+			std::unique_ptr<script::reader::IInput> Open(std::filesystem::path const& resolved, script::EIncludeFlags flags, script::Loc const&) override
+			{
+				auto stream = m_resolver->OpenStream(resolved, ToResolverFlags(flags));
+				if (stream == nullptr)
+					return nullptr;
+
+				auto filepath = resolved;
+				if (auto snapshot = dynamic_cast<filesys::FileSnapshotStream const*>(stream.get()); snapshot != nullptr && !snapshot->filepath().empty())
+					filepath = snapshot->filepath();
+
+				std::string bytes(std::istreambuf_iterator<char>(*stream), {});
+				if (stream->bad())
+					throw std::ios_base::failure("failed to read LDraw include stream");
+
+				auto bom_size = 0;
+				auto encoding = filesys::DetectFileEncoding(std::span(bytes.data(), bytes.size()), bom_size);
+				auto source = ToUtf8Source(bytes, encoding, filepath);
+				return std::make_unique<OwnedUtf8Input>(std::move(source), std::move(filepath), bom_size);
+			}
+		};
+
+		// True when a compact object-header token has LDraw's eight-digit ARGB form.
+		bool IsColour(std::string_view token)
+		{
+			return token.size() == 8 && std::all_of(token.begin(), token.end(), [](char ch)
+			{
+				return std::isxdigit(static_cast<unsigned char>(ch)) != 0;
+			});
+		}
+
+		// True when a compact object-header token is a valid LDraw name.
+		bool IsName(std::string_view token)
+		{
+			return !token.empty() && std::all_of(token.begin(), token.end(), [](char ch)
+			{
+				return std::isalnum(static_cast<unsigned char>(ch)) != 0 || ch == '_';
+			});
+		}
+	}
+
+	// Convert caller-owned LDraw source bytes to the UTF-8 contract required by Reader.
+	std::string ToUtf8Source(std::string_view source, EEncoding encoding, std::filesystem::path const& filepath)
+	{
+		auto bom_size = 0;
+		if (encoding == EEncoding::auto_detect)
+			encoding = filesys::DetectFileEncoding(std::span(source.data(), source.size()), bom_size);
+		else if (encoding == EEncoding::utf8)
+			bom_size = static_cast<int>(script::reader::Utf8BomLength(source));
+		else if (source.size() >= 2)
+			bom_size =
+				(encoding == EEncoding::utf16_le && static_cast<unsigned char>(source[0]) == 0xFF && static_cast<unsigned char>(source[1]) == 0xFE) ||
+				(encoding == EEncoding::utf16_be && static_cast<unsigned char>(source[0]) == 0xFE && static_cast<unsigned char>(source[1]) == 0xFF)
+				? 2
+				: 0;
+
+		source.remove_prefix(static_cast<size_t>(bom_size));
+		auto loc = script::Loc(filepath);
+		switch (encoding)
+		{
+			case EEncoding::ascii:
+			{
+				if (std::any_of(source.begin(), source.end(), [](char ch) { return static_cast<unsigned char>(ch) > 0x7F; }))
+					throw script::ScriptException(script::EResult::WrongEncoding, loc, "non-ASCII byte in ASCII source");
+
+				return std::string(source);
+			}
+			case EEncoding::utf8:
+			{
+				return std::string(source);
+			}
+			case EEncoding::ascii_extended:
+			{
+				std::string output;
+				output.reserve(source.size() * 2);
+				for (auto ch : source)
+					AppendUtf8(output, static_cast<unsigned char>(ch), loc);
+
+				return output;
+			}
+			case EEncoding::utf16_le:
+			case EEncoding::utf16_be:
+			{
+				if ((source.size() & 1) != 0)
+					throw script::ScriptException(script::EResult::WrongEncoding, loc, "truncated UTF-16 code unit");
+
+				std::string output;
+				output.reserve(source.size());
+				for (size_t index = 0; index != source.size(); index += 2)
+				{
+					auto const byte0 = static_cast<unsigned char>(source[index + 0]);
+					auto const byte1 = static_cast<unsigned char>(source[index + 1]);
+					auto code_unit = encoding == EEncoding::utf16_le
+						? static_cast<uint16_t>(byte0 | (byte1 << 8))
+						: static_cast<uint16_t>((byte0 << 8) | byte1);
+					auto code_point = static_cast<uint32_t>(code_unit);
+
+					if (code_unit >= 0xD800 && code_unit <= 0xDBFF)
+					{
+						if (index + 3 >= source.size())
+							throw script::ScriptException(script::EResult::WrongEncoding, loc, "truncated UTF-16 surrogate pair");
+
+						auto const next0 = static_cast<unsigned char>(source[index + 2]);
+						auto const next1 = static_cast<unsigned char>(source[index + 3]);
+						auto low = encoding == EEncoding::utf16_le
+							? static_cast<uint16_t>(next0 | (next1 << 8))
+							: static_cast<uint16_t>((next0 << 8) | next1);
+						if (low < 0xDC00 || low > 0xDFFF)
+							throw script::ScriptException(script::EResult::WrongEncoding, loc, "invalid UTF-16 surrogate pair");
+
+						code_point = 0x10000 + ((code_unit - 0xD800) << 10) + (low - 0xDC00);
+						index += 2;
+					}
+					else if (code_unit >= 0xDC00 && code_unit <= 0xDFFF)
+					{
+						throw script::ScriptException(script::EResult::WrongEncoding, loc, "unpaired UTF-16 surrogate");
+					}
+
+					AppendUtf8(output, code_point, loc);
+				}
+				return output;
+			}
+			default:
+			{
+				throw std::runtime_error(std::format("Unsupported LDraw text encoding: {}", static_cast<int>(encoding)));
+			}
+		}
+	}
+
+	struct TextReader::Impl
+	{
+		enum class EPseudoValue
+		{
+			None,
+			Name,
+			Colour,
+		};
+		struct PseudoToken
+		{
+			EPseudoValue m_kind;
+			std::string m_value;
+		};
+
+		IncludeAdapter m_includes;
+		std::unique_ptr<script::reader::Reader> m_reader;
+		mutable Location m_location;
+		string32 m_keyword;
+		std::deque<PseudoToken> m_pseudo_tokens;
+		PseudoToken m_pseudo_value;
+		int64_t m_filesize;
+		int m_section_level;
+		int m_nest_level;
+
+		Impl(std::string_view source, script::Loc const& loc, IPathResolver const& resolver)
+			: m_includes(resolver)
+			, m_reader(std::make_unique<script::reader::Reader>(std::make_unique<script::reader::MemoryInput>(source, loc.Filepath()), loc, false, &m_includes))
+			, m_location(ToLocation(loc, loc.FileSize() != 0 ? loc.FileSize() : static_cast<int64_t>(source.size())))
+			, m_keyword()
+			, m_pseudo_tokens()
+			, m_pseudo_value{ EPseudoValue::None, {} }
+			, m_filesize(loc.FileSize() != 0 ? loc.FileSize() : static_cast<int64_t>(source.size()))
+			, m_section_level()
+			, m_nest_level()
+		{
+			m_reader->ReportError = [](script::EResult, script::Loc const&, std::string_view)
+			{
+				return false;
 			};
 		}
 
-		// Convert opaque storage to a typed reference
-		template <typename T, int N, typename B = std::conditional_t<std::is_const_v<T>, std::byte const, std::byte>>
-		inline T& as(B(&storage)[N])
+		Impl(std::istream& stream, std::filesystem::path filepath, IPathResolver const& resolver)
+			: m_includes(resolver)
+			, m_reader()
+			, m_location()
+			, m_keyword()
+			, m_pseudo_tokens()
+			, m_pseudo_value{ EPseudoValue::None, {} }
+			, m_filesize()
+			, m_section_level()
+			, m_nest_level()
 		{
-			static_assert(sizeof(T) <= sizeof(storage));
-			return reinterpret_cast<T&>(storage);
+			auto loc = SourceLocation(stream, filepath);
+			m_filesize = loc.FileSize();
+			m_location = ToLocation(loc, m_filesize);
+			m_reader = std::make_unique<script::reader::Reader>(std::make_unique<script::reader::StreamInput>(stream, loc.Filepath()), loc, false, &m_includes);
+			m_reader->ReportError = [](script::EResult, script::Loc const&, std::string_view)
+			{
+				return false;
+			};
 		}
+
+		// Access the preprocessed byte stream underlying the Reader facade.
+		script::reader::Preprocessor& Source()
+		{
+			return m_reader->Source();
+		}
+
+		// Consume a data section opening brace before scalar extraction.
+		void PrepareValue()
+		{
+			if (m_pseudo_value.m_kind != EPseudoValue::None)
+				return;
+
+			auto& source = Source();
+			m_nest_level += *source == '{';
+			source += *source == '{';
+		}
+
+		// Finish consuming the currently active compact-header pseudo value.
+		void ConsumePseudo()
+		{
+			m_pseudo_value = { EPseudoValue::None, {} };
+		}
+	};
+
+	TextReader::TextReader(std::string_view utf8_source, std::filesystem::path src_filepath, ReportErrorCB report_error_cb, ParseProgressCB progress_cb, IPathResolver const& resolver)
+		: IReader(report_error_cb, progress_cb, resolver)
+		, m_impl(std::make_unique<Impl>(utf8_source, script::Loc(src_filepath, static_cast<std::streamsize>(utf8_source.size()), 0, 0, 1, 1, true), resolver))
+	{
 	}
 
-	TextReader::TextReader(std::istream& stream, std::filesystem::path src_filepath, EEncoding enc, ReportErrorCB report_error_cb, ParseProgressCB progress_cb, IPathResolver const& resolver)
+	TextReader::TextReader(std::string_view utf8_source, Location const& source_location, ReportErrorCB report_error_cb, ParseProgressCB progress_cb, IPathResolver const& resolver)
 		: IReader(report_error_cb, progress_cb, resolver)
-		, m_src()
-		, m_pp()
-		, m_location()
-		, m_keyword()
-		, m_delim(L" \t\r\n\v,;")
-		, m_section_level()
-		, m_nest_level()
+		, m_impl(std::make_unique<Impl>(utf8_source, script::Loc(source_location.m_filepath, source_location.m_filesize, source_location.m_offset, source_location.m_offset, source_location.m_line, source_location.m_column, true), resolver))
 	{
-		static_assert(sizeof(m_src) >= sizeof(script::StreamSrc<char>));
-		static_assert(sizeof(m_pp) >= sizeof(script::Preprocessor));
-		auto const loc = SourceLocation(stream, src_filepath);
-		m_location = ToLocation(loc);
-		new (m_src) script::StreamSrc<char>(stream, enc, loc);
-		new (m_pp) script::Preprocessor(as<script::Src>(m_src), nullptr, nullptr, nullptr);
-	}
-	TextReader::TextReader(std::wistream& stream, std::filesystem::path src_filepath, EEncoding enc, ReportErrorCB report_error_cb, ParseProgressCB progress_cb, IPathResolver const& resolver)
-		: IReader(report_error_cb, progress_cb, resolver)
-		, m_src()
-		, m_pp()
-		, m_location()
-		, m_keyword()
-		, m_delim(L" \t\r\n\v,;")
-		, m_section_level()
-		, m_nest_level()
-	{
-		static_assert(sizeof(m_src) >= sizeof(script::StreamSrc<wchar_t>));
-		static_assert(sizeof(m_pp) >= sizeof(script::Preprocessor));
-		auto const loc = script::Loc(src_filepath);
-		m_location = ToLocation(loc);
-		new (m_src) script::StreamSrc<wchar_t>(stream, enc, loc);
-		new (m_pp) script::Preprocessor(as<script::Src>(m_src), nullptr, nullptr, nullptr);
-	}
-	TextReader::~TextReader()
-	{
-		as<script::Preprocessor>(m_pp).~Preprocessor();
-		as<script::Src>(m_src).~Src();
 	}
 
-	// Return the current location in the source
+	TextReader::TextReader(std::istream& utf8_stream, std::filesystem::path src_filepath, ReportErrorCB report_error_cb, ParseProgressCB progress_cb, IPathResolver const& resolver)
+		: IReader(report_error_cb, progress_cb, resolver)
+		, m_impl(std::make_unique<Impl>(utf8_stream, std::move(src_filepath), resolver))
+	{
+	}
+
+	TextReader::~TextReader() = default;
+
+	// Return the current location in the source.
 	Location const& TextReader::Loc() const
 	{
-		auto loc = as<script::Preprocessor const>(m_pp).Location();
-		if (!IsDefaultLocation(loc))
-			m_location = ToLocation(loc);
+		auto loc = m_impl->m_reader->Location();
+		if (script::reader::IsDefaultLocation(loc) && (!m_impl->m_location.m_filepath.empty() || m_impl->m_location.m_filesize != 0))
+		{
+			// Preserve the source identity at EOF while reporting complete progress.
+			m_impl->m_location.m_offset = m_impl->m_filesize;
+			return m_impl->m_location;
+		}
 
-		return m_location;
+		m_impl->m_location = ToLocation(loc, m_impl->m_filesize);
+		return m_impl->m_location;
 	}
 
-	// Move into a nested section
+	// Move into a nested section.
 	void TextReader::PushSection()
 	{
-		auto& pp = as<script::Preprocessor>(m_pp);
-		script::EatDelimiters(pp, m_delim);
-		if (*pp != '{')
+		auto& source = m_impl->Source();
+		script::EatDelimiters(source, m_impl->m_reader->Delimiters());
+		if (*source != '{')
 		{
 			ReportError(EParseError::NotFound, Loc(), "section start expected");
-			str::AdvanceToDelim(pp, m_delim);
+			str::AdvanceToDelim(source, m_impl->m_reader->Delimiters());
 			return;
 		}
 
-		++m_section_level;
-		++m_nest_level;
-		++pp;
+		++m_impl->m_section_level;
+		++m_impl->m_nest_level;
+		++source;
 	}
 
-	// Leave the current nested section
+	// Leave the current nested section.
 	void TextReader::PopSection()
 	{
-		auto& pp = as<script::Preprocessor>(m_pp);
-		script::EatDelimiters(pp, m_delim);
-		if (*pp != '}')
+		auto& source = m_impl->Source();
+		script::EatDelimiters(source, m_impl->m_reader->Delimiters());
+		if (*source != '}')
 		{
 			ReportError(EParseError::NotFound, Loc(), "section end expected");
-			str::AdvanceToDelim(pp, m_delim);
+			str::AdvanceToDelim(source, m_impl->m_reader->Delimiters());
 			return;
 		}
 
-		--m_section_level;
-		--m_nest_level;
-		++pp;
+		--m_impl->m_section_level;
+		--m_impl->m_nest_level;
+		++source;
 	}
 
-	// True when the current position has reached the end of the current section
+	// True when the current position has reached the end of the current section.
 	bool TextReader::IsSectionEnd()
 	{
-		auto& pp = as<script::Preprocessor>(m_pp);
-		m_nest_level += *pp == '{';
-		pp += *pp == '{';
-		script::EatDelimiters(pp, m_delim);
-		return *pp == '}' || *pp == 0;
+		m_impl->PrepareValue();
+		auto& source = m_impl->Source();
+		script::EatDelimiters(source, m_impl->m_reader->Delimiters());
+		return *source == '}' || *source == 0;
 	}
 
-	// True when the source is exhausted
+	// True when the source is exhausted.
 	bool TextReader::IsSourceEnd()
 	{
-		auto& pp = as<script::Preprocessor>(m_pp);
-		m_nest_level += *pp == '{';
-		pp += *pp == '{';
-		script::EatDelimiters(pp, m_delim);
-		return *pp == 0;
+		m_impl->PrepareValue();
+		auto& source = m_impl->Source();
+		script::EatDelimiters(source, m_impl->m_reader->Delimiters());
+		return *source == 0;
 	}
 
-	// Get the next keyword within the current section. Returns false if at the end of the section
+	// Get the next keyword within the current section.
 	bool TextReader::NextKeywordImpl(int& kw)
 	{
-		auto& pp = as<script::Preprocessor>(m_pp);
-
-		// Skip to the next keyword, but don't go beyond the current section level.
-		for (;*pp && *pp != '*';)
+		if (!m_impl->m_pseudo_tokens.empty())
 		{
-			if (*pp == '\"') { script::EatLiteral(pp, pp.Location()); continue; }
-			if (*pp == '{')  { script::EatSection(pp, pp.Location()); continue; }
-			if (*pp == '}')  { if (m_nest_level > m_section_level) --m_nest_level; else break; }
-			++pp;
+			m_impl->m_pseudo_value = std::move(m_impl->m_pseudo_tokens.front());
+			m_impl->m_pseudo_tokens.pop_front();
+			switch (m_impl->m_pseudo_value.m_kind)
+			{
+				case Impl::EPseudoValue::Name: { m_impl->m_keyword = "Name"; break; }
+				case Impl::EPseudoValue::Colour: { m_impl->m_keyword = "Colour"; break; }
+				default: throw std::runtime_error("Invalid LDraw pseudo-token kind");
+			}
+			kw = HashI(m_impl->m_keyword);
+			return true;
 		}
-		if (*pp == '*') ++pp; else return false;
-			
-		// Read the keyword
-		wstring32 keyword;
-		if (!str::ExtractIdentifier(keyword, pp, m_delim)) return false;
 
-		// Convert the keyword to an integer
-		m_keyword = Narrow(keyword);
-		kw = HashI(m_keyword);
+		auto& source = m_impl->Source();
 
-		// Handle an optional name and colour after the keyword
-		wstring32 tokens[2]; int tcount = 0;
-		script::EatDelimiters(pp, m_delim);
-		if (*pp != '{') tcount += str::ExtractToken(tokens[0], pp, m_delim) ? 1 : 0;
-		script::EatDelimiters(pp, m_delim);
-		if (*pp != '{') tcount += str::ExtractToken(tokens[1], pp, m_delim) ? 1 : 0;
-		script::EatDelimiters(pp, m_delim);
-		if (*pp != '{')
+		// Skip completed data sections and unrelated values without crossing the current object scope.
+		for (; *source && *source != '*';)
+		{
+			if (*source == '\"') { script::EatLiteral(source, source.Location()); continue; }
+			if (*source == '{') { script::EatSection(source, source.Location()); continue; }
+			if (*source == '}')
+			{
+				if (m_impl->m_nest_level > m_impl->m_section_level)
+					--m_impl->m_nest_level;
+				else
+					break;
+			}
+			++source;
+		}
+		if (*source == '*')
+			++source;
+		else
+			return false;
+
+		m_impl->m_keyword.clear();
+		if (!str::ExtractIdentifier(m_impl->m_keyword, source, m_impl->m_reader->Delimiters()))
+			return false;
+
+		kw = HashI(m_impl->m_keyword);
+
+		// Capture optional compact name/colour fields and expose them as ordinary keyword/value pairs.
+		for (int index = 0; index != 2; ++index)
+		{
+			script::EatDelimiters(source, m_impl->m_reader->Delimiters());
+			if (*source == '{')
+				break;
+
+			std::string token;
+			if (!str::ExtractToken(token, source, m_impl->m_reader->Delimiters()))
+				break;
+
+			if (IsColour(token))
+				m_impl->m_pseudo_tokens.push_back({ Impl::EPseudoValue::Colour, std::move(token) });
+			else if (IsName(token))
+				m_impl->m_pseudo_tokens.push_back({ Impl::EPseudoValue::Name, std::move(token) });
+		}
+
+		script::EatDelimiters(source, m_impl->m_reader->Delimiters());
+		if (*source != '{')
 		{
 			ReportError(EParseError::UnexpectedToken, Loc(), "expected '{'");
-			str::AdvanceToDelim(pp, m_delim);
-			return {};
+			str::AdvanceToDelim(source, m_impl->m_reader->Delimiters());
+			return false;
 		}
-		
-		// Insert pseudo tokens for name and colour
-		pp.Buffer(0, 1);
-		for (; tcount--; )
-		{
-			auto& tok = tokens[tcount];
-
-			// colour
-			if (tok.size() == 8 && all(tok, std::iswxdigit))
-				pp.Buffer().insert(1ULL, tok.insert(0, L"*Colour {").append(L"}"));
-			
-			// name
-			else if (!tok.empty() && all(tok, [](auto ch) { return std::iswalnum(ch) || ch == '_'; }))
-				pp.Buffer().insert(1ULL, tok.insert(0, L"*Name {").append(L"}"));
-		}
-
-		// At this stage we don't know if the following '{...}' is a data section or nested section.
-		// Increment/decrement 'm_nest_level' whenever a '{' or '}' is consumed.
-		// Increment/decrement 'm_section_level' whenever PushSection or PopSection is called.
 		return true;
 	}
 
-	// Read an identifier from the current section. Leading '10xxxxxx' bytes are the length (in bytes). Default length is the full section
+	// Read an identifier from the current section.
 	string32 TextReader::IdentifierImpl(bool incl_dot)
 	{
-		auto& pp = as<script::Preprocessor>(m_pp);
-		m_nest_level += *pp == '{';
-		pp += *pp == '{';
+		if (m_impl->m_pseudo_value.m_kind == Impl::EPseudoValue::Name)
+		{
+			auto value = std::move(m_impl->m_pseudo_value.m_value);
+			m_impl->ConsumePseudo();
+			return value;
+		}
 
-		wstring32 str = {};
-		if (!str::ExtractIdentifier(str, pp, m_delim, incl_dot))
+		m_impl->PrepareValue();
+		string32 value;
+		if (!str::ExtractIdentifier(value, m_impl->Source(), m_impl->m_reader->Delimiters(), incl_dot))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), "identifier expected");
-			str::AdvanceToDelim(pp, m_delim);
+			str::AdvanceToDelim(m_impl->Source(), m_impl->m_reader->Delimiters());
 			return {};
 		}
-		return Narrow(str);
+		return value;
 	}
 
-	// Read a UTF-8 string from the current section. Leading '10xxxxxx' bytes are the length (in bytes). Default length is the full section
+	// Read a UTF-8 string from the current section.
 	string32 TextReader::StringImpl(char escape_char)
 	{
-		auto& pp = as<script::Preprocessor>(m_pp);
-		m_nest_level += *pp == '{';
-		pp += *pp == '{';
-
-		wstring32 str = {};
-		if (!str::ExtractString(str, pp, wchar_t(escape_char), {}, m_delim))
+		m_impl->PrepareValue();
+		auto& source = m_impl->Source();
+		script::EatDelimiters(source, m_impl->m_reader->Delimiters());
+		auto quote = *source;
+		string32 value;
+		if (!str::ExtractString(value, source, escape_char, {}, m_impl->m_reader->Delimiters()))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), "string expected");
-			str::AdvanceToDelim(pp, m_delim);
+			str::AdvanceToDelim(source, m_impl->m_reader->Delimiters());
 			return {};
 		}
-		str::ProcessIndentedNewlines(str);
-		return Narrow(str);
+
+		// Present whitespace-adjacent literals as one logical string.
+		for (;;)
+		{
+			auto join = size_t{};
+			for (; str::IsWhiteSpace(source[join]); ++join) {}
+			if (source[join] != quote)
+				break;
+
+			source += join;
+			string32 part;
+			if (!str::ExtractString(part, source, escape_char, {}, m_impl->m_reader->Delimiters()))
+				break;
+
+			value.append(part);
+		}
+		str::ProcessIndentedNewlines(value);
+		return value;
 	}
 
-	// Read an integral value from the current section
+	// Read an integral value from the current section.
 	int64_t TextReader::IntImpl(int, int radix)
 	{
-		auto& pp = as<script::Preprocessor>(m_pp);
-		m_nest_level += *pp == '{';
-		pp += *pp == '{';
+		if (m_impl->m_pseudo_value.m_kind == Impl::EPseudoValue::Colour)
+		{
+			uint64_t value = {};
+			auto const& token = m_impl->m_pseudo_value.m_value;
+			auto [ptr, ec] = std::from_chars(token.data(), token.data() + token.size(), value, radix);
+			if (ec == std::errc{} && ptr == token.data() + token.size())
+			{
+				m_impl->ConsumePseudo();
+				return static_cast<int64_t>(value);
+			}
+			m_impl->ConsumePseudo();
+		}
 
-		int64_t int_ = {};
-		if (!str::ExtractInt(int_, radix, pp, m_delim))
+		m_impl->PrepareValue();
+		int64_t value = {};
+		if (!m_impl->m_reader->Int(value, radix))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), "integer value expected");
-			str::AdvanceToDelim(pp, m_delim);
+			str::AdvanceToDelim(m_impl->Source(), m_impl->m_reader->Delimiters());
 			return {};
 		}
-		return int_;
+		return value;
 	}
 
-	// Read a floating point value from the current section
+	// Read a dense sequence of integral values without repeated interface dispatch.
+	void TextReader::IntsImpl(int byte_count, std::span<int64_t> values, int radix)
+	{
+		for (auto& value : values)
+			value = IntImpl(byte_count, radix);
+	}
+
+	// Read a floating point value from the current section.
 	double TextReader::RealImpl(int)
 	{
-		auto& pp = as<script::Preprocessor>(m_pp);
-		m_nest_level += *pp == '{';
-		pp += *pp == '{';
-
-		double real_ = {};
-		if (!str::ExtractReal(real_, pp, m_delim))
+		m_impl->PrepareValue();
+		double value = {};
+		if (!m_impl->m_reader->Real(value) || std::isnan(value) || !std::isfinite(value))
 		{
-			ReportError(EParseError::InvalidValue, Loc(), "real value expected");
-			str::AdvanceToDelim(pp, m_delim);
+			ReportError(EParseError::InvalidValue, Loc(), std::isnan(value) ? "real value is Not-a-Number" : !std::isfinite(value) ? "real value is not finite" : "real value expected");
+			str::AdvanceToDelim(m_impl->Source(), m_impl->m_reader->Delimiters());
 			return {};
 		}
-		if (std::isnan(real_))
-		{
-			ReportError(EParseError::InvalidValue, Loc(), "real value is Not-a-Number");
-			str::AdvanceToDelim(pp, m_delim);
-			return {};
-		}
-		if (!std::isfinite(real_))
-		{
-			ReportError(EParseError::InvalidValue, Loc(), "real value is not finite");
-			str::AdvanceToDelim(pp, m_delim);
-			return {};
-		}
-		return real_;
+		return value;
 	}
 
-	// Read an enum value from the current section
+	// Read a dense sequence of floating-point values without repeated interface dispatch.
+	void TextReader::RealsImpl(int byte_count, std::span<double> values)
+	{
+		for (auto& value : values)
+			value = RealImpl(byte_count);
+	}
+
+	// Read an enum value from the current section.
 	int64_t TextReader::EnumImpl(int, ParseEnumIdentCB parse)
 	{
-		auto& pp = as<script::Preprocessor>(m_pp);
-		m_nest_level += *pp == '{';
-		pp += *pp == '{';
-
-		string32 ident = {};
-		if (!str::ExtractIdentifier(ident, pp, m_delim))
-		{
-			ReportError(EParseError::InvalidValue, Loc(), "enum identifier value expected");
-			str::AdvanceToDelim(pp, m_delim);
+		auto identifier = IdentifierImpl(false);
+		if (identifier.empty())
 			return {};
-		}
-		return parse(ident);
+
+		return parse(identifier);
 	}
 
-	// Read a boolean value from the current section
+	// Read a boolean value from the current section.
 	bool TextReader::BoolImpl()
 	{
-		auto& pp = as<script::Preprocessor>(m_pp);
-		m_nest_level += *pp == '{';
-		pp += *pp == '{';
-
-		bool bool_ = {};
-		if (!str::ExtractBool(bool_, pp, m_delim))
+		m_impl->PrepareValue();
+		bool value = {};
+		if (!m_impl->m_reader->Bool(value))
 		{
 			ReportError(EParseError::InvalidValue, Loc(), "boolean value expected");
-			str::AdvanceToDelim(pp, m_delim);
+			str::AdvanceToDelim(m_impl->Source(), m_impl->m_reader->Delimiters());
 			return {};
 		}
-		return bool_;
+		return value;
 	}
 
-	// A helper for debug messages to show the last read keyword
+	// Return the most recently read keyword for diagnostics.
 	string32 TextReader::LastKeywordString() const
 	{
-		return m_keyword;
+		return m_impl->m_keyword;
 	}
 }

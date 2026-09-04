@@ -187,7 +187,6 @@
 #include "pr/threads/wait_state.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_binary.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_text.h"
-#include "pr/view3d-12/ldraw/ldraw_reader_text2.h"
 #include "pr/view3d-12/ldraw/ldraw_svg.h"
 #include "pr/win32/dummy_window.h"
 #include "pr/win32/stackdump.h"

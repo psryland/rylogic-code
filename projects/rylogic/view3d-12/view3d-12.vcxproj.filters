@@ -282,9 +282,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_reader_text.h">
       <Filter>src\ldraw</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_reader_text2.h">
-      <Filter>src\ldraw</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\ldraw\ldraw_serialiser.h">
       <Filter>src\ldraw</Filter>
     </ClInclude>
@@ -553,9 +550,6 @@
       <Filter>src\ldraw</Filter>
     </ClCompile>
     <ClCompile Include="src\ldraw\ldraw_reader_text.cpp">
-      <Filter>src\ldraw</Filter>
-    </ClCompile>
-    <ClCompile Include="src\ldraw\ldraw_reader_text2.cpp">
       <Filter>src\ldraw</Filter>
     </ClCompile>
     <ClCompile Include="src\ldraw\ldraw_templates.cpp">
