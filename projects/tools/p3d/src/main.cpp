@@ -14,12 +14,14 @@ struct Main
 	std::unique_ptr<p3d::File> m_model;
 	path m_base_dir;
 	path m_infile;
+	path m_script_filepath;
 	int m_verbosity;
 
 	Main()
 		:m_model()
 		,m_base_dir()
 		,m_infile()
+		,m_script_filepath()
 		,m_verbosity(1)
 	{}
 
@@ -104,28 +106,26 @@ struct Main
 			;
 	}
 
-	// Convert the command line into a script source
-	std::unique_ptr<script::Src> ParseCommandLine(int argc, wchar_t* argv[])
+	// Convert the command line or script file into caller-owned UTF-8 text.
+	std::string ParseCommandLine(int argc, wchar_t* argv[])
 	{
-		using namespace pr::script;
-
 		// No arguments given
 		if (argc <= 1)
-			return nullptr;
+			return {};
 
-		// If the command line is a script filepath, return a file source
+		// A lone non-option argument names a UTF-8 script file.
 		if (!cmdline::IsOption(argv[1]))
 		{
-			// If the only argument is a filepath, assume a script file
 			auto script_filepath = path(filesys::ResolvePath(argv[1]));
 			if (script_filepath.empty())
-				return nullptr;
+				return {};
 
 			if (!exists(script_filepath))
 				throw std::runtime_error(Fmt("Script '%S' does not exist", argv[1]));
 
 			m_base_dir = script_filepath.parent_path();
-			return std::unique_ptr<FileSrc>(new FileSrc(script_filepath));
+			m_script_filepath = script_filepath;
+			return std::string(filesys::FileSnapshot(script_filepath).str());
 		}
 		else
 		{
@@ -247,9 +247,10 @@ struct Main
 			if (p.m_verbosity >= 3)
 				std::cout << "Command Script:\n" << p.m_script << "\n";
 
-			// Create a string source
+			// Return the generated command script.
 			m_base_dir = current_path();
-			return std::unique_ptr<StringSrc>(new StringSrc(p.m_script, StringSrc::EFlags::BufferLocally));
+			m_script_filepath.clear();
+			return std::move(p.m_script);
 		}
 	}
 
@@ -267,15 +268,15 @@ struct Main
 		try
 		{
 			// Get the script source from the command line
-			auto src = ParseCommandLine(argc, argv);
-			if (src == nullptr)
+			auto source = ParseCommandLine(argc, argv);
+			if (source.empty())
 			{
 				ShowHelp();
 				return -1;
 			}
 
 			// Execute the script
-			script::Reader reader(*src);
+			script::Reader reader(source, false, m_script_filepath);
 			for (char kw[32]; reader.NextKeywordS(kw);)
 			{
 				if (str::EqualI(kw, "verbosity"))
