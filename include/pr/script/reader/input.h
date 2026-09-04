@@ -2,13 +2,13 @@
 // Script
 //  Copyright (c) Rylogic Ltd 2015
 //**********************************
-// Reader2 (pr::script::v2) - UTF-8 native byte input sources.
+// Reader (pr::script::reader) - UTF-8 native byte input sources.
 //
 // Style Guidance:
-//  - This header, and the rest of 'pr/script/reader2/*', implement the redesigned,
+//  - This header, and the rest of 'pr/script/reader/*', implement the redesigned,
 //    UTF-8 native, header-only sibling to 'pr::script::Reader'. The original wchar_t
 //    based reader (pr/script/reader.h and friends) is left completely unmodified.
-//  - Reader2 favours direct byte buffers and pull-based refill over the old virtual
+//  - Reader favours direct byte buffers and pull-based refill over the old virtual
 //    'Src' hierarchy. New code in this module should follow that pattern rather than
 //    reintroducing per-character virtual dispatch.
 #pragma once
@@ -22,17 +22,17 @@
 #include <memory>
 #include <vector>
 
-namespace pr::script::v2
+namespace pr::script::reader
 {
 	// The size of the physical read block used to pull bytes out of an 'IInput'.
-	// This is the "fixed transport buffer" referred to by the reader2 design: bulk
+	// This is the "fixed transport buffer" referred to by the reader design: bulk
 	// reads are always requested in chunks of this size (or the remaining tail).
 	// Large streamed/file numeric and boundary workloads selected 32 KiB as the
 	// best representative geometric mean without a material boundary regression.
-	#if !defined(PR_SCRIPT_READER2_BLOCK_SIZE)
-	#define PR_SCRIPT_READER2_BLOCK_SIZE 32768
+	#if !defined(PR_SCRIPT_READER_BLOCK_SIZE)
+	#define PR_SCRIPT_READER_BLOCK_SIZE 32768
 	#endif
-	constexpr size_t BlockSize = PR_SCRIPT_READER2_BLOCK_SIZE;
+	constexpr size_t BlockSize = PR_SCRIPT_READER_BLOCK_SIZE;
 
 	// Abstract supplier of raw UTF-8 bytes. Implementations are pull-based: 'Read'
 	// is called repeatedly by a 'Cursor' to top up its working window, in blocks of

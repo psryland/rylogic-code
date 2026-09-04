@@ -2,13 +2,11 @@
 // Script
 //  Copyright (c) Rylogic Ltd 2015
 //**********************************
-// Reader2 (pr::script::v2) - UTF-8 native lexer.
+// Reader (pr::script::reader) - UTF-8 native lexer.
 //
 // Style Guidance:
-//  - This mirrors 'pr/script/tokeniser.h::Tokeniser::seek()' exactly (same character
-//    dispatch, same symbol/keyword/constant recognition) but reads from a UTF-8 byte
-//    stream rather than a 'wchar_t' 'Src', and reuses the legacy 'EToken'/'EKeyword'/
-//    'ESymbol'/'EConstant' enumerations so token classification hashes match exactly.
+//  - The lexer reads UTF-8 bytes and emits the shared
+//    'EToken'/'EKeyword'/'ESymbol'/'EConstant' vocabulary.
 //  - Comment stripping and line-continuation joining have already happened upstream
 //    (in 'FilterCursor', see 'preprocessor.h'), so this lexer does not need to
 //    recognise '//' or '/* */' itself.
@@ -22,13 +20,13 @@
 #include "pr/common/number.h"
 #include "pr/str/extract.h"
 #include "pr/str/string_core.h"
-#include "pr/script/reader2/token.h"
-#include "pr/script/reader2/preprocessor.h"
+#include "pr/script/reader/token.h"
+#include "pr/script/reader/preprocessor.h"
 
-namespace pr::script::v2
+namespace pr::script::reader
 {
 	// Converts a fully-preprocessed UTF-8 character stream into a sequence of
-	// 'Token's. 'Src' must satisfy the 'Ptr' concept used throughout reader2:
+	// 'Token's. 'Src' must satisfy the 'Ptr' concept used throughout reader:
 	// 'operator*'/'operator[]'/'operator++'/'operator+='/'Location()'/'AtEnd()'.
 	// The normal instantiation is over 'Preprocessor', but the lexer can also run
 	// directly over a 'Cursor' when preprocessing is not wanted.
@@ -77,9 +75,7 @@ namespace pr::script::v2
 			auto loc = src.Location();
 			auto c = *src;
 
-			// Dispatch purely on the first character, mirroring the legacy
-			// tokeniser's character-driven switch so error locations and token
-			// boundaries line up with the old reader.
+			// Dispatch in the observable grammar precedence.
 			switch (Classify(c))
 			{
 				case ECharClass::End:
@@ -143,7 +139,7 @@ namespace pr::script::v2
 			auto& src = *m_src;
 
 			// 'L' immediately followed by a quote is a wide string/char literal
-			// prefix, not an identifier - matches the legacy tokeniser's special case.
+			// prefix, not an identifier.
 			if (*src == 'L' && (src[1] == '\'' || src[1] == '\"'))
 			{
 				++src;
@@ -155,7 +151,7 @@ namespace pr::script::v2
 			if (!str::ExtractIdentifier(id, src))
 				throw ScriptException(EResult::SyntaxError, loc, "Invalid identifier");
 
-			// Keywords hash-match the ASCII-only legacy keyword set; identifiers do not.
+			// Keywords hash-match the shared ASCII keyword set; identifiers do not.
 			auto hash = pr::hash::Hash(std::string_view(id));
 			if (pr::Enum<EKeyword>::IsValue(hash))
 			{
@@ -168,8 +164,7 @@ namespace pr::script::v2
 			}
 		}
 
-		// Read a numeric constant (integer or floating point), using the same
-		// generic 'Number' extraction as the legacy tokeniser.
+		// Read an integer or floating-point constant using generic 'Number' extraction.
 		void ReadNumber(Loc const& loc)
 		{
 			auto& src = *m_src;
@@ -205,9 +200,7 @@ namespace pr::script::v2
 
 			if (is_char)
 			{
-				// Char literals are integral constants of the first decoded byte,
-				// matching the legacy tokeniser (single-byte chars only; reader2
-				// does not attempt to decode a UTF-8 char literal to a code point).
+				// Character literals are integral constants of their first byte.
 				m_tok = Token(EToken::Constant, str, loc);
 				m_tok.m_constant = EConstant::Integral;
 				m_tok.m_int_value = str.empty() ? 0 : static_cast<uint8_t>(str[0]);
@@ -219,8 +212,7 @@ namespace pr::script::v2
 			}
 		}
 
-		// Read an operator/punctuation symbol, choosing the longest match first
-		// (e.g. '<<=' before '<<' before '<'), exactly as the legacy tokeniser does.
+		// Read an operator or punctuation symbol, choosing the longest match first.
 		void ReadSymbol(Loc const& loc)
 		{
 			auto& src = *m_src;
@@ -335,7 +327,7 @@ namespace pr::script::v2
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-namespace pr::script::v2::testing
+namespace pr::script::reader::testing
 {
 	// Drain 'src' as tokens, formatting each as "<type>:<text>" joined by '|', for
 	// compact assertions in the tests below.
@@ -375,11 +367,11 @@ namespace pr::script::v2::testing
 		return out;
 	}
 
-	PRUnitTestClass(Reader2LexerTests)
+	PRUnitTestClass(ReaderLexerTests)
 	{
 
 		// Identifiers, keywords, and symbols are recognised, with keywords matching
-		// the shared 'EKeyword' hash set used by the legacy tokeniser.
+		// the shared 'EKeyword' hash set.
 		PRUnitTestMethod(IdentifiersKeywordsSymbols, Quick)
 		{
 			Preprocessor pp("int x = foo + 1;");

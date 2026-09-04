@@ -2,15 +2,12 @@
 // Script
 //  Copyright (c) Rylogic Ltd 2015
 //**********************************
-// Reader2 (pr::script::v2) - UTF-8 native preprocessor.
+// Reader (pr::script::reader) - UTF-8 native preprocessor.
 //
 // Style Guidance:
-//  - Mirrors the directive set and semantics of 'pr/script/preprocessor.h' (macro
-//    expansion, conditional compilation, includes, #eval/#lit/#embedded) but is
-//    built entirely on the byte-oriented 'Cursor'/'Frame' types in this folder
-//    instead of the legacy virtual 'Src' hierarchy. Diagnostics use the same
-//    'EResult' codes and 'Loc' locations as the legacy preprocessor so that
-//    callers observe compatible failures, even though exact message text differs.
+//  - Macro expansion, conditional compilation, includes, #eval, #lit, and
+//    #embedded operate on the byte-oriented 'Cursor'/'Frame' types in this folder.
+//    Diagnostics use shared 'EResult' codes and 'Loc' locations.
 #pragma once
 #include <string>
 #include <string_view>
@@ -30,11 +27,11 @@
 #include "pr/common/expr_eval.h"
 #include "pr/str/extract.h"
 #include "pr/str/string_core.h"
-#include "pr/script/reader2/input.h"
-#include "pr/script/reader2/cursor.h"
-#include "pr/script/reader2/macros.h"
+#include "pr/script/reader/input.h"
+#include "pr/script/reader/cursor.h"
+#include "pr/script/reader/macros.h"
 
-namespace pr::script::v2
+namespace pr::script::reader
 {
 	// A lightweight forward cursor over a plain in-memory 'std::string', used when
 	// scanning already-expanded text (e.g. inside 'RecursiveExpandMacros') for
@@ -159,9 +156,7 @@ namespace pr::script::v2
 		return out.str();
 	}
 
-	// Interface for executing an embedded code block (e.g. '#embedded(lua) ... #end').
-	// Reuses the same shape as the legacy 'pr::script::IEmbeddedCode' but works on
-	// UTF-8 'std::string' instead of 'wchar_t const*'/'string_t'.
+	// Executes an embedded UTF-8 code block such as '#embedded(lua) ... #end'.
 	struct IEmbeddedCode2
 	{
 		virtual ~IEmbeddedCode2() = default;
@@ -174,13 +169,10 @@ namespace pr::script::v2
 		virtual bool Execute(std::string_view code, bool support, std::string& result) = 0;
 	};
 
-	// Interface for resolving and opening '#include' targets as UTF-8 byte sources.
-	// The legacy 'pr::script::IIncludeHandler' cannot be reused directly because its
-	// 'Open'/'OpenStreamA' methods return wide 'Src'/'istream' types; this is the
-	// reader2-native equivalent, reusing the (non-wide) 'EIncludeFlags' enum.
-	struct IIncludeHandler2
+	// Resolves and opens '#include' targets as UTF-8 byte sources.
+	struct IIncludeHandler
 	{
-		virtual ~IIncludeHandler2() = default;
+		virtual ~IIncludeHandler() = default;
 
 		// Add a directory to the include search path list.
 		virtual void AddSearchPath(std::filesystem::path const& path)
@@ -195,9 +187,8 @@ namespace pr::script::v2
 		virtual std::unique_ptr<IInput> Open(std::filesystem::path const& resolved, EIncludeFlags flags, Loc const& loc) = 0;
 	};
 
-	// An 'IIncludeHandler2' that rejects every include, matching the legacy
-	// 'NoIncludes' default used when a reader is not configured to support them.
-	struct NoIncludes2 :IIncludeHandler2
+	// Rejects includes when a reader has no include source.
+	struct NoIncludes :IIncludeHandler
 	{
 		std::filesystem::path ResolveInclude(std::filesystem::path const&, EIncludeFlags flags, Loc const& loc) override
 		{
@@ -215,10 +206,10 @@ namespace pr::script::v2
 		}
 	};
 
-	// The default 'IIncludeHandler2': resolves '#include' targets against a list of
+	// The default 'IIncludeHandler': resolves '#include' targets against a list of
 	// search directories (using the shared, non-wide 'pr::filesys::ResolvePath'
 	// helper) and opens them as plain UTF-8 files.
-	struct FileIncludeHandler2 :IIncludeHandler2
+	struct FileIncludeHandler :IIncludeHandler
 	{
 		std::vector<std::filesystem::path> m_paths;
 
@@ -278,11 +269,8 @@ namespace pr::script::v2
 		}
 	};
 
-	// A comment/line-continuation filtering layer over a raw 'Cursor'. Produces the
-	// same "logical" character stream that the legacy 'Preprocessor : Src' saw from
-	// its 'Input' (itself 'StripLineContinuations' then 'StripComments' applied to
-	// the raw file), while remaining byte-addressable so it still satisfies the
-	// 'Ptr' concept used by 'pr::str::Extract*' and by 'Macro::ReadParams'.
+	// A comment/line-continuation filtering layer over a raw 'Cursor'. Produces a
+	// logical byte-addressable stream for extraction and macro parsing.
 	class FilterCursor
 	{
 		// Memory sources without comment or continuation markers can delegate
@@ -418,9 +406,7 @@ namespace pr::script::v2
 		// one substitute space; everything else copies straight through).
 		void Step()
 		{
-			// Line continuations join two physical lines into one logical line and are
-			// removed unconditionally, before comment recognition, matching the legacy
-			// 'StripLineContinuations' -> 'StripComments' ordering.
+			// Line continuations join physical lines before comment recognition.
 			if (*m_raw == '\\' && (m_raw[1] == '\n' || (m_raw[1] == '\r' && m_raw[2] == '\n')))
 			{
 				m_raw += m_raw[1] == '\r' ? 3 : 2;
@@ -563,8 +549,7 @@ namespace pr::script::v2
 
 		// Mark the next 'n' characters of this frame as verbatim: 'Pump' bypasses
 		// directive ('#') and macro-identifier recognition for them entirely. Only
-		// '#lit' bodies use this - legacy streams them through an emit-count exactly
-		// this way, whereas '#embedded' results are pushed as ordinary re-scanned text.
+		// '#lit' bodies use this, whereas '#embedded' results are re-scanned.
 		void Echo(size_t n)
 		{
 			m_echo = n;
@@ -641,8 +626,8 @@ namespace pr::script::v2
 		std::vector<Frame> m_stack;
 		size_t m_transport_peak_bytes;
 		MacroDB m_macros;
-		std::unique_ptr<IIncludeHandler2> m_default_includes;
-		IIncludeHandler2* m_includes;
+		std::unique_ptr<IIncludeHandler> m_default_includes;
+		IIncludeHandler* m_includes;
 		std::function<IEmbeddedCode2*(std::string_view)> m_embedded_lookup;
 		bool m_ignore_missing;
 
@@ -664,9 +649,8 @@ namespace pr::script::v2
 	public:
 
 		// Construct a preprocessor reading UTF-8 bytes from 'input'. 'includes', if
-		// non-null, resolves '#include' directives; otherwise includes are rejected
-		// with 'EResult::IncludesNotSupported', matching the legacy default.
-		explicit Preprocessor(std::unique_ptr<IInput> input, IIncludeHandler2* includes = nullptr, Loc const& loc = {})
+		// non-null, resolves '#include' directives; otherwise includes are rejected.
+		explicit Preprocessor(std::unique_ptr<IInput> input, IIncludeHandler* includes = nullptr, Loc const& loc = {})
 			: m_passthrough()
 			, m_passthrough_screened(false)
 			, m_passthrough_safe()
@@ -685,7 +669,7 @@ namespace pr::script::v2
 		{
 			if (m_includes == nullptr)
 			{
-				m_default_includes = std::make_unique<NoIncludes2>();
+				m_default_includes = std::make_unique<NoIncludes>();
 				m_includes = m_default_includes.get();
 			}
 
@@ -709,7 +693,7 @@ namespace pr::script::v2
 
 		// Convenience constructor over a caller-owned UTF-8 memory buffer, which must
 		// outlive this preprocessor.
-		explicit Preprocessor(std::string_view utf8, std::filesystem::path filepath = {}, IIncludeHandler2* includes = nullptr)
+		explicit Preprocessor(std::string_view utf8, std::filesystem::path filepath = {}, IIncludeHandler* includes = nullptr)
 			: Preprocessor(std::make_unique<MemoryInput>(utf8, std::move(filepath)), includes)
 		{}
 
@@ -737,7 +721,7 @@ namespace pr::script::v2
 		}
 
 		// Access the include handler resolving '#include' directives.
-		IIncludeHandler2& Includes() noexcept
+		IIncludeHandler& Includes() noexcept
 		{
 			return *m_includes;
 		}
@@ -869,7 +853,7 @@ namespace pr::script::v2
 		{
 			if (m_passthrough)
 			{
-				// Preserve the legacy preprocessor's exhausted-source sentinel.
+				// Preserve a stable exhausted-source sentinel.
 				if (m_passthrough->AtEnd())
 				{
 					static Loc const end_loc;
@@ -1019,8 +1003,7 @@ namespace pr::script::v2
 					return true;
 				}
 
-				// A '#' outside a literal introduces a directive at any output position,
-				// matching legacy support for constructs such as '*Value #eval{...}'.
+				// A '#' outside a literal introduces a directive at any output position.
 				if (m_literal_quote == 0 && c == '#')
 				{
 					auto directive_loc = top.Location();
@@ -1126,7 +1109,7 @@ namespace pr::script::v2
 		// Consume and interpret one directive; 'top' is already positioned just past
 		// the leading '#'. Side effects (defining macros, pushing include/eval/embedded
 		// frames, reporting errors) only occur while 'Emitting()'. Inactive branches
-		// parse conditional structure only, matching the legacy line-skipping contract.
+		// parse conditional structure only.
 		void DoDirective(Loc const& loc)
 		{
 			// Remember which physical frame holds the directive text: a handler such as
@@ -1569,8 +1552,7 @@ namespace pr::script::v2
 
 		void DoLit(Loc const& loc)
 		{
-			// Discard directive-line spacing and its line break before capturing the
-			// literal body, matching the legacy block boundary.
+			// Discard directive-line spacing and its line break before capturing the body.
 			auto& top = m_stack.back();
 			for (; *top == ' ' || *top == '\t';)
 				++top;
@@ -1666,7 +1648,7 @@ namespace pr::script::v2
 			if (!Emitting())
 				return;
 
-			// Embedded source sees the same recursively expanded macro text as legacy.
+			// Embedded source receives recursively expanded macro text.
 			code = RecursiveExpandMacros(code, m_macros, nullptr, loc);
 			auto* handler = m_embedded_lookup ? m_embedded_lookup(lang) : nullptr;
 			if (handler == nullptr)
@@ -1686,17 +1668,16 @@ namespace pr::script::v2
 
 		void DoLine(Loc const&)
 		{
-			// '#line' is accepted and ignored: reader2 reports true source locations
+			// '#line' is accepted and ignored: reader reports true source locations
 			// rather than caller-overridden ones (an intentional, documented gap).
 		}
 		void DoPragma(Loc const&)
 		{
-			// Pragmas are consumed and ignored, matching the legacy reader's behaviour
-			// of treating them as informational only.
+			// Pragmas are consumed as informational directives.
 		}
 		void DoWarning(Loc const&)
 		{
-			// Warnings are consumed and otherwise ignored; reader2 has no diagnostic
+			// Warnings are consumed and otherwise ignored; reader has no diagnostic
 			// sink wired up at this layer (an integration concern, per the plan).
 		}
 		void DoError(Loc const& loc)
@@ -1714,7 +1695,7 @@ namespace pr::script::v2
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-namespace pr::script::v2::testing
+namespace pr::script::reader::testing
 {
 	// Drain a preprocessor to a plain string, for comparison against expected output.
 	inline std::string Drain(Preprocessor& pp)
@@ -1726,7 +1707,7 @@ namespace pr::script::v2::testing
 		return out;
 	}
 
-	PRUnitTestClass(Reader2PreprocessorTests)
+	PRUnitTestClass(ReaderPreprocessorTests)
 	{
 		PRUnitTestMethod(ConsecutiveStrings, Quick)
 		{

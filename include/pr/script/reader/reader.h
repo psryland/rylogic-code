@@ -2,30 +2,20 @@
 // Script
 //  Copyright (c) Rylogic Ltd 2015
 //**********************************
-// Reader2 (pr::script::v2) - the UTF-8 native replacement for 'pr::script::Reader'.
+// UTF-8 script reader facade.
 //
 // Style Guidance:
-//  - This is the top-level facade of the reader2 stack: it wraps a 'Preprocessor'
-//    (itself wrapping a 'Cursor') and exposes the same keyword/section/value
-//    extraction vocabulary as the legacy 'pr::script::Reader', so that call sites
-//    can be ported by swapping the type name. Compatibility extraction uses the
-//    char-generic 'pr::str::Extract*' family via 'm_pp', which satisfies its
-//    forward-pointer concept.
-//  - Deliberately NOT supported: constructing from the legacy virtual 'Src'
-//    hierarchy, or from a 'wchar_t const*' source. Reader2 only accepts UTF-8
-//    bytes (an in-memory buffer or a binary-mode 'std::istream'); converting a
-//    legacy wide-character or other-encoding source into UTF-8 is the caller's
-//    responsibility (or an integration concern outside this library).
+//  - This is the top-level facade of the reader stack: it wraps a 'Preprocessor'
+//    (itself wrapping a 'Cursor') and exposes keyword, section, and value extraction.
+//    Generic extraction uses the char-generic 'pr::str::Extract*' family via 'm_pp'.
+//  - Reader accepts UTF-8 bytes from borrowed memory, a binary-mode stream, or an
+//    'IInput'. Other encodings are converted by the caller.
 //  - Plain decimal integers and reals use a contiguous 'from_chars' path when
 //    preprocessing is inactive. Less common syntax and expanded input retain the
 //    shared generic extractors as the compatibility path.
 //  - The math-vector/matrix/transform extraction methods (Vector2/3/4, Vector2i/3i/4i,
-//    Quaternion, Matrix3x3/4x4, Rotation, Transform, Data, EnumValue, Enum) mirror the
-//    legacy signatures using 'pr::maths' types directly; they are plain compositions of
-//    'Real'/'Int' (or, for 'Transform', of those plus the shared 'pr::maths' functions),
-//    so parsing rules stay identical to the legacy reader. 'AddressAt' takes a
-//    'std::string_view' rather than a legacy 'Src&', since reader2 has no shareable
-//    positioned-source abstraction to construct a nested reader over.
+//    Quaternion, Matrix3x3/4x4, Rotation, Transform, Data, EnumValue, Enum) use
+//    'pr::maths' types directly and compose the scalar extractors.
 #pragma once
 #include <string>
 #include <string_view>
@@ -46,10 +36,10 @@
 #include "pr/str/string_core.h"
 #include "pr/str/string_filter.h"
 #include "pr/common/hash.h"
-#include "pr/script/reader2/input.h"
-#include "pr/script/reader2/preprocessor.h"
+#include "pr/script/reader/input.h"
+#include "pr/script/reader/preprocessor.h"
 
-namespace pr::script::v2
+namespace pr::script::reader
 {
 	// Convert UTF-8 script text to a filesystem path without using the process code page.
 	inline std::filesystem::path PathFromUtf8(std::string_view utf8)
@@ -64,7 +54,7 @@ namespace pr::script::v2
 	class Reader
 	{
 		// The preprocessed character stream this reader extracts values from. Owns
-		// (via composition) the whole reader2 pipeline: 'Cursor' -> 'FilterCursor'
+		// (via composition) the whole reader pipeline: 'Cursor' -> 'FilterCursor'
 		// -> macro/directive expansion.
 		Preprocessor m_pp;
 
@@ -97,7 +87,7 @@ namespace pr::script::v2
 		// Construct a reader over a caller-owned UTF-8 memory buffer, which must
 		// outlive this reader. 'filepath' is used only for 'Loc' reporting and
 		// resolving relative '#include's.
-		explicit Reader(std::string_view utf8_src, bool case_sensitive = false, std::filesystem::path filepath = {}, IIncludeHandler2* inc = nullptr)
+		explicit Reader(std::string_view utf8_src, bool case_sensitive = false, std::filesystem::path filepath = {}, IIncludeHandler* inc = nullptr)
 			: m_pp(utf8_src, std::move(filepath), inc)
 			, m_delim(" \t\r\n\v,;")
 			, m_last_keyword()
@@ -108,7 +98,7 @@ namespace pr::script::v2
 
 		// Construct a reader that pulls UTF-8 bytes in bulk from a binary-mode
 		// stream, which must outlive this reader.
-		explicit Reader(std::istream& utf8_stream, bool case_sensitive = false, std::filesystem::path filepath = {}, IIncludeHandler2* inc = nullptr)
+		explicit Reader(std::istream& utf8_stream, bool case_sensitive = false, std::filesystem::path filepath = {}, IIncludeHandler* inc = nullptr)
 			: m_pp(std::make_unique<StreamInput>(utf8_stream, std::move(filepath)), inc)
 			, m_delim(" \t\r\n\v,;")
 			, m_last_keyword()
@@ -118,7 +108,7 @@ namespace pr::script::v2
 		{}
 
 		// Construct a reader over a custom UTF-8 input with explicit initial source metadata.
-		explicit Reader(std::unique_ptr<IInput> utf8_input, Loc const& loc, bool case_sensitive = false, IIncludeHandler2* inc = nullptr)
+		explicit Reader(std::unique_ptr<IInput> utf8_input, Loc const& loc, bool case_sensitive = false, IIncludeHandler* inc = nullptr)
 			: m_pp(std::move(utf8_input), inc, loc)
 			, m_delim(" \t\r\n\v,;")
 			, m_last_keyword()
@@ -169,7 +159,7 @@ namespace pr::script::v2
 		}
 
 		// Access the include handler resolving '#include' directives.
-		IIncludeHandler2& Includes() noexcept
+		IIncludeHandler& Includes() noexcept
 		{
 			return m_pp.Includes();
 		}
@@ -207,7 +197,7 @@ namespace pr::script::v2
 		}
 
 		// Return the hash of a keyword using the current reader settings. Uses the
-		// same runtime FNV hash as macro/keyword recognition elsewhere in reader2,
+		// same runtime FNV hash as macro/keyword recognition elsewhere in reader,
 		// which agrees with the compile-time hash used to define 'EKeyword' values
 		// for ASCII keyword text.
 		int HashKeyword(std::string_view keyword) const
@@ -259,7 +249,7 @@ namespace pr::script::v2
 			auto& src = m_pp;
 			EatDelimiters(src, m_delim);
 
-			// Preserve complete UTF-8 sequences so 'n' has the same decoded-character meaning as the legacy reader.
+			// Preserve complete UTF-8 sequences because 'n' counts decoded characters.
 			std::string utf8;
 			for (size_t offset = 0, chars = 0; chars != static_cast<size_t>(n);)
 			{
@@ -426,7 +416,7 @@ namespace pr::script::v2
 		}
 
 		// As above, but additionally splitting on 'delim' (beyond the reader's normal 'Delimiters()').
-		// Unlike legacy's 'wchar_t const*' overload, 'delim' is UTF-8 bytes.
+		// 'delim' is a UTF-8 byte sequence.
 		template <typename StrType> StrType Token(std::string_view delim)
 		{
 			StrType token;
@@ -512,8 +502,7 @@ namespace pr::script::v2
 			auto quote = *src;
 			if (TryFastString(string) || str::ExtractString<StrType>(string, src, m_delim))
 			{
-				// The legacy preprocessor joins adjacent literals before the reader sees
-				// them. Preserve that contract when preprocessing prevents the fast path.
+				// Join adjacent literals when preprocessing prevents the fast path.
 				for (;;)
 				{
 					auto join = size_t{};
@@ -1221,11 +1210,8 @@ namespace pr::script::v2
 			return SectionStart() && Extract(type) && SectionEnd();
 		}
 
-		// Return the dot-delimited keyword "address" (e.g. "Group.Box.o2w.pos") for the position at
-		// the end of 'utf8_up_to_cursor'. Unlike legacy's 'Reader::AddressAt(Src&)', which reads from
-		// a shared, already-positioned 'Src', this takes the UTF-8 text truncated to the cursor
-		// position (the caller's equivalent of legacy's 'Src::Limit()') and parses it with a private,
-		// disposable reader. Returns an empty string if the truncated script doesn't parse cleanly.
+		// Return the dot-delimited keyword address at the end of 'utf8_up_to_cursor'.
+		// Returns an empty string if the truncated script does not parse cleanly.
 		static std::string AddressAt(std::string_view utf8_up_to_cursor)
 		{
 			// The format of the returned address is: "keyword.keyword.keyword..."
@@ -1324,8 +1310,7 @@ namespace pr::script::v2
 				auto text = src.RemainingContiguous();
 				if (text.empty() || (text.front() != '"' && text.front() != '\''))
 					return false;
-				// Concatenate adjacent literals as one value, matching the legacy
-				// preprocessor's normalization before string extraction.
+				// Concatenate adjacent literals before string extraction.
 				auto quote = text.front();
 				auto open = size_t{0};
 				auto consumed = size_t{0};
@@ -1389,8 +1374,7 @@ namespace pr::script::v2
 			if (cur == last && !src.ContiguousRangeIsComplete())
 				return false;
 
-			// Convert through the same 64-bit domain as the legacy parser before
-			// narrowing to the caller's requested result type.
+			// Convert through a 64-bit domain before narrowing to the requested type.
 			auto number_first = first;
 			if constexpr (std::is_unsigned_v<TInt>)
 			{
@@ -1481,13 +1465,11 @@ namespace pr::script::v2
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-namespace pr::script::v2::testing
+namespace pr::script::reader::testing
 {
-	PRUnitTestClass(Reader2ReaderTests)
+	PRUnitTestClass(ReaderReaderTests)
 	{
-		// A gold-reference-style script covering the core (non-math) extraction
-		// facade, deliberately mirroring the legacy 'ReaderTests::Script' subset
-		// that doesn't require 'pr::maths' types.
+		// A reference script covering the core extraction facade.
 		inline static constexpr char const* Script =
 			"#define NUM 23\n"
 			"*Identifier ident\n"
@@ -1595,12 +1577,7 @@ namespace pr::script::v2::testing
 		}
 		PRUnitTestMethod(EnumValueRadixParsing, Quick)
 		{
-			// Reader2-only: the legacy 'EnumValue' overload calls 'str::ExtractEnumValue'
-			// with only 3 of its 4 required arguments, so it fails to compile if ever
-			// instantiated - a latent bug in the untouched legacy header, not something to
-			// replicate here. 'EnumValue' reads a raw integer at the given radix and blindly
-			// casts it to the enum type, with no membership validation (unlike 'Enum', which
-			// parses a member name via 'str::ExtractEnum').
+			// 'EnumValue' casts a raw integer without enum membership validation.
 			char const* script = "*Hex A\n*Bin 101\n*OutOfRange 999";
 
 			Reader reader(script, false);
@@ -1621,12 +1598,7 @@ namespace pr::script::v2::testing
 		}
 		PRUnitTestMethod(AddressAtUtf8MultibyteBoundaries, Quick)
 		{
-			// Reader2-only: 'AddressAt' is a fresh, disposable-reader-based implementation
-			// (see its declaration comment above) rather than a port of legacy's algorithm,
-			// so exact byte-offset parity with legacy is only meaningful for pure-ASCII
-			// scripts (covered by 'AddressAtDifferential' in 'reader2.h'). This test instead
-			// checks reader2's own handling of a truncation landing mid multi-byte UTF-8
-			// character.
+			// A truncation ending inside a multi-byte UTF-8 character must stop safely.
 			//
 			// Byte layout (23 bytes total); '\xF0\x9F\x92\xA9' is one 4-byte UTF-8 codepoint
 			// (U+1F4A9) occupying indices 16-19, with the closing quote at index 20:

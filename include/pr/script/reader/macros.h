@@ -2,14 +2,11 @@
 // Script
 //  Copyright (c) Rylogic Ltd 2015
 //**********************************
-// Reader2 (pr::script::v2) - UTF-8 native preprocessor macros.
+// Reader (pr::script::reader) - UTF-8 native preprocessor macros.
 //
 // Style Guidance:
-//  - This mirrors the algorithm in 'pr/script/macros.h' exactly (parameter reading,
-//    '#'/'##' substitution, recursion guard) but stores UTF-8 'std::string' content
-//    instead of 'std::wstring'. The legacy 'Macro' type is not reusable as-is
-//    because it hardcodes 'string_t' (= std::wstring) as its storage; everything
-//    else about the algorithm carries over unchanged.
+//  - Macro expansion stores UTF-8 fragments and supports parameter substitution,
+//    stringising, token pasting, and recursion suppression.
 #pragma once
 #include <string>
 #include <string_view>
@@ -23,7 +20,7 @@
 #include "pr/str/string_core.h"
 #include "pr/str/string_util.h"
 
-namespace pr::script::v2
+namespace pr::script::reader
 {
 	// A single preprocessor macro definition (result of '#define').
 	//
@@ -31,7 +28,7 @@ namespace pr::script::v2
 	// '#define TWO 2') or has a parameter list, possibly empty (e.g. '#define
 	// TAG() body' or '#define TAG(a,b) a+b'). The empty-parameter-list case is
 	// distinguished from the no-parameter-list case by 'm_params' containing a
-	// single blank entry (matching the legacy convention).
+	// single blank entry.
 	struct Macro
 	{
 		using Params = std::vector<std::string>;

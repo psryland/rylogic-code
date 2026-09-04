@@ -2,7 +2,7 @@
 // Script
 //  Copyright (c) Rylogic Ltd 2015
 //**********************************
-// Reader2 (pr::script::v2) - a pull-based, UTF-8 validating byte cursor.
+// Reader (pr::script::reader) - a pull-based, UTF-8 validating byte cursor.
 #pragma once
 #include <vector>
 #include <string_view>
@@ -12,9 +12,9 @@
 #include "pr/script/forward.h"
 #include "pr/script/location.h"
 #include "pr/script/fail_policy.h"
-#include "pr/script/reader2/input.h"
+#include "pr/script/reader/input.h"
 
-namespace pr::script::v2
+namespace pr::script::reader
 {
 	// True when a location carries no caller-supplied source identity or position metadata.
 	inline bool IsDefaultLocation(Loc const& loc)
@@ -30,10 +30,8 @@ namespace pr::script::v2
 
 	// A forward-only cursor over the UTF-8 bytes produced by an 'IInput'.
 	//
-	// 'Cursor' is the lowest level of the reader2 stack: it owns a sliding window of
-	// buffered bytes (refilled in 'BlockSize' chunks from its 'IInput'), validates
-	// the UTF-8 encoding as it advances, and maintains a 'Loc' with the same
-	// line/column/position semantics as the legacy 'pr::script::Loc'.
+	// 'Cursor' owns a sliding window of bytes refilled in 'BlockSize' chunks,
+	// validates UTF-8 as it advances, and maintains decoded-character locations.
 	//
 	// The public interface intentionally mirrors a plain forward pointer
 	// ('operator*', 'operator++', 'operator+=', 'operator[]') so that 'Cursor'
@@ -47,7 +45,7 @@ namespace pr::script::v2
 	// still reflects decoded Unicode characters (not raw bytes): continuation bytes
 	// of a multi-byte UTF-8 sequence do not advance 'Loc's position/line/column, only
 	// the lead byte of a sequence does. For pure-ASCII scripts (byte count == char
-	// count) this is identical to the legacy per-decoded-character semantics.
+	// count) byte and decoded-character positions are identical.
 	class Cursor
 	{
 		// The input supplying bytes to refill the window. Owned, so that a 'Cursor'
@@ -79,7 +77,7 @@ namespace pr::script::v2
 		// Once the consumed prefix of the window exceeds this many bytes, it is
 		// erased. This bounds the cursor's memory to roughly one unbroken token's
 		// worth of lookahead rather than growing for the lifetime of the source,
-		// matching the soft-bounded-memory requirement for reader2.
+		// matching the soft-bounded-memory requirement for reader.
 		static constexpr size_t CompactThreshold = 2 * BlockSize;
 
 	public:
@@ -267,8 +265,7 @@ namespace pr::script::v2
 
 		// Case-sensitive/insensitive match of a literal ASCII string against the
 		// upcoming bytes. On a match, consumes the matched bytes when 'consume' is
-		// true. Mirrors the legacy 'Src::Match' helper used by the preprocessor to
-		// recognise directive keywords such as "define" or "include".
+		// true. Used by the preprocessor to recognise directive keywords.
 		bool Match(std::string_view s, bool consume, bool case_sensitive = true)
 		{
 			for (size_t i = 0; i != s.size(); ++i)

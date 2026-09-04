@@ -2,22 +2,18 @@
 // Script
 //  Copyright (c) Rylogic Ltd 2015
 //**********************************
-// Reader2 (pr::script::v2) - lexical tokens.
+// Reader (pr::script::reader) - lexical tokens.
 #pragma once
 #include <string>
 #include <cstdint>
 #include "pr/script/forward.h"
 #include "pr/script/location.h"
 
-namespace pr::script::v2
+namespace pr::script::reader
 {
-	// A single lexical token produced by the reader2 lexer.
+	// A single lexical token produced by the reader lexer.
 	//
-	// Reuses the legacy 'EToken'/'EKeyword'/'ESymbol'/'EConstant' enumerations from
-	// 'pr/script/forward.h' rather than declaring a parallel set, so that keyword and
-	// symbol hash values remain identical between the old and new readers - this is
-	// required for the "matching error code + location" compatibility contract, since
-	// error messages and diagnostics may reference these values.
+	// Uses the shared token enumerations while carrying UTF-8 text and source location.
 	struct Token
 	{
 		// The token's general classification.
