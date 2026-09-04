@@ -1,7 +1,6 @@
 // An 'include' target that does not exist anywhere on disk, with no
-// 'ignore_missing' in effect. Both the legacy 'Includes' handler and reader2's
-// 'FileIncludeHandler2' raise 'EResult::MissingInclude'; see 'ErrorParity' for the
-// deliberately-untested legacy location-reporting quirk this fixture also exercises.
+// 'ignore_missing' in effect. The file include handler raises
+// 'EResult::MissingInclude' at the include directive.
 *Before true
 #include "this_file_does_not_exist.inc"
 *Unreached true

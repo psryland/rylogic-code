@@ -1,16 +1,13 @@
-﻿// Canonical Reader2 conformance fixture (checked in with a UTF-8 byte-order-mark).
-// Exercises, in one human-readable master script, the feature surface shared by
-// legacy 'pr::script::Reader' and 'pr::script::v2::Reader'. Math/vector/matrix/
-// transform extraction already has thorough dedicated coverage in the relocated
-// 'Reader2DifferentialTests' (see 'conformance_tests.h'), so this fixture instead
-// focuses on file-based/preprocessor features plus a light scalar/section sampler.
+﻿// Canonical Reader conformance fixture (checked in with a UTF-8 byte-order-mark).
+// Exercises file-based and preprocessor features plus a light scalar/section sampler.
+// Math, vector, matrix, and transform extraction have dedicated inline coverage.
 //
 // All paths below are relative to this file's own directory. The test driver
-// points each reader's include handler at this directory, so resolution stays
+// points the reader's include handler at this directory, so resolution stays
 // independent of the process's current working directory.
 /* Block comments,
    spanning multiple lines,
-   are skipped identically by both readers. */
+   are skipped by the reader. */
 
 #include_path "includes/search"
 
