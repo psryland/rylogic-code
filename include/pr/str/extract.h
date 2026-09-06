@@ -704,16 +704,21 @@ namespace pr::str
 	template <typename TEnum, typename Ptr>
 	inline bool ExtractEnumValueC(TEnum& enum_, int radix, Ptr src, sv_type_t<Ptr> delim = {})
 	{
-		return ExtractEnum(enum_, radix, src, delim);
+		return ExtractEnumValue(enum_, radix, src, delim);
 	}
 
 	// Extracts an enum by its string name. For use with 'PR_ENUM' defined enums
 	template <typename TEnum, typename Ptr>
 	inline bool ExtractEnum(TEnum& enum_, Ptr& src, sv_type_t<Ptr> delim = {})
 	{
-		char_type_t<Ptr> val[512] = {};
+		using Char = char_type_t<Ptr>;
+
+		Char val[512] = {};
 		if (!ExtractIdentifier(val, src, delim)) return false;
-		return Enum<TEnum>::TryParse(enum_, &val[0], false);
+
+		// 'Enum<TEnum>::TryParse' is a template overloaded only on 'std::basic_string_view<Char>'; the
+		// 'Char' argument cannot be deduced from a raw pointer, so it must be given explicitly here.
+		return Enum<TEnum>::template TryParse<Char>(enum_, std::basic_string_view<Char>(&val[0]), false);
 	}
 	template <typename TEnum, typename Ptr>
 	inline bool ExtractEnumC(TEnum& enum_, Ptr src, sv_type_t<Ptr> delim = {})

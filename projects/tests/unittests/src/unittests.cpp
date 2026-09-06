@@ -120,6 +120,11 @@ extern "C"
 }
 int main(int argc, char* argv[])
 {
+	#if defined(_MSC_VER) && defined(_DEBUG)
+	_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+	_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+	#endif
+
 	auto wordy = false;
 	auto filters = std::vector<std::string_view>{};
 	auto excludes = std::vector<std::string_view>{};

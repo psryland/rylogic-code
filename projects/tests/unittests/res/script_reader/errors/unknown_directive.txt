@@ -1,0 +1,6 @@
+// A preprocessor directive keyword that neither reader recognises. Both raise
+// 'EResult::UnknownPreprocessorCommand' at the location of the '#' that
+// introduces this directive.
+*Before true
+#not_a_real_directive
+*Unreached true

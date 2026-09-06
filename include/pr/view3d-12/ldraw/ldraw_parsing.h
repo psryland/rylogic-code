@@ -252,39 +252,64 @@ namespace pr::rdr12::ldraw
 		// Read floating point vectors
 		v2 Vector2f()
 		{
-			return v2{ Real<float>(), Real<float>() };
+			double value[2];
+			RealsImpl(sizeof(float), value);
+			return v2{ static_cast<float>(value[0]), static_cast<float>(value[1]) };
 		}
 		v3 Vector3f()
 		{
-			return v3{ Real<float>(), Real<float>(), Real<float>() };
+			double value[3];
+			RealsImpl(sizeof(float), value);
+			return v3{ static_cast<float>(value[0]), static_cast<float>(value[1]), static_cast<float>(value[2]) };
 		}
 		v4 Vector4f()
 		{
-			return v4{ Real<float>(), Real<float>(), Real<float>(), Real<float>() }; // Note; brace initializer guarantees call order
+			double value[4];
+			RealsImpl(sizeof(float), value);
+			return v4{ static_cast<float>(value[0]), static_cast<float>(value[1]), static_cast<float>(value[2]), static_cast<float>(value[3]) };
 		}
 
 		// Read integer vectors
 		iv2 Vector2i(int radix = 10)
 		{
-			return iv2{ Int<int>(radix), Int<int>(radix) };
+			int64_t value[2];
+			IntsImpl(sizeof(int), value, radix);
+			return iv2{ static_cast<int>(value[0]), static_cast<int>(value[1]) };
 		}
 		iv3 Vector3i(int radix = 10)
 		{
-			return iv3{ Int<int>(radix), Int<int>(radix), Int<int>(radix) };
+			int64_t value[3];
+			IntsImpl(sizeof(int), value, radix);
+			return iv3{ static_cast<int>(value[0]), static_cast<int>(value[1]), static_cast<int>(value[2]) };
 		}
 		iv4 Vector4i(int radix = 10)
 		{
-			return iv4{ Int<int>(radix), Int<int>(radix), Int<int>(radix), Int<int>(radix) };
+			int64_t value[4];
+			IntsImpl(sizeof(int), value, radix);
+			return iv4{ static_cast<int>(value[0]), static_cast<int>(value[1]), static_cast<int>(value[2]), static_cast<int>(value[3]) };
 		}
 
 		// Read matrix types
 		m3x3 Matrix3x3()
 		{
-			return m3x3{ Vector3f().w0(), Vector3f().w0(), Vector3f().w0() };
+			double value[9];
+			RealsImpl(sizeof(float), value);
+			return m3x3{
+				v4(static_cast<float>(value[0]), static_cast<float>(value[1]), static_cast<float>(value[2]), 0.0f),
+				v4(static_cast<float>(value[3]), static_cast<float>(value[4]), static_cast<float>(value[5]), 0.0f),
+				v4(static_cast<float>(value[6]), static_cast<float>(value[7]), static_cast<float>(value[8]), 0.0f),
+			};
 		}
 		m4x4 Matrix4x4()
 		{
-			return m4x4{ Vector4f(), Vector4f(), Vector4f(), Vector4f() };
+			double value[16];
+			RealsImpl(sizeof(float), value);
+			return m4x4{
+				v4(static_cast<float>(value[ 0]), static_cast<float>(value[ 1]), static_cast<float>(value[ 2]), static_cast<float>(value[ 3])),
+				v4(static_cast<float>(value[ 4]), static_cast<float>(value[ 5]), static_cast<float>(value[ 6]), static_cast<float>(value[ 7])),
+				v4(static_cast<float>(value[ 8]), static_cast<float>(value[ 9]), static_cast<float>(value[10]), static_cast<float>(value[11])),
+				v4(static_cast<float>(value[12]), static_cast<float>(value[13]), static_cast<float>(value[14]), static_cast<float>(value[15])),
+			};
 		}
 
 		// Reads a transform accumulatively. 'o2w' must be a valid initial transform
@@ -302,8 +327,22 @@ namespace pr::rdr12::ldraw
 		// Read an integral value from the current section
 		virtual int64_t IntImpl(int byte_count, int radix) = 0;
 
+		// Read a dense sequence of integral values while preserving the encoded scalar width.
+		virtual void IntsImpl(int byte_count, std::span<int64_t> values, int radix)
+		{
+			for (auto& value : values)
+				value = IntImpl(byte_count, radix);
+		}
+
 		// Read a floating point value from the current section
 		virtual double RealImpl(int byte_count) = 0;
+
+		// Read a dense sequence of floating-point values while preserving the encoded scalar width.
+		virtual void RealsImpl(int byte_count, std::span<double> values)
+		{
+			for (auto& value : values)
+				value = RealImpl(byte_count);
+		}
 
 		// Read an enum value from the current section. Text readers will read an identifier and use 'parse'. Binary reader will read an integer value.
 		virtual int64_t EnumImpl(int byte_count, ParseEnumIdentCB parse) = 0;

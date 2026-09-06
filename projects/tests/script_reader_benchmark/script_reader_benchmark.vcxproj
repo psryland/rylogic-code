@@ -1,0 +1,50 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+	<!-- Properties -->
+	<PropertyGroup Label="Globals">
+		<ProjectGuid>{CF7A8FFD-2AFF-4B3D-ACDC-AB0D4483D35F}</ProjectGuid>
+		<RootNamespace>script_reader_benchmark</RootNamespace>
+		<ConfigurationType>Application</ConfigurationType>
+	</PropertyGroup>
+
+	<!-- Property Sheets -->
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+	<Import Project="$(PropsPath)build_configurations.props" />
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+	<Import Project="$(PropsPath)app.props" />
+	<PropertyGroup>
+		<IntDir>$(ProjectDir)obj\$(PlatformTarget)\$(Configuration)\reader\</IntDir>
+	</PropertyGroup>
+
+	<!-- Build Options -->
+	<ItemDefinitionGroup>
+		<ClCompile>
+			<PrecompiledHeader>Use</PrecompiledHeader>
+			<PrecompiledHeaderFile>src/forward.h</PrecompiledHeaderFile>
+			<PreprocessorDefinitions Condition="'$(ReaderBlockSize)' != ''">PR_SCRIPT_READER_BLOCK_SIZE=$(ReaderBlockSize);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+			<AdditionalIncludeDirectories>
+				;$(ProjectDir)
+				;$(RylogicRoot)include
+			</AdditionalIncludeDirectories>
+		</ClCompile>
+		<Link>
+			<SubSystem>Console</SubSystem>
+		</Link>
+	</ItemDefinitionGroup>
+
+	<!-- Files -->
+	<ItemGroup>
+		<ClCompile Include="src/main.cpp">
+			<PrecompiledHeader>Create</PrecompiledHeader>
+		</ClCompile>
+		<ClInclude Include="src/forward.h" />
+		<ClInclude Include="src/checksum.h" />
+		<ClInclude Include="src/statistics.h" />
+		<ClInclude Include="src/workload_generators.h" />
+		<ClInclude Include="src/reader_drivers.h" />
+	</ItemGroup>
+
+	<!-- Targets -->
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

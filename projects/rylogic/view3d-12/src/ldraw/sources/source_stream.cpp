@@ -251,7 +251,7 @@ namespace pr::rdr12::ldraw
 		if (consume != 0)
 		{
 			mem_istream<char> strm(buffer.data(), consume);
-			TextReader reader(strm, m_name.c_str(), EEncoding::utf8, { this, OnReportError }, { this, OnProgress });
+			TextReader reader(strm, m_name.c_str(), { this, OnReportError }, { this, OnProgress });
 			auto out = ldraw::Parse(*m_rdr, reader, m_context_id);
 
 			// Notify even if 'out' is empty, 'src' may contain errors that need to be reported.

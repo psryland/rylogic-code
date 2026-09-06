@@ -42,7 +42,7 @@ namespace TestImage
 		Save2DImage(img);
 		
 
-		//PerlinNoiseGenerator Perlin;
+		//PerlinNoiseGenerator Perlin(42);
 		//float freq = 10.0f;
 		//float amp = 0.5f;
 		//float offset = 0.5f;

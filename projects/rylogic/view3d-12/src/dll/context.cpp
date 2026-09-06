@@ -521,9 +521,21 @@ namespace pr::rdr12
 		auto restore = Scope<void>{[&] { RestoreObjectToWindows(m_windows, memberships, object); }};
 
 		// Update the object model
-		mem_istream<Char> src{ ldr_script, 0 };
-		auto encoding = std::is_same_v<Char, wchar_t> ? EEncoding::already_decoded : EEncoding::utf8;
-		rdr12::ldraw::TextReader reader(src, {}, encoding);
+		// Borrow UTF-8 input and convert wide source text once.
+		auto utf8 = std::string{};
+		auto source = std::string_view{};
+		if constexpr (std::is_same_v<Char, char>)
+		{
+			source = ldr_script;
+		}
+		else
+		{
+			auto bytes = std::string_view(reinterpret_cast<char const*>(ldr_script.data()), ldr_script.size() * sizeof(Char));
+			utf8 = ldraw::ToUtf8Source(bytes, EEncoding::utf16_le);
+			source = utf8;
+		}
+
+		rdr12::ldraw::TextReader reader(source);
 		ldraw::Update(m_rdr, object, reader, flags);
 	}
 	template void Context::UpdateObject<wchar_t>(ldraw::LdrObject* object, std::wstring_view, ldraw::EUpdateObject flags);
