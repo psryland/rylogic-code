@@ -1,0 +1,6 @@
+// A section opened with '{' that is never closed before end-of-source. Both
+// readers raise 'EResult::TokenNotFound' ("expected '}'") at the location where
+// the missing '}' was expected (i.e. end-of-file).
+*Outer
+{
+	*Inner 1

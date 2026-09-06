@@ -1,0 +1,6 @@
+// A stray '#endif' with no matching '#if'/'#ifdef'/'#ifndef' anywhere before it.
+// Both readers raise 'EResult::UnmatchedPreprocessorDirective' at the location
+// of the '#' that introduces this directive.
+*Before true
+#endif
+*Unreached true

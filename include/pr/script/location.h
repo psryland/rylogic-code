@@ -97,6 +97,29 @@ namespace pr::script
 			return ch;
 		}
 
+		// Advance over an ASCII run, updating ordinary columns in bulk while
+		// preserving newline and tab semantics.
+		void IncAscii(std::string_view text) noexcept
+		{
+			for (;;)
+			{
+				auto special = text.find_first_of("\n\t");
+				if (special == std::string_view::npos)
+				{
+					m_pos += static_cast<std::streamoff>(text.size());
+					m_col += static_cast<int>(text.size());
+					return;
+				}
+
+				// Apply the ordinary prefix in bulk, then preserve the special
+				// character's existing line or tab behaviour.
+				m_pos += static_cast<std::streamoff>(special);
+				m_col += static_cast<int>(special);
+				inc(text[special]);
+				text.remove_prefix(special + 1);
+			}
+		}
+
 		// Get/Set the source path (usually file name)
 		std::filesystem::path Filepath() const noexcept
 		{

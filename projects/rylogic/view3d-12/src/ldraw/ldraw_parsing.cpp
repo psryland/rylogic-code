@@ -1657,10 +1657,7 @@ namespace pr::rdr12::ldraw
 							if (m_mods.ParseKeyword(reader, kw))
 								break;
 
-							if (auto const* tr = dynamic_cast<TextReader const*>(&reader))
-								pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), std::format("Keyword '{}' is not valid within *Animation", tr->m_keyword));
-							else
-								pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), std::format("Keyword '{}' is not valid within *Animation", EKeyword_::ToStringA(kw)));
+							pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), std::format("Keyword '{}' is not valid within *Animation", reader.LastKeywordString()));
 							break;
 						}
 					}
@@ -6485,8 +6482,9 @@ namespace pr::rdr12::ldraw
 	}
 	ParseResult Parse(Renderer& rdr, std::wstring_view ldr_script, Guid const& context_id, std::stop_token stop_token)
 	{
-		mem_istream<wchar_t> src{ ldr_script };
-		rdr12::ldraw::TextReader reader(src, {});
+		auto bytes = std::string_view(reinterpret_cast<char const*>(ldr_script.data()), ldr_script.size() * sizeof(wchar_t));
+		auto source = ToUtf8Source(bytes, EEncoding::utf16_le);
+		rdr12::ldraw::TextReader reader(source);
 		return Parse(rdr, reader, context_id, std::move(stop_token));
 	}
 	ParseResult Parse(Renderer& rdr, std::span<std::byte const> data, Guid const& context_id, std::stop_token stop_token)

@@ -1,0 +1,4 @@
+This file exists only to be referenced by '#depend "dependencies/dependency.txt"'
+in 'canonical.utf8.txt'; its content is never parsed as script. Legacy's
+'#depend' opens it purely to record the file-open event, then discards it
+without pushing it onto the source stack.

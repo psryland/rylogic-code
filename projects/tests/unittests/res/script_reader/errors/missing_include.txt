@@ -1,0 +1,6 @@
+// An 'include' target that does not exist anywhere on disk, with no
+// 'ignore_missing' in effect. The file include handler raises
+// 'EResult::MissingInclude' at the include directive.
+*Before true
+#include "this_file_does_not_exist.inc"
+*Unreached true

@@ -1,0 +1,57 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+	<!-- Properties -->
+	<PropertyGroup Label="Globals">
+		<ProjectGuid>{887A4141-51CA-4AD9-9A82-44B1E277CE79}</ProjectGuid>
+		<RootNamespace>ldraw_text_reader_benchmark</RootNamespace>
+		<ConfigurationType>Application</ConfigurationType>
+	</PropertyGroup>
+
+	<!-- Property Sheets -->
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+	<Import Project="$(PropsPath)build_configurations.props" />
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+	<Import Project="$(PropsPath)app.props" />
+	<PropertyGroup>
+		<IntDir>$(ProjectDir)obj\$(PlatformTarget)\$(Configuration)\ldraw\</IntDir>
+	</PropertyGroup>
+
+	<!-- Build Options -->
+	<ItemDefinitionGroup>
+		<ClCompile>
+			<PrecompiledHeader>Use</PrecompiledHeader>
+			<PrecompiledHeaderFile>src/forward.h</PrecompiledHeaderFile>
+			<AdditionalIncludeDirectories>
+				;$(ProjectDir)
+				;$(RylogicRoot)include
+			</AdditionalIncludeDirectories>
+		</ClCompile>
+		<Link>
+			<SubSystem>Console</SubSystem>
+			<AdditionalLibraryDirectories>
+				;$(RylogicRoot)lib\$(PlatformTarget)\$(Configuration)
+				;%(AdditionalLibraryDirectories)
+			</AdditionalLibraryDirectories>
+			<AdditionalDependencies>
+				;view3d-12-static.lib
+				;compute-static.lib
+				;%(AdditionalDependencies)
+			</AdditionalDependencies>
+		</Link>
+	</ItemDefinitionGroup>
+
+	<!-- Files -->
+	<ItemGroup>
+		<ClCompile Include="src/ldraw_main.cpp">
+			<PrecompiledHeader>Create</PrecompiledHeader>
+		</ClCompile>
+		<ClInclude Include="src/forward.h" />
+		<ClInclude Include="src/checksum.h" />
+		<ClInclude Include="src/statistics.h" />
+		<ClInclude Include="src/workload_generators.h" />
+	</ItemGroup>
+
+	<!-- Targets -->
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

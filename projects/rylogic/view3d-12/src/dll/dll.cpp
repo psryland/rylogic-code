@@ -3462,8 +3462,8 @@ VIEW3D_API BSTR __stdcall View3D_ObjectAddressAt(wchar_t const* ldr_script, int6
 		//       "my { string"
 		//       *o2w { *pos { <-- Address should be: Group.Box.o2w.pos
 
-		std::wstringstream src({ ldr_script, ldr_script + position });
-		rdr12::ldraw::TextReader reader(src, {});
+		auto utf8_script = Narrow(std::wstring_view(ldr_script, static_cast<size_t>(position)));
+		rdr12::ldraw::TextReader reader(utf8_script);
 
 		std::wstring path;
 		try
