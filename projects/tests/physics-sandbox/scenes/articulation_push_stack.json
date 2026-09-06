@@ -1,0 +1,279 @@
+{
+	"scene": {
+		"demo": {
+			"name": "Articulation Pushes Stack",
+			"group": "Articulations and Robotics",
+			"order": 120,
+			"command": "articulation-push"
+		},
+		"description": "A driven reduced-coordinate link transfers momentum into an ordinary rigid stack.",
+		"gravity": [
+			0.0,
+			0.0,
+			-9.81000042
+		],
+		"material": {
+			"friction": 0.60000002,
+			"elasticity": 0.05
+		},
+		"physics": {
+			"substeps": 1,
+			"solver_iterations": 4,
+			"position_iterations": 1
+		},
+		"ground_plane": {
+			"size": [
+				24.0,
+				24.0
+			],
+			"height": 0.0,
+			"colour": "0xFF606068"
+		},
+		"shapes": {
+			"base-shape": {
+				"name": "base-shape",
+				"type": "sphere",
+				"radius": 0.44999999
+			},
+			"pusher-shape": {
+				"name": "pusher-shape",
+				"type": "box",
+				"dimensions": [
+					1.10000002,
+					2.20000005,
+					1.10000002
+				]
+			},
+			"stack-box": {
+				"name": "stack-box",
+				"type": "box",
+				"dimensions": [
+					0.94999999,
+					0.94999999,
+					0.94999999
+				]
+			}
+		},
+		"bodies": [
+			{
+				"name": "stack-0-0",
+				"shape": "stack-box",
+				"mass": 0.80000001,
+				"position": [
+					0.80000001,
+					0.0,
+					0.55000001
+				],
+				"colour": "0xFF50D080"
+			},
+			{
+				"name": "stack-0-1",
+				"shape": "stack-box",
+				"mass": 0.80000001,
+				"position": [
+					1.85000002,
+					0.0,
+					0.55000001
+				],
+				"colour": "0xFF50D080"
+			},
+			{
+				"name": "stack-0-2",
+				"shape": "stack-box",
+				"mass": 0.80000001,
+				"position": [
+					2.9000001,
+					0.0,
+					0.55000001
+				],
+				"colour": "0xFF50D080"
+			},
+			{
+				"name": "stack-1-0",
+				"shape": "stack-box",
+				"mass": 0.80000001,
+				"position": [
+					0.80000001,
+					0.0,
+					1.60000002
+				],
+				"colour": "0xFFB070FF"
+			},
+			{
+				"name": "stack-1-1",
+				"shape": "stack-box",
+				"mass": 0.80000001,
+				"position": [
+					1.85000002,
+					0.0,
+					1.60000002
+				],
+				"colour": "0xFFB070FF"
+			},
+			{
+				"name": "stack-1-2",
+				"shape": "stack-box",
+				"mass": 0.80000001,
+				"position": [
+					2.9000001,
+					0.0,
+					1.60000002
+				],
+				"colour": "0xFFB070FF"
+			},
+			{
+				"name": "stack-2-0",
+				"shape": "stack-box",
+				"mass": 0.80000001,
+				"position": [
+					0.80000001,
+					0.0,
+					2.6500001
+				],
+				"colour": "0xFF50D080"
+			},
+			{
+				"name": "stack-2-1",
+				"shape": "stack-box",
+				"mass": 0.80000001,
+				"position": [
+					1.85000002,
+					0.0,
+					2.6500001
+				],
+				"colour": "0xFF50D080"
+			},
+			{
+				"name": "stack-2-2",
+				"shape": "stack-box",
+				"mass": 0.80000001,
+				"position": [
+					2.9000001,
+					0.0,
+					2.6500001
+				],
+				"colour": "0xFF50D080"
+			},
+			{
+				"name": "stack-3-0",
+				"shape": "stack-box",
+				"mass": 0.80000001,
+				"position": [
+					0.80000001,
+					0.0,
+					3.70000005
+				],
+				"colour": "0xFFB070FF"
+			},
+			{
+				"name": "stack-3-1",
+				"shape": "stack-box",
+				"mass": 0.80000001,
+				"position": [
+					1.85000002,
+					0.0,
+					3.70000005
+				],
+				"colour": "0xFFB070FF"
+			},
+			{
+				"name": "stack-3-2",
+				"shape": "stack-box",
+				"mass": 0.80000001,
+				"position": [
+					2.9000001,
+					0.0,
+					3.70000005
+				],
+				"colour": "0xFFB070FF"
+			}
+		],
+		"articulations": [
+			{
+				"name": "pusher-articulation",
+				"root_type": "fixed",
+				"root_transform": {
+					"position": [
+						-5.0,
+						0.0,
+						1.10000002
+					]
+				},
+				"root": {
+					"name": "base",
+					"shape": "base-shape",
+					"mass": 2.0,
+					"collide_parent": false,
+					"collide_self": false
+				},
+				"links": [
+					{
+						"name": "pusher",
+						"parent": "base",
+						"shape": "pusher-shape",
+						"mass": 4.0,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"axes": [
+								{
+									"type": "prismatic",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.80000001,
+									"initial_velocity": 2.5
+								}
+							]
+						}
+					}
+				]
+			}
+		],
+		"constraints": [
+			{
+				"name": "pusher-drive",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "pusher-articulation",
+					"link": "base",
+					"position": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"x_axis": [
+						1.0,
+						0.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"articulation": "pusher-articulation",
+					"link": "pusher",
+					"position": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"x_axis": [
+						1.0,
+						0.0,
+						0.0
+					]
+				},
+				"linear": [
+					{
+						"mode": "driven",
+						"target_position": 5.5,
+						"stiffness": 120.0,
+						"damping": 24.0,
+						"max_force": 1400.0
+					}
+				]
+			}
+		]
+	}
+}

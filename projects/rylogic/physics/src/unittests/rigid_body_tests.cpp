@@ -113,7 +113,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEql(inertia_at_origin.To3x3(1), m3x3::Scale(1.4f, 0.4f, 1.4f)));
 
 			// Apply a force at the CoM (no torque about CoM).
-			rb.ApplyForceWS(v4{1,0,0,0}, v4{}, rb.CentreOfMassWS());
+			rb.ApplyForceWS(v4{1,0,0,0}, v4{}, rb.CentreOfMassOffsetWS());
 
 			// Check force applied.
 			// Spatial force measured at the CoM. Since ws_at == CoM, zero moment arm — no torque.
@@ -295,7 +295,9 @@ namespace pr::physics::tests
 			auto com_ws1 = rb.O2W().pos + rb.O2W().rot * true_com;
 			auto expected_com_ws1 = com_ws0 + lin_vel * dt;
 			PR_EXPECT(FEqlAbsolute(com_ws1, expected_com_ws1, 1e-4f));
-			PR_EXPECT(FEqlAbsolute(rb.CentreOfMassWS(), rb.O2W().rot * true_com, 1e-4f));
+			PR_EXPECT(FEqlAbsolute(rb.CentreOfMassOffsetWS(), rb.O2W().rot * true_com, 1e-4f));
+			PR_EXPECT(FEqlAbsolute(rb.CentreOfMassWS(), rb.CentreOfMassOffsetWS(), 1e-6f));
+			PR_EXPECT(FEqlAbsolute(rb.CentreOfMassPositionWS(), expected_com_ws1, 1e-4f));
 		}
 		PRUnitTestMethod(Extrapolation, Extended)
 		{
@@ -433,56 +435,91 @@ namespace pr::physics::tests
 			//   Ix = (4+16)/3 ≈ 6.67, Iy = (1+16)/3 ≈ 5.67, Iz = (1+4)/3 ≈ 1.67
 			// The instability growth rate σ = ω₀√((Iy-Iz)(Ix-Iy)/(Iz·Ix)) ≈ 0.6·ω₀
 
-			auto mass = 1.0f;
-			auto rb = RigidBody{};
-			rb.SetMassProperties(Inertia::Box(v4{1, 2, 4, 0}, mass), v4{});
-
-			// Initial angular velocity: mainly about the intermediate y-axis,
-			// with a 10% perturbation to seed the instability.
-			auto omega0 = 10.0f;
-			auto perturbation = 0.1f * omega0;
-			rb.VelocityWS(v8motion{perturbation, omega0, perturbation, 0, 0, 0});
-
-			// Record initial conserved quantities
-			auto h0 = rb.MomentumWS();
-			auto ke0 = rb.KineticEnergy();
-
-			// Simulate with small timesteps, no external forces.
-			// With σ ≈ 6 rad/s and 10% perturbation, flips occur every ~0.8s.
-			auto dt = 0.001f;
-			auto total_time = 3.0f;
-			auto steps = static_cast<int>(total_time / dt);
-
-			auto flip_count = 0;
-			auto prev_omega_y = rb.VelocityOS().ang.y;
-
-			for (int i = 0; i < steps; ++i)
+			// Capture the qualitative trajectory and quantitative invariant envelope at one timestep.
+			struct Result
 			{
-				Evolve(rb, dt);
+				int m_flip_count = 0;
+				float m_first_flip_time = 0.0f;
+				float m_max_momentum_error = 0.0f;
+				float m_max_energy_error = 0.0f;
+				double m_energy_slope = 0.0;
+			};
+			auto simulate = [](float timestep)
+			{
+				auto rb = RigidBody{};
+				rb.SetMassProperties(Inertia::Box(v4{1, 2, 4, 0}, 1.0f), v4{});
 
-				// Get angular velocity in the body frame
-				auto os_omega_y = rb.VelocityOS().ang.y;
+				// A ten-percent transverse perturbation seeds the intermediate-axis instability reproducibly.
+				auto const omega0 = 10.0f;
+				auto const perturbation = 0.1f * omega0;
+				rb.VelocityWS(v8motion{perturbation, omega0, perturbation, 0, 0, 0});
+				auto const momentum_start = rb.MomentumWS();
+				auto const energy_start = rb.KineticEnergy();
+				auto const momentum_scale = std::max(Length(momentum_start.ang), 1.0f);
+				auto const energy_scale = std::max(Abs(energy_start), 1.0f);
+				auto result = Result{};
+				auto previous_omega_y = rb.VelocityOS().ang.y;
+				auto sample_count = 0.0;
+				auto sum_time = 0.0;
+				auto sum_error = 0.0;
+				auto sum_time_sq = 0.0;
+				auto sum_time_error = 0.0;
 
-				// Check for sign change of intermediate axis component (a "flip")
-				if (prev_omega_y * os_omega_y < 0)
-					++flip_count;
+				// With growth rate near six radians per second, three seconds contains several observable flips.
+				auto const step_count = static_cast<int>(std::round(3.0f / timestep));
+				for (int step = 0; step != step_count; ++step)
+				{
+					Evolve(rb, timestep);
+					auto const time = static_cast<double>(step + 1) * timestep;
+					auto const omega_y = rb.VelocityOS().ang.y;
+					if (previous_omega_y * omega_y < 0.0f)
+					{
+						++result.m_flip_count;
+						if (result.m_first_flip_time == 0.0f)
+						{
+							// Linear zero-crossing interpolation removes timestep-grid quantisation from the timing gate.
+							auto const fraction = previous_omega_y / (previous_omega_y - omega_y);
+							result.m_first_flip_time = static_cast<float>(time - timestep + fraction * timestep);
+						}
+					}
+					previous_omega_y = omega_y;
 
-				prev_omega_y = os_omega_y;
+					// Fit the signed relative energy error while also retaining the worst invariant excursion.
+					auto const relative_energy_error = static_cast<double>(rb.KineticEnergy() - energy_start) / energy_scale;
+					result.m_max_momentum_error = std::max(result.m_max_momentum_error, Length(rb.MomentumWS().ang - momentum_start.ang) / momentum_scale);
+					result.m_max_energy_error = std::max(result.m_max_energy_error, static_cast<float>(std::abs(relative_energy_error)));
+					sample_count += 1.0;
+					sum_time += time;
+					sum_error += relative_energy_error;
+					sum_time_sq += time * time;
+					sum_time_error += time * relative_energy_error;
+				}
+				auto const denominator = sample_count * sum_time_sq - sum_time * sum_time;
+				result.m_energy_slope = denominator != 0.0
+					? (sample_count * sum_time_error - sum_time * sum_error) / denominator
+					: 0.0;
+				return result;
+			};
+
+			auto const coarse = simulate(0.004f);
+			auto const medium = simulate(0.002f);
+			auto const fine = simulate(0.001f);
+
+			// Every resolution must preserve repeated flips, fixed world momentum, and a bounded non-growing energy envelope.
+			for (auto const& result : std::array{coarse, medium, fine})
+			{
+				PR_EXPECT(result.m_flip_count >= 2);
+				PR_EXPECT(result.m_max_momentum_error < 1.0e-4f);
+				PR_EXPECT(result.m_max_energy_error < 0.01f);
+				PR_EXPECT(result.m_energy_slope < 1.0e-3);
 			}
 
-			// The Dzhanibekov effect: multiple flips should occur.
-			PR_EXPECT(flip_count >= 2);
-
-			// Angular momentum is exactly conserved (no forces → h_new = h_old each step)
-			auto h_final = rb.MomentumWS();
-			auto h_ang_err = Length(h_final.ang - h0.ang);
-			auto h_ang_scale = std::max(Length(h0.ang), 1.0f);
-			PR_EXPECT(h_ang_err / h_ang_scale < 1e-4f);
-			PR_EXPECT(FEql(h0.lin, h_final.lin));
-
-			// Kinetic energy should be approximately conserved (drift from discrete rotation updates)
-			auto ke_final = rb.KineticEnergy();
-			PR_EXPECT(FEqlRelative(ke0, ke_final, 0.01f));
+			// Flip timing and energy error must converge rather than merely looking plausible at one selected timestep.
+			auto const coarse_timing_error = Abs(coarse.m_first_flip_time - fine.m_first_flip_time);
+			auto const medium_timing_error = Abs(medium.m_first_flip_time - fine.m_first_flip_time);
+			PR_EXPECT(medium_timing_error < 0.5f * coarse_timing_error);
+			PR_EXPECT(medium.m_max_energy_error < coarse.m_max_energy_error);
+			PR_EXPECT(fine.m_max_energy_error < medium.m_max_energy_error);
 		}
 	};
 }

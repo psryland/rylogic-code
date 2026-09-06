@@ -1,5 +1,6 @@
 #include "src/forward.h"
 #include "src/utils/scene_loader.h"
+#include "src/utils/scene_loader_internal.h"
 
 namespace physics_sandbox::scene_loader
 {
@@ -556,12 +557,26 @@ namespace physics_sandbox::scene_loader
 					body.position = ReadVec3Range(*jposition, 1.0f, selector, body_index, instance_count, rng);
 				if (auto const* jrotation = jgen.find("rotation"))
 					body.rotation = ReadVec3Range(*jrotation, 0.0f, selector, body_index, instance_count, rng);
+				if (auto const* jz_axis = jgen.find("z_axis"))
+				{
+					auto const axis = ReadVec3Range(*jz_axis, 0.0f, selector, body_index, instance_count, rng);
+					if (!IsFinite(axis) || !(LengthSq(axis) > Sqr(math::tiny<float>)))
+						throw std::runtime_error("Body generator 'z_axis' requires finite non-zero directions");
+
+					body.z_axis = Normalise(axis);
+				}
+				if (jgen.find("rotation") != nullptr && body.z_axis)
+					throw std::runtime_error("Body generator 'rotation' and 'z_axis' are mutually exclusive");
 				if (auto const* jvelocity = jgen.find("velocity"))
 					body.velocity = ReadVec3Range(*jvelocity, 0.0f, selector, body_index, instance_count, rng);
 				if (auto const* jangular_velocity = jgen.find("angular_velocity"))
 					body.angular_velocity = ReadVec3Range(*jangular_velocity, 0.0f, selector, body_index, instance_count, rng);
 				if (auto const* jsleeping = jgen.find("sleeping"))
 					body.sleeping = jsleeping->to<bool>();
+				if (auto const* jnever_sleep = jgen.find("never_sleep"))
+					body.never_sleep = jnever_sleep->to<bool>();
+				if (body.sleeping && body.never_sleep)
+					throw std::runtime_error("A generated body cannot start sleeping and be marked never_sleep");
 
 				desc.bodies.push_back(std::move(body));
 			}
@@ -620,6 +635,19 @@ namespace physics_sandbox::scene_loader
 		if (auto* jrot = jbody.find("rotation"))
 			desc.rotation = ReadVec3(*jrot, 0.0f);
 
+		// Axis alignment is a concise, stable representation for rods whose endpoints define their orientation.
+		if (auto* jz_axis = jbody.find("z_axis"))
+		{
+			if (jbody.find("rotation") != nullptr)
+				throw std::runtime_error("Body 'rotation' and 'z_axis' are mutually exclusive");
+
+			auto const axis = ReadVec3(*jz_axis, 0.0f);
+			if (!IsFinite(axis) || !(LengthSq(axis) > Sqr(math::tiny<float>)))
+				throw std::runtime_error("Body 'z_axis' requires a finite non-zero direction");
+
+			desc.z_axis = Normalise(axis);
+		}
+
 		// Velocity (optional, defaults to zero)
 		if (auto* jvel = jbody.find("velocity"))
 			desc.velocity = ReadVec3(*jvel, 0.0f);
@@ -631,6 +659,12 @@ namespace physics_sandbox::scene_loader
 		// Initial sleep state
 		if (auto* jsleeping = jbody.find("sleeping"))
 			desc.sleeping = jsleeping->to<bool>();
+
+		// Automatic sleep immunity keeps deliberately persistent motion active.
+		if (auto* jnever_sleep = jbody.find("never_sleep"))
+			desc.never_sleep = jnever_sleep->to<bool>();
+		if (desc.sleeping && desc.never_sleep)
+			throw std::runtime_error("A body cannot start sleeping and be marked never_sleep");
 
 		if (auto* jshape = jbody.find("shape"); jshape != nullptr && jshape->as<std::string>() == nullptr)
 			AssignShape(desc, ReadShape(*jshape));
@@ -756,6 +790,27 @@ namespace physics_sandbox::scene_loader
 		SceneDesc desc;
 		desc.filepath = filepath;
 
+		// Runtime catalogue metadata keeps menu grouping and labels editable with the scene.
+		if (auto const* jdemo = jscene.find("demo"))
+		{
+			auto const& demo = jdemo->to_object();
+			auto metadata = SceneMetadata{};
+			if (auto const* field = demo.find("command"))
+				metadata.m_command = field->to<std::string>();
+			if (auto const* field = demo.find("name"))
+				metadata.m_name = field->to<std::string>();
+			if (auto const* field = demo.find("group"))
+				metadata.m_group = field->to<std::string>();
+			if (auto const* field = demo.find("order"))
+				metadata.m_order = field->to<int>();
+			if (auto const* field = jscene.find("description"))
+				metadata.m_description = field->to<std::string>();
+			if (metadata.m_name.empty() || metadata.m_group.empty())
+				throw std::runtime_error("Scene demo metadata requires non-empty 'name' and 'group' fields");
+
+			desc.metadata = std::move(metadata);
+		}
+
 		// Description
 		if (auto* jdesc = jscene.find("description"))
 			desc.description = jdesc->to<std::string>();
@@ -791,8 +846,9 @@ namespace physics_sandbox::scene_loader
 			if (auto* jsubsteps = jphysics_obj.find("substeps"))
 			{
 				desc.physics_substeps = jsubsteps->to<int>();
-				if (desc.physics_substeps < 1)
-					throw std::runtime_error("Scene physics.substeps must be at least 1");
+				auto const max_substeps = physics::EngineConfig{}.max_internal_substeps;
+				if (desc.physics_substeps < 1 || desc.physics_substeps > max_substeps)
+					throw std::runtime_error(std::format("Scene physics.substeps must be in the range [1, {}]", max_substeps));
 			}
 			if (auto* jsolver_iterations = jphysics_obj.find("solver_iterations"))
 			{
@@ -970,6 +1026,12 @@ namespace physics_sandbox::scene_loader
 				AppendGeneratedBodies(desc, jgenerator, shapes, scene_rng);
 		}
 
+		// Articulations and constraints share the same named-shape namespace as rigid bodies.
+		AppendMultibodyDescriptions(desc, jscene, [&](pr::json::Value const& value)
+		{
+			return ReadBody(value, shapes);
+		});
+
 		// Camera
 		if (auto* jcamera = jscene.find("camera"))
 		{
@@ -977,5 +1039,35 @@ namespace physics_sandbox::scene_loader
 		}
 
 		return desc;
+	}
+
+	// Read only the inexpensive menu metadata from a JSON scene file.
+	std::optional<SceneMetadata> LoadMetadataFromFile(std::filesystem::path const& filepath)
+	{
+		auto const document = pr::json::Read(filepath, json::Options{.AllowComments = true, .AllowTrailingCommas = true});
+		auto const& scene = document.to_object()["scene"].to_object();
+		auto const* value = scene.find("demo");
+		if (value == nullptr)
+			return {};
+
+		auto const& demo = value->to_object();
+		auto const* name = demo.find("name");
+		auto const* group = demo.find("group");
+		if (name == nullptr || group == nullptr)
+			throw std::runtime_error(pr::FmtS("Scene '%ls' has incomplete demo metadata", filepath.c_str()));
+
+		auto metadata = SceneMetadata{};
+		if (auto const* command = demo.find("command"))
+			metadata.m_command = command->to<std::string>();
+		metadata.m_name = name->to<std::string>();
+		metadata.m_group = group->to<std::string>();
+		if (auto const* description = scene.find("description"))
+			metadata.m_description = description->to<std::string>();
+		if (auto const* order = demo.find("order"))
+			metadata.m_order = order->to<int>();
+		if (metadata.m_name.empty() || metadata.m_group.empty())
+			throw std::runtime_error(pr::FmtS("Scene '%ls' has empty demo metadata", filepath.c_str()));
+
+		return metadata;
 	}
 }

@@ -3,6 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2016
 //*********************************************
 #pragma once
+#include <bitset>
 #include <unordered_set>
 #include <mutex>
 #include <memory>

@@ -4,6 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/physics/forward.h"
+#include "pr/physics/constraint/constraint_ids.h"
 #include "pr/physics/shape/inertia.h"
 #include "pr/physics/rigid_body/sleep_data.h"
 #include "pr/physics/rigid_body/state_flags.h"
@@ -28,6 +29,10 @@ namespace pr::physics
 		// World space position/orientation of the rigid body
 		// This is the position of the model origin in world space (not the CoM)
 		m4x4 m_o2w;
+
+		// Stable identity copied with the body so ordinary value relocation cannot silently retarget persistent constraints.
+		// Two simultaneously submitted copies are rejected as duplicate identities during endpoint remapping.
+		BodyId m_id;
 
 		// Offset from the model origin to the CoM (in object space). 
 		v4 m_os_com;
@@ -80,6 +85,9 @@ namespace pr::physics
 		{}
 		explicit RigidBody(collision::Shape const* shape = nullptr, m4x4 const& o2w = m4x4::Identity(), Inertia const& inertia = {});
 
+		// Return the stable identity used by persistent constraints.
+		BodyId Id() const;
+
 		// Raised after the collision shape changes.
 		EventHandler<RigidBody&, ChangeEventArgs<collision::Shape const*>, true> ShapeChange;
 
@@ -114,9 +122,17 @@ namespace pr::physics
 		float InvMass() const;
 		void InvMass(float invmass);
 
-		// Offset to the centre of mass (w = 0) (Object relative)
+		// Return the model-origin-to-centre-of-mass offset in object space.
 		v4 CentreOfMassOS() const;
+
+		// Return the model-origin-to-centre-of-mass offset in world orientation.
 		v4 CentreOfMassWS() const;
+
+		// Return the model-origin-to-centre-of-mass offset in world orientation.
+		v4 CentreOfMassOffsetWS() const;
+
+		// Return the absolute world-space position of the centre of mass.
+		v4 CentreOfMassPositionWS() const;
 
 		// InertiaInv (use 'SetMassProperties' to change)
 		InertiaInv InertiaInvOS() const;
@@ -176,7 +192,7 @@ namespace pr::physics
 
 		// Add a force acting on the rigid body at position 'ws_at' (world space, model origin relative).
 		// The force is shifted from the application point to the centre of mass before accumulation.
-		// For gravity: pass ws_at = O2W().rot * CentreOfMassOS() so gravity produces no torque about CoM.
+		// For gravity: pass ws_at = CentreOfMassOffsetWS() so gravity produces no torque about CoM.
 		void ApplyForceWS(v4 ws_force, v4 ws_torque, v4 ws_at = v4::Zero());
 		void ApplyForceWS(v8force ws_force);
 

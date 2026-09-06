@@ -1,0 +1,1925 @@
+{
+	"scene": {
+		"demo": {
+			"name": "Fixed Articulations",
+			"group": "Articulations and Robotics",
+			"order": 50,
+			"command": "fixed-articulations"
+		},
+		"description": "Several fixed-root Featherstone chains with different link counts.",
+		"gravity": [
+			0.0,
+			0.0,
+			-9.81000042
+		],
+		"material": {
+			"friction": 0.60000002,
+			"elasticity": 0.05
+		},
+		"physics": {
+			"substeps": 1
+		},
+		"shapes": {
+			"root-shape": {
+				"name": "root-shape",
+				"type": "box",
+				"dimensions": [
+					0.64999998,
+					0.64999998,
+					0.64999998
+				]
+			},
+			"link-shape": {
+				"name": "link-shape",
+				"type": "box",
+				"dimensions": [
+					0.34999999,
+					0.34999999,
+					0.89999998
+				]
+			}
+		},
+		"articulations": [
+			{
+				"name": "chain-8",
+				"root_type": "fixed",
+				"root_transform": {
+					"position": [
+						-5.0,
+						0.0,
+						11.0
+					]
+				},
+				"root": {
+					"name": "root",
+					"shape": "root-shape",
+					"mass": 2.0,
+					"collide_parent": false,
+					"collide_self": false
+				},
+				"links": [
+					{
+						"name": "link-01",
+						"parent": "root",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.0
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.05153741
+								}
+							]
+						}
+					},
+					{
+						"name": "link-02",
+						"parent": "link-01",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.07883598
+								}
+							]
+						}
+					},
+					{
+						"name": "link-03",
+						"parent": "link-02",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.06905675
+								}
+							]
+						}
+					},
+					{
+						"name": "link-04",
+						"parent": "link-03",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.02679905
+								}
+							]
+						}
+					},
+					{
+						"name": "link-05",
+						"parent": "link-04",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": -0.02806266
+								}
+							]
+						}
+					},
+					{
+						"name": "link-06",
+						"parent": "link-05",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": -0.06972606
+								}
+							]
+						}
+					},
+					{
+						"name": "link-07",
+						"parent": "link-06",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": -0.07859621
+								}
+							]
+						}
+					},
+					{
+						"name": "link-08",
+						"parent": "link-07",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": -0.05050133
+								}
+							]
+						}
+					}
+				]
+			},
+			{
+				"name": "chain-16",
+				"root_type": "fixed",
+				"root_transform": {
+					"position": [
+						0.0,
+						0.0,
+						11.0
+					]
+				},
+				"root": {
+					"name": "root",
+					"shape": "root-shape",
+					"mass": 2.0,
+					"collide_parent": false,
+					"collide_self": false
+				},
+				"links": [
+					{
+						"name": "link-01",
+						"parent": "root",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.0
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.05153741
+								}
+							]
+						}
+					},
+					{
+						"name": "link-02",
+						"parent": "link-01",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.07883598
+								}
+							]
+						}
+					},
+					{
+						"name": "link-03",
+						"parent": "link-02",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.06905675
+								}
+							]
+						}
+					},
+					{
+						"name": "link-04",
+						"parent": "link-03",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.02679905
+								}
+							]
+						}
+					},
+					{
+						"name": "link-05",
+						"parent": "link-04",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": -0.02806266
+								}
+							]
+						}
+					},
+					{
+						"name": "link-06",
+						"parent": "link-05",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": -0.06972606
+								}
+							]
+						}
+					},
+					{
+						"name": "link-07",
+						"parent": "link-06",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": -0.07859621
+								}
+							]
+						}
+					},
+					{
+						"name": "link-08",
+						"parent": "link-07",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": -0.05050133
+								}
+							]
+						}
+					},
+					{
+						"name": "link-09",
+						"parent": "link-08",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.00134511
+								}
+							]
+						}
+					},
+					{
+						"name": "link-10",
+						"parent": "link-09",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.05255893
+								}
+							]
+						}
+					},
+					{
+						"name": "link-11",
+						"parent": "link-10",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.07905346
+								}
+							]
+						}
+					},
+					{
+						"name": "link-12",
+						"parent": "link-11",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.06836791
+								}
+							]
+						}
+					},
+					{
+						"name": "link-13",
+						"parent": "link-12",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.02552787
+								}
+							]
+						}
+					},
+					{
+						"name": "link-14",
+						"parent": "link-13",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": -0.02931833
+								}
+							]
+						}
+					},
+					{
+						"name": "link-15",
+						"parent": "link-14",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": -0.07037566
+								}
+							]
+						}
+					},
+					{
+						"name": "link-16",
+						"parent": "link-15",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": -0.07833422
+								}
+							]
+						}
+					}
+				]
+			},
+			{
+				"name": "chain-28",
+				"root_type": "fixed",
+				"root_transform": {
+					"position": [
+						5.0,
+						0.0,
+						11.0
+					]
+				},
+				"root": {
+					"name": "root",
+					"shape": "root-shape",
+					"mass": 2.0,
+					"collide_parent": false,
+					"collide_self": false
+				},
+				"links": [
+					{
+						"name": "link-01",
+						"parent": "root",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.0
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.05153741
+								}
+							]
+						}
+					},
+					{
+						"name": "link-02",
+						"parent": "link-01",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.07883598
+								}
+							]
+						}
+					},
+					{
+						"name": "link-03",
+						"parent": "link-02",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.06905675
+								}
+							]
+						}
+					},
+					{
+						"name": "link-04",
+						"parent": "link-03",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.02679905
+								}
+							]
+						}
+					},
+					{
+						"name": "link-05",
+						"parent": "link-04",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": -0.02806266
+								}
+							]
+						}
+					},
+					{
+						"name": "link-06",
+						"parent": "link-05",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": -0.06972606
+								}
+							]
+						}
+					},
+					{
+						"name": "link-07",
+						"parent": "link-06",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": -0.07859621
+								}
+							]
+						}
+					},
+					{
+						"name": "link-08",
+						"parent": "link-07",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": -0.05050133
+								}
+							]
+						}
+					},
+					{
+						"name": "link-09",
+						"parent": "link-08",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.00134511
+								}
+							]
+						}
+					},
+					{
+						"name": "link-10",
+						"parent": "link-09",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.05255893
+								}
+							]
+						}
+					},
+					{
+						"name": "link-11",
+						"parent": "link-10",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.07905346
+								}
+							]
+						}
+					},
+					{
+						"name": "link-12",
+						"parent": "link-11",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.06836791
+								}
+							]
+						}
+					},
+					{
+						"name": "link-13",
+						"parent": "link-12",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.02552787
+								}
+							]
+						}
+					},
+					{
+						"name": "link-14",
+						"parent": "link-13",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": -0.02931833
+								}
+							]
+						}
+					},
+					{
+						"name": "link-15",
+						"parent": "link-14",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": -0.07037566
+								}
+							]
+						}
+					},
+					{
+						"name": "link-16",
+						"parent": "link-15",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": -0.07833422
+								}
+							]
+						}
+					},
+					{
+						"name": "link-17",
+						"parent": "link-16",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": -0.04945097
+								}
+							]
+						}
+					},
+					{
+						"name": "link-18",
+						"parent": "link-17",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.00268984
+								}
+							]
+						}
+					},
+					{
+						"name": "link-19",
+						"parent": "link-18",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.05356558
+								}
+							]
+						}
+					},
+					{
+						"name": "link-20",
+						"parent": "link-19",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.07924858
+								}
+							]
+						}
+					},
+					{
+						"name": "link-21",
+						"parent": "link-20",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.06765974
+								}
+							]
+						}
+					},
+					{
+						"name": "link-22",
+						"parent": "link-21",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.02424947
+								}
+							]
+						}
+					},
+					{
+						"name": "link-23",
+						"parent": "link-22",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": -0.03056571
+								}
+							]
+						}
+					},
+					{
+						"name": "link-24",
+						"parent": "link-23",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": -0.07100536
+								}
+							]
+						}
+					},
+					{
+						"name": "link-25",
+						"parent": "link-24",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": -0.07805008
+								}
+							]
+						}
+					},
+					{
+						"name": "link-26",
+						"parent": "link-25",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": -0.04838663
+								}
+							]
+						}
+					},
+					{
+						"name": "link-27",
+						"parent": "link-26",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.0,
+										1.0,
+										0.0
+									],
+									"initial_position": 0.00403382
+								}
+							]
+						}
+					},
+					{
+						"name": "link-28",
+						"parent": "link-27",
+						"shape": "link-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.0,
+									0.0,
+									-0.44999999
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.0,
+									0.0,
+									0.44999999
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 0.05455709
+								}
+							]
+						}
+					}
+				]
+			}
+		]
+	}
+}

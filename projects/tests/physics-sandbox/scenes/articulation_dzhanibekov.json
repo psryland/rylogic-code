@@ -1,0 +1,86 @@
+{
+	"scene": {
+		"demo": {
+			"name": "Dzhanibekov Effect (Rigid and Articulated)",
+			"group": "Dynamics and Conservation",
+			"order": 170,
+			"command": "dzhanibekov"
+		},
+		"description": "Rigid and floating-root intermediate-axis instability side by side.",
+		"gravity": [
+			0.0,
+			0.0,
+			0.0
+		],
+		"material": {
+			"friction": 0.60000002,
+			"elasticity": 0.05
+		},
+		"physics": {
+			"substeps": 2
+		},
+		"shapes": {
+			"dz-box": {
+				"name": "dz-box",
+				"type": "box",
+				"dimensions": [
+					2.0,
+					4.0,
+					8.0
+				]
+			}
+		},
+		"bodies": [
+			{
+				"name": "rigid-body",
+				"shape": "dz-box",
+				"mass": 1.0,
+				"position": [
+					-5.0,
+					0.0,
+					0.0
+				],
+				"angular_velocity": [
+					1.0,
+					10.0,
+					1.0
+				],
+				"never_sleep": true,
+				"colour": "0xFFFFA040"
+			}
+		],
+		"articulations": [
+			{
+				"name": "articulated-body",
+				"root_type": "floating",
+				"root_transform": {
+					"position": [
+						5.0,
+						0.0,
+						0.0
+					]
+				},
+				"root_velocity": {
+					"angular": [
+						1.0,
+						10.0,
+						1.0
+					],
+					"linear": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"never_sleep": true,
+				"root": {
+					"name": "root",
+					"shape": "dz-box",
+					"mass": 1.0,
+					"collide_parent": false,
+					"collide_self": false
+				}
+			}
+		]
+	}
+}

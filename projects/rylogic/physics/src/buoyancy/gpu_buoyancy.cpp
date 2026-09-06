@@ -3,6 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
 #include "pr/physics/buoyancy/gpu_buoyancy.h"
+#include "pr/physics/articulation/articulation.h"
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/buoyancy/buoyancy_sampler.h"
 #include "pr/compute/compute_pso.h"
@@ -383,15 +384,25 @@ namespace pr::physics
 		};
 		struct CompositeSlot
 		{
-			// Per-body registration state. Expensive shape-derived data is shared; only identity,
-			// lifetime, deterministic sample seeding, and wake-state bookkeeping remain per body.
+			// Per-target registration state. Expensive shape-derived data is shared; only identity,
+			// lifetime, deterministic sample seeding, target resolution, and rigid-body wake state remain per target.
 			int m_generation = -1;
 			bool m_active = false;
 			RigidBody* m_body = nullptr;
+			Articulation* m_articulation = nullptr;
+			LinkHandle m_link = {};
 			bool m_prev_never_sleep = false;
 			uint32_t m_hull_id = 0;
 			multicast::AutoSub m_shape_change_sub;
 			std::shared_ptr<CompositeShape const> m_shape_data;
+		};
+
+		// Shares one tree-wide NeverSleep override among all buoyant links in the same articulation.
+		struct ArticulationSleepOwner
+		{
+			Articulation* m_articulation;
+			int m_registration_count;
+			bool m_prev_never_sleep;
 		};
 
 		// A compact reference to a registered hull participating in the current dispatch. Instances live in
@@ -448,9 +459,11 @@ namespace pr::physics
 
 		// Device services and callbacks remain valid for the lifetime of this implementation.
 		ID3D12Device* m_device;
+		Engine* m_engine;
 		StepIndexResolver m_step_index_resolver;
 		BodyStateResolver m_body_state_resolver;
 		WaterFieldExtension m_water_field_extension;
+		bool m_supports_rigid_bodies;
 
 		// Immutable compute pipelines and the engine subscription used to append buoyancy work to each GPU step.
 		::pr::compute::ComputeStep m_volume_step;
@@ -466,6 +479,7 @@ namespace pr::physics
 		Config m_config;
 		std::unordered_map<ShapeCacheKey, std::weak_ptr<CompositeShape const>, ShapeCacheHash> m_shape_cache;
 		std::vector<CompositeSlot> m_composite_hulls;
+		std::vector<ArticulationSleepOwner> m_articulation_sleep_owners;
 
 		// Reusable host-side dispatch state. Capacity tracks m_composite_hulls and is established during
 		// registration so the per-step Apply/DispatchComposite path only clears and repopulates storage.
@@ -488,11 +502,13 @@ namespace pr::physics
 		std::vector<Diagnostics> m_diagnostics;
 
 		// Construct and subscribe the buoyancy compute pass.
-		Impl(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver, WaterFieldExtension water_field_extension)
+		Impl(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver, WaterFieldExtension water_field_extension, bool supports_rigid_bodies)
 			:m_device(device)
+			,m_engine(&engine)
 			,m_step_index_resolver(std::move(step_index_resolver))
 			,m_body_state_resolver(std::move(body_state_resolver))
 			,m_water_field_extension(ValidateWaterFieldExtension(std::move(water_field_extension)))
+			,m_supports_rigid_bodies(supports_rigid_bodies)
 			,m_volume_step(CreateVolumeStep(device, m_water_field_extension))
 			,m_volume_reduce_step(CreateVolumeReduceStep(device, m_water_field_extension))
 			,m_surface_step(CreateSurfaceStep(device, m_water_field_extension))
@@ -507,6 +523,7 @@ namespace pr::physics
 			,m_config()
 			,m_shape_cache()
 			,m_composite_hulls()
+			,m_articulation_sleep_owners()
 			,m_active_hulls()
 			,m_active_shapes()
 			,m_active_shape_lookup()
@@ -660,6 +677,8 @@ namespace pr::physics
 		// Register a rigid body's collision shape as its buoyancy hull.
 		void RegisterCompositeHull(RigidBody& body, int body_index, int body_generation)
 		{
+			if (!m_supports_rigid_bodies)
+				throw std::runtime_error("GpuBuoyancy requires rigid-body resolvers before a rigid body can be registered");
 			if (body_index < 0 || body_generation < 0)
 				throw std::runtime_error("Invalid body handle for buoyancy hull registration");
 			if (!body.HasShape())
@@ -706,6 +725,83 @@ namespace pr::physics
 			body.Wake();
 		}
 
+		// Retain one tree-wide wake override until the last buoyant link registration is released.
+		void AcquireArticulationSleepOwnership(Articulation& articulation)
+		{
+			for (auto& owner : m_articulation_sleep_owners)
+			{
+				if (owner.m_articulation != &articulation)
+					continue;
+
+				++owner.m_registration_count;
+				return;
+			}
+
+			m_articulation_sleep_owners.push_back(ArticulationSleepOwner{
+				.m_articulation = &articulation,
+				.m_registration_count = 1,
+				.m_prev_never_sleep = articulation.NeverSleep(),
+			});
+			articulation.NeverSleep(true);
+		}
+
+		// Restore the caller's tree-wide sleep policy after its final buoyant link is released.
+		void ReleaseArticulationSleepOwnership(Articulation& articulation) noexcept
+		{
+			for (auto iter = m_articulation_sleep_owners.begin(); iter != m_articulation_sleep_owners.end(); ++iter)
+			{
+				if (iter->m_articulation != &articulation)
+					continue;
+
+				assert(iter->m_registration_count > 0);
+				if (--iter->m_registration_count != 0)
+					return;
+
+				articulation.NeverSleep(iter->m_prev_never_sleep);
+				m_articulation_sleep_owners.erase(iter);
+				return;
+			}
+
+			assert("Articulation buoyancy sleep ownership was released without a matching registration" && false);
+		}
+
+		// Register an articulation link's immutable collision shape as its buoyancy hull.
+		void RegisterCompositeHull(Articulation& articulation, LinkHandle link, int body_index, int body_generation)
+		{
+			if (body_index < 0 || body_generation < 0)
+				throw std::runtime_error("Invalid target handle for articulation buoyancy hull registration");
+
+			auto const& desc = articulation.LinkDescription(link);
+			if (desc.m_shape == nullptr)
+				throw std::runtime_error("A buoyancy-registered articulation link must have a collision shape");
+
+			// Articulation links expose immutable geometry, so registration does not need a shape-change subscription.
+			EnsureHostCapacity(body_index + 1);
+			auto& slot = m_composite_hulls[body_index];
+			if (slot.m_active)
+				throw std::runtime_error("A buoyancy hull is already registered for this target");
+
+			auto shape_data = GetOrCreateCompositeShape(*desc.m_shape);
+			{
+				auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
+				if (body_index >= static_cast<int>(m_diagnostics.size()))
+					m_diagnostics.resize(static_cast<std::size_t>(body_index + 1));
+
+				auto& diagnostic = m_diagnostics[body_index];
+				diagnostic = Diagnostics{};
+				diagnostic.m_body_index = body_index;
+				diagnostic.m_body_generation = body_generation;
+			}
+
+			AcquireArticulationSleepOwnership(articulation);
+			slot.m_generation = body_generation;
+			slot.m_active = true;
+			slot.m_articulation = &articulation;
+			slot.m_link = link;
+			slot.m_hull_id = static_cast<uint32_t>(body_index);
+			slot.m_shape_data = std::move(shape_data);
+		}
+
 		// Remove the buoyancy hull for a stable physics body index.
 		void UnregisterHull(int body_index, int body_generation) noexcept
 		{
@@ -723,6 +819,10 @@ namespace pr::physics
 					if (slot.m_body != nullptr)
 					{
 						slot.m_body->NeverSleep(slot.m_prev_never_sleep);
+					}
+					if (slot.m_articulation != nullptr)
+					{
+						ReleaseArticulationSleepOwnership(*slot.m_articulation);
 					}
 
 					slot = CompositeSlot{};
@@ -937,6 +1037,30 @@ namespace pr::physics
 			return lowest > WaterLevel() + margin;
 		}
 
+		// Resolve a registration to its hidden articulation proxy or ordinary rigid-body step index.
+		int ResolveStepIndex(CompositeSlot const& slot, int body_index) const
+		{
+			if (slot.m_articulation != nullptr)
+				return m_engine->ArticulationLinkStepIndex(slot.m_articulation->Id(), slot.m_link);
+
+			return m_step_index_resolver(body_index);
+		}
+
+		// Return the current collision-shape-root pose and gravity needed by the host-side dry cull.
+		BodyState ResolveBodyState(CompositeSlot const& slot, int body_index) const
+		{
+			if (slot.m_articulation == nullptr)
+				return m_body_state_resolver(body_index);
+
+			auto const& desc = slot.m_articulation->LinkDescription(slot.m_link);
+			return BodyState{
+				.m_o2w = slot.m_articulation->LinkToWorld(slot.m_link) * desc.m_shape_to_link,
+				.m_centre_of_mass_os = (InvertOrthonormal(desc.m_shape_to_link) * desc.m_inertia.CoM().w1()).w0(),
+				.m_ws_gravity = slot.m_articulation->GravityWS(slot.m_link),
+				.m_valid = true,
+			};
+		}
+
 		// Resolve registered hulls to the current engine body order and collect the compact dispatch population.
 		ActiveHullStats CollectActiveHulls(Engine::ExternalForceArgs const& args)
 		{
@@ -957,7 +1081,7 @@ namespace pr::physics
 					continue;
 				}
 
-				auto const body_step_index = m_step_index_resolver(body_index);
+				auto const body_step_index = ResolveStepIndex(slot, body_index);
 				if (body_step_index < 0)
 				{
 					continue;
@@ -973,7 +1097,7 @@ namespace pr::physics
 				// when waves are present (the resolver call is then pure overhead).
 				if (WaterFieldCount() == 0)
 				{
-					auto const bs = m_body_state_resolver(body_index);
+					auto const bs = ResolveBodyState(slot, body_index);
 					if (IsFlatWaterFullyDry(*slot.m_shape_data, bs))
 					{
 						auto lock = std::lock_guard<std::mutex>(m_diagnostics_mutex);
@@ -1418,9 +1542,9 @@ namespace pr::physics
 				RecordSurfacePass(args, cb_surf, addresses);
 			}
 
-			// Phase 8: diagnostic publication is opt-in because it adds GPU copy/readback work that
-			// production force application does not require.
-			if (m_config.m_enable_diagnostics)
+			// Diagnostic publication is opt-in and only the final substep is observable after the frame's single wait.
+			// Production force application does not allocate or record this diagnostic transfer.
+			if (m_config.m_enable_diagnostics && args.m_substep_index + 1 == args.m_substep_count)
 				RecordDiagnosticReadback(args, hull_count);
 		}
 
@@ -1650,7 +1774,26 @@ namespace pr::physics
 
 	// Construct and subscribe the diagnostic buoyancy pass to a physics engine.
 	GpuBuoyancy::GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver, WaterFieldExtension water_field_extension)
-		:m_impl(std::make_unique<Impl>(device, engine, config, std::move(step_index_resolver), std::move(body_state_resolver), std::move(water_field_extension)))
+		:m_impl(std::make_unique<Impl>(device, engine, config, std::move(step_index_resolver), std::move(body_state_resolver), std::move(water_field_extension), true))
+	{
+	}
+
+	// Construct an articulation-only buoyancy pass that resolves link proxies through the engine.
+	GpuBuoyancy::GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config)
+		:m_impl(std::make_unique<Impl>(
+			device,
+			engine,
+			config,
+			[](int)
+			{
+				return -1;
+			},
+			[](int)
+			{
+				return BodyState{};
+			},
+			WaterFieldExtension{},
+			false))
 	{
 	}
 
@@ -1712,6 +1855,13 @@ namespace pr::physics
 	GpuBuoyancy::Registration GpuBuoyancy::RegisterCompositeHull(RigidBody& body, int body_index, int body_generation)
 	{
 		m_impl->RegisterCompositeHull(body, body_index, body_generation);
+		return Registration{*this, body_index, body_generation};
+	}
+
+	// Register one articulation link's immutable collision shape as a buoyancy hull.
+	GpuBuoyancy::Registration GpuBuoyancy::RegisterCompositeHull(Articulation& articulation, LinkHandle link, int body_index, int body_generation)
+	{
+		m_impl->RegisterCompositeHull(articulation, link, body_index, body_generation);
 		return Registration{*this, body_index, body_generation};
 	}
 

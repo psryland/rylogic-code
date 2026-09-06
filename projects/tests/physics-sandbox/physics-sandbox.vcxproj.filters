@@ -220,7 +220,16 @@
     <ClInclude Include="src\utils\scene_loader.h">
       <Filter>src\utils</Filter>
     </ClInclude>
+    <ClInclude Include="src\utils\scene_loader_internal.h">
+      <Filter>src\utils</Filter>
+    </ClInclude>
     <ClInclude Include="src\scene\body.h">
+      <Filter>src\scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\scene\articulation_visual.h">
+      <Filter>src\scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\scene\demo.h">
       <Filter>src\scene</Filter>
     </ClInclude>
     <ClInclude Include="src\scene\procedural_sky.h">
@@ -378,6 +387,66 @@
     <None Include="scenes\buoyancy_stress_1000.json">
       <Filter>scenes</Filter>
     </None>
+    <None Include="scenes\constraint_pendulum.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\articulation_buoyant.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\articulation_dzhanibekov.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\articulation_fixed_chains.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\articulation_floating_conservation.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\articulation_mixed_contacts.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\articulation_mixed_coupling.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\articulation_push_stack.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\articulation_ragdolls.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\articulation_robot_gripper.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\articulation_robot_motors.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\articulation_two_robot_load.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\constraint_four_bar.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\constraint_pathologies.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\constraint_rigid_chain.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\constraint_rigid_joints.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\constraint_stress.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\constraint_suspension_bridge.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\constraint_vehicle_suspension.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\constraints_full_showcase.json">
+      <Filter>scenes</Filter>
+    </None>
     <None Include="src\scene\water\water_visual_cbuf.hlsli">
       <Filter>src\scene\water</Filter>
     </None>
@@ -390,6 +459,12 @@
       <Filter>src\utils</Filter>
     </ClCompile>
     <ClCompile Include="src\scene\body.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\scene\articulation_visual.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\scene\demo_catalogue.cpp">
       <Filter>src\scene</Filter>
     </ClCompile>
     <ClCompile Include="src\scene\procedural_sky.cpp">
@@ -416,10 +491,16 @@
     <ClCompile Include="src\scene\scene.cpp">
       <Filter>src\scene</Filter>
     </ClCompile>
+    <ClCompile Include="src\scene\scene_multibody.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
     <ClCompile Include="src\scene\water\water_visual.cpp">
       <Filter>src\scene\water</Filter>
     </ClCompile>
     <ClCompile Include="src\utils\scene_loader.cpp">
+      <Filter>src\utils</Filter>
+    </ClCompile>
+    <ClCompile Include="src\utils\scene_loader_multibody.cpp">
       <Filter>src\utils</Filter>
     </ClCompile>
     <ClCompile Include="src\ui\recent_files.cpp">

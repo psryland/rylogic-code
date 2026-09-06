@@ -4,23 +4,30 @@
 //*********************************************
 #pragma once
 #include <concepts>
+#include <compare>
 #include <type_traits>
 #include <span>
 #include <memory>
 #include <functional>
 #include <vector>
 #include <array>
+#include <initializer_list>
+#include <iterator>
 #include <ranges>
 #include <unordered_set>
 #include <unordered_map>
 #include <algorithm>
 #include <numeric>
+#include <utility>
 #include <fstream>
 #include <format>
 #include <chrono>
 #include <cstdio>
 #include <cstdint>
 #include <cassert>
+#include <atomic>
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 
 #include "pr/common/assert.h"
@@ -85,6 +92,39 @@ namespace pr::physics
 	struct RbContact;
 	struct MaterialMap;
 	struct Material;
+	struct BodyId;
+	struct ConstraintHandle;
+	struct ConstraintBreakEvent;
+	struct CoupledConstraintFailureEvent;
+	struct ArticulationId;
+	struct LinkHandle;
+	class Articulation;
+	class ArticulationBuilder;
+	struct BodyRef;
+	struct BodyFrame;
+	struct ConstraintAxisDesc;
+	struct D6ConstraintDesc;
+	struct BallSocketConstraintDesc;
+	struct HingeConstraintDesc;
+	struct SliderConstraintDesc;
+	struct WeldConstraintDesc;
+	struct ConstraintDirtyRange;
+	class ConstraintSet;
+
+	struct BodyRemap;
+	struct CompiledConstraintRow;
+	struct CompiledConstraintBlock;
+	struct CompiledConstraintSet;
+	struct GpuCollisionExclusion;
+	struct GpuConstraintUpload;
+	struct GpuConstraintSolver;
+	struct GpuCoupledConstraintSolver;
+	struct GpuCoupledContactSolver;
+	struct GpuArticulationForceAba;
+	struct GpuArticulationMobility;
+	struct GpuArticulationLinkProxies;
+	struct GpuArticulationMidpoint;
+	struct GpuFrameOutput;
 
 	struct Gpu;
 	struct GpuIntegrator;
@@ -100,6 +140,13 @@ namespace pr::physics
 	struct GpuContact;
 	struct GpuResolveContact;
 	struct GpuCollisionCounters;
+	struct GpuFrameForce;
+	struct GpuFrameOutputHeader;
+	struct GpuArticulationFrameOutput;
+	struct GpuArticulationMidpointOutput;
+	struct GpuConstraintBreakState;
+	struct GpuSubstepOutputState;
+	struct GpuCollisionEvent;
 	struct GpuMaterial;
 	struct GpuBuffers;
 	struct EngineBufferCache;
@@ -111,6 +158,14 @@ namespace pr::physics
 	using GpuSleepManagerPtr = std::unique_ptr<GpuSleepManager, Deleter<GpuSleepManager>>;
 	using GpuSortAndSweepPtr = std::unique_ptr<GpuSortAndSweep, Deleter<GpuSortAndSweep>>;
 	using GpuCollisionDetectorPtr = std::unique_ptr<GpuCollisionDetector, Deleter<GpuCollisionDetector>>;
+	using GpuConstraintSolverPtr = std::unique_ptr<GpuConstraintSolver, Deleter<GpuConstraintSolver>>;
+	using GpuCoupledConstraintSolverPtr = std::unique_ptr<GpuCoupledConstraintSolver, Deleter<GpuCoupledConstraintSolver>>;
+	using GpuCoupledContactSolverPtr = std::unique_ptr<GpuCoupledContactSolver, Deleter<GpuCoupledContactSolver>>;
+	using GpuArticulationForceAbaPtr = std::unique_ptr<GpuArticulationForceAba, Deleter<GpuArticulationForceAba>>;
+	using GpuArticulationMobilityPtr = std::unique_ptr<GpuArticulationMobility, Deleter<GpuArticulationMobility>>;
+	using GpuArticulationLinkProxiesPtr = std::unique_ptr<GpuArticulationLinkProxies, Deleter<GpuArticulationLinkProxies>>;
+	using GpuArticulationMidpointPtr = std::unique_ptr<GpuArticulationMidpoint, Deleter<GpuArticulationMidpoint>>;
+	using GpuFrameOutputPtr = std::unique_ptr<GpuFrameOutput, Deleter<GpuFrameOutput>>;
 	using GpuSelectiveRefresherPtr = std::unique_ptr<GpuSelectiveRefresher, Deleter<GpuSelectiveRefresher>>;
 	using GpuResolverPtr = std::unique_ptr<GpuResolver, Deleter<GpuResolver>>;
 	using CachePtr = std::unique_ptr<EngineBufferCache, Deleter<EngineBufferCache>>;

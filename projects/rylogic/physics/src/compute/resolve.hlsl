@@ -9,16 +9,18 @@
 //   2. Shock-priority passes   - optionally propagate contact priority through body/contact adjacency and rewrite the sort key.
 //   3. RadixSort               - sorts g_contact_order by g_contact_times. This pass is driven from C++ using RadixSort, not an entry point here.
 //   4. CSAssignColours         - greedily graph-colours the sorted contacts so independent contacts can be solved together.
-//   5. CSPositionSolve         - split position correction, dispatched once per colour.
-//   6. CSResolve               - velocity impulse solve, dispatched once per colour.
+//   5. CSPositionSolve         - split position correction, dispatched once per colour or serially for a colour-overflow frame.
+//   6. CSResolve               - velocity impulse solve, dispatched once per colour or serially for a colour-overflow frame.
 //
 // Within a colour batch, no two contacts share a dynamic body, so writes to body transforms/momenta are data-race free. Static bodies are allowed to appear
-// in multiple contacts in one colour because they are never written by the solver.
+// in multiple contacts in one colour because they are never written by the solver. If the bounded colour mask is exhausted, the complete contact set is solved
+// serially by thread zero. This rare fallback preserves the same sequential-impulse semantics without allowing same-body writes to race.
 //
 // Scratch ownership:
 //   - g_contact_times is first a sort-key buffer, then a temporary priority buffer during shock propagation, then the final sort-key buffer again.
 //   - g_contact_order starts as [0..contact_count) and is permuted by the external radix sort.
 //   - g_colours is used as uint/asfloat scratch for Jacobi shock-priority propagation, then reset and reused as the final per-contact colour assignment.
+//     One extra element at g.sort_capacity stores the frame-wide colour-overflow flag.
 //
 // Resource layout:
 //   b0: cbResolve                               - per-dispatch constants
@@ -96,8 +98,8 @@ struct cbResolve
 	float warm_start_scale;           // Scale applied to cached physical impulses before they are applied this frame
 
 	int warm_start_capacity;  // Number of entries in the open-addressed warm-start cache
-	int pad_i0;
-	int pad_i1;
+	int rigid_body_count;     // Ordinary rigid prefix; larger body indices are articulation-link proxies
+	int warm_start_preloaded; // Non-zero when the coupled-contact lane required a separate cache-load pass
 	int pad_i2;
 };
 
@@ -120,6 +122,26 @@ RWStructuredBuffer<GpuWarmStartEntry> resource(g_warm_start_curr, u9); // curren
 int ContactCount()
 {
 	return min(g_counters[0].contact_count, g.max_contacts);
+}
+
+// Return true when both endpoints belong to the ordinary rigid-body prefix handled by this solver.
+bool RigidContact(GpuResolveContact contact)
+{
+	return
+		contact.body_idx_a >= 0 && contact.body_idx_a < g.rigid_body_count &&
+		contact.body_idx_b >= 0 && contact.body_idx_b < g.rigid_body_count;
+}
+
+// Return the reserved colour-buffer slot that records whether any enabled contact exhausted the bounded colour mask.
+int ColourOverflowIndex()
+{
+	return g.sort_capacity;
+}
+
+// Return true when the complete contact set must use the coherent serial fallback instead of parallel colour batches.
+bool ColourOverflow()
+{
+	return g_colours[ColourOverflowIndex()] != 0;
 }
 
 // Returns the packed leaf identity of a contact. Bodies with a single convex shape use leaf 0, so
@@ -547,6 +569,13 @@ bool ContactEnabled(GpuResolveContact c, GpuRigidBody bodyA)
 	return g.support_only == 0.0f || SupportContact(c, bodyA);
 }
 
+// Return whether a contact index belongs to the current full or selective resolve pass.
+bool ContactEnabledAt(uint idx)
+{
+	GpuResolveContact c = g_contacts[idx];
+	return RigidContact(c) && ContactEnabled(c, g_bodies[c.body_idx_a]);
+}
+
 // Compute the local contact-priority tie-breaker that is folded into the collision-time radix key.
 // Lower values sort earlier. The key favours low support contacts, high momentum, closing velocity, and deeper penetration.
 float PropagationSortKey(GpuResolveContact c, GpuRigidBody bodyA, GpuRigidBody bodyB)
@@ -761,7 +790,7 @@ void CSComputeCollisionTimes(int3 DTID(dtid))
 		// Reset the graph-colouring bitmask on every body. CSAssignColours will OR colour bits into dynamic bodies as it walks the sorted contacts.
 		for (i = 0; i != g.body_count; ++i)
 			g_bodies[i].colour_used = 0;
-		
+
 		// Set the out-of-bounds contact times to a large positive value so they sort to the end.
 		// The resolver's sort scratch can be larger than a compact selective contact buffer, so initialise
 		// every key that the radix sorter will read, not just every contact slot in the current pass.
@@ -798,6 +827,8 @@ void CSSeedShockPriority(int3 DTID(dtid))
 	g_colours[contact_idx] = asuint(priority);
 	g_contact_next_a[contact_idx] = 0;
 	g_contact_next_b[contact_idx] = 0;
+	if (!RigidContact(c))
+		return;
 
 	LinkContactToBody(contact_idx, c.body_idx_a, true);
 	LinkContactToBody(contact_idx, c.body_idx_b, false);
@@ -817,6 +848,9 @@ void CSPropagateShockPriority(int3 DTID(dtid))
 		return;
 
 	GpuResolveContact src = g_contacts[src_idx];
+	if (!RigidContact(src))
+		return;
+
 	PropagateShockThroughBody(src_idx, src, src.body_idx_a, src_priority);
 	PropagateShockThroughBody(src_idx, src, src.body_idx_b, src_priority);
 }
@@ -869,6 +903,8 @@ void CSAssignColours(int3 DTID(dtid))
 	if (dtid.x != 0)
 		return;
 
+	// A single overflow makes the complete solve use one coherent serial order, so partial assignments are discarded after the first exhausted mask.
+	bool colour_overflow = false;
 	int contact_count = ContactCount();
 	for (int i = 0; i != contact_count; ++i)
 	{
@@ -876,7 +912,7 @@ void CSAssignColours(int3 DTID(dtid))
 		int idx = g_contact_order[i]; // get contact index from sorted order
 		GpuResolveContact c = g_contacts[idx];
 
-		if (!ContactEnabled(c, g_bodies[c.body_idx_a]))
+		if (!RigidContact(c) || !ContactEnabled(c, g_bodies[c.body_idx_a]))
 		{
 			g_colours[idx] = MaxColours;
 			continue;
@@ -893,14 +929,32 @@ void CSAssignColours(int3 DTID(dtid))
 		uint used_a = a_dynamic ? g_bodies[a].colour_used : 0;
 		uint used_b = b_dynamic ? g_bodies[b].colour_used : 0;
 
-		// Pick the first colour that neither dynamic body has used.
+		// Pick the first colour that neither dynamic body has used. Exhaustion is represented by the MaxColours sentinel rather than aliasing the final colour,
+		// because aliasing would let multiple contacts write the same dynamic body concurrently.
 		uint used = used_a | used_b;
-		uint colour = min(firstbitlow(~used), (uint)(MaxColours - 1));
+		uint available = ~used;
+		if (available == 0)
+		{
+			g_colours[idx] = MaxColours;
+			colour_overflow = true;
+			break;
+		}
 
+		uint colour = firstbitlow(available);
 		g_colours[idx] = colour;
 		if (a_dynamic) g_bodies[a].colour_used |= (1u << colour);
 		if (b_dynamic) g_bodies[b].colour_used |= (1u << colour);
 	}
+
+	// Mark every contact with the disabled sentinel so colour passes after zero can return through their ordinary local filter without reading the overflow flag.
+	if (colour_overflow)
+	{
+		for (int i = 0; i != contact_count; ++i)
+			g_colours[g_contact_order[i]] = MaxColours;
+	}
+
+	// Colour zero inspects this slot before choosing its parallel batch or the serial whole-set fallback.
+	g_colours[ColourOverflowIndex()] = colour_overflow ? 1u : 0u;
 }
 
 // ----- CSWarmStartClear -----
@@ -918,21 +972,31 @@ void CSWarmStartClear(int3 DTID(dtid))
 	g_warm_start_curr[dtid.x].impulse = float4(0, 0, 0, 0);
 }
 
-// ----- CSApplyWarmStart -----
-// Applies previous-frame physical impulses to current contacts in graph-colour batches so body momentum writes remain conflict-free.
-numthreads(CSApplyWarmStart, ResolveThreadCount, 1, 1)
-void CSApplyWarmStart(int3 DTID(dtid))
+// Load one cached physical impulse into the shared per-contact accumulator without mutating either endpoint.
+void LoadWarmStartContact(uint idx)
 {
-	if (dtid.x >= ContactCount())
-		return;
-
-	uint idx = g_contact_order[dtid.x];
-	if (g_colours[idx] != (uint)g.colour)
-		return;
-
 	GpuResolveContact c = g_contacts[idx];
 	float3 impulse = float3(0, 0, 0);
-	if (!LoadWarmStartImpulse(c, impulse))
+	LoadWarmStartImpulse(c, impulse);
+	c.warmstart_impulse = float4(impulse, 0);
+	g_contacts[idx] = c;
+}
+
+// Apply one cached physical impulse to an ordinary rigid contact, loading it on demand when no coupled consumer required the separate preload pass.
+// Callers guarantee that no other executing invocation can write either dynamic endpoint.
+void ApplyWarmStartContact(uint idx)
+{
+	GpuResolveContact c = g_contacts[idx];
+	float3 impulse = float3(0, 0, 0);
+	if (g.warm_start_preloaded != 0)
+	{
+		impulse = c.warmstart_impulse.xyz;
+	}
+	else if (!LoadWarmStartImpulse(c, impulse))
+	{
+		return;
+	}
+	if (!any(impulse != float3(0, 0, 0)))
 		return;
 
 	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
@@ -964,6 +1028,51 @@ void CSApplyWarmStart(int3 DTID(dtid))
 	g_bodies[c.body_idx_b] = bodyB;
 }
 
+// ----- CSLoadWarmStart -----
+// Loads every current contact before the rigid and articulation-coupled lanes consume their disjoint subsets.
+numthreads(CSLoadWarmStart, ResolveThreadCount, 1, 1)
+void CSLoadWarmStart(int3 DTID(dtid))
+{
+	if (dtid.x >= ContactCount())
+		return;
+
+	LoadWarmStartContact(dtid.x);
+}
+
+// ----- CSApplyWarmStart -----
+// Applies previous-frame physical impulses through race-free colour batches. A colour-overflow frame is handled serially by the first thread of colour zero so
+// every enabled contact participates without requiring another dispatch or a CPU readback.
+numthreads(CSApplyWarmStart, ResolveThreadCount, 1, 1)
+void CSApplyWarmStart(int3 DTID(dtid))
+{
+	if (g.colour == 0)
+	{
+		if (ColourOverflow())
+		{
+			if (dtid.x != 0)
+				return;
+
+			// Reuse the priority-sorted order so fallback behavior matches an ordinary sequential-impulse sweep as closely as possible.
+			for (int contact_order_idx = 0; contact_order_idx != ContactCount(); ++contact_order_idx)
+			{
+				uint idx = g_contact_order[contact_order_idx];
+				if (ContactEnabledAt(idx))
+					ApplyWarmStartContact(idx);
+			}
+			return;
+		}
+	}
+
+	if (dtid.x >= ContactCount())
+		return;
+
+	uint idx = g_contact_order[dtid.x];
+	if (g_colours[idx] != (uint)g.colour)
+		return;
+
+	ApplyWarmStartContact(idx);
+}
+
 // ----- CSStoreWarmStart -----
 // Stores each contact's accumulated physical impulse for use as next frame's warm-start seed.
 numthreads(CSStoreWarmStart, ResolveThreadCount, 1, 1)
@@ -981,6 +1090,24 @@ void CSStoreWarmStart(int3 DTID(dtid))
 numthreads(CSPositionSolve, ResolveThreadCount, 1, 1)
 void CSPositionSolve(int3 DTID(dtid))
 {
+	if (g.colour == 0)
+	{
+		if (ColourOverflow())
+		{
+			if (dtid.x != 0)
+				return;
+
+			// Apply the complete sorted sweep serially so transform writes remain coherent when no unused colour exists.
+			for (int contact_order_idx = 0; contact_order_idx != ContactCount(); ++contact_order_idx)
+			{
+				uint idx = g_contact_order[contact_order_idx];
+				if (ContactEnabledAt(idx))
+					ApplyPositionCorrection(g_contacts[idx]);
+			}
+			return;
+		}
+	}
+
 	if (dtid.x >= ContactCount())
 		return;
 
@@ -993,11 +1120,9 @@ void CSPositionSolve(int3 DTID(dtid))
 	ApplyPositionCorrection(g_contacts[idx]);
 }
 
-// ----- CSResolve -----
-// Dispatched once per colour from the CPU loop. Each thread processes one contact.
-// Only contacts matching the current colour are processed — all others return immediately.
+// Resolve one contact against the latest body momenta. Callers provide either a race-free colour batch or exclusive serial execution.
 //
-// The resolver runs in two phases per contact:
+// The contact solve runs in two phases:
 //
 //   Phase 1 (centroid): Apply a coupled restitution+friction impulse at the contact centroid
 //   using the classic 3D Coulomb-cone-clamped formula. This handles dynamic collisions
@@ -1008,18 +1133,8 @@ void CSPositionSolve(int3 DTID(dtid))
 //   scalar Baumgarte bias impulse to linear momentum only, then distribute friction across
 //   manifold points using each point's share of the normal impulse. Broad face contacts
 //   can resist sliding and torsion without bias-driven angular runaway.
-numthreads(CSResolve, ResolveThreadCount, 1, 1)
-void CSResolve(int3 DTID(dtid))
+void ResolveContact(uint idx)
 {
-	if (dtid.x >= ContactCount())
-		return;
-
-	uint idx = g_contact_order[dtid.x];
-
-	// Only process contacts assigned to the current colour batch
-	if (g_colours[idx] != (uint)g.colour)
-		return;
-
 	// Load the contact and both bodies. Updates are written back only if an impulse is applied, which avoids unnecessary UAV traffic for separating contacts.
 	GpuResolveContact c = g_contacts[idx];
 	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
@@ -1200,6 +1315,40 @@ void CSResolve(int3 DTID(dtid))
 	g_contacts[idx] = c;
 	g_bodies[c.body_idx_a] = bodyA;
 	g_bodies[c.body_idx_b] = bodyB;
+}
+
+// ----- CSResolve -----
+// Dispatched once per colour from the CPU loop. Normal frames process one independent contact per thread. A colour-overflow frame uses thread zero of colour
+// zero to process the complete sorted set serially, preserving correctness without adding normal-frame dispatches.
+numthreads(CSResolve, ResolveThreadCount, 1, 1)
+void CSResolve(int3 DTID(dtid))
+{
+	if (g.colour == 0)
+	{
+		if (ColourOverflow())
+		{
+			if (dtid.x != 0)
+				return;
+
+			// Sequentially applying each impulse immediately gives the fallback the same Gauss-Seidel dependency order as a legal colour sweep.
+			for (int contact_order_idx = 0; contact_order_idx != ContactCount(); ++contact_order_idx)
+			{
+				uint idx = g_contact_order[contact_order_idx];
+				if (ContactEnabledAt(idx))
+					ResolveContact(idx);
+			}
+			return;
+		}
+	}
+
+	if (dtid.x >= ContactCount())
+		return;
+
+	uint idx = g_contact_order[dtid.x];
+	if (g_colours[idx] != (uint)g.colour)
+		return;
+
+	ResolveContact(idx);
 }
 
 #ifdef __cplusplus

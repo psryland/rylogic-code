@@ -282,9 +282,10 @@ namespace pr::physics::tests
 			auto const dt = 1.0f / 60.0f;
 
 			ResetEngineForNextTest(engine);
-			engine.BeginStep(dt, std::span<RigidBody>{});
+			auto input = Engine::StepInput{.m_elapsed_seconds = dt};
+			engine.BeginStep(input);
 
-			PR_THROWS(engine.BeginStep(dt, std::span<RigidBody>{}), std::exception);
+			PR_THROWS(engine.BeginStep(input), std::exception);
 
 			engine.CompleteStep();
 			PR_EXPECT(engine.LastStepProfile().m_gpu_run_ms == 0.0);

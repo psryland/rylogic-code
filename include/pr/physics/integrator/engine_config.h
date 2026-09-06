@@ -15,6 +15,13 @@ namespace pr::physics
 	{
 		// Maximum number of collision pairs that the engine can handle per frame.
 		int max_collision_pairs = 65536;
+
+		// Maximum number of collision events retained across all internal substeps. Storage is
+		// allocated only while the Collisions event has subscribers.
+		int max_collision_events = 65536;
+
+		// Bound command recording and force-module invocations for a single submitted frame.
+		int max_internal_substeps = 64;
 		
 		// Sleep thresholds: if a body has linear velocity below 'sleep_velocity_threshold_lin' and
 		// angular velocity below 'sleep_velocity_threshold_ang' for some time, it can be put to sleep.
@@ -56,6 +63,16 @@ namespace pr::physics
 		// visible compression, while non-support impacts keep the more forgiving default.
 		float support_contact_slop_scale = 0.005f;
 		float warm_start_scale = 0.90f;
+
+		// Persistent D6 constraints share the fixed outer iteration counts above while retaining independent numerical controls.
+		float constraint_relaxation = 1.0f;
+		float constraint_coupled_relaxation = 0.9f;
+		int constraint_coupled_backtrack_limit = 4;
+		float constraint_position_relaxation = 1.0f;
+		float constraint_position_beta = 0.2f;
+		float constraint_max_position_speed = 2.0f;
+		float constraint_regularization = 1.0e-6f;
+		float constraint_warm_start_factor = 0.85f;
 
 		// Existing deep-penetration positional correction parameters.
 		float deep_penetration_threshold = 0.3f;

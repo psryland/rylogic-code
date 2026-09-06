@@ -190,6 +190,9 @@ namespace pr::physics
 		// tunable fluid parameters (density, drag time constant) used for subsequent dispatches.
 		// SetConfig may be called later to update these at runtime.
 		GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver, WaterFieldExtension water_field_extension = {});
+
+		// Construct an articulation-only buoyancy pass whose link targets are resolved directly by the engine.
+		GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config);
 		GpuBuoyancy(GpuBuoyancy const&) = delete;
 		GpuBuoyancy& operator=(GpuBuoyancy const&) = delete;
 
@@ -227,5 +230,9 @@ namespace pr::physics
 		// its GPU upload. While registered, the body is marked NeverSleep so environmental forces
 		// continue to run; the original flag is restored on unregister.
 		Registration RegisterCompositeHull(RigidBody& body, int body_index, int body_generation);
+
+		// Register one articulation link's immutable collision shape as a buoyancy hull. The complete tree stays awake while registered, and both objects must
+		// outlive any pending step.
+		Registration RegisterCompositeHull(Articulation& articulation, LinkHandle link, int body_index, int body_generation);
 	};
 }

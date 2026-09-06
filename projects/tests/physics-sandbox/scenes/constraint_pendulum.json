@@ -1,0 +1,63 @@
+{
+	"scene": {
+		"demo": {
+			"command": "pendulum",
+			"name": "Single Pendulum",
+			"group": "Constraints and Mechanisms",
+			"order": 10
+		},
+		"description": "A passive rigid-body pendulum attached to world by one free hinge axis.",
+		"gravity": [ 0.0, 0.0, -9.81 ],
+		"material": {
+			"friction": 0.6,
+			"elasticity": 0.05
+		},
+		"ground_plane": {
+			"size": [ 16.0, 16.0 ],
+			"height": 0.0,
+			"colour": "0xFF606068"
+		},
+		"camera": {
+			"position": [ 11.0, -16.0, 8.0 ],
+			"lookat": [ 0.0, 0.0, 4.0 ]
+		},
+		"shapes": {
+			"pendulum-rod": {
+				"name": "pendulum-rod",
+				"type": "box",
+				"dimensions": [ 0.45, 0.45, 5.0 ]
+			}
+		},
+		"bodies": [
+			{
+				"name": "pendulum",
+				"shape": "pendulum-rod",
+				"mass": 3.0,
+				"position": [ 0.8572445, 0.0, 4.6515682 ],
+				"rotation": [ 0.0, 159.9464772, 0.0 ],
+				"colour": "0xFFFFA040",
+				"never_sleep": true
+			}
+		],
+		"constraints": [
+			{
+				"name": "pivot",
+				"type": "hinge",
+				"frame_a": {
+					"body": "world",
+					"position": [ 0.0, 0.0, 7.0 ],
+					"x_axis": [ 0.0, 1.0, 0.0 ]
+				},
+				"frame_b": {
+					"body": "pendulum",
+					"space": "world",
+					"position": [ 0.0, 0.0, 7.0 ],
+					"x_axis": [ 0.0, 1.0, 0.0 ]
+				},
+				"axis": {
+					"mode": "free"
+				}
+			}
+		]
+	}
+}

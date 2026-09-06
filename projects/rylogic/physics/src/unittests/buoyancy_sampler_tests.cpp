@@ -90,6 +90,24 @@ namespace pr::physics::tests
 			PR_EXPECT(Length(r.m_buoyancy_torque_ws) < 20.0f); // symmetric => ~zero (sampling noise floor)
 		}
 
+		// A collision-shape pose and its centre of mass remain independent so offset articulation links report torque about the physical mass centre.
+		PRUnitTestMethod(OffsetCentreOfMass, Extended)
+		{
+			auto box = ShapeBox(v4{2.0f, 2.0f, 2.0f, 0.0f});
+			auto body = BodyState{
+				.m_centre_of_mass_os = v4{1.0f, 0.0f, 0.0f, 0.0f},
+				.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f},
+			};
+			auto const water = TestField{.m_level = 10.0f};
+			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
+
+			// The symmetric pressure centre remains at the shape origin while its upward force acts one metre left of the centre of mass.
+			auto const result = SampleHull(box.m_base, 17, body, WaterFrame{}, water, cfg, 20000, 0);
+			PR_EXPECT(result.m_valid);
+			PR_EXPECT(FEqlAbsolute(result.m_centre_buoyancy_ws.w0(), v4::Zero(), 0.02f));
+			PR_EXPECT(FEqlRelative(result.m_buoyancy_torque_ws.y, result.m_buoyancy_force_ws.z, 0.01f));
+		}
+
 		// Partially-submerged box: sampled volume and centre of buoyancy converge to the analytic
 		// clipped-box result (with Monte-Carlo tolerance for the waterline discontinuity).
 		PRUnitTestMethod(BoxPartialVsAnalytic, Extended)

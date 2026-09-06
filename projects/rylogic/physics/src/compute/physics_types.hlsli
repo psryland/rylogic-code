@@ -16,9 +16,79 @@ static const int SleepThreadCount = 64;
 static const int SweepThreadCount = 64;
 static const int CollideThreadCount = 32;
 static const int ResolveThreadCount = 64;
+static const int ConstraintThreadCount = 64;
+static const int ArticulationThreadCount = 64;
 static const int SelectiveRefreshThreadCount = 64;
+static const int FrameOutputThreadCount = 64;
 static const int MaxColours = 32;
 static const int GpuContactMaxPoints = 4;
+static const int GpuConstraintRowsPerBlock = 6;
+
+#ifdef __cplusplus
+// Collision-event gathering reuses resolver-generated indirect dispatch arguments and therefore requires identical group widths.
+static_assert(FrameOutputThreadCount == ResolveThreadCount, "Frame-output and resolver thread counts must remain identical");
+#endif
+
+// GPU articulation enum values mirror their public CPU counterparts without exposing C++ enum types to HLSL.
+static const int GpuArticulationRootType_Fixed = 0;
+static const int GpuArticulationRootType_Floating = 1;
+static const int GpuArticulationAxisType_Revolute = 0;
+static const int GpuArticulationAxisType_Prismatic = 1;
+static const int GpuArticulationIntegrationStatus_Success = 0;
+static const int GpuArticulationIntegrationStatus_Singular = 1;
+static const int GpuArticulationIntegrationStatus_NonFinite = 2;
+static const int GpuArticulationIntegrationStatus_NonConverged = 3;
+
+// GPU constraint endpoint flags:
+static const uint GpuConstraintEndpointFlags_None = 0;
+static const uint GpuConstraintEndpointFlags_Enabled = 1 << 0;
+static const uint GpuConstraintEndpointFlags_CollideConnected = 1 << 1;
+static const uint GpuConstraintEndpointFlags_ResetWarmStart = 1 << 2;
+static const uint GpuConstraintEndpointFlags_Coupled = 1 << 3;
+
+// GPU runtime constraint-block flags shared by rigid and articulation-coupled lanes.
+static const uint ConstraintBlockFlags_Active = 1u << 0;
+static const uint ConstraintBlockFlags_ResetWarmStart = 1u << 1;
+static const uint ConstraintBlockFlags_CoupledPreconditionerValid = 1u << 2;
+static const uint ConstraintBlockFlags_Broken = 1u << 3;
+
+// GPU constraint-break state flags are latched until the owning frame is gathered.
+static const uint GpuConstraintBreakFlags_None = 0u;
+static const uint GpuConstraintBreakFlags_Broken = 1u << 0;
+
+// Coupled gather targets identify the state owner updated by one deterministic adjacency reduction.
+static const int GpuCoupledConstraintTargetType_Rigid = 0;
+static const int GpuCoupledConstraintTargetType_Link = 1;
+
+// Coupled island states separate candidate construction, validation, and transactional commit.
+static const uint GpuCoupledConstraintIslandStatus_Pending = 0u;
+static const uint GpuCoupledConstraintIslandStatus_Accepted = 1u;
+static const uint GpuCoupledConstraintIslandStatus_Committed = 2u;
+static const uint GpuCoupledConstraintIslandStatus_Rejected = 3u;
+
+// Coupled phase modes distinguish detached evaluation from each authoritative commit destination.
+static const int GpuCoupledConstraintPhase_Evaluate = 0;
+static const int GpuCoupledConstraintPhase_CommitVelocity = 1;
+static const int GpuCoupledConstraintPhase_CommitWarmStart = 2;
+static const int GpuCoupledConstraintPhase_CommitPosition = 3;
+
+// Integer failure bits are reduced atomically without introducing non-deterministic floating-point reductions.
+static const uint GpuCoupledConstraintFailure_None = 0u;
+static const uint GpuCoupledConstraintFailure_Preconditioner = 1u << 0;
+static const uint GpuCoupledConstraintFailure_NonFinite = 1u << 1;
+static const uint GpuCoupledConstraintFailure_Topology = 1u << 2;
+static const uint GpuCoupledConstraintFailure_Articulation = 1u << 3;
+static const uint GpuCoupledConstraintFailure_Merit = 1u << 4;
+
+// Failure records distinguish physical velocity updates from detached position correction.
+static const int GpuCoupledConstraintFailurePhase_Velocity = 0;
+static const int GpuCoupledConstraintFailurePhase_Position = 1;
+
+// GPU constraint axis modes mirror EConstraintAxisMode without exposing the public enum to HLSL.
+static const int GpuConstraintAxisMode_Free = 0;
+static const int GpuConstraintAxisMode_Locked = 1;
+static const int GpuConstraintAxisMode_Limited = 2;
+static const int GpuConstraintAxisMode_Driven = 3;
 
 // Rigid body state flags:
 static const int ERigidBodyStateFlags_None = 0;
@@ -80,6 +150,11 @@ static const uint GpuSleepIslandStatsFlags_AllLow = 1 << 1;
 static const uint GpuSleepIslandStatsFlags_AllReady = 1 << 2;
 static const uint GpuSleepIslandStatsFlags_Wake = 1 << 3;
 
+// Articulation collision metadata packed into GpuRigidBody without widening the per-body transfer format.
+static const uint GpuBodyArticulationCollision_IdentityMask = 0x3FFFFFFFU;
+static const uint GpuBodyArticulationCollision_CollideSelf = 1U << 30;
+static const uint GpuBodyArticulationCollision_Proxy = 1U << 31;
+
 // ---- GPU data structures ----
 struct GpuSleepData
 {
@@ -127,8 +202,8 @@ struct GpuRigidBody
 	// Written by CSComputeCollisionTimes, read by CSAssignColours.
 	uint colour_used;
 
-	// Explicit padding keeps the structured-buffer stride a 16-byte multiple to match C++ alignment.
-	uint pad0;
+	// Zero for ordinary rigid bodies; articulation proxies encode their forest identity and self-collision policy.
+	uint articulation_collision;
 
 	// Sleeping state for this body.
 	GpuSleepData sleep;
@@ -252,10 +327,419 @@ struct GpuWarmStartEntry
 	uint child_key; // Packed (child_idx_a << 16) | child_idx_b, disambiguating leaves of the same body pair.
 	float4 impulse; // Cached physical impulse in body A space.
 };
+
+// Exact-self contact block data retained while transient proxy contacts are solved at one fixed configuration.
+struct GpuCoupledContactBlock
+{
+	float4 inverse_response_0; // First row of the inverse 3x3 point-response matrix in body A space.
+	float4 inverse_response_1; // Second row of the inverse 3x3 point-response matrix in body A space.
+	float4 inverse_response_2; // Third row of the inverse 3x3 point-response matrix in body A space.
+	float target_normal_speed; // Restitution target captured before warm starting.
+	float friction;            // Coulomb cone slope for the combined material pair.
+	int participant_a;         // Degree-damping participant, or -1 for an immovable endpoint.
+	int participant_b;         // Degree-damping participant, or -1 for an immovable endpoint.
+};
+
+// Detached physical and position-level candidates for one transient proxy contact.
+struct GpuCoupledContactScratch
+{
+	float4 candidate_impulse; // Candidate accumulated physical impulse in body A space; w is one for a valid active block.
+	float4 position_impulse; // Committed position-only accumulated impulse in body A space.
+	float4 candidate_position_impulse; // Candidate position-only accumulated impulse in body A space.
+};
+
+// One global finite transaction shared by all transient contacts in a resolver pass.
+struct GpuCoupledContactState
+{
+	uint valid;
+	uint failure_flags;
+	uint pad0;
+	uint pad1;
+};
+
+// Compact endpoint-local constraint frame. Rotation is a normalised {x,y,z,w} quaternion and position is a point.
+struct GpuConstraintFrame
+{
+	float4 rotation;
+	float4 position;
+};
+
+// Persistent parameters for one canonical D6 axis.
+struct GpuConstraintAxisDesc
+{
+	int mode;
+	float lower_limit;
+	float upper_limit;
+	float target_position;
+	float target_velocity;
+	float stiffness;
+	float damping;
+	float max_force;
+};
+
+// Persistent D6 parameters occupy exactly 256 bytes independently of frame-local endpoint indices.
+struct GpuD6ConstraintDesc
+{
+	GpuConstraintFrame frame_a;
+	GpuConstraintFrame frame_b;
+	GpuConstraintAxisDesc axes[GpuConstraintRowsPerBlock];
+};
+
+// Frame-local stable-slot metadata uploaded after remapping endpoint identities to packed body indices.
+struct GpuConstraintEndpoint
+{
+	int body_idx_a;
+	int body_idx_b;
+	uint flags;
+	uint generation;
+	float break_force;
+	float break_torque;
+	uint pad0;
+	uint pad1;
+};
+
+// Optional articulation ownership and compact mobility addressing for one stable constraint slot; negative indices identify non-link endpoints.
+struct GpuCoupledConstraintEndpoint
+{
+	int articulation_idx_a;
+	int link_idx_a;
+	int mobility_idx_a;
+	int root_link_idx_a;
+
+	int articulation_idx_b;
+	int link_idx_b;
+	int mobility_idx_b;
+	int root_link_idx_b;
+};
+
+// Stable-slot topology for one coupled block; negative target indices identify fixed endpoints.
+struct GpuCoupledConstraintBlockTopology
+{
+	int island_idx;
+	int target_idx_a;
+	int target_idx_b;
+	int pad0;
+};
+
+// One compact deterministic reduction target and its contiguous contribution-index range.
+struct GpuCoupledConstraintTarget
+{
+	int target_type;
+	int target_idx;
+	int island_idx;
+	int adjacency_offset;
+
+	int adjacency_count;
+	int pad0;
+	int pad1;
+	int pad2;
+};
+
+// One independent coupled island and its contiguous stable-block-index range.
+struct GpuCoupledConstraintIsland
+{
+	int block_offset;
+	int block_count;
+	int pad0;
+	int pad1;
+};
+
+// Detached candidate values for all six canonical rows of one stable coupled block.
+struct GpuCoupledConstraintSolveScratch
+{
+	float4 impulse_delta_low;
+	float4 impulse_delta_high;
+	float4 residual_before_low;
+	float4 residual_before_high;
+};
+
+// Mutable transaction state for one independent coupled island.
+struct GpuCoupledConstraintIslandState
+{
+	uint status;
+	uint failure_flags;
+	float relaxation;
+	float merit_change;
+};
+
+// First bounded transaction rejection retained for one coupled island during a complete owning frame.
+struct GpuCoupledConstraintFailureState
+{
+	uint failure_flags;
+	int substep_index;
+	int phase;
+	int iteration_count;
+
+	float relaxation;
+	float merit_change;
+	uint status;
+	uint pad0;
+};
+
+// One canonical body pair in the open-addressed connected-body collision-exclusion table.
+// Body indices are stored plus one so {0,0} remains the empty-slot sentinel.
+struct GpuCollisionExclusion
+{
+	uint body_idx_a_plus_one;
+	uint body_idx_b_plus_one;
+};
+
+// Runtime block state written by the GPU row compiler and retained for warm-start continuity.
+struct GpuConstraintBlock
+{
+	int body_idx_a;
+	int body_idx_b;
+	uint velocity_mask;
+	uint position_mask;
+	uint colour;
+	uint row_states;
+	uint flags;
+	uint pad0;
+};
+
+// Optional per-slot overload state. A full stable-slot stream prevents event-capacity overflow from dropping a required break.
+struct GpuConstraintBreakState
+{
+	uint flags;
+	uint generation;
+	int substep_index;
+	uint pad0;
+
+	float peak_force;
+	float peak_torque;
+	float pad1;
+	float pad2;
+};
+
+// Runtime scalar row. Rigid Jacobians are world-space wrenches; articulation Jacobians use link coordinates at the link origin.
+struct GpuConstraintRow
+{
+	float4 jacobian_a_ang;
+	float4 jacobian_a_lin;
+	float4 jacobian_b_ang;
+	float4 jacobian_b_lin;
+	float4 solve;  // {position_error, target_velocity, bias, gamma}
+	float4 bounds; // {lower_impulse, upper_impulse, physical_impulse, pseudo_impulse}
+};
+
+// Symmetric inverse of one coupled block's exact-self approximate response, packed as 21 upper-triangular values plus padding.
+struct GpuCoupledConstraintPreconditioner
+{
+	float4 packed[6];
+};
+
+// Per-body pseudo twist accumulated by split correction without changing physical momentum.
+struct GpuConstraintPseudoVelocity
+{
+	float4 angular_velocity;
+	float4 linear_velocity;
+};
 struct GpuCollisionCounters
 {
 	int pair_count; // The number of potentially colliding objects
 	int contact_count; // The number of contact points found
+	int pad0;
+	int pad1;
+};
+
+// Frame-constant spatial force restored before every internal GPU substep.
+struct GpuFrameForce
+{
+	float4 force_ang;
+	float4 force_lin;
+};
+
+// One reduced-coordinate tree and its contiguous ranges in the packed articulation buffers.
+struct GpuArticulation
+{
+	uint identity_low;
+	uint identity_high;
+	int link_offset;
+	int link_count;
+
+	int position_offset;
+	int position_count;
+	int velocity_offset;
+	int velocity_count;
+
+	int dof_offset;
+	int dof_count;
+	int root_type;
+	int max_depth;
+
+	GpuConstraintFrame root_to_world;
+};
+
+// Immutable topology, joint frames, and compact physical inertia for one articulation link.
+struct GpuArticulationLink
+{
+	int parent_link_index;
+	int articulation_index;
+	int position_offset;
+	int velocity_offset;
+
+	int dof_offset;
+	int dof_count;
+	int child_offset;
+	int child_count;
+
+	int proxy_body_index;
+	int depth;
+	int joint_matrix_offset;
+	int pad1;
+
+	GpuConstraintFrame joint_to_parent;
+	GpuConstraintFrame joint_to_child;
+	GpuConstraintFrame shape_to_link;
+
+	float4 inertia_diagonal;
+	float4 inertia_products;
+	float4 inertia_com_and_mass;
+};
+
+// One ordered scalar screw axis; xyz is a unit direction and w stores the exact integer axis type.
+struct GpuArticulationDof
+{
+	float4 axis_and_type;
+};
+
+// One breadth level in the shared outward schedule; reversing the levels gives the inward order.
+struct GpuArticulationLevel
+{
+	int depth;
+	int link_offset;
+	int link_count;
+	int pad0;
+};
+
+// One padded angular-then-linear spatial vector shared by ABA inputs, outputs, and scratch.
+struct GpuArticulationSpatialVector
+{
+	float4 ang;
+	float4 lin;
+};
+
+// One six-column spatial matrix; each padded column keeps StructuredBuffer layout identical in C++ and HLSL.
+struct GpuArticulationSpatialMatrix
+{
+	GpuArticulationSpatialVector columns[6];
+};
+
+// Symmetric force-to-motion self-link mobility packed as its 21 upper-triangular values plus three padding scalars.
+struct GpuArticulationSpatialMobility
+{
+	float4 packed[6];
+};
+
+// One participating articulation and its compact output range in the optional mobility stream.
+struct GpuArticulationMobilityRange
+{
+	int articulation_index;
+	int mobility_offset;
+	int link_count;
+	int velocity_delta_offset;
+};
+
+// One padded six-by-six joint matrix stored by columns for bounded zero-to-six-DOF solves.
+struct GpuArticulationJointMatrix
+{
+	float4 columns_low[6];
+	float4 columns_high[6];
+};
+
+// Per-generalized-DOF force-ABA factors retained from prepare/inward until outward recovery.
+struct GpuArticulationAbaDofScratch
+{
+	GpuArticulationSpatialVector motion_subspace;
+	GpuArticulationSpatialVector u_column;
+};
+
+// Compact per-link force-ABA state retained between deterministic level dispatches.
+struct GpuArticulationAbaScratch
+{
+	GpuConstraintFrame child_to_parent;
+	GpuArticulationSpatialMatrix articulated_inertia;
+
+	// This field is articulated bias through every inward level, then solved link acceleration during root/outward traversal.
+	GpuArticulationSpatialVector articulated_bias_or_acceleration;
+	GpuArticulationSpatialVector link_velocity;
+	GpuArticulationSpatialVector joint_bias;
+	int solve_valid;
+	int pad0;
+	int pad1;
+	int pad2;
+};
+
+// Per-articulation transactional midpoint state; failure status remains sticky across later substep dispatches.
+struct GpuArticulationIntegrationState
+{
+	GpuConstraintFrame root_to_world_start;
+	int status;
+	int iteration_count;
+	float residual;
+	float pad;
+};
+
+// Compact final articulation state gathered once per frame without copying topology or midpoint rollback scratch.
+struct GpuArticulationFrameOutput
+{
+	GpuConstraintFrame root_to_world;
+	uint identity_low;
+	uint identity_high;
+	int status;
+	int iteration_count;
+	float residual;
+	float pad0;
+	int pad1;
+	int pad2;
+};
+
+// Aggregate counters and bounded-event status copied back once after all internal substeps.
+struct GpuFrameOutputHeader
+{
+	GpuCollisionCounters final_counters;
+	int max_pair_count;
+	int max_contact_count;
+	int event_count;
+	int event_capacity;
+	int event_overflow;
+	int pair_limit_substep;
+	int contact_limit_substep;
+	int event_overflow_substep;
+	int substep_count;
+	int pad0;
+	int pad1;
+	int pad2;
+};
+
+// Transient reservation shared by the serial event-queue setup and parallel event copy.
+struct GpuSubstepOutputState
+{
+	int event_base;
+	int event_count;
+	int substep_index;
+	int pad0;
+};
+
+// Public collision data retained in deterministic substep and solver order with the derived state needed by RbContact callbacks.
+struct GpuCollisionEvent
+{
+	float4 axis;
+	float4 contact_point;
+	float4 manifold[GpuContactMaxPoints];
+	row_major float4x4 b2a;
+	float4 relative_velocity_ang;
+	float4 relative_velocity_lin;
+	int body_idx_a;
+	int body_idx_b;
+	int mat_id_a;
+	int mat_id_b;
+	float depth;
+	float collision_time;
+	int feature;
+	int child_idx_a;
+	int child_idx_b;
+	int substep_index;
 	int pad0;
 	int pad1;
 };

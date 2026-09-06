@@ -4,6 +4,7 @@
 //*********************************************
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
+#include "pr/physics/articulation/articulation.h"
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/buoyancy/gpu_buoyancy.h"
 #include "pr/physics/buoyancy/buoyancy_sampler.h"
@@ -12,6 +13,7 @@
 #include "pr/collision/shape_sphere.h"
 #include "pr/collision/shape_array.h"
 #include "src/buoyancy/buoyancy_analytical.h"
+#include "src/unittests/shared_gpu.h"
 #include <chrono>
 #include <algorithm>
 
@@ -220,19 +222,20 @@ namespace pr::physics::tests
 	// GPU-vs-oracle cases validate deterministic sampling as well as force and diagnostic readback.
 	PRUnitTestClass(BuoyancyCompositeHostTests)
 	{
-		// GpuBuoyancy is neither copyable nor movable, so it cannot be returned from a factory. This
-		// stack-resident harness owns the engine, body list, and buoyancy module together, constructing
-		// the module in-place with the resolver pair the existing analytic-box tests use. Bodies are
-		// added by each test after construction; the body-state resolver reads them lazily at call time.
-		struct Harness
+		// Retain the heavyweight GPU queue across test methods while keeping the body resolver bound to stable storage.
+		struct HarnessStorage
 		{
 			std::vector<RigidBody> m_bodies;
 			Engine m_engine;
 			GpuBuoyancy m_buoyancy;
 
-			explicit Harness(bool enable_diagnostics = true)
+			explicit HarnessStorage(bool enable_diagnostics)
 				: m_bodies()
-				, m_engine()
+				, m_engine(
+					EngineConfig{},
+					nullptr,
+					SharedTestGpu().m_gpu.device(),
+					SharedTestGpu().m_gpu.queue())
 				, m_buoyancy(
 					m_engine.Device(),
 					m_engine,
@@ -256,6 +259,43 @@ namespace pr::physics::tests
 						return body_state;
 					})
 			{}
+		};
+
+		// Return independent retained fixtures for diagnostic and production configurations.
+		static HarnessStorage& SharedHarnessStorage(bool enable_diagnostics)
+		{
+			if (enable_diagnostics)
+			{
+				static auto storage = HarnessStorage(true);
+				return storage;
+			}
+
+			static auto storage = HarnessStorage(false);
+			return storage;
+		}
+
+		// Present isolated per-method body state while reusing the configuration's long-lived GPU resources.
+		struct Harness
+		{
+			HarnessStorage& m_storage;
+			std::vector<RigidBody>& m_bodies;
+			Engine& m_engine;
+			GpuBuoyancy& m_buoyancy;
+
+			explicit Harness(bool enable_diagnostics = true)
+				: m_storage(SharedHarnessStorage(enable_diagnostics))
+				, m_bodies(m_storage.m_bodies)
+				, m_engine(m_storage.m_engine)
+				, m_buoyancy(m_storage.m_buoyancy)
+			{
+				// Restore all mutable fixture state so retained GPU resources cannot couple otherwise-independent test methods.
+				m_bodies.clear();
+				m_engine.ResetCaches();
+				m_buoyancy.SetWaterSurface({});
+				m_buoyancy.SetConfig(GpuBuoyancy::Config{
+					.m_enable_diagnostics = enable_diagnostics,
+				});
+			}
 		};
 
 		// A single box flattens to one analytic Box primitive carrying its half-extents and no geometry.
@@ -1251,6 +1291,72 @@ namespace pr::physics::tests
 			auto const velocity = h.m_bodies[0].VelocityWS().lin;
 			PR_EXPECT(velocity.x >= -1e-4f);
 			PR_EXPECT(velocity.x <= 0.05f);
+		}
+
+		// Rigid and articulation registrations share one dispatch while resolving the ordinary-body prefix and hidden-proxy suffix independently.
+		PRUnitTestMethod(GpuCompositeMixedRigidAndArticulationLinks, Extended)
+		{
+			auto const dimensions = v4{1.0f, 1.0f, 1.0f, 0.0f};
+			auto box = collision::ShapeBox(dimensions);
+			Harness h;
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&box), 100.0f);
+			h.m_bodies[0].O2W(m4x4::Translation(2.0f, 0.0f, -0.25f));
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+
+			auto link_desc = ArticulationLinkDesc{
+				.m_inertia = Inertia::Box(dimensions, 100.0f),
+				.m_shape = collision::shape_cast(&box),
+			};
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFloatingRoot(link_desc, m4x4::Translation(0.0f, 0.0f, -0.25f));
+			auto articulation = builder.Build();
+			articulation.GravityWS(root, AnalyticGravityWS);
+			auto forest = std::array{&articulation};
+			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
+				.m_linear_drag_time_constant_s = 0.0f,
+				.m_angular_drag_time_constant_s = 0.0f,
+				.m_quadratic_drag_coefficient = 0.0f,
+				.m_tangential_drag_coefficient = 0.0f,
+				.m_enable_diagnostics = true,
+			});
+
+			auto rigid_registration = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
+
+			// Releasing one of several link registrations must not restore the shared tree policy early.
+			{
+				auto first_sleep_owner = h.m_buoyancy.RegisterCompositeHull(articulation, root, 2, 0);
+				auto second_sleep_owner = h.m_buoyancy.RegisterCompositeHull(articulation, root, 3, 0);
+				first_sleep_owner.Reset();
+				PR_EXPECT(articulation.NeverSleep());
+				second_sleep_owner.Reset();
+				PR_EXPECT(!articulation.NeverSleep());
+			}
+
+			auto link_registration = h.m_buoyancy.RegisterCompositeHull(articulation, root, 1, 0);
+			PR_EXPECT(articulation.NeverSleep());
+			auto bodies = std::array<RigidBody*, 1>{&h.m_bodies[0]};
+
+			// Both mostly submerged low-density targets receive more upward buoyancy than downward gravity.
+			h.m_engine.Step(Engine::StepInput{
+				.m_bodies = std::span{bodies},
+				.m_articulations = std::span{forest},
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
+			h.m_buoyancy.CompleteStep();
+
+			auto const rigid_diagnostic = h.m_buoyancy.LatestDiagnostics(0, 0);
+			auto const link_diagnostic = h.m_buoyancy.LatestDiagnostics(1, 0);
+			PR_EXPECT(rigid_diagnostic.m_valid);
+			PR_EXPECT(link_diagnostic.m_valid);
+			PR_EXPECT(rigid_diagnostic.m_volume_m3 > 0.70f);
+			PR_EXPECT(link_diagnostic.m_volume_m3 > 0.70f);
+			PR_EXPECT(rigid_diagnostic.m_force_ws.z > 0.0f);
+			PR_EXPECT(link_diagnostic.m_force_ws.z > 0.0f);
+			PR_EXPECT(h.m_bodies[0].VelocityWS().lin.z > 0.0f);
+			PR_EXPECT(articulation.RootVelocity().lin.z > 0.0f);
+			link_registration.Reset();
+			PR_EXPECT(!articulation.NeverSleep());
 		}
 
 		// Performance benchmark for the SampledComposite dispatch. This drives 1, 10, and 100 identical

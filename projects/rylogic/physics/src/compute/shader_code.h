@@ -15,7 +15,14 @@ namespace pr::physics::shader_code
 	using ByteCode = ::pr::compute::ByteCode;
 
 	// Integration
+	extern ByteCode const seed_working_forces;
 	extern ByteCode const integrate;
+
+	// Gathered per-frame output
+	extern ByteCode const prepare_substep_output;
+	extern ByteCode const compact_collision_events;
+	extern ByteCode const append_collision_events;
+	extern ByteCode const gather_frame_articulations;
 
 	// Sleep/wake state management
 	extern ByteCode const disturb_islands;
@@ -27,6 +34,7 @@ namespace pr::physics::shader_code
 
 	// Broadphase sort-and-sweep
 	extern ByteCode const sweep;
+	extern ByteCode const sweep_filtered;
 	extern ByteCode const calc_cd_dispatch;
 
 	// Narrowphase collision detection
@@ -59,10 +67,71 @@ namespace pr::physics::shader_code
 	extern ByteCode const finalize_shock_priority;
 	extern ByteCode const assign_colours;
 	extern ByteCode const warm_start_clear;
+	extern ByteCode const load_warm_start;
 	extern ByteCode const apply_warm_start;
 	extern ByteCode const store_warm_start;
 	extern ByteCode const position_solve;
 	extern ByteCode const resolve;
+	extern ByteCode const clear_coupled_contacts;
+	extern ByteCode const prepare_coupled_contacts;
+	extern ByteCode const prepare_coupled_contact_position;
+	extern ByteCode const begin_coupled_contact_transaction;
+	extern ByteCode const build_coupled_contact_warm_start;
+	extern ByteCode const build_coupled_contact_candidates;
+	extern ByteCode const build_coupled_contact_position_candidates;
+	extern ByteCode const gather_coupled_contact_targets;
+	extern ByteCode const validate_coupled_contact_trees;
+	extern ByteCode const validate_coupled_contact_position_trees;
+	extern ByteCode const select_coupled_contact_trees;
+	extern ByteCode const commit_coupled_contacts;
+	extern ByteCode const commit_coupled_contact_position_articulations;
+	extern ByteCode const apply_coupled_contact_position;
+
+	// Persistent rigid constraints
+	extern ByteCode const compile_constraints;
+	extern ByteCode const assign_constraint_colours;
+	extern ByteCode const apply_constraint_warm_start;
+	extern ByteCode const clear_constraint_pseudo_velocity;
+	extern ByteCode const solve_constraint_position;
+	extern ByteCode const apply_constraint_position;
+	extern ByteCode const solve_constraint_velocity;
+	extern ByteCode const detect_broken_constraints;
+	extern ByteCode const prepare_coupled_constraints;
+	extern ByteCode const prepare_coupled_position_preconditioners;
+	extern ByteCode const clear_coupled_position_state;
+	extern ByteCode const begin_coupled_position;
+	extern ByteCode const build_coupled_position_candidates;
+	extern ByteCode const gather_coupled_position_targets;
+	extern ByteCode const select_coupled_position_trees;
+	extern ByteCode const validate_coupled_position_trees;
+	extern ByteCode const evaluate_coupled_position_merit;
+	extern ByteCode const commit_coupled_position_state;
+	extern ByteCode const commit_coupled_position_articulations;
+	extern ByteCode const finalize_coupled_position_islands;
+	extern ByteCode const apply_coupled_position;
+	extern ByteCode const begin_coupled_velocity;
+	extern ByteCode const build_coupled_velocity_warm_start;
+	extern ByteCode const build_coupled_velocity_candidates;
+	extern ByteCode const gather_coupled_velocity_targets;
+	extern ByteCode const select_coupled_velocity_trees;
+	extern ByteCode const validate_coupled_velocity_trees;
+	extern ByteCode const validate_coupled_velocity_warm_start;
+	extern ByteCode const evaluate_coupled_velocity_merit;
+	extern ByteCode const commit_coupled_velocity;
+	extern ByteCode const finalize_coupled_velocity_islands;
+
+	// Pure-tree articulation force ABA
+	extern ByteCode const articulation_prepare;
+	extern ByteCode const articulation_inward_dynamics;
+	extern ByteCode const articulation_root_dynamics;
+	extern ByteCode const articulation_outward_dynamics;
+	extern ByteCode const articulation_midpoint;
+	extern ByteCode const articulation_prepare_mobility;
+	extern ByteCode const articulation_apply_impulses;
+	extern ByteCode const articulation_evaluate_impulses;
+	extern ByteCode const articulation_commit_impulses;
+	extern ByteCode const articulation_gather_proxy_forces;
+	extern ByteCode const articulation_refresh_proxies;
 
 	// Selective refresh
 	extern ByteCode const prepare_selective_refresh;

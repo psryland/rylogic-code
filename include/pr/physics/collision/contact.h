@@ -37,12 +37,20 @@ namespace pr::physics
 		int m_child_idA;
 		int m_child_idB;
 
+		// Zero-based internal substep that generated this contact.
+		int m_substep_index;
+
 		// The relative time of the collision (in seconds). 0 = now, -dt = previous step. (used to order collision resolution)
 		float m_time;
 
 		RbContact();
 		RbContact(RigidBody const& objA, RigidBody const& objB);
+
+		// Construct a public contact from the resolver's complete transient record.
 		RbContact(RigidBody const& objA, RigidBody const& objB, GpuResolveContact const& contact);
+
+		// Construct a public contact from the compact frame event stream.
+		RbContact(RigidBody const& objA, RigidBody const& objB, GpuCollisionEvent const& collision_event);
 
 		// Adjust the collision data to the given sub-step time.
 		void Update(float dt_sub);

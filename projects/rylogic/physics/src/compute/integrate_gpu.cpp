@@ -29,6 +29,7 @@ namespace pr::physics
 	struct EReg
 	{
 		inline static constexpr auto Params = ECBufReg::b0;
+		inline static constexpr auto FrameForces = ESRVReg::t0;
 		inline static constexpr auto Counters = EUAVReg::u0;
 		inline static constexpr auto Bodies = EUAVReg::u1;
 		inline static constexpr auto AABB_Idx = EUAVReg::u2;
@@ -39,15 +40,18 @@ namespace pr::physics
 	GpuIntegrator::GpuIntegrator(Gpu& gpu, EngineConfig const& config)
 		: m_gpu(gpu)
 		, m_config(config)
+		, m_cs_seed_forces()
 		, m_cs_integrate()
 		, m_r_counters()
 		, m_r_bodies()
+		, m_r_frame_forces()
 		, m_r_aabb_sort()
 		, m_r_aabb_idx()
 		, m_r_aabb_box()
 		, m_capacity()
+		, m_frame_force_capacity()
 	{
-		// m_cs_integrate
+		// The core integration pipeline remains available for every rigid-body frame.
 		{
 			auto sig = RootSig(ERootSigFlags::ComputeOnly)
 				.U32<cbIntegrate>(EReg::Params)
@@ -63,8 +67,24 @@ namespace pr::physics
 		}
 	}
 
-	// Resize the buffers to hold 'capacity' bodies.
-	void GpuIntegrator::ResizeBuffers(CmdList& cmd_list, int capacity)
+	// Create the optional force-restoration pipeline when a frame first requests multiple internal substeps.
+	void GpuIntegrator::EnsureSeedForcesPipeline()
+	{
+		if (m_cs_seed_forces.m_pso != nullptr)
+			return;
+
+		auto sig = RootSig(ERootSigFlags::ComputeOnly)
+			.U32<cbIntegrate>(EReg::Params)
+			.SRV(EReg::FrameForces)
+			.UAV(EReg::Bodies)
+			;
+
+		m_cs_seed_forces.m_sig = sig.Create(m_gpu, "Physics:SeedWorkingForcesSig");
+		m_cs_seed_forces.m_pso = ComputePSO(m_cs_seed_forces.m_sig.get(), shader_code::seed_working_forces).Create(m_gpu, "Physics:SeedWorkingForcesPSO");
+	}
+
+	// Resize the core buffers and optional immutable force storage to hold 'capacity' bodies.
+	void GpuIntegrator::ResizeBuffers(CmdList& cmd_list, int capacity, bool retain_frame_forces)
 	{
 		capacity = std::max(1, capacity);
 
@@ -79,6 +99,11 @@ namespace pr::physics
 			m_r_aabb_idx = m_gpu.CreateResource(ResDesc::Buf<int>(2 * capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_Idx");
 			m_r_aabb_box = m_gpu.CreateResource(ResDesc::Buf<BBox>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_Box");
 			m_capacity = capacity;
+		}
+		if (retain_frame_forces && (m_r_frame_forces == nullptr || m_frame_force_capacity < capacity))
+		{
+			m_r_frame_forces = m_gpu.CreateResource(ResDesc::Buf<GpuFrameForce>(capacity, {}), cmd_list, "Physics:FrameForces");
+			m_frame_force_capacity = capacity;
 		}
 	}
 
@@ -104,8 +129,8 @@ namespace pr::physics
 		}
 	}
 
-	// Upload staged body dynamics and reset collision counters.
-	void GpuIntegrator::Upload(GpuJob& job, std::span<GpuRigidBody> bodies)
+	// Upload staged body dynamics and optionally retain immutable forces for later internal substeps.
+	void GpuIntegrator::Upload(GpuJob& job, std::span<GpuRigidBody> bodies, bool retain_frame_forces)
 	{
 		auto body_count = static_cast<int>(bodies.size());
 		if (body_count == 0)
@@ -113,25 +138,75 @@ namespace pr::physics
 
 		pix::BeginEvent(job.m_cmd_list.get(), 0xFF9a6ce7, "Physics::Upload");
 
-		// Ensure the buffers are large enough to hold the body count.
-		ResizeBuffers(job.m_cmd_list, body_count);
+		// Keep the force replay resources absent unless this frame will actually consume them.
+		if (retain_frame_forces)
+			EnsureSeedForcesPipeline();
+		ResizeBuffers(job.m_cmd_list, body_count, retain_frame_forces);
 
 		ResetCounters(job);
 
-		// Upload bodies to the GPU
+		// The body upload is the working force seed for the first substep.
 		{
 			job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			if (retain_frame_forces)
+				job.m_barriers.Transition(m_r_frame_forces.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 			job.m_barriers.Commit();
 
-			auto upload = job.m_upload.template Alloc<GpuRigidBody>(body_count);
-			memcpy(upload.template ptr<GpuRigidBody>(), bodies.data(), body_count * sizeof(GpuRigidBody));
-			job.m_cmd_list.CopyBufferRegion(m_r_bodies.get(), 0, upload);
+			auto upload_bodies = job.m_upload.template Alloc<GpuRigidBody>(body_count);
+			memcpy(upload_bodies.template ptr<GpuRigidBody>(), bodies.data(), body_count * sizeof(GpuRigidBody));
+			job.m_cmd_list.CopyBufferRegion(m_r_bodies.get(), 0, upload_bodies);
+
+			// Later substeps restore the CPU-authored force before GPU producers add their state-dependent contributions.
+			if (retain_frame_forces)
+			{
+				auto upload_forces = job.m_upload.template Alloc<GpuFrameForce>(body_count);
+				auto frame_forces = upload_forces.template ptr<GpuFrameForce>();
+				for (int body_index = 0; body_index != body_count; ++body_index)
+				{
+					frame_forces[body_index] = GpuFrameForce{
+						.force_ang = bodies[body_index].force_ang,
+						.force_lin = bodies[body_index].force_lin,
+					};
+				}
+				job.m_cmd_list.CopyBufferRegion(m_r_frame_forces.get(), 0, upload_forces);
+			}
 
 			job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			if (retain_frame_forces)
+				job.m_barriers.Transition(m_r_frame_forces.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			job.m_barriers.Commit();
 		}
 
 		pix::EndEvent(job.m_cmd_list.get());
+	}
+
+	// Restore frame-constant forces before one internal substep.
+	void GpuIntegrator::SeedWorkingForces(GpuJob& job, int body_count)
+	{
+		if (body_count == 0)
+			return;
+
+		assert(m_r_bodies != nullptr && m_capacity >= body_count);
+		assert(m_r_frame_forces != nullptr);
+		assert(m_cs_seed_forces.m_pso != nullptr);
+
+		auto cb_integrate = cbIntegrate{
+			.g_body_count = body_count,
+		};
+
+		// The seed is read-only for the complete frame while the body accumulator is overwritten for this substep.
+		job.m_barriers.Transition(m_r_frame_forces.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Commit();
+
+		job.m_cmd_list.SetPipelineState(m_cs_seed_forces.m_pso.get());
+		job.m_cmd_list.SetComputeRootSignature(m_cs_seed_forces.m_sig.get());
+		job.m_cmd_list.AddComputeRoot32BitConstants(cb_integrate);
+		job.m_cmd_list.AddComputeRootShaderResourceView(m_r_frame_forces->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_bodies->GetGPUVirtualAddress());
+		job.m_cmd_list.Dispatch((body_count + IntegrateThreadCount - 1) / IntegrateThreadCount, 1, 1);
+
+		job.m_barriers.UAV(m_r_bodies.get()).Commit();
 	}
 
 	// Integrate bodies on GPU

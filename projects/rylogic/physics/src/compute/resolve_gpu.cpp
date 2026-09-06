@@ -4,6 +4,9 @@
 //*********************************************
 #include "pr/physics/integrator/engine_config.h"
 #include "src/compute/resolve_gpu.h"
+#include "src/compute/constraint_solver_gpu.h"
+#include "src/compute/coupled_constraint_solver_gpu.h"
+#include "src/compute/coupled_contact_gpu.h"
 #include "src/compute/physics_types.h"
 #include "src/compute/shader_code.h"
 
@@ -50,8 +53,8 @@ namespace pr::physics
 		float warm_start_scale;
 
 		int warm_start_capacity;
-		int pad_i0;
-		int pad_i1;
+		int rigid_body_count;
+		int warm_start_preloaded;
 		int pad_i2;
 	};
 	static_assert((sizeof(cbResolve) & 0xf) == 0);
@@ -86,6 +89,7 @@ namespace pr::physics
 		, m_cs_finalize_shock_priority()
 		, m_cs_assign_colours()
 		, m_cs_warm_start_clear()
+		, m_cs_load_warm_start()
 		, m_cs_apply_warm_start()
 		, m_cs_store_warm_start()
 		, m_cs_position_solve()
@@ -184,6 +188,7 @@ namespace pr::physics
 			};
 
 			compile_step(m_cs_warm_start_clear, shader_code::warm_start_clear, "WarmStartClear");
+			compile_step(m_cs_load_warm_start, shader_code::load_warm_start, "LoadWarmStart");
 			compile_step(m_cs_apply_warm_start, shader_code::apply_warm_start, "ApplyWarmStart");
 			compile_step(m_cs_store_warm_start, shader_code::store_warm_start, "StoreWarmStart");
 		}
@@ -247,7 +252,8 @@ namespace pr::physics
 		}
 		if (m_r_colours == nullptr || m_max_contacts < max_contacts)
 		{
-			m_r_colours = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ResolveColours");
+			// Reserve one element beyond the sortable contact capacity for the frame-wide colour-overflow flag.
+			m_r_colours = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts + 1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ResolveColours");
 			m_r_contact_times = m_gpu.CreateResource(ResDesc::Buf<float>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ContactTimes");
 			m_r_contact_order = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ContactOrder");
 			m_r_contact_next_a = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ContactNextA");
@@ -268,9 +274,12 @@ namespace pr::physics
 		}
 	}
 
-	// Resolve collisions on the GPU using graph-coloured batches.
-	void GpuResolver::Resolve(GpuJob& job, float dt, int body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale, int solver_iterations_, int push_out_iterations, float restitution_scale, bool support_only)
+	// Resolve ordinary rigid contacts while retaining proxy-touching contacts for the coupled articulation lane.
+	void GpuResolver::Resolve(GpuJob& job, float dt, int body_count, int rigid_body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale, int solver_iterations_, int push_out_iterations, float restitution_scale, bool support_only, GpuConstraintSolver* constraint_solver, GpuCoupledConstraintSolver* coupled_constraint_solver, GpuCoupledContactSolver* coupled_contact_solver, bool retain_constraint_impulses, int substep_index)
 	{
+		if (rigid_body_count < 0 || rigid_body_count > body_count)
+			throw std::invalid_argument("GPU resolver rigid-body prefix is outside the submitted body range");
+
 		auto material_count = static_cast<int>(materials.size());
 		pix::BeginEvent(job.m_cmd_list.get(), 0xFF6799Ab, "Physics::Resolve");
 
@@ -313,8 +322,8 @@ namespace pr::physics
 			.support_contact_slop_scale = m_config.support_contact_slop_scale,
 			.warm_start_scale = m_config.warm_start_scale,
 			.warm_start_capacity = m_warm_start_capacity,
-			.pad_i0 = 0,
-			.pad_i1 = 0,
+			.rigid_body_count = rigid_body_count,
+			.warm_start_preloaded = coupled_contact_solver != nullptr ? 1 : 0,
 			.pad_i2 = 0,
 		};
 		if (m_config.warm_start_scale <= 0.0f)
@@ -499,7 +508,25 @@ namespace pr::physics
 			job.m_barriers.Commit();
 		}
 
-		// Apply cached physical impulses before the iterative solves so resting stacks start close to last frame's support solution.
+		// Compile and independently colour persistent D6 blocks after integration has produced the current body transforms.
+		if (constraint_solver != nullptr)
+			constraint_solver->Prepare(job, dt, rigid_body_count, bodies, retain_constraint_impulses);
+		if (coupled_constraint_solver != nullptr)
+			coupled_constraint_solver->PrepareVelocity(job, dt, rigid_body_count, bodies.get(), retain_constraint_impulses);
+
+		// Articulation contacts need every cache result before their topology pass; rigid-only frames retain the original fused load-and-apply path.
+		if (m_config.warm_start_scale > 0.0f && coupled_contact_solver != nullptr)
+		{
+			bind_warm_start_step(m_cs_load_warm_start, m_r_warm_start_curr.get());
+			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
+			commit_warm_start_barriers();
+		}
+
+		// Exact articulation self-mobility and contact blocks depend on the collision frame and the loaded warm-start accumulator.
+		if (coupled_contact_solver != nullptr)
+			coupled_contact_solver->PrepareVelocity(job, dt, body_count, rigid_body_count, max_contacts, counters, contacts, bodies, m_r_materials, restitution_scale);
+
+		// Apply the loaded physical impulses before the iterative solves so resting contacts start close to the previous support solution.
 		if (m_config.warm_start_scale > 0.0f)
 		{
 			for (int colour = 0; colour != MaxColours; ++colour)
@@ -511,54 +538,104 @@ namespace pr::physics
 				commit_warm_start_barriers();
 			}
 			cb_resolve.colour = 0;
+			if (coupled_contact_solver != nullptr)
+				coupled_contact_solver->ApplyWarmStart(job);
 		}
-
-		// Split position correction in colour batches.
-		if (push_out_steps != 0)
+		if (!retain_constraint_impulses)
 		{
-			// The contact depths are from the collision pass, so the correction is split
-			// across iterations rather than re-applying the full depth each sweep.
-			job.m_cmd_list.SetPipelineState(m_cs_position_solve.m_pso.get());
-			job.m_cmd_list.SetComputeRootSignature(m_cs_position_solve.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
-			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
-
-			for (int iter = 0; iter != push_out_steps; ++iter)
-			{
-				for (int colour = 0; colour != MaxColours; ++colour)
-				{
-					cb_resolve.colour = colour;
-					job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
-					job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
-
-					job.m_barriers.UAV(bodies.get());
-					job.m_barriers.Commit();
-				}
-			}
-			cb_resolve.colour = 0;
+			if (constraint_solver != nullptr)
+				constraint_solver->ApplyWarmStart(job, dt, rigid_body_count, bodies);
+			if (coupled_constraint_solver != nullptr)
+				coupled_constraint_solver->ApplyWarmStart(job, rigid_body_count, bodies.get());
 		}
 
-		// Velocity resolve each colour batch.
+		// Keep the long-established contact-only ordering unchanged while coupled rows use velocity-first fixed-configuration solving.
+		auto const has_constraint_work = constraint_solver != nullptr || coupled_constraint_solver != nullptr || coupled_contact_solver != nullptr;
+		auto solve_position = [&]
+		{
+			auto const coupled_position_active =
+				coupled_constraint_solver != nullptr &&
+				coupled_constraint_solver->PreparePosition(job, dt, rigid_body_count, bodies.get());
+			auto const coupled_contact_position_active =
+				coupled_contact_solver != nullptr &&
+				coupled_contact_solver->PreparePosition(job, push_out_steps);
+
+			// Split position correction in colour batches.
+			if (push_out_steps != 0)
+			{
+				// The contact depths are from the collision pass, so the correction is split across iterations rather than re-applying the full depth each sweep.
+				auto bind_position_solve = [&]
+				{
+					job.m_cmd_list.SetPipelineState(m_cs_position_solve.m_pso.get());
+					job.m_cmd_list.SetComputeRootSignature(m_cs_position_solve.m_sig.get());
+					job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
+					job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
+					job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
+					job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
+					job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
+					job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
+				};
+				bind_position_solve();
+
+				for (int iter = 0; iter != push_out_steps; ++iter)
+				{
+					// A preceding constraint sweep leaves its root signature active, so restore every contact root binding before resuming.
+					if (iter != 0 && has_constraint_work)
+						bind_position_solve();
+
+					for (int colour = 0; colour != MaxColours; ++colour)
+					{
+						cb_resolve.colour = colour;
+						job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
+						job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
+
+						job.m_barriers.UAV(bodies.get());
+						job.m_barriers.Commit();
+					}
+					if (constraint_solver != nullptr)
+						constraint_solver->SolvePositionIteration(job, dt, rigid_body_count, push_out_steps, bodies);
+					if (coupled_position_active)
+						coupled_constraint_solver->SolvePositionIteration(job, bodies.get(), substep_index);
+					if (coupled_contact_position_active)
+						coupled_contact_solver->SolvePositionIteration(job, iter);
+				}
+				cb_resolve.colour = 0;
+			}
+
+			// Coupled application owns the shared rigid pseudo stream, preventing independent correction from being integrated twice.
+			if (coupled_position_active)
+				coupled_constraint_solver->ApplyPosition(job, bodies.get());
+			else if (constraint_solver != nullptr)
+				constraint_solver->ApplyPosition(job, dt, rigid_body_count, push_out_steps, bodies);
+			if (coupled_contact_position_active)
+				coupled_contact_solver->ApplyPosition(job);
+		};
+
+		auto solve_velocity = [&]
 		{
 			// Multiple solver iterations (Gauss-Seidel) allow stacked contacts to converge.
 			// Each iteration sweeps all colour batches, re-reading body momenta updated by prior contacts.
 			// The energy guard in CSResolve prevents energy injection across iterations.
-			job.m_cmd_list.SetPipelineState(m_cs_resolve.m_pso.get());
-			job.m_cmd_list.SetComputeRootSignature(m_cs_resolve.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
-			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(m_r_materials->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
+			auto bind_velocity_solve = [&]
+			{
+				job.m_cmd_list.SetPipelineState(m_cs_resolve.m_pso.get());
+				job.m_cmd_list.SetComputeRootSignature(m_cs_resolve.m_sig.get());
+				job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
+				job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootShaderResourceView(m_r_materials->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
+				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
+			};
+			bind_velocity_solve();
 
 			for (int iter = 0; iter != solver_iterations; ++iter)
 			{
+				// Constraint velocity sweeps use a separate root layout and require the contact table to be rebound on the next outer sweep.
+				if (iter != 0 && has_constraint_work)
+					bind_velocity_solve();
+
 				for (int colour = 0; colour != MaxColours; ++colour)
 				{
 					cb_resolve.colour = colour;
@@ -568,8 +645,26 @@ namespace pr::physics
 					job.m_barriers.UAV(bodies.get());
 					job.m_barriers.Commit();
 				}
+				if (constraint_solver != nullptr)
+					constraint_solver->SolveVelocityIteration(job, dt, rigid_body_count, bodies);
+				if (coupled_constraint_solver != nullptr)
+					coupled_constraint_solver->SolveVelocityIteration(job, rigid_body_count, bodies.get(), substep_index);
+				if (coupled_contact_solver != nullptr)
+					coupled_contact_solver->SolveVelocityIteration(job);
 			}
 			cb_resolve.colour = 0;
+		};
+
+		if (coupled_constraint_solver != nullptr || coupled_contact_solver != nullptr)
+		{
+			// Physical impulses establish the fixed-configuration state before any detached coordinate correction.
+			solve_velocity();
+			solve_position();
+		}
+		else
+		{
+			solve_position();
+			solve_velocity();
 		}
 
 		// Persist accumulated physical impulses for the next frame and then swap the cache roles.
@@ -590,6 +685,12 @@ namespace pr::physics
 		m_materials_dirty = true;
 	}
 
+	// Discard retained contact impulses after rejected recorded work or a topology reset.
+	void GpuResolver::InvalidateWarmStart()
+	{
+		m_reset_warm_start_cache = true;
+	}
+
 	// CPU-side testing: upload contacts and bodies, run graph colouring + resolve on GPU, readback bodies.
 	void GpuResolver::Resolve(GpuJob& job, float dt, std::span<GpuResolveContact const> contacts, std::span<GpuRigidBody> bodies, std::span<GpuMaterial const> materials)
 	{
@@ -602,7 +703,7 @@ namespace pr::physics
 
 		// Create temporary GPU resources
 		auto r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}), job.m_cmd_list, "Physics:TempCounters");
-		auto r_contacts = m_gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(contact_count, {}), job.m_cmd_list, "Physics:TempContacts");
+		auto r_contacts = m_gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(contact_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempContacts");
 		auto r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(body_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempBodies");
 		auto r_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempDispatch");
 
@@ -666,7 +767,7 @@ namespace pr::physics
 
 		// Run the GPU resolve pipeline
 		MaterialsDirty();
-		Resolve(job, dt, body_count, contact_count, r_dispatch, r_counters, r_contacts, r_bodies, materials);
+		Resolve(job, dt, body_count, body_count, contact_count, r_dispatch, r_counters, r_contacts, r_bodies, materials);
 
 		// Readback bodies
 		GpuReadbackBuffer::Allocation readback_bodies;

@@ -60,9 +60,7 @@ namespace pr::physics
 
 		// Staging buffer for packing body dynamics
 		std::vector<GpuRigidBody> m_rb_dynamics;
-
-		// Staging buffer for collision contacts
-		std::vector<GpuResolveContact> m_contacts;
+		int m_rigid_body_count;
 
 		// Contact information in CPU format
 		std::vector<RbContact> m_contacts_cpu;
@@ -85,7 +83,7 @@ namespace pr::physics
 		EngineBufferCache()
 			: m_shape_cache()
 			, m_rb_dynamics()
-			, m_contacts()
+			, m_rigid_body_count()
 			, m_contacts_cpu()
 			, m_sleep_islands()
 			, m_sleep_gpu_to_cpu_island_id()
@@ -100,13 +98,14 @@ namespace pr::physics
 		}
 
 		// Prepare for a new Engine::Step()
-		void NewFrame(std::span<RigidBody*> rigid_bodies, int max_contacts)
+		void NewFrame(std::span<RigidBody*> rigid_bodies)
 		{
 			// Purge unused shapes from the cache
 			m_shape_cache.BeginFrame();
 			
 			// Reset the GPU staging buffer for body dynamics.
 			m_rb_dynamics.resize(0);
+			m_rigid_body_count = 0;
 			m_awake_dynamic_count = 0;
 			m_broadphase_axis_sum[0] = 0.0;
 			m_broadphase_axis_sum[1] = 0.0;
@@ -116,10 +115,6 @@ namespace pr::physics
 			m_broadphase_axis_sum_sq[2] = 0.0;
 			m_broadphase_axis_sample_count = 0;
 			m_broadphase_sort_axis = 0;
-
-			// Reset the GPU staging buffer for contacts.
-			if (std::ssize(m_contacts) < max_contacts)
-				m_contacts.resize(max_contacts);
 
 			// Reset per-frame sleeping-island staging.
 			m_sleep_islands.resize(0);
@@ -135,7 +130,7 @@ namespace pr::physics
 			// Called when the previously-seen shapes/bodies may no longer be valid (e.g. between independent unit-test scenarios that share a single engine).
 			m_shape_cache.Reset();
 			m_rb_dynamics.clear();
-			m_contacts.clear();
+			m_rigid_body_count = 0;
 			m_contacts_cpu.clear();
 			m_sleep_islands.clear();
 			m_sleep_gpu_to_cpu_island_id.clear();
@@ -157,13 +152,19 @@ namespace pr::physics
 		// Number of cached rigid bodies staged for GPU upload this frame.
 		int RigidBodyCount() const
 		{
+			return m_rigid_body_count;
+		}
+
+		// Number of ordinary bodies plus hidden articulation link proxies staged for GPU upload.
+		int BodyCount() const
+		{
 			return static_cast<int>(m_rb_dynamics.size());
 		}
 
-		// Maximum number of contacts that can be read back from the GPU this frame.
-		int MaxContactsCount() const
+		// Freeze the ordinary rigid prefix before optional articulation proxies are appended.
+		void FinaliseRigidBodyPack()
 		{
-			return static_cast<int>(m_contacts.size());
+			m_rigid_body_count = static_cast<int>(m_rb_dynamics.size());
 		}
 
 		// Number of dense frame-local GPU sleep islands staged this frame.

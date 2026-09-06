@@ -27,9 +27,82 @@ namespace pr::physics
 	static_assert((sizeof(GpuContact) & 0xf) == 0);
 	static_assert((sizeof(GpuResolveContact) & 0xf) == 0);
 	static_assert((sizeof(GpuWarmStartEntry) & 0xf) == 0);
+	static_assert(sizeof(GpuCoupledContactBlock) == 64);
+	static_assert(sizeof(GpuCoupledContactScratch) == 48);
+	static_assert(sizeof(GpuCoupledContactState) == 16);
+	static_assert(sizeof(GpuConstraintFrame) == 32);
+	static_assert(sizeof(GpuConstraintAxisDesc) == 32);
+	static_assert(sizeof(GpuD6ConstraintDesc) == 256);
+	static_assert(sizeof(GpuConstraintEndpoint) == 32);
+	static_assert(sizeof(GpuCoupledConstraintEndpoint) == 32);
+	static_assert(sizeof(GpuCoupledConstraintBlockTopology) == 16);
+	static_assert(sizeof(GpuCoupledConstraintTarget) == 32);
+	static_assert(sizeof(GpuCoupledConstraintIsland) == 16);
+	static_assert(sizeof(GpuCoupledConstraintSolveScratch) == 64);
+	static_assert(sizeof(GpuCoupledConstraintIslandState) == 16);
+	static_assert(sizeof(GpuCollisionExclusion) == 8);
+	static_assert(sizeof(GpuConstraintBlock) == 32);
+	static_assert(sizeof(GpuConstraintBreakState) == 32);
+	static_assert(sizeof(GpuConstraintRow) == 96);
+	static_assert(sizeof(GpuCoupledConstraintPreconditioner) == 96);
+	static_assert(sizeof(GpuConstraintPseudoVelocity) == 32);
 	static_assert((sizeof(GpuCollisionCounters) & 0xf) == 0);
+	static_assert(sizeof(GpuFrameForce) == 32);
+	static_assert(sizeof(GpuArticulation) == 80);
+	static_assert(sizeof(GpuArticulationLink) == 192);
+	static_assert(sizeof(GpuArticulationDof) == 16);
+	static_assert(sizeof(GpuArticulationLevel) == 16);
+	static_assert(sizeof(GpuArticulationSpatialVector) == 32);
+	static_assert(alignof(GpuArticulationSpatialVector) == 16);
+	static_assert(sizeof(GpuArticulationSpatialMatrix) == 192);
+	static_assert(alignof(GpuArticulationSpatialMatrix) == 16);
+	static_assert(sizeof(GpuArticulationSpatialMobility) == 96);
+	static_assert(alignof(GpuArticulationSpatialMobility) == 16);
+	static_assert(sizeof(GpuArticulationMobilityRange) == 16);
+	static_assert(sizeof(GpuArticulationJointMatrix) == 192);
+	static_assert(alignof(GpuArticulationJointMatrix) == 16);
+	static_assert(sizeof(GpuArticulationAbaDofScratch) == 64);
+	static_assert(alignof(GpuArticulationAbaDofScratch) == 16);
+	static_assert(sizeof(GpuArticulationAbaScratch) == 336);
+	static_assert(alignof(GpuArticulationAbaScratch) == 16);
+	static_assert(sizeof(GpuArticulationIntegrationState) == 48);
+	static_assert(alignof(GpuArticulationIntegrationState) == 16);
+	static_assert(sizeof(GpuArticulationFrameOutput) == 64);
+	static_assert(alignof(GpuArticulationFrameOutput) == 16);
+	static_assert(sizeof(GpuFrameOutputHeader) == 64);
+	static_assert(sizeof(GpuCoupledConstraintFailureState) == 32);
+	static_assert(sizeof(GpuSubstepOutputState) == 16);
+	static_assert(sizeof(GpuCollisionEvent) == 240);
 	static_assert((sizeof(GpuSelectiveRefreshMetrics) & 0xf) == 0);
 	static_assert((sizeof(GpuMaterial) & 0xf) == 0);
+
+	// Convert a rigid transform to the quaternion-and-position representation shared by GPU descriptors.
+	inline GpuConstraintFrame PackGpuTransform(m4x4 const& transform)
+	{
+		auto const rotation = ToQuat<quat>(transform.rot);
+		return GpuConstraintFrame{
+			.rotation = float4{rotation.x, rotation.y, rotation.z, rotation.w},
+			.position = transform.pos,
+		};
+	}
+
+	// Reconstruct a rigid transform from the representation shared by GPU descriptors.
+	inline m4x4 UnpackGpuTransform(GpuConstraintFrame const& transform)
+	{
+		auto const rotation = quat{
+			transform.rotation.x,
+			transform.rotation.y,
+			transform.rotation.z,
+			transform.rotation.w,
+		};
+		auto position = v4{
+			transform.position.x,
+			transform.position.y,
+			transform.position.z,
+			1.0f,
+		};
+		return m4x4{ToMatrix<m3x3>(rotation), position};
+	}
 
 	// Convert CPU collision shapes into the flat GPU format.
 	inline GpuShape PackShape(collision::ShapeSphere const& shape, m4x4 const& p2rb = m4x4::Identity())
@@ -331,7 +404,7 @@ namespace pr::physics
 			.state_flags = static_cast<int>(rb.m_state_flags),
 			.shape_id = shape_id,
 			.colour_used = 0,
-			.pad0 = 0,
+			.articulation_collision = 0,
 			.sleep = GpuSleepData{
 				.timer_s = rb.m_sleep.m_timer_s,
 				.island_id = rb.m_sleep.m_island_id,

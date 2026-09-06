@@ -1,6 +1,50 @@
 <Project>
 	<!-- Keep one authoritative list for the build project and its companion Solution Explorer filters. -->
 	<ItemGroup>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_topology_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_oracle.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_dynamics_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_conservation_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_effective_mass_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_force_aba_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_midpoint_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_link_proxies_gpu_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_impulse_aba_gpu_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_mobility_gpu_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_gpu_data_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
 		<ClCompile Include="$(MSBuildThisFileDirectory)buoyancy_tests.cpp">
 			<PhysicsUnitTest>true</PhysicsUnitTest>
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
@@ -14,6 +58,46 @@
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
 		</ClCompile>
 		<ClCompile Include="$(MSBuildThisFileDirectory)collision_resolution_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)constraint_foundation_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)constraint_gpu_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)constraint_gpu_solver_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)coupled_constraint_prepare_gpu_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)coupled_constraint_velocity_gpu_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)coupled_constraint_engine_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)constraint_oracle.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)constraint_oracle_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)constraint_hybrid_solver_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)constraint_solver_tests.cpp">
 			<PhysicsUnitTest>true</PhysicsUnitTest>
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
 		</ClCompile>
@@ -41,6 +125,10 @@
 			<PhysicsUnitTest>true</PhysicsUnitTest>
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
 		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)internal_substep_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
 		<ClCompile Include="$(MSBuildThisFileDirectory)interop_engine_tests.cpp">
 			<PhysicsUnitTest>true</PhysicsUnitTest>
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
@@ -62,6 +150,15 @@
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
 		</ClCompile>
 		<ClInclude Include="$(MSBuildThisFileDirectory)shared_engine.h">
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClInclude>
+		<ClInclude Include="$(MSBuildThisFileDirectory)shared_gpu.h">
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClInclude>
+		<ClInclude Include="$(MSBuildThisFileDirectory)constraint_oracle.h">
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClInclude>
+		<ClInclude Include="$(MSBuildThisFileDirectory)articulation_oracle.h">
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
 		</ClInclude>
 	</ItemGroup>

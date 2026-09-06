@@ -32,6 +32,7 @@ namespace physics_sandbox
 
 		// Path of the last loaded scene file, so Reset reloads the same scene
 		std::filesystem::path m_scene_filepath;
+		std::string m_active_name;
 
 		// Most-recently-used scene files list, persisted to %APPDATA%
 		RecentFiles m_recent;

@@ -6,6 +6,7 @@
 #include "src/utils/scene_loader.h"
 #include "src/scene/water/water_visual.h"
 #include "src/scene/scenario.h"
+#include "src/scene/articulation_visual.h"
 
 namespace physics_sandbox
 {
@@ -20,6 +21,15 @@ namespace physics_sandbox
 	// the interactive sandbox and the headless unit test mode.
 	struct Scene
 	{
+		// Identifies either a rigid body or one articulation link rendered by the CPU buoyancy diagnostic.
+		struct BuoyancyDebugTarget
+		{
+			int m_body_index = -1;
+			int m_articulation_index = -1;
+			int m_link_index = -1;
+			uint32_t m_hull_id = 0;
+		};
+
 		struct StepProfile
 		{
 			double m_total_ms = 0;
@@ -58,8 +68,17 @@ namespace physics_sandbox
 		physics::Engine m_physics;
 		collision::ShapeBox m_box;
 
-		// Bodies in the scene
+		// Caller-owned dynamics objects and optional persistent graph edges.
 		std::vector<Body> m_body;
+		std::vector<physics::Articulation> m_articulation;
+		physics::ConstraintSet m_constraints;
+
+		// Stable pointer views rebuilt only after scene construction has finished growing object containers.
+		std::vector<physics::RigidBody*> m_body_ptrs;
+		std::vector<physics::Articulation*> m_articulation_ptrs;
+
+		// One renderer binding per shaped articulation link.
+		std::vector<ArticulationVisual> m_articulation_visuals;
 
 		// Storage for shapes loaded in the scene file.
 		byte_data<16> m_shape_buffer;
@@ -67,7 +86,7 @@ namespace physics_sandbox
 		// Optional diagnostic buoyancy module and the RAII hull registrations owned by the loaded scene.
 		std::unique_ptr<physics::GpuBuoyancy> m_gpu_buoyancy;
 		std::vector<physics::GpuBuoyancy::Registration> m_buoyancy_hulls;
-		std::vector<int> m_buoyancy_body_indices;
+		std::vector<BuoyancyDebugTarget> m_buoyancy_debug_targets;
 		int m_buoyancy_generation;
 
 		// When set, BuildBuoyancyDebugGfx() is run each frame and the resulting sample-cloud/force
@@ -88,11 +107,14 @@ namespace physics_sandbox
 		// and accumulating extreme float values that corrupt the simulation.
 		float m_kill_zone_height;
 
-		// Number of physics updates to run for each scene update.
+		// Number of GPU-resident internal substeps recorded for each scene update.
 		int m_physics_substeps;
 
 		// Whether the engine is allowed to put low-energy bodies to sleep.
 		bool m_allow_sleeping;
+
+		// Scene body index of the broad ground plane, or -1 when the scene has no ground body.
+		int m_ground_body_index;
 
 		// Ground plane visual. This is an LDraw object rendered as a large textured
 		// quad. The physics ground is a static body in m_body[] with a thin box shape.
@@ -126,7 +148,7 @@ namespace physics_sandbox
 		double m_clock;
 		bool m_step_pending;
 		double m_pending_elapsed_seconds;
-		int m_pending_substeps;
+		int m_pending_tick_count;
 		StepProfile m_pending_step_profile;
 
 		// The currently active scenario.
@@ -147,10 +169,10 @@ namespace physics_sandbox
 		// Returns true if a collision occurred during this step.
 		bool Step(double elapsed_seconds);
 
-		// Submit the first physics substep without waiting for its GPU results.
-		void BeginStep(double elapsed_seconds);
+		// Submit one frame spanning 'tick_count' fixed scene ticks while retaining the configured substeps per tick.
+		void BeginStep(double elapsed_seconds, int tick_count = 1);
 
-		// Complete a submitted step, including any remaining dependent substeps.
+		// Complete one submitted frame and consume its gathered readback.
 		// Returns true if a collision occurred during this step.
 		bool CompleteStep();
 
@@ -179,6 +201,12 @@ namespace physics_sandbox
 		// Create/update the graphics objects for
 		void UpdateCollisionGfx(std::span<physics::RbContact const> contacts);
 
+		// Synchronise all articulation-link graphics with the latest accepted simulation state.
+		void UpdateArticulationGfx();
+
+		// Add visible articulation-link graphics to the current renderer draw list.
+		void AddArticulationsToScene(rdr12::Scene& scene, m4x4 const& w2c, Frustum const& frustum, v2 const& clip_planes);
+
 		// Get/set the active visualisation mode.
 		EVisualMode VisualMode() const;
 		void VisualMode(EVisualMode mode);
@@ -197,14 +225,23 @@ namespace physics_sandbox
 		// Prepare visual state before collision readback updates it for a completed substep.
 		void PrepareStepVisuals();
 
-		// Apply gravity and submit one physics substep.
-		void BeginPhysicsSubstep(float dt, double time_s, StepProfile& profile);
+		// Apply gravity and submit one frame containing the requested number of internal GPU substeps.
+		void BeginPhysicsFrame(float dt, int substep_count, double time_s, StepProfile& profile);
 
-		// Wait for one submitted physics substep and collect its results.
-		void CompletePhysicsSubstep(StepProfile& profile);
+		// Wait for one submitted physics frame and collect its gathered results.
+		void CompletePhysicsFrame(StepProfile& profile);
 
-		// Calculate the bounding box for the scene (excluding terrain)
-		BBox CalculateSceneBBox(scene_loader::SceneDesc const& scene_desc) const;
+		// Release all caller-owned simulation objects in dependency order after engine work is complete.
+		void ClearSimulationObjects();
+
+		// Rebuild stable pointer spans after all object containers have reached their final addresses.
+		void RebuildStepInputs();
+
+		// Build JSON-described articulation trees and persistent constraints after all collision-shape addresses are stable.
+		void BuildMultibodyObjects(scene_loader::SceneDesc const& scene_desc, std::span<collision::Shape const* const> articulation_shapes);
+
+		// Calculate world-space bounds for the constructed rigid bodies and shaped articulation links, excluding terrain.
+		BBox CalculateSceneBBox() const;
 
 		// Release all scene-owned diagnostic buoyancy resources before replacing bodies or the module.
 		void ClearBuoyancy();

@@ -3,11 +3,24 @@
 //
 // Touch this comment any time an .hlsl/.hlsli file referenced below is edited so MSBuild
 // invalidates compute_shaders_physics.res — RC dependency tracking does not follow .hlsl edits.
-// Touched: 2026-05-31 (gpu_buoyancy: phase 12 surface drag kernels CSBuoyancyDragSurfaceSamples/Reduce)
+// Touched: 2026-08-29 (transient whole-tree articulation contact response)
+src/compute/articulation_force_aba.hlsl TEXT DISCARDABLE "src/compute/articulation_force_aba.hlsl"
+src/compute/articulation_mobility.hlsl TEXT DISCARDABLE "src/compute/articulation_mobility.hlsl"
+src/compute/articulation_impulse_aba.hlsl TEXT DISCARDABLE "src/compute/articulation_impulse_aba.hlsl"
+src/compute/articulation_link_proxies.hlsl TEXT DISCARDABLE "src/compute/articulation_link_proxies.hlsl"
+src/compute/articulation_midpoint.hlsl TEXT DISCARDABLE "src/compute/articulation_midpoint.hlsl"
+src/compute/articulation_mobility_ops.hlsli TEXT DISCARDABLE "src/compute/articulation_mobility_ops.hlsli"
+src/compute/constraint_solver.hlsl TEXT DISCARDABLE "src/compute/constraint_solver.hlsl"
+src/compute/constraint_solver_ops.hlsli TEXT DISCARDABLE "src/compute/constraint_solver_ops.hlsli"
+src/compute/coupled_constraint_prepare.hlsl TEXT DISCARDABLE "src/compute/coupled_constraint_prepare.hlsl"
+src/compute/coupled_constraint_position.hlsl TEXT DISCARDABLE "src/compute/coupled_constraint_position.hlsl"
+src/compute/coupled_constraint_velocity.hlsl TEXT DISCARDABLE "src/compute/coupled_constraint_velocity.hlsl"
+src/compute/coupled_contact.hlsl TEXT DISCARDABLE "src/compute/coupled_contact.hlsl"
 src/compute/collide.hlsl        TEXT DISCARDABLE "src/compute/collide.hlsl"
 src/compute/collision.hlsli     TEXT DISCARDABLE "src/compute/collision.hlsli"
 src/compute/gjk.hlsli           TEXT DISCARDABLE "src/compute/gjk.hlsli"
 src/compute/integrate.hlsl      TEXT DISCARDABLE "src/compute/integrate.hlsl"
+src/compute/frame_output.hlsl   TEXT DISCARDABLE "src/compute/frame_output.hlsl"
 src/compute/physics_types.hlsli TEXT DISCARDABLE "src/compute/physics_types.hlsli"
 src/compute/resolve.hlsl        TEXT DISCARDABLE "src/compute/resolve.hlsl"
 src/compute/selective.hlsl      TEXT DISCARDABLE "src/compute/selective.hlsl"

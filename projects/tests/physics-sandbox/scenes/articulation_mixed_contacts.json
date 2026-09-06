@@ -1,0 +1,166 @@
+{
+	"scene": {
+		"demo": {
+			"name": "Mixed and Self Contacts",
+			"group": "Collision and Contacts",
+			"order": 140,
+			"command": "mixed-contacts"
+		},
+		"description": "Rigid/tree, tree/tree, and non-adjacent same-tree collision response.",
+		"gravity": [
+			0.0,
+			0.0,
+			-9.81000042
+		],
+		"material": {
+			"friction": 0.60000002,
+			"elasticity": 0.05
+		},
+		"physics": {
+			"substeps": 1,
+			"solver_iterations": 4,
+			"position_iterations": 2
+		},
+		"ground_plane": {
+			"size": [
+				24.0,
+				24.0
+			],
+			"height": 0.0,
+			"colour": "0xFF606068"
+		},
+		"shapes": {
+			"rigid-sphere": {
+				"name": "rigid-sphere",
+				"type": "sphere",
+				"radius": 0.60000002
+			},
+			"floating-sphere": {
+				"name": "floating-sphere",
+				"type": "sphere",
+				"radius": 0.60000002
+			},
+			"self-root-shape": {
+				"name": "self-root-shape",
+				"type": "sphere",
+				"radius": 0.60000002
+			},
+			"self-tip-shape": {
+				"name": "self-tip-shape",
+				"type": "sphere",
+				"radius": 0.60000002
+			}
+		},
+		"bodies": [
+			{
+				"name": "rigid-impactor",
+				"shape": "rigid-sphere",
+				"mass": 1.0,
+				"position": [
+					-2.0,
+					0.0,
+					4.0
+				],
+				"velocity": [
+					4.0,
+					0.0,
+					0.0
+				],
+				"colour": "0xFFFFA040"
+			}
+		],
+		"articulations": [
+			{
+				"name": "floating-a",
+				"root_type": "floating",
+				"root_transform": {
+					"position": [
+						-0.80000001,
+						0.0,
+						4.0
+					]
+				},
+				"root": {
+					"name": "root",
+					"shape": "floating-sphere",
+					"mass": 1.0,
+					"collide_parent": false,
+					"collide_self": true
+				}
+			},
+			{
+				"name": "floating-b",
+				"root_type": "floating",
+				"root_transform": {
+					"position": [
+						0.25,
+						0.0,
+						4.0
+					]
+				},
+				"root": {
+					"name": "root",
+					"shape": "floating-sphere",
+					"mass": 1.0,
+					"collide_parent": false,
+					"collide_self": true
+				}
+			},
+			{
+				"name": "self-contact-tree",
+				"root_type": "fixed",
+				"root_transform": {
+					"position": [
+						4.5,
+						0.0,
+						2.5
+					]
+				},
+				"root": {
+					"name": "root",
+					"shape": "self-root-shape",
+					"mass": 2.0,
+					"collide_parent": false,
+					"collide_self": true
+				},
+				"links": [
+					{
+						"name": "spacer",
+						"parent": "root",
+						"inertia": {
+							"type": "sphere",
+							"radius": 0.1,
+							"mass": 0.1
+						},
+						"collide_parent": false,
+						"collide_self": true,
+						"joint": {
+							"axes": []
+						}
+					},
+					{
+						"name": "tip",
+						"parent": "spacer",
+						"shape": "self-tip-shape",
+						"mass": 1.0,
+						"collide_parent": false,
+						"collide_self": true,
+						"joint": {
+							"axes": [
+								{
+									"type": "prismatic",
+									"axis": [
+										1.0,
+										0.0,
+										0.0
+									],
+									"initial_position": 1.0
+								}
+							]
+						}
+					}
+				]
+			}
+		]
+	}
+}

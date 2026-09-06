@@ -1,0 +1,364 @@
+{
+	"scene": {
+		"demo": {
+			"name": "Rigid Joint Gallery",
+			"group": "Constraints and Mechanisms",
+			"order": 20,
+			"command": "rigid-joints"
+		},
+		"description": "Ball, hinge, slider, weld, motor, and breakable D6 constraints.",
+		"gravity": [
+			0.0,
+			0.0,
+			-9.81000042
+		],
+		"material": {
+			"friction": 0.60000002,
+			"elasticity": 0.05
+		},
+		"physics": {
+			"substeps": 1
+		},
+		"ground_plane": {
+			"size": [
+				28.0,
+				28.0
+			],
+			"height": 0.0,
+			"colour": "0xFF606068"
+		},
+		"bodies": [
+			{
+				"name": "ball-body",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.64999998,
+						0.64999998,
+						4.12310553
+					]
+				},
+				"mass": 3.0,
+				"position": [
+					-7.5,
+					0.0,
+					5.0
+				],
+				"z_axis": [
+					0.24253562,
+					0.0,
+					-0.97014248
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "hinge-body",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.64999998,
+						0.64999998,
+						4.07921553
+					]
+				},
+				"mass": 3.0,
+				"position": [
+					-3.5999999,
+					0.0,
+					5.0
+				],
+				"z_axis": [
+					0.19611613,
+					0.0,
+					-0.98058069
+				],
+				"colour": "0xFF40A0FF",
+				"angular_velocity": [
+					0.0,
+					1.5,
+					0.0
+				]
+			},
+			{
+				"name": "slider-body",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						1.29999995,
+						1.29999995,
+						1.29999995
+					]
+				},
+				"mass": 2.0,
+				"position": [
+					0.0,
+					0.0,
+					5.0
+				],
+				"colour": "0xFF50D080",
+				"velocity": [
+					0.0,
+					0.0,
+					2.0
+				]
+			},
+			{
+				"name": "weld-body",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						1.5,
+						1.0,
+						2.0
+					]
+				},
+				"mass": 2.5,
+				"position": [
+					4.0,
+					0.0,
+					5.0
+				],
+				"colour": "0xFFB070FF",
+				"rotation": [
+					20.05352211,
+					0.0,
+					0.0
+				]
+			},
+			{
+				"name": "motor-body",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						0.69999999,
+						0.69999999,
+						3.5
+					]
+				},
+				"mass": 2.5,
+				"position": [
+					7.5,
+					0.0,
+					3.75
+				],
+				"z_axis": [
+					0.0,
+					0.0,
+					-1.0
+				],
+				"colour": "0xFFFFD050"
+			},
+			{
+				"name": "break-body",
+				"shape": {
+					"type": "box",
+					"dimensions": [
+						1.39999998,
+						1.39999998,
+						1.39999998
+					]
+				},
+				"mass": 4.0,
+				"position": [
+					0.0,
+					4.0,
+					6.0
+				],
+				"colour": "0xFFFF6060",
+				"velocity": [
+					0.0,
+					0.0,
+					-8.0
+				]
+			}
+		],
+		"constraints": [
+			{
+				"name": "ball-pivot",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "world",
+					"position": [
+						-8.0,
+						0.0,
+						7.0
+					]
+				},
+				"frame_b": {
+					"body": "ball-body",
+					"space": "world",
+					"position": [
+						-8.0,
+						0.0,
+						7.0
+					]
+				}
+			},
+			{
+				"name": "hinge-pivot",
+				"type": "hinge",
+				"frame_a": {
+					"body": "world",
+					"position": [
+						-4.0,
+						0.0,
+						7.0
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"body": "hinge-body",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						7.0
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"axis": {
+					"mode": "free"
+				}
+			},
+			{
+				"name": "slider-row",
+				"type": "slider",
+				"frame_a": {
+					"body": "world",
+					"position": [
+						0.0,
+						0.0,
+						5.0
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"frame_b": {
+					"body": "slider-body",
+					"space": "world",
+					"position": [
+						0.0,
+						0.0,
+						5.0
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"axis": {
+					"mode": "limited",
+					"limits": [
+						-2.5,
+						2.5
+					]
+				}
+			},
+			{
+				"name": "world-weld",
+				"type": "weld",
+				"frame_a": {
+					"body": "world",
+					"position": [
+						4.0,
+						0.0,
+						5.0
+					],
+					"rotation_axis": [
+						1.0,
+						0.0,
+						0.0
+					],
+					"rotation_angle": 20.05352211
+				},
+				"frame_b": {
+					"body": "weld-body",
+					"space": "world",
+					"position": [
+						4.0,
+						0.0,
+						5.0
+					],
+					"rotation_axis": [
+						1.0,
+						0.0,
+						0.0
+					],
+					"rotation_angle": 20.05352211
+				}
+			},
+			{
+				"name": "motor-hinge",
+				"type": "hinge",
+				"frame_a": {
+					"body": "world",
+					"position": [
+						7.5,
+						0.0,
+						5.5
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"frame_b": {
+					"body": "motor-body",
+					"space": "world",
+					"position": [
+						7.5,
+						0.0,
+						5.5
+					],
+					"x_axis": [
+						0.0,
+						1.0,
+						0.0
+					]
+				},
+				"axis": {
+					"mode": "driven",
+					"target_position": 1.10000002,
+					"stiffness": 80.0,
+					"damping": 16.0,
+					"max_force": 250.0
+				}
+			},
+			{
+				"name": "breakable-weld",
+				"type": "weld",
+				"frame_a": {
+					"body": "world",
+					"position": [
+						0.0,
+						4.0,
+						6.0
+					]
+				},
+				"frame_b": {
+					"body": "break-body",
+					"space": "world",
+					"position": [
+						0.0,
+						4.0,
+						6.0
+					]
+				},
+				"break_force": 20.0
+			}
+		]
+	}
+}

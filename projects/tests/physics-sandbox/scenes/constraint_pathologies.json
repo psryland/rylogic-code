@@ -1,0 +1,759 @@
+{
+	"scene": {
+		"demo": {
+			"name": "Constraint Pathologies",
+			"group": "Stress and Scaling",
+			"order": 180,
+			"command": "constraint-pathologies"
+		},
+		"description": "Redundant rows, extreme mass ratios, and near-singular closed loops.",
+		"gravity": [
+			0.0,
+			0.0,
+			-9.81000042
+		],
+		"material": {
+			"friction": 0.60000002,
+			"elasticity": 0.05
+		},
+		"physics": {
+			"substeps": 1,
+			"solver_iterations": 4,
+			"position_iterations": 2
+		},
+		"ground_plane": {
+			"size": [
+				28.0,
+				28.0
+			],
+			"height": 0.0,
+			"colour": "0xFF606068"
+		},
+		"shapes": {
+			"heavy-box": {
+				"name": "heavy-box",
+				"type": "box",
+				"dimensions": [
+					1.0,
+					1.0,
+					1.0
+				]
+			},
+			"light-link": {
+				"name": "light-link",
+				"type": "box",
+				"dimensions": [
+					0.28,
+					0.28,
+					0.75
+				]
+			},
+			"loop-sphere": {
+				"name": "loop-sphere",
+				"type": "sphere",
+				"radius": 0.38
+			},
+			"motor-box": {
+				"name": "motor-box",
+				"type": "box",
+				"dimensions": [
+					0.40000001,
+					0.40000001,
+					3.0
+				]
+			},
+			"break-sphere": {
+				"name": "break-sphere",
+				"type": "sphere",
+				"radius": 0.44999999
+			}
+		},
+		"bodies": [
+			{
+				"name": "heavy-anchor",
+				"shape": "heavy-box",
+				"mass": 10000.0,
+				"position": [
+					-4.0,
+					0.0,
+					8.0
+				],
+				"colour": "0xFF8060FF"
+			},
+			{
+				"name": "chain-link-00",
+				"shape": "light-link",
+				"mass": 0.02,
+				"position": [
+					-4.0,
+					0.0,
+					7.19999981
+				],
+				"colour": "0xFF50C080"
+			},
+			{
+				"name": "chain-link-01",
+				"shape": "light-link",
+				"mass": 0.02,
+				"position": [
+					-4.0,
+					0.0,
+					6.4000001
+				],
+				"colour": "0xFF50C080"
+			},
+			{
+				"name": "chain-link-02",
+				"shape": "light-link",
+				"mass": 0.02,
+				"position": [
+					-4.0,
+					0.0,
+					5.5999999
+				],
+				"colour": "0xFF50C080"
+			},
+			{
+				"name": "chain-link-03",
+				"shape": "light-link",
+				"mass": 0.02,
+				"position": [
+					-4.0,
+					0.0,
+					4.80000019
+				],
+				"colour": "0xFF50C080"
+			},
+			{
+				"name": "chain-link-04",
+				"shape": "light-link",
+				"mass": 0.02,
+				"position": [
+					-4.0,
+					0.0,
+					4.0
+				],
+				"colour": "0xFF50C080"
+			},
+			{
+				"name": "chain-link-05",
+				"shape": "light-link",
+				"mass": 0.02,
+				"position": [
+					-4.0,
+					0.0,
+					3.20000005
+				],
+				"colour": "0xFF50C080"
+			},
+			{
+				"name": "chain-link-06",
+				"shape": "light-link",
+				"mass": 0.02,
+				"position": [
+					-4.0,
+					0.0,
+					2.4000001
+				],
+				"colour": "0xFF50C080"
+			},
+			{
+				"name": "chain-link-07",
+				"shape": "light-link",
+				"mass": 0.02,
+				"position": [
+					-4.0,
+					0.0,
+					1.60000002
+				],
+				"colour": "0xFF50C080"
+			},
+			{
+				"name": "chain-link-08",
+				"shape": "light-link",
+				"mass": 0.02,
+				"position": [
+					-4.0,
+					0.0,
+					0.80000001
+				],
+				"colour": "0xFF50C080"
+			},
+			{
+				"name": "chain-link-09",
+				"shape": "light-link",
+				"mass": 0.02,
+				"position": [
+					-4.0,
+					0.0,
+					0.0
+				],
+				"colour": "0xFF50C080"
+			},
+			{
+				"name": "chain-link-10",
+				"shape": "light-link",
+				"mass": 0.02,
+				"position": [
+					-4.0,
+					0.0,
+					-0.80000001
+				],
+				"colour": "0xFF50C080"
+			},
+			{
+				"name": "chain-link-11",
+				"shape": "light-link",
+				"mass": 0.02,
+				"position": [
+					-4.0,
+					0.0,
+					-1.60000002
+				],
+				"colour": "0xFF50C080"
+			},
+			{
+				"name": "chain-link-12",
+				"shape": "light-link",
+				"mass": 0.02,
+				"position": [
+					-4.0,
+					0.0,
+					-2.4000001
+				],
+				"colour": "0xFF50C080"
+			},
+			{
+				"name": "chain-link-13",
+				"shape": "light-link",
+				"mass": 0.02,
+				"position": [
+					-4.0,
+					0.0,
+					-3.20000005
+				],
+				"colour": "0xFF50C080"
+			},
+			{
+				"name": "loop-0",
+				"shape": "loop-sphere",
+				"mass": 1.0,
+				"position": [
+					0.0,
+					-1.5,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "loop-1",
+				"shape": "loop-sphere",
+				"mass": 1.0,
+				"position": [
+					2.5,
+					-1.5,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "loop-2",
+				"shape": "loop-sphere",
+				"mass": 1.0,
+				"position": [
+					2.5,
+					1.5,
+					5.01999998
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "loop-3",
+				"shape": "loop-sphere",
+				"mass": 1.0,
+				"position": [
+					0.0,
+					1.5,
+					5.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "motor-body",
+				"shape": "motor-box",
+				"mass": 1.0,
+				"position": [
+					5.0,
+					-1.5,
+					5.5
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "break-body",
+				"shape": "break-sphere",
+				"mass": 1.0,
+				"position": [
+					5.0,
+					2.0,
+					6.0
+				],
+				"velocity": [
+					0.0,
+					0.0,
+					-12.0
+				],
+				"colour": "0xFFFF4040"
+			}
+		],
+		"constraints": [
+			{
+				"name": "chain-joint-00",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "heavy-anchor",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						7.5999999
+					]
+				},
+				"frame_b": {
+					"body": "chain-link-00",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						7.5999999
+					]
+				}
+			},
+			{
+				"name": "chain-joint-01",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "chain-link-00",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						6.80000019
+					]
+				},
+				"frame_b": {
+					"body": "chain-link-01",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						6.80000019
+					]
+				}
+			},
+			{
+				"name": "chain-joint-02",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "chain-link-01",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						6.0
+					]
+				},
+				"frame_b": {
+					"body": "chain-link-02",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						6.0
+					]
+				}
+			},
+			{
+				"name": "chain-joint-03",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "chain-link-02",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						5.19999981
+					]
+				},
+				"frame_b": {
+					"body": "chain-link-03",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						5.19999981
+					]
+				}
+			},
+			{
+				"name": "chain-joint-04",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "chain-link-03",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						4.4000001
+					]
+				},
+				"frame_b": {
+					"body": "chain-link-04",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						4.4000001
+					]
+				}
+			},
+			{
+				"name": "chain-joint-05",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "chain-link-04",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						3.5999999
+					]
+				},
+				"frame_b": {
+					"body": "chain-link-05",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						3.5999999
+					]
+				}
+			},
+			{
+				"name": "chain-joint-06",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "chain-link-05",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						2.79999995
+					]
+				},
+				"frame_b": {
+					"body": "chain-link-06",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						2.79999995
+					]
+				}
+			},
+			{
+				"name": "chain-joint-07",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "chain-link-06",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						2.0
+					]
+				},
+				"frame_b": {
+					"body": "chain-link-07",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						2.0
+					]
+				}
+			},
+			{
+				"name": "chain-joint-08",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "chain-link-07",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						1.20000005
+					]
+				},
+				"frame_b": {
+					"body": "chain-link-08",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						1.20000005
+					]
+				}
+			},
+			{
+				"name": "chain-joint-09",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "chain-link-08",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						0.40000001
+					]
+				},
+				"frame_b": {
+					"body": "chain-link-09",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						0.40000001
+					]
+				}
+			},
+			{
+				"name": "chain-joint-10",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "chain-link-09",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						-0.40000001
+					]
+				},
+				"frame_b": {
+					"body": "chain-link-10",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						-0.40000001
+					]
+				}
+			},
+			{
+				"name": "chain-joint-11",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "chain-link-10",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						-1.20000005
+					]
+				},
+				"frame_b": {
+					"body": "chain-link-11",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						-1.20000005
+					]
+				}
+			},
+			{
+				"name": "chain-joint-12",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "chain-link-11",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						-2.0
+					]
+				},
+				"frame_b": {
+					"body": "chain-link-12",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						-2.0
+					]
+				}
+			},
+			{
+				"name": "chain-joint-13",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "chain-link-12",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						-2.79999995
+					]
+				},
+				"frame_b": {
+					"body": "chain-link-13",
+					"space": "world",
+					"position": [
+						-4.0,
+						0.0,
+						-2.79999995
+					]
+				}
+			},
+			{
+				"name": "loop-edge-01",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "loop-0",
+					"space": "world",
+					"position": [
+						1.25,
+						-1.5,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "loop-1",
+					"space": "world",
+					"position": [
+						1.25,
+						-1.5,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "loop-edge-12",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "loop-1",
+					"space": "world",
+					"position": [
+						2.5,
+						0.0,
+						5.01000023
+					]
+				},
+				"frame_b": {
+					"body": "loop-2",
+					"space": "world",
+					"position": [
+						2.5,
+						0.0,
+						5.01000023
+					]
+				}
+			},
+			{
+				"name": "loop-edge-23",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "loop-2",
+					"space": "world",
+					"position": [
+						1.25,
+						1.5,
+						5.01000023
+					]
+				},
+				"frame_b": {
+					"body": "loop-3",
+					"space": "world",
+					"position": [
+						1.25,
+						1.5,
+						5.01000023
+					]
+				}
+			},
+			{
+				"name": "loop-edge-30",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "loop-3",
+					"space": "world",
+					"position": [
+						0.0,
+						0.0,
+						5.0
+					]
+				},
+				"frame_b": {
+					"body": "loop-0",
+					"space": "world",
+					"position": [
+						0.0,
+						0.0,
+						5.0
+					]
+				}
+			},
+			{
+				"name": "motor-row",
+				"type": "d6",
+				"frame_a": {
+					"body": "world",
+					"position": [
+						5.0,
+						-1.5,
+						7.0
+					]
+				},
+				"frame_b": {
+					"body": "motor-body",
+					"space": "world",
+					"position": [
+						5.0,
+						-1.5,
+						7.0
+					]
+				},
+				"angular": [
+					{
+						"mode": "driven",
+						"target_velocity": 1000.0,
+						"damping": 10.0,
+						"max_force": 8.0
+					}
+				]
+			},
+			{
+				"name": "breakable-weld",
+				"type": "weld",
+				"frame_a": {
+					"body": "world",
+					"position": [
+						5.0,
+						2.0,
+						8.0
+					]
+				},
+				"frame_b": {
+					"body": "break-body",
+					"space": "world",
+					"position": [
+						5.0,
+						2.0,
+						8.0
+					]
+				},
+				"break_force": 1.5
+			}
+		]
+	}
+}

@@ -1,4 +1,5 @@
 #include "src/forward.h"
+#include "src/scene/demo.h"
 #include "src/ui/menu_id.h"
 #include "src/ui/sandbox_ui.h"
 
@@ -7,6 +8,72 @@ namespace physics_sandbox
 	namespace
 	{
 		using Clock = std::chrono::steady_clock;
+
+		// Fixed-tick batching preserves the 60 Hz solver interval while limiting each UI update to one bounded GPU submission.
+		constexpr double PhysicsStepSeconds = 1.0 / 60.0;
+		constexpr double MaxFrameSeconds = 0.25;
+		constexpr int MaxTicksPerSubmission = 2;
+
+		// Build behavior-oriented submenus from the runtime-discovered JSON demonstration catalogue.
+		HMENU CreateDemoMenu()
+		{
+			auto menu = Menu(Menu::EKind::Popup);
+			for (auto const& category : DemoCategoryCatalogue())
+			{
+				auto category_menu = Menu(Menu::EKind::Popup);
+
+				// Keep command identifiers tied to stable catalogue indexes while grouping entries by demonstrated behavior.
+				auto const demos = DemoCatalogue();
+				for (auto index = 0; index != isize(demos); ++index)
+				{
+					if (demos[index].m_category != category.m_category)
+						continue;
+
+					auto const label = pr::Widen(demos[index].m_display_name);
+					category_menu.Insert(MenuItem(label.c_str(), MenuID::DemoBase + index));
+				}
+
+				// Categories own the conceptual grouping while scene files own each entry's placement and label.
+				auto const label = pr::Widen(category.m_display_name);
+				menu.Insert(MenuItem(label.c_str(), category_menu));
+			}
+			return menu;
+		}
+
+		// Return the number of fixed ticks that can share one submission within the requested and engine-owned bounds.
+		constexpr int ScheduledTickCount(double accumulated_seconds, int requested_tick_capacity, int substeps_per_tick, int max_internal_substeps, bool require_tick_boundary)
+		{
+			auto const available_tick_count = static_cast<int>(accumulated_seconds / PhysicsStepSeconds);
+			if (available_tick_count == 0)
+				return 0;
+
+			auto const engine_tick_capacity = max_internal_substeps / std::max(substeps_per_tick, 1);
+			if (engine_tick_capacity < 1)
+				return 1;
+
+			auto const submission_tick_capacity = require_tick_boundary ? 1 : std::min(requested_tick_capacity, engine_tick_capacity);
+			return std::clamp(available_tick_count, 0, submission_tick_capacity);
+		}
+
+		// Bound whole-tick backlog while retaining the fractional phase needed for stable fixed-step pacing.
+		constexpr double BoundedAccumulatedTime(double accumulated_seconds, int requested_tick_capacity)
+		{
+			auto const accumulated_tick_count = static_cast<int>(accumulated_seconds / PhysicsStepSeconds);
+			return accumulated_tick_count > requested_tick_capacity
+				? accumulated_seconds - (accumulated_tick_count - requested_tick_capacity) * PhysicsStepSeconds
+				: accumulated_seconds;
+		}
+
+		static_assert(ScheduledTickCount(2.0 * PhysicsStepSeconds, 2, 1, 64, false) == 2);
+		static_assert(ScheduledTickCount(2.0 * PhysicsStepSeconds, 1, 1, 64, false) == 1);
+		static_assert(ScheduledTickCount(2.0 * PhysicsStepSeconds, 2, 64, 64, false) == 1);
+		static_assert(ScheduledTickCount(2.0 * PhysicsStepSeconds, 2, 1, 64, true) == 1);
+		static_assert(ScheduledTickCount(PhysicsStepSeconds, 2, 65, 64, false) == 1);
+		static_assert(BoundedAccumulatedTime(0.5 * PhysicsStepSeconds, 1) == 0.5 * PhysicsStepSeconds);
+		static_assert(BoundedAccumulatedTime(2.5 * PhysicsStepSeconds, 1) > PhysicsStepSeconds);
+		static_assert(BoundedAccumulatedTime(2.5 * PhysicsStepSeconds, 1) < 2.0 * PhysicsStepSeconds);
+		static_assert(BoundedAccumulatedTime(3.5 * PhysicsStepSeconds, 2) > 2.0 * PhysicsStepSeconds);
+		static_assert(BoundedAccumulatedTime(3.5 * PhysicsStepSeconds, 2) < 3.0 * PhysicsStepSeconds);
 
 		double ElapsedMs(Clock::time_point beg, Clock::time_point end)
 		{
@@ -32,7 +99,8 @@ namespace physics_sandbox
 			{L"&View", Menu(Menu::EKind::Popup, {
 				MenuItem(L"&Normal", MenuID::VisualModeNormal, MenuItem::EState::Checked),
 				MenuItem(L"&Contact Priority", MenuID::VisualModeContactPriority),
-			})} })
+			})},
+			{L"&Demos", CreateDemoMenu()} })
 			.main_wnd(true)
 			.wndclass(RegisterWndClass<SandboxUI>()))
 		, m_status(StatusBar::Params<>().parent(this_).dock(EDock::Bottom))
@@ -48,6 +116,7 @@ namespace physics_sandbox
 		, m_physics_accumulator(0)
 		, m_scenario(EScenario::Sandbox)
 		, m_scene_filepath()
+		, m_active_name(ScenarioName(EScenario::Sandbox))
 		, m_recent()
 		, m_last_status()
 		, m_frame_count(0)
@@ -99,6 +168,8 @@ namespace physics_sandbox
 			if (args.m_vk_key >= '0' && args.m_vk_key <= '5')
 			{
 				m_scenario = static_cast<EScenario>(args.m_vk_key - '0');
+				m_scene_filepath.clear();
+				m_active_name = ScenarioName(m_scenario);
 				ResetScene();
 				m_steps_remaining = -1; // Auto-start
 			}
@@ -156,6 +227,7 @@ namespace physics_sandbox
 			auto const clip_planes = scene.m_cam.ClipPlanes(false);
 			for (int i = 0; i != std::ssize(m_scene.m_body); ++i)
 				m_scene.m_body[i].AddToScene(scene, w2c, frustum, clip_planes);
+			m_scene.AddArticulationsToScene(scene, w2c, frustum, clip_planes);
 
 			if (m_scene.m_ground_gfx)
 				m_scene.m_ground_gfx->AddToScene(scene);
@@ -237,6 +309,16 @@ namespace physics_sandbox
 				return true;
 			}
 
+			auto const demos = DemoCatalogue();
+			if (id >= MenuID::DemoBase && id < MenuID::DemoBase + isize(demos))
+			{
+				auto const demo_index = id - MenuID::DemoBase;
+				LoadSceneFile(demos[demo_index].m_filepath);
+
+				result = 0;
+				return true;
+			}
+
 			// Recent Files submenu items (IDs in range RecentFileBase..RecentFileBase+MaxRecentFiles-1)
 			if (id >= MenuID::RecentFileBase && id < MenuID::RecentFileBase + MaxRecentFiles)
 			{
@@ -260,16 +342,17 @@ namespace physics_sandbox
 
 		// Make sure the GPU has finished with the models before releasing them.
 		m_view3d.WaitForGpu();
-		m_scene.Reset();
 
-		// Reset to the last loaded scene file
+		// Recreate whichever source currently owns the scene rather than retaining stale dynamics objects.
 		if (!m_scene_filepath.empty())
 		{
 			LoadSceneFile(m_scene_filepath);
 		}
 		else
 		{
+			m_scene.Reset();
 			m_scene.SetupScenario(m_scenario);
+			m_active_name = ScenarioName(m_scenario);
 
 			// Frame the camera to see the whole scene: look from +Y toward origin, Z-up
 			m_view3d.m_cam.LookAt(v4(0, -35, 10, 1), v4::Origin(), v4{0, 0, 1, 0});
@@ -383,9 +466,6 @@ namespace physics_sandbox
 			// Pause the simulation
 			PauseSimulation();
 
-			// Remember the filepath so Reset can reload it
-			m_scene_filepath = filepath;
-
 			// Add to the recent files list (MRU order) and rebuild the submenu
 			m_recent.Add(filepath);
 			RebuildRecentFilesMenu();
@@ -403,6 +483,8 @@ namespace physics_sandbox
 			mark = json_end;
 
 			m_scene.LoadScene(scene_desc);
+			m_scene_filepath = filepath;
+			m_active_name = scene_desc.metadata ? scene_desc.metadata->m_name : filepath.stem().string();
 			auto const scene_load_end = Clock::now();
 
 			// Frame the camera to see all loaded bodies
@@ -468,10 +550,6 @@ namespace physics_sandbox
 	// Pipeline continuous simulation so rendering overlaps the next submitted physics step.
 	void SandboxUI::Step(double elapsed_seconds)
 	{
-		static constexpr double PhysicsStepSeconds = 1.0 / 60.0;
-		static constexpr double MaxFrameSeconds = 0.25;
-		static constexpr int MaxStepsPerTick = 4;
-
 		// Don't step after close begins
 		if (m_closing)
 			return;
@@ -508,26 +586,27 @@ namespace physics_sandbox
 		}
 		else
 		{
-			// The resolver tuning assumes a fixed physics step. Convert wall-clock time into a bounded
-			// number of fixed ticks rather than making the simulation unstable when rendering is slow.
-			m_physics_accumulator += std::min(elapsed_seconds, MaxFrameSeconds) * std::max(0.0, static_cast<double>(m_media.TimeScale()));
-			auto submitted_count = 0;
-			while (m_physics_accumulator >= PhysicsStepSeconds && submitted_count != MaxStepsPerTick)
+			// Cap each submission at the requested playback-rate ceiling so 1x overload slows rather than adding catch-up work.
+			auto const time_scale = std::max(0.0, static_cast<double>(m_media.TimeScale()));
+			auto const requested_tick_capacity = std::clamp(static_cast<int>(std::ceil(time_scale)), 1, MaxTicksPerSubmission);
+			auto const scaled_elapsed_seconds = std::min(elapsed_seconds, MaxFrameSeconds) * time_scale;
+			m_physics_accumulator += scaled_elapsed_seconds;
+
+			// Discard only excess whole ticks so render-rate jitter cannot erase the fractional phase of the fixed-step clock.
+			m_physics_accumulator = BoundedAccumulatedTime(m_physics_accumulator, requested_tick_capacity);
+
+			// Multiple fixed ticks remain internal GPU substeps, preserving solver dt and one submission/wait/readback per UI update.
+			auto const tick_count = ScheduledTickCount(
+				m_physics_accumulator,
+				requested_tick_capacity,
+				m_scene.m_physics_substeps,
+				m_scene.m_physics.Config().max_internal_substeps,
+				m_pause_on_collision);
+			if (tick_count != 0)
 			{
-				m_scene.BeginStep(PhysicsStepSeconds);
-				m_physics_accumulator -= PhysicsStepSeconds;
-				++submitted_count;
-
-				// Only the newest step can overlap rendering; dependent catch-up steps remain sequential.
-				if (m_physics_accumulator < PhysicsStepSeconds || submitted_count == MaxStepsPerTick)
-					break;
-
-				if (complete_pending_step())
-					break;
+				m_scene.BeginStep(tick_count * PhysicsStepSeconds, tick_count);
+				m_physics_accumulator -= tick_count * PhysicsStepSeconds;
 			}
-
-			if (submitted_count == MaxStepsPerTick && m_physics_accumulator >= PhysicsStepSeconds)
-				m_physics_accumulator = 0;
 		}
 
 		// Pause on first collision if requested
@@ -556,6 +635,7 @@ namespace physics_sandbox
 		auto const sync_beg = Clock::now();
 		for (int i = 0; i != std::ssize(m_scene.m_body); ++i)
 			m_scene.m_body[i].UpdateGfx();
+		m_scene.UpdateArticulationGfx();
 		auto const sync_end = Clock::now();
 
 		// Render the 3D viewport. Objects are added to the scene via the
@@ -616,9 +696,8 @@ namespace physics_sandbox
 			// Keep the slider's speed label text in sync with the trackbar position
 			m_media.UpdateSpeedLabel();
 
-			SetWindowTextA(*this, std::format("Physics Sandbox [{}: {}] t={:.3f} frame={} col={}  FPS: {:.0f}",
-				static_cast<int>(m_scene.m_current_scenario),
-				ScenarioName(m_scene.m_current_scenario),
+			SetWindowTextA(*this, std::format("Physics Sandbox [{}] t={:.3f} frame={} col={}  FPS: {:.0f}",
+				m_active_name,
 				m_scene.m_clock,
 				m_scene.m_step_count,
 				m_scene.m_diag.count,
@@ -635,7 +714,7 @@ namespace physics_sandbox
 			auto const status_beg = Clock::now();
 			auto new_status = std::format(L"t={:.3f}  {}  Collisions: {}  {}  FPS: {:.0f}",
 				m_scene.m_clock,
-				pr::Widen(ScenarioName(m_scene.m_current_scenario)),
+				pr::Widen(m_active_name),
 				m_scene.m_diag.count,
 				m_steps_remaining == 0 ? L"[Paused]" : L"[Running]",
 				m_fps);
@@ -667,19 +746,35 @@ namespace physics_sandbox
 	// Used to frame the camera when loading a new scene.
 	BBox SandboxUI::ComputeSceneBBox() const
 	{
-		if (m_scene.m_body.empty())
+		if (m_scene.m_body.empty() && m_scene.m_articulation_visuals.empty())
 			return BBox{ v4{0, 0, 0, 1}, v4{5, 5, 5, 0} };
 
+		// Include complete transformed shape bounds so long rods and offset link geometry cannot be clipped.
+		// Defer the broad ground plane because its horizontal collision extent is not useful camera content.
 		auto bbox = BBox::Reset();
-		for (auto const& body : m_scene.m_body)
-			Grow(bbox, body.O2W().pos);
+		auto ground_top = std::optional<v4>{};
+		for (auto body_index = 0; body_index != isize(m_scene.m_body); ++body_index)
+		{
+			auto const bounds = m_scene.m_body[body_index].BBoxWS();
+			if (body_index == m_scene.m_ground_body_index)
+			{
+				ground_top = (bounds.m_centre + v4{0.0f, 0.0f, bounds.m_radius.z, 0.0f}).w1();
+				continue;
+			}
 
-		// If there's a ground visual, include the ground height in the bbox
-		// so the camera can see where objects will land.
-		if (m_scene.m_ground_gfx)
-			Grow(bbox, v4::Origin());
+			Grow(bbox, bounds);
+		}
+		for (auto const& visual : m_scene.m_articulation_visuals)
+			Grow(bbox, visual.Bounds(m_scene.m_articulation));
 
-		bbox *= 1.2f;
+		// Keep ground height visible without allowing a deliberately oversized floor to zoom out the scene.
+		if (!bbox.valid())
+			bbox = BBox{ground_top.value_or(v4::Origin()), v4{5.0f, 5.0f, 5.0f, 0.0f}};
+		else if (ground_top)
+			Grow(bbox, *ground_top);
+
+		// Reserve perspective and window-layout margin around the exact geometry bounds.
+		bbox *= 1.5f;
 		return bbox;
 	}
 }

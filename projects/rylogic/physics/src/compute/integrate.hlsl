@@ -7,6 +7,7 @@
 // Evolve() function in integrator.cpp — see that file for detailed comments.
 //
 // Buffer layout:
+//   t0: StructuredBuffer<GpuFrameForce>       — frame-constant force seed
 //   u0: RWStructuredBuffer<GpuCollisionCounters> - shared step counters
 //   u1: RWStructuredBuffer<GpuRigidBody>      — per-body dynamic state (read/write)
 //   u2: RWStructuredBuffer<int>               — per-body encoded BodyIndex (write)
@@ -46,6 +47,7 @@ struct cbIntegrate
 
 // Shader resources
 ConstantBuffer<cbIntegrate> resource(g, b0);
+StructuredBuffer<GpuFrameForce> resource(g_frame_forces, t0);
 RWStructuredBuffer<GpuCollisionCounters> resource(g_counters, u0);
 RWStructuredBuffer<GpuRigidBody> resource(g_bodies, u1);
 RWStructuredBuffer<int> resource(g_aabb_idx, u2);
@@ -55,6 +57,21 @@ RWStructuredBuffer<BBox> resource(g_aabb_box, u4);
 static const int AngularDriftSubstepMax = 32;
 static const float AngularDriftMaxRadians = 0.25f;
 static const int AngularDriftIterationCount = 8;
+
+// Restore frame-constant forces before per-substep GPU force modules add state-dependent contributions.
+numthreads(CSSeedWorkingForces, IntegrateThreadCount, 1, 1)
+void CSSeedWorkingForces(int3 DTID(dtid))
+{
+	int idx = dtid.x;
+	if (idx >= g.body_count)
+		return;
+
+	GpuRigidBody body = g_bodies[idx];
+	GpuFrameForce frame_force = g_frame_forces[idx];
+	body.force_ang = frame_force.force_ang;
+	body.force_lin = frame_force.force_lin;
+	g_bodies[idx] = body;
+}
 
 // Build an axis-angle vector for a principal-axis rotation.
 float3 PrincipalAxisAngle(int axis, float angle)

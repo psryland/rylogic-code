@@ -66,7 +66,8 @@ namespace pr::physics::buoyancy
 	// Rigid-body kinematics needed to place samples in world space and evaluate point velocities.
 	struct BodyState
 	{
-		m4x4 m_o2w = m4x4::Identity();   // centre-of-mass-root -> world (shapes are authored in COM-root space)
+		m4x4 m_o2w = m4x4::Identity();   // collision-shape root -> world
+		v4 m_centre_of_mass_os = v4::Zero(); // centre of mass relative to the collision-shape root
 		v4 m_gravity_ws = v4::Zero();    // world-space gravity for this body (w = 0)
 		v4 m_vel_lin_ws = v4::Zero();    // linear velocity of the centre of mass (w = 0)
 		v4 m_omega_ws = v4::Zero();      // angular velocity (w = 0)
@@ -699,7 +700,7 @@ namespace pr::physics::buoyancy
 		auto const t0 = frame.m_t0;
 		auto const t1 = frame.m_t1;
 		auto const ref = frame.m_ref;
-		auto const com_ws = body.m_o2w.pos;
+		auto const com_ws = body.m_o2w * body.m_centre_of_mass_os.w1();
 		auto const g_mag = Length(body.m_gravity_ws.w0());
 
 		// A scale-relative epsilon for inside tests so boundary samples register without leaking.

@@ -1,0 +1,165 @@
+{
+	"scene": {
+		"demo": {
+			"name": "Floating Conservation",
+			"group": "Dynamics and Conservation",
+			"order": 160,
+			"command": "floating-conservation"
+		},
+		"description": "Force-free internal motion preserving Coriolis effects, momentum, and bounded energy.",
+		"gravity": [
+			0.0,
+			0.0,
+			0.0
+		],
+		"material": {
+			"friction": 0.60000002,
+			"elasticity": 0.05
+		},
+		"physics": {
+			"substeps": 4
+		},
+		"shapes": {
+			"root-shape": {
+				"name": "root-shape",
+				"type": "box",
+				"dimensions": [
+					1.39999998,
+					1.79999995,
+					2.20000005
+				]
+			},
+			"link-a-shape": {
+				"name": "link-a-shape",
+				"type": "box",
+				"dimensions": [
+					0.89999998,
+					1.20000005,
+					1.5
+				]
+			},
+			"link-b-shape": {
+				"name": "link-b-shape",
+				"type": "box",
+				"dimensions": [
+					0.64999998,
+					0.85000002,
+					1.0
+				]
+			}
+		},
+		"articulations": [
+			{
+				"name": "floating-conservation",
+				"root_type": "floating",
+				"root_transform": {
+					"position": [
+						0.0,
+						0.0,
+						2.0
+					],
+					"rotation_axis": [
+						0.0,
+						1.0,
+						0.0
+					],
+					"rotation_angle": 17.76169205
+				},
+				"root_velocity": {
+					"angular": [
+						0.89999998,
+						-0.55000001,
+						0.69999999
+					],
+					"linear": [
+						0.2,
+						0.34999999,
+						-0.12
+					]
+				},
+				"never_sleep": true,
+				"root": {
+					"name": "root",
+					"shape": "root-shape",
+					"mass": 3.20000005,
+					"collide_parent": false,
+					"collide_self": false
+				},
+				"links": [
+					{
+						"name": "link-a",
+						"parent": "root",
+						"shape": "link-a-shape",
+						"mass": 1.39999998,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									0.69999999,
+									0.0,
+									0.2
+								]
+							},
+							"child_frame": {
+								"position": [
+									-0.44999999,
+									0.0,
+									0.0
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										0.40824831,
+										0.81649661,
+										-0.40824831
+									],
+									"initial_position": 0.41999999,
+									"initial_velocity": 1.14999998
+								}
+							]
+						}
+					},
+					{
+						"name": "link-b",
+						"parent": "link-a",
+						"shape": "link-b-shape",
+						"mass": 0.80000001,
+						"collide_parent": false,
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [
+									-0.30000001,
+									0.5,
+									0.1
+								]
+							},
+							"child_frame": {
+								"position": [
+									0.25,
+									-0.30000001,
+									0.0
+								]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [
+										-0.40824831,
+										0.40824831,
+										0.81649661
+									],
+									"initial_position": -0.36000001,
+									"initial_velocity": -0.81999999
+								}
+							]
+						}
+					}
+				]
+			}
+		]
+	}
+}

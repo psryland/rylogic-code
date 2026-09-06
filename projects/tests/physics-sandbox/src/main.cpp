@@ -8,6 +8,7 @@
 //     Optional class name filters are substring-matched against test class names.
 //   (default) : Launch the interactive physics sandbox window.
 #include "src/forward.h"
+#include "src/scene/demo.h"
 #include "src/ui/sandbox_ui.h"
 #include "src/diagnostics/scene_diagnostic.h"
 
@@ -122,6 +123,15 @@ namespace physics_sandbox
 		};
 		if (cmd.count("scene"))
 			options.m_scene_filepath = cmd("scene").as<std::filesystem::path>();
+		if (cmd.count("demo"))
+		{
+			auto const name = cmd("demo").as<std::string>();
+			auto const* demo = FindDemo(name);
+			if (demo == nullptr)
+				throw std::runtime_error(std::format("Unknown physics demo '{}'", name));
+
+			options.m_scene_filepath = demo->m_filepath;
+		}
 		if (cmd.count("steps"))
 			options.m_steps = cmd("steps").as<int>();
 		if (cmd.count("dt"))
@@ -291,8 +301,17 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 		SandboxUI sandbox(cmd.count("profile") != 0);
 		sandbox.cp().msg_loop(&loop);
 
-		// Load a scene file on startup if specified: -scene <filepath>
-		if (cmd.count("scene"))
+		// Load a named catalogue demo or an explicit JSON scene on startup.
+		if (cmd.count("demo"))
+		{
+			auto const name = cmd("demo").as<std::string>();
+			auto const* demo = FindDemo(name);
+			if (demo == nullptr)
+				throw std::runtime_error(std::format("Unknown physics demo '{}'", name));
+
+			sandbox.LoadSceneFile(demo->m_filepath);
+		}
+		else if (cmd.count("scene"))
 			sandbox.LoadSceneFile(cmd("scene").as<std::filesystem::path>());
 
 		sandbox.Show();
@@ -301,12 +320,10 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 		if (autoplay)
 			sandbox.m_steps_remaining = -1;
 
-		// Simulation loop: fixed 60 Hz timestep for deterministic physics.
-		// Render loop: variable at high target rate. The actual frame rate is
-		// limited by vsync inside View3D_WindowRender→Present. Setting a high
-		// target (1000 Hz) ensures the loop fires immediately after vsync
-		// completes, rather than waiting for MsgWaitForMultipleObjects timeout.
-		loop.AddLoop(60.0, false, [&](double dt) { sandbox.Step(dt); });
+		// SandboxUI converts wall time into fixed 60 Hz physics ticks. Variable scheduling prevents
+		// the message loop from submitting several catch-up frames before yielding to the viewport.
+		// Rendering targets a high rate so it resumes immediately after the previous vsync completes.
+		loop.AddLoop(60.0, true, [&](double dt) { sandbox.Step(dt); });
 		loop.AddLoop(1000.0, true, [&](double dt) { sandbox.Render(dt); });
 		loop.AddMessageFilter(sandbox);
 		return loop.Run();

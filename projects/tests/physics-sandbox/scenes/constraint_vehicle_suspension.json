@@ -1,0 +1,485 @@
+{
+	"scene": {
+		"demo": {
+			"name": "Vehicle Suspension",
+			"group": "Constraints and Mechanisms",
+			"order": 90,
+			"command": "vehicle-suspension"
+		},
+		"description": "Driven compliant suspension rows, travel limits, and wheel contacts.",
+		"gravity": [
+			0.0,
+			0.0,
+			-9.81000042
+		],
+		"material": {
+			"friction": 0.60000002,
+			"elasticity": 0.05
+		},
+		"physics": {
+			"substeps": 1,
+			"solver_iterations": 4,
+			"position_iterations": 2
+		},
+		"ground_plane": {
+			"size": [
+				32.0,
+				32.0
+			],
+			"height": 0.0,
+			"colour": "0xFF606068"
+		},
+		"shapes": {
+			"chassis-shape": {
+				"name": "chassis-shape",
+				"type": "box",
+				"dimensions": [
+					4.80000019,
+					3.0,
+					0.80000001
+				]
+			},
+			"wheel-shape": {
+				"name": "wheel-shape",
+				"type": "sphere",
+				"radius": 0.72000003
+			}
+		},
+		"bodies": [
+			{
+				"name": "chassis",
+				"shape": "chassis-shape",
+				"mass": 14.0,
+				"position": [
+					0.0,
+					0.0,
+					3.79999995
+				],
+				"velocity": [
+					2.5,
+					0.0,
+					0.0
+				],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "wheel-00",
+				"shape": "wheel-shape",
+				"mass": 1.20000005,
+				"position": [
+					-1.79999995,
+					-1.14999998,
+					2.45000005
+				],
+				"velocity": [
+					2.5,
+					0.0,
+					0.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "wheel-01",
+				"shape": "wheel-shape",
+				"mass": 1.20000005,
+				"position": [
+					-1.79999995,
+					1.14999998,
+					2.45000005
+				],
+				"velocity": [
+					2.5,
+					0.0,
+					0.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "wheel-02",
+				"shape": "wheel-shape",
+				"mass": 1.20000005,
+				"position": [
+					1.79999995,
+					-1.14999998,
+					2.45000005
+				],
+				"velocity": [
+					2.5,
+					0.0,
+					0.0
+				],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "wheel-03",
+				"shape": "wheel-shape",
+				"mass": 1.20000005,
+				"position": [
+					1.79999995,
+					1.14999998,
+					2.45000005
+				],
+				"velocity": [
+					2.5,
+					0.0,
+					0.0
+				],
+				"colour": "0xFFFFA040"
+			}
+		],
+		"constraints": [
+			{
+				"name": "spring-00",
+				"type": "d6",
+				"frame_a": {
+					"body": "chassis",
+					"space": "world",
+					"position": [
+						-1.79999995,
+						-1.14999998,
+						2.45000005
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"frame_b": {
+					"body": "wheel-00",
+					"space": "world",
+					"position": [
+						-1.79999995,
+						-1.14999998,
+						2.45000005
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"linear": [
+					{
+						"mode": "driven",
+						"target_position": 0.0,
+						"stiffness": 260.0,
+						"damping": 32.0,
+						"max_force": 900.0
+					},
+					{
+						"mode": "locked"
+					},
+					{
+						"mode": "locked"
+					}
+				]
+			},
+			{
+				"name": "travel-limit-00",
+				"type": "d6",
+				"frame_a": {
+					"body": "chassis",
+					"space": "world",
+					"position": [
+						-1.79999995,
+						-1.14999998,
+						2.45000005
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"frame_b": {
+					"body": "wheel-00",
+					"space": "world",
+					"position": [
+						-1.79999995,
+						-1.14999998,
+						2.45000005
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"linear": [
+					{
+						"mode": "limited",
+						"limits": [
+							-0.64999998,
+							0.64999998
+						]
+					}
+				]
+			},
+			{
+				"name": "spring-01",
+				"type": "d6",
+				"frame_a": {
+					"body": "chassis",
+					"space": "world",
+					"position": [
+						-1.79999995,
+						1.14999998,
+						2.45000005
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"frame_b": {
+					"body": "wheel-01",
+					"space": "world",
+					"position": [
+						-1.79999995,
+						1.14999998,
+						2.45000005
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"linear": [
+					{
+						"mode": "driven",
+						"target_position": 0.0,
+						"stiffness": 260.0,
+						"damping": 32.0,
+						"max_force": 900.0
+					},
+					{
+						"mode": "locked"
+					},
+					{
+						"mode": "locked"
+					}
+				]
+			},
+			{
+				"name": "travel-limit-01",
+				"type": "d6",
+				"frame_a": {
+					"body": "chassis",
+					"space": "world",
+					"position": [
+						-1.79999995,
+						1.14999998,
+						2.45000005
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"frame_b": {
+					"body": "wheel-01",
+					"space": "world",
+					"position": [
+						-1.79999995,
+						1.14999998,
+						2.45000005
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"linear": [
+					{
+						"mode": "limited",
+						"limits": [
+							-0.64999998,
+							0.64999998
+						]
+					}
+				]
+			},
+			{
+				"name": "spring-02",
+				"type": "d6",
+				"frame_a": {
+					"body": "chassis",
+					"space": "world",
+					"position": [
+						1.79999995,
+						-1.14999998,
+						2.45000005
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"frame_b": {
+					"body": "wheel-02",
+					"space": "world",
+					"position": [
+						1.79999995,
+						-1.14999998,
+						2.45000005
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"linear": [
+					{
+						"mode": "driven",
+						"target_position": 0.0,
+						"stiffness": 260.0,
+						"damping": 32.0,
+						"max_force": 900.0
+					},
+					{
+						"mode": "locked"
+					},
+					{
+						"mode": "locked"
+					}
+				]
+			},
+			{
+				"name": "travel-limit-02",
+				"type": "d6",
+				"frame_a": {
+					"body": "chassis",
+					"space": "world",
+					"position": [
+						1.79999995,
+						-1.14999998,
+						2.45000005
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"frame_b": {
+					"body": "wheel-02",
+					"space": "world",
+					"position": [
+						1.79999995,
+						-1.14999998,
+						2.45000005
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"linear": [
+					{
+						"mode": "limited",
+						"limits": [
+							-0.64999998,
+							0.64999998
+						]
+					}
+				]
+			},
+			{
+				"name": "spring-03",
+				"type": "d6",
+				"frame_a": {
+					"body": "chassis",
+					"space": "world",
+					"position": [
+						1.79999995,
+						1.14999998,
+						2.45000005
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"frame_b": {
+					"body": "wheel-03",
+					"space": "world",
+					"position": [
+						1.79999995,
+						1.14999998,
+						2.45000005
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"linear": [
+					{
+						"mode": "driven",
+						"target_position": 0.0,
+						"stiffness": 260.0,
+						"damping": 32.0,
+						"max_force": 900.0
+					},
+					{
+						"mode": "locked"
+					},
+					{
+						"mode": "locked"
+					}
+				]
+			},
+			{
+				"name": "travel-limit-03",
+				"type": "d6",
+				"frame_a": {
+					"body": "chassis",
+					"space": "world",
+					"position": [
+						1.79999995,
+						1.14999998,
+						2.45000005
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"frame_b": {
+					"body": "wheel-03",
+					"space": "world",
+					"position": [
+						1.79999995,
+						1.14999998,
+						2.45000005
+					],
+					"x_axis": [
+						0.0,
+						0.0,
+						1.0
+					]
+				},
+				"linear": [
+					{
+						"mode": "limited",
+						"limits": [
+							-0.64999998,
+							0.64999998
+						]
+					}
+				]
+			}
+		]
+	}
+}

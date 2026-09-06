@@ -105,9 +105,103 @@ namespace physics_sandbox::scene_loader
 		std::optional<float> density = {}; // Derives mass from the final collision shape
 		v4 position = Origin<v4>();
 		v4 rotation = Zero<v4>(); // Euler angles in degrees (X, Y, Z order = pitch, yaw, roll)
+		std::optional<v4> z_axis = {}; // Optional world direction for the body's local Z axis
 		v4 velocity = Zero<v4>();
 		v4 angular_velocity = Zero<v4>();
 		bool sleeping = false;
+		bool never_sleep = false;
+	};
+
+	// Identifies the dynamics object referenced by one persistent-constraint endpoint.
+	struct BodyReferenceDesc
+	{
+		enum class EType
+		{
+			World,
+			RigidBody,
+			ArticulationLink,
+		};
+
+		EType m_type = EType::World;
+		std::string m_body_name;
+		std::string m_articulation_name;
+		std::string m_link_name;
+	};
+
+	// Describes a constraint frame in endpoint-local or initial world coordinates.
+	struct ConstraintFrameDesc
+	{
+		enum class ESpace
+		{
+			Local,
+			World,
+		};
+
+		BodyReferenceDesc m_body;
+		ESpace m_space = ESpace::Local;
+		m4x4 m_frame_to_space = m4x4::Identity();
+	};
+
+	// Describes one child link and its reduced-coordinate joint to a previously declared parent.
+	struct ArticulationChildDesc
+	{
+		BodyDesc m_body;
+		bool m_has_shape = true;
+		std::optional<physics::Inertia> m_inertia;
+		std::string m_parent_name;
+		physics::ArticulationJointDesc m_joint;
+		m4x4 m_shape_to_link = m4x4::Identity();
+		bool m_collide_parent = false;
+		bool m_collide_self = true;
+		bool m_buoyant = false;
+	};
+
+	// Describes a fixed- or floating-root reduced-coordinate articulation.
+	struct ArticulationDesc
+	{
+		std::string m_name;
+		physics::EArticulationRootType m_root_type = physics::EArticulationRootType::Fixed;
+		m4x4 m_root_to_world = m4x4::Identity();
+		v8motion m_root_velocity = {};
+		ArticulationChildDesc m_root;
+		std::vector<ArticulationChildDesc> m_links;
+		bool m_sleeping = false;
+		bool m_never_sleep = false;
+	};
+
+	// Describes one persistent rigid, articulation-link, or mixed constraint.
+	struct ConstraintDesc
+	{
+		enum class EType
+		{
+			BallSocket,
+			Hinge,
+			Slider,
+			Weld,
+			D6,
+		};
+
+		std::string m_name;
+		EType m_type = EType::D6;
+		ConstraintFrameDesc m_frame_a;
+		ConstraintFrameDesc m_frame_b;
+		physics::ConstraintAxisDesc m_axis;
+		std::array<physics::ConstraintAxisDesc, 3> m_linear = {};
+		std::array<physics::ConstraintAxisDesc, 3> m_angular = {};
+		float m_break_force = std::numeric_limits<float>::infinity();
+		float m_break_torque = std::numeric_limits<float>::infinity();
+		bool m_collide_connected = false;
+		bool m_enabled = true;
+	};
+
+	// Runtime catalogue metadata stored with a JSON scene.
+	struct SceneMetadata
+	{
+		std::string m_command;
+		std::string m_name;
+		std::string m_group;
+		std::string m_description;
+		int m_order = 0;
 	};
 
 	// Parsed description of a ground plane
@@ -140,6 +234,7 @@ namespace physics_sandbox::scene_loader
 	{
 		std::filesystem::path filepath;
 		std::string description;
+		std::optional<SceneMetadata> metadata;
 
 		// Gravity acceleration vector (direction and magnitude)
 		v4 gravity = Zero<v4>();
@@ -192,6 +287,9 @@ namespace physics_sandbox::scene_loader
 		// Bodies in the scene
 		std::vector<BodyDesc> bodies;
 
+		// Reduced-coordinate trees and persistent constraints in the scene
+		std::vector<ArticulationDesc> articulations;
+		std::vector<ConstraintDesc> constraints;
 	};
 
 	// Read a 3-element JSON array as a position vector (w=1) or direction vector (w=0).
@@ -202,4 +300,7 @@ namespace physics_sandbox::scene_loader
 
 	// Parse a scene description from a JSON file
 	SceneDesc LoadFromFile(std::filesystem::path const& filepath);
+
+	// Read only the inexpensive menu metadata from a JSON scene file.
+	std::optional<SceneMetadata> LoadMetadataFromFile(std::filesystem::path const& filepath);
 }

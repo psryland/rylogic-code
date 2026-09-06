@@ -1,0 +1,598 @@
+{
+	"scene": {
+		"demo": {
+			"command": "constraints-full-showcase",
+			"name": "Complete Constraint and Multibody Showcase",
+			"group": "Feature Showcases",
+			"order": 5
+		},
+		"description": "A compact non-buoyancy showcase of rigid constraints, closed loops, breakage, fixed and floating articulations, motors, limits, mixed coupling, and articulation self-contact.",
+		"gravity": [ 0.0, 0.0, -9.81 ],
+		"material": {
+			"friction": 0.6,
+			"elasticity": 0.05
+		},
+		"physics": {
+			"substeps": 1,
+			"solver_iterations": 2,
+			"position_iterations": 1
+		},
+		"ground_plane": {
+			"size": [ 34.0, 34.0 ],
+			"height": 0.0,
+			"colour": "0xFF606068"
+		},
+		"camera": {
+			"position": [ 22.0, -30.0, 18.0 ],
+			"lookat": [ 0.0, 1.0, 4.0 ]
+		},
+		"shapes": {
+			"pendulum-rod": {
+				"name": "pendulum-rod",
+				"type": "box",
+				"dimensions": [ 0.55, 0.55, 3.8078866 ]
+			},
+			"motor-rod": {
+				"name": "motor-rod",
+				"type": "box",
+				"dimensions": [ 0.65, 0.65, 4.0 ]
+			},
+			"unit-box": {
+				"name": "unit-box",
+				"type": "box",
+				"dimensions": [ 1.2, 1.2, 1.2 ]
+			},
+			"loop-node": {
+				"name": "loop-node",
+				"type": "sphere",
+				"radius": 0.48
+			},
+			"payload": {
+				"name": "payload",
+				"type": "sphere",
+				"radius": 0.6
+			},
+			"robot-base": {
+				"name": "robot-base",
+				"type": "sphere",
+				"radius": 0.45
+			},
+			"upper-arm": {
+				"name": "upper-arm",
+				"type": "box",
+				"dimensions": [ 0.45, 0.45, 2.2 ]
+			},
+			"forearm": {
+				"name": "forearm",
+				"type": "box",
+				"dimensions": [ 0.4, 0.4, 1.8 ]
+			},
+			"finger": {
+				"name": "finger",
+				"type": "box",
+				"dimensions": [ 0.3, 0.45, 1.0 ]
+			},
+			"floating-root": {
+				"name": "floating-root",
+				"type": "box",
+				"dimensions": [ 2.0, 1.2, 1.0 ]
+			},
+			"floating-link": {
+				"name": "floating-link",
+				"type": "sphere",
+				"radius": 0.5
+			},
+			"self-root": {
+				"name": "self-root",
+				"type": "sphere",
+				"radius": 0.6
+			}
+		},
+		"bodies": [
+			{
+				"name": "ball-pendulum",
+				"shape": "pendulum-rod",
+				"mass": 3.0,
+				"position": [ -7.25, -6.0, 5.25 ],
+				"z_axis": [ 0.3939193, 0.0, -0.9191450 ],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "motor-pendulum",
+				"shape": "motor-rod",
+				"mass": 2.5,
+				"position": [ -3.0, -6.0, 5.0 ],
+				"z_axis": [ 0.0, 0.0, -1.0 ],
+				"colour": "0xFFFFFF40"
+			},
+			{
+				"name": "limited-slider",
+				"shape": "unit-box",
+				"mass": 2.0,
+				"position": [ 1.0, -6.0, 4.0 ],
+				"velocity": [ 0.0, 0.0, 1.5 ],
+				"colour": "0xFF40C060"
+			},
+			{
+				"name": "breakable-weld",
+				"shape": "unit-box",
+				"mass": 1.2,
+				"position": [ 5.0, -6.0, 5.0 ],
+				"velocity": [ 0.0, 0.0, -6.0 ],
+				"colour": "0xFFFF4060"
+			},
+			{
+				"name": "compliant-d6",
+				"shape": "unit-box",
+				"mass": 2.0,
+				"position": [ 9.0, -6.0, 4.0 ],
+				"colour": "0xFF40A0FF"
+			},
+			{
+				"name": "robot-payload",
+				"shape": "payload",
+				"mass": 0.8,
+				"position": [ -7.7, 6.0, 6.25 ],
+				"colour": "0xFFFF8040"
+			},
+			{
+				"name": "mixed-payload",
+				"shape": "payload",
+				"mass": 1.0,
+				"position": [ -2.6, 7.0, 4.0 ],
+				"colour": "0xFFFFA040"
+			},
+			{
+				"name": "disabled-row-probe",
+				"shape": "loop-node",
+				"mass": 0.5,
+				"position": [ 8.0, 1.0, 5.0 ],
+				"colour": "0xFF808080"
+			}
+		],
+		"articulations": [
+			{
+				"name": "fixed-robot",
+				"root_type": "fixed",
+				"root_transform": {
+					"position": [ -8.0, 6.0, 1.0 ]
+				},
+				"root": {
+					"name": "base",
+					"shape": "robot-base",
+					"mass": 2.0,
+					"colour": "0xFF6060E0",
+					"collide_self": false
+				},
+				"links": [
+					{
+						"name": "shoulder",
+						"parent": "base",
+						"shape": "upper-arm",
+						"mass": 2.0,
+						"colour": "0xFF4080FF",
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [ 0.0, 0.0, 0.45 ]
+							},
+							"child_frame": {
+								"position": [ 0.0, 0.0, -1.1 ]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [ 0.0, 1.0, 0.0 ],
+									"initial_position": 0.15
+								}
+							]
+						}
+					},
+					{
+						"name": "elbow",
+						"parent": "shoulder",
+						"shape": "forearm",
+						"mass": 1.4,
+						"colour": "0xFF40C0FF",
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [ 0.0, 0.0, 1.1 ]
+							},
+							"child_frame": {
+								"position": [ 0.0, 0.0, -0.9 ]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [ 1.0, 0.0, 0.0 ],
+									"initial_position": -0.2
+								}
+							]
+						}
+					},
+					{
+						"name": "finger",
+						"parent": "elbow",
+						"shape": "finger",
+						"mass": 0.45,
+						"colour": "0xFFFFFF40",
+						"collide_self": false,
+						"joint": {
+							"parent_frame": {
+								"position": [ 0.0, 0.0, 0.9 ]
+							},
+							"child_frame": {
+								"position": [ 0.0, 0.0, -0.5 ]
+							},
+							"axes": [
+								{
+									"type": "prismatic",
+									"axis": [ 1.0, 0.0, 0.0 ],
+									"initial_position": 0.3
+								}
+							]
+						}
+					}
+				]
+			},
+			{
+				"name": "floating-tree-a",
+				"root_type": "floating",
+				"root_transform": {
+					"position": [ -1.0, 7.0, 4.0 ],
+					"rotation_axis": [ 0.0, 1.0, 0.0 ],
+					"rotation_angle": 8.0
+				},
+				"root_velocity": {
+					"angular": [ 0.1, 0.2, 0.05 ],
+					"linear": [ 0.0, 0.0, 0.0 ]
+				},
+				"root": {
+					"name": "root-a",
+					"shape": "floating-root",
+					"mass": 3.0,
+					"colour": "0xFFE08040",
+					"collide_self": true
+				},
+				"links": [
+					{
+						"name": "tip-a",
+						"parent": "root-a",
+						"shape": "floating-link",
+						"mass": 0.8,
+						"colour": "0xFFFFA040",
+						"collide_self": true,
+						"joint": {
+							"parent_frame": {
+								"position": [ 0.0, 0.0, 0.5 ]
+							},
+							"child_frame": {
+								"position": [ 0.0, 0.0, -0.7 ]
+							},
+							"axes": [
+								{
+									"type": "revolute",
+									"axis": [ 0.0, 1.0, 0.0 ],
+									"initial_position": 0.3,
+									"initial_velocity": 0.4
+								}
+							]
+						}
+					}
+				]
+			},
+			{
+				"name": "floating-tree-b",
+				"root_type": "floating",
+				"root_transform": {
+					"position": [ 0.6, 7.0, 4.0 ]
+				},
+				"root": {
+					"name": "root-b",
+					"shape": "self-root",
+					"mass": 2.0,
+					"colour": "0xFF40A0FF",
+					"collide_self": true
+				},
+				"links": [
+					{
+						"name": "mass-only-spacer",
+						"parent": "root-b",
+						"inertia": {
+							"type": "sphere",
+							"radius": 0.1,
+							"mass": 0.1
+						},
+						"collide_self": true,
+						"joint": {
+							"parent_frame": {
+								"position": [ 0.0, 0.0, 0.8 ]
+							},
+							"axes": []
+						}
+					},
+					{
+						"name": "self-contact-tip",
+						"parent": "mass-only-spacer",
+						"shape": "floating-link",
+						"mass": 0.8,
+						"colour": "0xFF40C0FF",
+						"collide_self": true,
+						"joint": {
+							"axes": [
+								{
+									"type": "prismatic",
+									"axis": [ 0.0, 0.0, 1.0 ],
+									"initial_position": -0.5
+								}
+							]
+						}
+					}
+				]
+			}
+		],
+		"constraints": [
+			{
+				"name": "ball-pivot",
+				"type": "ball_socket",
+				"frame_a": {
+					"articulation": "fixed-robot",
+					"link": "base",
+					"space": "world",
+					"position": [ -8.0, -6.0, 7.0 ]
+				},
+				"frame_b": {
+					"body": "ball-pendulum",
+					"space": "world",
+					"position": [ -8.0, -6.0, 7.0 ]
+				}
+			},
+			{
+				"name": "driven-hinge",
+				"type": "hinge",
+				"frame_a": {
+					"articulation": "fixed-robot",
+					"link": "base",
+					"space": "world",
+					"position": [ -3.0, -6.0, 7.0 ],
+					"x_axis": [ 0.0, 1.0, 0.0 ]
+				},
+				"frame_b": {
+					"body": "motor-pendulum",
+					"space": "world",
+					"position": [ -3.0, -6.0, 7.0 ],
+					"x_axis": [ 0.0, 1.0, 0.0 ]
+				},
+				"axis": {
+					"mode": "driven",
+					"target_position": 0.8,
+					"target_velocity": 0.2,
+					"stiffness": 80.0,
+					"damping": 16.0,
+					"max_force": 250.0
+				}
+			},
+			{
+				"name": "limited-slider-row",
+				"type": "slider",
+				"frame_a": {
+					"articulation": "fixed-robot",
+					"link": "base",
+					"space": "world",
+					"position": [ 1.0, -6.0, 4.0 ],
+					"x_axis": [ 0.0, 0.0, 1.0 ]
+				},
+				"frame_b": {
+					"body": "limited-slider",
+					"space": "world",
+					"position": [ 1.0, -6.0, 4.0 ],
+					"x_axis": [ 0.0, 0.0, 1.0 ]
+				},
+				"axis": {
+					"mode": "limited",
+					"limits": [ -1.5, 1.5 ]
+				}
+			},
+			{
+				"name": "breakable-weld-row",
+				"type": "weld",
+				"frame_a": {
+					"body": "world",
+					"position": [ 5.0, -6.0, 5.0 ]
+				},
+				"frame_b": {
+					"body": "breakable-weld",
+					"space": "world",
+					"position": [ 5.0, -6.0, 5.0 ]
+				},
+				"break_force": 0.1,
+				"break_torque": 0.1
+			},
+			{
+				"name": "compliant-six-axis-row",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "fixed-robot",
+					"link": "base",
+					"space": "world",
+					"position": [ 9.0, -6.0, 4.0 ],
+					"x_axis": [ 0.0, 0.0, 1.0 ]
+				},
+				"frame_b": {
+					"body": "compliant-d6",
+					"space": "world",
+					"position": [ 9.0, -6.0, 4.0 ],
+					"x_axis": [ 0.0, 0.0, 1.0 ]
+				},
+				"linear": [
+					{
+						"mode": "driven",
+						"target_position": 0.0,
+						"stiffness": 180.0,
+						"damping": 28.0,
+						"max_force": 650.0
+					},
+					{
+						"mode": "locked"
+					},
+					{
+						"mode": "locked"
+					}
+				],
+				"angular": [
+					{
+						"mode": "free"
+					},
+					{
+						"mode": "limited",
+						"limits": [ -0.4, 0.4 ]
+					},
+					{
+						"mode": "locked"
+					}
+				]
+			},
+			{
+				"name": "robot-shoulder-drive",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "fixed-robot",
+					"link": "base",
+					"position": [ 0.0, 0.0, 0.45 ],
+					"x_axis": [ 0.0, 1.0, 0.0 ]
+				},
+				"frame_b": {
+					"articulation": "fixed-robot",
+					"link": "shoulder",
+					"position": [ 0.0, 0.0, -1.1 ],
+					"x_axis": [ 0.0, 1.0, 0.0 ]
+				},
+				"angular": [
+					{
+						"mode": "driven",
+						"target_position": 0.4,
+						"stiffness": 90.0,
+						"damping": 18.0,
+						"max_force": 180.0
+					}
+				]
+			},
+			{
+				"name": "robot-elbow-limit",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "fixed-robot",
+					"link": "shoulder",
+					"position": [ 0.0, 0.0, 1.1 ]
+				},
+				"frame_b": {
+					"articulation": "fixed-robot",
+					"link": "elbow",
+					"position": [ 0.0, 0.0, -0.9 ]
+				},
+				"angular": [
+					{
+						"mode": "limited",
+						"limits": [ -0.6, 0.6 ]
+					}
+				]
+			},
+			{
+				"name": "robot-finger-drive",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "fixed-robot",
+					"link": "elbow",
+					"position": [ 0.0, 0.0, 0.9 ]
+				},
+				"frame_b": {
+					"articulation": "fixed-robot",
+					"link": "finger",
+					"position": [ 0.0, 0.0, -0.5 ]
+				},
+				"linear": [
+					{
+						"mode": "driven",
+						"target_position": 0.6,
+						"stiffness": 120.0,
+						"damping": 24.0,
+						"max_force": 90.0
+					}
+				]
+			},
+			{
+				"name": "robot-finger-limit",
+				"type": "d6",
+				"frame_a": {
+					"articulation": "fixed-robot",
+					"link": "elbow",
+					"position": [ 0.0, 0.0, 0.9 ]
+				},
+				"frame_b": {
+					"articulation": "fixed-robot",
+					"link": "finger",
+					"position": [ 0.0, 0.0, -0.5 ]
+				},
+				"linear": [
+					{
+						"mode": "limited",
+						"limits": [ -0.2, 0.8 ]
+					}
+				]
+			},
+			{
+				"name": "robot-payload-contact-guide",
+				"type": "ball_socket",
+				"frame_a": {
+					"articulation": "fixed-robot",
+					"link": "finger",
+					"position": [ 0.0, 0.0, 0.5 ]
+				},
+				"frame_b": {
+					"body": "robot-payload",
+					"position": [ 0.0, 0.0, -0.6 ]
+				}
+			},
+			{
+				"name": "rigid-to-tree",
+				"type": "ball_socket",
+				"frame_a": {
+					"body": "mixed-payload",
+					"position": [ 0.6, 0.0, 0.0 ]
+				},
+				"frame_b": {
+					"articulation": "floating-tree-a",
+					"link": "root-a",
+					"position": [ -1.0, 0.0, 0.0 ]
+				}
+			},
+			{
+				"name": "tree-to-tree",
+				"type": "ball_socket",
+				"frame_a": {
+					"articulation": "floating-tree-a",
+					"link": "root-a",
+					"position": [ 1.0, 0.0, 0.0 ]
+				},
+				"frame_b": {
+					"articulation": "floating-tree-b",
+					"link": "root-b",
+					"position": [ -0.6, 0.0, 0.0 ]
+				}
+			},
+			{
+				"name": "disabled-row",
+				"type": "weld",
+				"enabled": false,
+				"frame_a": {
+					"body": "world",
+					"position": [ 8.0, 1.0, 5.0 ]
+				},
+				"frame_b": {
+					"body": "disabled-row-probe"
+				}
+			}
+		]
+	}
+}

@@ -54,6 +54,8 @@ namespace physics_sandbox::diag
 		int m_max_depth_step = 0;
 		int m_body_a = -1;
 		int m_body_b = -1;
+		int m_articulation = -1;
+		int m_link = -1;
 	};
 
 	SceneDiagnosticResult RunSceneDiagnostic(SceneDiagnosticOptions const& options);
