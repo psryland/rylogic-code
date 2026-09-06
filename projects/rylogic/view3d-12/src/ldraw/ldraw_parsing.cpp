@@ -6523,7 +6523,7 @@ namespace pr::rdr12::ldraw
 	}
 
 	// Create an ldr object from a p3d model.
-	LdrObjectPtr CreateP3D(Renderer& rdr, ELdrObject type, std::filesystem::path const& p3d_filepath, Guid const& context_id)
+	LdrObjectPtr CreateP3D(Renderer& rdr, ELdrObject type, std::filesystem::path const& p3d_filepath, ModelGenerator::CreateOptions const* opts, Guid const& context_id)
 	{
 		LdrObjectPtr obj(new LdrObject(type, nullptr, context_id), true);
 
@@ -6541,10 +6541,10 @@ namespace pr::rdr12::ldraw
 		// Create the model
 		ResourceFactory factory(rdr);
 		std::ifstream src(p3d_filepath, std::ios::binary);
-		ModelGenerator::LoadP3DModel(factory, src, model_out);
+		ModelGenerator::LoadP3DModel(factory, src, model_out, opts);
 		return obj;
 	}
-	LdrObjectPtr CreateP3D(Renderer& rdr, ELdrObject type, std::span<std::byte const> p3d_data, Guid const& context_id)
+	LdrObjectPtr CreateP3D(Renderer& rdr, ELdrObject type, std::span<std::byte const> p3d_data, ModelGenerator::CreateOptions const* opts, Guid const& context_id)
 	{
 		LdrObjectPtr obj(new LdrObject(type, nullptr, context_id), true);
 
@@ -6562,7 +6562,7 @@ namespace pr::rdr12::ldraw
 		// Create the model
 		ResourceFactory factory(rdr);
 		mem_istream<char> src(p3d_data.data(), p3d_data.size());
-		ModelGenerator::LoadP3DModel(factory, src, model_out);
+		ModelGenerator::LoadP3DModel(factory, src, model_out, opts);
 		return obj;
 	}
 

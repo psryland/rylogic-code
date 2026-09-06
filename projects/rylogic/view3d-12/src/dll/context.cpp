@@ -341,26 +341,47 @@ namespace pr::rdr12
 		return obj.get();
 	}
 
+	// Adapt a C texture-resolver callback into the import options the model generator expects.
+	// Returns options with no resolver when the callback is empty, so formats holding plain file paths keep working.
+	static ModelGenerator::CreateOptions P3DImportOptions(view3d::ResolveTextureCB tex_resolver)
+	{
+		ModelGenerator::CreateOptions opts = {};
+		if (!tex_resolver)
+			return opts;
+
+		opts.m_texture_resolver = [tex_resolver](std::string_view texture_id) -> std::span<uint8_t const>
+		{
+			// The callback takes a null-terminated string, and the id comes from a length-delimited field.
+			auto id = std::string(texture_id);
+			size_t size = 0;
+			auto const* data = tex_resolver(id.c_str(), &size);
+			return data != nullptr ? std::span<uint8_t const>(data, size) : std::span<uint8_t const>{};
+		};
+		return opts;
+	}
+
 	// Create an LdrObject from the p3d model
-	ldraw::LdrObject* Context::ObjectCreateP3D(char const* name, Colour32 colour, std::filesystem::path const& p3d_filepath, Guid const* context_id)
+	ldraw::LdrObject* Context::ObjectCreateP3D(char const* name, Colour32 colour, std::filesystem::path const& p3d_filepath, view3d::ResolveTextureCB tex_resolver, Guid const* context_id)
 	{
 		// Get the context id
 		auto id = context_id ? *context_id : GenerateGUID();
 
 		// Create an ldr object
-		auto obj = ldraw::CreateP3D(m_rdr, ldraw::ELdrObject::Model, p3d_filepath, id);
+		auto opts = P3DImportOptions(tex_resolver);
+		auto obj = ldraw::CreateP3D(m_rdr, ldraw::ELdrObject::Model, p3d_filepath, &opts, id);
 		obj->m_name = name;
 		obj->m_base_colour = colour;
 		m_sources.Add(obj);
 		return obj.get();
 	}
-	ldraw::LdrObject* Context::ObjectCreateP3D(char const* name, Colour32 colour, std::span<std::byte const> p3d_data, Guid const* context_id)
+	ldraw::LdrObject* Context::ObjectCreateP3D(char const* name, Colour32 colour, std::span<std::byte const> p3d_data, view3d::ResolveTextureCB tex_resolver, Guid const* context_id)
 	{
 		// Get the context id
 		auto id = context_id ? *context_id : pr::GenerateGUID();
 
 		// Create an ldr object
-		auto obj = rdr12::ldraw::CreateP3D(m_rdr, ldraw::ELdrObject::Model, p3d_data, id);
+		auto opts = P3DImportOptions(tex_resolver);
+		auto obj = rdr12::ldraw::CreateP3D(m_rdr, ldraw::ELdrObject::Model, p3d_data, &opts, id);
 		obj->m_name = name;
 		obj->m_base_colour = colour;
 		m_sources.Add(obj);
