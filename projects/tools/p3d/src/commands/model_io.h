@@ -15,6 +15,10 @@ std::unique_ptr<pr::geometry::p3d::File> CreateFrom3DS(std::filesystem::path con
 // Populates the p3d data structures from a stl file
 std::unique_ptr<pr::geometry::p3d::File> CreateFromSTL(std::filesystem::path const& filepath);
 
+// Populates the p3d data structures from a glTF or GLB file.
+// Images embedded in the model are written into 'texture_dir' and referenced by a content-derived id.
+std::unique_ptr<pr::geometry::p3d::File> CreateFromGLTF(std::filesystem::path const& filepath, std::filesystem::path const& texture_dir);
+
 // Popultes the p3d data structures from an obj file
 std::unique_ptr<pr::geometry::p3d::File> CreateFromOBJ(std::filesystem::path const& filepath);
 

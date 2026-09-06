@@ -54,7 +54,7 @@ namespace pr::geometry::p3d
 
 	struct ChunkHeader;
 	struct ChunkIndex;
-	static constexpr uint32_t Version = 0x00010101U;
+	static constexpr uint32_t Version = 0x00010102U;
 	static constexpr uint32_t NoIndex = ~0U;
 	ChunkIndex const& NullChunk();
 
@@ -69,7 +69,8 @@ namespace pr::geometry::p3d
 		x(Materials             ,= 0x00002000)/*    ├─ Materials                                                                                 */\
 		x(Material              ,= 0x00002100)/*    │  └─ Material                                                                               */\
 		x(DiffuseColour         ,= 0x00002110)/*    │     ├─ Diffuse Colour                                                                      */\
-		x(Texture               ,= 0x00002120)/*    │     └─ Texture (Str filepath, u8 type, u8 addr_mode, u16 flags)                            */\
+		x(MaterialPbr           ,= 0x00002115)/*    │     ├─ PBR properties (f32 metallic, f32 roughness, Colour emissive, f32 cutoff, u8 mode, u8 two-sided) */\
+		x(Texture               ,= 0x00002120)/*    │     └─ Texture (Str id, u8 type, u8 addr_mode, u16 flags, [sampler, texcoord, scale, uv-xform]) */\
 		x(Meshes                ,= 0x00003000)/*    └─ Meshes                                                                                    */\
 		x(Mesh                  ,= 0x00003100)/*       ├─ Mesh (can be nested)                                                                   */\
 		x(MeshName              ,= 0x00003101)/*       │  ├─ Name (cstr)                                                                         */\
@@ -364,13 +365,15 @@ namespace pr::geometry::p3d
 	{
 		enum class EType
 		{
-			Unknown       = 0,
-			Diffuse       = 1, // Diffuse colour per texel
-			AlphaMap      = 2, // Transparency per texel
-			ReflectionMap = 3, // Reflectivity per texel
-			NormalMap     = 4, // Surface normal per texel (tangent space)
-			Bump          = 5, // Scalar displacement per texel
-			Displacement  = 6, // Vec3 displacement per texel
+			Unknown           = 0,
+			Diffuse           = 1, // Diffuse/base colour per texel
+			AlphaMap          = 2, // Transparency per texel
+			ReflectionMap     = 3, // Reflectivity per texel
+			NormalMap         = 4, // Surface normal per texel (tangent space)
+			Bump              = 5, // Scalar displacement per texel
+			Displacement      = 6, // Vec3 displacement per texel
+			MetallicRoughness = 7, // Metalness in blue, roughness in green, per texel
+			Emissive          = 8, // Emitted colour per texel
 		};
 		enum class EAddrMode // D3D11_TEXTURE_ADDRESS_MODE
 		{
@@ -399,6 +402,23 @@ namespace pr::geometry::p3d
 		// Texture boolean properties
 		EFlags m_flags;
 
+		// Independent U and V wrapping, which 'm_addr_mode' cannot express.
+		ETextureWrap m_wrap_s = ETextureWrap::Repeat;
+		ETextureWrap m_wrap_t = ETextureWrap::Repeat;
+
+		// Minification and magnification filtering
+		ETextureFilter m_min_filter = ETextureFilter::Linear;
+		ETextureFilter m_mag_filter = ETextureFilter::Linear;
+
+		// The vertex UV channel that samples this texture
+		int m_texcoord = 0;
+
+		// Scales the effect of the texture. Only meaningful for normal maps.
+		float m_scale = 1.0f;
+
+		// Affine transform applied to the UVs before sampling
+		TexXForm m_uv_transform = {};
+
 		explicit Texture(std::string_view filepath = {}, EType type = EType::Diffuse, EAddrMode addr = EAddrMode::Wrap, EFlags flags = EFlags::None)
 			:m_filepath(filepath)
 			,m_type(type)
@@ -409,6 +429,14 @@ namespace pr::geometry::p3d
 	struct Material
 	{
 		using TexCont = std::vector<Texture>;
+
+		// How the alpha channel of the base colour is interpreted
+		enum class EAlphaMode
+		{
+			Opaque = 0, // Alpha is ignored
+			Mask   = 1, // Texels with alpha below 'm_alpha_cutoff' are discarded
+			Blend  = 2, // Alpha blends the surface with what is behind it
+		};
 
 		// A unique name/guid for the material.
 		// The id is always 16 bytes, pad with zeros if you
@@ -421,12 +449,32 @@ namespace pr::geometry::p3d
 		// Diffuse textures
 		TexCont m_textures;
 
+		// Physically-based shading properties. These describe the surface response and are
+		// independent of the textures, which modulate them per-texel when present.
+		float m_metallic = 1.0f;
+		float m_roughness = 1.0f;
+		Colour m_emissive = ColourBlack;
+		float m_alpha_cutoff = 0.5f;
+		EAlphaMode m_alpha_mode = EAlphaMode::Opaque;
+		bool m_double_sided = false;
+
 		Material() = default;
 		Material(std::string_view name, Colour const& diff_colour)
 			:m_id(name)
 			,m_diffuse(diff_colour)
 			,m_textures()
 		{}
+
+		// Return the first texture of the given type, or null if the material has none.
+		Texture const* find_texture(Texture::EType type) const
+		{
+			for (auto& tex : m_textures)
+			{
+				if (tex.m_type == type)
+					return &tex;
+			}
+			return nullptr;
+		}
 	};
 	struct Bone
 	{
@@ -1100,6 +1148,18 @@ namespace pr::geometry::p3d
 		// Texture flags
 		hdr.m_length += Write(out, s_cast<uint16_t>(tex.m_flags));
 
+		// Sampler state. These trail the original fields so that files written by earlier
+		// versions, which end here, still read correctly.
+		hdr.m_length += Write(out, s_cast<uint8_t>(tex.m_wrap_s));
+		hdr.m_length += Write(out, s_cast<uint8_t>(tex.m_wrap_t));
+		hdr.m_length += Write(out, s_cast<uint8_t>(tex.m_min_filter));
+		hdr.m_length += Write(out, s_cast<uint8_t>(tex.m_mag_filter));
+
+		// UV channel, effect scale, and UV transform
+		hdr.m_length += Write(out, s_cast<int32_t>(tex.m_texcoord));
+		hdr.m_length += Write(out, tex.m_scale);
+		hdr.m_length += Write<TexXForm>(out, tex.m_uv_transform);
+
 		// Chunk padding
 		hdr.m_length += PadToU32(out, hdr.m_length);
 
@@ -1113,6 +1173,27 @@ namespace pr::geometry::p3d
 		ChunkHeader hdr(chunk_id, sizeof(Colour));
 		Write<ChunkHeader>(out, hdr);
 		Write<Colour>(out, colour);
+		return hdr.m_length;
+	}
+
+	// Write the physically-based shading properties of a material to 'out'
+	template <typename TOut> uint32_t WriteMaterialPbr(TOut& out, Material const& mat)
+	{
+		// The payload is a fixed size, so the length is known up front.
+		constexpr uint32_t payload = sizeof(float) + sizeof(float) + sizeof(Colour) + sizeof(float) + sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint16_t);
+		ChunkHeader hdr(EChunkId::MaterialPbr, payload);
+		Write<ChunkHeader>(out, hdr);
+
+		Write(out, mat.m_metallic);
+		Write(out, mat.m_roughness);
+		Write<Colour>(out, mat.m_emissive);
+		Write(out, mat.m_alpha_cutoff);
+		Write(out, s_cast<uint8_t>(mat.m_alpha_mode));
+		Write(out, s_cast<uint8_t>(mat.m_double_sided ? 1 : 0));
+
+		// Pad so the chunk ends on a 4-byte boundary
+		Write(out, s_cast<uint16_t>(0));
+
 		return hdr.m_length;
 	}
 
@@ -1130,6 +1211,9 @@ namespace pr::geometry::p3d
 
 		// Diffuse colour
 		hdr.m_length += WriteColour(out, EChunkId::DiffuseColour, mat.m_diffuse);
+
+		// Physically-based shading properties
+		hdr.m_length += WriteMaterialPbr(out, mat);
 
 		// Textures
 		for (auto& tex : mat.m_textures)
@@ -1793,12 +1877,41 @@ namespace pr::geometry::p3d
 
 		// Texture type
 		tex.m_type = s_cast<Texture::EType>(Read<uint8_t>(src));
+		len -= sizeof(uint8_t);
 
 		// Texture address mode
 		tex.m_addr_mode = s_cast<Texture::EAddrMode>(Read<uint8_t>(src));
+		len -= sizeof(uint8_t);
 
 		// Texture flags
 		tex.m_flags = s_cast<Texture::EFlags>(Read<uint16_t>(src));
+		len -= sizeof(uint16_t);
+
+		// Files written before the sampler fields existed end here, followed only by alignment
+		// padding. Fall back to the nearest equivalent of the single legacy address mode.
+		constexpr uint32_t sampler_size = 4 * sizeof(uint8_t) + sizeof(int32_t) + sizeof(float) + sizeof(TexXForm);
+		if (len < sampler_size)
+		{
+			auto wrap =
+				tex.m_addr_mode == Texture::EAddrMode::Wrap ? ETextureWrap::Repeat :
+				tex.m_addr_mode == Texture::EAddrMode::Mirror ? ETextureWrap::MirroredRepeat :
+				ETextureWrap::ClampToEdge;
+
+			tex.m_wrap_s = wrap;
+			tex.m_wrap_t = wrap;
+			return tex;
+		}
+
+		// Sampler state
+		tex.m_wrap_s = s_cast<ETextureWrap>(Read<uint8_t>(src));
+		tex.m_wrap_t = s_cast<ETextureWrap>(Read<uint8_t>(src));
+		tex.m_min_filter = s_cast<ETextureFilter>(Read<uint8_t>(src));
+		tex.m_mag_filter = s_cast<ETextureFilter>(Read<uint8_t>(src));
+
+		// UV channel, effect scale, and UV transform
+		tex.m_texcoord = s_cast<int>(Read<int32_t>(src));
+		tex.m_scale = Read<float>(src);
+		tex.m_uv_transform = Read<TexXForm>(src);
 
 		return tex;
 	}
@@ -1818,6 +1931,16 @@ namespace pr::geometry::p3d
 			case EChunkId::DiffuseColour:
 				{
 					mat.m_diffuse = Read<Colour>(src);
+					break;
+				}
+			case EChunkId::MaterialPbr:
+				{
+					mat.m_metallic = Read<float>(src);
+					mat.m_roughness = Read<float>(src);
+					mat.m_emissive = Read<Colour>(src);
+					mat.m_alpha_cutoff = Read<float>(src);
+					mat.m_alpha_mode = s_cast<Material::EAlphaMode>(Read<uint8_t>(src));
+					mat.m_double_sided = Read<uint8_t>(src) != 0;
 					break;
 				}
 			case EChunkId::Texture:
@@ -2572,9 +2695,28 @@ namespace pr::geometry
 			tex.m_type = Texture::EType::Diffuse;
 			tex.m_addr_mode = Texture::EAddrMode::Wrap;
 			tex.m_flags = Texture::EFlags::None;
+			tex.m_wrap_s = ETextureWrap::ClampToEdge;
+			tex.m_wrap_t = ETextureWrap::MirroredRepeat;
+			tex.m_min_filter = ETextureFilter::Nearest;
+			tex.m_mag_filter = ETextureFilter::Linear;
+			tex.m_texcoord = 1;
+			tex.m_scale = 0.75f;
+			tex.m_uv_transform = TexXForm{ .m_x = {2, 0, 0.25f, 0}, .m_y = {0, 3, 0.5f, 0} };
+
+			// A second texture proves that types with no legacy equivalent survive the round trip
+			Texture mr_tex;
+			mr_tex.m_filepath = "metallic-roughness-id";
+			mr_tex.m_type = Texture::EType::MetallicRoughness;
 
 			Material mat{ "mat01", ColourWhite };
 			mat.m_textures.push_back(tex);
+			mat.m_textures.push_back(mr_tex);
+			mat.m_metallic = 0.25f;
+			mat.m_roughness = 0.6f;
+			mat.m_emissive = Colour{ 0.1f, 0.2f, 0.3f, 1.0f };
+			mat.m_alpha_cutoff = 0.35f;
+			mat.m_alpha_mode = Material::EAlphaMode::Mask;
+			mat.m_double_sided = true;
 
 			p3d::Mesh mesh{ "tri" };
 			mesh.m_bbox = BBox{ v4::Origin(), v4{1, 3, 0, 0} };
@@ -2639,6 +2781,12 @@ namespace pr::geometry
 				auto& m1 = file.m_scene.m_materials[i];
 				PR_EXPECT(str::Equal(m0.m_id.str, m1.m_id.str));
 				PR_EXPECT(m0.m_diffuse == m1.m_diffuse);
+				PR_EXPECT(m0.m_metallic == m1.m_metallic);
+				PR_EXPECT(m0.m_roughness == m1.m_roughness);
+				PR_EXPECT(m0.m_emissive == m1.m_emissive);
+				PR_EXPECT(m0.m_alpha_cutoff == m1.m_alpha_cutoff);
+				PR_EXPECT(m0.m_alpha_mode == m1.m_alpha_mode);
+				PR_EXPECT(m0.m_double_sided == m1.m_double_sided);
 				PR_EXPECT(m0.m_textures.size() == m1.m_textures.size());
 				for (size_t j = 0; j != m1.m_textures.size(); ++j)
 				{
@@ -2648,6 +2796,14 @@ namespace pr::geometry
 					PR_EXPECT(t0.m_type == t1.m_type);
 					PR_EXPECT(t0.m_addr_mode == t1.m_addr_mode);
 					PR_EXPECT(t0.m_flags == t1.m_flags);
+					PR_EXPECT(t0.m_wrap_s == t1.m_wrap_s);
+					PR_EXPECT(t0.m_wrap_t == t1.m_wrap_t);
+					PR_EXPECT(t0.m_min_filter == t1.m_min_filter);
+					PR_EXPECT(t0.m_mag_filter == t1.m_mag_filter);
+					PR_EXPECT(t0.m_texcoord == t1.m_texcoord);
+					PR_EXPECT(t0.m_scale == t1.m_scale);
+					PR_EXPECT(All(t0.m_uv_transform.m_x == t1.m_uv_transform.m_x));
+					PR_EXPECT(All(t0.m_uv_transform.m_y == t1.m_uv_transform.m_y));
 				}
 			}
 			for (size_t i = 0; i != file.m_scene.m_meshes.size(); ++i)
