@@ -1609,8 +1609,9 @@ namespace pr::rdr12
 					++vptr;
 				}
 
-				// Copy nuggets
-				m_cache.m_icont.resize(mesh.icount(), big_indices ? sizeof(uint16_t) : sizeof(uint32_t));
+				// Copy nuggets. Meshes with more vertices than a 16-bit index can address need the wider stride,
+				// otherwise writing an index through the buffer proxy narrows it and corrupts the geometry.
+				m_cache.m_icont.resize(mesh.icount(), big_indices ? sizeof(uint32_t) : sizeof(uint16_t));
 				m_cache.m_ncont.reserve(mesh.ncount());
 				auto iptr = m_cache.m_icont.begin<uint32_t>();
 				auto vrange = Range::Zero();
