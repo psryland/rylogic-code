@@ -3,6 +3,8 @@
 //   Copyright Thomas Smith 3/13/2024
 //   https://github.com/b0nes164/GPUSorting
 
+#if !defined(RADIX_SORT_INDIRECT_SETUP)
+
 // Type ID constants for preprocessor branching.
 // DXC's preprocessor doesn't support token-pasting macros in #if comparisons, so we use numeric IDs instead of the TYPE_(x) trick.
 #define TYPE_ID_INT   0
@@ -1305,3 +1307,50 @@ void SweepDown(uint3 gtid : SV_GroupThreadID, uint3 gpid : SV_GroupID)
 	if (FlattenGpId(gpid) == ThreadBlocks - 1)
 		ScatterDevicePartial(gtid.x, FlattenGpId(gpid), offsets);
 }
+
+#else
+
+// This entry point has no dependency on the sorting kernels' UAVs or group-shared storage.
+cbuffer cbIndirectSort : register(b0)
+{
+	uint Capacity;
+	uint CountMultiplier;
+	uint PartitionSize;
+	uint CounterOffset;
+};
+ByteAddressBuffer m_count : register(t0);
+RWByteAddressBuffer m_arguments : register(u0);
+
+// Each record supplies the existing four root constants followed by D3D12_DISPATCH_ARGUMENTS.
+static const uint ArgumentStride = 7 * 4;
+static const uint ArgumentsPerPass = 3;
+static const uint IndirectMaxDispatchDimension = 65535;
+
+// Write one complete record, including zero dimensions for work that must not execute.
+void WriteSortArgument(uint index, uint4 constants, uint3 dimensions)
+{
+	m_arguments.Store4(index * ArgumentStride, constants);
+	m_arguments.Store3(index * ArgumentStride + 16, dimensions);
+}
+
+// Capture a bounded active prefix once and prepare full, partial, and scan records for all four passes.
+[numthreads(1, 1, 1)]
+void SetupIndirectSort()
+{
+	// Clamp before multiplying so a corrupt or overflowing counter cannot wrap into an unsafe length.
+	uint num_keys = min(m_count.Load(CounterOffset), Capacity / CountMultiplier) * CountMultiplier;
+	uint thread_blocks = num_keys / PartitionSize + uint(num_keys % PartitionSize != 0);
+	uint full_blocks = thread_blocks / IndirectMaxDispatchDimension;
+	uint partial_blocks = thread_blocks % IndirectMaxDispatchDimension;
+
+	// Sweep up and down share records; their root signatures retain the same four-DWORD constant layout.
+	for (uint pass = 0; pass != 4; ++pass)
+	{
+		uint radix_shift = pass * 8;
+		WriteSortArgument(pass * ArgumentsPerPass, uint4(num_keys, radix_shift, thread_blocks, 0), uint3(IndirectMaxDispatchDimension, full_blocks, 1));
+		WriteSortArgument(pass * ArgumentsPerPass + 1, uint4(num_keys, radix_shift, thread_blocks, (full_blocks << 1) | 1), uint3(partial_blocks, 1, 1));
+		WriteSortArgument(pass * ArgumentsPerPass + 2, uint4(0, 0, thread_blocks, 0), uint3(num_keys != 0 ? 256 : 0, 1, 1));
+	}
+}
+
+#endif
