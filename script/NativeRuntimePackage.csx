@@ -13,6 +13,11 @@ using IOPath = System.IO.Path;
 // Stages and validates the exact runtime closure declared by native library projects.
 public static class NativeRuntimePackage
 {
+	// The command line tools carried by the package so that a consuming repository can cook content without a
+	// checkout of this one, and the runtime libraries those tools load from their own directory.
+	public static readonly IReadOnlyList<string> PackagedToolNames = ["p3d"];
+	public static readonly IReadOnlyList<string> PackagedToolLibraries = ["gltf.dll"];
+
 	private const string IncludeDisposition = "Include";
 	private const string ExcludeDisposition = "Exclude";
 	private const uint LoadLibrarySearchDllLoadDir = 0x00000100;
@@ -122,15 +127,83 @@ public static class NativeRuntimePackage
 		return unavailable.Count == 0;
 	}
 
+	// Stages the command line tools carried by the package, together with the runtime libraries they load.
+	// Tools are applications rather than part of the runtime DLL closure, so they are staged separately and
+	// are never smoke loaded.
+	public static string StageTools(string workspace, string platform, string config, string output_dir, string runtime_staging_dir)
+	{
+		var staging_dir = PrepareStagingDirectory(workspace, output_dir);
+
+		// A tool resolves its dynamically loaded libraries from its own directory, so each required library is
+		// copied from the already-validated runtime closure rather than located independently.
+		foreach (var library in PackagedToolLibraries)
+		{
+			var source_path = IOPath.Combine(runtime_staging_dir, library);
+			if (!File.Exists(source_path))
+				throw new FileNotFoundException($"Tool dependency is not present in the staged runtime closure: {library}", source_path);
+
+			File.Copy(source_path, IOPath.Combine(staging_dir, library), overwrite: true);
+		}
+
+		foreach (var tool_name in PackagedToolNames)
+		{
+			var source_path = PackagedToolPath(workspace, tool_name, platform, config);
+			if (!File.Exists(source_path))
+				throw new FileNotFoundException($"Packaged tool has not been built for {platform}|{config}: {tool_name}", source_path);
+
+			File.Copy(source_path, IOPath.Combine(staging_dir, IOPath.GetFileName(source_path)), overwrite: true);
+		}
+
+		return staging_dir;
+	}
+
+	// True when every packaged tool has been built for one configuration. A package missing a tool is incomplete
+	// in the same way as one missing a runtime library.
+	public static bool HasCompleteToolSet(string workspace, string platform, string config, out IReadOnlyList<string> unavailable_tools)
+	{
+		var unavailable = new List<string>();
+		foreach (var tool_name in PackagedToolNames)
+		{
+			var source_path = PackagedToolPath(workspace, tool_name, platform, config);
+			if (!File.Exists(source_path))
+				unavailable.Add($"missing tool: {source_path}");
+		}
+
+		unavailable_tools = unavailable;
+		return unavailable.Count == 0;
+	}
+
+	// Returns the built location of a packaged tool. Applications use the project-local output convention rather
+	// than the shared 'obj' tree that libraries use.
+	public static string PackagedToolPath(string workspace, string tool_name, string platform, string config)
+	{
+		return IOPath.Combine(workspace, "projects", "tools", tool_name, "obj", platform, config, $"{tool_name}.exe");
+	}
+
 	// Confirms that the generated package contains exactly the staged runtime DLLs.
 	public static void ValidatePackage(string package_path, string staging_dir)
 	{
-		var expected = Directory.EnumerateFiles(staging_dir, "*.dll")
+		ValidatePackage(package_path, staging_dir, tools_staging_dir: null);
+	}
+
+	// Confirms that the generated package contains exactly the staged runtime DLLs and, when tools are carried,
+	// exactly the staged tool payload.
+	public static void ValidatePackage(string package_path, string staging_dir, string? tools_staging_dir)
+	{
+		using var package = ZipFile.OpenRead(package_path);
+		ValidateFolder(package, staging_dir, "*.dll", "runtimes/win-x64/native/");
+		if (tools_staging_dir is not null)
+			ValidateFolder(package, tools_staging_dir, "*", "tools/win-x64/");
+	}
+
+	// Compares one package folder against the staging directory that produced it.
+	private static void ValidateFolder(ZipArchive package, string staging_dir, string staging_pattern, string package_folder)
+	{
+		var expected = Directory.EnumerateFiles(staging_dir, staging_pattern)
 			.Select(IOPath.GetFileName)
 			.ToHashSet(StringComparer.OrdinalIgnoreCase);
-		using var package = ZipFile.OpenRead(package_path);
 		var actual = package.Entries
-			.Where(x => x.FullName.StartsWith("runtimes/win-x64/native/", StringComparison.OrdinalIgnoreCase) && !x.FullName.EndsWith("/", StringComparison.Ordinal))
+			.Where(x => x.FullName.StartsWith(package_folder, StringComparison.OrdinalIgnoreCase) && !x.FullName.EndsWith("/", StringComparison.Ordinal))
 			.Select(x => IOPath.GetFileName(x.FullName))
 			.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -138,7 +211,7 @@ public static class NativeRuntimePackage
 		{
 			var missing = expected.Except(actual, StringComparer.OrdinalIgnoreCase).OrderBy(x => x);
 			var unexpected = actual.Except(expected, StringComparer.OrdinalIgnoreCase).OrderBy(x => x);
-			throw new InvalidOperationException($"Rylogic.Native package inventory mismatch. Missing: [{string.Join(", ", missing)}]. Unexpected: [{string.Join(", ", unexpected)}].");
+			throw new InvalidOperationException($"Rylogic.Native package inventory mismatch in '{package_folder}'. Missing: [{string.Join(", ", missing)}]. Unexpected: [{string.Join(", ", unexpected)}].");
 		}
 	}
 

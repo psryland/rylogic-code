@@ -486,6 +486,53 @@ public class Scintilla : Native
 	}
 }
 
+// Builds the p3d model conversion tool used to cook art into the P3D runtime format. It is a command
+// line application rather than a runtime library, so it is delivered in the native package's tools
+// folder instead of the runtime DLL closure.
+public class P3d : Native
+{
+	public P3d(string workspace, List<string>? platforms = null, List<string>? configs = null)
+		: base("p3d", Tools.Path([workspace, $"projects\\tools\\p3d"]), workspace, platforms, configs)
+	{
+	}
+
+	// Applications use the project-local output convention rather than the shared 'obj' tree that libraries use.
+	public string ExePath(string platform, string config)
+	{
+		return NativeRuntimePackage.PackagedToolPath(Workspace, ProjName, platform, config);
+	}
+	public override void Clean()
+	{
+		foreach (var p in Platforms)
+		{
+			foreach (var c in Configs)
+				Tools.CleanDir(Tools.Path([ProjDir, "obj", p, c], check_exists: false));
+		}
+	}
+	public override void Build()
+	{
+		Tools.MSBuild(RylogicSln, [@"Tools\p3d"], Platforms, Configs);
+	}
+	public override void Deploy()
+	{
+		// The tool loads 'gltf.dll' from its own directory at run time, so it is deployed alongside the
+		// native libraries where that dependency has already been placed.
+		foreach (var p in Platforms)
+		{
+			foreach (var c in Configs)
+			{
+				var src = ExePath(p, c);
+				if (!File.Exists(src))
+					throw new FileNotFoundException($"p3d tool was not built for {p}|{c}", src);
+
+				var dst_dir = Tools.Path([UserVars.Root, "lib", p, c], check_exists: false);
+				Directory.CreateDirectory(dst_dir);
+				File.Copy(src, Tools.Path([dst_dir, "p3d.exe"], check_exists: false), overwrite: true);
+			}
+		}
+	}
+}
+
 // Rylogic .NET assemblies
 public abstract class RylogicAssembly : Managed
 {
@@ -902,18 +949,28 @@ public class AllNative : Group
 			Tools.Path([UserVars.Root, "obj\\nuget\\Rylogic.Native\\x64\\Release\\runtime"], check_exists: false),
 			require_all_projects: true);
 
+		// Carry the command line tools that consumers need in order to cook content, so a consuming repository
+		// does not need a checkout of this one. They are staged with the libraries they load at run time.
+		var tools_staging_dir = NativeRuntimePackage.StageTools(
+			Workspace,
+			"x64",
+			"Release",
+			Tools.Path([UserVars.Root, "obj\\nuget\\Rylogic.Native\\x64\\Release\\tools"], check_exists: false),
+			staging_dir);
+
 		// Stage the native package in the release feed so the canonical root package and cache can be refreshed exactly.
 		Package = new Nuget()
 		{
 			PackageName = "Rylogic.Native",
 			Version = RylogicLibraryVersion,
-			Description = "Native runtime assets for Rylogic View3D, database, editor, rigid-body physics, and spatial audio packages.",
-			Tags = "rylogic native library view3d physics d3d12 audio",
+			Description = "Native runtime assets for Rylogic View3D, database, editor, rigid-body physics, and spatial audio packages, and the command line tools that cook content for them.",
+			Tags = "rylogic native library view3d physics d3d12 audio tools",
 			PackageOutputPath = Tools.Path([UserVars.Root, "lib\\packages\\release"], check_exists: false),
-			ValidateStagedPackage = package_path => NativeRuntimePackage.ValidatePackage(package_path, staging_dir),
+			ValidateStagedPackage = package_path => NativeRuntimePackage.ValidatePackage(package_path, staging_dir, tools_staging_dir),
 		};
 		Package.Files.AddRange([
 			new Nuget.File(Tools.Path([staging_dir, "*.dll"], check_exists: false), "runtimes/win-x64/native/"),
+			new Nuget.File(Tools.Path([tools_staging_dir, "*"], check_exists: false), "tools/win-x64/"),
 		]);
 		Package.Package();
 	}
