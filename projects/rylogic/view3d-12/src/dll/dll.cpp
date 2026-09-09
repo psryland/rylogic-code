@@ -1962,6 +1962,17 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateP3DStream(char const* nam
 	CatchAndReport(View3D_ObjectCreateP3D, , {});
 }
 
+// Create a six-sided skybox from individual cube-map face images.
+VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateSkybox(char const* name, char const* resource, float radius, GUID const* context_id)
+{
+	try
+	{
+		DllLockGuard;
+		return Dll().ObjectCreateSkybox(name, resource, radius, context_id);
+	}
+	CatchAndReport(View3D_ObjectCreateSkybox, , {});
+}
+
 // Create an ldr object using a callback to populate the model data.
 VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateWithCallback(char const* name, view3d::Colour colour, int vcount, int icount, int ncount, view3d::EditObjectCB edit_cb, GUID const& context_id)
 {

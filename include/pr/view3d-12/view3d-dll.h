@@ -1268,6 +1268,9 @@ extern "C"
 	// Load a p3d model in memory as a view3d object. 'tex_resolver' may be empty when the model's textures are plain file paths.
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateP3DStream(char const* name, pr::view3d::Colour colour, size_t size, void const* p3d_data, pr::view3d::ResolveTextureCB tex_resolver, GUID const* context_id);
 
+	// Create a six-sided skybox from a cube-map filename pattern containing '??', replaced by px, nx, py, ny, pz, and nz.
+	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateSkybox(char const* name, char const* resource, float radius, GUID const* context_id);
+
 	// Create an ldr object using a callback to populate the model data.
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateWithCallback(char const* name, pr::view3d::Colour colour, int vcount, int icount, int ncount, pr::view3d::EditObjectCB edit_cb, GUID const& context_id);
 	VIEW3D_API void __stdcall View3D_ObjectEdit(pr::view3d::Object object, pr::view3d::EditObjectCB edit_cb);

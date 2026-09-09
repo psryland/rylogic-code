@@ -11,6 +11,7 @@
 #include "pr/view3d-12/model/model_generator.h"
 #include "pr/view3d-12/model/vertex_layout.h"
 #include "pr/view3d-12/resource/resource_factory.h"
+#include "pr/view3d-12/texture/texture_desc.h"
 #include "pr/view3d-12/utility/conversion.h"
 #include "view3d-12/src/ldraw/sources/source_base.h"
 #include "view3d-12/src/ldraw/sources/source_file.h"
@@ -384,6 +385,43 @@ namespace pr::rdr12
 		auto obj = rdr12::ldraw::CreateP3D(m_rdr, ldraw::ELdrObject::Model, p3d_data, &opts, id);
 		obj->m_name = name;
 		obj->m_base_colour = colour;
+		m_sources.Add(obj);
+		return obj.get();
+	}
+
+	// Create a six-sided skybox from individual cube-map face images.
+	ldraw::LdrObject* Context::ObjectCreateSkybox(char const* name, std::filesystem::path const& resource, float radius, Guid const* context_id)
+	{
+		if (radius <= 0.0f)
+			throw std::invalid_argument("Skybox radius must be positive");
+
+		auto pattern = resource.string();
+		auto marker = pattern.find("??");
+		if (marker == std::string::npos)
+			throw std::invalid_argument(std::format("Skybox texture path '{}' does not include '??' characters", pattern));
+
+		// Use the cube-map face convention so one source set provides both the visible backdrop and material reflections.
+		ResourceFactory factory(m_rdr);
+		Texture2DPtr face_textures[6] = {};
+		auto face_index = 0;
+		for (auto face : { "px", "nx", "py", "ny", "pz", "nz" })
+		{
+			pattern[marker + 0] = face[0];
+			pattern[marker + 1] = face[1];
+			auto desc = TextureDesc(AutoId, ResDesc()).name(std::format("{}.{}", name, face));
+			face_textures[face_index++] = factory.CreateTexture2D(pattern, desc);
+		}
+
+		// Draw after opaque geometry without writing depth so the cube fills only the remaining background pixels.
+		auto model = ModelGenerator::SkyboxSixSidedCube(factory, face_textures, radius);
+		model->m_name = name;
+
+		auto id = context_id ? *context_id : GenerateGUID();
+		auto obj = ldraw::LdrObjectPtr(new ldraw::LdrObject(ldraw::ELdrObject::Custom, nullptr, id), true);
+		obj->m_model = model;
+		obj->m_name = name;
+		obj->m_pso.Set<EPipeState::DepthWriteMask>(D3D12_DEPTH_WRITE_MASK_ZERO);
+		obj->m_sko.Group(ESortGroup::Skybox);
 		m_sources.Add(obj);
 		return obj.get();
 	}

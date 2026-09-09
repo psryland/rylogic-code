@@ -79,6 +79,16 @@ namespace Rylogic.Gfx
 					throw new Exception($"Failed to create object from p3d model data stream");
 			}
 
+			/// <summary>Create a six-sided skybox from a cube-map filename pattern containing '??'.</summary>
+			public Object(string name, string skybox_resource, float radius, Guid? context_id)
+			{
+				Owned = true;
+				var ctx = context_id ?? Guid.NewGuid();
+				Handle = View3D_ObjectCreateSkybox(name, skybox_resource, radius, ref ctx);
+				if (Handle == HObject.Zero)
+					throw new Exception($"Failed to create skybox from '{skybox_resource}'");
+			}
+
 			/// <summary>Presents a managed texture lookup to native code as a callback over pinned image bytes.</summary>
 			/// <remarks>
 			/// Native code keeps the returned pointers until model creation completes, so every array handed out is pinned

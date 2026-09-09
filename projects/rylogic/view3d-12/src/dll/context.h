@@ -84,6 +84,9 @@ namespace pr::rdr12
 		ldraw::LdrObject* ObjectCreateP3D(char const* name, Colour32 colour, std::filesystem::path const& p3d_filepath, view3d::ResolveTextureCB tex_resolver, Guid const* context_id);
 		ldraw::LdrObject* ObjectCreateP3D(char const* name, Colour32 colour, std::span<std::byte const> p3d_data, view3d::ResolveTextureCB tex_resolver, Guid const* context_id);
 
+		// Create a six-sided skybox from individual cube-map face images.
+		ldraw::LdrObject* ObjectCreateSkybox(char const* name, std::filesystem::path const& resource, float radius, Guid const* context_id);
+
 		// Modify an ldr object using a callback to populate the model data.
 		ldraw::LdrObject* ObjectCreateByCallback(char const* name, Colour32 colour, int vcount, int icount, int ncount, view3d::EditObjectCB edit_cb, Guid const& context_id);
 		void ObjectEdit(ldraw::LdrObject* object, view3d::EditObjectCB edit_cb);

@@ -50,7 +50,7 @@ namespace Rylogic.Gfx
 			{
 				Util.BreakIf(Util.IsGCFinalizerThread, "Disposing in the GC finalizer thread");
 				if (Handle == HCubeMap.Zero) return;
-				if (m_owned) View3D_TextureRelease(Handle);
+				if (m_owned) View3D_CubeMapRelease(Handle);
 				Handle = HCubeMap.Zero;
 				GC.SuppressFinalize(this);
 			}
