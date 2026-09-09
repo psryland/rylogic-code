@@ -28,12 +28,29 @@
 		</ClCompile>
 		<Link>
 			<SubSystem>Console</SubSystem>
+			<AdditionalLibraryDirectories>
+				;$(RylogicRoot)lib\$(Platform)\$(Configuration)
+				;%(AdditionalLibraryDirectories)
+			</AdditionalLibraryDirectories>
+			<AdditionalDependencies>
+				;gltf.imp
+				;%(AdditionalDependencies)
+			</AdditionalDependencies>
 		</Link>
 	</ItemDefinitionGroup>
+
+	<!-- Runtime dependencies -->
+	<ItemGroup>
+		<DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\gltf.dll" />
+	</ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\gltf\gltf.vcxproj" />
+	</ItemGroup>
 
 	<!-- Source -->
 	<ItemGroup>
 		<ClInclude Include="$(RylogicRoot)include\pr\geometry\3ds.h" />
+		<ClInclude Include="$(RylogicRoot)include\pr\geometry\gltf.h" />
 		<ClInclude Include="$(RylogicRoot)include\pr\geometry\obj.h" />
 		<ClInclude Include="$(RylogicRoot)include\pr\geometry\p3d.h" />
 		<ClInclude Include="$(RylogicRoot)include\pr\geometry\stl.h" />

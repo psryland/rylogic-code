@@ -835,6 +835,16 @@ namespace Rylogic.Gfx
 			public FuncCB m_cb;
 		}
 
+		/// <summary>Resolve texture callback. Returns the image bytes for a texture id held in a model file, or null when the id is unknown.</summary>
+		[StructLayout(LayoutKind.Sequential)]
+		internal struct ResolveTextureCBInternal
+		{
+			[UnmanagedFunctionPointer(CallingConvention.StdCall, CharSet = CharSet.Ansi)]
+			public delegate IntPtr FuncCB(IntPtr ctx, [MarshalAs(UnmanagedType.LPStr)] string texture_id, out ulong size);
+			public IntPtr m_ctx;
+			public FuncCB? m_cb;
+		}
+
 		#endregion
 
 		#region Structures
@@ -1966,7 +1976,7 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern v2 View3D_WindowDpiScale(HWindow window);
 
 		// Set the global environment map for the window
-		[DllImport(Dll)] private static extern void View3D_WindowEnvMapSet(HWindow window, CubeMap env_map);
+		[DllImport(Dll)] private static extern void View3D_WindowEnvMapSet(HWindow window, HCubeMap env_map);
 
 		// Enable/Disable the depth buffer
 		[DllImport(Dll)] private static extern bool View3D_DepthBufferEnabledGet(HWindow window);
@@ -2119,10 +2129,13 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern HObject View3D_ObjectCreateLdrB(IntPtr binary, long size, ref Guid context_id);
 
 		// Load a p3d model file as a view3d object
-		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HObject View3D_ObjectCreateP3DFile([MarshalAs(UnmanagedType.LPStr)] string name, uint colour, [MarshalAs(UnmanagedType.LPStr)] string p3d_filepath, ref Guid context_id);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HObject View3D_ObjectCreateP3DFile([MarshalAs(UnmanagedType.LPStr)] string name, uint colour, [MarshalAs(UnmanagedType.LPStr)] string p3d_filepath, ResolveTextureCBInternal tex_resolver, ref Guid context_id);
 
 		// Load a p3d model in memory as a view3d object
-		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HObject View3D_ObjectCreateP3DStream([MarshalAs(UnmanagedType.LPStr)] string name, uint colour, int size, IntPtr p3d_data, ref Guid context_id);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HObject View3D_ObjectCreateP3DStream([MarshalAs(UnmanagedType.LPStr)] string name, uint colour, int size, IntPtr p3d_data, ResolveTextureCBInternal tex_resolver, ref Guid context_id);
+
+		// Create a six-sided skybox from individual cube-map face images.
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HObject View3D_ObjectCreateSkybox([MarshalAs(UnmanagedType.LPStr)] string name, [MarshalAs(UnmanagedType.LPStr)] string resource, float radius, ref Guid context_id);
 
 		// Create an ldr object using a callback to populate the model data.
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HObject View3D_ObjectCreateWithCallback([MarshalAs(UnmanagedType.LPStr)] string name, uint colour, int vcount, int icount, int ncount, EditObjectCBInternal edit_cb, ref Guid context_id);

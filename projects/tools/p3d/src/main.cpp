@@ -14,6 +14,7 @@ struct Main
 	std::unique_ptr<p3d::File> m_model;
 	path m_base_dir;
 	path m_infile;
+	path m_texture_dir;
 	path m_script_filepath;
 	int m_verbosity;
 
@@ -21,6 +22,7 @@ struct Main
 		:m_model()
 		,m_base_dir()
 		,m_infile()
+		,m_texture_dir()
 		,m_script_filepath()
 		,m_verbosity(1)
 	{}
@@ -51,7 +53,12 @@ struct Main
 			"\n"
 			"    -fi <filepath>\n"
 			"        Load a model into memory.\n"
-			"        Supported formats: p3d, 3ds, stl (so far)\n"
+			"        Supported formats: p3d, 3ds, stl, gltf, glb (so far)\n"
+			"\n"
+			"    -TextureDir <directory>\n"
+			"        Set where images embedded in the source model are written to.\n"
+			"        Each image is named by a hash of its content, so models that share an image\n"
+			"        share the file. Defaults to the directory containing the input model.\n"
 			"\n"
 			"    -fo <filepath> [flags] [Code|Ldr]\n"
 			"        Export a p3d format model file.\n"
@@ -142,6 +149,16 @@ struct Main
 					,m_ends_with_fileout()
 				{}
 
+				// Quote a file path for embedding in the generated script. The script reads paths as
+				// C-strings, so backslashes are replaced with forward slashes to avoid being treated
+				// as escape sequences.
+				static std::string Quote(std::wstring const& path)
+				{
+					auto str = Narrow(path);
+					std::replace(str.begin(), str.end(), '\\', '/');
+					return "\"" + str + "\"";
+				}
+
 				// Read the options
 				bool CmdLineOption(std::wstring const& option, TArgIter& arg, TArgIter arg_end) override
 				{
@@ -159,12 +176,17 @@ struct Main
 						}
 						if (str::EqualI(option, "-fi"))
 						{
-							ss << "*fi {" << Narrow(*arg++) << "}\n";
+							ss << "*fi {" << Quote(*arg++) << "}\n";
+							break;
+						}
+						if (str::EqualI(option, "-TextureDir"))
+						{
+							ss << "*TextureDir {" << Quote(*arg++) << "}\n";
 							break;
 						}
 						if (str::EqualI(option, "-fo"))
 						{
-							ss << "*fo {" << Narrow(*arg++) << " ";
+							ss << "*fo {" << Quote(*arg++) << " ";
 							if (arg != arg_end)
 							{
 								if (false) {}
@@ -229,7 +251,8 @@ struct Main
 						// NEW_COMMAND
 						throw std::runtime_error(FmtS("Unknown command line option: %S", option.c_str()));
 					}
-					m_script = ss.str();
+					// Each option contributes to the script, so accumulate rather than replace.
+					m_script += ss.str();
 					return true;
 				}
 			};
@@ -287,6 +310,13 @@ struct Main
 				if (str::EqualI(kw, "fi"))
 				{
 					ImportFile(reader);
+					continue;
+				}
+				if (str::EqualI(kw, "TextureDir"))
+				{
+					std::string dir;
+					reader.CStringS(dir);
+					m_texture_dir = path(dir).is_relative() ? m_base_dir / dir : path(dir);
 					continue;
 				}
 				if (str::EqualI(kw, "fo"))
@@ -348,10 +378,16 @@ struct Main
 				std::cout << "Loading '" << m_infile << "'." << std::endl;
 
 			auto extn = m_infile.extension().string();
+
+			// Formats that embed images need somewhere to put them; default to beside the model.
+			auto texture_dir = !m_texture_dir.empty() ? m_texture_dir : m_infile.parent_path();
+
 			m_model =
 				str::EqualI(extn, ".p3d") ? CreateFromP3D(m_infile) :
 				str::EqualI(extn, ".3ds") ? CreateFrom3DS(m_infile) :
 				str::EqualI(extn, ".stl") ? CreateFromSTL(m_infile) :
+				str::EqualI(extn, ".gltf") ? CreateFromGLTF(m_infile, texture_dir) :
+				str::EqualI(extn, ".glb") ? CreateFromGLTF(m_infile, texture_dir) :
 				nullptr;
 			if (m_model == nullptr)
 				throw std::runtime_error("Model format '"s + extn + "' is not supported");

@@ -9,6 +9,7 @@ using Rylogic.Common;
 using Rylogic.Interop.Win32;
 using Rylogic.Maths;
 using Rylogic.Utility;
+using HCubeMap = System.IntPtr;
 using HWindow = System.IntPtr;
 using HWND = System.IntPtr;
 
@@ -590,6 +591,12 @@ namespace Rylogic.Gfx
 			{
 				get => View3D_LightPropertiesGet(Handle);
 				set => View3D_LightPropertiesSet(Handle, ref value);
+			}
+
+			/// <summary>Set the global environment map used by this window.</summary>
+			public CubeMap? EnvironmentMap
+			{
+				set => View3D_WindowEnvMapSet(Handle, value?.Handle ?? HCubeMap.Zero);
 			}
 
 			/// <summary>Show the lighting dialog</summary>

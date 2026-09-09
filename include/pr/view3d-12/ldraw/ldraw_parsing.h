@@ -6,6 +6,7 @@
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/ldraw/ldraw.h"
 #include "pr/view3d-12/ldraw/ldraw_object.h"
+#include "pr/view3d-12/model/model_generator.h"
 
 namespace pr::rdr12::ldraw
 {
@@ -396,15 +397,18 @@ namespace pr::rdr12::ldraw
 		Guid const& context_id = GuidZero); // The context id to assign to the object
 
 	// Create an ldr object from a p3d model.
+	// 'opts' carries import settings such as the texture resolver, and may be null.
 	LdrObjectPtr CreateP3D(
 		Renderer& rdr,                             // The reader to create models for
 		ELdrObject type,                           // Object type
 		std::filesystem::path const& p3d_filepath, // Model filepath
+		ModelGenerator::CreateOptions const* opts = nullptr, // Import options
 		Guid const& context_id = GuidZero);        // The context id to assign to the object
 	LdrObjectPtr CreateP3D(
 		Renderer& rdr,                       // The reader to create models for
 		ELdrObject type,                     // Object type
 		std::span<std::byte const> p3d_data, // The length of the data pointed to by 'p3d_data'
+		ModelGenerator::CreateOptions const* opts = nullptr, // Import options
 		Guid const& context_id = GuidZero);  // The context id to assign to the object
 
 	// Create an instance of an existing ldr object.

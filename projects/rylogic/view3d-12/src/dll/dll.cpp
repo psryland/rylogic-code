@@ -1941,25 +1941,36 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateLdrB(void const* binary, 
 }
 
 // Load a p3d model file as a view3d object
-VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateP3DFile(char const* name, view3d::Colour colour, char const* p3d_filepath, GUID const* context_id)
+VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateP3DFile(char const* name, view3d::Colour colour, char const* p3d_filepath, view3d::ResolveTextureCB tex_resolver, GUID const* context_id)
 {
 	try
 	{
 		DllLockGuard;
-		return Dll().ObjectCreateP3D(name, colour, p3d_filepath, context_id);
+		return Dll().ObjectCreateP3D(name, colour, p3d_filepath, tex_resolver, context_id);
 	}
 	CatchAndReport(View3D_ObjectCreateP3D, , {});
 }
 
 // Load a p3d model in memory as a view3d object
-VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateP3DStream(char const* name, view3d::Colour colour, size_t size, void const* p3d_data, GUID const* context_id)
+VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateP3DStream(char const* name, view3d::Colour colour, size_t size, void const* p3d_data, view3d::ResolveTextureCB tex_resolver, GUID const* context_id)
 {
 	try
 	{
 		DllLockGuard;
-		return Dll().ObjectCreateP3D(name, colour, { byte_ptr(p3d_data), size } , context_id);
+		return Dll().ObjectCreateP3D(name, colour, { byte_ptr(p3d_data), size }, tex_resolver, context_id);
 	}
 	CatchAndReport(View3D_ObjectCreateP3D, , {});
+}
+
+// Create a six-sided skybox from individual cube-map face images.
+VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateSkybox(char const* name, char const* resource, float radius, GUID const* context_id)
+{
+	try
+	{
+		DllLockGuard;
+		return Dll().ObjectCreateSkybox(name, resource, radius, context_id);
+	}
+	CatchAndReport(View3D_ObjectCreateSkybox, , {});
 }
 
 // Create an ldr object using a callback to populate the model data.

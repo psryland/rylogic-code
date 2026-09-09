@@ -75,8 +75,20 @@ void Main(IList<string> args)
 		return;
 	}
 
+	// A package missing a command line tool is incomplete in the same way as one missing a runtime library, so the
+	// preceding package is preserved rather than publishing a payload a consumer cannot cook with.
+	if (skip_if_incomplete && !NativeRuntimePackage.HasCompleteToolSet(workspace, platform, config, out var unavailable_tools))
+	{
+		Console.WriteLine($"Skipping local Rylogic.Native package because its {platform}|{config} tools are incomplete:");
+		foreach (var unavailable_tool in unavailable_tools)
+			Console.WriteLine($"  {unavailable_tool}");
+		Console.WriteLine("Build AllNative to publish a complete local native package.");
+		return;
+	}
+
 	// Mark only a fully staged and validated closure as eligible for publication by the calling MSBuild target.
-	NativeRuntimePackage.Stage(workspace, platform, config, output_dir, require_all_projects);
+	var runtime_staging_dir = NativeRuntimePackage.Stage(workspace, platform, config, output_dir, require_all_projects);
+	NativeRuntimePackage.StageTools(workspace, platform, config, IOPath.Combine(output_dir, "tools"), runtime_staging_dir);
 	if (skip_if_incomplete)
 		File.WriteAllText(IOPath.Combine(output_dir, ".complete"), string.Empty);
 }

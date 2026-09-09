@@ -58,23 +58,81 @@ namespace Rylogic.Gfx
 			}
 
 			/// <summary>Create an object from a P3D file</summary>
-			public Object(string name, uint colour, string p3d_filepath, Guid? context_id)
+			public Object(string name, uint colour, string p3d_filepath, Guid? context_id, Func<string, byte[]?>? texture_resolver = null)
 			{
 				Owned = true;
 				var ctx = context_id ?? Guid.NewGuid();
-				Handle = View3D_ObjectCreateP3DFile(name, colour, p3d_filepath, ref ctx);
+				using var resolver = new TextureResolver(texture_resolver);
+				Handle = View3D_ObjectCreateP3DFile(name, colour, p3d_filepath, resolver.Callback, ref ctx);
 				if (Handle == HObject.Zero)
 					throw new Exception($"Failed to create object from p3d model file: '{p3d_filepath}'");
 			}
-			public Object(string name, uint colour, byte[] p3d_data, Guid? context_id)
+			public Object(string name, uint colour, byte[] p3d_data, Guid? context_id, Func<string, byte[]?>? texture_resolver = null)
 			{
 				Owned = true;
 				var ctx = context_id ?? Guid.NewGuid();
 
 				using var pin = Marshal_.Pin(p3d_data, GCHandleType.Pinned);
-				Handle = View3D_ObjectCreateP3DStream(name, colour, p3d_data.Length, pin.Pointer, ref ctx);
+				using var resolver = new TextureResolver(texture_resolver);
+				Handle = View3D_ObjectCreateP3DStream(name, colour, p3d_data.Length, pin.Pointer, resolver.Callback, ref ctx);
 				if (Handle == HObject.Zero)
 					throw new Exception($"Failed to create object from p3d model data stream");
+			}
+
+			/// <summary>Create a six-sided skybox from a cube-map filename pattern containing '??'.</summary>
+			public Object(string name, string skybox_resource, float radius, Guid? context_id)
+			{
+				Owned = true;
+				var ctx = context_id ?? Guid.NewGuid();
+				Handle = View3D_ObjectCreateSkybox(name, skybox_resource, radius, ref ctx);
+				if (Handle == HObject.Zero)
+					throw new Exception($"Failed to create skybox from '{skybox_resource}'");
+			}
+
+			/// <summary>Presents a managed texture lookup to native code as a callback over pinned image bytes.</summary>
+			/// <remarks>
+			/// Native code keeps the returned pointers until model creation completes, so every array handed out is pinned
+			/// for the lifetime of this object rather than for the duration of one lookup.
+			/// </remarks>
+			private sealed class TextureResolver :IDisposable
+			{
+				private readonly Func<string, byte[]?>? m_resolve;
+				private readonly List<GCHandle> m_pinned;
+
+				// The delegate is stored so it is not collected while native code still holds the function pointer.
+				private readonly ResolveTextureCBInternal.FuncCB? m_callback;
+
+				public TextureResolver(Func<string, byte[]?>? resolve)
+				{
+					m_resolve = resolve;
+					m_pinned = [];
+					m_callback = resolve != null ? Resolve : null;
+				}
+
+				/// <summary>The native callback, empty when no managed resolver was supplied.</summary>
+				public ResolveTextureCBInternal Callback => new() { m_ctx = IntPtr.Zero, m_cb = m_callback };
+
+				/// <summary>Look up one texture id and hand out pinned bytes, reporting an unknown id as a null pointer.</summary>
+				private IntPtr Resolve(IntPtr ctx, string texture_id, out ulong size)
+				{
+					size = 0;
+					var data = m_resolve?.Invoke(texture_id);
+					if (data == null || data.Length == 0)
+						return IntPtr.Zero;
+
+					var handle = GCHandle.Alloc(data, GCHandleType.Pinned);
+					m_pinned.Add(handle);
+					size = (ulong)data.Length;
+					return handle.AddrOfPinnedObject();
+				}
+
+				public void Dispose()
+				{
+					foreach (var handle in m_pinned)
+						handle.Free();
+
+					m_pinned.Clear();
+				}
 			}
 
 			/// <summary>Create from buffer</summary>

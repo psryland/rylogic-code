@@ -884,6 +884,14 @@ namespace pr
 		using HitTestAsyncCB = Callback<void(__stdcall*)(void* ctx, Window window, HitTestResult const* results, int count)>;
 		using GizmoMovedCB = Callback<void(__stdcall *)(void* ctx, Gizmo gizmo, EGizmoState state)>;
 		using AddNuggetCB = Callback<void(__stdcall*)(void* ctx, Nugget const& nugget)>;
+
+		// Supplies the bytes of an image named by an identifier held in a model file.
+		// Model formats that reference textures by id rather than embedding them use this so several
+		// models can share one copy of an image. Return null to report that the id is unknown, in which
+		// case the importer treats the id as a file path instead. The returned bytes must stay valid
+		// until the model creation call that requested them returns.
+		using ResolveTextureCB = Callback<uint8_t const*(__stdcall*)(void* ctx, char const* texture_id, size_t* size)>;
+
 		using EditObjectCB = Callback<VICount(__stdcall*)(void* ctx,
 			int vcount,               // The maximum size of 'verts'
 			int icount,               // The maximum size of 'indices'
@@ -1254,11 +1262,14 @@ extern "C"
 	// Create an graphics object from binary ldr script
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateLdrB(void const* binary, size_t size, GUID const* context_id);
 
-	// Load a p3d model file as a view3d object
-	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateP3DFile(char const* name, pr::view3d::Colour colour, char const* p3d_filepath, GUID const* context_id);
+	// Load a p3d model file as a view3d object. 'tex_resolver' may be empty when the model's textures are plain file paths.
+	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateP3DFile(char const* name, pr::view3d::Colour colour, char const* p3d_filepath, pr::view3d::ResolveTextureCB tex_resolver, GUID const* context_id);
 
-	// Load a p3d model in memory as a view3d object
-	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateP3DStream(char const* name, pr::view3d::Colour colour, size_t size, void const* p3d_data, GUID const* context_id);
+	// Load a p3d model in memory as a view3d object. 'tex_resolver' may be empty when the model's textures are plain file paths.
+	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateP3DStream(char const* name, pr::view3d::Colour colour, size_t size, void const* p3d_data, pr::view3d::ResolveTextureCB tex_resolver, GUID const* context_id);
+
+	// Create a six-sided skybox from a cube-map filename pattern containing '??', replaced by px, nx, py, ny, pz, and nz.
+	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateSkybox(char const* name, char const* resource, float radius, GUID const* context_id);
 
 	// Create an ldr object using a callback to populate the model data.
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateWithCallback(char const* name, pr::view3d::Colour colour, int vcount, int icount, int ncount, pr::view3d::EditObjectCB edit_cb, GUID const& context_id);

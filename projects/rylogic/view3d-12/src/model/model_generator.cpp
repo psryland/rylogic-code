@@ -223,6 +223,12 @@ namespace pr::rdr12
 			return std::string_view(material.m_name);
 		}
 
+		// P3D materials are identified by a short id rather than a name.
+		static std::string_view MaterialName(geometry::p3d::Material const& material)
+		{
+			return std::string_view(material.m_id);
+		}
+
 		// Create a renderer texture from embedded image bytes.
 		// 'colour_space' tags how the texels should be sampled (Srgb for colour textures, Linear for normal maps / scalar masks).
 		template <typename Material>
@@ -351,6 +357,38 @@ namespace pr::rdr12
 			}
 		}
 
+		// Fill in the standard PBR texture slots of a renderer material from imported texture references.
+		// All formats describe the same set of slots, so the mapping onto the renderer material is shared.
+		template <typename Material>
+		static void ApplyPbrTextures(ResourceFactory& factory, MaterialPBR& material, Material const& src, geometry::TextureRef const& base, geometry::TextureRef const& metallic_roughness, geometry::TextureRef const& emissive, geometry::TextureRef const& normal, bool base_has_alpha)
+		{
+			auto base_texture = CreateTextureSlot(factory, src, "base-colour", base, materials::ETextureColourSpace::Srgb, base_has_alpha);
+			if (base_texture)
+				material.base_texture(base_texture);
+
+			// One texture supplies both scalars, with metallic in blue and roughness in green.
+			auto metallic_roughness_texture = CreateTextureSlot(factory, src, "metallic-roughness", metallic_roughness, materials::ETextureColourSpace::Linear, false);
+			if (metallic_roughness_texture)
+			{
+				material.metallic_texture(materials::ScalarTextureSlot{
+					.m_slot = metallic_roughness_texture,
+					.m_channel = materials::ETextureChannel::Blue,
+				});
+				material.roughness_texture(materials::ScalarTextureSlot{
+					.m_slot = metallic_roughness_texture,
+					.m_channel = materials::ETextureChannel::Green,
+				});
+			}
+
+			auto emissive_texture = CreateTextureSlot(factory, src, "emissive", emissive, materials::ETextureColourSpace::Srgb, false);
+			if (emissive_texture)
+				material.emissive_texture(emissive_texture);
+
+			auto normal_texture = CreateTextureSlot(factory, src, "normal", normal, materials::ETextureColourSpace::Linear, false);
+			if (normal_texture)
+				material.normal_texture(normal_texture, normal.m_scale);
+		}
+
 		// Copy imported material properties into a renderer PBR material.
 		template <typename Material>
 		static void ConfigurePbrMaterial(ResourceFactory& factory, MaterialPBR& material, Material const& src)
@@ -437,30 +475,7 @@ namespace pr::rdr12
 			// Apply glTF-specific texture slots to a renderer PBR material.
 			static void ConfigureTextures(ResourceFactory& factory, MaterialPBR& material, geometry::gltf::Material const& src)
 			{
-				auto base_texture = CreateTextureSlot(factory, src, "base-colour", src.m_base_colour_texture, materials::ETextureColourSpace::Srgb, UsesBaseTextureAlpha(src.m_alpha_mode));
-				if (base_texture)
-					material.base_texture(base_texture);
-
-				auto metallic_roughness_texture = CreateTextureSlot(factory, src, "metallic-roughness", src.m_metallic_roughness_texture, materials::ETextureColourSpace::Linear, false);
-				if (metallic_roughness_texture)
-				{
-					material.metallic_texture(materials::ScalarTextureSlot{
-						.m_slot = metallic_roughness_texture,
-						.m_channel = materials::ETextureChannel::Blue,
-					});
-					material.roughness_texture(materials::ScalarTextureSlot{
-						.m_slot = metallic_roughness_texture,
-						.m_channel = materials::ETextureChannel::Green,
-					});
-				}
-
-				auto emissive_texture = CreateTextureSlot(factory, src, "emissive", src.m_emissive_texture, materials::ETextureColourSpace::Srgb, false);
-				if (emissive_texture)
-					material.emissive_texture(emissive_texture);
-
-				auto normal_texture = CreateTextureSlot(factory, src, "normal", src.m_normal_texture, materials::ETextureColourSpace::Linear, false);
-				if (normal_texture)
-					material.normal_texture(normal_texture, src.m_normal_texture.m_scale);
+				ApplyPbrTextures(factory, material, src, src.m_base_colour_texture, src.m_metallic_roughness_texture, src.m_emissive_texture, src.m_normal_texture, UsesBaseTextureAlpha(src.m_alpha_mode));
 			}
 		};
 		template <> struct MaterialTraits<geometry::fbx::Material>
@@ -514,6 +529,95 @@ namespace pr::rdr12
 					material.normal_texture(normal_texture, src.m_normal_texture.m_scale);
 			}
 		};
+		template <> struct MaterialTraits<geometry::p3d::Material>
+		{
+			static constexpr std::string_view Format = "P3D";
+
+			// Return the reason that 'texture' cannot currently be imported, or empty if it can.
+			static std::string_view ValidateTexture(geometry::TextureRef const& texture)
+			{
+				if (texture.m_texcoord < 0)
+					return "negative texture-coordinate channels are not supported";
+
+				return {};
+			}
+
+			// Convert a P3D alpha mode to the PBR material alpha mode.
+			static materials::EAlphaMode AlphaMode(geometry::p3d::Material::EAlphaMode mode)
+			{
+				switch (mode)
+				{
+					case geometry::p3d::Material::EAlphaMode::Opaque:
+					{
+						return materials::EAlphaMode::Opaque;
+					}
+					case geometry::p3d::Material::EAlphaMode::Mask:
+					{
+						return materials::EAlphaMode::Mask;
+					}
+					case geometry::p3d::Material::EAlphaMode::Blend:
+					{
+						return materials::EAlphaMode::Blend;
+					}
+					default:
+					{
+						throw std::runtime_error("Unknown P3D alpha mode");
+					}
+				}
+			}
+		};
+
+		// Convert a P3D texture into the generic imported-texture reference.
+		// P3D stores an identifier rather than the image itself, so 'resolver' is given the chance to
+		// supply the bytes. Without a resolver, or when the resolver does not know the id, the id is
+		// left as a URI and treated as a file path.
+		static geometry::TextureRef ToTextureRef(geometry::p3d::Texture const& tex, ModelGenerator::CreateOptions const* opts)
+		{
+			geometry::TextureRef ref = {};
+			ref.m_name = tex.m_filepath;
+			ref.m_texcoord = tex.m_texcoord;
+			ref.m_uv_transform = tex.m_uv_transform;
+			ref.m_scale = tex.m_scale;
+			ref.m_wrap_s = tex.m_wrap_s;
+			ref.m_wrap_t = tex.m_wrap_t;
+			ref.m_min_filter = tex.m_min_filter;
+			ref.m_mag_filter = tex.m_mag_filter;
+
+			if (opts != nullptr && opts->m_texture_resolver)
+				ref.m_data = opts->m_texture_resolver(tex.m_filepath);
+
+			if (ref.m_data.empty())
+				ref.m_uri = tex.m_filepath;
+
+			return ref;
+		}
+
+		// Copy a P3D material into a renderer PBR material.
+		static void ConfigureP3DMaterial(ResourceFactory& factory, MaterialPBR& material, geometry::p3d::Material const& src, ModelGenerator::CreateOptions const* opts)
+		{
+			using Traits = MaterialTraits<geometry::p3d::Material>;
+
+			material
+				.base_colour(src.m_diffuse)
+				.metallic(src.m_metallic)
+				.roughness(src.m_roughness)
+				.emissive(src.m_emissive)
+				.two_sided(src.m_double_sided)
+				.alpha_mode(Traits::AlphaMode(src.m_alpha_mode), src.m_alpha_cutoff);
+
+			// Textures are held in a flat list keyed by slot type rather than in named fields.
+			auto slot = [&](geometry::p3d::Texture::EType type)
+			{
+				auto const* tex = src.find_texture(type);
+				return tex != nullptr ? ToTextureRef(*tex, opts) : geometry::TextureRef{};
+			};
+
+			auto base = slot(geometry::p3d::Texture::EType::Diffuse);
+			auto metallic_roughness = slot(geometry::p3d::Texture::EType::MetallicRoughness);
+			auto emissive = slot(geometry::p3d::Texture::EType::Emissive);
+			auto normal = slot(geometry::p3d::Texture::EType::NormalMap);
+			ApplyPbrTextures(factory, material, src, base, metallic_roughness, emissive, normal, src.m_alpha_mode != geometry::p3d::Material::EAlphaMode::Opaque);
+		}
 	}
 
 	// Create a model from 'cache'
@@ -1446,48 +1550,12 @@ namespace pr::rdr12
 		using namespace geometry;
 
 		// Model output helpers
-		struct Mat :p3d::Material
-		{
-			ResourceFactory& m_factory;
-			mutable Texture2DPtr m_tex_diffuse;
-
-			Mat(ResourceFactory& factory, p3d::Material&& m)
-				:p3d::Material(std::forward<p3d::Material>(m))
-				,m_factory(factory)
-				,m_tex_diffuse()
-			{}
-
-			// The material base colour
-			Colour32 Tint() const
-			{
-				return this->m_diffuse.argb();
-			}
-
-			// The diffuse texture resolved to a renderer texture resource
-			Texture2DPtr TexDiffuse() const
-			{
-				// Lazy load the texture
-				if (m_tex_diffuse == nullptr)
-				{
-					for (auto& tex : m_textures)
-					{
-						if (tex.m_type != p3d::Texture::EType::Diffuse)
-							continue;
-
-						TextureDesc desc = TextureDesc(AutoId, ResDesc()).has_alpha(AllSet(tex.m_flags, p3d::Texture::EFlags::Alpha)).name(tex.m_filepath.c_str());
-						m_tex_diffuse = m_factory.CreateTexture2D(tex.m_filepath.c_str(), desc);
-						break;
-					}
-				}
-				return m_tex_diffuse;
-			}
-		};
 		struct ModelOut
 		{
 			// Notes:
 			//  - Each 'mesh' can contain nested child meshes.
 			//    Create models for each and emit the tree structure of models
-			using MatCont = std::vector<Mat>;
+			using MatCont = std::vector<p3d::Material>;
 
 			ResourceFactory& m_factory;
 			CreateOptions const* m_opts;
@@ -1506,7 +1574,7 @@ namespace pr::rdr12
 			// Functor called from 'ExtractMaterials'
 			bool operator ()(p3d::Material&& mat)
 			{
-				m_mats.push_back(Mat(m_factory, std::forward<p3d::Material>(mat)));
+				m_mats.push_back(std::forward<p3d::Material>(mat));
 				return false;
 			}
 
@@ -1541,8 +1609,9 @@ namespace pr::rdr12
 					++vptr;
 				}
 
-				// Copy nuggets
-				m_cache.m_icont.resize(mesh.icount(), big_indices ? sizeof(uint16_t) : sizeof(uint32_t));
+				// Copy nuggets. Meshes with more vertices than a 16-bit index can address need the wider stride,
+				// otherwise writing an index through the buffer proxy narrows it and corrupts the geometry.
+				m_cache.m_icont.resize(mesh.icount(), big_indices ? sizeof(uint32_t) : sizeof(uint16_t));
 				m_cache.m_ncont.reserve(mesh.ncount());
 				auto iptr = m_cache.m_icont.begin<uint32_t>();
 				auto vrange = Range::Zero();
@@ -1568,7 +1637,7 @@ namespace pr::rdr12
 					for (auto& mat : m_mats)
 					{
 						if (nug.m_mat != mat.m_id) continue;
-						nugget.mat([&](MaterialSimple& m) { m.base_texture(mat.TexDiffuse(), {}).base_colour(mat.Tint()); });
+						nugget.mat<MaterialPBR>([&](MaterialPBR& m) { model_generator::ConfigureP3DMaterial(m_factory, m, mat, m_opts); });
 						break;
 					}
 
