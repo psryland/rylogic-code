@@ -32,7 +32,7 @@ namespace pr::physics
 				.colour = colour,
 				.sort_capacity = max_contacts,
 				.shock_iterations = config.contact_sort_shock_iterations,
-				.shock_padding0 = 0,
+				.max_position_speed = config.constraint_max_position_speed,
 				.shock_padding1 = 0,
 				.shock_alignment = config.contact_sort_shock_alignment,
 				.shock_min_strength = config.contact_sort_shock_min_strength,
@@ -58,7 +58,7 @@ namespace pr::physics
 				.warm_start_capacity = 0,
 				.rigid_body_count = body_count,
 				.warm_start_preloaded = 0,
-				.pad_i2 = 0,
+				.shared_position_state = 0,
 			};
 		}
 	}

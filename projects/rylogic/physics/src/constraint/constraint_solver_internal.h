@@ -74,7 +74,7 @@ namespace pr::physics::detail::constraint_solver
 	// Compile one hard passive row into a capped pseudo-velocity correction.
 	bool PreparePositionRow(CompiledConstraintRow const& row, uint32_t compiled_index, float timestep, CpuConstraintSolverConfig const& config, RuntimeRow& runtime);
 
-	// Apply the block's configured feasible-set projection to candidate impulses.
+	// Apply response-metric box projection, or the block's existing friction-cone projection, and reject numerical failure.
 	void Project(std::array<float, MaxBlockRows>& candidate, RuntimeBlock const& runtime, CompiledConstraintBlock const& block);
 
 	// Execute fixed-iteration block PGS over ordinary rigid endpoints.

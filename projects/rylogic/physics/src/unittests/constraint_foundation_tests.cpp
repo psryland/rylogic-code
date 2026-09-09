@@ -55,6 +55,72 @@ namespace pr::physics::tests
 		}
 	}
 
+	PRUnitTestClass(ConstraintCompilerAlgebraRegressionTests)
+	{
+		// A rotating frame-A axis contributes to the derivative of its projected anchor separation.
+		PRUnitTestMethod(LinearJacobianMatchesFiniteDifference, Quick)
+		{
+			auto body_a = RigidBody{};
+			auto body_b = RigidBody{};
+			body_a.SetMassProperties(Inertia{1.0f, 1.0f});
+			body_b.SetMassProperties(Inertia{1.0f, 1.0f});
+			body_b.O2W(m4x4::Translation(2.0f, 0.0f, 0.0f));
+			auto desc = MakeD6(BodyRef::Rigid(body_a), BodyRef::Rigid(body_b));
+			desc.m_linear[1] = LockedAxis();
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 2>{&body_a, &body_b};
+			auto remap = BodyRemap(body_ptrs);
+			auto const compiled = CompileConstraints(constraints, remap);
+
+			// Rotate A alone: C_y = -2 sin(theta), so its derivative at zero must be -2.
+			auto const epsilon = 1.0e-3f;
+			body_a.O2W(m4x4::Transform(v4::ZAxis(), epsilon, v4::Origin()));
+			auto const positive = CompileConstraints(constraints, remap).m_rows[0].m_position;
+			body_a.O2W(m4x4::Transform(v4::ZAxis(), -epsilon, v4::Origin()));
+			auto const negative = CompileConstraints(constraints, remap).m_rows[0].m_position;
+			body_a.O2W(m4x4::Identity());
+			auto const derivative = (positive - negative) / (2.0f * epsilon);
+			auto const& row = compiled.m_rows[0];
+			ExpectNear(derivative, -2.0f, 2.0e-6f);
+			ExpectNear(Dot(row.m_jacobian_a, v8motion{v4::ZAxis(), v4::Zero()}), derivative, 2.0e-6f);
+
+			// Common rigid rotation changes neither coordinate, even though B moves at 2Y.
+			auto const common_velocity =
+				Dot(row.m_jacobian_a, v8motion{v4::ZAxis(), v4::Zero()}) +
+				Dot(row.m_jacobian_b, v8motion{v4::ZAxis(), 2.0f * v4::YAxis()});
+			ExpectNear(common_velocity, 0.0f, 2.0e-6f);
+		}
+
+		// The moving-axis derivative must be rotated into the articulation link's velocity coordinates.
+		PRUnitTestMethod(ArticulationAxisDerivativeUsesLinkFrame, Quick)
+		{
+			auto const root_pose = m4x4::Transform(v4::XAxis(), 0.6f, v4::Origin());
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFloatingRoot(ArticulationLinkDesc{.m_inertia = Inertia{1.0f, 1.0f}}, root_pose);
+			auto articulation = builder.Build();
+			auto body = RigidBody{};
+			body.SetMassProperties(Inertia{1.0f, 1.0f});
+			body.O2W(root_pose * m4x4::Translation(2.0f, 0.0f, 0.0f));
+			auto desc = MakeD6(BodyRef::Link(articulation, root), BodyRef::Rigid(body));
+			desc.m_linear[1] = LockedAxis();
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+			auto remap = BodyRemap(body_ptrs, articulation_ptrs);
+			auto const compiled = CompileConstraints(constraints, remap);
+
+			// Local A rotation contributes -2Z, while B's matching world translation contributes +2.
+			auto const& row = compiled.m_rows[0];
+			ExpectSpatial(row.m_jacobian_a, -2.0f * v4::ZAxis(), -v4::YAxis());
+			auto const common_velocity =
+				Dot(row.m_jacobian_a, v8motion{v4::ZAxis(), v4::Zero()}) +
+				Dot(row.m_jacobian_b, v8motion{root_pose.rot * v4::ZAxis(), root_pose.rot * (2.0f * v4::YAxis())});
+			ExpectNear(common_velocity, 0.0f, 2.0e-6f);
+		}
+	};
+
 	PRUnitTestClass(ConstraintFoundationTests)
 	{
 		// Preserve body identity through value relocation and reject simultaneous duplicate identities.
@@ -189,7 +255,7 @@ namespace pr::physics::tests
 			PR_EXPECT(linear_x.m_axis == 0);
 			PR_EXPECT(linear_x.m_mode == EConstraintAxisMode::Locked);
 			ExpectNear(linear_x.m_position, 2.0f);
-			ExpectSpatial(linear_x.m_jacobian_a, v4{0, 0, +0.75f, 0}, v4{-1, 0, 0, 0});
+			ExpectSpatial(linear_x.m_jacobian_a, v4{0, 0, -0.25f, 0}, v4{-1, 0, 0, 0});
 			ExpectSpatial(linear_x.m_jacobian_b, v4{0, 0, -0.50f, 0}, v4{+1, 0, 0, 0});
 
 			auto const& linear_z = compiled.m_rows[1];
@@ -197,7 +263,7 @@ namespace pr::physics::tests
 			PR_EXPECT(linear_z.m_axis == 2);
 			PR_EXPECT(linear_z.m_mode == EConstraintAxisMode::Limited);
 			ExpectNear(linear_z.m_position, 0.0f);
-			ExpectSpatial(linear_z.m_jacobian_a, v4{-0.75f, 0, 0, 0}, v4{0, 0, -1, 0});
+			ExpectSpatial(linear_z.m_jacobian_a, v4{+0.25f, +2.0f, 0, 0}, v4{0, 0, -1, 0});
 			ExpectSpatial(linear_z.m_jacobian_b, v4{+0.50f, 0, 0, 0}, v4{0, 0, +1, 0});
 
 			auto const& angular_x = compiled.m_rows[2];

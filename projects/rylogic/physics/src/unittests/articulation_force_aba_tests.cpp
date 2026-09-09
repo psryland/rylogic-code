@@ -260,6 +260,39 @@ namespace pr::physics::tests
 			return SharedTestGpu();
 		}
 
+		// Build a centred sphere with diagonal joint inertia and a known acceleration independent of mass and length units.
+		Articulation BuildScaledForceAba(float radius, float mass, int dof_count)
+		{
+			auto joint = ArticulationJointDesc::Fixed();
+			joint.m_dof_count = dof_count;
+			joint.m_axes = {
+				ArticulationAxisDesc{.m_type = EArticulationAxisType::Revolute, .m_axis = v4::XAxis()},
+				ArticulationAxisDesc{.m_type = EArticulationAxisType::Revolute, .m_axis = v4::YAxis()},
+				ArticulationAxisDesc{.m_type = EArticulationAxisType::Revolute, .m_axis = v4::ZAxis()},
+				ArticulationAxisDesc{.m_type = EArticulationAxisType::Prismatic, .m_axis = v4::XAxis()},
+				ArticulationAxisDesc{.m_type = EArticulationAxisType::Prismatic, .m_axis = v4::YAxis()},
+				ArticulationAxisDesc{.m_type = EArticulationAxisType::Prismatic, .m_axis = v4::ZAxis()},
+			};
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFixedRoot(ForceAbaLink(0));
+			auto const child = builder.AddLink(root, joint, ArticulationLinkDesc{.m_inertia = Inertia::Sphere(radius, mass)});
+			auto articulation = builder.Build();
+
+			// At rest and at the COM, each angular axis has inertia 2mr²/5 and each linear axis has inertia m.
+			auto const angular_inertia = 0.4f * mass * radius * radius;
+			auto const force = std::array{2.0f * angular_inertia, -3.0f * angular_inertia, 4.0f * angular_inertia, -0.5f * mass, 1.5f * mass, -2.5f * mass};
+			articulation.JointForce(child, std::span{force}.first(dof_count));
+			return articulation;
+		}
+
+		// Check against the diagonal sphere equations rather than another implementation of the same factorization.
+		void ExpectScaledForceAba(std::span<float const> acceleration)
+		{
+			auto const expected = std::array{2.0f, -3.0f, 4.0f, -0.5f, 1.5f, -2.5f};
+			for (int index = 0; index != isize(acceleration); ++index)
+				ExpectForceAbaNear(acceleration[index], expected[index], 2.0e-4f);
+		}
+
 		// Compare real D3D12 output against the exact shared-code replay, then reuse CPU and double-oracle acceptance checks.
 		void ExpectForceAbaHardwareForest(std::span<Articulation* const> articulations, float hardware_tolerance, float reference_tolerance)
 		{
@@ -292,8 +325,110 @@ namespace pr::physics::tests
 		}
 	}
 
+	// Positive physical inertia must be accepted independently of the chosen mass and length scales.
+	PRUnitTestClass(ArticulationInertiaScaleRegressionTests)
+	{
+		// Unit normalization must still reject indefinite and non-finite operators at the shader boundary.
+		PRUnitTestMethod(ReplayRejectsInvalidInertiaAfterEquilibration, Quick)
+		{
+			for (auto diagonal : {-0.1f, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()})
+			{
+				auto articulation = BuildScaledForceAba(0.01f, 0.01f, 1);
+				auto forest = std::array{&articulation};
+				auto upload = PackGpuArticulations(forest);
+				upload.m_links[1].inertia_diagonal.x = diagonal;
+				auto runner = ArticulationForceAbaInteropRunner{};
+				PR_THROWS(runner.Run(upload), std::exception);
+			}
+		}
+
+		// A one-centimetre, ten-gram sphere has a positive scalar inertia of 4e-7 and condition number one.
+		PRUnitTestMethod(CpuSmallPositiveScalarInertia, Quick)
+		{
+			auto articulation = BuildScaledForceAba(0.01f, 0.01f, 1);
+			articulation.ForwardDynamics();
+			ExpectScaledForceAba(articulation.JointAcceleration(articulation.LinkAt(1)));
+		}
+
+		// Mixed angular and linear coordinates remain valid when their physical units differ by six orders of magnitude.
+		PRUnitTestMethod(CpuMixedCoordinatesAcrossMassScales, Quick)
+		{
+			for (auto mass : {0.01f, 1.0f, 1000.0f})
+			for (auto radius : {0.001f, 0.01f, 1.0f})
+			{
+				auto articulation = BuildScaledForceAba(radius, mass, 6);
+				articulation.ForwardDynamics();
+				ExpectScaledForceAba(articulation.JointAcceleration(articulation.LinkAt(1)));
+			}
+		}
+
+		// Shared shader code accepts both the small scalar operator and scale-varied mixed-unit blocks.
+		PRUnitTestMethod(ReplayPositiveInertiasAcrossScales, Quick)
+		{
+			for (auto dof_count : {1, 6})
+			for (auto mass : {0.01f, 1.0f, 1000.0f})
+			for (auto radius : {0.01f, 0.001f, 1.0f})
+			{
+				auto articulation = BuildScaledForceAba(radius, mass, dof_count);
+				auto forest = std::array{&articulation};
+				auto upload = PackGpuArticulations(forest);
+				auto runner = ArticulationForceAbaInteropRunner{};
+				runner.Run(upload);
+				ExpectScaledForceAba(upload.m_accelerations);
+			}
+		}
+
+		// Hardware must publish the analytical response, not merely a finite regularized fallback.
+		PRUnitTestMethod(HardwarePositiveInertiasAcrossScales, Extended)
+		{
+			auto solver = GpuArticulationForceAba{ForceAbaTestGpu()};
+			for (auto dof_count : {1, 6})
+			for (auto mass : {0.01f, 1.0f, 1000.0f})
+			for (auto radius : {0.01f, 0.001f, 1.0f})
+			{
+				auto articulation = BuildScaledForceAba(radius, mass, dof_count);
+				auto forest = std::array{&articulation};
+				auto const result = solver.Solve(ForceAbaTestGpu().m_job, PackGpuArticulations(forest));
+				PR_EXPECT(result.AllValid());
+				ExpectScaledForceAba(result.m_accelerations);
+			}
+		}
+	};
+
 	PRUnitTestClass(ArticulationForceAbaTests)
 	{
+		// Standalone force ABA consumes COM-referenced world loads and preserves explicitly local follower wrenches.
+		PRUnitTestMethod(HardwareWorldLoadsMatchAnalyticalPendulum, Extended)
+		{
+			auto solver = GpuArticulationForceAba{ForceAbaTestGpu()};
+			for (auto position : {0.1f, 0.7f, -0.6f})
+			{
+				auto builder = ArticulationBuilder{};
+				auto const root_transform = m4x4::Transform(v4::XAxis(), 0.31f, v4::Origin());
+				auto const root = builder.AddFixedRoot(ForceAbaLink(0), root_transform);
+				auto joint = ArticulationJointDesc::Revolute(v4::ZAxis());
+				joint.m_initial_position[0] = position;
+				auto const child = builder.AddLink(root, joint, ArticulationLinkDesc{.m_inertia = Inertia{0.1f, 1.0f, -v4::YAxis()}});
+				auto articulation = builder.Build();
+				articulation.GravityWS(child, root_transform.rot * (-9.81f * v4::YAxis()));
+				articulation.ExternalForce(child, v8force{0.2f * v4::ZAxis(), 0.7f * v4::XAxis()});
+				auto forest = std::array{&articulation};
+				auto const upload = PackGpuArticulations(forest);
+				auto replay_upload = upload;
+				auto replay = ArticulationForceAbaInteropRunner{};
+				replay.Run(replay_upload);
+				auto const result = solver.Solve(ForceAbaTestGpu().m_job, upload);
+				PR_EXPECT(result.AllValid());
+
+				// Rotating the whole experiment cannot change the scalar pendulum equation.
+				auto const expected = (-9.81f * Sin(position) + 0.2f) / 1.1f;
+				articulation.ForwardDynamics();
+				ExpectForceAbaNear(articulation.JointAcceleration(child)[0], expected, 2.0e-5f);
+				ExpectForceAbaNear(replay_upload.m_accelerations[0], expected, 2.0e-5f);
+				ExpectForceAbaNear(result.m_accelerations[0], expected, 2.0e-5f);
+			}
+		}
+
 		// Empty optional input performs no work and retains no replay storage.
 		PRUnitTestMethod(EmptyForestDoesNoWork, Quick)
 		{
@@ -306,7 +441,7 @@ namespace pr::physics::tests
 			PR_EXPECT(runner.JointMatrixScratch().empty());
 		}
 
-		// Persistent replay storage follows 336L + 64D + 4*sum(d_j^2) for mixed fixed, scalar, and full joints.
+		// Persistent replay storage follows 352L + 64D + 4*sum(d_j^2) for mixed fixed, scalar, and full joints.
 		PRUnitTestMethod(ScratchStorageFollowsActiveDofFormula, Quick)
 		{
 			auto builder = ArticulationBuilder{};
@@ -334,7 +469,7 @@ namespace pr::physics::tests
 			PR_EXPECT(runner.Scratch().size() == 4);
 			PR_EXPECT(runner.DofScratch().size() == 7);
 			PR_EXPECT(runner.JointMatrixScratch().size() == 37);
-			PR_EXPECT(persistent_bytes == 336u * 4u + 64u * 7u + 4u * 37u);
+			PR_EXPECT(persistent_bytes == 352u * 4u + 64u * 7u + 4u * 37u);
 		}
 
 		// Match fixed-root zero-to-six-DOF joints, including a force-loaded fixed joint with zero acceleration.
@@ -504,6 +639,7 @@ namespace pr::physics::tests
 				empty_stats.m_velocity_capacity +
 				empty_stats.m_force_capacity +
 				empty_stats.m_external_force_capacity +
+				empty_stats.m_world_force_capacity +
 				empty_stats.m_child_capacity +
 				empty_stats.m_level_link_capacity +
 				empty_stats.m_acceleration_capacity +
@@ -542,7 +678,7 @@ namespace pr::physics::tests
 			auto const mixed_upload = PackGpuArticulations(mixed_forest);
 			auto const mixed_result = solver.Solve(ForceAbaTestGpu().m_job, mixed_upload);
 			PR_EXPECT(mixed_result.AllValid());
-			PR_EXPECT(solver.Stats().m_logical_scratch_bytes == 336u * 4u + 64u * 7u + 4u * 37u);
+			PR_EXPECT(solver.Stats().m_logical_scratch_bytes == 352u * 4u + 64u * 7u + 4u * 37u);
 			PR_EXPECT(solver.Stats().m_dispatch_count == 3 * isize(mixed_upload.m_levels));
 		}
 	};

@@ -395,6 +395,11 @@ namespace pr::physics
 		auto r_bodies = CreateCoupledVelocityInput(m_gpu, job, bodies, EUsage::UnorderedAccess, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, "Physics:CoupledVelocityTestBodies");
 		auto r_link_to_world = CreateCoupledVelocityInput(m_gpu, job, link_to_world, EUsage::Default, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, "Physics:CoupledVelocityTestLinkFrames");
 		mobility.Run(job);
+
+		// Initialize uploaded physical velocities without reevaluating forces; mobility only supplies configuration-dependent factors.
+		auto const zero_impulses = std::vector<GpuArticulationSpatialVector>(m_mobility_count);
+		m_impulse_aba.Upload(job, zero_impulses);
+		m_impulse_aba.Run(job);
 		m_prepare.Run(job, timestep, isize(bodies), r_bodies.get(), r_link_to_world.get(), mobility);
 		if (!preconditioner_override.empty())
 		{

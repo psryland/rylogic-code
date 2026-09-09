@@ -67,7 +67,7 @@ namespace pr::physics
 		bool Upload(GpuJob& job, GpuArticulationUpload const& upload, std::span<int const> articulation_indices);
 
 		// Rebuild final-configuration ABA factors and exact self-link mobilities for all participating trees.
-		// This replaces shared ABA factors and accelerations, so later consumers must treat these mobility factors as the current scratch contents.
+		// This replaces configuration factors while preserving cached velocities and accepted generalized/link accelerations.
 		void Run(GpuJob& job);
 
 		// Upload, execute, and read back focused diagnostics using exactly one GPU submission.

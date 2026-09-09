@@ -81,6 +81,7 @@ namespace pr::physics
 		CollisionContactCapacity,
 		ArticulationIntegration,
 		CoupledConstraintNonConvergence,
+		ConstraintNumerics,
 	};
 
 	// First bounded failure from the most recently completed or rejected submitted frame.

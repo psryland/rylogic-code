@@ -42,6 +42,7 @@ namespace pr::physics
 	static_assert(sizeof(GpuCoupledConstraintIslandState) == 16);
 	static_assert(sizeof(GpuCollisionExclusion) == 8);
 	static_assert(sizeof(GpuConstraintBlock) == 32);
+	static_assert(sizeof(GpuConstraintSolverState) == 8);
 	static_assert(sizeof(GpuConstraintBreakState) == 32);
 	static_assert(sizeof(GpuConstraintRow) == 96);
 	static_assert(sizeof(GpuCoupledConstraintPreconditioner) == 96);
@@ -63,7 +64,7 @@ namespace pr::physics
 	static_assert(alignof(GpuArticulationJointMatrix) == 16);
 	static_assert(sizeof(GpuArticulationAbaDofScratch) == 64);
 	static_assert(alignof(GpuArticulationAbaDofScratch) == 16);
-	static_assert(sizeof(GpuArticulationAbaScratch) == 336);
+	static_assert(sizeof(GpuArticulationAbaScratch) == 352);
 	static_assert(alignof(GpuArticulationAbaScratch) == 16);
 	static_assert(sizeof(GpuArticulationIntegrationState) == 48);
 	static_assert(alignof(GpuArticulationIntegrationState) == 16);

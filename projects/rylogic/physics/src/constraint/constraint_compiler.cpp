@@ -121,7 +121,8 @@ namespace pr::physics
 			{
 				case EConstraintRowKind::Linear:
 				{
-					jacobian_a = EndpointJacobian(kind, endpoint_a, remap, axis_ws, anchor_offset_a, -1.0f);
+					// Frame A rotates the measured axis as well as its anchor, so its lever includes the complete anchor separation.
+					jacobian_a = EndpointJacobian(kind, endpoint_a, remap, axis_ws, anchor_offset_a + linear_error_ws, -1.0f);
 					jacobian_b = EndpointJacobian(kind, endpoint_b, remap, axis_ws, anchor_offset_b, +1.0f);
 					position = Dot3(linear_error_ws, axis_ws);
 					break;

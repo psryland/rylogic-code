@@ -138,6 +138,144 @@ namespace pr::physics::tests
 		}
 	}
 
+	PRUnitTestClass(ConstraintHybridAlgebraRegressionTests)
+	{
+		// The complete-tree block update must solve the bounded quadratic, not merely lower its merit.
+		PRUnitTestMethod(BoundedFloatingRootSatisfiesFreeRowKkt, Quick)
+		{
+			for (auto const iterations : {1, 2, 12})
+			for (auto const initial_speed : {0.0f, -1.0f})
+			{
+				auto builder = ArticulationBuilder{};
+				auto const root = builder.AddFloatingRoot(
+					ArticulationLinkDesc{.m_inertia = Inertia{1.0f, 1.0f}},
+					m4x4::Identity(),
+					v8motion{v4::Zero(), v4{initial_speed, initial_speed, 0, 0}});
+				auto articulation = builder.Build();
+				auto desc = D6ConstraintDesc{};
+				desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
+				desc.m_frame_b = BodyFrame{BodyRef::Link(articulation, root), desc.m_frame_a.m_constraint_to_body};
+				desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
+				desc.m_linear[1].m_mode = EConstraintAxisMode::Driven;
+				desc.m_linear[1].m_target_velocity = initial_speed == 0.0f ? 3.0f : 0.0f;
+				desc.m_linear[1].m_max_force = 1.0f;
+				auto constraints = ConstraintSet{};
+				constraints.Add(desc);
+				auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+				auto remap = BodyRemap(std::span<RigidBody* const>{}, articulation_ptrs);
+				auto config = HybridVelocityConfig(iterations);
+				config.m_coupled_relaxation = 1.0f;
+				auto solver = CpuConstraintSolver{};
+				solver.Solve(CompileConstraints(constraints, remap), remap, 0.1f, config);
+
+				// Unit spatial inertia gives K = [[2,1],[1,2]], so saturation must be followed by the exact free-X solve.
+				auto const expected_x = (-initial_speed - 0.1f) / 2.0f;
+				auto const velocity = articulation.LinkVelocity(root);
+				auto const point_velocity = velocity.lin + Cross(velocity.ang, v4{1, -1, 0, 0});
+				PR_EXPECT(FEqlAbsolute(velocity.lin.x - initial_speed, expected_x, 3.0e-6f));
+				PR_EXPECT(FEqlAbsolute(velocity.lin.y - initial_speed, 0.1f, 3.0e-6f));
+				PR_EXPECT(Abs(point_velocity.x) < 3.0e-6f);
+				PR_EXPECT(FEqlAbsolute(point_velocity.y, initial_speed + expected_x + 0.2f, 3.0e-6f));
+			}
+		}
+
+		// Reduced coordinates must preserve weak implicit compliance rather than turning the row into a hard lock.
+		PRUnitTestMethod(WeakPrismaticSpringMatchesImplicitVelocity, Quick)
+		{
+			auto tree = MakePrismaticTree(1.0f, 1.0f);
+			auto desc = LinearXConstraint(BodyRef::World(), BodyRef::Link(tree.m_articulation, tree.m_link));
+			desc.m_linear[0].m_stiffness = 0.01f;
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto articulation_ptrs = std::array<Articulation*, 1>{&tree.m_articulation};
+			auto remap = BodyRemap(std::span<RigidBody* const>{}, articulation_ptrs);
+			auto config = HybridVelocityConfig(1);
+			config.m_coupled_relaxation = 1.0f;
+			auto const timestep = 1.0f / 60.0f;
+			auto solver = CpuConstraintSolver{};
+			solver.Solve(CompileConstraints(constraints, remap), remap, timestep, config);
+
+			// A unit-mass X-prismatic link has the same scalar backward-Euler solution as a translating rigid body.
+			auto const expected = (1.0f - timestep * 0.01f) / (1.0f + timestep * timestep * 0.01f);
+			PR_EXPECT(FEqlAbsolute(tree.m_articulation.JointVelocity(tree.m_link)[0], expected, 3.0e-7f));
+		}
+
+		// Rank regularization retains the movable direction of a ball joint on a one-DoF link.
+		PRUnitTestMethod(RankDeficientBallJointRetainsSolvableAxis, Quick)
+		{
+			auto tree = MakePrismaticTree(0.0f, 1.0f);
+			auto desc = BallSocketConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::World();
+			desc.m_frame_b.m_body = BodyRef::Link(tree.m_articulation, tree.m_link);
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto articulation_ptrs = std::array<Articulation*, 1>{&tree.m_articulation};
+			auto remap = BodyRemap(std::span<RigidBody* const>{}, articulation_ptrs);
+			auto config = HybridVelocityConfig(1);
+			config.m_coupled_relaxation = 1.0f;
+			auto solver = CpuConstraintSolver{};
+			auto const metrics = solver.Solve(CompileConstraints(constraints, remap), remap, 0.1f, config);
+
+			// K = diag(1,0,0) gains the configured 1e-6 diagonal; the first sweep leaves only its regularized X residual.
+			auto const expected = config.m_regularization / (1.0f + config.m_regularization);
+			PR_EXPECT(FEqlAbsolute(tree.m_articulation.JointVelocity(tree.m_link)[0], expected, 2.0e-7f));
+			PR_EXPECT(metrics.m_regularized_blocks == 1);
+			PR_EXPECT(metrics.m_singular_blocks == 0);
+		}
+
+		// A small exact-self response must remain solvable for a massive reduced-coordinate body.
+		PRUnitTestMethod(HeavyPrismaticWorldLockRemainsSolvable, Quick)
+		{
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFixedRoot(HybridLink());
+			auto joint = ArticulationJointDesc::Prismatic(v4::XAxis());
+			joint.m_initial_velocity[0] = 1.0f;
+			auto const link = builder.AddLink(root, joint, HybridLink(1.0e6f));
+			auto articulation = builder.Build();
+			auto constraints = ConstraintSet{};
+			constraints.Add(LinearXConstraint(BodyRef::World(), BodyRef::Link(articulation, link)));
+			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+			auto remap = BodyRemap(std::span<RigidBody* const>{}, articulation_ptrs);
+			auto config = HybridVelocityConfig(1);
+			config.m_coupled_relaxation = 1.0f;
+			auto solver = CpuConstraintSolver{};
+			auto const metrics = solver.Solve(CompileConstraints(constraints, remap), remap, 0.1f, config);
+			PR_EXPECT(Abs(articulation.JointVelocity(link)[0]) < 2.0e-6f);
+			PR_EXPECT(metrics.m_singular_blocks == 0);
+		}
+
+		// A satisfied hard row must oppose coupled pseudo impulses without changing physical root velocity.
+		PRUnitTestMethod(SatisfiedHardRowsParticipateInHybridPositionSolve, Quick)
+		{
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFloatingRoot(ArticulationLinkDesc{.m_inertia = Inertia{1.0f, 1.0f}});
+			auto articulation = builder.Build();
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
+			desc.m_frame_b = BodyFrame{BodyRef::Link(articulation, root), desc.m_frame_a.m_constraint_to_body};
+			desc.m_linear[0].m_mode = EConstraintAxisMode::Locked;
+			desc.m_linear[1].m_mode = EConstraintAxisMode::Locked;
+			desc.m_linear[1].m_target_position = 0.01f;
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto articulation_ptrs = std::array<Articulation*, 1>{&articulation};
+			auto remap = BodyRemap(std::span<RigidBody* const>{}, articulation_ptrs);
+			auto config = HybridVelocityConfig(0);
+			config.m_position_iterations = 1;
+			config.m_coupled_relaxation = 1.0f;
+			auto solver = CpuConstraintSolver{};
+			auto const metrics = solver.Solve(CompileConstraints(constraints, remap), remap, 0.1f, config);
+
+			// The exact block pseudo solve moves the anchor by (0,0.002), up to second-order rotational drift.
+			auto const anchor = articulation.LinkToWorld(root) * v4{1, -1, 0, 1};
+			PR_EXPECT(metrics.m_active_position_rows == 2);
+			PR_EXPECT(FEqlAbsolute(anchor.x, 1.0f, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(anchor.y, -0.998f, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(articulation.RootVelocity().ang, v4::Zero(), 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(articulation.RootVelocity().lin, v4::Zero(), 1.0e-6f));
+		}
+	};
+
 	PRUnitTestClass(ConstraintHybridSolverTests)
 	{
 		// Drive one articulation link against world with the exact one-endpoint self-link preconditioner.

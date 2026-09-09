@@ -281,6 +281,11 @@ void CSBuildCoupledVelocityWarmStart(int3 DTID(dtid))
 		return;
 	}
 
+	if (AllSet(block.flags, ConstraintBlockFlags_NumericalFailure))
+	{
+		CoupledFailIsland(topology.island_idx, GpuCoupledConstraintFailure_NonFinite);
+		return;
+	}
 	uint active_axes[6];
 	int row_count = 0;
 	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
@@ -347,6 +352,11 @@ void CSBuildCoupledVelocityCandidates(int3 DTID(dtid))
 		return;
 	}
 
+	if (AllSet(block.flags, ConstraintBlockFlags_NumericalFailure))
+	{
+		CoupledFailIsland(topology.island_idx, GpuCoupledConstraintFailure_NonFinite);
+		return;
+	}
 	uint active_axes[6];
 	int row_count = 0;
 	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
@@ -366,29 +376,53 @@ void CSBuildCoupledVelocityCandidates(int3 DTID(dtid))
 	GpuCoupledConstraintPreconditioner preconditioner = g_coupled_velocity_preconditioners[slot_idx];
 	float residual[6];
 	float delta[6];
+	float inverse[36];
+	float candidate[6];
+	float lower[6];
+	float upper[6];
+	float projected[6];
 	for (int row_idx = 0; row_idx != row_count; ++row_idx)
 	{
 		GpuConstraintRow row = g_coupled_velocity_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx]];
 		residual[row_idx] = CoupledRowResidual(block, endpoint, row);
+		lower[row_idx] = row.bounds.x;
+		upper[row_idx] = row.bounds.y;
+		for (int column = 0; column != row_count; ++column)
+			inverse[row_idx * 6 + column] = CoupledPreconditionerComponent(preconditioner, row_idx, column);
+
 	}
 	for (int row_idx = 0; row_idx != row_count; ++row_idx)
 	{
 		float correction = 0.0f;
 		for (int column = 0; column != row_count; ++column)
-			correction += CoupledPreconditionerComponent(preconditioner, row_idx, column) * residual[column];
-		if (!isfinite(correction))
+			correction += inverse[row_idx * 6 + column] * residual[column];
+
+		if (!isfinite(residual[row_idx]) || !isfinite(correction))
 		{
 			CoupledFailIsland(topology.island_idx, GpuCoupledConstraintFailure_NonFinite);
 			return;
 		}
 
 		GpuConstraintRow row = g_coupled_velocity_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx]];
-		float candidate = clamp(
-			row.bounds.z - g_coupled_velocity_island_states[topology.island_idx].relaxation * correction,
-			row.bounds.x,
-			row.bounds.y);
-		delta[row_idx] = candidate - row.bounds.z;
-		if (!isfinite(residual[row_idx]) || !isfinite(delta[row_idx]) || !isfinite(candidate))
+		candidate[row_idx] = row.bounds.z - g_coupled_velocity_island_states[topology.island_idx].relaxation * correction;
+		if (!isfinite(candidate[row_idx]))
+		{
+			CoupledFailIsland(topology.island_idx, GpuCoupledConstraintFailure_NonFinite);
+			return;
+		}
+	}
+
+	// A saturated axis changes the optimal free impulses; component-wise clamping cannot preserve the coupled row equations.
+	if (!ProjectConstraintBox(row_count, inverse, candidate, lower, upper, projected))
+	{
+		CoupledFailIsland(topology.island_idx, GpuCoupledConstraintFailure_Projection);
+		return;
+	}
+	for (int row_idx = 0; row_idx != row_count; ++row_idx)
+	{
+		GpuConstraintRow row = g_coupled_velocity_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx]];
+		delta[row_idx] = projected[row_idx] - row.bounds.z;
+		if (!isfinite(delta[row_idx]))
 		{
 			CoupledFailIsland(topology.island_idx, GpuCoupledConstraintFailure_NonFinite);
 			return;

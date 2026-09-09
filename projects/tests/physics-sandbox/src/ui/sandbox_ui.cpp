@@ -155,6 +155,7 @@ namespace physics_sandbox
 		};
 		m_media.OnAllowSleepingChanged += [&](auto&, auto&)
 		{
+			CompletePendingStep();
 			m_scene.AllowSleeping(m_media.AllowSleeping());
 		};
 

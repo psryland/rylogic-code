@@ -78,6 +78,7 @@
 #include "pr/common/unittests.h"
 #include "pr/common/user_data.h"
 #include "pr/common/value_ptr.h"
+#include "pr/compute/radix_sort/radix_sort.h"
 #include "pr/container/bit_array.h"
 #include "pr/container/byte_data.h"
 #include "pr/container/chain.h"

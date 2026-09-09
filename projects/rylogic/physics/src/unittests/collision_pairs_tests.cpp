@@ -271,6 +271,9 @@ namespace pr::physics::tests
 			PR_THROWS(engine.BeginStep(dt, std::span{ &body, 1 }), std::exception);
 			PR_THROWS(engine.Material(physics::Material{ .m_id = physics::Material::DefaultID }), std::exception);
 			PR_THROWS(engine.ResetCaches(), std::exception);
+			auto config = engine.Config();
+			config.sleeping_enabled = false;
+			PR_THROWS(engine.Config(config), std::exception);
 
 			engine.CompleteStep();
 			PR_THROWS(engine.CompleteStep(), std::exception);

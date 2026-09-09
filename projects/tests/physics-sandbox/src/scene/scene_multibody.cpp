@@ -341,10 +341,17 @@ namespace physics_sandbox
 				});
 			}
 
+			// Scene gravity is initial state, so configure it before applying an explicit request to start asleep.
 			auto articulation = builder.Build();
+			for (auto link_index = 0; link_index != articulation.LinkCount(); ++link_index)
+				articulation.GravityWS(articulation.LinkAt(link_index), m_gravity);
+
+			// Sleep policy is applied last so initial load configuration cannot undo it.
 			articulation.NeverSleep(source.m_never_sleep);
 			if (source.m_sleeping)
 				articulation.Sleep();
+
+			// Store coherent initial link state without changing the selected sleep policy.
 			articulation.UpdateKinematics();
 			m_articulation.push_back(std::move(articulation));
 			articulation_records.push_back(std::move(record));

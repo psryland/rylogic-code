@@ -17,7 +17,7 @@ namespace pr::physics
 			float dt;
 			int articulation_count;
 			int link_count;
-			int velocity_count;
+			int proxy_body_count;
 		};
 		static_assert(sizeof(cbArticulationMidpoint) == 16);
 
@@ -30,6 +30,8 @@ namespace pr::physics
 			inline static constexpr auto Forces = ESRVReg::t2;
 			inline static constexpr auto ExternalForces = ESRVReg::t3;
 			inline static constexpr auto Children = ESRVReg::t4;
+			inline static constexpr auto WorldForces = ESRVReg::t5;
+			inline static constexpr auto ProxyBodies = ESRVReg::t6;
 			inline static constexpr auto Articulations = EUAVReg::u0;
 			inline static constexpr auto Positions = EUAVReg::u1;
 			inline static constexpr auto Velocities = EUAVReg::u2;
@@ -88,6 +90,8 @@ namespace pr::physics
 			.SRV(EReg::Forces)
 			.SRV(EReg::ExternalForces)
 			.SRV(EReg::Children)
+			.SRV(EReg::WorldForces)
+			.SRV(EReg::ProxyBodies)
 			.UAV(EReg::Articulations)
 			.UAV(EReg::Positions)
 			.UAV(EReg::Velocities)
@@ -176,16 +180,22 @@ namespace pr::physics
 	}
 
 	// Bind shared ABA resources and integration-only scratch for one fused substep.
-	void GpuArticulationMidpoint::Dispatch(GpuJob& job, float dt, ID3D12Resource* external_forces)
+	void GpuArticulationMidpoint::Dispatch(GpuJob& job, float dt, ID3D12Resource* external_forces, ID3D12Resource* proxy_bodies)
 	{
 		external_forces = external_forces != nullptr ? external_forces : m_aba.m_r_external_forces.get();
 		auto const constants = cbArticulationMidpoint{
 			.dt = dt,
 			.articulation_count = m_aba.m_articulation_count,
 			.link_count = m_aba.m_link_count,
-			.velocity_count = m_aba.m_velocity_count,
+			.proxy_body_count = proxy_bodies != nullptr ? static_cast<int>(proxy_bodies->GetDesc().Width / sizeof(GpuRigidBody)) : 0,
 		};
-		job.m_barriers.Transition(external_forces, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).Commit();
+		job.m_barriers.Transition(external_forces, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_aba.m_r_world_forces.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		if (proxy_bodies != nullptr)
+			job.m_barriers.Transition(proxy_bodies, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+
+		// The absent-body binding is never indexed; the world-force stream supplies a valid SRV address without another sentinel.
+		job.m_barriers.Commit();
 		job.m_cmd_list.SetPipelineState(m_cs_midpoint.m_pso.get());
 		job.m_cmd_list.SetComputeRootSignature(m_cs_midpoint.m_sig.get());
 		job.m_cmd_list.AddComputeRoot32BitConstants(constants);
@@ -194,6 +204,8 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootShaderResourceView((m_aba.m_force_count != 0 ? m_aba.m_r_forces : m_aba.m_r_srv_sentinel)->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootShaderResourceView(external_forces->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootShaderResourceView((m_aba.m_child_count != 0 ? m_aba.m_r_children : m_aba.m_r_srv_sentinel)->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(m_aba.m_r_world_forces->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView((proxy_bodies != nullptr ? proxy_bodies : m_aba.m_r_world_forces.get())->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_aba.m_r_articulations->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_position_count != 0 ? m_aba.m_r_positions : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_velocity_count != 0 ? m_aba.m_r_velocities : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
@@ -252,15 +264,17 @@ namespace pr::physics
 	}
 
 	// Record one fused internal substep while retaining sticky status and accumulated dispatch diagnostics.
-	void GpuArticulationMidpoint::Integrate(GpuJob& job, float dt, ID3D12Resource* external_forces)
+	void GpuArticulationMidpoint::Integrate(GpuJob& job, float dt, ID3D12Resource* external_forces, ID3D12Resource* proxy_bodies)
 	{
 		if (!std::isfinite(dt) || dt < 0.0f)
 			throw std::invalid_argument("GPU articulation midpoint timestep must be finite and non-negative");
 		if (m_aba.m_articulation_count == 0)
 			return;
 
-		Dispatch(job, dt, external_forces);
+		Dispatch(job, dt, external_forces, proxy_bodies);
 		CommitUavBarriers(job);
+		if (proxy_bodies != nullptr)
+			job.m_barriers.Transition(proxy_bodies, D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
 	}
 
 	// Upload, record all substeps, submit once, and read back focused integration diagnostics.

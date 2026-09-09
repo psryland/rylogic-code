@@ -6,6 +6,7 @@
 #include "pr/physics/integrator/engine_config.h"
 #include "src/compute/articulation_impulse_aba_gpu.h"
 #include "src/compute/articulation_link_proxies_gpu.h"
+#include "src/compute/position_pseudo_buffers.h"
 
 namespace pr::physics
 {
@@ -19,7 +20,7 @@ namespace pr::physics
 		int m_rigid_pseudo_capacity;
 		int m_link_pseudo_capacity;
 		int m_generalized_pseudo_capacity;
-		int m_dispatch_count;
+		int m_dispatch_count; // Submitted dispatch records, including indirect records with zero thread groups.
 		size_t m_logical_bytes;
 		size_t m_allocated_feature_bytes;
 	};
@@ -81,6 +82,7 @@ namespace pr::physics
 		float m_restitution_scale;
 		bool m_active;
 		bool m_position_active;
+		bool m_shared_rigid_pseudo;
 		GpuCoupledContactStats m_stats;
 
 	public:
@@ -113,8 +115,11 @@ namespace pr::physics
 		// Execute one degree-damped block-Jacobi velocity iteration through a complete-tree ABA response.
 		void SolveVelocityIteration(GpuJob& job);
 
-		// Clear contact-owned pseudo state before detached penetration correction.
-		bool PreparePosition(GpuJob& job, int iteration_count);
+		// Initialize detached correction state, optionally sharing the rigid pseudo storage with persistent constraints.
+		bool PreparePosition(GpuJob& job, int iteration_count, D3DPtr<ID3D12Resource> rigid_pseudo = {});
+
+		// Return initialized pseudo buffers in rigid-prefix and canonical packed-forest order; this solver owns their final application.
+		GpuPositionPseudoBuffers PseudoState() const;
 
 		// Execute one zero-based monotone detached penetration-correction iteration with acceleration confined to the initial sweep.
 		void SolvePositionIteration(GpuJob& job, int position_iteration_index);
@@ -136,7 +141,7 @@ namespace pr::physics
 		// Run one warm-start, velocity, or position candidate through deterministic gather and detached ABA evaluation.
 		void RunTransaction(GpuJob& job, ComputeStep& build_step, int phase, int position_iteration_index);
 
-		// Bind and dispatch one common contact phase over a non-empty logical work range with an optional zero-based position-sweep index.
+		// Bind and dispatch one non-empty work range with an optional zero-based position-sweep index.
 		void DispatchCommon(GpuJob& job, ComputeStep& step, int phase, int item_count, int position_iteration_index = -1);
 
 		// Bind and dispatch one complete-tree position validation or pseudo-state commit phase.

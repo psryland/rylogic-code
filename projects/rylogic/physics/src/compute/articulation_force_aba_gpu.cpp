@@ -34,6 +34,7 @@ namespace pr::physics
 			inline static constexpr auto ExternalForces = ESRVReg::t6;
 			inline static constexpr auto Children = ESRVReg::t7;
 			inline static constexpr auto LevelLinks = ESRVReg::t8;
+			inline static constexpr auto WorldForces = ESRVReg::t9;
 			inline static constexpr auto Accelerations = EUAVReg::u0;
 			inline static constexpr auto Scratch = EUAVReg::u1;
 			inline static constexpr auto DofScratch = EUAVReg::u2;
@@ -90,6 +91,7 @@ namespace pr::physics
 		, m_r_velocities()
 		, m_r_forces()
 		, m_r_external_forces()
+		, m_r_world_forces()
 		, m_r_children()
 		, m_r_level_links()
 		, m_r_accelerations()
@@ -122,6 +124,7 @@ namespace pr::physics
 			.SRV(EReg::ExternalForces)
 			.SRV(EReg::Children)
 			.SRV(EReg::LevelLinks)
+			.SRV(EReg::WorldForces)
 			.UAV(EReg::Accelerations)
 			.UAV(EReg::Scratch)
 			.UAV(EReg::DofScratch)
@@ -149,6 +152,7 @@ namespace pr::physics
 		m_r_velocities = nullptr;
 		m_r_forces = nullptr;
 		m_r_external_forces = nullptr;
+		m_r_world_forces = nullptr;
 		m_r_children = nullptr;
 		m_r_level_links = nullptr;
 		m_r_accelerations = nullptr;
@@ -180,6 +184,7 @@ namespace pr::physics
 		EnsureArticulationBuffer<float>(m_gpu, cmd_list, m_r_velocities, isize(upload.m_velocities), m_stats.m_velocity_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaVelocities");
 		EnsureArticulationBuffer<float>(m_gpu, cmd_list, m_r_forces, isize(upload.m_forces), m_stats.m_force_capacity, EUsage::Default, "Physics:ArticulationForceAbaForces");
 		EnsureArticulationBuffer<GpuFrameForce>(m_gpu, cmd_list, m_r_external_forces, isize(upload.m_external_forces), m_stats.m_external_force_capacity, EUsage::Default, "Physics:ArticulationForceAbaExternalForces");
+		EnsureArticulationBuffer<GpuFrameForce>(m_gpu, cmd_list, m_r_world_forces, isize(upload.m_world_forces), m_stats.m_world_force_capacity, EUsage::Default, "Physics:ArticulationForceAbaWorldForces");
 		EnsureArticulationBuffer<uint32_t>(m_gpu, cmd_list, m_r_children, isize(upload.m_children), m_stats.m_child_capacity, EUsage::Default, "Physics:ArticulationForceAbaChildren");
 		EnsureArticulationBuffer<uint32_t>(m_gpu, cmd_list, m_r_level_links, isize(upload.m_level_links), m_stats.m_level_link_capacity, EUsage::Default, "Physics:ArticulationForceAbaLevelLinks");
 		EnsureArticulationBuffer<float>(m_gpu, cmd_list, m_r_accelerations, isize(upload.m_accelerations), m_stats.m_acceleration_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaAccelerations");
@@ -239,6 +244,7 @@ namespace pr::physics
 		if (!upload.m_forces.empty())
 			job.m_barriers.Transition(m_r_forces.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 		job.m_barriers.Transition(m_r_external_forces.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+		job.m_barriers.Transition(m_r_world_forces.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 		if (!upload.m_children.empty())
 			job.m_barriers.Transition(m_r_children.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 		job.m_barriers.Transition(m_r_level_links.get(), D3D12_RESOURCE_STATE_COPY_DEST);
@@ -253,6 +259,7 @@ namespace pr::physics
 		CopyArticulationUpload(job, m_r_velocities.get(), upload.m_velocities);
 		CopyArticulationUpload(job, m_r_forces.get(), upload.m_forces);
 		CopyArticulationUpload(job, m_r_external_forces.get(), upload.m_external_forces);
+		CopyArticulationUpload(job, m_r_world_forces.get(), upload.m_world_forces);
 		CopyArticulationUpload(job, m_r_children.get(), upload.m_children);
 		CopyArticulationUpload(job, m_r_level_links.get(), upload.m_level_links);
 		CopyArticulationUpload(job, m_r_accelerations.get(), upload.m_accelerations);
@@ -265,6 +272,7 @@ namespace pr::physics
 		job.m_barriers.Transition((m_velocity_count != 0 ? m_r_velocities : m_r_srv_sentinel).get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition((m_force_count != 0 ? m_r_forces : m_r_srv_sentinel).get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition(m_r_external_forces.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_r_world_forces.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition((m_child_count != 0 ? m_r_children : m_r_srv_sentinel).get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition(m_r_level_links.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition((m_acceleration_count != 0 ? m_r_accelerations : m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -287,6 +295,7 @@ namespace pr::physics
 			static_cast<size_t>(m_force_count) * sizeof(float) +
 			static_cast<size_t>(m_acceleration_count) * sizeof(float) +
 			upload.m_external_forces.size() * sizeof(GpuFrameForce) +
+			upload.m_world_forces.size() * sizeof(GpuFrameForce) +
 			static_cast<size_t>(m_child_count) * sizeof(uint32_t) +
 			upload.m_level_links.size() * sizeof(uint32_t) +
 			m_stats.m_logical_scratch_bytes;
@@ -300,6 +309,7 @@ namespace pr::physics
 			static_cast<size_t>(m_stats.m_acceleration_capacity) * sizeof(float) +
 			static_cast<size_t>(m_stats.m_joint_matrix_capacity) * sizeof(float) +
 			static_cast<size_t>(m_stats.m_external_force_capacity) * sizeof(GpuFrameForce) +
+			static_cast<size_t>(m_stats.m_world_force_capacity) * sizeof(GpuFrameForce) +
 			static_cast<size_t>(m_stats.m_child_capacity) * sizeof(uint32_t) +
 			static_cast<size_t>(m_stats.m_level_link_capacity) * sizeof(uint32_t) +
 			static_cast<size_t>(m_stats.m_scratch_capacity) * sizeof(GpuArticulationAbaScratch) +
@@ -330,6 +340,7 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootShaderResourceView(m_r_external_forces->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootShaderResourceView((m_child_count != 0 ? m_r_children : m_r_srv_sentinel)->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootShaderResourceView(m_r_level_links->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(m_r_world_forces->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_acceleration_count != 0 ? m_r_accelerations : m_r_uav_sentinel)->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_scratch->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_dof_count != 0 ? m_r_dof_scratch : m_r_uav_sentinel)->GetGPUVirtualAddress());

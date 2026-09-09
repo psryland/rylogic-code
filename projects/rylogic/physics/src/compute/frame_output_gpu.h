@@ -97,8 +97,16 @@ namespace pr::physics
 		// Gather final rigid and articulation state before recording the frame's sole GPU-to-CPU copy.
 		GpuFrameOutputReadback GatherAndReadback(GpuJob& job, int body_count, ID3D12Resource* bodies, GpuArticulationMidpointOutput const& articulations);
 
-		// Gather final rigid, articulation, break-latch, and coupled-failure state before the frame's sole GPU-to-CPU copy.
-		GpuFrameOutputReadback GatherAndReadback(GpuJob& job, int body_count, ID3D12Resource* bodies, GpuArticulationMidpointOutput const& articulations, GpuConstraintBreakOutput const& constraint_breaks, GpuCoupledConstraintFailureOutput const& coupled_failures);
+		// Gather final state and diagnostics; a nonzero proxy count includes whole-tree sleep state from the canonical body suffix.
+		GpuFrameOutputReadback GatherAndReadback(
+			GpuJob& job,
+			int body_count,
+			ID3D12Resource* bodies,
+			GpuArticulationMidpointOutput const& articulations,
+			GpuConstraintBreakOutput const& constraint_breaks,
+			GpuCoupledConstraintFailureOutput const& coupled_failures,
+			int articulation_proxy_count = 0,
+			ID3D12Resource* constraint_state = nullptr);
 
 		// Access typed sections after the owning GPU job has completed.
 		static GpuFrameOutputHeader const& Header(GpuFrameOutputReadback const& readback);

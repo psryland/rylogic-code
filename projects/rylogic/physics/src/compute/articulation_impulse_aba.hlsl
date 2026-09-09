@@ -82,6 +82,48 @@ void ImpulseInvalidateTree(int root_link_index)
 	g_aba_scratch[root_link_index] = root_scratch;
 }
 
+// Reconstruct current link velocities from generalized speeds and retained configuration factors.
+void ImpulseRefreshLinkVelocities(GpuArticulation articulation)
+{
+	// Configuration-only mobility does not initialize velocity caches, including the independent floating-root speed.
+	GpuArticulationSpatialVector root_velocity = AbaZeroSpatialVector();
+	switch (articulation.root_type)
+	{
+		case GpuArticulationRootType_Fixed:
+		{
+			break;
+		}
+		case GpuArticulationRootType_Floating:
+		{
+			root_velocity = AbaLoadGeneralizedVelocity(articulation.velocity_offset);
+			break;
+		}
+		default:
+		{
+			ImpulseInvalidateTree(articulation.link_offset);
+			return;
+		}
+	}
+	g_aba_scratch[articulation.link_offset].link_velocity = root_velocity;
+
+	// One parent-before-child pass reuses motion subspaces without rebuilding inertia, force bias, or acceleration.
+	for (int local_link_index = 1; local_link_index != articulation.link_count; ++local_link_index)
+	{
+		int link_index = articulation.link_offset + local_link_index;
+		GpuArticulationLink link = g_aba_links[link_index];
+		GpuArticulationSpatialVector velocity = AbaTransformMotion(
+			AbaInvertTransform(g_aba_scratch[link_index].child_to_parent),
+			g_aba_scratch[link.parent_link_index].link_velocity);
+		for (int row = 0; row != link.dof_count; ++row)
+		{
+			velocity = AbaAddSpatial(velocity, AbaScaleSpatial(
+				g_aba_dof_scratch[link.dof_offset + row].motion_subspace,
+				g_aba_velocities[link.velocity_offset + row]));
+		}
+		g_aba_scratch[link_index].link_velocity = velocity;
+	}
+}
+
 // Return false for one invalid candidate, optionally invalidating persistent factor state for the legacy immediate-apply path.
 bool ImpulseRejectCandidate(int root_link_index, bool invalidate_tree)
 {
@@ -298,6 +340,9 @@ void CSArticulationApplyImpulses(int3 DTID(dtid))
 	GpuArticulation articulation;
 	if (!ImpulseLoadTree(dtid.x, range, articulation))
 		return;
+
+	// Immediate application also supports a fresh upload with no preceding dynamics or proxy refresh.
+	ImpulseRefreshLinkVelocities(articulation);
 	if (!ImpulseEvaluateTree(range, articulation, true))
 		return;
 

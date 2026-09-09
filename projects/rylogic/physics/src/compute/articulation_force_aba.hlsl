@@ -10,7 +10,7 @@
 //
 // Every dispatched lane owns one scheduled link. During the inward pass that link owns the
 // deterministic reduction of all direct children, so siblings never race on parent scratch.
-// Persistent scratch is 336L + 64D + 4*sum(d_j^2) bytes. The complete traversal is
+// Persistent scratch is 352L + 64D + 4*sum(d_j^2) bytes. The complete traversal is
 // O(L+D+sum(d_j^2)) work and memory, with every local matrix bounded to six dimensions.
 
 #include "pr/hlsl/core.hlsli"
@@ -47,6 +47,7 @@ StructuredBuffer<float> resource(g_aba_forces, t5);
 StructuredBuffer<GpuFrameForce> resource(g_aba_external_forces, t6);
 StructuredBuffer<uint> resource(g_aba_children, t7);
 StructuredBuffer<uint> resource(g_aba_level_links, t8);
+StructuredBuffer<GpuFrameForce> resource(g_aba_world_forces, t9);
 RWStructuredBuffer<float> resource(g_aba_accelerations, u0);
 RWStructuredBuffer<GpuArticulationAbaScratch> resource(g_aba_scratch, u1);
 RWStructuredBuffer<GpuArticulationAbaDofScratch> resource(g_aba_dof_scratch, u2);
@@ -248,31 +249,49 @@ void AbaMultiplyJointMatrix(GpuArticulationJointMatrix matrix, float4 vector_low
 	}
 }
 
-// Invert a symmetric positive-definite zero-to-six-dimensional joint matrix through scale-aware Cholesky solves.
+// Invert a positive-definite joint matrix after removing angular and linear coordinate scales.
 void AbaInvertJointMatrix(GpuArticulationJointMatrix input_matrix, int count, out_(GpuArticulationJointMatrix) inverse, out_(bool) valid)
 {
 	GpuArticulationJointMatrix matrix = input_matrix;
 	GpuArticulationJointMatrix lower = AbaZeroJointMatrix();
 	inverse = AbaZeroJointMatrix();
 	valid = true;
-	float scale = 1.0f;
+	float4 scale_low = float4(1.0f, 1.0f, 1.0f, 1.0f);
+	float4 scale_high = float4(1.0f, 1.0f, 1.0f, 1.0f);
 
-	// Symmetrize accumulated round-off and derive the same relative pivot scale used by the CPU solver.
+	// Check every source value before symmetrizing and retain finite diagnostic scales for invalid diagonals.
 	for (int row = 0; row != count; ++row)
 	for (int column = 0; column != count; ++column)
-		scale = max(scale, abs(AbaJointMatrixComponent(matrix, row, column)));
+		valid = valid && isfinite(AbaJointMatrixComponent(matrix, row, column));
+
+	// Positive diagonal scales remove unit magnitude without accepting zero or negative inertia.
 	for (int row = 0; row != count; ++row)
-	for (int column = row + 1; column != count; ++column)
 	{
-		float value = 0.5f * (
-			AbaJointMatrixComponent(matrix, row, column) +
-			AbaJointMatrixComponent(matrix, column, row));
+		float diagonal = AbaJointMatrixComponent(matrix, row, row);
+		bool diagonal_valid = isfinite(diagonal) && diagonal > 0.0f;
+		valid = valid && diagonal_valid;
+		AbaSetJointVectorComponent(scale_low, scale_high, row, diagonal_valid ? sqrt(diagonal) : 1.0f);
+	}
+
+	// Normalize S-transpose-I-S to unit diagonal so only dependent axes, not their units, cause rejection.
+	for (int row = 0; row != count; ++row)
+	for (int column = row; column != count; ++column)
+	{
+		float value = (
+			0.5f * AbaJointMatrixComponent(matrix, row, column) +
+			0.5f * AbaJointMatrixComponent(matrix, column, row)) /
+			AbaJointVectorComponent(scale_low, scale_high, row) /
+			AbaJointVectorComponent(scale_low, scale_high, column);
+		valid = valid && isfinite(value);
+		if (!isfinite(value))
+			value = 0.0f;
+
 		AbaSetJointMatrixComponent(matrix, row, column, value);
 		AbaSetJointMatrixComponent(matrix, column, row, value);
 	}
 
 	// Factor the active leading block while retaining finite fallback pivots for diagnostic output.
-	float pivot_tolerance = 64.0f * 1.192092896e-7f * scale * (float)count;
+	float pivot_tolerance = 64.0f * 1.192092896e-7f * (float)count;
 	for (int row = 0; row != count; ++row)
 	{
 		for (int column = 0; column != row + 1; ++column)
@@ -317,6 +336,17 @@ void AbaInvertJointMatrix(GpuArticulationJointMatrix input_matrix, int count, ou
 			value /= AbaJointMatrixComponent(lower, row, row);
 			AbaSetJointMatrixComponent(inverse, row, inverse_column, value);
 		}
+	}
+
+	// Restore original coordinate units and never publish an unrepresentable inverse as a valid factor.
+	for (int row = 0; row != count; ++row)
+	for (int column = 0; column != count; ++column)
+	{
+		float value = AbaJointMatrixComponent(inverse, row, column) /
+			AbaJointVectorComponent(scale_low, scale_high, row) /
+			AbaJointVectorComponent(scale_low, scale_high, column);
+		valid = valid && isfinite(value);
+		AbaSetJointMatrixComponent(inverse, row, column, isfinite(value) ? value : 0.0f);
 	}
 }
 
@@ -442,8 +472,8 @@ void AbaStoreLinkAcceleration(inout_(GpuArticulationAbaScratch) scratch, GpuArti
 	scratch.articulated_bias_or_acceleration = acceleration;
 }
 
-// Evaluate one serial ordered joint, retaining only its transform, bias, and per-DOF motion-subspace columns.
-void AbaEvaluateJoint(GpuArticulationLink link, inout_(GpuArticulationAbaScratch) scratch, out_(GpuArticulationSpatialVector) joint_velocity)
+// Evaluate joint geometry and optionally velocity/bias without touching accepted acceleration.
+void AbaEvaluateJoint(GpuArticulationLink link, inout_(GpuArticulationAbaScratch) scratch, bool dynamics, out_(GpuArticulationSpatialVector) joint_velocity)
 {
 	GpuConstraintFrame motion_to_parent_joint = AbaIdentityTransform();
 	joint_velocity = AbaZeroSpatialVector();
@@ -454,21 +484,25 @@ void AbaEvaluateJoint(GpuArticulationLink link, inout_(GpuArticulationAbaScratch
 	{
 		GpuArticulationDof dof = g_aba_dofs[link.dof_offset + axis_index];
 		GpuConstraintFrame axis_to_parent = AbaAxisTransform(dof, g_aba_positions[link.position_offset + axis_index]);
-		GpuConstraintFrame parent_to_axis = AbaInvertTransform(axis_to_parent);
-		GpuArticulationSpatialVector axis_velocity = AbaScaleSpatial(
-			AbaAxisMotion(dof),
-			g_aba_velocities[link.velocity_offset + axis_index]);
 		motion_to_parent_joint = AbaMultiplyTransform(motion_to_parent_joint, axis_to_parent);
-		joint_velocity = AbaAddSpatial(AbaTransformMotion(parent_to_axis, joint_velocity), axis_velocity);
-		joint_bias = AbaAddSpatial(AbaTransformMotion(parent_to_axis, joint_bias), AbaCrossMotion(joint_velocity, axis_velocity));
+		if (dynamics)
+		{
+			GpuConstraintFrame parent_to_axis = AbaInvertTransform(axis_to_parent);
+			GpuArticulationSpatialVector axis_velocity = AbaScaleSpatial(AbaAxisMotion(dof), g_aba_velocities[link.velocity_offset + axis_index]);
+			joint_velocity = AbaAddSpatial(AbaTransformMotion(parent_to_axis, joint_velocity), axis_velocity);
+			joint_bias = AbaAddSpatial(AbaTransformMotion(parent_to_axis, joint_bias), AbaCrossMotion(joint_velocity, axis_velocity));
+		}
 	}
 
 	// Move terminal joint quantities into the physical child-link frame.
 	scratch.child_to_parent = AbaMultiplyTransform(
 		AbaMultiplyTransform(link.joint_to_parent, motion_to_parent_joint),
 		AbaInvertTransform(link.joint_to_child));
-	joint_velocity = AbaTransformMotion(link.joint_to_child, joint_velocity);
-	scratch.joint_bias = AbaTransformMotion(link.joint_to_child, joint_bias);
+	if (dynamics)
+	{
+		joint_velocity = AbaTransformMotion(link.joint_to_child, joint_velocity);
+		scratch.joint_bias = AbaTransformMotion(link.joint_to_child, joint_bias);
+	}
 
 	// Probe every unit generalized speed and write each compact S column directly to its generalized-DOF slot.
 	for (int column = 0; column != link.dof_count; ++column)
@@ -545,8 +579,8 @@ void AbaAddSpatialMatrix(inout_(GpuArticulationSpatialMatrix) destination, GpuAr
 		destination.columns[column] = AbaAddSpatial(destination.columns[column], source.columns[column]);
 }
 
-// Prepare one link's kinematics, physical articulated inertia, and force bias.
-void AbaPrepareLink(int link_index)
+// Prepare configuration factors, optionally including velocity bias and local/world loads for forward dynamics.
+void AbaPrepareLink(int link_index, bool dynamics, GpuFrameForce world_force)
 {
 	GpuArticulationLink link = g_aba_links[link_index];
 	GpuArticulationAbaScratch scratch = g_aba_scratch[link_index];
@@ -558,36 +592,46 @@ void AbaPrepareLink(int link_index)
 	{
 		GpuArticulation articulation = g_aba_articulations[link.articulation_index];
 		scratch.child_to_parent = AbaIdentityTransform();
-		scratch.joint_bias = AbaZeroSpatialVector();
-		scratch.link_velocity = AbaZeroSpatialVector();
-		if (articulation.root_type == GpuArticulationRootType_Floating)
-			scratch.link_velocity = AbaLoadGeneralizedVelocity(articulation.velocity_offset);
+		scratch.link_to_world_rotation = articulation.root_to_world.rotation;
+		if (dynamics)
+		{
+			scratch.joint_bias = AbaZeroSpatialVector();
+			scratch.link_velocity = AbaZeroSpatialVector();
+			if (articulation.root_type == GpuArticulationRootType_Floating)
+				scratch.link_velocity = AbaLoadGeneralizedVelocity(articulation.velocity_offset);
+		}
 	}
 	else
 	{
 		GpuArticulationSpatialVector joint_velocity;
-		AbaEvaluateJoint(link, scratch, joint_velocity);
+		AbaEvaluateJoint(link, scratch, dynamics, joint_velocity);
 		GpuArticulationAbaScratch parent = g_aba_scratch[link.parent_link_index];
-		GpuConstraintFrame parent_to_child = AbaInvertTransform(scratch.child_to_parent);
-		scratch.link_velocity = AbaAddSpatial(
-			AbaTransformMotion(parent_to_child, parent.link_velocity),
-			joint_velocity);
-		scratch.joint_bias = AbaAddSpatial(
-			scratch.joint_bias,
-			AbaCrossMotion(scratch.link_velocity, joint_velocity));
+		scratch.link_to_world_rotation = normalize(quat_mul(parent.link_to_world_rotation, scratch.child_to_parent.rotation));
+		if (dynamics)
+		{
+			GpuConstraintFrame parent_to_child = AbaInvertTransform(scratch.child_to_parent);
+			scratch.link_velocity = AbaAddSpatial(AbaTransformMotion(parent_to_child, parent.link_velocity), joint_velocity);
+			scratch.joint_bias = AbaAddSpatial(scratch.joint_bias, AbaCrossMotion(scratch.link_velocity, joint_velocity));
+		}
 	}
 
-	// Full force ABA retains gyroscopic bias and subtracts the link-frame external wrench.
-	GpuArticulationSpatialVector momentum = AbaMultiplySpatialMatrix(scratch.articulated_inertia, scratch.link_velocity);
-	GpuFrameForce external_force = g_aba_external_forces[link_index];
-	scratch.articulated_bias_or_acceleration = AbaSubtractSpatial(
-		AbaCrossForce(scratch.link_velocity, momentum),
-		AbaSpatialVector(external_force.force_ang.xyz, external_force.force_lin.xyz));
+	// World forces act at the physical COM; only they need the trial-frame rotation and shift to the link origin.
+	if (dynamics)
+	{
+		float4 world_to_link_rotation = quat_conjugate(scratch.link_to_world_rotation);
+		float3 force_link = quat_rotate(world_to_link_rotation, world_force.force_lin.xyz);
+		float3 torque_link = quat_rotate(world_to_link_rotation, world_force.force_ang.xyz) + cross(link.inertia_com_and_mass.xyz, force_link);
+		GpuArticulationSpatialVector momentum = AbaMultiplySpatialMatrix(scratch.articulated_inertia, scratch.link_velocity);
+		GpuFrameForce external_force = g_aba_external_forces[link_index];
+		scratch.articulated_bias_or_acceleration = AbaSubtractSpatial(
+			AbaCrossForce(scratch.link_velocity, momentum),
+			AbaSpatialVector(external_force.force_ang.xyz + torque_link, external_force.force_lin.xyz + force_link));
+	}
 	g_aba_scratch[link_index] = scratch;
 }
 
-// Eliminate every direct child joint and reduce its articulated operator into the selected parent.
-void AbaInwardLink(int parent_index)
+// Reduce child inertia into a parent, optionally reducing forces without overwriting accepted output during mobility preparation.
+void AbaInwardLink(int parent_index, bool dynamics)
 {
 	GpuArticulationLink parent_link = g_aba_links[parent_index];
 	GpuArticulationAbaScratch parent = g_aba_scratch[parent_index];
@@ -602,18 +646,13 @@ void AbaInwardLink(int parent_index)
 		float4 reduced_force_low = float4(0.0f, 0.0f, 0.0f, 0.0f);
 		float4 reduced_force_high = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-		// Form U, D, and u in ordered scalar-joint coordinates, reusing generalized acceleration storage for u.
+		// Configuration-only factors U and D are shared by mobility and complete force dynamics.
 		for (int row = 0; row != child_link.dof_count; ++row)
 		{
 			int dof_index = child_link.dof_offset + row;
 			GpuArticulationAbaDofScratch dof_scratch = g_aba_dof_scratch[dof_index];
 			dof_scratch.u_column = AbaMultiplySpatialMatrix(child.articulated_inertia, dof_scratch.motion_subspace);
 			g_aba_dof_scratch[dof_index] = dof_scratch;
-			float reduced_force =
-				g_aba_forces[child_link.velocity_offset + row] -
-				AbaSpatialDot(dof_scratch.motion_subspace, child.articulated_bias_or_acceleration);
-			AbaSetJointVectorComponent(reduced_force_low, reduced_force_high, row, reduced_force);
-			g_aba_accelerations[child_link.velocity_offset + row] = reduced_force;
 		}
 		for (int row = 0; row != child_link.dof_count; ++row)
 		for (int column = 0; column != child_link.dof_count; ++column)
@@ -632,40 +671,40 @@ void AbaInwardLink(int parent_index)
 		child.solve_valid = child.solve_valid != 0 && joint_valid ? 1 : 0;
 		parent.solve_valid = parent.solve_valid != 0 && child.solve_valid != 0 ? 1 : 0;
 
-		// Remove joint-space response while retaining generalized-force and complete velocity-bias contributions.
+		// Remove the joint-space response from the child inertia in both factorization modes.
 		GpuArticulationSpatialMatrix reduction = AbaJointInertiaReduction(child_link, inverse_joint_inertia);
 		GpuArticulationSpatialMatrix reduced_inertia = AbaZeroSpatialMatrix();
 		for (int column = 0; column != 6; ++column)
 			reduced_inertia.columns[column] = AbaSubtractSpatial(child.articulated_inertia.columns[column], reduction.columns[column]);
 
-		float4 reduced_coefficients_low;
-		float4 reduced_coefficients_high;
-		AbaMultiplyJointMatrix(
-			inverse_joint_inertia,
-			reduced_force_low,
-			reduced_force_high,
-			child_link.dof_count,
-			reduced_coefficients_low,
-			reduced_coefficients_high);
-		GpuArticulationSpatialVector reduced_bias = child.articulated_bias_or_acceleration;
-		for (int column = 0; column != child_link.dof_count; ++column)
+		// Only a force solve may reuse acceleration storage for u and replace link acceleration with force bias.
+		if (dynamics)
 		{
-			reduced_bias = AbaAddSpatial(
-				reduced_bias,
-				AbaScaleSpatial(
-					g_aba_dof_scratch[child_link.dof_offset + column].u_column,
-					AbaJointVectorComponent(reduced_coefficients_low, reduced_coefficients_high, column)));
+			for (int row = 0; row != child_link.dof_count; ++row)
+			{
+				float reduced_force = g_aba_forces[child_link.velocity_offset + row] -
+					AbaSpatialDot(g_aba_dof_scratch[child_link.dof_offset + row].motion_subspace, child.articulated_bias_or_acceleration);
+				AbaSetJointVectorComponent(reduced_force_low, reduced_force_high, row, reduced_force);
+				g_aba_accelerations[child_link.velocity_offset + row] = reduced_force;
+			}
+
+			// Retain generalized-force and complete velocity-bias contributions in the parent force equation.
+			float4 reduced_coefficients_low;
+			float4 reduced_coefficients_high;
+			AbaMultiplyJointMatrix(inverse_joint_inertia, reduced_force_low, reduced_force_high, child_link.dof_count, reduced_coefficients_low, reduced_coefficients_high);
+			GpuArticulationSpatialVector reduced_bias = child.articulated_bias_or_acceleration;
+			for (int column = 0; column != child_link.dof_count; ++column)
+				reduced_bias = AbaAddSpatial(reduced_bias, AbaScaleSpatial(g_aba_dof_scratch[child_link.dof_offset + column].u_column, AbaJointVectorComponent(reduced_coefficients_low, reduced_coefficients_high, column)));
+
+			reduced_bias = AbaAddSpatial(reduced_bias, AbaMultiplySpatialMatrix(reduced_inertia, child.joint_bias));
+			parent.articulated_bias_or_acceleration = AbaAddSpatial(parent.articulated_bias_or_acceleration, AbaTransformForce(child.child_to_parent, reduced_bias));
 		}
-		reduced_bias = AbaAddSpatial(reduced_bias, AbaMultiplySpatialMatrix(reduced_inertia, child.joint_bias));
 
 		// Transform the reduced child operator back to its parent and commit factors for the outward pass.
 		GpuConstraintFrame parent_to_child = AbaInvertTransform(child.child_to_parent);
 		AbaAddSpatialMatrix(
 			parent.articulated_inertia,
 			AbaTransformInertia(parent_to_child, child.child_to_parent, reduced_inertia));
-		parent.articulated_bias_or_acceleration = AbaAddSpatial(
-			parent.articulated_bias_or_acceleration,
-			AbaTransformForce(child.child_to_parent, reduced_bias));
 		g_aba_scratch[child_index] = child;
 	}
 
@@ -795,7 +834,7 @@ void CSArticulationPrepare(int3 DTID(dtid))
 	if (link_index < 0 || link_index >= g_aba.link_count)
 		return;
 
-	AbaPrepareLink(link_index);
+	AbaPrepareLink(link_index, true, g_aba_world_forces[link_index]);
 }
 
 // Reduce one scheduled parent through the canonical resource operation.
@@ -809,7 +848,7 @@ void CSArticulationInwardDynamics(int3 DTID(dtid))
 	if (parent_index < 0 || parent_index >= g_aba.link_count)
 		return;
 
-	AbaInwardLink(parent_index);
+	AbaInwardLink(parent_index, true);
 }
 
 // Solve one scheduled root through the canonical resource operation.

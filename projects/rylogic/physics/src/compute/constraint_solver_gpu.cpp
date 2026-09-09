@@ -43,7 +43,7 @@ namespace pr::physics
 			inline static constexpr auto Descriptors = ESRVReg::t1;
 			inline static constexpr auto Blocks = EUAVReg::u1;
 			inline static constexpr auto Rows = EUAVReg::u2;
-			inline static constexpr auto Overflow = EUAVReg::u3;
+			inline static constexpr auto State = EUAVReg::u3;
 			inline static constexpr auto PseudoVelocities = EUAVReg::u4;
 			inline static constexpr auto BreakStates = EUAVReg::u5;
 		};
@@ -76,7 +76,7 @@ namespace pr::physics
 		, m_r_descriptors()
 		, m_r_blocks()
 		, m_r_rows()
-		, m_r_overflow()
+		, m_r_state()
 		, m_r_pseudo_velocities()
 		, m_r_break_states()
 		, m_endpoint_shadow()
@@ -104,7 +104,7 @@ namespace pr::physics
 			.SRV(EReg::Descriptors)
 			.UAV(EReg::Blocks)
 			.UAV(EReg::Rows)
-			.UAV(EReg::Overflow)
+			.UAV(EReg::State)
 			.UAV(EReg::PseudoVelocities)
 			.UAV(EReg::BreakStates);
 		auto const root_sig = sig.Create(m_gpu, "Physics:ConstraintSolverSig");
@@ -136,7 +136,7 @@ namespace pr::physics
 		m_r_descriptors = m_gpu.CreateResource(ResDesc::Buf<GpuD6ConstraintDesc>(capacity, {}), cmd_list, "Physics:ConstraintDescriptors");
 		m_r_blocks = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintBlock>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ConstraintBlocks");
 		m_r_rows = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintRow>(GpuConstraintRowsPerBlock * capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ConstraintRows");
-		m_r_overflow = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ConstraintColourOverflow");
+		m_r_state = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintSolverState>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ConstraintSolverState");
 		m_capacity = capacity;
 		return true;
 	}
@@ -153,6 +153,13 @@ namespace pr::physics
 
 		m_body_capacity = std::max(1, body_count);
 		m_r_pseudo_velocities = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintPseudoVelocity>(m_body_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ConstraintPseudoVelocities");
+	}
+
+	// Return adequately sized rigid pseudo storage for a shared position solve.
+	D3DPtr<ID3D12Resource> GpuConstraintSolver::PseudoVelocityStorage(CmdList& cmd_list, int body_count)
+	{
+		EnsurePseudoVelocityStorage(cmd_list, body_count);
+		return m_r_pseudo_velocities;
 	}
 
 	// Create or geometrically grow the optional per-slot overload latch.
@@ -273,6 +280,7 @@ namespace pr::physics
 		// Endpoint indices are frame-local, so upload the complete compact endpoint stream every submitted constrained frame.
 		auto const any_descriptor_dirty = std::ranges::find(descriptor_dirty, true) != descriptor_dirty.end();
 		job.m_barriers.Transition(m_r_endpoints.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+		job.m_barriers.Transition(m_r_state.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 		if (any_descriptor_dirty)
 			job.m_barriers.Transition(m_r_descriptors.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 		job.m_barriers.Commit();
@@ -281,6 +289,11 @@ namespace pr::physics
 			memcpy(endpoint_upload.ptr<GpuConstraintEndpoint>(), endpoints.data(), endpoints.size() * sizeof(GpuConstraintEndpoint));
 			job.m_cmd_list.CopyBufferRegion(m_r_endpoints.get(), 0, endpoint_upload);
 		}
+
+		// Reset both frame-local words once; later preparation and colouring must preserve all previously reported failures.
+		auto state_upload = job.m_upload.Alloc<GpuConstraintSolverState>(1);
+		state_upload.ptr<GpuConstraintSolverState>()[0] = GpuConstraintSolverState{};
+		job.m_cmd_list.CopyBufferRegion(m_r_state.get(), 0, state_upload);
 
 		// Merge adjacent changed descriptor slots so persistent parameter edits produce minimal upload copies.
 		for (int begin = 0; begin != m_slot_count;)
@@ -302,6 +315,7 @@ namespace pr::physics
 			begin = end;
 		}
 		job.m_barriers.Transition(m_r_endpoints.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(m_r_state.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		if (any_descriptor_dirty)
 			job.m_barriers.Transition(m_r_descriptors.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Commit();
@@ -364,10 +378,10 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootShaderResourceView(m_r_descriptors->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_blocks->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_rows->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_overflow->GetGPUVirtualAddress());
-		auto* pseudo_velocities = m_r_pseudo_velocities != nullptr ? m_r_pseudo_velocities.get() : m_r_overflow.get();
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_state->GetGPUVirtualAddress());
+		auto* pseudo_velocities = m_r_pseudo_velocities != nullptr ? m_r_pseudo_velocities.get() : m_r_state.get();
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(pseudo_velocities->GetGPUVirtualAddress());
-		auto* break_states = m_r_break_states != nullptr ? m_r_break_states.get() : m_r_overflow.get();
+		auto* break_states = m_r_break_states != nullptr ? m_r_break_states.get() : m_r_state.get();
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(break_states->GetGPUVirtualAddress());
 	}
 
@@ -377,12 +391,12 @@ namespace pr::physics
 		job.m_barriers.UAV(bodies.get());
 		job.m_barriers.UAV(m_r_blocks.get());
 		job.m_barriers.UAV(m_r_rows.get());
-		job.m_barriers.UAV(m_r_overflow.get());
+		job.m_barriers.UAV(m_r_state.get());
 		job.m_barriers.UAV(m_r_pseudo_velocities.get());
 		job.m_barriers.Commit();
 	}
 
-	// Compile current world-space rows and graph-colour active blocks, optionally retaining already-applied current-frame impulses for a continuation sweep.
+	// Compile rows, assign colours, and clear pseudo velocity before any position producer writes; optionally retain applied physical impulses.
 	void GpuConstraintSolver::Prepare(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies, bool retain_current_impulses)
 	{
 		if (!Active())
@@ -418,7 +432,7 @@ namespace pr::physics
 		job.m_barriers.Transition(m_r_descriptors.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition(m_r_blocks.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_rows.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		job.m_barriers.Transition(m_r_overflow.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_r_state.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_pseudo_velocities.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Commit();
 
@@ -457,7 +471,7 @@ namespace pr::physics
 		}
 	}
 
-	// Execute one complete coloured split-position sweep without changing physical momentum.
+	// Execute one coloured split-position sweep against initialized shared pseudo velocity without clearing accumulated corrections.
 	void GpuConstraintSolver::SolvePositionIteration(GpuJob& job, float timestep, int body_count, int position_iterations, D3DPtr<ID3D12Resource> bodies)
 	{
 		if (!Active() || position_iterations <= 0)
@@ -546,6 +560,12 @@ namespace pr::physics
 		return {};
 	}
 
+	// Return the current nonempty upload's frame-local solver state, or null when no slot stream was submitted.
+	ID3D12Resource* GpuConstraintSolver::FrameState()
+	{
+		return m_slot_count != 0 ? m_r_state.get() : nullptr;
+	}
+
 	// Mirror completed breaks into the endpoint shadow so an immediate explicit repair invalidates stale GPU runtime state.
 	void GpuConstraintSolver::AcknowledgeBreaks(std::span<GpuConstraintBreakState const> states)
 	{
@@ -596,12 +616,12 @@ namespace pr::physics
 			GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow);
 		auto const logical_bytes =
 			static_cast<size_t>(m_slot_count) * slot_bytes +
-			(m_slot_count != 0 ? sizeof(uint32_t) : 0) +
+			(m_slot_count != 0 ? sizeof(GpuConstraintSolverState) : 0) +
 			static_cast<size_t>(m_body_count) * sizeof(GpuConstraintPseudoVelocity) +
 			(m_breakable_count != 0 ? static_cast<size_t>(m_slot_count) * sizeof(GpuConstraintBreakState) : 0);
 		auto const allocated_bytes =
 			static_cast<size_t>(m_capacity) * slot_bytes +
-			(m_r_overflow != nullptr ? sizeof(uint32_t) : 0) +
+			(m_r_state != nullptr ? sizeof(GpuConstraintSolverState) : 0) +
 			static_cast<size_t>(m_body_capacity) * sizeof(GpuConstraintPseudoVelocity) +
 			static_cast<size_t>(m_break_capacity) * sizeof(GpuConstraintBreakState);
 		return GpuConstraintSolverStats{

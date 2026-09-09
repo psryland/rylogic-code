@@ -143,6 +143,25 @@ namespace pr::physics::tests
 
 	PRUnitTestClass(ArticulationImpulseAbaGpuTests)
 	{
+		// A fresh configuration-only factorization must not erase moving-link state when the applied impulse is zero.
+		PRUnitTestMethod(ReplayZeroImpulsePreservesMovingTree, Quick)
+		{
+			for (auto const root_type : {EArticulationRootType::Fixed, EArticulationRootType::Floating})
+			{
+				auto articulation = BuildImpulseTree(root_type, 3);
+				auto forest = std::array{&articulation};
+				auto const upload = PackGpuArticulations(forest);
+				auto const participants = std::array{0};
+				auto const impulses = std::vector<GpuArticulationSpatialVector>(articulation.LinkCount());
+				auto runner = ArticulationImpulseAbaInteropRunner{};
+				runner.Run(upload, participants, impulses);
+				PR_EXPECT(runner.Velocities().size() == upload.m_velocities.size());
+				PR_EXPECT(std::memcmp(runner.Velocities().data(), upload.m_velocities.data(), runner.Velocities().size_bytes()) == 0);
+				for (int link_index = 0; link_index != articulation.LinkCount(); ++link_index)
+					ExpectImpulseSpatialNear(runner.Scratch()[link_index].link_velocity, articulation.LinkVelocity(articulation.LinkAt(link_index)), 4.0e-4f);
+			}
+		}
+
 		// Match the dense generalized oracle and production link response for fixed and floating branching trees.
 		PRUnitTestMethod(ReplayMatchesCpuAndDenseOracle, Quick)
 		{
@@ -356,17 +375,23 @@ namespace pr::physics::tests
 			auto mobility = GpuArticulationMobility{aba};
 			auto solver = GpuArticulationImpulseAba{ImpulseTestGpu(), aba, mobility};
 			auto const hardware = solver.Apply(ImpulseTestGpu().m_job, upload, participants, floating_impulses);
+			floating.ApplyImpulses(floating_requests);
+			auto const expected_upload = PackGpuArticulations(forest);
 			PR_EXPECT(hardware.AllValid());
 			PR_EXPECT(hardware.m_ranges.size() == 1);
 			PR_EXPECT(hardware.m_ranges[0].articulation_index == 1);
 			PR_EXPECT(hardware.m_velocities.size() == replay.Velocities().size());
 			PR_EXPECT(hardware.m_link_velocities.size() == static_cast<size_t>(floating.LinkCount()));
 			for (int index = 0; index != isize(hardware.m_velocities); ++index)
+			{
 				ExpectImpulseNear(hardware.m_velocities[index], replay.Velocities()[index], 2.0e-3f);
+				ExpectImpulseNear(hardware.m_velocities[index], expected_upload.m_velocities[index], 2.0e-3f);
+			}
 			for (int link_index = 0; link_index != isize(hardware.m_link_velocities); ++link_index)
 			{
 				auto const& expected = replay.Scratch()[fixed.LinkCount() + link_index].link_velocity;
 				ExpectImpulseSpatialNear(hardware.m_link_velocities[link_index], v8motion{expected.ang, expected.lin}, 2.0e-3f);
+				ExpectImpulseSpatialNear(hardware.m_link_velocities[link_index], floating.LinkVelocity(floating.LinkAt(link_index)), 2.0e-3f);
 			}
 			PR_EXPECT(solver.Stats().m_dispatch_count == 1);
 			auto const& floating_header = upload.m_articulations[1];

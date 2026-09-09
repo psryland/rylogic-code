@@ -30,11 +30,7 @@ namespace pr::physics
 			inline static constexpr auto Links = ESRVReg::t2;
 			inline static constexpr auto Dofs = ESRVReg::t3;
 			inline static constexpr auto Positions = ESRVReg::t4;
-			inline static constexpr auto Velocities = ESRVReg::t5;
-			inline static constexpr auto Forces = ESRVReg::t6;
-			inline static constexpr auto ExternalForces = ESRVReg::t7;
 			inline static constexpr auto Children = ESRVReg::t8;
-			inline static constexpr auto Accelerations = EUAVReg::u0;
 			inline static constexpr auto Scratch = EUAVReg::u1;
 			inline static constexpr auto DofScratch = EUAVReg::u2;
 			inline static constexpr auto JointMatrixScratch = EUAVReg::u3;
@@ -124,11 +120,7 @@ namespace pr::physics
 			.SRV(EReg::Links)
 			.SRV(EReg::Dofs)
 			.SRV(EReg::Positions)
-			.SRV(EReg::Velocities)
-			.SRV(EReg::Forces)
-			.SRV(EReg::ExternalForces)
 			.SRV(EReg::Children)
-			.UAV(EReg::Accelerations)
 			.UAV(EReg::Scratch)
 			.UAV(EReg::DofScratch)
 			.UAV(EReg::JointMatrixScratch)
@@ -222,11 +214,7 @@ namespace pr::physics
 		job.m_barriers.Transition(m_aba.m_r_links.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition((m_aba.m_dof_count != 0 ? m_aba.m_r_dofs : m_aba.m_r_srv_sentinel).get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition((m_aba.m_position_count != 0 ? m_aba.m_r_positions : m_aba.m_r_srv_sentinel).get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-		job.m_barriers.Transition((m_aba.m_velocity_count != 0 ? m_aba.m_r_velocities : m_aba.m_r_srv_sentinel).get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-		job.m_barriers.Transition((m_aba.m_force_count != 0 ? m_aba.m_r_forces : m_aba.m_r_srv_sentinel).get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-		job.m_barriers.Transition(m_aba.m_r_external_forces.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition((m_aba.m_child_count != 0 ? m_aba.m_r_children : m_aba.m_r_srv_sentinel).get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-		job.m_barriers.Transition((m_aba.m_acceleration_count != 0 ? m_aba.m_r_accelerations : m_aba.m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_aba.m_r_scratch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition((m_aba.m_dof_count != 0 ? m_aba.m_r_dof_scratch : m_aba.m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition((m_aba.m_joint_matrix_count != 0 ? m_aba.m_r_joint_matrix_scratch : m_aba.m_r_uav_sentinel).get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -247,11 +235,7 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootShaderResourceView(m_aba.m_r_links->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootShaderResourceView((m_aba.m_dof_count != 0 ? m_aba.m_r_dofs : m_aba.m_r_srv_sentinel)->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootShaderResourceView((m_aba.m_position_count != 0 ? m_aba.m_r_positions : m_aba.m_r_srv_sentinel)->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootShaderResourceView((m_aba.m_velocity_count != 0 ? m_aba.m_r_velocities : m_aba.m_r_srv_sentinel)->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootShaderResourceView((m_aba.m_force_count != 0 ? m_aba.m_r_forces : m_aba.m_r_srv_sentinel)->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootShaderResourceView(m_aba.m_r_external_forces->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootShaderResourceView((m_aba.m_child_count != 0 ? m_aba.m_r_children : m_aba.m_r_srv_sentinel)->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_acceleration_count != 0 ? m_aba.m_r_accelerations : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_aba.m_r_scratch->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_dof_count != 0 ? m_aba.m_r_dof_scratch : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_joint_matrix_count != 0 ? m_aba.m_r_joint_matrix_scratch : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
@@ -260,8 +244,6 @@ namespace pr::physics
 		++m_stats.m_dispatch_count;
 
 		// Every downstream consumer observes complete factors and compact matrices from all participating trees.
-		if (m_aba.m_acceleration_count != 0)
-			job.m_barriers.UAV(m_aba.m_r_accelerations.get());
 		job.m_barriers.UAV(m_aba.m_r_scratch.get());
 		if (m_aba.m_dof_count != 0)
 			job.m_barriers.UAV(m_aba.m_r_dof_scratch.get());

@@ -22,7 +22,7 @@ struct cbFrameOutput
 	int substep_index;
 	int substep_count;
 	int body_count;
-	int pad0;
+	int articulation_proxy_count;
 	int articulation_count;
 	int position_count;
 	int velocity_count;
@@ -206,6 +206,17 @@ void CSGatherFrameArticulations(int3 DTID(dtid))
 		output.status = state.status;
 		output.iteration_count = state.iteration_count;
 		output.residual = state.residual;
+		if (g.articulation_proxy_count != 0)
+		{
+			// Only complete canonical ranges may read root proxy flags; invalid metadata remains observable in the gathered record.
+			bool valid_range = articulation.link_offset >= 0 && articulation.link_count > 0 &&
+				articulation.link_count <= g.articulation_proxy_count &&
+				articulation.link_offset <= g.articulation_proxy_count - articulation.link_count;
+			output.sleeping = 2;
+			if (valid_range)
+				output.sleeping = AllSet(g_bodies[g.body_count + articulation.link_offset].state_flags, ERigidBodyStateFlags_Sleeping) ? 1 : 0;
+
+		}
 		g_output_articulations[index] = output;
 	}
 	if (index < g.position_count)

@@ -9,6 +9,7 @@
 #include "src/articulation/articulation_gpu_data.h"
 #include "src/compute/articulation_link_proxies_gpu.h"
 #include "src/compute/articulation_mobility_gpu.h"
+#include "src/compute/articulation_midpoint_gpu.h"
 #include "src/unittests/shared_gpu.h"
 
 namespace pr::physics::tests
@@ -92,6 +93,62 @@ namespace pr::physics::tests
 
 	PRUnitTestClass(ArticulationLinkProxyGpuTests)
 	{
+		// Root-owned sleeping gates midpoint, then propagates a root wake to every proxy without removing fixed-root Static.
+		PRUnitTestMethod(HardwareRootSleepControlsNextSubstep, Extended)
+		{
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFixedRoot(ProxyFrameLink(0));
+			auto const child = builder.AddLink(root, ArticulationJointDesc::Prismatic(v4::XAxis()), ArticulationLinkDesc{.m_inertia = Inertia::Sphere(0.2f, 2.0f)});
+			auto articulation = builder.Build();
+			articulation.GravityWS(child, 3.0f * v4::XAxis());
+			articulation.Sleep();
+			auto forest = std::array{&articulation};
+			auto upload = PackGpuArticulations(forest);
+			auto const shape_ids = std::array{-1, -1};
+			auto bodies = PackGpuArticulationProxies(upload, forest, shape_ids, 0);
+			auto const sleeping_bit = static_cast<int>(ERigidBodyStateFlags::Sleeping);
+			auto const static_bit = static_cast<int>(ERigidBodyStateFlags::Static);
+			PR_EXPECT((bodies[0].state_flags & (static_bit | sleeping_bit)) == (static_bit | sleeping_bit));
+			PR_EXPECT((bodies[1].state_flags & sleeping_bit) != 0);
+			auto& gpu = ProxyFrameTestGpu();
+			auto config = EngineConfig{};
+			auto integrator = GpuIntegrator{gpu, config};
+			auto aba = GpuArticulationForceAba{gpu};
+			auto midpoint = GpuArticulationMidpoint{aba};
+			auto proxies = GpuArticulationLinkProxies{aba, config};
+			PR_EXPECT(midpoint.Upload(gpu.m_job, upload));
+			integrator.Upload(gpu.m_job, bodies);
+			proxies.Upload(gpu.m_job);
+			midpoint.Integrate(gpu.m_job, 0.02f, nullptr, integrator.Bodies().get());
+			auto const output = midpoint.Output();
+			auto asleep_position = gpu.m_job.m_readback.Alloc<float>(1);
+			gpu.m_job.m_barriers.Transition(output.m_positions, D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+			gpu.m_job.m_cmd_list.CopyBufferRegion(asleep_position, output.m_positions, 0);
+			gpu.m_job.m_barriers.Transition(output.m_positions, D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+
+			// Emulate the contact owner's root-bit update between substeps without reuploading articulation state.
+			auto wake_flags = gpu.m_job.m_upload.Alloc<int>(1);
+			*wake_flags.ptr<int>() = bodies[0].state_flags & ~sleeping_bit;
+			gpu.m_job.m_barriers.Transition(integrator.Bodies().get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+			gpu.m_job.m_cmd_list.CopyBufferRegion(integrator.Bodies().get(), offsetof(GpuRigidBody, state_flags), wake_flags);
+			gpu.m_job.m_barriers.Transition(integrator.Bodies().get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+			midpoint.Integrate(gpu.m_job, 0.02f, nullptr, integrator.Bodies().get());
+			proxies.Refresh(gpu.m_job, integrator, 0);
+
+			// The awake substep moves once, while refresh mirrors sleep only to children and retains the root's fixed classification.
+			auto awake_position = gpu.m_job.m_readback.Alloc<float>(1);
+			auto proxy_readback = gpu.m_job.m_readback.Alloc<GpuRigidBody>(2);
+			gpu.m_job.m_barriers.Transition(output.m_positions, D3D12_RESOURCE_STATE_COPY_SOURCE);
+			gpu.m_job.m_barriers.Transition(integrator.Bodies().get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+			gpu.m_job.m_cmd_list.CopyBufferRegion(awake_position, output.m_positions, 0);
+			gpu.m_job.m_cmd_list.CopyBufferRegion(proxy_readback, integrator.Bodies().get(), 0);
+			gpu.m_job.Run();
+			PR_EXPECT(*asleep_position.ptr<float>() == 0.0f);
+			PR_EXPECT(FEqlAbsolute(*awake_position.ptr<float>(), 0.0006f, 1.0e-7f));
+			PR_EXPECT(proxy_readback.ptr<GpuRigidBody>()[0].state_flags == static_bit);
+			PR_EXPECT((proxy_readback.ptr<GpuRigidBody>()[1].state_flags & sleeping_bit) == 0);
+		}
+
 		// Dedicated frames survive ABA scratch reuse and retain packed link order for fixed and floating trees.
 		PRUnitTestMethod(HardwarePersistentFramesSurviveMobilityPreparation, Extended)
 		{
@@ -138,8 +195,8 @@ namespace pr::physics::tests
 			}
 		}
 
-		// World-space proxy force and torque gather into the matching link-frame ABA wrench without losing the uploaded baseline.
-		PRUnitTestMethod(HardwareGatheredWrenchesMatchCpuTransform, Extended)
+		// World-space proxy loads retain their physical COM reference and combine with local baseline wrenches.
+		PRUnitTestMethod(HardwareProxyLoadsMatchCpuTransform, Extended)
 		{
 			auto articulation = BuildProxyFrameTree(EArticulationRootType::Floating, 2);
 			auto forest = std::array{&articulation};
@@ -157,24 +214,7 @@ namespace pr::physics::tests
 				upload.m_external_forces[link_index].force_lin = v4{-0.04f * scale, 0.01f * scale, 0.06f * scale, 0};
 			}
 
-			// Dispatch the production gather pass and retain its per-link wrench stream for an independent CPU comparison.
-			auto& gpu = ProxyFrameTestGpu();
-			auto config = EngineConfig{};
-			auto integrator = GpuIntegrator{gpu, config};
-			auto aba = GpuArticulationForceAba{gpu};
-			auto proxies = GpuArticulationLinkProxies{aba, config};
-			PR_EXPECT(aba.Upload(gpu.m_job, upload));
-			integrator.Upload(gpu.m_job, bodies);
-			proxies.Upload(gpu.m_job);
-			auto* gathered_forces = proxies.GatherForces(gpu.m_job, integrator.Bodies().get());
-			PR_EXPECT(gathered_forces != nullptr);
-			gpu.m_job.m_barriers.Transition(gathered_forces, D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
-			auto readback = gpu.m_job.m_readback.Alloc<GpuFrameForce>(isize(upload.m_links));
-			gpu.m_job.m_cmd_list.CopyBufferRegion(readback, gathered_forces, 0);
-			gpu.m_job.Run();
-
 			// Reproduce the centre-of-mass torque transport and source-to-link force transform directly from packed CPU values.
-			auto const* actual = readback.ptr<GpuFrameForce>();
 			for (int link_index = 0; link_index != isize(upload.m_links); ++link_index)
 			{
 				auto const& body = bodies[link_index];
@@ -189,10 +229,27 @@ namespace pr::physics::tests
 				auto const force_link = shape_to_link.rot * force_proxy;
 				auto const torque_link = shape_to_link.rot * torque_proxy + Cross(shape_to_link.pos, force_link);
 
-				PR_EXPECT(FEqlAbsolute(actual[link_index].force_ang, baseline.force_ang + torque_link, 2.0e-5f));
-				PR_EXPECT(FEqlAbsolute(actual[link_index].force_lin, baseline.force_lin + force_link, 2.0e-5f));
+				articulation.ExternalForce(articulation.LinkAt(link_index), v8force{baseline.force_ang + torque_link, baseline.force_lin + force_link});
 			}
-			PR_EXPECT(proxies.Stats().m_gather_dispatch_count == 1);
+			articulation.ForwardDynamics();
+			auto const expected = PackGpuArticulations(forest).m_accelerations;
+
+			// A short substep isolates the spatial force conversion; long-run trial-frame correctness has its own pendulum regression.
+			auto& gpu = ProxyFrameTestGpu();
+			auto config = EngineConfig{};
+			auto integrator = GpuIntegrator{gpu, config};
+			auto aba = GpuArticulationForceAba{gpu};
+			auto midpoint = GpuArticulationMidpoint{aba};
+			PR_EXPECT(midpoint.Upload(gpu.m_job, upload));
+			integrator.Upload(gpu.m_job, bodies);
+			midpoint.Integrate(gpu.m_job, 1.0e-5f, nullptr, integrator.Bodies().get());
+			auto* accelerations = midpoint.Output().m_accelerations;
+			gpu.m_job.m_barriers.Transition(accelerations, D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+			auto readback = gpu.m_job.m_readback.Alloc<float>(isize(expected));
+			gpu.m_job.m_cmd_list.CopyBufferRegion(readback, accelerations, 0);
+			gpu.m_job.Run();
+			for (int index = 0; index != isize(expected); ++index)
+				PR_EXPECT(Abs(readback.ptr<float>()[index] - expected[index]) <= 1.0e-3f * std::max(1.0f, Abs(expected[index])));
 		}
 
 		// Link-frame storage is absent for an empty forest and reported exactly when proxies are active.
@@ -208,24 +265,21 @@ namespace pr::physics::tests
 			PR_EXPECT(!aba.Upload(gpu.m_job, empty));
 			proxies.Upload(gpu.m_job);
 			PR_EXPECT(proxies.LinkToWorld() == nullptr);
-			PR_EXPECT(proxies.Stats().m_external_force_capacity == 0);
 			PR_EXPECT(proxies.Stats().m_link_frame_capacity == 0);
 			PR_EXPECT(proxies.Stats().m_logical_bytes == 0);
 			PR_EXPECT(proxies.Stats().m_allocated_feature_bytes == 0);
 
-			// An active forest reports both the per-link wrench stream and persistent 32-byte frame stream.
+			// Proxy refresh owns only the persistent 32-byte frame stream; midpoint consumes world loads directly from bodies.
 			auto articulation = BuildProxyFrameTree(EArticulationRootType::Fixed, 2);
 			auto forest = std::array{&articulation};
 			auto const upload = PackGpuArticulations(forest);
 			PR_EXPECT(aba.Upload(gpu.m_job, upload));
 			proxies.Upload(gpu.m_job);
 			auto const& active_stats = proxies.Stats();
-			auto const expected_logical_bytes = upload.m_links.size() * (sizeof(GpuFrameForce) + sizeof(GpuConstraintFrame));
+			auto const expected_logical_bytes = upload.m_links.size() * sizeof(GpuConstraintFrame);
 			auto const expected_allocated_bytes =
-				static_cast<size_t>(active_stats.m_external_force_capacity) * sizeof(GpuFrameForce) +
 				static_cast<size_t>(active_stats.m_link_frame_capacity) * sizeof(GpuConstraintFrame);
 			PR_EXPECT(proxies.LinkToWorld() != nullptr);
-			PR_EXPECT(active_stats.m_external_force_capacity >= isize(upload.m_links));
 			PR_EXPECT(active_stats.m_link_frame_capacity >= isize(upload.m_links));
 			PR_EXPECT(active_stats.m_logical_bytes == expected_logical_bytes);
 			PR_EXPECT(active_stats.m_allocated_feature_bytes == expected_allocated_bytes);
@@ -235,7 +289,6 @@ namespace pr::physics::tests
 			PR_EXPECT(!aba.Upload(gpu.m_job, empty));
 			proxies.Upload(gpu.m_job);
 			PR_EXPECT(proxies.LinkToWorld() == nullptr);
-			PR_EXPECT(proxies.Stats().m_external_force_capacity == 0);
 			PR_EXPECT(proxies.Stats().m_link_frame_capacity == 0);
 			PR_EXPECT(proxies.Stats().m_logical_bytes == 0);
 			PR_EXPECT(proxies.Stats().m_allocated_feature_bytes == 0);

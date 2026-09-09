@@ -427,8 +427,8 @@ namespace pr::physics
 		// Append aggregate counters and optional collision records for one completed GPU substep.
 		void CaptureSubstepOutput(int substep_index, int substep_count, bool collect_events);
 
-		// Record one packed readback using the same explicit articulation layout supplied at frame start.
-		void Readback(GpuBuffers& buffers, GpuArticulationMidpointOutput const& articulations);
+		// Record one packed readback with only the optional streams included in this frame's layout.
+		void Readback(GpuBuffers& buffers, GpuArticulationMidpointOutput const& articulations, bool include_constraints);
 
 		// Validate the complete gathered frame before publishing rigid or articulation state, and report when rollback is no longer safe.
 		void Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies, std::span<Articulation*> articulations, std::span<PendingStep::ArticulationOutputRange const> articulation_ranges, ConstraintSet const* constraints, float articulation_substep_seconds, float articulation_elapsed_seconds, bool& output_committed);

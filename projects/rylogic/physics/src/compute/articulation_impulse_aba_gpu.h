@@ -72,10 +72,11 @@ namespace pr::physics
 		// Upload one link-coordinate spatial impulse per participating link without submitting or waiting.
 		bool Upload(GpuJob& job, std::span<GpuArticulationSpatialVector const> link_impulses);
 
-		// Apply every participating tree's gathered impulses through one fixed-configuration ABA response.
+		// Reconstruct current link velocities and apply every participating tree's gathered impulses through one fixed-configuration ABA response.
 		void Run(GpuJob& job);
 
 		// Evaluate selected tree responses into detached work buffers and one caller-owned validity result per range.
+		// Cached link velocities must already match the current generalized state.
 		void Evaluate(GpuJob& job, ID3D12Resource* selection, ID3D12Resource* results);
 
 		// Commit previously evaluated responses for the caller-selected valid ranges.

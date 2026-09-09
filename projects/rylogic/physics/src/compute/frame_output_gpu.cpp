@@ -33,7 +33,7 @@ namespace pr::physics
 		int substep_index;
 		int substep_count;
 		int body_count;
-		int pad0;
+		int articulation_proxy_count;
 		int articulation_count;
 		int position_count;
 		int velocity_count;
@@ -157,6 +157,7 @@ namespace pr::physics
 			.UAV(EReg::OutputPositions)
 			.UAV(EReg::OutputVelocities)
 			.UAV(EReg::OutputAccelerations)
+			.UAV(EReg::Bodies)
 			;
 
 		m_cs_gather_articulations.m_sig = sig.Create(m_gpu, "Physics:GatherFrameArticulationsSig");
@@ -374,7 +375,15 @@ namespace pr::physics
 	}
 
 	// Gather final state and sparse diagnostic streams before recording the frame's sole GPU-to-CPU copy.
-	GpuFrameOutputReadback GpuFrameOutput::GatherAndReadback(GpuJob& job, int body_count, ID3D12Resource* bodies, GpuArticulationMidpointOutput const& articulations, GpuConstraintBreakOutput const& constraint_breaks, GpuCoupledConstraintFailureOutput const& coupled_failures)
+	GpuFrameOutputReadback GpuFrameOutput::GatherAndReadback(
+		GpuJob& job,
+		int body_count,
+		ID3D12Resource* bodies,
+		GpuArticulationMidpointOutput const& articulations,
+		GpuConstraintBreakOutput const& constraint_breaks,
+		GpuCoupledConstraintFailureOutput const& coupled_failures,
+		int articulation_proxy_count,
+		ID3D12Resource* constraint_state)
 	{
 		if (body_count != m_layout.m_body_count)
 			throw std::runtime_error("GPU frame output body count changed after BeginFrame");
@@ -388,9 +397,16 @@ namespace pr::physics
 		if (coupled_failures.m_island_count != m_layout.m_coupled_failure_count ||
 			(coupled_failures.m_island_count != 0 && coupled_failures.m_states == nullptr))
 			throw std::runtime_error("GPU frame output coupled-failure dimensions changed after BeginFrame");
+		if (articulation_proxy_count < 0 || (articulation_proxy_count != 0 && (
+			articulations.m_articulation_count == 0 || bodies == nullptr ||
+			bodies->GetDesc().Width < (static_cast<uint64_t>(body_count) + static_cast<uint64_t>(articulation_proxy_count)) * sizeof(GpuRigidBody))))
+			throw std::runtime_error("GPU frame output proxy suffix does not fit the submitted body resource");
+		if (constraint_state != nullptr && constraint_state->GetDesc().Width < sizeof(GpuConstraintSolverState))
+			throw std::runtime_error("GPU frame output requires a complete constraint diagnostic state");
 
 		auto cb = cbFrameOutput{
 			.body_count = body_count,
+			.articulation_proxy_count = articulation_proxy_count,
 			.articulation_count = articulations.m_articulation_count,
 			.position_count = articulations.m_position_count,
 			.velocity_count = articulations.m_velocity_count,
@@ -409,6 +425,15 @@ namespace pr::physics
 			job.m_barriers.Transition(bodies, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Commit();
+		}
+
+		// Reuse header padding for the frame-sticky arithmetic failure without another readback or per-slot output stream.
+		if (constraint_state != nullptr)
+		{
+			job.m_barriers.Transition(constraint_state, D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			job.m_barriers.Commit();
+			job.m_cmd_list.CopyBufferRegion(m_r_output.get(), offsetof(GpuFrameOutputHeader, constraint_failure_slot_plus_one), constraint_state, offsetof(GpuConstraintSolverState, failure_slot_plus_one), sizeof(uint32_t));
 		}
 
 		// Copy the complete optional stable-slot latch so break application cannot overflow or lose a required disable transition.
@@ -449,6 +474,9 @@ namespace pr::physics
 				articulations.m_states == nullptr)
 				throw std::runtime_error("GPU frame output articulation resources are incomplete");
 
+			// Standalone articulation gathers do not require proxy bodies or allocate an unused placeholder buffer.
+			auto* proxy_bodies = articulation_proxy_count != 0 ? bodies : m_r_output.get();
+			job.m_barriers.Transition(proxy_bodies, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(articulations.m_articulations, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(articulations.m_positions, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Transition(articulations.m_velocities, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -469,6 +497,7 @@ namespace pr::physics
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress() + m_layout.m_position_offset);
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress() + m_layout.m_velocity_offset);
 			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress() + m_layout.m_acceleration_offset);
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(proxy_bodies->GetGPUVirtualAddress());
 			auto const item_count = std::max({articulations.m_articulation_count, articulations.m_position_count, articulations.m_velocity_count});
 			job.m_cmd_list.Dispatch((item_count + FrameOutputThreadCount - 1) / FrameOutputThreadCount, 1, 1);
 			++m_dispatch_count;

@@ -29,6 +29,7 @@ namespace pr::physics
 		int m_velocity_capacity;
 		int m_force_capacity;
 		int m_external_force_capacity;
+		int m_world_force_capacity;
 		int m_child_capacity;
 		int m_level_link_capacity;
 		int m_acceleration_capacity;
@@ -37,7 +38,7 @@ namespace pr::physics
 		int m_joint_matrix_capacity;
 		int m_dispatch_count;
 
-		// Active scratch follows 336L + 64D + 4*sum(d_j^2), independent of retained high-water capacity.
+		// Active scratch follows 352L + 64D + 4*sum(d_j^2), independent of retained high-water capacity.
 		size_t m_logical_scratch_bytes;
 
 		// Sum of every active typed buffer width, excluding inactive sentinel storage and heap-alignment overhead.
@@ -84,6 +85,7 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_r_velocities;
 		D3DPtr<ID3D12Resource> m_r_forces;
 		D3DPtr<ID3D12Resource> m_r_external_forces;
+		D3DPtr<ID3D12Resource> m_r_world_forces;
 		D3DPtr<ID3D12Resource> m_r_children;
 		D3DPtr<ID3D12Resource> m_r_level_links;
 		D3DPtr<ID3D12Resource> m_r_accelerations;

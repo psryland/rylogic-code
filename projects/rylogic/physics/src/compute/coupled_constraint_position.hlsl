@@ -36,6 +36,11 @@ struct cbCoupledConstraintPosition
 	float relaxation;
 	float position_beta;
 	float max_position_speed;
+
+	int shared_pseudo;
+	int pseudo_link_count;
+	int pseudo_velocity_count;
+	int pad0;
 };
 
 ConstantBuffer<cbCoupledConstraintPosition> resource(g_coupled_position, b0);
@@ -167,15 +172,18 @@ float3x3 CoupledPositionInverseInertia(int body_idx)
 float CoupledPositionEndpointRowVelocity(
 	int body_idx,
 	int mobility_idx,
+	int link_idx,
 	float3 jacobian_ang,
 	float3 jacobian_lin)
 {
 	if (mobility_idx >= 0)
 	{
-		if (mobility_idx >= g_coupled_position.mobility_count)
+		int pseudo_idx = g_coupled_position.shared_pseudo != 0 ? link_idx : mobility_idx;
+		int pseudo_count = g_coupled_position.shared_pseudo != 0 ? g_coupled_position.pseudo_link_count : g_coupled_position.mobility_count;
+		if (pseudo_idx < 0 || pseudo_idx >= pseudo_count)
 			return 0.0f;
 
-		GpuArticulationSpatialVector velocity = g_coupled_position_link_pseudo[mobility_idx];
+		GpuArticulationSpatialVector velocity = g_coupled_position_link_pseudo[pseudo_idx];
 		return dot(jacobian_ang, velocity.ang.xyz) + dot(jacobian_lin, velocity.lin.xyz);
 	}
 	if (!CoupledPositionRigidDynamic(body_idx))
@@ -189,8 +197,8 @@ float CoupledPositionEndpointRowVelocity(
 float CoupledPositionRowResidual(GpuConstraintBlock block, GpuCoupledConstraintEndpoint endpoint, GpuConstraintRow row)
 {
 	float velocity =
-		CoupledPositionEndpointRowVelocity(block.body_idx_a, endpoint.mobility_idx_a, row.jacobian_a_ang.xyz, row.jacobian_a_lin.xyz) +
-		CoupledPositionEndpointRowVelocity(block.body_idx_b, endpoint.mobility_idx_b, row.jacobian_b_ang.xyz, row.jacobian_b_lin.xyz);
+		CoupledPositionEndpointRowVelocity(block.body_idx_a, endpoint.mobility_idx_a, endpoint.link_idx_a, row.jacobian_a_ang.xyz, row.jacobian_a_lin.xyz) +
+		CoupledPositionEndpointRowVelocity(block.body_idx_b, endpoint.mobility_idx_b, endpoint.link_idx_b, row.jacobian_b_ang.xyz, row.jacobian_b_lin.xyz);
 	float correction = g_coupled_position.position_beta * row.solve.x / g_coupled_position.timestep;
 	float target_velocity = -clamp(correction, -g_coupled_position.max_position_speed, +g_coupled_position.max_position_speed);
 	return velocity - target_velocity;
@@ -234,6 +242,18 @@ int CoupledPositionRangeVelocityCount(int range_idx)
 	return end - begin;
 }
 
+// Locate a participating tree in the active pseudo-link stream.
+int CoupledPositionPseudoLinkOffset(GpuArticulationMobilityRange range, GpuArticulation articulation)
+{
+	return g_coupled_position.shared_pseudo != 0 ? articulation.link_offset : range.mobility_offset;
+}
+
+// Locate a participating tree in the active generalized pseudo stream.
+int CoupledPositionPseudoVelocityOffset(GpuArticulationMobilityRange range, GpuArticulation articulation)
+{
+	return g_coupled_position.shared_pseudo != 0 ? articulation.velocity_offset : range.velocity_delta_offset;
+}
+
 // Return one gathered target's exact detached pseudo-velocity response for merit evaluation.
 bool CoupledPositionTargetDeltaVelocity(int target_idx, int island_idx, out_(GpuArticulationSpatialVector) delta)
 {
@@ -272,16 +292,16 @@ numthreads(CSClearCoupledPositionState, ConstraintThreadCount, 1, 1)
 void CSClearCoupledPositionState(int3 DTID(dtid))
 {
 	int index = dtid.x;
-	if (index < g_coupled_position.body_count)
+	if (g_coupled_position.shared_pseudo == 0 && index < g_coupled_position.body_count)
 	{
 		GpuConstraintPseudoVelocity pseudo;
 		pseudo.angular_velocity = float4(0.0f, 0.0f, 0.0f, 0.0f);
 		pseudo.linear_velocity = float4(0.0f, 0.0f, 0.0f, 0.0f);
 		g_coupled_position_rigid_pseudo[index] = pseudo;
 	}
-	if (index < g_coupled_position.mobility_count)
+	if (g_coupled_position.shared_pseudo == 0 && index < g_coupled_position.mobility_count)
 		g_coupled_position_link_pseudo[index] = EmptyCoupledPositionSpatialVector();
-	if (index < g_coupled_position.velocity_delta_count)
+	if (g_coupled_position.shared_pseudo == 0 && index < g_coupled_position.velocity_delta_count)
 		g_coupled_position_generalized_pseudo[index] = 0.0f;
 	if (index < g_coupled_position.slot_count)
 	{
@@ -342,6 +362,11 @@ void CSBuildCoupledPositionCandidates(int3 DTID(dtid))
 		return;
 
 	GpuConstraintBlock block = g_coupled_position_blocks[slot_idx];
+	if (AllSet(block.flags, ConstraintBlockFlags_NumericalFailure))
+	{
+		CoupledPositionFailIsland(topology.island_idx, GpuCoupledConstraintFailure_NonFinite);
+		return;
+	}
 	uint active_axes[6];
 	int row_count = 0;
 	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)
@@ -361,27 +386,55 @@ void CSBuildCoupledPositionCandidates(int3 DTID(dtid))
 	GpuCoupledConstraintPreconditioner preconditioner = g_coupled_position_preconditioners[slot_idx];
 	float residual[6];
 	float delta[6];
+	float inverse[36];
+	float candidate[6];
+	float lower[6];
+	float upper[6];
+	float projected[6];
 	for (int row_idx = 0; row_idx != row_count; ++row_idx)
 	{
-		GpuConstraintRow row = g_coupled_position_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx]];
+		int axis_idx = active_axes[row_idx];
+		GpuConstraintRow row = g_coupled_position_rows[slot_idx * GpuConstraintRowsPerBlock + axis_idx];
 		residual[row_idx] = CoupledPositionRowResidual(block, endpoint, row);
+		uint state = (block.row_states >> (2u * axis_idx)) & 3u;
+		float2 bounds = ConstraintImpulseBounds(state, 3.402823466e+38f);
+		lower[row_idx] = bounds.x;
+		upper[row_idx] = bounds.y;
+		for (int column = 0; column != row_count; ++column)
+			inverse[row_idx * 6 + column] = CoupledPreconditionerComponent(preconditioner, row_idx, column);
+
 	}
 	for (int row_idx = 0; row_idx != row_count; ++row_idx)
 	{
 		float correction = 0.0f;
 		for (int column = 0; column != row_count; ++column)
-			correction += CoupledPreconditionerComponent(preconditioner, row_idx, column) * residual[column];
+			correction += inverse[row_idx * 6 + column] * residual[column];
 
-		int axis_idx = active_axes[row_idx];
-		GpuConstraintRow row = g_coupled_position_rows[slot_idx * GpuConstraintRowsPerBlock + axis_idx];
-		uint state = (block.row_states >> (2u * axis_idx)) & 3u;
-		float2 bounds = ConstraintImpulseBounds(state, 3.402823466e+38f);
-		float candidate = clamp(
-			row.bounds.w - g_coupled_position_island_states[topology.island_idx].relaxation * correction,
-			bounds.x,
-			bounds.y);
-		delta[row_idx] = candidate - row.bounds.w;
-		if (!isfinite(residual[row_idx]) || !isfinite(correction) || !isfinite(delta[row_idx]) || !isfinite(candidate))
+		if (!isfinite(residual[row_idx]) || !isfinite(correction))
+		{
+			CoupledPositionFailIsland(topology.island_idx, GpuCoupledConstraintFailure_NonFinite);
+			return;
+		}
+		GpuConstraintRow row = g_coupled_position_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx]];
+		candidate[row_idx] = row.bounds.w - g_coupled_position_island_states[topology.island_idx].relaxation * correction;
+		if (!isfinite(candidate[row_idx]))
+		{
+			CoupledPositionFailIsland(topology.island_idx, GpuCoupledConstraintFailure_NonFinite);
+			return;
+		}
+	}
+
+	// Enforce unilateral bounds in the same response metric as physical constraints without breaking the remaining hard rows.
+	if (!ProjectConstraintBox(row_count, inverse, candidate, lower, upper, projected))
+	{
+		CoupledPositionFailIsland(topology.island_idx, GpuCoupledConstraintFailure_Projection);
+		return;
+	}
+	for (int row_idx = 0; row_idx != row_count; ++row_idx)
+	{
+		GpuConstraintRow row = g_coupled_position_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx]];
+		delta[row_idx] = projected[row_idx] - row.bounds.w;
+		if (!isfinite(delta[row_idx]))
 		{
 			CoupledPositionFailIsland(topology.island_idx, GpuCoupledConstraintFailure_NonFinite);
 			return;
@@ -527,21 +580,29 @@ void CSValidateCoupledPositionTrees(int3 DTID(dtid))
 
 	GpuArticulationMobilityRange range = g_coupled_position_ranges[range_idx];
 	int velocity_count = CoupledPositionRangeVelocityCount(range_idx);
+	GpuArticulation articulation = g_coupled_position_articulations[range.articulation_index];
+	int pseudo_link_offset = CoupledPositionPseudoLinkOffset(range, articulation);
+	int pseudo_velocity_offset = CoupledPositionPseudoVelocityOffset(range, articulation);
+	int pseudo_link_count = g_coupled_position.shared_pseudo != 0 ? g_coupled_position.pseudo_link_count : g_coupled_position.mobility_count;
+	int pseudo_velocity_count = g_coupled_position.shared_pseudo != 0 ? g_coupled_position.pseudo_velocity_count : g_coupled_position.velocity_delta_count;
 	if (
 		range.mobility_offset < 0 || range.link_count < 1 ||
 		range.mobility_offset + range.link_count > g_coupled_position.mobility_count ||
 		range.velocity_delta_offset < 0 || velocity_count < 0 ||
-		range.velocity_delta_offset + velocity_count > g_coupled_position.velocity_delta_count)
+		range.velocity_delta_offset + velocity_count > g_coupled_position.velocity_delta_count ||
+		pseudo_link_offset < 0 || pseudo_link_offset + range.link_count > pseudo_link_count ||
+		pseudo_velocity_offset < 0 || pseudo_velocity_offset + velocity_count > pseudo_velocity_count)
 	{
 		CoupledPositionFailIsland(island_idx, GpuCoupledConstraintFailure_Topology);
 		return;
 	}
 
+	// Detached responses stay compact while accepted state may belong to the complete packed forest.
 	for (int local_link_idx = 0; local_link_idx != range.link_count; ++local_link_idx)
 	{
 		int mobility_idx = range.mobility_offset + local_link_idx;
 		GpuArticulationSpatialVector prospective = CoupledPositionAddSpatial(
-			g_coupled_position_link_pseudo[mobility_idx],
+			g_coupled_position_link_pseudo[pseudo_link_offset + local_link_idx],
 			g_coupled_position_articulation_work[mobility_idx]);
 		if (!CoupledPositionSpatialFinite(prospective))
 		{
@@ -553,7 +614,7 @@ void CSValidateCoupledPositionTrees(int3 DTID(dtid))
 	{
 		int velocity_idx = range.velocity_delta_offset + local_velocity_idx;
 		float prospective =
-			g_coupled_position_generalized_pseudo[velocity_idx] +
+			g_coupled_position_generalized_pseudo[pseudo_velocity_offset + local_velocity_idx] +
 			g_coupled_position_velocity_deltas[velocity_idx];
 		if (!isfinite(prospective))
 		{
@@ -562,13 +623,13 @@ void CSValidateCoupledPositionTrees(int3 DTID(dtid))
 		}
 	}
 
-	GpuArticulation articulation = g_coupled_position_articulations[range.articulation_index];
+	// Bound the complete prospective root rotation before accepting any part of this tree.
 	if (articulation.root_type == GpuArticulationRootType_Floating)
 	{
 		float3 root_angular_velocity = float3(
-			g_coupled_position_generalized_pseudo[range.velocity_delta_offset + 0] + g_coupled_position_velocity_deltas[range.velocity_delta_offset + 0],
-			g_coupled_position_generalized_pseudo[range.velocity_delta_offset + 1] + g_coupled_position_velocity_deltas[range.velocity_delta_offset + 1],
-			g_coupled_position_generalized_pseudo[range.velocity_delta_offset + 2] + g_coupled_position_velocity_deltas[range.velocity_delta_offset + 2]);
+			g_coupled_position_generalized_pseudo[pseudo_velocity_offset + 0] + g_coupled_position_velocity_deltas[range.velocity_delta_offset + 0],
+			g_coupled_position_generalized_pseudo[pseudo_velocity_offset + 1] + g_coupled_position_velocity_deltas[range.velocity_delta_offset + 1],
+			g_coupled_position_generalized_pseudo[pseudo_velocity_offset + 2] + g_coupled_position_velocity_deltas[range.velocity_delta_offset + 2]);
 		if (velocity_count < 6 || !CoupledPositionAngularDisplacementValid(root_angular_velocity))
 			CoupledPositionFailIsland(island_idx, GpuCoupledConstraintFailure_NonFinite);
 	}
@@ -743,17 +804,21 @@ void CSCommitCoupledPositionArticulations(int3 DTID(dtid))
 		{
 			GpuArticulationMobilityRange range = g_coupled_position_ranges[range_idx];
 			int velocity_count = CoupledPositionRangeVelocityCount(range_idx);
+			GpuArticulation articulation = g_coupled_position_articulations[range.articulation_index];
+			int pseudo_link_offset = CoupledPositionPseudoLinkOffset(range, articulation);
+			int pseudo_velocity_offset = CoupledPositionPseudoVelocityOffset(range, articulation);
 			for (int local_link_idx = 0; local_link_idx != range.link_count; ++local_link_idx)
 			{
 				int mobility_idx = range.mobility_offset + local_link_idx;
-				g_coupled_position_link_pseudo[mobility_idx] = CoupledPositionAddSpatial(
-					g_coupled_position_link_pseudo[mobility_idx],
+				int pseudo_idx = pseudo_link_offset + local_link_idx;
+				g_coupled_position_link_pseudo[pseudo_idx] = CoupledPositionAddSpatial(
+					g_coupled_position_link_pseudo[pseudo_idx],
 					g_coupled_position_articulation_work[mobility_idx]);
 			}
 			for (int local_velocity_idx = 0; local_velocity_idx != velocity_count; ++local_velocity_idx)
 			{
 				int velocity_idx = range.velocity_delta_offset + local_velocity_idx;
-				g_coupled_position_generalized_pseudo[velocity_idx] += g_coupled_position_velocity_deltas[velocity_idx];
+				g_coupled_position_generalized_pseudo[pseudo_velocity_offset + local_velocity_idx] += g_coupled_position_velocity_deltas[velocity_idx];
 			}
 		}
 	}

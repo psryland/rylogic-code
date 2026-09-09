@@ -6,6 +6,8 @@
 
 namespace pr::physics
 {
+	#include "src/compute/constraint_algebra.hlsli"
+
 	namespace detail::constraint_solver
 	{
 		// Describe which side of a scalar limit is currently active.
@@ -104,58 +106,14 @@ namespace pr::physics
 			return response;
 		}
 
-		// Invert a dense matrix of at most six rows using deterministic partial-pivot elimination.
+		// Adapt fixed native storage to the same scaled inversion used by shader preparation.
 		bool Invert(std::array<float, MaxBlockRows * MaxBlockRows> const& matrix, int dimension, float pivot_tolerance, std::array<float, MaxBlockRows * MaxBlockRows>& inverse)
 		{
-			auto augmented = std::array<float, MaxBlockRows * MaxBlockRows * 2>{};
-			for (int row = 0; row != dimension; ++row)
-			{
-				for (int column = 0; column != dimension; ++column)
-					augmented[row * 2 * MaxBlockRows + column] = matrix[row * MaxBlockRows + column];
-				augmented[row * 2 * MaxBlockRows + MaxBlockRows + row] = 1.0f;
-			}
+			float values[MaxBlockRows * MaxBlockRows] = {};
+			if (!constraint_algebra::InvertConstraintMatrix(matrix.data(), dimension, pivot_tolerance, values))
+				return false;
 
-			// Pivot and eliminate in a fixed order, using row swaps only when numerically necessary.
-			for (int pivot_column = 0; pivot_column != dimension; ++pivot_column)
-			{
-				auto pivot_row = pivot_column;
-				auto pivot_size = std::abs(augmented[pivot_row * 2 * MaxBlockRows + pivot_column]);
-				for (int row = pivot_column + 1; row != dimension; ++row)
-				{
-					auto const candidate = std::abs(augmented[row * 2 * MaxBlockRows + pivot_column]);
-					if (candidate > pivot_size)
-					{
-						pivot_row = row;
-						pivot_size = candidate;
-					}
-				}
-				if (!(pivot_size > pivot_tolerance))
-					return false;
-
-				if (pivot_row != pivot_column)
-				{
-					for (int column = 0; column != 2 * MaxBlockRows; ++column)
-						std::swap(augmented[pivot_column * 2 * MaxBlockRows + column], augmented[pivot_row * 2 * MaxBlockRows + column]);
-				}
-
-				auto const pivot = augmented[pivot_column * 2 * MaxBlockRows + pivot_column];
-				for (int column = 0; column != 2 * MaxBlockRows; ++column)
-					augmented[pivot_column * 2 * MaxBlockRows + column] /= pivot;
-
-				for (int row = 0; row != dimension; ++row)
-				{
-					if (row == pivot_column)
-						continue;
-
-					auto const factor = augmented[row * 2 * MaxBlockRows + pivot_column];
-					for (int column = 0; column != 2 * MaxBlockRows; ++column)
-						augmented[row * 2 * MaxBlockRows + column] -= factor * augmented[pivot_column * 2 * MaxBlockRows + column];
-				}
-			}
-
-			for (int row = 0; row != dimension; ++row)
-				for (int column = 0; column != dimension; ++column)
-					inverse[row * MaxBlockRows + column] = augmented[row * 2 * MaxBlockRows + MaxBlockRows + column];
+			std::copy_n(values, MaxBlockRows * MaxBlockRows, inverse.begin());
 			return true;
 		}
 
@@ -166,18 +124,23 @@ namespace pr::physics
 			for (int row = 0; row != runtime.m_row_count; ++row)
 			{
 				response[row * MaxBlockRows + row] += runtime.m_rows[row].m_gamma;
+				for (int column = 0; column != runtime.m_row_count; ++column)
+					if (!std::isfinite(response[row * MaxBlockRows + column]))
+						throw std::runtime_error("Constraint response is not finite");
+
 				scale = Max(scale, std::abs(response[row * MaxBlockRows + row]));
 			}
 
 			// A completely immovable block cannot change velocity and must remain bounded rather than manufacturing impulses.
-			if (!(scale > math::tiny<float>))
+			if (!(scale > 0.0f))
 			{
 				++metrics.m_singular_blocks;
 				return;
 			}
 			runtime.m_response_scale = scale;
 
-			auto const tolerance = Max(1.0e-7f * scale, math::tiny<float>);
+			// Pivot tests and regularization scale with the actual operator, not world-distance tolerances or unit mass.
+			auto const tolerance = 1.0e-7f * scale;
 			if (Invert(response, runtime.m_row_count, tolerance, runtime.m_inverse_response))
 			{
 				runtime.m_solvable = true;
@@ -185,9 +148,11 @@ namespace pr::physics
 			}
 
 			// Redundant rows receive scale-relative regularization so the selected solution stays finite and deterministic.
-			auto const regularization = config.m_regularization * Max(scale, 1.0f);
 			for (int row = 0; row != runtime.m_row_count; ++row)
-				response[row * MaxBlockRows + row] += regularization;
+			{
+				auto& diagonal = response[row * MaxBlockRows + row];
+				diagonal += config.m_regularization * (diagonal > 0.0f ? diagonal : scale);
+			}
 			if (!Invert(response, runtime.m_row_count, tolerance, runtime.m_inverse_response))
 			{
 				++metrics.m_singular_blocks;
@@ -318,12 +283,9 @@ namespace pr::physics
 			}
 
 			// Implicit spring-damper regularization avoids injecting a large explicit positional velocity.
-			auto const denominator = timestep * (row.m_damping + timestep * row.m_stiffness);
-			if (denominator > math::tiny<float>)
-			{
-				runtime.m_gamma = 1.0f / denominator;
-				runtime.m_bias = runtime.m_position_error * timestep * row.m_stiffness * runtime.m_gamma;
-			}
+			if (!constraint_algebra::ConstraintSoftParameters(timestep, row.m_stiffness, row.m_damping, runtime.m_position_error, runtime.m_gamma, runtime.m_bias))
+				throw std::runtime_error("Constraint spring coefficients are not representable");
+
 			return true;
 		}
 
@@ -367,9 +329,10 @@ namespace pr::physics
 				}
 			}
 
+			// Zero-error hard rows remain active so they can oppose pseudo motion from other rows.
 			auto const correction = config.m_position_beta * runtime.m_position_error / timestep;
 			runtime.m_target_velocity = -std::clamp(correction, -config.m_max_position_speed, +config.m_max_position_speed);
-			return runtime.m_position_error != 0.0f;
+			return true;
 		}
 
 		// Apply the block's configured feasible-set projection to candidate impulses.
@@ -379,8 +342,19 @@ namespace pr::physics
 			{
 				case EConstraintProjection::Independent:
 					{
+						// A dense response couples free impulses to saturated rows; coordinate clamping is not its metric projection.
+						float lower[MaxBlockRows] = {};
+						float upper[MaxBlockRows] = {};
+						float projected[MaxBlockRows] = {};
 						for (int row = 0; row != runtime.m_row_count; ++row)
-							candidate[row] = std::clamp(candidate[row], runtime.m_rows[row].m_lower, runtime.m_rows[row].m_upper);
+						{
+							lower[row] = runtime.m_rows[row].m_lower;
+							upper[row] = runtime.m_rows[row].m_upper;
+						}
+						if (!constraint_algebra::ProjectConstraintBox(runtime.m_row_count, runtime.m_inverse_response.data(), candidate.data(), lower, upper, projected))
+							throw std::runtime_error("Constraint box projection failed to find a finite KKT solution");
+
+						std::copy_n(projected, runtime.m_row_count, candidate.begin());
 						break;
 					}
 				case EConstraintProjection::FrictionCone:
@@ -462,25 +436,31 @@ namespace pr::physics
 
 				auto const& block = constraints.m_blocks[runtime.m_compiled_index];
 				auto candidate = std::array<float, MaxBlockRows>{};
-				auto const gradient_step = 1.0f / runtime.m_response_scale;
+				auto residual = std::array<float, MaxBlockRows>{};
 				for (int row = 0; row != runtime.m_row_count; ++row)
 				{
 					auto const& runtime_row = runtime.m_rows[row];
 					auto const& compiled_row = constraints.m_rows[runtime_row.m_compiled_index];
-					auto const residual =
+					residual[row] =
 						RigidRowVelocity(compiled_row, block, bodies) -
 						runtime_row.m_target_velocity +
 						runtime_row.m_bias +
 						runtime_row.m_gamma * runtime_row.m_impulse;
-					candidate[row] = runtime_row.m_impulse - gradient_step * residual;
-
 					auto const lower_violation = runtime_row.m_lower - runtime_row.m_impulse;
 					auto const upper_violation = runtime_row.m_impulse - runtime_row.m_upper;
 					metrics.m_max_impulse_bound_violation = Max(metrics.m_max_impulse_bound_violation, Max(lower_violation, upper_violation, 0.0f));
 				}
+
+				// Measure the same response-metric fixed point as the solver, with response scale restoring velocity units.
+				for (int row = 0; row != runtime.m_row_count; ++row)
+				{
+					candidate[row] = runtime.m_rows[row].m_impulse;
+					for (int column = 0; column != runtime.m_row_count; ++column)
+						candidate[row] -= runtime.m_inverse_response[row * MaxBlockRows + column] * residual[column];
+				}
 				Project(candidate, runtime, block);
 				for (int row = 0; row != runtime.m_row_count; ++row)
-					metrics.m_projected_velocity_residual = Max(metrics.m_projected_velocity_residual, std::abs(candidate[row] - runtime.m_rows[row].m_impulse) / gradient_step);
+					metrics.m_projected_velocity_residual = Max(metrics.m_projected_velocity_residual, std::abs(candidate[row] - runtime.m_rows[row].m_impulse) * runtime.m_response_scale);
 			}
 		}
 

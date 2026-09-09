@@ -7,8 +7,11 @@
 #include "pr/common/unittests.h"
 #include "pr/physics/physics.h"
 #include "src/compute/articulation_mobility_gpu.h"
+#include "src/compute/articulation_midpoint_gpu.h"
 #include "src/compute/interop/articulation_mobility_runner.h"
+#include "src/unittests/articulation_oracle.h"
 #include "src/unittests/shared_gpu.h"
+#include "src/unittests/shared_engine.h"
 
 namespace pr::physics::tests
 {
@@ -127,7 +130,104 @@ namespace pr::physics::tests
 		{
 			return SharedTestGpu();
 		}
+
+		// Build a force-loaded slider whose reduced force is six but whose physical acceleration is three.
+		std::pair<Articulation, LinkHandle> BuildMobilityAccelerationFixture()
+		{
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFixedRoot(MobilityLink(0));
+			auto const child = builder.AddLink(root, ArticulationJointDesc::Prismatic(v4::XAxis()), ArticulationLinkDesc{.m_inertia = Inertia::Sphere(0.2f, 2.0f)});
+			auto articulation = builder.Build();
+			auto const force = std::array{6.0f};
+			articulation.JointForce(child, force);
+			return {std::move(articulation), child};
+		}
 	}
+
+	// Configuration-only factorization leaves accepted integration outputs intact.
+	PRUnitTestClass(ArticulationMobilityOutputRegressionTests)
+	{
+		// Preparing configuration-only mobility must not replace an accepted acceleration with reduced-force scratch.
+		PRUnitTestMethod(ReplayPreservesAcceptedGeneralizedAcceleration, Quick)
+		{
+			auto [articulation, child] = BuildMobilityAccelerationFixture();
+			articulation.ForwardDynamics();
+			auto forest = std::array{&articulation};
+			auto const upload = PackGpuArticulations(forest);
+			PR_EXPECT(FEqlAbsolute(upload.m_accelerations[0], 3.0f, 1.0e-6f));
+			auto runner = ArticulationMobilityInteropRunner{};
+			auto const participants = std::array{0};
+			runner.Run(upload, participants);
+			PR_EXPECT(runner.Accelerations().size() == upload.m_accelerations.size());
+			PR_EXPECT(FEqlAbsolute(runner.Accelerations()[0], 3.0f, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(MobilityComponent(runner.Mobilities()[1], 3, 3), 0.5f, 1.0e-6f));
+		}
+
+		// The shared GPU acceleration buffer retains the accepted midpoint result through mobility factorization.
+		PRUnitTestMethod(HardwarePreservesAcceptedMidpointAcceleration, Extended)
+		{
+			auto [articulation, child] = BuildMobilityAccelerationFixture();
+			auto forest = std::array{&articulation};
+			auto const upload = PackGpuArticulations(forest);
+			auto& gpu = MobilityTestGpu();
+			auto aba = GpuArticulationForceAba{gpu};
+			auto midpoint = GpuArticulationMidpoint{aba};
+			auto mobility = GpuArticulationMobility{aba};
+			PR_EXPECT(midpoint.Upload(gpu.m_job, upload));
+			auto const participants = std::array{0};
+			PR_EXPECT(mobility.Upload(gpu.m_job, upload, participants));
+			midpoint.Run(gpu.m_job, 0.02f, 1);
+
+			// Capture both sides of the mobility dispatch in one submission so the same accepted resource is compared.
+			auto* accelerations = midpoint.Output().m_accelerations;
+			auto before = gpu.m_job.m_readback.Alloc<float>(1);
+			auto after = gpu.m_job.m_readback.Alloc<float>(1);
+			gpu.m_job.m_barriers.Transition(accelerations, D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+			gpu.m_job.m_cmd_list.CopyBufferRegion(before, accelerations, 0);
+			gpu.m_job.m_barriers.Transition(accelerations, D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+			mobility.Run(gpu.m_job);
+			gpu.m_job.m_barriers.Transition(accelerations, D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+			gpu.m_job.m_cmd_list.CopyBufferRegion(after, accelerations, 0);
+			gpu.m_job.Run();
+			PR_EXPECT(FEqlAbsolute(*before.ptr<float>(), 3.0f, 1.0e-6f));
+			PR_EXPECT(*after.ptr<float>() == *before.ptr<float>());
+		}
+
+		// An inactive coupled limit adds no impulse and must not change generalized or reconstructed link acceleration.
+		PRUnitTestMethod(EngineZeroImpulseCouplingPreservesAcceleration, Extended)
+		{
+			auto [articulation, child] = BuildMobilityAccelerationFixture();
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Link(articulation, child);
+			desc.m_frame_b.m_body = BodyRef::World();
+			desc.m_linear[0].m_mode = EConstraintAxisMode::Limited;
+			desc.m_linear[0].m_limits = {-10.0f, +10.0f};
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto forest = std::array{&articulation};
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			auto config = EngineConfig{};
+			config.sleeping_enabled = false;
+			config.selective_refresh_passes = 0;
+			config.constraint_warm_start_factor = 0.0f;
+			engine.Config(config);
+
+			// The closed-form constant-force trajectory remains strictly inside the limit for this complete frame.
+			auto const dt = 0.02f;
+			engine.Step(Engine::StepInput{.m_articulations = forest, .m_constraints = &constraints, .m_elapsed_seconds = dt});
+			PR_EXPECT(engine.LastFeatureStats().m_coupled.m_resources.m_dispatch_count > 0);
+			PR_EXPECT(FEqlAbsolute(articulation.JointPosition(child)[0], 0.5f * 3.0f * dt * dt, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(articulation.JointVelocity(child)[0], 3.0f * dt, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(articulation.JointAcceleration(child)[0], 3.0f, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(articulation.LinkAcceleration(child).lin, 3.0f * v4::XAxis(), 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(articulation.LinkAcceleration(child).ang, v4::Zero(), 1.0e-6f));
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+			ResetEngineForNextTest(engine);
+		}
+	};
 
 	PRUnitTestClass(ArticulationMobilityGpuTests)
 	{
@@ -210,8 +310,8 @@ namespace pr::physics::tests
 			PR_EXPECT(std::memcmp(runner.Mobilities().data(), first.data(), first.size() * sizeof(first[0])) == 0);
 		}
 
-		// Match real D3D12 output with shared replay and preserve zero allocation when no tree participates.
-		PRUnitTestMethod(HardwareMatchesReplayAndOptionalCost, Extended)
+		// Match hardware and replay to the independent double oracle and preserve zero allocation when no tree participates.
+		PRUnitTestMethod(HardwareMatchesOracleAndOptionalCost, Extended)
 		{
 			auto fixed = BuildMobilityTree(EArticulationRootType::Fixed, 4);
 			auto floating = BuildMobilityTree(EArticulationRootType::Floating, 7);
@@ -233,22 +333,47 @@ namespace pr::physics::tests
 				PR_EXPECT(hardware.m_ranges[range_index].mobility_offset == replay.Ranges()[range_index].mobility_offset);
 			}
 			PR_EXPECT(hardware.m_mobilities.size() == replay.Mobilities().size());
-			auto max_relative_error = 0.0f;
+
+			// Independent double responses avoid treating rounded replay output as the exact reference for hardware accuracy.
+			auto const reference_rows = std::array{articulation_oracle::ConstraintJacobianRow{
+				.m_terms = {articulation_oracle::ConstraintJacobianTerm{
+					.m_link = floating.LinkAt(0),
+					.m_wrench = {1, 0, 0, 0, 0, 0},
+				}},
+				.m_term_count = 1,
+			}};
+			auto const oracle = articulation_oracle::BuildConstraintSystem(floating, reference_rows);
+			auto cpu = std::vector<detail::SpatialMobility>(floating.LinkCount());
+			detail::ComputeArticulationLinkMobilities(floating, cpu);
+			auto max_hardware_oracle_error = 0.0;
+			auto max_replay_oracle_error = 0.0;
+			auto max_cpu_oracle_error = 0.0;
 			for (int link_index = 0; link_index != isize(hardware.m_mobilities); ++link_index)
 			for (int row = 0; row != 6; ++row)
 			for (int column = 0; column != 6; ++column)
 			{
-				auto const actual = MobilityComponent(hardware.m_mobilities[link_index], row, column);
-				auto const expected = MobilityComponent(replay.Mobilities()[link_index], row, column);
-				auto const scale = std::max({1.0f, Abs(actual), Abs(expected)});
-				max_relative_error = std::max(max_relative_error, Abs(actual - expected) / scale);
+				auto const hardware_value = MobilityComponent(hardware.m_mobilities[link_index], row, column);
+				auto const replay_value = MobilityComponent(replay.Mobilities()[link_index], row, column);
+				auto const oracle_value = oracle.m_link_response[link_index](row, column);
+				auto const cpu_value = MobilityComponent(cpu[link_index].col(column), row);
+				auto const hardware_oracle_error = std::abs(hardware_value - oracle_value) / std::max({1.0, std::abs(static_cast<double>(hardware_value)), std::abs(oracle_value)});
+				auto const replay_oracle_error = std::abs(replay_value - oracle_value) / std::max({1.0, std::abs(static_cast<double>(replay_value)), std::abs(oracle_value)});
+				auto const cpu_oracle_error = std::abs(cpu_value - oracle_value) / std::max({1.0, std::abs(static_cast<double>(cpu_value)), std::abs(oracle_value)});
+				max_hardware_oracle_error = std::max(max_hardware_oracle_error, hardware_oracle_error);
+				max_replay_oracle_error = std::max(max_replay_oracle_error, replay_oracle_error);
+				max_cpu_oracle_error = std::max(max_cpu_oracle_error, cpu_oracle_error);
+				PR_EXPECT(std::isfinite(hardware_value) && std::isfinite(replay_value));
+				PR_EXPECT(std::isfinite(cpu_value) && std::isfinite(oracle_value));
 			}
 
-			// Shader contraction can accumulate across the factorization and recurrence while retaining solver-quality parity.
-			PR_EXPECT(max_relative_error <= 1.0e-3f);
+			// Each float implementation has its own rounding error, so apply the same accuracy limit directly against the double oracle.
+			PR_EXPECT(max_hardware_oracle_error <= 1.0e-3);
+			PR_EXPECT(max_replay_oracle_error <= 1.0e-3);
+			PR_EXPECT(max_cpu_oracle_error <= 1.0e-3);
 			PR_EXPECT(sizeof(GpuArticulationSpatialMobility) == 96);
 			PR_EXPECT(hardware.m_mobilities.size() * sizeof(GpuArticulationSpatialMobility) == floating.LinkCount() * 96);
 
+			// Identical hardware inputs retain byte-identical output independently of cross-implementation rounding.
 			auto const repeated = solver.Solve(MobilityTestGpu().m_job, upload, participants);
 			PR_EXPECT(repeated.m_mobilities.size() == hardware.m_mobilities.size());
 			PR_EXPECT(std::memcmp(repeated.m_mobilities.data(), hardware.m_mobilities.data(), hardware.m_mobilities.size() * sizeof(hardware.m_mobilities[0])) == 0);

@@ -11,6 +11,7 @@
 #include "src/compute/frame_output_gpu.h"
 #include "src/compute/interop/articulation_midpoint_runner.h"
 #include "src/unittests/shared_gpu.h"
+#include "src/unittests/shared_engine.h"
 
 namespace pr::physics::tests
 {
@@ -139,6 +140,48 @@ namespace pr::physics::tests
 				static_cast<uint64_t>(body_index) * sizeof(GpuRigidBody) + offsetof(GpuRigidBody, force_lin),
 				upload);
 			args.m_job.m_barriers.Transition(args.m_bodies, D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+		}
+
+		// Build a unit-mass pendulum with COM distance one and central angular inertia 0.1.
+		std::pair<Articulation, LinkHandle> BuildGravityPendulum(float position = 0.1f, float velocity = 0.0f)
+		{
+			auto builder = ArticulationBuilder{};
+			auto const root = builder.AddFixedRoot(MidpointLink(0));
+			auto joint = ArticulationJointDesc::Revolute(v4::ZAxis());
+			joint.m_initial_position[0] = position;
+			joint.m_initial_velocity[0] = velocity;
+			auto const inertia = Inertia{0.1f, 1.0f, -v4::YAxis()};
+			PR_EXPECT(FEql(inertia.CoM(), -v4::YAxis()));
+			PR_EXPECT(FEqlAbsolute(inertia.Ic3x3().z.z, 0.1f, 1.0e-7f));
+			auto const child = builder.AddLink(root, joint, ArticulationLinkDesc{.m_inertia = inertia});
+			return {builder.Build(), child};
+		}
+
+		// Solve the scalar implicit-midpoint pendulum equations independently of spatial algebra and articulation code.
+		void StepAnalyticalPendulum(std::array<double, 2>& state, double dt, double follower_torque = 0.0)
+		{
+			auto const position_start = state[0];
+			auto const velocity_start = state[1];
+			auto position_end = position_start + dt * velocity_start;
+			for (int iteration = 0; iteration != 8; ++iteration)
+			{
+				auto const midpoint = 0.5 * (position_start + position_end);
+				auto const acceleration = (follower_torque - 9.81 * std::sin(midpoint)) / 1.1;
+				auto const residual = position_end - position_start - dt * velocity_start - 0.5 * dt * dt * acceleration;
+				auto const derivative = 1.0 + 0.25 * dt * dt * 9.81 * std::cos(midpoint) / 1.1;
+				position_end -= residual / derivative;
+			}
+
+			// The accepted velocity uses the same converged midpoint, not the beginning-of-step gravity direction.
+			auto const acceleration = (follower_torque - 9.81 * std::sin(0.5 * (position_start + position_end))) / 1.1;
+			state = {position_end, velocity_start + dt * acceleration};
+		}
+
+		// Measure mechanical energy above the downward equilibrium without subtracting nearly equal cosines.
+		double GravityPendulumEnergy(double position, double velocity)
+		{
+			auto const half_sine = std::sin(0.5 * position);
+			return 0.55 * velocity * velocity + 19.62 * half_sine * half_sine;
 		}
 
 		// Reapply deterministic frame-constant generalized and link forces after CPU integration clears them.
@@ -338,6 +381,140 @@ namespace pr::physics::tests
 			return builder.Build();
 		}
 	}
+
+	// World-fixed loads follow trial configurations while explicit link-frame follower loads retain their frame.
+	PRUnitTestClass(ArticulationWorldForceRegressionTests)
+	{
+		// CPU gravity follows every midpoint trial and agrees with independent scalar equations over ten seconds.
+		PRUnitTestMethod(CpuPendulumMatchesAnalyticalMidpoint, Quick)
+		{
+			auto [articulation, child] = BuildGravityPendulum();
+			articulation.GravityWS(child, -9.81f * v4::YAxis());
+			articulation.ForwardDynamics();
+			PR_EXPECT(FEqlAbsolute(articulation.JointAcceleration(child)[0], -9.81f * Sin(0.1f) / 1.1f, 1.0e-6f));
+			auto reference = std::array<double, 2>{static_cast<double>(0.1f), 0.0};
+			auto const dt = 1.0f / 60.0f;
+			auto const initial_energy = GravityPendulumEnergy(reference[0], reference[1]);
+			auto max_energy_error = 0.0;
+			auto max_state_error = 0.0;
+
+			// A frozen beginning-of-step wrench grows this pendulum's energy to about 2.10 times its initial value.
+			for (int step = 0; step != 600; ++step)
+			{
+				StepAnalyticalPendulum(reference, dt);
+				articulation.Integrate(dt);
+				auto const position = articulation.JointPosition(child)[0];
+				auto const velocity = articulation.JointVelocity(child)[0];
+				max_state_error = std::max({max_state_error, std::abs(position - reference[0]), std::abs(velocity - reference[1])});
+				max_energy_error = std::max(max_energy_error, std::abs(GravityPendulumEnergy(position, velocity) / initial_energy - 1.0));
+			}
+			PR_EXPECT(max_state_error < 1.0e-3);
+			PR_EXPECT(max_energy_error < 5.0e-3);
+		}
+
+		// Standalone hardware and replay retain world-fixed gravity without requiring hidden proxy resources.
+		PRUnitTestMethod(StandalonePendulumUsesWorldGravity, Extended)
+		{
+			auto [articulation, child] = BuildGravityPendulum();
+			articulation.GravityWS(child, -9.81f * v4::YAxis());
+			auto forest = std::array{&articulation};
+			auto const upload = PackGpuArticulations(forest);
+			auto replay_upload = upload;
+			auto replay = ArticulationMidpointInteropRunner{};
+			auto const dt = 1.0f / 60.0f;
+			replay.Run(replay_upload, dt, 600);
+			auto aba = GpuArticulationForceAba{SharedTestGpu()};
+			auto midpoint = GpuArticulationMidpoint{aba};
+			auto const hardware = midpoint.Solve(SharedTestGpu().m_job, upload, dt, 600);
+			PR_EXPECT(hardware.AllSucceeded());
+
+			// The independent scalar solution and mechanical energy guard both paths rather than comparing only shader implementations.
+			auto reference = std::array<double, 2>{static_cast<double>(0.1f), 0.0};
+			auto const initial_energy = GravityPendulumEnergy(reference[0], reference[1]);
+			for (int step = 0; step != 600; ++step)
+				StepAnalyticalPendulum(reference, dt);
+
+			// Both final states must remain on the bounded-energy trajectory.
+			for (auto const state : {std::array{replay_upload.m_positions[0], replay_upload.m_velocities[0]}, std::array{hardware.m_positions[0], hardware.m_velocities[0]}})
+			{
+				PR_EXPECT(std::abs(state[0] - reference[0]) < 1.0e-3);
+				PR_EXPECT(std::abs(state[1] - reference[1]) < 1.0e-3);
+				PR_EXPECT(std::abs(GravityPendulumEnergy(state[0], state[1]) / initial_energy - 1.0) < 5.0e-3);
+			}
+		}
+
+		// Engine gravity remains world-fixed throughout each trial without adding submissions or readbacks.
+		PRUnitTestMethod(EnginePendulumGravityDoesNotPumpEnergy, Extended)
+		{
+			auto [articulation, child] = BuildGravityPendulum();
+			articulation.GravityWS(child, -9.81f * v4::YAxis());
+			auto forest = std::array{&articulation};
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			engine.Config(MidpointEngineConfig());
+			auto reference = std::array<double, 2>{static_cast<double>(0.1f), 0.0};
+			auto const dt = 1.0f / 60.0f;
+			auto const initial_energy = GravityPendulumEnergy(reference[0], reference[1]);
+			auto max_energy_error = 0.0;
+			auto max_state_error = 0.0;
+
+			// Long-run energy and the scalar solution independently expose a force frozen in the starting link frame.
+			for (int step = 0; step != 600; ++step)
+			{
+				StepAnalyticalPendulum(reference, dt);
+				engine.Step(Engine::StepInput{.m_articulations = forest, .m_elapsed_seconds = dt});
+				auto const position = articulation.JointPosition(child)[0];
+				auto const velocity = articulation.JointVelocity(child)[0];
+				max_state_error = std::max({max_state_error, std::abs(position - reference[0]), std::abs(velocity - reference[1])});
+				max_energy_error = std::max(max_energy_error, std::abs(GravityPendulumEnergy(position, velocity) / initial_energy - 1.0));
+			}
+			PR_EXPECT(max_state_error < 1.0e-3);
+			PR_EXPECT(max_energy_error < 5.0e-3);
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+			ResetEngineForNextTest(engine);
+		}
+
+		// A GPU force at the moving COM rotates per trial while an explicit link-origin follower wrench remains local.
+		PRUnitTestMethod(EngineWorldForceKeepsLocalFollowerSeparate, Extended)
+		{
+			auto [articulation, child] = BuildGravityPendulum(0.7f, 0.8f);
+			auto forest = std::array{&articulation};
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			engine.Config(MidpointEngineConfig());
+			auto callback_count = 0;
+			engine.ExternalForces += [&](Engine& sender, Engine::ExternalForceArgs const& args)
+			{
+				auto const proxy_index = sender.ArticulationLinkStepIndex(articulation.Id(), child);
+				WriteBodyLinearForce(args, proxy_index, -9.81f * v4::YAxis());
+				++callback_count;
+			};
+			auto reference = std::array<double, 2>{static_cast<double>(0.7f), static_cast<double>(0.8f)};
+			auto const dt = 1.0f / 30.0f;
+			auto const follower_torque = 0.3f;
+			auto max_state_error = 0.0;
+
+			// Link-local force is already about the link origin; applying a second COM shift changes its generalized torque.
+			for (int step = 0; step != 120; ++step)
+			{
+				articulation.ExternalForce(child, v8force{follower_torque * v4::ZAxis(), 0.4f * v4::XAxis()});
+				StepAnalyticalPendulum(reference, dt, follower_torque);
+				engine.Step(Engine::StepInput{.m_articulations = forest, .m_elapsed_seconds = dt});
+				max_state_error = std::max({
+					max_state_error,
+					std::abs(articulation.JointPosition(child)[0] - reference[0]),
+					std::abs(articulation.JointVelocity(child)[0] - reference[1])});
+			}
+			PR_EXPECT(max_state_error < 2.0e-3);
+			PR_EXPECT(callback_count == 120);
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_wait_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+			ResetEngineForNextTest(engine);
+		}
+	};
 
 	PRUnitTestClass(ArticulationMidpointTests)
 	{

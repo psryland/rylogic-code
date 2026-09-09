@@ -130,7 +130,6 @@ namespace pr::physics::shader_code
 	extern ByteCode const articulation_apply_impulses;
 	extern ByteCode const articulation_evaluate_impulses;
 	extern ByteCode const articulation_commit_impulses;
-	extern ByteCode const articulation_gather_proxy_forces;
 	extern ByteCode const articulation_refresh_proxies;
 
 	// Selective refresh

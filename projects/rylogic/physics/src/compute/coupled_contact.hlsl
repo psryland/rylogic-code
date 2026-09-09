@@ -25,27 +25,23 @@ struct cbCoupledContact
 	int articulation_count;
 
 	int link_count;
-	int participant_count;
 	int target_count;
-	int mobility_count;
-
-	int articulation_range_count;
 	int work_count;
 	int phase;
-	int velocity_delta_count;
 
+	int velocity_delta_count;
 	float relaxation;
 	float restitution_scale;
 	float dt;
-	float position_slop;
 
+	float position_slop;
 	float position_beta;
 	float max_position_speed;
 	int position_iteration_index;
-	float pad1;
 };
 
 ConstantBuffer<cbCoupledContact> resource(g_coupled_contact, b0);
+
 StructuredBuffer<GpuCollisionCounters> resource(g_coupled_contact_counters, t0);
 StructuredBuffer<GpuMaterial> resource(g_coupled_contact_materials, t1);
 StructuredBuffer<GpuArticulationLink> resource(g_coupled_contact_links, t2);
@@ -145,9 +141,9 @@ GpuArticulationSpatialVector CoupledContactApplyMobility(GpuArticulationSpatialM
 GpuCoupledContactBlock CoupledContactInactiveBlock()
 {
 	GpuCoupledContactBlock block;
-	block.inverse_response_0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	block.inverse_response_1 = float4(0.0f, 0.0f, 0.0f, 0.0f);
-	block.inverse_response_2 = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	block.response_0 = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	block.response_1 = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	block.response_2 = float4(0.0f, 0.0f, 0.0f, 0.0f);
 	block.target_normal_speed = 0.0f;
 	block.friction = 0.0f;
 	block.participant_a = -1;
@@ -197,10 +193,23 @@ void CoupledContactFail(uint failure)
 #endif
 }
 
+// Bound unsigned attempted-count bits before signed indexing, matching the endpoint sort without changing the raw counter.
+uint CoupledContactBoundedCount(uint capacity)
+{
+	return min((uint)g_coupled_contact_counters[0].contact_count, capacity);
+}
+
 // Return the bounded number of contacts produced by narrowphase.
 int CoupledContactCount()
 {
-	return min((int)g_coupled_contact_counters[0].contact_count, g_coupled_contact.max_contacts);
+	return (int)CoupledContactBoundedCount((uint)g_coupled_contact.max_contacts);
+}
+
+// Flatten large dispatches; saturated padding indices are rejected by every signed logical bound before resource access.
+int CoupledContactThreadIndex(int3 dtid)
+{
+	uint index = (uint)dtid.x + (uint)dtid.y * 65535u * (uint)ConstraintThreadCount;
+	return (int)min(index, 0x7FFFFFFFu);
 }
 
 // Return true when a packed body index denotes a hidden articulation-link proxy.
@@ -222,6 +231,23 @@ int CoupledContactProxyLink(int body_idx)
 		g_coupled_contact_links[link_idx].proxy_body_index != body_idx)
 		return -1;
 	return link_idx;
+}
+
+// Return the root proxy that owns sleep state for a validated packed link.
+int CoupledContactRootProxy(int link_idx)
+{
+	int articulation_idx = g_coupled_contact_links[link_idx].articulation_index;
+	return g_coupled_contact.rigid_body_count + g_coupled_contact_articulations[articulation_idx].link_offset;
+}
+
+// Return whether a contact endpoint belongs to a sleeping articulation.
+bool CoupledContactSleepingTree(int body_idx)
+{
+	int link_idx = CoupledContactProxyLink(body_idx);
+	if (link_idx < 0)
+		return false;
+
+	return AllSet(g_coupled_contact_bodies[CoupledContactRootProxy(link_idx)].state_flags, ERigidBodyStateFlags_Sleeping);
 }
 
 // Return true when one ordinary rigid endpoint can accept momentum.
@@ -303,7 +329,7 @@ float3 CoupledContactPointResponse(int body_idx, float3 point_ws, float3 impulse
 	if (CoupledContactProxyBody(body_idx))
 	{
 		int link_idx = CoupledContactProxyLink(body_idx);
-		if (link_idx < 0 || link_idx >= g_coupled_contact.mobility_count)
+		if (link_idx < 0 || link_idx >= g_coupled_contact.link_count)
 			return float3(0.0f, 0.0f, 0.0f);
 
 		GpuConstraintFrame frame = g_coupled_contact_link_to_world[link_idx];
@@ -388,7 +414,7 @@ float3 CoupledContactPseudoRelativeVelocity(GpuResolveContact contact, float3 po
 	return mul((float3x3)g_coupled_contact_bodies[contact.body_idx_a].o2w, velocity_ws);
 }
 
-// Project an accumulated impulse onto the unilateral Coulomb cone in body A space.
+// Make a cached impulse feasible without changing its positive normal component.
 float3 CoupledContactProjectImpulse(float3 impulse, float3 axis, float friction)
 {
 	float normal = max(dot(impulse, axis), 0.0f);
@@ -398,6 +424,39 @@ float3 CoupledContactProjectImpulse(float3 impulse, float3 axis, float friction)
 	if (tangent_length > tangent_limit && tangent_length > 1.0e-12f)
 		tangent *= tangent_limit / tangent_length;
 	return normal * axis + tangent;
+}
+
+// Return a local Coulomb impulse that corrects closing motion and opposes slip within the available normal support.
+float3 CoupledContactSolveImpulse(GpuCoupledContactBlock block, float3 old_impulse, float3 residual, float3 axis)
+{
+	// A frictionless contact has only one active direction, regardless of the full point-response matrix.
+	float old_normal = dot(old_impulse, axis);
+	if (block.friction == 0.0f)
+		return max(old_normal - dot(residual, axis) * block.response_0.w, 0.0f) * axis;
+
+	// Local sweeps account for normal/tangent coupling without another articulation-response dispatch.
+	float3x3 response = float3x3(block.response_0.xyz, block.response_1.xyz, block.response_2.xyz);
+	float3 candidate = old_impulse;
+	for (int iteration = 0; iteration != 4; ++iteration)
+	{
+		// Normal complementarity is independent of slip; a joint cone projection would manufacture normal support.
+		float3 velocity = residual + mul(response, candidate - old_impulse);
+		float normal = dot(candidate, axis);
+		float corrected_normal = max(normal - dot(velocity, axis) * block.response_0.w, 0.0f);
+		candidate += (corrected_normal - normal) * axis;
+
+		// The tangent trace bounds its response, so this scalar step permits an ordinary friction-disc projection.
+		velocity = residual + mul(response, candidate - old_impulse);
+		float3 slip = velocity - dot(velocity, axis) * axis;
+		float3 tangent = candidate - corrected_normal * axis - block.response_1.w * slip;
+		float tangent_length = length(tangent);
+		float tangent_limit = block.friction * corrected_normal;
+		if (tangent_length > tangent_limit && tangent_length > 0.0f)
+			tangent *= tangent_limit / tangent_length;
+
+		candidate = corrected_normal * axis + tangent;
+	}
+	return candidate;
 }
 
 // Convert one endpoint's signed point impulse into its target-local spatial impulse.
@@ -462,10 +521,11 @@ void CoupledContactWakeRigid(inout_(GpuRigidBody) body)
 numthreads(CSClearCoupledContacts, ConstraintThreadCount, 1, 1)
 void CSClearCoupledContacts(int3 DTID(dtid))
 {
-	int idx = dtid.x;
+	int idx = CoupledContactThreadIndex(dtid);
 	if (idx >= g_coupled_contact.work_count)
 		return;
 
+	// A fixed-capacity radix sort requires an invalid suffix, even when narrowphase produced fewer contacts this frame.
 	if (idx < g_coupled_contact.max_contacts)
 	{
 		g_coupled_contact_blocks[idx] = CoupledContactInactiveBlock();
@@ -483,11 +543,11 @@ void CSClearCoupledContacts(int3 DTID(dtid))
 	}
 	if (idx < g_coupled_contact.target_count)
 		g_coupled_contact_target_impulses[idx] = CoupledContactZeroSpatial();
-	if (idx < g_coupled_contact.participant_count)
+	if (idx < g_coupled_contact.rigid_body_count + g_coupled_contact.articulation_count)
 		g_coupled_contact_participant_degrees[idx] = 0u;
-	if (idx < g_coupled_contact.mobility_count)
+	if (idx < g_coupled_contact.link_count)
 		g_coupled_contact_link_impulses[idx] = CoupledContactZeroSpatial();
-	if (idx < g_coupled_contact.articulation_range_count)
+	if (idx < g_coupled_contact.articulation_count)
 	{
 		g_coupled_contact_tree_selection[idx] = 0u;
 		g_coupled_contact_tree_results[idx] = 1u;
@@ -507,9 +567,7 @@ void CSClearCoupledContacts(int3 DTID(dtid))
 numthreads(CSPrepareCoupledContacts, ConstraintThreadCount, 1, 1)
 void CSPrepareCoupledContacts(int3 DTID(dtid))
 {
-	int contact_idx = dtid.x;
-	if (contact_idx >= g_coupled_contact.max_contacts)
-		return;
+	int contact_idx = CoupledContactThreadIndex(dtid);
 	if (contact_idx >= CoupledContactCount())
 		return;
 
@@ -547,24 +605,22 @@ void CSPrepareCoupledContacts(int3 DTID(dtid))
 	GpuRigidBody body_a = g_coupled_contact_bodies[contact.body_idx_a];
 	float3 point_ws = mul(float4(contact.contact_point.xyz, 1.0f), body_a.o2w).xyz;
 	float3x3 response = CoupledContactResponseMatrix(contact, point_ws);
-	float response_scale = max(max(abs(response[0][0]), abs(response[1][1])), abs(response[2][2]));
-	if (!(response_scale > 1.0e-10f) || !isfinite(response_scale))
-		return;
-
-	// Relative regularization protects nearly locked trees without replacing a genuinely immovable pair with artificial compliance.
-	float regularization = max(response_scale * 1.0e-6f, 1.0e-10f);
-	response[0][0] += regularization;
-	response[1][1] += regularization;
-	response[2][2] += regularization;
-	float response_determinant = determinant(response);
-	if (!(abs(response_determinant) > 1.0e-20f) || !isfinite(response_determinant))
-		return;
-
-	float3x3 inverse_response = Invert(response);
 	if (
-		!CoupledContactVectorFinite(inverse_response[0]) ||
-		!CoupledContactVectorFinite(inverse_response[1]) ||
-		!CoupledContactVectorFinite(inverse_response[2]))
+		!CoupledContactVectorFinite(response[0]) ||
+		!CoupledContactVectorFinite(response[1]) ||
+		!CoupledContactVectorFinite(response[2]))
+		return;
+
+	// Only normal mobility is required; locked tangent directions must not invalidate a solvable contact.
+	float normal_response = dot(contact.axis.xyz, mul(response, contact.axis.xyz));
+	if (!(normal_response > 0.0f))
+		return;
+
+	// Use the response's actual scale rather than an absolute mass or inertia threshold.
+	float tangent_trace = max(response[0][0] + response[1][1] + response[2][2] - normal_response, 0.0f);
+	float inverse_normal_response = 1.0f / normal_response;
+	float inverse_tangent_trace = tangent_trace > 0.0f ? 1.0f / tangent_trace : 0.0f;
+	if (!isfinite(inverse_normal_response) || !isfinite(inverse_tangent_trace))
 		return;
 
 	// Restitution is captured before warm starting so repeated outer sweeps converge to one impact target instead of rebounding repeatedly.
@@ -577,9 +633,9 @@ void CSPrepareCoupledContacts(int3 DTID(dtid))
 	float friction_ratio = min(sqrt(material_a.friction_static * material_b.friction_static), 0.9999f);
 
 	GpuCoupledContactBlock block;
-	block.inverse_response_0 = float4(inverse_response[0], 0.0f);
-	block.inverse_response_1 = float4(inverse_response[1], 0.0f);
-	block.inverse_response_2 = float4(inverse_response[2], 0.0f);
+	block.response_0 = float4(response[0], inverse_normal_response);
+	block.response_1 = float4(response[1], inverse_tangent_trace);
+	block.response_2 = float4(response[2], 0.0f);
 	block.target_normal_speed = closing_speed < 0.0f ? -elasticity * closing_speed : 0.0f;
 	block.friction = friction_ratio / (1.000001f - friction_ratio);
 	block.participant_a = participant_a;
@@ -597,11 +653,11 @@ void CSPrepareCoupledContacts(int3 DTID(dtid))
 numthreads(CSPrepareCoupledContactPosition, ConstraintThreadCount, 1, 1)
 void CSPrepareCoupledContactPosition(int3 DTID(dtid))
 {
-	int idx = dtid.x;
+	int idx = CoupledContactThreadIndex(dtid);
 	if (idx >= g_coupled_contact.work_count)
 		return;
 
-	if (idx < g_coupled_contact.max_contacts)
+	if (idx < CoupledContactCount())
 	{
 		GpuCoupledContactScratch scratch = g_coupled_contact_scratch[idx];
 		scratch.position_impulse = float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -615,7 +671,7 @@ void CSPrepareCoupledContactPosition(int3 DTID(dtid))
 		pseudo.linear_velocity = float4(0.0f, 0.0f, 0.0f, 0.0f);
 		g_coupled_contact_rigid_pseudo[idx] = pseudo;
 	}
-	if (idx < g_coupled_contact.mobility_count)
+	if (idx < g_coupled_contact.link_count)
 		g_coupled_contact_link_pseudo[idx] = CoupledContactZeroSpatial();
 	if (idx < g_coupled_contact.velocity_delta_count)
 		g_coupled_contact_generalized_pseudo[idx] = 0.0f;
@@ -625,15 +681,15 @@ void CSPrepareCoupledContactPosition(int3 DTID(dtid))
 numthreads(CSBeginCoupledContactTransaction, ConstraintThreadCount, 1, 1)
 void CSBeginCoupledContactTransaction(int3 DTID(dtid))
 {
-	int idx = dtid.x;
+	int idx = CoupledContactThreadIndex(dtid);
 	if (idx >= g_coupled_contact.work_count)
 		return;
 
 	if (idx < g_coupled_contact.target_count)
 		g_coupled_contact_target_impulses[idx] = CoupledContactZeroSpatial();
-	if (idx < g_coupled_contact.mobility_count)
+	if (idx < g_coupled_contact.link_count)
 		g_coupled_contact_link_impulses[idx] = CoupledContactZeroSpatial();
-	if (idx < g_coupled_contact.articulation_range_count)
+	if (idx < g_coupled_contact.articulation_count)
 	{
 		uint participates = g_coupled_contact_participant_degrees[g_coupled_contact.rigid_body_count + idx] != 0u ? 1u : 0u;
 		g_coupled_contact_tree_selection[idx] = participates;
@@ -654,7 +710,7 @@ void CSBeginCoupledContactTransaction(int3 DTID(dtid))
 numthreads(CSBuildCoupledContactWarmStart, ConstraintThreadCount, 1, 1)
 void CSBuildCoupledContactWarmStart(int3 DTID(dtid))
 {
-	int contact_idx = dtid.x;
+	int contact_idx = CoupledContactThreadIndex(dtid);
 	if (contact_idx >= CoupledContactCount())
 		return;
 
@@ -663,7 +719,12 @@ void CSBuildCoupledContactWarmStart(int3 DTID(dtid))
 		return;
 
 	GpuResolveContact contact = g_coupled_contact_contacts[contact_idx];
-	float3 impulse = CoupledContactProjectImpulse(contact.warmstart_impulse.xyz, contact.axis.xyz, g_coupled_contact_blocks[contact_idx].friction);
+
+	// A cache seed must not inject motion into a sleeper before a fresh contact impulse decides whether to wake it.
+	float3 impulse = float3(0.0f, 0.0f, 0.0f);
+	if (!CoupledContactSleepingTree(contact.body_idx_a) && !CoupledContactSleepingTree(contact.body_idx_b))
+		impulse = CoupledContactProjectImpulse(contact.warmstart_impulse.xyz, contact.axis.xyz, g_coupled_contact_blocks[contact_idx].friction);
+
 	scratch.candidate_impulse.xyz = impulse;
 	g_coupled_contact_scratch[contact_idx] = scratch;
 	if (!CoupledContactPublishContributions(contact_idx, contact, impulse))
@@ -674,7 +735,7 @@ void CSBuildCoupledContactWarmStart(int3 DTID(dtid))
 numthreads(CSBuildCoupledContactCandidates, ConstraintThreadCount, 1, 1)
 void CSBuildCoupledContactCandidates(int3 DTID(dtid))
 {
-	int contact_idx = dtid.x;
+	int contact_idx = CoupledContactThreadIndex(dtid);
 	if (contact_idx >= CoupledContactCount())
 		return;
 
@@ -689,20 +750,12 @@ void CSBuildCoupledContactCandidates(int3 DTID(dtid))
 	float3 relative_velocity = CoupledContactRelativeVelocity(contact, point_ws);
 	float3 target_velocity = block.target_normal_speed * contact.axis.xyz;
 	float3 residual = relative_velocity - target_velocity;
-	float3x3 inverse_response = float3x3(
-		block.inverse_response_0.xyz,
-		block.inverse_response_1.xyz,
-		block.inverse_response_2.xyz);
-
-	// Partition simultaneous physical impulses by maximum endpoint degree so arbitrary contact graphs cannot inject kinetic energy through additive overlap.
+	// Partition simultaneous physical impulses by maximum endpoint degree to bound additive responses through shared bodies and trees.
 	uint degree_a = block.participant_a >= 0 ? g_coupled_contact_participant_degrees[block.participant_a] : 0u;
 	uint degree_b = block.participant_b >= 0 ? g_coupled_contact_participant_degrees[block.participant_b] : 0u;
 	float damping = g_coupled_contact.relaxation / max(1.0f, (float)max(degree_a, degree_b));
 	float3 old_impulse = contact.warmstart_impulse.xyz;
-	float3 candidate = CoupledContactProjectImpulse(
-		old_impulse - damping * mul(inverse_response, residual),
-		contact.axis.xyz,
-		block.friction);
+	float3 candidate = old_impulse + damping * (CoupledContactSolveImpulse(block, old_impulse, residual, contact.axis.xyz) - old_impulse);
 	float3 impulse_delta = candidate - old_impulse;
 	if (!CoupledContactVectorFinite(relative_velocity) || !CoupledContactVectorFinite(candidate) || !CoupledContactVectorFinite(impulse_delta))
 	{
@@ -720,7 +773,7 @@ void CSBuildCoupledContactCandidates(int3 DTID(dtid))
 numthreads(CSBuildCoupledContactPositionCandidates, ConstraintThreadCount, 1, 1)
 void CSBuildCoupledContactPositionCandidates(int3 DTID(dtid))
 {
-	int contact_idx = dtid.x;
+	int contact_idx = CoupledContactThreadIndex(dtid);
 	if (contact_idx >= CoupledContactCount())
 		return;
 
@@ -737,12 +790,6 @@ void CSBuildCoupledContactPositionCandidates(int3 DTID(dtid))
 	float target_speed = min(
 		g_coupled_contact.max_position_speed,
 		g_coupled_contact.position_beta * correction_depth / g_coupled_contact.dt);
-	float3 residual = relative_velocity - target_speed * contact.axis.xyz;
-	float3x3 inverse_response = float3x3(
-		block.inverse_response_0.xyz,
-		block.inverse_response_1.xyz,
-		block.inverse_response_2.xyz);
-
 	float3 old_impulse = scratch.position_impulse.xyz;
 	uint degree_a = block.participant_a >= 0 ? g_coupled_contact_participant_degrees[block.participant_a] : 0u;
 	uint degree_b = block.participant_b >= 0 ? g_coupled_contact_participant_degrees[block.participant_b] : 0u;
@@ -752,12 +799,10 @@ void CSBuildCoupledContactPositionCandidates(int3 DTID(dtid))
 	float damping = g_coupled_contact.position_iteration_index == 0
 		? g_coupled_contact.relaxation * min(1.0f, 1.0f / max(g_coupled_contact.position_beta * participant_degree, 1.0f))
 		: g_coupled_contact.relaxation / participant_degree;
-	float3 candidate = CoupledContactProjectImpulse(
-		old_impulse - damping * mul(inverse_response, residual),
-		contact.axis.xyz,
-		0.0f);
+	float normal_residual = dot(relative_velocity, contact.axis.xyz) - target_speed;
+	float3 candidate = max(dot(old_impulse, contact.axis.xyz) - damping * block.response_0.w * normal_residual, 0.0f) * contact.axis.xyz;
 
-	// Retain accepted normal push-out because stale residuals from another shared-tree contact must not retract separation within the fixed manifold.
+	// Retain accepted normal separation within the fixed collision manifold.
 	candidate = max(dot(candidate, contact.axis.xyz), dot(old_impulse, contact.axis.xyz)) * contact.axis.xyz;
 	float3 impulse_delta = candidate - old_impulse;
 	if (
@@ -780,12 +825,18 @@ void CSBuildCoupledContactPositionCandidates(int3 DTID(dtid))
 numthreads(CSGatherCoupledContactTargets, ConstraintThreadCount, 1, 1)
 void CSGatherCoupledContactTargets(int3 DTID(dtid))
 {
-	int base_position = 2 * dtid.x;
-	int endpoint_capacity = 2 * g_coupled_contact.max_contacts;
+	int contact_idx = CoupledContactThreadIndex(dtid);
+	int contact_count = CoupledContactCount();
+	if (contact_idx >= contact_count)
+		return;
+
+	// The inactive suffix may retain an older ordering and must never enter this reduction.
+	int base_position = 2 * contact_idx;
+	int endpoint_count = 2 * contact_count;
 	for (int offset = 0; offset != 2; ++offset)
 	{
 		int position = base_position + offset;
-		if (position >= endpoint_capacity)
+		if (position >= endpoint_count)
 			continue;
 
 		uint key = g_coupled_contact_endpoint_keys[position];
@@ -796,13 +847,13 @@ void CSGatherCoupledContactTargets(int3 DTID(dtid))
 
 		// One segment leader sums equal keys in radix order, making every target reduction independent of thread scheduling.
 		GpuArticulationSpatialVector impulse = CoupledContactZeroSpatial();
-		for (int segment_position = position; segment_position != endpoint_capacity; ++segment_position)
+		for (int segment_position = position; segment_position != endpoint_count; ++segment_position)
 		{
 			if (g_coupled_contact_endpoint_keys[segment_position] != key)
 				break;
 
 			uint contribution_idx = g_coupled_contact_endpoint_order[segment_position];
-			if (contribution_idx >= (uint)endpoint_capacity)
+			if (contribution_idx >= (uint)endpoint_count)
 			{
 				CoupledContactFail(CoupledContactFailureTopology);
 				return;
@@ -839,7 +890,7 @@ void CSGatherCoupledContactTargets(int3 DTID(dtid))
 		else
 		{
 			uint link_idx = key - (uint)g_coupled_contact.rigid_body_count;
-			if (link_idx >= (uint)g_coupled_contact.mobility_count)
+			if (link_idx >= (uint)g_coupled_contact.link_count)
 			{
 				CoupledContactFail(CoupledContactFailureTopology);
 				return;
@@ -853,8 +904,8 @@ void CSGatherCoupledContactTargets(int3 DTID(dtid))
 numthreads(CSValidateCoupledContactPositionTrees, ConstraintThreadCount, 1, 1)
 void CSValidateCoupledContactPositionTrees(int3 DTID(dtid))
 {
-	int articulation_idx = dtid.x;
-	if (articulation_idx >= g_coupled_contact.articulation_range_count)
+	int articulation_idx = CoupledContactThreadIndex(dtid);
+	if (articulation_idx >= g_coupled_contact.articulation_count)
 		return;
 	if (g_coupled_contact_tree_selection[articulation_idx] == 0u)
 		return;
@@ -865,7 +916,7 @@ void CSValidateCoupledContactPositionTrees(int3 DTID(dtid))
 	}
 
 	GpuArticulationMobilityRange range = g_coupled_contact_ranges[articulation_idx];
-	int velocity_end = articulation_idx + 1 < g_coupled_contact.articulation_range_count
+	int velocity_end = articulation_idx + 1 < g_coupled_contact.articulation_count
 		? g_coupled_contact_ranges[articulation_idx + 1].velocity_delta_offset
 		: g_coupled_contact.velocity_delta_count;
 	if (
@@ -873,7 +924,7 @@ void CSValidateCoupledContactPositionTrees(int3 DTID(dtid))
 		range.articulation_index >= g_coupled_contact.articulation_count ||
 		range.mobility_offset < 0 ||
 		range.link_count < 0 ||
-		range.mobility_offset + range.link_count > g_coupled_contact.mobility_count ||
+		range.mobility_offset + range.link_count > g_coupled_contact.link_count ||
 		range.velocity_delta_offset < 0 ||
 		velocity_end < range.velocity_delta_offset ||
 		velocity_end > g_coupled_contact.velocity_delta_count)
@@ -925,8 +976,8 @@ void CSValidateCoupledContactPositionTrees(int3 DTID(dtid))
 numthreads(CSValidateCoupledContactTrees, ConstraintThreadCount, 1, 1)
 void CSValidateCoupledContactTrees(int3 DTID(dtid))
 {
-	int articulation_idx = dtid.x;
-	if (articulation_idx >= g_coupled_contact.articulation_range_count)
+	int articulation_idx = CoupledContactThreadIndex(dtid);
+	if (articulation_idx >= g_coupled_contact.articulation_count)
 		return;
 	if (g_coupled_contact_tree_selection[articulation_idx] != 0u && g_coupled_contact_tree_results[articulation_idx] == 0u)
 		CoupledContactFail(CoupledContactFailureNonFinite);
@@ -936,8 +987,8 @@ void CSValidateCoupledContactTrees(int3 DTID(dtid))
 numthreads(CSSelectCoupledContactTrees, ConstraintThreadCount, 1, 1)
 void CSSelectCoupledContactTrees(int3 DTID(dtid))
 {
-	int articulation_idx = dtid.x;
-	if (articulation_idx >= g_coupled_contact.articulation_range_count)
+	int articulation_idx = CoupledContactThreadIndex(dtid);
+	if (articulation_idx >= g_coupled_contact.articulation_count)
 		return;
 	g_coupled_contact_tree_selection[articulation_idx] &=
 		g_coupled_contact_state[0].valid != 0u ? 1u : 0u;
@@ -947,7 +998,7 @@ void CSSelectCoupledContactTrees(int3 DTID(dtid))
 numthreads(CSCommitCoupledContacts, ConstraintThreadCount, 1, 1)
 void CSCommitCoupledContacts(int3 DTID(dtid))
 {
-	int idx = dtid.x;
+	int idx = CoupledContactThreadIndex(dtid);
 	if (idx >= g_coupled_contact.work_count)
 		return;
 
@@ -983,6 +1034,18 @@ void CSCommitCoupledContacts(int3 DTID(dtid))
 		}
 	}
 
+	// Link targets may share a root; atomic flag updates do not race ordinary-body momentum writes.
+	if (valid && idx >= g_coupled_contact.rigid_body_count && idx < g_coupled_contact.target_count)
+	{
+		GpuArticulationSpatialVector impulse = g_coupled_contact_target_impulses[idx];
+		if (CoupledContactSpatialFinite(impulse) &&
+			(any(impulse.ang.xyz != float3(0.0f, 0.0f, 0.0f)) || any(impulse.lin.xyz != float3(0.0f, 0.0f, 0.0f))))
+		{
+			int root_body_idx = CoupledContactRootProxy(idx - g_coupled_contact.rigid_body_count);
+			InterlockedAnd(g_coupled_contact_bodies[root_body_idx].state_flags, ~ERigidBodyStateFlags_Sleeping);
+		}
+	}
+
 	if (idx < CoupledContactCount())
 	{
 		GpuCoupledContactScratch scratch = g_coupled_contact_scratch[idx];
@@ -995,7 +1058,7 @@ void CSCommitCoupledContacts(int3 DTID(dtid))
 			if (g_coupled_contact.phase == CoupledContactPhaseWarmStart)
 				contact.warmstart_impulse = float4(0.0f, 0.0f, 0.0f, 0.0f);
 		}
-		else if (g_coupled_contact.phase == CoupledContactPhaseVelocity)
+		else if (g_coupled_contact.phase == CoupledContactPhaseVelocity || g_coupled_contact.phase == CoupledContactPhaseWarmStart)
 		{
 			contact.warmstart_impulse = float4(scratch.candidate_impulse.xyz, 0.0f);
 		}
@@ -1007,22 +1070,23 @@ void CSCommitCoupledContacts(int3 DTID(dtid))
 
 		g_coupled_contact_contacts[idx] = contact;
 	}
+
 }
 
 // Accumulate accepted complete-tree link and generalized deltas into contact-owned detached pseudo state.
 numthreads(CSCommitCoupledContactPositionArticulations, ConstraintThreadCount, 1, 1)
 void CSCommitCoupledContactPositionArticulations(int3 DTID(dtid))
 {
-	int articulation_idx = dtid.x;
+	int articulation_idx = CoupledContactThreadIndex(dtid);
 	if (
-		articulation_idx >= g_coupled_contact.articulation_range_count ||
+		articulation_idx >= g_coupled_contact.articulation_count ||
 		g_coupled_contact_state[0].valid == 0u ||
 		g_coupled_contact_tree_selection[articulation_idx] == 0u ||
 		g_coupled_contact_tree_results[articulation_idx] == 0u)
 		return;
 
 	GpuArticulationMobilityRange range = g_coupled_contact_ranges[articulation_idx];
-	int velocity_end = articulation_idx + 1 < g_coupled_contact.articulation_range_count
+	int velocity_end = articulation_idx + 1 < g_coupled_contact.articulation_count
 		? g_coupled_contact_ranges[articulation_idx + 1].velocity_delta_offset
 		: g_coupled_contact.velocity_delta_count;
 	for (int local_link_idx = 0; local_link_idx != range.link_count; ++local_link_idx)
@@ -1064,7 +1128,7 @@ GpuConstraintFrame CoupledContactIntegrateRoot(GpuConstraintFrame root_to_world,
 numthreads(CSApplyCoupledContactPosition, ConstraintThreadCount, 1, 1)
 void CSApplyCoupledContactPosition(int3 DTID(dtid))
 {
-	int idx = dtid.x;
+	int idx = CoupledContactThreadIndex(dtid);
 	if (idx < g_coupled_contact.rigid_body_count && CoupledContactRigidDynamic(idx))
 	{
 		GpuConstraintPseudoVelocity pseudo = g_coupled_contact_rigid_pseudo[idx];
@@ -1088,12 +1152,12 @@ void CSApplyCoupledContactPosition(int3 DTID(dtid))
 		}
 	}
 
-	if (idx >= g_coupled_contact.articulation_range_count)
+	if (idx >= g_coupled_contact.articulation_count)
 		return;
 
 	GpuArticulationMobilityRange range = g_coupled_contact_ranges[idx];
 	GpuArticulation articulation = g_coupled_contact_articulations[range.articulation_index];
-	int velocity_end = idx + 1 < g_coupled_contact.articulation_range_count
+	int velocity_end = idx + 1 < g_coupled_contact.articulation_count
 		? g_coupled_contact_ranges[idx + 1].velocity_delta_offset
 		: g_coupled_contact.velocity_delta_count;
 	bool has_correction = false;

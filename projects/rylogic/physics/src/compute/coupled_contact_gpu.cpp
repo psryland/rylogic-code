@@ -53,10 +53,7 @@ namespace pr::physics
 			int m_rigid_body_count;
 			int m_articulation_count;
 			int m_link_count;
-			int m_participant_count;
 			int m_target_count;
-			int m_mobility_count;
-			int m_articulation_range_count;
 			int m_work_count;
 			int m_phase;
 			int m_velocity_delta_count;
@@ -67,9 +64,8 @@ namespace pr::physics
 			float m_position_beta;
 			float m_max_position_speed;
 			int m_position_iteration_index;
-			float m_pad1;
 		};
-		static_assert(sizeof(cbCoupledContact) == 80);
+		static_assert(sizeof(cbCoupledContact) == 64);
 
 		enum class ECoupledContactPhase
 		{
@@ -90,10 +86,11 @@ namespace pr::physics
 			resource = gpu.CreateResource(ResDesc::Buf<Type>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, name);
 		}
 
-		// Return the exact dispatch width for a non-empty contact work range.
-		int CoupledContactThreadGroupCount(int item_count)
+		// Cover a bounded work range without exceeding a dispatch dimension or overflowing the ceiling division.
+		iv3 CoupledContactDispatchGroups(int item_count)
 		{
-			return (item_count + ConstraintThreadCount - 1) / ConstraintThreadCount;
+			auto const groups = item_count / ConstraintThreadCount + (item_count % ConstraintThreadCount != 0);
+			return {std::min(groups, 65535), std::max(1, groups / 65535 + (groups % 65535 != 0)), 1};
 		}
 	}
 
@@ -152,9 +149,10 @@ namespace pr::physics
 		, m_restitution_scale()
 		, m_active()
 		, m_position_active()
+		, m_shared_rigid_pseudo()
 		, m_stats()
 	{
-		// The common layout deliberately occupies exactly 64 DWORDs: 20 constants, six SRVs, and sixteen UAVs.
+		// Derived forest counts leave space for root-state access without adding per-dispatch constant-buffer allocations.
 		auto common_sig = RootSig(ERootSigFlags::ComputeOnly)
 			.U32<cbCoupledContact>(EReg::Params)
 			.SRV(EReg::Counters)
@@ -179,6 +177,7 @@ namespace pr::physics
 			.UAV(EReg::RigidPseudo)
 			.UAV(EReg::LinkPseudo)
 			.UAV(EReg::GeneralizedPseudo)
+			.UAV(EReg::Articulations)
 			.Create(m_gpu, "Physics:CoupledContactSig");
 
 		auto compile_common = [&](ComputeStep& step, shader_code::ByteCode const& bytecode, char const* name)
@@ -306,6 +305,7 @@ namespace pr::physics
 		m_restitution_scale = 0.0f;
 		m_active = false;
 		m_position_active = false;
+		m_shared_rigid_pseudo = false;
 		m_stats = {};
 	}
 
@@ -367,6 +367,12 @@ namespace pr::physics
 		job.m_barriers.UAV(m_r_endpoint_order.get());
 		job.m_barriers.Commit();
 
+		if (m_shared_rigid_pseudo)
+		{
+			// Shared storage is reacquired for each position phase rather than retained after its constraint owner becomes inactive.
+			m_r_rigid_pseudo = nullptr;
+			m_shared_rigid_pseudo = false;
+		}
 		UpdateMemoryStats();
 	}
 
@@ -386,8 +392,8 @@ namespace pr::physics
 		RunTransaction(job, m_cs_build_candidates, static_cast<int>(ECoupledContactPhase::Velocity), -1);
 	}
 
-	// Clear contact-owned pseudo state before detached penetration correction.
-	bool GpuCoupledContactSolver::PreparePosition(GpuJob& job, int iteration_count)
+	// Initialize detached correction state, optionally sharing rigid pseudo storage with persistent constraints.
+	bool GpuCoupledContactSolver::PreparePosition(GpuJob& job, int iteration_count, D3DPtr<ID3D12Resource> rigid_pseudo)
 	{
 		if (!m_active || iteration_count <= 0)
 			return false;
@@ -398,13 +404,47 @@ namespace pr::physics
 		if (!(m_config.constraint_max_position_speed >= 0.0f) || !std::isfinite(m_config.constraint_max_position_speed))
 			throw std::invalid_argument("Coupled contact maximum position speed must be finite and non-negative");
 
-		EnsureCoupledContactBuffer<GpuConstraintPseudoVelocity>(m_gpu, job.m_cmd_list, m_r_rigid_pseudo, std::max(1, m_rigid_body_count), m_stats.m_rigid_pseudo_capacity, "Physics:CoupledContactRigidPseudo");
+		// Alias the common rigid stream rather than integrating separate contact and joint corrections.
+		if (rigid_pseudo != nullptr)
+		{
+			if (rigid_pseudo->GetDesc().Width < static_cast<UINT64>(std::max(1, m_rigid_body_count)) * sizeof(GpuConstraintPseudoVelocity))
+				throw std::invalid_argument("Shared rigid pseudo storage is smaller than the rigid-body prefix");
+
+			m_r_rigid_pseudo = rigid_pseudo;
+			m_stats.m_rigid_pseudo_capacity = 0;
+			m_shared_rigid_pseudo = true;
+		}
+		else
+		{
+			if (m_shared_rigid_pseudo)
+			{
+				m_r_rigid_pseudo = nullptr;
+				m_stats.m_rigid_pseudo_capacity = 0;
+				m_shared_rigid_pseudo = false;
+			}
+			EnsureCoupledContactBuffer<GpuConstraintPseudoVelocity>(m_gpu, job.m_cmd_list, m_r_rigid_pseudo, std::max(1, m_rigid_body_count), m_stats.m_rigid_pseudo_capacity, "Physics:CoupledContactRigidPseudo");
+		}
+
+		// Articulation contacts cover the complete packed forest, so their storage also admits every coupled joint.
 		EnsureCoupledContactBuffer<GpuArticulationSpatialVector>(m_gpu, job.m_cmd_list, m_r_link_pseudo, std::max(1, m_mobility_count), m_stats.m_link_pseudo_capacity, "Physics:CoupledContactLinkPseudo");
 		EnsureCoupledContactBuffer<float>(m_gpu, job.m_cmd_list, m_r_generalized_pseudo, std::max(1, m_velocity_delta_count), m_stats.m_generalized_pseudo_capacity, "Physics:CoupledContactGeneralizedPseudo");
 		m_position_active = true;
 		UpdateMemoryStats();
 		DispatchCommon(job, m_cs_prepare_position, static_cast<int>(ECoupledContactPhase::Position), m_work_count);
 		return true;
+	}
+
+	// Return the initialized rigid-prefix and canonical articulation pseudo streams.
+	GpuPositionPseudoBuffers GpuCoupledContactSolver::PseudoState() const
+	{
+		if (!m_position_active)
+			throw std::logic_error("Articulation pseudo state requires an active contact position solve");
+
+		return GpuPositionPseudoBuffers{
+			.m_rigid_velocities = m_r_rigid_pseudo,
+			.m_link_velocities = m_r_link_pseudo,
+			.m_generalized_velocities = m_r_generalized_pseudo,
+		};
 	}
 
 	// Execute one zero-based monotone detached penetration-correction iteration with acceleration confined to the initial sweep.
@@ -449,9 +489,10 @@ namespace pr::physics
 		// Contact-indexed streams grow as one unit so endpoint offsets remain exactly 2*contact_idx across every retained resource.
 		if (m_max_contacts > m_stats.m_contact_capacity)
 		{
-			auto const doubled_capacity = m_stats.m_contact_capacity <= std::numeric_limits<int>::max() / 2
+			auto const maximum_capacity = std::numeric_limits<int>::max() / 2;
+			auto const doubled_capacity = m_stats.m_contact_capacity <= maximum_capacity / 2
 				? 2 * m_stats.m_contact_capacity
-				: std::numeric_limits<int>::max();
+				: maximum_capacity;
 			m_stats.m_contact_capacity = std::max(m_max_contacts, std::max(1, doubled_capacity));
 			auto const endpoint_capacity = 2 * m_stats.m_contact_capacity;
 			m_r_blocks = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledContactBlock>(m_stats.m_contact_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledContactBlocks");
@@ -489,7 +530,7 @@ namespace pr::physics
 		if (m_position_active)
 		{
 			m_stats.m_logical_bytes +=
-				static_cast<size_t>(m_rigid_body_count) * sizeof(GpuConstraintPseudoVelocity) +
+				static_cast<size_t>(m_shared_rigid_pseudo ? 0 : m_rigid_body_count) * sizeof(GpuConstraintPseudoVelocity) +
 				static_cast<size_t>(m_mobility_count) * sizeof(GpuArticulationSpatialVector) +
 				static_cast<size_t>(m_velocity_delta_count) * sizeof(float);
 		}
@@ -550,7 +591,7 @@ namespace pr::physics
 		}
 	}
 
-	// Bind and dispatch one common contact phase over a non-empty logical work range.
+	// Bind and dispatch one non-empty work range with an optional zero-based position-sweep index.
 	void GpuCoupledContactSolver::DispatchCommon(GpuJob& job, ComputeStep& step, int phase, int item_count, int position_iteration_index)
 	{
 		if (item_count <= 0)
@@ -566,10 +607,7 @@ namespace pr::physics
 			.m_rigid_body_count = m_rigid_body_count,
 			.m_articulation_count = m_articulation_count,
 			.m_link_count = m_link_count,
-			.m_participant_count = m_participant_count,
 			.m_target_count = m_target_count,
-			.m_mobility_count = m_mobility_count,
-			.m_articulation_range_count = m_articulation_count,
 			.m_work_count = m_work_count,
 			.m_phase = phase,
 			.m_velocity_delta_count = m_velocity_delta_count,
@@ -580,7 +618,6 @@ namespace pr::physics
 			.m_position_beta = m_config.position_baumgarte,
 			.m_max_position_speed = m_config.constraint_max_position_speed,
 			.m_position_iteration_index = position_iteration_index,
-			.m_pad1 = 0.0f,
 		};
 		job.m_cmd_list.SetPipelineState(step.m_pso.get());
 		job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
@@ -607,7 +644,9 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(rigid_pseudo->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(link_pseudo->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(generalized_pseudo->GetGPUVirtualAddress());
-		job.m_cmd_list.Dispatch(CoupledContactThreadGroupCount(item_count), 1, 1);
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_aba.m_r_articulations->GetGPUVirtualAddress());
+
+		job.m_cmd_list.Dispatch(CoupledContactDispatchGroups(item_count));
 		++m_stats.m_dispatch_count;
 		CommitUavBarriers(job);
 	}
@@ -638,10 +677,7 @@ namespace pr::physics
 			.m_rigid_body_count = m_rigid_body_count,
 			.m_articulation_count = m_articulation_count,
 			.m_link_count = m_link_count,
-			.m_participant_count = m_participant_count,
 			.m_target_count = m_target_count,
-			.m_mobility_count = m_mobility_count,
-			.m_articulation_range_count = m_articulation_count,
 			.m_work_count = m_work_count,
 			.m_phase = phase,
 			.m_velocity_delta_count = m_velocity_delta_count,
@@ -652,7 +688,6 @@ namespace pr::physics
 			.m_position_beta = m_config.position_baumgarte,
 			.m_max_position_speed = m_config.constraint_max_position_speed,
 			.m_position_iteration_index = -1,
-			.m_pad1 = 0.0f,
 		};
 		job.m_cmd_list.SetPipelineState(step.m_pso.get());
 		job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
@@ -666,7 +701,7 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_link_pseudo->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_generalized_pseudo->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_aba.m_r_articulations->GetGPUVirtualAddress());
-		job.m_cmd_list.Dispatch(CoupledContactThreadGroupCount(m_articulation_count), 1, 1);
+		job.m_cmd_list.Dispatch(CoupledContactDispatchGroups(m_articulation_count));
 		++m_stats.m_dispatch_count;
 
 		job.m_barriers.UAV(m_r_tree_selection.get());
@@ -689,6 +724,7 @@ namespace pr::physics
 		job.m_barriers.Transition(m_aba.m_r_links.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition(m_mobility.m_r_ranges.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition(m_r_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_aba.m_r_articulations.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_rigid_pseudo.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_generalized_pseudo.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_aba.m_r_articulations.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -701,10 +737,7 @@ namespace pr::physics
 			.m_rigid_body_count = m_rigid_body_count,
 			.m_articulation_count = m_articulation_count,
 			.m_link_count = m_link_count,
-			.m_participant_count = m_participant_count,
 			.m_target_count = m_target_count,
-			.m_mobility_count = m_mobility_count,
-			.m_articulation_range_count = m_articulation_count,
 			.m_work_count = m_work_count,
 			.m_phase = static_cast<int>(ECoupledContactPhase::Position),
 			.m_velocity_delta_count = m_velocity_delta_count,
@@ -715,7 +748,6 @@ namespace pr::physics
 			.m_position_beta = m_config.position_baumgarte,
 			.m_max_position_speed = m_config.constraint_max_position_speed,
 			.m_position_iteration_index = -1,
-			.m_pad1 = 0.0f,
 		};
 		job.m_cmd_list.SetPipelineState(m_cs_apply_position.m_pso.get());
 		job.m_cmd_list.SetComputeRootSignature(m_cs_apply_position.m_sig.get());
@@ -727,7 +759,7 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_generalized_pseudo->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_aba.m_r_articulations->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(positions->GetGPUVirtualAddress());
-		job.m_cmd_list.Dispatch(CoupledContactThreadGroupCount(std::max(m_rigid_body_count, m_articulation_count)), 1, 1);
+		job.m_cmd_list.Dispatch(CoupledContactDispatchGroups(std::max(m_rigid_body_count, m_articulation_count)));
 		++m_stats.m_dispatch_count;
 
 		job.m_barriers.UAV(m_r_bodies.get());
@@ -764,6 +796,7 @@ namespace pr::physics
 		job.m_barriers.Transition(rigid_pseudo, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(link_pseudo, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(generalized_pseudo, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_aba.m_r_articulations.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Commit();
 	}
 
