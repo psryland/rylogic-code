@@ -1,8 +1,8 @@
 # GPU Constraint and Multibody Physics Architecture
 
-**Status:** Implemented and accepted
+**Status:** Implemented; corrective review complete
 **Original design date:** 2026-08-25
-**Last verified:** 2026-08-28
+**Original acceptance date:** 2026-08-28
 
 ## Summary
 
@@ -23,7 +23,9 @@ constraints or articulations to avoid their CPU, GPU, and memory costs.
 The production implementation includes the native C++ API, versioned ABI 2.0 DLL surface, compute-shader solvers, diagnostics, unit and GPU-oracle coverage,
 and 20 runtime-editable JSON physics-sandbox demonstrations.
 
-| Design requirement | Verified outcome |
+The following measurements record the original acceptance run, not the subsequent corrective review.
+
+| Design requirement | Original verified outcome |
 |---|---|
 | Fixed-iteration scaling | 50,004 rows solved in 21.683 ms and 100,002 rows in 43.290 ms on an RTX 3080 Ti: 2.00x time for 2.00x rows |
 | One host boundary per frame | Every 120-frame demo soak reported one command-list submission, one fence wait, and one GPU-to-CPU readback copy per frame, including 2- and 4-substep demos |
@@ -34,9 +36,10 @@ and 20 runtime-editable JSON physics-sandbox demonstrations.
 | Real-time demonstrations | All 20 Release demos exceeded 40 FPS, spanning 40.44-279.16 physics FPS in the final warmed headless acceptance run |
 | Legacy performance | 19 of 22 baseline scenes remained within the 10% tolerance or improved; the other three generated 31.8-33.3% more contacts while taking 16.0-17.7% more time, improving contact throughput |
 
-The final native validation passed all 1,188 Quick tests and the complete targeted internal-substep, coupled-engine, collision-pair, compound-shape, and
-articulation-midpoint suites. Independent reviews of the architecture, acceptance coverage, demonstrations, and final GPU frame-path optimization found no
-high-confidence correctness or design issues.
+The original native validation passed all 1,188 Quick tests and the complete targeted internal-substep, coupled-engine, collision-pair, compound-shape, and
+articulation-midpoint suites. Subsequent review exposed gaps in those gates, including world-load rotation, off-diagonal bounded projection, scale sensitivity,
+sleeping collision participants, and shared position correction. Independent analytical regressions now cover these cases; the architecture below describes
+the corrected implementation.
 
 ## Goals
 
@@ -169,7 +172,7 @@ A block PGS update is:
 
 $$
 \lambda_i' =
-\Pi_{\mathcal K_i}
+\Pi_{\mathcal K_i}^{K_{ii}+\Gamma_i}
 \left[
 \lambda_i
 -
@@ -183,16 +186,26 @@ $$
 v \mathrel{+}= M^{-1}J_i^T(\lambda_i'-\lambda_i)
 $$
 
-$\Pi_{\mathcal K}$ projects onto the allowed impulse set:
+$\Pi_{\mathcal K}^{K+\Gamma}$ projects onto the joint's allowed accumulated impulse set in the response metric:
 
 - A bilateral lock is unbounded.
 - A lower limit or contact normal uses $\lambda \geq 0$.
 - A motor uses $-F_{\max}h \leq \lambda \leq F_{\max}h$.
-- A Coulomb contact block uses:
+
+Off-diagonal response couples the rows. Clamping each component after multiplying by the block inverse is not this projection: saturating a motor can disturb
+another locked row. The bounded active-set solve fixes saturated impulses and resolves the remaining free rows, with at most six rows and 64 working-set
+transitions per block. A feasible candidate returns immediately. Numerical failure rejects the complete update and is reported through the existing frame
+diagnostics rather than silently accepting a clamp.
+
+Coulomb contacts require a different local solve:
 
 $$
 \lambda_n \geq 0,\qquad \|\lambda_t\| \leq \mu\lambda_n
 $$
+
+The normal impulse obeys scalar nonpenetration complementarity. Given that normal impulse, tangent impulses are projected into the friction disc. Four bounded
+local sweeps update the normal and tangent responses, followed by endpoint-degree relaxation of the complete feasible change. A joint-style response-metric
+projection onto the whole friction cone is not used: minimizing kinetic energy over that cone can invent normal support from pure tangential slip.
 
 ### Soft constraints
 
@@ -468,11 +481,11 @@ BeginStep(frame_dt, substep_count)
             CSSeedWorkingForces from immutable frame-force storage
 
         Record each GPU external-force module
-        CSGatherArticulationLinkForces
         CSIntegrateOrdinaryBodies
 
         CSIntegrateArticulationsImplicitMidpoint
             one invocation serially traverses one articulation
+            re-express live world-at-COM loads for each trial orientation
             solve start acceleration and bounded midpoint iterations
             publish final generalized state and link proxies transactionally
 
@@ -500,13 +513,15 @@ BeginStep(frame_dt, substep_count)
             CSCoupledAcceptOrBacktrack
             UAV barrier
 
+        Initialize shared detached position state for the fixed manifold
         repeat position_iteration_count:
-            CSSolveRigidPseudoBlocks
-            CSSolveCoupledGeneralizedCorrections
-            CSForwardKinematics
-            CSWriteLinkProxyTransformsAndBounds
+            Solve ordinary contacts and rigid joints against shared rigid pseudo velocities
+            Solve articulated contacts and coupled joints against shared link/generalized pseudo state
+        Apply converged pseudo state once
+        CSForwardKinematics
+        CSWriteLinkProxyTransformsAndBounds
 
-        CSSelectiveContactRefresh
+        CSSelectiveContactRefresh, repeating prepare/solve/apply for its new manifold when enabled
         CSConstraintCleanupAndBreakDetection
         CSSleepUpdate
         if collision subscribers exist:
@@ -516,6 +531,7 @@ BeginStep(frame_dt, substep_count)
             CSPrepareSubstepCounters
 
     GPU-to-GPU CopyBufferRegion final ordinary-body range into packed output
+    GPU-to-GPU CopyBufferRegion optional rigid numerical-failure word into header padding
     GPU-to-GPU CopyBufferRegion optional break and coupled-failure ranges
     CSGatherFrameArticulations when articulations exist
     GPU-to-CPU CopyBufferRegion(one contiguous packed output)
@@ -544,9 +560,14 @@ Every solver node has a per-substep working spatial wrench:
 2. When the frame has more than one internal substep, retain the authored force and torque in optional 32-byte-per-body immutable storage.
 3. Before each later substep, restore that immutable force and torque after resetting transient collision counters.
 4. Let GPU modules add state-dependent forces for the current substep.
-5. Consume and clear the working wrench during ordinary rigid integration or articulation inward dynamics.
+5. Retain the working wrench until force integration completes, then clear it for the next substep.
 
 Articulation link proxies follow this lifecycle even though the ordinary-body integration dispatch skips them.
+
+Articulations retain separate local link-origin follower wrenches and world-at-COM force/torque samples. Each implicit-midpoint ABA evaluation re-expresses the
+world samples using its trial orientation; it does not freeze the initial local representation of gravity. Local follower wrenches remain local. External
+modules still sample state once per substep, not once per nonlinear trial. Configuration-only mobility factorization neither reevaluates forces nor overwrites
+the accepted acceleration; immediate impulse response reconstructs its link-velocity cache from the current generalized velocities.
 
 Buoyancy remains independent of the dynamics representation:
 
@@ -757,12 +778,12 @@ The production rigid-constraint layouts are enforced by `static_assert`:
 | Complete persistent slot | **896 B/slot** |
 | Rigid split-correction pseudo velocity | 32 B/participating body |
 | Break latch, when any slot is breakable | 32 B/slot |
-| Overflow word, when slots exist | 4 B total |
+| Colour-overflow and frame-sticky numerical-failure state, when slots exist | 8 B total |
 
 For $S$ stable slots, $N$ participating rigid bodies, and $K$ breakable constraints, exact logical storage is:
 
 $$
-896S + 4[S>0] + 32N + 32S[K>0]
+896S + 8[S>0] + 32N + 32S[K>0]
 $$
 
 Retained allocation substitutes the reported slot, body, and break capacities for the logical counts. Capacities grow geometrically and can therefore exceed
@@ -783,9 +804,19 @@ Articulation-coupled persistent constraints allocate additional matrix-free tran
 | Detached impulse ABA | 64 B/participating link plus 4 B/generalized velocity |
 | Position transaction | 32 B/participating link plus 4 B/generalized velocity |
 
+Contacts and joints alias the same detached position state rather than maintaining independent corrections. Rigid pseudo storage belongs to the rigid
+constraint solver when present. Articulated contacts own canonical complete-forest link/generalized storage; coupled joint rows map their compact response
+ranges into that storage. Without articulated contacts, coupled joints own compact position storage. Shared allocations are counted once, while any retained
+compact scratch remains included in allocated bytes. One owner applies coordinates at the end of each fixed-manifold position phase.
+
 The coupled-contact lane similarly uses 192 B/contact, 32 B/target, 4 B/participant, 8 B/participating tree, and a 16-byte transaction state before optional
 position-correction, mobility, impulse-ABA, and deterministic-sort storage. All terms and retained capacities are exposed through
 `EngineFeatureStats::m_coupled`.
+
+Contact-indexed dispatches and endpoint sorting use the configured capacity and explicitly initialize the inactive suffix before each fixed-size sort. A
+GPU-counted contact dispatch path was measured during review, but its setup shader, indirect-command transitions, and ExecuteIndirect records cost more than
+the skipped empty threads in sparse articulated scenes. The reusable GPU-counted radix-sort primitive remains available for callers whose active GPU-resident
+prefix is large enough to amortize that setup cost; the coupled-contact lane keeps the faster fixed-capacity path.
 
 ### Articulation resources
 
@@ -801,17 +832,17 @@ The pure-tree lane accounts for the exact packed arrays rather than a planning e
 Force ABA topology, state, and scratch use:
 
 $$
-80A + 192L + 16D + 4(P+V+F+X) + 32L + 4C + 4K + 336L + 64D + 4M
+80A + 192L + 16D + 4(P+V+F+X) + 64L + 4C + 4K + 352L + 64D + 4M
 $$
 
-The terms respectively represent articulation headers, link topology/inertia, DOF records, generalized arrays, link wrenches, traversal schedules, link ABA
+The terms respectively represent articulation headers, link topology/inertia, DOF records, generalized arrays, local and world link wrenches, traversal schedules, link ABA
 scratch, DOF scratch, and joint factors. Bounded midpoint integration adds:
 
 $$
 48A + 4P + 8V
 $$
 
-Hidden link force/transform proxies add 64 B/link. Coupled lanes add the exact mobility and impulse terms listed above only for participating trees. As with
+Hidden link transforms add 32 B/link; world force samples are consumed directly without a separate gathered-local-force buffer. Coupled lanes add the exact mobility and impulse terms listed above only for participating trees. As with
 constraints, retained buffers use geometric high-water capacities and the current logical/allocated totals are queryable through
 `EngineFeatureStats::m_articulations`.
 
@@ -841,10 +872,10 @@ where:
 - $S$ is the persistent constraint slot count when break latches are present.
 - $I$ is the coupled-island count when failure records are present.
 
-The 64-byte header carries final and peak collision counters, bounded event state, and substep provenance. Each public collision event is 240 bytes and retains
+The 64-byte header carries final and peak collision counters, bounded event state, substep provenance, and the rigid constraint numerical-failure slot. Each public collision event is 240 bytes and retains
 the event-time relative transform, post-solve relative velocity, and collision timing needed to publish a coherent `RbContact`; warm-start and solver-response
 state remain excluded. Articulation output is 64 bytes/tree plus generalized position, velocity, and acceleration scalars; link transforms are reconstructed
-from accepted generalized state. Break and coupled-failure records are 32 bytes each.
+from accepted generalized state. Whole-tree sleeping reuses articulation-output padding. Break and coupled-failure records are 32 bytes each.
 
 The packed UAV retains at least one 240-byte event element as a safe zero-capacity binding, and a 16-byte substep reservation exists only when collision counters
 must be accumulated. The readback itself excludes these sentinels. A multi-substep frame additionally retains 32 B/packed body of immutable frame force, but
@@ -874,7 +905,7 @@ A universal promise that arbitrary contradictory constraints cannot explode at a
 The implementation uses:
 
 - No real-velocity Baumgarte term for hard passive rows.
-- Cone-projected dissipative friction.
+- Scalar normal complementarity and friction-disc-projected tangent updates.
 - Restitution computed once from pre-solve velocity.
 - Explicit motor force, torque, impulse, and work limits.
 - Implicit compliance and damping for soft joints.
@@ -886,9 +917,13 @@ The implementation uses:
 - Bounded rotation-log errors for angular correction.
 - Finite-state validation in debug kernels.
 - Explicit regularization and diagnostics for singular systems.
+- Diagonal equilibration of joint and constraint response factors, so a physically small inertia is not mistaken for a singular one solely because of its units.
 - Retention of the last accepted finite state when a coupled update fails.
 
-Sleep is managed over complete constrained components. A motor, unresolved residual, collision, or external link wrench wakes the complete articulation.
+Sleep is managed over complete constrained components. Sleeping trees with collision shapes remain discoverable through their proxies; wholly shapeless
+sleepers need no GPU participant. Cached contact impulses cannot wake a sleeping tree. An accepted nonzero contact impulse wakes the whole tree on the GPU,
+allowing later internal substeps to integrate it before the single readback publishes the wake to the CPU. Motors, unresolved residuals, and external link
+wrenches can also wake the complete articulation.
 
 ## Coriolis, Gyroscopic, and Dzhanibekov Preservation
 
