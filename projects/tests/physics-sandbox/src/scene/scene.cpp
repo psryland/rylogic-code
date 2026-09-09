@@ -755,8 +755,27 @@ namespace physics_sandbox
 			// Floating trees that escape a deliberately bounded demo are frozen as complete dynamical units.
 			for (auto& articulation : m_articulation)
 			{
-				if (articulation.RootType() == physics::EArticulationRootType::Floating && articulation.RootToWorld().pos.z < m_kill_zone_height)
-					articulation.Sleep();
+				switch (articulation.RootType())
+				{
+					case physics::EArticulationRootType::Fixed:
+					{
+						break;
+					}
+					case physics::EArticulationRootType::Floating:
+					{
+						// Leaving the demo bounds overrides automatic-sleep immunity until the scene is reset.
+						if (articulation.RootToWorld().pos.z < m_kill_zone_height)
+						{
+							articulation.NeverSleep(false);
+							articulation.Sleep();
+						}
+						break;
+					}
+					default:
+					{
+						throw std::runtime_error("Unknown articulation root type");
+					}
+				}
 			}
 			auto const kill_end = Clock::now();
 
@@ -1931,6 +1950,70 @@ namespace physics_sandbox::tests
 			PR_EXPECT(FEql(bbox.Radius(), v4{1.0f, 2.0f, 3.0f, 0.0f}));
 			PR_EXPECT(ground_shape.m_radius.x >= Abs(bbox.Centre().x) + bbox.Radius().x);
 			PR_EXPECT(ground_shape.m_radius.y >= Abs(bbox.Centre().y) + bbox.Radius().y);
+		}
+	};
+
+	// Scene initialization must preserve explicitly requested articulation sleep state.
+	PRUnitTestClass(SceneArticulationSleepTests)
+	{
+		// The first application of already configured scene gravity is not a new wake event.
+		PRUnitTestMethod(InitialGravityPreservesRequestedSleep, Quick)
+		{
+			auto scene_desc = scene_loader::SceneDesc{};
+			scene_desc.gravity = v4{0.0f, 0.0f, -9.81f, 0.0f};
+			scene_desc.physics_max_collision_pairs = 16;
+			scene_desc.physics_substeps = 1;
+			auto articulation = scene_loader::ArticulationDesc{};
+			articulation.m_name = "sleeping_tree";
+			articulation.m_root_type = physics::EArticulationRootType::Floating;
+			articulation.m_root_to_world = m4x4::Translation(0.0f, 0.0f, 5.0f);
+			articulation.m_sleeping = true;
+			articulation.m_root.m_body.name = "root";
+			articulation.m_root.m_has_shape = false;
+			articulation.m_root.m_inertia = physics::Inertia::Sphere(0.2f, 1.0f);
+			scene_desc.articulations.push_back(std::move(articulation));
+
+			// Loading and stepping must both retain the resting pose until a later disturbance arrives.
+			auto scene = Scene(nullptr);
+			scene.LoadScene(std::move(scene_desc));
+			PR_EXPECT(scene.m_articulation[0].Sleeping());
+			scene.Step(1.0 / 60.0);
+			PR_EXPECT(scene.m_articulation[0].Sleeping());
+			PR_EXPECT(Abs(scene.m_articulation[0].RootToWorld().pos.z - 5.0f) < 1.0e-6f);
+		}
+
+		// Escaping the demo bounds overrides never-sleep and remains frozen under unchanged gravity.
+		PRUnitTestMethod(KillZoneOverridesNeverSleep, Quick)
+		{
+			auto scene_desc = scene_loader::SceneDesc{};
+			scene_desc.gravity = v4{0.0f, 0.0f, -9.81f, 0.0f};
+			scene_desc.physics_max_collision_pairs = 16;
+			scene_desc.physics_substeps = 1;
+			auto articulation = scene_loader::ArticulationDesc{};
+			articulation.m_name = "escaped_tree";
+			articulation.m_root_type = physics::EArticulationRootType::Floating;
+			articulation.m_root_to_world = m4x4::Translation(0.0f, 0.0f, -51.0f);
+			articulation.m_root_velocity = v8motion{v4::Zero(), -v4::ZAxis()};
+			articulation.m_never_sleep = true;
+			articulation.m_root.m_body.name = "root";
+			articulation.m_root.m_has_shape = false;
+			articulation.m_root.m_inertia = physics::Inertia::Sphere(0.2f, 1.0f);
+			scene_desc.articulations.push_back(std::move(articulation));
+
+			// The kill zone must neither assert on immunity nor leave an escaped tree accelerating.
+			auto scene = Scene(nullptr);
+			scene.LoadScene(std::move(scene_desc));
+			scene.Step(1.0 / 60.0);
+			auto& tree = scene.m_articulation[0];
+			PR_EXPECT(tree.Sleeping());
+			PR_EXPECT(!tree.NeverSleep());
+			PR_EXPECT(Length(tree.LinkVelocity(tree.Root()).lin) < 1.0e-6f);
+
+			// A later ordinary frame must not restart the escaped tree.
+			auto const frozen_position = tree.RootToWorld().pos;
+			scene.Step(1.0 / 60.0);
+			PR_EXPECT(tree.Sleeping());
+			PR_EXPECT(Length(tree.RootToWorld().pos - frozen_position) < 1.0e-6f);
 		}
 	};
 }
