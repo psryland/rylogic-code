@@ -12,7 +12,7 @@ namespace pr::physics
 
 	namespace
 	{
-		// Active forest bounds and broadphase settings shared by proxy force and refresh passes.
+		// Active forest bounds and broadphase settings for proxy refresh.
 		struct alignas(16) cbArticulationLinkProxies
 		{
 			int articulation_count;
@@ -22,13 +22,12 @@ namespace pr::physics
 		};
 		static_assert(sizeof(cbArticulationLinkProxies) == 16);
 
-		// Root-register assignments are shared so both proxy passes use one immutable signature.
+		// Root-register assignments for committed proxy kinematics and bounds.
 		struct EReg
 		{
 			inline static constexpr auto Params = ECBufReg::b0;
 			inline static constexpr auto Links = ESRVReg::t0;
 			inline static constexpr auto Dofs = ESRVReg::t1;
-			inline static constexpr auto ExternalForces = ESRVReg::t2;
 			inline static constexpr auto Articulations = EUAVReg::u0;
 			inline static constexpr auto Positions = EUAVReg::u1;
 			inline static constexpr auto Velocities = EUAVReg::u2;
@@ -38,7 +37,6 @@ namespace pr::physics
 			inline static constexpr auto AABB_Idx = EUAVReg::u6;
 			inline static constexpr auto AABB_Sort = EUAVReg::u7;
 			inline static constexpr auto AABB_Box = EUAVReg::u8;
-			inline static constexpr auto WorkingExternalForces = EUAVReg::u9;
 			inline static constexpr auto LinkToWorld = EUAVReg::u12;
 		};
 
@@ -67,9 +65,7 @@ namespace pr::physics
 	GpuArticulationLinkProxies::GpuArticulationLinkProxies(GpuArticulationForceAba& aba, EngineConfig const& config)
 		:m_aba(aba)
 		,m_config(config)
-		,m_cs_gather_forces()
 		,m_cs_refresh()
-		,m_r_external_forces()
 		,m_r_link_to_world()
 		,m_stats()
 	{
@@ -77,7 +73,6 @@ namespace pr::physics
 			.U32<cbArticulationLinkProxies>(EReg::Params)
 			.SRV(EReg::Links)
 			.SRV(EReg::Dofs)
-			.SRV(EReg::ExternalForces)
 			.UAV(EReg::Articulations)
 			.UAV(EReg::Positions)
 			.UAV(EReg::Velocities)
@@ -87,12 +82,9 @@ namespace pr::physics
 			.UAV(EReg::AABB_Idx)
 			.UAV(EReg::AABB_Sort)
 			.UAV(EReg::AABB_Box)
-			.UAV(EReg::WorkingExternalForces)
 			.UAV(EReg::LinkToWorld)
 			.Create(m_aba.m_gpu, "Physics:ArticulationLinkProxiesSig");
 
-		m_cs_gather_forces.m_sig = root_sig;
-		m_cs_gather_forces.m_pso = ComputePSO(root_sig.get(), shader_code::articulation_gather_proxy_forces).Create(m_aba.m_gpu, "Physics:ArticulationGatherProxyForcesPSO");
 		m_cs_refresh.m_sig = root_sig;
 		m_cs_refresh.m_pso = ComputePSO(root_sig.get(), shader_code::articulation_refresh_proxies).Create(m_aba.m_gpu, "Physics:ArticulationRefreshProxiesPSO");
 	}
@@ -100,15 +92,13 @@ namespace pr::physics
 	// Release every link-dependent resource when no forest is active.
 	void GpuArticulationLinkProxies::ReleaseBuffers()
 	{
-		m_r_external_forces = nullptr;
 		m_r_link_to_world = nullptr;
 		m_stats = {};
 	}
 
-	// Prepare the per-substep link-wrench buffer for the currently uploaded forest.
+	// Prepare persistent link frames for the currently uploaded forest.
 	void GpuArticulationLinkProxies::Upload(GpuJob& job)
 	{
-		m_stats.m_gather_dispatch_count = 0;
 		m_stats.m_refresh_dispatch_count = 0;
 		if (m_aba.m_link_count == 0)
 		{
@@ -116,15 +106,7 @@ namespace pr::physics
 			return;
 		}
 
-		// Geometric growth avoids reallocating per-link working and persistent frame streams when forest sizes fluctuate modestly.
-		EnsureProxyBuffer<GpuFrameForce>(
-			m_aba.m_gpu,
-			job.m_cmd_list,
-			m_r_external_forces,
-			m_aba.m_link_count,
-			m_stats.m_external_force_capacity,
-			EUsage::UnorderedAccess,
-			"Physics:ArticulationLinkWorkingForces");
+		// Geometric growth avoids reallocating persistent frames when forest sizes fluctuate modestly.
 		EnsureProxyBuffer<GpuConstraintFrame>(
 			m_aba.m_gpu,
 			job.m_cmd_list,
@@ -134,59 +116,9 @@ namespace pr::physics
 			EUsage::UnorderedAccess,
 			"Physics:ArticulationLinkToWorld");
 
-		m_stats.m_logical_bytes = static_cast<size_t>(m_aba.m_link_count) * (sizeof(GpuFrameForce) + sizeof(GpuConstraintFrame));
+		m_stats.m_logical_bytes = static_cast<size_t>(m_aba.m_link_count) * sizeof(GpuConstraintFrame);
 		m_stats.m_allocated_feature_bytes =
-			static_cast<size_t>(m_stats.m_external_force_capacity) * sizeof(GpuFrameForce) +
 			static_cast<size_t>(m_stats.m_link_frame_capacity) * sizeof(GpuConstraintFrame);
-	}
-
-	// Convert world-space proxy force accumulators into link-frame ABA wrenches.
-	ID3D12Resource* GpuArticulationLinkProxies::GatherForces(GpuJob& job, ID3D12Resource* bodies)
-	{
-		if (m_aba.m_link_count == 0)
-			return nullptr;
-		if (bodies == nullptr || m_r_external_forces == nullptr)
-			throw std::logic_error("Articulation proxy force gathering requires active body and wrench buffers");
-
-		auto const constants = cbArticulationLinkProxies{
-			.articulation_count = m_aba.m_articulation_count,
-			.link_count = m_aba.m_link_count,
-			.broadphase_sort_axis = 0,
-			.broadphase_aabb_margin = 0.0f,
-		};
-
-		// Bind every root slot deterministically; unused refresh resources point at valid shared sentinels.
-		job.m_barriers.Transition(m_aba.m_r_links.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-		job.m_barriers.Transition(m_aba.m_r_external_forces.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-		job.m_barriers.Transition(bodies, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		job.m_barriers.Transition(m_r_external_forces.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		job.m_barriers.Transition(m_r_link_to_world.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		job.m_barriers.Commit();
-
-		job.m_cmd_list.SetPipelineState(m_cs_gather_forces.m_pso.get());
-		job.m_cmd_list.SetComputeRootSignature(m_cs_gather_forces.m_sig.get());
-		job.m_cmd_list.AddComputeRoot32BitConstants(constants);
-		job.m_cmd_list.AddComputeRootShaderResourceView(m_aba.m_r_links->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootShaderResourceView((m_aba.m_dof_count != 0 ? m_aba.m_r_dofs : m_aba.m_r_srv_sentinel)->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootShaderResourceView(m_aba.m_r_external_forces->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_aba.m_r_articulations->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_position_count != 0 ? m_aba.m_r_positions : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_velocity_count != 0 ? m_aba.m_r_velocities : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_aba.m_r_scratch->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_dof_count != 0 ? m_aba.m_r_dof_scratch : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_external_forces->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_link_to_world->GetGPUVirtualAddress());
-		job.m_cmd_list.Dispatch(ThreadGroupCount(m_aba.m_link_count), 1, 1);
-		++m_stats.m_gather_dispatch_count;
-
-		// Publish the gathered wrenches as an immutable SRV before the fused midpoint pass consumes them.
-		job.m_barriers.UAV(m_r_external_forces.get()).Commit();
-		job.m_barriers.Transition(m_r_external_forces.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).Commit();
-		return m_r_external_forces.get();
 	}
 
 	// Refresh proxy transforms, momenta, and broadphase bounds from committed generalized state.
@@ -230,7 +162,6 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRoot32BitConstants(constants);
 		job.m_cmd_list.AddComputeRootShaderResourceView(m_aba.m_r_links->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootShaderResourceView((m_aba.m_dof_count != 0 ? m_aba.m_r_dofs : m_aba.m_r_srv_sentinel)->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootShaderResourceView(m_aba.m_r_external_forces->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_aba.m_r_articulations->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_position_count != 0 ? m_aba.m_r_positions : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView((m_aba.m_velocity_count != 0 ? m_aba.m_r_velocities : m_aba.m_r_uav_sentinel)->GetGPUVirtualAddress());
@@ -240,7 +171,6 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(aabb_idx->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(aabb_sort->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(aabb_box->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_external_forces->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_link_to_world->GetGPUVirtualAddress());
 		job.m_cmd_list.Dispatch(ThreadGroupCount(m_aba.m_articulation_count), 1, 1);
 		++m_stats.m_refresh_dispatch_count;

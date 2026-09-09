@@ -22,7 +22,7 @@ namespace pr::physics
 		// Return shared ABA scratch after final-configuration factorization.
 		std::span<GpuArticulationAbaScratch const> Scratch() const;
 
-		// Return phase-reused generalized response scratch after factorization.
+		// Return accepted generalized accelerations, which configuration-only factorization must preserve.
 		std::span<float const> Accelerations() const;
 
 		// Return retained per-DOF motion subspaces and articulated columns.

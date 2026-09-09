@@ -53,11 +53,11 @@ namespace pr::physics
 			return;
 		}
 
-		// Replay uses exact active dimensions and preserves shared ABA factor layout.
+		// Replay uses exact active dimensions and preserves accepted accelerations and the shared ABA factor layout.
 		auto const& final_range = m_ranges.back();
 		auto const mobility_count = final_range.mobility_offset + final_range.link_count;
 		m_mobilities.assign(mobility_count, GpuArticulationSpatialMobility{});
-		m_accelerations.assign(upload.m_accelerations.size(), 0.0f);
+		m_accelerations = upload.m_accelerations;
 		m_scratch.assign(upload.m_links.size(), GpuArticulationAbaScratch{});
 		m_dof_scratch.assign(upload.m_dofs.size(), GpuArticulationAbaDofScratch{});
 		m_joint_matrix_scratch.assign(upload.m_joint_matrix_scratch_count, 0.0f);
@@ -145,7 +145,7 @@ namespace pr::physics
 		return m_scratch;
 	}
 
-	// Return phase-reused generalized response scratch after factorization.
+	// Return accepted generalized accelerations, which configuration-only factorization must preserve.
 	std::span<float const> ArticulationMobilityInteropRunner::Accelerations() const
 	{
 		return m_accelerations;

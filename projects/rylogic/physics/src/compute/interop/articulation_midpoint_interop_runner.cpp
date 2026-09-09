@@ -71,6 +71,7 @@ namespace pr::physics
 		g_aba_dofs.assign(MidpointSpanOf(upload.m_dofs));
 		g_aba_forces.assign(MidpointSpanOf(upload.m_forces));
 		g_aba_external_forces.assign(MidpointSpanOf(upload.m_external_forces));
+		g_midpoint_world_forces.assign(MidpointSpanOf(upload.m_world_forces));
 		g_aba_children.assign(MidpointSpanOf(upload.m_children));
 		g_aba_articulations.assign(MidpointSpanOf(m_articulations));
 		g_aba_positions.assign(MidpointSpanOf(upload.m_positions));
@@ -89,7 +90,7 @@ namespace pr::physics
 			.dt = dt,
 			.articulation_count = isize(upload.m_articulations),
 			.link_count = isize(upload.m_links),
-			.velocity_count = isize(upload.m_velocities),
+			.proxy_body_count = 0,
 		};
 		for (int substep_index = 0; substep_index != substep_count; ++substep_index)
 		{

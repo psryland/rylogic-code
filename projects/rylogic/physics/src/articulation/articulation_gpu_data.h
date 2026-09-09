@@ -18,7 +18,8 @@ namespace pr::physics
 		std::vector<float> m_velocities;
 		std::vector<float> m_forces;
 		std::vector<float> m_accelerations;
-		std::vector<GpuFrameForce> m_external_forces;
+		std::vector<GpuFrameForce> m_external_forces; // Link-local wrenches about the link origin.
+		std::vector<GpuFrameForce> m_world_forces;    // World-fixed wrenches about each link's physical COM.
 		std::vector<uint32_t> m_children;
 		std::vector<GpuArticulationLevel> m_levels;
 		std::vector<uint32_t> m_level_links;

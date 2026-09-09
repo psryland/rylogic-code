@@ -49,30 +49,39 @@ namespace pr::physics
 			return result;
 		}
 
-		// Invert a symmetric positive-definite joint inertia using a scale-aware Cholesky factorization.
+		// Invert a positive-definite joint inertia without treating angular and linear coordinate units as conditioning.
 		std::array<float, 36> InvertJointInertia(std::array<float, 36> matrix, int count)
 		{
 			auto lower = std::array<float, 36>{};
-			auto scale = 1.0f;
+			auto diagonal_scale = std::array<float, 6>{};
 			for (int row = 0; row != count; ++row)
 			for (int column = 0; column != count; ++column)
 			{
 				if (!IsFinite(matrix[row * 6 + column]))
 					throw std::runtime_error("Articulation joint inertia became non-finite");
+			}
+			for (int row = 0; row != count; ++row)
+			{
+				if (matrix[row * 6 + row] <= 0.0f)
+					throw std::runtime_error("Articulation joint inertia is singular or not positive definite");
 
-				scale = std::max(scale, Abs(matrix[row * 6 + column]));
+				diagonal_scale[row] = Sqrt(matrix[row * 6 + row]);
 			}
 
-			// Symmetrize round-off before factorization because the exact S-transpose-I-S operator is symmetric.
+			// Normalize each coordinate by its diagonal inertia before checking the dimensionless correlation matrix.
 			for (int row = 0; row != count; ++row)
-			for (int column = row + 1; column != count; ++column)
+			for (int column = row; column != count; ++column)
 			{
-				auto const value = 0.5f * (matrix[row * 6 + column] + matrix[column * 6 + row]);
+				auto const value = (0.5f * matrix[row * 6 + column] + 0.5f * matrix[column * 6 + row]) / diagonal_scale[row] / diagonal_scale[column];
+				if (!IsFinite(value))
+					throw std::runtime_error("Articulation joint inertia became non-finite");
+
 				matrix[row * 6 + column] = value;
 				matrix[column * 6 + row] = value;
 			}
 
-			auto const pivot_tolerance = 64.0f * std::numeric_limits<float>::epsilon() * scale * static_cast<float>(count);
+			// Reject dependent or indefinite normalized axes; no absolute inertia floor is imposed.
+			auto const pivot_tolerance = 64.0f * std::numeric_limits<float>::epsilon() * static_cast<float>(count);
 			for (int row = 0; row != count; ++row)
 			{
 				for (int column = 0; column != row + 1; ++column)
@@ -83,7 +92,7 @@ namespace pr::physics
 
 					if (row == column)
 					{
-						if (value <= pivot_tolerance)
+						if (!IsFinite(value) || value <= pivot_tolerance)
 							throw std::runtime_error("Articulation joint inertia is singular or not positive definite");
 
 						lower[row * 6 + column] = Sqrt(value);
@@ -115,6 +124,16 @@ namespace pr::physics
 						value -= lower[inner * 6 + row] * inverse[inner * 6 + inverse_column];
 					inverse[row * 6 + inverse_column] = value / lower[row * 6 + row];
 				}
+			}
+
+			// Return the inverse in the original coordinate units and reject unrepresentable responses explicitly.
+			for (int row = 0; row != count; ++row)
+			for (int column = 0; column != count; ++column)
+			{
+				inverse[row * 6 + column] /= diagonal_scale[row];
+				inverse[row * 6 + column] /= diagonal_scale[column];
+				if (!IsFinite(inverse[row * 6 + column]))
+					throw std::runtime_error("Articulation inverse joint inertia became non-finite");
 			}
 			return inverse;
 		}

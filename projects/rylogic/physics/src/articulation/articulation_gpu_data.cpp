@@ -225,6 +225,11 @@ namespace pr::physics
 					.inertia_com_and_mass = link_desc.m_inertia.m_com_and_mass,
 				});
 				upload.m_external_forces.push_back(PackSpatialForce(articulation->ExternalForce(link_handle)));
+				auto const link_mass = link_desc.m_inertia.Mass();
+				upload.m_world_forces.push_back(GpuFrameForce{
+					.force_ang = {},
+					.force_lin = link_mass > ZeroMass && link_mass < InfiniteMass * 0.5f ? link_mass * articulation->GravityWS(link_handle) : v4{},
+				});
 				tree_maximum_depth = std::max(tree_maximum_depth, depth);
 			}
 
@@ -363,7 +368,10 @@ namespace pr::physics
 					.inertia_inv_products = inertia_inv.m_products,
 					.os_com_and_invmass = v4{proxy_com.xyz, inertia_inv.InvMass()},
 					.os_bbox = os_bbox,
-					.state_flags = fixed_root ? static_cast<int>(ERigidBodyStateFlags::Static) : static_cast<int>(ERigidBodyStateFlags::None),
+					.state_flags =
+						(fixed_root ? static_cast<int>(ERigidBodyStateFlags::Static) : 0) |
+						(articulation->Sleeping() ? static_cast<int>(ERigidBodyStateFlags::Sleeping) : 0) |
+						(articulation->NeverSleep() ? static_cast<int>(ERigidBodyStateFlags::NeverSleep) : 0),
 					.shape_id = shape_id,
 					.colour_used = 0,
 					.articulation_collision = articulation_collision,
@@ -386,6 +394,7 @@ namespace pr::physics
 			upload.m_velocities.size() != upload.m_accelerations.size())
 			throw std::invalid_argument("GPU articulation generalized velocity, force, and acceleration ranges must match");
 		if (upload.m_links.size() != upload.m_external_forces.size() ||
+			upload.m_links.size() != upload.m_world_forces.size() ||
 			upload.m_links.size() != upload.m_level_links.size())
 			throw std::invalid_argument("GPU articulation link, wrench, and schedule ranges must match");
 		if (upload.m_joint_matrix_scratch_count < 0)
@@ -401,6 +410,7 @@ namespace pr::physics
 				!upload.m_forces.empty() ||
 				!upload.m_accelerations.empty() ||
 				!upload.m_external_forces.empty() ||
+				!upload.m_world_forces.empty() ||
 				!upload.m_children.empty() ||
 				!upload.m_levels.empty() ||
 				!upload.m_level_links.empty() ||

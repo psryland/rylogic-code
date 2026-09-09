@@ -20,7 +20,7 @@ struct cbArticulationMidpoint
 	float dt;
 	int articulation_count;
 	int link_count;
-	int velocity_count;
+	int proxy_body_count;
 };
 
 ConstantBuffer<cbArticulationMidpoint> resource(g_midpoint, b0);
@@ -29,6 +29,8 @@ StructuredBuffer<GpuArticulationDof> resource(g_aba_dofs, t1);
 StructuredBuffer<float> resource(g_aba_forces, t2);
 StructuredBuffer<GpuFrameForce> resource(g_aba_external_forces, t3);
 StructuredBuffer<uint> resource(g_aba_children, t4);
+StructuredBuffer<GpuFrameForce> resource(g_midpoint_world_forces, t5);
+StructuredBuffer<GpuRigidBody> resource(g_midpoint_proxy_bodies, t6);
 RWStructuredBuffer<GpuArticulation> resource(g_aba_articulations, u0);
 RWStructuredBuffer<float> resource(g_aba_positions, u1);
 RWStructuredBuffer<float> resource(g_aba_velocities, u2);
@@ -125,11 +127,22 @@ void MidpointSolveForceAba(int articulation_index)
 
 	// Parent-before-child preparation makes every link velocity dependency available in the same invocation.
 	for (int link_offset = 0; link_offset != articulation.link_count; ++link_offset)
-		AbaPrepareLink(articulation.link_offset + link_offset);
+	{
+		int link_index = articulation.link_offset + link_offset;
+		int proxy_index = g_aba_links[link_index].proxy_body_index;
+		GpuFrameForce world_force = g_midpoint_world_forces[link_index];
+		if (proxy_index >= 0 && proxy_index < g_midpoint.proxy_body_count)
+		{
+			GpuRigidBody body = g_midpoint_proxy_bodies[proxy_index];
+			world_force.force_ang = body.force_ang;
+			world_force.force_lin = body.force_lin;
+		}
+		AbaPrepareLink(link_index, true, world_force);
+	}
 
 	// Reverse topological parent reductions observe completed descendants and preserve packed child order.
 	for (int reverse_offset = articulation.link_count; reverse_offset-- != 0;)
-		AbaInwardLink(articulation.link_offset + reverse_offset);
+		AbaInwardLink(articulation.link_offset + reverse_offset, true);
 
 	AbaRootDynamics(articulation_index);
 
@@ -190,6 +203,16 @@ void CSArticulationMidpoint(int3 DTID(dtid))
 	if (state.status != GpuArticulationIntegrationStatus_Success)
 		return;
 
+	// A sleeping tree keeps accepted output intact; contact wake changes this same root-proxy bit before the next substep.
+	GpuArticulation articulation = g_aba_articulations[articulation_index];
+	int root_proxy_index = g_aba_links[articulation.link_offset].proxy_body_index;
+	if (root_proxy_index >= 0 && root_proxy_index < g_midpoint.proxy_body_count)
+	{
+		if ((g_midpoint_proxy_bodies[root_proxy_index].state_flags & ERigidBodyStateFlags_Sleeping) != 0)
+			return;
+	}
+
+	// Only an advancing tree resets this substep's diagnostics and snapshots its accepted root frame.
 	state.iteration_count = 0;
 	state.residual = 0.0f;
 	if (g_midpoint.dt == 0.0f)
@@ -198,7 +221,6 @@ void CSArticulationMidpoint(int3 DTID(dtid))
 		return;
 	}
 
-	GpuArticulation articulation = g_aba_articulations[articulation_index];
 	state.root_to_world_start = articulation.root_to_world;
 
 	// Snapshot the accepted generalized state once so all trial mutations can be rolled back transactionally.

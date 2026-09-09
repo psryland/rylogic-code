@@ -202,13 +202,18 @@ GpuArticulationSpatialMobility MobilityRoot(GpuArticulation articulation)
 void MobilityPrepareArticulation(GpuArticulationMobilityRange range)
 {
 	GpuArticulation articulation = g_aba_articulations[range.articulation_index];
+	GpuFrameForce no_force;
+	no_force.force_ang = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	no_force.force_lin = float4(0.0f, 0.0f, 0.0f, 0.0f);
 
-	// Rebuild factors at committed end-of-substep coordinates rather than reusing midpoint-configuration factors.
+	// Rebuild only configuration factors at committed coordinates; accepted acceleration and force-bias storage remain untouched.
 	for (int local_link_index = 0; local_link_index != articulation.link_count; ++local_link_index)
-		AbaPrepareLink(articulation.link_offset + local_link_index);
-	for (int reverse_link_index = articulation.link_count; reverse_link_index-- != 0;)
-		AbaInwardLink(articulation.link_offset + reverse_link_index);
+		AbaPrepareLink(articulation.link_offset + local_link_index, false, no_force);
 
+	for (int reverse_link_index = articulation.link_count; reverse_link_index-- != 0;)
+		AbaInwardLink(articulation.link_offset + reverse_link_index, false);
+
+	// Propagate configuration-only self-mobility from the root through each reduced joint.
 	g_link_mobilities[range.mobility_offset] = MobilityRoot(articulation);
 	for (int local_link_index = 1; local_link_index != articulation.link_count; ++local_link_index)
 	{

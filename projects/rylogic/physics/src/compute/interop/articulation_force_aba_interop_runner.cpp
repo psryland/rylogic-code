@@ -63,6 +63,7 @@ namespace pr::physics
 		g_aba_velocities.assign(ArticulationSpanOf(upload.m_velocities));
 		g_aba_forces.assign(ArticulationSpanOf(upload.m_forces));
 		g_aba_external_forces.assign(ArticulationSpanOf(upload.m_external_forces));
+		g_aba_world_forces.assign(ArticulationSpanOf(upload.m_world_forces));
 		g_aba_children.assign(ArticulationSpanOf(upload.m_children));
 		g_aba_level_links.assign(ArticulationSpanOf(upload.m_level_links));
 		g_aba_accelerations.assign(ArticulationSpanOf(upload.m_accelerations));
