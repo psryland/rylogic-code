@@ -10,6 +10,11 @@
 #include "src/constraint/constraint_solver.h"
 #include "src/unittests/constraint_oracle.h"
 
+namespace pr::physics
+{
+	#include "src/compute/constraint_algebra.hlsli"
+}
+
 namespace pr::physics::tests
 {
 	namespace
@@ -102,6 +107,307 @@ namespace pr::physics::tests
 			return total;
 		}
 	}
+
+	PRUnitTestClass(ConstraintBoxProjectionTests)
+	{
+		// Every lower/free/upper pattern through six dimensions has an independently planted KKT optimum.
+		PRUnitTestMethod(AllBoundPatternsRecoverKnownOptimum, Quick)
+		{
+			for (int dimension = 1, pattern_count = 3; dimension != 7; ++dimension, pattern_count *= 3)
+			for (int pattern = 0; pattern != pattern_count; ++pattern)
+			{
+				float inverse[36] = {};
+				float candidate[6] = {};
+				float lower[6] = {};
+				float upper[6] = {};
+				float expected[6] = {};
+				float gradient[6] = {};
+				float result[6] = {};
+				auto remaining = pattern;
+				for (int row = 0; row != dimension; ++row)
+				{
+					auto const state = remaining % 3;
+					remaining /= 3;
+					lower[row] = -0.25f;
+					upper[row] = +0.5f;
+					expected[row] = state == 0 ? 0.125f : state == 1 ? lower[row] : upper[row];
+					gradient[row] = state == 0 ? 0.0f : (state == 1 ? +1.0f : -1.0f) * (0.5f + 0.1f * row);
+					for (int column = 0; column != dimension; ++column)
+					{
+						auto const sign = ((row + column) % 2) == 0 ? +1.0f : -1.0f;
+						inverse[row * 6 + column] = sign * (0.3f + 0.1f * row) * (0.3f + 0.1f * column);
+					}
+					inverse[row * 6 + row] += 0.75f + 0.1f * row;
+				}
+
+				// A positive diagonal plus u*u^T is SPD; candidate = optimum - inverse*gradient fixes the unique KKT solution.
+				for (int row = 0; row != dimension; ++row)
+				{
+					candidate[row] = expected[row];
+					for (int column = 0; column != dimension; ++column)
+						candidate[row] -= inverse[row * 6 + column] * gradient[column];
+				}
+				PR_EXPECT(constraint_algebra::ProjectConstraintBox(dimension, inverse, candidate, lower, upper, result));
+				for (int row = 0; row != dimension; ++row)
+				{
+					PR_EXPECT(result[row] >= lower[row] && result[row] <= upper[row]);
+					PR_EXPECT(FEqlAbsolute(result[row], expected[row], 2.0e-5f));
+				}
+			}
+		}
+
+		// Infinite intervals and fixed coordinates retain their meaning across very small and very large metric scales.
+		PRUnitTestMethod(FixedAndInfiniteBoundsAreScaleInvariant, Quick)
+		{
+			for (auto const scale : {1.0e-12f, 1.0f, 1.0e12f})
+			{
+				float inverse[36] = {};
+				float candidate[6] = {};
+				float lower[6] = {0.2f, -std::numeric_limits<float>::infinity(), -std::numeric_limits<float>::infinity()};
+				float upper[6] = {0.2f, +std::numeric_limits<float>::infinity(), 0.0f};
+				float expected[6] = {0.2f, 0.4f, 0.0f};
+				float gradient[6] = {2.0f / scale, 0.0f, -1.0f / scale};
+				float result[6] = {};
+				for (int row = 0; row != 3; ++row)
+				for (int column = 0; column != 3; ++column)
+					inverse[row * 6 + column] = scale * (row == column ? 1.0f : 0.2f);
+
+				// Equality multipliers are unrestricted, the free coordinate has zero gradient, and the upper bound has negative gradient.
+				for (int row = 0; row != 3; ++row)
+				{
+					candidate[row] = expected[row];
+					for (int column = 0; column != 3; ++column)
+						candidate[row] -= inverse[row * 6 + column] * gradient[column];
+				}
+				PR_EXPECT(constraint_algebra::ProjectConstraintBox(3, inverse, candidate, lower, upper, result));
+				for (int row = 0; row != 3; ++row)
+					PR_EXPECT(FEqlAbsolute(result[row], expected[row], 2.0e-5f));
+			}
+		}
+
+		// The common feasible path is exact, and invalid bounded inputs report failure instead of manufacturing an impulse.
+		PRUnitTestMethod(FeasibleInputsAndNumericalFailuresAreExplicit, Quick)
+		{
+			float inverse[36] = {};
+			float candidate[6] = {0.2f, -0.3f};
+			float lower[6] = {-1.0f, -1.0f};
+			float upper[6] = {+1.0f, +1.0f};
+			float result[6] = {};
+			inverse[0] = 1.0f;
+			inverse[7] = 1.0f;
+			PR_EXPECT(constraint_algebra::ProjectConstraintBox(2, inverse, candidate, lower, upper, result));
+			PR_EXPECT(result[0] == candidate[0] && result[1] == candidate[1]);
+			PR_EXPECT(!constraint_algebra::ProjectConstraintBox(7, inverse, candidate, lower, upper, result));
+
+			// A violated bound forces arithmetic validation; nonfinite or indefinite active response cannot report success.
+			candidate[0] = 2.0f;
+			candidate[1] = 2.0f;
+			inverse[0] = std::numeric_limits<float>::quiet_NaN();
+			PR_EXPECT(!constraint_algebra::ProjectConstraintBox(2, inverse, candidate, lower, upper, result));
+			inverse[0] = 1.0f;
+			inverse[1] = 2.0f;
+			inverse[6] = 2.0f;
+			PR_EXPECT(!constraint_algebra::ProjectConstraintBox(2, inverse, candidate, lower, upper, result));
+			lower[0] = 3.0f;
+			PR_EXPECT(!constraint_algebra::ProjectConstraintBox(2, inverse, candidate, lower, upper, result));
+		}
+
+		// Scale normalization must distinguish valid mixed row units from rank loss and unrepresentable spring arithmetic.
+		PRUnitTestMethod(MixedResponseScalesAndSoftArithmeticRemainDistinct, Quick)
+		{
+			float matrix[36] = {};
+			float inverse[36] = {};
+			matrix[0] = 1.0e-6f;
+			matrix[7] = 3.6e5f;
+			PR_EXPECT(constraint_algebra::InvertConstraintMatrix(matrix, 2, 1.0e-7f * matrix[7], inverse));
+			PR_EXPECT(FEqlAbsolute(inverse[0] * matrix[0], 1.0f, 2.0e-6f));
+			PR_EXPECT(FEqlAbsolute(inverse[7] * matrix[7], 1.0f, 2.0e-6f));
+			matrix[7] = 0.0f;
+			PR_EXPECT(!constraint_algebra::InvertConstraintMatrix(matrix, 2, 1.0e-13f, inverse));
+
+			// Representable positive denominators remain soft; an underflowing denominator is an explicit failure, not a hard row.
+			auto gamma = 0.0f;
+			auto bias = 0.0f;
+			PR_EXPECT(constraint_algebra::ConstraintSoftParameters(1.0e-8f, 1.0e-8f, 0.0f, 1.0f, gamma, bias));
+			PR_EXPECT(gamma > 0.0f && std::isfinite(gamma));
+			PR_EXPECT(FEqlRelative(bias, 1.0e8f, 2.0e-6f));
+			PR_EXPECT(!constraint_algebra::ConstraintSoftParameters(1.0e-20f, 1.0e-20f, 0.0f, 1.0f, gamma, bias));
+		}
+	};
+
+	PRUnitTestClass(ConstraintAlgebraRegressionTests)
+	{
+		// Under- and over-relaxed bounded updates share the same KKT limit rather than an inverse-clamp fixed point.
+		PRUnitTestMethod(RelaxedBoundedBlocksConvergeToSameKkt, Quick)
+		{
+			for (auto const relaxation : {0.5f, 1.5f})
+			{
+				auto body = MakeBody();
+				body.SetMassProperties(Inertia{1.0f, 1.0f});
+				body.VelocityWS(v8motion{v4::Zero(), v4{-1, -1, 0, 0}});
+				auto desc = D6ConstraintDesc{};
+				desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
+				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_constraint_to_body};
+				desc.m_linear[0] = LockedAxis();
+				desc.m_linear[1].m_mode = EConstraintAxisMode::Driven;
+				desc.m_linear[1].m_max_force = 1.0f;
+				auto constraints = ConstraintSet{};
+				constraints.Add(desc);
+				auto body_ptrs = std::array<RigidBody*, 1>{&body};
+				auto remap = BodyRemap(body_ptrs);
+				auto config = VelocityOnlyConfig(32);
+				config.m_relaxation = relaxation;
+				auto solver = CpuConstraintSolver{};
+				solver.Solve(CompileConstraints(constraints, remap), remap, 0.1f, config);
+
+				// The bounded optimum remains lambda = (0.45,0.1), independently of the admissible relaxation.
+				auto const velocity = body.VelocityWS();
+				auto const point_velocity = velocity.lin + Cross(velocity.ang, v4{1, -1, 0, 0});
+				PR_EXPECT(FEqlAbsolute(velocity.lin.x + 1.0f, 0.45f, 3.0e-6f));
+				PR_EXPECT(FEqlAbsolute(velocity.lin.y + 1.0f, 0.1f, 3.0e-6f));
+				PR_EXPECT(Abs(point_velocity.x) < 3.0e-6f);
+			}
+		}
+
+		// A saturated driven row must leave the off-diagonally coupled free impulse at its constrained minimum.
+		PRUnitTestMethod(BoundedBlockSatisfiesFreeRowKkt, Quick)
+		{
+			for (auto const iterations : {1, 2, 12})
+			for (auto const initial_speed : {0.0f, -1.0f})
+			{
+				auto body = MakeBody();
+				body.SetMassProperties(Inertia{1.0f, 1.0f});
+				body.VelocityWS(v8motion{v4::Zero(), v4{initial_speed, initial_speed, 0, 0}});
+				auto desc = D6ConstraintDesc{};
+				desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
+				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_constraint_to_body};
+				desc.m_linear[0] = LockedAxis();
+				desc.m_linear[1].m_mode = EConstraintAxisMode::Driven;
+				desc.m_linear[1].m_target_velocity = initial_speed == 0.0f ? 3.0f : 0.0f;
+				desc.m_linear[1].m_max_force = 1.0f;
+				auto constraints = ConstraintSet{};
+				constraints.Add(desc);
+				auto body_ptrs = std::array<RigidBody*, 1>{&body};
+				auto remap = BodyRemap(body_ptrs);
+				auto solver = CpuConstraintSolver{};
+				solver.Solve(CompileConstraints(constraints, remap), remap, 0.1f, VelocityOnlyConfig(iterations));
+
+				// K = [[2,1],[1,2]], lambda_y = 0.1, and the free X gradient gives 2 lambda_x + lambda_y = -v_x.
+				auto const expected_x = (-initial_speed - 0.1f) / 2.0f;
+				auto const impulse = body.MomentumWS().lin - v4{initial_speed, initial_speed, 0, 0};
+				auto const velocity = body.VelocityWS();
+				auto const point_velocity = velocity.lin + Cross(velocity.ang, v4{1, -1, 0, 0});
+				PR_EXPECT(FEqlAbsolute(impulse.x, expected_x, 2.0e-6f));
+				PR_EXPECT(FEqlAbsolute(impulse.y, 0.1f, 2.0e-6f));
+				PR_EXPECT(Abs(point_velocity.x) < 2.0e-6f);
+				PR_EXPECT(FEqlAbsolute(point_velocity.y, initial_speed + expected_x + 0.2f, 2.0e-6f));
+			}
+		}
+
+		// A slider undergoing common rigid rotation requires no impulse and conserves momentum about the world origin.
+		PRUnitTestMethod(CommonSliderRotationPreservesAngularMomentum, Quick)
+		{
+			auto body_a = MakeBody();
+			auto body_b = MakeBody(1.0f, m4x4::Translation(2.0f, 0.0f, 0.0f));
+			body_a.SetMassProperties(Inertia{1.0f, 1.0f});
+			body_b.SetMassProperties(Inertia{1.0f, 1.0f});
+			body_a.VelocityWS(v8motion{v4::ZAxis(), v4::Zero()});
+			body_b.VelocityWS(v8motion{v4::ZAxis(), 2.0f * v4::YAxis()});
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body_a);
+			desc.m_frame_b.m_body = BodyRef::Rigid(body_b);
+			desc.m_linear[1] = LockedAxis();
+			desc.m_linear[2] = LockedAxis();
+			for (auto& axis : desc.m_angular)
+				axis = LockedAxis();
+
+			// Coincident endpoint orientations and free X translation admit exactly this rigid motion.
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 2>{&body_a, &body_b};
+			auto remap = BodyRemap(body_ptrs);
+			auto momentum_bodies = std::array<RigidBody const*, 2>{&body_a, &body_b};
+			auto const before = TotalMomentum(momentum_bodies);
+			auto solver = CpuConstraintSolver{};
+			solver.Solve(CompileConstraints(constraints, remap), remap, 0.1f, VelocityOnlyConfig());
+
+			// The two spin momenta contribute 2 and B's orbital momentum contributes 4.
+			auto const after = TotalMomentum(momentum_bodies);
+			PR_EXPECT(FEqlAbsolute(before.ang.z, 6.0f, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(after.ang.z, 6.0f, 2.0e-5f));
+			PR_EXPECT(FEqlAbsolute(after.lin, before.lin, 2.0e-5f));
+			ExpectNear(body_a.VelocityWS(), v8motion{v4::ZAxis(), v4::Zero()});
+			ExpectNear(body_b.VelocityWS(), v8motion{v4::ZAxis(), 2.0f * v4::YAxis()});
+		}
+
+		// A physically weak implicit spring remains soft even when its timestep denominator is below geometric tolerances.
+		PRUnitTestMethod(WeakSpringMatchesImplicitVelocity, Quick)
+		{
+			auto body = MakeBody(1.0f, m4x4::Translation(1.0f, 0.0f, 0.0f));
+			body.VelocityWS(v8motion{v4::Zero(), v4::XAxis()});
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_b.m_body = BodyRef::Rigid(body);
+			desc.m_linear[0] = LockedAxis();
+			desc.m_linear[0].m_stiffness = 0.01f;
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto remap = BodyRemap(body_ptrs);
+			auto const timestep = 1.0f / 60.0f;
+			auto solver = CpuConstraintSolver{};
+			solver.Solve(CompileConstraints(constraints, remap), remap, timestep, VelocityOnlyConfig());
+
+			// Backward Euler gives (v - h k C) / (1 + h^2 k) for unit mass and zero damping.
+			auto const expected = (1.0f - timestep * 0.01f) / (1.0f + timestep * timestep * 0.01f);
+			PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.x, expected, 3.0e-7f));
+		}
+
+		// A small but nonsingular inverse mass is a valid scalar operator, not an immovable body.
+		PRUnitTestMethod(HeavyBodyWorldLockRemainsSolvable, Quick)
+		{
+			auto body = MakeBody(1.0e6f);
+			body.VelocityWS(v8motion{v4::Zero(), v4::XAxis()});
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_b.m_body = BodyRef::Rigid(body);
+			desc.m_linear[0] = LockedAxis();
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto remap = BodyRemap(body_ptrs);
+			auto solver = CpuConstraintSolver{};
+			auto const metrics = solver.Solve(CompileConstraints(constraints, remap), remap, 0.1f, VelocityOnlyConfig());
+			PR_EXPECT(Abs(body.VelocityWS().lin.x) < 2.0e-6f);
+			PR_EXPECT(metrics.m_singular_blocks == 0);
+		}
+
+		// A satisfied hard X row must oppose the X motion caused by another row's off-centre positional correction.
+		PRUnitTestMethod(SatisfiedHardRowsParticipateInPositionSolve, Quick)
+		{
+			auto body = MakeBody();
+			body.SetMassProperties(Inertia{1.0f, 1.0f});
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
+			desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_constraint_to_body};
+			desc.m_linear[0] = LockedAxis();
+			desc.m_linear[1] = LockedAxis();
+			desc.m_linear[1].m_target_position = 0.01f;
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto remap = BodyRemap(body_ptrs);
+			auto config = VelocityOnlyConfig(0);
+			config.m_position_iterations = 1;
+			auto solver = CpuConstraintSolver{};
+			auto const metrics = solver.Solve(CompileConstraints(constraints, remap), remap, 0.1f, config);
+
+			// The linearized target is (0,0.002); finite rotation leaves only second-order anchor drift.
+			auto const anchor = body.O2W() * v4{1, -1, 0, 1};
+			PR_EXPECT(metrics.m_active_position_rows == 2);
+			PR_EXPECT(FEqlAbsolute(anchor.x, 1.0f, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(anchor.y, -0.998f, 1.0e-6f));
+			ExpectNear(body.VelocityWS(), v8motion{});
+		}
+	};
 
 	PRUnitTestClass(ConstraintSolverTests)
 	{

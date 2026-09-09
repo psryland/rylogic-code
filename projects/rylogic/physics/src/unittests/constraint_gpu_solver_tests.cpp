@@ -75,6 +75,326 @@ namespace pr::physics::tests
 		}
 	}
 
+	PRUnitTestClass(ConstraintGpuAlgebraRegressionTests)
+	{
+		// Compilation reports the highest failing slot even when colouring later selects the serial fallback.
+		PRUnitTestMethod(FrameLatchPreservesCompileFailureThroughColouring, Quick)
+		{
+			auto body = MakeConstraintGpuBody();
+			auto constraints = ConstraintSet{};
+			auto const slot_count = MaxColours + 4;
+			for (int index = 0; index != slot_count; ++index)
+			{
+				auto desc = D6ConstraintDesc{};
+				desc.m_frame_b.m_body = BodyRef::Rigid(body);
+				desc.m_linear[0] = MakeConstraintGpuLockedAxis();
+				desc.m_linear[0].m_stiffness = index == 0 || index == slot_count / 2 || index == slot_count - 1 ? 1.0e-20f : 0.0f;
+				constraints.Add(desc);
+			}
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+			auto const buffers = ConstraintRunnerBuffers{1.0e-20f, bodies, upload.m_endpoints, upload.m_descriptors};
+			auto runner = ConstraintInteropRunner{};
+			runner.Load(buffers);
+			runner.CompileConstraints();
+			PR_EXPECT(runner.FrameState().failure_slot_plus_one == static_cast<uint32_t>(slot_count));
+
+			// More surviving constraints than colours share one body; changing the fallback word must preserve the failure word.
+			runner.AssignColours();
+			PR_EXPECT(runner.ColourOverflow());
+			PR_EXPECT(runner.FrameState().failure_slot_plus_one == static_cast<uint32_t>(slot_count));
+			runner.SolveVelocity();
+			PR_EXPECT(runner.FrameState().failure_slot_plus_one == static_cast<uint32_t>(slot_count));
+			PR_THROWS(runner.Store(buffers), std::exception);
+
+			// Only loading the next frame resets both words.
+			runner.Load(buffers);
+			PR_EXPECT(runner.FrameState().colour_overflow == 0u);
+			PR_EXPECT(runner.FrameState().failure_slot_plus_one == 0u);
+		}
+
+		// A later successful row compilation cannot erase an earlier physical-solve failure from the same loaded frame.
+		PRUnitTestMethod(FrameLatchSurvivesSuccessfulRecompile, Quick)
+		{
+			auto body = MakeConstraintGpuBody();
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_b.m_body = BodyRef::Rigid(body);
+			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
+			auto constraints = ConstraintSet{};
+			for (int index = 0; index != 3; ++index)
+				constraints.Add(desc);
+
+			// Nonfinite physical input reaches the solve failure path without invalidating the finite descriptor geometry.
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+			bodies[0].momentum_lin.x = std::numeric_limits<float>::quiet_NaN();
+			auto const buffers = ConstraintRunnerBuffers{0.1f, bodies, upload.m_endpoints, upload.m_descriptors};
+			auto runner = ConstraintInteropRunner{};
+			runner.Load(buffers);
+			runner.CompileConstraints();
+			runner.AssignColours();
+			runner.SolveVelocity();
+			PR_EXPECT(runner.FrameState().failure_slot_plus_one == 3u);
+
+			// Fresh row flags can be valid while the frame remains failed; publication must consult the independent latch.
+			runner.CompileConstraints();
+			runner.AssignColours();
+			for (auto const& block : runner.Blocks())
+				PR_EXPECT(!AllSet(block.flags, ConstraintBlockFlags_NumericalFailure));
+
+			PR_EXPECT(runner.FrameState().failure_slot_plus_one == 3u);
+			PR_THROWS(runner.Store(buffers), std::exception);
+
+			// Corrected physical input succeeds after a new frame load resets the latch.
+			bodies[0] = PackDynamics(body, 0);
+			runner.Run(buffers);
+			PR_EXPECT(runner.FrameState().failure_slot_plus_one == 0u);
+		}
+
+		// Unrepresentable soft arithmetic is observable on both public solve paths and never becomes a successful hard lock.
+		PRUnitTestMethod(UnrepresentableSoftRowsReportFailure, Quick)
+		{
+			auto body = MakeConstraintGpuBody(1.0f, m4x4::Translation(1.0f, 0.0f, 0.0f));
+			body.VelocityWS(v8motion{v4::Zero(), v4::XAxis()});
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_b.m_body = BodyRef::Rigid(body);
+			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
+			desc.m_linear[0].m_stiffness = 1.0e-20f;
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto remap = BodyRemap(body_ptrs);
+			auto const upload = PackGpuConstraints(constraints, remap);
+			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+			auto config = CpuConstraintSolverConfig{};
+			config.m_velocity_iterations = 1;
+			config.m_position_iterations = 0;
+			config.m_warm_start_factor = 0.0f;
+			auto runner = ConstraintInteropRunner{config};
+			auto solver = CpuConstraintSolver{};
+
+			// The positive spring denominator underflows in float, so replay must retain the shader failure bit and reject output publication.
+			PR_THROWS(runner.Run(ConstraintRunnerBuffers{1.0e-20f, bodies, upload.m_endpoints, upload.m_descriptors}), std::exception);
+			PR_EXPECT(AllSet(runner.Blocks()[0].flags, ConstraintBlockFlags_NumericalFailure));
+			PR_EXPECT(runner.FrameState().failure_slot_plus_one == 1u);
+			PR_EXPECT(bodies[0].momentum_lin.x == 1.0f);
+			PR_THROWS(solver.Solve(CompileConstraints(constraints, remap), remap, 1.0e-20f, config), std::exception);
+			PR_EXPECT(body.VelocityWS().lin.x == 1.0f);
+
+			// A fresh solve with representable coefficients clears the diagnostic and recovers without rebuilding the runner.
+			runner.Run(ConstraintRunnerBuffers{0.1f, bodies, upload.m_endpoints, upload.m_descriptors});
+			PR_EXPECT(!AllSet(runner.Blocks()[0].flags, ConstraintBlockFlags_NumericalFailure));
+			PR_EXPECT(runner.FrameState().failure_slot_plus_one == 0u);
+			PR_EXPECT(FEqlAbsolute(bodies[0].momentum_lin.x, 1.0f, 1.0e-6f));
+		}
+
+		// A large spring gamma must not hide a valid heavy-body hard row in the same dense block.
+		PRUnitTestMethod(MixedMassAndComplianceScalesPreserveHardRow, Quick)
+		{
+			auto body = MakeConstraintGpuBody(1.0e6f);
+			body.VelocityWS(v8motion{v4::Zero(), v4::XAxis()});
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_b.m_body = BodyRef::Rigid(body);
+			desc.m_linear[0] = MakeConstraintGpuLockedAxis(std::numeric_limits<float>::infinity());
+			desc.m_linear[1] = MakeConstraintGpuLockedAxis(std::numeric_limits<float>::infinity());
+			desc.m_linear[1].m_stiffness = 0.01f;
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto remap = BodyRemap(body_ptrs);
+			auto const upload = PackGpuConstraints(constraints, remap);
+			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+			auto config = CpuConstraintSolverConfig{};
+			config.m_velocity_iterations = 1;
+			config.m_position_iterations = 0;
+			config.m_warm_start_factor = 0.0f;
+			auto runner = ConstraintInteropRunner{config};
+			runner.Run(ConstraintRunnerBuffers{1.0f / 60.0f, bodies, upload.m_endpoints, upload.m_descriptors});
+			auto solver = CpuConstraintSolver{};
+			auto const metrics = solver.Solve(CompileConstraints(constraints, remap), remap, 1.0f / 60.0f, config);
+
+			// The diagonal response spans eleven orders of magnitude but is full rank, so no regularization is justified.
+			PR_EXPECT(Abs(body.VelocityWS().lin.x) < 2.0e-6f);
+			PR_EXPECT(Abs(bodies[0].momentum_lin.x * bodies[0].os_com_and_invmass.w) < 2.0e-6f);
+			PR_EXPECT(metrics.m_regularized_blocks == 0);
+			PR_EXPECT(metrics.m_singular_blocks == 0);
+		}
+
+		// Shader replay must solve the response-metric bounded block rather than converge to a clamped dense fixed point.
+		PRUnitTestMethod(BoundedBlockSatisfiesAnalyticalKkt, Quick)
+		{
+			for (auto const iterations : {1, 2, 12})
+			for (auto const initial_speed : {0.0f, -1.0f})
+			{
+				auto body = MakeConstraintGpuBody();
+				body.SetMassProperties(Inertia{1.0f, 1.0f});
+				body.VelocityWS(v8motion{v4::Zero(), v4{initial_speed, initial_speed, 0, 0}});
+				auto desc = D6ConstraintDesc{};
+				desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
+				desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_constraint_to_body};
+				desc.m_linear[0] = MakeConstraintGpuLockedAxis(std::numeric_limits<float>::infinity());
+				desc.m_linear[1].m_mode = EConstraintAxisMode::Driven;
+				desc.m_linear[1].m_target_velocity = initial_speed == 0.0f ? 3.0f : 0.0f;
+				desc.m_linear[1].m_max_force = 1.0f;
+				auto constraints = ConstraintSet{};
+				constraints.Add(desc);
+				auto body_ptrs = std::array<RigidBody*, 1>{&body};
+				auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+				auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+				auto config = CpuConstraintSolverConfig{};
+				config.m_velocity_iterations = iterations;
+				config.m_position_iterations = 0;
+				config.m_warm_start_factor = 0.0f;
+				auto runner = ConstraintInteropRunner{config};
+				runner.Run(ConstraintRunnerBuffers{0.1f, bodies, upload.m_endpoints, upload.m_descriptors});
+
+				// With K = [[2,1],[1,2]], the saturated Y impulse fixes lambda_x = (-v_x - 0.1) / 2.
+				auto const expected_x = (-initial_speed - 0.1f) / 2.0f;
+				auto const point_velocity = bodies[0].momentum_lin + Cross(bodies[0].momentum_ang, v4{1, -1, 0, 0});
+				PR_EXPECT(FEqlAbsolute(runner.Rows()[0].bounds.z, expected_x, 2.0e-6f));
+				PR_EXPECT(FEqlAbsolute(runner.Rows()[1].bounds.z, 0.1f, 2.0e-6f));
+				PR_EXPECT(Abs(point_velocity.x) < 2.0e-6f);
+				PR_EXPECT(FEqlAbsolute(point_velocity.y, initial_speed + expected_x + 0.2f, 2.0e-6f));
+			}
+		}
+
+		// A common slider rotation is an exact admissible velocity, not a source of dissipative joint impulses.
+		PRUnitTestMethod(CommonSliderRotationPreservesAngularMomentum, Quick)
+		{
+			auto body_a = MakeConstraintGpuBody();
+			auto body_b = MakeConstraintGpuBody(1.0f, m4x4::Translation(2.0f, 0.0f, 0.0f));
+			body_a.SetMassProperties(Inertia{1.0f, 1.0f});
+			body_b.SetMassProperties(Inertia{1.0f, 1.0f});
+			body_a.VelocityWS(v8motion{v4::ZAxis(), v4::Zero()});
+			body_b.VelocityWS(v8motion{v4::ZAxis(), 2.0f * v4::YAxis()});
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a.m_body = BodyRef::Rigid(body_a);
+			desc.m_frame_b.m_body = BodyRef::Rigid(body_b);
+			desc.m_linear[1] = MakeConstraintGpuLockedAxis();
+			desc.m_linear[2] = MakeConstraintGpuLockedAxis();
+			for (auto& axis : desc.m_angular)
+				axis = MakeConstraintGpuLockedAxis();
+
+			// Run the production shader through its deterministic C++ interop surface without requiring a GPU device.
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 2>{&body_a, &body_b};
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body_a, 0), PackDynamics(body_b, 1)};
+			auto config = CpuConstraintSolverConfig{};
+			config.m_velocity_iterations = 1;
+			config.m_position_iterations = 0;
+			config.m_warm_start_factor = 0.0f;
+			auto runner = ConstraintInteropRunner{config};
+			runner.Run(ConstraintRunnerBuffers{0.1f, bodies, upload.m_endpoints, upload.m_descriptors});
+
+			// The derivative of C_y under A-only rotation is -2; spin plus orbital momentum must remain 6.
+			auto const angular_momentum = bodies[0].momentum_ang.z + bodies[1].momentum_ang.z + 2.0f * bodies[1].momentum_lin.y;
+			PR_EXPECT(FEqlAbsolute(runner.Rows()[1].jacobian_a_ang.z, -2.0f, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(angular_momentum, 6.0f, 2.0e-5f));
+			PR_EXPECT(FEqlAbsolute(bodies[0].momentum_ang, v4::ZAxis(), 2.0e-5f));
+			PR_EXPECT(FEqlAbsolute(bodies[1].momentum_ang, v4::ZAxis(), 2.0e-5f));
+			PR_EXPECT(FEqlAbsolute(bodies[0].momentum_lin, v4::Zero(), 2.0e-5f));
+			PR_EXPECT(FEqlAbsolute(bodies[1].momentum_lin, 2.0f * v4::YAxis(), 2.0e-5f));
+		}
+
+		// CPU and shader paths must both preserve the analytically specified weak implicit spring.
+		PRUnitTestMethod(WeakSpringMatchesImplicitVelocityAndCpu, Quick)
+		{
+			auto body = MakeConstraintGpuBody(1.0f, m4x4::Translation(1.0f, 0.0f, 0.0f));
+			body.VelocityWS(v8motion{v4::Zero(), v4::XAxis()});
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_b.m_body = BodyRef::Rigid(body);
+			desc.m_linear[0] = MakeConstraintGpuLockedAxis(std::numeric_limits<float>::infinity());
+			desc.m_linear[0].m_stiffness = 0.01f;
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto remap = BodyRemap(body_ptrs);
+			auto const upload = PackGpuConstraints(constraints, remap);
+			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+			auto config = CpuConstraintSolverConfig{};
+			config.m_velocity_iterations = 1;
+			config.m_position_iterations = 0;
+			config.m_warm_start_factor = 0.0f;
+			auto const timestep = 1.0f / 60.0f;
+			auto runner = ConstraintInteropRunner{config};
+			runner.Run(ConstraintRunnerBuffers{timestep, bodies, upload.m_endpoints, upload.m_descriptors});
+			auto solver = CpuConstraintSolver{};
+			solver.Solve(CompileConstraints(constraints, remap), remap, timestep, config);
+
+			// The independent backward-Euler value prevents two matching implementations from agreeing on a hard lock.
+			auto const expected = (1.0f - timestep * 0.01f) / (1.0f + timestep * timestep * 0.01f);
+			PR_EXPECT(FEqlAbsolute(bodies[0].momentum_lin.x, expected, 3.0e-7f));
+			PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.x, expected, 3.0e-7f));
+			PR_EXPECT(FEqlAbsolute(bodies[0].momentum_lin.x, body.VelocityWS().lin.x, 3.0e-7f));
+		}
+
+		// Scalar mass scaling must not cause the CPU path to discard a row that shader arithmetic can resolve.
+		PRUnitTestMethod(HeavyBodyWorldLockMatchesAnalyticalVelocityAndCpu, Quick)
+		{
+			auto body = MakeConstraintGpuBody(1.0e6f);
+			body.VelocityWS(v8motion{v4::Zero(), v4::XAxis()});
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_b.m_body = BodyRef::Rigid(body);
+			desc.m_linear[0] = MakeConstraintGpuLockedAxis(std::numeric_limits<float>::infinity());
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto remap = BodyRemap(body_ptrs);
+			auto const upload = PackGpuConstraints(constraints, remap);
+			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+			auto config = CpuConstraintSolverConfig{};
+			config.m_velocity_iterations = 1;
+			config.m_position_iterations = 0;
+			config.m_warm_start_factor = 0.0f;
+			auto runner = ConstraintInteropRunner{config};
+			runner.Run(ConstraintRunnerBuffers{0.1f, bodies, upload.m_endpoints, upload.m_descriptors});
+			auto solver = CpuConstraintSolver{};
+			solver.Solve(CompileConstraints(constraints, remap), remap, 0.1f, config);
+
+			// An unlimited hard world lock has exactly zero final X velocity regardless of finite body mass.
+			auto const gpu_velocity = bodies[0].momentum_lin.x * bodies[0].os_com_and_invmass.w;
+			PR_EXPECT(Abs(gpu_velocity) < 2.0e-6f);
+			PR_EXPECT(Abs(body.VelocityWS().lin.x) < 2.0e-6f);
+			PR_EXPECT(FEqlAbsolute(gpu_velocity, body.VelocityWS().lin.x, 2.0e-6f));
+		}
+
+		// Split-position compilation must retain satisfied hard rows that oppose another row's correction.
+		PRUnitTestMethod(SatisfiedHardRowsParticipateInPositionSolve, Quick)
+		{
+			auto body = MakeConstraintGpuBody();
+			body.SetMassProperties(Inertia{1.0f, 1.0f});
+			auto desc = D6ConstraintDesc{};
+			desc.m_frame_a = BodyFrame{BodyRef::World(), m4x4::Translation(1.0f, -1.0f, 0.0f)};
+			desc.m_frame_b = BodyFrame{BodyRef::Rigid(body), desc.m_frame_a.m_constraint_to_body};
+			desc.m_linear[0] = MakeConstraintGpuLockedAxis();
+			desc.m_linear[1] = MakeConstraintGpuLockedAxis();
+			desc.m_linear[1].m_target_position = 0.01f;
+			auto constraints = ConstraintSet{};
+			constraints.Add(desc);
+			auto body_ptrs = std::array<RigidBody*, 1>{&body};
+			auto const upload = PackGpuConstraints(constraints, BodyRemap(body_ptrs));
+			auto bodies = std::vector<GpuRigidBody>{PackDynamics(body, 0)};
+			auto config = CpuConstraintSolverConfig{};
+			config.m_velocity_iterations = 0;
+			config.m_position_iterations = 1;
+			config.m_warm_start_factor = 0.0f;
+			auto runner = ConstraintInteropRunner{config};
+			runner.Run(ConstraintRunnerBuffers{0.1f, bodies, upload.m_endpoints, upload.m_descriptors});
+
+			// The second row requests 0.002 Y displacement, while the first row enforces zero linearized X displacement.
+			auto const anchor = bodies[0].o2w * v4{1, -1, 0, 1};
+			PR_EXPECT(runner.Blocks()[0].position_mask == 3u);
+			PR_EXPECT(FEqlAbsolute(anchor.x, 1.0f, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(anchor.y, -0.998f, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(bodies[0].momentum_ang, v4::Zero(), 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(bodies[0].momentum_lin, v4::Zero(), 1.0e-6f));
+		}
+	};
+
 	PRUnitTestClass(ConstraintGpuSolverTests)
 	{
 		// Match CPU world-frame compilation for rotated frames, offset CoMs, a world endpoint, and mixed canonical axis modes.
@@ -314,7 +634,22 @@ namespace pr::physics::tests
 					auto const expected_o2w = transformed_from_base * baseline[body_idx].o2w;
 					auto const expected_momentum_ang = transformed_from_base.rot * baseline[body_idx].momentum_ang;
 					auto const expected_momentum_lin = transformed_from_base.rot * baseline[body_idx].momentum_lin;
-					PR_EXPECT(FEqlAbsolute(transformed[body_idx].o2w, expected_o2w, 2.0e-4f));
+
+					// At 3000 world units one float step is 2^-12, larger than 2e-4; permit one adjacent value only for translation components.
+					for (int column = 0; column != 4; ++column)
+					for (int row = 0; row != 4; ++row)
+					{
+						auto const actual = transformed[body_idx].o2w[column][row];
+						auto const expected = expected_o2w[column][row];
+						auto const adjacent_translation =
+							column == 3 && row < 3 &&
+							std::isfinite(actual) &&
+							std::isfinite(expected) &&
+							actual == std::nextafter(expected, actual);
+						PR_EXPECT(FEqlAbsolute(actual, expected, 2.0e-4f) || adjacent_translation);
+					}
+
+					// Momentum retains its original covariance tolerance independently of world-position quantization.
 					PR_EXPECT(FEqlAbsolute(transformed[body_idx].momentum_ang, expected_momentum_ang, 2.0e-3f));
 					PR_EXPECT(FEqlAbsolute(transformed[body_idx].momentum_lin, expected_momentum_lin, 2.0e-3f));
 				}
@@ -738,6 +1073,7 @@ namespace pr::physics::tests
 			reference.Run(ConstraintRunnerBuffers{1.0f / 120.0f, expected, upload.m_endpoints, upload.m_descriptors});
 			auto solver = GpuConstraintSolver{ConstraintTestGpu(), config};
 			auto const empty_stats = solver.Stats();
+			PR_EXPECT(solver.FrameState() == nullptr);
 			PR_EXPECT(empty_stats.m_slot_capacity == 0);
 			PR_EXPECT(empty_stats.m_body_capacity == 0);
 			PR_EXPECT(empty_stats.m_break_capacity == 0);
@@ -745,6 +1081,7 @@ namespace pr::physics::tests
 			PR_EXPECT(empty_stats.m_logical_bytes == 0);
 			PR_EXPECT(empty_stats.m_allocated_feature_bytes == 0);
 			solver.Solve(ConstraintTestGpu().m_job, 1.0f / 120.0f, upload, actual);
+			PR_EXPECT(solver.FrameState() != nullptr);
 			auto const first_stats = solver.Stats();
 			PR_EXPECT(first_stats.m_slot_count == 1);
 			PR_EXPECT(first_stats.m_active_count == 1);
@@ -764,11 +1101,11 @@ namespace pr::physics::tests
 				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow);
 			auto const expected_logical_bytes =
 				static_cast<size_t>(first_stats.m_slot_count) * slot_bytes +
-				sizeof(uint32_t) +
+				sizeof(GpuConstraintSolverState) +
 				actual.size() * sizeof(GpuConstraintPseudoVelocity);
 			auto const expected_allocated_bytes =
 				static_cast<size_t>(first_stats.m_slot_capacity) * slot_bytes +
-				sizeof(uint32_t) +
+				sizeof(GpuConstraintSolverState) +
 				static_cast<size_t>(first_stats.m_body_capacity) * sizeof(GpuConstraintPseudoVelocity) +
 				static_cast<size_t>(first_stats.m_break_capacity) * sizeof(GpuConstraintBreakState);
 			PR_EXPECT(first_stats.m_logical_bytes == expected_logical_bytes);
@@ -836,12 +1173,12 @@ namespace pr::physics::tests
 				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow);
 			auto const expected_logical_bytes =
 				slot_bytes +
-				sizeof(uint32_t) +
+				sizeof(GpuConstraintSolverState) +
 				sizeof(GpuConstraintPseudoVelocity) +
 				sizeof(GpuConstraintBreakState);
 			auto const expected_allocated_bytes =
 				static_cast<size_t>(stats.m_slot_capacity) * slot_bytes +
-				sizeof(uint32_t) +
+				sizeof(GpuConstraintSolverState) +
 				static_cast<size_t>(stats.m_body_capacity) * sizeof(GpuConstraintPseudoVelocity) +
 				static_cast<size_t>(stats.m_break_capacity) * sizeof(GpuConstraintBreakState);
 			PR_EXPECT(stats.m_breakable_count == 1);
@@ -912,7 +1249,7 @@ namespace pr::physics::tests
 				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow);
 			auto const expected_small_logical_bytes =
 				static_cast<size_t>(SmallSlotCount) * slot_bytes +
-				sizeof(uint32_t) +
+				sizeof(GpuConstraintSolverState) +
 				static_cast<size_t>(SmallSlotCount) * sizeof(GpuConstraintPseudoVelocity);
 			PR_EXPECT(small_stats.m_logical_bytes == expected_small_logical_bytes);
 			PR_EXPECT(small_stats.m_allocated_feature_bytes == warmup_stats.m_allocated_feature_bytes);
@@ -961,7 +1298,7 @@ namespace pr::physics::tests
 			auto const final_stats = solver.Stats();
 			auto const expected_allocated_bytes =
 				static_cast<size_t>(final_stats.m_slot_capacity) * slot_bytes +
-				sizeof(uint32_t) +
+				sizeof(GpuConstraintSolverState) +
 				static_cast<size_t>(final_stats.m_body_capacity) * sizeof(GpuConstraintPseudoVelocity) +
 				static_cast<size_t>(final_stats.m_break_capacity) * sizeof(GpuConstraintBreakState);
 			PR_EXPECT(final_stats.m_slot_capacity == warmup_stats.m_slot_capacity);

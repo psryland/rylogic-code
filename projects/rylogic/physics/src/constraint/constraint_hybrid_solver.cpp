@@ -480,19 +480,26 @@ namespace pr::physics
 
 				auto const& block = constraints.m_blocks[runtime.m_compiled_index];
 				auto candidate = std::array<float, MaxBlockRows>{};
-				auto const gradient_step = 1.0f / runtime.m_response_scale;
+				auto residual = std::array<float, MaxBlockRows>{};
 				for (int row = 0; row != runtime.m_row_count; ++row)
 				{
 					auto const& runtime_row = runtime.m_rows[row];
-					auto const residual = PhysicalResidual(runtime_row, block, constraints, remap, bodies);
-					candidate[row] = runtime_row.m_impulse - gradient_step * residual;
+					residual[row] = PhysicalResidual(runtime_row, block, constraints, remap, bodies);
 					metrics.m_max_impulse_bound_violation = Max(
 						metrics.m_max_impulse_bound_violation,
 						Max(runtime_row.m_lower - runtime_row.m_impulse, runtime_row.m_impulse - runtime_row.m_upper, 0.0f));
 				}
+
+				// Use the same inverse-response step as the coupled solve so saturation cannot conceal a nonzero free-row gradient.
+				for (int row = 0; row != runtime.m_row_count; ++row)
+				{
+					candidate[row] = runtime.m_rows[row].m_impulse;
+					for (int column = 0; column != runtime.m_row_count; ++column)
+						candidate[row] -= runtime.m_inverse_response[row * MaxBlockRows + column] * residual[column];
+				}
 				Project(candidate, runtime, block);
 				for (int row = 0; row != runtime.m_row_count; ++row)
-					metrics.m_projected_velocity_residual = Max(metrics.m_projected_velocity_residual, std::abs(candidate[row] - runtime.m_rows[row].m_impulse) / gradient_step);
+					metrics.m_projected_velocity_residual = Max(metrics.m_projected_velocity_residual, std::abs(candidate[row] - runtime.m_rows[row].m_impulse) * runtime.m_response_scale);
 			}
 		}
 

@@ -84,6 +84,9 @@ namespace pr::physics
 		// Return whether this frame selected coherent serial execution.
 		bool ColourOverflow() const;
 
+		// Return this loaded frame's colour fallback and deterministic numerical-failure latch.
+		GpuConstraintSolverState FrameState() const;
+
 	private:
 
 		CpuConstraintSolverConfig m_config;
@@ -99,6 +102,6 @@ namespace pr::physics
 		std::vector<GpuConstraintBreakState> m_break_states;
 		std::vector<GpuConstraintPseudoVelocity> m_pseudo_velocities;
 		std::vector<uint32_t> m_colours;
-		std::vector<uint32_t> m_colour_overflow;
+		std::vector<GpuConstraintSolverState> m_state;
 	};
 }

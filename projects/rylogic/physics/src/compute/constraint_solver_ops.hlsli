@@ -3,9 +3,11 @@
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
 #pragma once
+#include "physics/src/compute/constraint_algebra.hlsli"
 
 #ifdef __cplusplus
 namespace PR_CONSTRAINT_SOLVER_OPS_CPP_NAMESPACE {
+using namespace constraint_algebra;
 #endif
 
 static const uint ConstraintLimitState_Inactive = 0u;
@@ -144,66 +146,6 @@ float2 ConstraintImpulseBounds(uint state, float max_impulse)
 			return float2(0.0f, 0.0f);
 		}
 	}
-}
-
-// Invert a dense matrix of at most six rows using fixed-order deterministic pivoting.
-bool InvertConstraintMatrix(float matrix[36], int dimension, float pivot_tolerance, arrayout_(float, inverse, 36))
-{
-	float augmented[72];
-	for (int idx = 0; idx != 72; ++idx)
-		augmented[idx] = 0.0f;
-	for (int row = 0; row != dimension; ++row)
-	{
-		for (int column = 0; column != dimension; ++column)
-			augmented[row * 12 + column] = matrix[row * 6 + column];
-		augmented[row * 12 + 6 + row] = 1.0f;
-	}
-
-	for (int pivot_column = 0; pivot_column != dimension; ++pivot_column)
-	{
-		int pivot_row = pivot_column;
-		float pivot_size = abs(augmented[pivot_row * 12 + pivot_column]);
-		for (int row = pivot_column + 1; row != dimension; ++row)
-		{
-			float candidate = abs(augmented[row * 12 + pivot_column]);
-			if (candidate > pivot_size)
-			{
-				pivot_row = row;
-				pivot_size = candidate;
-			}
-		}
-		if (!(pivot_size > pivot_tolerance))
-			return false;
-
-		if (pivot_row != pivot_column)
-		{
-			for (int column = 0; column != 12; ++column)
-			{
-				float temporary = augmented[pivot_column * 12 + column];
-				augmented[pivot_column * 12 + column] = augmented[pivot_row * 12 + column];
-				augmented[pivot_row * 12 + column] = temporary;
-			}
-		}
-
-		float pivot = augmented[pivot_column * 12 + pivot_column];
-		for (int column = 0; column != 12; ++column)
-			augmented[pivot_column * 12 + column] /= pivot;
-
-		for (int row = 0; row != dimension; ++row)
-		{
-			if (row == pivot_column)
-				continue;
-
-			float factor = augmented[row * 12 + pivot_column];
-			for (int column = 0; column != 12; ++column)
-				augmented[row * 12 + column] -= factor * augmented[pivot_column * 12 + column];
-		}
-	}
-
-	for (int row = 0; row != dimension; ++row)
-		for (int column = 0; column != dimension; ++column)
-			inverse[row * 6 + column] = augmented[row * 12 + 6 + column];
-	return true;
 }
 
 #ifdef __cplusplus

@@ -65,7 +65,7 @@ namespace pr::physics
 		, m_break_states()
 		, m_pseudo_velocities()
 		, m_colours()
-		, m_colour_overflow(1, 0u)
+		, m_state(1, GpuConstraintSolverState{})
 	{
 	}
 
@@ -138,7 +138,7 @@ namespace pr::physics
 			m_colours.assign(buffers.m_endpoints.size(), MaxColours);
 			m_previous_dt = 0.0f;
 		}
-		m_colour_overflow[0] = 0u;
+		m_state[0] = GpuConstraintSolverState{};
 	}
 
 	// Dispatch one body invocation to clear each per-frame pseudo twist.
@@ -159,6 +159,10 @@ namespace pr::physics
 		if (buffers.m_bodies.size() != m_bodies.size())
 			throw std::invalid_argument("ConstraintInteropRunner output body buffer size changed");
 
+		// Surface latched shader failures before publishing an incomplete body result as a successful replay.
+		if (m_state[0].failure_slot_plus_one != 0u)
+			throw std::runtime_error("Constraint shader reported a numerical solve failure");
+
 		std::copy(m_bodies.begin(), m_bodies.end(), buffers.m_bodies.begin());
 	}
 
@@ -171,12 +175,14 @@ namespace pr::physics
 		g_descriptors.assign(ConstraintSpanOf(m_descriptors));
 		g_blocks.assign(ConstraintSpanOf(m_blocks));
 		g_rows.assign(ConstraintSpanOf(m_rows));
+		g_constraint_state.assign(ConstraintSpanOf(m_state));
 
 		hlsl::GpuEmulator emulator(CSCompileConstraints, CSCompileConstraints_NumThreads);
 		emulator.Dispatch({ConstraintThreadGroupCount(m_slot_count), 1, 1});
 
 		m_blocks.assign(g_blocks.begin(), g_blocks.end());
 		m_rows.assign(g_rows.begin(), g_rows.end());
+		m_state.assign(g_constraint_state.begin(), g_constraint_state.end());
 	}
 
 	// Dispatch the serial deterministic colouring pass.
@@ -185,14 +191,14 @@ namespace pr::physics
 		g = MakeConstraintConstants(m_config, m_dt, m_previous_dt, m_body_count, m_slot_count);
 		g_constraint_bodies.assign(ConstraintSpanOf(m_bodies));
 		g_blocks.assign(ConstraintSpanOf(m_blocks));
-		g_colour_overflow.assign(ConstraintSpanOf(m_colour_overflow));
+		g_constraint_state.assign(ConstraintSpanOf(m_state));
 
 		hlsl::GpuEmulator emulator(CSAssignConstraintColours, CSAssignConstraintColours_NumThreads);
 		emulator.Dispatch({1, 1, 1});
 
 		m_bodies.assign(g_constraint_bodies.begin(), g_constraint_bodies.end());
 		m_blocks.assign(g_blocks.begin(), g_blocks.end());
-		m_colour_overflow.assign(g_colour_overflow.begin(), g_colour_overflow.end());
+		m_state.assign(g_constraint_state.begin(), g_constraint_state.end());
 		for (int slot_idx = 0; slot_idx != m_slot_count; ++slot_idx)
 			m_colours[slot_idx] = m_blocks[slot_idx].colour;
 	}
@@ -206,7 +212,7 @@ namespace pr::physics
 			g_constraint_bodies.assign(ConstraintSpanOf(m_bodies));
 			g_blocks.assign(ConstraintSpanOf(m_blocks));
 			g_rows.assign(ConstraintSpanOf(m_rows));
-			g_colour_overflow.assign(ConstraintSpanOf(m_colour_overflow));
+			g_constraint_state.assign(ConstraintSpanOf(m_state));
 
 			hlsl::GpuEmulator emulator(CSApplyConstraintWarmStart, CSApplyConstraintWarmStart_NumThreads);
 			emulator.Dispatch({ConstraintThreadGroupCount(m_slot_count), 1, 1});
@@ -223,12 +229,14 @@ namespace pr::physics
 			g_constraint_bodies.assign(ConstraintSpanOf(m_bodies));
 			g_blocks.assign(ConstraintSpanOf(m_blocks));
 			g_rows.assign(ConstraintSpanOf(m_rows));
-			g_colour_overflow.assign(ConstraintSpanOf(m_colour_overflow));
+			g_constraint_state.assign(ConstraintSpanOf(m_state));
 
 			hlsl::GpuEmulator emulator(CSSolveConstraintVelocity, CSSolveConstraintVelocity_NumThreads);
 			emulator.Dispatch({ConstraintThreadGroupCount(m_slot_count), 1, 1});
 			m_bodies.assign(g_constraint_bodies.begin(), g_constraint_bodies.end());
+			m_blocks.assign(g_blocks.begin(), g_blocks.end());
 			m_rows.assign(g_rows.begin(), g_rows.end());
+			m_state.assign(g_constraint_state.begin(), g_constraint_state.end());
 		}
 	}
 
@@ -265,13 +273,15 @@ namespace pr::physics
 			g_constraint_bodies.assign(ConstraintSpanOf(m_bodies));
 			g_blocks.assign(ConstraintSpanOf(m_blocks));
 			g_rows.assign(ConstraintSpanOf(m_rows));
-			g_colour_overflow.assign(ConstraintSpanOf(m_colour_overflow));
+			g_constraint_state.assign(ConstraintSpanOf(m_state));
 			g_pseudo_velocities.assign(ConstraintSpanOf(m_pseudo_velocities));
 
 			hlsl::GpuEmulator emulator(CSSolveConstraintPosition, CSSolveConstraintPosition_NumThreads);
 			emulator.Dispatch({ConstraintThreadGroupCount(m_slot_count), 1, 1});
+			m_blocks.assign(g_blocks.begin(), g_blocks.end());
 			m_rows.assign(g_rows.begin(), g_rows.end());
 			m_pseudo_velocities.assign(g_pseudo_velocities.begin(), g_pseudo_velocities.end());
+			m_state.assign(g_constraint_state.begin(), g_constraint_state.end());
 		}
 	}
 
@@ -311,9 +321,15 @@ namespace pr::physics
 		return m_colours;
 	}
 
-	// Return the dedicated one-element overflow buffer's state.
+	// Return whether this frame selected coherent serial execution.
 	bool ConstraintInteropRunner::ColourOverflow() const
 	{
-		return m_colour_overflow[0] != 0u;
+		return m_state[0].colour_overflow != 0u;
+	}
+
+	// Return this loaded frame's colour fallback and deterministic numerical-failure latch.
+	GpuConstraintSolverState ConstraintInteropRunner::FrameState() const
+	{
+		return m_state[0];
 	}
 }
