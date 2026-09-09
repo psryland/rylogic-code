@@ -5,6 +5,7 @@
 #pragma once
 #include "pr/physics/integrator/engine_config.h"
 #include "src/compute/coupled_constraint_velocity_gpu.h"
+#include "src/compute/position_pseudo_buffers.h"
 
 namespace pr::physics
 {
@@ -58,6 +59,8 @@ namespace pr::physics
 		ComputeStep m_cs_apply;
 		D3DPtr<ID3D12Resource> m_r_link_pseudo;
 		D3DPtr<ID3D12Resource> m_r_generalized_pseudo;
+		GpuPositionPseudoBuffers m_pseudo_buffers;
+		bool m_shared_pseudo;
 		ConstraintSet const* m_source;
 		float m_timestep;
 		int m_body_count;
@@ -69,8 +72,8 @@ namespace pr::physics
 		// Create fixed pipeline state without allocating optional pseudo-state resources.
 		GpuCoupledConstraintPosition(GpuCoupledConstraintVelocity& velocity, EngineConfig const& config);
 
-		// Prepare position-only exact-self inverses and clear detached pseudo state once per substep.
-		bool Prepare(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies, ID3D12Resource* link_to_world);
+		// Prepare position solving, optionally using initialized shared pseudo buffers in canonical packed-forest order.
+		bool Prepare(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies, ID3D12Resource* link_to_world, GpuPositionPseudoBuffers const& shared_pseudo = {}, int iteration_count = -1);
 
 		// Execute one bounded-backtracking simultaneous pseudo-position sweep.
 		void Run(GpuJob& job, ID3D12Resource* bodies, int substep_index = 0);

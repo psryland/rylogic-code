@@ -68,10 +68,16 @@ namespace pr::physics
 			m_velocity.Run(job, body_count, bodies, substep_index);
 	}
 
-	// Prepare exact position preconditioners and clear detached pseudo state once for the substep.
-	bool GpuCoupledConstraintSolver::PreparePosition(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies)
+	// Prepare position solving against owned or shared detached state.
+	bool GpuCoupledConstraintSolver::PreparePosition(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies, GpuPositionPseudoBuffers const& shared_pseudo, int iteration_count)
 	{
-		return m_active && m_position.Prepare(job, timestep, body_count, bodies, m_link_proxies.LinkToWorld());
+		return m_active && m_position.Prepare(job, timestep, body_count, bodies, m_link_proxies.LinkToWorld(), shared_pseudo, iteration_count);
+	}
+
+	// Return the common rigid pseudo storage used by independent and articulation-coupled constraints.
+	D3DPtr<ID3D12Resource> GpuCoupledConstraintSolver::RigidPseudoVelocityStorage(CmdList& cmd_list, int body_count)
+	{
+		return m_prepare.m_constraints.PseudoVelocityStorage(cmd_list, body_count);
 	}
 
 	// Execute one transactional detached coupled position sweep.

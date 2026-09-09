@@ -68,7 +68,7 @@ struct cbResolve
 	int sort_capacity; // The number of sort keys the radix sorter will read, which can be larger than this pass's contact count
 
 	int shock_iterations;  // Number of contact-priority propagation sweeps
-	int shock_padding0;
+	float max_position_speed; // Maximum target speed for shared detached position correction.
 	int shock_padding1;
 	float shock_alignment; // Minimum directed impulse influence needed to create a propagation edge
 
@@ -100,7 +100,7 @@ struct cbResolve
 	int warm_start_capacity;  // Number of entries in the open-addressed warm-start cache
 	int rigid_body_count;     // Ordinary rigid prefix; larger body indices are articulation-link proxies
 	int warm_start_preloaded; // Non-zero when the coupled-contact lane required a separate cache-load pass
-	int pad_i2;
+	int shared_position_state; // Non-zero when contacts and persistent constraints share detached rigid pseudo velocities.
 };
 
 // Shader resources
@@ -117,6 +117,7 @@ RWStructuredBuffer<uint> resource(g_contact_next_a, u6);    // scratch: next con
 RWStructuredBuffer<uint> resource(g_contact_next_b, u7);    // scratch: next contact+1 in body B's adjacency list
 RWStructuredBuffer<GpuWarmStartEntry> resource(g_warm_start_prev, u8); // previous-frame physical impulse cache
 RWStructuredBuffer<GpuWarmStartEntry> resource(g_warm_start_curr, u9); // current-frame physical impulse cache
+RWStructuredBuffer<GpuConstraintPseudoVelocity> resource(g_position_pseudo, u10);
 
 // ----- Helper functions -----
 int ContactCount()
@@ -687,8 +688,45 @@ float PositionCorrectionDistance(float depth, float position_slop)
 	return g.bias_scale * g.position_correction_scale * max(position_correction, deep_correction);
 }
 
-// Apply split positional correction for one contact without changing momenta.
-// Dynamic bodies are moved along the contact normal in inverse-mass proportion; static bodies remain fixed.
+// Add contact separation to shared detached state while respecting corrections already contributed by connected constraints.
+void ApplySharedPositionCorrection(GpuResolveContact contact, GpuRigidBody body_a, GpuRigidBody body_b, float3 axis_ws, float correction, float inv_mass_a, float inv_mass_b)
+{
+	// Static endpoints are not written because independent colour groups may share the same static body.
+	GpuConstraintPseudoVelocity pseudo_a;
+	pseudo_a.angular_velocity = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	pseudo_a.linear_velocity = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	GpuConstraintPseudoVelocity pseudo_b = pseudo_a;
+	if (inv_mass_a > 0.0f)
+		pseudo_a = g_position_pseudo[contact.body_idx_a];
+
+	if (inv_mass_b > 0.0f)
+		pseudo_b = g_position_pseudo[contact.body_idx_b];
+
+	// Angular joint corrections also move the contact point, even though contact separation itself remains linear-only.
+	float3 point_ws = mul(float4(contact.contact_point.xyz, 1.0f), body_a.o2w).xyz;
+	float3 com_a_ws = body_a.o2w[3].xyz + mul(body_a.os_com_and_invmass.xyz, (float3x3)body_a.o2w);
+	float3 com_b_ws = body_b.o2w[3].xyz + mul(body_b.os_com_and_invmass.xyz, (float3x3)body_b.o2w);
+	float3 velocity_a = pseudo_a.linear_velocity.xyz + cross(pseudo_a.angular_velocity.xyz, point_ws - com_a_ws);
+	float3 velocity_b = pseudo_b.linear_velocity.xyz + cross(pseudo_b.angular_velocity.xyz, point_ws - com_b_ws);
+	float target_speed = min(g.max_position_speed, correction / (g.dt * g.position_correction_scale));
+	float correction_speed = max(target_speed - dot(velocity_b - velocity_a, axis_ws), 0.0f);
+	float3 impulse = (correction_speed / (inv_mass_a + inv_mass_b)) * axis_ws;
+
+	// Colouring makes these dynamic-body updates exclusive within each dispatch.
+	if (inv_mass_a > 0.0f)
+	{
+		pseudo_a.linear_velocity += float4(-inv_mass_a * impulse, 0.0f);
+		g_position_pseudo[contact.body_idx_a] = pseudo_a;
+	}
+	if (inv_mass_b > 0.0f)
+	{
+		pseudo_b.linear_velocity += float4(inv_mass_b * impulse, 0.0f);
+		g_position_pseudo[contact.body_idx_b] = pseudo_b;
+	}
+}
+
+// Apply split positional correction without changing momenta, using shared pseudo state when constraints are present.
+// Dynamic endpoints separate in inverse-mass proportion; static bodies remain fixed.
 void ApplyPositionCorrection(GpuResolveContact c)
 {
 	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
@@ -699,10 +737,18 @@ void ApplyPositionCorrection(GpuResolveContact c)
 	float total_inv = inv_mass_a + inv_mass_b;
 	bool support_contact = SupportContact(c, bodyA);
 	float correction = PositionCorrectionDistance(c.depth, ContactSlop(g.position_slop, bodyA, bodyB, support_contact));
-	if (correction <= 0.0f || total_inv <= 0.0f)
+	if ((correction <= 0.0f && g.shared_position_state == 0) || total_inv <= 0.0f)
 		return;
 
+	// Connected constraints and contacts must see one fixed-configuration correction state before any transform changes.
 	float3 axis_ws = mul(c.axis.xyz, (float3x3)bodyA.o2w);
+	if (g.shared_position_state != 0)
+	{
+		ApplySharedPositionCorrection(c, bodyA, bodyB, axis_ws, correction, inv_mass_a, inv_mass_b);
+		return;
+	}
+
+	// Contact-only frames retain direct transform correction without allocating optional pseudo storage.
 	float lift_a = correction * (inv_mass_a / total_inv);
 	float lift_b = correction * (inv_mass_b / total_inv);
 	float4 posA = bodyA.o2w[3];
@@ -1085,7 +1131,7 @@ void CSStoreWarmStart(int3 DTID(dtid))
 }
 
 // ----- CSPositionSolve -----
-// Dispatched once per colour from the CPU loop. Each thread processes one contact and only moves body transforms.
+// Dispatched once per colour from the CPU loop. Each thread updates one contact's detached state or body transforms.
 // Contacts in other colours return immediately; the CPU changes g.colour and dispatches this entry point repeatedly.
 numthreads(CSPositionSolve, ResolveThreadCount, 1, 1)
 void CSPositionSolve(int3 DTID(dtid))
@@ -1097,7 +1143,7 @@ void CSPositionSolve(int3 DTID(dtid))
 			if (dtid.x != 0)
 				return;
 
-			// Apply the complete sorted sweep serially so transform writes remain coherent when no unused colour exists.
+			// Apply the complete sorted sweep serially so position-state writes remain coherent when no unused colour exists.
 			for (int contact_order_idx = 0; contact_order_idx != ContactCount(); ++contact_order_idx)
 			{
 				uint idx = g_contact_order[contact_order_idx];
@@ -1115,8 +1161,7 @@ void CSPositionSolve(int3 DTID(dtid))
 	if (g_colours[idx] != (uint)g.colour)
 		return;
 
-	// This pass uses the contact depth captured by collision detection. The C++ caller scales correction by 1 / push-out iterations so repeated sweeps do
-	// not apply the full stale penetration depth each time.
+	// Direct correction is divided across sweeps; detached correction instead solves the remaining error against a fixed total target.
 	ApplyPositionCorrection(g_contacts[idx]);
 }
 

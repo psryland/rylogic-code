@@ -150,13 +150,13 @@ void CoupledEndpointJacobian(
 	linear_component = float4(linear_ws, 0.0f);
 }
 
-// Compile one canonical coupled row while retaining only a semantically compatible warm-start impulse.
-void CompileCoupledConstraintRow(
+// Compile one coupled row and report unrepresentable soft arithmetic while retaining only compatible warm-start impulses.
+bool CompileCoupledConstraintRow(
 	uint slot_idx,
 	uint axis_idx,
 	GpuConstraintAxisDesc axis,
 	float3 axis_ws,
-	float3 anchor_offset_a,
+	float3 linear_lever_a,
 	float3 anchor_offset_b,
 	int body_idx_a,
 	int body_idx_b,
@@ -176,25 +176,22 @@ void CompileCoupledConstraintRow(
 	float position_error;
 	state = ConstraintRowState(axis, position, position_error);
 	velocity_active = state != ConstraintLimitState_Inactive;
+
+	// Satisfied hard rows must oppose corrections introduced by another joint or contact in the same solve.
 	position_active =
 		(axis.mode == GpuConstraintAxisMode_Locked || axis.mode == GpuConstraintAxisMode_Limited) &&
 		state != ConstraintLimitState_Inactive &&
 		axis.stiffness == 0.0f &&
-		axis.damping == 0.0f &&
-		position_error != 0.0f;
+		axis.damping == 0.0f;
 
+	// The first endpoint's linear lever includes the rotation of its constraint axis.
 	bool is_linear = axis_idx < 3u;
-	CoupledEndpointJacobian(is_linear, axis_ws, anchor_offset_a, -1.0f, body_idx_a, link_idx_a, row.jacobian_a_ang, row.jacobian_a_lin);
+	CoupledEndpointJacobian(is_linear, axis_ws, linear_lever_a, -1.0f, body_idx_a, link_idx_a, row.jacobian_a_ang, row.jacobian_a_lin);
 	CoupledEndpointJacobian(is_linear, axis_ws, anchor_offset_b, +1.0f, body_idx_b, link_idx_b, row.jacobian_b_ang, row.jacobian_b_lin);
 
 	float gamma = 0.0f;
 	float bias = 0.0f;
-	float denominator = g_coupled_prepare.timestep * (axis.damping + g_coupled_prepare.timestep * axis.stiffness);
-	if (denominator > 1.0e-20f)
-	{
-		gamma = 1.0f / denominator;
-		bias = position_error * g_coupled_prepare.timestep * axis.stiffness * gamma;
-	}
+	bool valid = !velocity_active || ConstraintSoftParameters(g_coupled_prepare.timestep, axis.stiffness, axis.damping, position_error, gamma, bias);
 
 	float max_impulse = max(axis.max_force * g_coupled_prepare.timestep, 0.0f);
 	float2 bounds = ConstraintImpulseBounds(state, max_impulse);
@@ -211,6 +208,7 @@ void CompileCoupledConstraintRow(
 	row.solve = float4(position_error, axis.mode == GpuConstraintAxisMode_Driven ? axis.target_velocity : 0.0f, bias, gamma);
 	row.bounds = float4(bounds, retained, 0.0f);
 	g_coupled_rows[row_idx] = row;
+	return valid;
 }
 
 // Return one rigid endpoint's contribution to an exact-self block response.
@@ -406,7 +404,9 @@ void CSPrepareCoupledConstraints(int3 DTID(dtid))
 	float4 quat_a = quat_from_float3x3((float3x3)frame_a);
 	float4 quat_b = quat_from_float3x3((float3x3)frame_b);
 	float3 angular_error = quat_rotation_vector(quat_a, quat_b);
-	float3 anchor_offset_a = frame_a[3].xyz - CoupledEndpointOrigin(packed_endpoint.body_idx_a, endpoint.link_idx_a);
+
+	// Differentiating frame A's moving axis makes B's world anchor the effective lever for the linear A wrench.
+	float3 linear_lever_a = frame_b[3].xyz - CoupledEndpointOrigin(packed_endpoint.body_idx_a, endpoint.link_idx_a);
 	float3 anchor_offset_b = frame_b[3].xyz - CoupledEndpointOrigin(packed_endpoint.body_idx_b, endpoint.link_idx_b);
 	bool reset_warm_start =
 		g_coupled_prepare.retain_current_impulses == 0 &&
@@ -422,12 +422,12 @@ void CSPrepareCoupledConstraints(int3 DTID(dtid))
 		uint state;
 		bool velocity_active;
 		bool position_active;
-		CompileCoupledConstraintRow(
+		if (!CompileCoupledConstraintRow(
 			slot_idx,
 			axis_idx,
 			desc.axes[axis_idx],
 			axis_ws,
-			anchor_offset_a,
+			linear_lever_a,
 			anchor_offset_b,
 			packed_endpoint.body_idx_a,
 			packed_endpoint.body_idx_b,
@@ -438,7 +438,9 @@ void CSPrepareCoupledConstraints(int3 DTID(dtid))
 			reset_warm_start,
 			state,
 			velocity_active,
-			position_active);
+			position_active))
+			block.flags |= ConstraintBlockFlags_NumericalFailure;
+
 		if (velocity_active)
 			block.velocity_mask |= 1u << axis_idx;
 		if (position_active)
@@ -447,7 +449,13 @@ void CSPrepareCoupledConstraints(int3 DTID(dtid))
 	}
 
 	block.colour = MaxColours;
-	block.flags = ConstraintBlockFlags_Active | (reset_warm_start ? ConstraintBlockFlags_ResetWarmStart : 0u);
+	block.flags |= (g_coupled_prepare.retain_current_impulses != 0 ? old_block.flags & ConstraintBlockFlags_NumericalFailure : 0u) |
+		ConstraintBlockFlags_Active | (reset_warm_start ? ConstraintBlockFlags_ResetWarmStart : 0u);
+	if (AllSet(block.flags, ConstraintBlockFlags_NumericalFailure))
+	{
+		g_coupled_blocks[slot_idx] = block;
+		return;
+	}
 	GpuCoupledConstraintPreconditioner preconditioner;
 	if (PrepareCoupledPreconditioner(slot_idx, block, endpoint, block.velocity_mask, true, preconditioner))
 		block.flags |= ConstraintBlockFlags_CoupledPreconditionerValid;
@@ -471,7 +479,7 @@ void CSPrepareCoupledPositionPreconditioners(int3 DTID(dtid))
 	GpuConstraintBlock block = g_coupled_blocks[slot_idx];
 	block.flags = SetFlag(block.flags, ConstraintBlockFlags_CoupledPreconditionerValid, false);
 	GpuCoupledConstraintPreconditioner preconditioner = EmptyCoupledConstraintPreconditioner();
-	if (block.position_mask != 0u)
+	if (block.position_mask != 0u && !AllSet(block.flags, ConstraintBlockFlags_NumericalFailure))
 	{
 		GpuCoupledConstraintEndpoint endpoint = g_coupled_link_endpoints[slot_idx];
 		if (CoupledEndpointMetadataValid(endpoint) &&

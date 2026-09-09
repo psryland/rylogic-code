@@ -23,7 +23,7 @@ namespace pr::physics
 		int sort_capacity;
 
 		int shock_iterations;
-		int shock_padding0;
+		float max_position_speed;
 		int shock_padding1;
 		float shock_alignment;
 
@@ -55,7 +55,7 @@ namespace pr::physics
 		int warm_start_capacity;
 		int rigid_body_count;
 		int warm_start_preloaded;
-		int pad_i2;
+		int shared_position_state;
 	};
 	static_assert((sizeof(cbResolve) & 0xf) == 0);
 
@@ -75,6 +75,7 @@ namespace pr::physics
 		inline static constexpr auto ContactNextB   = EUAVReg::u7;
 		inline static constexpr auto WarmStartPrev  = EUAVReg::u8;
 		inline static constexpr auto WarmStartCurr  = EUAVReg::u9;
+		inline static constexpr auto PositionPseudo = EUAVReg::u10;
 	};
 
 	GpuResolver::GpuResolver(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache)
@@ -201,7 +202,8 @@ namespace pr::physics
 				.UAV(EReg::Bodies)
 				.UAV(EReg::Colours)
 				.UAV(EReg::Contacts)
-				.UAV(EReg::ContactOrder);
+				.UAV(EReg::ContactOrder)
+				.UAV(EReg::PositionPseudo);
 
 			m_cs_position_solve.m_sig = sig.Create(m_gpu, "Physics:PositionSolveSig");
 			m_cs_position_solve.m_pso = ComputePSO(m_cs_position_solve.m_sig.get(), shader_code::position_solve).Create(m_gpu, "Physics:PositionSolvePSO");
@@ -298,7 +300,7 @@ namespace pr::physics
 			.colour = 0,
 			.sort_capacity = m_max_contacts,
 			.shock_iterations = m_config.contact_sort_shock_iterations,
-			.shock_padding0 = 0,
+			.max_position_speed = m_config.constraint_max_position_speed,
 			.shock_padding1 = 0,
 			.shock_alignment = m_config.contact_sort_shock_alignment,
 			.shock_min_strength = m_config.contact_sort_shock_min_strength,
@@ -324,7 +326,7 @@ namespace pr::physics
 			.warm_start_capacity = m_warm_start_capacity,
 			.rigid_body_count = rigid_body_count,
 			.warm_start_preloaded = coupled_contact_solver != nullptr ? 1 : 0,
-			.pad_i2 = 0,
+			.shared_position_state = 0,
 		};
 		if (m_config.warm_start_scale <= 0.0f)
 			m_reset_warm_start_cache = true;
@@ -553,12 +555,34 @@ namespace pr::physics
 		auto const has_constraint_work = constraint_solver != nullptr || coupled_constraint_solver != nullptr || coupled_contact_solver != nullptr;
 		auto solve_position = [&]
 		{
-			auto const coupled_position_active =
-				coupled_constraint_solver != nullptr &&
-				coupled_constraint_solver->PreparePosition(job, dt, rigid_body_count, bodies.get());
+			// Every position lane reads the same ordinary-body state, including coupled-only frames.
+			auto rigid_pseudo = D3DPtr<ID3D12Resource>{};
+			if (has_constraint_work && push_out_steps > 0)
+			{
+				if (!(m_config.constraint_max_position_speed >= 0.0f) || !std::isfinite(m_config.constraint_max_position_speed))
+					throw std::invalid_argument("Shared position correction requires a finite non-negative maximum speed");
+
+				if (coupled_constraint_solver != nullptr)
+					rigid_pseudo = coupled_constraint_solver->RigidPseudoVelocityStorage(job.m_cmd_list, rigid_body_count);
+				else if (constraint_solver != nullptr)
+					rigid_pseudo = constraint_solver->PseudoVelocityStorage(job.m_cmd_list, rigid_body_count);
+			}
+
+			// Contacts own the complete-forest pseudo streams; compact joint work maps into those same streams.
 			auto const coupled_contact_position_active =
 				coupled_contact_solver != nullptr &&
-				coupled_contact_solver->PreparePosition(job, push_out_steps);
+				coupled_contact_solver->PreparePosition(job, push_out_steps, rigid_pseudo);
+			auto const shared_pseudo = coupled_contact_position_active
+				? coupled_contact_solver->PseudoState()
+				: GpuPositionPseudoBuffers{};
+			auto const coupled_position_active =
+				coupled_constraint_solver != nullptr &&
+				coupled_constraint_solver->PreparePosition(job, dt, rigid_body_count, bodies.get(), shared_pseudo, push_out_steps);
+			if (coupled_contact_position_active)
+			{
+				rigid_pseudo = shared_pseudo.m_rigid_velocities;
+			}
+			cb_resolve.shared_position_state = rigid_pseudo != nullptr;
 
 			// Split position correction in colour batches.
 			if (push_out_steps != 0)
@@ -566,6 +590,9 @@ namespace pr::physics
 				// The contact depths are from the collision pass, so the correction is split across iterations rather than re-applying the full depth each sweep.
 				auto bind_position_solve = [&]
 				{
+					// The unused contact-only binding aliases existing UAV scratch rather than allocating a sentinel.
+					auto* pseudo_buffer = rigid_pseudo != nullptr ? rigid_pseudo.get() : m_r_colours.get();
+					job.m_barriers.Transition(pseudo_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
 					job.m_cmd_list.SetPipelineState(m_cs_position_solve.m_pso.get());
 					job.m_cmd_list.SetComputeRootSignature(m_cs_position_solve.m_sig.get());
 					job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
@@ -574,6 +601,7 @@ namespace pr::physics
 					job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
 					job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
 					job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
+					job.m_cmd_list.AddComputeRootUnorderedAccessView(pseudo_buffer->GetGPUVirtualAddress());
 				};
 				bind_position_solve();
 
@@ -590,6 +618,9 @@ namespace pr::physics
 						job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
 
 						job.m_barriers.UAV(bodies.get());
+						if (rigid_pseudo != nullptr)
+							job.m_barriers.UAV(rigid_pseudo.get());
+
 						job.m_barriers.Commit();
 					}
 					if (constraint_solver != nullptr)
@@ -602,13 +633,13 @@ namespace pr::physics
 				cb_resolve.colour = 0;
 			}
 
-			// Coupled application owns the shared rigid pseudo stream, preventing independent correction from being integrated twice.
-			if (coupled_position_active)
+			// Apply the shared state once, using the owner that covers every participating articulation.
+			if (coupled_contact_position_active)
+				coupled_contact_solver->ApplyPosition(job);
+			else if (coupled_position_active)
 				coupled_constraint_solver->ApplyPosition(job, bodies.get());
 			else if (constraint_solver != nullptr)
 				constraint_solver->ApplyPosition(job, dt, rigid_body_count, push_out_steps, bodies);
-			if (coupled_contact_position_active)
-				coupled_contact_solver->ApplyPosition(job);
 		};
 
 		auto solve_velocity = [&]

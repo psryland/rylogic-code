@@ -231,6 +231,7 @@
     <ClInclude Include="src\compute\interop\coupled_constraint_velocity_runner.h" />
     <ClInclude Include="src\compute\integrate_gpu.h" />
     <ClInclude Include="src\compute\physics_types.h" />
+    <ClInclude Include="src\compute\position_pseudo_buffers.h" />
     <ClInclude Include="src\compute\resolve_gpu.h" />
     <ClInclude Include="src\compute\selective_gpu.h" />
     <ClInclude Include="src\compute\shader_code.h" />
@@ -248,6 +249,7 @@
   <ItemGroup>
     <None Include="src\compute\collision.hlsli" />
     <None Include="src\compute\physics_types.hlsli" />
+    <None Include="src\compute\constraint_algebra.hlsli" />
     <None Include="src\compute\gjk.hlsli" />
     <None Include="src\buoyancy\buoyancy_sampler.hlsli" />
     <None Include="src\buoyancy\gpu_basic_waves.hlsli" />
@@ -270,7 +272,7 @@
     <ShaderBuild Include="src\compute\articulation_force_aba.hlsl" ComputeEntryPoints="CSArticulationPrepare;CSArticulationInwardDynamics;CSArticulationRootDynamics;CSArticulationOutwardDynamics" />
     <ShaderBuild Include="src\compute\articulation_mobility.hlsl" ComputeEntryPoints="CSArticulationPrepareMobility" />
     <ShaderBuild Include="src\compute\articulation_impulse_aba.hlsl" ComputeEntryPoints="CSArticulationApplyImpulses;CSArticulationEvaluateImpulses;CSArticulationCommitImpulses" />
-    <ShaderBuild Include="src\compute\articulation_link_proxies.hlsl" ComputeEntryPoints="CSArticulationGatherProxyForces;CSArticulationRefreshProxies" />
+    <ShaderBuild Include="src\compute\articulation_link_proxies.hlsl" ComputeEntryPoints="CSArticulationRefreshProxies" />
     <ShaderBuild Include="src\compute\articulation_midpoint.hlsl" ComputeEntryPoints="CSArticulationMidpoint" />
     <ShaderBuild Include="src\compute\selective.hlsl" ComputeEntryPoints="CSPrepareSelectiveRefresh;CSScoreSelectiveContacts;CSCompactSelectivePairs;CSBuildSelectiveDispatch" />
     <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl" ComputeEntryPoints="CSBuoyancyVolumeSamples;CSBuoyancyVolumeReduce;CSBuoyancyDragSurfaceSamples;CSBuoyancyDragSurfaceReduce">

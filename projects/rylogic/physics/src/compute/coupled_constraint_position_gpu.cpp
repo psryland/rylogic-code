@@ -66,8 +66,12 @@ namespace pr::physics
 			float m_relaxation;
 			float m_position_beta;
 			float m_max_position_speed;
+			int m_shared_pseudo;
+			int m_pseudo_link_count;
+			int m_pseudo_velocity_count;
+			int m_pad0;
 		};
-		static_assert(sizeof(cbCoupledConstraintPosition) == 64);
+		static_assert(sizeof(cbCoupledConstraintPosition) == 80);
 
 		// Return the exact dispatch width for one non-empty position work range.
 		int CoupledPositionThreadGroupCount(int item_count)
@@ -118,6 +122,8 @@ namespace pr::physics
 		, m_cs_apply()
 		, m_r_link_pseudo()
 		, m_r_generalized_pseudo()
+		, m_pseudo_buffers()
+		, m_shared_pseudo()
 		, m_source()
 		, m_timestep()
 		, m_body_count()
@@ -203,10 +209,11 @@ namespace pr::physics
 		m_cs_apply.m_pso = ComputePSO(apply_sig.get(), shader_code::apply_coupled_position).Create(m_gpu, "Physics:ApplyCoupledPositionPSO");
 	}
 
-	// Prepare position-only exact-self inverses and clear detached pseudo state once per substep.
-	bool GpuCoupledConstraintPosition::Prepare(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies, ID3D12Resource* link_to_world)
+	// Prepare position solving against owned or initialized shared detached state.
+	bool GpuCoupledConstraintPosition::Prepare(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies, ID3D12Resource* link_to_world, GpuPositionPseudoBuffers const& shared_pseudo, int iteration_count)
 	{
-		if (m_config.push_out_iterations <= 0 || m_velocity.m_source == nullptr)
+		auto const position_iterations = iteration_count >= 0 ? iteration_count : m_config.push_out_iterations;
+		if (position_iterations <= 0 || m_velocity.m_source == nullptr)
 		{
 			ReleaseBuffers();
 			return false;
@@ -233,16 +240,41 @@ namespace pr::physics
 		if (m_impulse_aba.m_r_work == nullptr || m_impulse_aba.m_r_link_impulses == nullptr)
 			throw std::logic_error("Coupled position correction requires detached articulation impulse storage");
 
+		// A shared view must cover the same packed forest and the common rigid prefix.
+		auto& aba = m_impulse_aba.m_aba;
+		auto const shares_state = shared_pseudo.m_link_velocities != nullptr;
+		if (shares_state != (shared_pseudo.m_generalized_velocities != nullptr) || shares_state != (shared_pseudo.m_rigid_velocities != nullptr))
+			throw std::invalid_argument("Shared position state requires all three pseudo streams");
+		if (shares_state && (
+			shared_pseudo.m_link_velocities->GetDesc().Width < static_cast<UINT64>(aba.m_link_count) * sizeof(GpuArticulationSpatialVector) ||
+			shared_pseudo.m_generalized_velocities->GetDesc().Width < static_cast<UINT64>(aba.m_velocity_count) * sizeof(float) ||
+			shared_pseudo.m_rigid_velocities.get() != constraints.m_r_pseudo_velocities.get()))
+			throw std::invalid_argument("Shared position state does not match the packed forest or rigid pseudo owner");
+
+		// Retain compact scratch across shared phases so selective continuation does not allocate every frame.
 		m_source = m_velocity.m_source;
 		m_timestep = timestep;
 		m_body_count = body_count;
 		m_velocity_delta_count = mobility.m_velocity_delta_count;
 		constraints.EnsurePseudoVelocityStorage(job.m_cmd_list, body_count);
-		ResizeBuffers(job.m_cmd_list);
+		m_shared_pseudo = shares_state;
+		if (m_shared_pseudo)
+		{
+			m_pseudo_buffers = shared_pseudo;
+		}
+		else
+		{
+			ResizeBuffers(job.m_cmd_list);
+			m_pseudo_buffers = GpuPositionPseudoBuffers{
+				.m_rigid_velocities = constraints.m_r_pseudo_velocities,
+				.m_link_velocities = m_r_link_pseudo,
+				.m_generalized_velocities = m_r_generalized_pseudo,
+			};
+		}
 		m_prepare.PreparePositionPreconditioners(job, body_count, bodies, link_to_world, mobility);
 
 		m_stats.m_active_count = m_velocity.m_stats.m_active_count;
-		m_stats.m_logical_bytes =
+		m_stats.m_logical_bytes = m_shared_pseudo ? 0 :
 			static_cast<size_t>(m_velocity.m_mobility_count) * sizeof(GpuArticulationSpatialVector) +
 			static_cast<size_t>(m_velocity_delta_count) * sizeof(float);
 		m_stats.m_allocated_feature_bytes =
@@ -302,6 +334,8 @@ namespace pr::physics
 			return;
 		if (bodies == nullptr)
 			throw std::invalid_argument("Coupled position application requires a valid rigid-body stream");
+		if (m_shared_pseudo)
+			throw std::logic_error("Shared position state must be integrated by its complete-forest owner");
 
 		DispatchApply(job, bodies);
 	}
@@ -339,6 +373,11 @@ namespace pr::physics
 		auto r_bodies = CreateCoupledPositionInput(m_gpu, job, bodies, EUsage::UnorderedAccess, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, "Physics:CoupledPositionTestBodies");
 		auto r_link_to_world = CreateCoupledPositionInput(m_gpu, job, link_to_world, EUsage::Default, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, "Physics:CoupledPositionTestLinkFrames");
 		mobility.Run(job);
+
+		// Initialize uploaded physical velocities without reevaluating forces; mobility only supplies configuration-dependent factors.
+		auto const zero_impulses = std::vector<GpuArticulationSpatialVector>(m_velocity.m_mobility_count);
+		m_impulse_aba.Upload(job, zero_impulses);
+		m_impulse_aba.Run(job);
 		m_prepare.Run(job, timestep, isize(bodies), r_bodies.get(), r_link_to_world.get(), mobility);
 		if (!prepared_row_override.empty())
 		{
@@ -452,6 +491,8 @@ namespace pr::physics
 	{
 		m_r_link_pseudo = nullptr;
 		m_r_generalized_pseudo = nullptr;
+		m_pseudo_buffers = {};
+		m_shared_pseudo = false;
 		m_source = nullptr;
 		m_timestep = 0.0f;
 		m_body_count = 0;
@@ -498,6 +539,9 @@ namespace pr::physics
 			.m_relaxation = std::min(m_config.constraint_position_relaxation, m_config.constraint_coupled_relaxation),
 			.m_position_beta = m_config.constraint_position_beta,
 			.m_max_position_speed = m_config.constraint_max_position_speed,
+			.m_shared_pseudo = m_shared_pseudo,
+			.m_pseudo_link_count = m_impulse_aba.m_aba.m_link_count,
+			.m_pseudo_velocity_count = m_impulse_aba.m_aba.m_velocity_count,
 		};
 		auto& constraints = m_prepare.m_constraints;
 		auto& aba = m_impulse_aba.m_aba;
@@ -529,8 +573,8 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_impulse_aba.m_r_work->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(velocity_deltas->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(constraints.m_r_pseudo_velocities->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_link_pseudo->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_generalized_pseudo->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_pseudo_buffers.m_link_velocities->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_pseudo_buffers.m_generalized_velocities->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_velocity.m_r_frame_failures->GetGPUVirtualAddress());
 		job.m_cmd_list.Dispatch(CoupledPositionThreadGroupCount(item_count), 1, 1);
 		++m_stats.m_dispatch_count;
@@ -561,6 +605,9 @@ namespace pr::physics
 			.m_relaxation = std::min(m_config.constraint_position_relaxation, m_config.constraint_coupled_relaxation),
 			.m_position_beta = m_config.constraint_position_beta,
 			.m_max_position_speed = m_config.constraint_max_position_speed,
+			.m_shared_pseudo = m_shared_pseudo,
+			.m_pseudo_link_count = m_impulse_aba.m_aba.m_link_count,
+			.m_pseudo_velocity_count = m_impulse_aba.m_aba.m_velocity_count,
 		};
 		auto& aba = m_impulse_aba.m_aba;
 		auto& mobility = m_impulse_aba.m_mobility;
@@ -578,8 +625,8 @@ namespace pr::physics
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_velocity.m_r_island_failures->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_impulse_aba.m_r_work->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(velocity_deltas->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_link_pseudo->GetGPUVirtualAddress());
-		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_generalized_pseudo->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_pseudo_buffers.m_link_velocities->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_pseudo_buffers.m_generalized_velocities->GetGPUVirtualAddress());
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(aba.m_r_articulations->GetGPUVirtualAddress());
 		job.m_cmd_list.Dispatch(CoupledPositionThreadGroupCount(item_count), 1, 1);
 		++m_stats.m_dispatch_count;
@@ -589,8 +636,8 @@ namespace pr::physics
 		job.m_barriers.UAV(m_velocity.m_r_island_failures.get());
 		job.m_barriers.UAV(m_impulse_aba.m_r_work.get());
 		job.m_barriers.UAV(velocity_deltas);
-		job.m_barriers.UAV(m_r_link_pseudo.get());
-		job.m_barriers.UAV(m_r_generalized_pseudo.get());
+		job.m_barriers.UAV(m_pseudo_buffers.m_link_velocities.get());
+		job.m_barriers.UAV(m_pseudo_buffers.m_generalized_velocities.get());
 		job.m_barriers.UAV(aba.m_r_articulations.get());
 		job.m_barriers.Commit();
 	}
@@ -677,8 +724,8 @@ namespace pr::physics
 		job.m_barriers.Transition(m_impulse_aba.m_r_work.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(velocity_deltas, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(constraints.m_r_pseudo_velocities.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		job.m_barriers.Transition(m_r_link_pseudo.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		job.m_barriers.Transition(m_r_generalized_pseudo.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_pseudo_buffers.m_link_velocities.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_pseudo_buffers.m_generalized_velocities.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_velocity.m_r_frame_failures.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Commit();
 	}
@@ -699,8 +746,8 @@ namespace pr::physics
 		job.m_barriers.Transition(m_velocity.m_r_island_failures.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_impulse_aba.m_r_work.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(velocity_deltas, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		job.m_barriers.Transition(m_r_link_pseudo.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-		job.m_barriers.Transition(m_r_generalized_pseudo.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_pseudo_buffers.m_link_velocities.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_pseudo_buffers.m_generalized_velocities.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(aba.m_r_articulations.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Commit();
 	}
@@ -727,8 +774,8 @@ namespace pr::physics
 		job.m_barriers.UAV(m_impulse_aba.m_r_work.get());
 		job.m_barriers.UAV(velocity_deltas);
 		job.m_barriers.UAV(constraints.m_r_pseudo_velocities.get());
-		job.m_barriers.UAV(m_r_link_pseudo.get());
-		job.m_barriers.UAV(m_r_generalized_pseudo.get());
+		job.m_barriers.UAV(m_pseudo_buffers.m_link_velocities.get());
+		job.m_barriers.UAV(m_pseudo_buffers.m_generalized_velocities.get());
 		job.m_barriers.UAV(m_velocity.m_r_frame_failures.get());
 		job.m_barriers.Commit();
 	}
