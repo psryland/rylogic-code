@@ -18,7 +18,7 @@
 //   t1: StructuredBuffer<GpuD6ConstraintDesc>      - stable-slot D6 parameters
 //   u1: RWStructuredBuffer<GpuConstraintBlock>     - stable-slot runtime blocks
 //   u2: RWStructuredBuffer<GpuConstraintRow>       - six canonical rows per stable slot
-//   u3: RWStructuredBuffer<uint>                   - one-element colour-overflow flag
+//   u3: RWStructuredBuffer<GpuConstraintSolverState> - frame-local colour fallback and numerical-failure latch
 //   u4: RWStructuredBuffer<GpuConstraintPseudoVelocity> - per-body split-correction state
 //   u5: RWStructuredBuffer<GpuConstraintBreakState> - optional stable-slot overload latches
 //
@@ -62,7 +62,7 @@ StructuredBuffer<GpuConstraintEndpoint> resource(g_endpoints, t0);
 StructuredBuffer<GpuD6ConstraintDesc> resource(g_descriptors, t1);
 RWStructuredBuffer<GpuConstraintBlock> resource(g_blocks, u1);
 RWStructuredBuffer<GpuConstraintRow> resource(g_rows, u2);
-RWStructuredBuffer<uint> resource(g_colour_overflow, u3);
+RWStructuredBuffer<GpuConstraintSolverState> resource(g_constraint_state, u3);
 RWStructuredBuffer<GpuConstraintPseudoVelocity> resource(g_pseudo_velocities, u4);
 RWStructuredBuffer<GpuConstraintBreakState> resource(g_break_states, u5);
 
@@ -118,8 +118,8 @@ float ConstraintWarmStartScale()
 	return isfinite(g.warm_start_scale) && g.warm_start_scale > 0.0f ? g.warm_start_scale : 0.0f;
 }
 
-// Compile one canonical scalar row and return its physical and split-position activity.
-void CompileConstraintRow(
+// Compile one canonical scalar row and its activity, returning false when soft coefficients are not representable.
+bool CompileConstraintRow(
 	uint slot_idx,
 	uint axis_idx,
 	GpuConstraintAxisDesc axis,
@@ -144,8 +144,7 @@ void CompileConstraintRow(
 		(axis.mode == GpuConstraintAxisMode_Locked || axis.mode == GpuConstraintAxisMode_Limited) &&
 		state != ConstraintLimitState_Inactive &&
 		axis.stiffness == 0.0f &&
-		axis.damping == 0.0f &&
-		position_error != 0.0f;
+		axis.damping == 0.0f;
 
 	// Canonical linear rows precede angular rows and use the CPU compiler's endpoint signs.
 	bool is_linear = axis_idx < 3u;
@@ -177,15 +176,12 @@ void CompileConstraintRow(
 		row.jacobian_b_lin = float4(0, 0, 0, 0);
 	}
 
+	// Positive spring denominators retain their physical scale rather than becoming hard rows below a geometric floor.
 	float gamma = 0.0f;
 	float bias = 0.0f;
-	float denominator = g.timestep * (axis.damping + g.timestep * axis.stiffness);
-	if (denominator > 1.0e-20f)
-	{
-		gamma = 1.0f / denominator;
-		bias = position_error * g.timestep * axis.stiffness * gamma;
-	}
+	bool valid = !velocity_active || ConstraintSoftParameters(g.timestep, axis.stiffness, axis.damping, position_error, gamma, bias);
 
+	// A compatible cached impulse is only a feasible starting point; the solve applies the response-metric projection.
 	float max_impulse = max(axis.max_force * g.timestep, 0.0f);
 	float2 bounds = ConstraintImpulseBounds(state, max_impulse);
 	float retained = 0.0f;
@@ -195,6 +191,7 @@ void CompileConstraintRow(
 	row.solve = float4(position_error, axis.mode == GpuConstraintAxisMode_Driven ? axis.target_velocity : 0.0f, bias, gamma);
 	row.bounds = float4(bounds, retained, 0.0f);
 	g_rows[row_idx] = row;
+	return valid;
 }
 
 // Compile one stable D6 slot into fixed canonical runtime storage.
@@ -267,7 +264,11 @@ void CSCompileConstraints(int3 DTID(dtid))
 		uint state;
 		bool velocity_active;
 		bool position_active;
-		CompileConstraintRow(slot_idx, axis_idx, desc.axes[axis_idx], axis_ws, anchor_offset_a, anchor_offset_b, position, old_state, reset_warm_start, state, velocity_active, position_active);
+		// Linear coordinates also differentiate the rotation of frame A's axis through the full anchor separation.
+		float3 lever_a = axis_idx < 3u ? anchor_offset_a + linear_error : anchor_offset_a;
+		if (!CompileConstraintRow(slot_idx, axis_idx, desc.axes[axis_idx], axis_ws, lever_a, anchor_offset_b, position, old_state, reset_warm_start, state, velocity_active, position_active))
+			block.flags |= ConstraintBlockFlags_NumericalFailure;
+
 		if (velocity_active)
 			block.velocity_mask |= 1u << axis_idx;
 		if (position_active)
@@ -275,8 +276,27 @@ void CSCompileConstraints(int3 DTID(dtid))
 		block.row_states |= state << (2u * axis_idx);
 	}
 
+	// Retained same-solve recompilation preserves failure; a fresh solve may recover after corrected inputs or timestep.
 	block.colour = MaxColours;
-	block.flags = ConstraintBlockFlags_Active | (reset_warm_start ? ConstraintBlockFlags_ResetWarmStart : 0u);
+	block.flags |= (g.retain_current_impulses != 0 ? old_block.flags & ConstraintBlockFlags_NumericalFailure : 0u) | ConstraintBlockFlags_Active | (reset_warm_start ? ConstraintBlockFlags_ResetWarmStart : 0u);
+	if (AllSet(block.flags, ConstraintBlockFlags_NumericalFailure))
+	{
+		// Preserve a deterministic frame-wide failure even when a later substep recompiles this slot successfully.
+		InterlockedMax(g_constraint_state[0].failure_slot_plus_one, slot_idx + 1u);
+		block.velocity_mask = 0u;
+		block.position_mask = 0u;
+	}
+	g_blocks[slot_idx] = block;
+}
+
+// Latch an arithmetic failure and prevent later passes from treating this block as a successful partial solve.
+void FailConstraintBlock(uint slot_idx)
+{
+	GpuConstraintBlock block = g_blocks[slot_idx];
+	block.flags |= ConstraintBlockFlags_NumericalFailure;
+	InterlockedMax(g_constraint_state[0].failure_slot_plus_one, slot_idx + 1u);
+	block.velocity_mask = 0u;
+	block.position_mask = 0u;
 	g_blocks[slot_idx] = block;
 }
 
@@ -397,7 +417,7 @@ void CSAssignConstraintColours(int3 DTID(dtid))
 			g_blocks[slot_idx] = block;
 		}
 	}
-	g_colour_overflow[0] = overflow ? 1u : 0u;
+	g_constraint_state[0].colour_overflow = overflow ? 1u : 0u;
 }
 
 // Apply a world-space spatial impulse to one endpoint's authoritative momentum.
@@ -450,7 +470,7 @@ void ApplyConstraintBlockWarmStart(uint slot_idx)
 numthreads(CSApplyConstraintWarmStart, ConstraintThreadCount, 1, 1)
 void CSApplyConstraintWarmStart(int3 DTID(dtid))
 {
-	if (g.colour == 0 && g_colour_overflow[0] != 0u)
+	if (g.colour == 0 && g_constraint_state[0].colour_overflow != 0u)
 	{
 		if (dtid.x != 0)
 			return;
@@ -532,22 +552,41 @@ bool PrepareConstraintInverse(uint slot_idx, uint active_mask, bool physical_sol
 		{
 			GpuConstraintRow rhs = g_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[column]];
 			matrix[row * 6 + column] = ConstraintResponse(block, lhs, rhs);
+			if (!isfinite(matrix[row * 6 + column]))
+			{
+				FailConstraintBlock(slot_idx);
+				return false;
+			}
 		}
 		if (physical_solve)
 			matrix[row * 6 + row] += lhs.solve.w;
+
+		if (!isfinite(matrix[row * 6 + row]))
+		{
+			FailConstraintBlock(slot_idx);
+			return false;
+		}
 		scale = max(scale, abs(matrix[row * 6 + row]));
 	}
-	if (!(scale > 1.0e-20f))
+	if (!(scale > 0.0f))
 		return false;
 
-	float tolerance = max(1.0e-7f * scale, 1.0e-20f);
+	// Response thresholds depend on operator scale, including valid very small inverse masses.
+	float tolerance = 1.0e-7f * scale;
 	if (InvertConstraintMatrix(matrix, row_count, tolerance, inverse))
 		return true;
 
-	float regularization = g.regularization * max(scale, 1.0f);
+	// Regularize nonzero rows in their own units, using the block scale only for exactly immovable row directions.
 	for (int row = 0; row != row_count; ++row)
-		matrix[row * 6 + row] += regularization;
-	return InvertConstraintMatrix(matrix, row_count, tolerance, inverse);
+	{
+		float diagonal = matrix[row * 6 + row];
+		matrix[row * 6 + row] += g.regularization * (diagonal > 0.0f ? diagonal : scale);
+	}
+	if (InvertConstraintMatrix(matrix, row_count, tolerance, inverse))
+		return true;
+
+	FailConstraintBlock(slot_idx);
+	return false;
 }
 
 // Solve one warm-started physical D6 block and commit finite projected impulses immediately.
@@ -565,6 +604,9 @@ void SolveConstraintVelocityBlock(uint slot_idx)
 
 	float residual[6];
 	float candidate[6];
+	float lower[6];
+	float upper[6];
+	float projected[6];
 	for (int row_idx = 0; row_idx != row_count; ++row_idx)
 	{
 		GpuConstraintRow row = g_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx]];
@@ -576,20 +618,24 @@ void SolveConstraintVelocityBlock(uint slot_idx)
 		for (int column = 0; column != row_count; ++column)
 			correction += inverse[row_idx * 6 + column] * residual[column];
 		GpuConstraintRow row = g_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx]];
-		candidate[row_idx] = clamp(row.bounds.z - g.relaxation * correction, row.bounds.x, row.bounds.y);
+		candidate[row_idx] = row.bounds.z - g.relaxation * correction;
+		lower[row_idx] = row.bounds.x;
+		upper[row_idx] = row.bounds.y;
 	}
 
-	// Independent box projection is intentional until persistent descriptors expose friction-cone blocks.
+	// Saturated rows alter the optimal free impulses through the full response; reject the whole block on numerical failure.
+	if (!ProjectConstraintBox(row_count, inverse, candidate, lower, upper, projected))
+	{
+		FailConstraintBlock(slot_idx);
+		return;
+	}
 	for (int row_idx = 0; row_idx != row_count; ++row_idx)
 	{
 		uint row_storage_idx = slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx];
 		GpuConstraintRow row = g_rows[row_storage_idx];
-		if (!isfinite(candidate[row_idx]))
-			continue;
-
-		float delta = candidate[row_idx] - row.bounds.z;
+		float delta = projected[row_idx] - row.bounds.z;
 		ApplyConstraintRowImpulse(block, row, delta);
-		row.bounds.z = candidate[row_idx];
+		row.bounds.z = projected[row_idx];
 		g_rows[row_storage_idx] = row;
 	}
 }
@@ -598,7 +644,7 @@ void SolveConstraintVelocityBlock(uint slot_idx)
 numthreads(CSSolveConstraintVelocity, ConstraintThreadCount, 1, 1)
 void CSSolveConstraintVelocity(int3 DTID(dtid))
 {
-	if (g.colour == 0 && g_colour_overflow[0] != 0u)
+	if (g.colour == 0 && g_constraint_state[0].colour_overflow != 0u)
 	{
 		if (dtid.x != 0)
 			return;
@@ -668,7 +714,10 @@ void SolveConstraintPositionBlock(uint slot_idx)
 		return;
 
 	float residual[6];
+	float candidate[6];
 	float impulse[6];
+	float lower[6];
+	float upper[6];
 	for (int row_idx = 0; row_idx != row_count; ++row_idx)
 	{
 		GpuConstraintRow row = g_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx]];
@@ -684,14 +733,19 @@ void SolveConstraintPositionBlock(uint slot_idx)
 		GpuConstraintRow row = g_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx]];
 		uint state = (block.row_states >> (2u * active_axes[row_idx])) & 3u;
 		float2 bounds = ConstraintImpulseBounds(state, 3.402823466e+38f);
-		impulse[row_idx] = clamp(row.bounds.w - g.position_relaxation * correction, bounds.x, bounds.y);
+		candidate[row_idx] = row.bounds.w - g.position_relaxation * correction;
+		lower[row_idx] = bounds.x;
+		upper[row_idx] = bounds.y;
 	}
 
+	// Unilateral hard rows use the same response-metric box solve as physical constraints.
+	if (!ProjectConstraintBox(row_count, inverse, candidate, lower, upper, impulse))
+	{
+		FailConstraintBlock(slot_idx);
+		return;
+	}
 	for (int row_idx = 0; row_idx != row_count; ++row_idx)
 	{
-		if (!isfinite(impulse[row_idx]))
-			continue;
-
 		uint row_storage_idx = slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx];
 		GpuConstraintRow row = g_rows[row_storage_idx];
 		float delta = impulse[row_idx] - row.bounds.w;
@@ -718,7 +772,7 @@ void CSClearConstraintPseudoVelocity(int3 DTID(dtid))
 numthreads(CSSolveConstraintPosition, ConstraintThreadCount, 1, 1)
 void CSSolveConstraintPosition(int3 DTID(dtid))
 {
-	if (g.colour == 0 && g_colour_overflow[0] != 0u)
+	if (g.colour == 0 && g_constraint_state[0].colour_overflow != 0u)
 	{
 		if (dtid.x != 0)
 			return;

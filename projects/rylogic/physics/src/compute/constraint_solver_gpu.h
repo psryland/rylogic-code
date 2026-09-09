@@ -57,7 +57,7 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_r_descriptors;
 		D3DPtr<ID3D12Resource> m_r_blocks;
 		D3DPtr<ID3D12Resource> m_r_rows;
-		D3DPtr<ID3D12Resource> m_r_overflow;
+		D3DPtr<ID3D12Resource> m_r_state;
 		D3DPtr<ID3D12Resource> m_r_pseudo_velocities;
 		D3DPtr<ID3D12Resource> m_r_break_states;
 		std::vector<GpuConstraintEndpoint> m_endpoint_shadow;
@@ -85,17 +85,20 @@ namespace pr::physics
 		// Upload shared frame-local endpoints and changed persistent descriptors, returning whether independent rigid work is active.
 		bool Upload(GpuJob& job, GpuConstraintUpload const& upload);
 
-		// Compile current world-space rows and graph-colour active blocks, optionally retaining already-applied current-frame impulses for a continuation sweep.
+		// Compile rows, assign colours, and clear pseudo velocity before any position producer writes; optionally retain applied physical impulses.
 		void Prepare(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies, bool retain_current_impulses = false);
 
 		// Apply retained physical impulses before the new velocity solve.
 		void ApplyWarmStart(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies);
 
-		// Execute one complete coloured split-position sweep without changing physical momentum.
+		// Execute one coloured split-position sweep using already initialized shared pseudo velocity, without clearing it or changing physical momentum.
 		void SolvePositionIteration(GpuJob& job, float timestep, int body_count, int position_iterations, D3DPtr<ID3D12Resource> bodies);
 
 		// Apply converged pseudo twists to body transforms after all split-position iterations.
 		void ApplyPosition(GpuJob& job, float timestep, int body_count, int position_iterations, D3DPtr<ID3D12Resource> bodies);
+
+		// Return adequately sized rigid pseudo storage for a shared position solve; the caller initializes it before use.
+		D3DPtr<ID3D12Resource> PseudoVelocityStorage(CmdList& cmd_list, int body_count);
 
 		// Execute one complete coloured physical block-PGS sweep.
 		void SolveVelocityIteration(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies);
@@ -105,6 +108,9 @@ namespace pr::physics
 
 		// Return the optional full stable-slot break stream for the final frame gather.
 		GpuConstraintBreakOutput BreakOutput();
+
+		// Return the current nonempty upload's frame-local solver state, or null when no slot stream was submitted.
+		ID3D12Resource* FrameState();
 
 		// Mirror completed breaks into the endpoint shadow so an immediate explicit repair invalidates stale GPU runtime state.
 		void AcknowledgeBreaks(std::span<GpuConstraintBreakState const> states);

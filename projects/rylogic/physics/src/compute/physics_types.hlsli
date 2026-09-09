@@ -51,6 +51,7 @@ static const uint ConstraintBlockFlags_Active = 1u << 0;
 static const uint ConstraintBlockFlags_ResetWarmStart = 1u << 1;
 static const uint ConstraintBlockFlags_CoupledPreconditionerValid = 1u << 2;
 static const uint ConstraintBlockFlags_Broken = 1u << 3;
+static const uint ConstraintBlockFlags_NumericalFailure = 1u << 4;
 
 // GPU constraint-break state flags are latched until the owning frame is gathered.
 static const uint GpuConstraintBreakFlags_None = 0u;
@@ -79,6 +80,7 @@ static const uint GpuCoupledConstraintFailure_NonFinite = 1u << 1;
 static const uint GpuCoupledConstraintFailure_Topology = 1u << 2;
 static const uint GpuCoupledConstraintFailure_Articulation = 1u << 3;
 static const uint GpuCoupledConstraintFailure_Merit = 1u << 4;
+static const uint GpuCoupledConstraintFailure_Projection = 1u << 5;
 
 // Failure records distinguish physical velocity updates from detached position correction.
 static const int GpuCoupledConstraintFailurePhase_Velocity = 0;
@@ -331,9 +333,9 @@ struct GpuWarmStartEntry
 // Exact-self contact block data retained while transient proxy contacts are solved at one fixed configuration.
 struct GpuCoupledContactBlock
 {
-	float4 inverse_response_0; // First row of the inverse 3x3 point-response matrix in body A space.
-	float4 inverse_response_1; // Second row of the inverse 3x3 point-response matrix in body A space.
-	float4 inverse_response_2; // Third row of the inverse 3x3 point-response matrix in body A space.
+	float4 response_0; // First point-response row in body A space; w is the inverse normal response.
+	float4 response_1; // Second point-response row; w is the inverse tangent response trace.
+	float4 response_2; // Third point-response row; w is unused.
 	float target_normal_speed; // Restitution target captured before warm starting.
 	float friction;            // Coulomb cone slope for the combined material pair.
 	int participant_a;         // Degree-damping participant, or -1 for an immovable endpoint.
@@ -482,6 +484,13 @@ struct GpuCollisionExclusion
 {
 	uint body_idx_a_plus_one;
 	uint body_idx_b_plus_one;
+};
+
+// Frame-local colour fallback and highest failing stable slot plus one; zero means no numerical failure.
+struct GpuConstraintSolverState
+{
+	uint colour_overflow;
+	uint failure_slot_plus_one;
 };
 
 // Runtime block state written by the GPU row compiler and retained for warm-start continuity.
@@ -658,6 +667,8 @@ struct GpuArticulationAbaDofScratch
 struct GpuArticulationAbaScratch
 {
 	GpuConstraintFrame child_to_parent;
+	// Trial-frame orientation is propagated once per link so world loads never require ancestor walks.
+	float4 link_to_world_rotation;
 	GpuArticulationSpatialMatrix articulated_inertia;
 
 	// This field is articulated bias through every inward level, then solved link acceleration during root/outward traversal.
@@ -690,7 +701,7 @@ struct GpuArticulationFrameOutput
 	int iteration_count;
 	float residual;
 	float pad0;
-	int pad1;
+	int sleeping; // Whole-tree state; zero or one for valid output.
 	int pad2;
 };
 
@@ -707,7 +718,7 @@ struct GpuFrameOutputHeader
 	int contact_limit_substep;
 	int event_overflow_substep;
 	int substep_count;
-	int pad0;
+	uint constraint_failure_slot_plus_one; // Zero means success; otherwise identifies one deterministically selected failing stable slot.
 	int pad1;
 	int pad2;
 };

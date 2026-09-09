@@ -54,6 +54,7 @@ public enum EStepFailure
 	CollisionContactCapacity = 2,
 	ArticulationIntegration = 3,
 	CoupledConstraintNonConvergence = 4,
+	ConstraintNumerics = 5,
 }
 
 /// <summary>Identifies the coupled transaction phase that exhausted its bounded recovery attempts.</summary>
@@ -74,6 +75,7 @@ public enum ECoupledConstraintFailure :uint
 	Topology = 1U << 2,
 	Articulation = 1U << 3,
 	Merit = 1U << 4,
+	Projection = 1U << 5,
 }
 
 /// <summary>Flags represented in body state, commands, and snapshots.</summary>

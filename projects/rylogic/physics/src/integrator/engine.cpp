@@ -211,14 +211,19 @@ namespace pr::physics
 		if (constraints != nullptr)
 			WakeCoupledConstraintArticulations(*constraints, articulations);
 
-		// Sleeping is owned by the complete tree, so inactive trees are omitted before any topology, proxy, or GPU storage is packed.
+		// Sleeping colliders remain discoverable; only wholly shapeless inactive trees can omit all GPU work.
 		m_articulations.clear();
 		m_articulations.reserve(articulations.size());
 		for (auto* articulation : articulations)
 		{
 			if ((!sleeping_enabled || articulation->NeverSleep()) && articulation->Sleeping())
 				articulation->Wake();
-			if (!articulation->Sleeping())
+
+			auto retain_tree = !articulation->Sleeping();
+			for (int link_index = 0; !retain_tree && link_index != articulation->LinkCount(); ++link_index)
+				retain_tree = articulation->LinkDescription(articulation->LinkAt(link_index)).m_shape != nullptr;
+
+			if (retain_tree)
 				m_articulations.push_back(articulation);
 		}
 
@@ -365,7 +370,7 @@ namespace pr::physics
 		if (m_gpu_articulation_link_proxies != nullptr)
 		{
 			auto const& stats = m_gpu_articulation_link_proxies->Stats();
-			m_last_feature_stats.m_articulations.m_resources.m_dispatch_count += stats.m_gather_dispatch_count + stats.m_refresh_dispatch_count;
+			m_last_feature_stats.m_articulations.m_resources.m_dispatch_count += stats.m_refresh_dispatch_count;
 			m_last_feature_stats.m_articulations.m_resources.m_logical_bytes += stats.m_logical_bytes;
 			m_last_feature_stats.m_articulations.m_resources.m_allocated_bytes += stats.m_allocated_feature_bytes;
 		}
@@ -803,11 +808,6 @@ namespace pr::physics
 					ApplyExternalForces(dt, substep_time_s, substep_index, input.m_substep_count);
 				}
 
-				// Gather link forces before either lane consumes its current-substep accumulators.
-				auto articulation_external_forces = !articulations.empty()
-					? m_gpu_articulation_link_proxies->GatherForces(m_gpu->m_job, m_gpu_integrator->Bodies().get())
-					: nullptr;
-
 				// Advance both independent prediction lanes before any shared collision or constraint work so every broadphase consumer sees current-substep poses.
 				if (!bodies.empty())
 				{
@@ -818,7 +818,7 @@ namespace pr::physics
 				if (!articulations.empty())
 				{
 					auto profile_scope = ProfileScope<&Engine::StepProfile::m_articulation_integrate_ms>(m_last_step_profile);
-					m_gpu_articulation_midpoint->Integrate(m_gpu->m_job, dt, articulation_external_forces);
+					m_gpu_articulation_midpoint->Integrate(m_gpu->m_job, dt, nullptr, m_gpu_integrator->Bodies().get());
 					m_gpu_articulation_link_proxies->Refresh(m_gpu->m_job, *m_gpu_integrator, m_cache->BroadphaseSortAxis());
 				}
 
@@ -867,7 +867,7 @@ namespace pr::physics
 		// ReadBody -> read back body dynamics and contact data
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_ms>(m_last_step_profile);
-			Readback(*m_pending_step.m_buffers, articulation_output);
+			Readback(*m_pending_step.m_buffers, articulation_output, true);
 		}
 		UpdateFeatureResourceStats(true);
 
@@ -961,39 +961,53 @@ namespace pr::physics
 		GpuBuffers buffers;
 		buffers.emit_collisions = false;
 
+		// A recording failure must retire its valid command prefix before transfer buffers or cached inputs can be released.
+		try
 		{
-			// Rebuild the staging state from the caller-owned bodies. Bodies that are already sleeping but have no island id are deliberately
-			// left out of the uploaded island list; the GPU contact graph below creates their first transient ids.
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_new_frame_ms>(m_last_step_profile);
-			m_cache->NewFrame(rigid_bodies);
+			{
+				// Rebuild the staging state from the caller-owned bodies. Bodies that are already sleeping but have no island id are deliberately
+				// left out of the uploaded island list; the GPU contact graph below creates their first transient ids.
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_new_frame_ms>(m_last_step_profile);
+				m_cache->NewFrame(rigid_bodies);
+			}
+			{
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_pack_ms>(m_last_step_profile);
+				Pack(rigid_bodies);
+			}
+			{
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_upload_ms>(m_last_step_profile);
+				Upload(false);
+			}
+			m_gpu_frame_output->BeginFrame(m_gpu->m_job, m_cache->RigidBodyCount(), 0, 1);
+			{
+				// A zero-length integrate pass updates the GPU AABBs from the current transforms without advancing the simulation.
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
+				Integrate(0.0f);
+			}
+			{
+				// Run the same broadphase, narrowphase, and sleep-update graph as a normal frame, but with
+				// sleeping-pair filtering disabled so sleeping/sleeping contacts are visible while the initial islands are being built.
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepupdate_ms>(m_last_step_profile);
+				BroadPhase(false);
+				Collide();
+				SleepUpdate(0.0f);
+			}
+			CaptureSubstepOutput(0, 1, false);
+			{
+				// Retained constraint diagnostics belong to the preceding simulation frame, not this rigid-only maintenance layout.
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_ms>(m_last_step_profile);
+				Readback(buffers, GpuArticulationMidpointOutput{}, false);
+			}
 		}
+		catch (...)
 		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_pack_ms>(m_last_step_profile);
-			Pack(rigid_bodies);
+			auto const recording_error = std::current_exception();
+			m_gpu->m_job.RetireRecordedWork();
+			ResetCaches();
+			std::rethrow_exception(recording_error);
 		}
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_upload_ms>(m_last_step_profile);
-			Upload(false);
-		}
-		m_gpu_frame_output->BeginFrame(m_gpu->m_job, m_cache->RigidBodyCount(), 0, 1);
-		{
-			// A zero-length integrate pass updates the GPU AABBs from the current transforms without advancing the simulation.
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
-			Integrate(0.0f);
-		}
-		{
-			// Run the same broadphase, narrowphase, and sleep-update graph as a normal frame, but with
-			// sleeping-pair filtering disabled so sleeping/sleeping contacts are visible while the initial islands are being built.
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepupdate_ms>(m_last_step_profile);
-			BroadPhase(false);
-			Collide();
-			SleepUpdate(0.0f);
-		}
-		CaptureSubstepOutput(0, 1, false);
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_ms>(m_last_step_profile);
-			Readback(buffers, GpuArticulationMidpointOutput{});
-		}
+
+		// Submit only after the complete maintenance frame has been recorded successfully.
 		{
 			RunGpuJob(m_gpu->m_job, m_last_step_profile);
 		}
@@ -1291,18 +1305,20 @@ namespace pr::physics
 	}
 
 	// Gather selected output and record exactly one core GPU-to-CPU copy.
-	void Engine::Readback(GpuBuffers& buffers, GpuArticulationMidpointOutput const& articulations)
+	void Engine::Readback(GpuBuffers& buffers, GpuArticulationMidpointOutput const& articulations, bool include_constraints)
 	{
 		auto body_count = m_cache->RigidBodyCount();
 		auto bodies = m_gpu_integrator->Bodies();
-		auto const constraint_break_output = m_gpu_constraint_solver != nullptr
+		auto const constraint_break_output = include_constraints && m_gpu_constraint_solver != nullptr
 			? m_gpu_constraint_solver->BreakOutput()
 			: GpuConstraintBreakOutput{};
-		auto const coupled_failure_output = m_gpu_coupled_constraint_solver != nullptr
+		auto const coupled_failure_output = include_constraints && m_gpu_coupled_constraint_solver != nullptr
 			? m_gpu_coupled_constraint_solver->FailureOutput()
 			: GpuCoupledConstraintFailureOutput{};
 		buffers.read_collision_events = buffers.emit_collisions && static_cast<bool>(Collisions);
-		buffers.rb_output = m_gpu_frame_output->GatherAndReadback(m_gpu->m_job, body_count, bodies.get(), articulations, constraint_break_output, coupled_failure_output);
+		auto const proxy_count = articulations.m_articulation_count != 0 ? m_cache->BodyCount() - body_count : 0;
+		auto* constraint_state = include_constraints && m_gpu_constraint_solver != nullptr ? m_gpu_constraint_solver->FrameState() : nullptr;
+		buffers.rb_output = m_gpu_frame_output->GatherAndReadback(m_gpu->m_job, body_count, bodies.get(), articulations, constraint_break_output, coupled_failure_output, proxy_count, constraint_state);
 		++m_last_step_profile.m_readback_copy_count;
 	}
 
@@ -1394,6 +1410,8 @@ namespace pr::physics
 				}
 				if (gathered.iteration_count < 0 || !std::isfinite(gathered.residual) || gathered.residual < 0.0f)
 					throw std::runtime_error(std::format("GPU articulation {} returned invalid convergence diagnostics", range.m_identity));
+				if ((gathered.sleeping != 0 && gathered.sleeping != 1) || (gathered.sleeping != 0 && !articulation->Sleeping()))
+					throw std::runtime_error(std::format("GPU articulation {} returned an invalid whole-tree sleep state", range.m_identity));
 
 				auto output = detail::ArticulationIntegrationOutput{
 					.m_root_to_world = UnpackGpuTransform(gathered.root_to_world),
@@ -1403,12 +1421,33 @@ namespace pr::physics
 					.m_substep_seconds = articulation_substep_seconds,
 				};
 				detail::ValidateArticulationIntegrationOutput(*articulation, output);
+				if (gathered.sleeping != 0 && std::ranges::any_of(output.m_velocities, [](float velocity)
+					{
+						return velocity != 0.0f;
+					}))
+					throw std::runtime_error(std::format("GPU articulation {} changed sleeping velocities without waking its tree", range.m_identity));
+
 				articulation_outputs.push_back(output);
 				position_cursor += range.m_position_count;
 				velocity_cursor += range.m_velocity_count;
 			}
 			if (position_cursor != isize(output_positions) || velocity_cursor != isize(output_velocities) || velocity_cursor != isize(output_accelerations))
 				throw std::runtime_error("GPU frame output generalized streams are not partitioned by the pending articulation forest");
+		}
+
+		// Arithmetic failures reject the frame before publishing any partial rigid solve or collision callback.
+		if (output_header.constraint_failure_slot_plus_one != 0u)
+		{
+			if (constraints == nullptr || output_header.constraint_failure_slot_plus_one > constraints->CapacitySlots())
+				throw std::runtime_error("GPU frame output returned an invalid failing constraint slot");
+
+			auto const slot_index = static_cast<int>(output_header.constraint_failure_slot_plus_one - 1u);
+			m_last_feature_stats.m_failure = StepFailureStats{
+				.m_reason = EStepFailure::ConstraintNumerics,
+				.m_item_index = slot_index,
+				.m_status = static_cast<int>(ConstraintBlockFlags_NumericalFailure),
+			};
+			throw std::runtime_error(std::format("GPU constraint slot {} failed its numerical solve", slot_index));
 		}
 
 		// Validate every overload latch before any caller-owned body, articulation, or constraint state is changed.
@@ -1456,7 +1495,8 @@ namespace pr::physics
 			GpuCoupledConstraintFailure_NonFinite |
 			GpuCoupledConstraintFailure_Topology |
 			GpuCoupledConstraintFailure_Articulation |
-			GpuCoupledConstraintFailure_Merit;
+			GpuCoupledConstraintFailure_Merit |
+			GpuCoupledConstraintFailure_Projection;
 		for (auto const [state, island_index] : with_index(coupled_failure_states))
 		{
 			if (state.substep_index < 0)
@@ -1544,8 +1584,16 @@ namespace pr::physics
 		// Publish the already-validated forest only after callbacks and rigid output validation have succeeded.
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_articulation_unpack_ms>(m_last_step_profile);
+			auto const output_articulations = GpuFrameOutput::Articulations(buffers.rb_output);
 			for (int articulation_index = 0; articulation_index != isize(articulations); ++articulation_index)
 			{
+				// Unchanged sleepers retain their exact CPU state; a GPU contact wake resets their complete-tree sleep timer.
+				if (output_articulations[articulation_index].sleeping != 0)
+					continue;
+
+				if (articulations[articulation_index]->Sleeping())
+					articulations[articulation_index]->Wake();
+
 				detail::CommitArticulationIntegrationOutput(*articulations[articulation_index], articulation_outputs[articulation_index]);
 				if (m_config.sleeping_enabled)
 				{
