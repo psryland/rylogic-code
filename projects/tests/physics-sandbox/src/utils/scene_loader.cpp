@@ -36,6 +36,18 @@ namespace physics_sandbox::scene_loader
 				a[1].to<float>(),
 			};
 		}
+		// Read a two-component double vector from a JSON array.
+		pr::physics::terrain::v2d ReadVec2d(pr::json::Value const& arr)
+		{
+			auto const& a = arr.to_array();
+			if (a.size() < 2)
+				throw std::runtime_error("Expected a 2-element array for vector");
+
+			return pr::physics::terrain::v2d{
+				a[0].to<double>(),
+				a[1].to<double>(),
+			};
+		}
 		// Read a two-component integer vector from a JSON array.
 		iv2 ReadInt2(pr::json::Value const& arr)
 		{
@@ -718,6 +730,47 @@ namespace physics_sandbox::scene_loader
 
 		return camera;
 	}
+	// Parse the sandbox-only procedural terrain preview.
+	TerrainDesc ReadTerrain(pr::json::Value const& jterrain)
+	{
+		auto terrain = TerrainDesc{};
+		auto const& jterrain_obj = jterrain.to_object();
+
+		if (auto const* jseed = jterrain_obj.find("seed"))
+			terrain.surface.m_seed = static_cast<uint32_t>(jseed->to<int64_t>());
+
+		if (auto const* jmaterial = jterrain_obj.find("material_id"))
+			terrain.surface.m_material_id = jmaterial->to<int>();
+
+		if (auto const* jcentre = jterrain_obj.find("centre"))
+			terrain.centre_xy = ReadVec2d(*jcentre);
+
+		if (auto const* jradius = jterrain_obj.find("radius"))
+			terrain.radius_m = jradius->to<double>();
+
+		if (auto const* jintervals = jterrain_obj.find("intervals"))
+			terrain.intervals = jintervals->to<int>();
+
+		if (auto const* jdisplay = jterrain_obj.find("display"))
+		{
+			auto const display = jdisplay->to<std::string>();
+			if (display == "neutral")
+				terrain.display = ETerrainDisplayMode::Neutral;
+			else if (display == "elevation")
+				terrain.display = ETerrainDisplayMode::Elevation;
+			else if (display == "slope")
+				terrain.display = ETerrainDisplayMode::Slope;
+			else
+				throw std::runtime_error(std::format("Unknown terrain display mode '{}'", display));
+		}
+
+		if (!std::isfinite(terrain.radius_m) || terrain.radius_m <= 0.0)
+			throw std::runtime_error("Terrain radius must be finite and greater than zero");
+		if (terrain.intervals < 4)
+			throw std::runtime_error("Terrain intervals must be at least 4");
+
+		return terrain;
+	}
 	// Parse the water surface used by buoyancy and the sandbox visual mesh.
 	WaterDesc ReadWater(pr::json::Value const& jwater)
 	{
@@ -1008,6 +1061,10 @@ namespace physics_sandbox::scene_loader
 		if (auto* jground = jscene.find("ground_plane"))
 			desc.ground = ReadGroundPlane(*jground);
 
+		// Terrain preview
+		if (auto* jterrain = jscene.find("terrain"))
+			desc.terrain = ReadTerrain(*jterrain);
+
 		// Water surface
 		if (auto* jwater = jscene.find("water"))
 			desc.water = ReadWater(*jwater);
@@ -1070,4 +1127,59 @@ namespace physics_sandbox::scene_loader
 
 		return metadata;
 	}
+
+	#if PR_UNITTESTS
+	namespace tests
+	{
+		namespace
+		{
+			// Parse only the sandbox terrain block from an in-memory scene document.
+			SceneDesc ParseTerrain(std::string_view text)
+			{
+				auto document = pr::json::Read(text);
+				auto const& scene = document.to_object()["scene"].to_object();
+				auto desc = SceneDesc{};
+				if (auto const* jterrain = scene.find("terrain"))
+					desc.terrain = ReadTerrain(*jterrain);
+				return desc;
+			}
+		}
+
+		PRUnitTestClass(SceneLoaderTerrainTests)
+		{
+			PRUnitTestMethod(ParsesTerrainPreviewSettings, Quick)
+			{
+				auto const desc = ParseTerrain(R"json(
+				{
+					"scene": {
+						"terrain": {
+							"seed": 77,
+							"material_id": 2,
+							"centre": [125.5, -88.25],
+							"radius": 2048.0,
+							"intervals": 96,
+							"display": "slope"
+						}
+					}
+				})json");
+
+				PR_EXPECT(desc.terrain.has_value());
+				PR_EXPECT(desc.terrain->surface.m_seed == 77u);
+				PR_EXPECT(desc.terrain->surface.m_material_id == 2);
+				PR_EXPECT(desc.terrain->centre_xy.x == 125.5);
+				PR_EXPECT(desc.terrain->centre_xy.y == -88.25);
+				PR_EXPECT(desc.terrain->radius_m == 2048.0);
+				PR_EXPECT(desc.terrain->intervals == 96);
+				PR_EXPECT(desc.terrain->display == ETerrainDisplayMode::Slope);
+			}
+
+			PRUnitTestMethod(RejectsInvalidTerrainPreviewSettings, Quick)
+			{
+				PR_THROWS(ParseTerrain(R"json({"scene":{"terrain":{"radius":0.0}}})json"), std::exception);
+				PR_THROWS(ParseTerrain(R"json({"scene":{"terrain":{"intervals":3}}})json"), std::exception);
+				PR_THROWS(ParseTerrain(R"json({"scene":{"terrain":{"display":"wireframe"}}})json"), std::exception);
+			}
+		};
+	}
+	#endif
 }

@@ -1,0 +1,22 @@
+{
+	"scene": {
+		"demo": {
+			"command": "terrain-baseline",
+			"name": "Terrain Baseline",
+			"group": "Feature Showcases",
+			"order": 10
+		},
+		"description": "Sandbox-first procedural terrain baseline preview using the native reusable CPU evaluator.",
+		"gravity": [0, 0, -9.81],
+		"terrain": {
+			"seed": 12648430,
+			"radius": 4000.0,
+			"intervals": 512,
+			"display": "neutral"
+		},
+		"camera": {
+			"position": [0, -7600, 2400],
+			"lookat": [0, 0, 120]
+		}
+	}
+}

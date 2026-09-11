@@ -946,31 +946,23 @@ public class AllNative : Group
 			Workspace,
 			"x64",
 			"Release",
-			Tools.Path([UserVars.Root, "obj\\nuget\\Rylogic.Native\\x64\\Release\\runtime"], check_exists: false),
+			Tools.Path([UserVars.Root, "obj\\nuget\\Rylogic.Native\\x64\\Release\\package"], check_exists: false),
 			require_all_projects: true);
-
-		// Carry the command line tools that consumers need in order to cook content, so a consuming repository
-		// does not need a checkout of this one. They are staged with the libraries they load at run time.
-		var tools_staging_dir = NativeRuntimePackage.StageTools(
-			Workspace,
-			"x64",
-			"Release",
-			Tools.Path([UserVars.Root, "obj\\nuget\\Rylogic.Native\\x64\\Release\\tools"], check_exists: false),
-			staging_dir);
 
 		// Stage the native package in the release feed so the canonical root package and cache can be refreshed exactly.
 		Package = new Nuget()
 		{
 			PackageName = "Rylogic.Native",
 			Version = RylogicLibraryVersion,
-			Description = "Native runtime assets for Rylogic View3D, database, editor, rigid-body physics, and spatial audio packages, and the command line tools that cook content for them.",
+			Description = "Native runtime assets, public headers, supported native link libraries, and command line cooking tools for Rylogic View3D, database, editor, rigid-body physics, and spatial audio packages.",
 			Tags = "rylogic native library view3d physics d3d12 audio tools",
 			PackageOutputPath = Tools.Path([UserVars.Root, "lib\\packages\\release"], check_exists: false),
-			ValidateStagedPackage = package_path => NativeRuntimePackage.ValidatePackage(package_path, staging_dir, tools_staging_dir),
+			ValidateStagedPackage = package_path => NativeRuntimePackage.ValidatePackage(package_path, staging_dir),
 		};
 		Package.Files.AddRange([
-			new Nuget.File(Tools.Path([staging_dir, "*.dll"], check_exists: false), "runtimes/win-x64/native/"),
-			new Nuget.File(Tools.Path([tools_staging_dir, "*"], check_exists: false), "tools/win-x64/"),
+			new Nuget.File(Tools.Path([staging_dir, "build\\**\\*"], check_exists: false), "build/"),
+			new Nuget.File(Tools.Path([staging_dir, "runtimes\\**\\*"], check_exists: false), "runtimes/"),
+			new Nuget.File(Tools.Path([staging_dir, "tools\\**\\*"], check_exists: false), "tools/"),
 		]);
 		Package.Package();
 	}

@@ -4,6 +4,7 @@ using System;
 using System.ComponentModel;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
@@ -31,65 +32,33 @@ public static class NativeRuntimePackage
 		{
 			foreach (var config in configs)
 			{
-				var manifest_dir = ManifestDirectory(workspace, platform, config);
-				if (Directory.Exists(manifest_dir))
-					Directory.Delete(manifest_dir, recursive: true);
+				foreach (var manifest_dir in new[]
+				{
+					RuntimeManifestDirectory(workspace, platform, config),
+					LinkManifestDirectory(workspace, platform, config),
+				})
+				{
+					if (Directory.Exists(manifest_dir))
+						Directory.Delete(manifest_dir, recursive: true);
+				}
 			}
 		}
 	}
 
-	// Stages the declared runtime assets and proves that their linked dependency closure is complete.
+	// Stages the complete Rylogic.Native payload and proves that its runtime closure is loadable.
 	public static string Stage(string workspace, string platform, string config, string output_dir, bool require_all_projects)
 	{
-		var projects = DiscoverRuntimeProjects(workspace);
-		var manifest_dir = ManifestDirectory(workspace, platform, config);
-		var missing_projects = new List<string>();
-		var source_files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-		// Collect only DLL build artifacts emitted by projects that explicitly opt into the runtime package.
-		foreach (var project in projects.Where(x => x.Disposition == IncludeDisposition))
-		{
-			var manifest_path = IOPath.Combine(manifest_dir, $"{project.ProjectName}.txt");
-			if (!File.Exists(manifest_path))
-			{
-				missing_projects.Add(project.ProjectPath);
-				continue;
-			}
-
-			foreach (var source_path in File.ReadLines(manifest_path).Select(x => x.Trim()).Where(x => x.Length != 0))
-			{
-				if (!string.Equals(IOPath.GetExtension(source_path), ".dll", StringComparison.OrdinalIgnoreCase))
-					continue;
-				if (!File.Exists(source_path))
-				{
-					if (require_all_projects)
-						throw new FileNotFoundException($"Declared native runtime asset is missing: {source_path}", source_path);
-
-					Console.WriteLine($"Skipping unavailable Debug runtime asset: {source_path}");
-					continue;
-				}
-
-				var filename = IOPath.GetFileName(source_path);
-				if (source_files.TryGetValue(filename, out var existing_path) && !FilesEqual(existing_path, source_path))
-					throw new InvalidOperationException($"Native runtime assets collide at '{filename}': '{existing_path}' and '{source_path}'");
-
-				source_files[filename] = source_path;
-			}
-		}
-
-		if (require_all_projects && missing_projects.Count != 0)
-			throw new InvalidOperationException($"Native runtime manifests are missing for:{Environment.NewLine}{string.Join(Environment.NewLine, missing_projects.Select(x => $"  {x}"))}{Environment.NewLine}Build AllNative before creating a Release package.");
-		if (source_files.Count == 0)
+		var runtime_assets = CollectRuntimeAssets(workspace, platform, config, require_all_projects);
+		if (runtime_assets.Count == 0)
 			throw new InvalidOperationException($"No declared native runtime assets are available for {platform}|{config}.");
 
 		// Recreate a package-private staging directory so unrelated deployed files cannot leak into the archive.
 		var staging_dir = PrepareStagingDirectory(workspace, output_dir);
-		foreach (var source_file in source_files.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
-			File.Copy(source_file.Value, IOPath.Combine(staging_dir, source_file.Key), overwrite: true);
-
-		// Check both the static PE import graph and actual Windows loader behavior before packaging.
-		ValidateDependencies(staging_dir);
-		SmokeLoad(staging_dir);
+		StageHeaders(workspace, staging_dir);
+		StageProps(workspace, staging_dir);
+		var runtime_dir = StageRuntimeAssets(platform, staging_dir, runtime_assets);
+		StageLinkAssets(workspace, platform, config, staging_dir, runtime_assets, require_all_projects);
+		StageTools(workspace, platform, config, staging_dir, runtime_dir);
 		return staging_dir;
 	}
 
@@ -97,7 +66,7 @@ public static class NativeRuntimePackage
 	public static bool HasCompleteManifestSet(string workspace, string platform, string config, out IReadOnlyList<string> unavailable_inputs)
 	{
 		var unavailable = new List<string>();
-		var manifest_dir = ManifestDirectory(workspace, platform, config);
+		var manifest_dir = RuntimeManifestDirectory(workspace, platform, config);
 
 		// Require each package-owned project to have declared at least one available DLL from its latest build.
 		foreach (var project in DiscoverRuntimeProjects(workspace).Where(x => x.Disposition == IncludeDisposition))
@@ -127,34 +96,50 @@ public static class NativeRuntimePackage
 		return unavailable.Count == 0;
 	}
 
-	// Stages the command line tools carried by the package, together with the runtime libraries they load.
-	// Tools are applications rather than part of the runtime DLL closure, so they are staged separately and
-	// are never smoke loaded.
-	public static string StageTools(string workspace, string platform, string config, string output_dir, string runtime_staging_dir)
+	// Reports whether every supported native link asset is available for one configuration.
+	public static bool HasCompleteLinkAssetSet(string workspace, string platform, string config, out IReadOnlyList<string> unavailable_inputs)
 	{
-		var staging_dir = PrepareStagingDirectory(workspace, output_dir);
-
-		// A tool resolves its dynamically loaded libraries from its own directory, so each required library is
-		// copied from the already-validated runtime closure rather than located independently.
-		foreach (var library in PackagedToolLibraries)
+		var unavailable = new List<string>();
+		try
 		{
-			var source_path = IOPath.Combine(runtime_staging_dir, library);
-			if (!File.Exists(source_path))
-				throw new FileNotFoundException($"Tool dependency is not present in the staged runtime closure: {library}", source_path);
+			foreach (var runtime_asset in CollectRuntimeAssets(workspace, platform, config, require_all_projects: true).Values)
+			{
+				if (!RequiresAdjacentImportLibrary(workspace, runtime_asset))
+					continue;
 
-			File.Copy(source_path, IOPath.Combine(staging_dir, library), overwrite: true);
+				var import_library = IOPath.ChangeExtension(runtime_asset, ".imp");
+				if (!File.Exists(import_library))
+					unavailable.Add($"missing import library: {import_library}");
+			}
+		}
+		catch (Exception ex)
+		{
+			unavailable.Add(ex.Message);
 		}
 
-		foreach (var tool_name in PackagedToolNames)
+		var manifest_dir = LinkManifestDirectory(workspace, platform, config);
+		foreach (var project in DiscoverLinkProjects(workspace).Where(x => x.Disposition == IncludeDisposition))
 		{
-			var source_path = PackagedToolPath(workspace, tool_name, platform, config);
-			if (!File.Exists(source_path))
-				throw new FileNotFoundException($"Packaged tool has not been built for {platform}|{config}: {tool_name}", source_path);
+			var manifest_path = IOPath.Combine(manifest_dir, $"{project.ProjectName}.txt");
+			if (!File.Exists(manifest_path))
+			{
+				unavailable.Add($"missing link manifest: {project.ProjectPath}");
+				continue;
+			}
 
-			File.Copy(source_path, IOPath.Combine(staging_dir, IOPath.GetFileName(source_path)), overwrite: true);
+			var source_paths = File.ReadLines(manifest_path).Select(x => x.Trim()).Where(x => x.Length != 0).ToList();
+			if (source_paths.Count == 0)
+			{
+				unavailable.Add($"manifest declares no link assets: {manifest_path}");
+				continue;
+			}
+
+			foreach (var source_path in source_paths.Where(x => !File.Exists(x)))
+				unavailable.Add($"missing link asset: {source_path}");
 		}
 
-		return staging_dir;
+		unavailable_inputs = unavailable;
+		return unavailable.Count == 0;
 	}
 
 	// True when every packaged tool has been built for one configuration. A package missing a tool is incomplete
@@ -180,38 +165,25 @@ public static class NativeRuntimePackage
 		return IOPath.Combine(workspace, "projects", "tools", tool_name, "obj", platform, config, $"{tool_name}.exe");
 	}
 
-	// Confirms that the generated package contains exactly the staged runtime DLLs.
+	// Confirms that the generated package contains exactly the staged build/runtime/tool payload.
 	public static void ValidatePackage(string package_path, string staging_dir)
 	{
-		ValidatePackage(package_path, staging_dir, tools_staging_dir: null);
-	}
-
-	// Confirms that the generated package contains exactly the staged runtime DLLs and, when tools are carried,
-	// exactly the staged tool payload.
-	public static void ValidatePackage(string package_path, string staging_dir, string? tools_staging_dir)
-	{
 		using var package = ZipFile.OpenRead(package_path);
-		ValidateFolder(package, staging_dir, "*.dll", "runtimes/win-x64/native/");
-		if (tools_staging_dir is not null)
-			ValidateFolder(package, tools_staging_dir, "*", "tools/win-x64/");
-	}
-
-	// Compares one package folder against the staging directory that produced it.
-	private static void ValidateFolder(ZipArchive package, string staging_dir, string staging_pattern, string package_folder)
-	{
-		var expected = Directory.EnumerateFiles(staging_dir, staging_pattern)
-			.Select(IOPath.GetFileName)
+		var expected = Directory.EnumerateFiles(staging_dir, "*", SearchOption.AllDirectories)
+			.Select(x => IOPath.GetRelativePath(staging_dir, x).Replace('\\', '/'))
+			.Where(x => !string.Equals(x, ".complete", StringComparison.OrdinalIgnoreCase))
 			.ToHashSet(StringComparer.OrdinalIgnoreCase);
 		var actual = package.Entries
-			.Where(x => x.FullName.StartsWith(package_folder, StringComparison.OrdinalIgnoreCase) && !x.FullName.EndsWith("/", StringComparison.Ordinal))
-			.Select(x => IOPath.GetFileName(x.FullName))
+			.Where(x => !x.FullName.EndsWith("/", StringComparison.Ordinal))
+			.Select(x => x.FullName.Replace('\\', '/'))
+			.Where(x => x.StartsWith("build/", StringComparison.OrdinalIgnoreCase) || x.StartsWith("runtimes/", StringComparison.OrdinalIgnoreCase) || x.StartsWith("tools/", StringComparison.OrdinalIgnoreCase))
 			.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
 		if (!expected.SetEquals(actual))
 		{
 			var missing = expected.Except(actual, StringComparer.OrdinalIgnoreCase).OrderBy(x => x);
 			var unexpected = actual.Except(expected, StringComparer.OrdinalIgnoreCase).OrderBy(x => x);
-			throw new InvalidOperationException($"Rylogic.Native package inventory mismatch in '{package_folder}'. Missing: [{string.Join(", ", missing)}]. Unexpected: [{string.Join(", ", unexpected)}].");
+			throw new InvalidOperationException($"Rylogic.Native package inventory mismatch. Missing: [{string.Join(", ", missing)}]. Unexpected: [{string.Join(", ", unexpected)}].");
 		}
 	}
 
@@ -242,6 +214,30 @@ public static class NativeRuntimePackage
 				throw new InvalidOperationException($"Excluded native runtime project must declare RylogicNativeRuntimePackageReason: {project_path}");
 
 			projects.Add(new RuntimeProject(project_path, project_name, disposition));
+		}
+
+		return projects;
+	}
+
+	// Discovers projects that explicitly contribute native link assets beyond DLL import libraries.
+	private static List<LinkProject> DiscoverLinkProjects(string workspace)
+	{
+		var project_paths = Directory.EnumerateFiles(IOPath.Combine(workspace, "projects", "rylogic"), "*.vcxproj", SearchOption.AllDirectories)
+			.Concat(Directory.EnumerateFiles(IOPath.Combine(workspace, "sdk"), "*.vcxproj", SearchOption.AllDirectories))
+			.Distinct(StringComparer.OrdinalIgnoreCase);
+		var projects = new List<LinkProject>();
+
+		foreach (var project_path in project_paths)
+		{
+			var project = XDocument.Load(project_path);
+			var project_name = IOPath.GetFileNameWithoutExtension(project_path);
+			var disposition = project.Descendants().LastOrDefault(x => x.Name.LocalName == "RylogicNativeLinkPackage")?.Value.Trim();
+			if (string.IsNullOrWhiteSpace(disposition))
+				continue;
+			if (disposition is not (IncludeDisposition or ExcludeDisposition))
+				throw new InvalidOperationException($"Native link project must declare RylogicNativeLinkPackage as Include or Exclude: {project_path}");
+
+			projects.Add(new LinkProject(project_path, project_name, disposition));
 		}
 
 		return projects;
@@ -296,6 +292,165 @@ public static class NativeRuntimePackage
 		return File.Exists(IOPath.Combine(Environment.SystemDirectory, dependency));
 	}
 
+	// Collects DLL payloads from project-owned runtime manifests.
+	private static Dictionary<string, string> CollectRuntimeAssets(string workspace, string platform, string config, bool require_all_projects)
+	{
+		var projects = DiscoverRuntimeProjects(workspace);
+		var manifest_dir = RuntimeManifestDirectory(workspace, platform, config);
+		var missing_projects = new List<string>();
+		var source_files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+		foreach (var project in projects.Where(x => x.Disposition == IncludeDisposition))
+		{
+			var manifest_path = IOPath.Combine(manifest_dir, $"{project.ProjectName}.txt");
+			if (!File.Exists(manifest_path))
+			{
+				missing_projects.Add(project.ProjectPath);
+				continue;
+			}
+
+			foreach (var source_path in File.ReadLines(manifest_path).Select(x => x.Trim()).Where(x => x.Length != 0))
+			{
+				if (!string.Equals(IOPath.GetExtension(source_path), ".dll", StringComparison.OrdinalIgnoreCase))
+					continue;
+				if (!File.Exists(source_path))
+				{
+					if (require_all_projects)
+						throw new FileNotFoundException($"Declared native runtime asset is missing: {source_path}", source_path);
+
+					Console.WriteLine($"Skipping unavailable Debug runtime asset: {source_path}");
+					continue;
+				}
+
+				var filename = IOPath.GetFileName(source_path);
+				if (source_files.TryGetValue(filename, out var existing_path) && !FilesEqual(existing_path, source_path))
+					throw new InvalidOperationException($"Native runtime assets collide at '{filename}': '{existing_path}' and '{source_path}'");
+
+				source_files[filename] = source_path;
+			}
+		}
+
+		if (require_all_projects && missing_projects.Count != 0)
+			throw new InvalidOperationException($"Native runtime manifests are missing for:{Environment.NewLine}{string.Join(Environment.NewLine, missing_projects.Select(x => $"  {x}"))}{Environment.NewLine}Build AllNative before creating a Release package.");
+
+		return source_files;
+	}
+
+	// Copies the public native header tree into the package layout expected by C++ consumers.
+	private static void StageHeaders(string workspace, string staging_dir)
+	{
+		var source_dir = IOPath.Combine(workspace, "include", "pr");
+		var target_dir = IOPath.Combine(staging_dir, "build", "native", "include", "pr");
+		CopyDirectory(source_dir, target_dir);
+	}
+
+	// Copies the package-root props file that exposes include/lib/runtime locations without auto-linking.
+	private static void StageProps(string workspace, string staging_dir)
+	{
+		var source_path = IOPath.Combine(workspace, "build", "Rylogic.Native.props");
+		var target_path = IOPath.Combine(staging_dir, "build", "Rylogic.Native.props");
+		Directory.CreateDirectory(IOPath.GetDirectoryName(target_path) ?? throw new InvalidOperationException("Unable to determine the props staging directory."));
+		File.Copy(source_path, target_path, overwrite: true);
+	}
+
+	// Copies runtime DLLs into their NuGet runtime folder and validates that the staged closure is loadable.
+	private static string StageRuntimeAssets(string platform, string staging_dir, IReadOnlyDictionary<string, string> runtime_assets)
+	{
+		var runtime_dir = IOPath.Combine(staging_dir, "runtimes", $"win-{platform}", "native");
+		Directory.CreateDirectory(runtime_dir);
+		foreach (var runtime_asset in runtime_assets.OrderBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
+			File.Copy(runtime_asset.Value, IOPath.Combine(runtime_dir, runtime_asset.Key), overwrite: true);
+
+		ValidateDependencies(runtime_dir);
+		SmokeLoad(runtime_dir);
+		return runtime_dir;
+	}
+
+	// Copies import libraries and explicitly declared static archives into the configuration-specific consumer lib folder.
+	private static void StageLinkAssets(string workspace, string platform, string config, string staging_dir, IReadOnlyDictionary<string, string> runtime_assets, bool require_all_projects)
+	{
+		var target_dir = IOPath.Combine(staging_dir, "build", "native", "lib", platform, config);
+		Directory.CreateDirectory(target_dir);
+		foreach (var runtime_asset in runtime_assets.Values.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+		{
+			if (!RequiresAdjacentImportLibrary(workspace, runtime_asset))
+				continue;
+
+			var import_library = IOPath.ChangeExtension(runtime_asset, ".imp");
+			if (!File.Exists(import_library))
+			{
+				if (require_all_projects)
+					throw new FileNotFoundException($"Declared native import library is missing: {import_library}", import_library);
+				continue;
+			}
+
+			File.Copy(import_library, IOPath.Combine(target_dir, IOPath.GetFileName(import_library)), overwrite: true);
+		}
+
+		var manifest_dir = LinkManifestDirectory(workspace, platform, config);
+		foreach (var project in DiscoverLinkProjects(workspace).Where(x => x.Disposition == IncludeDisposition))
+		{
+			var manifest_path = IOPath.Combine(manifest_dir, $"{project.ProjectName}.txt");
+			if (!File.Exists(manifest_path))
+			{
+				if (require_all_projects)
+					throw new InvalidOperationException($"Native link manifest is missing: {project.ProjectPath}");
+				continue;
+			}
+
+			foreach (var source_path in File.ReadLines(manifest_path).Select(x => x.Trim()).Where(x => x.Length != 0))
+			{
+				if (!File.Exists(source_path))
+				{
+					if (require_all_projects)
+						throw new FileNotFoundException($"Declared native link asset is missing: {source_path}", source_path);
+					continue;
+				}
+
+				File.Copy(source_path, IOPath.Combine(target_dir, IOPath.GetFileName(source_path)), overwrite: true);
+			}
+		}
+	}
+
+	// Stages command line tools with the runtime libraries they load from their own directory.
+	private static void StageTools(string workspace, string platform, string config, string staging_dir, string runtime_dir)
+	{
+		var target_dir = IOPath.Combine(staging_dir, "tools", $"win-{platform}");
+		Directory.CreateDirectory(target_dir);
+		foreach (var library in PackagedToolLibraries)
+		{
+			var source_path = IOPath.Combine(runtime_dir, library);
+			if (!File.Exists(source_path))
+				throw new FileNotFoundException($"Tool dependency is not present in the staged runtime closure: {library}", source_path);
+
+			File.Copy(source_path, IOPath.Combine(target_dir, library), overwrite: true);
+		}
+
+		foreach (var tool_name in PackagedToolNames)
+		{
+			var source_path = PackagedToolPath(workspace, tool_name, platform, config);
+			if (!File.Exists(source_path))
+				throw new FileNotFoundException($"Packaged tool has not been built for {platform}|{config}: {tool_name}", source_path);
+
+			File.Copy(source_path, IOPath.Combine(target_dir, IOPath.GetFileName(source_path)), overwrite: true);
+		}
+	}
+
+	// Recursively copies a directory tree into the staging layout.
+	private static void CopyDirectory(string source_dir, string target_dir)
+	{
+		Directory.CreateDirectory(target_dir);
+		foreach (var directory in Directory.EnumerateDirectories(source_dir, "*", SearchOption.AllDirectories))
+			Directory.CreateDirectory(IOPath.Combine(target_dir, IOPath.GetRelativePath(source_dir, directory)));
+		foreach (var file in Directory.EnumerateFiles(source_dir, "*", SearchOption.AllDirectories))
+		{
+			var relative = IOPath.GetRelativePath(source_dir, file);
+			var destination = IOPath.Combine(target_dir, relative);
+			Directory.CreateDirectory(IOPath.GetDirectoryName(destination) ?? throw new InvalidOperationException($"Unable to determine the destination directory for '{destination}'"));
+			File.Copy(file, destination, overwrite: true);
+		}
+	}
+
 	// Creates a clean staging directory only within the repository's generated NuGet area.
 	private static string PrepareStagingDirectory(string workspace, string output_dir)
 	{
@@ -311,10 +466,25 @@ public static class NativeRuntimePackage
 		return staging_dir;
 	}
 
-	// Returns the build-generated project-manifest directory for one native configuration.
-	private static string ManifestDirectory(string workspace, string platform, string config)
+	// Returns the build-generated runtime-manifest directory for one native configuration.
+	private static string RuntimeManifestDirectory(string workspace, string platform, string config)
 	{
 		return IOPath.Combine(workspace, "obj", "native-runtime-manifests", platform, config);
+	}
+
+	// Returns the build-generated native-link-manifest directory for one native configuration.
+	private static string LinkManifestDirectory(string workspace, string platform, string config)
+	{
+		return IOPath.Combine(workspace, "obj", "native-link-manifests", platform, config);
+	}
+
+	// Treat third-party packaged DLLs as runtime-only payload because they do not participate in the supported
+	// Rylogic import-library surface.
+	private static bool RequiresAdjacentImportLibrary(string workspace, string runtime_asset)
+	{
+		var packages_dir = IOPath.GetFullPath(IOPath.Combine(workspace, "packages")) + IOPath.DirectorySeparatorChar;
+		var source_path = IOPath.GetFullPath(runtime_asset);
+		return !source_path.StartsWith(packages_dir, StringComparison.OrdinalIgnoreCase);
 	}
 
 	// Compares duplicate-named artifacts without trusting timestamps.
@@ -335,6 +505,9 @@ public static class NativeRuntimePackage
 
 	// Captures the package decision for one production DLL project.
 	private sealed record RuntimeProject(string ProjectPath, string ProjectName, string Disposition);
+
+	// Captures the package decision for one explicit native link-asset project.
+	private sealed record LinkProject(string ProjectPath, string ProjectName, string Disposition);
 
 	// Provides the Windows loader operations used by package smoke validation.
 	private static class NativeMethods

@@ -8,7 +8,7 @@
 using System;
 using IOPath = System.IO.Path;
 
-// Stages a runtime-only Rylogic.Native payload for MSBuild-driven local development packages.
+// Stages the full Rylogic.Native payload for MSBuild-driven local development packages.
 void Main(IList<string> args)
 {
 	var workspace = UserVars.Root;
@@ -75,6 +75,16 @@ void Main(IList<string> args)
 		return;
 	}
 
+	// Supported link assets must stay in sync with the staged runtime closure so consumers never restore headers without the matching libraries.
+	if (skip_if_incomplete && !NativeRuntimePackage.HasCompleteLinkAssetSet(workspace, platform, config, out var unavailable_link_assets))
+	{
+		Console.WriteLine($"Skipping local Rylogic.Native package because its {platform}|{config} native link assets are incomplete:");
+		foreach (var unavailable_link_asset in unavailable_link_assets)
+			Console.WriteLine($"  {unavailable_link_asset}");
+		Console.WriteLine("Build AllNative to publish a complete local native package.");
+		return;
+	}
+
 	// A package missing a command line tool is incomplete in the same way as one missing a runtime library, so the
 	// preceding package is preserved rather than publishing a payload a consumer cannot cook with.
 	if (skip_if_incomplete && !NativeRuntimePackage.HasCompleteToolSet(workspace, platform, config, out var unavailable_tools))
@@ -87,8 +97,7 @@ void Main(IList<string> args)
 	}
 
 	// Mark only a fully staged and validated closure as eligible for publication by the calling MSBuild target.
-	var runtime_staging_dir = NativeRuntimePackage.Stage(workspace, platform, config, output_dir, require_all_projects);
-	NativeRuntimePackage.StageTools(workspace, platform, config, IOPath.Combine(output_dir, "tools"), runtime_staging_dir);
+	NativeRuntimePackage.Stage(workspace, platform, config, output_dir, require_all_projects);
 	if (skip_if_incomplete)
 		File.WriteAllText(IOPath.Combine(output_dir, ".complete"), string.Empty);
 }

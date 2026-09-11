@@ -6,13 +6,14 @@
 		<authors>Rylogic</authors>
 		<copyright>Copyright (c) Rylogic 2007</copyright>
 		<license type="expression">MIT</license>
-		<description>Native Debug runtime assets and content cooking tools for local Rylogic library development.</description>
+		<description>Native Debug runtime assets, public headers, supported native link libraries, and content cooking tools for local Rylogic library development.</description>
 		<tags>rylogic native library local development tools</tags>
 		<repository type="git" url="https://github.com/psryland/rylogic_code" />
 		<requireLicenseAcceptance>false</requireLicenseAcceptance>
 	</metadata>
 	<files>
-		<file src="*.dll" target="runtimes\win-x64\native" />
-		<file src="tools\*" target="tools\win-x64" />
+		<file src="build\**\*" target="build" />
+		<file src="runtimes\**\*" target="runtimes" />
+		<file src="tools\**\*" target="tools" />
 	</files>
 </package>

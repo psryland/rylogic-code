@@ -232,6 +232,8 @@ namespace physics_sandbox
 
 			if (m_scene.m_ground_gfx)
 				m_scene.m_ground_gfx->AddToScene(scene);
+			if (m_scene.m_terrain_gfx)
+				m_scene.m_terrain_gfx->AddToScene(scene);
 			if (m_scene.m_water_gfx)
 				m_scene.m_water_gfx->AddToScene(scene, static_cast<float>(m_scene.m_clock));
 			if (m_scene.m_origin_gfx)
@@ -747,7 +749,7 @@ namespace physics_sandbox
 	// Used to frame the camera when loading a new scene.
 	BBox SandboxUI::ComputeSceneBBox() const
 	{
-		if (m_scene.m_body.empty() && m_scene.m_articulation_visuals.empty())
+		if (m_scene.m_body.empty() && m_scene.m_articulation_visuals.empty() && !m_scene.m_terrain_mesh.has_value())
 			return BBox{ v4{0, 0, 0, 1}, v4{5, 5, 5, 0} };
 
 		// Include complete transformed shape bounds so long rods and offset link geometry cannot be clipped.
@@ -767,6 +769,17 @@ namespace physics_sandbox
 		}
 		for (auto const& visual : m_scene.m_articulation_visuals)
 			Grow(bbox, visual.Bounds(m_scene.m_articulation));
+
+		// Terrain-only scenes still need a meaningful camera frame even without rigid bodies.
+		if (m_scene.m_terrain_mesh.has_value())
+		{
+			auto const& terrain_bbox = m_scene.m_terrain_mesh->m_world_bounds;
+			if (terrain_bbox.valid())
+			{
+				Grow(bbox, v4(static_cast<float>(terrain_bbox.m_centre.x), static_cast<float>(terrain_bbox.m_centre.y), static_cast<float>(terrain_bbox.m_centre.z), 1.0f) + v4(static_cast<float>(terrain_bbox.m_radius.x), static_cast<float>(terrain_bbox.m_radius.y), static_cast<float>(terrain_bbox.m_radius.z), 0.0f));
+				Grow(bbox, v4(static_cast<float>(terrain_bbox.m_centre.x), static_cast<float>(terrain_bbox.m_centre.y), static_cast<float>(terrain_bbox.m_centre.z), 1.0f) - v4(static_cast<float>(terrain_bbox.m_radius.x), static_cast<float>(terrain_bbox.m_radius.y), static_cast<float>(terrain_bbox.m_radius.z), 0.0f));
+			}
+		}
 
 		// Keep ground height visible without allowing a deliberately oversized floor to zoom out the scene.
 		if (!bbox.valid())

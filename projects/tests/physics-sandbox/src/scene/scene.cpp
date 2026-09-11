@@ -232,6 +232,9 @@ namespace physics_sandbox
 		, m_allow_sleeping(true)
 		, m_ground_body_index(-1)
 		, m_ground_gfx()
+		, m_terrain_surface()
+		, m_terrain_mesh()
+		, m_terrain_gfx()
 		, m_water()
 		, m_water_gfx()
 		, m_env_map()
@@ -451,6 +454,26 @@ namespace physics_sandbox
 
 	}
 
+	// Create the scene-owned terrain surface, CPU mesh, and optional renderer resources.
+	void Scene::CreateTerrain(scene_loader::TerrainDesc const& terrain)
+	{
+		m_terrain_surface = std::make_unique<pr::physics::terrain::landscape::BaselineSurface>(terrain.surface);
+		m_terrain_mesh = TerrainVisual::PrepareMesh(*m_terrain_surface, terrain);
+		if (m_rdr != nullptr)
+			m_terrain_gfx = std::make_unique<TerrainVisual>(*m_rdr, std::move(*m_terrain_mesh));
+
+		auto const& metrics = m_terrain_mesh->m_metrics;
+		auto const point_eps = metrics.m_point_sampling_ms > 0.0 ? 1000.0 * metrics.m_point_sample_count / metrics.m_point_sampling_ms : 0.0;
+		auto const batch_eps = metrics.m_batch_sampling_ms > 0.0 ? 1000.0 * metrics.m_batch_count * metrics.m_batch_width / metrics.m_batch_sampling_ms : 0.0;
+		auto const scalar_eps = metrics.m_batch_scalar_ms > 0.0 ? 1000.0 * metrics.m_batch_count * metrics.m_batch_width / metrics.m_batch_scalar_ms : 0.0;
+		DbgLog("  Terrain: yes (seed=%u radius=%.1f intervals=%d display=%d)\n", terrain.surface.m_seed, terrain.radius_m, terrain.intervals, static_cast<int>(terrain.display));
+		DbgLog("  Terrain mesh: vertices=%zu triangles=%zu retained_cpu_bytes=%zu peak_scratch_bytes=%zu mesh_ms=%.3f\n", metrics.m_vertex_count, metrics.m_triangle_count, metrics.m_retained_cpu_bytes, metrics.m_peak_scratch_bytes, metrics.m_mesh_generation_ms);
+		DbgLog("  Terrain sampling: point[%d]=%.3fms (%.1f eval/s) batch[%d x %d]=%.3fms (%.1f eval/s) scalar_equivalent=%.3fms (%.1f eval/s)\n",
+			metrics.m_point_sample_count, metrics.m_point_sampling_ms, point_eps,
+			metrics.m_batch_count, metrics.m_batch_width, metrics.m_batch_sampling_ms, batch_eps,
+			metrics.m_batch_scalar_ms, scalar_eps);
+	}
+
 	// Rebuild the buoyancy sample-cloud debug overlay (m_buoyancy_debug_gfx) by re-running the
 	// deterministic CPU oracle (SampleHull) over every registered hull and emitting an LDraw object:
 	// sample points coloured by classification, surface-sample normal whiskers, and per-primitive +
@@ -650,6 +673,9 @@ namespace physics_sandbox
 
 		// Clean up the ground plane visual
 		m_ground_gfx = nullptr;
+		m_terrain_surface.reset();
+		m_terrain_mesh.reset();
+		m_terrain_gfx = nullptr;
 		m_water.reset();
 		m_water_gfx = nullptr;
 		m_env_map = nullptr;
@@ -1002,6 +1028,9 @@ namespace physics_sandbox
 
 		// Clean up ground plane visual from previous scene
 		m_ground_gfx = nullptr;
+		m_terrain_surface.reset();
+		m_terrain_mesh.reset();
+		m_terrain_gfx = nullptr;
 		m_water = scene_desc.water;
 		m_water_gfx = nullptr;
 		m_env_map = nullptr;
@@ -1408,6 +1437,8 @@ namespace physics_sandbox
 		}
 		if (m_water)
 			CreateWaterGfx(*m_water, scene_bbox);
+		if (scene_desc.terrain)
+			CreateTerrain(*scene_desc.terrain);
 		// Logging
 		{
 			auto mat = m_physics.Material(0);
@@ -1418,6 +1449,8 @@ namespace physics_sandbox
 			DbgLog("  Bodies: %d\n", static_cast<int>(m_body.size()));
 			DbgLog("  Gravity: (%.2f, %.2f, %.2f)\n", m_gravity.x, m_gravity.y, m_gravity.z);
 			DbgLog("  Ground: %s (height=%.2f)\n", scene_desc.ground ? "yes" : "no", scene_desc.ground ? scene_desc.ground->height : 0.0f);
+			if (!scene_desc.terrain)
+				DbgLog("  Terrain: no\n");
 			DbgLog("  Water: %s (level=%.2f waves=%d)\n", scene_desc.water ? "yes" : "no", scene_desc.water ? scene_desc.water->surface.m_level : 0.0f, scene_desc.water ? isize(scene_desc.water->surface.m_waves) : 0);
 			DbgLog("  Material: elasticity=%.2f friction=%.2f\n", mat.m_elasticity_norm, mat.m_friction_static);
 			for (int i = 0; i != std::ssize(m_body); ++i)
