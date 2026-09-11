@@ -3,11 +3,11 @@
 	<PropertyGroup>
 		<!-- Resolve the package root either from the importing project or from NuGet's automatic build import location. -->
 		<RylogicNativePackageRoot Condition="'$(RylogicNativePackageRoot)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\'))</RylogicNativePackageRoot>
+		<_RylogicNativePackageRootNormalized>$([System.IO.Path]::GetFullPath('$(RylogicNativePackageRoot)\'))</_RylogicNativePackageRootNormalized>
 		<RylogicNativePlatform Condition="'$(RylogicNativePlatform)' == ''">x64</RylogicNativePlatform>
 		<RylogicNativeRuntimeRid Condition="'$(RylogicNativeRuntimeRid)' == ''">win-$(RylogicNativePlatform)</RylogicNativeRuntimeRid>
-		<RylogicNativePreferredConfiguration Condition="'$(RylogicNativePreferredConfiguration)' == '' and Exists('$(RylogicNativePackageRoot)build\native\lib\$(RylogicNativePlatform)\$(Configuration)\')">$(Configuration)</RylogicNativePreferredConfiguration>
-		<RylogicNativePreferredConfiguration Condition="'$(RylogicNativePreferredConfiguration)' == '' and Exists('$(RylogicNativePackageRoot)build\native\lib\$(RylogicNativePlatform)\Debug\')">Debug</RylogicNativePreferredConfiguration>
-		<RylogicNativePreferredConfiguration Condition="'$(RylogicNativePreferredConfiguration)' == '' and Exists('$(RylogicNativePackageRoot)build\native\lib\$(RylogicNativePlatform)\Release\')">Release</RylogicNativePreferredConfiguration>
+		<RylogicNativePreferredConfiguration Condition="'$(RylogicNativePreferredConfiguration)' == ''">$(Configuration)</RylogicNativePreferredConfiguration>
+		<RylogicNativeRequireLinkAssets Condition="'$(RylogicNativeRequireLinkAssets)' == '' and '$(MSBuildProjectExtension)' == '.vcxproj'">true</RylogicNativeRequireLinkAssets>
 		<RylogicNativePlatformToolset>v145</RylogicNativePlatformToolset>
 		<RylogicNativeWindowsTargetPlatformVersion>10.0</RylogicNativeWindowsTargetPlatformVersion>
 		<RylogicNativeLanguageStandard>stdcpplatest</RylogicNativeLanguageStandard>
@@ -18,11 +18,11 @@
 		<RylogicNativeConfigurationPreprocessorDefinitions Condition="'$(RylogicNativePreferredConfiguration)' != 'Debug'">NDEBUG</RylogicNativeConfigurationPreprocessorDefinitions>
 		<RylogicNativeSystemLibraries>Ole32.lib;Shell32.lib</RylogicNativeSystemLibraries>
 
-		<RylogicNativeBuildDir>$(RylogicNativePackageRoot)build\</RylogicNativeBuildDir>
+		<RylogicNativeBuildDir>$(_RylogicNativePackageRootNormalized)build\</RylogicNativeBuildDir>
 		<RylogicNativeIncludeDir>$(RylogicNativeBuildDir)native\include\</RylogicNativeIncludeDir>
 		<RylogicNativeLibDir>$(RylogicNativeBuildDir)native\lib\$(RylogicNativePlatform)\$(RylogicNativePreferredConfiguration)\</RylogicNativeLibDir>
-		<RylogicNativeRuntimeDir>$(RylogicNativePackageRoot)runtimes\$(RylogicNativeRuntimeRid)\native\</RylogicNativeRuntimeDir>
-		<RylogicNativeToolsDir>$(RylogicNativePackageRoot)tools\$(RylogicNativeRuntimeRid)\</RylogicNativeToolsDir>
+		<RylogicNativeRuntimeDir>$(_RylogicNativePackageRootNormalized)runtimes\$(RylogicNativeRuntimeRid)\native\</RylogicNativeRuntimeDir>
+		<RylogicNativeToolsDir>$(_RylogicNativePackageRootNormalized)tools\$(RylogicNativeRuntimeRid)\</RylogicNativeToolsDir>
 
 		<RylogicNativeLandscapeLib>$(RylogicNativeLibDir)physics-landscape.lib</RylogicNativeLandscapeLib>
 		<RylogicNativeAudioImportLib>$(RylogicNativeLibDir)audio.imp</RylogicNativeAudioImportLib>
@@ -36,4 +36,10 @@
 		<RylogicNativeView3dUiImportLib>$(RylogicNativeLibDir)view3d-ui.imp</RylogicNativeView3dUiImportLib>
 		<RylogicNativeP3dTool>$(RylogicNativeToolsDir)p3d.exe</RylogicNativeP3dTool>
 	</PropertyGroup>
+
+	<!-- Fail early when a native consumer requests packaged link assets for a configuration the package does not provide. -->
+	<Target Name="ValidateRylogicNativePackageLayout" BeforeTargets="PrepareForBuild" Condition="'$(RylogicNativeRequireLinkAssets)' == 'true'">
+		<Error Condition="!Exists('$(RylogicNativeIncludeDir)pr\')" Text="Rylogic.Native include directory is missing under '$(RylogicNativeIncludeDir)'. Check RylogicNativePackageRoot='$(RylogicNativePackageRoot)'." />
+		<Error Condition="!Exists('$(RylogicNativeLibDir)')" Text="Rylogic.Native does not provide native link assets for $(RylogicNativePlatform)|$(RylogicNativePreferredConfiguration) under '$(_RylogicNativePackageRootNormalized)'. This package does not fall back to another configuration." />
+	</Target>
 </Project>
