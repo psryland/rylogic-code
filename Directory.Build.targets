@@ -162,13 +162,18 @@
 			RetryTimeoutMilliseconds="15000">
 			<Output TaskParameter="Synced" PropertyName="_NativePackageSynced" />
 		</SyncNuGetPackageOutputs>
+		<!--
+		Only the Rylogic.Native development package opts into cache cleanup: its cache directory otherwise accumulates one entry per Debug build.
+		Cleanup runs after the pointer is confirmed advanced, so a slower concurrent build can never delete a newer successful one. -->
 		<PublishLocalPackageVersion
 			Condition="'$(_NativePackageComplete)' == 'true' AND '$(_NativePackageSynced)' == 'true'"
 			PackageId="$(_NativePackageId)"
 			PackageVersion="$(_NativePackageVersion)"
 			CentralVersionPropsPath="$(_NativeCentralVersionPropsPath)"
 			ProjectVersionPropsPath="$(_NativeProjectVersionPropsPath)"
-			ProjectVersionProperty="RylogicNativePackageVersion" />
+			ProjectVersionProperty="RylogicNativePackageVersion"
+			CleanupOldDevVersions="true"
+			NuGetCacheRoot="$(UserProfile)\.nuget\packages" />
 		<Message Condition="'$(_NativePackageSynced)' == 'true'" Text="Published immutable local native package $(_NativePackageId) $(_NativePackageVersion)" Importance="high" />
 		<Message Condition="'$(_NativePackageComplete)' != 'true'" Text="Retained the preceding Rylogic.Native package because the local native Debug closure is incomplete; build AllNative to advance it." Importance="high" />
 	</Target>
