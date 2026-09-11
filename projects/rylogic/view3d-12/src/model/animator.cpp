@@ -124,12 +124,12 @@ namespace pr::rdr12
 	{
 		auto const& kkfa = *m_anim.get();
 
-		// If 'time_s' is outside the current interpolation interval, update the interpolators
-		if (!m_interp_time_range.contains(time_s) && TimeRange(0, kkfa.duration()).contains(time_s))
+		// Clamp seeks to the sequence and retain the final interval at its endpoint rather than extrapolating an earlier curve.
+		time_s = Clamp(time_s, 0.f, s_cast<float>(kkfa.duration()));
+		if (m_interp_time_range.empty() || time_s < m_interp_time_range.begin() || time_s > m_interp_time_range.end())
 		{
-			auto kidx = kkfa.TimeToKeyIndex(time_s);
+			auto kidx = std::min(kkfa.TimeToKeyIndex(time_s), std::max(0, kkfa.key_count() - 2));
 			auto tcount = kkfa.track_count();
-			auto kcount = kkfa.key_count();
 			assert(m_keys.size() >= 2 * tcount && "Need 2 keys per track");
 
 			// Read the keys that span the time 'time_s'
@@ -139,18 +139,15 @@ namespace pr::rdr12
 			m_interp_time_range.set(m_keys[0].m_time, m_keys[tcount].m_time);
 			auto interval = !m_interp_time_range.empty() ? s_cast<float>(m_interp_time_range.size()) : 1.f;
 
-			// Update the interpolators
+			// Preserve sampled derivatives at every key, including the beginning and end of the sequence.
 			int i0 = 0, i1 = tcount;
 			for (auto& interp : m_interp)
 			{
-				auto first = m_keys[i0].m_idx == 0;
-				auto last = m_keys[i1].m_idx == kcount - 1;
-
 				interp = HermiteTransform(
-					m_keys[i0].m_pos.w1(), !first ? m_keys[i0].m_lin_vel.w0() : v4::Zero(),
-					m_keys[i0].m_rot,      !first ? m_keys[i0].m_ang_vel.w0() : v4::Zero(),
-					m_keys[i1].m_pos.w1(), !last  ? m_keys[i1].m_lin_vel.w0() : v4::Zero(),
-					m_keys[i1].m_rot,      !last  ? m_keys[i1].m_ang_vel.w0() : v4::Zero(),
+					m_keys[i0].m_pos.w1(), m_keys[i0].m_lin_vel.w0(), m_keys[i0].m_lin_acc.w0(),
+					m_keys[i0].m_rot, m_keys[i0].m_ang_vel.w0(), m_keys[i0].m_ang_acc.w0(),
+					m_keys[i1].m_pos.w1(), m_keys[i1].m_lin_vel.w0(), m_keys[i1].m_lin_acc.w0(),
+					m_keys[i1].m_rot, m_keys[i1].m_ang_vel.w0(), m_keys[i1].m_ang_acc.w0(),
 					interval
 				);
 
