@@ -1,5 +1,6 @@
 #pragma once
 #include "src/forward.h"
+#include "pr/physics/terrain/landscape/landscape.h"
 
 namespace physics_sandbox::scene_loader
 {
@@ -220,6 +221,24 @@ namespace physics_sandbox::scene_loader
 		v4 lookat = Origin<v4>();
 	};
 
+	// Available diagnostic colour modes for the sandbox terrain mesh.
+	enum class ETerrainDisplayMode
+	{
+		Neutral,
+		Elevation,
+		Slope,
+	};
+
+	// Parsed description of the sandbox terrain preview.
+	struct TerrainDesc
+	{
+		pr::physics::terrain::landscape::BaselineSurfaceConfig surface = {};
+		pr::physics::terrain::v2d centre_xy = pr::physics::terrain::v2d::Zero();
+		double radius_m = 4000.0;
+		int intervals = 512;
+		ETerrainDisplayMode display = ETerrainDisplayMode::Neutral;
+	};
+
 	// Parsed description of a sine-wave water surface and its sandbox visual mesh.
 	struct WaterDesc
 	{
@@ -280,6 +299,9 @@ namespace physics_sandbox::scene_loader
 
 		// Ground plane
 		std::optional<GroundPlaneDesc> ground;
+
+		// Terrain preview
+		std::optional<TerrainDesc> terrain;
 
 		// Water surface
 		std::optional<WaterDesc> water;

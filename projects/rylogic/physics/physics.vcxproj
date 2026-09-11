@@ -171,6 +171,7 @@
     <ClCompile Include="src\integrator\integrator.cpp" />
     <ClCompile Include="src\rigid_body\rigid_body.cpp" />
     <ClCompile Include="src\shape\inertia.cpp" />
+    <ClCompile Include="src\terrain\landscape\baseline_surface.cpp" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\collision\broadphase_brute.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\collision\contact.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\constants.h" />

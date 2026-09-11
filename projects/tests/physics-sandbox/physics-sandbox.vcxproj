@@ -85,6 +85,7 @@
     <ClCompile Include="src\scene\procedural_sky.cpp" />
     <ClCompile Include="src\scene\scene.cpp" />
     <ClCompile Include="src\scene\scene_multibody.cpp" />
+    <ClCompile Include="src\scene\terrain\terrain_visual.cpp" />
     <ClCompile Include="src\scene\water\water_visual.cpp" />
     <ClCompile Include="src\utils\scene_loader.cpp" />
     <ClCompile Include="src\utils\scene_loader_multibody.cpp" />
@@ -152,6 +153,7 @@
     <ClInclude Include="src\scene\procedural_sky.h" />
     <ClInclude Include="src\scene\scenario.h" />
     <ClInclude Include="src\scene\scene.h" />
+    <ClInclude Include="src\scene\terrain\terrain_visual.h" />
     <ClInclude Include="src\scene\water\water_visual.h" />
     <ClInclude Include="src\ui\details_panel.h" />
     <ClInclude Include="src\ui\media_panel.h" />
@@ -234,6 +236,7 @@
     <None Include="scenes\simultaneous_impact_1000.json" />
     <None Include="scenes\spinning_tops.json" />
     <None Include="scenes\stacked_column.json" />
+    <None Include="scenes\terrain_baseline.json" />
     <None Include="scenes\stress_test_1000.json" />
     <None Include="scenes\three_body_chain.json" />
   </ItemGroup>

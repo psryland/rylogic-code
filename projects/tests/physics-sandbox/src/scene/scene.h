@@ -4,6 +4,7 @@
 #include "src/scene/procedural_sky.h"
 #include "src/diagnostics/diagnostics.h"
 #include "src/utils/scene_loader.h"
+#include "src/scene/terrain/terrain_visual.h"
 #include "src/scene/water/water_visual.h"
 #include "src/scene/scenario.h"
 #include "src/scene/articulation_visual.h"
@@ -119,6 +120,11 @@ namespace physics_sandbox
 		// Ground plane visual. This is an LDraw object rendered as a large textured
 		// quad. The physics ground is a static body in m_body[] with a thin box shape.
 		rdr12::ldraw::LdrObjectPtr m_ground_gfx;
+
+		// Optional immutable terrain surface and its CPU-prepared sandbox mesh.
+		std::unique_ptr<pr::physics::terrain::landscape::BaselineSurface> m_terrain_surface;
+		std::optional<TerrainVisual::PreparedMesh> m_terrain_mesh;
+		std::unique_ptr<TerrainVisual> m_terrain_gfx;
 
 		// Water surface visual described by the loaded scene.
 		std::optional<scene_loader::WaterDesc> m_water;
@@ -251,6 +257,9 @@ namespace physics_sandbox
 
 		// Create the water mesh visual described by a loaded scene.
 		void CreateWaterGfx(scene_loader::WaterDesc const& water, BBox const& scene_bbox);
+
+		// Create the CPU terrain mesh and optional renderer resources described by a loaded scene.
+		void CreateTerrain(scene_loader::TerrainDesc const& terrain);
 
 		// Rebuild m_buoyancy_debug_gfx by running the CPU buoyancy oracle (SampleHull) over each
 		// registered hull and emitting an LDraw overlay of the per-sample wet/dry/culled classifications,
