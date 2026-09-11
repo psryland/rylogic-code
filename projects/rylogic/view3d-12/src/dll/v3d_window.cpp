@@ -945,6 +945,12 @@ namespace pr::rdr12
 		return const_call(RenderTarget());
 	}
 
+	// Borrow the final colour target, including compositing and final overlays.
+	rdr12::BackBuffer& V3dWindow::FrameOutput()
+	{
+		return m_wnd.FrameOutput();
+	}
+
 	// Call InvalidateRect on the HWND associated with this window
 	void V3dWindow::InvalidateRect(RECT const* rect, bool erase)
 	{

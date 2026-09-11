@@ -913,6 +913,24 @@ VIEW3D_API view3d::BackBuffer __stdcall View3D_WindowRenderTargetGet(view3d::Win
 	CatchAndReport(View3D_WindowRenderTargetGet, window, {});
 }
 
+// Borrow the complete colour output of the last submitted frame rather than the pre-composite MSAA scene target.
+VIEW3D_API view3d::BackBuffer __stdcall View3D_WindowFrameOutputGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+		DllLockGuard;
+		auto& bb = window->FrameOutput();
+		auto desc = bb.m_render_target->GetDesc();
+		return view3d::BackBuffer{
+			.m_render_target = bb.m_render_target.get(),
+			.m_depth_stencil = nullptr,
+			.m_dim = SIZE{ s_cast<LONG>(desc.Width), s_cast<LONG>(desc.Height) },
+		};
+	}
+	CatchAndReport(View3D_WindowFrameOutputGet, window, {});
+}
+
 // Call InvalidateRect on the HWND associated with 'window'
 VIEW3D_API void __stdcall View3D_WindowInvalidate(view3d::Window window, BOOL erase)
 {

@@ -1063,6 +1063,10 @@ extern "C"
 	// Get the MSAA back buffer (render target + depth stencil)
 	VIEW3D_API pr::view3d::BackBuffer __stdcall View3D_WindowRenderTargetGet(pr::view3d::Window window);
 
+	// Borrow the last submitted final colour target (depth is null), including transparency and overlays, in PRESENT state.
+	// Call WindowGSyncWait before reading; do not render, resize, replace the swap chain, or destroy the window while using it.
+	VIEW3D_API pr::view3d::BackBuffer __stdcall View3D_WindowFrameOutputGet(pr::view3d::Window window);
+
 	// Signal the window is invalidated. This does not automatically trigger rendering. Use InvalidatedCB.
 	VIEW3D_API void __stdcall View3D_WindowInvalidate(pr::view3d::Window window, BOOL erase);
 	VIEW3D_API void __stdcall View3D_WindowInvalidateRect(pr::view3d::Window window, RECT const& rect, BOOL erase);

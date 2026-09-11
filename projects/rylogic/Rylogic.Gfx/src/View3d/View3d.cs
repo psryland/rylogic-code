@@ -1934,6 +1934,7 @@ namespace Rylogic.Gfx
 
 		// Get the MSAA back buffer (render target + depth stencil)
 		[DllImport(Dll)] private static extern BackBuffer View3D_WindowRenderTargetGet(HWindow window);
+		[DllImport(Dll)] private static extern BackBuffer View3D_WindowFrameOutputGet(HWindow window);
 
 		// Signal the window is invalidated. This does not automatically trigger rendering. Use InvalidatedCB.
 		[DllImport(Dll)] private static extern void View3D_WindowInvalidate(HWindow window, bool erase);

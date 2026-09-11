@@ -60,6 +60,7 @@ namespace pr::rdr12
 		GpuSync                      m_gsync;            // GPU fence for frames
 		BackBuffers                  m_swap_bb;          // Back buffer render targets from the swap chain.
 		BackBuffer                   m_msaa_bb;          // The MSAA back buffer render target
+		BackBuffer*                  m_frame_output = nullptr; // Borrowed final target from the last submitted frame
 		OpenXRPtr                    m_open_xr;          // OpenXR support (if not null)
 		int                          m_bb_index;         // The current back buffer index
 		RTProps                      m_rt_props;         // The properties of the MSAA back buffer
@@ -121,6 +122,10 @@ namespace pr::rdr12
 
 		// Wait for the GPU to finish rendering the current frame. Use before shutdown
 		void WaitForGpu();
+
+		// Borrow the last submitted final colour target in PRESENT state. WaitForGpu must precede CPU readback.
+		// Invalidated by NewFrame, resizing, or replacing the swap chain. Throws before a frame has been submitted.
+		BackBuffer& FrameOutput();
 
 		// Create an MSAA render target and depth stencil
 		BackBuffer CreateRenderTarget(iv2 size, MultiSamp ms, ClearValue rt_clear, ClearValue ds_clear);
