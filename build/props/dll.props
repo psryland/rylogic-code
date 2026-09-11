@@ -39,6 +39,7 @@
     <BuildArtifacts Include="$(OutDir)$(TargetName).dll" />
     <BuildArtifacts Include="$(OutDir)$(TargetName).imp" />
     <BuildArtifacts Include="$(OutDir)$(TargetName).pdb" />
+    <RylogicNativeLinkArtifacts Include="$(OutDir)$(TargetName).imp" />
   </ItemGroup>
 
   <!-- Deploy artifacts to lib/platform/config/ after build -->

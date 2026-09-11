@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+	<PropertyGroup>
+		<!-- Resolve the package root either from the importing project or from NuGet's automatic build import location. -->
+		<RylogicNativePackageRoot Condition="'$(RylogicNativePackageRoot)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\'))</RylogicNativePackageRoot>
+		<RylogicNativePlatform Condition="'$(RylogicNativePlatform)' == ''">x64</RylogicNativePlatform>
+		<RylogicNativeRuntimeRid Condition="'$(RylogicNativeRuntimeRid)' == ''">win-$(RylogicNativePlatform)</RylogicNativeRuntimeRid>
+		<RylogicNativePreferredConfiguration Condition="'$(RylogicNativePreferredConfiguration)' == '' and Exists('$(RylogicNativePackageRoot)build\native\lib\$(RylogicNativePlatform)\$(Configuration)\')">$(Configuration)</RylogicNativePreferredConfiguration>
+		<RylogicNativePreferredConfiguration Condition="'$(RylogicNativePreferredConfiguration)' == '' and Exists('$(RylogicNativePackageRoot)build\native\lib\$(RylogicNativePlatform)\Debug\')">Debug</RylogicNativePreferredConfiguration>
+		<RylogicNativePreferredConfiguration Condition="'$(RylogicNativePreferredConfiguration)' == '' and Exists('$(RylogicNativePackageRoot)build\native\lib\$(RylogicNativePlatform)\Release\')">Release</RylogicNativePreferredConfiguration>
+		<RylogicNativePlatformToolset>v145</RylogicNativePlatformToolset>
+		<RylogicNativeWindowsTargetPlatformVersion>10.0</RylogicNativeWindowsTargetPlatformVersion>
+		<RylogicNativeLanguageStandard>stdcpplatest</RylogicNativeLanguageStandard>
+		<RylogicNativeRuntimeLibrary Condition="'$(RylogicNativePreferredConfiguration)' == 'Debug'">MultiThreadedDebug</RylogicNativeRuntimeLibrary>
+		<RylogicNativeRuntimeLibrary Condition="'$(RylogicNativePreferredConfiguration)' != 'Debug'">MultiThreaded</RylogicNativeRuntimeLibrary>
+		<RylogicNativePreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_SCL_SECURE_NO_WARNINGS;_ENABLE_EXTENDED_ALIGNED_STORAGE;_SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING;_SILENCE_CXX20_CODECVT_CHAR8_T_FACETS_DEPRECATION_WARNING;_SILENCE_CXX23_DENORM_DEPRECATION_WARNING;_WIN32_WINNT=_WIN32_WINNT_WIN10;NOMINMAX;WIN32_LEAN_AND_MEAN;GDIPVER=0x0110</RylogicNativePreprocessorDefinitions>
+		<RylogicNativeConfigurationPreprocessorDefinitions Condition="'$(RylogicNativePreferredConfiguration)' == 'Debug'">_DEBUG;_ITERATOR_DEBUG_LEVEL=1;_MSVC_STL_HARDENING=1</RylogicNativeConfigurationPreprocessorDefinitions>
+		<RylogicNativeConfigurationPreprocessorDefinitions Condition="'$(RylogicNativePreferredConfiguration)' != 'Debug'">NDEBUG</RylogicNativeConfigurationPreprocessorDefinitions>
+		<RylogicNativeSystemLibraries>Ole32.lib;Shell32.lib</RylogicNativeSystemLibraries>
+
+		<RylogicNativeBuildDir>$(RylogicNativePackageRoot)build\</RylogicNativeBuildDir>
+		<RylogicNativeIncludeDir>$(RylogicNativeBuildDir)native\include\</RylogicNativeIncludeDir>
+		<RylogicNativeLibDir>$(RylogicNativeBuildDir)native\lib\$(RylogicNativePlatform)\$(RylogicNativePreferredConfiguration)\</RylogicNativeLibDir>
+		<RylogicNativeRuntimeDir>$(RylogicNativePackageRoot)runtimes\$(RylogicNativeRuntimeRid)\native\</RylogicNativeRuntimeDir>
+		<RylogicNativeToolsDir>$(RylogicNativePackageRoot)tools\$(RylogicNativeRuntimeRid)\</RylogicNativeToolsDir>
+
+		<RylogicNativeLandscapeLib>$(RylogicNativeLibDir)physics-landscape.lib</RylogicNativeLandscapeLib>
+		<RylogicNativeAudioImportLib>$(RylogicNativeLibDir)audio.imp</RylogicNativeAudioImportLib>
+		<RylogicNativeFbxImportLib>$(RylogicNativeLibDir)fbx.imp</RylogicNativeFbxImportLib>
+		<RylogicNativeGltfImportLib>$(RylogicNativeLibDir)gltf.imp</RylogicNativeGltfImportLib>
+		<RylogicNativeImguiImportLib>$(RylogicNativeLibDir)imgui.imp</RylogicNativeImguiImportLib>
+		<RylogicNativePhysicsImportLib>$(RylogicNativeLibDir)physics.imp</RylogicNativePhysicsImportLib>
+		<RylogicNativeScintillaImportLib>$(RylogicNativeLibDir)scintilla.imp</RylogicNativeScintillaImportLib>
+		<RylogicNativeSqliteImportLib>$(RylogicNativeLibDir)sqlite3.imp</RylogicNativeSqliteImportLib>
+		<RylogicNativeView3dImportLib>$(RylogicNativeLibDir)view3d-12.imp</RylogicNativeView3dImportLib>
+		<RylogicNativeView3dUiImportLib>$(RylogicNativeLibDir)view3d-ui.imp</RylogicNativeView3dUiImportLib>
+		<RylogicNativeP3dTool>$(RylogicNativeToolsDir)p3d.exe</RylogicNativeP3dTool>
+	</PropertyGroup>
+</Project>

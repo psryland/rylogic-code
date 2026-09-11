@@ -19,6 +19,8 @@
 		<DeployDir>$(DeployPath)$(PlatformTarget)\$(Configuration)\</DeployDir>
 		<RylogicNativeRuntimeManifestDir>$(RylogicRoot)obj\native-runtime-manifests\$(PlatformTarget)\$(Configuration)\</RylogicNativeRuntimeManifestDir>
 		<RylogicNativeRuntimeManifest>$(RylogicNativeRuntimeManifestDir)$(MSBuildProjectName).txt</RylogicNativeRuntimeManifest>
+		<RylogicNativeLinkManifestDir>$(RylogicRoot)obj\native-link-manifests\$(PlatformTarget)\$(Configuration)\</RylogicNativeLinkManifestDir>
+		<RylogicNativeLinkManifest>$(RylogicNativeLinkManifestDir)$(MSBuildProjectName).txt</RylogicNativeLinkManifest>
 	</PropertyGroup>
 
 	<Target Name="Deploy" AfterTargets="Build" Condition="'@(BuildArtifacts)' != ''">
@@ -45,5 +47,13 @@
 		<MakeDir Directories="$(RylogicNativeRuntimeManifestDir)" />
 		<WriteLinesToFile File="$(RylogicNativeRuntimeManifest)" Lines="@(_RylogicNativeRuntimeAsset->'%(FullPath)')" Overwrite="true" Encoding="UTF-8" />
 		<Message Text="Declared Rylogic.Native runtime assets --> $(RylogicNativeRuntimeManifest)" Importance="normal" />
+	</Target>
+
+	<!-- Persist explicitly supported native link assets so packages can expose import/static libraries without wildcards. -->
+	<Target Name="WriteRylogicNativeLinkManifest" AfterTargets="Deploy" Condition="'@(RylogicNativeLinkArtifacts)' != ''">
+		<Error Condition="!Exists('%(RylogicNativeLinkArtifacts.Identity)')" Text="Declared Rylogic.Native link asset is missing: %(RylogicNativeLinkArtifacts.Identity)" />
+		<MakeDir Directories="$(RylogicNativeLinkManifestDir)" />
+		<WriteLinesToFile File="$(RylogicNativeLinkManifest)" Lines="@(RylogicNativeLinkArtifacts->'%(FullPath)')" Overwrite="true" Encoding="UTF-8" />
+		<Message Text="Declared Rylogic.Native link assets --> $(RylogicNativeLinkManifest)" Importance="normal" />
 	</Target>
 </Project>

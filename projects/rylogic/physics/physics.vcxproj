@@ -20,6 +20,7 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup>
     <ShaderBuildStampDir>$(ProjectDir)src\compute\compiled\$(Configuration)\</ShaderBuildStampDir>
+    <RylogicNativeLinkPackage>Include</RylogicNativeLinkPackage>
   </PropertyGroup>
   <Import Project="$(PropsPath)shader_build.props" />
   <Import Project="$(PropsPath)lib.props" />
@@ -284,11 +285,16 @@
     <ResourceCompile Include="src\compute\compute_shaders_physics.rc" />
   </ItemGroup>
   <ItemGroup>
+    <BuildArtifacts Include="$(OutDir)physics-landscape.lib" />
     <BuildArtifacts Include="$(OutDir)compute_shaders_physics.res" />
+    <RylogicNativeLinkArtifacts Include="$(OutDir)physics-landscape.lib" />
   </ItemGroup>
   <!--
   Targets
   -->
+  <Target Name="BuildLandscapeLibrary" AfterTargets="Lib" Condition="Exists('$(IntDir)baseline_surface.obj')">
+    <Exec Command="lib.exe /nologo /out:&quot;$(OutDir)physics-landscape.lib&quot; &quot;$(IntDir)baseline_surface.obj&quot;" />
+  </Target>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Import Project="$(TargetsPath)WinPixEventRuntime.targets" />
 </Project>
