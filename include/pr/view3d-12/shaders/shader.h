@@ -90,6 +90,10 @@ namespace pr::rdr12
 		extern ByteCode const forward_alpha_collect_texn_pbr_ps;
 		extern ByteCode const forward_radial_fade_ps;
 
+		// Procedural atmosphere
+		extern ByteCode const procedural_sky_vs;
+		extern ByteCode const procedural_sky_ps;
+
 		// Deferred rendering
 		extern ByteCode const gbuffer_vs;
 		extern ByteCode const gbuffer_ps;

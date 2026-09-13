@@ -1,6 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <ClCompile Include="src\scene\procedural_sky.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\scene\procedural_sky.h">
+      <Filter>pr</Filter>
+    </ClInclude>
+    <None Include="src\shaders\hlsl\sky\procedural_sky_cbuf.hlsli">
+      <Filter>src\shaders</Filter>
+    </None>
+    <ShaderBuild Include="src\shaders\hlsl\sky\procedural_sky.hlsl">
+      <Filter>src\shaders</Filter>
+    </ShaderBuild>
+  </ItemGroup>
+  <ItemGroup>
     <Filter Include="pr">
       <UniqueIdentifier>{a82d68ab-e221-4aa7-b517-3cf2a55b6cbd}</UniqueIdentifier>
     </Filter>

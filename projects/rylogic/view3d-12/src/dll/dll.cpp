@@ -1991,6 +1991,43 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateSkybox(char const* name, 
 	CatchAndReport(View3D_ObjectCreateSkybox, , {});
 }
 
+// Create a shared GPU atmosphere with ordinary View3D object ownership.
+VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateProceduralSky(char const* name, view3d::Vec4 sun_direction, view3d::Vec4 sun_colour, float sun_intensity, GUID const* context_id)
+{
+	try
+	{
+		DllLockGuard;
+		return Dll().ObjectCreateProceduralSky(name, To<v4>(sun_direction), To<v4>(sun_colour), sun_intensity, context_id);
+	}
+	CatchAndReport(View3D_ObjectCreateProceduralSky, , {});
+}
+
+// Report update failure explicitly so managed callers cannot mistake rejected parameters for success.
+VIEW3D_API BOOL __stdcall View3D_ObjectUpdateProceduralSky(view3d::Object object, view3d::Vec4 sun_direction, view3d::Vec4 sun_colour, float sun_intensity)
+{
+	try
+	{
+		Validate(object);
+		DllLockGuard;
+		Dll().ObjectUpdateProceduralSky(object, To<v4>(sun_direction), To<v4>(sun_colour), sun_intensity);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ObjectUpdateProceduralSky, , FALSE);
+}
+
+// Blend a retained source cubemap and independent direction frames into an existing atmosphere.
+VIEW3D_API BOOL __stdcall View3D_ObjectBlendProceduralSky(view3d::Object object, view3d::CubeMap background, float weight, view3d::Mat4x4 const& world_to_sky, view3d::Mat4x4 const& world_to_background)
+{
+	try
+	{
+		Validate(object);
+		DllLockGuard;
+		Dll().ObjectBlendProceduralSky(object, TextureCubePtr(background, true), weight, To<m4x4>(world_to_sky), To<m4x4>(world_to_background));
+		return TRUE;
+	}
+	CatchAndReport(View3D_ObjectBlendProceduralSky, , FALSE);
+}
+
 // Create an ldr object using a callback to populate the model data.
 VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateWithCallback(char const* name, view3d::Colour colour, int vcount, int icount, int ncount, view3d::EditObjectCB edit_cb, GUID const& context_id)
 {

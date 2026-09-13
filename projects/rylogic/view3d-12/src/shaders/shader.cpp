@@ -133,6 +133,15 @@ namespace pr::rdr12
 		ByteCode const ray_cast_edge_gs(compiled::ray_cast_edge_gs);
 		ByteCode const ray_cast_face_gs(compiled::ray_cast_face_gs);
 
+		// Procedural atmosphere
+		namespace compiled
+		{
+			#include PR_RDR_SHADER_COMPILED_DIR(procedural_sky_vs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(procedural_sky_ps.h)
+		}
+		ByteCode const procedural_sky_vs(compiled::procedural_sky_vs);
+		ByteCode const procedural_sky_ps(compiled::procedural_sky_ps);
+
 		// Ray tracing
 		namespace compiled
 		{
