@@ -17,6 +17,8 @@ namespace code_sync
 			"Usage: code_sync <dir1> [dir2] [...] [options]\n"
 			"\n"
 			"Options:\n"
+			"  --ignore-dir <pattern> Ignore directory names at any depth below roots (repeatable)\n"
+			"                         Case-insensitive; '*' matches any characters, '?' matches one\n"
 			"  --tab-size N            Tab width in spaces (default: 4)\n"
 			"  --stamp <path>          Stamp file to prevent re-runs within the same build\n"
 			"  --stamp-max-age <secs>  Max age of stamp file in seconds (default: 30)\n"
@@ -37,6 +39,7 @@ int main(int argc, char* argv[])
 	try
 	{
 		std::vector<fs::path> directories;
+		std::vector<std::wstring> ignore_dirs;
 		std::string stamp_path;
 		int tab_size = 4;
 		int stamp_max_age_sec = 30;
@@ -45,7 +48,18 @@ int main(int argc, char* argv[])
 		for (int i = 1; i < argc; ++i)
 		{
 			auto arg = std::string_view(argv[i]);
-			if (arg == "--tab-size" && i + 1 < argc)
+			if (arg == "--ignore-dir")
+			{
+				if (i + 1 == argc || std::string_view(argv[i + 1]).starts_with("--"))
+					throw std::invalid_argument("--ignore-dir requires a directory-name pattern.");
+
+				auto pattern = std::string_view(argv[++i]);
+				if (pattern.empty() || pattern.find_first_of("\\/:") != std::string_view::npos)
+					throw std::invalid_argument("--ignore-dir requires a nonempty directory-name pattern, not a path.");
+
+				ignore_dirs.push_back(fs::path(pattern).wstring());
+			}
+			else if (arg == "--tab-size" && i + 1 < argc)
 				tab_size = std::stoi(argv[++i]);
 			else if (arg == "--stamp" && i + 1 < argc)
 				stamp_path = argv[++i];
@@ -55,6 +69,8 @@ int main(int argc, char* argv[])
 				verbose = true;
 			else if (arg == "--help" || arg == "-h")
 				return ShowHelp(), 0;
+			else if (arg.starts_with("--"))
+				throw std::invalid_argument("Unknown or incomplete option: " + std::string(arg));
 			else
 				directories.emplace_back(fs::path(arg));
 		}
@@ -96,7 +112,7 @@ int main(int argc, char* argv[])
 				}
 			}
 
-			CodeSync sync(tab_size, verbose);
+			CodeSync sync(tab_size, verbose, std::move(ignore_dirs));
 			sync.Run(directories);
 
 			// Write the stamp file after a successful run

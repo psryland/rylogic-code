@@ -7,7 +7,6 @@
 		<Description>Solution-aware Visual Studio file redirector</Description>
 		<Version>1.0.0</Version>
 		<ImplicitUsings>enable</ImplicitUsings>
-		<RepositoryToolName>VSRedirector</RepositoryToolName>
 		<DefaultItemExcludes>$(DefaultItemExcludes);bin\**;obj\**</DefaultItemExcludes>
 		<!-- This standalone tool must not synchronise unrelated source files during its build. -->
 		<RunCodeSync>false</RunCodeSync>

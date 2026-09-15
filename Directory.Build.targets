@@ -18,11 +18,10 @@
 			<Code Type="Class" Language="cs" Source="$(RylogicRoot)build\tasks\BootstrapRepositoryTool.cs" />
 		</Task>
 	</UsingTask>
-	<Target Name="EnsureCodeSync" Condition="'$(BootstrapRepositoryTools)' != 'false' AND !Exists('$(CodeSyncTool)')">
-		<BootstrapRepositoryTool RepositoryRoot="$(RylogicRoot)" ToolName="code_sync" DestinationDirectory="$(RepositoryToolsDirectory)\code_sync" NativeMSBuild="$(RepositoryToolMSBuild)" />
-	</Target>
-	<Target Name="BootstrapBuiltRepositoryTool" AfterTargets="Build" Condition="'$(BootstrapRepositoryTools)' != 'false' AND '$(RepositoryToolName)' != '' AND '$(IsCrossTargetingBuild)' != 'true' AND !Exists('$(RepositoryToolsDirectory)\$(RepositoryToolName)\$(RepositoryToolName).exe')">
-		<BootstrapRepositoryTool RepositoryRoot="$(RylogicRoot)" ToolName="$(RepositoryToolName)" DestinationDirectory="$(RepositoryToolsDirectory)\$(RepositoryToolName)" TargetFramework="$(PrimaryTarget)" NativeMSBuild="$(RepositoryToolMSBuild)" />
+	<!-- Both tools must be available before build events, source generation, or compilation, including when CodeSync is disabled. -->
+	<Target Name="EnsureRepositoryTools" BeforeTargets="BeforeBuild;PrepareForBuild" Condition="'$(BootstrapRepositoryTools)' != 'false' AND '$(DesignTimeBuild)' != 'true' AND ('$(MSBuildProjectExtension)' == '.csproj' OR '$(MSBuildProjectExtension)' == '.vcxproj')">
+		<BootstrapRepositoryTool Condition="!Exists('$(CodeSyncTool)')" RepositoryRoot="$(RylogicRoot)" ToolName="code_sync" DestinationDirectory="$(RepositoryToolsDirectory)\code_sync" NativeMSBuild="$(RepositoryToolMSBuild)" />
+		<BootstrapRepositoryTool Condition="!Exists('$(RepositoryToolsDirectory)\VSRedirector\VSRedirector.exe')" RepositoryRoot="$(RylogicRoot)" ToolName="VSRedirector" DestinationDirectory="$(RepositoryToolsDirectory)\VSRedirector" />
 	</Target>
 	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.vcxproj'">
 		<CodeSyncHookTarget>BuildGenerateSources</CodeSyncHookTarget>
@@ -30,10 +29,10 @@
 	<PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
 		<CodeSyncHookTarget>BeforeBuild</CodeSyncHookTarget>
 	</PropertyGroup>
-	<Target Name="CodeSyncTarget" BeforeTargets="$(CodeSyncHookTarget)" DependsOnTargets="EnsureCodeSync" Condition="'$(CodeSyncHookTarget)' != '' AND '$(RunCodeSync)' != 'false'">
+	<Target Name="CodeSyncTarget" BeforeTargets="$(CodeSyncHookTarget)" DependsOnTargets="EnsureRepositoryTools" Condition="'$(CodeSyncHookTarget)' != '' AND '$(RunCodeSync)' != 'false' AND '$(DesignTimeBuild)' != 'true'">
 		<!-- Run CodeSync. The tool handles serialisation and stamp checking internally. -->
 		<Exec
-			Command="&quot;$(CodeSyncTool)&quot; &quot;$(RylogicRoot)projects&quot; &quot;$(RylogicRoot)include&quot; --tab-size $(CodeSyncTabSize) --stamp &quot;$(CodeSyncStamp)&quot;"
+			Command="&quot;$(CodeSyncTool)&quot; &quot;$(RylogicRoot)projects&quot; &quot;$(RylogicRoot)include&quot; --ignore-dir obj --ignore-dir bin --tab-size $(CodeSyncTabSize) --stamp &quot;$(CodeSyncStamp)&quot;"
 			ConsoleToMSBuild="true"
 			IgnoreExitCode="false"
 			StandardOutputImportance="High" />

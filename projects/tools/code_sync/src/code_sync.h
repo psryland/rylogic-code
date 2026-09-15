@@ -44,12 +44,49 @@ namespace code_sync
 		return ext == ".h" || ext == ".hpp" || ext == ".cpp" || ext == ".c" || ext == ".inl" || ext == ".cs";
 	}
 
+	// Match a whole directory name, case-insensitively, with '*' for any characters and '?' for one character.
+	inline bool MatchDirectoryName(std::wstring_view name, std::wstring_view pattern)
+	{
+		auto n = size_t{};
+		auto p = size_t{};
+		auto star = std::wstring_view::npos;
+		auto retry = size_t{};
+		while (n != name.size())
+		{
+			if (p != pattern.size() && pattern[p] == L'*')
+			{
+				star = p++;
+				retry = n;
+			}
+			else if (p != pattern.size() && (pattern[p] == L'?' || std::towlower(pattern[p]) == std::towlower(name[n])))
+			{
+				++n;
+				++p;
+			}
+			else if (star != std::wstring_view::npos)
+			{
+				// Extend the latest '*' match without allocating or recursively exploring alternatives.
+				p = star + 1;
+				n = ++retry;
+			}
+			else
+			{
+				return false;
+			}
+		}
+		while (p != pattern.size() && pattern[p] == L'*')
+			++p;
+
+		return p == pattern.size();
+	}
+
 	struct CodeSync
 	{
 		std::map<std::string, TruthBlock> m_truths;
 		std::vector<std::string> m_errors;
 		int m_tab_size;
 		bool m_verbose;
+		std::vector<std::wstring> m_ignore_dirs;
 
 		// Marker tokens (split to avoid self-matching when this file is scanned by CodeSync)
 		static constexpr char const* BeginTag = "PR_CODE" "_SYNC_BEGIN";
@@ -58,10 +95,13 @@ namespace code_sync
 		// Returns the full end marker including "()"
 		static std::string EndTagFull() { return std::string(EndTag) + "()"; }
 
-		CodeSync(int tab_size = 4, bool verbose = false)
+		// Configure synchronisation and directory-name patterns to prune beneath the supplied scan roots.
+		CodeSync(int tab_size = 4, bool verbose = false, std::vector<std::wstring> ignore_dirs = {})
 			: m_tab_size(tab_size)
 			, m_verbose(verbose)
-		{}
+			, m_ignore_dirs(std::move(ignore_dirs))
+		{
+		}
 
 		// Result of parsing a BEGIN line
 		struct BeginMatch
@@ -247,6 +287,7 @@ namespace code_sync
 			struct L
 			{
 				std::vector<fs::path> out;
+				std::vector<std::wstring> const& ignore_dirs;
 
 				// Enumerate source files in a directory tree using Win32 for speed
 				void Run(std::wstring const& dir)
@@ -265,7 +306,9 @@ namespace code_sync
 						auto path = dir + L"\\" + fd.cFileName;
 						if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
 						{
-							Run(path);
+							// Prune ignored subtrees before opening them or collecting any source files.
+							if (!std::any_of(ignore_dirs.begin(), ignore_dirs.end(), [&](auto const& ignore) { return MatchDirectoryName(fd.cFileName, ignore); }))
+								Run(path);
 						}
 						else if (IsSyncFile(fs::path(fd.cFileName)))
 						{
@@ -277,7 +320,7 @@ namespace code_sync
 				}
 			};
 
-			L enum_files;
+			L enum_files{ .out = {}, .ignore_dirs = m_ignore_dirs };
 			enum_files.Run(root.wstring());
 			return enum_files.out;
 		}

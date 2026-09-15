@@ -20,12 +20,14 @@ Stable deployed executable for GitKraken:
 E:\Rylogic\Code\tools\VSRedirector\VSRedirector.exe
 ```
 
-If that executable is missing, building VSRedirector (including a Debug build) bootstraps a separate **Release** publish into this directory. The requesting
-build keeps its own configuration. If the executable already exists, automatic deployment does nothing to the **entire** payload: no Release rebuild,
+Every normal C# or C++ build runs the shared `EnsureRepositoryTools` prebuild target, which builds and deploys missing **Release** copies of both
+VSRedirector and code_sync before build events, source generation, or compilation. This also applies when CodeSync is disabled, but not during IDE
+design-time builds. A clean checkout therefore needs both the .NET 10 SDK and VS 2026 C++ tools even for a C# build.
+The requesting build keeps its own configuration. If the executable already exists, automatic deployment does nothing to the **entire** payload: no Release rebuild,
 companion-file refresh, timestamp touch, or freshness/version check. Missing companions in an existing deployment require explicit manual redeployment.
 
 Bootstrap builds use isolated output/intermediate directories, disable recursive bootstrap and CodeSync, and publish the executable only after all runtime
-files are ready. Parallel bootstrap requests are serialised. The shared implementation also bootstraps code_sync when a consumer needs it.
+files are ready. Parallel bootstrap requests are serialised. There is no automatic post-build deployment.
 Keep the executable with its adjacent `.dll`, `.deps.json`, and `.runtimeconfig.json` files. Running requires the .NET 10 runtime; it is not self-contained.
 
 Manual redeployment, after any running VSRedirector invocation has finished:

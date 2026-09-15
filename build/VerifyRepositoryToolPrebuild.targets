@@ -1,0 +1,9 @@
+<Project>
+	<Import Project="$(RylogicRoot)Directory.Build.targets" />
+	<!-- Test-only import: fail at the consumer boundary if either tool was deployed too late. -->
+	<Target Name="VerifyRepositoryToolPrebuild" BeforeTargets="PreBuildEvent;CoreCompile;ClCompile">
+		<Error Condition="!Exists('$(RepositoryToolsDirectory)\code_sync\code_sync.exe')" Text="code_sync was not deployed before the consumer build." />
+		<Error Condition="!Exists('$(RepositoryToolsDirectory)\VSRedirector\VSRedirector.exe')" Text="VSRedirector was not deployed before the consumer build." />
+		<Message Importance="high" Text="Verified both tools before consumer compilation ($(Configuration))." />
+	</Target>
+</Project>
