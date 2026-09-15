@@ -153,6 +153,16 @@
 			<PhysicsUnitTest>true</PhysicsUnitTest>
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
 		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)terrain_baseline_gpu_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClInclude Include="$(MSBuildThisFileDirectory)terrain_gpu_probe.h">
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClInclude>
+		<ClInclude Include="$(MSBuildThisFileDirectory)forward.h">
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClInclude>
 		<ClInclude Include="$(MSBuildThisFileDirectory)shared_engine.h">
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
 		</ClInclude>
@@ -202,6 +212,7 @@
 				;compute_shaders.res
 				;compute_shaders_physics.res
 				;d3d12.lib
+				;dxgi.lib
 				;dxguid.lib
 				;%(AdditionalDependencies)
 			</AdditionalDependencies>

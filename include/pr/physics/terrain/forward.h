@@ -12,6 +12,9 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <format>
+#include <type_traits>
+#include <cstddef>
 
 #include "pr/common/assert.h"
 #include "pr/math/math.h"
@@ -19,7 +22,7 @@
 
 namespace pr::physics::terrain
 {
-	// Terrain sampling uses double precision coordinates and derivatives end to end.
+	// CPU terrain sampling uses double precision coordinates and derivatives end to end.
 	using v2d = math::Vec2<double>;
 	using v4d = math::Vec4<double>;
 
