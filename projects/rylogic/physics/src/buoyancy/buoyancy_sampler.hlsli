@@ -2,13 +2,14 @@
 // Physics Engine
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
-// GPU sampled-composite buoyancy: per-primitive volume/surface sample emission.
+// GPU sampled-composite buoyancy: per-primitive volume emission and containment.
 //
 // This module is the HLSL mirror of the deterministic CPU oracle in
 // include/pr/physics/buoyancy/buoyancy_sampler.h. Every function here must reproduce the oracle's
 // arithmetic to single-precision noise so the GPU kernels can be validated against the CPU sampler
 // (Tier-2 parity tests). Keep the two files in lock-step: the hash sequence, the radical-inverse
-// bases, the per-primitive sample maps and the tet/face CDF scans are all parity-critical.
+// bases, the per-primitive volume maps and the tet CDF scans are all parity-critical.
+// Surface emission is shared directly through pr/physics/surface/surface_sampling.hlsli.
 //
 // Binding-agnostic: the geometry-reading functions take the composite-hull StructuredBuffers as
 // parameters (resolved at compile time by the including kernel TU). The kernel declares the buffers
@@ -198,50 +199,6 @@ odr float BuoyPrimitiveVolume(in_(BuoyPrimitive) prim, in_(StructuredBuffer<floa
 	}
 }
 
-// Surface area of a single convex primitive. Shape-local.
-odr float BuoyPrimitiveArea(in_(BuoyPrimitive) prim, in_(StructuredBuffer<float4>) verts, in_(StructuredBuffer<int4>) face_verts)
-{
-	switch (prim.m_type)
-	{
-		case BUOY_PRIM_BOX:
-		{
-			float ax = 2.0f * prim.m_params.x;
-			float ay = 2.0f * prim.m_params.y;
-			float az = 2.0f * prim.m_params.z;
-			return 2.0f * (ax * ay + ay * az + az * ax);
-		}
-		case BUOY_PRIM_SPHERE:
-		{
-			float r = prim.m_params.x;
-			return 2.0f * tau * r * r;
-		}
-		case BUOY_PRIM_POLYTOPE:
-		{
-			float area = 0.0f;
-			for (int f = 0; f != prim.m_face_count; ++f)
-			{
-				int4 fv = face_verts[prim.m_face_ofs + f];
-				float3 a = verts[prim.m_vert_ofs + fv.x].xyz;
-				float3 b = verts[prim.m_vert_ofs + fv.y].xyz;
-				float3 c = verts[prim.m_vert_ofs + fv.z].xyz;
-				area += 0.5f * length(cross(b - a, c - a));
-			}
-			return area;
-		}
-		case BUOY_PRIM_TRIANGLE:
-		{
-			float3 a = verts[prim.m_vert_ofs + 0].xyz;
-			float3 b = verts[prim.m_vert_ofs + 1].xyz;
-			float3 c = verts[prim.m_vert_ofs + 2].xyz;
-			return 0.5f * length(cross(b - a, c - a));
-		}
-		default:
-		{
-			return 0.0f;
-		}
-	}
-}
-
 //
 // Inside test (shape-local space). 'eps' is a small slack so boundary samples register.
 //
@@ -420,134 +377,6 @@ odr void BuoyEmitVolumeSample(in_(BuoyPrimitive) prim, uint index, float dvol,
 		default:
 		{
 			pos_local = float4(0, 0, 0, 1);
-			weight = 0.0f;
-			return;
-		}
-	}
-}
-
-// Emit the i'th low-discrepancy surface sample for a primitive, weighted by 'darea' (= area/N).
-// 'pos_local' (w=1) and 'normal_local' (w=0) are shape-local. Mirrors EmitSurfaceSample.
-odr void BuoyEmitSurfaceSample(in_(BuoyPrimitive) prim, uint index, float darea,
-	in_(StructuredBuffer<float4>) verts, in_(StructuredBuffer<float4>) face_planes, in_(StructuredBuffer<int4>) face_verts,
-	out_(float4) pos_local, out_(float4) normal_local, out_(float) weight)
-{
-	weight = darea;
-	switch (prim.m_type)
-	{
-		case BUOY_PRIM_BOX:
-		{
-			float hx = prim.m_params.x, hy = prim.m_params.y, hz = prim.m_params.z;
-
-			// Area CDF over the 6 faces (constant darea avoids tiny faces being starved of samples).
-			float face_area[6] =
-			{
-				4.0f * hy * hz, 4.0f * hy * hz, // +X, -X
-				4.0f * hx * hz, 4.0f * hx * hz, // +Y, -Y
-				4.0f * hx * hy, 4.0f * hx * hy, // +Z, -Z
-			};
-			float sum = 0.0f;
-			for (int s = 0; s != 6; ++s) sum += face_area[s];
-
-			float pick = BuoyRadicalInverse(index, 2) * sum;
-			float ca = BuoyRadicalInverse(index, 3);
-			float cb = BuoyRadicalInverse(index, 5);
-			float accum = 0.0f;
-			int face = 0;
-			for (int f = 0; f != 6; ++f)
-			{
-				accum += face_area[f];
-				face = f;
-				if (accum >= pick)
-					break;
-			}
-
-			float sa = 2.0f * ca - 1.0f;
-			float sb = 2.0f * cb - 1.0f;
-			switch (face)
-			{
-				case 0:  { pos_local = float4(+hx, sa * hy, sb * hz, 1.0f); normal_local = float4(+1, 0, 0, 0); return; }
-				case 1:  { pos_local = float4(-hx, sa * hy, sb * hz, 1.0f); normal_local = float4(-1, 0, 0, 0); return; }
-				case 2:  { pos_local = float4(sa * hx, +hy, sb * hz, 1.0f); normal_local = float4(0, +1, 0, 0); return; }
-				case 3:  { pos_local = float4(sa * hx, -hy, sb * hz, 1.0f); normal_local = float4(0, -1, 0, 0); return; }
-				case 4:  { pos_local = float4(sa * hx, sb * hy, +hz, 1.0f); normal_local = float4(0, 0, +1, 0); return; }
-				default: { pos_local = float4(sa * hx, sb * hy, -hz, 1.0f); normal_local = float4(0, 0, -1, 0); return; }
-			}
-		}
-		case BUOY_PRIM_SPHERE:
-		{
-			float r = prim.m_params.x;
-			float a = BuoyRadicalInverse(index, 2);
-			float b = BuoyRadicalInverse(index, 3);
-			float z = 1.0f - 2.0f * a;
-			float rho = sqrt(max(0.0f, 1.0f - z * z));
-			float phi = tau * b;
-			float3 dir = float3(rho * cos(phi), rho * sin(phi), z);
-			pos_local = float4(dir * r, 1.0f);
-			normal_local = float4(dir, 0.0f);
-			return;
-		}
-		case BUOY_PRIM_POLYTOPE:
-		{
-			float total = BuoyPrimitiveArea(prim, verts, face_verts);
-			float pick = BuoyRadicalInverse(index, 2) * total;
-			float u1 = BuoyRadicalInverse(index, 3);
-			float u2 = BuoyRadicalInverse(index, 5);
-
-			float accum = 0.0f;
-			int chosen = 0;
-			for (int f = 0; f != prim.m_face_count; ++f)
-			{
-				int4 fv = face_verts[prim.m_face_ofs + f];
-				float3 a = verts[prim.m_vert_ofs + fv.x].xyz;
-				float3 b = verts[prim.m_vert_ofs + fv.y].xyz;
-				float3 c = verts[prim.m_vert_ofs + fv.z].xyz;
-				accum += 0.5f * length(cross(b - a, c - a));
-				chosen = f;
-				if (accum >= pick)
-					break;
-			}
-
-			int4 cf = face_verts[prim.m_face_ofs + chosen];
-			float3 A = verts[prim.m_vert_ofs + cf.x].xyz;
-			float3 B = verts[prim.m_vert_ofs + cf.y].xyz;
-			float3 C = verts[prim.m_vert_ofs + cf.z].xyz;
-			float su = sqrt(u1);
-			float w0 = 1.0f - su;
-			float w1 = su * (1.0f - u2);
-			float w2 = su * u2;
-			float3 p = A * w0 + B * w1 + C * w2;
-			float3 n = BuoyNormaliseOrZero(face_planes[prim.m_face_ofs + chosen].xyz);
-			pos_local = float4(p, 1.0f);
-			normal_local = float4(n, 0.0f);
-			return;
-		}
-		case BUOY_PRIM_TRIANGLE:
-		{
-			float3 a = verts[prim.m_vert_ofs + 0].xyz;
-			float3 b = verts[prim.m_vert_ofs + 1].xyz;
-			float3 c = verts[prim.m_vert_ofs + 2].xyz;
-			float u1 = BuoyRadicalInverse(index, 2);
-			float u2 = BuoyRadicalInverse(index, 3);
-			float su = sqrt(u1);
-			float w0 = 1.0f - su;
-			float w1 = su * (1.0f - u2);
-			float w2 = su * u2;
-			float3 p = a * w0 + b * w1 + c * w2;
-
-			// PARITY NOTE: the oracle reads a precomputed triangle normal (ShapeTriangle::m_v.w); the
-			// GPU model only stores the three corners, so the normal is recomputed here. This matches
-			// the oracle to float noise only if that stored normal was the (b-a)x(c-a) winding normal.
-			// If exact triangle parity is needed later, store the normal in the GpuPrimitive ABI.
-			float3 n = BuoyNormaliseOrZero(cross(b - a, c - a));
-			pos_local = float4(p, 1.0f);
-			normal_local = float4(n, 0.0f);
-			return;
-		}
-		default:
-		{
-			pos_local = float4(0, 0, 0, 1);
-			normal_local = float4(0, 0, 0, 0);
 			weight = 0.0f;
 			return;
 		}

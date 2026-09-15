@@ -803,7 +803,6 @@ namespace pr::physics::tests
 				buoyancy::WaterFrame{},
 				FlatField{},
 				oracle_cfg,
-				8192,
 				8192);
 			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
 
@@ -922,7 +921,7 @@ namespace pr::physics::tests
 
 			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
-			// The harness uses the default drag configuration: linear tau=3 s, normal Cd=1.05, tangential Ct=0.20.
+			// Use the runtime configuration rather than duplicating its defaults in the oracle.
 			auto const config = h.m_buoyancy.GetConfig();
 
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
@@ -931,9 +930,7 @@ namespace pr::physics::tests
 			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
 			PR_EXPECT(diag.m_valid);
 
-			// Run the CPU oracle with the SAME hull id (0), sample totals (8192/8192), flat water frame and
-			// body state. SampleHull internally distributes the totals across primitives exactly as the GPU
-			// does (shared DistributeCounts), so per-primitive counts and per-sample hashes coincide.
+			// Match volume count/hash, surface spacing, flat water, and the dispatch-time body state.
 			auto oracle_body = buoyancy::BodyState{
 				.m_o2w = o2w,
 				.m_gravity_ws = AnalyticGravityWS,
@@ -946,10 +943,11 @@ namespace pr::physics::tests
 				.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 				.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
 				.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
+				.m_surface_spacing = config.m_surface_spacing,
 			};
 			auto const frame = buoyancy::WaterFrame{};
 			auto const field = FlatField{};
-			auto const oracle = buoyancy::SampleHull(collision::shape_cast(box), 0, oracle_body, frame, field, oracle_cfg, 8192, 8192);
+			auto const oracle = buoyancy::SampleHull(collision::shape_cast(box), 0, oracle_body, frame, field, oracle_cfg, 8192);
 			PR_EXPECT(oracle.m_valid);
 
 			auto const expected_force = oracle.m_buoyancy_force_ws + oracle.m_drag_force_ws;
@@ -960,6 +958,73 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, oracle.m_volume_m3, oracle.m_volume_m3 * 0.01f));
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws, expected_force, std::max(Length(expected_force) * 0.02f, 5.0f)));
 			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, expected_torque, std::max(Length(expected_torque) * 0.05f, 5.0f)));
+		}
+
+		// Exercise shared emission above one reduction block's capacity, including transformed, partially wet compounds.
+		PRUnitTestMethod(GpuSurfaceStreamingAndCompoundParity, Extended)
+		{
+			auto box = collision::ShapeBox(v4{2, 2, 2, 0});
+			auto sphere = collision::ShapeSphere(1.0f);
+			v4 points[] = {v4{1,0,0,1}, v4{-1,0,0,1}, v4{0,1,0,1}, v4{0,-1,0,1}, v4{0,0,1,1}, v4{0,0,-1,1}};
+			auto poly_buffer = collision::BuildPolytopeFromPoints(points, m4x4::Identity(), 0, collision::Shape::EFlags::None, 5);
+			auto const& poly = poly_buffer.as<collision::ShapePolytope>();
+			auto builder = ShapeBuilder{};
+			builder.AddShape(collision::ShapeBox(v4{2,1,1,0}, m4x4::Translation(-0.5f, 0, 0)));
+			builder.AddShape(collision::ShapeSphere(0.7f, m4x4::Translation(0.5f, 0, 0)));
+			builder.AddShape(collision::ShapeTriangle(v4{-1,0,-0.7f,1}, v4{1,0,-0.7f,1}, v4{0,1,-0.7f,1}));
+			auto compound_data = byte_data<16>{};
+			auto mass_properties = MassProperties{};
+			auto model_to_com = v4::Zero();
+			auto const* compound = builder.BuildShape(compound_data, mass_properties, model_to_com);
+			collision::Shape const* shapes[] = {&box.m_base, &sphere.m_base, &poly.m_base, compound};
+			PR_EXPECT(surface::BuildPlan(box.m_base, 0.035f).m_count > 32768);
+
+			// Run one dynamic target at a time so contact forces cannot contaminate surface diagnostics.
+			for (auto const* shape : shapes)
+			{
+				for (auto level_offset : {-3.0f, 0.13f})
+				{
+					Harness h;
+					auto config = h.m_buoyancy.GetConfig();
+					config.m_surface_spacing = 0.035f;
+					h.m_buoyancy.SetConfig(config);
+					auto const o2w = m4x4::Transform(v4::YAxis(), 0.23f, v4{0.3f, -0.2f, level_offset, 1});
+					auto const velocity = v4{1.1f, -0.4f, 0.3f, 0};
+					auto const omega = v4{0.2f, -0.3f, 0.4f, 0};
+					h.m_bodies.emplace_back();
+					auto& body = h.m_bodies[0];
+					body.Shape(shape, 500.0f);
+					body.O2W(o2w);
+					body.GravityWS(AnalyticGravityWS);
+					body.VelocityWS(omega, velocity);
+					auto registration = h.m_buoyancy.RegisterCompositeHull(body, 0, 0);
+					auto const oracle_body = buoyancy::BodyState{
+						.m_o2w = o2w,
+						.m_centre_of_mass_os = body.CentreOfMassOS(),
+						.m_gravity_ws = AnalyticGravityWS,
+						.m_vel_lin_ws = velocity,
+						.m_omega_ws = omega,
+					};
+					auto const oracle_cfg = buoyancy::SamplerConfig{
+						.m_fluid_density = config.m_fluid_density,
+						.m_linear_drag_time_constant_s = config.m_linear_drag_time_constant_s,
+						.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
+						.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
+						.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
+						.m_surface_spacing = config.m_surface_spacing,
+					};
+					auto const oracle = buoyancy::SampleHull(*shape, 0, oracle_body, buoyancy::WaterFrame{}, FlatField{}, oracle_cfg, 8192);
+					h.m_engine.Step(0.0001f, std::span{h.m_bodies});
+					h.m_buoyancy.CompleteStep();
+					auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+					auto const force = oracle.m_buoyancy_force_ws + oracle.m_drag_force_ws;
+					auto const torque = oracle.m_buoyancy_torque_ws + oracle.m_drag_torque_ws;
+					PR_EXPECT(diag.m_valid);
+					PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, oracle.m_volume_m3, 0.002f));
+					PR_EXPECT(FEqlAbsolute(diag.m_force_ws, force, std::max(Length(force) * 0.001f, 0.1f)));
+					PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, torque, std::max(Length(torque) * 0.003f, 0.2f)));
+				}
+			}
 		}
 
 		// Wet-volume linear damping should produce the same acceleration for equal-density geometrically
@@ -982,7 +1047,7 @@ namespace pr::physics::tests
 			auto const drag_per_volume = [&](float scale)
 			{
 				auto const box = collision::ShapeBox(v4{scale, scale, scale, 0.0f});
-				auto const result = buoyancy::SampleHull(collision::shape_cast(box), 0, body, frame, field, config, 8192, 0);
+				auto const result = buoyancy::SampleHull(collision::shape_cast(box), 0, body, frame, field, config, 8192);
 				return result.m_drag_force_ws / result.m_volume_m3;
 			};
 
@@ -1015,7 +1080,7 @@ namespace pr::physics::tests
 				.m_angular_drag_time_constant_s = 1.0f,
 			};
 
-			auto const result = buoyancy::SampleHull(collision::shape_cast(box), 0, body, frame, field, config, 8192, 0);
+			auto const result = buoyancy::SampleHull(collision::shape_cast(box), 0, body, frame, field, config, 8192);
 			auto const volume = dimensions.x * dimensions.y * dimensions.z;
 			auto const polar_volume_moment = volume * (dimensions.x * dimensions.x + dimensions.y * dimensions.y) / 12.0f;
 			auto const expected_torque_z = -(config.m_fluid_density / config.m_angular_drag_time_constant_s) * polar_volume_moment;
@@ -1027,7 +1092,7 @@ namespace pr::physics::tests
 			// With angular damping disabled, pure rotation must not leak into the independent linear term.
 			config.m_linear_drag_time_constant_s = 0.1f;
 			config.m_angular_drag_time_constant_s = 0.0f;
-			auto const linear_only = buoyancy::SampleHull(collision::shape_cast(box), 0, body, frame, field, config, 8192, 0);
+			auto const linear_only = buoyancy::SampleHull(collision::shape_cast(box), 0, body, frame, field, config, 8192);
 			PR_EXPECT(FEqlAbsolute(linear_only.m_drag_force_ws, v4::Zero(), 1.0e-5f));
 			PR_EXPECT(FEqlAbsolute(linear_only.m_drag_torque_ws, v4::Zero(), 1.0e-5f));
 		}

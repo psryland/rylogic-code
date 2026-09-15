@@ -513,6 +513,7 @@ namespace physics_sandbox
 			.m_angular_drag_time_constant_s = gpu_cfg.m_angular_drag_time_constant_s,
 			.m_quadratic_drag_coefficient = gpu_cfg.m_quadratic_drag_coefficient,
 			.m_tangential_drag_coefficient = gpu_cfg.m_tangential_drag_coefficient,
+			.m_surface_spacing = gpu_cfg.m_surface_spacing,
 		};
 
 		// Map a sample classification to a display colour.
@@ -530,11 +531,10 @@ namespace physics_sandbox
 			}
 		};
 
-		// Sampling + display tuning. The oracle is run at a fixed sample budget; the resulting cloud is
+		// Sampling + display tuning. Volume uses a fixed count; surface coverage uses the configured spacing. The cloud is
 		// decimated at draw time so dense hulls stay renderable. Forces are large (~2e4 N) so arrows are
 		// scaled down to world units.
 		constexpr int VolumeSamples = 8192;
-		constexpr int SurfaceSamples = 8192;
 		constexpr int MaxDrawSamples = 16384;
 		constexpr float ForceScale = 1.0e-4f;  // N    -> world units
 		constexpr float TorqueScale = 1.0e-4f; // N.m  -> world units
@@ -610,7 +610,7 @@ namespace physics_sandbox
 				(Sqr(state.m_gravity_ws.x) + Sqr(state.m_gravity_ws.y)) <= 1e-3f * Max(1e-6f, LengthSq(state.m_gravity_ws.w0())));
 
 			auto debug = SampleDebug{};
-			auto const result = SampleHull(*shape, target.m_hull_id, state, WaterFrame{}, water, cfg, VolumeSamples, SurfaceSamples, &debug);
+			auto const result = SampleHull(*shape, target.m_hull_id, state, WaterFrame{}, water, cfg, VolumeSamples, &debug);
 
 			// Decimated sample cloud, with green whiskers on active surface samples.
 			auto const stride = std::max<size_t>(1, debug.m_samples.size() / MaxDrawSamples);

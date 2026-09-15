@@ -4,9 +4,9 @@
 //*********************************************
 // Deterministic CPU buoyancy sampler.
 //
-// This is the reference oracle for the GPU buoyancy sampler. It mirrors the planned GPU
-// algorithm exactly (same hash, same low-discrepancy sequence, same per-sample weights, same
-// cull rules) so the GPU compute kernels can be validated against it to single-precision noise.
+// This is the reference oracle for the GPU buoyancy sampler. Volume emission mirrors the GPU hash
+// and low-discrepancy sequence; surface emission compiles the shared surface_sampling.hlsli implementation.
+// Both paths use the same per-sample weights and cull rules so GPU kernels can be validated against it.
 //
 // Concept (locked design):
 //  - Buoyancy is a VOLUME integral. The submerged union of a body's convex primitives is sampled
@@ -49,6 +49,7 @@
 #include "pr/collision/shape_triangle.h"
 #include "pr/collision/shape_polytope.h"
 #include "pr/collision/shape_array.h"
+#include "pr/physics/surface/surface_sampling.h"
 
 namespace pr::physics::buoyancy
 {
@@ -61,6 +62,7 @@ namespace pr::physics::buoyancy
 		float m_angular_drag_time_constant_s = 0.0f; // rotational volume-drag e-fold time; <= 0 disables it
 		float m_quadratic_drag_coefficient = 0.0f;  // form-drag Cd; <= 0 disables quadratic drag
 		float m_tangential_drag_coefficient = 0.0f; // surface-shear Ct; <= 0 disables tangential drag
+		float m_surface_spacing = surface::DefaultSpacing; // maximum surface cell diameter in shape-local units
 	};
 
 	// Rigid-body kinematics needed to place samples in world space and evaluate point velocities.
@@ -115,14 +117,6 @@ namespace pr::physics::buoyancy
 	{
 		v4 m_pos_local = v4::Origin();
 		float m_dvol = 0.0f;
-	};
-
-	// A surface sample in shape-local space with its outward normal and area weight.
-	struct SurfaceSample
-	{
-		v4 m_pos_local = v4::Origin();
-		v4 m_normal_local = v4::Zero();
-		float m_darea = 0.0f;
 	};
 
 	// Classification of a single sample emitted during SampleHull, recorded only when a debug
@@ -315,51 +309,6 @@ namespace pr::physics::buoyancy
 		return table;
 	}
 
-	// Return the surface area of a single convex primitive (shape-local).
-	inline float PrimitiveArea(collision::Shape const& shape)
-	{
-		using namespace collision;
-		switch (shape.m_type)
-		{
-			case EShape::Box:
-			{
-				auto const& box = shape_cast<ShapeBox>(shape);
-				auto const ax = 2.0f * box.m_radius.x;
-				auto const ay = 2.0f * box.m_radius.y;
-				auto const az = 2.0f * box.m_radius.z;
-				return 2.0f * (ax * ay + ay * az + az * ax);
-			}
-			case EShape::Sphere:
-			{
-				auto const& sph = shape_cast<ShapeSphere>(shape);
-				return 2.0f * static_cast<float>(math::constants<double>::tau) * sph.m_radius * sph.m_radius;
-			}
-			case EShape::Polytope:
-			{
-				auto const& poly = shape_cast<ShapePolytope>(shape);
-				auto area = 0.0f;
-				for (int f = 0; f != poly.m_face_count; ++f)
-				{
-					auto const& face = poly.face(f);
-					auto const a = poly.vertex(face.m_index[0]);
-					auto const b = poly.vertex(face.m_index[1]);
-					auto const c = poly.vertex(face.m_index[2]);
-					area += 0.5f * Length(Cross(b - a, c - a));
-				}
-				return area;
-			}
-			case EShape::Triangle:
-			{
-				auto const& tri = shape_cast<ShapeTriangle>(shape);
-				return 0.5f * Length(Cross(tri.m_v.y - tri.m_v.x, tri.m_v.z - tri.m_v.x));
-			}
-			default:
-			{
-				return 0.0f;
-			}
-		}
-	}
-
 	//
 	// Inside tests (shape-local space). 'eps' is a small slack so boundary samples register.
 	//
@@ -487,116 +436,6 @@ namespace pr::physics::buoyancy
 		}
 	}
 
-	// Emit the i'th low-discrepancy surface sample for a primitive, weighted by 'darea' (= area/N).
-	inline SurfaceSample EmitSurfaceSample(collision::Shape const& shape, uint32_t index, float darea)
-	{
-		using namespace collision;
-		switch (shape.m_type)
-		{
-			case EShape::Box:
-			{
-				auto const& box = shape_cast<ShapeBox>(shape);
-				auto const hx = box.m_radius.x, hy = box.m_radius.y, hz = box.m_radius.z;
-
-				// Area CDF over the 6 faces (constant darea avoids tiny faces being starved of samples).
-				float const face_area[6] =
-				{
-					4.0f * hy * hz, 4.0f * hy * hz, // +X, -X
-					4.0f * hx * hz, 4.0f * hx * hz, // +Y, -Y
-					4.0f * hx * hy, 4.0f * hx * hy, // +Z, -Z
-				};
-				auto sum = 0.0f;
-				for (auto fa : face_area) sum += fa;
-
-				auto const pick = RadicalInverse(index, 2) * sum;
-				auto const ca = RadicalInverse(index, 3);
-				auto const cb = RadicalInverse(index, 5);
-				auto accum = 0.0f;
-				auto face = 0;
-				for (int f = 0; f != 6; ++f)
-				{
-					accum += face_area[f];
-					face = f;
-					if (accum >= pick)
-						break;
-				}
-
-				auto const sa = 2.0f * ca - 1.0f;
-				auto const sb = 2.0f * cb - 1.0f;
-				switch (face)
-				{
-					case 0: return SurfaceSample{v4{+hx, sa * hy, sb * hz, 1.0f}, v4{+1, 0, 0, 0}, darea};
-					case 1: return SurfaceSample{v4{-hx, sa * hy, sb * hz, 1.0f}, v4{-1, 0, 0, 0}, darea};
-					case 2: return SurfaceSample{v4{sa * hx, +hy, sb * hz, 1.0f}, v4{0, +1, 0, 0}, darea};
-					case 3: return SurfaceSample{v4{sa * hx, -hy, sb * hz, 1.0f}, v4{0, -1, 0, 0}, darea};
-					case 4: return SurfaceSample{v4{sa * hx, sb * hy, +hz, 1.0f}, v4{0, 0, +1, 0}, darea};
-					default: return SurfaceSample{v4{sa * hx, sb * hy, -hz, 1.0f}, v4{0, 0, -1, 0}, darea};
-				}
-			}
-			case EShape::Sphere:
-			{
-				auto const& sph = shape_cast<ShapeSphere>(shape);
-				auto const a = RadicalInverse(index, 2);
-				auto const b = RadicalInverse(index, 3);
-				auto const z = 1.0f - 2.0f * a;
-				auto const rho = std::sqrt(std::max(0.0f, 1.0f - z * z));
-				auto const phi = static_cast<float>(math::constants<double>::tau) * b;
-				auto const dir = v4{rho * std::cos(phi), rho * std::sin(phi), z, 0.0f};
-				return SurfaceSample{(dir * sph.m_radius).w1(), dir, darea};
-			}
-			case EShape::Polytope:
-			{
-				auto const& poly = shape_cast<ShapePolytope>(shape);
-				auto const total = PrimitiveArea(shape);
-				auto const pick = RadicalInverse(index, 2) * total;
-				auto const u1 = RadicalInverse(index, 3);
-				auto const u2 = RadicalInverse(index, 5);
-
-				auto accum = 0.0f;
-				auto chosen = 0;
-				for (int f = 0; f != poly.m_face_count; ++f)
-				{
-					auto const& face = poly.face(f);
-					auto const a = poly.vertex(face.m_index[0]);
-					auto const b = poly.vertex(face.m_index[1]);
-					auto const c = poly.vertex(face.m_index[2]);
-					accum += 0.5f * Length(Cross(b - a, c - a));
-					chosen = f;
-					if (accum >= pick)
-						break;
-				}
-
-				auto const& face = poly.face(chosen);
-				auto const A = poly.vertex(face.m_index[0]);
-				auto const B = poly.vertex(face.m_index[1]);
-				auto const C = poly.vertex(face.m_index[2]);
-				auto const su = std::sqrt(u1);
-				auto const w0 = 1.0f - su;
-				auto const w1 = su * (1.0f - u2);
-				auto const w2 = su * u2;
-				auto const p = (A * w0 + B * w1 + C * w2);
-				auto const n = Normalise(face.m_plane.direction(), v4::Zero());
-				return SurfaceSample{p.w1(), n, darea};
-			}
-			case EShape::Triangle:
-			{
-				auto const& tri = shape_cast<ShapeTriangle>(shape);
-				auto const u1 = RadicalInverse(index, 2);
-				auto const u2 = RadicalInverse(index, 3);
-				auto const su = std::sqrt(u1);
-				auto const w0 = 1.0f - su;
-				auto const w1 = su * (1.0f - u2);
-				auto const w2 = su * u2;
-				auto const p = (tri.m_v.x * w0 + tri.m_v.y * w1 + tri.m_v.z * w2);
-				return SurfaceSample{p.w1(), tri.m_v.w.w0(), darea};
-			}
-			default:
-			{
-				return SurfaceSample{v4::Origin(), v4::Zero(), 0.0f};
-			}
-		}
-	}
-
 	//
 	// Helpers
 	//
@@ -620,7 +459,7 @@ namespace pr::physics::buoyancy
 		return prims;
 	}
 
-	// Distribute 'total' samples across primitives proportional to 'measure' (volume or area).
+	// Distribute 'total' volume samples across primitives proportional to 'measure'.
 	// Primitives with zero measure get zero samples; positive-measure primitives get at least one.
 	inline std::vector<int> DistributeCounts(std::vector<float> const& measure, int total)
 	{
@@ -660,11 +499,13 @@ namespace pr::physics::buoyancy
 		TWater const& water,
 		SamplerConfig const& cfg,
 		int volume_samples_total,
-		int surface_samples_total,
 		SampleDebug* debug = nullptr)
 	{
 		using namespace collision;
 
+		// Validate resolution independently of the optional drag/debug pass.
+		surface::ValidateSpacing(cfg.m_surface_spacing);
+		auto const have_drag = cfg.m_quadratic_drag_coefficient > 0.0f || cfg.m_tangential_drag_coefficient > 0.0f;
 		auto result = HullResult{};
 
 		auto const prims = CollectPrimitives(hull);
@@ -682,7 +523,7 @@ namespace pr::physics::buoyancy
 		auto s2r = std::vector<m4x4>(prims.size());
 		auto r2s = std::vector<m4x4>(prims.size());
 		auto volume = std::vector<float>(prims.size(), 0.0f);
-		auto area = std::vector<float>(prims.size(), 0.0f);
+		auto surface_plans = std::vector<surface::Plan>(prims.size());
 		auto vol_tables = std::vector<VolumeSampleTable>(prims.size());
 		for (size_t k = 0; k != prims.size(); ++k)
 		{
@@ -690,11 +531,11 @@ namespace pr::physics::buoyancy
 			r2s[k] = InvertOrthonormal(prims[k]->m_s2r);
 			vol_tables[k] = BuildVolumeSampleTable(*prims[k]);
 			volume[k] = vol_tables[k].m_total;
-			area[k] = PrimitiveArea(*prims[k]);
+			if (have_drag || debug != nullptr)
+				surface_plans[k] = surface::BuildPlan(*prims[k], cfg.m_surface_spacing);
 		}
 
 		auto const vol_counts = DistributeCounts(volume, volume_samples_total);
-		auto const surf_counts = DistributeCounts(area, surface_samples_total);
 
 		auto const up = frame.m_up;
 		auto const t0 = frame.m_t0;
@@ -792,20 +633,14 @@ namespace pr::physics::buoyancy
 
 		// Surface pass: normal form drag and tangential surface drag over the wetted union boundary,
 		// deduplicated by the any-other-sibling exterior-side rule.
-		auto const have_drag =
-			cfg.m_quadratic_drag_coefficient > 0.0f ||
-			cfg.m_tangential_drag_coefficient > 0.0f;
 		if (have_drag || debug != nullptr)
 		{
 			for (size_t k = 0; k != prims.size(); ++k)
 			{
-				if (surf_counts[k] == 0)
-					continue;
-
-				auto const darea = area[k] / static_cast<float>(surf_counts[k]);
-				for (int i = 0; i != surf_counts[k]; ++i)
+				auto const& plan = surface_plans[k];
+				for (uint32_t i = 0; i != plan.m_count; ++i)
 				{
-					auto const sample = EmitSurfaceSample(*prims[k], SampleIndex(hull_id, static_cast<int>(k), i), darea);
+					auto const sample = surface::EmitSurfaceSample(plan, i);
 					auto const p_root = s2r[k] * sample.m_pos_local;
 					auto const n_root = Normalise((s2r[k] * sample.m_normal_local).w0(), v4::Zero());
 
