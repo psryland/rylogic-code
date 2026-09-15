@@ -1,5 +1,6 @@
 #include "pr/physics/utility/ldraw.h"
 #include "src/scene/body.h"
+#include "src/scene/display_colour.h"
 
 using namespace pr::ldraw;
 
@@ -11,13 +12,6 @@ namespace physics_sandbox
 		{
 			static std::default_random_engine rng;
 			return RandomRGB(rng, 0.7f, 1.0f);
-		}
-		Colour32 DisplayColour(Colour32 colour, bool sleeping)
-		{
-			if (sleeping && colour.a > 0x30)
-				colour.a = 0x30;
-
-			return colour;
 		}
 	}
 
@@ -52,6 +46,8 @@ namespace physics_sandbox
 						self.m_gfx = result.m_objects.front();
 				}
 				self.UpdateGfx();
+				if (self.m_shape_changed)
+					self.m_shape_changed();
 			}
 		};
 	}
@@ -63,7 +59,7 @@ namespace physics_sandbox
 		{
 			m_gfx->O2W(m_o2w * m_gfx_o2b);
 
-			auto const colour = DisplayColour(m_priority_colour_enabled ? m_priority_colour : m_colour, Sleeping());
+			auto const colour = DisplayColour(m_priority_colour_enabled ? m_priority_colour : m_colour, Sleeping(), m_sleeping_transparency);
 			if (colour != m_applied_colour)
 			{
 				m_applied_colour = colour;
@@ -71,6 +67,13 @@ namespace physics_sandbox
 				m_gfx->Colour(false, colour, "");
 			}
 		}
+	}
+
+	// Keep the selected opacity policy for subsequent shape and contact-priority graphics updates.
+	void Body::SleepingTransparency(bool enabled)
+	{
+		m_sleeping_transparency = enabled;
+		UpdateGfx();
 	}
 
 	// Set/clear the contact-priority visual override colour.

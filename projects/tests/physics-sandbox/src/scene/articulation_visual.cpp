@@ -1,4 +1,5 @@
 #include "src/scene/articulation_visual.h"
+#include "src/scene/display_colour.h"
 
 namespace physics_sandbox
 {
@@ -14,18 +15,14 @@ namespace physics_sandbox
 	}
 
 	// Synchronise the renderer object with the link's current world transform.
-	void ArticulationVisual::UpdateGfx(std::span<physics::Articulation const> articulations)
+	void ArticulationVisual::UpdateGfx(std::span<physics::Articulation const> articulations, bool sleeping_transparency)
 	{
 		if (!m_gfx)
 			return;
 
 		auto const& articulation = articulations[m_articulation_index];
 		m_gfx->O2W(articulation.LinkToWorld(m_link) * m_shape_to_link);
-		auto colour = m_colour;
-		if (articulation.Sleeping() && colour.a > 0x30)
-			colour.a = 0x30;
-
-		m_gfx->Colour(false, colour, "");
+		m_gfx->Colour(false, DisplayColour(m_colour, articulation.Sleeping(), sleeping_transparency), "");
 	}
 
 	// Add the link object when its transformed collision bounds intersect the camera frustum.

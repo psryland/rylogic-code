@@ -14,6 +14,30 @@ namespace physics_sandbox
 		constexpr double MaxFrameSeconds = 0.25;
 		constexpr int MaxTicksPerSubmission = 2;
 
+		// Separate mutually exclusive base rendering from independent, additive sample overlays.
+		HMENU CreateViewMenu()
+		{
+			return Menu(Menu::EKind::Popup, {
+				MenuItem(L"&Normal", MenuID::VisualModeNormal, MenuItem::EState::Checked),
+				MenuItem(L"&Contact Priority", MenuID::VisualModeContactPriority),
+				MenuItem(MenuItem::Separator),
+				MenuItem(L"&Overlays and diagnostics", Menu(Menu::EKind::Popup, {
+					MenuItem(L"&Surface samples + normals", MenuID::SurfaceSamples),
+					MenuItem(L"&Volume samples", MenuID::VolumeSamples),
+					MenuItem(L"Sleeping-body &transparency", MenuID::SleepingTransparency, MenuItem::EState::Checked),
+				})),
+			});
+		}
+
+		// Apply independent check marks without including overlay commands in the base-mode radio range.
+		void UpdateDiagnosticMenu(HMENU view_menu, SampleOverlays const& overlays, bool sleeping_transparency)
+		{
+			auto const menu = ::GetSubMenu(view_menu, 3);
+			::CheckMenuItem(menu, MenuID::SurfaceSamples, MF_BYCOMMAND | (overlays.m_surface_enabled ? MF_CHECKED : MF_UNCHECKED));
+			::CheckMenuItem(menu, MenuID::VolumeSamples, MF_BYCOMMAND | (overlays.m_volume_enabled ? MF_CHECKED : MF_UNCHECKED));
+			::CheckMenuItem(menu, MenuID::SleepingTransparency, MF_BYCOMMAND | (sleeping_transparency ? MF_CHECKED : MF_UNCHECKED));
+		}
+
 		// Build behavior-oriented submenus from the runtime-discovered JSON demonstration catalogue.
 		HMENU CreateDemoMenu()
 		{
@@ -96,10 +120,7 @@ namespace physics_sandbox
 				MenuItem(MenuItem::Separator),
 				MenuItem(L"E&xit", IDCLOSE),
 			})},
-			{L"&View", Menu(Menu::EKind::Popup, {
-				MenuItem(L"&Normal", MenuID::VisualModeNormal, MenuItem::EState::Checked),
-				MenuItem(L"&Contact Priority", MenuID::VisualModeContactPriority),
-			})},
+			{L"&View", CreateViewMenu()},
 			{L"&Demos", CreateDemoMenu()} })
 			.main_wnd(true)
 			.wndclass(RegisterWndClass<SandboxUI>()))
@@ -193,6 +214,8 @@ namespace physics_sandbox
 			if (args.m_vk_key == 'T')
 			{
 				PauseSimulation();
+				m_view3d.WaitForGpu();
+				m_view3d.m_scene.ClearDrawlists();
 				m_scene.RunAllTests();
 			}
 
@@ -229,6 +252,7 @@ namespace physics_sandbox
 			for (int i = 0; i != std::ssize(m_scene.m_body); ++i)
 				m_scene.m_body[i].AddToScene(scene, w2c, frustum, clip_planes);
 			m_scene.AddArticulationsToScene(scene, w2c, frustum, clip_planes);
+			m_scene.AddSampleOverlays(scene);
 
 			if (m_scene.m_ground_gfx)
 				m_scene.m_ground_gfx->AddToScene(scene);
@@ -275,6 +299,7 @@ namespace physics_sandbox
 	SandboxUI::~SandboxUI()
 	{
 		m_view3d.WaitForGpu();
+		m_view3d.m_scene.ClearDrawlists();
 	}
 
 	// Override message processing to ensure clean shutdown
@@ -306,6 +331,31 @@ namespace physics_sandbox
 					mode = EVisualMode::ContactPriority;
 
 				m_scene.VisualMode(mode);
+				UpdateVisualModeMenu();
+				Render(0);
+				result = 0;
+				return true;
+			}
+
+			// Each overlay can accompany either base mode and the other overlay.
+			if (id == MenuID::SurfaceSamples || id == MenuID::VolumeSamples)
+			{
+				auto& overlays = m_scene.m_sample_overlays;
+				if (id == MenuID::SurfaceSamples)
+					overlays.Surface(!overlays.m_surface_enabled);
+				else
+					overlays.Volume(!overlays.m_volume_enabled);
+
+				UpdateVisualModeMenu();
+				Render(0);
+				result = 0;
+				return true;
+			}
+
+			// Sleeping transparency changes appearance only, not the simulation's sleeping policy.
+			if (id == MenuID::SleepingTransparency)
+			{
+				m_scene.SleepingTransparency(!m_scene.SleepingTransparency());
 				UpdateVisualModeMenu();
 				Render(0);
 				result = 0;
@@ -345,6 +395,7 @@ namespace physics_sandbox
 
 		// Make sure the GPU has finished with the models before releasing them.
 		m_view3d.WaitForGpu();
+		m_view3d.m_scene.ClearDrawlists();
 
 		// Recreate whichever source currently owns the scene rather than retaining stale dynamics objects.
 		if (!m_scene_filepath.empty())
@@ -453,6 +504,7 @@ namespace physics_sandbox
 		}
 
 		::CheckMenuRadioItem(view_menu, MenuID::VisualModeNormal, MenuID::VisualModeContactPriority, checked_id, MF_BYCOMMAND);
+		UpdateDiagnosticMenu(view_menu, m_scene.m_sample_overlays, m_scene.SleepingTransparency());
 		::DrawMenuBar(m_hwnd);
 	}
 
@@ -475,6 +527,7 @@ namespace physics_sandbox
 
 			// Wait for the GPU to finish before loading. LoadFromJson triggers ShapeChange events which destroy old LdrObjects. 
 			m_view3d.WaitForGpu();
+			m_view3d.m_scene.ClearDrawlists();
 			auto const wait_gpu_end = Clock::now();
 			auto const wait_gpu_ms = ElapsedMs(mark, wait_gpu_end);
 			mark = wait_gpu_end;
@@ -646,6 +699,11 @@ namespace physics_sandbox
 		auto const render3d_beg = Clock::now();
 		auto const clear_beg = Clock::now();
 		m_view3d.m_scene.ClearDrawlists();
+		if (m_scene.m_sample_overlays.m_refresh_pending)
+		{
+			m_view3d.WaitForGpu();
+			m_scene.m_sample_overlays.Reset();
+		}
 		auto const clear_end = Clock::now();
 
 		m_view3d.OnAddToScene(m_view3d, m_view3d.m_scene);
@@ -721,6 +779,8 @@ namespace physics_sandbox
 				m_scene.m_diag.count,
 				m_steps_remaining == 0 ? L"[Paused]" : L"[Running]",
 				m_fps);
+			if (m_scene.m_sample_overlays.Enabled() && m_scene.m_sample_overlays.m_failed_targets != 0)
+				new_status += std::format(L"  Sample overlays: {} target(s) unavailable: {}", m_scene.m_sample_overlays.m_failed_targets, pr::Widen(m_scene.m_sample_overlays.m_first_error));
 
 			if (new_status != m_last_status)
 			{
@@ -792,3 +852,39 @@ namespace physics_sandbox
 		return bbox;
 	}
 }
+
+#if PR_UNITTESTS
+namespace physics_sandbox::tests
+{
+	// The native menu exposes independent overlays outside the base-mode radio group.
+	PRUnitTestClass(SampleOverlayMenuTests)
+	{
+		// Check actual menu state without opening or driving an application window.
+		PRUnitTestMethod(BothOverlaysAccompanyEitherBaseMode, Quick)
+		{
+			auto const menu = CreateViewMenu();
+			auto const submenu = ::GetSubMenu(menu, 3);
+			auto overlays = SampleOverlays{};
+			PR_EXPECT(submenu != nullptr && ::GetMenuItemCount(submenu) == 3);
+			PR_EXPECT((::GetMenuState(submenu, MenuID::SleepingTransparency, MF_BYCOMMAND) & MF_CHECKED) != 0);
+			for (auto mode : {MenuID::VisualModeNormal, MenuID::VisualModeContactPriority})
+			{
+				::CheckMenuRadioItem(menu, MenuID::VisualModeNormal, MenuID::VisualModeContactPriority, mode, MF_BYCOMMAND);
+				overlays.Surface(true);
+				overlays.Volume(true);
+				UpdateDiagnosticMenu(menu, overlays, true);
+				PR_EXPECT((::GetMenuState(menu, mode, MF_BYCOMMAND) & MF_CHECKED) != 0);
+				PR_EXPECT((::GetMenuState(submenu, MenuID::SurfaceSamples, MF_BYCOMMAND) & MF_CHECKED) != 0);
+				PR_EXPECT((::GetMenuState(submenu, MenuID::VolumeSamples, MF_BYCOMMAND) & MF_CHECKED) != 0);
+				overlays.Surface(false);
+				UpdateDiagnosticMenu(menu, overlays, false);
+				PR_EXPECT((::GetMenuState(submenu, MenuID::SurfaceSamples, MF_BYCOMMAND) & MF_CHECKED) == 0);
+				PR_EXPECT((::GetMenuState(submenu, MenuID::VolumeSamples, MF_BYCOMMAND) & MF_CHECKED) != 0);
+				PR_EXPECT((::GetMenuState(menu, mode, MF_BYCOMMAND) & MF_CHECKED) != 0);
+				PR_EXPECT((::GetMenuState(submenu, MenuID::SleepingTransparency, MF_BYCOMMAND) & MF_CHECKED) == 0);
+			}
+			::DestroyMenu(menu);
+		}
+	};
+}
+#endif

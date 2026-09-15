@@ -10,6 +10,7 @@ namespace physics_sandbox
 		physics::LinkHandle m_link;
 		collision::Shape const* m_shape;
 		m4x4 m_shape_to_link;
+		bool m_sample_overlay_eligible = false;
 		Colour32 m_colour;
 		rdr12::ldraw::LdrObjectPtr m_gfx;
 
@@ -17,7 +18,7 @@ namespace physics_sandbox
 		ArticulationVisual(int articulation_index, physics::LinkHandle link, collision::Shape const& shape, m4x4 const& shape_to_link, Colour32 colour);
 
 		// Synchronise the renderer object with the link's current world transform.
-		void UpdateGfx(std::span<physics::Articulation const> articulations);
+		void UpdateGfx(std::span<physics::Articulation const> articulations, bool sleeping_transparency);
 
 		// Add the link object when its transformed collision bounds intersect the camera frustum.
 		void AddToScene(rdr12::Scene& scene, std::span<physics::Articulation const> articulations, m4x4 const& world_to_camera, Frustum const& frustum, v2 const& clip_planes) const;

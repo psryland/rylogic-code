@@ -1,6 +1,7 @@
 #include "pr/physics/utility/ldraw.h"
 #include "pr/physics/buoyancy/buoyancy_sampler.h"
 #include "src/scene/scene.h"
+#include "src/scene/display_colour.h"
 #include "src/utils/scene_loader.h"
 
 namespace physics_sandbox
@@ -289,6 +290,7 @@ namespace physics_sandbox
 		m_ground_body_index = -1;
 
 		// Release renderer bindings and non-owning pointer views before their underlying dynamics objects.
+		m_sample_overlays.Reset();
 		m_articulation_visuals.clear();
 		m_body_ptrs.clear();
 		m_articulation_ptrs.clear();
@@ -305,14 +307,43 @@ namespace physics_sandbox
 		m_body_ptrs.clear();
 		m_body_ptrs.reserve(m_body.size());
 		for (auto& body : m_body)
+		{
 			m_body_ptrs.push_back(&body);
+			body.m_shape_changed = [this] { m_sample_overlays.Invalidate(); };
+			body.SleepingTransparency(m_sleeping_transparency);
+		}
+		m_sample_overlays.Invalidate();
 
 		m_articulation_ptrs.clear();
 		m_articulation_ptrs.reserve(m_articulation.size());
 		for (auto& articulation : m_articulation)
 			m_articulation_ptrs.push_back(&articulation);
 
+		// Articulation topology is immutable, so determine link mobility once rather than walking ancestors every rendered frame.
+		for (auto& visual : m_articulation_visuals)
+			visual.m_sample_overlay_eligible = SampleOverlays::Eligible(m_articulation[visual.m_articulation_index], visual.m_link);
+
 		m_physics.UpdateSleepIslands(m_body_ptrs);
+	}
+
+	// Update only target transforms while cached shape geometry remains unchanged.
+	void Scene::AddSampleOverlays(rdr12::Scene& scene)
+	{
+		if (!m_rdr || !m_sample_overlays.Enabled())
+			return;
+
+		m_sample_overlays.BeginFrame();
+		for (auto const& body : m_body)
+		{
+			if (SampleOverlays::Eligible(body))
+				m_sample_overlays.Add(scene, *m_rdr, &body, body.Shape(), body.O2W());
+		}
+		for (auto const& visual : m_articulation_visuals)
+		{
+			auto const& articulation = m_articulation[visual.m_articulation_index];
+			if (visual.m_shape && visual.m_sample_overlay_eligible)
+				m_sample_overlays.Add(scene, *m_rdr, &visual, *visual.m_shape, articulation.LinkToWorld(visual.m_link) * visual.m_shape_to_link);
+		}
 	}
 
 	// Register every dynamic scene body for buoyancy when the scene contains water.
@@ -1655,7 +1686,7 @@ namespace physics_sandbox
 	void Scene::UpdateArticulationGfx()
 	{
 		for (auto& visual : m_articulation_visuals)
-			visual.UpdateGfx(m_articulation);
+			visual.UpdateGfx(m_articulation, m_sleeping_transparency);
 	}
 
 	// Add visible articulation-link graphics to the current renderer draw list.
@@ -1663,6 +1694,20 @@ namespace physics_sandbox
 	{
 		for (auto const& visual : m_articulation_visuals)
 			visual.AddToScene(scene, m_articulation, w2c, frustum, clip_planes);
+	}
+
+	bool Scene::SleepingTransparency() const
+	{
+		return m_sleeping_transparency;
+	}
+
+	void Scene::SleepingTransparency(bool enabled)
+	{
+		m_sleeping_transparency = enabled;
+		for (auto& body : m_body)
+			body.SleepingTransparency(enabled);
+
+		UpdateArticulationGfx();
 	}
 
 	EVisualMode Scene::VisualMode() const
@@ -1954,6 +1999,81 @@ namespace physics_sandbox::tests
 			auto const reloaded = RunScene(scene, short_box, 1);
 
 			ExpectSameState("short_box_after_tall_box", baseline, reloaded);
+		}
+	};
+
+	// Scene replacement and shape changes invalidate overlay resources without changing the user's selected options.
+	PRUnitTestClass(SceneSampleOverlayTests)
+	{
+		// The display option defaults on, preserves base/sample modes, and never wakes sleeping dynamics.
+		PRUnitTestMethod(SleepingTransparencyIsAppearanceOnlyAndSurvivesReload, Quick)
+		{
+			auto scene_desc = BoxScene(v4{1, 1, 1, 0}, 2.0f);
+			auto tree_desc = scene_loader::ArticulationDesc{};
+			tree_desc.m_name = "sleeping_tree";
+			tree_desc.m_root_type = physics::EArticulationRootType::Floating;
+			tree_desc.m_sleeping = true;
+			tree_desc.m_root.m_body.name = "root";
+			tree_desc.m_root.m_body.shape_type = scene_loader::BodyDesc::EShape::Box;
+			tree_desc.m_root.m_body.box_dimensions = v4{1, 1, 1, 0};
+			tree_desc.m_root.m_body.mass = 1.0f;
+			scene_desc.articulations.push_back(tree_desc);
+			auto scene = Scene(nullptr);
+			scene.LoadScene(scene_desc);
+			PR_EXPECT(scene.SleepingTransparency());
+			auto& body = *std::find_if(scene.m_body.begin(), scene.m_body.end(), [](auto const& candidate) { return SampleOverlays::Eligible(candidate); });
+			body.Sleeping(true);
+			auto const force = body.ForceWS();
+			scene.VisualMode(EVisualMode::ContactPriority);
+			scene.m_sample_overlays.Surface(true);
+			scene.m_sample_overlays.Volume(true);
+			scene.m_sample_overlays.Reset();
+			scene.SleepingTransparency(false);
+			PR_EXPECT(!scene.SleepingTransparency() && !body.m_sleeping_transparency);
+			PR_EXPECT(body.Sleeping() && scene.m_articulation[0].Sleeping() && FEql(body.ForceWS(), force));
+			PR_EXPECT(scene.AllowSleeping() && scene.VisualMode() == EVisualMode::ContactPriority);
+			PR_EXPECT(scene.m_sample_overlays.m_surface_enabled && scene.m_sample_overlays.m_volume_enabled && !scene.m_sample_overlays.m_refresh_pending);
+
+			// The existing opacity calculation is shared by rigid-body and articulation graphics.
+			auto const colour = Colour32(0xFF12AB34U);
+			PR_EXPECT(DisplayColour(colour, true, true).argb == 0x3012AB34U);
+			PR_EXPECT(DisplayColour(colour, true, false) == colour);
+			PR_EXPECT(DisplayColour(colour, false, true) == colour);
+			PR_EXPECT(DisplayColour(Colour32(0x1012AB34U), true, true).argb == 0x1012AB34U);
+			scene.SleepingTransparency(true);
+			PR_EXPECT(body.m_sleeping_transparency && body.Sleeping() && scene.m_articulation[0].Sleeping());
+
+			// Reloading applies the retained policy to newly constructed bodies rather than their default appearance.
+			scene.SleepingTransparency(false);
+			scene.LoadScene(scene_desc);
+			PR_EXPECT(!scene.SleepingTransparency());
+			for (auto const& reloaded : scene.m_body)
+				PR_EXPECT(!reloaded.m_sleeping_transparency);
+		}
+
+		// Refresh is deferred until rendering; resetting the scene removes all stale shape keys and instances.
+		PRUnitTestMethod(ShapeChangeAndSceneReloadInvalidateGeometry, Quick)
+		{
+			auto scene = Scene(nullptr);
+			auto const scene_desc = BoxScene(v4{1, 1, 1, 0}, 2.0f);
+			scene.LoadScene(scene_desc);
+			auto& overlays = scene.m_sample_overlays;
+			overlays.Surface(true);
+			overlays.Volume(true);
+			overlays.Reset();
+			auto const old_shape = &scene.m_body[0].Shape();
+			overlays.m_models.try_emplace(old_shape);
+			overlays.m_instances.try_emplace(&scene.m_body[0]);
+			auto const replacement = collision::ShapeSphere(0.3f);
+			scene.m_body[0].Shape(&replacement.m_base);
+			PR_EXPECT(overlays.m_refresh_pending);
+			PR_EXPECT(overlays.m_models.size() == 1 && overlays.m_instances.size() == 1);
+
+			// A headless reset needs no renderer fence, but follows the same cache-before-shape retirement order.
+			scene.LoadScene(scene_desc);
+			PR_EXPECT(overlays.m_models.empty() && overlays.m_instances.empty());
+			PR_EXPECT(overlays.m_surface_enabled && overlays.m_volume_enabled);
+			PR_EXPECT(scene.VisualMode() == EVisualMode::Normal);
 		}
 	};
 

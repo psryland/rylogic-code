@@ -84,6 +84,7 @@
     <ClCompile Include="src\scene\demo_catalogue.cpp" />
     <ClCompile Include="src\scene\procedural_sky.cpp" />
     <ClCompile Include="src\scene\scene.cpp" />
+    <ClCompile Include="src\scene\sample_overlays.cpp" />
     <ClCompile Include="src\scene\scene_multibody.cpp" />
     <ClCompile Include="src\scene\terrain\terrain_visual.cpp" />
     <ClCompile Include="src\scene\water\water_visual.cpp" />
@@ -153,6 +154,8 @@
     <ClInclude Include="src\scene\procedural_sky.h" />
     <ClInclude Include="src\scene\scenario.h" />
     <ClInclude Include="src\scene\scene.h" />
+    <ClInclude Include="src\scene\sample_overlays.h" />
+    <ClInclude Include="src\scene\display_colour.h" />
     <ClInclude Include="src\scene\terrain\terrain_visual.h" />
     <ClInclude Include="src\scene\water\water_visual.h" />
     <ClInclude Include="src\ui\details_panel.h" />

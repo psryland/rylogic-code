@@ -14,12 +14,19 @@ namespace physics_sandbox
 		Colour32 m_priority_colour = Colour32White;
 		Colour32 m_applied_colour = Colour32Black;
 		bool m_priority_colour_enabled = false;
+		bool m_sleeping_transparency = true;
+
+		// Notify the scene's geometry cache after a shape change; moves with the body rather than borrowing an event address.
+		std::function<void()> m_shape_changed;
 
 		Body() = default;
 		Body(rdr12::Renderer* rdr, collision::Shape const* shape = nullptr, m4x4 const& o2w = m4x4::Identity(), physics::Inertia const& inertia = {});
 
 		// Position the graphics at the rigid body location
 		void UpdateGfx();
+
+		// Enable/disable the sleeping-opacity diagnostic without altering sleep or physics state.
+		void SleepingTransparency(bool enabled);
 
 		// Set/clear the contact-priority visual override colour.
 		void PriorityColour(Colour32 colour, bool enabled);
