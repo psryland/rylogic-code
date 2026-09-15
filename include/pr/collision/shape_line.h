@@ -10,8 +10,8 @@ namespace pr::collision
 {
 	// A Line segment shape with optional thickness.
 	// The line is aligned to the Z axis, centred on the origin, with half-length = m_hlength.
-	// When m_radius > 0, the line has a cylindrical collision envelope (without hemispherical end-caps).
-	// The collision normal always comes from the OTHER shape's geometry, not from the line's end-caps.
+	// Positive radius sweeps a sphere along the segment: support vertices and bounds include hemispherical ends.
+	// Pair-specific narrowphase routines may select normals from the other shape rather than the rounded ends.
 	struct ShapeLine
 	{
 		Shape m_base;

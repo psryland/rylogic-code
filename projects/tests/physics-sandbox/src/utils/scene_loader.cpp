@@ -730,27 +730,87 @@ namespace physics_sandbox::scene_loader
 
 		return camera;
 	}
-	// Parse the sandbox-only procedural terrain preview.
+
+	// Parse one canonical terrain source shared by rendering and sampled GPU collision.
 	TerrainDesc ReadTerrain(pr::json::Value const& jterrain)
 	{
+		// Apply optional source identity, preview bounds, and collision density over the shared defaults.
 		auto terrain = TerrainDesc{};
 		auto const& jterrain_obj = jterrain.to_object();
-
 		if (auto const* jseed = jterrain_obj.find("seed"))
 			terrain.surface.m_seed = static_cast<uint32_t>(jseed->to<int64_t>());
-
 		if (auto const* jmaterial = jterrain_obj.find("material_id"))
 			terrain.surface.m_material_id = jmaterial->to<int>();
-
 		if (auto const* jcentre = jterrain_obj.find("centre"))
 			terrain.centre_xy = ReadVec2d(*jcentre);
-
 		if (auto const* jradius = jterrain_obj.find("radius"))
 			terrain.radius_m = jradius->to<double>();
-
 		if (auto const* jintervals = jterrain_obj.find("intervals"))
 			terrain.intervals = jintervals->to<int>();
+		if (auto const* spacing = jterrain_obj.find("surface_spacing"))
+			terrain.surface_spacing = spacing->to<float>();
 
+		// Recipe fields map directly to the owning evaluator's validated configuration.
+		if (auto const* recipe = jterrain_obj.find("recipe"))
+		{
+			auto const& obj = recipe->to_object();
+
+			// Retain the configured default when a scalar property is absent.
+			auto scalar = [](auto const& source, char const* name, auto& value)
+			{
+				if (auto const* field = source.find(name))
+					value = field->template to<std::remove_reference_t<decltype(value)>>();
+			};
+
+			// Apply the common octave parameters to any explicitly supplied spatial band.
+			auto band = [&](char const* name, auto& config)
+			{
+				if (auto const* field = obj.find(name))
+				{
+					auto const& source = field->to_object();
+					scalar(source, "amplitude", config.m_amplitude);
+					scalar(source, "wavelength", config.m_wavelength_m);
+					scalar(source, "octaves", config.m_octave_count);
+					scalar(source, "lacunarity", config.m_lacunarity);
+					scalar(source, "persistence", config.m_persistence);
+				}
+			};
+
+			// Map shared family controls before applying the optional ridge and warp-specific parameters.
+			scalar(obj, "sea_level_bias", terrain.surface.m_sea_level_bias_m);
+			scalar(obj, "uplift_height", terrain.surface.m_uplift_height_m);
+			scalar(obj, "mountain_base_height", terrain.surface.m_mountain_base_height_m);
+			scalar(obj, "supported_coordinate_abs", terrain.surface.m_supported_coordinate_abs_m);
+			band("regional_base", terrain.surface.m_regional_base);
+			band("region_selector", terrain.surface.m_region_selector);
+			band("region_uplift", terrain.surface.m_region_uplift);
+			band("plains", terrain.surface.m_plains);
+			band("hills", terrain.surface.m_hills);
+			band("mountains", terrain.surface.m_mountains);
+			if (auto const* field = obj.find("mountains"))
+			{
+				scalar(field->to_object(), "roundness", terrain.surface.m_mountains.m_roundness);
+				scalar(field->to_object(), "weight_gain", terrain.surface.m_mountains.m_weight_gain);
+			}
+			if (auto const* field = obj.find("domain_warp"))
+			{
+				auto const& source = field->to_object();
+				scalar(source, "amplitude", terrain.surface.m_domain_warp.m_amplitude_m);
+				scalar(source, "wavelength", terrain.surface.m_domain_warp.m_wavelength_m);
+				scalar(source, "octaves", terrain.surface.m_domain_warp.m_octave_count);
+				scalar(source, "lacunarity", terrain.surface.m_domain_warp.m_lacunarity);
+				scalar(source, "persistence", terrain.surface.m_domain_warp.m_persistence);
+			}
+		}
+
+		// Reject unusable collision density and evaluator recipes before scene creation allocates resources.
+		if (!std::isfinite(terrain.surface_spacing) || terrain.surface_spacing <= 0)
+			throw std::runtime_error("Terrain surface_spacing must be finite and positive");
+
+		// Delegate field-domain and octave validation to the canonical source constructor.
+		static_cast<void>(pr::physics::terrain::landscape::BaselineSurface(terrain.surface));
+
+		// Display choices affect the preview only, not the physical terrain recipe.
 		if (auto const* jdisplay = jterrain_obj.find("display"))
 		{
 			auto const display = jdisplay->to<std::string>();
@@ -764,11 +824,13 @@ namespace physics_sandbox::scene_loader
 				throw std::runtime_error(std::format("Unknown terrain display mode '{}'", display));
 		}
 
+		// Keep the requested preview mesh within its basic radius and grid-size preconditions.
 		if (!std::isfinite(terrain.radius_m) || terrain.radius_m <= 0.0)
 			throw std::runtime_error("Terrain radius must be finite and greater than zero");
 		if (terrain.intervals < 4)
 			throw std::runtime_error("Terrain intervals must be at least 4");
 
+		// Return the validated source and preview settings without creating scene resources.
 		return terrain;
 	}
 	// Parse the water surface used by buoyancy and the sandbox visual mesh.
@@ -1178,6 +1240,27 @@ namespace physics_sandbox::scene_loader
 				PR_THROWS(ParseTerrain(R"json({"scene":{"terrain":{"radius":0.0}}})json"), std::exception);
 				PR_THROWS(ParseTerrain(R"json({"scene":{"terrain":{"intervals":3}}})json"), std::exception);
 				PR_THROWS(ParseTerrain(R"json({"scene":{"terrain":{"display":"wireframe"}}})json"), std::exception);
+			}
+
+			// Collision spacing is independent of buoyancy; the visual and physical terrain share one validated recipe.
+			PRUnitTestMethod(ParsesTerrainCollisionRecipe, Quick)
+			{
+				auto const defaults = ParseTerrain(R"json({"scene":{"terrain":{}}})json");
+				PR_EXPECT(defaults.terrain->surface_spacing == physics::surface::DefaultSpacing);
+				auto const desc = ParseTerrain(R"json({"scene":{"terrain":{"surface_spacing":0.2,"recipe":{"sea_level_bias":-3.0,"regional_base":{"amplitude":1.6,"wavelength":4.0,"octaves":1}}}}})json");
+				PR_EXPECT(desc.terrain->surface_spacing == 0.2f);
+				PR_EXPECT(desc.terrain->surface.m_sea_level_bias_m == -3.0);
+				PR_EXPECT(desc.terrain->surface.m_regional_base.m_amplitude == 1.6);
+				PR_EXPECT(desc.terrain->surface.m_regional_base.m_wavelength_m == 4.0);
+				PR_EXPECT(desc.terrain->surface.m_regional_base.m_octave_count == 1);
+			}
+
+			// Reject unusable sampling and recipe inputs before a scene creates GPU resources.
+			PRUnitTestMethod(RejectsInvalidTerrainCollisionSettings, Quick)
+			{
+				PR_THROWS(ParseTerrain(R"json({"scene":{"terrain":{"surface_spacing":0}}})json"), std::exception);
+				PR_THROWS(ParseTerrain(R"json({"scene":{"terrain":{"surface_spacing":-0.1}}})json"), std::exception);
+				PR_THROWS(ParseTerrain(R"json({"scene":{"terrain":{"recipe":{"regional_base":{"wavelength":0}}}}})json"), std::exception);
 			}
 		};
 	}

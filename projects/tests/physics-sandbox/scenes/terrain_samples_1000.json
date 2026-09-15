@@ -1,0 +1,58 @@
+{
+	"scene": {
+		"demo": {"command": "terrain-samples-1000", "name": "Sampled Terrain (1,000 Bodies)", "group": "Stress and Scaling", "order": 6},
+		"description": "Terrain surface-sample collision: 1000 mixed objects drop onto many hills and hollows. 200 each of boxes, spheres, capsules, convex octahedra and triangles. Regular separated spawn rows are deterministic; spheres roll, other shapes slide or tumble. Uses the shared surface sampling density.",
+		"seed": 1547575334,
+		"camera": {"position": [24, -38, 29], "lookat": [0, 0, 0]},
+		"gravity": [0, 0, -9.81],
+		"physics": {"substeps": 4, "max_collision_pairs": 65536},
+		"material": {"elasticity": 0.05, "friction": 0.3},
+		"terrain": {
+			"seed": 1547575334, "radius": 30, "intervals": 400, "display": "slope",
+			"recipe": {
+				"sea_level_bias": -29.7775397025, "uplift_height": 0, "mountain_base_height": 0,
+				"regional_base": {"amplitude": 1.6, "wavelength": 4, "octaves": 1},
+				"region_selector": {"amplitude": 0, "octaves": 1},
+				"region_uplift": {"amplitude": 0, "octaves": 1},
+				"plains": {"amplitude": 0, "octaves": 1},
+				"hills": {"amplitude": 0, "octaves": 1},
+				"mountains": {"amplitude": 0, "octaves": 1},
+				"domain_warp": {"amplitude": 0, "octaves": 1}
+			}
+		},
+		"shapes": {
+			"box": {"name": "box", "type": "box", "dimensions": [0.4, 0.4, 0.4]},
+			"sphere": {"name": "sphere", "type": "sphere", "radius": 0.25},
+			"capsule": {"name": "capsule", "type": "line", "length": 0.4, "thickness": 0.1},
+			"poly": {"name": "poly", "type": "polytope", "vertices": [[0.3,0,0],[-0.3,0,0],[0,0.25,0],[0,-0.25,0],[0,0,0.2],[0,0,-0.2]]},
+			"triangle": {"name": "triangle", "type": "triangle", "vertices": [[-0.25,-0.2,0],[0.25,-0.2,0],[0,0.25,0]]}
+		},
+		"body_generators": [
+			{"name":"box-0-#","selector":"linear","instance_count":40,"shape":"box","mass":1,"colour":"0xFF70A8E0","position":[[-15,-9,5],[15,-9,6]],"rotation":[[0,0,0],[30,40,80]]},
+			{"name":"sphere-0-#","selector":"linear","instance_count":40,"shape":"sphere","mass":1,"colour":"0xFFE09050","position":[[-15,-8.25,5],[15,-8.25,6]]},
+			{"name":"capsule-0-#","selector":"linear","instance_count":40,"shape":"capsule","mass":1,"colour":"0xFF80D090","position":[[-15,-7.5,5],[15,-7.5,6]],"rotation":[[40,0,0],[80,90,60]]},
+			{"name":"poly-0-#","selector":"linear","instance_count":40,"shape":"poly","mass":1,"colour":"0xFFD090D0","position":[[-15,-6.75,5],[15,-6.75,6]],"rotation":[[0,0,0],[30,40,80]]},
+			{"name":"triangle-0-#","selector":"linear","instance_count":40,"shape":"triangle","mass":1,"colour":"0xFFD0D080","position":[[-15,-6,5],[15,-6,6]],"rotation":[[0,0,0],[30,40,80]]},
+			{"name":"box-1-#","selector":"linear","instance_count":40,"shape":"box","mass":1,"colour":"0xFF70A8E0","position":[[-15,-5.25,5],[15,-5.25,6]],"rotation":[[0,0,0],[30,40,80]]},
+			{"name":"sphere-1-#","selector":"linear","instance_count":40,"shape":"sphere","mass":1,"colour":"0xFFE09050","position":[[-15,-4.5,5],[15,-4.5,6]]},
+			{"name":"capsule-1-#","selector":"linear","instance_count":40,"shape":"capsule","mass":1,"colour":"0xFF80D090","position":[[-15,-3.75,5],[15,-3.75,6]],"rotation":[[40,0,0],[80,90,60]]},
+			{"name":"poly-1-#","selector":"linear","instance_count":40,"shape":"poly","mass":1,"colour":"0xFFD090D0","position":[[-15,-3,5],[15,-3,6]],"rotation":[[0,0,0],[30,40,80]]},
+			{"name":"triangle-1-#","selector":"linear","instance_count":40,"shape":"triangle","mass":1,"colour":"0xFFD0D080","position":[[-15,-2.25,5],[15,-2.25,6]],"rotation":[[0,0,0],[30,40,80]]},
+			{"name":"box-2-#","selector":"linear","instance_count":40,"shape":"box","mass":1,"colour":"0xFF70A8E0","position":[[-15,-1.5,5],[15,-1.5,6]],"rotation":[[0,0,0],[30,40,80]]},
+			{"name":"sphere-2-#","selector":"linear","instance_count":40,"shape":"sphere","mass":1,"colour":"0xFFE09050","position":[[-15,-0.75,5],[15,-0.75,6]]},
+			{"name":"capsule-2-#","selector":"linear","instance_count":40,"shape":"capsule","mass":1,"colour":"0xFF80D090","position":[[-15,0,5],[15,0,6]],"rotation":[[40,0,0],[80,90,60]]},
+			{"name":"poly-2-#","selector":"linear","instance_count":40,"shape":"poly","mass":1,"colour":"0xFFD090D0","position":[[-15,0.75,5],[15,0.75,6]],"rotation":[[0,0,0],[30,40,80]]},
+			{"name":"triangle-2-#","selector":"linear","instance_count":40,"shape":"triangle","mass":1,"colour":"0xFFD0D080","position":[[-15,1.5,5],[15,1.5,6]],"rotation":[[0,0,0],[30,40,80]]},
+			{"name":"box-3-#","selector":"linear","instance_count":40,"shape":"box","mass":1,"colour":"0xFF70A8E0","position":[[-15,2.25,5],[15,2.25,6]],"rotation":[[0,0,0],[30,40,80]]},
+			{"name":"sphere-3-#","selector":"linear","instance_count":40,"shape":"sphere","mass":1,"colour":"0xFFE09050","position":[[-15,3,5],[15,3,6]]},
+			{"name":"capsule-3-#","selector":"linear","instance_count":40,"shape":"capsule","mass":1,"colour":"0xFF80D090","position":[[-15,3.75,5],[15,3.75,6]],"rotation":[[40,0,0],[80,90,60]]},
+			{"name":"poly-3-#","selector":"linear","instance_count":40,"shape":"poly","mass":1,"colour":"0xFFD090D0","position":[[-15,4.5,5],[15,4.5,6]],"rotation":[[0,0,0],[30,40,80]]},
+			{"name":"triangle-3-#","selector":"linear","instance_count":40,"shape":"triangle","mass":1,"colour":"0xFFD0D080","position":[[-15,5.25,5],[15,5.25,6]],"rotation":[[0,0,0],[30,40,80]]},
+			{"name":"box-4-#","selector":"linear","instance_count":40,"shape":"box","mass":1,"colour":"0xFF70A8E0","position":[[-15,6,5],[15,6,6]],"rotation":[[0,0,0],[30,40,80]]},
+			{"name":"sphere-4-#","selector":"linear","instance_count":40,"shape":"sphere","mass":1,"colour":"0xFFE09050","position":[[-15,6.75,5],[15,6.75,6]]},
+			{"name":"capsule-4-#","selector":"linear","instance_count":40,"shape":"capsule","mass":1,"colour":"0xFF80D090","position":[[-15,7.5,5],[15,7.5,6]],"rotation":[[40,0,0],[80,90,60]]},
+			{"name":"poly-4-#","selector":"linear","instance_count":40,"shape":"poly","mass":1,"colour":"0xFFD090D0","position":[[-15,8.25,5],[15,8.25,6]],"rotation":[[0,0,0],[30,40,80]]},
+			{"name":"triangle-4-#","selector":"linear","instance_count":40,"shape":"triangle","mass":1,"colour":"0xFFD0D080","position":[[-15,9,5],[15,9,6]],"rotation":[[0,0,0],[30,40,80]]}
+		]
+	}
+}

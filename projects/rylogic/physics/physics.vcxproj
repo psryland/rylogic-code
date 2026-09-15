@@ -140,6 +140,7 @@
     <ClCompile Include="src\constraint\constraint_set.cpp" />
     <ClCompile Include="src\constraint\constraint_solver.cpp" />
     <ClCompile Include="src\compute\collide_gpu.cpp" />
+    <ClCompile Include="src\terrain\gpu_terrain.cpp" />
     <ClCompile Include="src\compute\articulation_force_aba_gpu.cpp" />
     <ClCompile Include="src\compute\articulation_mobility_gpu.cpp" />
     <ClCompile Include="src\compute\articulation_impulse_aba_gpu.cpp" />

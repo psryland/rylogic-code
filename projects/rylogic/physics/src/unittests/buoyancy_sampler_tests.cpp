@@ -108,7 +108,7 @@ namespace pr::physics::tests
 		{
 			auto sphere = ShapeSphere(1.0f);
 			auto const plan = surface::BuildPlan(sphere.m_base);
-			PR_EXPECT(plan.m_count == 5400);
+			PR_EXPECT(plan.m_count == 2166);
 			auto area = 0.0;
 			auto normal_sum = v4::Zero();
 			auto samples = std::vector<v4>{};
@@ -183,7 +183,9 @@ namespace pr::physics::tests
 
 			// Exactly collinear triangles have no represented area and do not fabricate weighted features.
 			auto degenerate = ShapeTriangle(v4{-1, 0, 0, 1}, v4{1, 0, 0, 1}, v4{0, 0, 0, 1});
-			PR_EXPECT(surface::BuildPlan(degenerate.m_base).m_count == 0);
+			auto degenerate_plan = surface::BuildPlan(degenerate.m_base);
+			PR_EXPECT(degenerate_plan.m_count == 14);
+			PR_EXPECT(surface::EmitSurfaceSample(degenerate_plan, 0).m_darea == 0);
 		}
 
 		// Surface-only polytopes require no interior tetrahedra and retain outward balance after flattening.
@@ -269,7 +271,9 @@ namespace pr::physics::tests
 			invalid_box.m_radius.z = 0.0f;
 			PR_THROWS(surface::BuildPlan(invalid_box.m_base), std::runtime_error);
 			auto sphere = ShapeSphere(0.0f);
-			PR_EXPECT(surface::BuildPlan(sphere.m_base).m_count == 0);
+			auto point_plan = surface::BuildPlan(sphere.m_base);
+			PR_EXPECT(point_plan.m_count == 1);
+			PR_EXPECT(surface::EmitSurfaceSample(point_plan, 0).m_darea == 0);
 			sphere.m_radius = -1.0f;
 			PR_THROWS(surface::BuildPlan(sphere.m_base), std::runtime_error);
 			sphere.m_radius = std::numeric_limits<float>::quiet_NaN();
@@ -281,15 +285,22 @@ namespace pr::physics::tests
 		// Known full/half-wet drag checks area, first moments, symmetry, and the unchanged volume integration.
 		PRUnitTestMethod(SurfaceForceTorqueAndVolumePreservation, Extended)
 		{
+			// Keep the exact half-face reference between grid rows rather than on a wet/dry sample boundary.
 			auto box = ShapeBox(v4{2, 2, 2, 0});
 			auto body = BodyState{.m_gravity_ws = v4{0,0,-9.81f,0}, .m_vel_lin_ws = v4::XAxis()};
-			auto cfg = SamplerConfig{.m_quadratic_drag_coefficient = 1.0f};
+			auto cfg = SamplerConfig{.m_quadratic_drag_coefficient = 1.0f, .m_surface_spacing = 0.1f};
 			auto const full = SampleHull(box.m_base, 41, body, WaterFrame{}, TestField{.m_level = 10}, cfg, 8192);
 			auto const half = SampleHull(box.m_base, 41, body, WaterFrame{}, TestField{}, cfg, 8192);
 			PR_EXPECT(FEqlAbsolute(full.m_drag_force_ws, v4{-2000,0,0,0}, 0.05f));
 			PR_EXPECT(Length(full.m_drag_torque_ws) < 0.01f);
 			PR_EXPECT(FEqlAbsolute(half.m_drag_force_ws, v4{-1000,0,0,0}, 0.05f));
 			PR_EXPECT(FEqlAbsolute(half.m_drag_torque_ws, v4{0,500,0,0}, 1.0f));
+
+			// The default's 18 intervals put a row exactly on the dry boundary, missing half that row's area.
+			cfg.m_surface_spacing = surface::DefaultSpacing;
+			auto const boundary = SampleHull(box.m_base, 41, body, WaterFrame{}, TestField{}, cfg, 8192);
+			PR_EXPECT(FEqlAbsolute(boundary.m_drag_force_ws, v4{-1000.0f * (17.0f / 18.0f),0,0,0}, 0.05f));
+			PR_EXPECT(FEqlAbsolute(boundary.m_drag_torque_ws, v4{0,500,0,0}, 1.0f));
 
 			// Sphere windward-normal drag integrates n_x cubed, not the projected disk with a constant normal.
 			auto sphere = ShapeSphere(1.0f);

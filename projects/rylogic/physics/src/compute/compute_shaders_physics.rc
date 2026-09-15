@@ -3,7 +3,11 @@
 //
 // Touch this comment any time an .hlsl/.hlsli file referenced below is edited so MSBuild
 // invalidates compute_shaders_physics.res — RC dependency tracking does not follow .hlsl edits.
-// Touched: 2026-08-29 (transient whole-tree articulation contact response)
+// Touched: 2026-09-16 (sampled terrain contacts, shader contract comments)
+src/terrain/gpu_terrain.hlsl TEXT DISCARDABLE "src/terrain/gpu_terrain.hlsl"
+pr/physics/terrain/landscape/baseline_surface.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\terrain\\landscape\\baseline_surface.hlsli"
+pr/physics/terrain/landscape/baseline_types.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\terrain\\landscape\\baseline_types.hlsli"
+pr/algorithm/perlin_noise_derivatives.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\algorithm\\perlin_noise_derivatives.hlsli"
 src/compute/articulation_force_aba.hlsl TEXT DISCARDABLE "src/compute/articulation_force_aba.hlsl"
 src/compute/articulation_mobility.hlsl TEXT DISCARDABLE "src/compute/articulation_mobility.hlsl"
 src/compute/articulation_impulse_aba.hlsl TEXT DISCARDABLE "src/compute/articulation_impulse_aba.hlsl"

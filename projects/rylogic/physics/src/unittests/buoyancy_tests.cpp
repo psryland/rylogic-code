@@ -222,6 +222,14 @@ namespace pr::physics::tests
 	// GPU-vs-oracle cases validate deterministic sampling as well as force and diagnostic readback.
 	PRUnitTestClass(BuoyancyCompositeHostTests)
 	{
+		// Keep both buoyancy consumers on the shared surface density.
+		PRUnitTestMethod(SharedSurfaceSpacingDefault, Extended)
+		{
+			PR_EXPECT(surface::DefaultSpacing == 0.16f);
+			PR_EXPECT(GpuBuoyancy::Config{}.m_surface_spacing == surface::DefaultSpacing);
+			PR_EXPECT(buoyancy::SamplerConfig{}.m_surface_spacing == surface::DefaultSpacing);
+		}
+
 		// Retain the heavyweight GPU queue across test methods while keeping the body resolver bound to stable storage.
 		struct HarnessStorage
 		{

@@ -10,9 +10,6 @@ namespace pr::physics::surface
 {
 	static_assert(sizeof(SurfacePatch) == 96);
 
-	// Maximum cell diameter in shape-local length units. See README.md for coverage and quadrature contracts.
-	inline constexpr float DefaultSpacing = 0.1f;
-
 	// Leave room for the GPU's final grid-stride increment in its signed sample index.
 	inline constexpr uint32_t MaxSampleCount = 0x7fff0000u;
 
@@ -40,6 +37,31 @@ namespace pr::physics::surface
 				throw std::runtime_error("Surface sampling grid exceeds representable subdivision count");
 
 			return static_cast<uint32_t>(count);
+		}
+
+		// Append endpoint-inclusive segment coverage with zero normal and area, including one sample for a collapsed point.
+		inline void Segment(Plan& plan, v4 a, v4 b, float spacing)
+		{
+			auto const delta = b - a;
+			if (!IsFinite(a) || !IsFinite(b) || !IsFinite(delta))
+				throw std::runtime_error("Surface segment coordinates are not representable");
+
+			// Reject counts or steps that cannot preserve the requested coverage in the plan's representation.
+			auto const length = std::hypot(double(delta.x), double(delta.y), double(delta.z));
+			auto const n = Divisions(length, spacing);
+			auto const count = length == 0 ? 1u : n + 1;
+			auto const step = delta / static_cast<float>(n);
+			if (length != 0 && (All(a + step == a) || All(b - step == b)))
+				throw std::runtime_error("Surface segment spacing is below shape-local float resolution");
+			if (count > MaxSampleCount - plan.m_count)
+				throw std::runtime_error("Surface segment exceeds representable sample count");
+
+			// Retain the full segment as one compact patch rather than allocating its sample positions.
+			plan.m_count += count;
+			plan.m_patches.push_back(SurfacePatch{
+				.m_origin = a, .m_u = delta, .m_v = {}, .m_normal = {}, .m_nu = n, .m_nv = 1,
+				.m_kind = 5, .m_sample_end = plan.m_count, .m_taper = 0, .m_measure = 0, .m_pad0 = 0, .m_pad1 = 0,
+			});
 		}
 
 		// Append only valid positive-area patches after checking cumulative sample/resource bounds.
@@ -155,6 +177,8 @@ namespace pr::physics::surface
 				if (ay * bz - az * by != 0.0 || az * bx - ax * bz != 0.0 || ax * by - ay * bx != 0.0)
 					throw std::runtime_error("Surface triangle area is below representable float resolution");
 
+				// Preserve longest-edge contact coverage even though this triangle has no represented area.
+				Segment(plan, a, b, spacing);
 				return;
 			}
 			if (!IsFinite(normal) || LengthSq(normal.w0()) == 0.0f)
@@ -176,6 +200,56 @@ namespace pr::physics::surface
 		auto plan = Plan{};
 		switch (shape.m_type)
 		{
+			case EShape::Line:
+			{
+				auto const& line = shape_cast<ShapeLine>(shape);
+				if (!std::isfinite(line.m_hlength) || !std::isfinite(line.m_radius) || line.m_hlength < 0 || line.m_radius < 0)
+					throw std::runtime_error("Surface line dimensions must be finite and non-negative");
+
+				// A thin line retains positional coverage without inventing a unique outward normal.
+				if (line.m_radius == 0)
+				{
+					impl::Segment(plan, v4(0, 0, -line.m_hlength, 1), v4(0, 0, line.m_hlength, 1), spacing);
+					break;
+				}
+
+				// Split sphere-face patches at the equator and translate each hemisphere to its segment endpoint.
+				auto const sphere = ShapeSphere(line.m_radius);
+				auto const caps = BuildPlan(sphere, spacing);
+				for (auto patch : caps.m_patches)
+				{
+					auto const side_face = patch.m_normal.z == 0;
+					for (int side = 0; side != (side_face ? 2 : 1); ++side)
+					{
+						auto cap = patch;
+						auto const positive = side_face ? side == 1 : patch.m_normal.z > 0;
+						if (side_face)
+						{
+							auto& edge = cap.m_u.z != 0 ? cap.m_u : cap.m_v;
+							edge *= 0.5f;
+							cap.m_origin.z = positive ? 0.0f : -1.0f;
+						}
+						cap.m_kind = 3;
+						cap.m_normal = v4(0, 0, positive ? line.m_hlength : -line.m_hlength, 0);
+						impl::Append(plan, cap);
+					}
+				}
+
+				// Fill the cylindrical side with axial and arc-length subdivisions that bound each cell diameter.
+				if (line.m_hlength != 0)
+				{
+					impl::Append(plan, SurfacePatch{
+						.m_origin = v4(0, 0, -line.m_hlength, 1), .m_u = v4(0, 0, 2 * line.m_hlength, 0),
+						.m_v = v4(line.m_radius, 0, 0, 0), .m_normal = {},
+						.m_nu = impl::Divisions(2.0 * std::sqrt(2.0) * line.m_hlength, spacing),
+						.m_nv = impl::Divisions(std::sqrt(2.0) * math::constants<double>::tau * line.m_radius, spacing),
+						.m_kind = 4, .m_sample_end = 0, .m_taper = line.m_radius,
+						.m_measure = static_cast<float>(math::constants<double>::tau * line.m_radius * 2 * line.m_hlength),
+						.m_pad0 = 0, .m_pad1 = 0,
+					});
+				}
+				break;
+			}
 			case EShape::Box:
 			case EShape::Sphere:
 			{
@@ -192,6 +266,13 @@ namespace pr::physics::surface
 
 				if (!sphere && MinElement(radius.xyz) == 0.0f)
 					throw std::runtime_error("Surface box dimensions must be positive");
+
+				// A zero-radius sphere retains one position for geometry queries, with no surface-force contribution.
+				if (sphere && radius.x == 0)
+				{
+					impl::Segment(plan, v4::Origin(), v4::Origin(), spacing);
+					break;
+				}
 
 				// Each face retains its own boundary nodes; normals are never averaged at sharp features.
 				for (int axis = 0; axis != 3; ++axis)
@@ -244,7 +325,7 @@ namespace pr::physics::surface
 			}
 			default:
 			{
-				throw std::runtime_error("Surface sampling requires a box, sphere, triangle, or polytope primitive");
+				throw std::runtime_error("Surface sampling requires a box, sphere, line, triangle, or polytope primitive");
 			}
 		}
 		return plan;

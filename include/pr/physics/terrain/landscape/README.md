@@ -7,6 +7,71 @@ There is no GPU dispatch inside a CPU height query.
 
 ## CPU
 
+### GPU engine collision consumer
+
+`physics::Engine::Terrain(std::optional<BaselineSurface> surface, float spacing = surface::DefaultSpacing)` owns an
+immutable copy of the source and compact shared surface plans. `std::nullopt` removes it. Call only
+between completed frames; replacing/removing the source invalidates cached geometry and wakes
+submitted dynamic bodies/trees on the next step. Caller-owned shape geometry remains immutable
+until `ResetCaches()`. Terrain and buoyancy use the shared **0.16 m** surface-spacing default unless explicitly overridden.
+Volume sampling is independent of surface spacing and is unchanged.
+
+Every dynamic rigid body and moving articulation proxy participates, including sleeping bodies.
+Boxes, spheres, thick/thin lines, triangles, convex polytopes and array leaves use the same
+`surface::BuildPlan` / C++-HLSL emitter. Zero-area geometry has zero-weight segment/point coverage.
+`NoShape` is a sentinel, not physical geometry. Each leaf's shape-to-root and body's root-to-world
+transform is applied once; no buoyancy registration, wetness or union-ownership filtering applies.
+
+The GPU streams every ordinal and queries `BaselineEvaluate` at its world XY. A candidate within
+1 mm of contact, or penetrating, retains the actual upward normal `n = normalize(-dx,-dy,1)`.
+Its normal-distance depth is `(height - z)*n.z`, not vertical gap. This is distance to the local
+tangent plane through the vertical terrain projection, not a closest-point search on curved terrain.
+The existing solver receives the negative normal in body-A space, the midpoint
+`sample + n*depth/2`, and an owned infinite-mass, shapeless world endpoint as body B.
+
+Selection is deterministic in primitive ordinal order: up to eight slope groups, with normals
+within 10 degrees of each group's first normal, and four world-XY quadrants per group. Each slot
+retains its deepest sample; depths within 0.1 mm prefer a larger horizontal lever arm. Selected
+normals are never averaged. Distinct sides of a hollow can therefore supply simultaneous constraints.
+The existing local-point warm-start keys provide temporal reuse; selected points can still change.
+This is a bounded manifold approximation, not a guarantee that every penetrating sample becomes
+a solver constraint. More than eight slope groups fails explicitly rather than dropping a side.
+
+A global upper-height bound permits a constant-time quick rejection of definitely-above primitive
+bounds. It sums absolute octave amplitudes with an eight-times per-octave noise bound, the absolute
+uplift/mountain offsets and the fixed 35 m hills offset; a factor-two margin covers the bounded
+family blend and rounding. It is intentionally loose and is not a sampled maximum or centre query.
+Domain/bounds validation precedes rejection. Nonfinite/unrepresentable queries, plans, resource
+sizes, more than 65,535 convex instance groups and contact-buffer overflow reject the frame before
+publishing CPU body state. Device allocation failures propagate. No sample-count cap silently
+reduces coverage.
+
+This is **discrete collision**, optionally using the engine's existing internal substeps. There is
+no CCD, support refinement, terrain collision mesh or CPU transform clamp. Choose time steps so
+translation/rotation during a substep are small relative to bodies and terrain features. Finite
+spacing and existing solver slop permit small residual penetration; arbitrarily narrow terrain
+features between samples are not guaranteed to be detected.
+
+Plans rebuild with the shape cache and are generated only on first dynamic use; irrelevant static
+geometry does not need a representable surface plan. Mass changes that make a shape dynamic prepare
+its plan before participation. Per-frame instance streams carry only body/shape/child indices.
+One 64-thread group streams each convex instance, using bounded shared candidate storage rather
+than persistent point clouds. Work is linear in emitted samples times evaluator cost and the
+bounded slope search. Resources and the endpoint outlive submitted jobs; pending-frame source
+mutation is rejected. Static endpoint contacts reuse ordinary solver colouring, overflow handling,
+sleep islands and articulation contact paths.
+
+`Engine::StepProfile::m_terrain_gpu_ms` is the sum of GPU timestamp intervals around the terrain
+contact stage and resolver-dispatch update across internal substeps. It excludes other physics,
+host recording/waiting, query readback and rendering. Other engine timing fields remain host timings.
+The CPU evaluator below remains device independent.
+
+`TerrainCollisionTests` runs actual GPU primitive/compound contacts, independent FP64 hollow
+normal/depth checks, a known off-centre impulse, energy loss, resting/substepped trajectories,
+floating-articulation contact, quickout, source lifetime and explicit capacity/domain failures.
+
+### Ordinary CPU queries
+
 ```cpp
 #include "pr/physics/terrain/landscape/baseline_surface.h"
 

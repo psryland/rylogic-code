@@ -18,7 +18,7 @@ namespace pr::physics::surface
 #endif
 
 // Compact shape-local quadrature patch. Plans are validated by BuildPlan before CPU/GPU emission.
-// Kind 0 is a rectangle, 1 a tapered strip, and 2 a radially projected unit-cube face.
+// Kind 0 is a rectangle, 1 a tapered strip, 2 a sphere face, 3 a hemisphere face, 4 a cylinder, and 5 a zero-area segment.
 struct SurfacePatch
 {
 	float4 m_origin;
@@ -35,7 +35,8 @@ struct SurfacePatch
 	uint m_pad1;
 };
 
-// One surface point with its own outward normal and represented area; coincident features retain each face contribution.
+// One surface point with its represented area and outward normal, or zero area and normal for a point or segment.
+// Coincident features retain each face contribution.
 struct SurfaceSample
 {
 	float4 m_pos_local;
@@ -91,6 +92,7 @@ PR_SURFACE_ODR SurfaceSample EmitSurfaceSample(PR_SURFACE_IN(SurfacePatch) patch
 			return sample;
 		}
 		case 2:
+		case 3:
 		{
 			// Each node owns a quarter of every incident spherical cell, including face-boundary nodes.
 			float4 direction = sample.m_pos_local;
@@ -111,10 +113,42 @@ PR_SURFACE_ODR SurfaceSample EmitSurfaceSample(PR_SURFACE_IN(SurfacePatch) patch
 					float y0 = -1.0f + 2.0f * (float)(j + dj - 1) / (float)patch.m_nv;
 					float x1 = -1.0f + 2.0f * (float)(i + di) / (float)patch.m_nu;
 					float y1 = -1.0f + 2.0f * (float)(j + dj) / (float)patch.m_nv;
-					area += SurfaceSphereCell(x0, y0, x1, y1);
+					if (patch.m_kind == 2)
+					{
+						area += SurfaceSphereCell(x0, y0, x1, y1);
+					}
+					else
+					{
+						// Hemisphere patches may cover half a cube face, so derive their solid angles from the actual patch corners.
+						float4 a = patch.m_origin + patch.m_u * ((x0 + 1) * 0.5f) + patch.m_v * ((y0 + 1) * 0.5f);
+						float4 b = patch.m_origin + patch.m_u * ((x1 + 1) * 0.5f) + patch.m_v * ((y0 + 1) * 0.5f);
+						float4 c = patch.m_origin + patch.m_u * ((x1 + 1) * 0.5f) + patch.m_v * ((y1 + 1) * 0.5f);
+						float4 d = patch.m_origin + patch.m_u * ((x0 + 1) * 0.5f) + patch.m_v * ((y1 + 1) * 0.5f);
+						a.w = b.w = c.w = d.w = 0;
+						a = normalize(a); b = normalize(b); c = normalize(c); d = normalize(d);
+						area += SurfaceSolidAngle(a, b, c) + SurfaceSolidAngle(a, c, d);
+					}
 				}
 			}
 			sample.m_darea = 0.25f * patch.m_measure * area;
+			if (patch.m_kind == 3)
+				sample.m_pos_local += patch.m_normal;
+			return sample;
+		}
+		case 4:
+		{
+			// Use radial normals on the periodic cylindrical side while retaining the rectangular grid's area weights.
+			float angle = 6.2831853071795864769f * v;
+			sample.m_normal_local = float4(cos(angle), sin(angle), 0, 0);
+			sample.m_pos_local = patch.m_origin + u * patch.m_u + patch.m_taper * sample.m_normal_local;
+			return sample;
+		}
+		case 5:
+		{
+			// Emit endpoint-inclusive positional coverage without assigning area or a normal to lower-dimensional geometry.
+			sample.m_pos_local = patch.m_origin + patch.m_u * ((float)index / (float)patch.m_nu);
+			sample.m_normal_local = float4(0, 0, 0, 0);
+			sample.m_darea = 0;
 			return sample;
 		}
 		default:

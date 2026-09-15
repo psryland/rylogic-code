@@ -1,14 +1,15 @@
 # Shared surface quadrature
 
 `surface_sampling.h` builds a primitive-local `surface::Plan` from a collision box, sphere,
-triangle, or polytope. `surface_sampling.hlsli` emits its points, outward normals, and individual
+line/capsule, triangle, or polytope. `surface_sampling.hlsli` emits its points, outward normals, and individual
 area weights. **The emitter is the same source compiled as C++ and HLSL.** It has no water,
 rigid-body, interior-tetrahedron, or terrain-collision dependency.
 
 ## Spacing and identity contract
 
 `BuildPlan(shape, spacing)` requires finite positive spacing, measured in shape-local length units
-(metres in physics). The default is **0.1 m**. Counts follow geometry and spacing; they are not a budget.
+(metres in physics). The shared default is **0.16 m**, used by terrain, CPU/GPU buoyancy and sandbox surface overlays.
+Counts follow geometry and spacing; they are not a budget.
 
 In exact arithmetic, every surface cell has diameter at most `spacing`, and every surface point is
 within `spacing / 2` of an emitted node. Distances are planar on flat faces and **geodesic on spheres**.
@@ -21,7 +22,7 @@ Coincident contributions from different faces are intentionally separate, with t
 and represented areas. Do not average sharp normals before applying a nonlinear force. Artificial
 triangle-strip boundaries and cube-map seams can also have coincident contributions; these represent
 adjacent integration regions, not additional surface area. A future position-only contact consumer
-may deduplicate positions separately; this API does not implement terrain contacts.
+may reduce positions separately; terrain contact selection belongs to the engine, not this emitter.
 
 For unchanged geometry and spacing, primitive-local ordinal, position, normal, and weight are
 deterministic. Surface identities do not depend on body registration IDs or frame order. Compound
@@ -56,7 +57,16 @@ transform once. Build plans directly from the primitive geometry, not from volum
   triangles using edge differences to avoid cancellation. Areas sum to `4*pi*r*r` and the
   construction has cube/antipodal symmetry. Non-constant integrands remain quadrature approximations.
 
-Zero-area triangles and zero-radius spheres emit no weighted samples. Boxes require strictly positive
+* **Lines/capsules:** a positive radius uses two cube-mapped hemispheres and a periodic cylinder grid.
+  Hemisphere patches inherit the sphere's conservative subdivision bounds. Cylinder axial and arc-length
+  steps are at most `spacing/sqrt(2)`; trapezoidal axial weights and periodic angular weights sum to
+  `2*pi*r*length`, and the hemispheres sum to `4*pi*r*r`. Equator contributions remain separate.
+  A zero-radius line uses endpoint-inclusive subdivisions of length at most spacing, with zero area
+  and zero normal. A zero-length capsule has only its hemispheres.
+
+Zero-area triangles emit their longest segment (one point if collapsed); zero-radius spheres emit
+one point. These samples have zero area and zero normal, so they add no surface force while preserving
+geometric contact coverage. Boxes require strictly positive
 extents, matching the collision shape's construction invariant; invalidated zero-extent boxes throw
 at the sampler boundary instead of being treated as supported plates. Unsupported primitives,
 negative/non-finite dimensions, invalid spacing, overflowing
@@ -91,7 +101,8 @@ can still be expensive and are not a real-time latency guarantee.
 
 `GpuBuoyancy::Config::m_surface_spacing` is part of the immutable shape-cache key. Like polytope
 derivation settings, it applies at registration/shape refresh; existing registrations retain their
-plans. `SamplerConfig::m_surface_spacing` controls each CPU oracle evaluation. `SampleHull` takes
+plans. Both default to `surface::DefaultSpacing`, as does terrain; explicit caller overrides remain available.
+`SamplerConfig::m_surface_spacing` controls each CPU oracle evaluation. `SampleHull` takes
 only the volume sample count: there is no old surface-count overload or alternate Halton surface path.
 
 GPU surface threads stream all ordinals using a grid-stride loop. At most 128 groups per hull produce

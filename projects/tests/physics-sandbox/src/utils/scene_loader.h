@@ -236,6 +236,7 @@ namespace physics_sandbox::scene_loader
 		pr::physics::terrain::v2d centre_xy = pr::physics::terrain::v2d::Zero();
 		double radius_m = 4000.0;
 		int intervals = 512;
+		float surface_spacing = physics::surface::DefaultSpacing; // Terrain collision only; the preview grid and buoyancy have separate settings.
 		ETerrainDisplayMode display = ETerrainDisplayMode::Neutral;
 	};
 

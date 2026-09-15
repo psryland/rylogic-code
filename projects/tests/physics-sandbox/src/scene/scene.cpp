@@ -33,6 +33,7 @@ namespace physics_sandbox
 			lhs.m_sleepwake_ms += rhs.m_sleepwake_ms;
 			lhs.m_broadphase_ms += rhs.m_broadphase_ms;
 			lhs.m_collide_ms += rhs.m_collide_ms;
+			lhs.m_terrain_gpu_ms += rhs.m_terrain_gpu_ms;
 			lhs.m_resolve_ms += rhs.m_resolve_ms;
 			lhs.m_selective_ms += rhs.m_selective_ms;
 			lhs.m_sleepupdate_ms += rhs.m_sleepupdate_ms;
@@ -283,9 +284,9 @@ namespace physics_sandbox
 		if (m_step_pending)
 			throw std::runtime_error("Scene objects cannot be replaced while a step is pending");
 
-		// Remove external-force registrations and engine-side pointer caches before invalidating their caller-owned targets.
+		// Remove external-force registrations, terrain, and engine-side pointer caches before invalidating their caller-owned targets.
 		ClearBuoyancy();
-		m_physics.ResetCaches();
+		m_physics.Terrain(std::nullopt);
 		m_constraints = physics::ConstraintSet{};
 		m_ground_body_index = -1;
 
@@ -485,14 +486,17 @@ namespace physics_sandbox
 
 	}
 
-	// Create the scene-owned terrain surface, CPU mesh, and optional renderer resources.
+	// Create the scene's canonical terrain source, physical collision consumer, CPU mesh, and optional renderer resources.
 	void Scene::CreateTerrain(scene_loader::TerrainDesc const& terrain)
 	{
+		// Give rendering and collision the same recipe while retaining independent sampling and mesh densities.
 		m_terrain_surface = std::make_unique<pr::physics::terrain::landscape::BaselineSurface>(terrain.surface);
+		m_physics.Terrain(*m_terrain_surface, terrain.surface_spacing);
 		m_terrain_mesh = TerrainVisual::PrepareMesh(*m_terrain_surface, terrain);
 		if (m_rdr != nullptr)
 			m_terrain_gfx = std::make_unique<TerrainVisual>(*m_rdr, std::move(*m_terrain_mesh));
 
+		// Report preview-mesh preparation separately from runtime terrain collision work.
 		auto const& metrics = m_terrain_mesh->m_metrics;
 		auto const point_eps = metrics.m_point_sampling_ms > 0.0 ? 1000.0 * metrics.m_point_sample_count / metrics.m_point_sampling_ms : 0.0;
 		auto const batch_eps = metrics.m_batch_sampling_ms > 0.0 ? 1000.0 * metrics.m_batch_count * metrics.m_batch_width / metrics.m_batch_sampling_ms : 0.0;

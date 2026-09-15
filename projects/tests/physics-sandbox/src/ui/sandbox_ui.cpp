@@ -780,7 +780,7 @@ namespace physics_sandbox
 				m_steps_remaining == 0 ? L"[Paused]" : L"[Running]",
 				m_fps);
 			if (m_scene.m_sample_overlays.Enabled() && m_scene.m_sample_overlays.m_failed_targets != 0)
-				new_status += std::format(L"  Sample overlays: {} target(s) unavailable: {}", m_scene.m_sample_overlays.m_failed_targets, pr::Widen(m_scene.m_sample_overlays.m_first_error));
+				new_status += std::format(L"  Sample overlays: {} target(s) with errors: {}", m_scene.m_sample_overlays.m_failed_targets, pr::Widen(m_scene.m_sample_overlays.m_first_error));
 
 			if (new_status != m_last_status)
 			{
