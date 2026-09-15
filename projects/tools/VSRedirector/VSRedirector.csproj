@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>WinExe</OutputType>
+		<TargetFrameworks>$(PrimaryTarget)</TargetFrameworks>
+		<RootNamespace>vsredirector</RootNamespace>
+		<IsPackable>false</IsPackable>
+		<Description>Solution-aware Visual Studio file redirector</Description>
+		<Version>1.0.0</Version>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<RepositoryToolName>VSRedirector</RepositoryToolName>
+		<DefaultItemExcludes>$(DefaultItemExcludes);bin\**;obj\**</DefaultItemExcludes>
+		<!-- This standalone tool must not synchronise unrelated source files during its build. -->
+		<RunCodeSync>false</RunCodeSync>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+		<DefineConstants>$(DefineConstants);PR_UNITTESTS</DefineConstants>
+	</PropertyGroup>
+	<Target Name="TestRedirector" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug' AND '$(RunUnitTests)' != 'false' AND '$(IsCrossTargetingBuild)' != 'true'">
+		<Exec Command="dotnet &quot;$(TargetPath)&quot; --self-test" />
+	</Target>
+</Project>

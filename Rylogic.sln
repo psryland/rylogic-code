@@ -279,6 +279,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "view3d-ui.dll", "projects\r
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "view3d-ui-tests", "projects\tests\view3d-ui-tests\view3d-ui-tests.vcxproj", "{029199FD-C815-46E4-ADAF-5F51AFFF5CA1}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VSRedirector", "projects\tools\VSRedirector\VSRedirector.csproj", "{1EC5123E-A322-0DF3-86ED-096281C3CB17}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -1395,6 +1397,22 @@ Global
 		{029199FD-C815-46E4-ADAF-5F51AFFF5CA1}.Release|x64.Build.0 = Release|x64
 		{029199FD-C815-46E4-ADAF-5F51AFFF5CA1}.Release|x86.ActiveCfg = Release|Win32
 		{029199FD-C815-46E4-ADAF-5F51AFFF5CA1}.Release|x86.Build.0 = Release|Win32
+		{1EC5123E-A322-0DF3-86ED-096281C3CB17}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1EC5123E-A322-0DF3-86ED-096281C3CB17}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1EC5123E-A322-0DF3-86ED-096281C3CB17}.Debug|arm64.ActiveCfg = Debug|Any CPU
+		{1EC5123E-A322-0DF3-86ED-096281C3CB17}.Debug|arm64.Build.0 = Debug|Any CPU
+		{1EC5123E-A322-0DF3-86ED-096281C3CB17}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{1EC5123E-A322-0DF3-86ED-096281C3CB17}.Debug|x64.Build.0 = Debug|Any CPU
+		{1EC5123E-A322-0DF3-86ED-096281C3CB17}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{1EC5123E-A322-0DF3-86ED-096281C3CB17}.Debug|x86.Build.0 = Debug|Any CPU
+		{1EC5123E-A322-0DF3-86ED-096281C3CB17}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1EC5123E-A322-0DF3-86ED-096281C3CB17}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1EC5123E-A322-0DF3-86ED-096281C3CB17}.Release|arm64.ActiveCfg = Release|Any CPU
+		{1EC5123E-A322-0DF3-86ED-096281C3CB17}.Release|arm64.Build.0 = Release|Any CPU
+		{1EC5123E-A322-0DF3-86ED-096281C3CB17}.Release|x64.ActiveCfg = Release|Any CPU
+		{1EC5123E-A322-0DF3-86ED-096281C3CB17}.Release|x64.Build.0 = Release|Any CPU
+		{1EC5123E-A322-0DF3-86ED-096281C3CB17}.Release|x86.ActiveCfg = Release|Any CPU
+		{1EC5123E-A322-0DF3-86ED-096281C3CB17}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -1478,6 +1496,7 @@ Global
 		{6E9F4B3A-2C7D-4E1A-9B5E-8D3C6A1F0B27} = {F3863465-2D47-4787-8EEA-8A2BAEF62936}
 		{9A2D5C6E-1B3F-4A8D-BE0C-7F2E4D9A6C51} = {F3863465-2D47-4787-8EEA-8A2BAEF62936}
 		{029199FD-C815-46E4-ADAF-5F51AFFF5CA1} = {AB9109F6-19E9-4087-B998-47A430030516}
+		{1EC5123E-A322-0DF3-86ED-096281C3CB17} = {822EB252-E961-47A0-B54F-7E2FFAE9801A}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {7DD34DBC-7EE6-40E2-8641-CDA6D05E7838}
