@@ -16,7 +16,6 @@
 #include "src/world/ocean/distant_ocean.h"
 #include "src/world/terrain/height_field.h"
 #include "src/world/terrain/terrain.h"
-#include "src/world/sky/procedural_sky.h"
 #include "src/world/sky/day_night_cycle.h"
 #include "src/world/ship/ship.h"
 #include "src/diag/diag_ui.h"

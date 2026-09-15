@@ -300,7 +300,7 @@ namespace las
 		// Per-system tasks: prepare shader constant buffers (thread-safe, parallel)
 		m_render_graph.Add(RenderTaskId::Skybox, [&, sun_dir, sun_col, sun_int](auto ctx) -> pr::task_graph::Task {
 			co_await ctx.Wait(RenderTaskId::PrepareFrame);
-			m_sky.PrepareRender(sun_dir, sun_col, sun_int);
+			m_sky.Update(sun_dir, sun_col, sun_int);
 			co_return;
 		});
 		m_render_graph.Add(RenderTaskId::Ocean, [&, cam_pos, sun_dir, sun_col](auto ctx) -> pr::task_graph::Task {

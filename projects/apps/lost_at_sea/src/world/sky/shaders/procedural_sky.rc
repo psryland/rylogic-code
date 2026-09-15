@@ -1,3 +1,0 @@
-// Shader source files for runtime compilation
-src/world/sky/shaders/procedural_sky_cbuf.hlsli TEXT DISCARDABLE "src/world/sky/shaders/procedural_sky_cbuf.hlsli"
-src/world/sky/shaders/procedural_sky.hlsl       TEXT DISCARDABLE "src/world/sky/shaders/procedural_sky.hlsl"

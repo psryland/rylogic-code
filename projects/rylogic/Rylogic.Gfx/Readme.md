@@ -2,6 +2,43 @@
 
 This assembly is an interop wrapper for the native View3d dll
 
+## Procedural atmosphere
+
+`View3d.ProceduralSky` owns a Z-up GPU sky shared with native `pr::rdr12::ProceduralSky`
+(`pr/view3d-12/scene/procedural_sky.h`). Create it after `View3d.Create()`, add its `Skybox` object to a window,
+and remove that object before disposing the sky. Creation, `Update`, `Blend`, rendering and disposal must be sequenced
+on the render owner; the View3d context must outlive the sky.
+
+```csharp
+using var sky = new View3d.ProceduralSky("Atmosphere", new v4(0.4f, 0.6f, 1, 0), new v4(1, 0.95f, 0.85f, 1), 1);
+window.AddObject(sky.Skybox);
+// Before the next render, update direction toward the sun, linear RGB colour, and nonnegative intensity.
+sky.Update(new v4(1, 0, 0, 0), new v4(1, 0.5f, 0.2f, 1), 0.5f);
+window.Render();
+window.RemoveObject(sky.Skybox);
+```
+
+The shared shader covers daylight, twilight, night, a sun disc and halo, and the below-horizon fade.
+It uses precompiled renderer shader bytecode and one persistent background triangle, with only a small parameter
+upload per draw. No CPU image generation, intermediate texture files, runtime shader compiler, or sky-specific render loop is needed.
+Perspective and orthographic cameras are supported; object transforms and camera translation do not move the sky.
+It renders at far depth after opaque geometry without writing depth.
+
+`sky.Blend(background, weight, world_to_sky, world_to_background)` optionally blends a `View3d.CubeMap` into the
+atmosphere in that same draw. Weight 0 is exactly the cubemap and weight 1 is exactly the atmosphere; the shader
+interpolates linear RGB before output encoding. The caller owns timing and easing. The two finite orthonormal
+matrices rotate current scene directions into the atmosphere's and cubemap's world frames; translation and scale
+are not accepted. The cubemap's own `m_cube2w` orientation is also respected. Independent direction frames let a
+caller change scene coordinates without rotating either background. The native sky retains the source texture
+even if its managed wrapper is disposed. `Blend(null, 1, ..., ...)` releases that reference and selects the standalone
+atmosphere. Invalid weights, rotations, or disposed wrappers are rejected without changing the previous state.
+The blend uses a dedicated descriptor binding, leaving material textures and the reflection environment untouched.
+
+The sky does **not** generate a reflection cube map. Set `window.EnvironmentMap = null` when switching from an
+authored environment to this sky unless a separate reflection source is intended. The C ABI exposes
+`View3D_ObjectCreateProceduralSky`, `View3D_ObjectUpdateProceduralSky` and `View3D_ObjectBlendProceduralSky`;
+destruction uses `View3D_ObjectDelete`.
+
 ## Rylogic.Gfx.UI (View3DUI managed API)
 
 `Rylogic.Gfx.UI` is a WPF-free managed wrapper over the native `view3d-ui.dll`. It exposes copyable, value-typed

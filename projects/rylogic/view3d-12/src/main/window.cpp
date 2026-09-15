@@ -338,6 +338,9 @@ namespace pr::rdr12
 		if (!force && All(BackBufferSize() == size))
 			return;
 
+		// A recreated target contains no submitted frame yet.
+		m_frame_output = nullptr;
+
 		// Flush any GPU commands that are still in flight
 		auto queue = rdr().GfxQueue();
 		m_gsync.AddSyncPoint(queue);
@@ -455,6 +458,7 @@ namespace pr::rdr12
 	// Replace the swap chain buffers with new ones
 	void Window::CustomSwapChain(std::span<BackBuffer> back_buffers)
 	{
+		m_frame_output = nullptr;
 		auto old_size = BackBufferSize();
 
 		// Release references to swap chain resources
@@ -501,6 +505,7 @@ namespace pr::rdr12
 	// Start rendering a new frame. Returns an object that scenes can render into
 	Frame& Window::NewFrame()
 	{
+		m_frame_output = nullptr;
 		++m_frame_number;
 
 		// Get the current swap chain back buffer
@@ -617,6 +622,9 @@ namespace pr::rdr12
 		if (flush == EGpuFlush::DontFlush)
 			return;
 
+		// DXGI advances its slot on Present, so retain the target identity before submitting this frame.
+		auto frame_output = BBCount() != 0 ? &m_swap_bb[BBIndex()] : nullptr;
+
 		frame.m_prepare.Close();
 		frame.m_world_depth.Close();
 		frame.m_resolve.Close();
@@ -710,6 +718,7 @@ namespace pr::rdr12
 		auto sync_point = m_gsync.AddSyncPoint(rdr().GfxQueue());
 		frame.bb_main().m_sync_point = sync_point;
 		frame.bb_post().m_sync_point = sync_point;
+		m_frame_output = frame_output;
 		++m_bb_index %= BBCount();
 
 		// Signal the renderer's deferred-deletion fence on the same queue
@@ -723,6 +732,15 @@ namespace pr::rdr12
 	void Window::WaitForGpu()
 	{
 		m_gsync.Wait();
+	}
+
+	// Borrow the final colour target from the last submitted frame, not the next swap-chain slot.
+	BackBuffer& Window::FrameOutput()
+	{
+		if (m_frame_output == nullptr)
+			throw std::runtime_error("No submitted frame output is available");
+
+		return *m_frame_output;
 	}
 
 	// Create the MSAA render target and depth stencil

@@ -90,12 +90,6 @@
     <ClCompile Include="src\world\ship\ship.cpp">
       <Filter>src\world\ship</Filter>
     </ClCompile>
-    <ClCompile Include="src\world\sky\procedural_sky.cpp">
-      <Filter>src\world\sky</Filter>
-    </ClCompile>
-    <ClCompile Include="src\world\sky\shaders\procedural_sky_shader.cpp">
-      <Filter>src\world\sky\shaders</Filter>
-    </ClCompile>
     <ClCompile Include="src\core\input\input_handler.cpp">
       <Filter>src\core\input</Filter>
     </ClCompile>
@@ -164,12 +158,6 @@
     <ClInclude Include="src\world\ship\ship.h">
       <Filter>src\world\ship</Filter>
     </ClInclude>
-    <ClInclude Include="src\world\sky\procedural_sky.h">
-      <Filter>src\world\sky</Filter>
-    </ClInclude>
-    <ClInclude Include="src\world\sky\shaders\procedural_sky_shader.h">
-      <Filter>src\world\sky\shaders</Filter>
-    </ClInclude>
     <ClInclude Include="src\diag\diag_ui.h">
       <Filter>src\diag</Filter>
     </ClInclude>
@@ -232,12 +220,6 @@
     <None Include="src\world\terrain\shaders\terrain.hlsl">
       <Filter>src\world\terrain\shaders</Filter>
     </None>
-    <None Include="src\world\sky\shaders\procedural_sky_cbuf.hlsli">
-      <Filter>src\world\sky\shaders</Filter>
-    </None>
-    <None Include="src\world\sky\shaders\procedural_sky.hlsl">
-      <Filter>src\world\sky\shaders</Filter>
-    </None>
     <None Include="src\world\water\shaders\water_field_types.hlsli">
       <Filter>src\world\water\shaders</Filter>
     </None>
@@ -260,9 +242,6 @@
     </ResourceCompile>
     <ResourceCompile Include="src\world\terrain\shaders\terrain.rc">
       <Filter>src\world\terrain\shaders</Filter>
-    </ResourceCompile>
-    <ResourceCompile Include="src\world\sky\shaders\procedural_sky.rc">
-      <Filter>src\world\sky\shaders</Filter>
     </ResourceCompile>
     <ResourceCompile Include="src\world\water\shaders\water.rc" />
   </ItemGroup>

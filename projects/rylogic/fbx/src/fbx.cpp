@@ -1069,12 +1069,16 @@ namespace pr::geometry::fbx
 					if (node->mesh == nullptr)
 						return false;
 
-					assert(node->has_geometry_transform == false && "ignoring this currently");
-
 					auto mesh_id = node->mesh->typed_id;
 					auto name = To<std::string_view>(node->name);
 					auto level = s_cast<int>(node->node_depth - root->node_depth);
 					auto o2p = level == 0 ? To<m4x4>(node->node_to_world) : To<m4x4>(node->node_to_parent);
+
+					// Geometry transforms affect only the attached mesh, so cancel the parent's geometry transform before composing a child.
+					if (level != 0 && node->parent->has_geometry_transform)
+						o2p = Invert(To<m4x4>(node->parent->geometry_to_node)) * o2p;
+
+					o2p = o2p * To<m4x4>(node->geometry_to_node);
 
 					mesh_tree.push_back(MeshTree{
 						.m_o2p = o2p,
@@ -1391,7 +1395,7 @@ namespace pr::geometry::fbx
 			return bind_poses;
 		}
 
-		// Return the mesh node that defines the object space for each skinned skeleton.
+		// Return the mesh node whose geometry space is shared by each skinned skeleton.
 		SkeletonMeshNodes ReadSkeletonMeshNodes() const
 		{
 			SkeletonMeshNodes mesh_nodes;
@@ -1413,7 +1417,7 @@ namespace pr::geometry::fbx
 						for (auto const* mesh_node : fbxmesh->instances)
 						{
 							auto [iter, inserted] = mesh_nodes.try_emplace(root_id, mesh_node);
-							if (!inserted && !FEqlAbsolute(To<m4x4>(iter->second->node_to_world), To<m4x4>(mesh_node->node_to_world), 1.0e-4f))
+							if (!inserted && !FEqlAbsolute(To<m4x4>(iter->second->geometry_to_world), To<m4x4>(mesh_node->geometry_to_world), 1.0e-4f))
 								throw std::runtime_error("FBX skeleton is shared by meshes in different object spaces");
 						}
 					}
@@ -1518,6 +1522,7 @@ namespace pr::geometry::fbx
 		{
 			auto b2w = EvaluateNodeToWorld(fbxanim, bone_node, time);
 			auto m2w = EvaluateNodeToWorld(fbxanim, mesh_node, time);
+			m2w = ufbx_matrix_mul(&m2w, &mesh_node->geometry_to_node);
 			auto w2m = ufbx_matrix_invert(&m2w);
 			return ufbx_matrix_mul(&w2m, &b2w);
 		}
@@ -1562,6 +1567,7 @@ namespace pr::geometry::fbx
 			bind_pose.reserve(m_fbxscene.bones.count);
 
 			auto const cluster_bind_poses = ReadClusterBindPoses();
+			auto const skeleton_mesh_nodes = ReadSkeletonMeshNodes();
 
 			// Build a skeleton from each root bone
 			auto roots = FindRoots(m_fbxscene.bones, IsBoneRoot);
@@ -1588,9 +1594,11 @@ namespace pr::geometry::fbx
 						bind_pose[pose.bone_node] = &pose;
 				}
 
-				// Bind poses are given in scene-world space. Convert them into the object space that contains the skeleton root.
+				// Bind poses are given in scene-world space. Skinned bones use mesh geometry space, including bones without their own cluster.
 				auto coord_bake = m4x4::Identity();
-				if (root->parent != nullptr)
+				if (auto iter = skeleton_mesh_nodes.find(root->typed_id); iter != skeleton_mesh_nodes.end())
+					coord_bake = Invert(To<m4x4>(iter->second->geometry_to_world));
+				else if (root->parent != nullptr)
 					coord_bake = Invert(To<m4x4>(root->parent->node_to_world));
 
 				auto const cluster_bind_pose =

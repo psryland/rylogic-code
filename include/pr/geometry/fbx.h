@@ -652,7 +652,7 @@ namespace pr::geometry::fbx
 	};
 	struct MeshTree
 	{
-		m4x4 m_o2p;              // The node to parent transform
+		m4x4 m_o2p;              // Mesh geometry to parent mesh geometry, or world space for a root; geometry transforms do not propagate to children.
 		std::string_view m_name; // Node of the mesh instance
 		uint32_t m_mesh_id;      // The previously created mesh
 		int m_level;             // The node hierarchy level

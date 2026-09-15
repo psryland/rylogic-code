@@ -4,6 +4,7 @@
 //*********************************************
 #pragma once
 #include <array>
+#include <algorithm>
 #include <span>
 #include <vector>
 #include <memory>

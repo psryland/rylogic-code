@@ -97,6 +97,10 @@
   -->
   <ItemGroup>
     <ClCompile Include="src\instance\instance.cpp" />
+    <ClCompile Include="src\scene\procedural_sky.cpp" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\scene\procedural_sky.h" />
+    <None Include="src\shaders\hlsl\sky\procedural_sky_cbuf.hlsli" />
+    <ShaderBuild Include="src\shaders\hlsl\sky\procedural_sky.hlsl" VertexEntryPoints="procedural_sky_vs=VSProceduralSky" PixelEntryPoints="procedural_sky_ps=PSProceduralSky" />
     <ClCompile Include="src\ldraw\ldraw_demo_scene.cpp" />
     <ClCompile Include="src\ldraw\ldraw_gizmo.cpp" />
     <ClCompile Include="src\ldraw\ldraw_object.cpp" />

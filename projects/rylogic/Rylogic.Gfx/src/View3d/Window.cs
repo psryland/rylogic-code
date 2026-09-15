@@ -353,6 +353,22 @@ namespace Rylogic.Gfx
 			/// <summary>Get the render target texture</summary>
 			public BackBuffer BackBuffer => View3D_WindowRenderTargetGet(Handle);
 
+			/// <summary>
+			/// Borrow the last submitted final colour target, including transparency and overlays, in PRESENT state. DepthStencil is null.
+			/// Call GSyncWait before reading, and do not render, resize, replace the swap chain, or dispose this window while using the resource.
+			/// </summary>
+			public BackBuffer FrameOutput
+			{
+				get
+				{
+					var output = View3D_WindowFrameOutputGet(Handle);
+					if (output.RenderTarget == IntPtr.Zero)
+						throw new InvalidOperationException("No submitted frame output is available.");
+
+					return output;
+				}
+			}
+
 			/// <summary>The size of the render target (in pixels)</summary>
 			public Size RenderTargetSize => BackBuffer.Dim;
 

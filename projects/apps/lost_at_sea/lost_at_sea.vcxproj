@@ -135,10 +135,6 @@
       <AdditionalOptions>/bigobj %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <ClInclude Include="src\diag\diag_ui.h" />
-    <ClCompile Include="src\world\sky\procedural_sky.cpp" />
-    <ClInclude Include="src\world\sky\procedural_sky.h" />
-    <ClCompile Include="src\world\sky\shaders\procedural_sky_shader.cpp" />
-    <ClInclude Include="src\world\sky\shaders\procedural_sky_shader.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="src\world\ocean\shaders\ocean_cbuf.hlsli" />
@@ -150,9 +146,6 @@
     <None Include="src\world\terrain\shaders\terrain_cbuf.hlsli" />
     <None Include="src\world\terrain\shaders\terrain.hlsl" />
     <ShaderBuild Include="src\world\terrain\shaders\terrain.hlsl" />
-    <None Include="src\world\sky\shaders\procedural_sky_cbuf.hlsli" />
-    <None Include="src\world\sky\shaders\procedural_sky.hlsl" />
-    <ShaderBuild Include="src\world\sky\shaders\procedural_sky.hlsl" />
     <None Include="src\world\water\shaders\water_field_types.hlsli" />
     <None Include="src\world\water\shaders\water_field.hlsli" />
     <None Include="src\world\water\shaders\water_field_buoyancy.hlsli" />
@@ -168,7 +161,6 @@
     <ResourceCompile Include="src\world\ocean\shaders\ocean.rc" />
     <ResourceCompile Include="src\world\ocean\shaders\distant_ocean.rc" />
     <ResourceCompile Include="src\world\terrain\shaders\terrain.rc" />
-    <ResourceCompile Include="src\world\sky\shaders\procedural_sky.rc" />
     <ResourceCompile Include="src\world\water\shaders\water.rc" />
   </ItemGroup>
   <ItemGroup>

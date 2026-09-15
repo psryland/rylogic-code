@@ -1063,6 +1063,10 @@ extern "C"
 	// Get the MSAA back buffer (render target + depth stencil)
 	VIEW3D_API pr::view3d::BackBuffer __stdcall View3D_WindowRenderTargetGet(pr::view3d::Window window);
 
+	// Borrow the last submitted final colour target (depth is null), including transparency and overlays, in PRESENT state.
+	// Call WindowGSyncWait before reading; do not render, resize, replace the swap chain, or destroy the window while using it.
+	VIEW3D_API pr::view3d::BackBuffer __stdcall View3D_WindowFrameOutputGet(pr::view3d::Window window);
+
 	// Signal the window is invalidated. This does not automatically trigger rendering. Use InvalidatedCB.
 	VIEW3D_API void __stdcall View3D_WindowInvalidate(pr::view3d::Window window, BOOL erase);
 	VIEW3D_API void __stdcall View3D_WindowInvalidateRect(pr::view3d::Window window, RECT const& rect, BOOL erase);
@@ -1270,6 +1274,17 @@ extern "C"
 
 	// Create a six-sided skybox from a cube-map filename pattern containing '??', replaced by px, nx, py, ny, pz, and nz.
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateSkybox(char const* name, char const* resource, float radius, GUID const* context_id);
+
+	// Create a Z-up GPU atmosphere. Sun direction points toward the sun; finite colour and intensity must be nonnegative.
+	// Destroy using View3D_ObjectDelete. This object has no reflection cube map and ignores object transforms.
+	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateProceduralSky(char const* name, pr::view3d::Vec4 sun_direction, pr::view3d::Vec4 sun_colour, float sun_intensity, GUID const* context_id);
+
+	// Update an atmosphere on its render owner thread. Returns FALSE on invalid parameters or a non-sky object, without changing the previous sky.
+	VIEW3D_API BOOL __stdcall View3D_ObjectUpdateProceduralSky(pr::view3d::Object object, pr::view3d::Vec4 sun_direction, pr::view3d::Vec4 sun_colour, float sun_intensity);
+
+	// Retain and blend a source cube map (0=cubemap, 1=atmosphere). Direction transforms must be finite rotations.
+	// The cubemap's own orientation is composed with world_to_background. Null background requires weight 1. FALSE leaves the sky unchanged.
+	VIEW3D_API BOOL __stdcall View3D_ObjectBlendProceduralSky(pr::view3d::Object object, pr::view3d::CubeMap background, float weight, pr::view3d::Mat4x4 const& world_to_sky, pr::view3d::Mat4x4 const& world_to_background);
 
 	// Create an ldr object using a callback to populate the model data.
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateWithCallback(char const* name, pr::view3d::Colour colour, int vcount, int icount, int ncount, pr::view3d::EditObjectCB edit_cb, GUID const& context_id);

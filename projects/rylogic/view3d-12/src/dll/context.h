@@ -87,6 +87,13 @@ namespace pr::rdr12
 		// Create a six-sided skybox from individual cube-map face images.
 		ldraw::LdrObject* ObjectCreateSkybox(char const* name, std::filesystem::path const& resource, float radius, Guid const* context_id);
 
+		// Create or update a Z-up GPU atmosphere; its native owner is tied to the ordinary object lifetime.
+		ldraw::LdrObject* ObjectCreateProceduralSky(char const* name, v4 sun_direction, v4 sun_colour, float sun_intensity, Guid const* context_id);
+		void ObjectUpdateProceduralSky(ldraw::LdrObject* object, v4 sun_direction, v4 sun_colour, float sun_intensity);
+
+		// Change the retained background and direction frames without replacing the scene object.
+		void ObjectBlendProceduralSky(ldraw::LdrObject* object, TextureCubePtr background, float weight, m4x4 const& world_to_sky, m4x4 const& world_to_background);
+
 		// Modify an ldr object using a callback to populate the model data.
 		ldraw::LdrObject* ObjectCreateByCallback(char const* name, Colour32 colour, int vcount, int icount, int ncount, view3d::EditObjectCB edit_cb, Guid const& context_id);
 		void ObjectEdit(ldraw::LdrObject* object, view3d::EditObjectCB edit_cb);

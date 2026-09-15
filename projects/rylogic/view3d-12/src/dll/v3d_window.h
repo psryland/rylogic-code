@@ -215,6 +215,9 @@ namespace pr::rdr12
 		rdr12::BackBuffer const& RenderTarget() const;
 		rdr12::BackBuffer& RenderTarget();
 
+		// Borrow the last submitted final colour target; see rdr12::Window::FrameOutput for lifetime and synchronization.
+		rdr12::BackBuffer& FrameOutput();
+
 		// Call InvalidateRect on the HWND associated with this window
 		void InvalidateRect(RECT const* rect, bool erase = false);
 		void Invalidate(bool erase = false);

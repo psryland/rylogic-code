@@ -42,6 +42,57 @@ namespace pr::physics::terrain::landscape::tests
 
 	PRUnitTestClass(TerrainLandscapeTests)
 	{
+		PRUnitTestMethod(BoundedRayCastRefinesCrossingsAndReportsLimits, Quick)
+		{
+			// Planes provide exact reference intersections for vertical, oblique, horizontal and inside-origin rays.
+			struct Plane
+			{
+				v2d m_gradient = v2d::Zero();
+				SurfaceSample Sample(v2d xy) const
+				{
+					return SurfaceSample{.m_height = Dot(m_gradient, xy), .m_gradient_xy = m_gradient};
+				}
+			};
+			auto const flat = Plane{};
+			auto const origin = v4d{0, 0, 10, 1};
+			auto const down = RayCast(flat, origin, v4d{0, 0, -2, 0});
+			PR_EXPECT(down.m_hit && std::abs(down.m_distance - 10) <= 0.01);
+			auto const oblique = RayCast(flat, origin, v4d{1, 0, -0.1, 0});
+			PR_EXPECT(oblique.m_hit && std::abs(oblique.m_distance - std::sqrt(10100.0)) <= 0.01);
+			auto const horizontal = RayCast(Plane{v2d{0.5, 0}}, origin, v4d::XAxis());
+			PR_EXPECT(horizontal.m_hit && std::abs(horizontal.m_distance - 20) <= 0.01);
+			PR_EXPECT(RayCast(flat, v4d::Origin(), v4d::ZAxis()).m_distance == 0);
+			PR_EXPECT(RayCast(flat, v4d{0, 0, -1, 1}, v4d::ZAxis()).m_hit);
+			PR_EXPECT(!RayCast(flat, origin, v4d::ZAxis(), {.m_max_distance = 20}).m_hit);
+			PR_EXPECT(!RayCast(flat, origin, -v4d::ZAxis(), {.m_max_distance = 9}).m_hit);
+			PR_EXPECT(RayCast(flat, origin, -v4d::ZAxis(), {.m_max_distance = 10}).m_hit);
+			PR_THROWS(RayCast(flat, origin, v4d::Zero()), std::invalid_argument);
+			PR_THROWS(RayCast(flat, origin, v4d::ZAxis(), {.m_max_step = 0}), std::invalid_argument);
+			PR_THROWS(RayCast(flat, origin, v4d::ZAxis(), {.m_max_samples = 2}), std::runtime_error);
+
+			// A narrow ridge demonstrates why sampling resolution is not a conservative intersection guarantee.
+			struct Ridge
+			{
+				SurfaceSample Sample(v2d xy) const
+				{
+					auto const height = 2 * std::exp(-400 * (xy.x - 0.5) * (xy.x - 0.5));
+					return SurfaceSample{.m_height = height, .m_gradient_xy = v2d{-800 * (xy.x - 0.5) * height, 0}};
+				}
+			};
+			auto const grazing_origin = v4d{0, 0, 1, 1};
+			PR_EXPECT(!RayCast(Ridge{}, grazing_origin, v4d::XAxis(), {.m_max_distance = 1, .m_max_step = 1}).m_hit);
+			auto const ridge_hit = RayCast(Ridge{}, grazing_origin, v4d::XAxis(), {.m_max_distance = 1, .m_max_step = 0.01, .m_tolerance = 0.0001});
+			PR_EXPECT(ridge_hit.m_hit);
+			PR_EXPECT(std::abs(ridge_hit.m_distance - (0.5 - std::sqrt(std::log(2.0) / 400))) <= 0.0001);
+
+			// Check the real procedural evaluator without replacing it with a triangulated rendering proxy.
+			auto const surface = MakeSurface();
+			auto const height = surface.Sample(v2d{60, 80}).m_height;
+			auto const hit = RayCast(surface, v4d{60, 80, height + 50, 1}, -v4d::ZAxis());
+			PR_EXPECT(hit.m_hit && std::abs(hit.m_position.z - height) <= 0.01);
+			PR_EXPECT(hit.m_samples <= 32768);
+		}
+
 		PRUnitTestMethod(RejectsInvalidConfigAndCoordinates, Quick)
 		{
 			auto config = BaselineSurfaceConfig{};
