@@ -94,6 +94,8 @@ namespace pr::view3d::ui
 		// tree (finite/non-negative dimensions, enum ranges, supported feature subset).
 		void ValidateControlDescLocal(ControlDesc const& desc)
 		{
+			// Validate visibility even for descendants of an unavailable ancestor.
+			IsVisible(desc.visibility);
 			if (desc.id == 0)
 				throw EngineException(EStatus::InvalidTree, "control id 0 is reserved and cannot be assigned to a control");
 			if (static_cast<std::uint32_t>(desc.type) >= static_cast<std::uint32_t>(EControlType::Count))
@@ -144,6 +146,19 @@ namespace pr::view3d::ui
 			if (desc.type == EControlType::Root && IsWorldPolicy(desc.root_policy))
 				ValidateWorldRootParams(desc);
 		}
+	}
+
+	bool TreeModel::IsVisible(ControlId id) const
+	{
+		for (auto it = m_controls.find(id); it != m_controls.end(); it = m_controls.find(it->second.desc.parent_id))
+		{
+			if (!ui::IsVisible(it->second.desc.visibility))
+				return false;
+
+			if (it->second.desc.parent_id == 0)
+				return true;
+		}
+		return false;
 	}
 
 	std::span<std::string_view const> RequiredTemplateParts(EControlType type)

@@ -226,14 +226,14 @@ namespace pr::view3d::ui::tests
 		// show it again: the very next Update() that observes it visible must resolve Visibility.
 		auto b1 = TxnBuilder{};
 		auto hidden = panel;
-		hidden.visible = 0;
+		hidden.visibility = EVisibility::Hidden;
 		b1.Upsert(hidden);
 		engine.TransactionApply(b1.Build(1, 2));
 		engine.Update(Viewport(300, 200)); // control emits no box while hidden
 
 		auto b2 = TxnBuilder{};
 		auto shown = panel;
-		shown.visible = 1;
+		shown.visibility = EVisibility::Visible;
 		b2.Upsert(shown);
 		engine.TransactionApply(b2.Build(2, 3));
 		engine.Update(Viewport(300, 200));

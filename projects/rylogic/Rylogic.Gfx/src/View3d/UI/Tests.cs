@@ -85,6 +85,8 @@ public sealed class TestUiAbi
 	{
 		Native.EnsureLoaded();
 		Assert.Equal(Native.ApiVersion, Native.View3DUI_ApiVersion());
+		Assert.Equal(60, Marshal.OffsetOf<Native.ControlDesc>(nameof(Native.ControlDesc.m_visibility)).ToInt32());
+		Assert.Equal(64, Marshal.OffsetOf<Native.ControlDesc>(nameof(Native.ControlDesc.m_focusable)).ToInt32());
 		AssertNativeSize(EStructId.Config, Marshal.SizeOf<Native.Config>());
 		AssertNativeSize(EStructId.Transaction, Marshal.SizeOf<Native.Transaction>());
 		AssertNativeSize(EStructId.Operation, Marshal.SizeOf<Native.Operation>());
@@ -218,6 +220,27 @@ public sealed class TestUiValueSemantics
 [TestFixture]
 public sealed class TestUiDescriptorSnapshotSemantics
 {
+	/// <summary>All three visibility states retain their typed value in a snapshot, with Visible as the default.</summary>
+	[Test]
+	public void VisibilitySnapshotsAreTypedAndValidated()
+	{
+		Assert.Equal(EVisibility.Visible, new UiControlDesc().Visibility);
+		foreach (var visibility in new[] { EVisibility.Visible, EVisibility.Hidden, EVisibility.Collapsed })
+		{
+			var control = new UiControlDesc { Id = new ControlId(1), Type = EControlType.Root, Visibility = visibility };
+			var builder = new UiTransactionBuilder().Upsert(control);
+			control.Visibility = EVisibility.Visible;
+			Assert.Equal(visibility, builder.DebugControls[0].m_visibility);
+			Assert.Equal(4U, builder.DebugControls[0].m_header.m_version);
+		}
+
+		// A failed upsert must not leave a partially packed control behind.
+		var rejected = new UiTransactionBuilder();
+		Assert.Throws<ArgumentOutOfRangeException>(() => rejected.Upsert(new UiControlDesc { Visibility = (EVisibility)(-1) }));
+		Assert.Throws<ArgumentOutOfRangeException>(() => rejected.Upsert(new UiControlDesc { Visibility = (EVisibility)3 }));
+		Assert.Equal(0, rejected.DebugControls.Count);
+	}
+
 	/// <summary>Mutating a UiControlDesc (including its nested Layout/World) after Upsert must not change the already-queued native snapshot.</summary>
 	[Test]
 	public void ControlMutationAfterUpsertDoesNotAffectQueuedTransaction()
@@ -490,7 +513,7 @@ public sealed class TestUiContext
 			return; // No live D3D12 device is available in this environment; skip.
 
 		const string json = @"{
-			""schema_version"": 1,
+			""schema_version"": 2,
 			""tree"": [
 				{ ""id"": 1, ""type"": ""Root"", ""children"": [
 					{ ""id"": 2, ""type"": ""Button"", ""text"": ""OK"", ""name"": ""OkButton"", ""focusable"": true,
@@ -686,8 +709,27 @@ public sealed class TestUiContext
 [TestFixture]
 public sealed class TestUiJson
 {
+	/// <summary>Visibility round-trips as a closed three-state string, and the superseded boolean is rejected.</summary>
+	[Test]
+	public void VisibilityIsAThreeStateContract()
+	{
+		foreach (var visibility in new[] { EVisibility.Visible, EVisibility.Hidden, EVisibility.Collapsed })
+		{
+			var json = $@"{{ ""schema_version"": 2, ""tree"": [ {{ ""id"": 1, ""type"": ""Root"", ""visibility"": ""{visibility}"" }} ] }}";
+			var parsed = UiDocument.Parse(json);
+			Assert.Equal(visibility, parsed.Controls[0].Visibility);
+			Assert.Equal(visibility, UiDocument.Parse(parsed.Serialize()).Controls[0].Visibility);
+		}
+
+		// Omission preserves the default; unknown values and old properties cannot silently show a hidden control.
+		Assert.Equal(EVisibility.Visible, UiDocument.Parse(@"{ ""schema_version"": 2, ""tree"": [ { ""id"": 1, ""type"": ""Root"" } ] }").Controls[0].Visibility);
+		ExpectJsonError("$.tree[0].visibility", () => UiDocument.Parse(@"{ ""schema_version"": 2, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""visibility"": ""Bogus"" } ] }"));
+		ExpectJsonError("$.tree[0].visibility", () => UiDocument.Parse(@"{ ""schema_version"": 2, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""visibility"": 2 } ] }"));
+		ExpectJsonError("$.tree[0].visible", () => UiDocument.Parse(@"{ ""schema_version"": 2, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""visible"": false } ] }"));
+	}
+
 	private const string ValidDocument = @"{
-		""schema_version"": 1,
+		""schema_version"": 2,
 		""resources"": [ { ""id"": 1, ""kind"": ""Font"", ""name"": ""Segoe UI"", ""font_size"": 14 } ],
 		""styles"": [ {
 			""id"": 1,
@@ -727,7 +769,7 @@ public sealed class TestUiJson
 	public void ParseConvergesWithRuntimeConstruction()
 	{
 		var document = UiDocument.Parse(ValidDocument);
-		Assert.Equal(1, document.SchemaVersion);
+		Assert.Equal(UiDocument.CurrentSchemaVersion, document.SchemaVersion);
 		Assert.Equal(1, document.Resources.Count);
 		Assert.Equal(1, document.Styles.Count);
 		Assert.Equal(1, document.Templates.Count);
@@ -798,7 +840,7 @@ public sealed class TestUiJson
 	public void SerializeCanonicalizesEquivalentInputs()
 	{
 		const string variant_a = @"{
-			""schema_version"": 1,
+			""schema_version"": 2,
 			""resources"": [ { ""id"": 1, ""kind"": ""Colour"", ""colour"": ""#3060C0"" } ],
 			""styles"": [],
 			""templates"": [],
@@ -809,7 +851,7 @@ public sealed class TestUiJson
 			""templates"": [],
 			""styles"": [],
 			""resources"": [ { ""colour"": ""#3060c0ff"", ""kind"": ""Colour"", ""id"": 1 } ],
-			""schema_version"": 1
+			""schema_version"": 2
 		}";
 
 		var canonical_a = UiDocument.Parse(variant_a).Serialize();
@@ -835,14 +877,15 @@ public sealed class TestUiJson
 	[Test]
 	public void UnsupportedSchemaVersionIsRejected()
 	{
-		ExpectJsonError("$.schema_version", () => UiDocument.Parse(@"{ ""schema_version"": 2 }"));
+		ExpectJsonError("$.schema_version", () => UiDocument.Parse(@"{ ""schema_version"": 1 }"));
+		ExpectJsonError("$.schema_version", () => UiDocument.Parse(@"{ ""schema_version"": 3 }"));
 	}
 
 	/// <summary>An unrecognised closed-vocabulary enum string is rejected with the offending property's path.</summary>
 	[Test]
 	public void UnknownControlTypeIsRejected()
 	{
-		var json = @"{ ""schema_version"": 1, ""tree"": [ { ""id"": 1, ""type"": ""Bogus"" } ] }";
+		var json = @"{ ""schema_version"": 2, ""tree"": [ { ""id"": 1, ""type"": ""Bogus"" } ] }";
 		ExpectJsonError("$.tree[0].type", () => UiDocument.Parse(json));
 	}
 
@@ -850,7 +893,7 @@ public sealed class TestUiJson
 	[Test]
 	public void DanglingStyleReferenceIsRejected()
 	{
-		var json = @"{ ""schema_version"": 1, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""style_id"": 99 } ] }";
+		var json = @"{ ""schema_version"": 2, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""style_id"": 99 } ] }";
 		ExpectJsonError("$.tree[0].style_id", () => UiDocument.Parse(json));
 	}
 
@@ -858,7 +901,7 @@ public sealed class TestUiJson
 	[Test]
 	public void DanglingTemplateReferenceIsRejected()
 	{
-		var json = @"{ ""schema_version"": 1, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""template_id"": 42 } ] }";
+		var json = @"{ ""schema_version"": 2, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""template_id"": 42 } ] }";
 		ExpectJsonError("$.tree[0].template_id", () => UiDocument.Parse(json));
 	}
 
@@ -866,7 +909,7 @@ public sealed class TestUiJson
 	[Test]
 	public void DanglingFontResourceReferenceIsRejected()
 	{
-		var json = @"{ ""schema_version"": 1, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""font_resource_id"": 7 } ] }";
+		var json = @"{ ""schema_version"": 2, ""tree"": [ { ""id"": 1, ""type"": ""Root"", ""font_resource_id"": 7 } ] }";
 		ExpectJsonError("$.tree[0].font_resource_id", () => UiDocument.Parse(json));
 	}
 
@@ -874,7 +917,7 @@ public sealed class TestUiJson
 	[Test]
 	public void ZeroControlIdIsRejected()
 	{
-		var json = @"{ ""schema_version"": 1, ""tree"": [ { ""id"": 0, ""type"": ""Root"" } ] }";
+		var json = @"{ ""schema_version"": 2, ""tree"": [ { ""id"": 0, ""type"": ""Root"" } ] }";
 		ExpectJsonError("$.tree[0].id", () => UiDocument.Parse(json));
 	}
 
@@ -882,7 +925,7 @@ public sealed class TestUiJson
 	[Test]
 	public void DuplicateControlIdIsRejected()
 	{
-		var json = @"{ ""schema_version"": 1, ""tree"": [
+		var json = @"{ ""schema_version"": 2, ""tree"": [
 			{ ""id"": 1, ""type"": ""Root"", ""children"": [ { ""id"": 2, ""type"": ""Panel"" } ] },
 			{ ""id"": 2, ""type"": ""Root"" }
 		] }";
@@ -893,7 +936,7 @@ public sealed class TestUiJson
 	[Test]
 	public void DuplicateResourceIdIsRejected()
 	{
-		var json = @"{ ""schema_version"": 1, ""resources"": [
+		var json = @"{ ""schema_version"": 2, ""resources"": [
 			{ ""id"": 1, ""kind"": ""Font"" },
 			{ ""id"": 1, ""kind"": ""Colour"" }
 		] }";
@@ -911,7 +954,7 @@ public sealed class TestUiJson
 				parts.Append(',');
 			parts.Append($@"{{ ""name"": ""Part{i}"", ""primitive"": ""SolidBox"" }}");
 		}
-		var json = $@"{{ ""schema_version"": 1, ""templates"": [ {{ ""id"": 1, ""applies_to"": ""Button"", ""parts"": [ {parts} ] }} ] }}";
+		var json = $@"{{ ""schema_version"": 2, ""templates"": [ {{ ""id"": 1, ""applies_to"": ""Button"", ""parts"": [ {parts} ] }} ] }}";
 		ExpectJsonError($"$.templates[0].parts[{UiTemplateDesc.MaxParts}]", () => UiDocument.Parse(json));
 	}
 
@@ -919,7 +962,7 @@ public sealed class TestUiJson
 	[Test]
 	public void MalformedColourHexIsRejected()
 	{
-		var json = @"{ ""schema_version"": 1, ""resources"": [ { ""id"": 1, ""kind"": ""Colour"", ""colour"": ""#12345"" } ] }";
+		var json = @"{ ""schema_version"": 2, ""resources"": [ { ""id"": 1, ""kind"": ""Colour"", ""colour"": ""#12345"" } ] }";
 		ExpectJsonError("$.resources[0].colour", () => UiDocument.Parse(json));
 	}
 
@@ -965,7 +1008,7 @@ public sealed class TestUiJson
 		Assert.Equal(expected.TemplateId, actual.TemplateId);
 		Assert.Equal(expected.StyleId, actual.StyleId);
 		Assert.Equal(expected.Enabled, actual.Enabled);
-		Assert.Equal(expected.Visible, actual.Visible);
+		Assert.Equal(expected.Visibility, actual.Visibility);
 		Assert.Equal(expected.Focusable, actual.Focusable);
 		Assert.Equal(expected.ValidationState, actual.ValidationState);
 		Assert.Equal(expected.Text, actual.Text);

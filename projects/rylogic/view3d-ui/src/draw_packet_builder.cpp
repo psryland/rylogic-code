@@ -41,7 +41,7 @@ namespace pr::view3d::ui
 		void Walk(TreeModel const& tree, ControlId id, std::unordered_map<ControlId, Rect> const& layout, StyleResolver& styles, InputState const& input_state, double time_ms, float scale, DrawPacket& out)
 		{
 			auto const& node = tree.m_controls.at(id);
-			if (node.desc.visible == 0)
+			if (!IsVisible(node.desc.visibility))
 			{
 				// An invisible control hides its whole subtree from the draw packet, matching
 				// hit-test/tab-order; record it so a later Update() where it becomes visible again

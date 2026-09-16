@@ -40,6 +40,14 @@ public sealed unsafe class UiTransactionBuilder
 		if (control == null)
 			throw new ArgumentNullException(nameof(control));
 
+		// Reject unknown visibility before packing any descriptor or text into the transaction.
+		switch (control.Visibility)
+		{
+			case EVisibility.Visible:
+			case EVisibility.Hidden:
+			case EVisibility.Collapsed: { break; }
+			default: { throw new ArgumentOutOfRangeException(nameof(control.Visibility)); }
+		}
 		m_controls.Add(ToNative(control));
 		m_operations.Add(new Native.Operation
 		{
@@ -338,7 +346,7 @@ public sealed unsafe class UiTransactionBuilder
 			m_template_id = control.TemplateId,
 			m_style_id = control.StyleId,
 			m_enabled = control.Enabled ? 1 : 0,
-			m_visible = control.Visible ? 1 : 0,
+			m_visibility = control.Visibility,
 			m_focusable = control.Focusable ? 1 : 0,
 			m_validation_state = control.ValidationState,
 			m_layout = ToNative(control.Layout),

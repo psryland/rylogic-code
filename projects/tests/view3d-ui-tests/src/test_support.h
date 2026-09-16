@@ -132,7 +132,7 @@ namespace pr::view3d::ui::tests
 			.template_id = 0,
 			.style_id = 0,
 			.enabled = 1,
-			.visible = 1,
+			.visibility = EVisibility::Visible,
 			.focusable = (type == EControlType::Button || type == EControlType::TextBox) ? 1 : 0,
 			.validation_state = EValidationState::NotApplicable,
 			.layout = layout,

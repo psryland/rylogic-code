@@ -72,13 +72,11 @@ namespace pr::view3d::ui
 	};
 
 	// The DIP y-coordinate of a text run's layout box top inside a control of height 'bounds_h',
-	// given the resolved font's ascent and descent. Everything that positions text or text
-	// decorations - glyph baselines, selection fills, composition underlines, the caret, and the
-	// caret rectangle the ABI reports back to the application - must go through this one formula so
-	// they cannot drift apart when the font or the control height changes.
-	inline float TextOriginYDip(float bounds_y, float bounds_h, float ascent_dip, float descent_dip)
+	// given the measured height of the complete text layout. Glyphs, selection fills, composition
+	// underlines, and rendered/reported carets share this origin so their placement cannot drift.
+	inline float TextOriginYDip(float bounds_y, float bounds_h, float layout_height_dip)
 	{
-		return bounds_y + (bounds_h - (ascent_dip + descent_dip)) * 0.5f;
+		return bounds_y + (bounds_h - layout_height_dip) * 0.5f;
 	}
 
 	class TextShaper
@@ -154,9 +152,12 @@ namespace pr::view3d::ui
 		// EngineException(InvalidArgument) for a key no Shape() call has registered.
 		GlyphBitmap Rasterize(std::uint64_t font_key, float dpi_scale, std::uint32_t glyph_index);
 
-		// Ascent/descent of 'family'/'size_dip' in DIPs, so the renderer can vertically center a
-		// baseline-relative glyph run within a control's bounds without re-deriving font metrics.
+		// Ascent/descent of the requested font face in DIPs; not the height of a shaped text layout.
 		void Metrics(std::string_view family, float size_dip, float& out_ascent_dip, float& out_descent_dip);
+
+		// Height of the complete unwrapped layout in DIPs, including explicit line breaks and
+		// fallback-font line metrics. Empty text uses the same line height as its caret.
+		float LayoutHeight(std::string_view family, float size_dip, std::string_view utf8_text);
 
 		// Maps a layout-relative point to the UTF-8 byte offset of the nearest insertion position
 		// in 'utf8_text'. DirectWrite's trailing-hit flag is honoured, then the result is snapped to

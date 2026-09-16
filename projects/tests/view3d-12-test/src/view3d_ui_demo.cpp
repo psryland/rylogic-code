@@ -93,7 +93,7 @@ namespace view3d_test
 			desc.template_id = template_id;
 			desc.style_id = style_id;
 			desc.enabled = 1;
-			desc.visible = 1;
+			desc.visibility = EVisibility::Visible;
 			desc.focusable = type == EControlType::TextBox || type == EControlType::Button;
 			desc.validation_state = EValidationState::NotApplicable;
 			desc.layout = layout;

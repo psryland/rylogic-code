@@ -581,6 +581,37 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT(composing.node.composition_start + composing.node.composition_length <= composing.node.value_length);
 	}
 
+	// Multiline text uses the entire shaped block for placement and pointer selection.
+	PRUnitTest(MultilineCaretGeometryAndPointerUseTheWholeLayout, Quick)
+	{
+		auto engine = UiEngine(MakeConfig());
+		auto b = TxnBuilder{};
+		b.Upsert(MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(400.0f, 240.0f)));
+		auto box = MakeControl(2, 1, EControlType::TextBox, ELayoutMode::Overlay, Lp(316.0f, 140.0f));
+		box.layout.margin_left = 24.0f;
+		box.layout.margin_top = 20.0f;
+		auto const text = std::string("First\nSecond\nThird\nFourth\nFifth\nLast");
+		std::tie(box.text_offset, box.text_length) = b.AddText(text);
+		b.Upsert(box);
+		engine.TransactionApply(b.Build(0, 1));
+		engine.Update(Viewport(400, 240));
+		engine.InputInject(KeyDownInput(VK_TAB));
+		engine.InputInject(KeyDownInput(VK_END));
+
+		// The final line fits the authored box; its caret must not be shifted below that box.
+		Rect caret{};
+		std::int32_t valid = 0;
+		engine.CaretGeometry(2, caret, valid);
+		PR_EXPECT(valid != 0);
+		PR_EXPECT(caret.y >= 20.0f);
+		PR_EXPECT(caret.y + caret.h <= 160.0f);
+
+		// Clicking the rendered last-line caret must not select a position on the first line.
+		engine.InputInject(PointerDownInput(caret.x, caret.y + caret.h * 0.5f));
+		auto const view = SemanticOf(engine, 2);
+		PR_EXPECT(view.node.caret == text.size());
+	}
+
 	PRUnitTest(CaretGeometryUsesTheRenderersOwnVerticalCentring, Quick)
 	{
 		// N11: the IME's candidate window is placed at this rectangle, so it must be the rectangle
@@ -612,19 +643,17 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT(empty_caret.h > 0.0f);
 		PR_EXPECT(std::abs((empty_caret.y + empty_caret.h * 0.5f) - box_centre) < 1.5f);
 
-		// Both carets share the same vertical placement, since the formula depends on the box and
-		// the font metrics rather than on the text.
+		// This single-line font has the same line height for empty and non-empty text.
 		PR_EXPECT(std::abs(caret.y - empty_caret.y) < 0.01f);
 		PR_EXPECT(std::abs(caret.h - empty_caret.h) < 0.01f);
 	}
 
 	PRUnitTest(TextOriginCentringIsTheSameFormulaEverywhere, Quick)
 	{
-		// N11: the caret geometry and the renderer both centre on the font's ascent plus descent
-		// rather than on the control box alone, so the shared helper is pinned here.
-		PR_EXPECT(TextOriginYDip(40.0f, 20.0f, 14.0f, 4.0f) == 40.0f + (20.0f - 18.0f) * 0.5f);
-		PR_EXPECT(TextOriginYDip(0.0f, 10.0f, 16.0f, 4.0f) == (10.0f - 20.0f) * 0.5f);
-		PR_EXPECT(TextOriginYDip(5.0f, 0.0f, 0.0f, 0.0f) == 5.0f);
+		// Carets and glyphs centre the complete layout; undersized boxes still allow overflow.
+		PR_EXPECT(TextOriginYDip(40.0f, 20.0f, 18.0f) == 40.0f + (20.0f - 18.0f) * 0.5f);
+		PR_EXPECT(TextOriginYDip(0.0f, 10.0f, 20.0f) == (10.0f - 20.0f) * 0.5f);
+		PR_EXPECT(TextOriginYDip(5.0f, 0.0f, 0.0f) == 5.0f);
 	}
 
 	PRUnitTest(AnEmptyFocusedTextBoxStillEmitsACaretInTheDrawPacket, Quick)

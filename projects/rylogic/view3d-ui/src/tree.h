@@ -11,6 +11,30 @@
 
 namespace pr::view3d::ui
 {
+	// Whether a visibility value permits drawing and input; rejects unknown enum values.
+	inline bool IsVisible(EVisibility visibility)
+	{
+		switch (visibility)
+		{
+			case EVisibility::Visible: { return true; }
+			case EVisibility::Hidden:
+			case EVisibility::Collapsed: { return false; }
+			default: { throw EngineException(EStatus::UnknownType, "unknown control visibility"); }
+		}
+	}
+
+	// Whether a control reserves layout space; rejects unknown enum values.
+	inline bool ParticipatesInLayout(EVisibility visibility)
+	{
+		switch (visibility)
+		{
+			case EVisibility::Visible:
+			case EVisibility::Hidden: { return true; }
+			case EVisibility::Collapsed: { return false; }
+			default: { throw EngineException(EStatus::UnknownType, "unknown control visibility"); }
+		}
+	}
+
 	// One accepted control, denormalized so the tree is independent of the transaction's borrowed
 	// blob buffer once TransactionApply returns.
 	struct ControlNode
@@ -56,6 +80,9 @@ namespace pr::view3d::ui
 		// Throws EngineException on any rejection; '*this' is never mutated by a failed attempt because
 		// all mutation happens on a local copy that is only returned once every check has passed.
 		TreeModel Apply(Transaction const& txn, Config const& config) const;
+
+		// True only when the control exists and it and every ancestor are Visible.
+		bool IsVisible(ControlId id) const;
 
 		// The built-in template used when a control's template_id == 0.
 		static TemplateRecord const& DefaultTemplate(EControlType type);

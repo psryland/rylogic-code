@@ -65,6 +65,14 @@ public enum EStructId
 	InputTextPayload = 15,
 }
 
+/// <summary>Only Visible draws and accepts input. Hidden retains layout space; Collapsed removes the subtree from layout.</summary>
+public enum EVisibility : int
+{
+	Visible = 0,
+	Hidden = 1,
+	Collapsed = 2,
+}
+
 /// <summary>Closed control vocabulary for the first vertical slice. Applications cannot register new control classes.</summary>
 public enum EControlType
 {
@@ -163,8 +171,8 @@ public enum EVisualPrimitive
 }
 
 /// <summary>
-/// Closed style/transition state channel vocabulary. Selected is a durable per-control flag (ControlDesc.Selected); Visibility fires for
-/// one Update() call whenever a control's own Visible field transitions off to on; ValueChanged fires for one Update() call whenever
+/// Closed style/transition state channel vocabulary. Selected is a durable per-control flag (ControlDesc.Selected); Visibility fires for one Update()
+/// when rendering observes a control return to Visible after observing it Hidden/Collapsed; ValueChanged fires for one Update() call whenever
 /// ControlDesc.ValueSequence changes from its previously observed value. Resolution priority when more than one channel could apply
 /// (highest first): Disabled, Pressed, Invalid, Focused, then Visibility/ValueChanged (whichever is active), then Hover, Selected, Normal.
 /// </summary>

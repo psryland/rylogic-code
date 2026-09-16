@@ -57,6 +57,7 @@ namespace pr::view3d::ui
 		InputState m_input;
 		EventQueue m_events;
 		Win32InputTranslatorState m_win32_translator;
+		HWND m_capture_hwnd = nullptr; // Only capture acquired through real window messages is owned here.
 		SemanticSnapshot m_semantics;
 		DrawPacket m_draw_packet;
 		ViewportState m_viewport{};
@@ -82,6 +83,18 @@ namespace pr::view3d::ui
 			: m_config(config)
 			, m_events(config.max_queued_events)
 		{}
+
+		// Release only this context's real window capture when reconciliation cancels its logical owner.
+		void ReleaseUnavailableWindowCapture()
+		{
+			if (m_capture_hwnd == nullptr || m_input.m_captured_id != 0)
+				return;
+
+			if (GetCapture() == m_capture_hwnd)
+				ReleaseCapture();
+
+			m_capture_hwnd = nullptr;
+		}
 	};
 
 	namespace
@@ -153,15 +166,17 @@ namespace pr::view3d::ui
 
 		try
 		{
-			ReconcileFocusAfterTransaction(m_impl->m_tree, old_tab_order, m_impl->m_input, m_impl->m_events, m_impl->m_tree.m_revision);
+			ReconcileInputAfterTransaction(m_impl->m_tree, old_tab_order, m_impl->m_input, m_impl->m_events, m_impl->m_tree.m_revision);
 		}
 		catch (EngineException const& ex)
 		{
+			m_impl->ReleaseUnavailableWindowCapture();
 			if (ex.Status() == EStatus::QueueOverflow)
 				m_impl->m_event_overflow_count++;
 			m_impl->m_last_failure_status = ex.Status();
 			throw;
 		}
+		m_impl->ReleaseUnavailableWindowCapture();
 
 		// Reconcile every TextBox's local pending-edit state against the newly-accepted descriptor
 		// text (acknowledge/normalize-or-reject/preserve) before pruning entries for controls this
@@ -272,9 +287,10 @@ namespace pr::view3d::ui
 		if (was_composing && m_impl->m_input.m_composing_id == 0 && m_impl->m_win32_translator.ime_composition_open != 0 && translated.place_ime_windows == 0)
 			Win32CancelImeComposition(hwnd);
 
-		// Real OS capture is only ever touched here, once the state machine's own capture target
-		// has actually changed, never by translation or deterministic injection (section 7.2).
+		// Apply message-driven OS capture changes after the logical capture target changes;
+		// translation and deterministic injection never alter OS capture (section 7.2).
 		Win32ApplyCaptureTransition(hwnd, previous_captured_id, m_impl->m_input.m_captured_id);
+		m_impl->m_capture_hwnd = hwnd != nullptr && m_impl->m_input.m_captured_id != 0 && GetCapture() == hwnd ? hwnd : nullptr;
 
 		// Likewise the IME's own windows: the translator asks for placement, and the real IMM call
 		// happens here, against the caret the state machine has just settled on.
@@ -425,13 +441,10 @@ namespace pr::view3d::ui
 		// shaped layout and placed with the same vertical formula rather than an approximation.
 		// CaretAt already answers the empty-string case from the resolved font's metrics.
 		auto const measured = shaper->CaretAt(font.family, font.size * scale, display, caret_offset);
-
-		float ascent_dip = 0.0f, descent_dip = 0.0f;
-		shaper->Metrics(font.family, font.size * scale, ascent_dip, descent_dip);
-
+		auto const layout_height = shaper->LayoutHeight(font.family, font.size * scale, display);
 		out_caret_dip = Rect{
 			layout_it->second.x + placement.inset_dip * scale + measured.x,
-			TextOriginYDip(layout_it->second.y, layout_it->second.h, ascent_dip, descent_dip) + measured.y,
+			TextOriginYDip(layout_it->second.y, layout_it->second.h, layout_height) + measured.y,
 			1.0f,
 			measured.height,
 		};

@@ -4,21 +4,65 @@
 //*********************************************
 // M9 tests for the public wire ABI the milestone added: the InputTextPayload record, the
 // SemanticNode text-range block, the closed EInputKind extension, and the two new exports. M9 is
-// an additive but layout-affecting change, so the version was bumped to 0x00030000 / struct
-// version 3 and these tests pin both the new layout and the fact that every pre-M9 field kept its
-// meaning.
+// a layout-affecting change. The current ABI also carries typed three-state visibility; these
+// tests pin the current version and the retained text/input layouts.
 #include "pr/common/unittests.h"
 #include "test_support.h"
 #include <type_traits>
 
 namespace pr::view3d::ui::tests
 {
-	PRUnitTest(TheM9AbiBumpIsDeclaredConsistentlyAcrossHeaderAndDll, Quick)
+	// The typed visibility field keeps its wire width while requiring the new interpretation/version.
+	PRUnitTest(VisibilityAbiRejectsUnknownStatesAndOldStructVersions, Quick)
 	{
-		// A managed or native caller compiled against the M8 headers must be rejected, not
-		// silently handed the M9 layout, so the two version constants move together.
-		PR_EXPECT(VIEW3D_UI_STRUCT_VERSION == 3U);
-		PR_EXPECT(VIEW3D_UI_API_VERSION == 0x00030000U);
+		static_assert(sizeof(EVisibility) == sizeof(std::int32_t));
+		static_assert(offsetof(ControlDesc, visibility) == 60);
+		static_assert(offsetof(ControlDesc, focusable) == 64);
+		PR_EXPECT(static_cast<int>(EVisibility::Visible) == 0);
+		PR_EXPECT(static_cast<int>(EVisibility::Hidden) == 1);
+		PR_EXPECT(static_cast<int>(EVisibility::Collapsed) == 2);
+		auto runtime = Runtime{};
+		auto device = FakeDevice{};
+		auto ctx = UiContext(runtime, &device);
+		for (auto value : { -1, 3, 99 })
+		{
+			auto b = TxnBuilder{};
+			auto root = MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(100, 100));
+			root.visibility = static_cast<EVisibility>(value);
+			b.Upsert(root);
+			try
+			{
+				ctx.TransactionApply(b.Build(0, 1));
+				PR_EXPECT(false);
+			}
+			catch (Exception const& ex)
+			{
+				PR_EXPECT(ex.Status() == EStatus::UnknownType);
+			}
+		}
+
+		// Equal struct sizes must not let the superseded boolean wire values through validation.
+		auto old = TxnBuilder{};
+		auto root = MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(100, 100));
+		root.header.version = 3;
+		old.Upsert(root);
+		try
+		{
+			ctx.TransactionApply(old.Build(0, 1));
+			PR_EXPECT(false);
+		}
+		catch (Exception const& ex)
+		{
+			PR_EXPECT(ex.Status() == EStatus::SchemaMismatch);
+		}
+	}
+
+	// Public wire versions must agree with the runtime before interpreting its structures.
+	PRUnitTest(TheUiAbiVersionIsDeclaredConsistentlyAcrossHeaderAndDll, Quick)
+	{
+		// A caller using the boolean visibility contract must be rejected even though field sizes match.
+		PR_EXPECT(VIEW3D_UI_STRUCT_VERSION == 4U);
+		PR_EXPECT(VIEW3D_UI_API_VERSION == 0x00040000U);
 		PR_EXPECT(ApiVersion() == VIEW3D_UI_API_VERSION);
 
 		// The header's compiled-in version and the DLL's reported version are the same value, so a

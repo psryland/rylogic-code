@@ -325,8 +325,7 @@ namespace pr::view3d::ui
 		if (FAILED(m_factory->CreateTextFormat(family_w.c_str(), nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size_dip > 0.0f ? size_dip : 1.0f, LayoutLocaleW, format.GetAddressOf())))
 			throw EngineException(EStatus::InternalError, "TextShaper: CreateTextFormat failed");
 
-		// A single-line editable field never wraps; DirectWrite still reorders bidirectional runs
-		// and applies complex-script shaping within that one line.
+		// Text never wraps to the control width; explicit line breaks still form separate lines.
 		format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
 
 		DWRITE_FONT_METRICS metrics{};
@@ -543,6 +542,24 @@ namespace pr::view3d::ui
 		auto& entry = ResolveFont(family, size_dip);
 		out_ascent_dip = entry.ascent_dip;
 		out_descent_dip = entry.descent_dip;
+	}
+
+	float TextShaper::LayoutHeight(std::string_view family, float size_dip, std::string_view utf8_text)
+	{
+		// Keep an empty field's placement consistent with its visible caret.
+		if (utf8_text.empty())
+		{
+			auto& font = ResolveFont(family, size_dip);
+			return font.ascent_dip + font.descent_dip;
+		}
+
+		// Reuse the shaped layout so all lines, including fallback faces, contribute their height.
+		auto& entry = ResolveLayout(family, size_dip, utf8_text);
+		DWRITE_TEXT_METRICS metrics{};
+		if (FAILED(entry.layout->GetMetrics(&metrics)))
+			throw EngineException(EStatus::InternalError, "TextShaper: GetMetrics failed");
+
+		return metrics.height;
 	}
 
 	std::uint32_t TextShaper::OffsetFromPoint(std::string_view family, float size_dip, std::string_view utf8_text, float x_dip, float y_dip)

@@ -120,12 +120,13 @@ namespace pr::view3d::ui
 			return actions;
 		}
 
-		std::uint32_t StateFlagsFor(ControlNode const& node, InputState const& input, Rect const& bounds, Rect const& root_bounds)
+		// Report effective subtree visibility rather than an isolated descriptor's local state.
+		std::uint32_t StateFlagsFor(ControlNode const& node, InputState const& input, Rect const& bounds, Rect const& root_bounds, bool visible)
 		{
 			auto flags = static_cast<std::uint32_t>(ESemanticState::None);
 			if (node.desc.enabled != 0)
 				flags |= static_cast<std::uint32_t>(ESemanticState::Enabled);
-			if (node.desc.visible != 0)
+			if (visible)
 				flags |= static_cast<std::uint32_t>(ESemanticState::Visible);
 			if (node.desc.id == input.m_focus_id)
 				flags |= static_cast<std::uint32_t>(ESemanticState::Focused);
@@ -135,7 +136,7 @@ namespace pr::view3d::ui
 				flags |= static_cast<std::uint32_t>(ESemanticState::Selected);
 			if (node.desc.validation_state == EValidationState::Invalid)
 				flags |= static_cast<std::uint32_t>(ESemanticState::Invalid);
-			if (!RectsIntersect(bounds, root_bounds))
+			if (!visible || !RectsIntersect(bounds, root_bounds))
 				flags |= static_cast<std::uint32_t>(ESemanticState::Offscreen);
 			return flags;
 		}
@@ -148,11 +149,14 @@ namespace pr::view3d::ui
 			return { offset, static_cast<std::uint32_t>(text.size()) };
 		}
 
-		void Walk(TreeModel const& tree, ControlId id, Rect const& root_bounds, std::unordered_map<ControlId, Rect> const& layout, InputState const& input_state, std::uint64_t accepted_revision, std::uint64_t& sequence, SemanticSnapshot& out)
+		// Retain every semantic node while propagating ancestor visibility in one tree traversal.
+		void Walk(TreeModel const& tree, ControlId id, Rect const& root_bounds, std::unordered_map<ControlId, Rect> const& layout, InputState const& input_state, std::uint64_t accepted_revision, std::uint64_t& sequence, SemanticSnapshot& out, bool ancestors_visible)
 		{
 			auto const& node = tree.m_controls.at(id);
 			auto const& bounds = layout.at(id);
+			auto const visible = ancestors_visible && IsVisible(node.desc.visibility);
 
+			// Unavailable elements retain identity and content, but expose no actionable surface.
 			SemanticNode semantic{};
 			semantic.header.size = sizeof(SemanticNode);
 			semantic.header.version = VIEW3D_UI_STRUCT_VERSION;
@@ -165,15 +169,16 @@ namespace pr::view3d::ui
 			std::tie(semantic.value_offset, semantic.value_length) = AppendBlob(out.m_text_blob, value_text);
 			semantic.value_grapheme_count = static_cast<std::uint32_t>(GraphemeCount(value_text));
 			ApplyTextRanges(semantic, node, input_state);
-			semantic.state_flags = StateFlagsFor(node, input_state, bounds, root_bounds);
-			semantic.supported_actions = SupportedActionsFor(node);
+			semantic.state_flags = StateFlagsFor(node, input_state, bounds, root_bounds, visible);
+			semantic.supported_actions = visible ? SupportedActionsFor(node) : 0;
 			semantic.bounds = bounds;
 			semantic.accepted_revision = accepted_revision;
 			semantic.semantic_sequence = sequence++;
 			out.m_nodes.push_back(semantic);
 
+			// A descendant cannot override an unavailable ancestor.
 			for (auto child_id : node.children)
-				Walk(tree, child_id, root_bounds, layout, input_state, accepted_revision, sequence, out);
+				Walk(tree, child_id, root_bounds, layout, input_state, accepted_revision, sequence, out, visible);
 		}
 	}
 
@@ -191,7 +196,7 @@ namespace pr::view3d::ui
 			auto placement = placements.find(root_id);
 			auto culled = placement != placements.end() && placement->second.visible == 0;
 			auto root_bounds = culled ? Rect{ 0.0f, 0.0f, 0.0f, 0.0f } : layout.at(root_id);
-			Walk(tree, root_id, root_bounds, layout, input, accepted_revision, sequence, out);
+			Walk(tree, root_id, root_bounds, layout, input, accepted_revision, sequence, out, true);
 		}
 
 		return out;
