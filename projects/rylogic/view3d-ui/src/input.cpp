@@ -56,7 +56,7 @@ namespace pr::view3d::ui
 		ControlId HitTestRecurse(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, ControlId id, Vec2 pt)
 		{
 			auto const& node = tree.m_controls.at(id);
-			if (node.desc.visible == 0)
+			if (!IsVisible(node.desc.visibility))
 				return 0;
 
 			for (auto it = node.children.rbegin(); it != node.children.rend(); ++it)
@@ -73,7 +73,7 @@ namespace pr::view3d::ui
 		void ComputeTabOrderRecurse(TreeModel const& tree, ControlId id, std::vector<ControlId>& order)
 		{
 			auto const& node = tree.m_controls.at(id);
-			if (node.desc.visible == 0)
+			if (!IsVisible(node.desc.visibility))
 				return; // an invisible control and its whole subtree are excluded from Tab order
 
 			if (node.desc.focusable != 0 && node.desc.enabled != 0)
@@ -358,10 +358,12 @@ namespace pr::view3d::ui
 			auto const font = ResolveControlFont(tree, node.desc.font_resource_id);
 			auto const placement = TextPlacementFor(node.desc.type);
 			auto const origin_x = layout_it->second.x + placement.inset_dip * scale;
+			auto const layout_height = hit_context.shaper->LayoutHeight(font.family, font.size * scale, text);
+			auto const origin_y = TextOriginYDip(layout_it->second.y, layout_it->second.h, layout_height);
 
 			// OffsetFromPoint already reports a grapheme boundary chosen by proximity, so it is
 			// used verbatim; rounding it down again here would discard the trailing-hit result.
-			edit.caret = hit_context.shaper->OffsetFromPoint(font.family, font.size * scale, text, pt.x - origin_x, 0.0f);
+			edit.caret = hit_context.shaper->OffsetFromPoint(font.family, font.size * scale, text, pt.x - origin_x, pt.y - origin_y);
 			if (!extend)
 				edit.selection_start = edit.caret;
 		}
@@ -972,38 +974,59 @@ namespace pr::view3d::ui
 		}
 	}
 
-	std::int32_t ReconcileFocusAfterTransaction(TreeModel const& new_tree, std::vector<ControlId> const& old_tab_order, InputState& state, EventQueue& events, std::uint64_t accepted_revision)
+	std::int32_t ReconcileInputAfterTransaction(TreeModel const& new_tree, std::vector<ControlId> const& old_tab_order, InputState& state, EventQueue& events, std::uint64_t accepted_revision)
 	{
-		// Nothing was focused before this transaction, so there is nothing to preserve: this
-		// function only recovers a previously-valid focus target that the transaction has just
-		// invalidated (section 7.5), it must never invent an initial focus of its own.
-		if (state.m_focus_id == 0)
-			return 0;
-
-		auto new_tab_order = ComputeTabOrder(new_tree);
-		if (std::find(new_tab_order.begin(), new_tab_order.end(), state.m_focus_id) != new_tab_order.end())
-			return 0; // still a valid focus target; nothing to reconcile
-
-		// Focus is about to move, so any composition owned by the outgoing control is abandoned
-		// before its edit state is reconciled below.
-		CancelActiveComposition(state);
-
-		ControlId next_focus = 0;
-		if (!new_tab_order.empty())
+		// A hidden or collapsed subtree must not keep hover, pressed, or captured interaction.
+		auto changed = false;
+		auto capture_changed = false;
+		if (state.m_hover_id != 0 && !new_tree.IsVisible(state.m_hover_id))
 		{
-			auto old_it = std::find(old_tab_order.begin(), old_tab_order.end(), state.m_focus_id);
-			auto old_index = old_it != old_tab_order.end() ? static_cast<std::size_t>(old_it - old_tab_order.begin()) : 0u;
-			auto new_index = std::min(old_index, new_tab_order.size() - 1);
-			next_focus = new_tab_order[new_index];
+			state.m_hover_id = 0;
+			changed = true;
+		}
+		if (state.m_pressed_id != 0 && !new_tree.IsVisible(state.m_pressed_id))
+		{
+			state.m_pressed_id = 0;
+			changed = true;
+		}
+		if (state.m_captured_id != 0 && !new_tree.IsVisible(state.m_captured_id))
+		{
+			state.m_captured_id = 0;
+			changed = true;
+			capture_changed = true;
 		}
 
-		if (next_focus == state.m_focus_id)
-			return 0;
+		// Recover only a previously focused target; an unfocused tree must not invent initial focus.
+		auto focus_changed = false;
+		if (state.m_focus_id != 0)
+		{
+			auto new_tab_order = ComputeTabOrder(new_tree);
+			if (std::find(new_tab_order.begin(), new_tab_order.end(), state.m_focus_id) == new_tab_order.end())
+			{
+				// The outgoing control cannot keep a live composition after becoming unavailable.
+				CancelActiveComposition(state);
+				ControlId next_focus = 0;
+				if (!new_tab_order.empty())
+				{
+					auto old_it = std::find(old_tab_order.begin(), old_tab_order.end(), state.m_focus_id);
+					auto old_index = old_it != old_tab_order.end() ? static_cast<std::size_t>(old_it - old_tab_order.begin()) : 0u;
+					auto new_index = std::min(old_index, new_tab_order.size() - 1);
+					next_focus = new_tab_order[new_index];
+				}
+				state.m_focus_id = next_focus;
+				SeedFocusedTextEdit(new_tree, state, next_focus);
+				focus_changed = true;
+			}
+		}
 
-		PushOrThrow(events, next_focus, EEventKind::FocusChanged, accepted_revision, 0, {});
-		state.m_focus_id = next_focus;
-		SeedFocusedTextEdit(new_tree, state, next_focus);
-		return 1;
+		// Commit safe interaction state before notification: a full queue cannot resurrect a hidden target.
+		if (capture_changed)
+			PushOrThrow(events, 0, EEventKind::PointerCaptureChanged, accepted_revision, 0, {});
+
+		if (focus_changed)
+			PushOrThrow(events, state.m_focus_id, EEventKind::FocusChanged, accepted_revision, 0, {});
+
+		return changed || focus_changed ? 1 : 0;
 	}
 
 	void ReconcileTextEditsAfterTransaction(TreeModel const& new_tree, InputState& state)
@@ -1054,11 +1077,14 @@ namespace pr::view3d::ui
 			throw EngineException(EStatus::InvalidArgument, std::format("semantic action names control {} which is not in the accepted tree", request.control_id));
 
 		auto const& node = node_it->second;
+		if (!tree.IsVisible(request.control_id))
+			throw EngineException(EStatus::UnsupportedFeature, "semantic action target is hidden or collapsed");
+
 		switch (request.kind)
 		{
 			case ESemanticActionKind::Focus:
 			{
-				if (node.desc.enabled == 0 || node.desc.visible == 0 || node.desc.focusable == 0)
+				if (node.desc.enabled == 0 || node.desc.focusable == 0)
 					throw EngineException(EStatus::UnsupportedFeature, std::format("control {} is not a focusable target", request.control_id));
 
 				if (state.m_focus_id == request.control_id)

@@ -45,6 +45,14 @@ namespace pr::view3d::ui
 			return Rect{ content.x + cl.margin_left + ox, content.y + cl.margin_top + oy, w, h };
 		}
 
+		// Keep every control addressable in the layout map while removing geometry from a collapsed subtree.
+		void ClearLayoutSubtree(TreeModel const& tree, ControlId id, std::unordered_map<ControlId, Rect>& rects)
+		{
+			rects[id] = Rect{};
+			for (auto child_id : tree.m_controls.at(id).children)
+				ClearLayoutSubtree(tree, child_id, rects);
+		}
+
 		// Lay out every child of 'node' according to its own layout_mode, within its content rect
 		// (self_rect shrunk by node's own padding), then recurse into each child.
 		void LayoutChildren(TreeModel const& tree, ControlNode const& node, Rect const& self_rect, std::unordered_map<ControlId, Rect>& rects)
@@ -57,97 +65,72 @@ namespace pr::view3d::ui
 				std::max(0.0f, self_rect.h - lp.padding_top - lp.padding_bottom),
 			};
 
-			switch (node.desc.layout_mode)
+			// Only participating children advance the stack cursor; hidden children retain their space.
+			auto cursor = Vec2{content.x, content.y};
+			for (auto child_id : node.children)
 			{
-				case ELayoutMode::Overlay:
+				auto const& child = tree.m_controls.at(child_id);
+				if (!ParticipatesInLayout(child.desc.visibility))
 				{
-					for (auto child_id : node.children)
-					{
-						auto const& child = tree.m_controls.at(child_id);
-						auto rect = PlaceOverlay(content, child.desc.layout);
-						rects[child_id] = rect;
-						LayoutChildren(tree, child, rect, rects);
-					}
-					break;
+					ClearLayoutSubtree(tree, child_id, rects);
+					continue;
 				}
-				case ELayoutMode::StackHorizontal:
+
+				// Apply one placement rule, then recurse once into the resulting child rectangle.
+				auto const& cl = child.desc.layout;
+				auto rect = Rect{};
+				switch (node.desc.layout_mode)
 				{
-					// Children flow left-to-right; cross-axis (vertical) alignment/stretch applies
-					// within the container's full content height, main-axis size is each child's
-					// own explicit width plus its own margins and the container's stack_spacing.
-					auto cursor = content.x;
-					for (auto child_id : node.children)
+					case ELayoutMode::Overlay:
 					{
-						auto const& child = tree.m_controls.at(child_id);
-						auto const& cl = child.desc.layout;
+						rect = PlaceOverlay(content, cl);
+						break;
+					}
+					case ELayoutMode::StackHorizontal:
+					{
+						// Children flow left-to-right using explicit widths; vertical alignment
+						// applies within the full content height.
 						auto avail_h = std::max(0.0f, content.h - cl.margin_top - cl.margin_bottom);
 						auto h = ResolveExtent(cl.v_align == EVAlign::Stretch, cl.height, avail_h);
 						auto oy = AlignOffset(static_cast<std::int32_t>(cl.v_align), static_cast<std::int32_t>(EVAlign::Stretch), avail_h, h);
-						auto x = cursor + cl.margin_left;
-						Rect rect{ x, content.y + cl.margin_top + oy, cl.width, h };
-						rects[child_id] = rect;
-						LayoutChildren(tree, child, rect, rects);
-						cursor = x + cl.width + cl.margin_right + lp.stack_spacing;
+						auto x = cursor.x + cl.margin_left;
+						rect = Rect{ x, content.y + cl.margin_top + oy, cl.width, h };
+						cursor.x = x + cl.width + cl.margin_right + lp.stack_spacing;
+						break;
 					}
-					break;
-				}
-				case ELayoutMode::StackVertical:
-				{
-					// Children flow top-to-bottom; cross-axis (horizontal) alignment/stretch
-					// applies within the container's full content width.
-					auto cursor = content.y;
-					for (auto child_id : node.children)
+					case ELayoutMode::StackVertical:
 					{
-						auto const& child = tree.m_controls.at(child_id);
-						auto const& cl = child.desc.layout;
+						// Children flow top-to-bottom; horizontal alignment applies within the full content width.
 						auto avail_w = std::max(0.0f, content.w - cl.margin_left - cl.margin_right);
 						auto w = ResolveExtent(cl.h_align == EHAlign::Stretch, cl.width, avail_w);
 						auto ox = AlignOffset(static_cast<std::int32_t>(cl.h_align), static_cast<std::int32_t>(EHAlign::Stretch), avail_w, w);
-						auto y = cursor + cl.margin_top;
-						Rect rect{ content.x + cl.margin_left + ox, y, w, cl.height };
-						rects[child_id] = rect;
-						LayoutChildren(tree, child, rect, rects);
-						cursor = y + cl.height + cl.margin_bottom + lp.stack_spacing;
+						auto y = cursor.y + cl.margin_top;
+						rect = Rect{ content.x + cl.margin_left + ox, y, w, cl.height };
+						cursor.y = y + cl.height + cl.margin_bottom + lp.stack_spacing;
+						break;
 					}
-					break;
-				}
-				case ELayoutMode::Scroll:
-				{
-					// Same per-child placement rule as Overlay, but against a content rect shifted
-					// by the container's own scroll offset; clipping the shifted-out portion to the
-					// visible rect is a template Clip-primitive/renderer concern, not layout's.
-					Rect scrolled_content{ content.x - lp.scroll_offset_x, content.y - lp.scroll_offset_y, content.w, content.h };
-					for (auto child_id : node.children)
+					case ELayoutMode::Scroll:
 					{
-						auto const& child = tree.m_controls.at(child_id);
-						auto rect = PlaceOverlay(scrolled_content, child.desc.layout);
-						rects[child_id] = rect;
-						LayoutChildren(tree, child, rect, rects);
+						// Scroll uses Overlay placement shifted by the container offset; clipping
+						// remains a renderer concern rather than a layout rule.
+						Rect scrolled_content{ content.x - lp.scroll_offset_x, content.y - lp.scroll_offset_y, content.w, content.h };
+						rect = PlaceOverlay(scrolled_content, cl);
+						break;
 					}
-					break;
-				}
-				case ELayoutMode::Canvas:
-				{
-					// Each child is placed at its own explicit canvas_x/y offset from the parent's
-					// content origin; alignment/margins are ignored because the position is already
-					// explicit, unlike every other layout mode which derives position from them.
-					for (auto child_id : node.children)
+					case ELayoutMode::Canvas:
 					{
-						auto const& child = tree.m_controls.at(child_id);
-						auto const& cl = child.desc.layout;
-						Rect rect{ content.x + cl.canvas_x, content.y + cl.canvas_y, cl.width, cl.height };
-						rects[child_id] = rect;
-						LayoutChildren(tree, child, rect, rects);
+						// Canvas offsets are explicit, so alignment and margins do not affect position.
+						rect = Rect{ content.x + cl.canvas_x, content.y + cl.canvas_y, cl.width, cl.height };
+						break;
 					}
-					break;
+					default:
+					{
+						// Tree validation rejects this before layout; accepted trees cannot reach this branch.
+						throw EngineException(EStatus::InternalError, std::format("LayoutChildren: control {} has unsupported layout_mode {}", node.desc.id, static_cast<int>(node.desc.layout_mode)));
+					}
 				}
-				case ELayoutMode::Count:
-				default:
-				{
-					// Rejected during TreeModel::Apply validation; reaching here would indicate an
-					// accepted tree bypassed validation, which is an internal invariant violation.
-					throw EngineException(EStatus::InternalError, std::format("LayoutChildren: control {} has unsupported layout_mode {}", node.desc.id, static_cast<int>(node.desc.layout_mode)));
-				}
+				rects[child_id] = rect;
+				LayoutChildren(tree, child, rect, rects);
 			}
 		}
 
@@ -213,6 +196,11 @@ namespace pr::view3d::ui
 		for (auto root_id : tree.m_roots)
 		{
 			auto const& root = tree.m_controls.at(root_id);
+			if (!ParticipatesInLayout(root.desc.visibility))
+			{
+				ClearLayoutSubtree(tree, root_id, rects);
+				continue;
+			}
 			auto placement_it = placements.find(root_id);
 			if (placement_it == placements.end())
 				throw EngineException(EStatus::InternalError, std::format("ComputeLayout: no placement was computed for root {}", root_id));

@@ -9,7 +9,7 @@ using Rylogic.Gfx.UI;
 namespace Rylogic.Gfx.UI.Json;
 
 /// <summary>
-/// A parsed and fully-validated View3DUI JSON document (schema version 1): the same closed-vocabulary resource, style,
+/// A parsed and fully-validated View3DUI JSON document (schema version 2): the same closed-vocabulary resource, style,
 /// template, and control-tree descriptors a runtime application would construct directly via Descriptors.cs and
 /// UiTransactionBuilder, produced instead from a versioned JSON authoring format. Parsing performs every validation
 /// this layer is responsible for - malformed JSON, unknown schema versions, unknown closed-vocabulary kinds, and
@@ -18,7 +18,7 @@ namespace Rylogic.Gfx.UI.Json;
 public sealed class UiDocument
 {
 	/// <summary>The only schema_version this parser currently accepts.</summary>
-	public const int CurrentSchemaVersion = 1;
+	public const int CurrentSchemaVersion = 2;
 
 	/// <summary>The schema_version declared by the parsed document.</summary>
 	public int SchemaVersion { get; }
@@ -156,7 +156,13 @@ public sealed class UiDocument
 		writer.WriteNumber("style_id", control.StyleId.m_value);
 		writer.WriteNumber("template_id", control.TemplateId.m_value);
 		writer.WriteBoolean("enabled", control.Enabled);
-		writer.WriteBoolean("visible", control.Visible);
+		writer.WriteString("visibility", control.Visibility switch
+		{
+			EVisibility.Visible => "Visible",
+			EVisibility.Hidden => "Hidden",
+			EVisibility.Collapsed => "Collapsed",
+			_ => throw new ArgumentOutOfRangeException(nameof(control.Visibility)),
+		});
 		writer.WriteBoolean("focusable", control.Focusable);
 		writer.WriteString("validation_state", control.ValidationState.ToString());
 		WriteLayout(writer, control.Layout);
@@ -383,6 +389,10 @@ public sealed class UiDocument
 		if (!font_resource_id.IsNone && !resource_ids.Contains(font_resource_id.m_value))
 			throw new UiJsonException($"{path}.font_resource_id", $"References resource id {font_resource_id.m_value}, which is not declared in this document's \"resources\" array.");
 
+		// Reject the superseded boolean rather than silently treating an old hidden control as Visible.
+		if (node.TryGetProperty("visible", out _))
+			throw new UiJsonException($"{path}.visible", "Use visibility: Visible, Hidden, or Collapsed.");
+
 		var control = new UiControlDesc
 		{
 			Id = id,
@@ -393,7 +403,7 @@ public sealed class UiDocument
 			TemplateId = template_id,
 			StyleId = style_id,
 			Enabled = GetBool(node, "enabled", path, true),
-			Visible = GetBool(node, "visible", path, true),
+			Visibility = GetEnum<EVisibility>(node, "visibility", path, required: false, EVisibility.Visible),
 			Focusable = GetBool(node, "focusable", path, false),
 			ValidationState = GetEnum<EValidationState>(node, "validation_state", path, required: false, EValidationState.NotApplicable),
 			Layout = ParseLayout(node, $"{path}.layout"),

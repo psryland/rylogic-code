@@ -420,6 +420,32 @@ The demonstration slice implements `Stack` and `Overlay`, the only two it exerci
 
 All public dimensions, spacing, padding, borders, radii, font sizes, and screen bounds are DIPs. Physical pixels are derived from the explicit viewport DPI supplied to `Update`.
 
+Current placement and overflow contract:
+
+- Screen roots start at the viewport-relative origin. When both authored dimensions are zero they fill the viewport in DIPs; otherwise they use their authored
+  dimensions. Root alignment and margins do not position the root. Anchor a child within an Overlay root to place a panel at an edge or centre.
+- Overlay placement applies the parent's padding, then the child's margins and alignment. Stack placement uses explicit main-axis sizes plus margins and spacing,
+  and applies alignment on the cross axis. Layout does not measure text or automatically grow a container to fit its children.
+- `EVisibility` is a closed three-state contract: `Visible = 0` draws, accepts input, and participates in layout; `Hidden = 1` suppresses subtree drawing/input
+  while retaining layout allocation; `Collapsed = 2` suppresses the subtree and contributes no extent, margins, padding, or stack spacing. Visible is the default.
+  Collapsed descendants retain semantic identity with zero-size bounds. Hidden descendants retain their bounds. Both have effective Visible cleared, Offscreen set,
+  and no supported semantic actions; a descendant cannot override its ancestor. Only retained stack children contribute spacing.
+- Visibility changes reconcile focus, hover, pressed state, capture, and live composition when the transaction is accepted. Focus moves to an eligible remaining
+  control or clears; showing a subtree does not restore stale focus/capture. `Update` recomputes layout and semantics from the accepted descriptors.
+- Text is unwrapped except for explicit line breaks. The complete DirectWrite layout height, including all lines and fallback-font metrics, is vertically centred
+  in the control. Glyphs, selection decorations, pointer text hit testing, and reported caret rectangles share that placement.
+- Authored stack contents or text can exceed a container or an undersized viewport. Layout does not promise automatic clipping, scrolling, or content shrinking;
+  the current draw-packet path does not emit parent clips. Applications must provide enough space for the content they author.
+- Layout, drawing, and semantic bounds are viewport-relative DIPs. Client-pixel input and accessibility bounds include the viewport offset and client/target ratio.
+  Updating viewport dimensions or DPI recomputes placement from authored values, rather than scaling the previous layout.
+
+Visibility migration: native API version is `0x00040000`, and every wire struct header uses version `4`. `ControlDesc::visibility` is a signed 32-bit `EVisibility`
+at the former boolean field's offset; unchanged byte size does not make version-3 callers compatible. The private View3D host bridge version is unchanged.
+Managed callers use `UiControlDesc.Visibility`; replace old `true` with `EVisibility.Visible` and old `false` with `EVisibility.Hidden` to preserve behavior.
+Choose `Collapsed` explicitly when controls should stop reserving space. The native demonstration and existing tests preserve their former Visible/Hidden intent.
+JSON schema version `2` uses `"visibility": "Visible" | "Hidden" | "Collapsed"` (default Visible); schema version `1` and the boolean `visible` property are rejected.
+There are no compatibility adapters or automatic conversions.
+
 ### 6.3 Lookless templates
 
 Applications define templates from a closed visual vocabulary:

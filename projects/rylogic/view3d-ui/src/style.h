@@ -49,9 +49,9 @@ namespace pr::view3d::ui
 		// return the current blended visual sampled from 'style'.
 		StyleVisual Resolve(ControlNode const& node, StyleRecord const& style, ControlId hover_id, ControlId pressed_id, ControlId focus_id, double time_ms);
 
-		// Record that 'id' is currently invisible (ControlDesc::visible == 0), so the next Resolve
+		// Record that 'id' is currently Hidden or Collapsed, so the next Resolve
 		// call for 'id' after it becomes visible again fires exactly one Visibility transition.
-		// Must only be called for a control's own visible flag, never for a hidden ancestor's
+		// Must only be called for a control's own visibility, never for a hidden ancestor's
 		// descendants (which Resolve never observes anyway, since an invisible subtree is skipped).
 		void MarkInvisible(ControlId id);
 

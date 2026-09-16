@@ -68,6 +68,17 @@ element identity contract; there are no per-frame managed callbacks.
   count, rejected-transaction attempts, etc.) for direct inspection; native status codes are always surfaced as a
   `View3dUiException` carrying the originating `EStatus`, never swallowed.
 
+### Visibility
+
+`UiControlDesc.Visibility` uses `EVisibility.Visible` (default), `Hidden`, or `Collapsed`. Visible controls draw, accept input, and occupy layout space.
+Hidden suppresses the whole subtree's drawing/input but retains its allocation. Collapsed removes the subtree's layout extent, margins, padding, and stack spacing.
+Changing an ancestor's visibility also affects descendant input and semantics. An unavailable subtree loses focus, pressed/captured interaction, and composition;
+call `Update` after submitting the transaction to refresh layout and semantic snapshots.
+
+This is native ABI version `0x00040000` / struct version `4`; use matching managed and native binaries. Replace the old boolean `Visible` property with `Visibility`:
+`true` becomes `EVisibility.Visible`, and `false` becomes `EVisibility.Hidden` to preserve behavior. Select `Collapsed` explicitly to remove space.
+No auto-sizing or clipping behavior is implied.
+
 ### JSON documents (`Rylogic.Gfx.UI.Json`)
 
 `Json.UiDocument.Parse(string json)` is a managed-only conversion layer - the native library never parses JSON. It
@@ -80,3 +91,6 @@ resource), duplicate id, zero control id, or oversized template part list is rej
 the offending JSON path (e.g. `$.tree[0].style_id`) before any native call would ever be attempted.
 `UiDocument.Serialize()` writes a deterministic canonical form with stable collection/property order and explicit values,
 so equivalent documents converge to byte-identical JSON.
+
+Schema version `2` represents visibility as `"visibility": "Visible"`, `"Hidden"`, or `"Collapsed"` and defaults to Visible when omitted.
+Schema version `1` and the old `"visible"` boolean are rejected, not automatically converted.

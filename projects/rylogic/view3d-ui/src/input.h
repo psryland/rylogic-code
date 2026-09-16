@@ -148,14 +148,15 @@ namespace pr::view3d::ui
 	// longer the composing one).
 	InputResult ProcessNormalizedInput(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, NormalizedInput const& input, InputTextRecord const* text_payload, TextHitContext const& hit_context, InputState& state, EventQueue& events, std::uint64_t accepted_revision);
 
-	// Reconcile keyboard focus after a transaction changes the accepted tree (section 7.5): if the
-	// currently focused control is no longer a valid focus target in 'new_tree' (removed, hidden,
+	// Reconcile interaction after a transaction changes the accepted tree (section 7.5): if the
+	// currently focused control is no longer a valid focus target in 'new_tree' (removed, hidden/collapsed,
 	// disabled, or made unfocusable), focus moves to the next eligible control at or after its
 	// former position in 'old_tab_order' (clamped into range as the tree may have shrunk), or is
 	// cleared entirely if no eligible control remains. 'old_tab_order' must be ComputeTabOrder(tree)
 	// captured against the tree as it stood immediately before the transaction was applied. Returns
-	// whether focus was altered; emits FocusChanged when it was.
-	std::int32_t ReconcileFocusAfterTransaction(TreeModel const& new_tree, std::vector<ControlId> const& old_tab_order, InputState& state, EventQueue& events, std::uint64_t accepted_revision);
+	// whether interaction changed. Unavailable subtrees lose hover, pressed, capture, and composition
+	// state; FocusChanged and PointerCaptureChanged report changes. State remains safe on queue overflow.
+	std::int32_t ReconcileInputAfterTransaction(TreeModel const& new_tree, std::vector<ControlId> const& old_tab_order, InputState& state, EventQueue& events, std::uint64_t accepted_revision);
 
 	// Reconcile every tracked TextEditState against 'new_tree' after a transaction is accepted:
 	// - descriptor text == pending text: the application echoed back the outstanding proposal (or
@@ -211,7 +212,7 @@ namespace pr::view3d::ui
 	// input uses, so an accessibility client and a keystroke are indistinguishable downstream. No
 	// application or managed code is called. Throws EngineException(InvalidArgument) for an
 	// unknown control or malformed text, and EngineException(UnsupportedFeature) when the target
-	// does not currently advertise the requested action (disabled, wrong control type, not
+	// does not currently advertise the requested action (hidden/collapsed ancestry, disabled, wrong control type, not
 	// focusable, or composing). Returns whether the action was consumed and whether the view needs
 	// redrawing.
 	InputResult ApplySemanticAction(TreeModel const& tree, SemanticActionRequest const& request, InputState& state, EventQueue& events, std::uint64_t accepted_revision);

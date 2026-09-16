@@ -835,13 +835,11 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 		std::vector<ShapedGlyph> glyphs;
 		auto const total_advance_dip = m_text_shaper->Shape(item.font_family, item.font_size, dpi_scale, item.text, glyphs);
 
-		float ascent_dip = 0.0f, descent_dip = 0.0f;
-		m_text_shaper->Metrics(item.font_family, item.font_size, ascent_dip, descent_dip);
-
 		// The whole layout box is placed once, and every glyph, selection rectangle and caret is
 		// then expressed relative to it, so the decorations can never drift away from the glyphs.
+		auto const layout_height = m_text_shaper->LayoutHeight(item.font_family, item.font_size, item.text);
 		auto const origin_x_dip = TextRunStartXDip(item, total_advance_dip);
-		auto const origin_y_dip = TextOriginYDip(item.bounds.y, item.bounds.h, ascent_dip, descent_dip);
+		auto const origin_y_dip = TextOriginYDip(item.bounds.y, item.bounds.h, layout_height);
 
 		// Selection and composition rectangles paint behind the glyphs, so the glyph coverage is
 		// composited over them in a single pass without needing a blend-state change.

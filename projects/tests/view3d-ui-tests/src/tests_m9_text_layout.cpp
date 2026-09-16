@@ -28,6 +28,50 @@ namespace pr::view3d::ui::tests
 		}
 	}
 
+	// Rasterized multiline glyphs must fit a sufficiently large control at each supported test DPI.
+	PRUnitTest(MultilineGlyphInkFitsMeasuredBlockAcrossDpiAndScale, Quick)
+	{
+		auto shaper = TextShaper{};
+		auto const text = std::string("First line\nSecond line\nThird line\nFourth line\nFifth line\nLast line");
+		for (auto scale : { 1.0f, 1.5f, 2.0f })
+		{
+			auto const size = 16.0f * scale;
+			auto const bounds = Rect{24.0f * scale, 20.0f * scale, 316.0f * scale, 140.0f * scale};
+			auto const height = shaper.LayoutHeight(kFamily, size, text);
+			auto const origin_y = TextOriginYDip(bounds.y, bounds.h, height);
+			PR_EXPECT(height <= bounds.h);
+			PR_EXPECT(origin_y >= bounds.y);
+			PR_EXPECT(origin_y + height <= bounds.y + bounds.h);
+
+			// Explicit trailing blank lines are part of the measured block even though they have no ink.
+			auto const trailing = text + "\n";
+			auto const last = shaper.CaretAt(kFamily, size, trailing, static_cast<std::uint32_t>(trailing.size()));
+			PR_EXPECT(shaper.LayoutHeight(kFamily, size, trailing) > height);
+			PR_EXPECT(std::abs(shaper.LayoutHeight(kFamily, size, trailing) - (last.y + last.height)) < 0.01f);
+			for (auto dpi : { 96.0f, 120.0f, 144.0f, 192.0f })
+			{
+				auto const dpi_scale = dpi / 96.0f;
+				auto glyphs = std::vector<ShapedGlyph>{};
+				shaper.Shape(kFamily, size, dpi_scale, text, glyphs);
+				PR_EXPECT(!glyphs.empty());
+				for (auto const& glyph : glyphs)
+				{
+					auto const bitmap = shaper.Rasterize(glyph.font_key, dpi_scale, glyph.glyph_index);
+					if (bitmap.width_px == 0 || bitmap.height_px == 0)
+						continue;
+
+					// Match the renderer's baseline-plus-atlas-offset placement, including pixel rounding.
+					auto const left = (bounds.x + glyph.origin_x) * dpi_scale + bitmap.origin_x_px;
+					auto const top = (origin_y + glyph.origin_y) * dpi_scale + bitmap.origin_y_px;
+					PR_EXPECT(left >= bounds.x * dpi_scale - 1.0f);
+					PR_EXPECT(top >= bounds.y * dpi_scale - 1.0f);
+					PR_EXPECT(left + bitmap.width_px <= (bounds.x + bounds.w) * dpi_scale + 1.0f);
+					PR_EXPECT(top + bitmap.height_px <= (bounds.y + bounds.h) * dpi_scale + 1.0f);
+				}
+			}
+		}
+	}
+
 	PRUnitTest(CaretGeometryAdvancesMonotonicallyThroughLeftToRightText, Quick)
 	{
 		auto shaper = TextShaper{};

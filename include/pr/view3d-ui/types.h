@@ -15,8 +15,8 @@
 
 namespace pr::view3d::ui
 {
-	inline constexpr std::uint32_t VIEW3D_UI_API_VERSION = 0x00030000U;
-	inline constexpr std::uint32_t VIEW3D_UI_STRUCT_VERSION = 3U;
+	inline constexpr std::uint32_t VIEW3D_UI_API_VERSION = 0x00040000U;
+	inline constexpr std::uint32_t VIEW3D_UI_STRUCT_VERSION = 4U;
 
 	// Maximum named parts recorded directly within one TemplateDesc. Bounded so the descriptor
 	// stays fixed-layout; the closed template vocabulary (section 6.3) never needs more than this.
@@ -81,6 +81,16 @@ namespace pr::view3d::ui
 		HostBridgeVersion = 13,
 		HostPassContext = 14,
 		InputTextPayload = 15,
+	};
+
+	// Subtree visibility and layout participation. Hidden retains layout space; Collapsed has
+	// no layout extent, margins, padding, or stack spacing. Only Visible draws or accepts input.
+	enum class EVisibility : std::int32_t
+	{
+		Visible = 0,
+		Hidden = 1,
+		Collapsed = 2,
+		Count = 3,
 	};
 
 	// Closed control vocabulary for the first vertical slice (section 6.1). Applications cannot
@@ -209,8 +219,8 @@ namespace pr::view3d::ui
 	};
 
 	// Closed style/transition state channel vocabulary (section 6.4). Selected is a durable
-	// per-control flag (ControlDesc::selected); Visibility fires for one Update() call whenever a
-	// control's own 'visible' field transitions off to on; ValueChanged fires for one Update() call
+	// per-control flag (ControlDesc::selected); Visibility fires for one Update() call when rendering
+	// observes a control return to Visible after observing it Hidden/Collapsed; ValueChanged fires for one Update() call
 	// whenever ControlDesc::value_sequence changes from its previously observed value. Priority
 	// when more than one channel could apply (highest first): Disabled, Pressed, Invalid, Focused,
 	// then Visibility/ValueChanged (whichever is currently active) override Hover/Selected/Normal,
@@ -554,7 +564,7 @@ namespace pr::view3d::ui
 		TemplateId template_id;
 		StyleId style_id;
 		std::int32_t enabled;
-		std::int32_t visible;
+		EVisibility visibility;
 		std::int32_t focusable;
 		EValidationState validation_state;
 		LayoutParams layout;
@@ -580,7 +590,7 @@ namespace pr::view3d::ui
 		ResourceId font_resource_id;
 
 		// Durable, application-set flag driving EStateChannel::Selected ("!=0 means true", the
-		// same convention as 'enabled'/'visible'/'focusable'); has no other built-in behaviour
+		// same convention as 'enabled'/'focusable'); has no other built-in behaviour
 		// (e.g. it does not affect hit-testing, focus, or single-selection bookkeeping).
 		std::int32_t selected;
 

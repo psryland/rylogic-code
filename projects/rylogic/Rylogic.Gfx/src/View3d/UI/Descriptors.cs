@@ -118,7 +118,9 @@ public sealed record UiControlDesc
 	public TemplateId TemplateId { get; set; } = TemplateId.None;
 	public StyleId StyleId { get; set; } = StyleId.None;
 	public bool Enabled { get; set; } = true;
-	public bool Visible { get; set; } = true;
+
+	/// <summary>Controls rendering/input for this subtree and whether its layout allocation is retained or collapsed.</summary>
+	public EVisibility Visibility { get; set; } = EVisibility.Visible;
 	public bool Focusable { get; set; }
 
 	/// <summary>Application-computed validation state for this control's proposed/accepted value; View3DUI only reads it.</summary>
