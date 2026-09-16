@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <cmath>
 #include <stdexcept>
+#include "pr/algorithm/perlin_noise_derivatives.hlsli"
 
 namespace pr::algorithm
 {
@@ -121,115 +122,20 @@ namespace pr::algorithm
 		// Samples one cube and differentiates the trilinear blend analytically.
 		PerlinNoiseSample<double> NoiseWithDerivativesImpl(double x, double y, double z, int period) const
 		{
-			// Split the sample into its containing lattice cell and position within that cell.
-			auto const floor_x = std::floor(x);
-			auto const floor_y = std::floor(y);
-			auto const floor_z = std::floor(z);
-			auto cell_x0 = static_cast<int64_t>(floor_x);
-			auto cell_y0 = static_cast<int64_t>(floor_y);
-			auto cell_z0 = static_cast<int64_t>(floor_z);
-			auto cell_x1 = cell_x0 + 1;
-			auto cell_y1 = cell_y0 + 1;
-			auto cell_z1 = cell_z0 + 1;
-			x -= floor_x;
-			y -= floor_y;
-			z -= floor_z;
-
-			// Wrapping the corner coordinates preserves the same interpolation across opposite boundaries.
-			if (period != 0)
-			{
-				cell_x0 = Wrap(cell_x0, period);
-				cell_y0 = Wrap(cell_y0, period);
-				cell_z0 = Wrap(cell_z0, period);
-				cell_x1 = Wrap(cell_x1, period);
-				cell_y1 = Wrap(cell_y1, period);
-				cell_z1 = Wrap(cell_z1, period);
-			}
-
-			// Ease each local coordinate and keep the fade derivatives for the interpolation chain rule.
-			auto const u = Fade(x);
-			auto const v = Fade(y);
-			auto const w = Fade(z);
-			auto const du = dFade(x);
-			auto const dv = dFade(y);
-			auto const dw = dFade(z);
-
-			// Evaluate the corner ramps and their local derivatives once so every interpolant can reuse them.
-			auto const g000 = GradVec(Hash(cell_x0, cell_y0, cell_z0));
-			auto const g100 = GradVec(Hash(cell_x1, cell_y0, cell_z0));
-			auto const g010 = GradVec(Hash(cell_x0, cell_y1, cell_z0));
-			auto const g110 = GradVec(Hash(cell_x1, cell_y1, cell_z0));
-			auto const g001 = GradVec(Hash(cell_x0, cell_y0, cell_z1));
-			auto const g101 = GradVec(Hash(cell_x1, cell_y0, cell_z1));
-			auto const g011 = GradVec(Hash(cell_x0, cell_y1, cell_z1));
-			auto const g111 = GradVec(Hash(cell_x1, cell_y1, cell_z1));
-			auto const n000 = Dot(g000, x,     y,     z);
-			auto const n100 = Dot(g100, x - 1, y,     z);
-			auto const n010 = Dot(g010, x,     y - 1, z);
-			auto const n110 = Dot(g110, x - 1, y - 1, z);
-			auto const n001 = Dot(g001, x,     y,     z - 1);
-			auto const n101 = Dot(g101, x - 1, y,     z - 1);
-			auto const n011 = Dot(g011, x,     y - 1, z - 1);
-			auto const n111 = Dot(g111, x - 1, y - 1, z - 1);
-
-			// Differentiate the nested lerps in the same order as the value evaluation.
-			auto const nx00 = Lerp(u, n000, n100);
-			auto const nx10 = Lerp(u, n010, n110);
-			auto const nx01 = Lerp(u, n001, n101);
-			auto const nx11 = Lerp(u, n011, n111);
-
-			auto const dnx00_dx = Lerp(u, g000[0], g100[0]) + du * (n100 - n000);
-			auto const dnx10_dx = Lerp(u, g010[0], g110[0]) + du * (n110 - n010);
-			auto const dnx01_dx = Lerp(u, g001[0], g101[0]) + du * (n101 - n001);
-			auto const dnx11_dx = Lerp(u, g011[0], g111[0]) + du * (n111 - n011);
-			auto const dnx00_dy = Lerp(u, g000[1], g100[1]);
-			auto const dnx10_dy = Lerp(u, g010[1], g110[1]);
-			auto const dnx01_dy = Lerp(u, g001[1], g101[1]);
-			auto const dnx11_dy = Lerp(u, g011[1], g111[1]);
-			auto const dnx00_dz = Lerp(u, g000[2], g100[2]);
-			auto const dnx10_dz = Lerp(u, g010[2], g110[2]);
-			auto const dnx01_dz = Lerp(u, g001[2], g101[2]);
-			auto const dnx11_dz = Lerp(u, g011[2], g111[2]);
-
-			auto const nxy0 = Lerp(v, nx00, nx10);
-			auto const nxy1 = Lerp(v, nx01, nx11);
-
-			auto const dnxy0_dx = Lerp(v, dnx00_dx, dnx10_dx);
-			auto const dnxy1_dx = Lerp(v, dnx01_dx, dnx11_dx);
-			auto const dnxy0_dy = Lerp(v, dnx00_dy, dnx10_dy) + dv * (nx10 - nx00);
-			auto const dnxy1_dy = Lerp(v, dnx01_dy, dnx11_dy) + dv * (nx11 - nx01);
-			auto const dnxy0_dz = Lerp(v, dnx00_dz, dnx10_dz);
-			auto const dnxy1_dz = Lerp(v, dnx01_dz, dnx11_dz);
-
-			auto const value = Lerp(w, nxy0, nxy1);
-			auto const dx = Lerp(w, dnxy0_dx, dnxy1_dx);
-			auto const dy = Lerp(w, dnxy0_dy, dnxy1_dy);
-			auto const dz = Lerp(w, dnxy0_dz, dnxy1_dz) + dw * (nxy1 - nxy0);
-			return PerlinNoiseSample<double>{ .m_value = value, .m_dx = dx, .m_dy = dy, .m_dz = dz };
+			auto const sample = shared::NoiseWithDerivatives(m_seed, x, y, z, period);
+			return {.m_value = sample.m_value, .m_dx = sample.m_dx, .m_dy = sample.m_dy, .m_dz = sample.m_dz};
 		}
 
 		// Hashes a lattice coordinate directly so the gradient field has no short table-defined period.
 		uint32_t Hash(int64_t x, int64_t y, int64_t z) const
 		{
-			auto hash = uint64_t{m_seed} + 0x9E3779B97F4A7C15ull;
-			hash ^= static_cast<uint64_t>(x) * 0x9E3779B185EBCA87ull;
-			hash ^= static_cast<uint64_t>(y) * 0xC2B2AE3D27D4EB4Full;
-			hash ^= static_cast<uint64_t>(z) * 0x165667B19E3779F9ull;
-
-			// Avalanche all coordinate bits before selecting a gradient from the low bits.
-			hash ^= hash >> 33;
-			hash *= 0xFF51AFD7ED558CCDull;
-			hash ^= hash >> 33;
-			hash *= 0xC4CEB9FE1A85EC53ull;
-			hash ^= hash >> 33;
-			return static_cast<uint32_t>(hash);
+			return shared::NoiseHash(m_seed, x, y, z);
 		}
 
 		// Wraps negative and positive lattice coordinates into one period.
 		static int64_t Wrap(int64_t coordinate, int period)
 		{
-			auto const wrapped = coordinate % period;
-			return wrapped >= 0 ? wrapped : wrapped + period;
+			return shared::NoiseWrap(coordinate, period);
 		}
 
 		// Produces a smooth interpolation weight for a coordinate within one lattice cell.
@@ -237,13 +143,6 @@ namespace pr::algorithm
 		static S Fade(S t)
 		{
 			return t * t * t * (t * (t * 6 - 15) + 10);
-		}
-
-		// Produces the derivative of Fade(t).
-		template <typename S>
-		static S dFade(S t)
-		{
-			return S(30) * t * t * (t * (t - S(2)) + S(1));
 		}
 
 		// Linearly interpolates from 'a' to 'b' by 't'.
@@ -256,27 +155,8 @@ namespace pr::algorithm
 		// Returns the deterministic gradient vector selected by the hash.
 		static std::array<double, 3> GradVec(uint32_t hash)
 		{
-			auto const h = hash & 15;
-			switch (h)
-			{
-				default:
-				case 0:  return {+1.0, +1.0,  0.0};
-				case 1:  return {-1.0, +1.0,  0.0};
-				case 2:  return {+1.0, -1.0,  0.0};
-				case 3:  return {-1.0, -1.0,  0.0};
-				case 4:  return {+1.0,  0.0, +1.0};
-				case 5:  return {-1.0,  0.0, +1.0};
-				case 6:  return {+1.0,  0.0, -1.0};
-				case 7:  return {-1.0,  0.0, -1.0};
-				case 8:  return { 0.0, +1.0, +1.0};
-				case 9:  return { 0.0, -1.0, +1.0};
-				case 10: return { 0.0, +1.0, -1.0};
-				case 11: return { 0.0, -1.0, -1.0};
-				case 12: return {+1.0, +1.0,  0.0};
-				case 13: return { 0.0, -1.0, +1.0};
-				case 14: return {-1.0, +1.0,  0.0};
-				case 15: return { 0.0, -1.0, -1.0};
-			}
+			auto const gradient = shared::NoiseGradient(hash);
+			return {gradient.x, gradient.y, gradient.z};
 		}
 
 		// Returns the corner ramp value for a local coordinate.

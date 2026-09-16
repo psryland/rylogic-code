@@ -5,6 +5,7 @@
 #pragma once
 #include "pr/physics/terrain/forward.h"
 #include "pr/physics/terrain/surface_sample.h"
+#include "pr/physics/terrain/landscape/baseline_types.hlsli"
 
 namespace pr::physics::terrain::landscape
 {
@@ -58,12 +59,12 @@ namespace pr::physics::terrain::landscape
 		RidgedFractalConfig m_mountains = {260.0, 520.0, 5, 2.0, 0.55, 0.18, 1.15};
 	};
 
-	// Immutable reusable CPU evaluator for the sandbox-first procedural terrain baseline.
+	// Immutable baseline recipe with ordinary CPU queries and a shared stage-neutral shader evaluator.
 	class BaselineSurface
 	{
 	public:
 		using Position = v2d;
-		inline static int constexpr MaxOctaveCount = 8;
+		inline static int constexpr MaxOctaveCount = shared::BaselineMaxOctaveCount;
 
 		// Construct one immutable surface after validating its bounded configuration.
 		explicit BaselineSurface(BaselineSurfaceConfig config = {});
@@ -71,7 +72,12 @@ namespace pr::physics::terrain::landscape
 		// Return the validated immutable configuration that defines this surface.
 		BaselineSurfaceConfig const& Config() const noexcept;
 
-		// Sample one world-space XY position and return its double-precision terrain result.
+		// Return the immutable 488-byte StructuredBuffer recipe used by baseline_surface.hlsli in any shader stage.
+		shared::BaselineRecipe const& Recipe() const noexcept;
+
+		// Sample one world-space XY position in metres, returning double height and dimensionless XY derivatives.
+		// Nonfinite coordinates throw invalid_argument; coordinates outside Config()'s square bound throw out_of_range.
+		// Unsupported intermediate arithmetic (including lattice coordinates outside [-2^63, 2^63)) throws runtime_error.
 		SurfaceSample Sample(Position position_xy) const;
 
 		// Sample a caller-owned batch in stable order without retaining caller buffers.
@@ -79,6 +85,6 @@ namespace pr::physics::terrain::landscape
 
 	private:
 		BaselineSurfaceConfig m_config;
-		std::array<uint32_t, 8> m_field_seeds;
+		shared::BaselineRecipe m_recipe;
 	};
 }

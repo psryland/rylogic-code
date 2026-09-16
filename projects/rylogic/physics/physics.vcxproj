@@ -140,6 +140,7 @@
     <ClCompile Include="src\constraint\constraint_set.cpp" />
     <ClCompile Include="src\constraint\constraint_solver.cpp" />
     <ClCompile Include="src\compute\collide_gpu.cpp" />
+    <ClCompile Include="src\terrain\gpu_terrain.cpp" />
     <ClCompile Include="src\compute\articulation_force_aba_gpu.cpp" />
     <ClCompile Include="src\compute\articulation_mobility_gpu.cpp" />
     <ClCompile Include="src\compute\articulation_impulse_aba_gpu.cpp" />
@@ -173,6 +174,12 @@
     <ClCompile Include="src\rigid_body\rigid_body.cpp" />
     <ClCompile Include="src\shape\inertia.cpp" />
     <ClCompile Include="src\terrain\landscape\baseline_surface.cpp" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\baseline_types.hlsli" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\baseline_surface.hlsli" />
+    <ClInclude Include="$(RylogicRoot)include\pr\algorithm\perlin_noise_derivatives.hlsli" />
+    <None Include="$(RylogicRoot)include\pr\physics\terrain\landscape\README.md" />
+    <!-- TerrainBaselineGpuTests executes compute probes and compiles vertex probes with -Gis. -->
+    <None Include="src\terrain\landscape\baseline_probe.hlsl" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\collision\broadphase_brute.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\collision\contact.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\constants.h" />

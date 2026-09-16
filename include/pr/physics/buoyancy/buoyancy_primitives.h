@@ -18,8 +18,8 @@
 //
 // Capture all immutable geometry and volume-selection data the sampler kernels need. Box and Sphere
 // are fully parameterised analytically. Triangle stores its three vertices. Polytope stores its
-// surface topology, interior tetrahedralisation, and cumulative tet volumes. Surface-area selection
-// remains analytic or scans the comparatively small face list.
+// surface topology, interior tetrahedralisation, and cumulative tet volumes. Surface quadrature plans
+// are built separately by surface/surface_sampling.h and do not require interior tetrahedra.
 #pragma once
 #include <cmath>
 #include <vector>

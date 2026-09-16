@@ -6,6 +6,7 @@
 #include "pr/physics/forward.h"
 #include "pr/physics/integrator/engine.h"
 #include "pr/physics/buoyancy/buoyancy_primitives.h"
+#include "pr/physics/surface/surface_sampling.h"
 
 namespace pr::physics
 {
@@ -101,6 +102,10 @@ namespace pr::physics
 			// A modest value primarily resists fast sliding and tumbling without suppressing slow
 			// hydrostatic motion. Set to zero to disable tangential drag.
 			float m_tangential_drag_coefficient = 0.35f;
+
+			// Maximum surface-cell diameter in shape-local metres. Applies at registration/shape refresh;
+			// existing registrations retain their immutable plans. No sample-count budget truncates coverage.
+			float m_surface_spacing = surface::DefaultSpacing;
 
 			// Interior representation used when a collision polytope omits volume tetrahedra. The
 			// default negative value selects an exact O(face count) fan from the volume centre. A
@@ -216,7 +221,7 @@ namespace pr::physics
 		void SetWaterField(std::span<std::byte const> elements, int element_count, float water_level);
 
 		// Set the tunable buoyancy parameters. Fluid parameters take effect on the next call to
-		// Engine::ExternalForces; polytope derivation applies to later registrations and shape refreshes.
+		// Engine::ExternalForces; polytope derivation and surface spacing apply to later registrations and shape refreshes.
 		void SetConfig(Config const& config);
 
 		// Return the tunable buoyancy parameters currently in effect.

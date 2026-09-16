@@ -202,6 +202,7 @@ namespace pr::physics
 			std::uint64_t m_submitted_step;
 			std::uint64_t m_completed_step;
 			std::unique_ptr<Engine> m_engine;
+			bool m_has_terrain = false;
 
 			EngineRecord(std::uint16_t cookie, EngineConfig const& config, ID3D12Device4* device, ID3D12CommandQueue* queue)
 				: m_lock()
@@ -1721,8 +1722,13 @@ namespace pr::physics
 			PhysicsBodyState m_state;
 		};
 
+		// Determine serialized size, rejecting engine state that the checkpoint format cannot preserve.
 		std::uint64_t CheckpointRequiredSize(EngineRecord const& engine)
 		{
+			// Terrain requires an application-owned recipe and body-state checkpoint until the native format includes it.
+			if (engine.m_has_terrain)
+				throw ApiException(PhysicsStatus::InvalidArgument, "Native checkpoints do not support terrain; persist the terrain recipe and body states explicitly");
+
 			// Version three rejects optional topology explicitly rather than silently omitting unrecoverable state.
 			if (std::ranges::any_of(engine.m_articulations, [](auto const& slot) { return slot.m_object != nullptr; }) ||
 				std::ranges::any_of(engine.m_constraints, [](auto const& slot) { return slot.m_object != nullptr; }))
@@ -1898,6 +1904,7 @@ extern "C"
 				case PhysicsStructId::ArticulationState: *size = sizeof(PhysicsArticulationState); break;
 				case PhysicsStructId::ArticulationLinkState: *size = sizeof(PhysicsArticulationLinkState); break;
 				case PhysicsStructId::D6Constraint: *size = sizeof(PhysicsD6Constraint); break;
+				case PhysicsStructId::Terrain: { *size = sizeof(pr::physics::TerrainDesc); break; }
 				default: throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Unknown physics structure identifier");
 			}
 		});
@@ -2093,6 +2100,59 @@ extern "C"
 			pr::physics::RequireOwner(record);
 			pr::physics::RequireIdle(record);
 			record.m_engine->Config(pr::physics::ToNative(pr::physics::RequireStruct(config)));
+		});
+	}
+
+	// Copy a complete terrain recipe into the engine without borrowing caller memory or permitting mutation during a frame.
+	PhysicsStatus __stdcall Physics_EngineTerrainSet(PhysicsEngineHandle engine, pr::physics::TerrainDesc const* terrain)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			if (terrain == nullptr)
+			{
+				record.m_engine->Terrain(std::nullopt);
+				record.m_has_terrain = false;
+				return;
+			}
+
+			// Preserve explicit saved settings; the native evaluator validates the resulting configuration.
+			auto const& c = pr::physics::RequireStruct(terrain);
+			pr::physics::RequireMaterialId(c.material_id);
+			if (!std::isfinite(c.surface_spacing) || c.surface_spacing < 0 || c.reserved != 0)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid terrain surface spacing or reserved field");
+
+			auto band = [](pr::physics::TerrainBand const& b)
+			{
+				if (b.reserved != 0)
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid terrain band reserved field");
+
+				return pr::physics::terrain::landscape::FractalConfig{b.amplitude, b.wavelength, b.octaves, b.lacunarity, b.persistence};
+			};
+			auto config = pr::physics::terrain::landscape::BaselineSurfaceConfig{
+				.m_seed = c.seed,
+				.m_material_id = c.material_id,
+				.m_supported_coordinate_abs_m = c.supported_coordinate,
+				.m_sea_level_bias_m = c.sea_level_bias,
+				.m_uplift_height_m = c.uplift_height,
+				.m_mountain_base_height_m = c.mountain_base,
+				.m_regional_base = band(c.regional_base),
+				.m_region_selector = band(c.region_selector),
+				.m_region_uplift = band(c.region_uplift),
+				.m_domain_warp = {c.domain_warp.amplitude, c.domain_warp.wavelength, c.domain_warp.octaves, c.domain_warp.lacunarity, c.domain_warp.persistence},
+				.m_plains = band(c.plains),
+				.m_hills = band(c.hills),
+				.m_mountains = {c.mountains.amplitude, c.mountains.wavelength, c.mountains.octaves, c.mountains.lacunarity, c.mountains.persistence, c.mountains.roundness, c.mountains.weight_gain},
+			};
+			if (c.domain_warp.reserved != 0 || c.mountains.reserved != 0)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid terrain band reserved field");
+
+			// Commit the presence flag only after source creation succeeds.
+			record.m_engine->Terrain(pr::physics::terrain::landscape::BaselineSurface(config), c.surface_spacing == 0 ? pr::physics::surface::DefaultSpacing : c.surface_spacing);
+			record.m_has_terrain = true;
 		});
 	}
 
@@ -3134,6 +3194,10 @@ extern "C"
 			pr::physics::RequireIdle(record);
 			if (buffer == nullptr || size < sizeof(pr::physics::CheckpointHeader))
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint buffer is null or truncated");
+
+			if (record.m_has_terrain)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint import would discard the configured terrain; restore body states explicitly");
+
 			if (std::ranges::any_of(record.m_shapes, [](auto const& slot) { return slot.m_object != nullptr; }) ||
 				std::ranges::any_of(record.m_bodies, [](auto const& slot) { return slot.m_object != nullptr; }) ||
 				std::ranges::any_of(record.m_articulations, [](auto const& slot) { return slot.m_object != nullptr; }) ||

@@ -11,6 +11,7 @@
     <ProjectName>code_sync</ProjectName>
     <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <RunCodeSync>false</RunCodeSync>
   </PropertyGroup>
   <!--
   Property Sheets
@@ -46,14 +47,12 @@
   <!--
   Deploy
   -->
-  <Target Name="DeployCodeSync" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
-    <Exec Command="fc /b &quot;$(TargetPath)&quot; &quot;$(RylogicRoot)tools\code_sync\code_sync.exe&quot; >nul 2>&amp;1" IgnoreExitCode="true" ContinueOnError="true">
-      <Output TaskParameter="ExitCode" PropertyName="FileCompareExitCode" />
-    </Exec>
-    <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(RylogicRoot)tools\code_sync\code_sync.exe" Condition="'$(FileCompareExitCode)' != '0'" />
-    <Message Text="'code_sync.exe' deployed to tools directory" Importance="high" Condition="'$(FileCompareExitCode)' != '0'" />
+  <Target Name="Deploy" DependsOnTargets="Build">
+    <Error Condition="'$(Configuration)' != 'Release'" Text="Manual code_sync deployment requires Configuration=Release." />
+    <MakeDir Directories="$(RepositoryToolsDirectory)\code_sync" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(RepositoryToolsDirectory)\code_sync\code_sync.exe" />
+    <Message Text="Manually deployed Release code_sync.exe" Importance="high" />
   </Target>
-  <Target Name="Deploy" DependsOnTargets="DeployCodeSync" />
   <!--
   Targets
   -->

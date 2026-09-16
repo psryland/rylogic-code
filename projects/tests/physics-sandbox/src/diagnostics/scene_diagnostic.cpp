@@ -191,6 +191,7 @@ namespace physics_sandbox::diag
 				m_engine.m_submission_count += profile.m_engine.m_submission_count;
 				m_engine.m_wait_count += profile.m_engine.m_wait_count;
 				m_engine.m_readback_copy_count += profile.m_engine.m_readback_copy_count;
+				m_engine.m_terrain_gpu_ms += profile.m_engine.m_terrain_gpu_ms;
 			}
 
 			void Reset()
@@ -728,6 +729,7 @@ namespace physics_sandbox::diag
 				<< ',' << average(profile.m_engine.m_submission_count)
 				<< ',' << average(profile.m_engine.m_wait_count)
 				<< ',' << average(profile.m_engine.m_readback_copy_count)
+				<< ',' << average(profile.m_engine.m_terrain_gpu_ms)
 				<< '\n';
 			Emit(log, row.str());
 		}
@@ -1133,6 +1135,103 @@ namespace physics_sandbox::diag
 		}
 	}
 
+	// CPU FP64 terrain measurements on a 0.05 m reference grid, evaluated outside the timed physics step.
+	struct TerrainMetric
+	{
+		std::vector<v4> m_initial;
+		std::unordered_map<collision::Shape const*, physics::surface::Plan> m_plans;
+
+		// Capture initial body positions for later displacement and terrain-height comparisons.
+		explicit TerrainMetric(Scene const& scene)
+		{
+			if (!scene.m_terrain_surface)
+				return;
+
+			// Retain scene order so each report compares a body with its original position.
+			for (auto const& body : scene.m_body)
+				m_initial.push_back(body.O2W().pos);
+		}
+
+		// Report finite dynamic-body state and sampled penetration; the scene must retain body identities and ordering.
+		void Print(std::ofstream& log, int step, Scene const& scene)
+		{
+			if (!scene.m_terrain_surface)
+				return;
+
+			// Reports require the same positional baseline as construction.
+			if (m_initial.size() != scene.m_body.size())
+				throw std::runtime_error("Terrain diagnostic lost or replaced a body");
+
+			// Accumulate dynamic-body motion and energy independently of the physics timing interval.
+			auto max_depth = 0.0, energy = 0.0, displacement = 0.0, height_drop = 0.0;
+			auto min_z = std::numeric_limits<float>::max(), max_z = -min_z;
+			auto downhill = 0, sleeping = 0, dynamic = 0;
+			auto const& source = *scene.m_terrain_surface;
+			for (size_t i = 0; i != scene.m_body.size(); ++i)
+			{
+				auto const& body = scene.m_body[i];
+				if (body.InvMass() == 0)
+					continue;
+
+				// Reject invalid state rather than allowing it to contaminate aggregate measurements.
+				if (!IsFinite(body.O2W().pos) || !std::isfinite(body.KineticEnergy()))
+					throw std::runtime_error("Terrain diagnostic encountered nonfinite body state");
+
+				// Compare motion and terrain elevation against this body's captured starting position.
+				++dynamic;
+				sleeping += body.Sleeping() ? 1 : 0;
+				auto delta = body.O2W().pos - m_initial[i];
+				displacement += std::hypot(double(delta.x), double(delta.y));
+				height_drop -= delta.z;
+				min_z = std::min(min_z, body.O2W().pos.z);
+				max_z = std::max(max_z, body.O2W().pos.z);
+				energy += body.KineticEnergy() - body.Mass() * Dot3(scene.m_gravity, body.CentreOfMassPositionWS());
+				auto height_now = source.Sample({body.O2W().pos.x, body.O2W().pos.y}).m_height;
+				auto height_initial = source.Sample({m_initial[i].x, m_initial[i].y}).m_height;
+				downhill += height_now < height_initial - 0.02 ? 1 : 0;
+
+				// Measure each physical leaf against the canonical field using its own shape-to-root transform.
+				auto sample_shape = [&](auto&& self, collision::Shape const& shape) -> void
+				{
+					switch (shape.m_type)
+					{
+						case collision::EShape::NoShape: { return; }
+						case collision::EShape::Array:
+						{
+							auto const& array = collision::shape_cast<collision::ShapeArray>(shape);
+							for (auto child = array.begin(); child != array.end(); child = collision::next(child))
+								self(self, *child);
+							return;
+						}
+						default: { break; }
+					}
+
+					// Reuse the fixed reference grid without rebuilding its geometry for every report.
+					auto found = m_plans.find(&shape);
+					if (found == m_plans.end())
+						found = m_plans.emplace(&shape, physics::surface::BuildPlan(shape, 0.05f)).first;
+
+					// Convert vertical gaps to local tangent-plane depths, matching the collision depth convention.
+					auto const& plan = found->second;
+					auto const s2w = body.O2W() * shape.m_s2r;
+					for (uint32_t ordinal = 0; ordinal != plan.m_count; ++ordinal)
+					{
+						auto position = s2w * physics::surface::EmitSurfaceSample(plan, ordinal).m_pos_local;
+						auto field = source.Sample({position.x, position.y});
+						auto depth = (field.m_height - position.z) / std::sqrt(1 + LengthSq(field.m_gradient_xy));
+						max_depth = std::max(max_depth, depth);
+					}
+				};
+				sample_shape(sample_shape, body.Shape());
+			}
+
+			// Flush each report boundary so a failed later frame does not discard the last measured state.
+			log << std::format("terrain_metric,step={},bodies={},sleeping={},downhill={},mean_horizontal_m={:.6f},mean_drop_m={:.6f},min_z={:.6f},max_z={:.6f},max_normal_depth_m={:.6f},mechanical_energy_j={:.6f}\n",
+				step, dynamic, sleeping, downhill, displacement / std::max(1, dynamic), height_drop / std::max(1, dynamic), min_z, max_z, max_depth, energy);
+			log.flush();
+		}
+	};
+
 	SceneDiagnosticResult RunSceneDiagnostic(SceneDiagnosticOptions const& options)
 	{
 		auto log_path = AppDataPath() / "scene_diagnostic.log";
@@ -1152,7 +1251,7 @@ namespace physics_sandbox::diag
 		Emit(log, std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
 		Emit(log, std::format("steps={} dt={:.8f} report_interval={}\n", options.m_steps, options.m_dt, options.m_report_interval));
 		if (options.m_engine_profile)
-			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,constraint_pack_ms,articulation_pack_ms,upload_ms,constraint_upload_ms,articulation_upload_ms,external_forces_ms,integrate_ms,articulation_integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms,gpu_prepare_ms,gpu_execute_ms,gpu_wait_ms,gpu_reset_ms,readback_access_ms,body_readback_copy_ms,contact_readback_copy_ms,collision_events_ms,sleep_island_unpack_ms,body_unpack_ms,articulation_unpack_ms,unpack_diagnostics_ms,substeps,submissions,waits,readback_copies\n");
+			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,constraint_pack_ms,articulation_pack_ms,upload_ms,constraint_upload_ms,articulation_upload_ms,external_forces_ms,integrate_ms,articulation_integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms,gpu_prepare_ms,gpu_execute_ms,gpu_wait_ms,gpu_reset_ms,readback_access_ms,body_readback_copy_ms,contact_readback_copy_ms,collision_events_ms,sleep_island_unpack_ms,body_unpack_ms,articulation_unpack_ms,unpack_diagnostics_ms,substeps,submissions,waits,readback_copies,terrain_gpu_ms\n");
 		else if (options.m_column_metric)
 			Emit(log, "column_metric=true\n");
 		else if (options.m_pyramid_metric)
@@ -1428,6 +1527,10 @@ namespace physics_sandbox::diag
 			prev_kinetic_energy[i] = scene.m_body[i].KineticEnergy();
 
 		auto profile = EngineProfileAccumulator{};
+
+		// Capture terrain diagnostics before stepping and report them outside the timed physics interval.
+		auto terrain_metric = TerrainMetric(scene);
+		terrain_metric.Print(log, 0, scene);
 		for (int step = 0; step != options.m_steps; ++step)
 		{
 			auto before = BodyTraceState{};
@@ -1437,6 +1540,10 @@ namespace physics_sandbox::diag
 				trace_contacts.resize(0);
 
 			scene.Step(options.m_dt);
+			if ((step + 1) % std::max(options.m_report_interval, 1) == 0 || step + 1 == options.m_steps)
+				terrain_metric.Print(log, step + 1, scene);
+
+			// Accumulate the scene's recorded physics duration rather than the additional terrain-reporting cost.
 			if (column_metric.Enabled())
 			{
 				column_metric.m_physics_ms += scene.m_last_step_profile.m_physics_ms;

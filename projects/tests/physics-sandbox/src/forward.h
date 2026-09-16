@@ -20,6 +20,7 @@
 #include <random>
 #include <cctype>
 #include <crtdbg.h>
+#include <unordered_map>
 
 #include "pr/common/assert.h"
 #include "pr/common/command_line.h"
@@ -34,6 +35,8 @@
 #include "pr/gui/view3d_panel_static.h"
 #include "pr/storage/json.h"
 #include "pr/view3d-12/view3d.h"
+#include "pr/view3d-12/resource/resource_factory.h"
+#include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/win32/win32.h"
 #include "pr/win32/windows_com.h"
 
@@ -42,6 +45,8 @@
 #include "pr/collision/shape_polytope.h"
 
 #include "pr/physics/physics.h"
+#include "pr/physics/buoyancy/buoyancy_sampler.h"
+#include "pr/compute/gpu_job.h"
 
 using namespace pr;
 using namespace pr::math;

@@ -2,6 +2,7 @@
 
 #include <string>
 #include <string_view>
+#include <cwctype>
 #include <vector>
 #include <map>
 #include <filesystem>

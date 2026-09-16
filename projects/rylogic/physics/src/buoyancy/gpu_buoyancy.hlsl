@@ -10,6 +10,7 @@
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
 #include "physics/src/buoyancy/buoyancy_sampler.hlsli"
+#include "pr/physics/surface/surface_sampling.hlsli"
 
 #define BUOYANCY_SAMPLE_THREAD_COUNT 256
 #define BUOYANCY_REDUCE_THREAD_COUNT 128
@@ -109,17 +110,17 @@ struct BuoySurfHeader
 	int pad1;
 };
 
-// Per-primitive surface-sample record, parallel to g_prims. Maps a flat sample index to its owning
-// primitive (via the cumulative counts) and supplies that primitive's per-sample area weight.
+// Per-primitive counts and compact patch ranges, parallel to g_prims.
 struct BuoySurfPrimRecord
 {
-	int count;    // surface samples allocated to this primitive
-	float darea;  // per-sample area weight (= primitive_area / count)
+	int count;
+	int patch_begin;
+	int patch_count;
+	int pad;
 };
 
 StructuredBuffer<BuoySurfHeader> resource(g_surf_headers, t8);
-StructuredBuffer<float4> resource(g_verts, t9);
-StructuredBuffer<int4> resource(g_face_verts, t10);
+StructuredBuffer<SurfacePatch> resource(g_surface_patches, t9);
 StructuredBuffer<BuoySurfPrimRecord> resource(g_surf_prim_records, t11);
 
 groupshared float4 s_force_ws[BUOYANCY_SAMPLE_THREAD_COUNT];
@@ -450,9 +451,9 @@ void CSBuoyancyVolumeReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
 numthreads(CSBuoyancyDragSurfaceSamples, BUOYANCY_SAMPLE_THREAD_COUNT, 1, 1)
 void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 {
-	int global_group_index = int(group_id.x);
-	int hull_index = global_group_index / g.groups_per_hull;
-	int hull_group_index = global_group_index - hull_index * g.groups_per_hull;
+	int hull_index = int(group_id.y);
+	int hull_group_index = int(group_id.x);
+	int global_group_index = hull_index * g.groups_per_hull + hull_group_index;
 	int thread_index = int(group_thread_id.x);
 	int sample_index = hull_group_index * BUOYANCY_SAMPLE_THREAD_COUNT + thread_index;
 
@@ -488,7 +489,8 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 	if (have_drag && hull_index < g.hull_count)
 	{
 		BuoySurfHeader header = g_surf_headers[hull_index];
-		if (sample_index < header.total_surface_samples)
+		// Stream every ordinal while retaining a bounded number of reduction partials per hull.
+		for (; sample_index < header.total_surface_samples; sample_index += g.groups_per_hull * BUOYANCY_SAMPLE_THREAD_COUNT)
 		{
 			GpuRigidBody body = g_bodies[header.body_index];
 
@@ -505,7 +507,8 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 				// walking the per-primitive cumulative counts (parallel to g_prims).
 				int k = 0;
 				int local_i = sample_index;
-				float darea = 0.0f;
+				int patch_begin = 0;
+				int patch_count = 0;
 				bool found = false;
 				for (int pp = 0; pp != header.prim_count; ++pp)
 				{
@@ -513,7 +516,8 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 					if (local_i < rec.count)
 					{
 						k = pp;
-						darea = rec.darea;
+						patch_begin = rec.patch_begin;
+						patch_count = rec.patch_count;
 						found = true;
 						break;
 					}
@@ -539,51 +543,62 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 
 					if (!fully_dry)
 					{
-					// Emit a surface sample (point + outward normal) in shape-local space, then lift to
-					// COM-root and world. The normal is rotated by m_s2r (w=0) and renormalised.
-					float4 pos_local;
-					float4 normal_local;
-					float weight;
-					BuoyEmitSurfaceSample(prim, BuoySampleIndex(header.hull_id, k, local_i), darea, g_verts, g_face_planes, g_face_verts, pos_local, normal_local, weight);
-					float3 p_root = mul(float4(pos_local.xyz, 1.0f), prim.m_s2r).xyz;
-					float3 n_root = BuoyNormaliseOrZero(mul(float4(normal_local.xyz, 0.0f), prim.m_s2r).xyz);
-
-					// A surface sample contributes to the union boundary only if it lies outside every
-					// other sibling primitive (interior embedded surfaces are not wetted).
-					if (!BuoyIsInsideAnyOtherSibling(g_prims, header.prim_base, header.prim_count, k, p_root, n_root, header.eps, g_face_planes))
-					{
-						float3 up = -gravity_ws / g_mag;
-						float3 sample_ws = mul(float4(p_root, 1.0f), body.o2w).xyz;
-						float3 normal_ws = BuoyNormaliseOrZero(mul(float4(n_root, 0.0f), body.o2w).xyz);
-
-						// Wet test along -gravity (same flat-ocean idiom as the volume pass).
-						float signed_height = dot(sample_ws, up);
-						if (signed_height < EvaluateWaterHeight(sample_ws.xy))
+						// Emit a surface sample (point + outward normal) in shape-local space, then lift to
+						// COM-root and world. The normal is rotated by m_s2r (w=0) and renormalised.
+						int lo_patch = 0;
+						int hi_patch = patch_count;
+						while (lo_patch < hi_patch)
 						{
-							float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
-
-							// Relative flow at the sample (body velocity minus wave-orbital water flow).
-							float3 v_point = s_body_linear_velocity_ws + cross(s_body_angular_velocity_ws, sample_ws - com_ws);
-							float3 v_rel = v_point - EvaluateWaterVelocity(sample_ws);
-							float v_n = dot(v_rel, normal_ws);
-
-							// Quadratic form drag acts only on faces moving outward into the fluid.
-							float3 dF = float3(0.0f, 0.0f, 0.0f);
-							if (c_quad > 0.0f && v_n > 0.0f)
-								dF += (-0.5f * g.fluid_density * c_quad * weight * v_n * v_n) * normal_ws;
-
-							// Tangential drag opposes the complete in-plane relative velocity. The
-							// length(v_t) * v_t form is quadratic in speed and continuous through zero.
-							if (c_tangent > 0.0f)
-							{
-								float3 v_t = v_rel - v_n * normal_ws;
-								dF += (-0.5f * g.fluid_density * c_tangent * weight * length(v_t)) * v_t;
-							}
-
-							force_ws = float4(dF, 0.0f);
-							torque_ws = float4(cross(sample_ws - com_ws, dF), 0.0f);
+							int mid = lo_patch + (hi_patch - lo_patch) / 2;
+							if ((uint) local_i < g_surface_patches[patch_begin + mid].m_sample_end)
+								hi_patch = mid;
+							else
+								lo_patch = mid + 1;
 						}
-					}
+						uint ordinal_begin = lo_patch == 0 ? 0 : g_surface_patches[patch_begin + lo_patch - 1].m_sample_end;
+						SurfaceSample sample = EmitSurfaceSample(g_surface_patches[patch_begin + lo_patch], (uint) local_i - ordinal_begin);
+						float4 pos_local = sample.m_pos_local;
+						float4 normal_local = sample.m_normal_local;
+						float weight = sample.m_darea;
+						float3 p_root = mul(float4(pos_local.xyz, 1.0f), prim.m_s2r).xyz;
+						float3 n_root = BuoyNormaliseOrZero(mul(float4(normal_local.xyz, 0.0f), prim.m_s2r).xyz);
+
+						// A surface sample contributes to the union boundary only if it lies outside every
+						// other sibling primitive (interior embedded surfaces are not wetted).
+						if (!BuoyIsInsideAnyOtherSibling(g_prims, header.prim_base, header.prim_count, k, p_root, n_root, header.eps, g_face_planes))
+						{
+							float3 up = -gravity_ws / g_mag;
+							float3 sample_ws = mul(float4(p_root, 1.0f), body.o2w).xyz;
+							float3 normal_ws = BuoyNormaliseOrZero(mul(float4(n_root, 0.0f), body.o2w).xyz);
+
+							// Wet test along -gravity (same flat-ocean idiom as the volume pass).
+							float signed_height = dot(sample_ws, up);
+							if (signed_height < EvaluateWaterHeight(sample_ws.xy))
+							{
+								float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
+
+								// Relative flow at the sample (body velocity minus wave-orbital water flow).
+								float3 v_point = s_body_linear_velocity_ws + cross(s_body_angular_velocity_ws, sample_ws - com_ws);
+								float3 v_rel = v_point - EvaluateWaterVelocity(sample_ws);
+								float v_n = dot(v_rel, normal_ws);
+
+								// Quadratic form drag acts only on faces moving outward into the fluid.
+								float3 dF = float3(0.0f, 0.0f, 0.0f);
+								if (c_quad > 0.0f && v_n > 0.0f)
+									dF += (-0.5f * g.fluid_density * c_quad * weight * v_n * v_n) * normal_ws;
+
+								// Tangential drag opposes the complete in-plane relative velocity. The
+								// length(v_t) * v_t form is quadratic in speed and continuous through zero.
+								if (c_tangent > 0.0f)
+								{
+									float3 v_t = v_rel - v_n * normal_ws;
+									dF += (-0.5f * g.fluid_density * c_tangent * weight * length(v_t)) * v_t;
+								}
+
+								force_ws += float4(dF, 0.0f);
+								torque_ws += float4(cross(sample_ws - com_ws, dF), 0.0f);
+							}
+						}
 					}
 				}
 			}

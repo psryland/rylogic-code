@@ -8,6 +8,7 @@
 #include "src/scene/water/water_visual.h"
 #include "src/scene/scenario.h"
 #include "src/scene/articulation_visual.h"
+#include "src/scene/sample_overlays.h"
 
 namespace physics_sandbox
 {
@@ -81,6 +82,9 @@ namespace physics_sandbox
 		// One renderer binding per shaped articulation link.
 		std::vector<ArticulationVisual> m_articulation_visuals;
 
+		// Shape-root geometry shared by additive diagnostic overlays; renderer-safe retirement is owned by the UI.
+		SampleOverlays m_sample_overlays;
+
 		// Storage for shapes loaded in the scene file.
 		byte_data<16> m_shape_buffer;
 
@@ -143,6 +147,9 @@ namespace physics_sandbox
 
 		// Active per-body visualisation mode.
 		EVisualMode m_visual_mode;
+
+		// Additive appearance diagnostic, independent of physics sleeping and the base visualisation mode.
+		bool m_sleeping_transparency = true;
 
 		// Collision-readback subscription used by contact-priority visualisation and two-body diagnostics.
 		pr::multicast::Sub m_collision_sub;
@@ -213,9 +220,16 @@ namespace physics_sandbox
 		// Add visible articulation-link graphics to the current renderer draw list.
 		void AddArticulationsToScene(rdr12::Scene& scene, m4x4 const& w2c, Frustum const& frustum, v2 const& clip_planes);
 
+		// Add cached samples for every movable collision body/link, including sleeping and dry objects.
+		void AddSampleOverlays(rdr12::Scene& scene);
+
 		// Get/set the active visualisation mode.
 		EVisualMode VisualMode() const;
 		void VisualMode(EVisualMode mode);
+
+		// Get/set the sleeping-opacity diagnostic while preserving sleep state and sample-overlay selections.
+		bool SleepingTransparency() const;
+		void SleepingTransparency(bool enabled);
 
 		// Get/set whether automatic sleeping is enabled in the engine.
 		bool AllowSleeping() const;

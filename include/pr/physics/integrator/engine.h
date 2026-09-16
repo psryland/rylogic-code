@@ -7,6 +7,8 @@
 #include "pr/physics/collision/contact.h"
 #include "pr/physics/integrator/engine_config.h"
 #include "pr/physics/integrator/engine_diagnostics.h"
+#include "pr/physics/surface/forward.h"
+#include "pr/physics/terrain/landscape/baseline_surface.h"
 
 namespace pr::physics
 {
@@ -37,6 +39,7 @@ namespace pr::physics
 			double m_sleepwake_ms = 0;
 			double m_broadphase_ms = 0;
 			double m_collide_ms = 0;
+			double m_terrain_gpu_ms = 0; // GPU timestamp sum across terrain substeps; other timings measure host work/waits.
 			double m_resolve_ms = 0;
 			double m_selective_ms = 0;
 			double m_sleepupdate_ms = 0;
@@ -194,6 +197,10 @@ namespace pr::physics
 		// GPU collision detector
 		GpuCollisionDetectorPtr m_gpu_collision_detector;
 
+		// Owned terrain source and deferred wake request for the next nonempty frame.
+		std::unique_ptr<struct GpuTerrain, Deleter<struct GpuTerrain>> m_gpu_terrain;
+		bool m_terrain_changed = false;
+
 		// GPU collision resolver
 		GpuResolverPtr m_gpu_resolver;
 
@@ -254,6 +261,9 @@ namespace pr::physics
 		// Engine configuration in use by this instance.
 		EngineConfig const& Config() const;
 		void Config(EngineConfig const& config);
+
+		// Replace or disable the owned static terrain between completed frames. Uses the shared sampling default unless overridden.
+		void Terrain(std::optional<terrain::landscape::BaselineSurface> surface, float spacing = ::pr::physics::surface::DefaultSpacing);
 
 		// Return the D3D12 device used by the physics compute engine.
 		ID3D12Device4* Device() const;

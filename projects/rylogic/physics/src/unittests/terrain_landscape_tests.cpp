@@ -42,6 +42,58 @@ namespace pr::physics::terrain::landscape::tests
 
 	PRUnitTestClass(TerrainLandscapeTests)
 	{
+		// Packed gradient selection must preserve every corner direction, including the four repeated entries.
+		PRUnitTestMethod(OriginalNoiseGradientTable, Quick)
+		{
+			auto expected = std::array<pr::algorithm::shared::NoiseReal3, 16>{{
+				{1, 1, 0}, {-1, 1, 0}, {1, -1, 0}, {-1, -1, 0},
+				{1, 0, 1}, {-1, 0, 1}, {1, 0, -1}, {-1, 0, -1},
+				{0, 1, 1}, {0, -1, 1}, {0, 1, -1}, {0, -1, -1},
+				{1, 1, 0}, {0, -1, 1}, {-1, 1, 0}, {0, -1, -1},
+			}};
+			for (uint32_t index = 0; index != 256; ++index)
+				PR_EXPECT(All(pr::algorithm::shared::NoiseGradient(index) == expected[index & 15]));
+		}
+
+		// Pin untouched pre-interop CPU samples so both shared paths cannot silently redefine the seeded landscape.
+		PRUnitTestMethod(OriginalDoublePrecisionGoldenSamples, Quick)
+		{
+			// Captured with VS2026 v145 Debug before extracting the evaluator; columns are seed, XY, height, d/dx, d/dy.
+			struct Golden
+			{
+				uint32_t m_seed;
+				double m_x, m_y, m_height, m_dx, m_dy;
+			};
+			auto const golden = std::array{
+				Golden{0, 0, 0, -40.444455061792326, -0.052994628330581536, -0.18048986208123949},
+				Golden{0, -1732.125, 845.75, -13.561110606069061, -0.085916236914072658, 0.14793085877910553},
+				Golden{0, 4000, 0, 131.41609925570515, -0.12613237852244147, 0.098962602780610198},
+				Golden{0, -1000000, 1000000, 71.495591198924842, 0.54590277077801264, -0.14456107777661231},
+				Golden{42, 0, 0, -34.275864262002301, -0.023753021077289126, 0.099738091632972689},
+				Golden{42, -1732.125, 845.75, -16.363474506446043, 0.028061813621000804, -0.045633719683946639},
+				Golden{42, 4000, 0, 35.149761034473947, -0.12633481819337139, -0.056576791906619323},
+				Golden{42, -1000000, 1000000, -16.505697581530004, 0.0022780842564344931, -0.10585267032534719},
+				Golden{12648430, 0, 0, 23.157891633246322, -0.19622573987896538, -0.47081938468783108},
+				Golden{12648430, -1732.125, 845.75, -3.3973069162501517, 0.08725645829141894, 0.097865920489424552},
+				Golden{12648430, 4000, 0, -46.682805970167308, 0.056043354947194438, -0.1628626783636466},
+				Golden{12648430, -1000000, 1000000, 189.28827921356748, -0.28064343494875588, 0.52585219023282159},
+				Golden{4294967295u, 0, 0, 34.300620693872247, -0.0010110151776767384, 0.48090187529939521},
+				Golden{4294967295u, -1732.125, 845.75, 1.1495370704610046, 0.0644987469096579, -0.068850701577611584},
+				Golden{4294967295u, 4000, 0, 312.04196672604985, -0.90697967362907794, -0.3459226102797977},
+				Golden{4294967295u, -1000000, 1000000, 230.02876254207285, -0.090663634585462782, -0.30760454344553056},
+			};
+			double max_height_error = 0, max_gradient_error = 0;
+			for (auto const& item : golden)
+			{
+				auto const surface = BaselineSurface(BaselineSurfaceConfig{.m_seed = item.m_seed});
+				auto const actual = surface.Sample(v2d{item.m_x, item.m_y});
+				ExpectNear(actual, {.m_height = item.m_height, .m_gradient_xy = v2d{item.m_dx, item.m_dy}}, 1.0e-12);
+				max_height_error = std::max(max_height_error, std::abs(actual.m_height - item.m_height));
+				max_gradient_error = std::max({max_gradient_error, std::abs(actual.m_gradient_xy.x - item.m_dx), std::abs(actual.m_gradient_xy.y - item.m_dy)});
+			}
+			std::printf("Terrain original CPU goldens: height_error=%.17g gradient_error=%.17g\n", max_height_error, max_gradient_error);
+		}
+
 		PRUnitTestMethod(BoundedRayCastRefinesCrossingsAndReportsLimits, Quick)
 		{
 			// Planes provide exact reference intersections for vertical, oblique, horizontal and inside-origin rays.
@@ -114,6 +166,12 @@ namespace pr::physics::terrain::landscape::tests
 			auto const surface = MakeSurface();
 			PR_THROWS(surface.Sample(v2d{std::numeric_limits<double>::quiet_NaN(), 0.0}), std::invalid_argument);
 			PR_THROWS(surface.Sample(v2d{surface.Config().m_supported_coordinate_abs_m + 1.0, 0.0}), std::out_of_range);
+
+			// Finite configuration scalars can still exceed the representable noise lattice during evaluation.
+			config = BaselineSurfaceConfig{};
+			config.m_domain_warp.m_wavelength_m = 1e-300;
+			auto const unrepresentable = BaselineSurface(config);
+			PR_THROWS(unrepresentable.Sample(v2d{1, 1}), std::runtime_error);
 		}
 
 		PRUnitTestMethod(DeterminismGradientsAndNormalsRemainStable, Quick)

@@ -45,6 +45,8 @@ script/UserVars.py
 script/UserVars.json
 Directory.Build.user.props
 build/certs/
+tools/code_sync/
+tools/VSRedirector/
 
 # Keep lib/ structure for NuGet local package sources (must come after Debug/Release rules)
 lib/*

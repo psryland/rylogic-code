@@ -10,6 +10,9 @@ namespace physics_sandbox
 		static constexpr int RecentFileBase = 2000; // 2000..2000+MaxRecentFiles-1
 		static constexpr int VisualModeNormal = 3001;
 		static constexpr int VisualModeContactPriority = 3002;
+		static constexpr int SurfaceSamples = 3011;
+		static constexpr int VolumeSamples = 3012;
+		static constexpr int SleepingTransparency = 3013;
 		static constexpr int DemoBase = 4000;
 	}
 	namespace MenuItemIndex

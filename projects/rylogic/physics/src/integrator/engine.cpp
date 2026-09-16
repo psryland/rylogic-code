@@ -27,6 +27,7 @@
 #include "src/compute/selective_gpu.h"
 #include "src/integrator/engine_buffer_cache.h"
 #include "src/collision/shape_cache.h"
+#include "src/terrain/gpu_terrain.h"
 #include "src/materials/material_map.h"
 #include "src/diagnostics/physics_log.h"
 #include "src/diagnostics/dbg_physics.h"
@@ -166,9 +167,33 @@ namespace pr::physics
 	struct GpuBuffers
 	{
 		GpuFrameOutputReadback rb_output;
+		ReadbackAlloc rb_terrain;
 		bool emit_collisions = true;
 		bool read_collision_events = false;
 	};
+
+	// Destroy the owned terrain where its complete type is available.
+	void Deleter<GpuTerrain>::operator()(GpuTerrain* value) const
+	{
+		delete value;
+	}
+
+	// Replace or disable the owned terrain between completed frames; validate a replacement before discarding the current source.
+	void Engine::Terrain(std::optional<terrain::landscape::BaselineSurface> surface, float spacing)
+	{
+		if (m_pending_step.m_active)
+			throw std::runtime_error("Terrain cannot change while a step is pending");
+
+		// Keep the current source intact if replacement validation or pipeline creation fails.
+		auto replacement = decltype(m_gpu_terrain){};
+		if (surface)
+			replacement.reset(new GpuTerrain(*m_gpu, std::move(*surface), spacing));
+
+		// Retire cached support and request a wake only when a terrain source is added, removed, or replaced.
+		ResetCaches();
+		m_terrain_changed = m_terrain_changed || m_gpu_terrain != nullptr || replacement != nullptr;
+		m_gpu_terrain = std::move(replacement);
+	}
 
 	// Keep the opaque GPU readback state allocated once with the pending-step state.
 	Engine::PendingStep::PendingStep()
@@ -427,6 +452,10 @@ namespace pr::physics
 
 		// Forget every topology-derived cache so subsequent caller-owned objects cannot inherit stale warm starts or resources.
 		m_cache->Reset();
+		if (m_gpu_terrain)
+			m_gpu_terrain->Reset();
+
+		// Solver caches share the same topology lifetime as the geometry plans.
 		m_gpu_resolver->InvalidateWarmStart();
 		m_gpu_selective_resolver->InvalidateWarmStart();
 		m_gpu_coupled_constraint_solver.reset();
@@ -543,6 +572,25 @@ namespace pr::physics
 		auto const dt = input.m_elapsed_seconds / input.m_substep_count;
 		m_last_feature_stats = {};
 		m_pending_step.Begin(input.m_bodies, input.m_articulations, input.m_constraints, dt, input.m_elapsed_seconds, m_config.sleeping_enabled);
+		if (m_terrain_changed && (!input.m_bodies.empty() || !input.m_articulations.empty()))
+		{
+			// Changing the static environment invalidates resting support, but ordinary frames preserve sleep timers.
+			for (auto body : input.m_bodies)
+				body->Wake();
+
+			// Articulation support belongs to the whole tree rather than individual link proxies.
+			for (auto articulation : input.m_articulations)
+				articulation->Wake();
+
+			// Consume the environment change once nonempty input has observed it.
+			m_terrain_changed = false;
+		}
+
+		// Keep the terrain endpoint last among rigid bodies so contacts can address it before articulation proxies.
+		if (m_gpu_terrain && (!input.m_bodies.empty() || !input.m_articulations.empty()))
+			m_pending_step.m_bodies.push_back(&m_gpu_terrain->m_endpoint);
+
+		// Use the retained frame lists, including any owned static endpoint, for subsequent packing.
 		auto bodies = std::span{ m_pending_step.m_bodies };
 		auto articulations = std::span{ m_pending_step.m_articulations };
 
@@ -955,6 +1003,16 @@ namespace pr::physics
 		if (rigid_bodies.empty())
 			return;
 
+		// Collision-only updates use the same final rigid-body slot for the owned terrain endpoint.
+		auto terrain_bodies = std::vector<RigidBody*>{};
+		if (m_gpu_terrain)
+		{
+			terrain_bodies.assign(rigid_bodies.begin(), rigid_bodies.end());
+			terrain_bodies.push_back(&m_gpu_terrain->m_endpoint);
+			rigid_bodies = terrain_bodies;
+		}
+
+		// Start diagnostics for this collision-only update.
 		m_last_step_profile = {};
 		m_last_collision_stats = {};
 
@@ -1043,6 +1101,10 @@ namespace pr::physics
 	{
 		m_gpu_integrator->Upload(m_gpu->m_job, m_cache->m_rb_dynamics, retain_frame_forces);
 		m_gpu_sleep_manager->Upload(m_gpu->m_job, m_cache->m_sleep_islands);
+
+		// Prepare terrain plans and per-substep timestamps against the packed shape indices.
+		if (m_gpu_terrain)
+			m_gpu_terrain->Upload(m_gpu->m_job, m_cache->m_shape_cache, m_cache->m_rb_dynamics, std::max(1, m_last_step_profile.m_substep_count));
 
 		// The broadphase reads shape data to expand compound bodies into their convex leaves, so shapes
 		// must be resident before the sweep rather than only before the narrowphase.
@@ -1140,6 +1202,10 @@ namespace pr::physics
 		auto dispatch = m_gpu_sort_and_sweep->CDDispatchArgs();
 		auto col_pairs = m_gpu_sort_and_sweep->CollisionPairs();
 		m_gpu_collision_detector->DetectCollisions(m_gpu->m_job, m_config.max_collision_pairs, m_config.max_collision_pairs, dispatch, col_pairs, counters, m_cache->m_shape_cache);
+
+		// Append terrain constraints before the shared solver reads the final contact count and dispatch.
+		if (m_gpu_terrain)
+			m_gpu_terrain->Collide(m_gpu->m_job, m_cache->RigidBodyCount() - 1, m_config.max_collision_pairs, m_gpu_integrator->Bodies().get(), m_gpu_collision_detector->Shapes().get(), m_gpu_collision_detector->Contacts().get(), counters.get(), m_gpu_collision_detector->ResolveDispatchArgs().get());
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{
@@ -1319,6 +1385,12 @@ namespace pr::physics
 		auto const proxy_count = articulations.m_articulation_count != 0 ? m_cache->BodyCount() - body_count : 0;
 		auto* constraint_state = include_constraints && m_gpu_constraint_solver != nullptr ? m_gpu_constraint_solver->FrameState() : nullptr;
 		buffers.rb_output = m_gpu_frame_output->GatherAndReadback(m_gpu->m_job, body_count, bodies.get(), articulations, constraint_break_output, coupled_failure_output, proxy_count, constraint_state);
+
+		// Retain terrain failure status for validation before any caller-owned body state is published.
+		if (m_gpu_terrain)
+			buffers.rb_terrain = m_gpu_terrain->Readback(m_gpu->m_job);
+
+		// Count the gathered frame-output copy independently of optional terrain status.
 		++m_last_step_profile.m_readback_copy_count;
 	}
 
@@ -1326,6 +1398,17 @@ namespace pr::physics
 	void Engine::Unpack(GpuBuffers const& buffers, std::span<RigidBody*> rigid_bodies, std::span<Articulation*> articulations, std::span<PendingStep::ArticulationOutputRange const> articulation_ranges, ConstraintSet const* constraints, float articulation_substep_seconds, float articulation_elapsed_seconds, bool& output_committed)
 	{
 		output_committed = false;
+
+		// Reject invalid terrain queries or slope overflow before committing the frame's detached outputs.
+		if (m_gpu_terrain)
+		{
+			auto const status = *buffers.rb_terrain.ptr<uint32_t>();
+			m_last_step_profile.m_terrain_gpu_ms = m_gpu_terrain->GpuTimeMs();
+			if (status != 0)
+				throw std::runtime_error(std::format("Terrain collision failed: status {} (1: invalid query, 2: more than eight distinct slope clusters)", status));
+		}
+
+		// Validate the remaining body and constraint outputs before publishing state.
 		auto body_count = m_cache->RigidBodyCount();
 		auto max_contacts = m_config.max_collision_pairs;
 		if (constraints != nullptr &&

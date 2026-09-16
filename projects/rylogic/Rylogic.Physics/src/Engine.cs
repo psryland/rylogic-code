@@ -68,6 +68,14 @@ public sealed class Engine :IDisposable
 		Native.Check(Native.Physics_EngineConfigSet(Handle, &config));
 	}
 
+	/// <summary>Replace or disable terrain between completed frames. Persist its recipe and body states explicitly; native checkpoints reject terrain.</summary>
+	public unsafe void SetTerrain(TerrainConfiguration? configuration)
+	{
+		EnsureOwner();
+		var value = configuration.GetValueOrDefault();
+		Native.Check(Native.Physics_EngineTerrainSet(Handle, configuration.HasValue ? &value : null));
+	}
+
 	/// <summary>Create a sphere collision shape.</summary>
 	public unsafe Shape CreateSphere(float radius, ShapeOptions? options = null, bool hollow = false)
 	{
