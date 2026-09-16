@@ -43,6 +43,46 @@ public sealed class TestPhysics
 		AssertNativeSize(17, Marshal.SizeOf<Native.ArticulationState>());
 		AssertNativeSize(18, Marshal.SizeOf<Native.ArticulationLinkState>());
 		AssertNativeSize(19, Marshal.SizeOf<Native.D6Constraint>());
+		AssertNativeSize(20, Marshal.SizeOf<TerrainConfiguration>());
+	}
+
+	/// <summary>Terrain supports a falling body, rejects pending mutation and incomplete checkpoints, and can be removed.</summary>
+	[Test]
+	public void Terrain()
+	{
+		using var runtime = new Physics();
+		using var engine = runtime.CreateEngine();
+		var band = new TerrainBand(0, 100, 1, 2, 0.5);
+
+		// Disabled bands leave a fixed hill-family datum; cancel its normalized blend for a zero-height plane.
+		var blend = (0.5 - 0.28) / (0.58 - 0.28);
+		var datum = 35 / (2 - blend * blend * (3 - 2 * blend));
+		engine.SetTerrain(new TerrainConfiguration(42, 0, 1e6, -datum, 0, 0, band, band, band, band, band, band, band));
+		engine.SetMaterial(new Material(0, 0.5f, 0, 0, 0, 1));
+		using var shape = engine.CreateSphere(0.5f);
+		using var body = engine.CreateBody(shape, new BodyOptions { ObjectToWorld = m4x4.Translation(0, 0, 2), Gravity = v4.Zero, MassOrDensity = 1 });
+		var commands = new[] { BodyCommand.SetGravity(body.Handle, new v4(0, 0, -9.81f, 0)) };
+
+		// Mutation and serialization cannot invalidate or silently omit the active collision authority.
+		engine.BeginStep(1f / 60, commands: commands);
+		ExpectStatus(EStatus.StepPending, () => engine.SetTerrain(null));
+		engine.CompleteStep();
+		ExpectStatus(EStatus.InvalidArgument, () => engine.CheckpointSize());
+		for (var step = 0; step != 180; ++step)
+			engine.Step(1f / 60, commands: commands);
+
+		// Require support near the sphere radius above the analytically zero-height plane.
+		var height = body.GetState().m_object_to_world.pos.z;
+		if (height <= 0.45f || height >= 0.55f || float.IsNaN(height))
+			throw new Exception($"Terrain sphere did not settle: height={height}, velocity={body.GetState().m_velocity.m_linear}");
+
+		// Removing the source must restore free fall rather than leave cached terrain contacts behind.
+		engine.SetTerrain(null);
+		for (var step = 0; step != 60; ++step)
+			engine.Step(1f / 60, commands: commands);
+
+		// Passing through the former ground rules out retained support after removal.
+		Assert.True(body.GetState().m_object_to_world.pos.z < 0);
 	}
 
 	/// <summary>Exercise typed identities, bulk stepping, snapshots, checkpoints, and dependency-ordered disposal.</summary>
