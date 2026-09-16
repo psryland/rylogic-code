@@ -148,6 +148,7 @@ namespace pr::physics
 		Sleep = 2,
 		ConstraintBreak = 3,
 		CoupledConstraintFailure = 4,
+		WorldContact = 5,
 	};
 
 	// Selects whether an articulation root is fixed to world or contributes a floating six-velocity base.
@@ -533,6 +534,8 @@ namespace pr::physics
 		std::uint32_t reserved;
 	};
 
+	// Completed contact geometry and lifecycle diagnostics. WorldContact has exactly one zero body handle for the
+	// engine-owned terrain/boundary endpoint; Contact has two caller-owned handles. Normals point from A towards B.
 	struct Event
 	{
 		StructHeader header;

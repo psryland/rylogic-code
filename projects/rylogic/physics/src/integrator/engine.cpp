@@ -223,6 +223,12 @@ namespace pr::physics
 		m_gpu_world_contacts = std::move(replacement);
 	}
 
+	// Identify only this engine's current world endpoint, not arbitrary shapeless or static bodies.
+	bool Engine::IsWorldContactBody(RigidBody const* body) const
+	{
+		return m_gpu_world_contacts && body == &m_gpu_world_contacts->m_endpoint;
+	}
+
 	// Keep the opaque GPU readback state allocated once with the pending-step state.
 	Engine::PendingStep::PendingStep()
 		: m_bodies()

@@ -175,7 +175,8 @@ void CSAppendCollisionEvents(int3 DTID(dtid))
 	collision_event.contact_point = contact.contact_point;
 	for (int manifold_index = 0; manifold_index != GpuContactMaxPoints; ++manifold_index)
 		collision_event.manifold[manifold_index] = contact.manifold[manifold_index];
-	collision_event.b2a = mul(body_b.o2w, InvertOrthonormal(body_a.o2w));
+	// Geometry and its frame must come from the same collision sample, before positional correction moves the bodies.
+	collision_event.b2a = contact.b2a;
 	CollisionEventRelativeVelocity(body_a, body_b, collision_event.relative_velocity_ang, collision_event.relative_velocity_lin);
 	collision_event.body_idx_a = contact.body_idx_a;
 	collision_event.body_idx_b = contact.body_idx_b;

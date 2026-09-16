@@ -312,6 +312,13 @@ float3x3 CollisionMassMatrix(float3 rA, float3 rB, float inv_mass_a, float inv_m
 	return Invert(col_I_inv);
 }
 
+// Convert the material's bounded friction ratio to the Coulomb cone slope.
+float FrictionCoefficient(float friction)
+{
+	float ratio = min(friction, 0.9999f);
+	return ratio / (1.000001f - ratio);
+}
+
 // Compute the restitution impulse with Coulomb friction cone clamping.
 // Returns the final impulse vector in A's object space.
 float3 ComputeImpulse(float3x3 col_I, float3 V_rel, float3 axis, float elasticity, float friction)
@@ -329,16 +336,13 @@ float3 ComputeImpulse(float3x3 col_I, float3 V_rel, float3 axis, float elasticit
 	float3 impulseT = impulse0 - impulseN;
 	float3 impulse = (1.0f + elasticity) * impulseN + impulseT;
 
-	// Coulomb friction cone clamping. The scene material stores a friction ratio in [0,1), converted here to the slope of the cone so values near 1 can
-	// approach very high static friction without dividing by zero.
-	float clamped_friction = min(friction, 0.9999f);
-	float static_friction = clamped_friction / (1.000001f - clamped_friction);
+	// Clamp the tangent impulse using the same cone slope as the accumulated manifold solve.
 	float Jn = dot(impulse, axis);
 	float Jt_sq = max(0.0f, dot(impulse, impulse) - Jn * Jn);
 	float Jt = sqrt(Jt_sq);
-	if (Jt > static_friction * abs(Jn))
+	if (Jt > friction * abs(Jn))
 	{
-		Jt = static_friction * abs(Jn);
+		Jt = friction * abs(Jn);
 		float impulseT_lenSq = dot(impulseT, impulseT);
 		if (impulseT_lenSq > 1e-12f)
 			impulseT = Jt * (impulseT / sqrt(impulseT_lenSq));
@@ -347,15 +351,10 @@ float3 ComputeImpulse(float3x3 col_I, float3 V_rel, float3 axis, float elasticit
 	return impulse;
 }
 
-// Compute the friction impulse vector for a sequential impulse solver.
-// Solves for the tangent impulse that would stop tangential motion at this point,
-// then clamps its magnitude to the Coulomb cone (mu * Jn). Returns an impulse vector
-// in the tangent plane (i.e. perpendicular to 'axis'). 'V_rel' should be the relative
-// velocity *after* the normal impulse has been applied at this point.
-float3 ComputeFrictionImpulse(float3x3 col_I_inv, float3 V_rel, float3 axis, float friction, float Jn)
+// Return only the change needed to move this point's accumulated tangent impulse within its physical support budget.
+float3 ComputeFrictionImpulse(float3x3 col_I_inv, float3 V_rel, float3 axis, float friction, float Jn, float3 old_impulse)
 {
-	// This function assumes the normal impulse budget is already known. It solves only the tangent direction that opposes current tangential slip, then caps
-	// that impulse to mu * Jn so friction cannot exceed the normal force that generated it.
+	// Oppose the current slip, but project the accumulated impulse so extra solver iterations cannot spend the same normal support again.
 	float3 V_tan = V_rel - dot(V_rel, axis) * axis;
 	float v_tan_sq = dot(V_tan, V_tan);
 	if (v_tan_sq < 1e-12f)
@@ -367,9 +366,13 @@ float3 ComputeFrictionImpulse(float3x3 col_I_inv, float3 V_rel, float3 axis, flo
 	if (k_t < 1e-12f)
 		return float3(0, 0, 0);
 
-	float Jt = v_tan_len / k_t;             // impulse magnitude that fully stops tangential motion
-	Jt = min(Jt, friction * abs(Jn));       // Coulomb cone clamp using this point's normal impulse
-	return -Jt * tangent;                   // opposes tangential motion
+	float3 candidate = old_impulse - (v_tan_len / k_t) * tangent;
+	float candidate_length = length(candidate);
+	float limit = friction * max(Jn, 0.0f);
+	if (candidate_length > limit && candidate_length > 0.0f)
+		candidate *= limit / candidate_length;
+
+	return candidate - old_impulse;
 }
 
 // Convert a point impulse at 'pt' (in A's space), apply it to both bodies, and return the impulse that survived the energy guard.
@@ -1045,15 +1048,17 @@ void ApplyWarmStartContact(uint idx)
 	float3 applied_impulse = ApplyImpulseWithEnergyGuard(bodyA, bodyB, impulse, c.contact_point.xyz,
 		com_a_in_a, com_b_in_a, rot_a, ws_iinv_a, ws_iinv_b,
 		inv_mass_a, inv_mass_b, true);
+
+	// A preload is only a proposal. Persist the accepted support, including zero, before friction or cache storage can consume it.
+	c.warmstart_impulse = float4(applied_impulse, 0);
+	g_contacts[idx] = c;
 	if (!any(applied_impulse != float3(0, 0, 0)))
 		return;
 
-	c.warmstart_impulse = float4(applied_impulse, 0);
 	bodyA.state_flags = SetFlag(bodyA.state_flags, ERigidBodyStateFlags_Collided, true);
 	bodyB.state_flags = SetFlag(bodyB.state_flags, ERigidBodyStateFlags_Collided, true);
 
 	// Leave sleep state to CSReduceSleepStats after the complete solve.
-	g_contacts[idx] = c;
 	g_bodies[c.body_idx_a] = bodyA;
 	g_bodies[c.body_idx_b] = bodyB;
 }
@@ -1151,17 +1156,16 @@ void CSPositionSolve(int3 DTID(dtid))
 
 // Resolve one contact against the latest body momenta. Callers provide either a race-free colour batch or exclusive serial execution.
 //
-// The contact solve runs in two phases:
+// The contact solve runs in three phases:
 //
 //   Phase 1 (centroid): Apply a coupled restitution+friction impulse at the contact centroid
 //   using the classic 3D Coulomb-cone-clamped formula. This handles dynamic collisions
 //   (elastic bounces, head-on impacts) and matches the analytic 1D elastic solution for
 //   symmetric pair-wise contacts (preserving the conservation tests).
 //
-//   Phase 2 (linear bias, per-manifold-point friction, only when penetrating): Apply a
-//   scalar Baumgarte bias impulse to linear momentum only, then distribute friction across
-//   manifold points using each point's share of the normal impulse. Broad face contacts
-//   can resist sliding and torsion without bias-driven angular runaway.
+//   Phase 2 (linear bias, only when penetrating): Apply a scalar Baumgarte bias impulse to linear momentum only.
+//   Phase 3 (per-manifold-point friction): Project accumulated tangent impulses against physical normal support, including warm starting.
+//   Broad face contacts can resist sliding and torsion without bias-driven angular runaway.
 void ResolveContact(uint idx)
 {
 	// Load the contact and both bodies. Updates are written back only if an impulse is applied, which avoids unnecessary UAV traffic for separating contacts.
@@ -1169,17 +1173,15 @@ void ResolveContact(uint idx)
 	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
 	GpuRigidBody bodyB = g_bodies[c.body_idx_b];
 
-	// Rewind the b2a transform to the estimated collision time.
-	// This gives contact geometry at the moment of first contact rather than
-	// at the post-integration position where the body has already penetrated.
+	// Rewind only the solver transform to the estimated collision time. Keep the stored transform in the same generating frame as the axis and manifold.
+	float4x4 solver_b2a = c.b2a;
 	float ct = c.collision_time;
 	if (abs(ct) > 1e-6f)
 	{
 		float4x4 o2w_a_at_t = ExtrapolateO2W(bodyA, ct);
 		float4x4 o2w_b_at_t = ExtrapolateO2W(bodyB, ct);
-		c.b2a = mul(o2w_b_at_t, InvertOrthonormal(o2w_a_at_t));
+		solver_b2a = mul(o2w_b_at_t, InvertOrthonormal(o2w_a_at_t));
 	}
-
 	float3 axis = c.axis.xyz;
 
 	// From this point down, contact-space quantities are expressed in body A space unless explicitly suffixed with _ws. Body B's CoM and inverse inertia are
@@ -1189,8 +1191,8 @@ void ResolveContact(uint idx)
 	float3 com_a_in_a = bodyA.os_com_and_invmass.xyz;
 	float3 os_com_b = bodyB.os_com_and_invmass.xyz;
 	float3x3 rot_a = (float3x3)bodyA.o2w;
-	float3x3 b2a_rot = (float3x3)c.b2a;
-	float3 com_b_in_a = c.b2a[3].xyz + mul(os_com_b, b2a_rot);
+	float3x3 b2a_rot = (float3x3)solver_b2a;
+	float3 com_b_in_a = solver_b2a[3].xyz + mul(os_com_b, b2a_rot);
 
 	// Compute inverse inertia tensors in the frames needed by later phases. os_iinv_* are for helper calls in object/A space; ws_iinv_* are for the energy
 	// guard after impulses have been transformed into world-space momenta.
@@ -1203,7 +1205,7 @@ void ResolveContact(uint idx)
 	// Load material properties
 	GpuMaterial mat_a = g_materials[c.mat_id_a];
 	GpuMaterial mat_b = g_materials[c.mat_id_b];
-	float friction = sqrt(mat_a.friction_static * mat_b.friction_static);
+	float friction = FrictionCoefficient(sqrt(mat_a.friction_static * mat_b.friction_static));
 
 	// Baumgarte velocity bias: the per-frame separation velocity we'd like to inject
 	// to drive penetration to zero. The same depth value is used for every manifold
@@ -1259,18 +1261,22 @@ void ResolveContact(uint idx)
 				inv_mass_a, inv_mass_b, true);
 			c.warmstart_impulse.xyz += applied_impulse;
 			any_impulse = any(applied_impulse != float3(0, 0, 0));
+
+			// Account for centroid friction at every manifold point before spending the remaining physical support budget.
+			float3 tangent_share = (applied_impulse - dot(applied_impulse, axis) * axis) / float(point_count);
+			PR_HLSL_UNROLL
+			for (int pi = 0; pi != GpuContactMaxPoints; ++pi)
+			{
+				if (pi < point_count)
+					c.friction_impulses[pi].xyz += tangent_share;
+			}
 		}
 	}
 
-	// ===== Phase 2: Linear Baumgarte bias + per-manifold-point friction =====
+	// ===== Phase 2: Linear Baumgarte bias =====
 	// Baumgarte bias is a pseudo-impulse that clears position error. Applying it through the current contact point makes broad resting contacts sensitive to
 	// transient manifold reduction: a one-point contact patch can inject spin before the next frame restores the wider manifold. Use the centre-of-mass
 	// relative normal speed and change only linear momentum, leaving physical contact-point torque to the restitution/friction phases.
-	//
-	// Friction is still applied per manifold point. Distributing friction across the contact
-	// face is what lets a stack of boxes resist sliding/torsion at every contact point. The
-	// per-point friction cone limit is mu * (Jn_bias_centroid / point_count) so the total
-	// friction across the manifold matches mu * Jn_bias_centroid (Coulomb at the contact).
 	PR_HLSL_BRANCH
 	if (bias > 0.0f)
 	{
@@ -1291,42 +1297,40 @@ void ResolveContact(uint idx)
 			// Baumgarte bias is a one-frame positional correction, not a reusable support impulse. Persisting it into the warm-start cache replays stale
 			// push-out on the next frame and can keep resting contact networks subtly energised.
 			any_impulse = any_impulse || any(applied_bias_impulse != float3(0, 0, 0));
+		}
+	}
 
-			// Per-point friction cone limit: split the centroid Jn equally so the
-			// summed friction across the manifold respects the Coulomb limit.
-			float Jn_per_point = Jn_bias_centroid / float(point_count);
+	// ===== Phase 3: Accumulated per-manifold-point friction =====
+	// Warm starting can satisfy normal velocity before this sweep. Its accepted physical impulse still supplies friction, independently of fresh closing or bias.
+	// Sharing the total normal budget across the face preserves torsional resistance without granting another full Coulomb allowance each iteration.
+	float Jn_per_point = max(dot(c.warmstart_impulse.xyz, axis), 0.0f) / float(point_count);
+	PR_HLSL_BRANCH
+	if (Jn_per_point > 0.0f && friction > 0.0f)
+	{
+		PR_HLSL_UNROLL
+		for (int pi = 0; pi != GpuContactMaxPoints; ++pi)
+		{
+			if (pi >= point_count)
+				continue;
 
-			// ----- Per-manifold-point friction + support tracking -----
-			PR_HLSL_UNROLL
-			for (int pi = 0; pi != GpuContactMaxPoints; ++pi)
+			// Re-read velocities after earlier points so the bounded deltas converge without replaying already applied friction.
+			float3 pt = (point_count > 1) ? c.manifold[pi].xyz : c.contact_point.xyz;
+			float3 V_rel = RelativeVelocityAtPoint(bodyA, bodyB, pt,
+				os_iinv_a, os_iinv_b, rot_a, com_a_in_a, com_b_in_a);
+			float3x3 col_I_pt = CollisionMassMatrix(
+				pt - com_a_in_a, pt - com_b_in_a,
+				inv_mass_a, inv_mass_b,
+				os_iinv_a, b2a_iinv_b);
+			float3 friction_impulse = ComputeFrictionImpulse(Invert(col_I_pt), V_rel, axis, friction, Jn_per_point, c.friction_impulses[pi].xyz);
+			if (any(friction_impulse != float3(0, 0, 0)))
 			{
-				if (pi >= point_count)
-					continue;
-
-				float3 pt = (point_count > 1) ? c.manifold[pi].xyz : c.contact_point.xyz;
-
-				// V_rel at this point uses the *current* body momenta (post centroid bias
-				// and post any earlier points' friction) for Gauss-Seidel convergence.
-				float3 V_rel = RelativeVelocityAtPoint(bodyA, bodyB, pt,
-					os_iinv_a, os_iinv_b, rot_a, com_a_in_a, com_b_in_a);
-
-				float3x3 col_I_pt = CollisionMassMatrix(
-					pt - com_a_in_a, pt - com_b_in_a,
-					inv_mass_a, inv_mass_b,
-					os_iinv_a, b2a_iinv_b);
-				float3x3 col_I_inv_pt = Invert(col_I_pt);
-
-				// Friction limited by this point's share of the centroid bias.
-				// Energy-guarded because friction is dissipative — should never inject KE.
-				float3 friction_impulse = ComputeFrictionImpulse(col_I_inv_pt, V_rel, axis, friction, Jn_per_point);
-				if (any(friction_impulse != float3(0, 0, 0)))
-				{
-					float3 applied_friction_impulse = ApplyImpulseWithEnergyGuard(bodyA, bodyB, friction_impulse, pt,
-						com_a_in_a, com_b_in_a, rot_a, ws_iinv_a, ws_iinv_b,
-						inv_mass_a, inv_mass_b, true);
-					c.warmstart_impulse.xyz += applied_friction_impulse;
-				}
-
+				// Retain only the passive delta that was actually applied, keeping the solver accumulator consistent with body momentum.
+				float3 applied_friction_impulse = ApplyImpulseWithEnergyGuard(bodyA, bodyB, friction_impulse, pt,
+					com_a_in_a, com_b_in_a, rot_a, ws_iinv_a, ws_iinv_b,
+					inv_mass_a, inv_mass_b, true);
+				c.friction_impulses[pi].xyz += applied_friction_impulse;
+				c.warmstart_impulse.xyz += applied_friction_impulse;
+				any_impulse = any_impulse || any(applied_friction_impulse != float3(0, 0, 0));
 			}
 		}
 	}

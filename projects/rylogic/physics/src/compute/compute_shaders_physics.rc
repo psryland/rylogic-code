@@ -3,7 +3,7 @@
 //
 // Touch this comment any time an .hlsl/.hlsli file referenced below is edited so MSBuild
 // invalidates compute_shaders_physics.res — RC dependency tracking does not follow .hlsl edits.
-// Touched: 2026-09-16 (terrain eligibility and ordinary rigid sleep ownership)
+// Touched: 2026-09-17 (accumulated physical manifold friction budgets)
 src/surface/gpu_world_contacts.hlsl TEXT DISCARDABLE "src/surface/gpu_world_contacts.hlsl"
 pr/physics/terrain/landscape/baseline_surface.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\terrain\\landscape\\baseline_surface.hlsli"
 pr/physics/terrain/landscape/baseline_types.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\terrain\\landscape\\baseline_types.hlsli"

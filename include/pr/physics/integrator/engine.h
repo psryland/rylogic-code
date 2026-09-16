@@ -269,6 +269,9 @@ namespace pr::physics
 		// Replace or disable an inward-facing, infinite-height cylindrical world boundary between completed frames.
 		void CylindricalBoundary(std::optional<CylindricalBoundaryConfig> boundary);
 
+		// Identify the owned static endpoint used by terrain and boundary contacts; it is not a caller-owned body.
+		bool IsWorldContactBody(RigidBody const* body) const;
+
 		// Return the D3D12 device used by the physics compute engine.
 		ID3D12Device4* Device() const;
 

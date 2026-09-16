@@ -231,21 +231,24 @@ namespace pr::physics
 			void BindEvents(Engine& engine)
 			{
 				// Contacts are buffered while CompleteStep unpacks native results; no managed callback occurs from stepping.
-				engine.Collisions += [this](Engine&, std::span<RbContact const> contacts)
+				engine.Collisions += [this](Engine& source, std::span<RbContact const> contacts)
 				{
 					for (auto const& contact : contacts)
 					{
 						auto iter_a = m_body_handles.find(contact.m_objA);
 						auto iter_b = m_body_handles.find(contact.m_objB);
-						if (iter_a == m_body_handles.end() || iter_b == m_body_handles.end())
+						auto world_a = source.IsWorldContactBody(contact.m_objA);
+						auto world_b = source.IsWorldContactBody(contact.m_objB);
+						if ((!world_a && iter_a == m_body_handles.end()) || (!world_b && iter_b == m_body_handles.end()))
 							continue;
 
+						// The owned world endpoint has no public body handle; distinguish it from two-body contact events.
 						auto evt = PhysicsEvent{
 							.header = {sizeof(PhysicsEvent), PHYSICS_STRUCT_VERSION},
-							.type = PhysicsEventType::Contact,
+							.type = world_a || world_b ? PhysicsEventType::WorldContact : PhysicsEventType::Contact,
 							.point_count = static_cast<std::uint32_t>(contact.Count()),
-							.body_a = iter_a->second,
-							.body_b = iter_b->second,
+							.body_a = world_a ? PhysicsBodyHandle{} : iter_a->second,
+							.body_b = world_b ? PhysicsBodyHandle{} : iter_b->second,
 							.normal = {},
 							.points = {},
 							.depth = contact.m_depth,
@@ -256,8 +259,8 @@ namespace pr::physics
 							.substep_index = contact.m_substep_index,
 						};
 
-						// Contact geometry is reported in world space so snapshots and events share one coordinate frame.
-						auto const& a2w = contact.m_objA->O2W();
+						// World contacts use their static endpoint to recover the generating frame; caller-owned dynamic poses are still pre-step.
+						auto a2w = world_b ? contact.m_objB->O2W() * InvertOrthonormal(contact.m_b2a) : contact.m_objA->O2W();
 						auto normal = (a2w.rot * contact.m_axis).w0();
 						memcpy(&evt.normal, &normal, sizeof(normal));
 						for (auto i = 0; i != contact.Count(); ++i)

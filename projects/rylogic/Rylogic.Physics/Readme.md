@@ -32,3 +32,9 @@ for motion bounds, configuration validation, actual-surface containment, transac
 
 Gravity commands apply force for one frame, not persistent acceleration. Submit gravity each frame. A nonzero initial `BodyOptions.Gravity` also adds force
 for the first frame, so do not apply it twice when using a per-frame gravity command.
+
+`CopyEvents` reports procedural terrain and boundary collisions as `EPhysicsEvent.WorldContact`. Exactly one body handle is invalid: it identifies the
+engine-owned world endpoint, not a missing user body. Ordinary `Contact` events retain two valid body handles. Both use world-space points, an A-to-B normal,
+leaf materials, and the zero-based generating substep. The shapeless world endpoint has no compound child identity. These are generated contact records,
+not normal-load or solved-impulse measurements; contact absence is not an airborne guarantee for sleeping bodies or an incomplete event stream.
+World-contact geometry retains the generating pose before positional correction; it is not remapped to the final body snapshot.
