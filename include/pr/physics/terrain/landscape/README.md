@@ -16,13 +16,16 @@ submitted dynamic bodies/trees on the next step. Caller-owned shape geometry rem
 until `ResetCaches()`. Terrain and buoyancy use the shared **0.16 m** surface-spacing default unless explicitly overridden.
 Volume sampling is independent of surface spacing and is unchanged.
 
-Every dynamic rigid body and moving articulation proxy participates, including sleeping bodies.
+Every dynamic rigid body and moving articulation proxy retains its instance, including sleeping bodies.
+Contact generation uses ordinary broadphase sleep eligibility: an awake body or a sleeping body in a
+disturbed island is sampled, while unchanged sleeping support is skipped. Disturbed sleepers retain
+their terrain support during impacts. Domain/bounds checks still precede rejection.
 Boxes, spheres, thick/thin lines, triangles, convex polytopes and array leaves use the same
 `surface::BuildPlan` / C++-HLSL emitter. Zero-area geometry has zero-weight segment/point coverage.
 `NoShape` is a sentinel, not physical geometry. Each leaf's shape-to-root and body's root-to-world
 transform is applied once; no buoyancy registration, wetness or union-ownership filtering applies.
 
-The GPU streams every ordinal and queries `BaselineEvaluate` at its world XY. A candidate within
+For each eligible instance, the GPU streams every ordinal and queries `BaselineEvaluate` at its world XY. A candidate within
 1 mm of contact, or penetrating, retains the actual upward normal `n = normalize(-dx,-dy,1)`.
 Its normal-distance depth is `(height - z)*n.z`, not vertical gap. This is distance to the local
 tangent plane through the vertical terrain projection, not a closest-point search on curved terrain.
@@ -69,6 +72,13 @@ The CPU evaluator below remains device independent.
 `TerrainCollisionTests` runs actual GPU primitive/compound contacts, independent FP64 hollow
 normal/depth checks, a known off-centre impulse, energy loss, resting/substepped trajectories,
 floating-articulation contact, quickout, source lifetime and explicit capacity/domain failures.
+`TerrainSleepTests` compares identical 16-box stacks on ordinary ground and flat sampled terrain for
+60 simulated seconds with four substeps per frame. It checks sustained sleep over the final ten seconds,
+reports sleep/wake/island transitions and residual velocity maxima, and keeps a distant body awake to
+exclude the engine's all-asleep early exit. Other fixtures cover isolated resting support, first-impact
+terrain support, force waking and whole-tree sleep. `RigidContactSleepTests` checks low-speed contact
+and meaningful impact waking without terrain. Ordinary rigid-contact impulses leave the sleep decision
+to the post-resolve sleep pass; intermediate support impulses do not reset resting history.
 
 ### Ordinary CPU queries
 

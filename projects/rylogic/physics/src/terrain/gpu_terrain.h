@@ -54,8 +54,9 @@ namespace pr::physics
 		// Prepare immutable plans on first dynamic use and upload this frame's participating instances.
 		void Upload(GpuJob& job, ShapeCache const& shapes, std::span<GpuRigidBody const> bodies, int substeps);
 
-		// Append terrain constraints to the ordinary contact stream and update its indirect dispatch.
-		void Collide(GpuJob& job, int endpoint, int max_contacts, ID3D12Resource* bodies, ID3D12Resource* shapes, ID3D12Resource* contacts, ID3D12Resource* counters, ID3D12Resource* dispatch);
+		// Append terrain constraints for awake or disturbed bodies and update the ordinary contact stream's indirect dispatch.
+		void Collide(GpuJob& job, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,
+			ID3D12Resource* bodies, ID3D12Resource* shapes, ID3D12Resource* contacts, ID3D12Resource* counters, ID3D12Resource* dispatch);
 
 		// Record status and timestamp readbacks without submitting or waiting.
 		ReadbackAlloc Readback(GpuJob& job);

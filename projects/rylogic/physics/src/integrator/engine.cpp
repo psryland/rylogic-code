@@ -1205,7 +1205,8 @@ namespace pr::physics
 
 		// Append terrain constraints before the shared solver reads the final contact count and dispatch.
 		if (m_gpu_terrain)
-			m_gpu_terrain->Collide(m_gpu->m_job, m_cache->RigidBodyCount() - 1, m_config.max_collision_pairs, m_gpu_integrator->Bodies().get(), m_gpu_collision_detector->Shapes().get(), m_gpu_collision_detector->Contacts().get(), counters.get(), m_gpu_collision_detector->ResolveDispatchArgs().get());
+			m_gpu_terrain->Collide(m_gpu->m_job, m_cache->RigidBodyCount() - 1, m_config.max_collision_pairs, m_config.sleeping_enabled, m_cache->SleepIslandCount(), m_gpu_sleep_manager->SleepIslands().get(),
+				m_gpu_integrator->Bodies().get(), m_gpu_collision_detector->Shapes().get(), m_gpu_collision_detector->Contacts().get(), counters.get(), m_gpu_collision_detector->ResolveDispatchArgs().get());
 
 		if constexpr (PR_PHYSICS_DIAGNOSTICS)
 		{

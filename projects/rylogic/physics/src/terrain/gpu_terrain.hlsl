@@ -34,6 +34,8 @@ cbuffer Params : register(b0)
 {
 	uint instance_count, endpoint, max_contacts;
 	float height_upper;
+	int sleeping_enabled, island_count;
+	uint2 pad;
 };
 StructuredBuffer<GpuRigidBody> bodies : register(t0);
 StructuredBuffer<GpuShape> shapes : register(t1);
@@ -41,6 +43,7 @@ StructuredBuffer<BaselineRecipe> recipes : register(t2);
 StructuredBuffer<TerrainRange> plans : register(t3);
 StructuredBuffer<SurfacePatch> patches : register(t4);
 StructuredBuffer<TerrainInstance> instances : register(t5);
+StructuredBuffer<GpuSleepIsland> sleep_islands : register(t6);
 RWStructuredBuffer<GpuCollisionCounters> counters : register(u0);
 RWStructuredBuffer<GpuResolveContact> contacts : register(u1);
 RWStructuredBuffer<uint> status : register(u2);
@@ -70,6 +73,15 @@ void CSTerrain(uint3 group : SV_GroupID, uint lane : SV_GroupIndex)
 	}
 	if (bounds.centre.z - bounds.radius.z > height_upper)
 		return;
+
+	// Match ordinary broadphase eligibility: unchanged sleeping support must not apply bias impulses, but disturbed islands still need terrain support.
+	if (sleeping_enabled != 0 && AllSet(body.state_flags, ERigidBodyStateFlags_Sleeping))
+	{
+		int island_id = body.sleep.island_id;
+		if (island_id < 0 || island_id >= island_count ||
+			!AnySet(sleep_islands[island_id].flags, GpuSleepIslandFlags_Disturbed))
+			return;
+	}
 
 	// Stream fixed-size batches while retaining at most eight slope groups with four spatial slots each.
 	if (lane < 32) selected[lane] = (TerrainCandidate)0;

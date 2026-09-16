@@ -17,6 +17,8 @@ namespace pr::physics
 		{
 			uint32_t m_instance_count, m_endpoint, m_max_contacts;
 			float m_height_upper;
+			int m_sleeping_enabled, m_island_count;
+			uint32_t m_pad[2];
 		};
 
 		// Upload a complete bounded stream; callers retain buffers until the recorded job completes.
@@ -95,7 +97,7 @@ namespace pr::physics
 		auto resolver = shader_cache::ResourceSourceResolver{};
 		auto code = ShaderCompiler().Source("src/terrain/gpu_terrain.hlsl", resolver).EntryPoint(L"CSTerrain").ShaderModel(L"cs_6_0").HlslVersion(EHlslVersion::Hlsl2021).Arg(L"-Gis").Optimise(true).Compile();
 		m_step.m_sig = RootSig(ERootSigFlags::ComputeOnly).U32<Constants>(ECBufReg::b0)
-			.SRV(ESRVReg::t0).SRV(ESRVReg::t1).SRV(ESRVReg::t2).SRV(ESRVReg::t3).SRV(ESRVReg::t4).SRV(ESRVReg::t5)
+			.SRV(ESRVReg::t0).SRV(ESRVReg::t1).SRV(ESRVReg::t2).SRV(ESRVReg::t3).SRV(ESRVReg::t4).SRV(ESRVReg::t5).SRV(ESRVReg::t6)
 			.UAV(EUAVReg::u0).UAV(EUAVReg::u1).UAV(EUAVReg::u2).Create(gpu, "Terrain:Signature");
 		m_step.m_pso = ComputePSO(m_step.m_sig.get(), code).Create(gpu, "Terrain:Contacts");
 		m_dispatch.m_sig = RootSig(ERootSigFlags::ComputeOnly).U32<Constants>(ECBufReg::b0).UAV(EUAVReg::u0).UAV(EUAVReg::u2).Create(gpu, "Terrain:DispatchSignature");
@@ -229,8 +231,9 @@ namespace pr::physics
 		job.m_cmd_list.CopyBufferRegion(m_status.get(), 0, zero);
 	}
 
-	// Append terrain contacts and refresh the shared solver dispatch for one substep.
-	void GpuTerrain::Collide(GpuJob& job, int endpoint, int max_contacts, ID3D12Resource* bodies, ID3D12Resource* shapes, ID3D12Resource* contacts, ID3D12Resource* counters, ID3D12Resource* dispatch)
+	// Append active terrain contacts and refresh the shared solver dispatch for one substep.
+	void GpuTerrain::Collide(GpuJob& job, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,
+		ID3D12Resource* bodies, ID3D12Resource* shapes, ID3D12Resource* contacts, ID3D12Resource* counters, ID3D12Resource* dispatch)
 	{
 		if (m_instances.empty())
 			return;
@@ -243,14 +246,17 @@ namespace pr::physics
 		job.m_cmd_list.get()->EndQuery(m_queries.get(), D3D12_QUERY_TYPE_TIMESTAMP, m_query_count++);
 		job.m_barriers.Transition(bodies, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition(shapes, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(sleep_islands, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 		job.m_barriers.Transition(contacts, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(counters, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_status.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Commit();
 		job.m_cmd_list.SetPipelineState(m_step.m_pso.get());
 		job.m_cmd_list.SetComputeRootSignature(m_step.m_sig.get());
-		job.m_cmd_list.AddComputeRoot32BitConstants(Constants{s_cast<uint32_t>(m_instances.size()), s_cast<uint32_t>(endpoint), s_cast<uint32_t>(max_contacts), m_height_upper});
-		for (auto resource : {bodies, shapes, m_recipe.get(), m_plans.get(), m_patch_buffer.get(), m_instance_buffer.get()})
+		job.m_cmd_list.AddComputeRoot32BitConstants(Constants{
+			.m_instance_count = s_cast<uint32_t>(m_instances.size()), .m_endpoint = s_cast<uint32_t>(endpoint), .m_max_contacts = s_cast<uint32_t>(max_contacts),
+			.m_height_upper = m_height_upper, .m_sleeping_enabled = sleeping_enabled ? 1 : 0, .m_island_count = island_count});
+		for (auto resource : {bodies, shapes, m_recipe.get(), m_plans.get(), m_patch_buffer.get(), m_instance_buffer.get(), sleep_islands})
 			job.m_cmd_list.AddComputeRootShaderResourceView(resource->GetGPUVirtualAddress());
 
 		// Bind append destinations after the read-only streams in root-signature order.
