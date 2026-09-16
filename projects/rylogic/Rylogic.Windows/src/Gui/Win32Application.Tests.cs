@@ -13,6 +13,81 @@ namespace Rylogic.UnitTests;
 [TestFixture]
 public class TestWin32Application
 {
+	/// <summary>Client entry resets a border cursor while raw overrides and native non-client cursors retain priority.</summary>
+	[Test]
+	public void ClientCursorResetsSizingAndHonoursRawOverrides()
+	{
+		// Exercise cursor messages on a hidden HWND without moving the user's pointer or activating the window.
+		var previous_cursor = GetCursor();
+		var arrow = LoadCursor(IntPtr.Zero, new IntPtr(32512));
+		var ibeam = LoadCursor(IntPtr.Zero, new IntPtr(32513));
+		var sizing = LoadCursor(IntPtr.Zero, new IntPtr(32644));
+		try
+		{
+			var override_cursor = false;
+			using var application = new Win32Application(new Win32ApplicationOptions
+			{
+				MessageHandler = args =>
+				{
+					if (args.Message != Win32.WM_SETCURSOR || !override_cursor)
+						return;
+
+					User32.SetCursor(ibeam);
+					args.Result = new IntPtr(1);
+					args.Handled = true;
+				},
+			});
+			Assert.Equal(false, arrow == IntPtr.Zero);
+			Assert.Equal(false, sizing == IntPtr.Zero);
+			Assert.Equal(false, ibeam == IntPtr.Zero);
+			User32.SetCursor(sizing);
+			User32.SendMessage(application.Handle, Win32.WM_SETCURSOR, application.Handle, new IntPtr((int)Win32.HitTest.HTCLIENT));
+			Assert.Equal(arrow, GetCursor());
+
+			// A per-window borrowed cursor must not replace the border's native sizing policy.
+			application.ClientCursor = ibeam;
+			User32.SendMessage(application.Handle, Win32.WM_SETCURSOR, application.Handle, new IntPtr((int)Win32.HitTest.HTCLIENT));
+			Assert.Equal(ibeam, GetCursor());
+			var border_message = new IntPtr((Win32.WM_MOUSEMOVE << 16) | (int)Win32.HitTest.HTLEFT);
+			var native_result = User32.DefWindowProc(application.Handle, Win32.WM_SETCURSOR, application.Handle, border_message);
+			var native_cursor = GetCursor();
+			User32.SetCursor(ibeam);
+			Assert.Equal(native_result, User32.SendMessage(application.Handle, Win32.WM_SETCURSOR, application.Handle, border_message));
+			Assert.Equal(native_cursor, GetCursor());
+			application.ClientCursor = IntPtr.Zero;
+
+			// Both creation-time handlers and later renderer subscriptions can claim the cursor before the fallback.
+			override_cursor = true;
+			Assert.Equal(new IntPtr(1), User32.SendMessage(application.Handle, Win32.WM_SETCURSOR, application.Handle, new IntPtr((int)Win32.HitTest.HTCLIENT)));
+			Assert.Equal(ibeam, GetCursor());
+			override_cursor = false;
+			application.Message += (_, args) =>
+			{
+				if (args.Message != Win32.WM_SETCURSOR)
+					return;
+
+				User32.SetCursor(ibeam);
+				args.Result = new IntPtr(1);
+				args.Handled = true;
+			};
+			User32.SetCursor(sizing);
+			User32.SendMessage(application.Handle, Win32.WM_SETCURSOR, application.Handle, new IntPtr((int)Win32.HitTest.HTCLIENT));
+			Assert.Equal(ibeam, GetCursor());
+		}
+		finally
+		{
+			User32.SetCursor(previous_cursor);
+		}
+	}
+
+	/// <summary>Read the calling thread's cursor without changing pointer position.</summary>
+	[DllImport("user32.dll")]
+	private static extern IntPtr GetCursor();
+
+	/// <summary>Borrow a system cursor for a deterministic native policy assertion.</summary>
+	[DllImport("user32.dll", EntryPoint = "LoadCursorW")]
+	private static extern IntPtr LoadCursor(IntPtr instance, IntPtr name);
+
 	/// <summary>Prove creation-time routing, deterministic close, and exit-code propagation.</summary>
 	[Test]
 	public void LifecycleRoutesFromCreationAndReturnsExitCode()
