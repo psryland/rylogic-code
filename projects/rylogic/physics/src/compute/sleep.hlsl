@@ -234,7 +234,7 @@ void CSReduceSleepStats(int3 dtid : SV_DispatchThreadID)
 		return;
 
 	// Reduce per-body state into per-island stats. An island can only sleep when every member is below the thresholds for long enough. Any member that is
-	// moving, never-sleep, or part of a hit sleeping island wakes the whole island.
+	// moving or never-sleep wakes the whole island, including sleepers accelerated by contact impulses.
 	GpuRigidBody body = g_rw_bodies[body_idx];
 	int root = g_sleep_parents[body_idx];
 	if (root < 0)
@@ -245,13 +245,14 @@ void CSReduceSleepStats(int3 dtid : SV_DispatchThreadID)
 	bool low_velocity = LowVelocity(body);
 	float timer_s = low_velocity ? body.sleep.timer_s + g.dt : 0.0f;
 
+	// Ordinary rigid-contact impulses retain the sleeping flag until this decision, so intermediate support impulses cannot reset resting history.
 	InterlockedOr(g_sleep_stats[root].flags, GpuSleepIslandStatsFlags_Valid);
 	InterlockedAdd(g_sleep_stats[root].body_count, 1);
 	if (!low_velocity || never_sleep)
 		InterlockedAnd(g_sleep_stats[root].flags, ~GpuSleepIslandStatsFlags_AllLow);
 	if ((!sleeping && timer_s < g.sleep_delay_s) || never_sleep)
 		InterlockedAnd(g_sleep_stats[root].flags, ~GpuSleepIslandStatsFlags_AllReady);
-	if ((!sleeping && !low_velocity) || never_sleep)
+	if (!low_velocity || never_sleep)
 		InterlockedOr(g_sleep_stats[root].flags, GpuSleepIslandStatsFlags_Wake);
 
 	int island_id = body.sleep.island_id;

@@ -435,22 +435,6 @@ float3 ApplyLinearBiasImpulse(inout_(GpuRigidBody) bodyA, inout_(GpuRigidBody) b
 	return impulse;
 }
 
-// Wake a sleeping or persisted-island dynamic body after collision resolution changes its momentum so the sleep pass cannot zero the impulse that was just applied.
-void WakeAfterImpulse(inout_(GpuRigidBody) body)
-{
-	if (body.os_com_and_invmass.w <= 0.0f || AllSet(body.state_flags, ERigidBodyStateFlags_Static))
-		return;
-
-	if (!AllSet(body.state_flags, ERigidBodyStateFlags_Sleeping) && body.sleep.island_id < 0)
-		return;
-
-	body.sleep.generation++;
-	body.state_flags = SetFlag(body.state_flags, ERigidBodyStateFlags_Sleeping, false);
-	body.sleep.timer_s = 0.0f;
-	body.sleep.island_id = -1;
-	body.sleep.flags = 0;
-}
-
 // Extracts the positive normal part of a cached impulse in the current contact frame.
 float3 WarmStartNormalImpulse(GpuResolveContact c, float3 impulse)
 {
@@ -1067,8 +1051,8 @@ void ApplyWarmStartContact(uint idx)
 	c.warmstart_impulse = float4(applied_impulse, 0);
 	bodyA.state_flags = SetFlag(bodyA.state_flags, ERigidBodyStateFlags_Collided, true);
 	bodyB.state_flags = SetFlag(bodyB.state_flags, ERigidBodyStateFlags_Collided, true);
-	WakeAfterImpulse(bodyA);
-	WakeAfterImpulse(bodyB);
+
+	// Leave sleep state to CSReduceSleepStats after the complete solve.
 	g_contacts[idx] = c;
 	g_bodies[c.body_idx_a] = bodyA;
 	g_bodies[c.body_idx_b] = bodyB;
@@ -1355,8 +1339,8 @@ void ResolveContact(uint idx)
 	// Mark both bodies as having taken part in a collision this frame.
 	bodyA.state_flags = SetFlag(bodyA.state_flags, ERigidBodyStateFlags_Collided, true);
 	bodyB.state_flags = SetFlag(bodyB.state_flags, ERigidBodyStateFlags_Collided, true);
-	WakeAfterImpulse(bodyA);
-	WakeAfterImpulse(bodyB);
+
+	// Leave sleep state to CSReduceSleepStats after the complete solve.
 	g_contacts[idx] = c;
 	g_bodies[c.body_idx_a] = bodyA;
 	g_bodies[c.body_idx_b] = bodyB;
