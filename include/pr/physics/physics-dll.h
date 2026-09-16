@@ -101,6 +101,14 @@ namespace pr::physics
 		ArticulationState = 17,
 		ArticulationLinkState = 18,
 		D6Constraint = 19,
+		Terrain = 20,
+	};
+
+	// One explicit terrain frequency band; roundness and weight gain apply to the mountain band.
+	struct TerrainBand
+	{
+		double amplitude, wavelength, lacunarity, persistence, roundness, weight_gain;
+		std::int32_t octaves, reserved;
 	};
 
 	enum class EMotionType : std::int32_t
@@ -209,6 +217,18 @@ namespace pr::physics
 	{
 		std::uint32_t size;
 		std::uint32_t version;
+	};
+
+	// Complete immutable baseline terrain settings. Zero spacing selects the engine's shared surface-sampling default.
+	struct TerrainDesc
+	{
+		StructHeader header;
+		std::uint32_t seed;
+		std::int32_t material_id;
+		double supported_coordinate, sea_level_bias, uplift_height, mountain_base;
+		TerrainBand regional_base, region_selector, region_uplift, domain_warp, plains, hills, mountains;
+		float surface_spacing;
+		std::uint32_t reserved;
 	};
 
 	struct Vector4
@@ -692,6 +712,9 @@ extern "C"
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineDeviceLeaseAcquire(pr::physics::EngineHandle engine, void** d3d12_device);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineConfigGet(pr::physics::EngineHandle engine, pr::physics::Config* config);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineConfigSet(pr::physics::EngineHandle engine, pr::physics::Config const* config);
+
+	// Replace terrain on the owner thread between frames, or disable it with null. Native checkpoints reject terrain-equipped engines.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineTerrainSet(pr::physics::EngineHandle engine, pr::physics::TerrainDesc const* terrain);
 
 	// Material properties.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_MaterialGet(pr::physics::EngineHandle engine, std::int32_t material_id, pr::physics::MaterialProperties* material);

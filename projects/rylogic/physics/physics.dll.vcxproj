@@ -60,6 +60,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\include\pr\physics\physics-dll.h" />
+    <ResourceCompile Include="$(RylogicRoot)include\pr\hlsl\pr_hlsl.rc" />
   </ItemGroup>
   <!--
   Dependencies
