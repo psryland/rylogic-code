@@ -52,7 +52,7 @@ namespace pr::physics::tests
 		{
 			for (auto fast : {false, true})
 			{
-				// Isolate the contact from terrain, gravity, and penetration bias.
+				// Isolate the contact from terrain and gravity.
 				auto shape = collision::ShapeSphere(0.3f);
 				auto body = RigidBody(&shape, m4x4::Translation(0, 0, 0), Inertia::Sphere(0.3f, 1));
 				auto impactor = RigidBody(&shape, m4x4::Translation(0.599f, 0, 0), Inertia::Sphere(0.3f, 1));
@@ -71,6 +71,7 @@ namespace pr::physics::tests
 				if (fast)
 					PR_EXPECT(body.VelocityWS().lin.x < -0.25f);
 
+				// Reject invalid state independently of the expected wake decision.
 				PR_EXPECT(IsFinite(body.O2W().pos));
 			}
 		}
@@ -102,6 +103,7 @@ namespace pr::physics::tests
 				if (!sampled)
 					bodies.push_back(&ground);
 
+				// Initial source invalidation is not part of the resting-support check.
 				engine.Step(0.00001f, bodies);
 				body.O2W(m4x4::Translation(0, 0, 0.49f));
 				body.Sleep();
@@ -148,10 +150,12 @@ namespace pr::physics::tests
 				for (auto& body : clump)
 					bodies.push_back(&body);
 
+				// Ground and remote active endpoints are excluded from clump statistics.
 				bodies.push_back(&distant);
 				if (!sampled)
 					bodies.push_back(&ground);
 
+				// Both support representations use the same solver settings and material.
 				auto& gpu = SharedTestGpu();
 				auto engine = Engine({}, nullptr, gpu, gpu.m_job.m_queue.get());
 				engine.Material(Material{.m_friction_static = 0.3f, .m_elasticity_norm = 0.05f});
@@ -169,6 +173,7 @@ namespace pr::physics::tests
 					for (auto& body : clump)
 						body.GravityWS(v4(0, 0, -9.81f, 0));
 
+					// Time stepping without including the subsequent state inspection.
 					auto start = std::chrono::steady_clock::now();
 					engine.Step(Engine::StepInput{.m_bodies = bodies, .m_elapsed_seconds = 1.0f / 60, .m_substep_count = 4});
 					physics_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
@@ -254,6 +259,7 @@ namespace pr::physics::tests
 		// Whole-tree sleep remains inert on terrain while a remote rigid body keeps the engine active.
 		PRUnitTestMethod(SleepingArticulationSupport, Extended)
 		{
+			// Keep active rigid work separate from the sleeping tree.
 			auto shape = collision::ShapeSphere(0.3f);
 			auto builder = ArticulationBuilder{};
 			auto root = builder.AddFloatingRoot(ArticulationLinkDesc{.m_inertia = Inertia::Sphere(0.3f, 1), .m_shape = &shape.m_base}, m4x4::Translation(0, 0, 0.29f));

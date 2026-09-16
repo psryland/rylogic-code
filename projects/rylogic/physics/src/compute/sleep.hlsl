@@ -245,7 +245,7 @@ void CSReduceSleepStats(int3 dtid : SV_DispatchThreadID)
 	bool low_velocity = LowVelocity(body);
 	float timer_s = low_velocity ? body.sleep.timer_s + g.dt : 0.0f;
 
-	// Contact impulses retain the sleeping flag until this decision, so intermediate support impulses cannot reset resting history.
+	// Ordinary rigid-contact impulses retain the sleeping flag until this decision, so intermediate support impulses cannot reset resting history.
 	InterlockedOr(g_sleep_stats[root].flags, GpuSleepIslandStatsFlags_Valid);
 	InterlockedAdd(g_sleep_stats[root].body_count, 1);
 	if (!low_velocity || never_sleep)

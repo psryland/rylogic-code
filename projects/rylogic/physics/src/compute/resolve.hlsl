@@ -1051,6 +1051,7 @@ void ApplyWarmStartContact(uint idx)
 	c.warmstart_impulse = float4(applied_impulse, 0);
 	bodyA.state_flags = SetFlag(bodyA.state_flags, ERigidBodyStateFlags_Collided, true);
 	bodyB.state_flags = SetFlag(bodyB.state_flags, ERigidBodyStateFlags_Collided, true);
+
 	// Leave sleep state to CSReduceSleepStats after the complete solve.
 	g_contacts[idx] = c;
 	g_bodies[c.body_idx_a] = bodyA;
@@ -1338,6 +1339,7 @@ void ResolveContact(uint idx)
 	// Mark both bodies as having taken part in a collision this frame.
 	bodyA.state_flags = SetFlag(bodyA.state_flags, ERigidBodyStateFlags_Collided, true);
 	bodyB.state_flags = SetFlag(bodyB.state_flags, ERigidBodyStateFlags_Collided, true);
+
 	// Leave sleep state to CSReduceSleepStats after the complete solve.
 	g_contacts[idx] = c;
 	g_bodies[c.body_idx_a] = bodyA;
