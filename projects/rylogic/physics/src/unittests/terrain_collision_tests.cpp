@@ -11,6 +11,8 @@
 #include "pr/physics/surface/surface_sampling.h"
 #include "pr/physics/shape/shape_builder.h"
 #include "pr/physics/articulation/articulation.h"
+#include "src/surface/gpu_world_contacts.h"
+#include "src/collision/shape_cache.h"
 
 namespace pr::physics::tests
 {
@@ -41,6 +43,42 @@ namespace pr::physics::tests
 			// Cancel the fixed family datum so the reference plane is exactly at the origin.
 			config.m_sea_level_bias_m = -terrain::landscape::BaselineSurface(config).Sample({0, 0}).m_height;
 			return terrain::landscape::BaselineSurface(config);
+		}
+
+		// Return exact radial extent for the box, sphere and compound fixtures, independently of collision sampling.
+		double RadialExtent(Shape const& shape, m4x4 const& root_to_world)
+		{
+			auto shape_to_world = root_to_world * shape.m_s2r;
+			switch (shape.m_type)
+			{
+				case collision::EShape::Sphere:
+				{
+					auto const& sphere = shape_cast<collision::ShapeSphere>(shape);
+					return std::hypot(double(shape_to_world.pos.x), double(shape_to_world.pos.y)) + sphere.m_radius;
+				}
+				case collision::EShape::Box:
+				{
+					auto const& box = shape_cast<collision::ShapeBox>(shape);
+					auto extent = 0.0;
+					for (int corner = 0; corner != 8; ++corner)
+					{
+						auto local = v4((corner & 1) ? box.m_radius.x : -box.m_radius.x, (corner & 2) ? box.m_radius.y : -box.m_radius.y, (corner & 4) ? box.m_radius.z : -box.m_radius.z, 1);
+						auto point = shape_to_world * local;
+						extent = std::max(extent, std::hypot(double(point.x), double(point.y)));
+					}
+					return extent;
+				}
+				case collision::EShape::Array:
+				{
+					auto const& array = shape_cast<collision::ShapeArray>(shape);
+					auto extent = 0.0;
+					for (auto child = array.begin(); child != array.end(); child = collision::next(child))
+						extent = std::max(extent, RadialExtent(*child, root_to_world));
+
+					return extent;
+				}
+				default: { throw std::runtime_error("Unsupported radial-extent reference fixture"); }
+			}
 		}
 	} // namespace
 
@@ -74,6 +112,413 @@ namespace pr::physics::tests
 				// Reject invalid state independently of the expected wake decision.
 				PR_EXPECT(IsFinite(body.O2W().pos));
 			}
+		}
+	};
+
+	// Verify the infinite cylindrical world boundary through the production GPU solver and transactional readback.
+	PRUnitTestClass(CylindricalBoundaryTests)
+	{
+		// Adding a fine wall plan must not change terrain sample density or rebuild unchanged plans on later frames.
+		PRUnitTestMethod(IndependentSamplingDensity, Extended)
+		{
+			auto& gpu = SharedTestGpu();
+			auto shape = collision::ShapeSphere(0.5f);
+			auto cache = ShapeCache{};
+			auto index = cache.GetOrAdd(shape);
+			auto body = RigidBody(&shape, m4x4::Translation(0, 0, 20), Inertia::Sphere(0.5f, 1));
+			auto bodies = std::array{PackDynamics(body, index)};
+			auto world = GpuWorldContacts(gpu, FlatTerrain(), surface::DefaultSpacing, CylindricalBoundaryConfig{});
+			world.Upload(gpu.m_job, cache, bodies, 1);
+			gpu.m_job.Run();
+			auto terrain_count = world.m_ranges[index].m_sample_count;
+			auto wall_count = world.m_ranges[index + world.m_boundary_plan_offset].m_sample_count;
+			PR_EXPECT(terrain_count == surface::BuildPlan(shape, 0.16f).m_count);
+			PR_EXPECT(wall_count == surface::BuildPlan(shape, 0.05f).m_count);
+			PR_EXPECT(terrain_count < wall_count);
+			auto plans = world.m_plans.get();
+			auto patches = world.m_patch_buffer.get();
+			auto patch_data = world.m_patches.data();
+
+			// Only the dynamic instance/history streams change on an otherwise unchanged frame.
+			cache.m_changed = false;
+			body.O2W(m4x4::Translation(10, 0, 20));
+			bodies[0] = PackDynamics(body, index);
+			world.Upload(gpu.m_job, cache, bodies, 1);
+			gpu.m_job.Run();
+			PR_EXPECT(world.m_plans.get() == plans && world.m_patch_buffer.get() == patches && world.m_patches.data() == patch_data);
+			auto terrain_only = GpuWorldContacts(gpu, FlatTerrain(), surface::DefaultSpacing);
+			terrain_only.Upload(gpu.m_job, cache, bodies, 1);
+			gpu.m_job.Run();
+			PR_EXPECT(terrain_only.m_ranges[index].m_sample_count == terrain_count);
+			PR_EXPECT(terrain_only.m_previous_bodies == nullptr);
+			std::printf("Cylinder density 1m sphere: terrain_spacing=0.16 samples=%u wall_spacing=0.05 samples=%u; cache reused; absent boundary has no history buffer\n", terrain_count, wall_count);
+		}
+
+		// Contacts at several azimuths retain the exact radial normal and tangent-plane depth at large coordinates.
+		PRUnitTestMethod(AzimuthNormalsDepthAndHeight, Extended)
+		{
+			auto& gpu = SharedTestGpu();
+			auto engine = Engine(EngineConfig{.solver_iterations = 0, .push_out_iterations = 0, .selective_refresh_passes = 0}, nullptr, gpu, gpu.m_job.m_queue.get());
+			auto config = CylindricalBoundaryConfig{.m_centre_x = 12, .m_centre_y = -7, .m_material_id = 7};
+			engine.CylindricalBoundary(config);
+			auto shape = collision::ShapeSphere(0.3f);
+			shape.m_base.m_material_id = 3;
+			auto body = RigidBody(&shape, m4x4::Identity(), Inertia::Sphere(0.3f, 1));
+			auto bodies = std::array{&body};
+			for (auto angle : {0.0, 0.7, 1.9, 3.5, 5.4})
+			{
+				// The height is deliberately far above any plausible visible rim.
+				auto radial = v4(static_cast<float>(std::cos(angle)), static_cast<float>(std::sin(angle)), 0, 0);
+				body.O2W(m4x4::Translation(v4(12, -7, 5000, 1) + radial * 3999.72f));
+				body.VelocityWS(v4::Zero(), v4::Zero());
+				auto count = 0;
+				auto subscription = engine.Collisions += [&](Engine&, std::span<RbContact const> contacts)
+				{
+					for (auto const& contact : contacts)
+					{
+						auto a2w = InvertOrthonormal(contact.m_b2a);
+						auto normal = -(a2w * contact.m_axis);
+						auto sample = a2w * contact.Point() - normal * (0.5f * contact.m_depth);
+						auto dx = double(sample.x) - config.m_centre_x;
+						auto dy = double(sample.y) - config.m_centre_y;
+						auto distance = std::hypot(dx, dy);
+						auto expected = v4(static_cast<float>(-dx / distance), static_cast<float>(-dy / distance), 0, 0);
+						PR_EXPECT(Length(normal - expected) < 1e-4f);
+						PR_EXPECT(std::abs(contact.m_depth - (distance - config.m_radius)) < 0.002);
+						PR_EXPECT(Dot(normal, radial) < -0.999f);
+						PR_EXPECT(contact.m_mat_idA == 3 && contact.m_mat_idB == 7);
+						++count;
+					}
+				};
+				engine.Step(0.00001f, bodies);
+				PR_EXPECT(count > 0);
+				PR_EXPECT(engine.LastStepProfile().m_terrain_gpu_ms == 0);
+			}
+		}
+
+		// Capsules, thin lines, triangles, polytopes and points use physical leaf samples rather than a sphere-only collision path.
+		PRUnitTestMethod(PrimitiveLeafContacts, Extended)
+		{
+			auto capsule = collision::ShapeLine(0.6f, 0.12f);
+			auto thin = collision::ShapeLine(0.6f);
+			auto point = collision::ShapeSphere(0);
+			auto triangle = collision::ShapeTriangle(v4(-0.3f, -0.2f, 0, 1), v4(0.3f, -0.2f, 0, 1), v4(0, 0.3f, 0, 1));
+			auto vertices = std::array{v4(-0.3f, -0.2f, -0.2f, 1), v4(0.3f, -0.2f, -0.2f, 1), v4(0, 0.3f, -0.2f, 1), v4(0, 0, 0.3f, 1)};
+			auto poly = collision::BuildPolytopeFromPoints(vertices, m4x4::Identity(), 0, Shape::EFlags::None, 0);
+			auto shapes = std::array<Shape const*, 5>{&capsule.m_base, &thin.m_base, &point.m_base, &triangle.m_base, &poly.as<collision::ShapePolytope>().m_base};
+			auto& gpu = SharedTestGpu();
+			auto engine = Engine(EngineConfig{.solver_iterations = 0, .push_out_iterations = 0, .selective_refresh_passes = 0}, nullptr, gpu, gpu.m_job.m_queue.get());
+			engine.CylindricalBoundary(CylindricalBoundaryConfig{});
+			for (auto shape : shapes)
+			{
+				// Place a rotated surface slightly across the wall without relying on its loose world bounding box.
+				auto transform = m4x4::Transform(v4(0.4f, 0.3f, 0.2f, 0), v4(0, 0, 80, 1));
+				auto plan = surface::BuildPlan(*shape, 0.05f);
+				auto furthest = -std::numeric_limits<float>::max();
+				for (uint32_t ordinal = 0; ordinal != plan.m_count; ++ordinal)
+					furthest = std::max(furthest, (transform * shape->m_s2r * surface::EmitSurfaceSample(plan, ordinal).m_pos_local).x);
+
+				// The unchanged solver output preserves contact geometry for the independent normal/depth checks.
+				transform.pos.x = 4000 - furthest + 0.01f;
+				auto body = RigidBody(shape, transform, Inertia::Sphere(1, 1));
+				auto bodies = std::array{&body};
+				auto count = 0;
+				auto subscription = engine.Collisions += [&](Engine&, std::span<RbContact const> contacts)
+				{
+					for (auto const& contact : contacts)
+					{
+						auto normal = -(InvertOrthonormal(contact.m_b2a) * contact.m_axis);
+						PR_EXPECT(normal.x < -0.999f);
+						PR_EXPECT(contact.m_depth > 0 && contact.m_depth < 0.03f);
+						++count;
+					}
+				};
+				engine.Step(0.00001f, bodies);
+				PR_EXPECT(count > 0);
+				engine.ResetCaches();
+			}
+		}
+
+		// Sustained radial forcing cannot escape; tangent motion and vertical freefall remain physical solver responses.
+		PRUnitTestMethod(RadialContainmentSlidingAndFreefall, Extended)
+		{
+			auto& gpu = SharedTestGpu();
+			auto engine = Engine({}, nullptr, gpu, gpu.m_job.m_queue.get());
+			engine.CylindricalBoundary(CylindricalBoundaryConfig{});
+			engine.Material(Material{.m_friction_static = 0, .m_elasticity_norm = 0});
+			auto shape = collision::ShapeSphere(0.3f);
+			auto body = RigidBody(&shape, m4x4::Translation(3999.65f, 0, 100), Inertia::Sphere(0.3f, 1));
+			body.VelocityWS(v4::Zero(), v4(1, 1, -100, 0));
+			auto bodies = std::array{&body};
+			auto peak = 0.0;
+			for (int frame = 0; frame != 120; ++frame)
+			{
+				body.GravityWS(v4(5, 0, -9.81f, 0));
+				engine.Step(Engine::StepInput{.m_bodies = bodies, .m_elapsed_seconds = 1.0f / 60, .m_substep_count = 4});
+				auto depth = std::hypot(double(body.O2W().pos.x), double(body.O2W().pos.y)) + 0.3 - 4000;
+				peak = std::max(peak, depth);
+				PR_EXPECT(depth < 0.01);
+			}
+			std::printf("Cylinder radius=4000 spacing=0.05 motion_limit=0.1 peak_sphere_penetration=%.9f tangent=%.6f z=%.6f\n", peak, body.O2W().pos.y, body.O2W().pos.z);
+			PR_EXPECT(body.O2W().pos.y > 1);
+			PR_EXPECT(body.O2W().pos.z < -90);
+		}
+
+		// A one-metre body approaching at 20 m/s stays within the centimetre-scale overlap gate under 240 Hz collision sampling.
+		PRUnitTestMethod(FastOneMetreActor, Extended)
+		{
+			auto& gpu = SharedTestGpu();
+			auto engine = Engine({}, nullptr, gpu, gpu.m_job.m_queue.get());
+			engine.CylindricalBoundary(CylindricalBoundaryConfig{});
+			engine.Material(Material{.m_friction_static = 0, .m_elasticity_norm = 0});
+			auto shape = collision::ShapeSphere(0.5f);
+			auto body = RigidBody(&shape, m4x4::Translation(3999.45f, 0, 20), Inertia::Sphere(0.5f, 1));
+			body.VelocityWS(v4::Zero(), v4(20, 0, 0, 0));
+			auto bodies = std::array{&body};
+			auto peak = 0.0;
+			for (int frame = 0; frame != 120; ++frame)
+			{
+				body.GravityWS(v4(5, 0, 0, 0));
+				engine.Step(Engine::StepInput{.m_bodies = bodies, .m_elapsed_seconds = 1.0f / 240});
+				auto depth = std::hypot(double(body.O2W().pos.x), double(body.O2W().pos.y)) + 0.5 - 4000;
+				peak = std::max(peak, depth);
+				PR_EXPECT(depth < 0.01);
+			}
+			std::printf("Cylinder 1m actor speed=20m/s dt=1/240 max_motion=0.1 peak_postsubstep_penetration=%.9f\n", peak);
+		}
+
+		// Non-spherical leaves share both terrain and wall support.
+		PRUnitTestMethod(BoxAndTerrain, Extended)
+		{
+			auto& gpu = SharedTestGpu();
+			auto engine = Engine({}, nullptr, gpu, gpu.m_job.m_queue.get());
+			engine.CylindricalBoundary(CylindricalBoundaryConfig{});
+			engine.Terrain(FlatTerrain());
+			engine.Material(Material{.m_friction_static = 0, .m_elasticity_norm = 0});
+			auto box = collision::ShapeBox(v4(1, 1, 1, 0));
+			auto body = RigidBody(&box, m4x4::Translation(3999.48f, 0, 0.51f), Inertia::Box(v4(0.5f, 0.5f, 0.5f, 0), 1));
+			auto bodies = std::array{&body};
+			auto wall = false, ground = false;
+			auto peak = 0.0;
+			auto subscription = engine.Collisions += [&](Engine&, std::span<RbContact const> contacts)
+			{
+				for (auto const& contact : contacts)
+				{
+					auto normal = -(InvertOrthonormal(contact.m_b2a) * contact.m_axis);
+					wall |= normal.x < -0.9f;
+					ground |= normal.z > 0.9f;
+				}
+			};
+			for (int frame = 0; frame != 90; ++frame)
+			{
+				body.GravityWS(v4(3, 0, -9.81f, 0));
+				engine.Step(Engine::StepInput{.m_bodies = bodies, .m_elapsed_seconds = 1.0f / 60, .m_substep_count = 4});
+				auto depth = RadialExtent(box, body.O2W()) - 4000;
+				peak = std::max(peak, depth);
+				PR_EXPECT(depth < 0.01);
+				PR_EXPECT(body.O2W().pos.z > 0.46f);
+			}
+			PR_EXPECT(wall && ground);
+			PR_EXPECT(engine.LastStepProfile().m_terrain_gpu_ms > 0);
+			std::printf("Cylinder 1m box simultaneous terrain+wall max_physical_surface_penetration=%.9f\n", peak);
+		}
+
+		// Transformed compound leaves and articulation proxies reach the same world-contact solver endpoint.
+		PRUnitTestMethod(CompoundAndArticulation, Extended)
+		{
+			auto builder = ShapeBuilder{};
+			builder.AddShape(collision::ShapeBox(v4(0.4f, 0.4f, 0.4f, 0), m4x4::Translation(-0.5f, 0, 0)));
+			builder.AddShape(collision::ShapeSphere(0.2f, m4x4::Translation(0.5f, 0, 0)));
+			auto storage = byte_data<16>{};
+			auto mass = MassProperties{};
+			auto centre = v4{};
+			auto shape = builder.BuildShape(storage, mass, centre);
+			auto& gpu = SharedTestGpu();
+			auto engine = Engine({}, nullptr, gpu, gpu.m_job.m_queue.get());
+			engine.CylindricalBoundary(CylindricalBoundaryConfig{});
+			engine.Material(Material{.m_friction_static = 0, .m_elasticity_norm = 0});
+			auto body = RigidBody(shape, m4x4::Translation(3999.05f, 0, 20), Inertia::Sphere(1, 1));
+			auto bodies = std::array{&body};
+			auto contact_count = 0;
+			auto peak = 0.0;
+			auto subscription = engine.Collisions += [&](Engine&, std::span<RbContact const> contacts)
+			{
+				contact_count += isize(contacts);
+			};
+			for (int frame = 0; frame != 60; ++frame)
+			{
+				body.GravityWS(v4(5, 0, 0, 0));
+				engine.Step(Engine::StepInput{.m_bodies = bodies, .m_elapsed_seconds = 1.0f / 60, .m_substep_count = 4});
+				auto depth = RadialExtent(*shape, body.O2W()) - 4000;
+				peak = std::max(peak, depth);
+				PR_EXPECT(depth < 0.01);
+			}
+			PR_EXPECT(contact_count > 0);
+			std::printf("Cylinder compound max_physical_surface_penetration=%.9f\n", peak);
+
+			// A floating articulation link has the same radial restriction without becoming a caller-owned rigid body.
+			auto sphere = collision::ShapeSphere(0.3f);
+			auto articulation_builder = ArticulationBuilder{};
+			auto root = articulation_builder.AddFloatingRoot(ArticulationLinkDesc{.m_inertia = Inertia::Sphere(0.3f, 1), .m_shape = &sphere.m_base}, m4x4::Translation(3999.65f, 0, 20));
+			auto articulation = articulation_builder.Build();
+			auto articulations = std::array{&articulation};
+			for (int frame = 0; frame != 60; ++frame)
+			{
+				articulation.GravityWS(root, v4(5, 0, 0, 0));
+				engine.Step(Engine::StepInput{.m_articulations = articulations, .m_elapsed_seconds = 1.0f / 60, .m_substep_count = 4});
+				PR_EXPECT(articulation.LinkToWorld(root).pos.x < 3999.75f);
+			}
+		}
+
+		// Unchanged support stays asleep; explicit motion and source removal wake it without retaining a static endpoint.
+		PRUnitTestMethod(SleepWakeAndCapacity, Extended)
+		{
+			auto& gpu = SharedTestGpu();
+			auto engine = Engine({}, nullptr, gpu, gpu.m_job.m_queue.get());
+			engine.CylindricalBoundary(CylindricalBoundaryConfig{});
+			auto shape = collision::ShapeSphere(0.3f);
+			auto body = RigidBody(&shape, m4x4::Translation(3999.7f, 0, 50), Inertia::Sphere(0.3f, 1));
+			auto bodies = std::array{&body};
+			engine.Step(0.001f, bodies);
+			body.Sleep();
+			engine.UpdateSleepIslands(bodies);
+			auto before = body.O2W();
+			for (int frame = 0; frame != 30; ++frame)
+			{
+				engine.Step(1.0f / 240, bodies);
+				PR_EXPECT(body.Sleeping());
+				PR_EXPECT(All(body.O2W() == before));
+			}
+
+			// An ordinary tangential impact must disturb the island while the wall still supplies radial support.
+			auto impactor = RigidBody(&shape, m4x4::Translation(3999.7f, -0.599f, 50), Inertia::Sphere(0.3f, 1));
+			impactor.VelocityWS(v4::Zero(), v4(0, 2, 0, 0));
+			auto impact_bodies = std::array{&body, &impactor};
+			engine.Step(1.0f / 240, impact_bodies);
+			PR_EXPECT(!body.Sleeping());
+			PR_EXPECT(body.VelocityWS().lin.y > 0.25f);
+
+			// Direct motion and removal are also meaningful wake requests.
+			body.VelocityWS(v4::Zero(), v4(-1, 0, 0, 0));
+			engine.Step(1.0f / 240, bodies);
+			PR_EXPECT(!body.Sleeping());
+			body.Sleep();
+			engine.CylindricalBoundary(std::nullopt);
+			engine.Step(1.0f / 240, bodies);
+			PR_EXPECT(!body.Sleeping());
+
+			// Contact overflow cannot partially publish the body's wall response.
+			auto box = collision::ShapeBox(v4(0.6f, 0.6f, 0.6f, 0));
+			auto crowded = RigidBody(&box, m4x4::Translation(3999.72f, 0, 50), Inertia::Sphere(1, 1));
+			auto crowded_bodies = std::array{&crowded};
+			auto limited = Engine(EngineConfig{.max_collision_pairs = 1}, nullptr, gpu, gpu.m_job.m_queue.get());
+			limited.CylindricalBoundary(CylindricalBoundaryConfig{});
+			before = crowded.O2W();
+			PR_THROWS(limited.Step(0.00001f, crowded_bodies), std::runtime_error);
+			PR_EXPECT(All(crowded.O2W() == before));
+		}
+
+		// Invalid geometry, pending mutation, excessive horizontal motion, and domain escape reject without publishing poses.
+		PRUnitTestMethod(ValidationAndAtomicFailure, Extended)
+		{
+			auto& gpu = SharedTestGpu();
+			auto engine = Engine({}, nullptr, gpu, gpu.m_job.m_queue.get());
+			engine.CylindricalBoundary(CylindricalBoundaryConfig{});
+			auto invalid = CylindricalBoundaryConfig{};
+			invalid.m_radius = std::numeric_limits<double>::infinity();
+			PR_THROWS(engine.CylindricalBoundary(invalid), std::runtime_error);
+			invalid = {};
+			invalid.m_max_substep_motion = 1;
+			PR_THROWS(engine.CylindricalBoundary(invalid), std::runtime_error);
+			auto shape = collision::ShapeSphere(0.3f);
+			auto body = RigidBody(&shape, m4x4::Translation(3999.6f, 0, 1000), Inertia::Sphere(0.3f, 1));
+			auto bodies = std::array{&body};
+			engine.BeginStep(0.001f, bodies);
+			PR_THROWS(engine.CylindricalBoundary(std::nullopt), std::runtime_error);
+			engine.CompleteStep();
+
+			// A rejected frame must leave the caller's transform unchanged and permit a subsequent valid frame.
+			body.VelocityWS(v4::Zero(), v4(100, 0, 0, 0));
+			auto before = body.O2W();
+			PR_THROWS(engine.Step(0.01f, bodies), std::runtime_error);
+			PR_EXPECT(All(body.O2W() == before));
+			body.VelocityWS(v4::Zero(), v4::Zero());
+			engine.Step(0.001f, bodies);
+			body.O2W(m4x4::Translation(4001, 0, 1000));
+			before = body.O2W();
+			PR_THROWS(engine.Step(0.001f, bodies), std::runtime_error);
+			PR_EXPECT(All(body.O2W() == before));
+
+			// Removal must leave no retained wall endpoint or contacts.
+			engine.CylindricalBoundary(std::nullopt);
+			engine.Step(0.001f, bodies);
+			PR_EXPECT(engine.LastCollisionStats().LastContactCount() == 0);
+		}
+	};
+
+	// Exercise friction-induced surface rotation under the same discrete enclosure limits as ordinary translation.
+	// Exercise friction-coupled cylinder motion at the declared sampling limit.
+	PRUnitTestClass(CylindricalBoundaryFrictionTests)
+	{
+		// Wall friction transfers fast vertical motion into real horizontal surface rotation that exceeds the unchanged 240 Hz envelope.
+		PRUnitTestMethod(RejectsFrictionDrivenSurfaceMotion, Extended)
+		{
+			auto& gpu = SharedTestGpu();
+			auto failures = 0;
+			for (auto degrees : {0.0, 45.0, 90.0, 180.0, 270.0})
+			{
+				auto angle = degrees * math::constants<double>::tau / 360;
+				auto radial = v4(static_cast<float>(std::cos(angle)), static_cast<float>(std::sin(angle)), 0, 0);
+				auto tangent = v4(-radial.y, radial.x, 0, 0);
+				auto shape = collision::ShapeSphere(0.5f);
+				auto body = RigidBody(&shape, m4x4::Translation(v4(0, 0, 10000, 1) + 3998.5f * radial), Inertia::Sphere(0.5f, 1));
+				body.VelocityWS(v4::Zero(), 20 * radial + 3 * tangent + v4(0, 0, -100, 0));
+				auto engine = Engine({}, nullptr, gpu, gpu.m_job.m_queue.get());
+				engine.Terrain(terrain::landscape::BaselineSurface(terrain::landscape::BaselineSurfaceConfig{.m_seed = 42}), 0.16f);
+				engine.CylindricalBoundary(CylindricalBoundaryConfig{});
+				engine.Material(Material{.m_friction_static = 0.3f, .m_elasticity_norm = 0.05f, .m_elasticity_tang = 0, .m_elasticity_tors = 0, .m_density = 1});
+				auto bodies = std::array{&body};
+				auto peak = 0.0;
+				for (int frame = 0; frame != 60; ++frame)
+				{
+					body.GravityWS(v4(0, 0, -9.81f, 0));
+					auto before = body.O2W();
+					auto before_velocity = body.VelocityWS();
+					try
+					{
+						engine.Step(Engine::StepInput{.m_bodies = bodies, .m_elapsed_seconds = 1.0f / 60, .m_substep_count = 4});
+					}
+					catch (std::runtime_error const& ex)
+					{
+						std::printf("Cylinder friction azimuth=%.0f rejected frame=%d: %s\n", degrees, frame, ex.what());
+						auto velocity_text = std::strstr(ex.what(), "velocity=(");
+						auto omega_text = std::strstr(ex.what(), "omega=(");
+						if (velocity_text == nullptr || omega_text == nullptr)
+							throw;
+
+						// The sphere's top is an actual surface point, not a loose bounding-box corner.
+						auto velocity = v4::Zero(), omega = v4::Zero();
+						if (sscanf_s(velocity_text, "velocity=(%f,%f,%f)", &velocity.x, &velocity.y, &velocity.z) != 3 ||
+							sscanf_s(omega_text, "omega=(%f,%f,%f)", &omega.x, &omega.y, &omega.z) != 3)
+							throw std::runtime_error("Malformed boundary motion diagnostic");
+
+						// Rejection must reflect real surface motion without publishing the failed frame's dynamics.
+						auto point_velocity = velocity + Cross(omega, v4(0, 0, 0.5f, 0));
+						auto horizontal_motion = std::hypot(double(point_velocity.x), double(point_velocity.y)) / 240;
+						std::printf("Cylinder friction azimuth=%.0f actual_top_point_xy_motion_per_dt=%.9f (limit=0.1)\n", degrees, horizontal_motion);
+						PR_EXPECT(horizontal_motion > 0.1);
+						PR_EXPECT(std::strstr(ex.what(), "status 8") != nullptr);
+						PR_EXPECT(All(body.O2W() == before));
+						PR_EXPECT(All(body.VelocityWS().lin == before_velocity.lin) && All(body.VelocityWS().ang == before_velocity.ang));
+						PR_EXPECT(!engine.StepPending());
+						++failures;
+						break;
+					}
+					peak = std::max(peak, RadialExtent(shape, body.O2W()) - 4000);
+					PR_EXPECT(peak < 0.01);
+				}
+			}
+			PR_EXPECT(failures == 5);
 		}
 	};
 

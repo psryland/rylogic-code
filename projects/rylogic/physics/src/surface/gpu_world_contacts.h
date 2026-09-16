@@ -5,15 +5,18 @@
 #pragma once
 #include "pr/physics/terrain/landscape/baseline_surface.h"
 #include "pr/physics/surface/surface_sampling.h"
+#include "pr/physics/surface/cylindrical_boundary.h"
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "src/utility/gpu.h"
 #include "src/compute/physics_types.h"
 
 namespace pr::physics
 {
-	// Immutable terrain and cached primitive plans; contacts join the ordinary solver through an owned static endpoint.
-	struct GpuTerrain
+	// Sampled world surfaces share primitive plans and one owned static solver endpoint.
+	struct GpuWorldContacts
 	{
+		// Status flags followed by the first rejected motion's body, substep, phase, and scalar components.
+		static constexpr int StatusWordCount = 20;
 		// Patch span and total sample count for one packed primitive shape.
 		struct Range
 		{
@@ -27,8 +30,11 @@ namespace pr::physics
 		};
 
 		Gpu& m_gpu;
-		terrain::landscape::BaselineSurface m_surface;
+		std::optional<terrain::landscape::BaselineSurface> m_surface;
+		std::optional<CylindricalBoundaryConfig> m_boundary;
+		float m_terrain_spacing;
 		float m_spacing;
+		uint32_t m_boundary_plan_offset = 0;
 		float m_height_upper;
 		RigidBody m_endpoint;
 		ComputeStep m_step;
@@ -44,9 +50,13 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_query_readback;
 		uint32_t m_query_capacity = 0, m_query_count = 0;
 		uint64_t m_frequency = 0;
+		D3DPtr<ID3D12Resource> m_previous_bodies;
+		uint32_t m_body_count = 0;
+		float m_dt = 0;
+		uint32_t m_substep = 0, m_phase = 0;
 
-		// Validate and own a source, its conservative height bound, and the contact pipeline.
-		GpuTerrain(Gpu& gpu, terrain::landscape::BaselineSurface surface, float spacing);
+		// Validate and own independent world sources and their shared contact pipeline.
+		GpuWorldContacts(Gpu& gpu, std::optional<terrain::landscape::BaselineSurface> surface, float spacing, std::optional<CylindricalBoundaryConfig> boundary = {});
 
 		// Invalidate shape-indexed plans after the engine has retired their GPU work.
 		void Reset();
@@ -54,7 +64,7 @@ namespace pr::physics
 		// Prepare immutable plans on first dynamic use and upload this frame's participating instances.
 		void Upload(GpuJob& job, ShapeCache const& shapes, std::span<GpuRigidBody const> bodies, int substeps);
 
-		// Append terrain constraints for awake or disturbed bodies and update the ordinary contact stream's indirect dispatch.
+		// Append world constraints for awake or disturbed bodies and update the ordinary contact stream's indirect dispatch.
 		void Collide(GpuJob& job, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,
 			ID3D12Resource* bodies, ID3D12Resource* shapes, ID3D12Resource* contacts, ID3D12Resource* counters, ID3D12Resource* dispatch);
 
@@ -63,5 +73,12 @@ namespace pr::physics
 
 		// Return terrain queue time only after this frame's submitted work has completed.
 		double GpuTimeMs() const;
+
+		// Check the boundary envelope without emitting contacts; retain the completed pose for the next substep when requested.
+		void ValidateBoundary(GpuJob& job, ID3D12Resource* bodies, ID3D12Resource* shapes, float dt, bool advance);
+
+		// Record one surface or validation dispatch using the shared sampled streams.
+		void Dispatch(GpuJob& job, int mode, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,
+			ID3D12Resource* bodies, ID3D12Resource* shapes, ID3D12Resource* contacts, ID3D12Resource* counters, ID3D12Resource* dispatch);
 	};
 }

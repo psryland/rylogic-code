@@ -500,6 +500,7 @@ namespace pr
 
 			Rendering            = 1 << 21,
 			Rendering_RayTracing = Rendering | 1 << 0,
+			Rendering_FarClipFade = Rendering | 1 << 1,
 
 			_flags_enum = 0,
 
@@ -527,6 +528,13 @@ namespace pr
 		{
 			ERayTracingFeature m_features;
 			int m_max_reflection_bounces;
+		};
+		// Forward world opacity range; finite 0 <= start < end < 1 leaves an invisible margin before clipping.
+		struct FarClipFadeProps
+		{
+			BOOL m_enabled = FALSE;
+			float m_start_fraction = 0.9f;
+			float m_end_fraction = 0.99f;
 		};
 		struct RayTracingInfo
 		{
@@ -997,6 +1005,11 @@ extern "C"
 	VIEW3D_API void __stdcall View3D_WindowRayTracingEnabledSet(pr::view3d::Window window, BOOL enable);
 	VIEW3D_API pr::view3d::RayTracingProps __stdcall View3D_RayTracingPropertiesGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_RayTracingPropertiesSet(pr::view3d::Window window, pr::view3d::RayTracingProps const& props);
+
+	// Get/Set the opt-in world fade. Invalid settings are reported and leave the previous value unchanged.
+	// Skybox, PostAlpha and retained UI are excluded. Picking/shadows remain geometric; see scene/far_clip_fade.md.
+	VIEW3D_API pr::view3d::FarClipFadeProps __stdcall View3D_FarClipFadePropertiesGet(pr::view3d::Window window);
+	VIEW3D_API BOOL __stdcall View3D_FarClipFadePropertiesSet(pr::view3d::Window window, pr::view3d::FarClipFadeProps const& props);
 
 	// Get/Set the dimensions of the render target. Note: Not equal to window size for non-96 dpi screens!
 	// In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.

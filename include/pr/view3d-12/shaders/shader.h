@@ -90,6 +90,17 @@ namespace pr::rdr12
 		extern ByteCode const forward_alpha_collect_texn_pbr_ps;
 		extern ByteCode const forward_radial_fade_ps;
 
+		// Opt-in forward far-depth output variants.
+		extern ByteCode const forward_far_fade_ps;
+		extern ByteCode const forward_far_fade_pbr_ps;
+		extern ByteCode const forward_far_fade_texn_pbr_ps;
+		extern ByteCode const forward_far_fade_alpha_collect_ps;
+		extern ByteCode const forward_far_fade_alpha_collect_pbr_ps;
+		extern ByteCode const forward_far_fade_alpha_collect_texn_pbr_ps;
+		extern ByteCode const forward_far_fade_reflection_attrs_ps;
+		extern ByteCode const forward_far_fade_reflection_attrs_pbr_ps;
+		extern ByteCode const forward_far_fade_reflection_attrs_texn_pbr_ps;
+
 		// Procedural atmosphere
 		extern ByteCode const procedural_sky_vs;
 		extern ByteCode const procedural_sky_ps;

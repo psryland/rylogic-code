@@ -44,6 +44,35 @@ public sealed class TestPhysics
 		AssertNativeSize(18, Marshal.SizeOf<Native.ArticulationLinkState>());
 		AssertNativeSize(19, Marshal.SizeOf<Native.D6Constraint>());
 		AssertNativeSize(20, Marshal.SizeOf<TerrainConfiguration>());
+		AssertNativeSize(21, Marshal.SizeOf<CylindricalBoundaryConfiguration>());
+		Assert.Equal(8, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_centre_x)).ToInt32());
+		Assert.Equal(32, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_material_id)).ToInt32());
+		Assert.Equal(44, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_max_penetration)).ToInt32());
+	}
+
+	/// <summary>The cylindrical boundary has a stable ABI, independent lifetime, and explicit checkpoint and mutation guards.</summary>
+	[Test]
+	public void CylindricalBoundary()
+	{
+		using var runtime = new Physics();
+		using var engine = runtime.CreateEngine();
+		var checkpoint = new byte[engine.CheckpointSize()];
+		engine.WriteCheckpoint(checkpoint);
+		engine.SetCylindricalBoundary(new CylindricalBoundaryConfiguration(0, 0, 4000));
+		ExpectStatus(EStatus.InvalidArgument, () => engine.SetCylindricalBoundary(new CylindricalBoundaryConfiguration(0, 0, double.NaN)));
+		ExpectStatus(EStatus.InvalidArgument, () => engine.ReadCheckpoint(checkpoint));
+		using var shape = engine.CreateSphere(0.3f);
+		using var body = engine.CreateBody(shape, new BodyOptions { ObjectToWorld = m4x4.Translation(3999.65f, 0, 1000), MassOrDensity = 1 });
+		engine.BeginStep(1f / 240);
+		ExpectStatus(EStatus.StepPending, () => engine.SetCylindricalBoundary(null));
+		engine.CompleteStep();
+		ExpectStatus(EStatus.InvalidArgument, () => engine.CheckpointSize());
+
+		// Clearing unrelated terrain must not disable the independent wall or its checkpoint guard.
+		engine.SetTerrain(null);
+		ExpectStatus(EStatus.InvalidArgument, () => engine.CheckpointSize());
+		engine.SetCylindricalBoundary(null);
+		Assert.True(engine.CheckpointSize() > 0);
 	}
 
 	/// <summary>Terrain supports a falling body, rejects pending mutation and incomplete checkpoints, and can be removed.</summary>

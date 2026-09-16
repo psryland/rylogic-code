@@ -102,6 +102,7 @@ namespace pr::physics
 		ArticulationLinkState = 18,
 		D6Constraint = 19,
 		Terrain = 20,
+		CylindricalBoundary = 21,
 	};
 
 	// One explicit terrain frequency band; roundness and weight gain apply to the mountain band.
@@ -230,6 +231,16 @@ namespace pr::physics
 		float surface_spacing;
 		std::uint32_t reserved;
 	};
+
+	// Infinite-height inward cylinder and explicit discrete-motion envelope; all distances are metres.
+	struct CylindricalBoundaryDesc
+	{
+		StructHeader header;
+		double centre_x, centre_y, radius;
+		std::int32_t material_id;
+		float surface_spacing, max_substep_motion, max_penetration;
+	};
+	static_assert(sizeof(CylindricalBoundaryDesc) == 48);
 
 	struct Vector4
 	{
@@ -715,6 +726,9 @@ extern "C"
 
 	// Replace terrain on the owner thread between frames, or disable it with null. Native checkpoints reject terrain-equipped engines.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineTerrainSet(pr::physics::EngineHandle engine, pr::physics::TerrainDesc const* terrain);
+
+	// Replace or disable the independent infinite-height cylindrical boundary between completed frames; null removes it.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineCylindricalBoundarySet(pr::physics::EngineHandle engine, pr::physics::CylindricalBoundaryDesc const* boundary);
 
 	// Material properties.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_MaterialGet(pr::physics::EngineHandle engine, std::int32_t material_id, pr::physics::MaterialProperties* material);

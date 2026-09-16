@@ -203,6 +203,7 @@ namespace pr::physics
 			std::uint64_t m_completed_step;
 			std::unique_ptr<Engine> m_engine;
 			bool m_has_terrain = false;
+			bool m_has_cylindrical_boundary = false;
 
 			EngineRecord(std::uint16_t cookie, EngineConfig const& config, ID3D12Device4* device, ID3D12CommandQueue* queue)
 				: m_lock()
@@ -1726,8 +1727,8 @@ namespace pr::physics
 		std::uint64_t CheckpointRequiredSize(EngineRecord const& engine)
 		{
 			// Terrain requires an application-owned recipe and body-state checkpoint until the native format includes it.
-			if (engine.m_has_terrain)
-				throw ApiException(PhysicsStatus::InvalidArgument, "Native checkpoints do not support terrain; persist the terrain recipe and body states explicitly");
+			if (engine.m_has_terrain || engine.m_has_cylindrical_boundary)
+				throw ApiException(PhysicsStatus::InvalidArgument, "Native checkpoints do not support world surfaces; persist their configurations and body states explicitly");
 
 			// Version three rejects optional topology explicitly rather than silently omitting unrecoverable state.
 			if (std::ranges::any_of(engine.m_articulations, [](auto const& slot) { return slot.m_object != nullptr; }) ||
@@ -1905,6 +1906,7 @@ extern "C"
 				case PhysicsStructId::ArticulationLinkState: *size = sizeof(PhysicsArticulationLinkState); break;
 				case PhysicsStructId::D6Constraint: *size = sizeof(PhysicsD6Constraint); break;
 				case PhysicsStructId::Terrain: { *size = sizeof(pr::physics::TerrainDesc); break; }
+				case PhysicsStructId::CylindricalBoundary: { *size = sizeof(pr::physics::CylindricalBoundaryDesc); break; }
 				default: throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Unknown physics structure identifier");
 			}
 		});
@@ -2153,6 +2155,40 @@ extern "C"
 			// Commit the presence flag only after source creation succeeds.
 			record.m_engine->Terrain(pr::physics::terrain::landscape::BaselineSurface(config), c.surface_spacing == 0 ? pr::physics::surface::DefaultSpacing : c.surface_spacing);
 			record.m_has_terrain = true;
+		});
+	}
+
+	// Copy boundary configuration only between completed frames; null disables it without changing terrain.
+	PhysicsStatus __stdcall Physics_EngineCylindricalBoundarySet(PhysicsEngineHandle engine, pr::physics::CylindricalBoundaryDesc const* boundary)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			auto config = std::optional<pr::physics::CylindricalBoundaryConfig>{};
+			if (boundary != nullptr)
+			{
+				auto const& c = pr::physics::RequireStruct(boundary);
+				pr::physics::RequireMaterialId(c.material_id);
+				config = pr::physics::CylindricalBoundaryConfig{
+					.m_centre_x = c.centre_x, .m_centre_y = c.centre_y, .m_radius = c.radius, .m_material_id = c.material_id,
+					.m_surface_spacing = c.surface_spacing, .m_max_substep_motion = c.max_substep_motion, .m_max_penetration = c.max_penetration,
+				};
+				try
+				{
+					config->Validate();
+				}
+				catch (std::exception const& ex)
+				{
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
+				}
+			}
+
+			// Keep presence and checkpoint guards in sync only after replacement succeeds.
+			record.m_engine->CylindricalBoundary(config);
+			record.m_has_cylindrical_boundary = config.has_value();
 		});
 	}
 
@@ -3195,8 +3231,8 @@ extern "C"
 			if (buffer == nullptr || size < sizeof(pr::physics::CheckpointHeader))
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint buffer is null or truncated");
 
-			if (record.m_has_terrain)
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint import would discard the configured terrain; restore body states explicitly");
+			if (record.m_has_terrain || record.m_has_cylindrical_boundary)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint import would discard configured world surfaces; restore body states explicitly");
 
 			if (std::ranges::any_of(record.m_shapes, [](auto const& slot) { return slot.m_object != nullptr; }) ||
 				std::ranges::any_of(record.m_bodies, [](auto const& slot) { return slot.m_object != nullptr; }) ||

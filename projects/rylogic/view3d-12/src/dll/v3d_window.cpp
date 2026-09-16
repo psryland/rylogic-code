@@ -246,6 +246,25 @@ namespace pr::rdr12
 		Invalidate();
 	}
 
+	// Return the fade settings from their scene authority.
+	FarClipFadeProps V3dWindow::FarClipFadeProperties() const
+	{
+		return m_scene.FarClipFadeProperties();
+	}
+
+	// Publish a validated rendering option change and request a new frame.
+	void V3dWindow::FarClipFadeProperties(FarClipFadeProps props)
+	{
+		props.Validate();
+		if (props == FarClipFadeProperties())
+			return;
+
+		// The scene setter validates camera-dependent constraints before changing its state.
+		m_scene.FarClipFadeProperties(props);
+		OnSettingsChanged(this, view3d::ESettings::Rendering_FarClipFade);
+		Invalidate();
+	}
+
 	// The DPI of the monitor that this window is displayed on
 	v2 V3dWindow::Dpi() const
 	{

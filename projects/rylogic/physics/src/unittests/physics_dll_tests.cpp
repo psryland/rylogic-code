@@ -31,6 +31,7 @@ namespace pr::unittests
 			decltype(&Physics_EngineDeviceLeaseAcquire) EngineDeviceLeaseAcquire;
 			decltype(&Physics_EngineConfigGet) EngineConfigGet;
 			decltype(&Physics_EngineConfigSet) EngineConfigSet;
+			decltype(&Physics_EngineCylindricalBoundarySet) EngineCylindricalBoundarySet;
 			decltype(&Physics_MaterialGet) MaterialGet;
 			decltype(&Physics_MaterialSet) MaterialSet;
 			decltype(&Physics_ShapeCreateSphere) ShapeCreateSphere;
@@ -84,6 +85,7 @@ namespace pr::unittests
 				, EngineDeviceLeaseAcquire(m_module.Proc<decltype(EngineDeviceLeaseAcquire)>("Physics_EngineDeviceLeaseAcquire"))
 				, EngineConfigGet(m_module.Proc<decltype(EngineConfigGet)>("Physics_EngineConfigGet"))
 				, EngineConfigSet(m_module.Proc<decltype(EngineConfigSet)>("Physics_EngineConfigSet"))
+				, EngineCylindricalBoundarySet(m_module.Proc<decltype(EngineCylindricalBoundarySet)>("Physics_EngineCylindricalBoundarySet"))
 				, MaterialGet(m_module.Proc<decltype(MaterialGet)>("Physics_MaterialGet"))
 				, MaterialSet(m_module.Proc<decltype(MaterialSet)>("Physics_MaterialSet"))
 				, ShapeCreateSphere(m_module.Proc<decltype(ShapeCreateSphere)>("Physics_ShapeCreateSphere"))
@@ -526,6 +528,7 @@ namespace pr::unittests
 				std::pair{EStructId::ArticulationState, static_cast<std::uint32_t>(sizeof(pr::physics::ArticulationState))},
 				std::pair{EStructId::ArticulationLinkState, static_cast<std::uint32_t>(sizeof(pr::physics::ArticulationLinkState))},
 				std::pair{EStructId::D6Constraint, static_cast<std::uint32_t>(sizeof(pr::physics::D6ConstraintProperties))},
+				std::pair{EStructId::CylindricalBoundary, static_cast<std::uint32_t>(sizeof(pr::physics::CylindricalBoundaryDesc))},
 			};
 			for (auto const& [id, expected] : sizes)
 			{

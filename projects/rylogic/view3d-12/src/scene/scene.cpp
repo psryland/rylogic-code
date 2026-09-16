@@ -54,6 +54,27 @@ namespace pr::rdr12
 		SetRenderSteps({});
 	}
 
+	// Return the forward world fade settings for this scene.
+	FarClipFadeProps Scene::FarClipFadeProperties() const
+	{
+		return m_far_clip_fade;
+	}
+
+	// Validate the complete range before replacing the current scene settings.
+	void Scene::FarClipFadeProperties(FarClipFadeProps props)
+	{
+		props.Validate();
+		if (props.m_enabled)
+		{
+			props.DepthRange(m_cam.ClipPlanes(false).y);
+			if (auto* forward = FindRStep<RenderForward>())
+				forward->ValidateFarClipFade();
+		}
+
+		// Failed material validation leaves the current option unchanged.
+		m_far_clip_fade = props;
+	}
+
 	// Access the renderer
 	ID3D12Device4* Scene::d3d() const
 	{

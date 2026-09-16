@@ -35,6 +35,12 @@ namespace pr::rdr12
 
 	private:
 
+		friend struct Scene;
+
+		// Reject unsupported material output before a scene option change or frame recording.
+		void ValidateFarClipFade();
+		void ValidateFarFadeMaterial(DrawListElement const& dle) const;
+
 		// Perform the render step
 		void Execute(Frame& frame) override;
 
@@ -49,6 +55,12 @@ namespace pr::rdr12
 
 		// Add the nuggets in the draw list to 'cmd_list' for rendering.
 		void DrawNuggets(Frame& frame, GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist, bool alpha_pass);
+
+		// Select the stock output contract after overrides, rejecting unsupported far-fade pipelines.
+		void ApplyFarFadePipeline(PipeStateDesc& desc, bool alpha_pass) const;
+
+		// Return true only when undeformed model bounds prove there is no fading opaque coverage.
+		bool IsBeforeFarFade(DrawListElement const& dle, PipeStateDesc const& desc) const;
 
 		// Draw a single nugget
 		void DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash);

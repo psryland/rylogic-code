@@ -65,6 +65,15 @@ namespace pr::rdr12
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_reflection_attrs_texn_pbr_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_alpha_collect_texn_pbr_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_radial_fade_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_pbr_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_texn_pbr_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_alpha_collect_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_alpha_collect_pbr_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_alpha_collect_texn_pbr_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_reflection_attrs_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_reflection_attrs_pbr_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_reflection_attrs_texn_pbr_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(kbuffer_resolve_vs.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(kbuffer_alpha_resolve_ps.h)
 		}
@@ -80,6 +89,15 @@ namespace pr::rdr12
 		ByteCode const forward_reflection_attrs_texn_pbr_ps(compiled::forward_reflection_attrs_texn_pbr_ps);
 		ByteCode const forward_alpha_collect_texn_pbr_ps(compiled::forward_alpha_collect_texn_pbr_ps);
 		ByteCode const forward_radial_fade_ps(compiled::forward_radial_fade_ps);
+		ByteCode const forward_far_fade_ps(compiled::forward_far_fade_ps);
+		ByteCode const forward_far_fade_pbr_ps(compiled::forward_far_fade_pbr_ps);
+		ByteCode const forward_far_fade_texn_pbr_ps(compiled::forward_far_fade_texn_pbr_ps);
+		ByteCode const forward_far_fade_alpha_collect_ps(compiled::forward_far_fade_alpha_collect_ps);
+		ByteCode const forward_far_fade_alpha_collect_pbr_ps(compiled::forward_far_fade_alpha_collect_pbr_ps);
+		ByteCode const forward_far_fade_alpha_collect_texn_pbr_ps(compiled::forward_far_fade_alpha_collect_texn_pbr_ps);
+		ByteCode const forward_far_fade_reflection_attrs_ps(compiled::forward_far_fade_reflection_attrs_ps);
+		ByteCode const forward_far_fade_reflection_attrs_pbr_ps(compiled::forward_far_fade_reflection_attrs_pbr_ps);
+		ByteCode const forward_far_fade_reflection_attrs_texn_pbr_ps(compiled::forward_far_fade_reflection_attrs_texn_pbr_ps);
 		ByteCode const kbuffer_resolve_vs(compiled::kbuffer_resolve_vs);
 		ByteCode const kbuffer_alpha_resolve_ps(compiled::kbuffer_alpha_resolve_ps);
 
