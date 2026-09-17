@@ -188,6 +188,8 @@ namespace pr::view3d::ui
 	void UiEngine::Update(ViewportState const& viewport)
 	{
 		ValidateHeader<ViewportState>(viewport.header, "ViewportState");
+		if (!std::isfinite(viewport.time_ms))
+			throw EngineException(EStatus::InvalidArgument, "viewport time_ms must be finite");
 
 		// A camera the host claims is valid must be usable for deterministic projection; rejecting
 		// it here keeps ProjectWorldRoot a total function that only ever culls, never throws.

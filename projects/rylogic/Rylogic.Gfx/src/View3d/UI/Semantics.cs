@@ -24,6 +24,12 @@ public sealed class UiSemanticNode
 	/// <summary>The control's current automation-facing value text (for example a TextBox's accepted text).</summary>
 	public string Value { get; }
 
+	/// <summary>Normalized ProgressBar completion; meaningful only for that role and when IsIndeterminate is false.</summary>
+	public float ProgressValue { get; }
+
+	/// <summary>Whether a ProgressBar reports activity rather than measurable completion.</summary>
+	public bool IsIndeterminate { get; }
+
 	/// <summary>The control's current boolean automation state flags.</summary>
 	public ESemanticState State { get; }
 
@@ -61,7 +67,7 @@ public sealed class UiSemanticNode
 	public ulong SemanticSequence { get; }
 
 	/// <summary>Adopt one decoded semantic node snapshot.</summary>
-	internal UiSemanticNode(ControlId id, ControlId parent_id, EControlType role, string name, string description, string value, ESemanticState state, ESemanticAction supported_actions, ESemanticTextFlag text_flags, uint caret, uint selection_start, uint selection_end, uint composition_start, uint composition_length, uint value_grapheme_count, Rect bounds, ulong accepted_revision, ulong semantic_sequence)
+	internal UiSemanticNode(ControlId id, ControlId parent_id, EControlType role, string name, string description, string value, ESemanticState state, ESemanticAction supported_actions, ESemanticTextFlag text_flags, uint caret, uint selection_start, uint selection_end, uint composition_start, uint composition_length, uint value_grapheme_count, Rect bounds, ulong accepted_revision, ulong semantic_sequence, float progress_value, bool is_indeterminate)
 	{
 		Id = id;
 		ParentId = parent_id;
@@ -69,6 +75,8 @@ public sealed class UiSemanticNode
 		Name = name;
 		Description = description;
 		Value = value;
+		ProgressValue = progress_value;
+		IsIndeterminate = is_indeterminate;
 		State = state;
 		SupportedActions = supported_actions;
 		TextFlags = text_flags;

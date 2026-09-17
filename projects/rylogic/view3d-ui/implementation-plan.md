@@ -403,7 +403,8 @@ The first vertical slice implements:
 - `Panel`;
 - `Text`;
 - `TextBox`;
-- `Button`.
+- `Button`;
+- `ProgressBar`.
 
 Later demonstrated needs can add controls to the schema. Applications cannot register control classes.
 
@@ -439,12 +440,28 @@ Current placement and overflow contract:
 - Layout, drawing, and semantic bounds are viewport-relative DIPs. Client-pixel input and accessibility bounds include the viewport offset and client/target ratio.
   Updating viewport dimensions or DPI recomputes placement from authored values, rather than scaling the previous layout.
 
-Visibility migration: native API version is `0x00040000`, and every wire struct header uses version `4`. `ControlDesc::visibility` is a signed 32-bit `EVisibility`
+Current native API version is `0x00050000`, and every wire struct header uses version `5`. `ControlDesc::visibility` is a signed 32-bit `EVisibility`
 at the former boolean field's offset; unchanged byte size does not make version-3 callers compatible. The private View3D host bridge version is unchanged.
 Managed callers use `UiControlDesc.Visibility`; replace old `true` with `EVisibility.Visible` and old `false` with `EVisibility.Hidden` to preserve behavior.
 Choose `Collapsed` explicitly when controls should stop reserving space. The native demonstration and existing tests preserve their former Visible/Hidden intent.
 JSON schema version `2` uses `"visibility": "Visible" | "Hidden" | "Collapsed"` (default Visible); schema version `1` and the boolean `visible` property are rejected.
 There are no compatibility adapters or automatic conversions.
+
+### Retained ProgressBar
+
+`EControlType::ProgressBar = 5` adds a horizontal read-only indicator. `ControlDesc::value` is finite normalized completion in `[0, 1]` (default 0);
+`is_indeterminate != 0` selects activity without implying a percentage. Other control types ignore those fields. The track uses `StyleVisual::fill` and its border;
+the indicator uses `foreground`, inset within the border. Foreground participates in normal state transitions. Zero completion emits no indicator quad.
+Activity uses a quarter-width indicator moving smoothly back and forth in a 1200-ms cycle, driven by finite `ViewportState::time_ms`.
+Hosts schedule updates/renders; no transactions or input events are produced by animation. Hidden/Collapsed subtrees do not draw it.
+Labels are separate Text controls; the indicator is hit-test transparent, not a modal input barrier.
+
+SemanticNode carries `progress_value` and `is_indeterminate`. Determinate progress also reports percentage value text; activity has empty value text.
+UI Automation exposes ProgressBar role with read-only RangeValue `[0, 1]` only while determinate, with no small/large change.
+The default template supplies `PART_Track` and `PART_Indicator`; authored progress templates require both.
+ABI 5 changes ControlDesc, StyleVisual/StyleDesc, and SemanticNode; native clients and managed mirrors must refresh together.
+The private renderer host-bridge ABI is unchanged because the control renders using existing box draw items.
+JSON schema 2 adds optional `value`, `is_indeterminate`, and visual `foreground` without changing existing field meanings.
 
 ### 6.3 Lookless templates
 

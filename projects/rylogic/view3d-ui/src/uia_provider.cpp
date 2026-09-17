@@ -80,6 +80,15 @@ namespace pr::view3d::ui
 			return value;
 		}
 
+		// A normalized numeric range property for UI Automation.
+		VARIANT R8Variant(double number)
+		{
+			auto value = EmptyVariant();
+			value.vt = VT_R8;
+			value.dblVal = number;
+			return value;
+		}
+
 		// A VT_BSTR VARIANT, degrading to VT_EMPTY when the string cannot be allocated; a property
 		// read has no way to report failure, and an absent property is the truthful degradation.
 		VARIANT BstrVariant(std::wstring const& text)
@@ -115,6 +124,7 @@ namespace pr::view3d::ui
 				case EControlType::Text: { return UIA_TextControlTypeId; }
 				case EControlType::TextBox: { return UIA_EditControlTypeId; }
 				case EControlType::Button: { return UIA_ButtonControlTypeId; }
+				case EControlType::ProgressBar: { return UIA_ProgressBarControlTypeId; }
 				default: throw EngineException(EStatus::InvalidArgument, std::format("unknown control type {}", static_cast<std::int32_t>(role)));
 			}
 		}
@@ -128,6 +138,7 @@ namespace pr::view3d::ui
 				case EControlType::Root:
 				case EControlType::Panel: { return false; }
 				case EControlType::Text:
+				case EControlType::ProgressBar:
 				case EControlType::TextBox:
 				case EControlType::Button: { return true; }
 				default: throw EngineException(EStatus::InvalidArgument, std::format("unknown control type {}", static_cast<std::int32_t>(role)));
@@ -843,6 +854,7 @@ namespace pr::view3d::ui
 			, public IRawElementProviderFragment
 			, public IInvokeProvider
 			, public IValueProvider
+			, public IRangeValueProvider
 			, public ITextProvider2
 		{
 			ControlId m_id;
@@ -856,6 +868,32 @@ namespace pr::view3d::ui
 					throw EngineException(EStatus::StaleHandle, "the control is no longer available");
 
 				return *node;
+			}
+
+			// Read only measurable progress; an activity indicator exposes no range pattern.
+			HRESULT RangeValue(PROPERTYID property, double* ret)
+			{
+				return ComGuard([&]() -> HRESULT
+				{
+					if (ret == nullptr)
+						return E_POINTER;
+
+					auto const snapshot = RequireSnapshot();
+					auto const& node = RequireNode(snapshot);
+					if (node.role != EControlType::ProgressBar || node.is_indeterminate != 0)
+						return UIA_E_NOTSUPPORTED;
+
+					switch (property)
+					{
+						case UIA_RangeValueValuePropertyId: { *ret = node.progress_value; break; }
+						case UIA_RangeValueMinimumPropertyId: { *ret = 0.0; break; }
+						case UIA_RangeValueMaximumPropertyId: { *ret = 1.0; break; }
+						case UIA_RangeValueSmallChangePropertyId:
+						case UIA_RangeValueLargeChangePropertyId: { *ret = std::numeric_limits<double>::quiet_NaN(); break; }
+						default: { return E_INVALIDARG; }
+					}
+					return S_OK;
+				});
 			}
 
 		public:
@@ -887,6 +925,8 @@ namespace pr::view3d::ui
 					*obj = static_cast<IInvokeProvider*>(this);
 				else if (riid == __uuidof(IValueProvider))
 					*obj = static_cast<IValueProvider*>(this);
+				else if (riid == __uuidof(IRangeValueProvider))
+					*obj = static_cast<IRangeValueProvider*>(this);
 				else if (riid == __uuidof(ITextProvider))
 					*obj = static_cast<ITextProvider*>(static_cast<ITextProvider2*>(this));
 				else if (riid == __uuidof(ITextProvider2))
@@ -938,7 +978,8 @@ namespace pr::view3d::ui
 					auto const invoke = pattern == UIA_InvokePatternId && node.role == EControlType::Button && node.HasAction(ESemanticAction::Invoke);
 					auto const value = pattern == UIA_ValuePatternId && node.role == EControlType::TextBox;
 					auto const text = (pattern == UIA_TextPatternId || pattern == UIA_TextPattern2Id) && node.role == EControlType::TextBox;
-					if (!invoke && !value && !text)
+					auto const range = pattern == UIA_RangeValuePatternId && node.role == EControlType::ProgressBar && node.is_indeterminate == 0;
+					if (!invoke && !value && !text && !range)
 						return S_OK;
 
 					AddRef();
@@ -946,6 +987,8 @@ namespace pr::view3d::ui
 						*ret = static_cast<IInvokeProvider*>(this);
 					else if (value)
 						*ret = static_cast<IValueProvider*>(this);
+					else if (range)
+						*ret = static_cast<IRangeValueProvider*>(this);
 					else
 						*ret = static_cast<ITextProvider2*>(this);
 
@@ -983,9 +1026,29 @@ namespace pr::view3d::ui
 						case UIA_IsContentElementPropertyId: { *ret = BoolVariant(IsContentElement(node.role)); break; }
 						case UIA_IsControlElementPropertyId: { *ret = BoolVariant(true); break; }
 						case UIA_ValueValuePropertyId: { *ret = BstrVariant(node.value); break; }
-						case UIA_ValueIsReadOnlyPropertyId: { *ret = BoolVariant(!node.HasState(ESemanticState::Enabled)); break; }
+						case UIA_ValueIsReadOnlyPropertyId: { *ret = BoolVariant(node.role == EControlType::ProgressBar || !node.HasState(ESemanticState::Enabled)); break; }
 						case UIA_IsInvokePatternAvailablePropertyId: { *ret = BoolVariant(node.role == EControlType::Button && node.HasAction(ESemanticAction::Invoke)); break; }
 						case UIA_IsValuePatternAvailablePropertyId: { *ret = BoolVariant(node.role == EControlType::TextBox); break; }
+						case UIA_IsRangeValuePatternAvailablePropertyId: { *ret = BoolVariant(node.role == EControlType::ProgressBar && node.is_indeterminate == 0); break; }
+						case UIA_RangeValueIsReadOnlyPropertyId:
+						{
+							if (node.role == EControlType::ProgressBar && node.is_indeterminate == 0)
+								*ret = BoolVariant(true);
+
+							break;
+						}
+						case UIA_RangeValueValuePropertyId:
+						case UIA_RangeValueMinimumPropertyId:
+						case UIA_RangeValueMaximumPropertyId:
+						case UIA_RangeValueSmallChangePropertyId:
+						case UIA_RangeValueLargeChangePropertyId:
+						{
+							auto number = double{};
+							if (RangeValue(property, &number) == S_OK)
+								*ret = R8Variant(number);
+
+							break;
+						}
 						case UIA_IsTextPatternAvailablePropertyId:
 						case UIA_IsTextPattern2AvailablePropertyId: { *ret = BoolVariant(node.role == EControlType::TextBox); break; }
 						default: break;
@@ -1159,9 +1222,49 @@ namespace pr::view3d::ui
 
 					auto const snapshot = RequireSnapshot();
 					auto const& node = RequireNode(snapshot);
-					*ret = node.HasState(ESemanticState::Enabled) ? FALSE : TRUE;
+					*ret = node.role == EControlType::ProgressBar || !node.HasState(ESemanticState::Enabled) ? TRUE : FALSE;
 					return S_OK;
 				});
+			}
+
+			// Progress is application-owned and cannot be set by an automation client.
+			HRESULT STDMETHODCALLTYPE SetValue(double) override
+			{
+				return ComGuard([&]() -> HRESULT
+				{
+					RequireNode(RequireSnapshot());
+					return UIA_E_INVALIDOPERATION;
+				});
+			}
+
+			// Read normalized completion from the published snapshot.
+			HRESULT STDMETHODCALLTYPE get_Value(double* ret) override
+			{
+				return RangeValue(UIA_RangeValueValuePropertyId, ret);
+			}
+
+			// The completion domain starts at zero.
+			HRESULT STDMETHODCALLTYPE get_Minimum(double* ret) override
+			{
+				return RangeValue(UIA_RangeValueMinimumPropertyId, ret);
+			}
+
+			// The completion domain ends at one.
+			HRESULT STDMETHODCALLTYPE get_Maximum(double* ret) override
+			{
+				return RangeValue(UIA_RangeValueMaximumPropertyId, ret);
+			}
+
+			// Read-only progress has no interactive step size.
+			HRESULT STDMETHODCALLTYPE get_SmallChange(double* ret) override
+			{
+				return RangeValue(UIA_RangeValueSmallChangePropertyId, ret);
+			}
+
+			// Read-only progress has no interactive page size.
+			HRESULT STDMETHODCALLTYPE get_LargeChange(double* ret) override
+			{
+				return RangeValue(UIA_RangeValueLargeChangePropertyId, ret);
 			}
 
 			HRESULT STDMETHODCALLTYPE GetSelection(SAFEARRAY** ret) override

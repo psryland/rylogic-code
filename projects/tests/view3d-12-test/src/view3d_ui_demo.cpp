@@ -47,6 +47,12 @@ namespace view3d_test
 		inline constexpr ControlId UI_ScrollPanel = 20;
 		inline constexpr ControlId UI_ScrollText = 21;
 		inline constexpr ControlId UI_Status = 22;
+		inline constexpr ControlId UI_ProgressSection = 23;
+		inline constexpr ControlId UI_ProgressTitle = 24;
+		inline constexpr ControlId UI_DeterminateLabel = 25;
+		inline constexpr ControlId UI_DeterminateProgress = 26;
+		inline constexpr ControlId UI_IndeterminateLabel = 27;
+		inline constexpr ControlId UI_IndeterminateProgress = 28;
 
 		// Stable per-control ids for the three clickable world-anchored roots.
 		inline constexpr ControlId UI_WorldOverlayRoot = 40;
@@ -70,6 +76,7 @@ namespace view3d_test
 		inline constexpr StyleId UI_WorldOverlayStyle = 209;
 		inline constexpr StyleId UI_WorldDepthStyle = 210;
 		inline constexpr StyleId UI_WorldFadeStyle = 211;
+		inline constexpr StyleId UI_ProgressStyle = 212;
 		inline constexpr TemplateId UI_TextBoxTemplate = 300;
 		inline constexpr TemplateId UI_ButtonTemplate = 301;
 
@@ -253,6 +260,7 @@ namespace view3d_test
 		DimensionValue m_dimension;
 		std::string m_gallery_status;
 		std::uint32_t m_gallery_status_sequence;
+		std::uint32_t m_progress_step;
 		std::vector<pr::view3d::ui::Event> m_ui_events;
 		std::vector<std::byte> m_ui_event_payload;
 
@@ -270,12 +278,14 @@ namespace view3d_test
 			, m_dimension(ParseDimension(m_dimension_text))
 			, m_gallery_status("Last action: none")
 			, m_gallery_status_sequence(0)
+			, m_progress_step(0)
 		{
 			ApplyInitialUI();
 		}
 
 		void ApplyInitialUI();
 		void ApplyUIState();
+		void ApplyProgressState();
 		void SetGalleryStatus(std::string_view action);
 		void DrainUIEvents();
 		void UpdateUI(HWND hwnd);
@@ -316,6 +326,12 @@ namespace view3d_test
 		auto world_overlay_style = UIStyle(UI_WorldOverlayStyle, UIColour{0.14f, 0.50f, 0.72f, 0.94f}, UIColour{0.40f, 0.82f, 1.0f, 1}, 1.5f, 18.0f);
 		auto world_depth_style = UIStyle(UI_WorldDepthStyle, UIColour{0.20f, 0.62f, 0.30f, 0.94f}, UIColour{0.48f, 0.92f, 0.56f, 1}, 1.5f, 12.0f);
 		auto world_fade_style = UIStyle(UI_WorldFadeStyle, UIColour{0.72f, 0.34f, 0.14f, 0.94f}, UIColour{1.0f, 0.62f, 0.28f, 1}, 1.5f, 22.0f);
+		auto progress_style = UIStyle(UI_ProgressStyle, UIColour{0.08f, 0.10f, 0.14f, 1.0f}, UIColour{0.34f, 0.39f, 0.48f, 1.0f}, 1.0f, 5.0f);
+		for (auto& visual : progress_style.visuals)
+		{
+			// Use a bright indicator against the shared dark track in every interaction state.
+			visual.foreground = UIColour{0.20f, 0.68f, 1.0f, 1.0f};
+		}
 		builder.AddStyle(root_style);
 		builder.AddStyle(panel_style);
 		builder.AddStyle(section_style);
@@ -328,6 +344,7 @@ namespace view3d_test
 		builder.AddStyle(world_overlay_style);
 		builder.AddStyle(world_depth_style);
 		builder.AddStyle(world_fade_style);
+		builder.AddStyle(progress_style);
 
 		auto textbox_template = TemplateDesc{};
 		textbox_template.header = UIHeader<TemplateDesc>();
@@ -350,7 +367,7 @@ namespace view3d_test
 
 		// Screen-space gallery: vertical composition containing examples of every layout mode.
 		auto root_layout = UILayout(0, 0, EHAlign::Stretch, EVAlign::Stretch);
-		auto panel_layout = UILayout(430, 570, EHAlign::Right, EVAlign::Top);
+		auto panel_layout = UILayout(430, 690, EHAlign::Right, EVAlign::Top);
 		panel_layout.margin_top = 24;
 		panel_layout.margin_right = 24;
 		panel_layout.padding_left = 16;
@@ -432,6 +449,24 @@ namespace view3d_test
 		status.value_sequence = m_gallery_status_sequence;
 		builder.Upsert(status, m_gallery_status, m_gallery_status);
 
+		// Progress examples show application-owned completion beside host-time-driven activity.
+		auto progress_section_layout = UILayout(398, 120, EHAlign::Stretch);
+		progress_section_layout.padding_left = 12;
+		progress_section_layout.padding_top = 8;
+		progress_section_layout.padding_right = 12;
+		progress_section_layout.padding_bottom = 8;
+		progress_section_layout.stack_spacing = 4;
+		builder.Upsert(UIControl(UI_ProgressSection, UI_Panel, EControlType::Panel, ELayoutMode::StackVertical, progress_section_layout, UI_SectionStyle), {}, "Progress bar examples");
+		builder.Upsert(UIControl(UI_ProgressTitle, UI_ProgressSection, EControlType::Text, ELayoutMode::Overlay, UILayout(374, 20, EHAlign::Stretch), UI_TextStyle), "Progress bars", "Progress bars label");
+		builder.Upsert(UIControl(UI_DeterminateLabel, UI_ProgressSection, EControlType::Text, ELayoutMode::Overlay, UILayout(374, 16, EHAlign::Stretch), UI_TextStyle), "Determinate (application animated)", "Determinate progress label");
+		auto determinate_progress = UIControl(UI_DeterminateProgress, UI_ProgressSection, EControlType::ProgressBar, ELayoutMode::Overlay, UILayout(374, 18, EHAlign::Stretch), UI_ProgressStyle);
+		determinate_progress.value = 0.0f;
+		builder.Upsert(determinate_progress, {}, "Determinate progress");
+		builder.Upsert(UIControl(UI_IndeterminateLabel, UI_ProgressSection, EControlType::Text, ELayoutMode::Overlay, UILayout(374, 16, EHAlign::Stretch), UI_TextStyle), "Indeterminate (host-time animated)", "Indeterminate progress label");
+		auto indeterminate_progress = UIControl(UI_IndeterminateProgress, UI_ProgressSection, EControlType::ProgressBar, ELayoutMode::Overlay, UILayout(374, 18, EHAlign::Stretch), UI_ProgressStyle);
+		indeterminate_progress.is_indeterminate = 1;
+		builder.Upsert(indeterminate_progress, {}, "Indeterminate progress");
+
 		// One clickable button per world policy, using both apparent-DIP and world-unit sizing.
 		auto world_button_layout = UILayout(0, 0, EHAlign::Stretch, EVAlign::Stretch);
 		builder.Upsert(UIWorldRoot(UI_WorldOverlayRoot, ERootPolicy::Overlay, pr::view3d::ui::Vec3{-1.6f, 0.0f, 1.8f}, EWorldSizing::ConstantDip), {}, "World overlay root");
@@ -442,13 +477,14 @@ namespace view3d_test
 		builder.Upsert(UIControl(UI_WorldFadeButton, UI_WorldFadeRoot, EControlType::Button, ELayoutMode::Overlay, world_button_layout, UI_WorldFadeStyle, UI_ButtonTemplate), "Occlusion Fade", "Occlusion-faded world button");
 
 		builder.Reorder(UI_Root, {UI_Panel});
-		builder.Reorder(UI_Panel, {UI_Title, UI_DimensionSection, UI_ButtonLabel, UI_ButtonRow, UI_OverlayPanel, UI_CanvasPanel, UI_ScrollPanel, UI_Status});
+		builder.Reorder(UI_Panel, {UI_Title, UI_DimensionSection, UI_ButtonLabel, UI_ButtonRow, UI_OverlayPanel, UI_CanvasPanel, UI_ScrollPanel, UI_Status, UI_ProgressSection});
 		builder.Reorder(UI_DimensionSection, {UI_Label, UI_DimensionRow});
 		builder.Reorder(UI_DimensionRow, {UI_Dimension, UI_Update});
 		builder.Reorder(UI_ButtonRow, {UI_SoftButton, UI_PillButton, UI_DisabledButton});
 		builder.Reorder(UI_OverlayPanel, {UI_OverlayText, UI_OverlayButton});
 		builder.Reorder(UI_CanvasPanel, {UI_CanvasText, UI_CanvasButton});
 		builder.Reorder(UI_ScrollPanel, {UI_ScrollText});
+		builder.Reorder(UI_ProgressSection, {UI_ProgressTitle, UI_DeterminateLabel, UI_DeterminateProgress, UI_IndeterminateLabel, UI_IndeterminateProgress});
 		builder.Reorder(UI_WorldOverlayRoot, {UI_WorldOverlayButton});
 		builder.Reorder(UI_WorldDepthRoot, {UI_WorldDepthButton});
 		builder.Reorder(UI_WorldFadeRoot, {UI_WorldFadeButton});
@@ -473,6 +509,27 @@ namespace view3d_test
 		status.value_sequence = m_gallery_status_sequence;
 		builder.Upsert(status, m_gallery_status, m_gallery_status);
 
+		m_ui.TransactionApply(builder.Build(m_ui_revision, m_ui_revision + 1));
+		++m_ui_revision;
+	}
+
+	// Submit a quantised determinate value only when its visible percentage changes.
+	void View3dUiDemo::Impl::ApplyProgressState()
+	{
+		// Use a four-second triangle wave so both completion directions remain easy to inspect.
+		auto const cycle_ms = 4000.0;
+		auto const phase = std::fmod(m_ui_time_ms, cycle_ms) / (cycle_ms * 0.5);
+		auto const value = phase <= 1.0 ? phase : 2.0 - phase;
+		auto const progress_step = static_cast<std::uint32_t>(std::lround(value * 100.0));
+		if (progress_step == m_progress_step)
+			return;
+
+		// Preserve revision ordering while updating only the application-owned progress control.
+		m_progress_step = progress_step;
+		auto progress = UIControl(UI_DeterminateProgress, UI_ProgressSection, EControlType::ProgressBar, ELayoutMode::Overlay, UILayout(374, 18, EHAlign::Stretch), UI_ProgressStyle);
+		progress.value = static_cast<float>(progress_step) / 100.0f;
+		auto builder = TransactionBuilder{};
+		builder.Upsert(progress, {}, "Determinate progress");
 		m_ui.TransactionApply(builder.Build(m_ui_revision, m_ui_revision + 1));
 		++m_ui_revision;
 	}
@@ -612,8 +669,10 @@ namespace view3d_test
 	// Advance the UI clock, drain and dispatch queued gallery events, then refresh View3DUI.
 	void View3dUiDemo::Update(HWND hwnd, double elapsed_seconds)
 	{
+		// Keep both retained progress examples advancing from the host's monotonic frame clock.
 		m_impl->m_ui_time_ms += elapsed_seconds * 1000.0;
 		m_impl->DrainUIEvents();
+		m_impl->ApplyProgressState();
 		m_impl->UpdateUI(hwnd);
 	}
 }

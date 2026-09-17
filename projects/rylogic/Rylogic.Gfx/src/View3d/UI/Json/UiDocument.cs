@@ -173,6 +173,8 @@ public sealed class UiDocument
 		writer.WriteNumber("font_resource_id", control.FontResourceId.m_value);
 		writer.WriteBoolean("selected", control.Selected);
 		writer.WriteNumber("value_sequence", control.ValueSequence);
+		writer.WriteNumber("value", control.Value);
+		writer.WriteBoolean("is_indeterminate", control.IsIndeterminate);
 		WriteWorld(writer, control.World);
 
 		writer.WriteStartArray("children");
@@ -256,6 +258,7 @@ public sealed class UiDocument
 			writer.WriteNumber("border_thickness", visual.m_border_thickness);
 			writer.WriteNumber("corner_radius", visual.m_corner_radius);
 			writer.WriteNumber("opacity", visual.m_opacity);
+			writer.WriteString("foreground", FormatColour(visual.m_foreground));
 			writer.WriteEndObject();
 
 			var transition = style.GetTransition(channel);
@@ -414,8 +417,27 @@ public sealed class UiDocument
 			FontResourceId = font_resource_id,
 			Selected = GetBool(node, "selected", path, false),
 			ValueSequence = GetUInt32(node, "value_sequence", path, 0),
+			Value = GetFloat(node, "value", path, 0),
+			IsIndeterminate = GetBool(node, "is_indeterminate", path, false),
 			World = ParseWorld(node, $"{path}.world"),
 		};
+		// Reject invalid completion at the authoring boundary, before constructing a transaction.
+		switch (control.Type)
+		{
+			case EControlType.ProgressBar:
+			{
+				if (float.IsNaN(control.Value) || float.IsInfinity(control.Value) || control.Value < 0 || control.Value > 1)
+					throw new UiJsonException($"{path}.value", "ProgressBar value must be finite and within [0, 1].");
+
+				break;
+			}
+			case EControlType.Root:
+			case EControlType.Panel:
+			case EControlType.Text:
+			case EControlType.TextBox:
+			case EControlType.Button: { break; }
+			default: { throw new UiJsonException($"{path}.type", "Unknown control type."); }
+		}
 		controls.Add(control);
 
 		if (node.TryGetProperty("children", out var children_element))
@@ -531,7 +553,9 @@ public sealed class UiDocument
 					border_colour: ParseColour(visual_element, "border_colour", visual_path, Colour.TransparentBlack),
 					border_thickness: GetFloat(visual_element, "border_thickness", visual_path, 0),
 					corner_radius: GetFloat(visual_element, "corner_radius", visual_path, 0),
-					opacity: GetFloat(visual_element, "opacity", visual_path, 1)));
+					opacity: GetFloat(visual_element, "opacity", visual_path, 1),
+					foreground: ParseColour(visual_element, "foreground", visual_path, Colour.TransparentBlack)
+				));
 			}
 			if (state.TryGetProperty("transition", out var transition_element))
 			{

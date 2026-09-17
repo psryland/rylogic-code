@@ -257,7 +257,7 @@ public sealed unsafe class UiContext :IDisposable
 			var name = DecodeText(text_blob, native_node.m_name_offset, native_node.m_name_length);
 			var description = DecodeText(text_blob, native_node.m_desc_offset, native_node.m_desc_length);
 			var value = DecodeText(text_blob, native_node.m_value_offset, native_node.m_value_length);
-			destination[i] = new UiSemanticNode(native_node.m_id, native_node.m_parent_id, native_node.m_role, name, description, value, (ESemanticState)native_node.m_state_flags, (ESemanticAction)native_node.m_supported_actions, (ESemanticTextFlag)native_node.m_text_flags, native_node.m_caret, native_node.m_selection_start, native_node.m_selection_end, native_node.m_composition_start, native_node.m_composition_length, native_node.m_value_grapheme_count, native_node.m_bounds, native_node.m_accepted_revision, native_node.m_semantic_sequence);
+			destination[i] = new UiSemanticNode(native_node.m_id, native_node.m_parent_id, native_node.m_role, name, description, value, (ESemanticState)native_node.m_state_flags, (ESemanticAction)native_node.m_supported_actions, (ESemanticTextFlag)native_node.m_text_flags, native_node.m_caret, native_node.m_selection_start, native_node.m_selection_end, native_node.m_composition_start, native_node.m_composition_length, native_node.m_value_grapheme_count, native_node.m_bounds, native_node.m_accepted_revision, native_node.m_semantic_sequence, native_node.m_progress_value, native_node.m_is_indeterminate != 0);
 		}
 		return checked((int)native_nodes.Length);
 	}

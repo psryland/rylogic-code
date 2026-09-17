@@ -48,6 +48,8 @@ namespace pr::view3d::ui
 		std::uint32_t composition_start;
 		std::uint32_t composition_length;
 		std::uint64_t semantic_sequence;
+		float progress_value;
+		std::int32_t is_indeterminate;
 		std::size_t parent_index;          // UiaNoIndex when the node is a semantic root.
 		std::size_t sibling_position;      // Index of this node within its parent's child list.
 		std::vector<std::size_t> children; // Deterministic semantic order, same as the pre-order walk.

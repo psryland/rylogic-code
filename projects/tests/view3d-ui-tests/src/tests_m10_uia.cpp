@@ -437,6 +437,62 @@ namespace pr::view3d::ui::tests
 
 	#pragma region Provider properties, navigation and patterns
 
+	// Automation reports measurable read-only completion, never a fabricated activity percentage.
+	PRUnitTest(ProgressBarSemanticsAndReadOnlyRangePatternFollowAcceptedState, Quick)
+	{
+		auto engine = UiEngine{ DefaultConfig() };
+		auto progress = MakeControl(2, 1, EControlType::ProgressBar, ELayoutMode::Overlay, Lp(100, 20));
+		progress.value = 0.25f;
+		ApplyControls(engine, { MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(200, 100)), progress });
+		auto const vp = Viewport(200, 100);
+		engine.Update(vp);
+		auto const first = Publish(engine, vp);
+		PR_EXPECT(first->Find(2)->progress_value == 0.25f);
+		PR_EXPECT(first->Find(2)->value == L"25%");
+		PR_EXPECT(first->Find(2)->supported_actions == 0);
+		auto window = TestWindow{};
+		auto shared = SharedWith(window.Handle(), first);
+		auto* provider = CreateUiaElementProvider(shared, 2);
+		auto property = VARIANT{};
+		PR_EXPECT(provider->GetPropertyValue(UIA_ControlTypePropertyId, &property) == S_OK);
+		PR_EXPECT(property.vt == VT_I4 && property.lVal == UIA_ProgressBarControlTypeId);
+		VariantClear(&property);
+		auto* pattern = static_cast<IUnknown*>(nullptr);
+		PR_EXPECT(provider->GetPatternProvider(UIA_RangeValuePatternId, &pattern) == S_OK && pattern != nullptr);
+		auto* range = static_cast<IRangeValueProvider*>(nullptr);
+		PR_EXPECT(pattern->QueryInterface(IID_PPV_ARGS(&range)) == S_OK);
+		pattern->Release();
+		auto value = double{};
+		auto read_only = BOOL{};
+		PR_EXPECT(range->get_Value(&value) == S_OK && value == 0.25);
+		PR_EXPECT(range->get_Minimum(&value) == S_OK && value == 0);
+		PR_EXPECT(range->get_Maximum(&value) == S_OK && value == 1);
+		PR_EXPECT(range->get_IsReadOnly(&read_only) == S_OK && read_only != FALSE);
+		PR_EXPECT(range->SetValue(0.8) == UIA_E_INVALIDOPERATION);
+
+		// Activity mode removes RangeValue availability even from a previously acquired provider.
+		progress.is_indeterminate = 1;
+		ApplyControls(engine, { progress }, 1);
+		engine.Update(vp);
+		auto const activity = Publish(engine, vp, 2);
+		PR_EXPECT(activity->Find(2)->is_indeterminate != 0 && activity->Find(2)->value.empty());
+		PR_EXPECT(DiffUiaSnapshots(first.get(), *activity).value_changed.size() == 1);
+		shared->Publish(activity);
+		pattern = nullptr;
+		PR_EXPECT(provider->GetPatternProvider(UIA_RangeValuePatternId, &pattern) == S_OK && pattern == nullptr);
+		PR_EXPECT(range->get_Value(&value) == UIA_E_NOTSUPPORTED);
+
+		// Returning to determinate completion retains the same control and provider identity.
+		progress.is_indeterminate = 0;
+		progress.value = 1;
+		ApplyControls(engine, { progress }, 2);
+		engine.Update(vp);
+		shared->Publish(Publish(engine, vp, 3));
+		PR_EXPECT(range->get_Value(&value) == S_OK && value == 1);
+		range->Release();
+		provider->Release();
+	}
+
 	PRUnitTest(UiaProviderReportsStableIdentityRolesAndStates, Quick)
 	{
 		auto engine = UiEngine{ DefaultConfig() };

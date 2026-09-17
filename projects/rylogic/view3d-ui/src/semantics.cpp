@@ -32,6 +32,10 @@ namespace pr::view3d::ui
 				{
 					return node.text;
 				}
+				case EControlType::ProgressBar:
+				{
+					return node.desc.is_indeterminate != 0 ? std::string{} : std::format("{}%", node.desc.value * 100.0f);
+				}
 				case EControlType::Root:
 				case EControlType::Panel:
 				case EControlType::Button:
@@ -111,6 +115,7 @@ namespace pr::view3d::ui
 					case EControlType::Root:
 					case EControlType::Panel:
 					case EControlType::Text:
+					case EControlType::ProgressBar:
 					case EControlType::Count:
 					default: break;
 				}
@@ -174,6 +179,21 @@ namespace pr::view3d::ui
 			semantic.bounds = bounds;
 			semantic.accepted_revision = accepted_revision;
 			semantic.semantic_sequence = sequence++;
+			switch (node.desc.type)
+			{
+				case EControlType::ProgressBar:
+				{
+					semantic.progress_value = node.desc.value;
+					semantic.is_indeterminate = node.desc.is_indeterminate;
+					break;
+				}
+				case EControlType::Root:
+				case EControlType::Panel:
+				case EControlType::Text:
+				case EControlType::TextBox:
+				case EControlType::Button: { break; }
+				default: { throw EngineException(EStatus::UnknownType, "unknown control type"); }
+			}
 			out.m_nodes.push_back(semantic);
 
 			// A descendant cannot override an unavailable ancestor.

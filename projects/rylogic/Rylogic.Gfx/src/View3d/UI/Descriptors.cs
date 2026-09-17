@@ -152,6 +152,12 @@ public sealed record UiControlDesc
 	/// <summary>World anchoring for a Root whose RootPolicy is world-anchored; ignored otherwise.</summary>
 	public UiWorldRootParams World { get; set; } = new();
 
+	/// <summary>ProgressBar completion in [0, 1], finite even when IsIndeterminate is true. Ignored by other types.</summary>
+	public float Value { get; set; }
+
+	/// <summary>Show host-time-driven activity instead of a percentage. Applies only to ProgressBar.</summary>
+	public bool IsIndeterminate { get; set; }
+
 	/// <summary>
 	/// Create an independent deep copy: mutating the clone's Layout/World (or this instance's) afterward cannot affect the
 	/// other, because Layout and World are themselves replaced with their own independent copies rather than shared by
