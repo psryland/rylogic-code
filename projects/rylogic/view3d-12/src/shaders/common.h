@@ -23,6 +23,7 @@
 #include "pr/view3d-12/texture/texture_base.h"
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/texture/texture_cube.h"
+#include "pr/view3d-12/utility/normal_transform.h"
 #include "view3d-12/src/render/render_smap.h"
 
 #ifdef NDEBUG
@@ -181,11 +182,8 @@ namespace pr::rdr12
 		cb.m2o = m2o;
 		cb.o2w = o2w;
 
-		// Orthonormalise the rotation part of the normal to world transform (allowing for scale matrices)
-		cb.n2w = cb.o2w;
-		cb.n2w.x = Normalise(cb.n2w.x, v4::Zero());
-		cb.n2w.y = Normalise(Cross(cb.n2w.z, cb.n2w.x), v4::Zero());
-		cb.n2w.z = Cross(cb.n2w.x, cb.n2w.y);
+		// Transform normals through the complete model placement, including nonuniform scale and shear.
+		cb.n2w = NormalTransform(o2w * m2o);
 	}
 	template <typename TCBuf> requires(requires(TCBuf cb) { cb.o2s; cb.o2w; cb.n2w; })
 	void SetTxfm(TCBuf& cb, BaseInstance const& inst, Model const* model, SceneCamera const& view)

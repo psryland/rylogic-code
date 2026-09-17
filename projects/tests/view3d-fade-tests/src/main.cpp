@@ -317,6 +317,46 @@ namespace fade_tests
 		}
 	}
 
+	// Verify normal directions independently of their arbitrary common matrix scale.
+	void NormalTransformTests()
+	{
+		using namespace pr;
+		auto const normal = Normalise(v4(1, 2, 3, 0));
+		auto scale = m4x4::Identity();
+		scale.x.x = 2;
+		scale.y.y = 3;
+		scale.z.z = 0.25f;
+		auto shear = m4x4::Identity();
+		shear.y.x = 0.7f;
+		shear.z.y = -0.3f;
+		auto reflection = m4x4::Identity();
+		reflection.x.x = -1;
+		auto rotation = m4x4(v4(0, 1, 0, 0), v4(-1, 0, 0, 0), v4(0, 0, 1, 0), v4(2, 3, 4, 1));
+		for (auto const& placement : {m4x4::Identity(), scale, shear, reflection, rotation, rotation * scale * shear * reflection})
+		{
+			auto expected = Normalise(Transpose(Invert(placement)).rot * normal.xyz);
+			auto actual = Normalise((rdr12::NormalTransform(placement) * normal).xyz);
+			Require(Length(actual - expected) < 0.00001f, "Normal transform differs from inverse transpose");
+		}
+
+		// The singular endpoint retains the remaining plane, while a line or point has no area normal.
+		auto flat = m4x4::Identity();
+		flat.z.z = 0;
+		auto flat_normal = Normalise(rdr12::NormalTransform(rotation * flat) * normal);
+		Require(Length(flat_normal - rotation.z) < 0.00001f, "Flattening lost the surviving plane normal");
+		flat.y.y = 0;
+		Require(Length(rdr12::NormalTransform(flat) * normal) == 0, "A line must not invent an area normal");
+		Require(Length(rdr12::NormalTransform(m4x4::Zero()) * normal) == 0, "A point must not invent an area normal");
+
+		// Extremely large and small uniform scales must not overflow their intermediate cross products.
+		for (auto magnitude : {1.0e-30f, 1.0e30f})
+		{
+			auto placement = m4x4::Identity();
+			placement.x.x = placement.y.y = placement.z.z = magnitude;
+			Require(Length(Normalise(rdr12::NormalTransform(placement) * normal) - normal) < 0.00001f, "Normal transform lost extreme scale");
+		}
+	}
+
 	// Validate defaults, invalid ranges, and absolute far-depth resolution without a GPU.
 	void NumericTests()
 	{
@@ -591,11 +631,16 @@ namespace fade_tests
 }
 
 // Run only the bounded far-clip fixture and return a failing process status for any mismatch.
-int main()
+int main(int argc, char const* const* argv)
 {
 	try
 	{
+		fade_tests::Require(argc == 1 || (argc == 2 && std::string_view(argv[1]) == "--numeric-only"), "Expected no arguments or --numeric-only");
 		fade_tests::NumericTests();
+		fade_tests::NormalTransformTests();
+		if (argc == 2)
+			return 0;
+
 		fade_tests::RenderTests(1);
 		fade_tests::RenderTests(4);
 		fade_tests::SceneHandoffTests(1);

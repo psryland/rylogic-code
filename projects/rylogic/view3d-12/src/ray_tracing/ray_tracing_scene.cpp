@@ -459,11 +459,7 @@ namespace pr::rdr12
 		// Return the transform used to bring model-space normals into world space for closest-hit shading.
 		m4x4 NormalToWorld(BaseInstance const& inst, Model const& model)
 		{
-			auto n2w = GetO2W(inst);
-			n2w.x = Normalise(n2w.x, v4::Zero());
-			n2w.y = Normalise(Cross(n2w.z, n2w.x), v4::Zero());
-			n2w.z = Cross(n2w.x, n2w.y);
-			return model.m_m2root * n2w;
+			return NormalTransform(GetO2W(inst) * model.m_m2root);
 		}
 
 		// Append RT hit-shading metadata in the same order as material records and BLAS geometry descriptors.

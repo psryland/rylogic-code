@@ -191,13 +191,14 @@ inline BaselineField BaselineApplyWarp(BaselineField sample, BaselineField warp_
 	return BaselineField(sample.x, (1 + warp_x.y) * sample.y + warp_y.y * sample.z, warp_x.z * sample.y + (1 + warp_y.z) * sample.z);
 }
 
-// Sample a CPU-prepared recipe in any shader stage or directly on the CPU; inspect m_status before using the result.
+// Sample a CPU-prepared recipe and its normalized plains/hills/mountains weights; inspect m_status before using either output.
 #ifdef __cplusplus
-inline BaselineResult BaselineEvaluate(BaselineRecipe const& recipe, double2 xy)
+inline BaselineResult BaselineEvaluate(BaselineRecipe const& recipe, double2 xy, double3& region_weights)
 #else
-BaselineResult BaselineEvaluate(BaselineRecipe recipe, double2 xy)
+BaselineResult BaselineEvaluate(BaselineRecipe recipe, double2 xy, out double3 region_weights)
 #endif
 {
+	region_weights = double3(0, 0, 0);
 	BaselineResult result;
 	result.m_height = result.m_dx = result.m_dy = 0;
 	result.m_material_id = -1;
@@ -242,7 +243,19 @@ BaselineResult BaselineEvaluate(BaselineRecipe recipe, double2 xy)
 	result.m_dy = height.z;
 	result.m_material_id = recipe.m_material_id;
 	result.m_status = 0;
+	region_weights = double3(w0.x, w1.x, w2.x);
 	return result;
+}
+
+// Sample height, derivatives and material without changing the shared CPU/GPU result layout.
+#ifdef __cplusplus
+inline BaselineResult BaselineEvaluate(BaselineRecipe const& recipe, double2 xy)
+#else
+BaselineResult BaselineEvaluate(BaselineRecipe recipe, double2 xy)
+#endif
+{
+	double3 region_weights;
+	return BaselineEvaluate(recipe, xy, region_weights);
 }
 #ifdef __cplusplus
 }
