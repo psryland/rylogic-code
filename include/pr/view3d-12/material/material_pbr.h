@@ -9,6 +9,7 @@
 #include "pr/view3d-12/material/components/emissive.h"
 #include "pr/view3d-12/material/components/metallic.h"
 #include "pr/view3d-12/material/components/normal_map.h"
+#include "pr/view3d-12/material/components/procedural_surface.h"
 #include "pr/view3d-12/material/components/roughness.h"
 #include "pr/view3d-12/material/components/two_sided.h"
 #include "pr/view3d-12/material/material.h"
@@ -25,6 +26,7 @@ namespace pr::rdr12
 		materials::Roughness m_roughness;    // Roughness properties.
 		materials::Emissive m_emissive;      // Emissive properties.
 		materials::NormalMap m_normal_map;   // Normal-map properties.
+		std::optional<materials::ProceduralSurface> m_procedural_surface; // Optional GPU procedural surface.
 		materials::Alpha m_alpha;            // Alpha behaviour.
 		materials::TwoSided m_two_sided;     // Two-sided lighting state.
 
@@ -70,6 +72,10 @@ namespace pr::rdr12
 
 		// Set the texture slot used for tangent-space normals.
 		MaterialPBR& normal_texture(materials::TextureSlot slot, float scale = 1.0f);
+
+		// Set or clear the GPU-evaluated procedural surface.
+		MaterialPBR& procedural_surface(materials::ProceduralSurface surface);
+		MaterialPBR& procedural_surface_clear();
 
 		// Set the alpha interpretation for this material.
 		MaterialPBR& alpha_mode(materials::EAlphaMode mode, float cutoff = 0.5f);

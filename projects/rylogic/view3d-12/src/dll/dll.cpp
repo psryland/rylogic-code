@@ -15,6 +15,7 @@
 #include "pr/view3d-12/view3d-dll.h"
 #include "pr/view3d-12/ldraw/ldraw_ui_script_editor.h"
 #include "pr/view3d-12/model/model.h"
+#include "pr/view3d-12/material/components/procedural_surface.h"
 #include "pr/view3d-12/resource/stock_resources.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/texture/texture_desc.h"
@@ -2644,6 +2645,201 @@ VIEW3D_API void __stdcall View3D_ObjectNuggetTintSet(view3d::Object object, view
 		object->NuggetTint(static_cast<Colour32>(colour), name, index);
 	}
 	CatchAndReport(View3D_ObjectNuggetTintSet, ,);
+}
+
+namespace
+{
+	// Convert public procedural parameters into the renderer material component.
+	materials::ProceduralSurface ToProceduralSurface(view3d::ProceduralSurface const& surface)
+	{
+		// Preserve all caller-owned values while translating only ABI representation.
+		auto result = materials::ProceduralSurface{
+			.m_coordinate_space = static_cast<materials::EProceduralCoordinateSpace>(surface.m_coordinate_space),
+			.m_seed = surface.m_seed,
+			.m_feature_scale = surface.m_feature_scale,
+			.m_coordinate_origin = To<v4>(surface.m_coordinate_origin),
+			.m_palette = {
+				pr::Colour(Colour32(surface.m_colour0)),
+				pr::Colour(Colour32(surface.m_colour1)),
+				pr::Colour(Colour32(surface.m_colour2)),
+				pr::Colour(Colour32(surface.m_colour3)),
+			},
+			.m_axis_scale = To<v4>(surface.m_axis_scale),
+			.m_normal_strength = surface.m_normal_strength,
+			.m_roughness_min = surface.m_roughness_min,
+			.m_roughness_max = surface.m_roughness_max,
+			.m_detail = surface.m_detail,
+			.m_warp = surface.m_warp,
+		};
+		result.Validate();
+		return result;
+	}
+
+	// Convert renderer procedural parameters back into the stable public ABI.
+	view3d::ProceduralSurface FromProceduralSurface(materials::ProceduralSurface const& surface)
+	{
+		// Return packed sRGB palette entries while retaining linear scalar parameters.
+		return view3d::ProceduralSurface{
+			.m_coordinate_space = static_cast<view3d::EProceduralCoordinateSpace>(surface.m_coordinate_space),
+			.m_seed = surface.m_seed,
+			.m_feature_scale = surface.m_feature_scale,
+			.m_coordinate_origin = To<view3d::Vec4>(surface.m_coordinate_origin),
+			.m_axis_scale = To<view3d::Vec4>(surface.m_axis_scale),
+			.m_colour0 = static_cast<view3d::Colour>(Colour32(surface.m_palette[0])),
+			.m_colour1 = static_cast<view3d::Colour>(Colour32(surface.m_palette[1])),
+			.m_colour2 = static_cast<view3d::Colour>(Colour32(surface.m_palette[2])),
+			.m_colour3 = static_cast<view3d::Colour>(Colour32(surface.m_palette[3])),
+			.m_normal_strength = surface.m_normal_strength,
+			.m_roughness_min = surface.m_roughness_min,
+			.m_roughness_max = surface.m_roughness_max,
+			.m_detail = surface.m_detail,
+			.m_warp = surface.m_warp,
+		};
+	}
+
+	// Return a representative visual preset expressed through the shared generic parameter block.
+	view3d::ProceduralSurface ProceduralSurfacePreset(view3d::EProceduralSurfacePreset preset)
+	{
+		// Start from a complete world-space contract before applying preset-specific visual values.
+		auto result = view3d::ProceduralSurface{
+			.m_coordinate_space = view3d::EProceduralCoordinateSpace::World,
+			.m_seed = 0,
+			.m_feature_scale = 1.0f,
+			.m_coordinate_origin = {0, 0, 0, 1},
+			.m_axis_scale = {1, 1, 1, 0},
+		};
+		switch (preset)
+		{
+			case view3d::EProceduralSurfacePreset::Soil:
+			{
+				result.m_colour0 = 0xFF21140B;
+				result.m_colour1 = 0xFF4A2C17;
+				result.m_colour2 = 0xFF76502C;
+				result.m_colour3 = 0xFFA17A4C;
+				result.m_normal_strength = 0.35f;
+				result.m_roughness_min = 0.72f;
+				result.m_roughness_max = 0.98f;
+				result.m_detail = 0.62f;
+				result.m_warp = 0.35f;
+				return result;
+			}
+			case view3d::EProceduralSurfacePreset::Grass:
+			{
+				result.m_colour0 = 0xFF102B0D;
+				result.m_colour1 = 0xFF285A1C;
+				result.m_colour2 = 0xFF4E8429;
+				result.m_colour3 = 0xFF91AD52;
+				result.m_axis_scale = {1, 1, 0.55f, 0};
+				result.m_normal_strength = 0.42f;
+				result.m_roughness_min = 0.62f;
+				result.m_roughness_max = 0.94f;
+				result.m_detail = 0.72f;
+				result.m_warp = 0.22f;
+				return result;
+			}
+			case view3d::EProceduralSurfacePreset::Sand:
+			{
+				result.m_colour0 = 0xFF8B6B3F;
+				result.m_colour1 = 0xFFC09A5C;
+				result.m_colour2 = 0xFFE0C184;
+				result.m_colour3 = 0xFFF1DCA8;
+				result.m_axis_scale = {1, 1, 0.3f, 0};
+				result.m_normal_strength = 0.18f;
+				result.m_roughness_min = 0.78f;
+				result.m_roughness_max = 0.98f;
+				result.m_detail = 0.82f;
+				result.m_warp = 0.08f;
+				return result;
+			}
+			case view3d::EProceduralSurfacePreset::Rock:
+			{
+				result.m_colour0 = 0xFF222528;
+				result.m_colour1 = 0xFF464B4D;
+				result.m_colour2 = 0xFF747774;
+				result.m_colour3 = 0xFFAAA99F;
+				result.m_normal_strength = 0.7f;
+				result.m_roughness_min = 0.48f;
+				result.m_roughness_max = 0.9f;
+				result.m_detail = 0.7f;
+				result.m_warp = 0.55f;
+				return result;
+			}
+			case view3d::EProceduralSurfacePreset::Snow:
+			{
+				result.m_colour0 = 0xFF9BAEC0;
+				result.m_colour1 = 0xFFC7D5DF;
+				result.m_colour2 = 0xFFE7EFF4;
+				result.m_colour3 = 0xFFFFFFFF;
+				result.m_axis_scale = {1, 1, 0.45f, 0};
+				result.m_normal_strength = 0.16f;
+				result.m_roughness_min = 0.58f;
+				result.m_roughness_max = 0.92f;
+				result.m_detail = 0.42f;
+				result.m_warp = 0.12f;
+				return result;
+			}
+			default:
+			{
+				throw std::invalid_argument("Unknown procedural surface preset");
+			}
+		}
+	}
+}
+
+// Return one representative preset as ordinary caller-editable procedural surface parameters.
+VIEW3D_API view3d::ProceduralSurface __stdcall View3D_ProceduralSurfacePreset(view3d::EProceduralSurfacePreset preset)
+{
+	// Use the DLL exception boundary so invalid enum values follow repository-standard diagnostics.
+	try
+	{
+		return ProceduralSurfacePreset(preset);
+	}
+	CatchAndReport(View3D_ProceduralSurfacePreset, , {});
+}
+
+// Return the procedural surface assigned to a model nugget.
+VIEW3D_API BOOL __stdcall View3D_ObjectNuggetProceduralSurfaceGet(view3d::Object object, view3d::ProceduralSurface& surface, char const* name, int index)
+{
+	// Serialize access to model-owned material state.
+	try
+	{
+		Validate(object);
+		DllLockGuard;
+		auto value = object->NuggetProceduralSurface(name, index);
+		if (!value)
+			return FALSE;
+
+		surface = FromProceduralSurface(*value);
+		return TRUE;
+	}
+	CatchAndReport(View3D_ObjectNuggetProceduralSurfaceGet, , FALSE);
+}
+
+// Assign a procedural surface to a model nugget.
+VIEW3D_API void __stdcall View3D_ObjectNuggetProceduralSurfaceSet(view3d::Object object, view3d::ProceduralSurface const& surface, char const* name, int index)
+{
+	// Validate all public values before replacing the immutable renderer material.
+	try
+	{
+		Validate(object);
+		auto value = ToProceduralSurface(surface);
+		DllLockGuard;
+		object->NuggetProceduralSurface(&value, name, index);
+	}
+	CatchAndReport(View3D_ObjectNuggetProceduralSurfaceSet, ,);
+}
+
+// Clear a procedural surface from a model nugget.
+VIEW3D_API void __stdcall View3D_ObjectNuggetProceduralSurfaceClear(view3d::Object object, char const* name, int index)
+{
+	// Replace the immutable renderer material while retaining its ordinary PBR channels.
+	try
+	{
+		Validate(object);
+		DllLockGuard;
+		object->NuggetProceduralSurface(nullptr, name, index);
+	}
+	CatchAndReport(View3D_ObjectNuggetProceduralSurfaceClear, ,);
 }
 
 // Materials ******************************

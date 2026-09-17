@@ -154,6 +154,21 @@ namespace pr
 			AnisotropicClamp,
 			AnisotropicWrap,
 		};
+		// Representative visual starting points for procedural surface parameters.
+		enum class EProceduralSurfacePreset :int
+		{
+			Soil,
+			Grass,
+			Sand,
+			Rock,
+			Snow,
+		};
+		// Coordinate frame used by procedural surface evaluation.
+		enum class EProceduralCoordinateSpace :int
+		{
+			Object,
+			World,
+		};
 		enum class EStockShader : int // rdr12::EStockShader
 		{
 			Invalid = 0,
@@ -604,6 +619,31 @@ namespace pr
 		struct Mat4x4
 		{
 			Vec4 x, y, z, w;
+		};
+
+		// Parameters for a UV-free GPU procedural surface applied to a PBR material.
+		struct ProceduralSurface
+		{
+			// Field order is part of the native/managed ABI contract.
+
+			EProceduralCoordinateSpace m_coordinate_space;
+			uint32_t m_seed;
+			float m_feature_scale;
+			float m_pad0;
+			Vec4 m_coordinate_origin;
+			Vec4 m_axis_scale;
+			Colour m_colour0;
+			Colour m_colour1;
+			Colour m_colour2;
+			Colour m_colour3;
+			float m_normal_strength;
+			float m_roughness_min;
+			float m_roughness_max;
+			float m_detail;
+			float m_warp;
+			float m_pad1;
+			float m_pad2;
+			float m_pad3;
 		};
 		struct BBox
 		{
@@ -1400,6 +1440,14 @@ extern "C"
 	// Get/Set the tint colour for a nugget within the model of an object or its children. (See LdrObject::Apply)
 	VIEW3D_API pr::view3d::Colour __stdcall View3D_ObjectNuggetTintGet(pr::view3d::Object object, char const* name, int index);
 	VIEW3D_API void __stdcall View3D_ObjectNuggetTintSet(pr::view3d::Object object, pr::view3d::Colour colour, char const* name, int index);
+
+	// Return one representative preset as ordinary caller-editable procedural surface parameters.
+	VIEW3D_API pr::view3d::ProceduralSurface __stdcall View3D_ProceduralSurfacePreset(pr::view3d::EProceduralSurfacePreset preset);
+
+	// Get, set, or clear the PBR procedural surface on a nugget. The getter returns false when no procedural surface is assigned.
+	VIEW3D_API BOOL __stdcall View3D_ObjectNuggetProceduralSurfaceGet(pr::view3d::Object object, pr::view3d::ProceduralSurface& surface, char const* name, int index);
+	VIEW3D_API void __stdcall View3D_ObjectNuggetProceduralSurfaceSet(pr::view3d::Object object, pr::view3d::ProceduralSurface const& surface, char const* name, int index);
+	VIEW3D_API void __stdcall View3D_ObjectNuggetProceduralSurfaceClear(pr::view3d::Object object, char const* name, int index);
 
 	// Override stock-shader surface RGB after material/vertex/texture colour and before lighting. Packed RGB is an sRGB target, decoded at
 	// shader upload; packed alpha is the linear UNORM8 blend weight (A/255), not opacity. Surface alpha and sorting remain unchanged.

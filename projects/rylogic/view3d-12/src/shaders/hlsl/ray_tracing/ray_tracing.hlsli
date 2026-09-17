@@ -42,19 +42,26 @@ float4 PbrReflectionAttributes(PSIn In, float4 diff, float2 metallic_uv, float3 
 	return float4(0.5f * normal + 0.5f, reflectivity);
 }
 
-// Return the RT alpha side-buffer payload for a transparent forward surface layer.
-uint AlphaRtAttributes(PSIn In, float4 diff, bool is_front_face)
+// Pack the RT alpha side-buffer payload for a resolved world normal and relative reflectivity.
+uint AlphaRtAttributesFromNormal(float4 diff, float3 normal, float reflectivity)
 {
-	if (!HasNormals(g_nugget.flags))
+	// Omit layers that cannot produce a visible reflected contribution.
+	if (!HasNormals(g_nugget.flags) || diff.a <= 0.0f)
 		return 0;
 
-	float3 normal = ResolveWorldNormal(In, is_front_face).xyz;
 	if (dot(normal, normal) == 0.0f)
 		return 0;
 
 	normal = normalize(normal);
-	float reflectivity = saturate(g_nugget.env_reflectivity);
-	return PackRGBA8(float4(0.5f * normal + 0.5f, reflectivity));
+	return PackRGBA8(float4(0.5f * normal + 0.5f, saturate(reflectivity)));
+}
+
+// Return the RT alpha side-buffer payload for a transparent simple-material layer.
+uint AlphaRtAttributes(PSIn In, float4 diff, bool is_front_face)
+{
+	// Resolve the simple-material normal before delegating common packing and validation.
+	float3 normal = ResolveWorldNormal(In, is_front_face).xyz;
+	return AlphaRtAttributesFromNormal(diff, normal, g_nugget.env_reflectivity);
 }
 
 #endif

@@ -14,6 +14,18 @@ namespace fade_tests
 			throw std::runtime_error(message);
 	}
 
+	// Read the packed blend value through the current single-value public API.
+	api::Colour View3D_ObjectColourBlendColourGet(api::Object object, char const* name)
+	{
+		return ::View3D_ObjectColourBlendGet(object, name);
+	}
+
+	// Decode the packed alpha byte as the public linear blend weight.
+	float View3D_ObjectColourBlendAmountGet(api::Object object, char const* name)
+	{
+		return ((::View3D_ObjectColourBlendGet(object, name) >> 24) & 0xFFU) / 255.0f;
+	}
+
 	// Reject a failed D3D operation at its ownership boundary.
 	void Check(HRESULT result)
 	{
@@ -128,15 +140,16 @@ namespace fade_tests
 		}
 
 		// Add an unlit two-sided quad at a chosen forward depth.
-		api::Object Quad(float depth, unsigned colour, float half_width = 45, api::Shader shader = nullptr, float right_depth = 0, unsigned vertex_colour = 0xFFFFFFFF, bool textured = false)
+		api::Object Quad(float depth, unsigned colour, float half_width = 45, api::Shader shader = nullptr, float right_depth = 0, unsigned vertex_colour = 0xFFFFFFFF, bool textured = false, bool normals = false)
 		{
 			// Distinct vertex and material colours let surface tests distinguish an override from another multiplicative tint.
+			auto normal = normals ? api::Vec4{0, 0, 1, 0} : api::Vec4{};
 			api::Vertex verts[] =
 			{
-				{{-half_width,-45,-depth,1}, {}, {}, vertex_colour, 0},
-				{{+half_width,-45,-(right_depth != 0 ? right_depth : depth),1}, {}, {}, vertex_colour, 0},
-				{{+half_width,+45,-(right_depth != 0 ? right_depth : depth),1}, {}, {}, vertex_colour, 0},
-				{{-half_width,+45,-depth,1}, {}, {}, vertex_colour, 0},
+				{{-half_width,-45,-depth,1}, normal, {}, vertex_colour, 0},
+				{{+half_width,-45,-(right_depth != 0 ? right_depth : depth),1}, normal, {}, vertex_colour, 0},
+				{{+half_width,+45,-(right_depth != 0 ? right_depth : depth),1}, normal, {}, vertex_colour, 0},
+				{{-half_width,+45,-depth,1}, normal, {}, vertex_colour, 0},
 			};
 			UINT16 indices[] = {0,1,2,0,2,3};
 			auto nugget = api::Nugget{};
@@ -147,6 +160,8 @@ namespace fade_tests
 
 			if (textured)
 				nugget.m_geom = static_cast<api::EGeom>(static_cast<int>(nugget.m_geom) | static_cast<int>(api::EGeom::Tex0));
+			if (normals)
+				nugget.m_geom = static_cast<api::EGeom>(static_cast<int>(nugget.m_geom) | static_cast<int>(api::EGeom::Norm));
 
 			nugget.m_cull_mode = api::ECullMode::None;
 			nugget.m_tint = colour;
@@ -155,6 +170,32 @@ namespace fade_tests
 
 			auto object = View3D_ObjectCreate("FadeQuad", 0xFFFFFFFF, 4, 6, 1, verts, indices, &nugget, GUID{});
 			Require(object != nullptr, "Quad creation failed");
+			m_objects.push_back(object);
+			View3D_WindowAddObject(m_window, object);
+			CheckErrors();
+			return object;
+		}
+
+		// Add one independently owned rectangular mesh for cross-object coordinate continuity tests.
+		api::Object QuadRect(float x0, float x1, float depth)
+		{
+			// Supply normals but no UV or tangent data so the procedural material owns all surface channels.
+			auto normal = api::Vec4{0, 0, 1, 0};
+			api::Vertex verts[] =
+			{
+				{{x0,-45,-depth,1}, normal, {}, 0xFFFFFFFF, 0},
+				{{x1,-45,-depth,1}, normal, {}, 0xFFFFFFFF, 0},
+				{{x1,+45,-depth,1}, normal, {}, 0xFFFFFFFF, 0},
+				{{x0,+45,-depth,1}, normal, {}, 0xFFFFFFFF, 0},
+			};
+			UINT16 indices[] = {0,1,2,0,2,3};
+			auto nugget = api::Nugget{};
+			nugget.m_topo = api::ETopo::TriList;
+			nugget.m_geom = static_cast<api::EGeom>(static_cast<int>(api::EGeom::Vert) | static_cast<int>(api::EGeom::Norm));
+			nugget.m_cull_mode = api::ECullMode::None;
+			nugget.m_tint = 0xFFFFFFFF;
+			auto object = View3D_ObjectCreate("ProceduralQuad", 0xFFFFFFFF, 4, 6, 1, verts, indices, &nugget, GUID{});
+			Require(object != nullptr, "Procedural rectangle creation failed");
 			m_objects.push_back(object);
 			View3D_WindowAddObject(m_window, object);
 			CheckErrors();
@@ -310,6 +351,246 @@ namespace fade_tests
 			}
 		}
 	};
+
+	// Count differing RGB bytes so GPU channel tests do not depend on one hand-picked lattice value.
+	size_t ImageDifference(std::vector<unsigned char> const& lhs, std::vector<unsigned char> const& rhs)
+	{
+		// Compare only visible colour channels while requiring identical framebuffer layouts.
+		Require(lhs.size() == rhs.size(), "Image sizes differ");
+		auto difference = size_t{};
+		for (auto i = size_t{}; i != lhs.size(); i += 4)
+		{
+			if (lhs[i + 0] != rhs[i + 0] || lhs[i + 1] != rhs[i + 1] || lhs[i + 2] != rhs[i + 2])
+				++difference;
+		}
+		return difference;
+	}
+
+	// Exercise the public procedural surface API through real forward rendering and framebuffer readback.
+	void ProceduralSurfaceTests()
+	{
+		// Use one bounded fixture and replace its scene between independent material contracts.
+		Fixture fixture(1);
+		auto object = fixture.Quad(10, 0xFFFFFFFF, 45, nullptr, 0, 0xFFFFFFFF, false, true);
+		auto presets = std::array{
+			api::EProceduralSurfacePreset::Soil,
+			api::EProceduralSurfacePreset::Grass,
+			api::EProceduralSurfacePreset::Sand,
+			api::EProceduralSurfacePreset::Rock,
+			api::EProceduralSurfacePreset::Snow,
+		};
+		auto images = std::vector<std::vector<unsigned char>>{};
+		for (auto preset : presets)
+		{
+			auto surface = View3D_ProceduralSurfacePreset(preset);
+			surface.m_feature_scale = 7.0f;
+			surface.m_seed = 0x12345678u;
+			View3D_ObjectNuggetProceduralSurfaceSet(object, surface, nullptr, 0);
+			fixture.CheckErrors();
+			images.push_back(fixture.Image());
+		}
+		for (auto i = size_t{1}; i != images.size(); ++i)
+			Require(ImageDifference(images[0], images[i]) > 1000, "Procedural presets did not produce distinct rendered surfaces");
+
+		// Repeated frames and camera translation along the view axis must not move a world-coordinate field.
+		auto default_light = View3D_LightPropertiesGet(fixture.m_window);
+		auto ambient_light = default_light;
+		ambient_light.m_ambient = 0xFFFFFFFF;
+		ambient_light.m_diffuse = 0xFF000000;
+		ambient_light.m_specular = 0xFF000000;
+		ambient_light.m_on = TRUE;
+		ambient_light.m_intensity = 1.0f;
+		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		auto soil = View3D_ProceduralSurfacePreset(api::EProceduralSurfacePreset::Soil);
+		soil.m_feature_scale = 5.0f;
+		soil.m_seed = 42;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, soil, nullptr, 0);
+		auto deterministic = fixture.Image();
+		Require(deterministic == fixture.Image(), "Procedural output changed between identical GPU frames");
+		api::Mat4x4 camera{{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,2,1}};
+		View3D_CameraToWorldSet(fixture.m_window, camera);
+		Require(deterministic == fixture.Image(), "Camera movement changed stable world-coordinate procedural output");
+		camera.w.z = 0;
+		View3D_CameraToWorldSet(fixture.m_window, camera);
+
+		// Seed and palette changes must affect the GPU-evaluated albedo rather than a generated texture resource.
+		auto changed_seed = soil;
+		changed_seed.m_seed = 43;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, changed_seed, nullptr, 0);
+		Require(ImageDifference(deterministic, fixture.Image()) > 1000, "Procedural seed did not affect rendered output");
+		auto red = soil;
+		red.m_colour0 = red.m_colour1 = red.m_colour2 = red.m_colour3 = 0xFFFF2020;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, red, nullptr, 0);
+		auto red_image = fixture.Image();
+		auto green = red;
+		green.m_colour0 = green.m_colour1 = green.m_colour2 = green.m_colour3 = 0xFF20FF20;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, green, nullptr, 0);
+		Require(ImageDifference(red_image, fixture.Image()) > 1000, "Procedural albedo palette did not affect rendered output");
+
+		// Normal strength and roughness ranges independently affect lit PBR output without UVs or tangent streams.
+		View3D_LightPropertiesSet(fixture.m_window, default_light);
+		auto channels = View3D_ProceduralSurfacePreset(api::EProceduralSurfacePreset::Rock);
+		channels.m_feature_scale = 8.0f;
+		channels.m_colour0 = channels.m_colour1 = channels.m_colour2 = channels.m_colour3 = 0xFF808080;
+		channels.m_normal_strength = 0.0f;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, channels, nullptr, 0);
+		auto flat_normal = fixture.Image();
+		channels.m_normal_strength = 1.2f;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, channels, nullptr, 0);
+		Require(ImageDifference(flat_normal, fixture.Image()) > 100, "Procedural normal channel did not affect rendered output");
+		channels.m_normal_strength = 0.0f;
+		channels.m_roughness_min = channels.m_roughness_max = 0.04f;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, channels, nullptr, 0);
+		auto smooth = fixture.Image();
+		channels.m_roughness_min = channels.m_roughness_max = 1.0f;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, channels, nullptr, 0);
+		Require(ImageDifference(smooth, fixture.Image()) > 50, "Procedural roughness channel did not affect rendered output");
+
+		// Object-space coordinates move with the object rather than being anchored to the world field.
+		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		auto object_space = soil;
+		object_space.m_coordinate_space = api::EProceduralCoordinateSpace::Object;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, object_space, nullptr, 0);
+		auto object_reference = fixture.Image();
+		api::Mat4x4 translated{{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {1000,0,0,1}};
+		View3D_ObjectO2WSet(object, translated, nullptr);
+		camera.w.x = 1000;
+		View3D_CameraToWorldSet(fixture.m_window, camera);
+		auto moved_object = fixture.Image();
+		auto object_difference = size_t{};
+		for (auto y = 24; y != 104; ++y)
+		{
+			for (auto x = 24; x != 104; ++x)
+			{
+				auto pixel = (y * ImageSize + x) * 4;
+				if (object_reference[pixel + 0] != moved_object[pixel + 0] || object_reference[pixel + 1] != moved_object[pixel + 1] || object_reference[pixel + 2] != moved_object[pixel + 2])
+					++object_difference;
+			}
+		}
+		Require(object_difference < 100, "Object-coordinate procedural field did not move with the object");
+		translated.w.x = 0;
+		View3D_ObjectO2WSet(object, translated, nullptr);
+		camera.w.x = 0;
+		View3D_CameraToWorldSet(fixture.m_window, camera);
+		View3D_LightPropertiesSet(fixture.m_window, default_light);
+
+		// A large translated object can retain local detail by selecting a matching caller-owned coordinate origin.
+		auto large = soil;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, large, nullptr, 0);
+		fixture.Image();
+		large.m_coordinate_origin = {1000000, 0, 0, 1};
+		View3D_ObjectNuggetProceduralSurfaceSet(object, large, nullptr, 0);
+		translated.w.x = 1000000;
+		View3D_ObjectO2WSet(object, translated, nullptr);
+		camera.w.x = 1000000;
+		View3D_CameraToWorldSet(fixture.m_window, camera);
+		auto large_image = fixture.Image();
+		Require(large_image == fixture.Image(), "Large-coordinate procedural output was not deterministic");
+		auto varied_pixels = size_t{};
+		auto reference_pixel = (64 * ImageSize + 64) * 4;
+		for (auto y = 24; y != 104; ++y)
+		{
+			for (auto x = 24; x != 104; ++x)
+			{
+				auto pixel = (y * ImageSize + x) * 4;
+				if (large_image[reference_pixel + 0] != large_image[pixel + 0] || large_image[reference_pixel + 1] != large_image[pixel + 1] || large_image[reference_pixel + 2] != large_image[pixel + 2])
+					++varied_pixels;
+			}
+		}
+		Require(varied_pixels > 1000, "Large-coordinate procedural output lost local detail");
+
+		// A broad field must not repeat like a wrapped 2D texture over separated image regions.
+		auto non_repeating = large_image;
+		auto patch_equal = true;
+		for (auto y = 40; y != 88 && patch_equal; ++y)
+		{
+			for (auto x = 20; x != 44; ++x)
+			{
+				auto lhs = (y * ImageSize + x) * 4;
+				auto rhs = (y * ImageSize + x + 64) * 4;
+				if (non_repeating[lhs + 0] != non_repeating[rhs + 0] || non_repeating[lhs + 1] != non_repeating[rhs + 1] || non_repeating[lhs + 2] != non_repeating[rhs + 2])
+				{
+					patch_equal = false;
+					break;
+				}
+			}
+		}
+		Require(!patch_equal, "Procedural field repeated across separated framebuffer regions");
+
+		// Adjacent independently owned meshes must match the same world-coordinate field on both sides of their shared boundary.
+		camera.w.x = 0;
+		View3D_CameraToWorldSet(fixture.m_window, camera);
+		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		fixture.Clear();
+		auto full = fixture.QuadRect(-45, 45, 10);
+		View3D_ObjectNuggetProceduralSurfaceSet(full, soil, nullptr, 0);
+		auto continuous_reference = fixture.Image();
+		fixture.Clear();
+		auto left = fixture.QuadRect(-45, 0, 10);
+		auto right = fixture.QuadRect(0, 45, 10);
+		View3D_ObjectNuggetProceduralSurfaceSet(left, soil, nullptr, 0);
+		View3D_ObjectNuggetProceduralSurfaceSet(right, soil, nullptr, 0);
+		auto split = fixture.Image();
+		auto continuity_difference = size_t{};
+		for (auto y = 8; y != ImageSize - 8; ++y)
+		{
+			for (auto x = 8; x != ImageSize - 8; ++x)
+			{
+				if (x >= 62 && x <= 65)
+					continue;
+
+				auto pixel = (y * ImageSize + x) * 4;
+				if (continuous_reference[pixel + 0] != split[pixel + 0] || continuous_reference[pixel + 1] != split[pixel + 1] || continuous_reference[pixel + 2] != split[pixel + 2])
+					++continuity_difference;
+			}
+		}
+		Require(continuity_difference == 0, "World-coordinate procedural field changed across a mesh boundary");
+		View3D_LightPropertiesSet(fixture.m_window, default_light);
+
+		// Promotion preserves an ordinary material's alpha path so procedural colour still composites as authored.
+		fixture.Clear();
+		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		fixture.Quad(12, 0xFF0000FF);
+		auto transparent = fixture.Quad(10, 0x80FFFFFF, 45, nullptr, 0, 0xFFFFFFFF, false, true);
+		red.m_normal_strength = 0.0f;
+		View3D_ObjectNuggetProceduralSurfaceSet(transparent, red, nullptr, 0);
+		auto alpha_image = fixture.Image();
+		auto alpha_pixel = (64 * ImageSize + 64) * 4;
+		Require(alpha_image[alpha_pixel + 0] > 40 && alpha_image[alpha_pixel + 2] > 40, "Procedural assignment discarded ordinary alpha blending");
+
+		// Custom shader overlays are rejected because stock PBR promotion cannot preserve caller-supplied shader stages.
+		fixture.Clear();
+		auto custom = fixture.Quad(10, 0xFFFFFFFF, 45, fixture.CustomShader(true), 0, 0xFFFFFFFF, false, true);
+		View3D_ObjectNuggetProceduralSurfaceSet(custom, soil, nullptr, 0);
+		Require(!fixture.m_errors.empty(), "Procedural assignment silently discarded a custom shader overlay");
+		Require(fixture.m_errors.back().find("custom shader overlays") != std::string::npos, "Custom shader rejection reported the wrong diagnostic");
+		fixture.m_errors.clear();
+		api::ProceduralSurface round_trip{};
+		Require(!View3D_ObjectNuggetProceduralSurfaceGet(custom, round_trip, nullptr, 0), "Rejected custom shader assignment changed the material");
+
+		// Public round-trip and clear operations preserve ordinary material ownership.
+		fixture.Clear();
+		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		auto round_trip_object = fixture.QuadRect(-45, 0, 10);
+		View3D_ObjectNuggetProceduralSurfaceSet(round_trip_object, soil, nullptr, 0);
+		Require(View3D_ObjectNuggetProceduralSurfaceGet(round_trip_object, round_trip, nullptr, 0), "Procedural surface getter did not find assigned state");
+		Require(round_trip.m_seed == soil.m_seed && round_trip.m_feature_scale == soil.m_feature_scale, "Procedural surface getter changed caller parameters");
+
+		// Unsupported DXR secondary-hit shading must report a material diagnostic instead of silently using flat PBR values.
+		if (View3D_WindowRayTracingInfoGet(fixture.m_window).m_available)
+		{
+			View3D_WindowRayTracingEnabledSet(fixture.m_window, TRUE);
+			View3D_WindowRender(fixture.m_window);
+			Require(!fixture.m_errors.empty(), "DXR silently accepted a procedural secondary-hit material");
+			Require(fixture.m_errors.back().find("procedural surface") != std::string::npos, "DXR reported the wrong procedural material diagnostic");
+			fixture.m_errors.clear();
+			View3D_WindowRayTracingEnabledSet(fixture.m_window, FALSE);
+		}
+		View3D_ObjectNuggetProceduralSurfaceClear(round_trip_object, nullptr, 0);
+		Require(!View3D_ObjectNuggetProceduralSurfaceGet(round_trip_object, round_trip, nullptr, 0), "Procedural surface clear retained assigned state");
+		fixture.CheckDebugLayer();
+		std::cout << "PASS procedural presets, determinism, channels, large coordinates, and non-repetition\n";
+	}
 
 	// Assert compositing against linear source-over expectations, allowing RGBA8 quantization.
 	void Expect(std::vector<unsigned char> const& image, float red, float green, float blue, int x = 64, int y = 64)
@@ -830,6 +1111,12 @@ int main(int argc, char const* const* argv)
 			// Validate both ordinary and multisampled rendering with the same surface expectations.
 			fade_tests::ColourBlendTests(1);
 			fade_tests::ColourBlendTests(4);
+			return 0;
+		}
+		if (argc == 2 && std::string_view(argv[1]) == "--procedural-surface")
+		{
+			// Run only the focused procedural GPU/readback evidence.
+			fade_tests::ProceduralSurfaceTests();
 			return 0;
 		}
 		fade_tests::Require(argc == 1 || (argc == 2 && std::string_view(argv[1]) == "--numeric-only"), "Expected no arguments or --numeric-only");

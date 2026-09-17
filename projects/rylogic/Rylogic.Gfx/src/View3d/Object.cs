@@ -283,6 +283,24 @@ namespace Rylogic.Gfx
 				set => NuggetTintSet(value, string.Empty);
 			}
 
+			/// <summary>Get or set the UV-free procedural surface for the first nugget, or null to restore its ordinary PBR channels.</summary>
+			public ProceduralSurface? NuggetProceduralSurface
+			{
+				get
+				{
+					// Address the first nugget through the same selector used by the explicit methods.
+					return NuggetProceduralSurfaceGet(string.Empty);
+				}
+				set
+				{
+					// Null removes only the procedural component while retaining the promoted PBR material.
+					if (value is ProceduralSurface surface)
+						NuggetProceduralSurfaceSet(surface, string.Empty);
+					else
+						NuggetProceduralSurfaceClear(string.Empty);
+				}
+			}
+
 			/// <summary>The context id that this object belongs to</summary>
 			public Guid ContextId
 			{
@@ -589,6 +607,29 @@ namespace Rylogic.Gfx
 				{
 					NotifyPropertyChanged(nameof(NuggetTint));
 				}
+			}
+
+			/// <summary>Return the procedural surface for a selected nugget, or null when none is assigned.</summary>
+			public ProceduralSurface? NuggetProceduralSurfaceGet(string? name = null, int index = 0)
+			{
+				// Translate the native optional-result convention into a nullable managed value.
+				return View3D_ObjectNuggetProceduralSurfaceGet(Handle, out var surface, name, index) ? surface : null;
+			}
+
+			/// <summary>Assign a UV-free procedural surface to a selected nugget.</summary>
+			public void NuggetProceduralSurfaceSet(ProceduralSurface surface, string? name = null, int index = 0)
+			{
+				// Assign model-owned material state and notify bindings for the common first-nugget property.
+				View3D_ObjectNuggetProceduralSurfaceSet(Handle, ref surface, name, index);
+				NotifyPropertyChanged(nameof(NuggetProceduralSurface));
+			}
+
+			/// <summary>Clear the procedural surface from a selected nugget.</summary>
+			public void NuggetProceduralSurfaceClear(string? name = null, int index = 0)
+			{
+				// Remove only the procedural component and notify bindings for the common first-nugget property.
+				View3D_ObjectNuggetProceduralSurfaceClear(Handle, name, index);
+				NotifyPropertyChanged(nameof(NuggetProceduralSurface));
 			}
 
 			/// <summary>

@@ -21,6 +21,92 @@ namespace pr::rdr12
 {
 	namespace
 	{
+		// Wrap an unbounded lattice coordinate into the shader's deterministic 32-bit cell domain.
+		int32_t WrappedCell(double cell)
+		{
+			// Preserve the fractional coordinate separately while defining deliberate modulo-2^32 lattice addressing.
+			constexpr auto period = 4294967296.0;
+			auto wrapped = std::fmod(cell, period);
+			if (wrapped < 0.0)
+				wrapped += period;
+
+			return static_cast<int32_t>(static_cast<uint32_t>(wrapped));
+		}
+
+		// Convert a procedural surface coordinate contract into precision-preserving shader rows.
+		void SetProceduralConstants(shaders::fwd::CBufPbrSurface& cb, MaterialPassContext const& ctx, materials::ProceduralSurface const& surface)
+		{
+			// Validate at the public material boundary before deriving coordinates or uploading shader constants.
+			surface.Validate();
+			auto coordinate_from_world = m4x4::Identity();
+			switch (surface.m_coordinate_space)
+			{
+				case materials::EProceduralCoordinateSpace::World:
+				{
+					break;
+				}
+				case materials::EProceduralCoordinateSpace::Object:
+				{
+					coordinate_from_world = Invert(GetO2W(*ctx.m_dle.m_instance));
+					break;
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown procedural surface coordinate space");
+				}
+			}
+
+			// Split translation into an integer lattice cell and a small fractional value so camera motion and large origins do not consume shader mantissa bits.
+			auto scaled_translation = std::array<double, 3>{
+				(static_cast<double>(coordinate_from_world.w.x) - surface.m_coordinate_origin.x) * surface.m_axis_scale.x / surface.m_feature_scale,
+				(static_cast<double>(coordinate_from_world.w.y) - surface.m_coordinate_origin.y) * surface.m_axis_scale.y / surface.m_feature_scale,
+				(static_cast<double>(coordinate_from_world.w.z) - surface.m_coordinate_origin.z) * surface.m_axis_scale.z / surface.m_feature_scale,
+			};
+			auto cell = std::array<double, 3>{
+				std::floor(scaled_translation[0]),
+				std::floor(scaled_translation[1]),
+				std::floor(scaled_translation[2]),
+			};
+			auto reciprocal_scale = v4{
+				surface.m_axis_scale.x / surface.m_feature_scale,
+				surface.m_axis_scale.y / surface.m_feature_scale,
+				surface.m_axis_scale.z / surface.m_feature_scale,
+				0,
+			};
+
+			// Upload generic channel and coordinate parameters; presets are only factories for these values.
+			cb.procedural_colour0 = surface.m_palette[0].rgba;
+			cb.procedural_colour1 = surface.m_palette[1].rgba;
+			cb.procedural_colour2 = surface.m_palette[2].rgba;
+			cb.procedural_colour3 = surface.m_palette[3].rgba;
+			cb.procedural_coord_x = v4{
+				coordinate_from_world.x.x * reciprocal_scale.x,
+				coordinate_from_world.y.x * reciprocal_scale.x,
+				coordinate_from_world.z.x * reciprocal_scale.x,
+				static_cast<float>(scaled_translation[0] - cell[0]),
+			};
+			cb.procedural_coord_y = v4{
+				coordinate_from_world.x.y * reciprocal_scale.y,
+				coordinate_from_world.y.y * reciprocal_scale.y,
+				coordinate_from_world.z.y * reciprocal_scale.y,
+				static_cast<float>(scaled_translation[1] - cell[1]),
+			};
+			cb.procedural_coord_z = v4{
+				coordinate_from_world.x.z * reciprocal_scale.z,
+				coordinate_from_world.y.z * reciprocal_scale.z,
+				coordinate_from_world.z.z * reciprocal_scale.z,
+				static_cast<float>(scaled_translation[2] - cell[2]),
+			};
+			cb.procedural_cell_seed = iv4{
+				WrappedCell(cell[0]),
+				WrappedCell(cell[1]),
+				WrappedCell(cell[2]),
+				static_cast<int32_t>(surface.m_seed),
+			};
+			cb.procedural_params0 = v4{1, surface.m_normal_strength, surface.m_roughness_min, surface.m_roughness_max};
+			cb.procedural_params1 = v4{surface.m_detail, surface.m_warp, 0, 0};
+		}
+
 		// The material pass used by physically-based materials.
 		struct MaterialPBRPass : MaterialPass
 		{
@@ -333,6 +419,7 @@ namespace pr::rdr12
 				auto const& roughness = *ctx.m_material.Component<materials::Roughness>();
 				auto const& alpha = *ctx.m_material.Component<materials::Alpha>();
 				auto const& normal_map = *ctx.m_material.Component<materials::NormalMap>();
+				auto const* procedural_surface = ctx.m_material.Component<materials::ProceduralSurface>();
 
 				auto texture_flags = 0;
 				if (HasUsableTexture(ctx, base_colour.m_tex, texcoords))
@@ -383,6 +470,9 @@ namespace pr::rdr12
 					.normal_texcoord = ShaderTexCoord(texcoords, normal_map.m_tex),
 					.texcoord_count = texcoords.m_count,
 				};
+				if (procedural_surface != nullptr)
+					SetProceduralConstants(cb, ctx, *procedural_surface);
+
 				auto gpu_address = ctx.m_upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);
 				ctx.m_cmd_list.SetGraphicsRootConstantBufferView((UINT)shaders::fwd::ERootParam::CBufPbrSurface, gpu_address);
 			}
@@ -526,6 +616,7 @@ namespace pr::rdr12
 		, m_roughness()
 		, m_emissive()
 		, m_normal_map()
+		, m_procedural_surface()
 		, m_alpha()
 		, m_two_sided()
 	{}
@@ -537,6 +628,7 @@ namespace pr::rdr12
 		, m_roughness(rhs.m_roughness)
 		, m_emissive(rhs.m_emissive)
 		, m_normal_map(rhs.m_normal_map)
+		, m_procedural_surface(rhs.m_procedural_surface)
 		, m_alpha(rhs.m_alpha)
 		, m_two_sided(rhs.m_two_sided)
 	{}
@@ -562,6 +654,12 @@ namespace pr::rdr12
 			case ERenderStep::RayTracing:
 			case ERenderStep::GBuffer:
 			case ERenderStep::DSLighting:
+			{
+				if (m_procedural_surface)
+					throw std::runtime_error("Procedural surface materials support forward, shadow-map, and ray-cast paths only");
+
+				return nullptr;
+			}
 			case ERenderStep::Invalid:
 			default:
 			{
@@ -656,6 +754,23 @@ namespace pr::rdr12
 		return *this;
 	}
 
+	// Set the GPU-evaluated procedural surface.
+	MaterialPBR& MaterialPBR::procedural_surface(materials::ProceduralSurface surface)
+	{
+		// Reject invalid caller state before it becomes part of an immutable draw material.
+		surface.Validate();
+		m_procedural_surface = surface;
+		return *this;
+	}
+
+	// Clear the GPU-evaluated procedural surface.
+	MaterialPBR& MaterialPBR::procedural_surface_clear()
+	{
+		// Preserve every ordinary PBR channel while removing procedural evaluation.
+		m_procedural_surface.reset();
+		return *this;
+	}
+
 	// Set the alpha interpretation for this material.
 	MaterialPBR& MaterialPBR::alpha_mode(materials::EAlphaMode mode, float cutoff)
 	{
@@ -693,6 +808,9 @@ namespace pr::rdr12
 		if (component_id == materials::NormalMap::Id)
 			return &m_normal_map;
 
+		if (component_id == materials::ProceduralSurface::Id)
+			return m_procedural_surface ? &*m_procedural_surface : nullptr;
+
 		if (component_id == materials::Alpha::Id)
 			return &m_alpha;
 
@@ -706,5 +824,44 @@ namespace pr::rdr12
 	void MaterialPBR::Delete()
 	{
 		::pr::compute::Delete<MaterialPBR>(this);
+	}
+
+	// Validate the caller-owned coordinate and channel ranges.
+	void materials::ProceduralSurface::Validate() const
+	{
+		// Reject values that cannot produce a stable finite shader coordinate or documented PBR channel.
+		switch (m_coordinate_space)
+		{
+			case EProceduralCoordinateSpace::Object:
+			case EProceduralCoordinateSpace::World:
+			{
+				break;
+			}
+			default:
+			{
+				throw std::invalid_argument("Unknown procedural surface coordinate space");
+			}
+		}
+		if (!std::isfinite(m_feature_scale) || m_feature_scale <= 0.0f)
+			throw std::invalid_argument("Procedural surface feature scale must be finite and positive");
+
+		if (!IsFinite(m_coordinate_origin) || !IsFinite(m_axis_scale) || m_axis_scale.x <= 0.0f || m_axis_scale.y <= 0.0f || m_axis_scale.z <= 0.0f)
+			throw std::invalid_argument("Procedural surface coordinate origin and axis scale must be finite, with positive XYZ scale");
+
+		for (auto const& colour : m_palette)
+		{
+			// Non-finite palette channels would contaminate every downstream lighting result.
+			if (!IsFinite(colour.rgba))
+				throw std::invalid_argument("Procedural surface palette colours must be finite");
+		}
+
+		if (!std::isfinite(m_normal_strength) || m_normal_strength < 0.0f)
+			throw std::invalid_argument("Procedural surface normal strength must be finite and nonnegative");
+
+		if (!std::isfinite(m_roughness_min) || !std::isfinite(m_roughness_max) || m_roughness_min < 0.04f || m_roughness_max > 1.0f || m_roughness_min > m_roughness_max)
+			throw std::invalid_argument("Procedural surface roughness range must satisfy 0.04 <= min <= max <= 1");
+
+		if (!std::isfinite(m_detail) || m_detail < 0.0f || m_detail > 1.0f || !std::isfinite(m_warp) || m_warp < 0.0f)
+			throw std::invalid_argument("Procedural surface detail must be in [0,1] and warp must be finite and nonnegative");
 	}
 }

@@ -237,6 +237,10 @@ namespace pr::rdr12::ldraw
 		Colour32 NuggetTint(char const* name, int index) const;
 		void NuggetTint(Colour32 tint, char const* name, int index);
 
+		// Get, set, or clear the procedural surface component for a model nugget.
+		std::optional<materials::ProceduralSurface> NuggetProceduralSurface(char const* name, int index) const;
+		void NuggetProceduralSurface(materials::ProceduralSurface const* surface, char const* name, int index);
+
 		// Get/Set the group tint of this object or child objects matching 'name' (see Apply)
 		Colour32 GroupTint(char const* name = nullptr) const;
 		void GroupTint(Colour32 colour, char const* name = nullptr);
