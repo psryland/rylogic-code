@@ -40,7 +40,8 @@
 
 	<!--
 	Run unit-test entry points from MSBuild without dotnet-script. Managed assemblies are still hosted out-of-process because
-	Visual Studio's MSBuild process cannot safely load modern .NET/WPF target-framework assemblies in-process. -->
+	Visual Studio's MSBuild process cannot safely load modern .NET/WPF target-framework assemblies in-process.
+	Passing tests are silent; failed runs report captured stdout/stderr and retain the existing non-fatal warning behavior. -->
 	<UsingTask TaskName="RunRylogicUnitTests" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
 		<Task>
 			<Reference Include="$(MSBuildToolsPath)\Microsoft.Build.Framework.dll" />

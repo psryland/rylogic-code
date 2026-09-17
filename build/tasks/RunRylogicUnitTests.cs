@@ -43,7 +43,7 @@ public sealed class RunRylogicUnitTests : Task
 		set;
 	} = string.Empty;
 
-	// Execute the unit-test entry point and report failures without failing the build.
+	// Run tests silently on success and report failures without failing the build.
 	public override bool Execute()
 	{
 		try
@@ -64,10 +64,11 @@ public sealed class RunRylogicUnitTests : Task
 				? RunManagedTests()
 				: RunProcess(TargetPath, Arguments, working_dir);
 
-			LogOutput(result.Item2, MessageImportance.High);
-			LogOutput(result.Item3, MessageImportance.High);
+			// Keep passing tests quiet while retaining both output streams for failure diagnosis.
 			if (result.Item1 != 0)
 			{
+				LogOutput(result.Item2, MessageImportance.High);
+				LogOutput(result.Item3, MessageImportance.High);
 				Log.LogWarning("   **** Unit tests failed ****   {0} exited with code {1}", Path.GetFileName(TargetPath), result.Item1);
 			}
 		}
