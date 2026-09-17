@@ -27,6 +27,7 @@ namespace pr::view3d::ui
 		// caret/validation visuals. Root/Panel/Text have no required parts.
 		std::array<std::string_view, 2> const g_button_parts = { "PART_ContentPresenter", "PART_FocusOutline" };
 		std::array<std::string_view, 5> const g_textbox_parts = { "PART_Text", "PART_Selection", "PART_Caret", "PART_ValidationOutline", "PART_FocusOutline" };
+		std::array<std::string_view, 2> const g_progress_parts = { "PART_Track", "PART_Indicator" };
 
 		// Recursively remove 'id' and its whole subtree from 'tree', unlinking it from its parent's
 		// children and, if it is a root, from the root list. No-op if 'id' is not present.
@@ -113,6 +114,24 @@ namespace pr::view3d::ui
 			if (static_cast<std::uint32_t>(desc.validation_state) >= static_cast<std::uint32_t>(EValidationState::Count))
 				throw EngineException(EStatus::UnknownType, std::format("control {}: unknown EValidationState {}", desc.id, static_cast<int>(desc.validation_state)));
 
+			// Completion is application-owned, never clamped or inferred from activity animation.
+			switch (desc.type)
+			{
+				case EControlType::ProgressBar:
+				{
+					if (!std::isfinite(desc.value) || desc.value < 0.0f || desc.value > 1.0f)
+						throw EngineException(EStatus::InvalidArgument, std::format("control {}: progress value must be finite and within [0, 1]", desc.id));
+
+					break;
+				}
+				case EControlType::Root:
+				case EControlType::Panel:
+				case EControlType::Text:
+				case EControlType::TextBox:
+				case EControlType::Button: { break; }
+				default: { throw EngineException(EStatus::UnknownType, "unknown control type"); }
+			}
+
 			auto const& layout = desc.layout;
 			auto is_root_autosize = desc.type == EControlType::Root && desc.root_policy == ERootPolicy::Screen && layout.width == 0.0f && layout.height == 0.0f;
 			if (!is_root_autosize)
@@ -167,6 +186,7 @@ namespace pr::view3d::ui
 		{
 			case EControlType::Button: return std::span<std::string_view const>(g_button_parts);
 			case EControlType::TextBox: return std::span<std::string_view const>(g_textbox_parts);
+			case EControlType::ProgressBar: { return std::span<std::string_view const>(g_progress_parts); }
 			case EControlType::Root:
 			case EControlType::Panel:
 			case EControlType::Text:
@@ -208,6 +228,7 @@ namespace pr::view3d::ui
 			map.emplace(EControlType::Root, make(EControlType::Root, { { "PART_ContentPresenter", EVisualPrimitive::ContentPresenter } }));
 			map.emplace(EControlType::Panel, make(EControlType::Panel, { { "PART_ContentPresenter", EVisualPrimitive::ContentPresenter } }));
 			map.emplace(EControlType::Text, make(EControlType::Text, { { "PART_Text", EVisualPrimitive::TextPresenter } }));
+			map.emplace(EControlType::ProgressBar, make(EControlType::ProgressBar, { { "PART_Track", EVisualPrimitive::SolidBox }, { "PART_Indicator", EVisualPrimitive::SolidBox } }));
 			map.emplace(EControlType::Button, make(EControlType::Button, { { "PART_ContentPresenter", EVisualPrimitive::ContentPresenter }, { "PART_FocusOutline", EVisualPrimitive::Border } }));
 			map.emplace(EControlType::TextBox, make(EControlType::TextBox, {
 				{ "PART_Text", EVisualPrimitive::TextPresenter },
@@ -237,7 +258,7 @@ namespace pr::view3d::ui
 			rec.desc.id = 0;
 			for (auto i = std::size_t{}; i != static_cast<std::size_t>(EStateChannel::Count); ++i)
 			{
-				rec.desc.visuals[i] = StyleVisual{ Colour{0.82f, 0.82f, 0.82f, 1.0f}, Colour{0.4f, 0.4f, 0.4f, 1.0f}, 1.0f, 0.0f, 1.0f };
+				rec.desc.visuals[i] = StyleVisual{ Colour{0.82f, 0.82f, 0.82f, 1.0f}, Colour{0.4f, 0.4f, 0.4f, 1.0f}, 1.0f, 0.0f, 1.0f, Colour{0.2f, 0.45f, 0.8f, 1.0f} };
 				rec.desc.transitions[i] = TransitionDesc{ 0.0f, EEasing::Linear };
 			}
 			return rec;

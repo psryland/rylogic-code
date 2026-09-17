@@ -30,6 +30,7 @@ namespace pr::view3d::ui
 				case EControlType::Root:
 				case EControlType::Panel:
 				case EControlType::Text:
+				case EControlType::ProgressBar:
 				{
 					return false;
 				}

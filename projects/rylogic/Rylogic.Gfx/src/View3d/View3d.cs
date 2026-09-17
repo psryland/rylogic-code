@@ -1985,7 +1985,7 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern void View3D_DepthBufferEnabledSet(HWindow window, bool enabled);
 
 		// Cast a ray into the scene, returning information about what it hit.
-		[DllImport(Dll)] private static extern void View3D_WindowHitTestObjects(HWindow window, IntPtr rays, IntPtr hits, int ray_count, [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 7)] HObject[] objects, int object_count);
+		[DllImport(Dll)] private static extern void View3D_WindowHitTestObjects(HWindow window, IntPtr rays, IntPtr hits, int ray_count, [MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 5)] HObject[] objects, int object_count);
 		[DllImport(Dll)] private static extern void View3D_WindowHitTestByCtx(HWindow window, IntPtr rays, IntPtr hits, int ray_count, GuidPredCB pred);
 
 		// Trigger execution of the async hit test rays. Submits GPU work and returns immediately.

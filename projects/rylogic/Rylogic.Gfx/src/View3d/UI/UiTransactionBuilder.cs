@@ -360,6 +360,8 @@ public sealed unsafe class UiTransactionBuilder
 			m_font_resource_id = control.FontResourceId,
 			m_selected = control.Selected ? 1 : 0,
 			m_value_sequence = control.ValueSequence,
+			m_value = control.Value,
+			m_is_indeterminate = control.IsIndeterminate ? 1 : 0,
 			m_world = ToNative(control.World),
 		};
 	}

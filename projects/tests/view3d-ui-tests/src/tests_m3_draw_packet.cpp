@@ -14,6 +14,171 @@
 
 namespace pr::view3d::ui::tests
 {
+	// Completion controls use existing quads, with no accepted-state mutation during animation.
+	PRUnitTest(ProgressBarDrawsNormalizedCompletionAndHostTimedActivity, Quick)
+	{
+		auto engine = UiEngine(MakeConfig());
+		auto root = MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(300, 100));
+		auto progress = MakeControl(2, 1, EControlType::ProgressBar, ELayoutMode::Overlay, Lp(100, 20));
+		auto style = MakeStyle(10);
+		for (auto& visual : style.visuals)
+		{
+			visual.border_thickness = 2;
+			visual.corner_radius = 6;
+			visual.foreground = Colour{ 0, 1, 0, 1 };
+		}
+		progress.style_id = 10;
+		auto txn = TxnBuilder{};
+		txn.AddStyle(style);
+		txn.Upsert(root);
+		txn.Upsert(progress);
+		engine.TransactionApply(txn.Build(0, 1));
+		engine.Update(Viewport(300, 100));
+		PR_EXPECT(engine.DrawPackets().items.size() == 2); // Root and empty track.
+
+		// Endpoints and fractional completion fill only the track's interior.
+		auto revision = std::uint64_t{ 1 };
+		for (auto value : { 0.25f, 1.0f })
+		{
+			progress.value = value;
+			auto change = TxnBuilder{};
+			change.Upsert(progress);
+			engine.TransactionApply(change.Build(revision, revision + 1));
+			++revision;
+			engine.Update(Viewport(300, 100));
+			auto const& item = engine.DrawPackets().items.back();
+			PR_EXPECT(engine.DrawPackets().items.size() == 3);
+			PR_EXPECT(item.bounds.x == 2 && item.bounds.y == 2);
+			PR_EXPECT(item.bounds.w == 96 * value && item.bounds.h == 16);
+			PR_EXPECT(item.fill.g == 1 && item.fill.r == 0);
+			PR_EXPECT(item.corner_radius == 4 && item.border_thickness == 0);
+		}
+
+		// The same descriptor moves without transactions and loops continuously in host time.
+		progress.is_indeterminate = 1;
+		auto change = TxnBuilder{};
+		change.Upsert(progress);
+		engine.TransactionApply(change.Build(revision, revision + 1));
+		++revision;
+		for (auto time_ms : { 0.0, 300.0, 600.0, 900.0, 1200.0 })
+		{
+			engine.Update(Viewport(300, 100, 96, time_ms));
+			auto const& item = engine.DrawPackets().items.back();
+			auto const expected_x = time_ms == 600 ? 74.0f : time_ms == 300 || time_ms == 900 ? 38.0f : 2.0f;
+			PR_EXPECT(std::abs(item.bounds.x - expected_x) < 0.001f);
+			PR_EXPECT(item.bounds.w == 24 && item.bounds.x + item.bounds.w <= 98);
+			PR_EXPECT(engine.DrawPackets().accepted_revision == revision);
+			PR_EXPECT(engine.EventCount() == 0);
+		}
+
+		// Hidden and collapsed indicators do not keep emitting activity geometry.
+		for (auto visibility : { EVisibility::Hidden, EVisibility::Collapsed })
+		{
+			progress.visibility = visibility;
+			auto hidden = TxnBuilder{};
+			hidden.Upsert(progress);
+			engine.TransactionApply(hidden.Build(revision, revision + 1));
+			++revision;
+			engine.Update(Viewport(300, 100, 192, 600));
+			PR_EXPECT(engine.DrawPackets().items.size() == 1);
+		}
+	}
+
+	// Invalid percentages and timestamps fail explicitly without replacing accepted progress.
+	PRUnitTest(ProgressBarRejectsInvalidValuesAndTime, Quick)
+	{
+		auto engine = UiEngine(MakeConfig());
+		auto txn = TxnBuilder{};
+		txn.Upsert(MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(300, 100)));
+		auto progress = MakeControl(2, 1, EControlType::ProgressBar, ELayoutMode::Overlay, Lp(100, 20));
+		progress.value = 0.5f;
+		txn.Upsert(progress);
+		engine.TransactionApply(txn.Build(0, 1));
+		engine.Update(Viewport(300, 100));
+		for (auto value : { -0.01f, 1.01f, std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN() })
+		{
+			progress.value = value;
+			progress.is_indeterminate = 1;
+			auto rejected = TxnBuilder{};
+			rejected.Upsert(progress);
+			PR_THROWS(engine.TransactionApply(rejected.Build(1, 2)), EngineException);
+			PR_EXPECT(engine.DrawPackets().accepted_revision == 1);
+		}
+		PR_THROWS(engine.Update(Viewport(300, 100, 96, std::numeric_limits<double>::quiet_NaN())), EngineException);
+		PR_EXPECT(engine.DrawPackets().accepted_revision == 1);
+	}
+
+	// Progress uses normal template validation, world scaling, and state interpolation.
+	PRUnitTest(ProgressBarTemplatesScalingAndForegroundTransitions, Quick)
+	{
+		auto engine = UiEngine(MakeConfig());
+		auto world = WorldParams(Vec3{ 0, 0, 10 });
+		world.sizing = EWorldSizing::WorldUnits;
+		world.world_units_per_dip = 0.02f;
+		auto progress = MakeControl(2, 1, EControlType::ProgressBar, ELayoutMode::Overlay, Lp(100, 20));
+		progress.value = 0.5f;
+		progress.style_id = 10;
+		progress.template_id = 20;
+		auto style = MakeStyle(10);
+		for (auto& visual : style.visuals)
+		{
+			visual.border_thickness = 2;
+			visual.foreground = Colour{ 0, 1, 0, 1 };
+		}
+		auto const disabled = static_cast<std::size_t>(EStateChannel::Disabled);
+		style.visuals[disabled].foreground = Colour{ 1, 0, 0, 1 };
+		style.transitions[disabled].duration_ms = 100;
+		auto txn = TxnBuilder{};
+		auto parts = MakeTemplate(20, EControlType::ProgressBar);
+		txn.AddTemplatePart(parts, "PART_Track", EVisualPrimitive::SolidBox);
+		auto incomplete = TxnBuilder{};
+		auto missing_indicator = MakeTemplate(20, EControlType::ProgressBar);
+		incomplete.AddTemplatePart(missing_indicator, "PART_Track", EVisualPrimitive::SolidBox);
+		incomplete.AddTemplate(missing_indicator);
+		try
+		{
+			engine.TransactionApply(incomplete.Build(0, 1));
+			PR_EXPECT(false);
+		}
+		catch (EngineException const& ex)
+		{
+			PR_EXPECT(ex.Status() == EStatus::InvalidTree);
+		}
+		txn.AddTemplatePart(parts, "PART_Indicator", EVisualPrimitive::SolidBox);
+		txn.AddTemplate(parts);
+		txn.AddStyle(style);
+		txn.Upsert(MakeWorldRoot(1, ERootPolicy::Overlay, 200, 100, world));
+		txn.Upsert(progress);
+		engine.TransactionApply(txn.Build(0, 1));
+		auto viewport = Viewport(800, 600, 96, 0, OrthographicCamera(6));
+		engine.Update(viewport);
+		auto const first = engine.DrawPackets().items.back();
+		PR_EXPECT(std::abs(first.bounds.w - 96) < 0.01f);
+		PR_EXPECT(std::abs(first.bounds.h - 32) < 0.01f);
+
+		// State changes interpolate foreground with the same transition timing as the track.
+		progress.enabled = 0;
+		auto disable = TxnBuilder{};
+		disable.Upsert(progress);
+		engine.TransactionApply(disable.Build(1, 2));
+		engine.Update(viewport);
+		viewport.time_ms = 50;
+		engine.Update(viewport);
+		auto const halfway = engine.DrawPackets().items.back();
+		PR_EXPECT(halfway.fill.r == 0.5f && halfway.fill.g == 0.5f);
+		viewport.time_ms = 100;
+		engine.Update(viewport);
+		PR_EXPECT(engine.DrawPackets().items.back().fill.r == 1);
+
+		// Zero-size tracks remain valid controls but emit no indicator.
+		progress.layout.width = 0;
+		auto empty = TxnBuilder{};
+		empty.Upsert(progress);
+		engine.TransactionApply(empty.Build(2, 3));
+		engine.Update(viewport);
+		PR_EXPECT(engine.DrawPackets().items.size() == 2);
+	}
+
 	PRUnitTest(DrawPacketEmitsAStablePreOrderBoxThenTextItemSequence, Quick)
 	{
 		// Root(1) -> [Panel(2) -> Text(3, "Hi"), Button(4, "OK")]: a bare Text control emits only

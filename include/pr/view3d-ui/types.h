@@ -15,8 +15,8 @@
 
 namespace pr::view3d::ui
 {
-	inline constexpr std::uint32_t VIEW3D_UI_API_VERSION = 0x00040000U;
-	inline constexpr std::uint32_t VIEW3D_UI_STRUCT_VERSION = 4U;
+	inline constexpr std::uint32_t VIEW3D_UI_API_VERSION = 0x00050000U;
+	inline constexpr std::uint32_t VIEW3D_UI_STRUCT_VERSION = 5U;
 
 	// Maximum named parts recorded directly within one TemplateDesc. Bounded so the descriptor
 	// stays fixed-layout; the closed template vocabulary (section 6.3) never needs more than this.
@@ -102,7 +102,8 @@ namespace pr::view3d::ui
 		Text = 2,
 		TextBox = 3,
 		Button = 4,
-		Count = 5,
+		ProgressBar = 5,
+		Count = 6,
 	};
 
 	// Closed layout vocabulary (section 6.2). Overlay and the two Stack orientations place a
@@ -602,6 +603,12 @@ namespace pr::view3d::ui
 
 		// World anchoring for a Root whose root_policy is world-anchored; ignored otherwise.
 		WorldRootParams world;
+
+		// ProgressBar completion in [0, 1], finite even in indeterminate mode. Ignored by other types.
+		float value;
+
+		// ProgressBar displays host-time-driven activity instead of a percentage when nonzero.
+		std::int32_t is_indeterminate;
 	};
 
 	// Explicit child order for one parent (section 5.3). 'offset'/'count' index into the shared
@@ -664,6 +671,9 @@ namespace pr::view3d::ui
 		float border_thickness;
 		float corner_radius;
 		float opacity;
+
+		// ProgressBar indicator colour; 'fill' remains the track colour. Ignored by other types.
+		Colour foreground;
 	};
 
 	// Bounded, host-time-driven visual transition applied when a control's active state channel
@@ -825,6 +835,8 @@ namespace pr::view3d::ui
 		float viewport_width_px;
 		float viewport_height_px;
 		float dpi;
+
+		// Finite host time in milliseconds, shared by style transitions and activity indicators.
 		double time_ms;
 
 		// Camera used to project world-anchored roots this update; zero-initialised (valid == 0)
@@ -881,6 +893,10 @@ namespace pr::view3d::ui
 		Rect bounds;
 		std::uint64_t accepted_revision;
 		std::uint64_t semantic_sequence;
+
+		// Meaningful only for ProgressBar; progress_value has no completion meaning while indeterminate.
+		float progress_value;
+		std::int32_t is_indeterminate;
 	};
 
 	// Bounded runtime counters and last-failure category (the 'Diagnostics' EStructId).

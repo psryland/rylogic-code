@@ -75,9 +75,27 @@ Hidden suppresses the whole subtree's drawing/input but retains its allocation. 
 Changing an ancestor's visibility also affects descendant input and semantics. An unavailable subtree loses focus, pressed/captured interaction, and composition;
 call `Update` after submitting the transaction to refresh layout and semantic snapshots.
 
-This is native ABI version `0x00040000` / struct version `4`; use matching managed and native binaries. Replace the old boolean `Visible` property with `Visibility`:
+The current native ABI is version `0x00050000` / struct version `5`; use matching managed and native binaries. Replace the old boolean `Visible` property with `Visibility`:
 `true` becomes `EVisibility.Visible`, and `false` becomes `EVisibility.Hidden` to preserve behavior. Select `Collapsed` explicitly to remove space.
 No auto-sizing or clipping behavior is implied.
+
+### ProgressBar
+
+`UiControlDesc.Type = EControlType.ProgressBar` is a horizontal, retained, read-only progress indicator. `Value` is finite normalized completion in `[0, 1]`
+(default `0`), including while `IsIndeterminate` is true. `IsIndeterminate` defaults to false; true displays activity without implying a percentage.
+Update the descriptor through the usual transaction path when completion or mode changes. Set `StyleVisual`'s `foreground` constructor argument
+(`m_foreground`) for the indicator and `fill` (`m_fill`) for the track. Border, corner radius, opacity, and foreground state transitions use the normal style path.
+Custom styles must specify their indicator colour; the built-in default style supplies a blue indicator. Explicit layout width/height are required as for other controls.
+
+Activity is a quarter-width indicator travelling smoothly back and forth within the track every 1200 ms, driven entirely by `ViewportState.m_time_ms`.
+Hosts must keep supplying finite time and updating/rendering frames; no new transaction, event, managed animation callback, or percentage update is needed.
+Hidden/Collapsed ancestors suppress its drawing normally. It is hit-test transparent and does not block host input; modal input ownership belongs to the host.
+Put any visible label in a separate Text control. `Name` and `Description` supply accessible labeling.
+
+Semantics expose `Role = EControlType.ProgressBar`, `ProgressValue`, and `IsIndeterminate`, plus percentage `Value` text only in determinate mode.
+UI Automation exposes ProgressBar control type and a read-only RangeValue pattern with minimum 0 and maximum 1 only while determinate.
+Activity animation does not change accessible completion or emit input events. Optional templates require `PART_Track` and `PART_Indicator`.
+ABI 5 extends ControlDesc, StyleVisual/StyleDesc, and SemanticNode; rebuild native UI clients and refresh the managed wrapper and native runtime together.
 
 ### JSON documents (`Rylogic.Gfx.UI.Json`)
 
@@ -94,3 +112,5 @@ so equivalent documents converge to byte-identical JSON.
 
 Schema version `2` represents visibility as `"visibility": "Visible"`, `"Hidden"`, or `"Collapsed"` and defaults to Visible when omitted.
 Schema version `1` and the old `"visible"` boolean are rejected, not automatically converted.
+ProgressBar adds optional `"value": 0.25`, `"is_indeterminate": true`, and style visual `"foreground": "#00FF00FF"` properties within schema 2;
+no existing property changes meaning. Canonical serialization writes these fields explicitly.

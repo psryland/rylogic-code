@@ -14,6 +14,84 @@ using Rylogic.Utility;
 
 namespace Rylogic.Gfx.UI;
 
+/// <summary>Progress descriptors, wire packing, style equality, and declarative round trips.</summary>
+[TestFixture]
+public sealed class TestUiProgressBar
+{
+	/// <summary>Queued descriptors and visuals retain the exact value supplied at Upsert time.</summary>
+	[Test]
+	public void DescriptorAndStyleSnapshots()
+	{
+		var progress = new UiControlDesc { Id = new ControlId(2), ParentId = new ControlId(1), Type = EControlType.ProgressBar, Value = 0.25f, IsIndeterminate = true };
+		var clone = progress.DeepClone();
+		var builder = new UiTransactionBuilder().Upsert(progress);
+		progress.Value = 0.75f;
+		progress.IsIndeterminate = false;
+		Assert.Equal(0.25f, clone.Value);
+		Assert.Equal(true, clone.IsIndeterminate);
+		Assert.Equal(0.25f, builder.DebugControls[0].m_value);
+		Assert.Equal(1, builder.DebugControls[0].m_is_indeterminate);
+		Assert.Equal(5U, builder.DebugControls[0].m_header.m_version);
+		var visual = new StyleVisual(Colour.TransparentBlack, foreground: new Colour(0, 1, 0, 1));
+		var different = new StyleVisual(Colour.TransparentBlack, foreground: new Colour(1, 0, 0, 1));
+		Assert.Equal(false, visual == different);
+		var style = new UiStyleDesc { Id = new StyleId(1) };
+		style.SetVisual(EStateChannel.Normal, visual);
+		builder.AddStyle(style);
+		style.SetVisual(EStateChannel.Normal, different);
+		Assert.Equal(visual, builder.DebugStyles[0].GetVisual(0));
+	}
+
+	/// <summary>Schema 2's optional progress properties serialize canonically and reject invalid completion.</summary>
+	[Test]
+	public void JsonRoundTripAndValidation()
+	{
+		const string json = """
+			{
+			  "schema_version": 2,
+			  "styles": [{"id": 10, "states": {"Normal": {"visual": {"fill": "#202020FF", "foreground": "#00FF00FF"}}}}],
+			  "tree": [{"id": 1, "type": "Root", "children": [
+			    {"id": 2, "type": "ProgressBar", "style_id": 10, "value": 0.25, "is_indeterminate": true, "layout": {"width": 100, "height": 20}}
+			  ]}]
+			}
+			""";
+		var document = UiDocument.Parse(json);
+		var canonical = document.Serialize();
+		var parsed = UiDocument.Parse(canonical);
+		Assert.Equal(canonical, parsed.Serialize());
+		Assert.Equal(document.Controls[1], parsed.Controls[1]);
+		Assert.Equal(document.Styles[0], parsed.Styles[0]);
+		Assert.Equal(0.25f, parsed.ToTransactionBuilder().DebugControls[1].m_value);
+		Assert.Equal(1, parsed.ToTransactionBuilder().DebugControls[1].m_is_indeterminate);
+		Assert.Equal(new Colour(0, 1, 0, 1), parsed.Styles[0].GetVisual(EStateChannel.Normal).m_foreground);
+		foreach (var value in new[] { "-0.01", "1.01", "1e100" })
+		{
+			Assert.Throws<UiJsonException>(() => UiDocument.Parse(json.Replace("\"value\": 0.25", "\"value\": " + value)));
+		}
+		var defaults = UiDocument.Parse("""{"schema_version":2,"tree":[{"id":1,"type":"Root","children":[{"id":2,"type":"ProgressBar"}]}]}""");
+		Assert.Equal(0f, defaults.Controls[1].Value);
+		Assert.Equal(false, defaults.Controls[1].IsIndeterminate);
+	}
+
+	/// <summary>ABI 5's changed records match their native layouts and expose decoded numeric semantics.</summary>
+	[Test]
+	public void AbiAndSemantics()
+	{
+		Native.EnsureLoaded();
+		Assert.Equal(0x00050000U, Native.View3DUI_ApiVersion());
+		Native.Check(Native.View3DUI_StructSize(EStructId.Control, out var control_size));
+		Native.Check(Native.View3DUI_StructSize(EStructId.Style, out var style_size));
+		Native.Check(Native.View3DUI_StructSize(EStructId.SemanticNode, out var semantic_size));
+		Assert.Equal((uint)Marshal.SizeOf<Native.ControlDesc>(), control_size);
+		Assert.Equal((uint)Marshal.SizeOf<Native.StyleDesc>(), style_size);
+		Assert.Equal((uint)Marshal.SizeOf<Native.SemanticNode>(), semantic_size);
+		var node = new UiSemanticNode(new ControlId(2), new ControlId(1), EControlType.ProgressBar, "Work", "", "", ESemanticState.Visible,
+			ESemanticAction.None, ESemanticTextFlag.None, 0, 0, 0, 0, 0, 0, new Rect(0, 0, 100, 20), 1, 1, 0.25f, true);
+		Assert.Equal(0.25f, node.ProgressValue);
+		Assert.Equal(true, node.IsIndeterminate);
+	}
+}
+
 /// <summary>
 /// Lazily acquires a live D3D12 device lease (via View3d) for the small subset of tests below that need a real native
 /// View3DUI context. Mirrors LDraw.Builder's View3dValidator: initialisation is attempted at most once per process, and
@@ -231,7 +309,7 @@ public sealed class TestUiDescriptorSnapshotSemantics
 			var builder = new UiTransactionBuilder().Upsert(control);
 			control.Visibility = EVisibility.Visible;
 			Assert.Equal(visibility, builder.DebugControls[0].m_visibility);
-			Assert.Equal(4U, builder.DebugControls[0].m_header.m_version);
+			Assert.Equal(5U, builder.DebugControls[0].m_header.m_version);
 		}
 
 		// A failed upsert must not leave a partially packed control behind.
@@ -347,7 +425,7 @@ public sealed class TestUiEventsAndSemantics
 		var node = new UiSemanticNode(new ControlId(2), new ControlId(1), EControlType.Button, "OkButton", "Confirms the dialog", "OK",
 			ESemanticState.Enabled | ESemanticState.Visible | ESemanticState.Focusable, ESemanticAction.Invoke | ESemanticAction.Focus | ESemanticAction.SetSelection,
 			text_flags, caret: 2, selection_start: 0, selection_end: 2, composition_start: 1, composition_length: 1, value_grapheme_count: 2,
-			bounds, accepted_revision: 5, semantic_sequence: 9);
+			bounds, accepted_revision: 5, semantic_sequence: 9, progress_value: 0, is_indeterminate: false);
 
 		Assert.Equal(new ControlId(2), node.Id);
 		Assert.Equal(new ControlId(1), node.ParentId);

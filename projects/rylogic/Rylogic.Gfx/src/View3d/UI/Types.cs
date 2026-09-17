@@ -81,7 +81,8 @@ public enum EControlType
 	Text = 2,
 	TextBox = 3,
 	Button = 4,
-	Count = 5,
+	ProgressBar = 5,
+	Count = 6,
 }
 
 /// <summary>
@@ -652,24 +653,34 @@ public readonly struct Colour : IEquatable<Colour>
 		public readonly float m_corner_radius;
 		public readonly float m_opacity;
 
+		/// <summary>ProgressBar indicator colour; m_fill remains the track colour.</summary>
+		public readonly Colour m_foreground;
+
 		/// <summary>Create a state-channel visual.</summary>
-		public StyleVisual(Colour fill, Colour border_colour = default, float border_thickness = 0, float corner_radius = 0, float opacity = 1)
+		public StyleVisual(Colour fill, Colour border_colour = default, float border_thickness = 0, float corner_radius = 0, float opacity = 1, Colour foreground = default)
 		{
 			m_fill = fill;
 			m_border_colour = border_colour;
 			m_border_thickness = border_thickness;
 			m_corner_radius = corner_radius;
 			m_opacity = opacity;
+			m_foreground = foreground;
 		}
 
 		/// <inheritdoc/>
-		public bool Equals(StyleVisual other) => m_fill == other.m_fill && m_border_colour == other.m_border_colour && m_border_thickness == other.m_border_thickness && m_corner_radius == other.m_corner_radius && m_opacity == other.m_opacity;
+		public bool Equals(StyleVisual other)
+		{
+			return m_fill == other.m_fill && m_border_colour == other.m_border_colour && m_border_thickness == other.m_border_thickness && m_corner_radius == other.m_corner_radius && m_opacity == other.m_opacity && m_foreground == other.m_foreground;
+		}
 
 		/// <inheritdoc/>
 		public override bool Equals(object? obj) => obj is StyleVisual other && Equals(other);
 
 		/// <inheritdoc/>
-		public override int GetHashCode() => HashUtil.Combine(m_fill, m_border_colour, m_border_thickness, m_corner_radius, m_opacity);
+		public override int GetHashCode()
+		{
+			return HashUtil.Combine(m_fill, m_border_colour, m_border_thickness, m_corner_radius, m_opacity, m_foreground);
+		}
 
 		/// <summary>Compare two state-channel visuals.</summary>
 		public static bool operator ==(StyleVisual lhs, StyleVisual rhs) => lhs.Equals(rhs);

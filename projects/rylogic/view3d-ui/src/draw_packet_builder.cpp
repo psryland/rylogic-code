@@ -18,6 +18,7 @@ namespace pr::view3d::ui
 				case EControlType::Panel:
 				case EControlType::TextBox:
 				case EControlType::Button:
+				case EControlType::ProgressBar:
 				{
 					return visual.corner_radius > 0.0f ? EVisualPrimitive::RoundedBox : EVisualPrimitive::SolidBox;
 				}
@@ -38,6 +39,30 @@ namespace pr::view3d::ui
 			return it != tree.m_styles.end() ? it->second : TreeModel::DefaultStyle();
 		}
 
+		// Paint completion or activity within the track's border, without changing accepted state.
+		void AppendProgress(ControlNode const& node, Rect bounds, StyleVisual const& visual, double time_ms, float scale, DrawPacket& out)
+		{
+			// A quarter-width indicator travels smoothly back and forth once every 1200 ms.
+			// Host time, rather than update count or transactions, drives the animation.
+			auto const inset = std::clamp(visual.border_thickness * scale, 0.0f, std::min(bounds.w, bounds.h) * 0.5f);
+			auto const width = bounds.w - 2.0f * inset;
+			auto const height = bounds.h - 2.0f * inset;
+			auto const fraction = node.desc.is_indeterminate != 0 ? 0.25f : node.desc.value;
+			auto const offset = node.desc.is_indeterminate != 0 ? static_cast<float>(0.5 - 0.5 * std::cos(std::fmod(time_ms, 1200.0) * (6.283185307179586 / 1200.0))) * (1.0f - fraction) : 0.0f;
+			if (width <= 0.0f || height <= 0.0f || fraction == 0.0f)
+				return;
+
+			// Reuse the existing quad renderer; each indicator is entirely inside its track.
+			auto item = DrawItem{};
+			item.control_id = node.desc.id;
+			item.bounds = Rect{ bounds.x + inset + width * offset, bounds.y + inset, width * fraction, height };
+			item.fill = visual.foreground;
+			item.opacity = visual.opacity;
+			item.corner_radius = std::clamp(visual.corner_radius * scale - inset, 0.0f, std::min(item.bounds.w, item.bounds.h) * 0.5f);
+			item.primitive = item.corner_radius > 0.0f ? EVisualPrimitive::RoundedBox : EVisualPrimitive::SolidBox;
+			out.items.push_back(std::move(item));
+		}
+
 		void Walk(TreeModel const& tree, ControlId id, std::unordered_map<ControlId, Rect> const& layout, StyleResolver& styles, InputState const& input_state, double time_ms, float scale, DrawPacket& out)
 		{
 			auto const& node = tree.m_controls.at(id);
@@ -55,7 +80,7 @@ namespace pr::view3d::ui
 			auto bounds = layout.at(id);
 			auto primitive = PrimitiveFor(node.desc.type, visual);
 
-			// Root/Panel/TextBox/Button paint a box first; a bare Text control has no box of its
+			// Root/Panel/TextBox/Button/ProgressBar paint a box first; a bare Text control has no box of its
 			// own (it is itself the TextPresenter item emitted below).
 			if (primitive != EVisualPrimitive::TextPresenter)
 			{
@@ -72,6 +97,18 @@ namespace pr::view3d::ui
 				box.corner_radius = visual.corner_radius * scale;
 				box.opacity = visual.opacity;
 				out.items.push_back(std::move(box));
+			}
+
+			// Progress is a read-only visual; labels remain separate retained Text controls.
+			switch (node.desc.type)
+			{
+				case EControlType::ProgressBar: { AppendProgress(node, bounds, visual, time_ms, scale, out); break; }
+				case EControlType::Root:
+				case EControlType::Panel:
+				case EControlType::Text:
+				case EControlType::TextBox:
+				case EControlType::Button: { break; }
+				default: { throw EngineException(EStatus::UnknownType, "unknown control type"); }
 			}
 
 			// A label/text item follows for the three control types that can display text. A

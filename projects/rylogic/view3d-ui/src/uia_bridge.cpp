@@ -44,6 +44,16 @@ namespace pr::view3d::ui
 			return value;
 		}
 
+		// Numeric completion payload; unlike value text this is a UIA RangeValue property.
+		VARIANT EventNumber(double number)
+		{
+			auto value = VARIANT{};
+			VariantInit(&value);
+			value.vt = VT_R8;
+			value.dblVal = number;
+			return value;
+		}
+
 		// Raise one property-changed notification and release both payloads. Failures are ignored
 		// because a client that cannot be notified will re-read the property on its next poll;
 		// there is no recovery an owner-thread update could usefully perform.
@@ -169,8 +179,30 @@ namespace pr::view3d::ui
 				if (element == nullptr)
 					continue;
 
-				RaisePropertyChanged(element, UIA_ValueValuePropertyId, EventBstr(before->value), EventBstr(after->value));
-				UiaRaiseAutomationEvent(element, UIA_Text_TextChangedEventId);
+				switch (after->role)
+				{
+					case EControlType::ProgressBar:
+					{
+						if (before->is_indeterminate != after->is_indeterminate)
+							RaisePropertyChanged(element, UIA_IsRangeValuePatternAvailablePropertyId, EventBool(before->is_indeterminate == 0), EventBool(after->is_indeterminate == 0));
+
+						if (before->is_indeterminate == 0 && after->is_indeterminate == 0 && before->progress_value != after->progress_value)
+							RaisePropertyChanged(element, UIA_RangeValueValuePropertyId, EventNumber(before->progress_value), EventNumber(after->progress_value));
+
+						break;
+					}
+					case EControlType::Root:
+					case EControlType::Panel:
+					case EControlType::Text:
+					case EControlType::TextBox:
+					case EControlType::Button:
+					{
+						RaisePropertyChanged(element, UIA_ValueValuePropertyId, EventBstr(before->value), EventBstr(after->value));
+						UiaRaiseAutomationEvent(element, UIA_Text_TextChangedEventId);
+						break;
+					}
+					default: { throw EngineException(EStatus::UnknownType, "unknown control type"); }
+				}
 				element->Release();
 			}
 
