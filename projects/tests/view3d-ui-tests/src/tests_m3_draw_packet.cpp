@@ -60,11 +60,11 @@ namespace pr::view3d::ui::tests
 		change.Upsert(progress);
 		engine.TransactionApply(change.Build(revision, revision + 1));
 		++revision;
-		for (auto time_ms : { 0.0, 300.0, 600.0, 900.0, 1200.0 })
+		for (auto time_ms : { 0.0, 600.0, 1200.0, 1800.0, 2400.0 })
 		{
 			engine.Update(Viewport(300, 100, 96, time_ms));
 			auto const& item = engine.DrawPackets().items.back();
-			auto const expected_x = time_ms == 600 ? 74.0f : time_ms == 300 || time_ms == 900 ? 38.0f : 2.0f;
+			auto const expected_x = time_ms == 1200 ? 74.0f : time_ms == 600 || time_ms == 1800 ? 38.0f : 2.0f;
 			PR_EXPECT(std::abs(item.bounds.x - expected_x) < 0.001f);
 			PR_EXPECT(item.bounds.w == 24 && item.bounds.x + item.bounds.w <= 98);
 			PR_EXPECT(engine.DrawPackets().accepted_revision == revision);

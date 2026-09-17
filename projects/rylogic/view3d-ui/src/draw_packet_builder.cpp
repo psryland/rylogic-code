@@ -42,13 +42,13 @@ namespace pr::view3d::ui
 		// Paint completion or activity within the track's border, without changing accepted state.
 		void AppendProgress(ControlNode const& node, Rect bounds, StyleVisual const& visual, double time_ms, float scale, DrawPacket& out)
 		{
-			// A quarter-width indicator travels smoothly back and forth once every 1200 ms.
+			// A quarter-width indicator travels smoothly back and forth once every 2400 ms.
 			// Host time, rather than update count or transactions, drives the animation.
 			auto const inset = std::clamp(visual.border_thickness * scale, 0.0f, std::min(bounds.w, bounds.h) * 0.5f);
 			auto const width = bounds.w - 2.0f * inset;
 			auto const height = bounds.h - 2.0f * inset;
 			auto const fraction = node.desc.is_indeterminate != 0 ? 0.25f : node.desc.value;
-			auto const offset = node.desc.is_indeterminate != 0 ? static_cast<float>(0.5 - 0.5 * std::cos(std::fmod(time_ms, 1200.0) * (6.283185307179586 / 1200.0))) * (1.0f - fraction) : 0.0f;
+			auto const offset = node.desc.is_indeterminate != 0 ? static_cast<float>(0.5 - 0.5 * std::cos(std::fmod(time_ms, 2400.0) * (6.283185307179586 / 2400.0))) * (1.0f - fraction) : 0.0f;
 			if (width <= 0.0f || height <= 0.0f || fraction == 0.0f)
 				return;
 
