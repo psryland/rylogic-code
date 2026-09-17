@@ -4,6 +4,8 @@
 //*********************************************
 #include "pr/view3d-12/ldraw/ldraw_object.h"
 #include "pr/view3d-12/main/renderer.h"
+#include "pr/view3d-12/material/material_pbr.h"
+#include "pr/view3d-12/material/components/shader_overlays.h"
 #include "pr/view3d-12/model/animation.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/resource/resource_factory.h"
@@ -609,6 +611,74 @@ namespace pr::rdr12::ldraw
 					nug->AlphaVariant(factory, true);
 				}
 			}
+			return true;
+		}, name);
+	}
+
+	// Return the procedural surface assigned to a model nugget.
+	std::optional<materials::ProceduralSurface> LdrObject::NuggetProceduralSurface(char const* name, int index) const
+	{
+		// Resolve the same named child and model-owned nugget contract as the other nugget accessors.
+		auto obj = Child(name);
+		if (obj == nullptr || obj->m_model == nullptr)
+			return {};
+
+		auto nug = obj->m_model->m_nuggets;
+		for (auto i = 0; i != index && nug; ++i, nug = nug->m_next)
+		{}
+		if (nug == nullptr)
+			throw std::runtime_error("nugget index out of range");
+
+		auto const* surface = nug->mat().Component<materials::ProceduralSurface>();
+		return surface != nullptr ? std::optional<materials::ProceduralSurface>(*surface) : std::nullopt;
+	}
+
+	// Set or clear the procedural surface assigned to a model nugget.
+	void LdrObject::NuggetProceduralSurface(materials::ProceduralSurface const* surface, char const* name, int index)
+	{
+		// Apply model-owned material replacement consistently with existing nugget editing APIs.
+		Apply([=](LdrObject* obj)
+		{
+			// Ignore matched objects without geometry, as the existing nugget setters do.
+			if (obj->m_model == nullptr)
+				return true;
+
+			auto nug = obj->m_model->m_nuggets;
+			for (auto i = 0; i != index && nug; ++i, nug = nug->m_next)
+			{}
+			if (nug == nullptr)
+				throw std::runtime_error("nugget index out of range");
+
+			// Preserve existing PBR properties, or promote an ordinary material while retaining its common surface components.
+			RefPtr<MaterialPBR> material;
+			if (auto const* current = dynamic_cast<MaterialPBR const*>(&nug->mat()); current != nullptr)
+			{
+				material = RefPtr<MaterialPBR>(::pr::compute::New<MaterialPBR>(*current), true);
+			}
+			else
+			{
+				// Reject shader overlays because promotion to the stock PBR material cannot preserve their custom stage contract.
+				if (auto const* overlays = nug->mat().Component<materials::ShaderOverlays>(); overlays != nullptr && !overlays->m_overlays.empty())
+					throw std::runtime_error("Procedural surface assignment does not support custom shader overlays");
+
+				auto requires_alpha = nug->RequiresAlpha();
+				material = RefPtr<MaterialPBR>(::pr::compute::New<MaterialPBR>(), true);
+				if (auto const* base_colour = nug->mat().Component<materials::BaseColour>(); base_colour != nullptr)
+					material->m_base_colour = *base_colour;
+				if (auto const* roughness = nug->mat().Component<materials::Roughness>(); roughness != nullptr)
+					material->m_roughness = *roughness;
+				if (auto const* two_sided = nug->mat().Component<materials::TwoSided>(); two_sided != nullptr)
+					material->m_two_sided = *two_sided;
+				if (requires_alpha)
+					material->m_alpha.m_mode = materials::EAlphaMode::Blend;
+			}
+
+			if (surface != nullptr)
+				material->procedural_surface(*surface);
+			else
+				material->procedural_surface_clear();
+
+			nug->mat(static_cast<MaterialPtr>(material));
 			return true;
 		}, name);
 	}

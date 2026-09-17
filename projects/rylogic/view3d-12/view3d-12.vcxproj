@@ -241,6 +241,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\emissive.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\metallic.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\normal_map.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\procedural_surface.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\roughness.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\texture_slot.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\reflectivity.h" />

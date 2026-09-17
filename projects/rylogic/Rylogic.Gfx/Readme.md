@@ -2,6 +2,51 @@
 
 This assembly is an interop wrapper for the native View3d dll
 
+## Procedural surface materials
+
+`View3d.ProceduralSurface` adds GPU-evaluated albedo, UV-free normal perturbation, and roughness to an ordinary
+PBR nugget. It samples deterministic 3D value noise from object or world coordinates, so it does not allocate,
+generate, tile, or wrap a `Texture2D`. The five `Soil`, `Grass`, `Sand`, `Rock`, and `Snow` presets are editable
+parameter factories rather than renderer or application semantics.
+
+```csharp
+var surface = View3d.ProceduralSurface.Preset(View3d.EProceduralSurfacePreset.Rock);
+surface.m_feature_scale = 2.5f;
+surface.m_seed = 0x12345678;
+surface.m_coordinate_space = View3d.EProceduralCoordinateSpace.World;
+surface.m_coordinate_origin = new v4(1000000, 0, 0, 1);
+surface.m_colour0 = new Colour32(0xFF202428);
+surface.m_colour1 = new Colour32(0xFF495057);
+surface.m_colour2 = new Colour32(0xFF737B80);
+surface.m_colour3 = new Colour32(0xFFB3B5AE);
+surface.m_normal_strength = 0.65f;
+surface.m_roughness_min = 0.5f;
+surface.m_roughness_max = 0.9f;
+
+// 'geometry' can be any ordinary View3D object; no authored UV or tangent stream is required.
+geometry.NuggetProceduralSurface = surface;
+```
+
+The caller owns feature scale, seed, coordinate frame and origin, anisotropic axis scale, palette, normal strength,
+and roughness range. World coordinates are continuous across meshes whose transforms describe the same world
+positions. Object coordinates intentionally move with each object. Translation is split into a wrapped 32-bit
+lattice cell plus a small fractional coordinate before upload; set `m_coordinate_origin` near very large working
+coordinates to preserve local detail. The hash domain repeats only after `2^32` lattice cells per axis.
+
+Forward opaque/alpha rendering and its reflection-attribute side buffer evaluate all three channels. Shadow-map
+and ray-cast paths retain their geometry behavior because neither shades visible material channels. Deferred
+G-buffer/direct-lighting and DXR secondary-hit material shading reject procedural surfaces with a View3D diagnostic
+rather than silently substituting a different surface. Camera-visible raster output remains usable while ray
+tracing is disabled.
+
+The native ABI exposes `View3D_ProceduralSurfacePreset`,
+`View3D_ObjectNuggetProceduralSurfaceGet/Set/Clear`, `pr::view3d::ProceduralSurface`, and matching preset/coordinate
+enums. Assignment promotes an ordinary nugget material to PBR while retaining its base colour and any compatible
+roughness/two-sided components. The material is model-owned, matching the existing nugget tint/flag APIs, so the
+assignment affects every instance sharing that model.
+Assignment preserves alpha blending when promoting an ordinary transparent nugget. Materials with custom shader
+overlays are rejected because replacing those stages with the stock PBR shader would silently discard caller code.
+
 ## Procedural atmosphere
 
 `View3d.ProceduralSky` owns a Z-up GPU sky shared with native `pr::rdr12::ProceduralSky`

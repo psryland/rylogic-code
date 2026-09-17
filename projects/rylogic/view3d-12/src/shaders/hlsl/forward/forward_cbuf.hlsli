@@ -112,6 +112,18 @@ struct CBufPbrSurface// :reg(b4)
 	int texcoord_count;                // Number of optional texture-coordinate lanes bound for this draw
 	int pad0;
 	int pad1;
+
+	// GPU procedural surface data. Coordinate rows transform object-space positions into cell-local noise coordinates.
+	float4 procedural_colour0;
+	float4 procedural_colour1;
+	float4 procedural_colour2;
+	float4 procedural_colour3;
+	float4 procedural_coord_x;
+	float4 procedural_coord_y;
+	float4 procedural_coord_z;
+	int4 procedural_cell_seed;         // xyz = wrapped base cell, w = deterministic seed
+	float4 procedural_params0;         // x = enabled, y = normal strength, z/w = roughness min/max
+	float4 procedural_params1;         // x = detail, y = warp
 };
 
 // Constants used for diagnostic shaders.

@@ -225,6 +225,7 @@ namespace pr::rdr12
 	using MaterialPtr = RefPtr<Material const>;
 	namespace materials
 	{
+		struct ProceduralSurface;
 		struct BaseColour;
 		struct Optics;
 		struct PbrAlpha;

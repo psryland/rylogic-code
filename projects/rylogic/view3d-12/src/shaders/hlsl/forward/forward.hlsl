@@ -64,6 +64,7 @@ RasterizerOrderedTexture2D<uint4> g_alpha_rt_attrs :register(u2);
 #include "view3d-12/src/shaders/hlsl/ray_tracing/ray_tracing.hlsli"
 #include "view3d-12/src/shaders/hlsl/utility/colour_space.hlsli"
 #include "view3d-12/src/shaders/hlsl/utility/env_map.hlsli"
+#include "view3d-12/src/shaders/hlsl/forward/procedural_surface.hlsli"
 #include "pr/hlsl/camera.hlsli"
 
 // PS output format
@@ -197,6 +198,18 @@ float3 ResolvePbrWorldNormal(PSIn In, bool is_front_face, float2 normal_uv)
 		normal = PerturbWorldNormal(In, normal, normal_uv);
 
 	return normal;
+}
+
+// Return the final world normal after texture and UV-free procedural perturbations.
+float3 ResolvePbrMaterialWorldNormal(PSIn In, bool is_front_face, float2 normal_uv)
+{
+	// Resolve the authored normal source before applying the optional UV-free height field.
+	float3 normal = ResolvePbrWorldNormal(In, is_front_face, normal_uv);
+	if (dot(normal, normal) == 0.0f || g_pbr.procedural_params0.x == 0.0f)
+		return normal;
+
+	ProceduralSurfaceSample procedural = EvaluateProceduralSurface(In.ws_vert);
+	return ProceduralWorldNormal(In, normal, procedural.height);
 }
 
 // Forward VS
@@ -360,6 +373,15 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 	metallic = saturate(metallic);
 	roughness = clamp(roughness, 0.04f, 1.0f);
 
+	// Procedural surfaces modulate the completed albedo and replace roughness without requiring UV or tangent data.
+	ProceduralSurfaceSample procedural = (ProceduralSurfaceSample)0;
+	if (g_pbr.procedural_params0.x != 0.0f)
+	{
+		procedural = EvaluateProceduralSurface(In.ws_vert);
+		albedo *= procedural.albedo;
+		roughness = clamp(procedural.roughness, 0.04f, 1.0f);
+	}
+
 	// Without a usable normal there is no surface orientation, so leave the material effectively unlit.
 	if (!HasNormals(g_nugget.flags))
 	{
@@ -373,6 +395,8 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 		Out.diff = float4(saturate(albedo + emissive), alpha);
 		return Out;
 	}
+	if (g_pbr.procedural_params0.x != 0.0f)
+		normal = ProceduralWorldNormal(In, normal, procedural.height);
 
 	// Evaluate direct PBR lighting using the shared PBR material lighting helper.
 	float3 view = normalize(g_frame.cam.c2w[3].xyz - In.ws_vert.xyz);
@@ -412,8 +436,9 @@ PSOut PSForwardPbrTexN(PSInTexN In, bool is_front_face : SV_IsFrontFace)
 }
 
 // Collect one transparent fragment into the forward alpha K-buffer.
-void CollectAlphaLayer(PSIn In, float4 diff, bool is_front_face)
+void CollectAlphaLayer(PSIn In, float4 diff, uint rt_attrs)
 {
+	// Discard fully transparent fragments before accessing the ordered layer buffers.
 	clip(diff.a - (1.0f / 255.0f));
 
 	// Reject transparent fragments hidden behind the opaque pass.
@@ -431,7 +456,6 @@ void CollectAlphaLayer(PSIn In, float4 diff, bool is_front_face)
 	float view_z = -mul(In.ws_vert, g_frame.cam.w2c).z;
 	uint depth = PackDepthKey(view_z, ClipPlanes(g_frame.cam.c2s), uint(g_nugget.flags.w));
 	uint colour = PackRGBA8(diff);
-	uint rt_attrs = AlphaRtAttributes(In, diff, is_front_face);
 
 	// Insert the transparent layer into the rasterizer-ordered K-buffer.
 	uint4 alpha_colour = g_alpha_colour[pix];
@@ -446,19 +470,28 @@ void CollectAlphaLayer(PSIn In, float4 diff, bool is_front_face)
 // Collect transparent simple-material fragments into the alpha K-buffer.
 void PSForwardAlphaCollect(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
-	CollectAlphaLayer(In, PSForward(In, is_front_face).diff, is_front_face);
+	// Preserve the simple-material reflection attributes alongside its resolved colour.
+	float4 diff = PSForward(In, is_front_face).diff;
+	CollectAlphaLayer(In, diff, AlphaRtAttributes(In, diff, is_front_face));
 }
 
 // Collect transparent PBR fragments into the alpha K-buffer.
 void PSForwardPbrAlphaCollect(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
-	CollectAlphaLayer(In, PSForwardPbrImpl(In, is_front_face).diff, is_front_face);
+	// Store the final PBR normal, including procedural perturbation, for alpha reflections.
+	float4 diff = PSForwardPbrImpl(In, is_front_face).diff;
+	float3 normal = ResolvePbrMaterialWorldNormal(In, is_front_face, PbrSlotUV(In, g_pbr.normal_texcoord, g_pbr.normal_uv_transform));
+	CollectAlphaLayer(In, diff, AlphaRtAttributesFromNormal(diff, normal, g_nugget.env_reflectivity));
 }
 
 // Collect transparent PBR fragments with optional texture-coordinate lanes into the alpha K-buffer.
 void PSForwardPbrTexNAlphaCollect(PSInTexN In, bool is_front_face : SV_IsFrontFace)
 {
-	CollectAlphaLayer(ToPSIn(In), PSForwardPbrImpl(In, is_front_face).diff, is_front_face);
+	// Resolve optional texture-coordinate lanes before storing the final PBR alpha attributes.
+	PSIn base = ToPSIn(In);
+	float4 diff = PSForwardPbrImpl(In, is_front_face).diff;
+	float3 normal = ResolvePbrMaterialWorldNormal(base, is_front_face, PbrSlotUV(In, g_pbr.normal_texcoord, g_pbr.normal_uv_transform));
+	CollectAlphaLayer(base, diff, AlphaRtAttributesFromNormal(diff, normal, g_nugget.env_reflectivity));
 }
 
 // Forward pass that also writes reflection attributes for RT reflections.
@@ -479,7 +512,7 @@ PSReflectionOut PSForwardPbrReflectionAttrs(PSIn In, bool is_front_face : SV_IsF
 		In,
 		Out.diff,
 		PbrSlotUV(In, g_pbr.metallic_texcoord, g_pbr.metallic_uv_transform),
-		ResolvePbrWorldNormal(In, is_front_face, PbrSlotUV(In, g_pbr.normal_texcoord, g_pbr.normal_uv_transform)));
+		ResolvePbrMaterialWorldNormal(In, is_front_face, PbrSlotUV(In, g_pbr.normal_texcoord, g_pbr.normal_uv_transform)));
 	return Out;
 }
 
@@ -493,7 +526,7 @@ PSReflectionOut PSForwardPbrTexNReflectionAttrs(PSInTexN In, bool is_front_face 
 		base,
 		Out.diff,
 		PbrSlotUV(In, g_pbr.metallic_texcoord, g_pbr.metallic_uv_transform),
-		ResolvePbrWorldNormal(base, is_front_face, PbrSlotUV(In, g_pbr.normal_texcoord, g_pbr.normal_uv_transform)));
+		ResolvePbrMaterialWorldNormal(base, is_front_face, PbrSlotUV(In, g_pbr.normal_texcoord, g_pbr.normal_uv_transform)));
 	return Out;
 }
 

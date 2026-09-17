@@ -100,6 +100,21 @@ namespace Rylogic.Gfx
 			_flags_enum = 0,
 			// PR_CODE_SYNC_END()
 		}
+		/// <summary>Representative visual starting points for procedural surface parameters.</summary>
+		public enum EProceduralSurfacePreset : int
+		{
+			Soil,
+			Grass,
+			Sand,
+			Rock,
+			Snow,
+		}
+		/// <summary>The coordinate frame used by procedural surface evaluation.</summary>
+		public enum EProceduralCoordinateSpace : int
+		{
+			Object,
+			World,
+		}
 		public enum ERenderStep :int
 		{
 			Invalid = 0,
@@ -1171,6 +1186,39 @@ namespace Rylogic.Gfx
 			}
 		}
 
+		/// <summary>Caller-owned parameters for a UV-free GPU-evaluated PBR surface.</summary>
+		[StructLayout(LayoutKind.Sequential)]
+		public struct ProceduralSurface
+		{
+			// Field order matches the public native ABI.
+
+			public EProceduralCoordinateSpace m_coordinate_space;
+			public uint m_seed;
+			public float m_feature_scale;
+			private float m_pad0;
+			public v4 m_coordinate_origin;
+			public v4 m_axis_scale;
+			public Colour32 m_colour0;
+			public Colour32 m_colour1;
+			public Colour32 m_colour2;
+			public Colour32 m_colour3;
+			public float m_normal_strength;
+			public float m_roughness_min;
+			public float m_roughness_max;
+			public float m_detail;
+			public float m_warp;
+			private float m_pad1;
+			private float m_pad2;
+			private float m_pad3;
+
+			/// <summary>Return a representative preset that remains fully editable by the caller.</summary>
+			public static ProceduralSurface Preset(EProceduralSurfacePreset preset)
+			{
+				// Keep preset values owned by the native renderer so both APIs share one definition.
+				return View3D_ProceduralSurfacePreset(preset);
+			}
+		}
+
 		/// <summary></summary>
 		[StructLayout(LayoutKind.Sequential)]
 		public struct WindowOptions
@@ -2238,6 +2286,10 @@ namespace Rylogic.Gfx
 		// Get/Set the tint colour for a nugget within the model of an object or its children. (See LdrObject::Apply)
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern Colour32 View3D_ObjectNuggetTintGet(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetTintSet(HObject obj, Colour32 colour, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
+		[DllImport(Dll)] private static extern ProceduralSurface View3D_ProceduralSurfacePreset(EProceduralSurfacePreset preset);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern bool View3D_ObjectNuggetProceduralSurfaceGet(HObject obj, out ProceduralSurface surface, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetProceduralSurfaceSet(HObject obj, ref ProceduralSurface surface, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetProceduralSurfaceClear(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
 
 		// Materials ******************************
 

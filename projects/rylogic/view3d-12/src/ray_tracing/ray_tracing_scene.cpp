@@ -16,6 +16,7 @@
 #include "pr/view3d-12/material/components/base_colour.h"
 #include "pr/view3d-12/material/components/emissive.h"
 #include "pr/view3d-12/material/components/optics.h"
+#include "pr/view3d-12/material/components/procedural_surface.h"
 #include "pr/view3d-12/material/components/reflectivity.h"
 #include "view3d-12/src/shaders/common.h"
 
@@ -346,6 +347,8 @@ namespace pr::rdr12
 
 			// An instance-level material override takes precedence over the nugget material.
 			auto const& rdr_material = material_override != nullptr && material_override->get() != nullptr ? *material_override->get() : nugget.mat();
+			if (rdr_material.Component<materials::ProceduralSurface>() != nullptr)
+				throw std::runtime_error("DXR secondary-hit shading does not support procedural surface materials");
 
 			// Read the material properties
 			auto& base_colour = rdr_material.ComponentOrDefault<materials::BaseColour>();
