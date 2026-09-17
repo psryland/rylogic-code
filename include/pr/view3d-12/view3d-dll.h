@@ -1401,6 +1401,13 @@ extern "C"
 	VIEW3D_API pr::view3d::Colour __stdcall View3D_ObjectNuggetTintGet(pr::view3d::Object object, char const* name, int index);
 	VIEW3D_API void __stdcall View3D_ObjectNuggetTintSet(pr::view3d::Object object, pr::view3d::Colour colour, char const* name, int index);
 
+	// Override stock-shader surface RGB after material/vertex/texture colour and before lighting. Packed RGB is an sRGB target, decoded at
+	// shader upload; packed alpha is the linear UNORM8 blend weight (A/255), not opacity. Surface alpha and sorting remain unchanged.
+	// Alpha zero (the default) disables the override. Custom pixel shaders must apply the colour_blend constant themselves.
+	// Name follows LdrObject::Apply; getters return the first packed value/decoded weight, or zero if absent.
+	VIEW3D_API pr::view3d::Colour __stdcall View3D_ObjectColourBlendGet(pr::view3d::Object object, char const* name);
+	VIEW3D_API void __stdcall View3D_ObjectColourBlendSet(pr::view3d::Object object, pr::view3d::Colour blend, char const* name);
+
 	// Materials ******************************
 
 	// Create a texture from data in memory.

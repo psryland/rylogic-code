@@ -6,6 +6,7 @@
 #include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
 #include "view3d-12/src/shaders/hlsl/utility/colour_space.hlsli"
+#include "view3d-12/src/shaders/hlsl/utility/surface_colour.hlsli"
 
 ConstantBuffer<CBufFrame> g_frame : register(b0);
 RaytracingAccelerationStructure g_scene : register(t0);
@@ -691,19 +692,19 @@ float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib, RayTracingMa
 	uint geometry_index = HitMaterialIndex();
 	reflectivity = MaterialReflectivity(material);
 	if (!HasHitGeometry(geometry_index))
-		return AddMaterialEmissive(material, material.diffuse);
+		return AddMaterialEmissive(material, SurfaceColourBlend(material.diffuse, material.colour_blend));
 
 	// Geometry sidecar data is optional because fallback BLAS geometry can still be ray-hit even if it cannot be shaded from original vertices.
 	RayTracingGeometry geometry = g_geometry[geometry_index];
 	uint first_index = PrimitiveIndex() * 3u;
 	if (first_index + 2u >= geometry.ranges.w)
-		return AddMaterialEmissive(material, material.diffuse);
+		return AddMaterialEmissive(material, SurfaceColourBlend(material.diffuse, material.colour_blend));
 
 	uint i0 = HitTriangleIndex(geometry, 0) - geometry.ranges.y;
 	uint i1 = HitTriangleIndex(geometry, 1) - geometry.ranges.y;
 	uint i2 = HitTriangleIndex(geometry, 2) - geometry.ranges.y;
 	if (i0 >= geometry.flags.y || i1 >= geometry.flags.y || i2 >= geometry.flags.y)
-		return AddMaterialEmissive(material, material.diffuse);
+		return AddMaterialEmissive(material, SurfaceColourBlend(material.diffuse, material.colour_blend));
 
 	float3 bary = float3(1.0f - attrib.barycentrics.x - attrib.barycentrics.y, attrib.barycentrics.x, attrib.barycentrics.y);
 
@@ -717,6 +718,9 @@ float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib, RayTracingMa
 		: 1.0f;
 	float2 tex0 = bary.x * v0.tex0 + bary.y * v1.tex0 + bary.z * v2.tex0;
 	float4 colour = vertex_colour * material.diffuse * MaterialBaseTexture(material, tex0);
+
+	// The instance override follows all surface colour contributions and precedes reflected-hit lighting.
+	colour = SurfaceColourBlend(colour, material.colour_blend);
 
 	// Without packed normals the hit can still contribute diffuse colour, but it cannot spawn another reflection bounce safely.
 	if ((geometry.flags.x & RayTracingGeometryFlag_HasNormals) == 0)

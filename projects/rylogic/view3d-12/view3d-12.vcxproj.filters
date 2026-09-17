@@ -838,6 +838,9 @@
     <None Include="src\shaders\hlsl\utility\colour_space.hlsli">
       <Filter>src\shaders\hlsl\utility</Filter>
     </None>
+    <None Include="src\shaders\hlsl\utility\surface_colour.hlsli">
+      <Filter>src\shaders\hlsl\utility</Filter>
+    </None>
     <None Include="src\shaders\hlsl\forward\forward_cbuf.hlsli">
       <Filter>src\shaders\hlsl\forward</Filter>
     </None>

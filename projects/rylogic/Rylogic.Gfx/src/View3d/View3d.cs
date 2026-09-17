@@ -2184,6 +2184,8 @@ namespace Rylogic.Gfx
 		// Get/Set the current or base colour of an object(the first object to match 'name') (See LdrObject::Apply)
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern uint View3D_ObjectColourGet(HObject obj, bool base_colour, [MarshalAs(UnmanagedType.LPStr)] string? name);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectColourSet(HObject obj, bool base_colour, uint colour, [MarshalAs(UnmanagedType.LPStr)] string? name, EColourOp op, float op_value);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern uint View3D_ObjectColourBlendGet(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string? name);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectColourBlendSet(HObject obj, uint blend, [MarshalAs(UnmanagedType.LPStr)] string? name);
 
 		// Reset the object colour back to its default
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectResetColour(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string? name);

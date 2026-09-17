@@ -6188,6 +6188,7 @@ namespace pr::rdr12::ldraw
 			{
 				obj->m_o2p = source->m_o2p;
 				obj->m_base_colour = source->m_base_colour;
+				obj->m_colour_blend = source->m_colour_blend;
 				obj->m_group_tint = source->m_group_tint;
 				obj->m_root_anim = source->m_root_anim;
 				obj->m_screen_space = source->m_screen_space;
@@ -6576,6 +6577,7 @@ namespace pr::rdr12::ldraw
 		obj->m_material = existing->m_material;
 		obj->m_name = existing->m_name;
 		obj->m_base_colour = existing->m_base_colour;
+		obj->m_colour_blend = existing->m_colour_blend;
 
 		// Recursively create instances of the child objects
 		for (auto& child : existing->m_child)
@@ -6652,7 +6654,11 @@ namespace pr::rdr12::ldraw
 			if (AllSet(flags, EUpdateObject::Transform))
 				std::swap(object->m_i2w, rhs->m_i2w);
 			if (AllSet(flags, EUpdateObject::Colour))
+			{
+				// A colour replacement resets both the parsed tint and the independent runtime surface override.
 				std::swap(object->m_colour, rhs->m_colour);
+				std::swap(object->m_colour_blend, rhs->m_colour_blend);
+			}
 
 			// LdrObject
 			std::swap(object->m_type, rhs->m_type);

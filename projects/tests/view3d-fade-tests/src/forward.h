@@ -15,6 +15,21 @@
 #include "pr/view3d-12/scene/far_clip_fade.h"
 #include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/utility/normal_transform.h"
+#include "pr/view3d-12/ldraw/ldraw_object.h"
+#include "pr/hlsl/interop.h"
+
+// Exercise the same RGB blend expression compiled into the renderer's GPU shaders.
+namespace colour_blend_tests
+{
+	using pr::rdr12::ldraw::RdrInstance;
+	static_assert(int(pr::rdr12::EInstComp::ColourBlend32) == int(pr::rdr12::EInstComp::TintColour32) + 1);
+	static_assert(pr::rdr12::SizeOf(pr::rdr12::EInstComp::ColourBlend32) == sizeof(pr::Colour32));
+	static_assert(std::is_same_v<decltype(RdrInstance::m_colour_blend), pr::Colour32>);
+	static_assert(offsetof(RdrInstance, m_colour_blend) == offsetof(RdrInstance, m_colour) + sizeof(pr::Colour32));
+
+	using namespace pr::hlsl;
+	#include "view3d-12/src/shaders/hlsl/utility/surface_colour.hlsli"
+}
 
 // Fixture-owned bytecode exercises the custom-stage boundary without a renderer library dependency.
 namespace fade_tests::compiled

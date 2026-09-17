@@ -2293,6 +2293,34 @@ VIEW3D_API void __stdcall View3D_ObjectColourSet(view3d::Object object, BOOL bas
 	CatchAndReport(View3D_ObjectColourSet, ,);
 }
 
+// Return the selected packed target and blend weight.
+VIEW3D_API view3d::Colour __stdcall View3D_ObjectColourBlendGet(view3d::Object object, char const* name)
+{
+	// Use the normal DLL error reporting and serialization boundary.
+	try
+	{
+		// Read only instance state, never shared model data.
+		Validate(object);
+		DllLockGuard;
+		return To<view3d::Colour>(object->ColourBlend(name));
+	}
+	CatchAndReport(View3D_ObjectColourBlendGet, , view3d::Colour(0));
+}
+
+// Set an instance-owned, linear RGB surface override. See View3D_ObjectColourBlendSet's public contract.
+VIEW3D_API void __stdcall View3D_ObjectColourBlendSet(view3d::Object object, view3d::Colour blend, char const* name)
+{
+	// Use the normal DLL error reporting and serialization boundary.
+	try
+	{
+		// Validate before applying the change to the requested hierarchy.
+		Validate(object);
+		DllLockGuard;
+		object->ColourBlend(Colour32(blend), name);
+	}
+	CatchAndReport(View3D_ObjectColourBlendSet, ,);
+}
+
 // Reset the object colour back to its default
 VIEW3D_API void __stdcall View3D_ObjectResetColour(view3d::Object object, char const* name)
 {

@@ -743,6 +743,26 @@ namespace pr::rdr12::ldraw
 		Colour(false, m_base_colour, name, EColourOp::Overwrite);
 	}
 
+	// Return the selected packed target and blend weight.
+	Colour32 LdrObject::ColourBlend(char const* name) const
+	{
+		// A missing selection has the same disabled, black default as a new object.
+		auto obj = Child(name);
+		return obj ? obj->m_colour_blend : Colour32{};
+	}
+
+	// Set the instance-owned RGB override without changing shared geometry, materials, or alpha classification.
+	void LdrObject::ColourBlend(Colour32 blend, char const* name)
+	{
+		// All packed values are valid: RGB stores the target and alpha stores the blend weight.
+		Apply([&](LdrObject* obj)
+		{
+			// Each selected instance owns its override, even when models are shared.
+			obj->m_colour_blend = blend;
+			return true;
+		}, name);
+	}
+
 	// Get/Set the reflectivity of this object or child objects matching 'name' (see Apply)
 	float LdrObject::Reflectivity(char const* name) const
 	{

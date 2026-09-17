@@ -616,6 +616,26 @@ namespace Rylogic.Gfx
 				ColourSet(false, colour, name);
 			}
 
+			/// <summary>Return the first selected packed target and weight, or zero when no object matches.</summary>
+			public Colour32 ColourBlendGet(string? name = null)
+			{
+				// Return the original sRGB channel encoding for round-trip callers.
+				return View3D_ObjectColourBlendGet(Handle, name);
+			}
+
+			/// <summary>
+			/// Blend stock-shader surface RGB after material, vertex, and texture colour, before lighting.
+			/// Blend RGB is an sRGB target decoded at shader upload; blend alpha is a linear UNORM8 weight (A/255), not opacity.
+			/// Alpha 0 disables the override, 128 gives 128/255, and 255 fully selects the target. Original opacity and sorting are unchanged.
+			/// Custom pixel shaders must apply the colour_blend constant themselves.
+			/// The default packed value is zero. Name follows ColourSet.
+			/// ResetColour affects tint only; disable this independent override by setting blend alpha to zero.</summary>
+			public void ColourBlendSet(Colour32 blend, string? name = null)
+			{
+				// Apply the packed target and weight to the selected instance scope.
+				View3D_ObjectColourBlendSet(Handle, blend, name);
+			}
+
 			/// <summary>
 			/// Reset the colour to the base colour for this object or any of its child objects that match 'name'.
 			/// If 'name' is null, then the state change is applied to this object only

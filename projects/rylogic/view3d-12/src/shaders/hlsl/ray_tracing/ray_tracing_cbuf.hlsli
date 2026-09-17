@@ -40,6 +40,7 @@ static const int RayTracingMaterialTextureLimit = 4096;
 struct RayTracingMaterial
 {
 	float4 diffuse;
+	float4 colour_blend; // Per-instance linear RGB override and blend amount
 	float4 emissive;
 
 	// x = reflectivity, y = transmission, z = index of refraction, w = approximate thickness

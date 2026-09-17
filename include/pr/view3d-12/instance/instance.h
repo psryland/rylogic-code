@@ -38,6 +38,7 @@ namespace pr::rdr12
 		PipeStates,          // rdr::PipeStates
 		Flags,               // EInstFlag
 		TintColour32,        // pr::Colour32
+		ColourBlend32,       // pr::Colour32 - sRGB target; alpha is the linear UNORM8 RGB blend weight, not opacity
 		PosePtr,             // A skeleton pose to skin to
 		EnvMapReflectivity,  // float
 		UniqueId,            // int32
@@ -83,6 +84,7 @@ namespace pr::rdr12
 			case EInstComp::PipeStates:          return sizeof(PipeStates);
 			case EInstComp::Flags:               return sizeof(EInstFlag);
 			case EInstComp::TintColour32:        return sizeof(Colour32);
+			case EInstComp::ColourBlend32:       return sizeof(Colour32);
 			case EInstComp::EnvMapReflectivity:  return sizeof(float);
 			case EInstComp::UniqueId:            return sizeof(int32_t);
 			case EInstComp::SSSize:              return sizeof(v2);
