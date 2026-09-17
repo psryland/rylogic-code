@@ -418,6 +418,7 @@ namespace pr::rdr12::ldraw
 		Apply([=](LdrObject* o)
 		{
 			// Apply flag changes
+			auto previous_flags = o->m_flags_local;
 			o->m_flags_local = SetBits(o->m_flags_local, flags, state);
 
 			// Hidden
@@ -440,27 +441,34 @@ namespace pr::rdr12::ldraw
 			// No Z Test
 			if (AllSet(o->Flags(), ELdrFlags::NoZTest))
 			{
-				// Don't test against Z, and draw above all objects
+				// Don't test against Z.
 				o->m_pso.Set<EPipeState::DepthEnable>(FALSE);
-				o->m_sko.Group(ESortGroup::PostAlpha);
 			}
 			else
 			{
 				o->m_pso.Clear<EPipeState::DepthEnable>();
-				o->m_sko = SKOverride();
 			}
 
 			// If NoZWrite
 			if (AllSet(o->Flags(), ELdrFlags::NoZWrite))
 			{
-				// Don't write to Z and draw behind all objects
+				// Don't write to Z.
 				o->m_pso.Set<EPipeState::DepthWriteMask>(D3D12_DEPTH_WRITE_MASK_ZERO);
-				o->m_sko.Group(ESortGroup::PreOpaques);
 			}
 			else
 			{
 				o->m_pso.Clear<EPipeState::DepthWriteMask>();
-				o->m_sko = SKOverride();
+			}
+
+			// Only depth-policy changes own automatic draw ordering; unrelated flags must preserve explicit groups.
+			if (AnySet(previous_flags ^ o->m_flags_local, ELdrFlags::NoZTest | ELdrFlags::NoZWrite))
+			{
+				if (AllSet(o->m_flags_local, ELdrFlags::NoZTest))
+					o->m_sko.Group(ESortGroup::PostAlpha);
+				else if (AllSet(o->m_flags_local, ELdrFlags::NoZWrite))
+					o->m_sko.Group(ESortGroup::PreOpaques);
+				else
+					o->m_sko.ClearGroup();
 			}
 
 			// Normals

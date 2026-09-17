@@ -130,6 +130,17 @@ namespace pr::rdr12::shaders
 		SetTint(cb1, inst, material);
 		SetTex2Surf(cb1, inst, material);
 		SetReflectivity(cb1, inst, material);
+
+		// Keep background and post-alpha overlays outside the scene's world-opacity policy.
+		auto fade = scene.FarClipFadeProperties();
+		auto group = dle->m_sort_key.Group();
+		if (fade.m_enabled && FarClipFadeApplies(group))
+		{
+			auto range = fade.DepthRange(scene.m_cam.ClipPlanes(false).y);
+			cb1.far_clip_fade = v3{range.x, range.y, group < ESortGroup::AlphaBack ? 1.0f : 2.0f};
+		}
+
+		// Upload the common forward constants without changing their existing register or layout.
 		auto gpu_address = upload.Add(cb1, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);
 		cmd_list->SetGraphicsRootConstantBufferView((UINT)ERootParam::CBufNugget, gpu_address);
 	}

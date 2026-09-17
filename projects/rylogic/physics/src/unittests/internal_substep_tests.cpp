@@ -293,6 +293,10 @@ namespace pr::physics::tests
 					PR_EXPECT(FEqlAbsolute(contact.m_point_at_t, expected_point_at_t, 1.0e-5f));
 					PR_EXPECT(IsFinite(contact.m_b2a.x) && IsFinite(contact.m_b2a.y) && IsFinite(contact.m_b2a.z) && IsFinite(contact.m_b2a.pos));
 					PR_EXPECT(IsFinite(contact.m_velocity.ang) && IsFinite(contact.m_velocity.lin));
+
+					// Equal-radius spheres expose the generating frame independently of later solver pose corrections.
+					PR_EXPECT(FEqlAbsolute(Length(contact.m_b2a.pos.w0()) + contact.m_depth, 1.0f, 1.0e-5f));
+					PR_EXPECT(FEqlAbsolute(point, (0.5f * contact.m_b2a.pos).w1(), 1.0e-5f));
 				}
 			};
 
@@ -307,14 +311,13 @@ namespace pr::physics::tests
 			for (int substep_index = 0; substep_index != 4; ++substep_index)
 				PR_EXPECT(std::ranges::find(substep_indices, substep_index) != substep_indices.end());
 
-			// The last substep snapshot must match the final GPU state even though callbacks ran before that state was unpacked into caller bodies.
+			// Velocity retains final-substep state; the generating geometric frame above must not be replaced by the corrected final pose.
 			auto const& final_contact = retained_contacts.back();
 			PR_EXPECT(final_contact.m_substep_index == 3);
-			auto const expected_b2a = InvertOrthonormal(final_contact.m_objA->O2W()) * final_contact.m_objB->O2W();
+			auto const final_b2a = InvertOrthonormal(final_contact.m_objA->O2W()) * final_contact.m_objB->O2W();
 			auto const velocity_a = Shift(final_contact.m_objA->VelocityOS(), -final_contact.m_objA->CentreOfMassOS());
 			auto const velocity_b = Shift(final_contact.m_objB->VelocityOS(), -final_contact.m_objB->CentreOfMassOS());
-			auto const expected_velocity = expected_b2a * velocity_b - velocity_a;
-			PR_EXPECT(FEqlAbsolute(final_contact.m_b2a, expected_b2a, 1.0e-5f));
+			auto const expected_velocity = final_b2a * velocity_b - velocity_a;
 			PR_EXPECT(FEqlAbsolute(final_contact.m_velocity.ang, expected_velocity.ang, 1.0e-5f));
 			PR_EXPECT(FEqlAbsolute(final_contact.m_velocity.lin, expected_velocity.lin, 1.0e-5f));
 		}

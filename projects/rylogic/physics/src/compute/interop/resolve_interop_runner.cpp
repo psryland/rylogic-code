@@ -265,7 +265,9 @@ namespace pr::physics
 		hlsl::GpuEmulator emu(CSResolve, CSResolve_NumThreads);
 		emu.Dispatch({ThreadGroupCount(m_counters[0].contact_count, ResolveThreadCount), 1, 1});
 
+		// Preserve the same per-contact impulse accumulators that remain in GPU memory between colour batches and solver sweeps.
 		m_bodies.assign(g_bodies.begin(), g_bodies.end());
+		m_contacts.assign(g_contacts.begin(), g_contacts.end());
 	}
 
 	std::span<uint32_t const> ResolveInteropRunner::Colours() const

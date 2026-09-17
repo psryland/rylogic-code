@@ -1,6 +1,10 @@
 <Project>
 	<!-- Keep one authoritative list for the build project and its companion Solution Explorer filters. -->
 	<ItemGroup>
+		<ClCompile Include="$(MSBuildThisFileDirectory)friction_solver_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
 		<ClCompile Include="$(MSBuildThisFileDirectory)terrain_collision_tests.cpp">
 			<PhysicsUnitTest>true</PhysicsUnitTest>
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>

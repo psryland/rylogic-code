@@ -8,6 +8,7 @@
 #include "pr/physics/integrator/engine_config.h"
 #include "pr/physics/integrator/engine_diagnostics.h"
 #include "pr/physics/surface/forward.h"
+#include "pr/physics/surface/cylindrical_boundary.h"
 #include "pr/physics/terrain/landscape/baseline_surface.h"
 
 namespace pr::physics
@@ -197,9 +198,9 @@ namespace pr::physics
 		// GPU collision detector
 		GpuCollisionDetectorPtr m_gpu_collision_detector;
 
-		// Owned terrain source and deferred wake request for the next nonempty frame.
-		std::unique_ptr<struct GpuTerrain, Deleter<struct GpuTerrain>> m_gpu_terrain;
-		bool m_terrain_changed = false;
+		// Owned sampled world surfaces and deferred wake request for the next nonempty frame.
+		std::unique_ptr<struct GpuWorldContacts, Deleter<struct GpuWorldContacts>> m_gpu_world_contacts;
+		bool m_world_surfaces_changed = false;
 
 		// GPU collision resolver
 		GpuResolverPtr m_gpu_resolver;
@@ -264,6 +265,12 @@ namespace pr::physics
 
 		// Replace or disable the owned static terrain between completed frames. Uses the shared sampling default unless overridden.
 		void Terrain(std::optional<terrain::landscape::BaselineSurface> surface, float spacing = ::pr::physics::surface::DefaultSpacing);
+
+		// Replace or disable an inward-facing, infinite-height cylindrical world boundary between completed frames.
+		void CylindricalBoundary(std::optional<CylindricalBoundaryConfig> boundary);
+
+		// Identify the owned static endpoint used by terrain and boundary contacts; it is not a caller-owned body.
+		bool IsWorldContactBody(RigidBody const* body) const;
 
 		// Return the D3D12 device used by the physics compute engine.
 		ID3D12Device4* Device() const;

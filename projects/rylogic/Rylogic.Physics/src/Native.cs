@@ -366,6 +366,7 @@ internal static unsafe partial class Native
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineConfigSet(ulong engine, EngineConfig* config);
 	/// <summary>Copy a terrain configuration into an idle engine, or remove terrain with a null pointer.</summary>
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineTerrainSet(ulong engine, TerrainConfiguration* terrain);
+	[DllImport(Dll)] internal static extern EStatus Physics_EngineCylindricalBoundarySet(ulong engine, CylindricalBoundaryConfiguration* boundary);
 	[DllImport(Dll)] internal static extern EStatus Physics_MaterialGet(ulong engine, int material_id, MaterialValue* material);
 	[DllImport(Dll)] internal static extern EStatus Physics_MaterialSet(ulong engine, MaterialValue* material);
 

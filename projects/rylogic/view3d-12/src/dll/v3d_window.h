@@ -148,6 +148,10 @@ namespace pr::rdr12
 		RayTracingProps RayTracingProperties() const;
 		void RayTracingProperties(RayTracingProps props);
 
+		// Forward world fade settings, owned by this window's scene.
+		FarClipFadeProps FarClipFadeProperties() const;
+		void FarClipFadeProperties(FarClipFadeProps props);
+
 		// The DPI of the monitor that this window is displayed on
 		v2 Dpi() const;
 

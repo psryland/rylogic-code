@@ -44,6 +44,7 @@ public enum EPhysicsEvent
 	Sleep = 2,
 	ConstraintBreak = 3,
 	CoupledConstraintFailure = 4,
+	WorldContact = 5,
 }
 
 /// <summary>Identifies the first bounded numerical or capacity failure retained for a completed frame.</summary>
@@ -503,7 +504,10 @@ public readonly struct RigidBodyState
 	}
 }
 
-/// <summary>A buffered contact, body lifecycle, constraint break, or coupled failure event copied after CompleteStep.</summary>
+/// <summary>
+/// A buffered event copied after CompleteStep. WorldContact has one invalid body handle for the engine-owned terrain/boundary endpoint;
+/// Contact has two caller-owned handles. Contact normals point from A towards B in world space.
+/// </summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct PhysicsEvent
 {

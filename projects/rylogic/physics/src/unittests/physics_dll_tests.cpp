@@ -7,6 +7,7 @@
 #include <thread>
 #include <unknwn.h>
 #include "pr/physics/physics-dll.h"
+#include "pr/physics/terrain/landscape/baseline_surface.h"
 #include "src/dll_test.h"
 #include "src/unittests/shared_gpu.h"
 
@@ -31,6 +32,8 @@ namespace pr::unittests
 			decltype(&Physics_EngineDeviceLeaseAcquire) EngineDeviceLeaseAcquire;
 			decltype(&Physics_EngineConfigGet) EngineConfigGet;
 			decltype(&Physics_EngineConfigSet) EngineConfigSet;
+			decltype(&Physics_EngineTerrainSet) EngineTerrainSet;
+			decltype(&Physics_EngineCylindricalBoundarySet) EngineCylindricalBoundarySet;
 			decltype(&Physics_MaterialGet) MaterialGet;
 			decltype(&Physics_MaterialSet) MaterialSet;
 			decltype(&Physics_ShapeCreateSphere) ShapeCreateSphere;
@@ -84,6 +87,8 @@ namespace pr::unittests
 				, EngineDeviceLeaseAcquire(m_module.Proc<decltype(EngineDeviceLeaseAcquire)>("Physics_EngineDeviceLeaseAcquire"))
 				, EngineConfigGet(m_module.Proc<decltype(EngineConfigGet)>("Physics_EngineConfigGet"))
 				, EngineConfigSet(m_module.Proc<decltype(EngineConfigSet)>("Physics_EngineConfigSet"))
+				, EngineTerrainSet(m_module.Proc<decltype(EngineTerrainSet)>("Physics_EngineTerrainSet"))
+				, EngineCylindricalBoundarySet(m_module.Proc<decltype(EngineCylindricalBoundarySet)>("Physics_EngineCylindricalBoundarySet"))
 				, MaterialGet(m_module.Proc<decltype(MaterialGet)>("Physics_MaterialGet"))
 				, MaterialSet(m_module.Proc<decltype(MaterialSet)>("Physics_MaterialSet"))
 				, ShapeCreateSphere(m_module.Proc<decltype(ShapeCreateSphere)>("Physics_ShapeCreateSphere"))
@@ -526,6 +531,7 @@ namespace pr::unittests
 				std::pair{EStructId::ArticulationState, static_cast<std::uint32_t>(sizeof(pr::physics::ArticulationState))},
 				std::pair{EStructId::ArticulationLinkState, static_cast<std::uint32_t>(sizeof(pr::physics::ArticulationLinkState))},
 				std::pair{EStructId::D6Constraint, static_cast<std::uint32_t>(sizeof(pr::physics::D6ConstraintProperties))},
+				std::pair{EStructId::CylindricalBoundary, static_cast<std::uint32_t>(sizeof(pr::physics::CylindricalBoundaryDesc))},
 			};
 			for (auto const& [id, expected] : sizes)
 			{
@@ -1045,6 +1051,133 @@ namespace pr::unittests
 
 			PR_EXPECT(fix.m_api.ArticulationDestroy(fix.m_engine, articulation) == EStatus::Success);
 			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
+		}
+	};
+
+	// Verify that procedural surfaces retain contact geometry when their owned endpoint has no ABI body handle.
+	PRUnitTestClass(PhysicsDllWorldContactTests)
+	{
+		// Exercise stationary and moving contacts against both sources, then remove them to reject stale world events.
+		PRUnitTestMethod(TerrainAndBoundaryEventsUseExplicitWorldEndpoint, Extended)
+		{
+			for (auto const [boundary, moving] : {std::pair{false, false}, std::pair{true, false}, std::pair{false, true}, std::pair{true, true}})
+			{
+				// Install a finite world surface without constructing a public static body.
+				auto fix = PhysicsFixture{};
+				auto position = Translation(99.51f, 0, 0);
+				if (boundary)
+				{
+					auto desc = CylindricalBoundaryDesc{
+						.header = {sizeof(CylindricalBoundaryDesc), PHYSICS_STRUCT_VERSION},
+						.radius = 100,
+						.surface_spacing = 0.05f,
+						.max_substep_motion = 0.1f,
+						.max_penetration = 0.25f,
+					};
+					PR_EXPECT(fix.m_api.EngineCylindricalBoundarySet(fix.m_engine, &desc) == EStatus::Success);
+				}
+				else
+				{
+					// Disable spatial bands so the contact normal is known independently of seeded terrain grade.
+					auto config = terrain::landscape::BaselineSurfaceConfig{};
+					config.m_regional_base.m_amplitude = config.m_region_selector.m_amplitude = config.m_region_uplift.m_amplitude = 0;
+					config.m_plains.m_amplitude = config.m_hills.m_amplitude = config.m_mountains.m_amplitude = 0;
+					config.m_domain_warp.m_amplitude_m = 0;
+					config.m_uplift_height_m = config.m_mountain_base_height_m = 0;
+
+					// Use the same immutable recipe for reference height and the ABI-owned terrain copy.
+					auto band = [](auto const& value)
+					{
+						return TerrainBand{value.m_amplitude, value.m_wavelength_m, value.m_lacunarity, value.m_persistence, 0.2, 1, value.m_octave_count, 0};
+					};
+					auto desc = TerrainDesc{
+						.header = {sizeof(TerrainDesc), PHYSICS_STRUCT_VERSION},
+						.seed = config.m_seed,
+						.material_id = config.m_material_id,
+						.supported_coordinate = config.m_supported_coordinate_abs_m,
+						.sea_level_bias = config.m_sea_level_bias_m,
+						.uplift_height = config.m_uplift_height_m,
+						.mountain_base = config.m_mountain_base_height_m,
+						.regional_base = band(config.m_regional_base),
+						.region_selector = band(config.m_region_selector),
+						.region_uplift = band(config.m_region_uplift),
+						.domain_warp = {config.m_domain_warp.m_amplitude_m, config.m_domain_warp.m_wavelength_m, config.m_domain_warp.m_lacunarity, config.m_domain_warp.m_persistence, 0.2, 1, config.m_domain_warp.m_octave_count, 0},
+						.plains = band(config.m_plains),
+						.hills = band(config.m_hills),
+						.mountains = band(config.m_mountains),
+					};
+					desc.mountains.roundness = config.m_mountains.m_roundness;
+					desc.mountains.weight_gain = config.m_mountains.m_weight_gain;
+					auto surface = terrain::landscape::BaselineSurface(config);
+					position = Translation(0, 0, static_cast<float>(surface.Sample({0, 0}).m_height) + 0.49f);
+					PR_EXPECT(fix.m_api.EngineTerrainSet(fix.m_engine, &desc) == EStatus::Success);
+				}
+
+				// Generate a shallow contact through four actual native substeps.
+				auto sphere = SphereShape{.common = MakeCommon(), .radius = 0.5f};
+				sphere.common.header.size = sizeof(sphere);
+				auto shape = ShapeHandle{};
+				PR_EXPECT(fix.m_api.ShapeCreateSphere(fix.m_engine, &sphere, &shape) == EStatus::Success);
+				auto body = MakeBody(fix.m_api, fix.m_engine, shape, position, EMotionType::Dynamic);
+				auto velocity = BodyCommand{
+					.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
+					.body = body,
+					.type = ECommand::SetVelocity,
+					.value = {{0, moving ? 6.0f : 0, 0, 0}, {0, moving ? 2.0f : 0, 0, 0}},
+				};
+				PR_EXPECT(fix.m_api.StepEx(fix.m_engine, 1.0f / 60.0f, 0, 4, &velocity, 1) == EStatus::Success);
+
+				// Capacity probing must retain the events, with exactly one zero endpoint and finite world geometry.
+				auto required = std::uint32_t{};
+				PR_EXPECT(fix.m_api.EventsCopy(fix.m_engine, nullptr, 0, &required) == EStatus::BufferTooSmall);
+				auto events = std::vector<Event>(required);
+				PR_EXPECT(fix.m_api.EventsCopy(fix.m_engine, events.data(), required, &required) == EStatus::Success);
+				auto contacts = 0;
+				auto substeps = 0U;
+				for (auto const& evt : events)
+				{
+					switch (evt.type)
+					{
+						case EEvent::WorldContact: { break; }
+						case EEvent::Sleep:
+						case EEvent::Wake: { continue; }
+						default: { throw std::runtime_error("Unexpected event in an isolated world-contact fixture"); }
+					}
+					++contacts;
+					PR_EXPECT((evt.body_a == body && evt.body_b == 0) || (evt.body_a == 0 && evt.body_b == body));
+					PR_EXPECT(evt.child_a == PHYSICS_NO_CHILD && evt.child_b == PHYSICS_NO_CHILD);
+					PR_EXPECT(evt.substep_index >= 0 && evt.substep_index < 4);
+					substeps |= 1U << evt.substep_index;
+					PR_EXPECT(evt.point_count > 0 && evt.point_count <= 4);
+					PR_EXPECT(std::isfinite(evt.depth) && evt.depth >= 0);
+					auto outward = boundary ? evt.normal.x : -evt.normal.z;
+					PR_EXPECT((evt.body_a == body ? outward : -outward) > 0.9f);
+					PR_EXPECT(std::abs(boundary ? evt.normal.z : evt.normal.x) < 0.0001f);
+					if (!boundary)
+						PR_EXPECT(std::abs(evt.normal.y) < 0.0001f);
+
+					// World-space points remain on the sampled contact midpoint despite body translation and rotation within the frame.
+					for (auto i = 0U; i != evt.point_count && i != 4; ++i)
+					{
+						PR_EXPECT(std::isfinite(evt.points[i].x) && std::isfinite(evt.points[i].y) && std::isfinite(evt.points[i].z));
+						PR_EXPECT(evt.points[i].w == 1);
+						auto midpoint_depth = boundary ? std::hypot(evt.points[i].x, evt.points[i].y) - 100.0f : position.w.z - 0.49f - evt.points[i].z;
+						if (std::abs(midpoint_depth - 0.5f * evt.depth) >= 0.0011f)
+							std::cout << "World contact: boundary=" << boundary << ", moving=" << moving << ", substep=" << evt.substep_index << ", midpoint depth=" << midpoint_depth << ", depth=" << evt.depth << '\n';
+
+						PR_EXPECT(std::abs(midpoint_depth - 0.5f * evt.depth) < 0.0011f);
+					}
+				}
+				PR_EXPECT(contacts > 0);
+				PR_EXPECT((substeps & ~1U) != 0);
+
+				// Replacing the endpoint between frames cannot retain its previous contact stream.
+				PR_EXPECT(fix.m_api.EngineTerrainSet(fix.m_engine, nullptr) == EStatus::Success);
+				PR_EXPECT(fix.m_api.EngineCylindricalBoundarySet(fix.m_engine, nullptr) == EStatus::Success);
+				PR_EXPECT(fix.m_api.StepEx(fix.m_engine, 1.0f / 60.0f, 1.0 / 60.0, 4, nullptr, 0) == EStatus::Success);
+				PR_EXPECT(fix.m_api.EventsCopy(fix.m_engine, nullptr, 0, &required) == EStatus::Success);
+				PR_EXPECT(required == 0);
+			}
 		}
 	};
 

@@ -76,6 +76,14 @@ public sealed class Engine :IDisposable
 		Native.Check(Native.Physics_EngineTerrainSet(Handle, configuration.HasValue ? &value : null));
 	}
 
+	/// <summary>Replace or disable the cylindrical wall independently of terrain. Checkpoints reject configured world surfaces.</summary>
+	public unsafe void SetCylindricalBoundary(CylindricalBoundaryConfiguration? configuration)
+	{
+		EnsureOwner();
+		var value = configuration.GetValueOrDefault();
+		Native.Check(Native.Physics_EngineCylindricalBoundarySet(Handle, configuration.HasValue ? &value : null));
+	}
+
 	/// <summary>Create a sphere collision shape.</summary>
 	public unsafe Shape CreateSphere(float radius, ShapeOptions? options = null, bool hollow = false)
 	{

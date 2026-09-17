@@ -255,6 +255,7 @@ public sealed class Win32Application : IDisposable
 	private static readonly object s_class_lock = new();
 	private static readonly Win32.WNDPROC s_wnd_proc = new(StaticWndProc);
 	private static int s_class_atom;
+	private static IntPtr s_arrow_cursor;
 
 	private readonly Win32ApplicationOptions m_options;
 	private readonly int m_owner_thread_id;
@@ -265,6 +266,7 @@ public sealed class Win32Application : IDisposable
 	private int? m_pending_exit_code;
 	private IntPtr m_hwnd;
 	private IntPtr m_monitor;
+	private IntPtr m_client_cursor;
 	private uint m_dpi;
 	private int m_client_width;
 	private int m_client_height;
@@ -439,6 +441,25 @@ public sealed class Win32Application : IDisposable
 
 	/// <summary>The current per-monitor DPI.</summary>
 	public uint Dpi => m_dpi;
+
+	/// <summary>
+	/// Borrowed client cursor; zero selects the shared system arrow. Set on the owner thread and keep an owned handle alive until HWND teardown.
+	/// Applied on unhandled WM_SETCURSOR for this HWND's HTCLIENT only. Raw handlers can SetCursor, set Result to one, and mark Handled to override it.
+	/// Changing this property does not move the pointer or immediately change the active cursor. This host never destroys the borrowed handle.
+	/// </summary>
+	public IntPtr ClientCursor
+	{
+		get
+		{
+			return m_client_cursor;
+		}
+		set
+		{
+			VerifyOwnerThread();
+			VerifyUsable();
+			m_client_cursor = value;
+		}
+	}
 
 	/// <summary>The monitor currently containing the largest part of the window.</summary>
 	public IntPtr Monitor => m_monitor;
@@ -633,6 +654,16 @@ public sealed class Win32Application : IDisposable
 
 		switch (message)
 		{
+			case Win32.WM_SETCURSOR:
+				{
+					// Only supply this window's client default; native borders and child windows retain their own cursor policy.
+					if (wparam == hwnd && Win32.LoWord(lparam) == (int)Win32.HitTest.HTCLIENT)
+					{
+						User32.SetCursor(m_client_cursor != IntPtr.Zero ? m_client_cursor : s_arrow_cursor);
+						return new IntPtr(1);
+					}
+					return User32.DefWindowProc(hwnd, message, wparam, lparam);
+				}
 			case WM_REQUEST_CLOSE:
 				{
 					return SendClose(hwnd, wparam.ToInt32());
@@ -1146,6 +1177,11 @@ public sealed class Win32Application : IDisposable
 			if (s_class_atom != 0)
 				return s_class_atom;
 
+			// Class fallback must be valid even when Windows selects a cursor through default processing.
+			s_arrow_cursor = LoadCursor(IntPtr.Zero, new IntPtr(32512));
+			if (s_arrow_cursor == IntPtr.Zero)
+				throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not load the shared arrow cursor.");
+
 			if (User32.GetClassInfo(hinstance, ClassName, out var atom) != null)
 			{
 				s_class_atom = atom;
@@ -1161,7 +1197,7 @@ public sealed class Win32Application : IDisposable
 				cbWndExtra = 0,
 				hInstance = hinstance,
 				hIcon = IntPtr.Zero,
-				hCursor = IntPtr.Zero,
+				hCursor = s_arrow_cursor,
 				hbrBackground = IntPtr.Zero,
 				lpszMenuName = null,
 				lpszClassName = ClassName,
@@ -1171,6 +1207,10 @@ public sealed class Win32Application : IDisposable
 			return s_class_atom;
 		}
 	}
+
+	/// <summary>Load a shared system cursor, which must not be destroyed by its borrowers.</summary>
+	[DllImport("user32.dll", EntryPoint = "LoadCursorW", SetLastError = true)]
+	private static extern IntPtr LoadCursor(IntPtr instance, IntPtr name);
 
 	/// <summary>Reject owner-thread operations after native or managed disposal.</summary>
 	private void VerifyUsable()

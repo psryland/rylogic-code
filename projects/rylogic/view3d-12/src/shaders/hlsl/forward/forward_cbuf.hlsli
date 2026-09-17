@@ -56,7 +56,7 @@ struct CBufNugget// :reg(b1)
 
 	// EnvMap
 	float env_reflectivity; // Reflectivity of the environment map
-	float3 pad0;
+	float3 far_clip_fade; // x/y = forward-depth interval; z = 0 disabled, 1 opaque source, 2 blended source
 };
 
 // Constants used for radial fading.

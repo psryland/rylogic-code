@@ -120,7 +120,80 @@ nodes or an overlapping/abutting primitive seam can therefore have spacing-depen
 error; exact partial-wet area or clipped CSG reconstruction is not promised. Refining spacing reduces
 this error. Per-face area conservation alone is not a proof of integrated force or torque accuracy.
 
+## Sampled cylindrical world boundary
+
+`Engine::CylindricalBoundary(std::optional<CylindricalBoundaryConfig>)` installs an inward-facing cylinder centered at `m_centre_x,m_centre_y`, with
+radius `m_radius` in metres and material `m_material_id`. `std::nullopt` removes only the boundary. It is unlimited in height and works with or without
+`Engine::Terrain`. The managed equivalent is `Engine.SetCylindricalBoundary(CylindricalBoundaryConfiguration?)`.
+
+`GpuWorldContacts` owns one shapeless infinite-mass endpoint and the common sampling, instance upload, contact reduction, status, and solver-append path.
+All physical primitive types and compound leaves retain their existing shape-to-root transforms and material IDs; articulation proxies use the same path.
+Cylinder contacts use radial inward normals and exact tangent-plane depths, not a finite box ring, sphere-only approximation, or position clamp. Contact
+spread is retained in the cylinder's tangent/vertical plane. Unchanged sleeping support is skipped; disturbed islands and source replacement retain normal
+wake semantics.
+
+The shared GPU pipeline requires FP64 and `Int64ShaderOps`, including when only the boundary is configured. Shader sources are embedded in the native DLL.
+
+Different terrain and boundary spacings have separately indexed ranges in one cached patch stream. Adding the default 0.05 m boundary does **not** change
+the default **0.16 m terrain** sample count. Both sets are generated only when a shape first participates or packed shape indices are invalidated.
+Interior boundary queries use a conservative XY-bound rejection before enumerating samples. Boundary history resources are absent without a boundary;
+terrain timestamps measure only terrain work, not wall contacts or boundary validation.
+
+### Discrete-motion and rejection envelope
+
+The defaults are `m_surface_spacing=0.05 m`, `m_max_substep_motion=0.1 m`, and `m_max_penetration=0.25 m`. The last value is a **gross safety-rejection
+cutoff**, not acceptable resting overlap or a spawn/restore allowance. This is the existing discrete, substepped solver, not swept/continuous collision.
+Horizontal speed and pose-displacement bounds include child offsets and angular motion; vertical translation alone does not violate the motion limit.
+With no rotation, 0.1 m at 1/240 s corresponds to a mathematical speed bound of 24 m/s;
+leave rounding margin rather than operating exactly at that bound.
+
+This does not exempt angular motion produced by wall friction. A 1 m, 1 kg sphere approaching at 20 m/s radial, 3 m/s tangential, and -100 m/s vertical
+with material friction 0.3 and normal elasticity 0.05 exceeds the 0.1 m envelope at 240 Hz after its first wall impulse. At cardinal azimuths the resolved
+angular speed is about 49.29 rad/s; an actual point on the sphere has 28.59 m/s horizontal velocity (0.11914 m per substep). At 45 degrees the corresponding
+values are 45.97 rad/s and 24.66 m/s (0.10276 m per substep). These are real surface points, not bounding-box corners, so merely tightening the conservative
+box estimate cannot admit this fixture. More substeps or different physical conditions need their own validation; do not raise the motion or overlap gates.
+`CylindricalBoundaryFrictionTests` verifies this rejection at five azimuths and checks that caller-owned dynamics remain unchanged.
+
+Motion failures report the first rejected body's packed index, zero-based substep, validation phase, world linear/angular velocities, conservative lever,
+speed-motion and pose-displacement bounds, timestep, and configured limit. The reported bounds are conservative; they are not measurements of the maximum
+physical surface-point speed.
+
+GPU validation checks pre-integration, predicted, and resolved states. Every sampled point must have radial depth plus the configured spacing no greater
+than `m_max_penetration`; the coverage margin bounds unsampled physical surface extent and float rounding. Motion/domain status and ordinary raw contact
+capacity counters are read before publishing dynamics or collision events. Unsupported input is rejected; impulses and velocities are never silently clipped.
+The shared sample-count and resource bounds above still apply, as does the 65,535 convex-instance dispatch limit. Eight distinct normal groups per leaf
+are supported; additional groups fail explicitly.
+
+Configuration requires finite center, radius, and positive envelope distances, a valid material ID, `2*spacing + max_substep_motion <= max_penetration`,
+`max_penetration < radius*0.01`, and `max(abs(centre_x),abs(centre_y))+radius <= 1,000,000 m`. Spacing must be at least
+`16*float_epsilon*(max(abs(centre_x),abs(centre_y))+radius)`. There is no Z-domain cutoff.
+
+Startup/import placement belongs to the application and must contain the actual physical surface, not just its center. A conservative sufficient test is
+that every transformed physical sample's radial distance plus spacing is at most radius. Exact shape-specific checks may admit additional valid placements.
+Restoring previously completed simulation states may preserve their small, explicitly validated solver overlap; it must not substitute the gross cutoff
+for an application acceptance tolerance. The DLL rejects native checkpoint capture and import whenever either world surface is configured: applications
+must persist source configurations and body states explicitly.
+
 ## Validation
+
+`CylindricalBoundaryTests` runs the actual GPU solver with a **1 cm maximum post-step physical-overlap gate**. At radius 4000 m, the Debug fixtures measured:
+
+| Fixture | Observed maximum positive overlap |
+| --- | ---: |
+| 1 m sphere, 20 m/s radial approach, 1/240 s substeps | 6.104 mm |
+| Transformed box/sphere compound under sustained radial acceleration | 1.758 mm |
+| 0.6 m sphere, tangent sliding and initially -100 m/s vertical freefall | 1.017 mm |
+| 1 m box with simultaneous terrain and wall support | None at recorded post-frame poses |
+
+These are fixture measurements, not a universal bound for arbitrary geometry, force, solver settings, or initial overlap. The fast sphere is checked after
+every substep; multi-substep fixtures are checked after each submitted frame. The independent extent oracle uses exact sphere radii and box corners, including
+compound child transforms, rather than reusing collision samples. A 1 cm restored-state tolerance is supported for these tested settings; applications must
+validate their actual body/force workload rather than adopt the 0.25 m gross rejection cutoff.
+
+The suite also checks off-axis normals/depth and materials, contacts well above a visible rim, all primitive sample types, articulation links, unchanged
+sleeping support and meaningful collision wakes, removal, invalid configuration, pending mutation, domain/motion rejection, and contact overflow.
+Its density/cache regression retains **600 terrain samples at 0.16 m versus 5400 wall samples at 0.05 m** for a 1 m sphere, reuses unchanged plan storage,
+and verifies that terrain-only operation allocates no boundary-history buffer.
 
 `BuoyancySamplerTests` covers box corner normals, face areas, balance and cell diagonals; sphere
 geodesic coverage/area; triangle vertices, edge/interior coverage and first moments (including

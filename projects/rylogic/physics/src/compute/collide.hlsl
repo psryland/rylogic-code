@@ -184,7 +184,10 @@ void StoreContact(in_(GpuCollisionPair) pair, in_(GpuShape) shape_a, in_(GpuShap
 	contact.axis = col.axis;
 	contact.contact_point = ContactCentroid(col);
 	for (int i = 0; i != GpuContactMaxPoints; ++i)
+	{
 		contact.manifold[i] = col.manifold[i];
+		contact.friction_impulses[i] = float4(0, 0, 0, 0);
+	}
 	contact.b2a = pair.b2a;
 	contact.body_idx_a = pair.body_idx_a;
 	contact.body_idx_b = pair.body_idx_b;

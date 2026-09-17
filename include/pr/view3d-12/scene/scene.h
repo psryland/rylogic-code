@@ -5,6 +5,7 @@
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/scene/scene_camera.h"
+#include "pr/view3d-12/scene/far_clip_fade.h"
 #include "pr/view3d-12/instance/instance.h"
 #include "pr/view3d-12/lighting/light.h"
 #include "pr/view3d-12/ray_tracing/ray_tracing_props.h"
@@ -113,6 +114,10 @@ namespace pr::rdr12
 		RayTracingProps RayTracingProperties() const;
 		void RayTracingProperties(RayTracingProps props);
 
+		// Get/Set the opt-in forward world fade; camera projection remains unchanged.
+		FarClipFadeProps FarClipFadeProperties() const;
+		void FarClipFadeProperties(FarClipFadeProps props);
+
 		// Get/Set the scene-wide fill mode default.
 		EFillMode FillMode() const;
 		void FillMode(EFillMode fill_mode);
@@ -140,6 +145,9 @@ namespace pr::rdr12
 
 		friend struct Window;
 
+		// The scene is the sole authority for this view-dependent rendering option.
+		FarClipFadeProps m_far_clip_fade;
+
 		// Return a render step from this scene (if present)
 		RenderStep const* FindRStep(ERenderStep id) const;
 		RenderStep* FindRStep(ERenderStep id);
@@ -155,4 +163,3 @@ namespace pr::rdr12
 		void HitTestAsyncResults(std::span<HitTestResult const> results);
 	};
 }
-

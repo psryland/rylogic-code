@@ -320,6 +320,7 @@ struct GpuResolveContact
 	int pad1;
 	int pad2;
 	int pad3;
+	float4 friction_impulses[GpuContactMaxPoints]; // Per-point physical tangent accumulators for this solve; not replayed across contact frames.
 };
 struct GpuWarmStartEntry
 {
