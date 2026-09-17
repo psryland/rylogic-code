@@ -84,7 +84,7 @@ jobs:
 
       - name: Build public package set
         shell: pwsh
-        run: dotnet-script .\script\Build.csx -project AllRylogic -build -deploy -config Release -notests -nopack
+        run: dotnet-script .\script\Build.csx -project AllRylogic -build -deploy -configs Debug Release -notests -nopack
 
       - name: Restore representative consumers
         shell: pwsh

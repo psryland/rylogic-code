@@ -941,13 +941,17 @@ public class AllNative : Group
 		if (!m_platforms.Contains("x64", StringComparer.OrdinalIgnoreCase) || !m_configs.Contains("Release", StringComparer.OrdinalIgnoreCase))
 			return;
 
-		// Package only the complete x64 Release closure from a clean private staging directory.
+		// Stable native packages use Release runtime DLLs but must support both native consumer ABIs.
+		if (!m_configs.Contains("Debug", StringComparer.OrdinalIgnoreCase))
+			throw new InvalidOperationException("Rylogic.Native stable packages require both x64 Debug and Release builds.");
+
 		var staging_dir = NativeRuntimePackage.Stage(
 			Workspace,
 			"x64",
 			"Release",
 			Tools.Path([UserVars.Root, "obj\\nuget\\Rylogic.Native\\x64\\Release\\package"], check_exists: false),
-			require_all_projects: true);
+			require_all_projects: true,
+			link_configs: ["Debug", "Release"]);
 
 		// Stage the native package in the release feed so the canonical root package and cache can be refreshed exactly.
 		Package = new Nuget()

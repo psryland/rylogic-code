@@ -25,9 +25,9 @@ exchanges it for a short-lived API key; no persistent nuget.org API key is store
    environment deployment.
 
 The workflow rebuilds every package from the tagged commit, validates the exact archive inventory,
-restores representative .NET 10 and .NET Framework 4.8.1 consumers, and publishes without
-`--skip-duplicate`. Reusing an existing version therefore fails instead of silently succeeding.
-Packages are currently unsigned.
+requires both Debug and Release native link assets, restores representative .NET 10 and .NET
+Framework 4.8.1 consumers, and publishes without `--skip-duplicate`. Reusing an existing version
+therefore fails instead of silently succeeding. Packages are currently unsigned.
 
 ## Package sources
 

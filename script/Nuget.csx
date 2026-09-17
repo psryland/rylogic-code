@@ -241,12 +241,23 @@ public class Nuget
 		if (!string.Equals(Path.GetFileName(package.StagedPackagePath), expected_name, StringComparison.Ordinal))
 			throw new Exception($"Release package filename '{Path.GetFileName(package.StagedPackagePath)}' does not match '{expected_name}'");
 
-		// Require one release nuspec and reject paths that reveal Debug or development-version leakage.
+		// Require one release nuspec and reject development artifacts outside the native ABI-specific link surface.
 		using var archive = ZipFile.OpenRead(package.StagedPackagePath);
 		var nuspecs = archive.Entries.Where(x => x.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)).ToArray();
 		if (nuspecs.Length != 1)
 			throw new Exception($"Package '{expected_name}' contains {nuspecs.Length} nuspec files");
-		if (archive.Entries.Any(x => x.FullName.Contains("/Debug/", StringComparison.OrdinalIgnoreCase) || x.FullName.Contains("-dev.", StringComparison.OrdinalIgnoreCase)))
+		var has_development_content = archive.Entries.Any(x =>
+		{
+			// Stable native packages deliberately provide Debug import/static libraries for Debug C++ consumers.
+			var path = x.FullName.Replace('\\', '/');
+			var is_supported_native_debug_link_asset =
+				string.Equals(package.PackageName, "Rylogic.Native", StringComparison.Ordinal) &&
+				path.StartsWith("build/native/lib/", StringComparison.OrdinalIgnoreCase) &&
+				path.Contains("/Debug/", StringComparison.OrdinalIgnoreCase);
+			return path.Contains("-dev.", StringComparison.OrdinalIgnoreCase) ||
+				(path.Contains("/Debug/", StringComparison.OrdinalIgnoreCase) && !is_supported_native_debug_link_asset);
+		});
+		if (has_development_content)
 			throw new Exception($"Package '{expected_name}' contains Debug or development-version content");
 
 		// Trust the embedded metadata only when it declares the builder's exact package identity.

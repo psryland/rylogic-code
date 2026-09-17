@@ -46,8 +46,9 @@ public static class NativeRuntimePackage
 	}
 
 	// Stages the complete Rylogic.Native payload and proves that its runtime closure is loadable.
-	public static string Stage(string workspace, string platform, string config, string output_dir, bool require_all_projects)
+	public static string Stage(string workspace, string platform, string config, string output_dir, bool require_all_projects, IEnumerable<string>? link_configs = null)
 	{
+		// Use one canonical runtime closure while retaining configuration-specific native link assets.
 		var runtime_assets = CollectRuntimeAssets(workspace, platform, config, require_all_projects);
 		if (runtime_assets.Count == 0)
 			throw new InvalidOperationException($"No declared native runtime assets are available for {platform}|{config}.");
@@ -57,8 +58,17 @@ public static class NativeRuntimePackage
 		StageHeaders(workspace, staging_dir);
 		StageProps(workspace, staging_dir);
 		var runtime_dir = StageRuntimeAssets(platform, staging_dir, runtime_assets);
-		StageLinkAssets(workspace, platform, config, staging_dir, runtime_assets, require_all_projects);
 		StageTools(workspace, platform, config, staging_dir, runtime_dir);
+
+		// Import and static libraries must match the consuming configuration even though the
+		// published runtime DLL closure is the canonical Release build.
+		foreach (var link_config in (link_configs ?? [config]).Distinct(StringComparer.OrdinalIgnoreCase))
+		{
+			var link_runtime_assets = string.Equals(link_config, config, StringComparison.OrdinalIgnoreCase)
+				? runtime_assets
+				: CollectRuntimeAssets(workspace, platform, link_config, require_all_projects);
+			StageLinkAssets(workspace, platform, link_config, staging_dir, link_runtime_assets, require_all_projects);
+		}
 		return staging_dir;
 	}
 
@@ -168,6 +178,7 @@ public static class NativeRuntimePackage
 	// Confirms that the generated package contains exactly the staged build/runtime/tool payload.
 	public static void ValidatePackage(string package_path, string staging_dir)
 	{
+		// Compare the archive with the private stage before checking required stable-package surfaces.
 		using var package = ZipFile.OpenRead(package_path);
 		var expected = Directory.EnumerateFiles(staging_dir, "*", SearchOption.AllDirectories)
 			.Select(x => IOPath.GetRelativePath(staging_dir, x).Replace('\\', '/'))
@@ -184,6 +195,14 @@ public static class NativeRuntimePackage
 			var missing = expected.Except(actual, StringComparer.OrdinalIgnoreCase).OrderBy(x => x);
 			var unexpected = actual.Except(expected, StringComparer.OrdinalIgnoreCase).OrderBy(x => x);
 			throw new InvalidOperationException($"Rylogic.Native package inventory mismatch. Missing: [{string.Join(", ", missing)}]. Unexpected: [{string.Join(", ", unexpected)}].");
+		}
+
+		// Stable C++ consumers build both configurations and may not substitute one ABI for the other.
+		foreach (var config in new[] { "Debug", "Release" })
+		{
+			var prefix = $"build/native/lib/x64/{config}/";
+			if (!actual.Any(x => x.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+				throw new InvalidOperationException($"Rylogic.Native package is missing required x64|{config} native link assets under '{prefix}'.");
 		}
 	}
 
