@@ -38,6 +38,7 @@ jobs:
       - name: Configure NuGet for CI
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Path 'lib\packages\release' -Force | Out-Null
           @'
           <?xml version="1.0" encoding="utf-8"?>
           <configuration>
@@ -50,6 +51,7 @@ jobs:
             </packageRestore>
             <packageSources>
               <clear />
+              <add key="RylogicRelease" value="lib\packages\release" />
               <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
             </packageSources>
           </configuration>
@@ -81,6 +83,10 @@ jobs:
           }
 
           "version=$project_version" >> $env:GITHUB_OUTPUT
+
+      - name: Bootstrap native package
+        shell: pwsh
+        run: dotnet-script .\script\Build.csx -project AllNative -build -deploy -configs Debug Release -notests -nopack
 
       - name: Build public package set
         shell: pwsh
