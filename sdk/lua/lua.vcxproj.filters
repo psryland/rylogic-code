@@ -15,35 +15,75 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="include\lapi.h" />
+    <ClInclude Include="include\lapi.h">
+      <Filter>include</Filter>
+    </ClInclude>
     <ClInclude Include="include\lauxlib.h">
       <Filter>include</Filter>
     </ClInclude>
-    <ClInclude Include="include\lcode.h" />
-    <ClInclude Include="include\ldebug.h" />
-    <ClInclude Include="include\ldo.h" />
-    <ClInclude Include="include\lfunc.h" />
-    <ClInclude Include="include\lgc.h" />
-    <ClInclude Include="include\llex.h" />
-    <ClInclude Include="include\llimits.h" />
-    <ClInclude Include="include\lmem.h" />
-    <ClInclude Include="include\lobject.h" />
-    <ClInclude Include="include\lopcodes.h" />
-    <ClInclude Include="include\lparser.h" />
-    <ClInclude Include="include\lstate.h" />
-    <ClInclude Include="include\lstring.h" />
-    <ClInclude Include="include\ltable.h" />
-    <ClInclude Include="include\ltm.h" />
+    <ClInclude Include="include\lcode.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\ldebug.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\ldo.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\lfunc.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\lgc.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\llex.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\llimits.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\lmem.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\lobject.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\lopcodes.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\lparser.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\lstate.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\lstring.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\ltable.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\ltm.h">
+      <Filter>include</Filter>
+    </ClInclude>
     <ClInclude Include="include\lua.h">
       <Filter>include</Filter>
     </ClInclude>
-    <ClInclude Include="include\luaconf.h" />
+    <ClInclude Include="include\luaconf.h">
+      <Filter>include</Filter>
+    </ClInclude>
     <ClInclude Include="include\lualib.h">
       <Filter>include</Filter>
     </ClInclude>
-    <ClInclude Include="include\lundump.h" />
-    <ClInclude Include="include\lvm.h" />
-    <ClInclude Include="include\lzio.h" />
+    <ClInclude Include="include\lundump.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\lvm.h">
+      <Filter>include</Filter>
+    </ClInclude>
+    <ClInclude Include="include\lzio.h">
+      <Filter>include</Filter>
+    </ClInclude>
     <ClCompile Include="src\lapi.c">
       <Filter>src\core</Filter>
     </ClCompile>
@@ -220,6 +260,8 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <None Include="include\Makefile" />
+    <None Include="include\Makefile">
+      <Filter>include</Filter>
+    </None>
   </ItemGroup>
 </Project>

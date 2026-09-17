@@ -7,12 +7,18 @@
     <Filter Include="src\dll">
       <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
     </Filter>
+    <Filter Include="res">
+      <UniqueIdentifier>{5b880efa-45e8-5f06-8a7a-540584173a6e}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\dll\dll.cpp">
       <Filter>src\dll</Filter>
     </ClCompile>
     <ClCompile Include="src\dll\context.cpp">
+      <Filter>src\dll</Filter>
+    </ClCompile>
+    <ClCompile Include="src\dll\interop.cpp">
       <Filter>src\dll</Filter>
     </ClCompile>
   </ItemGroup>
@@ -26,5 +32,13 @@
     <ClInclude Include="src\dll\dll_forward.h">
       <Filter>src\dll</Filter>
     </ClInclude>
+    <ClInclude Include="src\dll\interop.h">
+      <Filter>src\dll</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="$(RylogicRoot)include\pr\hlsl\pr_hlsl.rc">
+      <Filter>res</Filter>
+    </ResourceCompile>
   </ItemGroup>
 </Project>

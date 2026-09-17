@@ -11,7 +11,4 @@
       <Filter>src</Filter>
     </ClCompile>
   </ItemGroup>
-  <ItemGroup>
-    <None Include="deploy_elevate.py" />
-  </ItemGroup>
 </Project>

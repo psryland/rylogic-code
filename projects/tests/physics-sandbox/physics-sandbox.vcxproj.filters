@@ -71,6 +71,9 @@
     <Filter Include="pr\hlsl">
       <UniqueIdentifier>{77a1cf2b-0340-40a2-86d3-977e01a04a11}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\scene\terrain">
+      <UniqueIdentifier>{debcbe40-5c39-5278-bbab-b4b1e4505f51}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(RylogicRoot)include\pr\collision\collision.h">
@@ -283,6 +286,15 @@
     <ClInclude Include="..\..\..\include\pr\common\ldraw.h">
       <Filter>pr\common</Filter>
     </ClInclude>
+    <ClInclude Include="src\scene\sample_overlays.h">
+      <Filter>src\scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\scene\display_colour.h">
+      <Filter>src\scene</Filter>
+    </ClInclude>
+    <ClInclude Include="src\scene\terrain\terrain_visual.h">
+      <Filter>src\scene\terrain</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="scenes\box_vs_sphere.json">
@@ -453,6 +465,9 @@
     <None Include="src\scene\water\water_visual.hlsl">
       <Filter>src\scene\water</Filter>
     </None>
+    <None Include="scenes\terrain_baseline.json">
+      <Filter>scenes</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\utils\collision_dependency_check.cpp">
@@ -506,6 +521,12 @@
     <ClCompile Include="src\ui\recent_files.cpp">
       <Filter>src\ui</Filter>
     </ClCompile>
+    <ClCompile Include="src\scene\sample_overlays.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
+    <ClCompile Include="src\scene\terrain\terrain_visual.cpp">
+      <Filter>src\scene\terrain</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\..\..\include\pr\hlsl\pr_hlsl.rc">
@@ -514,5 +535,10 @@
     <ResourceCompile Include="src\scene\water\water_visual.rc">
       <Filter>src\scene\water</Filter>
     </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ShaderBuild Include="src\scene\water\water_visual.hlsl">
+      <Filter>src\scene\water</Filter>
+    </ShaderBuild>
   </ItemGroup>
 </Project>

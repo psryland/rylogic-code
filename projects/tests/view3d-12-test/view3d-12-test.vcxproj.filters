@@ -19,6 +19,9 @@
     <Filter Include="deps">
       <UniqueIdentifier>{2b1b76e5-4fc2-4f01-9496-49da6eb89637}</UniqueIdentifier>
     </Filter>
+    <Filter Include="pr\audio">
+      <UniqueIdentifier>{52f02dfb-0421-502c-90ba-0307fb799750}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(RylogicRoot)include\pr\gui\wingui.h">
@@ -39,6 +42,9 @@
     <ClCompile Include="src\view3d_ui_demo.cpp">
       <Filter>src</Filter>
     </ClCompile>
+    <ClInclude Include="$(RylogicRoot)include\pr\audio\audio-dll.h">
+      <Filter>pr\audio</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\view3d-12.dll">
@@ -48,6 +54,12 @@
       <Filter>deps</Filter>
     </DependencyLink>
     <DependencyLink Include="$(SDKPath)openxr\openxr\$(Platform)\bin\openxr_loader.dll">
+      <Filter>deps</Filter>
+    </DependencyLink>
+    <DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\view3d-ui.dll">
+      <Filter>deps</Filter>
+    </DependencyLink>
+    <DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\audio.dll">
       <Filter>deps</Filter>
     </DependencyLink>
   </ItemGroup>

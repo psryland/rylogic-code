@@ -27,7 +27,6 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <None Include="generate_def_file.py" />
     <None Include="src\prautoexp.def">
       <Filter>src</Filter>
     </None>

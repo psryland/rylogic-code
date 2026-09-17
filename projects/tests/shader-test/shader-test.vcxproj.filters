@@ -23,13 +23,15 @@
     <None Include="..\..\..\include\pr\hlsl\interop.hlsli">
       <Filter>pr\hlsl</Filter>
     </None>
-    <None Include="src\example.hlsl">
-      <Filter>shaders</Filter>
-    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\include\pr\hlsl\interop.h">
       <Filter>pr\hlsl</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="src\example.hlsl">
+      <Filter>shaders</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>

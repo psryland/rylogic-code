@@ -40,6 +40,12 @@
     <Filter Include="src\articulation">
       <UniqueIdentifier>{4be09e2a-dd5a-467d-b35a-b8c9817300b8}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\terrain">
+      <UniqueIdentifier>{66d730eb-cff0-423a-bf58-22f134653502}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\terrain\landscape">
+      <UniqueIdentifier>{9b706562-cd7b-4294-ab2c-1e52cc53f057}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\articulation\articulation.cpp">
@@ -188,6 +194,12 @@
     </ClCompile>
     <ClCompile Include="src\rigid_body\rigid_body.cpp">
       <Filter>src\rigid_body</Filter>
+    </ClCompile>
+    <ClCompile Include="src\terrain\landscape\baseline_surface.cpp">
+      <Filter>src\terrain\landscape</Filter>
+    </ClCompile>
+    <ClCompile Include="src\surface\gpu_world_contacts.cpp">
+      <Filter>src\compute</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -410,6 +422,18 @@
     <ClInclude Include="src\buoyancy\buoyancy_analytical.h">
       <Filter>src\buoyancy</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\baseline_surface.hlsli">
+      <Filter>src\terrain\landscape</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\baseline_types.hlsli">
+      <Filter>src\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\algorithm\perlin_noise_derivatives.hlsli">
+      <Filter>src\compute</Filter>
+    </ClInclude>
+    <ClInclude Include="src\compute\position_pseudo_buffers.h">
+      <Filter>src\compute</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="src\compute\collision.hlsli">
@@ -426,6 +450,15 @@
     </None>
     <None Include="src\buoyancy\gpu_basic_waves.hlsli">
       <Filter>src\buoyancy</Filter>
+    </None>
+    <None Include="$(RylogicRoot)include\pr\physics\terrain\landscape\README.md">
+      <Filter>src\terrain\landscape</Filter>
+    </None>
+    <None Include="src\terrain\landscape\baseline_probe.hlsl">
+      <Filter>src\terrain\landscape</Filter>
+    </None>
+    <None Include="src\compute\constraint_algebra.hlsli">
+      <Filter>src\compute</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>

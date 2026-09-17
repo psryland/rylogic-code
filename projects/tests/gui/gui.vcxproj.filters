@@ -14,6 +14,9 @@
     <Filter Include="pr\gui">
       <UniqueIdentifier>{8db8241f-758a-4d7c-91d3-e286f6b37ca2}</UniqueIdentifier>
     </Filter>
+    <Filter Include="deps">
+      <UniqueIdentifier>{9bf25e89-79d1-5a03-9ba9-1f61193ef123}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(RylogicRoot)include\pr\gui\colour_ctrl.h">
@@ -68,6 +71,8 @@
     </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="post_build.py" />
+    <DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\view3d-12.dll">
+      <Filter>deps</Filter>
+    </DependencyLink>
   </ItemGroup>
 </Project>

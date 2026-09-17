@@ -243,11 +243,24 @@
     <ResourceCompile Include="src\world\terrain\shaders\terrain.rc">
       <Filter>src\world\terrain\shaders</Filter>
     </ResourceCompile>
-    <ResourceCompile Include="src\world\water\shaders\water.rc" />
+    <ResourceCompile Include="src\world\water\shaders\water.rc">
+      <Filter>src\world\water\shaders</Filter>
+    </ResourceCompile>
   </ItemGroup>
   <ItemGroup>
     <DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\imgui.dll">
       <Filter>deps</Filter>
     </DependencyLink>
+  </ItemGroup>
+  <ItemGroup>
+    <ShaderBuild Include="src\world\ocean\shaders\ocean.hlsl">
+      <Filter>src\world\ocean\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\world\ocean\shaders\distant_ocean.hlsl">
+      <Filter>src\world\ocean\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\world\terrain\shaders\terrain.hlsl">
+      <Filter>src\world\terrain\shaders</Filter>
+    </ShaderBuild>
   </ItemGroup>
 </Project>

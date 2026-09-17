@@ -5,10 +5,20 @@
       <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
       <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
     </Filter>
+    <Filter Include="pr">
+      <UniqueIdentifier>{9c18428f-1e19-5aae-84ba-5ac8ed5ef367}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pr\neuralnet">
+      <UniqueIdentifier>{ea542551-83f9-534c-b675-b1c957a0170d}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="$(RylogicRoot)include\pr\neuralnet\forward.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\neuralnet\neuralnet.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\neuralnet\forward.h">
+      <Filter>pr\neuralnet</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\neuralnet\neuralnet.h">
+      <Filter>pr\neuralnet</Filter>
+    </ClInclude>
     <ClCompile Include="src\main.cpp">
       <Filter>src</Filter>
     </ClCompile>

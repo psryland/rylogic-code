@@ -18,9 +18,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="deploy.py" />
-  </ItemGroup>
-  <ItemGroup>
     <Text Include="readme.txt" />
   </ItemGroup>
 </Project>
