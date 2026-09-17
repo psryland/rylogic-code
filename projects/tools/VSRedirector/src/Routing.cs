@@ -118,6 +118,9 @@ internal static partial class Tests
 		Check(request.FilePath == @"C:\clone a\file.cs" && request.Line == 42, "devenv file and line");
 		Check(Request.Parse(["-command", "edit.goto 1", @"C:\a.cs"]).Line == 1, "switch order and casing");
 		Check(Request.Parse(["--inspect", @"C:\a.cs"]).Inspect, "read-only inspection");
+		var markdown = @"E:\Copilot\copilot-skills\copilot-instructions.md";
+		Check(Request.Parse([markdown]) == new Request(markdown, null, false), "reported Markdown path parses unchanged");
+		Check(Request.Parse(["/Edit", markdown, "/Command", "Edit.Goto 1"]) == new Request(markdown, 1, false), "reported Markdown path with line navigation");
 		foreach (var args in new string[][] {
 			[], ["a.cs", "b.cs"], ["a.cs", "/line", "42"], ["a.cs", "/command"],
 			["a.cs", "/command", "Edit.Goto 0"], ["a.cs", "/command", "Edit.Goto -1"],

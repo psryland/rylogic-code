@@ -101,9 +101,11 @@ The indexed `FileNames` property is read through the declared `EnvDTE.ProjectIte
 dispatch interface from native C++ projects. Project systems that fail DTE inspection produce errors, not guessed matches. Binding defects are reported
 separately from busy or access-denied errors. Finish solution/project loading before invoking the redirector.
 
-Reuse calls the selected instance's DTE object directly. Fallback uses `devenv.exe /Command "File.OpenFile ..."` (not `/Edit` and not a positional solution
-argument), then binds only that new process's ROT object for file/line navigation. If that new instance unexpectedly restores a solution, navigation fails
-explicitly and leaves it untouched rather than closing user state.
+Reuse calls the selected instance's DTE object directly. Fallback starts the selected `devenv.exe` with no arguments, then binds only that new process's ROT
+object and opens the file through DTE. File paths never pass through devenv's command-line parser; `/Edit` cannot redirect the launch to another instance.
+Shell execution starts that exact executable without inheriting the worker's result pipes, so the IDE can outlive the redirector without blocking its exit.
+If that new instance unexpectedly restores a solution, navigation fails explicitly and leaves it untouched rather than closing user state.
+The IDE's startup/project-picker window may also appear according to its existing startup preferences; the redirector does not change those preferences.
 
 ## Failure boundaries and verification
 
@@ -117,7 +119,9 @@ An error after launch or during navigation can leave a new IDE or an already ope
 even when opening succeeds. No failure triggers a second, speculative launch.
 
 Automated checks cover routing priorities/ties, full-path clone isolation, nested/linked membership and solution-item exclusion, numeric stable-version
-selection, Preview/Build Tools exclusion, argument parsing, command quoting, and document-specific line navigation. Read-only discovery has confirmed the
+selection, Preview/Build Tools exclusion, argument parsing, argument-free IDE startup, and document-specific line navigation (including
+`E:\Copilot\copilot-skills\copilot-instructions.md` and paths containing spaces and `&`). A real worker/child-process test checks that both result pipes close
+while the launched child remains alive. Read-only discovery has confirmed the
 original scenario: the Rylogic solution in VS2026 wins over its file already open loose in VS2022, and an unmatched file selects installed stable VS2026
 18.10 rather than VS2022 or Build Tools.
 
@@ -125,8 +129,12 @@ Live verification of the executable has also opened `projects\rylogic\Rylogic.Gf
 line 10, confirmed independently through DTE's active document and `TextSelection.CurrentLine`. The same file contains only 19 lines, so line 42 is
 explicitly rejected after the file is opened. File contents, the solution, and the set of VS processes were preserved; no documents or instances were closed.
 
-**Live verification remains:** Paul should check GitKraken's Edit This File action after choosing the executable and fallback opening an unrelated file
-in a new solution-free instance. These paths have not been verified end-to-end; pure tests and read-only discovery are not a claim of full GUI integration.
+The deployed executable's fallback has also been verified with `E:\Copilot\copilot-skills\copilot-instructions.md`: it started a new VS2026 process, returned
+success with both result pipes closed, and Paul confirmed the file opened correctly before closing the new window. The existing solution instances were
+preserved. VS also showed its startup/project picker.
+
+**Live verification remains:** Paul should check GitKraken's Edit This File action after choosing the executable. GitKraken-to-executable argument delivery
+has not been verified end-to-end; direct executable tests are not a claim of that integration.
 
 ## References
 

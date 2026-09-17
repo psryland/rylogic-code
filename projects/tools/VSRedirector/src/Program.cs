@@ -11,9 +11,13 @@ internal static class Program
 	{
 		var worker = args.Length != 0 && args[0] == "--worker";
 		var quiet = worker || args.Contains("--inspect") || args.Contains("--self-test");
+#if PR_UNITTESTS
+		quiet |= args.SequenceEqual(new[] { "--test-pipe-worker" }) || args.SequenceEqual(new[] { "--test-pipe-child" });
+#endif
 		try
 		{
 #if PR_UNITTESTS
+			if (Tests.RunHelper(args)) return 0;
 			if (args.SequenceEqual(new[] { "--self-test" }))
 			{
 				Tests.Run();
@@ -83,13 +87,10 @@ internal static class Program
 			return 0;
 		}
 
-		// File.OpenFile starts a new IDE without passing a solution/project as a positional argument.
-		using var process = Process.Start(Installations.LaunchInfo(installation!, request)) ?? throw new InvalidOperationException("Could not start Visual Studio.");
+		// Open the file only through DTE after the new process registers and its solution state has been checked.
+		using var process = Process.Start(Installations.LaunchInfo(installation!)) ?? throw new InvalidOperationException("Could not start Visual Studio.");
 		try
 		{
-			process.StandardInput.Close();
-			process.BeginOutputReadLine();
-			process.BeginErrorReadLine();
 			visual_studio.WaitForNew(process);
 			visual_studio.Open(process.Id, request, require_empty_solution: true);
 		}
@@ -110,6 +111,7 @@ internal static partial class Tests
 	{
 		TestRouting();
 		TestInstallations();
+		TestLaunchPipes();
 		TestNavigation();
 		Check(!VisualStudio.IsRealProject("{66A26720-8FB5-11D2-AA7E-00C04F688DDE}"), "solution folder exclusion");
 		Check(!VisualStudio.IsRealProject("{66A2671D-8FB5-11D2-AA7E-00C04F688DDE}"), "miscellaneous file exclusion");
@@ -119,6 +121,58 @@ internal static partial class Tests
 		Check(!VisualStudio.HasLoadedSolution(false, @"C:\a.sln"), "closed solution");
 		Check(VisualStudio.HasLoadedSolution(true, @"C:\a.slnx"), "loaded solution");
 		Console.WriteLine($"VSRedirector: {s_count} checks passed.");
+	}
+
+	// Run bounded child processes for the pipe-lifetime regression without starting an IDE.
+	internal static bool RunHelper(string[] args)
+	{
+		if (args.SequenceEqual(new[] { "--test-pipe-child" }))
+		{
+			Thread.Sleep(TimeSpan.FromSeconds(30));
+			return true;
+		}
+		if (args.SequenceEqual(new[] { "--test-pipe-worker" }))
+		{
+			var info = Installations.LaunchInfo(new Installation(Path.Combine(AppContext.BaseDirectory, "VSRedirector.exe"), new Version(1, 0)));
+			info.ArgumentList.Add("--test-pipe-child");
+			using var child = Process.Start(info) ?? throw new InvalidOperationException("Could not start pipe test child.");
+			Console.WriteLine(child.Id);
+			Console.Error.WriteLine("worker finished");
+			return true;
+		}
+		return false;
+	}
+
+	// A long-lived launched process must not keep either supervisor result pipe open after the worker exits.
+	private static void TestLaunchPipes()
+	{
+		var info = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "VSRedirector.exe")) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+		info.ArgumentList.Add("--test-pipe-worker");
+		using var worker = Process.Start(info) ?? throw new InvalidOperationException("Could not start pipe test worker.");
+		Process? child = null;
+		try
+		{
+			var pid_line = worker.StandardOutput.ReadLineAsync();
+			var error = worker.StandardError.ReadToEndAsync();
+			Check(pid_line.Wait(TimeSpan.FromSeconds(10)) && int.TryParse(pid_line.Result, out _), "pipe test child reports its PID");
+			child = Process.GetProcessById(int.Parse(pid_line.Result!));
+			var output = worker.StandardOutput.ReadToEndAsync();
+			Check(worker.WaitForExit(10000) && worker.ExitCode == 0, "pipe test worker exits successfully");
+			Check(Task.WhenAll(output, error).Wait(TimeSpan.FromSeconds(2)), "both result pipes close while launched child remains alive");
+			Check(!child.HasExited && output.Result.Length == 0 && error.Result.Contains("worker finished"), "worker output completes independently of launched child");
+		}
+		finally
+		{
+			// Terminate only these disposable test processes, never a Visual Studio instance.
+			if (!worker.HasExited) worker.Kill();
+			worker.WaitForExit(10000);
+			if (child != null)
+			{
+				if (!child.HasExited) child.Kill();
+				child.WaitForExit(10000);
+				child.Dispose();
+			}
+		}
 	}
 	private static void Check(bool condition, string name)
 	{

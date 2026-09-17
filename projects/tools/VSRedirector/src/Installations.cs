@@ -61,14 +61,11 @@ internal static class Installations
 			?? throw new InvalidOperationException("No complete, launchable, stable Visual Studio IDE is installed (Preview and Build Tools are excluded).");
 	}
 
-	// /Command starts a new IDE, unlike /Edit. File.OpenFile treats the argument as a file, not a solution to load.
-	internal static ProcessStartInfo LaunchInfo(Installation installation, Request request)
+	// Start an independent IDE without passing file paths or navigation commands to its command-line parser.
+	internal static ProcessStartInfo LaunchInfo(Installation installation)
 	{
-		// Do not let the long-lived IDE inherit the worker's result pipes and keep the supervisor waiting for EOF.
-		var info = new ProcessStartInfo(installation.Executable) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
-		info.ArgumentList.Add("/Command");
-		info.ArgumentList.Add($"File.OpenFile \"{request.FilePath}\"");
-		return info;
+		// Shell execution does not inherit the worker's result pipes; redirecting new standard streams alone does not prevent handle inheritance.
+		return new ProcessStartInfo(installation.Executable) { UseShellExecute = true };
 	}
 }
 
@@ -89,9 +86,9 @@ internal static partial class Tests
 		Check(selected.Executable == @"C:\new\devenv.exe", "numeric stable IDE selection");
 		Throws(() => Installations.Select(JsonSerializer.Serialize(records.Skip(2))), "no eligible installation");
 		Throws(() => Installations.Select("[]"), "no installation");
-		var info = Installations.LaunchInfo(selected, new Request(@"C:\space dir\&file.cs", 42, false));
-		Check(!info.UseShellExecute && info.ArgumentList.SequenceEqual(new[] { "/Command", "File.OpenFile \"C:\\space dir\\&file.cs\"" }), "new process command quoting without /Edit");
-		Check(info.RedirectStandardInput && info.RedirectStandardOutput && info.RedirectStandardError, "new IDE cannot retain worker result pipes");
+		var info = Installations.LaunchInfo(selected);
+		Check(info.FileName == selected.Executable && info.ArgumentList.Count == 0 && info.Arguments.Length == 0, "new IDE has no command-line file parsing or /Edit routing");
+		Check(info.UseShellExecute && !info.RedirectStandardInput && !info.RedirectStandardOutput && !info.RedirectStandardError, "new IDE uses an independent shell launch");
 	}
 }
 #endif
