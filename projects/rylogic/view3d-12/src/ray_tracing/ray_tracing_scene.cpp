@@ -413,6 +413,7 @@ namespace pr::rdr12
 			// Create the material payload.
 			shaders::rt::RayTracingMaterial material = {};
 			material.diffuse = tint.rgba;
+			material.colour_blend = ColourBlendConstant(inst);
 			material.emissive = emissive != nullptr ? emissive->m_colour.rgba : ColourZero.rgba;
 			material.optics = v4(
 				rt_reflectivity,
@@ -553,16 +554,34 @@ namespace pr::rdr12
 		// Create or refresh the material buffer consumed by reflection closest-hit shaders.
 		void EnsureMaterialBuffer(Renderer& rdr, GfxCmdList& cmd_list, GpuUploadBuffer& upload, RayTracingScene::Data& data, std::span<shaders::rt::RayTracingMaterial const> materials, std::span<Texture2DPtr const> material_textures, uint64_t material_signature)
 		{
+			// Unchanged shading data needs neither a GPU upload nor a resource transition.
 			if (data.m_materials != nullptr && data.m_material_count == isize(materials) && data.m_material_signature == material_signature)
 				return;
 
-			ReleaseMaterialBuffer(rdr, data);
+			// Empty scenes release their previous storage.
 			if (materials.empty())
+			{
+				// No subsequent closest-hit dispatch can reference a material record.
+				ReleaseMaterialBuffer(rdr, data);
 				return;
+			}
 
+			// Reuse the existing GPU buffer for animated instance colours. Queue-ordered uploads precede this frame's rays.
 			auto desc = ResDesc::Buf<shaders::rt::RayTracingMaterial>(isize(materials), materials)
 				.def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			data.m_materials = CreateRayTracingResource(rdr, cmd_list, upload, desc, "RayTracing:materials");
+			if (data.m_materials != nullptr && data.m_material_count == isize(materials))
+			{
+				// Only the per-instance shading records change; geometry and acceleration structures remain untouched.
+				GfxUpdateSubresourceScope map(cmd_list, upload, data.m_materials.get(), 0, 0, 1, desc.DataAlignment);
+				map.Write(desc.Data[0], false);
+				map.Commit(EFinalState::Override, desc.DefaultState);
+			}
+			else
+			{
+				// A changed record count requires storage with the matching extent.
+				ReleaseMaterialBuffer(rdr, data);
+				data.m_materials = CreateRayTracingResource(rdr, cmd_list, upload, desc, "RayTracing:materials");
+			}
 			data.m_material_textures.assign(begin(material_textures), end(material_textures));
 			data.m_material_count = isize(materials);
 			data.m_material_signature = material_signature;

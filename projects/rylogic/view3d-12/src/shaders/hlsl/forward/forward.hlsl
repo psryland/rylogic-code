@@ -5,6 +5,7 @@
 // Shader for forward rendering
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
+#include "view3d-12/src/shaders/hlsl/utility/surface_colour.hlsli"
 
 static const int AlphaModeOpaque = 0;
 static const int AlphaModeMask = 1;
@@ -289,6 +290,9 @@ PSOut PSForward(PSIn In, bool is_front_face : SV_IsFrontFace)
 		}
 	}
 
+	// Override the completed surface RGB before reflections and lighting; leave opacity untouched.
+	Out.diff = SurfaceColourBlend(Out.diff, g_nugget.colour_blend);
+
 	// Env Map
 	if (HasEnvMap(g_nugget.flags) && HasNormals(g_nugget.flags))
 		Out.diff = EnvironmentMap(g_frame.env_map, In.ws_vert, In.ws_norm, g_frame.cam.c2w[3], Out.diff);
@@ -324,6 +328,9 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 
 		base_colour *= tex_colour;
 	}
+
+	// Override the completed linear surface colour before lighting and leave the material alpha mode unchanged.
+	base_colour = SurfaceColourBlend(base_colour, g_nugget.colour_blend);
 
 	// Apply the material alpha mode before lighting so masked surfaces can discard early.
 	float alpha = base_colour.a;

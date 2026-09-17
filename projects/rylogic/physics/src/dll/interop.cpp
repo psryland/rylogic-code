@@ -2177,7 +2177,7 @@ extern "C"
 				pr::physics::RequireMaterialId(c.material_id);
 				config = pr::physics::CylindricalBoundaryConfig{
 					.m_centre_x = c.centre_x, .m_centre_y = c.centre_y, .m_radius = c.radius, .m_material_id = c.material_id,
-					.m_surface_spacing = c.surface_spacing, .m_max_substep_motion = c.max_substep_motion, .m_max_penetration = c.max_penetration,
+					.m_surface_spacing = c.surface_spacing,
 				};
 				try
 				{

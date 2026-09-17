@@ -5,6 +5,7 @@
 
 #include "view3d-12/src/shaders/hlsl/deferred/gbuffer_cbuf.hlsli"
 #include "view3d-12/src/shaders/hlsl/deferred/gbuffer.hlsli"
+#include "view3d-12/src/shaders/hlsl/utility/surface_colour.hlsli"
 
 ConstantBuffer<CBufNugget> g_nugget : register(b2);
 Texture2D<float4> g_texture0 :register(t0);
@@ -45,6 +46,9 @@ PSOut_GBuffer PSGBuffer(PSIn In)
 	// Texture2D (with transform)
 	if (HasTex0(g_nugget.flags))
 		diff = g_texture0.Sample(g_sampler0, In.tex0) * diff;
+
+	// Store the overridden surface RGB for the deferred lighting pass, preserving opacity.
+	diff = SurfaceColourBlend(diff, g_nugget.colour_blend);
 
 	// Generate gbuffer output
 	PSOut_GBuffer Out = WriteGBuffer(diff, ws_vert, ws_norm);

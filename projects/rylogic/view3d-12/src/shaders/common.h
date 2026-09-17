@@ -198,13 +198,29 @@ namespace pr::rdr12
 		cb.o2s = c2s * w2c * o2w;
 	}
 
-	// Set the tint properties of a constants buffer
-	template <typename TCBuf> requires(requires(TCBuf cb) { cb.tint; })
+	// Decode a packed surface override into linear RGB and its UNORM8 blend weight. Missing components disable the override.
+	inline v4 ColourBlendConstant(BaseInstance const& inst)
+	{
+		// Disabled instances need no colour conversion; packed alpha is a weight, not surface opacity.
+		auto colour = inst.find<Colour32>(EInstComp::ColourBlend32);
+		if (colour == nullptr || a_cp(*colour) == 0.0f)
+			return v4::Zero();
+
+		// Colour decodes sRGB channels but leaves alpha as a linear coefficient.
+		return Colour(*colour).rgba;
+	}
+
+	// Set the multiplicative tint and independent surface RGB override of a constants buffer.
+	template <typename TCBuf> requires(requires(TCBuf cb) { cb.tint; cb.colour_blend; })
 	void SetTint(TCBuf& cb, BaseInstance const& inst, Material const& material)
 	{
+		// Preserve the existing combination of instance and material tint.
 		auto col = inst.find<Colour32>(EInstComp::TintColour32);
 		auto c = Colour((col ? *col : Colour32White) * material.TintColour());
 		cb.tint = c.rgba;
+
+		// Missing components preserve the original surface; this changes no material or alpha flags.
+		cb.colour_blend = ColourBlendConstant(inst);
 	}
 
 	// Set the texture properties of a constants buffer

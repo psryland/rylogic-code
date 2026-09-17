@@ -46,9 +46,11 @@ struct CBufNugget //:reg(b2)
 
 	// Tinting
 	float4 tint; // object tint colour
+	float4 colour_blend; // linear override RGB; w = surface blend amount
 
 	// EnvMap
 	float env_reflectivity; // Reflectivity of the environment map
+	float3 far_clip_fade; // Reserved to match the forward per-nugget layout
 };
 
 #endif

@@ -38,16 +38,17 @@ namespace pr::rdr12::ldraw
 	{
 		// Note: don't use 'm_i2w' to control the object transform, use m_o2p in the LdrObject instead
 		#define PR_RDR_INST(x) \
-		x(m4x4        ,m_i2w      ,EInstComp::I2WTransform       )/*     16 bytes, align 16 */\
-		x(m4x4        ,m_c2s      ,EInstComp::C2SOptional        )/*     16 bytes, align 16 */\
-		x(ModelPtr    ,m_model    ,EInstComp::ModelPtr           )/* 4 or 8 bytes, align 8 */\
-		x(MaterialPtr ,m_material ,EInstComp::MaterialPtr        )/* 4 or 8 bytes, align 8 */\
-		x(PosePtr     ,m_pose     ,EInstComp::PosePtr            )/* 4 or 8 bytes, align 8 */\
-	 	x(PipeStates  ,m_pso      ,EInstComp::PipeStates         )/*    104 bytes, align 8 */\
-		x(Colour32    ,m_colour   ,EInstComp::TintColour32       )/*      4 bytes, align 4 */\
-		x(float       ,m_env      ,EInstComp::EnvMapReflectivity )/*      4 bytes, align 4 */\
-		x(EInstFlag   ,m_iflags   ,EInstComp::Flags              )/*      4 bytes, align 4 */\
-		x(SKOverride  ,m_sko      ,EInstComp::SortkeyOverride    )/*      8 bytes, align 4 */
+		x(m4x4        ,m_i2w         ,EInstComp::I2WTransform      )/*     16 bytes, align 16 */\
+		x(m4x4        ,m_c2s         ,EInstComp::C2SOptional       )/*     16 bytes, align 16 */\
+		x(ModelPtr    ,m_model       ,EInstComp::ModelPtr          )/* 4 or 8 bytes, align 8 */\
+		x(MaterialPtr ,m_material    ,EInstComp::MaterialPtr       )/* 4 or 8 bytes, align 8 */\
+		x(PosePtr     ,m_pose        ,EInstComp::PosePtr           )/* 4 or 8 bytes, align 8 */\
+		x(PipeStates  ,m_pso         ,EInstComp::PipeStates        )/*    104 bytes, align 8 */\
+		x(Colour32    ,m_colour      ,EInstComp::TintColour32      )/*      4 bytes, align 4 */\
+		x(Colour32    ,m_colour_blend,EInstComp::ColourBlend32     )/*      4 bytes, align 4 */\
+		x(float       ,m_env         ,EInstComp::EnvMapReflectivity)/*      4 bytes, align 4 */\
+		x(EInstFlag   ,m_iflags      ,EInstComp::Flags             )/*      4 bytes, align 4 */\
+		x(SKOverride  ,m_sko         ,EInstComp::SortkeyOverride   )/*      8 bytes, align 4 */
 		PR_RDR12_INSTANCE_MEMBERS(RdrInstance , PR_RDR_INST);
 		#undef PR_RDR_INST
 	};
@@ -247,6 +248,11 @@ namespace pr::rdr12::ldraw
 
 		// Restore the colour to the initial colour for this object or child objects matching 'name' (see Apply)
 		void ResetColour(char const* name = nullptr);
+
+		// Blend surface RGB towards the packed sRGB target using alpha/255 as a linear weight, without changing surface opacity.
+		// Alpha zero disables the override. Name follows Apply; getters return the first match, or zero if absent.
+		Colour32 ColourBlend(char const* name = nullptr) const;
+		void ColourBlend(Colour32 blend, char const* name = nullptr);
 
 		// Get/Set the reflectivity of this object or child objects matching 'name' (see Apply)
 		float Reflectivity(char const* name = nullptr) const;

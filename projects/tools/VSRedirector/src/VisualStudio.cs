@@ -338,6 +338,16 @@ internal static partial class Tests
 		var plain = new FakeIde(file);
 		VisualStudio.Navigate(plain, new Request(file, null, false), com);
 		Check(plain.ItemOperations.m_window.Document.Selection.m_line == null, "plain open leaves line unchanged");
+		foreach (var path in new[] { @"E:\Copilot\copilot-skills\copilot-instructions.md", @"C:\space dir\&file.cs" })
+		{
+			foreach (var line in new int?[] { null, 1 })
+			{
+				var ide = new FakeIde(path);
+				VisualStudio.Navigate(ide, Request.Parse(line == null ? [path] : ["/Edit", path, "/Command", "Edit.Goto 1"]), com);
+				Check(ide.ItemOperations.m_file == path && ide.ItemOperations.m_window.Document.Selection.m_line == line, "exact file and optional line reach DTE without command quoting");
+				Check(ide.ItemOperations.m_view == (line == null ? "{00000000-0000-0000-0000-000000000000}" : "{7651A703-06E5-11D1-8EBD-00A0C90F26EA}"), "plain open preserves default editor; line navigation uses text editor");
+			}
+		}
 		Throws(() => VisualStudio.Navigate(new FakeIde(@"C:\wrong.cs"), new Request(file, 42, false), com), "do not navigate unrelated document");
 		var short_file = new FakeIde(file);
 		short_file.ItemOperations.m_window.Document.Selection.Parent.EndPoint.Line = 19;

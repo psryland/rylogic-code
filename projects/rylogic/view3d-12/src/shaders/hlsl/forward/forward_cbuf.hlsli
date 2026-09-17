@@ -34,7 +34,6 @@ struct CBufNugget// :reg(b1)
 	//   forward_cbuf.hlsli
 	//   shadow_map_cbuf.hlsli
 	//   gbuffer_cbuf.hlsli
-	//   ray_cast.hlsli
 
 	// x = Model flags - See types.hlsli
 	// y = Texture flags
@@ -53,6 +52,7 @@ struct CBufNugget// :reg(b1)
 
 	// Tinting
 	float4 tint; // object tint colour
+	float4 colour_blend; // linear override RGB; w = surface blend amount
 
 	// EnvMap
 	float env_reflectivity; // Reflectivity of the environment map

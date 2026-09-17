@@ -48,7 +48,7 @@ namespace pr::physics
 
 namespace pr::physics
 {
-	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00020000U;
+	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00030000U;
 	inline constexpr std::uint32_t PHYSICS_STRUCT_VERSION = 2U;
 	inline constexpr std::uint32_t PHYSICS_CHECKPOINT_VERSION = 3U;
 
@@ -233,15 +233,15 @@ namespace pr::physics
 		std::uint32_t reserved;
 	};
 
-	// Infinite-height inward cylinder and explicit discrete-motion envelope; all distances are metres.
+	// Infinite-height inward cylinder and surface-sample spacing; all distances are metres.
 	struct CylindricalBoundaryDesc
 	{
 		StructHeader header;
 		double centre_x, centre_y, radius;
 		std::int32_t material_id;
-		float surface_spacing, max_substep_motion, max_penetration;
+		float surface_spacing;
 	};
-	static_assert(sizeof(CylindricalBoundaryDesc) == 48);
+	static_assert(sizeof(CylindricalBoundaryDesc) == 40);
 
 	struct Vector4
 	{

@@ -15,8 +15,9 @@ namespace pr::physics
 	// Sampled world surfaces share primitive plans and one owned static solver endpoint.
 	struct GpuWorldContacts
 	{
-		// Status flags followed by the first rejected motion's body, substep, phase, and scalar components.
-		static constexpr int StatusWordCount = 20;
+		// Failure flags, first cause, body/leaf indices, sample ordinal, and source-specific detail.
+		static constexpr int StatusWordCount = 6;
+
 		// Patch span and total sample count for one packed primitive shape.
 		struct Range
 		{
@@ -50,10 +51,6 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_query_readback;
 		uint32_t m_query_capacity = 0, m_query_count = 0;
 		uint64_t m_frequency = 0;
-		D3DPtr<ID3D12Resource> m_previous_bodies;
-		uint32_t m_body_count = 0;
-		float m_dt = 0;
-		uint32_t m_substep = 0, m_phase = 0;
 
 		// Validate and own independent world sources and their shared contact pipeline.
 		GpuWorldContacts(Gpu& gpu, std::optional<terrain::landscape::BaselineSurface> surface, float spacing, std::optional<CylindricalBoundaryConfig> boundary = {});
@@ -74,10 +71,7 @@ namespace pr::physics
 		// Return terrain queue time only after this frame's submitted work has completed.
 		double GpuTimeMs() const;
 
-		// Check the boundary envelope without emitting contacts; retain the completed pose for the next substep when requested.
-		void ValidateBoundary(GpuJob& job, ID3D12Resource* bodies, ID3D12Resource* shapes, float dt, bool advance);
-
-		// Record one surface or validation dispatch using the shared sampled streams.
+		// Record one surface-contact dispatch using the current poses and cached sampled streams.
 		void Dispatch(GpuJob& job, int mode, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,
 			ID3D12Resource* bodies, ID3D12Resource* shapes, ID3D12Resource* contacts, ID3D12Resource* counters, ID3D12Resource* dispatch);
 	};

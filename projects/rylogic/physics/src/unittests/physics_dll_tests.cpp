@@ -1071,8 +1071,6 @@ namespace pr::unittests
 						.header = {sizeof(CylindricalBoundaryDesc), PHYSICS_STRUCT_VERSION},
 						.radius = 100,
 						.surface_spacing = 0.05f,
-						.max_substep_motion = 0.1f,
-						.max_penetration = 0.25f,
 					};
 					PR_EXPECT(fix.m_api.EngineCylindricalBoundarySet(fix.m_engine, &desc) == EStatus::Success);
 				}
