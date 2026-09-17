@@ -46,8 +46,8 @@ namespace pr::view3d::ui
 		float origin_y;
 	};
 
-	// A rasterized glyph's single-channel (alpha-only) coverage bitmap, in physical (device) pixels,
-	// plus the offset of its top-left corner relative to the glyph's own origin - DirectWrite's
+	// A rasterized glyph's colour-neutral antialiased coverage bitmap, in physical (device) pixels,
+	// plus the offset of its top-left corner relative to the glyph's own origin. DirectWrite's
 	// alpha-texture bounds are not guaranteed to start exactly at the origin, so this offset must be
 	// applied when the renderer positions the bitmap.
 	struct GlyphBitmap

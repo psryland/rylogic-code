@@ -97,6 +97,13 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT(bitmap.width_px > 0);
 		PR_EXPECT(bitmap.height_px > 0);
 		PR_EXPECT(bitmap.alpha.size() == static_cast<std::size_t>(bitmap.width_px) * bitmap.height_px);
+		auto has_partial_coverage = false;
+		for (auto alpha : bitmap.alpha)
+		{
+			// Curved and diagonal edges must retain DirectWrite's fractional coverage.
+			has_partial_coverage |= alpha != 0 && alpha != 255;
+		}
+		PR_EXPECT(has_partial_coverage);
 	}
 
 	PRUnitTest(TextShaperRasterizeOfWhitespaceGlyphHasNoCoveragePixels, Quick)

@@ -487,6 +487,7 @@ namespace pr::view3d::ui
 
 	GlyphBitmap TextShaper::Rasterize(std::uint64_t font_key, float dpi_scale, std::uint32_t glyph_index)
 	{
+		// Resolve the exact face registered while shaping so rasterisation cannot substitute fonts.
 		auto it = m_run_faces.find(font_key);
 		if (it == m_run_faces.end())
 			throw EngineException(EStatus::InvalidArgument, std::format("TextShaper: no shaped run has registered font key {}", font_key));
@@ -511,12 +512,12 @@ namespace pr::view3d::ui
 		run.bidiLevel = 0;
 
 		Microsoft::WRL::ComPtr<IDWriteGlyphRunAnalysis> analysis;
-		auto hr = m_factory->CreateGlyphRunAnalysis(&run, 1.0f, nullptr, DWRITE_RENDERING_MODE_ALIASED, DWRITE_MEASURING_MODE_NATURAL, 0.0f, 0.0f, analysis.GetAddressOf());
+		auto hr = m_factory->CreateGlyphRunAnalysis(&run, 1.0f, nullptr, DWRITE_RENDERING_MODE_CLEARTYPE_NATURAL_SYMMETRIC, DWRITE_MEASURING_MODE_NATURAL, 0.0f, 0.0f, analysis.GetAddressOf());
 		if (FAILED(hr))
 			throw EngineException(EStatus::InternalError, "TextShaper: CreateGlyphRunAnalysis failed");
 
 		RECT bounds{};
-		if (FAILED(analysis->GetAlphaTextureBounds(DWRITE_TEXTURE_ALIASED_1x1, &bounds)))
+		if (FAILED(analysis->GetAlphaTextureBounds(DWRITE_TEXTURE_CLEARTYPE_3x1, &bounds)))
 			throw EngineException(EStatus::InternalError, "TextShaper: GetAlphaTextureBounds failed");
 
 		auto width = bounds.right - bounds.left;
@@ -524,9 +525,21 @@ namespace pr::view3d::ui
 		if (width <= 0 || height <= 0)
 			return GlyphBitmap{ .width_px = 0, .height_px = 0, .origin_x_px = 0, .origin_y_px = 0, .alpha = {} }; // a whitespace glyph has no coverage pixels at all
 
-		std::vector<std::uint8_t> alpha(static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
-		if (FAILED(analysis->CreateAlphaTexture(DWRITE_TEXTURE_ALIASED_1x1, &bounds, alpha.data(), static_cast<UINT32>(alpha.size()))))
+		// DirectWrite exposes antialiasing as three horizontal subpixel coverages per pixel.
+		auto const pixel_count = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+		auto subpixel_alpha = std::vector<std::uint8_t>(pixel_count * 3);
+		if (FAILED(analysis->CreateAlphaTexture(DWRITE_TEXTURE_CLEARTYPE_3x1, &bounds, subpixel_alpha.data(), static_cast<UINT32>(subpixel_alpha.size()))))
 			throw EngineException(EStatus::InternalError, "TextShaper: CreateAlphaTexture failed");
+
+		// Average the subpixels into colour-neutral coverage for arbitrary text colours and alpha.
+		auto alpha = std::vector<std::uint8_t>(pixel_count);
+		for (auto index = std::size_t{}; index != pixel_count; ++index)
+		{
+			// Preserve the pixel's total covered area without introducing ClearType colour fringes.
+			auto const subpixel_offset = index * 3;
+			auto const sum = static_cast<std::uint32_t>(subpixel_alpha[subpixel_offset + 0]) + subpixel_alpha[subpixel_offset + 1] + subpixel_alpha[subpixel_offset + 2];
+			alpha[index] = static_cast<std::uint8_t>((sum + 1) / 3);
+		}
 
 		return GlyphBitmap{
 			.width_px = static_cast<std::uint32_t>(width),
