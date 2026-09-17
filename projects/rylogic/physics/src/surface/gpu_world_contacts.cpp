@@ -12,17 +12,15 @@ namespace pr::physics
 	using namespace pr::compute;
 	namespace
 	{
-		// Root constants shared with the sampled world-contact shader; modes are terrain, cylinder, and validation.
+		// Root constants shared with the sampled world-contact shader; modes select terrain or cylinder.
 		struct Constants
 		{
-			uint32_t m_substep, m_endpoint, m_max_contacts;
+			uint32_t m_endpoint, m_max_contacts, m_plan_offset;
 			float m_height_upper;
 			int m_sleeping_enabled, m_island_count;
 			uint32_t m_mode, m_material;
 			double m_centre_x, m_centre_y, m_radius;
-			float m_spacing, m_max_motion;
-			float m_max_penetration, m_dt;
-			uint32_t m_plan_offset, m_phase;
+			float m_spacing, m_pad;
 		};
 
 		// Upload a complete bounded stream; callers retain buffers until the recorded job completes.
@@ -104,7 +102,7 @@ namespace pr::physics
 		auto resolver = shader_cache::ResourceSourceResolver{};
 		auto code = ShaderCompiler().Source("src/surface/gpu_world_contacts.hlsl", resolver).EntryPoint(L"CSWorldContacts").ShaderModel(L"cs_6_0").HlslVersion(EHlslVersion::Hlsl2021).Arg(L"-Gis").Optimise(true).Compile();
 		m_step.m_sig = RootSig(ERootSigFlags::ComputeOnly).U32<Constants>(ECBufReg::b0)
-			.SRV(ESRVReg::t0).SRV(ESRVReg::t1).SRV(ESRVReg::t2).SRV(ESRVReg::t3).SRV(ESRVReg::t4).SRV(ESRVReg::t5).SRV(ESRVReg::t6).SRV(ESRVReg::t7)
+			.SRV(ESRVReg::t0).SRV(ESRVReg::t1).SRV(ESRVReg::t2).SRV(ESRVReg::t3).SRV(ESRVReg::t4).SRV(ESRVReg::t5).SRV(ESRVReg::t6)
 			.UAV(EUAVReg::u0).UAV(EUAVReg::u1).UAV(EUAVReg::u2).Create(gpu, "WorldContacts:Signature");
 		m_step.m_pso = ComputePSO(m_step.m_sig.get(), code).Create(gpu, "WorldContacts:Contacts");
 		m_dispatch.m_sig = RootSig(ERootSigFlags::ComputeOnly).U32<Constants>(ECBufReg::b0).UAV(EUAVReg::u0).UAV(EUAVReg::u2).Create(gpu, "WorldContacts:DispatchSignature");
@@ -140,8 +138,6 @@ namespace pr::physics
 			m_query_capacity = query_count;
 		}
 		m_query_count = 0;
-		m_dt = 0;
-		m_substep = m_phase = 0;
 
 		// ShapeCache invalidates packed indices on reset/eviction; immutable plans follow that same lifetime.
 		auto upload_plans = shapes.m_changed || m_shape_count != shapes.m_shapes.size();
@@ -196,11 +192,6 @@ namespace pr::physics
 			auto const recipe = m_surface ? m_surface->Recipe() : terrain::landscape::BaselineSurface{}.Recipe();
 			UploadStream(m_gpu, job, m_recipe, std::span(&recipe, 1), "WorldContacts:Recipe");
 		}
-
-		// Boundary-only motion history is absent from terrain-only frames.
-		m_body_count = s_cast<uint32_t>(bodies.size());
-		if (m_boundary)
-			UploadStream(m_gpu, job, m_previous_bodies, bodies, "WorldContacts:PreviousBodies");
 
 		// Skip infinite-mass bodies and generate missing plans only when a shape first becomes dynamic.
 		m_instances.clear();
@@ -269,28 +260,6 @@ namespace pr::physics
 			Dispatch(job, 1, endpoint, max_contacts, sleeping_enabled, island_count, sleep_islands, bodies, shapes, contacts, counters, dispatch);
 	}
 
-	// Validate both ends of each substep without modifying rigid dynamics.
-	void GpuWorldContacts::ValidateBoundary(GpuJob& job, ID3D12Resource* bodies, ID3D12Resource* shapes, float dt, bool advance)
-	{
-		if (!m_boundary)
-			return;
-
-		// Validation does not access solver or sleep streams; the status allocation supplies unused root addresses.
-		m_dt = dt;
-		m_phase = advance ? 2u : 0u;
-		Dispatch(job, 2, 0, 0, false, 0, m_plans.get(), bodies, shapes, m_status.get(), m_status.get(), nullptr);
-		if (advance)
-		{
-			job.m_barriers.Transition(bodies, D3D12_RESOURCE_STATE_COPY_SOURCE);
-			job.m_barriers.Transition(m_previous_bodies.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			job.m_barriers.Commit();
-			job.m_cmd_list.CopyBufferRegion(m_previous_bodies.get(), 0, bodies, 0, uint64_t(m_body_count) * sizeof(GpuRigidBody));
-			job.m_barriers.Transition(m_previous_bodies.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			job.m_barriers.Commit();
-			++m_substep;
-		}
-	}
-
 	// Share surface sampling, reduction, endpoint lifetime and solver append infrastructure between world surfaces.
 	void GpuWorldContacts::Dispatch(GpuJob& job, int mode, int endpoint, int max_contacts, bool sleeping_enabled, int island_count, ID3D12Resource* sleep_islands,
 		ID3D12Resource* bodies, ID3D12Resource* shapes, ID3D12Resource* contacts, ID3D12Resource* counters, ID3D12Resource* dispatch)
@@ -317,13 +286,12 @@ namespace pr::physics
 		job.m_cmd_list.SetComputeRootSignature(m_step.m_sig.get());
 		auto const boundary = m_boundary.value_or(CylindricalBoundaryConfig{});
 		job.m_cmd_list.AddComputeRoot32BitConstants(Constants{
-			.m_substep = m_substep, .m_endpoint = s_cast<uint32_t>(endpoint), .m_max_contacts = s_cast<uint32_t>(max_contacts),
+			.m_endpoint = s_cast<uint32_t>(endpoint), .m_max_contacts = s_cast<uint32_t>(max_contacts), .m_plan_offset = mode == 0 ? 0 : m_boundary_plan_offset,
 			.m_height_upper = m_height_upper, .m_sleeping_enabled = sleeping_enabled ? 1 : 0, .m_island_count = island_count,
 			.m_mode = s_cast<uint32_t>(mode), .m_material = s_cast<uint32_t>(boundary.m_material_id),
 			.m_centre_x = boundary.m_centre_x, .m_centre_y = boundary.m_centre_y, .m_radius = boundary.m_radius,
-			.m_spacing = boundary.m_surface_spacing, .m_max_motion = boundary.m_max_substep_motion, .m_max_penetration = boundary.m_max_penetration, .m_dt = m_dt,
-			.m_plan_offset = mode == 0 ? 0 : m_boundary_plan_offset, .m_phase = mode == 1 ? 1u : m_phase});
-		for (auto resource : {bodies, shapes, m_recipe.get(), m_plans.get(), m_patch_buffer.get(), m_instance_buffer.get(), sleep_islands, m_boundary ? m_previous_bodies.get() : bodies})
+			.m_spacing = boundary.m_surface_spacing, .m_pad = 0});
+		for (auto resource : {bodies, shapes, m_recipe.get(), m_plans.get(), m_patch_buffer.get(), m_instance_buffer.get(), sleep_islands})
 			job.m_cmd_list.AddComputeRootShaderResourceView(resource->GetGPUVirtualAddress());
 
 		// Bind append destinations after the read-only streams in root-signature order.
@@ -335,11 +303,6 @@ namespace pr::physics
 		job.m_barriers.UAV(counters);
 		job.m_barriers.UAV(contacts);
 		job.m_barriers.UAV(m_status.get());
-		if (mode == 2)
-		{
-			job.m_barriers.Commit();
-			return;
-		}
 		job.m_barriers.Transition(dispatch, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Commit();
 		job.m_cmd_list.SetPipelineState(m_dispatch.m_pso.get());

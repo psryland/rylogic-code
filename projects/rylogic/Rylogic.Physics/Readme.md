@@ -21,14 +21,17 @@ recipe/body persistence must reconstruct terrain before restoring body construct
 checkpoint as a full world save.
 
 `Engine.SetCylindricalBoundary(CylindricalBoundaryConfiguration?)` independently installs an inward-facing, infinite-height cylinder centered at
-`(centre_x, centre_y)`. Radius and all envelope distances are metres. It supports the same physical primitive surfaces, transformed compound leaves, and
+`(centre_x, centre_y)`. Radius and sampling spacing are metres. It supports the same physical primitive surfaces, transformed compound leaves, and
 articulation proxies as terrain. Contacts carry each leaf's material and the configured wall material through the ordinary solver; there is no position clamp,
 finite-height rim, or polygonal ring. Terrain and boundary share one owned shapeless static endpoint, shape plans, instance stream, and contact reduction.
 
-The defaults are **0.05 m** boundary spacing, **0.1 m** maximum horizontal surface motion per internal substep, and a **0.25 m gross penetration-rejection
-cutoff**. That cutoff is not acceptable overlap or a spawn/restore allowance. Vertical translation is unrestricted. Terrain retains its independent **0.16 m**
-default spacing; adding a finer wall does not increase terrain sample density. See the [native surface contract](../../../include/pr/physics/surface/README.md#sampled-cylindrical-world-boundary)
-for motion bounds, configuration validation, actual-surface containment, transactional failure, caching, and checkpoint requirements.
+Boundary spacing defaults to **0.05 m**, independently of terrain's **0.16 m**. Contacts depend on valid current geometry, not speed, timestep or a
+penetration cutoff. The entire cylinder exterior is forbidden; deep exterior samples remain contacts. This is discrete detection, not continuous
+time-of-impact detection. Callers own timestep/accuracy choices and accepted spawn, restore and completed-state overlap.
+See the [native surface contract](../../../include/pr/physics/surface/README.md#sampled-cylindrical-world-boundary) for numerical/resource requirements,
+failure-source diagnostics, caching and checkpoint requirements. API version 3 removes the motion/penetration fields; the boundary descriptor's size
+is 40 bytes. Descriptor-header version 2 is unchanged because it is also embedded in native checkpoint format 3. No serialized layout changes, and
+native checkpoints still exclude configured world surfaces.
 
 Gravity commands apply force for one frame, not persistent acceleration. Submit gravity each frame. A nonzero initial `BodyOptions.Gravity` also adds force
 for the first frame, so do not apply it twice when using a per-frame gravity command.

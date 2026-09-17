@@ -892,9 +892,6 @@ namespace pr::physics
 				}
 
 				// Advance both independent prediction lanes before any shared collision or constraint work so every broadphase consumer sees current-substep poses.
-				if (m_gpu_world_contacts)
-					m_gpu_world_contacts->ValidateBoundary(m_gpu->m_job, m_gpu_integrator->Bodies().get(), m_gpu_collision_detector->Shapes().get(), dt, false);
-
 				if (!bodies.empty())
 				{
 					auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
@@ -942,10 +939,6 @@ namespace pr::physics
 						if (!bodies.empty())
 							SleepUpdate(dt);
 					}
-
-					// Reject motion or residual overlap outside the boundary contract before publishing any substep result.
-					if (m_gpu_world_contacts)
-						m_gpu_world_contacts->ValidateBoundary(m_gpu->m_job, m_gpu_integrator->Bodies().get(), m_gpu_collision_detector->Shapes().get(), dt, true);
 
 					// Preserve raw capacity counters and resolved collision records before transient buffers are reused.
 					if (!bodies.empty() || articulation_contacts_active)
@@ -1442,24 +1435,28 @@ namespace pr::physics
 	{
 		output_committed = false;
 
-		// Reject invalid world queries, motion or slope overflow before committing the frame's detached outputs.
+		// Reject invalid world geometry or exhausted contact storage before committing the frame's detached outputs.
 		if (m_gpu_world_contacts)
 		{
-			auto const status = *buffers.rb_terrain.ptr<uint32_t>();
+			auto const* status = buffers.rb_terrain.ptr<uint32_t>();
 			m_last_step_profile.m_terrain_gpu_ms = m_gpu_world_contacts->GpuTimeMs();
-			if ((status & 8) != 0)
+			if (status[0] != 0)
 			{
-				// Preserve the first failing GPU stage's motion components instead of exposing only an aggregate status bit.
-				auto words = buffers.rb_terrain.ptr<uint32_t>();
-				auto scalar = [&](int index)
+				// Name the producing geometry/query stage so an invariant failure is investigated at its source.
+				auto source = [&]() -> char const*
 				{
-					return std::bit_cast<float>(words[index]);
+					switch (status[1])
+					{
+						case 1: { return "predicted body/leaf bounds are non-finite"; }
+						case 2: { return "body/leaf exceeds the configured terrain query domain"; }
+						case 3: { return "terrain evaluator rejected its query"; }
+						case 4: { return "surface-sample contact arithmetic is not representable"; }
+						case 5: { return "contact normal-group storage is exhausted"; }
+						default: { throw std::runtime_error("Invalid world-contact failure record"); }
+					}
 				};
-				throw std::runtime_error(std::format("World collision failed: status {}. Motion body={} substep={} phase={} (0: before integration, 1: predicted, 2: resolved), velocity=({},{},{}), omega=({},{},{}), lever={}, speed_motion_bound={}, displacement_bound={} (translation={}, rotation={}), dt={}, limit={}",
-					status, words[2], words[3], words[4], scalar(5), scalar(6), scalar(7), scalar(8), scalar(9), scalar(10), scalar(11), scalar(12), scalar(13), scalar(14), scalar(15), scalar(16), scalar(17)));
+				throw std::runtime_error(std::format("World contact generation: {}; body={}, shape={}, sample={}, detail={}, flags={}", source(), status[2], status[3], status[4], status[5], status[0]));
 			}
-			if (status != 0)
-				throw std::runtime_error(std::format("World collision failed: status {} (1: invalid query, 2: slope cluster capacity, 4: boundary domain, 8: horizontal substep motion)", status));
 		}
 
 		// Validate the remaining body and constraint outputs before publishing state.

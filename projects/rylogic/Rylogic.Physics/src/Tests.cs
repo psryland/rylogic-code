@@ -47,7 +47,7 @@ public sealed class TestPhysics
 		AssertNativeSize(21, Marshal.SizeOf<CylindricalBoundaryConfiguration>());
 		Assert.Equal(8, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_centre_x)).ToInt32());
 		Assert.Equal(32, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_material_id)).ToInt32());
-		Assert.Equal(44, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_max_penetration)).ToInt32());
+		Assert.Equal(36, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_surface_spacing)).ToInt32());
 	}
 
 	/// <summary>The cylindrical boundary has a stable ABI, independent lifetime, and explicit checkpoint and mutation guards.</summary>
