@@ -205,10 +205,9 @@ PSIn VSForward(VSIn In)
 
 	// Transform
 	float4 os_vert = mul(In.vert, g_nugget.m2o);
-	float4 os_norm = mul(In.norm, g_nugget.m2o);
 	
 	Out.ws_vert = mul(os_vert, g_nugget.o2w);
-	Out.ws_norm = mul(os_norm, g_nugget.n2w);
+	Out.ws_norm = mul(In.norm, g_nugget.n2w);
 	Out.ss_vert = mul(os_vert, g_nugget.o2s);
 
 	// Tinting

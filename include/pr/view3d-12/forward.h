@@ -14,6 +14,7 @@
 #endif
 
 #include <vector>
+#include <array>
 #include <string>
 #include <list>
 #include <new>

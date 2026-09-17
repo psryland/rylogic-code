@@ -46,7 +46,7 @@ struct CBufNugget// :reg(b1)
 	row_major float4x4 m2o; // model to object space
 	row_major float4x4 o2w; // object to world
 	row_major float4x4 o2s; // object to screen
-	row_major float4x4 n2w; // normal to world
+	row_major float4x4 n2w; // model-space normal to world, including m2o; normalize after interpolation
 
 	// Texture2D
 	row_major float4x4 tex2surf0; // texture to surface transform

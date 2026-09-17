@@ -14,6 +14,7 @@
 #include "pr/view3d-12/view3d-ui-bridge.h"
 #include "pr/view3d-12/scene/far_clip_fade.h"
 #include "pr/view3d-12/shaders/shader.h"
+#include "pr/view3d-12/utility/normal_transform.h"
 
 // Fixture-owned bytecode exercises the custom-stage boundary without a renderer library dependency.
 namespace fade_tests::compiled
