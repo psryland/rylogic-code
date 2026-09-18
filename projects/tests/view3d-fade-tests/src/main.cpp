@@ -82,13 +82,13 @@ namespace fade_tests
 		ComPtr<ID3D12InfoQueue> m_info;
 
 		// Set up a deterministic orthographic camera and the existing alpha/MSAA configuration.
-		explicit Fixture(int samples, api::Colour background = 0xFF000000)
+		explicit Fixture(int samples)
 		{
 			m_hwnd = CreateWindowExW(0, L"STATIC", L"Far clip fade test", WS_POPUP, 0, 0, ImageSize, ImageSize, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
 			Require(m_hwnd != nullptr, "CreateWindowEx failed");
 			m_context = View3D_Initialise({&m_errors, ReportError});
 			Require(m_context != nullptr, "View3D_Initialise failed");
-			m_window = View3D_WindowCreate(m_hwnd, api::WindowOptions().error_cb({&m_errors, ReportError}).back_colour(background).multisamp(samples).name("FarClipFadeTests"));
+			m_window = View3D_WindowCreate(m_hwnd, api::WindowOptions().error_cb({&m_errors, ReportError}).back_colour(0xFF000000).multisamp(samples).name("FarClipFadeTests"));
 			Require(m_window != nullptr, "View3D_WindowCreate failed");
 			m_device.Attach(static_cast<ID3D12Device*>(View3D_DeviceLeaseAcquire(m_context)));
 			m_device.As(&m_info);
@@ -140,7 +140,7 @@ namespace fade_tests
 		}
 
 		// Add an unlit two-sided quad at a chosen forward depth.
-		api::Object Quad(float depth, unsigned colour, float half_width = 45, api::Shader shader = nullptr, float right_depth = 0, unsigned vertex_colour = 0xFFFFFFFF, bool textured = false, bool normals = false, api::EFillMode fill_mode = api::EFillMode::Default)
+		api::Object Quad(float depth, unsigned colour, float half_width = 45, api::Shader shader = nullptr, float right_depth = 0, unsigned vertex_colour = 0xFFFFFFFF, bool textured = false, bool normals = false)
 		{
 			// Distinct vertex and material colours let surface tests distinguish an override from another multiplicative tint.
 			auto normal = normals ? api::Vec4{0, 0, 1, 0} : api::Vec4{};
@@ -164,83 +164,12 @@ namespace fade_tests
 				nugget.m_geom = static_cast<api::EGeom>(static_cast<int>(nugget.m_geom) | static_cast<int>(api::EGeom::Norm));
 
 			nugget.m_cull_mode = api::ECullMode::None;
-			nugget.m_fill_mode = fill_mode;
 			nugget.m_tint = colour;
 			if (shader != nullptr)
 				nugget.m_shaders[0] = api::Nugget::Shader{shader, api::ERenderStep::ForwardRender, 0};
 
 			auto object = View3D_ObjectCreate("FadeQuad", 0xFFFFFFFF, 4, 6, 1, verts, indices, &nugget, GUID{});
 			Require(object != nullptr, "Quad creation failed");
-			m_objects.push_back(object);
-			View3D_WindowAddObject(m_window, object);
-			CheckErrors();
-			return object;
-		}
-
-		// Add one non-triangle primitive to prove SolidWire preserves ordinary line rendering.
-		api::Object Line(float depth, unsigned colour)
-		{
-			// Cross the framebuffer centre so one stable pixel witnesses the line.
-			api::Vertex verts[] =
-			{
-				{{-45,0,-depth,1}, {}, {}, 0xFFFFFFFF, 0},
-				{{+45,0,-depth,1}, {}, {}, 0xFFFFFFFF, 0},
-			};
-			auto nugget = api::Nugget{};
-			nugget.m_topo = api::ETopo::LineList;
-			nugget.m_geom = api::EGeom::Vert;
-			nugget.m_tint = colour;
-			auto object = View3D_ObjectCreate("SolidWireLine", 0xFFFFFFFF, 2, 0, 1, verts, nullptr, &nugget, GUID{});
-			Require(object != nullptr, "Line creation failed");
-			m_objects.push_back(object);
-			View3D_WindowAddObject(m_window, object);
-			CheckErrors();
-			return object;
-		}
-
-		// Add one unindexed triangle to cover the direct vertex-draw form of SolidWire.
-		api::Object Triangle(float depth, unsigned colour)
-		{
-			// Cover the framebuffer centre with one broad triangle and no index buffer.
-			api::Vertex verts[] =
-			{
-				{{-45,-45,-depth,1}, {}, {}, 0xFFFFFFFF, 0},
-				{{+45,-45,-depth,1}, {}, {}, 0xFFFFFFFF, 0},
-				{{0,+45,-depth,1}, {}, {}, 0xFFFFFFFF, 0},
-			};
-			auto nugget = api::Nugget{};
-			nugget.m_topo = api::ETopo::TriList;
-			nugget.m_geom = api::EGeom::Vert;
-			nugget.m_cull_mode = api::ECullMode::None;
-			nugget.m_tint = colour;
-			auto object = View3D_ObjectCreate("SolidWireTriangle", 0xFFFFFFFF, 3, 0, 1, verts, nullptr, &nugget, GUID{});
-			Require(object != nullptr, "Triangle creation failed");
-			m_objects.push_back(object);
-			View3D_WindowAddObject(m_window, object);
-			CheckErrors();
-			return object;
-		}
-
-		// Add one unindexed quad whose shared diagonal gives the wire overlay a stable centre-pixel witness.
-		api::Object UnindexedQuad(float depth, unsigned colour)
-		{
-			// Duplicate the shared vertices so the draw uses the direct non-indexed path.
-			api::Vertex verts[] =
-			{
-				{{-45,-45,-depth,1}, {}, {}, 0xFFFFFFFF, 0},
-				{{+45,-45,-depth,1}, {}, {}, 0xFFFFFFFF, 0},
-				{{+45,+45,-depth,1}, {}, {}, 0xFFFFFFFF, 0},
-				{{-45,-45,-depth,1}, {}, {}, 0xFFFFFFFF, 0},
-				{{+45,+45,-depth,1}, {}, {}, 0xFFFFFFFF, 0},
-				{{-45,+45,-depth,1}, {}, {}, 0xFFFFFFFF, 0},
-			};
-			auto nugget = api::Nugget{};
-			nugget.m_topo = api::ETopo::TriList;
-			nugget.m_geom = api::EGeom::Vert;
-			nugget.m_cull_mode = api::ECullMode::None;
-			nugget.m_tint = colour;
-			auto object = View3D_ObjectCreate("SolidWireUnindexedQuad", 0xFFFFFFFF, _countof(verts), 0, 1, verts, nullptr, &nugget, GUID{});
-			Require(object != nullptr, "Unindexed quad creation failed");
 			m_objects.push_back(object);
 			View3D_WindowAddObject(m_window, object);
 			CheckErrors();
@@ -404,119 +333,6 @@ namespace fade_tests
 			return pixels;
 		}
 
-		// Read one completed reflection-sidecar pixel after the renderer has finished using the resource.
-		std::array<float, 4> ReflectionPixel(int x, int y)
-		{
-			// Borrow the internal diagnostic resource without changing its renderer-owned lifetime.
-			pr::rdr12::RenderRayTracing* ray_tracing = nullptr;
-			for (auto const& step : m_window->m_scene.m_render_steps)
-			{
-				if (step->m_step_id == pr::rdr12::ERenderStep::RayTracing)
-					ray_tracing = static_cast<pr::rdr12::RenderRayTracing*>(step.get());
-			}
-			Require(ray_tracing != nullptr, "Ray tracing render step is unavailable");
-			auto* attributes = const_cast<ID3D12Resource*>(ray_tracing->ReflectionAttributesForDiagnostics());
-			Require(attributes != nullptr, "Reflection attributes were not prepared");
-			auto desc = attributes->GetDesc();
-			Require(desc.Format == pr::rdr12::RayTracingReflectionAttributeFormat, "Unexpected reflection attribute format");
-
-			// Resolve MSAA before copying the selected half-float texel to a CPU-visible buffer.
-			ComPtr<ID3D12Resource> resolved;
-			auto copy_desc = desc;
-			copy_desc.SampleDesc = {1, 0};
-			copy_desc.Flags = D3D12_RESOURCE_FLAG_NONE;
-			if (desc.SampleDesc.Count != 1)
-			{
-				D3D12_HEAP_PROPERTIES default_heap{};
-				default_heap.Type = D3D12_HEAP_TYPE_DEFAULT;
-				Check(m_device->CreateCommittedResource(&default_heap, D3D12_HEAP_FLAG_NONE, &copy_desc, D3D12_RESOURCE_STATE_RESOLVE_DEST, nullptr, IID_PPV_ARGS(&resolved)));
-			}
-
-			D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint{};
-			UINT64 size{};
-			m_device->GetCopyableFootprints(&copy_desc, 0, 1, 0, &footprint, nullptr, nullptr, &size);
-			D3D12_HEAP_PROPERTIES readback_heap{};
-			readback_heap.Type = D3D12_HEAP_TYPE_READBACK;
-			D3D12_RESOURCE_DESC buffer{};
-			buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-			buffer.Width = size;
-			buffer.Height = buffer.DepthOrArraySize = buffer.MipLevels = 1;
-			buffer.SampleDesc.Count = 1;
-			buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-			ComPtr<ID3D12Resource> readback;
-			Check(m_device->CreateCommittedResource(&readback_heap, D3D12_HEAP_FLAG_NONE, &buffer, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback)));
-
-			// Use a private queue only after the public GPU wait has completed, then restore the renderer's tracked resource state.
-			ComPtr<ID3D12CommandQueue> queue;
-			D3D12_COMMAND_QUEUE_DESC queue_desc{};
-			Check(m_device->CreateCommandQueue(&queue_desc, IID_PPV_ARGS(&queue)));
-			ComPtr<ID3D12CommandAllocator> allocator;
-			Check(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&allocator)));
-			ComPtr<ID3D12GraphicsCommandList> list;
-			Check(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, allocator.Get(), nullptr, IID_PPV_ARGS(&list)));
-			auto source = attributes;
-			D3D12_RESOURCE_BARRIER barriers[2]{};
-			barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-			barriers[0].Transition = {
-				attributes,
-				D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
-				D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
-				desc.SampleDesc.Count == 1 ? D3D12_RESOURCE_STATE_COPY_SOURCE : D3D12_RESOURCE_STATE_RESOLVE_SOURCE,
-			};
-			list->ResourceBarrier(1, barriers);
-			if (resolved)
-			{
-				list->ResolveSubresource(resolved.Get(), 0, attributes, 0, desc.Format);
-				barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-				barriers[1].Transition = {resolved.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, D3D12_RESOURCE_STATE_RESOLVE_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE};
-				list->ResourceBarrier(1, &barriers[1]);
-				source = resolved.Get();
-			}
-			D3D12_TEXTURE_COPY_LOCATION source_location{};
-			source_location.pResource = source;
-			source_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-			D3D12_TEXTURE_COPY_LOCATION destination{};
-			destination.pResource = readback.Get();
-			destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-			destination.PlacedFootprint = footprint;
-			list->CopyTextureRegion(&destination, 0, 0, 0, &source_location, nullptr);
-			std::swap(barriers[0].Transition.StateBefore, barriers[0].Transition.StateAfter);
-			list->ResourceBarrier(1, barriers);
-			Check(list->Close());
-			ID3D12CommandList* lists[] = {list.Get()};
-			queue->ExecuteCommandLists(1, lists);
-			ComPtr<ID3D12Fence> fence;
-			Check(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
-			Check(queue->Signal(fence.Get(), 1));
-			auto event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-			Check(fence->SetEventOnCompletion(1, event));
-			auto wait = WaitForSingleObject(event, 10000);
-			CloseHandle(event);
-			Require(wait == WAIT_OBJECT_0, "Reflection readback timed out");
-
-			// Decode the four IEEE-754 binary16 channels used by the reflection sidecar.
-			auto half_to_float = [](uint16_t value)
-			{
-				auto sign = (value & 0x8000U) != 0 ? -1.0f : 1.0f;
-				auto exponent = (value >> 10) & 0x1FU;
-				auto mantissa = value & 0x03FFU;
-				if (exponent == 0)
-					return sign * std::ldexp(static_cast<float>(mantissa), -24);
-
-				if (exponent == 0x1FU)
-					return mantissa == 0 ? sign * std::numeric_limits<float>::infinity() : std::numeric_limits<float>::quiet_NaN();
-
-				return sign * std::ldexp(1.0f + static_cast<float>(mantissa) / 1024.0f, static_cast<int>(exponent) - 15);
-			};
-			unsigned char* mapped{};
-			D3D12_RANGE range{0, static_cast<SIZE_T>(size)};
-			Check(readback->Map(0, &range, reinterpret_cast<void**>(&mapped)));
-			auto* pixel = reinterpret_cast<uint16_t const*>(mapped + footprint.Offset + y * footprint.Footprint.RowPitch + x * 8);
-			auto result = std::array<float, 4>{half_to_float(pixel[0]), half_to_float(pixel[1]), half_to_float(pixel[2]), half_to_float(pixel[3])};
-			readback->Unmap(0, nullptr);
-			return result;
-		}
-
 		// Reject GPU debug-layer errors after all bounded render cases have completed.
 		void CheckDebugLayer()
 		{
@@ -548,187 +364,6 @@ namespace fade_tests
 				++difference;
 		}
 		return difference;
-	}
-
-	// Count changed pixels whose replacement is the fixed black diagnostic edge colour.
-	size_t BlackOverlayDifference(std::vector<unsigned char> const& solid, std::vector<unsigned char> const& solid_wire)
-	{
-		// Require matching framebuffer layouts before comparing visible RGB values.
-		Require(solid.size() == solid_wire.size(), "Image sizes differ");
-		auto difference = size_t{};
-		for (auto i = size_t{}; i != solid.size(); i += 4)
-		{
-			auto changed = solid[i + 0] != solid_wire[i + 0] || solid[i + 1] != solid_wire[i + 1] || solid[i + 2] != solid_wire[i + 2];
-			auto black = solid_wire[i + 0] <= 2 && solid_wire[i + 1] <= 2 && solid_wire[i + 2] <= 2;
-			if (changed && black)
-				++difference;
-		}
-		return difference;
-	}
-
-	// Prove the complete scene-wide SolidWire contract through real forward rendering and framebuffer readback.
-	void SolidWireTests()
-	{
-		// Exercise both ordinary and multisampled render targets because the mode is a per-frame diagnostic.
-		for (auto samples : {1, 4})
-		{
-			Fixture fixture(samples);
-			fixture.AttachOverlay();
-
-			// Opaque indexed triangles gain black edges while material interiors and final retained UI remain unchanged.
-			auto object = fixture.Quad(10, 0xFF4080FF, 45, nullptr, 0, 0xFFFFFFFF, false, true);
-			auto surface = View3D_ProceduralSurfacePreset(api::EProceduralSurfacePreset::Grass);
-			View3D_ObjectNuggetProceduralSurfaceSet(object, surface, nullptr, 0);
-			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::Solid);
-			auto solid = fixture.Image();
-			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::SolidWire);
-			auto solid_wire = fixture.Image();
-			Require(BlackOverlayDifference(solid, solid_wire) > 100, "SolidWire did not add fixed black triangle edges");
-			auto interior = (64 * ImageSize + 32) * 4;
-			Require(
-				solid[interior + 0] == solid_wire[interior + 0] &&
-				solid[interior + 1] == solid_wire[interior + 1] &&
-				solid[interior + 2] == solid_wire[interior + 2],
-				"SolidWire changed the procedural solid interior");
-			for (auto y = 4; y != 20; ++y)
-			{
-				for (auto x = 4; x != 20; ++x)
-				{
-					auto pixel = (y * ImageSize + x) * 4;
-					Require(
-						solid[pixel + 0] == solid_wire[pixel + 0] &&
-						solid[pixel + 1] == solid_wire[pixel + 1] &&
-						solid[pixel + 2] == solid_wire[pixel + 2],
-						"SolidWire changed final retained UI output");
-				}
-			}
-
-			// A nearer explicitly solid surface occludes the diagnostic edges behind it without hidden-line leakage.
-			fixture.Clear();
-			fixture.Quad(10, 0xFF20E040, 20, nullptr, 0, 0xFFFFFFFF, false, false, api::EFillMode::Solid);
-			auto far_quad = fixture.Quad(12, 0xFFFF8000);
-			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::Solid);
-			auto occluded_solid = fixture.Image();
-			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::SolidWire);
-			auto occluded_wire = fixture.Image();
-			auto centre = (64 * ImageSize + 64) * 4;
-			Require(
-				occluded_solid[centre + 0] == occluded_wire[centre + 0] &&
-				occluded_solid[centre + 1] == occluded_wire[centre + 1] &&
-				occluded_solid[centre + 2] == occluded_wire[centre + 2],
-				"SolidWire leaked hidden edges through nearer geometry");
-			Require(BlackOverlayDifference(occluded_solid, occluded_wire) > 20, "Visible background edges were lost with an occluder");
-
-			// Disable the farther object's depth test to prove the centre witness detects a hidden-edge rejection failure.
-			View3D_ObjectFlagsSet(far_quad, api::ELdrFlags::NoZTest, TRUE, nullptr);
-			auto depth_disabled = fixture.Image();
-			Require(
-				depth_disabled[centre + 0] != occluded_wire[centre + 0] ||
-				depth_disabled[centre + 1] != occluded_wire[centre + 1] ||
-				depth_disabled[centre + 2] != occluded_wire[centre + 2],
-				"Occlusion witness did not detect disabled depth rejection");
-			View3D_ObjectFlagsSet(far_quad, api::ELdrFlags::NoZTest, FALSE, nullptr);
-
-			// Sky and alpha groups retain one ordinary material pass instead of receiving duplicate diagnostic shading.
-			fixture.Clear();
-			auto sky = fixture.Quad(50, 0xFF305080);
-			View3D_ObjectSortGroupSet(sky, api::ESortGroup::Skybox, nullptr);
-			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::Solid);
-			auto sky_solid = fixture.Image();
-			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::SolidWire);
-			Require(sky_solid == fixture.Image(), "SolidWire changed sky rendering");
-			fixture.Clear();
-			fixture.Quad(12, 0xFF0000FF, 45, nullptr, 0, 0xFFFFFFFF, false, false, api::EFillMode::Solid);
-			fixture.Quad(10, 0x80FF4000);
-			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::Solid);
-			auto alpha_solid = fixture.Image();
-			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::SolidWire);
-			Require(alpha_solid == fixture.Image(), "SolidWire shaded or collected alpha geometry twice");
-
-			// Non-triangle primitives are unchanged, while the pre-existing pure Wireframe mode remains edge-only and material-coloured.
-			fixture.Clear();
-			fixture.Line(10, 0xFFFFFFFF);
-			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::Solid);
-			auto line_solid = fixture.Image();
-			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::SolidWire);
-			Require(line_solid == fixture.Image(), "SolidWire changed a non-triangle primitive");
-			fixture.Clear();
-			fixture.Triangle(10, 0xFF4080FF);
-			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::Solid);
-			auto unindexed_solid = fixture.Image();
-			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::SolidWire);
-			Require(BlackOverlayDifference(unindexed_solid, fixture.Image()) > 20, "SolidWire omitted an unindexed triangle");
-
-			// Faded opaque geometry must replace its collected layer colour at edges without collecting its opacity twice.
-			for (auto indexed : {true, false})
-			{
-				// The quad diagonal crosses the centre pixel in both indexed and direct-draw forms.
-				Fixture fade_fixture(samples);
-				fade_fixture.Fade(true);
-				View3D_WindowFillModeSet(fade_fixture.m_window, api::EFillMode::Solid);
-				if (indexed)
-					fade_fixture.Quad(94.5f, 0xFFFF0000);
-				else
-					fade_fixture.UnindexedQuad(94.5f, 0xFFFF0000);
-
-				auto faded_solid = fade_fixture.Image();
-				View3D_WindowFillModeSet(fade_fixture.m_window, api::EFillMode::SolidWire);
-				auto faded_wire = fade_fixture.Image();
-				auto edge = (64 * ImageSize + 64) * 4;
-				auto fade_interior = (32 * ImageSize + 64) * 4;
-				Require(Linear(faded_wire[edge + 0]) < 0.1f, indexed ? "Indexed faded edge retained material colour" : "Unindexed faded edge retained material colour");
-				Require(std::abs(int(faded_wire[fade_interior + 0]) - int(faded_solid[fade_interior + 0])) <= 1, indexed ? "Indexed faded interior changed" : "Unindexed faded interior changed");
-			}
-
-			// A white clear colour exposes whether the black edge preserved the original 0.5 fade opacity.
-			Fixture alpha_fixture(samples, 0xFFFFFFFF);
-			alpha_fixture.Fade(true);
-			View3D_WindowFillModeSet(alpha_fixture.m_window, api::EFillMode::SolidWire);
-			alpha_fixture.Quad(94.5f, 0xFFFF0000);
-			auto faded_alpha = alpha_fixture.Image();
-			auto alpha_edge = (64 * ImageSize + 64) * 4;
-			for (auto channel = 0; channel != 3; ++channel)
-				Require(std::abs(Linear(faded_alpha[alpha_edge + channel]) - 0.5f) < 0.08f, "Faded wire edge changed source opacity");
-
-			// The edge redraw must leave the reflection MRT normal and final reflected hit unchanged.
-			Fixture reflection_fixture(samples);
-			auto rt_info = View3D_WindowRayTracingInfoGet(reflection_fixture.m_window);
-			Require(rt_info.m_available, "SolidWire reflection MRT test requires DXR");
-			auto mirror = View3D_ObjectCreateLdrA("*Plane Mirror FF000000 {*Data{90 90} *Reflectivity{1} *o2w{*pos{0 0 -50}}}", FALSE, nullptr, nullptr);
-			Require(mirror != nullptr, "SolidWire mirror creation failed");
-			reflection_fixture.m_objects.push_back(mirror);
-			View3D_WindowAddObject(reflection_fixture.m_window, mirror);
-			reflection_fixture.Quad(-10, 0xFF00FF00);
-			View3D_RayTracingPropertiesSet(reflection_fixture.m_window, {api::ERayTracingFeature::Reflections, 1});
-			View3D_WindowRayTracingEnabledSet(reflection_fixture.m_window, TRUE);
-			View3D_WindowFillModeSet(reflection_fixture.m_window, api::EFillMode::Solid);
-			reflection_fixture.Image();
-			auto reflected_solid = reflection_fixture.Image();
-			auto solid_attrs = reflection_fixture.ReflectionPixel(64, 64);
-			View3D_WindowFillModeSet(reflection_fixture.m_window, api::EFillMode::SolidWire);
-			reflection_fixture.Image();
-			auto reflected_wire = reflection_fixture.Image();
-			auto wire_attrs = reflection_fixture.ReflectionPixel(64, 64);
-			Require(std::abs(solid_attrs[0] - 0.5f) < 0.01f && std::abs(solid_attrs[1] - 0.5f) < 0.01f && solid_attrs[2] > 0.99f && solid_attrs[3] > 0.99f, "Reflective reference sidecar has the wrong normal");
-			for (auto channel = 0; channel != 4; ++channel)
-				Require(std::abs(wire_attrs[channel] - solid_attrs[channel]) < 0.01f, "SolidWire corrupted the reflection sidecar");
-			auto reflected_pixel = (64 * ImageSize + 64) * 4;
-			Require(Linear(reflected_solid[reflected_pixel + 1]) > 0.5f, "Reflective reference did not hit the known green target");
-			Require(std::abs(Linear(reflected_wire[reflected_pixel + 1]) - Linear(reflected_solid[reflected_pixel + 1])) < 0.05f, "SolidWire changed the known-normal reflected hit");
-			View3D_WindowRayTracingEnabledSet(reflection_fixture.m_window, FALSE);
-
-			fixture.Clear();
-			auto empty = fixture.Image();
-			fixture.Quad(10, 0xFF4080FF);
-			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::Solid);
-			auto filled = fixture.Image();
-			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::Wireframe);
-			auto wire = fixture.Image();
-			Require(ImageDifference(filled, wire) > 1000, "Pure Wireframe no longer removed triangle interiors");
-			Require(ImageDifference(empty, wire) > 100, "Pure Wireframe lost its material-coloured triangle edges");
-			fixture.CheckDebugLayer();
-		}
-		std::cout << "PASS solid-wire opaque edges, occlusion, sky, alpha, nontriangles, UI, and pure wireframe\n";
 	}
 
 	// Exercise the public procedural surface API through real forward rendering and framebuffer readback.
@@ -1482,12 +1117,6 @@ int main(int argc, char const* const* argv)
 		{
 			// Run only the focused procedural GPU/readback evidence.
 			fade_tests::ProceduralSurfaceTests();
-			return 0;
-		}
-		if (argc == 2 && std::string_view(argv[1]) == "--solid-wire")
-		{
-			// Run only the focused SolidWire GPU/readback evidence.
-			fade_tests::SolidWireTests();
 			return 0;
 		}
 		fade_tests::Require(argc == 1 || (argc == 2 && std::string_view(argv[1]) == "--numeric-only"), "Expected no arguments or --numeric-only");

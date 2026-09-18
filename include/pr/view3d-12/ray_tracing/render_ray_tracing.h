@@ -41,13 +41,6 @@ namespace pr::rdr12
 		// Prepare the raster reflection side-buffer before the forward opaque pass writes it.
 		RayTracingReflectionBuffer* PrepareReflectionAttributes(Frame& frame);
 
-		// Borrow the current raster reflection resource for diagnostics compiled against the renderer's internal headers.
-		ID3D12Resource const* ReflectionAttributesForDiagnostics() const
-		{
-			// Keep ownership and resource-state authority in the render step.
-			return m_reflections.AttributesForDiagnostics();
-		}
-
 	private:
 
 		// Prepare RT resources that must be available before raster render steps execute.

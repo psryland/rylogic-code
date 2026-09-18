@@ -84,23 +84,6 @@ authored environment to this sky unless a separate reflection source is intended
 `View3D_ObjectCreateProceduralSky`, `View3D_ObjectUpdateProceduralSky` and `View3D_ObjectBlendProceduralSky`;
 destruction uses `View3D_ObjectDelete`.
 
-## Scene fill diagnostics
-
-`View3d.Window.FillMode` changes raster fill for the 3D scene without changing model geometry. `EFillMode.Solid` and
-`EFillMode.Wireframe` select one filled or edge-only draw. `EFillMode.SolidWire` keeps the ordinary solid material pass,
-then adds fixed black edges for opaque indexed or unindexed triangle lists and strips. The edge pass reads depth with an
-equal-depth comparison and does not write depth, so nearer geometry still hides edges and the coplanar overlay does not
-fight the solid surface.
-
-Skybox and alpha/post-alpha groups retain their ordinary single material pass in `SolidWire`: the sky remains a readable
-backdrop and transparent geometry is not shaded or inserted into the K-buffer twice. Points and line topologies are also
-unchanged. Pure `Wireframe` remains a scene-wide raster mode and can therefore expose sky geometry and restrict raster
-hit testing to rendered edges. Shadow-map and DXR acceleration geometry are separate from this forward diagnostic.
-
-Retained View3DUI rendering is recorded after scene and alpha rendering, so screen-space text and controls are unaffected
-by any scene fill mode. Setting `Window.FillMode` invalidates the window and remains in effect until the caller selects
-another mode or destroys the window.
-
 ## Rylogic.Gfx.UI (View3DUI managed API)
 
 `Rylogic.Gfx.UI` is a WPF-free managed wrapper over the native `view3d-ui.dll`. It exposes copyable, value-typed

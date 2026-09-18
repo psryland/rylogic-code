@@ -13,12 +13,10 @@
 #include "pr/view3d-12/view3d-dll.h"
 #include "pr/view3d-12/view3d-ui-bridge.h"
 #include "pr/view3d-12/scene/far_clip_fade.h"
-#include "pr/view3d-12/ray_tracing/render_ray_tracing.h"
 #include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/utility/normal_transform.h"
 #include "pr/view3d-12/ldraw/ldraw_object.h"
 #include "pr/hlsl/interop.h"
-#include "view3d-12/src/dll/v3d_window.h"
 
 // Exercise the same RGB blend expression compiled into the renderer's GPU shaders.
 namespace colour_blend_tests

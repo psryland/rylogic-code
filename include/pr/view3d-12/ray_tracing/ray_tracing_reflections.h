@@ -52,13 +52,6 @@ namespace pr::rdr12
 		// Access the reflection attribute resource.
 		ID3D12Resource* Attributes() const;
 
-		// Borrow the reflection attribute resource for diagnostics compiled against the renderer's internal headers.
-		ID3D12Resource const* AttributesForDiagnostics() const
-		{
-			// Expose no ownership or state transition authority.
-			return m_attributes.get();
-		}
-
 		// Access the CPU descriptor for rendering attributes in the forward opaque pass.
 		D3D12_CPU_DESCRIPTOR_HANDLE RTV() const;
 

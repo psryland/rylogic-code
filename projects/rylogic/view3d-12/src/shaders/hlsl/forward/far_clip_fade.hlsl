@@ -2,28 +2,6 @@
 #include "view3d-12/src/shaders/hlsl/forward/forward.hlsl"
 #include "view3d-12/src/shaders/hlsl/forward/far_clip_fade.hlsli"
 
-// Draw a fixed black diagnostic edge without writing auxiliary render targets.
-PSOut PSWire(PSIn In)
-{
-	PSOut Out = (PSOut)0;
-	Out.diff = float4(0, 0, 0, 1);
-	return Out;
-}
-
-// Draw only the depth-writing portion of a faded opaque diagnostic edge.
-PSOut PSFarFadeWire(PSIn In)
-{
-	ClipFarFadeOpaque(In.ws_vert);
-	return PSWire(In);
-}
-
-// Replace the matching faded layer colour instead of collecting a second translucent fragment.
-void PSFarFadeWireCollect(PSIn In)
-{
-	ClipFarFadeCollect(In.ws_vert);
-	OverlayAlphaLayer(In, float3(0, 0, 0));
-}
-
 // Preserve depth-writing simple coverage up to the start of the fade.
 PSOut PSFarFade(PSIn In, bool is_front_face : SV_IsFrontFace)
 {

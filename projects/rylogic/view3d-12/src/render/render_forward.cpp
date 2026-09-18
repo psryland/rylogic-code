@@ -506,7 +506,7 @@ namespace pr::rdr12
 				continue;
 
 			// Draw the nugget.
-			DrawNugget(cmd_list, nugget, dle.m_sort_key.Group(), alpha_pass, fade_world, desc, pipe_state_bound, pipe_state_hash);
+			DrawNugget(cmd_list, nugget, desc, pipe_state_bound, pipe_state_hash);
 		}
 	}
 
@@ -567,10 +567,9 @@ namespace pr::rdr12
 		}
 	}
 
-	// Draw a single nugget using its resolved scene ordering contract.
-	void RenderForward::DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, ESortGroup sort_group, bool alpha_pass, bool fade_world, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash)
+	// Draw a single nugget
+	void RenderForward::DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash)
 	{
-		// Rebind only when the effective pipeline changes between the solid and diagnostic passes.
 		auto set_pipe_state = [&]
 		{
 			auto hash = desc.hash();
@@ -613,53 +612,26 @@ namespace pr::rdr12
 			}
 		}
 
-		// Overlay opaque world triangles only; sky remains a readable backdrop and alpha geometry is not shaded or collected twice.
+		// Render wire frame over solid for 'SolidWire' mode
 		if (fill_mode == EFillMode::SolidWire && (
 			nugget.m_topo == ETopo::TriList ||
 			nugget.m_topo == ETopo::TriListAdj ||
 			nugget.m_topo == ETopo::TriStrip ||
 			nugget.m_topo == ETopo::TriStripAdj) &&
-			sort_group != ESortGroup::Skybox &&
-			sort_group < ESortGroup::AlphaBack &&
-			(!alpha_pass || fade_world))
+			!nugget.m_irange.empty())
 		{
-			// Write fixed black RGB to target zero only, or replace the matching faded layer without inserting another fragment.
+			// Change the pipe state to wireframe
 			auto prev_fill_mode = desc.Get<EPipeState::FillMode>();
-			auto prev_pixel_shader = desc.Get<EPipeState::PS>();
-			auto prev_depth_write = desc.Get<EPipeState::DepthWriteMask>();
-			auto prev_depth_func = desc.Get<EPipeState::DepthFunc>();
 			desc.Apply(PSO<EPipeState::FillMode>(D3D12_FILL_MODE_WIREFRAME));
-			desc.Apply(PSO<EPipeState::PS>(alpha_pass
-				? shader_code::forward_far_fade_wire_collect_ps
-				: fade_world
-					? shader_code::forward_far_fade_wire_ps
-					: shader_code::forward_wire_ps));
-			if (!alpha_pass)
-			{
-				// Preserve the visible opaque surface and accept only its coplanar diagnostic edge.
-				desc.Apply(PSO<EPipeState::DepthWriteMask>(D3D12_DEPTH_WRITE_MASK_ZERO));
-				desc.Apply(PSO<EPipeState::DepthFunc>(D3D12_COMPARISON_FUNC_LESS_EQUAL));
-			}
+			desc.Apply(PSO<EPipeState::BlendState0>({FALSE}));
 			set_pipe_state();
 
-			if (nugget.m_irange.empty())
-			{
-				cmd_list.DrawInstanced(
-					s_cast<size_t>(nugget.m_vrange.size()), 1U,
-					s_cast<size_t>(nugget.m_vrange.m_beg), 0U);
-			}
-			else
-			{
-				cmd_list.DrawIndexedInstanced(
-					s_cast<size_t>(nugget.m_irange.size()), 1U,
-					s_cast<size_t>(nugget.m_irange.m_beg), 0, 0U);
-			}
+			cmd_list.DrawIndexedInstanced(
+				s_cast<size_t>(nugget.m_irange.size()), 1U,
+				s_cast<size_t>(nugget.m_irange.m_beg), 0, 0U);
 
-			// Restore the caller-owned material pipeline before drawing the next nugget.
+			// Restore it
 			desc.Apply(PSO<EPipeState::FillMode>(prev_fill_mode));
-			desc.Apply(PSO<EPipeState::PS>(prev_pixel_shader));
-			desc.Apply(PSO<EPipeState::DepthWriteMask>(prev_depth_write));
-			desc.Apply(PSO<EPipeState::DepthFunc>(prev_depth_func));
 		}
 
 		// Render points for 'Points' mode
