@@ -669,8 +669,8 @@ namespace pr::view3d::ui::tests
 		static_assert(offsetof(ViewportState, camera) > offsetof(ViewportState, time_ms), "CameraState must follow every pre-M8 ViewportState member");
 		static_assert(offsetof(ViewportState, camera) + sizeof(CameraState) <= sizeof(ViewportState), "CameraState must fit inside ViewportState");
 
-		PR_EXPECT(VIEW3D_UI_STRUCT_VERSION == 5U);
-		PR_EXPECT(VIEW3D_UI_API_VERSION == 0x00050000U);
+		PR_EXPECT(VIEW3D_UI_STRUCT_VERSION == 6U);
+		PR_EXPECT(VIEW3D_UI_API_VERSION == 0x00060000U);
 
 		// The policy enum is closed and Screen keeps value 0, so a zero-initialised descriptor is
 		// still a screen root exactly as it was before M8.

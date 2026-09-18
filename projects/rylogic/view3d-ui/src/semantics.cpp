@@ -36,6 +36,10 @@ namespace pr::view3d::ui
 				{
 					return node.desc.is_indeterminate != 0 ? std::string{} : std::format("{}%", node.desc.value * 100.0f);
 				}
+				case EControlType::Slider:
+				{
+					return std::format("{}", node.desc.value);
+				}
 				case EControlType::Root:
 				case EControlType::Panel:
 				case EControlType::Button:
@@ -112,6 +116,7 @@ namespace pr::view3d::ui
 						break;
 					}
 					case EControlType::Button: actions |= static_cast<std::uint32_t>(ESemanticAction::Invoke); break;
+					case EControlType::Slider: actions |= static_cast<std::uint32_t>(ESemanticAction::SetValue); break;
 					case EControlType::Root:
 					case EControlType::Panel:
 					case EControlType::Text:
@@ -184,7 +189,17 @@ namespace pr::view3d::ui
 				case EControlType::ProgressBar:
 				{
 					semantic.progress_value = node.desc.value;
+					semantic.range_minimum = 0.0f;
+					semantic.range_maximum = 1.0f;
 					semantic.is_indeterminate = node.desc.is_indeterminate;
+					break;
+				}
+				case EControlType::Slider:
+				{
+					semantic.progress_value = node.desc.value;
+					semantic.range_minimum = node.desc.minimum;
+					semantic.range_maximum = node.desc.maximum;
+					semantic.range_step = node.desc.step;
 					break;
 				}
 				case EControlType::Root:

@@ -158,6 +158,15 @@ public sealed record UiControlDesc
 	/// <summary>Show host-time-driven activity instead of a percentage. Applies only to ProgressBar.</summary>
 	public bool IsIndeterminate { get; set; }
 
+	/// <summary>Slider's finite inclusive lower bound. Ignored by other control types.</summary>
+	public float Minimum { get; set; }
+
+	/// <summary>Slider's finite inclusive upper bound. Ignored by other control types.</summary>
+	public float Maximum { get; set; } = 1.0f;
+
+	/// <summary>Slider proposal increment, anchored at Minimum; must be finite, positive, and no greater than Maximum - Minimum.</summary>
+	public float Step { get; set; } = 0.1f;
+
 	/// <summary>
 	/// Create an independent deep copy: mutating the clone's Layout/World (or this instance's) afterward cannot affect the
 	/// other, because Layout and World are themselves replaced with their own independent copies rather than shared by

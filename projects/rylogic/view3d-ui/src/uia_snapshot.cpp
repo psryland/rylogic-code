@@ -120,6 +120,9 @@ namespace pr::view3d::ui
 				.semantic_sequence = record.semantic_sequence,
 				.progress_value = record.progress_value,
 				.is_indeterminate = record.is_indeterminate,
+				.range_minimum = record.range_minimum,
+				.range_maximum = record.range_maximum,
+				.range_step = record.range_step,
 				.parent_index = UiaNoIndex,
 				.sibling_position = 0,
 				.children = {},
@@ -216,7 +219,8 @@ namespace pr::view3d::ui
 			}
 
 			auto const name_changed = before->name != node.name || before->description != node.description;
-			auto const value_changed = before->value != node.value || before->progress_value != node.progress_value || before->is_indeterminate != node.is_indeterminate;
+			auto const value_changed = before->value != node.value || before->progress_value != node.progress_value || before->is_indeterminate != node.is_indeterminate ||
+				before->range_minimum != node.range_minimum || before->range_maximum != node.range_maximum || before->range_step != node.range_step;
 			auto const state_changed = before->state_flags != node.state_flags || before->supported_actions != node.supported_actions;
 			auto const bounds_changed = BoundsDiffer(before->bounds_dip, node.bounds_dip);
 			if (!name_changed && !value_changed && !state_changed && !bounds_changed)

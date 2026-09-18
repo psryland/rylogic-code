@@ -191,6 +191,13 @@ namespace pr::view3d::ui
 
 						break;
 					}
+					case EControlType::Slider:
+					{
+						if (before->progress_value != after->progress_value)
+							RaisePropertyChanged(element, UIA_RangeValueValuePropertyId, EventNumber(before->progress_value), EventNumber(after->progress_value));
+
+						break;
+					}
 					case EControlType::Root:
 					case EControlType::Panel:
 					case EControlType::Text:

@@ -404,7 +404,8 @@ The first vertical slice implements:
 - `Text`;
 - `TextBox`;
 - `Button`;
-- `ProgressBar`.
+- `ProgressBar`;
+- `Slider`.
 
 Later demonstrated needs can add controls to the schema. Applications cannot register control classes.
 
@@ -440,7 +441,7 @@ Current placement and overflow contract:
 - Layout, drawing, and semantic bounds are viewport-relative DIPs. Client-pixel input and accessibility bounds include the viewport offset and client/target ratio.
   Updating viewport dimensions or DPI recomputes placement from authored values, rather than scaling the previous layout.
 
-Current native API version is `0x00050000`, and every wire struct header uses version `5`. `ControlDesc::visibility` is a signed 32-bit `EVisibility`
+Current native API version is `0x00060000`, and every wire struct header uses version `6`. `ControlDesc::visibility` is a signed 32-bit `EVisibility`
 at the former boolean field's offset; unchanged byte size does not make version-3 callers compatible. The private View3D host bridge version is unchanged.
 Managed callers use `UiControlDesc.Visibility`; replace old `true` with `EVisibility.Visible` and old `false` with `EVisibility.Hidden` to preserve behavior.
 Choose `Collapsed` explicitly when controls should stop reserving space. The native demonstration and existing tests preserve their former Visible/Hidden intent.
@@ -459,9 +460,27 @@ Labels are separate Text controls; the indicator is hit-test transparent, not a 
 SemanticNode carries `progress_value` and `is_indeterminate`. Determinate progress also reports percentage value text; activity has empty value text.
 UI Automation exposes ProgressBar role with read-only RangeValue `[0, 1]` only while determinate, with no small/large change.
 The default template supplies `PART_Track` and `PART_Indicator`; authored progress templates require both.
-ABI 5 changes ControlDesc, StyleVisual/StyleDesc, and SemanticNode; native clients and managed mirrors must refresh together.
+ABI 6 changes ControlDesc, Event, and SemanticNode beyond the earlier progress/style fields; native clients and managed mirrors must refresh together.
 The private renderer host-bridge ABI is unchanged because the control renders using existing box draw items.
 JSON schema 2 adds optional `value`, `is_indeterminate`, and visual `foreground` without changing existing field meanings.
+
+### Retained Slider
+
+`EControlType::Slider = 6` adds a horizontal finite scalar control. `ControlDesc::minimum`, `maximum`, `value`, and `step` are caller-authored finite values;
+`maximum` must be greater than `minimum`, `value` must lie inside the inclusive range, and `step` must be positive and no larger than the range. Invalid
+descriptors are rejected atomically and are never clamped. Step increments are anchored at Minimum; pointer and semantic proposals snap to the nearest increment,
+while exact Minimum/Maximum remain reachable even when the range is not an integral number of steps.
+
+The accepted descriptor remains the only durable value. Click-to-position, captured drag, arrow keys, Home/End, and UI Automation SetValue emit a
+`ValueChangeProposed` event with `has_numeric_value != 0` and a culture-independent `double numeric_value`; they never mutate `ControlDesc::value`.
+The event keeps the context-wide accepted revision and monotonic sequence ordering used by all other events and coalesces per control to the latest proposal.
+The application validates/normalizes the proposal, then reconciles by submitting its chosen value in a later transaction. Until that transaction is accepted,
+drawing and semantics continue to expose the previous accepted value.
+
+The default lookless template supplies `PART_Track` and `PART_Thumb`. The track uses `StyleVisual::fill`; the accepted-range indicator and thumb use
+`StyleVisual::foreground`, with no custom draw callback. Slider participates in normal hover, pressed, focused, disabled, visibility, DPI, layout, and Tab-order
+behaviour. Disabled sliders are not hit-test targets and advertise no SetValue semantic action. SemanticNode exposes Slider role, accepted range/value/step, and
+SetValue/Focus actions. UI Automation maps it to Slider with a writable RangeValue pattern while enabled and a read-only pattern while disabled.
 
 ### 6.3 Lookless templates
 

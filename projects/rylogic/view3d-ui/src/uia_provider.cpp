@@ -125,6 +125,7 @@ namespace pr::view3d::ui
 				case EControlType::TextBox: { return UIA_EditControlTypeId; }
 				case EControlType::Button: { return UIA_ButtonControlTypeId; }
 				case EControlType::ProgressBar: { return UIA_ProgressBarControlTypeId; }
+				case EControlType::Slider: { return UIA_SliderControlTypeId; }
 				default: throw EngineException(EStatus::InvalidArgument, std::format("unknown control type {}", static_cast<std::int32_t>(role)));
 			}
 		}
@@ -139,6 +140,7 @@ namespace pr::view3d::ui
 				case EControlType::Panel: { return false; }
 				case EControlType::Text:
 				case EControlType::ProgressBar:
+				case EControlType::Slider:
 				case EControlType::TextBox:
 				case EControlType::Button: { return true; }
 				default: throw EngineException(EStatus::InvalidArgument, std::format("unknown control type {}", static_cast<std::int32_t>(role)));
@@ -870,7 +872,7 @@ namespace pr::view3d::ui
 				return *node;
 			}
 
-			// Read only measurable progress; an activity indicator exposes no range pattern.
+			// Read measurable progress or the accepted slider range.
 			HRESULT RangeValue(PROPERTYID property, double* ret)
 			{
 				return ComGuard([&]() -> HRESULT
@@ -880,16 +882,18 @@ namespace pr::view3d::ui
 
 					auto const snapshot = RequireSnapshot();
 					auto const& node = RequireNode(snapshot);
-					if (node.role != EControlType::ProgressBar || node.is_indeterminate != 0)
+					auto const progress = node.role == EControlType::ProgressBar && node.is_indeterminate == 0;
+					auto const slider = node.role == EControlType::Slider;
+					if (!progress && !slider)
 						return UIA_E_NOTSUPPORTED;
 
 					switch (property)
 					{
 						case UIA_RangeValueValuePropertyId: { *ret = node.progress_value; break; }
-						case UIA_RangeValueMinimumPropertyId: { *ret = 0.0; break; }
-						case UIA_RangeValueMaximumPropertyId: { *ret = 1.0; break; }
+						case UIA_RangeValueMinimumPropertyId: { *ret = node.range_minimum; break; }
+						case UIA_RangeValueMaximumPropertyId: { *ret = node.range_maximum; break; }
 						case UIA_RangeValueSmallChangePropertyId:
-						case UIA_RangeValueLargeChangePropertyId: { *ret = std::numeric_limits<double>::quiet_NaN(); break; }
+						case UIA_RangeValueLargeChangePropertyId: { *ret = slider ? node.range_step : std::numeric_limits<double>::quiet_NaN(); break; }
 						default: { return E_INVALIDARG; }
 					}
 					return S_OK;
@@ -978,7 +982,7 @@ namespace pr::view3d::ui
 					auto const invoke = pattern == UIA_InvokePatternId && node.role == EControlType::Button && node.HasAction(ESemanticAction::Invoke);
 					auto const value = pattern == UIA_ValuePatternId && node.role == EControlType::TextBox;
 					auto const text = (pattern == UIA_TextPatternId || pattern == UIA_TextPattern2Id) && node.role == EControlType::TextBox;
-					auto const range = pattern == UIA_RangeValuePatternId && node.role == EControlType::ProgressBar && node.is_indeterminate == 0;
+					auto const range = pattern == UIA_RangeValuePatternId && ((node.role == EControlType::ProgressBar && node.is_indeterminate == 0) || node.role == EControlType::Slider);
 					if (!invoke && !value && !text && !range)
 						return S_OK;
 
@@ -1026,14 +1030,14 @@ namespace pr::view3d::ui
 						case UIA_IsContentElementPropertyId: { *ret = BoolVariant(IsContentElement(node.role)); break; }
 						case UIA_IsControlElementPropertyId: { *ret = BoolVariant(true); break; }
 						case UIA_ValueValuePropertyId: { *ret = BstrVariant(node.value); break; }
-						case UIA_ValueIsReadOnlyPropertyId: { *ret = BoolVariant(node.role == EControlType::ProgressBar || !node.HasState(ESemanticState::Enabled)); break; }
+						case UIA_ValueIsReadOnlyPropertyId: { *ret = BoolVariant(node.role == EControlType::ProgressBar || node.role == EControlType::Slider || !node.HasState(ESemanticState::Enabled)); break; }
 						case UIA_IsInvokePatternAvailablePropertyId: { *ret = BoolVariant(node.role == EControlType::Button && node.HasAction(ESemanticAction::Invoke)); break; }
 						case UIA_IsValuePatternAvailablePropertyId: { *ret = BoolVariant(node.role == EControlType::TextBox); break; }
-						case UIA_IsRangeValuePatternAvailablePropertyId: { *ret = BoolVariant(node.role == EControlType::ProgressBar && node.is_indeterminate == 0); break; }
+						case UIA_IsRangeValuePatternAvailablePropertyId: { *ret = BoolVariant((node.role == EControlType::ProgressBar && node.is_indeterminate == 0) || node.role == EControlType::Slider); break; }
 						case UIA_RangeValueIsReadOnlyPropertyId:
 						{
-							if (node.role == EControlType::ProgressBar && node.is_indeterminate == 0)
-								*ret = BoolVariant(true);
+							if ((node.role == EControlType::ProgressBar && node.is_indeterminate == 0) || node.role == EControlType::Slider)
+								*ret = BoolVariant(node.role == EControlType::ProgressBar || !node.HasState(ESemanticState::Enabled));
 
 							break;
 						}
@@ -1222,18 +1226,30 @@ namespace pr::view3d::ui
 
 					auto const snapshot = RequireSnapshot();
 					auto const& node = RequireNode(snapshot);
-					*ret = node.role == EControlType::ProgressBar || !node.HasState(ESemanticState::Enabled) ? TRUE : FALSE;
+					*ret = node.role == EControlType::ProgressBar || node.role == EControlType::Slider || !node.HasState(ESemanticState::Enabled) ? TRUE : FALSE;
 					return S_OK;
 				});
 			}
 
-			// Progress is application-owned and cannot be set by an automation client.
-			HRESULT STDMETHODCALLTYPE SetValue(double) override
+			// Slider changes use the same authoritative proposal path as pointer and keyboard input.
+			HRESULT STDMETHODCALLTYPE SetValue(double value) override
 			{
 				return ComGuard([&]() -> HRESULT
 				{
-					RequireNode(RequireSnapshot());
-					return UIA_E_INVALIDOPERATION;
+					auto const snapshot = RequireSnapshot();
+					auto const& node = RequireNode(snapshot);
+					if (node.role != EControlType::Slider || !node.HasAction(ESemanticAction::SetValue))
+						return UIA_E_INVALIDOPERATION;
+
+					auto const request = SemanticActionRequest{
+						.kind = ESemanticActionKind::SetValue,
+						.control_id = m_id,
+						.text = {},
+						.numeric_value = value,
+						.selection_start = 0,
+						.selection_end = 0,
+					};
+					return m_shared->InvokeAction(request);
 				});
 			}
 

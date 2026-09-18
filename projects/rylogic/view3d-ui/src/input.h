@@ -195,15 +195,17 @@ namespace pr::view3d::ui
 		SetSelection,
 	};
 
-	// One semantic action request. 'text' is the replacement UTF-8 value for SetValue and is
-	// ignored otherwise. 'selection_start'/'selection_end' are UTF-8 byte offsets into the target
-	// control's current pending text for SetSelection and are ignored otherwise; they need not be
-	// ordered or grapheme-aligned because SetSelection snaps them.
+	// One semantic action request. 'text' is the replacement UTF-8 value for a text SetValue,
+	// while 'numeric_value' is the proposed scalar for a range SetValue; both are ignored by other
+	// actions. 'selection_start'/'selection_end' are UTF-8 byte offsets into the target control's
+	// current pending text for SetSelection and are ignored otherwise; they need not be ordered or
+	// grapheme-aligned because SetSelection snaps them.
 	struct SemanticActionRequest
 	{
 		ESemanticActionKind kind;
 		ControlId control_id;
 		std::string text;
+		double numeric_value;
 		std::uint32_t selection_start;
 		std::uint32_t selection_end;
 	};

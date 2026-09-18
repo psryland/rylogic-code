@@ -42,6 +42,8 @@ namespace pr::view3d::ui
 			}
 			case EControlType::Root:
 			case EControlType::Panel:
+			case EControlType::ProgressBar:
+			case EControlType::Slider:
 			case EControlType::Count:
 			default:
 			{

@@ -15,8 +15,8 @@
 
 namespace pr::view3d::ui
 {
-	inline constexpr std::uint32_t VIEW3D_UI_API_VERSION = 0x00050000U;
-	inline constexpr std::uint32_t VIEW3D_UI_STRUCT_VERSION = 5U;
+	inline constexpr std::uint32_t VIEW3D_UI_API_VERSION = 0x00060000U;
+	inline constexpr std::uint32_t VIEW3D_UI_STRUCT_VERSION = 6U;
 
 	// Maximum named parts recorded directly within one TemplateDesc. Bounded so the descriptor
 	// stays fixed-layout; the closed template vocabulary (section 6.3) never needs more than this.
@@ -103,7 +103,8 @@ namespace pr::view3d::ui
 		TextBox = 3,
 		Button = 4,
 		ProgressBar = 5,
-		Count = 6,
+		Slider = 6,
+		Count = 7,
 	};
 
 	// Closed layout vocabulary (section 6.2). Overlay and the two Stack orientations place a
@@ -352,7 +353,8 @@ namespace pr::view3d::ui
 		PointerCaptureChanged = 3,
 		QueueOverflow = 4,
 		Diagnostic = 5,
-		Count = 6,
+		ValueChangeProposed = 6,
+		Count = 7,
 	};
 
 	// Bitmask of UI Automation-style actions a semantic node currently supports (section 5.5).
@@ -609,6 +611,13 @@ namespace pr::view3d::ui
 
 		// ProgressBar displays host-time-driven activity instead of a percentage when nonzero.
 		std::int32_t is_indeterminate;
+
+		// Slider's finite inclusive range. 'value' is the caller-authoritative accepted value;
+		// interaction only proposes replacements. 'step' is the positive keyboard and snapping
+		// increment, anchored at 'minimum'. Ignored by other control types.
+		float minimum;
+		float maximum;
+		float step;
 	};
 
 	// Explicit child order for one parent (section 5.3). 'offset'/'count' index into the shared
@@ -856,7 +865,8 @@ namespace pr::view3d::ui
 		std::uint32_t payload_offset;
 		std::uint32_t payload_length;
 		std::uint32_t edit_generation;
-		std::uint32_t reserved0;
+		std::int32_t has_numeric_value;
+		double numeric_value;
 	};
 
 	// One flat, deterministic pre-order semantic record (the 'SemanticNode' EStructId, section 5.5).
@@ -894,9 +904,14 @@ namespace pr::view3d::ui
 		std::uint64_t accepted_revision;
 		std::uint64_t semantic_sequence;
 
-		// Meaningful only for ProgressBar; progress_value has no completion meaning while indeterminate.
+		// Range metadata is meaningful for ProgressBar and Slider. ProgressBar uses [0, 1], while
+		// Slider reports its accepted descriptor range and positive step.
 		float progress_value;
 		std::int32_t is_indeterminate;
+		float range_minimum;
+		float range_maximum;
+		float range_step;
+		std::uint32_t reserved1;
 	};
 
 	// Bounded runtime counters and last-failure category (the 'Diagnostics' EStructId).

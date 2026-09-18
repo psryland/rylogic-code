@@ -133,7 +133,7 @@ namespace pr::view3d::ui::tests
 			.style_id = 0,
 			.enabled = 1,
 			.visibility = EVisibility::Visible,
-			.focusable = (type == EControlType::Button || type == EControlType::TextBox) ? 1 : 0,
+			.focusable = (type == EControlType::Button || type == EControlType::TextBox || type == EControlType::Slider) ? 1 : 0,
 			.validation_state = EValidationState::NotApplicable,
 			.layout = layout,
 			.text_offset = 0,
@@ -144,6 +144,9 @@ namespace pr::view3d::ui::tests
 			.desc_length = 0,
 			.max_text_length = 256,
 			.font_resource_id = font_resource_id,
+			.minimum = 0.0f,
+			.maximum = 1.0f,
+			.step = 0.1f,
 		};
 	}
 

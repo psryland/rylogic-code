@@ -105,7 +105,7 @@ element identity contract; there are no per-frame managed callbacks.
   or `EStatus.InvalidArgument`, surfaced as a `View3dUiException`) and the accepted revision is left unchanged.
 - **Event draining**: `UiContext.DrainEvents()` (or the `Span<UiEvent>` overload for a caller-owned buffer) removes and
   returns all pending `UiEvent` records since the last drain, each carrying the originating `ControlId`, `EEventKind`,
-  the revision/sequence/edit-generation it was raised against, and a decoded payload string.
+  the revision/sequence/edit-generation it was raised against, a decoded payload string, and an optional typed numeric payload.
 - **Semantics**: `UiContext.CaptureSemantics()` (or its `Span<UiSemanticNode>` overload) returns a flattened snapshot of
   the accessible-semantics tree as of the most recent `Update(ViewportState)` call - call `Update` at least once after
   applying a transaction before capturing semantics that should reflect it.
@@ -120,7 +120,7 @@ Hidden suppresses the whole subtree's drawing/input but retains its allocation. 
 Changing an ancestor's visibility also affects descendant input and semantics. An unavailable subtree loses focus, pressed/captured interaction, and composition;
 call `Update` after submitting the transaction to refresh layout and semantic snapshots.
 
-The current native ABI is version `0x00050000` / struct version `5`; use matching managed and native binaries. Replace the old boolean `Visible` property with `Visibility`:
+The current native ABI is version `0x00060000` / struct version `6`; use matching managed and native binaries. Replace the old boolean `Visible` property with `Visibility`:
 `true` becomes `EVisibility.Visible`, and `false` becomes `EVisibility.Hidden` to preserve behavior. Select `Collapsed` explicitly to remove space.
 No auto-sizing or clipping behavior is implied.
 
@@ -140,7 +140,23 @@ Put any visible label in a separate Text control. `Name` and `Description` suppl
 Semantics expose `Role = EControlType.ProgressBar`, `ProgressValue`, and `IsIndeterminate`, plus percentage `Value` text only in determinate mode.
 UI Automation exposes ProgressBar control type and a read-only RangeValue pattern with minimum 0 and maximum 1 only while determinate.
 Activity animation does not change accessible completion or emit input events. Optional templates require `PART_Track` and `PART_Indicator`.
-ABI 5 extends ControlDesc, StyleVisual/StyleDesc, and SemanticNode; rebuild native UI clients and refresh the managed wrapper and native runtime together.
+ABI 6 extends ControlDesc, Event, and SemanticNode beyond the earlier progress/style fields; rebuild native UI clients and refresh the managed wrapper and native runtime together.
+
+### Slider
+
+`UiControlDesc.Type = EControlType.Slider` is a reusable horizontal finite scalar. Set finite `Minimum`, `Maximum`, `Value`, and `Step`; defaults are `0`, `1`,
+`0`, and `0.1`. Maximum must be greater than Minimum, Value must lie in the inclusive range, and Step must be positive and no larger than the range.
+Native and JSON descriptor validation reject invalid values atomically and never clamp caller data.
+
+The accepted descriptor remains authoritative. Click-to-position, captured drag, Left/Down, Right/Up, Home/End, and accessibility SetValue produce
+`EEventKind.ValueChangeProposed`. `UiEvent.HasNumericValue` is true and `UiEvent.ProposedValue` exposes the typed `double` proposal without parsing text or depending
+on culture. The proposal retains normal accepted-revision and event-sequence ordering and coalesces per slider. Apply the accepted/normalized value in a later
+transaction; until then visuals and semantics continue to report the previous `UiControlDesc.Value`.
+
+The built-in template uses `PART_Track` and `PART_Thumb`. Style `fill` paints the track and `foreground` paints the accepted-range indicator and thumb. Slider uses
+the normal layout/DPI, focus traversal, hover/pressed/focused/disabled channels, pointer capture, and visibility model. Disabled sliders emit no proposals.
+`UiSemanticNode` reports `Role = EControlType.Slider`, accepted `RangeValue`, `RangeMinimum`, `RangeMaximum`, `RangeStep`, and SetValue/Focus actions.
+UI Automation exposes Slider with RangeValue; disabled state makes it read-only.
 
 ### JSON documents (`Rylogic.Gfx.UI.Json`)
 
@@ -159,3 +175,4 @@ Schema version `2` represents visibility as `"visibility": "Visible"`, `"Hidden"
 Schema version `1` and the old `"visible"` boolean are rejected, not automatically converted.
 ProgressBar adds optional `"value": 0.25`, `"is_indeterminate": true`, and style visual `"foreground": "#00FF00FF"` properties within schema 2;
 no existing property changes meaning. Canonical serialization writes these fields explicitly.
+Slider adds optional `"minimum"`, `"maximum"`, and `"step"` alongside `"value"` within schema 2; canonical serialization writes them explicitly.

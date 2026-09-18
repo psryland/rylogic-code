@@ -1,3 +1,5 @@
+using System;
+
 namespace Rylogic.Gfx.UI;
 
 /// <summary>
@@ -27,14 +29,36 @@ public sealed class UiEvent
 	/// </summary>
 	public string Payload { get; }
 
-	/// <summary>Adopt one decoded event snapshot.</summary>
-	internal UiEvent(ControlId control_id, EEventKind kind, ulong accepted_revision, ulong sequence, uint edit_generation, string payload)
+	/// <summary>True when this event carries a typed numeric value.</summary>
+	public bool HasNumericValue { get; }
+
+	/// <summary>The typed numeric payload, meaningful only when HasNumericValue is true.</summary>
+	public double NumericValue { get; }
+
+	/// <summary>The Slider value proposed by a ValueChangeProposed event.</summary>
+	public double ProposedValue
 	{
+		get
+		{
+			// Reject accidental use on payload-free or text-valued event kinds.
+			if (Kind != EEventKind.ValueChangeProposed || !HasNumericValue)
+				throw new InvalidOperationException("Only ValueChangeProposed events carry a proposed numeric value.");
+
+			return NumericValue;
+		}
+	}
+
+	/// <summary>Adopt one decoded event snapshot.</summary>
+	internal UiEvent(ControlId control_id, EEventKind kind, ulong accepted_revision, ulong sequence, uint edit_generation, string payload, bool has_numeric_value = false, double numeric_value = 0.0)
+	{
+		// Retain the native record as an immutable decoded snapshot.
 		ControlId = control_id;
 		Kind = kind;
 		AcceptedRevision = accepted_revision;
 		Sequence = sequence;
 		EditGeneration = edit_generation;
 		Payload = payload;
+		HasNumericValue = has_numeric_value;
+		NumericValue = numeric_value;
 	}
 }
