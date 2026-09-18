@@ -197,4 +197,31 @@ void InsertKBufferLayer(inout uint4 alpha_colour, inout uint4 alpha_depth, inout
 	alpha_depth.w = WithDepth(alpha_depth.w, depth);
 }
 
+// Replace one already collected layer's RGB without changing its opacity, ordering, or ray-tracing attributes.
+bool ReplaceKBufferLayerRgb(inout uint4 alpha_colour, uint4 alpha_depth, uint rgb, uint depth)
+{
+	uint4 d = uint4(DepthOf(alpha_depth.x), DepthOf(alpha_depth.y), DepthOf(alpha_depth.z), DepthOf(alpha_depth.w));
+	if (depth == d.x)
+	{
+		alpha_colour.x = (alpha_colour.x & 0xFF000000u) | (rgb & 0x00FFFFFFu);
+		return true;
+	}
+	if (depth == d.y)
+	{
+		alpha_colour.y = (alpha_colour.y & 0xFF000000u) | (rgb & 0x00FFFFFFu);
+		return true;
+	}
+	if (depth == d.z)
+	{
+		alpha_colour.z = (alpha_colour.z & 0xFF000000u) | (rgb & 0x00FFFFFFu);
+		return true;
+	}
+	if (depth == d.w)
+	{
+		alpha_colour.w = (alpha_colour.w & 0xFF000000u) | (rgb & 0x00FFFFFFu);
+		return true;
+	}
+	return false;
+}
+
 #endif

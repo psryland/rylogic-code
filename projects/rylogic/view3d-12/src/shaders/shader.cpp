@@ -65,6 +65,9 @@ namespace pr::rdr12
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_reflection_attrs_texn_pbr_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_alpha_collect_texn_pbr_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_radial_fade_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_wire_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_wire_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_wire_collect_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_pbr_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_texn_pbr_ps.h)
@@ -89,6 +92,9 @@ namespace pr::rdr12
 		ByteCode const forward_reflection_attrs_texn_pbr_ps(compiled::forward_reflection_attrs_texn_pbr_ps);
 		ByteCode const forward_alpha_collect_texn_pbr_ps(compiled::forward_alpha_collect_texn_pbr_ps);
 		ByteCode const forward_radial_fade_ps(compiled::forward_radial_fade_ps);
+		ByteCode const forward_wire_ps(compiled::forward_wire_ps);
+		ByteCode const forward_far_fade_wire_ps(compiled::forward_far_fade_wire_ps);
+		ByteCode const forward_far_fade_wire_collect_ps(compiled::forward_far_fade_wire_collect_ps);
 		ByteCode const forward_far_fade_ps(compiled::forward_far_fade_ps);
 		ByteCode const forward_far_fade_pbr_ps(compiled::forward_far_fade_pbr_ps);
 		ByteCode const forward_far_fade_texn_pbr_ps(compiled::forward_far_fade_texn_pbr_ps);

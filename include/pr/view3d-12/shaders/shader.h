@@ -91,6 +91,9 @@ namespace pr::rdr12
 		extern ByteCode const forward_radial_fade_ps;
 
 		// Opt-in forward far-depth output variants.
+		extern ByteCode const forward_wire_ps;
+		extern ByteCode const forward_far_fade_wire_ps;
+		extern ByteCode const forward_far_fade_wire_collect_ps;
 		extern ByteCode const forward_far_fade_ps;
 		extern ByteCode const forward_far_fade_pbr_ps;
 		extern ByteCode const forward_far_fade_texn_pbr_ps;

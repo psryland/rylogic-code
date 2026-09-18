@@ -63,6 +63,6 @@ namespace pr::rdr12
 		bool IsBeforeFarFade(DrawListElement const& dle, PipeStateDesc const& desc) const;
 
 		// Draw a single nugget using its resolved scene ordering contract.
-		void DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, ESortGroup sort_group, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash);
+		void DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, ESortGroup sort_group, bool alpha_pass, bool fade_world, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash);
 	};
 }

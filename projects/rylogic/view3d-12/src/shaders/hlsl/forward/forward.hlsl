@@ -467,6 +467,18 @@ void CollectAlphaLayer(PSIn In, float4 diff, uint rt_attrs)
 	g_alpha_rt_attrs[pix] = alpha_rt_attrs;
 }
 
+// Replace the RGB of the matching collected layer without inserting another fragment.
+void OverlayAlphaLayer(PSIn In, float3 rgb)
+{
+	// Use the same packed depth and instance tie-break as the source collection draw.
+	uint2 pix = uint2(In.ss_vert.xy);
+	float view_z = -mul(In.ws_vert, g_frame.cam.w2c).z;
+	uint depth = PackDepthKey(view_z, ClipPlanes(g_frame.cam.c2s), uint(g_nugget.flags.w));
+	uint4 alpha_colour = g_alpha_colour[pix];
+	if (ReplaceKBufferLayerRgb(alpha_colour, g_alpha_depth[pix], PackRGBA8(float4(rgb, 0)), depth))
+		g_alpha_colour[pix] = alpha_colour;
+}
+
 // Collect transparent simple-material fragments into the alpha K-buffer.
 void PSForwardAlphaCollect(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
