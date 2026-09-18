@@ -19,7 +19,7 @@
 				;%(PreprocessorDefinitions)
 				;PR_MATHS_USE_INTRINSICS=1
 				;PR_UNITTESTS=1
-				;PR_UNITTESTS_VISUALISE=1
+				;PR_UNITTESTS_VISUALISE=0
 			</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>
 				;$(ProjectDir)
