@@ -200,28 +200,117 @@ namespace pr::rdr12
 	//  Reload notification and manually reload objects, replacing the LdrObject*
 	//  pointers they hold.
 
-	// Create an object from geometry
+	// Create an object from 16-bit indexed geometry.
 	ldraw::LdrObject* Context::ObjectCreate(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<uint16_t const> indices, std::span<view3d::Nugget const> nuggets, Guid const& context_id)
 	{
-		using namespace pr::script;
+		// Preserve the existing buffered-vertex contract.
+		return ObjectCreateImpl(name, colour, verts, indices, nuggets, nullptr, context_id);
+	}
 
+	// Create an object from 32-bit indexed geometry.
+	ldraw::LdrObject* Context::ObjectCreate(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<uint32_t const> indices, std::span<view3d::Nugget const> nuggets, view3d::ObjectCreateOptions const& options, Guid const& context_id)
+	{
+		// Apply the explicit extended creation contract.
+		return ObjectCreateImpl(name, colour, verts, indices, nuggets, &options, context_id);
+	}
+
+	// Create an object through the shared index-width-independent path.
+	template <typename TIndex>
+	ldraw::LdrObject* Context::ObjectCreateImpl(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<TIndex const> indices, std::span<view3d::Nugget const> nuggets, view3d::ObjectCreateOptions const* options, Guid const& context_id)
+	{
+		// Establish the vertex-ID domain before accepting any geometry.
+		using namespace pr::script;
+		auto const vertex_source = options != nullptr
+			? static_cast<EVertexSource>(options->m_vertex_source)
+			: EVertexSource::Buffer;
+		auto const logical_vcount = vertex_source == EVertexSource::ProceduralVertexId
+			? options->m_vcount_logical
+			: isize(verts);
+
+		switch (vertex_source)
+		{
+			case EVertexSource::Buffer:
+			{
+				// Ordinary indices must address actual vertex-buffer elements.
+				if (verts.empty())
+					throw std::invalid_argument("Object vertex buffer is empty");
+				break;
+			}
+			case EVertexSource::ProceduralVertexId:
+			{
+				// Procedural models retain one physical element solely to satisfy the model-buffer contract.
+				if (verts.size() != 1)
+					throw std::invalid_argument("Procedural vertex-ID objects require exactly one placeholder vertex");
+				if (indices.empty())
+					throw std::invalid_argument("Procedural vertex-ID objects require indexed geometry");
+				if (logical_vcount <= 0)
+					throw std::invalid_argument("Procedural vertex-ID objects require a positive logical vertex count");
+				if (options == nullptr)
+					throw std::invalid_argument("Procedural vertex-ID objects require creation options");
+
+				auto const& bbox = options->m_bbox;
+				auto const finite =
+					std::isfinite(bbox.centre.x) && std::isfinite(bbox.centre.y) && std::isfinite(bbox.centre.z) && std::isfinite(bbox.centre.w) &&
+					std::isfinite(bbox.radius.x) && std::isfinite(bbox.radius.y) && std::isfinite(bbox.radius.z) && std::isfinite(bbox.radius.w);
+				if (!finite || bbox.radius.x < 0 || bbox.radius.y < 0 || bbox.radius.z < 0)
+					throw std::invalid_argument("Procedural vertex-ID objects require a finite model-space bounding box with nonnegative extents");
+				break;
+			}
+			default:
+			{
+				throw std::invalid_argument("Unknown object vertex source");
+			}
+		}
+
+		// Reject invalid IDs at the owning input boundary rather than relying on undefined IA fetches.
+		for (auto index : indices)
+		{
+			// Both ordinary and procedural models have an explicit valid ID domain.
+			if (s_cast<int64_t>(index) >= logical_vcount)
+				throw std::out_of_range("Object index exceeds the declared vertex-ID domain");
+		}
+
+		// Translate public nugget descriptions into renderer materials and ranges.
 		auto geom = EGeom::None;
 		pr::vector<NuggetDesc> ngt;
 
 		// Generate the nuggets first so we can tell what geometry data is needed
 		for (auto const& nugget : nuggets)
 		{
+			// Nugget ranges always address the physical object buffers, including procedural placeholder geometry.
+			auto const vrange = nugget.m_v0 != nugget.m_v1 ? Range(nugget.m_v0, nugget.m_v1) : Range(0, verts.size());
+			auto const irange = nugget.m_i0 != nugget.m_i1 ? Range(nugget.m_i0, nugget.m_i1) : Range(0, indices.size());
+			if (vrange.begin() < 0 || vrange.begin() > vrange.end() || vrange.end() > isize(verts))
+				throw std::out_of_range("Nugget vertex range exceeds the physical vertex buffer");
+			if (irange.begin() < 0 || irange.begin() > irange.end() || irange.end() > isize(indices))
+				throw std::out_of_range("Nugget index range exceeds the physical index buffer");
+			if (vertex_source == EVertexSource::ProceduralVertexId && static_cast<EGeom>(nugget.m_geom) != EGeom::Vert)
+				throw std::invalid_argument("Procedural vertex-ID nuggets must not declare physical vertex attributes");
+
+			// Translate the public material and shader bindings.
 			RefPtr<MaterialSimple> material(::pr::compute::New<MaterialSimple>(), true);
 			material->base_texture(Texture2DPtr(nugget.m_tex_diffuse, true), SamplerPtr(nugget.m_sam_diffuse, true));
 			material->base_colour(To<Colour>(nugget.m_tint));
 			material->rel_reflec(nugget.m_rel_reflec);
 			for (auto const& shdr : nugget.shader_span())
+			{
+				// A procedural shader is valid only for its declared render step and source kind.
+				if (shdr.m_shader == nullptr)
+					throw std::invalid_argument("Nugget shader handle is null");
+				if (auto* procedural = dynamic_cast<ProceduralVertexShader*>(shdr.m_shader); procedural != nullptr)
+				{
+					if (vertex_source != EVertexSource::ProceduralVertexId)
+						throw std::invalid_argument("Procedural vertex shaders require a procedural vertex-ID model");
+					if (procedural->m_rdr_step != static_cast<ERenderStep>(shdr.m_rdr_step))
+						throw std::invalid_argument("Procedural vertex shader render-step contract does not match its nugget binding");
+				}
 				material->use_shader_overlay(static_cast<ERenderStep>(shdr.m_rdr_step), ShaderPtr(shdr.m_shader, true));
+			}
 
 			// Create the renderer nugget
 			NuggetDesc nug = NuggetDesc(static_cast<ETopo>(nugget.m_topo), static_cast<EGeom>(nugget.m_geom))
-				.vrange(nugget.m_v0 != nugget.m_v1 ? Range(nugget.m_v0, nugget.m_v1) : Range(0, verts.size()))
-				.irange(nugget.m_i0 != nugget.m_i1 ? Range(nugget.m_i0, nugget.m_i1) : Range(0, indices.size()))
+				.vrange(vrange)
+				.irange(irange)
 				.flags(static_cast<ENuggetFlag>(nugget.m_nflags))
 				.mat(material);
 
@@ -229,12 +318,10 @@ namespace pr::rdr12
 				nug.pso<EPipeState::CullMode>(static_cast<D3D12_CULL_MODE>(nugget.m_cull_mode));
 			if (nugget.m_fill_mode != view3d::EFillMode::Default)
 				nug.pso<EPipeState::FillMode>(static_cast<D3D12_FILL_MODE>(nugget.m_fill_mode));
+			if (vertex_source == EVertexSource::ProceduralVertexId)
+				nug.pso<EPipeState::InputLayout>(D3D12_INPUT_LAYOUT_DESC{});
 
 			ngt.push_back(nug);
-
-			// Sanity check the nugget
-			PR_ASSERT(PR_DBG, nug.m_vrange.begin() <= nug.m_vrange.end() && nug.m_vrange.end() <= isize(verts), "Invalid nugget V-range");
-			PR_ASSERT(PR_DBG, nug.m_irange.begin() <= nug.m_irange.end() && nug.m_irange.end() <= isize(indices), "Invalid nugget I-range");
 
 			// Union of geometry data type
 			geom |= nug.m_geom;
@@ -245,7 +332,7 @@ namespace pr::rdr12
 		{
 			pos.resize(verts.size());
 			for (int i = 0, iend = isize(verts); i != iend; ++i)
-				pos[i] = To<v4>(verts[i].pos);
+				pos[i] = vertex_source == EVertexSource::ProceduralVertexId ? v4::Origin() : To<v4>(verts[i].pos);
 		}
 
 		// Colour buffer
@@ -281,6 +368,10 @@ namespace pr::rdr12
 		// Create the model
 		MeshCreationData cdata = MeshCreationData().verts(pos).indices(ind).nuggets(ngt).colours(col).normals(nrm).tex(tex);
 		auto obj = Create(m_rdr, ldraw::ELdrObject::Custom, cdata, context_id);
+		obj->m_model->m_vertex_source = vertex_source;
+		obj->m_model->m_vcount_logical = logical_vcount;
+		if (vertex_source == EVertexSource::ProceduralVertexId)
+			obj->m_model->m_bbox = To<BBox>(options->m_bbox);
 
 		// Add to the sources
 		obj->m_name = name;

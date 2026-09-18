@@ -19,6 +19,7 @@ namespace pr::rdr12::shaders
 			CBufScreenSpace,
 			CBufPbrSurface,
 			CBufDiag,
+			CBufProcedural,
 			DiffTexture,
 			EnvMap,
 			SMap,

@@ -657,10 +657,6 @@ namespace pr::rdr12::ldraw
 			}
 			else
 			{
-				// Reject shader overlays because promotion to the stock PBR material cannot preserve their custom stage contract.
-				if (auto const* overlays = nug->mat().Component<materials::ShaderOverlays>(); overlays != nullptr && !overlays->m_overlays.empty())
-					throw std::runtime_error("Procedural surface assignment does not support custom shader overlays");
-
 				auto requires_alpha = nug->RequiresAlpha();
 				material = RefPtr<MaterialPBR>(::pr::compute::New<MaterialPBR>(), true);
 				if (auto const* base_colour = nug->mat().Component<materials::BaseColour>(); base_colour != nullptr)
@@ -669,6 +665,16 @@ namespace pr::rdr12::ldraw
 					material->m_roughness = *roughness;
 				if (auto const* two_sided = nug->mat().Component<materials::TwoSided>(); two_sided != nullptr)
 					material->m_two_sided = *two_sided;
+				if (auto const* overlays = nug->mat().Component<materials::ShaderOverlays>(); overlays != nullptr)
+				{
+					// Promotion preserves only the bounded procedural vertex stages supported by the stock PBR passes.
+					for (auto const& overlay : overlays->m_overlays)
+					{
+						if (dynamic_cast<ProceduralVertexShader*>(overlay.m_overlay.get()) == nullptr)
+							throw std::runtime_error("Procedural surface assignment does not support custom shader overlays");
+					}
+					material->m_shaders = *overlays;
+				}
 				if (requires_alpha)
 					material->m_alpha.m_mode = materials::EAlphaMode::Blend;
 			}

@@ -35,6 +35,9 @@ namespace pr::rdr12
 		vector<Nugget const*, 8> m_nuggets;
 	};
 
+	// Reject model source modes that cannot provide physical positions to ray tracing.
+	void ValidateRayTracingGeometrySource(Model const& model);
+
 	// Build the triangle descriptors used to create a bottom-level acceleration structure for 'model'.
 	RayTracingGeometryBuildInput RayTracingBuildGeometryInput(Model const& model, D3D12_GPU_VIRTUAL_ADDRESS vertex_buffer_address, bool rt_available, bool include_skinned);
 

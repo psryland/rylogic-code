@@ -15,6 +15,7 @@
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/main/settings.h"
 #include "pr/view3d-12/shaders/shader_point_sprites.h"
+#include "pr/view3d-12/ray_tracing/ray_tracing_model.h"
 #include "pr/view3d-12/ray_tracing/render_ray_tracing.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/utility/conversion.h"
@@ -730,6 +731,19 @@ namespace pr::rdr12
 		// Add the angle tool objects if the window is visible
 		if (m_ui_angle_tool != nullptr && m_ui_angle_tool->Visible() && m_ui_angle_tool->Gfx())
 			m_ui_angle_tool->Gfx()->AddToScene(m_scene);
+
+		// Reject unsupported source modes before opening frame command lists so the public error path leaves the window renderable.
+		if (RayTracingEnabled())
+		{
+			// Validate the complete assembled scene because procedural objects may be added after ray tracing is enabled.
+			for (auto const* inst : m_scene.m_instances)
+			{
+				// Model-less hierarchy instances have no geometry to validate.
+				auto const& model = GetModel(*inst);
+				if (model != nullptr)
+					ValidateRayTracingGeometrySource(*model.get());
+			}
+		}
 
 		// Render the scene
 		auto& frame = m_wnd.NewFrame();

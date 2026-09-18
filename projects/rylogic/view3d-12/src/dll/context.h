@@ -72,6 +72,7 @@ namespace pr::rdr12
 
 		// Create an object from geometry
 		ldraw::LdrObject* ObjectCreate(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<uint16_t const> indices, std::span<view3d::Nugget const> nuggets, Guid const& context_id);
+		ldraw::LdrObject* ObjectCreate(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<uint32_t const> indices, std::span<view3d::Nugget const> nuggets, view3d::ObjectCreateOptions const& options, Guid const& context_id);
 
 		// Load/Add ldr objects and return the first object from the script
 		template <typename Char>
@@ -104,6 +105,10 @@ namespace pr::rdr12
 
 		// Delete a single object
 		void DeleteObject(ldraw::LdrObject* object);
+
+		// Create an object through the shared 16-bit/32-bit geometry path.
+		template <typename TIndex>
+		ldraw::LdrObject* ObjectCreateImpl(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<TIndex const> indices, std::span<view3d::Nugget const> nuggets, view3d::ObjectCreateOptions const* options, Guid const& context_id);
 
 		// Delete all objects
 		void DeleteAllObjects();

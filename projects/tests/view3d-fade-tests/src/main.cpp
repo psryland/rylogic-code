@@ -366,6 +366,310 @@ namespace fade_tests
 		return difference;
 	}
 
+	// Immutable recipe used by all three public procedural vertex-stage contracts.
+	struct alignas(16) ProceduralVertexConstants
+	{
+		api::Vec4 m_positions[3];
+		api::Vec4 m_colour;
+		std::array<unsigned char, api::ShaderOptions::ConstantsSize - 4 * sizeof(api::Vec4)> m_padding;
+	};
+	static_assert(sizeof(ProceduralVertexConstants) == api::ShaderOptions::ConstantsSize);
+
+	// Assert one framebuffer pixel against linear source-over expectations.
+	void Expect(std::vector<unsigned char> const& image, float red, float green, float blue, int x = 64, int y = 64);
+
+	// Create one copied procedural vertex shader through the public descriptor.
+	api::Shader ProceduralVertexShader(api::ERenderStep rdr_step, unsigned char const* bytecode, size_t bytecode_size, ProceduralVertexConstants const& constants)
+	{
+		// Supply only the bounded stage, bytecode, constants, and diagnostic name owned by this ABI.
+		auto options = api::ShaderOptions{
+			.m_struct_size = sizeof(api::ShaderOptions),
+			.m_version = api::ShaderOptions::CurrentVersion,
+			.m_rdr_step = rdr_step,
+			.m_vs_bytecode = bytecode,
+			.m_vs_bytecode_size = bytecode_size,
+			.m_constants = &constants,
+			.m_constants_size = sizeof(constants),
+			.m_dbg_name = "ProceduralVertexAbiTest",
+		};
+		return View3D_ShaderCreate(options);
+	}
+
+	// Verify pooled generator scratch storage can alternate index widths without preserving stale geometry.
+	void ModelGeneratorCacheResetTests()
+	{
+		// Populate a U32 logical-ID buffer with values that cannot be represented by the following U16 allocation.
+		auto buffers = pr::rdr12::ModelGenerator::Buffers<pr::rdr12::Vert>{};
+		buffers.Reset(1, 3, 0, sizeof(uint32_t));
+		auto u32_indices = buffers.m_icont.begin<int>();
+		*u32_indices++ = 70000;
+		*u32_indices++ = 70001;
+		*u32_indices++ = 70002;
+		Require(buffers.m_icont.stride() == sizeof(uint32_t) && buffers.m_icont.size() == 3, "Initial U32 generator cache allocation is invalid");
+		Require(buffers.m_icont[0] == 70000 && buffers.m_icont[1] == 70001 && buffers.m_icont[2] == 70002, "Initial U32 generator cache contents are invalid");
+
+		// Reset to a different U16 count and prove the next generator owns all newly written contents.
+		buffers.Reset(2, 6, 0, sizeof(uint16_t));
+		int const u16_expected[] = {3, 1, 4, 1, 5, 0};
+		auto u16_indices = buffers.m_icont.begin<int>();
+		for (auto value : u16_expected)
+			*u16_indices++ = value;
+
+		Require(buffers.m_icont.stride() == sizeof(uint16_t) && buffers.m_icont.size() == std::size(u16_expected), "U16 generator cache allocation is invalid");
+		for (auto i = size_t{}; i != std::size(u16_expected); ++i)
+			Require(buffers.m_icont[i] == static_cast<uint64_t>(u16_expected[i]), "U16 generator cache retained stale U32 contents");
+
+		// Reset back to U32 with another count and prove later widening also starts with caller-owned data.
+		buffers.Reset(3, 4, 0, sizeof(uint32_t));
+		int const u32_expected[] = {80003, 70002, 90004, 42};
+		auto widened_indices = buffers.m_icont.begin<int>();
+		for (auto value : u32_expected)
+			*widened_indices++ = value;
+
+		Require(buffers.m_icont.stride() == sizeof(uint32_t) && buffers.m_icont.size() == std::size(u32_expected), "Second U32 generator cache allocation is invalid");
+		for (auto i = size_t{}; i != std::size(u32_expected); ++i)
+			Require(buffers.m_icont[i] == static_cast<uint64_t>(u32_expected[i]), "Second U32 generator cache contents are invalid");
+	}
+
+	// Exercise the public U32 logical-ID domain, copied shader inputs, raster output, and stock RayCast geometry stage.
+	void ProceduralVertexAbiTests()
+	{
+		// Prove alternating index widths discard pooled scratch contents before any renderer resources are created.
+		ModelGeneratorCacheResetTests();
+
+		// Create three immutable stage recipes from caller-owned buffers that are discarded immediately after publication.
+		Fixture fixture(1);
+		auto constants = ProceduralVertexConstants{
+			.m_positions = {
+				api::Vec4{-25, -25, -10, 1},
+				api::Vec4{+25, -25, -10, 1},
+				api::Vec4{0, +25, -10, 1},
+			},
+			.m_colour = api::Vec4{0, 1, 0, 1},
+		};
+		auto forward_bytecode = std::vector<unsigned char>(std::begin(compiled::procedural_vertex_forward), std::end(compiled::procedural_vertex_forward));
+		auto raycast_bytecode = std::vector<unsigned char>(std::begin(compiled::procedural_vertex_raycast), std::end(compiled::procedural_vertex_raycast));
+		auto shadow_bytecode = std::vector<unsigned char>(std::begin(compiled::procedural_vertex_shadow), std::end(compiled::procedural_vertex_shadow));
+
+		// Malformed descriptors fail through the public error callback without publishing partial shader state.
+		auto expect_shader_error = [&fixture](api::ShaderOptions options, std::string_view expected)
+		{
+			// Require both a null handle and a diagnostic owned by the rejected descriptor.
+			fixture.m_errors.clear();
+			Require(View3D_ShaderCreate(options) == nullptr, "Malformed procedural shader descriptor was accepted");
+			Require(!fixture.m_errors.empty() && fixture.m_errors.back().find(expected) != std::string::npos, "Malformed shader descriptor reported the wrong error");
+		};
+		auto valid_shader_options = api::ShaderOptions{
+			.m_struct_size = sizeof(api::ShaderOptions),
+			.m_version = api::ShaderOptions::CurrentVersion,
+			.m_rdr_step = api::ERenderStep::ForwardRender,
+			.m_vs_bytecode = forward_bytecode.data(),
+			.m_vs_bytecode_size = forward_bytecode.size(),
+			.m_constants = &constants,
+			.m_constants_size = sizeof(constants),
+			.m_dbg_name = "ProceduralVertexAbiValidation",
+		};
+		auto bad_shader_options = valid_shader_options;
+		bad_shader_options.m_struct_size -= 1;
+		expect_shader_error(bad_shader_options, "structure size");
+		bad_shader_options = valid_shader_options;
+		bad_shader_options.m_version = 0;
+		expect_shader_error(bad_shader_options, "version");
+		bad_shader_options = valid_shader_options;
+		bad_shader_options.m_constants_size -= 16;
+		expect_shader_error(bad_shader_options, "1024");
+		bad_shader_options = valid_shader_options;
+		bad_shader_options.m_vs_bytecode_size = 3;
+		expect_shader_error(bad_shader_options, "bytecode");
+		fixture.m_errors.clear();
+
+		// Valid descriptors retain private copies and bind only to their declared render steps.
+		auto forward = ProceduralVertexShader(api::ERenderStep::ForwardRender, forward_bytecode.data(), forward_bytecode.size(), constants);
+		auto raycast = ProceduralVertexShader(api::ERenderStep::RayCast, raycast_bytecode.data(), raycast_bytecode.size(), constants);
+		auto shadow = ProceduralVertexShader(api::ERenderStep::ShadowMap, shadow_bytecode.data(), shadow_bytecode.size(), constants);
+		Require(forward != nullptr && raycast != nullptr && shadow != nullptr, "Procedural vertex shader creation failed");
+		fixture.CheckErrors();
+
+		// Publish sparse IDs above 65K while retaining one physical placeholder vertex and explicit generated bounds.
+		auto placeholder = api::Vertex{};
+		uint32_t indices[] = {70000, 70001, 70002};
+		auto nugget = api::Nugget{};
+		nugget.m_topo = api::ETopo::TriList;
+		nugget.m_geom = api::EGeom::Vert;
+		nugget.m_v0 = 0;
+		nugget.m_v1 = 1;
+		nugget.m_cull_mode = api::ECullMode::None;
+		nugget.m_tint = 0xFFFFFFFF;
+		nugget.m_shaders[0] = api::Nugget::Shader{forward, api::ERenderStep::ForwardRender, 0};
+		nugget.m_shaders[1] = api::Nugget::Shader{raycast, api::ERenderStep::RayCast, 0};
+		nugget.m_shaders[2] = api::Nugget::Shader{shadow, api::ERenderStep::ShadowMap, 0};
+		auto options = api::ObjectCreateOptions{
+			.m_struct_size = sizeof(api::ObjectCreateOptions),
+			.m_version = api::ObjectCreateOptions::CurrentVersion,
+			.m_vertex_source = api::EVertexSource::ProceduralVertexId,
+			.m_vcount_logical = 70003,
+			.m_bbox = api::BBox{
+				.centre = api::Vec4{0, 0, -10, 1},
+				.radius = api::Vec4{25, 25, 0, 0},
+			},
+		};
+
+		// Malformed geometry domains, physical ranges, bounds, and stage bindings fail before model publication.
+		auto expect_object_error = [&fixture, &placeholder, &indices, &nugget](api::ObjectCreateOptions const& object_options, api::Nugget const& object_nugget, std::string_view expected)
+		{
+			// Require both a null object and the diagnostic for the violated creation contract.
+			fixture.m_errors.clear();
+			auto rejected = View3D_ObjectCreateU32("RejectedProceduralVertexAbi", 0xFFFFFFFF, 1, 3, 1, &placeholder, indices, &object_nugget, object_options, GUID{});
+			Require(rejected == nullptr, "Malformed procedural object descriptor was accepted");
+			Require(!fixture.m_errors.empty() && fixture.m_errors.back().find(expected) != std::string::npos, "Malformed object descriptor reported the wrong error");
+		};
+		auto bad_options = options;
+		bad_options.m_struct_size -= 1;
+		expect_object_error(bad_options, nugget, "structure size");
+		bad_options = options;
+		bad_options.m_vcount_logical = 70002;
+		expect_object_error(bad_options, nugget, "vertex-ID domain");
+		bad_options = options;
+		bad_options.m_bbox.radius.x = -1;
+		expect_object_error(bad_options, nugget, "bounding box");
+		auto bad_nugget = nugget;
+		bad_nugget.m_v0 = 0;
+		bad_nugget.m_v1 = 2;
+		expect_object_error(options, bad_nugget, "physical vertex buffer");
+		bad_nugget = nugget;
+		bad_nugget.m_geom = static_cast<api::EGeom>(static_cast<int>(api::EGeom::Vert) | static_cast<int>(api::EGeom::Norm));
+		expect_object_error(options, bad_nugget, "physical vertex attributes");
+		bad_nugget = nugget;
+		bad_nugget.m_shaders[0].m_rdr_step = api::ERenderStep::RayCast;
+		expect_object_error(options, bad_nugget, "render-step contract");
+		bad_options = options;
+		bad_options.m_vertex_source = api::EVertexSource::Buffer;
+		expect_object_error(bad_options, nugget, "vertex-ID domain");
+
+		// Procedural geometry must use its U32 logical-ID buffer rather than falling through to a non-indexed placeholder draw.
+		fixture.m_errors.clear();
+		auto non_indexed = View3D_ObjectCreateU32("RejectedNonIndexedProceduralVertexAbi", 0xFFFFFFFF, 1, 0, 1, &placeholder, nullptr, &nugget, options, GUID{});
+		Require(non_indexed == nullptr, "Non-indexed procedural object descriptor was accepted");
+		Require(!fixture.m_errors.empty() && fixture.m_errors.back().find("indexed geometry") != std::string::npos, "Non-indexed procedural object reported the wrong error");
+		fixture.m_errors.clear();
+
+		// Publish the valid procedural object after all rejected inputs leave the context unchanged.
+		auto object = View3D_ObjectCreateU32("ProceduralVertexAbi", 0xFFFFFFFF, 1, 3, 1, &placeholder, indices, &nugget, options, GUID{});
+		Require(object != nullptr, "Procedural U32 object creation failed");
+		fixture.m_objects.push_back(object);
+		View3D_WindowAddObject(fixture.m_window, object);
+		fixture.CheckErrors();
+
+		// Destroying a model before its retained caller shader handle must release only the model-owned reference.
+		auto retained_shader = ProceduralVertexShader(api::ERenderStep::ForwardRender, forward_bytecode.data(), forward_bytecode.size(), constants);
+		Require(retained_shader != nullptr, "Retained shader creation failed");
+		auto retained_nugget = nugget;
+		retained_nugget.m_shaders[0] = api::Nugget::Shader{retained_shader, api::ERenderStep::ForwardRender, 0};
+		retained_nugget.m_shaders[1] = {};
+		auto retained_object = View3D_ObjectCreateU32("ProceduralReleaseOrder", 0xFFFFFFFF, 1, 3, 1, &placeholder, indices, &retained_nugget, options, GUID{});
+		Require(retained_object != nullptr, "Release-order object creation failed");
+		View3D_ObjectDelete(retained_object);
+		View3D_ShaderRelease(retained_shader);
+		fixture.CheckErrors();
+
+		// Release every caller handle and mutate the source buffers before the renderer first consumes the recipes.
+		View3D_ShaderRelease(forward);
+		View3D_ShaderRelease(raycast);
+		View3D_ShaderRelease(shadow);
+		std::fill(forward_bytecode.begin(), forward_bytecode.end(), static_cast<unsigned char>(0));
+		std::fill(raycast_bytecode.begin(), raycast_bytecode.end(), static_cast<unsigned char>(0));
+		std::fill(shadow_bytecode.begin(), shadow_bytecode.end(), static_cast<unsigned char>(0));
+		constants = {};
+
+		// Forward must render the generated triangle rather than the physical placeholder vertex.
+		auto image = fixture.Image();
+		Expect(image, 0, 1, 0);
+
+		// Public procedural-surface promotion must retain all three vertex overlays while selecting the stock PBR pixel shader.
+		auto surface = View3D_ProceduralSurfacePreset(api::EProceduralSurfacePreset::Soil);
+		surface.m_colour0 = surface.m_colour1 = surface.m_colour2 = surface.m_colour3 = 0xFF00FF00;
+		surface.m_normal_strength = 0;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, surface, nullptr, 0);
+		auto round_trip = api::ProceduralSurface{};
+		Require(View3D_ObjectNuggetProceduralSurfaceGet(object, round_trip, nullptr, 0), "Procedural U32 object did not promote to the stock PBR material");
+		auto ambient_light = View3D_LightPropertiesGet(fixture.m_window);
+		ambient_light.m_ambient = 0xFFFFFFFF;
+		ambient_light.m_diffuse = 0xFF000000;
+		ambient_light.m_specular = 0xFF000000;
+		ambient_light.m_intensity = 1;
+		ambient_light.m_on = TRUE;
+		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		Expect(fixture.Image(), 0, 1, 0);
+
+		// RayCast must use the same generated world-space triangle while retaining the stock topology geometry shader.
+		auto ray = api::HitTestRay{};
+		ray.m_ws_origin = api::Vec4{0, 0, 0, 1};
+		ray.m_ws_direction = api::Vec4{0, 0, -1, 0};
+		auto hit = api::HitTestResult{};
+		View3D_WindowHitTestObjects(fixture.m_window, &ray, &hit, 1, &object, 1);
+		fixture.CheckErrors();
+		Require(hit.m_obj == object && std::abs(hit.m_distance - 10.0f) < 0.01f, "Procedural Forward and RayCast geometry disagree");
+
+		// ShadowMap must use the supplied procedural VS while retaining stock depth and material handling.
+		auto receiver = fixture.Quad(20, 0xFFFFFFFF, 45, nullptr, 0, 0xFFFFFFFF, false, true);
+		auto light = View3D_LightPropertiesGet(fixture.m_window);
+		light.m_type = api::ELight::Directional;
+		light.m_direction = api::Vec4{0.70710678f, 0, -0.70710678f, 0};
+		light.m_ambient = 0xFF202020;
+		light.m_diffuse = 0xFFFFFFFF;
+		light.m_specular = 0xFF000000;
+		light.m_intensity = 1;
+		light.m_cast_shadow = 1.0f;
+		light.m_on = TRUE;
+		View3D_LightPropertiesSet(fixture.m_window, light);
+		auto with_shadow = fixture.Image();
+		View3D_ObjectFlagsSet(object, api::ELdrFlags::ShadowCastExclude, TRUE, nullptr);
+		auto without_shadow = fixture.Image();
+		Require(ImageDifference(with_shadow, without_shadow) > 50, "Procedural ShadowMap VS did not cast a raster shadow");
+		View3D_ObjectFlagsSet(object, api::ELdrFlags::ShadowCastExclude, FALSE, nullptr);
+		View3D_WindowRemoveObject(fixture.m_window, receiver);
+		fixture.CheckErrors();
+
+		// DXR must reject placeholder geometry explicitly rather than tracing it or silently omitting it.
+		if (View3D_WindowRayTracingInfoGet(fixture.m_window).m_available)
+		{
+			// Add the procedural model after enabling DXR so the complete pre-frame scene validation owns the unsupported-mode failure.
+			View3D_WindowRemoveObject(fixture.m_window, object);
+			View3D_WindowRayTracingEnabledSet(fixture.m_window, TRUE);
+			View3D_WindowAddObject(fixture.m_window, object);
+			View3D_WindowRender(fixture.m_window);
+			Require(!fixture.m_errors.empty() && fixture.m_errors.back().find("procedural vertex-ID") != std::string::npos, "DXR did not report the procedural geometry boundary");
+			fixture.m_errors.clear();
+			View3D_WindowRayTracingEnabledSet(fixture.m_window, FALSE);
+		}
+
+		// The shared U32 path must render on the same window after the expected DXR rejection, proving frame recording was never opened.
+		fixture.Clear();
+		api::Vertex buffered_verts[] = {
+			{api::Vec4{-25, -25, -10, 1}, api::Vec4{0, 0, 1, 0}, {}, 0xFF00FF00, 0},
+			{api::Vec4{+25, -25, -10, 1}, api::Vec4{0, 0, 1, 0}, {}, 0xFF00FF00, 0},
+			{api::Vec4{0, +25, -10, 1}, api::Vec4{0, 0, 1, 0}, {}, 0xFF00FF00, 0},
+		};
+		uint32_t buffered_indices[] = {0, 1, 2};
+		auto buffered_nugget = api::Nugget{};
+		buffered_nugget.m_topo = api::ETopo::TriList;
+		buffered_nugget.m_geom = static_cast<api::EGeom>(static_cast<int>(api::EGeom::Vert) | static_cast<int>(api::EGeom::Colr));
+		buffered_nugget.m_cull_mode = api::ECullMode::None;
+		buffered_nugget.m_tint = 0xFFFFFFFF;
+		auto buffered_options = api::ObjectCreateOptions{
+			.m_struct_size = sizeof(api::ObjectCreateOptions),
+			.m_version = api::ObjectCreateOptions::CurrentVersion,
+			.m_vertex_source = api::EVertexSource::Buffer,
+		};
+		auto buffered_object = View3D_ObjectCreateU32("BufferedU32", 0xFFFFFFFF, 3, 3, 1, buffered_verts, buffered_indices, &buffered_nugget, buffered_options, GUID{});
+		Require(buffered_object != nullptr, "Ordinary U32 buffered object creation failed");
+		fixture.m_objects.push_back(buffered_object);
+		View3D_WindowAddObject(fixture.m_window, buffered_object);
+		Expect(fixture.Image(), 0, 1, 0);
+		fixture.CheckDebugLayer();
+		std::cout << "PASS procedural descriptor rejection, U32 logical IDs, copied recipes, release ordering, Forward, RayCast, ShadowMap, DXR boundary, and buffered U32\n";
+	}
+
 	// Exercise the public procedural surface API through real forward rendering and framebuffer readback.
 	void ProceduralSurfaceTests()
 	{
@@ -593,7 +897,7 @@ namespace fade_tests
 	}
 
 	// Assert compositing against linear source-over expectations, allowing RGBA8 quantization.
-	void Expect(std::vector<unsigned char> const& image, float red, float green, float blue, int x = 64, int y = 64)
+	void Expect(std::vector<unsigned char> const& image, float red, float green, float blue, int x, int y)
 	{
 		auto pixel = image.data() + (y * ImageSize + x) * 4;
 		float expected[] = {red, green, blue};
@@ -1117,6 +1421,12 @@ int main(int argc, char const* const* argv)
 		{
 			// Run only the focused procedural GPU/readback evidence.
 			fade_tests::ProceduralSurfaceTests();
+			return 0;
+		}
+		if (argc == 2 && std::string_view(argv[1]) == "--procedural-vertex-abi")
+		{
+			// Run only the focused U32 procedural vertex ABI evidence.
+			fade_tests::ProceduralVertexAbiTests();
 			return 0;
 		}
 		fade_tests::Require(argc == 1 || (argc == 2 && std::string_view(argv[1]) == "--numeric-only"), "Expected no arguments or --numeric-only");

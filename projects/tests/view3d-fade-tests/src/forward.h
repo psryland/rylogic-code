@@ -12,6 +12,7 @@
 #include <wrl/client.h>
 #include "pr/view3d-12/view3d-dll.h"
 #include "pr/view3d-12/view3d-ui-bridge.h"
+#include "pr/view3d-12/model/model_generator.h"
 #include "pr/view3d-12/scene/far_clip_fade.h"
 #include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/utility/normal_transform.h"
@@ -35,5 +36,8 @@ namespace colour_blend_tests
 namespace fade_tests::compiled
 {
 	#include "fade_vertex.h"
+	#include "procedural_vertex_forward.h"
+	#include "procedural_vertex_raycast.h"
+	#include "procedural_vertex_shadow.h"
 	#include "unsupported_pixel.h"
 }

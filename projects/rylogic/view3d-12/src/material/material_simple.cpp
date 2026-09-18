@@ -16,6 +16,45 @@
 
 namespace pr::rdr12
 {
+	// Apply shader overlays supported by the active material render step.
+	void materials::ApplyShaderOverlays(MaterialPassContext& ctx, bool procedural_only)
+	{
+		// Preserve broad legacy overlays for Forward while restricting secondary raster passes to the public procedural contract.
+		auto const* overlays = ctx.m_material.Component<ShaderOverlays>();
+		if (overlays == nullptr)
+			return;
+
+		for (auto& shdr_overlay : overlays->m_overlays)
+		{
+			// Apply only overlays explicitly assigned to this pass.
+			if (shdr_overlay.m_rdr_step != ctx.m_step_id)
+				continue;
+
+			auto& overlay = *shdr_overlay.m_overlay.get();
+			auto* procedural = dynamic_cast<ProceduralVertexShader*>(&overlay);
+			if (procedural_only && procedural == nullptr)
+				continue;
+			if (procedural != nullptr && procedural->m_rdr_step != ctx.m_step_id)
+				throw std::runtime_error("Procedural vertex shader render-step contract mismatch");
+			if (overlay.m_signature)
+			{
+				// A complete legacy overlay owns its signature as well as its shader stages.
+				ctx.m_pipe_state.Apply(PSO<EPipeState::RootSignature>(overlay.m_signature.get()));
+				ctx.m_cmd_list.SetGraphicsRootSignature(overlay.m_signature.get());
+				ctx.m_root_signature_changed = true;
+			}
+			if (overlay.m_code.VS) ctx.m_pipe_state.Apply(PSO<EPipeState::VS>(overlay.m_code.VS));
+			if (overlay.m_code.PS) ctx.m_pipe_state.Apply(PSO<EPipeState::PS>(overlay.m_code.PS));
+			if (overlay.m_code.DS) ctx.m_pipe_state.Apply(PSO<EPipeState::DS>(overlay.m_code.DS));
+			if (overlay.m_code.HS) ctx.m_pipe_state.Apply(PSO<EPipeState::HS>(overlay.m_code.HS));
+			if (overlay.m_code.GS) ctx.m_pipe_state.Apply(PSO<EPipeState::GS>(overlay.m_code.GS));
+
+			// Bind overlay-owned resources after the base material has established its stock root contract.
+			overlay.SetupFrame(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene);
+			overlay.SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene, &ctx.m_dle);
+		}
+	}
+
 	namespace
 	{
 		// The material pass that reproduces default NuggetDesc material handling.
@@ -131,47 +170,20 @@ namespace pr::rdr12
 					ctx.m_pipe_state.Apply(PSO<EPipeState::CullMode>(D3D12_CULL_MODE_NONE));
 				};
 
-				// Apply legacy shader overlays for the simple forward pass.
-				static auto ApplyForwardPipeline = [](MaterialPassContext& ctx)
-				{
-					auto const* overlays = ctx.m_material.Component<materials::ShaderOverlays>();
-					if (overlays == nullptr)
-						return;
-
-					for (auto& shdr_overlay : overlays->m_overlays)
-					{
-						if (shdr_overlay.m_rdr_step != ctx.m_step_id)
-							continue;
-
-						auto& overlay = *shdr_overlay.m_overlay.get();
-						if (overlay.m_signature)
-						{
-							ctx.m_pipe_state.Apply(PSO<EPipeState::RootSignature>(overlay.m_signature.get()));
-							ctx.m_cmd_list.SetGraphicsRootSignature(overlay.m_signature.get());
-							ctx.m_root_signature_changed = true;
-						}
-						if (overlay.m_code.VS) ctx.m_pipe_state.Apply(PSO<EPipeState::VS>(overlay.m_code.VS));
-						if (overlay.m_code.PS) ctx.m_pipe_state.Apply(PSO<EPipeState::PS>(overlay.m_code.PS));
-						if (overlay.m_code.DS) ctx.m_pipe_state.Apply(PSO<EPipeState::DS>(overlay.m_code.DS));
-						if (overlay.m_code.HS) ctx.m_pipe_state.Apply(PSO<EPipeState::HS>(overlay.m_code.HS));
-						if (overlay.m_code.GS) ctx.m_pipe_state.Apply(PSO<EPipeState::GS>(overlay.m_code.GS));
-
-						overlay.SetupFrame(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene);
-						overlay.SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene, &ctx.m_dle);
-					}
-				};
-
 				switch (ctx.m_step_id)
 				{
 					case ERenderStep::RenderForward:
 					{
-						ApplyForwardPipeline(ctx);
+						// Forward retains all existing overlay behavior.
+						materials::ApplyShaderOverlays(ctx, false);
 						ApplyTwoSidedPipeline(ctx);
 						return;
 					}
 					case ERenderStep::ShadowMap:
 					case ERenderStep::RayCast:
 					{
+						// Secondary raster passes accept only the bounded procedural VS overlay.
+						materials::ApplyShaderOverlays(ctx, true);
 						ApplyTwoSidedPipeline(ctx);
 						return;
 					}

@@ -41,6 +41,7 @@ namespace pr::rdr12
 		MeshCreationData& indices(geometry::index_cspan ibuf)
 		{
 			m_idxbuf = ibuf;
+			m_idx_stride = ibuf.stride();
 			return *this;
 		}
 		MeshCreationData& nuggets(std::span<NuggetDesc const> gbuf)
@@ -424,10 +425,12 @@ namespace pr::rdr12
 			// Resize the buffers to the given sizes.
 			void Reset(int vcount = 0, int icount = 0, int ncount = 0, int idx_stride = sizeof(uint16_t))
 			{
+				// Cached geometry is scratch storage, so discard old indices before changing stride rather than narrowing values that the next generator will overwrite.
 				assert(vcount >= 0 && icount >= 0 && ncount >= 0 && idx_stride >= 1);
 
 				m_name.resize(0);
 				m_vcont.resize(vcount, {});
+				m_icont.resize(0, idx_stride);
 				m_icont.resize(icount, idx_stride);
 				m_ncont.resize(ncount, {});
 				m_scont.resize(0);

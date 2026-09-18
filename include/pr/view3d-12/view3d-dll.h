@@ -204,6 +204,12 @@ namespace pr
 
 			ShowNormalsGS,
 		};
+		// Defines how indexed vertex IDs are interpreted by an extended object.
+		enum class EVertexSource :int
+		{
+			Buffer,             // Indices address physical vertex-buffer elements.
+			ProceduralVertexId, // U32 indices are logical SV_VertexID values decoded by caller vertex shaders.
+		};
 		enum class ELight :int
 		{
 			Ambient,
@@ -740,9 +746,33 @@ namespace pr
 			D3D12_TEXTURE_ADDRESS_MODE m_addrW;
 			char const*                m_dbg_name;
 		};
+		// Versioned descriptor for a caller-compiled procedural vertex shader.
 		struct ShaderOptions
 		{
-			// todo
+			static constexpr int CurrentVersion = 1;
+			static constexpr size_t ConstantsSize = 1024;
+			static constexpr size_t MaxByteCodeSize = 1024 * 1024;
+
+			int m_struct_size;
+			int m_version;
+			ERenderStep m_rdr_step;
+			int m_pad;
+			void const* m_vs_bytecode;
+			size_t m_vs_bytecode_size;
+			void const* m_constants;
+			size_t m_constants_size;
+			char const* m_dbg_name;
+		};
+		// Versioned extended-object descriptor with an explicit vertex-ID domain and authoritative model-space bounds.
+		struct ObjectCreateOptions
+		{
+			static constexpr int CurrentVersion = 1;
+
+			int m_struct_size;
+			int m_version;
+			EVertexSource m_vertex_source; // Buffer uses ordinary vertex payloads; ProceduralVertexId uses one renderer-canonicalised placeholder.
+			int m_vcount_logical;          // Positive logical ID limit for ProceduralVertexId; every U32 index must be below this count.
+			BBox m_bbox;                   // Required finite procedural bounds; placeholder payload never contributes to model bounds.
 		};
 		struct WindowOptions
 		{
@@ -1311,6 +1341,12 @@ extern "C"
 
 	// Create an object from provided buffers
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreate(char const* name, pr::view3d::Colour colour, int vcount, int icount, int ncount, pr::view3d::Vertex const* verts, UINT16 const* indices, pr::view3d::Nugget const* nuggets, GUID const& context_id);
+
+	// Create a 32-bit indexed object using buffered vertices or a declared procedural vertex-ID domain.
+	// ProceduralVertexId objects use one physical placeholder vertex, while each U32 index is a logical SV_VertexID below options.m_vcount_logical.
+	// Nugget vertex ranges always address the physical buffer: use EGeom::Vert and [0,1) for the one-placeholder case, never the logical domain.
+	// Multiple nuggets share the logical domain and bounds but may partition the physical index buffer, for example [0,surface_icount) and [surface_icount,icount).
+	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateU32(char const* name, pr::view3d::Colour colour, int vcount, int icount, int ncount, pr::view3d::Vertex const* verts, UINT32 const* indices, pr::view3d::Nugget const* nuggets, pr::view3d::ObjectCreateOptions const& options, GUID const& context_id);
 
 	// Create an graphics object from ldr script, either a string or a file 
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateLdrW(wchar_t const* ldr_script, BOOL file, GUID const* context_id, pr::view3d::Includes const* includes);
