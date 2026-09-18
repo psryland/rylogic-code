@@ -175,6 +175,9 @@ public sealed class UiDocument
 		writer.WriteNumber("value_sequence", control.ValueSequence);
 		writer.WriteNumber("value", control.Value);
 		writer.WriteBoolean("is_indeterminate", control.IsIndeterminate);
+		writer.WriteNumber("minimum", control.Minimum);
+		writer.WriteNumber("maximum", control.Maximum);
+		writer.WriteNumber("step", control.Step);
 		WriteWorld(writer, control.World);
 
 		writer.WriteStartArray("children");
@@ -419,6 +422,9 @@ public sealed class UiDocument
 			ValueSequence = GetUInt32(node, "value_sequence", path, 0),
 			Value = GetFloat(node, "value", path, 0),
 			IsIndeterminate = GetBool(node, "is_indeterminate", path, false),
+			Minimum = GetFloat(node, "minimum", path, 0),
+			Maximum = GetFloat(node, "maximum", path, 1),
+			Step = GetFloat(node, "step", path, 0.1f),
 			World = ParseWorld(node, $"{path}.world"),
 		};
 		// Reject invalid completion at the authoring boundary, before constructing a transaction.
@@ -428,6 +434,18 @@ public sealed class UiDocument
 			{
 				if (float.IsNaN(control.Value) || float.IsInfinity(control.Value) || control.Value < 0 || control.Value > 1)
 					throw new UiJsonException($"{path}.value", "ProgressBar value must be finite and within [0, 1].");
+
+				break;
+			}
+			case EControlType.Slider:
+			{
+				// Reject every invalid range relationship before a transaction can be constructed.
+				if (float.IsNaN(control.Minimum) || float.IsInfinity(control.Minimum) || float.IsNaN(control.Maximum) || float.IsInfinity(control.Maximum) || control.Maximum <= control.Minimum)
+					throw new UiJsonException($"{path}.maximum", "Slider bounds must be finite and Maximum must be greater than Minimum.");
+				if (float.IsNaN(control.Value) || float.IsInfinity(control.Value) || control.Value < control.Minimum || control.Value > control.Maximum)
+					throw new UiJsonException($"{path}.value", "Slider value must be finite and within [Minimum, Maximum].");
+				if (float.IsNaN(control.Step) || float.IsInfinity(control.Step) || control.Step <= 0 || control.Step > control.Maximum - control.Minimum)
+					throw new UiJsonException($"{path}.step", "Slider step must be finite, positive, and no greater than Maximum - Minimum.");
 
 				break;
 			}

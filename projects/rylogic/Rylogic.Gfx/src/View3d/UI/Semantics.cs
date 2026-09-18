@@ -27,8 +27,27 @@ public sealed class UiSemanticNode
 	/// <summary>Normalized ProgressBar completion; meaningful only for that role and when IsIndeterminate is false.</summary>
 	public float ProgressValue { get; }
 
+	/// <summary>The accepted numeric value for a Slider role.</summary>
+	public float RangeValue
+	{
+		get
+		{
+			// Slider and ProgressBar share the ABI's compact range-value slot.
+			return ProgressValue;
+		}
+	}
+
 	/// <summary>Whether a ProgressBar reports activity rather than measurable completion.</summary>
 	public bool IsIndeterminate { get; }
+
+	/// <summary>The inclusive minimum for a range-valued role.</summary>
+	public float RangeMinimum { get; }
+
+	/// <summary>The inclusive maximum for a range-valued role.</summary>
+	public float RangeMaximum { get; }
+
+	/// <summary>The positive proposal increment for a Slider role.</summary>
+	public float RangeStep { get; }
 
 	/// <summary>The control's current boolean automation state flags.</summary>
 	public ESemanticState State { get; }
@@ -67,8 +86,9 @@ public sealed class UiSemanticNode
 	public ulong SemanticSequence { get; }
 
 	/// <summary>Adopt one decoded semantic node snapshot.</summary>
-	internal UiSemanticNode(ControlId id, ControlId parent_id, EControlType role, string name, string description, string value, ESemanticState state, ESemanticAction supported_actions, ESemanticTextFlag text_flags, uint caret, uint selection_start, uint selection_end, uint composition_start, uint composition_length, uint value_grapheme_count, Rect bounds, ulong accepted_revision, ulong semantic_sequence, float progress_value, bool is_indeterminate)
+	internal UiSemanticNode(ControlId id, ControlId parent_id, EControlType role, string name, string description, string value, ESemanticState state, ESemanticAction supported_actions, ESemanticTextFlag text_flags, uint caret, uint selection_start, uint selection_end, uint composition_start, uint composition_length, uint value_grapheme_count, Rect bounds, ulong accepted_revision, ulong semantic_sequence, float progress_value, bool is_indeterminate, float range_minimum = 0.0f, float range_maximum = 0.0f, float range_step = 0.0f)
 	{
+		// Retain the native semantic record as an immutable decoded snapshot.
 		Id = id;
 		ParentId = parent_id;
 		Role = role;
@@ -77,6 +97,9 @@ public sealed class UiSemanticNode
 		Value = value;
 		ProgressValue = progress_value;
 		IsIndeterminate = is_indeterminate;
+		RangeMinimum = range_minimum;
+		RangeMaximum = range_maximum;
+		RangeStep = range_step;
 		State = state;
 		SupportedActions = supported_actions;
 		TextFlags = text_flags;

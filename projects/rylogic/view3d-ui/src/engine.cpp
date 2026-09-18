@@ -241,6 +241,31 @@ namespace pr::view3d::ui
 			auto const run = [this](SemanticActionRequest const& request) { return ApplySemanticAction(request); };
 			return m_impl->m_uia.HandleActionMessage(hwnd, wparam, lparam, run, invalidate);
 		}
+		if (msg == WM_SETCURSOR && LOWORD(lparam) == HTCLIENT)
+		{
+			// Interactive controls choose only standard system cursors. Empty layout area is left
+			// to the host window so View3DUI never overrides the scene's own cursor policy.
+			auto const hover = m_impl->m_tree.m_controls.find(m_impl->m_input.m_hover_id);
+			if (hover == m_impl->m_tree.m_controls.end() || hover->second.desc.enabled == 0)
+				return 0;
+
+			LPCTSTR cursor_id;
+			switch (hover->second.desc.type)
+			{
+				case EControlType::TextBox: { cursor_id = IDC_IBEAM; break; }
+				case EControlType::Button:
+				case EControlType::Slider: { cursor_id = IDC_HAND; break; }
+				case EControlType::Root:
+				case EControlType::Panel:
+				case EControlType::Text:
+				case EControlType::ProgressBar:
+				case EControlType::Count:
+				default: { return 0; }
+			}
+			SetCursor(LoadCursor(nullptr, cursor_id));
+			result = TRUE;
+			return 1;
+		}
 
 		// The translator keeps its own view of whether a composition is running, but the state
 		// machine is authoritative: focus can move, a control can leave the tree, and the

@@ -9,8 +9,8 @@ namespace Rylogic.Gfx.UI;
 internal static unsafe class Native
 {
 	internal const string Dll = "view3d-ui";
-	internal const uint ApiVersion = 0x00050000U;
-	internal const uint StructVersion = 5U;
+	internal const uint ApiVersion = 0x00060000U;
+	internal const uint StructVersion = 6U;
 	private static IntPtr m_module;
 
 	/// <summary>Load the configuration-appropriate native runtime before the first P/Invoke.</summary>
@@ -145,6 +145,9 @@ internal static unsafe class Native
 		internal WorldRootParams m_world;
 		internal float m_value;
 		internal int m_is_indeterminate;
+		internal float m_minimum;
+		internal float m_maximum;
+		internal float m_step;
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
@@ -323,7 +326,8 @@ internal static unsafe class Native
 		internal uint m_payload_offset;
 		internal uint m_payload_length;
 		internal uint m_edit_generation;
-		internal uint m_reserved0;
+		internal int m_has_numeric_value;
+		internal double m_numeric_value;
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
@@ -359,6 +363,10 @@ internal static unsafe class Native
 		internal ulong m_semantic_sequence;
 		internal float m_progress_value;
 		internal int m_is_indeterminate;
+		internal float m_range_minimum;
+		internal float m_range_maximum;
+		internal float m_range_step;
+		internal uint m_reserved1;
 	}
 
 	// Variable-length text accompanying one NormalizedInput record (the 'InputTextPayload' EStructId, section 7.2).

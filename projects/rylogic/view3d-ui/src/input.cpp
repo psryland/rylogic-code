@@ -22,7 +22,7 @@ namespace pr::view3d::ui
 		// the whole viewport, and a Panel/Text commonly covers area with no interactive purpose, so
 		// treating their own bounds as a hit would swallow every pointer event over the viewport and
 		// starve the host application's own scene/camera input of clicks that land outside any real
-		// control (section 7.3). Only Button/TextBox are closed interactive controls in this milestone.
+		// control (section 7.3). Button, TextBox, and Slider are the closed interactive controls.
 		bool IsHitTestable(EControlType type)
 		{
 			switch (type)
@@ -36,6 +36,7 @@ namespace pr::view3d::ui
 				}
 				case EControlType::TextBox:
 				case EControlType::Button:
+				case EControlType::Slider:
 				{
 					return true;
 				}
@@ -68,7 +69,7 @@ namespace pr::view3d::ui
 			}
 
 			auto rect_it = layout.find(id);
-			return rect_it != layout.end() && RectContains(rect_it->second, pt) && IsHitTestable(node.desc.type) ? id : 0;
+			return rect_it != layout.end() && RectContains(rect_it->second, pt) && node.desc.enabled != 0 && IsHitTestable(node.desc.type) ? id : 0;
 		}
 
 		void ComputeTabOrderRecurse(TreeModel const& tree, ControlId id, std::vector<ControlId>& order)
@@ -121,6 +122,39 @@ namespace pr::view3d::ui
 		{
 			if (!events.Push(control_id, kind, accepted_revision, edit_generation, std::move(payload)))
 				throw EngineException(EStatus::QueueOverflow, std::format("event queue overflow while enqueueing event kind {} for control {}", static_cast<int>(kind), control_id));
+		}
+
+		// Snap a finite candidate to the descriptor's step lattice anchored at minimum, while
+		// preserving exact endpoints so both bounds remain reachable when the range is not an
+		// integral number of steps.
+		double SnapSliderValue(ControlDesc const& desc, double candidate)
+		{
+			// Preserve exact endpoints before rounding interior values to the step lattice.
+			if (candidate <= desc.minimum)
+				return desc.minimum;
+			if (candidate >= desc.maximum)
+				return desc.maximum;
+
+			auto const step_count = std::round((candidate - desc.minimum) / desc.step);
+			return std::clamp(static_cast<double>(desc.minimum) + step_count * desc.step, static_cast<double>(desc.minimum), static_cast<double>(desc.maximum));
+		}
+
+		// Emit a typed numeric proposal without changing the accepted descriptor value.
+		void ProposeSliderValue(EventQueue& events, ControlNode const& node, double candidate, std::uint64_t accepted_revision)
+		{
+			// Carry the proposal as a typed number while leaving the retained descriptor untouched.
+			auto const value = SnapSliderValue(node.desc, candidate);
+			if (!events.Push(node.desc.id, EEventKind::ValueChangeProposed, accepted_revision, 0, {}, 1, value))
+				throw EngineException(EStatus::QueueOverflow, std::format("event queue overflow while enqueueing slider proposal for control {}", node.desc.id));
+		}
+
+		// Convert a pointer position into the slider's inclusive scalar range.
+		void ProposeSliderFromPointer(std::unordered_map<ControlId, Rect> const& layout, EventQueue& events, ControlNode const& node, Vec2 point, std::uint64_t accepted_revision)
+		{
+			// Map the pointer across the whole control width and let the shared proposal path snap it.
+			auto const bounds = layout.at(node.desc.id);
+			auto const fraction = bounds.w > 0.0f ? std::clamp((point.x - bounds.x) / bounds.w, 0.0f, 1.0f) : 0.0f;
+			ProposeSliderValue(events, node, node.desc.minimum + fraction * (node.desc.maximum - node.desc.minimum), accepted_revision);
 		}
 
 		TextEditState& GetOrInitTextEdit(InputState& state, ControlNode const& node)
@@ -530,6 +564,11 @@ namespace pr::view3d::ui
 						PlaceCaretFromPointer(tree, layout, hit_context, it->second, edit, Vec2{ input.pointer_x, input.pointer_y }, true);
 						changed = changed || edit.caret != caret_before;
 					}
+					else if (it != tree.m_controls.end() && it->second.desc.type == EControlType::Slider && it->second.desc.enabled != 0)
+					{
+						ProposeSliderFromPointer(layout, events, it->second, Vec2{ input.pointer_x, input.pointer_y }, accepted_revision);
+						changed = true;
+					}
 				}
 
 				return InputResult{ hit != 0 || state.m_captured_id != 0, changed };
@@ -568,8 +607,7 @@ namespace pr::view3d::ui
 				}
 
 				// A press on 'hit' itself or any of its content descendants activates the nearest
-				// enclosing Button/TextBox ancestor (see NearestOfType); mutually exclusive because
-				// a Button template never nests a TextBox part or vice versa in this milestone.
+				// enclosing Button/TextBox/Slider ancestor (see NearestOfType).
 				if (auto button_target = NearestOfType(tree, hit, EControlType::Button); button_target != 0 && tree.m_controls.at(button_target).desc.enabled != 0)
 				{
 					if (state.m_captured_id != button_target)
@@ -594,6 +632,16 @@ namespace pr::view3d::ui
 
 					state.m_pressed_id = textbox_target;
 					state.m_captured_id = textbox_target;
+				}
+				else if (auto slider_target = NearestOfType(tree, hit, EControlType::Slider); slider_target != 0 && tree.m_controls.at(slider_target).desc.enabled != 0)
+				{
+					auto const& node = tree.m_controls.at(slider_target);
+					ProposeSliderFromPointer(layout, events, node, Vec2{ input.pointer_x, input.pointer_y }, accepted_revision);
+					if (state.m_captured_id != slider_target)
+						PushOrThrow(events, slider_target, EEventKind::PointerCaptureChanged, accepted_revision, 0, {});
+
+					state.m_pressed_id = slider_target;
+					state.m_captured_id = slider_target;
 				}
 				return InputResult{ true, true };
 			}
@@ -667,6 +715,38 @@ namespace pr::view3d::ui
 				{
 					state.m_pressed_id = node.desc.id;
 					return InputResult{ true, true };
+				}
+				if (node.desc.type == EControlType::Slider && node.desc.enabled != 0)
+				{
+					switch (input.vk)
+					{
+						case VK_LEFT:
+						case VK_DOWN:
+						{
+							ProposeSliderValue(events, node, static_cast<double>(node.desc.value) - node.desc.step, accepted_revision);
+							return InputResult{ true, true };
+						}
+						case VK_RIGHT:
+						case VK_UP:
+						{
+							ProposeSliderValue(events, node, static_cast<double>(node.desc.value) + node.desc.step, accepted_revision);
+							return InputResult{ true, true };
+						}
+						case VK_HOME:
+						{
+							ProposeSliderValue(events, node, node.desc.minimum, accepted_revision);
+							return InputResult{ true, true };
+						}
+						case VK_END:
+						{
+							ProposeSliderValue(events, node, node.desc.maximum, accepted_revision);
+							return InputResult{ true, true };
+						}
+						default:
+						{
+							return InputResult{ false, false };
+						}
+					}
 				}
 				if (node.desc.type != EControlType::TextBox || node.desc.enabled == 0)
 					return InputResult{ false, false };
@@ -1110,8 +1190,17 @@ namespace pr::view3d::ui
 			}
 			case ESemanticActionKind::SetValue:
 			{
-				if (node.desc.type != EControlType::TextBox || node.desc.enabled == 0)
+				if (node.desc.enabled == 0 || (node.desc.type != EControlType::TextBox && node.desc.type != EControlType::Slider))
 					throw EngineException(EStatus::UnsupportedFeature, std::format("control {} does not support SetValue", request.control_id));
+
+				if (node.desc.type == EControlType::Slider)
+				{
+					if (!std::isfinite(request.numeric_value) || request.numeric_value < node.desc.minimum || request.numeric_value > node.desc.maximum)
+						throw EngineException(EStatus::InvalidArgument, std::format("slider semantic value {} must be finite and within [{}, {}]", request.numeric_value, node.desc.minimum, node.desc.maximum));
+
+					ProposeSliderValue(events, node, request.numeric_value, accepted_revision);
+					return InputResult{ true, true };
+				}
 
 				if (!Utf8Validate(request.text))
 					throw EngineException(EStatus::InvalidArgument, "semantic SetValue text is not valid UTF-8");

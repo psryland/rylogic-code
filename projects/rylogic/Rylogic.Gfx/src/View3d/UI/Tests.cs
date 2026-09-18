@@ -31,7 +31,7 @@ public sealed class TestUiProgressBar
 		Assert.Equal(true, clone.IsIndeterminate);
 		Assert.Equal(0.25f, builder.DebugControls[0].m_value);
 		Assert.Equal(1, builder.DebugControls[0].m_is_indeterminate);
-		Assert.Equal(5U, builder.DebugControls[0].m_header.m_version);
+		Assert.Equal(6U, builder.DebugControls[0].m_header.m_version);
 		var visual = new StyleVisual(Colour.TransparentBlack, foreground: new Colour(0, 1, 0, 1));
 		var different = new StyleVisual(Colour.TransparentBlack, foreground: new Colour(1, 0, 0, 1));
 		Assert.Equal(false, visual == different);
@@ -73,12 +73,12 @@ public sealed class TestUiProgressBar
 		Assert.Equal(false, defaults.Controls[1].IsIndeterminate);
 	}
 
-	/// <summary>ABI 5's changed records match their native layouts and expose decoded numeric semantics.</summary>
+	/// <summary>ABI 6's changed records match their native layouts and expose decoded numeric semantics.</summary>
 	[Test]
 	public void AbiAndSemantics()
 	{
 		Native.EnsureLoaded();
-		Assert.Equal(0x00050000U, Native.View3DUI_ApiVersion());
+		Assert.Equal(0x00060000U, Native.View3DUI_ApiVersion());
 		Native.Check(Native.View3DUI_StructSize(EStructId.Control, out var control_size));
 		Native.Check(Native.View3DUI_StructSize(EStructId.Style, out var style_size));
 		Native.Check(Native.View3DUI_StructSize(EStructId.SemanticNode, out var semantic_size));
@@ -89,6 +89,105 @@ public sealed class TestUiProgressBar
 			ESemanticAction.None, ESemanticTextFlag.None, 0, 0, 0, 0, 0, 0, new Rect(0, 0, 100, 20), 1, 1, 0.25f, true);
 		Assert.Equal(0.25f, node.ProgressValue);
 		Assert.Equal(true, node.IsIndeterminate);
+	}
+}
+
+/// <summary>Slider managed descriptors, typed events, JSON authoring, semantics, and native interaction.</summary>
+[TestFixture]
+public sealed class TestUiSlider
+{
+	/// <summary>Managed descriptors snapshot all range fields and expose a typed numeric proposal accessor.</summary>
+	[Test]
+	public void DescriptorAndEventShape()
+	{
+		// Snapshot the descriptor, then verify the public typed proposal contract.
+		var slider = new UiControlDesc { Id = new ControlId(2), ParentId = new ControlId(1), Type = EControlType.Slider, Value = 2, Minimum = -2, Maximum = 6, Step = 0.5f };
+		var builder = new UiTransactionBuilder().Upsert(slider);
+		slider.Value = 4;
+		Assert.Equal(2f, builder.DebugControls[0].m_value);
+		Assert.Equal(-2f, builder.DebugControls[0].m_minimum);
+		Assert.Equal(6f, builder.DebugControls[0].m_maximum);
+		Assert.Equal(0.5f, builder.DebugControls[0].m_step);
+
+		var proposal = new UiEvent(new ControlId(2), EEventKind.ValueChangeProposed, 3, 9, 0, string.Empty, true, 2.5);
+		Assert.True(proposal.HasNumericValue);
+		Assert.Equal(2.5, proposal.NumericValue);
+		Assert.Equal(2.5, proposal.ProposedValue);
+		Assert.Throws<InvalidOperationException>(() => new UiEvent(new ControlId(2), EEventKind.CommandInvoked, 3, 10, 0, string.Empty).ProposedValue.ToString());
+	}
+
+	/// <summary>Slider JSON round-trips canonically and rejects every invalid scalar relationship at the authoring boundary.</summary>
+	[Test]
+	public void JsonRoundTripAndValidation()
+	{
+		// Round-trip one valid non-normalized range before exercising invalid relationships.
+		const string json = """
+			{"schema_version":2,"tree":[{"id":1,"type":"Root","children":[
+			  {"id":2,"type":"Slider","value":2,"minimum":-2,"maximum":6,"step":0.5,"focusable":true,"layout":{"width":100,"height":20}}
+			]}]}
+			""";
+		var document = UiDocument.Parse(json);
+		var canonical = document.Serialize();
+		var slider = UiDocument.Parse(canonical).Controls[1];
+		Assert.Equal(EControlType.Slider, slider.Type);
+		Assert.Equal(2f, slider.Value);
+		Assert.Equal(-2f, slider.Minimum);
+		Assert.Equal(6f, slider.Maximum);
+		Assert.Equal(0.5f, slider.Step);
+		foreach (var replacement in new[]
+		{
+			"\"value\":7,\"minimum\":-2,\"maximum\":6,\"step\":0.5",
+			"\"value\":2,\"minimum\":6,\"maximum\":6,\"step\":0.5",
+			"\"value\":2,\"minimum\":-2,\"maximum\":6,\"step\":0",
+			"\"value\":2,\"minimum\":-2,\"maximum\":6,\"step\":9",
+		})
+		{
+			Assert.Throws<UiJsonException>(() => UiDocument.Parse(json.Replace("\"value\":2,\"minimum\":-2,\"maximum\":6,\"step\":0.5", replacement)));
+		}
+	}
+
+	/// <summary>A live managed context receives a culture-independent numeric proposal and keeps accepted semantics authoritative until reconciliation.</summary>
+	[Test]
+	public void NativeProposalAndReconciliation()
+	{
+		// Skip only when the environment cannot create the native D3D12-backed context.
+		var lease = UiTestDevice.Lease;
+		if (lease == null)
+			return;
+
+		using var runtime = new UiRuntime();
+		using var context = runtime.CreateContext(device: lease);
+		var root = new UiControlDesc { Id = new ControlId(1), Type = EControlType.Root };
+		var slider = new UiControlDesc
+		{
+			Id = new ControlId(2),
+			ParentId = root.Id,
+			Type = EControlType.Slider,
+			Focusable = true,
+			Value = 2,
+			Minimum = -2,
+			Maximum = 6,
+			Step = 0.5f,
+			Layout = new UiLayoutParams { Width = 100, Height = 20, HAlign = EHAlign.Left, VAlign = EVAlign.Top },
+		};
+		new UiTransactionBuilder().Upsert(root).Upsert(slider).Apply(context, 0, 1);
+		context.Update(new ViewportState(200, 80, 200, 80, 0, 0, 200, 80, 96, 0));
+		context.InjectInput(new NormalizedInput(EInputKind.PointerButtonDown, pointer_x: 75, pointer_y: 10, button: EPointerButton.Left));
+		context.InjectInput(new NormalizedInput(EInputKind.PointerButtonUp, pointer_x: 75, pointer_y: 10, button: EPointerButton.Left));
+		var proposal = Array.Find(context.DrainEvents(), x => x.Kind == EEventKind.ValueChangeProposed);
+		Assert.True(proposal != null);
+		Assert.Equal(4.0, proposal!.ProposedValue);
+		Assert.Equal(2f, Array.Find(context.CaptureSemantics(), x => x.Id == slider.Id)!.RangeValue);
+
+		slider.Value = (float)proposal.ProposedValue;
+		new UiTransactionBuilder().Upsert(slider).Apply(context, 1, 2);
+		context.Update(new ViewportState(200, 80, 200, 80, 0, 0, 200, 80, 96, 1));
+		var semantic = Array.Find(context.CaptureSemantics(), x => x.Id == slider.Id)!;
+		Assert.Equal(4f, semantic.RangeValue);
+		Assert.Equal(-2f, semantic.RangeMinimum);
+		Assert.Equal(6f, semantic.RangeMaximum);
+		Assert.Equal(0.5f, semantic.RangeStep);
+		Assert.True((semantic.SupportedActions & ESemanticAction.SetValue) != 0);
 	}
 }
 
@@ -309,7 +408,7 @@ public sealed class TestUiDescriptorSnapshotSemantics
 			var builder = new UiTransactionBuilder().Upsert(control);
 			control.Visibility = EVisibility.Visible;
 			Assert.Equal(visibility, builder.DebugControls[0].m_visibility);
-			Assert.Equal(5U, builder.DebugControls[0].m_header.m_version);
+			Assert.Equal(6U, builder.DebugControls[0].m_header.m_version);
 		}
 
 		// A failed upsert must not leave a partially packed control behind.

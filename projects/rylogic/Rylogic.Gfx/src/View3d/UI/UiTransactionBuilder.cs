@@ -362,6 +362,9 @@ public sealed unsafe class UiTransactionBuilder
 			m_value_sequence = control.ValueSequence,
 			m_value = control.Value,
 			m_is_indeterminate = control.IsIndeterminate ? 1 : 0,
+			m_minimum = control.Minimum,
+			m_maximum = control.Maximum,
+			m_step = control.Step,
 			m_world = ToNative(control.World),
 		};
 	}

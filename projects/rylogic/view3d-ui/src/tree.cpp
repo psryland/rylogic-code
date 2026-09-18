@@ -28,6 +28,7 @@ namespace pr::view3d::ui
 		std::array<std::string_view, 2> const g_button_parts = { "PART_ContentPresenter", "PART_FocusOutline" };
 		std::array<std::string_view, 5> const g_textbox_parts = { "PART_Text", "PART_Selection", "PART_Caret", "PART_ValidationOutline", "PART_FocusOutline" };
 		std::array<std::string_view, 2> const g_progress_parts = { "PART_Track", "PART_Indicator" };
+		std::array<std::string_view, 2> const g_slider_parts = { "PART_Track", "PART_Thumb" };
 
 		// Recursively remove 'id' and its whole subtree from 'tree', unlinking it from its parent's
 		// children and, if it is a root, from the root list. No-op if 'id' is not present.
@@ -124,6 +125,18 @@ namespace pr::view3d::ui
 
 					break;
 				}
+				case EControlType::Slider:
+				{
+					// Validate the complete range contract without normalizing caller-owned data.
+					if (!std::isfinite(desc.minimum) || !std::isfinite(desc.maximum) || desc.maximum <= desc.minimum)
+						throw EngineException(EStatus::InvalidArgument, std::format("control {}: slider range [{}, {}] must be finite with maximum greater than minimum", desc.id, desc.minimum, desc.maximum));
+					if (!std::isfinite(desc.value) || desc.value < desc.minimum || desc.value > desc.maximum)
+						throw EngineException(EStatus::InvalidArgument, std::format("control {}: slider value {} must be finite and within [{}, {}]", desc.id, desc.value, desc.minimum, desc.maximum));
+					if (!std::isfinite(desc.step) || desc.step <= 0.0f || desc.step > desc.maximum - desc.minimum)
+						throw EngineException(EStatus::InvalidArgument, std::format("control {}: slider step {} must be finite, positive, and no greater than the range {}", desc.id, desc.step, desc.maximum - desc.minimum));
+
+					break;
+				}
 				case EControlType::Root:
 				case EControlType::Panel:
 				case EControlType::Text:
@@ -187,6 +200,7 @@ namespace pr::view3d::ui
 			case EControlType::Button: return std::span<std::string_view const>(g_button_parts);
 			case EControlType::TextBox: return std::span<std::string_view const>(g_textbox_parts);
 			case EControlType::ProgressBar: { return std::span<std::string_view const>(g_progress_parts); }
+			case EControlType::Slider: { return std::span<std::string_view const>(g_slider_parts); }
 			case EControlType::Root:
 			case EControlType::Panel:
 			case EControlType::Text:
@@ -229,6 +243,7 @@ namespace pr::view3d::ui
 			map.emplace(EControlType::Panel, make(EControlType::Panel, { { "PART_ContentPresenter", EVisualPrimitive::ContentPresenter } }));
 			map.emplace(EControlType::Text, make(EControlType::Text, { { "PART_Text", EVisualPrimitive::TextPresenter } }));
 			map.emplace(EControlType::ProgressBar, make(EControlType::ProgressBar, { { "PART_Track", EVisualPrimitive::SolidBox }, { "PART_Indicator", EVisualPrimitive::SolidBox } }));
+			map.emplace(EControlType::Slider, make(EControlType::Slider, { { "PART_Track", EVisualPrimitive::SolidBox }, { "PART_Thumb", EVisualPrimitive::SolidBox } }));
 			map.emplace(EControlType::Button, make(EControlType::Button, { { "PART_ContentPresenter", EVisualPrimitive::ContentPresenter }, { "PART_FocusOutline", EVisualPrimitive::Border } }));
 			map.emplace(EControlType::TextBox, make(EControlType::TextBox, {
 				{ "PART_Text", EVisualPrimitive::TextPresenter },

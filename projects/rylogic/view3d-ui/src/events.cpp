@@ -13,6 +13,7 @@ namespace pr::view3d::ui
 		{
 			case EEventKind::FocusChanged:
 			case EEventKind::TextChangeProposed:
+			case EEventKind::ValueChangeProposed:
 			case EEventKind::PointerCaptureChanged:
 			case EEventKind::Diagnostic:
 			case EEventKind::QueueOverflow:
@@ -49,7 +50,7 @@ namespace pr::view3d::ui
 			throw EngineException(EStatus::InvalidArgument, std::format("EventQueue: capacity {} must be at least 2 (one content slot plus the reserved overflow marker slot)", capacity));
 	}
 
-	bool EventQueue::Push(ControlId control_id, EEventKind kind, std::uint64_t accepted_revision, std::uint32_t edit_generation, std::string payload)
+	bool EventQueue::Push(ControlId control_id, EEventKind kind, std::uint64_t accepted_revision, std::uint32_t edit_generation, std::string payload, std::int32_t has_numeric_value, double numeric_value)
 	{
 		auto content_capacity = m_capacity - 1;
 		auto coalescible = IsCoalescible(kind);
@@ -76,18 +77,18 @@ namespace pr::view3d::ui
 				// application knows another control/key needs reconciliation.
 				m_items.erase(victim);
 				m_overflow_marker_present = 1;
-				m_overflow_marker = QueuedEvent{ 0, EEventKind::QueueOverflow, accepted_revision, m_next_sequence++, 0, {} };
+				m_overflow_marker = QueuedEvent{ 0, EEventKind::QueueOverflow, accepted_revision, m_next_sequence++, 0, {}, 0, 0.0 };
 			}
 			else
 			{
 				// No coalescible entry to evict: raise (or refresh) the overflow marker and reject.
 				m_overflow_marker_present = 1;
-				m_overflow_marker = QueuedEvent{ 0, EEventKind::QueueOverflow, accepted_revision, m_next_sequence++, 0, {} };
+				m_overflow_marker = QueuedEvent{ 0, EEventKind::QueueOverflow, accepted_revision, m_next_sequence++, 0, {}, 0, 0.0 };
 				return false;
 			}
 		}
 
-		m_items.push_back(QueuedEvent{ control_id, kind, accepted_revision, m_next_sequence++, edit_generation, std::move(payload) });
+		m_items.push_back(QueuedEvent{ control_id, kind, accepted_revision, m_next_sequence++, edit_generation, std::move(payload), has_numeric_value, numeric_value });
 		return true;
 	}
 
@@ -135,7 +136,8 @@ namespace pr::view3d::ui
 				payload_cursor,
 				static_cast<std::uint32_t>(item.payload.size()),
 				item.edit_generation,
-				0,
+				item.has_numeric_value,
+				item.numeric_value,
 			};
 			payload_cursor += static_cast<std::uint32_t>(item.payload.size());
 		};

@@ -82,7 +82,8 @@ public enum EControlType
 	TextBox = 3,
 	Button = 4,
 	ProgressBar = 5,
-	Count = 6,
+	Slider = 6,
+	Count = 7,
 }
 
 /// <summary>
@@ -304,7 +305,8 @@ public enum EEventKind
 	PointerCaptureChanged = 3,
 	QueueOverflow = 4,
 	Diagnostic = 5,
-	Count = 6,
+	ValueChangeProposed = 6,
+	Count = 7,
 }
 
 /// <summary>Bitmask of UI-Automation-style actions a semantic node currently supports.</summary>

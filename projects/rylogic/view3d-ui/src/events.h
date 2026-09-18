@@ -20,6 +20,8 @@ namespace pr::view3d::ui
 		std::uint64_t sequence;
 		std::uint32_t edit_generation;
 		std::string payload; // UTF-8 bytes; empty for kinds with no payload (e.g. CommandInvoked)
+		std::int32_t has_numeric_value;
+		double numeric_value;
 	};
 
 	// Returns true for kinds where only the most recent value matters (section 5.4): repeated
@@ -43,7 +45,7 @@ namespace pr::view3d::ui
 		// non-coalescible event could not be queued and the queue is now in the overflow state
 		// (section 5.4: CommandInvoked is never silently dropped - the caller must surface this as
 		// EStatus::QueueOverflow and must not commit the activation that produced it).
-		bool Push(ControlId control_id, EEventKind kind, std::uint64_t accepted_revision, std::uint32_t edit_generation, std::string payload);
+		bool Push(ControlId control_id, EEventKind kind, std::uint64_t accepted_revision, std::uint32_t edit_generation, std::string payload, std::int32_t has_numeric_value = 0, double numeric_value = 0.0);
 
 		std::uint32_t Count() const;
 		std::uint32_t PayloadBytesPending() const;

@@ -19,15 +19,54 @@ namespace pr::view3d::ui
 				case EControlType::TextBox:
 				case EControlType::Button:
 				case EControlType::ProgressBar:
+				case EControlType::Slider:
 				{
 					return visual.corner_radius > 0.0f ? EVisualPrimitive::RoundedBox : EVisualPrimitive::SolidBox;
 				}
+
 				case EControlType::Count:
 				default:
 				{
 					throw EngineException(EStatus::InvalidArgument, "unknown control type");
 				}
 			}
+		}
+
+		// Paint the accepted slider position as a filled track plus a compact thumb. Both use the
+		// existing quad primitives and style colours, so custom templates remain lookless.
+		void AppendSlider(ControlNode const& node, Rect bounds, StyleVisual const& visual, float scale, DrawPacket& out)
+		{
+			// Derive indicator and thumb geometry only from the accepted descriptor and current DPI scale.
+			auto const range = node.desc.maximum - node.desc.minimum;
+			auto const fraction = (node.desc.value - node.desc.minimum) / range;
+			auto const inset = std::clamp(visual.border_thickness * scale, 0.0f, std::min(bounds.w, bounds.h) * 0.5f);
+			auto const width = std::max(0.0f, bounds.w - 2.0f * inset);
+			auto const height = std::max(0.0f, bounds.h - 2.0f * inset);
+			if (width <= 0.0f || height <= 0.0f)
+				return;
+
+			// Foreground fills the accepted portion of the track.
+			if (fraction > 0.0f)
+			{
+				auto indicator = DrawItem{};
+				indicator.control_id = node.desc.id;
+				indicator.bounds = Rect{ bounds.x + inset, bounds.y + inset, width * fraction, height };
+				indicator.fill = visual.foreground;
+				indicator.opacity = visual.opacity;
+				indicator.primitive = EVisualPrimitive::SolidBox;
+				out.items.push_back(std::move(indicator));
+			}
+
+			// The thumb remains visible at both endpoints and scales with the root's apparent DIP scale.
+			auto const thumb_width = std::min(width, std::max(4.0f * scale, height * 0.5f));
+			auto thumb = DrawItem{};
+			thumb.control_id = node.desc.id;
+			thumb.bounds = Rect{ bounds.x + inset + (width - thumb_width) * fraction, bounds.y + inset, thumb_width, height };
+			thumb.fill = visual.foreground;
+			thumb.opacity = visual.opacity;
+			thumb.corner_radius = std::min(thumb_width, height) * 0.5f;
+			thumb.primitive = EVisualPrimitive::RoundedBox;
+			out.items.push_back(std::move(thumb));
 		}
 
 		StyleRecord const& StyleFor(TreeModel const& tree, StyleId style_id)
@@ -103,6 +142,7 @@ namespace pr::view3d::ui
 			switch (node.desc.type)
 			{
 				case EControlType::ProgressBar: { AppendProgress(node, bounds, visual, time_ms, scale, out); break; }
+				case EControlType::Slider: { AppendSlider(node, bounds, visual, scale, out); break; }
 				case EControlType::Root:
 				case EControlType::Panel:
 				case EControlType::Text:

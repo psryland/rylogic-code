@@ -75,6 +75,7 @@
 		<ClCompile Include="src\tests_m9_abi.cpp" />
 		<ClCompile Include="src\tests_m9_corrections.cpp" />
 		<ClCompile Include="src\tests_m10_uia.cpp" />
+		<ClCompile Include="src\tests_slider.cpp" />
 	</ItemGroup>
 
 	<!-- Dependencies: view3d-ui.h loads view3d-ui.dll dynamically at runtime (GetProcAddress), so
