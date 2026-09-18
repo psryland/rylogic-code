@@ -62,7 +62,7 @@ namespace pr::rdr12
 		// Return true only when undeformed model bounds prove there is no fading opaque coverage.
 		bool IsBeforeFarFade(DrawListElement const& dle, PipeStateDesc const& desc) const;
 
-		// Draw a single nugget
-		void DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash);
+		// Draw a single nugget using its resolved scene ordering contract.
+		void DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, ESortGroup sort_group, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash);
 	};
 }

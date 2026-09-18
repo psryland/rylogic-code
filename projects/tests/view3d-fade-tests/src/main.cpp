@@ -140,7 +140,7 @@ namespace fade_tests
 		}
 
 		// Add an unlit two-sided quad at a chosen forward depth.
-		api::Object Quad(float depth, unsigned colour, float half_width = 45, api::Shader shader = nullptr, float right_depth = 0, unsigned vertex_colour = 0xFFFFFFFF, bool textured = false, bool normals = false)
+		api::Object Quad(float depth, unsigned colour, float half_width = 45, api::Shader shader = nullptr, float right_depth = 0, unsigned vertex_colour = 0xFFFFFFFF, bool textured = false, bool normals = false, api::EFillMode fill_mode = api::EFillMode::Default)
 		{
 			// Distinct vertex and material colours let surface tests distinguish an override from another multiplicative tint.
 			auto normal = normals ? api::Vec4{0, 0, 1, 0} : api::Vec4{};
@@ -164,12 +164,57 @@ namespace fade_tests
 				nugget.m_geom = static_cast<api::EGeom>(static_cast<int>(nugget.m_geom) | static_cast<int>(api::EGeom::Norm));
 
 			nugget.m_cull_mode = api::ECullMode::None;
+			nugget.m_fill_mode = fill_mode;
 			nugget.m_tint = colour;
 			if (shader != nullptr)
 				nugget.m_shaders[0] = api::Nugget::Shader{shader, api::ERenderStep::ForwardRender, 0};
 
 			auto object = View3D_ObjectCreate("FadeQuad", 0xFFFFFFFF, 4, 6, 1, verts, indices, &nugget, GUID{});
 			Require(object != nullptr, "Quad creation failed");
+			m_objects.push_back(object);
+			View3D_WindowAddObject(m_window, object);
+			CheckErrors();
+			return object;
+		}
+
+		// Add one non-triangle primitive to prove SolidWire preserves ordinary line rendering.
+		api::Object Line(float depth, unsigned colour)
+		{
+			// Cross the framebuffer centre so one stable pixel witnesses the line.
+			api::Vertex verts[] =
+			{
+				{{-45,0,-depth,1}, {}, {}, 0xFFFFFFFF, 0},
+				{{+45,0,-depth,1}, {}, {}, 0xFFFFFFFF, 0},
+			};
+			auto nugget = api::Nugget{};
+			nugget.m_topo = api::ETopo::LineList;
+			nugget.m_geom = api::EGeom::Vert;
+			nugget.m_tint = colour;
+			auto object = View3D_ObjectCreate("SolidWireLine", 0xFFFFFFFF, 2, 0, 1, verts, nullptr, &nugget, GUID{});
+			Require(object != nullptr, "Line creation failed");
+			m_objects.push_back(object);
+			View3D_WindowAddObject(m_window, object);
+			CheckErrors();
+			return object;
+		}
+
+		// Add one unindexed triangle to cover the direct vertex-draw form of SolidWire.
+		api::Object Triangle(float depth, unsigned colour)
+		{
+			// Cover the framebuffer centre with one broad triangle and no index buffer.
+			api::Vertex verts[] =
+			{
+				{{-45,-45,-depth,1}, {}, {}, 0xFFFFFFFF, 0},
+				{{+45,-45,-depth,1}, {}, {}, 0xFFFFFFFF, 0},
+				{{0,+45,-depth,1}, {}, {}, 0xFFFFFFFF, 0},
+			};
+			auto nugget = api::Nugget{};
+			nugget.m_topo = api::ETopo::TriList;
+			nugget.m_geom = api::EGeom::Vert;
+			nugget.m_cull_mode = api::ECullMode::None;
+			nugget.m_tint = colour;
+			auto object = View3D_ObjectCreate("SolidWireTriangle", 0xFFFFFFFF, 3, 0, 1, verts, nullptr, &nugget, GUID{});
+			Require(object != nullptr, "Triangle creation failed");
 			m_objects.push_back(object);
 			View3D_WindowAddObject(m_window, object);
 			CheckErrors();
@@ -364,6 +409,118 @@ namespace fade_tests
 				++difference;
 		}
 		return difference;
+	}
+
+	// Count changed pixels whose replacement is the fixed black diagnostic edge colour.
+	size_t BlackOverlayDifference(std::vector<unsigned char> const& solid, std::vector<unsigned char> const& solid_wire)
+	{
+		// Require matching framebuffer layouts before comparing visible RGB values.
+		Require(solid.size() == solid_wire.size(), "Image sizes differ");
+		auto difference = size_t{};
+		for (auto i = size_t{}; i != solid.size(); i += 4)
+		{
+			auto changed = solid[i + 0] != solid_wire[i + 0] || solid[i + 1] != solid_wire[i + 1] || solid[i + 2] != solid_wire[i + 2];
+			auto black = solid_wire[i + 0] <= 2 && solid_wire[i + 1] <= 2 && solid_wire[i + 2] <= 2;
+			if (changed && black)
+				++difference;
+		}
+		return difference;
+	}
+
+	// Prove the complete scene-wide SolidWire contract through real forward rendering and framebuffer readback.
+	void SolidWireTests()
+	{
+		// Exercise both ordinary and multisampled render targets because the mode is a per-frame diagnostic.
+		for (auto samples : {1, 4})
+		{
+			Fixture fixture(samples);
+			fixture.AttachOverlay();
+
+			// Opaque indexed triangles gain black edges while material interiors and final retained UI remain unchanged.
+			auto object = fixture.Quad(10, 0xFF4080FF, 45, nullptr, 0, 0xFFFFFFFF, false, true);
+			auto surface = View3D_ProceduralSurfacePreset(api::EProceduralSurfacePreset::Grass);
+			View3D_ObjectNuggetProceduralSurfaceSet(object, surface, nullptr, 0);
+			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::Solid);
+			auto solid = fixture.Image();
+			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::SolidWire);
+			auto solid_wire = fixture.Image();
+			Require(BlackOverlayDifference(solid, solid_wire) > 100, "SolidWire did not add fixed black triangle edges");
+			auto interior = (64 * ImageSize + 32) * 4;
+			Require(
+				solid[interior + 0] == solid_wire[interior + 0] &&
+				solid[interior + 1] == solid_wire[interior + 1] &&
+				solid[interior + 2] == solid_wire[interior + 2],
+				"SolidWire changed the procedural solid interior");
+			for (auto y = 4; y != 20; ++y)
+			{
+				for (auto x = 4; x != 20; ++x)
+				{
+					auto pixel = (y * ImageSize + x) * 4;
+					Require(
+						solid[pixel + 0] == solid_wire[pixel + 0] &&
+						solid[pixel + 1] == solid_wire[pixel + 1] &&
+						solid[pixel + 2] == solid_wire[pixel + 2],
+						"SolidWire changed final retained UI output");
+				}
+			}
+
+			// A nearer explicitly solid surface occludes the diagnostic edges behind it without hidden-line leakage.
+			fixture.Clear();
+			fixture.Quad(12, 0xFFFF8000);
+			fixture.Quad(10, 0xFF20E040, 20, nullptr, 0, 0xFFFFFFFF, false, false, api::EFillMode::Solid);
+			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::Solid);
+			auto occluded_solid = fixture.Image();
+			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::SolidWire);
+			auto occluded_wire = fixture.Image();
+			auto centre = (64 * ImageSize + 64) * 4;
+			Require(
+				occluded_solid[centre + 0] == occluded_wire[centre + 0] &&
+				occluded_solid[centre + 1] == occluded_wire[centre + 1] &&
+				occluded_solid[centre + 2] == occluded_wire[centre + 2],
+				"SolidWire leaked hidden edges through nearer geometry");
+			Require(BlackOverlayDifference(occluded_solid, occluded_wire) > 20, "Visible background edges were lost with an occluder");
+
+			// Sky and alpha groups retain one ordinary material pass instead of receiving duplicate diagnostic shading.
+			fixture.Clear();
+			auto sky = fixture.Quad(50, 0xFF305080);
+			View3D_ObjectSortGroupSet(sky, api::ESortGroup::Skybox, nullptr);
+			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::Solid);
+			auto sky_solid = fixture.Image();
+			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::SolidWire);
+			Require(sky_solid == fixture.Image(), "SolidWire changed sky rendering");
+			fixture.Clear();
+			fixture.Quad(12, 0xFF0000FF, 45, nullptr, 0, 0xFFFFFFFF, false, false, api::EFillMode::Solid);
+			fixture.Quad(10, 0x80FF4000);
+			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::Solid);
+			auto alpha_solid = fixture.Image();
+			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::SolidWire);
+			Require(alpha_solid == fixture.Image(), "SolidWire shaded or collected alpha geometry twice");
+
+			// Non-triangle primitives are unchanged, while the pre-existing pure Wireframe mode remains edge-only and material-coloured.
+			fixture.Clear();
+			fixture.Line(10, 0xFFFFFFFF);
+			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::Solid);
+			auto line_solid = fixture.Image();
+			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::SolidWire);
+			Require(line_solid == fixture.Image(), "SolidWire changed a non-triangle primitive");
+			fixture.Clear();
+			fixture.Triangle(10, 0xFF4080FF);
+			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::Solid);
+			auto unindexed_solid = fixture.Image();
+			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::SolidWire);
+			Require(BlackOverlayDifference(unindexed_solid, fixture.Image()) > 20, "SolidWire omitted an unindexed triangle");
+			fixture.Clear();
+			auto empty = fixture.Image();
+			fixture.Quad(10, 0xFF4080FF);
+			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::Solid);
+			auto filled = fixture.Image();
+			View3D_WindowFillModeSet(fixture.m_window, api::EFillMode::Wireframe);
+			auto wire = fixture.Image();
+			Require(ImageDifference(filled, wire) > 1000, "Pure Wireframe no longer removed triangle interiors");
+			Require(ImageDifference(empty, wire) > 100, "Pure Wireframe lost its material-coloured triangle edges");
+			fixture.CheckDebugLayer();
+		}
+		std::cout << "PASS solid-wire opaque edges, occlusion, sky, alpha, nontriangles, UI, and pure wireframe\n";
 	}
 
 	// Exercise the public procedural surface API through real forward rendering and framebuffer readback.
@@ -1117,6 +1274,12 @@ int main(int argc, char const* const* argv)
 		{
 			// Run only the focused procedural GPU/readback evidence.
 			fade_tests::ProceduralSurfaceTests();
+			return 0;
+		}
+		if (argc == 2 && std::string_view(argv[1]) == "--solid-wire")
+		{
+			// Run only the focused SolidWire GPU/readback evidence.
+			fade_tests::SolidWireTests();
 			return 0;
 		}
 		fade_tests::Require(argc == 1 || (argc == 2 && std::string_view(argv[1]) == "--numeric-only"), "Expected no arguments or --numeric-only");

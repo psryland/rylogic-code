@@ -506,7 +506,7 @@ namespace pr::rdr12
 				continue;
 
 			// Draw the nugget.
-			DrawNugget(cmd_list, nugget, desc, pipe_state_bound, pipe_state_hash);
+			DrawNugget(cmd_list, nugget, dle.m_sort_key.Group(), desc, pipe_state_bound, pipe_state_hash);
 		}
 	}
 
@@ -567,9 +567,10 @@ namespace pr::rdr12
 		}
 	}
 
-	// Draw a single nugget
-	void RenderForward::DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash)
+	// Draw a single nugget using its resolved scene ordering contract.
+	void RenderForward::DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, ESortGroup sort_group, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash)
 	{
+		// Rebind only when the effective pipeline changes between the solid and diagnostic passes.
 		auto set_pipe_state = [&]
 		{
 			auto hash = desc.hash();
@@ -612,26 +613,52 @@ namespace pr::rdr12
 			}
 		}
 
-		// Render wire frame over solid for 'SolidWire' mode
+		// Overlay opaque world triangles only; sky remains a readable backdrop and alpha geometry is not shaded or collected twice.
 		if (fill_mode == EFillMode::SolidWire && (
 			nugget.m_topo == ETopo::TriList ||
 			nugget.m_topo == ETopo::TriListAdj ||
 			nugget.m_topo == ETopo::TriStrip ||
 			nugget.m_topo == ETopo::TriStripAdj) &&
-			!nugget.m_irange.empty())
+			sort_group != ESortGroup::Skybox &&
+			sort_group < ESortGroup::AlphaBack)
 		{
-			// Change the pipe state to wireframe
+			// Write fixed black RGB while preserving the opaque shader's alpha, independent of material or procedural surface colour.
 			auto prev_fill_mode = desc.Get<EPipeState::FillMode>();
+			auto prev_blend = desc.Get<EPipeState::BlendState0>();
+			auto prev_depth_write = desc.Get<EPipeState::DepthWriteMask>();
+			auto prev_depth_func = desc.Get<EPipeState::DepthFunc>();
+			auto wire_blend = RenderTargetBlendDesc{};
+			wire_blend.BlendEnable = TRUE;
+			wire_blend.SrcBlend = D3D12_BLEND_ZERO;
+			wire_blend.DestBlend = D3D12_BLEND_ZERO;
+			wire_blend.BlendOp = D3D12_BLEND_OP_ADD;
+			wire_blend.SrcBlendAlpha = D3D12_BLEND_ONE;
+			wire_blend.DestBlendAlpha = D3D12_BLEND_ZERO;
+			wire_blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
 			desc.Apply(PSO<EPipeState::FillMode>(D3D12_FILL_MODE_WIREFRAME));
-			desc.Apply(PSO<EPipeState::BlendState0>({FALSE}));
+			desc.Apply(PSO<EPipeState::BlendState0>(wire_blend));
+			desc.Apply(PSO<EPipeState::DepthWriteMask>(D3D12_DEPTH_WRITE_MASK_ZERO));
+			desc.Apply(PSO<EPipeState::DepthFunc>(D3D12_COMPARISON_FUNC_LESS_EQUAL));
 			set_pipe_state();
 
-			cmd_list.DrawIndexedInstanced(
-				s_cast<size_t>(nugget.m_irange.size()), 1U,
-				s_cast<size_t>(nugget.m_irange.m_beg), 0, 0U);
+			if (nugget.m_irange.empty())
+			{
+				cmd_list.DrawInstanced(
+					s_cast<size_t>(nugget.m_vrange.size()), 1U,
+					s_cast<size_t>(nugget.m_vrange.m_beg), 0U);
+			}
+			else
+			{
+				cmd_list.DrawIndexedInstanced(
+					s_cast<size_t>(nugget.m_irange.size()), 1U,
+					s_cast<size_t>(nugget.m_irange.m_beg), 0, 0U);
+			}
 
-			// Restore it
+			// Restore the caller-owned material pipeline before drawing the next nugget.
 			desc.Apply(PSO<EPipeState::FillMode>(prev_fill_mode));
+			desc.Apply(PSO<EPipeState::BlendState0>(prev_blend));
+			desc.Apply(PSO<EPipeState::DepthWriteMask>(prev_depth_write));
+			desc.Apply(PSO<EPipeState::DepthFunc>(prev_depth_func));
 		}
 
 		// Render points for 'Points' mode
