@@ -24,6 +24,7 @@
 	<ItemGroup>
 		<ClInclude Include="src\forward.h" />
 		<ClCompile Include="src\main.cpp" />
+		<ClCompile Include="src\raycast_lifetime.cpp" />
 		<ShaderBuild Include="src\shaders\hlsl\fade_vertex.hlsl" VertexEntryPoints="fade_vertex=VSMain" PixelEntryPoints="unsupported_pixel=PSMain" />
 		<ShaderBuild Include="src\shaders\hlsl\procedural_vertex_forward.hlsl" VertexEntryPoints="procedural_vertex_forward=VSMain" />
 		<ShaderBuild Include="src\shaders\hlsl\procedural_vertex_raycast.hlsl" VertexEntryPoints="procedural_vertex_raycast=VSMain" />

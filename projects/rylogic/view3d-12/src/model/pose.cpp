@@ -25,6 +25,7 @@ namespace pr::rdr12
 		, m_style(style)
 		, m_flags(flags)
 		, m_revision()
+		, m_gpu_update_required(true)
 	{
 		ResourceStore::Access store(factory.rdr());
 
@@ -111,7 +112,7 @@ namespace pr::rdr12
 		return AdjTime((time - m_bias) * m_stretch + m_time_range.begin(), m_time_range, m_style);
 	}
 
-	// Return a value that changes whenever the GPU pose buffer changes.
+	// Revision of the most recently recorded pose data, not GPU completion.
 	uint64_t Pose::Revision() const
 	{
 		return m_revision;
@@ -166,13 +167,14 @@ namespace pr::rdr12
 			PoseUpdated(*this, PoseUpdatedArgs{ std::span<m4x4 const>{ptr, s_cast<size_t>(BoneCount())}, m_revision });
 
 		update.Commit();
+		m_gpu_update_required = false;
 	}
 
 	// Update the bone transforms
 	void Pose::Update(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer)
 	{
-		// No change in time, assume up to date already
-		if (m_time1 == m_time0)
+		// A matching time is reusable only if its recorded GPU update was not abandoned.
+		if (m_time1 == m_time0 && !m_gpu_update_required)
 			return;
 
 		// No animator, return to the rest pose
@@ -200,6 +202,13 @@ namespace pr::rdr12
 			PoseUpdated(*this, PoseUpdatedArgs{ span, m_revision });
 
 		update.Commit();
+		m_gpu_update_required = false;
+	}
+
+	void Pose::InvalidateGpuData()
+	{
+		// The next Update follows the normal revision path, causing dependent skin caches to dispatch again as well.
+		m_gpu_update_required = true;
 	}
 
 	// Ref-counting clean up function

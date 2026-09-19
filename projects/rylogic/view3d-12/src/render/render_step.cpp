@@ -14,13 +14,14 @@
 
 namespace pr::rdr12
 {
-	RenderStep::RenderStep(ERenderStep id, Scene& scene)
+	RenderStep::RenderStep(ERenderStep id, Scene& scene, GpuSync& gsync)
 		: m_step_id(id)
 		, m_scene(&scene)
 		, m_drawlist()
 		, m_boundaries()
 		, m_sort_needed(true)
-		, m_upload_buffer(wnd().m_gsync, 1ULL * 1024 * 1024)
+		, m_gsync(gsync)
+		, m_upload_buffer(m_gsync, 1ULL * 1024 * 1024)
 		, m_default_pipe_state()
 		, m_pipe_state_pool(wnd())
 		, m_evt_model_delete(rdr().store().ModelDeleted += std::bind(&RenderStep::OnModelDeleted, this, _1, _2))

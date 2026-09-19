@@ -7,6 +7,7 @@
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/instance/instance.h"
 #include "pr/view3d-12/model/skinned_geometry.h"
+#include "pr/view3d-12/model/pose.h"
 #include "pr/view3d-12/model/vertex_layout.h"
 #include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/shaders/shader_ray_cast.h"
@@ -43,12 +44,12 @@ namespace pr::rdr12
 	static_assert(MaxRays == shaders::ray_cast::MaxRays);
 	static_assert(MaxIntercepts == shaders::ray_cast::MaxIntercepts);
 
-	RenderRayCast::RenderRayCast(Scene& scene, RayCastResultsOut results_cb)
-		: RenderStep(Id, scene)
+	RenderRayCast::RenderRayCast(Scene& scene, GpuSync& gsync, RayCastResultsOut results_cb)
+		: RenderStep(Id, scene, gsync)
 		, m_rays()
 		, m_include([](auto){ return true; })
+		, m_cmd_alloc_pool(m_gsync)
 		, m_cmd_list(scene.d3d(), nullptr, "RenderRayCast", EColours::BlanchedAlmond)
-		, m_gsync(scene.d3d())
 		, m_shader(scene.rdr())
 		, m_zero()
 		, m_out()
@@ -107,9 +108,16 @@ namespace pr::rdr12
 		}
 
 		// Register the GpuSync for polling so that SyncPointCompleted fires
-		rdr().AddPollCB({ &m_gsync, &GpuSync::Poll }, seconds_t(0));
 		m_sync_completed = m_gsync.SyncPointCompleted += [this](GpuSync&, EmptyArgs const&)
 		{
+			// Device removal releases waits but does not make readback data valid.
+			if (auto reason = m_gsync.DeviceRemovedReason(); FAILED(reason))
+			{
+				OutputDebugStringA("RayCast readbacks discarded after D3D12 device removal\n");
+				std::fprintf(stderr, "RayCast readbacks discarded after D3D12 device removal: 0x%08lX\n", static_cast<unsigned long>(reason));
+				m_pending.clear();
+				return;
+			}
 			for (auto& pending : m_pending)
 			{
 				if (m_gsync.CompletedSyncPoint() < pending.m_sync_point)
@@ -120,6 +128,28 @@ namespace pr::rdr12
 
 			erase_if(m_pending, [this](auto& pending) { return m_gsync.CompletedSyncPoint() >= pending.m_sync_point; });
 		};
+		try
+		{
+			rdr().AddPollCB({ &m_gsync, &GpuSync::Poll }, seconds_t(0));
+		}
+		catch (...)
+		{
+			// AddPollCB can start polling immediately; constructor failure must not leave the registered address behind.
+			rdr().RemovePollCB({ &m_gsync, &GpuSync::Poll });
+			throw;
+		}
+	}
+
+	RenderRayCast::~RenderRayCast()
+	{
+		// Poll/removal and destruction run on the renderer thread; no queued timer message may call this fence afterward.
+		rdr().RemovePollCB({ &m_gsync, &GpuSync::Poll });
+		m_sync_completed = {};
+
+		// Finish actual submissions before releasing readback handles, shader/output resources, or allocator storage.
+		// The caller's fence also outlives the base upload buffer. No window frame is needed.
+		m_gsync.Wait();
+		m_pending.clear();
 	}
 
 	// Set the rays to cast.
@@ -165,30 +195,18 @@ namespace pr::rdr12
 		pix::BeginCapture(L"E:/Dump/LDraw/HitTest.wpix");
 		#endif
 
-		// Build the command list
-		m_cmd_list.Reset(wnd().m_cmd_alloc_pool.Get());
-		auto output = ExecuteCore();
-		m_cmd_list.Close();
-
-		pix::BeginEvent(rdr().GfxQueue(), s_cast<uint32_t>(EColours::LightGreen), "Immediate Ray Cast");
-
-		// Execute the command list
-		rdr().ExecuteGfxCommandLists({ m_cmd_list });
-
-		// Add a sync point and wait for it
-		auto sync_point = m_gsync.AddSyncPoint(rdr().GfxQueue());
-		m_cmd_list.SyncPoint(sync_point);
-
-		pix::EndEvent(rdr().GfxQueue());
+		// Immediate and asynchronous casts share the same submission and cancellation boundary.
+		auto pending = Submit(std::move(cb));
 
 		// Return a future that will process the results after GPU completion
-		return std::async(std::launch::deferred, [this, output = std::move(output), sync_point, cb]() mutable
+		return std::async(std::launch::deferred, [this, pending = std::move(pending)]() mutable
 		{
-			// Wait for GPU to complete
-			m_gsync.Wait(sync_point);
+			// A removed device cannot produce valid results even though its fence releases waiters.
+			if (!m_gsync.Wait(pending.m_sync_point))
+				throw DeviceRemovedException(d3d(), m_gsync.DeviceRemovedReason());
 
 			// Process the results
-			ProcessResults(output, cb);
+			ProcessResults(pending.m_output, pending.m_cb);
 
 			#if PR_RDR12_DEBUG_RAYCAST
 			pix::EndCapture();
@@ -199,20 +217,104 @@ namespace pr::rdr12
 	// Submit the ray cast to the GPU and return immediately.
 	void RenderRayCast::ExecuteAsync(RayCastResultsOut cb)
 	{
-		// Build the command list
-		m_cmd_list.Reset(wnd().m_cmd_alloc_pool.Get());
-		auto output = ExecuteCore();
-		m_cmd_list.Close();
+		// Retain readback handles until completion or teardown; the pages remain fence-protected even if insertion fails.
+		m_pending.push_back(Submit(std::move(cb)));
+	}
 
-		// Execute the command list
-		rdr().ExecuteGfxCommandLists({ m_cmd_list });
+	RenderRayCast::PendingResults RenderRayCast::Submit(RayCastResultsOut cb)
+	{
+		// One recording owner reserves the next point on this step's private timeline.
+		rdr().AssertMainThread();
+		auto reason = m_gsync.DeviceRemovedReason();
+		if (FAILED(reason))
+			throw DeviceRemovedException(d3d(), reason);
 
-		// Add a sync point. The SyncPointCompleted handler will process results.
-		auto sp = m_gsync.AddSyncPoint(rdr().GfxQueue());
-		m_cmd_list.SyncPoint(sp);
+		auto reserved_sync_point = m_gsync.NextSyncPoint();
+		auto output = GpuTransferAllocation{};
+		auto lists = GfxCmdListCollection{};
+		try
+		{
+			// Recreate only after an abandoned recording; successful casts reuse the command list.
+			if (m_cmd_list.get() == nullptr)
+				m_cmd_list = GfxCmdList(d3d(), nullptr, "RenderRayCast", EColours::BlanchedAlmond);
 
-		// Store the pending results so they can be processed when the GPU completes
-		m_pending.push_back(PendingResults{ std::move(output), sp, std::move(cb) });
+			m_cmd_list.Reset(m_cmd_alloc_pool.Get());
+			output = ExecuteCore();
+			Check(m_cmd_list.Close());
+			lists = GfxCmdListCollection{m_cmd_list};
+		}
+		catch (...)
+		{
+			// Destroy the unsubmitted list and handles before any reservation can be reused. LastAdded still protects
+			// earlier submitted bytes on shared pages and earlier allocator use; this does not signal any fence.
+			output = {};
+			lists = {};
+			{
+				auto abandoned = std::move(m_cmd_list);
+			}
+			for (auto& alloc : m_cmd_alloc_pool.m_pool)
+			{
+				if (alloc.m_sync_point > m_gsync.LastAddedSyncPoint())
+					alloc.m_sync_point = m_gsync.LastAddedSyncPoint();
+			}
+
+			// Pose/cache revisions are published while recording. Force affected skinning inputs to be recorded again
+			// at the same animation time; leave earlier submissions and their resources intact.
+			auto drawlist = m_drawlist.lock();
+			for (auto& dle : *drawlist)
+			{
+				if (auto pose = FindPose(*dle.m_instance); pose && dle.m_nugget->m_model->m_skin)
+					pose->InvalidateGpuData();
+			}
+			m_upload_buffer.CancelUnsubmitted();
+			m_readback.CancelUnsubmitted();
+			throw;
+		}
+
+		// Execute has no HRESULT. From this point, work may be in flight: cancellation is categorically forbidden.
+		rdr().ExecuteGfxCommandLists(std::move(lists));
+		try
+		{
+			auto sync_point = m_gsync.AddSyncPoint(rdr().GfxQueue());
+			m_cmd_list.SyncPoint(sync_point);
+			return PendingResults{std::move(output), sync_point, std::move(cb)};
+		}
+		catch (std::exception const& error)
+		{
+			SubmissionFailed(reserved_sync_point, error.what());
+			throw;
+		}
+		catch (...)
+		{
+			SubmissionFailed(reserved_sync_point, "Unknown exception after RayCast submission");
+			throw;
+		}
+	}
+
+	void RenderRayCast::SubmissionFailed(uint64_t reserved_sync_point, char const* diagnostic)
+	{
+		// AddSyncPoint publishes its number before invoking subscribers. A subscriber exception is not a failed Signal.
+		if (m_gsync.LastAddedSyncPoint() >= reserved_sync_point)
+		{
+			m_cmd_list.SyncPoint(reserved_sync_point);
+			return;
+		}
+
+		// Only actual device removal permits ordinary teardown without a queued signal. D3D12 releases fence waits on
+		// removal; pending readbacks are discarded, never interpreted as completed results.
+		if (FAILED(m_gsync.DeviceRemovedReason()))
+			return;
+
+		// Submitted work on a healthy device has no retirement proof. Do not unwind through DLL CatchAndReport or free
+		// resources the GPU may still access. Keep this fatal policy local to the RayCast Execute-before-Signal boundary.
+		OutputDebugStringA("FATAL: submitted RayCast work has no completion signal on a healthy device: ");
+		OutputDebugStringA(diagnostic);
+		OutputDebugStringA("\n");
+		std::fprintf(stderr, "FATAL: submitted RayCast work has no completion signal on a healthy device; reserved=%llu last_added=%llu completed=%llu: %s\n",
+			static_cast<unsigned long long>(reserved_sync_point), static_cast<unsigned long long>(m_gsync.LastAddedSyncPoint()), static_cast<unsigned long long>(m_gsync.CompletedSyncPoint()), diagnostic);
+		std::fflush(stderr);
+		::RaiseFailFastException(nullptr, nullptr, 0);
+		__fastfail(FAST_FAIL_FATAL_APP_EXIT);
 	}
 
 	// Submit the ray cast to the GPU and return immediately.

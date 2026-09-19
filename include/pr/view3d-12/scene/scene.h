@@ -39,13 +39,17 @@ namespace pr::rdr12
 		using InstCont = pr::vector<BaseInstance const*, 1024, false>;
 		using RenderRayCastPtr = std::unique_ptr<RenderRayCast>;
 		using Viewport = ::pr::compute::Viewport;
+		using GpuSync = ::pr::compute::GpuSync;
 		
 		Window*          m_wnd;              // The controlling window
 		SceneCamera      m_cam;              // Represents the camera properties used to project onto the screen
 		Viewport         m_viewport;         // Represents the rectangular area on the back buffer that this scene covers (modify this variable if you want. Use the methods tho. Remember clip regions)
 		InstCont         m_instances;        // Instances added to this scene for rendering.
+		std::list<GpuSync> m_gsync_render_steps; // Stable, distinct timelines for configured self-submitting steps; outlive m_render_steps
 		RenderStepCont   m_render_steps;     // The stages of rendering the scene
+		GpuSync          m_gsync_immed;      // Immediate picking must finish without another window frame; outlives its complete step
 		RenderRayCastPtr m_raycast_immed;    // A ray cast render step for performing immediate hit tests
+		GpuSync          m_gsync_async;      // Async picking has its own exclusive recording reservations; outlives its complete step
 		RenderRayCastPtr m_raycast_async;    // A ray cast render step for performing async hit tests
 		Light            m_global_light;     // The global light settings
 		TextureCubePtr   m_global_envmap;    // A global environment map

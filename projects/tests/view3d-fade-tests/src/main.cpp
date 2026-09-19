@@ -352,6 +352,33 @@ namespace fade_tests
 		}
 	};
 
+	// Exercise the public synchronous hit path and destroy its window without a later frame or explicit window wait.
+	void RayCastLifetimeTests()
+	{
+		// A real DLL-owned hit/readback must survive immediate destruction, including the base upload-buffer destructor.
+		{
+			auto fixture = Fixture(1);
+			Require(fixture.m_info != nullptr, "RayCast lifetime test requires D3D12 debug validation");
+			auto object = fixture.Quad(10, 0xFFFFFFFF);
+			auto ray = api::HitTestRay{};
+			ray.m_ws_origin = api::Vec4{0, 0, 0, 1};
+			ray.m_ws_direction = api::Vec4{0, 0, -1, 0};
+			auto hit = api::HitTestResult{};
+			std::cout << "RayCast lifetime: public immediate hit" << std::endl;
+			View3D_WindowHitTestObjects(fixture.m_window, &ray, &hit, 1, &object, 1);
+			fixture.CheckErrors();
+			Require(hit.m_obj == object && std::abs(hit.m_distance - 10.0f) < 0.01f, "Immediate RayCast did not return the actual completed hit");
+			View3D_WindowDestroy(fixture.m_window);
+			fixture.m_window = nullptr;
+			fixture.CheckErrors();
+			fixture.CheckDebugLayer();
+			std::cout << "PASS public immediate readback and destroy without another frame" << std::endl;
+		}
+
+		// Native-only objects keep allocator, material, and model ownership within one linked image.
+		RayCastLifetimeNativeTests();
+	}
+
 	// Count differing RGB bytes so GPU channel tests do not depend on one hand-picked lattice value.
 	size_t ImageDifference(std::vector<unsigned char> const& lhs, std::vector<unsigned char> const& rhs)
 	{
@@ -1553,6 +1580,12 @@ int main(int argc, char const* const* argv)
 		{
 			// Run only the focused U32 procedural vertex ABI evidence.
 			fade_tests::ProceduralVertexAbiTests();
+			return 0;
+		}
+		if (argc == 2 && std::string_view(argv[1]) == "--raycast-lifetime")
+		{
+			// Run only the independently granted lifetime/cancellation regression.
+			fade_tests::RayCastLifetimeTests();
 			return 0;
 		}
 		fade_tests::Require(argc == 1 || (argc == 2 && std::string_view(argv[1]) == "--numeric-only"), "Expected no arguments or --numeric-only");

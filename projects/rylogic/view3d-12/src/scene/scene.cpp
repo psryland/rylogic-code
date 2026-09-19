@@ -36,8 +36,11 @@ namespace pr::rdr12
 		, m_cam(cam)
 		, m_viewport(wnd.BackBufferSize())
 		, m_instances()
+		, m_gsync_render_steps()
 		, m_render_steps()
+		, m_gsync_immed(wnd.d3d())
 		, m_raycast_immed()
+		, m_gsync_async(wnd.d3d())
 		, m_raycast_async()
 		, m_global_light()
 		, m_global_envmap()
@@ -173,8 +176,9 @@ namespace pr::rdr12
 		if (std::find(rsteps.begin(), rsteps.end(), ERenderStep::RayTracing) != rsteps.end())
 			ValidateRayTracingInstances(m_instances);
 
-		// Replace the requested pipeline only after source validation succeeds.
+		// Replace only after validation succeeds. Finish and destroy old steps before releasing their fence storage.
 		m_render_steps.clear();
+		m_gsync_render_steps.clear();
 
 		for (auto rs : rsteps)
 		{
@@ -182,7 +186,14 @@ namespace pr::rdr12
 			{
 				case ERenderStep::RenderForward: m_render_steps.emplace_back(new RenderForward(*this)); break;
 				case ERenderStep::ShadowMap:     m_render_steps.emplace_back(new RenderSmap(*this, m_global_light)); break;
-				case ERenderStep::RayCast:       m_render_steps.emplace_back(new RenderRayCast(*this, std::bind(&Scene::HitTestAsyncResults, this, _1))); break;
+				case ERenderStep::RayCast:
+				{
+					// This step submits independently even when invoked during a frame. Duplicate entries need separate
+					// reservation domains; nodes stay stable and survive complete step destruction on replacement/unwind.
+					auto& gsync = m_gsync_render_steps.emplace_back(d3d());
+					m_render_steps.push_back(std::make_unique<RenderRayCast>(*this, gsync, std::bind(&Scene::HitTestAsyncResults, this, _1)));
+					break;
+				}
 				case ERenderStep::RayTracing:    m_render_steps.emplace_back(new RenderRayTracing(*this)); break;
 				default: throw std::runtime_error("Unknown render step");
 			}
@@ -304,9 +315,11 @@ namespace pr::rdr12
 
 		// Lazy create the ray cast render step
 		if (m_raycast_immed == nullptr)
-			m_raycast_immed.reset(new RenderRayCast(*this, {}));
+			m_raycast_immed.reset(new RenderRayCast(*this, m_gsync_immed, {}));
 			
 		auto& rs = *m_raycast_immed.get();
+		// Drop this call's transient instances on both successful submission and failed recording.
+		auto clear_drawlist = Scope<void>([&rs] { rs.ClearDrawlist(); });
 
 		// Set the rays to cast
 		rs.SetRays(rays, [=](auto) { return true; });
@@ -324,12 +337,7 @@ namespace pr::rdr12
 		}
 
 		// Run the hit test
-		auto result = rs.ExecuteImmediate(out);
-
-		// Reset ready for next time
-		rs.ClearDrawlist();
-
-		return result;
+		return rs.ExecuteImmediate(out);
 	}
 
 	// Perform an asynchronous hit test. Submits GPU work and returns immediately.
@@ -340,9 +348,11 @@ namespace pr::rdr12
 
 		// Lazy create the async ray cast render step
 		if (m_raycast_async == nullptr)
-			m_raycast_async.reset(new RenderRayCast(*this, {}));
+			m_raycast_async.reset(new RenderRayCast(*this, m_gsync_async, {}));
 
 		auto& rs = *m_raycast_async.get();
+		// Clearing transient instances does not discard submitted work or its pending readback handles.
+		auto clear_drawlist = Scope<void>([&rs] { rs.ClearDrawlist(); });
 
 		// Set the rays to cast
 		rs.SetRays(rays, [](auto) { return true; });
@@ -354,9 +364,6 @@ namespace pr::rdr12
 
 		// Submit to GPU and return immediately
 		rs.ExecuteAsync(std::bind(&Scene::HitTestAsyncResults, this, _1));
-
-		// Reset the draw list ready for next time
-		rs.ClearDrawlist();
 	}
 
 	// Render the scene, recording the command lists in 'frame'
