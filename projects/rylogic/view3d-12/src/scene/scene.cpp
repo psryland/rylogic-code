@@ -5,7 +5,9 @@
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/main/window.h"
 #include "pr/view3d-12/main/renderer.h"
+#include "pr/view3d-12/instance/instance.h"
 #include "pr/view3d-12/render/render_step.h"
+#include "pr/view3d-12/ray_tracing/ray_tracing_model.h"
 #include "pr/view3d-12/ray_tracing/render_ray_tracing.h"
 #include "pr/view3d-12/texture/texture_cube.h"
 #include "pr/view3d-12/utility/eventargs.h"
@@ -15,6 +17,19 @@
 
 namespace pr::rdr12
 {
+	// Reject incompatible resident geometry before changing a scene's render steps.
+	static void ValidateRayTracingInstances(Scene::InstCont const& instances)
+	{
+		// Use the same source policy as instance admission and BLAS construction.
+		for (auto const* inst : instances)
+		{
+			// Model-less instances do not contribute geometry.
+			auto const& model = GetModel(*inst);
+			if (model != nullptr)
+				ValidateRayTracingGeometrySource(*model.get());
+		}
+	}
+
 	// Make a scene
 	Scene::Scene(Window& wnd, std::initializer_list<ERenderStep> rsteps, SceneCamera const& cam)
 		: m_wnd(&wnd)
@@ -123,6 +138,16 @@ namespace pr::rdr12
 	// Instances can be added to render steps directly if finer control is needed
 	void Scene::AddInstance(BaseInstance const& inst)
 	{
+		// Reject incompatible geometry before publishing it to any drawlist. Rebuilt scenes perform this admission check each frame.
+		if (FindRStep<RenderRayTracing>() != nullptr)
+		{
+			// Nested and shared instances must satisfy the receiving scene's active render contract.
+			auto const& model = GetModel(inst);
+			if (model != nullptr)
+				ValidateRayTracingGeometrySource(*model.get());
+		}
+
+		// Publish only after source eligibility is established.
 		m_instances.push_back(&inst);
 		for (auto& rs : m_render_steps)
 			rs->AddInstance(inst);
@@ -144,6 +169,11 @@ namespace pr::rdr12
 	// Set the render steps to use for rendering the scene
 	void Scene::SetRenderSteps(std::span<ERenderStep const> rsteps)
 	{
+		// Reject unsupported geometry before discarding the current raster steps.
+		if (std::find(rsteps.begin(), rsteps.end(), ERenderStep::RayTracing) != rsteps.end())
+			ValidateRayTracingInstances(m_instances);
+
+		// Replace the requested pipeline only after source validation succeeds.
 		m_render_steps.clear();
 
 		for (auto rs : rsteps)
@@ -175,12 +205,16 @@ namespace pr::rdr12
 	// Enable/disable ray tracing without rebuilding the existing raster render steps.
 	void Scene::RayTracing(bool enable)
 	{
+		// Keep existing raster steps alive when toggling the ray-tracing pass.
 		if (enable && FindRStep<RenderRayTracing>() == nullptr)
 		{
+			// A failed enable must leave the previous render-step configuration intact.
+			ValidateRayTracingInstances(m_instances);
 			m_render_steps.emplace_back(new RenderRayTracing(*this));
 		}
 		if (!enable && FindRStep<RenderRayTracing>() != nullptr)
 		{
+			// Remove only the ray-tracing pass.
 			pr::erase_if(m_render_steps, [](auto& rs) { return rs->m_step_id == ERenderStep::RayTracing; });
 		}
 	}

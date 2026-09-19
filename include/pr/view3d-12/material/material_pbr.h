@@ -27,7 +27,7 @@ namespace pr::rdr12
 		materials::Roughness m_roughness;    // Roughness properties.
 		materials::Emissive m_emissive;      // Emissive properties.
 		materials::NormalMap m_normal_map;   // Normal-map properties.
-		std::optional<materials::ProceduralSurface> m_procedural_surface; // Optional GPU procedural surface.
+		materials::ProceduralSurface m_procedural_surface; // GPU procedural surface, disabled by default.
 		materials::ShaderOverlays m_shaders; // Procedural vertex overlays retained across PBR promotion.
 		materials::Alpha m_alpha;            // Alpha behaviour.
 		materials::TwoSided m_two_sided;     // Two-sided lighting state.

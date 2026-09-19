@@ -10,6 +10,7 @@
 #include "pr/view3d-12/sampler/sampler.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/shaders/shader_forward.h"
+#include "pr/view3d-12/shaders/shader_procedural.h"
 #include "pr/view3d-12/shaders/shader_ray_cast.h"
 #include "pr/view3d-12/shaders/shader_smap.h"
 #include "pr/view3d-12/texture/texture_2d.h"

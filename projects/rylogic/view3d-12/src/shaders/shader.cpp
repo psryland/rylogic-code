@@ -4,6 +4,7 @@
 //*********************************************
 #include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/shaders/shader_forward.h"
+#include "pr/view3d-12/shaders/shader_procedural.h"
 #include "pr/view3d-12/shaders/shader_ray_cast.h"
 #include "pr/view3d-12/shaders/shader_smap.h"
 #include "view3d-12/src/shaders/common.h"

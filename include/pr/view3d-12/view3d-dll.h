@@ -746,22 +746,39 @@ namespace pr
 			D3D12_TEXTURE_ADDRESS_MODE m_addrW;
 			char const*                m_dbg_name;
 		};
-		// Versioned descriptor for a caller-compiled procedural vertex shader.
+		// Hardware stage selected by the shader creation descriptor.
+		enum class EShaderStage : int
+		{
+			Vertex,
+			Pixel,
+			Geometry,
+			Hull,
+			Domain,
+			Compute,
+		};
+		// Binding recipe for a procedural vertex overlay on a stock raster pass.
+		struct ProceduralVertexBinding
+		{
+			static constexpr size_t ConstantsSize = 1024;
+
+			ERenderStep m_rdr_step;
+			void const* m_constants;
+			size_t m_constants_size;
+		};
+		// Versioned shader creation descriptor. Only Vertex with ProceduralVertexBinding is currently implemented.
+		// Callers supply readable descriptor storage and buffers matching this header and runtime; size/version are not a global ABI handshake.
 		struct ShaderOptions
 		{
-			static constexpr int CurrentVersion = 1;
-			static constexpr size_t ConstantsSize = 1024;
+			static constexpr int CurrentVersion = 2;
 			static constexpr size_t MaxByteCodeSize = 1024 * 1024;
 
 			int m_struct_size;
 			int m_version;
-			ERenderStep m_rdr_step;
-			int m_pad;
-			void const* m_vs_bytecode;
-			size_t m_vs_bytecode_size;
-			void const* m_constants;
-			size_t m_constants_size;
+			EShaderStage m_stage;
+			void const* m_bytecode;
+			size_t m_bytecode_size;
 			char const* m_dbg_name;
+			ProceduralVertexBinding m_procedural_vertex;
 		};
 		// Versioned extended-object descriptor with an explicit vertex-ID domain and authoritative model-space bounds.
 		struct ObjectCreateOptions
@@ -1515,7 +1532,10 @@ extern "C"
 	// Create one of the stock samplers
 	VIEW3D_API pr::view3d::Sampler __stdcall View3D_SamplerCreateStock(pr::view3d::EStockSampler stock_sampler);
 
-	// Create a shader
+	// Create a shader for the selected hardware stage. Currently only Vertex with the procedural binding recipe is supported,
+	// for Forward, RayCast, or ShadowMap. This is not an arbitrary vertex-shader binding API; other stages report unsupported.
+	// The renderer copies bytecode and exactly 1024 constant bytes before returning. Stock pixel/geometry stages remain unchanged.
+	// Invalid or unsupported descriptors report through the public error callback and return null.
 	VIEW3D_API pr::view3d::Shader __stdcall View3D_ShaderCreate(pr::view3d::ShaderOptions const& options);
 
 	// Create one of the stock shaders

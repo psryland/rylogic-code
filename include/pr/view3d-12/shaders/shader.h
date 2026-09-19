@@ -68,27 +68,6 @@ namespace pr::rdr12
 		protected: virtual void Delete();
 	};
 
-	// A caller-compiled procedural vertex shader with renderer-owned immutable constants.
-	struct ProceduralVertexShader :Shader
-	{
-		static constexpr size_t ConstantsSize = 1024;
-
-		ERenderStep m_rdr_step;
-		std::vector<BYTE> m_vs_bytecode;
-		std::array<std::byte, ConstantsSize> m_constants;
-		string32 m_name;
-
-		ProceduralVertexShader(Renderer& rdr, ERenderStep rdr_step, std::span<BYTE const> vs_bytecode, std::span<std::byte const> constants, std::string_view name);
-
-		// Bind the immutable procedural constants for one draw.
-		void SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const&, DrawListElement const*) override;
-
-	protected:
-
-		// Destroy this concrete variable-sized shader type.
-		void Delete() override;
-	};
-
 	// Statically declared shader byte code
 	namespace shader_code
 	{

@@ -18,7 +18,7 @@
 		</ClCompile>
 		<Link>
 			<SubSystem>Console</SubSystem>
-			<AdditionalDependencies>$(RylogicRoot)obj\view3d-12.dll\$(Platform)\$(Configuration)\view3d-12.imp;d3d12.lib;%(AdditionalDependencies)</AdditionalDependencies>
+			<AdditionalDependencies>$(RylogicRoot)obj\view3d-12.dll\$(Platform)\$(Configuration)\view3d-12.imp;$(RylogicRoot)obj\view3d-12\$(Platform)\$(Configuration)\view3d-12-static.lib;$(RylogicRoot)obj\compute\$(Platform)\$(Configuration)\compute-static.lib;d3d12.lib;%(AdditionalDependencies)</AdditionalDependencies>
 		</Link>
 	</ItemDefinitionGroup>
 	<ItemGroup>

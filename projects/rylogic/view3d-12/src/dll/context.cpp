@@ -13,6 +13,7 @@
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/texture/texture_desc.h"
 #include "pr/view3d-12/scene/procedural_sky.h"
+#include "pr/view3d-12/shaders/shader_procedural.h"
 #include "pr/view3d-12/utility/conversion.h"
 #include "view3d-12/src/ldraw/sources/source_base.h"
 #include "view3d-12/src/ldraw/sources/source_file.h"
@@ -200,23 +201,9 @@ namespace pr::rdr12
 	//  Reload notification and manually reload objects, replacing the LdrObject*
 	//  pointers they hold.
 
-	// Create an object from 16-bit indexed geometry.
-	ldraw::LdrObject* Context::ObjectCreate(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<uint16_t const> indices, std::span<view3d::Nugget const> nuggets, Guid const& context_id)
-	{
-		// Preserve the existing buffered-vertex contract.
-		return ObjectCreateImpl(name, colour, verts, indices, nuggets, nullptr, context_id);
-	}
-
-	// Create an object from 32-bit indexed geometry.
-	ldraw::LdrObject* Context::ObjectCreate(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<uint32_t const> indices, std::span<view3d::Nugget const> nuggets, view3d::ObjectCreateOptions const& options, Guid const& context_id)
-	{
-		// Apply the explicit extended creation contract.
-		return ObjectCreateImpl(name, colour, verts, indices, nuggets, &options, context_id);
-	}
-
 	// Create an object through the shared index-width-independent path.
 	template <typename TIndex>
-	ldraw::LdrObject* Context::ObjectCreateImpl(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<TIndex const> indices, std::span<view3d::Nugget const> nuggets, view3d::ObjectCreateOptions const* options, Guid const& context_id)
+	static ldraw::LdrObject* ObjectCreateImpl(Context& context, char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<TIndex const> indices, std::span<view3d::Nugget const> nuggets, view3d::ObjectCreateOptions const* options, Guid const& context_id)
 	{
 		// Establish the vertex-ID domain before accepting any geometry.
 		using namespace pr::script;
@@ -367,7 +354,7 @@ namespace pr::rdr12
 
 		// Create the model
 		MeshCreationData cdata = MeshCreationData().verts(pos).indices(ind).nuggets(ngt).colours(col).normals(nrm).tex(tex);
-		auto obj = Create(m_rdr, ldraw::ELdrObject::Custom, cdata, context_id);
+		auto obj = Create(context.m_rdr, ldraw::ELdrObject::Custom, cdata, context_id);
 		obj->m_model->m_vertex_source = vertex_source;
 		obj->m_model->m_vcount_logical = logical_vcount;
 		if (vertex_source == EVertexSource::ProceduralVertexId)
@@ -376,10 +363,24 @@ namespace pr::rdr12
 		// Add to the sources
 		obj->m_name = name;
 		obj->m_base_colour = colour;
-		m_sources.Add(obj);
+		context.m_sources.Add(obj);
 
 		// Return the created object
 		return obj.get();
+	}
+
+	// Create an object from 16-bit indexed geometry.
+	ldraw::LdrObject* Context::ObjectCreate(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<uint16_t const> indices, std::span<view3d::Nugget const> nuggets, Guid const& context_id)
+	{
+		// Preserve the existing buffered-vertex contract.
+		return ObjectCreateImpl(*this, name, colour, verts, indices, nuggets, nullptr, context_id);
+	}
+
+	// Create an object from 32-bit indexed geometry.
+	ldraw::LdrObject* Context::ObjectCreate(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<uint32_t const> indices, std::span<view3d::Nugget const> nuggets, view3d::ObjectCreateOptions const& options, Guid const& context_id)
+	{
+		// Apply the explicit extended creation contract.
+		return ObjectCreateImpl(*this, name, colour, verts, indices, nuggets, &options, context_id);
 	}
 
 	// Load/Add ldr objects and return the first object from the script

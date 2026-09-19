@@ -106,10 +106,6 @@ namespace pr::rdr12
 		// Delete a single object
 		void DeleteObject(ldraw::LdrObject* object);
 
-		// Create an object through the shared 16-bit/32-bit geometry path.
-		template <typename TIndex>
-		ldraw::LdrObject* ObjectCreateImpl(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<TIndex const> indices, std::span<view3d::Nugget const> nuggets, view3d::ObjectCreateOptions const* options, Guid const& context_id);
-
 		// Delete all objects
 		void DeleteAllObjects();
 

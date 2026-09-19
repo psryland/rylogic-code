@@ -23,6 +23,7 @@
 #include "pr/view3d-12/texture/texture_cube.h"
 #include "pr/view3d-12/sampler/sampler_desc.h"
 #include "pr/view3d-12/sampler/sampler.h"
+#include "pr/view3d-12/shaders/shader_procedural.h"
 #include "pr/view3d-12/utility/dx9_context.h"
 #include "pr/view3d-12/utility/conversion.h"
 #include "pr/view3d-12/ldraw/ldraw_object.h"
@@ -3002,43 +3003,80 @@ VIEW3D_API view3d::Sampler __stdcall View3D_SamplerCreateStock(view3d::EStockSam
 	CatchAndReport(View3D_SamplerCreateStock, , nullptr);
 }
 
-// Create a copied procedural vertex shader for one supported raster render step.
+// Create a shader for a supported hardware stage and binding recipe.
 VIEW3D_API view3d::Shader __stdcall View3D_ShaderCreate(view3d::ShaderOptions const& options)
 {
+	// Report invalid descriptors through the public error callback without publishing a shader handle.
 	try
 	{
-		// Accept only the bounded procedural vertex overlay contract.
+		// Reject descriptor layout mismatches before reading the bytecode and constant-buffer fields.
 		DllLockGuard;
 		if (options.m_struct_size != sizeof(options))
 			throw std::invalid_argument("ShaderOptions structure size does not match this View3D version");
+
 		if (options.m_version != view3d::ShaderOptions::CurrentVersion)
 			throw std::invalid_argument("Unsupported ShaderOptions version");
-		switch (options.m_rdr_step)
+
+		// Reject unimplemented stages before inspecting fields belonging to the procedural vertex recipe.
+		switch (options.m_stage)
+		{
+			case view3d::EShaderStage::Vertex:
+			{
+				// Vertex creation currently implements only the stock-pass procedural binding.
+				break;
+			}
+			case view3d::EShaderStage::Pixel:
+			case view3d::EShaderStage::Geometry:
+			case view3d::EShaderStage::Hull:
+			case view3d::EShaderStage::Domain:
+			case view3d::EShaderStage::Compute:
+			{
+				// Named stages remain explicit API choices without implying an implemented binding.
+				throw std::runtime_error("Shader stage is not supported");
+			}
+			default:
+			{
+				// Unknown values are invalid rather than an unimplemented named stage.
+				throw std::invalid_argument("Invalid shader stage");
+			}
+		}
+
+		// Only these raster passes reserve a constant-buffer slot and retain compatible stock non-vertex stages.
+		auto const& binding = options.m_procedural_vertex;
+		switch (binding.m_rdr_step)
 		{
 			case view3d::ERenderStep::ForwardRender:
 			case view3d::ERenderStep::RayCast:
 			case view3d::ERenderStep::ShadowMap:
 			{
+				// The selected pass supplies the root signature and the remaining shader stages.
 				break;
 			}
 			default:
 			{
+				// No other render step implements this procedural vertex contract.
 				throw std::invalid_argument("Procedural vertex shaders support only Forward, RayCast, and ShadowMap render steps");
 			}
 		}
-		if (options.m_vs_bytecode == nullptr || options.m_vs_bytecode_size < sizeof(uint32_t) || options.m_vs_bytecode_size > view3d::ShaderOptions::MaxByteCodeSize)
+
+		// Bound the bytecode copy and reject input that is not a DXIL container.
+		if (options.m_bytecode == nullptr || options.m_bytecode_size < sizeof(uint32_t) || options.m_bytecode_size > view3d::ShaderOptions::MaxByteCodeSize)
 			throw std::invalid_argument("Procedural vertex shader bytecode is missing or outside the supported size range");
-		if (memcmp(options.m_vs_bytecode, "DXBC", 4) != 0)
+
+		if (memcmp(options.m_bytecode, "DXBC", 4) != 0)
 			throw std::invalid_argument("Procedural vertex shader bytecode is not a DXIL container");
-		if (options.m_constants == nullptr || options.m_constants_size != view3d::ShaderOptions::ConstantsSize)
+
+		// Every supported pass uses the same fixed-size immutable caller data contract.
+		if (binding.m_constants == nullptr || binding.m_constants_size != view3d::ProceduralVertexBinding::ConstantsSize)
 			throw std::invalid_argument("Procedural vertex shader constants must contain exactly 1024 bytes");
 
+		// Copy both caller buffers into shader-owned storage before returning the owning handle.
 		ResourceFactory factory(Dll().m_rdr);
 		auto shdr = rdr12::Shader::Create<ProceduralVertexShader>(
 			factory.rdr(),
-			static_cast<rdr12::ERenderStep>(options.m_rdr_step),
-			std::span<BYTE const>(static_cast<BYTE const*>(options.m_vs_bytecode), options.m_vs_bytecode_size),
-			std::span<std::byte const>(static_cast<std::byte const*>(options.m_constants), options.m_constants_size),
+			static_cast<rdr12::ERenderStep>(binding.m_rdr_step),
+			std::span<BYTE const>(static_cast<BYTE const*>(options.m_bytecode), options.m_bytecode_size),
+			std::span<std::byte const>(static_cast<std::byte const*>(binding.m_constants), binding.m_constants_size),
 			options.m_dbg_name != nullptr ? std::string_view(options.m_dbg_name) : std::string_view{});
 		return shdr.release();
 	}

@@ -19,7 +19,7 @@
     </ClCompile>
     <Link>
       <AdditionalLibraryDirectories>
-        ;$(RylogicRoot)lib\$(PlatformTarget)\$(Configuration)
+        ;$(DeployPath)$(PlatformTarget)\$(Configuration)
         ;%(AdditionalLibraryDirectories)
       </AdditionalLibraryDirectories>
       <AdditionalDependencies>

@@ -494,6 +494,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\shader_ray_cast.h">
       <Filter>src\shaders</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\shader_procedural.h">
+      <Filter>src\shaders</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\shaders\shader_show_normals.h">
       <Filter>src\shaders</Filter>
     </ClInclude>

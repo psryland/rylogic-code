@@ -22,6 +22,7 @@ namespace pr::rdr12::materials
 
 		static constexpr RdrId Id = hash::HashCT("ProceduralSurface");
 
+		bool m_enabled = false; // Disabled components leave ordinary material channels unchanged.
 		EProceduralCoordinateSpace m_coordinate_space = EProceduralCoordinateSpace::World;
 		uint32_t m_seed = 0;
 		float m_feature_scale = 1.0f;

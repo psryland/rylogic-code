@@ -371,9 +371,14 @@ namespace fade_tests
 	{
 		api::Vec4 m_positions[3];
 		api::Vec4 m_colour;
-		std::array<unsigned char, api::ShaderOptions::ConstantsSize - 4 * sizeof(api::Vec4)> m_padding;
+		std::array<unsigned char, api::ProceduralVertexBinding::ConstantsSize - 4 * sizeof(api::Vec4)> m_padding;
 	};
-	static_assert(sizeof(ProceduralVertexConstants) == api::ShaderOptions::ConstantsSize);
+	static_assert(sizeof(ProceduralVertexConstants) == api::ProceduralVertexBinding::ConstantsSize);
+	static_assert(sizeof(api::ProceduralVertexBinding) == 24);
+	static_assert(sizeof(api::ShaderOptions) == 64);
+	static_assert(offsetof(api::ShaderOptions, m_stage) == 8);
+	static_assert(offsetof(api::ShaderOptions, m_bytecode) == 16);
+	static_assert(offsetof(api::ShaderOptions, m_procedural_vertex) == 40);
 
 	// Assert one framebuffer pixel against linear source-over expectations.
 	void Expect(std::vector<unsigned char> const& image, float red, float green, float blue, int x = 64, int y = 64);
@@ -385,12 +390,15 @@ namespace fade_tests
 		auto options = api::ShaderOptions{
 			.m_struct_size = sizeof(api::ShaderOptions),
 			.m_version = api::ShaderOptions::CurrentVersion,
-			.m_rdr_step = rdr_step,
-			.m_vs_bytecode = bytecode,
-			.m_vs_bytecode_size = bytecode_size,
-			.m_constants = &constants,
-			.m_constants_size = sizeof(constants),
+			.m_stage = api::EShaderStage::Vertex,
+			.m_bytecode = bytecode,
+			.m_bytecode_size = bytecode_size,
 			.m_dbg_name = "ProceduralVertexAbiTest",
+			.m_procedural_vertex = {
+				.m_rdr_step = rdr_step,
+				.m_constants = &constants,
+				.m_constants_size = sizeof(constants),
+			},
 		};
 		return View3D_ShaderCreate(options);
 	}
@@ -462,25 +470,45 @@ namespace fade_tests
 		auto valid_shader_options = api::ShaderOptions{
 			.m_struct_size = sizeof(api::ShaderOptions),
 			.m_version = api::ShaderOptions::CurrentVersion,
-			.m_rdr_step = api::ERenderStep::ForwardRender,
-			.m_vs_bytecode = forward_bytecode.data(),
-			.m_vs_bytecode_size = forward_bytecode.size(),
-			.m_constants = &constants,
-			.m_constants_size = sizeof(constants),
+			.m_stage = api::EShaderStage::Vertex,
+			.m_bytecode = forward_bytecode.data(),
+			.m_bytecode_size = forward_bytecode.size(),
 			.m_dbg_name = "ProceduralVertexAbiValidation",
+			.m_procedural_vertex = {
+				.m_rdr_step = api::ERenderStep::ForwardRender,
+				.m_constants = &constants,
+				.m_constants_size = sizeof(constants),
+			},
 		};
 		auto bad_shader_options = valid_shader_options;
 		bad_shader_options.m_struct_size -= 1;
 		expect_shader_error(bad_shader_options, "structure size");
 		bad_shader_options = valid_shader_options;
-		bad_shader_options.m_version = 0;
+		bad_shader_options.m_version = 1;
 		expect_shader_error(bad_shader_options, "version");
 		bad_shader_options = valid_shader_options;
-		bad_shader_options.m_constants_size -= 16;
+		bad_shader_options.m_procedural_vertex.m_constants_size -= 16;
 		expect_shader_error(bad_shader_options, "1024");
 		bad_shader_options = valid_shader_options;
-		bad_shader_options.m_vs_bytecode_size = 3;
+		bad_shader_options.m_bytecode_size = 3;
 		expect_shader_error(bad_shader_options, "bytecode");
+
+		// Unsupported stages must not require bytecode or a procedural binding that they do not implement.
+		for (auto stage : {api::EShaderStage::Pixel, api::EShaderStage::Geometry, api::EShaderStage::Hull, api::EShaderStage::Domain, api::EShaderStage::Compute})
+		{
+			// Allocate the complete current descriptor; null buffers are deliberately irrelevant for this stage.
+			auto unsupported = api::ShaderOptions{
+				.m_struct_size = sizeof(api::ShaderOptions),
+				.m_version = api::ShaderOptions::CurrentVersion,
+				.m_stage = stage,
+			};
+			expect_shader_error(unsupported, "stage is not supported");
+		}
+		bad_shader_options = {};
+		bad_shader_options.m_struct_size = sizeof(api::ShaderOptions);
+		bad_shader_options.m_version = api::ShaderOptions::CurrentVersion;
+		bad_shader_options.m_stage = static_cast<api::EShaderStage>(-1);
+		expect_shader_error(bad_shader_options, "Invalid shader stage");
 		fixture.m_errors.clear();
 
 		// Valid descriptors retain private copies and bind only to their declared render steps.
@@ -590,8 +618,11 @@ namespace fade_tests
 		surface.m_colour0 = surface.m_colour1 = surface.m_colour2 = surface.m_colour3 = 0xFF00FF00;
 		surface.m_normal_strength = 0;
 		View3D_ObjectNuggetProceduralSurfaceSet(object, surface, nullptr, 0);
+		fixture.CheckErrors();
 		auto round_trip = api::ProceduralSurface{};
-		Require(View3D_ObjectNuggetProceduralSurfaceGet(object, round_trip, nullptr, 0), "Procedural U32 object did not promote to the stock PBR material");
+		auto has_surface = View3D_ObjectNuggetProceduralSurfaceGet(object, round_trip, nullptr, 0);
+		fixture.CheckErrors();
+		Require(has_surface, "Procedural U32 object did not promote to the stock PBR material");
 		auto ambient_light = View3D_LightPropertiesGet(fixture.m_window);
 		ambient_light.m_ambient = 0xFFFFFFFF;
 		ambient_light.m_diffuse = 0xFF000000;
@@ -599,6 +630,32 @@ namespace fade_tests
 		ambient_light.m_intensity = 1;
 		ambient_light.m_on = TRUE;
 		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		Expect(fixture.Image(), 0, 1, 0);
+
+		// Rejected procedural parameters must leave the existing enabled component unchanged.
+		auto invalid_surface = surface;
+		invalid_surface.m_feature_scale = 0;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, invalid_surface, nullptr, 0);
+		Require(!fixture.m_errors.empty() && fixture.m_errors.back().find("feature scale") != std::string::npos, "Invalid procedural component did not report its contract error");
+		fixture.m_errors.clear();
+		has_surface = View3D_ObjectNuggetProceduralSurfaceGet(object, round_trip, nullptr, 0);
+		fixture.CheckErrors();
+		Require(has_surface && round_trip.m_feature_scale == surface.m_feature_scale, "Invalid procedural component replaced the active state");
+
+		// Clearing procedural evaluation leaves the ordinary PBR colour and vertex overlay intact, and can be repeated.
+		View3D_ObjectNuggetProceduralSurfaceClear(object, nullptr, 0);
+		fixture.CheckErrors();
+		View3D_ObjectNuggetProceduralSurfaceClear(object, nullptr, 0);
+		fixture.CheckErrors();
+		has_surface = View3D_ObjectNuggetProceduralSurfaceGet(object, round_trip, nullptr, 0);
+		fixture.CheckErrors();
+		Require(!has_surface, "Cleared procedural component remained visible");
+		Expect(fixture.Image(), 0, 1, 0);
+		View3D_ObjectNuggetProceduralSurfaceSet(object, surface, nullptr, 0);
+		fixture.CheckErrors();
+		has_surface = View3D_ObjectNuggetProceduralSurfaceGet(object, round_trip, nullptr, 0);
+		fixture.CheckErrors();
+		Require(has_surface, "Cleared procedural component could not be re-enabled");
 		Expect(fixture.Image(), 0, 1, 0);
 
 		// RayCast must use the same generated world-space triangle while retaining the stock topology geometry shader.
@@ -633,14 +690,83 @@ namespace fade_tests
 		// DXR must reject placeholder geometry explicitly rather than tracing it or silently omitting it.
 		if (View3D_WindowRayTracingInfoGet(fixture.m_window).m_available)
 		{
-			// Add the procedural model after enabling DXR so the complete pre-frame scene validation owns the unsupported-mode failure.
-			View3D_WindowRemoveObject(fixture.m_window, object);
+			// Removing the receiver clears all scene drawlists; rebuild the remaining procedural instance before testing resident-source rejection.
+			fixture.Image();
+			auto& scene = fixture.m_window->m_scene;
+			Require(std::find(scene.m_instances.begin(), scene.m_instances.end(), &object->m_base) != scene.m_instances.end(), "Resident-source fixture has not admitted its procedural instance");
+			Require(object->m_model != nullptr && object->m_model->m_vertex_source == pr::rdr12::EVertexSource::ProceduralVertexId, "Resident-source fixture does not contain procedural geometry");
+
+			// Direct pipeline replacement must reject before deleting any of the existing scene's render steps.
+			auto previous_steps = std::vector<pr::rdr12::RenderStep const*>{};
+			for (auto const& step : scene.m_render_steps)
+				previous_steps.push_back(step.get());
+
+			auto requested_steps = std::array{pr::rdr12::ERenderStep::RenderForward, pr::rdr12::ERenderStep::RayTracing};
+			auto rejected_steps = false;
+			try
+			{
+				// Exercise the native state-change boundary not exposed by the DLL's per-window toggle.
+				scene.SetRenderSteps(requested_steps);
+			}
+			catch (std::runtime_error const& error)
+			{
+				// Only the documented source incompatibility is an expected rejection.
+				Require(std::string_view(error.what()).find("procedural vertex-ID") != std::string_view::npos, "Render-step replacement reported the wrong error");
+				rejected_steps = true;
+			}
+			Require(rejected_steps, "Render-step replacement accepted procedural DXR geometry");
+			Require(scene.m_render_steps.size() == previous_steps.size(), "Rejected render-step replacement changed the pipeline size");
+			for (auto i = size_t{}; i != previous_steps.size(); ++i)
+				Require(scene.m_render_steps[i].get() == previous_steps[i], "Rejected render-step replacement destroyed an existing pass");
+
+			// Enabling DXR with resident procedural geometry must fail without replacing the raster pipeline.
 			View3D_WindowRayTracingEnabledSet(fixture.m_window, TRUE);
+			Require(!fixture.m_errors.empty() && fixture.m_errors.back().find("procedural vertex-ID") != std::string::npos, "DXR enable did not reject resident procedural geometry");
+			fixture.m_errors.clear();
+			Require(!View3D_WindowRayTracingEnabledGet(fixture.m_window), "Failed DXR enable changed the active pipeline");
+			View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+			Expect(fixture.Image(), 0, 1, 0);
+
+			// Rebuild the empty scene before enabling DXR, then add the model to exercise late admission on the same window.
+			View3D_WindowRemoveObject(fixture.m_window, object);
+			fixture.Image();
+			View3D_WindowRayTracingEnabledSet(fixture.m_window, TRUE);
+			fixture.CheckErrors();
+			Require(View3D_WindowRayTracingEnabledGet(fixture.m_window), "DXR did not enable on an empty scene");
 			View3D_WindowAddObject(fixture.m_window, object);
 			View3D_WindowRender(fixture.m_window);
 			Require(!fixture.m_errors.empty() && fixture.m_errors.back().find("procedural vertex-ID") != std::string::npos, "DXR did not report the procedural geometry boundary");
+			Require(std::find(scene.m_instances.begin(), scene.m_instances.end(), &object->m_base) == scene.m_instances.end(), "Rejected procedural instance was published to the scene");
 			fixture.m_errors.clear();
 			View3D_WindowRayTracingEnabledSet(fixture.m_window, FALSE);
+			Expect(fixture.Image(), 0, 1, 0);
+
+			// The same model may remain raster-visible in one window while a nested instance is rejected by another scene's DXR admission.
+			fixture.CheckDebugLayer();
+			{
+				// Keep secondary-window resources alive until its own recovery render has completed.
+				Fixture shared_fixture(1);
+				auto group = View3D_ObjectCreateLdrA("*Group NestedProcedural {*Group Child {}}", FALSE, nullptr, nullptr);
+				Require(group != nullptr, "Nested procedural fixture group creation failed");
+				shared_fixture.m_objects.push_back(group);
+				auto child = View3D_ObjectGetChildByIndex(group, 0);
+				Require(child != nullptr, "Nested procedural fixture child is missing");
+				Require(child->m_model == nullptr, "Nested child must not own a model before sharing");
+
+				// Only add a reference here; model creation and final release remain inside the DLL.
+				child->m_model = object->m_model;
+				View3D_LightPropertiesSet(shared_fixture.m_window, ambient_light);
+				View3D_WindowRayTracingEnabledSet(shared_fixture.m_window, TRUE);
+				shared_fixture.CheckErrors();
+				View3D_WindowAddObject(shared_fixture.m_window, group);
+				View3D_WindowRender(shared_fixture.m_window);
+				Require(!shared_fixture.m_errors.empty() && shared_fixture.m_errors.back().find("procedural vertex-ID") != std::string::npos, "Nested shared procedural model bypassed DXR admission");
+				shared_fixture.m_errors.clear();
+				View3D_WindowRayTracingEnabledSet(shared_fixture.m_window, FALSE);
+				Expect(shared_fixture.Image(), 0, 1, 0);
+				Expect(fixture.Image(), 0, 1, 0);
+				shared_fixture.CheckDebugLayer();
+			}
 		}
 
 		// The shared U32 path must render on the same window after the expected DXR rejection, proving frame recording was never opened.

@@ -659,7 +659,7 @@ namespace pr::rdr12
 			case ERenderStep::GBuffer:
 			case ERenderStep::DSLighting:
 			{
-				if (m_procedural_surface)
+				if (m_procedural_surface.m_enabled)
 					throw std::runtime_error("Procedural surface materials support forward, shadow-map, and ray-cast paths only");
 
 				return nullptr;
@@ -763,6 +763,7 @@ namespace pr::rdr12
 	{
 		// Reject invalid caller state before it becomes part of an immutable draw material.
 		surface.Validate();
+		surface.m_enabled = true;
 		m_procedural_surface = surface;
 		return *this;
 	}
@@ -771,7 +772,7 @@ namespace pr::rdr12
 	MaterialPBR& MaterialPBR::procedural_surface_clear()
 	{
 		// Preserve every ordinary PBR channel while removing procedural evaluation.
-		m_procedural_surface.reset();
+		m_procedural_surface = {};
 		return *this;
 	}
 
@@ -813,7 +814,7 @@ namespace pr::rdr12
 			return &m_normal_map;
 
 		if (component_id == materials::ProceduralSurface::Id)
-			return m_procedural_surface ? &*m_procedural_surface : nullptr;
+			return m_procedural_surface.m_enabled ? &m_procedural_surface : nullptr;
 
 		if (component_id == materials::ShaderOverlays::Id)
 			return &m_shaders;
