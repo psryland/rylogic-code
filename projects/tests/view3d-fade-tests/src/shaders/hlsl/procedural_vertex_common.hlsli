@@ -4,6 +4,7 @@ struct ProceduralConstants
 {
 	float4 positions[3];
 	float4 colour;
+	float4 normal;
 };
 
 // Decode a sparse logical vertex domain that proves indexed IDs are not limited by the placeholder vertex buffer.

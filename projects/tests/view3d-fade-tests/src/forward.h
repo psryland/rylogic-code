@@ -22,8 +22,10 @@
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "view3d-12/src/render/render_raycast.h"
 #include "pr/view3d-12/utility/normal_transform.h"
+#include "pr/view3d-12/utility/conversion.h"
 #include "pr/view3d-12/ldraw/ldraw_object.h"
 #include "view3d-12/src/dll/v3d_window.h"
+#include "view3d-12/src/shaders/common.h"
 #include "pr/hlsl/interop.h"
 
 // Exercise the same RGB blend expression compiled into the renderer's GPU shaders.

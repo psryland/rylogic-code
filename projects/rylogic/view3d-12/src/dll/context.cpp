@@ -258,7 +258,7 @@ namespace pr::rdr12
 		}
 
 		// Translate public nugget descriptions into renderer materials and ranges.
-		auto geom = EGeom::None;
+		auto physical_geom = EGeom::None;
 		pr::vector<NuggetDesc> ngt;
 
 		// Generate the nuggets first so we can tell what geometry data is needed
@@ -271,8 +271,30 @@ namespace pr::rdr12
 				throw std::out_of_range("Nugget vertex range exceeds the physical vertex buffer");
 			if (irange.begin() < 0 || irange.begin() > irange.end() || irange.end() > isize(indices))
 				throw std::out_of_range("Nugget index range exceeds the physical index buffer");
-			if (vertex_source == EVertexSource::ProceduralVertexId && static_cast<EGeom>(nugget.m_geom) != EGeom::Vert)
-				throw std::invalid_argument("Procedural vertex-ID nuggets must not declare physical vertex attributes");
+			auto const surface_geom = static_cast<EGeom>(nugget.m_geom);
+			switch (vertex_source)
+			{
+				case EVertexSource::Buffer:
+				{
+					// Buffered surfaces obtain their declared attributes from the supplied vertices.
+					physical_geom |= surface_geom;
+					break;
+				}
+				case EVertexSource::ProceduralVertexId:
+				{
+					// Generated capabilities belong to the shader output, not the unused placeholder fields.
+					auto const supported = EGeom::Vert | EGeom::Colr | EGeom::Norm | EGeom::Tex0;
+					if (!AllSet(surface_geom, EGeom::Vert) || AnySet(surface_geom, ~supported))
+						throw std::invalid_argument("Procedural vertex-ID geometry requires Vert and only supported generated attributes");
+
+					physical_geom = EGeom::Vert;
+					break;
+				}
+				default:
+				{
+					throw std::invalid_argument("Unknown object vertex source");
+				}
+			}
 
 			// Translate the public material and shader bindings.
 			RefPtr<MaterialSimple> material(::pr::compute::New<MaterialSimple>(), true);
@@ -295,7 +317,7 @@ namespace pr::rdr12
 			}
 
 			// Create the renderer nugget
-			NuggetDesc nug = NuggetDesc(static_cast<ETopo>(nugget.m_topo), static_cast<EGeom>(nugget.m_geom))
+			NuggetDesc nug = NuggetDesc(static_cast<ETopo>(nugget.m_topo), surface_geom)
 				.vrange(vrange)
 				.irange(irange)
 				.flags(static_cast<ENuggetFlag>(nugget.m_nflags))
@@ -309,9 +331,6 @@ namespace pr::rdr12
 				nug.pso<EPipeState::InputLayout>(D3D12_INPUT_LAYOUT_DESC{});
 
 			ngt.push_back(nug);
-
-			// Union of geometry data type
-			geom |= nug.m_geom;
 		}
 
 		// Vertex buffer
@@ -324,7 +343,7 @@ namespace pr::rdr12
 
 		// Colour buffer
 		pr::vector<Colour32> col;
-		if (AllSet(geom, EGeom::Colr))
+		if (AllSet(physical_geom, EGeom::Colr))
 		{
 			col.resize(verts.size());
 			for (int i = 0, iend = isize(verts); i != iend; ++i)
@@ -333,7 +352,7 @@ namespace pr::rdr12
 
 		// Normals
 		pr::vector<v4> nrm;
-		if (AllSet(geom, EGeom::Norm))
+		if (AllSet(physical_geom, EGeom::Norm))
 		{
 			nrm.resize(verts.size());
 			for (int i = 0, iend = isize(verts); i != iend; ++i)
@@ -342,7 +361,7 @@ namespace pr::rdr12
 
 		// Texture coords
 		pr::vector<v2> tex;
-		if (AllSet(geom, EGeom::Tex0))
+		if (AllSet(physical_geom, EGeom::Tex0))
 		{
 			tex.resize(verts.size());
 			for (int i = 0, iend = isize(verts); i != iend; ++i)

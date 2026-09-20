@@ -59,7 +59,7 @@ namespace pr::rdr12
 		vector<VertexStream>     m_vb_streams;     // Optional model-owned streams parallel to the vertex buffer.
 		BBox                     m_bbox;           // A bounding box for the (rest pose) model. Set by the client
 		string32                 m_name;           // A human readable name for the model
-		EVertexSource            m_vertex_source;  // Interpretation of indexed vertex IDs.
+		EVertexSource            m_vertex_source;  // Interpretation of indexed IDs; procedural nugget capabilities do not describe physical placeholder fields.
 		SizeAndAlign16           m_vstride;        // The size and alignment (in bytes) of a single V-element
 		SizeAndAlign16           m_istride;        // The size and alignment (in bytes) of a single I-element
 		mutable EDbgFlags        m_dbg_flags;      // Flags used by PR_DBG_RDR to output info once only

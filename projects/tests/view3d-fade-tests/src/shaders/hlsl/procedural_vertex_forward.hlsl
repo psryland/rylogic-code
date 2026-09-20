@@ -8,5 +8,5 @@ ConstantBuffer<ProceduralConstants> g_procedural : register(VIEW3D_PROCEDURAL_FO
 View3DForwardVertexOut VSMain(uint vertex_id : SV_VertexID)
 {
 	// Preserve the stock pixel-stage contract while sourcing all geometry from the logical ID.
-	return View3DProceduralForwardVertex(ProceduralPosition(vertex_id, g_procedural), float4(0, 0, 1, 0), g_procedural.colour, float2(0, 0), float2(0, 0), g_frame, g_nugget);
+	return View3DProceduralForwardVertex(ProceduralPosition(vertex_id, g_procedural), g_procedural.normal, g_procedural.colour, float2(0, 0), float2(0, 0), g_frame, g_nugget);
 }

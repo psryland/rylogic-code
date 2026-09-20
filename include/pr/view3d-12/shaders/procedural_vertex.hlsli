@@ -95,6 +95,8 @@ float4 View3DProceduralWorldPosition(float4 ms_vert, View3DForwardShadowNugget n
 }
 
 // Produce the stock Forward output from caller-generated model-space surface data.
+// Declare the generated capabilities in the nugget: Norm enables lighting of ms_norm (w=0), Colr describes diff, and Tex0 describes UV0.
+// Those capabilities do not request physical vertex attributes; the caller owns the validity of each declared shader output.
 View3DForwardVertexOut View3DProceduralForwardVertex(
 	float4 ms_vert,
 	float4 ms_norm,
