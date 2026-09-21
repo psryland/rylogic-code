@@ -2,6 +2,21 @@
 
 This assembly is an interop wrapper for the native View3d dll
 
+## Graphics device diagnostics
+
+Set `VIEW3D_DEVICE_DEBUG=1` before the first `View3d.Create()` (native `View3D_Initialise`) to opt into graphics
+device diagnostics for a test or investigation. Unset or `0` leaves these diagnostics off, including in Debug builds.
+Other values fail initialization before adapter/DXGI factory creation. The process-wide View3D context reads this
+setting once at construction; changing the environment does not change an existing device. Use a fresh process when
+changing policy, and do not enable/disable D3D12 debugging after another component has created a device.
+
+The switch selects the existing renderer debug-layer settings: DXGI/D3D11/D3D12 diagnostics, device-removal
+breadcrumbs/page-fault reporting, and warning/error breaks. It does not change ordinary Debug assertions, contracts,
+or error reporting. GPU-based validation is separate and is not enabled by this switch. Native renderer callers
+continue to use `RdrSettings::DebugLayer` explicitly, including its separate GPU-validation argument.
+Other components that create their own compute devices have their own policy and are outside this renderer switch;
+Physics using a View3D device lease shares that device's diagnostic state.
+
 ## Procedural surface materials
 
 `View3d.ProceduralSurface` adds GPU-evaluated albedo, UV-free normal perturbation, and roughness to an ordinary

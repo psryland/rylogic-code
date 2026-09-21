@@ -20,6 +20,7 @@
 #include "view3d-12/src/ldraw/sources/source_binary.h"
 #include "view3d-12/src/ldraw/sources/source_string.h"
 #include "view3d-12/src/dll/context.h"
+#include "view3d-12/src/dll/diagnostics_policy.h"
 #include "view3d-12/src/dll/v3d_window.h"
 
 namespace pr::rdr12
@@ -55,6 +56,9 @@ namespace pr::rdr12
 		// Create renderer settings with ray tracing capability available to per-window settings.
 		RdrSettings MakeRdrSettings(HINSTANCE instance)
 		{
+			// Validate diagnostics before any adapter or factory exists; Debug assertions remain independent of this policy.
+			auto device_debug = ReadDeviceDebugEnvironment();
+
 			// Allow falling back to the software (WARP) adapter if the app opts in via the
 			// VIEW3D_ALLOW_SOFTWARE_ADAPTER environment variable. This lets view3d render (slowly)
 			// on machines without a hardware DX12 adapter, e.g. inside a VM. Off by default.
@@ -65,7 +69,7 @@ namespace pr::rdr12
 			}();
 
 			return RdrSettings(instance)
-				.DebugLayer(PR_DBG_RDR)
+				.DebugLayer(device_debug)
 				.AllowSoftwareAdapter(allow_software_adapter)
 				.DefaultAdapter()
 				.RayTracingSupport();
@@ -271,6 +275,8 @@ namespace pr::rdr12
 				throw std::out_of_range("Nugget vertex range exceeds the physical vertex buffer");
 			if (irange.begin() < 0 || irange.begin() > irange.end() || irange.end() > isize(indices))
 				throw std::out_of_range("Nugget index range exceeds the physical index buffer");
+
+			// Translate the public geometry flags into the renderer's physical geometry contract.
 			auto const surface_geom = static_cast<EGeom>(nugget.m_geom);
 			switch (vertex_source)
 			{
