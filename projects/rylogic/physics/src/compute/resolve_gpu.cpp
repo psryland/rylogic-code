@@ -279,7 +279,11 @@ namespace pr::physics
 	}
 
 	// Resolve ordinary rigid contacts while retaining proxy-touching contacts for the coupled articulation lane.
-	void GpuResolver::Resolve(GpuJob& job, float dt, int body_count, int rigid_body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale, int solver_iterations_, int push_out_iterations, float restitution_scale, bool support_only, GpuConstraintSolver* constraint_solver, GpuCoupledConstraintSolver* coupled_constraint_solver, GpuCoupledContactSolver* coupled_contact_solver, bool retain_constraint_impulses, int substep_index)
+	void GpuResolver::Resolve(GpuJob& job, float dt, int body_count, int rigid_body_count, int max_contacts,
+		D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies,
+		std::span<GpuMaterial const> materials, float bias_scale, int solver_iterations_, int push_out_iterations, float restitution_scale, bool support_only,
+		GpuConstraintSolver* constraint_solver, GpuCoupledConstraintSolver* coupled_constraint_solver, GpuCoupledContactSolver* coupled_contact_solver,
+		bool retain_constraint_impulses, int substep_index)
 	{
 		if (rigid_body_count < 0 || rigid_body_count > body_count)
 			throw std::invalid_argument("GPU resolver rigid-body prefix is outside the submitted body range");
@@ -653,6 +657,7 @@ namespace pr::physics
 			// The energy guard in CSResolve prevents energy injection across iterations.
 			auto bind_velocity_solve = [&]
 			{
+				// Restore all constants/resources after any intervening constraint root signature.
 				job.m_cmd_list.SetPipelineState(m_cs_resolve.m_pso.get());
 				job.m_cmd_list.SetComputeRootSignature(m_cs_resolve.m_sig.get());
 				job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);

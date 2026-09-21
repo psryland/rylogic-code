@@ -1356,7 +1356,8 @@ namespace pr::physics
 				constraint_solver,
 				coupled_constraint_solver,
 				nullptr,
-				true);
+				true,
+				substep_index);
 			if (m_gpu_constraint_solver != nullptr)
 				m_gpu_constraint_solver->DetectBreakage(m_gpu->m_job, dt, substep_index, body_count, bodies);
 

@@ -9,9 +9,6 @@
 #include "src/compute/interop/resolve_runner.h"
 #include "src/unittests/shared_gpu.h"
 #include "src/compute/resolve_gpu.h"
-#include <filesystem>
-#include <fstream>
-#include <format>
 
 namespace pr::physics::tests
 {
