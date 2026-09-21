@@ -1396,8 +1396,8 @@ namespace pr::physics::tests
 			}
 		}
 
-		// Exercise one rigid-contact correction sweep through either the main solve or selective continuation.
-		static void ExerciseRigidJointContactPosition(bool selective)
+		// Exercise rigid-contact correction through either the main solve or selective continuation.
+		static void ExerciseRigidJointContactPosition(bool selective, int position_iterations = 1)
 		{
 			auto contact_shape = collision::ShapeSphere{0.5f};
 			auto follower_shape = collision::ShapeSphere{0.1f};
@@ -1414,19 +1414,19 @@ namespace pr::physics::tests
 			ConfigureCoupledEngine(engine);
 			auto config = engine.Config();
 			config.max_collision_pairs = 16;
-			config.push_out_iterations = selective ? 0 : 1;
+			config.push_out_iterations = selective ? 0 : position_iterations;
 			config.position_baumgarte = 1.0f;
 			config.velocity_baumgarte = 0.0f;
 			config.deep_penetration_baumgarte_min = 0.0f;
 			config.deep_penetration_baumgarte_max = 0.0f;
 			config.warm_start_scale = 0.0f;
 			config.selective_refresh_passes = selective ? 1 : 0;
-			config.selective_refresh_position_iterations = 1;
+			config.selective_refresh_position_iterations = position_iterations;
 			config.selective_refresh_support_only = false;
 			config.selective_refresh_depth_slop = 0.0f;
 			engine.Config(config);
 
-			// One sweep exposes a late clear, and repeated input exposes pseudo state retained from the preceding frame.
+			// One sweep exposes a late clear; additional sweeps require root restoration. Repeated input exposes stale pseudo state.
 			auto first_position = 0.0f;
 			for (int frame = 0; frame != 2; ++frame)
 			{
@@ -1532,6 +1532,29 @@ namespace pr::physics::tests
 		PRUnitTestMethod(RigidContactPushOutPreservesConnectedPosition, Quick)
 		{
 			ExerciseConnectedContactPosition(false);
+		}
+	};
+
+	// Contact constants must be restored after other solver phases replace the active root signature.
+	PRUnitTestClass(ResolveRootRestoreTests)
+	{
+		// Multiple main-pass sweeps restore shared_position_state and every resource after rigid joint solving.
+		PRUnitTestMethod(RigidJointRestoresMainContactRoots, Extended)
+		{
+			TestClass_ConstraintReviewEngineTests::ExerciseRigidJointContactPosition(false, 4);
+		}
+
+		// Selective continuation owns a separate resolver and must apply the same root restoration rule.
+		PRUnitTestMethod(RigidJointRestoresSelectiveContactRoots, Extended)
+		{
+			TestClass_ConstraintReviewEngineTests::ExerciseRigidJointContactPosition(true, 4);
+		}
+
+		// Coupled and rigid contact phases share pseudo state but use different root layouts and forest indices.
+		PRUnitTestMethod(CoupledJointRestoresSharedPositionRoots, Extended)
+		{
+			TestClass_ConstraintReviewEngineTests::ExerciseConnectedContactPosition(false);
+			TestClass_ConstraintReviewEngineTests::ExerciseConnectedContactPosition(true);
 		}
 	};
 

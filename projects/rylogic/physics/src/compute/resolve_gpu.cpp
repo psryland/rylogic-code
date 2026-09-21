@@ -58,6 +58,8 @@ namespace pr::physics
 		int shared_position_state;
 	};
 	static_assert((sizeof(cbResolve) & 0xf) == 0);
+	static_assert(sizeof(cbResolve::colour) == sizeof(uint32_t));
+	static_assert(offsetof(cbResolve, colour) % sizeof(uint32_t) == 0);
 
 	// Register assignments for the resolve root signature
 	struct EReg
@@ -531,11 +533,12 @@ namespace pr::physics
 		// Apply the loaded physical impulses before the iterative solves so resting contacts start close to the previous support solution.
 		if (m_config.warm_start_scale > 0.0f)
 		{
+			// Only colour changes within this sweep. The dispatch-only indirect signature and UAV barriers preserve the root bindings.
+			bind_warm_start_step(m_cs_apply_warm_start, m_r_warm_start_curr.get());
 			for (int colour = 0; colour != MaxColours; ++colour)
 			{
 				cb_resolve.colour = colour;
-				bind_warm_start_step(m_cs_apply_warm_start, m_r_warm_start_curr.get());
-				job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
+				job.m_cmd_list.SetComputeRoot32BitConstants(0, 1, &cb_resolve.colour, offsetof(cbResolve, colour) / sizeof(uint32_t));
 				job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
 				commit_warm_start_barriers();
 			}
@@ -613,8 +616,9 @@ namespace pr::physics
 
 					for (int colour = 0; colour != MaxColours; ++colour)
 					{
+						// The full phase bind restores all constants, including shared_position_state, after any constraint root-signature change.
 						cb_resolve.colour = colour;
-						job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
+						job.m_cmd_list.SetComputeRoot32BitConstants(0, 1, &cb_resolve.colour, offsetof(cbResolve, colour) / sizeof(uint32_t));
 						job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
 
 						job.m_barriers.UAV(bodies.get());
@@ -669,8 +673,9 @@ namespace pr::physics
 
 				for (int colour = 0; colour != MaxColours; ++colour)
 				{
+					// Keep the invariant constants from bind_velocity_solve; indirect dispatch does not change root arguments.
 					cb_resolve.colour = colour;
-					job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
+					job.m_cmd_list.SetComputeRoot32BitConstants(0, 1, &cb_resolve.colour, offsetof(cbResolve, colour) / sizeof(uint32_t));
 					job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
 
 					job.m_barriers.UAV(bodies.get());
