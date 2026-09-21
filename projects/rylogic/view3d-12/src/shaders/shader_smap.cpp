@@ -17,6 +17,7 @@ namespace pr::rdr12::shaders
 	{
 		inline static constexpr auto CBufFrame = ECBufReg::b0;
 		inline static constexpr auto CBufNugget = ECBufReg::b1;
+		inline static constexpr auto CBufProcedural = ECBufReg::b2;
 		inline static constexpr auto DiffTexture = ESRVReg::t0;
 		inline static constexpr auto DiffTextureSampler = ESamReg::s0;
 	};
@@ -38,6 +39,7 @@ namespace pr::rdr12::shaders
 		m_signature = RootSig(ERootSigFlags::VertGeomPixelOnly)
 			.CBuf(EReg::CBufFrame)
 			.CBuf(EReg::CBufNugget)
+			.CBuf(EReg::CBufProcedural, D3D12_SHADER_VISIBILITY_VERTEX)
 			.SRV(EReg::DiffTexture, 1)
 			.Samp(EReg::DiffTextureSampler, 1)
 			.Create(rdr.d3d(), "ShadowMapSig");

@@ -58,6 +58,8 @@ namespace pr::physics
 		int shared_position_state;
 	};
 	static_assert((sizeof(cbResolve) & 0xf) == 0);
+	static_assert(sizeof(cbResolve::colour) == sizeof(uint32_t));
+	static_assert(offsetof(cbResolve, colour) % sizeof(uint32_t) == 0);
 
 	// Register assignments for the resolve root signature
 	struct EReg
@@ -277,7 +279,11 @@ namespace pr::physics
 	}
 
 	// Resolve ordinary rigid contacts while retaining proxy-touching contacts for the coupled articulation lane.
-	void GpuResolver::Resolve(GpuJob& job, float dt, int body_count, int rigid_body_count, int max_contacts, D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies, std::span<GpuMaterial const> materials, float bias_scale, int solver_iterations_, int push_out_iterations, float restitution_scale, bool support_only, GpuConstraintSolver* constraint_solver, GpuCoupledConstraintSolver* coupled_constraint_solver, GpuCoupledContactSolver* coupled_contact_solver, bool retain_constraint_impulses, int substep_index)
+	void GpuResolver::Resolve(GpuJob& job, float dt, int body_count, int rigid_body_count, int max_contacts,
+		D3DPtr<ID3D12Resource> dispatch, D3DPtr<ID3D12Resource> counters, D3DPtr<ID3D12Resource> contacts, D3DPtr<ID3D12Resource> bodies,
+		std::span<GpuMaterial const> materials, float bias_scale, int solver_iterations_, int push_out_iterations, float restitution_scale, bool support_only,
+		GpuConstraintSolver* constraint_solver, GpuCoupledConstraintSolver* coupled_constraint_solver, GpuCoupledContactSolver* coupled_contact_solver,
+		bool retain_constraint_impulses, int substep_index)
 	{
 		if (rigid_body_count < 0 || rigid_body_count > body_count)
 			throw std::invalid_argument("GPU resolver rigid-body prefix is outside the submitted body range");
@@ -331,381 +337,490 @@ namespace pr::physics
 		if (m_config.warm_start_scale <= 0.0f)
 			m_reset_warm_start_cache = true;
 
-		// Upload materials only when the CPU material map changes or the GPU buffer grows.
-		// Main and selective resolvers have separate GPU buffers, so each tracks this independently.
-		if (m_materials_dirty)
+		// Own the per-call resolver state explicitly so phase dependencies are visible without implicit lambda captures.
+		struct ResolvePhases
 		{
-			job.m_barriers.Transition(m_r_materials.get(), D3D12_RESOURCE_STATE_COPY_DEST);
-			job.m_barriers.Commit();
+			GpuResolver& m_resolver;
+			GpuJob& m_job;
+			float m_dt;
+			int m_body_count;
+			int m_rigid_body_count;
+			int m_max_contacts;
+			int m_material_count;
+			int m_push_out_steps;
+			int m_solver_iterations;
+			float m_restitution_scale;
+			bool m_priority_sort_enabled;
+			bool m_retain_constraint_impulses;
+			int m_substep_index;
+			D3DPtr<ID3D12Resource>& m_dispatch;
+			D3DPtr<ID3D12Resource>& m_counters;
+			D3DPtr<ID3D12Resource>& m_contacts;
+			D3DPtr<ID3D12Resource>& m_bodies;
+			std::span<GpuMaterial const> m_materials;
+			GpuConstraintSolver* m_constraint_solver;
+			GpuCoupledConstraintSolver* m_coupled_constraint_solver;
+			GpuCoupledContactSolver* m_coupled_contact_solver;
+			cbResolve& m_cb;
 
-			auto mat_upload = job.m_upload.Alloc<GpuMaterial>(std::max(1, material_count));
-			memcpy(mat_upload.ptr<GpuMaterial>(), materials.data(), material_count * sizeof(GpuMaterial));
-			job.m_cmd_list.CopyBufferRegion(m_r_materials.get(), 0, mat_upload);
-
-			job.m_barriers.Transition(m_r_materials.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			job.m_barriers.Commit();
-			m_materials_dirty = false;
-		}
-
-		// Switch states for resources
-		{
-			job.m_barriers.Transition(dispatch.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
-			job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			job.m_barriers.Transition(m_r_materials.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			job.m_barriers.Transition(bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(m_r_colours.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(m_r_contact_times.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(m_r_contact_order.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(m_r_body_contact_head.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(m_r_contact_next_a.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(m_r_contact_next_b.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(m_r_warm_start_prev.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Transition(m_r_warm_start_curr.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			job.m_barriers.Commit();
-		}
-
-		auto bind_warm_start_step = [&](ComputeStep& step, ID3D12Resource* warm_start_curr)
-		{
-			job.m_cmd_list.SetPipelineState(step.m_pso.get());
-			job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
-			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_warm_start_prev->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(warm_start_curr->GetGPUVirtualAddress());
-		};
-		auto commit_warm_start_barriers = [&]
-		{
-			job.m_barriers.UAV(bodies.get());
-			job.m_barriers.UAV(contacts.get());
-			job.m_barriers.UAV(m_r_warm_start_prev.get());
-			job.m_barriers.UAV(m_r_warm_start_curr.get());
-			job.m_barriers.Commit();
-		};
-
-		// Clear the current cache every frame. Newly allocated previous caches are cleared once so the first lookup is deterministic.
-		{
-			auto const warm_start_group_count = static_cast<UINT>(std::max(1, (m_warm_start_capacity + ResolveThreadCount - 1) / ResolveThreadCount));
-			if (m_reset_warm_start_cache)
+			// Record every resolver phase in dependency order.
+			void Run()
 			{
-				bind_warm_start_step(m_cs_warm_start_clear, m_r_warm_start_prev.get());
-				job.m_cmd_list.Dispatch(warm_start_group_count, 1, 1);
-				commit_warm_start_barriers();
-				m_reset_warm_start_cache = false;
-			}
+				PrepareMaterials();
+				TransitionResources();
+				ClearWarmStartCache();
+				ComputeContactTimes();
+				PropagateContactPriority();
+				SortContacts();
+				ColourContacts();
+				PrepareSolverWork();
+				ApplyWarmStart();
 
-			bind_warm_start_step(m_cs_warm_start_clear, m_r_warm_start_curr.get());
-			job.m_cmd_list.Dispatch(warm_start_group_count, 1, 1);
-			commit_warm_start_barriers();
-		}
-
-		// Calculate the contact times (biased by gravity) and zero the body colour_used bitmasks.
-		{
-			job.m_cmd_list.SetPipelineState(m_cs_compute_times.m_pso.get());
-			job.m_cmd_list.SetComputeRootSignature(m_cs_compute_times.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
-			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_times->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
-
-			// The collide shader's 'CSCalcResolveDispatch' function ensures that there will always be at least one thread
-			// group dispatched, even if contact_count is 0. This ensures the 'colour_used' and contact times are always initialised.
-			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
-
-			job.m_barriers.UAV(bodies.get());
-			job.m_barriers.UAV(contacts.get());
-			job.m_barriers.UAV(m_r_contact_times.get());
-			job.m_barriers.UAV(m_r_contact_order.get());
-			job.m_barriers.Commit();
-		}
-
-		// Propagate contact priority through the contact graph and fold it into the sort key.
-		if (priority_sort_enabled)
-		{
-			auto bind_shock_step = [&](ComputeStep& step)
-			{
-				job.m_cmd_list.SetPipelineState(step.m_pso.get());
-				job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
-				job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
-				job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_times->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_body_contact_head->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_next_a->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_next_b->GetGPUVirtualAddress());
-			};
-			auto commit_shock_barriers = [&]
-			{
-				job.m_barriers.UAV(m_r_colours.get());
-				job.m_barriers.UAV(m_r_contact_times.get());
-				job.m_barriers.UAV(m_r_contact_order.get());
-				job.m_barriers.UAV(m_r_body_contact_head.get());
-				job.m_barriers.UAV(m_r_contact_next_a.get());
-				job.m_barriers.UAV(m_r_contact_next_b.get());
-				job.m_barriers.Commit();
-			};
-			auto const body_group_count = static_cast<UINT>(std::max(1, (body_count + ResolveThreadCount - 1) / ResolveThreadCount));
-
-			bind_shock_step(m_cs_clear_shock_lists);
-			job.m_cmd_list.Dispatch(body_group_count, 1, 1);
-			commit_shock_barriers();
-
-			bind_shock_step(m_cs_seed_shock_priority);
-			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
-			commit_shock_barriers();
-
-			for (int iter = 0; iter != cb_resolve.shock_iterations; ++iter)
-			{
-				bind_shock_step(m_cs_propagate_shock_priority);
-				job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
-				commit_shock_barriers();
-
-				bind_shock_step(m_cs_commit_shock_priority);
-				job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
-				commit_shock_barriers();
-			}
-
-			bind_shock_step(m_cs_finalize_shock_priority);
-			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
-			commit_shock_barriers();
-
-			job.m_barriers.UAV(contacts.get());
-			job.m_barriers.Commit();
-		}
-
-		// Create the sorted contact order based on contact time
-		{
-			m_contact_sorter.Bind(job.m_cmd_list, m_max_contacts, m_r_contact_times, m_r_contact_order);
-			m_contact_sorter.Sort(job.m_cmd_list);
-
-			job.m_barriers.UAV(m_r_contact_times.get());
-			job.m_barriers.UAV(m_r_contact_order.get());
-			job.m_barriers.Commit();
-		}
-
-		// Greedy graph colouring on sorted contacts.
-		{
-			job.m_cmd_list.SetPipelineState(m_cs_assign_colours.m_pso.get());
-			job.m_cmd_list.SetComputeRootSignature(m_cs_assign_colours.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
-			job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
-
-			job.m_cmd_list.Dispatch(1, 1, 1);
-
-			job.m_barriers.UAV(bodies.get());
-			job.m_barriers.UAV(m_r_colours.get());
-			job.m_barriers.Commit();
-		}
-
-		// Compile and independently colour persistent D6 blocks after integration has produced the current body transforms.
-		if (constraint_solver != nullptr)
-			constraint_solver->Prepare(job, dt, rigid_body_count, bodies, retain_constraint_impulses);
-		if (coupled_constraint_solver != nullptr)
-			coupled_constraint_solver->PrepareVelocity(job, dt, rigid_body_count, bodies.get(), retain_constraint_impulses);
-
-		// Articulation contacts need every cache result before their topology pass; rigid-only frames retain the original fused load-and-apply path.
-		if (m_config.warm_start_scale > 0.0f && coupled_contact_solver != nullptr)
-		{
-			bind_warm_start_step(m_cs_load_warm_start, m_r_warm_start_curr.get());
-			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
-			commit_warm_start_barriers();
-		}
-
-		// Exact articulation self-mobility and contact blocks depend on the collision frame and the loaded warm-start accumulator.
-		if (coupled_contact_solver != nullptr)
-			coupled_contact_solver->PrepareVelocity(job, dt, body_count, rigid_body_count, max_contacts, counters, contacts, bodies, m_r_materials, restitution_scale);
-
-		// Apply the loaded physical impulses before the iterative solves so resting contacts start close to the previous support solution.
-		if (m_config.warm_start_scale > 0.0f)
-		{
-			for (int colour = 0; colour != MaxColours; ++colour)
-			{
-				cb_resolve.colour = colour;
-				bind_warm_start_step(m_cs_apply_warm_start, m_r_warm_start_curr.get());
-				job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
-				job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
-				commit_warm_start_barriers();
-			}
-			cb_resolve.colour = 0;
-			if (coupled_contact_solver != nullptr)
-				coupled_contact_solver->ApplyWarmStart(job);
-		}
-		if (!retain_constraint_impulses)
-		{
-			if (constraint_solver != nullptr)
-				constraint_solver->ApplyWarmStart(job, dt, rigid_body_count, bodies);
-			if (coupled_constraint_solver != nullptr)
-				coupled_constraint_solver->ApplyWarmStart(job, rigid_body_count, bodies.get());
-		}
-
-		// Keep the long-established contact-only ordering unchanged while coupled rows use velocity-first fixed-configuration solving.
-		auto const has_constraint_work = constraint_solver != nullptr || coupled_constraint_solver != nullptr || coupled_contact_solver != nullptr;
-		auto solve_position = [&]
-		{
-			// Every position lane reads the same ordinary-body state, including coupled-only frames.
-			auto rigid_pseudo = D3DPtr<ID3D12Resource>{};
-			if (has_constraint_work && push_out_steps > 0)
-			{
-				if (!(m_config.constraint_max_position_speed >= 0.0f) || !std::isfinite(m_config.constraint_max_position_speed))
-					throw std::invalid_argument("Shared position correction requires a finite non-negative maximum speed");
-
-				if (coupled_constraint_solver != nullptr)
-					rigid_pseudo = coupled_constraint_solver->RigidPseudoVelocityStorage(job.m_cmd_list, rigid_body_count);
-				else if (constraint_solver != nullptr)
-					rigid_pseudo = constraint_solver->PseudoVelocityStorage(job.m_cmd_list, rigid_body_count);
-			}
-
-			// Contacts own the complete-forest pseudo streams; compact joint work maps into those same streams.
-			auto const coupled_contact_position_active =
-				coupled_contact_solver != nullptr &&
-				coupled_contact_solver->PreparePosition(job, push_out_steps, rigid_pseudo);
-			auto const shared_pseudo = coupled_contact_position_active
-				? coupled_contact_solver->PseudoState()
-				: GpuPositionPseudoBuffers{};
-			auto const coupled_position_active =
-				coupled_constraint_solver != nullptr &&
-				coupled_constraint_solver->PreparePosition(job, dt, rigid_body_count, bodies.get(), shared_pseudo, push_out_steps);
-			if (coupled_contact_position_active)
-			{
-				rigid_pseudo = shared_pseudo.m_rigid_velocities;
-			}
-			cb_resolve.shared_position_state = rigid_pseudo != nullptr;
-
-			// Split position correction in colour batches.
-			if (push_out_steps != 0)
-			{
-				// The contact depths are from the collision pass, so the correction is split across iterations rather than re-applying the full depth each sweep.
-				auto bind_position_solve = [&]
+				// Contact-only frames keep their established order; coupled lanes need physical impulses before fixed-configuration correction.
+				if (m_coupled_constraint_solver != nullptr || m_coupled_contact_solver != nullptr)
 				{
-					// The unused contact-only binding aliases existing UAV scratch rather than allocating a sentinel.
-					auto* pseudo_buffer = rigid_pseudo != nullptr ? rigid_pseudo.get() : m_r_colours.get();
-					job.m_barriers.Transition(pseudo_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
-					job.m_cmd_list.SetPipelineState(m_cs_position_solve.m_pso.get());
-					job.m_cmd_list.SetComputeRootSignature(m_cs_position_solve.m_sig.get());
-					job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
-					job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
-					job.m_cmd_list.AddComputeRootUnorderedAccessView(pseudo_buffer->GetGPUVirtualAddress());
-				};
-				bind_position_solve();
-
-				for (int iter = 0; iter != push_out_steps; ++iter)
+					SolveVelocity();
+					SolvePosition();
+				}
+				else
 				{
-					// A preceding constraint sweep leaves its root signature active, so restore every contact root binding before resuming.
+					SolvePosition();
+					SolveVelocity();
+				}
+
+				StoreWarmStart();
+			}
+
+			// Upload materials only after the CPU material map changes or the GPU buffer grows.
+			void PrepareMaterials()
+			{
+				// Main and selective resolvers have separate GPU buffers, so each tracks this independently.
+				if (!m_resolver.m_materials_dirty)
+					return;
+
+				m_job.m_barriers.Transition(m_resolver.m_r_materials.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+				m_job.m_barriers.Commit();
+
+				auto mat_upload = m_job.m_upload.Alloc<GpuMaterial>(std::max(1, m_material_count));
+				memcpy(mat_upload.ptr<GpuMaterial>(), m_materials.data(), m_material_count * sizeof(GpuMaterial));
+				m_job.m_cmd_list.CopyBufferRegion(m_resolver.m_r_materials.get(), 0, mat_upload);
+
+				m_job.m_barriers.Transition(m_resolver.m_r_materials.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+				m_job.m_barriers.Commit();
+				m_resolver.m_materials_dirty = false;
+			}
+
+			// Put persistent resolver resources into the states expected by the compute phases.
+			void TransitionResources()
+			{
+				// All transitions are committed together before any phase records root bindings.
+				m_job.m_barriers.Transition(m_dispatch.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+				m_job.m_barriers.Transition(m_counters.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+				m_job.m_barriers.Transition(m_resolver.m_r_materials.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+				m_job.m_barriers.Transition(m_bodies.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				m_job.m_barriers.Transition(m_resolver.m_r_colours.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				m_job.m_barriers.Transition(m_contacts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				m_job.m_barriers.Transition(m_resolver.m_r_contact_times.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				m_job.m_barriers.Transition(m_resolver.m_r_contact_order.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				m_job.m_barriers.Transition(m_resolver.m_r_body_contact_head.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				m_job.m_barriers.Transition(m_resolver.m_r_contact_next_a.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				m_job.m_barriers.Transition(m_resolver.m_r_contact_next_b.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				m_job.m_barriers.Transition(m_resolver.m_r_warm_start_prev.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				m_job.m_barriers.Transition(m_resolver.m_r_warm_start_curr.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				m_job.m_barriers.Commit();
+			}
+
+			// Bind one warm-start compute step to the common resolver resources.
+			void BindWarmStartStep(ComputeStep& step, ID3D12Resource* warm_start_curr)
+			{
+				// The selected current-cache resource distinguishes clear, load, apply, and store operations.
+				m_job.m_cmd_list.SetPipelineState(step.m_pso.get());
+				m_job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
+				m_job.m_cmd_list.AddComputeRoot32BitConstants(m_cb);
+				m_job.m_cmd_list.AddComputeRootShaderResourceView(m_counters->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_bodies->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_colours->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_contacts->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_contact_order->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_warm_start_prev->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(warm_start_curr->GetGPUVirtualAddress());
+			}
+
+			// Make warm-start writes visible to the next resolver phase.
+			void CommitWarmStartBarriers()
+			{
+				// Every warm-start kernel can update bodies, contacts, and either cache role.
+				m_job.m_barriers.UAV(m_bodies.get());
+				m_job.m_barriers.UAV(m_contacts.get());
+				m_job.m_barriers.UAV(m_resolver.m_r_warm_start_prev.get());
+				m_job.m_barriers.UAV(m_resolver.m_r_warm_start_curr.get());
+				m_job.m_barriers.Commit();
+			}
+
+			// Clear the current cache and initialise a newly allocated previous cache.
+			void ClearWarmStartCache()
+			{
+				// The previous cache is cleared once so the first lookup is deterministic; the current cache is cleared every frame.
+				auto const warm_start_group_count = static_cast<UINT>(std::max(1, (m_resolver.m_warm_start_capacity + ResolveThreadCount - 1) / ResolveThreadCount));
+				if (m_resolver.m_reset_warm_start_cache)
+				{
+					BindWarmStartStep(m_resolver.m_cs_warm_start_clear, m_resolver.m_r_warm_start_prev.get());
+					m_job.m_cmd_list.Dispatch(warm_start_group_count, 1, 1);
+					CommitWarmStartBarriers();
+					m_resolver.m_reset_warm_start_cache = false;
+				}
+
+				BindWarmStartStep(m_resolver.m_cs_warm_start_clear, m_resolver.m_r_warm_start_curr.get());
+				m_job.m_cmd_list.Dispatch(warm_start_group_count, 1, 1);
+				CommitWarmStartBarriers();
+			}
+
+			// Calculate contact sort keys and clear body colour masks.
+			void ComputeContactTimes()
+			{
+				// Gravity-biased collision times provide the initial ordering before optional shock-priority propagation.
+				m_job.m_cmd_list.SetPipelineState(m_resolver.m_cs_compute_times.m_pso.get());
+				m_job.m_cmd_list.SetComputeRootSignature(m_resolver.m_cs_compute_times.m_sig.get());
+				m_job.m_cmd_list.AddComputeRoot32BitConstants(m_cb);
+				m_job.m_cmd_list.AddComputeRootShaderResourceView(m_counters->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_bodies->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_contacts->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_contact_times->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_contact_order->GetGPUVirtualAddress());
+
+				// CSCalcResolveDispatch always records at least one group so colour masks and contact times are initialised for empty GPU counts.
+				m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
+
+				m_job.m_barriers.UAV(m_bodies.get());
+				m_job.m_barriers.UAV(m_contacts.get());
+				m_job.m_barriers.UAV(m_resolver.m_r_contact_times.get());
+				m_job.m_barriers.UAV(m_resolver.m_r_contact_order.get());
+				m_job.m_barriers.Commit();
+			}
+
+			// Bind one shock-priority compute step to the contact graph resources.
+			void BindShockStep(ComputeStep& step)
+			{
+				// Every shock phase shares the same adjacency and sort-key layout.
+				m_job.m_cmd_list.SetPipelineState(step.m_pso.get());
+				m_job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
+				m_job.m_cmd_list.AddComputeRoot32BitConstants(m_cb);
+				m_job.m_cmd_list.AddComputeRootShaderResourceView(m_counters->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_bodies->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_colours->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_contacts->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_contact_times->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_contact_order->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_body_contact_head->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_contact_next_a->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_contact_next_b->GetGPUVirtualAddress());
+			}
+
+			// Make shock-priority graph writes visible to the next propagation phase.
+			void CommitShockBarriers()
+			{
+				// Propagation reads the adjacency and priority values written by the preceding dispatch.
+				m_job.m_barriers.UAV(m_resolver.m_r_colours.get());
+				m_job.m_barriers.UAV(m_resolver.m_r_contact_times.get());
+				m_job.m_barriers.UAV(m_resolver.m_r_contact_order.get());
+				m_job.m_barriers.UAV(m_resolver.m_r_body_contact_head.get());
+				m_job.m_barriers.UAV(m_resolver.m_r_contact_next_a.get());
+				m_job.m_barriers.UAV(m_resolver.m_r_contact_next_b.get());
+				m_job.m_barriers.Commit();
+			}
+
+			// Propagate contact support priority through the dynamic-body contact graph.
+			void PropagateContactPriority()
+			{
+				// Disabled propagation leaves the original collision-time keys unchanged.
+				if (!m_priority_sort_enabled)
+					return;
+
+				auto const body_group_count = static_cast<UINT>(std::max(1, (m_body_count + ResolveThreadCount - 1) / ResolveThreadCount));
+				BindShockStep(m_resolver.m_cs_clear_shock_lists);
+				m_job.m_cmd_list.Dispatch(body_group_count, 1, 1);
+				CommitShockBarriers();
+
+				BindShockStep(m_resolver.m_cs_seed_shock_priority);
+				m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
+				CommitShockBarriers();
+
+				for (int iter = 0; iter != m_cb.shock_iterations; ++iter)
+				{
+					BindShockStep(m_resolver.m_cs_propagate_shock_priority);
+					m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
+					CommitShockBarriers();
+
+					BindShockStep(m_resolver.m_cs_commit_shock_priority);
+					m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
+					CommitShockBarriers();
+				}
+
+				BindShockStep(m_resolver.m_cs_finalize_shock_priority);
+				m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
+				CommitShockBarriers();
+
+				m_job.m_barriers.UAV(m_contacts.get());
+				m_job.m_barriers.Commit();
+			}
+
+			// Sort contacts by their collision-time and propagated-priority key.
+			void SortContacts()
+			{
+				// The payload preserves the original contact buffer while defining solver order separately.
+				m_resolver.m_contact_sorter.Bind(m_job.m_cmd_list, m_resolver.m_max_contacts, m_resolver.m_r_contact_times, m_resolver.m_r_contact_order);
+				m_resolver.m_contact_sorter.Sort(m_job.m_cmd_list);
+
+				m_job.m_barriers.UAV(m_resolver.m_r_contact_times.get());
+				m_job.m_barriers.UAV(m_resolver.m_r_contact_order.get());
+				m_job.m_barriers.Commit();
+			}
+
+			// Assign graph colours to the sorted contacts.
+			void ColourContacts()
+			{
+				// Contacts sharing a body receive different colours so each colour batch owns exclusive body writes.
+				m_job.m_cmd_list.SetPipelineState(m_resolver.m_cs_assign_colours.m_pso.get());
+				m_job.m_cmd_list.SetComputeRootSignature(m_resolver.m_cs_assign_colours.m_sig.get());
+				m_job.m_cmd_list.AddComputeRoot32BitConstants(m_cb);
+				m_job.m_cmd_list.AddComputeRootShaderResourceView(m_counters->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_bodies->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_colours->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_contacts->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_contact_order->GetGPUVirtualAddress());
+				m_job.m_cmd_list.Dispatch(1, 1, 1);
+
+				m_job.m_barriers.UAV(m_bodies.get());
+				m_job.m_barriers.UAV(m_resolver.m_r_colours.get());
+				m_job.m_barriers.Commit();
+			}
+
+			// Prepare persistent constraints and coupled contacts for their iterative solver phases.
+			void PrepareSolverWork()
+			{
+				// Constraint blocks are compiled after integration has produced the current body transforms.
+				if (m_constraint_solver != nullptr)
+					m_constraint_solver->Prepare(m_job, m_dt, m_rigid_body_count, m_bodies, m_retain_constraint_impulses);
+				if (m_coupled_constraint_solver != nullptr)
+					m_coupled_constraint_solver->PrepareVelocity(m_job, m_dt, m_rigid_body_count, m_bodies.get(), m_retain_constraint_impulses);
+
+				// Articulation contacts need every cache result before their topology pass; rigid-only frames use the fused load-and-apply path.
+				if (m_resolver.m_config.warm_start_scale > 0.0f && m_coupled_contact_solver != nullptr)
+				{
+					BindWarmStartStep(m_resolver.m_cs_load_warm_start, m_resolver.m_r_warm_start_curr.get());
+					m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
+					CommitWarmStartBarriers();
+				}
+
+				// Exact articulation self-mobility and contact blocks depend on the collision frame and loaded warm-start accumulator.
+				if (m_coupled_contact_solver != nullptr)
+					m_coupled_contact_solver->PrepareVelocity(m_job, m_dt, m_body_count, m_rigid_body_count, m_max_contacts, m_counters, m_contacts, m_bodies, m_resolver.m_r_materials, m_restitution_scale);
+			}
+
+			// Apply retained physical impulses before iterative solving.
+			void ApplyWarmStart()
+			{
+				// Cached support starts resting contacts close to the preceding frame's accepted solution.
+				if (m_resolver.m_config.warm_start_scale > 0.0f)
+				{
+					BindWarmStartStep(m_resolver.m_cs_apply_warm_start, m_resolver.m_r_warm_start_curr.get());
+					for (int colour = 0; colour != MaxColours; ++colour)
+					{
+						m_cb.colour = colour;
+						m_job.m_cmd_list.SetComputeRoot32BitConstants(0, 1, &m_cb.colour, offsetof(cbResolve, colour) / sizeof(uint32_t));
+						m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
+						CommitWarmStartBarriers();
+					}
+					m_cb.colour = 0;
+					if (m_coupled_contact_solver != nullptr)
+						m_coupled_contact_solver->ApplyWarmStart(m_job);
+				}
+				if (!m_retain_constraint_impulses)
+				{
+					if (m_constraint_solver != nullptr)
+						m_constraint_solver->ApplyWarmStart(m_job, m_dt, m_rigid_body_count, m_bodies);
+					if (m_coupled_constraint_solver != nullptr)
+						m_coupled_constraint_solver->ApplyWarmStart(m_job, m_rigid_body_count, m_bodies.get());
+				}
+			}
+
+			// Bind the contact position solver after any constraint root-signature change.
+			void BindPositionSolve(ID3D12Resource* pseudo_buffer)
+			{
+				// Contact-only solving aliases existing UAV scratch rather than allocating an unused pseudo-state sentinel.
+				m_job.m_barriers.Transition(pseudo_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+				m_job.m_cmd_list.SetPipelineState(m_resolver.m_cs_position_solve.m_pso.get());
+				m_job.m_cmd_list.SetComputeRootSignature(m_resolver.m_cs_position_solve.m_sig.get());
+				m_job.m_cmd_list.AddComputeRoot32BitConstants(m_cb);
+				m_job.m_cmd_list.AddComputeRootShaderResourceView(m_counters->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_bodies->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_colours->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_contacts->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_contact_order->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(pseudo_buffer->GetGPUVirtualAddress());
+			}
+
+			// Solve detached position correction without changing physical momentum.
+			void SolvePosition()
+			{
+				// Every position lane writes shared pseudo-position state, including coupled-only frames.
+				auto const has_constraint_work = m_constraint_solver != nullptr || m_coupled_constraint_solver != nullptr || m_coupled_contact_solver != nullptr;
+				auto rigid_pseudo = D3DPtr<ID3D12Resource>{};
+				if (has_constraint_work && m_push_out_steps > 0)
+				{
+					if (!(m_resolver.m_config.constraint_max_position_speed >= 0.0f) || !std::isfinite(m_resolver.m_config.constraint_max_position_speed))
+						throw std::invalid_argument("Shared position correction requires a finite non-negative maximum speed");
+
+					if (m_coupled_constraint_solver != nullptr)
+						rigid_pseudo = m_coupled_constraint_solver->RigidPseudoVelocityStorage(m_job.m_cmd_list, m_rigid_body_count);
+					else if (m_constraint_solver != nullptr)
+						rigid_pseudo = m_constraint_solver->PseudoVelocityStorage(m_job.m_cmd_list, m_rigid_body_count);
+				}
+
+				// Contacts own complete-forest pseudo streams; compact joint work maps into the same streams for one coherent configuration.
+				auto const coupled_contact_position_active =
+					m_coupled_contact_solver != nullptr &&
+					m_coupled_contact_solver->PreparePosition(m_job, m_push_out_steps, rigid_pseudo);
+				auto const shared_pseudo = coupled_contact_position_active
+					? m_coupled_contact_solver->PseudoState()
+					: GpuPositionPseudoBuffers{};
+				auto const coupled_position_active =
+					m_coupled_constraint_solver != nullptr &&
+					m_coupled_constraint_solver->PreparePosition(m_job, m_dt, m_rigid_body_count, m_bodies.get(), shared_pseudo, m_push_out_steps);
+				if (coupled_contact_position_active)
+					rigid_pseudo = shared_pseudo.m_rigid_velocities;
+
+				m_cb.shared_position_state = rigid_pseudo != nullptr;
+				if (m_push_out_steps != 0)
+				{
+					// Contact depths are stale collision-pass values, so each sweep applies only its share of the intended total correction.
+					auto* pseudo_buffer = rigid_pseudo != nullptr ? rigid_pseudo.get() : m_resolver.m_r_colours.get();
+					BindPositionSolve(pseudo_buffer);
+
+					for (int iter = 0; iter != m_push_out_steps; ++iter)
+					{
+						// Constraint sweeps leave another root signature active, so every contact binding is restored before the next outer sweep.
+						if (iter != 0 && has_constraint_work)
+							BindPositionSolve(pseudo_buffer);
+
+						for (int colour = 0; colour != MaxColours; ++colour)
+						{
+							// Each graph colour owns exclusive body writes; barriers expose pseudo-state updates to later colours and solvers.
+							m_cb.colour = colour;
+							m_job.m_cmd_list.SetComputeRoot32BitConstants(0, 1, &m_cb.colour, offsetof(cbResolve, colour) / sizeof(uint32_t));
+							m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
+
+							m_job.m_barriers.UAV(m_bodies.get());
+							if (rigid_pseudo != nullptr)
+								m_job.m_barriers.UAV(rigid_pseudo.get());
+
+							m_job.m_barriers.Commit();
+						}
+						if (m_constraint_solver != nullptr)
+							m_constraint_solver->SolvePositionIteration(m_job, m_dt, m_rigid_body_count, m_push_out_steps, m_bodies);
+						if (coupled_position_active)
+							m_coupled_constraint_solver->SolvePositionIteration(m_job, m_bodies.get(), m_substep_index);
+						if (coupled_contact_position_active)
+							m_coupled_contact_solver->SolvePositionIteration(m_job, iter);
+					}
+					m_cb.colour = 0;
+				}
+
+				// Apply shared pseudo state once through the owner that covers every participating articulation.
+				if (coupled_contact_position_active)
+					m_coupled_contact_solver->ApplyPosition(m_job);
+				else if (coupled_position_active)
+					m_coupled_constraint_solver->ApplyPosition(m_job, m_bodies.get());
+				else if (m_constraint_solver != nullptr)
+					m_constraint_solver->ApplyPosition(m_job, m_dt, m_rigid_body_count, m_push_out_steps, m_bodies);
+			}
+
+			// Bind the physical contact solver after any constraint root-signature change.
+			void BindVelocitySolve()
+			{
+				// Restore every root constant and resource used by the contact table.
+				m_job.m_cmd_list.SetPipelineState(m_resolver.m_cs_resolve.m_pso.get());
+				m_job.m_cmd_list.SetComputeRootSignature(m_resolver.m_cs_resolve.m_sig.get());
+				m_job.m_cmd_list.AddComputeRoot32BitConstants(m_cb);
+				m_job.m_cmd_list.AddComputeRootShaderResourceView(m_counters->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootShaderResourceView(m_resolver.m_r_materials->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_bodies->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_colours->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_contacts->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_contact_order->GetGPUVirtualAddress());
+			}
+
+			// Solve physical contact impulses and body momentum.
+			void SolveVelocity()
+			{
+				// Gauss-Seidel sweeps re-read momentum changed by earlier colours and constraints; CSResolve guards against energy injection.
+				auto const has_constraint_work = m_constraint_solver != nullptr || m_coupled_constraint_solver != nullptr || m_coupled_contact_solver != nullptr;
+				BindVelocitySolve();
+
+				for (int iter = 0; iter != m_solver_iterations; ++iter)
+				{
+					// Constraint sweeps use another root layout, so rebind the contact table before the next outer sweep.
 					if (iter != 0 && has_constraint_work)
-						bind_position_solve();
+						BindVelocitySolve();
 
 					for (int colour = 0; colour != MaxColours; ++colour)
 					{
-						cb_resolve.colour = colour;
-						job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
-						job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
-
-						job.m_barriers.UAV(bodies.get());
-						if (rigid_pseudo != nullptr)
-							job.m_barriers.UAV(rigid_pseudo.get());
-
-						job.m_barriers.Commit();
+						// Each graph colour owns exclusive body writes; barriers expose momentum changes to later colours and solvers.
+						m_cb.colour = colour;
+						m_job.m_cmd_list.SetComputeRoot32BitConstants(0, 1, &m_cb.colour, offsetof(cbResolve, colour) / sizeof(uint32_t));
+						m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
+						m_job.m_barriers.UAV(m_bodies.get());
+						m_job.m_barriers.Commit();
 					}
-					if (constraint_solver != nullptr)
-						constraint_solver->SolvePositionIteration(job, dt, rigid_body_count, push_out_steps, bodies);
-					if (coupled_position_active)
-						coupled_constraint_solver->SolvePositionIteration(job, bodies.get(), substep_index);
-					if (coupled_contact_position_active)
-						coupled_contact_solver->SolvePositionIteration(job, iter);
+					if (m_constraint_solver != nullptr)
+						m_constraint_solver->SolveVelocityIteration(m_job, m_dt, m_rigid_body_count, m_bodies);
+					if (m_coupled_constraint_solver != nullptr)
+						m_coupled_constraint_solver->SolveVelocityIteration(m_job, m_rigid_body_count, m_bodies.get(), m_substep_index);
+					if (m_coupled_contact_solver != nullptr)
+						m_coupled_contact_solver->SolveVelocityIteration(m_job);
 				}
-				cb_resolve.colour = 0;
+				m_cb.colour = 0;
 			}
 
-			// Apply the shared state once, using the owner that covers every participating articulation.
-			if (coupled_contact_position_active)
-				coupled_contact_solver->ApplyPosition(job);
-			else if (coupled_position_active)
-				coupled_constraint_solver->ApplyPosition(job, bodies.get());
-			else if (constraint_solver != nullptr)
-				constraint_solver->ApplyPosition(job, dt, rigid_body_count, push_out_steps, bodies);
-		};
-
-		auto solve_velocity = [&]
-		{
-			// Multiple solver iterations (Gauss-Seidel) allow stacked contacts to converge.
-			// Each iteration sweeps all colour batches, re-reading body momenta updated by prior contacts.
-			// The energy guard in CSResolve prevents energy injection across iterations.
-			auto bind_velocity_solve = [&]
+			// Persist accepted physical impulses for the next frame.
+			void StoreWarmStart()
 			{
-				job.m_cmd_list.SetPipelineState(m_cs_resolve.m_pso.get());
-				job.m_cmd_list.SetComputeRootSignature(m_cs_resolve.m_sig.get());
-				job.m_cmd_list.AddComputeRoot32BitConstants(cb_resolve);
-				job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootShaderResourceView(m_r_materials->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_colours->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootUnorderedAccessView(contacts->GetGPUVirtualAddress());
-				job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_contact_order->GetGPUVirtualAddress());
-			};
-			bind_velocity_solve();
+				// Disabled warm-starting leaves both cache roles untouched after their required clear phase.
+				if (m_resolver.m_config.warm_start_scale <= 0.0f)
+					return;
 
-			for (int iter = 0; iter != solver_iterations; ++iter)
-			{
-				// Constraint velocity sweeps use a separate root layout and require the contact table to be rebound on the next outer sweep.
-				if (iter != 0 && has_constraint_work)
-					bind_velocity_solve();
-
-				for (int colour = 0; colour != MaxColours; ++colour)
-				{
-					cb_resolve.colour = colour;
-					job.m_cmd_list.SetComputeRoot32BitConstants(0, cb_resolve);
-					job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
-
-					job.m_barriers.UAV(bodies.get());
-					job.m_barriers.Commit();
-				}
-				if (constraint_solver != nullptr)
-					constraint_solver->SolveVelocityIteration(job, dt, rigid_body_count, bodies);
-				if (coupled_constraint_solver != nullptr)
-					coupled_constraint_solver->SolveVelocityIteration(job, rigid_body_count, bodies.get(), substep_index);
-				if (coupled_contact_solver != nullptr)
-					coupled_contact_solver->SolveVelocityIteration(job);
+				BindWarmStartStep(m_resolver.m_cs_store_warm_start, m_resolver.m_r_warm_start_curr.get());
+				m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
+				CommitWarmStartBarriers();
+				std::swap(m_resolver.m_r_warm_start_prev, m_resolver.m_r_warm_start_curr);
 			}
-			cb_resolve.colour = 0;
 		};
 
-		if (coupled_constraint_solver != nullptr || coupled_contact_solver != nullptr)
-		{
-			// Physical impulses establish the fixed-configuration state before any detached coordinate correction.
-			solve_velocity();
-			solve_position();
-		}
-		else
-		{
-			solve_position();
-			solve_velocity();
-		}
-
-		// Persist accumulated physical impulses for the next frame and then swap the cache roles.
-		if (m_config.warm_start_scale > 0.0f)
-		{
-			bind_warm_start_step(m_cs_store_warm_start, m_r_warm_start_curr.get());
-			job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch.get());
-			commit_warm_start_barriers();
-			std::swap(m_r_warm_start_prev, m_r_warm_start_curr);
-		}
+		auto phases = ResolvePhases{
+			.m_resolver = *this,
+			.m_job = job,
+			.m_dt = dt,
+			.m_body_count = body_count,
+			.m_rigid_body_count = rigid_body_count,
+			.m_max_contacts = max_contacts,
+			.m_material_count = material_count,
+			.m_push_out_steps = push_out_steps,
+			.m_solver_iterations = solver_iterations,
+			.m_restitution_scale = restitution_scale,
+			.m_priority_sort_enabled = priority_sort_enabled,
+			.m_retain_constraint_impulses = retain_constraint_impulses,
+			.m_substep_index = substep_index,
+			.m_dispatch = dispatch,
+			.m_counters = counters,
+			.m_contacts = contacts,
+			.m_bodies = bodies,
+			.m_materials = materials,
+			.m_constraint_solver = constraint_solver,
+			.m_coupled_constraint_solver = coupled_constraint_solver,
+			.m_coupled_contact_solver = coupled_contact_solver,
+			.m_cb = cb_resolve,
+		};
+		phases.Run();
 
 		pix::EndEvent(job.m_cmd_list.get());
 	}

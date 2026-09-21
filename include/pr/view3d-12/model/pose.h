@@ -28,13 +28,14 @@ namespace pr::rdr12
 		D3DPtr<ID3D12Resource> m_res; // The runtime bone buffer (i.e. m4x4[])
 		Descriptor m_srv;             // SRV of the bone buffer
 		TimeRange m_time_range;       // The time span from the animation to use
-		double m_time0;               // The animation time last applied
+		double m_time0;               // The animation time last recorded for upload
 		double m_time1;               // The animation time to display next
 		double m_stretch;             // Playback speed multiplier
 		double m_bias;                // Time offset bias
 		EAnimStyle m_style;           // The style of animation
 		EAnimFlags m_flags;           // Behaviour flags
-		uint64_t m_revision;          // Incremented whenever the GPU pose buffer is rewritten
+		uint64_t m_revision;          // Incremented when a pose upload is recorded, not a GPU-completion proof
+		bool m_gpu_update_required;  // Re-record GPU data even at unchanged animation time after an abandoned recording
 
 		Pose(ResourceFactory& factory, SkeletonPtr skeleton, AnimatorPtr animator, EAnimStyle style, EAnimFlags flags, TimeRange time_range, double stretch, double bias);
 
@@ -54,7 +55,7 @@ namespace pr::rdr12
 		// Return the time value relative to 'm_time_range' from the source animatino
 		double SrcAnimTime(double time) const;
 
-		// Return a value that changes whenever the GPU pose buffer changes.
+		// Revision of the most recently recorded pose data, not GPU completion.
 		uint64_t Revision() const;
 
 		// Calculate object-space skinning matrices for the current animation time without updating GPU resources.
@@ -63,8 +64,11 @@ namespace pr::rdr12
 		// Reset to the rest pose
 		void ResetPose(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer);
 
-		// Update the bone transforms
+		// Record updated bone transforms. InvalidateGpuData must be called if these commands are abandoned before execution.
 		void Update(GfxCmdList& cmd_list, GpuUploadBuffer& upload_buffer);
+
+		// Require a fresh upload after the caller abandons unsubmitted pose commands. Does not alter or free in-flight resources.
+		void InvalidateGpuData();
     
 		// Raised after CPU pose matrices are calculated.
 		EventHandler<Pose&, PoseUpdatedArgs const&, true> PoseUpdated;

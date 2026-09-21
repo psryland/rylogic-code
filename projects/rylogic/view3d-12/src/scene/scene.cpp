@@ -5,7 +5,9 @@
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/main/window.h"
 #include "pr/view3d-12/main/renderer.h"
+#include "pr/view3d-12/instance/instance.h"
 #include "pr/view3d-12/render/render_step.h"
+#include "pr/view3d-12/ray_tracing/ray_tracing_model.h"
 #include "pr/view3d-12/ray_tracing/render_ray_tracing.h"
 #include "pr/view3d-12/texture/texture_cube.h"
 #include "pr/view3d-12/utility/eventargs.h"
@@ -15,14 +17,30 @@
 
 namespace pr::rdr12
 {
+	// Reject incompatible resident geometry before changing a scene's render steps.
+	static void ValidateRayTracingInstances(Scene::InstCont const& instances)
+	{
+		// Use the same source policy as instance admission and BLAS construction.
+		for (auto const* inst : instances)
+		{
+			// Model-less instances do not contribute geometry.
+			auto const& model = GetModel(*inst);
+			if (model != nullptr)
+				ValidateRayTracingGeometrySource(*model.get());
+		}
+	}
+
 	// Make a scene
 	Scene::Scene(Window& wnd, std::initializer_list<ERenderStep> rsteps, SceneCamera const& cam)
 		: m_wnd(&wnd)
 		, m_cam(cam)
 		, m_viewport(wnd.BackBufferSize())
 		, m_instances()
+		, m_gsync_render_steps()
 		, m_render_steps()
+		, m_gsync_immed(wnd.d3d())
 		, m_raycast_immed()
+		, m_gsync_async(wnd.d3d())
 		, m_raycast_async()
 		, m_global_light()
 		, m_global_envmap()
@@ -123,6 +141,16 @@ namespace pr::rdr12
 	// Instances can be added to render steps directly if finer control is needed
 	void Scene::AddInstance(BaseInstance const& inst)
 	{
+		// Reject incompatible geometry before publishing it to any drawlist. Rebuilt scenes perform this admission check each frame.
+		if (FindRStep<RenderRayTracing>() != nullptr)
+		{
+			// Nested and shared instances must satisfy the receiving scene's active render contract.
+			auto const& model = GetModel(inst);
+			if (model != nullptr)
+				ValidateRayTracingGeometrySource(*model.get());
+		}
+
+		// Publish only after source eligibility is established.
 		m_instances.push_back(&inst);
 		for (auto& rs : m_render_steps)
 			rs->AddInstance(inst);
@@ -144,7 +172,13 @@ namespace pr::rdr12
 	// Set the render steps to use for rendering the scene
 	void Scene::SetRenderSteps(std::span<ERenderStep const> rsteps)
 	{
+		// Reject unsupported geometry before discarding the current raster steps.
+		if (std::find(rsteps.begin(), rsteps.end(), ERenderStep::RayTracing) != rsteps.end())
+			ValidateRayTracingInstances(m_instances);
+
+		// Replace only after validation succeeds. Finish and destroy old steps before releasing their fence storage.
 		m_render_steps.clear();
+		m_gsync_render_steps.clear();
 
 		for (auto rs : rsteps)
 		{
@@ -152,7 +186,14 @@ namespace pr::rdr12
 			{
 				case ERenderStep::RenderForward: m_render_steps.emplace_back(new RenderForward(*this)); break;
 				case ERenderStep::ShadowMap:     m_render_steps.emplace_back(new RenderSmap(*this, m_global_light)); break;
-				case ERenderStep::RayCast:       m_render_steps.emplace_back(new RenderRayCast(*this, std::bind(&Scene::HitTestAsyncResults, this, _1))); break;
+				case ERenderStep::RayCast:
+				{
+					// This step submits independently even when invoked during a frame. Duplicate entries need separate
+					// reservation domains; nodes stay stable and survive complete step destruction on replacement/unwind.
+					auto& gsync = m_gsync_render_steps.emplace_back(d3d());
+					m_render_steps.push_back(std::make_unique<RenderRayCast>(*this, gsync, std::bind(&Scene::HitTestAsyncResults, this, _1)));
+					break;
+				}
 				case ERenderStep::RayTracing:    m_render_steps.emplace_back(new RenderRayTracing(*this)); break;
 				default: throw std::runtime_error("Unknown render step");
 			}
@@ -175,12 +216,16 @@ namespace pr::rdr12
 	// Enable/disable ray tracing without rebuilding the existing raster render steps.
 	void Scene::RayTracing(bool enable)
 	{
+		// Keep existing raster steps alive when toggling the ray-tracing pass.
 		if (enable && FindRStep<RenderRayTracing>() == nullptr)
 		{
+			// A failed enable must leave the previous render-step configuration intact.
+			ValidateRayTracingInstances(m_instances);
 			m_render_steps.emplace_back(new RenderRayTracing(*this));
 		}
 		if (!enable && FindRStep<RenderRayTracing>() != nullptr)
 		{
+			// Remove only the ray-tracing pass.
 			pr::erase_if(m_render_steps, [](auto& rs) { return rs->m_step_id == ERenderStep::RayTracing; });
 		}
 	}
@@ -270,9 +315,11 @@ namespace pr::rdr12
 
 		// Lazy create the ray cast render step
 		if (m_raycast_immed == nullptr)
-			m_raycast_immed.reset(new RenderRayCast(*this, {}));
+			m_raycast_immed.reset(new RenderRayCast(*this, m_gsync_immed, {}));
 			
 		auto& rs = *m_raycast_immed.get();
+		// Drop this call's transient instances on both successful submission and failed recording.
+		auto clear_drawlist = Scope<void>([&rs] { rs.ClearDrawlist(); });
 
 		// Set the rays to cast
 		rs.SetRays(rays, [=](auto) { return true; });
@@ -290,12 +337,7 @@ namespace pr::rdr12
 		}
 
 		// Run the hit test
-		auto result = rs.ExecuteImmediate(out);
-
-		// Reset ready for next time
-		rs.ClearDrawlist();
-
-		return result;
+		return rs.ExecuteImmediate(out);
 	}
 
 	// Perform an asynchronous hit test. Submits GPU work and returns immediately.
@@ -306,9 +348,11 @@ namespace pr::rdr12
 
 		// Lazy create the async ray cast render step
 		if (m_raycast_async == nullptr)
-			m_raycast_async.reset(new RenderRayCast(*this, {}));
+			m_raycast_async.reset(new RenderRayCast(*this, m_gsync_async, {}));
 
 		auto& rs = *m_raycast_async.get();
+		// Clearing transient instances does not discard submitted work or its pending readback handles.
+		auto clear_drawlist = Scope<void>([&rs] { rs.ClearDrawlist(); });
 
 		// Set the rays to cast
 		rs.SetRays(rays, [](auto) { return true; });
@@ -320,9 +364,6 @@ namespace pr::rdr12
 
 		// Submit to GPU and return immediately
 		rs.ExecuteAsync(std::bind(&Scene::HitTestAsyncResults, this, _1));
-
-		// Reset the draw list ready for next time
-		rs.ClearDrawlist();
 	}
 
 	// Render the scene, recording the command lists in 'frame'

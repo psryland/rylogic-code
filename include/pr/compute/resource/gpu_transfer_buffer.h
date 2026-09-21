@@ -170,6 +170,22 @@ namespace pr::compute
 			PurgeCompleted(false);
 		}
 
+		// Cancel reservations beyond the last submitted fence point. The caller must exclusively own recording on this
+		// buffer/fence and first abandon every unsubmitted command list and allocation handle. Never call after Execute
+		// without a successful queue Signal. A page shared with earlier submissions stays protected by their last fence point.
+		void CancelUnsubmitted()
+		{
+			// Remove only the unsubmitted reservation; do not rewind offsets or claim that earlier GPU work has completed.
+			auto last_submitted = m_gsync->LastAddedSyncPoint();
+			for (auto& block : m_used)
+			{
+				if (block.m_sync_point > last_submitted)
+					block.m_sync_point = last_submitted;
+			}
+			m_lookup.clear();
+			PurgeCompleted(false);
+		}
+
 	private:
 
 		// Recycle blocks that the GPU has finished with
@@ -255,4 +271,3 @@ namespace pr::compute
 	using GpuUploadBuffer = GpuTransferBuffer<D3D12_HEAP_TYPE_UPLOAD>;
 	using GpuReadbackBuffer = GpuTransferBuffer<D3D12_HEAP_TYPE_READBACK>;
 }
-

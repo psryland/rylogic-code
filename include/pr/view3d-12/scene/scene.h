@@ -39,13 +39,17 @@ namespace pr::rdr12
 		using InstCont = pr::vector<BaseInstance const*, 1024, false>;
 		using RenderRayCastPtr = std::unique_ptr<RenderRayCast>;
 		using Viewport = ::pr::compute::Viewport;
+		using GpuSync = ::pr::compute::GpuSync;
 		
 		Window*          m_wnd;              // The controlling window
 		SceneCamera      m_cam;              // Represents the camera properties used to project onto the screen
 		Viewport         m_viewport;         // Represents the rectangular area on the back buffer that this scene covers (modify this variable if you want. Use the methods tho. Remember clip regions)
 		InstCont         m_instances;        // Instances added to this scene for rendering.
+		std::list<GpuSync> m_gsync_render_steps; // Stable, distinct timelines for configured self-submitting steps; outlive m_render_steps
 		RenderStepCont   m_render_steps;     // The stages of rendering the scene
+		GpuSync          m_gsync_immed;      // Immediate picking must finish without another window frame; outlives its complete step
 		RenderRayCastPtr m_raycast_immed;    // A ray cast render step for performing immediate hit tests
+		GpuSync          m_gsync_async;      // Async picking has its own exclusive recording reservations; outlives its complete step
 		RenderRayCastPtr m_raycast_async;    // A ray cast render step for performing async hit tests
 		Light            m_global_light;     // The global light settings
 		TextureCubePtr   m_global_envmap;    // A global environment map
@@ -71,6 +75,8 @@ namespace pr::rdr12
 		// Add an instance. The instance must be resident for the entire time that it is
 		// in the scene, i.e. until 'RemoveInstance' or 'ClearDrawlist' is called.
 		// This method will add the instance to all render steps for which the model has appropriate nuggets.
+		// Ray-tracing source eligibility is checked before admission; scenes rebuilt per frame repeat this check.
+		// Assemble instances before opening frame command lists if admission errors must leave recording untouched.
 		// Instances can be added to render steps directly if finer control is needed
 		template <InstanceType Inst>
 		void AddInstance(Inst const& inst)
@@ -87,9 +93,10 @@ namespace pr::rdr12
 
 		// Raised just before the drawlist is sorted. Handlers should add/remove
 		// instances from the scene, or add/remove render steps as required.
+		// Runs during frame recording: exceptions here do not provide a recoverable pre-frame rejection boundary.
 		EventHandler<Scene&, UpdateSceneArgs const&> OnUpdateScene;
 
-		// Set the render steps to use for rendering the scene
+		// Set the render steps to use for rendering the scene. Incompatible ray-tracing sources leave the current steps unchanged.
 		void SetRenderSteps(std::span<ERenderStep const> rsteps);
 
 		// Access the render step by type
@@ -107,7 +114,7 @@ namespace pr::rdr12
 		// Enable/Disable shadow casting
 		void ShadowCasting(bool enable, int shadow_map_size);
 
-		// Enable/disable ray tracing for this scene.
+		// Enable/disable ray tracing for this scene. Enabling validates resident sources before changing the pipeline.
 		void RayTracing(bool enable);
 
 		// Get/Set the ray tracing render settings for this scene.

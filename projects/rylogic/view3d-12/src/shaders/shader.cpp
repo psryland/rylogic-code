@@ -3,6 +3,10 @@
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #include "pr/view3d-12/shaders/shader.h"
+#include "pr/view3d-12/shaders/shader_forward.h"
+#include "pr/view3d-12/shaders/shader_procedural.h"
+#include "pr/view3d-12/shaders/shader_ray_cast.h"
+#include "pr/view3d-12/shaders/shader_smap.h"
 #include "view3d-12/src/shaders/common.h"
 
 namespace pr::rdr12
@@ -42,6 +46,55 @@ namespace pr::rdr12
 	void Shader::Delete()
 	{
 		::pr::compute::Delete<Shader>(this);
+	}
+
+	// Create a procedural vertex shader by copying all caller-owned data.
+	ProceduralVertexShader::ProceduralVertexShader(Renderer& rdr, ERenderStep rdr_step, std::span<BYTE const> vs_bytecode, std::span<std::byte const> constants, std::string_view name)
+		:Shader(rdr)
+		,m_rdr_step(rdr_step)
+		,m_vs_bytecode(vs_bytecode.begin(), vs_bytecode.end())
+		,m_constants()
+		,m_name(name)
+	{
+		// Retain stable storage for the bytecode referenced by the pipeline state.
+		std::copy(constants.begin(), constants.end(), m_constants.begin());
+		m_code.VS = ShaderCode::ByteCode(std::span<BYTE const>(m_vs_bytecode));
+	}
+
+	// Bind the copied constants through the render-step-specific reserved root slot.
+	void ProceduralVertexShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const&, DrawListElement const*)
+	{
+		// Reuse the immutable upload allocation within the frame wherever possible.
+		auto gpu_address = upload.Add(m_constants, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
+		switch (m_rdr_step)
+		{
+			case ERenderStep::RenderForward:
+			{
+				cmd_list->SetGraphicsRootConstantBufferView(static_cast<UINT>(shaders::fwd::ERootParam::CBufProcedural), gpu_address);
+				return;
+			}
+			case ERenderStep::RayCast:
+			{
+				cmd_list->SetGraphicsRootConstantBufferView(static_cast<UINT>(shaders::ray_cast::ERootParam::CBufProcedural), gpu_address);
+				return;
+			}
+			case ERenderStep::ShadowMap:
+			{
+				cmd_list->SetGraphicsRootConstantBufferView(static_cast<UINT>(shaders::smap::ERootParam::CBufProcedural), gpu_address);
+				return;
+			}
+			default:
+			{
+				throw std::runtime_error("Unsupported procedural vertex shader render step");
+			}
+		}
+	}
+
+	// Destroy the concrete shader rather than the base subobject.
+	void ProceduralVertexShader::Delete()
+	{
+		// Release copied bytecode and constants with the shader handle.
+		::pr::compute::Delete<ProceduralVertexShader>(this);
 	}
 
 	// Compiled shader byte code

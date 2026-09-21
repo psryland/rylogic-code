@@ -31,5 +31,7 @@ namespace pr::rdr12::materials
 		}
 	};
 	static_assert(ComponentType<ShaderOverlays>);
-}
 
+	// Apply overlays for the active material render step, optionally accepting only the public procedural vertex contract.
+	void ApplyShaderOverlays(MaterialPassContext& ctx, bool procedural_only);
+}

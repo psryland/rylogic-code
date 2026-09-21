@@ -24,12 +24,24 @@ namespace pr::rdr12
 		}
 	}
 
+	// Reject model source modes that cannot provide physical positions to ray tracing.
+	void ValidateRayTracingGeometrySource(Model const& model)
+	{
+		// Raster procedural vertex IDs do not describe physical positions suitable for a triangle BLAS.
+		if (model.m_vertex_source == EVertexSource::ProceduralVertexId)
+			throw std::runtime_error("Ray tracing does not support procedural vertex-ID models; generate a real GPU position buffer before building a BLAS");
+	}
+
 	// Build the triangle descriptors used to create a bottom-level acceleration structure for 'model'.
 	RayTracingGeometryBuildInput RayTracingBuildGeometryInput(Model const& model, D3D12_GPU_VIRTUAL_ADDRESS vertex_buffer_address, bool rt_available, bool include_skinned)
 	{
 		RayTracingGeometryBuildInput result;
 		result.m_stats.m_rt_available = rt_available;
 		result.m_stats.m_skinned_model = model.m_skin ? true : false;
+
+		// Apply the same source eligibility policy used by the pre-frame validation.
+		if (rt_available)
+			ValidateRayTracingGeometrySource(model);
 
 		// Static BLASes are model-owned, so they must not trace bind-pose vertices for skinned models. Dynamic skinned BLAS callers pass the
 		// compute-skinned vertex buffer and opt in via 'include_skinned'.

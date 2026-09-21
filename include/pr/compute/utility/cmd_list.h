@@ -103,7 +103,9 @@ namespace pr::compute
 			m_list = std::move(rhs.m_list);
 			m_cmd_allocator = std::move(rhs.m_cmd_allocator);
 			m_thread_id = std::move(rhs.m_thread_id);
+			m_res_state = std::move(rhs.m_res_state);
 			m_pool = std::move(rhs.m_pool);
+			m_root_sig_idx = rhs.m_root_sig_idx;
 
 			// Null out 'rhs'
 			rhs.m_pool = nullptr;
@@ -210,8 +212,8 @@ namespace pr::compute
 			m_list->ResourceBarrier(s_cast<UINT>(barriers.size()), barriers.data());
 		}
 
-		// Mark the command list as closed
-		void Close()
+		// Mark the command list as closed and return the D3D12 Close result to the submission owner.
+		HRESULT Close()
 		{
 			ThrowOnCrossThreadUse();
 			if constexpr (ListType == D3D12_COMMAND_LIST_TYPE_DIRECT)
@@ -219,7 +221,7 @@ namespace pr::compute
 				RestoreResourceStateDefaults(*this);
 			}
 			pix::EndEvent(m_list.get());
-			m_list->Close();
+			return m_list->Close();
 		}
 
 		// Set the sync point for when the GPU is finished with this command list

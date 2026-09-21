@@ -22,18 +22,22 @@ namespace pr::rdr12
 		using dl_mutex_t       = std::recursive_mutex;
 		using dl_boundaries    = vector_map<ESortGroup, int, vector<std::pair<ESortGroup, int>, 4, true>>;
 		using GpuUploadBuffer  = ::pr::compute::GpuUploadBuffer;
+		using GpuSync          = ::pr::compute::GpuSync;
 
-		ERenderStep const m_step_id;            // Derived type Id
-		Scene*            m_scene;              // The scene this render step is owned by
-		drawlist_async_t  m_drawlist;           // The draw list for this render step. Access via 'Lock'
-		dl_boundaries     m_boundaries;         // The index offsets to the different
-		bool              m_sort_needed;        // True when the list needs sorting
-		GpuUploadBuffer   m_upload_buffer;      // Shared upload buffer for shaders to use to upload parameters
-		PipeStateDesc     m_default_pipe_state; // Default settings for the pipeline state
-		PipeStatePool     m_pipe_state_pool;    // Pool of pipeline state objects
-		AutoSub           m_evt_model_delete;   // Event subscription for model deleted notification
+		ERenderStep const        m_step_id;            // Derived type Id
+		Scene*                   m_scene;              // The scene this render step is owned by
+		drawlist_async_t         m_drawlist;           // The draw list for this render step. Access via 'Lock'
+		dl_boundaries            m_boundaries;         // The index offsets to the different
+		bool                     m_sort_needed;        // True when the list needs sorting
+		GpuSync&                m_gsync;              // Actual submission timeline; must outlive complete step destruction
+		GpuUploadBuffer          m_upload_buffer;      // Shared upload buffer for shaders to use to upload parameters
+		PipeStateDesc            m_default_pipe_state; // Default settings for the pipeline state
+		PipeStatePool            m_pipe_state_pool;    // Pool of pipeline state objects
+		AutoSub                  m_evt_model_delete;   // Event subscription for model deleted notification
 
-		RenderStep(ERenderStep id, Scene& scene);
+		// The supplied fence must track this step's actual submissions and outlive its complete destruction, including upload cleanup.
+		// Frame-recorded steps use the window timeline; independently submitted steps require a separate timeline.
+		RenderStep(ERenderStep id, Scene& scene, GpuSync& gsync);
 		RenderStep(RenderStep&&) = default;
 		RenderStep(RenderStep const&) = delete;
 		RenderStep& operator = (RenderStep&&) = default;

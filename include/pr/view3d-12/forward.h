@@ -33,6 +33,7 @@
 #include <limits>
 #include <span>
 #include <cstring>
+#include <cstdio>
 #include <tuple>
 #include <source_location>
 #include <type_traits>

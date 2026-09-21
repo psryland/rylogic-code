@@ -49,7 +49,8 @@ namespace Rylogic.Windows.Gui
 		// Add an instance that needs to handle messages before TranslateMessage is called
 		public virtual void AddMessageFilter(IMessageFilter filter)
 		{
-			m_filters.Add(filter);
+			// Preserve this loop as the terminal fallback after every externally registered filter.
+			m_filters.Insert(m_filters.Count - 1, filter);
 		}
 
 		// Remove a message filter from the chain of filters for this message loop
@@ -114,7 +115,8 @@ namespace Rylogic.Windows.Gui
 		{
 		}
 
-		/// <summary>Add a loop to be stepped by this simulation message pump. if 'variable' is true, 'step_rate_ms' means minimum step rate</summary>
+		/// <summary>Add a loop with an integer-millisecond period (60 Hz gives 16 ms). Variable loops receive elapsed entry-time;
+		/// fixed loops advance by one period per callback. Callback work consumes the current deadline rather than adding a fixed delay.</summary>
 		public void AddLoop(float frame_rate, bool variable, StepFunc step)
 		{
 			m_loop.Add(new Loop(step, (int)(1000f / frame_rate), variable));
@@ -180,7 +182,10 @@ namespace Rylogic.Windows.Gui
 				var loop = m_loop[m_order[0]];
 				var time_till_step = (int)(loop.NextStepTime - m_last_step_loops);
 				if (time_till_step > 0)
-					return time_till_step;
+				{
+					// Callback work has already consumed part of this deadline; do not add another full period before pumping.
+					return (int)Math.Max(0L, loop.NextStepTime - m_clock.ElapsedMilliseconds);
+				}
 
 				// Elapsed time for the loop step, either a fixed value or the wall time since last stepped
 				var elapsed_ms = loop.IsVariable ? m_last_step_loops - loop.Clock : loop.StepRateMS;

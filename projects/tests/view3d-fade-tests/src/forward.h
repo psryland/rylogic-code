@@ -12,10 +12,20 @@
 #include <wrl/client.h>
 #include "pr/view3d-12/view3d-dll.h"
 #include "pr/view3d-12/view3d-ui-bridge.h"
+#include "pr/view3d-12/model/model_generator.h"
+#include "pr/view3d-12/model/pose.h"
+#include "pr/view3d-12/model/skeleton.h"
+#include "pr/view3d-12/model/animator.h"
 #include "pr/view3d-12/scene/far_clip_fade.h"
 #include "pr/view3d-12/shaders/shader.h"
+#include "pr/view3d-12/material/material_simple.h"
+#include "pr/view3d-12/resource/resource_factory.h"
+#include "view3d-12/src/render/render_raycast.h"
 #include "pr/view3d-12/utility/normal_transform.h"
+#include "pr/view3d-12/utility/conversion.h"
 #include "pr/view3d-12/ldraw/ldraw_object.h"
+#include "view3d-12/src/dll/v3d_window.h"
+#include "view3d-12/src/shaders/common.h"
 #include "pr/hlsl/interop.h"
 
 // Exercise the same RGB blend expression compiled into the renderer's GPU shaders.
@@ -35,5 +45,14 @@ namespace colour_blend_tests
 namespace fade_tests::compiled
 {
 	#include "fade_vertex.h"
+	#include "procedural_vertex_forward.h"
+	#include "procedural_vertex_raycast.h"
+	#include "procedural_vertex_shadow.h"
 	#include "unsupported_pixel.h"
+}
+
+namespace fade_tests
+{
+	// Exercise native RayCast cancellation and teardown independently of DLL-owned resources.
+	void RayCastLifetimeNativeTests();
 }

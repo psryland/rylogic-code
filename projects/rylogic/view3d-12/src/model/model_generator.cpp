@@ -1398,7 +1398,9 @@ namespace pr::rdr12
 	{
 		// Calculate the required buffer sizes
 		auto [vcount, icount] = geometry::MeshSize(isize(cdata.m_verts), isize(cdata.m_idxbuf));
-		auto idx_stride = vcount > 0xFFFF ? isizeof<uint32_t>() : isizeof<uint16_t>();
+		auto idx_stride = cdata.m_idx_stride != 0
+			? cdata.m_idx_stride
+			: vcount > 0xFFFF ? isizeof<uint32_t>() : isizeof<uint16_t>();
 
 		// Generate the geometry
 		Cache cache{ vcount, icount, 0, idx_stride };

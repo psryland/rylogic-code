@@ -9,12 +9,89 @@
 #include "src/compute/interop/resolve_runner.h"
 #include "src/unittests/shared_gpu.h"
 #include "src/compute/resolve_gpu.h"
-#include <filesystem>
-#include <fstream>
-#include <format>
 
 namespace pr::physics::tests
 {
+	// Hardware regressions for colour-only root updates across successive phases and retained warm-start frames.
+	PRUnitTestClass(ResolveRootStateTests)
+	{
+		// Compare independent axis contacts with the shader interop oracle, including nonzero cached support on the second frame.
+		static void CheckColours(int contact_count)
+		{
+			auto config = EngineConfig{};
+			config.push_out_iterations = 3;
+			config.solver_iterations = 4;
+			config.contact_sort_propagation_scale = 0.0f;
+			config.velocity_baumgarte = 0.0f;
+			config.deep_penetration_baumgarte_min = 0.0f;
+			config.deep_penetration_baumgarte_max = 0.0f;
+			config.warm_start_scale = 1.0f;
+			auto box = collision::ShapeBox{v4{1, 1, 1, 0}};
+			auto hub = RigidBody{&box, m4x4::Identity(), Inertia::Box(box.m_radius, 1.0f)};
+			auto wall = RigidBody{&box, m4x4::Identity(), Inertia::Infinite()};
+			hub.VelocityWS(v4::Zero(), v4{1, 2, 3, 0});
+			auto initial = std::vector<GpuRigidBody>{PackDynamics(hub, 0)};
+			auto contacts = std::vector<GpuResolveContact>{};
+			auto axes = std::array{v4::XAxis(), v4::YAxis(), v4::ZAxis()};
+			for (int index = 0; index != contact_count; ++index)
+			{
+				initial.push_back(PackDynamics(wall, index + 1));
+				contacts.push_back(GpuResolveContact{
+					.axis = axes[index],
+					.contact_point = v4::Origin(),
+					.manifold = {v4::Origin()},
+					.b2a = m4x4::Identity(),
+					.body_idx_a = 0,
+					.body_idx_b = index + 1,
+					.mat_id_a = 0,
+					.mat_id_b = 0,
+					.depth = 0.1f,
+					.feature = 1,
+				});
+			}
+			auto materials = std::array{GpuMaterial{.friction_static = 0.0f, .elasticity_norm = 0.0f}};
+			auto expected = initial;
+			auto expected_contacts = contacts;
+			auto oracle = ResolveInteropRunner{config};
+			oracle.Run(ResolveRunnerBuffers{1.0f / 60.0f, expected, expected_contacts, materials});
+			PR_EXPECT(!oracle.ColourOverflow());
+			for (int index = 0; index != contact_count; ++index)
+			{
+				PR_EXPECT(Dot3(expected_contacts[index].warmstart_impulse, axes[index]) > 0.0f);
+				PR_EXPECT(oracle.Colours()[index] < static_cast<uint32_t>(contact_count));
+				for (int other = 0; other != index; ++other)
+					PR_EXPECT(oracle.Colours()[index] != oracle.Colours()[other]);
+			}
+
+			// Keep the resolver cache but restore identical body/contact input so each colour must apply only its own support.
+			auto& gpu = SharedTestGpu();
+			auto resolver = GpuResolver{gpu, config, nullptr};
+			for (int frame = 0; frame != 2; ++frame)
+			{
+				auto actual = initial;
+				resolver.Resolve(gpu.m_job, 1.0f / 60.0f, contacts, actual, materials);
+				for (int index = 0; index != isize(actual); ++index)
+				{
+					PR_EXPECT(FEqlAbsolute(actual[index].o2w.pos, expected[index].o2w.pos, 1.0e-5f));
+					PR_EXPECT(FEqlAbsolute(actual[index].momentum_lin, expected[index].momentum_lin, 1.0e-5f));
+					PR_EXPECT(FEqlAbsolute(actual[index].momentum_ang, expected[index].momentum_ang, 1.0e-5f));
+				}
+			}
+		}
+
+		// Empty colour batches must retain the full constants initialized for a single active contact.
+		PRUnitTestMethod(SingleColourMatchesInterop, Extended)
+		{
+			CheckColours(1);
+		}
+
+		// Shared-body contacts require distinct colours and exercise nonzero colour offsets in every sweep.
+		PRUnitTestMethod(MultipleColoursMatchInterop, Extended)
+		{
+			CheckColours(3);
+		}
+	};
+
 	PRUnitTestClass(ResolveInteropRunnerTests)
 	{
 		PRUnitTestMethod(ContactPriorityScoresNewtonCradleOrder, Extended)

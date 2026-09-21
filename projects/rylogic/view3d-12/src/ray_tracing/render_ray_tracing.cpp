@@ -13,7 +13,7 @@ namespace pr::rdr12
 {
 	// Create the stub ray tracing render step.
 	RenderRayTracing::RenderRayTracing(Scene& scene)
-		: RenderStep(Id, scene)
+		: RenderStep(Id, scene, scene.wnd().m_gsync)
 		, m_ray_tracing()
 		, m_diagnostic()
 		, m_reflections()

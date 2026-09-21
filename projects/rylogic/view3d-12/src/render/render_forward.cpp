@@ -32,7 +32,7 @@ namespace pr::rdr12
 	using namespace ::pr::compute;
 
 	RenderForward::RenderForward(Scene& scene)
-		: RenderStep(Id, scene)
+		: RenderStep(Id, scene, scene.wnd().m_gsync)
 		, m_shader(scene.rdr())
 		, m_cmd_list(scene.d3d(), nullptr, "RenderForward", EColours::Blue)
 		, m_alp_list(scene.d3d(), nullptr, "RenderForwardAlpha", EColours::Blue)

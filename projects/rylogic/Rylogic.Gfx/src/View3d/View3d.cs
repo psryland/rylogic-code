@@ -1150,11 +1150,9 @@ namespace Rylogic.Gfx
 			[MarshalAs(UnmanagedType.LPStr)] public string m_dbg_name;
 		};
 
-		/// <summary></summary>
-		[StructLayout(LayoutKind.Sequential)]
+		/// <summary>Placeholder for unimplemented managed custom shader creation; not a native ABI descriptor.</summary>
 		public struct ShaderOptions
 		{
-			// todo
 		}
 
 		/// <summary>Ray tracing capability and per-window enabled state</summary>
@@ -2314,8 +2312,7 @@ namespace Rylogic.Gfx
 		// Create one of the stock samplers
 		[DllImport(Dll)] private static extern HSampler View3D_SamplerCreateStock(EStockSampler stock_sampler);
 
-		// Create a shader
-		[DllImport(Dll)] private static extern HSampler View3D_ShaderCreate(ref ShaderOptions options);
+		// Custom shaders require a native caller; the managed ShaderOptions descriptor is not implemented.
 
 		// Create one of the stock shaders
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HSampler View3D_ShaderCreateStock(EStockShader stock_shader, [MarshalAs(UnmanagedType.LPStr)] string config);

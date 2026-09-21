@@ -11,6 +11,13 @@
 
 namespace pr::rdr12
 {
+	// Identifies whether vertex IDs address the physical vertex buffer or a shader-defined logical domain.
+	enum class EVertexSource :int
+	{
+		Buffer,
+		ProceduralVertexId,
+	};
+
 	struct Model :RefCounted<Model>
 	{
 		using GfxCmdList = ::pr::compute::GfxCmdList;
@@ -37,23 +44,25 @@ namespace pr::rdr12
 			_flags_enum            = 0,
 		};
 
-		Renderer*                m_rdr;         // The renderer that owns this model
-		D3DPtr<ID3D12Resource>   m_vb;          // The vertex buffer
-		D3DPtr<ID3D12Resource>   m_ib;          // The index buffer
-		D3D12_VERTEX_BUFFER_VIEW m_vb_view;     // Buffer views for shader binding
-		D3D12_INDEX_BUFFER_VIEW  m_ib_view;     // Buffer views for shader binding
-		NuggetPtr                m_nuggets;     // The chain of nuggets for this model
-		int64_t                  m_vcount;      // The count of elements in the V-buffer
-		int64_t                  m_icount;      // The count of elements in the I-buffer
-		m4x4                     m_m2root;      // Mesh/model-buffer space to model-root/object space. Use for multi-part models, like skinned characters
-		Skin                     m_skin;        // Skinning data for this model.
-		mutable RayTracingModel  m_ray_tracing; // Ray tracing data for this model.
-		vector<VertexStream>     m_vb_streams;  // Optional model-owned streams parallel to the vertex buffer.
-		BBox                     m_bbox;        // A bounding box for the (rest pose) model. Set by the client
-		string32                 m_name;        // A human readable name for the model
-		SizeAndAlign16           m_vstride;     // The size and alignment (in bytes) of a single V-element
-		SizeAndAlign16           m_istride;     // The size and alignment (in bytes) of a single I-element
-		mutable EDbgFlags        m_dbg_flags;   // Flags used by PR_DBG_RDR to output info once only
+		Renderer*                m_rdr;            // The renderer that owns this model
+		D3DPtr<ID3D12Resource>   m_vb;             // The vertex buffer
+		D3DPtr<ID3D12Resource>   m_ib;             // The index buffer
+		D3D12_VERTEX_BUFFER_VIEW m_vb_view;        // Buffer views for shader binding
+		D3D12_INDEX_BUFFER_VIEW  m_ib_view;        // Buffer views for shader binding
+		NuggetPtr                m_nuggets;        // The chain of nuggets for this model
+		int64_t                  m_vcount;         // The count of elements in the V-buffer
+		int64_t                  m_icount;         // The count of elements in the I-buffer
+		int64_t                  m_vcount_logical; // Vertex-ID domain used by procedural models.
+		m4x4                     m_m2root;         // Mesh/model-buffer space to model-root/object space. Use for multi-part models, like skinned characters
+		Skin                     m_skin;           // Skinning data for this model.
+		mutable RayTracingModel  m_ray_tracing;    // Ray tracing data for this model.
+		vector<VertexStream>     m_vb_streams;     // Optional model-owned streams parallel to the vertex buffer.
+		BBox                     m_bbox;           // A bounding box for the (rest pose) model. Set by the client
+		string32                 m_name;           // A human readable name for the model
+		EVertexSource            m_vertex_source;  // Interpretation of indexed IDs; procedural nugget capabilities do not describe physical placeholder fields.
+		SizeAndAlign16           m_vstride;        // The size and alignment (in bytes) of a single V-element
+		SizeAndAlign16           m_istride;        // The size and alignment (in bytes) of a single I-element
+		mutable EDbgFlags        m_dbg_flags;      // Flags used by PR_DBG_RDR to output info once only
 
 		Model(Renderer& rdr,
 			int64_t vcount,

@@ -23,6 +23,7 @@
 #include "pr/view3d-12/texture/texture_cube.h"
 #include "pr/view3d-12/sampler/sampler_desc.h"
 #include "pr/view3d-12/sampler/sampler.h"
+#include "pr/view3d-12/shaders/shader_procedural.h"
 #include "pr/view3d-12/utility/dx9_context.h"
 #include "pr/view3d-12/utility/conversion.h"
 #include "pr/view3d-12/ldraw/ldraw_object.h"
@@ -1939,10 +1940,37 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreate(char const* name, view3d
 {
 	try
 	{
+		// Reject malformed public ranges before constructing spans over caller memory.
 		DllLockGuard;
+		if (vcount < 0 || icount < 0 || ncount < 0)
+			throw std::invalid_argument("Object buffer counts cannot be negative");
+		if ((vcount != 0 && verts == nullptr) || (icount != 0 && indices == nullptr) || (ncount != 0 && nuggets == nullptr))
+			throw std::invalid_argument("Object buffer pointer is null for a nonempty range");
+
 		return Dll().ObjectCreate(name, colour, { verts, s_cast<size_t>(vcount) }, { indices, s_cast<size_t>(icount) }, { nuggets, s_cast<size_t>(ncount) }, context_id);
 	}
 	CatchAndReport(View3D_ObjectCreate, , nullptr);
+}
+
+// Create an object from 32-bit indexed buffered or procedural vertex-ID geometry.
+VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateU32(char const* name, view3d::Colour colour, int vcount, int icount, int ncount, view3d::Vertex const* verts, UINT32 const* indices, view3d::Nugget const* nuggets, view3d::ObjectCreateOptions const& options, GUID const& context_id)
+{
+	try
+	{
+		// Validate the versioned public descriptor before reading its fields.
+		DllLockGuard;
+		if (options.m_struct_size != sizeof(options))
+			throw std::invalid_argument("ObjectCreateOptions structure size does not match this View3D version");
+		if (options.m_version != view3d::ObjectCreateOptions::CurrentVersion)
+			throw std::invalid_argument("Unsupported ObjectCreateOptions version");
+		if (vcount < 0 || icount < 0 || ncount < 0)
+			throw std::invalid_argument("Object buffer counts cannot be negative");
+		if ((vcount != 0 && verts == nullptr) || (icount != 0 && indices == nullptr) || (ncount != 0 && nuggets == nullptr))
+			throw std::invalid_argument("Object buffer pointer is null for a nonempty range");
+
+		return Dll().ObjectCreate(name, colour, { verts, s_cast<size_t>(vcount) }, { indices, s_cast<size_t>(icount) }, { nuggets, s_cast<size_t>(ncount) }, options, context_id);
+	}
+	CatchAndReport(View3D_ObjectCreateU32, , nullptr);
 }
 
 // Create objects given in an ldraw string or file.
@@ -2975,13 +3003,82 @@ VIEW3D_API view3d::Sampler __stdcall View3D_SamplerCreateStock(view3d::EStockSam
 	CatchAndReport(View3D_SamplerCreateStock, , nullptr);
 }
 
-// Create a shader
-VIEW3D_API view3d::Shader __stdcall View3D_ShaderCreate(view3d::ShaderOptions const&)
+// Create a shader for a supported hardware stage and binding recipe.
+VIEW3D_API view3d::Shader __stdcall View3D_ShaderCreate(view3d::ShaderOptions const& options)
 {
+	// Report invalid descriptors through the public error callback without publishing a shader handle.
 	try
 	{
-		// todo - create a compiled shader
-		return nullptr;
+		// Reject descriptor layout mismatches before reading the bytecode and constant-buffer fields.
+		DllLockGuard;
+		if (options.m_struct_size != sizeof(options))
+			throw std::invalid_argument("ShaderOptions structure size does not match this View3D version");
+
+		if (options.m_version != view3d::ShaderOptions::CurrentVersion)
+			throw std::invalid_argument("Unsupported ShaderOptions version");
+
+		// Reject unimplemented stages before inspecting fields belonging to the procedural vertex recipe.
+		switch (options.m_stage)
+		{
+			case view3d::EShaderStage::Vertex:
+			{
+				// Vertex creation currently implements only the stock-pass procedural binding.
+				break;
+			}
+			case view3d::EShaderStage::Pixel:
+			case view3d::EShaderStage::Geometry:
+			case view3d::EShaderStage::Hull:
+			case view3d::EShaderStage::Domain:
+			case view3d::EShaderStage::Compute:
+			{
+				// Named stages remain explicit API choices without implying an implemented binding.
+				throw std::runtime_error("Shader stage is not supported");
+			}
+			default:
+			{
+				// Unknown values are invalid rather than an unimplemented named stage.
+				throw std::invalid_argument("Invalid shader stage");
+			}
+		}
+
+		// Only these raster passes reserve a constant-buffer slot and retain compatible stock non-vertex stages.
+		auto const& binding = options.m_procedural_vertex;
+		switch (binding.m_rdr_step)
+		{
+			case view3d::ERenderStep::ForwardRender:
+			case view3d::ERenderStep::RayCast:
+			case view3d::ERenderStep::ShadowMap:
+			{
+				// The selected pass supplies the root signature and the remaining shader stages.
+				break;
+			}
+			default:
+			{
+				// No other render step implements this procedural vertex contract.
+				throw std::invalid_argument("Procedural vertex shaders support only Forward, RayCast, and ShadowMap render steps");
+			}
+		}
+
+		// Bound the bytecode copy and reject input that is not a DXIL container.
+		if (options.m_bytecode == nullptr || options.m_bytecode_size < sizeof(uint32_t) || options.m_bytecode_size > view3d::ShaderOptions::MaxByteCodeSize)
+			throw std::invalid_argument("Procedural vertex shader bytecode is missing or outside the supported size range");
+
+		if (memcmp(options.m_bytecode, "DXBC", 4) != 0)
+			throw std::invalid_argument("Procedural vertex shader bytecode is not a DXIL container");
+
+		// Every supported pass uses the same fixed-size immutable caller data contract.
+		if (binding.m_constants == nullptr || binding.m_constants_size != view3d::ProceduralVertexBinding::ConstantsSize)
+			throw std::invalid_argument("Procedural vertex shader constants must contain exactly 1024 bytes");
+
+		// Copy both caller buffers into shader-owned storage before returning the owning handle.
+		ResourceFactory factory(Dll().m_rdr);
+		auto shdr = rdr12::Shader::Create<ProceduralVertexShader>(
+			factory.rdr(),
+			static_cast<rdr12::ERenderStep>(binding.m_rdr_step),
+			std::span<BYTE const>(static_cast<BYTE const*>(options.m_bytecode), options.m_bytecode_size),
+			std::span<std::byte const>(static_cast<std::byte const*>(binding.m_constants), binding.m_constants_size),
+			options.m_dbg_name != nullptr ? std::string_view(options.m_dbg_name) : std::string_view{});
+		return shdr.release();
 	}
 	CatchAndReport(View3D_ShaderCreate, , nullptr);
 }

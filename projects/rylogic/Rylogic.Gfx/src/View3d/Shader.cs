@@ -1,6 +1,9 @@
 ﻿//#define PR_VIEW3D_CREATE_STACKTRACE
 using System;
 using Rylogic.Utility;
+#if PR_UNITTESTS
+using Rylogic.UnitTests;
+#endif
 using HShader = System.IntPtr;
 
 namespace Rylogic.Gfx
@@ -23,12 +26,12 @@ namespace Rylogic.Gfx
 				m_owned = owned;
 				Handle = handle;
 			}
+			/// <summary>Custom shader creation is not implemented by this managed wrapper.</summary>
+			/// <exception cref="NotSupportedException">Use a native caller for the procedural vertex-shader API.</exception>
 			public Shader(ShaderOptions options)
 			{
-				m_owned = true;
-				Handle = View3D_ShaderCreate(ref options);
-				if (Handle == HShader.Zero)
-					throw new Exception($"Failed to create shader");
+				// The placeholder managed descriptor cannot be passed to the native ABI safely.
+				throw new NotSupportedException("Managed custom shader creation is not implemented. Create procedural vertex shaders through the native View3D API.");
 			}
 			public Shader(EStockShader stock_shader, string config)
 			{
@@ -79,5 +82,20 @@ namespace Rylogic.Gfx
 			}
 			#endregion
 		}
+
+	#if PR_UNITTESTS
+		/// <summary>Verify unimplemented managed descriptors never cross the native boundary.</summary>
+		[TestFixture]
+		public class ShaderCreationTests
+		{
+			/// <summary>Custom creation fails explicitly without loading or invoking View3D.</summary>
+			[Test]
+			public void CustomShaderDescriptorIsUnsupported()
+			{
+				// This must fail with the managed contract error even when no renderer has been initialised.
+				Assert.Throws<NotSupportedException>(() => new View3d.Shader(new View3d.ShaderOptions()));
+			}
+		}
+	#endif
 	}
 }
