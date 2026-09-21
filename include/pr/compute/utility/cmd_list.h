@@ -103,7 +103,9 @@ namespace pr::compute
 			m_list = std::move(rhs.m_list);
 			m_cmd_allocator = std::move(rhs.m_cmd_allocator);
 			m_thread_id = std::move(rhs.m_thread_id);
+			m_res_state = std::move(rhs.m_res_state);
 			m_pool = std::move(rhs.m_pool);
+			m_root_sig_idx = rhs.m_root_sig_idx;
 
 			// Null out 'rhs'
 			rhs.m_pool = nullptr;
