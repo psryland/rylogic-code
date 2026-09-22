@@ -1965,10 +1965,37 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateU32(char const* name, vie
 			throw std::invalid_argument("Unsupported ObjectCreateOptions version");
 		if (vcount < 0 || icount < 0 || ncount < 0)
 			throw std::invalid_argument("Object buffer counts cannot be negative");
-		if ((vcount != 0 && verts == nullptr) || (icount != 0 && indices == nullptr) || (ncount != 0 && nuggets == nullptr))
+		switch (options.m_vertex_source)
+		{
+			case view3d::EVertexSource::Buffer:
+			case view3d::EVertexSource::ProceduralVertexId:
+			{
+				// Supplied and procedural-placeholder sources require their declared public vertex array.
+				if (vcount != 0 && verts == nullptr)
+					throw std::invalid_argument("Object vertex buffer pointer is null for a nonempty range");
+				break;
+			}
+			case view3d::EVertexSource::GpuGeneratedBuffer:
+			{
+				// Generated-buffer creation uses vcount as the output count and accepts no CPU vertex payload.
+				if (vcount == 0 || icount == 0 || ncount == 0)
+					throw std::invalid_argument("GPU-generated objects require nonempty vertex, index, and nugget ranges");
+				if (verts != nullptr)
+					throw std::invalid_argument("GPU-generated objects do not accept a CPU vertex buffer");
+				break;
+			}
+			default:
+			{
+				throw std::invalid_argument("Unknown object vertex source");
+			}
+		}
+		if ((icount != 0 && indices == nullptr) || (ncount != 0 && nuggets == nullptr))
 			throw std::invalid_argument("Object buffer pointer is null for a nonempty range");
 
-		return Dll().ObjectCreate(name, colour, { verts, s_cast<size_t>(vcount) }, { indices, s_cast<size_t>(icount) }, { nuggets, s_cast<size_t>(ncount) }, options, context_id);
+		auto const vertices = options.m_vertex_source == view3d::EVertexSource::GpuGeneratedBuffer
+			? std::span<view3d::Vertex const>{}
+			: std::span<view3d::Vertex const>{verts, s_cast<size_t>(vcount)};
+		return Dll().ObjectCreate(name, colour, vcount, vertices, { indices, s_cast<size_t>(icount) }, { nuggets, s_cast<size_t>(ncount) }, options, context_id);
 	}
 	CatchAndReport(View3D_ObjectCreateU32, , nullptr);
 }

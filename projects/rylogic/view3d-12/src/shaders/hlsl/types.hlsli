@@ -6,6 +6,7 @@
 #define PR_VIEW3D_SHADER_TYPES_HLSLI
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/interop.hlsli"
+#include "pr/view3d-12/shaders/vertex.hlsli"
 
 static const float TINY = 0.0001f;
 static const int MaxShadowMaps = 1;
@@ -111,15 +112,8 @@ inline bool SpotLight(Light light)        { return light.info.x == 3; }
 // Shadows
 inline int ShadowMapCount(Shadow shdw) { return shdw.info.x; }
 
-// Vertex shader input format
-struct VSIn
-{
-	float4 vert semantic(POSITION0);
-	float4 diff semantic(COLOR0);
-	float4 norm semantic(NORMAL0);
-	float2 tex0 semantic(TEXCOORD0);
-	int2   idx0 semantic(INDICES0);
-};
+// Stock vertex shaders consume the canonical View3D buffered vertex.
+typedef View3DVertex VSIn;
 
 // Pixel shader input format
 struct PSIn
