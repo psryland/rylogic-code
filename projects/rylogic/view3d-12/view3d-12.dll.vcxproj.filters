@@ -21,6 +21,9 @@
     <ClInclude Include="src\dll\context.h">
       <Filter>src\dll</Filter>
     </ClInclude>
+    <ClInclude Include="src\dll\diagnostics_policy.h">
+      <Filter>src\dll</Filter>
+    </ClInclude>
     <ClCompile Include="src\dll\dll.cpp">
       <Filter>src\dll</Filter>
     </ClCompile>

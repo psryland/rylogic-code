@@ -81,17 +81,10 @@ namespace pr::rdr12
 			if (m_settings.m_adapter.ptr == nullptr)
 				throw std::runtime_error("No DirectX Adapter found that supports the requested feature level");
 
-			#if _DEBUG
-			m_settings.m_options = SetBits(m_settings.m_options, ERdrOptions::DeviceDebug, true);
-			//m_settings.m_options = SetBits(m_settings.m_options, ERdrOptions::DeviceGPUDebug, true);
-			m_settings.m_options = SetBits(m_settings.m_options, ERdrOptions::BreakOnErrors, true);
-			#pragma message(PR_LINK "INFO: ************************************************** DeviceDebug enabled")
-			#endif
-
 			// Load PIX
 			PR_INFO_IF(PR_PIX_ENABLED, pix::LoadDll() != 0, "PIX Dll loaded"); // Load before creating the D3D device
 
-			// Add the debug layer in debug mode. Note: this automatically disables multi-sampling as well.
+			// Device diagnostics follow the caller's explicit settings, independently of the build's assertion policy.
 			PR_INFO_IF(PR_DBG_RDR, AllSet(m_settings.m_options, ERdrOptions::DeviceDebug), "DeviceDebug is enabled");
 			PR_INFO_IF(PR_DBG_RDR, AllSet(m_settings.m_options, ERdrOptions::BGRASupport), "BGRASupport is enabled");
 
