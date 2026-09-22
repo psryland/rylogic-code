@@ -144,6 +144,17 @@ namespace Rylogic.Interop.Win32
 		public const int CW_USEDEFAULT = unchecked((int)0x80000000);
 		#endregion
 
+		#region Create Waitable Timer CREATE_WAITABLE_TIMER_
+		/// <summary>Controls the reset mode and timer resolution requested when creating a waitable timer.</summary>
+		[Flags]
+		public enum EWaitableTimerCreateFlags :uint
+		{
+			NONE = 0,
+			MANUAL_RESET = 0x00000001,
+			HIGH_RESOLUTION = 0x00000002,
+		}
+		#endregion
+
 		#region Device Changed event types DBT_
 		public enum EDeviceChangedEventType
 		{
@@ -1433,6 +1444,17 @@ namespace Rylogic.Interop.Win32
 		public const int TM_MULTILEVELUNDO  = 8; // default behaviour
 		public const int TM_SINGLECODEPAGE  = 16;
 		public const int TM_MULTICODEPAGE   = 32; // default behaviour
+		#endregion
+
+		#region Timer Access Rights TIMER_
+		/// <summary>Access rights that can be requested for a waitable timer handle.</summary>
+		[Flags]
+		public enum ETimerAccess :uint
+		{
+			MODIFY_STATE = 0x0002,
+			SYNCHRONIZE = Win32.SYNCHRONIZE,
+			ALL_ACCESS = STANDARD_RIGHTS_REQUIRED | Win32.SYNCHRONIZE | 0x3,
+		}
 		#endregion
 
 		#region Virtual key VK_

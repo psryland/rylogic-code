@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 using Rylogic.Interop.Win32;
 
 namespace Rylogic.Windows.Gui
@@ -126,7 +128,12 @@ namespace Rylogic.Windows.Gui
 		/// <summary>Run the thread message pump while maintaining the desired loop rates</summary>
 		public override int Run()
 		{
-			// Set the start time
+			// Keep frame deadlines independent of the system's coarse message-wait timer resolution.
+			using var deadline_timer = Kernel32.CreateWaitableTimerEx(IntPtr.Zero, null, Win32.EWaitableTimerCreateFlags.HIGH_RESOLUTION, Win32.ETimerAccess.MODIFY_STATE | Win32.ETimerAccess.SYNCHRONIZE);
+			if (deadline_timer.IsInvalid)
+				throw new Win32Exception(Marshal.GetLastWin32Error(), "Creating the high-resolution simulation-loop timer failed.");
+
+			var timer_handles = new[] { deadline_timer.DangerousGetHandle() };
 			m_clock.Start();
 			m_last_step_loops = 0;
 
@@ -136,8 +143,8 @@ namespace Rylogic.Windows.Gui
 				// Step any pending loops and get the time till the next loop to be stepped.
 				var timeout = StepLoops();
 
-				// Check for messages and pump any received until
-				var wait_result = User32.MsgWaitForMultipleObjects(0, null, true, timeout, Win32.QS_ALLPOSTMESSAGE | Win32.QS_ALLINPUT | Win32.QS_ALLEVENTS);
+				// Arm a high-resolution deadline without preventing queued window messages from waking the owner thread earlier.
+				var wait_result = WaitForMessagesOrDeadline(deadline_timer, timer_handles, timeout);
 				if (wait_result == -1)
 					throw new Win32Exception("MsgWaitForMultipleObjects failed");
 				for (Win32.MESSAGE msg; User32.PeekMessage(out msg, IntPtr.Zero, 0, 0, Win32.EPeekMessageFlags.Remove);)
@@ -150,6 +157,21 @@ namespace Rylogic.Windows.Gui
 					HandleMessage(ref msg);
 				}
 			}
+		}
+
+		/// <summary>Wait until either the exact relative frame deadline or new window input becomes available.</summary>
+		private static int WaitForMessagesOrDeadline(SafeWaitHandle deadline_timer, IntPtr[] timer_handles, int timeout_milliseconds)
+		{
+			// Poll without arming the timer when callbacks remain overdue.
+			if (timeout_milliseconds <= 0)
+				return User32.MsgWaitForMultipleObjects(0, null, false, 0, Win32.QS_ALLPOSTMESSAGE | Win32.QS_ALLINPUT | Win32.QS_ALLEVENTS);
+
+			// Replace any earlier deadline with one relative high-resolution timer interval.
+			var due_time = -(long)timeout_milliseconds * TimeSpan.TicksPerMillisecond;
+			if (!Kernel32.SetWaitableTimer(deadline_timer, ref due_time, 0, IntPtr.Zero, IntPtr.Zero, false))
+				throw new Win32Exception(Marshal.GetLastWin32Error(), "Arming the high-resolution simulation-loop timer failed.");
+
+			return User32.MsgWaitForMultipleObjects(timer_handles.Length, timer_handles, false, -1, Win32.QS_ALLPOSTMESSAGE | Win32.QS_ALLINPUT | Win32.QS_ALLEVENTS);
 		}
 
 		// Call 'Step' on all loops that are pending

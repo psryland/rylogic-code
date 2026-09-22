@@ -24,10 +24,12 @@ After a Debug build, run isolated directory-ignore checks with:
 
 ```powershell
 pwsh -NoProfile -File projects\tools\code_sync\TestIgnoreDirectories.ps1 -Executable projects\tools\code_sync\obj\x64\Debug\code_sync.exe
+pwsh -NoProfile -File projects\tools\code_sync\TestLineEndings.ps1 -Executable projects\tools\code_sync\obj\x64\Debug\code_sync.exe
 ```
 
 These cover nested exclusions, case-insensitive wildcard matching, multiple roots, unchanged ignored files, normal reference updates, and invalid arguments.
-They do not scan repository sources.
+The line-ending check additionally verifies that synchronisation preserves destination LF/CRLF conventions, final-newline state, and unrelated trailing
+whitespace. They do not scan repository sources.
 
 ## Missing-only Release deployment
 
