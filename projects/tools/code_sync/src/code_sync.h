@@ -325,15 +325,16 @@ namespace code_sync
 			return enum_files.out;
 		}
 
-		// Write all lines to a file
-		static void WriteAllLines(fs::path const& filepath, std::vector<std::string> const& lines)
+		// Write all lines while preserving the destination file's line ending and final-newline convention.
+		static void WriteAllLines(fs::path const& filepath, std::vector<std::string> const& lines, std::string_view line_ending, bool final_newline)
 		{
+			// Replace only synchronized content without normalizing unrelated file formatting.
 			std::ofstream file(filepath, std::ios::binary);
 			for (size_t i = 0; i != lines.size(); ++i)
 			{
 				file << lines[i];
-				if (i + 1 != lines.size())
-					file << '\n';
+				if (i + 1 != lines.size() || final_newline)
+					file << line_ending;
 			}
 		}
 
@@ -491,8 +492,10 @@ namespace code_sync
 			struct FileData
 			{
 				fs::path filepath;
-				std::string raw;           // Raw file content (only for files with markers)
+				std::string raw;                // Raw file content (only for files with markers)
 				std::vector<std::string> lines; // Parsed lines (populated after parallel phase)
+				std::string line_ending;        // First line-ending convention found in the file
+				bool final_newline = false;     // True when the original file ends with a line break
 				bool has_markers = false;
 			};
 
@@ -500,7 +503,7 @@ namespace code_sync
 			std::vector<FileData> all_files;
 			for (auto const& dir : directories)
 				for (auto const& filepath : EnumerateFiles(dir))
-					all_files.push_back({filepath, {}, {}, false});
+					all_files.push_back({.filepath = filepath});
 
 			// Read files and scan for markers in parallel
 			static auto const marker = std::string("PR_CODE") + "_SYNC";
@@ -521,6 +524,10 @@ namespace code_sync
 				if (!fd.has_markers)
 					continue;
 
+				// Retain the destination's formatting contract before discarding the raw byte buffer.
+				auto newline = fd.raw.find('\n');
+				fd.line_ending = newline != std::string::npos && newline != 0 && fd.raw[newline - 1] == '\r' ? "\r\n" : "\n";
+				fd.final_newline = !fd.raw.empty() && fd.raw.back() == '\n';
 				fd.lines = SplitLines(fd.raw);
 				fd.raw.clear(); // Free raw content
 				sync_files.push_back(&fd);
@@ -621,7 +628,7 @@ namespace code_sync
 
 				if (modified)
 				{
-					WriteAllLines(fd->filepath, fd->lines);
+					WriteAllLines(fd->filepath, fd->lines, fd->line_ending, fd->final_newline);
 					++files_updated;
 				}
 			}

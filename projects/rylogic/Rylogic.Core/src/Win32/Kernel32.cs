@@ -430,6 +430,16 @@ namespace Rylogic.Interop.Win32
 		[DllImport("kernel32.dll", EntryPoint = "CreateEventW", SetLastError = true, CharSet = CharSet.Auto)]
 		private static extern SafeFileHandle CreateEvent_(IntPtr lpEventAttributes, bool bManualReset, bool bInitialState, [MarshalAs(UnmanagedType.LPWStr)] string? lpName);
 
+		/// <summary>Create an unnamed waitable timer with the requested timing behaviour and access rights.</summary>
+		public static SafeWaitHandle CreateWaitableTimerEx(IntPtr timer_attributes, string? timer_name, Win32.EWaitableTimerCreateFlags flags, Win32.ETimerAccess desired_access)
+		{
+			// Preserve SafeHandle lifetime management for every timer created through this wrapper.
+			return CreateWaitableTimerEx_(timer_attributes, timer_name, flags, desired_access);
+		}
+		/// <summary>Native waitable-timer creation entry point.</summary>
+		[DllImport("kernel32.dll", EntryPoint = "CreateWaitableTimerExW", SetLastError = true, CharSet = CharSet.Unicode)]
+		private static extern SafeWaitHandle CreateWaitableTimerEx_(IntPtr lpTimerAttributes, string? lpTimerName, Win32.EWaitableTimerCreateFlags dwFlags, Win32.ETimerAccess dwDesiredAccess);
+
 		/// <summary></summary>
 		public static bool DeviceIoControl(SafeFileHandle hDevice, uint dwIoControlCode, ref Win32.LE_SCAN_REQUEST ble_scan_request, IntPtr lpOutBuffer, uint nOutBufferSize, out uint lpBytesReturned, NativeOverlapped? overlapped)
 		{
@@ -515,6 +525,16 @@ namespace Rylogic.Interop.Win32
 		public static void SetLastError(int err) => SetLastError_(err);
 		[DllImport("kernel32.dll", EntryPoint = "SetLastError", SetLastError = true)]
 		private static extern void SetLastError_(int err);
+
+		/// <summary>Arm a waitable timer using an absolute positive or relative negative 100-nanosecond due time.</summary>
+		public static bool SetWaitableTimer(SafeWaitHandle timer, ref long due_time, int period_milliseconds, IntPtr completion_routine, IntPtr completion_argument, bool resume)
+		{
+			// Pass the due-time storage by reference because Win32 reads the signed LARGE_INTEGER value synchronously.
+			return SetWaitableTimer_(timer, ref due_time, period_milliseconds, completion_routine, completion_argument, resume);
+		}
+		/// <summary>Native waitable-timer arming entry point.</summary>
+		[DllImport("kernel32.dll", EntryPoint = "SetWaitableTimer", SetLastError = true)]
+		private static extern bool SetWaitableTimer_(SafeWaitHandle hTimer, ref long lpDueTime, int lPeriod, IntPtr pfnCompletionRoutine, IntPtr lpArgToCompletionRoutine, bool fResume);
 
 		/// <summary></summary>
 		public static Win32.ExecutionState SetThreadExecutionState(Win32.ExecutionState esFlags) => SetThreadExecutionState_(esFlags);

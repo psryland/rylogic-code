@@ -14,6 +14,8 @@
 #include <chrono>
 #include <thread>
 #include <format>
+#include <optional>
+#include <stdexcept>
 
 #include <Windows.h>
 
@@ -50,6 +52,8 @@ namespace pr::gui
 		using clock_t = std::chrono::steady_clock;
 		using time_point_t = clock_t::time_point;
 		using duration_t = clock_t::duration;
+		// Win32 waitable timers express deadlines as signed counts of 100-nanosecond intervals.
+		using timer_duration_t = std::chrono::duration<int64_t, std::ratio<1, 10'000'000>>;
 		using step_func_t = std::function<void(double)>; // receives elapsed time in seconds
 
 		// The maximum number of fixed-step catch-up iterations before skipping ahead (death spiral protection)
@@ -108,10 +112,42 @@ namespace pr::gui
 		using LoopCont = std::vector<Loop>;
 		using Filters = std::vector<IMessageFilter*>;
 
+		// Releases a Win32 waitable-timer handle when the message loop is destroyed.
+		struct HandleCloser
+		{
+			// Release an owned kernel handle.
+			void operator()(void* handle) const noexcept
+			{
+				// Ignore null and invalid handles so default construction remains harmless.
+				if (handle == nullptr || handle == INVALID_HANDLE_VALUE)
+					return;
+
+				::CloseHandle(handle);
+			}
+		};
+		// Owns the lazily created waitable timer without per-wait allocation.
+		using WaitTimerPtr = std::unique_ptr<void, HandleCloser>;
+
 		LoopCont m_loop;          // The loops to execute
 		Filters m_filters;        // Message filters to process messages before TranslateMessage is called
+		WaitTimerPtr m_wait_timer; // High-resolution timer used for precise frame deadlines
 		time_point_t m_clock0;    // The time when 'Run' was called
 		bool m_quit_pending;      // Set when PostQuitMessage has been called, enables aggressive drain
+
+		// Return the reusable high-resolution waitable timer, creating it on first use.
+		HANDLE WaitTimer()
+		{
+			// Reuse one kernel object for every deadline wait in this message loop.
+			if (m_wait_timer)
+				return m_wait_timer.get();
+
+			auto handle = ::CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_MODIFY_STATE | SYNCHRONIZE);
+			if (handle == nullptr)
+				throw std::runtime_error(std::format("CreateWaitableTimerExW failed (error {})", ::GetLastError()));
+
+			m_wait_timer.reset(handle);
+			return m_wait_timer.get();
+		}
 
 	public:
 
@@ -121,6 +157,7 @@ namespace pr::gui
 		MessageLoop()
 			: m_loop()
 			, m_filters()
+			, m_wait_timer()
 			, m_clock0()
 			, m_config()
 			, m_quit_pending(false)
@@ -186,13 +223,31 @@ namespace pr::gui
 			}
 		}
 
-		// Pump messages. Returns null or an exit code if a WM_QUIT message was pumped
-		std::optional<int> Pump(DWORD timeout_ms = 0)
+		// Pump messages until the precise timeout expires. Returns null or an exit code if a WM_QUIT message was pumped.
+		std::optional<int> Pump(duration_t timeout = duration_t::zero())
 		{
+			// Prepare one message record for the bounded queue drain after the wait completes.
 			MSG msg = {};
 
-			// Wait for messages or until timeout (efficient idle, no busy-spin)
-			::MsgWaitForMultipleObjects(0, nullptr, FALSE, timeout_ms, QS_ALLPOSTMESSAGE | QS_ALLINPUT | QS_ALLEVENTS);
+			// Wait indefinitely for messages when no scheduled loop owns a deadline.
+			DWORD wait_result;
+			if (timeout == duration_t::max())
+				wait_result = ::MsgWaitForMultipleObjects(0, nullptr, FALSE, INFINITE, QS_ALLPOSTMESSAGE | QS_ALLINPUT | QS_ALLEVENTS);
+			else if (timeout <= duration_t::zero())
+				wait_result = ::MsgWaitForMultipleObjects(0, nullptr, FALSE, 0, QS_ALLPOSTMESSAGE | QS_ALLINPUT | QS_ALLEVENTS);
+			else
+			{
+				// Preserve sub-millisecond deadlines by arming the reusable timer in native 100-nanosecond units.
+				auto due_time = LARGE_INTEGER{.QuadPart = -std::chrono::ceil<timer_duration_t>(timeout).count()};
+				auto timer = WaitTimer();
+				if (!::SetWaitableTimer(timer, &due_time, 0, nullptr, nullptr, FALSE))
+					throw std::runtime_error(std::format("SetWaitableTimer failed (error {})", ::GetLastError()));
+
+				wait_result = ::MsgWaitForMultipleObjects(1, &timer, FALSE, INFINITE, QS_ALLPOSTMESSAGE | QS_ALLINPUT | QS_ALLEVENTS);
+			}
+			if (wait_result == WAIT_FAILED)
+				throw std::runtime_error(std::format("MsgWaitForMultipleObjects failed (error {})", ::GetLastError()));
+
 			for (int msgs_per_loop = m_config.msgs_per_loop; msgs_per_loop-- != 0 && ::PeekMessageW(&msg, 0, 0, 0, PM_REMOVE); )
 			{
 				if (msg.message == WM_QUIT)
@@ -227,12 +282,12 @@ namespace pr::gui
 			::PostQuitMessage(exit_code);
 		}
 
-		// Call 'Step' on all loops that are pending. Returns the time in milliseconds until the next loop is due.
-		DWORD StepLoops()
+		// Call 'Step' on all loops that are pending. Returns the precise time until the next loop is due.
+		duration_t StepLoops()
 		{
 			// No callback may run after the owner has entered its window-destruction path.
 			if (m_quit_pending || m_loop.empty())
-				return INFINITE;
+				return duration_t::max();
 
 			auto now = clock_t::now();
 
@@ -293,10 +348,9 @@ namespace pr::gui
 
 			now = clock_t::now();
 			if (next_due <= now)
-				return 0;
+				return duration_t::zero();
 
-			auto wait = std::chrono::duration_cast<std::chrono::milliseconds>(next_due - now).count();
-			return static_cast<DWORD>(std::max(0LL, wait));
+			return next_due - now;
 		}
 
 	protected:
