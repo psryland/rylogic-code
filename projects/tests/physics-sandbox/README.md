@@ -66,6 +66,12 @@ Omit `-scan` for timing because contact-event collection has a significant indep
 Headless physics rate does not measure interactive/rendered FPS. Sample overlays start off.
 Capsule surface points/normals are supported; capsule volume sampling remains unsupported as described below.
 
+## Rigid-body display
+
+Thick lines are rendered as capsules with a cylindrical segment and hemispherical ends. The renderer reuses one exact mesh for each distinct
+length/radius pair, rather than stretching a unit capsule: a 2 m segment with a 0.1 m radius extends 1.1 m from its centre in either axial
+direction. Boxes, spheres and zero-radius lines still use shared meshes scaled per instance. Graphics do not change collision geometry.
+
 ## Sample overlays
 
 The **View → Overlays and diagnostics** submenu has three independent checked options:

@@ -1,7 +1,7 @@
 # code_sync
 
 Native code-block synchronisation tool used by `Directory.Build.targets`. The deployed executable is
-`E:\Rylogic\Code\tools\code_sync\code_sync.exe`.
+`tools\code_sync\code_sync.exe`.
 
 ## Directory exclusions
 
@@ -51,7 +51,7 @@ partial executable that would make the next build incorrectly skip bootstrap. Th
 
 ## Build and manually redeploy
 
-From `E:\Rylogic\Code`:
+From the repository root:
 
 ```powershell
 $msbuild = 'C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\amd64\MSBuild.exe'

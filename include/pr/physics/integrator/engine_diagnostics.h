@@ -58,7 +58,7 @@ namespace pr::physics
 		FeatureResourceStats m_resources;
 	};
 
-	// Packed output storage and work recorded before the frame's single readback.
+	// Packed output storage and work recorded for one frame. Readback bytes become known after completion when event copies are predicated.
 	struct FrameOutputFeatureStats
 	{
 		int m_body_count = 0;

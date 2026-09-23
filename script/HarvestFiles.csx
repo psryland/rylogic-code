@@ -13,7 +13,7 @@ using Console = System.Console;
 try
 {
 	List<string> args =
-	 	//["E:\\Rylogic\\Code\\projects\\tests\\unittests\\src\\unittests.h"]
+		//["projects\\tests\\unittests\\src\\unittests.h"]
 		Args.ToList()
 	;
 	if (!args.SequenceEqual(Args))

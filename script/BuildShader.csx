@@ -398,7 +398,7 @@ public class ShaderBuilder
 
 var args =
 	Args.ToArray();
-	//(string[])[@"E:\Rylogic\Code\projects\rylogic\view3d-12\src\shaders\hlsl\forward\forward.hlsl", "x64", "debug", "vs=forward_vs=VSForward", "ps=forward_ps=PSForward", "obj", "dbg", "trace"];
+	//(string[])[@"projects\rylogic\view3d-12\src\shaders\hlsl\forward\forward.hlsl", "x64", "debug", "vs=forward_vs=VSForward", "ps=forward_ps=PSForward", "obj", "dbg", "trace"];
 
 if (args.Length < 3)
 {

@@ -43,6 +43,7 @@ namespace pr::physics
 			double m_terrain_gpu_ms = 0; // GPU timestamp sum across terrain substeps; other timings measure host work/waits.
 			double m_resolve_ms = 0;
 			double m_selective_ms = 0;
+			int m_selective_refresh_pass_count = 0; // Recorded across all internal substeps.
 			double m_sleepupdate_ms = 0;
 			double m_readback_ms = 0;
 			double m_gpu_run_ms = 0;
@@ -243,6 +244,8 @@ namespace pr::physics
 		bool m_constraints_active;
 		bool m_coupled_constraints_active;
 		bool m_coupled_contacts_active;
+		int m_selective_refresh_hold_steps = 0;
+		int m_selective_refresh_previous_contact_count = 0;
 
 		// Diagnostics
 		StepProfile m_last_step_profile;

@@ -19,7 +19,7 @@ using Console = System.Console;
 try
 {
 	List<string> args =
-		//["E:\\Rylogic\\Code\\obj\\v145\\view3d-12\\x64\\Debug\\view3d-12-static.lib"]
+		//["obj\\v145\\view3d-12\\x64\\Debug\\view3d-12-static.lib"]
 		Args.ToList()
 	;
 	if (!args.SequenceEqual(Args))

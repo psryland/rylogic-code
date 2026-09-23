@@ -23,7 +23,7 @@ struct cbSelectiveRefresh
 	int sleeping_enabled;
 	int full_max_pairs;
 	int support_only;
-	int pad_i1;
+	int contact_limit;
 	int pad_i2;
 
 	float depth_slop;
@@ -44,6 +44,7 @@ RWStructuredBuffer<DispatchArguments> resource(g_dst_dispatch_args, u2);
 RWStructuredBuffer<uint> resource(g_problem_bodies, u3);
 RWStructuredBuffer<GpuSelectiveRefreshMetrics> resource(g_metrics, u4);
 RWStructuredBuffer<GpuRigidBody> resource(g_bodies, u5);
+RWStructuredBuffer<GpuFrameOutputHeader> resource(g_frame_header, u6);
 StructuredBuffer<GpuCollisionCounters> resource(g_source_counters, t0);
 StructuredBuffer<GpuResolveContact> resource(g_source_contacts, t1);
 StructuredBuffer<GpuCollisionCounters> resource(g_full_counters, t2);
@@ -96,6 +97,51 @@ bool SupportContact(in_(GpuResolveContact) contact, in_(GpuRigidBody) body_a)
 
 	float3 axis_ws = mul(contact.axis.xyz, (float3x3)body_a.o2w);
 	return abs(dot(axis_ws, gravity)) >= g.support_alignment;
+}
+
+// Keep dynamic support stacks eligible while their contacts persist; isolated supports need a substantial solved residual.
+bool NeedsSelectiveRefresh(in_(GpuResolveContact) contact, in_(GpuRigidBody) body_a, in_(GpuRigidBody) body_b)
+{
+	if (!DynamicBody(body_a) && !DynamicBody(body_b))
+		return false;
+	if (SleepingBody(body_a) && SleepingBody(body_b))
+		return false;
+
+	bool support_contact = SupportContact(contact, body_a);
+	if (g.support_only != 0 && !support_contact)
+		return false;
+
+	float4x4 b2a = mul(body_b.o2w, InvertOrthonormal(body_a.o2w));
+	float closing_speed = ClosingSpeed(contact, body_a, body_b, b2a);
+	bool stacked_support = support_contact && DynamicBody(body_a) && DynamicBody(body_b);
+	if (stacked_support)
+		return true;
+
+	// The contact depth was captured before the solve. Measure how far B's original contact point moved relative to A along the contact normal.
+	float3 point_in_b = mul(float4(contact.contact_point.xyz, 1.0f), InvertOrthonormal(contact.b2a)).xyz;
+	float3 solved_point_in_a = mul(float4(point_in_b, 1.0f), b2a).xyz;
+	float residual_depth = contact.depth - dot(solved_point_in_a - contact.contact_point.xyz, contact.axis.xyz);
+	return residual_depth > g.depth_slop || closing_speed < -4.0f * g.closing_speed_slop;
+}
+
+// Mark the existing frame readback header without a second GPU submission or CPU synchronization.
+numthreads(CSDetectSelectiveRefresh, SelectiveRefreshThreadCount, 1, 1)
+void CSDetectSelectiveRefresh(int3 DTID(dtid))
+{
+	int contact_idx = dtid.x;
+	if (g.contact_limit > 0 && g_source_counters[0].contact_count > g.contact_limit)
+		return;
+
+	if (contact_idx >= min(g_source_counters[0].contact_count, g.max_contacts))
+		return;
+
+	GpuResolveContact contact = g_source_contacts[contact_idx];
+	if (contact.body_idx_a < 0 || contact.body_idx_a >= g.body_count ||
+		contact.body_idx_b < 0 || contact.body_idx_b >= g.body_count)
+		return;
+
+	if (NeedsSelectiveRefresh(contact, g_bodies[contact.body_idx_a], g_bodies[contact.body_idx_b]))
+		InterlockedOr(g_frame_header[0].selective_refresh_needed, 1);
 }
 
 BBox InflatedWorldBBox(in_(GpuRigidBody) body)

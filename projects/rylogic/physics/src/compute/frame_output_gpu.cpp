@@ -15,6 +15,9 @@ namespace pr::physics
 
 	namespace
 	{
+		// A signed event capacity needs fewer than 32 geometrically growing copy prefixes.
+		constexpr auto MaxEventCopyPredicates = 32;
+
 		// Keep every typed section naturally aligned while preserving the legacy rigid-only offsets.
 		int64_t FrameOutputAlign(int64_t offset)
 		{
@@ -52,6 +55,7 @@ namespace pr::physics
 		inline static constexpr auto SubstepState = EUAVReg::u4;
 		inline static constexpr auto Events = EUAVReg::u5;
 		inline static constexpr auto Bodies = EUAVReg::u6;
+		inline static constexpr auto EventCopyPredicates = EUAVReg::u7;
 		inline static constexpr auto Articulations = EUAVReg::u8;
 		inline static constexpr auto ArticulationStates = EUAVReg::u9;
 		inline static constexpr auto ArticulationPositions = EUAVReg::u10;
@@ -69,9 +73,11 @@ namespace pr::physics
 		, m_cs_compact_events()
 		, m_cs_append_events()
 		, m_cs_gather_articulations()
+		, m_cs_event_copy_predicates()
 		, m_cmd_sig()
 		, m_r_output()
 		, m_r_substep_state()
+		, m_r_event_copy_predicates()
 		, m_layout()
 		, m_capacity()
 		, m_substep_state_active()
@@ -164,6 +170,23 @@ namespace pr::physics
 		m_cs_gather_articulations.m_pso = ComputePSO(m_cs_gather_articulations.m_sig.get(), shader_code::gather_frame_articulations).Create(m_gpu, "Physics:GatherFrameArticulationsPSO");
 	}
 
+	// Create one predicate per candidate event prefix; the final prefix ends at the configured capacity.
+	void GpuFrameOutput::EnsureEventCopyPipeline(CmdList& cmd_list)
+	{
+		// The predicate buffer remains allocated for future subscribed frames.
+		if (m_cs_event_copy_predicates.m_pso != nullptr)
+			return;
+
+		m_r_event_copy_predicates = m_gpu.CreateResource(ResDesc::Buf<uint64_t>(MaxEventCopyPredicates, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:EventCopyPredicates");
+		auto sig = RootSig(ERootSigFlags::ComputeOnly)
+			.U32<cbFrameOutput>(EReg::Params)
+			.UAV(EReg::Header)
+			.UAV(EReg::EventCopyPredicates)
+			;
+		m_cs_event_copy_predicates.m_sig = sig.Create(m_gpu, "Physics:EventCopyPredicatesSig");
+		m_cs_event_copy_predicates.m_pso = ComputePSO(m_cs_event_copy_predicates.m_sig.get(), shader_code::event_copy_predicates).Create(m_gpu, "Physics:EventCopyPredicatesPSO");
+	}
+
 	// Grow resources before command recording references the current allocation.
 	void GpuFrameOutput::ResizeBuffers(CmdList& cmd_list, int64_t capacity, bool requires_substep_state)
 	{
@@ -247,6 +270,8 @@ namespace pr::physics
 		if (articulations.m_articulation_count != 0)
 			EnsureArticulationGatherPipeline();
 		ResizeBuffers(job.m_cmd_list, resource_size, capture_substep_state);
+		if (event_capacity != 0)
+			EnsureEventCopyPipeline(job.m_cmd_list);
 
 		// Only the header needs clearing; logical counts make stale body/event storage unreachable.
 		auto header = GpuFrameOutputHeader{
@@ -362,19 +387,19 @@ namespace pr::physics
 		job.m_barriers.Commit();
 	}
 
-	// Gather final bodies and record the frame's sole GPU-to-CPU CopyBufferRegion.
+	// Gather final bodies and record one readback with a GPU-selected event prefix.
 	GpuFrameOutputReadback GpuFrameOutput::GatherAndReadback(GpuJob& job, int body_count, ID3D12Resource* bodies)
 	{
 		return GatherAndReadback(job, body_count, bodies, GpuArticulationMidpointOutput{});
 	}
 
-	// Gather final rigid and articulation state before recording the frame's sole GPU-to-CPU copy.
+	// Gather final rigid and articulation state before recording the readback.
 	GpuFrameOutputReadback GpuFrameOutput::GatherAndReadback(GpuJob& job, int body_count, ID3D12Resource* bodies, GpuArticulationMidpointOutput const& articulations)
 	{
 		return GatherAndReadback(job, body_count, bodies, articulations, GpuConstraintBreakOutput{}, GpuCoupledConstraintFailureOutput{});
 	}
 
-	// Gather final state and sparse diagnostic streams before recording the frame's sole GPU-to-CPU copy.
+	// Gather final state and sparse diagnostic streams before recording the readback.
 	GpuFrameOutputReadback GpuFrameOutput::GatherAndReadback(
 		GpuJob& job,
 		int body_count,
@@ -504,10 +529,52 @@ namespace pr::physics
 			job.m_barriers.UAV(m_r_output.get()).Commit();
 		}
 
-		// One contiguous copy is the only GPU-to-CPU transfer owned by the core frame pipeline.
+		// Keep the header and bodies unconditional; derive event-copy decisions after all substeps have updated the frame-wide count.
+		if (m_layout.m_event_capacity != 0)
+		{
+			job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Transition(m_r_event_copy_predicates.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			job.m_barriers.Commit();
+			job.m_cmd_list.SetPipelineState(m_cs_event_copy_predicates.m_pso.get());
+			job.m_cmd_list.SetComputeRootSignature(m_cs_event_copy_predicates.m_sig.get());
+			job.m_cmd_list.AddComputeRoot32BitConstants(cbFrameOutput{.event_capacity = m_layout.m_event_capacity});
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_output->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_event_copy_predicates->GetGPUVirtualAddress());
+			job.m_cmd_list.Dispatch(1, 1, 1);
+			++m_dispatch_count;
+			job.m_barriers.Transition(m_r_event_copy_predicates.get(), D3D12_RESOURCE_STATE_PREDICATION);
+		}
 		job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
 		auto allocation = job.m_readback.Alloc(m_layout.m_readback_size, alignof(GpuFrameOutputHeader));
-		job.m_cmd_list.CopyBufferRegion(allocation, m_r_output.get(), 0);
+		if (m_layout.m_event_capacity == 0)
+		{
+			job.m_cmd_list.CopyBufferRegion(allocation, m_r_output.get(), 0);
+		}
+		else
+		{
+			job.m_cmd_list.CopyBufferRegion(allocation.m_res, allocation.m_ofs, m_r_output.get(), 0, m_layout.m_event_offset);
+
+			// Each candidate starts at the event base; only the smallest sufficient prefix is enabled by the GPU.
+			auto covered = int64_t{0};
+			auto prefix_capacity = int64_t{64};
+			for (auto index = int64_t{0}; covered < m_layout.m_event_capacity; ++index)
+			{
+				// D3D12 skips a predicated copy when EQUAL_ZERO matches the GPU flag.
+				covered = std::min(prefix_capacity, static_cast<int64_t>(m_layout.m_event_capacity));
+				auto bytes = covered * sizeof(GpuCollisionEvent);
+				job.m_cmd_list.get()->SetPredication(m_r_event_copy_predicates.get(), index * sizeof(uint64_t), D3D12_PREDICATION_OP_EQUAL_ZERO);
+				job.m_cmd_list.CopyBufferRegion(allocation.m_res, allocation.m_ofs + m_layout.m_event_offset, m_r_output.get(), m_layout.m_event_offset, bytes);
+				prefix_capacity *= 2;
+			}
+			job.m_cmd_list.get()->SetPredication(nullptr, 0, D3D12_PREDICATION_OP_EQUAL_ZERO);
+
+			// Sections after the reserved event capacity retain their fixed offsets and must always be available to the caller.
+			if (m_layout.m_readback_size > m_layout.m_articulation_offset)
+			{
+				auto offset = m_layout.m_articulation_offset;
+				job.m_cmd_list.CopyBufferRegion(allocation.m_res, allocation.m_ofs + offset, m_r_output.get(), offset, m_layout.m_readback_size - offset);
+			}
+		}
 		++m_readback_count;
 		job.m_barriers.Transition(m_r_output.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
 
@@ -529,10 +596,33 @@ namespace pr::physics
 			.m_dispatch_count = m_dispatch_count,
 			.m_readback_count = m_readback_count,
 			.m_pad1 = 0,
-			.m_logical_bytes = static_cast<size_t>(m_layout.m_resource_size) + (m_substep_state_active ? sizeof(GpuSubstepOutputState) : 0),
-			.m_allocated_feature_bytes = static_cast<size_t>(m_capacity) + (m_r_substep_state != nullptr ? sizeof(GpuSubstepOutputState) : 0),
-			.m_readback_bytes = static_cast<size_t>(m_layout.m_readback_size),
+			.m_logical_bytes = static_cast<size_t>(m_layout.m_resource_size) + (m_substep_state_active ? sizeof(GpuSubstepOutputState) : 0) + (m_layout.m_event_capacity != 0 ? MaxEventCopyPredicates * sizeof(uint64_t) : 0),
+			.m_allocated_feature_bytes = static_cast<size_t>(m_capacity) + (m_r_substep_state != nullptr ? sizeof(GpuSubstepOutputState) : 0) + (m_r_event_copy_predicates != nullptr ? MaxEventCopyPredicates * sizeof(uint64_t) : 0),
+			.m_readback_bytes = m_layout.m_event_capacity == 0 ? static_cast<size_t>(m_layout.m_readback_size) : 0,
 		};
+	}
+
+	// Calculate the fixed copies and the selected event prefix after the GPU count becomes CPU-visible.
+	size_t GpuFrameOutput::TransferredBytes(GpuFrameOutputReadback const& readback)
+	{
+		// The completed count selects one prefix, but never changes the reserved readback allocation.
+		auto const& layout = readback.m_layout;
+		if (layout.m_event_capacity == 0)
+			return static_cast<size_t>(layout.m_readback_size);
+
+		auto event_count = Header(readback).event_count;
+		if (event_count < 0 || event_count > layout.m_event_capacity)
+			throw std::runtime_error("GPU frame output returned an invalid event count");
+
+		auto copied_events = int64_t{0};
+		if (event_count != 0)
+		{
+			copied_events = 64;
+			while (copied_events < event_count)
+				copied_events *= 2;
+			copied_events = std::min(copied_events, static_cast<int64_t>(layout.m_event_capacity));
+		}
+		return static_cast<size_t>(layout.m_event_offset + copied_events * sizeof(GpuCollisionEvent) + layout.m_readback_size - layout.m_articulation_offset);
 	}
 
 	// Access the aggregate header after GPU completion.

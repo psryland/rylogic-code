@@ -23,6 +23,7 @@ namespace pr::physics::shader_code
 	extern ByteCode const compact_collision_events;
 	extern ByteCode const append_collision_events;
 	extern ByteCode const gather_frame_articulations;
+	extern ByteCode const event_copy_predicates;
 
 	// Sleep/wake state management
 	extern ByteCode const disturb_islands;
@@ -135,6 +136,7 @@ namespace pr::physics::shader_code
 	// Selective refresh
 	extern ByteCode const prepare_selective_refresh;
 	extern ByteCode const score_selective_contacts;
+	extern ByteCode const detect_selective_refresh;
 	extern ByteCode const compact_selective_pairs;
 	extern ByteCode const build_selective_dispatch;
 }

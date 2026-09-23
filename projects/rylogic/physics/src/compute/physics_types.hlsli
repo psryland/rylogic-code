@@ -720,7 +720,7 @@ struct GpuFrameOutputHeader
 	int event_overflow_substep;
 	int substep_count;
 	uint constraint_failure_slot_plus_one; // Zero means success; otherwise identifies one deterministically selected failing stable slot.
-	int pad1;
+	int selective_refresh_needed;
 	int pad2;
 };
 

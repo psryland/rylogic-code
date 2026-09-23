@@ -18,8 +18,7 @@ using namespace pr;
 using namespace pr::gui;
 using namespace pr::rdr12;
 
-std::filesystem::path const RylogicRoot = "E:\\Rylogic\\Code";
-std::filesystem::path const RylogicAssets = "E:\\Rylogic\\Assets";
+std::filesystem::path const RylogicAssets = "E:\\Rylogic\\rylogic-assets";
 
 enum class EStepMode
 {

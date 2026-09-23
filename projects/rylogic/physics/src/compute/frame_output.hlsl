@@ -37,6 +37,7 @@ RWStructuredBuffer<GpuFrameOutputHeader> resource(g_header, u3);
 RWStructuredBuffer<GpuSubstepOutputState> resource(g_substep_state, u4);
 RWStructuredBuffer<GpuCollisionEvent> resource(g_events, u5);
 RWStructuredBuffer<GpuRigidBody> resource(g_bodies, u6);
+RWStructuredBuffer<uint2> resource(g_event_copy_predicates, u7);
 RWStructuredBuffer<GpuArticulation> resource(g_articulations, u8);
 RWStructuredBuffer<GpuArticulationIntegrationState> resource(g_articulation_states, u9);
 RWStructuredBuffer<float> resource(g_articulation_positions, u10);
@@ -226,6 +227,24 @@ void CSGatherFrameArticulations(int3 DTID(dtid))
 	{
 		g_output_velocities[index] = g_articulation_velocities[index];
 		g_output_accelerations[index] = g_articulation_accelerations[index];
+	}
+}
+
+// Select only the smallest event prefix containing all retained events, without reading the count on the CPU.
+numthreads(CSEventCopyPredicates, 1, 1, 1)
+void CSEventCopyPredicates(int3 DTID(dtid))
+{
+	// The header count is final when the readback pass runs; zero events select no copy.
+	uint event_count = (uint)g_header[0].event_count;
+	uint previous_prefix = 0;
+	uint prefix_capacity = 64;
+	for (uint index = 0; previous_prefix < (uint)g.event_capacity; ++index)
+	{
+		// Match the clamped prefix copies recorded by GpuFrameOutput::GatherAndReadback.
+		uint current_prefix = min(prefix_capacity, (uint)g.event_capacity);
+		g_event_copy_predicates[index] = uint2(event_count > previous_prefix && event_count <= current_prefix ? 1u : 0u, 0u);
+		previous_prefix = current_prefix;
+		prefix_capacity *= 2;
 	}
 }
 

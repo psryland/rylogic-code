@@ -9,13 +9,14 @@
     <RootNamespace>Compute</RootNamespace>
     <ProjectName>compute</ProjectName>
     <TargetName>compute-static</TargetName>
-    <ResolveNuGetPackages>false</ResolveNuGetPackages>
+    <ResolveNuGetPackages>true</ResolveNuGetPackages>
     <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
   </PropertyGroup>
   <!--
   Property Sheets
   -->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="$(MSBuildProjectExtensionsPath)$(MSBuildProjectFile).nuget.g.props" Condition="Exists('$(MSBuildProjectExtensionsPath)$(MSBuildProjectFile).nuget.g.props')" />
   <Import Project="$(PropsPath)build_configurations.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <Import Project="$(PropsPath)lib.props" />
@@ -122,6 +123,7 @@
   Targets
   -->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Import Project="$(MSBuildProjectExtensionsPath)$(MSBuildProjectFile).nuget.g.targets" Condition="Exists('$(MSBuildProjectExtensionsPath)$(MSBuildProjectFile).nuget.g.targets')" />
   <Import Project="$(TargetsPath)WinPixEventRuntime.targets" />
   <Import Project="$(TargetsPath)dxc.targets" />
 </Project>

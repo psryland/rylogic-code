@@ -5,7 +5,7 @@ automatic elevation, or package dependencies.
 
 ## Build and run
 
-From `E:\Rylogic\Code`, with the .NET 10 SDK installed:
+From the repository root, with the .NET 10 SDK installed:
 
 ```powershell
 dotnet build projects\tools\VSRedirector\VSRedirector.csproj -c Debug
@@ -17,7 +17,7 @@ modify unrelated sources. It is intentionally built directly, without adding it 
 Stable deployed executable for GitKraken:
 
 ```text
-E:\Rylogic\Code\tools\VSRedirector\VSRedirector.exe
+tools\VSRedirector\VSRedirector.exe
 ```
 
 Every normal C# or C++ build runs the shared `EnsureRepositoryTools` prebuild target, which builds and deploys missing **Release** copies of both

@@ -64,10 +64,7 @@ public static class NativeRuntimePackage
 		// published runtime DLL closure is the canonical Release build.
 		foreach (var link_config in (link_configs ?? [config]).Distinct(StringComparer.OrdinalIgnoreCase))
 		{
-			var link_runtime_assets = string.Equals(link_config, config, StringComparison.OrdinalIgnoreCase)
-				? runtime_assets
-				: CollectRuntimeAssets(workspace, platform, link_config, require_all_projects);
-			StageLinkAssets(workspace, platform, link_config, staging_dir, link_runtime_assets, require_all_projects);
+			StageLinkAssets(workspace, platform, link_config, staging_dir, require_all_projects);
 		}
 		return staging_dir;
 	}
@@ -110,23 +107,6 @@ public static class NativeRuntimePackage
 	public static bool HasCompleteLinkAssetSet(string workspace, string platform, string config, out IReadOnlyList<string> unavailable_inputs)
 	{
 		var unavailable = new List<string>();
-		try
-		{
-			foreach (var runtime_asset in CollectRuntimeAssets(workspace, platform, config, require_all_projects: true).Values)
-			{
-				if (!RequiresAdjacentImportLibrary(workspace, runtime_asset))
-					continue;
-
-				var import_library = IOPath.ChangeExtension(runtime_asset, ".imp");
-				if (!File.Exists(import_library))
-					unavailable.Add($"missing import library: {import_library}");
-			}
-		}
-		catch (Exception ex)
-		{
-			unavailable.Add(ex.Message);
-		}
-
 		var manifest_dir = LinkManifestDirectory(workspace, platform, config);
 		foreach (var project in DiscoverLinkProjects(workspace).Where(x => x.Disposition == IncludeDisposition))
 		{
@@ -238,7 +218,7 @@ public static class NativeRuntimePackage
 		return projects;
 	}
 
-	// Discovers projects that explicitly contribute native link assets beyond DLL import libraries.
+	// Include import libraries declared by packaged DLL projects and any explicitly packaged static libraries.
 	private static List<LinkProject> DiscoverLinkProjects(string workspace)
 	{
 		var project_paths = Directory.EnumerateFiles(IOPath.Combine(workspace, "projects", "rylogic"), "*.vcxproj", SearchOption.AllDirectories)
@@ -251,6 +231,8 @@ public static class NativeRuntimePackage
 			var project = XDocument.Load(project_path);
 			var project_name = IOPath.GetFileNameWithoutExtension(project_path);
 			var disposition = project.Descendants().LastOrDefault(x => x.Name.LocalName == "RylogicNativeLinkPackage")?.Value.Trim();
+			if (string.IsNullOrWhiteSpace(disposition))
+				disposition = project.Descendants().LastOrDefault(x => x.Name.LocalName == "RylogicNativeRuntimePackage")?.Value.Trim();
 			if (string.IsNullOrWhiteSpace(disposition))
 				continue;
 			if (disposition is not (IncludeDisposition or ExcludeDisposition))
@@ -385,27 +367,11 @@ public static class NativeRuntimePackage
 		return runtime_dir;
 	}
 
-	// Copies import libraries and explicitly declared static archives into the configuration-specific consumer lib folder.
-	private static void StageLinkAssets(string workspace, string platform, string config, string staging_dir, IReadOnlyDictionary<string, string> runtime_assets, bool require_all_projects)
+	// Copies explicitly declared import and static libraries into the configuration-specific consumer lib folder.
+	private static void StageLinkAssets(string workspace, string platform, string config, string staging_dir, bool require_all_projects)
 	{
 		var target_dir = IOPath.Combine(staging_dir, "build", "native", "lib", platform, config);
 		Directory.CreateDirectory(target_dir);
-		foreach (var runtime_asset in runtime_assets.Values.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
-		{
-			if (!RequiresAdjacentImportLibrary(workspace, runtime_asset))
-				continue;
-
-			var import_library = IOPath.ChangeExtension(runtime_asset, ".imp");
-			if (!File.Exists(import_library))
-			{
-				if (require_all_projects)
-					throw new FileNotFoundException($"Declared native import library is missing: {import_library}", import_library);
-				continue;
-			}
-
-			File.Copy(import_library, IOPath.Combine(target_dir, IOPath.GetFileName(import_library)), overwrite: true);
-		}
-
 		var manifest_dir = LinkManifestDirectory(workspace, platform, config);
 		foreach (var project in DiscoverLinkProjects(workspace).Where(x => x.Disposition == IncludeDisposition))
 		{
@@ -495,15 +461,6 @@ public static class NativeRuntimePackage
 	private static string LinkManifestDirectory(string workspace, string platform, string config)
 	{
 		return IOPath.Combine(workspace, "obj", "native-link-manifests", platform, config);
-	}
-
-	// Treat third-party packaged DLLs as runtime-only payload because they do not participate in the supported
-	// Rylogic import-library surface.
-	private static bool RequiresAdjacentImportLibrary(string workspace, string runtime_asset)
-	{
-		var packages_dir = IOPath.GetFullPath(IOPath.Combine(workspace, "packages")) + IOPath.DirectorySeparatorChar;
-		var source_path = IOPath.GetFullPath(runtime_asset);
-		return !source_path.StartsWith(packages_dir, StringComparison.OrdinalIgnoreCase);
 	}
 
 	// Compares duplicate-named artifacts without trusting timestamps.

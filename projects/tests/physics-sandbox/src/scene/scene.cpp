@@ -197,9 +197,7 @@ namespace physics_sandbox
 				case EShape::Line:
 				{
 					auto& line = shape_cast<ShapeLine>(shape);
-					if (line.m_radius != 0)
-						return line.m_base.m_s2r * m4x4::Scale(line.m_radius, line.m_radius, line.m_hlength, v4::Origin());
-
+					assert(line.m_radius == 0);
 					return line.m_base.m_s2r * m4x4::Scale(1.0f, 1.0f, line.m_hlength, v4::Origin());
 				}
 				default:
@@ -1287,10 +1285,28 @@ namespace physics_sandbox
 			// a simple scale transform. Renderer model creation dominates large scene loads, so this avoids reparsing hundreds of boxes and spheres.
 			auto use_box_prototype = false;
 			auto use_sphere_prototype = false;
-			auto use_thick_line_prototype = false;
 			auto use_thin_line_prototype = false;
 			auto exact_prototype_lookup = std::vector<int>(total_bodies, -1);
 			auto exact_prototype_body_index = std::vector<int>{};
+			auto register_exact_prototype = [&](int body_index)
+			{
+				// Preserve one exact model per distinct shape so cap curvature cannot be distorted by instance scaling.
+				for (int j = 0; j != isize(exact_prototype_body_index); ++j)
+				{
+					auto const prototype_body = exact_prototype_body_index[j];
+					if (body_index < num_scene_bodies && prototype_body < num_scene_bodies && SameShapeDesc(scene_desc.bodies[body_index], scene_desc.bodies[prototype_body]))
+					{
+						exact_prototype_lookup[body_index] = j;
+						break;
+					}
+				}
+				if (exact_prototype_lookup[body_index] == -1)
+				{
+					// Record the first owner for this geometry before instantiating any scene bodies.
+					exact_prototype_lookup[body_index] = isize(exact_prototype_body_index);
+					exact_prototype_body_index.push_back(body_index);
+				}
+			};
 			for (int i = 0; i != total_bodies; ++i)
 			{
 				auto& body = m_body[i];
@@ -1313,27 +1329,14 @@ namespace physics_sandbox
 					{
 						auto& line = collision::shape_cast<collision::ShapeLine>(body.Shape());
 						if (line.m_radius != 0)
-							use_thick_line_prototype = true;
+							register_exact_prototype(i);
 						else
 							use_thin_line_prototype = true;
 						break;
 					}
 					default:
 					{
-						for (int j = 0; j != isize(exact_prototype_body_index); ++j)
-						{
-							auto const prototype_body = exact_prototype_body_index[j];
-							if (i < num_scene_bodies && prototype_body < num_scene_bodies && SameShapeDesc(scene_desc.bodies[i], scene_desc.bodies[prototype_body]))
-							{
-								exact_prototype_lookup[i] = j;
-								break;
-							}
-						}
-						if (exact_prototype_lookup[i] == -1)
-						{
-							exact_prototype_lookup[i] = isize(exact_prototype_body_index);
-							exact_prototype_body_index.push_back(i);
-						}
+						register_exact_prototype(i);
 						break;
 					}
 				}
@@ -1343,7 +1346,6 @@ namespace physics_sandbox
 			auto prototype_count = 0;
 			auto const box_prototype_name = std::string("ShapeBox");
 			auto const sphere_prototype_name = std::string("ShapeSphere");
-			auto const thick_line_prototype_name = std::string("ShapeThickLine");
 			auto const thin_line_prototype_name = std::string("ShapeThinLine");
 			if (use_box_prototype)
 			{
@@ -1353,11 +1355,6 @@ namespace physics_sandbox
 			if (use_sphere_prototype)
 			{
 				builder.Sphere(sphere_prototype_name).sphere(1).facets(5).hide();
-				++prototype_count;
-			}
-			if (use_thick_line_prototype)
-			{
-				builder.Cylinder(thick_line_prototype_name).cylinder(2, 1).facets(1, 50).end_caps().hide();
 				++prototype_count;
 			}
 			if (use_thin_line_prototype)
@@ -1402,8 +1399,14 @@ namespace physics_sandbox
 					case collision::EShape::Line:
 					{
 						auto& line = collision::shape_cast<collision::ShapeLine>(body.Shape());
-						prototype_name = line.m_radius != 0 ? std::string_view(thick_line_prototype_name) : std::string_view(thin_line_prototype_name);
-						body.m_gfx_o2b = PrimitiveShapeToBody(body);
+						if (line.m_radius != 0)
+							prototype_name = exact_prototype_names[exact_prototype_lookup[i]];
+						else
+						{
+							// Thin segments have no rounded caps, so their axial scale does not change their geometry.
+							prototype_name = thin_line_prototype_name;
+							body.m_gfx_o2b = PrimitiveShapeToBody(body);
+						}
 						break;
 					}
 					default:
@@ -2083,6 +2086,29 @@ namespace physics_sandbox::tests
 
 	PRUnitTestClass(SceneBoundsTests)
 	{
+		// Match the rendered capsule's axial and radial extents to its collision shape.
+		PRUnitTestMethod(CapsuleVisualPreservesRoundedCaps, Quick)
+		{
+			// Exercise the batched instance path used when loading the all-shapes scene.
+			auto renderer = rdr12::Renderer(rdr12::RdrSettings(GetModuleHandle(nullptr)));
+			auto window = rdr12::Window(renderer, rdr12::WndSettings(nullptr, true, renderer.Settings()).Size(96, 96));
+			auto sandbox = Scene(&renderer);
+			auto scene_desc = BoxScene(v4{1, 1, 1, 0}, 5.0f);
+			scene_desc.bodies[0].shape_type = scene_loader::BodyDesc::EShape::Line;
+			scene_desc.bodies[0].line_length = 2.0f;
+			scene_desc.bodies[0].line_thickness = 0.1f;
+			sandbox.LoadScene(scene_desc);
+
+			// The model must reach only one radius beyond each axis endpoint, not one scaled half-length.
+			auto const& body = sandbox.m_body[0];
+			PR_EXPECT(body.m_gfx != nullptr);
+			auto const visual_bounds = body.m_gfx->BBoxWS(rdr12::ldraw::EBBoxFlags::IncludeChildren);
+			auto const collision_bounds = body.BBoxWS();
+			PR_EXPECT(FEqlAbsolute(visual_bounds.m_radius, collision_bounds.m_radius, 0.001f));
+			PR_EXPECT(FEqlAbsolute(visual_bounds.m_centre, collision_bounds.m_centre, 0.001f));
+			window.WaitForGpu();
+		}
+
 		PRUnitTestMethod(IncludesArticulationShapeTransformsInAutomaticGroundExtent, Quick)
 		{
 			// An articulation-only scene exercises the bounds path that previously saw only top-level rigid-body descriptors.
@@ -2107,6 +2133,23 @@ namespace physics_sandbox::tests
 			PR_EXPECT(FEql(bbox.Radius(), v4{1.0f, 2.0f, 3.0f, 0.0f}));
 			PR_EXPECT(ground_shape.m_radius.x >= Abs(bbox.Centre().x) + bbox.Radius().x);
 			PR_EXPECT(ground_shape.m_radius.y >= Abs(bbox.Centre().y) + bbox.Radius().y);
+		}
+	};
+
+	// Exercise the renderer-backed load path used by buoyancy scenes.
+	PRUnitTestClass(SceneWaterTests)
+	{
+		// Loading the stress fixture must resolve the water shader's embedded include chain.
+		PRUnitTestMethod(BuoyancyStressSceneLoads, Quick)
+		{
+			// Use the real renderer and scene fixture so shader compilation happens at scene load time.
+			auto renderer = rdr12::Renderer(rdr12::RdrSettings(GetModuleHandle(nullptr)));
+			auto window = rdr12::Window(renderer, rdr12::WndSettings(nullptr, true, renderer.Settings()).Size(96, 96));
+			auto sandbox = Scene(&renderer);
+			auto scene_desc = scene_loader::LoadFromFile("projects\\tests\\physics-sandbox\\scenes\\buoyancy_stress_1000.json");
+			sandbox.LoadScene(std::move(scene_desc));
+			PR_EXPECT(sandbox.m_water_gfx != nullptr);
+			window.WaitForGpu();
 		}
 	};
 
