@@ -7,6 +7,7 @@
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
 #include "pr/physics/physics.h"
+#include "src/compute/physics_types.h"
 #include "src/unittests/shared_engine.h"
 
 namespace pr::physics::tests
@@ -579,6 +580,40 @@ namespace pr::physics::tests
 			PR_EXPECT(body.Sleeping());
 			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
 			PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+		}
+	};
+
+	// Check the engine's completed-frame event delivery and transferred-byte diagnostics with the normal configured capacity.
+	PRUnitTestClass(PredicatedEventEngineTests)
+	{
+		// A sparse contact frame keeps all callbacks without transferring the reserved event tail.
+		PRUnitTestMethod(SparseContactsRetainCapacityButSkipUnusedReadback, Quick)
+		{
+			auto shape = collision::ShapeSphere{0.5f};
+			auto bodies = MakeTimedCollisionPairs(shape);
+			auto body_ptrs = SubstepBodyPointers(bodies);
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			auto received = 0;
+			engine.Collisions += [&](Engine&, std::span<RbContact const> contacts)
+			{
+				received += isize(contacts);
+			};
+			engine.Step(Engine::StepInput{
+				.m_bodies = body_ptrs,
+				.m_elapsed_seconds = 0.4f,
+				.m_substep_count = 4,
+			});
+
+			auto const& collisions = engine.LastCollisionStats();
+			auto const& output = engine.LastFeatureStats().m_frame_output;
+			PR_EXPECT(received != 0);
+			PR_EXPECT(received == collisions.m_event_count);
+			PR_EXPECT(output.m_event_capacity == engine.Config().max_collision_events);
+			PR_EXPECT(output.m_readback_bytes != 0);
+			PR_EXPECT(output.m_readback_bytes < static_cast<uint64_t>(output.m_event_capacity) * sizeof(GpuCollisionEvent));
+			PR_EXPECT(output.m_readback_count == 1);
+			PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
 		}
 	};
 }

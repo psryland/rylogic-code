@@ -995,6 +995,7 @@ namespace pr::physics
 		auto output_committed = false;
 		try
 		{
+			m_last_feature_stats.m_frame_output.m_readback_bytes = GpuFrameOutput::TransferredBytes(m_pending_step.m_buffers->rb_output);
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_unpack_ms>(m_last_step_profile);
 			Unpack(
 				*m_pending_step.m_buffers,
@@ -1428,7 +1429,7 @@ namespace pr::physics
 			bodies.get());
 	}
 
-	// Gather selected output and record exactly one core GPU-to-CPU copy.
+	// Gather selected output in one readback allocation, skipping unused event ranges on the GPU.
 	void Engine::Readback(GpuBuffers& buffers, GpuArticulationMidpointOutput const& articulations, bool include_constraints)
 	{
 		auto body_count = m_cache->RigidBodyCount();
@@ -1448,7 +1449,7 @@ namespace pr::physics
 		if (m_gpu_world_contacts)
 			buffers.rb_terrain = m_gpu_world_contacts->Readback(m_gpu->m_job);
 
-		// Count the gathered frame-output copy independently of optional terrain status.
+		// Count the gathered frame-output readback independently of optional terrain status.
 		++m_last_step_profile.m_readback_copy_count;
 	}
 

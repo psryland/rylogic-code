@@ -58,7 +58,7 @@ namespace pr::physics
 		size_t m_readback_bytes;
 	};
 
-	// Owns the bounded frame event queue and gathers all selected outputs for one final GPU-to-CPU copy.
+	// Owns the bounded frame event queue and gathers all selected outputs into one CPU-visible allocation.
 	struct GpuFrameOutput
 	{
 		Gpu& m_gpu;
@@ -66,9 +66,11 @@ namespace pr::physics
 		ComputeStep m_cs_compact_events;
 		ComputeStep m_cs_append_events;
 		ComputeStep m_cs_gather_articulations;
+		ComputeStep m_cs_event_copy_predicates;
 		D3DPtr<ID3D12CommandSignature> m_cmd_sig;
 		D3DPtr<ID3D12Resource> m_r_output;
 		D3DPtr<ID3D12Resource> m_r_substep_state;
+		D3DPtr<ID3D12Resource> m_r_event_copy_predicates;
 		GpuFrameOutputLayout m_layout;
 		int64_t m_capacity;
 		bool m_substep_state_active;
@@ -91,10 +93,10 @@ namespace pr::physics
 		// Hidden-proxy filtering remains optional because rigid-only contact order already contains only public bodies.
 		void CaptureSubstep(GpuJob& job, int max_pairs, int max_contacts, int substep_index, int substep_count, bool collect_events, bool filter_hidden_proxies, ID3D12Resource* counters, ID3D12Resource* contacts, ID3D12Resource* contact_order, ID3D12Resource* contact_dispatch, ID3D12Resource* bodies);
 
-		// Gather final bodies and record the frame's sole GPU-to-CPU CopyBufferRegion.
+		// Gather final bodies and record one readback with a GPU-selected event prefix.
 		GpuFrameOutputReadback GatherAndReadback(GpuJob& job, int body_count, ID3D12Resource* bodies);
 
-		// Gather final rigid and articulation state before recording the frame's sole GPU-to-CPU copy.
+		// Gather final rigid and articulation state before recording the readback.
 		GpuFrameOutputReadback GatherAndReadback(GpuJob& job, int body_count, ID3D12Resource* bodies, GpuArticulationMidpointOutput const& articulations);
 
 		// Gather final state and diagnostics; a nonzero proxy count includes whole-tree sleep state from the canonical body suffix.
@@ -119,6 +121,9 @@ namespace pr::physics
 		static std::span<GpuConstraintBreakState const> ConstraintBreaks(GpuFrameOutputReadback const& readback);
 		static std::span<GpuCoupledConstraintFailureState const> CoupledFailures(GpuFrameOutputReadback const& readback);
 
+		// Report bytes copied into the completed readback, excluding event prefixes skipped by GPU predication.
+		static size_t TransferredBytes(GpuFrameOutputReadback const& readback);
+
 		// Return packed output usage, retained allocation, and work recorded for the current frame.
 		GpuFrameOutputStats Stats() const;
 
@@ -135,6 +140,9 @@ namespace pr::physics
 
 		// Create the optional articulation gather pipeline only when a frame first supplies a reduced-coordinate forest.
 		void EnsureArticulationGatherPipeline();
+
+		// Create the GPU event-prefix predicates only when event readback is requested.
+		void EnsureEventCopyPipeline(CmdList& cmd_list);
 
 		// Grow resources before command recording references the current allocation.
 		void ResizeBuffers(CmdList& cmd_list, int64_t capacity, bool requires_substep_state);

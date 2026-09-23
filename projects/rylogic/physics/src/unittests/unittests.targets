@@ -37,6 +37,10 @@
 			<PhysicsUnitTest>true</PhysicsUnitTest>
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
 		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)frame_output_predication_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
 		<ClCompile Include="$(MSBuildThisFileDirectory)articulation_link_proxies_gpu_tests.cpp">
 			<PhysicsUnitTest>true</PhysicsUnitTest>
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>

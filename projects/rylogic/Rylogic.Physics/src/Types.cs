@@ -620,7 +620,7 @@ public struct CoupledFeatureDiagnostics
 	public FeatureResourceDiagnostics m_resources;
 }
 
-/// <summary>Packed frame-output dimensions and the owning frame's sole-readback accounting.</summary>
+/// <summary>Packed frame-output dimensions and one readback allocation. Readback bytes report completed GPU copies, excluding predicated-off event ranges.</summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct FrameOutputFeatureDiagnostics
 {

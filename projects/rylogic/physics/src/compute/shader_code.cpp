@@ -29,11 +29,13 @@ namespace pr::physics::shader_code
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(compact_collision_events_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(append_collision_events_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(gather_frame_articulations_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(event_copy_predicates_cs.h)
 	}
 	ByteCode const prepare_substep_output(compiled::prepare_substep_output_cs);
 	ByteCode const compact_collision_events(compiled::compact_collision_events_cs);
 	ByteCode const append_collision_events(compiled::append_collision_events_cs);
 	ByteCode const gather_frame_articulations(compiled::gather_frame_articulations_cs);
+	ByteCode const event_copy_predicates(compiled::event_copy_predicates_cs);
 
 	// Sleep/wake state management
 	namespace compiled
