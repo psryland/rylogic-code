@@ -122,6 +122,12 @@ namespace pr::physics
 		// Return packed output usage, retained allocation, and work recorded for the current frame.
 		GpuFrameOutputStats Stats() const;
 
+		// Borrow the active frame header for a GPU-only residual flag before the shared readback.
+		ID3D12Resource* OutputResource()
+		{
+			return m_r_output.get();
+		}
+
 	private:
 
 		// Create collision-event compaction and append pipelines only when a subscriber requests event capture.

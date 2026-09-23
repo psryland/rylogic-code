@@ -157,4 +157,18 @@ namespace physics_sandbox
 		m_inst.m_time_s = time_s;
 		scene.AddInstance(m_inst);
 	}
+
+	#if PR_UNITTESTS
+	PRUnitTestClass(WaterVisualShaderTests)
+	{
+		// Compile the water shader using the embedded resources available to the running sandbox.
+		PRUnitTestMethod(CompilesEmbeddedWaterShader, Quick)
+		{
+			// A renderer provides the shader overlay with the same runtime resource module as scene loading.
+			auto renderer = rdr12::Renderer(rdr12::RdrSettings(GetModuleHandle(nullptr)));
+			auto shader = WaterShader(renderer, physics::GpuBuoyancy::WaterSurface{});
+			PR_EXPECT(!shader.m_vs_bytecode.empty());
+		}
+	};
+	#endif
 }

@@ -25,6 +25,7 @@ namespace pr::physics
 		EngineConfig const& m_config;            // Engine configuration parameters
 		ComputeStep m_cs_prepare;                // Clears per-pass problem flags and destination counters
 		ComputeStep m_cs_score_contacts;         // Scores resolved contacts and marks bodies that need refresh
+		ComputeStep m_cs_detect_need;            // Sets the next-step gate in the gathered frame header
 		ComputeStep m_cs_compact_pairs;          // Compacts current broadphase pairs touching marked bodies
 		ComputeStep m_cs_build_dispatch;         // Builds indirect collision-dispatch args for the compacted pair set
 		D3DPtr<ID3D12CommandSignature> m_cmd_sig;
@@ -36,6 +37,9 @@ namespace pr::physics
 		int m_max_contacts;
 
 		explicit GpuSelectiveRefresher(Gpu& gpu, EngineConfig const& config);
+
+		// Detect residual contacts in the final substep using the existing frame readback.
+		void DetectNeed(GpuJob& job, int body_count, int max_contacts, int contact_limit, ID3D12Resource* counters, ID3D12Resource* contacts, ID3D12Resource* dispatch, ID3D12Resource* bodies, ID3D12Resource* frame_header);
 
 		// Build the compact pair work set for one selective refresh pass.
 		GpuSelectiveWorkSet& BuildWorkSet(

@@ -73,6 +73,184 @@ namespace pr::physics::tests
 	// Prove internal substeps preserve the one-submit, one-wait, one-readback frame contract.
 	PRUnitTestClass(InternalSubstepTests)
 	{
+		// Report the detector's idle-frame overhead against the same Debug workload with refresh disabled.
+		PRUnitTestMethod(SelectiveRefreshIdleCost, Extended)
+		{
+			// Keep one awake sphere in ground contact while toggling only the configured refresh passes.
+			auto& engine = SharedEngine();
+			auto sphere_shape = collision::ShapeSphere{0.5f};
+			auto ground_shape = collision::ShapeBox{v4{10.0f, 10.0f, 1.0f, 0.0f}};
+			auto wall_ms = std::array<double, 2>{};
+			auto gpu_ms = std::array<double, 2>{};
+			auto recorded_ms = std::array<double, 2>{};
+			auto active_frames = std::array<int, 2>{};
+			auto contact_frames = std::array<int, 2>{};
+			for (int round = 0; round != 6; ++round)
+			{
+				// Alternate configurations to reduce run-order and device warm-up bias.
+				auto passes = round % 2;
+				ResetEngineForNextTest(engine);
+				auto config = engine.Config();
+				config.selective_refresh_passes = passes;
+				config.selective_refresh_support_only = false;
+				engine.Config(config);
+				auto sphere = RigidBody{&sphere_shape, m4x4::Translation(0.0f, 0.0f, 0.499f), Inertia::Sphere(0.5f, 1.0f)};
+				auto ground = RigidBody{&ground_shape, m4x4::Translation(0.0f, 0.0f, -0.5f), Inertia::Infinite()};
+				sphere.NeverSleep(true);
+				sphere.GravityWS(v4{0.0f, 0.0f, -9.81f, 0.0f});
+				auto bodies = std::array<RigidBody*, 2>{&sphere, &ground};
+				for (int frame = 0; frame != 64; ++frame)
+				{
+					// Replay a shallow corrected contact; exclude the first four frames while GPU resources settle.
+					sphere.O2W(m4x4::Translation(0.0f, 0.0f, 0.499f));
+					sphere.VelocityWS({});
+					auto start = std::chrono::steady_clock::now();
+					engine.Step(Engine::StepInput{.m_bodies = bodies, .m_elapsed_seconds = 1.0f / 60.0f});
+					auto elapsed_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+					if (frame < 4)
+						continue;
+
+					wall_ms[passes] += elapsed_ms;
+					gpu_ms[passes] += engine.LastStepProfile().m_gpu_run_ms;
+					recorded_ms[passes] += engine.LastStepProfile().m_selective_ms;
+					active_frames[passes] += engine.LastStepProfile().m_selective_refresh_pass_count != 0;
+					contact_frames[passes] += engine.LastCollisionStats().m_contact_count != 0;
+				}
+			}
+			for (int passes = 0; passes != 2; ++passes)
+			{
+				// Publish the comparative measurement without imposing a machine-dependent timing assertion.
+				std::printf("selective_idle passes=%d mean_step_ms=%.3f mean_gpu_ms=%.3f mean_record_ms=%.3f active_frames=%d/180 contact_frames=%d/180\n",
+					passes, wall_ms[passes] / 180, gpu_ms[passes] / 180, recorded_ms[passes] / 180, active_frames[passes], contact_frames[passes]);
+				PR_EXPECT(active_frames[passes] == 0);
+				PR_EXPECT(contact_frames[passes] > 0);
+			}
+		}
+
+		// Admit support contacts between dynamic bodies without admitting equally shallow isolated ground contact.
+		PRUnitTestMethod(SelectiveRefreshDistinguishesStackedSupport, Quick)
+		{
+			// Isolate the depth criterion from closing velocity and from the main position solve.
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			auto config = engine.Config();
+			config.max_collision_pairs = 16;
+			config.push_out_iterations = 0;
+			config.velocity_baumgarte = 0.0f;
+			config.deep_penetration_baumgarte_min = 0.0f;
+			config.deep_penetration_baumgarte_max = 0.0f;
+			config.selective_refresh_closing_speed_slop = 100.0f;
+			engine.Config(config);
+			auto shape = collision::ShapeSphere{0.5f};
+			auto ground_shape = collision::ShapeBox{v4{10.0f, 10.0f, 1.0f, 0.0f}};
+			auto lower = RigidBody{&shape, m4x4::Translation(0.0f, 0.0f, 0.5f), Inertia::Sphere(0.5f, 1.0f)};
+			auto upper = RigidBody{&shape, m4x4::Translation(0.0f, 0.0f, 1.4985f), Inertia::Sphere(0.5f, 1.0f)};
+			auto ground = RigidBody{&ground_shape, m4x4::Translation(0.0f, 0.0f, -0.5f), Inertia::Infinite()};
+			lower.GravityWS(v4{0.0f, 0.0f, -9.81f, 0.0f});
+			upper.GravityWS(v4{0.0f, 0.0f, -9.81f, 0.0f});
+			auto stack = std::array<RigidBody*, 3>{&lower, &upper, &ground};
+
+			// A shallow dynamic-on-dynamic contact identifies a stack even below the in-pass 2 mm support slop.
+			engine.Step(Engine::StepInput{.m_bodies = stack, .m_elapsed_seconds = 1.0f / 60.0f});
+			PR_EXPECT(engine.LastStepProfile().m_selective_refresh_pass_count == 0);
+			engine.Step(Engine::StepInput{.m_bodies = stack, .m_elapsed_seconds = 1.0f / 60.0f});
+			PR_EXPECT(engine.LastStepProfile().m_selective_refresh_pass_count == 1);
+
+			// An isolated support at the same depth must not activate the follow-up pass.
+			ResetEngineForNextTest(engine);
+			engine.Config(config);
+			auto isolated = RigidBody{&shape, m4x4::Translation(0.0f, 0.0f, 0.4985f), Inertia::Sphere(0.5f, 1.0f)};
+			isolated.GravityWS(v4{0.0f, 0.0f, -9.81f, 0.0f});
+			auto pair = std::array<RigidBody*, 2>{&isolated, &ground};
+			engine.Step(Engine::StepInput{.m_bodies = pair, .m_elapsed_seconds = 1.0f / 60.0f});
+			engine.Step(Engine::StepInput{.m_bodies = pair, .m_elapsed_seconds = 1.0f / 60.0f});
+			PR_EXPECT(engine.LastStepProfile().m_selective_refresh_pass_count == 0);
+
+			// The current GPU contact count must enforce the configured limit even though host diagnostics reset before recording.
+			ResetEngineForNextTest(engine);
+			config.selective_refresh_contact_limit = 1;
+			engine.Config(config);
+			lower.O2W(m4x4::Translation(0.0f, 0.0f, 0.495f));
+			upper.O2W(m4x4::Translation(0.0f, 0.0f, 1.49f));
+			engine.Step(Engine::StepInput{.m_bodies = stack, .m_elapsed_seconds = 1.0f / 60.0f});
+			PR_EXPECT(engine.LastCollisionStats().m_contact_count > 1);
+			engine.Step(Engine::StepInput{.m_bodies = stack, .m_elapsed_seconds = 1.0f / 60.0f});
+			PR_EXPECT(engine.LastStepProfile().m_selective_refresh_pass_count == 0);
+		}
+
+		// Verify the engine admits residual contacts one frame later, holds the gate across clean frames, and obeys reset and disable.
+		PRUnitTestMethod(SelectiveRefreshAdmitsResidualAndExpires, Quick)
+		{
+			// Disable main push-out so an overlapping sphere provides a repeatable residual for the GPU detector.
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			auto config = engine.Config();
+			config.max_collision_pairs = 16;
+			config.push_out_iterations = 0;
+			config.position_baumgarte = 1.0f;
+			config.velocity_baumgarte = 0.0f;
+			config.deep_penetration_baumgarte_min = 0.0f;
+			config.deep_penetration_baumgarte_max = 0.0f;
+			config.warm_start_scale = 0.0f;
+			config.selective_refresh_passes = 1;
+			config.selective_refresh_position_iterations = 1;
+			config.selective_refresh_support_only = false;
+			engine.Config(config);
+			auto sphere_shape = collision::ShapeSphere{0.5f};
+			auto ground_shape = collision::ShapeBox{v4{10.0f, 10.0f, 1.0f, 0.0f}};
+			auto sphere = RigidBody{&sphere_shape, m4x4::Translation(0.0f, 0.0f, 0.4f), Inertia::Sphere(0.5f, 1.0f)};
+			auto ground = RigidBody{&ground_shape, m4x4::Translation(0.0f, 0.0f, -0.5f), Inertia::Infinite()};
+			auto bodies = std::array<RigidBody*, 2>{&sphere, &ground};
+			auto step = [&]()
+			{
+				// Keep the physical state fixed so only the detection gate changes the recorded work.
+				sphere.O2W(m4x4::Translation(0.0f, 0.0f, 0.4f));
+				sphere.VelocityWS({});
+				engine.Step(Engine::StepInput{.m_bodies = bodies, .m_elapsed_seconds = 1.0f / 60.0f});
+				PR_EXPECT(engine.LastStepProfile().m_submission_count == 1);
+				PR_EXPECT(engine.LastStepProfile().m_readback_copy_count == 1);
+			};
+
+			// Detection uses the completed readback, not an extra GPU wait or first-frame refresh.
+			step();
+			PR_EXPECT(engine.LastStepProfile().m_selective_refresh_pass_count == 0);
+			step();
+			PR_EXPECT(engine.LastStepProfile().m_selective_refresh_pass_count == 1);
+
+			// Four clean frames exhaust the hold; the next residual again waits until the following frame.
+			for (int clean = 0; clean != 4; ++clean)
+			{
+				sphere.O2W(m4x4::Translation(0.0f, 0.0f, 2.0f));
+				sphere.VelocityWS({});
+				engine.Step(Engine::StepInput{.m_bodies = bodies, .m_elapsed_seconds = 1.0f / 60.0f});
+				PR_EXPECT(engine.LastCollisionStats().m_contact_count == 0);
+			}
+			step();
+			PR_EXPECT(engine.LastStepProfile().m_selective_refresh_pass_count == 0);
+
+			// Reset clears pending admission even when the preceding frame found a residual.
+			engine.ResetCaches();
+			step();
+			PR_EXPECT(engine.LastStepProfile().m_selective_refresh_pass_count == 0);
+
+			// Configuration remains authoritative for both the detector and the follow-up pass.
+			config.selective_refresh_passes = 0;
+			engine.Config(config);
+			step();
+			step();
+			PR_EXPECT(engine.LastStepProfile().m_selective_refresh_pass_count == 0);
+
+			// A contact corrected by the main solve has no substantial residual and should not keep refresh alive.
+			engine.ResetCaches();
+			config.selective_refresh_passes = 1;
+			config.push_out_iterations = 4;
+			engine.Config(config);
+			step();
+			PR_EXPECT(sphere.O2W().pos.z > 0.49f);
+			step();
+			PR_EXPECT(engine.LastStepProfile().m_selective_refresh_pass_count == 0);
+		}
+
 		// Verify callback identity, time partitioning, and GPU boundary counts for the required substep counts.
 		PRUnitTestMethod(OneSubmissionAndReadbackPerFrame, Quick)
 		{

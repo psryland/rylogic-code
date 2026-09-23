@@ -262,11 +262,13 @@ namespace pr::physics::shader_code
 	{
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(prepare_selective_refresh_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(score_selective_contacts_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(detect_selective_refresh_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(compact_selective_pairs_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(build_selective_dispatch_cs.h)
 	}
 	ByteCode const prepare_selective_refresh(compiled::prepare_selective_refresh_cs);
 	ByteCode const score_selective_contacts(compiled::score_selective_contacts_cs);
+	ByteCode const detect_selective_refresh(compiled::detect_selective_refresh_cs);
 	ByteCode const compact_selective_pairs(compiled::compact_selective_pairs_cs);
 	ByteCode const build_selective_dispatch(compiled::build_selective_dispatch_cs);
 }

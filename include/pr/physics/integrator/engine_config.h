@@ -81,7 +81,9 @@ namespace pr::physics
 		float deep_penetration_baumgarte_max = 0.8f;
 
 		// Selective contact refresh runs extra narrowphase/resolve passes over a compacted
-		// subset of problematic pairs after the full contact graph has been resolved.
+		// subset of problematic pairs after the full contact graph has been resolved. Admission uses the final substep's
+		// contacts: a dynamic support stack or substantial solved isolated penetration/closing speed enables
+		// refresh on the next frame. Four clean frames keep the gate open to avoid toggling near the threshold.
 		int selective_refresh_passes = 1;
 		int selective_refresh_max_pairs = 512;
 		int selective_refresh_body_limit = 256;

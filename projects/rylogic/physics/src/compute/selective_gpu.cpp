@@ -19,7 +19,7 @@ namespace pr::physics
 		int g_sleeping_enabled;
 		int g_full_max_pairs;
 		int g_support_only;
-		int pad_i1;
+		int contact_limit;
 		int pad_i2;
 
 		float g_depth_slop;
@@ -54,6 +54,7 @@ namespace pr::physics
 		, m_config(config)
 		, m_cs_prepare()
 		, m_cs_score_contacts()
+		, m_cs_detect_need()
 		, m_cs_compact_pairs()
 		, m_cs_build_dispatch()
 		, m_cmd_sig()
@@ -99,6 +100,16 @@ namespace pr::physics
 				"Physics:SelectiveScoreSig",
 				"Physics:SelectiveScorePSO",
 				sig);
+		}
+
+		{
+			auto sig = RootSig(ERootSigFlags::ComputeOnly)
+				.U32<cbSelectiveRefresh>(EReg::Params)
+				.UAV(EReg::Bodies)
+				.UAV(EUAVReg::u6)
+				.SRV(EReg::SourceCounters)
+				.SRV(EReg::SourceContacts);
+			compile(m_cs_detect_need, shader_code::detect_selective_refresh, "Physics:SelectiveDetectSig", "Physics:SelectiveDetectPSO", sig);
 		}
 
 		{
@@ -181,6 +192,38 @@ namespace pr::physics
 		}
 	}
 
+	// Read only the solved contacts and write one sticky bit into the frame's existing output header.
+	void GpuSelectiveRefresher::DetectNeed(GpuJob& job, int body_count, int max_contacts, int contact_limit, ID3D12Resource* counters, ID3D12Resource* contacts, ID3D12Resource* dispatch, ID3D12Resource* bodies, ID3D12Resource* frame_header)
+	{
+		auto cb = cbSelectiveRefresh{
+			.g_max_contacts = max_contacts,
+			.g_body_count = body_count,
+			.g_sleeping_enabled = m_config.sleeping_enabled ? 1 : 0,
+			.g_support_only = m_config.selective_refresh_support_only ? 1 : 0,
+			.contact_limit = contact_limit,
+			.g_depth_slop = m_config.selective_refresh_depth_slop,
+			.g_support_depth_slop = m_config.selective_refresh_support_depth_slop,
+			.g_closing_speed_slop = m_config.selective_refresh_closing_speed_slop,
+			.g_support_alignment = m_config.selective_refresh_support_alignment,
+		};
+		job.m_barriers.Transition(dispatch, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+		job.m_barriers.Transition(counters, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(contacts, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+		job.m_barriers.Transition(bodies, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(frame_header, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Commit();
+
+		job.m_cmd_list.SetPipelineState(m_cs_detect_need.m_pso.get());
+		job.m_cmd_list.SetComputeRootSignature(m_cs_detect_need.m_sig.get());
+		job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(bodies->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(frame_header->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(counters->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(contacts->GetGPUVirtualAddress());
+		job.m_cmd_list.ExecuteIndirect(m_cmd_sig.get(), 1, dispatch);
+		job.m_barriers.UAV(frame_header).Commit();
+	}
+
 	GpuSelectiveWorkSet& GpuSelectiveRefresher::BuildWorkSet(
 		GpuJob& job,
 		int pass_index,
@@ -207,7 +250,7 @@ namespace pr::physics
 			.g_sleeping_enabled = m_config.sleeping_enabled ? 1 : 0,
 			.g_full_max_pairs = full_max_pairs,
 			.g_support_only = m_config.selective_refresh_support_only ? 1 : 0,
-			.pad_i1 = 0,
+			.contact_limit = 0,
 			.pad_i2 = 0,
 			.g_depth_slop = m_config.selective_refresh_depth_slop,
 			.g_support_depth_slop = m_config.selective_refresh_support_depth_slop,

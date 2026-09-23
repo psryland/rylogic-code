@@ -506,6 +506,13 @@ namespace pr::physics::tests
 				.m_constraints = &constraints,
 				.m_elapsed_seconds = 1.0f / 60.0f,
 			});
+			// The first completed residual admits the selective continuation on the following frame.
+			engine.Step(Engine::StepInput{
+				.m_bodies = body_ptrs,
+				.m_articulations = articulation_ptrs,
+				.m_constraints = &constraints,
+				.m_elapsed_seconds = 1.0f / 60.0f,
+			});
 			auto const constraint_error = Abs(tree.m_articulation.LinkToWorld(tree.m_link).pos.z - body.O2W().pos.z);
 			PR_EXPECT(engine.LastCollisionStats().m_contact_count != 0);
 			PR_EXPECT(tree.m_articulation.LinkToWorld(tree.m_link).pos.z > 0.16f);
@@ -1428,7 +1435,7 @@ namespace pr::physics::tests
 
 			// One sweep exposes a late clear; additional sweeps require root restoration. Repeated input exposes stale pseudo state.
 			auto first_position = 0.0f;
-			for (int frame = 0; frame != 2; ++frame)
+			for (int frame = 0; frame != (selective ? 3 : 2); ++frame)
 			{
 				contact_body.O2W(m4x4::Translation(0.0f, 0.0f, 0.4f));
 				follower_body.O2W(m4x4::Translation(0.0f, 0.0f, 1.4f));
@@ -1437,13 +1444,16 @@ namespace pr::physics::tests
 					.m_constraints = &constraints,
 					.m_elapsed_seconds = 1.0f / 60.0f,
 				});
+				if (selective && frame == 0)
+					continue;
+
 				PR_EXPECT(engine.LastCollisionStats().m_contact_count != 0);
 				PR_EXPECT(contact_body.O2W().pos.z > 0.41f);
 				PR_EXPECT(follower_body.O2W().pos.z > 1.41f);
 				PR_EXPECT(Abs(follower_body.O2W().pos.z - contact_body.O2W().pos.z - 1.0f) < 1.0e-5f);
 				PR_EXPECT(Length(contact_body.VelocityWS().lin) < 1.0e-6f);
 				PR_EXPECT(Length(follower_body.VelocityWS().lin) < 1.0e-6f);
-				if (frame == 0)
+				if (frame == (selective ? 1 : 0))
 					first_position = contact_body.O2W().pos.z;
 				else
 					PR_EXPECT(Abs(contact_body.O2W().pos.z - first_position) < 1.0e-6f);

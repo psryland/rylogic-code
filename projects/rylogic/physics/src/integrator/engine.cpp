@@ -501,6 +501,8 @@ namespace pr::physics
 		m_coupled_constraints_active = false;
 		m_coupled_contacts_active = false;
 		m_last_collision_stats = {};
+		m_selective_refresh_hold_steps = 0;
+		m_selective_refresh_previous_contact_count = 0;
 	}
 
 	// Evolve the physics objects forward in time and resolve any collisions.
@@ -655,6 +657,8 @@ namespace pr::physics
 			m_last_step_profile = {};
 			m_last_step_profile.m_substep_count = input.m_substep_count;
 			m_last_collision_stats = {};
+			m_selective_refresh_hold_steps = 0;
+			m_selective_refresh_previous_contact_count = 0;
 			UpdateFeatureResourceStats(false);
 			m_last_feature_stats.m_constraints.m_declared_count = input.m_constraints != nullptr ? s_cast<int>(input.m_constraints->Count()) : 0;
 			return;
@@ -668,6 +672,7 @@ namespace pr::physics
 
 		m_last_step_profile = {};
 		m_last_step_profile.m_substep_count = input.m_substep_count;
+		m_selective_refresh_previous_contact_count = m_last_collision_stats.m_contact_count;
 		m_last_collision_stats = {};
 
 		{
@@ -926,6 +931,19 @@ namespace pr::physics
 						Resolve(dt, substep_index);
 					}
 
+					// The final normal solve supplies next frame's admission without adding a CPU-visible GPU wait.
+					if (m_config.selective_refresh_passes > 0 && substep_index == input.m_substep_count - 1)
+					{
+						auto const body_count = m_cache->RigidBodyCount();
+						if (m_config.selective_refresh_body_limit <= 0 || body_count <= m_config.selective_refresh_body_limit)
+						{
+							m_gpu_selective_refresher->DetectNeed(m_gpu->m_job, body_count, m_config.max_collision_pairs, m_config.selective_refresh_contact_limit,
+								m_gpu_integrator->Counters().get(), m_gpu_collision_detector->Contacts().get(),
+								m_gpu_collision_detector->ResolveDispatchArgs().get(), m_gpu_integrator->Bodies().get(),
+								m_gpu_frame_output->OutputResource());
+						}
+					}
+
 					// Publish the main coupled solve before selective passes recompile rows against the corrected articulation configuration.
 					if (m_coupled_constraints_active || m_coupled_contacts_active)
 						m_gpu_articulation_link_proxies->Refresh(m_gpu->m_job, *m_gpu_integrator, m_cache->BroadphaseSortAxis());
@@ -988,6 +1006,8 @@ namespace pr::physics
 				m_pending_step.m_elapsed_seconds,
 				output_committed
 			);
+			auto const& header = GpuFrameOutput::Header(m_pending_step.m_buffers->rb_output);
+			m_selective_refresh_hold_steps = header.selective_refresh_needed != 0 ? 4 : std::max(0, m_selective_refresh_hold_steps - 1);
 		}
 		catch (...)
 		{
@@ -1276,7 +1296,7 @@ namespace pr::physics
 	void Engine::SelectiveRefresh(float dt, int substep_index)
 	{
 		auto const pass_count = std::max(0, m_config.selective_refresh_passes);
-		if (pass_count == 0)
+		if (pass_count == 0 || m_selective_refresh_hold_steps == 0)
 			return;
 
 		auto const body_count = m_cache->RigidBodyCount();
@@ -1286,7 +1306,7 @@ namespace pr::physics
 		// the previous frame because the current counters stay GPU-resident until readback.
 		if (m_config.selective_refresh_body_limit > 0 && body_count > m_config.selective_refresh_body_limit)
 			return;
-		if (m_config.selective_refresh_contact_limit > 0 && m_last_collision_stats.m_contact_count > m_config.selective_refresh_contact_limit)
+		if (m_config.selective_refresh_contact_limit > 0 && m_selective_refresh_previous_contact_count > m_config.selective_refresh_contact_limit)
 			return;
 
 		auto const full_max_pairs = m_config.max_collision_pairs;
@@ -1310,6 +1330,7 @@ namespace pr::physics
 		{
 			// Each pass scores the contacts produced by the previous resolve, then refreshes
 			// narrowphase only for nearby pairs that share those problem bodies.
+			++m_last_step_profile.m_selective_refresh_pass_count;
 			auto& work_set = m_gpu_selective_refresher->BuildWorkSet(
 				m_gpu->m_job,
 				pass,

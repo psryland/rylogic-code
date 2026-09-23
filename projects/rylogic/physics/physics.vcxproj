@@ -283,7 +283,7 @@
     <ShaderBuild Include="src\compute\articulation_impulse_aba.hlsl" ComputeEntryPoints="CSArticulationApplyImpulses;CSArticulationEvaluateImpulses;CSArticulationCommitImpulses" />
     <ShaderBuild Include="src\compute\articulation_link_proxies.hlsl" ComputeEntryPoints="CSArticulationRefreshProxies" />
     <ShaderBuild Include="src\compute\articulation_midpoint.hlsl" ComputeEntryPoints="CSArticulationMidpoint" />
-    <ShaderBuild Include="src\compute\selective.hlsl" ComputeEntryPoints="CSPrepareSelectiveRefresh;CSScoreSelectiveContacts;CSCompactSelectivePairs;CSBuildSelectiveDispatch" />
+    <ShaderBuild Include="src\compute\selective.hlsl" ComputeEntryPoints="CSPrepareSelectiveRefresh;CSScoreSelectiveContacts;CSDetectSelectiveRefresh;CSCompactSelectivePairs;CSBuildSelectiveDispatch" />
     <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl" ComputeEntryPoints="CSBuoyancyVolumeSamples;CSBuoyancyVolumeReduce;CSBuoyancyDragSurfaceSamples;CSBuoyancyDragSurfaceReduce">
       <StampDir>$(ProjectDir)src\buoyancy\compiled\$(Configuration)\</StampDir>
     </ShaderBuild>

@@ -135,6 +135,7 @@ namespace pr::physics::shader_code
 	// Selective refresh
 	extern ByteCode const prepare_selective_refresh;
 	extern ByteCode const score_selective_contacts;
+	extern ByteCode const detect_selective_refresh;
 	extern ByteCode const compact_selective_pairs;
 	extern ByteCode const build_selective_dispatch;
 }
