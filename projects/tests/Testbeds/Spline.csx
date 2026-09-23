@@ -1,6 +1,6 @@
-#! "net9.0-windows"
-#r "E:/Rylogic/Code/projects/rylogic/Rylogic.Core/bin/Debug/net9.0-windows/Rylogic.Core.dll"
-#r "E:/Rylogic/Code/projects/rylogic/Rylogic.Gfx/bin/Debug/net9.0-windows/Rylogic.Gfx.dll"
+#! "net10.0-windows"
+#r "../../rylogic/Rylogic.Core/bin/Debug/net10.0-windows/Rylogic.Core.dll"
+#r "../../rylogic/Rylogic.Gfx/bin/Debug/net10.0-windows/Rylogic.Gfx.dll"
 #nullable enable
 
 using Microsoft.CodeAnalysis;

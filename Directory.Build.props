@@ -10,9 +10,12 @@
 		<ToolsPath>$(MSBuildThisFileDirectory)tools\</ToolsPath>
 		<PropsPath>$(MSBuildThisFileDirectory)build\props\</PropsPath>
 		<TargetsPath>$(MSBuildThisFileDirectory)build\targets\</TargetsPath>
-		<PackagesPath>$(MSBuildThisFileDirectory)packages\</PackagesPath>
 		<DeployPath>$(MSBuildThisFileDirectory)lib\</DeployPath>
 		<SDKPath>$(MSBuildThisFileDirectory)sdk\</SDKPath>
+
+		<!-- NuGet's generated props are disabled for most C++ projects, so expose its standard package root to shared native targets. -->
+		<NuGetPackageRoot Condition="'$(NuGetPackageRoot)' == '' AND '$(NUGET_PACKAGES)' != ''">$(NUGET_PACKAGES)</NuGetPackageRoot>
+		<NuGetPackageRoot Condition="'$(NuGetPackageRoot)' == ''">$(USERPROFILE)\.nuget\packages</NuGetPackageRoot>
 	</PropertyGroup>
 
 	<Import Project="$(MSBuildThisFileDirectory)Directory.Build.user.props" Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.user.props')" />
@@ -31,7 +34,6 @@
 		<RunAnalyzersDuringBuild>False</RunAnalyzersDuringBuild>
 		<SatelliteResourceLanguages>en</SatelliteResourceLanguages>
 		<RestorePackagesWithLockFile>False</RestorePackagesWithLockFile>
-		<RestorePackagesPath>$(PackagesPath)</RestorePackagesPath>
 		<TreatWarningsAsErrors>false</TreatWarningsAsErrors>
 		<LangVersion>latest</LangVersion>
 		<WarningLevel>9999</WarningLevel>
@@ -67,7 +69,6 @@
 		<VCProjectVersion>16.0</VCProjectVersion>
 		<PlatformToolset>v145</PlatformToolset>
 		<WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-		<RestorePackagesPath>$(PackagesPath)</RestorePackagesPath>
 		<VCToolsVersion />
 
 		<!-- These lines disable problematic imports -->

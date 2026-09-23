@@ -19,6 +19,6 @@
 	],
 	"settings": {
 		"dotnet.server.useOmnisharp": true,
-		"dotnet.defaultSolution": "E:\\Rylogic\\Code\\Rylogic.sln"
+		"dotnet.defaultSolution": "Rylogic.sln"
 	}
 }

@@ -6,7 +6,7 @@ import sys
 import Rylogic as Tools
 
 try:
-	#sys.argv=["", "E:/Rylogic/Code/projects/rylogic/Rylogic.Core/bin/Debug/net9.0-windows/Rylogic.Core.dll",]
+	#sys.argv=["", "projects/rylogic/Rylogic.Core/bin/Debug/net10.0-windows/Rylogic.Core.dll",]
 	
 	#print(str(sys.argv))
 	Tools.UnitTest(sys.argv[1], sys.argv[2:])

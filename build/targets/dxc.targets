@@ -2,7 +2,7 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
 	<PropertyGroup>
-		<DxcPackagePath>$(PackagesPath)Microsoft.Direct3D.DXC\1.8.2407.12\</DxcPackagePath>
+		<DxcPackagePath>$(NuGetPackageRoot)\Microsoft.Direct3D.DXC\1.8.2407.12\</DxcPackagePath>
 	</PropertyGroup>
 
 	<ItemGroup>

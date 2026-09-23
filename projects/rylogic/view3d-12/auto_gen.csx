@@ -12,7 +12,12 @@ using System.Text.RegularExpressions;
 using Rylogic.Utility;
 
 static Regex Pattern = new Regex(@"\s*x\(\s*(.*?)\s*\).*");
-string Root = Args.Count != 0 ? Args[0] : "E:\\Rylogic\\Code";
+
+// Require the build to provide the repository root instead of guessing a machine-specific location.
+if (Args.Count != 1)
+	throw new ArgumentException("Expected exactly one repository-root argument");
+
+string Root = Path.GetFullPath(Args[0]);
 
 // Do the auto gen
 void AutoGen()

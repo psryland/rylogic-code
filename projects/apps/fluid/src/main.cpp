@@ -118,7 +118,7 @@ struct Main :Form, IProbeActions
 		, m_last_frame(-1)
 		, m_time()
 	{
-		Tweakables::filepath = "E:/Rylogic/Code/projects/apps/fluid/tweakables.ini";
+		Tweakables::filepath = std::filesystem::path(__FILE__).parent_path().parent_path() / "tweakables.ini";
 		ApplyTweakables();
 
 		// Load the next demo scene
