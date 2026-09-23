@@ -72,7 +72,7 @@ namespace pr::rdr12
 
 		// Create an object from geometry
 		ldraw::LdrObject* ObjectCreate(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<uint16_t const> indices, std::span<view3d::Nugget const> nuggets, Guid const& context_id);
-		ldraw::LdrObject* ObjectCreate(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<uint32_t const> indices, std::span<view3d::Nugget const> nuggets, view3d::ObjectCreateOptions const& options, Guid const& context_id);
+		ldraw::LdrObject* ObjectCreate(char const* name, Colour32 colour, int vertex_count, std::span<view3d::Vertex const> verts, std::span<uint32_t const> indices, std::span<view3d::Nugget const> nuggets, view3d::ObjectCreateOptions const& options, Guid const& context_id);
 
 		// Load/Add ldr objects and return the first object from the script
 		template <typename Char>

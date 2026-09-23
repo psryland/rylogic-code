@@ -402,10 +402,126 @@ namespace pr::rdr12
 	}
 
 	// Create an object from 32-bit indexed geometry.
-	ldraw::LdrObject* Context::ObjectCreate(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<uint32_t const> indices, std::span<view3d::Nugget const> nuggets, view3d::ObjectCreateOptions const& options, Guid const& context_id)
+	ldraw::LdrObject* Context::ObjectCreate(char const* name, Colour32 colour, int vertex_count, std::span<view3d::Vertex const> verts, std::span<uint32_t const> indices, std::span<view3d::Nugget const> nuggets, view3d::ObjectCreateOptions const& options, Guid const& context_id)
 	{
-		// Apply the explicit extended creation contract.
-		return ObjectCreateImpl(*this, name, colour, verts, indices, nuggets, &options, context_id);
+		// Route ordinary and procedural sources through the established CPU-payload creation path.
+		if (options.m_vertex_source != view3d::EVertexSource::GpuGeneratedBuffer)
+			return ObjectCreateImpl(*this, name, colour, verts, indices, nuggets, &options, context_id);
+
+		// Validate the complete generated-buffer contract before allocating renderer resources.
+		if (vertex_count <= 0 || indices.empty() || nuggets.empty())
+			throw std::invalid_argument("GPU-generated objects require nonempty vertex, index, and nugget ranges");
+		if (name == nullptr || name[0] == '\0')
+			throw std::invalid_argument("GPU-generated object name is required");
+		if (options.m_compute_bytecode == nullptr || options.m_compute_bytecode_size == 0)
+			throw std::invalid_argument("GPU-generated object compute bytecode is required");
+		if (options.m_constants == nullptr || options.m_constants_size == 0 || options.m_constants_size > D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * 16ULL)
+			throw std::invalid_argument("GPU-generated object constants must contain 1 to 65536 bytes");
+		if (options.m_thread_group_size_x <= 0 || options.m_thread_group_size_x > D3D12_CS_THREAD_GROUP_MAX_THREADS_PER_GROUP)
+			throw std::invalid_argument("GPU-generated object thread-group size is invalid");
+		auto const group_count = 1 + (vertex_count - 1) / options.m_thread_group_size_x;
+		if (group_count > D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION)
+			throw std::invalid_argument("GPU-generated object dispatch exceeds the D3D12 X dimension");
+		auto const& bbox = options.m_bbox;
+		auto const finite =
+			std::isfinite(bbox.centre.x) && std::isfinite(bbox.centre.y) && std::isfinite(bbox.centre.z) && std::isfinite(bbox.centre.w) &&
+			std::isfinite(bbox.radius.x) && std::isfinite(bbox.radius.y) && std::isfinite(bbox.radius.z) && std::isfinite(bbox.radius.w);
+		if (!finite || bbox.radius.x < 0 || bbox.radius.y < 0 || bbox.radius.z < 0)
+			throw std::invalid_argument("GPU-generated objects require a finite model-space bounding box with nonnegative extents");
+		for (auto index : indices)
+		{
+			// Reject invalid IDs before they can become undefined input-assembler fetches.
+			if (index >= s_cast<uint32_t>(vertex_count))
+				throw std::out_of_range("GPU-generated object index exceeds the vertex-buffer range");
+		}
+
+		// Translate public nuggets into ordinary buffered renderer materials.
+		auto translated_nuggets = pr::vector<NuggetDesc>{};
+		translated_nuggets.reserve(nuggets.size());
+		for (auto const& nugget : nuggets)
+		{
+			// Generated vertices use the complete canonical layout, while each nugget declares the fields its material consumes.
+			auto const vrange = nugget.m_v0 != nugget.m_v1 ? Range(nugget.m_v0, nugget.m_v1) : Range(0, vertex_count);
+			auto const irange = nugget.m_i0 != nugget.m_i1 ? Range(nugget.m_i0, nugget.m_i1) : Range(0, indices.size());
+			if (vrange.begin() < 0 || vrange.begin() > vrange.end() || vrange.end() > vertex_count)
+				throw std::out_of_range("GPU-generated nugget vertex range exceeds the vertex buffer");
+			if (irange.begin() < 0 || irange.begin() > irange.end() || irange.end() > isize(indices))
+				throw std::out_of_range("GPU-generated nugget index range exceeds the index buffer");
+
+			auto material = RefPtr<MaterialSimple>(::pr::compute::New<MaterialSimple>(), true);
+			material->base_texture(Texture2DPtr(nugget.m_tex_diffuse, true), SamplerPtr(nugget.m_sam_diffuse, true));
+			material->base_colour(To<Colour>(nugget.m_tint));
+			material->rel_reflec(nugget.m_rel_reflec);
+			for (auto const& shader : nugget.shader_span())
+			{
+				// Procedural raster shaders are incompatible with the newly buffered vertex source.
+				if (shader.m_shader == nullptr)
+					throw std::invalid_argument("GPU-generated nugget shader handle is null");
+				if (dynamic_cast<ProceduralVertexShader*>(shader.m_shader) != nullptr)
+					throw std::invalid_argument("GPU-generated buffered objects cannot use procedural vertex shaders");
+				material->use_shader_overlay(static_cast<ERenderStep>(shader.m_rdr_step), ShaderPtr(shader.m_shader, true));
+			}
+
+			auto desc = NuggetDesc(static_cast<ETopo>(nugget.m_topo), static_cast<EGeom>(nugget.m_geom))
+				.vrange(vrange)
+				.irange(irange)
+				.flags(static_cast<ENuggetFlag>(nugget.m_nflags))
+				.mat(material);
+			if (nugget.m_cull_mode != view3d::ECullMode::Default)
+				desc.pso<EPipeState::CullMode>(static_cast<D3D12_CULL_MODE>(nugget.m_cull_mode));
+			if (nugget.m_fill_mode != view3d::EFillMode::Default)
+				desc.pso<EPipeState::FillMode>(static_cast<D3D12_FILL_MODE>(nugget.m_fill_mode));
+			translated_nuggets.push_back(std::move(desc));
+		}
+
+		// Allocate the final UAV-capable vertex buffer and the ordinary uploaded index buffer on the renderer device.
+		ResourceFactory factory(m_rdr);
+		auto vertex_resource_desc = ResDesc::VBuf<Vert>(vertex_count, {})
+			.usage(compute::EUsage::UnorderedAccess)
+			.def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		auto vertex_buffer = factory.CreateResource(vertex_resource_desc, std::string(name) + "-generated-vbuf");
+		auto model_desc = ModelDesc()
+			.vbuf(ResDesc::VBuf<Vert>(vertex_count, {}))
+			.ibuf(indices)
+			.bbox(To<BBox>(options.m_bbox))
+			.name(name);
+		auto model = factory.CreateModel(model_desc, vertex_buffer, nullptr);
+		for (auto const& nugget : translated_nuggets)
+		{
+			// Attach stock buffered render nuggets before publishing the model.
+			model->CreateNugget(factory, nugget);
+		}
+
+		// Bind the fixed b0/u0 contract and fill every canonical vertex exactly once.
+		auto root_signature = compute::RootSig(compute::ERootSigFlags::ComputeOnly)
+			.CBuf(hlsl::ECBufReg::b0)
+			.UAV(hlsl::EUAVReg::u0)
+			.Create(factory.d3d(), "GPU-generated object root signature");
+		auto const bytecode = std::span(static_cast<uint8_t const*>(options.m_compute_bytecode), options.m_compute_bytecode_size);
+		auto pipeline = compute::ComputePSO(root_signature.get(), bytecode).Create(factory.d3d(), "GPU-generated object pipeline");
+		auto constants = factory.UploadBuffer().Alloc(s_cast<int>(options.m_constants_size), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+		std::memcpy(constants.m_mem + constants.m_ofs, options.m_constants, options.m_constants_size);
+		auto& command_list = factory.CmdList();
+		command_list.SetPipelineState(pipeline.get());
+		command_list.SetComputeRootSignature(root_signature.get());
+		command_list.SetComputeRootConstantBufferView(0, constants.m_res->GetGPUVirtualAddress() + constants.m_ofs);
+		command_list.SetComputeRootUnorderedAccessView(1, vertex_buffer->GetGPUVirtualAddress());
+		command_list.Dispatch(group_count, 1, 1);
+
+		// Make all generated records visible to the input assembler and retain that as the model's resting state.
+		compute::BarrierBatch barriers(command_list);
+		barriers.Transition(vertex_buffer.get(), D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
+		barriers.Commit();
+		compute::DefaultResState(vertex_buffer.get(), D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
+		factory.FlushToGpu(EGpuFlush::Block);
+
+		// Publish an ordinary object only after the generated buffer is complete.
+		auto object = ldraw::LdrObjectPtr(new ldraw::LdrObject(ldraw::ELdrObject::Custom, nullptr, context_id), true);
+		object->m_model = std::move(model);
+		object->m_name = name;
+		object->m_base_colour = colour;
+		m_sources.Add(object);
+		return object.get();
 	}
 
 	// Load/Add ldr objects and return the first object from the script
