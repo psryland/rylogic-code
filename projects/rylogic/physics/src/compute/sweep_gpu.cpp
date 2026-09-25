@@ -144,7 +144,7 @@ namespace pr::physics
 	{
 		// Defer sorting to the radix sorter. This wills sort the "payload" in 'aabb_idx' based on the "keys" in 'aabb'
 		m_sorter.Bind(job.m_cmd_list, 2*body_count, aabb, aabb_idx);
-		m_sorter.Sort(job.m_cmd_list);
+		m_sorter.Sort("Physics::SortBroadphaseEndpoints", job.m_cmd_list);
 	}
 
 	// Enumerate overlapping pairs using pre-computed world-space AABBs from the GPU integrate step.

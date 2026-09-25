@@ -361,7 +361,7 @@ namespace pr::physics
 
 		// Stable radix order gives every target a deterministic contiguous endpoint segment reused by all outer sweeps.
 		m_endpoint_sorter.Bind(job.m_cmd_list, 2 * m_max_contacts, m_r_endpoint_keys, m_r_endpoint_order);
-		m_endpoint_sorter.Sort(job.m_cmd_list);
+		m_endpoint_sorter.Sort("Physics::SortCoupledContactEndpoints", job.m_cmd_list);
 		m_stats.m_dispatch_count += m_endpoint_sorter.SortDispatchCount();
 		job.m_barriers.UAV(m_r_endpoint_keys.get());
 		job.m_barriers.UAV(m_r_endpoint_order.get());

@@ -23,11 +23,33 @@
 
 namespace pr::compute::pix
 {
-	// Return the PIX dll module handle if it can be loaded
+	// Load only the event runtime, returning null if unavailable. Capture engines are selected explicitly by the application.
 	HMODULE LoadDll();
 
+	// Mark CPU work on the calling thread without requiring a GPU command list.
+	inline void BeginEvent(unsigned long colour, char const* name)
+	{
+		// The name is data, not a caller-supplied format string.
+		#if PR_PIX_ENABLED
+		PIXBeginEvent(colour, "%s", name);
+		#else
+		(void)colour, (void)name;
+		#endif
+	}
+
+	// End the calling thread's current CPU event.
+	inline void EndEvent()
+	{
+		// CPU PIX regions are paired on the same owner thread.
+		#if PR_PIX_ENABLED
+		PIXEndEvent();
+		#endif
+	}
+
+	// Enable GPU capture before any D3D12 API calls, including adapter capability checks. Do not also load the timing capturer.
 	inline void LoadLatestWinPixGpuCapturer()
 	{
+		// The capture layer must be installed before the application creates any D3D12 objects.
 		#if PR_PIX_ENABLED
 		auto h = PIXLoadLatestWinPixGpuCapturerLibrary();
 		assert(h != nullptr && "Failed to load 'WinPixGpuCapturer.dll'");
@@ -43,8 +65,10 @@ namespace pr::compute::pix
 		#endif
 	}
 
+	// Begin a GPU capture after loading the GPU capturer at application startup or launching through PIX for GPU capture.
 	inline void BeginCapture(std::filesystem::path const& wpix_filepath)
 	{
+		// Starting capture here cannot install the capture layer on existing D3D12 objects.
 		#if PR_PIX_ENABLED
 		PIXCaptureParameters parameters = { .GpuCaptureParameters = {.FileName = wpix_filepath.c_str()} };
 		auto r = PIXBeginCapture2(PIX_CAPTURE_GPU, &parameters);
@@ -80,6 +104,69 @@ namespace pr::compute::pix
 		(void)context;
 		#endif
 	}
+
+	// Temporary profiling detail is opt-in at process startup; ordinary PIX regions remain unchanged.
+	inline bool DetailEnabled()
+	{
+		#if PR_PIX_ENABLED
+		static bool const enabled = []
+		{
+			char value[2] = {};
+			return GetEnvironmentVariableA("PR_PIX_DETAIL", value, sizeof(value)) == 1 && value[0] == '1';
+		}();
+		return enabled;
+		#else
+		return false;
+		#endif
+	}
+
+	// Attach changing diagnostic values without splitting stable GPU region names used for aggregation.
+	template<typename CONTEXT, typename... ARGS>
+	inline void DetailMarker(CONTEXT* context, char const* format, ARGS... args)
+	{
+		#if PR_PIX_ENABLED
+		if (DetailEnabled())
+			PIXSetMarker(context, 0xFF90AA3F, format, args...);
+		#else
+		(void)context, (void)format;
+		#endif
+	}
+
+	// Emit completed-readback diagnostics on the CPU without another GPU wait.
+	template<typename... ARGS>
+	inline void CompletedDetailMarker(char const* format, ARGS... args)
+	{
+		#if PR_PIX_ENABLED
+		if (DetailEnabled())
+			PIXSetMarker(0xFF90AA3F, format, args...);
+		#else
+		(void)format;
+		#endif
+	}
+
+	// Temporary nested GPU detail; names describe work, while markers carry variable identifiers.
+	template<typename CONTEXT>
+	struct DetailScope
+	{
+		CONTEXT* m_context;
+
+		// Begin only when explicitly enabled before process startup.
+		DetailScope(CONTEXT* context, char const* name)
+			: m_context(DetailEnabled() ? context : nullptr)
+		{
+			if (m_context)
+				BeginEvent(m_context, 0xFF90AA3F, "%s", name);
+		}
+		DetailScope(DetailScope const&) = delete;
+		DetailScope& operator=(DetailScope const&) = delete;
+
+		// End on the same command list as the matching begin.
+		~DetailScope()
+		{
+			if (m_context)
+				EndEvent(m_context);
+		}
+	};
 
 	struct CaptureScope
 	{
@@ -131,4 +218,3 @@ namespace pr::compute::pix
 		}
 	};
 }
-

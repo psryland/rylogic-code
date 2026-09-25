@@ -21,9 +21,6 @@ namespace pr::compute
 	{
 		if (existing_device == nullptr)
 		{
-			// If PIX is enabled, load the GPU capturer dll (no-op if HP_PIX_ENABLED==0)
-			pix::LoadLatestWinPixGpuCapturer();
-
 			// Enable the D3D Debug layer (must be before create device)
 			if constexpr (IsDebug)
 			{

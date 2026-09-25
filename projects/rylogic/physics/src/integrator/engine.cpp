@@ -168,6 +168,9 @@ namespace pr::physics
 	{
 		GpuFrameOutputReadback rb_output;
 		ReadbackAlloc rb_terrain;
+		double pix_time_s = 0;
+		// Temporary diagnostics share the submitted job's fence, never a separate synchronization round trip.
+		std::vector<ReadbackAlloc> pix_resolve_counts;
 		bool emit_collisions = true;
 		bool read_collision_events = false;
 	};
@@ -608,6 +611,7 @@ namespace pr::physics
 		auto const dt = input.m_elapsed_seconds / input.m_substep_count;
 		m_last_feature_stats = {};
 		m_pending_step.Begin(input.m_bodies, input.m_articulations, input.m_constraints, dt, input.m_elapsed_seconds, m_config.sleeping_enabled);
+		m_pending_step.m_buffers->pix_time_s = input.m_time_s;
 		if (m_world_surfaces_changed && (!input.m_bodies.empty() || !input.m_articulations.empty()))
 		{
 			// Changing the static environment invalidates resting support, but ordinary frames preserve sleep timers.
@@ -674,303 +678,313 @@ namespace pr::physics
 		m_last_step_profile.m_substep_count = input.m_substep_count;
 		m_selective_refresh_previous_contact_count = m_last_collision_stats.m_contact_count;
 		m_last_collision_stats = {};
-
 		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_new_frame_ms>(m_last_step_profile);
-			m_cache->NewFrame(bodies);
-		}
+			// Keep the step marker balanced even if command recording fails before submission.
+			auto pix_step = pr::compute::pix::EventScope<ID3D12GraphicsCommandList>(m_gpu->m_job.m_cmd_list.get(), 0xFF45BCF2, "Physics::Step");
+			pr::compute::pix::DetailMarker(m_gpu->m_job.m_cmd_list.get(), "engine=%p time_s=%.9f dt=%.9f substeps=%d", this, input.m_time_s, input.m_elapsed_seconds, input.m_substep_count);
 
-		// Pack all bodies into a GPU-friendly format
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_pack_ms>(m_last_step_profile);
-			Pack(bodies);
-		}
-
-		// Flatten each independent tree once; all internal substeps retain these immutable topology and force ranges on the GPU.
-		auto articulation_upload = GpuArticulationUpload{};
-		auto articulation_collision_exclusions = std::vector<GpuCollisionExclusion>{};
-		auto articulation_contacts_active = false;
-		if (!articulations.empty())
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_articulation_pack_ms>(m_last_step_profile);
-			articulation_upload = PackGpuArticulations(articulations);
-			m_pending_step.m_articulation_ranges.reserve(articulation_upload.m_articulations.size());
-			m_pending_step.m_articulation_range_lookup.reserve(articulation_upload.m_articulations.size());
-			for (auto const& articulation : articulation_upload.m_articulations)
 			{
-				auto const identity = static_cast<uint64_t>(articulation.identity_low) | (static_cast<uint64_t>(articulation.identity_high) << 32);
-				auto const range_index = isize(m_pending_step.m_articulation_ranges);
-				m_pending_step.m_articulation_ranges.push_back(PendingStep::ArticulationOutputRange{
-					.m_identity = identity,
-					.m_position_offset = articulation.position_offset,
-					.m_position_count = articulation.position_count,
-					.m_velocity_offset = articulation.velocity_offset,
-					.m_velocity_count = articulation.velocity_count,
-					.m_proxy_body_offset = m_cache->RigidBodyCount() + articulation.link_offset,
-					.m_link_count = articulation.link_count,
-				});
-				m_pending_step.m_articulation_range_lookup.emplace(identity, range_index);
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_new_frame_ms>(m_last_step_profile);
+				m_cache->NewFrame(bodies);
 			}
 
-			// Append one hidden body per link so every GPU force producer can target rigid bodies and articulation links through the same accumulator ABI.
-			auto proxy_shape_ids = std::vector<int>{};
-			proxy_shape_ids.reserve(articulation_upload.m_links.size());
-			for (auto const* articulation : articulations)
+			// Pack all bodies into a GPU-friendly format
 			{
-				for (int link_index = 0; link_index != articulation->LinkCount(); ++link_index)
-				{
-					auto const& link = articulation->LinkDescription(articulation->LinkAt(link_index));
-					proxy_shape_ids.push_back(link.m_shape != nullptr ? m_cache->m_shape_cache.GetOrAdd(*link.m_shape) : -1);
-					articulation_contacts_active |= link.m_shape != nullptr;
-				}
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_pack_ms>(m_last_step_profile);
+				Pack(bodies);
 			}
-			auto proxies = PackGpuArticulationProxies(articulation_upload, articulations, proxy_shape_ids, m_cache->RigidBodyCount());
-			m_cache->m_rb_dynamics.insert(m_cache->m_rb_dynamics.end(), proxies.begin(), proxies.end());
 
-			// Adjacent-link suppression needs one pair per tree edge, while broader same-tree policy remains compactly encoded in each proxy body.
-			articulation_collision_exclusions.reserve(articulation_upload.m_links.size());
-			for (int articulation_index = 0; articulation_index != isize(articulations); ++articulation_index)
+			// Flatten each independent tree once; all internal substeps retain these immutable topology and force ranges on the GPU.
+			auto articulation_upload = GpuArticulationUpload{};
+			auto articulation_collision_exclusions = std::vector<GpuCollisionExclusion>{};
+			auto articulation_contacts_active = false;
+			if (!articulations.empty())
 			{
-				auto const* articulation = articulations[articulation_index];
-				auto const& packed_articulation = articulation_upload.m_articulations[articulation_index];
-				for (int local_link_index = 0; local_link_index != articulation->LinkCount(); ++local_link_index)
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_articulation_pack_ms>(m_last_step_profile);
+				articulation_upload = PackGpuArticulations(articulations);
+				m_pending_step.m_articulation_ranges.reserve(articulation_upload.m_articulations.size());
+				m_pending_step.m_articulation_range_lookup.reserve(articulation_upload.m_articulations.size());
+				for (auto const& articulation : articulation_upload.m_articulations)
 				{
-					auto const packed_link_index = packed_articulation.link_offset + local_link_index;
-					auto const parent_link_index = articulation_upload.m_links[packed_link_index].parent_link_index;
-					auto const& desc = articulation->LinkDescription(articulation->LinkAt(local_link_index));
-					if (parent_link_index < 0 || desc.m_collide_parent || desc.m_shape == nullptr)
-						continue;
-
-					auto const parent_local_link_index = parent_link_index - packed_articulation.link_offset;
-					auto const& parent_desc = articulation->LinkDescription(articulation->LinkAt(parent_local_link_index));
-					if (parent_desc.m_shape == nullptr)
-						continue;
-
-					auto const body_index = m_cache->RigidBodyCount() + packed_link_index;
-					auto const parent_body_index = m_cache->RigidBodyCount() + parent_link_index;
-					articulation_collision_exclusions.push_back(GpuCollisionExclusion{
-						.body_idx_a_plus_one = static_cast<uint32_t>(std::min(body_index, parent_body_index) + 1),
-						.body_idx_b_plus_one = static_cast<uint32_t>(std::max(body_index, parent_body_index) + 1),
+					auto const identity = static_cast<uint64_t>(articulation.identity_low) | (static_cast<uint64_t>(articulation.identity_high) << 32);
+					auto const range_index = isize(m_pending_step.m_articulation_ranges);
+					m_pending_step.m_articulation_ranges.push_back(PendingStep::ArticulationOutputRange{
+						.m_identity = identity,
+						.m_position_offset = articulation.position_offset,
+						.m_position_count = articulation.position_count,
+						.m_velocity_offset = articulation.velocity_offset,
+						.m_velocity_count = articulation.velocity_count,
+						.m_proxy_body_offset = m_cache->RigidBodyCount() + articulation.link_offset,
+						.m_link_count = articulation.link_count,
 					});
+					m_pending_step.m_articulation_range_lookup.emplace(identity, range_index);
+				}
+
+				// Append one hidden body per link so every GPU force producer can target rigid bodies and articulation links through the same accumulator ABI.
+				auto proxy_shape_ids = std::vector<int>{};
+				proxy_shape_ids.reserve(articulation_upload.m_links.size());
+				for (auto const* articulation : articulations)
+				{
+					for (int link_index = 0; link_index != articulation->LinkCount(); ++link_index)
+					{
+						auto const& link = articulation->LinkDescription(articulation->LinkAt(link_index));
+						proxy_shape_ids.push_back(link.m_shape != nullptr ? m_cache->m_shape_cache.GetOrAdd(*link.m_shape) : -1);
+						articulation_contacts_active |= link.m_shape != nullptr;
+					}
+				}
+				auto proxies = PackGpuArticulationProxies(articulation_upload, articulations, proxy_shape_ids, m_cache->RigidBodyCount());
+				m_cache->m_rb_dynamics.insert(m_cache->m_rb_dynamics.end(), proxies.begin(), proxies.end());
+
+				// Adjacent-link suppression needs one pair per tree edge, while broader same-tree policy remains compactly encoded in each proxy body.
+				articulation_collision_exclusions.reserve(articulation_upload.m_links.size());
+				for (int articulation_index = 0; articulation_index != isize(articulations); ++articulation_index)
+				{
+					auto const* articulation = articulations[articulation_index];
+					auto const& packed_articulation = articulation_upload.m_articulations[articulation_index];
+					for (int local_link_index = 0; local_link_index != articulation->LinkCount(); ++local_link_index)
+					{
+						auto const packed_link_index = packed_articulation.link_offset + local_link_index;
+						auto const parent_link_index = articulation_upload.m_links[packed_link_index].parent_link_index;
+						auto const& desc = articulation->LinkDescription(articulation->LinkAt(local_link_index));
+						if (parent_link_index < 0 || desc.m_collide_parent || desc.m_shape == nullptr)
+							continue;
+
+						auto const parent_local_link_index = parent_link_index - packed_articulation.link_offset;
+						auto const& parent_desc = articulation->LinkDescription(articulation->LinkAt(parent_local_link_index));
+						if (parent_desc.m_shape == nullptr)
+							continue;
+
+						auto const body_index = m_cache->RigidBodyCount() + packed_link_index;
+						auto const parent_body_index = m_cache->RigidBodyCount() + parent_link_index;
+						articulation_collision_exclusions.push_back(GpuCollisionExclusion{
+							.body_idx_a_plus_one = static_cast<uint32_t>(std::min(body_index, parent_body_index) + 1),
+							.body_idx_b_plus_one = static_cast<uint32_t>(std::max(body_index, parent_body_index) + 1),
+						});
+					}
 				}
 			}
-		}
 
-		// Resolve stable identities before submission and retain only compact transfer data for the GPU upload.
-		auto constraint_upload = GpuConstraintUpload{};
-		if (input.m_constraints != nullptr)
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_constraint_pack_ms>(m_last_step_profile);
-			constraint_upload = PackGpuConstraints(*input.m_constraints, BodyRemap(bodies, articulations), articulation_collision_exclusions);
-		}
-		else
-		{
-			constraint_upload.m_collision_exclusions = BuildGpuCollisionExclusions({}, articulation_collision_exclusions);
-		}
-		m_constraints_active = constraint_upload.m_rigid_active_count != 0;
-		m_coupled_constraints_active = constraint_upload.m_coupled_active_count != 0;
-		m_coupled_contacts_active = articulation_contacts_active;
-		m_last_feature_stats.m_constraints.m_declared_count = input.m_constraints != nullptr ? s_cast<int>(input.m_constraints->Count()) : 0;
-		m_last_feature_stats.m_constraints.m_active_count = s_cast<int>(constraint_upload.m_rigid_active_count + constraint_upload.m_coupled_active_count);
-		m_last_feature_stats.m_constraints.m_breakable_count = s_cast<int>(constraint_upload.m_breakable_count);
-		m_last_feature_stats.m_articulations.m_articulation_count = isize(articulation_upload.m_articulations);
-		m_last_feature_stats.m_articulations.m_link_count = isize(articulation_upload.m_links);
-		m_last_feature_stats.m_articulations.m_dof_count = isize(articulation_upload.m_dofs);
-		m_last_feature_stats.m_articulations.m_position_count = isize(articulation_upload.m_positions);
-		m_last_feature_stats.m_articulations.m_velocity_count = isize(articulation_upload.m_velocities);
-		m_last_feature_stats.m_coupled.m_constraint_count = s_cast<int>(constraint_upload.m_coupled_active_count);
-		if (!m_constraints_active && !m_coupled_constraints_active && m_gpu_constraint_solver != nullptr)
-			m_gpu_constraint_solver->Deactivate();
-		if (!m_coupled_contacts_active && m_gpu_coupled_contact_solver != nullptr)
-			m_gpu_coupled_contact_solver->Deactivate();
+			// Resolve stable identities before submission and retain only compact transfer data for the GPU upload.
+			auto constraint_upload = GpuConstraintUpload{};
+			if (input.m_constraints != nullptr)
+			{
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_constraint_pack_ms>(m_last_step_profile);
+				constraint_upload = PackGpuConstraints(*input.m_constraints, BodyRemap(bodies, articulations), articulation_collision_exclusions);
+			}
+			else
+			{
+				constraint_upload.m_collision_exclusions = BuildGpuCollisionExclusions({}, articulation_collision_exclusions);
+			}
+			m_constraints_active = constraint_upload.m_rigid_active_count != 0;
+			m_coupled_constraints_active = constraint_upload.m_coupled_active_count != 0;
+			m_coupled_contacts_active = articulation_contacts_active;
+			m_last_feature_stats.m_constraints.m_declared_count = input.m_constraints != nullptr ? s_cast<int>(input.m_constraints->Count()) : 0;
+			m_last_feature_stats.m_constraints.m_active_count = s_cast<int>(constraint_upload.m_rigid_active_count + constraint_upload.m_coupled_active_count);
+			m_last_feature_stats.m_constraints.m_breakable_count = s_cast<int>(constraint_upload.m_breakable_count);
+			m_last_feature_stats.m_articulations.m_articulation_count = isize(articulation_upload.m_articulations);
+			m_last_feature_stats.m_articulations.m_link_count = isize(articulation_upload.m_links);
+			m_last_feature_stats.m_articulations.m_dof_count = isize(articulation_upload.m_dofs);
+			m_last_feature_stats.m_articulations.m_position_count = isize(articulation_upload.m_positions);
+			m_last_feature_stats.m_articulations.m_velocity_count = isize(articulation_upload.m_velocities);
+			m_last_feature_stats.m_coupled.m_constraint_count = s_cast<int>(constraint_upload.m_coupled_active_count);
+			if (!m_constraints_active && !m_coupled_constraints_active && m_gpu_constraint_solver != nullptr)
+				m_gpu_constraint_solver->Deactivate();
+			if (!m_coupled_contacts_active && m_gpu_coupled_contact_solver != nullptr)
+				m_gpu_coupled_contact_solver->Deactivate();
 
-		// Persistent constraints may wake sleeping bodies, while active articulations always require their independent pure-tree dispatch.
-		if (m_config.sleeping_enabled && m_cache->AwakeDynamicCount() == 0 && !m_constraints_active && !m_coupled_constraints_active && articulations.empty() &&
-			!(m_gpu_world_contacts && m_gpu_world_contacts->m_boundary))
-		{
-			if (m_gpu_articulation_midpoint != nullptr)
-				m_gpu_articulation_midpoint->Upload(m_gpu->m_job, GpuArticulationUpload{});
-			if (m_gpu_articulation_link_proxies != nullptr)
-				m_gpu_articulation_link_proxies->Upload(m_gpu->m_job);
-			UpdateFeatureResourceStats(false);
-			return;
-		}
+			// Persistent constraints may wake sleeping bodies, while active articulations always require their independent pure-tree dispatch.
+			if (m_config.sleeping_enabled && m_cache->AwakeDynamicCount() == 0 && !m_constraints_active && !m_coupled_constraints_active && articulations.empty() &&
+				!(m_gpu_world_contacts && m_gpu_world_contacts->m_boundary))
+			{
+				if (m_gpu_articulation_midpoint != nullptr)
+					m_gpu_articulation_midpoint->Upload(m_gpu->m_job, GpuArticulationUpload{});
+				if (m_gpu_articulation_link_proxies != nullptr)
+					m_gpu_articulation_link_proxies->Upload(m_gpu->m_job);
+				UpdateFeatureResourceStats(false);
+				return;
+			}
 
-		// Upload -> transfers staged body dynamics and resets GPU counters
-		if (m_cache->BodyCount() != 0)
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_upload_ms>(m_last_step_profile);
-			Upload(input.m_substep_count > 1);
-		}
-
-		// Shared stable-slot streams back both the independent and articulation-coupled constraint lanes.
-		if (m_constraints_active || m_coupled_constraints_active)
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_constraint_upload_ms>(m_last_step_profile);
-			if (m_gpu_constraint_solver == nullptr)
-				m_gpu_constraint_solver.reset(new GpuConstraintSolver(*m_gpu, m_config));
-			m_gpu_constraint_solver->Upload(m_gpu->m_job, constraint_upload);
-		}
-
-		// Instantiate and populate articulation resources only when a frame actually contains reduced-coordinate trees.
-		auto articulation_output = GpuArticulationMidpointOutput{};
-		if (!articulations.empty())
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_articulation_upload_ms>(m_last_step_profile);
-			if (m_gpu_articulation_force_aba == nullptr)
-				m_gpu_articulation_force_aba.reset(new GpuArticulationForceAba(*m_gpu));
-			if (m_gpu_articulation_midpoint == nullptr)
-				m_gpu_articulation_midpoint.reset(new GpuArticulationMidpoint(*m_gpu_articulation_force_aba));
-			if (m_gpu_articulation_link_proxies == nullptr)
-				m_gpu_articulation_link_proxies.reset(new GpuArticulationLinkProxies(*m_gpu_articulation_force_aba, m_config));
-			if (!m_gpu_articulation_midpoint->Upload(m_gpu->m_job, articulation_upload))
-				throw std::runtime_error("GPU articulation midpoint rejected a non-empty packed forest");
-			m_gpu_articulation_link_proxies->Upload(m_gpu->m_job);
-
-			articulation_output = m_gpu_articulation_midpoint->Output();
-		}
-		else if (m_gpu_articulation_midpoint != nullptr)
-		{
-			m_gpu_articulation_midpoint->Upload(m_gpu->m_job, articulation_upload);
-			if (m_gpu_articulation_link_proxies != nullptr)
-				m_gpu_articulation_link_proxies->Upload(m_gpu->m_job);
-		}
-
-		// Coupled topology depends on both preceding uploads and remains absent for rigid-only or articulation-only frames.
-		if (m_coupled_constraints_active)
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_constraint_upload_ms>(m_last_step_profile);
-			if (m_gpu_articulation_force_aba == nullptr || m_gpu_articulation_link_proxies == nullptr || m_gpu_constraint_solver == nullptr)
-				throw std::logic_error("Coupled constraint upload requires matching shared constraint and articulation resources");
-			if (m_gpu_coupled_constraint_solver == nullptr)
-				m_gpu_coupled_constraint_solver.reset(new GpuCoupledConstraintSolver(*m_gpu, *m_gpu_constraint_solver, *m_gpu_articulation_force_aba, *m_gpu_articulation_link_proxies, m_config));
-			if (!m_gpu_coupled_constraint_solver->Upload(m_gpu->m_job, constraint_upload, articulation_upload))
-				throw std::logic_error("GPU coupled constraint solver rejected active packed topology");
-		}
-		else if (m_gpu_coupled_constraint_solver != nullptr)
-		{
-			m_gpu_coupled_constraint_solver->Deactivate();
-		}
-
-		// Transient contact response exists only for frames containing shaped articulation links.
-		if (m_coupled_contacts_active)
-		{
-			if (m_gpu_articulation_force_aba == nullptr || m_gpu_articulation_link_proxies == nullptr)
-				throw std::logic_error("Coupled contact upload requires matching articulation resources");
-			if (m_gpu_coupled_contact_solver == nullptr)
-				m_gpu_coupled_contact_solver.reset(new GpuCoupledContactSolver(*m_gpu, *m_gpu_articulation_force_aba, *m_gpu_articulation_link_proxies, m_config));
-			if (!m_gpu_coupled_contact_solver->Upload(m_gpu->m_job, articulation_upload))
-				throw std::logic_error("GPU coupled contact solver rejected active packed topology");
-		}
-		else if (m_gpu_coupled_contact_solver != nullptr)
-		{
-			m_gpu_coupled_contact_solver->Deactivate();
-		}
-
-		// Allocate optional event storage only when the caller has requested collision records.
-		auto const collect_collision_events = !bodies.empty() && static_cast<bool>(Collisions);
-		auto const event_capacity = collect_collision_events ? m_config.max_collision_events : 0;
-		auto const constraint_break_output = m_gpu_constraint_solver != nullptr
-			? m_gpu_constraint_solver->BreakOutput()
-			: GpuConstraintBreakOutput{};
-		auto const coupled_failure_output = m_gpu_coupled_constraint_solver != nullptr
-			? m_gpu_coupled_constraint_solver->FailureOutput()
-			: GpuCoupledConstraintFailureOutput{};
-		auto const capture_substep_state = !bodies.empty() || articulation_contacts_active;
-		m_gpu_frame_output->BeginFrame(m_gpu->m_job, m_cache->RigidBodyCount(), event_capacity, input.m_substep_count, articulation_output, constraint_break_output, coupled_failure_output, capture_substep_state);
-
-		// Record every substep into the same command list so state, warm starts, and counters stay GPU-resident.
-		for (int substep_index = 0; substep_index != input.m_substep_count; ++substep_index)
-		{
+			// Upload -> transfers staged body dynamics and resets GPU counters
 			if (m_cache->BodyCount() != 0)
 			{
-				// Upload supplies the first substep's counters and working forces; later substeps restore both transient inputs.
-				if (substep_index != 0)
-				{
-					m_gpu_integrator->ResetCounters(m_gpu->m_job);
-					m_gpu_integrator->SeedWorkingForces(m_gpu->m_job, m_cache->BodyCount());
-				}
-				{
-					auto profile_scope = ProfileScope<&Engine::StepProfile::m_external_forces_ms>(m_last_step_profile);
-					auto const substep_time_s = input.m_time_s + static_cast<double>(dt) * substep_index;
-					ApplyExternalForces(dt, substep_time_s, substep_index, input.m_substep_count);
-				}
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_upload_ms>(m_last_step_profile);
+				Upload(input.m_substep_count > 1);
+			}
 
-				// Advance both independent prediction lanes before any shared collision or constraint work so every broadphase consumer sees current-substep poses.
-				if (!bodies.empty())
-				{
-					auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
-					Integrate(dt);
-				}
+			// Shared stable-slot streams back both the independent and articulation-coupled constraint lanes.
+			if (m_constraints_active || m_coupled_constraints_active)
+			{
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_constraint_upload_ms>(m_last_step_profile);
+				if (m_gpu_constraint_solver == nullptr)
+					m_gpu_constraint_solver.reset(new GpuConstraintSolver(*m_gpu, m_config));
+				m_gpu_constraint_solver->Upload(m_gpu->m_job, constraint_upload);
+			}
 
-				if (!articulations.empty())
-				{
-					auto profile_scope = ProfileScope<&Engine::StepProfile::m_articulation_integrate_ms>(m_last_step_profile);
-					m_gpu_articulation_midpoint->Integrate(m_gpu->m_job, dt, nullptr, m_gpu_integrator->Bodies().get());
-					m_gpu_articulation_link_proxies->Refresh(m_gpu->m_job, *m_gpu_integrator, m_cache->BroadphaseSortAxis());
-				}
+			// Instantiate and populate articulation resources only when a frame actually contains reduced-coordinate trees.
+			auto articulation_output = GpuArticulationMidpointOutput{};
+			if (!articulations.empty())
+			{
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_articulation_upload_ms>(m_last_step_profile);
+				if (m_gpu_articulation_force_aba == nullptr)
+					m_gpu_articulation_force_aba.reset(new GpuArticulationForceAba(*m_gpu));
+				if (m_gpu_articulation_midpoint == nullptr)
+					m_gpu_articulation_midpoint.reset(new GpuArticulationMidpoint(*m_gpu_articulation_force_aba));
+				if (m_gpu_articulation_link_proxies == nullptr)
+					m_gpu_articulation_link_proxies.reset(new GpuArticulationLinkProxies(*m_gpu_articulation_force_aba, m_config));
+				if (!m_gpu_articulation_midpoint->Upload(m_gpu->m_job, articulation_upload))
+					throw std::runtime_error("GPU articulation midpoint rejected a non-empty packed forest");
+				m_gpu_articulation_link_proxies->Upload(m_gpu->m_job);
 
-				if (!bodies.empty() || articulation_contacts_active || m_coupled_constraints_active)
+				articulation_output = m_gpu_articulation_midpoint->Output();
+			}
+			else if (m_gpu_articulation_midpoint != nullptr)
+			{
+				m_gpu_articulation_midpoint->Upload(m_gpu->m_job, articulation_upload);
+				if (m_gpu_articulation_link_proxies != nullptr)
+					m_gpu_articulation_link_proxies->Upload(m_gpu->m_job);
+			}
+
+			// Coupled topology depends on both preceding uploads and remains absent for rigid-only or articulation-only frames.
+			if (m_coupled_constraints_active)
+			{
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_constraint_upload_ms>(m_last_step_profile);
+				if (m_gpu_articulation_force_aba == nullptr || m_gpu_articulation_link_proxies == nullptr || m_gpu_constraint_solver == nullptr)
+					throw std::logic_error("Coupled constraint upload requires matching shared constraint and articulation resources");
+				if (m_gpu_coupled_constraint_solver == nullptr)
+					m_gpu_coupled_constraint_solver.reset(new GpuCoupledConstraintSolver(*m_gpu, *m_gpu_constraint_solver, *m_gpu_articulation_force_aba, *m_gpu_articulation_link_proxies, m_config));
+				if (!m_gpu_coupled_constraint_solver->Upload(m_gpu->m_job, constraint_upload, articulation_upload))
+					throw std::logic_error("GPU coupled constraint solver rejected active packed topology");
+			}
+			else if (m_gpu_coupled_constraint_solver != nullptr)
+			{
+				m_gpu_coupled_constraint_solver->Deactivate();
+			}
+
+			// Transient contact response exists only for frames containing shaped articulation links.
+			if (m_coupled_contacts_active)
+			{
+				if (m_gpu_articulation_force_aba == nullptr || m_gpu_articulation_link_proxies == nullptr)
+					throw std::logic_error("Coupled contact upload requires matching articulation resources");
+				if (m_gpu_coupled_contact_solver == nullptr)
+					m_gpu_coupled_contact_solver.reset(new GpuCoupledContactSolver(*m_gpu, *m_gpu_articulation_force_aba, *m_gpu_articulation_link_proxies, m_config));
+				if (!m_gpu_coupled_contact_solver->Upload(m_gpu->m_job, articulation_upload))
+					throw std::logic_error("GPU coupled contact solver rejected active packed topology");
+			}
+			else if (m_gpu_coupled_contact_solver != nullptr)
+			{
+				m_gpu_coupled_contact_solver->Deactivate();
+			}
+
+			// Allocate optional event storage only when the caller has requested collision records.
+			auto const collect_collision_events = !bodies.empty() && static_cast<bool>(Collisions);
+			auto const event_capacity = collect_collision_events ? m_config.max_collision_events : 0;
+			auto const constraint_break_output = m_gpu_constraint_solver != nullptr
+				? m_gpu_constraint_solver->BreakOutput()
+				: GpuConstraintBreakOutput{};
+			auto const coupled_failure_output = m_gpu_coupled_constraint_solver != nullptr
+				? m_gpu_coupled_constraint_solver->FailureOutput()
+				: GpuCoupledConstraintFailureOutput{};
+			auto const capture_substep_state = !bodies.empty() || articulation_contacts_active;
+			m_gpu_frame_output->BeginFrame(m_gpu->m_job, m_cache->RigidBodyCount(), event_capacity, input.m_substep_count, articulation_output, constraint_break_output, coupled_failure_output, capture_substep_state);
+
+			// Record every substep into the same command list so state, warm starts, and counters stay GPU-resident.
+			for (int substep_index = 0; substep_index != input.m_substep_count; ++substep_index)
+			{
+				// Keep each internal integration pass distinct while retaining the one-job frame submission.
+				auto pix_substep = pr::compute::pix::EventScope<ID3D12GraphicsCommandList>(m_gpu->m_job.m_cmd_list.get(), 0xFF7EB8E5, "Physics::Substep");
+				pr::compute::pix::DetailMarker(m_gpu->m_job.m_cmd_list.get(), "substep=%d", substep_index);
+				if (m_cache->BodyCount() != 0)
 				{
-					// Broadphase admits shaped proxies, while rigid-only consumers retain the caller-owned body prefix.
+					// Upload supplies the first substep's counters and working forces; later substeps restore both transient inputs.
+					if (substep_index != 0)
+					{
+						m_gpu_integrator->ResetCounters(m_gpu->m_job);
+						m_gpu_integrator->SeedWorkingForces(m_gpu->m_job, m_cache->BodyCount());
+					}
+					{
+						auto profile_scope = ProfileScope<&Engine::StepProfile::m_external_forces_ms>(m_last_step_profile);
+						auto const substep_time_s = input.m_time_s + static_cast<double>(dt) * substep_index;
+						ApplyExternalForces(dt, substep_time_s, substep_index, input.m_substep_count);
+					}
+
+					// Advance both independent prediction lanes before any shared collision or constraint work so every broadphase consumer sees current-substep poses.
 					if (!bodies.empty())
 					{
-						auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepwake_ms>(m_last_step_profile);
-						SleepWake();
-					}
-					{
-						auto profile_scope = ProfileScope<&Engine::StepProfile::m_broadphase_ms>(m_last_step_profile);
-						BroadPhase(m_config.sleeping_enabled, constraint_upload.m_collision_exclusions.m_slots);
-					}
-					{
-						auto profile_scope = ProfileScope<&Engine::StepProfile::m_collide_ms>(m_last_step_profile);
-						Collide();
-					}
-					{
-						auto profile_scope = ProfileScope<&Engine::StepProfile::m_resolve_ms>(m_last_step_profile);
-						Resolve(dt, substep_index);
+						auto profile_scope = ProfileScope<&Engine::StepProfile::m_integrate_ms>(m_last_step_profile);
+						Integrate(dt);
 					}
 
-					// The final normal solve supplies next frame's admission without adding a CPU-visible GPU wait.
-					if (m_config.selective_refresh_passes > 0 && substep_index == input.m_substep_count - 1)
+					if (!articulations.empty())
 					{
-						auto const body_count = m_cache->RigidBodyCount();
-						if (m_config.selective_refresh_body_limit <= 0 || body_count <= m_config.selective_refresh_body_limit)
-						{
-							m_gpu_selective_refresher->DetectNeed(m_gpu->m_job, body_count, m_config.max_collision_pairs, m_config.selective_refresh_contact_limit,
-								m_gpu_integrator->Counters().get(), m_gpu_collision_detector->Contacts().get(),
-								m_gpu_collision_detector->ResolveDispatchArgs().get(), m_gpu_integrator->Bodies().get(),
-								m_gpu_frame_output->OutputResource());
-						}
-					}
-
-					// Publish the main coupled solve before selective passes recompile rows against the corrected articulation configuration.
-					if (m_coupled_constraints_active || m_coupled_contacts_active)
+						auto profile_scope = ProfileScope<&Engine::StepProfile::m_articulation_integrate_ms>(m_last_step_profile);
+						m_gpu_articulation_midpoint->Integrate(m_gpu->m_job, dt, nullptr, m_gpu_integrator->Bodies().get());
 						m_gpu_articulation_link_proxies->Refresh(m_gpu->m_job, *m_gpu_integrator, m_cache->BroadphaseSortAxis());
-					{
-						auto profile_scope = ProfileScope<&Engine::StepProfile::m_selective_ms>(m_last_step_profile);
-						if (!bodies.empty())
-							SelectiveRefresh(dt, substep_index);
-					}
-					{
-						auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepupdate_ms>(m_last_step_profile);
-						if (!bodies.empty())
-							SleepUpdate(dt);
 					}
 
-					// Preserve raw capacity counters and resolved collision records before transient buffers are reused.
-					if (!bodies.empty() || articulation_contacts_active)
-						CaptureSubstepOutput(substep_index, input.m_substep_count, collect_collision_events);
+					if (!bodies.empty() || articulation_contacts_active || m_coupled_constraints_active)
+					{
+						// Broadphase admits shaped proxies, while rigid-only consumers retain the caller-owned body prefix.
+						if (!bodies.empty())
+						{
+							auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepwake_ms>(m_last_step_profile);
+							SleepWake();
+						}
+						{
+							auto profile_scope = ProfileScope<&Engine::StepProfile::m_broadphase_ms>(m_last_step_profile);
+							BroadPhase(m_config.sleeping_enabled, constraint_upload.m_collision_exclusions.m_slots);
+						}
+						{
+							auto profile_scope = ProfileScope<&Engine::StepProfile::m_collide_ms>(m_last_step_profile);
+							Collide();
+						}
+						{
+							auto profile_scope = ProfileScope<&Engine::StepProfile::m_resolve_ms>(m_last_step_profile);
+							Resolve(dt, substep_index);
+						}
+
+						// The final normal solve supplies next frame's admission without adding a CPU-visible GPU wait.
+						if (m_config.selective_refresh_passes > 0 && substep_index == input.m_substep_count - 1)
+						{
+							auto const body_count = m_cache->RigidBodyCount();
+							if (m_config.selective_refresh_body_limit <= 0 || body_count <= m_config.selective_refresh_body_limit)
+							{
+								m_gpu_selective_refresher->DetectNeed(m_gpu->m_job, body_count, m_config.max_collision_pairs, m_config.selective_refresh_contact_limit,
+									m_gpu_integrator->Counters().get(), m_gpu_collision_detector->Contacts().get(),
+									m_gpu_collision_detector->ResolveDispatchArgs().get(), m_gpu_integrator->Bodies().get(),
+									m_gpu_frame_output->OutputResource());
+							}
+						}
+
+						// Publish the main coupled solve before selective passes recompile rows against the corrected articulation configuration.
+						if (m_coupled_constraints_active || m_coupled_contacts_active)
+							m_gpu_articulation_link_proxies->Refresh(m_gpu->m_job, *m_gpu_integrator, m_cache->BroadphaseSortAxis());
+						{
+							auto profile_scope = ProfileScope<&Engine::StepProfile::m_selective_ms>(m_last_step_profile);
+							if (!bodies.empty())
+								SelectiveRefresh(dt, substep_index);
+						}
+						{
+							auto profile_scope = ProfileScope<&Engine::StepProfile::m_sleepupdate_ms>(m_last_step_profile);
+							if (!bodies.empty())
+								SleepUpdate(dt);
+						}
+
+						// Preserve raw capacity counters and resolved collision records before transient buffers are reused.
+						if (!bodies.empty() || articulation_contacts_active)
+							CaptureSubstepOutput(substep_index, input.m_substep_count, collect_collision_events);
+					}
 				}
 			}
-		}
 
-		// ReadBody -> read back body dynamics and contact data
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_ms>(m_last_step_profile);
-			Readback(*m_pending_step.m_buffers, articulation_output, true);
+			// ReadBody -> read back body dynamics and contact data
+			{
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_ms>(m_last_step_profile);
+				auto pix_readback = pr::compute::pix::EventScope<ID3D12GraphicsCommandList>(m_gpu->m_job.m_cmd_list.get(), 0xFF45BCF2, "Physics::Readback");
+				Readback(*m_pending_step.m_buffers, articulation_output, true);
+			}
+			UpdateFeatureResourceStats(true);
+
 		}
-		UpdateFeatureResourceStats(true);
 
 		// Submit all GPU work for this step without waiting so callers can overlap other CPU work.
 		m_pending_step.m_run = SubmitGpuJob(m_gpu->m_job, m_last_step_profile);
@@ -1280,6 +1294,26 @@ namespace pr::physics
 		auto dispatch = m_gpu_collision_detector->ResolveDispatchArgs();
 		auto contacts = m_gpu_collision_detector->Contacts();
 		auto bodies = m_gpu_integrator->Bodies();
+		if (pr::compute::pix::DetailEnabled())
+		{
+			// Retain this substep's actual counters and indirect dimensions before transient buffers are reused.
+			// Only the existing CompleteStep fence makes these bytes CPU-visible; no shader or dispatch arguments change.
+			auto& job = m_gpu->m_job;
+			auto detail = pr::compute::pix::DetailScope(job.m_cmd_list.get(), "Physics::DiagnosticCountsCopy");
+			auto const counter_state = job.m_cmd_list.ResState(counters.get()).Mip0State();
+			auto const dispatch_state = job.m_cmd_list.ResState(dispatch.get()).Mip0State();
+			auto allocation = job.m_readback.Alloc(sizeof(GpuCollisionCounters) + sizeof(D3D12_DISPATCH_ARGUMENTS), alignof(GpuCollisionCounters));
+			job.m_barriers.Transition(counters.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.m_barriers.Transition(dispatch.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.m_barriers.Commit();
+			job.m_cmd_list.CopyBufferRegion(allocation.m_res, allocation.m_ofs, counters.get(), 0, sizeof(GpuCollisionCounters));
+			job.m_cmd_list.CopyBufferRegion(allocation.m_res, allocation.m_ofs + sizeof(GpuCollisionCounters), dispatch.get(), 0, sizeof(D3D12_DISPATCH_ARGUMENTS));
+			job.m_barriers.Transition(counters.get(), counter_state);
+			job.m_barriers.Transition(dispatch.get(), dispatch_state);
+			job.m_barriers.Commit();
+			assert(substep_index == isize(m_pending_step.m_buffers->pix_resolve_counts));
+			m_pending_step.m_buffers->pix_resolve_counts.push_back(std::move(allocation));
+		}
 		auto* constraint_solver = m_constraints_active ? m_gpu_constraint_solver.get() : nullptr;
 		auto* coupled_constraint_solver = m_coupled_constraints_active ? m_gpu_coupled_constraint_solver.get() : nullptr;
 		auto* coupled_contact_solver = m_coupled_contacts_active ? m_gpu_coupled_contact_solver.get() : nullptr;
@@ -1491,6 +1525,19 @@ namespace pr::physics
 			throw std::runtime_error("Constraint topology or parameters changed while an Engine step was pending");
 
 		auto const& output_header = GpuFrameOutput::Header(buffers.rb_output);
+		// Temporary diagnostics consume the existing completed readback; these are frame maxima, not individual substep counts.
+		pr::compute::pix::CompletedDetailMarker("Physics::Completed engine=%p time_s=%.9f max_pairs=%u max_contacts=%u substeps=%u",
+			this, buffers.pix_time_s, output_header.max_pair_count, output_header.max_contact_count, output_header.substep_count);
+		for (int substep = 0; substep != isize(buffers.pix_resolve_counts); ++substep)
+		{
+			// Correlate completed GPU-authored work with the matching recorded substep, not the next submitted step.
+			// The allocation contains two different records, not an array of either record type.
+			auto const* bytes = buffers.pix_resolve_counts[substep].ptr<std::byte>();
+			auto const* counts = reinterpret_cast<GpuCollisionCounters const*>(bytes);
+			auto const* dispatch = reinterpret_cast<D3D12_DISPATCH_ARGUMENTS const*>(bytes + sizeof(GpuCollisionCounters));
+			pr::compute::pix::CompletedDetailMarker("Physics::ResolveCounts engine=%p time_s=%.9f substep=%d pairs=%d contacts=%d groups_x=%u groups_y=%u groups_z=%u",
+				this, buffers.pix_time_s, substep, counts->pair_count, counts->contact_count, dispatch->ThreadGroupCountX, dispatch->ThreadGroupCountY, dispatch->ThreadGroupCountZ);
+		}
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_access_ms>(m_last_step_profile);
 			m_last_collision_stats = Engine::CollisionStats{

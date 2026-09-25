@@ -1830,6 +1830,24 @@ namespace Rylogic.Gfx
 			return m_module != IntPtr.Zero;
 		}
 
+		/// <summary>Begin a PIX CPU region on this thread; the optional PIX runtime may be absent.</summary>
+		public static void PixBeginEvent(string name, uint colour = 0xFF45BCF2)
+		{
+			// Reject a missing label before crossing the native boundary.
+			if (name == null)
+				throw new ArgumentNullException(nameof(name));
+
+			// View3D owns optional PIX loading; callers do not import WinPixEventRuntime.dll.
+			View3D_PixBeginCpuEvent(colour, name);
+		}
+
+		/// <summary>End this thread's current PIX CPU region.</summary>
+		public static void PixEndEvent()
+		{
+			// CPU markers must be balanced on the same thread.
+			View3D_PixEndCpuEvent();
+		}
+
 		// Dll Context ****************************
 
 		// Initialise calls are reference counted and must be matched with Shutdown calls
@@ -2471,6 +2489,10 @@ namespace Rylogic.Gfx
 
 		// Show/Hide the lighting controls UI
 		[DllImport(Dll)] private static extern void View3D_LightingControlsUI(HWindow window);
+
+		// PIX Events
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_PixBeginCpuEvent(uint colour, [MarshalAs(UnmanagedType.LPStr)] string name);
+		[DllImport(Dll)] private static extern void View3D_PixEndCpuEvent();
 
 #if false
 

@@ -81,8 +81,8 @@ namespace pr::rdr12
 			if (m_settings.m_adapter.ptr == nullptr)
 				throw std::runtime_error("No DirectX Adapter found that supports the requested feature level");
 
-			// Load PIX
-			PR_INFO_IF(PR_PIX_ENABLED, pix::LoadDll() != 0, "PIX Dll loaded"); // Load before creating the D3D device
+			// Load event instrumentation only; explicit GPU capture must be enabled before renderer or adapter initialization.
+			PR_INFO_IF(PR_PIX_ENABLED, pix::LoadDll() != 0, "PIX event runtime loaded");
 
 			// Device diagnostics follow the caller's explicit settings, independently of the build's assertion policy.
 			PR_INFO_IF(PR_DBG_RDR, AllSet(m_settings.m_options, ERdrOptions::DeviceDebug), "DeviceDebug is enabled");

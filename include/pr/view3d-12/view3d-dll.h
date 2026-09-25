@@ -1707,6 +1707,12 @@ extern "C"
 	// Show/Hide the lighting controls UI
 	VIEW3D_API void __stdcall View3D_LightingControlsUI(pr::view3d::Window window, BOOL show);
 
+	// Mark CPU and command-list GPU regions without requiring callers to link the optional PIX runtime.
+	VIEW3D_API void __stdcall View3D_PixBeginCpuEvent(unsigned int colour, char const* name);
+	VIEW3D_API void __stdcall View3D_PixEndCpuEvent();
+	VIEW3D_API void __stdcall View3D_PixBeginGpuEvent(ID3D12GraphicsCommandList* command_list, unsigned int colour, char const* name);
+	VIEW3D_API void __stdcall View3D_PixEndGpuEvent(ID3D12GraphicsCommandList* command_list);
+
 #if 0
 	// Ldr Editor Ctrl
 	VIEW3D_API HWND __stdcall View3D_LdrEditorCreate          (HWND parent);

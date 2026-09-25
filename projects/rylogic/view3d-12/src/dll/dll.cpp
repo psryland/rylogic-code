@@ -4090,6 +4090,34 @@ VIEW3D_API void __stdcall View3D_LightingControlsUI(view3d::Window window, BOOL 
 	CatchAndReport(View3D_LightShowDialog, window,);
 }
 
+// Mark managed or other caller-owned CPU work on its originating thread.
+VIEW3D_API void __stdcall View3D_PixBeginCpuEvent(unsigned int colour, char const* name)
+{
+	// Treat the supplied label as data, not a PIX format string.
+	compute::pix::BeginEvent(colour, name);
+}
+
+// Close the CPU region begun by the same thread.
+VIEW3D_API void __stdcall View3D_PixEndCpuEvent()
+{
+	// Only the calling thread owns this region.
+	compute::pix::EndEvent();
+}
+
+// Mark work recorded on a caller-owned D3D12 command list.
+VIEW3D_API void __stdcall View3D_PixBeginGpuEvent(ID3D12GraphicsCommandList* command_list, unsigned int colour, char const* name)
+{
+	// The PIX helper accepts a fixed format so arbitrary labels remain literal.
+	compute::pix::BeginEvent(command_list, colour, "%s", name);
+}
+
+// Close the GPU region before its command list is submitted.
+VIEW3D_API void __stdcall View3D_PixEndGpuEvent(ID3D12GraphicsCommandList* command_list)
+{
+	// Keep the paired GPU markers on the same command list.
+	compute::pix::EndEvent(command_list);
+}
+
 // UI *******************************************
 
 // Return the private View3DUI host bridge version.

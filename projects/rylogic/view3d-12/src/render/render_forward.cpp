@@ -287,12 +287,15 @@ namespace pr::rdr12
 			// Draw the opaques
 			auto drawlist = m_drawlist.lock();
 			auto opaque_end = kbuf ? boundaries[ESortGroup::AlphaBack] : s_cast<int>(drawlist->size());
+			auto pix_opaque = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF7EB8E5, "View3D::Opaque");
 			DrawNuggets(frame, m_cmd_list, pipe_state, std::span{ *drawlist }.subspan(0, s_cast<size_t>(opaque_end)), false);
 		}
 
 		// Render the alpha nuggets
 		if (kbuf)
 		{
+			// Separate transparent collection from opaque work recorded on the other command list.
+			auto pix_alpha = pix::EventScope<ID3D12GraphicsCommandList>(m_alp_list.get(), 0xFFBA84E5, "View3D::Alpha");
 			BindFrameResources(m_alp_list);
 
 			m_alp_list.OMSetRenderTargets({}, FALSE, nullptr);
@@ -331,6 +334,8 @@ namespace pr::rdr12
 			auto post_alpha_start = boundaries[ESortGroup::PostAlpha];
 			if (post_alpha_start != s_cast<int>(drawlist->size()) && frame.bb_post().m_render_target != nullptr)
 			{
+				// Distinguish screen-space overlays that run after the transparent resolve.
+				auto pix_overlay = pix::EventScope<ID3D12GraphicsCommandList>(frame.m_composite.get(), 0xFFFFB86C, "View3D::PostAlphaOverlay");
 				auto post_alpha_heaps = { wnd().m_heap_view.get(), wnd().m_heap_samp.get() };
 				frame.m_composite.SetDescriptorHeaps({ post_alpha_heaps.begin(), post_alpha_heaps.size() });
 

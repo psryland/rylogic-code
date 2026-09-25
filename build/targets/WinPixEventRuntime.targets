@@ -17,11 +17,16 @@
 		</Content>
 		<BuildArtifacts Include="$(PixPackagePath)bin\x64\WinPixEventRuntime.dll" />
 	</ItemGroup>
+
+	<PropertyGroup>
+		<PixEnabled Condition="'$(PixEnabled)' == '' and '$(Configuration)' == 'Debug'">1</PixEnabled>
+		<PixEnabled Condition="'$(PixEnabled)' == ''">0</PixEnabled>
+	</PropertyGroup>
 	
 	<ItemDefinitionGroup>
 		<ClCompile>
 			<PreprocessorDefinitions>
-				;PR_PIX_ENABLED=0
+				;PR_PIX_ENABLED=$(PixEnabled)
 				;PR_COMPUTE_SHADER_DEBUG=0
 				;%(PreprocessorDefinitions)
 			</PreprocessorDefinitions>

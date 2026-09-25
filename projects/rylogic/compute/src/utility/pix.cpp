@@ -22,13 +22,11 @@ namespace pr::compute::pix
 		return s_module;
 	}
 
-	// Return the PIX dll module handle if it can be loaded
+	// Return the event runtime module handle without enabling a capture engine.
 	HMODULE LoadDll()
 	{
-		auto handle = Dll();
-		if (PIXLoadLatestWinPixGpuCapturerLibrary() == 0) PR_INFO(PR_PIX_ENABLED, "WinPixGpuCapturerLibrary not found");
-		if (PIXLoadLatestWinPixTimingCapturerLibrary() == 0) PR_INFO(PR_PIX_ENABLED, "WinPixTimingCapturerLibrary not found");
-		return handle;
+		// Event instrumentation must not select or combine the application's capture engines.
+		return Dll();
 	}
 }
 

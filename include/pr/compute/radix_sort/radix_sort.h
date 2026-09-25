@@ -470,7 +470,13 @@ namespace pr::compute::gpu_radix_sort
 		// This overload is intended for use when you want to leave the keys/values on the GPU without reading them back.
 		void Sort(CmdList& cmd_list)
 		{
-			RecordSort(cmd_list, false);
+			RecordSort(cmd_list, false, "Gpu Radix Sort");
+		}
+
+		// Use a caller-owned stable purpose label without changing the sorted range or recorded workload.
+		void Sort(char const* purpose, CmdList& cmd_list)
+		{
+			RecordSort(cmd_list, false, purpose);
 		}
 
 		// Sort min(counter, capacity / count_multiplier) * count_multiplier keys, preserving equal-key payload order and the inactive suffix.
@@ -478,7 +484,7 @@ namespace pr::compute::gpu_radix_sort
 		// The counter's tracked resource state is restored. Streams must already be in UAV state, as for the CPU-known overload.
 		// The first nonempty-capacity call creates count-only pipeline state and arguments; subsequent calls reuse them.
 		// Record reuse on one ordered GPU queue. Keep resources alive and fence before resizing or releasing scratch used by unfinished work.
-		void Sort(CmdList& cmd_list, ID3D12Resource* counter, uint64_t counter_offset = 0, uint32_t count_multiplier = 1)
+		void Sort(CmdList& cmd_list, ID3D12Resource* counter, uint64_t counter_offset = 0, uint32_t count_multiplier = 1, char const* purpose = "Gpu Radix Sort")
 		{
 			// An empty capacity is a no-op, including when no counter or streams have been bound.
 			if (m_size == 0)
@@ -530,7 +536,7 @@ namespace pr::compute::gpu_radix_sort
 				barriers.Transition(counter, counter_state);
 
 			barriers.Commit();
-			RecordSort(cmd_list, true);
+			RecordSort(cmd_list, true, purpose);
 		}
 
 		// Initialise the payload buffer to incrementing indices.
@@ -658,11 +664,13 @@ namespace pr::compute::gpu_radix_sort
 		// Submit a sweep using CPU-known dimensions or GPU-authored full/partial records with the same flattened indexing.
 		void DispatchSweep(CmdList& cmd_list, uint32_t radix_shift, uint32_t thread_blocks, ID3D12CommandSignature* indirect_signature)
 		{
+			pix::DetailScope detail(cmd_list.get(), "RadixSort::Dispatch");
 			auto const full_blocks = thread_blocks / MaxDispatchDimension;
 			if (indirect_signature != nullptr)
 			{
 				// Even at an exact full-capacity boundary, smaller GPU counts can require the partial record.
 				auto const offset = (radix_shift / RadixBits * IndirectArgumentsPerPass + (full_blocks != 0 ? 0 : 1)) * IndirectArgumentStride;
+				pix::DetailMarker(cmd_list.get(), "indirect_records=%u argument_offset=%u", full_blocks != 0 ? 2U : 1U, offset);
 				cmd_list.ExecuteIndirect(indirect_signature, full_blocks != 0 ? 2 : 1, m_indirect_arguments.get(), offset);
 				return;
 			}
@@ -672,6 +680,7 @@ namespace pr::compute::gpu_radix_sort
 			{
 				std::array<uint32_t, 4> constants = { s_cast<uint32_t>(m_size), radix_shift, thread_blocks, 0 };
 				cmd_list.SetComputeRoot32BitConstants(0, isize(constants), constants.data(), 0);
+				pix::DetailMarker(cmd_list.get(), "groups_x=%u groups_y=%u groups_z=1", MaxDispatchDimension, full_blocks);
 				cmd_list.Dispatch(MaxDispatchDimension, full_blocks, 1);
 			}
 			auto const partial_blocks = thread_blocks % MaxDispatchDimension;
@@ -679,22 +688,27 @@ namespace pr::compute::gpu_radix_sort
 			{
 				std::array<uint32_t, 4> constants = { s_cast<uint32_t>(m_size), radix_shift, thread_blocks, (full_blocks << 1) | 1 };
 				cmd_list.SetComputeRoot32BitConstants(0, isize(constants), constants.data(), 0);
+				pix::DetailMarker(cmd_list.get(), "groups_x=%u groups_y=1 groups_z=1", partial_blocks);
 				cmd_list.Dispatch(partial_blocks, 1, 1);
 			}
 		}
 
 		// Share pass ordering, bindings, ping-pong ownership, and barriers between both count sources.
-		void RecordSort(CmdList& cmd_list, bool gpu_counted)
+		void RecordSort(CmdList& cmd_list, bool gpu_counted, char const* purpose)
 		{
 			if (m_size == 0)
 				return;
 
 			// Four byte-radix passes perform O(active keys + radix * active partitions) work using O(capacity) retained scratch.
 			auto const thread_blocks = PartitionCount(m_size);
-			pix::BeginEvent(cmd_list.get(), 0xFF90aa3f, "Gpu Radix Sort");
+			pix::BeginEvent(cmd_list.get(), 0xFF90aa3f, "%s", purpose);
+			pix::DetailMarker(cmd_list.get(), "gpu_counted=%u input_count_or_capacity=%u partition_size=%u partitions_or_capacity=%u passes=%u",
+				gpu_counted ? 1U : 0U, m_size, m_tuning.partition_size, thread_blocks, KeyBits / RadixBits);
 
 			// Reset the histogram
 			{
+				pix::DetailScope detail(cmd_list.get(), "RadixSort::ResetHistogram");
+				pix::DetailMarker(cmd_list.get(), "groups_x=1 groups_y=1 groups_z=1");
 				cmd_list.SetPipelineState(m_init.m_pso.get());
 				cmd_list.SetComputeRootSignature(m_init.m_sig.get());
 				cmd_list.SetComputeRootUnorderedAccessView(0, m_global_histogram->GetGPUVirtualAddress());
@@ -703,14 +717,20 @@ namespace pr::compute::gpu_radix_sort
 
 			BarrierBatch barriers(cmd_list);
 			barriers.UAV(m_global_histogram.get());
-			barriers.Commit();
+			{
+				pix::DetailScope detail(cmd_list.get(), "RadixSort::ResetBarrier");
+				barriers.Commit();
+			}
 
 			// Do the sort
 			int i = 0, j = 1;
 			for (auto radix_shift = 0U; radix_shift != KeyBits; radix_shift += RadixBits)
 			{
+				pix::DetailScope pass(cmd_list.get(), "RadixSort::Pass");
+				pix::DetailMarker(cmd_list.get(), "radix_shift=%u", radix_shift);
 				// Sweep Up
 				{
+					pix::DetailScope detail(cmd_list.get(), "RadixSort::SweepUp");
 					cmd_list.SetPipelineState(m_sweep_up.m_pso.get());
 					cmd_list.SetComputeRootSignature(m_sweep_up.m_sig.get());
 					cmd_list.SetComputeRootUnorderedAccessView(1, m_sort[i]->GetGPUVirtualAddress());
@@ -721,32 +741,42 @@ namespace pr::compute::gpu_radix_sort
 				}
 
 				barriers.UAV(m_pass_histogram.get());
-				barriers.Commit();
+				{
+					pix::DetailScope detail(cmd_list.get(), "RadixSort::SweepUpBarrier");
+					barriers.Commit();
+				}
 
 				// Scan
 				{
+					pix::DetailScope detail(cmd_list.get(), "RadixSort::Scan");
 					cmd_list.SetPipelineState(m_scan.m_pso.get());
 					cmd_list.SetComputeRootSignature(m_scan.m_sig.get());
 					cmd_list.SetComputeRootUnorderedAccessView(1, m_pass_histogram->GetGPUVirtualAddress());
 					if (gpu_counted)
 					{
 						auto const offset = (radix_shift / RadixBits * IndirectArgumentsPerPass + 2) * IndirectArgumentStride;
+						pix::DetailMarker(cmd_list.get(), "indirect_records=1 argument_offset=%u", offset);
 						cmd_list.ExecuteIndirect(m_indirect_scan.get(), 1, m_indirect_arguments.get(), offset);
 					}
 					else
 					{
 						std::array<uint32_t, 4> constants = { 0, 0, thread_blocks, 0 };
 						cmd_list.SetComputeRoot32BitConstants(0, isize(constants), constants.data(), 0);
+						pix::DetailMarker(cmd_list.get(), "groups_x=256 groups_y=1 groups_z=1");
 						cmd_list.Dispatch(256, 1, 1);
 					}
 				}
 
 				barriers.UAV(m_pass_histogram.get());
 				barriers.UAV(m_global_histogram.get());
-				barriers.Commit();
+				{
+					pix::DetailScope detail(cmd_list.get(), "RadixSort::ScanBarrier");
+					barriers.Commit();
+				}
 
 				// Sweep Down
 				{
+					pix::DetailScope detail(cmd_list.get(), "RadixSort::SweepDown");
 					cmd_list.SetPipelineState(m_sweep_down.m_pso.get());
 					cmd_list.SetComputeRootSignature(m_sweep_down.m_sig.get());
 					cmd_list.SetComputeRootUnorderedAccessView(1, m_sort[i]->GetGPUVirtualAddress());
@@ -763,7 +793,10 @@ namespace pr::compute::gpu_radix_sort
 				barriers.UAV(m_sort[j].get());
 				barriers.UAV(m_payload[i].get());
 				barriers.UAV(m_payload[j].get());
-				barriers.Commit();
+				{
+					pix::DetailScope detail(cmd_list.get(), "RadixSort::SweepDownBarrier");
+					barriers.Commit();
+				}
 
 				i = 1 - i;
 				j = 1 - j;

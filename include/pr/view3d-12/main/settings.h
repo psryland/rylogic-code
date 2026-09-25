@@ -156,7 +156,7 @@ namespace pr::rdr12
 			,m_scaling(DXGI_SCALING_STRETCH)
 			,m_alpha_mode(DXGI_ALPHA_MODE_UNSPECIFIED)
 			,m_buffer_count(2)
-			,m_vsync(1)
+			,m_vsync(0)
 			,m_xr_support(false)
 			,m_use_w_buffer(true)
 			,m_allow_alt_enter(false)

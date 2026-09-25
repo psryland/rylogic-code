@@ -296,6 +296,8 @@ namespace pr::physics
 		auto const push_out_steps = std::max(0, push_out_iterations >= 0 ? push_out_iterations : m_config.push_out_iterations);
 		auto const solver_iterations = std::max(0, solver_iterations_ >= 0 ? solver_iterations_ : m_config.solver_iterations);
 		auto const position_correction_scale = push_out_steps != 0 ? 1.0f / push_out_steps : 0.0f;
+		pix::DetailMarker(job.m_cmd_list.get(), "substep=%d bodies=%d sort_input_count=%d velocity_iterations=%d position_iterations=%d colours=%d support_only=%u",
+			substep_index, body_count, m_max_contacts, solver_iterations, push_out_steps, MaxColours, support_only ? 1U : 0U);
 		auto const priority_sort_enabled =
 			m_config.contact_sort_propagation_scale > 0.0f &&
 			m_config.contact_sort_shock_iterations > 0;
@@ -413,6 +415,7 @@ namespace pr::physics
 			// Put persistent resolver resources into the states expected by the compute phases.
 			void TransitionResources()
 			{
+				pix::DetailScope detail(m_job.m_cmd_list.get(), "Resolve::Transitions");
 				// All transitions are committed together before any phase records root bindings.
 				m_job.m_barriers.Transition(m_dispatch.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
 				m_job.m_barriers.Transition(m_counters.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -449,6 +452,7 @@ namespace pr::physics
 			// Make warm-start writes visible to the next resolver phase.
 			void CommitWarmStartBarriers()
 			{
+				pix::DetailScope detail(m_job.m_cmd_list.get(), "Resolve::WarmStartBarrier");
 				// Every warm-start kernel can update bodies, contacts, and either cache role.
 				m_job.m_barriers.UAV(m_bodies.get());
 				m_job.m_barriers.UAV(m_contacts.get());
@@ -460,8 +464,10 @@ namespace pr::physics
 			// Clear the current cache and initialise a newly allocated previous cache.
 			void ClearWarmStartCache()
 			{
+				pix::DetailScope detail(m_job.m_cmd_list.get(), "Resolve::ClearWarmStart");
 				// The previous cache is cleared once so the first lookup is deterministic; the current cache is cleared every frame.
 				auto const warm_start_group_count = static_cast<UINT>(std::max(1, (m_resolver.m_warm_start_capacity + ResolveThreadCount - 1) / ResolveThreadCount));
+				pix::DetailMarker(m_job.m_cmd_list.get(), "groups_x=%u groups_y=1 groups_z=1 clear_previous=%u", warm_start_group_count, m_resolver.m_reset_warm_start_cache ? 1U : 0U);
 				if (m_resolver.m_reset_warm_start_cache)
 				{
 					BindWarmStartStep(m_resolver.m_cs_warm_start_clear, m_resolver.m_r_warm_start_prev.get());
@@ -478,6 +484,7 @@ namespace pr::physics
 			// Calculate contact sort keys and clear body colour masks.
 			void ComputeContactTimes()
 			{
+				pix::DetailScope detail(m_job.m_cmd_list.get(), "Resolve::ComputeContactTimes");
 				// Gravity-biased collision times provide the initial ordering before optional shock-priority propagation.
 				m_job.m_cmd_list.SetPipelineState(m_resolver.m_cs_compute_times.m_pso.get());
 				m_job.m_cmd_list.SetComputeRootSignature(m_resolver.m_cs_compute_times.m_sig.get());
@@ -519,6 +526,7 @@ namespace pr::physics
 			// Make shock-priority graph writes visible to the next propagation phase.
 			void CommitShockBarriers()
 			{
+				pix::DetailScope detail(m_job.m_cmd_list.get(), "Resolve::ShockBarrier");
 				// Propagation reads the adjacency and priority values written by the preceding dispatch.
 				m_job.m_barriers.UAV(m_resolver.m_r_colours.get());
 				m_job.m_barriers.UAV(m_resolver.m_r_contact_times.get());
@@ -536,6 +544,7 @@ namespace pr::physics
 				if (!m_priority_sort_enabled)
 					return;
 
+				pix::DetailScope detail(m_job.m_cmd_list.get(), "Resolve::PropagatePriority");
 				auto const body_group_count = static_cast<UINT>(std::max(1, (m_body_count + ResolveThreadCount - 1) / ResolveThreadCount));
 				BindShockStep(m_resolver.m_cs_clear_shock_lists);
 				m_job.m_cmd_list.Dispatch(body_group_count, 1, 1);
@@ -547,6 +556,8 @@ namespace pr::physics
 
 				for (int iter = 0; iter != m_cb.shock_iterations; ++iter)
 				{
+					pix::DetailScope iteration(m_job.m_cmd_list.get(), "Resolve::PriorityIteration");
+					pix::DetailMarker(m_job.m_cmd_list.get(), "iteration=%d", iter);
 					BindShockStep(m_resolver.m_cs_propagate_shock_priority);
 					m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
 					CommitShockBarriers();
@@ -569,7 +580,7 @@ namespace pr::physics
 			{
 				// The payload preserves the original contact buffer while defining solver order separately.
 				m_resolver.m_contact_sorter.Bind(m_job.m_cmd_list, m_resolver.m_max_contacts, m_resolver.m_r_contact_times, m_resolver.m_r_contact_order);
-				m_resolver.m_contact_sorter.Sort(m_job.m_cmd_list);
+				m_resolver.m_contact_sorter.Sort("Physics::SortContactPriority", m_job.m_cmd_list);
 
 				m_job.m_barriers.UAV(m_resolver.m_r_contact_times.get());
 				m_job.m_barriers.UAV(m_resolver.m_r_contact_order.get());
@@ -579,6 +590,8 @@ namespace pr::physics
 			// Assign graph colours to the sorted contacts.
 			void ColourContacts()
 			{
+				pix::DetailScope detail(m_job.m_cmd_list.get(), "Resolve::ColourContacts");
+				pix::DetailMarker(m_job.m_cmd_list.get(), "groups_x=1 groups_y=1 groups_z=1");
 				// Contacts sharing a body receive different colours so each colour batch owns exclusive body writes.
 				m_job.m_cmd_list.SetPipelineState(m_resolver.m_cs_assign_colours.m_pso.get());
 				m_job.m_cmd_list.SetComputeRootSignature(m_resolver.m_cs_assign_colours.m_sig.get());
@@ -598,6 +611,7 @@ namespace pr::physics
 			// Prepare persistent constraints and coupled contacts for their iterative solver phases.
 			void PrepareSolverWork()
 			{
+				pix::DetailScope detail(m_job.m_cmd_list.get(), "Resolve::PrepareSolver");
 				// Constraint blocks are compiled after integration has produced the current body transforms.
 				if (m_constraint_solver != nullptr)
 					m_constraint_solver->Prepare(m_job, m_dt, m_rigid_body_count, m_bodies, m_retain_constraint_impulses);
@@ -620,12 +634,15 @@ namespace pr::physics
 			// Apply retained physical impulses before iterative solving.
 			void ApplyWarmStart()
 			{
+				pix::DetailScope detail(m_job.m_cmd_list.get(), "Resolve::ApplyWarmStart");
 				// Cached support starts resting contacts close to the preceding frame's accepted solution.
 				if (m_resolver.m_config.warm_start_scale > 0.0f)
 				{
 					BindWarmStartStep(m_resolver.m_cs_apply_warm_start, m_resolver.m_r_warm_start_curr.get());
 					for (int colour = 0; colour != MaxColours; ++colour)
 					{
+						pix::DetailScope dispatch(m_job.m_cmd_list.get(), "Resolve::WarmStartColour");
+						pix::DetailMarker(m_job.m_cmd_list.get(), "colour=%d indirect_records=1", colour);
 						m_cb.colour = colour;
 						m_job.m_cmd_list.SetComputeRoot32BitConstants(0, 1, &m_cb.colour, offsetof(cbResolve, colour) / sizeof(uint32_t));
 						m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
@@ -663,6 +680,7 @@ namespace pr::physics
 			// Solve detached position correction without changing physical momentum.
 			void SolvePosition()
 			{
+				pix::DetailScope detail(m_job.m_cmd_list.get(), "Resolve::Position");
 				// Every position lane writes shared pseudo-position state, including coupled-only frames.
 				auto const has_constraint_work = m_constraint_solver != nullptr || m_coupled_constraint_solver != nullptr || m_coupled_contact_solver != nullptr;
 				auto rigid_pseudo = D3DPtr<ID3D12Resource>{};
@@ -699,12 +717,16 @@ namespace pr::physics
 
 					for (int iter = 0; iter != m_push_out_steps; ++iter)
 					{
+						pix::DetailScope iteration(m_job.m_cmd_list.get(), "Resolve::PositionIteration");
+						pix::DetailMarker(m_job.m_cmd_list.get(), "iteration=%d", iter);
 						// Constraint sweeps leave another root signature active, so every contact binding is restored before the next outer sweep.
 						if (iter != 0 && has_constraint_work)
 							BindPositionSolve(pseudo_buffer);
 
 						for (int colour = 0; colour != MaxColours; ++colour)
 						{
+							pix::DetailScope dispatch(m_job.m_cmd_list.get(), "Resolve::PositionColour");
+							pix::DetailMarker(m_job.m_cmd_list.get(), "colour=%d indirect_records=1", colour);
 							// Each graph colour owns exclusive body writes; barriers expose pseudo-state updates to later colours and solvers.
 							m_cb.colour = colour;
 							m_job.m_cmd_list.SetComputeRoot32BitConstants(0, 1, &m_cb.colour, offsetof(cbResolve, colour) / sizeof(uint32_t));
@@ -714,7 +736,10 @@ namespace pr::physics
 							if (rigid_pseudo != nullptr)
 								m_job.m_barriers.UAV(rigid_pseudo.get());
 
-							m_job.m_barriers.Commit();
+							{
+								pix::DetailScope barrier(m_job.m_cmd_list.get(), "Resolve::PositionBarrier");
+								m_job.m_barriers.Commit();
+							}
 						}
 						if (m_constraint_solver != nullptr)
 							m_constraint_solver->SolvePositionIteration(m_job, m_dt, m_rigid_body_count, m_push_out_steps, m_bodies);
@@ -753,24 +778,32 @@ namespace pr::physics
 			// Solve physical contact impulses and body momentum.
 			void SolveVelocity()
 			{
+				pix::DetailScope detail(m_job.m_cmd_list.get(), "Resolve::Velocity");
 				// Gauss-Seidel sweeps re-read momentum changed by earlier colours and constraints; CSResolve guards against energy injection.
 				auto const has_constraint_work = m_constraint_solver != nullptr || m_coupled_constraint_solver != nullptr || m_coupled_contact_solver != nullptr;
 				BindVelocitySolve();
 
 				for (int iter = 0; iter != m_solver_iterations; ++iter)
 				{
+					pix::DetailScope iteration(m_job.m_cmd_list.get(), "Resolve::VelocityIteration");
+					pix::DetailMarker(m_job.m_cmd_list.get(), "iteration=%d", iter);
 					// Constraint sweeps use another root layout, so rebind the contact table before the next outer sweep.
 					if (iter != 0 && has_constraint_work)
 						BindVelocitySolve();
 
 					for (int colour = 0; colour != MaxColours; ++colour)
 					{
+						pix::DetailScope dispatch(m_job.m_cmd_list.get(), "Resolve::VelocityColour");
+						pix::DetailMarker(m_job.m_cmd_list.get(), "colour=%d indirect_records=1", colour);
 						// Each graph colour owns exclusive body writes; barriers expose momentum changes to later colours and solvers.
 						m_cb.colour = colour;
 						m_job.m_cmd_list.SetComputeRoot32BitConstants(0, 1, &m_cb.colour, offsetof(cbResolve, colour) / sizeof(uint32_t));
 						m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
 						m_job.m_barriers.UAV(m_bodies.get());
-						m_job.m_barriers.Commit();
+						{
+							pix::DetailScope barrier(m_job.m_cmd_list.get(), "Resolve::VelocityBarrier");
+							m_job.m_barriers.Commit();
+						}
 					}
 					if (m_constraint_solver != nullptr)
 						m_constraint_solver->SolveVelocityIteration(m_job, m_dt, m_rigid_body_count, m_bodies);
@@ -789,6 +822,7 @@ namespace pr::physics
 				if (m_resolver.m_config.warm_start_scale <= 0.0f)
 					return;
 
+				pix::DetailScope detail(m_job.m_cmd_list.get(), "Resolve::StoreWarmStart");
 				BindWarmStartStep(m_resolver.m_cs_store_warm_start, m_resolver.m_r_warm_start_curr.get());
 				m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
 				CommitWarmStartBarriers();
