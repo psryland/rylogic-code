@@ -169,7 +169,7 @@ namespace pr::physics
 		GpuFrameOutputReadback rb_output;
 		ReadbackAlloc rb_terrain;
 		double pix_time_s = 0;
-		// Temporary diagnostics share the submitted job's fence, never a separate synchronization round trip.
+		// Opt-in PIX diagnostics share the submitted job's fence, never a separate synchronization round trip.
 		std::vector<ReadbackAlloc> pix_resolve_counts;
 		bool emit_collisions = true;
 		bool read_collision_events = false;
@@ -1525,7 +1525,7 @@ namespace pr::physics
 			throw std::runtime_error("Constraint topology or parameters changed while an Engine step was pending");
 
 		auto const& output_header = GpuFrameOutput::Header(buffers.rb_output);
-		// Temporary diagnostics consume the existing completed readback; these are frame maxima, not individual substep counts.
+		// PIX diagnostics consume the existing completed readback; these are frame maxima, not individual substep counts.
 		pr::compute::pix::CompletedDetailMarker("Physics::Completed engine=%p time_s=%.9f max_pairs=%u max_contacts=%u substeps=%u",
 			this, buffers.pix_time_s, output_header.max_pair_count, output_header.max_contact_count, output_header.substep_count);
 		for (int substep = 0; substep != isize(buffers.pix_resolve_counts); ++substep)

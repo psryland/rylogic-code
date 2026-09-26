@@ -104,10 +104,16 @@ produces named GPU intervals: verify those in a fresh timing capture.
 See Microsoft's [instrumentation documentation](https://devblogs.microsoft.com/pix/winpixeventruntime/)
 and [programmatic capture prerequisites](https://devblogs.microsoft.com/pix/programmatic-capture/).
 
-#### Temporary sort/resolve investigation detail
+#### Detailed PIX instrumentation
 
-Set `PR_PIX_DETAIL=1` **before process startup** in a Debug build to enable the temporary
-fine-grained regions. Leave it unset for ordinary instrumentation. This diagnostic adds
+Detailed PIX instrumentation is retained as a supported diagnostic capability and is **off by default**.
+Set `PR_PIX_DETAIL=1` **before process startup** in a PIX-enabled build (enabled by default in Debug)
+to enable the fine-grained regions. Leave it unset or set it to `0` for ordinary instrumentation.
+Only the exact value `1` enables detail, and the setting is cached on first use; restart the process after changing it.
+When `PR_PIX_ENABLED=0`, detail is disabled regardless of the environment setting.
+With detail disabled, no detail events, markers, diagnostic counter copies or associated readback allocations are recorded.
+Ordinary PIX regions, including purpose-specific sort names, remain available independently of detailed instrumentation.
+Enabling detail adds
 markers, small counter copies, and their resource transitions, not a different solver,
 sort algorithm, dispatch count, or queue policy; compare runs with the same setting.
 
@@ -116,8 +122,8 @@ The three physics sort purposes are `Physics::SortBroadphaseEndpoints`,
 Their current inputs are respectively twice the body count, the contact sort capacity,
 and twice the coupled-contact capacity. Inactive entries are still part of the latter
 two sorted ranges: a live contact count is not the number of keys actually sorted.
-The generic GPU-counted overload reports a capacity explicitly; no physics caller is
-switched to that overload by this investigation.
+The generic GPU-counted overload reports a capacity explicitly; the physics callers use
+the CPU-known input-count overload.
 
 Stable `RadixSort::Pass`, `SweepUp`, `Scan`, `SweepDown`, dispatch and barrier regions
 separate the four byte passes. Associated PIX markers carry radix shift, input count,

@@ -105,7 +105,7 @@ namespace pr::compute::pix
 		#endif
 	}
 
-	// Temporary profiling detail is opt-in at process startup; ordinary PIX regions remain unchanged.
+	// Detailed profiling is off by default. Set PR_PIX_DETAIL=1 before startup; the setting is cached on first use.
 	inline bool DetailEnabled()
 	{
 		#if PR_PIX_ENABLED
@@ -144,7 +144,7 @@ namespace pr::compute::pix
 		#endif
 	}
 
-	// Temporary nested GPU detail; names describe work, while markers carry variable identifiers.
+	// Opt-in nested GPU detail; names describe work, while markers carry variable identifiers.
 	template<typename CONTEXT>
 	struct DetailScope
 	{
