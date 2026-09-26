@@ -638,17 +638,15 @@ namespace pr::physics
 				// Cached support starts resting contacts close to the preceding frame's accepted solution.
 				if (m_resolver.m_config.warm_start_scale > 0.0f)
 				{
+					// Every colour uses the same dependency set; prepare it once rather than rebuilding a barrier batch per dispatch.
+					auto const barriers = std::array{
+						UavBarrier(m_bodies.get()),
+						UavBarrier(m_contacts.get()),
+						UavBarrier(m_resolver.m_r_warm_start_prev.get()),
+						UavBarrier(m_resolver.m_r_warm_start_curr.get()),
+					};
 					BindWarmStartStep(m_resolver.m_cs_apply_warm_start, m_resolver.m_r_warm_start_curr.get());
-					for (int colour = 0; colour != MaxColours; ++colour)
-					{
-						pix::DetailScope dispatch(m_job.m_cmd_list.get(), "Resolve::WarmStartColour");
-						pix::DetailMarker(m_job.m_cmd_list.get(), "colour=%d indirect_records=1", colour);
-						m_cb.colour = colour;
-						m_job.m_cmd_list.SetComputeRoot32BitConstants(0, 1, &m_cb.colour, offsetof(cbResolve, colour) / sizeof(uint32_t));
-						m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
-						CommitWarmStartBarriers();
-					}
-					m_cb.colour = 0;
+					RecordColourSweep(barriers, "Resolve::WarmStartColour", "Resolve::WarmStartBarrier");
 					if (m_coupled_contact_solver != nullptr)
 						m_coupled_contact_solver->ApplyWarmStart(m_job);
 				}
@@ -658,6 +656,51 @@ namespace pr::physics
 						m_constraint_solver->ApplyWarmStart(m_job, m_dt, m_rigid_body_count, m_bodies);
 					if (m_coupled_constraint_solver != nullptr)
 						m_coupled_constraint_solver->ApplyWarmStart(m_job, m_rigid_body_count, m_bodies.get());
+				}
+			}
+
+			// Describe one UAV dependency without changing tracked resource states.
+			static D3D12_RESOURCE_BARRIER UavBarrier(ID3D12Resource* resource)
+			{
+				// UAV ordering does not require the transition-state bookkeeping used by BarrierBatch.
+				return D3D12_RESOURCE_BARRIER{
+					.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV,
+					.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE,
+					.UAV = {.pResource = resource},
+				};
+			}
+
+			// Record the established colour order and dependencies without per-colour CPU setup.
+			void RecordColourSweep(std::span<D3D12_RESOURCE_BARRIER const> barriers, char const* colour_name, char const* barrier_name)
+			{
+				// Validate command-list ownership and flush earlier transitions once at this recording boundary. Resource addresses and barriers stay fixed.
+				m_job.m_barriers.Commit();
+				auto* cmd_list = m_job.m_cmd_list.get();
+				auto* signature = m_resolver.m_cmd_sig.get();
+				auto* dispatch_args = m_dispatch.get();
+				auto const barrier_count = static_cast<UINT>(barriers.size());
+				auto const detail_enabled = pix::DetailEnabled();
+				for (auto colour = 0; colour != MaxColours; ++colour)
+				{
+					// Avoid even constructing fine-grained scopes when detail is disabled, while retaining the same aggregation names when enabled.
+					if (detail_enabled)
+					{
+						pix::BeginEvent(cmd_list, 0xFF90AA3F, "%s", colour_name);
+						pix::DetailMarker(cmd_list, "colour=%d indirect_records=1", colour);
+					}
+
+					// Only the colour root value changes. The indirect grid still covers every live contact, including multi-group and overflow cases.
+					cmd_list->SetComputeRoot32BitConstants(0, 1, &colour, offsetof(cbResolve, colour) / sizeof(uint32_t));
+					cmd_list->ExecuteIndirect(signature, 1, dispatch_args, 0, nullptr, 0);
+					if (detail_enabled)
+						pix::BeginEvent(cmd_list, 0xFF90AA3F, "%s", barrier_name);
+
+					cmd_list->ResourceBarrier(barrier_count, barriers.data());
+					if (detail_enabled)
+					{
+						pix::EndEvent(cmd_list);
+						pix::EndEvent(cmd_list);
+					}
 				}
 			}
 
@@ -715,6 +758,9 @@ namespace pr::physics
 					auto* pseudo_buffer = rigid_pseudo != nullptr ? rigid_pseudo.get() : m_resolver.m_r_colours.get();
 					BindPositionSolve(pseudo_buffer);
 
+					// Retain the exact per-colour dependencies, including detached pseudo state when another solver shares it.
+					auto const barriers = std::array{UavBarrier(m_bodies.get()), UavBarrier(rigid_pseudo.get())};
+					auto const dependencies = std::span{barriers}.first(rigid_pseudo != nullptr ? 2 : 1);
 					for (int iter = 0; iter != m_push_out_steps; ++iter)
 					{
 						pix::DetailScope iteration(m_job.m_cmd_list.get(), "Resolve::PositionIteration");
@@ -723,24 +769,8 @@ namespace pr::physics
 						if (iter != 0 && has_constraint_work)
 							BindPositionSolve(pseudo_buffer);
 
-						for (int colour = 0; colour != MaxColours; ++colour)
-						{
-							pix::DetailScope dispatch(m_job.m_cmd_list.get(), "Resolve::PositionColour");
-							pix::DetailMarker(m_job.m_cmd_list.get(), "colour=%d indirect_records=1", colour);
-							// Each graph colour owns exclusive body writes; barriers expose pseudo-state updates to later colours and solvers.
-							m_cb.colour = colour;
-							m_job.m_cmd_list.SetComputeRoot32BitConstants(0, 1, &m_cb.colour, offsetof(cbResolve, colour) / sizeof(uint32_t));
-							m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
-
-							m_job.m_barriers.UAV(m_bodies.get());
-							if (rigid_pseudo != nullptr)
-								m_job.m_barriers.UAV(rigid_pseudo.get());
-
-							{
-								pix::DetailScope barrier(m_job.m_cmd_list.get(), "Resolve::PositionBarrier");
-								m_job.m_barriers.Commit();
-							}
-						}
+						// Each graph colour owns exclusive body writes; barriers expose pseudo-state updates to later colours and solvers.
+						RecordColourSweep(dependencies, "Resolve::PositionColour", "Resolve::PositionBarrier");
 						if (m_constraint_solver != nullptr)
 							m_constraint_solver->SolvePositionIteration(m_job, m_dt, m_rigid_body_count, m_push_out_steps, m_bodies);
 						if (coupled_position_active)
@@ -748,7 +778,6 @@ namespace pr::physics
 						if (coupled_contact_position_active)
 							m_coupled_contact_solver->SolvePositionIteration(m_job, iter);
 					}
-					m_cb.colour = 0;
 				}
 
 				// Apply shared pseudo state once through the owner that covers every participating articulation.
@@ -783,6 +812,8 @@ namespace pr::physics
 				auto const has_constraint_work = m_constraint_solver != nullptr || m_coupled_constraint_solver != nullptr || m_coupled_contact_solver != nullptr;
 				BindVelocitySolve();
 
+				// The body dependency is identical for every physical impulse batch.
+				auto const barriers = std::array{UavBarrier(m_bodies.get())};
 				for (int iter = 0; iter != m_solver_iterations; ++iter)
 				{
 					pix::DetailScope iteration(m_job.m_cmd_list.get(), "Resolve::VelocityIteration");
@@ -791,20 +822,8 @@ namespace pr::physics
 					if (iter != 0 && has_constraint_work)
 						BindVelocitySolve();
 
-					for (int colour = 0; colour != MaxColours; ++colour)
-					{
-						pix::DetailScope dispatch(m_job.m_cmd_list.get(), "Resolve::VelocityColour");
-						pix::DetailMarker(m_job.m_cmd_list.get(), "colour=%d indirect_records=1", colour);
-						// Each graph colour owns exclusive body writes; barriers expose momentum changes to later colours and solvers.
-						m_cb.colour = colour;
-						m_job.m_cmd_list.SetComputeRoot32BitConstants(0, 1, &m_cb.colour, offsetof(cbResolve, colour) / sizeof(uint32_t));
-						m_job.m_cmd_list.ExecuteIndirect(m_resolver.m_cmd_sig.get(), 1, m_dispatch.get());
-						m_job.m_barriers.UAV(m_bodies.get());
-						{
-							pix::DetailScope barrier(m_job.m_cmd_list.get(), "Resolve::VelocityBarrier");
-							m_job.m_barriers.Commit();
-						}
-					}
+					// Each graph colour owns exclusive body writes; barriers expose momentum changes to later colours and solvers.
+					RecordColourSweep(barriers, "Resolve::VelocityColour", "Resolve::VelocityBarrier");
 					if (m_constraint_solver != nullptr)
 						m_constraint_solver->SolveVelocityIteration(m_job, m_dt, m_rigid_body_count, m_bodies);
 					if (m_coupled_constraint_solver != nullptr)
@@ -812,7 +831,6 @@ namespace pr::physics
 					if (m_coupled_contact_solver != nullptr)
 						m_coupled_contact_solver->SolveVelocityIteration(m_job);
 				}
-				m_cb.colour = 0;
 			}
 
 			// Persist accepted physical impulses for the next frame.

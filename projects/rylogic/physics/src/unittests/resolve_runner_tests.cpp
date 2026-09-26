@@ -16,8 +16,10 @@ namespace pr::physics::tests
 	PRUnitTestClass(ResolveRootStateTests)
 	{
 		// Compare independent axis contacts with the shader interop oracle, including nonzero cached support on the second frame.
-		static void CheckColours(int contact_count)
+		static void CheckColours(int contact_count, int island_count = 1)
 		{
+			// Independent hubs retain the same three-axis oracle while covering more than one indirect thread group.
+			assert(contact_count >= 1 && contact_count <= 3);
 			auto config = EngineConfig{};
 			config.push_out_iterations = 3;
 			config.solver_iterations = 4;
@@ -30,24 +32,32 @@ namespace pr::physics::tests
 			auto hub = RigidBody{&box, m4x4::Identity(), Inertia::Box(box.m_radius, 1.0f)};
 			auto wall = RigidBody{&box, m4x4::Identity(), Inertia::Infinite()};
 			hub.VelocityWS(v4::Zero(), v4{1, 2, 3, 0});
-			auto initial = std::vector<GpuRigidBody>{PackDynamics(hub, 0)};
+			auto initial = std::vector<GpuRigidBody>{};
 			auto contacts = std::vector<GpuResolveContact>{};
 			auto axes = std::array{v4::XAxis(), v4::YAxis(), v4::ZAxis()};
-			for (int index = 0; index != contact_count; ++index)
+			for (int island = 0; island != island_count; ++island)
 			{
-				initial.push_back(PackDynamics(wall, index + 1));
-				contacts.push_back(GpuResolveContact{
-					.axis = axes[index],
-					.contact_point = v4::Origin(),
-					.manifold = {v4::Origin()},
-					.b2a = m4x4::Identity(),
-					.body_idx_a = 0,
-					.body_idx_b = index + 1,
-					.mat_id_a = 0,
-					.mat_id_b = 0,
-					.depth = 0.1f,
-					.feature = 1,
-				});
+				// Give every island distinct body identities, including static endpoints used by the warm-start cache.
+				auto const hub_index = isize(initial);
+				initial.push_back(PackDynamics(hub, hub_index));
+				for (int index = 0; index != contact_count; ++index)
+				{
+					// Each hub needs separate nonzero colour root updates in all solver phases.
+					auto const wall_index = isize(initial);
+					initial.push_back(PackDynamics(wall, wall_index));
+					contacts.push_back(GpuResolveContact{
+						.axis = axes[index],
+						.contact_point = v4::Origin(),
+						.manifold = {v4::Origin()},
+						.b2a = m4x4::Identity(),
+						.body_idx_a = hub_index,
+						.body_idx_b = wall_index,
+						.mat_id_a = 0,
+						.mat_id_b = 0,
+						.depth = 0.1f,
+						.feature = 1,
+					});
+				}
 			}
 			auto materials = std::array{GpuMaterial{.friction_static = 0.0f, .elasticity_norm = 0.0f}};
 			auto expected = initial;
@@ -55,11 +65,12 @@ namespace pr::physics::tests
 			auto oracle = ResolveInteropRunner{config};
 			oracle.Run(ResolveRunnerBuffers{1.0f / 60.0f, expected, expected_contacts, materials});
 			PR_EXPECT(!oracle.ColourOverflow());
-			for (int index = 0; index != contact_count; ++index)
+			for (int index = 0; index != isize(contacts); ++index)
 			{
-				PR_EXPECT(Dot3(expected_contacts[index].warmstart_impulse, axes[index]) > 0.0f);
+				// Validate every island's active colours and require real physical support, not merely matching no-op output.
+				PR_EXPECT(Dot3(expected_contacts[index].warmstart_impulse, axes[index % contact_count]) > 0.0f);
 				PR_EXPECT(oracle.Colours()[index] < static_cast<uint32_t>(contact_count));
-				for (int other = 0; other != index; ++other)
+				for (int other = index - index % contact_count; other != index; ++other)
 					PR_EXPECT(oracle.Colours()[index] != oracle.Colours()[other]);
 			}
 
@@ -68,10 +79,12 @@ namespace pr::physics::tests
 			auto resolver = GpuResolver{gpu, config, nullptr};
 			for (int frame = 0; frame != 2; ++frame)
 			{
+				// The second frame exercises retained warm-start caches with exactly the same input bodies.
 				auto actual = initial;
 				resolver.Resolve(gpu.m_job, 1.0f / 60.0f, contacts, actual, materials);
 				for (int index = 0; index != isize(actual); ++index)
 				{
+					// Compare both transforms and physical momentum after every colour sweep.
 					PR_EXPECT(FEqlAbsolute(actual[index].o2w.pos, expected[index].o2w.pos, 1.0e-5f));
 					PR_EXPECT(FEqlAbsolute(actual[index].momentum_lin, expected[index].momentum_lin, 1.0e-5f));
 					PR_EXPECT(FEqlAbsolute(actual[index].momentum_ang, expected[index].momentum_ang, 1.0e-5f));
@@ -89,6 +102,105 @@ namespace pr::physics::tests
 		PRUnitTestMethod(MultipleColoursMatchInterop, Extended)
 		{
 			CheckColours(3);
+		}
+	};
+
+	// Hardware coverage for lossless CPU recording across small and large parallel contact grids.
+	PRUnitTestClass(ResolveBatchRecordingTests)
+	{
+		// One and several occupied colours retain the established independent shader oracle.
+		PRUnitTestMethod(SmallColourSweepsMatchInterop, Extended)
+		{
+			// Exercise empty colour batches as well as updates to nonzero colour constants.
+			TestClass_ResolveRootStateTests::CheckColours(1);
+			TestClass_ResolveRootStateTests::CheckColours(3);
+		}
+
+		// Thousands of bodies still use a complete multi-group dispatch without small-world assumptions.
+		PRUnitTestMethod(ThousandsOfBodiesMatchInterop, Extended)
+		{
+			// Cover 4,096 bodies and 3,072 contacts through position, velocity, and retained warm-start phases.
+			TestClass_ResolveRootStateTests::CheckColours(3, 1024);
+		}
+	};
+
+	// Hardware coverage for full-tail initialization when a retained sort allocation exceeds the current contact range.
+	PRUnitTestClass(ResolveKeyPaddingTests)
+	{
+		// Empty, sparse, partial-group and dense inputs must overwrite stale keys without changing live ordering.
+		PRUnitTestMethod(RetainedCapacityHasCompletePadding, Extended)
+		{
+			// Isolate key generation and sorting from impulse solving, while using the production root bindings and indirect dispatch.
+			using namespace pr::compute;
+			auto& gpu = SharedTestGpu();
+			auto& job = gpu.m_job;
+			auto config = EngineConfig{};
+			config.solver_iterations = 0;
+			config.push_out_iterations = 0;
+			config.warm_start_scale = 0;
+			config.contact_sort_propagation_scale = 0;
+			auto resolver = GpuResolver{gpu, config, nullptr};
+			auto const capacity = 65536;
+			auto shape = collision::ShapeBox{v4{1, 1, 1, 0}};
+			auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Box(shape.m_radius, 1.0f)};
+			auto bodies = std::array{PackDynamics(body, 0), PackDynamics(body, 1)};
+			auto contacts = std::vector<GpuResolveContact>(capacity, GpuResolveContact{
+				.axis = v4::ZAxis(),
+				.contact_point = v4::Origin(),
+				.manifold = {v4::Origin()},
+				.b2a = m4x4::Identity(),
+				.body_idx_a = 0,
+				.body_idx_b = 1,
+				.feature = 1,
+			});
+			auto materials = std::array{GpuMaterial{}};
+			auto counters = gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}), job.m_cmd_list, "Test:KeyCounters");
+			auto contact_buffer = gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(capacity, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Test:KeyContacts");
+			auto body_buffer = gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(2, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Test:KeyBodies");
+			auto dispatch = gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}), job.m_cmd_list, "Test:KeyDispatch");
+			auto upload = [&]<typename Container>(ID3D12Resource* resource, Container const& values)
+			{
+				// Own each upload until this job's ordinary completion fence.
+				using Value = typename Container::value_type;
+				auto allocation = job.m_upload.Alloc<Value>(isize(values));
+				memcpy(allocation.template ptr<Value>(), values.data(), values.size() * sizeof(Value));
+				job.m_barriers.Transition(resource, D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+				job.m_cmd_list.CopyBufferRegion(resource, 0, allocation);
+			};
+			upload(contact_buffer.get(), contacts);
+			auto const poison = std::vector<float>(capacity, -12345.0f);
+			for (auto count : {capacity, 0, 1, 63, 64, 65, 4097})
+			{
+				// Grow once, then retain the large allocation while the current pass becomes compact, including a clamped attempted-count case.
+				upload(body_buffer.get(), bodies);
+				upload(counters.get(), std::array{GpuCollisionCounters{.contact_count = count == 4097 ? count + 17 : count}});
+				upload(dispatch.get(), std::array{D3D12_DISPATCH_ARGUMENTS{
+					.ThreadGroupCountX = static_cast<UINT>(std::max(1, (count + ResolveThreadCount - 1) / ResolveThreadCount)),
+					.ThreadGroupCountY = 1,
+					.ThreadGroupCountZ = 1,
+				}});
+				if (resolver.m_r_contact_times != nullptr)
+					upload(resolver.m_r_contact_times.get(), poison);
+
+				// Read every sorted key and payload: any untouched padding would sort before the zero-valued live keys.
+				resolver.Resolve(job, 1.0f / 60.0f, 2, 2, std::max(1, count), dispatch, counters, contact_buffer, body_buffer, materials);
+				auto keys = job.m_readback.Alloc<float>(capacity);
+				auto order = job.m_readback.Alloc<uint32_t>(capacity);
+				job.m_barriers.Transition(resolver.m_r_contact_times.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+				job.m_barriers.Transition(resolver.m_r_contact_order.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+				job.m_cmd_list.CopyBufferRegion(keys, resolver.m_r_contact_times.get());
+				job.m_cmd_list.CopyBufferRegion(order, resolver.m_r_contact_order.get());
+				job.Run();
+
+				// Exact sentinels and stable live payloads prove coverage independently of solver output.
+				for (auto index = 0; index != capacity; ++index)
+				{
+					// Padding covers the full retained allocation, not just the current pass's contact capacity.
+					PR_EXPECT(keys.ptr<float>()[index] == (index < count ? 0.0f : 1e30f));
+					if (index < count)
+						PR_EXPECT(order.ptr<uint32_t>()[index] == static_cast<uint32_t>(index));
+				}
+			}
 		}
 	};
 

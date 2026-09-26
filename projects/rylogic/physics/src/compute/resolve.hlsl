@@ -789,10 +789,11 @@ void PropagateShockThroughBody(int src_idx, GpuResolveContact src, int body_idx,
 }
 
 // ----- CSComputeCollisionTimes -----
-// Parallel: one thread per contact. Computes the primary time-of-impact sort key and initialises the order buffer for the external radix sort.
+// Parallel: compute live contact keys and distribute unused sort-key initialization across the same indirect grid.
 numthreads(CSComputeCollisionTimes, ResolveThreadCount, 1, 1)
 void CSComputeCollisionTimes(int3 DTID(dtid))
 {
+	// Live keys and indices retain their original arithmetic and contact order.
 	int idx = dtid.x;
 	int contact_count = ContactCount();
 	if (idx < contact_count)
@@ -814,21 +815,21 @@ void CSComputeCollisionTimes(int3 DTID(dtid))
 		// Position correction is applied after graph colouring by CSPositionSolve so contacts sharing a dynamic body are never written in parallel.
 	}
 
-	// Thread 0 also initialises per-dispatch scratch that is not naturally covered by one-thread-per-contact work. These writes do not depend on the other
-	// threads in this dispatch; the UAV barrier after the dispatch provides synchronisation before the next pass.
+	// Give every dispatched lane a disjoint strided share of the padding. CSCalcResolveDispatch uses this same clamped contact count and at least one
+	// group, including empty passes. The sortable allocation can exceed a compact selective contact buffer; cover its full tail without accessing contacts.
+	uint thread_count = max(1u, (uint(contact_count) + ResolveThreadCount - 1) / ResolveThreadCount) * ResolveThreadCount;
+	for (uint i = uint(contact_count) + uint(idx); i < uint(g.sort_capacity); i += thread_count)
+	{
+		// Preserve the sentinel so unused entries sort after the live contacts.
+		g_contact_times[i] = 1e30f;
+	}
+
+	// Body colour masks are independent of contact-key writes; the existing UAV barrier exposes both to the next phase.
 	if (idx == 0)
 	{
-		int i;
-	
 		// Reset the graph-colouring bitmask on every body. CSAssignColours will OR colour bits into dynamic bodies as it walks the sorted contacts.
-		for (i = 0; i != g.body_count; ++i)
+		for (int i = 0; i != g.body_count; ++i)
 			g_bodies[i].colour_used = 0;
-
-		// Set the out-of-bounds contact times to a large positive value so they sort to the end.
-		// The resolver's sort scratch can be larger than a compact selective contact buffer, so initialise
-		// every key that the radix sorter will read, not just every contact slot in the current pass.
-		for (i = contact_count; i != g.sort_capacity; ++i)
-			g_contact_times[i] = 1e30f;
 	}
 }
 
