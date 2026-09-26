@@ -52,11 +52,12 @@ namespace pr::compute::gpu_radix_sort
 		static constexpr bool HasPayload = !std::is_same_v<Value, void>;
 		static constexpr bool SortAscending = Ascending;
 
-		// Full sweep, partial sweep, and scan records are reused by both sweeps within each pass.
-		static constexpr uint32_t IndirectArgumentStride = 4 * sizeof(uint32_t) + sizeof(D3D12_DISPATCH_ARGUMENTS);
+		// Each GPU-written constant block is CBV-aligned; dispatch-only arguments follow its four constants.
+		static constexpr uint32_t IndirectArgumentStride = D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
+		static constexpr uint32_t IndirectDispatchOffset = 4 * sizeof(uint32_t);
 		static constexpr uint32_t IndirectArgumentsPerPass = 3;
 		static constexpr uint32_t IndirectArgumentBytes = RadixPasses * IndirectArgumentsPerPass * IndirectArgumentStride;
-		static_assert(IndirectArgumentStride == 28);
+		static_assert(IndirectDispatchOffset + sizeof(D3D12_DISPATCH_ARGUMENTS) <= IndirectArgumentStride);
 
 		struct EReg
 		{
@@ -86,9 +87,10 @@ namespace pr::compute::gpu_radix_sort
 		ComputeStep m_scan;
 		ComputeStep m_sweep_down;
 		ComputeStep m_indirect_setup;
-		D3DPtr<ID3D12CommandSignature> m_indirect_sweep_up;
-		D3DPtr<ID3D12CommandSignature> m_indirect_scan;
-		D3DPtr<ID3D12CommandSignature> m_indirect_sweep_down;
+		ComputeStep m_counted_sweep_up;
+		ComputeStep m_counted_scan;
+		ComputeStep m_counted_sweep_down;
+		D3DPtr<ID3D12CommandSignature> m_indirect_dispatch;
 
 		D3DPtr<ID3D12Resource> m_sort[2];
 		D3DPtr<ID3D12Resource> m_payload[2];
@@ -98,7 +100,7 @@ namespace pr::compute::gpu_radix_sort
 		D3DPtr<ID3D12Resource> m_indirect_arguments;
 
 		TuningParams m_tuning;
-		int64_t m_size; // Bound capacity; GPU-counted sorts supply a separate logical length through indirect constants.
+		int64_t m_size; // Bound capacity; GPU-counted sorts supply a separate logical length through GPU-written constant buffers.
 		bool m_bound_to_external;
 
 		struct Result
@@ -115,9 +117,10 @@ namespace pr::compute::gpu_radix_sort
 			, m_scan()
 			, m_sweep_down()
 			, m_indirect_setup()
-			, m_indirect_sweep_up()
-			, m_indirect_scan()
-			, m_indirect_sweep_down()
+			, m_counted_sweep_up()
+			, m_counted_scan()
+			, m_counted_sweep_down()
+			, m_indirect_dispatch()
 			, m_sort()
 			, m_payload()
 			, m_pass_histogram()
@@ -128,6 +131,16 @@ namespace pr::compute::gpu_radix_sort
 			, m_size()
 			, m_bound_to_external()
 		{
+			// CPU-known use does not create the count-source pipeline variants.
+			CreateKernels(false, shader_cache);
+		}
+
+	private:
+
+		// Compile the same kernels with CPU root constants or GPU constant-buffer bindings; sorting arithmetic is identical.
+		void CreateKernels(bool gpu_counted, IShaderCache* shader_cache)
+		{
+			// Keep compilation options identical for both parameter sources.
 			shader_cache::ResourceSourceResolver resolver;
 			auto compiler = ShaderCompiler{}
 				.Cache(shader_cache)
@@ -157,56 +170,73 @@ namespace pr::compute::gpu_radix_sort
 				compiler.Arg(L"-enable-16bit-types");
 			}
 
-			// InitRadixSort
+			// Initialization is shared by both parameter sources.
+			if (!gpu_counted)
 			{
-				auto bytecode = compiler.EntryPoint(L"InitRadixSort").Compile();
-				m_init.m_sig = RootSig(ERootSigFlags::ComputeOnly)
-					.UAV(EReg::GlobalHistogram)
-					.Create(*m_gpu, "GpuRadixSort:InitSig");
-				m_init.m_pso = ComputePSO(m_init.m_sig.get(), bytecode)
-					.Create(*m_gpu, "GpuRadixSort:InitPSO");
+				// InitRadixSort
+				{
+					auto bytecode = compiler.EntryPoint(L"InitRadixSort").Compile();
+					m_init.m_sig = RootSig(ERootSigFlags::ComputeOnly)
+						.UAV(EReg::GlobalHistogram)
+						.Create(*m_gpu, "GpuRadixSort:InitSig");
+					m_init.m_pso = ComputePSO(m_init.m_sig.get(), bytecode)
+						.Create(*m_gpu, "GpuRadixSort:InitPSO");
+				}
+
+				// InitPayload
+				{
+					auto bytecode = compiler.EntryPoint(L"InitPayload").Compile();
+					m_init_payload.m_sig = RootSig(ERootSigFlags::ComputeOnly)
+						.U32(EReg::Constants, 4)
+						.UAV(EReg::Payload0)
+						.Create(*m_gpu, "GpuRadixSort:InitPayloadSig");
+					m_init_payload.m_pso = ComputePSO(m_init_payload.m_sig.get(), bytecode)
+						.Create(*m_gpu, "GpuRadixSort:InitPayloadPSO");
+				}
 			}
 
-			// InitPayload
-			{
-				auto bytecode = compiler.EntryPoint(L"InitPayload").Compile();
-				m_init_payload.m_sig = RootSig(ERootSigFlags::ComputeOnly)
-					.U32(EReg::Constants, 4)
-					.UAV(EReg::Payload0)
-					.Create(*m_gpu, "GpuRadixSort:InitPayloadSig");
-				m_init_payload.m_pso = ComputePSO(m_init_payload.m_sig.get(), bytecode)
-					.Create(*m_gpu, "GpuRadixSort:InitPayloadPSO");
-			}
+			// Only the representation of b0 differs; all resource indices and shader bytecode stay the same.
+			auto constants = RootSig(ERootSigFlags::ComputeOnly);
+			if (gpu_counted)
+				constants.CBuf(EReg::Constants);
+			else
+				constants.U32(EReg::Constants, 4);
 
 			// Sweep Up
 			{
+				// Bind the input keys and histograms for the upward sweep.
 				auto bytecode = compiler.EntryPoint(L"SweepUp").Compile();
-				m_sweep_up.m_sig = RootSig(ERootSigFlags::ComputeOnly)
-					.U32(EReg::Constants, 4)
+				auto layout = constants;
+				auto& step = gpu_counted ? m_counted_sweep_up : m_sweep_up;
+				step.m_sig = layout
 					.UAV(EReg::Sort0)
 					.UAV(EReg::GlobalHistogram)
 					.UAV(EReg::PassHistogram)
 					.Create(*m_gpu, "GpuRadixSort:SweepUpSig");
-				m_sweep_up.m_pso = ComputePSO(m_sweep_up.m_sig.get(), bytecode)
+				step.m_pso = ComputePSO(step.m_sig.get(), bytecode)
 					.Create(*m_gpu, "GpuRadixSort:SweepUpPSO");
 			}
 
 			// Scan
 			{
+				// Scan the same partition histogram regardless of the count source.
 				auto bytecode = compiler.EntryPoint(L"Scan").Compile();
-				m_scan.m_sig = RootSig(ERootSigFlags::ComputeOnly)
-					.U32(EReg::Constants, 4)
+				auto layout = constants;
+				auto& step = gpu_counted ? m_counted_scan : m_scan;
+				step.m_sig = layout
 					.UAV(EReg::PassHistogram)
 					.Create(*m_gpu, "GpuRadixSort:ScanSig");
-				m_scan.m_pso = ComputePSO(m_scan.m_sig.get(), bytecode)
+				step.m_pso = ComputePSO(step.m_sig.get(), bytecode)
 					.Create(*m_gpu, "GpuRadixSort:ScanPSO");
 			}
 
 			// Sweep Down
 			{
+				// Preserve the stable key/payload scatter and its ping-pong bindings.
 				auto bytecode = compiler.EntryPoint(L"SweepDown").Compile();
-				m_sweep_down.m_sig = RootSig(ERootSigFlags::ComputeOnly)
-					.U32(EReg::Constants, 4)
+				auto layout = constants;
+				auto& step = gpu_counted ? m_counted_sweep_down : m_sweep_down;
+				step.m_sig = layout
 					.UAV(EReg::Sort0)
 					.UAV(EReg::Sort1)
 					.UAV(EReg::Payload0)
@@ -214,11 +244,13 @@ namespace pr::compute::gpu_radix_sort
 					.UAV(EReg::GlobalHistogram)
 					.UAV(EReg::PassHistogram)
 					.Create(*m_gpu, "GpuRadixSort:SweepDownSig");
-				m_sweep_down.m_pso = ComputePSO(m_sweep_down.m_sig.get(), bytecode)
+				step.m_pso = ComputePSO(step.m_sig.get(), bytecode)
 					.Create(*m_gpu, "GpuRadixSort:SweepDownPSO");
 			}
 
 		}
+
+	public:
 
 		// Create sort-size independent buffers
 		void CreateStaticSizeBuffers(CmdList& cmd_list)
@@ -253,10 +285,10 @@ namespace pr::compute::gpu_radix_sort
 			if constexpr (HasPayload)
 				ValidateStream(payload0.get(), size);
 
-			// Scratch storage is stable across count changes and repeated binds at the same capacity.
+			// Retain high-water scratch across smaller bound ranges. The bound size still limits GPU counts; allocation size does not.
 			CreateStaticSizeBuffers(cmd_list);
 
-			if (size != m_size || m_sort[1] == nullptr || m_payload[1] == nullptr || m_pass_histogram == nullptr)
+			if (m_sort[1] == nullptr || m_payload[1] == nullptr || m_pass_histogram == nullptr || m_sort[1]->GetDesc().Width < size * sizeof(Key))
 			{
 				ResDesc sort_desc = ResDesc::Buf<Key>(size, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
 				m_sort[1] = m_gpu->CreateResource(sort_desc, cmd_list, "RadixSort:sort1");
@@ -482,7 +514,7 @@ namespace pr::compute::gpu_radix_sort
 		// Sort min(counter, capacity / count_multiplier) * count_multiplier keys, preserving equal-key payload order and the inactive suffix.
 		// The counter is a uint32 at a four-byte-aligned offset in a shader-readable buffer; count_multiplier must be nonzero.
 		// The counter's tracked resource state is restored. Streams must already be in UAV state, as for the CPU-known overload.
-		// The first nonempty-capacity call creates count-only pipeline state and arguments; subsequent calls reuse them.
+		// The first nonempty-capacity call creates count-only pipeline state and CBV-aligned arguments; subsequent calls reuse them.
 		// Record reuse on one ordered GPU queue. Keep resources alive and fence before resizing or releasing scratch used by unfinished work.
 		void Sort(CmdList& cmd_list, ID3D12Resource* counter, uint64_t counter_offset = 0, uint32_t count_multiplier = 1, char const* purpose = "Gpu Radix Sort")
 		{
@@ -531,7 +563,7 @@ namespace pr::compute::gpu_radix_sort
 			cmd_list.Dispatch(1, 1, 1);
 
 			// Publish complete records before ExecuteIndirect and leave counter ownership with the caller.
-			barriers.Transition(m_indirect_arguments.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+			barriers.Transition(m_indirect_arguments.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT | D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
 			if (transition_counter)
 				barriers.Transition(counter, counter_state);
 
@@ -579,6 +611,8 @@ namespace pr::compute::gpu_radix_sort
 			// The constructor's shader cache is borrowed only during construction, not retained for deferred compilation.
 			if (m_indirect_setup.m_pso == nullptr)
 			{
+				// The count-source variants use the same compiled shader logic with CBVs in place of root constants.
+				CreateKernels(true, nullptr);
 				shader_cache::ResourceSourceResolver resolver;
 				auto bytecode = ShaderCompiler{}
 					.Source("src/compute/radix_sort/radix_sort.hlsl", resolver)
@@ -596,15 +630,11 @@ namespace pr::compute::gpu_radix_sort
 					.Create(*m_gpu, "GpuRadixSort:IndirectSetupSig");
 				setup.m_pso = ComputePSO(setup.m_sig.get(), bytecode)
 					.Create(*m_gpu, "GpuRadixSort:IndirectSetupPSO");
-				auto sweep_up = CreateIndirectSignature(m_sweep_up.m_sig.get());
-				auto scan = CreateIndirectSignature(m_scan.m_sig.get());
-				auto sweep_down = CreateIndirectSignature(m_sweep_down.m_sig.get());
+				auto dispatch = CreateIndirectSignature();
 
 				// Publish the pipeline and signatures together so a failed creation can be retried safely.
 				m_indirect_setup = std::move(setup);
-				m_indirect_sweep_up = std::move(sweep_up);
-				m_indirect_scan = std::move(scan);
-				m_indirect_sweep_down = std::move(sweep_down);
+				m_indirect_dispatch = std::move(dispatch);
 			}
 
 			// Capacity and counter changes do not change the fixed argument-table allocation.
@@ -641,37 +671,50 @@ namespace pr::compute::gpu_radix_sort
 				throw std::invalid_argument("GpuRadixSort::Bind: stream must be a UAV buffer large enough for the bound capacity");
 		}
 
-		// Create a signature tied to the kernel's unchanged root layout: four constants at parameter zero, then dispatch.
-		D3DPtr<ID3D12CommandSignature> CreateIndirectSignature(ID3D12RootSignature* root_signature)
+		// Dispatch-only records do not patch root arguments and share one signature across all sort kernels.
+		D3DPtr<ID3D12CommandSignature> CreateIndirectSignature()
 		{
+			// Constants are read through a separately bound GPU CBV, not interpreted by ExecuteIndirect.
 			D3D12_INDIRECT_ARGUMENT_DESC arguments[] =
 			{
-				{ .Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT, .Constant = { .RootParameterIndex = 0, .DestOffsetIn32BitValues = 0, .Num32BitValuesToSet = 4 } },
 				{ .Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH },
 			};
 			auto const desc = D3D12_COMMAND_SIGNATURE_DESC
 			{
-				.ByteStride = IndirectArgumentStride,
-				.NumArgumentDescs = 2,
+				.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS),
+				.NumArgumentDescs = 1,
 				.pArgumentDescs = arguments,
 				.NodeMask = 0,
 			};
 			D3DPtr<ID3D12CommandSignature> signature;
-			Check(m_gpu->device()->CreateCommandSignature(&desc, root_signature, __uuidof(ID3D12CommandSignature), reinterpret_cast<void**>(signature.address_of())));
+			Check(m_gpu->device()->CreateCommandSignature(&desc, nullptr, __uuidof(ID3D12CommandSignature), reinterpret_cast<void**>(signature.address_of())));
 			return signature;
 		}
 
+		// Bind one GPU-written constant block and execute only its dispatch dimensions.
+		void DispatchCounted(CmdList& cmd_list, uint32_t record)
+		{
+			// CBVs need 256-byte alignment; constants and dispatch arguments share one read-only resource state.
+			auto const offset = record * IndirectArgumentStride;
+			cmd_list.SetComputeRootConstantBufferView(0, m_indirect_arguments->GetGPUVirtualAddress() + offset);
+			cmd_list.ExecuteIndirect(m_indirect_dispatch.get(), 1, m_indirect_arguments.get(), offset + IndirectDispatchOffset);
+		}
+
 		// Submit a sweep using CPU-known dimensions or GPU-authored full/partial records with the same flattened indexing.
-		void DispatchSweep(CmdList& cmd_list, uint32_t radix_shift, uint32_t thread_blocks, ID3D12CommandSignature* indirect_signature)
+		void DispatchSweep(CmdList& cmd_list, uint32_t radix_shift, uint32_t thread_blocks, bool gpu_counted)
 		{
 			pix::DetailScope detail(cmd_list.get(), "RadixSort::Dispatch");
 			auto const full_blocks = thread_blocks / MaxDispatchDimension;
-			if (indirect_signature != nullptr)
+			if (gpu_counted)
 			{
 				// Even at an exact full-capacity boundary, smaller GPU counts can require the partial record.
 				auto const offset = (radix_shift / RadixBits * IndirectArgumentsPerPass + (full_blocks != 0 ? 0 : 1)) * IndirectArgumentStride;
-				pix::DetailMarker(cmd_list.get(), "indirect_records=%u argument_offset=%u", full_blocks != 0 ? 2U : 1U, offset);
-				cmd_list.ExecuteIndirect(indirect_signature, full_blocks != 0 ? 2 : 1, m_indirect_arguments.get(), offset);
+				pix::DetailMarker(cmd_list.get(), "indirect_records=%u parameter_offset=%u argument_offset=%u", full_blocks != 0 ? 2U : 1U, offset, offset + IndirectDispatchOffset);
+				if (full_blocks != 0)
+					DispatchCounted(cmd_list, radix_shift / RadixBits * IndirectArgumentsPerPass);
+
+				// A smaller active prefix can need the tail record even when bound capacity is an exact full grid.
+				DispatchCounted(cmd_list, radix_shift / RadixBits * IndirectArgumentsPerPass + 1);
 				return;
 			}
 
@@ -701,6 +744,9 @@ namespace pr::compute::gpu_radix_sort
 
 			// Four byte-radix passes perform O(active keys + radix * active partitions) work using O(capacity) retained scratch.
 			auto const thread_blocks = PartitionCount(m_size);
+			auto& sweep_up = gpu_counted ? m_counted_sweep_up : m_sweep_up;
+			auto& scan = gpu_counted ? m_counted_scan : m_scan;
+			auto& sweep_down = gpu_counted ? m_counted_sweep_down : m_sweep_down;
 			pix::BeginEvent(cmd_list.get(), 0xFF90aa3f, "%s", purpose);
 			pix::DetailMarker(cmd_list.get(), "gpu_counted=%u input_count_or_capacity=%u partition_size=%u partitions_or_capacity=%u passes=%u",
 				gpu_counted ? 1U : 0U, m_size, m_tuning.partition_size, thread_blocks, KeyBits / RadixBits);
@@ -731,13 +777,13 @@ namespace pr::compute::gpu_radix_sort
 				// Sweep Up
 				{
 					pix::DetailScope detail(cmd_list.get(), "RadixSort::SweepUp");
-					cmd_list.SetPipelineState(m_sweep_up.m_pso.get());
-					cmd_list.SetComputeRootSignature(m_sweep_up.m_sig.get());
+					cmd_list.SetPipelineState(sweep_up.m_pso.get());
+					cmd_list.SetComputeRootSignature(sweep_up.m_sig.get());
 					cmd_list.SetComputeRootUnorderedAccessView(1, m_sort[i]->GetGPUVirtualAddress());
 					cmd_list.SetComputeRootUnorderedAccessView(2, m_global_histogram->GetGPUVirtualAddress());
 					cmd_list.SetComputeRootUnorderedAccessView(3, m_pass_histogram->GetGPUVirtualAddress());
 
-					DispatchSweep(cmd_list, radix_shift, thread_blocks, gpu_counted ? m_indirect_sweep_up.get() : nullptr);
+					DispatchSweep(cmd_list, radix_shift, thread_blocks, gpu_counted);
 				}
 
 				barriers.UAV(m_pass_histogram.get());
@@ -749,14 +795,14 @@ namespace pr::compute::gpu_radix_sort
 				// Scan
 				{
 					pix::DetailScope detail(cmd_list.get(), "RadixSort::Scan");
-					cmd_list.SetPipelineState(m_scan.m_pso.get());
-					cmd_list.SetComputeRootSignature(m_scan.m_sig.get());
+					cmd_list.SetPipelineState(scan.m_pso.get());
+					cmd_list.SetComputeRootSignature(scan.m_sig.get());
 					cmd_list.SetComputeRootUnorderedAccessView(1, m_pass_histogram->GetGPUVirtualAddress());
 					if (gpu_counted)
 					{
 						auto const offset = (radix_shift / RadixBits * IndirectArgumentsPerPass + 2) * IndirectArgumentStride;
-						pix::DetailMarker(cmd_list.get(), "indirect_records=1 argument_offset=%u", offset);
-						cmd_list.ExecuteIndirect(m_indirect_scan.get(), 1, m_indirect_arguments.get(), offset);
+						pix::DetailMarker(cmd_list.get(), "indirect_records=1 parameter_offset=%u argument_offset=%u", offset, offset + IndirectDispatchOffset);
+						DispatchCounted(cmd_list, radix_shift / RadixBits * IndirectArgumentsPerPass + 2);
 					}
 					else
 					{
@@ -777,8 +823,8 @@ namespace pr::compute::gpu_radix_sort
 				// Sweep Down
 				{
 					pix::DetailScope detail(cmd_list.get(), "RadixSort::SweepDown");
-					cmd_list.SetPipelineState(m_sweep_down.m_pso.get());
-					cmd_list.SetComputeRootSignature(m_sweep_down.m_sig.get());
+					cmd_list.SetPipelineState(sweep_down.m_pso.get());
+					cmd_list.SetComputeRootSignature(sweep_down.m_sig.get());
 					cmd_list.SetComputeRootUnorderedAccessView(1, m_sort[i]->GetGPUVirtualAddress());
 					cmd_list.SetComputeRootUnorderedAccessView(2, m_sort[j]->GetGPUVirtualAddress());
 					cmd_list.SetComputeRootUnorderedAccessView(3, m_payload[i]->GetGPUVirtualAddress());
@@ -786,7 +832,7 @@ namespace pr::compute::gpu_radix_sort
 					cmd_list.SetComputeRootUnorderedAccessView(5, m_global_histogram->GetGPUVirtualAddress());
 					cmd_list.SetComputeRootUnorderedAccessView(6, m_pass_histogram->GetGPUVirtualAddress());
 
-					DispatchSweep(cmd_list, radix_shift, thread_blocks, gpu_counted ? m_indirect_sweep_down.get() : nullptr);
+					DispatchSweep(cmd_list, radix_shift, thread_blocks, gpu_counted);
 				}
 
 				barriers.UAV(m_sort[i].get());
@@ -884,7 +930,8 @@ namespace pr::compute::gpu_radix_sort::tests
 		static void CheckIndirectUnused(Sorter const& sorter)
 		{
 			PR_EXPECT(sorter.m_indirect_setup.m_sig == nullptr && sorter.m_indirect_setup.m_pso == nullptr);
-			PR_EXPECT(sorter.m_indirect_sweep_up == nullptr && sorter.m_indirect_scan == nullptr && sorter.m_indirect_sweep_down == nullptr);
+			PR_EXPECT(sorter.m_indirect_dispatch == nullptr);
+			PR_EXPECT(sorter.m_counted_sweep_up.m_pso == nullptr && sorter.m_counted_scan.m_pso == nullptr && sorter.m_counted_sweep_down.m_pso == nullptr);
 			PR_EXPECT(sorter.m_indirect_arguments == nullptr);
 		}
 
@@ -897,9 +944,10 @@ namespace pr::compute::gpu_radix_sort::tests
 			auto const partial_blocks = blocks % Sorter::MaxDispatchDimension;
 			for (auto pass = 0U; pass != Sorter::RadixPasses; ++pass)
 			{
-				auto const* full = arguments + pass * Sorter::IndirectArgumentsPerPass * 7;
-				auto const* partial = full + 7;
-				auto const* scan = partial + 7;
+				auto const stride = Sorter::IndirectArgumentStride / sizeof(uint32_t);
+				auto const* full = arguments + pass * Sorter::IndirectArgumentsPerPass * stride;
+				auto const* partial = full + stride;
+				auto const* scan = partial + stride;
 				PR_EXPECT(full[0] == active && full[1] == pass * Sorter::RadixBits && full[2] == blocks && full[3] == 0);
 				PR_EXPECT(full[4] == Sorter::MaxDispatchDimension && full[5] == full_blocks && full[6] == 1);
 				PR_EXPECT(partial[0] == active && partial[1] == pass * Sorter::RadixBits && partial[2] == blocks && partial[3] == ((full_blocks << 1) | 1));
@@ -1110,6 +1158,62 @@ namespace pr::compute::gpu_radix_sort::tests
 					fixture.m_job.Run();
 					CheckArguments(arguments.ptr<uint32_t>(), capacity, UINT32_MAX, multiplier, 7680);
 				}
+			}
+		}
+	};
+
+	// Scratch retention is independent of the current caller-owned bound range.
+	PRUnitTestClass(GpuRadixSortCapacityTests)
+	{
+		// Smaller binding limits clamp counts independently of retained scratch, including a zero-capacity interval.
+		PRUnitTestMethod(BoundCapacityRetainsScratch, Extended)
+		{
+			auto fixture = TestClass_GpuRadixSortTests::Fixture(2 * 7680 + 17);
+			auto& sorter = fixture.m_sorter;
+			fixture.WarmIndirect();
+			auto const bytes = sorter.AllocatedBufferBytes();
+			auto* sort_scratch = sorter.m_sort[1].get();
+			auto* payload_scratch = sorter.m_payload[1].get();
+			auto* histogram = sorter.m_pass_histogram.get();
+			for (auto capacity : {15377U, 0U, 1U, 7679U, 7680U, 7681U, 15377U})
+			{
+				// An over-capacity count must sort only the newly bound range, not the retained high-water allocation.
+				auto keys = std::vector<uint32_t>(15409);
+				auto values = std::vector<uint32_t>(keys.size());
+				std::iota(values.begin(), values.end(), 0U);
+				for (auto i = 0U; i != keys.size(); ++i)
+					keys[i] = (isize(keys) - i) % 23;
+
+				auto expected = std::vector<std::pair<uint32_t, uint32_t>>(keys.size());
+				for (auto i = 0U; i != keys.size(); ++i)
+					expected[i] = {keys[i], values[i]};
+
+				std::stable_sort(expected.begin(), expected.begin() + capacity, [](auto const& lhs, auto const& rhs)
+				{
+					return lhs.first < rhs.first;
+				});
+				fixture.Upload(fixture.m_keys.get(), keys);
+				fixture.Upload(fixture.m_values.get(), values);
+				fixture.Upload(fixture.m_counter.get(), std::array<uint32_t, 8>{0, UINT32_MAX});
+				sorter.Bind(fixture.m_job.m_cmd_list, capacity, fixture.m_keys, fixture.m_values);
+				sorter.Sort(fixture.m_job.m_cmd_list, fixture.m_counter.get(), 4);
+				auto result_keys = fixture.Readback(fixture.m_keys.get());
+				auto result_values = fixture.Readback(fixture.m_values.get());
+				auto arguments = fixture.Readback(sorter.m_indirect_arguments.get());
+				fixture.m_job.Run();
+
+				// Stable prefix output, untouched suffix, and exact live dispatch constants are independent assertions.
+				for (auto i = 0U; i != expected.size(); ++i)
+				{
+					PR_EXPECT(result_keys.ptr<uint32_t>()[i] == expected[i].first);
+					PR_EXPECT(result_values.ptr<uint32_t>()[i] == expected[i].second);
+				}
+				if (capacity != 0)
+					TestClass_GpuRadixSortTests::CheckArguments(arguments.ptr<uint32_t>(), capacity, UINT32_MAX, 1, 7680);
+
+				PR_EXPECT(sorter.m_size == capacity && sorter.AllocatedBufferBytes() == bytes);
+				PR_EXPECT(sorter.m_sort[1].get() == sort_scratch && sorter.m_payload[1].get() == payload_scratch);
+				PR_EXPECT(sorter.m_pass_histogram.get() == histogram);
 			}
 		}
 	};

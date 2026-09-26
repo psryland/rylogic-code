@@ -124,11 +124,11 @@ namespace pr::physics::tests
 		}
 	};
 
-	// Hardware coverage for full-tail initialization when a retained sort allocation exceeds the current contact range.
-	PRUnitTestClass(ResolveKeyPaddingTests)
+	// Hardware coverage for GPU-counted contact sorting with retained allocation and changing current-pass limits.
+	PRUnitTestClass(ResolveLiveContactSortTests)
 	{
-		// Empty, sparse, partial-group and dense inputs must overwrite stale keys without changing live ordering.
-		PRUnitTestMethod(RetainedCapacityHasCompletePadding, Extended)
+		// Empty, sparse, partial-partition and dense inputs must sort only live keys and preserve the inactive suffix.
+		PRUnitTestMethod(RetainedCapacitySortsOnlyLiveContacts, Extended)
 		{
 			// Isolate key generation and sorting from impulse solving, while using the production root bindings and indirect dispatch.
 			using namespace pr::compute;
@@ -143,7 +143,9 @@ namespace pr::physics::tests
 			auto const capacity = 65536;
 			auto shape = collision::ShapeBox{v4{1, 1, 1, 0}};
 			auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Box(shape.m_radius, 1.0f)};
-			auto bodies = std::array{PackDynamics(body, 0), PackDynamics(body, 1)};
+			auto stationary = PackDynamics(body, 1);
+			body.VelocityWS(v4::Zero(), v4{0, 0, 1, 0});
+			auto bodies = std::array{PackDynamics(body, 0), stationary};
 			auto contacts = std::vector<GpuResolveContact>(capacity, GpuResolveContact{
 				.axis = v4::ZAxis(),
 				.contact_point = v4::Origin(),
@@ -154,6 +156,11 @@ namespace pr::physics::tests
 				.feature = 1,
 			});
 			auto materials = std::array{GpuMaterial{}};
+			for (auto index = 0; index != capacity; ++index)
+			{
+				// Repeated, exactly representable depths give distinct negative collision times and equal-key stability across partitions.
+				contacts[index].depth = static_cast<float>((index * 17 + index / 5) % 7) / 1024.0f;
+			}
 			auto counters = gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}), job.m_cmd_list, "Test:KeyCounters");
 			auto contact_buffer = gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(capacity, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Test:KeyContacts");
 			auto body_buffer = gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(2, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Test:KeyBodies");
@@ -169,7 +176,11 @@ namespace pr::physics::tests
 			};
 			upload(contact_buffer.get(), contacts);
 			auto const poison = std::vector<float>(capacity, -12345.0f);
-			for (auto count : {capacity, 0, 1, 63, 64, 65, 4097})
+			auto const poison_order = std::vector<uint32_t>(capacity, 0xdeadbeefU);
+			ID3D12Resource const* sort_scratch = nullptr;
+			ID3D12Resource const* payload_scratch = nullptr;
+			ID3D12Resource const* histogram = nullptr;
+			for (auto count : {capacity, 0, 1, 63, 64, 65, 4097, 7679, 7680, 7681, capacity, 0, 17})
 			{
 				// Grow once, then retain the large allocation while the current pass becomes compact, including a clamped attempted-count case.
 				upload(body_buffer.get(), bodies);
@@ -180,27 +191,78 @@ namespace pr::physics::tests
 					.ThreadGroupCountZ = 1,
 				}});
 				if (resolver.m_r_contact_times != nullptr)
+				{
+					// Poison both streams: any capacity-wide work would either move this prefix poison or overwrite the untouched suffix.
 					upload(resolver.m_r_contact_times.get(), poison);
+					upload(resolver.m_r_contact_order.get(), poison_order);
+				}
 
-				// Read every sorted key and payload: any untouched padding would sort before the zero-valued live keys.
+				// Read the actual indirect records as well as the streams so correct output cannot conceal capacity-wide dispatch.
 				resolver.Resolve(job, 1.0f / 60.0f, 2, 2, std::max(1, count), dispatch, counters, contact_buffer, body_buffer, materials);
 				auto keys = job.m_readback.Alloc<float>(capacity);
 				auto order = job.m_readback.Alloc<uint32_t>(capacity);
+				auto arguments = job.m_readback.Alloc<uint32_t>(ContactSorter::IndirectArgumentBytes / sizeof(uint32_t));
 				job.m_barriers.Transition(resolver.m_r_contact_times.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
-				job.m_barriers.Transition(resolver.m_r_contact_order.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+				job.m_barriers.Transition(resolver.m_r_contact_order.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+				job.m_barriers.Transition(resolver.m_contact_sorter.m_indirect_arguments.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
 				job.m_cmd_list.CopyBufferRegion(keys, resolver.m_r_contact_times.get());
 				job.m_cmd_list.CopyBufferRegion(order, resolver.m_r_contact_order.get());
+				job.m_cmd_list.CopyBufferRegion(arguments, resolver.m_contact_sorter.m_indirect_arguments.get());
 				job.Run();
 
-				// Exact sentinels and stable live payloads prove coverage independently of solver output.
+				// With unit relative speed and penetration below one step of motion, earlier collision times correspond to greater depth.
+				auto expected = std::vector<uint32_t>(count);
+				std::iota(expected.begin(), expected.end(), 0U);
+				std::stable_sort(expected.begin(), expected.end(), [&](auto lhs, auto rhs)
+				{
+					return contacts[lhs].depth > contacts[rhs].depth;
+				});
 				for (auto index = 0; index != capacity; ++index)
 				{
-					// Padding covers the full retained allocation, not just the current pass's contact capacity.
-					PR_EXPECT(keys.ptr<float>()[index] == (index < count ? 0.0f : 1e30f));
+					// Inactive storage must stay untouched even when its keys would sort before every live key.
 					if (index < count)
-						PR_EXPECT(order.ptr<uint32_t>()[index] == static_cast<uint32_t>(index));
+					{
+						PR_EXPECT(order.ptr<uint32_t>()[index] == expected[index]);
+						PR_EXPECT(FEqlAbsolute(keys.ptr<float>()[index], -contacts[expected[index]].depth, 1.0e-7f));
+					}
+					else
+					{
+						PR_EXPECT(keys.ptr<float>()[index] == poison[index]);
+						PR_EXPECT(order.ptr<uint32_t>()[index] == poison_order[index]);
+					}
 				}
+
+				// Every radix pass must use the clamped live count and its partition grid, including zero work after a full-capacity pass.
+				auto const blocks = static_cast<uint32_t>((count + 7679) / 7680);
+				for (auto pass = 0; pass != ContactSorter::RadixPasses; ++pass)
+				{
+					auto const* partial = arguments.ptr<uint32_t>() + (pass * ContactSorter::IndirectArgumentsPerPass + 1) * (ContactSorter::IndirectArgumentStride / sizeof(uint32_t));
+					auto const* scan = partial + ContactSorter::IndirectArgumentStride / sizeof(uint32_t);
+					PR_EXPECT(partial[0] == static_cast<uint32_t>(count) && partial[2] == blocks);
+					PR_EXPECT(partial[4] == blocks && partial[5] == 1 && partial[6] == 1);
+					PR_EXPECT(scan[2] == blocks && scan[4] == (count != 0 ? 256U : 0U));
+				}
+
+				// Shrinking and regrowing the current-pass clamp must not churn the retained scratch allocations.
+				auto const& sorter = resolver.m_contact_sorter;
+				if (sort_scratch == nullptr)
+				{
+					sort_scratch = sorter.m_sort[1].get();
+					payload_scratch = sorter.m_payload[1].get();
+					histogram = sorter.m_pass_histogram.get();
+				}
+				PR_EXPECT(sorter.m_sort[1].get() == sort_scratch && sorter.m_payload[1].get() == payload_scratch);
+				PR_EXPECT(sorter.m_pass_histogram.get() == histogram);
+				PR_EXPECT(sorter.m_size == std::max(1, count));
 			}
+		}
+
+		// Stable sorting must preserve physical output for small scenes and thousands of bodies with retained warm-start impulses.
+		PRUnitTestMethod(SolverOutputMatchesInterop, Extended)
+		{
+			TestClass_ResolveRootStateTests::CheckColours(1);
+			TestClass_ResolveRootStateTests::CheckColours(3);
+			TestClass_ResolveRootStateTests::CheckColours(3, 1024);
 		}
 	};
 

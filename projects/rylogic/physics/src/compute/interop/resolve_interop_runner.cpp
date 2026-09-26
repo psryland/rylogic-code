@@ -30,7 +30,7 @@ namespace pr::physics
 				.max_contacts = max_contacts,
 				.body_count = body_count,
 				.colour = colour,
-				.sort_capacity = max_contacts,
+				.colour_capacity = max_contacts,
 				.shock_iterations = config.contact_sort_shock_iterations,
 				.max_position_speed = config.constraint_max_position_speed,
 				.shock_padding1 = 0,
@@ -129,7 +129,7 @@ namespace pr::physics
 		m_bodies.assign(buffers.m_bodies.begin(), buffers.m_bodies.end());
 		m_contacts.assign(buffers.m_contacts.begin(), buffers.m_contacts.end());
 		m_materials.assign(buffers.m_materials.begin(), buffers.m_materials.end());
-		// Mirror the GPU allocation: contact colours occupy the sortable capacity and one trailing element stores the whole-pass overflow flag.
+		// Mirror the GPU allocation: contact colours occupy the retained capacity and one trailing element stores the whole-pass overflow flag.
 		m_colours.assign(m_max_contacts + 1, 0);
 		m_contact_order.resize(m_max_contacts);
 		m_contact_times.assign(m_max_contacts, 1e30f);
@@ -215,7 +215,7 @@ namespace pr::physics
 
 	void ResolveInteropRunner::SortContacts()
 	{
-		std::stable_sort(m_contact_order.begin(), m_contact_order.end(), [this](uint32_t lhs, uint32_t rhs)
+		std::stable_sort(m_contact_order.begin(), m_contact_order.begin() + m_counters[0].contact_count, [this](uint32_t lhs, uint32_t rhs)
 		{
 			return m_contact_times[lhs] < m_contact_times[rhs];
 		});

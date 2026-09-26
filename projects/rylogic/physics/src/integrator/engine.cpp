@@ -1535,8 +1535,11 @@ namespace pr::physics
 			auto const* bytes = buffers.pix_resolve_counts[substep].ptr<std::byte>();
 			auto const* counts = reinterpret_cast<GpuCollisionCounters const*>(bytes);
 			auto const* dispatch = reinterpret_cast<D3D12_DISPATCH_ARGUMENTS const*>(bytes + sizeof(GpuCollisionCounters));
-			pr::compute::pix::CompletedDetailMarker("Physics::ResolveCounts engine=%p time_s=%.9f substep=%d pairs=%d contacts=%d groups_x=%u groups_y=%u groups_z=%u",
-				this, buffers.pix_time_s, substep, counts->pair_count, counts->contact_count, dispatch->ThreadGroupCountX, dispatch->ThreadGroupCountY, dispatch->ThreadGroupCountZ);
+			auto const sort_keys = std::min(counts->contact_count, m_config.max_collision_pairs);
+			auto const partition_size = m_gpu_resolver->m_contact_sorter.m_tuning.partition_size;
+			auto const sort_partitions = (sort_keys + partition_size - 1) / partition_size;
+			pr::compute::pix::CompletedDetailMarker("Physics::ResolveCounts engine=%p time_s=%.9f substep=%d pairs=%d contacts=%d groups_x=%u groups_y=%u groups_z=%u sort_keys=%d sort_partitions=%d",
+				this, buffers.pix_time_s, substep, counts->pair_count, counts->contact_count, dispatch->ThreadGroupCountX, dispatch->ThreadGroupCountY, dispatch->ThreadGroupCountZ, sort_keys, sort_partitions);
 		}
 		{
 			auto profile_scope = ProfileScope<&Engine::StepProfile::m_readback_access_ms>(m_last_step_profile);

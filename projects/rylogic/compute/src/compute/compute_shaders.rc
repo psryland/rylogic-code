@@ -1,4 +1,4 @@
-// Shared compute shader sources for runtime compilation.
+// Shared compute shader sources, including CBV-aligned radix arguments, for runtime compilation.
 // Note: Don't include this rc file, add 'compute_shaders.res' as a link dependency.
 src/compute/fluid_simulation/fluid_simulation.hlsl     TEXT DISCARDABLE "src/compute/fluid_simulation/fluid_simulation.hlsl"
 src/compute/particle_collision/collision.hlsli         TEXT DISCARDABLE "src/compute/particle_collision/collision.hlsli"

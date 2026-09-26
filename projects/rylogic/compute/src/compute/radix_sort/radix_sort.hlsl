@@ -1322,7 +1322,8 @@ ByteAddressBuffer m_count : register(t0);
 RWByteAddressBuffer m_arguments : register(u0);
 
 // Each record supplies the existing four root constants followed by D3D12_DISPATCH_ARGUMENTS.
-static const uint ArgumentStride = 7 * 4;
+// Each four-DWORD constant block is a root CBV; dispatch-only arguments occupy the next three DWORDs.
+static const uint ArgumentStride = 256;
 static const uint ArgumentsPerPass = 3;
 static const uint IndirectMaxDispatchDimension = 65535;
 

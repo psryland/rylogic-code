@@ -7,7 +7,7 @@
 // Pipeline:
 //   1. CSComputeCollisionTimes - estimates time-of-impact and writes the first sort key.
 //   2. Shock-priority passes   - optionally propagate contact priority through body/contact adjacency and rewrite the sort key.
-//   3. RadixSort               - sorts g_contact_order by g_contact_times. This pass is driven from C++ using RadixSort, not an entry point here.
+//   3. RadixSort               - stably sorts the live contact prefix by g_contact_times using the GPU count. Driven from C++, not an entry point here.
 //   4. CSAssignColours         - greedily graph-colours the sorted contacts so independent contacts can be solved together.
 //   5. CSPositionSolve         - split position correction, dispatched once per colour or serially for a colour-overflow frame.
 //   6. CSResolve               - velocity impulse solve, dispatched once per colour or serially for a colour-overflow frame.
@@ -20,7 +20,7 @@
 //   - g_contact_times is first a sort-key buffer, then a temporary priority buffer during shock propagation, then the final sort-key buffer again.
 //   - g_contact_order starts as [0..contact_count) and is permuted by the external radix sort.
 //   - g_colours is used as uint/asfloat scratch for Jacobi shock-priority propagation, then reset and reused as the final per-contact colour assignment.
-//     One extra element at g.sort_capacity stores the frame-wide colour-overflow flag.
+//     One extra element at g.colour_capacity stores the frame-wide colour-overflow flag.
 //
 // Resource layout:
 //   b0: cbResolve                               - per-dispatch constants
@@ -65,7 +65,7 @@ struct cbResolve
 	int max_contacts; // The max capacity of the contacts buffer
 	int body_count;   // The number of bodies in the scene
 	int colour;       // Current colour batch being processed (for CSResolve)
-	int sort_capacity; // The number of sort keys the radix sorter will read, which can be larger than this pass's contact count
+	int colour_capacity; // Retained colour-buffer capacity; the trailing slot holds the overflow flag.
 
 	int shock_iterations;  // Number of contact-priority propagation sweeps
 	float max_position_speed; // Maximum target speed for shared detached position correction.
@@ -136,7 +136,7 @@ bool RigidContact(GpuResolveContact contact)
 // Return the reserved colour-buffer slot that records whether any enabled contact exhausted the bounded colour mask.
 int ColourOverflowIndex()
 {
-	return g.sort_capacity;
+	return g.colour_capacity;
 }
 
 // Return true when the complete contact set must use the coherent serial fallback instead of parallel colour batches.
@@ -789,7 +789,7 @@ void PropagateShockThroughBody(int src_idx, GpuResolveContact src, int body_idx,
 }
 
 // ----- CSComputeCollisionTimes -----
-// Parallel: compute live contact keys and distribute unused sort-key initialization across the same indirect grid.
+// Parallel: compute only live contact keys; the GPU-counted sort never reads or writes the inactive suffix.
 numthreads(CSComputeCollisionTimes, ResolveThreadCount, 1, 1)
 void CSComputeCollisionTimes(int3 DTID(dtid))
 {
@@ -813,15 +813,6 @@ void CSComputeCollisionTimes(int3 DTID(dtid))
 		g_contact_order[idx] = idx;
 
 		// Position correction is applied after graph colouring by CSPositionSolve so contacts sharing a dynamic body are never written in parallel.
-	}
-
-	// Give every dispatched lane a disjoint strided share of the padding. CSCalcResolveDispatch uses this same clamped contact count and at least one
-	// group, including empty passes. The sortable allocation can exceed a compact selective contact buffer; cover its full tail without accessing contacts.
-	uint thread_count = max(1u, (uint(contact_count) + ResolveThreadCount - 1) / ResolveThreadCount) * ResolveThreadCount;
-	for (uint i = uint(contact_count) + uint(idx); i < uint(g.sort_capacity); i += thread_count)
-	{
-		// Preserve the sentinel so unused entries sort after the live contacts.
-		g_contact_times[i] = 1e30f;
 	}
 
 	// Body colour masks are independent of contact-key writes; the existing UAV barrier exposes both to the next phase.

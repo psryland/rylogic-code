@@ -20,7 +20,7 @@ namespace pr::physics
 		int max_contacts; // The max capacity of the contacts buffer
 		int body_count;   // The number of bodies in the scene
 		int colour;       // Current colour batch being processed (for CSResolve)
-		int sort_capacity;
+		int colour_capacity; // Retained colour-buffer capacity; the trailing slot holds the overflow flag.
 
 		int shock_iterations;
 		float max_position_speed;
@@ -256,7 +256,7 @@ namespace pr::physics
 		}
 		if (m_r_colours == nullptr || m_max_contacts < max_contacts)
 		{
-			// Reserve one element beyond the sortable contact capacity for the frame-wide colour-overflow flag.
+			// Reserve one element beyond the retained contact capacity for the frame-wide colour-overflow flag.
 			m_r_colours = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts + 1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ResolveColours");
 			m_r_contact_times = m_gpu.CreateResource(ResDesc::Buf<float>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ContactTimes");
 			m_r_contact_order = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ContactOrder");
@@ -296,8 +296,8 @@ namespace pr::physics
 		auto const push_out_steps = std::max(0, push_out_iterations >= 0 ? push_out_iterations : m_config.push_out_iterations);
 		auto const solver_iterations = std::max(0, solver_iterations_ >= 0 ? solver_iterations_ : m_config.solver_iterations);
 		auto const position_correction_scale = push_out_steps != 0 ? 1.0f / push_out_steps : 0.0f;
-		pix::DetailMarker(job.m_cmd_list.get(), "substep=%d bodies=%d sort_input_count=%d velocity_iterations=%d position_iterations=%d colours=%d support_only=%u",
-			substep_index, body_count, m_max_contacts, solver_iterations, push_out_steps, MaxColours, support_only ? 1U : 0U);
+		pix::DetailMarker(job.m_cmd_list.get(), "substep=%d bodies=%d contact_capacity=%d velocity_iterations=%d position_iterations=%d colours=%d support_only=%u",
+			substep_index, body_count, max_contacts, solver_iterations, push_out_steps, MaxColours, support_only ? 1U : 0U);
 		auto const priority_sort_enabled =
 			m_config.contact_sort_propagation_scale > 0.0f &&
 			m_config.contact_sort_shock_iterations > 0;
@@ -306,7 +306,7 @@ namespace pr::physics
 			.max_contacts = max_contacts,
 			.body_count = body_count,
 			.colour = 0,
-			.sort_capacity = m_max_contacts,
+			.colour_capacity = m_max_contacts,
 			.shock_iterations = m_config.contact_sort_shock_iterations,
 			.max_position_speed = m_config.constraint_max_position_speed,
 			.shock_padding1 = 0,
@@ -578,9 +578,9 @@ namespace pr::physics
 			// Sort contacts by their collision-time and propagated-priority key.
 			void SortContacts()
 			{
-				// The payload preserves the original contact buffer while defining solver order separately.
-				m_resolver.m_contact_sorter.Bind(m_job.m_cmd_list, m_resolver.m_max_contacts, m_resolver.m_r_contact_times, m_resolver.m_r_contact_order);
-				m_resolver.m_contact_sorter.Sort("Physics::SortContactPriority", m_job.m_cmd_list);
+				// Use the same current-pass clamp as ContactCount(), not the retained allocation. Equal keys keep their original contact order.
+				m_resolver.m_contact_sorter.Bind(m_job.m_cmd_list, m_max_contacts, m_resolver.m_r_contact_times, m_resolver.m_r_contact_order);
+				m_resolver.m_contact_sorter.Sort(m_job.m_cmd_list, m_counters.get(), offsetof(GpuCollisionCounters, contact_count), 1, "Physics::SortContactPriority");
 
 				m_job.m_barriers.UAV(m_resolver.m_r_contact_times.get());
 				m_job.m_barriers.UAV(m_resolver.m_r_contact_order.get());

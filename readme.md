@@ -119,11 +119,18 @@ sort algorithm, dispatch count, or queue policy; compare runs with the same sett
 
 The three physics sort purposes are `Physics::SortBroadphaseEndpoints`,
 `Physics::SortContactPriority`, and `Physics::SortCoupledContactEndpoints`.
-Their current inputs are respectively twice the body count, the contact sort capacity,
-and twice the coupled-contact capacity. Inactive entries are still part of the latter
-two sorted ranges: a live contact count is not the number of keys actually sorted.
-The generic GPU-counted overload reports a capacity explicitly; the physics callers use
-the CPU-known input-count overload.
+Their current inputs are respectively twice the body count, the live contact count clamped
+to the current pass's contact capacity, and twice the coupled-contact capacity. Contact-priority
+sorting uses the existing GPU-counted radix path; its inactive suffix is neither initialized
+nor sorted. Scratch retains its high-water allocation across smaller pass capacities.
+GPU-counted passes read the same four shader constants through GPU-written, 256-byte-aligned
+constant-buffer views. One shared dispatch-only indirect signature replaces root-argument
+updates; no counter readback is needed. Full and partial grids retain their existing indexing
+and are bound separately when the D3D12 dispatch-dimension limit requires both.
+CPU-known passes retain root constants. Both parameter sources compile the same sorting
+kernels; count-source pipeline variants are created only when that capability is first used.
+Coupled-contact endpoint sorting still includes inactive entries; do not mistake its live
+count for its sorted range. Broadphase and coupled endpoints use CPU-known sort lengths.
 
 Stable `RadixSort::Pass`, `SweepUp`, `Scan`, `SweepDown`, dispatch and barrier regions
 separate the four byte passes. Associated PIX markers carry radix shift, input count,
@@ -134,7 +141,9 @@ iterations, colour batches and their barriers. Changing indices are markers, not
 `Physics::Step` carries engine identity, simulation time, elapsed time and substep count;
 `Physics::Substep` carries its index. After the existing completion fence,
 `Physics::ResolveCounts` CPU markers identify the same engine/time/substep and report
-the main solve's GPU-generated pair/contact counts and indirect dispatch dimensions.
+the main solve's GPU-generated pair/contact counts, resolve dispatch dimensions, and the
+clamped `sort_keys` / `sort_partitions`. Empty counts generate zero-group sweep and scan
+records; argument setup and histogram reset remain fixed costs.
 These diagnostic copies share the already submitted job and its completion fence;
 there is no extra submission or CPU/GPU synchronization round trip. They do not describe
 selective-refresh subsets. `Physics::Completed` reports frame maxima and must not be
