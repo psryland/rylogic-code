@@ -406,7 +406,7 @@ namespace pr::rdr12
 	{
 		// Keep camera inversion and default projection composition outside the per-nugget loop.
 		auto const camera = CameraTransforms(scn().m_cam);
-		D3D12_GPU_DESCRIPTOR_HANDLE last_tex = {}, last_sam = {};
+		Descriptor last_tex = {}, last_sam = {};
 		auto pipe_state_bound = false;
 		auto pipe_state_hash = 0;
 		auto frame_resources_bound = true;

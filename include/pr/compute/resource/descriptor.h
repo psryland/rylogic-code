@@ -27,5 +27,11 @@ namespace pr::compute
 		{
 			return m_type != D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES;
 		}
+
+		// Compare descriptor identities, including reuse of a CPU descriptor-store slot.
+		bool operator ==(Descriptor const& rhs) const
+		{
+			return m_generation == rhs.m_generation && m_cpu.ptr == rhs.m_cpu.ptr && m_index == rhs.m_index && m_type == rhs.m_type;
+		}
 	};
 }

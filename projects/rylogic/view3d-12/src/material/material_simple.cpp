@@ -210,13 +210,8 @@ namespace pr::rdr12
 				if (tex == nullptr)
 					return;
 
-				auto srv_descriptor = ctx.m_wnd.m_heap_view.Add(tex->m_srv);
-				if (ctx.m_last_tex == nullptr || srv_descriptor.ptr != ctx.m_last_tex->ptr)
+				if (BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_view, root_param, tex->m_srv, ctx.m_last_tex))
 				{
-					ctx.m_cmd_list.SetGraphicsRootDescriptorTable(root_param, srv_descriptor);
-					if (ctx.m_last_tex != nullptr)
-						*ctx.m_last_tex = srv_descriptor;
-
 					#if PR_DBG_RDR
 					auto state = ctx.m_cmd_list.ResState(tex->m_res.get()).Mip0State();
 					assert(AllSet(state, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE));
@@ -232,13 +227,7 @@ namespace pr::rdr12
 				if (sam == nullptr)
 					return;
 
-				auto sam_descriptor = ctx.m_wnd.m_heap_samp.Add(sam->m_samp);
-				if (ctx.m_last_sam == nullptr || sam_descriptor.ptr != ctx.m_last_sam->ptr)
-				{
-					ctx.m_cmd_list.SetGraphicsRootDescriptorTable(root_param, sam_descriptor);
-					if (ctx.m_last_sam != nullptr)
-						*ctx.m_last_sam = sam_descriptor;
-				}
+				BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_samp, root_param, sam->m_samp, ctx.m_last_sam);
 			}
 
 			// Bind fixed-function style resources for the simple forward pass.

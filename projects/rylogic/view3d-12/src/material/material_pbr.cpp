@@ -386,13 +386,7 @@ namespace pr::rdr12
 				if (tex == nullptr)
 					return;
 
-				auto srv_descriptor = ctx.m_wnd.m_heap_view.Add(tex->m_srv);
-				if (!cache_diffuse_slot || ctx.m_last_tex == nullptr || srv_descriptor.ptr != ctx.m_last_tex->ptr)
-				{
-					ctx.m_cmd_list.SetGraphicsRootDescriptorTable(root_param, srv_descriptor);
-					if (cache_diffuse_slot && ctx.m_last_tex != nullptr)
-						*ctx.m_last_tex = srv_descriptor;
-				}
+				BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_view, root_param, tex->m_srv, cache_diffuse_slot ? ctx.m_last_tex : nullptr);
 			}
 
 			// Bind a PBR sampler descriptor.
@@ -403,13 +397,7 @@ namespace pr::rdr12
 				if (sam == nullptr)
 					return;
 
-				auto sam_descriptor = ctx.m_wnd.m_heap_samp.Add(sam->m_samp);
-				if (!cache_diffuse_slot || ctx.m_last_sam == nullptr || sam_descriptor.ptr != ctx.m_last_sam->ptr)
-				{
-					ctx.m_cmd_list.SetGraphicsRootDescriptorTable(root_param, sam_descriptor);
-					if (cache_diffuse_slot && ctx.m_last_sam != nullptr)
-						*ctx.m_last_sam = sam_descriptor;
-				}
+				BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_samp, root_param, sam->m_samp, cache_diffuse_slot ? ctx.m_last_sam : nullptr);
 			}
 
 			// Bind scalar PBR material constants.

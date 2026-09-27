@@ -1381,6 +1381,149 @@ namespace fade_tests
 		}
 	}
 
+	// Count heap lookups and root bindings independently so redundant lookups cannot hide behind unchanged GPU handles.
+	void DescriptorBindingTests()
+	{
+		using namespace pr::rdr12;
+
+		// A fixed returned handle also exposes comparisons that incorrectly ignore source generations.
+		struct Heap
+		{
+			int m_calls = 0;
+			bool m_fail = false;
+			D3D12_GPU_DESCRIPTOR_HANDLE Add(Descriptor const& source)
+			{
+				++m_calls;
+				if (m_fail || !source)
+					throw std::runtime_error("Fixture descriptor lookup failed");
+
+				return {123};
+			}
+		};
+
+		// Record only the command boundary used by the production binding helper.
+		struct Commands
+		{
+			int m_calls = 0;
+			void SetGraphicsRootDescriptorTable(unsigned, D3D12_GPU_DESCRIPTOR_HANDLE handle)
+			{
+				Require(handle.ptr == 123, "Incorrect GPU descriptor forwarded");
+				++m_calls;
+			}
+		};
+		auto heap = Heap{};
+		auto commands = Commands{};
+		auto last = Descriptor{};
+		auto source = Descriptor(0, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, {64}, 1);
+		Require(BindMaterialDescriptor(commands, heap, 0U, source, &last), "First descriptor was skipped");
+		for (auto i = 0; i != 1000; ++i)
+			Require(!BindMaterialDescriptor(commands, heap, 0U, source, &last), "Unchanged descriptor was rebound");
+
+		Require(heap.m_calls == 1 && commands.m_calls == 1, "Unchanged draws performed heap lookups or bindings");
+
+		// Reusing the same CPU slot must rebind; the saved identity must not alias the mutable source descriptor.
+		++source.m_generation;
+		Require(BindMaterialDescriptor(commands, heap, 0U, source, &last), "Recycled descriptor slot was skipped");
+		Require(heap.m_calls == 2 && commands.m_calls == 2, "Generation change did not reach both boundaries");
+		for (auto changed : {Descriptor(1, source.m_type, source.m_cpu, source.m_generation), Descriptor(source.m_index, source.m_type, {128}, source.m_generation), Descriptor(source.m_index, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, source.m_cpu, source.m_generation)})
+			Require(changed != source, "Descriptor identity omitted a field");
+
+		// An untracked secondary root slot must not replace the diffuse slot's saved identity.
+		auto secondary = Descriptor(2, source.m_type, {256}, 3);
+		BindMaterialDescriptor(commands, heap, 1U, secondary, nullptr);
+		BindMaterialDescriptor(commands, heap, 1U, secondary, nullptr);
+		Require(last == source && heap.m_calls == 4, "Untracked root slot polluted diffuse tracking");
+		Require(!BindMaterialDescriptor(commands, heap, 0U, source, &last), "Secondary root slot forced a diffuse lookup");
+
+		// A new batch or invalidated root signature/heap must discard the previous binding.
+		last = {};
+		Require(BindMaterialDescriptor(commands, heap, 0U, source, &last), "Reset tracking did not rebind");
+		Require(heap.m_calls == 5 && commands.m_calls == 5, "Reset did not reach the command list");
+
+		// Failed lookups must neither publish a source identity nor issue a root binding.
+		heap.m_fail = true;
+		auto rejected = false;
+		try { BindMaterialDescriptor(commands, heap, 0U, secondary, &last); }
+		catch (std::runtime_error const&) { rejected = true; }
+		Require(rejected && last == source && commands.m_calls == 5, "Failed lookup changed binding state");
+		heap.m_fail = false;
+		last = {};
+		rejected = false;
+		try { BindMaterialDescriptor(commands, heap, 0U, Descriptor{}, &last); }
+		catch (std::runtime_error const&) { rejected = true; }
+		Require(rejected, "Empty tracking suppressed invalid-source validation");
+		std::cout << "PASS descriptor lookup counts, identity reuse, independent roots, invalidation, and failure handling\n";
+	}
+
+	// Compare mixed Simple/PBR batches with isolated draws, where descriptor reuse cannot affect another object.
+	void DescriptorBindingRenderTests(int samples)
+	{
+		using namespace pr::rdr12;
+		auto fixture = Fixture(samples);
+		auto objects = std::array<api::Object, 6>{};
+		auto options = api::TextureOptions{};
+		options.m_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		options.m_usage = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+		options.m_resource_state = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+		options.m_clear_value.Format = options.m_format;
+		options.m_mips = 1;
+		options.m_multisamp = {1, 0};
+		options.m_t2s = {{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1}};
+
+		// Each colour is shared by three objects and crosses the Simple/PBR material boundary.
+		for (auto group = 0; group != 2; ++group)
+		{
+			auto pixel = group == 0 ? 0xFF0000FFU : 0xFF00FF00U;
+			auto texture = View3D_TextureCreate(1, 1, &pixel, sizeof(pixel), options);
+			fixture.CheckErrors();
+			Require(texture != nullptr, "Descriptor fixture texture creation failed");
+			auto release = pr::Scope<void>([&] { View3D_TextureRelease(texture); });
+			for (auto i = group * 3; i != group * 3 + 3; ++i)
+			{
+				// Create materials inside the DLL so their virtual methods and allocations use the owning runtime.
+				auto material = i == 2 || i == 3 ? "*Material {*BaseColour{FFFFFFFF} *Metallic{0} *Roughness{1}}" : "";
+				auto script = std::string("*Plane Tile FFFFFFFF {*Data{12 90} ") + material + " *o2w{*pos{0 0 -10}}}";
+				auto object = objects[i] = View3D_ObjectCreateLdrA(script.c_str(), FALSE, nullptr, nullptr);
+				fixture.CheckErrors();
+				Require(object != nullptr, "Descriptor fixture object creation failed");
+				fixture.m_objects.push_back(object);
+				View3D_WindowAddObject(fixture.m_window, object);
+				View3D_ObjectSetTexture(object, texture, nullptr);
+				auto placement = View3D_ObjectO2WGet(object, nullptr);
+				placement.w.x = -37.5f + 15.0f * i;
+				View3D_ObjectO2WSet(object, placement, nullptr);
+			}
+		}
+
+		// Build a full-image reference from non-overlapping isolated objects, including their real material and sampler bindings.
+		auto batched = fixture.Image();
+		fixture.Clear();
+		auto expected = fixture.Image();
+		for (auto object : objects)
+		{
+			View3D_WindowAddObject(fixture.m_window, object);
+			auto isolated = fixture.Image();
+			auto coloured = 0;
+			for (auto i = size_t{}; i != isolated.size(); i += 4)
+			{
+				for (auto channel = size_t{}; channel != 3; ++channel)
+				{
+					expected[i + channel] = std::max(expected[i + channel], isolated[i + channel]);
+					coloured += isolated[i + channel] != 0;
+				}
+			}
+			Require(coloured != 0, "Isolated descriptor fixture rendered no colour");
+			fixture.Clear();
+		}
+		Require(batched == expected, "Batched descriptor bindings changed pixels relative to isolated draws");
+		for (auto object : objects)
+			View3D_WindowAddObject(fixture.m_window, object);
+
+		Require(fixture.Image() == expected, "New frame retained stale descriptor bindings");
+		fixture.CheckErrors();
+		std::cout << "PASS bit-exact mixed Simple/PBR descriptor batches, MSAA " << samples << '\n';
+	}
+
 	// Require bit-identical per-draw transforms across camera changes, stereo eyes, projection overrides, and affine placements.
 	void CameraTransformTests()
 	{
@@ -1957,6 +2100,13 @@ int main(int argc, char const* const* argv)
 	// Select the focused fixture before running any unrelated numeric or GPU cases.
 	try
 	{
+		if (argc == 2 && std::string_view(argv[1]) == "--descriptor-bindings")
+		{
+			fade_tests::DescriptorBindingTests();
+			fade_tests::DescriptorBindingRenderTests(1);
+			fade_tests::DescriptorBindingRenderTests(4);
+			return 0;
+		}
 		if (argc == 2 && std::string_view(argv[1]) == "--camera-transforms")
 		{
 			fade_tests::CameraTransformTests();
@@ -2002,6 +2152,9 @@ int main(int argc, char const* const* argv)
 			return 0;
 
 		fade_tests::CameraTransformTests();
+		fade_tests::DescriptorBindingTests();
+		fade_tests::DescriptorBindingRenderTests(1);
+		fade_tests::DescriptorBindingRenderTests(4);
 		fade_tests::RenderTests(1);
 		fade_tests::RenderTests(4);
 		fade_tests::SceneHandoffTests(1);

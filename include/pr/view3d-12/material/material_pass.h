@@ -27,8 +27,8 @@ namespace pr::rdr12
 		Shader* m_shader;                              // The render step's default shader, if the material wants to use it.
 		Texture2D* m_default_tex;                      // Fallback diffuse texture for fixed-function style passes.
 		Sampler* m_default_sam;                        // Fallback sampler for fixed-function style passes.
-		D3D12_GPU_DESCRIPTOR_HANDLE* m_last_tex;       // Optional cache of the last diffuse texture descriptor bound.
-		D3D12_GPU_DESCRIPTOR_HANDLE* m_last_sam;       // Optional cache of the last diffuse sampler descriptor bound.
+		Descriptor* m_last_tex;                        // Optional draw-batch copy of the last bound diffuse source descriptor.
+		Descriptor* m_last_sam;                        // Optional draw-batch copy of the last bound diffuse sampler descriptor.
 		bool m_root_signature_changed = false;         // True if the pass changed the command-list graphics root signature.
 	};
 
@@ -49,4 +49,21 @@ namespace pr::rdr12
 		// Apply material pipeline state once caller-owned PSO overrides have been applied.
 		virtual void ApplyPipeline(MaterialPassContext& ctx) const;
 	};
+
+	// Bind one material descriptor, returning whether a binding was issued. Optional tracking belongs to one root slot and GPU heap;
+	// reset it at a new draw batch or whenever root bindings or descriptor heaps are invalidated. Source descriptors must be valid.
+	template <typename CmdList, typename Heap, typename RootParam>
+	bool BindMaterialDescriptor(CmdList& cmd_list, Heap& heap, RootParam root_param, Descriptor const& source, Descriptor* last)
+	{
+		// Compare the copied source identity before hashing or looking it up in the shader-visible heap.
+		if (last != nullptr && *last && *last == source)
+			return false;
+
+		auto const gpu_descriptor = heap.Add(source);
+		cmd_list.SetGraphicsRootDescriptorTable(root_param, gpu_descriptor);
+		if (last != nullptr)
+			*last = source;
+
+		return true;
+	}
 }
