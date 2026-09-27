@@ -144,7 +144,6 @@ namespace physics_sandbox
 		, m_fps_elapsed(0)
 		, m_fps(0)
 		, m_title_elapsed(0)
-		, m_details_elapsed(0)
 		, m_status_elapsed(0)
 		, m_profile(profile_enabled)
 		, m_closing(false)
@@ -178,6 +177,7 @@ namespace physics_sandbox
 		{
 			CompletePendingStep();
 			m_scene.AllowSleeping(m_media.AllowSleeping());
+			m_details.InvalidateValues();
 		};
 
 		// Keyboard shortcuts for power-user control
@@ -216,6 +216,7 @@ namespace physics_sandbox
 				PauseSimulation();
 				m_view3d.WaitForGpu();
 				m_view3d.m_scene.ClearDrawlists();
+				m_details.InvalidateValues();
 				m_scene.RunAllTests();
 			}
 
@@ -392,6 +393,7 @@ namespace physics_sandbox
 	void SandboxUI::ResetScene()
 	{
 		PauseSimulation();
+		m_details.InvalidateValues();
 
 		// Make sure the GPU has finished with the models before releasing them.
 		m_view3d.WaitForGpu();
@@ -533,6 +535,7 @@ namespace physics_sandbox
 			mark = wait_gpu_end;
 
 			// Load the scene from JSON (creates new body graphics automatically)
+			m_details.InvalidateValues();
 			auto scene_desc = scene_loader::LoadFromFile(filepath);
 			auto const json_end = Clock::now();
 			auto const json_ms = ElapsedMs(mark, json_end);
@@ -581,6 +584,7 @@ namespace physics_sandbox
 			return false;
 
 		auto const collision = m_scene.CompleteStep();
+		m_details.InvalidateValues();
 		if (m_profile.Enabled())
 			m_profile.RecordStep(m_scene.m_last_step_profile, m_scene.m_last_step_profile.m_total_ms);
 
@@ -725,7 +729,6 @@ namespace physics_sandbox
 		// These use wall-clock time (not scaled time) so the UI stays responsive.
 		m_fps_elapsed += elapsed_seconds;
 		m_title_elapsed += elapsed_seconds;
-		m_details_elapsed += elapsed_seconds;
 		m_status_elapsed += elapsed_seconds;
 
 		// Update the FPS each second
@@ -736,11 +739,9 @@ namespace physics_sandbox
 			m_fps_elapsed = 0;
 		}
 
-		// Update the details panel only while paused. Formatting thousands of bodies is expensive
-		// and it is usually unreadable while the simulation is running anyway.
-		if (m_steps_remaining == 0 && m_details_elapsed >= 0.2)
+		// Refresh visible details from completed scene changes, never repeatedly format an unchanged paused scene.
+		if (m_steps_remaining == 0 && m_details.NeedsUpdate())
 		{
-			m_details_elapsed = 0;
 			auto const details_beg = Clock::now();
 			m_details.Update(m_scene);
 			if (m_profile.Enabled())

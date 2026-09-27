@@ -4,7 +4,7 @@
 namespace physics_sandbox
 {
 	DetailsPanel::DetailsPanel(Panel::Params<> p)
-		: Panel(p.dock(EDock::Right).wh(250, Fill).padding(4))
+		: Panel(p.dock(EDock::Right).wh(250, Fill).padding(4).visible(false))
 		, m_btn_pin(Button::Params<>()
 			.parent(this_)
 			.text(L"\U0001F4CC") // 📌 pushpin emoji
@@ -16,7 +16,7 @@ namespace physics_sandbox
 			.dock(EDock::Fill)
 			.style('+', ES_MULTILINE | ES_READONLY | WS_VSCROLL)
 			.text(L"(no scene loaded)"))
-		, m_pinned(true)
+		, m_pinned(false)
 	{
 		// Use a fixed-width font for alignment
 		auto font = ::CreateFontW(-12, 0, 0, 0, FW_NORMAL, 0, 0, 0,
@@ -42,6 +42,7 @@ namespace physics_sandbox
 	void DetailsPanel::TogglePin()
 	{
 		m_pinned = !m_pinned;
+		InvalidateValues();
 		Visible(m_pinned);
 
 		// Update button text to reflect state
@@ -58,14 +59,73 @@ namespace physics_sandbox
 		}
 	}
 
+	#if PR_UNITTESTS
+	namespace physics_sandbox::tests
+	{
+		// Exercise real controls under an invisible parent so refresh and visibility checks need no interactive window.
+		PRUnitTestClass(DetailsPanelTests)
+		{
+			// Hidden and unchanged panels must not format; requested visible refreshes preserve the user's scroll position.
+			PRUnitTestMethod(DormantUntilShownAndInvalidated, Quick)
+			{
+				// Keep window state local to this test and include enough bodies to exercise a scrolling details document.
+				auto parent = Form(Form::Params<>().wh(640, 480));
+				auto panel = DetailsPanel(DetailsPanel::Params<>().parent(&parent));
+				parent.CreateHandle();
+				auto shape = collision::ShapeBox(v4(1, 1, 1, 0));
+				auto scene = Scene(nullptr);
+				for (auto index = 0; index != 1000; ++index)
+					scene.m_body.emplace_back(nullptr, &shape.m_base, m4x4::Identity(), physics::Inertia::Box(v4(0.5f, 0.5f, 0.5f, 0), 1));
+
+				// Hidden updates retain the pending request without touching the formatted output.
+				PR_EXPECT(!panel.m_pinned && !panel.Visible() && !panel.NeedsUpdate());
+				panel.Update(scene);
+				PR_EXPECT(panel.m_last_text.empty() && panel.m_refresh_needed);
+				auto const style = panel.cp().m_style & ~WS_VISIBLE;
+				panel.TogglePin();
+				PR_EXPECT(panel.Visible() && panel.NeedsUpdate());
+				panel.Update(scene);
+				PR_EXPECT(!panel.NeedsUpdate() && panel.m_last_text.find(L"--- Body 999 ---") != std::wstring::npos);
+				auto const text = panel.m_last_text;
+
+				// Mutation without caller invalidation must not trigger formatting on a later render.
+				scene.m_clock = 1;
+				panel.Update(scene);
+				PR_EXPECT(panel.m_last_text == text);
+				::SendMessageW(panel.m_text, EM_LINESCROLL, 0, 5);
+				auto const first_line = ::SendMessageW(panel.m_text, EM_GETFIRSTVISIBLELINE, 0, 0);
+				PR_EXPECT(first_line > 0);
+				panel.InvalidateValues();
+				panel.Update(scene);
+				PR_EXPECT(panel.m_last_text.find(L"Time: 1.000s") != std::wstring::npos);
+				PR_EXPECT(::SendMessageW(panel.m_text, EM_GETFIRSTVISIBLELINE, 0, 0) == first_line);
+
+				// Hide/show must preserve non-visibility style bits and refresh data changed while dormant.
+				panel.TogglePin();
+				PR_EXPECT(!panel.Visible() && !AllSet(panel.cp().m_style, WS_VISIBLE) && (panel.cp().m_style & ~WS_VISIBLE) == style);
+				auto const hidden_text = panel.m_last_text;
+				scene.m_clock = 2;
+				panel.InvalidateValues();
+				panel.Update(scene);
+				PR_EXPECT(panel.m_last_text == hidden_text && !panel.NeedsUpdate());
+				panel.TogglePin();
+				panel.Update(scene);
+				PR_EXPECT(panel.m_last_text.find(L"Time: 2.000s") != std::wstring::npos && !panel.NeedsUpdate());
+				PR_EXPECT((panel.cp().m_style & ~WS_VISIBLE) == style);
+			}
+		};
+	}
+	#endif
+
 	// Update the displayed properties from the current scene state.
 	// Only updates when the panel is pinned (visible) to avoid wasted work.
-	// Called once per render frame at a rate-limited interval (~5 Hz).
+	// The caller invalidates values at scene-change boundaries rather than polling their formatted text.
 	void DetailsPanel::Update(Scene const& scene)
 	{
-		// Skip updates when the panel is hidden to avoid unnecessary string formatting
-		if (!m_pinned)
+		// Neither hidden panels nor unchanged paused scenes need formatting.
+		if (!NeedsUpdate())
 			return;
+
 		std::wstringstream ss;
 		ss << L"Scenario: " << pr::Widen(ScenarioName(scene.m_current_scenario)) << L"\r\n";
 		ss << L"Time: " << std::fixed << std::setprecision(3) << scene.m_clock << L"s\r\n";
@@ -104,5 +164,16 @@ namespace physics_sandbox
 			auto new_first = static_cast<int>(::SendMessageW(m_text, EM_GETFIRSTVISIBLELINE, 0, 0));
 			::SendMessageW(m_text, EM_LINESCROLL, 0, first_visible - new_first);
 		}
+		m_refresh_needed = false;
+	}
+
+	void DetailsPanel::InvalidateValues()
+	{
+		m_refresh_needed = true;
+	}
+
+	bool DetailsPanel::NeedsUpdate() const
+	{
+		return m_pinned && m_refresh_needed;
 	}
 }

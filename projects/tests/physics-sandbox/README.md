@@ -1,5 +1,12 @@
 # Physics sandbox
 
+## Details panel
+
+The details panel starts hidden and does no value formatting while hidden. Press **D** with the viewport focused to show or hide it;
+the pin button also hides it. While paused, opening the panel or changing scene data refreshes its values once. An unchanged paused scene
+does not repeatedly rebuild the text. Stepping, loading/resetting a scene and changing the sleeping policy request a refresh.
+During continuous playback, values remain deferred until pause, as before. Refreshed text preserves the current scroll position.
+
 ## Repeatable physics comparisons
 
 Use `-scenediag -scene <scene.json> -steps 600 -report 1 -engine_profile -quiet` for per-step,

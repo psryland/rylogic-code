@@ -4552,7 +4552,7 @@ namespace pr
 			}
 			void Visible(bool vis)
 			{
-				vis ? cp().m_style |= WS_VISIBLE : cp().m_style &= WS_VISIBLE;
+				vis ? cp().m_style |= WS_VISIBLE : cp().m_style &= ~WS_VISIBLE;
 				if (::IsWindow(m_hwnd))
 					::ShowWindow(m_hwnd, vis ? SW_SHOW : SW_HIDE);
 			}

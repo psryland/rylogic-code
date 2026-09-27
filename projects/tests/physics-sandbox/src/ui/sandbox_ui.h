@@ -48,7 +48,6 @@ namespace physics_sandbox
 		// Rate-limiting accumulators for expensive operations.
 		// These prevent costly Win32 API calls from running at the full render rate.
 		double m_title_elapsed;   // Title bar update interval (every 0.25s)
-		double m_details_elapsed; // Details panel update interval (every 0.2s)
 		double m_status_elapsed;  // Status panel update interval (every 0.2s)
 
 		// Lightweight frame profiler enabled with '-profile'.
