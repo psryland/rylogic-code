@@ -26,6 +26,7 @@
 #include "pr/common/command_line.h"
 #include "pr/common/min_max_fix.h"
 #include "pr/common/guid.h"
+#include "pr/common/hash.h"
 #include "pr/common/fmt.h"
 #include "pr/common/ldraw.h"
 #include "pr/common/unittests.h"

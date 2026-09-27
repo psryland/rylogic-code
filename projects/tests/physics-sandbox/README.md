@@ -1,5 +1,21 @@
 # Physics sandbox
 
+## Repeatable physics comparisons
+
+Use `-scenediag -scene <scene.json> -steps 600 -report 1 -engine_profile -quiet` for per-step,
+renderer-free Debug profiles. Preserve each scene's settings: `brick_wall_2000.json` uses one
+substep and includes the wrecking-ball impact; `generated_stress.json` contains 620 boxes and
+380 spheres, with falling bodies and later ground contact. Compare matching simulation-step
+ranges, including contact buildup, rather than only the initial sparse steps.
+
+Profile rows include `rigid_state_hash`, a deterministic fingerprint of rigid-body transforms,
+world velocities and sleep flags in scene order at the reporting boundary. Hashing is outside
+the timed physics step. It excludes articulation state and hidden solver caches, so a matching
+hash is not a complete engine-state equivalence proof. Repeat the unchanged baseline first:
+GPU execution and contact ordering can already produce different trajectories between runs.
+Use the same reporting cadence in both arms and record GPU clocks; untimed diagnostics can
+still affect pacing and the GPU power state. Renderer-free timings do not establish rendered FPS.
+
 ## Sampled terrain stress demo
 
 Choose **Demos -> Stress and Scaling -> Sampled Terrain (1,000 Bodies)**, or load

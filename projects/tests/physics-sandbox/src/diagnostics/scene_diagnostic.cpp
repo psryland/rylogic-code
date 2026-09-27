@@ -675,7 +675,30 @@ namespace physics_sandbox::diag
 				sample.m_kinetic_energy));
 		}
 
-		void PrintEngineProfile(std::ofstream& log, int step, double time_s, EngineProfileAccumulator const& profile)
+		// Fingerprint rigid transforms, world velocities and sleep state in scene order, excluding pointers and structure padding.
+		uint64_t RigidStateHash(Scene const& scene)
+		{
+			// Keep diagnostics outside Scene::Step so their cost is not reported as physics computation.
+			auto hash = pr::hash::FNV_offset_basis64;
+			for (auto const& body : scene.m_body)
+			{
+				// Serialize only physical scalar values; this is not a hash of articulation state or hidden solver caches.
+				auto const& o2w = body.O2W();
+				auto const velocity = body.VelocityWS();
+				auto const state = std::array{
+					o2w.x.x, o2w.x.y, o2w.x.z, o2w.y.x, o2w.y.y, o2w.y.z, o2w.z.x, o2w.z.y, o2w.z.z,
+					o2w.pos.x, o2w.pos.y, o2w.pos.z,
+					velocity.lin.x, velocity.lin.y, velocity.lin.z, velocity.ang.x, velocity.ang.y, velocity.ang.z,
+					body.Sleeping() ? 1.0f : 0.0f,
+				};
+				auto const* bytes = reinterpret_cast<char const*>(state.data());
+				hash = pr::hash::Hash64CT(bytes, bytes + sizeof(state), hash);
+			}
+			return hash;
+		}
+
+		// Report phase averages and the final rigid state of this reporting interval.
+		void PrintEngineProfile(std::ofstream& log, int step, double time_s, EngineProfileAccumulator const& profile, Scene const& scene)
 		{
 			auto count = std::max(profile.m_sample_count, 1);
 			auto const average = [count](auto value)
@@ -730,6 +753,7 @@ namespace physics_sandbox::diag
 				<< ',' << average(profile.m_engine.m_wait_count)
 				<< ',' << average(profile.m_engine.m_readback_copy_count)
 				<< ',' << average(profile.m_engine.m_terrain_gpu_ms)
+				<< ',' << RigidStateHash(scene)
 				<< '\n';
 			Emit(log, row.str());
 		}
@@ -1251,7 +1275,7 @@ namespace physics_sandbox::diag
 		Emit(log, std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
 		Emit(log, std::format("steps={} dt={:.8f} report_interval={}\n", options.m_steps, options.m_dt, options.m_report_interval));
 		if (options.m_engine_profile)
-			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,constraint_pack_ms,articulation_pack_ms,upload_ms,constraint_upload_ms,articulation_upload_ms,external_forces_ms,integrate_ms,articulation_integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms,gpu_prepare_ms,gpu_execute_ms,gpu_wait_ms,gpu_reset_ms,readback_access_ms,body_readback_copy_ms,contact_readback_copy_ms,collision_events_ms,sleep_island_unpack_ms,body_unpack_ms,articulation_unpack_ms,unpack_diagnostics_ms,substeps,submissions,waits,readback_copies,terrain_gpu_ms\n");
+			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,constraint_pack_ms,articulation_pack_ms,upload_ms,constraint_upload_ms,articulation_upload_ms,external_forces_ms,integrate_ms,articulation_integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms,gpu_prepare_ms,gpu_execute_ms,gpu_wait_ms,gpu_reset_ms,readback_access_ms,body_readback_copy_ms,contact_readback_copy_ms,collision_events_ms,sleep_island_unpack_ms,body_unpack_ms,articulation_unpack_ms,unpack_diagnostics_ms,substeps,submissions,waits,readback_copies,terrain_gpu_ms,rigid_state_hash\n");
 		else if (options.m_column_metric)
 			Emit(log, "column_metric=true\n");
 		else if (options.m_pyramid_metric)
@@ -1572,7 +1596,7 @@ namespace physics_sandbox::diag
 				auto report_interval = std::max(options.m_report_interval, 1);
 				if ((step + 1) % report_interval == 0 || step + 1 == options.m_steps)
 				{
-					PrintEngineProfile(log, step + 1, scene.m_clock, profile);
+					PrintEngineProfile(log, step + 1, scene.m_clock, profile, scene);
 					profile.Reset();
 				}
 
