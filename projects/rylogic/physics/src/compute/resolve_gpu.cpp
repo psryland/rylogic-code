@@ -60,6 +60,7 @@ namespace pr::physics
 	static_assert((sizeof(cbResolve) & 0xf) == 0);
 	static_assert(sizeof(cbResolve::colour) == sizeof(uint32_t));
 	static_assert(offsetof(cbResolve, colour) % sizeof(uint32_t) == 0);
+	static_assert(sizeof(DispatchArguments) == sizeof(D3D12_DISPATCH_ARGUMENTS));
 
 	// Register assignments for the resolve root signature
 	struct EReg
@@ -78,6 +79,7 @@ namespace pr::physics
 		inline static constexpr auto WarmStartPrev  = EUAVReg::u8;
 		inline static constexpr auto WarmStartCurr  = EUAVReg::u9;
 		inline static constexpr auto PositionPseudo = EUAVReg::u10;
+		inline static constexpr auto ColourDispatch = EUAVReg::u11;
 	};
 
 	GpuResolver::GpuResolver(Gpu& gpu, EngineConfig const& config, IShaderCache* shader_cache)
@@ -100,6 +102,7 @@ namespace pr::physics
 		, m_cmd_sig()
 		, m_r_materials()
 		, m_r_colours()
+		, m_r_colour_dispatch()
 		, m_r_contact_times()
 		, m_r_contact_order()
 		, m_r_body_contact_head()
@@ -165,7 +168,8 @@ namespace pr::physics
 				.UAV(EReg::Bodies)
 				.UAV(EReg::Colours)
 				.UAV(EReg::Contacts)
-				.UAV(EReg::ContactOrder);
+				.UAV(EReg::ContactOrder)
+				.UAV(EReg::ColourDispatch);
 
 			m_cs_assign_colours.m_sig = sig.Create(m_gpu, "Physics:AssignColoursSig");
 			m_cs_assign_colours.m_pso = ComputePSO(m_cs_assign_colours.m_sig.get(), shader_code::assign_colours).Create(m_gpu, "Physics:AssignColoursPSO");
@@ -247,6 +251,10 @@ namespace pr::physics
 		auto warm_start_capacity = 1;
 		while (warm_start_capacity < max_contacts * 2)
 			warm_start_capacity <<= 1;
+
+		// Dispatch arguments have fixed size, independent of retained contact capacity.
+		if (m_r_colour_dispatch == nullptr)
+			m_r_colour_dispatch = m_gpu.CreateResource(ResDesc::Buf<DispatchArguments>(MaxColours, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ColourDispatch");
 
 		if (m_r_materials == nullptr || max_materials > m_max_materials)
 		{
@@ -593,6 +601,7 @@ namespace pr::physics
 				pix::DetailScope detail(m_job.m_cmd_list.get(), "Resolve::ColourContacts");
 				pix::DetailMarker(m_job.m_cmd_list.get(), "groups_x=1 groups_y=1 groups_z=1");
 				// Contacts sharing a body receive different colours so each colour batch owns exclusive body writes.
+				m_job.m_barriers.Transition(m_resolver.m_r_colour_dispatch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
 				m_job.m_cmd_list.SetPipelineState(m_resolver.m_cs_assign_colours.m_pso.get());
 				m_job.m_cmd_list.SetComputeRootSignature(m_resolver.m_cs_assign_colours.m_sig.get());
 				m_job.m_cmd_list.AddComputeRoot32BitConstants(m_cb);
@@ -601,10 +610,12 @@ namespace pr::physics
 				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_colours->GetGPUVirtualAddress());
 				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_contacts->GetGPUVirtualAddress());
 				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_contact_order->GetGPUVirtualAddress());
+				m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_resolver.m_r_colour_dispatch->GetGPUVirtualAddress());
 				m_job.m_cmd_list.Dispatch(1, 1, 1);
 
 				m_job.m_barriers.UAV(m_bodies.get());
 				m_job.m_barriers.UAV(m_resolver.m_r_colours.get());
+				m_job.m_barriers.Transition(m_resolver.m_r_colour_dispatch.get(), D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
 				m_job.m_barriers.Commit();
 			}
 
@@ -677,7 +688,7 @@ namespace pr::physics
 				m_job.m_barriers.Commit();
 				auto* cmd_list = m_job.m_cmd_list.get();
 				auto* signature = m_resolver.m_cmd_sig.get();
-				auto* dispatch_args = m_dispatch.get();
+				auto* dispatch_args = m_resolver.m_r_colour_dispatch.get();
 				auto const barrier_count = static_cast<UINT>(barriers.size());
 				auto const detail_enabled = pix::DetailEnabled();
 				for (auto colour = 0; colour != MaxColours; ++colour)
@@ -689,9 +700,9 @@ namespace pr::physics
 						pix::DetailMarker(cmd_list, "colour=%d indirect_records=1", colour);
 					}
 
-					// Only the colour root value changes. The indirect grid still covers every live contact, including multi-group and overflow cases.
+					// Only the colour root value changes. Empty colours have zero groups; occupied colours retain the original grid and contact traversal.
 					cmd_list->SetComputeRoot32BitConstants(0, 1, &colour, offsetof(cbResolve, colour) / sizeof(uint32_t));
-					cmd_list->ExecuteIndirect(signature, 1, dispatch_args, 0, nullptr, 0);
+					cmd_list->ExecuteIndirect(signature, 1, dispatch_args, colour * sizeof(DispatchArguments), nullptr, 0);
 					if (detail_enabled)
 						pix::BeginEvent(cmd_list, 0xFF90AA3F, "%s", barrier_name);
 

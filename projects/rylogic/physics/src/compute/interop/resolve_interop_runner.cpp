@@ -73,6 +73,7 @@ namespace pr::physics
 		, m_contacts()
 		, m_materials()
 		, m_colours()
+		, m_colour_dispatch()
 		, m_contact_order()
 		, m_contact_times()
 		, m_body_contact_head()
@@ -131,6 +132,7 @@ namespace pr::physics
 		m_materials.assign(buffers.m_materials.begin(), buffers.m_materials.end());
 		// Mirror the GPU allocation: contact colours occupy the retained capacity and one trailing element stores the whole-pass overflow flag.
 		m_colours.assign(m_max_contacts + 1, 0);
+		m_colour_dispatch.assign(MaxColours, {});
 		m_contact_order.resize(m_max_contacts);
 		m_contact_times.assign(m_max_contacts, 1e30f);
 		m_body_contact_head.assign(std::max(1, m_body_count), 0);
@@ -229,12 +231,14 @@ namespace pr::physics
 		g_colours.assign(SpanOf(m_colours));
 		g_contacts.assign(SpanOf(m_contacts));
 		g_contact_order.assign(SpanOf(m_contact_order));
+		g_colour_dispatch.assign(SpanOf(m_colour_dispatch));
 
 		hlsl::GpuEmulator emu(CSAssignColours, CSAssignColours_NumThreads);
 		emu.Dispatch({1, 1, 1});
 
 		m_bodies.assign(g_bodies.begin(), g_bodies.end());
 		m_colours.assign(g_colours.begin(), g_colours.end());
+		m_colour_dispatch.assign(g_colour_dispatch.begin(), g_colour_dispatch.end());
 	}
 
 	void ResolveInteropRunner::PositionSolve(int colour)
@@ -247,7 +251,7 @@ namespace pr::physics
 		g_contact_order.assign(SpanOf(m_contact_order));
 
 		hlsl::GpuEmulator emu(CSPositionSolve, CSPositionSolve_NumThreads);
-		emu.Dispatch({ThreadGroupCount(m_counters[0].contact_count, ResolveThreadCount), 1, 1});
+		emu.Dispatch({static_cast<int>(m_colour_dispatch[colour].ThreadGroupCountX), 1, 1});
 
 		m_bodies.assign(g_bodies.begin(), g_bodies.end());
 	}
@@ -263,7 +267,7 @@ namespace pr::physics
 		g_contact_order.assign(SpanOf(m_contact_order));
 
 		hlsl::GpuEmulator emu(CSResolve, CSResolve_NumThreads);
-		emu.Dispatch({ThreadGroupCount(m_counters[0].contact_count, ResolveThreadCount), 1, 1});
+		emu.Dispatch({static_cast<int>(m_colour_dispatch[colour].ThreadGroupCountX), 1, 1});
 
 		// Preserve the same per-contact impulse accumulators that remain in GPU memory between colour batches and solver sweeps.
 		m_bodies.assign(g_bodies.begin(), g_bodies.end());
@@ -273,6 +277,12 @@ namespace pr::physics
 	std::span<uint32_t const> ResolveInteropRunner::Colours() const
 	{
 		return std::span<uint32_t const>{m_colours}.first(m_max_contacts);
+	}
+
+	// Expose the prepared grids for interop regression checks.
+	std::span<DispatchArguments const> ResolveInteropRunner::ColourDispatch() const
+	{
+		return m_colour_dispatch;
 	}
 
 	// Return whether graph colouring exhausted its bounded mask and selected the coherent serial fallback.

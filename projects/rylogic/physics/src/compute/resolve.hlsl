@@ -118,6 +118,7 @@ RWStructuredBuffer<uint> resource(g_contact_next_b, u7);    // scratch: next con
 RWStructuredBuffer<GpuWarmStartEntry> resource(g_warm_start_prev, u8); // previous-frame physical impulse cache
 RWStructuredBuffer<GpuWarmStartEntry> resource(g_warm_start_curr, u9); // current-frame physical impulse cache
 RWStructuredBuffer<GpuConstraintPseudoVelocity> resource(g_position_pseudo, u10);
+RWStructuredBuffer<DispatchArguments> resource(g_colour_dispatch, u11);
 
 // ----- Helper functions -----
 int ContactCount()
@@ -930,6 +931,7 @@ void CSAssignColours(int3 DTID(dtid))
 
 	// A single overflow makes the complete solve use one coherent serial order, so partial assignments are discarded after the first exhausted mask.
 	bool colour_overflow = false;
+	uint used_colours = 0;
 	int contact_count = ContactCount();
 	for (int i = 0; i != contact_count; ++i)
 	{
@@ -967,6 +969,7 @@ void CSAssignColours(int3 DTID(dtid))
 
 		uint colour = firstbitlow(available);
 		g_colours[idx] = colour;
+		used_colours |= (1u << colour);
 		if (a_dynamic) g_bodies[a].colour_used |= (1u << colour);
 		if (b_dynamic) g_bodies[b].colour_used |= (1u << colour);
 	}
@@ -980,6 +983,17 @@ void CSAssignColours(int3 DTID(dtid))
 
 	// Colour zero inspects this slot before choosing its parallel batch or the serial whole-set fallback.
 	g_colours[ColourOverflowIndex()] = colour_overflow ? 1u : 0u;
+
+	// Preserve the full live-contact grid for occupied colours. Empty colours do no work; overflow needs only the original serial thread in colour zero.
+	uint groups = (contact_count + ResolveThreadCount - 1) / ResolveThreadCount;
+	for (int colour = 0; colour != MaxColours; ++colour)
+	{
+		DispatchArguments args;
+		args.ThreadGroupCountX = colour_overflow ? (colour == 0 ? 1u : 0u) : ((used_colours & (1u << colour)) != 0 ? groups : 0u);
+		args.ThreadGroupCountY = 1;
+		args.ThreadGroupCountZ = 1;
+		g_colour_dispatch[colour] = args;
+	}
 }
 
 // ----- CSWarmStartClear -----

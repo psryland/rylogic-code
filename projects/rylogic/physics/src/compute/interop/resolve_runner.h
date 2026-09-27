@@ -43,6 +43,9 @@ namespace pr::physics
 
 		std::span<uint32_t const> Colours() const;
 
+		// Indirect grids for each colour, including empty groups and the serial overflow sweep.
+		std::span<DispatchArguments const> ColourDispatch() const;
+
 		// Return true when the bounded graph-colour mask selected the coherent serial fallback.
 		bool ColourOverflow() const;
 		std::span<uint32_t const> ContactOrder() const;
@@ -60,6 +63,7 @@ namespace pr::physics
 		std::vector<GpuResolveContact> m_contacts;
 		std::vector<GpuMaterial> m_materials;
 		std::vector<uint32_t> m_colours;
+		std::vector<DispatchArguments> m_colour_dispatch;
 		std::vector<uint32_t> m_contact_order;
 		std::vector<float> m_contact_times;
 		std::vector<uint32_t> m_body_contact_head;

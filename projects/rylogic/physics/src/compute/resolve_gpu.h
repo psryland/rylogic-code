@@ -29,6 +29,7 @@ namespace pr::physics
 		D3DPtr<ID3D12CommandSignature> m_cmd_sig; // Command signature for indirect dispatch
 		D3DPtr<ID3D12Resource> m_r_materials;     // GPU buffer: StructuredBuffer<GpuMaterial>
 		D3DPtr<ID3D12Resource> m_r_colours;       // GPU buffer: RWStructuredBuffer<uint> per-contact colour assignment
+		D3DPtr<ID3D12Resource> m_r_colour_dispatch; // Dispatch-only arguments: unchanged live grid for occupied colours, zero groups otherwise
 		D3DPtr<ID3D12Resource> m_r_contact_times; // GPU buffer: float keys (collision_time) for radix sort
 		D3DPtr<ID3D12Resource> m_r_contact_order; // GPU buffer: uint32 payloads (contact indices) for radix sort
 		D3DPtr<ID3D12Resource> m_r_body_contact_head;

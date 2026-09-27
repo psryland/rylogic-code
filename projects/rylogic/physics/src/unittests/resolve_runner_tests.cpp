@@ -12,6 +12,27 @@
 
 namespace pr::physics::tests
 {
+	// Prove that only empty colours lose work, while every occupied colour retains the full live-contact grid.
+	static void CheckColourDispatch(GpuResolver& resolver, ResolveInteropRunner const& oracle)
+	{
+		auto& job = resolver.m_gpu.m_job;
+		auto dispatch = job.m_readback.Alloc<DispatchArguments>(MaxColours);
+		job.m_barriers.Transition(resolver.m_r_colour_dispatch.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+		job.m_cmd_list.CopyBufferRegion(dispatch, resolver.m_r_colour_dispatch.get());
+		job.Run();
+
+		// Derive occupancy independently from assignments, rather than trusting the dispatch-generating shader.
+		for (auto colour = 0; colour != MaxColours; ++colour)
+		{
+			auto const occupied = std::ranges::find(oracle.Colours(), static_cast<uint32_t>(colour)) != oracle.Colours().end();
+			auto const groups = occupied ? (oracle.ContactOrder().size() + ResolveThreadCount - 1) / ResolveThreadCount : 0U;
+			auto const& args = dispatch.ptr<DispatchArguments>()[colour];
+			PR_EXPECT(args.ThreadGroupCountX == groups);
+			PR_EXPECT(args.ThreadGroupCountY == 1 && args.ThreadGroupCountZ == 1);
+			PR_EXPECT(args.ThreadGroupCountX == oracle.ColourDispatch()[colour].ThreadGroupCountX);
+		}
+	}
+
 	// Hardware regressions for colour-only root updates across successive phases and retained warm-start frames.
 	PRUnitTestClass(ResolveRootStateTests)
 	{
@@ -82,6 +103,7 @@ namespace pr::physics::tests
 				// The second frame exercises retained warm-start caches with exactly the same input bodies.
 				auto actual = initial;
 				resolver.Resolve(gpu.m_job, 1.0f / 60.0f, contacts, actual, materials);
+				CheckColourDispatch(resolver, oracle);
 				for (int index = 0; index != isize(actual); ++index)
 				{
 					// Compare both transforms and physical momentum after every colour sweep.
@@ -102,6 +124,67 @@ namespace pr::physics::tests
 		PRUnitTestMethod(MultipleColoursMatchInterop, Extended)
 		{
 			CheckColours(3);
+		}
+	};
+
+	// Hardware coverage for empty grids after selective filtering and rigid/proxy partitioning.
+	PRUnitTestClass(ResolveColourFilterTests)
+	{
+		// Support-only and proxy-only contact sets must leave no occupied colour or stale indirect work.
+		PRUnitTestMethod(ExcludedContactsClearRetainedDispatch, Extended)
+		{
+			using namespace pr::compute;
+			auto& gpu = SharedTestGpu();
+			auto& job = gpu.m_job;
+			auto config = EngineConfig{};
+			config.contact_sort_propagation_scale = 0.0f;
+			auto resolver = GpuResolver{gpu, config, nullptr};
+			auto shape = collision::ShapeBox{v4{1, 1, 1, 0}};
+			auto body = RigidBody{&shape, m4x4::Identity(), Inertia::Box(shape.m_radius, 1.0f)};
+			auto bodies = std::array{PackDynamics(body, 0), PackDynamics(body, 1)};
+			auto contacts = std::array{GpuResolveContact{
+				.axis = v4::XAxis(),
+				.contact_point = v4::Origin(),
+				.manifold = {v4::Origin()},
+				.b2a = m4x4::Identity(),
+				.body_idx_a = 0,
+				.body_idx_b = 1,
+				.depth = 0.1f,
+				.feature = 1,
+			}};
+			auto materials = std::array{GpuMaterial{}};
+			auto counters = gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}), job.m_cmd_list, "Test:ColourCounters");
+			auto contact_buffer = gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(1, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Test:ColourContacts");
+			auto body_buffer = gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(2, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Test:ColourBodies");
+			auto dispatch = gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}), job.m_cmd_list, "Test:ColourDispatch");
+			auto upload = [&]<typename Container>(ID3D12Resource* resource, Container const& values)
+			{
+				using Value = typename Container::value_type;
+				auto allocation = job.m_upload.Alloc<Value>(isize(values));
+				memcpy(allocation.template ptr<Value>(), values.data(), values.size() * sizeof(Value));
+				job.m_barriers.Transition(resource, D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+				job.m_cmd_list.CopyBufferRegion(resource, 0, allocation);
+			};
+
+			// Reuse one resolver across active, proxy-only, active, support-filtered and empty passes.
+			for (auto pass = 0; pass != 5; ++pass)
+			{
+				upload(body_buffer.get(), bodies);
+				upload(contact_buffer.get(), contacts);
+				upload(counters.get(), std::array{GpuCollisionCounters{.contact_count = pass == 4 ? 0 : 1}});
+				upload(dispatch.get(), std::array{D3D12_DISPATCH_ARGUMENTS{1, 1, 1}});
+				resolver.Resolve(job, 1.0f / 60.0f, 2, pass == 1 ? 1 : 2, 1, dispatch, counters, contact_buffer, body_buffer, materials, 1.0f, -1, -1, 1.0f, pass == 3);
+				auto batches = job.m_readback.Alloc<DispatchArguments>(MaxColours);
+				job.m_barriers.Transition(resolver.m_r_colour_dispatch.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+				job.m_cmd_list.CopyBufferRegion(batches, resolver.m_r_colour_dispatch.get());
+				job.Run();
+				for (auto colour = 0; colour != MaxColours; ++colour)
+				{
+					auto const active = (pass == 0 || pass == 2) && colour == 0;
+					auto const& args = batches.ptr<DispatchArguments>()[colour];
+					PR_EXPECT(args.ThreadGroupCountX == (active ? 1U : 0U));
+				}
+			}
 		}
 	};
 
@@ -202,13 +285,26 @@ namespace pr::physics::tests
 				auto keys = job.m_readback.Alloc<float>(capacity);
 				auto order = job.m_readback.Alloc<uint32_t>(capacity);
 				auto arguments = job.m_readback.Alloc<uint32_t>(ContactSorter::IndirectArgumentBytes / sizeof(uint32_t));
+				auto batches = job.m_readback.Alloc<DispatchArguments>(MaxColours);
 				job.m_barriers.Transition(resolver.m_r_contact_times.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
 				job.m_barriers.Transition(resolver.m_r_contact_order.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
 				job.m_barriers.Transition(resolver.m_contact_sorter.m_indirect_arguments.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
 				job.m_cmd_list.CopyBufferRegion(keys, resolver.m_r_contact_times.get());
 				job.m_cmd_list.CopyBufferRegion(order, resolver.m_r_contact_order.get());
 				job.m_cmd_list.CopyBufferRegion(arguments, resolver.m_contact_sorter.m_indirect_arguments.get());
+				job.m_barriers.Transition(resolver.m_r_colour_dispatch.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+				job.m_cmd_list.CopyBufferRegion(batches, resolver.m_r_colour_dispatch.get());
 				job.Run();
+
+				// A shared dynamic pair needs one colour per contact, then the established serial fallback. Empty frames must clear every retained argument.
+				for (auto colour = 0; colour != MaxColours; ++colour)
+				{
+					auto const& args = batches.ptr<DispatchArguments>()[colour];
+					auto const overflow = count > MaxColours;
+					auto const occupied = !overflow && colour < count;
+					PR_EXPECT(args.ThreadGroupCountX == (overflow ? (colour == 0 ? 1U : 0U) : (occupied ? 1U : 0U)));
+					PR_EXPECT(args.ThreadGroupCountY == 1 && args.ThreadGroupCountZ == 1);
+				}
 
 				// With unit relative speed and penetration below one step of motion, earlier collision times correspond to greater depth.
 				auto expected = std::vector<uint32_t>(count);

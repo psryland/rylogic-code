@@ -132,6 +132,15 @@ kernels; count-source pipeline variants are created only when that capability is
 Coupled-contact endpoint sorting still includes inactive entries; do not mistake its live
 count for its sorted range. Broadphase and coupled endpoints use CPU-known sort lengths.
 
+Rigid-contact colouring records the occupied-colour mask during the existing greedy pass.
+A fixed table of 32 dispatch-only records supplies zero groups for empty colours and the
+unchanged full live-contact grid for occupied colours. The same table is reused by warm
+start, position and velocity sweeps. Colour overflow runs only the existing serial thread
+in colour zero; it does not discard contacts. Solver kernels, sorted contact order,
+iterations and inter-colour dependencies are unchanged. There is no contact-list
+compaction, object-count threshold, extra dispatch, or CPU count readback. Recorded CPU
+colour commands and barriers remain even for zero-group entries.
+
 Stable `RadixSort::Pass`, `SweepUp`, `Scan`, `SweepDown`, dispatch and barrier regions
 separate the four byte passes. Associated PIX markers carry radix shift, input count,
 partition size and dispatch dimensions. `Resolve::*` regions distinguish cache clearing,
