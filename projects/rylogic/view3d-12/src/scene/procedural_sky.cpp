@@ -56,7 +56,7 @@ namespace pr::rdr12
 		}
 
 		// Bind sky constants and the background without replacing the shared material or reflection descriptors.
-		void SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, DrawListElement const* dle) override
+		void SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const&, DrawListElement const* dle) override
 		{
 			if (dle == nullptr)
 				return;

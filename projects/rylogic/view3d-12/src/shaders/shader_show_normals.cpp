@@ -24,7 +24,7 @@ namespace pr::rdr12::shaders
 			.CS = shader_code::none,
 		};
 	}
-	void ShowNormalsGS::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, DrawListElement const* dle)
+	void ShowNormalsGS::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const&, DrawListElement const* dle)
 	{
 		if (dle != nullptr)
 		{

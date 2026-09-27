@@ -1381,6 +1381,82 @@ namespace fade_tests
 		}
 	}
 
+	// Require bit-identical per-draw transforms across camera changes, stereo eyes, projection overrides, and affine placements.
+	void CameraTransformTests()
+	{
+		// A real model exercises model-root placement as well as the no-model constant-buffer path.
+		using namespace pr;
+		using namespace pr::rdr12;
+		auto fixture = Fixture(1);
+		auto object = fixture.Quad(10, 0xFFFFFFFF);
+		auto& model = *object->m_model.get();
+		auto shear = m4x4::Identity();
+		shear.x.x = -2.0f;
+		shear.y.y = 3.0f;
+		shear.z.z = 0.25f;
+		shear.y.x = 0.7f;
+		shear.z.y = -0.3f;
+		shear.pos = v4(2, -3, 4, 1);
+		model.m_m2root = m4x4::Transform(v4(0.2f, -0.4f, 0.6f, 0), v4(1, 2, -1, 1)) * shear;
+		auto placements = std::array{m4x4::Identity(), shear, m4x4::Transform(v4(-0.7f, 0.3f, 1.1f, 0), v4(-5, 8, -9, 1)) * shear};
+		auto projections = std::array{m4x4::Zero(), m4x4::Identity(), m4x4::ProjectionPerspectiveFOV(0.7f, 1.3f, 0.2f, 200.0f, true), m4x4::ProjectionOrthographic(8.0f, 6.0f, 0.1f, 300.0f, true)};
+		auto checked = 0;
+
+		// Compare individual matrices, not struct padding, against the original per-draw arithmetic.
+		auto check = [&]<typename TCBuf>(BaseInstance const& inst, Model const* model_ptr, SceneCamera const& view, CameraTransforms const& camera, TCBuf)
+		{
+			auto actual = TCBuf{};
+			SetTxfm(actual, inst, model_ptr, camera);
+			auto const o2w = GetO2W(inst);
+			auto const m2o = model_ptr ? model_ptr->m_m2root : m4x4::Identity();
+			auto const n2w = NormalTransform(o2w * m2o);
+			auto const w2c = InvertOrthonormal(view.CameraToWorld());
+			m4x4 c2s;
+			c2s = FindC2S(inst, c2s) ? c2s : view.CameraToScreen();
+			auto const o2s = c2s * w2c * o2w;
+			Require(std::memcmp(&actual.m2o, &m2o, sizeof(m4x4)) == 0, "Model placement changed");
+			Require(std::memcmp(&actual.o2w, &o2w, sizeof(m4x4)) == 0, "Object placement changed");
+			Require(std::memcmp(&actual.n2w, &n2w, sizeof(m4x4)) == 0, "Normal transform changed");
+			Require(std::memcmp(&actual.o2s, &o2s, sizeof(m4x4)) == 0, "Pass-local projection differs from per-draw arithmetic");
+			++checked;
+		};
+
+		// Reuse each pass snapshot across many objects, then rebuild it for the next camera pose and stereo eye.
+		for (auto orthographic : {false, true})
+		{
+			for (auto position : {v4(0, 0, 10, 1), v4(24, -38, 29, 1)})
+			{
+				auto view = SceneCamera(m4x4::LookAt(position, v4::Origin(), v4::YAxis()), 0.9f, 1.7f, 10.0f, orthographic, 0.1f, 1000.0f);
+				SceneCamera eyes[2];
+				view.Stereo(0.065f, eyes);
+				for (auto const& eye : {view, eyes[0], eyes[1]})
+				{
+					auto const camera = CameraTransforms(eye);
+					for (auto const& placement : placements)
+					{
+						for (auto const* model_ptr : {static_cast<Model const*>(nullptr), static_cast<Model const*>(&model)})
+						{
+							auto plain = rdr12::ldraw::StockInstance{};
+							plain.m_i2w = placement;
+							check(plain.m_base, model_ptr, eye, camera, shaders::fwd::CBufNugget{});
+							check(plain.m_base, model_ptr, eye, camera, shaders::smap::CBufNugget{});
+							for (auto const& projection : projections)
+							{
+								auto projected = rdr12::ldraw::RdrInstance{};
+								projected.m_i2w = placement;
+								projected.m_c2s = projection;
+								check(projected.m_base, model_ptr, eye, camera, shaders::fwd::CBufNugget{});
+								check(projected.m_base, model_ptr, eye, camera, shaders::smap::CBufNugget{});
+							}
+						}
+					}
+				}
+			}
+		}
+		fixture.CheckErrors();
+		std::cout << "PASS " << checked << " bit-exact forward/shadow camera-transform cases\n";
+	}
+
 	// Verify normal directions independently of their arbitrary common matrix scale.
 	void NormalTransformTests()
 	{
@@ -1881,6 +1957,11 @@ int main(int argc, char const* const* argv)
 	// Select the focused fixture before running any unrelated numeric or GPU cases.
 	try
 	{
+		if (argc == 2 && std::string_view(argv[1]) == "--camera-transforms")
+		{
+			fade_tests::CameraTransformTests();
+			return 0;
+		}
 		// The RGB blend selector deliberately excludes the pre-existing fade tests.
 		if (argc == 2 && std::string_view(argv[1]) == "--colour-blend")
 		{
@@ -1920,6 +2001,7 @@ int main(int argc, char const* const* argv)
 		if (argc == 2)
 			return 0;
 
+		fade_tests::CameraTransformTests();
 		fade_tests::RenderTests(1);
 		fade_tests::RenderTests(4);
 		fade_tests::SceneHandoffTests(1);

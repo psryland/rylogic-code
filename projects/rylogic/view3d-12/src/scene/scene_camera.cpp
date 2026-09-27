@@ -6,6 +6,11 @@
 
 namespace pr::rdr12
 {
+	CameraTransforms::CameraTransforms(Camera const& camera)
+		:m_w2c(camera.WorldToCamera())
+		,m_w2s(camera.CameraToScreen() * m_w2c)
+	{}
+
 	// Construct scene views
 	SceneCamera::SceneCamera()
 		:Camera()

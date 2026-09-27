@@ -404,6 +404,8 @@ namespace pr::rdr12
 	// Add the nuggets in the draw list to 'cmd_list' for rendering.
 	void RenderForward::DrawNuggets(Frame& frame, GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist, bool alpha_pass)
 	{
+		// Keep camera inversion and default projection composition outside the per-nugget loop.
+		auto const camera = CameraTransforms(scn().m_cam);
 		D3D12_GPU_DESCRIPTOR_HANDLE last_tex = {}, last_sam = {};
 		auto pipe_state_bound = false;
 		auto pipe_state_hash = 0;
@@ -472,6 +474,7 @@ namespace pr::rdr12
 				.m_step_id = m_step_id,
 				.m_wnd = wnd(),
 				.m_scene = scn(),
+				.m_camera = camera,
 				.m_dle = dle,
 				.m_material = material,
 				.m_cmd_list = cmd_list,
@@ -642,10 +645,6 @@ namespace pr::rdr12
 		// Render points for 'Points' mode
 		if (fill_mode == EFillMode::Points)
 		{
-			// Configure the shader for point sprites
-			// Don't need 'dle' if the points aren't in screen space
-			wnd().m_diag.m_gs_fillmode_points->SetupElement(cmd_list.get(), m_upload_buffer, scn(), nullptr);
-
 			// Change the pipe state and IA topology to point list.
 			// Both must agree: PSO topology type and IA primitive topology.
 			desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(ETopo::PointList)));

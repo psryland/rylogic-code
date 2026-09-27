@@ -7,6 +7,16 @@
 
 namespace pr::rdr12
 {
+	// Camera transforms shared by draws in one render pass. Recreate these values when the camera changes, including between stereo eyes.
+	struct CameraTransforms
+	{
+		m4x4 const m_w2c;
+		m4x4 const m_w2s;
+
+		// Capture the view and its default projection for the current pass.
+		explicit CameraTransforms(Camera const& camera);
+	};
+
 	struct SceneCamera :Camera
 	{
 		// Notes:

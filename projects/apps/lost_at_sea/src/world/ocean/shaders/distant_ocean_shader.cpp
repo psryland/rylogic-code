@@ -50,7 +50,7 @@ namespace las
 		};
 	}
 
-	void DistantOceanShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, ::pr::compute::GpuUploadBuffer& upload, rdr12::Scene const&, rdr12::DrawListElement const* dle)
+	void DistantOceanShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, ::pr::compute::GpuUploadBuffer& upload, rdr12::Scene const&, rdr12::CameraTransforms const&, rdr12::DrawListElement const* dle)
 	{
 		if (dle == nullptr)
 			return;

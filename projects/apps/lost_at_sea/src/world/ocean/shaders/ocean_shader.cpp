@@ -61,7 +61,7 @@ namespace las
 	}
 
 	// Called per-nugget during forward rendering to bind the ocean constant buffer
-	void OceanShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, ::pr::compute::GpuUploadBuffer& upload, rdr12::Scene const&, rdr12::DrawListElement const* dle)
+	void OceanShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, ::pr::compute::GpuUploadBuffer& upload, rdr12::Scene const&, rdr12::CameraTransforms const&, rdr12::DrawListElement const* dle)
 	{
 		if (dle == nullptr)
 			return;

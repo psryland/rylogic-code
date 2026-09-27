@@ -238,6 +238,9 @@ namespace pr::rdr12
 		auto des_heaps = { wnd().m_heap_view.get(), wnd().m_heap_samp.get() };
 		m_cmd_list.SetDescriptorHeaps({ des_heaps.begin(), des_heaps.size() });
 
+		// Per-element projections use the scene camera; each caster supplies its own light transforms through frame constants.
+		auto const camera = CameraTransforms(scn().m_cam);
+
 		// Render the shadow map for each shadow caster. TODO in parallel?
 		for (auto& caster : m_casters)
 		{
@@ -301,6 +304,7 @@ namespace pr::rdr12
 					.m_step_id = m_step_id,
 					.m_wnd = wnd(),
 					.m_scene = scn(),
+					.m_camera = camera,
 					.m_dle = dle,
 					.m_material = material,
 					.m_cmd_list = m_cmd_list,

@@ -61,7 +61,8 @@ namespace pr::rdr12
 
 		// Config the shader stages.
 		virtual void SetupFrame(ID3D12GraphicsCommandList*, GpuUploadBuffer&, Scene const&) {}
-		virtual void SetupElement(ID3D12GraphicsCommandList*, GpuUploadBuffer&, Scene const&, DrawListElement const*) {}
+		// Configure a draw using camera transforms borrowed from the current render pass.
+		virtual void SetupElement(ID3D12GraphicsCommandList*, GpuUploadBuffer&, Scene const&, CameraTransforms const&, DrawListElement const*) {}
 
 		// Ref counting clean up
 		static void RefCountZero(RefCounted<Shader>* doomed);

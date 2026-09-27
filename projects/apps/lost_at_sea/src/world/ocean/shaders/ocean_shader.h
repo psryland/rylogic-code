@@ -24,7 +24,7 @@ namespace las
 		explicit OceanShader(Renderer& rdr);
 
 		// Called per-nugget during forward rendering to bind the ocean constant buffer
-		void SetupElement(ID3D12GraphicsCommandList* cmd_list, ::pr::compute::GpuUploadBuffer& upload, rdr12::Scene const& scene, rdr12::DrawListElement const* dle) override;
+		void SetupElement(ID3D12GraphicsCommandList* cmd_list, ::pr::compute::GpuUploadBuffer& upload, rdr12::Scene const& scene, rdr12::CameraTransforms const& camera, rdr12::DrawListElement const* dle) override;
 
 		// Copy one immutable water-field snapshot and update render-only frame parameters.
 		void SetupFrame(water::Snapshot const& water_snapshot, v4 camera_world_pos, float outer_radius, int grid_vertex_count, float min_grid_spacing, float surface_warp_power, bool has_env_map, v4 sun_direction, v4 sun_colour);

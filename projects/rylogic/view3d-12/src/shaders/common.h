@@ -185,17 +185,18 @@ namespace pr::rdr12
 		// Transform normals through the complete model placement, including nonuniform scale and shear.
 		cb.n2w = NormalTransform(o2w * m2o);
 	}
+	// Set placement and projection using the current pass's camera transforms, retaining instance-specific projections.
 	template <typename TCBuf> requires(requires(TCBuf cb) { cb.o2s; cb.o2w; cb.n2w; })
-	void SetTxfm(TCBuf& cb, BaseInstance const& inst, Model const* model, SceneCamera const& view)
+	void SetTxfm(TCBuf& cb, BaseInstance const& inst, Model const* model, CameraTransforms const& camera)
 	{
+		// Share one object transform between placement, normals, and projection.
 		SetTxfm(cb, inst, model);
 
-		m4x4 o2w = GetO2W(inst);
-		m4x4 w2c = InvertOrthonormal(view.CameraToWorld());
-		m4x4 c2s = FindC2S(inst, c2s) ? c2s : view.CameraToScreen();
-
-		// Set the object to screen projection
-		cb.o2s = c2s * w2c * o2w;
+		// Preserve the original (projection * world_to_camera) * object_to_world association, including projection overrides.
+		m4x4 c2s;
+		cb.o2s = FindC2S(inst, c2s)
+			? (c2s * camera.m_w2c) * cb.o2w
+			: camera.m_w2s * cb.o2w;
 	}
 
 	// Decode a packed surface override into linear RGB and its UNORM8 blend weight. Missing components disable the override.

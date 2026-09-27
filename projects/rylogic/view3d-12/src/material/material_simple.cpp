@@ -52,7 +52,7 @@ namespace pr::rdr12
 
 			// Bind overlay-owned resources after the base material has established its stock root contract.
 			overlay.SetupFrame(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene);
-			overlay.SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene, &ctx.m_dle);
+			overlay.SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene, ctx.m_camera, &ctx.m_dle);
 		}
 	}
 
@@ -248,7 +248,7 @@ namespace pr::rdr12
 				BindDiffuseSampler(ctx, shaders::fwd::ERootParam::DiffTextureSampler);
 				if (auto* shader = dynamic_cast<shaders::Forward*>(ctx.m_shader); shader != nullptr)
 				{
-					shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene, &ctx.m_dle, ctx.m_material);
+					shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene, ctx.m_camera, &ctx.m_dle, ctx.m_material);
 					return;
 				}
 				else
@@ -264,7 +264,7 @@ namespace pr::rdr12
 				BindDiffuseSampler(ctx, shaders::smap::ERootParam::DiffTextureSampler);
 				if (auto* shader = dynamic_cast<shaders::ShadowMap*>(ctx.m_shader); shader != nullptr)
 				{
-					shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, &ctx.m_dle, ctx.m_scene.m_cam, ctx.m_material);
+					shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, &ctx.m_dle, ctx.m_camera, ctx.m_material);
 					return;
 				}
 				throw std::runtime_error("Shadow-map material pass requires a shadow-map shader");

@@ -25,7 +25,7 @@ namespace pr::rdr12::shaders
 			.CS = shader_code::none,
 		};
 	}
-	void ThickLineStripGS::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, DrawListElement const*)
+	void ThickLineStripGS::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const&, DrawListElement const*)
 	{
 		fwd::CBufScreenSpace cb = {};
 		cb.size = v2(m_width, m_width);
@@ -49,7 +49,7 @@ namespace pr::rdr12::shaders
 			.CS = shader_code::none,
 		};
 	}
-	void ThickLineListGS::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, DrawListElement const*)
+	void ThickLineListGS::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const&, DrawListElement const*)
 	{
 		fwd::CBufScreenSpace cb = {};
 		cb.size = v2(m_width, m_width);

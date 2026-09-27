@@ -116,11 +116,11 @@ namespace pr::rdr12::shaders
 		auto gpu_address = upload.Add(cb0, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
 		cmd_list->SetGraphicsRootConstantBufferView((UINT)ERootParam::CBufFrame, gpu_address);
 	}
-	void Forward::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, DrawListElement const* dle)
+	void Forward::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const& camera, DrawListElement const* dle)
 	{
-		SetupElement(cmd_list, upload, scene, dle, dle->m_nugget->mat());
+		SetupElement(cmd_list, upload, scene, camera, dle, dle->m_nugget->mat());
 	}
-	void Forward::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, DrawListElement const* dle, Material const& material)
+	void Forward::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const& camera, DrawListElement const* dle, Material const& material)
 	{
 		// Set the per-element constants
 		auto& inst = *dle->m_instance;
@@ -128,7 +128,7 @@ namespace pr::rdr12::shaders
 
 		CBufNugget cb1 = {};
 		SetFlags(cb1, inst, material, nug, scene.m_global_envmap != nullptr);
-		SetTxfm(cb1, inst, nug.m_model, scene.m_cam);
+		SetTxfm(cb1, inst, nug.m_model, camera);
 		SetTint(cb1, inst, material);
 		SetTex2Surf(cb1, inst, material);
 		SetReflectivity(cb1, inst, material);

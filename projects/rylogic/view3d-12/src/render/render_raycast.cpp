@@ -369,6 +369,7 @@ namespace pr::rdr12
 		}
 
 		// Apply ray cast to each object
+		auto const camera = CameraTransforms(scn().m_cam);
 		auto drawlist = m_drawlist.lock();
 		for (auto& dle : *drawlist)
 		{
@@ -431,6 +432,7 @@ namespace pr::rdr12
 				.m_step_id = m_step_id,
 				.m_wnd = wnd(),
 				.m_scene = scn(),
+				.m_camera = camera,
 				.m_dle = dle,
 				.m_material = material,
 				.m_cmd_list = m_cmd_list,
@@ -511,10 +513,6 @@ namespace pr::rdr12
 		// Render points for 'Points' mode
 		if (fill_mode == EFillMode::Points)
 		{
-			// Configure the shader for point sprites
-			// Don't need 'dle' if the points aren't in screen space
-			wnd().m_diag.m_gs_fillmode_points->SetupElement(m_cmd_list.get(), m_upload_buffer, scn(), nullptr);
-
 			// Change the pipe state to point list
 			desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(ETopo::PointList)));
 			desc.Apply(PSO<EPipeState::GS>(wnd().m_diag.m_gs_fillmode_points->m_code.GS));

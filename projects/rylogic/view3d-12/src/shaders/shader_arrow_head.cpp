@@ -26,7 +26,7 @@ namespace pr::rdr12::shaders
 			.CS = shader_code::none,
 		};
 	}
-	void ArrowHeadGS::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, DrawListElement const*)
+	void ArrowHeadGS::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const&, DrawListElement const*)
 	{
 		fwd::CBufScreenSpace cb = {
 			.screen_dim = To<v2>(scene.wnd().BackBufferSize()),

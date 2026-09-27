@@ -18,6 +18,7 @@ namespace pr::rdr12
 		ERenderStep m_step_id;                         // The render step requesting material setup.
 		Window& m_wnd;                                 // The window that owns descriptor heaps and frame resources.
 		Scene const& m_scene;                          // The scene being rendered.
+		CameraTransforms const& m_camera;              // Borrowed camera transforms owned by the current render pass.
 		DrawListElement const& m_dle;                  // The draw-list element being rendered.
 		Material const& m_material;                    // The material supplying this pass.
 		GfxCmdList& m_cmd_list;                        // The command list to bind resources to.

@@ -54,7 +54,7 @@ namespace physics_sandbox
 			}
 
 			// Bind one per-draw constant buffer; only the simulation time changes after scene loading.
-			void SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, rdr12::Scene const&, rdr12::DrawListElement const* dle) override
+			void SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, rdr12::Scene const&, rdr12::CameraTransforms const&, rdr12::DrawListElement const* dle) override
 			{
 				if (dle == nullptr || dle->m_instance == nullptr)
 					throw std::runtime_error("Water shader requires a water visual instance");

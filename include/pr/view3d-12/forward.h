@@ -203,6 +203,7 @@ namespace pr::rdr12
 	struct Scene;
 	struct Frame;
 	struct SceneCamera;
+	struct CameraTransforms;
 	struct RdrSettings;
 	struct WndSettings;
 

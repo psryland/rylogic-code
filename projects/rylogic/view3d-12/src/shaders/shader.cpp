@@ -62,7 +62,7 @@ namespace pr::rdr12
 	}
 
 	// Bind the copied constants through the render-step-specific reserved root slot.
-	void ProceduralVertexShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const&, DrawListElement const*)
+	void ProceduralVertexShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const&, CameraTransforms const&, DrawListElement const*)
 	{
 		// Reuse the immutable upload allocation within the frame wherever possible.
 		auto gpu_address = upload.Add(m_constants, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
