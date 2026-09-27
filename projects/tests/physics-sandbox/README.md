@@ -2,8 +2,9 @@
 
 ## Details panel
 
-The details panel starts hidden and does no value formatting while hidden. Press **D** with the viewport focused to show or hide it;
-the pin button also hides it. While paused, opening the panel or changing scene data refreshes its values once. An unchanged paused scene
+The details panel starts hidden and does no value formatting while hidden. Use **View -> Details panel**, or press **D** with the viewport focused,
+to show or hide it. The menu checkmark reflects visibility; the pin button also hides it. While paused, opening the panel or changing scene data
+refreshes its values once. An unchanged paused scene
 does not repeatedly rebuild the text. Stepping, loading/resetting a scene and changing the sleeping policy request a refresh.
 During continuous playback, values remain deferred until pause, as before. Refreshed text preserves the current scroll position.
 

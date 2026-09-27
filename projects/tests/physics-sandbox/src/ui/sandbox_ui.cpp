@@ -26,7 +26,15 @@ namespace physics_sandbox
 					MenuItem(L"&Volume samples", MenuID::VolumeSamples),
 					MenuItem(L"Sleeping-body &transparency", MenuID::SleepingTransparency, MenuItem::EState::Checked),
 				})),
+				MenuItem(MenuItem::Separator),
+				MenuItem(L"&Details panel\tD", MenuID::DetailsPanel),
 			});
+		}
+
+		// Refresh from the panel when opening the menu so keyboard and pin-button toggles need no separate menu state.
+		void UpdateDetailsMenu(HMENU view_menu, bool visible)
+		{
+			::CheckMenuItem(view_menu, MenuID::DetailsPanel, MF_BYCOMMAND | (visible ? MF_CHECKED : MF_UNCHECKED));
 		}
 
 		// Apply independent check marks without including overlay commands in the base-mode radio range.
@@ -314,6 +322,10 @@ namespace physics_sandbox
 			m_closing = true;
 		}
 
+		// Reflect visibility changes made through any control before displaying the View menu.
+		if (message == WM_INITMENUPOPUP && reinterpret_cast<HMENU>(wparam) == ::GetSubMenu(::GetMenu(hwnd), 1))
+			UpdateDetailsMenu(reinterpret_cast<HMENU>(wparam), m_details.m_pinned);
+
 		// Handle menu commands
 		if (message == WM_COMMAND)
 		{
@@ -321,6 +333,13 @@ namespace physics_sandbox
 			if (id == MenuID::OpenFile)
 			{
 				OpenSceneFile();
+				result = 0;
+				return true;
+			}
+
+			if (id == MenuID::DetailsPanel)
+			{
+				m_details.TogglePin();
 				result = 0;
 				return true;
 			}
@@ -857,6 +876,27 @@ namespace physics_sandbox
 #if PR_UNITTESTS
 namespace physics_sandbox::tests
 {
+	// The visibility command is independent of the renderer's visualisation modes.
+	PRUnitTestClass(DetailsPanelMenuTests)
+	{
+		// Opening the menu reflects the panel's current visibility without changing other menu choices.
+		PRUnitTestMethod(VisibilityAndShortcut, Quick)
+		{
+			auto const menu = CreateViewMenu();
+			auto label = std::array<wchar_t, 64>{};
+			PR_EXPECT(::GetMenuStringW(menu, MenuID::DetailsPanel, label.data(), static_cast<int>(label.size()), MF_BYCOMMAND) != 0);
+			PR_EXPECT(std::wstring_view(label.data()) == L"&Details panel\tD");
+			PR_EXPECT((::GetMenuState(menu, MenuID::DetailsPanel, MF_BYCOMMAND) & MF_CHECKED) == 0);
+			for (auto visible : {true, false, true})
+			{
+				UpdateDetailsMenu(menu, visible);
+				PR_EXPECT(((::GetMenuState(menu, MenuID::DetailsPanel, MF_BYCOMMAND) & MF_CHECKED) != 0) == visible);
+				PR_EXPECT((::GetMenuState(menu, MenuID::VisualModeNormal, MF_BYCOMMAND) & MF_CHECKED) != 0);
+			}
+			::DestroyMenu(menu);
+		}
+	};
+
 	// The native menu exposes independent overlays outside the base-mode radio group.
 	PRUnitTestClass(SampleOverlayMenuTests)
 	{

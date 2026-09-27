@@ -5,7 +5,7 @@
 namespace physics_sandbox
 {
 	// A right-side panel that displays the properties of each rigid body in the scene.
-	// Hidden by default; the viewport's D shortcut shows it. Scene changes request a refresh,
+	// Hidden by default; the View menu or viewport's D shortcut shows it. Scene changes request a refresh,
 	// but formatting is deferred until the panel is visible and the simulation is paused.
 	struct DetailsPanel : Panel
 	{

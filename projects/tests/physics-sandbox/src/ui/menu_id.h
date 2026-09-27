@@ -13,6 +13,7 @@ namespace physics_sandbox
 		static constexpr int SurfaceSamples = 3011;
 		static constexpr int VolumeSamples = 3012;
 		static constexpr int SleepingTransparency = 3013;
+		static constexpr int DetailsPanel = 3020;
 		static constexpr int DemoBase = 4000;
 	}
 	namespace MenuItemIndex
