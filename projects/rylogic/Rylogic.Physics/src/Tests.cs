@@ -45,6 +45,9 @@ public sealed class TestPhysics
 		AssertNativeSize(19, Marshal.SizeOf<Native.D6Constraint>());
 		AssertNativeSize(20, Marshal.SizeOf<TerrainConfiguration>());
 		AssertNativeSize(21, Marshal.SizeOf<CylindricalBoundaryConfiguration>());
+		AssertNativeSize(22, Marshal.SizeOf<WaterConfiguration>());
+		Assert.Equal(8, Marshal.OffsetOf<WaterConfiguration>(nameof(WaterConfiguration.m_level)).ToInt32());
+		Assert.Equal(28, Marshal.OffsetOf<WaterConfiguration>(nameof(WaterConfiguration.m_angular_drag_rate)).ToInt32());
 		Assert.Equal(8, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_centre_x)).ToInt32());
 		Assert.Equal(32, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_material_id)).ToInt32());
 		Assert.Equal(36, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_surface_spacing)).ToInt32());
@@ -73,6 +76,42 @@ public sealed class TestPhysics
 		ExpectStatus(EStatus.InvalidArgument, () => engine.CheckpointSize());
 		engine.SetCylindricalBoundary(null);
 		Assert.True(engine.CheckpointSize() > 0);
+	}
+
+	/// <summary>Water floats a light body at its analytic draft, rejects invalid and pending changes, and keeps checkpoints available.</summary>
+	[Test]
+	public void Water()
+	{
+		using var runtime = new Physics();
+		using var engine = runtime.CreateEngine();
+		ExpectStatus(EStatus.InvalidArgument, () => engine.SetWater(new WaterConfiguration(0, density: 0)));
+		ExpectStatus(EStatus.InvalidArgument, () => engine.SetWater(new WaterConfiguration(double.NaN)));
+		engine.SetWater(new WaterConfiguration(2, linear_drag_rate: 2));
+
+		// A sphere of half the water's density floats with its centre on the surface.
+		using var shape = engine.CreateSphere(0.5f);
+		using var body = engine.CreateBody(shape, new BodyOptions { ObjectToWorld = m4x4.Translation(0, 0, 2.4f), Gravity = v4.Zero, MassMode = EMassMode.Density, MassOrDensity = 500 });
+		var commands = new[] { BodyCommand.SetGravity(body.Handle, new v4(0, 0, -9.81f, 0)) };
+		engine.BeginStep(1f / 60, commands: commands);
+		ExpectStatus(EStatus.StepPending, () => engine.SetWater(null));
+		engine.CompleteStep();
+		for (var step = 0; step != 600; ++step)
+			engine.Step(1f / 60, commands: commands);
+
+		// Require the analytic draft within a small settling tolerance.
+		var height = body.GetState().m_object_to_world.pos.z;
+		if (Math.Abs(height - 2.0f) > 0.02f || float.IsNaN(height))
+			throw new Exception($"Water sphere did not float at its draft: height={height}, velocity={body.GetState().m_velocity.m_linear}");
+
+		// Water is environment configuration, so body checkpoints remain available.
+		Assert.True(engine.CheckpointSize() > 0);
+
+		// Removing the water restores free fall.
+		engine.SetWater(null);
+		for (var step = 0; step != 60; ++step)
+			engine.Step(1f / 60, commands: commands);
+
+		Assert.True(body.GetState().m_object_to_world.pos.z < 0);
 	}
 
 	/// <summary>Terrain supports a falling body, rejects pending mutation and incomplete checkpoints, and can be removed.</summary>

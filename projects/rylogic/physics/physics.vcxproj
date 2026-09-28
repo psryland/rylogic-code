@@ -131,6 +131,7 @@
     <ClCompile Include="src\articulation\articulation_kinematics.cpp" />
     <ClCompile Include="src\articulation\articulation_gpu_data.cpp" />
     <ClCompile Include="src\buoyancy\gpu_buoyancy.cpp" />
+    <ClCompile Include="src\buoyancy\gpu_water_forces.cpp" />
     <ClCompile Include="src\collision\broadphase_brute.cpp" />
     <ClCompile Include="src\collision\contact.cpp" />
     <ClCompile Include="src\constraint\constraint_compiler.cpp" />
@@ -194,6 +195,8 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\constraint\constraint_set.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\buoyancy_primitives.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\gpu_buoyancy.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine_water.h" />
+    <ClInclude Include="src\buoyancy\gpu_water_forces.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\diagnostics\body_history.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\forward.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine_config.h" />
@@ -290,6 +293,9 @@
     <ShaderBuild Include="src\compute\articulation_midpoint.hlsl" ComputeEntryPoints="CSArticulationMidpoint" />
     <ShaderBuild Include="src\compute\selective.hlsl" ComputeEntryPoints="CSPrepareSelectiveRefresh;CSScoreSelectiveContacts;CSDetectSelectiveRefresh;CSCompactSelectivePairs;CSBuildSelectiveDispatch" />
     <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl" ComputeEntryPoints="CSBuoyancyVolumeSamples;CSBuoyancyVolumeReduce;CSBuoyancyDragSurfaceSamples;CSBuoyancyDragSurfaceReduce">
+      <StampDir>$(ProjectDir)src\buoyancy\compiled\$(Configuration)\</StampDir>
+    </ShaderBuild>
+    <ShaderBuild Include="src\buoyancy\gpu_water_forces.hlsl" ComputeEntryPoints="CSWaterForces">
       <StampDir>$(ProjectDir)src\buoyancy\compiled\$(Configuration)\</StampDir>
     </ShaderBuild>
   </ItemGroup>

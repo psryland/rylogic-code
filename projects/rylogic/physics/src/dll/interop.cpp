@@ -1910,6 +1910,7 @@ extern "C"
 				case PhysicsStructId::D6Constraint: *size = sizeof(PhysicsD6Constraint); break;
 				case PhysicsStructId::Terrain: { *size = sizeof(pr::physics::TerrainDesc); break; }
 				case PhysicsStructId::CylindricalBoundary: { *size = sizeof(pr::physics::CylindricalBoundaryDesc); break; }
+				case PhysicsStructId::Water: { *size = sizeof(pr::physics::WaterDesc); break; }
 				default: throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Unknown physics structure identifier");
 			}
 		});
@@ -2195,6 +2196,40 @@ extern "C"
 			// Keep presence and checkpoint guards in sync only after replacement succeeds.
 			record.m_engine->CylindricalBoundary(config);
 			record.m_has_cylindrical_boundary = config.has_value();
+		});
+	}
+
+	// Copy water configuration only between completed frames; null disables it.
+	PhysicsStatus __stdcall Physics_EngineWaterSet(PhysicsEngineHandle engine, pr::physics::WaterDesc const* water)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			auto config = std::optional<pr::physics::WaterConfig>{};
+			if (water != nullptr)
+			{
+				// Invalid values are caller errors, reported without changing the current water.
+				auto const& c = pr::physics::RequireStruct(water);
+				try
+				{
+					config = pr::physics::WaterConfig{
+						.m_field = pr::physics::terrain::water::WaterField{ c.level },
+						.m_density = c.density,
+						.m_linear_drag_rate = c.linear_drag_rate,
+						.m_quadratic_drag_coefficient = c.quadratic_drag_coefficient,
+						.m_angular_drag_rate = c.angular_drag_rate,
+					};
+					config->Validate();
+				}
+				catch (std::exception const& ex)
+				{
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
+				}
+			}
+			record.m_engine->Water(std::move(config));
 		});
 	}
 
