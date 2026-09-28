@@ -11,6 +11,7 @@ namespace pr::physics::terrain::landscape::shared
 {
 	using double2 = math::Vec2<double>;
 	using double3 = math::Vec3<double>;
+	using double4 = math::Vec4<double>;
 	using namespace pr::algorithm::shared;
 	using BaselineReal = NoiseReal;
 	using BaselineField = NoiseReal3;
@@ -191,14 +192,14 @@ inline BaselineField BaselineApplyWarp(BaselineField sample, BaselineField warp_
 	return BaselineField(sample.x, (1 + warp_x.y) * sample.y + warp_y.y * sample.z, warp_x.z * sample.y + (1 + warp_y.z) * sample.z);
 }
 
-// Sample a CPU-prepared recipe and its normalized plains/hills/mountains weights; inspect m_status before using either output.
+// Sample a CPU-prepared recipe and its normalized (plains, hills, mountains, basins) weights; inspect m_status before using either output.
 #ifdef __cplusplus
-inline BaselineResult BaselineEvaluate(BaselineRecipe const& recipe, double2 xy, double3& region_weights)
+inline BaselineResult BaselineEvaluate(BaselineRecipe const& recipe, double2 xy, double4& region_weights)
 #else
-BaselineResult BaselineEvaluate(BaselineRecipe recipe, double2 xy, out double3 region_weights)
+BaselineResult BaselineEvaluate(BaselineRecipe recipe, double2 xy, out double4 region_weights)
 #endif
 {
-	region_weights = double3(0, 0, 0);
+	region_weights = double4(0, 0, 0, 0);
 	BaselineResult result;
 	result.m_height = result.m_dx = result.m_dy = 0;
 	result.m_material_id = -1;
@@ -232,8 +233,19 @@ BaselineResult BaselineEvaluate(BaselineRecipe recipe, double2 xy, out double3 r
 	BaselineField plains = regional + (BaselineReal)recipe.m_uplift_height_m * (uplift - BaselineConstant(BaselineReal(0.35L))) + BaselineApplyWarp(BaselineFractal(warped, recipe.m_fields[3], false), warp_x, warp_y);
 	BaselineField hills = regional + BaselineConstant(35) + (BaselineReal)recipe.m_uplift_height_m * (uplift - BaselineConstant(BaselineReal(0.20L))) + BaselineApplyWarp(BaselineFractal(warped, recipe.m_fields[4], false), warp_x, warp_y);
 	BaselineField mountains = regional + BaselineConstant((BaselineReal)recipe.m_mountain_base_height_m) + (BaselineReal)recipe.m_uplift_height_m * uplift + BaselineApplyWarp(BaselineFractal(warped, recipe.m_fields[5], true), warp_x, warp_y);
+	BaselineField land = BaselineProduct(w0, plains) + BaselineProduct(w1, hills) + BaselineProduct(w2, mountains);
+
+	// Blend in the basin family where a slow depression field rises above the threshold. The basin floor follows the plains surface lowered by the basin
+	// depth, so floors keep gentle relief. Mountain weight suppresses basins, which keeps lakes in lowlands and valleys rather than cutting pits into
+	// massifs. The smooth band around the threshold forms gradual shorelines.
+	BaselineField depression = BaselineUnit(BaselineApplyWarp(BaselineFractal(warped, recipe.m_fields[8], false), warp_x, warp_y));
+	BaselineReal threshold = (BaselineReal)recipe.m_basin_threshold;
+	BaselineField shore = BaselineSmooth(threshold - BaselineReal(0.1L), threshold + BaselineReal(0.1L), depression);
+	BaselineField basin = BaselineProduct(shore, BaselineConstant(1) - w2);
+	BaselineField basin_floor = plains - BaselineConstant((BaselineReal)recipe.m_basin_depth_m);
+	BaselineField height = land + BaselineProduct(basin, basin_floor - land);
+
 	// Keep the world-space height datum outside local field rounding, including near-zero cancellation and high-altitude sources.
-	BaselineField height = BaselineProduct(w0, plains) + BaselineProduct(w1, hills) + BaselineProduct(w2, mountains);
 	double absolute_height = recipe.m_sea_level_bias_m + height.x;
 	if (!NoiseFinite(absolute_height) || !NoiseFinite(height.y) || !NoiseFinite(height.z))
 		return result;
@@ -243,7 +255,8 @@ BaselineResult BaselineEvaluate(BaselineRecipe recipe, double2 xy, out double3 r
 	result.m_dy = height.z;
 	result.m_material_id = recipe.m_material_id;
 	result.m_status = 0;
-	region_weights = double3(w0.x, w1.x, w2.x);
+	double land_share = double(1) - double(basin.x);
+	region_weights = double4(w0.x * land_share, w1.x * land_share, w2.x * land_share, basin.x);
 	return result;
 }
 
@@ -254,7 +267,7 @@ inline BaselineResult BaselineEvaluate(BaselineRecipe const& recipe, double2 xy)
 BaselineResult BaselineEvaluate(BaselineRecipe recipe, double2 xy)
 #endif
 {
-	double3 region_weights;
+	double4 region_weights;
 	return BaselineEvaluate(recipe, xy, region_weights);
 }
 #ifdef __cplusplus

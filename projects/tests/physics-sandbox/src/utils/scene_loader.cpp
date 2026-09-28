@@ -780,6 +780,8 @@ namespace physics_sandbox::scene_loader
 			scalar(obj, "sea_level_bias", terrain.surface.m_sea_level_bias_m);
 			scalar(obj, "uplift_height", terrain.surface.m_uplift_height_m);
 			scalar(obj, "mountain_base_height", terrain.surface.m_mountain_base_height_m);
+			scalar(obj, "basin_depth", terrain.surface.m_basin_depth_m);
+			scalar(obj, "basin_threshold", terrain.surface.m_basin_threshold);
 			scalar(obj, "supported_coordinate_abs", terrain.surface.m_supported_coordinate_abs_m);
 			band("regional_base", terrain.surface.m_regional_base);
 			band("region_selector", terrain.surface.m_region_selector);
@@ -787,6 +789,7 @@ namespace physics_sandbox::scene_loader
 			band("plains", terrain.surface.m_plains);
 			band("hills", terrain.surface.m_hills);
 			band("mountains", terrain.surface.m_mountains);
+			band("basin_selector", terrain.surface.m_basin_selector);
 			if (auto const* field = obj.find("mountains"))
 			{
 				scalar(field->to_object(), "roundness", terrain.surface.m_mountains.m_roundness);

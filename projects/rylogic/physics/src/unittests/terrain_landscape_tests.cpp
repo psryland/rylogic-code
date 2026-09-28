@@ -9,6 +9,7 @@
 #include "pr/algorithm/perlin_noise.h"
 #include "pr/physics/materials/material.h"
 #include "pr/physics/terrain/landscape/landscape.h"
+#include "pr/physics/terrain/landscape/baseline_surface.hlsli"
 
 namespace pr::physics::terrain::landscape::tests
 {
@@ -82,16 +83,69 @@ namespace pr::physics::terrain::landscape::tests
 				Golden{4294967295u, 4000, 0, 312.04196672604985, -0.90697967362907794, -0.3459226102797977},
 				Golden{4294967295u, -1000000, 1000000, 230.02876254207285, -0.090663634585462782, -0.30760454344553056},
 			};
+			// A threshold above the unit range disables basins exactly, so the goldens continue to pin the land families.
 			double max_height_error = 0, max_gradient_error = 0;
 			for (auto const& item : golden)
 			{
-				auto const surface = BaselineSurface(BaselineSurfaceConfig{.m_seed = item.m_seed});
+				auto const surface = BaselineSurface(BaselineSurfaceConfig{.m_seed = item.m_seed, .m_basin_threshold = 2});
 				auto const actual = surface.Sample(v2d{item.m_x, item.m_y});
 				ExpectNear(actual, {.m_height = item.m_height, .m_gradient_xy = v2d{item.m_dx, item.m_dy}}, 1.0e-12);
 				max_height_error = std::max(max_height_error, std::abs(actual.m_height - item.m_height));
 				max_gradient_error = std::max({max_gradient_error, std::abs(actual.m_gradient_xy.x - item.m_dx), std::abs(actual.m_gradient_xy.y - item.m_dy)});
 			}
 			std::printf("Terrain original CPU goldens: height_error=%.17g gradient_error=%.17g\n", max_height_error, max_gradient_error);
+		}
+
+		// Basins must lower lowland terrain by about the basin depth, suppress basins in mountains, and keep smooth, differentiable shorelines.
+		PRUnitTestMethod(BasinsFormSmoothLowlandDepressions, Quick)
+		{
+			// Compare the default surface with the same seed and basins disabled across the 8 km domain.
+			auto const surface = MakeSurface();
+			auto dry_config = surface.Config();
+			dry_config.m_basin_threshold = 2;
+			auto const dry = BaselineSurface(dry_config);
+			auto full_basin_count = 0, shore_count = 0;
+			auto max_shore_gradient_error = 0.0;
+			for (auto y = -4000.0; y <= 4000.0; y += 50.0)
+			{
+				for (auto x = -4000.0; x <= 4000.0; x += 50.0)
+				{
+					// Split samples by basin weight: full basins, shorelines, and dry land.
+					auto weights = shared::double4{};
+					auto const xy = v2d{x, y};
+					auto const result = shared::BaselineEvaluate(surface.Recipe(), xy, weights);
+					PR_EXPECT(result.m_status == 0);
+					PR_EXPECT(std::abs(weights.x + weights.y + weights.z + weights.w - 1) < 1e-6);
+					auto const wet = surface.Sample(xy);
+					auto const land = dry.Sample(xy);
+					if (weights.w == 0)
+					{
+						PR_EXPECT(wet.m_height == land.m_height);
+						continue;
+					}
+
+					// Basins lie below the land they replace; full basins lie close to the plains floor minus the depth.
+					PR_EXPECT(wet.m_height < land.m_height + 1e-9);
+					if (weights.w > 0.999)
+						++full_basin_count;
+					else
+					{
+						// The analytic gradient must stay consistent through the shoreline blend.
+						++shore_count;
+						auto const fd = FiniteDifferenceGradient(surface, xy, 1.0e-3);
+						max_shore_gradient_error = std::max(max_shore_gradient_error, Length(wet.m_gradient_xy - fd));
+					}
+				}
+			}
+			std::printf("Terrain basins: full=%d shore=%d max_shore_gradient_error=%.3g\n", full_basin_count, shore_count, max_shore_gradient_error);
+			PR_EXPECT(full_basin_count > 0);
+			PR_EXPECT(shore_count > 0);
+			PR_EXPECT(max_shore_gradient_error < 2.0e-2);
+
+			// A non-finite basin setting is rejected with the other configuration scalars.
+			auto config = BaselineSurfaceConfig{};
+			config.m_basin_depth_m = std::numeric_limits<double>::infinity();
+			PR_THROWS(BaselineSurface{config}, std::invalid_argument);
 		}
 
 		PRUnitTestMethod(BoundedRayCastRefinesCrossingsAndReportsLimits, Quick)

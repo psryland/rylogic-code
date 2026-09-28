@@ -2144,6 +2144,8 @@ extern "C"
 				.m_sea_level_bias_m = c.sea_level_bias,
 				.m_uplift_height_m = c.uplift_height,
 				.m_mountain_base_height_m = c.mountain_base,
+				.m_basin_depth_m = c.basin_depth,
+				.m_basin_threshold = c.basin_threshold,
 				.m_regional_base = band(c.regional_base),
 				.m_region_selector = band(c.region_selector),
 				.m_region_uplift = band(c.region_uplift),
@@ -2151,6 +2153,7 @@ extern "C"
 				.m_plains = band(c.plains),
 				.m_hills = band(c.hills),
 				.m_mountains = {c.mountains.amplitude, c.mountains.wavelength, c.mountains.octaves, c.mountains.lacunarity, c.mountains.persistence, c.mountains.roundness, c.mountains.weight_gain},
+				.m_basin_selector = band(c.basin_selector),
 			};
 			if (c.domain_warp.reserved != 0 || c.mountains.reserved != 0)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid terrain band reserved field");

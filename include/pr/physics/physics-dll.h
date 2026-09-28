@@ -227,8 +227,8 @@ namespace pr::physics
 		StructHeader header;
 		std::uint32_t seed;
 		std::int32_t material_id;
-		double supported_coordinate, sea_level_bias, uplift_height, mountain_base;
-		TerrainBand regional_base, region_selector, region_uplift, domain_warp, plains, hills, mountains;
+		double supported_coordinate, sea_level_bias, uplift_height, mountain_base, basin_depth, basin_threshold;
+		TerrainBand regional_base, region_selector, region_uplift, domain_warp, plains, hills, mountains, basin_selector;
 		float surface_spacing;
 		std::uint32_t reserved;
 	};

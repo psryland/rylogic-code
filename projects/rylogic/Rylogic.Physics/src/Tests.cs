@@ -83,10 +83,11 @@ public sealed class TestPhysics
 		using var engine = runtime.CreateEngine();
 		var band = new TerrainBand(0, 100, 1, 2, 0.5);
 
-		// Disabled bands leave a fixed hill-family datum; cancel its normalized blend for a zero-height plane.
+		// Disabled bands leave a fixed hill-family datum; cancel its normalized blend for a zero-height plane. A basin threshold above the unit range
+		// keeps the flat depression field out of the basin shore band.
 		var blend = (0.5 - 0.28) / (0.58 - 0.28);
 		var datum = 35 / (2 - blend * blend * (3 - 2 * blend));
-		engine.SetTerrain(new TerrainConfiguration(42, 0, 1e6, -datum, 0, 0, band, band, band, band, band, band, band));
+		engine.SetTerrain(new TerrainConfiguration(42, 0, 1e6, -datum, 0, 0, 0, 2, band, band, band, band, band, band, band, band));
 		engine.SetMaterial(new Material(0, 0.5f, 0, 0, 0, 1));
 		using var shape = engine.CreateSphere(0.5f);
 		using var body = engine.CreateBody(shape, new BodyOptions { ObjectToWorld = m4x4.Translation(0, 0, 2), Gravity = v4.Zero, MassOrDensity = 1 });
