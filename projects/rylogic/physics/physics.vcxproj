@@ -174,6 +174,10 @@
     <ClCompile Include="src\rigid_body\rigid_body.cpp" />
     <ClCompile Include="src\shape\inertia.cpp" />
     <ClCompile Include="src\terrain\landscape\baseline_surface.cpp" />
+    <ClCompile Include="src\terrain\water\water_field.cpp" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\water\water_field.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\water\water_field_types.hlsli" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\water\water_field.hlsli" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\baseline_types.hlsli" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\baseline_surface.hlsli" />
     <ClInclude Include="$(RylogicRoot)include\pr\algorithm\perlin_noise_derivatives.hlsli" />
@@ -261,7 +265,6 @@
     <None Include="src\compute\constraint_algebra.hlsli" />
     <None Include="src\compute\gjk.hlsli" />
     <None Include="src\buoyancy\buoyancy_sampler.hlsli" />
-    <None Include="src\buoyancy\gpu_basic_waves.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\articulation\articulation.h" />

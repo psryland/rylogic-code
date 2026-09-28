@@ -47,175 +47,6 @@ namespace pr::physics::tests
 			check(0.0f, true, 2.0f, v4{0.0f, 0.0f, -0.25f, 1.0f});
 			check(-1.0f, true, 4.0f, v4{0.0f, 0.0f, -1.0f, 1.0f});
 		}
-
-		// Verify water-surface wave normalisation, flat detection, and CPU height evaluation.
-		PRUnitTestMethod(WaterSurfaceEvaluation, Extended)
-		{
-			auto flat = GpuBuoyancy::WaterSurface{};
-			flat.m_waves.push_back(GpuBuoyancy::SineWave{
-				.m_direction = v2{1.0f, 0.0f},
-				.m_wavelength = 4.0f,
-				.m_amplitude = 0.0f,
-			});
-			PR_EXPECT(flat.IsFlat());
-
-			auto water = GpuBuoyancy::WaterSurface{};
-			water.m_level = 3.0f;
-			water.m_waves.push_back(GpuBuoyancy::SineWave{
-				.m_direction = v2{2.0f, 0.0f},
-				.m_wavelength = 4.0f,
-				.m_amplitude = 0.25f,
-			});
-
-			auto normalised = water.Normalised();
-			PR_EXPECT(!normalised.IsFlat());
-			PR_EXPECT(FEqlAbsolute(Length(normalised.m_waves.front().m_direction), 1.0f, 1e-6f));
-			PR_EXPECT(FEqlAbsolute(normalised.EvaluateHeight(v2{1.0f, 0.0f}, 0.0f), 3.25f, 1e-6f));
-		}
-
-		// Verify the analytic XY gradient agrees with a central finite difference of the
-		// height field used by rendering and wet/dry classification.
-		PRUnitTestMethod(WaterSurfaceGradient, Extended)
-		{
-			auto water = GpuBuoyancy::WaterSurface{};
-			water.m_level = 0.0f;
-			water.m_waves.push_back(GpuBuoyancy::SineWave{
-				.m_direction = v2{1.0f, 0.0f},
-				.m_wavelength = 4.0f,
-				.m_amplitude = 0.2f,
-				.m_phase_speed = 1.5f,
-			});
-			water.m_waves.push_back(GpuBuoyancy::SineWave{
-				.m_direction = v2{0.0f, 1.0f},
-				.m_wavelength = 6.0f,
-				.m_amplitude = 0.1f,
-				.m_phase_speed = -0.75f,
-			});
-			water = water.Normalised();
-
-			// Flat water gradient is exactly zero.
-			auto flat = GpuBuoyancy::WaterSurface{};
-			flat.m_level = 2.5f;
-			PR_EXPECT(FEqlAbsolute(flat.EvaluateGradient(v2{1.0f, -3.0f}, 0.5f), v2::Zero(), 1e-8f));
-
-			// Analytic gradient agrees with a central finite difference at a handful of sample points.
-			auto const samples = std::array<std::pair<v2, float>, 4>{
-				std::pair{v2{0.0f, 0.0f}, 0.0f},
-				std::pair{v2{0.7f, 0.4f}, 0.0f},
-				std::pair{v2{-1.3f, 2.1f}, 1.2f},
-				std::pair{v2{0.25f, -0.75f}, 3.4f},
-			};
-			auto const eps = 1e-3f;
-			for (auto const& [xy, t] : samples)
-			{
-				auto const analytic = water.EvaluateGradient(xy, t);
-				auto const dh_dx = (water.EvaluateHeight(xy + v2{eps, 0.0f}, t) - water.EvaluateHeight(xy - v2{eps, 0.0f}, t)) / (2.0f * eps);
-				auto const dh_dy = (water.EvaluateHeight(xy + v2{0.0f, eps}, t) - water.EvaluateHeight(xy - v2{0.0f, eps}, t)) / (2.0f * eps);
-				PR_EXPECT(FEqlAbsolute(analytic, v2{dh_dx, dh_dy}, 1e-3f));
-			}
-		}
-
-		// The lateral pressure gradient follows configured orbital acceleration. It equals
-		// geometric slope only when the wave obeys deep-water gravity dispersion.
-		PRUnitTestMethod(WaterSurfacePressureGradient, Extended)
-		{
-			auto const gravity = 9.8f;
-			auto water = GpuBuoyancy::WaterSurface{};
-			water.m_waves.push_back(GpuBuoyancy::SineWave{
-				.m_direction = v2{1.0f, 0.0f},
-				.m_wavelength = 20.0f,
-				.m_amplitude = 0.6f,
-				.m_phase_speed = 0.5f,
-			});
-
-			auto const expected = v2{0.6f * 0.5f * 0.5f / gravity, 0.0f};
-			PR_EXPECT(FEqlAbsolute(water.EvaluatePressureGradient(v2::Zero(), 0.0f, gravity), expected, 1e-6f));
-			PR_EXPECT(FEqlAbsolute(water.EvaluatePressureGradient(v2::Zero(), 0.0f, 0.0f), v2::Zero(), 1e-8f));
-
-			auto const k = constants<float>::tau / water.m_waves.front().m_wavelength;
-			water.m_waves.front().m_phase_speed = std::sqrt(gravity * k);
-			PR_EXPECT(FEqlAbsolute(
-				water.EvaluatePressureGradient(v2::Zero(), 0.0f, gravity),
-				water.EvaluateGradient(v2::Zero(), 0.0f),
-				1e-6f));
-		}
-
-		// Verify the orbital water velocity is consistent with the height field: at the still-water
-		// level the vertical component equals dh/dt (the linear kinematic free-surface condition),
-		// the orbital speed decays exponentially with depth, a single wave traces a circular orbit
-		// of radius A*omega, and flat water produces no flow.
-		PRUnitTestMethod(WaterSurfaceVelocity, Extended)
-		{
-			// Flat water has no orbital flow anywhere.
-			auto flat = GpuBuoyancy::WaterSurface{};
-			flat.m_level = 1.5f;
-			PR_EXPECT(FEqlAbsolute(flat.EvaluateVelocity(v4{0.5f, -2.0f, 0.25f, 1.0f}, 0.7f), v4::Zero(), 1e-8f));
-
-			auto water = GpuBuoyancy::WaterSurface{};
-			water.m_level = 0.0f;
-			water.m_waves.push_back(GpuBuoyancy::SineWave{
-				.m_direction = v2{1.0f, 0.0f},
-				.m_wavelength = 4.0f,
-				.m_amplitude = 0.2f,
-				.m_phase_speed = 1.5f,
-			});
-			water.m_waves.push_back(GpuBuoyancy::SineWave{
-				.m_direction = v2{0.0f, 1.0f},
-				.m_wavelength = 6.0f,
-				.m_amplitude = 0.1f,
-				.m_phase_speed = -0.75f,
-			});
-			water = water.Normalised();
-
-			// At the still-water level the vertical velocity equals the time derivative of the
-			// height field. Compare the analytic value against a central finite difference.
-			auto const samples = std::array<std::pair<v2, float>, 4>{
-				std::pair{v2{0.0f, 0.0f}, 0.0f},
-				std::pair{v2{0.7f, 0.4f}, 0.3f},
-				std::pair{v2{-1.3f, 2.1f}, 1.2f},
-				std::pair{v2{0.25f, -0.75f}, 3.4f},
-			};
-			auto const dt = 1e-3f;
-			for (auto const& [xy, t] : samples)
-			{
-				auto const vel = water.EvaluateVelocity(v4{xy.x, xy.y, water.m_level, 1.0f}, t);
-				auto const dh_dt = (water.EvaluateHeight(xy, t + dt) - water.EvaluateHeight(xy, t - dt)) / (2.0f * dt);
-				PR_EXPECT(FEqlAbsolute(vel.z, dh_dt, 1e-3f));
-				PR_EXPECT(vel.w == 0.0f);
-			}
-
-			// Use a single-wave surface so the depth attenuation factor e^(k*z) is unambiguous.
-			auto single = GpuBuoyancy::WaterSurface{};
-			single.m_level = 0.0f;
-			single.m_waves.push_back(GpuBuoyancy::SineWave{
-				.m_direction = v2{1.0f, 0.0f},
-				.m_wavelength = 4.0f,
-				.m_amplitude = 0.15f,
-				.m_phase_speed = 2.0f,
-			});
-			single = single.Normalised();
-
-			auto const k = constants<float>::tau / single.m_waves.front().m_wavelength;
-			auto const omega = single.m_waves.front().m_phase_speed;
-			auto const amp = single.m_waves.front().m_amplitude;
-			auto const xy = v2{0.3f, 0.0f};
-			auto const t = 0.4f;
-			auto const surface_vel = single.EvaluateVelocity(v4{xy.x, xy.y, 0.0f, 1.0f}, t);
-
-			// A single deep-water wave traces a circular orbit: horizontal and vertical components
-			// are in quadrature with equal envelope, so the speed is A*omega independent of phase.
-			PR_EXPECT(FEqlAbsolute(Length(surface_vel), amp * omega, 1e-5f));
-
-			// Orbital speed decays exponentially with depth below the still-water level.
-			auto const depth = -0.5f;
-			auto const deep_vel = single.EvaluateVelocity(v4{xy.x, xy.y, depth, 1.0f}, t);
-			PR_EXPECT(FEqlAbsolute(Length(deep_vel), Length(surface_vel) * std::exp(k * depth), 1e-5f));
-
-			// Points above the surface use the unattenuated (z = 0) velocity rather than amplifying.
-			auto const above_vel = single.EvaluateVelocity(v4{xy.x, xy.y, 0.75f, 1.0f}, t);
-			PR_EXPECT(FEqlAbsolute(above_vel, surface_vel, 1e-6f));
-		}
-
 	};
 
 	// Coverage for sampled-composite hull flattening, registration lifetime, and GPU integration.
@@ -299,7 +130,7 @@ namespace pr::physics::tests
 				// Restore all mutable fixture state so retained GPU resources cannot couple otherwise-independent test methods.
 				m_bodies.clear();
 				m_engine.ResetCaches();
-				m_buoyancy.SetWaterSurface({});
+				m_buoyancy.SetWaterField(terrain::water::WaterField{});
 				m_buoyancy.SetConfig(GpuBuoyancy::Config{
 					.m_enable_diagnostics = enable_diagnostics,
 				});
@@ -691,9 +522,9 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(h.m_bodies[0].VelocityWS().lin, v4{0.0f, 0.0f, expected_velocity, 0.0f}, 1e-2f));
 		}
 
-		// Flat-water fully-dry fast path. A box positioned entirely above the z=0 water surface must
-		// contribute zero buoyancy. With flat water (wave_count==0) the GPU per-sample fully-dry
-		// early-out (BuoySupportAlongUp + lo >= water_level) suppresses all samples for the primitive.
+		// Fully-dry fast path. A box positioned entirely above the z=0 water surface must
+		// contribute zero buoyancy. The GPU per-sample fully-dry early-out
+		// (BuoySupportAlongUp + lo >= water_max_height) suppresses all samples for the primitive.
 		// The result is identical to the per-sample wet test (every sample is dry anyway), so this test
 		// is a regression guard for the support-interval math driving the fast path, not a behaviour
 		// change. The body still receives m*g, so only buoyancy must be zero, verified via the
@@ -750,6 +581,44 @@ namespace pr::physics::tests
 			// Not culled: the lower half (z=[-0.5,0]) is submerged, displacing 2*2*0.5 = 2 m^3.
 			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 2.0f, 0.005f));
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws, v4{0.0f, 0.0f, 19620.0f, 0.0f}, 25.0f));
+		}
+
+		// The dry cull uses the water field's maximum height, so it stays exact under waves. A stationary long wave (amplitude 0.5)
+		// has its crest at x = wavelength/4. A box above every crest is culled with zero buoyancy, while a box above the still-water
+		// level but below the local crest must still be dispatched and report the wetted crest volume.
+		PRUnitTestMethod(GpuCompositeWaveDryCullUsesMaxHeight, Extended)
+		{
+			// A stationary wave keeps the crest fixed whatever simulation time the engine passes to the dispatch.
+			auto const wave = terrain::water::SineWave(v2{1.0f, 0.0f}, 0.5f, 1000.0f, 0.0f);
+			auto const crest_x = 250.0f;
+			auto run = [&](float centre_z)
+			{
+				// Each run uses a fresh harness so the diagnostics come from this placement only.
+				auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+				Harness h;
+				h.m_buoyancy.SetWaterField(terrain::water::WaterField(0.0, std::span{&wave, 1}));
+				h.m_bodies.emplace_back();
+				h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
+				h.m_bodies[0].O2W(m4x4::Translation(v4{crest_x, 0.0f, centre_z, 1.0f}));
+				h.m_bodies[0].NeverSleep(true);
+				h.m_bodies[0].GravityWS(AnalyticGravityWS);
+
+				auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
+				h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+				h.m_buoyancy.CompleteStep();
+				return h.m_buoyancy.LatestDiagnostics(0, 0);
+			};
+
+			// Lowest point at z=0.6 is above the 0.5 crest bound: culled, zero buoyancy.
+			auto const dry = run(1.1f);
+			PR_EXPECT(dry.m_valid);
+			PR_EXPECT(FEqlAbsolute(dry.m_volume_m3, 0.0f, 1e-4f));
+			PR_EXPECT(FEqlAbsolute(dry.m_force_ws, v4::Zero(), 1e-3f));
+
+			// Lowest point at z=0.25 is above the still-water level but 0.25 m below the crest: 2*2*0.25 = 1 m^3 wet.
+			auto const wet = run(0.75f);
+			PR_EXPECT(wet.m_valid);
+			PR_EXPECT(FEqlAbsolute(wet.m_volume_m3, 1.0f, 0.01f));
 		}
 
 		// A flat gravity-frame water field for feeding the CPU oracle in GPU-vs-oracle parity tests:
@@ -1131,14 +1000,8 @@ namespace pr::physics::tests
 			auto const wavelength = 1000.0f;
 			auto const amplitude = 0.5f;
 			auto const omega = 0.4f;
-			auto water = GpuBuoyancy::WaterSurface{};
-			water.m_waves.push_back(GpuBuoyancy::SineWave{
-				.m_direction = v2{1.0f, 0.0f},
-				.m_wavelength = wavelength,
-				.m_amplitude = amplitude,
-				.m_phase_speed = omega,
-			});
-			h.m_buoyancy.SetWaterSurface(water);
+			auto const wave = terrain::water::SineWave(v2{1.0f, 0.0f}, amplitude, wavelength, omega);
+			h.m_buoyancy.SetWaterField(terrain::water::WaterField(0.0, std::span{&wave, 1}));
 
 			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 

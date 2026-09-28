@@ -4,10 +4,14 @@
 //************************************
 #pragma once
 #include "src/forward.h"
-#include "src/world/water/shaders/water_field_types.hlsli"
+#include "pr/physics/terrain/water/water_field.h"
 
 namespace las::water
 {
+	using WaterField = physics::terrain::water::WaterField;
+	using WaterFieldElement = physics::terrain::water::WaterFieldElement;
+	inline constexpr int MaxWaterFieldElementCount = physics::terrain::water::MaxElementCount;
+
 	// A point-source circular wave packet in world space.
 	struct StoneDrop
 	{
@@ -43,16 +47,17 @@ namespace las::water
 		float m_spawn_radius_max;
 	};
 
-	// An immutable, fixed-capacity field value materialised for one simulation time.
+	// An immutable shared water field materialised for one simulation time.
 	struct Snapshot
 	{
-		std::array<WaterFieldElement, MaxWaterFieldElementCount> m_elements;
-		int32_t m_element_count;
-		float m_water_level;
+		WaterField m_field;
 		float m_time_s;
 
-		// Return the populated prefix of the fixed-capacity field.
+		// Return the active shared field elements.
 		std::span<WaterFieldElement const> Elements() const;
+
+		// Return the still-water level used by the snapshot.
+		float WaterLevel() const;
 	};
 
 	// Owns the base ocean and finite water events independently of rendering and physics consumers.
@@ -118,7 +123,7 @@ namespace las::water
 		// Draw one value from a closed editable range.
 		float RandomRange(float minimum, float maximum);
 
-		// Materialise age and all active parameters into the fixed-stride GPU field.
+		// Materialise age and all active parameters into the shared water field.
 		void RebuildSnapshot(double simulation_time_s);
 	};
 }

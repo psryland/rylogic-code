@@ -23,12 +23,12 @@ namespace las
 		, m_ps_bytecode()
 		, m_cbuf()
 	{
-		static_assert(sizeof(water::WaterFieldElement) == 64);
-		static_assert(alignof(water::WaterFieldElement) == 16);
-		static_assert(offsetof(water::WaterFieldElement, info) == 0);
-		static_assert(offsetof(water::WaterFieldElement, position) == 16);
-		static_assert(offsetof(water::WaterFieldElement, wave) == 32);
-		static_assert(offsetof(water::WaterFieldElement, timing) == 48);
+		static_assert(sizeof(WaterFieldElement) == 64);
+		static_assert(alignof(WaterFieldElement) == 16);
+		static_assert(offsetof(WaterFieldElement, info) == 0);
+		static_assert(offsetof(WaterFieldElement, position) == 16);
+		static_assert(offsetof(WaterFieldElement, wave) == 32);
+		static_assert(offsetof(WaterFieldElement, timing) == 48);
 		static_assert((sizeof(CBufOcean) % 16) == 0);
 		static_assert(sizeof(CBufOcean) < D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * 16);
 		auto resolver = ::pr::compute::shader_cache::ResourceSourceResolver{};
@@ -75,16 +75,17 @@ namespace las
 	// Copy one immutable water-field snapshot and update render-only frame parameters.
 	void OceanShader::SetupFrame(water::Snapshot const& water_snapshot, v4 camera_world_pos, float outer_radius, int grid_vertex_count, float min_grid_spacing, float surface_warp_power, bool has_env_map, v4 sun_direction, v4 sun_colour)
 	{
-		m_cbuf.water_field_count = std::min(water_snapshot.m_element_count, water::MaxWaterFieldElementCount);
+		auto const elements = water_snapshot.Elements();
+		m_cbuf.water_field_count = std::min(isize(elements), WaterFieldMaxElementCount);
 		for (int i = 0; i != m_cbuf.water_field_count; ++i)
 		{
-			m_cbuf.water_field[i] = water_snapshot.m_elements[i];
+			m_cbuf.water_field[i] = elements[i];
 		}
 
 		// Clear inactive entries so the complete snapshot remains deterministic.
-		for (int i = m_cbuf.water_field_count; i != water::MaxWaterFieldElementCount; ++i)
+		for (int i = m_cbuf.water_field_count; i != WaterFieldMaxElementCount; ++i)
 		{
-			m_cbuf.water_field[i] = water::WaterFieldElement{};
+			m_cbuf.water_field[i] = WaterFieldElement{};
 		}
 
 		m_cbuf.camera_pos_time = v4(camera_world_pos.x, camera_world_pos.y, camera_world_pos.z, water_snapshot.m_time_s);

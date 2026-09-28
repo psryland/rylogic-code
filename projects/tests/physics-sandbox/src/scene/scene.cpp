@@ -374,7 +374,7 @@ namespace physics_sandbox
 				body_state.m_valid = true;
 				return body_state;
 			});
-		m_gpu_buoyancy->SetWaterSurface(scene_desc.water->surface);
+		m_gpu_buoyancy->SetWaterField(scene_desc.water->surface);
 
 		// Ground and other infinite-mass bodies cannot respond to buoyancy. All dynamic bodies use
 		// their existing collision shapes, so scene descriptions need no parallel hull geometry.
@@ -522,18 +522,18 @@ namespace physics_sandbox
 		if (m_rdr == nullptr || m_gpu_buoyancy == nullptr || !m_water.has_value() || m_buoyancy_debug_targets.empty())
 			return;
 
-		// Adapter exposing the scene's WaterSurface through the sampler's water-field concept. Only
+		// Adapter exposing the scene's WaterField through the sampler's water-field concept. Only
 		// valid for the default flat WaterFrame{} (up=+Z, t0=+X, t1=+Y, ref=origin): the sampler calls
 		// Height/Gradient with planar coords (u,v) = (sample.x, sample.y) and treats the returned value
-		// as the signed height along 'up'. EvaluateHeight returns the absolute world-Z surface height,
+		// as the signed height along 'up'. WaterField::Height returns the absolute world-Z surface height,
 		// which equals the signed height along +Z from the origin only because ref=origin and up=+Z.
 		struct WaterAdapter
 		{
-			physics::GpuBuoyancy::WaterSurface const* m_surface;
+			physics::terrain::water::WaterField const* m_surface;
 			float m_time;
-			float Height(v2 uv) const { return m_surface->EvaluateHeight(uv, m_time); }
-			v2 PressureGradient(v2 uv, float gravity) const { return m_surface->EvaluatePressureGradient(uv, m_time, gravity); }
-			v4 Velocity(v4 pos_ws) const { return m_surface->EvaluateVelocity(pos_ws, m_time); }
+			float Height(v2 uv) const { return static_cast<float>(m_surface->Height(physics::terrain::v2d{uv.x, uv.y}, m_time)); }
+			v2 PressureGradient(v2 uv, float gravity) const { return m_surface->PressureGradient(uv, m_time, gravity); }
+			v4 Velocity(v4 pos_ws) const { return m_surface->Velocity(pos_ws, m_time); }
 		};
 		auto const water = WaterAdapter{ &m_water->surface, static_cast<float>(m_clock) };
 
@@ -1489,7 +1489,7 @@ namespace physics_sandbox
 			DbgLog("  Ground: %s (height=%.2f)\n", scene_desc.ground ? "yes" : "no", scene_desc.ground ? scene_desc.ground->height : 0.0f);
 			if (!scene_desc.terrain)
 				DbgLog("  Terrain: no\n");
-			DbgLog("  Water: %s (level=%.2f waves=%d)\n", scene_desc.water ? "yes" : "no", scene_desc.water ? scene_desc.water->surface.m_level : 0.0f, scene_desc.water ? isize(scene_desc.water->surface.m_waves) : 0);
+			DbgLog("  Water: %s (level=%.2f waves=%d)\n", scene_desc.water ? "yes" : "no", scene_desc.water ? scene_desc.water->surface.Level() : 0.0, scene_desc.water ? isize(scene_desc.water->surface.Elements()) : 0);
 			DbgLog("  Material: elasticity=%.2f friction=%.2f\n", mat.m_elasticity_norm, mat.m_friction_static);
 			for (int i = 0; i != std::ssize(m_body); ++i)
 			{

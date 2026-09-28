@@ -2,33 +2,26 @@
 // Physics Sandbox
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
-// Lightweight water vertex shader matching the physics sine-wave surface.
+// Lightweight water vertex shader matching the physics water-field surface.
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/interop.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 #include "src/scene/water/water_visual_cbuf.hlsli"
+#include "pr/physics/terrain/water/water_field.hlsli"
 
 ConstantBuffer<CBufFrame> resource(g_frame, b0);
 ConstantBuffer<CBufNugget> resource(g_nugget, b1);
 ConstantBuffer<CBufWaterVisual> resource(g_water, b3);
 
-// Evaluate the physics water height and gradient together so each wave needs one sincos operation.
+// Evaluate the physics water height and gradient together using the shared per-element evaluator.
 float3 EvaluateWater(float2 xy_ws)
 {
-	float height = g_water.m_water_level;
-	float2 gradient = float2(0.0f, 0.0f);
-	for (int wave_index = 0; wave_index != g_water.m_wave_count; ++wave_index)
+	float3 height_gradient = float3(g_water.m_water_level, 0.0f, 0.0f);
+	for (int element_index = 0; element_index != g_water.m_element_count; ++element_index)
 	{
-		WaterVisualWave wave = g_water.m_waves[wave_index];
-		float2 direction = wave.m_direction_wavelength_phase_speed.xy;
-		float wave_number = tau / wave.m_direction_wavelength_phase_speed.z;
-		float phase = dot(direction, xy_ws) * wave_number + wave.m_direction_wavelength_phase_speed.w * g_water.m_time_s;
-		float sine, cosine;
-		sincos(phase, sine, cosine);
-		height += wave.m_amplitude.x * sine;
-		gradient += direction * (wave.m_amplitude.x * wave_number * cosine);
+		height_gradient += WaterFieldElementHeightAndGradient(g_water.m_elements[element_index], xy_ws, g_water.m_time_s);
 	}
-	return float3(height, gradient);
+	return height_gradient;
 }
 
 // Displace a static grid in world space and produce the analytical normal used by the physics surface.

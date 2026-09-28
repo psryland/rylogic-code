@@ -7,14 +7,13 @@
 #ifndef LAS_OCEAN_CBUF_HLSLI
 #define LAS_OCEAN_CBUF_HLSLI
 #include "pr/hlsl/interop.hlsli"
-#include "src/world/water/shaders/water_field_types.hlsli"
+#include "pr/physics/terrain/water/water_field_types.hlsli"
 
 #ifdef __cplusplus
 namespace las
 {
 	using namespace pr::hlsl;
-	using water::MaxWaterFieldElementCount;
-	using water::WaterFieldElement;
+	using namespace pr::physics::terrain::water::shared;
 #endif
 
 // Ocean constant buffer. Bound to b3 (reusing the CBufScreenSpace slot since
@@ -22,7 +21,7 @@ namespace las
 struct CBufOcean //:reg(b3)
 {
 	// Fixed-capacity field shared with GPU buoyancy. Only water_field_count entries are active.
-	WaterFieldElement water_field[MaxWaterFieldElementCount];
+	WaterFieldElement water_field[WaterFieldMaxElementCount];
 
 	// Camera world-space position (xyz), w = simulation time
 	float4 camera_pos_time;

@@ -842,8 +842,9 @@ namespace physics_sandbox::scene_loader
 		auto water = WaterDesc{};
 		auto const& jwater_obj = jwater.to_object();
 
+		auto level = 0.0;
 		if (auto const* jlevel = jwater_obj.find("level"))
-			water.surface.m_level = jlevel->to<float>();
+			level = jlevel->to<double>();
 
 		if (auto const* jsize = jwater_obj.find("size"))
 		{
@@ -864,6 +865,8 @@ namespace physics_sandbox::scene_loader
 		if (auto const* jcolour = jwater_obj.find("colour"))
 			water.colour = ReadColour(*jcolour);
 
+		// Waves are sine elements whose 'phase_speed' is the angular frequency in rad/s.
+		auto elements = std::vector<physics::terrain::water::WaterFieldElement>{};
 		if (auto const* jwaves = jwater_obj.find("waves"))
 		{
 			for (auto const& jwave : jwaves->to_array())
@@ -884,18 +887,17 @@ namespace physics_sandbox::scene_loader
 				if (jamplitude == nullptr)
 					throw std::runtime_error("Water wave requires an 'amplitude' field");
 
-				auto wave = physics::GpuBuoyancy::SineWave{};
-				wave.m_direction = ReadVec2(*jdirection);
-				wave.m_wavelength = (jwavelength != nullptr ? jwavelength : jperiod)->to<float>();
-				wave.m_amplitude = jamplitude->to<float>();
-				if (auto const* jphase_speed = jwave_obj.find("phase_speed"))
-					wave.m_phase_speed = jphase_speed->to<float>();
-
-				water.surface.m_waves.push_back(wave);
+				auto const* jphase_speed = jwave_obj.find("phase_speed");
+				elements.push_back(physics::terrain::water::SineWave(
+					ReadVec2(*jdirection),
+					jamplitude->to<float>(),
+					(jwavelength != nullptr ? jwavelength : jperiod)->to<float>(),
+					jphase_speed != nullptr ? jphase_speed->to<float>() : 0.0f
+				));
 			}
 		}
 
-		water.surface = water.surface.Normalised();
+		water.surface = physics::terrain::water::WaterField(level, elements);
 		return water;
 	}
 
