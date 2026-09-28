@@ -762,29 +762,31 @@ namespace pr::rdr12
 		ResourceFactory factory(model->rdr());
 
 		{// Update the model geometry
-			auto update_v = model->UpdateVertices(factory.CmdList(), factory.UploadBuffer(), { 0, new_vcount });
-			auto update_i = model->UpdateIndices(factory.CmdList(), factory.UploadBuffer(), { 0, new_icount });
-
+			// An empty edit has no upload footprint to map; it only clears the bounds and nuggets.
 			model->m_bbox.reset();
-
-			auto vin = vbuf.data();
-			auto iin = ibuf.data();
-			auto vout = update_v.ptr<Vert>();
-			auto iout = update_i.ptr<uint16_t>();
-
-			// Copy the model data into the model
-			for (int i = 0; i != new_vcount; ++i, ++vin)
+			if (new_vcount != 0)
 			{
-				SetPCNT(*vout++, To<v4>(vin->pos), Colour(vin->col), To<v4>(vin->norm), To<v2>(vin->tex));
-				Grow(model->m_bbox, To<v4>(vin->pos));
+				auto update_v = model->UpdateVertices(factory.CmdList(), factory.UploadBuffer(), { 0, new_vcount });
+				auto vin = vbuf.data();
+				auto vout = update_v.ptr<Vert>();
+				for (int i = 0; i != new_vcount; ++i, ++vin)
+				{
+					SetPCNT(*vout++, To<v4>(vin->pos), Colour(vin->col), To<v4>(vin->norm), To<v2>(vin->tex));
+					Grow(model->m_bbox, To<v4>(vin->pos));
+				}
+				update_v.Commit();
 			}
-			for (int i = 0; i != new_icount; ++i, ++iin)
+			if (new_icount != 0)
 			{
-				*iout++ = *iin;
+				auto update_i = model->UpdateIndices(factory.CmdList(), factory.UploadBuffer(), { 0, new_icount });
+				auto iin = ibuf.data();
+				auto iout = update_i.ptr<uint16_t>();
+				for (int i = 0; i != new_icount; ++i, ++iin)
+				{
+					*iout++ = *iin;
+				}
+				update_i.Commit();
 			}
-
-			update_v.Commit();
-			update_i.Commit();
 		}
 
 		// Update the model nuggets
