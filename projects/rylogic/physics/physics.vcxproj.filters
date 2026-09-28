@@ -201,6 +201,9 @@
     <ClCompile Include="src\terrain\water\water_field.cpp">
       <Filter>src\terrain\water</Filter>
     </ClCompile>
+    <ClCompile Include="src\terrain\landscape\height_bounds.cpp">
+      <Filter>src\terrain\landscape</Filter>
+    </ClCompile>
     <ClCompile Include="src\terrain\landscape\baseline_surface.cpp">
       <Filter>src\terrain\landscape</Filter>
     </ClCompile>
@@ -436,6 +439,9 @@
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\water\water_field.hlsli">
       <Filter>src\terrain\water</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\height_bounds.h">
+      <Filter>src\terrain\landscape</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\baseline_surface.hlsli">
       <Filter>src\terrain\landscape</Filter>

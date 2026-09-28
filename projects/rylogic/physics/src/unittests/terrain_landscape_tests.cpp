@@ -340,5 +340,91 @@ namespace pr::physics::terrain::landscape::tests
 			ExpectNear(f3.get(), expected[3], 1.0e-12);
 		}
 	};
+
+	PRUnitTestClass(TerrainHeightBoundsTests)
+	{
+		PRUnitTestMethod(RangesCoverDenseSamples, Quick)
+		{
+			// Every sample on a grid four times denser than the cells must lie inside its cell's range and the total range.
+			auto const surface = MakeSurface();
+			auto const cell_size = 16.0;
+			auto const origin = v2d{ -512.0, -512.0 };
+			auto const bounds = HeightBounds(surface, origin, cell_size, 64);
+			PR_EXPECT(bounds.LevelCount() == 7);
+
+			auto const total = bounds.Total();
+			for (int y = 0; y != 256; ++y)
+			{
+				for (int x = 0; x != 256; ++x)
+				{
+					// Sample strictly inside a cell so the rectangle query selects exactly that cell.
+					auto const xy = v2d{ origin.x + (x + 0.5) * 4.0, origin.y + (y + 0.5) * 4.0 };
+					auto const height = surface.Sample(xy).m_height;
+					auto const range = bounds.Query(xy, xy);
+					PR_EXPECT(range.has_value());
+					PR_EXPECT(range->m_min <= height && height <= range->m_max);
+					PR_EXPECT(total.m_min <= height && height <= total.m_max);
+				}
+			}
+
+			// Rectangles outside the region, or inverted, have no range.
+			PR_EXPECT(!bounds.Query(v2d{ 600.0, 0.0 }, v2d{ 700.0, 10.0 }).has_value());
+			PR_EXPECT(!bounds.Query(v2d{ 10.0, 0.0 }, v2d{ 0.0, 10.0 }).has_value());
+		}
+
+		PRUnitTestMethod(TilesBelowSelectsExactlyTheLowTiles, Quick)
+		{
+			// Emitted tiles are exactly the target-level entries below the height that the visibility test accepts.
+			auto const surface = MakeSurface();
+			auto const bounds = HeightBounds(surface, v2d{ -1024.0, -1024.0 }, 16.0, 128);
+			auto const total = bounds.Total();
+			auto const height = 0.5 * (total.m_min + total.m_max);
+			auto const level = 2;
+			auto const tile_size = 16.0 * 4;
+
+			auto all = std::vector<HeightBounds::Tile>{};
+			bounds.TilesBelow(height, level, nullptr, all);
+			auto emitted = 0;
+			for (int y = 0; y != 32; ++y)
+			{
+				for (int x = 0; x != 32; ++x)
+				{
+					// Compare the pyramid entry with the traversal result for the same tile.
+					auto const min_xy = v2d{ -1024.0 + x * tile_size, -1024.0 + y * tile_size };
+					auto const range = bounds.Query(min_xy + v2d{ 1.0, 1.0 }, min_xy + v2d{ tile_size - 1.0, tile_size - 1.0 });
+					auto const found = std::ranges::any_of(all, [&](auto const& tile) { return tile.m_min_xy.x == min_xy.x && tile.m_min_xy.y == min_xy.y; });
+					PR_EXPECT(found == (range->m_min < height));
+					emitted += found ? 1 : 0;
+				}
+			}
+			PR_EXPECT(emitted == static_cast<int>(all.size()));
+			PR_EXPECT(emitted > 0 && emitted < 32 * 32);
+
+			// A visibility test prunes whole subtrees.
+			auto east = std::vector<HeightBounds::Tile>{};
+			bounds.TilesBelow(height, level, [](auto const& tile) { return tile.m_min_xy.x + tile.m_size > 0.0; }, east);
+			PR_EXPECT(std::ranges::all_of(east, [](auto const& tile) { return tile.m_min_xy.x >= 0.0; }));
+			PR_EXPECT(east.size() < all.size());
+
+			// A height below the whole region selects nothing.
+			auto none = std::vector<HeightBounds::Tile>{};
+			bounds.TilesBelow(total.m_min, 0, nullptr, none);
+			PR_EXPECT(none.empty());
+		}
+
+		PRUnitTestMethod(RejectsInvalidGrids, Quick)
+		{
+			// Grids must be finite, positive, and a power of two per side.
+			auto const surface = MakeSurface();
+			PR_THROWS(HeightBounds(surface, v2d{ 0, 0 }, 0.0, 8), std::invalid_argument);
+			PR_THROWS(HeightBounds(surface, v2d{ NAN, 0 }, 1.0, 8), std::invalid_argument);
+			PR_THROWS(HeightBounds(surface, v2d{ 0, 0 }, 1.0, 12), std::invalid_argument);
+			PR_THROWS(HeightBounds(surface, v2d{ 0, 0 }, 1.0, 0), std::invalid_argument);
+
+			auto const bounds = HeightBounds(surface, v2d{ 0, 0 }, 1.0, 1);
+			auto tiles = std::vector<HeightBounds::Tile>{};
+			PR_THROWS(bounds.TilesBelow(0.0, 1, nullptr, tiles), std::invalid_argument);
+		}
+	};
 }
 #endif
