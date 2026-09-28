@@ -47,6 +47,18 @@ namespace pr::physics::tests
 			}
 		}
 
+		// Remove the water from the shared engine without leaving its wake request pending for the next test.
+		static void ClearWater(Engine& engine)
+		{
+			// Removing water wakes the bodies of the next nonempty step. Consume that wake with a throwaway body so a later test's
+			// deliberately sleeping bodies are not woken by this test's environment change.
+			engine.Water(std::nullopt);
+			auto sphere = collision::ShapeSphere(0.5f);
+			auto body = RigidBody{};
+			body.Shape(collision::shape_cast(&sphere), 1.0f);
+			Run(engine, body, 1, 1);
+		}
+
 		PRUnitTestMethod(ConfigValidation, Quick)
 		{
 			// Density must be positive and drag values non-negative and finite.
@@ -75,7 +87,7 @@ namespace pr::physics::tests
 
 			engine.Water(config);
 			PR_EXPECT(engine.Water() != nullptr);
-			engine.Water(std::nullopt);
+			ClearWater(engine);
 			PR_EXPECT(engine.Water() == nullptr);
 		}
 
@@ -122,7 +134,7 @@ namespace pr::physics::tests
 			engine.Water(FlatWater(0.0, 0.5f, 0.5f, 0.5f));
 			auto wet_world = make();
 			Run(engine, wet_world, 10, 4);
-			engine.Water(std::nullopt);
+			ClearWater(engine);
 
 			PR_EXPECT(All(dry.O2W().pos == wet_world.O2W().pos));
 			PR_EXPECT(All(dry.VelocityWS().lin == wet_world.VelocityWS().lin));
@@ -140,7 +152,7 @@ namespace pr::physics::tests
 			ResetEngineForNextTest(engine);
 			engine.Water(FlatWater(0.0, 0.0f, 0.0f, 0.0f));
 			Run(engine, body, 60, 4);
-			engine.Water(std::nullopt);
+			ClearWater(engine);
 
 			auto const vz = body.VelocityWS().lin.z;
 			PR_EXPECT(FEqlRelative(vz, -0.5f * Gravity, 0.01f));
@@ -158,7 +170,7 @@ namespace pr::physics::tests
 			ResetEngineForNextTest(engine);
 			engine.Water(FlatWater(0.0, 0.5f, 0.5f, 0.5f));
 			Run(engine, body, 60, 4);
-			engine.Water(std::nullopt);
+			ClearWater(engine);
 
 			PR_EXPECT(FEqlAbsolute(body.O2W().pos.z, -5.0f, 1e-3f));
 			PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.z, 0.0f, 1e-3f));
@@ -181,7 +193,7 @@ namespace pr::physics::tests
 			engine.Water(FlatWater(2.0, 2.0f, 0.5f, 0.5f));
 			body.O2W(m4x4::Translation(0, 0, 2.4f));
 			Run(engine, body, 600, 4);
-			engine.Water(std::nullopt);
+			ClearWater(engine);
 
 			PR_EXPECT(FEqlAbsolute(body.O2W().pos.z, 2.0f, 0.01f));
 			PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.z, 0.0f, 0.01f));
@@ -200,7 +212,7 @@ namespace pr::physics::tests
 			ResetEngineForNextTest(engine);
 			engine.Water(FlatWater(0.0, 1000.0f, 1000.0f, 1000.0f));
 			Run(engine, body, 1, 1);
-			engine.Water(std::nullopt);
+			ClearWater(engine);
 
 			auto const velocity = body.VelocityWS();
 			PR_EXPECT(velocity.lin.x >= 0.0f && velocity.lin.x < 20.0f);

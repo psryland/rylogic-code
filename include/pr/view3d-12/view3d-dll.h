@@ -1374,6 +1374,14 @@ extern "C"
 	// Multiple nuggets share the logical domain and bounds but may partition the physical index buffer, for example [0,surface_icount) and [surface_icount,icount).
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateU32(char const* name, pr::view3d::Colour colour, int vcount, int icount, int ncount, pr::view3d::Vertex const* verts, UINT32 const* indices, pr::view3d::Nugget const* nuggets, pr::view3d::ObjectCreateOptions const& options, GUID const& context_id);
 
+	// Re-run a compute vertex generator over the vertex buffer of an object created with EVertexSource::GpuGeneratedBuffer (the object's own model only).
+	// Uses the same b0/u0 contract as creation. u0 holds the current vertices, so the shader may update records in place. Blocks until the GPU work completes.
+	VIEW3D_API void __stdcall View3D_ObjectGpuGenerate(pr::view3d::Object object, void const* compute_bytecode, size_t compute_bytecode_size, void const* constants, size_t constants_size, int thread_group_size_x);
+
+	// Replace the ProceduralVertexBinding::ConstantsSize constants of every procedural vertex shader on the object's own nuggets. Later frames use the new values.
+	// Shaders are shared by reference, so other objects that use the same shader handles also see the change.
+	VIEW3D_API void __stdcall View3D_ObjectProceduralConstantsSet(pr::view3d::Object object, void const* constants, size_t constants_size);
+
 	// Create an graphics object from ldr script, either a string or a file 
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateLdrW(wchar_t const* ldr_script, BOOL file, GUID const* context_id, pr::view3d::Includes const* includes);
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateLdrA(char const* ldr_script, BOOL file, GUID const* context_id, pr::view3d::Includes const* includes);

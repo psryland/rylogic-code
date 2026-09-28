@@ -61,10 +61,20 @@ namespace pr::rdr12
 		m_code.VS = ShaderCode::ByteCode(std::span<BYTE const>(m_vs_bytecode));
 	}
 
+	// Replace the copied constants used by later draws.
+	void ProceduralVertexShader::Constants(std::span<std::byte const> constants)
+	{
+		// The fixed-size block is the procedural binding contract, so partial updates are not supported.
+		if (constants.size() != ConstantsSize)
+			throw std::invalid_argument("Procedural vertex shader constants must be exactly 1024 bytes");
+
+		std::copy(constants.begin(), constants.end(), m_constants.begin());
+	}
+
 	// Bind the copied constants through the render-step-specific reserved root slot.
 	void ProceduralVertexShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const&, CameraTransforms const&, DrawListElement const*)
 	{
-		// Reuse the immutable upload allocation within the frame wherever possible.
+		// Upload the current copy each draw; identical content is shared within the frame.
 		auto gpu_address = upload.Add(m_constants, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
 		switch (m_rdr_step)
 		{

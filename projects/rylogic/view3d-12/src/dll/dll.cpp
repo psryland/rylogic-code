@@ -2000,6 +2000,40 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateU32(char const* name, vie
 	CatchAndReport(View3D_ObjectCreateU32, , nullptr);
 }
 
+// Re-run a compute vertex generator in place over the generated vertex buffer of an existing object.
+VIEW3D_API void __stdcall View3D_ObjectGpuGenerate(view3d::Object object, void const* compute_bytecode, size_t compute_bytecode_size, void const* constants, size_t constants_size, int thread_group_size_x)
+{
+	try
+	{
+		// Buffer pointers are checked here; the generator contract is validated by the context.
+		Validate(object);
+		DllLockGuard;
+		if (compute_bytecode == nullptr || constants == nullptr)
+			throw std::invalid_argument("Vertex generator bytecode and constants are required");
+
+		auto const bytecode = std::span(static_cast<uint8_t const*>(compute_bytecode), compute_bytecode_size);
+		auto const cbuf = std::span(static_cast<std::byte const*>(constants), constants_size);
+		Dll().ObjectGpuGenerate(object, bytecode, cbuf, thread_group_size_x);
+	}
+	CatchAndReport(View3D_ObjectGpuGenerate, , );
+}
+
+// Replace the constants of every procedural vertex shader used by an object's nuggets.
+VIEW3D_API void __stdcall View3D_ObjectProceduralConstantsSet(view3d::Object object, void const* constants, size_t constants_size)
+{
+	try
+	{
+		// The shader validates the exact procedural constants size.
+		Validate(object);
+		DllLockGuard;
+		if (constants == nullptr)
+			throw std::invalid_argument("Procedural constants are required");
+
+		Dll().ObjectProceduralConstants(object, std::span(static_cast<std::byte const*>(constants), constants_size));
+	}
+	CatchAndReport(View3D_ObjectProceduralConstantsSet, , );
+}
+
 // Create objects given in an ldraw string or file.
 // If multiple objects are created, the handle returned is to the first object only.
 // 'ldr_script' - an ldr string, or filepath to a file containing ldr script

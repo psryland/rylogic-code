@@ -8,6 +8,7 @@
 #include "pr/view3d-12/ldraw/ldraw_parsing.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_text.h"
 #include "pr/view3d-12/ldraw/ldraw_commands.h"
+#include "pr/view3d-12/material/components/shader_overlays.h"
 #include "pr/view3d-12/model/model_generator.h"
 #include "pr/view3d-12/model/vertex_layout.h"
 #include "pr/view3d-12/resource/resource_factory.h"
@@ -27,6 +28,54 @@ namespace pr::rdr12
 {
 	namespace
 	{
+		// Run a caller-compiled vertex generator over every record of a UAV-capable canonical vertex buffer, then block until it completes.
+		// The b0 constants are copied for the dispatch, and the u0 RWStructuredBuffer<View3DVertex> retains its previous contents, so shaders may update records in place.
+		// The buffer rests in the vertex-buffer state afterwards.
+		void DispatchVertexGenerator(ResourceFactory& factory, ID3D12Resource* vertex_buffer, int64_t vertex_count, std::span<uint8_t const> bytecode, std::span<std::byte const> constants, int thread_group_size_x)
+		{
+			// Validate the dispatch contract before recording GPU work.
+			if (bytecode.empty())
+				throw std::invalid_argument("Vertex generator compute bytecode is required");
+			if (constants.empty() || constants.size() > D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * 16ULL)
+				throw std::invalid_argument("Vertex generator constants must contain 1 to 65536 bytes");
+			if (thread_group_size_x <= 0 || thread_group_size_x > D3D12_CS_THREAD_GROUP_MAX_THREADS_PER_GROUP)
+				throw std::invalid_argument("Vertex generator thread-group size is invalid");
+			if (vertex_count <= 0)
+				throw std::invalid_argument("Vertex generator requires a nonempty vertex buffer");
+			auto const group_count = 1 + (vertex_count - 1) / thread_group_size_x;
+			if (group_count > D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION)
+				throw std::invalid_argument("Vertex generator dispatch exceeds the D3D12 X dimension");
+			if (!AllSet(vertex_buffer->GetDesc().Flags, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
+				throw std::invalid_argument("Vertex generator requires a GPU-generated vertex buffer");
+
+			// Bind the fixed b0/u0 contract. The pipeline is not retained because generation is rare compared to drawing.
+			auto root_signature = compute::RootSig(compute::ERootSigFlags::ComputeOnly)
+				.CBuf(hlsl::ECBufReg::b0)
+				.UAV(hlsl::EUAVReg::u0)
+				.Create(factory.d3d(), "Vertex generator root signature");
+			auto pipeline = compute::ComputePSO(root_signature.get(), bytecode).Create(factory.d3d(), "Vertex generator pipeline");
+			auto cbuf = factory.UploadBuffer().Alloc(s_cast<int>(constants.size()), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+			std::memcpy(cbuf.m_mem + cbuf.m_ofs, constants.data(), constants.size());
+
+			// Expose the buffer for writing. Earlier frames that draw from it were submitted to the same queue, so they complete first.
+			auto& command_list = factory.CmdList();
+			compute::BarrierBatch barriers(command_list);
+			barriers.Transition(vertex_buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			barriers.Commit();
+
+			command_list.SetPipelineState(pipeline.get());
+			command_list.SetComputeRootSignature(root_signature.get());
+			command_list.SetComputeRootConstantBufferView(0, cbuf.m_res->GetGPUVirtualAddress() + cbuf.m_ofs);
+			command_list.SetComputeRootUnorderedAccessView(1, vertex_buffer->GetGPUVirtualAddress());
+			command_list.Dispatch(s_cast<UINT>(group_count), 1, 1);
+
+			// Make all generated records visible to the input assembler and retain that as the resting state.
+			barriers.Transition(vertex_buffer, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
+			barriers.Commit();
+			compute::DefaultResState(vertex_buffer, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
+			factory.FlushToGpu(EGpuFlush::Block);
+		}
+
 		// Temporarily detach an object from exactly the windows that currently contain it.
 		vector<V3dWindow*, 4> DetachObjectFromWindows(Context::WindowCont const& windows, ldraw::LdrObject* object)
 		{
@@ -415,13 +464,8 @@ namespace pr::rdr12
 			throw std::invalid_argument("GPU-generated object name is required");
 		if (options.m_compute_bytecode == nullptr || options.m_compute_bytecode_size == 0)
 			throw std::invalid_argument("GPU-generated object compute bytecode is required");
-		if (options.m_constants == nullptr || options.m_constants_size == 0 || options.m_constants_size > D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * 16ULL)
-			throw std::invalid_argument("GPU-generated object constants must contain 1 to 65536 bytes");
-		if (options.m_thread_group_size_x <= 0 || options.m_thread_group_size_x > D3D12_CS_THREAD_GROUP_MAX_THREADS_PER_GROUP)
-			throw std::invalid_argument("GPU-generated object thread-group size is invalid");
-		auto const group_count = 1 + (vertex_count - 1) / options.m_thread_group_size_x;
-		if (group_count > D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION)
-			throw std::invalid_argument("GPU-generated object dispatch exceeds the D3D12 X dimension");
+		if (options.m_constants == nullptr || options.m_constants_size == 0)
+			throw std::invalid_argument("GPU-generated object constants are required");
 		auto const& bbox = options.m_bbox;
 		auto const finite =
 			std::isfinite(bbox.centre.x) && std::isfinite(bbox.centre.y) && std::isfinite(bbox.centre.z) && std::isfinite(bbox.centre.w) &&
@@ -492,28 +536,10 @@ namespace pr::rdr12
 			model->CreateNugget(factory, nugget);
 		}
 
-		// Bind the fixed b0/u0 contract and fill every canonical vertex exactly once.
-		auto root_signature = compute::RootSig(compute::ERootSigFlags::ComputeOnly)
-			.CBuf(hlsl::ECBufReg::b0)
-			.UAV(hlsl::EUAVReg::u0)
-			.Create(factory.d3d(), "GPU-generated object root signature");
+		// Fill every canonical vertex exactly once before publishing the model.
 		auto const bytecode = std::span(static_cast<uint8_t const*>(options.m_compute_bytecode), options.m_compute_bytecode_size);
-		auto pipeline = compute::ComputePSO(root_signature.get(), bytecode).Create(factory.d3d(), "GPU-generated object pipeline");
-		auto constants = factory.UploadBuffer().Alloc(s_cast<int>(options.m_constants_size), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
-		std::memcpy(constants.m_mem + constants.m_ofs, options.m_constants, options.m_constants_size);
-		auto& command_list = factory.CmdList();
-		command_list.SetPipelineState(pipeline.get());
-		command_list.SetComputeRootSignature(root_signature.get());
-		command_list.SetComputeRootConstantBufferView(0, constants.m_res->GetGPUVirtualAddress() + constants.m_ofs);
-		command_list.SetComputeRootUnorderedAccessView(1, vertex_buffer->GetGPUVirtualAddress());
-		command_list.Dispatch(group_count, 1, 1);
-
-		// Make all generated records visible to the input assembler and retain that as the model's resting state.
-		compute::BarrierBatch barriers(command_list);
-		barriers.Transition(vertex_buffer.get(), D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
-		barriers.Commit();
-		compute::DefaultResState(vertex_buffer.get(), D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
-		factory.FlushToGpu(EGpuFlush::Block);
+		auto const constants = std::span(static_cast<std::byte const*>(options.m_constants), options.m_constants_size);
+		DispatchVertexGenerator(factory, vertex_buffer.get(), vertex_count, bytecode, constants, options.m_thread_group_size_x);
 
 		// Publish an ordinary object only after the generated buffer is complete.
 		auto object = ldraw::LdrObjectPtr(new ldraw::LdrObject(ldraw::ELdrObject::Custom, nullptr, context_id), true);
@@ -522,6 +548,52 @@ namespace pr::rdr12
 		object->m_base_colour = colour;
 		m_sources.Add(object);
 		return object.get();
+	}
+
+	// Re-run a vertex generator over the existing generated vertex buffer of 'object'.
+	void Context::ObjectGpuGenerate(ldraw::LdrObject* object, std::span<uint8_t const> bytecode, std::span<std::byte const> constants, int thread_group_size_x)
+	{
+		// Only the object's own model is updated; children keep their own geometry.
+		auto& model = object->m_model;
+		if (model == nullptr)
+			throw std::invalid_argument("Object has no model to regenerate");
+
+		ResourceFactory factory(m_rdr);
+		DispatchVertexGenerator(factory, model->m_vb.get(), model->m_vcount, bytecode, constants, thread_group_size_x);
+
+		// Acceleration structures were built from the previous vertex contents.
+		model->m_ray_tracing.Invalidate(model->rdr());
+	}
+
+	// Replace the constants of every procedural vertex shader used by the nuggets of 'object'.
+	void Context::ObjectProceduralConstants(ldraw::LdrObject* object, std::span<std::byte const> constants)
+	{
+		// Only the object's own model is updated; children keep their own shaders.
+		auto& model = object->m_model;
+		if (model == nullptr)
+			throw std::invalid_argument("Object has no model with procedural shaders");
+
+		auto updated = 0;
+		for (auto* nugget = model->m_nuggets.get(); nugget != nullptr; nugget = nugget->m_next.get())
+		{
+			// Overlay shaders are shared by reference, so each shader receives the same block exactly as the caller supplied it.
+			auto const* overlays = nugget->mat().Component<materials::ShaderOverlays>();
+			if (overlays == nullptr)
+				continue;
+
+			for (auto const& overlay : overlays->m_overlays)
+			{
+				// Ignore ordinary overlays that do not consume the procedural constants block.
+				auto* procedural = dynamic_cast<ProceduralVertexShader*>(overlay.m_overlay.get());
+				if (procedural == nullptr)
+					continue;
+
+				procedural->Constants(constants);
+				++updated;
+			}
+		}
+		if (updated == 0)
+			throw std::invalid_argument("Object has no procedural vertex shaders");
 	}
 
 	// Load/Add ldr objects and return the first object from the script

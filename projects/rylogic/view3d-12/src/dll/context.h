@@ -74,6 +74,12 @@ namespace pr::rdr12
 		ldraw::LdrObject* ObjectCreate(char const* name, Colour32 colour, std::span<view3d::Vertex const> verts, std::span<uint16_t const> indices, std::span<view3d::Nugget const> nuggets, Guid const& context_id);
 		ldraw::LdrObject* ObjectCreate(char const* name, Colour32 colour, int vertex_count, std::span<view3d::Vertex const> verts, std::span<uint32_t const> indices, std::span<view3d::Nugget const> nuggets, view3d::ObjectCreateOptions const& options, Guid const& context_id);
 
+		// Re-run a compute vertex generator in place over the generated vertex buffer of 'object'. Blocks until the GPU work completes.
+		void ObjectGpuGenerate(ldraw::LdrObject* object, std::span<uint8_t const> bytecode, std::span<std::byte const> constants, int thread_group_size_x);
+
+		// Replace the constants of every procedural vertex shader on the nuggets of 'object'.
+		void ObjectProceduralConstants(ldraw::LdrObject* object, std::span<std::byte const> constants);
+
 		// Load/Add ldr objects and return the first object from the script
 		template <typename Char>
 		ldraw::LdrObject* ObjectCreateLdr(std::basic_string_view<Char> ldr_script, bool file, EEncoding enc, Guid const* context_id, view3d::Includes const* includes);
