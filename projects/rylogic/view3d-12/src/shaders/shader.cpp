@@ -61,10 +61,20 @@ namespace pr::rdr12
 		m_code.VS = ShaderCode::ByteCode(std::span<BYTE const>(m_vs_bytecode));
 	}
 
+	// Replace the copied constants used by later draws.
+	void ProceduralVertexShader::Constants(std::span<std::byte const> constants)
+	{
+		// The fixed-size block is the procedural binding contract, so partial updates are not supported.
+		if (constants.size() != ConstantsSize)
+			throw std::invalid_argument("Procedural vertex shader constants must be exactly 1024 bytes");
+
+		std::copy(constants.begin(), constants.end(), m_constants.begin());
+	}
+
 	// Bind the copied constants through the render-step-specific reserved root slot.
 	void ProceduralVertexShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const&, CameraTransforms const&, DrawListElement const*)
 	{
-		// Reuse the immutable upload allocation within the frame wherever possible.
+		// Upload the current copy each draw; identical content is shared within the frame.
 		auto gpu_address = upload.Add(m_constants, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
 		switch (m_rdr_step)
 		{
@@ -153,6 +163,15 @@ namespace pr::rdr12
 		ByteCode const forward_far_fade_reflection_attrs_texn_pbr_ps(compiled::forward_far_fade_reflection_attrs_texn_pbr_ps);
 		ByteCode const kbuffer_resolve_vs(compiled::kbuffer_resolve_vs);
 		ByteCode const kbuffer_alpha_resolve_ps(compiled::kbuffer_alpha_resolve_ps);
+
+		// Post-processing
+		namespace compiled
+		{
+			#include PR_RDR_SHADER_COMPILED_DIR(post_effect_vs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(underwater_ps.h)
+		}
+		ByteCode const post_effect_vs(compiled::post_effect_vs);
+		ByteCode const underwater_ps(compiled::underwater_ps);
 
 		// Deferred rendering
 		namespace compiled

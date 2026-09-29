@@ -86,6 +86,8 @@ namespace pr::physics::terrain::landscape
 			RequireFinite(config.m_sea_level_bias_m, "sea_level_bias_m");
 			RequireFinite(config.m_uplift_height_m, "uplift_height_m");
 			RequireFinite(config.m_mountain_base_height_m, "mountain_base_height_m");
+			RequireFinite(config.m_basin_depth_m, "basin_depth_m");
+			RequireFinite(config.m_basin_threshold, "basin_threshold");
 			Validate(config.m_regional_base, "regional_base");
 			Validate(config.m_region_selector, "region_selector");
 			Validate(config.m_region_uplift, "region_uplift");
@@ -93,6 +95,7 @@ namespace pr::physics::terrain::landscape
 			Validate(config.m_plains, "plains");
 			Validate(config.m_hills, "hills");
 			Validate(config.m_mountains, "mountains");
+			Validate(config.m_basin_selector, "basin_selector");
 		}
 
 		// Require one query position to stay finite and within the documented supported range.
@@ -136,10 +139,13 @@ namespace pr::physics::terrain::landscape
 		m_recipe.m_fields[6] = Prepare({warp.m_amplitude_m, warp.m_wavelength_m, warp.m_octave_count, warp.m_lacunarity, warp.m_persistence}, MixSeed(config.m_seed, 7));
 		m_recipe.m_fields[7] = m_recipe.m_fields[6];
 		m_recipe.m_fields[7].m_seed = MixSeed(config.m_seed, 8);
+		m_recipe.m_fields[8] = Prepare(config.m_basin_selector, MixSeed(config.m_seed, 9));
 		m_recipe.m_supported_coordinate_abs_m = config.m_supported_coordinate_abs_m;
 		m_recipe.m_sea_level_bias_m = config.m_sea_level_bias_m;
 		m_recipe.m_uplift_height_m = config.m_uplift_height_m;
 		m_recipe.m_mountain_base_height_m = config.m_mountain_base_height_m;
+		m_recipe.m_basin_depth_m = config.m_basin_depth_m;
+		m_recipe.m_basin_threshold = config.m_basin_threshold;
 		m_recipe.m_material_id = config.m_material_id;
 	}
 

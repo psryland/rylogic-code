@@ -84,6 +84,14 @@ public sealed class Engine :IDisposable
 		Native.Check(Native.Physics_EngineCylindricalBoundarySet(Handle, configuration.HasValue ? &value : null));
 	}
 
+	/// <summary>Replace or disable the water environment between completed frames. Water does not change checkpoint content.</summary>
+	public unsafe void SetWater(WaterConfiguration? configuration)
+	{
+		EnsureOwner();
+		var value = configuration.GetValueOrDefault();
+		Native.Check(Native.Physics_EngineWaterSet(Handle, configuration.HasValue ? &value : null));
+	}
+
 	/// <summary>Create a sphere collision shape.</summary>
 	public unsafe Shape CreateSphere(float radius, ShapeOptions? options = null, bool hollow = false)
 	{

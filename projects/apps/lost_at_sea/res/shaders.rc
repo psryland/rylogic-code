@@ -5,6 +5,7 @@
 
 #include "pr/hlsl/pr_hlsl.rc"
 
+pr/view3d-12/shaders/vertex.hlsli           TEXT DISCARDABLE "pr/view3d-12/shaders/vertex.hlsli"
 src/shaders/hlsl/types.hlsli                TEXT DISCARDABLE "view3d-12/src/shaders/hlsl/types.hlsli"
 src/shaders/hlsl/forward/forward_cbuf.hlsli TEXT DISCARDABLE "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 src/shaders/hlsl/forward/kbuffer.hlsli      TEXT DISCARDABLE "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"

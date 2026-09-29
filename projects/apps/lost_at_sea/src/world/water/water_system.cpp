@@ -9,16 +9,11 @@ namespace las::water
 {
 	namespace
 	{
-		// Create one typed Gerstner element using the canonical shared field layout.
+		// Create one typed Gerstner element using the shared water-field factory.
 		WaterFieldElement MakeGerstnerWave(v2 direction, float amplitude, float wavelength, float phase_speed, float steepness)
 		{
-			direction = Normalise(direction);
-
-			auto element = WaterFieldElement{};
-			element.info = {WaterFieldElementTypeGerstnerWave, 0, 0, 0};
-			element.position = {direction.x, direction.y, 0.0f, 0.0f};
-			element.wave = {amplitude, wavelength, phase_speed, steepness};
-			return element;
+			// The shared factory owns direction normalisation and payload validation.
+			return physics::terrain::water::GerstnerWave(direction, amplitude, wavelength, phase_speed, steepness);
 		}
 
 		// Report whether a scalar is suitable for deterministic field materialisation.
@@ -28,10 +23,18 @@ namespace las::water
 		}
 	}
 
-	// Return the populated prefix of the fixed-capacity field.
+	// Return the active shared field elements.
 	std::span<WaterFieldElement const> Snapshot::Elements() const
 	{
-		return {m_elements.data(), static_cast<size_t>(m_element_count)};
+		// Snapshots expose the shared field storage directly so render and physics consumers use the same elements.
+		return m_field.Elements();
+	}
+
+	// Return the still-water level used by the snapshot.
+	float Snapshot::WaterLevel() const
+	{
+		// The shared field owns the level so no second representation can drift out of sync.
+		return static_cast<float>(m_field.Level());
 	}
 
 	// Construct the field with the default Gerstner ocean and a reproducible generator sequence.
@@ -262,25 +265,34 @@ namespace las::water
 		return distribution(m_rng);
 	}
 
-	// Materialise age and all active parameters into the fixed-stride GPU field.
+	// Materialise age and all active parameters into the shared water field.
 	void System::RebuildSnapshot(double simulation_time_s)
 	{
+		// Start from an empty field for this exact simulation time.
 		m_snapshot = {};
-		m_snapshot.m_water_level = 0.0f;
 		m_snapshot.m_time_s = static_cast<float>(simulation_time_s);
 
 		// Base waves and disturbances share one typed array. Event age is calculated once in double precision and stored as a small float for both GPU consumers.
+		auto elements = std::array<WaterFieldElement, MaxWaterFieldElementCount>{};
+		auto element_count = 0;
 		for (auto const& element : m_base_field)
-			m_snapshot.m_elements[m_snapshot.m_element_count++] = element;
+			elements[element_count++] = element;
 
 		for (auto const& stone_drop : m_stone_drops)
 		{
 			auto age_s = static_cast<float>(simulation_time_s - stone_drop.m_start_time_s);
-			auto& element = m_snapshot.m_elements[m_snapshot.m_element_count++];
-			element.info = {WaterFieldElementTypeStoneDrop, 0, 0, 0};
-			element.position = {stone_drop.m_position.x, stone_drop.m_position.y, 0.0f, 0.0f};
-			element.wave = {stone_drop.m_amplitude, stone_drop.m_wavelength, stone_drop.m_packet_half_width, stone_drop.m_propagation_speed};
-			element.timing = {age_s, stone_drop.m_lifetime_s, stone_drop.m_attack_time_s, stone_drop.m_attenuation_scale};
+			elements[element_count++] = physics::terrain::water::RadialPacket(
+				stone_drop.m_position,
+				stone_drop.m_amplitude,
+				stone_drop.m_wavelength,
+				stone_drop.m_packet_half_width,
+				stone_drop.m_propagation_speed,
+				age_s,
+				stone_drop.m_lifetime_s,
+				stone_drop.m_attack_time_s,
+				stone_drop.m_attenuation_scale);
 		}
+
+		m_snapshot.m_field = WaterField(0.0, std::span{ elements.data(), static_cast<size_t>(element_count) });
 	}
 }

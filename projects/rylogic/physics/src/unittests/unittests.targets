@@ -165,6 +165,14 @@
 			<PhysicsUnitTest>true</PhysicsUnitTest>
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
 		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)engine_water_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
+		<ClCompile Include="$(MSBuildThisFileDirectory)terrain_water_tests.cpp">
+			<PhysicsUnitTest>true</PhysicsUnitTest>
+			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>
+		</ClCompile>
 		<ClCompile Include="$(MSBuildThisFileDirectory)terrain_baseline_gpu_tests.cpp">
 			<PhysicsUnitTest>true</PhysicsUnitTest>
 			<Filter Condition="'$(MSBuildProjectExtension)' == '.filters'">src\physics</Filter>

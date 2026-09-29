@@ -141,7 +141,8 @@ namespace pr::rdr12
 
 		// Record the multi-sample resolve (or plain copy) of 'bb's depth buffer into the window's
 		// resolved-depth resource, leaving it in a pixel-shader-readable state. The window owns
-		// every barrier involved; callers only choose when in the frame this happens.
+		// every barrier involved; callers only choose when in the frame this happens. Only the
+		// first call in each frame records commands, so independent consumers can all request it.
 		void RecordDepthResolve(GfxCmdList& cmd_list, BackBuffer const& bb);
 
 	private:
@@ -149,6 +150,7 @@ namespace pr::rdr12
 		D3DPtr<ID3D12Resource> m_resolved_depth; // Single-sample copy of the scene depth buffer, created on demand
 		iv2 m_resolved_depth_size;               // Dimensions 'm_resolved_depth' was created with
 		DXGI_FORMAT m_resolved_depth_format;     // Depth format 'm_resolved_depth' was created from
+		int64_t m_resolved_depth_frame;          // The frame number whose depth resolve has been recorded
 
 		// Create the swap chain back buffers
 		void CreateSwapChain(iv2 size);

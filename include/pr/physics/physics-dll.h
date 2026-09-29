@@ -103,6 +103,7 @@ namespace pr::physics
 		D6Constraint = 19,
 		Terrain = 20,
 		CylindricalBoundary = 21,
+		Water = 22,
 	};
 
 	// One explicit terrain frequency band; roundness and weight gain apply to the mountain band.
@@ -227,8 +228,8 @@ namespace pr::physics
 		StructHeader header;
 		std::uint32_t seed;
 		std::int32_t material_id;
-		double supported_coordinate, sea_level_bias, uplift_height, mountain_base;
-		TerrainBand regional_base, region_selector, region_uplift, domain_warp, plains, hills, mountains;
+		double supported_coordinate, sea_level_bias, uplift_height, mountain_base, basin_depth, basin_threshold;
+		TerrainBand regional_base, region_selector, region_uplift, domain_warp, plains, hills, mountains, basin_selector;
 		float surface_spacing;
 		std::uint32_t reserved;
 	};
@@ -242,6 +243,18 @@ namespace pr::physics
 		float surface_spacing;
 	};
 	static_assert(sizeof(CylindricalBoundaryDesc) == 40);
+
+	// A flat water surface at a world-space height, with buoyancy and drag for every dynamic body. Density is kg/m³ and drag rates are 1/s.
+	struct WaterDesc
+	{
+		StructHeader header;
+		double level;
+		float density;
+		float linear_drag_rate;
+		float quadratic_drag_coefficient;
+		float angular_drag_rate;
+	};
+	static_assert(sizeof(WaterDesc) == 32);
 
 	struct Vector4
 	{
@@ -732,6 +745,8 @@ extern "C"
 
 	// Replace or disable the independent infinite-height cylindrical boundary between completed frames; null removes it.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineCylindricalBoundarySet(pr::physics::EngineHandle engine, pr::physics::CylindricalBoundaryDesc const* boundary);
+	// Replace or disable the water environment between completed frames; null removes it. Water does not change native checkpoint content.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineWaterSet(pr::physics::EngineHandle engine, pr::physics::WaterDesc const* water);
 
 	// Material properties.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_MaterialGet(pr::physics::EngineHandle engine, std::int32_t material_id, pr::physics::MaterialProperties* material);

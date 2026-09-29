@@ -423,6 +423,21 @@ namespace Rylogic.Gfx
 				}
 			}
 
+			/// <summary>Whole-screen underwater post effect. Overlays and UI are not affected.</summary>
+			public UnderwaterProps PostEffectUnderwater
+			{
+				get
+				{
+					return View3D_PostEffectUnderwaterGet(Handle);
+				}
+				set
+				{
+					value.Validate();
+					if (!View3D_PostEffectUnderwaterSet(Handle, ref value))
+						throw new InvalidOperationException("The renderer rejected the underwater post effect settings.");
+				}
+			}
+
 			/// <summary>Enumerate the GUIDs associated with this window</summary>
 			public void EnumGuids(Action<Guid> cb)
 			{

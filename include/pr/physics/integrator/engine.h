@@ -7,6 +7,7 @@
 #include "pr/physics/collision/contact.h"
 #include "pr/physics/integrator/engine_config.h"
 #include "pr/physics/integrator/engine_diagnostics.h"
+#include "pr/physics/integrator/engine_water.h"
 #include "pr/physics/surface/forward.h"
 #include "pr/physics/surface/cylindrical_boundary.h"
 #include "pr/physics/terrain/landscape/baseline_surface.h"
@@ -203,6 +204,10 @@ namespace pr::physics
 		std::unique_ptr<struct GpuWorldContacts, Deleter<struct GpuWorldContacts>> m_gpu_world_contacts;
 		bool m_world_surfaces_changed = false;
 
+		// Lazily created water-force pipeline, retained while water is disabled so re-enabling it does not recompile.
+		std::unique_ptr<struct GpuWaterForces, Deleter<struct GpuWaterForces>> m_gpu_water_forces;
+		bool m_water_active = false;
+
 		// GPU collision resolver
 		GpuResolverPtr m_gpu_resolver;
 
@@ -271,6 +276,12 @@ namespace pr::physics
 
 		// Replace or disable an inward-facing, infinite-height cylindrical world boundary between completed frames.
 		void CylindricalBoundary(std::optional<CylindricalBoundaryConfig> boundary);
+
+		// Replace or disable the water environment between completed frames. See WaterConfig. Changing it wakes sleeping bodies on the next step.
+		void Water(std::optional<WaterConfig> water);
+
+		// Return the active water environment, or null when there is none.
+		WaterConfig const* Water() const;
 
 		// Identify the owned static endpoint used by terrain and boundary contacts; it is not a caller-owned body.
 		bool IsWorldContactBody(RigidBody const* body) const;

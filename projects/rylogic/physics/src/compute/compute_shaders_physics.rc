@@ -3,7 +3,7 @@
 //
 // Touch this comment any time an .hlsl/.hlsli file referenced below is edited so MSBuild
 // invalidates compute_shaders_physics.res — RC dependency tracking does not follow .hlsl edits.
-// Touched: 2026-09-27 (zero-group dispatches for provably unused solver colours)
+// Touched: 2026-09-29 (engine water forces use the shared terrain water field)
 src/surface/gpu_world_contacts.hlsl TEXT DISCARDABLE "src/surface/gpu_world_contacts.hlsl"
 pr/physics/terrain/landscape/baseline_surface.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\terrain\\landscape\\baseline_surface.hlsli"
 pr/physics/terrain/landscape/baseline_types.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\terrain\\landscape\\baseline_types.hlsli"
@@ -31,7 +31,9 @@ src/compute/selective.hlsl      TEXT DISCARDABLE "src/compute/selective.hlsl"
 src/compute/sleep.hlsl          TEXT DISCARDABLE "src/compute/sleep.hlsl"
 src/compute/sweep.hlsl          TEXT DISCARDABLE "src/compute/sweep.hlsl"
 src/buoyancy/gpu_buoyancy.hlsl  TEXT DISCARDABLE "src/buoyancy/gpu_buoyancy.hlsl"
+src/buoyancy/gpu_water_forces.hlsl TEXT DISCARDABLE "src/buoyancy/gpu_water_forces.hlsl"
 src/buoyancy/buoyancy_sampler.hlsli TEXT DISCARDABLE "src/buoyancy/buoyancy_sampler.hlsli"
 pr/physics/surface/surface_sampling.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\surface\\surface_sampling.hlsli"
-src/buoyancy/gpu_basic_waves.hlsli TEXT DISCARDABLE "src/buoyancy/gpu_basic_waves.hlsli"
+pr/physics/terrain/water/water_field_types.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\terrain\\water\\water_field_types.hlsli"
+pr/physics/terrain/water/water_field.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\terrain\\water\\water_field.hlsli"
  

@@ -27,15 +27,17 @@ struct BaselineBand
 	int m_octave_count;
 };
 
-// Immutable CPU-prepared recipe. Field order: regional base, selector, uplift, plains, hills, mountains, warp X, warp Y.
+// Immutable CPU-prepared recipe. Field order: regional base, selector, uplift, plains, hills, mountains, warp X, warp Y, basin selector.
 // Upload as one StructuredBuffer element, NOT as a legacy cbuffer (whose array packing differs).
 struct BaselineRecipe
 {
-	BaselineBand m_fields[8];
+	BaselineBand m_fields[9];
 	double m_supported_coordinate_abs_m;
 	double m_sea_level_bias_m;
 	double m_uplift_height_m;
 	double m_mountain_base_height_m;
+	double m_basin_depth_m;
+	double m_basin_threshold;
 	int m_material_id;
 	uint m_reserved;
 };
@@ -57,11 +59,12 @@ struct BaselineResult
 	static_assert(offsetof(BaselineBand, m_lacunarity) == 16 && offsetof(BaselineBand, m_persistence) == 24);
 	static_assert(offsetof(BaselineBand, m_roundness) == 32 && offsetof(BaselineBand, m_weight_gain) == 40);
 	static_assert(offsetof(BaselineBand, m_seed) == 48 && offsetof(BaselineBand, m_octave_count) == 52);
-	static_assert(sizeof(BaselineRecipe) == 488 && alignof(BaselineRecipe) == 8);
-	static_assert(offsetof(BaselineRecipe, m_supported_coordinate_abs_m) == 448);
-	static_assert(offsetof(BaselineRecipe, m_sea_level_bias_m) == 456 && offsetof(BaselineRecipe, m_uplift_height_m) == 464);
-	static_assert(offsetof(BaselineRecipe, m_mountain_base_height_m) == 472 && offsetof(BaselineRecipe, m_reserved) == 484);
-	static_assert(offsetof(BaselineRecipe, m_material_id) == 480);
+	static_assert(sizeof(BaselineRecipe) == 560 && alignof(BaselineRecipe) == 8);
+	static_assert(offsetof(BaselineRecipe, m_supported_coordinate_abs_m) == 504);
+	static_assert(offsetof(BaselineRecipe, m_sea_level_bias_m) == 512 && offsetof(BaselineRecipe, m_uplift_height_m) == 520);
+	static_assert(offsetof(BaselineRecipe, m_mountain_base_height_m) == 528 && offsetof(BaselineRecipe, m_basin_depth_m) == 536);
+	static_assert(offsetof(BaselineRecipe, m_basin_threshold) == 544 && offsetof(BaselineRecipe, m_material_id) == 552);
+	static_assert(offsetof(BaselineRecipe, m_reserved) == 556);
 	static_assert(sizeof(BaselineResult) == 32 && offsetof(BaselineResult, m_status) == 28);
 	static_assert(offsetof(BaselineResult, m_height) == 0 && offsetof(BaselineResult, m_dx) == 8 && offsetof(BaselineResult, m_dy) == 16);
 	static_assert(offsetof(BaselineResult, m_material_id) == 24 && sizeof(v2d) == 16);

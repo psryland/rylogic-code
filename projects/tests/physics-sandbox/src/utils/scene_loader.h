@@ -240,10 +240,10 @@ namespace physics_sandbox::scene_loader
 		ETerrainDisplayMode display = ETerrainDisplayMode::Neutral;
 	};
 
-	// Parsed description of a sine-wave water surface and its sandbox visual mesh.
+	// Parsed description of a water field and its sandbox visual mesh.
 	struct WaterDesc
 	{
-		physics::GpuBuoyancy::WaterSurface surface;
+		physics::terrain::water::WaterField surface;
 		v2 size = v2::Zero();
 		iv2 grid = iv2(32, 32);
 		Colour32 colour = Colour32(0x602080FFU);

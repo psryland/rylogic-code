@@ -1910,6 +1910,7 @@ extern "C"
 				case PhysicsStructId::D6Constraint: *size = sizeof(PhysicsD6Constraint); break;
 				case PhysicsStructId::Terrain: { *size = sizeof(pr::physics::TerrainDesc); break; }
 				case PhysicsStructId::CylindricalBoundary: { *size = sizeof(pr::physics::CylindricalBoundaryDesc); break; }
+				case PhysicsStructId::Water: { *size = sizeof(pr::physics::WaterDesc); break; }
 				default: throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Unknown physics structure identifier");
 			}
 		});
@@ -2144,6 +2145,8 @@ extern "C"
 				.m_sea_level_bias_m = c.sea_level_bias,
 				.m_uplift_height_m = c.uplift_height,
 				.m_mountain_base_height_m = c.mountain_base,
+				.m_basin_depth_m = c.basin_depth,
+				.m_basin_threshold = c.basin_threshold,
 				.m_regional_base = band(c.regional_base),
 				.m_region_selector = band(c.region_selector),
 				.m_region_uplift = band(c.region_uplift),
@@ -2151,6 +2154,7 @@ extern "C"
 				.m_plains = band(c.plains),
 				.m_hills = band(c.hills),
 				.m_mountains = {c.mountains.amplitude, c.mountains.wavelength, c.mountains.octaves, c.mountains.lacunarity, c.mountains.persistence, c.mountains.roundness, c.mountains.weight_gain},
+				.m_basin_selector = band(c.basin_selector),
 			};
 			if (c.domain_warp.reserved != 0 || c.mountains.reserved != 0)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid terrain band reserved field");
@@ -2192,6 +2196,40 @@ extern "C"
 			// Keep presence and checkpoint guards in sync only after replacement succeeds.
 			record.m_engine->CylindricalBoundary(config);
 			record.m_has_cylindrical_boundary = config.has_value();
+		});
+	}
+
+	// Copy water configuration only between completed frames; null disables it.
+	PhysicsStatus __stdcall Physics_EngineWaterSet(PhysicsEngineHandle engine, pr::physics::WaterDesc const* water)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+			auto config = std::optional<pr::physics::WaterConfig>{};
+			if (water != nullptr)
+			{
+				// Invalid values are caller errors, reported without changing the current water.
+				auto const& c = pr::physics::RequireStruct(water);
+				try
+				{
+					config = pr::physics::WaterConfig{
+						.m_field = pr::physics::terrain::water::WaterField{ c.level },
+						.m_density = c.density,
+						.m_linear_drag_rate = c.linear_drag_rate,
+						.m_quadratic_drag_coefficient = c.quadratic_drag_coefficient,
+						.m_angular_drag_rate = c.angular_drag_rate,
+					};
+					config->Validate();
+				}
+				catch (std::exception const& ex)
+				{
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
+				}
+			}
+			record.m_engine->Water(std::move(config));
 		});
 	}
 
