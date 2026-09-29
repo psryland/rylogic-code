@@ -5,6 +5,7 @@
 #ifndef PR_VIEW3D_SHADER_PHONG_LIGHTING_HLSLI
 #define PR_VIEW3D_SHADER_PHONG_LIGHTING_HLSLI
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
+#include "view3d-12/src/shaders/hlsl/lighting/lighting_cbuf.hlsli"
 
 // Returns the intensity of reflected directional light on a surface with normal 'ws_norm' and transparency 'alpha'
 float LightDirectional(in float4 ws_light_direction, in float4 ws_norm, in float alpha)

@@ -62,6 +62,7 @@ namespace pr::rdr12
 		using namespace pr::hlsl;
 
 		#include "view3d-12/src/shaders/hlsl/types.hlsli"
+		#include "view3d-12/src/shaders/hlsl/lighting/lighting_cbuf.hlsli"
 
 		// The constant buffer definitions
 		namespace fwd
@@ -73,13 +74,6 @@ namespace pr::rdr12
 			static_assert((sizeof(CBufFade) % 16) == 0);
 			static_assert((sizeof(CBufScreenSpace) % 16) == 0);
 			static_assert((sizeof(CBufDiag) % 16) == 0);
-		}
-		namespace ds
-		{
-			#include "view3d-12/src/shaders/hlsl/deferred/gbuffer_cbuf.hlsli"
-			static_assert((sizeof(CBufCamera) % 16) == 0);
-			static_assert((sizeof(CBufLighting) % 16) == 0);
-			static_assert((sizeof(CBufNugget) % 16) == 0);
 		}
 		namespace smap
 		{

@@ -119,8 +119,6 @@ namespace Rylogic.Gfx
 		{
 			Invalid = 0,
 			ForwardRender,
-			GBuffer,
-			DSLighting,
 			ShadowMap,
 			RayCast,
 		}
@@ -168,10 +166,6 @@ namespace Rylogic.Gfx
 			FwdRadialFadePS,
 
 			// Deferred rendering
-			GBufferVS,
-			GBufferPS,
-			DSLightingVS,
-			DSLightingPS,
 
 			// Shadows
 			ShadowMapVS,

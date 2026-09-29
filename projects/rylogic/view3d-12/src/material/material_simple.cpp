@@ -107,8 +107,6 @@ namespace pr::rdr12
 					}
 					case ERenderStep::RayCast:
 					case ERenderStep::RayTracing:
-					case ERenderStep::GBuffer:
-					case ERenderStep::DSLighting:
 					{
 						return key;
 					}
@@ -141,8 +139,6 @@ namespace pr::rdr12
 						return;
 					}
 					case ERenderStep::RayTracing:
-					case ERenderStep::GBuffer:
-					case ERenderStep::DSLighting:
 					{
 						return;
 					}
@@ -189,8 +185,6 @@ namespace pr::rdr12
 						return;
 					}
 					case ERenderStep::RayTracing:
-					case ERenderStep::GBuffer:
-					case ERenderStep::DSLighting:
 					{
 						return;
 					}
@@ -329,8 +323,6 @@ namespace pr::rdr12
 				static MaterialSimplePass pass;
 				return &pass;
 			}
-			case ERenderStep::GBuffer:
-			case ERenderStep::DSLighting:
 			case ERenderStep::Invalid:
 			default:
 			{

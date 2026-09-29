@@ -15,10 +15,6 @@ namespace pr::rdr12
 		x(FwdShaderVS     ,)\
 		x(FwdShaderPS     ,)\
 		x(FwdRadialFadePS ,)\
-		x(GBufferVS       ,)\
-		x(GBufferPS       ,)\
-		x(DSLightingVS    ,)\
-		x(DSLightingPS    ,)\
 		x(ShadowMapVS     ,)\
 		x(ShadowMapPS     ,)\
 		x(PointSpritesGS  ,)\

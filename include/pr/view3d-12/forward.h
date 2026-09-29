@@ -381,8 +381,6 @@ namespace pr::rdr12
 		#define PR_ENUM(x)\
 		x(Invalid        , = InvalidId)\
 		x(RenderForward  ,)\
-		x(GBuffer        ,)\
-		x(DSLighting     ,)\
 		x(ShadowMap      ,)\
 		x(RayCast        ,)\
 		x(RayTracing     ,)

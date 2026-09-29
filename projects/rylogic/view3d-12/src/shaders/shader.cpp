@@ -154,19 +154,6 @@ namespace pr::rdr12
 		ByteCode const kbuffer_resolve_vs(compiled::kbuffer_resolve_vs);
 		ByteCode const kbuffer_alpha_resolve_ps(compiled::kbuffer_alpha_resolve_ps);
 
-		// Deferred rendering
-		namespace compiled
-		{
-			#include PR_RDR_SHADER_COMPILED_DIR(gbuffer_vs.h)
-			#include PR_RDR_SHADER_COMPILED_DIR(gbuffer_ps.h)
-			#include PR_RDR_SHADER_COMPILED_DIR(dslighting_vs.h)
-			#include PR_RDR_SHADER_COMPILED_DIR(dslighting_ps.h)
-		}
-		ByteCode const gbuffer_vs(compiled::gbuffer_vs);
-		ByteCode const gbuffer_ps(compiled::gbuffer_ps);
-		ByteCode const dslighting_vs(compiled::dslighting_vs);
-		ByteCode const dslighting_ps(compiled::dslighting_ps);
-
 		// Shadows
 		namespace compiled
 		{

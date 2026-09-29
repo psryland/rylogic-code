@@ -1,0 +1,103 @@
+// L2: 8 spot lights plus a directional light, with transparent objects.
+*Plane floor FFA0A0A0
+{
+	*Data {20 20}
+	*AxisId {+3}
+}
+*LightSource sun FF404040
+{
+	*Style {Directional}
+	*Diffuse {FF404040}
+	*Specular {FF404040 64}
+	*o2w {*pos {-5 -8 10} *LookAt {0 0 0}}
+}
+*LightSource spot0 FFFF4040
+{
+	*Style {Spot}
+	*Diffuse {FFFF4040}
+	*Specular {FF404040 64}
+	*Range {15 0}
+	*Cone {20 35}
+	*o2w {*pos {6 0 5} *LookAt {2.5 0 0}}
+}
+*Sphere marker0 FFFF4040 { *Data {0.05} *o2w {*pos {6 0 5}} }
+*LightSource spot1 FF40FF40
+{
+	*Style {Spot}
+	*Diffuse {FF40FF40}
+	*Specular {FF404040 64}
+	*Range {15 0}
+	*Cone {20 35}
+	*o2w {*pos {4.24264 4.24264 5} *LookAt {1.76777 1.76777 0}}
+}
+*Sphere marker1 FF40FF40 { *Data {0.05} *o2w {*pos {4.24264 4.24264 5}} }
+*LightSource spot2 FF4040FF
+{
+	*Style {Spot}
+	*Diffuse {FF4040FF}
+	*Specular {FF404040 64}
+	*Range {15 0}
+	*Cone {20 35}
+	*o2w {*pos {3.67394e-16 6 5} *LookAt {1.53081e-16 2.5 0}}
+}
+*Sphere marker2 FF4040FF { *Data {0.05} *o2w {*pos {3.67394e-16 6 5}} }
+*LightSource spot3 FFFFFF40
+{
+	*Style {Spot}
+	*Diffuse {FFFFFF40}
+	*Specular {FF404040 64}
+	*Range {15 0}
+	*Cone {20 35}
+	*o2w {*pos {-4.24264 4.24264 5} *LookAt {-1.76777 1.76777 0}}
+}
+*Sphere marker3 FFFFFF40 { *Data {0.05} *o2w {*pos {-4.24264 4.24264 5}} }
+*LightSource spot4 FFFF40FF
+{
+	*Style {Spot}
+	*Diffuse {FFFF40FF}
+	*Specular {FF404040 64}
+	*Range {15 0}
+	*Cone {20 35}
+	*o2w {*pos {-6 7.34788e-16 5} *LookAt {-2.5 3.06162e-16 0}}
+}
+*Sphere marker4 FFFF40FF { *Data {0.05} *o2w {*pos {-6 7.34788e-16 5}} }
+*LightSource spot5 FF40FFFF
+{
+	*Style {Spot}
+	*Diffuse {FF40FFFF}
+	*Specular {FF404040 64}
+	*Range {15 0}
+	*Cone {20 35}
+	*o2w {*pos {-4.24264 -4.24264 5} *LookAt {-1.76777 -1.76777 0}}
+}
+*Sphere marker5 FF40FFFF { *Data {0.05} *o2w {*pos {-4.24264 -4.24264 5}} }
+*LightSource spot6 FFFF8020
+{
+	*Style {Spot}
+	*Diffuse {FFFF8020}
+	*Specular {FF404040 64}
+	*Range {15 0}
+	*Cone {20 35}
+	*o2w {*pos {-1.10218e-15 -6 5} *LookAt {-4.59243e-16 -2.5 0}}
+}
+*Sphere marker6 FFFF8020 { *Data {0.05} *o2w {*pos {-1.10218e-15 -6 5}} }
+*LightSource spot7 FF8020FF
+{
+	*Style {Spot}
+	*Diffuse {FF8020FF}
+	*Specular {FF404040 64}
+	*Range {15 0}
+	*Cone {20 35}
+	*o2w {*pos {4.24264 -4.24264 5} *LookAt {1.76777 -1.76777 0}}
+}
+*Sphere marker7 FF8020FF { *Data {0.05} *o2w {*pos {4.24264 -4.24264 5}} }
+*Sphere glass0 80E0E0FF { *Data {0.7} *o2w {*pos {2.77164 1.14805 0.7}} }
+*Sphere glass1 80E0E0FF { *Data {0.7} *o2w {*pos {1.14805 2.77164 0.7}} }
+*Sphere glass2 80E0E0FF { *Data {0.7} *o2w {*pos {-1.14805 2.77164 0.7}} }
+*Sphere glass3 80E0E0FF { *Data {0.7} *o2w {*pos {-2.77164 1.14805 0.7}} }
+*Sphere glass4 80E0E0FF { *Data {0.7} *o2w {*pos {-2.77164 -1.14805 0.7}} }
+*Sphere glass5 80E0E0FF { *Data {0.7} *o2w {*pos {-1.14805 -2.77164 0.7}} }
+*Sphere glass6 80E0E0FF { *Data {0.7} *o2w {*pos {1.14805 -2.77164 0.7}} }
+*Sphere glass7 80E0E0FF { *Data {0.7} *o2w {*pos {2.77164 -1.14805 0.7}} }
+*Box glass_wall 60FFFFFF { *Data {6 0.1 2} *o2w {*pos {0 0 1}} }
+*Box solid_core FFE0E0E0 { *Data {1 1 2} *o2w {*pos {0 1.5 1}} }

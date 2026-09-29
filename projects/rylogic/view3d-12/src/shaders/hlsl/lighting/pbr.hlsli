@@ -5,6 +5,7 @@
 #ifndef PR_VIEW3D_SHADER_PBR_HLSLI
 #define PR_VIEW3D_SHADER_PBR_HLSLI
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
+#include "view3d-12/src/shaders/hlsl/lighting/lighting_cbuf.hlsli"
 
 // GGX/Trowbridge-Reitz normal distribution term.
 float PbrDistributionGGX(float3 normal, float3 half_vector, float roughness)

@@ -7,6 +7,7 @@
 #ifndef PR_VIEW3D_SHADER_RAY_TRACING_CBUF_HLSLI
 #define PR_VIEW3D_SHADER_RAY_TRACING_CBUF_HLSLI
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
+#include "view3d-12/src/shaders/hlsl/lighting/lighting_cbuf.hlsli"
 
 static const int RayTracingMode_Diagnostic = 0;
 static const int RayTracingMode_HardShadows = 1;

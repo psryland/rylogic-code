@@ -1,0 +1,175 @@
+// L1: 16 coloured point lights over a grid of spheres and a floor.
+*Plane floor FFC0C0C0
+{
+	*Data {20 20}
+	*AxisId {+3}
+}
+*Sphere s00 FFE0E0E0 { *Data {0.6} *o2w {*pos {-6 -6 0.6}} }
+*Sphere s10 FFE0E0E0 { *Data {0.6} *o2w {*pos {-3 -6 0.6}} }
+*Sphere s20 FFE0E0E0 { *Data {0.6} *o2w {*pos {0 -6 0.6}} }
+*Sphere s30 FFE0E0E0 { *Data {0.6} *o2w {*pos {3 -6 0.6}} }
+*Sphere s40 FFE0E0E0 { *Data {0.6} *o2w {*pos {6 -6 0.6}} }
+*Sphere s01 FFE0E0E0 { *Data {0.6} *o2w {*pos {-6 -3 0.6}} }
+*Sphere s11 FFE0E0E0 { *Data {0.6} *o2w {*pos {-3 -3 0.6}} }
+*Sphere s21 FFE0E0E0 { *Data {0.6} *o2w {*pos {0 -3 0.6}} }
+*Sphere s31 FFE0E0E0 { *Data {0.6} *o2w {*pos {3 -3 0.6}} }
+*Sphere s41 FFE0E0E0 { *Data {0.6} *o2w {*pos {6 -3 0.6}} }
+*Sphere s02 FFE0E0E0 { *Data {0.6} *o2w {*pos {-6 0 0.6}} }
+*Sphere s12 FFE0E0E0 { *Data {0.6} *o2w {*pos {-3 0 0.6}} }
+*Sphere s22 FFE0E0E0 { *Data {0.6} *o2w {*pos {0 0 0.6}} }
+*Sphere s32 FFE0E0E0 { *Data {0.6} *o2w {*pos {3 0 0.6}} }
+*Sphere s42 FFE0E0E0 { *Data {0.6} *o2w {*pos {6 0 0.6}} }
+*Sphere s03 FFE0E0E0 { *Data {0.6} *o2w {*pos {-6 3 0.6}} }
+*Sphere s13 FFE0E0E0 { *Data {0.6} *o2w {*pos {-3 3 0.6}} }
+*Sphere s23 FFE0E0E0 { *Data {0.6} *o2w {*pos {0 3 0.6}} }
+*Sphere s33 FFE0E0E0 { *Data {0.6} *o2w {*pos {3 3 0.6}} }
+*Sphere s43 FFE0E0E0 { *Data {0.6} *o2w {*pos {6 3 0.6}} }
+*Sphere s04 FFE0E0E0 { *Data {0.6} *o2w {*pos {-6 6 0.6}} }
+*Sphere s14 FFE0E0E0 { *Data {0.6} *o2w {*pos {-3 6 0.6}} }
+*Sphere s24 FFE0E0E0 { *Data {0.6} *o2w {*pos {0 6 0.6}} }
+*Sphere s34 FFE0E0E0 { *Data {0.6} *o2w {*pos {3 6 0.6}} }
+*Sphere s44 FFE0E0E0 { *Data {0.6} *o2w {*pos {6 6 0.6}} }
+*LightSource light0 FFFF4040
+{
+	*Style {Point}
+	*Diffuse {FFFF4040}
+	*Specular {FF404040 64}
+	*Range {4.0 0.0}
+	*o2w {*pos {-4.5 -4.5 1.5}}
+}
+*Sphere marker0 FFFF4040 { *Data {0.05} *o2w {*pos {-4.5 -4.5 1.5}} }
+*LightSource light1 FF40FF40
+{
+	*Style {Point}
+	*Diffuse {FF40FF40}
+	*Specular {FF404040 64}
+	*Range {4.0 0.0}
+	*o2w {*pos {-1.5 -4.5 1.5}}
+}
+*Sphere marker1 FF40FF40 { *Data {0.05} *o2w {*pos {-1.5 -4.5 1.5}} }
+*LightSource light2 FF4040FF
+{
+	*Style {Point}
+	*Diffuse {FF4040FF}
+	*Specular {FF404040 64}
+	*Range {4.0 0.0}
+	*o2w {*pos {1.5 -4.5 1.5}}
+}
+*Sphere marker2 FF4040FF { *Data {0.05} *o2w {*pos {1.5 -4.5 1.5}} }
+*LightSource light3 FFFFFF40
+{
+	*Style {Point}
+	*Diffuse {FFFFFF40}
+	*Specular {FF404040 64}
+	*Range {4.0 0.0}
+	*o2w {*pos {4.5 -4.5 1.5}}
+}
+*Sphere marker3 FFFFFF40 { *Data {0.05} *o2w {*pos {4.5 -4.5 1.5}} }
+*LightSource light4 FFFF40FF
+{
+	*Style {Point}
+	*Diffuse {FFFF40FF}
+	*Specular {FF404040 64}
+	*Range {4.0 0.0}
+	*o2w {*pos {-4.5 -1.5 1.5}}
+}
+*Sphere marker4 FFFF40FF { *Data {0.05} *o2w {*pos {-4.5 -1.5 1.5}} }
+*LightSource light5 FF40FFFF
+{
+	*Style {Point}
+	*Diffuse {FF40FFFF}
+	*Specular {FF404040 64}
+	*Range {4.0 0.0}
+	*o2w {*pos {-1.5 -1.5 1.5}}
+}
+*Sphere marker5 FF40FFFF { *Data {0.05} *o2w {*pos {-1.5 -1.5 1.5}} }
+*LightSource light6 FFFF8020
+{
+	*Style {Point}
+	*Diffuse {FFFF8020}
+	*Specular {FF404040 64}
+	*Range {4.0 0.0}
+	*o2w {*pos {1.5 -1.5 1.5}}
+}
+*Sphere marker6 FFFF8020 { *Data {0.05} *o2w {*pos {1.5 -1.5 1.5}} }
+*LightSource light7 FF8020FF
+{
+	*Style {Point}
+	*Diffuse {FF8020FF}
+	*Specular {FF404040 64}
+	*Range {4.0 0.0}
+	*o2w {*pos {4.5 -1.5 1.5}}
+}
+*Sphere marker7 FF8020FF { *Data {0.05} *o2w {*pos {4.5 -1.5 1.5}} }
+*LightSource light8 FF20FF80
+{
+	*Style {Point}
+	*Diffuse {FF20FF80}
+	*Specular {FF404040 64}
+	*Range {4.0 0.0}
+	*o2w {*pos {-4.5 1.5 1.5}}
+}
+*Sphere marker8 FF20FF80 { *Data {0.05} *o2w {*pos {-4.5 1.5 1.5}} }
+*LightSource light9 FFFFFFFF
+{
+	*Style {Point}
+	*Diffuse {FFFFFFFF}
+	*Specular {FF404040 64}
+	*Range {4.0 0.0}
+	*o2w {*pos {-1.5 1.5 1.5}}
+}
+*Sphere marker9 FFFFFFFF { *Data {0.05} *o2w {*pos {-1.5 1.5 1.5}} }
+*LightSource light10 FFFF2080
+{
+	*Style {Point}
+	*Diffuse {FFFF2080}
+	*Specular {FF404040 64}
+	*Range {4.0 0.0}
+	*o2w {*pos {1.5 1.5 1.5}}
+}
+*Sphere marker10 FFFF2080 { *Data {0.05} *o2w {*pos {1.5 1.5 1.5}} }
+*LightSource light11 FF80FF20
+{
+	*Style {Point}
+	*Diffuse {FF80FF20}
+	*Specular {FF404040 64}
+	*Range {4.0 0.0}
+	*o2w {*pos {4.5 1.5 1.5}}
+}
+*Sphere marker11 FF80FF20 { *Data {0.05} *o2w {*pos {4.5 1.5 1.5}} }
+*LightSource light12 FF2080FF
+{
+	*Style {Point}
+	*Diffuse {FF2080FF}
+	*Specular {FF404040 64}
+	*Range {4.0 0.0}
+	*o2w {*pos {-4.5 4.5 1.5}}
+}
+*Sphere marker12 FF2080FF { *Data {0.05} *o2w {*pos {-4.5 4.5 1.5}} }
+*LightSource light13 FFFFC080
+{
+	*Style {Point}
+	*Diffuse {FFFFC080}
+	*Specular {FF404040 64}
+	*Range {4.0 0.0}
+	*o2w {*pos {-1.5 4.5 1.5}}
+}
+*Sphere marker13 FFFFC080 { *Data {0.05} *o2w {*pos {-1.5 4.5 1.5}} }
+*LightSource light14 FF80C0FF
+{
+	*Style {Point}
+	*Diffuse {FF80C0FF}
+	*Specular {FF404040 64}
+	*Range {4.0 0.0}
+	*o2w {*pos {1.5 4.5 1.5}}
+}
+*Sphere marker14 FF80C0FF { *Data {0.05} *o2w {*pos {1.5 4.5 1.5}} }
+*LightSource light15 FFC0FF80
+{
+	*Style {Point}
+	*Diffuse {FFC0FF80}
+	*Specular {FF404040 64}
+	*Range {4.0 0.0}
+	*o2w {*pos {4.5 4.5 1.5}}
+}
+*Sphere marker15 FFC0FF80 { *Data {0.05} *o2w {*pos {4.5 4.5 1.5}} }

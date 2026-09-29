@@ -24,7 +24,6 @@ struct CBufNugget //:reg(b1)
 	// Sync with:
 	//   forward_cbuf.hlsli
 	//   shadow_map_cbuf.hlsli
-	//   gbuffer_cbuf.hlsli
 
 	// x = Model flags - See types.hlsli
 	// y = Texture flags

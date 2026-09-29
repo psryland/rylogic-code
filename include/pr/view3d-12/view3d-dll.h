@@ -99,8 +99,6 @@ namespace pr
 		{
 			Invalid = 0,
 			ForwardRender,
-			GBuffer,
-			DSLighting,
 			ShadowMap,
 			RayCast,
 		};
@@ -183,10 +181,6 @@ namespace pr
 			//  *Absolute (optional, default false) - True if 'radius' is absolute, false if 'radius' should be scaled by the focus distance
 			FwdRadialFadePS,
 
-			GBufferVS,
-			GBufferPS,
-			DSLightingVS,
-			DSLightingPS,
 			ShadowMapVS,
 			ShadowMapPS,
 

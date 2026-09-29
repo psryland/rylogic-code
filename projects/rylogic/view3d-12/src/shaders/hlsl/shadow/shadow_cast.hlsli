@@ -8,6 +8,7 @@
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/camera.hlsli"
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
+#include "view3d-12/src/shaders/hlsl/lighting/lighting_cbuf.hlsli"
 
 // Returns a value between [0,1] where 0 means fully in shadow, 1 means not in shadow
 float LightVisibility(uniform Shadow shadow, float4 ws_pos)
