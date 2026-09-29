@@ -9,7 +9,7 @@
 
 namespace pr::rdr12
 {
-	// Whole-screen "looking through water" effect: a colour tint, depth-based distance fog, and a moving distortion.
+	// Whole-screen "looking through water" effect: a colour tint, distance fog below the water surface, and a moving distortion.
 	// The caller decides when the camera is submerged; the effect does not test the camera against any water surface.
 	struct UnderwaterProps
 	{
@@ -33,6 +33,11 @@ namespace pr::rdr12
 		// Distortion animation rate, in cycles per second.
 		float m_distortion_speed = 0.25f;
 
+		// World-space water surface plane: xyz is the normal pointing out of the water, and Dot(m_surface, point) > 0 above the water.
+		// Fog applies only to the part of each view ray that is below this plane, so surfaces seen through the water surface stay visible.
+		// Zero means there is no surface and the whole view is in water.
+		v4 m_surface = v4::Zero();
+
 		// Reject invalid settings without changing the current scene settings.
 		void Validate() const
 		{
@@ -44,10 +49,24 @@ namespace pr::rdr12
 				throw std::invalid_argument("Underwater distortion frequency must be finite and greater than zero");
 			if (!std::isfinite(m_distortion_speed) || m_distortion_speed < 0.0f)
 				throw std::invalid_argument("Underwater distortion speed must be finite and not negative");
+			if (!IsFinite(m_surface) || (Any(m_surface != v4::Zero()) && LengthSq(m_surface.w0()) == 0.0f))
+				throw std::invalid_argument("Underwater surface must be finite, and either zero or have a non-zero normal");
 		}
 
 		// Compare all settings, including those retained while disabled.
-		friend bool operator == (UnderwaterProps const&, UnderwaterProps const&) = default;
+		friend bool operator == (UnderwaterProps const& lhs, UnderwaterProps const& rhs)
+		{
+			// Vector comparisons are per component, so the surface needs all components to match.
+			return
+				lhs.m_enabled == rhs.m_enabled &&
+				lhs.m_tint == rhs.m_tint &&
+				lhs.m_fog_colour == rhs.m_fog_colour &&
+				lhs.m_visibility == rhs.m_visibility &&
+				lhs.m_distortion_amplitude == rhs.m_distortion_amplitude &&
+				lhs.m_distortion_frequency == rhs.m_distortion_frequency &&
+				lhs.m_distortion_speed == rhs.m_distortion_speed &&
+				All(lhs.m_surface == rhs.m_surface);
+		}
 	};
 
 	// The post-processing effects of one scene.

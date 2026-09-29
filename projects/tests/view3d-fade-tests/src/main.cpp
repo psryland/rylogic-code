@@ -2108,7 +2108,9 @@ namespace fade_tests
 		Require(!View3D_PostEffectUnderwaterSet(fixture.m_window, invalid), "DLL accepted NaN frequency");
 		invalid = api::UnderwaterProps{.m_enabled = TRUE, .m_distortion_amplitude = -1.0f};
 		Require(!View3D_PostEffectUnderwaterSet(fixture.m_window, invalid), "DLL accepted negative amplitude");
-		Require(fixture.m_errors.size() == 3, "DLL did not report each invalid setting");
+		invalid = api::UnderwaterProps{.m_enabled = TRUE, .m_surface = api::Vec4{0, 0, 0, 1}};
+		Require(!View3D_PostEffectUnderwaterSet(fixture.m_window, invalid), "DLL accepted a surface without a normal");
+		Require(fixture.m_errors.size() == 4, "DLL did not report each invalid setting");
 		fixture.m_errors.clear();
 		Require(!View3D_PostEffectUnderwaterGet(fixture.m_window).m_enabled, "Failed setter mutated settings");
 
@@ -2177,6 +2179,41 @@ namespace fade_tests
 		underwater(true);
 		Expect(fixture.Image(), 0.5f,0.5f,0.5f);
 		props.m_distortion_amplitude = 0.0f;
+
+		// With a surface plane, fog covers only the underwater part of each ray. Orthographic rays start on the camera plane,
+		// so rays above a horizontal surface are only tinted while rays below it are fully fogged.
+		std::cout << "Surface plane" << std::endl;
+		props.m_surface = api::Vec4{0, 1, 0, 0};
+		underwater(true);
+		auto split = fixture.Image();
+		Expect(split, 1,0,1, 64,32);
+		Expect(split, 0.5f,0.5f,0.5f, 64,96);
+		Expect(split, 0,0,0, 2,2);
+		Expect(split, 0,1,0, 2,125);
+
+		// A surface crossing the view ray part way fogs only the submerged length.
+		props.m_surface = api::Vec4{0, 0, 1, 30};
+		underwater(true);
+		f = fog(20);
+		Expect(fixture.Image(), 1 - f, f, 1 - f);
+
+		// From below the surface in perspective, rays that rise through it are fogged only up to the surface, and open sky stays visible.
+		props.m_surface = api::Vec4{0, 1, 0, -10};
+		underwater(true);
+		View3D_CameraOrthographicSet(fixture.m_window, FALSE);
+		View3D_CameraFovSet(fixture.m_window, api::Vec2{1.5707963268f, 1.5707963268f});
+		auto looking_up = fixture.Image();
+		Expect(looking_up, 0.5f,0.5f,0.5f);
+		auto ndc_y = 1 - 2 * 16.5f / ImageSize;
+		f = fog(10 / (ndc_y * 50) * std::sqrt(50 * 50 + ndc_y * 50 * ndc_y * 50));
+		Expect(looking_up, 1 - f, f, 1 - f, 64,16);
+		ndc_y = 1 - 2 * 2.5f / ImageSize;
+		f = fog(10 * std::sqrt(1 + ndc_y * ndc_y) / ndc_y);
+		Expect(looking_up, 0, f, 0, 64,2);
+		View3D_CameraOrthographicSet(fixture.m_window, TRUE);
+		View3D_CameraViewRectAtDistanceSet(fixture.m_window, api::Vec2{100,100}, 1.0f);
+		props.m_surface = api::Vec4{};
+		underwater(true);
 
 		// Retained screen UI is drawn after post-processing, so the overlay marker keeps its colour.
 		std::cout << "Overlay exclusion" << std::endl;

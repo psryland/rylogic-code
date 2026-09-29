@@ -38,6 +38,19 @@ namespace pr::rdr12
 		float m_clear_depth;                        // Depth value of pixels where no geometry was drawn
 	};
 
+	// Convert a world-space plane to camera space with a unit-length normal. A zero plane stays zero.
+	static v4 CameraSpaceSurface(v4 surface, m4x4 const& c2w)
+	{
+		// Planes transform by the transpose of the point transform: the normal rotates into camera space, and the
+		// offset becomes the plane's signed distance at the camera origin.
+		if (All(surface == v4::Zero()))
+			return v4::Zero();
+
+		auto plane = surface / Length(surface.w0());
+		auto normal = InvertAffine(c2w) * plane.w0();
+		return v4{ normal.x, normal.y, normal.z, Dot(plane, c2w.pos) };
+	}
+
 	PostProcessing::PostProcessing(Renderer& rdr)
 		: m_rdr(&rdr)
 		, m_underwater()
@@ -288,6 +301,7 @@ namespace pr::rdr12
 			.tint = Colour(props.m_tint).rgba,
 			.fog_colour = Colour(props.m_fog_colour).rgba,
 			.viewport = v4{ vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height },
+			.surface = CameraSpaceSurface(props.m_surface, ctx.m_scene.m_cam.CameraToWorld()),
 			.visibility = props.m_visibility,
 			.phase = s_cast<float>(constants<double>::tau * (cycles - std::floor(cycles))),
 			.distortion_amplitude = props.m_distortion_amplitude,

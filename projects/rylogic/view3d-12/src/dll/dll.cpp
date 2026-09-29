@@ -608,6 +608,7 @@ VIEW3D_API view3d::UnderwaterProps __stdcall View3D_PostEffectUnderwaterGet(view
 			.m_distortion_amplitude = props.m_distortion_amplitude,
 			.m_distortion_frequency = props.m_distortion_frequency,
 			.m_distortion_speed = props.m_distortion_speed,
+			.m_surface = To<view3d::Vec4>(props.m_surface),
 		};
 	}
 	CatchAndReport(View3D_PostEffectUnderwaterGet, window, {});
@@ -628,6 +629,7 @@ VIEW3D_API BOOL __stdcall View3D_PostEffectUnderwaterSet(view3d::Window window, 
 			.m_distortion_amplitude = props.m_distortion_amplitude,
 			.m_distortion_frequency = props.m_distortion_frequency,
 			.m_distortion_speed = props.m_distortion_speed,
+			.m_surface = To<v4>(props.m_surface),
 		});
 		return TRUE;
 	}

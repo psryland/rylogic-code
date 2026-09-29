@@ -7,7 +7,7 @@ Effects currently available:
 
 | Effect | Settings | Purpose |
 |--------|----------|---------|
-| Underwater | `UnderwaterProps` | Whole-screen tint, depth-based distance fog, and a moving "looking through water" distortion |
+| Underwater | `UnderwaterProps` | Whole-screen tint, distance fog below the water surface, and a moving "looking through water" distortion |
 
 ## Pipeline position
 
@@ -81,17 +81,25 @@ water height) and enables or disables the effect. The effect does not test the c
 | `m_distortion_amplitude` | `0.002` | Largest screen offset, as a fraction of the viewport height (>= 0, 0 = no distortion) |
 | `m_distortion_frequency` | `6` | Ripples per viewport height (must be > 0) |
 | `m_distortion_speed` | `0.25` | Animation cycles per second (>= 0, 0 = still) |
+| `m_surface` | zero | World-space water surface plane, normal pointing out of the water (zero = no surface) |
 
 For each pixel:
 
 1. The screen position is offset by a sum of sine waves, then clamped to the viewport. The offset is corrected for
    aspect ratio, so ripples are round.
 2. The scene colour is read at the offset position. Alpha is kept unchanged.
-3. The distance to the surface is found from the resolved depth, using the inverse of the camera projection. It is
-   the straight-line distance from the camera for perspective cameras, and the forward depth for orthographic
-   cameras. Pixels without geometry (the background) are treated as infinitely far away, so they are fully fogged.
-4. `fog = 1 - exp(-3 * distance / visibility)` and `colour = lerp(colour * tint, fog_colour, fog)`.
+3. The view ray to the surface is rebuilt from the resolved depth, using the inverse of the camera projection.
+   Perspective rays start at the camera; orthographic rays start on the camera plane. Pixels without geometry (the
+   background) have an unbounded ray.
+4. The fog distance is the length of the ray that is under water. Without a surface plane this is the whole ray, and
+   an unbounded ray is infinitely long, so the background is fully fogged. With a surface plane, only the part of the
+   ray below the plane counts. So terrain and sky seen through the surface from below keep their colour (with the tint
+   and distortion), while an unbounded ray that never rises through the surface is still fully fogged.
+5. `fog = 1 - exp(-3 * distance / visibility)` and `colour = lerp(colour * tint, fog_colour, fog)`.
    The blend happens in linear colour space.
+
+The surface plane is flat. For a wavy surface, pass a plane that matches the water height near the camera. The plane
+does not produce refraction or total internal reflection at the surface.
 
 Depth is read at the same distorted position as the colour, so the fog always matches the surface it covers.
 
@@ -102,7 +110,7 @@ before it is sent to the GPU, so precision does not degrade after long run times
 ## Adding an effect
 
 1. Add a settings struct next to `UnderwaterProps` in `post_processing.h`, with `m_enabled`, defaults,
-   `Validate()`, and a defaulted `operator ==`. Add get/set members to `PostProcessing`.
+   `Validate()`, and an `operator ==`. Add get/set members to `PostProcessing`.
 2. Add a shader in `src/shaders/hlsl/postprocessing/` with a shared `*_cbuf.hlsli` constant buffer. Reuse
    `VSPostEffect` for the full-screen triangle. Register the entry points in `view3d-12.vcxproj` and `shader.h/.cpp`.
 3. Add a `Record<Effect>` pass function and its PSO. Put it into the pass list in `PostProcessing::Render` at its
@@ -120,7 +128,8 @@ motion blur) and whole-screen colour effects (such as underwater) last.
 Build `projects\tests\view3d-fade-tests\view3d-fade-tests.vcxproj` (VS 2026, v145, Debug/x64), then run
 `obj\x64\Debug\view3d-fade-tests.exe --post-effects`. The invisible-window fixture reads rendered pixels at
 1x and 4x MSAA. It covers defaults, invalid-settings rejection, disabled-image equality, tint, depth fog,
-background fog, overlay exclusion, and restoring the image when the effect is disabled. GPU debug-layer errors fail
+background fog, surface-plane fog (orthographic and perspective, from above and below the plane), overlay exclusion,
+and restoring the image when the effect is disabled. GPU debug-layer errors fail
 the fixture.
 
 Build `projects\rylogic\Rylogic.Gfx\Rylogic.Gfx.csproj` in Debug to run the inline managed validation and

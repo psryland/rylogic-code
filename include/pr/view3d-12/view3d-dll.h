@@ -559,18 +559,6 @@ namespace pr
 			float m_start_fraction = 0.9f;
 			float m_end_fraction = 0.99f;
 		};
-		// Whole-screen underwater post effect. Colours are sRGB ARGB; alpha is ignored.
-		// Requires finite visibility > 0, distortion amplitude >= 0, frequency > 0, and speed >= 0.
-		struct UnderwaterProps
-		{
-			BOOL m_enabled = FALSE;
-			Colour m_tint = 0xFFA6D9F2U;
-			Colour m_fog_colour = 0xFF0A384DU;
-			float m_visibility = 40.0f;
-			float m_distortion_amplitude = 0.002f;
-			float m_distortion_frequency = 6.0f;
-			float m_distortion_speed = 0.25f;
-		};
 		struct RayTracingInfo
 		{
 			BOOL m_requested;
@@ -639,6 +627,22 @@ namespace pr
 		struct Mat4x4
 		{
 			Vec4 x, y, z, w;
+		};
+
+		// Whole-screen underwater post effect. Colours are sRGB ARGB; alpha is ignored.
+		// Requires finite visibility > 0, distortion amplitude >= 0, frequency > 0, and speed >= 0.
+		// 'm_surface' is a world-space plane with its normal pointing out of the water; fog applies only below it.
+		// It must be finite, and either zero (the whole view is in water) or have a non-zero normal.
+		struct UnderwaterProps
+		{
+			BOOL m_enabled = FALSE;
+			Colour m_tint = 0xFFA6D9F2U;
+			Colour m_fog_colour = 0xFF0A384DU;
+			float m_visibility = 40.0f;
+			float m_distortion_amplitude = 0.002f;
+			float m_distortion_frequency = 6.0f;
+			float m_distortion_speed = 0.25f;
+			Vec4 m_surface = {};
 		};
 
 		// Parameters for a UV-free GPU procedural surface applied to a PBR material.
