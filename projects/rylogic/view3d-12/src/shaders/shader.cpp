@@ -164,6 +164,15 @@ namespace pr::rdr12
 		ByteCode const kbuffer_resolve_vs(compiled::kbuffer_resolve_vs);
 		ByteCode const kbuffer_alpha_resolve_ps(compiled::kbuffer_alpha_resolve_ps);
 
+		// Post-processing
+		namespace compiled
+		{
+			#include PR_RDR_SHADER_COMPILED_DIR(post_effect_vs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(underwater_ps.h)
+		}
+		ByteCode const post_effect_vs(compiled::post_effect_vs);
+		ByteCode const underwater_ps(compiled::underwater_ps);
+
 		// Deferred rendering
 		namespace compiled
 		{

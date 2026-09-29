@@ -89,6 +89,7 @@ namespace pr::rdr12
 		, m_resolved_depth()
 		, m_resolved_depth_size()
 		, m_resolved_depth_format(DXGI_FORMAT_UNKNOWN)
+		, m_resolved_depth_frame(-1)
 	{
 		// Notes:
 		//  The swap chain is the data that's sent to the monitor, and monitors can't display MSAA textures.
@@ -630,6 +631,7 @@ namespace pr::rdr12
 		frame.m_resolve.Close();
 		frame.m_composite.Close();
 		frame.m_depth_resolve.Close();
+		frame.m_post_effects.Close();
 		frame.m_world_overlay.Close();
 		frame.m_final_overlay.Close();
 		frame.m_present.Close();
@@ -642,8 +644,9 @@ namespace pr::rdr12
 
 		// Submit the command lists to the GPU. World-depth work is scene-adjacent so it runs
 		// against the multi-sampled target before the resolve; the depth resolve runs after all
-		// scene depth writes (including post-processing) so the copy it produces is complete; and
-		// world overlays run after alpha compositing but before screen-space overlays, which stay
+		// scene depth writes (including post-processing) so the copy it produces is complete;
+		// post effects then read the composited colour and resolved depth; and world overlays
+		// run after the scene output is final but before screen-space overlays, which stay
 		// strictly last.
 		rdr().ExecuteGfxCommandLists({
 			frame.m_prepare,
@@ -653,6 +656,7 @@ namespace pr::rdr12
 			frame.m_post,
 			frame.m_composite,
 			frame.m_depth_resolve,
+			frame.m_post_effects,
 			frame.m_world_overlay,
 			frame.m_final_overlay,
 			frame.m_present,
@@ -863,10 +867,15 @@ namespace pr::rdr12
 	// Record the resolve/copy of 'bb's depth buffer into the window's resolved-depth resource.
 	void Window::RecordDepthResolve(GfxCmdList& cmd_list, BackBuffer const& bb)
 	{
+		// Several consumers may request the depth copy; the first request in a frame records it.
+		if (m_resolved_depth_frame == m_frame_number)
+			return;
+
 		auto dst = ResolvedDepth(bb);
 		if (dst == nullptr)
 			return;
 
+		m_resolved_depth_frame = m_frame_number;
 		// D3DPtr propagates const from the back buffer reference, but the transfer does not modify the
 		// source depth buffer's identity, only its contents' visibility to the copy engine.
 		auto src = const_cast<ID3D12Resource*>(bb.m_depth_stencil.get());

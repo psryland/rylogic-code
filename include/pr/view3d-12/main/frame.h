@@ -27,6 +27,7 @@ namespace pr::rdr12
 		GfxCmdList m_resolve;       // Commands that resolve/copy the MSAA buffer and seed the K-buffer opaque colour
 		GfxCmdList m_composite;     // Commands that composite transparent and diagnostic scene output
 		GfxCmdList m_depth_resolve; // Commands that produce the single-sample read-only copy of the scene depth buffer
+		GfxCmdList m_post_effects;  // Commands for scene post-processing effects, after alpha resolution and depth resolve, before world overlays
 		GfxCmdList m_world_overlay; // Commands for world-anchored overlays, after alpha resolution and before screen-space overlays
 		GfxCmdList m_final_overlay; // Commands for optional final overlays after all scene output
 		GfxCmdList m_present;       // The authoritative final transition to the present state
@@ -46,6 +47,7 @@ namespace pr::rdr12
 			, m_resolve(device, cmd_alloc_pool.Get(), nullptr, "Resolve", EColours::Orange)
 			, m_composite(device, cmd_alloc_pool.Get(), nullptr, "Composite", EColours::Orange)
 			, m_depth_resolve(device, cmd_alloc_pool.Get(), nullptr, "DepthResolve", EColours::Orange)
+			, m_post_effects(device, cmd_alloc_pool.Get(), nullptr, "PostEffects", EColours::Orange)
 			, m_world_overlay(device, cmd_alloc_pool.Get(), nullptr, "WorldOverlay", EColours::Orange)
 			, m_final_overlay(device, cmd_alloc_pool.Get(), nullptr, "FinalOverlay", EColours::Orange)
 			, m_present(device, cmd_alloc_pool.Get(), nullptr, "Present", EColours::Orange)
@@ -59,6 +61,7 @@ namespace pr::rdr12
 			m_resolve.Close();
 			m_composite.Close();
 			m_depth_resolve.Close();
+			m_post_effects.Close();
 			m_world_overlay.Close();
 			m_final_overlay.Close();
 			m_present.Close();
@@ -81,6 +84,7 @@ namespace pr::rdr12
 			m_resolve.Reset(m_cmd_alloc_pool.Get());
 			m_composite.Reset(m_cmd_alloc_pool.Get());
 			m_depth_resolve.Reset(m_cmd_alloc_pool.Get());
+			m_post_effects.Reset(m_cmd_alloc_pool.Get());
 			m_world_overlay.Reset(m_cmd_alloc_pool.Get());
 			m_final_overlay.Reset(m_cmd_alloc_pool.Get());
 			m_present.Reset(m_cmd_alloc_pool.Get());

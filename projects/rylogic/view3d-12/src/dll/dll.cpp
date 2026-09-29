@@ -592,6 +592,48 @@ VIEW3D_API BOOL __stdcall View3D_FarClipFadePropertiesSet(view3d::Window window,
 	CatchAndReport(View3D_FarClipFadePropertiesSet, window, FALSE);
 }
 
+// Return the scene-owned underwater post effect settings through the stable DLL layout.
+VIEW3D_API view3d::UnderwaterProps __stdcall View3D_PostEffectUnderwaterGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+		DllLockGuard;
+		auto props = window->PostEffectUnderwater();
+		return view3d::UnderwaterProps{
+			.m_enabled = props.m_enabled,
+			.m_tint = props.m_tint.argb,
+			.m_fog_colour = props.m_fog_colour.argb,
+			.m_visibility = props.m_visibility,
+			.m_distortion_amplitude = props.m_distortion_amplitude,
+			.m_distortion_frequency = props.m_distortion_frequency,
+			.m_distortion_speed = props.m_distortion_speed,
+		};
+	}
+	CatchAndReport(View3D_PostEffectUnderwaterGet, window, {});
+}
+
+// Set complete validated underwater settings, reporting failure without partially applying them.
+VIEW3D_API BOOL __stdcall View3D_PostEffectUnderwaterSet(view3d::Window window, view3d::UnderwaterProps const& props)
+{
+	try
+	{
+		Validate(window);
+		DllLockGuard;
+		window->PostEffectUnderwater(rdr12::UnderwaterProps{
+			.m_enabled = props.m_enabled != FALSE,
+			.m_tint = Colour32{props.m_tint},
+			.m_fog_colour = Colour32{props.m_fog_colour},
+			.m_visibility = props.m_visibility,
+			.m_distortion_amplitude = props.m_distortion_amplitude,
+			.m_distortion_frequency = props.m_distortion_frequency,
+			.m_distortion_speed = props.m_distortion_speed,
+		});
+		return TRUE;
+	}
+	CatchAndReport(View3D_PostEffectUnderwaterSet, window, FALSE);
+}
+
 // Get/Set the dimensions of the render target
 // In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.
 VIEW3D_API SIZE __stdcall View3D_WindowBackBufferSizeGet(view3d::Window window)

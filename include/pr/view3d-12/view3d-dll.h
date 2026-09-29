@@ -523,6 +523,7 @@ namespace pr
 			Rendering            = 1 << 21,
 			Rendering_RayTracing = Rendering | 1 << 0,
 			Rendering_FarClipFade = Rendering | 1 << 1,
+			Rendering_PostEffects = Rendering | 1 << 2,
 
 			_flags_enum = 0,
 
@@ -557,6 +558,18 @@ namespace pr
 			BOOL m_enabled = FALSE;
 			float m_start_fraction = 0.9f;
 			float m_end_fraction = 0.99f;
+		};
+		// Whole-screen underwater post effect. Colours are sRGB ARGB; alpha is ignored.
+		// Requires finite visibility > 0, distortion amplitude >= 0, frequency > 0, and speed >= 0.
+		struct UnderwaterProps
+		{
+			BOOL m_enabled = FALSE;
+			Colour m_tint = 0xFFA6D9F2U;
+			Colour m_fog_colour = 0xFF0A384DU;
+			float m_visibility = 40.0f;
+			float m_distortion_amplitude = 0.002f;
+			float m_distortion_frequency = 6.0f;
+			float m_distortion_speed = 0.25f;
 		};
 		struct RayTracingInfo
 		{
@@ -1103,6 +1116,8 @@ extern "C"
 	// Skybox, PostAlpha and retained UI are excluded. Picking/shadows remain geometric; see scene/far_clip_fade.md.
 	VIEW3D_API pr::view3d::FarClipFadeProps __stdcall View3D_FarClipFadePropertiesGet(pr::view3d::Window window);
 	VIEW3D_API BOOL __stdcall View3D_FarClipFadePropertiesSet(pr::view3d::Window window, pr::view3d::FarClipFadeProps const& props);
+	VIEW3D_API pr::view3d::UnderwaterProps __stdcall View3D_PostEffectUnderwaterGet(pr::view3d::Window window);
+	VIEW3D_API BOOL __stdcall View3D_PostEffectUnderwaterSet(pr::view3d::Window window, pr::view3d::UnderwaterProps const& props);
 
 	// Get/Set the dimensions of the render target. Note: Not equal to window size for non-96 dpi screens!
 	// In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.

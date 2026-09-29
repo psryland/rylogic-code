@@ -2092,6 +2092,106 @@ namespace fade_tests
 		fixture.CheckErrors();
 		std::cout << "PASS repeated custom-scene/world handoff, real procedural sky overlap, and flag sort-group ownership: MSAA " << samples << '\n';
 	}
+
+	// Verify the underwater post-effect settings API, its tint and depth fog, and its exclusion of UI overlays.
+	void PostEffectTests(int samples)
+	{
+		// Defaults are disabled, and invalid settings are rejected without changing the current settings.
+		std::cout << "Post-effect defaults and validation, MSAA " << samples << std::endl;
+		Fixture fixture(samples);
+		auto defaults = View3D_PostEffectUnderwaterGet(fixture.m_window);
+		Require(!defaults.m_enabled && defaults.m_tint == 0xFFA6D9F2U && defaults.m_fog_colour == 0xFF0A384DU && defaults.m_visibility == 40.0f, "Underwater defaults differ");
+		Require(defaults.m_distortion_amplitude == 0.002f && defaults.m_distortion_frequency == 6.0f && defaults.m_distortion_speed == 0.25f, "Underwater distortion defaults differ");
+		auto invalid = api::UnderwaterProps{.m_enabled = TRUE, .m_visibility = 0.0f};
+		Require(!View3D_PostEffectUnderwaterSet(fixture.m_window, invalid), "DLL accepted zero visibility");
+		invalid = api::UnderwaterProps{.m_enabled = TRUE, .m_distortion_frequency = std::numeric_limits<float>::quiet_NaN()};
+		Require(!View3D_PostEffectUnderwaterSet(fixture.m_window, invalid), "DLL accepted NaN frequency");
+		invalid = api::UnderwaterProps{.m_enabled = TRUE, .m_distortion_amplitude = -1.0f};
+		Require(!View3D_PostEffectUnderwaterSet(fixture.m_window, invalid), "DLL accepted negative amplitude");
+		Require(fixture.m_errors.size() == 3, "DLL did not report each invalid setting");
+		fixture.m_errors.clear();
+		Require(!View3D_PostEffectUnderwaterGet(fixture.m_window).m_enabled, "Failed setter mutated settings");
+
+		// Magenta tint and green fog keep each term separately visible on a white surface.
+		// Visibility is chosen so that fog is exactly 0.5 at a distance of 50.
+		auto props = api::UnderwaterProps{
+			.m_enabled = TRUE,
+			.m_tint = 0xFFFF00FFU,
+			.m_fog_colour = 0xFF00FF00U,
+			.m_visibility = 150.0f / std::log(2.0f),
+			.m_distortion_amplitude = 0.0f,
+		};
+		auto underwater = [&](bool enabled)
+		{
+			// Apply through the DLL API used by applications.
+			props.m_enabled = enabled;
+			Require(View3D_PostEffectUnderwaterSet(fixture.m_window, props) != FALSE, "Underwater settings rejected");
+			fixture.CheckErrors();
+		};
+		auto fog = [&](float distance)
+		{
+			// Mirror the documented fog curve.
+			return 1.0f - std::exp(-3.0f * distance / props.m_visibility);
+		};
+
+		// A disabled effect leaves the image unchanged, and disabling it again restores the original pixels.
+		std::cout << "Tint, fog, and toggle" << std::endl;
+		fixture.Quad(50, 0xFFFFFFFF);
+		auto baseline = fixture.Image();
+		Expect(baseline, 1,1,1);
+		underwater(true);
+		auto enabled = fixture.Image();
+		Expect(enabled, 0.5f,0.5f,0.5f);
+		Expect(enabled, 0,1,0, 2,2);
+		underwater(false);
+		Require(baseline == fixture.Image(), "Disabling the underwater effect did not restore the original pixels");
+
+		// Fog grows with distance from the camera.
+		std::cout << "Depth fog" << std::endl;
+		underwater(true);
+		for (auto depth : {10.0f, 90.0f})
+		{
+			fixture.Clear();
+			fixture.Quad(depth, 0xFFFFFFFF);
+			auto f = fog(depth);
+			Expect(fixture.Image(), 1 - f, f, 1 - f);
+		}
+
+		// Perspective cameras use the straight-line distance, so off-axis pixels are more fogged than the centre.
+		std::cout << "Perspective distance" << std::endl;
+		fixture.Clear();
+		fixture.Quad(50, 0xFFFFFFFF);
+		View3D_CameraOrthographicSet(fixture.m_window, FALSE);
+		View3D_CameraFovSet(fixture.m_window, api::Vec2{1.5707963268f, 1.5707963268f});
+		auto perspective = fixture.Image();
+		Expect(perspective, 0.5f,0.5f,0.5f);
+		auto x = (100.5f / ImageSize * 2 - 1) * 50;
+		auto f = fog(std::sqrt(50 * 50 + x * x));
+		Expect(perspective, 1 - f, f, 1 - f, 100,64);
+		View3D_CameraOrthographicSet(fixture.m_window, TRUE);
+		View3D_CameraViewRectAtDistanceSet(fixture.m_window, api::Vec2{100,100}, 1.0f);
+
+		// Distortion moves samples but cannot change the colour of a uniform region.
+		std::cout << "Distortion" << std::endl;
+		props.m_distortion_amplitude = 0.01f;
+		underwater(true);
+		Expect(fixture.Image(), 0.5f,0.5f,0.5f);
+		props.m_distortion_amplitude = 0.0f;
+
+		// Retained screen UI is drawn after post-processing, so the overlay marker keeps its colour.
+		std::cout << "Overlay exclusion" << std::endl;
+		fixture.AttachOverlay();
+		auto overlay = fixture.Image();
+		Expect(overlay, 0,1,0, 10,10);
+		Expect(overlay, 0.5f,0.5f,0.5f);
+		underwater(false);
+		Expect(fixture.Image(), 1,1,1);
+
+		// Any GPU validation error fails the fixture.
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+		std::cout << "PASS underwater post-effect: MSAA " << samples << '\n';
+	}
 }
 
 // Run only the bounded far-clip fixture and return a failing process status for any mismatch.
@@ -2143,6 +2243,13 @@ int main(int argc, char const* const* argv)
 		{
 			// Run only the independently granted lifetime/cancellation regression.
 			fade_tests::RayCastLifetimeTests();
+			return 0;
+		}
+		if (argc == 2 && std::string_view(argv[1]) == "--post-effects")
+		{
+			// Run only the post-processing effects at both sample counts.
+			fade_tests::PostEffectTests(1);
+			fade_tests::PostEffectTests(4);
 			return 0;
 		}
 		fade_tests::Require(argc == 1 || (argc == 2 && std::string_view(argv[1]) == "--numeric-only"), "Expected no arguments or --numeric-only");
