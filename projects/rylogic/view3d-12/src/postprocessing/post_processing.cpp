@@ -51,6 +51,54 @@ namespace pr::rdr12
 		return v4{ normal.x, normal.y, normal.z, Dot(plane, c2w.pos) };
 	}
 
+	// How the camera's near plane meets the water surface.
+	enum class EUnderwaterView
+	{
+		Hidden,   // The whole near plane is above the surface, so nothing is drawn
+		Immersed, // The whole near plane is below the surface
+		Split,    // The surface crosses the near plane
+	};
+	struct UnderwaterView
+	{
+		EUnderwaterView m_view;
+		v4 m_waterline; // Near plane height above the surface as 'x*ndc.x + y*ndc.y + z'. Set only for 'Split'.
+	};
+
+	// Classify the near plane of 'cam' against the surface of 'props'.
+	static UnderwaterView ClassifyUnderwater(UnderwaterProps const& props, SceneCamera const& cam)
+	{
+		// Without a surface, the whole view is in water.
+		if (All(props.m_surface == v4::Zero()))
+			return { EUnderwaterView::Immersed, v4::Zero() };
+
+		// Find the NDC depth of the near plane. The camera looks down -z, so the near plane is at z = -near.
+		auto c2s = cam.CameraToScreen();
+		auto s2c = Invert(c2s);
+		auto near_ndc = c2s * v4{ 0, 0, -s_cast<float>(cam.Near(false)), 1 };
+		auto near_z = near_ndc.z / near_ndc.w;
+
+		// The near plane is flat and maps linearly to NDC x and y, so its height above the surface is linear too.
+		// Measure the height at the NDC origin and its change per unit of NDC x and y.
+		auto surface = CameraSpaceSurface(props.m_surface, cam.CameraToWorld());
+		auto Height = [&](float x, float y)
+		{
+			// Unproject onto the near plane, then measure the signed distance to the surface.
+			auto p = s2c * v4{ x, y, near_z, 1 };
+			return Dot(surface, p / p.w);
+		};
+		auto h0 = Height(0, 0);
+		auto waterline = v4{ Height(1, 0) - h0, Height(0, 1) - h0, h0, 0 };
+
+		// The highest and lowest points of the near plane are at its corners, NDC (+/-1, +/-1).
+		auto spread = Abs(waterline.x) + Abs(waterline.y);
+		if (h0 - spread >= 0)
+			return { EUnderwaterView::Hidden, v4::Zero() };
+		if (h0 + spread < 0)
+			return { EUnderwaterView::Immersed, v4::Zero() };
+
+		return { EUnderwaterView::Split, waterline };
+	}
+
 	PostProcessing::PostProcessing(Renderer& rdr)
 		: m_rdr(&rdr)
 		, m_underwater()
@@ -87,18 +135,22 @@ namespace pr::rdr12
 	// Record the enabled effects for 'scene' into 'frame'.
 	void PostProcessing::Render(Frame& frame, Scene const& scene)
 	{
-		// Collect the enabled passes in their canonical order. New effects are added here, in the order they should compose.
-		std::array<PassFn, 1> passes = {};
-		auto pass_count = 0;
-		if (m_underwater.m_enabled)
-			passes[pass_count++] = &PostProcessing::RecordUnderwater;
-
 		// Disabled effects hold no GPU memory and record nothing.
-		if (pass_count == 0)
+		if (!AnyEnabled())
 		{
 			ReleaseResources();
 			return;
 		}
+
+		// Collect the passes with something to draw, in their canonical order. New effects are added here, in the order they should compose.
+		std::array<PassFn, 1> passes = {};
+		auto pass_count = 0;
+		if (m_underwater.m_enabled && ClassifyUnderwater(m_underwater, scene.m_cam).m_view != EUnderwaterView::Hidden)
+			passes[pass_count++] = &PostProcessing::RecordUnderwater;
+
+		// Enabled effects with nothing to draw this frame keep their resources, so a camera moving in and out of view does not recreate them.
+		if (pass_count == 0)
+			return;
 
 		// Effects need a final colour target to read from and write to.
 		auto const& bb_post = frame.bb_post();
@@ -296,12 +348,14 @@ namespace pr::rdr12
 		auto const& vp = ctx.m_scene.m_viewport;
 		auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - m_clock_start).count();
 		auto cycles = elapsed * props.m_distortion_speed;
+		auto view = ClassifyUnderwater(props, ctx.m_scene.m_cam);
 		auto cb = shaders::post::CBufUnderwater{
 			.s2c = Invert(ctx.m_scene.m_cam.CameraToScreen()),
 			.tint = Colour(props.m_tint).rgba,
 			.fog_colour = Colour(props.m_fog_colour).rgba,
 			.viewport = v4{ vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height },
 			.surface = CameraSpaceSurface(props.m_surface, ctx.m_scene.m_cam.CameraToWorld()),
+			.waterline = view.m_waterline,
 			.visibility = props.m_visibility,
 			.phase = s_cast<float>(constants<double>::tau * (cycles - std::floor(cycles))),
 			.distortion_amplitude = props.m_distortion_amplitude,
@@ -309,7 +363,7 @@ namespace pr::rdr12
 			.has_depth = ctx.m_has_depth ? 1 : 0,
 			.orthographic = ctx.m_scene.m_cam.Orthographic() ? 1 : 0,
 			.clear_depth = ctx.m_clear_depth,
-			.pad0 = {},
+			.split = view.m_view == EUnderwaterView::Split ? 1 : 0,
 		};
 
 		// Draw the full-screen pass.

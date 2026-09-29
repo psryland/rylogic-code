@@ -2180,21 +2180,37 @@ namespace fade_tests
 		Expect(fixture.Image(), 0.5f,0.5f,0.5f);
 		props.m_distortion_amplitude = 0.0f;
 
-		// With a surface plane, fog covers only the underwater part of each ray. Orthographic rays start on the camera plane,
-		// so rays above a horizontal surface are only tinted while rays below it are fully fogged.
+		// With a surface plane, a horizontal surface through the middle of the orthographic near plane splits the view at the waterline.
+		// Pixels above it keep the scene colour, and pixels below it are tinted and fully fogged.
 		std::cout << "Surface plane" << std::endl;
 		props.m_surface = api::Vec4{0, 1, 0, 0};
 		underwater(true);
 		auto split = fixture.Image();
-		Expect(split, 1,0,1, 64,32);
+		Expect(split, 1,1,1, 64,32);
 		Expect(split, 0.5f,0.5f,0.5f, 64,96);
 		Expect(split, 0,0,0, 2,2);
 		Expect(split, 0,1,0, 2,125);
 
-		// A surface crossing the view ray part way fogs only the submerged length.
+		// The distortion does not pull colour across the waterline.
+		props.m_distortion_amplitude = 0.05f;
+		underwater(true);
+		split = fixture.Image();
+		Expect(split, 1,1,1, 64,62);
+		Expect(split, 0.5f,0.5f,0.5f, 64,66);
+		props.m_distortion_amplitude = 0.0f;
+
+		// With the whole near plane above the surface, the pass is skipped and the image is unchanged, even where rays
+		// descend into the water.
 		props.m_surface = api::Vec4{0, 0, 1, 30};
 		underwater(true);
-		f = fog(20);
+		auto above = fixture.Image();
+		Expect(above, 1,1,1);
+		Expect(above, 0,0,0, 2,2);
+
+		// A camera in water whose view ray rises through the surface part way fogs only the submerged length.
+		props.m_surface = api::Vec4{0, 0, -1, -30};
+		underwater(true);
+		f = fog(30);
 		Expect(fixture.Image(), 1 - f, f, 1 - f);
 
 		// From below the surface in perspective, rays that rise through it are fogged only up to the surface, and open sky stays visible.

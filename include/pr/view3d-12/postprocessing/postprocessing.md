@@ -70,8 +70,18 @@ validates locally and throws if native validation rejects the change.
 
 ## Underwater
 
-The caller decides when the camera is submerged (for example, by comparing the camera position with a sampled
-water height) and enables or disables the effect. The effect does not test the camera against any water surface.
+Without a surface plane, the caller decides when the camera is submerged (for example, by comparing the camera
+position with a sampled water height) and enables or disables the effect. With a surface plane, the effect finds where
+the camera's near plane meets the surface once per frame on the CPU:
+
+- **Whole near plane above the surface:** the pass is skipped. No commands are recorded, but the effect keeps its
+  resources, so the camera can move in and out of the water without recreating them.
+- **Whole near plane below the surface:** every pixel is in water, as if there were no waterline.
+- **Surface crosses the near plane:** only pixels whose near-plane point is below the surface get the effect. Pixels
+  above the waterline keep the scene colour, and a one-pixel blend smooths the edge. This per-pixel test runs only in
+  this case, selected by a uniform branch.
+
+So an application can leave the effect enabled with a surface plane whenever water may be near the camera.
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
@@ -86,7 +96,8 @@ water height) and enables or disables the effect. The effect does not test the c
 For each pixel:
 
 1. The screen position is offset by a sum of sine waves, then clamped to the viewport. The offset is corrected for
-   aspect ratio, so ripples are round.
+   aspect ratio, so ripples are round. When the surface crosses the near plane, an offset that would read from above
+   the waterline is dropped, so above-water colour does not leak into the water.
 2. The scene colour is read at the offset position. Alpha is kept unchanged.
 3. The view ray to the surface is rebuilt from the resolved depth, using the inverse of the camera projection.
    Perspective rays start at the camera; orthographic rays start on the camera plane. Pixels without geometry (the
@@ -98,8 +109,8 @@ For each pixel:
 5. `fog = 1 - exp(-3 * distance / visibility)` and `colour = lerp(colour * tint, fog_colour, fog)`.
    The blend happens in linear colour space.
 
-The surface plane is flat. For a wavy surface, pass a plane that matches the water height near the camera. The plane
-does not produce refraction or total internal reflection at the surface.
+The surface plane is flat, so the waterline is a straight line. For a wavy surface, pass a plane that matches the water
+height near the camera. The plane does not produce refraction or total internal reflection at the surface.
 
 Depth is read at the same distorted position as the colour, so the fog always matches the surface it covers.
 
@@ -128,7 +139,8 @@ motion blur) and whole-screen colour effects (such as underwater) last.
 Build `projects\tests\view3d-fade-tests\view3d-fade-tests.vcxproj` (VS 2026, v145, Debug/x64), then run
 `obj\x64\Debug\view3d-fade-tests.exe --post-effects`. The invisible-window fixture reads rendered pixels at
 1x and 4x MSAA. It covers defaults, invalid-settings rejection, disabled-image equality, tint, depth fog,
-background fog, surface-plane fog (orthographic and perspective, from above and below the plane), overlay exclusion,
+background fog, surface-plane fog (orthographic and perspective, from above and below the plane), the waterline
+split and the skipped pass above the water, overlay exclusion,
 and restoring the image when the effect is disabled. GPU debug-layer errors fail
 the fixture.
 

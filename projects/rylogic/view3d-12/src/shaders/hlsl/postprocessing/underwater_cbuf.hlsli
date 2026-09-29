@@ -30,6 +30,9 @@ struct CBufUnderwater //:reg(b0)
 	// Camera-space water surface plane (xyz = normal out of the water, w = offset), or zero when the whole view is in water.
 	float4 surface;
 
+	// Height of the camera's near plane above the water surface, as 'x*ndc.x + y*ndc.y + z'. Used only when 'split' is non-zero.
+	float4 waterline;
+
 	// Distance at which the fog hides 95% of a surface.
 	float visibility;
 
@@ -46,7 +49,9 @@ struct CBufUnderwater //:reg(b0)
 
 	// The depth buffer clear value. Pixels with this depth have no scene geometry.
 	float clear_depth;
-	float pad0;
+
+	// Non-zero when the water surface crosses the near plane. Only pixels below the waterline then show the effect.
+	int split;
 };
 
 #ifdef __cplusplus

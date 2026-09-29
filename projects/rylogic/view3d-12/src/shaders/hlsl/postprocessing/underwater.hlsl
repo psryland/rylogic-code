@@ -95,6 +95,14 @@ float WaterPathLength(int2 pixel, float2 uv)
 	return h0 < 0 ? t * len : (1 - t) * len;
 }
 
+// Height of the camera's near plane above the water surface at viewport-normalised 'uv'. Negative below the surface.
+float WaterlineHeight(float2 uv)
+{
+	// The near plane is flat, so its height above the surface is linear in NDC.
+	float2 ndc = float2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
+	return dot(g_underwater.waterline.xyz, float3(ndc, 1.0f));
+}
+
 // Tint, fog, and distort the scene colour.
 float4 PSUnderwater(PSIn_PostEffect In) :SV_Target
 {
@@ -102,6 +110,22 @@ float4 PSUnderwater(PSIn_PostEffect In) :SV_Target
 	float4 vp = g_underwater.viewport;
 	float2 uv = (In.ss_vert.xy - vp.xy) / vp.zw;
 	float2 sample_uv = saturate(uv + Distortion(uv, vp.z / vp.w));
+
+	// When the surface crosses the near plane, only pixels below the waterline are in water. The branch is uniform,
+	// so a view entirely in water does not pay for the waterline test.
+	float coverage = 1.0f;
+	if (g_underwater.split != 0)
+	{
+		// Blend over about one pixel at the waterline so the edge is smooth. Pixels above it keep the scene colour.
+		float2 height_per_pixel = g_underwater.waterline.xy * 2.0f / vp.zw;
+		coverage = saturate(0.5f - WaterlineHeight(uv) / length(height_per_pixel));
+		if (coverage == 0.0f)
+			return g_scene_colour.Load(int3(In.ss_vert.xy, 0));
+
+		// Do not let the distortion pull colour from above the waterline into the water.
+		if (WaterlineHeight(sample_uv) >= 0.0f)
+			sample_uv = uv;
+	}
 	float2 pixel = clamp(vp.xy + sample_uv * vp.zw, vp.xy + 0.5f, vp.xy + vp.zw - 0.5f);
 
 	// Read the scene colour (linear, through the sRGB view) at the distorted point.
@@ -114,5 +138,10 @@ float4 PSUnderwater(PSIn_PostEffect In) :SV_Target
 	float dist = WaterPathLength(int2(pixel), sample_uv);
 	float fog = 1.0f - exp(-3.0f * dist / g_underwater.visibility);
 	colour.rgb = lerp(colour.rgb * g_underwater.tint.rgb, g_underwater.fog_colour.rgb, fog);
+
+	// Blend with the unmodified scene colour where a pixel straddles the waterline.
+	if (coverage < 1.0f)
+		colour = lerp(g_scene_colour.Load(int3(In.ss_vert.xy, 0)), colour, coverage);
+
 	return colour;
 }

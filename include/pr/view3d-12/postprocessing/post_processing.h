@@ -10,7 +10,8 @@
 namespace pr::rdr12
 {
 	// Whole-screen "looking through water" effect: a colour tint, distance fog below the water surface, and a moving distortion.
-	// The caller decides when the camera is submerged; the effect does not test the camera against any water surface.
+	// Without a surface plane, the caller decides when the camera is submerged and the whole view is treated as in water.
+	// With a surface plane, the effect applies only to pixels whose point on the camera's near plane is below the surface.
 	struct UnderwaterProps
 	{
 		bool m_enabled = false;
@@ -34,7 +35,9 @@ namespace pr::rdr12
 		float m_distortion_speed = 0.25f;
 
 		// World-space water surface plane: xyz is the normal pointing out of the water, and Dot(m_surface, point) > 0 above the water.
-		// Fog applies only to the part of each view ray that is below this plane, so surfaces seen through the water surface stay visible.
+		// Pixels whose near-plane point is above this plane keep the scene colour, so a camera part-way through the surface shows a
+		// waterline. The pass is skipped entirely while the whole near plane is above the surface. Below the surface, fog applies only
+		// to the part of each view ray that is in water, so surfaces seen up through the water surface stay visible.
 		// Zero means there is no surface and the whole view is in water.
 		v4 m_surface = v4::Zero();
 
