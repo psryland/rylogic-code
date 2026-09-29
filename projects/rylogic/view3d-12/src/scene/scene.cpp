@@ -225,6 +225,12 @@ namespace pr::rdr12
 			throw std::invalid_argument("Shadow view resolutions must be positive");
 		if (settings.m_max_shadow_lights < 0 || settings.m_depth_bias < 0 || settings.m_slope_bias < 0 || settings.m_normal_bias < 0)
 			throw std::invalid_argument("Shadow light count and biases must not be negative");
+		if (settings.m_cascade_count < 1 || settings.m_cascade_count > MaxShadowCascades)
+			throw std::invalid_argument(std::format("Shadow cascade count must be in [1, {}]", MaxShadowCascades));
+		if (!(settings.m_shadow_distance >= 0) || !(settings.m_cascade_split_blend >= 0 && settings.m_cascade_split_blend <= 1))
+			throw std::invalid_argument("Shadow distance must not be negative, and the cascade split blend must be in [0,1]");
+		if (settings.m_filter_size != 5 && settings.m_filter_size != 7)
+			throw std::invalid_argument("Shadow filter size must be 5 or 7");
 
 		m_shadow_settings = settings;
 	}

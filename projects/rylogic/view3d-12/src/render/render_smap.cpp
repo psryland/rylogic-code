@@ -23,6 +23,24 @@ namespace pr::rdr12
 {
 	using namespace ::pr::compute;
 
+	namespace
+	{
+		// Mix the bytes of 'value' into the running content hash 'h'. 'T' must not contain padding bytes.
+		template <typename T> void HashMix(uint64_t& h, T const& value)
+		{
+			// FNV-1a over the bytes of the value
+			auto const* bytes = reinterpret_cast<uint8_t const*>(&value);
+			for (size_t i = 0; i != sizeof(T); ++i)
+			{
+				h ^= bytes[i];
+				h *= 0x100000001b3ULL;
+			}
+		}
+
+		// The initial value for content hashes
+		constexpr uint64_t HashSeed = 0xcbf29ce484222325ULL;
+	}
+
 	RenderSmap::RenderSmap(Scene& scene)
 		: RenderStep(Id, scene, scene.wnd().m_gsync)
 		, m_shader(scene.rdr())
@@ -32,7 +50,10 @@ namespace pr::rdr12
 		, m_atlas()
 		, m_settings(scene.Shadows())
 		, m_views()
-		, m_element_bounds()
+		, m_cache()
+		, m_element_views()
+		, m_dirty()
+		, m_volatile()
 	{
 		// Create the atlas and pipeline state for the scene's current settings
 		CreateAtlas(m_settings);
@@ -50,10 +71,10 @@ namespace pr::rdr12
 		return m_atlas.get();
 	}
 
-	// The width and height of the shadow atlas (in pixels)
-	int RenderSmap::AtlasSize() const
+	// The shadow settings used for the current frame
+	ShadowSettings const& RenderSmap::Settings() const
 	{
-		return m_settings.m_atlas_size;
+		return m_settings;
 	}
 
 	// Create the atlas texture and the pipeline state description for the current shadow settings
@@ -67,6 +88,10 @@ namespace pr::rdr12
 		auto desc = TextureDesc(AutoId, td).srv_format(DXGI_FORMAT_R16_UNORM).dsv_format(DXGI_FORMAT_D16_UNORM).name("ShadowAtlas");
 		m_atlas = factory.CreateTexture2D(desc);
 		m_settings = settings;
+
+		// The new atlas has no content, so every view must be rendered again
+		m_cache.Invalidate();
+		m_volatile.clear();
 
 		// Depth-only rendering. The rasterizer depth bias pushes stored depths away from the light to reduce self shadowing.
 		auto raster = RasterStateDesc{}.Set(D3D12_CULL_MODE_BACK);
@@ -151,23 +176,32 @@ namespace pr::rdr12
 	// Choose the shadow views for the frame
 	void RenderSmap::Prepare(Frame& frame)
 	{
-		// Let the base class prepare, and sort now so that element bounds match the draw order used in 'Execute'
+		// Let the base class prepare, and sort now so that element data matches the draw order used in 'Execute'
 		RenderStep::Prepare(frame);
 		SortIfNeeded();
 
-		// Recreate the atlas when the settings change. Earlier frames may still read the old atlas, so wait for them first.
-		if (!(scn().Shadows() == m_settings))
+		// Apply changes to the shadow settings. Only the atlas size and depth biases need a new atlas and pipeline state.
+		// Earlier frames may still read the old atlas, so wait for them before replacing it.
+		if (auto const& settings = scn().Shadows(); !(settings == m_settings))
 		{
-			wnd().m_gsync.Wait();
-			CreateAtlas(scn().Shadows());
+			if (settings.m_atlas_size != m_settings.m_atlas_size || settings.m_depth_bias != m_settings.m_depth_bias || settings.m_slope_bias != m_settings.m_slope_bias)
+			{
+				wnd().m_gsync.Wait();
+				CreateAtlas(settings);
+			}
+			else
+			{
+				m_settings = settings;
+			}
 		}
 
 		// Find the world space bounds of each element and of all casters. Elements whose bounds cannot be known
 		// (skinned, non-affine, or without a valid model bbox) are drawn into every view.
 		auto caster_bounds = BBox::Reset();
-		m_element_bounds.resize(0);
+		pr::vector<BBox> element_bounds;
 		{
 			auto drawlist = m_drawlist.lock();
+			element_bounds.reserve(drawlist->size());
 			for (auto& dle : *drawlist)
 			{
 				auto const& nugget = *dle.m_nugget;
@@ -176,27 +210,137 @@ namespace pr::rdr12
 				auto i2w = GetO2W(instance);
 				if (!mbox.valid() || !IsAffine(i2w))
 				{
-					m_element_bounds.push_back(BBox::Reset());
+					element_bounds.push_back(BBox::Reset());
 					continue;
 				}
 
 				// Skinned models can move outside their bind pose bounds, so they contribute to the caster bounds but are never culled
 				auto bbox = i2w * mbox;
 				Grow(caster_bounds, bbox);
-				m_element_bounds.push_back(FindPose(instance) != nullptr ? BBox::Reset() : bbox);
+				element_bounds.push_back(FindPose(instance) != nullptr ? BBox::Reset() : bbox);
 			}
 		}
 
+		// Describe the scene camera. Directional light cascades cover depth ranges of this view, and the size of the
+		// view of each point or spot light on screen chooses the resolution of its shadow views.
+		auto const& cam = scn().m_cam;
+		auto const tan_half_fovy = s_cast<float>(std::tan(cam.FovY() * 0.5));
+		auto const camera = ShadowCamera{
+			.m_c2w = cam.CameraToWorld(),
+			.m_near = s_cast<float>(cam.Near(false)),
+			.m_far = s_cast<float>(cam.Far(false)),
+			.m_view_size = cam.Orthographic() ? cam.ViewRectAtDistance(cam.FocusDist()) : v2(2.0f * tan_half_fovy * s_cast<float>(cam.Aspect()), 2.0f * tan_half_fovy),
+			.m_viewport_height = scn().m_viewport.Height,
+			.m_orthographic = cam.Orthographic(),
+		};
+
 		// Choose views for the shadow-casting lights and pack them into the atlas
-		BuildShadowViews(scn().ResolvedLights(), caster_bounds, m_settings, m_views);
+		BuildShadowViews(scn().ResolvedLights(), caster_bounds, camera, m_settings, m_views);
+
+		// Decide which views need rendering this frame
+		FindDirtyViews(element_bounds);
+	}
+
+	// Find the views that each element can see, and the views whose content has changed since they were last rendered
+	void RenderSmap::FindDirtyViews(std::span<BBox const> element_bounds)
+	{
+		// Start each view's content hash from the view itself. A change of transform or atlas region changes the content.
+		auto const view_count = isize(m_views.m_views);
+		auto const all_views = view_count == 32 ? ~0U : (1U << view_count) - 1;
+		std::array<uint64_t, MaxShadowViews> hashes;
+		std::array<IRect, MaxShadowViews> rects;
+		for (int v = 0; v != view_count; ++v)
+		{
+			auto const& view = m_views.m_views[v];
+			hashes[v] = HashSeed;
+			HashMix(hashes[v], view.m_w2s);
+			HashMix(hashes[v], view.m_atlas_rect);
+			HashMix(hashes[v], view.m_clamp_depth);
+			rects[v] = view.m_atlas_rect;
+		}
+
+		// Mix a hash of each element into the hash of every view that can see it. Views that see elements drawn with a
+		// custom vertex shader are always rendered, because their geometry can change without anything here changing.
+		auto forced = uint32_t(0);
+		auto drawlist = m_drawlist.lock();
+		m_element_views.resize(0);
+		for (int e = 0, eend = isize(*drawlist); e != eend; ++e)
+		{
+			auto const& dle = (*drawlist)[e];
+			auto const& nugget = *dle.m_nugget;
+			auto const& instance = *dle.m_instance;
+			auto const& bounds = element_bounds[e];
+
+			// Find the views that can see the element. Clamped views also see casters in front of their near plane.
+			auto mask = uint32_t(0);
+			if (!bounds.valid())
+			{
+				mask = all_views;
+			}
+			else
+			{
+				for (int v = 0; v != view_count; ++v)
+				{
+					auto const& view = m_views.m_views[v];
+					if (ShadowViewSees(view.m_w2s, bounds, !view.m_clamp_depth))
+						mask |= 1U << v;
+				}
+			}
+			m_element_views.push_back(mask);
+			if (mask == 0)
+				continue;
+
+			// Hash everything that can change the depth this element writes into a view
+			auto h = HashSeed;
+			HashMix(h, &instance);
+			HashMix(h, &nugget);
+			HashMix(h, GetO2W(instance));
+			HashMix(h, nugget.m_vrange);
+			HashMix(h, nugget.m_irange);
+			HashMix(h, nugget.m_model);
+			HashMix(h, nugget.m_model->m_revision);
+			HashMix(h, FindMaterial(instance).get());
+			HashMix(h, &nugget.mat());
+			if (auto pose = FindPose(instance); pose != nullptr)
+			{
+				HashMix(h, pose.get());
+				HashMix(h, pose->m_time1);
+				HashMix(h, pose->m_revision);
+			}
+
+			// Add the element to the content of each view that sees it
+			for (int v = 0; v != view_count; ++v)
+			{
+				if ((mask & (1U << v)) != 0)
+					HashMix(hashes[v], h);
+			}
+
+			if (m_volatile.contains(&nugget))
+				forced |= mask;
+		}
+
+		// Compare with the content already in the atlas
+		m_dirty = m_cache.Update({ rects.data(), s_cast<size_t>(view_count) }, { hashes.data(), s_cast<size_t>(view_count) }, m_settings.m_cache_views) | forced;
 	}
 
 	// Perform the render step
 	void RenderSmap::Execute(Frame& frame)
 	{
-		// Nothing to render if no light has a shadow view
-		if (m_views.empty())
+		// Nothing to render if no view has changed. Unchanged views keep their content in the atlas.
+		if (m_dirty == 0)
 			return;
+
+		// Gather the views to render into a compact list, so that each batch is a contiguous range of the uploaded views
+		pr::vector<ShadowView, MaxShadowViews> views;
+		pr::vector<int, MaxShadowViews> view_index;
+		for (int v = 0, vend = isize(m_views.m_views); v != vend; ++v)
+		{
+			if ((m_dirty & (1U << v)) == 0)
+				continue;
+
+			views.push_back(m_views.m_views[v]);
+			view_index.push_back(v);
+		}
 
 		// Record into a new allocator for this frame
 		m_cmd_list.Reset(frame.m_cmd_alloc_pool.Get());
@@ -206,7 +350,7 @@ namespace pr::rdr12
 		auto des_heaps = { wnd().m_heap_view.get(), wnd().m_heap_samp.get() };
 		m_cmd_list.SetDescriptorHeaps({ des_heaps.begin(), des_heaps.size() });
 
-		// Bind the atlas as the depth target and clear only the regions in use
+		// Bind the atlas as the depth target and clear only the regions being rendered
 		auto& atlas = *m_atlas.get();
 		BarrierBatch barriers(m_cmd_list);
 		barriers.Transition(atlas.m_res.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
@@ -214,25 +358,28 @@ namespace pr::rdr12
 		m_cmd_list.OMSetRenderTargets({}, false, &atlas.m_dsv.m_cpu);
 		{
 			pr::vector<D3D12_RECT, MaxShadowViews> clear_rects;
-			for (auto const& view : m_views.m_views)
+			for (auto const& view : views)
 				clear_rects.push_back(D3D12_RECT{ view.m_atlas_rect.m_min.x, view.m_atlas_rect.m_min.y, view.m_atlas_rect.m_max.x, view.m_atlas_rect.m_max.y });
 
 			m_cmd_list.ClearDepthStencilView(atlas.m_dsv.m_cpu, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, clear_rects);
 		}
 
-		// Upload the view transforms for the whole frame
+		// Upload the transforms of the views being rendered
 		m_cmd_list.SetGraphicsRootSignature(m_shader.m_signature.get());
-		auto views_gpu = UploadShadowViews(m_upload_buffer, m_views, m_settings.m_atlas_size);
+		auto views_gpu = UploadShadowViews(m_upload_buffer, { views.data(), views.size() }, m_settings);
 		m_shader.SetupFrame(m_cmd_list.get(), views_gpu);
 
 		// Per-element projections use the scene camera
 		auto const camera = CameraTransforms(scn().m_cam);
 
-		// Render the views in batches, one viewport per view in the batch
-		auto view_count = s_cast<int>(m_views.m_views.size());
-		for (int batch_beg = 0; batch_beg < view_count; batch_beg += ShadowViewBatchSize)
+		// Render the views in batches, one viewport per view in the batch. Depth clamping is part of the pipeline state,
+		// so a batch only contains views with the same clamp mode.
+		auto const count = isize(views);
+		for (int batch_beg = 0, batch_end = 0; batch_beg != count; batch_beg = batch_end)
 		{
-			auto batch_end = std::min(batch_beg + ShadowViewBatchSize, view_count);
+			// Extend the batch while the views share a clamp mode
+			auto const clamp_depth = views[batch_beg].m_clamp_depth;
+			for (batch_end = batch_beg + 1; batch_end != count && batch_end - batch_beg != ShadowViewBatchSize && views[batch_end].m_clamp_depth == clamp_depth; ++batch_end) {}
 
 			// Set one viewport and scissor rect per view. The viewport index in the shader is relative to 'batch_beg'.
 			{
@@ -240,7 +387,7 @@ namespace pr::rdr12
 				D3D12_RECT scissors[ShadowViewBatchSize];
 				for (int i = batch_beg; i != batch_end; ++i)
 				{
-					auto const& rect = m_views.m_views[i].m_atlas_rect;
+					auto const& rect = views[i].m_atlas_rect;
 					viewports[i - batch_beg] = D3D12_VIEWPORT{
 						.TopLeftX = s_cast<float>(rect.m_min.x),
 						.TopLeftY = s_cast<float>(rect.m_min.y),
@@ -257,24 +404,22 @@ namespace pr::rdr12
 
 			// Draw each element once, with one instance per view in this batch that can see it
 			auto drawlist = m_drawlist.lock();
-			assert(m_element_bounds.size() == drawlist->size() && "Draw list changed between Prepare and Execute");
-			for (int e = 0, eend = s_cast<int>(drawlist->size()); e != eend; ++e)
+			assert(m_element_views.size() == drawlist->size() && "Draw list changed between Prepare and Execute");
+			for (int e = 0, eend = isize(*drawlist); e != eend; ++e)
 			{
 				auto const& dle = (*drawlist)[e];
 				auto const& nugget = *dle.m_nugget;
 				auto const& instance = *dle.m_instance;
-				auto const& bounds = m_element_bounds[e];
+				auto const mask = m_element_views[e];
 
 				// Find the views in this batch that can see the element
-				pr::vector<uint32_t, ShadowViewBatchSize> views;
+				pr::vector<uint32_t, ShadowViewBatchSize> batch_views;
 				for (int i = batch_beg; i != batch_end; ++i)
 				{
-					if (bounds.valid() && !ShadowViewSees(m_views.m_views[i].m_w2s, bounds))
-						continue;
-
-					views.push_back(s_cast<uint32_t>(i));
+					if ((mask & (1U << view_index[i])) != 0)
+						batch_views.push_back(s_cast<uint32_t>(i));
 				}
-				if (views.empty())
+				if (batch_views.empty())
 					continue;
 
 				// Find the material pass for this step
@@ -319,13 +464,20 @@ namespace pr::rdr12
 				pass->Bind(ctx);
 				pass->ApplyPipeline(ctx);
 
+				// Remember nuggets drawn with a custom vertex shader, because the view content hash cannot detect changes to their geometry
+				if (desc.Get<EPipeState::VS>().pShaderBytecode != m_shader.m_code.VS.pShaderBytecode)
+					m_volatile.insert(&nugget);
+
+				// Clamped views keep casters in front of the near plane, at depth 0
+				desc.Apply(PSO<EPipeState::DepthClipEnable>(clamp_depth ? FALSE : TRUE));
+
 				// Bind the views and draw one instance per view
-				m_shader.SetupDrawViews(m_cmd_list.get(), views, batch_beg);
+				m_shader.SetupDrawViews(m_cmd_list.get(), batch_views, batch_beg);
 				m_cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
 				if (!nugget.m_irange.empty())
-					m_cmd_list.DrawIndexedInstanced(s_cast<size_t>(nugget.m_irange.size()), views.size(), s_cast<size_t>(nugget.m_irange.m_beg), 0, 0U);
+					m_cmd_list.DrawIndexedInstanced(s_cast<size_t>(nugget.m_irange.size()), batch_views.size(), s_cast<size_t>(nugget.m_irange.m_beg), 0, 0U);
 				else
-					m_cmd_list.DrawInstanced(s_cast<size_t>(nugget.m_vrange.size()), views.size(), s_cast<size_t>(nugget.m_vrange.m_beg), 0U);
+					m_cmd_list.DrawInstanced(s_cast<size_t>(nugget.m_vrange.size()), batch_views.size(), s_cast<size_t>(nugget.m_vrange.m_beg), 0U);
 			}
 		}
 

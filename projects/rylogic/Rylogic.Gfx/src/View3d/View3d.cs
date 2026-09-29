@@ -1168,17 +1168,29 @@ namespace Rylogic.Gfx
 			/// <summary>Width and height of the square shadow atlas (in pixels). Must be a power of two</summary>
 			public int AtlasSize;
 
-			/// <summary>Requested size of a directional light shadow view (in pixels)</summary>
+			/// <summary>Requested size of each directional light cascade view (in pixels)</summary>
 			public int DirectionalResolution;
 
-			/// <summary>Requested size of a spot light shadow view (in pixels)</summary>
+			/// <summary>Largest size of a spot light shadow view (in pixels). Lights that cover less of the screen use smaller views</summary>
 			public int SpotResolution;
 
-			/// <summary>Requested size of each of the six point light shadow views (in pixels)</summary>
+			/// <summary>Largest size of each of the six point light shadow views (in pixels). Lights that cover less of the screen use smaller views</summary>
 			public int PointResolution;
 
 			/// <summary>The maximum number of lights that cast shadows. Zero disables shadows</summary>
 			public int MaxShadowLights;
+
+			/// <summary>The number of cascades for directional lights, in [1,4]</summary>
+			public int CascadeCount;
+
+			/// <summary>Distance from the camera beyond which directional lights cast no shadows. Zero means fit to the shadow casters</summary>
+			public float ShadowDistance;
+
+			/// <summary>Cascade split distribution in [0,1]. 0 = even spacing, 1 = logarithmic spacing (more detail near the camera)</summary>
+			public float CascadeSplitBlend;
+
+			/// <summary>Width of the shadow edge filter (in shadow texels). Either 5 or 7</summary>
+			public int FilterSize;
 
 			/// <summary>Constant depth bias (in units of the smallest depth step)</summary>
 			public int DepthBias;
@@ -1189,19 +1201,27 @@ namespace Rylogic.Gfx
 			/// <summary>Receiver offset along the surface normal (in shadow texels)</summary>
 			public float NormalBias;
 
+			/// <summary>Re-render shadow views only when their content changes</summary>
+			public bool CacheViews;
+
 			/// <summary>Default shadow settings</summary>
 			public static ShadowSettings Default()
 			{
 				return new ShadowSettings
 				{
 					AtlasSize = 4096,
-					DirectionalResolution = 2048,
+					DirectionalResolution = 1024,
 					SpotResolution = 1024,
 					PointResolution = 1024,
 					MaxShadowLights = 4,
+					CascadeCount = 3,
+					ShadowDistance = 0.0f,
+					CascadeSplitBlend = 0.5f,
+					FilterSize = 5,
 					DepthBias = 100,
 					SlopeBias = 2.0f,
 					NormalBias = 1.0f,
+					CacheViews = true,
 				};
 			}
 		}

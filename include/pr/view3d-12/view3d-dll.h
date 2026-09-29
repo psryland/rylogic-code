@@ -716,13 +716,18 @@ namespace pr
 		struct ShadowSettings
 		{
 			int   m_atlas_size;             // Width and height of the square shadow atlas (in pixels). Must be a power of two
-			int   m_directional_resolution; // Requested size of a directional light shadow view (in pixels)
-			int   m_spot_resolution;        // Requested size of a spot light shadow view (in pixels)
-			int   m_point_resolution;       // Requested size of each of the six point light shadow views (in pixels)
+			int   m_directional_resolution; // Requested size of each directional light cascade view (in pixels)
+			int   m_spot_resolution;        // Largest size of a spot light shadow view (in pixels)
+			int   m_point_resolution;       // Largest size of each of the six point light shadow views (in pixels)
 			int   m_max_shadow_lights;      // The maximum number of lights that cast shadows. Zero disables shadows
+			int   m_cascade_count;          // The number of cascades for directional lights, in [1,4]
+			float m_shadow_distance;        // Distance from the camera beyond which directional lights cast no shadows. Zero means fit to the shadow casters
+			float m_cascade_split_blend;    // Cascade split distribution in [0,1]. 0 = even spacing, 1 = logarithmic spacing
+			int   m_filter_size;            // Width of the shadow edge filter (in shadow texels). Either 5 or 7
 			int   m_depth_bias;             // Constant depth bias (in units of the smallest depth step)
 			float m_slope_bias;             // Depth bias scaled by the depth slope of each triangle
 			float m_normal_bias;            // Receiver offset along the surface normal (in shadow texels)
+			BOOL  m_cache_views;            // Re-render shadow views only when their content changes
 		};
 		struct TextureOptions
 		{

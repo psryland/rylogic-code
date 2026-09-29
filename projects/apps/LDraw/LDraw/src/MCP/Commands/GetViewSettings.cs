@@ -53,6 +53,10 @@ internal sealed partial class LDrawInstanceHost
 			MainLightShadowStrength = scene_view.MainLightShadowStrength,
 			MaxShadowLights = window.Shadows.MaxShadowLights,
 			ShadowAtlasSize = window.Shadows.AtlasSize,
+			ShadowCascades = window.Shadows.CascadeCount,
+			ShadowDistance = window.Shadows.ShadowDistance,
+			ShadowCascadeSplitBlend = window.Shadows.CascadeSplitBlend,
+			ShadowFilterSize = window.Shadows.FilterSize,
 		};
 	}
 }

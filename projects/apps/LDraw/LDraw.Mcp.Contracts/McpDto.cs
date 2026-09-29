@@ -678,6 +678,18 @@ public sealed class LDrawViewSettingsInfo
 
 	/// <summary>Width and height of the square shadow atlas (in pixels)</summary>
 	public int ShadowAtlasSize { get; set; }
+
+	/// <summary>The number of cascades for directional lights</summary>
+	public int ShadowCascades { get; set; }
+
+	/// <summary>Distance from the camera beyond which directional lights cast no shadows; zero means fit to the shadow casters</summary>
+	public double ShadowDistance { get; set; }
+
+	/// <summary>Cascade split distribution in [0,1]; 0 = even spacing, 1 = logarithmic spacing</summary>
+	public double ShadowCascadeSplitBlend { get; set; }
+
+	/// <summary>Width of the shadow edge filter (in shadow texels); either 5 or 7</summary>
+	public int ShadowFilterSize { get; set; }
 }
 
 /// <summary>Diagnostic and rendering modes for a scene</summary>
@@ -1295,6 +1307,18 @@ public sealed class LDrawSetRenderSettingsParams
 
 	/// <summary>Width and height of the square shadow atlas (in pixels). Must be a power of two</summary>
 	public int? ShadowAtlasSize { get; set; }
+
+	/// <summary>The number of cascades for directional lights, in [1,4]</summary>
+	public int? ShadowCascades { get; set; }
+
+	/// <summary>Distance from the camera beyond which directional lights cast no shadows; zero means fit to the shadow casters</summary>
+	public double? ShadowDistance { get; set; }
+
+	/// <summary>Cascade split distribution in [0,1]; 0 = even spacing, 1 = logarithmic spacing</summary>
+	public double? ShadowCascadeSplitBlend { get; set; }
+
+	/// <summary>Width of the shadow edge filter (in shadow texels); either 5 or 7</summary>
+	public int? ShadowFilterSize { get; set; }
 
 	/// <summary>True to enable ray tracing when available</summary>
 	public bool? RayTracingEnabled { get; set; }

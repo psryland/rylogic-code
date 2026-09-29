@@ -156,6 +156,18 @@ def scene_s4():
 	s += dir_light("sun", "FFFFFFFF", (-30, -50, 60), shadow=1)
 	return s
 
+def scene_s5():
+	# A static box field with one spinning caster, lit by a directional and a point shadow light. Used to check shadow view caching.
+	s = "// S5: Static casters plus one spinning caster. Only views that see the spinning caster should be re-rendered.\n"
+	s += floor("floor", 30, "FFA0A0A0")
+	for y in range(8):
+		for x in range(8):
+			s += box(f"b{x}_{y}", "FFE0E0E0", (0.5, 0.5, 1.0), (-7 + 2 * x, -7 + 2 * y, 0.5))
+	s += "*Box spinner FFFF8040\n{\n\t*Data {4 0.4 0.4}\n\t*RootAnimation {*Style {Continuous} *Period {1.6} *AngVelocity {0 0 1}}\n\t*o2w {*pos {0 0 3}}\n}\n"
+	s += dir_light("sun", "FF808080", (-10, -20, 30), shadow=1)
+	s += point_light("lamp", "FFFFE0C0", (6, 6, 5), 25, shadow=1)
+	return s
+
 write("b0_baseline.ldr", scene_b0())
 write("l1_point_lights.ldr", scene_l1())
 write("l2_spot_lights_alpha.ldr", scene_l2())
@@ -163,3 +175,4 @@ write("s1_spot_shadow.ldr", scene_s1())
 write("s2_point_shadow_room.ldr", scene_s2())
 write("s3_many_shadow_lights.ldr", scene_s3())
 write("s4_large_terrain.ldr", scene_s4())
+write("s5_shadow_cache.ldr", scene_s5())

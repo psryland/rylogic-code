@@ -31,13 +31,17 @@ struct Light
 // The maximum number of shadow views in a frame. Must match 'rdr12::MaxShadowViews' in shadow_view.h.
 static const int MaxShadowViews = 32;
 
+// The maximum number of cascades for a directional light. Must match 'rdr12::MaxShadowCascades' in shadow_view.h.
+static const int MaxShadowCascades = 4;
+
 // One depth render of the scene from a shadow-casting light, stored in a region of the shadow atlas.
 // The frame's shadow views are provided in a structured buffer. Lights refer to their views by index.
+// Directional lights have one view per cascade, ordered from nearest to furthest from the camera.
 struct ShadowView
 {
 	row_major float4x4 w2s; // World space to clip space for the view (depth in [0,1])
 	float4 atlas_rect;      // Region of the atlas in UV units: xy = size, zw = offset
-	float4 bias;            // x = receiver normal offset (world units, or world units per unit distance for spot and point lights), yzw = reserved
+	float4 bias;            // x = receiver normal offset (world units, or world units per unit distance for spot and point lights), y = filter width in texels (5 or 7), zw = reserved
 };
 
 // Light types

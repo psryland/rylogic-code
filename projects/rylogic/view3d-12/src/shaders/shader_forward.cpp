@@ -126,8 +126,8 @@ namespace pr::rdr12::shaders
 		// Bind the frame's shadow views as a root structured buffer. The shadow atlas is bound by the render step.
 		auto smap_step = scene.FindRStep<RenderSmap>();
 		auto shadow_views_address = smap_step != nullptr
-			? UploadShadowViews(upload, smap_step->Views(), smap_step->AtlasSize())
-			: UploadShadowViews(upload, ShadowViewSet{}, 1);
+			? UploadShadowViews(upload, smap_step->Views().m_views, smap_step->Settings())
+			: UploadShadowViews(upload, {}, ShadowSettings{});
 		cmd_list->SetGraphicsRootShaderResourceView((UINT)ERootParam::ShadowViews, shadow_views_address);
 	}
 	void Forward::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const& camera, DrawListElement const* dle)

@@ -302,21 +302,21 @@ namespace LDraw
 			set => set(nameof(AtlasSize), value);
 		}
 
-		/// <summary>Requested size of a directional light shadow view (in pixels)</summary>
+		/// <summary>Requested size of each directional light cascade view (in pixels)</summary>
 		public int DirectionalResolution
 		{
 			get => get<int>(nameof(DirectionalResolution));
 			set => set(nameof(DirectionalResolution), value);
 		}
 
-		/// <summary>Requested size of a spot light shadow view (in pixels)</summary>
+		/// <summary>Largest size of a spot light shadow view (in pixels)</summary>
 		public int SpotResolution
 		{
 			get => get<int>(nameof(SpotResolution));
 			set => set(nameof(SpotResolution), value);
 		}
 
-		/// <summary>Requested size of each point light cube face shadow view (in pixels)</summary>
+		/// <summary>Largest size of each point light cube face shadow view (in pixels)</summary>
 		public int PointResolution
 		{
 			get => get<int>(nameof(PointResolution));
@@ -328,6 +328,34 @@ namespace LDraw
 		{
 			get => get<int>(nameof(MaxShadowLights));
 			set => set(nameof(MaxShadowLights), value);
+		}
+
+		/// <summary>The number of cascades for directional lights, in [1,4]</summary>
+		public int CascadeCount
+		{
+			get => get<int>(nameof(CascadeCount));
+			set => set(nameof(CascadeCount), value);
+		}
+
+		/// <summary>Distance from the camera beyond which directional lights cast no shadows. Zero means fit to the shadow casters</summary>
+		public float ShadowDistance
+		{
+			get => get<float>(nameof(ShadowDistance));
+			set => set(nameof(ShadowDistance), value);
+		}
+
+		/// <summary>Cascade split distribution in [0,1]. 0 = even spacing, 1 = logarithmic spacing</summary>
+		public float CascadeSplitBlend
+		{
+			get => get<float>(nameof(CascadeSplitBlend));
+			set => set(nameof(CascadeSplitBlend), value);
+		}
+
+		/// <summary>Width of the shadow edge filter (in shadow texels). Either 5 or 7</summary>
+		public int FilterSize
+		{
+			get => get<int>(nameof(FilterSize));
+			set => set(nameof(FilterSize), value);
 		}
 
 		/// <summary>Constant depth bias (in units of the smallest depth step)</summary>
@@ -351,6 +379,13 @@ namespace LDraw
 			set => set(nameof(NormalBias), value);
 		}
 
+		/// <summary>Re-render shadow views only when their content changes</summary>
+		public bool CacheViews
+		{
+			get => get<bool>(nameof(CacheViews));
+			set => set(nameof(CacheViews), value);
+		}
+
 		/// <summary>Convert the persisted settings to View3D shadow settings</summary>
 		public View3d.ShadowSettings ToShadowSettings()
 		{
@@ -361,9 +396,14 @@ namespace LDraw
 				SpotResolution = SpotResolution,
 				PointResolution = PointResolution,
 				MaxShadowLights = MaxShadowLights,
+				CascadeCount = CascadeCount,
+				ShadowDistance = ShadowDistance,
+				CascadeSplitBlend = CascadeSplitBlend,
+				FilterSize = FilterSize,
 				DepthBias = DepthBias,
 				SlopeBias = SlopeBias,
 				NormalBias = NormalBias,
+				CacheViews = CacheViews,
 			};
 		}
 
@@ -375,9 +415,14 @@ namespace LDraw
 			SpotResolution = settings.SpotResolution;
 			PointResolution = settings.PointResolution;
 			MaxShadowLights = settings.MaxShadowLights;
+			CascadeCount = settings.CascadeCount;
+			ShadowDistance = settings.ShadowDistance;
+			CascadeSplitBlend = settings.CascadeSplitBlend;
+			FilterSize = settings.FilterSize;
 			DepthBias = settings.DepthBias;
 			SlopeBias = settings.SlopeBias;
 			NormalBias = settings.NormalBias;
+			CacheViews = settings.CacheViews;
 		}
 	}
 

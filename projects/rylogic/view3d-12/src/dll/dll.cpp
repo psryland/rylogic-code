@@ -2013,9 +2013,14 @@ VIEW3D_API view3d::ShadowSettings __stdcall View3D_ShadowSettingsGet(view3d::Win
 			.m_spot_resolution = s.m_spot_resolution,
 			.m_point_resolution = s.m_point_resolution,
 			.m_max_shadow_lights = s.m_max_shadow_lights,
+			.m_cascade_count = s.m_cascade_count,
+			.m_shadow_distance = s.m_shadow_distance,
+			.m_cascade_split_blend = s.m_cascade_split_blend,
+			.m_filter_size = s.m_filter_size,
 			.m_depth_bias = s.m_depth_bias,
 			.m_slope_bias = s.m_slope_bias,
 			.m_normal_bias = s.m_normal_bias,
+			.m_cache_views = s.m_cache_views,
 		};
 	}
 	CatchAndReport(View3D_ShadowSettingsGet, window, view3d::ShadowSettings{});
@@ -2033,9 +2038,14 @@ VIEW3D_API void __stdcall View3D_ShadowSettingsSet(view3d::Window window, view3d
 		s.m_spot_resolution = settings.m_spot_resolution;
 		s.m_point_resolution = settings.m_point_resolution;
 		s.m_max_shadow_lights = settings.m_max_shadow_lights;
+		s.m_cascade_count = settings.m_cascade_count;
+		s.m_shadow_distance = settings.m_shadow_distance;
+		s.m_cascade_split_blend = settings.m_cascade_split_blend;
+		s.m_filter_size = settings.m_filter_size;
 		s.m_depth_bias = settings.m_depth_bias;
 		s.m_slope_bias = settings.m_slope_bias;
 		s.m_normal_bias = settings.m_normal_bias;
+		s.m_cache_views = settings.m_cache_views != 0;
 		window->Shadows(s);
 	}
 	CatchAndReport(View3D_ShadowSettingsSet, window,);

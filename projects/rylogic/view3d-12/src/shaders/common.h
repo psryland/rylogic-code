@@ -316,25 +316,25 @@ namespace pr::rdr12
 		return alex.m_res->GetGPUVirtualAddress() + alex.m_ofs;
 	}
 
-	// Upload the shadow views for the current frame and return the GPU address of the view array.
+	// Upload shadow views and return the GPU address of the view array. 'settings' gives the atlas size and filter width.
 	// At least one element is always uploaded so the address is valid even when there are no views.
 	template <typename TUploadBuffer>
-	D3D12_GPU_VIRTUAL_ADDRESS UploadShadowViews(TUploadBuffer& upload, ShadowViewSet const& views, int atlas_size)
+	D3D12_GPU_VIRTUAL_ADDRESS UploadShadowViews(TUploadBuffer& upload, std::span<ShadowView const> views, ShadowSettings const& settings)
 	{
 		static_assert(shaders::MaxShadowViews == rdr12::MaxShadowViews, "Shader and renderer shadow view limits must match");
 		static_assert(sizeof(shaders::ShadowView) % 16 == 0, "Shadow views are stored in a structured buffer with 16 byte aligned elements");
 
 		// Allocate space for the view array in the upload buffer
-		auto count = std::max<int64_t>(isize(views.m_views), 1);
+		auto count = std::max<int64_t>(isize(views), 1);
 		auto alex = upload.Alloc(count * sizeof(shaders::ShadowView), 16);
 		auto dst = reinterpret_cast<shaders::ShadowView*>(alex.m_mem + alex.m_ofs);
 
 		// Convert each view. Atlas regions are given in UV units so shaders do not need the atlas size.
 		dst[0] = shaders::ShadowView{};
-		auto inv_size = 1.0f / atlas_size;
-		for (int i = 0; i != isize(views.m_views); ++i)
+		auto inv_size = 1.0f / settings.m_atlas_size;
+		for (int i = 0; i != isize(views); ++i)
 		{
-			auto const& view = views.m_views[i];
+			auto const& view = views[i];
 			dst[i] = shaders::ShadowView{
 				.w2s = view.m_w2s,
 				.atlas_rect = v4(
@@ -342,7 +342,7 @@ namespace pr::rdr12
 					view.m_atlas_rect.SizeY() * inv_size,
 					view.m_atlas_rect.m_min.x * inv_size,
 					view.m_atlas_rect.m_min.y * inv_size),
-				.bias = v4(view.m_normal_bias, 0, 0, 0),
+				.bias = v4(view.m_normal_bias, s_cast<float>(settings.m_filter_size), 0, 0),
 			};
 		}
 
