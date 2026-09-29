@@ -123,8 +123,8 @@ namespace Rylogic.Gui.WPF
 		bool Antialiasing { get; set; }
 		ICommand ToggleAntialiasing { get; }
 
-		/// <summary>Shadows cast range. 0 = off</summary>
-		double ShadowCastRange { get; set; }
+		/// <summary>Shadow strength of the main light (light 0) in [0,1]. 0 = the main light casts no shadow</summary>
+		double MainLightShadowStrength { get; set; }
 
 		/// <summary>Fill mode</summary>
 		View3d.EFillMode FillMode { get; set; }

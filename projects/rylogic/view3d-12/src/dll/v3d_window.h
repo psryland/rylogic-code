@@ -344,6 +344,10 @@ namespace pr::rdr12
 		Colour32 Ambient() const;
 		void Ambient(Colour32 ambient);
 
+		// Get/Set the scene-wide shadow settings
+		ShadowSettings const& Shadows() const;
+		void Shadows(ShadowSettings const& settings);
+
 		// Get/Set the global environment map for this window
 		TextureCube const* EnvMap() const;
 		void EnvMap(TextureCube* env_map);

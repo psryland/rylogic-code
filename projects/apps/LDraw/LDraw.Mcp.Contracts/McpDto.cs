@@ -670,8 +670,14 @@ public sealed class LDrawViewSettingsInfo
 	/// <summary>True if ray tracing is enabled for this scene</summary>
 	public bool RayTracingEnabled { get; set; }
 
-	/// <summary>World-space range used when casting shadows; zero disables shadow casting</summary>
-	public double ShadowCastRange { get; set; }
+	/// <summary>Shadow strength of the main light (light 0) in [0,1]; zero means the main light casts no shadow</summary>
+	public double MainLightShadowStrength { get; set; }
+
+	/// <summary>The maximum number of lights that cast shadows; zero disables all shadows</summary>
+	public int MaxShadowLights { get; set; }
+
+	/// <summary>Width and height of the square shadow atlas (in pixels)</summary>
+	public int ShadowAtlasSize { get; set; }
 }
 
 /// <summary>Diagnostic and rendering modes for a scene</summary>
@@ -1281,8 +1287,14 @@ public sealed class LDrawSetRenderSettingsParams
 	/// <summary>True to enable multi-sample anti-aliasing for the scene view</summary>
 	public bool? Antialiasing { get; set; }
 
-	/// <summary>World-space range used when casting shadows; zero disables shadow casting</summary>
-	public double? ShadowCastRange { get; set; }
+	/// <summary>Shadow strength of the main light (light 0) in [0,1]; zero means the main light casts no shadow</summary>
+	public double? MainLightShadowStrength { get; set; }
+
+	/// <summary>The maximum number of lights that cast shadows; zero disables all shadows</summary>
+	public int? MaxShadowLights { get; set; }
+
+	/// <summary>Width and height of the square shadow atlas (in pixels). Must be a power of two</summary>
+	public int? ShadowAtlasSize { get; set; }
 
 	/// <summary>True to enable ray tracing when available</summary>
 	public bool? RayTracingEnabled { get; set; }

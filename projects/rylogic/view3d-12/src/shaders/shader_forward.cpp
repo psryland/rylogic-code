@@ -26,7 +26,7 @@ namespace pr::rdr12::shaders
 
 		inline static constexpr auto DiffTexture = ESRVReg::t0;
 		inline static constexpr auto EnvMap = ESRVReg::t1;
-		inline static constexpr auto SMap = ESRVReg::t2;
+		inline static constexpr auto ShadowAtlas = ESRVReg::t2;
 		inline static constexpr auto ProjTex = ESRVReg::t3;
 		inline static constexpr auto PbrMetallicTexture = ESRVReg::t4;
 		inline static constexpr auto PbrRoughnessTexture = ESRVReg::t5;
@@ -39,6 +39,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto PbrNormalTexture = ESRVReg::t12;
 		inline static constexpr auto SkyTexture = ESRVReg::t13;
 		inline static constexpr auto Lights = ESRVReg::t14;
+		inline static constexpr auto ShadowViews = ESRVReg::t15;
 		inline static constexpr auto AlphaColour = EUAVReg::u0;
 		inline static constexpr auto AlphaDepth = EUAVReg::u1;
 		inline static constexpr auto AlphaRtAttrs = EUAVReg::u2;
@@ -47,7 +48,7 @@ namespace pr::rdr12::shaders
 	{
 		inline static constexpr auto Diff = ESamReg::s0;
 		inline static constexpr auto EnvMap = SamDescStatic(ESamReg::s1);
-		inline static constexpr auto SMap = SamDescStatic(ESamReg::s2).addr(D3D12_TEXTURE_ADDRESS_MODE_CLAMP).filter(D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT).compare(D3D12_COMPARISON_FUNC_GREATER_EQUAL);
+		inline static constexpr auto ShadowAtlas = SamDescStatic(ESamReg::s2).addr(D3D12_TEXTURE_ADDRESS_MODE_CLAMP).filter(D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT).compare(D3D12_COMPARISON_FUNC_LESS_EQUAL);
 		inline static constexpr auto ProjTex = SamDescStatic(ESamReg::s3);
 		inline static constexpr auto PbrMetallic = ESamReg::s4;
 		inline static constexpr auto PbrRoughness = ESamReg::s5;
@@ -79,7 +80,7 @@ namespace pr::rdr12::shaders
 			.CBuf(EReg::CBufProcedural, D3D12_SHADER_VISIBILITY_VERTEX)
 			.SRV(EReg::DiffTexture, 1)
 			.SRV(EReg::EnvMap, 1)
-			.SRV(EReg::SMap, shaders::MaxShadowMaps)
+			.SRV(EReg::ShadowAtlas, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::ProjTex, shaders::MaxProjectedTextures)
 			.SRV(EReg::PbrMetallicTexture, 1)
 			.SRV(EReg::PbrRoughnessTexture, 1)
@@ -96,13 +97,14 @@ namespace pr::rdr12::shaders
 			.Samp(ESamp::PbrEmissive, 1)
 			.Samp(ESamp::PbrNormal, 1)
 			.Samp(ESamp::EnvMap)
-			.Samp(ESamp::SMap)
+			.Samp(ESamp::ShadowAtlas)
 			.Samp(ESamp::ProjTex)
 			.UAV(EReg::AlphaColour, 1)
 			.UAV(EReg::AlphaDepth, 1)
 			.UAV(EReg::AlphaRtAttrs, 1)
 			.SRV(EReg::SkyTexture, 1)
 			.SRV(EReg::Lights, D3D12_SHADER_VISIBILITY_PIXEL)
+			.SRV(EReg::ShadowViews, D3D12_SHADER_VISIBILITY_PIXEL)
 			.Create(rdr.d3d(), "ForwardSig");
 	}
 
@@ -113,7 +115,6 @@ namespace pr::rdr12::shaders
 		CBufFrame cb0 = {};
 		SetViewConstants(cb0.cam, scene.m_cam);
 		SetLightingConstants(cb0, scene);
-		SetShadowMapConstants(cb0.shadow, scene);
 		SetEnvMapConstants(cb0.env_map, scene.m_global_envmap.get());
 		auto gpu_address = upload.Add(cb0, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
 		cmd_list->SetGraphicsRootConstantBufferView((UINT)ERootParam::CBufFrame, gpu_address);
@@ -121,6 +122,13 @@ namespace pr::rdr12::shaders
 		// Bind the frame's lights as a root structured buffer
 		auto lights_address = UploadLights(upload, scene);
 		cmd_list->SetGraphicsRootShaderResourceView((UINT)ERootParam::Lights, lights_address);
+
+		// Bind the frame's shadow views as a root structured buffer. The shadow atlas is bound by the render step.
+		auto smap_step = scene.FindRStep<RenderSmap>();
+		auto shadow_views_address = smap_step != nullptr
+			? UploadShadowViews(upload, smap_step->Views(), smap_step->AtlasSize())
+			: UploadShadowViews(upload, ShadowViewSet{}, 1);
+		cmd_list->SetGraphicsRootShaderResourceView((UINT)ERootParam::ShadowViews, shadow_views_address);
 	}
 	void Forward::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const& camera, DrawListElement const* dle)
 	{

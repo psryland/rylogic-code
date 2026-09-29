@@ -158,7 +158,7 @@ namespace Rylogic.Gui.WPF
 				Window.FocusPointVisible = Options.FocusPointVisible;
 				Window.OriginPointVisible = Options.OriginPointVisible;
 				Scene.MultiSampling = Options.Antialiasing ? 4 : 1;
-				Scene.ShadowCastRange = Options.ShadowCastRange;
+				Scene.MainLightShadowStrength = Options.MainLightShadowStrength;
 				PositionAxisPanels();
 
 				new_value.PropertyChanged += HandleOptionsChanged;
@@ -193,10 +193,10 @@ namespace Rylogic.Gui.WPF
 						Invalidate();
 						break;
 					}
-					case nameof(OptionsData.ShadowCastRange):
+					case nameof(OptionsData.MainLightShadowStrength):
 					{
-						Scene.ShadowCastRange = Options.ShadowCastRange;
-						view3d_cmenu?.NotifyPropertyChanged(nameof(IView3dCMenu.ShadowCastRange));
+						Scene.MainLightShadowStrength = Options.MainLightShadowStrength;
+						view3d_cmenu?.NotifyPropertyChanged(nameof(IView3dCMenu.MainLightShadowStrength));
 						Invalidate();
 						break;
 					}

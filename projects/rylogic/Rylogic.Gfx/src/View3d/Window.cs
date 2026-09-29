@@ -662,6 +662,13 @@ namespace Rylogic.Gfx
 				set => View3D_AmbientSet(Handle, value);
 			}
 
+			/// <summary>Get/Set the scene-wide shadow settings</summary>
+			public ShadowSettings Shadows
+			{
+				get => View3D_ShadowSettingsGet(Handle);
+				set => View3D_ShadowSettingsSet(Handle, ref value);
+			}
+
 			/// <summary>Set the global environment map used by this window.</summary>
 			public CubeMap? EnvironmentMap
 			{

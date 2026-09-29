@@ -752,10 +752,6 @@ namespace pr::rdr12
 		if (m_ui_angle_tool != nullptr && m_ui_angle_tool->Visible() && m_ui_angle_tool->Gfx())
 			m_ui_angle_tool->Gfx()->AddToScene(m_scene);
 
-		// Enable shadow casting when any scene or light source object light casts shadows.
-		// Light source objects add their lights while being added to the scene, so this follows the objects.
-		m_scene.ShadowCasting(m_scene.HasShadowCastingLight(), 1024);
-
 		// Render the scene
 		auto& frame = m_wnd.NewFrame();
 
@@ -1452,6 +1448,21 @@ namespace pr::rdr12
 
 		m_scene.m_ambient = ambient;
 		OnSettingsChanged(this, view3d::ESettings::Lighting_Colour);
+		Invalidate();
+	}
+
+	// Get/Set the scene-wide shadow settings
+	ShadowSettings const& V3dWindow::Shadows() const
+	{
+		return m_scene.Shadows();
+	}
+	void V3dWindow::Shadows(ShadowSettings const& settings)
+	{
+		if (m_scene.Shadows() == settings)
+			return;
+
+		m_scene.Shadows(settings);
+		OnSettingsChanged(this, view3d::ESettings::Lighting_Shadows);
 		Invalidate();
 	}
 

@@ -267,15 +267,15 @@
 		DataContext="{Binding View3dCMenuContext}"
 		Name="View3dMenuItem_Antialiasing"
 		/>
-	<MenuItem x:Key="View3dMenuItem_ShadowCastRange" x:Shared="False"
+	<MenuItem x:Key="View3dMenuItem_MainLightShadowStrength" x:Shared="False"
 		StaysOpenOnClick="True"
 		DataContext="{Binding View3dCMenuContext}"
-		Name="View3dMenuItem_ShadowCastRange"
+		Name="View3dMenuItem_MainLightShadowStrength"
 		>
 		<MenuItem.Header>
 			<StackPanel Orientation="Horizontal">
 				<TextBlock
-					Text="Shadow Range: "
+					Text="Shadows: "
 					VerticalAlignment="Center"
 					MinWidth="80"
 					/>
@@ -284,7 +284,7 @@
 					Maximum="1"
 					FunctionExpr="x"
 					InverseExpr="x > 0 ? x : 0"
-					ValueFn="{Binding ShadowCastRange}"
+					ValueFn="{Binding MainLightShadowStrength}"
 					Margin="1,1,20,1"
 					MinWidth="100"
 					/>
@@ -534,7 +534,7 @@
 		<MenuItem Header="Rendering">
 			<StaticResource ResourceKey="View3dMenuItem_BackgroundColour"/>
 			<StaticResource ResourceKey="View3dMenuItem_Antialiasing"/>
-			<StaticResource ResourceKey="View3dMenuItem_ShadowCastRange"/>
+			<StaticResource ResourceKey="View3dMenuItem_MainLightShadowStrength"/>
 			<StaticResource ResourceKey="View3dMenuItem_FillMode"/>
 			<StaticResource ResourceKey="View3dMenuItem_CullMode"/>
 			<StaticResource ResourceKey="View3dMenuItem_Lighting"/>
@@ -705,7 +705,7 @@
 		<MenuItem Header="Rendering">
 			<StaticResource ResourceKey="View3dMenuItem_BackgroundColour"/>
 			<StaticResource ResourceKey="View3dMenuItem_Antialiasing"/>
-			<StaticResource ResourceKey="View3dMenuItem_ShadowCastRange"/>
+			<StaticResource ResourceKey="View3dMenuItem_MainLightShadowStrength"/>
 			<StaticResource ResourceKey="View3dMenuItem_FillMode"/>
 			<StaticResource ResourceKey="View3dMenuItem_CullMode"/>
 			<StaticResource ResourceKey="View3dMenuItem_Lighting"/>

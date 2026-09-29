@@ -5,7 +5,6 @@
 #include "pr/view3d-12/shaders/shader_smap.h"
 #include "pr/view3d-12/scene/scene.h"
 #include "pr/view3d-12/render/drawlist_element.h"
-#include "pr/view3d-12/utility/shadow_caster.h"
 #include "view3d-12/src/shaders/common.h"
 
 namespace pr::rdr12::shaders
@@ -15,11 +14,12 @@ namespace pr::rdr12::shaders
 
 	struct EReg
 	{
-		inline static constexpr auto CBufFrame = ECBufReg::b0;
+		inline static constexpr auto DrawViews = ECBufReg::b0;
 		inline static constexpr auto CBufNugget = ECBufReg::b1;
 		inline static constexpr auto CBufProcedural = ECBufReg::b2;
 		inline static constexpr auto DiffTexture = ESRVReg::t0;
 		inline static constexpr auto DiffTextureSampler = ESamReg::s0;
+		inline static constexpr auto ShadowViews = ESRVReg::t1;
 	};
 
 	ShadowMap::ShadowMap(Renderer& rdr)
@@ -34,27 +34,38 @@ namespace pr::rdr12::shaders
 			.GS = shader_code::none,
 			.CS = shader_code::none,
 		};
-		
-		// Create the root signature
+
+		// Create the root signature. The draw views are root constants because they change for every draw.
 		m_signature = RootSig(ERootSigFlags::VertGeomPixelOnly)
-			.CBuf(EReg::CBufFrame)
+			.U32(EReg::DrawViews, sizeof(CBufDrawViews) / sizeof(uint32_t), D3D12_SHADER_VISIBILITY_VERTEX)
 			.CBuf(EReg::CBufNugget)
 			.CBuf(EReg::CBufProcedural, D3D12_SHADER_VISIBILITY_VERTEX)
 			.SRV(EReg::DiffTexture, 1)
 			.Samp(EReg::DiffTextureSampler, 1)
+			.SRV(EReg::ShadowViews, D3D12_SHADER_VISIBILITY_VERTEX)
 			.Create(rdr.d3d(), "ShadowMapSig");
 	}
 
-	// Config the shader
-	void ShadowMap::SetupFrame(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, ShadowCaster const& caster)
+	// Bind the frame's shadow view array
+	void ShadowMap::SetupFrame(ID3D12GraphicsCommandList* cmd_list, D3D12_GPU_VIRTUAL_ADDRESS shadow_views)
 	{
-		// Set the frame constants
-		CBufFrame cb0 = {};
-		cb0.w2l = caster.m_params.m_w2ls;
-		cb0.l2s = caster.m_params.m_ls2s;
-		auto gpu_address = upload.Add(cb0, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);
-		cmd_list->SetGraphicsRootConstantBufferView((UINT)ERootParam::CBufFrame, gpu_address);
+		cmd_list->SetGraphicsRootShaderResourceView((UINT)ERootParam::ShadowViews, shadow_views);
 	}
+
+	// Set the shadow views for the next draw
+	void ShadowMap::SetupDrawViews(ID3D12GraphicsCommandList* cmd_list, std::span<uint32_t const> views, int first_viewport_view)
+	{
+		// Pack the view indices, one per instance, into the root constants
+		pr_assert(views.size() <= ShadowViewBatchSize && "Too many views for one draw");
+		CBufDrawViews cb = {};
+		for (int i = 0; i != isize(views); ++i)
+			cb.views[i / 4][i % 4] = views[i];
+
+		cb.info.x = static_cast<uint32_t>(first_viewport_view);
+		cmd_list->SetGraphicsRoot32BitConstants((UINT)ERootParam::DrawViews, sizeof(cb) / sizeof(uint32_t), &cb, 0);
+	}
+
+	// Set the per-element constants
 	void ShadowMap::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, DrawListElement const* dle, CameraTransforms const& camera)
 	{
 		SetupElement(cmd_list, upload, dle, camera, dle->m_nugget->mat());

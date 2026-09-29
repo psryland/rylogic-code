@@ -405,16 +405,16 @@ namespace Rylogic.Gui.WPF
 		}
 
 		/// <inheritdoc/>
-		public double ShadowCastRange
+		public double MainLightShadowStrength
 		{
 			get => Window.MainLight.CastShadow;
 			set
 			{
-				if (ShadowCastRange == value) return;
+				if (MainLightShadowStrength == value) return;
 				var light_props = Window.MainLight;
 				light_props.CastShadow = (float)value;
 				Window.MainLight = light_props;
-				NotifyPropertyChanged(nameof(ShadowCastRange));
+				NotifyPropertyChanged(nameof(MainLightShadowStrength));
 				Invalidate();
 			}
 		}

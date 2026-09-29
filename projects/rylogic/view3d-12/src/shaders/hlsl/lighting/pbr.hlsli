@@ -42,8 +42,8 @@ float3 PbrFresnelSchlick(float cos_theta, float3 f0)
 }
 
 // Evaluate the direct-lighting PBR model for the scene lights.
-// 'lights' contains 'light_count' world space lights. 'shadow_visibility' is the visibility sampled from the shadow map.
-float3 PbrIlluminate(StructuredBuffer<Light> lights, int light_count, float3 ambient, float shadow_visibility, float3 ws_pos, float3 normal, float3 view, float3 albedo, float metallic, float roughness, float3 emissive)
+// 'lights' contains 'light_count' world space lights. Shadows are sampled with 'SampleLightShadow', see lights.hlsli.
+float3 PbrIlluminate(StructuredBuffer<Light> lights, int light_count, float3 ambient, float3 ws_pos, float3 normal, float3 view, float3 albedo, float metallic, float roughness, float3 emissive)
 {
 	// Ambient and emissive light are applied once, independent of the lights
 	float n_dot_v = saturate(dot(normal, view));
@@ -74,7 +74,7 @@ float3 PbrIlluminate(StructuredBuffer<Light> lights, int light_count, float3 amb
 		float3 diffuse = (1.0f - fresnel) * (1.0f - metallic) * albedo / (0.5f * tau);
 
 		// Scale by the light colour, intensity, attenuation, and shadowing
-		float3 radiance = light_info.colour.rgb * light_info.colour.a * attenuation * LightShadowVisibility(light_info, shadow_visibility);
+		float3 radiance = light_info.colour.rgb * light_info.colour.a * attenuation * LightShadowVisibility(light_info, float4(ws_pos, 1.0f), float4(normal, 0.0f));
 		colour += (diffuse + specular) * radiance * n_dot_l;
 	}
 

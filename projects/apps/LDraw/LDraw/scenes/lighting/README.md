@@ -15,3 +15,12 @@ These scenes check the multi-light and multi-shadow renderer in LDraw. Regenerat
 Light markers (small spheres) are added only for lights that do not cast shadows, because a marker around a shadow-casting light would block its light.
 
 A skinned-character scene (G1) is not included because the repository has no skinned test asset.
+
+## Phase 2 checks (shadow atlas)
+
+- Every light with `*CastShadow` > 0 casts shadows, up to the scene's max shadow lights (default 4). Further shadow lights still light the scene without shadows.
+- Point lights render six cube-face views. In `s2_point_shadow_room.ldr` check for seams where the faces meet on the walls and floor.
+- `s3_many_shadow_lights.ldr` needs 1 + 3 x 6 = 19 views, all drawn in one pass using viewport arrays.
+- The atlas size and max shadow lights are saved per scene in LDraw's settings and can be changed with MCP `set_render_settings` (`shadow_atlas_size`, `max_shadow_lights`).
+  Smaller atlases should give lower-resolution shadows, and a max of 0 should turn all shadows off.
+- The 'Shadows' slider in the context menu sets the shadow strength of the main light (light 0).

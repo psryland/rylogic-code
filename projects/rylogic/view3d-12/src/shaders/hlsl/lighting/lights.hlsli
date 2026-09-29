@@ -3,6 +3,8 @@
 //  Copyright (c) Rylogic Ltd 2026
 //***********************************************
 // Light model functions shared by the Phong and PBR lighting paths.
+// Includers must define 'float SampleLightShadow(Light light, float4 ws_pos, float4 ws_norm)' before including this file.
+// It returns the fraction of 'light' that reaches 'ws_pos' past shadow casters, in [0,1], and is only called for lights with shadow views.
 #ifndef PR_VIEW3D_SHADER_LIGHTS_HLSLI
 #define PR_VIEW3D_SHADER_LIGHTS_HLSLI
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
@@ -45,14 +47,15 @@ float4 LightDirectionAt(Light light, float4 ws_pos)
 		: normalize(ws_pos - light.ws_position);
 }
 
-// Return the fraction of 'light' that is not blocked by shadow casters.
-// 'shadow_visibility' is the visibility sampled from the shadow map, which belongs to the light with 'HasShadow' set.
-float LightShadowVisibility(Light light, float shadow_visibility)
+// Return the fraction of 'light' that is not blocked by shadow casters at 'ws_pos' on a surface with normal 'ws_norm'
+float LightShadowVisibility(Light light, float4 ws_pos, float4 ws_norm)
 {
+	// Lights without shadow views are never blocked
+	if (!HasShadow(light))
+		return 1.0f;
+
 	// The shadow strength blends between unshadowed and fully shadowed
-	return HasShadow(light)
-		? lerp(1.0f, shadow_visibility, saturate(light.shadow.x))
-		: 1.0f;
+	return lerp(1.0f, SampleLightShadow(light, ws_pos, ws_norm), saturate(light.shadow.x));
 }
 
 #endif

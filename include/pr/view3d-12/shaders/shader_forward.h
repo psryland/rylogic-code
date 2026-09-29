@@ -22,7 +22,7 @@ namespace pr::rdr12::shaders
 			CBufProcedural,
 			DiffTexture,
 			EnvMap,
-			SMap,
+			ShadowAtlas,
 			ProjTex,
 			PbrMetallicTexture,
 			PbrRoughnessTexture,
@@ -43,12 +43,13 @@ namespace pr::rdr12::shaders
 			AlphaRtAttrs,
 			SkyTexture,
 			Lights,
+			ShadowViews,
 		};
 
 		enum class ESampParam
 		{
 			EnvMap,
-			SMap,
+			ShadowAtlas,
 			ProjTex,
 		};
 	}

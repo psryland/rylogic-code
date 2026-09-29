@@ -713,6 +713,17 @@ namespace pr
 			BOOL m_cam_relative;
 			BOOL m_on;
 		};
+		struct ShadowSettings
+		{
+			int   m_atlas_size;             // Width and height of the square shadow atlas (in pixels). Must be a power of two
+			int   m_directional_resolution; // Requested size of a directional light shadow view (in pixels)
+			int   m_spot_resolution;        // Requested size of a spot light shadow view (in pixels)
+			int   m_point_resolution;       // Requested size of each of the six point light shadow views (in pixels)
+			int   m_max_shadow_lights;      // The maximum number of lights that cast shadows. Zero disables shadows
+			int   m_depth_bias;             // Constant depth bias (in units of the smallest depth step)
+			float m_slope_bias;             // Depth bias scaled by the depth slope of each triangle
+			float m_normal_bias;            // Receiver offset along the surface normal (in shadow texels)
+		};
 		struct TextureOptions
 		{
 			Mat4x4                m_t2s;
@@ -1361,6 +1372,11 @@ extern "C"
 	// Get/Set the scene-wide ambient light colour
 	VIEW3D_API pr::view3d::Colour __stdcall View3D_AmbientGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_AmbientSet(pr::view3d::Window window, pr::view3d::Colour ambient);
+
+	// Get/Set the scene-wide shadow settings. A light casts shadows when its 'm_cast_shadow' is greater than zero.
+	// At most 'm_max_shadow_lights' lights cast shadows, chosen in light order, and all shadow views share one atlas.
+	VIEW3D_API pr::view3d::ShadowSettings __stdcall View3D_ShadowSettingsGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_ShadowSettingsSet(pr::view3d::Window window, pr::view3d::ShadowSettings const& settings);
 
 	// Objects ********************************
 

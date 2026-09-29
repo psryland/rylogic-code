@@ -50,6 +50,7 @@ namespace pr::rdr12
 		, m_ray_tracing_props()
 		, m_eh_resize()
 		, m_far_clip_fade()
+		, m_shadow_settings()
 		, m_frame_lights()
 		, m_resolved_lights()
 		, m_dropped_lights()
@@ -194,7 +195,7 @@ namespace pr::rdr12
 			switch (rs)
 			{
 				case ERenderStep::RenderForward: m_render_steps.emplace_back(new RenderForward(*this)); break;
-				case ERenderStep::ShadowMap:     m_render_steps.emplace_back(new RenderSmap(*this)); break;
+				case ERenderStep::ShadowMap: throw std::runtime_error("The shadow map render step is managed by the scene's shadow settings and lights");
 				case ERenderStep::RayCast:
 				{
 					// This step submits independently even when invoked during a frame. Duplicate entries need separate
@@ -209,17 +210,23 @@ namespace pr::rdr12
 		}
 	}
 
-	// Enable/Disable shadow casting
-	void Scene::ShadowCasting(bool enable, int shadow_map_size)
+	// Get/Set the scene-wide shadow settings
+	ShadowSettings const& Scene::Shadows() const
 	{
-		if (enable && FindRStep<RenderSmap>() == nullptr)
-		{
-			m_render_steps.emplace(std::begin(m_render_steps), new RenderSmap(*this, shadow_map_size));
-		}
-		if (!enable && FindRStep<RenderSmap>() != nullptr)
-		{
-			pr::erase_if(m_render_steps, [](auto& rs) { return rs->m_step_id == ERenderStep::ShadowMap; });
-		}
+		return m_shadow_settings;
+	}
+	void Scene::Shadows(ShadowSettings const& settings)
+	{
+		// Reject settings the shadow atlas cannot represent
+		auto is_pow2 = [](int x) { return x > 0 && (x & (x - 1)) == 0; };
+		if (!is_pow2(settings.m_atlas_size) || settings.m_atlas_size > D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION)
+			throw std::invalid_argument("Shadow atlas size must be a power of two no larger than the maximum texture size");
+		if (settings.m_directional_resolution <= 0 || settings.m_spot_resolution <= 0 || settings.m_point_resolution <= 0)
+			throw std::invalid_argument("Shadow view resolutions must be positive");
+		if (settings.m_max_shadow_lights < 0 || settings.m_depth_bias < 0 || settings.m_slope_bias < 0 || settings.m_normal_bias < 0)
+			throw std::invalid_argument("Shadow light count and biases must not be negative");
+
+		m_shadow_settings = settings;
 	}
 
 	// Add a world space light that shades the current frame only
@@ -228,34 +235,10 @@ namespace pr::rdr12
 		m_frame_lights.push_back(light);
 	}
 
-	// True if any light that is on casts shadows
-	bool Scene::HasShadowCastingLight() const
-	{
-		auto casts = [](Light const& light) { return light.m_on && light.CastsShadow(); };
-		return
-			std::any_of(m_lights.begin(), m_lights.end(), casts) ||
-			std::any_of(m_frame_lights.begin(), m_frame_lights.end(), casts);
-	}
-
 	// The world space lights that shade the current frame
 	std::span<Light const> Scene::ResolvedLights() const
 	{
 		return m_resolved_lights;
-	}
-
-	// The index of the light that owns the shadow map, or -1
-	int Scene::ShadowLightIndex() const
-	{
-		// The shadow map step renders a shadow for the first shadow casting light only
-		if (FindRStep<RenderSmap>() == nullptr)
-			return -1;
-
-		for (int i = 0; i != isize(m_resolved_lights); ++i)
-		{
-			if (m_resolved_lights[i].CastsShadow())
-				return i;
-		}
-		return -1;
 	}
 
 	// The number of on lights that did not shade the last frame
@@ -433,6 +416,25 @@ namespace pr::rdr12
 
 		// Resolve the lights for this frame before any render step reads them
 		m_dropped_lights = ResolveLights(m_lights, m_frame_lights, m_cam.CameraToWorld(), m_resolved_lights);
+
+		// Add the shadow map step when a resolved light casts shadows, and remove it when none do. It runs first so the forward pass can read the atlas.
+		{
+			auto casts = std::any_of(m_resolved_lights.begin(), m_resolved_lights.end(), [](Light const& light) { return light.CastsShadow(); });
+			auto want = casts && m_shadow_settings.m_max_shadow_lights > 0;
+			auto* smap = FindRStep<RenderSmap>();
+			if (want && smap == nullptr)
+			{
+				auto& step = *m_render_steps.emplace(std::begin(m_render_steps), new RenderSmap(*this));
+				for (auto const* inst : m_instances)
+					step->AddInstance(*inst);
+			}
+			if (!want && smap != nullptr)
+			{
+				// Earlier frames may still use the step's atlas and command allocators
+				wnd().m_gsync.Wait();
+				pr::erase_if(m_render_steps, [](auto& rs) { return rs->m_step_id == ERenderStep::ShadowMap; });
+			}
+		}
 
 		// Allow render steps to do frame setup before any step starts recording its render commands.
 		for (auto& rs : m_render_steps)

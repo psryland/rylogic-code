@@ -8,6 +8,7 @@
 #include "pr/view3d-12/scene/far_clip_fade.h"
 #include "pr/view3d-12/instance/instance.h"
 #include "pr/view3d-12/lighting/light.h"
+#include "pr/view3d-12/lighting/shadow_view.h"
 #include "pr/view3d-12/ray_tracing/ray_tracing_props.h"
 #include "pr/view3d-12/texture/texture_cube.h"
 #include "pr/view3d-12/utility/ray_cast.h"
@@ -112,21 +113,16 @@ namespace pr::rdr12
 			return static_cast<TRenderStep*>(FindRStep(TRenderStep::Id));
 		}
 
-		// Enable/Disable shadow casting
-		void ShadowCasting(bool enable, int shadow_map_size);
+		// Get/Set the scene-wide shadow settings. The shadow map render step is added automatically while any resolved light casts shadows.
+		ShadowSettings const& Shadows() const;
+		void Shadows(ShadowSettings const& settings);
 
 		// Add a world space light that shades the current frame only, such as a light attached to a scene object.
 		// Frame lights are removed by 'ClearDrawlists' and are ordered after 'm_lights' when the light limit is applied.
 		void AddFrameLight(Light const& light);
 
-		// True if any light that is on (scene or frame light) casts shadows
-		bool HasShadowCastingLight() const;
-
 		// The world space lights that shade the current frame. Valid from the start of 'Render' until the next 'Render'.
 		std::span<Light const> ResolvedLights() const;
-
-		// The index (into 'ResolvedLights') of the light that owns the shadow map, or -1 if there is none
-		int ShadowLightIndex() const;
 
 		// The number of lights that were on but did not shade the last frame because the light limit was reached
 		int DroppedLightCount() const;
@@ -171,6 +167,9 @@ namespace pr::rdr12
 
 		// The scene is the sole authority for this view-dependent rendering option.
 		FarClipFadeProps m_far_clip_fade;
+
+		// Scene-wide shadow settings. See 'Shadows'.
+		ShadowSettings m_shadow_settings;
 
 		// Per-frame lighting state. See 'AddFrameLight' and 'ResolvedLights'.
 		LightList m_frame_lights;

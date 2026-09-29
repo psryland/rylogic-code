@@ -1998,6 +1998,49 @@ VIEW3D_API void __stdcall View3D_AmbientSet(view3d::Window window, view3d::Colou
 	CatchAndReport(View3D_AmbientSet, window,);
 }
 
+// Get/Set the scene-wide shadow settings
+VIEW3D_API view3d::ShadowSettings __stdcall View3D_ShadowSettingsGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		auto const& s = window->Shadows();
+		return view3d::ShadowSettings{
+			.m_atlas_size = s.m_atlas_size,
+			.m_directional_resolution = s.m_directional_resolution,
+			.m_spot_resolution = s.m_spot_resolution,
+			.m_point_resolution = s.m_point_resolution,
+			.m_max_shadow_lights = s.m_max_shadow_lights,
+			.m_depth_bias = s.m_depth_bias,
+			.m_slope_bias = s.m_slope_bias,
+			.m_normal_bias = s.m_normal_bias,
+		};
+	}
+	CatchAndReport(View3D_ShadowSettingsGet, window, view3d::ShadowSettings{});
+}
+VIEW3D_API void __stdcall View3D_ShadowSettingsSet(view3d::Window window, view3d::ShadowSettings const& settings)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		auto s = rdr12::ShadowSettings{};
+		s.m_atlas_size = settings.m_atlas_size;
+		s.m_directional_resolution = settings.m_directional_resolution;
+		s.m_spot_resolution = settings.m_spot_resolution;
+		s.m_point_resolution = settings.m_point_resolution;
+		s.m_max_shadow_lights = settings.m_max_shadow_lights;
+		s.m_depth_bias = settings.m_depth_bias;
+		s.m_slope_bias = settings.m_slope_bias;
+		s.m_normal_bias = settings.m_normal_bias;
+		window->Shadows(s);
+	}
+	CatchAndReport(View3D_ShadowSettingsSet, window,);
+}
+
 // Objects ********************************
 
 // Create an object from provided buffers

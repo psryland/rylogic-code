@@ -167,7 +167,7 @@
     <ClCompile Include="src\utility\diagnostics.cpp" />
     <ClCompile Include="src\utility\features.cpp" />
     <ClCompile Include="src\utility\pipe_state.cpp" />
-    <ClCompile Include="src\utility\shadow_caster.cpp" />
+    <ClCompile Include="src\lighting\shadow_views.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(RylogicRoot)include\pr\camera\camera.h" />
@@ -308,7 +308,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\features.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\pipe_state.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\ray_cast.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\shadow_caster.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\lighting\shadow_view.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\view3d.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\win32\win32.h" />
     <ClInclude Include="..\..\..\include\pr\view3d-12\model\vertex_stream.h" />

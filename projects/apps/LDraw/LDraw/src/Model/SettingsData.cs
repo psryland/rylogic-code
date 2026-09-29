@@ -226,6 +226,7 @@ namespace LDraw
 			};
 			Lighting = new LightData();
 			Ambient = new Colour32(0xFF808080);
+			Shadows = new ShadowData();
 			RayTracing = new RayTracingData();
 		}
 
@@ -271,11 +272,112 @@ namespace LDraw
 			set => set(nameof(Ambient), value);
 		}
 
+		/// <summary>Shadow rendering settings for this scene</summary>
+		public ShadowData Shadows
+		{
+			get => get<ShadowData>(nameof(Shadows));
+			set => set(nameof(Shadows), value);
+		}
+
 		/// <summary>Ray tracing settings for this scene</summary>
 		public RayTracingData RayTracing
 		{
 			get => get<RayTracingData>(nameof(RayTracing));
 			set => set(nameof(RayTracing), value);
+		}
+	}
+
+	/// <summary>Per-scene shadow rendering settings. See View3d.ShadowSettings</summary>
+	public class ShadowData :SettingsSet<ShadowData>
+	{
+		public ShadowData()
+		{
+			FromShadowSettings(View3d.ShadowSettings.Default());
+		}
+
+		/// <summary>Width and height of the square shadow atlas (in pixels)</summary>
+		public int AtlasSize
+		{
+			get => get<int>(nameof(AtlasSize));
+			set => set(nameof(AtlasSize), value);
+		}
+
+		/// <summary>Requested size of a directional light shadow view (in pixels)</summary>
+		public int DirectionalResolution
+		{
+			get => get<int>(nameof(DirectionalResolution));
+			set => set(nameof(DirectionalResolution), value);
+		}
+
+		/// <summary>Requested size of a spot light shadow view (in pixels)</summary>
+		public int SpotResolution
+		{
+			get => get<int>(nameof(SpotResolution));
+			set => set(nameof(SpotResolution), value);
+		}
+
+		/// <summary>Requested size of each point light cube face shadow view (in pixels)</summary>
+		public int PointResolution
+		{
+			get => get<int>(nameof(PointResolution));
+			set => set(nameof(PointResolution), value);
+		}
+
+		/// <summary>The maximum number of lights that cast shadows</summary>
+		public int MaxShadowLights
+		{
+			get => get<int>(nameof(MaxShadowLights));
+			set => set(nameof(MaxShadowLights), value);
+		}
+
+		/// <summary>Constant depth bias (in units of the smallest depth step)</summary>
+		public int DepthBias
+		{
+			get => get<int>(nameof(DepthBias));
+			set => set(nameof(DepthBias), value);
+		}
+
+		/// <summary>Depth bias scaled by the depth slope of each triangle</summary>
+		public float SlopeBias
+		{
+			get => get<float>(nameof(SlopeBias));
+			set => set(nameof(SlopeBias), value);
+		}
+
+		/// <summary>Receiver offset along the surface normal (in shadow texels)</summary>
+		public float NormalBias
+		{
+			get => get<float>(nameof(NormalBias));
+			set => set(nameof(NormalBias), value);
+		}
+
+		/// <summary>Convert the persisted settings to View3D shadow settings</summary>
+		public View3d.ShadowSettings ToShadowSettings()
+		{
+			return new View3d.ShadowSettings
+			{
+				AtlasSize = AtlasSize,
+				DirectionalResolution = DirectionalResolution,
+				SpotResolution = SpotResolution,
+				PointResolution = PointResolution,
+				MaxShadowLights = MaxShadowLights,
+				DepthBias = DepthBias,
+				SlopeBias = SlopeBias,
+				NormalBias = NormalBias,
+			};
+		}
+
+		/// <summary>Copy View3D shadow settings into the persisted settings</summary>
+		public void FromShadowSettings(View3d.ShadowSettings settings)
+		{
+			AtlasSize = settings.AtlasSize;
+			DirectionalResolution = settings.DirectionalResolution;
+			SpotResolution = settings.SpotResolution;
+			PointResolution = settings.PointResolution;
+			MaxShadowLights = settings.MaxShadowLights;
+			DepthBias = settings.DepthBias;
+			SlopeBias = settings.SlopeBias;
+			NormalBias = settings.NormalBias;
 		}
 	}
 

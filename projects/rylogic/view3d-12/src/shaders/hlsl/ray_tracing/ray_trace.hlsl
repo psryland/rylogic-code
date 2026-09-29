@@ -3,6 +3,13 @@
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
 #include "view3d-12/src/shaders/hlsl/ray_tracing/ray_tracing_cbuf.hlsli"
+
+// Ray traced lighting does not use the shadow atlas, so lights are never shadowed
+float SampleLightShadow(Light light, float4 ws_pos, float4 ws_norm)
+{
+	return 1.0f;
+}
+
 #include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
 #include "view3d-12/src/shaders/hlsl/utility/colour_space.hlsli"
@@ -753,7 +760,7 @@ float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib, RayTracingMa
 
 	// Reflected hits use the same lights as the raster pass, without shadow maps
 	float4 ws_pos = float4(WorldRayOrigin() + RayTCurrent() * WorldRayDirection(), 1.0f);
-	return AddMaterialEmissive(material, Illuminate(g_lights, g_frame.light_info.x, g_frame.ambient.rgb, ws_pos, ws_normal, g_frame.cam.c2w[3], 1.0f, colour), tex0);
+	return AddMaterialEmissive(material, Illuminate(g_lights, g_frame.light_info.x, g_frame.ambient.rgb, ws_pos, ws_normal, g_frame.cam.c2w[3], colour), tex0);
 }
 
 // Return a stable pseudo-random value for a projected caustic cell.

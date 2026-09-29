@@ -18,6 +18,7 @@ namespace pr::rdr12
 		bool        m_has_alpha;   // True if the texture contains alpha pixels and should be rendered in the alpha group
 		DXGI_FORMAT m_srv_format;  // Optional SRV format override. If UNKNOWN, the resource format is used. Use this to cast UNORM <-> UNORM_SRGB on the SRV.
 		DXGI_FORMAT m_rtv_format;  // Optional RTV format override. If UNKNOWN, the resource format is used. Use this to cast UNORM <-> UNORM_SRGB on the RTV.
+		DXGI_FORMAT m_dsv_format;  // Optional DSV format override. If UNKNOWN, the resource format is used. Required for depth resources with TYPELESS formats.
 		string32    m_name;        // Debugging name for the texture. Replaced by the file name for loaded textures if empty
 
 		TextureDesc()
@@ -27,6 +28,7 @@ namespace pr::rdr12
 			,m_has_alpha()
 			,m_srv_format(DXGI_FORMAT_UNKNOWN)
 			,m_rtv_format(DXGI_FORMAT_UNKNOWN)
+			,m_dsv_format(DXGI_FORMAT_UNKNOWN)
 			,m_name()
 		{}
 		TextureDesc(RdrId id, ResDesc const& td)
@@ -36,6 +38,7 @@ namespace pr::rdr12
 			,m_has_alpha()
 			,m_srv_format(DXGI_FORMAT_UNKNOWN)
 			,m_rtv_format(DXGI_FORMAT_UNKNOWN)
+			,m_dsv_format(DXGI_FORMAT_UNKNOWN)
 			,m_name()
 		{}
 
@@ -71,6 +74,13 @@ namespace pr::rdr12
 		TextureDesc& rtv_format(DXGI_FORMAT format)
 		{
 			m_rtv_format = format;
+			return *this;
+		}
+
+		// Override the DSV format. Useful when a depth resource is TYPELESS so that it can also be read through an SRV.
+		TextureDesc& dsv_format(DXGI_FORMAT format)
+		{
+			m_dsv_format = format;
 			return *this;
 		}
 	};

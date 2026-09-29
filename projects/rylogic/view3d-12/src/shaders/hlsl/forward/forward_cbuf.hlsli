@@ -22,9 +22,6 @@ struct CBufFrame// :reg(b0)
 	// EnvMap
 	EnvMap env_map;
 
-	// Shadows
-	Shadow shadow;
-
 	// Projected textures
 	ProjTexture proj_tex;
 };

@@ -51,46 +51,6 @@ namespace pr::rdr12
 		return light;
 	}
 
-	// Returns a light to world transform appropriate for this light type and facing 'centre'
-	m4x4 Light::LightToWorld(v4 centre, float centre_dist, m4x4 const& c2w) const
-	{
-		auto pos = m_cam_relative ? c2w * m_position : m_position;
-		auto dir = m_cam_relative ? c2w * m_direction : m_direction;
-		auto preferred_up = m_cam_relative ? c2w.y : v4::YAxis();
-		centre_dist = centre_dist != 0 ? centre_dist : 1.0f;
-		switch (m_type)
-		{
-			case ELight::Directional: return m4x4::LookAt(centre - centre_dist * dir, centre, Perpendicular(dir, preferred_up));
-			case ELight::Point:       return m4x4::LookAt(pos, centre, Perpendicular(centre - pos, preferred_up));
-			case ELight::Spot:        return m4x4::LookAt(pos, centre, Perpendicular(centre - pos, preferred_up));
-			default:                  return m4x4::Identity();
-		}
-	}
-
-	// Returns a projection transform appropriate for this light type
-	m4x4 Light::Projection(float zn, float zf, float w, float h, float focus_dist) const
-	{
-		auto s = zn / focus_dist;
-		switch (m_type)
-		{
-			case ELight::Directional: return m4x4::ProjectionOrthographic(w, h, zn, zf, true);
-			case ELight::Point:       return m4x4::ProjectionPerspective(w * s, h * s, zn, zf, true);
-			case ELight::Spot:        return m4x4::ProjectionPerspective(w * s, h * s, zn, zf, true);
-			default:                  return m4x4::Identity();
-		}
-	}
-	m4x4 Light::ProjectionFOV(float zn, float zf, float aspect, float fovY, float focus_dist) const
-	{
-		auto height = 2.0f * focus_dist * tan(fovY * 0.5f);
-		switch (m_type)
-		{
-			case ELight::Directional: return m4x4::ProjectionOrthographic(height * aspect, height, zn, zf, true);
-			case ELight::Point:       return m4x4::ProjectionPerspectiveFOV(fovY, aspect, zn, zf, true);
-			case ELight::Spot:        return m4x4::ProjectionPerspectiveFOV(fovY, aspect, zn, zf, true);
-			default:                  return m4x4::Identity();
-		}
-	}
-
 	enum class ELightKW
 	{
 		#define PR_ENUM(x)\

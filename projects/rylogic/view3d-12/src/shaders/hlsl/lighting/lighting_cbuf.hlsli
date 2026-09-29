@@ -8,8 +8,6 @@
 #define PR_VIEW3D_SHADER_LIGHTING_CBUF_HLSLI
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
 
-static const int MaxShadowMaps = 1;
-
 // The maximum number of lights that shade a frame. Must match 'rdr12::MaxLights' in light.h.
 static const int MaxLights = 64;
 
@@ -30,12 +28,16 @@ struct Light
 	float4 shadow;       // x = shadow strength in [0,1]
 };
 
-// Shadows
-struct Shadow
+// The maximum number of shadow views in a frame. Must match 'rdr12::MaxShadowViews' in shadow_view.h.
+static const int MaxShadowViews = 32;
+
+// One depth render of the scene from a shadow-casting light, stored in a region of the shadow atlas.
+// The frame's shadow views are provided in a structured buffer. Lights refer to their views by index.
+struct ShadowView
 {
-	int4 info;  // x = count of smaps, y = smap size
-	row_major float4x4 w2l[MaxShadowMaps]; // World space to light space
-	row_major float4x4 l2s[MaxShadowMaps]; // Light space to shadow map space
+	row_major float4x4 w2s; // World space to clip space for the view (depth in [0,1])
+	float4 atlas_rect;      // Region of the atlas in UV units: xy = size, zw = offset
+	float4 bias;            // x = receiver normal offset (world units, or world units per unit distance for spot and point lights), yzw = reserved
 };
 
 // Light types
@@ -43,10 +45,7 @@ inline bool DirectionalLight(Light light) { return light.info.x == LightType_Dir
 inline bool PointLight(Light light)       { return light.info.x == LightType_Point; }
 inline bool SpotLight(Light light)        { return light.info.x == LightType_Spot; }
 
-// True if the light owns a shadow map
+// True if the light has shadow views
 inline bool HasShadow(Light light) { return light.info.y >= 0; }
-
-// Shadows
-inline int ShadowMapCount(Shadow shdw) { return shdw.info.x; }
 
 #endif

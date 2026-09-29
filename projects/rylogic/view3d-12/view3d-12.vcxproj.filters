@@ -545,8 +545,8 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\ray_cast.h">
       <Filter>src\utility</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\shadow_caster.h">
-      <Filter>src\utility</Filter>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\lighting\shadow_view.h">
+      <Filter>src\lighting</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\view3d.h">
       <Filter>src</Filter>
@@ -779,8 +779,8 @@
     <ClCompile Include="src\utility\pipe_state.cpp">
       <Filter>src\utility</Filter>
     </ClCompile>
-    <ClCompile Include="src\utility\shadow_caster.cpp">
-      <Filter>src\utility</Filter>
+    <ClCompile Include="src\lighting\shadow_views.cpp">
+      <Filter>src\lighting</Filter>
     </ClCompile>
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\gltf.h">
       <Filter>pr\geometry</Filter>

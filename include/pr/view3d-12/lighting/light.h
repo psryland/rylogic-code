@@ -39,13 +39,6 @@ namespace pr::rdr12
 		// Return a copy of this light in world space. Camera-relative lights are transformed by 'c2w'.
 		Light InWorldSpace(m4x4 const& c2w) const;
 
-		// Returns a light to world transform appropriate for this light type and facing 'centre'
-		m4x4 LightToWorld(v4 centre, float centre_dist, m4x4 const& c2w = m4x4::Identity()) const;
-
-		// Returns a projection transform appropriate for this light type
-		m4x4 Projection(float zn, float zf, float w, float h, float focus_dist) const;
-		m4x4 ProjectionFOV(float zn, float zf, float aspect, float fovY, float focus_dist) const;
-
 		// Get/Set light settings - throws Exception<HRESULT> if the settings are invalid
 		std::string Settings() const;
 		void Settings(std::string_view settings);

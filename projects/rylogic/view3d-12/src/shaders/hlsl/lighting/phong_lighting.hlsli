@@ -27,8 +27,8 @@ float LightSpecular(in float4 ws_light_direction, in float specular_power, in fl
 }
 
 // Return the colour due to scene lighting. Returns 'unlit_diff' if 'ws_norm' is zero.
-// 'lights' contains 'light_count' world space lights. 'shadow_visibility' is the visibility sampled from the shadow map.
-float4 Illuminate(StructuredBuffer<Light> lights, int light_count, float3 ambient, float4 ws_pos, float4 ws_norm, float4 ws_cam, float shadow_visibility, float4 unlit_diff)
+// 'lights' contains 'light_count' world space lights. Shadows are sampled with 'SampleLightShadow', see lights.hlsli.
+float4 Illuminate(StructuredBuffer<Light> lights, int light_count, float3 ambient, float4 ws_pos, float4 ws_norm, float4 ws_cam, float4 unlit_diff)
 {
 	// Notes:
 	//  - Lighting should not change the alpha value.
@@ -63,7 +63,7 @@ float4 Illuminate(StructuredBuffer<Light> lights, int light_count, float3 ambien
 			continue;
 
 		// Lambert diffuse plus Blinn-Phong specular, scaled by the light intensity and shadowing
-		float scale = intensity * light.colour.a * LightShadowVisibility(light, shadow_visibility);
+		float scale = intensity * light.colour.a * LightShadowVisibility(light, ws_pos, ws_norm);
 		float3 diffuse = (light.colour.rgb * unlit_diff.rgb) / (0.5f * tau);
 		float3 specular = light.specular.rgb * LightSpecular(ws_light_dir, light.specular.a, ws_norm, ws_toeye_norm, unlit_diff.a);
 		lit += scale * (diffuse + specular);

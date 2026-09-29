@@ -78,7 +78,7 @@ namespace pr::rdr12
 		namespace smap
 		{
 			#include "view3d-12/src/shaders/hlsl/shadow/shadow_map_cbuf.hlsli"
-			static_assert((sizeof(CBufFrame) % 16) == 0);
+			static_assert(sizeof(CBufDrawViews) == 20 * sizeof(uint32_t));
 			static_assert((sizeof(CBufNugget) % 16) == 0);
 		}
 		namespace ray_cast
@@ -274,13 +274,13 @@ namespace pr::rdr12
 	}
 
 	// Convert a world space light into the shader light layout.
-	// 'shadow_view' is the index of the light's first shadow view, or -1 if the light has no shadow this frame.
-	inline shaders::Light ToShaderLight(Light const& light, int shadow_view)
+	// 'shadow_views' is the (first index, count) of the light's shadow views, or (-1, 0) if the light has no shadow this frame.
+	inline shaders::Light ToShaderLight(Light const& light, iv2 shadow_views)
 	{
 		static_assert(shaders::MaxLights == rdr12::MaxLights, "Shader and renderer light limits must match");
 		static_assert(sizeof(shaders::Light) % 16 == 0, "Shader lights are stored in a structured buffer with 16 byte aligned elements");
 		return shaders::Light{
-			.info = iv4(int(light.m_type), shadow_view, shadow_view >= 0 ? 1 : 0, 0),
+			.info = iv4(int(light.m_type), shadow_views.x, shadow_views.y, 0),
 			.ws_direction = light.m_direction,
 			.ws_position = light.m_position,
 			.colour = Colour(light.m_diffuse, light.m_intensity).rgba,
@@ -297,40 +297,56 @@ namespace pr::rdr12
 	{
 		// Allocate space for the light array in the upload buffer
 		auto lights = scene.ResolvedLights();
-		auto shadow_light = scene.ShadowLightIndex();
 		auto count = std::max<int64_t>(isize(lights), 1);
 		auto alex = upload.Alloc(count * sizeof(shaders::Light), 16);
 		auto dst = reinterpret_cast<shaders::Light*>(alex.m_mem + alex.m_ofs);
 
-		// Convert each light. Only the shadow light has a shadow view in this renderer version.
+		// Lights refer to the shadow views chosen for this frame, if there are any
+		auto smap_step = scene.FindRStep<RenderSmap>();
+		auto const* shadow_views = smap_step != nullptr ? &smap_step->Views() : nullptr;
+
+		// Convert each light
 		dst[0] = shaders::Light{};
 		for (int i = 0; i != isize(lights); ++i)
-			dst[i] = ToShaderLight(lights[i], i == shadow_light ? 0 : -1);
+		{
+			auto views = shadow_views != nullptr && i < isize(shadow_views->m_light_views) ? shadow_views->m_light_views[i] : iv2(-1, 0);
+			dst[i] = ToShaderLight(lights[i], views);
+		}
 
 		return alex.m_res->GetGPUVirtualAddress() + alex.m_ofs;
 	}
 
-	// Set the shadow map constants
-	inline void SetShadowMapConstants(shaders::Shadow& cb, Scene const& scene)
+	// Upload the shadow views for the current frame and return the GPU address of the view array.
+	// At least one element is always uploaded so the address is valid even when there are no views.
+	template <typename TUploadBuffer>
+	D3D12_GPU_VIRTUAL_ADDRESS UploadShadowViews(TUploadBuffer& upload, ShadowViewSet const& views, int atlas_size)
 	{
-		// Ignore if there is no shadow map step, or no light casts a shadow this frame
-		auto smap_step = scene.FindRStep<RenderSmap>();
-		if (smap_step == nullptr || scene.ShadowLightIndex() < 0)
-			return;
+		static_assert(shaders::MaxShadowViews == rdr12::MaxShadowViews, "Shader and renderer shadow view limits must match");
+		static_assert(sizeof(shaders::ShadowView) % 16 == 0, "Shadow views are stored in a structured buffer with 16 byte aligned elements");
 
-		// Add the shadow maps to the shader params
-		int i = 0;
-		for (auto& caster : smap_step->Casters())
+		// Allocate space for the view array in the upload buffer
+		auto count = std::max<int64_t>(isize(views.m_views), 1);
+		auto alex = upload.Alloc(count * sizeof(shaders::ShadowView), 16);
+		auto dst = reinterpret_cast<shaders::ShadowView*>(alex.m_mem + alex.m_ofs);
+
+		// Convert each view. Atlas regions are given in UV units so shaders do not need the atlas size.
+		dst[0] = shaders::ShadowView{};
+		auto inv_size = 1.0f / atlas_size;
+		for (int i = 0; i != isize(views.m_views); ++i)
 		{
-			if (i == shaders::MaxShadowMaps)
-				break;
-
-			cb.info.x = i + 1;
-			cb.info.y = caster.m_size;
-			cb.w2l[i] = caster.m_params.m_w2ls;
-			cb.l2s[i] = caster.m_params.m_ls2s;
-			++i;
+			auto const& view = views.m_views[i];
+			dst[i] = shaders::ShadowView{
+				.w2s = view.m_w2s,
+				.atlas_rect = v4(
+					view.m_atlas_rect.SizeX() * inv_size,
+					view.m_atlas_rect.SizeY() * inv_size,
+					view.m_atlas_rect.m_min.x * inv_size,
+					view.m_atlas_rect.m_min.y * inv_size),
+				.bias = v4(view.m_normal_bias, 0, 0, 0),
+			};
 		}
+
+		return alex.m_res->GetGPUVirtualAddress() + alex.m_ofs;
 	}
 
 	// Set the env-map to world orientation

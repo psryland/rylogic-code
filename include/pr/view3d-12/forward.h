@@ -311,11 +311,12 @@ namespace pr::rdr12
 		struct ShadowMap;
 	}
 	using ShaderPtr = RefPtr<Shader>;
-	struct ShadowMap;
-	struct ShadowCaster;
 
 	// Lighting
 	struct Light;
+	struct ShadowSettings;
+	struct ShadowView;
+	struct ShadowViewSet;
 
 	// Ray cast
 	struct HitTestRay;

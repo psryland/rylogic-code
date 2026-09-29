@@ -1161,6 +1161,51 @@ namespace Rylogic.Gfx
 			}
 		}
 
+		/// <summary>Scene-wide shadow rendering settings. A light casts shadows when its 'CastShadow' is greater than zero.</summary>
+		[StructLayout(LayoutKind.Sequential)]
+		public struct ShadowSettings
+		{
+			/// <summary>Width and height of the square shadow atlas (in pixels). Must be a power of two</summary>
+			public int AtlasSize;
+
+			/// <summary>Requested size of a directional light shadow view (in pixels)</summary>
+			public int DirectionalResolution;
+
+			/// <summary>Requested size of a spot light shadow view (in pixels)</summary>
+			public int SpotResolution;
+
+			/// <summary>Requested size of each of the six point light shadow views (in pixels)</summary>
+			public int PointResolution;
+
+			/// <summary>The maximum number of lights that cast shadows. Zero disables shadows</summary>
+			public int MaxShadowLights;
+
+			/// <summary>Constant depth bias (in units of the smallest depth step)</summary>
+			public int DepthBias;
+
+			/// <summary>Depth bias scaled by the depth slope of each triangle</summary>
+			public float SlopeBias;
+
+			/// <summary>Receiver offset along the surface normal (in shadow texels)</summary>
+			public float NormalBias;
+
+			/// <summary>Default shadow settings</summary>
+			public static ShadowSettings Default()
+			{
+				return new ShadowSettings
+				{
+					AtlasSize = 4096,
+					DirectionalResolution = 2048,
+					SpotResolution = 1024,
+					PointResolution = 1024,
+					MaxShadowLights = 4,
+					DepthBias = 100,
+					SlopeBias = 2.0f,
+					NormalBias = 1.0f,
+				};
+			}
+		}
+
 		/// <summary>Caller-owned parameters for a UV-free GPU-evaluated PBR surface.</summary>
 		[StructLayout(LayoutKind.Sequential)]
 		public struct ProceduralSurface
@@ -2163,6 +2208,10 @@ namespace Rylogic.Gfx
 		// Get/Set the scene-wide ambient light colour
 		[DllImport(Dll)] private static extern Colour32 View3D_AmbientGet(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_AmbientSet(HWindow window, Colour32 ambient);
+
+		// Get/Set the scene-wide shadow settings
+		[DllImport(Dll)] private static extern ShadowSettings View3D_ShadowSettingsGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_ShadowSettingsSet(HWindow window, ref ShadowSettings settings);
 
 		// Objects ********************************
 

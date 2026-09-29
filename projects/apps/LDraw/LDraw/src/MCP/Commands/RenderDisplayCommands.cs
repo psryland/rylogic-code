@@ -16,22 +16,44 @@ internal sealed partial class LDrawInstanceHost
 	{
 		return m_model.InvokeAsync(() =>
 		{
-			if (parameters.Antialiasing == null && parameters.ShadowCastRange == null && parameters.RayTracingEnabled == null)
+			if (parameters.Antialiasing == null && parameters.MainLightShadowStrength == null && parameters.MaxShadowLights == null && parameters.ShadowAtlasSize == null && parameters.RayTracingEnabled == null)
 				throw new InvalidOperationException("ldraw_set_render_settings requires at least one render setting.");
 
 			var scene = ResolveScene(parameters.SceneName);
-			if (parameters.Antialiasing != null || parameters.ShadowCastRange != null)
+			if (parameters.Antialiasing != null || parameters.MainLightShadowStrength != null)
 			{
 				var options = RuntimeChartOptions(scene);
 				if (parameters.Antialiasing != null)
 					options.Antialiasing = parameters.Antialiasing.Value;
-				if (parameters.ShadowCastRange != null)
+				if (parameters.MainLightShadowStrength != null)
 				{
-					if (parameters.ShadowCastRange.Value < 0.0)
-						throw new InvalidOperationException("shadow_cast_range must be greater than or equal to zero.");
+					if (parameters.MainLightShadowStrength.Value < 0.0)
+						throw new InvalidOperationException("main_light_shadow_strength must be greater than or equal to zero.");
 
-					options.ShadowCastRange = parameters.ShadowCastRange.Value;
+					options.MainLightShadowStrength = parameters.MainLightShadowStrength.Value;
 				}
+			}
+			if (parameters.MaxShadowLights != null || parameters.ShadowAtlasSize != null)
+			{
+				// Validate before applying so that a rejected request leaves the scene unchanged
+				var window = scene.SceneView.Scene.Window;
+				var shadows = window.Shadows;
+				if (parameters.MaxShadowLights != null)
+				{
+					if (parameters.MaxShadowLights.Value < 0)
+						throw new InvalidOperationException("max_shadow_lights must be greater than or equal to zero.");
+
+					shadows.MaxShadowLights = parameters.MaxShadowLights.Value;
+				}
+				if (parameters.ShadowAtlasSize != null)
+				{
+					var size = parameters.ShadowAtlasSize.Value;
+					if (size < 256 || size > 16384 || (size & (size - 1)) != 0)
+						throw new InvalidOperationException("shadow_atlas_size must be a power of two in [256, 16384].");
+
+					shadows.AtlasSize = size;
+				}
+				window.Shadows = shadows;
 			}
 			if (parameters.RayTracingEnabled != null)
 			{
