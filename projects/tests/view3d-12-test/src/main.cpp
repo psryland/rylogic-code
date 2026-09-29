@@ -171,12 +171,12 @@ struct Main :Form
 		View3D_CameraPositionSet(m_win3d, {5, -5, 4, 1}, {0, 0, 0, 1}, {0, 0, 1, 0});
 	
 		// Cast shadows
-		auto light = View3D_LightPropertiesGet(m_win3d);
+		auto light = View3D_LightGet(m_win3d, 0);
 		light.m_type = view3d::ELight::Directional;
 		light.m_direction = To<view3d::Vec4>(v4::Normal(-1, -1, -1, 0));
 		light.m_cast_shadow = 0.0f;// 10.0f;
 		light.m_cam_relative = false;
-		View3D_LightPropertiesSet(m_win3d, light);
+		View3D_LightSet(m_win3d, 0, light);
 
 		// Create 'm_obj0', 'm_obj1'
 		{

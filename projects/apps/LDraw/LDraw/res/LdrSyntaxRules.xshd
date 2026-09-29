@@ -67,7 +67,6 @@
 			<Word>*Addr</Word>
 			<Word>*Align</Word>
 			<Word>*Alpha</Word>
-			<Word>*Ambient</Word>
 			<Word>*Anchor</Word>
 			<Word>*AngAccel</Word>
 			<Word>*AngVelocity</Word>

@@ -329,9 +329,20 @@ namespace pr::rdr12
 		float Zoom() const;
 		void Zoom(float zoom);
 
-		// Get/Set the global scene light
-		Light GlobalLight() const;
-		void GlobalLight(Light const& light);
+		// The number of scene lights. Light 0 is conventionally the main light.
+		int LightCount() const;
+
+		// Get/Set the scene light at 'index'. 'index' must be in [0, LightCount()).
+		Light SceneLight(int index) const;
+		void SceneLight(int index, Light const& light);
+
+		// Add a scene light and return its index. Remove the scene light at 'index'.
+		int AddLight(Light const& light);
+		void RemoveLight(int index);
+
+		// Get/Set the scene-wide ambient light colour
+		Colour32 Ambient() const;
+		void Ambient(Colour32 ambient);
 
 		// Get/Set the global environment map for this window
 		TextureCube const* EnvMap() const;

@@ -44,7 +44,10 @@ namespace TestWPF
 
 			// Setup the chart for diagram mode
 			m_diag.Options = opts;
-			m_diag.Scene.Window.LightProperties = View3d.LightInfo.Ambient(Colour32.Gray);
+			var light = m_diag.Scene.Window.MainLight;
+			light.On = false;
+			m_diag.Scene.Window.MainLight = light;
+			m_diag.Scene.Window.Ambient = Colour32.Gray;
 			DiagramCMenuContext = new Diagram_.CMenu(m_diag);
 
 			var node0 = new QuadNode("Node0\nIS A BIGGGG\n Node! \n Oh Yeaaahhh!!", position: m4x4.Translation(-10, -5, -2), style: bs) { Chart = m_diag };

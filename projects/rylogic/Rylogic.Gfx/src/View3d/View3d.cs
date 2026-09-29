@@ -188,7 +188,6 @@ namespace Rylogic.Gfx
 		}
 		public enum ELight : int
 		{
-			Ambient,
 			Directional,
 			Point,
 			Spot
@@ -981,11 +980,8 @@ namespace Rylogic.Gfx
 			/// <summary>Direction, only valid for directional and spot lights</summary>
 			public v4 Direction;
 
-			/// <summary>The light source type. One of ambient, directional, point, spot</summary>
+			/// <summary>The light source type. One of directional, point, spot</summary>
 			public ELight Type;
-
-			/// <summary>Ambient light colour</summary>
-			public Colour32 AmbientColour;
 
 			/// <summary>Main light colour</summary>
 			public Colour32 DiffuseColour;
@@ -1011,7 +1007,7 @@ namespace Rylogic.Gfx
 			/// <summary>Spot light outer angle 0% light (in radians)</summary>
 			public float OuterAngle;
 
-			/// <summary>Shadow cast range, 0 for off</summary>
+			/// <summary>Shadow strength. Values > 0 cast shadows</summary>
 			public float CastShadow;
 
 			/// <summary>True if the light should move with the camera</summary>
@@ -1026,10 +1022,9 @@ namespace Rylogic.Gfx
 				return new LightInfo
 				{
 					On = true,
-					Type = ELight.Ambient,
+					Type = ELight.Directional,
 					Position = v4.Origin,
 					Direction = -v4.ZAxis,
-					AmbientColour = 0xFF808080,
 					DiffuseColour = 0xFFFFFFFF,
 					SpecularColour = 0xFF101010,
 					SpecularPower = 64f,
@@ -1043,23 +1038,12 @@ namespace Rylogic.Gfx
 				};
 			}
 
-			/// <summary>Return properties for an ambient light source</summary>
-			public static LightInfo Ambient(Colour32? ambient = null, float? intensity = null)
-			{
-				var light = Default();
-				light.Type = ELight.Ambient;
-				light.AmbientColour = ambient ?? light.AmbientColour;
-				light.Intensity = intensity ?? light.Intensity;
-				return light;
-			}
-
 			/// <summary>Return properties for a directional light source</summary>
-			public static LightInfo Directional(v4 direction, Colour32? ambient = null, Colour32? diffuse = null, Colour32? specular = null, float? spec_power = null, float? cast_shadow = null, bool camera_relative = false, float? intensity = null)
+			public static LightInfo Directional(v4 direction, Colour32? diffuse = null, Colour32? specular = null, float? spec_power = null, float? cast_shadow = null, bool camera_relative = false, float? intensity = null)
 			{
 				var light = Default();
 				light.Type = ELight.Directional;
 				light.Direction = Math_.Normalise(direction);
-				light.AmbientColour = ambient ?? light.AmbientColour;
 				light.DiffuseColour = diffuse ?? light.DiffuseColour;
 				light.SpecularColour = specular ?? light.SpecularColour;
 				light.SpecularPower = spec_power ?? light.SpecularPower;
@@ -1070,12 +1054,11 @@ namespace Rylogic.Gfx
 			}
 
 			/// <summary>Return properties for a point light source</summary>
-			public static LightInfo Point(v4 position, Colour32? ambient = null, Colour32? diffuse = null, Colour32? specular = null, float? spec_power = null, float? cast_shadow = null, bool camera_relative = false, float? intensity = null)
+			public static LightInfo Point(v4 position, Colour32? diffuse = null, Colour32? specular = null, float? spec_power = null, float? cast_shadow = null, bool camera_relative = false, float? intensity = null)
 			{
 				var light = Default();
 				light.Type = ELight.Point;
 				light.Position = position;
-				light.AmbientColour = ambient ?? light.AmbientColour;
 				light.DiffuseColour = diffuse ?? light.DiffuseColour;
 				light.SpecularColour = specular ?? light.SpecularColour;
 				light.SpecularPower = spec_power ?? light.SpecularPower;
@@ -2164,12 +2147,22 @@ namespace Rylogic.Gfx
 
 		// Lights *********************************
 
-		// Get/Set the properties of the global light
-		[DllImport(Dll)] private static extern LightInfo View3D_LightPropertiesGet(HWindow window);
-		[DllImport(Dll)] private static extern void View3D_LightPropertiesSet(HWindow window, ref LightInfo light);
-	
-		// Set the global light source for a window
-		[DllImport(Dll)] private static extern void View3D_LightSource(HWindow window, v4 position, v4 direction, bool camera_relative);
+		// The number of scene lights in 'window'
+		[DllImport(Dll)] private static extern int View3D_LightCount(HWindow window);
+
+		// Get/Set the properties of the scene light at 'index'
+		[DllImport(Dll)] private static extern LightInfo View3D_LightGet(HWindow window, int index);
+		[DllImport(Dll)] private static extern void View3D_LightSet(HWindow window, int index, ref LightInfo light);
+
+		// Add a scene light and return its index
+		[DllImport(Dll)] private static extern int View3D_LightAdd(HWindow window, ref LightInfo light);
+
+		// Remove the scene light at 'index'
+		[DllImport(Dll)] private static extern void View3D_LightRemove(HWindow window, int index);
+
+		// Get/Set the scene-wide ambient light colour
+		[DllImport(Dll)] private static extern Colour32 View3D_AmbientGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_AmbientSet(HWindow window, Colour32 ambient);
 
 		// Objects ********************************
 

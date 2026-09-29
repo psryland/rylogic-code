@@ -21,7 +21,7 @@ namespace Rylogic.Gui.WPF.ChartDetail
 				DefaultKeyboardShortcuts = false;
 				Window.FocusPointVisible = false;
 				Window.OriginPointVisible = false;
-				Window.LightProperties = View3d.LightInfo.Directional(-v4.ZAxis, camera_relative: true);
+				Window.MainLight = View3d.LightInfo.Directional(-v4.ZAxis, camera_relative: true);
 			}
 			catch
 			{

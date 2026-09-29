@@ -42,6 +42,7 @@ namespace pr::rdr12::shaders
 			AlphaDepth,
 			AlphaRtAttrs,
 			SkyTexture,
+			Lights,
 		};
 
 		enum class ESampParam

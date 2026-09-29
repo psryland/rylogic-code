@@ -66,7 +66,8 @@ namespace Rylogic.Gui.WinForms
 				m_tools = new Tools();
 				m_camera = m_window.Camera;
 				m_camera.ClipPlanes(0.5f, 1.1f, View3d.EClipPlanes.Both|View3d.EClipPlanes.CameraRelative);
-				m_window.LightProperties = View3d.LightInfo.Directional(-v4.ZAxis, Colour32.Zero, Colour32.Gray, Colour32.Zero, 0f, 0f);
+				m_window.MainLight = View3d.LightInfo.Directional(-v4.ZAxis, Colour32.Gray, Colour32.Zero, 0f, 0f);
+				m_window.Ambient = Colour32.Zero;
 				m_window.FocusPointVisible = false;
 				m_window.OriginPointVisible = false;
 

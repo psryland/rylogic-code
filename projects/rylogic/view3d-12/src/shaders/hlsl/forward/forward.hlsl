@@ -52,6 +52,9 @@ SamplerState      g_roughness_sampler :register(s5);
 SamplerState      g_emissive_sampler  :register(s6);
 SamplerState      g_normal_sampler    :register(s7);
 
+// The frame's world space lights. The count is in 'g_frame.light_info.x'.
+StructuredBuffer<Light> g_lights :register(t14);
+
 // Alpha sorting
 RasterizerOrderedTexture2D<uint4> g_alpha_colour :register(u0);
 RasterizerOrderedTexture2D<uint4> g_alpha_depth  :register(u1);
@@ -149,9 +152,7 @@ float4 ResolveWorldNormal(PSIn In, bool is_front_face)
 
 	float4 norm =
 		dot(In.ws_norm, In.ws_norm) != 0 ? normalize(In.ws_norm) :
-		DirectionalLight(g_frame.global_light) ? -g_frame.global_light.ws_direction :
-		PointLight(g_frame.global_light)       ? normalize(g_frame.global_light.ws_position - In.ws_vert) :
-		SpotLight(g_frame.global_light)        ? normalize(g_frame.global_light.ws_position - In.ws_vert) :
+		g_frame.light_info.x != 0 ? -LightDirectionAt(g_lights[0], In.ws_vert) :
 		float4(0, 0, 0, 0);
 
 	if (TwoSided(g_nugget.flags) && !is_front_face)
@@ -317,7 +318,7 @@ PSOut PSForward(PSIn In, bool is_front_face : SV_IsFrontFace)
 
 	// Lighting
 	if (HasNormals(g_nugget.flags))
-		Out.diff = Illuminate(g_frame.global_light, In.ws_vert, In.ws_norm, g_frame.cam.c2w[3], light_visible, Out.diff);
+		Out.diff = Illuminate(g_lights, g_frame.light_info.x, g_frame.ambient.rgb, In.ws_vert, In.ws_norm, g_frame.cam.c2w[3], light_visible, Out.diff);
 
 	// If not alpha blending, clip alpha pixels
 	if (!HasAlpha(g_nugget.flags))
@@ -403,7 +404,7 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 	float light_visible = ShadowMapCount(g_frame.shadow) != 0
 		? LightVisibility(g_frame.shadow, In.ws_vert)
 		: 1.0f;
-	float3 colour = PbrIlluminate(g_frame.global_light, In.ws_vert.xyz, normal, view, light_visible, albedo, metallic, roughness, emissive);
+	float3 colour = PbrIlluminate(g_lights, g_frame.light_info.x, g_frame.ambient.rgb, light_visible, In.ws_vert.xyz, normal, view, albedo, metallic, roughness, emissive);
 
 	Out.diff = float4(saturate(colour), alpha);
 	return Out;

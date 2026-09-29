@@ -19,7 +19,8 @@ StructuredBuffer<RayTracingVertex> g_vertices : register(t6);
 Buffer<uint> g_indices16 : register(t7);
 Buffer<uint> g_indices32 : register(t8);
 StructuredBuffer<RayTracingGeometry> g_geometry : register(t9);
-Texture2D<float4> g_material_textures[RayTracingMaterialTextureLimit] : register(t10);
+StructuredBuffer<Light> g_lights : register(t10); // The frame's world space lights. The count is in 'g_frame.light_info.x'.
+Texture2D<float4> g_material_textures[RayTracingMaterialTextureLimit] : register(t11);
 RWTexture2D<float4> g_output : register(u0);
 RWTexture2D<uint4> g_alpha_colour : register(u1);
 RWTexture2D<uint4> g_alpha_depth : register(u2);
@@ -43,6 +44,18 @@ static const float DefaultGlassTransmission = 0.85f;
 static const uint SharedHitGroupIndex = 0;
 static const uint SharedHitGroupGeometryStride = 0;
 static const uint DefaultMissShaderIndex = 0;
+
+// True if the frame has a directional key light for hard shadows and caustics
+bool HasKeyLight()
+{
+	return g_frame.light_info.y >= 0;
+}
+
+// The directional light used for hard shadows and caustics. Only valid when 'HasKeyLight()' is true.
+Light KeyLight()
+{
+	return g_lights[g_frame.light_info.y];
+}
 
 // This shader is a hybrid post-raster pass. The raster pipeline remains authoritative for camera-visible colour and depth; DXR adds optional overlays:
 // diagnostics trace the TLAS directly, reflections start from raster or alpha-layer hits, caustics pull transmissive information from the light path,
@@ -676,14 +689,6 @@ uint HitTriangleIndex(RayTracingGeometry geometry, uint corner)
 	return g_indices32[index];
 }
 
-// Shade a reflected hit with the cheap first-pass lighting model used by RT reflections.
-float4 ShadeDirectionalHit(float4 ws_normal, float4 colour)
-{
-	float intensity = LightDirectional(g_frame.global_light.ws_direction, ws_normal, colour.a);
-	float3 lit = LambertLighting(g_frame.global_light, intensity, 1.0f, colour.rgb);
-	return float4(saturate(lit), colour.a);
-}
-
 // Shade the closest-hit surface by interpolating packed geometry attributes.
 float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib, RayTracingMaterial material, out float3 ws_normal_out, out float reflectivity)
 {
@@ -746,11 +751,9 @@ float4 ShadeRayHit(in BuiltInTriangleIntersectionAttributes attrib, RayTracingMa
 
 	ws_normal_out = ws_normal.xyz;
 
-	if (DirectionalLight(g_frame.global_light))
-		return AddMaterialEmissive(material, ShadeDirectionalHit(ws_normal, colour), tex0);
-
+	// Reflected hits use the same lights as the raster pass, without shadow maps
 	float4 ws_pos = float4(WorldRayOrigin() + RayTCurrent() * WorldRayDirection(), 1.0f);
-	return AddMaterialEmissive(material, Illuminate(g_frame.global_light, ws_pos, ws_normal, g_frame.cam.c2w[3], 1.0f, colour), tex0);
+	return AddMaterialEmissive(material, Illuminate(g_lights, g_frame.light_info.x, g_frame.ambient.rgb, ws_pos, ws_normal, g_frame.cam.c2w[3], 1.0f, colour), tex0);
 }
 
 // Return a stable pseudo-random value for a projected caustic cell.
@@ -910,12 +913,12 @@ void RayGen()
 	if (RayTracingModeIncludesCaustics(mode))
 	{
 		RasterDepth raster = LoadRasterDepth(pixel);
-		if (DirectionalLight(g_frame.global_light) && raster.depth < 0.999999f)
+		if (HasKeyLight() && raster.depth < 0.999999f)
 		{
 			RayDesc camera_ray = MakeCameraRay(pixel, dim);
 			float3 hit_pos = WorldPosition(pixel, dim, raster.depth);
 			float3 normal = ReceiverNormal(pixel, dim, raster.depth, camera_ray);
-			float3 light_to_surface = normalize(g_frame.global_light.ws_direction.xyz);
+			float3 light_to_surface = normalize(KeyLight().ws_direction.xyz);
 			float3 surface_to_light = -light_to_surface;
 			float receiver_facing = saturate(dot(normal, surface_to_light));
 
@@ -979,7 +982,7 @@ void RayGen()
 						caustic_transmission *
 						focus *
 						path_alignment;
-					colour.rgb += g_frame.global_light.colour.rgb * strength;
+					colour.rgb += KeyLight().colour.rgb * strength;
 				}
 			}
 		}
@@ -988,7 +991,7 @@ void RayGen()
 		return;
 	}
 
-	if (!DirectionalLight(g_frame.global_light))
+	if (!HasKeyLight())
 	{
 		g_output[pixel] = colour;
 		return;
@@ -998,7 +1001,7 @@ void RayGen()
 	float depth = LoadDepth(pixel);
 	if (depth < 0.999999f)
 	{
-		float3 light_to_surface = normalize(g_frame.global_light.ws_direction.xyz);
+		float3 light_to_surface = normalize(KeyLight().ws_direction.xyz);
 		float3 surface_to_light = -light_to_surface;
 		float3 hit_pos = WorldPosition(pixel, dim, depth);
 		float shadow_bias = RayBias(g_frame.shadow.y, length(hit_pos - g_frame.cam.c2w[3].xyz));

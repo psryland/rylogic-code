@@ -83,8 +83,8 @@ namespace ace
 			m_screen_tex->m_t2s.pos.y = 1.0f;
 
 			// Setup a flat light
-			m_scene.m_global_light.m_type = ELight::Ambient;
-			m_scene.m_global_light.m_ambient = 0xFF808080;
+			m_scene.m_lights.clear();
+			m_scene.m_ambient = 0xFF808080;
 
 			// Set up the renderer to render a quad containing a texture
 			auto material = MaterialPtr(::pr::compute::New<MaterialSimple>(Colour32White, m_screen_tex, m_factory.CreateSampler(EStockSampler::PointClamp)), true);

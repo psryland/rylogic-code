@@ -45,6 +45,7 @@ namespace pr::rdr12
 			Output,
 			AlphaColour,
 			AlphaDepth,
+			Lights,
 		};
 		enum class EPresentRootParam
 		{
@@ -156,10 +157,11 @@ namespace pr::rdr12
 			.SRV(hlsl::ESRVReg::t7, 1)
 			.SRV(hlsl::ESRVReg::t8, 1)
 			.SRV(hlsl::ESRVReg::t9, 1)
-			.SRV(static_cast<hlsl::ESRVReg>(10), shaders::rt::RayTracingMaterialTextureLimit, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
+			.SRV(static_cast<hlsl::ESRVReg>(11), shaders::rt::RayTracingMaterialTextureLimit, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
 			.UAV(hlsl::EUAVReg::u0, 1)
 			.UAV(hlsl::EUAVReg::u1, 1)
 			.UAV(hlsl::EUAVReg::u2, 1)
+			.SRV(static_cast<hlsl::ESRVReg>(10))
 			.Samp(D3D12_STATIC_SAMPLER_DESC{
 				.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR,
 				.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP,
@@ -555,7 +557,13 @@ namespace pr::rdr12
 			auto cb = shaders::rt::CBufFrame{};
 			SetViewConstants(cb.cam, scene.m_cam);
 			cb.s2w = Invert(cb.cam.w2s);
-			SetLightingConstants(cb.global_light, scene.m_global_light, scene.m_cam);
+			SetLightingConstants(cb, scene);
+
+			// Hard shadows and caustics trace toward a single directional light. Use the first directional light, if any.
+			auto lights = scene.ResolvedLights();
+			auto key_light = std::find_if(lights.begin(), lights.end(), [](Light const& light) { return light.m_type == ELight::Directional; });
+			cb.light_info.y = key_light != lights.end() ? s_cast<int>(key_light - lights.begin()) : -1;
+
 			cb.camera = v4(
 				s_cast<float>(scene.m_cam.Aspect()),
 				s_cast<float>(scene.m_cam.FovY()),
@@ -596,6 +604,7 @@ namespace pr::rdr12
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::Output, output_uav);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::AlphaColour, alpha_colour_uav);
 			cmd_list.SetComputeRootDescriptorTable(ETraceRootParam::AlphaDepth, alpha_depth_uav);
+			cmd_list.SetComputeRootShaderResourceView(ETraceRootParam::Lights, UploadLights(frame.m_upload, scene));
 			dxr_cmd_list->SetPipelineState1(data.m_trace_state.get());
 
 			auto dispatch_desc = data.m_dispatch_desc;

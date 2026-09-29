@@ -33,6 +33,27 @@ namespace fade_tests
 			throw std::runtime_error("D3D operation failed: " + std::to_string(result));
 	}
 
+	// The main scene light paired with the scene-wide ambient colour, so tests can snapshot and restore both together.
+	struct SceneLighting : api::Light
+	{
+		api::Colour m_ambient;
+	};
+
+	// Read light 0 and the scene ambient light from 'window'.
+	SceneLighting SceneLightingGet(api::Window window)
+	{
+		// Light 0 is the window's main light.
+		return SceneLighting{ View3D_LightGet(window, 0), View3D_AmbientGet(window) };
+	}
+
+	// Write light 0 and the scene ambient light to 'window'.
+	void SceneLightingSet(api::Window window, SceneLighting const& lighting)
+	{
+		// Apply the light and ambient as one logical lighting state.
+		View3D_LightSet(window, 0, lighting);
+		View3D_AmbientSet(window, lighting.m_ambient);
+	}
+
 	// Collect DLL failures without throwing through native callback frames.
 	void __stdcall ReportError(void* context, char const* message, char const*, int, int64_t)
 	{
@@ -612,7 +633,7 @@ namespace fade_tests
 		std::cout << "PASS internal generated masks, mixed nuggets, Tex0, canonical 64-byte storage and empty IA; public Vertex=48 bytes\n";
 
 		// Fixture-only controlled lighting leaves product lights, materials and shadows untouched.
-		auto light = View3D_LightPropertiesGet(fixture.m_window);
+		auto light = SceneLightingGet(fixture.m_window);
 		light.m_type = api::ELight::Directional;
 		light.m_ambient = 0xFF000000;
 		light.m_diffuse = 0xFFFFFFFF;
@@ -630,7 +651,7 @@ namespace fade_tests
 			View3D_ObjectO2WSet(object, To<api::Mat4x4>(transform), nullptr);
 			View3D_WindowAddObject(fixture.m_window, object);
 			light.m_direction = {-toward_light.x, -toward_light.y, -toward_light.z, 0};
-			View3D_LightPropertiesSet(fixture.m_window, light);
+			SceneLightingSet(fixture.m_window, light);
 			return LightingPatch(fixture.Image());
 		};
 		auto luminance = [](v4 colour)
@@ -969,13 +990,13 @@ namespace fade_tests
 		auto has_surface = View3D_ObjectNuggetProceduralSurfaceGet(object, round_trip, nullptr, 0);
 		fixture.CheckErrors();
 		Require(has_surface, "Procedural U32 object did not promote to the stock PBR material");
-		auto ambient_light = View3D_LightPropertiesGet(fixture.m_window);
+		auto ambient_light = SceneLightingGet(fixture.m_window);
 		ambient_light.m_ambient = 0xFFFFFFFF;
 		ambient_light.m_diffuse = 0xFF000000;
 		ambient_light.m_specular = 0xFF000000;
 		ambient_light.m_intensity = 1;
 		ambient_light.m_on = TRUE;
-		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		SceneLightingSet(fixture.m_window, ambient_light);
 		Expect(fixture.Image(), 0, 1, 0);
 
 		// Rejected procedural parameters must leave the existing enabled component unchanged.
@@ -1015,7 +1036,7 @@ namespace fade_tests
 
 		// ShadowMap must use the supplied procedural VS while retaining stock depth and material handling.
 		auto receiver = fixture.Quad(20, 0xFFFFFFFF, 45, nullptr, 0, 0xFFFFFFFF, false, true);
-		auto light = View3D_LightPropertiesGet(fixture.m_window);
+		auto light = SceneLightingGet(fixture.m_window);
 		light.m_type = api::ELight::Directional;
 		light.m_direction = api::Vec4{0.70710678f, 0, -0.70710678f, 0};
 		light.m_ambient = 0xFF202020;
@@ -1024,7 +1045,7 @@ namespace fade_tests
 		light.m_intensity = 1;
 		light.m_cast_shadow = 1.0f;
 		light.m_on = TRUE;
-		View3D_LightPropertiesSet(fixture.m_window, light);
+		SceneLightingSet(fixture.m_window, light);
 		auto with_shadow = fixture.Image();
 		View3D_ObjectFlagsSet(object, api::ELdrFlags::ShadowCastExclude, TRUE, nullptr);
 		auto without_shadow = fixture.Image();
@@ -1070,7 +1091,7 @@ namespace fade_tests
 			Require(!fixture.m_errors.empty() && fixture.m_errors.back().find("procedural vertex-ID") != std::string::npos, "DXR enable did not reject resident procedural geometry");
 			fixture.m_errors.clear();
 			Require(!View3D_WindowRayTracingEnabledGet(fixture.m_window), "Failed DXR enable changed the active pipeline");
-			View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+			SceneLightingSet(fixture.m_window, ambient_light);
 			Expect(fixture.Image(), 0, 1, 0);
 
 			// Rebuild the empty scene before enabling DXR, then add the model to exercise late admission on the same window.
@@ -1101,7 +1122,7 @@ namespace fade_tests
 
 				// Only add a reference here; model creation and final release remain inside the DLL.
 				child->m_model = object->m_model;
-				View3D_LightPropertiesSet(shared_fixture.m_window, ambient_light);
+				SceneLightingSet(shared_fixture.m_window, ambient_light);
 				View3D_WindowRayTracingEnabledSet(shared_fixture.m_window, TRUE);
 				shared_fixture.CheckErrors();
 				View3D_WindowAddObject(shared_fixture.m_window, group);
@@ -1169,14 +1190,14 @@ namespace fade_tests
 			Require(ImageDifference(images[0], images[i]) > 1000, "Procedural presets did not produce distinct rendered surfaces");
 
 		// Repeated frames and camera translation along the view axis must not move a world-coordinate field.
-		auto default_light = View3D_LightPropertiesGet(fixture.m_window);
+		auto default_light = SceneLightingGet(fixture.m_window);
 		auto ambient_light = default_light;
 		ambient_light.m_ambient = 0xFFFFFFFF;
 		ambient_light.m_diffuse = 0xFF000000;
 		ambient_light.m_specular = 0xFF000000;
 		ambient_light.m_on = TRUE;
 		ambient_light.m_intensity = 1.0f;
-		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		SceneLightingSet(fixture.m_window, ambient_light);
 		auto soil = View3D_ProceduralSurfacePreset(api::EProceduralSurfacePreset::Soil);
 		soil.m_feature_scale = 5.0f;
 		soil.m_seed = 42;
@@ -1204,7 +1225,7 @@ namespace fade_tests
 		Require(ImageDifference(red_image, fixture.Image()) > 1000, "Procedural albedo palette did not affect rendered output");
 
 		// Normal strength and roughness ranges independently affect lit PBR output without UVs or tangent streams.
-		View3D_LightPropertiesSet(fixture.m_window, default_light);
+		SceneLightingSet(fixture.m_window, default_light);
 		auto channels = View3D_ProceduralSurfacePreset(api::EProceduralSurfacePreset::Rock);
 		channels.m_feature_scale = 8.0f;
 		channels.m_colour0 = channels.m_colour1 = channels.m_colour2 = channels.m_colour3 = 0xFF808080;
@@ -1223,7 +1244,7 @@ namespace fade_tests
 		Require(ImageDifference(smooth, fixture.Image()) > 50, "Procedural roughness channel did not affect rendered output");
 
 		// Object-space coordinates move with the object rather than being anchored to the world field.
-		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		SceneLightingSet(fixture.m_window, ambient_light);
 		auto object_space = soil;
 		object_space.m_coordinate_space = api::EProceduralCoordinateSpace::Object;
 		View3D_ObjectNuggetProceduralSurfaceSet(object, object_space, nullptr, 0);
@@ -1248,7 +1269,7 @@ namespace fade_tests
 		View3D_ObjectO2WSet(object, translated, nullptr);
 		camera.w.x = 0;
 		View3D_CameraToWorldSet(fixture.m_window, camera);
-		View3D_LightPropertiesSet(fixture.m_window, default_light);
+		SceneLightingSet(fixture.m_window, default_light);
 
 		// A large translated object can retain local detail by selecting a matching caller-owned coordinate origin.
 		auto large = soil;
@@ -1296,7 +1317,7 @@ namespace fade_tests
 		// Adjacent independently owned meshes must match the same world-coordinate field on both sides of their shared boundary.
 		camera.w.x = 0;
 		View3D_CameraToWorldSet(fixture.m_window, camera);
-		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		SceneLightingSet(fixture.m_window, ambient_light);
 		fixture.Clear();
 		auto full = fixture.QuadRect(-45, 45, 10);
 		View3D_ObjectNuggetProceduralSurfaceSet(full, soil, nullptr, 0);
@@ -1321,11 +1342,11 @@ namespace fade_tests
 			}
 		}
 		Require(continuity_difference == 0, "World-coordinate procedural field changed across a mesh boundary");
-		View3D_LightPropertiesSet(fixture.m_window, default_light);
+		SceneLightingSet(fixture.m_window, default_light);
 
 		// Promotion preserves an ordinary material's alpha path so procedural colour still composites as authored.
 		fixture.Clear();
-		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		SceneLightingSet(fixture.m_window, ambient_light);
 		fixture.Quad(12, 0xFF0000FF);
 		auto transparent = fixture.Quad(10, 0x80FFFFFF, 45, nullptr, 0, 0xFFFFFFFF, false, true);
 		red.m_normal_strength = 0.0f;
@@ -1346,7 +1367,7 @@ namespace fade_tests
 
 		// Public round-trip and clear operations preserve ordinary material ownership.
 		fixture.Clear();
-		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		SceneLightingSet(fixture.m_window, ambient_light);
 		auto round_trip_object = fixture.QuadRect(-45, 0, 10);
 		View3D_ObjectNuggetProceduralSurfaceSet(round_trip_object, soil, nullptr, 0);
 		Require(View3D_ObjectNuggetProceduralSurfaceGet(round_trip_object, round_trip, nullptr, 0), "Procedural surface getter did not find assigned state");
@@ -1938,12 +1959,12 @@ namespace fade_tests
 		}
 
 		// Lit simple and PBR surfaces must match an equivalent authored base colour at full override.
-		auto light = View3D_LightPropertiesGet(fixture.m_window);
+		auto light = SceneLightingGet(fixture.m_window);
 		light.m_ambient = 0xFF808080;
 		light.m_diffuse = light.m_specular = 0xFF000000;
 		light.m_on = TRUE;
 		light.m_intensity = 1;
-		View3D_LightPropertiesSet(fixture.m_window, light);
+		SceneLightingSet(fixture.m_window, light);
 		for (auto pbr : {false, true})
 		{
 			// Keep geometry and lighting identical while varying only the material's linear RGB.

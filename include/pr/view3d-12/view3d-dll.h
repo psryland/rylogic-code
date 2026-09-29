@@ -207,7 +207,6 @@ namespace pr
 		};
 		enum class ELight :int
 		{
-			Ambient,
 			Directional,
 			Point,
 			Spot
@@ -702,7 +701,6 @@ namespace pr
 			Vec4 m_position;
 			Vec4 m_direction;
 			ELight m_type;
-			Colour m_ambient;
 			Colour m_diffuse;
 			Colour m_specular;
 			float m_specular_power;
@@ -1342,12 +1340,27 @@ extern "C"
 
 	// Lights *********************************
 
-	// Get/Set the properties of the global light
-	VIEW3D_API pr::view3d::Light __stdcall View3D_LightPropertiesGet(pr::view3d::Window window);
-	VIEW3D_API void __stdcall View3D_LightPropertiesSet(pr::view3d::Window window, pr::view3d::Light const& light);
-	
-	// Set the global light source for a window
-	VIEW3D_API void __stdcall View3D_LightSource(pr::view3d::Window window, pr::view3d::Vec4 position, pr::view3d::Vec4 direction, BOOL camera_relative);
+	// Notes:
+	//  - A window has a list of scene lights. Light 0 is conventionally the main light. New windows have one directional light.
+	//  - At most 64 lights shade a frame, counting scene lights first, then light source objects. Lights that are off do not count.
+	//  - Ambient light is a scene-wide colour, not a light.
+
+	// The number of scene lights in 'window'
+	VIEW3D_API int __stdcall View3D_LightCount(pr::view3d::Window window);
+
+	// Get/Set the properties of the scene light at 'index'. 'index' must be in [0, View3D_LightCount).
+	VIEW3D_API pr::view3d::Light __stdcall View3D_LightGet(pr::view3d::Window window, int index);
+	VIEW3D_API void __stdcall View3D_LightSet(pr::view3d::Window window, int index, pr::view3d::Light const& light);
+
+	// Add a scene light and return its index
+	VIEW3D_API int __stdcall View3D_LightAdd(pr::view3d::Window window, pr::view3d::Light const& light);
+
+	// Remove the scene light at 'index'. Later lights move down one index.
+	VIEW3D_API void __stdcall View3D_LightRemove(pr::view3d::Window window, int index);
+
+	// Get/Set the scene-wide ambient light colour
+	VIEW3D_API pr::view3d::Colour __stdcall View3D_AmbientGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_AmbientSet(pr::view3d::Window window, pr::view3d::Colour ambient);
 
 	// Objects ********************************
 

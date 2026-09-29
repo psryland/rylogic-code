@@ -10,17 +10,24 @@
 
 static const int MaxShadowMaps = 1;
 
-// Lights
+// The maximum number of lights that shade a frame. Must match 'rdr12::MaxLights' in light.h.
+static const int MaxLights = 64;
+
+// Light types. Must match 'rdr12::ELight'.
+static const int LightType_Directional = 0;
+static const int LightType_Point = 1;
+static const int LightType_Spot = 2;
+
+// A world space light. The frame's lights are provided in a structured buffer, with the count in the frame constants.
 struct Light
 {
-	// x = light type = 0 - ambient, 1 - directional, 2 - point, 3 - spot
-	int4   info;         // Encoded info for global lighting
-	float4 ws_direction; // The direction of the global light source
-	float4 ws_position;  // The position of the global light source
-	float4 ambient;      // .rgb = ambient light colour, .a = light intensity scale
-	float4 colour;       // The colour of the directional light
-	float4 specular;     // The colour of the specular light. alpha channel is specular power
-	float4 spot;         // x = inner angle, y = outer angle, z = range, w = falloff
+	int4   info;         // x = light type, y = first shadow view (-1 = none), z = shadow view count, w = flags (unused)
+	float4 ws_direction; // World space direction of directional and spot lights (w = 0)
+	float4 ws_position;  // World space position of point and spot lights (w = 1)
+	float4 colour;       // .rgb = diffuse colour, .a = intensity. Intensity scales diffuse and specular light
+	float4 specular;     // .rgb = specular colour, .a = specular power
+	float4 spot;         // x = inner angle, y = outer angle (full cone angles, radians), z = range, w = falloff
+	float4 shadow;       // x = shadow strength in [0,1]
 };
 
 // Shadows
@@ -32,10 +39,12 @@ struct Shadow
 };
 
 // Light types
-inline bool AmbientLight(Light light)     { return light.info.x == 0; }
-inline bool DirectionalLight(Light light) { return light.info.x == 1; }
-inline bool PointLight(Light light)       { return light.info.x == 2; }
-inline bool SpotLight(Light light)        { return light.info.x == 3; }
+inline bool DirectionalLight(Light light) { return light.info.x == LightType_Directional; }
+inline bool PointLight(Light light)       { return light.info.x == LightType_Point; }
+inline bool SpotLight(Light light)        { return light.info.x == LightType_Spot; }
+
+// True if the light owns a shadow map
+inline bool HasShadow(Light light) { return light.info.y >= 0; }
 
 // Shadows
 inline int ShadowMapCount(Shadow shdw) { return shdw.info.x; }

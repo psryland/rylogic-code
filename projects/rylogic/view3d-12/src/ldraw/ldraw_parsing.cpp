@@ -5710,11 +5710,6 @@ namespace pr::rdr12::ldraw
 					}
 					return true;
 				}
-				case EKeyword::Ambient:
-				{
-					m_light.m_ambient = reader.Int<uint32_t>(16);
-					return true;
-				}
 				case EKeyword::Diffuse:
 				{
 					m_light.m_diffuse = reader.Int<uint32_t>(16);
@@ -5739,8 +5734,9 @@ namespace pr::rdr12::ldraw
 				}
 				case EKeyword::Cone:
 				{
-					m_light.m_inner_angle = reader.Real<float>(); // in degrees
-					m_light.m_outer_angle = reader.Real<float>(); // in degrees
+					// Cone angles are full cone angles, given in degrees
+					m_light.m_inner_angle = DegreesToRadians(reader.Real<float>());
+					m_light.m_outer_angle = DegreesToRadians(reader.Real<float>());
 					return true;
 				}
 				case EKeyword::CastShadow:
@@ -6847,8 +6843,11 @@ namespace pr::rdr12::ldraw
 				}
 				case EKeyword::LookAt:
 				{
+					// Replace the orientation so that -Z faces 'point' from the current position.
+					// 'LookAt' already includes the position, so it must not be combined with 'p2w' again.
 					auto point = Vector3f().w1();
-					p2w = m4x4::LookAt(p2w.pos, point, p2w.y) * p2w;
+					auto up = IsParallel(point - p2w.pos, p2w.y, 0.0f) ? p2w.z : p2w.y;
+					p2w = m4x4::LookAt(p2w.pos, point, up);
 					break;
 				}
 				case EKeyword::Quat:

@@ -11,9 +11,9 @@
 namespace pr::rdr12
 {
 	// Shadow caster constructor
-	ShadowCaster::ShadowCaster(Texture2DPtr smap, Light const& light, int size)
+	ShadowCaster::ShadowCaster(Texture2DPtr smap, int size)
 		: m_params()
-		, m_light(&light)
+		, m_light()
 		, m_smap(smap)
 		, m_size(size)
 	{}
@@ -22,7 +22,7 @@ namespace pr::rdr12
 	void ShadowCaster::UpdateParams(Scene const& scene, BBox ws_bounds)
 	{
 		auto const& c2w = scene.m_cam.CameraToWorld();
-		auto l2w = m_light->LightToWorld(ws_bounds.Centre(), static_cast<float>(0.5 * ws_bounds.Diametre()), c2w);
+		auto l2w = m_light.LightToWorld(ws_bounds.Centre(), static_cast<float>(0.5 * ws_bounds.Diametre()), c2w);
 		m_params.m_l2w = l2w;
 
 		constexpr int UseLiSPSM = 0;
@@ -104,7 +104,7 @@ namespace pr::rdr12
 				b.Box("scene_bounds", 0xFF0000FF).bbox(ws_bounds_cam).wireframe();
 				b.Frustum("camera_view", 0xFF00FFFF).nf(scene.m_cam.Near(false), scene.m_cam.FocusDist() * 2).fov(scene.m_cam.FovY(), scene.m_cam.Aspect()).o2w(c2w).wireframe().axis(AxisId::NegZ);
 				b.Frustum("lsp", 0x4000FF00).proj(lsp).o2w(InvertOrthonormal(w2lsp));
-				auto& blight = b.Add<LdrLight>("light", 0xFFFFFF00).light(*m_light).scale(scene.m_cam.FocusDist() * 0.05).o2w(l2w);
+				auto& blight = b.Add<LdrLight>("light", 0xFFFFFF00).light(m_light).scale(scene.m_cam.FocusDist() * 0.05).o2w(l2w);
 		//		blight.Box("light_bounds", 0xFFFFFF00).bbox(m_params.m_bounds).wireframe();
 		//		blight.Frustum("light_proj", 0xFFFF00FF).proj(ls2s).wireframe().o2w(l2w);
 				b.Write("P:\\dump\\smap_view.ldr");
@@ -141,7 +141,7 @@ namespace pr::rdr12
 			auto zn = Abs(ls_bounds.Centre().z + ls_bounds.Radius().z);
 			auto zf = Abs(ls_bounds.Centre().z - ls_bounds.Radius().z);
 			if (zf - zn < math::tiny<float>) zf = zn + 1.0f;
-			auto ls2s = m_light->Projection(zn, zf, ls_bounds.SizeX(), ls_bounds.SizeY(), Length(ls_bounds.Centre() - l2w.pos));
+			auto ls2s = m_light.Projection(zn, zf, ls_bounds.SizeX(), ls_bounds.SizeY(), Length(ls_bounds.Centre() - l2w.pos));
 			m_params.m_ls2s = ls2s;
 
 			// Output the camera, light position, scene bounds, and smap projection.
@@ -150,7 +150,7 @@ namespace pr::rdr12
 				ldr::Builder b;
 				b.Box("scene_bounds", 0xFF0000FF).bbox(ws_bounds).wireframe();
 				b.Frustum("camera_view", 0xFF00FFFF).nf(scene.m_cam.Near(false), scene.m_cam.FocusDist() * 2).fov(scene.m_cam.FovY(), scene.m_cam.Aspect()).o2w(c2w).wireframe().axis(AxisId::NegZ);
-				auto& blight = b.Add<LdrLight>("light", 0xFFFFFF00).light(*m_light).scale(scene.m_cam.FocusDist() * 0.05f).o2w(l2w);
+				auto& blight = b.Add<LdrLight>("light", 0xFFFFFF00).light(m_light).scale(scene.m_cam.FocusDist() * 0.05f).o2w(l2w);
 				blight.Box("light_bounds", 0xFFFFFF00).bbox(m_params.m_bounds).wireframe();
 				blight.Frustum("light_proj", 0xFFFF00FF).proj(ls2s).wireframe();
 				b.Write("P:\\dump\\smap_view.ldr");

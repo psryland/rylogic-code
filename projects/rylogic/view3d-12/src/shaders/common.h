@@ -264,27 +264,58 @@ namespace pr::rdr12
 		cb.w2s = cb.c2s * cb.w2c;
 	}
 
-	// Set the lighting constants
-	inline void SetLightingConstants(shaders::Light& cb, Light const& light, SceneCamera const& view)
+	// Set the frame lighting constants. 'lights_cb' receives the ambient light and the light count; the lights themselves are uploaded by 'UploadLights'.
+	template <typename TCBuf> requires (requires(TCBuf cb) { cb.ambient; cb.light_info; })
+	void SetLightingConstants(TCBuf& cb, Scene const& scene)
 	{
-		// If the global light is camera relative, adjust the position and direction appropriately
-		auto pos = light.m_cam_relative ? view.CameraToWorld() * light.m_position : light.m_position;
-		auto dir = light.m_cam_relative ? view.CameraToWorld() * light.m_direction : light.m_direction;
+		// Ambient light is scene-wide. The alpha channel is unused.
+		cb.ambient = Colour(scene.m_ambient).rgba;
+		cb.light_info.x = isize(scene.ResolvedLights());
+	}
 
-		cb.info         = iv4(int(light.m_type),0,0,0);
-		cb.ws_direction = dir;
-		cb.ws_position  = pos;
-		cb.ambient      = Colour(light.m_ambient, light.m_intensity).rgba;
-		cb.colour       = Colour(light.m_diffuse).rgba;
-		cb.specular     = Colour(light.m_specular, light.m_specular_power).rgba;
-		cb.spot         = v4(light.m_inner_angle, light.m_outer_angle, light.m_range, light.m_falloff);
+	// Convert a world space light into the shader light layout.
+	// 'shadow_view' is the index of the light's first shadow view, or -1 if the light has no shadow this frame.
+	inline shaders::Light ToShaderLight(Light const& light, int shadow_view)
+	{
+		static_assert(shaders::MaxLights == rdr12::MaxLights, "Shader and renderer light limits must match");
+		static_assert(sizeof(shaders::Light) % 16 == 0, "Shader lights are stored in a structured buffer with 16 byte aligned elements");
+		return shaders::Light{
+			.info = iv4(int(light.m_type), shadow_view, shadow_view >= 0 ? 1 : 0, 0),
+			.ws_direction = light.m_direction,
+			.ws_position = light.m_position,
+			.colour = Colour(light.m_diffuse, light.m_intensity).rgba,
+			.specular = Colour(light.m_specular, light.m_specular_power).rgba,
+			.spot = v4(light.m_inner_angle, light.m_outer_angle, light.m_range, light.m_falloff),
+			.shadow = v4(Clamp(light.m_cast_shadow, 0.0f, 1.0f), 0, 0, 0),
+		};
+	}
+
+	// Upload the scene's resolved lights for the current frame and return the GPU address of the light array.
+	// At least one element is always uploaded so the address is valid even when the scene has no lights.
+	template <typename TUploadBuffer>
+	D3D12_GPU_VIRTUAL_ADDRESS UploadLights(TUploadBuffer& upload, Scene const& scene)
+	{
+		// Allocate space for the light array in the upload buffer
+		auto lights = scene.ResolvedLights();
+		auto shadow_light = scene.ShadowLightIndex();
+		auto count = std::max<int64_t>(isize(lights), 1);
+		auto alex = upload.Alloc(count * sizeof(shaders::Light), 16);
+		auto dst = reinterpret_cast<shaders::Light*>(alex.m_mem + alex.m_ofs);
+
+		// Convert each light. Only the shadow light has a shadow view in this renderer version.
+		dst[0] = shaders::Light{};
+		for (int i = 0; i != isize(lights); ++i)
+			dst[i] = ToShaderLight(lights[i], i == shadow_light ? 0 : -1);
+
+		return alex.m_res->GetGPUVirtualAddress() + alex.m_ofs;
 	}
 
 	// Set the shadow map constants
-	inline void SetShadowMapConstants(shaders::Shadow& cb, RenderSmap const* smap_step)
+	inline void SetShadowMapConstants(shaders::Shadow& cb, Scene const& scene)
 	{
-		// Ignore if there is no shadow map step
-		if (smap_step == nullptr)
+		// Ignore if there is no shadow map step, or no light casts a shadow this frame
+		auto smap_step = scene.FindRStep<RenderSmap>();
+		if (smap_step == nullptr || scene.ShadowLightIndex() < 0)
 			return;
 
 		// Add the shadow maps to the shader params

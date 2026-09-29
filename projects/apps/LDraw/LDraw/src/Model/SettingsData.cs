@@ -225,6 +225,7 @@ namespace LDraw
 				LockAspect = 1.0,
 			};
 			Lighting = new LightData();
+			Ambient = new Colour32(0xFF808080);
 			RayTracing = new RayTracingData();
 		}
 
@@ -256,11 +257,18 @@ namespace LDraw
 			set => set(nameof(Chart), value);
 		}
 
-		/// <summary>Light source settings for this scene</summary>
+		/// <summary>Main light (light 0) settings for this scene</summary>
 		public LightData Lighting
 		{
 			get => get<LightData>(nameof(Lighting));
 			set => set(nameof(Lighting), value);
+		}
+
+		/// <summary>Scene-wide ambient light colour for this scene</summary>
+		public Colour32 Ambient
+		{
+			get => get<Colour32>(nameof(Ambient));
+			set => set(nameof(Ambient), value);
 		}
 
 		/// <summary>Ray tracing settings for this scene</summary>
@@ -373,7 +381,6 @@ namespace LDraw
 			Position = info.Position;
 			Direction = info.Direction;
 			Type = info.Type;
-			AmbientColour = info.AmbientColour;
 			DiffuseColour = info.DiffuseColour;
 			SpecularColour = info.SpecularColour;
 			SpecularPower = info.SpecularPower;
@@ -401,11 +408,6 @@ namespace LDraw
 		{
 			get => get<View3d.ELight>(nameof(Type));
 			set => set(nameof(Type), value);
-		}
-		public Colour32 AmbientColour
-		{
-			get => get<Colour32>(nameof(AmbientColour));
-			set => set(nameof(AmbientColour), value);
 		}
 		public Colour32 DiffuseColour
 		{
@@ -471,7 +473,6 @@ namespace LDraw
 				Position = Position,
 				Direction = Direction,
 				Type = Type,
-				AmbientColour = AmbientColour,
 				DiffuseColour = DiffuseColour,
 				SpecularColour = SpecularColour,
 				SpecularPower = SpecularPower,
@@ -492,7 +493,6 @@ namespace LDraw
 			Position = info.Position;
 			Direction = info.Direction;
 			Type = info.Type;
-			AmbientColour = info.AmbientColour;
 			DiffuseColour = info.DiffuseColour;
 			SpecularColour = info.SpecularColour;
 			SpecularPower = info.SpecularPower;

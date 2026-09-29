@@ -14,18 +14,12 @@ namespace Rylogic.Gfx
 		{
 			public Light()
 			{
-				m_info = LightInfo.Ambient();
+				m_info = LightInfo.Default();
 			}
 			public Light(LightInfo light)
 			{
 				m_info = light;
 			}
-			public Light(Colour32 ambient, Colour32 diffuse, Colour32 specular, double spec_power = 1000.0, v4? direction = null, v4? position = null, double intensity = 1.0)
-				:this(
-					direction != null ? LightInfo.Directional(direction.Value, ambient, diffuse, specular, (float)spec_power, 0, intensity: (float)intensity) :
-					position  != null ? LightInfo.Point(position.Value, ambient, diffuse, specular, (float)spec_power, 0, intensity: (float)intensity) :
-					LightInfo.Ambient(ambient, (float)intensity))
-			{}
 			public Light(XElement node)
 				:this()
 			{
@@ -33,7 +27,6 @@ namespace Rylogic.Gfx
 				Type           = node.Element(nameof(Type)          ).As<ELight>(Type);
 				Position       = node.Element(nameof(Position)      ).As<v4>(Position);
 				Direction      = node.Element(nameof(Direction)     ).As<v4>(Direction);
-				Ambient        = node.Element(nameof(Ambient)       ).As<Colour32>(Ambient);
 				Diffuse        = node.Element(nameof(Diffuse)       ).As<Colour32>(Diffuse);
 				Specular       = node.Element(nameof(Specular)      ).As<Colour32>(Specular);
 				SpecularPower  = node.Element(nameof(SpecularPower) ).As<double>(SpecularPower);
@@ -50,7 +43,6 @@ namespace Rylogic.Gfx
 				node.Add2(nameof(Type          ), Type          , false);
 				node.Add2(nameof(Position      ), Position      , false);
 				node.Add2(nameof(Direction     ), Direction     , false);
-				node.Add2(nameof(Ambient       ), Ambient       , false);
 				node.Add2(nameof(Diffuse       ), Diffuse       , false);
 				node.Add2(nameof(Specular      ), Specular      , false);
 				node.Add2(nameof(SpecularPower ), SpecularPower , false);
@@ -99,13 +91,6 @@ namespace Rylogic.Gfx
 			{
 				get => m_info.Direction;
 				set => SetProp(ref m_info.Direction, Math_.Normalise(value, -v4.ZAxis), nameof(Direction));
-			}
-
-			/// <summary>The colour of the ambient component of the light</summary>
-			public Colour32 Ambient
-			{
-				get => m_info.AmbientColour;
-				set => SetProp(ref m_info.AmbientColour, value, nameof(Ambient));
 			}
 
 			/// <summary>The colour of the diffuse component of the light</summary>
@@ -172,7 +157,7 @@ namespace Rylogic.Gfx
 				set => SetProp(ref m_info.Falloff, (float)value, nameof(Falloff));
 			}
 
-			/// <summary>The maximum distance from the light source in which objects cast shadows</summary>
+			/// <summary>The shadow strength. Values > 0 cast shadows</summary>
 			public double CastShadow
 			{
 				get => m_info.CastShadow;

@@ -1,4 +1,5 @@
 ﻿using System.Windows;
+using Rylogic.Gfx;
 using Rylogic.Gui.WPF;
 using Rylogic.Maths;
 using Rylogic.Utility;
@@ -25,7 +26,7 @@ namespace LDraw.Dialogs
 				$"*Box b2 FF0000FF {{ *Data {{1.001}} {anim} }}\n");
 
 			m_view.Window.AddObjects(src.ContextId);
-			m_view.Window.SetLightSource(v4.Origin, new v4(-1, -1, -2, 0), true);
+			m_view.Window.MainLight = View3d.LightInfo.Directional(new v4(-1, -1, -2, 0), camera_relative: true);
 			m_view.Camera.SetPosition(new v4(2, 2, 2, 1));
 			Closed += delegate
 			{

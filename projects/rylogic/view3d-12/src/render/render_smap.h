@@ -62,14 +62,12 @@ namespace pr::rdr12
 
 	public:
 
-		RenderSmap(Scene& scene, Light const& light, int size = 1024, DXGI_FORMAT format = DXGI_FORMAT_R32_FLOAT);
+		// The shadow map is rendered for the scene's first shadow casting light (see Scene::ShadowLightIndex)
+		RenderSmap(Scene& scene, int size = 1024, DXGI_FORMAT format = DXGI_FORMAT_R32_FLOAT);
 		~RenderSmap();
 
 		// Compile-time derived type
 		inline static constexpr ERenderStep Id = ERenderStep::ShadowMap;
-
-		// Add a shadow casting light source
-		void AddLight(Light const& light);
 
 		// The sources of light that cast shadows
 		CasterCont const& Casters() const

@@ -44,7 +44,6 @@ namespace pr::rdr12::ldraw
 		x(Addr                     )\
 		x(Align                    )\
 		x(Alpha                    )\
-		x(Ambient                  )\
 		x(Anchor                   )\
 		x(AngAccel                 )\
 		x(AngVelocity              )\

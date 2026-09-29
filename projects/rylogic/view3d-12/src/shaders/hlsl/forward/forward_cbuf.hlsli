@@ -15,8 +15,9 @@ struct CBufFrame// :reg(b0)
 	// Camera transform
 	Camera cam;
 	
-	// Global lighting
-	Light global_light;
+	// Scene lighting. The lights themselves are in the 'g_lights' structured buffer.
+	float4 ambient;    // .rgb = scene-wide ambient light colour
+	int4 light_info;   // x = light count
 
 	// EnvMap
 	EnvMap env_map;

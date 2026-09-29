@@ -42,17 +42,25 @@ namespace pr::rdr12
 		, m_raycast_immed()
 		, m_gsync_async(wnd.d3d())
 		, m_raycast_async()
-		, m_global_light()
+		, m_lights()
+		, m_ambient(0xFF808080U)
 		, m_global_envmap()
 		, m_global_fill_mode(EFillMode::Default)
 		, m_pso()
 		, m_ray_tracing_props()
 		, m_eh_resize()
+		, m_far_clip_fade()
+		, m_frame_lights()
+		, m_resolved_lights()
+		, m_dropped_lights()
 	{
 		// Initialise the scene camera to match the full window
 		auto bb_size = m_wnd->BackBufferSize();
 		if (Any(bb_size != iv2::Zero()))
 			m_cam.Aspect(1.0f * bb_size.x / bb_size.y);
+
+		// Scenes start with a single default directional light
+		m_lights.push_back(Light{});
 
 		// Set the render steps for the scene
 		SetRenderSteps({ rsteps.begin(), rsteps.size() });
@@ -111,6 +119,7 @@ namespace pr::rdr12
 	void Scene::ClearDrawlists()
 	{
 		m_instances.clear();
+		m_frame_lights.resize(0);
 		for (auto& rs : m_render_steps)
 			rs->ClearDrawlist();
 	}
@@ -185,7 +194,7 @@ namespace pr::rdr12
 			switch (rs)
 			{
 				case ERenderStep::RenderForward: m_render_steps.emplace_back(new RenderForward(*this)); break;
-				case ERenderStep::ShadowMap:     m_render_steps.emplace_back(new RenderSmap(*this, m_global_light)); break;
+				case ERenderStep::ShadowMap:     m_render_steps.emplace_back(new RenderSmap(*this)); break;
 				case ERenderStep::RayCast:
 				{
 					// This step submits independently even when invoked during a frame. Duplicate entries need separate
@@ -205,12 +214,54 @@ namespace pr::rdr12
 	{
 		if (enable && FindRStep<RenderSmap>() == nullptr)
 		{
-			m_render_steps.emplace(std::begin(m_render_steps), new RenderSmap(*this, m_global_light, shadow_map_size));
+			m_render_steps.emplace(std::begin(m_render_steps), new RenderSmap(*this, shadow_map_size));
 		}
 		if (!enable && FindRStep<RenderSmap>() != nullptr)
 		{
 			pr::erase_if(m_render_steps, [](auto& rs) { return rs->m_step_id == ERenderStep::ShadowMap; });
 		}
+	}
+
+	// Add a world space light that shades the current frame only
+	void Scene::AddFrameLight(Light const& light)
+	{
+		m_frame_lights.push_back(light);
+	}
+
+	// True if any light that is on casts shadows
+	bool Scene::HasShadowCastingLight() const
+	{
+		auto casts = [](Light const& light) { return light.m_on && light.CastsShadow(); };
+		return
+			std::any_of(m_lights.begin(), m_lights.end(), casts) ||
+			std::any_of(m_frame_lights.begin(), m_frame_lights.end(), casts);
+	}
+
+	// The world space lights that shade the current frame
+	std::span<Light const> Scene::ResolvedLights() const
+	{
+		return m_resolved_lights;
+	}
+
+	// The index of the light that owns the shadow map, or -1
+	int Scene::ShadowLightIndex() const
+	{
+		// The shadow map step renders a shadow for the first shadow casting light only
+		if (FindRStep<RenderSmap>() == nullptr)
+			return -1;
+
+		for (int i = 0; i != isize(m_resolved_lights); ++i)
+		{
+			if (m_resolved_lights[i].CastsShadow())
+				return i;
+		}
+		return -1;
+	}
+
+	// The number of on lights that did not shade the last frame
+	int Scene::DroppedLightCount() const
+	{
+		return m_dropped_lights;
 	}
 
 	// Enable/disable ray tracing without rebuilding the existing raster render steps.
@@ -379,6 +430,9 @@ namespace pr::rdr12
 
 		// Make sure the scene is up to date
 		OnUpdateScene(*this, { frame.m_prepare, frame.m_upload });
+
+		// Resolve the lights for this frame before any render step reads them
+		m_dropped_lights = ResolveLights(m_lights, m_frame_lights, m_cam.CameraToWorld(), m_resolved_lights);
 
 		// Allow render steps to do frame setup before any step starts recording its render commands.
 		for (auto& rs : m_render_steps)

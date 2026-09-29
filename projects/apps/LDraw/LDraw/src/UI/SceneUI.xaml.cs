@@ -214,7 +214,16 @@ namespace LDraw.UI
 						if (!m_syncing_lighting)
 						{
 							using var sync = Scope.Create(() => m_syncing_lighting = true, () => m_syncing_lighting = false);
-							SceneView.Scene.Window.LightProperties = SceneState.Lighting.ToLightInfo();
+							SceneView.Scene.Window.MainLight = SceneState.Lighting.ToLightInfo();
+						}
+						return;
+					}
+					if (e.Key == nameof(SceneStateData.Ambient))
+					{
+						if (!m_syncing_lighting)
+						{
+							using var sync = Scope.Create(() => m_syncing_lighting = true, () => m_syncing_lighting = false);
+							SceneView.Scene.Window.Ambient = SceneState.Ambient;
 						}
 						return;
 					}
@@ -275,7 +284,8 @@ namespace LDraw.UI
 						if (!m_syncing_lighting)
 						{
 							using var sync = Scope.Create(() => m_syncing_lighting = true, () => m_syncing_lighting = false);
-							SceneState.Lighting.FromLightInfo(SceneView.Scene.Window.LightProperties);
+							SceneState.Lighting.FromLightInfo(SceneView.Scene.Window.MainLight);
+							SceneState.Ambient = SceneView.Scene.Window.Ambient;
 						}
 					}
 					if (Bit.AllSet(e.Setting, View3d.ESettings.Rendering_RayTracing))

@@ -844,6 +844,9 @@
     <None Include="src\shaders\hlsl\lighting\lighting_cbuf.hlsli">
       <Filter>src\shaders\hlsl\lighting</Filter>
     </None>
+    <None Include="src\shaders\hlsl\lighting\lights.hlsli">
+      <Filter>src\shaders\hlsl\lighting</Filter>
+    </None>
     <None Include="src\shaders\hlsl\lighting\phong_lighting.hlsli">
       <Filter>src\shaders\hlsl\lighting</Filter>
     </None>

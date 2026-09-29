@@ -51,7 +51,8 @@ namespace pr::rdr12
 		RenderRayCastPtr m_raycast_immed;    // A ray cast render step for performing immediate hit tests
 		GpuSync          m_gsync_async;      // Async picking has its own exclusive recording reservations; outlives its complete step
 		RenderRayCastPtr m_raycast_async;    // A ray cast render step for performing async hit tests
-		Light            m_global_light;     // The global light settings
+		LightList        m_lights;           // Scene lights, persistent across frames. Light 0 is conventionally the main light. Only the first 'MaxLights' on lights are used.
+		Colour32         m_ambient;          // Scene-wide ambient light colour
 		TextureCubePtr   m_global_envmap;    // A global environment map
 		EFillMode        m_global_fill_mode; // A scene-wide fill mode override. EFillMode::Default means "use the model's default"
 		PipeStates       m_pso;              // Scene-wide pipe state overrides
@@ -114,6 +115,22 @@ namespace pr::rdr12
 		// Enable/Disable shadow casting
 		void ShadowCasting(bool enable, int shadow_map_size);
 
+		// Add a world space light that shades the current frame only, such as a light attached to a scene object.
+		// Frame lights are removed by 'ClearDrawlists' and are ordered after 'm_lights' when the light limit is applied.
+		void AddFrameLight(Light const& light);
+
+		// True if any light that is on (scene or frame light) casts shadows
+		bool HasShadowCastingLight() const;
+
+		// The world space lights that shade the current frame. Valid from the start of 'Render' until the next 'Render'.
+		std::span<Light const> ResolvedLights() const;
+
+		// The index (into 'ResolvedLights') of the light that owns the shadow map, or -1 if there is none
+		int ShadowLightIndex() const;
+
+		// The number of lights that were on but did not shade the last frame because the light limit was reached
+		int DroppedLightCount() const;
+
 		// Enable/disable ray tracing for this scene. Enabling validates resident sources before changing the pipeline.
 		void RayTracing(bool enable);
 
@@ -154,6 +171,11 @@ namespace pr::rdr12
 
 		// The scene is the sole authority for this view-dependent rendering option.
 		FarClipFadeProps m_far_clip_fade;
+
+		// Per-frame lighting state. See 'AddFrameLight' and 'ResolvedLights'.
+		LightList m_frame_lights;
+		LightList m_resolved_lights;
+		int m_dropped_lights;
 
 		// Return a render step from this scene (if present)
 		RenderStep const* FindRStep(ERenderStep id) const;

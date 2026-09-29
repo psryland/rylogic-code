@@ -38,6 +38,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto Tex4Stream = ESRVReg:: t11;
 		inline static constexpr auto PbrNormalTexture = ESRVReg::t12;
 		inline static constexpr auto SkyTexture = ESRVReg::t13;
+		inline static constexpr auto Lights = ESRVReg::t14;
 		inline static constexpr auto AlphaColour = EUAVReg::u0;
 		inline static constexpr auto AlphaDepth = EUAVReg::u1;
 		inline static constexpr auto AlphaRtAttrs = EUAVReg::u2;
@@ -101,6 +102,7 @@ namespace pr::rdr12::shaders
 			.UAV(EReg::AlphaDepth, 1)
 			.UAV(EReg::AlphaRtAttrs, 1)
 			.SRV(EReg::SkyTexture, 1)
+			.SRV(EReg::Lights, D3D12_SHADER_VISIBILITY_PIXEL)
 			.Create(rdr.d3d(), "ForwardSig");
 	}
 
@@ -110,11 +112,15 @@ namespace pr::rdr12::shaders
 		// Set the frame constants
 		CBufFrame cb0 = {};
 		SetViewConstants(cb0.cam, scene.m_cam);
-		SetLightingConstants(cb0.global_light, scene.m_global_light, scene.m_cam);
-		SetShadowMapConstants(cb0.shadow, scene.FindRStep<RenderSmap>());
+		SetLightingConstants(cb0, scene);
+		SetShadowMapConstants(cb0.shadow, scene);
 		SetEnvMapConstants(cb0.env_map, scene.m_global_envmap.get());
 		auto gpu_address = upload.Add(cb0, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
 		cmd_list->SetGraphicsRootConstantBufferView((UINT)ERootParam::CBufFrame, gpu_address);
+
+		// Bind the frame's lights as a root structured buffer
+		auto lights_address = UploadLights(upload, scene);
+		cmd_list->SetGraphicsRootShaderResourceView((UINT)ERootParam::Lights, lights_address);
 	}
 	void Forward::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const& camera, DrawListElement const* dle)
 	{

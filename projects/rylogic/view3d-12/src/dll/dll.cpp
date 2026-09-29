@@ -1857,80 +1857,145 @@ VIEW3D_API void __stdcall View3D_SSPointToWSRay(view3d::Window window, view3d::V
 
 // Lights *********************************
 
-// Get/Set the properties of the global light
-VIEW3D_API view3d::Light __stdcall View3D_LightPropertiesGet(view3d::Window window)
+// Convert between the DLL and renderer light types
+static view3d::Light ToDllLight(rdr12::Light const& light)
 {
-	try
-	{
-		Validate(window);
-
-		DllLockGuard;
-		auto global_light = window->GlobalLight();
-		return view3d::Light {
-			.m_position       = To<view3d::Vec4>(global_light.m_position),
-			.m_direction      = To<view3d::Vec4>(global_light.m_direction),
-			.m_type           = s_cast<view3d::ELight>(global_light.m_type),
-			.m_ambient        = global_light.m_ambient.argb,
-			.m_diffuse        = global_light.m_diffuse.argb,
-			.m_specular       = global_light.m_specular.argb,
-			.m_specular_power = global_light.m_specular_power,
-			.m_intensity      = global_light.m_intensity,
-			.m_range          = global_light.m_range,
-			.m_falloff        = global_light.m_falloff,
-			.m_inner_angle    = global_light.m_inner_angle,
-			.m_outer_angle    = global_light.m_outer_angle,
-			.m_cast_shadow    = global_light.m_cast_shadow,
-			.m_cam_relative   = global_light.m_cam_relative,
-			.m_on             = global_light.m_on,
-		};
-	}
-	CatchAndReport(View3D_LightPropertiesGet, window, {});
+	return view3d::Light {
+		.m_position       = To<view3d::Vec4>(light.m_position),
+		.m_direction      = To<view3d::Vec4>(light.m_direction),
+		.m_type           = s_cast<view3d::ELight>(light.m_type),
+		.m_diffuse        = light.m_diffuse.argb,
+		.m_specular       = light.m_specular.argb,
+		.m_specular_power = light.m_specular_power,
+		.m_intensity      = light.m_intensity,
+		.m_range          = light.m_range,
+		.m_falloff        = light.m_falloff,
+		.m_inner_angle    = light.m_inner_angle,
+		.m_outer_angle    = light.m_outer_angle,
+		.m_cast_shadow    = light.m_cast_shadow,
+		.m_cam_relative   = light.m_cam_relative,
+		.m_on             = light.m_on,
+	};
 }
-VIEW3D_API void __stdcall View3D_LightPropertiesSet(view3d::Window window, view3d::Light const& light)
+static rdr12::Light ToRdrLight(view3d::Light const& light)
 {
-	try
-	{
-		Validate(window);
-		assert(light.m_position.w == 1);
+	// Validate caller-supplied light positions at the DLL boundary
+	if (light.m_position.w != 1.0f)
+		throw std::invalid_argument("Light position must have w = 1");
 
-		DllLockGuard;
-		rdr12::Light global_light;
-		global_light.m_position       = To<v4>(light.m_position);
-		global_light.m_direction      = To<v4>(light.m_direction);
-		global_light.m_type           = Enum<rdr12::ELight>::From(light.m_type);
-		global_light.m_ambient        = light.m_ambient;
-		global_light.m_diffuse        = light.m_diffuse;
-		global_light.m_specular       = light.m_specular;
-		global_light.m_specular_power = light.m_specular_power;
-		global_light.m_intensity      = light.m_intensity;
-		global_light.m_range          = light.m_range;
-		global_light.m_falloff        = light.m_falloff;
-		global_light.m_inner_angle    = light.m_inner_angle;
-		global_light.m_outer_angle    = light.m_outer_angle;
-		global_light.m_cast_shadow    = light.m_cast_shadow;
-		global_light.m_cam_relative   = light.m_cam_relative != 0;
-		global_light.m_on             = light.m_on != 0;
-		window->GlobalLight(global_light);
-	}
-	CatchAndReport(View3D_LightPropertiesSet, window,);
+	rdr12::Light result;
+	result.m_position       = To<v4>(light.m_position);
+	result.m_direction      = To<v4>(light.m_direction);
+	result.m_type           = Enum<rdr12::ELight>::From(light.m_type);
+	result.m_diffuse        = light.m_diffuse;
+	result.m_specular       = light.m_specular;
+	result.m_specular_power = light.m_specular_power;
+	result.m_intensity      = light.m_intensity;
+	result.m_range          = light.m_range;
+	result.m_falloff        = light.m_falloff;
+	result.m_inner_angle    = light.m_inner_angle;
+	result.m_outer_angle    = light.m_outer_angle;
+	result.m_cast_shadow    = light.m_cast_shadow;
+	result.m_cam_relative   = light.m_cam_relative != 0;
+	result.m_on             = light.m_on != 0;
+	return result;
 }
 
-// Set the global light source for a window
-VIEW3D_API void __stdcall View3D_LightSource(view3d::Window window, view3d::Vec4 position, view3d::Vec4 direction, BOOL camera_relative)
+// Throw if 'index' is not a valid scene light index for 'window'
+static void ValidateLightIndex(view3d::Window window, int index)
+{
+	if (index < 0 || index >= window->LightCount())
+		throw std::out_of_range(std::format("Light index {} is out of range [0,{})", index, window->LightCount()));
+}
+
+// The number of scene lights
+VIEW3D_API int __stdcall View3D_LightCount(view3d::Window window)
 {
 	try
 	{
 		Validate(window);
-		assert(position.w == 1);
 
 		DllLockGuard;
-		auto global_light = window->GlobalLight();
-		global_light.m_position = To<v4>(position);
-		global_light.m_direction = To<v4>(direction);
-		global_light.m_cam_relative = camera_relative != 0;
-		window->GlobalLight(global_light);
+		return window->LightCount();
 	}
-	CatchAndReport(View3D_LightSource, window,);
+	CatchAndReport(View3D_LightCount, window, 0);
+}
+
+// Get/Set the properties of a scene light
+VIEW3D_API view3d::Light __stdcall View3D_LightGet(view3d::Window window, int index)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		ValidateLightIndex(window, index);
+		return ToDllLight(window->SceneLight(index));
+	}
+	CatchAndReport(View3D_LightGet, window, {});
+}
+VIEW3D_API void __stdcall View3D_LightSet(view3d::Window window, int index, view3d::Light const& light)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		ValidateLightIndex(window, index);
+		window->SceneLight(index, ToRdrLight(light));
+	}
+	CatchAndReport(View3D_LightSet, window,);
+}
+
+// Add a scene light and return its index
+VIEW3D_API int __stdcall View3D_LightAdd(view3d::Window window, view3d::Light const& light)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->AddLight(ToRdrLight(light));
+	}
+	CatchAndReport(View3D_LightAdd, window, -1);
+}
+
+// Remove a scene light
+VIEW3D_API void __stdcall View3D_LightRemove(view3d::Window window, int index)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		ValidateLightIndex(window, index);
+		window->RemoveLight(index);
+	}
+	CatchAndReport(View3D_LightRemove, window,);
+}
+
+// Get/Set the scene-wide ambient light colour
+VIEW3D_API view3d::Colour __stdcall View3D_AmbientGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->Ambient().argb;
+	}
+	CatchAndReport(View3D_AmbientGet, window, 0);
+}
+VIEW3D_API void __stdcall View3D_AmbientSet(view3d::Window window, view3d::Colour ambient)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->Ambient(Colour32(ambient));
+	}
+	CatchAndReport(View3D_AmbientSet, window,);
 }
 
 // Objects ********************************

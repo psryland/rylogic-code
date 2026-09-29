@@ -142,7 +142,6 @@ namespace pr::ldraw
 		inline static constexpr NameValue Addr = {"*Addr", 1087856498};
 		inline static constexpr NameValue Align = {"*Align", 1613521886};
 		inline static constexpr NameValue Alpha = {"*Alpha", 1569418667};
-		inline static constexpr NameValue Ambient = {"*Ambient", 479609067};
 		inline static constexpr NameValue Anchor = {"*Anchor", 1122880180};
 		inline static constexpr NameValue AngAccel = {"*AngAccel", 801436173};
 		inline static constexpr NameValue AngVelocity = {"*AngVelocity", 2226367268};
@@ -3287,7 +3286,6 @@ namespace pr::ldraw
 	struct LdrLightSource : LdrBase
 	{
 		std::string m_style;
-		std::optional<uint32_t> m_ambient;
 		std::optional<uint32_t> m_diffuse;
 		std::optional<uint32_t> m_specular;
 		std::optional<float> m_intensity;
@@ -3303,11 +3301,6 @@ namespace pr::ldraw
 		LdrLightSource& style(std::string_view s)
 		{
 			m_style = s;
-			return *this;
-		}
-		LdrLightSource& ambient(uint32_t c)
-		{
-			m_ambient = c;
 			return *this;
 		}
 		LdrLightSource& diffuse(uint32_t c)
@@ -3348,8 +3341,6 @@ namespace pr::ldraw
 			{
 				if (!m_style.empty())
 					Append(out, EKeywords::Style, "{", m_style, "}");
-				if (m_ambient)
-					Append(out, EKeywords::Ambient, "{", *m_ambient, "}");
 				if (m_diffuse)
 					Append(out, EKeywords::Diffuse, "{", *m_diffuse, "}");
 				if (m_specular)
@@ -3373,8 +3364,6 @@ namespace pr::ldraw
 			{
 				if (!m_style.empty())
 					Append(out, seri::Header{ EKeywords::Style }, m_style);
-				if (m_ambient)
-					Append(out, seri::Header{ EKeywords::Ambient }, *m_ambient);
 				if (m_diffuse)
 					Append(out, seri::Header{ EKeywords::Diffuse }, *m_diffuse);
 				if (m_specular)

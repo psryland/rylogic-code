@@ -84,7 +84,7 @@ namespace pr::rdr12
 {
 	using namespace ::pr::compute;
 
-	RenderSmap::RenderSmap(Scene& scene, Light const& light, int size, DXGI_FORMAT format)
+	RenderSmap::RenderSmap(Scene& scene, int size, DXGI_FORMAT format)
 		: RenderStep(Id, scene, scene.wnd().m_gsync)
 		, m_shader(scene.rdr())
 		, m_cmd_list(scene.d3d(), nullptr, "RenderSmap", EColours::Yellow)
@@ -132,25 +132,20 @@ namespace pr::rdr12
 			.Flags = D3D12_PIPELINE_STATE_FLAG_NONE,
 		};
 
-		AddLight(light);
-
-		PR_EXPAND(PR_DBG_SMAP, g_smap_quad.Create(scene, m_casters[0]));
-	}
-	RenderSmap::~RenderSmap()
-	{
-		PR_EXPAND(PR_DBG_SMAP, g_smap_quad.Destroy());
-	}
-	
-	// Add a shadow casting light source
-	void RenderSmap::AddLight(Light const& light)
-	{
+		// Create the shadow map texture
 		ResourceFactory factory(rdr());
 		auto td = ResDesc::Tex2D(Image(m_smap_size, m_smap_size, nullptr, m_smap_format), 1, EUsage::RenderTarget)
 			.def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE|D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
 			.clear(m_smap_format, pr::Colour32Zero);
 		auto desc = TextureDesc(AutoId, td).name("Smap");
 		auto smap = factory.CreateTexture2D(desc);
-		m_casters.push_back(ShadowCaster(smap, light, m_smap_size));
+		m_casters.push_back(ShadowCaster(smap, m_smap_size));
+
+		PR_EXPAND(PR_DBG_SMAP, g_smap_quad.Create(scene, m_casters[0]));
+	}
+	RenderSmap::~RenderSmap()
+	{
+		PR_EXPAND(PR_DBG_SMAP, g_smap_quad.Destroy());
 	}
 
 	// Add model nuggets to the draw list for this render step
@@ -221,9 +216,13 @@ namespace pr::rdr12
 	{
 		PR_EXPAND(PR_DBG_SMAP, auto x = pr::Scope<void>([&] { g_smap_quad.Update(); }));
 
-		// Nothing to render if there are no objects
-		if (m_casters.empty() || !m_bbox_scene.valid() || m_bbox_scene.is_point())
+		// Nothing to render if there are no objects or no shadow casting light
+		auto light_index = scn().ShadowLightIndex();
+		if (m_casters.empty() || light_index < 0 || !m_bbox_scene.valid() || m_bbox_scene.is_point())
 			return;
+
+		// The caster uses the resolved (world space) light for this frame
+		m_casters[0].m_light = scn().ResolvedLights()[light_index];
 
 		// Reset the command list with a new allocator for this frame
 		m_cmd_list.Reset(frame.m_cmd_alloc_pool.Get());

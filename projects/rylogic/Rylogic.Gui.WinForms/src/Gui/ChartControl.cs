@@ -956,7 +956,8 @@ namespace Rylogic.Gui.WinForms
 					View3d = View3d.Create();
 					Window = new View3d.Window(View3d, Handle, gdi_compatible_backbuffer:false, multi_sampling: owner.Options.AntiAliasing ? 4 : 1, dbg_name:"Chart")
 					{
-						LightProperties = View3d.LightInfo.Directional(-v4.ZAxis, Colour32.Zero, Colour32.Gray, Colour32.Zero, 0f, 0f),
+						MainLight = View3d.LightInfo.Directional(-v4.ZAxis, Colour32.Gray, Colour32.Zero, 0f, 0f),
+						Ambient = Colour32.Zero,
 						FocusPointVisible = false,
 						OriginPointVisible = false,
 					};

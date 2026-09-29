@@ -93,7 +93,6 @@
 *LightSource sun FFFFFF00
 {
 	*Style {Directional}
-	*Ambient {FF303030}
 	*Diffuse {FF606060}
 	*Specular {FFFFFFFF 500}
 	*o2w { *pos {-3 -4 7} *LookAt {0 0 0} }
