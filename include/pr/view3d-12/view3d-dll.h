@@ -633,6 +633,7 @@ namespace pr
 		// Requires finite visibility > 0, distortion amplitude >= 0, frequency > 0, and speed >= 0.
 		// 'm_surface' is a world-space plane with its normal pointing out of the water; fog applies only below it.
 		// It must be finite, and either zero (the whole view is in water) or have a non-zero normal.
+		// 'm_fade_depth' (finite, >= 0) is the depth below the surface over which the effect fades in; zero gives a sharp waterline.
 		struct UnderwaterProps
 		{
 			BOOL m_enabled = FALSE;
@@ -643,6 +644,7 @@ namespace pr
 			float m_distortion_frequency = 6.0f;
 			float m_distortion_speed = 0.25f;
 			Vec4 m_surface = {};
+			float m_fade_depth = 0.0f;
 		};
 
 		// Parameters for a UV-free GPU procedural surface applied to a PBR material.
@@ -778,16 +780,19 @@ namespace pr
 		struct ProceduralVertexBinding
 		{
 			static constexpr size_t ConstantsSize = 1024;
+			static constexpr size_t MaxBufferSize = 64 * 1024 * 1024;
 
 			ERenderStep m_rdr_step;
 			void const* m_constants;
 			size_t m_constants_size;
+			void const* m_buffer;    // Optional immutable data, copied once and bound as a raw root SRV (ByteAddressBuffer, no bounds) at VIEW3D_PROCEDURAL_BUFFER_REGISTER. Null for none.
+			size_t m_buffer_size;    // Size of 'm_buffer' in bytes. A non-zero multiple of 4 up to MaxBufferSize when 'm_buffer' is not null, otherwise 0.
 		};
 		// Versioned shader creation descriptor. Only Vertex with ProceduralVertexBinding is currently implemented.
 		// Callers supply readable descriptor storage and buffers matching this header and runtime; size/version are not a global ABI handshake.
 		struct ShaderOptions
 		{
-			static constexpr int CurrentVersion = 2;
+			static constexpr int CurrentVersion = 3;
 			static constexpr size_t MaxByteCodeSize = 1024 * 1024;
 
 			int m_struct_size;

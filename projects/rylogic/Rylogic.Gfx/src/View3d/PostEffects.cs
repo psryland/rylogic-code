@@ -11,7 +11,8 @@ public sealed partial class View3d
 {
 	/// <summary>
 	/// Whole-screen "looking through water" post effect: a colour tint, distance fog below the water surface, and a moving distortion.
-	/// The caller decides when the camera is submerged. The distortion animates only while frames are being rendered.
+	/// Without a Surface, the caller decides when the camera is submerged. With one, only pixels whose near-plane point is below the surface
+	/// get the effect. The distortion animates only while frames are being rendered.
 	/// </summary>
 	[StructLayout(LayoutKind.Sequential)]
 	public struct UnderwaterProps
@@ -24,6 +25,7 @@ public sealed partial class View3d
 		private float m_distortion_frequency;
 		private float m_distortion_speed;
 		private v4 m_surface;
+		private float m_fade_depth;
 
 		/// <summary>Create disabled settings with the native defaults.</summary>
 		public UnderwaterProps()
@@ -36,6 +38,7 @@ public sealed partial class View3d
 			m_distortion_frequency = 6.0f;
 			m_distortion_speed = 0.25f;
 			m_surface = v4.Zero;
+			m_fade_depth = 0.0f;
 		}
 
 		/// <summary>Whether the effect is applied.</summary>
@@ -131,8 +134,9 @@ public sealed partial class View3d
 
 		/// <summary>
 		/// World-space water surface plane: xyz is the normal pointing out of the water, and Dot(Surface, point) > 0 above the water.
-		/// Fog applies only to the part of each view ray below this plane, so surfaces seen through the water surface stay visible.
-		/// Zero means there is no surface and the whole view is in water.
+		/// Pixels whose near-plane point is above this plane keep the scene colour, so a camera part-way through the surface shows a waterline,
+		/// and nothing is drawn while the whole near plane is above it. Below the surface, fog applies only to the part of each view ray in water,
+		/// so surfaces seen up through the water surface stay visible. Zero means there is no surface and the whole view is in water.
 		/// </summary>
 		public v4 Surface
 		{
@@ -143,6 +147,22 @@ public sealed partial class View3d
 			set
 			{
 				m_surface = value;
+			}
+		}
+
+		/// <summary>
+		/// Depth below the Surface (in world units) over which the effect fades in. A pixel's effect strength rises smoothly from none where its
+		/// near-plane point is at the surface to full where that point is this deep. Zero gives a sharp waterline. Must be finite and not negative.
+		/// </summary>
+		public float FadeDepth
+		{
+			readonly get
+			{
+				return m_fade_depth;
+			}
+			set
+			{
+				m_fade_depth = value;
 			}
 		}
 
@@ -165,7 +185,9 @@ public sealed partial class View3d
 				throw new ArgumentOutOfRangeException(nameof(DistortionSpeed), "Underwater distortion speed must be finite and not negative.");
 			if (!Math_.IsFinite(m_surface) || (m_surface != v4.Zero && m_surface.w0.LengthSq == 0))
 				throw new ArgumentOutOfRangeException(nameof(Surface), "Underwater surface must be finite, and either zero or have a non-zero normal.");
-		}
+							if (float.IsNaN(m_fade_depth) || float.IsInfinity(m_fade_depth) || m_fade_depth < 0)
+								throw new ArgumentOutOfRangeException(nameof(FadeDepth), "Underwater fade depth must be finite and not negative.");
+						}
 	}
 
 	[DllImport(Dll)]
@@ -181,7 +203,7 @@ public sealed partial class View3d
 [TestFixture]
 public class PostEffectTests
 {
-	/// <summary>New views have the effect disabled, with a stable 44-byte ABI.</summary>
+	/// <summary>New views have the effect disabled, with a stable 48-byte ABI.</summary>
 	[Test]
 	public void UnderwaterDefaultAndLayout()
 	{
@@ -193,13 +215,15 @@ public class PostEffectTests
 		Assert.Equal(0.002f, props.DistortionAmplitude);
 		Assert.Equal(6.0f, props.DistortionFrequency);
 		Assert.Equal(0.25f, props.DistortionSpeed);
-		Assert.Equal(44, Marshal.SizeOf<View3d.UnderwaterProps>());
+		Assert.Equal(48, Marshal.SizeOf<View3d.UnderwaterProps>());
 		Assert.Equal(4, Marshal.OffsetOf<View3d.UnderwaterProps>("m_tint").ToInt32());
 		Assert.Equal(8, Marshal.OffsetOf<View3d.UnderwaterProps>("m_fog_colour").ToInt32());
 		Assert.Equal(12, Marshal.OffsetOf<View3d.UnderwaterProps>("m_visibility").ToInt32());
 		Assert.Equal(24, Marshal.OffsetOf<View3d.UnderwaterProps>("m_distortion_speed").ToInt32());
 		Assert.Equal(28, Marshal.OffsetOf<View3d.UnderwaterProps>("m_surface").ToInt32());
+		Assert.Equal(44, Marshal.OffsetOf<View3d.UnderwaterProps>("m_fade_depth").ToInt32());
 		Assert.Equal(v4.Zero, props.Surface);
+		Assert.Equal(0.0f, props.FadeDepth);
 	}
 
 	/// <summary>Invalid settings fail before reaching the native setter.</summary>
@@ -225,6 +249,8 @@ public class PostEffectTests
 		Assert.Throws<ArgumentOutOfRangeException>(() => props.Validate());
 		props.Surface = new v4(0, 0, 2, -10);
 		props.Validate();
+		props.FadeDepth = -1;
+		Assert.Throws<ArgumentOutOfRangeException>(() => props.Validate());
 	}
 }
 #endif

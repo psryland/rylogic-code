@@ -9,6 +9,7 @@
 #include "pr/hlsl/vector.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
 #include "pr/physics/terrain/water/water_field.hlsli"
+#include "pr/physics/terrain/water/water_depth.hlsli"
 
 #define WATER_FORCES_THREAD_COUNT 64
 #define WATER_PROXY_SPHERE 0
@@ -27,15 +28,17 @@ struct CBufWaterForces
 	float linear_drag_rate;
 	float quadratic_drag_coefficient;
 	float angular_drag_rate;
+	float breaking_ratio;
 };
 
 // Must match 'GpuWaterForces::Candidate'. Positions and axes are in the body's model space.
+// 'depth' is the water depth under the proxy centre, or a very large value where no terrain heights are known.
 struct GpuWaterCandidate
 {
 	int body_index;
 	int proxy;
 	float volume;
-	float pad;
+	float depth;
 	float4 centre_os;
 	float4 extent_os;
 	float4 axis_x_os;
@@ -123,13 +126,20 @@ void CSWaterForces(uint3 dtid : SV_DispatchThreadID)
 	float3 axis_z_ws = mul(float4(candidate.axis_z_os.xyz, 0.0f), body.o2w).xyz;
 	float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
 
+	// Correct the wave amplitudes for the water depth under the body: shoaling first, then one common limit at the breaking height.
+	float shoaled_amplitude = 0.0f;
+	for (int s = 0; s != g.element_count; ++s)
+		shoaled_amplitude += WaterFieldElementAmplitudeBound(g_elements[s]) * WaterFieldShoaling(g_elements[s], candidate.depth);
+
+	float breaking_scale = WaterFieldBreakingScale(shoaled_amplitude, candidate.depth, g.breaking_ratio);
+
 	// Sample the water surface at the proxy centre and treat it locally as a plane.
 	// Lateral pressure gradients from wave motion are sampled at the same point.
 	float3 surface = float3(g.water_level, 0.0f, 0.0f);
 	float2 pressure_gradient = float2(0.0f, 0.0f);
 	for (int e = 0; e != g.element_count; ++e)
 	{
-		WaterFieldElement element = g_elements[e];
+		WaterFieldElement element = WaterFieldDepthCorrected(g_elements[e], candidate.depth, breaking_scale);
 		surface += WaterFieldElementHeightAndGradient(element, centre_ws.xy, g.time_s);
 		if (gravity > 0.0f)
 			pressure_gradient += WaterFieldElementHeightAndPressureGradient(element, centre_ws.xy, g.time_s, gravity).yz;
@@ -166,7 +176,7 @@ void CSWaterForces(uint3 dtid : SV_DispatchThreadID)
 	float inv_mass = body.os_com_and_invmass.w;
 	float3 water_velocity = float3(0.0f, 0.0f, 0.0f);
 	for (int v = 0; v != g.element_count; ++v)
-		water_velocity += WaterFieldElementVelocity(g_elements[v], wet.centre_ws, g.time_s, g.water_level);
+		water_velocity += WaterFieldElementVelocity(WaterFieldDepthCorrected(g_elements[v], candidate.depth, breaking_scale), wet.centre_ws, g.time_s, g.water_level);
 
 	float3 relative_momentum = body.momentum_lin.xyz - water_velocity / inv_mass;
 	float linear_decay = 1.0f - exp(-g.linear_drag_rate * fraction * g.dt);

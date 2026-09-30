@@ -49,11 +49,12 @@ namespace pr::rdr12
 	}
 
 	// Create a procedural vertex shader by copying all caller-owned data.
-	ProceduralVertexShader::ProceduralVertexShader(Renderer& rdr, ERenderStep rdr_step, std::span<BYTE const> vs_bytecode, std::span<std::byte const> constants, std::string_view name)
+	ProceduralVertexShader::ProceduralVertexShader(Renderer& rdr, ERenderStep rdr_step, std::span<BYTE const> vs_bytecode, std::span<std::byte const> constants, D3DPtr<ID3D12Resource> buffer, std::string_view name)
 		:Shader(rdr)
 		,m_rdr_step(rdr_step)
 		,m_vs_bytecode(vs_bytecode.begin(), vs_bytecode.end())
 		,m_constants()
+		,m_buffer(buffer)
 		,m_name(name)
 	{
 		// Retain stable storage for the bytecode referenced by the pipeline state.
@@ -71,26 +72,34 @@ namespace pr::rdr12
 		std::copy(constants.begin(), constants.end(), m_constants.begin());
 	}
 
-	// Bind the copied constants through the render-step-specific reserved root slot.
+	// Bind the copied constants and optional buffer through the render-step-specific reserved root slots.
 	void ProceduralVertexShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const&, CameraTransforms const&, DrawListElement const*)
 	{
 		// Upload the current copy each draw; identical content is shared within the frame.
 		auto gpu_address = upload.Add(m_constants, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
+		auto buffer_address = m_buffer != nullptr ? m_buffer->GetGPUVirtualAddress() : D3D12_GPU_VIRTUAL_ADDRESS{};
+		auto Bind = [&](UINT cbuf_slot, UINT buffer_slot)
+		{
+			// The buffer slot stays unbound for shaders created without a buffer, because they must not declare it.
+			cmd_list->SetGraphicsRootConstantBufferView(cbuf_slot, gpu_address);
+			if (buffer_address != 0)
+				cmd_list->SetGraphicsRootShaderResourceView(buffer_slot, buffer_address);
+		};
 		switch (m_rdr_step)
 		{
 			case ERenderStep::RenderForward:
 			{
-				cmd_list->SetGraphicsRootConstantBufferView(static_cast<UINT>(shaders::fwd::ERootParam::CBufProcedural), gpu_address);
+				Bind(static_cast<UINT>(shaders::fwd::ERootParam::CBufProcedural), static_cast<UINT>(shaders::fwd::ERootParam::ProceduralBuffer));
 				return;
 			}
 			case ERenderStep::RayCast:
 			{
-				cmd_list->SetGraphicsRootConstantBufferView(static_cast<UINT>(shaders::ray_cast::ERootParam::CBufProcedural), gpu_address);
+				Bind(static_cast<UINT>(shaders::ray_cast::ERootParam::CBufProcedural), static_cast<UINT>(shaders::ray_cast::ERootParam::ProceduralBuffer));
 				return;
 			}
 			case ERenderStep::ShadowMap:
 			{
-				cmd_list->SetGraphicsRootConstantBufferView(static_cast<UINT>(shaders::smap::ERootParam::CBufProcedural), gpu_address);
+				Bind(static_cast<UINT>(shaders::smap::ERootParam::CBufProcedural), static_cast<UINT>(shaders::smap::ERootParam::ProceduralBuffer));
 				return;
 			}
 			default:
@@ -103,7 +112,8 @@ namespace pr::rdr12
 	// Destroy the concrete shader rather than the base subobject.
 	void ProceduralVertexShader::Delete()
 	{
-		// Release copied bytecode and constants with the shader handle.
+		// Release copied bytecode and constants with the shader handle. The GPU may still be reading the buffer from in-flight frames.
+		rdr().DeferRelease(m_buffer);
 		::pr::compute::Delete<ProceduralVertexShader>(this);
 	}
 

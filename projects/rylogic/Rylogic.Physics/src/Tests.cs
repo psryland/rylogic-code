@@ -45,9 +45,12 @@ public sealed class TestPhysics
 		AssertNativeSize(19, Marshal.SizeOf<Native.D6Constraint>());
 		AssertNativeSize(20, Marshal.SizeOf<TerrainConfiguration>());
 		AssertNativeSize(21, Marshal.SizeOf<CylindricalBoundaryConfiguration>());
-		AssertNativeSize(22, Marshal.SizeOf<WaterConfiguration>());
-		Assert.Equal(8, Marshal.OffsetOf<WaterConfiguration>(nameof(WaterConfiguration.m_level)).ToInt32());
-		Assert.Equal(28, Marshal.OffsetOf<WaterConfiguration>(nameof(WaterConfiguration.m_angular_drag_rate)).ToInt32());
+		AssertNativeSize(22, Marshal.SizeOf<Native.WaterDesc>());
+		AssertNativeSize(23, Marshal.SizeOf<Native.WaterBathymetryDesc>());
+		Assert.Equal(WaterFieldElement.SizeInBytes, sizeof(WaterFieldElement));
+		Assert.Equal(8, Marshal.OffsetOf<Native.WaterDesc>(nameof(Native.WaterDesc.m_level)).ToInt32());
+		Assert.Equal(40, Marshal.OffsetOf<Native.WaterDesc>(nameof(Native.WaterDesc.m_elements)).ToInt32());
+		Assert.Equal(40, Marshal.OffsetOf<Native.WaterBathymetryDesc>(nameof(Native.WaterBathymetryDesc.m_heights)).ToInt32());
 		Assert.Equal(8, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_centre_x)).ToInt32());
 		Assert.Equal(32, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_material_id)).ToInt32());
 		Assert.Equal(36, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_surface_spacing)).ToInt32());
@@ -112,6 +115,41 @@ public sealed class TestPhysics
 			engine.Step(1f / 60, commands: commands);
 
 		Assert.True(body.GetState().m_object_to_world.pos.z < 0);
+	}
+
+	/// <summary>Wind-driven waves build towards their targets, marshal as elements, and apply with terrain heights through the engine.</summary>
+	[Test]
+	public void Waves()
+	{
+		// Calm air makes no waves, and wind makes waves.
+		var layout = new WaveSpectrumLayout(9.81f, 1024f, 0.5f, 256f, 16, 4);
+		var targets = new float[layout.ComponentCount];
+		WaveSpectrum.Targets(layout, new WaveWeather(0, 0, 10_000), targets);
+		Assert.True(Array.TrueForAll(targets, a => a == 0));
+		WaveSpectrum.Targets(layout, new WaveWeather(10, 0, 10_000), targets);
+		Assert.True(Array.Exists(targets, a => a > 0));
+
+		// Relaxation reaches the targets, and a minimum wavelength removes short components.
+		var amplitudes = new float[layout.ComponentCount];
+		WaveSpectrum.Relax(amplitudes, targets, 1e4f, 20f);
+		Assert.Equal(targets[targets.Length - 1], amplitudes[amplitudes.Length - 1]);
+		var elements = new WaterFieldElement[layout.ComponentCount];
+		var all = WaveSpectrum.Elements(layout, amplitudes, 0, elements);
+		var long_only = WaveSpectrum.Elements(layout, amplitudes, 4, elements);
+		Assert.True(all > long_only && long_only > 0);
+		Assert.Equal(WaterFieldElement.TypeGerstnerWave, elements[0].m_type);
+		Assert.True(elements[0].m_wave.y >= 4);
+
+		// The engine accepts the waves with terrain heights, and rejects a grid that does not match its heights.
+		using var runtime = new Physics();
+		using var engine = runtime.CreateEngine();
+		var heights = new float[] { -20, -20, 5, 5 };
+		engine.SetWaterBathymetry(-100, -100, 200, 2, 2, heights);
+		engine.SetWater(new WaterConfiguration(0, repeat_period: 1024), elements.AsSpan(0, long_only));
+		Assert.Throws<ArgumentException>(() => engine.SetWaterBathymetry(0, 0, 1, 3, 3, heights));
+		ExpectStatus(EStatus.InvalidArgument, () => engine.SetWater(new WaterConfiguration(0, breaking_ratio: 0), elements.AsSpan(0, long_only)));
+		engine.ClearWaterBathymetry();
+		engine.SetWater(null);
 	}
 
 	/// <summary>Terrain supports a falling body, rejects pending mutation and incomplete checkpoints, and can be removed.</summary>

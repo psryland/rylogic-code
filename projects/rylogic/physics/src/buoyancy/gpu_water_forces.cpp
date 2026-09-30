@@ -29,6 +29,7 @@ namespace pr::physics
 			float m_linear_drag_rate;
 			float m_quadratic_drag_coefficient;
 			float m_angular_drag_rate;
+			float m_breaking_ratio;
 		};
 		static_assert(sizeof(CBufWaterForces) % sizeof(uint32_t) == 0);
 		static_assert(sizeof(GpuWaterForces::Candidate) == 96);
@@ -80,21 +81,26 @@ namespace pr::physics
 	// Select candidates on the host so that dry bodies cost one bounds test per frame and no GPU work.
 	void GpuWaterForces::BeginFrame(GpuJob& job, std::span<RigidBody* const> bodies, float elapsed_s)
 	{
-		// Collect the bodies that may reach the highest possible water surface during this frame.
+		// Collect the bodies that may reach the water surface during this frame.
 		m_candidates.clear();
-		auto const max_height = m_config.m_field.MaxHeight();
+		auto const& field = m_config.m_field;
 		for (int i = 0, iend = isize(bodies); i != iend; ++i)
 		{
 			// Static bodies do not move, and sleeping bodies wake through the engine's environment-change handling.
 			auto const& body = *bodies[i];
 			if (body.InvMass() == 0.0f || body.Sleeping() || !body.HasShape())
 				continue;
-			if (!MayBeWet(body, max_height, elapsed_s))
+			if (!MayBeWet(body, field, elapsed_s))
 				continue;
 
 			auto candidate = Candidate{};
-			if (MakeCandidate(body, i, candidate))
-				m_candidates.push_back(candidate);
+			if (!MakeCandidate(body, i, candidate))
+				continue;
+
+			// The wave depth under the proxy centre is fixed for the frame; bodies move a small fraction of a wavelength in one frame.
+			auto const centre_ws = body.O2W() * candidate.m_centre_os.w1();
+			candidate.m_depth = field.WaveDepth(terrain::v2d{centre_ws.x, centre_ws.y});
+			m_candidates.push_back(candidate);
 		}
 		if (m_candidates.empty())
 			return;
@@ -114,6 +120,31 @@ namespace pr::physics
 		m_elements_va = upload_elements.m_res->GetGPUVirtualAddress() + upload_elements.m_ofs;
 	}
 
+	// Wake sleeping bodies that the moving surface may reach.
+	void GpuWaterForces::WakeInSurfaceBand(std::span<RigidBody* const> bodies) const
+	{
+		// A flat surface never moves, so resting bodies keep their sleep state.
+		auto const& field = m_config.m_field;
+		if (field.IsFlat())
+			return;
+
+		for (auto body : bodies)
+		{
+			// Only sleeping dynamic bodies need testing; awake bodies are handled by candidate selection.
+			if (!body->Sleeping() || body->InvMass() == 0.0f || !body->HasShape())
+				continue;
+
+			// Wake when the body's vertical extent overlaps the heights the surface can reach over its footprint.
+			auto const bbox = body->BBoxWS();
+			auto const lo = terrain::v2d{bbox.m_centre.x - bbox.m_radius.x, bbox.m_centre.y - bbox.m_radius.y};
+			auto const hi = terrain::v2d{bbox.m_centre.x + bbox.m_radius.x, bbox.m_centre.y + bbox.m_radius.y};
+			auto const bottom = static_cast<double>(bbox.m_centre.z - bbox.m_radius.z);
+			auto const top = static_cast<double>(bbox.m_centre.z + bbox.m_radius.z);
+			if (bottom < field.MaxHeight(lo, hi) && top > field.MinHeight(lo, hi))
+				body->Wake();
+		}
+	}
+
 	// Add buoyancy and drag to the candidate bodies' force accumulators for one substep.
 	void GpuWaterForces::Apply(GpuJob& job, ID3D12Resource* bodies, float dt, double time_s)
 	{
@@ -125,13 +156,14 @@ namespace pr::physics
 		auto const cb = CBufWaterForces{
 			.m_candidate_count = isize(m_candidates),
 			.m_element_count = isize(m_config.m_field.Elements()),
-			.m_time_s = static_cast<float>(time_s),
+			.m_time_s = m_config.m_field.LocalTime(time_s),
 			.m_dt = dt,
 			.m_water_level = static_cast<float>(m_config.m_field.Level()),
 			.m_density = m_config.m_density,
 			.m_linear_drag_rate = m_config.m_linear_drag_rate,
 			.m_quadratic_drag_coefficient = m_config.m_quadratic_drag_coefficient,
 			.m_angular_drag_rate = m_config.m_angular_drag_rate,
+			.m_breaking_ratio = m_config.m_field.BreakingRatio(),
 		};
 		job.m_cmd_list.SetPipelineState(m_step.m_pso.get());
 		job.m_cmd_list.SetComputeRootSignature(m_step.m_sig.get());
@@ -163,7 +195,7 @@ namespace pr::physics
 					.m_body_index = body_index,
 					.m_proxy = ProxySphere,
 					.m_volume = volume,
-					.m_pad = 0.0f,
+					.m_depth = 0.0f,
 					.m_centre_os = s2r.pos,
 					.m_extent_os = v4{sphere.m_radius, sphere.m_radius, sphere.m_radius, 0.0f},
 					.m_axis_x_os = s2r.x,
@@ -179,7 +211,7 @@ namespace pr::physics
 					.m_body_index = body_index,
 					.m_proxy = ProxyBox,
 					.m_volume = volume,
-					.m_pad = 0.0f,
+					.m_depth = 0.0f,
 					.m_centre_os = s2r.pos,
 					.m_extent_os = box.m_radius.w0(),
 					.m_axis_x_os = s2r.x,
@@ -199,7 +231,7 @@ namespace pr::physics
 					.m_body_index = body_index,
 					.m_proxy = ProxyBox,
 					.m_volume = volume,
-					.m_pad = 0.0f,
+					.m_depth = 0.0f,
 					.m_centre_os = s2r * bbox.m_centre.w1(),
 					.m_extent_os = bbox.m_radius.w0(),
 					.m_axis_x_os = s2r.x,
@@ -211,8 +243,8 @@ namespace pr::physics
 		}
 	}
 
-	// Conservatively test whether the body can reach 'max_height' before the frame ends.
-	bool GpuWaterForces::MayBeWet(RigidBody const& body, double max_height, float elapsed_s)
+	// Conservatively test whether the body can reach the surface of 'field' before the frame ends.
+	bool GpuWaterForces::MayBeWet(RigidBody const& body, terrain::water::WaterField const& field, float elapsed_s)
 	{
 		// Rotation about the centre of mass cannot move any point further than this sphere, whatever the frame's spin.
 		auto const bbox = body.BBoxWS();
@@ -223,6 +255,11 @@ namespace pr::physics
 		auto const speed = Length(body.VelocityWS().lin);
 		auto const gravity = Length(body.GravityWS());
 		auto const drop = speed * elapsed_s + gravity * elapsed_s * elapsed_s;
-		return static_cast<double>(com.z) - reach - drop < max_height;
+
+		// The highest surface over the area the body can cover this frame. Over dry land this is the still-water level, so land bodies cost no GPU work.
+		auto const range = static_cast<double>(reach + drop);
+		auto const lo = terrain::v2d{com.x - range, com.y - range};
+		auto const hi = terrain::v2d{com.x + range, com.y + range};
+		return static_cast<double>(com.z) - range < field.MaxHeight(lo, hi);
 	}
 }

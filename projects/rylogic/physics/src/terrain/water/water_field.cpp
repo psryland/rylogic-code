@@ -4,6 +4,7 @@
 //*********************************************
 #include "pr/physics/terrain/water/water_field.h"
 #include "pr/physics/terrain/water/water_field.hlsli"
+#include "pr/physics/terrain/water/water_depth.hlsli"
 
 namespace pr::physics::terrain::water
 {
@@ -76,25 +77,25 @@ namespace pr::physics::terrain::water
 		}
 	}
 
-	// Return a sine wave element with height A*sin(k*dot(d, xy) + omega*t).
-	WaterFieldElement SineWave(v2 direction, float amplitude, float wavelength, float angular_frequency)
+	// Return a sine wave element with height A*sin(k*dot(d, xy) + omega*t + phase).
+	WaterFieldElement SineWave(v2 direction, float amplitude, float wavelength, float angular_frequency, float phase)
 	{
 		auto const d = UnitDirection(direction);
 		return WaterFieldElement{
 			.info = {shared::WaterFieldElementSineWave, 0, 0, 0},
-			.position = {d.x, d.y, 0, 0},
+			.position = {d.x, d.y, phase, 0},
 			.wave = {amplitude, wavelength, angular_frequency, 0},
 			.timing = {0, 0, 0, 0},
 		};
 	}
 
-	// Return a Gerstner wave element with height A*sin(k*dot(d, xy) - k*c*t).
-	WaterFieldElement GerstnerWave(v2 direction, float amplitude, float wavelength, float phase_speed, float steepness)
+	// Return a Gerstner wave element with height A*sin(k*dot(d, xy) - k*c*t + phase).
+	WaterFieldElement GerstnerWave(v2 direction, float amplitude, float wavelength, float phase_speed, float steepness, float phase)
 	{
 		auto const d = UnitDirection(direction);
 		return WaterFieldElement{
 			.info = {shared::WaterFieldElementGerstnerWave, 0, 0, 0},
-			.position = {d.x, d.y, 0, 0},
+			.position = {d.x, d.y, phase, 0},
 			.wave = {amplitude, wavelength, phase_speed, steepness},
 			.timing = {0, 0, 0, 0},
 		};
@@ -116,6 +117,10 @@ namespace pr::physics::terrain::water
 		: m_level()
 		, m_elements()
 		, m_amplitude_bound()
+		, m_swash_depth()
+		, m_bathymetry()
+		, m_breaking_ratio(DefaultBreakingRatio)
+		, m_repeat_period()
 	{
 		Level(level);
 		Elements(elements);
@@ -124,6 +129,10 @@ namespace pr::physics::terrain::water
 		: m_level()
 		, m_elements()
 		, m_amplitude_bound()
+		, m_swash_depth()
+		, m_bathymetry()
+		, m_breaking_ratio(DefaultBreakingRatio)
+		, m_repeat_period()
 	{
 		// Zero level with no elements is already a valid flat field.
 	}
@@ -151,14 +160,73 @@ namespace pr::physics::terrain::water
 			throw std::invalid_argument(std::format("Water field supports at most {} elements", MaxElementCount));
 
 		auto amplitude_bound = 0.0;
+		auto amplitude_squares = 0.0f;
 		for (auto const& element : elements)
 		{
 			Validate(element);
-			amplitude_bound += shared::WaterFieldElementAmplitudeBound(element);
+			auto const amplitude = shared::WaterFieldElementAmplitudeBound(element);
+			amplitude_bound += amplitude;
+			amplitude_squares += amplitude * amplitude;
 		}
 
 		m_elements.assign(elements.begin(), elements.end());
 		m_amplitude_bound = amplitude_bound;
+		m_swash_depth = shared::WaterFieldSwashDepth(amplitude_squares);
+	}
+
+	// The terrain heights used for depth correction.
+	std::shared_ptr<Bathymetry const> const& WaterField::TerrainHeights() const noexcept
+	{
+		return m_bathymetry;
+	}
+	void WaterField::TerrainHeights(std::shared_ptr<Bathymetry const> bathymetry)
+	{
+		m_bathymetry = std::move(bathymetry);
+	}
+
+	// Ratio of the largest wave height to the water depth.
+	float WaterField::BreakingRatio() const noexcept
+	{
+		return m_breaking_ratio;
+	}
+	void WaterField::BreakingRatio(float ratio)
+	{
+		RequirePositive(ratio, "breaking ratio");
+		m_breaking_ratio = ratio;
+	}
+
+	// The period after which every element repeats exactly.
+	double WaterField::RepeatPeriod() const noexcept
+	{
+		return m_repeat_period;
+	}
+	void WaterField::RepeatPeriod(double period)
+	{
+		RequireFinite(period, "repeat period");
+		if (period < 0.0)
+			throw std::invalid_argument("Water field 'repeat period' must not be negative");
+
+		m_repeat_period = period;
+	}
+
+	// Wrap a simulation time into [0, RepeatPeriod).
+	float WaterField::LocalTime(double time_s) const noexcept
+	{
+		// Wrapping in double keeps full precision for long-running clocks before the float conversion used by the evaluators.
+		if (!(m_repeat_period > 0.0))
+			return static_cast<float>(time_s);
+
+		auto local = std::fmod(time_s, m_repeat_period);
+		if (local < 0.0)
+			local += m_repeat_period;
+
+		return static_cast<float>(local);
+	}
+
+	// The water depth used for wave corrections at a world-space position.
+	float WaterField::WaveDepth(v2d xy) const
+	{
+		return m_bathymetry != nullptr ? static_cast<float>(m_level + m_swash_depth - m_bathymetry->HeightAt(xy)) : shared::WaterFieldDeepWater;
 	}
 
 	// True when no element can change the height.
@@ -170,11 +238,21 @@ namespace pr::physics::terrain::water
 	// Conservative bounds on the surface height over all positions and times.
 	double WaterField::MaxHeight() const noexcept
 	{
-		return m_level + m_amplitude_bound;
+		return m_level + AmplitudeBound(m_bathymetry != nullptr ? m_level + m_swash_depth - m_bathymetry->MinHeight() : shared::WaterFieldDeepWater);
 	}
 	double WaterField::MinHeight() const noexcept
 	{
-		return m_level - m_amplitude_bound;
+		return m_level - AmplitudeBound(m_bathymetry != nullptr ? m_level + m_swash_depth - m_bathymetry->MinHeight() : shared::WaterFieldDeepWater);
+	}
+
+	// Conservative bounds on the surface height over a world-space rectangle.
+	double WaterField::MaxHeight(v2d lo, v2d hi) const
+	{
+		return m_level + AmplitudeBound(m_bathymetry != nullptr ? m_level + m_swash_depth - m_bathymetry->MinHeight(lo, hi) : shared::WaterFieldDeepWater);
+	}
+	double WaterField::MinHeight(v2d lo, v2d hi) const
+	{
+		return m_level - AmplitudeBound(m_bathymetry != nullptr ? m_level + m_swash_depth - m_bathymetry->MinHeight(lo, hi) : shared::WaterFieldDeepWater);
 	}
 
 	// Sample the surface height at a world-space XY position and simulation time.
@@ -182,10 +260,12 @@ namespace pr::physics::terrain::water
 	{
 		// Element contributions are evaluated in float, matching the GPU, and added to the double still-water level.
 		auto const xy_f = v2{static_cast<float>(xy.x), static_cast<float>(xy.y)};
-		auto const t = static_cast<float>(time_s);
+		auto const t = LocalTime(time_s);
+		auto const depth = WaveDepth(xy);
+		auto const scale = BreakingScale(depth);
 		auto height = 0.0;
 		for (auto const& element : m_elements)
-			height += shared::WaterFieldElementHeight(element, xy_f, t);
+			height += shared::WaterFieldElementHeight(shared::WaterFieldDepthCorrected(element, depth, scale), xy_f, t);
 
 		return m_level + height;
 	}
@@ -195,12 +275,14 @@ namespace pr::physics::terrain::water
 	{
 		// Accumulate the float element contributions onto the double still-water level.
 		auto const xy_f = v2{static_cast<float>(xy.x), static_cast<float>(xy.y)};
-		auto const t = static_cast<float>(time_s);
+		auto const t = LocalTime(time_s);
+		auto const depth = WaveDepth(xy);
+		auto const scale = BreakingScale(depth);
 		auto sample = WaterSample{.m_height = m_level, .m_gradient_xy = v2d::Zero()};
 		for (auto const& element : m_elements)
 		{
 			// Each contribution is (height, dh/dx, dh/dy).
-			auto const contribution = shared::WaterFieldElementHeightAndGradient(element, xy_f, t);
+			auto const contribution = shared::WaterFieldElementHeightAndGradient(shared::WaterFieldDepthCorrected(element, depth, scale), xy_f, t);
 			sample.m_height += contribution.x;
 			sample.m_gradient_xy += v2d{contribution.y, contribution.z};
 		}
@@ -208,34 +290,68 @@ namespace pr::physics::terrain::water
 	}
 
 	// Sample the dimensionless lateral pressure gradient used by buoyancy forces.
-	v2 WaterField::PressureGradient(v2 xy, float time_s, float gravity) const
+	v2 WaterField::PressureGradient(v2 xy, double time_s, float gravity) const
 	{
 		// Without gravity there is no hydrostatic pressure to form a gradient.
 		if (!(gravity > tiny<float>))
 			return v2::Zero();
 
+		auto const t = LocalTime(time_s);
+		auto const depth = WaveDepth(v2d{xy.x, xy.y});
+		auto const scale = BreakingScale(depth);
 		auto gradient = v2::Zero();
 		for (auto const& element : m_elements)
 		{
 			// Each contribution is (height, gradient.x, gradient.y); only the gradient is needed.
-			auto const contribution = shared::WaterFieldElementHeightAndPressureGradient(element, xy, time_s, gravity);
+			auto const contribution = shared::WaterFieldElementHeightAndPressureGradient(shared::WaterFieldDepthCorrected(element, depth, scale), xy, t, gravity);
 			gradient += v2{contribution.y, contribution.z};
 		}
 		return gradient;
 	}
 
 	// Sample the world-space water particle velocity at a world-space position.
-	v4 WaterField::Velocity(v4 pos_ws, float time_s) const
+	v4 WaterField::Velocity(v4 pos_ws, double time_s) const
 	{
 		// Orbital flow decays with depth below the still-water level.
+		auto const t = LocalTime(time_s);
+		auto const depth = WaveDepth(v2d{pos_ws.x, pos_ws.y});
+		auto const scale = BreakingScale(depth);
 		auto velocity = v4::Zero();
 		auto const level = static_cast<float>(m_level);
 		for (auto const& element : m_elements)
 		{
 			// Each contribution is a world-space velocity.
-			auto const contribution = shared::WaterFieldElementVelocity(element, pos_ws.xyz, time_s, level);
+			auto const contribution = shared::WaterFieldElementVelocity(shared::WaterFieldDepthCorrected(element, depth, scale), pos_ws.xyz, t, level);
 			velocity += v4{contribution.x, contribution.y, contribution.z, 0};
 		}
 		return velocity;
+	}
+
+	// Return the amplitude bound near a point whose deepest water, including the swash allowance, is 'max_depth'.
+	double WaterField::AmplitudeBound(double max_depth) const noexcept
+	{
+		// Without terrain heights there is no depth correction, so the elements' own amplitudes are the bound.
+		if (m_bathymetry == nullptr)
+			return m_amplitude_bound;
+
+		// Shoaling can at most double an amplitude, and breaking limits the total to half the breaking height of the deepest water.
+		if (!(max_depth > 0.0))
+			return 0.0;
+
+		return std::min(shared::WaterFieldMaxShoaling * m_amplitude_bound, 0.5 * m_breaking_ratio * max_depth);
+	}
+
+	// Return the breaking scale for 'depth'.
+	float WaterField::BreakingScale(float depth) const
+	{
+		// Deep water everywhere needs no limiting.
+		if (m_bathymetry == nullptr)
+			return 1.0f;
+
+		auto total = 0.0f;
+		for (auto const& element : m_elements)
+			total += shared::WaterFieldElementAmplitudeBound(element) * shared::WaterFieldShoaling(element, depth);
+
+		return shared::WaterFieldBreakingScale(total, depth, m_breaking_ratio);
 	}
 }

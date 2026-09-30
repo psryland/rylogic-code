@@ -38,6 +38,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto Tex4Stream = ESRVReg:: t11;
 		inline static constexpr auto PbrNormalTexture = ESRVReg::t12;
 		inline static constexpr auto SkyTexture = ESRVReg::t13;
+		inline static constexpr auto ProceduralBuffer = ESRVReg::t14;
 		inline static constexpr auto AlphaColour = EUAVReg::u0;
 		inline static constexpr auto AlphaDepth = EUAVReg::u1;
 		inline static constexpr auto AlphaRtAttrs = EUAVReg::u2;
@@ -101,6 +102,7 @@ namespace pr::rdr12::shaders
 			.UAV(EReg::AlphaDepth, 1)
 			.UAV(EReg::AlphaRtAttrs, 1)
 			.SRV(EReg::SkyTexture, 1)
+			.SRV(EReg::ProceduralBuffer, D3D12_SHADER_VISIBILITY_VERTEX)
 			.Create(rdr.d3d(), "ForwardSig");
 	}
 

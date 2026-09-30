@@ -17,6 +17,7 @@ namespace pr::rdr12::shaders
 			CBufProcedural,
 			DiffTexture,
 			DiffTextureSampler,
+			ProceduralBuffer,
 		};
 
 		enum class ESampParam

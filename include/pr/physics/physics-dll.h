@@ -104,6 +104,7 @@ namespace pr::physics
 		Terrain = 20,
 		CylindricalBoundary = 21,
 		Water = 22,
+		WaterBathymetry = 23,
 	};
 
 	// One explicit terrain frequency band; roundness and weight gain apply to the mountain band.
@@ -244,7 +245,22 @@ namespace pr::physics
 	};
 	static_assert(sizeof(CylindricalBoundaryDesc) == 40);
 
-	// A flat water surface at a world-space height, with buoyancy and drag for every dynamic body. Density is kg/m³ and drag rates are 1/s.
+	// One water-surface element with the same layout as 'terrain::water::shared::WaterFieldElement'; see water_field_types.hlsli for the fields.
+	struct WaterElement
+	{
+		std::int32_t info[4];
+		float position[4];
+		float wave[4];
+		float timing[4];
+	};
+	static_assert(sizeof(WaterElement) == 64);
+
+	// A water surface with buoyancy and drag for every dynamic body. Density is kg/m³ and drag rates are 1/s.
+	// The surface is the still-water 'level' plus 'element_count' elements from 'elements'; the engine copies them.
+	// Wave amplitudes are corrected for depth only after terrain heights are supplied with Physics_EngineWaterBathymetrySet.
+	// 'breaking_ratio' limits the total wave amplitude to half this fraction of the depth. 'repeat_period' (s) is the period
+	// of the wave motion; the engine samples waves at time modulo this period, so element frequencies should repeat within it.
+	// Zero means no wrap.
 	struct WaterDesc
 	{
 		StructHeader header;
@@ -253,8 +269,35 @@ namespace pr::physics
 		float linear_drag_rate;
 		float quadratic_drag_coefficient;
 		float angular_drag_rate;
+		float breaking_ratio;
+		float repeat_period;
+		WaterElement const* elements;
+		std::int32_t element_count;
+		std::int32_t reserved;
 	};
-	static_assert(sizeof(WaterDesc) == 32);
+	static_assert(sizeof(WaterDesc) == 56);
+
+	// Terrain heights sampled on a regular world-space grid, used to correct waves for water depth.
+	// Node (i, j) is at origin + (i, j) * cell_size and its height is heights[j * width + i]. The engine copies the heights.
+	struct WaterBathymetryDesc
+	{
+		StructHeader header;
+		double origin_x, origin_y, cell_size;
+		std::int32_t width, height;
+		float const* heights;
+	};
+	static_assert(sizeof(WaterBathymetryDesc) == 48);
+
+	// The fixed component layout of a wind-driven wave spectrum. Gravity (m/s²) and the repeat period (s) are positive. The wavelength range
+	// [min_wavelength, max_wavelength] (m, 0 < min < max) is split into 'bands' equal log-wavelength bands of 'directions' components each.
+	// The component count, bands * directions, is at most 64.
+	struct WaveSpectrumDesc
+	{
+		float gravity, repeat_period;
+		float min_wavelength, max_wavelength;
+		std::int32_t bands, directions;
+	};
+	static_assert(sizeof(WaveSpectrumDesc) == 24);
 
 	struct Vector4
 	{
@@ -747,6 +790,21 @@ extern "C"
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineCylindricalBoundarySet(pr::physics::EngineHandle engine, pr::physics::CylindricalBoundaryDesc const* boundary);
 	// Replace or disable the water environment between completed frames; null removes it. Water does not change native checkpoint content.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineWaterSet(pr::physics::EngineHandle engine, pr::physics::WaterDesc const* water);
+
+	// Replace the terrain heights used to correct water waves for depth; null means deep water everywhere. Applies to the current water and to
+	// later Physics_EngineWaterSet calls. Only valid between completed frames.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineWaterBathymetrySet(pr::physics::EngineHandle engine, pr::physics::WaterBathymetryDesc const* bathymetry);
+
+	// Wind-driven wave spectrum with the fixed components described by 'spectrum'. 'count' must equal the component count, bands * directions.
+	// Wind direction is the direction the wind blows towards, in radians anticlockwise from +X. Wind speed is m/s and fetch is metres.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_WaveSpectrumTargets(pr::physics::WaveSpectrumDesc const* spectrum, float wind_speed, float wind_direction, float fetch, float* amplitudes, std::int32_t count);
+
+	// Move each amplitude towards its target over 'dt' seconds with exponential time constant 'time_constant' seconds.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_WaveSpectrumRelax(float* amplitudes, float const* targets, std::int32_t count, float dt, float time_constant);
+
+	// Write Gerstner elements for the components with a positive amplitude and a wavelength of at least 'min_wavelength', in component order.
+	// Steepness is zero. Fails when more than 'capacity' elements are needed.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_WaveSpectrumElements(pr::physics::WaveSpectrumDesc const* spectrum, float const* amplitudes, std::int32_t count, float min_wavelength, pr::physics::WaterElement* elements, std::int32_t capacity, std::int32_t* element_count);
 
 	// Material properties.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_MaterialGet(pr::physics::EngineHandle engine, std::int32_t material_id, pr::physics::MaterialProperties* material);

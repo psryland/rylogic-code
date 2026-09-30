@@ -49,6 +49,7 @@ namespace fade_tests::compiled
 	#include "procedural_vertex_forward.h"
 	#include "procedural_vertex_raycast.h"
 	#include "procedural_vertex_shadow.h"
+	#include "procedural_vertex_buffer.h"
 	#include "unsupported_pixel.h"
 }
 

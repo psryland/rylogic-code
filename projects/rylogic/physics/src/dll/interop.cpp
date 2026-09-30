@@ -12,6 +12,12 @@
 #include "physics/src/dll/interop.h"
 #include "physics/src/utility/gpu.h"
 
+// The ABI water element is reinterpreted as the shared element, so their layouts must match exactly.
+static_assert(sizeof(pr::physics::WaterElement) == sizeof(pr::physics::terrain::water::WaterFieldElement));
+static_assert(offsetof(pr::physics::WaterElement, position) == offsetof(pr::physics::terrain::water::WaterFieldElement, position));
+static_assert(offsetof(pr::physics::WaterElement, wave) == offsetof(pr::physics::terrain::water::WaterFieldElement, wave));
+static_assert(offsetof(pr::physics::WaterElement, timing) == offsetof(pr::physics::terrain::water::WaterFieldElement, timing));
+
 namespace
 {
 	// Keep the implementation's wire-record vocabulary local while the public API uses concise names in pr::physics.
@@ -67,6 +73,19 @@ namespace
 	using PhysicsFrameOutputFeatureDiagnostics = pr::physics::FrameOutputFeatureDiagnostics;
 	using PhysicsStepFailureDiagnostics = pr::physics::StepFailureDiagnostics;
 	using PhysicsDiagnostics = pr::physics::Diagnostics;
+
+	// Convert the ABI wave spectrum layout to the library layout; the library validates the values.
+	pr::physics::terrain::water::WaveSpectrumLayout ToWaveSpectrumLayout(pr::physics::WaveSpectrumDesc const& desc)
+	{
+		return pr::physics::terrain::water::WaveSpectrumLayout{
+			.m_gravity = desc.gravity,
+			.m_repeat_period = desc.repeat_period,
+			.m_min_wavelength = desc.min_wavelength,
+			.m_max_wavelength = desc.max_wavelength,
+			.m_bands = desc.bands,
+			.m_directions = desc.directions,
+		};
+	}
 }
 
 namespace pr::physics
@@ -204,6 +223,9 @@ namespace pr::physics
 			std::unique_ptr<Engine> m_engine;
 			bool m_has_terrain = false;
 			bool m_has_cylindrical_boundary = false;
+
+			// Terrain heights applied to every water configuration, or null for deep water.
+			std::shared_ptr<pr::physics::terrain::water::Bathymetry const> m_water_bathymetry;
 
 			EngineRecord(std::uint16_t cookie, EngineConfig const& config, ID3D12Device4* device, ID3D12CommandQueue* queue)
 				: m_lock()
@@ -1911,6 +1933,7 @@ extern "C"
 				case PhysicsStructId::Terrain: { *size = sizeof(pr::physics::TerrainDesc); break; }
 				case PhysicsStructId::CylindricalBoundary: { *size = sizeof(pr::physics::CylindricalBoundaryDesc); break; }
 				case PhysicsStructId::Water: { *size = sizeof(pr::physics::WaterDesc); break; }
+				case PhysicsStructId::WaterBathymetry: { *size = sizeof(pr::physics::WaterBathymetryDesc); break; }
 				default: throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Unknown physics structure identifier");
 			}
 		});
@@ -2213,10 +2236,24 @@ extern "C"
 			{
 				// Invalid values are caller errors, reported without changing the current water.
 				auto const& c = pr::physics::RequireStruct(water);
+				if (c.reserved != 0)
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid water reserved field");
+				if (c.element_count < 0 || (c.element_count != 0 && c.elements == nullptr))
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid water element array");
+
 				try
 				{
+					// The ABI element has the same layout but weaker alignment than the shared element, so copy rather than reinterpret.
+					auto elements = std::vector<pr::physics::terrain::water::WaterFieldElement>(static_cast<size_t>(c.element_count));
+					if (c.element_count != 0)
+						std::memcpy(elements.data(), c.elements, elements.size() * sizeof(pr::physics::WaterElement));
+
+					auto field = pr::physics::terrain::water::WaterField{ c.level, elements };
+					field.BreakingRatio(c.breaking_ratio);
+					field.RepeatPeriod(c.repeat_period);
+					field.TerrainHeights(record.m_water_bathymetry);
 					config = pr::physics::WaterConfig{
-						.m_field = pr::physics::terrain::water::WaterField{ c.level },
+						.m_field = std::move(field),
 						.m_density = c.density,
 						.m_linear_drag_rate = c.linear_drag_rate,
 						.m_quadratic_drag_coefficient = c.quadratic_drag_coefficient,
@@ -2230,6 +2267,117 @@ extern "C"
 				}
 			}
 			record.m_engine->Water(std::move(config));
+		});
+	}
+
+	// Replace the terrain heights used for water depth correction; null means deep water everywhere.
+	PhysicsStatus __stdcall Physics_EngineWaterBathymetrySet(PhysicsEngineHandle engine, pr::physics::WaterBathymetryDesc const* bathymetry)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			pr::physics::RequireIdle(record);
+
+			// Build and validate the replacement before changing any state.
+			auto replacement = std::shared_ptr<pr::physics::terrain::water::Bathymetry const>{};
+			if (bathymetry != nullptr)
+			{
+				auto const& c = pr::physics::RequireStruct(bathymetry);
+				if (c.width < 0 || c.height < 0 || c.heights == nullptr)
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid water bathymetry grid");
+
+				try
+				{
+					auto const count = static_cast<size_t>(c.width) * static_cast<size_t>(c.height);
+					replacement = std::make_shared<pr::physics::terrain::water::Bathymetry const>(pr::physics::terrain::v2d{ c.origin_x, c.origin_y }, c.cell_size, c.width, c.height, std::span{ c.heights, count });
+				}
+				catch (std::exception const& ex)
+				{
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
+				}
+			}
+
+			// Apply the heights to the current water immediately; later water replacements pick them up from the record.
+			if (auto current = record.m_engine->Water(); current != nullptr)
+			{
+				auto config = *current;
+				config.m_field.TerrainHeights(replacement);
+				record.m_engine->Water(std::move(config));
+			}
+			record.m_water_bathymetry = std::move(replacement);
+		});
+	}
+
+	// Return the wind-driven target amplitude of each spectrum component.
+	PhysicsStatus __stdcall Physics_WaveSpectrumTargets(pr::physics::WaveSpectrumDesc const* desc, float wind_speed, float wind_direction, float fetch, float* amplitudes, std::int32_t count)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			using namespace pr::physics::terrain::water;
+			if (desc == nullptr || amplitudes == nullptr || count < 0)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid wave spectrum or amplitude array");
+
+			try
+			{
+				auto const spectrum = WaveSpectrum{ ToWaveSpectrumLayout(*desc) };
+				spectrum.Targets(WaveWeather{ .m_wind_speed = wind_speed, .m_wind_direction = wind_direction, .m_fetch = fetch }, std::span{ amplitudes, static_cast<size_t>(count) });
+			}
+			catch (std::exception const& ex)
+			{
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
+			}
+		});
+	}
+
+	// Move each amplitude towards its target over 'dt' seconds with time constant 'time_constant' seconds.
+	PhysicsStatus __stdcall Physics_WaveSpectrumRelax(float* amplitudes, float const* targets, std::int32_t count, float dt, float time_constant)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			using namespace pr::physics::terrain::water;
+			if (amplitudes == nullptr || targets == nullptr || count < 0)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid wave spectrum amplitude arrays");
+
+			try
+			{
+				WaveSpectrum::Relax(std::span{ amplitudes, static_cast<size_t>(count) }, std::span{ targets, static_cast<size_t>(count) }, dt, time_constant);
+			}
+			catch (std::exception const& ex)
+			{
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
+			}
+		});
+	}
+
+	// Build water elements for the spectrum components with non-zero amplitude and a wavelength of at least 'min_wavelength'.
+	PhysicsStatus __stdcall Physics_WaveSpectrumElements(pr::physics::WaveSpectrumDesc const* desc, float const* amplitudes, std::int32_t count, float min_wavelength, pr::physics::WaterElement* elements, std::int32_t capacity, std::int32_t* element_count)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			using namespace pr::physics::terrain::water;
+			if (desc == nullptr || amplitudes == nullptr || count < 0)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid wave spectrum or amplitude array");
+			if (elements == nullptr || capacity < 0 || element_count == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid wave spectrum element output");
+
+			try
+			{
+				// The ABI element has the same layout but weaker alignment than the shared element, so build locally and copy out.
+				auto const spectrum = WaveSpectrum{ ToWaveSpectrumLayout(*desc) };
+				auto built = std::array<WaterFieldElement, MaxElementCount>{};
+				auto const n = spectrum.Elements(std::span{ amplitudes, static_cast<size_t>(count) }, min_wavelength, built);
+				if (n > capacity)
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Wave spectrum element output is too small");
+
+				std::memcpy(elements, built.data(), static_cast<size_t>(n) * sizeof(pr::physics::WaterElement));
+				*element_count = n;
+			}
+			catch (std::exception const& ex)
+			{
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
+			}
 		});
 	}
 

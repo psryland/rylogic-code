@@ -98,18 +98,82 @@ namespace pr::physics::tests
 			auto body = RigidBody{};
 			body.Shape(collision::shape_cast(&sphere), 1.0f);
 			body.GravityWS(v4{ 0, 0, -Gravity, 0 });
+			auto const still = terrain::water::WaterField{ 0.0 };
 
 			body.O2W(m4x4::Translation(0, 0, 10));
-			PR_EXPECT(!GpuWaterForces::MayBeWet(body, 0.0, 1.0f / 60.0f));
+			PR_EXPECT(!GpuWaterForces::MayBeWet(body, still, 1.0f / 60.0f));
 			body.O2W(m4x4::Translation(0, 0, 0.51f));
-			PR_EXPECT(GpuWaterForces::MayBeWet(body, 0.0, 1.0f / 60.0f));
+			PR_EXPECT(GpuWaterForces::MayBeWet(body, still, 1.0f / 60.0f));
 			body.O2W(m4x4::Translation(0, 0, 0.4f));
-			PR_EXPECT(GpuWaterForces::MayBeWet(body, 0.0, 1.0f / 60.0f));
+			PR_EXPECT(GpuWaterForces::MayBeWet(body, still, 1.0f / 60.0f));
 
 			// A fast fall can reach the water within the frame.
 			body.O2W(m4x4::Translation(0, 0, 2.0f));
 			body.VelocityWS(v4::Zero(), v4{ 0, 0, -120.0f, 0 });
-			PR_EXPECT(GpuWaterForces::MayBeWet(body, 0.0, 1.0f / 60.0f));
+			PR_EXPECT(GpuWaterForces::MayBeWet(body, still, 1.0f / 60.0f));
+		}
+
+		PRUnitTestMethod(DryLandCullsBelowWaveCrests, Quick)
+		{
+			// Terrain at +5 on the east half and -50 on the west half, with waves that reach 0.9 m over deep water.
+			auto const heights = std::array{ -50.0f, 5.0f, 5.0f, -50.0f, 5.0f, 5.0f };
+			auto const bathymetry = std::make_shared<terrain::water::Bathymetry const>(terrain::v2d{ -100.0, -100.0 }, 100.0, 3, 2, heights);
+			auto const wave = terrain::water::GerstnerWave(v2{ 1.0f, 0.0f }, 0.9f, 40.0f, 7.9f, 0.0f);
+			auto field = terrain::water::WaterField{ 0.0, std::span{ &wave, 1 } };
+			field.TerrainHeights(bathymetry);
+
+			// A resting body 1.2 m above the still level is below the deep-water crest bound, but not over dry land.
+			auto sphere = collision::ShapeSphere(0.5f);
+			auto body = RigidBody{};
+			body.Shape(collision::shape_cast(&sphere), 1.0f);
+			body.GravityWS(v4{ 0, 0, -Gravity, 0 });
+			body.O2W(m4x4::Translation(-100, 0, 1.2f));
+			PR_EXPECT(GpuWaterForces::MayBeWet(body, field, 1.0f / 60.0f));
+			body.O2W(m4x4::Translation(50, 0, 1.2f));
+			PR_EXPECT(!GpuWaterForces::MayBeWet(body, field, 1.0f / 60.0f));
+		}
+
+		PRUnitTestMethod(WavesWakeSleepersInSurfaceBand, Quick)
+		{
+			// Sleeping bodies inside the band the waves can reach wake; ones well above it keep sleeping.
+			auto sphere = collision::ShapeSphere(0.5f);
+			auto in_band = RigidBody{};
+			in_band.Shape(collision::shape_cast(&sphere), 1.0f);
+			in_band.O2W(m4x4::Translation(0, 0, 0.3f));
+			auto above = RigidBody{};
+			above.Shape(collision::shape_cast(&sphere), 1.0f);
+			above.O2W(m4x4::Translation(10, 0, 50.0f));
+
+			// Start from still water and consume its environment-change wake.
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			engine.Water(FlatWater(0.0, 0.5f, 0.5f, 0.5f));
+			auto bodies = std::array<RigidBody*, 2>{ &in_band, &above };
+			auto step = [&]
+			{
+				// One frame without gravity so sleeping state is the only thing that changes.
+				engine.BeginStep(Engine::StepInput{
+					.m_bodies = std::span<RigidBody*>{ bodies },
+					.m_elapsed_seconds = 1.0f / 60.0f,
+					.m_substep_count = 1,
+					.m_time_s = 0.0,
+				});
+				engine.CompleteStep();
+			};
+			step();
+
+			// Replacing only the waves is not an environment change, so the high body keeps sleeping while the low one wakes.
+			in_band.Sleep();
+			above.Sleep();
+			auto waves = FlatWater(0.0, 0.5f, 0.5f, 0.5f);
+			auto const wave = terrain::water::GerstnerWave(v2{ 1.0f, 0.0f }, 0.5f, 20.0f, 5.6f, 0.0f);
+			waves.m_field.Elements(std::span{ &wave, 1 });
+			engine.Water(waves);
+			step();
+			ClearWater(engine);
+
+			PR_EXPECT(!in_band.Sleeping());
+			PR_EXPECT(above.Sleeping());
 		}
 
 		PRUnitTestMethod(DryBodyMatchesNoWater, Quick)

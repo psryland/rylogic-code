@@ -609,6 +609,7 @@ VIEW3D_API view3d::UnderwaterProps __stdcall View3D_PostEffectUnderwaterGet(view
 			.m_distortion_frequency = props.m_distortion_frequency,
 			.m_distortion_speed = props.m_distortion_speed,
 			.m_surface = To<view3d::Vec4>(props.m_surface),
+			.m_fade_depth = props.m_fade_depth,
 		};
 	}
 	CatchAndReport(View3D_PostEffectUnderwaterGet, window, {});
@@ -630,6 +631,7 @@ VIEW3D_API BOOL __stdcall View3D_PostEffectUnderwaterSet(view3d::Window window, 
 			.m_distortion_frequency = props.m_distortion_frequency,
 			.m_distortion_speed = props.m_distortion_speed,
 			.m_surface = To<v4>(props.m_surface),
+			.m_fade_depth = props.m_fade_depth,
 		});
 		return TRUE;
 	}
@@ -3175,14 +3177,31 @@ VIEW3D_API view3d::Shader __stdcall View3D_ShaderCreate(view3d::ShaderOptions co
 		if (binding.m_constants == nullptr || binding.m_constants_size != view3d::ProceduralVertexBinding::ConstantsSize)
 			throw std::invalid_argument("Procedural vertex shader constants must contain exactly 1024 bytes");
 
-		// Copy both caller buffers into shader-owned storage before returning the owning handle.
+		// The optional raw buffer is addressed in 4-byte words by ByteAddressBuffer loads.
+		if (binding.m_buffer == nullptr && binding.m_buffer_size != 0)
+			throw std::invalid_argument("Procedural vertex shader buffer size must be zero when no buffer is supplied");
+		if (binding.m_buffer != nullptr && (binding.m_buffer_size == 0 || binding.m_buffer_size % 4 != 0 || binding.m_buffer_size > view3d::ProceduralVertexBinding::MaxBufferSize))
+			throw std::invalid_argument("Procedural vertex shader buffer size must be a non-zero multiple of 4 bytes within the supported maximum");
+
+		// Copy the caller buffers into shader-owned storage before returning the owning handle.
 		ResourceFactory factory(Dll().m_rdr);
+		auto name = options.m_dbg_name != nullptr ? std::string_view(options.m_dbg_name) : std::string_view{};
+		D3DPtr<ID3D12Resource> buffer;
+		if (binding.m_buffer != nullptr)
+		{
+			// Upload once into an immutable default-heap resource that every draw reads through a root SRV.
+			auto words = s_cast<int64_t>(binding.m_buffer_size / 4);
+			auto data = std::span<std::byte const>(static_cast<std::byte const*>(binding.m_buffer), binding.m_buffer_size);
+			auto rdesc = ResDesc::Buf(words, 4, data, 4).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+			buffer = factory.CreateResource(rdesc, string32(name).append("-buffer"));
+		}
 		auto shdr = rdr12::Shader::Create<ProceduralVertexShader>(
 			factory.rdr(),
 			static_cast<rdr12::ERenderStep>(binding.m_rdr_step),
 			std::span<BYTE const>(static_cast<BYTE const*>(options.m_bytecode), options.m_bytecode_size),
 			std::span<std::byte const>(static_cast<std::byte const*>(binding.m_constants), binding.m_constants_size),
-			options.m_dbg_name != nullptr ? std::string_view(options.m_dbg_name) : std::string_view{});
+			buffer,
+			name);
 		return shdr.release();
 	}
 	CatchAndReport(View3D_ShaderCreate, , nullptr);

@@ -243,6 +243,21 @@ namespace pr::physics
 		if (!water && !m_water_active)
 			return;
 
+		// Wave motion is handled each step by waking bodies in the surface band, so only changes to the still water or the body response
+		// need resting bodies to re-evaluate their support. This lets callers replace the waves every step without waking the world.
+		auto changed = water.has_value() != m_water_active;
+		if (water && !changed)
+		{
+			auto const& current = m_gpu_water_forces->m_config;
+			changed =
+				water->m_field.Level() != current.m_field.Level() ||
+				water->m_field.TerrainHeights() != current.m_field.TerrainHeights() ||
+				water->m_density != current.m_density ||
+				water->m_linear_drag_rate != current.m_linear_drag_rate ||
+				water->m_quadratic_drag_coefficient != current.m_quadratic_drag_coefficient ||
+				water->m_angular_drag_rate != current.m_angular_drag_rate;
+		}
+
 		// Keep the compiled pipeline and only replace its configuration.
 		if (water)
 		{
@@ -255,7 +270,7 @@ namespace pr::physics
 
 		// Resting bodies must re-evaluate their support against the new water.
 		m_water_active = water.has_value();
-		m_world_surfaces_changed = true;
+		m_world_surfaces_changed = m_world_surfaces_changed || changed;
 	}
 	WaterConfig const* Engine::Water() const
 	{
@@ -661,6 +676,10 @@ namespace pr::physics
 			// Consume the environment change once nonempty input has observed it.
 			m_world_surfaces_changed = false;
 		}
+
+		// A moving water surface can reach resting bodies without any environment change.
+		if (m_water_active)
+			m_gpu_water_forces->WakeInSurfaceBand(input.m_bodies);
 
 		// Keep the world endpoint last among rigid bodies so contacts can address it before articulation proxies.
 		if (m_gpu_world_contacts && (!input.m_bodies.empty() || !input.m_articulations.empty()))

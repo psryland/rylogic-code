@@ -84,12 +84,74 @@ public sealed class Engine :IDisposable
 		Native.Check(Native.Physics_EngineCylindricalBoundarySet(Handle, configuration.HasValue ? &value : null));
 	}
 
-	/// <summary>Replace or disable the water environment between completed frames. Water does not change checkpoint content.</summary>
-	public unsafe void SetWater(WaterConfiguration? configuration)
+	/// <summary>
+	/// Replace or disable the water environment between completed frames. The surface is the configured still-water level plus 'elements'
+	/// (at most 64), which the engine copies. Replacing only the elements does not wake resting bodies unless the waves can reach them,
+	/// so callers may update waves every step. Water does not change checkpoint content.
+	/// </summary>
+	public unsafe void SetWater(WaterConfiguration? configuration, ReadOnlySpan<WaterFieldElement> elements = default)
 	{
 		EnsureOwner();
-		var value = configuration.GetValueOrDefault();
-		Native.Check(Native.Physics_EngineWaterSet(Handle, configuration.HasValue ? &value : null));
+		if (!configuration.HasValue)
+		{
+			Native.Check(Native.Physics_EngineWaterSet(Handle, null));
+			return;
+		}
+
+		// Borrow the caller's elements for the duration of the call.
+		var c = configuration.Value;
+		fixed (WaterFieldElement* element_ptr = elements)
+		{
+			var desc = new Native.WaterDesc
+			{
+				m_header = NativeHeader.Create<Native.WaterDesc>(),
+				m_level = c.m_level,
+				m_density = c.m_density,
+				m_linear_drag_rate = c.m_linear_drag_rate,
+				m_quadratic_drag_coefficient = c.m_quadratic_drag_coefficient,
+				m_angular_drag_rate = c.m_angular_drag_rate,
+				m_breaking_ratio = c.m_breaking_ratio,
+				m_repeat_period = c.m_repeat_period,
+				m_elements = element_ptr,
+				m_element_count = elements.Length,
+			};
+			Native.Check(Native.Physics_EngineWaterSet(Handle, &desc));
+		}
+	}
+
+	/// <summary>
+	/// Supply terrain heights on a regular grid so waves are corrected for water depth: they grow in shallow water, are limited to the breaking
+	/// height, and vanish over dry land. Node (i, j) is at (origin_x, origin_y) + (i, j) * cell_size, with height heights[j * width + i].
+	/// Positions outside the grid use the nearest edge height. The engine copies the heights and applies them to current and later water.
+	/// </summary>
+	public unsafe void SetWaterBathymetry(double origin_x, double origin_y, double cell_size, int width, int height, ReadOnlySpan<float> heights)
+	{
+		EnsureOwner();
+		if ((long)width * height != heights.Length)
+			throw new ArgumentException("Bathymetry heights must contain width * height values");
+
+		// Borrow the caller's heights for the duration of the call.
+		fixed (float* height_ptr = heights)
+		{
+			var desc = new Native.WaterBathymetryDesc
+			{
+				m_header = NativeHeader.Create<Native.WaterBathymetryDesc>(),
+				m_origin_x = origin_x,
+				m_origin_y = origin_y,
+				m_cell_size = cell_size,
+				m_width = width,
+				m_height = height,
+				m_heights = height_ptr,
+			};
+			Native.Check(Native.Physics_EngineWaterBathymetrySet(Handle, &desc));
+		}
+	}
+
+	/// <summary>Remove the terrain heights so waves are treated as deep water everywhere.</summary>
+	public unsafe void ClearWaterBathymetry()
+	{
+		EnsureOwner();
+		Native.Check(Native.Physics_EngineWaterBathymetrySet(Handle, null));
 	}
 
 	/// <summary>Create a sphere collision shape.</summary>

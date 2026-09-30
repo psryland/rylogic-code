@@ -402,8 +402,8 @@ namespace fade_tests
 		std::array<unsigned char, api::ProceduralVertexBinding::ConstantsSize - 5 * sizeof(api::Vec4)> m_padding;
 	};
 	static_assert(sizeof(ProceduralVertexConstants) == api::ProceduralVertexBinding::ConstantsSize);
-	static_assert(sizeof(api::ProceduralVertexBinding) == 24);
-	static_assert(sizeof(api::ShaderOptions) == 64);
+	static_assert(sizeof(api::ProceduralVertexBinding) == 40);
+	static_assert(sizeof(api::ShaderOptions) == 80);
 	static_assert(offsetof(api::ShaderOptions, m_stage) == 8);
 	static_assert(offsetof(api::ShaderOptions, m_bytecode) == 16);
 	static_assert(offsetof(api::ShaderOptions, m_procedural_vertex) == 40);
@@ -781,6 +781,98 @@ namespace fade_tests
 		Require(buffers.m_icont.stride() == sizeof(uint32_t) && buffers.m_icont.size() == std::size(u32_expected), "Second U32 generator cache allocation is invalid");
 		for (auto i = size_t{}; i != std::size(u32_expected); ++i)
 			Require(buffers.m_icont[i] == static_cast<uint64_t>(u32_expected[i]), "Second U32 generator cache contents are invalid");
+	}
+
+	// Prove the optional caller buffer is validated, copied once, and readable by the vertex stage after the caller's storage is discarded.
+	void ProceduralVertexBufferTests()
+	{
+		// Build a forward procedural triangle whose colour lives only in the last float4 of a caller buffer.
+		Fixture fixture(1);
+		std::cout << "Procedural vertex buffer: validation and copied raw SRV\n";
+		auto constants = ProceduralVertexConstants{
+			.m_positions = {
+				api::Vec4{-25, -25, -10, 1},
+				api::Vec4{+25, -25, -10, 1},
+				api::Vec4{0, +25, -10, 1},
+			},
+			.m_colour = api::Vec4{0, 1, 0, 1},
+		};
+		auto buffer = std::vector<api::Vec4>(1024, api::Vec4{0, 1, 0, 1});
+		buffer.back() = api::Vec4{1, 0, 1, 1};
+		auto valid = api::ShaderOptions{
+			.m_struct_size = sizeof(api::ShaderOptions),
+			.m_version = api::ShaderOptions::CurrentVersion,
+			.m_stage = api::EShaderStage::Vertex,
+			.m_bytecode = compiled::procedural_vertex_buffer,
+			.m_bytecode_size = sizeof(compiled::procedural_vertex_buffer),
+			.m_dbg_name = "ProceduralVertexBuffer",
+			.m_procedural_vertex = {
+				.m_rdr_step = api::ERenderStep::ForwardRender,
+				.m_constants = &constants,
+				.m_constants_size = sizeof(constants),
+				.m_buffer = buffer.data(),
+				.m_buffer_size = buffer.size() * sizeof(api::Vec4),
+			},
+		};
+
+		// Inconsistent or unaligned buffer descriptors fail without publishing a shader.
+		auto expect_error = [&fixture](api::ShaderOptions options)
+		{
+			// Require a null handle and the buffer-specific diagnostic.
+			fixture.m_errors.clear();
+			Require(View3D_ShaderCreate(options) == nullptr, "Malformed procedural buffer descriptor was accepted");
+			Require(!fixture.m_errors.empty() && fixture.m_errors.back().find("buffer size") != std::string::npos, "Malformed procedural buffer reported the wrong error");
+		};
+		auto bad = valid;
+		bad.m_procedural_vertex.m_buffer_size = 0;
+		expect_error(bad);
+		bad = valid;
+		bad.m_procedural_vertex.m_buffer_size -= 2;
+		expect_error(bad);
+		bad = valid;
+		bad.m_procedural_vertex.m_buffer = nullptr;
+		expect_error(bad);
+		bad = valid;
+		bad.m_procedural_vertex.m_buffer_size = api::ProceduralVertexBinding::MaxBufferSize + 4;
+		expect_error(bad);
+		fixture.m_errors.clear();
+
+		// Publish the object, then destroy the caller's copies before the first frame reads them.
+		auto shader = View3D_ShaderCreate(valid);
+		Require(shader != nullptr, "Procedural buffer shader creation failed");
+		fixture.m_shaders.push_back(shader);
+		std::fill(buffer.begin(), buffer.end(), api::Vec4{});
+		auto placeholder = api::Vertex{};
+		uint32_t indices[] = {70000, 70001, 70002};
+		auto nugget = api::Nugget{};
+		nugget.m_topo = api::ETopo::TriList;
+		nugget.m_geom = api::EGeom::Vert;
+		nugget.m_v0 = 0;
+		nugget.m_v1 = 1;
+		nugget.m_cull_mode = api::ECullMode::None;
+		nugget.m_tint = 0xFFFFFFFF;
+		nugget.m_shaders[0] = api::Nugget::Shader{shader, api::ERenderStep::ForwardRender, 0};
+		auto options = api::ObjectCreateOptions{
+			.m_struct_size = sizeof(api::ObjectCreateOptions),
+			.m_version = api::ObjectCreateOptions::CurrentVersion,
+			.m_vertex_source = api::EVertexSource::ProceduralVertexId,
+			.m_vcount_logical = 70003,
+			.m_bbox = api::BBox{
+				.centre = api::Vec4{0, 0, -10, 1},
+				.radius = api::Vec4{25, 25, 0, 0},
+			},
+		};
+		auto object = View3D_ObjectCreateU32("ProceduralVertexBuffer", 0xFFFFFFFF, 1, 3, 1, &placeholder, indices, &nugget, options, GUID{});
+		Require(object != nullptr, "Procedural buffer object creation failed");
+		fixture.m_objects.push_back(object);
+		View3D_WindowAddObject(fixture.m_window, object);
+		fixture.CheckErrors();
+
+		// The rendered colour can only come from the renderer-owned copy of the buffer's final element.
+		Expect(fixture.Image(), 1, 0, 1);
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+		std::cout << "PASS procedural vertex buffer\n";
 	}
 
 	// Exercise the public U32 logical-ID domain, copied shader inputs, raster output, and stock RayCast geometry stage.
@@ -2180,21 +2272,52 @@ namespace fade_tests
 		Expect(fixture.Image(), 0.5f,0.5f,0.5f);
 		props.m_distortion_amplitude = 0.0f;
 
-		// With a surface plane, fog covers only the underwater part of each ray. Orthographic rays start on the camera plane,
-		// so rays above a horizontal surface are only tinted while rays below it are fully fogged.
+		// With a surface plane, a horizontal surface through the middle of the orthographic near plane splits the view at the waterline.
+		// Pixels above it keep the scene colour, and pixels below it are tinted and fully fogged.
 		std::cout << "Surface plane" << std::endl;
 		props.m_surface = api::Vec4{0, 1, 0, 0};
 		underwater(true);
 		auto split = fixture.Image();
-		Expect(split, 1,0,1, 64,32);
+		Expect(split, 1,1,1, 64,32);
 		Expect(split, 0.5f,0.5f,0.5f, 64,96);
 		Expect(split, 0,0,0, 2,2);
 		Expect(split, 0,1,0, 2,125);
 
-		// A surface crossing the view ray part way fogs only the submerged length.
+		// The distortion does not pull colour across the waterline.
+		props.m_distortion_amplitude = 0.05f;
+		underwater(true);
+		split = fixture.Image();
+		Expect(split, 1,1,1, 64,62);
+		Expect(split, 0.5f,0.5f,0.5f, 64,66);
+		props.m_distortion_amplitude = 0.0f;
+
+		// With a fade depth, the effect strength rises smoothly with the depth of each pixel's near-plane point below the surface.
+		// The orthographic near plane spans y in [-50, 50], so rows below the middle are at depth 100 * (row + 0.5) / ImageSize - 50.
+		props.m_fade_depth = 50.0f;
+		underwater(true);
+		auto faded = fixture.Image();
+		Expect(faded, 1,1,1, 64,32);
+		for (auto row : {80, 96, 120})
+		{
+			auto t = std::clamp((100.0f * (row + 0.5f) / ImageSize - 50.0f) / props.m_fade_depth, 0.0f, 1.0f);
+			auto strength = t * t * (3 - 2 * t);
+			auto c = 1 - 0.5f * strength;
+			Expect(faded, c,c,c, 64,row);
+		}
+		props.m_fade_depth = 0.0f;
+
+		// With the whole near plane above the surface, the pass is skipped and the image is unchanged, even where rays
+		// descend into the water.
 		props.m_surface = api::Vec4{0, 0, 1, 30};
 		underwater(true);
-		f = fog(20);
+		auto above = fixture.Image();
+		Expect(above, 1,1,1);
+		Expect(above, 0,0,0, 2,2);
+
+		// A camera in water whose view ray rises through the surface part way fogs only the submerged length.
+		props.m_surface = api::Vec4{0, 0, -1, -30};
+		underwater(true);
+		f = fog(30);
 		Expect(fixture.Image(), 1 - f, f, 1 - f);
 
 		// From below the surface in perspective, rays that rise through it are fogged only up to the surface, and open sky stays visible.
@@ -2267,6 +2390,7 @@ int main(int argc, char const* const* argv)
 		{
 			// Run only the focused U32 procedural vertex ABI evidence.
 			fade_tests::ProceduralVertexAbiTests();
+			fade_tests::ProceduralVertexBufferTests();
 			return 0;
 		}
 		if (argc == 2 && std::string_view(argv[1]) == "--procedural-vertex-lighting")
