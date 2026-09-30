@@ -161,7 +161,7 @@ namespace pr::physics::tests
 			PR_EXPECT(std::signbit(special[1].m_height) && special[1].m_dx == -std::numeric_limits<double>::infinity());
 			PR_EXPECT(std::isnan(special[2].m_height) && std::isnan(special[2].m_dx));
 			PR_EXPECT(special[3].m_height == std::numeric_limits<double>::infinity() && special[3].m_dx == 0);
-			std::printf("Terrain double roots: %zu finite values, maximum relative error %.17g\n", positions.size(), maximum_relative);
+			log_stream() << std::format("Terrain double roots: {} finite values, maximum relative error {:.17g}\n", positions.size(), maximum_relative);
 		}
 
 		// Analytic easing identities catch cancellation even when CPU/GPU terrain algorithms otherwise agree.
@@ -217,14 +217,14 @@ namespace pr::physics::tests
 			PR_EXPECT(normal_error.m_normal > 1e-4 && !normal_error.Accepted());
 			field.m_height = std::numeric_limits<double>::quiet_NaN();
 			PR_EXPECT(!MeasureErrors(reference, field, normal).Accepted());
-			std::printf("Terrain negative controls: height=%.9g gradient_x/y=0.000101 normal_length=%.9g; all rejected\n", height_error.m_height, normal_error.m_normal);
+			log_stream() << std::format("Terrain negative controls: height={:.9g} gradient_x/y=0.000101 normal_length={:.9g}; all rejected\n", height_error.m_height, normal_error.m_normal);
 		}
 
 		// Dispatch FP32 and FP64 fields/normals under both compiler modes over an invariant bounded representative matrix.
 		PRUnitTestMethod(DomainWideAbsolutePrecisionAndStages, Extended)
 		{
 			auto& gpu = SharedTestGpu();
-			RequireBaselineDevice(gpu);
+			RequireBaselineDevice(gpu, log_stream());
 			for (bool optimise : {false, true})
 			{
 				for (bool fp32 : {false, true})
@@ -242,8 +242,8 @@ namespace pr::physics::tests
 					auto total = size_t{};
 					auto failed = 0;
 					auto maximum = Errors{};
-					std::printf("Terrain compiler: HLSL2021 -Gis %s PR_TERRAIN_FP32=%d CS=%zu normal_CS=%zu VS=%zu bytes; VS compile-only\n",
-						optimise ? "-O3" : "-Od", fp32, field_code.size(), normal_code.size(), vertex_code.size());
+					log_stream() << std::format("Terrain compiler: HLSL2021 -Gis {} PR_TERRAIN_FP32={} CS={} normal_CS={} VS={} bytes; VS compile-only\n",
+						optimise ? "-O3" : "-Od", static_cast<int>(fp32), field_code.size(), normal_code.size(), vertex_code.size());
 
 					// CPU references are computed once per recipe and never derived from a GPU result.
 					for (uint32_t seed : {0u, 42u, 12648430u, 0xffffffffu, 0xa53e7a21u})
@@ -271,7 +271,7 @@ namespace pr::physics::tests
 									accepted = accepted && error.m_height < 1e-8 && error.m_dx < 1e-10 && error.m_dy < 1e-10 && error.m_normal < 1e-10;
 
 								if (!accepted && failed + recipe_failed < 8)
-									std::printf("Terrain FAILED seed=%u variant=%d xy=(%.17g,%.17g) height=%.9g dx=%.9g dy=%.9g normal_length=%.9g\n",
+									pr::unittests::TestFramework::out() << std::format("Terrain FAILED seed={} variant={} xy=({:.17g},{:.17g}) height={:.9g} dx={:.9g} dy={:.9g} normal_length={:.9g}\n",
 										seed, static_cast<int>(variant), positions[index].x, positions[index].y, error.m_height, error.m_dx, error.m_dy, error.m_normal);
 
 								recipe_failed += !accepted;
@@ -282,13 +282,13 @@ namespace pr::physics::tests
 							maximum.m_dx = std::max(maximum.m_dx, errors.m_dx);
 							maximum.m_dy = std::max(maximum.m_dy, errors.m_dy);
 							maximum.m_normal = std::max(maximum.m_normal, errors.m_normal);
-							std::printf("Terrain parity optimise=%d fp32=%d seed=%u variant=%d samples=%zu failed=%d height=%.9g dx=%.9g dy=%.9g normal_length=%.9g\n",
-								optimise, fp32, seed, static_cast<int>(variant), positions.size(), recipe_failed, errors.m_height, errors.m_dx, errors.m_dy, errors.m_normal);
-							std::fflush(stdout);
+							log_stream() << std::format("Terrain parity optimise={} fp32={} seed={} variant={} samples={} failed={} height={:.9g} dx={:.9g} dy={:.9g} normal_length={:.9g}\n",
+								static_cast<int>(optimise), static_cast<int>(fp32), seed, static_cast<int>(variant), positions.size(), recipe_failed, errors.m_height, errors.m_dx, errors.m_dy, errors.m_normal);
+							log_stream() << std::flush;
 						}
 					}
-					std::printf("Terrain TOTAL optimise=%d fp32=%d samples=%zu failed=%d height=%.17g dx=%.17g dy=%.17g normal_length=%.17g\n",
-						optimise, fp32, total, failed, maximum.m_height, maximum.m_dx, maximum.m_dy, maximum.m_normal);
+					log_stream() << std::format("Terrain TOTAL optimise={} fp32={} samples={} failed={} height={:.17g} dx={:.17g} dy={:.17g} normal_length={:.17g}\n",
+						static_cast<int>(optimise), static_cast<int>(fp32), total, failed, maximum.m_height, maximum.m_dx, maximum.m_dy, maximum.m_normal);
 					PR_EXPECT(failed == 0);
 
 					// Invalid coordinates/arithmetic remain failures regardless of selected shader precision and optimization.

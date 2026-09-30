@@ -1164,7 +1164,7 @@ namespace pr::unittests
 						PR_EXPECT(evt.points[i].w == 1);
 						auto midpoint_depth = boundary ? std::hypot(evt.points[i].x, evt.points[i].y) - 100.0f : position.w.z - 0.49f - evt.points[i].z;
 						if (std::abs(midpoint_depth - 0.5f * evt.depth) >= 0.0011f)
-							std::cout << "World contact: boundary=" << boundary << ", moving=" << moving << ", substep=" << evt.substep_index << ", midpoint depth=" << midpoint_depth << ", depth=" << evt.depth << '\n';
+							pr::unittests::TestFramework::out() << "World contact: boundary=" << boundary << ", moving=" << moving << ", substep=" << evt.substep_index << ", midpoint depth=" << midpoint_depth << ", depth=" << evt.depth << '\n';
 
 						PR_EXPECT(std::abs(midpoint_depth - 0.5f * evt.depth) < 0.0011f);
 					}

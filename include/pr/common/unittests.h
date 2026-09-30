@@ -20,6 +20,7 @@ namespace pr::unittests
 		{
 			auto tmp = temp_dir() / "file.ext";
 			PR_EXPECT(tmp != "");
+			log_stream() << "Informational output goes to '<temp_dir>/MethodName.log', not the console\n";
 		}
 	};
 }
@@ -361,7 +362,12 @@ namespace pr::unittests
 		using base_t = UnitTestBase<Derived>;
 		using test_class_type = Derived;
 	
+		// True once this class's temp directory has been cleaned in this run, so its tests do not delete each other's files.
+		inline static bool s_temp_dir_cleaned = false;
+
 		mutable std::filesystem::path m_cached_temp_dir = {};
+		std::ofstream m_log_stream = {};
+		char const* m_test_name = "";
 		int m_count = 0;
 
 		// Test class name
@@ -375,17 +381,18 @@ namespace pr::unittests
 			return name;
 		}
 
-		// A directory for temporary files needed by unit tests. Note: automatically cleaned
+		// A directory for temporary files needed by the tests in this class. Files from previous runs are removed on first use in each run.
 		// Use 'temp_dir' in your unit test. Also remember 'auto temp_file = temp_dir / std::filesystem::unique_path("tempfile-%%%%-%%%%-%%%%-%%%%")'
 		std::filesystem::path temp_dir() const
 		{
+			// Resolve the class directory once per test instance.
 			using namespace std::filesystem;
 			if (m_cached_temp_dir.empty())
 			{
 				m_cached_temp_dir = weakly_canonical(path(__FILE__).parent_path() / L".." / L".." / L".." / L"obj" / L"unittests" / class_name() / Platform / Config / "");
 
-				// Removed temp files from previous test runs.
-				if (std::filesystem::exists(m_cached_temp_dir))
+				// Remove files from previous test runs, but keep files written earlier in this run.
+				if (!s_temp_dir_cleaned && std::filesystem::exists(m_cached_temp_dir))
 				{
 					try { std::filesystem::remove_all(m_cached_temp_dir); }
 					catch (std::exception const& ex)
@@ -393,9 +400,24 @@ namespace pr::unittests
 						TestFramework::out() << "Warning: Failed to clear temp directory. " << ex.what() << std::endl;
 					}
 				}
+				s_temp_dir_cleaned = true;
 				std::filesystem::create_directories(m_cached_temp_dir);
 			}
 			return m_cached_temp_dir;
+		}
+
+		// A stream for informational output from the running test, such as timings, sweep tables, and measured values.
+		// Written to '<temp_dir>/<test name>.log' so that console output only reports test results.
+		std::ostream& log_stream()
+		{
+			// Open the log file on first use so that tests without informational output create no file.
+			if (!m_log_stream.is_open())
+			{
+				m_log_stream.open(temp_dir() / std::format("{}.log", m_test_name));
+				if (!m_log_stream)
+					throw std::runtime_error(std::format("Failed to open unit test log file for {}", m_test_name));
+			}
+			return m_log_stream;
 		}
 
 		// Return a path relative to the repo root
@@ -614,16 +636,13 @@ struct TestClass_##classname : pr::unittests::UnitTestBase<TestClass_##classname
 	template <typename... Types>\
 	static void Test_##methodname##_()\
 	{\
+		/* Run on a fresh instance named after the method, so each test gets its own log file. */\
+		typename base_t::test_class_type t;\
+		t.m_test_name = #methodname;\
 		if constexpr (sizeof...(Types) > 0)\
-		{\
-			typename base_t::test_class_type t;\
 			(t.Test_##methodname<Types>(), ...);\
-		}\
 		else\
-		{\
-			typename base_t::test_class_type t;\
 			t.Test_##methodname<void>();\
-		}\
 	}\
 	static_assert(pr::unittests::IsValidUnitTestFlags(PR_UNITTEST_STRINGISE(flags)), "Unknown unit-test flag");\
 	inline static bool s_registered_##methodname = pr::unittests::TestFramework::AddTest<test_class_type>(\

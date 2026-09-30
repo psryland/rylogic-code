@@ -627,8 +627,9 @@ namespace pr::physics::tests
 			}
 		}
 
-		// Require a canonical system to remain SPD and converge under the selected local approximation.
+		// Require a canonical system to remain SPD and converge under the selected local approximation. Measured values are written to 'log'.
 		void ExpectGatePass(
+			std::ostream& log,
 			std::string_view label,
 			DenseMatrix response,
 			DenseMatrix preconditioner,
@@ -641,8 +642,8 @@ namespace pr::physics::tests
 			auto const spectrum = MeasureSpectrum(response, preconditioner);
 			auto const iteration = RunMonotoneIteration(response, preconditioner, blocks);
 
-			// Emit the measured evidence so the documented gate values can be regenerated from the standard test run.
-			pr::unittests::TestFramework::out() << std::format(
+			// Emit the measured evidence so the documented gate values can be regenerated from the test's log file.
+			log << std::format(
 				"  [effective-mass] {}: kappa(A)={:.6g}, kappa(P^-1 A)={:.6g}, lambda_max={:.6g}, min_eigenvalue(P-A)={:.6g}, error16={:.6g}, error64={:.6g}, backtracks={}\n",
 				label,
 				spectrum.m_response_condition,
@@ -782,7 +783,7 @@ namespace pr::physics::tests
 				};
 				auto const system = articulation_oracle::BuildConstraintSystem(tree.m_articulation, rows);
 				auto const preconditioner = BuildLocalPreconditioner(tree.m_articulation, system, rows, blocks);
-				ExpectGatePass("floating tree", system.m_response, preconditioner, blocks, true);
+				ExpectGatePass(log_stream(), "floating tree", system.m_response, preconditioner, blocks, true);
 			}
 			{
 				auto tree = BuildTestTree(EArticulationRootType::Fixed, 8);
@@ -798,7 +799,7 @@ namespace pr::physics::tests
 				};
 				auto const system = articulation_oracle::BuildConstraintSystem(tree.m_articulation, rows);
 				auto const preconditioner = BuildLocalPreconditioner(tree.m_articulation, system, rows, blocks);
-				ExpectGatePass("fixed tree", system.m_response, preconditioner, blocks, true);
+				ExpectGatePass(log_stream(), "fixed tree", system.m_response, preconditioner, blocks, true);
 			}
 			{
 				auto tree = BuildTestTree(EArticulationRootType::Floating, 6);
@@ -813,7 +814,7 @@ namespace pr::physics::tests
 				};
 				auto const system = articulation_oracle::BuildConstraintSystem(tree.m_articulation, rows);
 				auto const preconditioner = BuildLocalPreconditioner(tree.m_articulation, system, rows, blocks);
-				ExpectGatePass("same-articulation loop", system.m_response, preconditioner, blocks, true);
+				ExpectGatePass(log_stream(), "same-articulation loop", system.m_response, preconditioner, blocks, true);
 			}
 			{
 				auto tree = BuildTestTree(EArticulationRootType::Floating, 5, 1.0e-2f);
@@ -827,7 +828,7 @@ namespace pr::physics::tests
 				auto preconditioner = BuildLocalPreconditioner(tree.m_articulation, system, rows, blocks);
 				auto response = system.m_response;
 				AddRigidTranslationResponse(response, preconditioner, 0, 3, 1.0 / 100.0);
-				ExpectGatePass("mixed rigid-articulation", std::move(response), std::move(preconditioner), blocks, false);
+				ExpectGatePass(log_stream(), "mixed rigid-articulation", std::move(response), std::move(preconditioner), blocks, false);
 			}
 			{
 				auto tree_a = BuildTestTree(EArticulationRootType::Floating, 5, 0.7f);
@@ -849,7 +850,7 @@ namespace pr::physics::tests
 				auto preconditioner = BuildLocalPreconditioner(tree_a.m_articulation, system_a, rows_a, blocks);
 				Add(response, system_b.m_response);
 				Add(preconditioner, BuildLocalPreconditioner(tree_b.m_articulation, system_b, rows_b, blocks));
-				ExpectGatePass("two articulations", std::move(response), std::move(preconditioner), blocks, false);
+				ExpectGatePass(log_stream(), "two articulations", std::move(response), std::move(preconditioner), blocks, false);
 			}
 		}
 

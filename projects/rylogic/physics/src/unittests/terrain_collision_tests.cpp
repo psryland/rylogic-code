@@ -104,7 +104,7 @@ namespace pr::physics::tests
 				engine.Step(1.0f / 240, bodies);
 
 				// Check both sides of the unchanged threshold with a real solver impulse.
-				std::printf("sleep_rigid_contact fast=%d sleeping=%d vx=%.6f\n", fast, body.Sleeping(), body.VelocityWS().lin.x);
+				log_stream() << std::format("sleep_rigid_contact fast={} sleeping={} vx={:.6f}\n", static_cast<int>(fast), static_cast<int>(body.Sleeping()), body.VelocityWS().lin.x);
 				PR_EXPECT(body.Sleeping() == !fast);
 				if (fast)
 					PR_EXPECT(body.VelocityWS().lin.x < -0.25f);
@@ -150,7 +150,7 @@ namespace pr::physics::tests
 			terrain_only.Upload(gpu.m_job, cache, bodies, 1);
 			gpu.m_job.Run();
 			PR_EXPECT(terrain_only.m_ranges[index].m_sample_count == terrain_count);
-			std::printf("Cylinder density 1m sphere: terrain_spacing=0.16 samples=%u wall_spacing=0.05 samples=%u; cache reused\n", terrain_count, wall_count);
+			log_stream() << std::format("Cylinder density 1m sphere: terrain_spacing=0.16 samples={} wall_spacing=0.05 samples={}; cache reused\n", terrain_count, wall_count);
 		}
 
 		// Contacts at several azimuths retain the exact radial normal and tangent-plane depth at large coordinates.
@@ -258,7 +258,7 @@ namespace pr::physics::tests
 				peak = std::max(peak, depth);
 				PR_EXPECT(depth < 0.01);
 			}
-			std::printf("Cylinder radius=4000 spacing=0.05 peak_sphere_penetration=%.9f tangent=%.6f z=%.6f\n", peak, body.O2W().pos.y, body.O2W().pos.z);
+			log_stream() << std::format("Cylinder radius=4000 spacing=0.05 peak_sphere_penetration={:.9f} tangent={:.6f} z={:.6f}\n", peak, body.O2W().pos.y, body.O2W().pos.z);
 			PR_EXPECT(body.O2W().pos.y > 1);
 			PR_EXPECT(body.O2W().pos.z < -90);
 		}
@@ -283,7 +283,7 @@ namespace pr::physics::tests
 				peak = std::max(peak, depth);
 				PR_EXPECT(depth < 0.01);
 			}
-			std::printf("Cylinder 1m actor speed=20m/s dt=1/240 peak_postsubstep_penetration=%.9f\n", peak);
+			log_stream() << std::format("Cylinder 1m actor speed=20m/s dt=1/240 peak_postsubstep_penetration={:.9f}\n", peak);
 		}
 
 		// Non-spherical leaves share both terrain and wall support.
@@ -319,7 +319,7 @@ namespace pr::physics::tests
 			}
 			PR_EXPECT(wall && ground);
 			PR_EXPECT(engine.LastStepProfile().m_terrain_gpu_ms > 0);
-			std::printf("Cylinder 1m box simultaneous terrain+wall max_physical_surface_penetration=%.9f\n", peak);
+			log_stream() << std::format("Cylinder 1m box simultaneous terrain+wall max_physical_surface_penetration={:.9f}\n", peak);
 		}
 
 		// Transformed compound leaves and articulation proxies reach the same world-contact solver endpoint.
@@ -353,7 +353,7 @@ namespace pr::physics::tests
 				PR_EXPECT(depth < 0.01);
 			}
 			PR_EXPECT(contact_count > 0);
-			std::printf("Cylinder compound max_physical_surface_penetration=%.9f\n", peak);
+			log_stream() << std::format("Cylinder compound max_physical_surface_penetration={:.9f}\n", peak);
 
 			// A floating articulation link has the same radial restriction without becoming a caller-owned rigid body.
 			auto sphere = collision::ShapeSphere(0.3f);
@@ -488,7 +488,7 @@ namespace pr::physics::tests
 
 				auto extent = RadialExtent(shape, body.O2W());
 				PR_EXPECT(extent <= 4000.01);
-				std::printf("Discrete wall speed=480 dt=%g final_extent=%g\n", dt, extent);
+				log_stream() << std::format("Discrete wall speed=480 dt={:g} final_extent={:g}\n", dt, extent);
 			}
 		}
 
@@ -594,7 +594,7 @@ namespace pr::physics::tests
 				}
 				PR_EXPECT(peak_spin > 40);
 				PR_EXPECT(Dot(body.VelocityWS().lin, radial) < 1);
-				std::printf("Cylinder friction azimuth=%.0f completed=60 peak_spin=%g peak_overlap=%g\n", degrees, peak_spin, peak);
+				log_stream() << std::format("Cylinder friction azimuth={:.0f} completed=60 peak_spin={:g} peak_overlap={:g}\n", degrees, peak_spin, peak);
 			}
 		}
 	};
@@ -644,7 +644,7 @@ namespace pr::physics::tests
 				}
 
 				// Report the control and sampled outcomes before asserting so a failure retains both measurements.
-				std::printf("sleep_isolated sampled=%d sleeping_frames=%d/120 wakes=%d displacement=%.8f\n", sampled, sleeping_frames, wakes, Length(body.O2W().pos - before.pos));
+				log_stream() << std::format("sleep_isolated sampled={} sleeping_frames={}/120 wakes={} displacement={:.8f}\n", static_cast<int>(sampled), sleeping_frames, wakes, Length(body.O2W().pos - before.pos));
 				retained = retained && sleeping_frames == 120 && All(body.O2W() == before);
 			}
 			PR_EXPECT(retained);
@@ -720,9 +720,9 @@ namespace pr::physics::tests
 
 					// Transition counts expose repeatedly waking stacks even when the last frame happens to be asleep.
 					auto top_z_min = std::min({clump[12].O2W().pos.z, clump[13].O2W().pos.z, clump[14].O2W().pos.z, clump[15].O2W().pos.z});
-					std::printf("sleep_clump sampled=%d seconds=%d sleep_min=%d sleep_mean=%.4f sleep_final=%d sleeps=%d wakes=%d island_changes=%d lin_max=%.6f ang_max=%.6f top_z_min=%.6f physics_mean_ms=%.4f\n",
-						sampled, (frame + 1) / 60, minimum_sleeping, sleeping_sum / 600.0, sleeping, sleeps, wakes, island_changes, max_linear, max_angular, top_z_min, physics_ms / 600);
-					std::fflush(stdout);
+					log_stream() << std::format("sleep_clump sampled={} seconds={} sleep_min={} sleep_mean={:.4f} sleep_final={} sleeps={} wakes={} island_changes={} lin_max={:.6f} ang_max={:.6f} top_z_min={:.6f} physics_mean_ms={:.4f}\n",
+						static_cast<int>(sampled), (frame + 1) / 60, minimum_sleeping, sleeping_sum / 600.0, sleeping, sleeps, wakes, island_changes, max_linear, max_angular, top_z_min, physics_ms / 600);
+					log_stream() << std::flush;
 					if (frame == 3599)
 						sustained = sustained && minimum_sleeping == 16 && wakes == 0;
 
@@ -766,7 +766,7 @@ namespace pr::physics::tests
 			impactor.O2W(m4x4::Translation(0.99f, 0, 0.5f));
 			impactor.VelocityWS(v4::Zero(), v4(-2, 0, 0, 0));
 			engine.Step(1.0f / 240, bodies);
-			std::printf("sleep_impact support_contacts=%d sleeping=%d vx=%.6f z=%.6f\n", support_contacts, body.Sleeping(), body.VelocityWS().lin.x, body.O2W().pos.z);
+			log_stream() << std::format("sleep_impact support_contacts={} sleeping={} vx={:.6f} z={:.6f}\n", support_contacts, static_cast<int>(body.Sleeping()), body.VelocityWS().lin.x, body.O2W().pos.z);
 			PR_EXPECT(support_contacts > 0 && !body.Sleeping() && body.VelocityWS().lin.x < -0.1f);
 			PR_EXPECT(body.O2W().pos.z > 0.45f);
 
@@ -861,7 +861,7 @@ namespace pr::physics::tests
 			}
 
 			// Check resting height rather than only checking that the fall was arrested.
-			std::printf("Terrain flat box final z=%.8f\n", body.O2W().pos.z);
+			log_stream() << std::format("Terrain flat box final z={:.8f}\n", body.O2W().pos.z);
 			PR_EXPECT(std::abs(body.O2W().pos.z - 0.5f) < 0.02f);
 		}
 
@@ -947,7 +947,7 @@ namespace pr::physics::tests
 				contact_count = 0;
 				engine.Step(0.00001f, bodies);
 				PR_EXPECT(contact_count != 0);
-				std::printf("Terrain primitive %d contacts=%d\n", static_cast<int>(shape->m_type), contact_count);
+				log_stream() << std::format("Terrain primitive {} contacts={}\n", static_cast<int>(shape->m_type), contact_count);
 				engine.ResetCaches();
 			}
 		}
@@ -997,7 +997,7 @@ namespace pr::physics::tests
 
 			// Compare the off-centre impulse with the analytical effective mass and require non-increasing energy.
 			auto const impulse = 1.0f / (1 + 0.2f * 0.2f / 0.4f);
-			std::printf("Terrain impulse vz=%.8f wy=%.8f expected_j=%.8f energy=%.8f\n", body.VelocityWS().lin.z, body.VelocityWS().ang.y, impulse, body.KineticEnergy());
+			log_stream() << std::format("Terrain impulse vz={:.8f} wy={:.8f} expected_j={:.8f} energy={:.8f}\n", body.VelocityWS().lin.z, body.VelocityWS().ang.y, impulse, body.KineticEnergy());
 			PR_EXPECT(std::abs(body.VelocityWS().lin.z - (-1 + impulse)) < 2e-4f);
 			PR_EXPECT(std::abs(body.VelocityWS().ang.y + 0.2f * impulse / 0.4f) < 2e-4f);
 			PR_EXPECT(body.KineticEnergy() <= 0.5f);
@@ -1081,7 +1081,7 @@ namespace pr::physics::tests
 			// Require simultaneous constraints from both horizontal slope directions.
 			auto bodies = std::array{&body};
 			engine.Step(0.00001f, bodies);
-			std::printf("Terrain hollow contacts=%d normal_x=[%.6f,%.6f]\n", count, min_x, max_x);
+			log_stream() << std::format("Terrain hollow contacts={} normal_x=[{:.6f},{:.6f}]\n", count, min_x, max_x);
 			PR_EXPECT(count >= 4 && min_x < -0.02f && max_x > 0.02f);
 		}
 
@@ -1168,7 +1168,7 @@ namespace pr::physics::tests
 			}
 
 			// The spherical link settles one radius above the reference plane.
-			std::printf("Terrain articulation final z=%.8f\n", articulation.LinkToWorld(root).pos.z);
+			log_stream() << std::format("Terrain articulation final z={:.8f}\n", articulation.LinkToWorld(root).pos.z);
 			PR_EXPECT(std::abs(articulation.LinkToWorld(root).pos.z - 0.3f) < 0.02f);
 		}
 	};
