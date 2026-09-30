@@ -33,8 +33,8 @@ in 25 separated rows of 40 objects over a 30 x 18 m footprint at heights 5-6 m.
 Outer dimensions are at most about 0.7 m. Gravity is -9.81 Z, elasticity 0.05, friction 0.3,
 with four internal substeps and capacity for 65,536 collision pairs/contacts.
 
-This demo uses the shared **0.16 m surface-spacing default**, as do terrain, buoyancy and the surface overlay.
-Volume sampling is unchanged. The overlay now uses the same density as this demo's terrain sampling; it remains a
+This demo uses the **0.16 m surface-spacing default** for terrain. The surface overlay shows the terrain spacing in terrain scenes and the buoyancy
+spacing in water scenes (see *Display sampling*); it remains a
 geometry display rather than a list of active contacts. All feature points are retained by the shared plan builder, not decimated.
 
 | Primitive (200 each) | Samples/body at 0.1 m | Samples/body at 0.16 m |
@@ -66,7 +66,7 @@ canonical recipe/height/normal as collision but is only a visual approximation.
 
 The existing `scene.terrain` block now installs physical terrain as well as its preview.
 `surface_spacing` is finite and positive and inherits the shared **0.16 m** default. An explicit scene override affects
-terrain only, not buoyancy or overlays.
+terrain collision (and the surface overlay in scenes without water), not buoyancy.
 Optional `recipe` settings are `sea_level_bias`, `uplift_height`, `mountain_base_height`,
 `supported_coordinate_abs`, and the bands `regional_base`, `region_selector`, `region_uplift`,
 `plains`, `hills`, `mountains`, `domain_warp`. Bands accept `amplitude`, `wavelength`, `octaves`,
@@ -88,7 +88,15 @@ boundaries, not continuously, and are excluded from timed physics steps. Profile
 `terrain_gpu_ms` (GPU timestamps across all substeps); other timings remain host durations.
 Omit `-scan` for timing because contact-event collection has a significant independent cost.
 Headless physics rate does not measure interactive/rendered FPS. Sample overlays start off.
-Capsule surface points/normals are supported; capsule volume sampling remains unsupported as described below.
+Capsule surface points/normals and capsule volume sampling are both supported; see below.
+The diagnostic's CPU penetration measurement expands compound shapes into leaf pairs because the CPU narrow phase has no array pairs.
+
+## Compound shapes
+
+Scene JSON shapes may use `"type": "compound"` with a `"children"` array. Each child is an inline primitive shape object (not a compound)
+with optional `"position"` and `"rotation"` (degrees) giving its placement in body space. Mass and inertia are derived from the children,
+so overlapping children count their shared volume twice. `scenes\floater.json` includes a box/sphere/capsule/polytope compound floater.
+For `"line"` shapes, `"thickness"` is the capsule radius.
 
 ## Rigid-body display
 
@@ -114,13 +122,14 @@ No buoyancy registration, water or submerged state is required. The **B** key re
 
 This is a geometry visualization, not a new physics sampling policy.
 
-- Surface geometry comes from `physics::surface::BuildPlan` and `EmitSurfaceSample` at the shared default spacing **0.16 scene units**.
+- Surface geometry comes from `physics::surface::BuildPlan` and `EmitSurfaceSample` at the spacing of the physics the scene exercises:
+  the scene's `GpuBuoyancy::Config::m_surface_spacing` (default `buoyancy::DefaultSurfaceSpacing`) when it has water, otherwise the terrain's
+  `surface_spacing` when it has terrain, otherwise the shared `surface::DefaultSpacing`.
   See `include/pr/physics/surface/README.md` for its feature, area-weight and coverage contracts. Every surviving sample is drawn; there is no display decimation.
   Corners/edges retain separate face-normal segments, rather than a single averaged normal.
-- The display uses the default spacing explicitly: immutable per-registration buoyancy plans do not expose their spacing through a query API.
-  Changing a buoyancy configuration therefore does not change these geometric overlays.
-- Volume geometry uses the existing buoyancy `DistributeCounts`, `BuildVolumeSampleTable`, `SampleIndex` and `EmitVolumeSample` functions:
-  **8192 samples per collision hull**, allocated in proportion to child volumes. Existing per-child rounding and overlap ownership may reduce the final count.
+- The spacing is chosen at scene load, so the overlay does not follow later changes to a live buoyancy configuration.
+- Volume geometry uses the existing buoyancy `VolumeSampleCounts`, `BuildVolumeSampleTable`, `SampleIndex` and `EmitVolumeSample` functions at
+  **`buoyancy::DefaultVolumeSpacing` (0.2 m)**: each child gets about `volume / spacing^3` samples (at least 8), so larger shapes show more points. Overlap ownership may reduce the final count.
   Display seed/hull identity is **0** so the same shape can share one cached model. The distribution is the existing one, but need not match a registered hull's exact sample identities.
 - Polytopes lacking volume tetrahedra get an owned, temporary exact face-fan decomposition through the existing collision builder, only when volume display is requested.
   Original collision geometry, physics caches, volume counts/distribution, forces and sleep state are not modified.
@@ -132,11 +141,12 @@ This is a geometry visualization, not a new physics sampling policy.
 Surface display supports boxes, spheres, capsules/thin lines, triangles, convex polytopes and nested arrays of those primitives.
 Every leaf's shape-to-root transform is applied once. Capsules show their true outward normals; zero-area points/segments show positions without invented normal lines.
 Surface ownership includes capsule containment, so enclosed sibling surfaces are not displayed.
-Volume display retains its existing box/sphere/polytope emitter and flat-array traversal; triangles have no interior samples.
-Lines/capsules and nested arrays remain explicitly unsupported for volume display. No capsule volume distribution is approximated or added.
+Volume display uses the shared buoyancy box/sphere/capsule/polytope emitter and flat-array traversal; triangles have no interior samples.
+Capsule volume samples are split between the cylinder and the two hemispherical caps in proportion to their volumes.
+Thin (zero-radius) lines and nested arrays remain explicitly unsupported for volume display.
 Unsupported geometry, invalid plans, allocation failures or unrepresentable renderer buffers are reported
 in the status bar with the affected target count, overlay type and first reason. Surface and volume models are built and fail independently:
-enabling unsupported capsule volume display does not hide its valid surface points/normals. An affected overlay is not partially displayed within a hull,
+an unsupported volume display (e.g. a nested array) does not hide its valid surface points/normals. An affected overlay is not partially displayed within a hull,
 and failed unchanged overlays are not retried every frame.
 Very large valid shapes may take time and memory to visualize; this is not a throughput promise.
 
@@ -165,8 +175,8 @@ unchanged volume emission, surface-only polytope derivation, deterministic outpu
 Sleeping-transparency tests also check its enabled default, option independence, preserved RGB/source opacity and unchanged sleeping/force state.
 An actual off-screen GPU readback checks surface points, normals and volume points inside an opaque occluder. Its paired negative cases deliberately
 select the pre-opaque sort group and verify the same geometry is hidden, proving draw order rather than merely inspecting depth flags.
-Capsule tests also check shared-emitter parity, nested transforms, surface-union ownership, thin-line points-only rendering, and persistent surface instances
-when the independent volume overlay reports an unsupported-shape error.
+Capsule tests also check shared-emitter parity, nested transforms, surface-union ownership, capsule volume containment, thin-line points-only rendering,
+and persistent surface instances when the independent volume overlay reports an unsupported-shape error.
 
 Paul should visually check both options individually and together in a mixed/compound scene, with each base view mode and a sleeping body.
 Check that normals point outward, volume points remain visible through the regular object rendering, and resetting or loading a scene with both options

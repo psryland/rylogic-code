@@ -13,8 +13,8 @@ There is no GPU dispatch inside a CPU height query.
 immutable copy of the source and compact shared surface plans. `std::nullopt` removes it. Call only
 between completed frames; replacing/removing the source invalidates cached geometry and wakes
 submitted dynamic bodies/trees on the next step. Caller-owned shape geometry remains immutable
-until `ResetCaches()`. Terrain and buoyancy use the shared **0.16 m** surface-spacing default unless explicitly overridden.
-Volume sampling is independent of surface spacing and is unchanged.
+until `ResetCaches()`. Terrain uses `surface::DefaultSpacing` (**0.16 m**) unless explicitly overridden. Buoyancy has
+separate surface-spacing and volume-spacing defaults; see `include\pr\physics\surface\README.md`.
 
 Every dynamic rigid body and moving articulation proxy retains its instance, including sleeping bodies.
 Contact generation uses ordinary broadphase sleep eligibility: an awake body or a sleeping body in a

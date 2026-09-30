@@ -63,7 +63,10 @@ namespace physics_sandbox::scene_loader
 	//             { "name": "s1", "shape": { "type": "sphere", "radius": 1.0 }, ... },
 	//             { "name": "l1", "shape": { "type": "line", "length": 2.0, "thickness": 0.1 }, ... },
 	//             { "name": "t1", "shape": { "type": "triangle", "vertices": [[0,0,0],[1,0,0],[0,1,0]] }, ... },
-	//             { "name": "p1", "shape": { "type": "polytope", "vertices": [[x,y,z], ...] }, ... }
+	//             { "name": "p1", "shape": { "type": "polytope", "vertices": [[x,y,z], ...] }, ... },
+	//             { "name": "c1", "shape": { "type": "compound", "children": [   // Children are primitive shapes (not compounds)
+	//                 { "type": "box", "dimensions": [2, 1, 1], "position": [0, 0, 0], "rotation": [0, 0, 0] }, // Optional child position/rotation in body space
+	//                 { "type": "sphere", "radius": 0.8, "position": [1, 0, 0] } ] }, ... }
 	//         ],
 	//         "body_generators": [
 	//             {
@@ -87,8 +90,8 @@ namespace physics_sandbox::scene_loader
 	// Parsed description of a single rigid body from JSON
 	struct BodyDesc
 	{
-		// Shape: box, sphere, line, triangle, or polytope
-		enum class EShape { Box, Sphere, Line, Triangle, Polytope };
+		// Shape: box, sphere, line, triangle, polytope, or a compound of those primitives
+		enum class EShape { Box, Sphere, Line, Triangle, Polytope, Compound };
 
 		std::string name = "body";
 		std::optional<Colour32> colour = {};
@@ -98,9 +101,10 @@ namespace physics_sandbox::scene_loader
 		v4 box_dimensions = One<v4>();                                // Full dimensions (only valid when shape_type == Box)
 		float sphere_radius = 1.0f;                                   // Radius (only valid when shape_type == Sphere)
 		float line_length = 1.0f;                                     // Full length (only valid when shape_type == Line)
-		float line_thickness = 0.0f;                                  // Full thickness, 0 = infinitely thin (only valid when shape_type == Line)
+		float line_thickness = 0.0f;                                  // Capsule radius about the line axis, 0 = infinitely thin (only valid when shape_type == Line)
 		v4 tri_verts[3] = { v4(1,0,0,1), v4(0,1,0,1), v4(-1,0,0,1) }; // Triangle vertices as offsets from origin (only valid when shape_type == Triangle)
 		std::vector<v4> polytope_verts = {};                          // Convex hull vertices (only valid when shape_type == Polytope)
+		std::vector<BodyDesc> compound_children = {};                 // Primitive children placed by their 'position' and 'rotation' in body space (only valid when shape_type == Compound)
 
 		float mass = 0;          // 0 = static (immovable) body with infinite mass
 		std::optional<float> density = {}; // Derives mass from the final collision shape
@@ -236,7 +240,7 @@ namespace physics_sandbox::scene_loader
 		pr::physics::terrain::v2d centre_xy = pr::physics::terrain::v2d::Zero();
 		double radius_m = 4000.0;
 		int intervals = 512;
-		float surface_spacing = physics::surface::DefaultSpacing; // Terrain collision only; the preview grid and buoyancy have separate settings.
+		float surface_spacing = physics::surface::DefaultSpacing; // Terrain collision, and the surface overlay in scenes without water; the preview grid and buoyancy have separate settings.
 		ETerrainDisplayMode display = ETerrainDisplayMode::Neutral;
 	};
 

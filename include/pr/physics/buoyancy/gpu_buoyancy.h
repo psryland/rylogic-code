@@ -51,7 +51,11 @@ namespace pr::physics
 
 			// Maximum surface-cell diameter in shape-local metres. Applies at registration/shape refresh;
 			// existing registrations retain their immutable plans. No sample-count budget truncates coverage.
-			float m_surface_spacing = surface::DefaultSpacing;
+			float m_surface_spacing = buoyancy::DefaultSurfaceSpacing;
+
+			// Typical distance between volume samples in shape-local metres. Each primitive gets about volume / spacing^3 samples
+			// (see buoyancy::VolumeSampleCounts), so larger bodies get more samples. Applies at registration/shape refresh like m_surface_spacing.
+			float m_volume_spacing = buoyancy::DefaultVolumeSpacing;
 
 			// Interior representation used when a collision polytope omits volume tetrahedra. The
 			// default negative value selects an exact O(face count) fan from the volume centre. A

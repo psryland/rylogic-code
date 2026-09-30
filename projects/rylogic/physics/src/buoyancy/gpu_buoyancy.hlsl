@@ -224,7 +224,8 @@ void ReduceShared(uint thread_index, uint thread_count, bool reduce_moment)
 // of the CPU oracle SampleHull (include/pr/physics/buoyancy/buoyancy_sampler.h).
 //
 // Sample indexing: groups are laid out [hull 0 groups][hull 1 groups]..., g.groups_per_hull groups
-// per hull. The flat sample index within a hull selects a primitive by walking the per-primitive
+// per hull. Each thread streams flat sample indices with a stride of one hull's thread population, so
+// hulls with more samples than threads are fully covered. The flat sample index within a hull selects a primitive by walking the per-primitive
 // cumulative counts (g_vol_prim_records, parallel to g_prims); the residual is the primitive-local
 // sample ordinal fed to the deterministic hash. Threads beyond a hull's emitted sample count, and
 // samples on static / zero-mass bodies or under (near-)zero gravity, contribute zero.
@@ -266,7 +267,8 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 	if (hull_index < g.hull_count)
 	{
 		BuoyVolHeader header = g_vol_headers[hull_index];
-		if (sample_index < header.total_volume_samples)
+		// Stream every ordinal while retaining a bounded number of reduction partials per hull.
+		for (; sample_index < header.total_volume_samples; sample_index += g.groups_per_hull * BUOYANCY_SAMPLE_THREAD_COUNT)
 		{
 			GpuRigidBody body = g_bodies[header.body_index];
 
@@ -357,10 +359,10 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 										dF -= (g.angular_drag_coefficient * weight) * cross(s_body_angular_velocity_ws, r);
 								}
 
-								force_ws = float4(dF, 0.0f);
-								torque_ws = float4(cross(sample_ws - com_ws, dF), 0.0f);
+								force_ws += float4(dF, 0.0f);
+								torque_ws += float4(cross(sample_ws - com_ws, dF), 0.0f);
 								if (g.enable_diagnostics != 0)
-									moment_ws_volume = float4(sample_ws * weight, weight);
+									moment_ws_volume += float4(sample_ws * weight, weight);
 							}
 						}
 					}

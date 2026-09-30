@@ -17,12 +17,11 @@ namespace pr::physics
 {
 	namespace
 	{
-		// Sampled-composite volume-pass tunables. The total number of volume samples per hull is split
-		// across the hull's primitives proportional to their volume; positions are
-		// hash-derived per frame, but counts are fixed at registration. The per-hull group count is
-		// ceil(total/thread_count) and must not exceed the reduce thread count (the reducer sums one
-		// partial per group on a single thread group).
-		static constexpr int BuoyancyVolumeSampleCount = 8192;
+		// Sampled-composite volume-pass tunables. Each primitive's volume sample count follows its volume at the configured
+		// volume spacing (see buoyancy::VolumeSampleCounts); positions are
+		// hash-derived per frame, but counts are fixed at registration. At most the reduce thread count of
+		// groups serve each hull (the reducer sums one partial per group on a single thread group); larger
+		// hulls stream additional samples through the same threads.
 		static constexpr int BuoyancyVolumeThreadCount = 256;
 		static constexpr int BuoyancyVolumeReduceThreadCount = 128;
 
@@ -291,6 +290,7 @@ namespace pr::physics
 			collision::Shape const* m_shape;
 			int m_polytope_tessellation;
 			float m_surface_spacing;
+			float m_volume_spacing;
 
 			friend bool operator ==(ShapeCacheKey const&, ShapeCacheKey const&) = default;
 		};
@@ -300,6 +300,7 @@ namespace pr::physics
 			{
 				auto hash = std::hash<collision::Shape const*>{}(key.m_shape);
 				hash ^= std::hash<int>{}(key.m_polytope_tessellation) + 0x9e3779b9U + (hash << 6) + (hash >> 2);
+				hash ^= std::hash<float>{}(key.m_volume_spacing) + 0x9e3779b9U + (hash << 6) + (hash >> 2);
 				return hash ^ (std::hash<float>{}(key.m_surface_spacing) + 0x9e3779b9U + (hash << 6) + (hash >> 2));
 			}
 		};
@@ -497,10 +498,10 @@ namespace pr::physics
 		}
 
 		// Return shared derived data for a collision shape, creating it once per shape pointer and
-		// tessellation and surface-spacing settings. Weak cache entries do not extend the source shape's lifetime.
+		// tessellation, surface-spacing and volume-spacing settings. Weak cache entries do not extend the source shape's lifetime.
 		std::shared_ptr<CompositeShape const> GetOrCreateCompositeShape(collision::Shape const& shape)
 		{
-			auto const key = ShapeCacheKey{ &shape, m_config.m_polytope_tessellation, m_config.m_surface_spacing };
+			auto const key = ShapeCacheKey{ &shape, m_config.m_polytope_tessellation, m_config.m_surface_spacing, m_config.m_volume_spacing };
 			if (auto iter = m_shape_cache.find(key); iter != m_shape_cache.end())
 			{
 				if (auto existing = iter->second.lock())
@@ -518,8 +519,9 @@ namespace pr::physics
 				volumes[k] = buoyancy::PrimitiveVolume(*prims[k]);
 			}
 
-			// Build the volume plan in the same primitive order as the flattened GPU descriptors.
-			auto vol_counts = buoyancy::DistributeCounts(volumes, BuoyancyVolumeSampleCount);
+			// Build the volume plan in the same primitive order as the flattened GPU descriptors. Counts follow each primitive's volume
+			// so the sample spacing, rather than the sample count, is the same for every hull.
+			auto vol_counts = buoyancy::VolumeSampleCounts(volumes, m_config.m_volume_spacing);
 			auto vol_dvol = std::vector<float>(prims.size(), 0.0f);
 			auto total_volume_samples = 0;
 			for (std::size_t k = 0; k != prims.size(); ++k)
@@ -794,6 +796,7 @@ namespace pr::physics
 		void SetConfig(Config const& config)
 		{
 			surface::ValidateSpacing(config.m_surface_spacing);
+			buoyancy::ValidateVolumeSpacing(config.m_volume_spacing);
 			if (!std::isfinite(config.m_fluid_density) || config.m_fluid_density < 0.0f)
 			{
 				throw std::runtime_error("GpuBuoyancy fluid density must be a finite, non-negative value");
@@ -1136,13 +1139,9 @@ namespace pr::physics
 
 			// Groups are laid out [hull0 groups][hull1 groups]..., with a UNIFORM group count per hull
 			// (the kernel derives the hull from global_group_index / groups_per_hull). Size it for the
-			// busiest hull. The reducer sums one partial per group on a single thread group, so the
-			// group count must not exceed the reduce thread count.
-			auto const groups_per_hull = std::max(1, (active_stats.m_max_volume_samples + BuoyancyVolumeThreadCount - 1) / BuoyancyVolumeThreadCount);
-			if (groups_per_hull > BuoyancyVolumeReduceThreadCount)
-			{
-				throw std::runtime_error("Buoyancy composite hull exceeds the maximum supported volume sample count");
-			}
+			// busiest hull, capped at one partial per reduce thread; additional volume samples stream through
+			// the same threads so the configured count is never truncated.
+			auto const groups_per_hull = std::clamp((active_stats.m_max_volume_samples + BuoyancyVolumeThreadCount - 1) / BuoyancyVolumeThreadCount, 1, BuoyancyVolumeReduceThreadCount);
 
 			// Surface counts follow coverage rather than a sample budget. Additional samples stream through
 			// the same threads, keeping partial storage within the reducer's capacity without losing samples.

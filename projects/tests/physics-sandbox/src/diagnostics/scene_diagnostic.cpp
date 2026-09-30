@@ -200,6 +200,41 @@ namespace physics_sandbox::diag
 			}
 		};
 
+		// Collide two shapes on the CPU, expanding compound shapes into their leaf children. Returns the deepest leaf contact.
+		bool CollideLeaves(collision::Shape const& lhs, m4x4 const& l2w, collision::Shape const& rhs, m4x4 const& r2w, collision::Contact& contact)
+		{
+			// The CPU narrow phase has no compound pairs, so test each child placed by its shape-to-root transform.
+			if (lhs.m_type == collision::EShape::Array || rhs.m_type == collision::EShape::Array)
+			{
+				auto const& array = collision::shape_cast<collision::ShapeArray>(lhs.m_type == collision::EShape::Array ? lhs : rhs);
+				auto const& other = lhs.m_type == collision::EShape::Array ? rhs : lhs;
+				auto const& a2w = lhs.m_type == collision::EShape::Array ? l2w : r2w;
+				auto const& o2w = lhs.m_type == collision::EShape::Array ? r2w : l2w;
+				auto const array_is_lhs = lhs.m_type == collision::EShape::Array;
+
+				auto hit = false;
+				for (auto child = array.begin(); child != array.end(); child = collision::next(child))
+				{
+					// Keep the argument order so the contact normal convention matches the caller's order.
+					// Leaf narrow-phase functions apply the child's own shape-to-root transform, so only the array's placement is composed here.
+					auto leaf = collision::Contact{};
+					auto const c2w = a2w * array.m_base.m_s2r;
+					auto const leaf_hit = array_is_lhs
+						? CollideLeaves(*child, c2w, other, o2w, leaf)
+						: CollideLeaves(other, o2w, *child, c2w, leaf);
+					if (!leaf_hit || (hit && leaf.m_depth <= contact.m_depth))
+						continue;
+
+					contact = leaf;
+					hit = true;
+				}
+				return hit;
+			}
+
+			// Leaf pairs use the standard narrow phase.
+			return collision::Collide(lhs, l2w, rhs, r2w, contact);
+		}
+
 		PenetrationSample MeasurePenetration(Scene const& scene)
 		{
 			auto sample = PenetrationSample{};
@@ -223,7 +258,7 @@ namespace physics_sandbox::diag
 						continue;
 
 					auto contact = collision::Contact{};
-					if (!collision::Collide(body_a.Shape(), body_a.O2W(), body_b.Shape(), body_b.O2W(), contact))
+					if (!CollideLeaves(body_a.Shape(), body_a.O2W(), body_b.Shape(), body_b.O2W(), contact))
 						continue;
 
 					++sample.m_contact_count;
@@ -253,7 +288,7 @@ namespace physics_sandbox::diag
 
 						auto contact = collision::Contact{};
 						auto const shape_to_world = articulation.LinkToWorld(link) * link_desc.m_shape_to_link;
-						if (!collision::Collide(ground.Shape(), ground.O2W(), *link_desc.m_shape, shape_to_world, contact))
+						if (!CollideLeaves(ground.Shape(), ground.O2W(), *link_desc.m_shape, shape_to_world, contact))
 							continue;
 
 						++sample.m_contact_count;
@@ -1146,7 +1181,7 @@ namespace physics_sandbox::diag
 
 			auto const bbox_overlap = IsIntersection(body.BBoxWS(), ground.BBoxWS());
 			auto contact = collision::Contact{};
-			auto const hit = collision::Collide(body.Shape(), body.O2W(), ground.Shape(), ground.O2W(), contact);
+			auto const hit = CollideLeaves(body.Shape(), body.O2W(), ground.Shape(), ground.O2W(), contact);
 			Emit(log, std::format(
 				"  cpu_ground pair=({:4d},{:4d}) bbox_overlap={} hit={} depth={:10.6f} axis_a=({:8.4f},{:8.4f},{:8.4f}) point_a=({:8.4f},{:8.4f},{:8.4f})\n",
 				body_index,
