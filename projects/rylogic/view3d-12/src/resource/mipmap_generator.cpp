@@ -197,7 +197,7 @@ namespace pr::rdr12
 			.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
 			.Texture2D = {
 				.MostDetailedMip = 0,
-				.MipLevels = desc.MipLevels,
+				.MipLevels = 1,
 				.PlaneSlice = 0,
 				.ResourceMinLODClamp = 0.f,
 			},
@@ -223,7 +223,9 @@ namespace pr::rdr12
 			m_cmd_list.SetComputeRoot32BitConstant(EMipMapParam::Constants, 1.0f / dst_w, 0);
 			m_cmd_list.SetComputeRoot32BitConstant(EMipMapParam::Constants, 1.0f / dst_h, 1);
 
-			// Create shader resource view for the source texture in the descriptor heap
+			// Create a shader resource view of only the previous mip, because the shader samples level 0 of its source view
+			srv_desc.Texture2D.MostDetailedMip = s_cast<UINT>(mip - 1);
+			srv_desc.Texture2D.MipLevels = 1;
 			auto srv = m_view_heap.Add(uav_resource, srv_desc);
 			m_cmd_list.SetComputeRootDescriptorTable(EMipMapParam::SrcTexture, srv);
 			barriers.Transition(uav_resource, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, s_cast<uint32_t>(mip - 1));

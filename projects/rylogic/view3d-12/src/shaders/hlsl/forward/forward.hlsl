@@ -408,6 +408,22 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 	float3 view = normalize(g_frame.cam.c2w[3].xyz - In.ws_vert.xyz);
 	float3 colour = PbrIlluminate(g_lights, g_frame.light_info.x, g_frame.ambient.rgb, In.ws_vert.xyz, normal, view, albedo, metallic, roughness, emissive);
 
+	// Add specular reflection of the environment map. Rougher surfaces sample blurrier mips, and the Fresnel term keeps dielectrics mostly
+	// non-reflective except at grazing angles. 'env_reflectivity' scales the whole term so reflections remain opt-in per instance.
+	if (HasEnvMap(g_nugget.flags))
+	{
+		uint env_w, env_h, env_mips;
+		g_envmap_texture.GetDimensions(0, env_w, env_h, env_mips);
+
+		float3 r = mul(float4(reflect(-view, normal), 0.0f), g_frame.env_map.w2env).xyz;
+		float3 env = g_envmap_texture.SampleLevel(g_envmap_sampler, r, roughness * (env_mips - 1)).rgb;
+
+		float3 f0 = lerp(0.04f, albedo, metallic);
+		float n_dot_v = saturate(dot(normal, view));
+		float3 fresnel = f0 + (max(1.0f - roughness, f0) - f0) * pow(1.0f - n_dot_v, 5.0f);
+		colour += env * fresnel * g_nugget.env_reflectivity;
+	}
+
 	Out.diff = float4(saturate(colour), alpha);
 	return Out;
 }

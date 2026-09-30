@@ -356,6 +356,10 @@ namespace pr::rdr12
 		TextureCube const* EnvMap() const;
 		void EnvMap(TextureCube* env_map);
 
+		// Render this window's objects, lights, and shadows into a new cube map centred at 'position', with 'face_size' pixels per face edge.
+		// The cube has a full mip chain for roughness-dependent sampling and is not assigned to the window.
+		TextureCubePtr EnvMapCapture(v4 const& position, int face_size);
+
 		// Enable/Disable the depth buffer
 		bool DepthBufferEnabled() const;
 		void DepthBufferEnabled(bool enabled);

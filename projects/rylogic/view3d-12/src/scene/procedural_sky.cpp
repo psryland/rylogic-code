@@ -167,14 +167,24 @@ namespace pr::rdr12
 			return IsOrthonormal(matrix.rot, 0.0001f) && matrix.x.w == 0 && matrix.y.w == 0 && matrix.z.w == 0 &&
 				matrix.pos.x == 0 && matrix.pos.y == 0 && matrix.pos.z == 0 && matrix.pos.w == 1;
 		};
+
+		// A cube map orientation may also be a mirror (see TextureCube::m_cube2w), so its handedness is normalised before the rotation check
+		auto valid_cube_orientation = [&](m4x4 const& matrix)
+		{
+			auto rotation = matrix;
+			if (Triple(rotation.x, rotation.y, rotation.z) < 0)
+				rotation.z = -rotation.z;
+
+			return valid_rotation(rotation);
+		};
 		if (!valid_rotation(world_to_sky) || !valid_rotation(world_to_background) ||
-			(background && (!valid_rotation(background->m_cube2w) || &background->rdr() != &m_shader->rdr())))
-			throw std::invalid_argument("Sky direction transforms must be finite rotations and the cubemap must belong to this renderer");
+			(background && (!valid_cube_orientation(background->m_cube2w) || &background->rdr() != &m_shader->rdr())))
+			throw std::invalid_argument("Sky direction transforms must be finite rotations, the cubemap orientation must be orthonormal, and the cubemap must belong to this renderer");
 
 		// Retain the native texture independently of the caller's wrapper; update only constants during a fade.
 		m_shader->m_cbuf.blend_weight = weight;
 		m_shader->m_cbuf.world_to_sky = world_to_sky;
-		m_shader->m_cbuf.world_to_cube = background ? InvertOrthonormal(background->m_cube2w) * world_to_background : m4x4::Identity();
+		m_shader->m_cbuf.world_to_cube = background ? Transpose3x3(background->m_cube2w) * world_to_background : m4x4::Identity();
 		m_shader->m_background = std::move(background);
 	}
 }
