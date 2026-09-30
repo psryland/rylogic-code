@@ -3,6 +3,7 @@
 {
 	*Data {60 60}
 	*AxisId {+3}
+	*Reflectivity {0.2}
 }
 *Box b0_0 FFE0E0E0 { *Data {0.4 0.4 0.3} *o2w {*pos {-22 -22 0.15}} }
 *Box b1_0 FFE0E0E0 { *Data {0.4 0.4 0.9} *o2w {*pos {-21 -22 0.45}} }
