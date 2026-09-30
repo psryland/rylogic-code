@@ -16,7 +16,8 @@
 #define VIEW3D_PROCEDURAL_FORWARD_CONSTANTS_REGISTER b6
 #define VIEW3D_RAYCAST_NUGGET_REGISTER b1
 #define VIEW3D_PROCEDURAL_RAYCAST_CONSTANTS_REGISTER b2
-#define VIEW3D_SHADOW_FRAME_REGISTER b0
+#define VIEW3D_SHADOW_DRAW_VIEWS_REGISTER b0
+#define VIEW3D_SHADOW_VIEWS_REGISTER t1
 #define VIEW3D_SHADOW_NUGGET_REGISTER b1
 #define VIEW3D_PROCEDURAL_SHADOW_CONSTANTS_REGISTER b2
 
@@ -76,20 +77,29 @@ struct View3DRayCastVertexOut
 	float4 ws_vert : WSVertex;
 };
 
-// Stock shadow frame constants consumed by a procedural ShadowMap vertex wrapper.
-struct View3DShadowFrame
+// Stock per-draw root constants consumed by a procedural ShadowMap vertex wrapper.
+// Instance 'i' of a draw renders into shadow view 'views[i/4][i%4]', using viewport 'views[i/4][i%4] - info.x'.
+struct View3DShadowDrawViews
 {
-	row_major float4x4 w2l;
-	row_major float4x4 l2s;
+	uint4 views[4];
+	uint4 info;
+};
+
+// Stock shadow view data consumed by a procedural ShadowMap vertex wrapper. Bind as 'StructuredBuffer<View3DShadowView>'.
+struct View3DShadowView
+{
+	row_major float4x4 w2s;
+	float4 atlas_rect;
+	float4 bias;
 };
 
 // Stock ShadowMap pixel-shader input emitted by a procedural vertex wrapper.
 struct View3DShadowVertexOut
 {
 	float4 ss_vert : SV_POSITION;
-	float4 ws_vert : POSITION1;
 	float4 diff : COLOR0;
 	float2 tex0 : TEXCOORD0;
+	uint viewport : SV_ViewportArrayIndex;
 };
 
 // Transform a generated model-space position through the stock object placement.
@@ -132,17 +142,23 @@ View3DRayCastVertexOut View3DProceduralRayCastVertex(float4 ms_vert, View3DRayCa
 }
 
 // Produce the stock ShadowMap pixel input from caller-generated model-space surface data.
-View3DShadowVertexOut View3DProceduralShadowVertex(float4 ms_vert, float4 diff, float2 tex0, View3DShadowFrame frame, View3DForwardShadowNugget nugget)
+// 'instance_id' is the SV_InstanceID of the vertex. Each instance of a shadow draw renders into a different shadow view.
+View3DShadowVertexOut View3DProceduralShadowVertex(
+	float4 ms_vert,
+	float4 diff,
+	float2 tex0,
+	uint instance_id,
+	View3DShadowDrawViews draw,
+	StructuredBuffer<View3DShadowView> views,
+	View3DForwardShadowNugget nugget)
 {
-	// Match the stock shadow depth, tint, and texture-coordinate contract.
+	// Match the stock shadow view selection, tint, and texture-coordinate contract.
 	View3DShadowVertexOut output = (View3DShadowVertexOut)0;
-	output.ws_vert = View3DProceduralWorldPosition(ms_vert, nugget);
-	float4 ls_vert = mul(output.ws_vert, frame.w2l);
-	float2 clip_planes = ClipPlanes(frame.l2s);
-	output.ws_vert.w = Frac(clip_planes.y, -ls_vert.z, clip_planes.x);
-	output.ss_vert = mul(ls_vert, frame.l2s);
+	uint view = draw.views[instance_id / 4][instance_id % 4];
+	output.ss_vert = mul(View3DProceduralWorldPosition(ms_vert, nugget), views[view].w2s);
 	output.diff = diff * nugget.tint;
 	output.tex0 = mul(float4(tex0, 0, 1), nugget.tex2surf0).xy;
+	output.viewport = view - draw.info.x;
 	return output;
 }
 

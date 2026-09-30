@@ -55,6 +55,7 @@ namespace pr::rdr12
 		, m_vertex_source(EVertexSource::Buffer)
 		, m_vstride(vstride)
 		, m_istride(istride)
+		, m_revision()
 		, m_dbg_flags(EDbgFlags::None)
 	{
 		Check(m_vb->SetName(FmtS(L"%S:VB:%d", name, vcount)));
@@ -78,6 +79,7 @@ namespace pr::rdr12
 	// Allow update of the vertex/index buffers
 	GfxUpdateSubresourceScope Model::UpdateVertices(GfxCmdList& cmd_list, GpuUploadBuffer& upload, Range vrange)
 	{
+		++m_revision;
 		m_ray_tracing.Invalidate(rdr());
 		rdr().SkinnedGeometry().Invalidate(*this);
 
@@ -91,6 +93,7 @@ namespace pr::rdr12
 	}
 	GfxUpdateSubresourceScope Model::UpdateIndices(GfxCmdList& cmd_list, GpuUploadBuffer& upload, Range irange)
 	{
+		++m_revision;
 		m_ray_tracing.Invalidate(rdr());
 
 		if (irange == Range::Reset())

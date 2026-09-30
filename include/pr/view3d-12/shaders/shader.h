@@ -107,10 +107,6 @@ namespace pr::rdr12
 		extern ByteCode const procedural_sky_ps;
 
 		// Deferred rendering
-		extern ByteCode const gbuffer_vs;
-		extern ByteCode const gbuffer_ps;
-		extern ByteCode const dslighting_vs;
-		extern ByteCode const dslighting_ps;
 
 		// Shadows
 		extern ByteCode const shadow_map_vs;

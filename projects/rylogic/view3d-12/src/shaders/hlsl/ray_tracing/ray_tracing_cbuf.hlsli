@@ -7,6 +7,7 @@
 #ifndef PR_VIEW3D_SHADER_RAY_TRACING_CBUF_HLSLI
 #define PR_VIEW3D_SHADER_RAY_TRACING_CBUF_HLSLI
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
+#include "view3d-12/src/shaders/hlsl/lighting/lighting_cbuf.hlsli"
 
 static const int RayTracingMode_Diagnostic = 0;
 static const int RayTracingMode_HardShadows = 1;
@@ -85,8 +86,9 @@ struct CBufFrame// :reg(b0)
 	// Screen to world projection
 	row_major float4x4 s2w;
 
-	// Global lighting
-	Light global_light;
+	// Scene lighting. The lights themselves are in the 'g_lights' structured buffer.
+	float4 ambient;    // .rgb = scene-wide ambient light colour
+	int4 light_info;   // x = light count, y = index of the key directional light used for hard shadows and caustics (-1 = none)
 
 	// x = aspect, y = vertical FOV, z = focus distance, w = orthographic flag
 	float4 camera;

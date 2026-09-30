@@ -171,6 +171,15 @@ namespace pr::rdr12::ldraw
 			scene.AddInstance(*this);
 		}
 
+		// Light source objects shade the frame with their light placed by the object's world transform
+		if (m_type == ELdrObject::LightSource && !is_hidden)
+		{
+			auto light = m_user_data.get<Light>();
+			light.m_position = m_i2w * light.m_position;
+			light.m_direction = Normalise(m_i2w * light.m_direction);
+			scene.AddFrameLight(light);
+		}
+
 		// Rinse and repeat for all children
 		for (auto& child : m_child)
 			child->AddToScene(scene, i2w, flags);

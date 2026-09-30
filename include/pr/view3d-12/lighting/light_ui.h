@@ -13,7 +13,7 @@ namespace pr::rdr12
 	{
 		enum
 		{
-			ID_RADIO_AMBIENT = 100, ID_RADIO_DIRECTIONAL, ID_RADIO_POINT, ID_RADIO_SPOT,
+			ID_RADIO_DIRECTIONAL = 100, ID_RADIO_POINT, ID_RADIO_SPOT,
 			ID_EDIT_POSITION, ID_EDIT_DIRECTION, ID_CHECK_CAMERA_RELATIVE,
 			ID_EDIT_RANGE, ID_EDIT_FALLOFF, ID_EDIT_SHADOW_RANGE,
 			ID_EDIT_AMBIENT, ID_EDIT_DIFFUSE, ID_EDIT_SPECULAR, ID_EDIT_SPECULAR_POWER, ID_EDIT_INTENSITY,
@@ -26,7 +26,6 @@ namespace pr::rdr12
 		gui::Button      m_btn_ok;
 
 		gui::GroupBox    m_grp_light_type;
-		gui::Button      m_rdo_ambient;
 		gui::Button      m_rdo_directional;
 		gui::Button      m_rdo_point;
 		gui::Button      m_rdo_spot;
@@ -65,8 +64,11 @@ namespace pr::rdr12
 		// The light we're displaying properties for
 		Light m_light;
 
-		// Show the lighting UI with preview callback: Preview(Light const& light, bool cam_rel);
-		LightingUI(HWND parent, Light const& light)
+		// The scene-wide ambient light colour
+		Colour32 m_ambient;
+
+		// Show the lighting UI for 'light' and the scene 'ambient' light. Read 'm_light' and 'm_ambient' in the Commit/Preview handlers.
+		LightingUI(HWND parent, Light const& light, Colour32 ambient)
 			:Form(Params<>().dlg()
 				.parent(parent)
 				.name("rdr-lighting-ui")
@@ -82,9 +84,8 @@ namespace pr::rdr12
 			,m_btn_cancel        (gui::Button::Params<>().parent(&m_panel_btns).text(L"Cancel" ).id(IDCANCEL).dock(EDock::Right))
 			,m_btn_ok            (gui::Button::Params<>().parent(&m_panel_btns).text(L"OK"     ).id(IDOK    ).dock(EDock::Right))
 
-			,m_grp_light_type    (gui::GroupBox::Params<>().parent(this_)          .text(L"Light Type" ).wh(84, 128).xy(3, 3))
-			,m_rdo_ambient       (gui::Button::Params<>().parent(&m_grp_light_type).text(L"Ambient"    ).xy(0, 12                               ).radio().id(ID_RADIO_AMBIENT    ).margin(3, 0, 0, 0))
-			,m_rdo_directional   (gui::Button::Params<>().parent(&m_grp_light_type).text(L"Directional").xy(0, Top|BottomOf|ID_RADIO_AMBIENT    ).radio().id(ID_RADIO_DIRECTIONAL).margin(3, 0, 0, 0))
+			,m_grp_light_type    (gui::GroupBox::Params<>().parent(this_)          .text(L"Light Type" ).wh(84, 104).xy(3, 3))
+			,m_rdo_directional   (gui::Button::Params<>().parent(&m_grp_light_type).text(L"Directional").xy(0, 12                               ).radio().id(ID_RADIO_DIRECTIONAL).margin(3, 0, 0, 0))
 			,m_rdo_point         (gui::Button::Params<>().parent(&m_grp_light_type).text(L"Point"      ).xy(0, Top|BottomOf|ID_RADIO_DIRECTIONAL).radio().id(ID_RADIO_POINT      ).margin(3, 0, 0, 0))
 			,m_rdo_spot          (gui::Button::Params<>().parent(&m_grp_light_type).text(L"Spot"       ).xy(0, Top|BottomOf|ID_RADIO_POINT      ).radio().id(ID_RADIO_SPOT       ).margin(3, 0, 0, 0))
 
@@ -106,7 +107,7 @@ namespace pr::rdr12
 			,m_lbl_direction     (gui::Label::Params<>().parent(this_).text(L"Direction:"         ).xy(Right|LeftOf|ID_EDIT_DIRECTION     , Centre|CentreOf|ID_EDIT_DIRECTION     ).style('+', SS_LEFT).style_ex('+',WS_EX_RIGHT).anchor(EAnchor::TopRight))
 			,m_lbl_range         (gui::Label::Params<>().parent(this_).text(L"Range:"             ).xy(Right|LeftOf|ID_EDIT_RANGE         , Centre|CentreOf|ID_EDIT_RANGE         ).style('+', SS_LEFT).style_ex('+',WS_EX_RIGHT).anchor(EAnchor::TopRight))
 			,m_lbl_falloff       (gui::Label::Params<>().parent(this_).text(L"Falloff:"           ).xy(Right|LeftOf|ID_EDIT_FALLOFF       , Centre|CentreOf|ID_EDIT_FALLOFF       ).style('+', SS_LEFT).style_ex('+',WS_EX_RIGHT).anchor(EAnchor::TopRight))
-			,m_lbl_shadow_range  (gui::Label::Params<>().parent(this_).text(L"Shadow Range:"      ).xy(Right|LeftOf|ID_EDIT_SHADOW_RANGE  , Centre|CentreOf|ID_EDIT_SHADOW_RANGE  ).style('+', SS_LEFT).style_ex('+',WS_EX_RIGHT).anchor(EAnchor::TopRight))
+			,m_lbl_shadow_range  (gui::Label::Params<>().parent(this_).text(L"Shadow Strength:"   ).xy(Right|LeftOf|ID_EDIT_SHADOW_RANGE  , Centre|CentreOf|ID_EDIT_SHADOW_RANGE  ).style('+', SS_LEFT).style_ex('+',WS_EX_RIGHT).anchor(EAnchor::TopRight))
 			,m_lbl_ambient       (gui::Label::Params<>().parent(this_).text(L"Ambient (RRGGBB):"  ).xy(Right|LeftOf|ID_EDIT_AMBIENT       , Centre|CentreOf|ID_EDIT_AMBIENT       ).style('+', SS_LEFT).style_ex('+',WS_EX_RIGHT).anchor(EAnchor::TopRight))
 			,m_lbl_diffuse       (gui::Label::Params<>().parent(this_).text(L"Diffuse (RRGGBB):"  ).xy(Right|LeftOf|ID_EDIT_DIFFUSE       , Centre|CentreOf|ID_EDIT_DIFFUSE       ).style('+', SS_LEFT).style_ex('+',WS_EX_RIGHT).anchor(EAnchor::TopRight))
 			,m_lbl_specular      (gui::Label::Params<>().parent(this_).text(L"Specular (RRGGBB):" ).xy(Right|LeftOf|ID_EDIT_SPECULAR      , Centre|CentreOf|ID_EDIT_SPECULAR      ).style('+', SS_LEFT).style_ex('+',WS_EX_RIGHT).anchor(EAnchor::TopRight))
@@ -118,16 +119,12 @@ namespace pr::rdr12
 			,m_tt                (gui::ToolTip::Params<>().parent(this_))
 
 			,m_light(light)
+			,m_ambient(ambient)
 			,Commit()
 			,Preview()
 		{
 			CreateHandle();
 
-			m_rdo_ambient.Click += [&](gui::Button&, gui::EmptyArgs const&)
-			{
-				m_light.m_type = ELight::Ambient;
-				UpdateUI();
-			};
 			m_rdo_directional.Click += [&](gui::Button&, gui::EmptyArgs const&)
 			{
 				m_light.m_type = ELight::Directional;
@@ -204,7 +201,7 @@ namespace pr::rdr12
 			m_tb_range         .Text(FmtS(L"%3.3f" ,m_light.m_range));
 			m_tb_falloff       .Text(FmtS(L"%3.3f" ,m_light.m_falloff));
 			m_tb_shadow_range  .Text(FmtS(L"%3.3f" ,m_light.m_cast_shadow));
-			m_tb_ambient       .Text(FmtS(L"%6.6X" ,0xFFFFFF & m_light.m_ambient.argb ));
+			m_tb_ambient       .Text(FmtS(L"%6.6X" ,0xFFFFFF & m_ambient.argb ));
 			m_tb_diffuse       .Text(FmtS(L"%6.6X" ,0xFFFFFF & m_light.m_diffuse.argb ));
 			m_tb_specular      .Text(FmtS(L"%6.6X" ,0xFFFFFF & m_light.m_specular.argb));
 			m_tb_spec_power    .Text(FmtS(L"%d" ,(int)(0.5f + m_light.m_specular_power)));
@@ -219,7 +216,6 @@ namespace pr::rdr12
 		void ReadValues()
 		{
 			// Light type
-			if (m_rdo_ambient    .Checked()) m_light.m_type = ELight::Ambient;
 			if (m_rdo_directional.Checked()) m_light.m_type = ELight::Directional;
 			if (m_rdo_point      .Checked()) m_light.m_type = ELight::Point;
 			if (m_rdo_spot       .Checked()) m_light.m_type = ELight::Spot;
@@ -231,7 +227,7 @@ namespace pr::rdr12
 			m_light.m_range          = To<float>(m_tb_range.Text());
 			m_light.m_falloff        = To<float>(m_tb_falloff.Text());
 			m_light.m_cast_shadow    = To<float>(m_tb_shadow_range.Text());
-			m_light.m_ambient        = To<Colour32>(m_tb_ambient.Text()).a0();
+			m_ambient                = To<Colour32>(m_tb_ambient.Text()).a1();
 			m_light.m_diffuse        = To<Colour32>(m_tb_diffuse.Text()).a1();
 			m_light.m_specular       = To<Colour32>(m_tb_specular.Text()).a0();
 			m_light.m_specular_power = To<float>(m_tb_spec_power.Text());
@@ -243,21 +239,14 @@ namespace pr::rdr12
 		// Enable/Disable controls
 		void UpdateUI()
 		{
-			m_rdo_ambient     .Checked(m_light.m_type == ELight::Ambient);
 			m_rdo_directional .Checked(m_light.m_type == ELight::Directional);
 			m_rdo_point       .Checked(m_light.m_type == ELight::Point);
 			m_rdo_spot        .Checked(m_light.m_type == ELight::Spot);
 
 			m_tb_position    .Enabled(m_light.m_type == ELight::Point       || m_light.m_type == ELight::Spot);
 			m_tb_direction   .Enabled(m_light.m_type == ELight::Directional || m_light.m_type == ELight::Spot);
-			m_chk_cam_rel    .Enabled(m_light.m_type != ELight::Ambient);
-			m_tb_range       .Enabled(m_light.m_type != ELight::Ambient);
-			m_tb_falloff     .Enabled(m_light.m_type != ELight::Ambient);
-			m_tb_shadow_range.Enabled(m_light.m_type != ELight::Ambient);
-			m_tb_ambient     .Enabled(true);
-			m_tb_diffuse     .Enabled(m_light.m_type != ELight::Ambient);
-			m_tb_specular    .Enabled(m_light.m_type != ELight::Ambient);
-			m_tb_spec_power  .Enabled(m_light.m_type != ELight::Ambient);
+			m_tb_range       .Enabled(m_light.m_type == ELight::Point       || m_light.m_type == ELight::Spot);
+			m_tb_falloff     .Enabled(m_light.m_type == ELight::Point       || m_light.m_type == ELight::Spot);
 			m_tb_intensity   .Enabled(true);
 			m_tb_spot_inner  .Enabled(m_light.m_type == ELight::Spot);
 			m_tb_spot_outer  .Enabled(m_light.m_type == ELight::Spot);

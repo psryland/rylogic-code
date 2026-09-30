@@ -72,10 +72,16 @@ internal sealed partial class LDrawTools
 {
 	/// <summary>Set runtime render settings for a running LDraw scene</summary>
 	[McpServerTool(Name = "ldraw_set_render_settings", Title = "Set LDraw render settings", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
-	[Description("Sets runtime render settings such as antialiasing, shadow cast range, and ray tracing. These changes do not edit user source files.")]
+	[Description("Sets runtime render settings such as antialiasing, main light shadow strength, shadow limits, and ray tracing. These changes do not edit user source files.")]
 	public Task<LDrawViewMutationResult> SetRenderSettings(
 		[Description("Optional multi-sample anti-aliasing state.")] bool? antialiasing = null,
-		[Description("Optional shadow cast range. Zero disables shadow casting.")] double? shadow_cast_range = null,
+		[Description("Optional main light (light 0) shadow strength in [0,1]. Zero means the main light casts no shadow.")] double? main_light_shadow_strength = null,
+		[Description("Optional maximum number of lights that cast shadows. Zero disables all shadows.")] int? max_shadow_lights = null,
+		[Description("Optional shadow atlas width and height in pixels. Must be a power of two in [256, 16384].")] int? shadow_atlas_size = null,
+		[Description("Optional number of shadow cascades for directional lights, in [1,4].")] int? shadow_cascades = null,
+		[Description("Optional distance from the camera beyond which directional lights cast no shadows. Zero fits the cascades to the shadow casters.")] double? shadow_distance = null,
+		[Description("Optional cascade split distribution in [0,1]. 0 = even spacing, 1 = logarithmic spacing (more detail near the camera).")] double? shadow_cascade_split_blend = null,
+		[Description("Optional shadow edge filter width in shadow texels. Either 5 or 7.")] int? shadow_filter_size = null,
 		[Description("Optional ray tracing enabled state. Requires ray tracing support when true.")] bool? ray_tracing_enabled = null,
 		[Description("The id of a running LDraw instance from ldraw_list_instances. Omit to target the default instance (most-recently-used, or auto-launched when none are running).")] string? instance_id = null,
 		[Description("The scene name to modify. Omit to use the first scene.")] string? scene_name = null)
@@ -84,7 +90,13 @@ internal sealed partial class LDrawTools
 		{
 			SceneName = scene_name,
 			Antialiasing = antialiasing,
-			ShadowCastRange = shadow_cast_range,
+			MainLightShadowStrength = main_light_shadow_strength,
+			MaxShadowLights = max_shadow_lights,
+			ShadowAtlasSize = shadow_atlas_size,
+			ShadowCascades = shadow_cascades,
+			ShadowDistance = shadow_distance,
+			ShadowCascadeSplitBlend = shadow_cascade_split_blend,
+			ShadowFilterSize = shadow_filter_size,
 			RayTracingEnabled = ray_tracing_enabled,
 		};
 		return m_broker.SetRenderSettingsAsync(instance_id, parameters);

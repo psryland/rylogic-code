@@ -365,16 +365,11 @@ namespace pr::rdr12
 		// Set shader constants for the frame
 		m_shader.SetupFrame(cmd_list.get(), m_upload_buffer, scn());
 
-		// Add the shadow map textures
-		if (auto* smap_step = scn().FindRStep<RenderSmap>())
+		// Add the shadow atlas. It is only read for lights with shadow views, so it is not needed when there are none.
+		if (auto* smap_step = scn().FindRStep<RenderSmap>(); smap_step != nullptr && !smap_step->Views().empty())
 		{
-			// Todo: consider array-of-structs layout for casters
-			vector<Descriptor, 8> descriptors;
-			for (auto& caster : smap_step->Casters())
-				descriptors.push_back(caster.m_smap->m_srv);
-
-			auto gpu = wnd().m_heap_view.Add(descriptors);
-			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::SMap, gpu);
+			auto gpu = wnd().m_heap_view.Add(smap_step->Atlas()->m_srv);
+			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::ShadowAtlas, gpu);
 		}
 
 		// Add the global environment map

@@ -649,14 +649,14 @@ namespace Rylogic.Gui.WPF
 		}
 
 		/// <inheritdoc/>
-		public double ShadowCastRange
+		public double MainLightShadowStrength
 		{
-			get => Options.ShadowCastRange;
+			get => Options.MainLightShadowStrength;
 			set
 			{
-				if (ShadowCastRange == value) return;
-				Options.ShadowCastRange = value;
-				NotifyPropertyChanged(nameof(ShadowCastRange));
+				if (MainLightShadowStrength == value) return;
+				Options.MainLightShadowStrength = value;
+				NotifyPropertyChanged(nameof(MainLightShadowStrength));
 			}
 		}
 

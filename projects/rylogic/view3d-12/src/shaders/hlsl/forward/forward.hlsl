@@ -25,9 +25,9 @@ SamplerState      g_base_sampler :register(s0);
 TextureCube<float4> g_envmap_texture :register(t1);
 SamplerState        g_envmap_sampler :register(s1);
 
-// Shadow map
-Texture2D<float2> g_smap_texture[MaxShadowMaps] :register(t2);
-SamplerComparisonState g_smap_sampler           :register(s2);
+// Shadow atlas. The regions of the atlas are described by the shadow views in 'g_shadow_views'.
+Texture2D<float> g_shadow_atlas         :register(t2);
+SamplerComparisonState g_shadow_sampler :register(s2);
 
 // Projected textures
 Texture2D<float4> g_proj_texture[MaxProjectedTextures] :register(t3);
@@ -52,15 +52,28 @@ SamplerState      g_roughness_sampler :register(s5);
 SamplerState      g_emissive_sampler  :register(s6);
 SamplerState      g_normal_sampler    :register(s7);
 
+// The frame's world space lights. The count is in 'g_frame.light_info.x'.
+StructuredBuffer<Light> g_lights :register(t15);
+
+// The frame's shadow views. Lights with shadows refer to their views by index.
+StructuredBuffer<ShadowView> g_shadow_views :register(t16);
+
 // Alpha sorting
 RasterizerOrderedTexture2D<uint4> g_alpha_colour :register(u0);
 RasterizerOrderedTexture2D<uint4> g_alpha_depth  :register(u1);
 RasterizerOrderedTexture2D<uint4> g_alpha_rt_attrs :register(u2);
 
 #include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
+#include "view3d-12/src/shaders/hlsl/shadow/shadow_cast.hlsli"
+
+// Lights are shadowed by the shadow atlas
+float SampleLightShadow(Light light, float4 ws_pos, float4 ws_norm)
+{
+	return ShadowVisibility(g_shadow_atlas, g_shadow_sampler, g_shadow_views, light, ws_pos, ws_norm);
+}
+
 #include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"
 #include "view3d-12/src/shaders/hlsl/lighting/pbr.hlsli"
-#include "view3d-12/src/shaders/hlsl/shadow/shadow_cast.hlsli"
 #include "view3d-12/src/shaders/hlsl/ray_tracing/ray_tracing.hlsli"
 #include "view3d-12/src/shaders/hlsl/utility/colour_space.hlsli"
 #include "view3d-12/src/shaders/hlsl/utility/env_map.hlsli"
@@ -149,9 +162,7 @@ float4 ResolveWorldNormal(PSIn In, bool is_front_face)
 
 	float4 norm =
 		dot(In.ws_norm, In.ws_norm) != 0 ? normalize(In.ws_norm) :
-		DirectionalLight(g_frame.global_light) ? -g_frame.global_light.ws_direction :
-		PointLight(g_frame.global_light)       ? normalize(g_frame.global_light.ws_position - In.ws_vert) :
-		SpotLight(g_frame.global_light)        ? normalize(g_frame.global_light.ws_position - In.ws_vert) :
+		g_frame.light_info.x != 0 ? -LightDirectionAt(g_lights[0], In.ws_vert) :
 		float4(0, 0, 0, 0);
 
 	if (TwoSided(g_nugget.flags) && !is_front_face)
@@ -310,14 +321,9 @@ PSOut PSForward(PSIn In, bool is_front_face : SV_IsFrontFace)
 	if (HasEnvMap(g_nugget.flags) && HasNormals(g_nugget.flags))
 		Out.diff = EnvironmentMap(g_frame.env_map, In.ws_vert, In.ws_norm, g_frame.cam.c2w[3], Out.diff);
 
-	// Shadows
-	float light_visible = 1.0f;
-	if (ShadowMapCount(g_frame.shadow) != 0)
-		light_visible = LightVisibility(g_frame.shadow, In.ws_vert);
-
-	// Lighting
+	// Lighting, including shadows
 	if (HasNormals(g_nugget.flags))
-		Out.diff = Illuminate(g_frame.global_light, In.ws_vert, In.ws_norm, g_frame.cam.c2w[3], light_visible, Out.diff);
+		Out.diff = Illuminate(g_lights, g_frame.light_info.x, g_frame.ambient.rgb, In.ws_vert, In.ws_norm, g_frame.cam.c2w[3], Out.diff);
 
 	// If not alpha blending, clip alpha pixels
 	if (!HasAlpha(g_nugget.flags))
@@ -400,10 +406,7 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 
 	// Evaluate direct PBR lighting using the shared PBR material lighting helper.
 	float3 view = normalize(g_frame.cam.c2w[3].xyz - In.ws_vert.xyz);
-	float light_visible = ShadowMapCount(g_frame.shadow) != 0
-		? LightVisibility(g_frame.shadow, In.ws_vert)
-		: 1.0f;
-	float3 colour = PbrIlluminate(g_frame.global_light, In.ws_vert.xyz, normal, view, light_visible, albedo, metallic, roughness, emissive);
+	float3 colour = PbrIlluminate(g_lights, g_frame.light_info.x, g_frame.ambient.rgb, In.ws_vert.xyz, normal, view, albedo, metallic, roughness, emissive);
 
 	Out.diff = float4(saturate(colour), alpha);
 	return Out;

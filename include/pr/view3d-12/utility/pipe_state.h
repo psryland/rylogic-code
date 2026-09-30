@@ -25,6 +25,7 @@ namespace pr::rdr12
 			x(TopologyType          , PrimitiveTopologyType                 )\
 			x(FillMode              , RasterizerState.FillMode              )\
 			x(CullMode              , RasterizerState.CullMode              )\
+			x(DepthClipEnable       , RasterizerState.DepthClipEnable       )\
 			x(DepthEnable           , DepthStencilState.DepthEnable         )\
 			x(DepthWriteMask        , DepthStencilState.DepthWriteMask      )\
 			x(DepthFunc             , DepthStencilState.DepthFunc           )\

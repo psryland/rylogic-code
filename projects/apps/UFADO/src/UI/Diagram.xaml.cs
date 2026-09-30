@@ -60,7 +60,7 @@ public partial class Diagram : UserControl, IDisposable, IDockable, INotifyPrope
 			{
 				field.Camera.AlignAxis = v4.YAxis;
 				field.Scene.ContextMenu.DataContext = this;
-				field.Scene.Window.LightProperties = View3d.LightInfo.Directional(-v4.ZAxis, specular: 0xFF000000, spec_power: 0, camera_relative: true);
+				field.Scene.Window.MainLight = View3d.LightInfo.Directional(-v4.ZAxis, specular: 0xFF000000, spec_power: 0, camera_relative: true);
 				field.Selected.ListChanging += HandleSelectedChanging;
 			}
 

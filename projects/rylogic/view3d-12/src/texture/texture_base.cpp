@@ -129,7 +129,10 @@ namespace pr::rdr12
 		}
 		if (AllSet(rdesc.Flags, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL))
 		{
-			D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {rdesc.Format};
+			// Determine the DSV format. Default to the resource format; allow desc to override it (e.g. a typed depth format over a TYPELESS resource).
+			auto dsv_format = desc.m_dsv_format != DXGI_FORMAT_UNKNOWN ? desc.m_dsv_format : rdesc.Format;
+
+			D3D12_FEATURE_DATA_FORMAT_SUPPORT support = {dsv_format};
 			Check(device->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &support, sizeof(support)));
 			if (!AllSet(support.Support1, D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL))
 				throw std::runtime_error("Texture format is not supported as a depth stencil view");
@@ -137,7 +140,7 @@ namespace pr::rdr12
 			// Create the DSV
 			ResourceStore::Access store(rdr);
 			D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc = {
-				.Format = rdesc.Format,
+				.Format = dsv_format,
 				.ViewDimension = desc.m_rdesc.DsvDimension(),
 				.Flags = D3D12_DSV_FLAGS::D3D12_DSV_FLAG_NONE,
 			};

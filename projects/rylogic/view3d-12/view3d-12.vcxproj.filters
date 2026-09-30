@@ -66,9 +66,6 @@
     <Filter Include="src\shaders\hlsl\compiled">
       <UniqueIdentifier>{dfb1ad4f-6d3a-4e7b-8f39-4813f3b507b6}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\shaders\hlsl\deferred">
-      <UniqueIdentifier>{b065db85-fa44-4c61-9c02-80af8d9bc692}</UniqueIdentifier>
-    </Filter>
     <Filter Include="src\shaders\hlsl\dx9">
       <UniqueIdentifier>{fdb0437a-1244-4473-ad06-5f3473157b72}</UniqueIdentifier>
     </Filter>
@@ -554,8 +551,8 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\ray_cast.h">
       <Filter>src\utility</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\utility\shadow_caster.h">
-      <Filter>src\utility</Filter>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\lighting\shadow_view.h">
+      <Filter>src\lighting</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\view3d.h">
       <Filter>src</Filter>
@@ -788,8 +785,8 @@
     <ClCompile Include="src\utility\pipe_state.cpp">
       <Filter>src\utility</Filter>
     </ClCompile>
-    <ClCompile Include="src\utility\shadow_caster.cpp">
-      <Filter>src\utility</Filter>
+    <ClCompile Include="src\lighting\shadow_views.cpp">
+      <Filter>src\lighting</Filter>
     </ClCompile>
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\gltf.h">
       <Filter>pr\geometry</Filter>
@@ -820,14 +817,8 @@
     <ShaderBuild Include="src\shaders\hlsl\screenspace\arrow_head.hlsl">
       <Filter>src\shaders\hlsl\screenspace</Filter>
     </ShaderBuild>
-    <ShaderBuild Include="src\shaders\hlsl\deferred\dslighting.hlsl">
-      <Filter>src\shaders\hlsl\deferred</Filter>
-    </ShaderBuild>
     <ShaderBuild Include="src\shaders\hlsl\forward\forward.hlsl">
       <Filter>src\shaders\hlsl\forward</Filter>
-    </ShaderBuild>
-    <ShaderBuild Include="src\shaders\hlsl\deferred\gbuffer.hlsl">
-      <Filter>src\shaders\hlsl\deferred</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\shaders\hlsl\screenspace\point_sprites.hlsl">
       <Filter>src\shaders\hlsl\screenspace</Filter>
@@ -859,11 +850,11 @@
     <None Include="src\shaders\hlsl\forward\forward_cbuf.hlsli">
       <Filter>src\shaders\hlsl\forward</Filter>
     </None>
-    <None Include="src\shaders\hlsl\deferred\gbuffer.hlsli">
-      <Filter>src\shaders\hlsl\deferred</Filter>
+    <None Include="src\shaders\hlsl\lighting\lighting_cbuf.hlsli">
+      <Filter>src\shaders\hlsl\lighting</Filter>
     </None>
-    <None Include="src\shaders\hlsl\deferred\gbuffer_cbuf.hlsli">
-      <Filter>src\shaders\hlsl\deferred</Filter>
+    <None Include="src\shaders\hlsl\lighting\lights.hlsli">
+      <Filter>src\shaders\hlsl\lighting</Filter>
     </None>
     <None Include="src\shaders\hlsl\lighting\phong_lighting.hlsli">
       <Filter>src\shaders\hlsl\lighting</Filter>

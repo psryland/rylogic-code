@@ -183,19 +183,6 @@ namespace pr::rdr12
 		ByteCode const post_effect_vs(compiled::post_effect_vs);
 		ByteCode const underwater_ps(compiled::underwater_ps);
 
-		// Deferred rendering
-		namespace compiled
-		{
-			#include PR_RDR_SHADER_COMPILED_DIR(gbuffer_vs.h)
-			#include PR_RDR_SHADER_COMPILED_DIR(gbuffer_ps.h)
-			#include PR_RDR_SHADER_COMPILED_DIR(dslighting_vs.h)
-			#include PR_RDR_SHADER_COMPILED_DIR(dslighting_ps.h)
-		}
-		ByteCode const gbuffer_vs(compiled::gbuffer_vs);
-		ByteCode const gbuffer_ps(compiled::gbuffer_ps);
-		ByteCode const dslighting_vs(compiled::dslighting_vs);
-		ByteCode const dslighting_ps(compiled::dslighting_ps);
-
 		// Shadows
 		namespace compiled
 		{

@@ -424,13 +424,12 @@
     },
     "LightSource": {
       "keyword": "LightSource",
-      "display": "*LightSource[<name>] [<colour>]\n{\n\t*Style {Point|Directional|Spot}\n\t[*Ambient {<colour>}]\n\t[*Diffuse {<colour>}]\n\t[*Specular {<colour> <power>}]\n\t[*Range {<range> <falloff>}]\n\t[*Cone {<inner> <outer>}]\n\t[*CastShadow {<range>}]\n\t[@o2w]\n\t&Recursive\n}",
+      "display": "*LightSource[<name>] [<colour>]\n{\n\t*Style {Point|Directional|Spot}\n\t[*Diffuse {<colour>}]\n\t[*Specular {<colour> <power>}]\n\t[*Range {<range> <falloff>}]\n\t[*Cone {<inner> <outer>}]\n\t[*CastShadow {<strength>}]\n\t[@o2w]\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
       "children": [
         "Style",
-        "Ambient",
         "Diffuse",
         "Specular",
         "Range",
@@ -623,7 +622,7 @@
     },
     "Circle": {
       "keyword": "Circle",
-      "display": "*Circle[<name>] [<colour>]\n{\n\t*Data {<radius0> [<radius1>]}\n\t[*Facets {<facet_count>}]\n\t[@AxisId]\n\t[@Solid]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Circle[<name>] [<colour>]\n{\n\t(*Data {<radius> | <radiusx> <radiusy> | <radius> <cx> <cy> | <radiusx> <radiusy> <cx> <cy>})\n\t[*Facets {<facet_count>}]\n\t[@AxisId]\n\t[@Solid]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
@@ -655,7 +654,7 @@
     },
     "Pie": {
       "keyword": "Pie",
-      "display": "*Pie[<name>] [<colour>]\n{\n\t*Data {<angle0> <angle1> <inner_radius> <outer_radius>}\n\t[*Facets {<facet_count>}]\n\t[*Scale {<sx> <sy>}]\n\t[@AxisId]\n\t[@Solid]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Pie[<name>] [<colour>]\n{\n\t(*Data {<angle0> <angle1> <inner_radius> <outer_radius> [<cx> <cy>]})\n\t[*Facets {<facet_count>}]\n\t[*Scale {<sx> <sy>}]\n\t[@AxisId]\n\t[@Solid]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
@@ -688,7 +687,7 @@
     },
     "Rect": {
       "keyword": "Rect",
-      "display": "*Rect[<name>] [<colour>]\n{\n\t*Data {<width> [<height>]}\n\t[*CornerRadius {<radius>}]\n\t[*Facets {<facet_count>}]\n\t[@AxisId]\n\t[@Solid]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Rect[<name>] [<colour>]\n{\n\t(*Data {<width> | <width> <height> | <width> <cx> <cy> | <width> <height> <cx> <cy>})\n\t[*CornerRadius {<radius>}]\n\t[*Facets {<facet_count>}]\n\t[@AxisId]\n\t[@Solid]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,
@@ -721,7 +720,7 @@
     },
     "Polygon": {
       "keyword": "Polygon",
-      "display": "*Polygon[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t*Data {(<x> <y> [<colour>])}\n\t[@AxisId]\n\t[@Solid]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
+      "display": "*Polygon[<name>] [<colour>]\n{\n\t[@PerItemColour]\n\t(*Data {(<x> <y> [<colour>])})\n\t[@AxisId]\n\t[@Solid]\n\t[@Texture]\n\t$ObjectModifiers\n\t&Recursive\n}",
       "rootOnly": false,
       "hidden": false,
       "recursive": true,

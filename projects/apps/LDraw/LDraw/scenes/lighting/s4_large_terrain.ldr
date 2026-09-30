@@ -1,0 +1,75 @@
+// S4: A 1 km plane with small objects near the camera, lit by a shadow-casting directional light.
+*Plane ground FF70A070
+{
+	*Data {1000 1000}
+	*AxisId {+3}
+}
+*Box rock0 FFC0B090 { *Data {0.3 0.3 0.2} *o2w {*pos {0.5 0 0.1}} }
+*Box rock1 FFC0B090 { *Data {0.3 0.3 0.4} *o2w {*pos {-0.626762 0.574169 0.2}} }
+*Box rock2 FFC0B090 { *Data {0.3 0.3 0.6} *o2w {*pos {0.104903 -1.19541 0.3}} }
+*Box rock3 FFC0B090 { *Data {0.3 0.3 0.8} *o2w {*pos {0.943092 1.23007 0.4}} }
+*Box rock4 FFC0B090 { *Data {0.3 0.3 1} *o2w {*pos {-1.87096 -0.330922 0.5}} }
+*Box rock5 FFC0B090 { *Data {0.3 0.3 0.2} *o2w {*pos {1.89843 -1.20767 0.1}} }
+*Box rock6 FFC0B090 { *Data {0.3 0.3 0.4} *o2w {*pos {-0.674923 2.51087 0.2}} }
+*Box rock7 FFC0B090 { *Data {0.3 0.3 0.6} *o2w {*pos {-1.35973 -2.61794 0.3}} }
+*Box rock8 FFC0B090 { *Data {0.3 0.3 0.8} *o2w {*pos {3.09979 1.13195 0.4}} }
+*Box rock9 FFC0B090 { *Data {0.3 0.3 1} *o2w {*pos {-3.37382 1.39278 0.5}} }
+*Box rock10 FFC0B090 { *Data {0.3 0.3 0.2} *o2w {*pos {1.69527 -3.62299 0.1}} }
+*Box rock11 FFC0B090 { *Data {0.3 0.3 0.4} *o2w {*pos {1.30203 4.15057 0.2}} }
+*Box rock12 FFC0B090 { *Data {0.3 0.3 0.6} *o2w {*pos {-4.06658 -2.35646 0.3}} }
+*Box rock13 FFC0B090 { *Data {0.3 0.3 0.8} *o2w {*pos {4.93217 -1.08454 0.4}} }
+*Box rock14 FFC0B090 { *Data {0.3 0.3 1} *o2w {*pos {-3.1055 4.41768 0.5}} }
+*Box rock15 FFC0B090 { *Data {0.3 0.3 0.2} *o2w {*pos {-0.739213 -5.70229 0.1}} }
+*Box rock16 FFC0B090 { *Data {0.3 0.3 0.4} *o2w {*pos {4.66456 3.93089 0.2}} }
+*Box rock17 FFC0B090 { *Data {0.3 0.3 0.6} *o2w {*pos {-6.44448 0.266854 0.3}} }
+*Box rock18 FFC0B090 { *Data {0.3 0.3 0.8} *o2w {*pos {4.81976 -4.79686 0.4}} }
+*Box rock19 FFC0B090 { *Data {0.3 0.3 1} *o2w {*pos {-0.329831 7.14239 0.5}} }
+*Box rock20 FFC0B090 { *Data {0.3 0.3 0.2} *o2w {*pos {-4.80569 -5.75807 0.1}} }
+*Box rock21 FFC0B090 { *Data {0.3 0.3 0.4} *o2w {*pos {7.77997 1.04625 0.2}} }
+*Box rock22 FFC0B090 { *Data {0.3 0.3 0.6} *o2w {*pos {-6.73071 4.68376 0.3}} }
+*Box rock23 FFC0B090 { *Data {0.3 0.3 0.8} *o2w {*pos {1.87595 -8.34166 0.4}} }
+*Box rock24 FFC0B090 { *Data {0.3 0.3 1} *o2w {*pos {4.42551 7.72171 0.5}} }
+*Box rock25 FFC0B090 { *Data {0.3 0.3 0.2} *o2w {*pos {-8.81264 -2.81069 0.1}} }
+*Box rock26 FFC0B090 { *Data {0.3 0.3 0.4} *o2w {*pos {8.71446 -4.02719 0.2}} }
+*Box rock27 FFC0B090 { *Data {0.3 0.3 0.6} *o2w {*pos {-3.84051 9.17894 0.3}} }
+*Box rock28 FFC0B090 { *Data {0.3 0.3 0.8} *o2w {*pos {-3.48693 -9.69182 0.4}} }
+*Box rock29 FFC0B090 { *Data {0.3 0.3 1} *o2w {*pos {9.42773 4.95382 0.5}} }
+*Box rock30 FFC0B090 { *Data {0.3 0.3 0.2} *o2w {*pos {-10.6364 2.80482 0.1}} }
+*Box rock31 FFC0B090 { *Data {0.3 0.3 0.4} *o2w {*pos {6.13755 -9.54741 0.2}} }
+*Box rock32 FFC0B090 { *Data {0.3 0.3 0.6} *o2w {*pos {1.98289 11.5307 0.3}} }
+*Box rock33 FFC0B090 { *Data {0.3 0.3 0.8} *o2w {*pos {-9.5278 -7.37724 0.4}} }
+*Box rock34 FFC0B090 { *Data {0.3 0.3 1} *o2w {*pos {12.3575 -1.02516 0.5}} }
+*Box rock35 FFC0B090 { *Data {0.3 0.3 0.2} *o2w {*pos {-8.6572 9.36031 0.1}} }
+*Box rock36 FFC0B090 { *Data {0.3 0.3 0.4} *o2w {*pos {0.0623823 -13.0999 0.2}} }
+*Box rock37 FFC0B090 { *Data {0.3 0.3 0.6} *o2w {*pos {9.03805 9.96073 0.3}} }
+*Box rock38 FFC0B090 { *Data {0.3 0.3 0.8} *o2w {*pos {-13.7413 -1.27184 0.4}} }
+*Box rock39 FFC0B090 { *Data {0.3 0.3 1} *o2w {*pos {11.2702 -8.55595 0.5}} }
+*Box far0 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {80 0 3}} }
+*Box far1 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {76.0845 24.7214 3}} }
+*Box far2 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {64.7214 47.0228 3}} }
+*Box far3 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {47.0228 64.7214 3}} }
+*Box far4 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {24.7214 76.0845 3}} }
+*Box far5 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {4.89859e-15 80 3}} }
+*Box far6 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {-24.7214 76.0845 3}} }
+*Box far7 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {-47.0228 64.7214 3}} }
+*Box far8 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {-64.7214 47.0228 3}} }
+*Box far9 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {-76.0845 24.7214 3}} }
+*Box far10 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {-80 9.79717e-15 3}} }
+*Box far11 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {-76.0845 -24.7214 3}} }
+*Box far12 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {-64.7214 -47.0228 3}} }
+*Box far13 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {-47.0228 -64.7214 3}} }
+*Box far14 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {-24.7214 -76.0845 3}} }
+*Box far15 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {-1.46958e-14 -80 3}} }
+*Box far16 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {24.7214 -76.0845 3}} }
+*Box far17 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {47.0228 -64.7214 3}} }
+*Box far18 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {64.7214 -47.0228 3}} }
+*Box far19 FFB0B0B0 { *Data {2 2 6} *o2w {*pos {76.0845 -24.7214 3}} }
+*Box fence FF806040 { *Data {10 0.05 1} *o2w {*pos {0 -3 0.5}} }
+*LightSource sun FFFFFFFF
+{
+	*Style {Directional}
+	*Diffuse {FFFFFFFF}
+	*Specular {FF404040 64}
+	*CastShadow {1}
+	*o2w {*pos {-30 -50 60} *LookAt {0 0 0}}
+}

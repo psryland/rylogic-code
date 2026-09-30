@@ -65,9 +65,6 @@ namespace Rylogic.Gfx
 				View3D_HitTestAsyncCBSet(Handle, m_ht_async_cb = new HitTestAsyncCB { m_cb = HandleHitTestAsyncResult }, true);
 				void HandleHitTestAsyncResult(IntPtr ctx, HWindow wnd, HitTestResult[] results, int count) => OnHitTestAsyncResult?.Invoke(this, new HitTestAsyncResultEventArgs(results));
 
-				// Set up the light source
-				SetLightSource(v4.Origin, -v4.ZAxis, true);
-
 				// Display the focus point
 				FocusPointVisible = true;
 
@@ -632,11 +629,59 @@ namespace Rylogic.Gfx
 				set => View3D_MultiSamplingSet(Handle, value);
 			}
 
-			/// <summary>Get/Set the light properties. Note returned value is a value type</summary>
-			public LightInfo LightProperties
+			/// <summary>The number of scene lights in this window. Light 0 is the main light</summary>
+			public int LightCount => View3D_LightCount(Handle);
+
+			/// <summary>Get the scene light at 'index'. Note returned value is a value type</summary>
+			public LightInfo LightGet(int index)
 			{
-				get => View3D_LightPropertiesGet(Handle);
-				set => View3D_LightPropertiesSet(Handle, ref value);
+				return View3D_LightGet(Handle, index);
+			}
+
+			/// <summary>Set the scene light at 'index'</summary>
+			public void LightSet(int index, LightInfo light)
+			{
+				View3D_LightSet(Handle, index, ref light);
+			}
+
+			/// <summary>Add a scene light, returning its index</summary>
+			public int LightAdd(LightInfo light)
+			{
+				return View3D_LightAdd(Handle, ref light);
+			}
+
+			/// <summary>Remove the scene light at 'index'. Later lights move down one index</summary>
+			public void LightRemove(int index)
+			{
+				View3D_LightRemove(Handle, index);
+			}
+
+			/// <summary>Get/Set the main light (light 0). Setting adds the main light if the window has no lights</summary>
+			public LightInfo MainLight
+			{
+				get => LightGet(0);
+				set
+				{
+					// Windows start with a main light, but callers may have removed it.
+					if (LightCount == 0)
+						LightAdd(value);
+					else
+						LightSet(0, value);
+				}
+			}
+
+			/// <summary>Get/Set the scene-wide ambient light colour</summary>
+			public Colour32 Ambient
+			{
+				get => View3D_AmbientGet(Handle);
+				set => View3D_AmbientSet(Handle, value);
+			}
+
+			/// <summary>Get/Set the scene-wide shadow settings</summary>
+			public ShadowSettings Shadows
+			{
+				get => View3D_ShadowSettingsGet(Handle);
+				set => View3D_ShadowSettingsSet(Handle, ref value);
 			}
 
 			/// <summary>Set the global environment map used by this window.</summary>
@@ -650,12 +695,6 @@ namespace Rylogic.Gfx
 			{
 				throw new NotImplementedException();
 				//todo View3D_LightShowDialog(Handle);
-			}
-
-			/// <summary>Set the single light source</summary>
-			public void SetLightSource(v4 position, v4 direction, bool camera_relative)
-			{
-				View3D_LightSource(Handle, position, direction, camera_relative);
 			}
 
 			/// <summary>Show/Hide the object manager tool</summary>

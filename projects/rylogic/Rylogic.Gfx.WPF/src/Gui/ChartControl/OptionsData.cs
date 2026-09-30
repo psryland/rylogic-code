@@ -32,7 +32,7 @@ namespace Rylogic.Gui.WPF
 				OriginPointVisible = false;
 				ShowAxes = true;
 				Antialiasing = true;
-				ShadowCastRange = 0.0;
+				MainLightShadowStrength = 0.0;
 				FillMode = View3d.EFillMode.Solid;
 				CullMode = View3d.ECullMode.Back;
 				Orthographic = false;
@@ -164,11 +164,11 @@ namespace Rylogic.Gui.WPF
 				set => set(nameof(Antialiasing), value);
 			}
 
-			/// <summary>How far to cast shadows. 0 = off</summary>
-			public double ShadowCastRange
+			/// <summary>Shadow strength of the main light (light 0) in [0,1]. 0 = the main light casts no shadow</summary>
+			public double MainLightShadowStrength
 			{
-				get => get<double>(nameof(ShadowCastRange));
-				set => set(nameof(ShadowCastRange), value);
+				get => get<double>(nameof(MainLightShadowStrength));
+				set => set(nameof(MainLightShadowStrength), value);
 			}
 
 			/// <summary>Fill mode, solid, wire, or both</summary>

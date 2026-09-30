@@ -214,7 +214,27 @@ namespace LDraw.UI
 						if (!m_syncing_lighting)
 						{
 							using var sync = Scope.Create(() => m_syncing_lighting = true, () => m_syncing_lighting = false);
-							SceneView.Scene.Window.LightProperties = SceneState.Lighting.ToLightInfo();
+							SceneView.Scene.Window.MainLight = SceneState.Lighting.ToLightInfo();
+						}
+						return;
+					}
+					if (e.Key == nameof(SceneStateData.Ambient))
+					{
+						if (!m_syncing_lighting)
+						{
+							using var sync = Scope.Create(() => m_syncing_lighting = true, () => m_syncing_lighting = false);
+							SceneView.Scene.Window.Ambient = SceneState.Ambient;
+						}
+						return;
+					}
+
+					// Shadow changes (either replacement of the ShadowData object, or any inner field change that bubbles up)
+					if (e.Key == nameof(SceneStateData.Shadows) || ReferenceEquals(e.SettingSet, SceneState.Shadows))
+					{
+						if (!m_syncing_lighting)
+						{
+							using var sync = Scope.Create(() => m_syncing_lighting = true, () => m_syncing_lighting = false);
+							SceneView.Scene.Window.Shadows = SceneState.Shadows.ToShadowSettings();
 						}
 						return;
 					}
@@ -275,7 +295,9 @@ namespace LDraw.UI
 						if (!m_syncing_lighting)
 						{
 							using var sync = Scope.Create(() => m_syncing_lighting = true, () => m_syncing_lighting = false);
-							SceneState.Lighting.FromLightInfo(SceneView.Scene.Window.LightProperties);
+							SceneState.Lighting.FromLightInfo(SceneView.Scene.Window.MainLight);
+							SceneState.Ambient = SceneView.Scene.Window.Ambient;
+							SceneState.Shadows.FromShadowSettings(SceneView.Scene.Window.Shadows);
 						}
 					}
 					if (Bit.AllSet(e.Setting, View3d.ESettings.Rendering_RayTracing))

@@ -50,7 +50,13 @@ internal sealed partial class LDrawInstanceHost
 			FillModePointsSize = window.Diag.FillModePointsSize.x,
 			RayTracingAvailable = window.RayTracingAvailable,
 			RayTracingEnabled = window.RayTracingEnabled,
-			ShadowCastRange = scene_view.ShadowCastRange,
+			MainLightShadowStrength = scene_view.MainLightShadowStrength,
+			MaxShadowLights = window.Shadows.MaxShadowLights,
+			ShadowAtlasSize = window.Shadows.AtlasSize,
+			ShadowCascades = window.Shadows.CascadeCount,
+			ShadowDistance = window.Shadows.ShadowDistance,
+			ShadowCascadeSplitBlend = window.Shadows.CascadeSplitBlend,
+			ShadowFilterSize = window.Shadows.FilterSize,
 		};
 	}
 }

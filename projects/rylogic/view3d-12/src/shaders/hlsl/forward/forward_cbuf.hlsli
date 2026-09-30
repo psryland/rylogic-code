@@ -7,6 +7,7 @@
 #ifndef PR_VIEW3D_SHADER_FORWARD_CBUF_HLSL
 #define PR_VIEW3D_SHADER_FORWARD_CBUF_HLSL
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
+#include "view3d-12/src/shaders/hlsl/lighting/lighting_cbuf.hlsli"
 
 // Constants per frame.
 struct CBufFrame// :reg(b0)
@@ -14,14 +15,12 @@ struct CBufFrame// :reg(b0)
 	// Camera transform
 	Camera cam;
 	
-	// Global lighting
-	Light global_light;
+	// Scene lighting. The lights themselves are in the 'g_lights' structured buffer.
+	float4 ambient;    // .rgb = scene-wide ambient light colour
+	int4 light_info;   // x = light count
 
 	// EnvMap
 	EnvMap env_map;
-
-	// Shadows
-	Shadow shadow;
 
 	// Projected textures
 	ProjTexture proj_tex;
@@ -33,7 +32,6 @@ struct CBufNugget// :reg(b1)
 	// Sync with:
 	//   forward_cbuf.hlsli
 	//   shadow_map_cbuf.hlsli
-	//   gbuffer_cbuf.hlsli
 
 	// x = Model flags - See types.hlsli
 	// y = Texture flags

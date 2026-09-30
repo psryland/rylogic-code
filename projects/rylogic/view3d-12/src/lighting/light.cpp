@@ -12,7 +12,6 @@ namespace pr::rdr12
 		:m_position(v4::Origin())
 		,m_direction(0, 0, -1, 0)
 		,m_type(ELight::Directional)
-		,m_ambient(0.5f, 0.5f, 0.5f, 0.0f)
 		,m_diffuse(1.0f, 1.0f, 1.0f, 1.0f)
 		,m_specular(0.0625f, 0.0625f, 0.0625f, 0.0f)
 		,m_specular_power(64.0f)
@@ -31,7 +30,6 @@ namespace pr::rdr12
 	{
 		switch (m_type)
 		{
-			case ELight::Ambient:     return true;
 			case ELight::Point:       return m_position.w == 1.0f;
 			case ELight::Spot:        return LengthSq(m_direction) != 0;
 			case ELight::Directional: return LengthSq(m_direction) != 0;
@@ -39,44 +37,18 @@ namespace pr::rdr12
 		}
 	}
 
-	// Returns a light to world transform appropriate for this light type and facing 'centre'
-	m4x4 Light::LightToWorld(v4 centre, float centre_dist, m4x4 const& c2w) const
+	// Return a copy of this light in world space. Camera-relative lights are transformed by 'c2w'.
+	Light Light::InWorldSpace(m4x4 const& c2w) const
 	{
-		auto pos = m_cam_relative ? c2w * m_position : m_position;
-		auto dir = m_cam_relative ? c2w * m_direction : m_direction;
-		auto preferred_up = m_cam_relative ? c2w.y : v4::YAxis();
-		centre_dist = centre_dist != 0 ? centre_dist : 1.0f;
-		switch (m_type)
-		{
-			case ELight::Directional: return m4x4::LookAt(centre - centre_dist * dir, centre, Perpendicular(dir, preferred_up));
-			case ELight::Point:       return m4x4::LookAt(pos, centre, Perpendicular(centre - pos, preferred_up));
-			case ELight::Spot:        return m4x4::LookAt(pos, centre, Perpendicular(centre - pos, preferred_up));
-			default:                  return m4x4::Identity();
-		}
-	}
+		// World space lights are already in their final position
+		auto light = *this;
+		if (!light.m_cam_relative)
+			return light;
 
-	// Returns a projection transform appropriate for this light type
-	m4x4 Light::Projection(float zn, float zf, float w, float h, float focus_dist) const
-	{
-		auto s = zn / focus_dist;
-		switch (m_type)
-		{
-			case ELight::Directional: return m4x4::ProjectionOrthographic(w, h, zn, zf, true);
-			case ELight::Point:       return m4x4::ProjectionPerspective(w * s, h * s, zn, zf, true);
-			case ELight::Spot:        return m4x4::ProjectionPerspective(w * s, h * s, zn, zf, true);
-			default:                  return m4x4::Identity();
-		}
-	}
-	m4x4 Light::ProjectionFOV(float zn, float zf, float aspect, float fovY, float focus_dist) const
-	{
-		auto height = 2.0f * focus_dist * tan(fovY * 0.5f);
-		switch (m_type)
-		{
-			case ELight::Directional: return m4x4::ProjectionOrthographic(height * aspect, height, zn, zf, true);
-			case ELight::Point:       return m4x4::ProjectionPerspectiveFOV(fovY, aspect, zn, zf, true);
-			case ELight::Spot:        return m4x4::ProjectionPerspectiveFOV(fovY, aspect, zn, zf, true);
-			default:                  return m4x4::Identity();
-		}
+		light.m_position = c2w * m_position;
+		light.m_direction = c2w * m_direction;
+		light.m_cam_relative = false;
+		return light;
 	}
 
 	enum class ELightKW
@@ -85,7 +57,6 @@ namespace pr::rdr12
 		x(Pos  ,= rdr12::ldraw::HashI("Pos" ))\
 		x(Dir  ,= rdr12::ldraw::HashI("Dir" ))\
 		x(Type ,= rdr12::ldraw::HashI("Type"))\
-		x(Amb  ,= rdr12::ldraw::HashI("Amb" ))\
 		x(Diff ,= rdr12::ldraw::HashI("Diff"))\
 		x(Spec ,= rdr12::ldraw::HashI("Spec"))\
 		x(SPwr ,= rdr12::ldraw::HashI("SPwr"))\
@@ -110,7 +81,6 @@ namespace pr::rdr12
 			<< "  *" << ELightKW::Dir  << "{" << m_direction.xyz << "}\n"
 			<< "  *" << ELightKW::Type << "{" << m_type << "}\n"
 			<< std::hex
-			<< "  *" << ELightKW::Amb  << "{" << m_ambient.argb << "}\n"
 			<< "  *" << ELightKW::Diff << "{" << m_diffuse.argb << "}\n"
 			<< "  *" << ELightKW::Spec << "{" << m_specular.argb << "}\n"
 			<< std::dec
@@ -141,7 +111,6 @@ namespace pr::rdr12
 				case ELightKW::Pos:  light.m_position = reader.Vector3f().w1(); break;
 				case ELightKW::Dir:  light.m_direction = reader.Vector3f().w0(); break;
 				case ELightKW::Type: light.m_type = reader.Enum<ELight>(); break;
-				case ELightKW::Amb:  light.m_ambient = reader.Int<uint32_t>(16); break;
 				case ELightKW::Diff: light.m_diffuse = reader.Int<uint32_t>(16); break;
 				case ELightKW::Spec: light.m_specular = reader.Int<uint32_t>(16); break;
 				case ELightKW::SPwr: light.m_specular_power = reader.Real<float>(); break;
@@ -160,5 +129,31 @@ namespace pr::rdr12
 		{
 			throw std::invalid_argument(e.what());
 		}
+	}
+
+	// Build the world space lights that shade a frame
+	int ResolveLights(std::span<Light const> scene_lights, std::span<Light const> frame_lights, m4x4 const& c2w, LightList& out)
+	{
+		// Keep lights in input order so the same scene always selects the same lights when the limit is reached
+		out.resize(0);
+		auto dropped = 0;
+		auto add = [&](Light const& light)
+		{
+			// Lights that are off do not shade anything and do not use a slot
+			if (!light.m_on)
+				return;
+
+			if (isize(out) == MaxLights)
+				++dropped;
+			else
+				out.push_back(light.InWorldSpace(c2w));
+		};
+		for (auto const& light : scene_lights)
+			add(light);
+
+		for (auto const& light : frame_lights)
+			add(light);
+
+		return dropped;
 	}
 }

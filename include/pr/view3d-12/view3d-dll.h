@@ -99,8 +99,6 @@ namespace pr
 		{
 			Invalid = 0,
 			ForwardRender,
-			GBuffer,
-			DSLighting,
 			ShadowMap,
 			RayCast,
 		};
@@ -183,10 +181,6 @@ namespace pr
 			//  *Absolute (optional, default false) - True if 'radius' is absolute, false if 'radius' should be scaled by the focus distance
 			FwdRadialFadePS,
 
-			GBufferVS,
-			GBufferPS,
-			DSLightingVS,
-			DSLightingPS,
 			ShadowMapVS,
 			ShadowMapPS,
 
@@ -213,7 +207,6 @@ namespace pr
 		};
 		enum class ELight :int
 		{
-			Ambient,
 			Directional,
 			Point,
 			Spot
@@ -727,7 +720,6 @@ namespace pr
 			Vec4 m_position;
 			Vec4 m_direction;
 			ELight m_type;
-			Colour m_ambient;
 			Colour m_diffuse;
 			Colour m_specular;
 			float m_specular_power;
@@ -739,6 +731,22 @@ namespace pr
 			float m_cast_shadow;
 			BOOL m_cam_relative;
 			BOOL m_on;
+		};
+		struct ShadowSettings
+		{
+			int   m_atlas_size;             // Width and height of the square shadow atlas (in pixels). Must be a power of two
+			int   m_directional_resolution; // Requested size of each directional light cascade view (in pixels)
+			int   m_spot_resolution;        // Largest size of a spot light shadow view (in pixels)
+			int   m_point_resolution;       // Largest size of each of the six point light shadow views (in pixels)
+			int   m_max_shadow_lights;      // The maximum number of lights that cast shadows. Zero disables shadows
+			int   m_cascade_count;          // The number of cascades for directional lights, in [1,4]
+			float m_shadow_distance;        // Distance from the camera beyond which directional lights cast no shadows. Zero means fit to the shadow casters
+			float m_cascade_split_blend;    // Cascade split distribution in [0,1]. 0 = even spacing, 1 = logarithmic spacing
+			int   m_filter_size;            // Width of the shadow edge filter (in shadow texels). Either 5 or 7
+			int   m_depth_bias;             // Constant depth bias (in units of the smallest depth step)
+			float m_slope_bias;             // Depth bias scaled by the depth slope of each triangle
+			float m_normal_bias;            // Receiver offset along the surface normal (in shadow texels)
+			BOOL  m_cache_views;            // Re-render shadow views only when their content changes
 		};
 		struct TextureOptions
 		{
@@ -1372,12 +1380,32 @@ extern "C"
 
 	// Lights *********************************
 
-	// Get/Set the properties of the global light
-	VIEW3D_API pr::view3d::Light __stdcall View3D_LightPropertiesGet(pr::view3d::Window window);
-	VIEW3D_API void __stdcall View3D_LightPropertiesSet(pr::view3d::Window window, pr::view3d::Light const& light);
-	
-	// Set the global light source for a window
-	VIEW3D_API void __stdcall View3D_LightSource(pr::view3d::Window window, pr::view3d::Vec4 position, pr::view3d::Vec4 direction, BOOL camera_relative);
+	// Notes:
+	//  - A window has a list of scene lights. Light 0 is conventionally the main light. New windows have one directional light.
+	//  - At most 64 lights shade a frame, counting scene lights first, then light source objects. Lights that are off do not count.
+	//  - Ambient light is a scene-wide colour, not a light.
+
+	// The number of scene lights in 'window'
+	VIEW3D_API int __stdcall View3D_LightCount(pr::view3d::Window window);
+
+	// Get/Set the properties of the scene light at 'index'. 'index' must be in [0, View3D_LightCount).
+	VIEW3D_API pr::view3d::Light __stdcall View3D_LightGet(pr::view3d::Window window, int index);
+	VIEW3D_API void __stdcall View3D_LightSet(pr::view3d::Window window, int index, pr::view3d::Light const& light);
+
+	// Add a scene light and return its index
+	VIEW3D_API int __stdcall View3D_LightAdd(pr::view3d::Window window, pr::view3d::Light const& light);
+
+	// Remove the scene light at 'index'. Later lights move down one index.
+	VIEW3D_API void __stdcall View3D_LightRemove(pr::view3d::Window window, int index);
+
+	// Get/Set the scene-wide ambient light colour
+	VIEW3D_API pr::view3d::Colour __stdcall View3D_AmbientGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_AmbientSet(pr::view3d::Window window, pr::view3d::Colour ambient);
+
+	// Get/Set the scene-wide shadow settings. A light casts shadows when its 'm_cast_shadow' is greater than zero.
+	// At most 'm_max_shadow_lights' lights cast shadows, chosen in light order, and all shadow views share one atlas.
+	VIEW3D_API pr::view3d::ShadowSettings __stdcall View3D_ShadowSettingsGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_ShadowSettingsSet(pr::view3d::Window window, pr::view3d::ShadowSettings const& settings);
 
 	// Objects ********************************
 

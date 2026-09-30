@@ -151,8 +151,6 @@ namespace pr::rdr12
 					}
 					case ERenderStep::RayCast:
 					case ERenderStep::RayTracing:
-					case ERenderStep::GBuffer:
-					case ERenderStep::DSLighting:
 					{
 						return key;
 					}
@@ -185,8 +183,6 @@ namespace pr::rdr12
 						return;
 					}
 					case ERenderStep::RayTracing:
-					case ERenderStep::GBuffer:
-					case ERenderStep::DSLighting:
 					{
 						return;
 					}
@@ -217,8 +213,6 @@ namespace pr::rdr12
 						return;
 					}
 					case ERenderStep::RayTracing:
-					case ERenderStep::GBuffer:
-					case ERenderStep::DSLighting:
 					{
 						return;
 					}
@@ -644,8 +638,6 @@ namespace pr::rdr12
 				return &pass;
 			}
 			case ERenderStep::RayTracing:
-			case ERenderStep::GBuffer:
-			case ERenderStep::DSLighting:
 			{
 				if (m_procedural_surface.m_enabled)
 					throw std::runtime_error("Procedural surface materials support forward, shadow-map, and ray-cast paths only");

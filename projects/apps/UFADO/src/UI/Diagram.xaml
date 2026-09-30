@@ -38,7 +38,7 @@
 			<MenuItem Header="Rendering">
 				<StaticResource ResourceKey="View3dMenuItem_BackgroundColour"/>
 				<StaticResource ResourceKey="View3dMenuItem_Antialiasing"/>
-				<StaticResource ResourceKey="View3dMenuItem_ShadowCastRange"/>
+				<StaticResource ResourceKey="View3dMenuItem_MainLightShadowStrength"/>
 				<StaticResource ResourceKey="View3dMenuItem_FillMode"/>
 				<StaticResource ResourceKey="View3dMenuItem_CullMode"/>
 				<StaticResource ResourceKey="View3dMenuItem_Lighting"/>

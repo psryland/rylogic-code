@@ -62,6 +62,7 @@ namespace pr::rdr12
 		EVertexSource            m_vertex_source;  // Interpretation of indexed IDs; procedural nugget capabilities do not describe physical placeholder fields.
 		SizeAndAlign16           m_vstride;        // The size and alignment (in bytes) of a single V-element
 		SizeAndAlign16           m_istride;        // The size and alignment (in bytes) of a single I-element
+		uint64_t                 m_revision;       // Incremented whenever the vertex or index data is updated
 		mutable EDbgFlags        m_dbg_flags;      // Flags used by PR_DBG_RDR to output info once only
 
 		Model(Renderer& rdr,

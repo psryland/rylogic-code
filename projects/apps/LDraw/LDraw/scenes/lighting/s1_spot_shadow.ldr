@@ -1,0 +1,65 @@
+// S1: A shadow-casting spot light over a box field.
+*Plane floor FFB0B0B0
+{
+	*Data {20 20}
+	*AxisId {+3}
+}
+*Box b00 FFE0E0E0 { *Data {0.5 0.5 0.4} *o2w {*pos {-4.5 -4.5 0.2}} }
+*Box b10 FFE0E0E0 { *Data {0.5 0.5 1} *o2w {*pos {-3 -4.5 0.5}} }
+*Box b20 FFE0E0E0 { *Data {0.5 0.5 1.6} *o2w {*pos {-1.5 -4.5 0.8}} }
+*Box b30 FFE0E0E0 { *Data {0.5 0.5 0.7} *o2w {*pos {0 -4.5 0.35}} }
+*Box b40 FFE0E0E0 { *Data {0.5 0.5 1.3} *o2w {*pos {1.5 -4.5 0.65}} }
+*Box b50 FFE0E0E0 { *Data {0.5 0.5 0.4} *o2w {*pos {3 -4.5 0.2}} }
+*Box b60 FFE0E0E0 { *Data {0.5 0.5 1} *o2w {*pos {4.5 -4.5 0.5}} }
+*Box b01 FFE0E0E0 { *Data {0.5 0.5 1.3} *o2w {*pos {-4.5 -3 0.65}} }
+*Box b11 FFE0E0E0 { *Data {0.5 0.5 0.4} *o2w {*pos {-3 -3 0.2}} }
+*Box b21 FFE0E0E0 { *Data {0.5 0.5 1} *o2w {*pos {-1.5 -3 0.5}} }
+*Box b31 FFE0E0E0 { *Data {0.5 0.5 1.6} *o2w {*pos {0 -3 0.8}} }
+*Box b41 FFE0E0E0 { *Data {0.5 0.5 0.7} *o2w {*pos {1.5 -3 0.35}} }
+*Box b51 FFE0E0E0 { *Data {0.5 0.5 1.3} *o2w {*pos {3 -3 0.65}} }
+*Box b61 FFE0E0E0 { *Data {0.5 0.5 0.4} *o2w {*pos {4.5 -3 0.2}} }
+*Box b02 FFE0E0E0 { *Data {0.5 0.5 0.7} *o2w {*pos {-4.5 -1.5 0.35}} }
+*Box b12 FFE0E0E0 { *Data {0.5 0.5 1.3} *o2w {*pos {-3 -1.5 0.65}} }
+*Box b22 FFE0E0E0 { *Data {0.5 0.5 0.4} *o2w {*pos {-1.5 -1.5 0.2}} }
+*Box b32 FFE0E0E0 { *Data {0.5 0.5 1} *o2w {*pos {0 -1.5 0.5}} }
+*Box b42 FFE0E0E0 { *Data {0.5 0.5 1.6} *o2w {*pos {1.5 -1.5 0.8}} }
+*Box b52 FFE0E0E0 { *Data {0.5 0.5 0.7} *o2w {*pos {3 -1.5 0.35}} }
+*Box b62 FFE0E0E0 { *Data {0.5 0.5 1.3} *o2w {*pos {4.5 -1.5 0.65}} }
+*Box b03 FFE0E0E0 { *Data {0.5 0.5 1.6} *o2w {*pos {-4.5 0 0.8}} }
+*Box b13 FFE0E0E0 { *Data {0.5 0.5 0.7} *o2w {*pos {-3 0 0.35}} }
+*Box b23 FFE0E0E0 { *Data {0.5 0.5 1.3} *o2w {*pos {-1.5 0 0.65}} }
+*Box b33 FFE0E0E0 { *Data {0.5 0.5 0.4} *o2w {*pos {0 0 0.2}} }
+*Box b43 FFE0E0E0 { *Data {0.5 0.5 1} *o2w {*pos {1.5 0 0.5}} }
+*Box b53 FFE0E0E0 { *Data {0.5 0.5 1.6} *o2w {*pos {3 0 0.8}} }
+*Box b63 FFE0E0E0 { *Data {0.5 0.5 0.7} *o2w {*pos {4.5 0 0.35}} }
+*Box b04 FFE0E0E0 { *Data {0.5 0.5 1} *o2w {*pos {-4.5 1.5 0.5}} }
+*Box b14 FFE0E0E0 { *Data {0.5 0.5 1.6} *o2w {*pos {-3 1.5 0.8}} }
+*Box b24 FFE0E0E0 { *Data {0.5 0.5 0.7} *o2w {*pos {-1.5 1.5 0.35}} }
+*Box b34 FFE0E0E0 { *Data {0.5 0.5 1.3} *o2w {*pos {0 1.5 0.65}} }
+*Box b44 FFE0E0E0 { *Data {0.5 0.5 0.4} *o2w {*pos {1.5 1.5 0.2}} }
+*Box b54 FFE0E0E0 { *Data {0.5 0.5 1} *o2w {*pos {3 1.5 0.5}} }
+*Box b64 FFE0E0E0 { *Data {0.5 0.5 1.6} *o2w {*pos {4.5 1.5 0.8}} }
+*Box b05 FFE0E0E0 { *Data {0.5 0.5 0.4} *o2w {*pos {-4.5 3 0.2}} }
+*Box b15 FFE0E0E0 { *Data {0.5 0.5 1} *o2w {*pos {-3 3 0.5}} }
+*Box b25 FFE0E0E0 { *Data {0.5 0.5 1.6} *o2w {*pos {-1.5 3 0.8}} }
+*Box b35 FFE0E0E0 { *Data {0.5 0.5 0.7} *o2w {*pos {0 3 0.35}} }
+*Box b45 FFE0E0E0 { *Data {0.5 0.5 1.3} *o2w {*pos {1.5 3 0.65}} }
+*Box b55 FFE0E0E0 { *Data {0.5 0.5 0.4} *o2w {*pos {3 3 0.2}} }
+*Box b65 FFE0E0E0 { *Data {0.5 0.5 1} *o2w {*pos {4.5 3 0.5}} }
+*Box b06 FFE0E0E0 { *Data {0.5 0.5 1.3} *o2w {*pos {-4.5 4.5 0.65}} }
+*Box b16 FFE0E0E0 { *Data {0.5 0.5 0.4} *o2w {*pos {-3 4.5 0.2}} }
+*Box b26 FFE0E0E0 { *Data {0.5 0.5 1} *o2w {*pos {-1.5 4.5 0.5}} }
+*Box b36 FFE0E0E0 { *Data {0.5 0.5 1.6} *o2w {*pos {0 4.5 0.8}} }
+*Box b46 FFE0E0E0 { *Data {0.5 0.5 0.7} *o2w {*pos {1.5 4.5 0.35}} }
+*Box b56 FFE0E0E0 { *Data {0.5 0.5 1.3} *o2w {*pos {3 4.5 0.65}} }
+*Box b66 FFE0E0E0 { *Data {0.5 0.5 0.4} *o2w {*pos {4.5 4.5 0.2}} }
+*LightSource spot FFFFFFFF
+{
+	*Style {Spot}
+	*Diffuse {FFFFFFFF}
+	*Specular {FF404040 64}
+	*CastShadow {1}
+	*Range {20 0}
+	*Cone {30 45}
+	*o2w {*pos {3 -3 8} *LookAt {0 0 0}}
+}

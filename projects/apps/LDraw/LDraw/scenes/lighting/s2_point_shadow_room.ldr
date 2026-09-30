@@ -1,0 +1,24 @@
+// S2: A shadow-casting point light inside a room with pillars. The room has no ceiling so the camera can look in.
+*Box floor FFB0B0B0 { *Data {12 12 0.2} *o2w {*pos {0 0 -0.1}} }
+*Box wall_n FFD0D0D0 { *Data {12 0.2 4} *o2w {*pos {0 6 2}} }
+*Box wall_s FFD0D0D0 { *Data {12 0.2 4} *o2w {*pos {0 -6 2}} }
+*Box wall_e FFD0D0D0 { *Data {0.2 12 4} *o2w {*pos {6 0 2}} }
+*Box wall_w FFD0D0D0 { *Data {0.2 12 4} *o2w {*pos {-6 0 2}} }
+*Box pillar0 FF8080FF { *Data {0.4 0.4 3.5} *o2w {*pos {3 0 1.75}} }
+*Box pillar1 FF8080FF { *Data {0.4 0.4 3.5} *o2w {*pos {2.12132 2.12132 1.75}} }
+*Box pillar2 FF8080FF { *Data {0.4 0.4 3.5} *o2w {*pos {1.83697e-16 3 1.75}} }
+*Box pillar3 FF8080FF { *Data {0.4 0.4 3.5} *o2w {*pos {-2.12132 2.12132 1.75}} }
+*Box pillar4 FF8080FF { *Data {0.4 0.4 3.5} *o2w {*pos {-3 3.67394e-16 1.75}} }
+*Box pillar5 FF8080FF { *Data {0.4 0.4 3.5} *o2w {*pos {-2.12132 -2.12132 1.75}} }
+*Box pillar6 FF8080FF { *Data {0.4 0.4 3.5} *o2w {*pos {-5.51091e-16 -3 1.75}} }
+*Box pillar7 FF8080FF { *Data {0.4 0.4 3.5} *o2w {*pos {2.12132 -2.12132 1.75}} }
+*Box low_block FFFF8080 { *Data {0.8 0.8 0.8} *o2w {*pos {1.2 0.5 0.4}} }
+*LightSource bulb FFFFFFFF
+{
+	*Style {Point}
+	*Diffuse {FFFFFFFF}
+	*Specular {FF404040 64}
+	*CastShadow {1}
+	*Range {20 0.0}
+	*o2w {*pos {0 0 2}}
+}

@@ -42,19 +42,27 @@ namespace pr::rdr12
 		, m_raycast_immed()
 		, m_gsync_async(wnd.d3d())
 		, m_raycast_async()
-		, m_global_light()
+		, m_lights()
+		, m_ambient(0xFF808080U)
 		, m_global_envmap()
 		, m_global_fill_mode(EFillMode::Default)
 		, m_pso()
 		, m_ray_tracing_props()
 		, m_eh_resize()
 		, m_far_clip_fade()
+		, m_shadow_settings()
+		, m_frame_lights()
+		, m_resolved_lights()
+		, m_dropped_lights()
 		, m_post_effects(*wnd.m_rdr)
 	{
 		// Initialise the scene camera to match the full window
 		auto bb_size = m_wnd->BackBufferSize();
 		if (Any(bb_size != iv2::Zero()))
 			m_cam.Aspect(1.0f * bb_size.x / bb_size.y);
+
+		// Scenes start with a single default directional light
+		m_lights.push_back(Light{});
 
 		// Set the render steps for the scene
 		SetRenderSteps({ rsteps.begin(), rsteps.size() });
@@ -123,6 +131,7 @@ namespace pr::rdr12
 	void Scene::ClearDrawlists()
 	{
 		m_instances.clear();
+		m_frame_lights.resize(0);
 		for (auto& rs : m_render_steps)
 			rs->ClearDrawlist();
 	}
@@ -197,7 +206,7 @@ namespace pr::rdr12
 			switch (rs)
 			{
 				case ERenderStep::RenderForward: m_render_steps.emplace_back(new RenderForward(*this)); break;
-				case ERenderStep::ShadowMap:     m_render_steps.emplace_back(new RenderSmap(*this, m_global_light)); break;
+				case ERenderStep::ShadowMap: throw std::runtime_error("The shadow map render step is managed by the scene's shadow settings and lights");
 				case ERenderStep::RayCast:
 				{
 					// This step submits independently even when invoked during a frame. Duplicate entries need separate
@@ -212,17 +221,47 @@ namespace pr::rdr12
 		}
 	}
 
-	// Enable/Disable shadow casting
-	void Scene::ShadowCasting(bool enable, int shadow_map_size)
+	// Get/Set the scene-wide shadow settings
+	ShadowSettings const& Scene::Shadows() const
 	{
-		if (enable && FindRStep<RenderSmap>() == nullptr)
-		{
-			m_render_steps.emplace(std::begin(m_render_steps), new RenderSmap(*this, m_global_light, shadow_map_size));
-		}
-		if (!enable && FindRStep<RenderSmap>() != nullptr)
-		{
-			pr::erase_if(m_render_steps, [](auto& rs) { return rs->m_step_id == ERenderStep::ShadowMap; });
-		}
+		return m_shadow_settings;
+	}
+	void Scene::Shadows(ShadowSettings const& settings)
+	{
+		// Reject settings the shadow atlas cannot represent
+		auto is_pow2 = [](int x) { return x > 0 && (x & (x - 1)) == 0; };
+		if (!is_pow2(settings.m_atlas_size) || settings.m_atlas_size > D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION)
+			throw std::invalid_argument("Shadow atlas size must be a power of two no larger than the maximum texture size");
+		if (settings.m_directional_resolution <= 0 || settings.m_spot_resolution <= 0 || settings.m_point_resolution <= 0)
+			throw std::invalid_argument("Shadow view resolutions must be positive");
+		if (settings.m_max_shadow_lights < 0 || settings.m_depth_bias < 0 || settings.m_slope_bias < 0 || settings.m_normal_bias < 0)
+			throw std::invalid_argument("Shadow light count and biases must not be negative");
+		if (settings.m_cascade_count < 1 || settings.m_cascade_count > MaxShadowCascades)
+			throw std::invalid_argument(std::format("Shadow cascade count must be in [1, {}]", MaxShadowCascades));
+		if (!(settings.m_shadow_distance >= 0) || !(settings.m_cascade_split_blend >= 0 && settings.m_cascade_split_blend <= 1))
+			throw std::invalid_argument("Shadow distance must not be negative, and the cascade split blend must be in [0,1]");
+		if (settings.m_filter_size != 5 && settings.m_filter_size != 7)
+			throw std::invalid_argument("Shadow filter size must be 5 or 7");
+
+		m_shadow_settings = settings;
+	}
+
+	// Add a world space light that shades the current frame only
+	void Scene::AddFrameLight(Light const& light)
+	{
+		m_frame_lights.push_back(light);
+	}
+
+	// The world space lights that shade the current frame
+	std::span<Light const> Scene::ResolvedLights() const
+	{
+		return m_resolved_lights;
+	}
+
+	// The number of on lights that did not shade the last frame
+	int Scene::DroppedLightCount() const
+	{
+		return m_dropped_lights;
 	}
 
 	// Enable/disable ray tracing without rebuilding the existing raster render steps.
@@ -391,6 +430,28 @@ namespace pr::rdr12
 
 		// Make sure the scene is up to date
 		OnUpdateScene(*this, { frame.m_prepare, frame.m_upload });
+
+		// Resolve the lights for this frame before any render step reads them
+		m_dropped_lights = ResolveLights(m_lights, m_frame_lights, m_cam.CameraToWorld(), m_resolved_lights);
+
+		// Add the shadow map step when a resolved light casts shadows, and remove it when none do. It runs first so the forward pass can read the atlas.
+		{
+			auto casts = std::any_of(m_resolved_lights.begin(), m_resolved_lights.end(), [](Light const& light) { return light.CastsShadow(); });
+			auto want = casts && m_shadow_settings.m_max_shadow_lights > 0;
+			auto* smap = FindRStep<RenderSmap>();
+			if (want && smap == nullptr)
+			{
+				auto& step = *m_render_steps.emplace(std::begin(m_render_steps), new RenderSmap(*this));
+				for (auto const* inst : m_instances)
+					step->AddInstance(*inst);
+			}
+			if (!want && smap != nullptr)
+			{
+				// Earlier frames may still use the step's atlas and command allocators
+				wnd().m_gsync.Wait();
+				pr::erase_if(m_render_steps, [](auto& rs) { return rs->m_step_id == ERenderStep::ShadowMap; });
+			}
+		}
 
 		// Allow render steps to do frame setup before any step starts recording its render commands.
 		for (auto& rs : m_render_steps)

@@ -132,7 +132,6 @@ class EKeyword(Enum):
 	Addr = 1087856498
 	Align = 1613521886
 	Alpha = 1569418667
-	Ambient = 479609067
 	Anchor = 1122880180
 	AngAccel = 801436173
 	AngVelocity = 2226367268

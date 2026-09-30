@@ -15,7 +15,6 @@ namespace Rylogic.LDraw
 		Addr = unchecked((int)1087856498),
 		Align = unchecked((int)1613521886),
 		Alpha = unchecked((int)1569418667),
-		Ambient = unchecked((int)479609067),
 		Anchor = unchecked((int)1122880180),
 		AngAccel = unchecked((int)801436173),
 		AngVelocity = unchecked((int)2226367268),

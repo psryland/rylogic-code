@@ -22,6 +22,7 @@
 #include <sstream>
 #include <fstream>
 #include <unordered_map>
+#include <unordered_set>
 #include <algorithm>
 #include <regex>
 #include <optional>
@@ -311,11 +312,12 @@ namespace pr::rdr12
 		struct ShadowMap;
 	}
 	using ShaderPtr = RefPtr<Shader>;
-	struct ShadowMap;
-	struct ShadowCaster;
 
 	// Lighting
 	struct Light;
+	struct ShadowSettings;
+	struct ShadowView;
+	struct ShadowViewSet;
 
 	// Ray cast
 	struct HitTestRay;
@@ -381,8 +383,6 @@ namespace pr::rdr12
 		#define PR_ENUM(x)\
 		x(Invalid        , = InvalidId)\
 		x(RenderForward  ,)\
-		x(GBuffer        ,)\
-		x(DSLighting     ,)\
 		x(ShadowMap      ,)\
 		x(RayCast        ,)\
 		x(RayTracing     ,)
@@ -482,11 +482,10 @@ namespace pr::rdr12
 	PR_ENUM_REFLECTION2(ECullMode , PR_ENUM);
 	#undef PR_ENUM
 
-	// ELight
+	// ELight. Ambient light is a scene-wide colour rather than a light type (see Scene::m_ambient).
 	enum class ELight
 	{
 		#define PR_ENUM(x)\
-		x(Ambient    )\
 		x(Directional)\
 		x(Point      )\
 		x(Spot       )

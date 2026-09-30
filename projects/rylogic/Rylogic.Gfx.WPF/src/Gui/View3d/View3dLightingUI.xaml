@@ -100,7 +100,6 @@
 					<CheckBox
 						Grid.Row="0"
 						Content="Camera Relative"
-						IsEnabled="{Binding IsCasting}"
 						IsChecked="{Binding Light.CameraRelative}"
 						Margin="3"
 						/>
@@ -208,7 +207,7 @@
 									/>
 							</Button>
 							<TextBox
-								Text="{Binding Light.Ambient, Converter={conv:ColourToString}}"
+								Text="{Binding Ambient, Converter={conv:ColourToString}}"
 								MinWidth="100"
 								HorizontalContentAlignment="Center"
 								VerticalAlignment="Center"
@@ -219,7 +218,6 @@
 					<!-- Diffuse -->
 					<StackPanel
 						Grid.Row="1"
-						IsEnabled="{Binding IsCasting}"
 						>
 						<TextBlock
 							Text="Diffuse (aarrggbb): "
@@ -252,7 +250,6 @@
 					<!-- Specular -->
 					<StackPanel
 						Grid.Row="2"
-						IsEnabled="{Binding IsCasting}"
 						>
 						<TextBlock
 							Text="Specular (aarrggbb): "
@@ -285,7 +282,6 @@
 					<!-- Specular power -->
 					<StackPanel
 						Grid.Row="3"
-						IsEnabled="{Binding IsCasting}"
 						>
 						<TextBlock
 							Text="Specular Power: "
@@ -439,16 +435,15 @@
 						<RowDefinition Height="Auto"/>
 					</Grid.RowDefinitions>
 
-					<!-- Shadow range -->
+					<!-- Shadow strength -->
 					<StackPanel
 						Grid.Row="2"
-						IsEnabled="{Binding IsCasting}"
 						Orientation="Horizontal"
 						HorizontalAlignment="Right"
 						Margin="3"
 						>
 						<TextBlock
-							Text="Shadow Range: "
+							Text="Shadow Strength: "
 							VerticalAlignment="Center"
 							/>
 						<TextBox

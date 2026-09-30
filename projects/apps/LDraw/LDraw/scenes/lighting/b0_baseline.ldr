@@ -1,0 +1,10 @@
+// B0: Baseline. Lit only by the default global light. Turn on shadows in the lighting settings to check the directional shadow.
+*Plane floor FF808080
+{
+	*Data {12 12}
+	*AxisId {+3}
+}
+*Box red_box FFFF2020 { *Data {1 1 1} *o2w {*pos {-2.4 0 0.5}} }
+*Sphere green_sphere FF20FF40 { *Data {0.7} *o2w {*pos {0 -0.8 0.7}} }
+*Box tall_box FF4080FF { *Data {0.5 0.5 2.5} *o2w {*pos {2.2 0.4 1.25}} }
+*Box back_box FFFFF020 { *Data {3 0.4 1.5} *o2w {*pos {0 2.5 0.75}} }

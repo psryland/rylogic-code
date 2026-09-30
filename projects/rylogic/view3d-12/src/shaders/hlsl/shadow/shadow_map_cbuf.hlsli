@@ -8,14 +8,13 @@
 #define PR_VIEW3D_SHADER_SHADOW_MAP_CBUF_HLSL
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
 
-// Camera to world transform and view frustum
-struct CBufFrame //:reg(b0)
+// The shadow views that one draw call renders into. Provided as root constants.
+// Each instance of the draw renders into one view: instance 'i' uses view 'views[i/4][i%4]' in the frame's shadow view buffer.
+// The instance also renders into viewport 'views[i/4][i%4] - info.x', where 'info.x' is the first view of the current batch of viewports.
+struct CBufDrawViews //:reg(b0)
 {
-	// Not using 'Shadow' from types because the shadow map generation
-	// shaders operate on one shadow map at a time. The main render can
-	// support multiple shadow maps.
-	row_major float4x4 w2l; // World space to light space
-	row_major float4x4 l2s; // Light space to screen space
+	uint4 views[4]; // Indices of the shadow views to render into, one per instance
+	uint4 info;     // x = index of the shadow view bound to viewport 0, yzw = unused
 };
 
 // Constants per render nugget.
@@ -24,7 +23,6 @@ struct CBufNugget //:reg(b1)
 	// Sync with:
 	//   forward_cbuf.hlsli
 	//   shadow_map_cbuf.hlsli
-	//   gbuffer_cbuf.hlsli
 
 	// x = Model flags - See types.hlsli
 	// y = Texture flags

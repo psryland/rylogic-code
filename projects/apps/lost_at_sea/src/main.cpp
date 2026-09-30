@@ -285,11 +285,12 @@ namespace las
 			m_water_generator_position = v2{cam_pos.x, cam_pos.y};
 		}
 
-		// Update the scene's global light to match the day/night cycle
-		m_scene.m_global_light.m_direction = -sun_dir;
-		m_scene.m_global_light.m_cam_relative = false;
-		m_scene.m_global_light.m_diffuse = Colour(sun_col.x * 0.5f, sun_col.y * 0.5f, sun_col.z * 0.5f, 1.0f);
-		m_scene.m_global_light.m_ambient = Colour(0.15f * sun_int, 0.15f * sun_int, 0.2f * sun_int, 1.0f);
+		// Update the scene's main light to match the day/night cycle
+		auto& sun = m_scene.m_lights[0];
+		sun.m_direction = -sun_dir;
+		sun.m_cam_relative = false;
+		sun.m_diffuse = Colour(sun_col.x * 0.5f, sun_col.y * 0.5f, sun_col.z * 0.5f, 1.0f);
+		m_scene.m_ambient = Colour32(Colour(0.15f * sun_int, 0.15f * sun_int, 0.2f * sun_int, 1.0f));
 
 		// PrepareFrame task: set up the frame (must be serial, touches GPU resources)
 		m_render_graph.Add(RenderTaskId::PrepareFrame, [&](auto&) -> pr::task_graph::Task {

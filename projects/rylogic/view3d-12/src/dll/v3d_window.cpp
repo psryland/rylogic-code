@@ -88,16 +88,17 @@ namespace pr::rdr12
 			if (LengthSq(rt_area) != 0)
 				m_scene.m_cam.Aspect(rt_area.x / float(rt_area.y));
 
-			// The light for the scene
-			m_scene.m_global_light.m_type = ELight::Directional;
-			m_scene.m_global_light.m_ambient = Colour32(0xFF808080U);
-			m_scene.m_global_light.m_diffuse = Colour32(0xFFFFFFFFU);
-			m_scene.m_global_light.m_specular = Colour32(0xFF101010U);
-			m_scene.m_global_light.m_specular_power = 64.0f;
-			m_scene.m_global_light.m_intensity = 1.0f;
-			m_scene.m_global_light.m_direction = -v4::ZAxis();
-			m_scene.m_global_light.m_on = true;
-			m_scene.m_global_light.m_cam_relative = true;
+			// The scene starts with a single camera-relative directional light and grey ambient light
+			auto& main_light = m_scene.m_lights[0];
+			main_light.m_type = ELight::Directional;
+			main_light.m_diffuse = Colour32(0xFFFFFFFFU);
+			main_light.m_specular = Colour32(0xFF101010U);
+			main_light.m_specular_power = 64.0f;
+			main_light.m_intensity = 1.0f;
+			main_light.m_direction = -v4::ZAxis();
+			main_light.m_on = true;
+			main_light.m_cam_relative = true;
+			m_scene.m_ambient = Colour32(0xFF808080U);
 
 			// Forward async hit test results
 			m_eh_hittests = m_scene.OnHitTestAsyncResults += [this](Scene&, std::span<HitTestResult const> results)
@@ -168,26 +169,49 @@ namespace pr::rdr12
 	// Get/Set the settings
 	std::string_view V3dWindow::Settings() const
 	{
+		// Ambient light, then one entry per scene light in order
 		std::stringstream out;
-		out << "*Light {\n" << m_scene.m_global_light.Settings() << "}\n";
+		out << "*Ambient {" << std::hex << m_scene.m_ambient.argb << std::dec << "}\n";
+		for (auto const& light : m_scene.m_lights)
+			out << "*Light {\n" << light.Settings() << "}\n";
+
 		m_settings = out.str();
 		return m_settings.c_str();
 	}
 	void V3dWindow::Settings(std::string_view settings)
 	{
-		// Parse the settings
+		// Parse the settings. Saved lighting (which always includes the ambient light) replaces all scene lights.
+		auto has_lighting = false;
+		auto lights = LightList{};
+		auto ambient = m_scene.m_ambient;
 		mem_istream<char> src(settings);
 		rdr12::ldraw::TextReader reader(src, {});
 		for (int kw; reader.NextKeyword(kw);) switch (kw)
 		{
+			case rdr12::ldraw::HashI("Ambient"):
+			{
+				ambient = reader.Int<uint32_t>(16);
+				has_lighting = true;
+				break;
+			}
 			case rdr12::ldraw::HashI("Light"):
 			{
 				auto desc = reader.String<std::string>();
-				m_scene.m_global_light.Settings(desc);
-				OnSettingsChanged(this, view3d::ESettings::Lighting_All);
+				lights.push_back(Light{});
+				lights.back().Settings(desc);
+				has_lighting = true;
 				break;
 			}
 		}
+
+		// Apply the parsed lighting
+		if (!has_lighting)
+			return;
+
+		m_scene.m_lights = lights;
+		m_scene.m_ambient = ambient;
+		OnSettingsChanged(this, view3d::ESettings::Lighting_All);
+		Invalidate();
 	}
 
 	// Get the current ray tracing capability and per-window enable state.
@@ -656,9 +680,6 @@ namespace pr::rdr12
 		m_scene.SetView(cam);
 		cam.m_moved = false;
 		*/
-
-		// Set the shadow casting light source
-		m_scene.ShadowCasting(m_scene.m_global_light.m_cast_shadow != 0, 1024);
 
 		// Position and scale the focus point and origin point
 		if (AnySet(m_visible_objects, EStockObject::FocusPoint | EStockObject::OriginPoint))
@@ -1376,35 +1397,90 @@ namespace pr::rdr12
 		Invalidate();
 	}
 
-	// Get/Set the global scene light
-	Light V3dWindow::GlobalLight() const
+	// The number of scene lights
+	int V3dWindow::LightCount() const
 	{
-		return m_scene.m_global_light;
+		return isize(m_scene.m_lights);
 	}
-	void V3dWindow::GlobalLight(Light const& light)
+
+	// Get/Set a scene light
+	Light V3dWindow::SceneLight(int index) const
 	{
-		if (GlobalLight() == light)
+		assert(index >= 0 && index < LightCount());
+		return m_scene.m_lights[index];
+	}
+	void V3dWindow::SceneLight(int index, Light const& light)
+	{
+		// Report only the aspects of the light that changed
+		assert(index >= 0 && index < LightCount());
+		auto& prev = m_scene.m_lights[index];
+		if (prev == light)
 			return;
 
 		auto settings = view3d::ESettings::Lighting;
-		if (m_scene.m_global_light.m_type != light.m_type) settings |= view3d::ESettings::Lighting_Type;
-		if (Any(m_scene.m_global_light.m_position != light.m_position)) settings |= view3d::ESettings::Lighting_Position;
-		if (Any(m_scene.m_global_light.m_direction != light.m_direction)) settings |= view3d::ESettings::Lighting_Direction;
-		if (m_scene.m_global_light.m_ambient != light.m_ambient) settings |= view3d::ESettings::Lighting_Colour;
-		if (m_scene.m_global_light.m_diffuse != light.m_diffuse) settings |= view3d::ESettings::Lighting_Colour;
-		if (m_scene.m_global_light.m_specular != light.m_specular) settings |= view3d::ESettings::Lighting_Colour;
-		if (m_scene.m_global_light.m_intensity != light.m_intensity) settings |= view3d::ESettings::Lighting_Colour;
-		if (m_scene.m_global_light.m_specular_power != light.m_specular_power) settings |= view3d::ESettings::Lighting_Range;
-		if (m_scene.m_global_light.m_range != light.m_range) settings |= view3d::ESettings::Lighting_Range;
-		if (m_scene.m_global_light.m_falloff != light.m_falloff) settings |= view3d::ESettings::Lighting_Range;
-		if (m_scene.m_global_light.m_inner_angle != light.m_inner_angle) settings |= view3d::ESettings::Lighting_Range;
-		if (m_scene.m_global_light.m_outer_angle != light.m_outer_angle) settings |= view3d::ESettings::Lighting_Range;
-		if (m_scene.m_global_light.m_cast_shadow != light.m_cast_shadow) settings |= view3d::ESettings::Lighting_Shadows;
-		if (m_scene.m_global_light.m_cam_relative != light.m_cam_relative) settings |= view3d::ESettings::Lighting_Position | view3d::ESettings::Lighting_Direction;
-		if (m_scene.m_global_light.m_on != light.m_on) settings |= view3d::ESettings::Lighting_All;
+		if (prev.m_type != light.m_type) settings |= view3d::ESettings::Lighting_Type;
+		if (Any(prev.m_position != light.m_position)) settings |= view3d::ESettings::Lighting_Position;
+		if (Any(prev.m_direction != light.m_direction)) settings |= view3d::ESettings::Lighting_Direction;
+		if (prev.m_diffuse != light.m_diffuse) settings |= view3d::ESettings::Lighting_Colour;
+		if (prev.m_specular != light.m_specular) settings |= view3d::ESettings::Lighting_Colour;
+		if (prev.m_intensity != light.m_intensity) settings |= view3d::ESettings::Lighting_Colour;
+		if (prev.m_specular_power != light.m_specular_power) settings |= view3d::ESettings::Lighting_Range;
+		if (prev.m_range != light.m_range) settings |= view3d::ESettings::Lighting_Range;
+		if (prev.m_falloff != light.m_falloff) settings |= view3d::ESettings::Lighting_Range;
+		if (prev.m_inner_angle != light.m_inner_angle) settings |= view3d::ESettings::Lighting_Range;
+		if (prev.m_outer_angle != light.m_outer_angle) settings |= view3d::ESettings::Lighting_Range;
+		if (prev.m_cast_shadow != light.m_cast_shadow) settings |= view3d::ESettings::Lighting_Shadows;
+		if (prev.m_cam_relative != light.m_cam_relative) settings |= view3d::ESettings::Lighting_Position | view3d::ESettings::Lighting_Direction;
+		if (prev.m_on != light.m_on) settings |= view3d::ESettings::Lighting_All;
 
-		m_scene.m_global_light = light;
+		prev = light;
 		OnSettingsChanged(this, settings);
+		Invalidate();
+	}
+
+	// Add/Remove scene lights
+	int V3dWindow::AddLight(Light const& light)
+	{
+		m_scene.m_lights.push_back(light);
+		OnSettingsChanged(this, view3d::ESettings::Lighting_All);
+		Invalidate();
+		return LightCount() - 1;
+	}
+	void V3dWindow::RemoveLight(int index)
+	{
+		assert(index >= 0 && index < LightCount());
+		m_scene.m_lights.erase(m_scene.m_lights.begin() + index);
+		OnSettingsChanged(this, view3d::ESettings::Lighting_All);
+		Invalidate();
+	}
+
+	// Get/Set the scene-wide ambient light colour
+	Colour32 V3dWindow::Ambient() const
+	{
+		return m_scene.m_ambient;
+	}
+	void V3dWindow::Ambient(Colour32 ambient)
+	{
+		if (m_scene.m_ambient == ambient)
+			return;
+
+		m_scene.m_ambient = ambient;
+		OnSettingsChanged(this, view3d::ESettings::Lighting_Colour);
+		Invalidate();
+	}
+
+	// Get/Set the scene-wide shadow settings
+	ShadowSettings const& V3dWindow::Shadows() const
+	{
+		return m_scene.Shadows();
+	}
+	void V3dWindow::Shadows(ShadowSettings const& settings)
+	{
+		if (m_scene.Shadows() == settings)
+			return;
+
+		m_scene.Shadows(settings);
+		OnSettingsChanged(this, view3d::ESettings::Lighting_Shadows);
 		Invalidate();
 	}
 
@@ -1932,20 +2008,29 @@ namespace pr::rdr12
 	{
 		if (!m_ui_lighting)
 		{
-			m_ui_lighting.reset(new rdr12::LightingUI(m_hwnd, m_scene.m_global_light));
+			// The native lighting UI edits the main light (light 0) and the scene ambient light
+			if (m_scene.m_lights.empty())
+				m_scene.m_lights.push_back(Light{});
+
+			m_ui_lighting.reset(new rdr12::LightingUI(m_hwnd, m_scene.m_lights[0], m_scene.m_ambient));
 			m_ui_lighting->HideOnClose(true);
-			m_ui_lighting->Commit += [&](rdr12::LightingUI&, Light const& light)
+			m_ui_lighting->Commit += [&](rdr12::LightingUI& ui, Light const& light)
 			{
-				GlobalLight(light);
+				SceneLight(0, light);
+				Ambient(ui.m_ambient);
 			};
-			m_ui_lighting->Preview += [&](rdr12::LightingUI&, Light const& light)
+			m_ui_lighting->Preview += [&](rdr12::LightingUI& ui, Light const& light)
 			{
-				auto prev = m_scene.m_global_light;
-				m_scene.m_global_light = light;
+				// Render once with the previewed lighting, then restore the committed lighting
+				auto prev_light = m_scene.m_lights[0];
+				auto prev_ambient = m_scene.m_ambient;
+				m_scene.m_lights[0] = light;
+				m_scene.m_ambient = ui.m_ambient;
 
 				Render();
 
-				m_scene.m_global_light = prev;
+				m_scene.m_lights[0] = prev_light;
+				m_scene.m_ambient = prev_ambient;
 			};
 		}
 

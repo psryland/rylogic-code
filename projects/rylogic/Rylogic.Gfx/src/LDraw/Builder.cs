@@ -1755,7 +1755,6 @@ namespace Rylogic.LDraw
 	public class LdrLightSource : LdrBase<LdrLightSource>
 	{
 		private string m_style = "Point";
-		private Colour32? m_ambient = null;
 		private Colour32? m_diffuse = null;
 		private Colour32? m_specular = null;
 		private float? m_specular_power = null;
@@ -1767,11 +1766,6 @@ namespace Rylogic.LDraw
 		public LdrLightSource style(string style)
 		{
 			m_style = style;
-			return this;
-		}
-		public LdrLightSource ambient(Colour32 col)
-		{
-			m_ambient = col;
 			return this;
 		}
 		public LdrLightSource diffuse(Colour32 col)
@@ -1800,9 +1794,9 @@ namespace Rylogic.LDraw
 			m_cone = new v2(inner, outer);
 			return this;
 		}
-		public LdrLightSource cast_shadow(float range)
+		public LdrLightSource cast_shadow(float strength)
 		{
-			m_cast_shadow = range;
+			m_cast_shadow = strength;
 			return this;
 		}
 
@@ -1811,7 +1805,6 @@ namespace Rylogic.LDraw
 			res.Write(EKeyword.LightSource, m_name, m_colour, () =>
 			{
 				res.Write(EKeyword.Style, m_style);
-				if (m_ambient is Colour32 a) res.Write(EKeyword.Ambient, a);
 				if (m_diffuse is Colour32 d) res.Write(EKeyword.Diffuse, d);
 				if (m_specular is Colour32 s && m_specular_power is float p) res.Write(EKeyword.Specular, s, p);
 				if (m_intensity is float i) res.Write(EKeyword.Intensity, i);

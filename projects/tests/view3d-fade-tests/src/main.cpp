@@ -33,6 +33,27 @@ namespace fade_tests
 			throw std::runtime_error("D3D operation failed: " + std::to_string(result));
 	}
 
+	// The main scene light paired with the scene-wide ambient colour, so tests can snapshot and restore both together.
+	struct SceneLighting : api::Light
+	{
+		api::Colour m_ambient;
+	};
+
+	// Read light 0 and the scene ambient light from 'window'.
+	SceneLighting SceneLightingGet(api::Window window)
+	{
+		// Light 0 is the window's main light.
+		return SceneLighting{ View3D_LightGet(window, 0), View3D_AmbientGet(window) };
+	}
+
+	// Write light 0 and the scene ambient light to 'window'.
+	void SceneLightingSet(api::Window window, SceneLighting const& lighting)
+	{
+		// Apply the light and ambient as one logical lighting state.
+		View3D_LightSet(window, 0, lighting);
+		View3D_AmbientSet(window, lighting.m_ambient);
+	}
+
 	// Collect DLL failures without throwing through native callback frames.
 	void __stdcall ReportError(void* context, char const* message, char const*, int, int64_t)
 	{
@@ -612,7 +633,7 @@ namespace fade_tests
 		std::cout << "PASS internal generated masks, mixed nuggets, Tex0, canonical 64-byte storage and empty IA; public Vertex=48 bytes\n";
 
 		// Fixture-only controlled lighting leaves product lights, materials and shadows untouched.
-		auto light = View3D_LightPropertiesGet(fixture.m_window);
+		auto light = SceneLightingGet(fixture.m_window);
 		light.m_type = api::ELight::Directional;
 		light.m_ambient = 0xFF000000;
 		light.m_diffuse = 0xFFFFFFFF;
@@ -630,7 +651,7 @@ namespace fade_tests
 			View3D_ObjectO2WSet(object, To<api::Mat4x4>(transform), nullptr);
 			View3D_WindowAddObject(fixture.m_window, object);
 			light.m_direction = {-toward_light.x, -toward_light.y, -toward_light.z, 0};
-			View3D_LightPropertiesSet(fixture.m_window, light);
+			SceneLightingSet(fixture.m_window, light);
 			return LightingPatch(fixture.Image());
 		};
 		auto luminance = [](v4 colour)
@@ -1061,13 +1082,13 @@ namespace fade_tests
 		auto has_surface = View3D_ObjectNuggetProceduralSurfaceGet(object, round_trip, nullptr, 0);
 		fixture.CheckErrors();
 		Require(has_surface, "Procedural U32 object did not promote to the stock PBR material");
-		auto ambient_light = View3D_LightPropertiesGet(fixture.m_window);
+		auto ambient_light = SceneLightingGet(fixture.m_window);
 		ambient_light.m_ambient = 0xFFFFFFFF;
 		ambient_light.m_diffuse = 0xFF000000;
 		ambient_light.m_specular = 0xFF000000;
 		ambient_light.m_intensity = 1;
 		ambient_light.m_on = TRUE;
-		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		SceneLightingSet(fixture.m_window, ambient_light);
 		Expect(fixture.Image(), 0, 1, 0);
 
 		// Rejected procedural parameters must leave the existing enabled component unchanged.
@@ -1107,7 +1128,7 @@ namespace fade_tests
 
 		// ShadowMap must use the supplied procedural VS while retaining stock depth and material handling.
 		auto receiver = fixture.Quad(20, 0xFFFFFFFF, 45, nullptr, 0, 0xFFFFFFFF, false, true);
-		auto light = View3D_LightPropertiesGet(fixture.m_window);
+		auto light = SceneLightingGet(fixture.m_window);
 		light.m_type = api::ELight::Directional;
 		light.m_direction = api::Vec4{0.70710678f, 0, -0.70710678f, 0};
 		light.m_ambient = 0xFF202020;
@@ -1116,7 +1137,7 @@ namespace fade_tests
 		light.m_intensity = 1;
 		light.m_cast_shadow = 1.0f;
 		light.m_on = TRUE;
-		View3D_LightPropertiesSet(fixture.m_window, light);
+		SceneLightingSet(fixture.m_window, light);
 		auto with_shadow = fixture.Image();
 		View3D_ObjectFlagsSet(object, api::ELdrFlags::ShadowCastExclude, TRUE, nullptr);
 		auto without_shadow = fixture.Image();
@@ -1162,7 +1183,7 @@ namespace fade_tests
 			Require(!fixture.m_errors.empty() && fixture.m_errors.back().find("procedural vertex-ID") != std::string::npos, "DXR enable did not reject resident procedural geometry");
 			fixture.m_errors.clear();
 			Require(!View3D_WindowRayTracingEnabledGet(fixture.m_window), "Failed DXR enable changed the active pipeline");
-			View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+			SceneLightingSet(fixture.m_window, ambient_light);
 			Expect(fixture.Image(), 0, 1, 0);
 
 			// Rebuild the empty scene before enabling DXR, then add the model to exercise late admission on the same window.
@@ -1193,7 +1214,7 @@ namespace fade_tests
 
 				// Only add a reference here; model creation and final release remain inside the DLL.
 				child->m_model = object->m_model;
-				View3D_LightPropertiesSet(shared_fixture.m_window, ambient_light);
+				SceneLightingSet(shared_fixture.m_window, ambient_light);
 				View3D_WindowRayTracingEnabledSet(shared_fixture.m_window, TRUE);
 				shared_fixture.CheckErrors();
 				View3D_WindowAddObject(shared_fixture.m_window, group);
@@ -1261,14 +1282,14 @@ namespace fade_tests
 			Require(ImageDifference(images[0], images[i]) > 1000, "Procedural presets did not produce distinct rendered surfaces");
 
 		// Repeated frames and camera translation along the view axis must not move a world-coordinate field.
-		auto default_light = View3D_LightPropertiesGet(fixture.m_window);
+		auto default_light = SceneLightingGet(fixture.m_window);
 		auto ambient_light = default_light;
 		ambient_light.m_ambient = 0xFFFFFFFF;
 		ambient_light.m_diffuse = 0xFF000000;
 		ambient_light.m_specular = 0xFF000000;
 		ambient_light.m_on = TRUE;
 		ambient_light.m_intensity = 1.0f;
-		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		SceneLightingSet(fixture.m_window, ambient_light);
 		auto soil = View3D_ProceduralSurfacePreset(api::EProceduralSurfacePreset::Soil);
 		soil.m_feature_scale = 5.0f;
 		soil.m_seed = 42;
@@ -1296,7 +1317,7 @@ namespace fade_tests
 		Require(ImageDifference(red_image, fixture.Image()) > 1000, "Procedural albedo palette did not affect rendered output");
 
 		// Normal strength and roughness ranges independently affect lit PBR output without UVs or tangent streams.
-		View3D_LightPropertiesSet(fixture.m_window, default_light);
+		SceneLightingSet(fixture.m_window, default_light);
 		auto channels = View3D_ProceduralSurfacePreset(api::EProceduralSurfacePreset::Rock);
 		channels.m_feature_scale = 8.0f;
 		channels.m_colour0 = channels.m_colour1 = channels.m_colour2 = channels.m_colour3 = 0xFF808080;
@@ -1315,7 +1336,7 @@ namespace fade_tests
 		Require(ImageDifference(smooth, fixture.Image()) > 50, "Procedural roughness channel did not affect rendered output");
 
 		// Object-space coordinates move with the object rather than being anchored to the world field.
-		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		SceneLightingSet(fixture.m_window, ambient_light);
 		auto object_space = soil;
 		object_space.m_coordinate_space = api::EProceduralCoordinateSpace::Object;
 		View3D_ObjectNuggetProceduralSurfaceSet(object, object_space, nullptr, 0);
@@ -1340,7 +1361,7 @@ namespace fade_tests
 		View3D_ObjectO2WSet(object, translated, nullptr);
 		camera.w.x = 0;
 		View3D_CameraToWorldSet(fixture.m_window, camera);
-		View3D_LightPropertiesSet(fixture.m_window, default_light);
+		SceneLightingSet(fixture.m_window, default_light);
 
 		// A large translated object can retain local detail by selecting a matching caller-owned coordinate origin.
 		auto large = soil;
@@ -1388,7 +1409,7 @@ namespace fade_tests
 		// Adjacent independently owned meshes must match the same world-coordinate field on both sides of their shared boundary.
 		camera.w.x = 0;
 		View3D_CameraToWorldSet(fixture.m_window, camera);
-		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		SceneLightingSet(fixture.m_window, ambient_light);
 		fixture.Clear();
 		auto full = fixture.QuadRect(-45, 45, 10);
 		View3D_ObjectNuggetProceduralSurfaceSet(full, soil, nullptr, 0);
@@ -1413,11 +1434,11 @@ namespace fade_tests
 			}
 		}
 		Require(continuity_difference == 0, "World-coordinate procedural field changed across a mesh boundary");
-		View3D_LightPropertiesSet(fixture.m_window, default_light);
+		SceneLightingSet(fixture.m_window, default_light);
 
 		// Promotion preserves an ordinary material's alpha path so procedural colour still composites as authored.
 		fixture.Clear();
-		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		SceneLightingSet(fixture.m_window, ambient_light);
 		fixture.Quad(12, 0xFF0000FF);
 		auto transparent = fixture.Quad(10, 0x80FFFFFF, 45, nullptr, 0, 0xFFFFFFFF, false, true);
 		red.m_normal_strength = 0.0f;
@@ -1438,7 +1459,7 @@ namespace fade_tests
 
 		// Public round-trip and clear operations preserve ordinary material ownership.
 		fixture.Clear();
-		View3D_LightPropertiesSet(fixture.m_window, ambient_light);
+		SceneLightingSet(fixture.m_window, ambient_light);
 		auto round_trip_object = fixture.QuadRect(-45, 0, 10);
 		View3D_ObjectNuggetProceduralSurfaceSet(round_trip_object, soil, nullptr, 0);
 		Require(View3D_ObjectNuggetProceduralSurfaceGet(round_trip_object, round_trip, nullptr, 0), "Procedural surface getter did not find assigned state");
@@ -2030,12 +2051,12 @@ namespace fade_tests
 		}
 
 		// Lit simple and PBR surfaces must match an equivalent authored base colour at full override.
-		auto light = View3D_LightPropertiesGet(fixture.m_window);
+		auto light = SceneLightingGet(fixture.m_window);
 		light.m_ambient = 0xFF808080;
 		light.m_diffuse = light.m_specular = 0xFF000000;
 		light.m_on = TRUE;
 		light.m_intensity = 1;
-		View3D_LightPropertiesSet(fixture.m_window, light);
+		SceneLightingSet(fixture.m_window, light);
 		for (auto pbr : {false, true})
 		{
 			// Keep geometry and lighting identical while varying only the material's linear RGB.
@@ -2183,6 +2204,224 @@ namespace fade_tests
 		Require(View3D_ObjectSortGroupGet(quad, nullptr) == default_group, "Disabling depth overrides did not restore default ordering");
 		fixture.CheckErrors();
 		std::cout << "PASS repeated custom-scene/world handoff, real procedural sky overlap, and flag sort-group ownership: MSAA " << samples << '\n';
+	}
+
+	// Average linear red over an image rectangle
+	float RegionRed(std::vector<unsigned char> const& image, int x0, int x1, int y0, int y1)
+	{
+		// Red is enough because the test lights and surfaces are grey
+		auto sum = 0.0f;
+		for (auto y = y0; y != y1; ++y)
+		{
+			for (auto x = x0; x != x1; ++x)
+				sum += Linear(image[4 * (y * ImageSize + x)]);
+		}
+		return sum / ((x1 - x0) * (y1 - y0));
+	}
+
+	// Verify shadow atlas rendering for point and spot lights, batching across viewport arrays, and the shadow settings API
+	void ShadowTests(int samples)
+	{
+		// A receiver behind a narrow caster, lit from the side so the shadow falls on the visible part of the receiver.
+		// The caster covers world x in [-10,10] at depth 40. A light at (30,0,-20) projects it onto the receiver at depth 60 over x in [-50,-10].
+		Fixture fixture(samples);
+		auto receiver = fixture.Quad(60, 0xFFFFFFFF, 45, nullptr, 0, 0xFFFFFFFF, false, true);
+		auto caster = fixture.Quad(40, 0xFFFFFFFF, 10, nullptr, 0, 0xFFFFFFFF, false, true);
+		(void)receiver;
+
+		// Image regions (pixels) inside the expected shadow and on the lit receiver outside it
+		auto shadow_region = [](std::vector<unsigned char> const& image) { return RegionRed(image, 15, 35, 40, 88); };
+		auto lit_region = [](std::vector<unsigned char> const& image) { return RegionRed(image, 90, 110, 40, 88); };
+
+		// Replace the default directional light with a single point light that casts shadows
+		auto main_light = View3D_LightGet(fixture.m_window, 0);
+		main_light.m_on = FALSE;
+		View3D_LightSet(fixture.m_window, 0, main_light);
+		View3D_AmbientSet(fixture.m_window, 0xFF000000);
+		auto light = api::Light{};
+		light.m_type = api::ELight::Point;
+		light.m_position = api::Vec4{30, 0, -20, 1};
+		light.m_direction = api::Vec4{0, 0, -1, 0};
+		light.m_diffuse = 0xFFFFFFFF;
+		light.m_specular = 0xFF000000;
+		light.m_specular_power = 1;
+		light.m_intensity = 1;
+		light.m_range = 500;
+		light.m_falloff = 0;
+		light.m_inner_angle = 0.5f;
+		light.m_outer_angle = 1.2f;
+		light.m_cast_shadow = 1.0f;
+		light.m_cam_relative = FALSE;
+		light.m_on = TRUE;
+		auto point_index = View3D_LightAdd(fixture.m_window, light);
+		fixture.CheckErrors();
+
+		// Settings round trip with the documented defaults
+		auto settings = View3D_ShadowSettingsGet(fixture.m_window);
+		Require(settings.m_atlas_size == 4096 && settings.m_max_shadow_lights == 4, "Unexpected default shadow settings");
+
+		// Compare the image with and without the caster in the shadow pass
+		auto shadow_difference = [&](char const* message)
+		{
+			// The caster must darken its shadow region without changing the lit region
+			auto with_shadow = fixture.Image();
+			View3D_ObjectFlagsSet(caster, api::ELdrFlags::ShadowCastExclude, TRUE, nullptr);
+			auto without_shadow = fixture.Image();
+			View3D_ObjectFlagsSet(caster, api::ELdrFlags::ShadowCastExclude, FALSE, nullptr);
+			fixture.CheckErrors();
+			Require(shadow_region(with_shadow) < 0.5f * shadow_region(without_shadow), message);
+			Require(std::abs(lit_region(with_shadow) - lit_region(without_shadow)) < 0.02f, "Shadow darkened a region the caster cannot shade");
+			return ImageDifference(with_shadow, without_shadow);
+		};
+
+		// Point lights render six cube face views
+		shadow_difference("Point light cube shadow missing");
+
+		// Spot lights render one perspective view
+		light.m_type = api::ELight::Spot;
+		light.m_direction = api::Vec4{-0.6f, 0, -0.8f, 0};
+		View3D_LightSet(fixture.m_window, point_index, light);
+		shadow_difference("Spot light shadow missing");
+
+		// Four point shadow lights need 24 views, more than one viewport batch. The first light's shadow must survive batching.
+		// The extra lights are far above the scene so they light the receiver evenly without shading the tested regions.
+		light.m_type = api::ELight::Point;
+		View3D_LightSet(fixture.m_window, point_index, light);
+		for (int i = 0; i != 3; ++i)
+		{
+			auto extra = light;
+			extra.m_position = api::Vec4{-40.0f + 40.0f * i, 60, 200, 1};
+			extra.m_intensity = 0.1f;
+			View3D_LightAdd(fixture.m_window, extra);
+		}
+		fixture.CheckErrors();
+		shadow_difference("Point light shadow missing when shadow views span more than one batch");
+
+		// Zero shadow lights disables shadows, making the caster flag irrelevant
+		settings.m_max_shadow_lights = 0;
+		View3D_ShadowSettingsSet(fixture.m_window, settings);
+		{
+			auto disabled = fixture.Image();
+			View3D_ObjectFlagsSet(caster, api::ELdrFlags::ShadowCastExclude, TRUE, nullptr);
+			auto excluded = fixture.Image();
+			View3D_ObjectFlagsSet(caster, api::ELdrFlags::ShadowCastExclude, FALSE, nullptr);
+			fixture.CheckErrors();
+			Require(ImageDifference(disabled, excluded) == 0, "Shadows rendered with zero shadow lights");
+		}
+
+		// A smaller atlas recreates the atlas and still renders shadows
+		settings.m_max_shadow_lights = 4;
+		settings.m_atlas_size = 1024;
+		View3D_ShadowSettingsSet(fixture.m_window, settings);
+		Require(View3D_ShadowSettingsGet(fixture.m_window).m_atlas_size == 1024, "Shadow settings did not round trip");
+		shadow_difference("Shadow missing after atlas resize");
+
+		// Invalid settings are reported and leave the current settings unchanged
+		auto invalid = settings;
+		invalid.m_atlas_size = 1000;
+		View3D_ShadowSettingsSet(fixture.m_window, invalid);
+		Require(!fixture.m_errors.empty(), "Non power-of-two atlas size was accepted");
+		fixture.m_errors.clear();
+		Require(View3D_ShadowSettingsGet(fixture.m_window).m_atlas_size == 1024, "Rejected shadow settings changed the scene");
+		std::cout << "PASS point/spot shadow views, viewport batching, shadow light limit, atlas resize, and settings validation: MSAA " << samples << '\n';
+	}
+	// Verify directional light cascades, the shadow edge filter sizes, and shadow view caching
+	void DirectionalShadowTests(int samples)
+	{
+		// A receiver behind a narrow caster, lit by a directional light travelling along (-1.5, 0, -1).
+		// The caster covers world x in [-10,10] at depth 40, so its shadow on the receiver at depth 60 covers x in [-40,-20].
+		Fixture fixture(samples);
+		auto receiver = fixture.Quad(60, 0xFFFFFFFF, 45, nullptr, 0, 0xFFFFFFFF, false, true);
+		auto caster = fixture.Quad(40, 0xFFFFFFFF, 10, nullptr, 0, 0xFFFFFFFF, false, true);
+		(void)receiver;
+
+		// Image regions (pixels) inside the expected shadow and on the lit receiver outside it
+		auto shadow_region = [](std::vector<unsigned char> const& image) { return RegionRed(image, 15, 35, 40, 88); };
+		auto lit_region = [](std::vector<unsigned char> const& image) { return RegionRed(image, 90, 110, 40, 88); };
+
+		// Make the main light a world-space directional light that casts shadows
+		View3D_AmbientSet(fixture.m_window, 0xFF000000);
+		auto light = View3D_LightGet(fixture.m_window, 0);
+		light.m_type = api::ELight::Directional;
+		light.m_direction = api::Vec4{-0.8320503f, 0, -0.5547002f, 0};
+		light.m_diffuse = 0xFFFFFFFF;
+		light.m_specular = 0xFF000000;
+		light.m_intensity = 1;
+		light.m_cast_shadow = 1.0f;
+		light.m_cam_relative = FALSE;
+		light.m_on = TRUE;
+		View3D_LightSet(fixture.m_window, 0, light);
+		fixture.CheckErrors();
+
+		// The documented defaults
+		auto settings = View3D_ShadowSettingsGet(fixture.m_window);
+		Require(settings.m_cascade_count == 3 && settings.m_directional_resolution == 1024 && settings.m_filter_size == 5 && settings.m_shadow_distance == 0 && settings.m_cache_views != FALSE, "Unexpected default cascade settings");
+
+		// Compare the image with and without the caster in the shadow pass
+		auto shadow_difference = [&](char const* message)
+		{
+			// The caster must darken its shadow region without changing the lit region
+			auto with_shadow = fixture.Image();
+			View3D_ObjectFlagsSet(caster, api::ELdrFlags::ShadowCastExclude, TRUE, nullptr);
+			auto without_shadow = fixture.Image();
+			View3D_ObjectFlagsSet(caster, api::ELdrFlags::ShadowCastExclude, FALSE, nullptr);
+			fixture.CheckErrors();
+			Require(shadow_region(with_shadow) < 0.5f * shadow_region(without_shadow), message);
+			Require(std::abs(lit_region(with_shadow) - lit_region(without_shadow)) < 0.02f, "Shadow darkened a region the caster cannot shade");
+		};
+
+		// Every cascade count and both filter sizes render the shadow
+		for (int cascades = 1; cascades <= 4; ++cascades)
+		{
+			for (int filter : { 5, 7 })
+			{
+				settings.m_cascade_count = cascades;
+				settings.m_filter_size = filter;
+				View3D_ShadowSettingsSet(fixture.m_window, settings);
+				fixture.CheckErrors();
+				shadow_difference("Directional cascade shadow missing");
+			}
+		}
+
+		// Cached views must match views rendered every frame, both for a static scene and after a caster moves
+		auto render_pair = [&](char const* message)
+		{
+			// Render twice with caching so the second image uses cached views, then once without caching
+			settings.m_cache_views = TRUE;
+			View3D_ShadowSettingsSet(fixture.m_window, settings);
+			fixture.Image();
+			auto cached = fixture.Image();
+			settings.m_cache_views = FALSE;
+			View3D_ShadowSettingsSet(fixture.m_window, settings);
+			auto uncached = fixture.Image();
+			settings.m_cache_views = TRUE;
+			View3D_ShadowSettingsSet(fixture.m_window, settings);
+			fixture.CheckErrors();
+			Require(ImageDifference(cached, uncached) == 0, message);
+			return cached;
+		};
+		settings.m_cascade_count = 3;
+		settings.m_filter_size = 5;
+		auto before = render_pair("Cached shadow views differ from rendered views in a static scene");
+		api::Mat4x4 moved{{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {8,0,0,1}};
+		View3D_ObjectO2WSet(caster, moved, nullptr);
+		auto first_after_move = fixture.Image();
+		auto after = render_pair("Cached shadow views were not updated after a caster moved");
+		Require(ImageDifference(before, after) > 50, "Moving the caster did not move its shadow");
+		Require(ImageDifference(first_after_move, after) == 0, "The first frame after a caster moved used stale cached views");
+
+		// Invalid cascade and filter settings are rejected
+		auto invalid = settings;
+		invalid.m_cascade_count = 5;
+		View3D_ShadowSettingsSet(fixture.m_window, invalid);
+		Require(!fixture.m_errors.empty(), "Cascade count above the maximum was accepted");
+		fixture.m_errors.clear();
+		invalid = settings;
+		invalid.m_filter_size = 6;
+		View3D_ShadowSettingsSet(fixture.m_window, invalid);
+		Require(!fixture.m_errors.empty(), "Unsupported filter size was accepted");
+		fixture.m_errors.clear();
+		std::cout << "PASS directional cascades, filter sizes, shadow view caching, and cascade settings validation: MSAA " << samples << '\n';
 	}
 
 	// Verify the underwater post-effect settings API, its tint and depth fog, and its exclusion of UI overlays.
@@ -2400,6 +2639,15 @@ int main(int argc, char const* const* argv)
 			fade_tests::ProceduralVertexLightingTests();
 			return 0;
 		}
+		if (argc == 2 && std::string_view(argv[1]) == "--shadows")
+		{
+			// Run only the shadow atlas cases
+			fade_tests::ShadowTests(1);
+			fade_tests::ShadowTests(4);
+			fade_tests::DirectionalShadowTests(1);
+			fade_tests::DirectionalShadowTests(4);
+			return 0;
+		}
 		if (argc == 2 && std::string_view(argv[1]) == "--raycast-lifetime")
 		{
 			// Run only the independently granted lifetime/cancellation regression.
@@ -2427,6 +2675,10 @@ int main(int argc, char const* const* argv)
 		fade_tests::RenderTests(4);
 		fade_tests::SceneHandoffTests(1);
 		fade_tests::SceneHandoffTests(4);
+		fade_tests::ShadowTests(1);
+		fade_tests::ShadowTests(4);
+		fade_tests::DirectionalShadowTests(1);
+		fade_tests::DirectionalShadowTests(4);
 		return 0;
 	}
 	catch (std::exception const& error)

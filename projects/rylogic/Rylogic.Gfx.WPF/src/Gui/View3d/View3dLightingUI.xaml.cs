@@ -15,7 +15,7 @@ namespace Rylogic.Gui.WPF
 			Icon = owner?.Icon;
 			m_window = window;
 
-			Light = new View3d.Light(m_window.LightProperties);
+			Light = new View3d.Light(m_window.MainLight);
 			PinState = new PinData(this, EPin.Centre, pinned: false);
 
 			SetAmbientColour = Command.Create(this, SetAmbientColourInternal);
@@ -55,14 +55,13 @@ namespace Rylogic.Gui.WPF
 					{
 					case nameof(Light.Type):
 						{
-							NotifyPropertyChanged(nameof(IsCasting));
 							NotifyPropertyChanged(nameof(HasPosition));
 							NotifyPropertyChanged(nameof(HasDirection));
 							NotifyPropertyChanged(nameof(HasSpot));
 							break;
 						}
 					}
-					m_window.LightProperties = Light.Data;
+					m_window.MainLight = Light.Data;
 					m_window.Invalidate();
 				}
 			}
@@ -71,9 +70,6 @@ namespace Rylogic.Gui.WPF
 
 		/// <summary>Support pinning this window</summary>
 		private PinData PinState { get; }
-
-		/// <summary>True if the light casts rays/shadows</summary>
-		public bool IsCasting => Light.Type != View3d.ELight.Ambient;
 
 		/// <summary>True if position is valid for the light type</summary>
 		public bool HasPosition => Light.Type == View3d.ELight.Point || Light.Type == View3d.ELight.Spot;
@@ -84,13 +80,26 @@ namespace Rylogic.Gui.WPF
 		/// <summary>True if the light is spotlight cones</summary>
 		public bool HasSpot => Light.Type == View3d.ELight.Spot;
 
+		/// <summary>The scene-wide ambient light colour</summary>
+		public Colour32 Ambient
+		{
+			get => m_window.Ambient;
+			set
+			{
+				if (Ambient == value) return;
+				m_window.Ambient = value;
+				m_window.Invalidate();
+				NotifyPropertyChanged(nameof(Ambient));
+			}
+		}
+
 		/// <summary>Assign the ambient colour</summary>
 		public Command SetAmbientColour { get; }
 		private void SetAmbientColourInternal()
 		{
-			var ui = new ColourPickerUI(this, Light.Ambient);
-			ui.ColorChanged += delegate { Light.Ambient = ui.Colour; };
-			Light.Ambient = ui.ShowDialog() == true ? ui.Colour : ui.InitialColour;
+			var ui = new ColourPickerUI(this, Ambient);
+			ui.ColorChanged += delegate { Ambient = ui.Colour; };
+			Ambient = ui.ShowDialog() == true ? ui.Colour : ui.InitialColour;
 		}
 
 		/// <summary>Assign the diffuse colour</summary>
