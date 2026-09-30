@@ -299,33 +299,42 @@ namespace pr::rdr12
 		return light_to_point.z >= 0 ? 4 : 5;
 	}
 
-	// True if the world space box 'bbox' may be visible in the clip space defined by 'w2s'
-	bool ShadowViewSees(m4x4 const& w2s, BBox const& bbox, bool near_plane)
+	// Build the volume from the clip space defined by 'w2s'
+	ShadowViewVolume::ShadowViewVolume(m4x4 const& w2s, bool near_plane)
+		: m_planes()
+		, m_plane_count(near_plane ? 6 : 5)
 	{
 		// The clip volume planes come from the rows of 'w2s': -w <= x <= w, -w <= y <= w, 0 <= z <= w. The near plane (0 <= z) is last so it can be skipped.
-		// The box is outside if its corner furthest along a plane normal is behind that plane.
 		auto rows = Transpose(w2s);
-		v4 const planes[] =
-		{
-			rows.w + rows.x,
-			rows.w - rows.x,
-			rows.w + rows.y,
-			rows.w - rows.y,
-			rows.w - rows.z,
-			rows.z,
-		};
-		auto plane_count = near_plane ? _countof(planes) : _countof(planes) - 1;
-		auto lower = bbox.Lower();
-		auto upper = bbox.Upper();
-		for (auto const& plane : std::span{ &planes[0], plane_count })
+		m_planes[0] = rows.w + rows.x;
+		m_planes[1] = rows.w - rows.x;
+		m_planes[2] = rows.w + rows.y;
+		m_planes[3] = rows.w - rows.y;
+		m_planes[4] = rows.w - rows.z;
+		m_planes[5] = rows.z;
+	}
+
+	// True if the world space box 'bbox' may be visible in the volume
+	bool ShadowViewVolume::Sees(BBox const& bbox) const
+	{
+		// Test using the box corners
+		return Sees(bbox.Lower(), bbox.Upper());
+	}
+
+	// True if the world space box with corners 'lower' and 'upper' may be visible in the volume
+	bool ShadowViewVolume::Sees(v4 lower, v4 upper) const
+	{
+		// The box is outside if its corner furthest along a plane normal is behind that plane.
+		// Scalar arithmetic keeps this test cheap in unoptimised builds, where it runs for every element and view.
+		for (int i = 0; i != m_plane_count; ++i)
 		{
 			// Test the box corner that is furthest in the direction of the plane normal
-			auto corner = v4(
-				plane.x >= 0 ? upper.x : lower.x,
-				plane.y >= 0 ? upper.y : lower.y,
-				plane.z >= 0 ? upper.z : lower.z,
-				1.0f);
-			if (Dot(plane, corner) < 0)
+			auto const& p = m_planes[i];
+			auto d = p.w
+				+ p.x * (p.x >= 0 ? upper.x : lower.x)
+				+ p.y * (p.y >= 0 ? upper.y : lower.y)
+				+ p.z * (p.z >= 0 ? upper.z : lower.z);
+			if (d < 0)
 				return false;
 		}
 		return true;

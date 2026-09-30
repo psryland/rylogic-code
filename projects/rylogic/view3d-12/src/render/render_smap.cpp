@@ -28,12 +28,28 @@ namespace pr::rdr12
 		// Mix the bytes of 'value' into the running content hash 'h'. 'T' must not contain padding bytes.
 		template <typename T> void HashMix(uint64_t& h, T const& value)
 		{
-			// FNV-1a over the bytes of the value
+			// Mix whole 64-bit words, then any remaining bytes. The rotation carries high bits back into the low bits,
+			// so a change in any word keeps affecting the whole hash as later words are mixed in.
 			auto const* bytes = reinterpret_cast<uint8_t const*>(&value);
-			for (size_t i = 0; i != sizeof(T); ++i)
+			auto mix = [&h](uint64_t word)
 			{
-				h ^= bytes[i];
-				h *= 0x100000001b3ULL;
+				// Multiply by an odd constant, which is a bijection, so a single changed word always changes the hash
+				h = std::rotl((h ^ word) * 0x9E3779B97F4A7C15ULL, 31);
+			};
+			size_t i = 0;
+			for (; i + sizeof(uint64_t) <= sizeof(T); i += sizeof(uint64_t))
+			{
+				// Copy the word because 'value' need not be 8-byte aligned
+				uint64_t word;
+				std::memcpy(&word, bytes + i, sizeof(word));
+				mix(word);
+			}
+			if (i != sizeof(T))
+			{
+				// Zero-extend the tail bytes into one word
+				uint64_t word = 0;
+				std::memcpy(&word, bytes + i, sizeof(T) - i);
+				mix(word);
 			}
 		}
 
@@ -249,6 +265,7 @@ namespace pr::rdr12
 		auto const all_views = view_count == 32 ? ~0U : (1U << view_count) - 1;
 		std::array<uint64_t, MaxShadowViews> hashes;
 		std::array<IRect, MaxShadowViews> rects;
+		pr::vector<ShadowViewVolume, MaxShadowViews> volumes;
 		for (int v = 0; v != view_count; ++v)
 		{
 			auto const& view = m_views.m_views[v];
@@ -257,6 +274,9 @@ namespace pr::rdr12
 			HashMix(hashes[v], view.m_atlas_rect);
 			HashMix(hashes[v], view.m_clamp_depth);
 			rects[v] = view.m_atlas_rect;
+
+			// Clamped views also see casters in front of their near plane
+			volumes.push_back(ShadowViewVolume(view.m_w2s, !view.m_clamp_depth));
 		}
 
 		// Mix a hash of each element into the hash of every view that can see it. Views that see elements drawn with a
@@ -271,7 +291,7 @@ namespace pr::rdr12
 			auto const& instance = *dle.m_instance;
 			auto const& bounds = element_bounds[e];
 
-			// Find the views that can see the element. Clamped views also see casters in front of their near plane.
+			// Find the views that can see the element
 			auto mask = uint32_t(0);
 			if (!bounds.valid())
 			{
@@ -279,10 +299,11 @@ namespace pr::rdr12
 			}
 			else
 			{
+				auto const lower = bounds.Lower();
+				auto const upper = bounds.Upper();
 				for (int v = 0; v != view_count; ++v)
 				{
-					auto const& view = m_views.m_views[v];
-					if (ShadowViewSees(view.m_w2s, bounds, !view.m_clamp_depth))
+					if (volumes[v].Sees(lower, upper))
 						mask |= 1U << v;
 				}
 			}
@@ -372,6 +393,10 @@ namespace pr::rdr12
 		// Per-element projections use the scene camera
 		auto const camera = CameraTransforms(scn().m_cam);
 
+		// Remember the bound material descriptors so that consecutive elements sharing a texture or sampler skip redundant binds.
+		// The draw list is sorted by texture, so most elements reuse the previous descriptors.
+		Descriptor last_tex = {}, last_sam = {};
+
 		// Render the views in batches, one viewport per view in the batch. Depth clamping is part of the pipeline state,
 		// so a batch only contains views with the same clamp mode.
 		auto const count = isize(views);
@@ -458,11 +483,18 @@ namespace pr::rdr12
 					.m_shader = &m_shader,
 					.m_default_tex = m_default_tex.get(),
 					.m_default_sam = m_default_sam.get(),
-					.m_last_tex = nullptr,
-					.m_last_sam = nullptr,
+					.m_last_tex = &last_tex,
+					.m_last_sam = &last_sam,
 				};
 				pass->Bind(ctx);
 				pass->ApplyPipeline(ctx);
+
+				// A root signature change invalidates the bound descriptor tables
+				if (ctx.m_root_signature_changed)
+				{
+					last_tex = {};
+					last_sam = {};
+				}
 
 				// Remember nuggets drawn with a custom vertex shader, because the view content hash cannot detect changes to their geometry
 				if (desc.Get<EPipeState::VS>().pShaderBytecode != m_shader.m_code.VS.pShaderBytecode)
