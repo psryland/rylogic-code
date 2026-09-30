@@ -633,6 +633,7 @@ namespace pr
 		// Requires finite visibility > 0, distortion amplitude >= 0, frequency > 0, and speed >= 0.
 		// 'm_surface' is a world-space plane with its normal pointing out of the water; fog applies only below it.
 		// It must be finite, and either zero (the whole view is in water) or have a non-zero normal.
+		// 'm_fade_depth' (finite, >= 0) is the depth below the surface over which the effect fades in; zero gives a sharp waterline.
 		struct UnderwaterProps
 		{
 			BOOL m_enabled = FALSE;
@@ -643,6 +644,7 @@ namespace pr
 			float m_distortion_frequency = 6.0f;
 			float m_distortion_speed = 0.25f;
 			Vec4 m_surface = {};
+			float m_fade_depth = 0.0f;
 		};
 
 		// Parameters for a UV-free GPU procedural surface applied to a PBR material.

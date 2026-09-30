@@ -55,8 +55,8 @@ namespace pr::rdr12
 	enum class EUnderwaterView
 	{
 		Hidden,   // The whole near plane is above the surface, so nothing is drawn
-		Immersed, // The whole near plane is below the surface
-		Split,    // The surface crosses the near plane
+		Immersed, // The whole near plane is below the surface and deeper than the fade depth, so the effect is at full strength
+		Split,    // The surface or the fade region crosses the near plane
 	};
 	struct UnderwaterView
 	{
@@ -93,7 +93,7 @@ namespace pr::rdr12
 		auto spread = Abs(waterline.x) + Abs(waterline.y);
 		if (h0 - spread >= 0)
 			return { EUnderwaterView::Hidden, v4::Zero() };
-		if (h0 + spread < 0)
+		if (h0 + spread < -props.m_fade_depth)
 			return { EUnderwaterView::Immersed, v4::Zero() };
 
 		return { EUnderwaterView::Split, waterline };
@@ -364,6 +364,7 @@ namespace pr::rdr12
 			.orthographic = ctx.m_scene.m_cam.Orthographic() ? 1 : 0,
 			.clear_depth = ctx.m_clear_depth,
 			.split = view.m_view == EUnderwaterView::Split ? 1 : 0,
+			.fade_depth = props.m_fade_depth,
 		};
 
 		// Draw the full-screen pass.

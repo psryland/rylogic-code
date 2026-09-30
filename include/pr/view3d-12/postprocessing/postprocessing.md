@@ -76,10 +76,13 @@ the camera's near plane meets the surface once per frame on the CPU:
 
 - **Whole near plane above the surface:** the pass is skipped. No commands are recorded, but the effect keeps its
   resources, so the camera can move in and out of the water without recreating them.
-- **Whole near plane below the surface:** every pixel is in water, as if there were no waterline.
-- **Surface crosses the near plane:** only pixels whose near-plane point is below the surface get the effect. Pixels
-  above the waterline keep the scene colour, and a one-pixel blend smooths the edge. This per-pixel test runs only in
-  this case, selected by a uniform branch.
+- **Whole near plane below the surface and deeper than `m_fade_depth`:** every pixel gets the full effect, as if there
+  were no waterline.
+- **Otherwise:** the surface or the fade region crosses the near plane, and the effect strength depends on the depth of
+  each pixel's near-plane point below the surface. Pixels above the waterline keep the scene colour. With a fade depth,
+  the strength rises smoothly (smoothstep) from none at the surface to full at `m_fade_depth` below it, so the waterline
+  has a soft edge; without one, a one-pixel blend smooths a sharp edge. This per-pixel test runs only in this case,
+  selected by a uniform branch.
 
 So an application can leave the effect enabled with a surface plane whenever water may be near the camera.
 
@@ -92,6 +95,7 @@ So an application can leave the effect enabled with a surface plane whenever wat
 | `m_distortion_frequency` | `6` | Ripples per viewport height (must be > 0) |
 | `m_distortion_speed` | `0.25` | Animation cycles per second (>= 0, 0 = still) |
 | `m_surface` | zero | World-space water surface plane, normal pointing out of the water (zero = no surface) |
+| `m_fade_depth` | `0` | Depth below the surface over which the effect fades in (>= 0, 0 = sharp waterline) |
 
 For each pixel:
 
@@ -140,7 +144,7 @@ Build `projects\tests\view3d-fade-tests\view3d-fade-tests.vcxproj` (VS 2026, v14
 `obj\x64\Debug\view3d-fade-tests.exe --post-effects`. The invisible-window fixture reads rendered pixels at
 1x and 4x MSAA. It covers defaults, invalid-settings rejection, disabled-image equality, tint, depth fog,
 background fog, surface-plane fog (orthographic and perspective, from above and below the plane), the waterline
-split and the skipped pass above the water, overlay exclusion,
+split, the fade depth, and the skipped pass above the water, overlay exclusion,
 and restoring the image when the effect is disabled. GPU debug-layer errors fail
 the fixture.
 

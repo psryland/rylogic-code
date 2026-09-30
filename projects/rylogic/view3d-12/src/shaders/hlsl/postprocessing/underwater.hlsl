@@ -111,14 +111,23 @@ float4 PSUnderwater(PSIn_PostEffect In) :SV_Target
 	float2 uv = (In.ss_vert.xy - vp.xy) / vp.zw;
 	float2 sample_uv = saturate(uv + Distortion(uv, vp.z / vp.w));
 
-	// When the surface crosses the near plane, only pixels below the waterline are in water. The branch is uniform,
-	// so a view entirely in water does not pay for the waterline test.
+	// When the surface or the fade region crosses the near plane, the effect strength varies with the depth of each pixel's near-plane
+	// point. The branch is uniform, so a view entirely at full strength does not pay for the waterline test.
 	float coverage = 1.0f;
 	if (g_underwater.split != 0)
 	{
-		// Blend over about one pixel at the waterline so the edge is smooth. Pixels above it keep the scene colour.
-		float2 height_per_pixel = g_underwater.waterline.xy * 2.0f / vp.zw;
-		coverage = saturate(0.5f - WaterlineHeight(uv) / length(height_per_pixel));
+		// Pixels above the waterline keep the scene colour. With a fade depth, the strength rises smoothly with depth below the surface;
+		// without one, it blends over about one pixel so the edge is smooth.
+		float height = WaterlineHeight(uv);
+		if (g_underwater.fade_depth > 0.0f)
+		{
+			coverage = smoothstep(0.0f, g_underwater.fade_depth, -height);
+		}
+		else
+		{
+			float2 height_per_pixel = g_underwater.waterline.xy * 2.0f / vp.zw;
+			coverage = saturate(0.5f - height / length(height_per_pixel));
+		}
 		if (coverage == 0.0f)
 			return g_scene_colour.Load(int3(In.ss_vert.xy, 0));
 

@@ -41,6 +41,11 @@ namespace pr::rdr12
 		// Zero means there is no surface and the whole view is in water.
 		v4 m_surface = v4::Zero();
 
+		// Depth below the surface (in world units) over which the effect fades in. A pixel's effect strength rises smoothly from none where
+		// its near-plane point is at the surface to full where that point is this deep. Zero gives a sharp waterline, smoothed over about
+		// one pixel. Ignored without a surface.
+		float m_fade_depth = 0.0f;
+
 		// Reject invalid settings without changing the current scene settings.
 		void Validate() const
 		{
@@ -54,6 +59,8 @@ namespace pr::rdr12
 				throw std::invalid_argument("Underwater distortion speed must be finite and not negative");
 			if (!IsFinite(m_surface) || (Any(m_surface != v4::Zero()) && LengthSq(m_surface.w0()) == 0.0f))
 				throw std::invalid_argument("Underwater surface must be finite, and either zero or have a non-zero normal");
+			if (!std::isfinite(m_fade_depth) || m_fade_depth < 0.0f)
+				throw std::invalid_argument("Underwater fade depth must be finite and not negative");
 		}
 
 		// Compare all settings, including those retained while disabled.
@@ -68,7 +75,8 @@ namespace pr::rdr12
 				lhs.m_distortion_amplitude == rhs.m_distortion_amplitude &&
 				lhs.m_distortion_frequency == rhs.m_distortion_frequency &&
 				lhs.m_distortion_speed == rhs.m_distortion_speed &&
-				All(lhs.m_surface == rhs.m_surface);
+				All(lhs.m_surface == rhs.m_surface) &&
+				lhs.m_fade_depth == rhs.m_fade_depth;
 		}
 	};
 

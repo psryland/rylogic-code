@@ -50,8 +50,13 @@ struct CBufUnderwater //:reg(b0)
 	// The depth buffer clear value. Pixels with this depth have no scene geometry.
 	float clear_depth;
 
-	// Non-zero when the water surface crosses the near plane. Only pixels below the waterline then show the effect.
+	// Non-zero when the water surface, or the region within 'fade_depth' below it, crosses the near plane.
+	// The effect strength then varies across the view.
 	int split;
+
+	// Depth below the surface over which the effect fades in, or zero for a sharp waterline. Used only when 'split' is non-zero.
+	float fade_depth;
+	float3 pad;
 };
 
 #ifdef __cplusplus

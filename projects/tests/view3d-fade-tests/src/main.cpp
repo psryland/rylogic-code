@@ -2291,6 +2291,21 @@ namespace fade_tests
 		Expect(split, 0.5f,0.5f,0.5f, 64,66);
 		props.m_distortion_amplitude = 0.0f;
 
+		// With a fade depth, the effect strength rises smoothly with the depth of each pixel's near-plane point below the surface.
+		// The orthographic near plane spans y in [-50, 50], so rows below the middle are at depth 100 * (row + 0.5) / ImageSize - 50.
+		props.m_fade_depth = 50.0f;
+		underwater(true);
+		auto faded = fixture.Image();
+		Expect(faded, 1,1,1, 64,32);
+		for (auto row : {80, 96, 120})
+		{
+			auto t = std::clamp((100.0f * (row + 0.5f) / ImageSize - 50.0f) / props.m_fade_depth, 0.0f, 1.0f);
+			auto strength = t * t * (3 - 2 * t);
+			auto c = 1 - 0.5f * strength;
+			Expect(faded, c,c,c, 64,row);
+		}
+		props.m_fade_depth = 0.0f;
+
 		// With the whole near plane above the surface, the pass is skipped and the image is unchanged, even where rays
 		// descend into the water.
 		props.m_surface = api::Vec4{0, 0, 1, 30};
