@@ -117,8 +117,7 @@ namespace las
 		,m_gpu_buoyancy(std::make_unique<physics::GpuBuoyancy>(rdr.D3DDevice(), m_engine,
 			BuoyancyConfig(),
 			[this](int body_slot_index) { return BodySlotStepIndex(body_slot_index); },
-			[this](int body_slot_index) { return BodySlotState(body_slot_index); },
-			water::BuoyancyAdapter::Extension())
+			[this](int body_slot_index) { return BodySlotState(body_slot_index); })
 		)
 		,m_body_slots()
 		,m_free_slots()

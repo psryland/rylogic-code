@@ -18,6 +18,7 @@ namespace pr::rdr12::shaders
 			DiffTexture,
 			DiffTextureSampler,
 			ShadowViews,
+			ProceduralBuffer,
 		};
 
 		enum class ESampParam

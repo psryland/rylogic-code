@@ -31,14 +31,14 @@ public readonly struct TerrainConfiguration
 	private readonly NativeHeader m_header;
 	public readonly uint m_seed;
 	public readonly int m_material_id;
-	public readonly double m_supported_coordinate, m_sea_level_bias, m_uplift_height, m_mountain_base;
-	public readonly TerrainBand m_regional_base, m_region_selector, m_region_uplift, m_domain_warp, m_plains, m_hills, m_mountains;
+	public readonly double m_supported_coordinate, m_sea_level_bias, m_uplift_height, m_mountain_base, m_basin_depth, m_basin_threshold;
+	public readonly TerrainBand m_regional_base, m_region_selector, m_region_uplift, m_domain_warp, m_plains, m_hills, m_mountains, m_basin_selector;
 	public readonly float m_surface_spacing;
 	private readonly uint m_reserved;
 
 	/// <summary>Specify every baseline field so replacing a package cannot silently change a saved landscape.</summary>
-	public TerrainConfiguration(uint seed, int material_id, double supported_coordinate, double sea_level_bias, double uplift_height, double mountain_base,
-		TerrainBand regional_base, TerrainBand region_selector, TerrainBand region_uplift, TerrainBand domain_warp, TerrainBand plains, TerrainBand hills, TerrainBand mountains, float surface_spacing = 0)
+	public TerrainConfiguration(uint seed, int material_id, double supported_coordinate, double sea_level_bias, double uplift_height, double mountain_base, double basin_depth, double basin_threshold,
+		TerrainBand regional_base, TerrainBand region_selector, TerrainBand region_uplift, TerrainBand domain_warp, TerrainBand plains, TerrainBand hills, TerrainBand mountains, TerrainBand basin_selector, float surface_spacing = 0)
 	{
 		m_header = NativeHeader.Create<TerrainConfiguration>();
 		m_seed = seed;
@@ -47,6 +47,8 @@ public readonly struct TerrainConfiguration
 		m_sea_level_bias = sea_level_bias;
 		m_uplift_height = uplift_height;
 		m_mountain_base = mountain_base;
+		m_basin_depth = basin_depth;
+		m_basin_threshold = basin_threshold;
 		m_regional_base = regional_base;
 		m_region_selector = region_selector;
 		m_region_uplift = region_uplift;
@@ -54,6 +56,7 @@ public readonly struct TerrainConfiguration
 		m_plains = plains;
 		m_hills = hills;
 		m_mountains = mountains;
+		m_basin_selector = basin_selector;
 		m_surface_spacing = surface_spacing;
 		m_reserved = 0;
 	}

@@ -6,6 +6,7 @@
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/scene/scene_camera.h"
 #include "pr/view3d-12/scene/far_clip_fade.h"
+#include "pr/view3d-12/postprocessing/post_processing.h"
 #include "pr/view3d-12/instance/instance.h"
 #include "pr/view3d-12/lighting/light.h"
 #include "pr/view3d-12/lighting/shadow_view.h"
@@ -138,6 +139,10 @@ namespace pr::rdr12
 		FarClipFadeProps FarClipFadeProperties() const;
 		void FarClipFadeProperties(FarClipFadeProps props);
 
+		// Access the screen-space effects applied to this scene's output. See post_processing.h.
+		PostProcessing const& PostEffects() const;
+		PostProcessing& PostEffects();
+
 		// Get/Set the scene-wide fill mode default.
 		EFillMode FillMode() const;
 		void FillMode(EFillMode fill_mode);
@@ -175,6 +180,9 @@ namespace pr::rdr12
 		LightList m_frame_lights;
 		LightList m_resolved_lights;
 		int m_dropped_lights;
+
+		// Post-processing effects applied after the scene is composited.
+		PostProcessing m_post_effects;
 
 		// Return a render step from this scene (if present)
 		RenderStep const* FindRStep(ERenderStep id) const;

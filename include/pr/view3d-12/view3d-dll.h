@@ -516,6 +516,7 @@ namespace pr
 			Rendering            = 1 << 21,
 			Rendering_RayTracing = Rendering | 1 << 0,
 			Rendering_FarClipFade = Rendering | 1 << 1,
+			Rendering_PostEffects = Rendering | 1 << 2,
 
 			_flags_enum = 0,
 
@@ -619,6 +620,24 @@ namespace pr
 		struct Mat4x4
 		{
 			Vec4 x, y, z, w;
+		};
+
+		// Whole-screen underwater post effect. Colours are sRGB ARGB; alpha is ignored.
+		// Requires finite visibility > 0, distortion amplitude >= 0, frequency > 0, and speed >= 0.
+		// 'm_surface' is a world-space plane with its normal pointing out of the water; fog applies only below it.
+		// It must be finite, and either zero (the whole view is in water) or have a non-zero normal.
+		// 'm_fade_depth' (finite, >= 0) is the depth below the surface over which the effect fades in; zero gives a sharp waterline.
+		struct UnderwaterProps
+		{
+			BOOL m_enabled = FALSE;
+			Colour m_tint = 0xFFA6D9F2U;
+			Colour m_fog_colour = 0xFF0A384DU;
+			float m_visibility = 40.0f;
+			float m_distortion_amplitude = 0.002f;
+			float m_distortion_frequency = 6.0f;
+			float m_distortion_speed = 0.25f;
+			Vec4 m_surface = {};
+			float m_fade_depth = 0.0f;
 		};
 
 		// Parameters for a UV-free GPU procedural surface applied to a PBR material.
@@ -769,16 +788,19 @@ namespace pr
 		struct ProceduralVertexBinding
 		{
 			static constexpr size_t ConstantsSize = 1024;
+			static constexpr size_t MaxBufferSize = 64 * 1024 * 1024;
 
 			ERenderStep m_rdr_step;
 			void const* m_constants;
 			size_t m_constants_size;
+			void const* m_buffer;    // Optional immutable data, copied once and bound as a raw root SRV (ByteAddressBuffer, no bounds) at VIEW3D_PROCEDURAL_BUFFER_REGISTER. Null for none.
+			size_t m_buffer_size;    // Size of 'm_buffer' in bytes. A non-zero multiple of 4 up to MaxBufferSize when 'm_buffer' is not null, otherwise 0.
 		};
 		// Versioned shader creation descriptor. Only Vertex with ProceduralVertexBinding is currently implemented.
 		// Callers supply readable descriptor storage and buffers matching this header and runtime; size/version are not a global ABI handshake.
 		struct ShaderOptions
 		{
-			static constexpr int CurrentVersion = 2;
+			static constexpr int CurrentVersion = 3;
 			static constexpr size_t MaxByteCodeSize = 1024 * 1024;
 
 			int m_struct_size;
@@ -1111,6 +1133,8 @@ extern "C"
 	// Skybox, PostAlpha and retained UI are excluded. Picking/shadows remain geometric; see scene/far_clip_fade.md.
 	VIEW3D_API pr::view3d::FarClipFadeProps __stdcall View3D_FarClipFadePropertiesGet(pr::view3d::Window window);
 	VIEW3D_API BOOL __stdcall View3D_FarClipFadePropertiesSet(pr::view3d::Window window, pr::view3d::FarClipFadeProps const& props);
+	VIEW3D_API pr::view3d::UnderwaterProps __stdcall View3D_PostEffectUnderwaterGet(pr::view3d::Window window);
+	VIEW3D_API BOOL __stdcall View3D_PostEffectUnderwaterSet(pr::view3d::Window window, pr::view3d::UnderwaterProps const& props);
 
 	// Get/Set the dimensions of the render target. Note: Not equal to window size for non-96 dpi screens!
 	// In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.
@@ -1401,6 +1425,14 @@ extern "C"
 	// Generated-buffer compute shaders write the public View3DVertex HLSL layout; other inputs use one complete Vertex record.
 	// Multiple nuggets share the logical domain and bounds but may partition the physical index buffer, for example [0,surface_icount) and [surface_icount,icount).
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateU32(char const* name, pr::view3d::Colour colour, int vcount, int icount, int ncount, pr::view3d::Vertex const* verts, UINT32 const* indices, pr::view3d::Nugget const* nuggets, pr::view3d::ObjectCreateOptions const& options, GUID const& context_id);
+
+	// Re-run a compute vertex generator over the vertex buffer of an object created with EVertexSource::GpuGeneratedBuffer (the object's own model only).
+	// Uses the same b0/u0 contract as creation. u0 holds the current vertices, so the shader may update records in place. Blocks until the GPU work completes.
+	VIEW3D_API void __stdcall View3D_ObjectGpuGenerate(pr::view3d::Object object, void const* compute_bytecode, size_t compute_bytecode_size, void const* constants, size_t constants_size, int thread_group_size_x);
+
+	// Replace the ProceduralVertexBinding::ConstantsSize constants of every procedural vertex shader on the object's own nuggets. Later frames use the new values.
+	// Shaders are shared by reference, so other objects that use the same shader handles also see the change.
+	VIEW3D_API void __stdcall View3D_ObjectProceduralConstantsSet(pr::view3d::Object object, void const* constants, size_t constants_size);
 
 	// Create an graphics object from ldr script, either a string or a file 
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateLdrW(wchar_t const* ldr_script, BOOL file, GUID const* context_id, pr::view3d::Includes const* includes);

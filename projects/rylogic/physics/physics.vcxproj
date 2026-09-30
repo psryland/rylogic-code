@@ -131,6 +131,7 @@
     <ClCompile Include="src\articulation\articulation_kinematics.cpp" />
     <ClCompile Include="src\articulation\articulation_gpu_data.cpp" />
     <ClCompile Include="src\buoyancy\gpu_buoyancy.cpp" />
+    <ClCompile Include="src\buoyancy\gpu_water_forces.cpp" />
     <ClCompile Include="src\collision\broadphase_brute.cpp" />
     <ClCompile Include="src\collision\contact.cpp" />
     <ClCompile Include="src\constraint\constraint_compiler.cpp" />
@@ -174,8 +175,19 @@
     <ClCompile Include="src\rigid_body\rigid_body.cpp" />
     <ClCompile Include="src\shape\inertia.cpp" />
     <ClCompile Include="src\terrain\landscape\baseline_surface.cpp" />
+    <ClCompile Include="src\terrain\landscape\height_bounds.cpp" />
+    <ClCompile Include="src\terrain\water\water_field.cpp" />
+    <ClCompile Include="src\terrain\water\bathymetry.cpp" />
+    <ClCompile Include="src\terrain\water\wave_spectrum.cpp" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\water\water_field.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\water\water_field_types.hlsli" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\water\water_field.hlsli" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\water\water_depth.hlsli" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\water\bathymetry.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\water\wave_spectrum.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\baseline_types.hlsli" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\baseline_surface.hlsli" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\height_bounds.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\algorithm\perlin_noise_derivatives.hlsli" />
     <None Include="$(RylogicRoot)include\pr\physics\terrain\landscape\README.md" />
     <!-- TerrainBaselineGpuTests executes compute probes and compiles vertex probes with -Gis. -->
@@ -188,6 +200,8 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\constraint\constraint_set.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\buoyancy_primitives.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\gpu_buoyancy.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine_water.h" />
+    <ClInclude Include="src\buoyancy\gpu_water_forces.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\diagnostics\body_history.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\forward.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine_config.h" />
@@ -261,7 +275,6 @@
     <None Include="src\compute\constraint_algebra.hlsli" />
     <None Include="src\compute\gjk.hlsli" />
     <None Include="src\buoyancy\buoyancy_sampler.hlsli" />
-    <None Include="src\buoyancy\gpu_basic_waves.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\articulation\articulation.h" />
@@ -287,6 +300,9 @@
     <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl" ComputeEntryPoints="CSBuoyancyVolumeSamples;CSBuoyancyVolumeReduce;CSBuoyancyDragSurfaceSamples;CSBuoyancyDragSurfaceReduce">
       <StampDir>$(ProjectDir)src\buoyancy\compiled\$(Configuration)\</StampDir>
     </ShaderBuild>
+    <ShaderBuild Include="src\buoyancy\gpu_water_forces.hlsl" ComputeEntryPoints="CSWaterForces">
+      <StampDir>$(ProjectDir)src\buoyancy\compiled\$(Configuration)\</StampDir>
+    </ShaderBuild>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\compute\compute_shaders_physics.rc" />
@@ -300,7 +316,7 @@
   Targets
   -->
   <Target Name="BuildLandscapeLibrary" AfterTargets="Lib" Condition="Exists('$(IntDir)baseline_surface.obj')">
-    <Exec Command="lib.exe /nologo /out:&quot;$(OutDir)physics-landscape.lib&quot; &quot;$(IntDir)baseline_surface.obj&quot;" />
+    <Exec Command="lib.exe /nologo /out:&quot;$(OutDir)physics-landscape.lib&quot; &quot;$(IntDir)baseline_surface.obj&quot; &quot;$(IntDir)height_bounds.obj&quot; &quot;$(IntDir)water_field.obj&quot; &quot;$(IntDir)bathymetry.obj&quot; &quot;$(IntDir)wave_spectrum.obj&quot;" />
   </Target>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Import Project="$(TargetsPath)WinPixEventRuntime.targets" />

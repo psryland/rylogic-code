@@ -152,6 +152,10 @@ namespace pr::rdr12
 		FarClipFadeProps FarClipFadeProperties() const;
 		void FarClipFadeProperties(FarClipFadeProps props);
 
+		// Underwater post effect settings, owned by this window's scene.
+		UnderwaterProps PostEffectUnderwater() const;
+		void PostEffectUnderwater(UnderwaterProps const& props);
+
 		// The DPI of the monitor that this window is displayed on
 		v2 Dpi() const;
 

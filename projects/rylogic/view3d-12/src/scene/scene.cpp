@@ -54,6 +54,7 @@ namespace pr::rdr12
 		, m_frame_lights()
 		, m_resolved_lights()
 		, m_dropped_lights()
+		, m_post_effects(*wnd.m_rdr)
 	{
 		// Initialise the scene camera to match the full window
 		auto bb_size = m_wnd->BackBufferSize();
@@ -100,6 +101,16 @@ namespace pr::rdr12
 
 		// Failed material validation leaves the current option unchanged.
 		m_far_clip_fade = props;
+	}
+
+	// Access the screen-space effects applied to this scene's output.
+	PostProcessing const& Scene::PostEffects() const
+	{
+		return m_post_effects;
+	}
+	PostProcessing& Scene::PostEffects()
+	{
+		return m_post_effects;
 	}
 
 	// Access the renderer
@@ -449,6 +460,9 @@ namespace pr::rdr12
 		// Invoke each render step in order
 		for (auto& rs : m_render_steps)
 			rs->Execute(frame);
+
+		// Post-process the composited scene. These commands run after all scene output, so recording order does not matter.
+		m_post_effects.Render(frame, *this);
 	}
 
 	// Resize the viewport on back buffer resize

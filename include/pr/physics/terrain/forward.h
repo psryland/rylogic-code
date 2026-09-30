@@ -7,6 +7,10 @@
 #include <algorithm>
 #include <span>
 #include <vector>
+#include <optional>
+#include <functional>
+#include <numeric>
+#include <execution>
 #include <memory>
 #include <cstdint>
 #include <cmath>

@@ -29,6 +29,7 @@
 		<ShaderBuild Include="src\shaders\hlsl\procedural_vertex_forward.hlsl" VertexEntryPoints="procedural_vertex_forward=VSMain" />
 		<ShaderBuild Include="src\shaders\hlsl\procedural_vertex_raycast.hlsl" VertexEntryPoints="procedural_vertex_raycast=VSMain" />
 		<ShaderBuild Include="src\shaders\hlsl\procedural_vertex_shadow.hlsl" VertexEntryPoints="procedural_vertex_shadow=VSMain" />
+		<ShaderBuild Include="src\shaders\hlsl\procedural_vertex_buffer.hlsl" VertexEntryPoints="procedural_vertex_buffer=VSMain" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-12\view3d-12.dll.vcxproj" />
 	</ItemGroup>
 	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

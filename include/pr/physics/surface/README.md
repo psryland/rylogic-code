@@ -8,7 +8,8 @@ rigid-body, interior-tetrahedron, or terrain-collision dependency.
 ## Spacing and identity contract
 
 `BuildPlan(shape, spacing)` requires finite positive spacing, measured in shape-local length units
-(metres in physics). The shared default is **0.16 m**, used by terrain, CPU/GPU buoyancy and sandbox surface overlays.
+(metres in physics). The shared default `surface::DefaultSpacing` is **0.16 m**, used by terrain collision and the sandbox surface overlay in terrain scenes.
+Buoyancy has its own `buoyancy::DefaultSurfaceSpacing`, 0.25 m (see below).
 Counts follow geometry and spacing; they are not a budget.
 
 In exact arithmetic, every surface cell has diameter at most `spacing`, and every surface point is
@@ -99,13 +100,22 @@ limits, not quality controls; callers must choose a coarser spacing or smaller g
 Allocation/device resource failures propagate normally. Extremely large valid sample populations
 can still be expensive and are not a real-time latency guarantee.
 
-`GpuBuoyancy::Config::m_surface_spacing` is part of the immutable shape-cache key. Like polytope
-derivation settings, it applies at registration/shape refresh; existing registrations retain their
-plans. Both default to `surface::DefaultSpacing`, as does terrain; explicit caller overrides remain available.
-`SamplerConfig::m_surface_spacing` controls each CPU oracle evaluation. `SampleHull` takes
-only the volume sample count: there is no old surface-count overload or alternate Halton surface path.
+`GpuBuoyancy::Config::m_surface_spacing` and `m_volume_spacing` are part of the immutable shape-cache key. Like polytope
+derivation settings, they apply at registration/shape refresh; existing registrations retain their plans. They default to
+`buoyancy::DefaultSurfaceSpacing` (0.25 m) and `buoyancy::DefaultVolumeSpacing` (0.2 m). Surface samples only drive
+drag; lift and volume damping come from volume samples. Both settings are spacings, so the sample cost of a body follows its size:
+`buoyancy::VolumeSampleCounts` gives each primitive `ceil(volume / spacing^3)` samples, but at least
+`buoyancy::MinVolumeSamplesPerPrimitive` (8) so small primitives still change buoyancy smoothly as they cross the waterline.
+A 2 x 2 x 1 m box gets 500 volume samples at the default; a 100 m^3 hull gets 12500. The volume error is concentrated at the
+waterline, where the wet volume changes in steps of roughly one sample layer; fully wet or fully dry primitives are exact.
+`BuoyancySampleDensityTests::SampleDensitySweep` (Extended | Stress) measures the floating behaviour (drop, tilt, push and wave
+responses of four shapes) across a grid of surface and volume spacings against a dense 0.02 m / 0.02 m reference, and reports where
+the defaults sit on that grid.
+Terrain keeps its separate `surface::DefaultSpacing`; explicit caller overrides remain available.
+`SamplerConfig::m_surface_spacing` and `m_volume_spacing` control each CPU oracle evaluation; `SampleHull` takes no separate
+sample count and there is no alternate Halton surface path.
 
-GPU surface threads stream all ordinals using a grid-stride loop. At most 128 groups per hull produce
+GPU surface and volume threads stream all ordinals using grid-stride loops. At most 128 groups per hull produce
 reduction partials, regardless of sample count; the limit is on **partial storage, not emission**.
 Surface dispatch uses group X for the hull-local group and Y for the hull, avoiding a large flattened
 X dimension. Hull-count, cumulative count, and patch-upload bounds are checked before allocation or

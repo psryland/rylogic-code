@@ -294,6 +294,30 @@ namespace physics_sandbox::scene_loader
 				for (auto const& v : verts)
 					desc.polytope_verts.push_back(ReadVec3(v, 1.0f));
 			}
+			else if (shape_type == "compound")
+			{
+				desc.shape_type = BodyDesc::EShape::Compound;
+
+				auto const& children = jshape_obj["children"].to_array();
+				if (children.empty())
+					throw std::runtime_error("Compound shape requires at least one child");
+
+				for (auto const& jchild : children)
+				{
+					// Each child is a primitive shape object with an optional body-space placement.
+					auto child = ReadShape(jchild);
+					if (child.shape_type == BodyDesc::EShape::Compound)
+						throw std::runtime_error("Compound shape children must be primitive shapes");
+
+					auto const& jchild_obj = jchild.to_object();
+					if (auto const* jpos = jchild_obj.find("position"))
+						child.position = ReadVec3(*jpos, 1.0f);
+					if (auto const* jrot = jchild_obj.find("rotation"))
+						child.rotation = ReadVec3(*jrot, 0.0f);
+
+					desc.compound_children.push_back(std::move(child));
+				}
+			}
 			else
 			{
 				throw std::runtime_error(pr::FmtS("Unknown shape type: '%s'", shape_type.c_str()));
@@ -319,6 +343,7 @@ namespace physics_sandbox::scene_loader
 			body.tri_verts[1] = shape.tri_verts[1];
 			body.tri_verts[2] = shape.tri_verts[2];
 			body.polytope_verts = std::move(shape.polytope_verts);
+			body.compound_children = std::move(shape.compound_children);
 		}
 
 		// Generate a uniformly distributed direction over the unit sphere.
@@ -465,6 +490,13 @@ namespace physics_sandbox::scene_loader
 				vertex = (vertex * scale).w1();
 			for (auto& vertex : shape.polytope_verts)
 				vertex = (vertex * scale).w1();
+
+			// Compound children scale about the body origin, so their placements scale with their shapes.
+			for (auto& child : shape.compound_children)
+			{
+				ScaleShape(child, scale);
+				child.position = (child.position * scale).w1();
+			}
 		}
 		NamedShapeMap ReadNamedShapes(pr::json::Object const& jscene)
 		{
@@ -780,6 +812,8 @@ namespace physics_sandbox::scene_loader
 			scalar(obj, "sea_level_bias", terrain.surface.m_sea_level_bias_m);
 			scalar(obj, "uplift_height", terrain.surface.m_uplift_height_m);
 			scalar(obj, "mountain_base_height", terrain.surface.m_mountain_base_height_m);
+			scalar(obj, "basin_depth", terrain.surface.m_basin_depth_m);
+			scalar(obj, "basin_threshold", terrain.surface.m_basin_threshold);
 			scalar(obj, "supported_coordinate_abs", terrain.surface.m_supported_coordinate_abs_m);
 			band("regional_base", terrain.surface.m_regional_base);
 			band("region_selector", terrain.surface.m_region_selector);
@@ -787,6 +821,7 @@ namespace physics_sandbox::scene_loader
 			band("plains", terrain.surface.m_plains);
 			band("hills", terrain.surface.m_hills);
 			band("mountains", terrain.surface.m_mountains);
+			band("basin_selector", terrain.surface.m_basin_selector);
 			if (auto const* field = obj.find("mountains"))
 			{
 				scalar(field->to_object(), "roundness", terrain.surface.m_mountains.m_roundness);
@@ -839,8 +874,9 @@ namespace physics_sandbox::scene_loader
 		auto water = WaterDesc{};
 		auto const& jwater_obj = jwater.to_object();
 
+		auto level = 0.0;
 		if (auto const* jlevel = jwater_obj.find("level"))
-			water.surface.m_level = jlevel->to<float>();
+			level = jlevel->to<double>();
 
 		if (auto const* jsize = jwater_obj.find("size"))
 		{
@@ -861,6 +897,8 @@ namespace physics_sandbox::scene_loader
 		if (auto const* jcolour = jwater_obj.find("colour"))
 			water.colour = ReadColour(*jcolour);
 
+		// Waves are sine elements whose 'phase_speed' is the angular frequency in rad/s.
+		auto elements = std::vector<physics::terrain::water::WaterFieldElement>{};
 		if (auto const* jwaves = jwater_obj.find("waves"))
 		{
 			for (auto const& jwave : jwaves->to_array())
@@ -881,18 +919,17 @@ namespace physics_sandbox::scene_loader
 				if (jamplitude == nullptr)
 					throw std::runtime_error("Water wave requires an 'amplitude' field");
 
-				auto wave = physics::GpuBuoyancy::SineWave{};
-				wave.m_direction = ReadVec2(*jdirection);
-				wave.m_wavelength = (jwavelength != nullptr ? jwavelength : jperiod)->to<float>();
-				wave.m_amplitude = jamplitude->to<float>();
-				if (auto const* jphase_speed = jwave_obj.find("phase_speed"))
-					wave.m_phase_speed = jphase_speed->to<float>();
-
-				water.surface.m_waves.push_back(wave);
+				auto const* jphase_speed = jwave_obj.find("phase_speed");
+				elements.push_back(physics::terrain::water::SineWave(
+					ReadVec2(*jdirection),
+					jamplitude->to<float>(),
+					(jwavelength != nullptr ? jwavelength : jperiod)->to<float>(),
+					jphase_speed != nullptr ? jphase_speed->to<float>() : 0.0f
+				));
 			}
 		}
 
-		water.surface = water.surface.Normalised();
+		water.surface = physics::terrain::water::WaterField(level, elements);
 		return water;
 	}
 

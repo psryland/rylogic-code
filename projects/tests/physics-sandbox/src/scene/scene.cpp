@@ -129,6 +129,21 @@ namespace physics_sandbox
 
 					return std::memcmp(lhs.polytope_verts.data(), rhs.polytope_verts.data(), lhs.polytope_verts.size() * sizeof(v4)) == 0;
 				}
+				case scene_loader::BodyDesc::EShape::Compound:
+				{
+					// Compounds match only when every child matches in shape and placement, in the same order.
+					if (lhs.compound_children.size() != rhs.compound_children.size())
+						return false;
+
+					for (size_t i = 0; i != lhs.compound_children.size(); ++i)
+					{
+						auto const& l = lhs.compound_children[i];
+						auto const& r = rhs.compound_children[i];
+						if (!SameShapeDesc(l, r) || !SameVec(l.position, r.position) || !SameVec(l.rotation, r.rotation))
+							return false;
+					}
+					return true;
+				}
 				default:
 				{
 					throw std::runtime_error("Unknown shape type in scene description");
@@ -163,6 +178,19 @@ namespace physics_sandbox
 				case scene_loader::BodyDesc::EShape::Polytope:
 				{
 					shape_buffer.push_back(collision::BuildPolytopeFromPoints(bd.polytope_verts));
+					break;
+				}
+				case scene_loader::BodyDesc::EShape::Compound:
+				{
+					// The array header is followed by its children, each placed in body space by its shape-to-root transform.
+					shape_buffer.push_back(collision::ShapeArray{});
+					for (auto const& child : bd.compound_children)
+					{
+						auto const child_ofs = shape_buffer.size();
+						AppendShape(shape_buffer, child);
+						shape_buffer.at_byte_ofs<collision::Shape>(child_ofs).m_s2r = m4x4::TransformDeg(child.rotation.x, child.rotation.y, child.rotation.z, child.position);
+					}
+					shape_buffer.at_byte_ofs<collision::ShapeArray>(ofs).Complete(bd.compound_children.size());
 					break;
 				}
 				default:
@@ -290,6 +318,7 @@ namespace physics_sandbox
 
 		// Release renderer bindings and non-owning pointer views before their underlying dynamics objects.
 		m_sample_overlays.Reset();
+		m_sample_overlays.SurfaceSpacing(physics::surface::DefaultSpacing);
 		m_articulation_visuals.clear();
 		m_body_ptrs.clear();
 		m_articulation_ptrs.clear();
@@ -374,7 +403,7 @@ namespace physics_sandbox
 				body_state.m_valid = true;
 				return body_state;
 			});
-		m_gpu_buoyancy->SetWaterSurface(scene_desc.water->surface);
+		m_gpu_buoyancy->SetWaterField(scene_desc.water->surface);
 
 		// Ground and other infinite-mass bodies cannot respond to buoyancy. All dynamic bodies use
 		// their existing collision shapes, so scene descriptions need no parallel hull geometry.
@@ -522,18 +551,18 @@ namespace physics_sandbox
 		if (m_rdr == nullptr || m_gpu_buoyancy == nullptr || !m_water.has_value() || m_buoyancy_debug_targets.empty())
 			return;
 
-		// Adapter exposing the scene's WaterSurface through the sampler's water-field concept. Only
+		// Adapter exposing the scene's WaterField through the sampler's water-field concept. Only
 		// valid for the default flat WaterFrame{} (up=+Z, t0=+X, t1=+Y, ref=origin): the sampler calls
 		// Height/Gradient with planar coords (u,v) = (sample.x, sample.y) and treats the returned value
-		// as the signed height along 'up'. EvaluateHeight returns the absolute world-Z surface height,
+		// as the signed height along 'up'. WaterField::Height returns the absolute world-Z surface height,
 		// which equals the signed height along +Z from the origin only because ref=origin and up=+Z.
 		struct WaterAdapter
 		{
-			physics::GpuBuoyancy::WaterSurface const* m_surface;
+			physics::terrain::water::WaterField const* m_surface;
 			float m_time;
-			float Height(v2 uv) const { return m_surface->EvaluateHeight(uv, m_time); }
-			v2 PressureGradient(v2 uv, float gravity) const { return m_surface->EvaluatePressureGradient(uv, m_time, gravity); }
-			v4 Velocity(v4 pos_ws) const { return m_surface->EvaluateVelocity(pos_ws, m_time); }
+			float Height(v2 uv) const { return static_cast<float>(m_surface->Height(physics::terrain::v2d{uv.x, uv.y}, m_time)); }
+			v2 PressureGradient(v2 uv, float gravity) const { return m_surface->PressureGradient(uv, m_time, gravity); }
+			v4 Velocity(v4 pos_ws) const { return m_surface->Velocity(pos_ws, m_time); }
 		};
 		auto const water = WaterAdapter{ &m_water->surface, static_cast<float>(m_clock) };
 
@@ -547,6 +576,7 @@ namespace physics_sandbox
 			.m_quadratic_drag_coefficient = gpu_cfg.m_quadratic_drag_coefficient,
 			.m_tangential_drag_coefficient = gpu_cfg.m_tangential_drag_coefficient,
 			.m_surface_spacing = gpu_cfg.m_surface_spacing,
+			.m_volume_spacing = gpu_cfg.m_volume_spacing,
 		};
 
 		// Map a sample classification to a display colour.
@@ -564,10 +594,9 @@ namespace physics_sandbox
 			}
 		};
 
-		// Sampling + display tuning. Volume uses a fixed count; surface coverage uses the configured spacing. The cloud is
+		// Sampling + display tuning. Volume and surface densities match the GPU buoyancy configuration. The cloud is
 		// decimated at draw time so dense hulls stay renderable. Forces are large (~2e4 N) so arrows are
 		// scaled down to world units.
-		constexpr int VolumeSamples = 8192;
 		constexpr int MaxDrawSamples = 16384;
 		constexpr float ForceScale = 1.0e-4f;  // N    -> world units
 		constexpr float TorqueScale = 1.0e-4f; // N.m  -> world units
@@ -643,7 +672,7 @@ namespace physics_sandbox
 				(Sqr(state.m_gravity_ws.x) + Sqr(state.m_gravity_ws.y)) <= 1e-3f * Max(1e-6f, LengthSq(state.m_gravity_ws.w0())));
 
 			auto debug = SampleDebug{};
-			auto const result = SampleHull(*shape, target.m_hull_id, state, WaterFrame{}, water, cfg, VolumeSamples, &debug);
+			auto const result = SampleHull(*shape, target.m_hull_id, state, WaterFrame{}, water, cfg, &debug);
 
 			// Decimated sample cloud, with green whiskers on active surface samples.
 			auto const stride = std::max<size_t>(1, debug.m_samples.size() / MaxDrawSamples);
@@ -1268,6 +1297,13 @@ namespace physics_sandbox
 		auto const buoyancy_beg = Clock::now();
 		ConfigureBuoyancy(scene_desc);
 		m_last_load_profile.m_buoyancy_ms = ElapsedMs(buoyancy_beg, Clock::now());
+
+		// Show the surface samples used by the physics that this scene exercises: buoyancy in water scenes, otherwise terrain collision.
+		if (m_gpu_buoyancy)
+			m_sample_overlays.SurfaceSpacing(m_gpu_buoyancy->GetConfig().m_surface_spacing);
+		else if (scene_desc.terrain)
+			m_sample_overlays.SurfaceSpacing(scene_desc.terrain->surface_spacing);
+
 		UpdateCollisionReadback();
 		auto const bodies_end = Clock::now();
 		m_last_load_profile.m_bodies_ms = ElapsedMs(mark, bodies_end);
@@ -1489,7 +1525,7 @@ namespace physics_sandbox
 			DbgLog("  Ground: %s (height=%.2f)\n", scene_desc.ground ? "yes" : "no", scene_desc.ground ? scene_desc.ground->height : 0.0f);
 			if (!scene_desc.terrain)
 				DbgLog("  Terrain: no\n");
-			DbgLog("  Water: %s (level=%.2f waves=%d)\n", scene_desc.water ? "yes" : "no", scene_desc.water ? scene_desc.water->surface.m_level : 0.0f, scene_desc.water ? isize(scene_desc.water->surface.m_waves) : 0);
+			DbgLog("  Water: %s (level=%.2f waves=%d)\n", scene_desc.water ? "yes" : "no", scene_desc.water ? scene_desc.water->surface.Level() : 0.0, scene_desc.water ? isize(scene_desc.water->surface.Elements()) : 0);
 			DbgLog("  Material: elasticity=%.2f friction=%.2f\n", mat.m_elasticity_norm, mat.m_friction_static);
 			for (int i = 0; i != std::ssize(m_body); ++i)
 			{
@@ -2081,6 +2117,37 @@ namespace physics_sandbox::tests
 			PR_EXPECT(overlays.m_models.empty() && overlays.m_instances.empty());
 			PR_EXPECT(overlays.m_surface_enabled && overlays.m_volume_enabled);
 			PR_EXPECT(scene.VisualMode() == EVisualMode::Normal);
+		}
+
+		// Surface overlays show the spacing of the physics a scene exercises: buoyancy with water, terrain collision without.
+		PRUnitTestMethod(SurfaceSpacingFollowsSceneConsumer, Quick)
+		{
+			auto scene = Scene(nullptr);
+			auto& overlays = scene.m_sample_overlays;
+			auto scene_desc = BoxScene(v4{1, 1, 1, 0}, 2.0f);
+			scene.LoadScene(scene_desc);
+			PR_EXPECT(overlays.m_surface_spacing == physics::surface::DefaultSpacing);
+
+			// Terrain-only scenes display the terrain's (possibly overridden) collision spacing.
+			scene_desc.terrain = scene_loader::TerrainDesc{};
+			scene_desc.terrain->radius_m = 16.0;
+			scene_desc.terrain->intervals = 8;
+			scene_desc.terrain->surface_spacing = 0.3f;
+			scene.LoadScene(scene_desc);
+			PR_EXPECT(overlays.m_surface_spacing == 0.3f);
+
+			// Water scenes display the buoyancy configuration, taking precedence over any terrain.
+			scene_desc.water = scene_loader::WaterDesc{};
+			scene.LoadScene(scene_desc);
+			PR_EXPECT(overlays.m_surface_spacing == scene.m_gpu_buoyancy->GetConfig().m_surface_spacing);
+			PR_EXPECT(overlays.m_surface_spacing == physics::buoyancy::DefaultSurfaceSpacing);
+
+			// Scenes without either consumer return to the shared default.
+			scene_desc.terrain.reset();
+			scene_desc.water.reset();
+			scene.LoadScene(scene_desc);
+			PR_EXPECT(overlays.m_surface_spacing == physics::surface::DefaultSpacing);
+			PR_THROWS(overlays.SurfaceSpacing(0.0f), std::exception);
 		}
 	};
 

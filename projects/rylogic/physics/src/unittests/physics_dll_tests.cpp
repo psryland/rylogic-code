@@ -1096,6 +1096,8 @@ namespace pr::unittests
 						.sea_level_bias = config.m_sea_level_bias_m,
 						.uplift_height = config.m_uplift_height_m,
 						.mountain_base = config.m_mountain_base_height_m,
+						.basin_depth = config.m_basin_depth_m,
+						.basin_threshold = config.m_basin_threshold,
 						.regional_base = band(config.m_regional_base),
 						.region_selector = band(config.m_region_selector),
 						.region_uplift = band(config.m_region_uplift),
@@ -1103,6 +1105,7 @@ namespace pr::unittests
 						.plains = band(config.m_plains),
 						.hills = band(config.m_hills),
 						.mountains = band(config.m_mountains),
+						.basin_selector = band(config.m_basin_selector),
 					};
 					desc.mountains.roundness = config.m_mountains.m_roundness;
 					desc.mountains.weight_gain = config.m_mountains.m_weight_gain;

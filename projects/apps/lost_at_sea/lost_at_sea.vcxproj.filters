@@ -220,15 +220,6 @@
     <None Include="src\world\terrain\shaders\terrain.hlsl">
       <Filter>src\world\terrain\shaders</Filter>
     </None>
-    <None Include="src\world\water\shaders\water_field_types.hlsli">
-      <Filter>src\world\water\shaders</Filter>
-    </None>
-    <None Include="src\world\water\shaders\water_field.hlsli">
-      <Filter>src\world\water\shaders</Filter>
-    </None>
-    <None Include="src\world\water\shaders\water_field_buoyancy.hlsli">
-      <Filter>src\world\water\shaders</Filter>
-    </None>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="res\shaders.rc">
@@ -242,9 +233,6 @@
     </ResourceCompile>
     <ResourceCompile Include="src\world\terrain\shaders\terrain.rc">
       <Filter>src\world\terrain\shaders</Filter>
-    </ResourceCompile>
-    <ResourceCompile Include="src\world\water\shaders\water.rc">
-      <Filter>src\world\water\shaders</Filter>
     </ResourceCompile>
   </ItemGroup>
   <ItemGroup>

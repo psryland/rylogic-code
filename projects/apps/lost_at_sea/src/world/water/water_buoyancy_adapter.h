@@ -7,12 +7,9 @@
 
 namespace las::water
 {
-	// Connects LaS field snapshots to the generic physics GPU-buoyancy extension.
+	// Connects LaS field snapshots to the generic physics GPU-buoyancy water field.
 	struct BuoyancyAdapter
 	{
-		// Return the shader and fixed-stride contract used to specialise GPU buoyancy for LaS.
-		static physics::GpuBuoyancy::WaterFieldExtension Extension();
-
 		// Copy one immutable LaS field snapshot into GPU buoyancy for the matching simulation time.
 		static void SetField(physics::GpuBuoyancy& buoyancy, Snapshot const& snapshot, double simulation_time_s);
 	};

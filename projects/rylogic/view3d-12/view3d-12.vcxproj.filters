@@ -36,6 +36,12 @@
     <Filter Include="src\scene">
       <UniqueIdentifier>{aa510495-67b8-4fe1-bf0c-7214e4b69a55}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\postprocessing">
+      <UniqueIdentifier>{5c1f4b0e-8d52-4a8e-9f6b-2d7c3e1a9b40}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\shaders\hlsl\postprocessing">
+      <UniqueIdentifier>{a3e6d2f1-7b4c-4e59-8c1d-6f0b2a9e5d73}</UniqueIdentifier>
+    </Filter>
     <Filter Include="src\render">
       <UniqueIdentifier>{ac597ff1-2e33-460a-bbac-80053ef2b9b6}</UniqueIdentifier>
     </Filter>
@@ -797,6 +803,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\render\alpha_kbuffer.h">
       <Filter>src\render</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\postprocessing\post_processing.h">
+      <Filter>src\postprocessing</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\hlsl\shader_registers.h">
       <Filter>pr\hlsl</Filter>
     </ClInclude>
@@ -883,6 +892,9 @@
     <ShaderBuild Include="src\shaders\hlsl\forward\far_clip_fade.hlsl">
       <Filter>src\shaders\hlsl\forward</Filter>
     </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\postprocessing\underwater.hlsl">
+      <Filter>src\shaders\hlsl\postprocessing</Filter>
+    </ShaderBuild>
   </ItemGroup>
   <ItemGroup>
     <None Include="cpp.hint" />
@@ -931,6 +943,12 @@
     <None Include="src\shaders\hlsl\forward\far_clip_fade.hlsli">
       <Filter>src\shaders\hlsl\forward</Filter>
     </None>
+    <None Include="src\shaders\hlsl\postprocessing\underwater_cbuf.hlsli">
+      <Filter>src\shaders\hlsl\postprocessing</Filter>
+    </None>
+    <None Include="$(RylogicRoot)include\pr\view3d-12\postprocessing\postprocessing.md">
+      <Filter>src\postprocessing</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <CSharpScript Include="auto_gen.csx" />
@@ -941,6 +959,9 @@
     </ClCompile>
     <ClCompile Include="src\render\alpha_kbuffer.cpp">
       <Filter>src\render</Filter>
+    </ClCompile>
+    <ClCompile Include="src\postprocessing\post_processing.cpp">
+      <Filter>src\postprocessing</Filter>
     </ClCompile>
     <ClCompile Include="src\ray_tracing\ray_tracing_reflections.cpp">
       <Filter>src\ray_tracing</Filter>

@@ -592,6 +592,52 @@ VIEW3D_API BOOL __stdcall View3D_FarClipFadePropertiesSet(view3d::Window window,
 	CatchAndReport(View3D_FarClipFadePropertiesSet, window, FALSE);
 }
 
+// Return the scene-owned underwater post effect settings through the stable DLL layout.
+VIEW3D_API view3d::UnderwaterProps __stdcall View3D_PostEffectUnderwaterGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+		DllLockGuard;
+		auto props = window->PostEffectUnderwater();
+		return view3d::UnderwaterProps{
+			.m_enabled = props.m_enabled,
+			.m_tint = props.m_tint.argb,
+			.m_fog_colour = props.m_fog_colour.argb,
+			.m_visibility = props.m_visibility,
+			.m_distortion_amplitude = props.m_distortion_amplitude,
+			.m_distortion_frequency = props.m_distortion_frequency,
+			.m_distortion_speed = props.m_distortion_speed,
+			.m_surface = To<view3d::Vec4>(props.m_surface),
+			.m_fade_depth = props.m_fade_depth,
+		};
+	}
+	CatchAndReport(View3D_PostEffectUnderwaterGet, window, {});
+}
+
+// Set complete validated underwater settings, reporting failure without partially applying them.
+VIEW3D_API BOOL __stdcall View3D_PostEffectUnderwaterSet(view3d::Window window, view3d::UnderwaterProps const& props)
+{
+	try
+	{
+		Validate(window);
+		DllLockGuard;
+		window->PostEffectUnderwater(rdr12::UnderwaterProps{
+			.m_enabled = props.m_enabled != FALSE,
+			.m_tint = Colour32{props.m_tint},
+			.m_fog_colour = Colour32{props.m_fog_colour},
+			.m_visibility = props.m_visibility,
+			.m_distortion_amplitude = props.m_distortion_amplitude,
+			.m_distortion_frequency = props.m_distortion_frequency,
+			.m_distortion_speed = props.m_distortion_speed,
+			.m_surface = To<v4>(props.m_surface),
+			.m_fade_depth = props.m_fade_depth,
+		});
+		return TRUE;
+	}
+	CatchAndReport(View3D_PostEffectUnderwaterSet, window, FALSE);
+}
+
 // Get/Set the dimensions of the render target
 // In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.
 VIEW3D_API SIZE __stdcall View3D_WindowBackBufferSizeGet(view3d::Window window)
@@ -2118,6 +2164,40 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateU32(char const* name, vie
 	CatchAndReport(View3D_ObjectCreateU32, , nullptr);
 }
 
+// Re-run a compute vertex generator in place over the generated vertex buffer of an existing object.
+VIEW3D_API void __stdcall View3D_ObjectGpuGenerate(view3d::Object object, void const* compute_bytecode, size_t compute_bytecode_size, void const* constants, size_t constants_size, int thread_group_size_x)
+{
+	try
+	{
+		// Buffer pointers are checked here; the generator contract is validated by the context.
+		Validate(object);
+		DllLockGuard;
+		if (compute_bytecode == nullptr || constants == nullptr)
+			throw std::invalid_argument("Vertex generator bytecode and constants are required");
+
+		auto const bytecode = std::span(static_cast<uint8_t const*>(compute_bytecode), compute_bytecode_size);
+		auto const cbuf = std::span(static_cast<std::byte const*>(constants), constants_size);
+		Dll().ObjectGpuGenerate(object, bytecode, cbuf, thread_group_size_x);
+	}
+	CatchAndReport(View3D_ObjectGpuGenerate, , );
+}
+
+// Replace the constants of every procedural vertex shader used by an object's nuggets.
+VIEW3D_API void __stdcall View3D_ObjectProceduralConstantsSet(view3d::Object object, void const* constants, size_t constants_size)
+{
+	try
+	{
+		// The shader validates the exact procedural constants size.
+		Validate(object);
+		DllLockGuard;
+		if (constants == nullptr)
+			throw std::invalid_argument("Procedural constants are required");
+
+		Dll().ObjectProceduralConstants(object, std::span(static_cast<std::byte const*>(constants), constants_size));
+	}
+	CatchAndReport(View3D_ObjectProceduralConstantsSet, , );
+}
+
 // Create objects given in an ldraw string or file.
 // If multiple objects are created, the handle returned is to the first object only.
 // 'ldr_script' - an ldr string, or filepath to a file containing ldr script
@@ -3215,14 +3295,31 @@ VIEW3D_API view3d::Shader __stdcall View3D_ShaderCreate(view3d::ShaderOptions co
 		if (binding.m_constants == nullptr || binding.m_constants_size != view3d::ProceduralVertexBinding::ConstantsSize)
 			throw std::invalid_argument("Procedural vertex shader constants must contain exactly 1024 bytes");
 
-		// Copy both caller buffers into shader-owned storage before returning the owning handle.
+		// The optional raw buffer is addressed in 4-byte words by ByteAddressBuffer loads.
+		if (binding.m_buffer == nullptr && binding.m_buffer_size != 0)
+			throw std::invalid_argument("Procedural vertex shader buffer size must be zero when no buffer is supplied");
+		if (binding.m_buffer != nullptr && (binding.m_buffer_size == 0 || binding.m_buffer_size % 4 != 0 || binding.m_buffer_size > view3d::ProceduralVertexBinding::MaxBufferSize))
+			throw std::invalid_argument("Procedural vertex shader buffer size must be a non-zero multiple of 4 bytes within the supported maximum");
+
+		// Copy the caller buffers into shader-owned storage before returning the owning handle.
 		ResourceFactory factory(Dll().m_rdr);
+		auto name = options.m_dbg_name != nullptr ? std::string_view(options.m_dbg_name) : std::string_view{};
+		D3DPtr<ID3D12Resource> buffer;
+		if (binding.m_buffer != nullptr)
+		{
+			// Upload once into an immutable default-heap resource that every draw reads through a root SRV.
+			auto words = s_cast<int64_t>(binding.m_buffer_size / 4);
+			auto data = std::span<std::byte const>(static_cast<std::byte const*>(binding.m_buffer), binding.m_buffer_size);
+			auto rdesc = ResDesc::Buf(words, 4, data, 4).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+			buffer = factory.CreateResource(rdesc, string32(name).append("-buffer"));
+		}
 		auto shdr = rdr12::Shader::Create<ProceduralVertexShader>(
 			factory.rdr(),
 			static_cast<rdr12::ERenderStep>(binding.m_rdr_step),
 			std::span<BYTE const>(static_cast<BYTE const*>(options.m_bytecode), options.m_bytecode_size),
 			std::span<std::byte const>(static_cast<std::byte const*>(binding.m_constants), binding.m_constants_size),
-			options.m_dbg_name != nullptr ? std::string_view(options.m_dbg_name) : std::string_view{});
+			buffer,
+			name);
 		return shdr.release();
 	}
 	CatchAndReport(View3D_ShaderCreate, , nullptr);

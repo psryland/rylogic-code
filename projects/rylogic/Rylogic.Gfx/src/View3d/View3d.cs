@@ -486,6 +486,7 @@ namespace Rylogic.Gfx
 			Rendering            = 1 << 21,
 			Rendering_RayTracing = Rendering | 1 << 0,
 			Rendering_FarClipFade = Rendering | 1 << 1,
+			Rendering_PostEffects = Rendering | 1 << 2,
 
 			_flags_enum = 0,
 

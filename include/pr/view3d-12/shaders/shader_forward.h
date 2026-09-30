@@ -44,6 +44,7 @@ namespace pr::rdr12::shaders
 			SkyTexture,
 			Lights,
 			ShadowViews,
+			ProceduralBuffer,
 		};
 
 		enum class ESampParam

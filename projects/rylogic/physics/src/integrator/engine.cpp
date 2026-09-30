@@ -28,6 +28,7 @@
 #include "src/integrator/engine_buffer_cache.h"
 #include "src/collision/shape_cache.h"
 #include "src/surface/gpu_world_contacts.h"
+#include "src/buoyancy/gpu_water_forces.h"
 #include "src/materials/material_map.h"
 #include "src/diagnostics/physics_log.h"
 #include "src/diagnostics/dbg_physics.h"
@@ -224,6 +225,56 @@ namespace pr::physics
 		ResetCaches();
 		m_world_surfaces_changed = m_world_surfaces_changed || m_gpu_world_contacts != nullptr || replacement != nullptr;
 		m_gpu_world_contacts = std::move(replacement);
+	}
+
+	// Destroy the water-force pipeline where its complete type is available.
+	void Deleter<GpuWaterForces>::operator()(GpuWaterForces* value) const
+	{
+		delete value;
+	}
+
+	// Replace or disable the water environment; validate a replacement before changing the current one.
+	void Engine::Water(std::optional<WaterConfig> water)
+	{
+		if (m_pending_step.m_active)
+			throw std::runtime_error("Water cannot change while a step is pending");
+
+		// Removing absent water is not an environment change.
+		if (!water && !m_water_active)
+			return;
+
+		// Wave motion is handled each step by waking bodies in the surface band, so only changes to the still water or the body response
+		// need resting bodies to re-evaluate their support. This lets callers replace the waves every step without waking the world.
+		auto changed = water.has_value() != m_water_active;
+		if (water && !changed)
+		{
+			auto const& current = m_gpu_water_forces->m_config;
+			changed =
+				water->m_field.Level() != current.m_field.Level() ||
+				water->m_field.TerrainHeights() != current.m_field.TerrainHeights() ||
+				water->m_density != current.m_density ||
+				water->m_linear_drag_rate != current.m_linear_drag_rate ||
+				water->m_quadratic_drag_coefficient != current.m_quadratic_drag_coefficient ||
+				water->m_angular_drag_rate != current.m_angular_drag_rate;
+		}
+
+		// Keep the compiled pipeline and only replace its configuration.
+		if (water)
+		{
+			water->Validate();
+			if (m_gpu_water_forces == nullptr)
+				m_gpu_water_forces.reset(new GpuWaterForces(*m_gpu, std::move(*water)));
+			else
+				m_gpu_water_forces->m_config = std::move(*water);
+		}
+
+		// Resting bodies must re-evaluate their support against the new water.
+		m_water_active = water.has_value();
+		m_world_surfaces_changed = m_world_surfaces_changed || changed;
+	}
+	WaterConfig const* Engine::Water() const
+	{
+		return m_water_active ? &m_gpu_water_forces->m_config : nullptr;
 	}
 
 	// Identify only this engine's current world endpoint, not arbitrary shapeless or static bodies.
@@ -626,6 +677,10 @@ namespace pr::physics
 			m_world_surfaces_changed = false;
 		}
 
+		// A moving water surface can reach resting bodies without any environment change.
+		if (m_water_active)
+			m_gpu_water_forces->WakeInSurfaceBand(input.m_bodies);
+
 		// Keep the world endpoint last among rigid bodies so contacts can address it before articulation proxies.
 		if (m_gpu_world_contacts && (!input.m_bodies.empty() || !input.m_articulations.empty()))
 			m_pending_step.m_bodies.push_back(&m_gpu_world_contacts->m_endpoint);
@@ -811,6 +866,13 @@ namespace pr::physics
 				Upload(input.m_substep_count > 1);
 			}
 
+			// Select the bodies that may touch the water this frame; dry frames record no water work in any substep.
+			if (m_water_active)
+			{
+				auto profile_scope = ProfileScope<&Engine::StepProfile::m_external_forces_ms>(m_last_step_profile);
+				m_gpu_water_forces->BeginFrame(m_gpu->m_job, bodies, input.m_elapsed_seconds);
+			}
+
 			// Shared stable-slot streams back both the independent and articulation-coupled constraint lanes.
 			if (m_constraints_active || m_coupled_constraints_active)
 			{
@@ -904,6 +966,9 @@ namespace pr::physics
 					{
 						auto profile_scope = ProfileScope<&Engine::StepProfile::m_external_forces_ms>(m_last_step_profile);
 						auto const substep_time_s = input.m_time_s + static_cast<double>(dt) * substep_index;
+						if (m_water_active)
+							m_gpu_water_forces->Apply(m_gpu->m_job, m_gpu_integrator->Bodies().get(), dt, substep_time_s);
+
 						ApplyExternalForces(dt, substep_time_s, substep_index, input.m_substep_count);
 					}
 

@@ -91,7 +91,7 @@ namespace pr::compute::pix
 		#if PR_PIX_ENABLED
 		PIXBeginEvent(context, colour, format_string, std::forward<ARGS>(args)...);
 		#else
-		(void)context, colour, format_string;
+		(void)context, colour, format_string, (args, ...);
 		#endif
 	}
 
@@ -128,7 +128,7 @@ namespace pr::compute::pix
 		if (DetailEnabled())
 			PIXSetMarker(context, 0xFF90AA3F, format, args...);
 		#else
-		(void)context, (void)format;
+		(void)context, format, (args, ...);
 		#endif
 	}
 
@@ -140,7 +140,7 @@ namespace pr::compute::pix
 		if (DetailEnabled())
 			PIXSetMarker(0xFF90AA3F, format, args...);
 		#else
-		(void)format;
+		(void)format, (args, ...);
 		#endif
 	}
 

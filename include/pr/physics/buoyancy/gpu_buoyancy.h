@@ -7,67 +7,13 @@
 #include "pr/physics/integrator/engine.h"
 #include "pr/physics/buoyancy/buoyancy_primitives.h"
 #include "pr/physics/surface/surface_sampling.h"
+#include "pr/physics/terrain/water/water_field.h"
 
 namespace pr::physics
 {
 	// GPU buoyancy module that applies sampled-composite forces and records diagnostics through Engine::ExternalForces.
 	struct GpuBuoyancy
 	{
-		static constexpr int MaxWaterWaveCount = 64;
-
-		struct SineWave
-		{
-			v2 m_direction = v2::XAxis();
-			float m_wavelength = 1.0f;
-			float m_amplitude = 0.0f;
-			float m_phase_speed = 0.0f;
-
-			// Return a copy with the wave direction normalised.
-			SineWave Normalised() const;
-		};
-		struct WaterSurface
-		{
-			float m_level = 0.0f;
-			std::vector<SineWave> m_waves;
-
-			// Return a copy with validated and normalised waves.
-			WaterSurface Normalised() const;
-
-			// Return true when the water height is spatially constant.
-			bool IsFlat() const;
-
-			// Evaluate the water height above the world-space XY position at a simulation time.
-			float EvaluateHeight(v2 xy_ws, float time_s) const;
-
-			// Evaluate the XY surface gradient (dh/dx, dh/dy) of the water height at a simulation time.
-			v2 EvaluateGradient(v2 xy_ws, float time_s) const;
-
-			// Evaluate the dimensionless lateral pressure gradient used by the buoyancy force.
-			// Each wave contributes A*omega^2/g*cos(phase), matching its configured orbital
-			// acceleration. This equals the geometric slope when omega^2 = g*k.
-			v2 EvaluatePressureGradient(v2 xy_ws, float time_s, float gravity) const;
-
-			// Evaluate the world-space water particle velocity (orbital flow) at a world-space
-			// position and simulation time. Uses the linear deep-water (Airy) orbital-velocity
-			// field consistent with the sine-wave height model: particles move in circular orbits
-			// whose radius decays exponentially with depth below the still-water level. The drag
-			// pass subtracts this from the body velocity to obtain the relative flow at each wetted
-			// surface sample. The returned vector has w = 0.
-			v4 EvaluateVelocity(v4 pos_ws, float time_s) const;
-		};
-
-		// Optional shader contract for replacing the built-in sine-wave field. The included HLSL must
-		// define GpuBuoyancyWaterFieldElement and the three GpuBuoyancyEvaluateWater* functions used by
-		// the buoyancy shader. Elements are copied as opaque bytes and read through the existing t1 SRV.
-		struct WaterFieldExtension
-		{
-			std::string m_shader_include;
-			int m_element_stride = 0;
-
-			// Return true when a custom water-field shader contract is configured.
-			bool Enabled() const;
-		};
-
 		// Tunable parameters that govern how the GPU buoyancy pass converts a water surface and
 		// a submerged hull into forces. Defaults match fresh water with mild viscous damping.
 		struct Config
@@ -105,7 +51,11 @@ namespace pr::physics
 
 			// Maximum surface-cell diameter in shape-local metres. Applies at registration/shape refresh;
 			// existing registrations retain their immutable plans. No sample-count budget truncates coverage.
-			float m_surface_spacing = surface::DefaultSpacing;
+			float m_surface_spacing = buoyancy::DefaultSurfaceSpacing;
+
+			// Typical distance between volume samples in shape-local metres. Each primitive gets about volume / spacing^3 samples
+			// (see buoyancy::VolumeSampleCounts), so larger bodies get more samples. Applies at registration/shape refresh like m_surface_spacing.
+			float m_volume_spacing = buoyancy::DefaultVolumeSpacing;
 
 			// Interior representation used when a collision polytope omits volume tetrahedra. The
 			// default negative value selects an exact O(face count) fan from the volume centre. A
@@ -194,7 +144,7 @@ namespace pr::physics
 		// Construct and subscribe the buoyancy pass to a physics engine. 'config' provides the
 		// tunable fluid parameters (density, drag time constant) used for subsequent dispatches.
 		// SetConfig may be called later to update these at runtime.
-		GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver, WaterFieldExtension water_field_extension = {});
+		GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config, StepIndexResolver step_index_resolver, BodyStateResolver body_state_resolver);
 
 		// Construct an articulation-only buoyancy pass whose link targets are resolved directly by the engine.
 		GpuBuoyancy(ID3D12Device* device, Engine& engine, Config const& config);
@@ -210,15 +160,12 @@ namespace pr::physics
 		// Consume diagnostic readback data after the physics engine has completed its GPU step.
 		void CompleteStep();
 
-		// Set the water surface used by subsequent buoyancy force dispatches.
-		void SetWaterSurface(WaterSurface const& water_surface);
+		// Set the water field used by subsequent buoyancy force dispatches. The field is copied; the shader
+		// evaluates the same elements as terrain::water::WaterField, and the dry cull uses its MaxHeight.
+		void SetWaterField(terrain::water::WaterField const& water_field);
 
-		// Return the current water surface used by buoyancy force dispatches.
-		WaterSurface const& GetWaterSurface() const;
-
-		// Copy a custom water-field snapshot for subsequent buoyancy force dispatches. The byte count
-		// must equal element_count times the stride supplied by the constructor extension.
-		void SetWaterField(std::span<std::byte const> elements, int element_count, float water_level);
+		// Return the water field used by buoyancy force dispatches.
+		terrain::water::WaterField const& GetWaterField() const;
 
 		// Set the tunable buoyancy parameters. Fluid parameters take effect on the next call to
 		// Engine::ExternalForces; polytope derivation and surface spacing apply to later registrations and shape refreshes.

@@ -28,6 +28,10 @@ namespace las
 		if (cmd.count("unittests") == 0)
 			return false;
 
+		auto class_filters = std::vector<std::string_view>{};
+		for (auto const& value : cmd("unittests").values)
+			class_filters.push_back(value);
+
 		OpenUnitTestConsole();
 
 		#if defined(_DEBUG)
@@ -42,7 +46,7 @@ namespace las
 		}
 
 		printf("Lost at Sea: Running unit tests...\n");
-		exit_code = pr::unittests::RunAllTests(true) != 0 ? 1 : 0;
+		exit_code = pr::unittests::RunAllTests(true, class_filters) != 0 ? 1 : 0;
 
 		#else
 

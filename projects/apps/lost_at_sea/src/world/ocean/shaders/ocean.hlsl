@@ -12,7 +12,7 @@
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
 #include "src/world/ocean/shaders/ocean_cbuf.hlsli"
-#include "src/world/water/shaders/water_field.hlsli"
+#include "pr/physics/terrain/water/water_field.hlsli"
 #include "pr/hlsl/camera.hlsli"
 
 #ifdef __cplusplus
@@ -74,12 +74,12 @@ float WarpedGridRadius(float unit_radius, float camera_height)
 }
 
 // Evaluate all active elements at a world-space position.
-WaterFieldSample EvaluateWaterField(float2 world_xy, float time)
+WaterFieldSurfaceSample EvaluateWaterField(float2 world_xy, float time)
 {
-	WaterFieldSample sample = WaterFieldSampleZero();
+	WaterFieldSurfaceSample sample = WaterFieldSurfaceSampleZero();
 	for (int i = 0; i != g_ocean.water_field_count; ++i)
 	{
-		AccumulateWaterFieldElement(g_ocean.water_field[i], world_xy, time, sample);
+		WaterFieldAccumulateSurface(g_ocean.water_field[i], world_xy, time, sample);
 	}
 	sample.displacement_foam.w = saturate(sample.displacement_foam.w);
 	return sample;
@@ -142,7 +142,7 @@ PSIn VSOcean(uint vertex_id semantic(SV_VertexID))
 	float wave_fade = 1.0 - saturate((radius - fade_start) / (outer - fade_start));
 
 	// Apply Gerstner displacement and analytical normals, scaled by the shared outer-edge fade.
-	WaterFieldSample water = EvaluateWaterField(world_xy, time);
+	WaterFieldSurfaceSample water = EvaluateWaterField(world_xy, time);
 	float4 disp = water.displacement_foam;
 	float3 ws_pos = float3(
 		world_xy.x + disp.x * wave_fade,

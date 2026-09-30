@@ -289,6 +289,24 @@ namespace pr::rdr12
 		Invalidate();
 	}
 
+	// Return the scene-owned underwater post effect settings.
+	UnderwaterProps V3dWindow::PostEffectUnderwater() const
+	{
+		return m_scene.PostEffects().Underwater();
+	}
+
+	// Publish a validated post effect change and request a new frame.
+	void V3dWindow::PostEffectUnderwater(UnderwaterProps const& props)
+	{
+		props.Validate();
+		if (props == PostEffectUnderwater())
+			return;
+
+		m_scene.PostEffects().Underwater(props);
+		OnSettingsChanged(this, view3d::ESettings::Rendering_PostEffects);
+		Invalidate();
+	}
+
 	// The DPI of the monitor that this window is displayed on
 	v2 V3dWindow::Dpi() const
 	{

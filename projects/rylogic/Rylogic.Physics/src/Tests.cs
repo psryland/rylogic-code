@@ -45,6 +45,12 @@ public sealed class TestPhysics
 		AssertNativeSize(19, Marshal.SizeOf<Native.D6Constraint>());
 		AssertNativeSize(20, Marshal.SizeOf<TerrainConfiguration>());
 		AssertNativeSize(21, Marshal.SizeOf<CylindricalBoundaryConfiguration>());
+		AssertNativeSize(22, Marshal.SizeOf<Native.WaterDesc>());
+		AssertNativeSize(23, Marshal.SizeOf<Native.WaterBathymetryDesc>());
+		Assert.Equal(WaterFieldElement.SizeInBytes, sizeof(WaterFieldElement));
+		Assert.Equal(8, Marshal.OffsetOf<Native.WaterDesc>(nameof(Native.WaterDesc.m_level)).ToInt32());
+		Assert.Equal(40, Marshal.OffsetOf<Native.WaterDesc>(nameof(Native.WaterDesc.m_elements)).ToInt32());
+		Assert.Equal(40, Marshal.OffsetOf<Native.WaterBathymetryDesc>(nameof(Native.WaterBathymetryDesc.m_heights)).ToInt32());
 		Assert.Equal(8, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_centre_x)).ToInt32());
 		Assert.Equal(32, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_material_id)).ToInt32());
 		Assert.Equal(36, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_surface_spacing)).ToInt32());
@@ -75,6 +81,77 @@ public sealed class TestPhysics
 		Assert.True(engine.CheckpointSize() > 0);
 	}
 
+	/// <summary>Water floats a light body at its analytic draft, rejects invalid and pending changes, and keeps checkpoints available.</summary>
+	[Test]
+	public void Water()
+	{
+		using var runtime = new Physics();
+		using var engine = runtime.CreateEngine();
+		ExpectStatus(EStatus.InvalidArgument, () => engine.SetWater(new WaterConfiguration(0, density: 0)));
+		ExpectStatus(EStatus.InvalidArgument, () => engine.SetWater(new WaterConfiguration(double.NaN)));
+		engine.SetWater(new WaterConfiguration(2, linear_drag_rate: 2));
+
+		// A sphere of half the water's density floats with its centre on the surface.
+		using var shape = engine.CreateSphere(0.5f);
+		using var body = engine.CreateBody(shape, new BodyOptions { ObjectToWorld = m4x4.Translation(0, 0, 2.4f), Gravity = v4.Zero, MassMode = EMassMode.Density, MassOrDensity = 500 });
+		var commands = new[] { BodyCommand.SetGravity(body.Handle, new v4(0, 0, -9.81f, 0)) };
+		engine.BeginStep(1f / 60, commands: commands);
+		ExpectStatus(EStatus.StepPending, () => engine.SetWater(null));
+		engine.CompleteStep();
+		for (var step = 0; step != 600; ++step)
+			engine.Step(1f / 60, commands: commands);
+
+		// Require the analytic draft within a small settling tolerance.
+		var height = body.GetState().m_object_to_world.pos.z;
+		if (Math.Abs(height - 2.0f) > 0.02f || float.IsNaN(height))
+			throw new Exception($"Water sphere did not float at its draft: height={height}, velocity={body.GetState().m_velocity.m_linear}");
+
+		// Water is environment configuration, so body checkpoints remain available.
+		Assert.True(engine.CheckpointSize() > 0);
+
+		// Removing the water restores free fall.
+		engine.SetWater(null);
+		for (var step = 0; step != 60; ++step)
+			engine.Step(1f / 60, commands: commands);
+
+		Assert.True(body.GetState().m_object_to_world.pos.z < 0);
+	}
+
+	/// <summary>Wind-driven waves build towards their targets, marshal as elements, and apply with terrain heights through the engine.</summary>
+	[Test]
+	public void Waves()
+	{
+		// Calm air makes no waves, and wind makes waves.
+		var layout = new WaveSpectrumLayout(9.81f, 1024f, 0.5f, 256f, 16, 4);
+		var targets = new float[layout.ComponentCount];
+		WaveSpectrum.Targets(layout, new WaveWeather(0, 0, 10_000), targets);
+		Assert.True(Array.TrueForAll(targets, a => a == 0));
+		WaveSpectrum.Targets(layout, new WaveWeather(10, 0, 10_000), targets);
+		Assert.True(Array.Exists(targets, a => a > 0));
+
+		// Relaxation reaches the targets, and a minimum wavelength removes short components.
+		var amplitudes = new float[layout.ComponentCount];
+		WaveSpectrum.Relax(amplitudes, targets, 1e4f, 20f);
+		Assert.Equal(targets[targets.Length - 1], amplitudes[amplitudes.Length - 1]);
+		var elements = new WaterFieldElement[layout.ComponentCount];
+		var all = WaveSpectrum.Elements(layout, amplitudes, 0, elements);
+		var long_only = WaveSpectrum.Elements(layout, amplitudes, 4, elements);
+		Assert.True(all > long_only && long_only > 0);
+		Assert.Equal(WaterFieldElement.TypeGerstnerWave, elements[0].m_type);
+		Assert.True(elements[0].m_wave.y >= 4);
+
+		// The engine accepts the waves with terrain heights, and rejects a grid that does not match its heights.
+		using var runtime = new Physics();
+		using var engine = runtime.CreateEngine();
+		var heights = new float[] { -20, -20, 5, 5 };
+		engine.SetWaterBathymetry(-100, -100, 200, 2, 2, heights);
+		engine.SetWater(new WaterConfiguration(0, repeat_period: 1024), elements.AsSpan(0, long_only));
+		Assert.Throws<ArgumentException>(() => engine.SetWaterBathymetry(0, 0, 1, 3, 3, heights));
+		ExpectStatus(EStatus.InvalidArgument, () => engine.SetWater(new WaterConfiguration(0, breaking_ratio: 0), elements.AsSpan(0, long_only)));
+		engine.ClearWaterBathymetry();
+		engine.SetWater(null);
+	}
+
 	/// <summary>Terrain supports a falling body, rejects pending mutation and incomplete checkpoints, and can be removed.</summary>
 	[Test]
 	public void Terrain()
@@ -83,10 +160,11 @@ public sealed class TestPhysics
 		using var engine = runtime.CreateEngine();
 		var band = new TerrainBand(0, 100, 1, 2, 0.5);
 
-		// Disabled bands leave a fixed hill-family datum; cancel its normalized blend for a zero-height plane.
+		// Disabled bands leave a fixed hill-family datum; cancel its normalized blend for a zero-height plane. A basin threshold above the unit range
+		// keeps the flat depression field out of the basin shore band.
 		var blend = (0.5 - 0.28) / (0.58 - 0.28);
 		var datum = 35 / (2 - blend * blend * (3 - 2 * blend));
-		engine.SetTerrain(new TerrainConfiguration(42, 0, 1e6, -datum, 0, 0, band, band, band, band, band, band, band));
+		engine.SetTerrain(new TerrainConfiguration(42, 0, 1e6, -datum, 0, 0, 0, 2, band, band, band, band, band, band, band, band));
 		engine.SetMaterial(new Material(0, 0.5f, 0, 0, 0, 1));
 		using var shape = engine.CreateSphere(0.5f);
 		using var body = engine.CreateBody(shape, new BodyOptions { ObjectToWorld = m4x4.Translation(0, 0, 2), Gravity = v4.Zero, MassOrDensity = 1 });

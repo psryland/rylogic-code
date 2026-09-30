@@ -53,10 +53,10 @@ SamplerState      g_emissive_sampler  :register(s6);
 SamplerState      g_normal_sampler    :register(s7);
 
 // The frame's world space lights. The count is in 'g_frame.light_info.x'.
-StructuredBuffer<Light> g_lights :register(t14);
+StructuredBuffer<Light> g_lights :register(t15);
 
 // The frame's shadow views. Lights with shadows refer to their views by index.
-StructuredBuffer<ShadowView> g_shadow_views :register(t15);
+StructuredBuffer<ShadowView> g_shadow_views :register(t16);
 
 // Alpha sorting
 RasterizerOrderedTexture2D<uint4> g_alpha_colour :register(u0);

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="src">
@@ -43,6 +43,9 @@
     <Filter Include="src\terrain">
       <UniqueIdentifier>{66d730eb-cff0-423a-bf58-22f134653502}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\terrain\water">
+      <UniqueIdentifier>{3e988c79-1557-4599-bba1-ec83522675e8}</UniqueIdentifier>
+    </Filter>
     <Filter Include="src\terrain\landscape">
       <UniqueIdentifier>{9b706562-cd7b-4294-ab2c-1e52cc53f057}</UniqueIdentifier>
     </Filter>
@@ -68,6 +71,9 @@
     </ClCompile>
     <ClCompile Include="src\articulation\articulation_gpu_data.cpp">
       <Filter>src\articulation</Filter>
+    </ClCompile>
+    <ClCompile Include="src\buoyancy\gpu_water_forces.cpp">
+      <Filter>src\buoyancy</Filter>
     </ClCompile>
     <ClCompile Include="src\buoyancy\gpu_buoyancy.cpp">
       <Filter>src\buoyancy</Filter>
@@ -195,6 +201,18 @@
     <ClCompile Include="src\rigid_body\rigid_body.cpp">
       <Filter>src\rigid_body</Filter>
     </ClCompile>
+    <ClCompile Include="src\terrain\water\water_field.cpp">
+      <Filter>src\terrain\water</Filter>
+    </ClCompile>
+    <ClCompile Include="src\terrain\water\bathymetry.cpp">
+      <Filter>src\terrain\water</Filter>
+    </ClCompile>
+    <ClCompile Include="src\terrain\water\wave_spectrum.cpp">
+      <Filter>src\terrain\water</Filter>
+    </ClCompile>
+    <ClCompile Include="src\terrain\landscape\height_bounds.cpp">
+      <Filter>src\terrain\landscape</Filter>
+    </ClCompile>
     <ClCompile Include="src\terrain\landscape\baseline_surface.cpp">
       <Filter>src\terrain\landscape</Filter>
     </ClCompile>
@@ -222,6 +240,12 @@
       <Filter>src\rigid_body</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\buoyancy_primitives.h">
+      <Filter>src\buoyancy</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine_water.h">
+      <Filter>src\integrator</Filter>
+    </ClInclude>
+    <ClInclude Include="src\buoyancy\gpu_water_forces.h">
       <Filter>src\buoyancy</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\gpu_buoyancy.h">
@@ -422,6 +446,27 @@
     <ClInclude Include="src\buoyancy\buoyancy_analytical.h">
       <Filter>src\buoyancy</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\water\water_field.h">
+      <Filter>src\terrain\water</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\water\water_field_types.hlsli">
+      <Filter>src\terrain\water</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\water\water_field.hlsli">
+      <Filter>src\terrain\water</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\water\water_depth.hlsli">
+      <Filter>src\terrain\water</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\water\bathymetry.h">
+      <Filter>src\terrain\water</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\water\wave_spectrum.h">
+      <Filter>src\terrain\water</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\height_bounds.h">
+      <Filter>src\terrain\landscape</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\terrain\landscape\baseline_surface.hlsli">
       <Filter>src\terrain\landscape</Filter>
     </ClInclude>
@@ -446,9 +491,6 @@
       <Filter>src\compute</Filter>
     </None>
     <None Include="src\buoyancy\buoyancy_sampler.hlsli">
-      <Filter>src\buoyancy</Filter>
-    </None>
-    <None Include="src\buoyancy\gpu_basic_waves.hlsli">
       <Filter>src\buoyancy</Filter>
     </None>
     <None Include="$(RylogicRoot)include\pr\physics\terrain\landscape\README.md">
@@ -512,6 +554,9 @@
     </ShaderBuild>
     <ShaderBuild Include="src\compute\sweep.hlsl">
       <Filter>src\compute</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\buoyancy\gpu_water_forces.hlsl">
+      <Filter>src\buoyancy</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl">
       <Filter>src\buoyancy</Filter>

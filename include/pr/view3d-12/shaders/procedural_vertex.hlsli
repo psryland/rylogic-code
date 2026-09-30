@@ -21,6 +21,11 @@
 #define VIEW3D_SHADOW_NUGGET_REGISTER b1
 #define VIEW3D_PROCEDURAL_SHADOW_CONSTANTS_REGISTER b2
 
+// The optional caller-owned immutable buffer is a vertex-stage ByteAddressBuffer at this register in every supported render step.
+// Declare it only when the shader was created with a buffer; the root slot is unbound otherwise.
+// It is bound as a root descriptor, so it has no bounds checking and GetDimensions is undefined: pass sizes/offsets through the constants.
+#define VIEW3D_PROCEDURAL_BUFFER_REGISTER t14
+
 // Stock per-nugget constants shared by Forward and ShadowMap procedural vertex wrappers.
 struct View3DForwardShadowNugget
 {

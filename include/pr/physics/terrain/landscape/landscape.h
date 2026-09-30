@@ -6,3 +6,4 @@
 #include "pr/physics/terrain/surface_sample.h"
 #include "pr/physics/terrain/ray_cast.h"
 #include "pr/physics/terrain/landscape/baseline_surface.h"
+#include "pr/physics/terrain/landscape/height_bounds.h"

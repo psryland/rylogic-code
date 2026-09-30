@@ -50,6 +50,8 @@ namespace pr::physics::terrain::landscape
 		double m_sea_level_bias_m = -55.0;
 		double m_uplift_height_m = 130.0;
 		double m_mountain_base_height_m = 110.0;
+		double m_basin_depth_m = 120.0;
+		double m_basin_threshold = 0.62;
 		FractalConfig m_regional_base = {140.0, 6000.0, 3, 2.1, 0.5};
 		FractalConfig m_region_selector = {1.0, 3600.0, 3, 2.0, 0.55};
 		FractalConfig m_region_uplift = {1.0, 3200.0, 4, 2.0, 0.5};
@@ -57,6 +59,9 @@ namespace pr::physics::terrain::landscape
 		FractalConfig m_plains = {16.0, 900.0, 4, 2.1, 0.5};
 		FractalConfig m_hills = {70.0, 650.0, 5, 2.05, 0.55};
 		RidgedFractalConfig m_mountains = {260.0, 520.0, 5, 2.0, 0.55, 0.18, 1.15};
+
+		// Slow depression field in unit-noise terms. Basins form where it exceeds m_basin_threshold, and a band of 0.1 either side forms the shore.
+		FractalConfig m_basin_selector = {1.0, 4800.0, 3, 2.0, 0.5};
 	};
 
 	// Immutable baseline recipe with ordinary CPU queries and a shared stage-neutral shader evaluator.
@@ -72,7 +77,7 @@ namespace pr::physics::terrain::landscape
 		// Return the validated immutable configuration that defines this surface.
 		BaselineSurfaceConfig const& Config() const noexcept;
 
-		// Return the immutable 488-byte StructuredBuffer recipe used by baseline_surface.hlsli in any shader stage.
+		// Return the immutable 560-byte StructuredBuffer recipe used by baseline_surface.hlsli in any shader stage.
 		shared::BaselineRecipe const& Recipe() const noexcept;
 
 		// Sample one world-space XY position in metres, returning double height and dimensionless XY derivatives.

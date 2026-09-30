@@ -22,25 +22,18 @@ namespace physics_sandbox
 			std::vector<uint8_t> m_vs_bytecode;
 			CBufWaterVisual m_cbuf;
 
-			// Compile the sandbox-local shader and pack the normalised physics surface once.
-			WaterShader(rdr12::Renderer& rdr, physics::GpuBuoyancy::WaterSurface const& surface)
+			// Compile the sandbox-local shader and pack the physics water field once.
+			WaterShader(rdr12::Renderer& rdr, physics::terrain::water::WaterField const& surface)
 				: Shader(rdr)
 				, m_vs_bytecode()
 				, m_cbuf()
 			{
-				static_assert(MaxWaterWaveCount == physics::GpuBuoyancy::MaxWaterWaveCount);
 				static_assert((sizeof(CBufWaterVisual) % 16) == 0);
 
-				m_cbuf.m_wave_count = isize(surface.m_waves);
-				m_cbuf.m_water_level = surface.m_level;
-				for (int wave_index = 0; wave_index != m_cbuf.m_wave_count; ++wave_index)
-				{
-					auto const& wave = surface.m_waves[wave_index];
-					m_cbuf.m_waves[wave_index] = WaterVisualWave{
-						.m_direction_wavelength_phase_speed = v4(wave.m_direction.x, wave.m_direction.y, wave.m_wavelength, wave.m_phase_speed),
-						.m_amplitude = v4(wave.m_amplitude, 0.0f, 0.0f, 0.0f),
-					};
-				}
+				auto const elements = surface.Elements();
+				m_cbuf.m_element_count = isize(elements);
+				m_cbuf.m_water_level = static_cast<float>(surface.Level());
+				std::ranges::copy(elements, std::begin(m_cbuf.m_elements));
 
 				auto resolver = ::pr::compute::shader_cache::ResourceSourceResolver{};
 				auto compiler = ::pr::compute::ShaderCompiler{}
@@ -99,7 +92,7 @@ namespace physics_sandbox
 				auto const index = index_of(ix, iy);
 				auto const xy_ws = WaterXY(extent, water.grid, ix, iy);
 				auto& vert = buffers.m_vcont[index];
-				vert.m_vert = v4(xy_ws.x, xy_ws.y, water.surface.m_level, 1.0f);
+				vert.m_vert = v4(xy_ws.x, xy_ws.y, static_cast<float>(water.surface.Level()), 1.0f);
 				vert.m_diff = water.colour;
 				vert.m_norm = v4::ZAxis();
 				vert.m_tex0 = v2(float(ix) / float(water.grid.x), float(iy) / float(water.grid.y));
@@ -125,13 +118,10 @@ namespace physics_sandbox
 			}
 		}
 
-		auto wave_height = 0.0f;
-		for (auto const& wave : water.surface.m_waves)
-			wave_height += std::abs(wave.m_amplitude);
-
+		auto const wave_height = static_cast<float>(water.surface.MaxHeight() - water.surface.Level());
 		buffers.m_name = "Water";
 		buffers.m_bbox = BBox(
-			v4(0.0f, 0.0f, water.surface.m_level, 1.0f),
+			v4(0.0f, 0.0f, static_cast<float>(water.surface.Level()), 1.0f),
 			v4(0.5f * extent.x, 0.5f * extent.y, wave_height, 0.0f));
 
 		auto shader = rdr12::Shader::Create<WaterShader>(rdr, water.surface);
@@ -166,7 +156,7 @@ namespace physics_sandbox
 		{
 			// A renderer provides the shader overlay with the same runtime resource module as scene loading.
 			auto renderer = rdr12::Renderer(rdr12::RdrSettings(GetModuleHandle(nullptr)));
-			auto shader = WaterShader(renderer, physics::GpuBuoyancy::WaterSurface{});
+			auto shader = WaterShader(renderer, physics::terrain::water::WaterField{});
 			PR_EXPECT(!shader.m_vs_bytecode.empty());
 		}
 	};

@@ -42,14 +42,18 @@
 #include <vector>
 #include <cstdint>
 #include <cmath>
+#include <limits>
+#include <stdexcept>
 #include <algorithm>
 #include "pr/collision/shape.h"
 #include "pr/collision/shape_box.h"
 #include "pr/collision/shape_sphere.h"
+#include "pr/collision/shape_line.h"
 #include "pr/collision/shape_triangle.h"
 #include "pr/collision/shape_polytope.h"
 #include "pr/collision/shape_array.h"
 #include "pr/physics/surface/surface_sampling.h"
+#include "pr/physics/buoyancy/buoyancy_primitives.h"
 
 namespace pr::physics::buoyancy
 {
@@ -62,7 +66,8 @@ namespace pr::physics::buoyancy
 		float m_angular_drag_time_constant_s = 0.0f; // rotational volume-drag e-fold time; <= 0 disables it
 		float m_quadratic_drag_coefficient = 0.0f;  // form-drag Cd; <= 0 disables quadratic drag
 		float m_tangential_drag_coefficient = 0.0f; // surface-shear Ct; <= 0 disables tangential drag
-		float m_surface_spacing = surface::DefaultSpacing; // maximum surface cell diameter in shape-local units
+		float m_surface_spacing = DefaultSurfaceSpacing; // maximum surface cell diameter in shape-local units
+		float m_volume_spacing = DefaultVolumeSpacing;   // typical distance between volume samples in shape-local units (see VolumeSampleCounts)
 	};
 
 	// Rigid-body kinematics needed to place samples in world space and evaluate point velocities.
@@ -234,6 +239,14 @@ namespace pr::physics::buoyancy
 				auto const& sph = shape_cast<ShapeSphere>(shape);
 				return (4.0f / 3.0f) * static_cast<float>(math::constants<double>::tau_by_2) * sph.m_radius * sph.m_radius * sph.m_radius;
 			}
+			case EShape::Line:
+			{
+				// A capsule is a cylinder plus two hemispherical caps that together form one sphere.
+				auto const& line = shape_cast<ShapeLine>(shape);
+				auto const pi = static_cast<float>(math::constants<double>::tau_by_2);
+				auto const r = line.m_radius;
+				return pi * r * r * (2.0f * line.m_hlength) + (4.0f / 3.0f) * pi * r * r * r;
+			}
 			case EShape::Polytope:
 			{
 				auto const& poly = shape_cast<ShapePolytope>(shape);
@@ -333,6 +346,15 @@ namespace pr::physics::buoyancy
 				auto const r = sph.m_radius + eps;
 				return LengthSq(p_local.w0()) <= r * r;
 			}
+			case EShape::Line:
+			{
+				// Inside a capsule means within 'radius' of the nearest point on its Z-axis segment.
+				auto const& line = shape_cast<ShapeLine>(shape);
+				auto const z = std::clamp(p_local.z, -line.m_hlength, line.m_hlength);
+				auto const d = v4{ p_local.x, p_local.y, p_local.z - z, 0.0f };
+				auto const r = line.m_radius + eps;
+				return LengthSq(d) <= r * r;
+			}
 			case EShape::Polytope:
 			{
 				// Convex hull with outward face planes: inside iff on the negative side of every plane.
@@ -390,6 +412,39 @@ namespace pr::physics::buoyancy
 				auto const phi = static_cast<float>(math::constants<double>::tau) * c;
 				auto const dir = v4{rho * std::cos(phi), rho * std::sin(phi), z, 0.0f};
 				return VolumeSample{(dir * r).w1(), dvol};
+			}
+			case EShape::Line:
+			{
+				auto const& line = shape_cast<ShapeLine>(shape);
+				auto const pick = RadicalInverse(index, 2);
+				auto const a = RadicalInverse(index, 3);
+				auto const b = RadicalInverse(index, 5);
+				auto const c = RadicalInverse(index, 7);
+
+				// Choose the cylinder or the caps with probability proportional to their volumes, so the constant weight
+				// 'dvol' stays unbiased. The two hemispherical caps together form one sphere of the capsule radius.
+				auto const pi = static_cast<float>(math::constants<double>::tau_by_2);
+				auto const radius = line.m_radius;
+				auto const cylinder = pi * radius * radius * (2.0f * line.m_hlength);
+				auto const total = cylinder + (4.0f / 3.0f) * pi * radius * radius * radius;
+				if (pick * total < cylinder)
+				{
+					// Uniform point in the cylinder: square-root radius for uniform area density in each disc.
+					auto const r = radius * std::sqrt(a);
+					auto const phi = static_cast<float>(math::constants<double>::tau) * b;
+					return VolumeSample{v4{r * std::cos(phi), r * std::sin(phi), (2.0f * c - 1.0f) * line.m_hlength, 1.0f}, dvol};
+				}
+				else
+				{
+					// Uniform point in a sphere, then move each half to the matching end of the segment.
+					auto const r = radius * std::cbrt(a);
+					auto const z = 1.0f - 2.0f * b;
+					auto const rho = std::sqrt(std::max(0.0f, 1.0f - z * z));
+					auto const phi = static_cast<float>(math::constants<double>::tau) * c;
+					auto p = v4{rho * std::cos(phi), rho * std::sin(phi), z, 0.0f} * r;
+					p.z += p.z >= 0.0f ? line.m_hlength : -line.m_hlength;
+					return VolumeSample{p.w1(), dvol};
+				}
 			}
 			case EShape::Polytope:
 			{
@@ -459,23 +514,36 @@ namespace pr::physics::buoyancy
 		return prims;
 	}
 
-	// Distribute 'total' volume samples across primitives proportional to 'measure'.
-	// Primitives with zero measure get zero samples; positive-measure primitives get at least one.
-	inline std::vector<int> DistributeCounts(std::vector<float> const& measure, int total)
+	// Throw unless 'spacing' is a usable volume sample spacing.
+	inline void ValidateVolumeSpacing(float spacing)
 	{
-		auto counts = std::vector<int>(measure.size(), 0);
-		auto sum = 0.0f;
-		for (auto m : measure) sum += m;
-		if (sum <= 0.0f || total <= 0)
-			return counts;
+		if (!std::isfinite(spacing) || spacing <= 0.0f)
+			throw std::runtime_error("Volume sample spacing must be finite and positive");
+	}
 
-		for (size_t i = 0; i != measure.size(); ++i)
+	// Return the number of volume samples for each primitive so that samples are about 'spacing' apart.
+	// Each primitive with positive volume gets ceil(volume / spacing^3) samples, but no fewer than MinVolumeSamplesPerPrimitive.
+	// Primitives with no volume get none. Throws if the spacing is invalid or the hull total is not representable as an int.
+	inline std::vector<int> VolumeSampleCounts(std::vector<float> const& volume, float spacing)
+	{
+		// Validate here so every caller (GPU registration, CPU oracle, overlays) rejects the same inputs.
+		ValidateVolumeSpacing(spacing);
+		auto const cell = static_cast<double>(spacing) * spacing * spacing;
+
+		// Use double arithmetic so large hulls at fine spacing are detected rather than overflowing.
+		auto counts = std::vector<int>(volume.size(), 0);
+		auto total = 0.0;
+		for (size_t i = 0; i != volume.size(); ++i)
 		{
-			if (measure[i] <= 0.0f)
+			if (!(volume[i] > 0.0f))
 				continue;
 
-			auto const n = static_cast<int>(std::lround(total * (measure[i] / sum)));
-			counts[i] = std::max(1, n);
+			auto const n = std::max<double>(MinVolumeSamplesPerPrimitive, std::ceil(volume[i] / cell));
+			total += n;
+			if (!(total <= static_cast<double>(std::numeric_limits<int>::max())))
+				throw std::runtime_error("Buoyancy volume hull exceeds representable sample count");
+
+			counts[i] = static_cast<int>(n);
 		}
 		return counts;
 	}
@@ -498,13 +566,13 @@ namespace pr::physics::buoyancy
 		WaterFrame const& frame,
 		TWater const& water,
 		SamplerConfig const& cfg,
-		int volume_samples_total,
 		SampleDebug* debug = nullptr)
 	{
 		using namespace collision;
 
 		// Validate resolution independently of the optional drag/debug pass.
 		surface::ValidateSpacing(cfg.m_surface_spacing);
+		ValidateVolumeSpacing(cfg.m_volume_spacing);
 		auto const have_drag = cfg.m_quadratic_drag_coefficient > 0.0f || cfg.m_tangential_drag_coefficient > 0.0f;
 		auto result = HullResult{};
 
@@ -535,7 +603,7 @@ namespace pr::physics::buoyancy
 				surface_plans[k] = surface::BuildPlan(*prims[k], cfg.m_surface_spacing);
 		}
 
-		auto const vol_counts = DistributeCounts(volume, volume_samples_total);
+		auto const vol_counts = VolumeSampleCounts(volume, cfg.m_volume_spacing);
 
 		auto const up = frame.m_up;
 		auto const t0 = frame.m_t0;

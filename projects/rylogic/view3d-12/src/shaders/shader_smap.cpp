@@ -20,6 +20,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto DiffTexture = ESRVReg::t0;
 		inline static constexpr auto DiffTextureSampler = ESamReg::s0;
 		inline static constexpr auto ShadowViews = ESRVReg::t1;
+		inline static constexpr auto ProceduralBuffer = ESRVReg::t14;
 	};
 
 	ShadowMap::ShadowMap(Renderer& rdr)
@@ -43,6 +44,7 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::DiffTexture, 1)
 			.Samp(EReg::DiffTextureSampler, 1)
 			.SRV(EReg::ShadowViews, D3D12_SHADER_VISIBILITY_VERTEX)
+			.SRV(EReg::ProceduralBuffer, D3D12_SHADER_VISIBILITY_VERTEX)
 			.Create(rdr.d3d(), "ShadowMapSig");
 	}
 

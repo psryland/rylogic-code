@@ -22,6 +22,7 @@ struct CBufGpuBuoyancy
 	int water_field_count;
 	float time_s;
 	float water_level;
+	float water_max_height;         // conservative upper bound of the water surface over all positions
 	float fluid_density;
 	float linear_drag_coefficient;  // fluid_density / linear_drag_time_constant, applied per wet dV
 	float angular_drag_coefficient; // fluid_density / angular_drag_time_constant, applied per wet dV
@@ -31,11 +32,7 @@ struct CBufGpuBuoyancy
 	int enable_diagnostics;
 };
 
-#ifdef GPU_BUOYANCY_WATER_FIELD_INCLUDE
-#include GPU_BUOYANCY_WATER_FIELD_INCLUDE
-#else
-#include "physics/src/buoyancy/gpu_basic_waves.hlsli"
-#endif
+#include "pr/physics/terrain/water/water_field.hlsli"
 
 struct GpuBuoyancyPartial
 {
@@ -57,7 +54,7 @@ struct GpuBuoyancyDiagnostic
 
 ConstantBuffer<CBufGpuBuoyancy> resource(g, b0);
 RWStructuredBuffer<GpuRigidBody> resource(g_bodies, u0);
-StructuredBuffer<GpuBuoyancyWaterFieldElement> resource(g_water_field, t1);
+StructuredBuffer<WaterFieldElement> resource(g_water_field, t1);
 RWStructuredBuffer<GpuBuoyancyPartial> resource(g_partials, u1);
 RWStructuredBuffer<GpuBuoyancyDiagnostic> resource(g_diagnostics, u2);
 
@@ -135,7 +132,7 @@ float EvaluateWaterHeight(float2 xy_ws)
 	float height = g.water_level;
 	for (int element_index = 0; element_index != g.water_field_count; ++element_index)
 	{
-		height += GpuBuoyancyEvaluateWaterHeightElement(g_water_field[element_index], xy_ws, g.time_s);
+		height += WaterFieldElementHeight(g_water_field[element_index], xy_ws, g.time_s);
 	}
 	return height;
 }
@@ -150,7 +147,7 @@ float3 EvaluateWaterHeightAndPressureGradient(float2 xy_ws, float gravity)
 	float2 gradient = float2(0.0f, 0.0f);
 	for (int element_index = 0; element_index != g.water_field_count; ++element_index)
 	{
-		float3 contribution = GpuBuoyancyEvaluateWaterHeightAndPressureGradientElement(g_water_field[element_index], xy_ws, g.time_s, gravity);
+		float3 contribution = WaterFieldElementHeightAndPressureGradient(g_water_field[element_index], xy_ws, g.time_s, gravity);
 		height += contribution.x;
 		gradient += contribution.yz;
 	}
@@ -168,7 +165,7 @@ float3 EvaluateWaterVelocity(float3 pos_ws)
 	float3 velocity = float3(0.0f, 0.0f, 0.0f);
 	for (int element_index = 0; element_index != g.water_field_count; ++element_index)
 	{
-		velocity += GpuBuoyancyEvaluateWaterVelocityElement(g_water_field[element_index], pos_ws, g.time_s, g.water_level);
+		velocity += WaterFieldElementVelocity(g_water_field[element_index], pos_ws, g.time_s, g.water_level);
 	}
 	return velocity;
 }
@@ -227,7 +224,8 @@ void ReduceShared(uint thread_index, uint thread_count, bool reduce_moment)
 // of the CPU oracle SampleHull (include/pr/physics/buoyancy/buoyancy_sampler.h).
 //
 // Sample indexing: groups are laid out [hull 0 groups][hull 1 groups]..., g.groups_per_hull groups
-// per hull. The flat sample index within a hull selects a primitive by walking the per-primitive
+// per hull. Each thread streams flat sample indices with a stride of one hull's thread population, so
+// hulls with more samples than threads are fully covered. The flat sample index within a hull selects a primitive by walking the per-primitive
 // cumulative counts (g_vol_prim_records, parallel to g_prims); the residual is the primitive-local
 // sample ordinal fed to the deterministic hash. Threads beyond a hull's emitted sample count, and
 // samples on static / zero-mass bodies or under (near-)zero gravity, contribute zero.
@@ -269,7 +267,8 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 	if (hull_index < g.hull_count)
 	{
 		BuoyVolHeader header = g_vol_headers[hull_index];
-		if (sample_index < header.total_volume_samples)
+		// Stream every ordinal while retaining a bounded number of reduction partials per hull.
+		for (; sample_index < header.total_volume_samples; sample_index += g.groups_per_hull * BUOYANCY_SAMPLE_THREAD_COUNT)
 		{
 			GpuRigidBody body = g_bodies[header.body_index];
 
@@ -305,68 +304,67 @@ void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 				{
 					BuoyPrimitive prim = g_prims[header.prim_base + k];
 
-					// Flat-water fully-dry early-out. This is a per-sample skip, NOT an early return:
+					// Fully-dry early-out. This is a per-sample skip, NOT an early return:
 					// the group-wide ReduceShared below must be reached by every thread, so we only
-					// suppress the per-sample work and leave force/torque/moment at zero. When
-					// water_field_count==0 the surface is a constant level along 'up', so a box/sphere whose
-					// lowest support point is at or above water_level has every sample dry (the wet
-					// test uses signed_height < water_level). Skipping it avoids the emit + sibling
-					// cull + water eval and contributes exactly zero, so results are unchanged. Only
-					// box/sphere have a cheap support test; other primitives fall through to sampling.
+					// suppress the per-sample work and leave force/torque/moment at zero. The wet
+					// test is signed_height < water height, and the water height never exceeds
+					// water_max_height, so a box/sphere whose lowest support point is at or above that
+					// bound has every sample dry. Skipping it avoids the emit + sibling cull + water
+					// eval and contributes exactly zero, so results are unchanged. Only box/sphere have
+					// a cheap support test; other primitives fall through to sampling.
 					bool fully_dry = false;
-					if (g.water_field_count == 0)
 					{
 						float3 up_dry = -gravity_ws / g_mag;
 						float4x4 s2w = mul(prim.m_s2r, body.o2w);
 						float lo, hi;
-						fully_dry = BuoySupportAlongUp(prim, s2w, up_dry, lo, hi) && lo >= g.water_level;
+						fully_dry = BuoySupportAlongUp(prim, s2w, up_dry, lo, hi) && lo >= g.water_max_height;
 					}
 
 					if (!fully_dry)
 					{
-					// Emit a volume sample in shape-local space, then lift to COM-root and world.
-					float4 pos_local;
-					float weight;
-					BuoyEmitVolumeSample(prim, BuoySampleIndex(header.hull_id, k, local_i), dvol, g_volume_verts, g_tets, g_tet_cdf, pos_local, weight);
-					float3 p_root = mul(float4(pos_local.xyz, 1.0f), prim.m_s2r).xyz;
+						// Emit a volume sample in shape-local space, then lift to COM-root and world.
+						float4 pos_local;
+						float weight;
+						BuoyEmitVolumeSample(prim, BuoySampleIndex(header.hull_id, k, local_i), dvol, g_volume_verts, g_tets, g_tet_cdf, pos_local, weight);
+						float3 p_root = mul(float4(pos_local.xyz, 1.0f), prim.m_s2r).xyz;
 
-					// Lowest-index-sibling cull: a lower-index primitive owns any shared volume, so the
-					// union volume is counted exactly once without bias.
-					if (!BuoyIsInsideAnyLowerSibling(g_prims, header.prim_base, k, p_root, header.eps, g_face_planes))
-					{
-						float3 up = -gravity_ws / g_mag;
-						float3 sample_ws = mul(float4(p_root, 1.0f), body.o2w).xyz;
-
-						// Wet test along -gravity. The flat-ocean water field is parameterised in world
-						// XY with height measured along world Z; for gravity along -Z (the phase-11 box
-						// parity gate) this matches signed-height-along-up exactly.
-						float signed_height = dot(sample_ws, up);
-						float3 hg = EvaluateWaterHeightAndPressureGradient(sample_ws.xy, g_mag);
-						if (signed_height < hg.x)
+						// Lowest-index-sibling cull: a lower-index primitive owns any shared volume, so the
+						// union volume is counted exactly once without bias.
+						if (!BuoyIsInsideAnyLowerSibling(g_prims, header.prim_base, k, p_root, header.eps, g_face_planes))
 						{
-							// Froude-Krylov pressure-gradient force per unit volume. The lateral term
-							// follows the configured wave acceleration; flat water remains purely vertical.
-							float3 grad_ws = hg.y * float3(1.0f, 0.0f, 0.0f) + hg.z * float3(0.0f, 1.0f, 0.0f);
-							float3 dF = (g.fluid_density * g_mag * weight) * (up - grad_ws);
-							float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
+							float3 up = -gravity_ws / g_mag;
+							float3 sample_ws = mul(float4(p_root, 1.0f), body.o2w).xyz;
 
-							// Split translational and rotational point velocities so wave following and
-							// roll damping remain independently tunable over the same wet-volume samples.
-							if (g.linear_drag_coefficient > 0.0f || g.angular_drag_coefficient > 0.0f)
+							// Wet test along -gravity. The flat-ocean water field is parameterised in world
+							// XY with height measured along world Z; for gravity along -Z (the phase-11 box
+							// parity gate) this matches signed-height-along-up exactly.
+							float signed_height = dot(sample_ws, up);
+							float3 hg = EvaluateWaterHeightAndPressureGradient(sample_ws.xy, g_mag);
+							if (signed_height < hg.x)
 							{
-								float3 r = sample_ws - com_ws;
-								if (g.linear_drag_coefficient > 0.0f)
-									dF -= (g.linear_drag_coefficient * weight) * (s_body_linear_velocity_ws - EvaluateWaterVelocity(sample_ws));
-								if (g.angular_drag_coefficient > 0.0f)
-									dF -= (g.angular_drag_coefficient * weight) * cross(s_body_angular_velocity_ws, r);
-							}
+								// Froude-Krylov pressure-gradient force per unit volume. The lateral term
+								// follows the configured wave acceleration; flat water remains purely vertical.
+								float3 grad_ws = hg.y * float3(1.0f, 0.0f, 0.0f) + hg.z * float3(0.0f, 1.0f, 0.0f);
+								float3 dF = (g.fluid_density * g_mag * weight) * (up - grad_ws);
+								float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
 
-							force_ws = float4(dF, 0.0f);
-							torque_ws = float4(cross(sample_ws - com_ws, dF), 0.0f);
-							if (g.enable_diagnostics != 0)
-								moment_ws_volume = float4(sample_ws * weight, weight);
+								// Split translational and rotational point velocities so wave following and
+								// roll damping remain independently tunable over the same wet-volume samples.
+								if (g.linear_drag_coefficient > 0.0f || g.angular_drag_coefficient > 0.0f)
+								{
+									float3 r = sample_ws - com_ws;
+									if (g.linear_drag_coefficient > 0.0f)
+										dF -= (g.linear_drag_coefficient * weight) * (s_body_linear_velocity_ws - EvaluateWaterVelocity(sample_ws));
+									if (g.angular_drag_coefficient > 0.0f)
+										dF -= (g.angular_drag_coefficient * weight) * cross(s_body_angular_velocity_ws, r);
+								}
+
+								force_ws += float4(dF, 0.0f);
+								torque_ws += float4(cross(sample_ws - com_ws, dF), 0.0f);
+								if (g.enable_diagnostics != 0)
+									moment_ws_volume += float4(sample_ws * weight, weight);
+							}
 						}
-					}
 					}
 				}
 			}
@@ -528,17 +526,16 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 				{
 					BuoyPrimitive prim = g_prims[header.prim_base + k];
 
-					// Flat-water fully-dry early-out (mirror of the volume kernel). A per-sample skip,
-					// not an early return, so every thread still reaches ReduceShared below. When
-					// water_field_count==0 a box/sphere whose lowest support point is at or above water_level
-					// is entirely dry, so it generates no drag samples; skipping it is result-preserving.
+					// Fully-dry early-out (mirror of the volume kernel). A per-sample skip, not an
+					// early return, so every thread still reaches ReduceShared below. A box/sphere whose
+					// lowest support point is at or above water_max_height is entirely dry, so it
+					// generates no drag samples; skipping it is result-preserving.
 					bool fully_dry = false;
-					if (g.water_field_count == 0)
 					{
 						float3 up_dry = -gravity_ws / g_mag;
 						float4x4 s2w = mul(prim.m_s2r, body.o2w);
 						float lo, hi;
-						fully_dry = BuoySupportAlongUp(prim, s2w, up_dry, lo, hi) && lo >= g.water_level;
+						fully_dry = BuoySupportAlongUp(prim, s2w, up_dry, lo, hi) && lo >= g.water_max_height;
 					}
 
 					if (!fully_dry)

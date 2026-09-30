@@ -121,6 +121,10 @@ namespace pr::rdr12
 		extern ByteCode const arrow_head_gs;
 		extern ByteCode const show_normals_gs;
 
+		// Post-processing
+		extern ByteCode const post_effect_vs;
+		extern ByteCode const underwater_ps;
+
 		// Ray cast
 		extern ByteCode const ray_cast_vs;
 		extern ByteCode const ray_cast_vert_gs;

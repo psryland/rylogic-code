@@ -49,6 +49,7 @@ namespace pr::physics::tests
 			.m_friction_static = 0.0f,
 			.m_elasticity_norm = 1.0f,
 		});
+		engine.Water(std::nullopt);
 		engine.ResetCaches();
 	}
 }
