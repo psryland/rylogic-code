@@ -133,12 +133,12 @@ odr WaterFieldRadialPacketSample WaterFieldEvaluateRadialPacket(WaterFieldElemen
 	return sample;
 }
 
-// Return the phase of a sine or Gerstner wave element. Both use k*dot(d, xy) plus a time term of angular frequency omega.
+// Return the phase of a sine or Gerstner wave element. Both use k*dot(d, xy) plus a time term of angular frequency omega and a constant phase offset.
 odr float WaterFieldWavePhase(WaterFieldElement element, float2 world_xy, float time)
 {
 	float k = tau / element.wave.y;
 	float omega = element.info.x == WaterFieldElementGerstnerWave ? -k * element.wave.z : element.wave.z;
-	return k * dot(element.position.xy, world_xy) + omega * time;
+	return k * dot(element.position.xy, world_xy) + omega * time + element.position.z;
 }
 
 // Return the signed angular frequency used by WaterFieldWavePhase for a sine or Gerstner element.
@@ -289,15 +289,16 @@ odr void WaterFieldAccumulateSurface(WaterFieldElement element, float2 world_xy,
 		}
 		case WaterFieldElementGerstnerWave:
 		{
-			// Steepness moves vertices towards crests, which sharpens them and compresses the normal.
+			// Steepness moves vertices towards crests, which sharpens them and compresses the normal. The height is A*sin(phase), so a
+			// horizontal offset of +Q*A*cos(phase) along the travel direction pulls points on both sides of a crest (sin = 1) towards it.
 			float2 direction = element.position.xy;
 			float amplitude = element.wave.x;
 			float steepness = element.wave.w;
 			float k = tau / element.wave.y;
 			float s, c;
 			sincos(WaterFieldWavePhase(element, world_xy, time), s, c);
-			sample.displacement_foam.x -= steepness * amplitude * direction.x * c;
-			sample.displacement_foam.y -= steepness * amplitude * direction.y * c;
+			sample.displacement_foam.x += steepness * amplitude * direction.x * c;
+			sample.displacement_foam.y += steepness * amplitude * direction.y * c;
 			sample.displacement_foam.z += amplitude * s;
 			sample.displacement_foam.w += steepness * k * amplitude * s;
 			sample.normal_delta.x -= direction.x * k * amplitude * c;
