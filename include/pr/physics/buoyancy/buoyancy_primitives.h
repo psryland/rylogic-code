@@ -5,7 +5,7 @@
 // GPU-ready composite-hull primitive model for the sampled-composite buoyancy backend.
 //
 // A buoyant body is described by a collision::Shape which is either a single convex primitive
-// (Box / Sphere / Triangle / Polytope) or a collision::ShapeArray of such primitives. The sampled
+// (Box / Sphere / Capsule / Triangle / Polytope) or a collision::ShapeArray of such primitives. The sampled
 // composite buoyancy backend treats the body as the OR-union of those primitives and samples it
 // volumetrically (buoyancy) and over its surface (drag).
 //
@@ -16,8 +16,8 @@
 //    compacted or relocated, which would dangle a stored pointer or shift the trailing arrays.
 //  - the GPU upload in a later phase needs a contiguous, type-stable descriptor array anyway.
 //
-// Capture all immutable geometry and volume-selection data the sampler kernels need. Box and Sphere
-// are fully parameterised analytically. Triangle stores its three vertices. Polytope stores its
+// Capture all immutable geometry and volume-selection data the sampler kernels need. Box, Sphere and
+// Capsule (a collision::ShapeLine with a positive radius) are fully parameterised analytically. Triangle stores its three vertices. Polytope stores its
 // surface topology, interior tetrahedralisation, and cumulative tet volumes. Surface quadrature plans
 // are built separately by surface/surface_sampling.h and do not require interior tetrahedra.
 #pragma once
@@ -28,12 +28,25 @@
 #include "pr/collision/shape.h"
 #include "pr/collision/shape_box.h"
 #include "pr/collision/shape_sphere.h"
+#include "pr/collision/shape_line.h"
 #include "pr/collision/shape_triangle.h"
 #include "pr/collision/shape_polytope.h"
 #include "pr/collision/shape_array.h"
 
 namespace pr::physics::buoyancy
 {
+	// Default buoyancy sample densities, shared by the GPU pass, the CPU oracle and diagnostic overlays.
+	// Surface spacing is the maximum surface cell diameter in metres (drag only). Volume spacing is the typical distance in metres
+	// between volume samples (lift and volume damping); each primitive gets about volume / spacing^3 samples, so the sample count
+	// grows with the size of the body. BuoyancySampleDensityTests reports the behavioural error of these values against a dense
+	// reference (0.02 m, 0.02 m); see that test before changing them.
+	inline constexpr float DefaultSurfaceSpacing = 0.25f;
+	inline constexpr float DefaultVolumeSpacing = 0.20f;
+
+	// The fewest volume samples given to a primitive with positive volume. Primitives much smaller than the volume spacing would
+	// otherwise get a single sample, which makes their buoyancy switch on or off as the water passes their centre.
+	inline constexpr int MinVolumeSamplesPerPrimitive = 8;
+
 	// The convex primitive types the sampled-composite backend understands. Values are fixed so
 	// they can be uploaded verbatim and switched on in HLSL.
 	enum class EPrimitiveType : int
@@ -42,6 +55,7 @@ namespace pr::physics::buoyancy
 		Sphere = 1,
 		Polytope = 2,
 		Triangle = 3,
+		Capsule = 4,
 	};
 
 	// GPU-ready descriptor for one convex primitive of a composite hull. The byte layout is the ABI
@@ -88,8 +102,8 @@ namespace pr::physics::buoyancy
 		int m_pad0;
 		int m_pad1;
 
-		// Analytic parameters: box stores half-extents in (x,y,z); sphere stores its radius in x.
-		// Unused for polytope/triangle.
+		// Analytic parameters: box stores half-extents in (x,y,z); sphere stores its radius in x;
+		// capsule stores its radius in x and the half-length of its Z-axis segment in y. Unused for polytope/triangle.
 		v4 m_params;
 	};
 	static_assert(sizeof(GpuPrimitive) == 128, "GpuPrimitive must be 128 bytes for the GPU ABI");
@@ -147,6 +161,17 @@ namespace pr::physics::buoyancy
 					auto const& sph = shape_cast<ShapeSphere>(shape);
 					prim.m_type = static_cast<int>(EPrimitiveType::Sphere);
 					prim.m_params = v4{ sph.m_radius, 0.0f, 0.0f, 0.0f };
+					return prim;
+				}
+				case EShape::Line:
+				{
+					// Thick lines are capsules and are fully analytic. A thin line has no volume and no outward surface normal, so it cannot float.
+					auto const& line = shape_cast<ShapeLine>(shape);
+					if (!(line.m_radius > 0.0f) || !(line.m_hlength >= 0.0f))
+						throw std::runtime_error("Composite buoyancy hull lines must be capsules with a positive radius");
+
+					prim.m_type = static_cast<int>(EPrimitiveType::Capsule);
+					prim.m_params = v4{ line.m_radius, line.m_hlength, 0.0f, 0.0f };
 					return prim;
 				}
 				case EShape::Triangle:

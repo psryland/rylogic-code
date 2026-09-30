@@ -1,9 +1,9 @@
 {
 	"scene": {
-		"description": "Buoyancy floaters on wavy water at z = 0: a 2 x 2 x 1 m box at the origin (~2 m^3 displaced, ~19620 N upward) and an octahedral polytope body at x = 4 exercising the SampledComposite polytope path. Both are registered through the volume-sample backend (analytic=false).",
+		"description": "Buoyancy floaters on wavy water at z = 0: a 2 x 2 x 1 m box at the origin (~2 m^3 displaced, ~19620 N upward) and an octahedral polytope body at x = 4 exercising the SampledComposite polytope path. A large compound (box, sphere, capsule and polytope children, each overlapping the box by ~20% of its own volume, ~11 x 8.5 x 4 m) floats at y = 12. All are registered through the volume-sample backend (analytic=false).",
 		"camera": {
-			"position": [0.0, -8.0, 3.0],
-			"lookat": [0.0, 0.0, 0.0]
+			"position": [0.0, -22.0, 11.0],
+			"lookat": [0.0, 5.0, 0.0]
 		},
 		"gravity": [0.0, 0.0, -9.8],
 		"physics": {
@@ -50,6 +50,27 @@
 					[ 0.0,  0.0,  0.8],
 					[ 0.0,  0.0, -0.8]
 				]
+			},
+			"compound": {
+				"name": "floater-compound",
+				"type": "compound",
+				"children": [
+					{ "type": "box", "dimensions": [6.0, 4.8, 2.5] },
+					{ "type": "sphere", "radius": 2.1, "position": [3.6, 0.3, 0.5] },
+					{ "type": "line", "length": 6.8, "thickness": 1.1, "position": [-0.6, 2.75, 0.2], "rotation": [0.0, 90.0, 0.0] },
+					{
+						"type": "polytope",
+						"vertices": [
+							[-4.4, -3.9, -1.2],
+							[ 0.0, -4.7, -1.4],
+							[-0.2, -1.1, -1.1],
+							[-3.5, -0.9, -1.0],
+							[-2.3, -3.1,  2.5],
+							[-0.7, -2.3,  1.3],
+							[-4.2, -2.5,  1.0]
+						]
+					}
+				]
 			}
 		},
 		"bodies": [
@@ -67,6 +88,15 @@
 				"shape": "floater-octahedron",
 				"mass": 400.0,
 				"position": [4.0, 0.0, 2.0],
+				"velocity": [0.0, 0.0, 0.0],
+				"angular_velocity": [0.0, 0.0, 0.0]
+			},
+			{
+				"name": "floater-compound",
+				"shape": "floater-compound",
+				"colour": "8040A0EE",
+				"density": 500.0,
+				"position": [-2.0, 12.0, 4.0],
 				"velocity": [0.0, 0.0, 0.0],
 				"angular_velocity": [0.0, 0.0, 0.0]
 			}

@@ -14,8 +14,7 @@ namespace physics_sandbox
 	// Refresh/Reset require cleared renderer draw lists and completed GPU work before releasing instances.
 	struct SampleOverlays
 	{
-		static constexpr float SurfaceSpacing = physics::surface::DefaultSpacing;
-		static constexpr int VolumeSampleCount = 8192;
+		static constexpr float VolumeSpacing = physics::buoyancy::DefaultVolumeSpacing;
 		static constexpr float NormalLength = 0.1f;
 
 		// Immutable models shared across bodies with identical collision shape pointers.
@@ -37,13 +36,15 @@ namespace physics_sandbox
 		bool m_surface_enabled = false;
 		bool m_volume_enabled = false;
 		bool m_refresh_pending = false;
+		float m_surface_spacing = physics::surface::DefaultSpacing;
 		std::unordered_map<collision::Shape const*, Model> m_models;
 		std::unordered_map<void const*, Instance> m_instances;
 		int m_failed_targets = 0;
 		std::string m_first_error;
 
 		// Build geometry using the existing surface/volume emitters and compound sibling ownership rules.
-		static SampleOverlayGeometry BuildGeometry(collision::Shape const& shape, bool surface, bool volume);
+		// 'surface_spacing' is the maximum surface cell diameter in shape-local units (see surface::BuildPlan).
+		static SampleOverlayGeometry BuildGeometry(collision::Shape const& shape, bool surface, bool volume, float surface_spacing = physics::surface::DefaultSpacing);
 
 		// Include all shaped non-static bodies, without inspecting or changing their sleeping state.
 		static bool Eligible(physics::RigidBody const& body);
@@ -57,6 +58,9 @@ namespace physics_sandbox
 		// Change an independent overlay option; defer resource retirement until the renderer-safe refresh point.
 		void Surface(bool enabled);
 		void Volume(bool enabled);
+
+		// Set the surface sample spacing to display, matching the physics consumer that the scene exercises. Changing it rebuilds cached geometry.
+		void SurfaceSpacing(float spacing);
 
 		// Mark cached shape data stale without releasing anything referenced by existing draw lists.
 		void Invalidate();

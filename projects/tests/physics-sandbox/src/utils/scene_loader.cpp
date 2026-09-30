@@ -294,6 +294,30 @@ namespace physics_sandbox::scene_loader
 				for (auto const& v : verts)
 					desc.polytope_verts.push_back(ReadVec3(v, 1.0f));
 			}
+			else if (shape_type == "compound")
+			{
+				desc.shape_type = BodyDesc::EShape::Compound;
+
+				auto const& children = jshape_obj["children"].to_array();
+				if (children.empty())
+					throw std::runtime_error("Compound shape requires at least one child");
+
+				for (auto const& jchild : children)
+				{
+					// Each child is a primitive shape object with an optional body-space placement.
+					auto child = ReadShape(jchild);
+					if (child.shape_type == BodyDesc::EShape::Compound)
+						throw std::runtime_error("Compound shape children must be primitive shapes");
+
+					auto const& jchild_obj = jchild.to_object();
+					if (auto const* jpos = jchild_obj.find("position"))
+						child.position = ReadVec3(*jpos, 1.0f);
+					if (auto const* jrot = jchild_obj.find("rotation"))
+						child.rotation = ReadVec3(*jrot, 0.0f);
+
+					desc.compound_children.push_back(std::move(child));
+				}
+			}
 			else
 			{
 				throw std::runtime_error(pr::FmtS("Unknown shape type: '%s'", shape_type.c_str()));
@@ -319,6 +343,7 @@ namespace physics_sandbox::scene_loader
 			body.tri_verts[1] = shape.tri_verts[1];
 			body.tri_verts[2] = shape.tri_verts[2];
 			body.polytope_verts = std::move(shape.polytope_verts);
+			body.compound_children = std::move(shape.compound_children);
 		}
 
 		// Generate a uniformly distributed direction over the unit sphere.
@@ -465,6 +490,13 @@ namespace physics_sandbox::scene_loader
 				vertex = (vertex * scale).w1();
 			for (auto& vertex : shape.polytope_verts)
 				vertex = (vertex * scale).w1();
+
+			// Compound children scale about the body origin, so their placements scale with their shapes.
+			for (auto& child : shape.compound_children)
+			{
+				ScaleShape(child, scale);
+				child.position = (child.position * scale).w1();
+			}
 		}
 		NamedShapeMap ReadNamedShapes(pr::json::Object const& jscene)
 		{

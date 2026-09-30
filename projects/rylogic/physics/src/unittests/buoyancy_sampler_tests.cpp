@@ -288,9 +288,9 @@ namespace pr::physics::tests
 			// Keep the exact half-face reference between grid rows rather than on a wet/dry sample boundary.
 			auto box = ShapeBox(v4{2, 2, 2, 0});
 			auto body = BodyState{.m_gravity_ws = v4{0,0,-9.81f,0}, .m_vel_lin_ws = v4::XAxis()};
-			auto cfg = SamplerConfig{.m_quadratic_drag_coefficient = 1.0f, .m_surface_spacing = 0.1f};
-			auto const full = SampleHull(box.m_base, 41, body, WaterFrame{}, TestField{.m_level = 10}, cfg, 8192);
-			auto const half = SampleHull(box.m_base, 41, body, WaterFrame{}, TestField{}, cfg, 8192);
+			auto cfg = SamplerConfig{.m_quadratic_drag_coefficient = 1.0f, .m_surface_spacing = 0.1f, .m_volume_spacing = 0.1f};
+			auto const full = SampleHull(box.m_base, 41, body, WaterFrame{}, TestField{.m_level = 10}, cfg);
+			auto const half = SampleHull(box.m_base, 41, body, WaterFrame{}, TestField{}, cfg);
 			PR_EXPECT(FEqlAbsolute(full.m_drag_force_ws, v4{-2000,0,0,0}, 0.05f));
 			PR_EXPECT(Length(full.m_drag_torque_ws) < 0.01f);
 			PR_EXPECT(FEqlAbsolute(half.m_drag_force_ws, v4{-1000,0,0,0}, 0.05f));
@@ -298,13 +298,13 @@ namespace pr::physics::tests
 
 			// The default's 18 intervals put a row exactly on the dry boundary, missing half that row's area.
 			cfg.m_surface_spacing = surface::DefaultSpacing;
-			auto const boundary = SampleHull(box.m_base, 41, body, WaterFrame{}, TestField{}, cfg, 8192);
+			auto const boundary = SampleHull(box.m_base, 41, body, WaterFrame{}, TestField{}, cfg);
 			PR_EXPECT(FEqlAbsolute(boundary.m_drag_force_ws, v4{-1000.0f * (17.0f / 18.0f),0,0,0}, 0.05f));
 			PR_EXPECT(FEqlAbsolute(boundary.m_drag_torque_ws, v4{0,500,0,0}, 1.0f));
 
 			// Sphere windward-normal drag integrates n_x cubed, not the projected disk with a constant normal.
 			auto sphere = ShapeSphere(1.0f);
-			auto const ball = SampleHull(sphere.m_base, 41, body, WaterFrame{}, TestField{.m_level = 10}, cfg, 8192);
+			auto const ball = SampleHull(sphere.m_base, 41, body, WaterFrame{}, TestField{.m_level = 10}, cfg);
 			PR_EXPECT(FEqlRelative(ball.m_drag_force_ws.x, -250.0f * math::constants<float>::tau_by_2, 0.002f));
 			PR_EXPECT(std::abs(ball.m_drag_force_ws.y) < 0.01f && std::abs(ball.m_drag_force_ws.z) < 0.01f);
 			PR_EXPECT(Length(ball.m_drag_torque_ws) < 0.01f);
@@ -314,13 +314,29 @@ namespace pr::physics::tests
 			cfg.m_linear_drag_time_constant_s = 2.0f;
 			cfg.m_angular_drag_time_constant_s = 3.0f;
 			body.m_omega_ws = v4{0.1f, 0.2f, -0.3f, 0};
-			auto const coarse = SampleHull(box.m_base, 41, body, WaterFrame{}, TestField{}, cfg, 8192);
+			auto const coarse = SampleHull(box.m_base, 41, body, WaterFrame{}, TestField{}, cfg);
 			cfg.m_surface_spacing = 0.037f;
-			auto const fine = SampleHull(box.m_base, 41, body, WaterFrame{}, TestField{}, cfg, 8192);
+			auto const fine = SampleHull(box.m_base, 41, body, WaterFrame{}, TestField{}, cfg);
 			PR_EXPECT(coarse.m_volume_m3 == fine.m_volume_m3);
 			PR_EXPECT(All(coarse.m_buoyancy_force_ws == fine.m_buoyancy_force_ws));
 			PR_EXPECT(All(coarse.m_buoyancy_torque_ws == fine.m_buoyancy_torque_ws));
 			PR_EXPECT(All(coarse.m_drag_force_ws == fine.m_drag_force_ws) && All(coarse.m_drag_torque_ws == fine.m_drag_torque_ws));
+		}
+
+		// Volume sample counts follow primitive volume at a fixed spacing, with a floor for small primitives.
+		PRUnitTestMethod(VolumeSampleCountsFollowSpacing, Extended)
+		{
+			// A 1 m^3 primitive at 0.25 m spacing holds exactly 4^3 cells; eight times the volume gets eight times the samples.
+			auto const counts = VolumeSampleCounts({1.0f, 8.0f, 0.001f, 0.0f}, 0.25f);
+			PR_EXPECT(counts[0] == 64);
+			PR_EXPECT(counts[1] == 512);
+			PR_EXPECT(counts[2] == MinVolumeSamplesPerPrimitive);
+			PR_EXPECT(counts[3] == 0);
+
+			// Invalid spacings and unrepresentable totals are rejected rather than clamped.
+			PR_THROWS(VolumeSampleCounts({1.0f}, 0.0f), std::runtime_error);
+			PR_THROWS(VolumeSampleCounts({1.0f}, std::numeric_limits<float>::quiet_NaN()), std::runtime_error);
+			PR_THROWS(VolumeSampleCounts({1.0e6f}, 1.0e-3f), std::runtime_error);
 		}
 
 		// Pin the low-discrepancy sequence + hash so future GPU implementations can match exactly.
@@ -358,9 +374,9 @@ namespace pr::physics::tests
 
 			auto const frame = WaterFrame{}; // up=+Z, ref=origin
 			auto const water = TestField{.m_level = 10.0f}; // well above the box
-			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
+			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f, .m_volume_spacing = 0.06f};
 
-			auto const r = SampleHull(box.m_base, 1, body, frame, water, cfg, 20000);
+			auto const r = SampleHull(box.m_base, 1, body, frame, water, cfg);
 
 			auto const volume = 8.0f * half.x * half.y * half.z; // 4 m^3
 			PR_EXPECT(r.m_valid);
@@ -379,10 +395,10 @@ namespace pr::physics::tests
 				.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f},
 			};
 			auto const water = TestField{.m_level = 10.0f};
-			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
+			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f, .m_volume_spacing = 0.075f};
 
 			// The symmetric pressure centre remains at the shape origin while its upward force acts one metre left of the centre of mass.
-			auto const result = SampleHull(box.m_base, 17, body, WaterFrame{}, water, cfg, 20000);
+			auto const result = SampleHull(box.m_base, 17, body, WaterFrame{}, water, cfg);
 			PR_EXPECT(result.m_valid);
 			PR_EXPECT(FEqlAbsolute(result.m_centre_buoyancy_ws.w0(), v4::Zero(), 0.02f));
 			PR_EXPECT(FEqlRelative(result.m_buoyancy_torque_ws.y, result.m_buoyancy_force_ws.z, 0.01f));
@@ -402,9 +418,9 @@ namespace pr::physics::tests
 
 			auto const frame = WaterFrame{};
 			auto const water = TestField{};
-			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
+			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f, .m_volume_spacing = 0.045f};
 
-			auto const r = SampleHull(box.m_base, 2, body, frame, water, cfg, 40000);
+			auto const r = SampleHull(box.m_base, 2, body, frame, water, cfg);
 
 			auto const analytic = SubmergedBoxVolumeCentroid(body.m_o2w, half, 0.0f);
 			PR_EXPECT(analytic.m_valid && r.m_valid);
@@ -424,8 +440,8 @@ namespace pr::physics::tests
 				auto body = BodyState{};
 				body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 				auto const water = TestField{.m_level = 10.0f};
-				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
-				auto const r = SampleHull(sphere.m_base, 3, body, WaterFrame{}, water, cfg, 20000);
+				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f, .m_volume_spacing = 0.06f};
+				auto const r = SampleHull(sphere.m_base, 3, body, WaterFrame{}, water, cfg);
 				PR_EXPECT(FEqlRelative(r.m_volume_m3, full, 1e-3f)); // float-summed over N samples
 				PR_EXPECT(FEqlRelative(r.m_buoyancy_force_ws, v4{0.0f, 0.0f, 1000.0f * 9.81f * full, 0.0f}, 1e-3f));
 			}
@@ -435,8 +451,8 @@ namespace pr::physics::tests
 				auto body = BodyState{};
 				body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 				auto const water = TestField{.m_level = 0.3f};
-				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
-				auto const r = SampleHull(sphere.m_base, 4, body, WaterFrame{}, water, cfg, 40000);
+				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f, .m_volume_spacing = 0.045f};
+				auto const r = SampleHull(sphere.m_base, 4, body, WaterFrame{}, water, cfg);
 				PR_EXPECT(FEqlRelative(r.m_volume_m3, BallVolumeBelow(1.0f, 0.3f), 0.03f));
 			}
 		}
@@ -461,9 +477,9 @@ namespace pr::physics::tests
 			auto body = BodyState{};
 			body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 			auto const water = TestField{.m_level = 10.0f};
-			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
+			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f, .m_volume_spacing = 0.04f};
 
-			auto const r = SampleHull(*hull, 5, body, WaterFrame{}, water, cfg, 60000);
+			auto const r = SampleHull(*hull, 5, body, WaterFrame{}, water, cfg);
 			PR_EXPECT(r.m_valid);
 			PR_EXPECT(FEqlRelative(r.m_volume_m3, 3.0f, 0.03f)); // union, not 4
 		}
@@ -481,12 +497,12 @@ namespace pr::physics::tests
 			auto const frame = WaterFrame::FromGravity(body.m_gravity_ws, v4::Origin());
 			PR_EXPECT(FEqlAbsolute(frame.m_up, v4{0.0f, 1.0f, 0.0f, 0.0f}, 1e-5f));
 
-			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
+			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f, .m_volume_spacing = 0.06f};
 
 			// Flat field (fully submerged): force is exactly rho*g*V*up.
 			{
 				auto const water = TestField{.m_level = 10.0f};
-				auto const r = SampleHull(box.m_base, 6, body, frame, water, cfg, 20000);
+				auto const r = SampleHull(box.m_base, 6, body, frame, water, cfg);
 				PR_EXPECT(FEqlRelative(r.m_volume_m3, volume, 1e-3f)); // float-summed over N samples
 				PR_EXPECT(FEqlRelative(r.m_buoyancy_force_ws, (1000.0f * 9.81f * volume) * frame.m_up, 1e-3f));
 			}
@@ -495,7 +511,7 @@ namespace pr::physics::tests
 			{
 				auto const a = 0.1f;
 				auto const water = TestField{.m_level = 10.0f, .m_a = a};
-				auto const r = SampleHull(box.m_base, 7, body, frame, water, cfg, 20000);
+				auto const r = SampleHull(box.m_base, 7, body, frame, water, cfg);
 				auto const expected = (1000.0f * 9.81f * volume) * (frame.m_up - a * frame.m_t0);
 				PR_EXPECT(FEqlRelative(r.m_buoyancy_force_ws, expected, 1e-3f));
 			}
@@ -509,9 +525,9 @@ namespace pr::physics::tests
 			body.m_o2w = m4x4::Translation(0.0f, 0.0f, 10.0f); // high above water
 			body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 			auto const water = TestField{}; // level 0
-			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
+			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f, .m_volume_spacing = 0.05f};
 
-			auto const r = SampleHull(box.m_base, 8, body, WaterFrame{}, water, cfg, 8000);
+			auto const r = SampleHull(box.m_base, 8, body, WaterFrame{}, water, cfg);
 			PR_EXPECT(!r.m_valid);
 			PR_EXPECT(FEqlAbsolute(r.m_buoyancy_force_ws, v4::Zero(), 1e-6f));
 			PR_EXPECT(FEqlAbsolute(r.m_drag_force_ws, v4::Zero(), 1e-6f));
@@ -537,7 +553,7 @@ namespace pr::physics::tests
 				.m_quadratic_drag_coefficient = 1.0f, // Cd = 1
 			};
 
-			auto const r = SampleHull(box.m_base, 9, body, WaterFrame{}, water, cfg, 0);
+			auto const r = SampleHull(box.m_base, 9, body, WaterFrame{}, water, cfg);
 
 			auto const expected_fx = -0.5f * 1000.0f * 1.0f * a_front * 1.0f; // v^2 = 1
 			PR_EXPECT(FEqlRelative(r.m_drag_force_ws.x, expected_fx, 0.06f));
@@ -562,7 +578,7 @@ namespace pr::physics::tests
 				.m_tangential_drag_coefficient = 0.1f,
 			};
 
-			auto const r = SampleHull(box.m_base, 10, body, WaterFrame{}, water, cfg, 0);
+			auto const r = SampleHull(box.m_base, 10, body, WaterFrame{}, water, cfg);
 			auto const tangent_area = 4.0f;
 			auto const expected_fx =
 				-0.5f *
@@ -588,10 +604,11 @@ namespace pr::physics::tests
 				auto body = BodyState{};
 				body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 				auto const water = TestField{.m_level = 10.0f};
-				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f}; // drag off
+				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f, .m_volume_spacing = 0.08f}; // drag off
+				auto const expected_volume_samples = VolumeSampleCounts({4.0f}, cfg.m_volume_spacing)[0];
 
 				auto dbg = SampleDebug{};
-				auto const r = SampleHull(box.m_base, 11, body, WaterFrame{}, water, cfg, 8000, &dbg);
+				auto const r = SampleHull(box.m_base, 11, body, WaterFrame{}, water, cfg, &dbg);
 
 				// Per-primitive accumulators sized to the single primitive.
 				PR_EXPECT(dbg.m_prim_buoy_force_ws.size() == 1u);
@@ -612,7 +629,7 @@ namespace pr::physics::tests
 				}
 
 				// Fully submerged single box: all volume samples wet, none dry/culled.
-				PR_EXPECT(vol_wet == 8000);
+				PR_EXPECT(vol_wet == expected_volume_samples);
 				PR_EXPECT(vol_dry == 0);
 				PR_EXPECT(vol_culled == 0);
 
@@ -642,10 +659,10 @@ namespace pr::physics::tests
 				auto body = BodyState{};
 				body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 				auto const water = TestField{.m_level = 10.0f};
-				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
+				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f, .m_volume_spacing = 0.06f};
 
 				auto dbg = SampleDebug{};
-				auto const r = SampleHull(*hull, 12, body, WaterFrame{}, water, cfg, 20000, &dbg);
+				auto const r = SampleHull(*hull, 12, body, WaterFrame{}, water, cfg, &dbg);
 
 				PR_EXPECT(dbg.m_prim_buoy_force_ws.size() == 2u);
 
@@ -670,10 +687,10 @@ namespace pr::physics::tests
 				auto body = BodyState{};
 				body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f}; // box centred on z=0 water plane
 				auto const water = TestField{};
-				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
+				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f, .m_volume_spacing = 0.1f};
 
 				auto dbg = SampleDebug{};
-				SampleHull(box.m_base, 13, body, WaterFrame{}, water, cfg, 8000, &dbg);
+				SampleHull(box.m_base, 13, body, WaterFrame{}, water, cfg, &dbg);
 
 				auto vol_wet = 0, vol_dry = 0;
 				for (auto const& s : dbg.m_samples)

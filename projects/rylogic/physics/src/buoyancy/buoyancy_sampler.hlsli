@@ -37,6 +37,7 @@ static const int BUOY_PRIM_BOX = 0;
 static const int BUOY_PRIM_SPHERE = 1;
 static const int BUOY_PRIM_POLYTOPE = 2;
 static const int BUOY_PRIM_TRIANGLE = 3;
+static const int BUOY_PRIM_CAPSULE = 4;
 
 // Matches pr::math::constants<float>::tiny (1.00000007e-05f). Used as the zero-length guard so this
 // module reproduces the oracle's Normalise(v, fallback) threshold exactly.
@@ -64,7 +65,7 @@ struct BuoyPrimitive
 	int m_pad0;
 	int m_pad1;
 
-	float4 m_params;        // box: half-extents in xyz; sphere: radius in x; else unused
+	float4 m_params;        // box: half-extents in xyz; sphere: radius in x; capsule: radius in x, half-length in y; else unused
 };
 
 //
@@ -118,7 +119,7 @@ odr float3 BuoyNormaliseOrZero(float3 v)
 }
 
 // Conservative support interval of a primitive along the world-space 'up' axis, expressed as the
-// min/max of dot(point, up) over the primitive in world space. Only box and sphere have a cheap
+// min/max of dot(point, up) over the primitive in world space. Only box, sphere and capsule have a cheap
 // closed-form support; polytope/triangle return false so callers fall back to per-sample sampling.
 // 's2w' is the shape-local -> world transform and is assumed rigid (rotation + translation, no
 // scale), matching the rest of this module's InvertOrthonormal usage. Used by the flat-water
@@ -150,6 +151,15 @@ odr bool BuoySupportAlongUp(in_(BuoyPrimitive) prim, float4x4 s2w, float3 up, ou
 			hi = c + radius;
 			return true;
 		}
+		case BUOY_PRIM_CAPSULE:
+		{
+			// The segment end points extend along the shape Z axis; the radius adds equally in every direction.
+			float3 az = mul(float4(0.0f, 0.0f, 1.0f, 0.0f), s2w).xyz;
+			float r = abs(dot(az, up)) * prim.m_params.y + prim.m_params.x;
+			lo = c - r;
+			hi = c + r;
+			return true;
+		}
 		default:
 		{
 			lo = 0.0f;
@@ -177,6 +187,13 @@ odr float BuoyPrimitiveVolume(in_(BuoyPrimitive) prim, in_(StructuredBuffer<floa
 			// (4/3)*pi*r^3 - 'tau*0.5f' is pi to float precision, matching the oracle's tau_by_2.
 			float r = prim.m_params.x;
 			return (4.0f / 3.0f) * (tau * 0.5f) * r * r * r;
+		}
+		case BUOY_PRIM_CAPSULE:
+		{
+			// Cylinder plus two hemispherical caps that together form one sphere (mirror of PrimitiveVolume).
+			float r = prim.m_params.x;
+			float pi = tau * 0.5f;
+			return pi * r * r * (2.0f * prim.m_params.y) + (4.0f / 3.0f) * pi * r * r * r;
 		}
 		case BUOY_PRIM_POLYTOPE:
 		{
@@ -219,6 +236,14 @@ odr bool BuoyContainsLocal(in_(BuoyPrimitive) prim, float3 p_local, float eps, i
 		{
 			float r = prim.m_params.x + eps;
 			return dot(p_local, p_local) <= r * r;
+		}
+		case BUOY_PRIM_CAPSULE:
+		{
+			// Within 'radius' of the nearest point on the Z-axis segment.
+			float z = clamp(p_local.z, -prim.m_params.y, prim.m_params.y);
+			float3 d = float3(p_local.x, p_local.y, p_local.z - z);
+			float r = prim.m_params.x + eps;
+			return dot(d, d) <= r * r;
 		}
 		case BUOY_PRIM_POLYTOPE:
 		{
@@ -332,6 +357,40 @@ odr void BuoyEmitVolumeSample(in_(BuoyPrimitive) prim, uint index, float dvol,
 			float phi = tau * c;
 			float3 dir = float3(rho * cos(phi), rho * sin(phi), z);
 			pos_local = float4(dir * r, 1.0f);
+			return;
+		}
+		case BUOY_PRIM_CAPSULE:
+		{
+			float pick = BuoyRadicalInverse(index, 2);
+			float a = BuoyRadicalInverse(index, 3);
+			float b = BuoyRadicalInverse(index, 5);
+			float c = BuoyRadicalInverse(index, 7);
+
+			// Choose the cylinder or the caps in proportion to their volumes (mirror of EmitVolumeSample).
+			float pi = tau * 0.5f;
+			float radius = prim.m_params.x;
+			float hlength = prim.m_params.y;
+			float cylinder = pi * radius * radius * (2.0f * hlength);
+			float total = cylinder + (4.0f / 3.0f) * pi * radius * radius * radius;
+			if (pick * total < cylinder)
+			{
+				// Uniform point in the cylinder.
+				float r = radius * sqrt(a);
+				float phi = tau * b;
+				pos_local = float4(r * cos(phi), r * sin(phi), (2.0f * c - 1.0f) * hlength, 1.0f);
+			}
+			else
+			{
+				// Uniform point in a sphere, with each half moved to the matching segment end. The cube root has the
+				// same parity note as BUOY_PRIM_SPHERE.
+				float r = radius * pow(a, 1.0f / 3.0f);
+				float z = 1.0f - 2.0f * b;
+				float rho = sqrt(max(0.0f, 1.0f - z * z));
+				float phi = tau * c;
+				float3 p = float3(rho * cos(phi), rho * sin(phi), z) * r;
+				p.z += p.z >= 0.0f ? hlength : -hlength;
+				pos_local = float4(p, 1.0f);
+			}
 			return;
 		}
 		case BUOY_PRIM_POLYTOPE:
