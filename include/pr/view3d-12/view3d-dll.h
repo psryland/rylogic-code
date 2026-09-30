@@ -778,16 +778,19 @@ namespace pr
 		struct ProceduralVertexBinding
 		{
 			static constexpr size_t ConstantsSize = 1024;
+			static constexpr size_t MaxBufferSize = 64 * 1024 * 1024;
 
 			ERenderStep m_rdr_step;
 			void const* m_constants;
 			size_t m_constants_size;
+			void const* m_buffer;    // Optional immutable data, copied once and bound as a raw root SRV (ByteAddressBuffer, no bounds) at VIEW3D_PROCEDURAL_BUFFER_REGISTER. Null for none.
+			size_t m_buffer_size;    // Size of 'm_buffer' in bytes. A non-zero multiple of 4 up to MaxBufferSize when 'm_buffer' is not null, otherwise 0.
 		};
 		// Versioned shader creation descriptor. Only Vertex with ProceduralVertexBinding is currently implemented.
 		// Callers supply readable descriptor storage and buffers matching this header and runtime; size/version are not a global ABI handshake.
 		struct ShaderOptions
 		{
-			static constexpr int CurrentVersion = 2;
+			static constexpr int CurrentVersion = 3;
 			static constexpr size_t MaxByteCodeSize = 1024 * 1024;
 
 			int m_struct_size;

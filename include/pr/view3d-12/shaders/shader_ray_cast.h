@@ -16,6 +16,7 @@ namespace pr::rdr12::shaders
 			CBufFrame = 0,
 			CBufNugget,
 			CBufProcedural,
+			ProceduralBuffer,
 		};
 
 		enum class ESampParam
