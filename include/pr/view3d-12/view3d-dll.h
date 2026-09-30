@@ -1248,6 +1248,10 @@ extern "C"
 	// Set the global environment map for the window
 	VIEW3D_API void __stdcall View3D_WindowEnvMapSet(pr::view3d::Window window, pr::view3d::CubeMap env_map);
 
+	// Render the window's objects, lights, and shadows into a new cube map centred at 'position'. 'face_size' is the pixel size of each face.
+	// The result is a full-mip sRGB cube map that is not assigned to the window. The caller owns one reference to it.
+	VIEW3D_API pr::view3d::CubeMap __stdcall View3D_WindowEnvMapCapture(pr::view3d::Window window, pr::view3d::Vec4 position, int face_size);
+
 	// Enable/Disable the depth buffer
 	VIEW3D_API BOOL __stdcall View3D_DepthBufferEnabledGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_DepthBufferEnabledSet(pr::view3d::Window window, BOOL enabled);

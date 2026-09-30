@@ -61,6 +61,10 @@ namespace pr::rdr12
 		// Create and initialise a resource
 		D3DPtr<ID3D12Resource> CreateResource(ResDesc const& desc, std::string_view name);
 
+		// Record generation of all mips below mip 0 on this factory's command list. 'texture' must be a non-array, single-sample 2D texture.
+		// The generated mips are available after the next 'FlushToGpu'.
+		void GenerateMips(ID3D12Resource* texture);
+
 		// Create a model.
 		ModelPtr CreateModel(ModelDesc const& mdesc, D3DPtr<ID3D12Resource> vb, D3DPtr<ID3D12Resource> ib);
 		ModelPtr CreateModel(ModelDesc const& desc);
@@ -82,6 +86,10 @@ namespace pr::rdr12
 		// All faces must be square, have identical dimensions, and share the same pixel format. The TextureDesc may
 		// optionally carry a m_uri / m_name; the m_rdesc field is built internally from the faces.
 		TextureCubePtr CreateTextureCube(std::span<::pr::compute::Image const> faces, TextureDesc const& desc);
+
+		// Create a cube map texture from 'desc.m_rdesc', which must describe a six-slice cube resource. The resource content is
+		// undefined unless the description includes initial data. A non-zero 'desc.m_uri' reuses an existing resource with that uri.
+		TextureCubePtr CreateTextureCube(TextureDesc const& desc);
 
 		// Create (or get) one of the stock textures
 		Texture2DPtr CreateTexture(EStockTexture id);

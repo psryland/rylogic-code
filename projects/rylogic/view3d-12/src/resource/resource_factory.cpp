@@ -176,6 +176,13 @@ namespace pr::rdr12
 		return res;
 	}
 
+	// Record mip generation for all mips below mip 0 of a 2D texture
+	void ResourceFactory::GenerateMips(ID3D12Resource* texture)
+	{
+		m_mipmap_gen.Generate(texture);
+		m_flush_required = true;
+	}
+
 	// Create a model.
 	ModelPtr ResourceFactory::CreateModel(ModelDesc const& mdesc, D3DPtr<ID3D12Resource> vb, D3DPtr<ID3D12Resource> ib)
 	{
@@ -778,8 +785,12 @@ namespace pr::rdr12
 		for (size_t i = 1; i != faces.size(); ++i)
 			desc.m_rdesc.init_data(faces[i]);
 		desc.m_rdesc.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
-
-		// If a uri is given, see if the DX resource already exists and reuse it.
+		return CreateTextureCube(desc);
+	}
+	TextureCubePtr ResourceFactory::CreateTextureCube(TextureDesc const& desc_)
+	{
+		// Create the cube resource described by 'desc_.m_rdesc', or reuse an existing resource with the same uri.
+		auto desc = desc_;
 		D3DPtr<ID3D12Resource> res;
 		if (desc.m_uri != 0)
 		{

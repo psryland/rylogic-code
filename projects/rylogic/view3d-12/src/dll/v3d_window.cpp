@@ -17,6 +17,9 @@
 #include "pr/view3d-12/shaders/shader_point_sprites.h"
 #include "pr/view3d-12/ray_tracing/render_ray_tracing.h"
 #include "pr/view3d-12/resource/resource_factory.h"
+#include "pr/view3d-12/texture/texture_2d.h"
+#include "pr/view3d-12/texture/texture_cube.h"
+#include "pr/view3d-12/texture/texture_desc.h"
 #include "pr/view3d-12/utility/conversion.h"
 
 namespace pr::rdr12
@@ -1498,6 +1501,137 @@ namespace pr::rdr12
 
 		OnSettingsChanged(this, view3d::ESettings::Scene_EnvMap);
 		Invalidate();
+	}
+
+	// Render this window's objects into a new cube map centred at 'position'
+	TextureCubePtr V3dWindow::EnvMapCapture(v4 const& position, int face_size)
+	{
+		// Capture uses the window's scene state and objects, so it has the same thread affinity as 'Render'
+		assert(std::this_thread::get_id() == m_main_thread_id);
+		if (face_size <= 0)
+			throw std::runtime_error("Environment map face size must be positive");
+
+		// Render into an off-screen, single-sample square target. The target is written through an sRGB view,
+		// so the stored bytes are sRGB encoded and can be copied directly into the sRGB cube created below.
+		auto const format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		auto settings = WndSettings(nullptr, true, m_rdr->Settings()).Size(face_size, face_size);
+		settings.m_mode.Format = format;
+		settings.m_multisamp = MultiSamp(1);
+		settings.m_bkgd_colour = m_wnd.BkgdColour();
+		settings.m_name = "EnvMapCapture";
+		auto wnd = Window(*m_rdr, settings);
+		auto factory = ResourceFactory(*m_rdr);
+		auto target_desc = TextureDesc(AutoId, ResDesc::Tex2D(Image{face_size, face_size, nullptr, format}, 1U, EUsage::RenderTarget).clear(wnd.m_rt_props));
+		target_desc.rtv_format(ToSRGB(format));
+		auto target_tex = factory.CreateTexture2D(target_desc);
+
+		// Each face is copied into its own full-mip 2D texture, because mip generation supports only single 2D textures.
+		// The textures allow unordered access so that mips are generated in place.
+		std::array<D3DPtr<ID3D12Resource>, 6> faces;
+		for (auto& face : faces)
+			face = factory.CreateResource(ResDesc::Tex2D(Image{face_size, face_size, nullptr, format}, 0, EUsage::UnorderedAccess), "EnvMapCaptureFace");
+
+		factory.FlushToGpu(EGpuFlush::Block);
+		auto target = BackBuffer(wnd, MultiSamp(1), target_tex.get(), nullptr);
+		wnd.CustomSwapChain(std::span{&target, 1});
+
+		// Copy the lighting and render state from the window's scene. The capture has no environment map, so it cannot reflect itself.
+		auto scene = Scene(wnd);
+		scene.m_lights = m_scene.m_lights;
+		scene.m_ambient = m_scene.m_ambient;
+		scene.m_global_fill_mode = m_scene.m_global_fill_mode;
+		scene.m_pso = m_scene.m_pso;
+		scene.Shadows(m_scene.Shadows());
+		scene.m_cam = m_scene.m_cam;
+		scene.m_cam.Orthographic(false);
+		scene.m_cam.Aspect(1.0);
+		scene.m_cam.FovY(2.0 * std::atan(1.0));
+
+		// View3D cameras are right-handed, but the DX cube face layout is left-handed. Rendering in a world mirrored in Z makes the face cameras right-handed,
+		// and the cube's 'm_cube2w' applies the same mirror when the cube is sampled. Each face lists its DX major axis and the world directions of increasing U and V.
+		struct FaceAxes { v4 major, u, v; };
+		static FaceAxes const face_axes[] =
+		{
+			{ +v4::XAxis(), -v4::ZAxis(), -v4::YAxis() },
+			{ -v4::XAxis(), +v4::ZAxis(), -v4::YAxis() },
+			{ +v4::YAxis(), +v4::XAxis(), +v4::ZAxis() },
+			{ -v4::YAxis(), +v4::XAxis(), -v4::ZAxis() },
+			{ +v4::ZAxis(), +v4::XAxis(), -v4::YAxis() },
+			{ -v4::ZAxis(), -v4::XAxis(), -v4::YAxis() },
+		};
+		auto const mirror = m4x4{ v4::XAxis(), v4::YAxis(), -v4::ZAxis(), v4::Origin() };
+
+		// Render each face and copy it into mip 0 of that face's texture
+		for (int f = 0; f != 6; ++f)
+		{
+			// Look along the mirrored major axis. Image up is the opposite of increasing V.
+			auto const& axes = face_axes[f];
+			auto forward = mirror * axes.major;
+			auto right = mirror * axes.u;
+			auto up = -(mirror * axes.v);
+			scene.m_cam.CameraToWorld(m4x4{ right, up, -forward, position });
+
+			// Render the window's objects from the face camera
+			scene.ClearDrawlists();
+			for (auto& obj : m_objects)
+				obj->AddToScene(scene);
+
+			auto& frame = wnd.NewFrame();
+			scene.Render(frame);
+			wnd.Present(frame, EGpuFlush::Block);
+
+			// Copy the completed face. The target is reused for the next face, so wait for the copy to finish.
+			auto* rendered = wnd.FrameOutput().m_render_target.get();
+			auto& cmd_list = factory.CmdList();
+			BarrierBatch barriers(cmd_list);
+			barriers.Transition(rendered, D3D12_RESOURCE_STATE_COPY_SOURCE);
+			barriers.Transition(faces[f].get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			barriers.Commit();
+
+			auto dst = D3D12_TEXTURE_COPY_LOCATION{ .pResource = faces[f].get(), .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = 0 };
+			auto src = D3D12_TEXTURE_COPY_LOCATION{ .pResource = rendered, .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = 0 };
+			cmd_list.CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+			factory.FlushToGpu(EGpuFlush::Block);
+		}
+		scene.ClearDrawlists();
+		wnd.WaitForGpu();
+
+		// Generate the face mips. Flushing restores each texture to its default state before the cube copy.
+		for (auto& face : faces)
+			factory.GenerateMips(face.get());
+
+		factory.FlushToGpu(EGpuFlush::Block);
+
+		// Create the sRGB cube so that sampling returns linear colour. Mip generation averaged the sRGB encoded values, which slightly darkens
+		// high-contrast detail in the blurrier mips.
+		auto mips = faces[0]->GetDesc().MipLevels;
+		auto cube_desc = TextureDesc(AutoId, ResDesc::TexCube(Image{face_size, face_size, nullptr, ToSRGB(format)}, mips)).name("EnvMapCapture");
+		auto cube = factory.CreateTextureCube(cube_desc);
+		cube->m_cube2w = mirror;
+
+		// Copy every mip of every face into the cube
+		{
+			auto& cmd_list = factory.CmdList();
+			BarrierBatch barriers(cmd_list);
+			barriers.Transition(cube->m_res.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			for (auto& face : faces)
+				barriers.Transition(face.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+
+			barriers.Commit();
+
+			for (UINT f = 0; f != 6; ++f)
+			{
+				// Cube subresources are ordered by face (array slice), then mip
+				for (UINT mip = 0; mip != mips; ++mip)
+				{
+					auto dst = D3D12_TEXTURE_COPY_LOCATION{ .pResource = cube->m_res.get(), .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = mip + f * mips };
+					auto src = D3D12_TEXTURE_COPY_LOCATION{ .pResource = faces[f].get(), .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = mip };
+					cmd_list.CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+				}
+			}
+		}
+		factory.FlushToGpu(EGpuFlush::Block);
+		return cube;
 	}
 
 	// Enable/Disable the depth buffer

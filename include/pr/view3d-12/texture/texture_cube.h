@@ -17,7 +17,8 @@ namespace pr::rdr12
 		//     Left  Front  Right  Back
 		//           Bottom
 		
-		// Cube map to world transform
+		// Cube map to world orientation. Only directions are transformed, so this must be an orthonormal basis. It may be a rotation or a
+		// mirror; a mirror maps right-handed world directions onto the left-handed DX cube face layout.
 		m4x4 m_cube2w;
 
 		TextureCube(Renderer& rdr, ID3D12Resource* res, TextureDesc const& desc);

@@ -1248,6 +1248,22 @@ VIEW3D_API void __stdcall View3D_WindowEnvMapSet(view3d::Window window, view3d::
 	CatchAndReport(View3D_WindowEnvMapSet, window, );
 }
 
+// Render the window's objects into a new cube map centred at 'position'
+VIEW3D_API view3d::CubeMap __stdcall View3D_WindowEnvMapCapture(view3d::Window window, view3d::Vec4 position, int face_size)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		auto env_map = window->EnvMapCapture(To<v4>(position), face_size);
+
+		// Rely on the caller for correct reference counting
+		return env_map.release();
+	}
+	CatchAndReport(View3D_WindowEnvMapCapture, window, nullptr);
+}
+
 // Enable/Disable the depth buffer
 VIEW3D_API BOOL __stdcall View3D_DepthBufferEnabledGet(view3d::Window window)
 {

@@ -140,8 +140,7 @@ namespace pr::rdr12
 			}
 
 			// Is reflective
-			auto const* reflectivity = material.Component<materials::Reflectivity>();
-			auto rel_reflec = reflectivity != nullptr ? reflectivity->m_rel_reflec : 0.0f;
+			auto rel_reflec = material.ComponentOrDefault<materials::Reflectivity>().m_rel_reflec;
 			if (float const* reflec;
 				env_mapped &&                                                            // There is an env map
 				AllSet(nug.m_geom, EGeom::Norm) &&                                       // The model contains normals
@@ -238,9 +237,9 @@ namespace pr::rdr12
 	void SetReflectivity(TCBuf& cb, BaseInstance const& inst, Material const& material)
 	{
 		auto reflectivity = inst.find<float>(EInstComp::EnvMapReflectivity);
-		auto const* material_reflectivity = material.Component<materials::Reflectivity>();
-		cb.env_reflectivity = reflectivity != nullptr && material_reflectivity != nullptr
-			? *reflectivity * material_reflectivity->m_rel_reflec
+		auto rel_reflec = material.ComponentOrDefault<materials::Reflectivity>().m_rel_reflec;
+		cb.env_reflectivity = reflectivity != nullptr
+			? *reflectivity * rel_reflec
 			: 0.0f;
 	}
 
@@ -353,6 +352,11 @@ namespace pr::rdr12
 	inline void SetEnvMapConstants(shaders::EnvMap& cb, TextureCube const* env_map)
 	{
 		if (env_map == nullptr) return;
-		cb.w2env = InvertOrthonormal(env_map->m_cube2w);
+
+		// Only directions are transformed, and 'm_cube2w' may be a mirror, so the inverse is the transpose of its orthonormal basis
+		auto const& c2w = env_map->m_cube2w;
+		assert(IsOrthogonal(c2w.rot, 0.0001f) && FEql(LengthSq(c2w.x), 1.0f) && FEql(LengthSq(c2w.y), 1.0f) && FEql(LengthSq(c2w.z), 1.0f) && "Cube map orientation must be an orthonormal basis");
+		cb.w2env = Transpose3x3(c2w);
+		cb.w2env.pos = v4::Origin();
 	}
 }

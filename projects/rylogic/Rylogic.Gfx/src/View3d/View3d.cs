@@ -2087,6 +2087,9 @@ namespace Rylogic.Gfx
 		// Set the global environment map for the window
 		[DllImport(Dll)] private static extern void View3D_WindowEnvMapSet(HWindow window, HCubeMap env_map);
 
+		// Render the window's objects into a new cube map centred at 'position'
+		[DllImport(Dll)] private static extern HCubeMap View3D_WindowEnvMapCapture(HWindow window, v4 position, int face_size);
+
 		// Enable/Disable the depth buffer
 		[DllImport(Dll)] private static extern bool View3D_DepthBufferEnabledGet(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_DepthBufferEnabledSet(HWindow window, bool enabled);
