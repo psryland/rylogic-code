@@ -48,7 +48,8 @@
 		</ClCompile>
 		<ClCompile Condition="'$(Configuration)'=='Debug'">
 			<BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
-			<InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+			<!-- Expand only explicitly 'inline' functions. Header-heavy template code (maths, containers, RefPtr) is otherwise too slow for interactive Debug use. -->
+			<InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
 			<OmitFramePointers>false</OmitFramePointers>
 			<Optimization>Disabled</Optimization>
 			<RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
