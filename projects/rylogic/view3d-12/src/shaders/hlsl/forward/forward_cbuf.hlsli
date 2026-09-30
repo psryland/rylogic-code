@@ -30,8 +30,7 @@ struct CBufFrame// :reg(b0)
 struct CBufNugget// :reg(b1)
 {
 	// Sync with:
-	//   forward_cbuf.hlsli
-	//   shadow_map_cbuf.hlsli
+	//   View3DForwardNugget in pr/view3d-12/shaders/procedural_vertex.hlsli
 
 	// x = Model flags - See types.hlsli
 	// y = Texture flags

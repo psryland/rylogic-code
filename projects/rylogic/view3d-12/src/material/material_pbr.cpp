@@ -533,7 +533,7 @@ namespace pr::rdr12
 				BindSampler(ctx, shaders::smap::ERootParam::DiffTextureSampler, base_colour.m_tex, true);
 				if (auto* shader = dynamic_cast<shaders::ShadowMap*>(ctx.m_shader); shader != nullptr)
 				{
-					shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, &ctx.m_dle, ctx.m_camera, ctx.m_material);
+					shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, &ctx.m_dle, ctx.m_material);
 					return;
 				}
 

@@ -1677,6 +1677,18 @@ namespace fade_tests
 			++checked;
 		};
 
+		// Shadow constants carry only the placement, because shadow views supply the projection.
+		auto check_placement = [&](BaseInstance const& inst, Model const* model_ptr)
+		{
+			auto actual = shaders::smap::CBufNugget{};
+			SetPlacement(actual, inst, model_ptr);
+			auto const o2w = GetO2W(inst);
+			auto const m2o = model_ptr ? model_ptr->m_m2root : m4x4::Identity();
+			Require(std::memcmp(&actual.m2o, &m2o, sizeof(m4x4)) == 0, "Shadow model placement changed");
+			Require(std::memcmp(&actual.o2w, &o2w, sizeof(m4x4)) == 0, "Shadow object placement changed");
+			++checked;
+		};
+
 		// Reuse each pass snapshot across many objects, then rebuild it for the next camera pose and stereo eye.
 		for (auto orthographic : {false, true})
 		{
@@ -1695,14 +1707,14 @@ namespace fade_tests
 							auto plain = rdr12::ldraw::StockInstance{};
 							plain.m_i2w = placement;
 							check(plain.m_base, model_ptr, eye, camera, shaders::fwd::CBufNugget{});
-							check(plain.m_base, model_ptr, eye, camera, shaders::smap::CBufNugget{});
+							check_placement(plain.m_base, model_ptr);
 							for (auto const& projection : projections)
 							{
 								auto projected = rdr12::ldraw::RdrInstance{};
 								projected.m_i2w = placement;
 								projected.m_c2s = projection;
 								check(projected.m_base, model_ptr, eye, camera, shaders::fwd::CBufNugget{});
-								check(projected.m_base, model_ptr, eye, camera, shaders::smap::CBufNugget{});
+								check_placement(projected.m_base, model_ptr);
 							}
 						}
 					}

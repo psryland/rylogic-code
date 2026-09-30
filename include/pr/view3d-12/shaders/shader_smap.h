@@ -37,8 +37,7 @@ namespace pr::rdr12::shaders
 		// Set the shadow views for the next draw. Instance 'i' of the draw renders into 'views[i]', using viewport 'views[i] - first_viewport_view'.
 		void SetupDrawViews(ID3D12GraphicsCommandList* cmd_list, std::span<uint32_t const> views, int first_viewport_view);
 
-		// Set the per-element constants
-		void SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, DrawListElement const* dle, CameraTransforms const& camera);
-		void SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, DrawListElement const* dle, CameraTransforms const& camera, Material const& material);
+		// Set the per-element constants. Shadow views supply the projection, so no camera is needed.
+		void SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, DrawListElement const* dle, Material const& material);
 	};
 }

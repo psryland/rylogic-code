@@ -18,11 +18,11 @@ struct CBufDrawViews //:reg(b0)
 };
 
 // Constants per render nugget.
+// Only the data needed for depth and alpha cut-out is included, because these constants are built once per element for every shadow view batch.
 struct CBufNugget //:reg(b1)
 {
 	// Sync with:
-	//   forward_cbuf.hlsli
-	//   shadow_map_cbuf.hlsli
+	//   View3DShadowNugget in pr/view3d-12/shaders/procedural_vertex.hlsli
 
 	// x = Model flags - See types.hlsli
 	// y = Texture flags
@@ -33,19 +33,12 @@ struct CBufNugget //:reg(b1)
 	// Object transform
 	row_major float4x4 m2o; // model to object space
 	row_major float4x4 o2w; // object to world
-	row_major float4x4 o2s; // object to screen
-	row_major float4x4 n2w; // normal to world
 
 	// Texture2D
 	row_major float4x4 tex2surf0; // texture to surface transform
 
 	// Tinting
 	float4 tint; // object tint colour
-	float4 colour_blend; // linear override RGB; unused by depth-only shadow shading
-
-	// EnvMap
-	float env_reflectivity; // Reflectivity of the environment map
-	float3 far_clip_fade; // Reserved to match the forward per-nugget layout
 };
 
 #endif

@@ -247,7 +247,7 @@ namespace pr::rdr12
 				BindDiffuseSampler(ctx, shaders::smap::ERootParam::DiffTextureSampler);
 				if (auto* shader = dynamic_cast<shaders::ShadowMap*>(ctx.m_shader); shader != nullptr)
 				{
-					shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, &ctx.m_dle, ctx.m_camera, ctx.m_material);
+					shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, &ctx.m_dle, ctx.m_material);
 					return;
 				}
 				throw std::runtime_error("Shadow-map material pass requires a shadow-map shader");

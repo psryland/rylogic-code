@@ -1,7 +1,7 @@
 #include "procedural_vertex_common.hlsli"
 
 ConstantBuffer<View3DForwardFrame> g_frame : register(VIEW3D_FORWARD_FRAME_REGISTER);
-ConstantBuffer<View3DForwardShadowNugget> g_nugget : register(VIEW3D_FORWARD_NUGGET_REGISTER);
+ConstantBuffer<View3DForwardNugget> g_nugget : register(VIEW3D_FORWARD_NUGGET_REGISTER);
 ConstantBuffer<ProceduralConstants> g_procedural : register(VIEW3D_PROCEDURAL_FORWARD_CONSTANTS_REGISTER);
 ByteAddressBuffer g_buffer : register(VIEW3D_PROCEDURAL_BUFFER_REGISTER);
 
