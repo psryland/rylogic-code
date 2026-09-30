@@ -419,8 +419,8 @@ namespace pr::physics::tests
 				auto const diagonal_row = matrix(pivot_row, pivot_row);
 				auto const diagonal_column = matrix(pivot_column, pivot_column);
 				auto const off_diagonal = matrix(pivot_row, pivot_column);
-				auto const tau = (diagonal_column - diagonal_row) / (2.0 * off_diagonal);
-				auto const tangent = std::copysign(1.0, tau) / (std::abs(tau) + std::sqrt(1.0 + tau * tau));
+				auto const tau_ = (diagonal_column - diagonal_row) / (2.0 * off_diagonal);
+				auto const tangent = std::copysign(1.0, tau_) / (std::abs(tau_) + std::sqrt(1.0 + tau_ * tau_));
 				auto const cosine = 1.0 / std::sqrt(1.0 + tangent * tangent);
 				auto const sine = tangent * cosine;
 				for (int index = 0; index != dimension; ++index)
