@@ -515,7 +515,7 @@ void ApplyAlphaReflectionLayer(inout uint packed_colour, uint packed_depth, uint
 	if (DepthOf(packed_depth) == KBufferDepthFar)
 		return;
 
-	float4 layer_colour = UnpackRGBA8(packed_colour);
+	float4 layer_colour = UnpackSrgbRGBA8(packed_colour);
 	float4 layer_attrs = UnpackRGBA8(packed_attrs);
 	float reflectivity = saturate(layer_attrs.a * g_frame.reflection.x);
 	if (reflectivity <= 0.0f || layer_colour.a <= 0.0f)
@@ -531,7 +531,7 @@ void ApplyAlphaReflectionLayer(inout uint packed_colour, uint packed_depth, uint
 	RayDesc reflection_ray = MakeSurfaceReflectionRay(camera_ray, hit_pos, normal, g_frame.clip.y);
 	float3 reflection_colour = TraceReflectionPath(reflection_ray);
 	layer_colour.rgb = lerp(layer_colour.rgb, reflection_colour, reflectivity);
-	packed_colour = PackRGBA8(layer_colour);
+	packed_colour = PackSrgbRGBA8(layer_colour, 0.0f);
 }
 
 // Update all retained alpha K-buffer layers for this pixel with first-pass baked RT reflections.

@@ -365,6 +365,7 @@ namespace pr::rdr12
 			.clear_depth = ctx.m_clear_depth,
 			.split = view.m_view == EUnderwaterView::Split ? 1 : 0,
 			.fade_depth = props.m_fade_depth,
+			.dither = ctx.m_scene.wnd().m_dither_amount,
 		};
 
 		// Draw the full-screen pass.

@@ -27,7 +27,7 @@ PSOut PSFarFadePbrTexN(PSInTexN In, bool is_front_face : SV_IsFrontFace)
 void PSFarFadeAlphaCollect(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
 	ClipFarFadeCollect(In.ws_vert);
-	CollectAlphaLayer(In, ApplyFarFadeAlpha(In.ws_vert, PSForward(In, is_front_face).diff), is_front_face);
+	CollectAlphaLayer(In, ApplyFarFadeAlpha(In.ws_vert, ForwardShade(In, is_front_face).diff), is_front_face);
 }
 
 // Collect fading PBR coverage after applying the material's alpha mask.

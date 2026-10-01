@@ -2424,8 +2424,63 @@ namespace fade_tests
 		std::cout << "PASS directional cascades, filter sizes, shadow view caching, and cascade settings validation: MSAA " << samples << '\n';
 	}
 
-	// Verify the underwater post-effect settings API, its tint and depth fog, and its exclusion of UI overlays.
-	void PostEffectTests(int samples)
+	// Verify that output dithering is off by default, adds bounded per-pixel noise that keeps the mean colour, and turns off cleanly.
+		void DitherTests(int samples)
+		{
+			// Dithering is disabled by default so exact-colour output is unchanged for existing applications.
+			std::cout << "Output dithering, MSAA " << samples << std::endl;
+			Fixture fixture(samples);
+			Require(View3D_DitherAmountGet(fixture.m_window) == 0.0f, "Dithering is not disabled by default");
+
+			// An opaque grey exercises the forward output, and a translucent white exercises the K-buffer layer and alpha resolve.
+			// The translucent case is dithered twice (layer packing and resolve), so it may move by more than one 8-bit step.
+			struct Case { unsigned colour; int max_step; char const* name; };
+			for (auto const& test : {Case{0xFF808080U, 1, "opaque"}, Case{0x80FFFFFFU, 3, "translucent"}})
+			{
+				// Render the same scene without and with dithering.
+				fixture.Clear();
+				fixture.Quad(50, test.colour);
+				View3D_DitherAmountSet(fixture.m_window, 0.0f);
+				auto baseline = fixture.Image();
+				View3D_DitherAmountSet(fixture.m_window, 1.0f);
+				Require(View3D_DitherAmountGet(fixture.m_window) == 1.0f, "Dither amount was not stored");
+				auto dithered = fixture.Image();
+				fixture.CheckErrors();
+
+				// Compare the quad interior. Dithering must change a good share of pixels, keep each one near the
+				// undithered value, and keep the average within one 8-bit rounding step of the undithered value.
+				auto changed = 0;
+				auto count = 0;
+				auto sum = 0.0;
+				for (auto y = 20; y != 108; ++y)
+				{
+					for (auto x = 20; x != 108; ++x)
+					{
+						// Check every colour channel of this pixel.
+						for (auto c = 0; c != 3; ++c)
+						{
+							auto i = (y * ImageSize + x) * 4 + c;
+							auto delta = int(dithered[i]) - int(baseline[i]);
+							Require(std::abs(delta) <= test.max_step, (std::string("Dither noise too large: ") + test.name).c_str());
+							changed += delta != 0 ? 1 : 0;
+							sum += delta;
+							++count;
+						}
+					}
+				}
+				Require(changed * 10 > count, (std::string("Dithering changed too few pixels: ") + test.name).c_str());
+				Require(std::abs(sum / count) < 0.6, (std::string("Dithering shifted the mean colour: ") + test.name).c_str());
+
+				// Turning dithering off restores the exact undithered image.
+				View3D_DitherAmountSet(fixture.m_window, 0.0f);
+				Require(baseline == fixture.Image(), (std::string("Disabling dithering did not restore the original pixels: ") + test.name).c_str());
+			}
+			fixture.CheckDebugLayer();
+			std::cout << "PASS output dithering default, bounds, mean, and toggle: MSAA " << samples << std::endl;
+		}
+
+		// Verify the underwater post-effect settings API, its tint and depth fog, and its exclusion of UI overlays.
+		void PostEffectTests(int samples)
 	{
 		// Defaults are disabled, and invalid settings are rejected without changing the current settings.
 		std::cout << "Post-effect defaults and validation, MSAA " << samples << std::endl;
@@ -2659,6 +2714,13 @@ int main(int argc, char const* const* argv)
 			// Run only the post-processing effects at both sample counts.
 			fade_tests::PostEffectTests(1);
 			fade_tests::PostEffectTests(4);
+			return 0;
+		}
+		if (argc == 2 && std::string_view(argv[1]) == "--dither")
+		{
+			// Run only the output dithering tests at both sample counts.
+			fade_tests::DitherTests(1);
+			fade_tests::DitherTests(4);
 			return 0;
 		}
 		fade_tests::Require(argc == 1 || (argc == 2 && std::string_view(argv[1]) == "--numeric-only"), "Expected no arguments or --numeric-only");

@@ -244,7 +244,7 @@ void PSOcean(PSIn In)
 
 	float view_z = -mul(In.ws_vert, g_frame.cam.w2c).z;
 	uint depth = PackDepthKey(view_z, ClipPlanes(g_frame.cam.c2s), uint(g_nugget.flags.w));
-	uint colour = PackRGBA8(diff);
+	uint colour = PackSrgbRGBA8(diff, DitherOffsetSrgb8(uint2(pix), g_frame.output.x, 1));
 
 	uint4 alpha_colour = g_alpha_colour[pix];
 	uint4 alpha_depth = g_alpha_depth[pix];

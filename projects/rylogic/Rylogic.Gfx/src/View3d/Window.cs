@@ -629,6 +629,13 @@ namespace Rylogic.Gfx
 				set => View3D_MultiSamplingSet(Handle, value);
 			}
 
+			/// <summary>Get/Set the output dither noise amplitude, in 8-bit sRGB steps. Zero (the default) disables dithering. About 1 hides banding in smooth gradients.</summary>
+			public float DitherAmount
+			{
+				get => View3D_DitherAmountGet(Handle);
+				set => View3D_DitherAmountSet(Handle, value);
+			}
+
 			/// <summary>The number of scene lights in this window. Light 0 is the main light</summary>
 			public int LightCount => View3D_LightCount(Handle);
 

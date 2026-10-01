@@ -1231,6 +1231,11 @@ extern "C"
 	VIEW3D_API int __stdcall View3D_MultiSamplingGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_MultiSamplingSet(pr::view3d::Window window, int multisampling);
 
+	// Get/Set the output dither noise amplitude for a window, in 8-bit sRGB steps. Zero disables dithering.
+	// Dithering hides colour banding in smooth gradients at the cost of fine, fixed noise.
+	VIEW3D_API float __stdcall View3D_DitherAmountGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_DitherAmountSet(pr::view3d::Window window, float amount);
+
 	// Control animation
 	VIEW3D_API void __stdcall View3D_WindowAnimControl(pr::view3d::Window window, pr::view3d::EAnimCommand command, double time);
 

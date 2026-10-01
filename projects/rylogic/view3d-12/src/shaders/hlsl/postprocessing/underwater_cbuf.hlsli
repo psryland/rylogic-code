@@ -56,7 +56,10 @@ struct CBufUnderwater //:reg(b0)
 
 	// Depth below the surface over which the effect fades in, or zero for a sharp waterline. Used only when 'split' is non-zero.
 	float fade_depth;
-	float3 pad;
+
+	// Amount of output dithering, in 8-bit sRGB steps. Zero disables dithering.
+	float dither;
+	float2 pad;
 };
 
 #ifdef __cplusplus

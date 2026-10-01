@@ -8,6 +8,7 @@
 #include "pr/hlsl/interop.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 #include "view3d-12/src/shaders/hlsl/sky/procedural_sky_cbuf.hlsli"
+#include "view3d-12/src/shaders/hlsl/utility/colour_space.hlsli"
 
 #ifdef __cplusplus
 namespace pr::rdr12::sky
@@ -124,6 +125,9 @@ PSOut PSProceduralSky(PSIn In)
 	}
 
 	Out.diff = float4(sky, 1.0);
+
+	// Dither the smooth sky gradient before 8-bit output. See DitherSrgb8.
+	Out.diff.rgb = DitherSrgb8(Out.diff.rgb, uint2(In.ss_vert.xy), g_frame.output.x, 0);
 	return Out;
 }
 

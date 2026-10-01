@@ -75,6 +75,7 @@ namespace pr::rdr12
 		DiagState                    m_diag;             // Diagnostic variables
 		int64_t                      m_frame_number;     // The number of times 'RenderFrame' has been called.
 		UINT                         m_vsync;            // Present SyncInterval value
+		float                        m_dither_amount;    // Output dither noise amplitude in 8-bit sRGB steps. Zero disables dithering. See render/output_dithering.md.
 		bool                         m_idle;             // True while the window is occluded
 		string32                     m_name;             // A debugging name for the window
 

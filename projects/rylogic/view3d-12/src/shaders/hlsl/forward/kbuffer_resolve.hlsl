@@ -8,6 +8,12 @@ Texture2D<float4>  g_opaque_colour :register(t0);
 Texture2D<uint4>   g_alpha_colour :register(t1);
 Texture2D<uint4>   g_alpha_depth :register(t2);
 
+// Root constants for the resolve pass.
+cbuffer CBufAlphaResolve :register(b0)
+{
+	float g_dither_amount; // See DitherSrgb8
+};
+
 struct PSIn_KBufferResolve
 {
 	float4 ss_vert :SV_Position;
@@ -36,24 +42,28 @@ float4 PSAlphaResolve(PSIn_KBufferResolve In) :SV_Target
 	// Merge each alpha layer from back to front.
 	if (DepthOf(alpha_depth.w) != KBufferDepthFar)
 	{
-		float4 src = UnpackRGBA8(alpha_colour.w);
+		float4 src = UnpackSrgbRGBA8(alpha_colour.w);
 		base.rgb = base.rgb * (1.0f - src.a) + src.rgb * src.a;
 	}
 	if (DepthOf(alpha_depth.z) != KBufferDepthFar)
 	{
-		float4 src = UnpackRGBA8(alpha_colour.z);
+		float4 src = UnpackSrgbRGBA8(alpha_colour.z);
 		base.rgb = base.rgb * (1.0f - src.a) + src.rgb * src.a;
 	}
 	if (DepthOf(alpha_depth.y) != KBufferDepthFar)
 	{
-		float4 src = UnpackRGBA8(alpha_colour.y);
+		float4 src = UnpackSrgbRGBA8(alpha_colour.y);
 		base.rgb = base.rgb * (1.0f - src.a) + src.rgb * src.a;
 	}
 	if (DepthOf(alpha_depth.x) != KBufferDepthFar)
 	{
-		float4 src = UnpackRGBA8(alpha_colour.x);
+		float4 src = UnpackSrgbRGBA8(alpha_colour.x);
 		base.rgb = base.rgb * (1.0f - src.a) + src.rgb * src.a;
 	}
+
+	// Dither only composited pixels. Opaque-only pixels were dithered when drawn, and their stored values are already exact 8-bit steps.
+	if (oia.a != 0.0f || DepthOf(alpha_depth.x) != KBufferDepthFar)
+		base.rgb = DitherSrgb8(base.rgb, uint2(pix), g_dither_amount, 2);
 
 	return base;
 }

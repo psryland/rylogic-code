@@ -374,6 +374,10 @@ namespace pr::rdr12
 		int MultiSampling() const;
 		void MultiSampling(int multisampling);
 
+		// Get/Set the output dither noise amplitude, in 8-bit sRGB steps. Zero disables dithering.
+		float DitherAmount() const;
+		void DitherAmount(float amount);
+
 		// Control animation
 		void AnimControl(view3d::EAnimCommand command, seconds_t time = seconds_t::zero());
 	

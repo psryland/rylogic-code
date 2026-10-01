@@ -2069,6 +2069,8 @@ namespace Rylogic.Gfx
 		// Get/Set the multi-sampling mode for a window
 		[DllImport(Dll)] private static extern int View3D_MultiSamplingGet(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_MultiSamplingSet(HWindow window, int multisampling);
+		[DllImport(Dll)] private static extern float View3D_DitherAmountGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_DitherAmountSet(HWindow window, float amount);
 
 		// Control animation
 		[DllImport(Dll)] private static extern void View3D_WindowAnimControl(HWindow window, EAnimCommand command, double time_s);

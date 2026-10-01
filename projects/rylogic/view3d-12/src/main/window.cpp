@@ -84,6 +84,7 @@ namespace pr::rdr12
 		, m_diag(*this)
 		, m_frame_number()
 		, m_vsync(settings.m_vsync)
+		, m_dither_amount(0.0f)
 		, m_idle(false)
 		, m_name(settings.m_name)
 		, m_resolved_depth()
@@ -604,7 +605,7 @@ namespace pr::rdr12
 
 		// Composite transparent scene content before any final overlay.
 		if (bb_post.m_render_target != nullptr)
-			m_alpha_kbuffer.ResolveAlpha(m_frame.m_composite, m_heap_view, bb_post, vp, scissor);
+			m_alpha_kbuffer.ResolveAlpha(m_frame.m_composite, m_heap_view, bb_post, vp, scissor, m_dither_amount);
 
 		// Return the frame object
 		return m_frame;

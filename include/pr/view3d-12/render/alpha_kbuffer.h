@@ -36,8 +36,9 @@ namespace pr::rdr12
 		// Copy the opaque buffer 'source' into the 1x resolved buffer using resolve or direct copy
 		void CopyOpaqueBuffer(GfxCmdList& cmd_list, ID3D12Resource* source, DXGI_FORMAT format, bool resolve);
 
-		// Composite the collected alpha buffer over the resolved opaque colour
-		void ResolveAlpha(GfxCmdList& cmd_list, GpuViewHeap& heap_view, BackBuffer const& bb_post, Viewport const& viewport, D3D12_RECT const& scissor);
+		// Composite the collected alpha buffer over the resolved opaque colour.
+		// 'dither_amount' is the dither noise amplitude, in 8-bit sRGB steps, applied to pixels with alpha coverage. Zero disables dithering.
+		void ResolveAlpha(GfxCmdList& cmd_list, GpuViewHeap& heap_view, BackBuffer const& bb_post, Viewport const& viewport, D3D12_RECT const& scissor, float dither_amount);
 
 		// True if this AlphaKBuffer is valid and ready for use
 		explicit operator bool() const;

@@ -413,6 +413,18 @@ namespace pr::compute
 			AddComputeRoot32BitConstants(count, &cb, s_cast<UINT>(DestOffsetIn32BitValues));
 		}
 
+		// Set a contiguous set of graphics root constants
+		template <RootParamIdx Idx> void SetGraphicsRoot32BitConstants(Idx RootParameterIndex, int Num32BitValuesToSet, void const* pSrcData, size_t DestOffsetIn32BitValues = 0)
+		{
+			m_list->SetGraphicsRoot32BitConstants(s_cast<UINT>(RootParameterIndex), s_cast<UINT>(Num32BitValuesToSet), pSrcData, s_cast<UINT>(DestOffsetIn32BitValues));
+		}
+		template <RootParamIdx Idx, typename CBufType> void SetGraphicsRoot32BitConstants(Idx RootParameterIndex, CBufType const& cb, size_t DestOffsetIn32BitValues = 0)
+		{
+			static_assert(sizeof(CBufType) % sizeof(uint32_t) == 0);
+			auto count = s_cast<int>(sizeof(CBufType) / sizeof(uint32_t));
+			SetGraphicsRoot32BitConstants(RootParameterIndex, count, &cb, s_cast<UINT>(DestOffsetIn32BitValues));
+		}
+
 		// Set a GPU descriptor handle for a constant buffer view
 		template <RootParamIdx Idx> void SetGraphicsRootConstantBufferView(Idx RootParameterIndex, D3D12_GPU_VIRTUAL_ADDRESS BufferLocation)
 		{

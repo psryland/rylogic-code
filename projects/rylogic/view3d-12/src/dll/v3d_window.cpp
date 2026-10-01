@@ -1697,6 +1697,21 @@ namespace pr::rdr12
 		Invalidate();
 	}
 
+	// Get/Set the output dither noise amplitude, in 8-bit sRGB steps
+	float V3dWindow::DitherAmount() const
+	{
+		return m_wnd.m_dither_amount;
+	}
+	void V3dWindow::DitherAmount(float amount)
+	{
+		// Ignore unchanged values so redundant sets do not trigger a redraw
+		if (m_wnd.m_dither_amount == amount)
+			return;
+
+		m_wnd.m_dither_amount = amount;
+		Invalidate();
+	}
+
 	// Control animation
 	void V3dWindow::AnimControl(view3d::EAnimCommand command, seconds_t time)
 	{

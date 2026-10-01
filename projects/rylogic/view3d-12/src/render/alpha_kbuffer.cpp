@@ -20,10 +20,12 @@ namespace pr::rdr12
 		inline static constexpr auto OpaqueColour = ESRVReg::t0;
 		inline static constexpr auto AlphaColour = ESRVReg::t1;
 		inline static constexpr auto AlphaDepth = ESRVReg::t2;
+		inline static constexpr auto Constants = ECBufReg::b0;
 	};
 	enum class EResolveRootParam
 	{
 		Textures = 0,
+		Constants = 1,
 	};
 
 	AlphaKBuffer::AlphaKBuffer()
@@ -73,6 +75,7 @@ namespace pr::rdr12
 		// Create the root signature for the alpha resolve pass
 		m_signature_alpha_resolve = RootSig(ERootSigFlags::GraphicsOnly)
 			.SRV(EReg::OpaqueColour, 3, D3D12_SHADER_VISIBILITY_PIXEL)
+			.U32(EReg::Constants, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.Create(rdr.d3d(), "KBufferAlphaResolveSig");
 
 		// Create the pipeline state object for the alpha resolve pass
@@ -148,7 +151,7 @@ namespace pr::rdr12
 	}
 
 	// Composite the collected alpha buffer over the resolved opaque colour
-	void AlphaKBuffer::ResolveAlpha(GfxCmdList& cmd_list, GpuViewHeap& heap_view, BackBuffer const& bb_post, Viewport const& viewport, D3D12_RECT const& scissor)
+	void AlphaKBuffer::ResolveAlpha(GfxCmdList& cmd_list, GpuViewHeap& heap_view, BackBuffer const& bb_post, Viewport const& viewport, D3D12_RECT const& scissor, float dither_amount)
 	{
 		if (m_opaque_colour_1x == nullptr || m_alpha_colour == nullptr || m_alpha_depth == nullptr || m_alpha_rt_attrs == nullptr || bb_post.m_render_target == nullptr)
 			return;
@@ -167,6 +170,7 @@ namespace pr::rdr12
 		cmd_list.SetPipelineState(m_pso_alpha_resolve.get());
 		cmd_list.SetGraphicsRootSignature(m_signature_alpha_resolve.get());
 		cmd_list.SetGraphicsRootDescriptorTable(EResolveRootParam::Textures, textures);
+		cmd_list.SetGraphicsRoot32BitConstants(EResolveRootParam::Constants, 1, &dither_amount);
 		cmd_list.OMSetRenderTargets({ &bb_post.m_rtv, 1 }, FALSE, nullptr);
 		cmd_list.RSSetViewports({ &viewport, 1U });
 		cmd_list.RSSetScissorRects({ &scissor, 1U });

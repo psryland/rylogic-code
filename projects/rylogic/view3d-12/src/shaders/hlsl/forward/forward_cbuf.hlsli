@@ -19,6 +19,9 @@ struct CBufFrame// :reg(b0)
 	float4 ambient;    // .rgb = scene-wide ambient light colour
 	int4 light_info;   // x = light count
 
+	// Output settings
+	float4 output;     // x = dither amount applied before 8-bit colour output (see DitherSrgb8); 0 disables dithering
+
 	// EnvMap
 	EnvMap env_map;
 

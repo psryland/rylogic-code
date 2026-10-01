@@ -5,6 +5,7 @@
 // Helpers for the 1x alpha K-buffer.
 #ifndef PR_VIEW3D_SHADER_KBUFFER_HLSLI
 #define PR_VIEW3D_SHADER_KBUFFER_HLSLI
+#include "view3d-12/src/shaders/hlsl/utility/colour_space.hlsli"
 
 static const uint KBufferDepthMask = 0x00FFFFFFu;
 static const uint KBufferOiaMask   = 0xFF000000u;
@@ -22,6 +23,19 @@ float4 UnpackRGBA8(uint colour)
 {
 	uint4 c = uint4(colour, colour >> 8, colour >> 16, colour >> 24) & 0xFFu;
 	return float4(c) / 255.0f;
+}
+
+// Pack a linear layer colour with sRGB-encoded RGB and linear alpha. The sRGB encoding gives dark colours the same fine steps as the
+// final render target, so translucent layers do not add coarser bands. 'dither_offset' is added to the encoded RGB before rounding.
+uint PackSrgbRGBA8(float4 colour, float dither_offset)
+{
+	return PackRGBA8(float4(LinearToSrgb(colour.rgb) + dither_offset, colour.a));
+}
+
+// Unpack a layer colour stored by 'PackSrgbRGBA8' into linear RGB and alpha.
+float4 UnpackSrgbRGBA8(uint colour)
+{
+	return SrgbToLinear(UnpackRGBA8(colour));
 }
 
 uint PackDepth24(float view_z, float2 near_far)
@@ -55,15 +69,17 @@ uint WithOiaChannel(uint packed_depth, uint channel)
 	return (packed_depth & KBufferDepthMask) | ((channel & 0xFFu) << 24);
 }
 
+// Pack the linear overflow colour with sRGB-encoded RGB and linear alpha, for the same reason as 'PackSrgbRGBA8'.
 uint4 PackOia(float4 oia)
 {
-	uint4 c = uint4(round(saturate(oia) * 255.0f));
+	uint4 c = uint4(round(saturate(LinearToSrgb(oia)) * 255.0f));
 	return c;
 }
 
+// Unpack the overflow colour stored by 'PackOia' into linear RGB and alpha.
 float4 UnpackOia(uint4 alpha_depth)
 {
-	return float4(OiaChannel(alpha_depth.x), OiaChannel(alpha_depth.y), OiaChannel(alpha_depth.z), OiaChannel(alpha_depth.w)) / 255.0f;
+	return SrgbToLinear(float4(OiaChannel(alpha_depth.x), OiaChannel(alpha_depth.y), OiaChannel(alpha_depth.z), OiaChannel(alpha_depth.w)) / 255.0f);
 }
 
 uint4 StoreOia(uint4 alpha_depth, float4 oia)
@@ -88,7 +104,7 @@ float4 AccumulateOia(float4 oia, float4 colour)
 void AddOverflow(inout uint4 alpha_depth, uint colour)
 {
 	float4 oia = UnpackOia(alpha_depth);
-	oia = AccumulateOia(oia, UnpackRGBA8(colour));
+	oia = AccumulateOia(oia, UnpackSrgbRGBA8(colour));
 	alpha_depth = StoreOia(alpha_depth, oia);
 }
 

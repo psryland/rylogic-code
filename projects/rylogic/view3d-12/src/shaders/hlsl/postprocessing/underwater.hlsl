@@ -4,6 +4,7 @@
 //*********************************************
 // Underwater post-processing pass. See post_processing.h for the effect settings.
 #include "view3d-12/src/shaders/hlsl/postprocessing/underwater_cbuf.hlsli"
+#include "view3d-12/src/shaders/hlsl/utility/colour_space.hlsli"
 
 static const float TAU = 6.28318530718f;
 static const float INF = asfloat(0x7F800000);
@@ -152,5 +153,7 @@ float4 PSUnderwater(PSIn_PostEffect In) :SV_Target
 	if (coverage < 1.0f)
 		colour = lerp(g_scene_colour.Load(int3(In.ss_vert.xy, 0)), colour, coverage);
 
+	// Dither the smooth fog gradient before 8-bit output. See DitherSrgb8.
+	colour.rgb = DitherSrgb8(colour.rgb, uint2(In.ss_vert.xy), g_underwater.dither, 3);
 	return colour;
 }

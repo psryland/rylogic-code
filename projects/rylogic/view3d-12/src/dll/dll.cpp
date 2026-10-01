@@ -1158,6 +1158,30 @@ VIEW3D_API void __stdcall View3D_MultiSamplingSet(view3d::Window window, int mul
 	CatchAndReport(View3D_MultiSamplingSet, window, );
 }
 
+// Get/Set the output dither noise amplitude for a window, in 8-bit sRGB steps. Zero disables dithering.
+VIEW3D_API float __stdcall View3D_DitherAmountGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->DitherAmount();
+	}
+	CatchAndReport(View3D_DitherAmountGet, window, {});
+}
+VIEW3D_API void __stdcall View3D_DitherAmountSet(view3d::Window window, float amount)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->DitherAmount(amount);
+	}
+	CatchAndReport(View3D_DitherAmountSet, window, );
+}
+
 // Control animation
 VIEW3D_API void __stdcall View3D_WindowAnimControl(view3d::Window window, view3d::EAnimCommand command, double time_s)
 {

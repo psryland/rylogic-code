@@ -118,6 +118,7 @@ namespace pr::rdr12::shaders
 		SetViewConstants(cb0.cam, scene.m_cam);
 		SetLightingConstants(cb0, scene);
 		SetEnvMapConstants(cb0.env_map, scene.m_global_envmap.get());
+		cb0.output = v4(scene.wnd().m_dither_amount, 0, 0, 0);
 		auto gpu_address = upload.Add(cb0, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
 		cmd_list->SetGraphicsRootConstantBufferView((UINT)ERootParam::CBufFrame, gpu_address);
 

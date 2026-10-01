@@ -279,8 +279,8 @@ PSInTexN VSForwardTexN(VSIn In, uint vertex_id : SV_VertexID)
 	return Out;
 }
 
-// Forward PS
-PSOut PSForward(PSIn In, bool is_front_face : SV_IsFrontFace)
+// Shade one simple-material fragment, returning the linear colour before output dithering.
+PSOut ForwardShade(PSIn In, bool is_front_face)
 {
 	// Notes:
 	//  - 'ss_vert:SV_Position' in the pixel shader already has x,y,z divided by w (w unchanged)
@@ -329,6 +329,20 @@ PSOut PSForward(PSIn In, bool is_front_face : SV_IsFrontFace)
 	if (!HasAlpha(g_nugget.flags))
 		clip(Out.diff.a - 0.5);
 
+	return Out;
+}
+
+// Dither a final colour written directly to the 8-bit render target. Only the RGB channels are dithered.
+float4 DitherOutput(float4 colour, float4 ss_vert)
+{
+	return float4(DitherSrgb8(colour.rgb, uint2(ss_vert.xy), g_frame.output.x, 0), colour.a);
+}
+
+// Forward PS
+PSOut PSForward(PSIn In, bool is_front_face : SV_IsFrontFace)
+{
+	PSOut Out = ForwardShade(In, is_front_face);
+	Out.diff = DitherOutput(Out.diff, In.ss_vert);
 	return Out;
 }
 
@@ -445,13 +459,17 @@ PSOut PSForwardPbrImpl(TIn In, bool is_front_face)
 // Direct-lighting PBR pixel shader path using TEXCOORD_0 for all texture slots.
 PSOut PSForwardPbr(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
-	return PSForwardPbrImpl(In, is_front_face);
+	PSOut Out = PSForwardPbrImpl(In, is_front_face);
+	Out.diff = DitherOutput(Out.diff, In.ss_vert);
+	return Out;
 }
 
 // Direct-lighting PBR pixel shader path with optional texture-coordinate lanes.
 PSOut PSForwardPbrTexN(PSInTexN In, bool is_front_face : SV_IsFrontFace)
 {
-	return PSForwardPbrImpl(In, is_front_face);
+	PSOut Out = PSForwardPbrImpl(In, is_front_face);
+	Out.diff = DitherOutput(Out.diff, In.ss_vert);
+	return Out;
 }
 
 // Collect one transparent fragment into the forward alpha K-buffer.
@@ -474,7 +492,7 @@ void CollectAlphaLayer(PSIn In, float4 diff, uint rt_attrs)
 	// Pack view-space depth, colour, and optional RT side-buffer metadata for later resolve.
 	float view_z = -mul(In.ws_vert, g_frame.cam.w2c).z;
 	uint depth = PackDepthKey(view_z, ClipPlanes(g_frame.cam.c2s), uint(g_nugget.flags.w));
-	uint colour = PackRGBA8(diff);
+	uint colour = PackSrgbRGBA8(diff, DitherOffsetSrgb8(pix, g_frame.output.x, 1));
 
 	// Insert the transparent layer into the rasterizer-ordered K-buffer.
 	uint4 alpha_colour = g_alpha_colour[pix];
@@ -490,7 +508,7 @@ void CollectAlphaLayer(PSIn In, float4 diff, uint rt_attrs)
 void PSForwardAlphaCollect(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
 	// Preserve the simple-material reflection attributes alongside its resolved colour.
-	float4 diff = PSForward(In, is_front_face).diff;
+	float4 diff = ForwardShade(In, is_front_face).diff;
 	CollectAlphaLayer(In, diff, AlphaRtAttributes(In, diff, is_front_face));
 }
 
@@ -517,8 +535,9 @@ void PSForwardPbrTexNAlphaCollect(PSInTexN In, bool is_front_face : SV_IsFrontFa
 PSReflectionOut PSForwardReflectionAttrs(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
 	PSReflectionOut Out = (PSReflectionOut)0;
-	Out.diff = PSForward(In, is_front_face).diff;
+	Out.diff = ForwardShade(In, is_front_face).diff;
 	Out.reflection_attrs = ReflectionAttributes(In, Out.diff, is_front_face);
+	Out.diff = DitherOutput(Out.diff, In.ss_vert);
 	return Out;
 }
 
@@ -532,6 +551,7 @@ PSReflectionOut PSForwardPbrReflectionAttrs(PSIn In, bool is_front_face : SV_IsF
 		Out.diff,
 		PbrSlotUV(In, g_pbr.metallic_texcoord, g_pbr.metallic_uv_transform),
 		ResolvePbrMaterialWorldNormal(In, is_front_face, PbrSlotUV(In, g_pbr.normal_texcoord, g_pbr.normal_uv_transform)));
+	Out.diff = DitherOutput(Out.diff, In.ss_vert);
 	return Out;
 }
 
@@ -546,13 +566,14 @@ PSReflectionOut PSForwardPbrTexNReflectionAttrs(PSInTexN In, bool is_front_face 
 		Out.diff,
 		PbrSlotUV(In, g_pbr.metallic_texcoord, g_pbr.metallic_uv_transform),
 		ResolvePbrMaterialWorldNormal(base, is_front_face, PbrSlotUV(In, g_pbr.normal_texcoord, g_pbr.normal_uv_transform)));
+	Out.diff = DitherOutput(Out.diff, In.ss_vert);
 	return Out;
 }
 
 // Forward radial fade pass.
 PSOut PSForwardRadialFade(PSIn In, bool is_front_face : SV_IsFrontFace)
 {
-	PSOut Out = PSForward(In, is_front_face);
+	PSOut Out = ForwardShade(In, is_front_face);
 
 	// Fade pixels radially from 'centre'
 	float4 centre = any(g_fade.fade_centre) ? g_fade.fade_centre : g_frame.cam.c2w[3];
@@ -565,5 +586,6 @@ PSOut PSForwardRadialFade(PSIn In, bool is_front_face : SV_IsFrontFace)
 	// Lerp to alpha = 0 based on distance
 	float frac = smoothstep(g_fade.fade_radius[0], g_fade.fade_radius[1], radius);
 	Out.diff.a = lerp(Out.diff.a, 0, frac);
+	Out.diff = DitherOutput(Out.diff, In.ss_vert);
 	return Out;
 }
