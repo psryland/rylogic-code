@@ -2514,6 +2514,12 @@ namespace pr::ldraw
 			m_wire = rhs.m_wire;
 			m_axis_id = rhs.m_axis_id;
 			m_solid = rhs.m_solid;
+			m_refl = rhs.m_refl;
+			m_left_handed = rhs.m_left_handed;
+			m_screen_space = rhs.m_screen_space;
+			m_no_ztest = rhs.m_no_ztest;
+			m_no_zwrite = rhs.m_no_zwrite;
+			m_root_anim = rhs.m_root_anim;
 			m_o2w = rhs.m_o2w;
 			return *this;
 		}
