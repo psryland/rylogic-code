@@ -2800,7 +2800,7 @@ namespace pr::ldraw
 						}
 						case ECommands::ObjectColour.value:
 						{
-							Append(out, std::get<seri::StringWithLength>(cmd.m_params[0]), std::get<seri::Mat4>(cmd.m_params[1]));
+							Append(out, std::get<seri::StringWithLength>(cmd.m_params[0]), std::get<seri::Colour>(cmd.m_params[1]));
 							break;
 						}
 						case ECommands::Render.value:
@@ -2837,7 +2837,7 @@ namespace pr::ldraw
 						}
 						case ECommands::ObjectColour.value:
 						{
-							Append(out, std::get<seri::StringWithLength>(cmd.m_params[0]), std::get<seri::Mat4>(cmd.m_params[1]));
+							Append(out, std::get<seri::StringWithLength>(cmd.m_params[0]), std::get<seri::Colour>(cmd.m_params[1]));
 							break;
 						}
 						case ECommands::Render.value:
