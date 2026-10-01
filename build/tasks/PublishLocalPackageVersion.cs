@@ -9,7 +9,8 @@ using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
 
 // Publishes the newest immutable local package version through MSBuild props without allowing parallel builds to move the pointer backwards.
-// Callers that opt in via CleanupOldDevVersions also have every older locally-cached '-dev.<timestamp>' build of the same package trimmed down to the one just published.
+// Callers that opt in via CleanupOldDevVersions also have older locally-cached '-dev.<timestamp>' builds of the same package removed, keeping the version
+// just published and the version it replaced.
 public sealed class PublishLocalPackageVersion : Task
 {
 	private static readonly Regex s_version_pattern = new(@"(?<version>\d+\.\d+\.\d+-dev\.\d+)", RegexOptions.CultureInvariant);
@@ -54,7 +55,8 @@ public sealed class PublishLocalPackageVersion : Task
 		set;
 	} = string.Empty;
 
-	// Opt-in: once this build's version is confirmed the newest, delete every other locally-cached '-dev.<timestamp>' version of this exact package.
+	// Opt-in: once this build's version is confirmed the newest, delete locally-cached '-dev.<timestamp>' versions of this exact package that are older
+	// than the version it replaced. The replaced version is kept because other projects may have restored against it earlier in the same build.
 	// Left false for ordinary managed packages; the native Rylogic.Native development package opts in explicitly.
 	public bool CleanupOldDevVersions
 	{
@@ -104,16 +106,10 @@ public sealed class PublishLocalPackageVersion : Task
 
 				// A slower parallel pack must not overwrite the pointer published by a newer build.
 				var current_version = ReadVersion(CentralVersionPropsPath);
+				// A version that does not advance the pointer is left in the cache; the next successful publish removes it once it is older than the replaced version.
 				if (current_version != null && CompareVersions(current_version, PackageVersion) >= 0)
-				{
-					// This build's own version did not advance the pointer, but its cache folder may have just been (re)written by a slow Sync step that
-					// completed after a faster, newer build already published and cleaned up. Sweep again against the real pointer so that stray folder
-					// does not survive indefinitely; the '>= 0' guard above still protects the true newest folder and everything at or above it.
-					if (CleanupOldDevVersions)
-						CleanupOldCacheVersions(current_version);
-
 					return true;
-				}
+
 
 				var central_content = $"<Project><ItemGroup><PackageVersion Update=\"{PackageId}\" Version=\"{PackageVersion}\" /></ItemGroup></Project>{Environment.NewLine}";
 				WriteAtomically(CentralVersionPropsPath, central_content);
@@ -126,9 +122,14 @@ public sealed class PublishLocalPackageVersion : Task
 
 				Published = true;
 
+				// Keep the replaced version because projects that restored before this publish still reference it. When there was no owned dev version
+				// before, nothing can depend on an older dev version, so this version becomes the baseline.
 				// Still holding the lock guards this against a slower concurrent build re-ordering the pointer between the publish above and the cleanup below.
 				if (CleanupOldDevVersions)
-					CleanupOldCacheVersions(PackageVersion);
+				{
+					var baseline = current_version != null && s_owned_dev_version_pattern.IsMatch(current_version) ? current_version : PackageVersion;
+					CleanupOldCacheVersions(baseline);
+				}
 
 				return true;
 			}
@@ -145,7 +146,7 @@ public sealed class PublishLocalPackageVersion : Task
 		}
 	}
 
-	// Remove every locally-cached '-dev.<timestamp>' version of PackageId that is strictly older than baseline_version (the real, currently-published pointer).
+	// Remove every locally-cached '-dev.<timestamp>' version of PackageId that is strictly older than baseline_version.
 	// Stable releases, malformed folder names, and anything not matching this build system's owned dev-version shape are left untouched.
 	private void CleanupOldCacheVersions(string baseline_version)
 	{
@@ -181,7 +182,7 @@ public sealed class PublishLocalPackageVersion : Task
 			if (!s_owned_dev_version_pattern.IsMatch(version_name))
 				continue;
 
-			// Never remove the currently-published version, or anything not strictly older than it.
+			// Never remove the baseline version, or anything not strictly older than it.
 			if (CompareVersions(version_name, baseline_version) >= 0)
 				continue;
 

@@ -183,6 +183,17 @@ The public method wraps the private `_`-suffixed extern.
 - `.editorconfig` — Code style and formatting rules
 - `/script/UserVars.csx` or `/script/UserVars.json` — Local build path customization
 
+### Local Development Packages and Build Concurrency
+Debug|x64 builds publish a local `Rylogic.Native` development package that managed Debug builds restore. See `docs/local-dev-packages.md` for how it
+works. When changing MSBuild targets, props, or build scripts:
+- Never publish or delete shared outputs (packages, NuGet cache entries, version pointers, files under `lib\`) from per-project targets; parallel
+  builds race. `build\nuget\Rylogic.Native.Dev.vcxproj` is the single publish point for `Rylogic.Native` and must reference every packaged project.
+- Never delete an artifact that a restore earlier in the same build may have resolved; keep at least the previous version.
+- Make publish steps idempotent (skip when a content hash of the inputs is unchanged) and keep version pointers monotonic.
+- Give custom file-producing targets `Inputs`/`Outputs` so no-change builds do not rewrite files.
+- Verify with two consecutive `/m` builds of `Rylogic.sln`: both must succeed, and the second must report `Rylogic.Native ... is up to date.`
+- Restore only through the feeds in `nuget.config`; never reference `api.nuget.org` directly in local build tooling.
+
 ### CI (GitHub Actions)
 - **C# builds** (`build-csharp-projects.yml`): Builds all C# projects on `windows-latest`. Removes `.vcxproj` (C++) and VSIX projects since the runner lacks the full VS C++ toolset.
 - **Native builds** (`build-native-projects.yml`): Builds C++ projects with MSBuild (v143 toolset on CI runner). Removes C# projects first.
