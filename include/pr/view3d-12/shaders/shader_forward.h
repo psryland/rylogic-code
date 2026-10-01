@@ -14,7 +14,7 @@ namespace pr::rdr12::shaders
 		enum class ERootParam
 		{
 			CBufFrame = 0,
-			CBufNugget,
+			ElementIndex,
 			CBufFade,
 			CBufScreenSpace,
 			CBufPbrSurface,
@@ -45,6 +45,7 @@ namespace pr::rdr12::shaders
 			Lights,
 			ShadowViews,
 			ProceduralBuffer,
+			Elements,
 		};
 
 		enum class ESampParam
@@ -59,7 +60,15 @@ namespace pr::rdr12::shaders
 	{
 		explicit Forward(Renderer& rdr);
 		void SetupFrame(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene) override;
-		void SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const& camera, DrawListElement const* dle) override;
-		void SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const& camera, DrawListElement const* dle, Material const& material);
+
+		// Upload one set of element constants per entry in 'drawlist', in drawlist order, using 'camera' for the projection.
+		// Returns the GPU address of the table, for use with 'SetupElements'.
+		static D3D12_GPU_VIRTUAL_ADDRESS UploadElements(GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const& camera, std::span<DrawListElement const> drawlist);
+
+		// Bind a table of element constants created by 'UploadElements'
+		static void SetupElements(ID3D12GraphicsCommandList* cmd_list, D3D12_GPU_VIRTUAL_ADDRESS elements);
+
+		// Select the entry in the bound element table used by the next draw
+		static void SetupElement(ID3D12GraphicsCommandList* cmd_list, int index);
 	};
 }

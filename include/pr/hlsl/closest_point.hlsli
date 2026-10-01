@@ -6,6 +6,7 @@
 #define PR_HLSL_CLOSEST_POINT_HLSLI
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/geometry.hlsli"
+#include "pr/hlsl/intercept.hlsli"
 #include "pr/hlsl/interop.hlsli"
 
 #ifdef __cplusplus
@@ -17,9 +18,6 @@ namespace pr::hlsl {
 //  - Rays are defined as 'start' and 'direction': P(t) = s + t*d
 //  - Lines are defined as 'start' and 'end': P(t) = p + t*(e - s)
 //  - Returns parametric values.
-
-// Forwards
-float4 Intercept_RayVsTriangle(float4 s, float4 d, float4 a, float4 b, float4 c);
 
 // Finds the parametric value of the closest point on a ray to 'pt'
 inline float ClosestPoint_PointVsRay(float4 pt, float4 s, float4 d)

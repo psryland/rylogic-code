@@ -1406,7 +1406,7 @@ namespace pr::physics::tests
 
 		// Performance benchmark for the SampledComposite dispatch. This drives 1, 10, and 100 identical
 		// submerged boxes plus one heterogeneous (box + sphere) scene through a full Engine::Step +
-		// CompleteStep loop and logs the median per-step wall-clock cost to the unit-test output stream.
+		// CompleteStep loop and logs the median per-step wall-clock cost to the test's log file.
 		// There are NO hard timing assertions: GPU throughput is machine dependent, so the numbers are
 		// captured purely for manual perf tracking across changes. The single PR_EXPECT only guards that
 		// the dispatch actually ran (a valid diagnostic came back), so the benchmark still fails loudly if
@@ -1414,7 +1414,7 @@ namespace pr::physics::tests
 		PRUnitTestMethod(GpuCompositeDispatchBenchmark, Extended)
 		{
 			using clock = std::chrono::steady_clock;
-			auto& out = pr::unittests::TestFramework::out();
+			auto& out = log_stream();
 
 			// Steps the harness 'warmup' frames (to prime GPU resources / driver state), then times
 			// 'measure' frames of Step + CompleteStep individually and returns the median frame time in
@@ -1517,7 +1517,7 @@ namespace pr::physics::tests
 	// Measures how the buoyancy sample densities change the motion of floating bodies, relative to a dense reference.
 	// Every (surface spacing, volume spacing) grid point runs the same scenarios through the real Engine and GpuBuoyancy.
 	// Each scenario reduces its trajectory to behavioural metrics, and a grid point passes when every metric is within
-	// 5% of the reference. The test prints the whole grid and the cheapest robust pair, and requires the defaults to pass.
+	// 5% of the reference. The test logs the whole grid and the cheapest robust pair, and requires the defaults to pass.
 	PRUnitTestClass(BuoyancySampleDensityTests)
 	{
 		// One behavioural measurement of a trajectory. Errors are measured relative to max(|reference|, m_floor) so a
@@ -1733,7 +1733,7 @@ namespace pr::physics::tests
 		PRUnitTestMethod(SampleDensitySweep, Extended | Stress)
 		{
 			using clock = std::chrono::steady_clock;
-			auto& out = pr::unittests::TestFramework::out();
+			auto& out = log_stream();
 
 			// Floating shapes with a stable upright attitude at half the fluid density: a 1 x 1 x 0.5 m slab, a 0.5 m radius
 			// sphere, a hexagonal prism polytope and an asymmetric slab + sphere compound.

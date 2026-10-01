@@ -653,7 +653,7 @@ namespace pr::physics::tests
 			for (auto const position_iteration_count : std::array{1, 2, 4})
 			{
 				auto const result = RunHighDegreeSupport(9, 4, position_iteration_count);
-				pr::unittests::TestFramework::out() << std::format(
+				log_stream() << std::format(
 					"  [high-degree-support] velocity_iterations=4 position_iterations={} max_contacts={} max_penetration={:.6g} max_gap={:.6g} max_energy={:.6g} settled_energy={:.6g}\n",
 					position_iteration_count,
 					result.m_max_contact_count,
@@ -674,7 +674,7 @@ namespace pr::physics::tests
 
 			// A single legal velocity sweep must remain passive even when every coherent contact updates simultaneously.
 			auto const single_sweep = RunHighDegreeSupport(9, 1, 1);
-			pr::unittests::TestFramework::out() << std::format(
+			log_stream() << std::format(
 				"  [high-degree-support] velocity_iterations=1 position_iterations=1 max_contacts={} max_energy={:.6g}\n",
 				single_sweep.m_max_contact_count,
 				single_sweep.m_max_energy);
@@ -687,7 +687,7 @@ namespace pr::physics::tests
 
 			// A degree-one-hundred coherent manifold must receive the same bounded geometric treatment as the practical support case.
 			auto const hundred_contact = RunHighDegreeSupport(100, 4, 1);
-			pr::unittests::TestFramework::out() << std::format(
+			log_stream() << std::format(
 				"  [high-degree-support] velocity_iterations=4 position_iterations=1 max_contacts={} max_gap={:.6g} max_energy={:.6g}\n",
 				hundred_contact.m_max_contact_count,
 				hundred_contact.m_max_support_gap,

@@ -357,6 +357,9 @@ namespace LDraw
 				field = value;
 				if (field != null)
 				{
+					// Apply the profile's poll period. A DispatcherTimer with a zero interval ticks continuously, keeping the UI thread busy.
+					FileWatchTimer.Interval = TimeSpan.FromSeconds(field.CheckForChangesPollPeriodS);
+
 					// When the profile changes, delete and recreate the scenes
 					Util.DisposeRange(Scenes);
 					Scenes.Clear();

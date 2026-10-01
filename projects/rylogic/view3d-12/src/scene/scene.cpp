@@ -6,6 +6,7 @@
 #include "pr/view3d-12/main/window.h"
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/instance/instance.h"
+#include "pr/view3d-12/model/model.h"
 #include "pr/view3d-12/render/render_step.h"
 #include "pr/view3d-12/ray_tracing/ray_tracing_model.h"
 #include "pr/view3d-12/ray_tracing/render_ray_tracing.h"
@@ -170,6 +171,25 @@ namespace pr::rdr12
 			if (model != nullptr)
 				ValidateRayTracingGeometrySource(*model.get());
 		}
+
+		// Debug checks of the instance transform. These depend only on the instance, so run them once here rather than in each render step.
+		// Only print debug messages here, so that debug behaviour matches release behaviour. Checks stop after the first warning per model.
+		#if PR_DBG_RDR
+		if (auto const& model = GetModel(inst); model != nullptr && !AllSet(model->m_dbg_flags, Model::EDbgFlags::WarnedInvalidTransform))
+		{
+			auto const& o2w = GetO2W(inst);
+			if (!IsFinite(o2w))
+			{
+				PR_INFO(PR_DBG_RDR, std::format("This model ({}) has an invalid instance transform\n", model->m_name));
+				model->m_dbg_flags = SetBits(model->m_dbg_flags, Model::EDbgFlags::WarnedInvalidTransform, true);
+			}
+			else if (!AllSet(GetFlags(inst), EInstFlag::NonAffine) && !IsAffine(o2w))
+			{
+				PR_INFO(PR_DBG_RDR, std::format("This model ({}) has a non-affine instance transform\n", model->m_name));
+				model->m_dbg_flags = SetBits(model->m_dbg_flags, Model::EDbgFlags::WarnedInvalidTransform, true);
+			}
+		}
+		#endif
 
 		// Publish only after source eligibility is established.
 		m_instances.push_back(&inst);

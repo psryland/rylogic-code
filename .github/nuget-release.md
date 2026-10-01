@@ -32,10 +32,11 @@ Reusing an existing version therefore fails instead of silently succeeding. Pack
 
 ## Package sources
 
-The repository `nuget.config` defines only Rylogic's local package directories and inherits its
-public package source from user configuration. Managed Microsoft PCs should enable the protected
-NuGet proxy and disable direct nuget.org access at user scope; unmanaged PCs may use nuget.org.
-GitHub-hosted workflows replace the inherited configuration with nuget.org as their sole source.
+The repository `nuget.config` defines Rylogic's local package directories and the protected Microsoft
+NuGet proxy (`MicrosoftProtectedNuGet`). Managed Microsoft PCs should also disable direct nuget.org
+access at user scope. GitHub-hosted workflows replace the inherited configuration with nuget.org as
+their sole source. Local Debug development packages are described in
+[`docs/local-dev-packages.md`](../docs/local-dev-packages.md).
 
 ## Adding or retiring an assembly
 

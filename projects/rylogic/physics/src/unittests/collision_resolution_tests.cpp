@@ -73,8 +73,9 @@ namespace pr::physics::tests
 	// Run a two-body collision scenario to completion.
 	// Accepts arbitrary shapes and inertias. Sets up the engine with perfectly
 	// elastic frictionless material, steps until a collision is detected,
-	// then captures the post-impulse state.
+	// then captures the post-impulse state. Progress for slow runs is written to 'log'.
 	inline CollisionResult RunCollisionScenario(
+		std::ostream& log,
 		collision::Shape const& shape_a, Inertia const& inertia_a, v4 pos_a, v4 vel_a,
 		collision::Shape const& shape_b, Inertia const& inertia_b, v4 pos_b, v4 vel_b,
 		v4 ang_vel_a = v4::Zero(), v4 ang_vel_b = v4::Zero())
@@ -111,21 +112,20 @@ namespace pr::physics::tests
 			engine.Step(dt, bodies);
 			auto step_t1 = std::chrono::steady_clock::now();
 
-			// Diagnostic: emit a one-line progress report every ~5 seconds of wall time.
+			// Diagnostic: log a one-line progress report every ~5 seconds of wall time.
 			auto step_ms = std::chrono::duration<double, std::milli>(step_t1 - step_t0).count();
 			auto since_last_log = std::chrono::duration<double>(step_t1 - last_log_t).count();
 			if (since_last_log >= 5.0 || step_ms > 200.0)
 			{
 				auto const& prof = engine.LastStepProfile();
-				std::fprintf(stderr,
-					"[scenario] step=%d wall=%.1fms (pack=%.1f upl=%.1f ext=%.1f intg=%.1f bp=%.1f col=%.1f res=%.1f rb=%.1f gpu=%.1f unp=%.1f) contacts=%d a.x=%.3f b.x=%.3f a.flag=%d b.flag=%d\n",
+				log << std::format(
+					"[scenario] step={} wall={:.1f}ms (pack={:.1f} upl={:.1f} ext={:.1f} intg={:.1f} bp={:.1f} col={:.1f} res={:.1f} rb={:.1f} gpu={:.1f} unp={:.1f}) contacts={} a.x={:.3f} b.x={:.3f} a.flag={} b.flag={}\n",
 					step, step_ms,
 					prof.m_pack_ms, prof.m_upload_ms, prof.m_external_forces_ms, prof.m_integrate_ms, prof.m_broadphase_ms, prof.m_collide_ms,
 					prof.m_resolve_ms, prof.m_readback_ms, prof.m_gpu_run_ms, prof.m_unpack_ms,
 					engine.LastCollisionStats().LastContactCount(),
 					body_a.O2W().pos.x, body_b.O2W().pos.x,
-					(int)body_a.StateFlags(), (int)body_b.StateFlags());
-				std::fflush(stderr);
+					static_cast<int>(body_a.StateFlags()), static_cast<int>(body_b.StateFlags())) << std::flush;
 				last_log_t = step_t1;
 			}
 
@@ -145,6 +145,7 @@ namespace pr::physics::tests
 
 	// Convenience overload for box-only scenarios (backward compatible with existing tests)
 	inline CollisionResult RunCollisionScenario(
+		std::ostream& log,
 		collision::ShapeBox& box,
 		v4 pos_a, v4 vel_a, float mass_a,
 		v4 pos_b, v4 vel_b, float mass_b,
@@ -152,7 +153,7 @@ namespace pr::physics::tests
 	{
 		auto inertia_a = Inertia::Box(box.m_radius, mass_a);
 		auto inertia_b = Inertia::Box(box.m_radius, mass_b);
-		return RunCollisionScenario(box, inertia_a, pos_a, vel_a, box, inertia_b, pos_b, vel_b, ang_vel_a, ang_vel_b);
+		return RunCollisionScenario(log, box, inertia_a, pos_a, vel_a, box, inertia_b, pos_b, vel_b, ang_vel_a, ang_vel_b);
 	}
 
 	// ===== Box vs Box collision resolution tests =====
@@ -164,7 +165,7 @@ namespace pr::physics::tests
 		PRUnitTestMethod(HeadOnEqualMass, Extended)
 		{
 			auto box = ShapeBox(v4{2, 2, 2, 0});
-			auto r = RunCollisionScenario(box,
+			auto r = RunCollisionScenario(log_stream(), box,
 				v4{-5, 0, 0, 1}, v4{+3, 0, 0, 0}, 10.0f,
 				v4{+5, 0, 0, 1}, v4{-3, 0, 0, 0}, 10.0f);
 
@@ -194,7 +195,7 @@ namespace pr::physics::tests
 		PRUnitTestMethod(HeadOnDiffMass, Extended)
 		{
 			auto box = ShapeBox(v4{2, 2, 2, 0});
-			auto r = RunCollisionScenario(box,
+			auto r = RunCollisionScenario(log_stream(), box,
 				v4{-5, 0, 0, 1}, v4{+3, 0, 0, 0}, 10.0f,
 				v4{+5, 0, 0, 1}, v4{-3, 0, 0, 0}, 5.0f);
 
@@ -220,7 +221,7 @@ namespace pr::physics::tests
 		PRUnitTestMethod(StationaryTarget, Extended)
 		{
 			auto box = ShapeBox(v4{2, 2, 2, 0});
-			auto r = RunCollisionScenario(box,
+			auto r = RunCollisionScenario(log_stream(), box,
 				v4{-5, 0, 0, 1}, v4{+3, 0, 0, 0}, 10.0f,
 				v4{+5, 0, 0, 1}, v4{ 0, 0, 0, 0}, 10.0f);
 
@@ -246,7 +247,7 @@ namespace pr::physics::tests
 		PRUnitTestMethod(OffCentreRotation, Extended)
 		{
 			auto box = ShapeBox(v4{2, 2, 2, 0});
-			auto r = RunCollisionScenario(box,
+			auto r = RunCollisionScenario(log_stream(), box,
 				v4{-5, +0.8f, 0, 1}, v4{+3, 0, 0, 0}, 10.0f,
 				v4{+5,     0, 0, 1}, v4{ 0, 0, 0, 0}, 10.0f);
 
@@ -280,7 +281,7 @@ namespace pr::physics::tests
 		PRUnitTestMethod(ObliqueCollision, Extended)
 		{
 			auto box = ShapeBox(v4{2, 2, 2, 0});
-			auto r = RunCollisionScenario(box,
+			auto r = RunCollisionScenario(log_stream(), box,
 				v4{-5, -2, 0, 1}, v4{+3, +1, 0, 0}, 10.0f,
 				v4{+5, +2, 0, 1}, v4{-3, -1, 0, 0}, 10.0f);
 
@@ -310,7 +311,7 @@ namespace pr::physics::tests
 		PRUnitTestMethod(HeavyHitsLight, Extended)
 		{
 			auto box = ShapeBox(v4{2, 2, 2, 0});
-			auto r = RunCollisionScenario(box,
+			auto r = RunCollisionScenario(log_stream(), box,
 				v4{-5, 0, 0, 1}, v4{+2, 0, 0, 0}, 50.0f,
 				v4{+5, 0, 0, 1}, v4{ 0, 0, 0, 0}, 5.0f);
 
@@ -334,7 +335,7 @@ namespace pr::physics::tests
 		PRUnitTestMethod(LightHitsHeavy, Extended)
 		{
 			auto box = ShapeBox(v4{2, 2, 2, 0});
-			auto r = RunCollisionScenario(box,
+			auto r = RunCollisionScenario(log_stream(), box,
 				v4{-5, 0, 0, 1}, v4{+4, 0, 0, 0}, 5.0f,
 				v4{+5, 0, 0, 1}, v4{ 0, 0, 0, 0}, 50.0f);
 
@@ -361,7 +362,7 @@ namespace pr::physics::tests
 		PRUnitTestMethod(SymmetricOblique, Extended)
 		{
 			auto box = ShapeBox(v4{2, 2, 2, 0});
-			auto r = RunCollisionScenario(box,
+			auto r = RunCollisionScenario(log_stream(), box,
 				v4{-5, -1, 0, 1}, v4{+3, +0.5f, 0, 0}, 10.0f,
 				v4{+5, +1, 0, 1}, v4{-3, -0.5f, 0, 0}, 10.0f);
 
@@ -384,7 +385,7 @@ namespace pr::physics::tests
 			auto box = ShapeBox(v4{2, 2, 2, 0});
 
 			// Offset by 1.9 in Y — just 0.1 overlap (box half-extent is 1.0)
-			auto r = RunCollisionScenario(box,
+			auto r = RunCollisionScenario(log_stream(), box,
 				v4{-5, +1.9f, 0, 1}, v4{+3, 0, 0, 0}, 10.0f,
 				v4{+5,     0, 0, 1}, v4{ 0, 0, 0, 0}, 10.0f);
 
@@ -410,7 +411,7 @@ namespace pr::physics::tests
 		{
 			auto sphere = collision::ShapeSphere(1.0f);
 			auto ia = Inertia::Sphere(1.0f, 10.0f);
-			auto r = RunCollisionScenario(sphere, ia, v4{-5, 0, 0, 1}, v4{+3, 0, 0, 0},
+			auto r = RunCollisionScenario(log_stream(), sphere, ia, v4{-5, 0, 0, 1}, v4{+3, 0, 0, 0},
 				sphere, ia, v4{+5, 0, 0, 1}, v4{-3, 0, 0, 0});
 
 			PR_EXPECT(r.collision_occurred);
@@ -426,7 +427,7 @@ namespace pr::physics::tests
 			auto sphere_b = collision::ShapeSphere(1.0f);
 			auto ia = Inertia::Sphere(1.5f, 10.0f);
 			auto ib = Inertia::Sphere(1.0f, 5.0f);
-			auto r = RunCollisionScenario(sphere_a, ia, v4{-5, 0, 0, 1}, v4{+3, 0, 0, 0},
+			auto r = RunCollisionScenario(log_stream(), sphere_a, ia, v4{-5, 0, 0, 1}, v4{+3, 0, 0, 0},
 				sphere_b, ib, v4{+5, 0, 0, 1}, v4{-3, 0, 0, 0});
 
 			PR_EXPECT(r.collision_occurred);
@@ -440,7 +441,7 @@ namespace pr::physics::tests
 		{
 			auto sphere = collision::ShapeSphere(1.0f);
 			auto ia = Inertia::Sphere(1.0f, 10.0f);
-			auto r = RunCollisionScenario(sphere, ia, v4{-5, 0, 0, 1}, v4{+3, 0, 0, 0},
+			auto r = RunCollisionScenario(log_stream(), sphere, ia, v4{-5, 0, 0, 1}, v4{+3, 0, 0, 0},
 				sphere, ia, v4{+5, 0, 0, 1}, v4{0, 0, 0, 0});
 
 			PR_EXPECT(r.collision_occurred);
@@ -457,7 +458,7 @@ namespace pr::physics::tests
 			auto sphere_b = collision::ShapeSphere(2.0f);
 			auto ia = Inertia::Sphere(0.5f, 1.0f);
 			auto ib = Inertia::Sphere(2.0f, 50.0f);
-			auto r = RunCollisionScenario(sphere_a, ia, v4{-5, 0, 0, 1}, v4{+5, 0, 0, 0},
+			auto r = RunCollisionScenario(log_stream(), sphere_a, ia, v4{-5, 0, 0, 1}, v4{+5, 0, 0, 0},
 				sphere_b, ib, v4{+5, 0, 0, 1}, v4{0, 0, 0, 0});
 
 			PR_EXPECT(r.collision_occurred);
@@ -472,7 +473,7 @@ namespace pr::physics::tests
 		{
 			auto sphere = collision::ShapeSphere(1.0f);
 			auto ia = Inertia::Sphere(1.0f, 10.0f);
-			auto r = RunCollisionScenario(sphere, ia, v4{-5, 0, 0, 1}, v4{+5, 0, 0, 0},
+			auto r = RunCollisionScenario(log_stream(), sphere, ia, v4{-5, 0, 0, 1}, v4{+5, 0, 0, 0},
 				sphere, ia, v4{+5, 0, 0, 1}, v4{+1, 0, 0, 0});
 
 			PR_EXPECT(r.collision_occurred);
@@ -492,7 +493,7 @@ namespace pr::physics::tests
 			auto sphere = collision::ShapeSphere(1.0f);
 			auto ia = Inertia::Box(v4{2, 2, 2, 0}, 10.0f);
 			auto ib = Inertia::Sphere(1.0f, 10.0f);
-			auto r = RunCollisionScenario(box, ia, v4{-5, 0, 0, 1}, v4{+3, 0, 0, 0},
+			auto r = RunCollisionScenario(log_stream(), box, ia, v4{-5, 0, 0, 1}, v4{+3, 0, 0, 0},
 				sphere, ib, v4{+5, 0, 0, 1}, v4{-3, 0, 0, 0});
 
 			PR_EXPECT(r.collision_occurred);
@@ -508,7 +509,7 @@ namespace pr::physics::tests
 			auto sphere = collision::ShapeSphere(1.0f);
 			auto ia = Inertia::Box(v4{2, 2, 2, 0}, 10.0f);
 			auto ib = Inertia::Sphere(1.0f, 5.0f);
-			auto r = RunCollisionScenario(box, ia, v4{-5, 0, 0, 1}, v4{+3, 0, 0, 0},
+			auto r = RunCollisionScenario(log_stream(), box, ia, v4{-5, 0, 0, 1}, v4{+3, 0, 0, 0},
 				sphere, ib, v4{+5, 0, 0, 1}, v4{-3, 0, 0, 0});
 
 			PR_EXPECT(r.collision_occurred);
@@ -525,7 +526,7 @@ namespace pr::physics::tests
 			auto sphere = collision::ShapeSphere(1.5f);
 			auto ia = Inertia::Box(v4{2, 2, 2, 0}, 5.0f);
 			auto ib = Inertia::Sphere(1.5f, 20.0f);
-			auto r = RunCollisionScenario(box, ia, v4{-5, 0, 0, 1}, v4{+4, 0, 0, 0},
+			auto r = RunCollisionScenario(log_stream(), box, ia, v4{-5, 0, 0, 1}, v4{+4, 0, 0, 0},
 				sphere, ib, v4{+5, 0, 0, 1}, v4{0, 0, 0, 0});
 
 			PR_EXPECT(r.collision_occurred);

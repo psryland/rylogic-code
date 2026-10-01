@@ -93,7 +93,7 @@ namespace pr::physics::terrain::landscape::tests
 				max_height_error = std::max(max_height_error, std::abs(actual.m_height - item.m_height));
 				max_gradient_error = std::max({max_gradient_error, std::abs(actual.m_gradient_xy.x - item.m_dx), std::abs(actual.m_gradient_xy.y - item.m_dy)});
 			}
-			std::printf("Terrain original CPU goldens: height_error=%.17g gradient_error=%.17g\n", max_height_error, max_gradient_error);
+			log_stream() << std::format("Terrain original CPU goldens: height_error={:.17g} gradient_error={:.17g}\n", max_height_error, max_gradient_error);
 		}
 
 		// Basins must lower lowland terrain by about the basin depth, suppress basins in mountains, and keep smooth, differentiable shorelines.
@@ -137,7 +137,7 @@ namespace pr::physics::terrain::landscape::tests
 					}
 				}
 			}
-			std::printf("Terrain basins: full=%d shore=%d max_shore_gradient_error=%.3g\n", full_basin_count, shore_count, max_shore_gradient_error);
+			log_stream() << std::format("Terrain basins: full={} shore={} max_shore_gradient_error={:.3g}\n", full_basin_count, shore_count, max_shore_gradient_error);
 			PR_EXPECT(full_basin_count > 0);
 			PR_EXPECT(shore_count > 0);
 			PR_EXPECT(max_shore_gradient_error < 2.0e-2);

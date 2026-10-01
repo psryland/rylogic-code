@@ -24,7 +24,7 @@ namespace pr::rdr12
 		PipeStateDesc m_post_alpha_pipe_state;
 		Texture2DPtr m_default_tex;
 		SamplerPtr m_default_sam;
-	
+		D3D12_GPU_VIRTUAL_ADDRESS m_elements = {}; // This frame's element constants table, one entry per drawlist element
 	public:
 
 		explicit RenderForward(Scene& scene);
@@ -53,8 +53,8 @@ namespace pr::rdr12
 		// Set up shader resources used by the alpha collection pass.
 		void BindAlphaResources(Frame& frame, GfxCmdList& cmd_list);
 
-		// Add the nuggets in the draw list to 'cmd_list' for rendering.
-		void DrawNuggets(Frame& frame, GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist, bool alpha_pass);
+		// Add the nuggets in the draw list to 'cmd_list' for rendering. 'first_index' is the position of 'drawlist[0]' in the step's drawlist.
+		void DrawNuggets(Frame& frame, GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist, int first_index, bool alpha_pass);
 
 		// Select the stock output contract after overrides, rejecting unsupported far-fade pipelines.
 		void ApplyFarFadePipeline(PipeStateDesc& desc, bool alpha_pass) const;

@@ -12,7 +12,7 @@ namespace physics_sandbox
 		enum class ERootParam : int
 		{
 			CBufFrame = 0,
-			CBufNugget = 1,
+			ElementIndex = 1,
 			CBufWater = 3,
 		};
 

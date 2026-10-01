@@ -13,7 +13,11 @@
 
 // Constant buffers
 ConstantBuffer<CBufDrawViews> resource(g_draw, b0);
-ConstantBuffer<CBufNugget> resource(g_nugget, b1);
+ConstantBuffer<CBufElement> resource(g_element, b1);
+
+// The render step's per-element constants, selected by the draw's element index
+StructuredBuffer<ElementConstants> resource(g_elements, t2);
+static const ElementConstants g_nugget = g_elements[g_element.index];
 
 // Texture2D /w sampler
 Texture2D<float4> resource(m_texture0, t0);

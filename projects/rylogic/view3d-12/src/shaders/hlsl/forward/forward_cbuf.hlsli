@@ -29,12 +29,17 @@ struct CBufFrame// :reg(b0)
 	ProjTexture proj_tex;
 };
 
-// Constants per render nugget.
-struct CBufNugget// :reg(b1)
+// The index of the current draw's entry in the element constants table. Provided as a root constant.
+struct CBufElement// :reg(b1)
+{
+	uint index;
+};
+
+// Constants per drawlist element. The render step uploads one entry per drawlist element as a structured buffer (t17).
+struct ElementConstants
 {
 	// Sync with:
-	//   forward_cbuf.hlsli
-	//   shadow_map_cbuf.hlsli
+	//   View3DForwardElement in pr/view3d-12/shaders/procedural_vertex.hlsli
 
 	// x = Model flags - See types.hlsli
 	// y = Texture flags

@@ -20,6 +20,10 @@ public sealed class InstanceRegistry
 	/// <summary>The directory containing instance registry entries</summary>
 	public string Directory { get; }
 
+	// The last successfully parsed registration per entry file, with the file write time it was parsed from. Opening a file is
+	// slow and can fail briefly while a heartbeat replaces it, so entries are parsed again only when their write time changes.
+	private readonly Dictionary<string, (DateTime write_time_utc, InstanceRegistration registration)> m_cache = new(StringComparer.OrdinalIgnoreCase);
+
 	/// <summary>Write or refresh a registry entry</summary>
 	public void Write(InstanceRegistration registration)
 	{
@@ -45,25 +49,44 @@ public sealed class InstanceRegistry
 	/// <summary>Return all live registered instances</summary>
 	public IReadOnlyList<InstanceRegistration> LiveInstances()
 	{
-		var instances = new List<InstanceRegistration>();
-		foreach (var filepath in DirectoryFiles())
+		// Serialise listings because the cache is shared by concurrent callers.
+		lock (m_cache)
 		{
-			// A null result means the file was missing or could not be parsed this pass. That can be a transient
-			// read during an atomic overwrite, so skip it without deleting; a genuinely dead process is removed
-			// only once its entry parses but fails the live-process check below.
-			var registration = Read(filepath);
-			if (registration == null)
-				continue;
-			if (!IsLive(registration))
+			var instances = new List<InstanceRegistration>();
+			var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			foreach (var file in DirectoryFiles())
 			{
-				DeleteFile(filepath);
-				continue;
+				// The directory listing provides write times without opening files. Parse an entry only when it is new or rewritten.
+				// If the parse fails (usually a read during an atomic overwrite), keep the cached copy and retry on the next listing.
+				var filepath = file.FullName;
+				present.Add(filepath);
+				var write_time_utc = file.LastWriteTimeUtc;
+				var cached = m_cache.TryGetValue(filepath, out var entry);
+				if (!cached || entry.write_time_utc != write_time_utc)
+				{
+					if (Read(filepath) is InstanceRegistration fresh)
+						m_cache[filepath] = entry = (write_time_utc, fresh);
+					else if (!cached)
+						continue;
+				}
+
+				// A genuinely dead process is removed only by the live-process check.
+				if (!IsLive(entry.registration))
+				{
+					m_cache.Remove(filepath);
+					DeleteFile(filepath);
+					continue;
+				}
+
+				instances.Add(entry.registration);
 			}
 
-			instances.Add(registration);
-		}
+			// Drop cache entries whose files have been deleted.
+			foreach (var stale in m_cache.Keys.Where(x => !present.Contains(x)).ToArray())
+				m_cache.Remove(stale);
 
-		return instances.OrderBy(x => x.StartedUtc).ToArray();
+			return instances.OrderBy(x => x.StartedUtc).ToArray();
+		}
 	}
 
 	/// <summary>Return the registry file path for 'instance_id'</summary>
@@ -73,12 +96,12 @@ public sealed class InstanceRegistry
 	}
 
 	/// <summary>Enumerate the registry files</summary>
-	private IEnumerable<string> DirectoryFiles()
+	private IEnumerable<FileInfo> DirectoryFiles()
 	{
 		if (!Path_.DirExists(Directory))
 			yield break;
 
-		foreach (var file in System.IO.Directory.EnumerateFiles(Directory, "*.json", SearchOption.TopDirectoryOnly))
+		foreach (var file in new DirectoryInfo(Directory).EnumerateFiles("*.json", SearchOption.TopDirectoryOnly))
 			yield return file;
 	}
 

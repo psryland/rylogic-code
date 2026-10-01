@@ -10,7 +10,9 @@
 #include "pr/physics/terrain/water/water_field.hlsli"
 
 ConstantBuffer<CBufFrame> resource(g_frame, b0);
-ConstantBuffer<CBufNugget> resource(g_nugget, b1);
+ConstantBuffer<CBufElement> resource(g_element, b1);
+StructuredBuffer<ElementConstants> resource(g_elements, t17);
+static const ElementConstants g_nugget = g_elements[g_element.index];
 ConstantBuffer<CBufWaterVisual> resource(g_water, b3);
 
 // Evaluate the physics water height and gradient together using the shared per-element evaluator.

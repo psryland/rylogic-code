@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+	<!--
+	Publishes the local Rylogic.Native development package once per Debug|x64 build, after every package-owned native project has finished building.
+	Style Guidance: this is the only place that may publish Rylogic.Native during a build. Per-project targets must never publish shared packages,
+	because parallel builds would race each other and could delete a package version that an in-flight restore depends on.
+	See docs/local-dev-packages.md for the full design.
+	-->
+
+	<!-- Globals -->
+	<PropertyGroup Label="Globals">
+		<ConfigurationType>Utility</ConfigurationType>
+		<ProjectGuid>{AF5BD480-3F98-4061-9E55-6FCEBAB56F24}</ProjectGuid>
+		<RootNamespace>Rylogic.Native.Dev</RootNamespace>
+		<ProjectName>Rylogic.Native.Dev</ProjectName>
+
+		<!-- Visual Studio cannot see the package inputs, so always run MSBuild and let the input fingerprint decide whether to publish. -->
+		<DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
+	</PropertyGroup>
+
+	<!-- Property Sheets -->
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+	<Import Project="$(PropsPath)build_configurations.props" />
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+
+	<!--
+	Every project that contributes to Rylogic.Native must be referenced here so it finishes building before the package is staged.
+	ValidateRylogicNativeDevReferences fails the build if a packaged project is missing from this list.
+	-->
+	<ItemDefinitionGroup>
+		<ProjectReference>
+			<ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+			<LinkLibraryDependencies>false</LinkLibraryDependencies>
+			<UseLibraryDependencyInputs>false</UseLibraryDependencyInputs>
+		</ProjectReference>
+	</ItemDefinitionGroup>
+	<ItemGroup>
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\audio\audio.dll.vcxproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\fbx\fbx.vcxproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\gltf\gltf.vcxproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\imgui\imgui.vcxproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\physics\physics.vcxproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\physics\physics.dll.vcxproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-12\view3d-12.dll.vcxproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-ui\view3d-ui.dll.vcxproj" />
+		<ProjectReference Include="$(RylogicRoot)sdk\scintilla\scintilla.vcxproj" />
+		<ProjectReference Include="$(RylogicRoot)sdk\sqlite3\sqlite.vcxproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\tools\p3d\p3d.vcxproj" />
+	</ItemGroup>
+	<ItemGroup>
+		<None Include="rylogic.native.dev.nuspec" />
+	</ItemGroup>
+
+	<!-- Targets -->
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+
+	<!-- Fail early when a project declares itself part of Rylogic.Native but is not referenced above, because it could then still be building while the package is staged. -->
+	<Target Name="ValidateRylogicNativeDevReferences" BeforeTargets="PrepareForBuild">
+		<ItemGroup>
+			<_RylogicNativeCandidate Include="$(RylogicRoot)projects\rylogic\**\*.vcxproj;$(RylogicRoot)sdk\**\*.vcxproj" />
+			<_RylogicNativePackaged Include="@(_RylogicNativeCandidate->'%(FullPath)')" Condition="$([System.IO.File]::ReadAllText('%(_RylogicNativeCandidate.FullPath)').Contains('&gt;Include&lt;/RylogicNativeRuntimePackage&gt;')) OR $([System.IO.File]::ReadAllText('%(_RylogicNativeCandidate.FullPath)').Contains('&gt;Include&lt;/RylogicNativeLinkPackage&gt;'))" />
+			<_RylogicNativeUnreferenced Include="@(_RylogicNativePackaged)" Exclude="@(ProjectReference->'%(FullPath)')" />
+		</ItemGroup>
+		<Error Condition="'@(_RylogicNativeUnreferenced)' != ''" Text="Rylogic.Native.Dev.vcxproj must reference every project that contributes to Rylogic.Native. Add a ProjectReference for: @(_RylogicNativeUnreferenced, ', ')" />
+	</Target>
+
+	<!--
+	Stage, pack, and publish Rylogic.Native when its inputs differ from the last published package.
+	Each publish gets a new timestamped version, because NuGet treats a cached version as immutable. The staging script compares an input fingerprint with
+	the publish stamp and skips staging when nothing changed, so no-change builds do not create new versions.
+	-->
+	<Target Name="PublishRylogicNativeDevPackage" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug' AND '$(Platform)' == 'x64' AND '$(GITHUB_ACTIONS)' != 'true' AND '$(RylogicGeneratePackageOnBuild)' != 'false'">
+		<PropertyGroup>
+			<_NativePackageId>Rylogic.Native</_NativePackageId>
+			<_NativePackageIdLower>rylogic.native</_NativePackageIdLower>
+			<_NativePackageVersion>$(RylogicLibraryVersion)-dev.$([System.DateTime]::UtcNow.ToString('yyyyMMddHHmmssfff'))</_NativePackageVersion>
+			<_NativeNuspecPath>$(MSBuildThisFileDirectory)rylogic.native.dev.nuspec</_NativeNuspecPath>
+			<_NativeCacheRoot>$(NuGetPackageRoot.TrimEnd('\'))</_NativeCacheRoot>
+			<_NativePackageOutputDir>$(RylogicRoot)lib\packages\debug</_NativePackageOutputDir>
+			<_NativePackagePath>$(_NativePackageOutputDir)\$(_NativePackageId).$(_NativePackageVersion).nupkg</_NativePackagePath>
+			<_NativeFeedPath>$(RylogicRoot)lib\packages\$(_NativePackageId).$(_NativePackageVersion).nupkg</_NativeFeedPath>
+			<_NativeCacheDir>$(_NativeCacheRoot)\$(_NativePackageIdLower)\$(_NativePackageVersion)</_NativeCacheDir>
+			<_NativeCacheName>$(_NativePackageIdLower).$(_NativePackageVersion).nupkg</_NativeCacheName>
+			<_NativeCentralVersionPropsPath>$(RylogicRoot)lib\packages\local\packages\$(_NativePackageIdLower).props</_NativeCentralVersionPropsPath>
+			<_NativeProjectVersionPropsPath>$(RylogicRoot)lib\packages\local\versions\$(_NativePackageId).props</_NativeProjectVersionPropsPath>
+			<_NativeStagingRoot>$(RylogicRoot)obj\nuget\Rylogic.Native\x64\Debug</_NativeStagingRoot>
+			<_NativeStageDir>$(_NativeStagingRoot)\$(_NativePackageVersion)</_NativeStageDir>
+			<_NativePublishStamp>$(_NativeStagingRoot)\published.txt</_NativePublishStamp>
+		</PropertyGroup>
+
+		<!-- Stage the complete closure into a version-private directory. The script prints why it skips when the closure is incomplete or unchanged. -->
+		<MakeDir Directories="$(_NativePackageOutputDir)" />
+		<Exec Command="dotnet-script &quot;$(ScriptPath)StageNativeRuntimePackage.csx&quot; -platform x64 -config Debug -output &quot;$(_NativeStageDir)&quot; -requireall -skipincomplete -publishstamp &quot;$(_NativePublishStamp)&quot; -nugetcache &quot;$(_NativeCacheRoot)&quot; -input &quot;$(_NativeNuspecPath)&quot;" StandardOutputImportance="high" />
+		<PropertyGroup>
+			<_NativePackageComplete Condition="Exists('$(_NativeStageDir)\.complete')">true</_NativePackageComplete>
+		</PropertyGroup>
+
+		<!-- Pack the staged closure and install it into the local feed and the NuGet cache. -->
+		<Exec Condition="'$(_NativePackageComplete)' == 'true'" Command="&quot;$(ToolsPath)nuget\nuget.exe&quot; pack &quot;$(_NativeNuspecPath)&quot; -BasePath &quot;$(_NativeStageDir)&quot; -Version &quot;$(_NativePackageVersion)&quot; -OutputDirectory &quot;$(_NativePackageOutputDir)&quot; -NoPackageAnalysis -NonInteractive -Verbosity quiet" />
+		<SyncNuGetPackageOutputs
+			Condition="'$(_NativePackageComplete)' == 'true'"
+			NuPkgPath="$(_NativePackagePath)"
+			FeedPkgPath="$(_NativeFeedPath)"
+			CacheDir="$(_NativeCacheDir)"
+			NuPkgName="$(_NativeCacheName)"
+			RetryTimeoutMilliseconds="15000">
+			<Output TaskParameter="Synced" PropertyName="_NativePackageSynced" />
+		</SyncNuGetPackageOutputs>
+
+		<!--
+		Advance the version pointer that Debug consumers restore against. Cleanup keeps this version and the one it replaces, because projects in the
+		current build restored against the replaced version before this publish happened.
+		-->
+		<PublishLocalPackageVersion
+			Condition="'$(_NativePackageSynced)' == 'true'"
+			PackageId="$(_NativePackageId)"
+			PackageVersion="$(_NativePackageVersion)"
+			CentralVersionPropsPath="$(_NativeCentralVersionPropsPath)"
+			ProjectVersionPropsPath="$(_NativeProjectVersionPropsPath)"
+			ProjectVersionProperty="RylogicNativePackageVersion"
+			CleanupOldDevVersions="true"
+			NuGetCacheRoot="$(_NativeCacheRoot)" />
+
+		<!-- Record what was published so the next build can skip an unchanged closure, then discard the staging copy that is now inside the package. -->
+		<ReadLinesFromFile Condition="'$(_NativePackageSynced)' == 'true'" File="$(_NativeStageDir)\.fingerprint">
+			<Output TaskParameter="Lines" ItemName="_NativeFingerprint" />
+		</ReadLinesFromFile>
+		<WriteLinesToFile Condition="'$(_NativePackageSynced)' == 'true'" File="$(_NativePublishStamp)" Lines="@(_NativeFingerprint);$(_NativePackageVersion)" Overwrite="true" />
+		<RemoveDir Condition="'$(_NativePackageComplete)' == 'true'" Directories="$(_NativeStageDir)" />
+		<Message Condition="'$(_NativePackageSynced)' == 'true'" Text="Published local native package $(_NativePackageId) $(_NativePackageVersion)" Importance="high" />
+	</Target>
+</Project>

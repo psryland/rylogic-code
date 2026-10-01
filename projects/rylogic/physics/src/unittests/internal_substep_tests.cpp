@@ -121,7 +121,7 @@ namespace pr::physics::tests
 			for (int passes = 0; passes != 2; ++passes)
 			{
 				// Publish the comparative measurement without imposing a machine-dependent timing assertion.
-				std::printf("selective_idle passes=%d mean_step_ms=%.3f mean_gpu_ms=%.3f mean_record_ms=%.3f active_frames=%d/180 contact_frames=%d/180\n",
+				log_stream() << std::format("selective_idle passes={} mean_step_ms={:.3f} mean_gpu_ms={:.3f} mean_record_ms={:.3f} active_frames={}/180 contact_frames={}/180\n",
 					passes, wall_ms[passes] / 180, gpu_ms[passes] / 180, recorded_ms[passes] / 180, active_frames[passes], contact_frames[passes]);
 				PR_EXPECT(active_frames[passes] == 0);
 				PR_EXPECT(contact_frames[passes] > 0);

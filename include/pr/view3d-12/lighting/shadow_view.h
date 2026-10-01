@@ -114,9 +114,22 @@ namespace pr::rdr12
 	// Return the point light cube face index (+X,-X,+Y,-Y,+Z,-Z) that contains the direction 'light_to_point'
 	int ShadowCubeFace(v4 light_to_point);
 
-	// True if the world space box 'bbox' may be visible in the clip space defined by 'w2s'.
-	// 'near_plane' is false for views that clamp depth, where boxes in front of the near plane still cast shadows.
-	bool ShadowViewSees(m4x4 const& w2s, BBox const& bbox, bool near_plane = true);
+	// The world space clip volume of a shadow view, used to find the boxes that the view may see
+	struct ShadowViewVolume
+	{
+		v4  m_planes[6];    // World space planes facing into the volume. The near plane is last so it can be excluded
+		int m_plane_count;  // The number of planes in use. 5 when the near plane is excluded
+
+		// Build the volume from the clip space defined by 'w2s'.
+		// 'near_plane' is false for views that clamp depth, where boxes in front of the near plane still cast shadows.
+		explicit ShadowViewVolume(m4x4 const& w2s, bool near_plane = true);
+
+		// True if the world space box 'bbox' may be visible in the volume
+		bool Sees(BBox const& bbox) const;
+
+		// True if the world space box with corners 'lower' and 'upper' may be visible in the volume
+		bool Sees(v4 lower, v4 upper) const;
+	};
 
 	// Tracks the content of each shadow atlas region so that unchanged views are not rendered again
 	struct ShadowViewCache
@@ -204,10 +217,10 @@ namespace pr::rdr12::tests
 		{
 			auto l2w = m4x4::LookAt(v4(0, 0, 10, 1), v4::Origin(), v4::YAxis());
 			auto w2s = m4x4::ProjectionPerspective(1.0f, 1.0f, 1.0f, 20.0f, true) * InvertOrthonormal(l2w);
-			PR_EXPECT(ShadowViewSees(w2s, BBox(v4::Origin(), v4(1, 1, 1, 0))));
-			PR_EXPECT(!ShadowViewSees(w2s, BBox(v4(0, 0, 20, 1), v4(1, 1, 1, 0))));
-			PR_EXPECT(!ShadowViewSees(w2s, BBox(v4(50, 0, 0, 1), v4(1, 1, 1, 0))));
-			PR_EXPECT(!ShadowViewSees(w2s, BBox(v4(0, 0, -30, 1), v4(1, 1, 1, 0))));
+			PR_EXPECT(ShadowViewVolume(w2s).Sees(BBox(v4::Origin(), v4(1, 1, 1, 0))));
+			PR_EXPECT(!ShadowViewVolume(w2s).Sees(BBox(v4(0, 0, 20, 1), v4(1, 1, 1, 0))));
+			PR_EXPECT(!ShadowViewVolume(w2s).Sees(BBox(v4(50, 0, 0, 1), v4(1, 1, 1, 0))));
+			PR_EXPECT(!ShadowViewVolume(w2s).Sees(BBox(v4(0, 0, -30, 1), v4(1, 1, 1, 0))));
 		}
 
 		// View selection: point lights use six views, non-casters get none, and the light limit applies.
@@ -246,9 +259,9 @@ namespace pr::rdr12::tests
 				PR_EXPECT(set.m_views[1 + i].m_face == i);
 
 			// The caster bounds centre is in front of each view that should see it
-			PR_EXPECT(ShadowViewSees(set.m_views[0].m_w2s, bounds, false));
-			PR_EXPECT(ShadowViewSees(set.m_views[7].m_w2s, bounds));
-			PR_EXPECT(ShadowViewSees(set.m_views[1 + ShadowCubeFace(v4(0, -1, 0, 0))].m_w2s, BBox(v4::Origin(), v4(0.1f, 0.1f, 0.1f, 0))));
+			PR_EXPECT(ShadowViewVolume(set.m_views[0].m_w2s, false).Sees(bounds));
+			PR_EXPECT(ShadowViewVolume(set.m_views[7].m_w2s).Sees(bounds));
+			PR_EXPECT(ShadowViewVolume(set.m_views[1 + ShadowCubeFace(v4(0, -1, 0, 0))].m_w2s).Sees(BBox(v4::Origin(), v4(0.1f, 0.1f, 0.1f, 0))));
 
 			settings.m_max_shadow_lights = 1;
 			BuildShadowViews(lights, bounds, camera, settings, set);

@@ -67,9 +67,4 @@ namespace pr::physics
 			return m_gpu.CreateResource(desc, cmd_list, name);
 		}
 	};
-
-	inline void Deleter<Gpu>::operator()(Gpu* p) const
-	{
-		delete p;
-	}
 }
