@@ -14,9 +14,6 @@
 #include "pr/maths/stringconversion.h"
 #include "pr/linedrawer/ldr_helper2.h"
 
-#define ENABLE_PROFILE 0
-#include "pr/common/profile.h"
-PR_DECLARE_PROFILE(ENABLE_PROFILE, 1)
 
 #include "pr/geometry/primitive.h"
 #include "pr/geometry/mesh_tools.h"
@@ -395,7 +392,6 @@ namespace TestPhysics
 
 			////v4 normal;
 			//LDR_OUTPUT(1, ldr::PhCollisionScene(shapeA, a2w, shapeB, b2w);)
-			////PR_PROFILE_START(0);
 
 			//contact_manifold.m_contact.clear();
 			//GetNearestPoints(shapeA, a2w, shapeB, b2w, contact_manifold, 0);
@@ -414,7 +410,6 @@ namespace TestPhysics
 			////bool collide1 = CollideGJK(shapeA, a2w, shapeB, b2w, contact_manifold);
 			//if( collide1 )
 			//{
-			//	PR_PROFILE_STOP(0);
 			//	LDR_OUTPUT(1, ldr::phContactManifold(a2w, b2w, contact_manifold);)
 
 			//	PR_ASSERT(1, CollideBruteForce(shapeA, a2w, shapeB, b2w, normal, true)); normal;
@@ -427,7 +422,6 @@ namespace TestPhysics
 			//}
 			//else
 			//{
-			//	PR_PROFILE_STOP(0);
 			//	PR_ASSERT(1, !CollideBruteForce(shapeA, a2w, shapeB, b2w, normal, false));
 			//	printf("Not in collision\n");
 			//}
@@ -436,7 +430,6 @@ namespace TestPhysics
 			//bool collide2 = Collide   (shapeA, a2w, shapeB, b2w, contact_manifold);
 			//if( collide2 )
 			//{
-			//	PR_PROFILE_STOP(0);
 			//	LDR_OUTPUT(1, ldr::phContactManifold(a2w, b2w, contact_manifold);)
 
 			//	//PR_ASSERT(1, CollideBruteForce(shapeA, a2w, shapeB, b2w, normal));
@@ -445,7 +438,6 @@ namespace TestPhysics
 			//}
 			//else
 			//{
-			//	PR_PROFILE_STOP(0);
 			//	//PR_ASSERT(1, !CollideBruteForce(shapeA, a2w, shapeB, b2w, normal));
 			//	printf("Not in collision\n");
 			//}

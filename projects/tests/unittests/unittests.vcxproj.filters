@@ -382,9 +382,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\common\profile.h">
       <Filter>pr\common</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\common\profile_manager.h">
-      <Filter>pr\common</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\common\range.h">
       <Filter>pr\common</Filter>
     </ClInclude>

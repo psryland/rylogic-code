@@ -126,7 +126,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\common\pe_file.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\pollingtoevent.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\profile.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\profile_manager.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\range.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\refcount.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\refptr.h" />
