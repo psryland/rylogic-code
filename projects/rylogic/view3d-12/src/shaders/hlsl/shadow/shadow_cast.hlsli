@@ -105,6 +105,11 @@ float ShadowVisibility(Texture2D<float> atlas, SamplerComparisonState cmp_sample
 		ss_pos.xyz /= ss_pos.w;
 		float2 uv = float2(0.5f + 0.5f * ss_pos.x, 0.5f - 0.5f * ss_pos.y);
 
+		// Directional views clamp caster depths into [0,1] when rendering, so they cover every depth along the light. A receiver beyond
+		// the far plane is behind every caster in the view, and one in front of the near plane is in front of them all. Compare at the clamped depth.
+		if (DirectionalLight(light))
+			ss_pos.z = saturate(ss_pos.z);
+
 		// Try the next cascade if the point, with the filter area around it, is not inside this one. The last view is used if it contains the point at all.
 		float2 inset = margin * texel / view.atlas_rect.xy;
 		bool inside = ss_pos.w > 0 && all(uv >= 0.0f) && all(uv <= 1.0f) && ss_pos.z >= 0.0f && ss_pos.z <= 1.0f;
