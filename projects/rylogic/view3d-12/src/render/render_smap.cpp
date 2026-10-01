@@ -26,15 +26,40 @@ namespace pr::rdr12
 	namespace
 	{
 		// Mix the bytes of 'value' into the running content hash 'h'. 'T' must not contain padding bytes.
+		// Mix one 64-bit word into a hash. The rotation carries high bits back into the low bits, so a change in any word keeps
+		// affecting the whole hash as later words are mixed in.
+		inline void HashWord(uint64_t& h, uint64_t word)
+		{
+			// Multiply by an odd constant, which is a bijection, so a single changed word always changes the hash
+			h = std::rotl((h ^ word) * 0x9E3779B97F4A7C15ULL, 31);
+		}
+
+		// Mix the bytes of 'value' into a hash
 		template <typename T> void HashMix(uint64_t& h, T const& value)
 		{
-			// FNV-1a over the bytes of the value
+			// Mix whole 64-bit words, then any remaining bytes
 			auto const* bytes = reinterpret_cast<uint8_t const*>(&value);
-			for (size_t i = 0; i != sizeof(T); ++i)
+			size_t i = 0;
+			for (; i + sizeof(uint64_t) <= sizeof(T); i += sizeof(uint64_t))
 			{
-				h ^= bytes[i];
-				h *= 0x100000001b3ULL;
+				// Copy the word because 'value' need not be 8-byte aligned
+				uint64_t word;
+				std::memcpy(&word, bytes + i, sizeof(word));
+				HashWord(h, word);
 			}
+			if (i != sizeof(T))
+			{
+				// Zero-extend the tail bytes into one word
+				uint64_t word = 0;
+				std::memcpy(&word, bytes + i, sizeof(T) - i);
+				HashWord(h, word);
+			}
+		}
+
+		// Mix a pointer value into a hash
+		inline void HashPtr(uint64_t& h, void const* ptr)
+		{
+			HashWord(h, reinterpret_cast<uintptr_t>(ptr));
 		}
 
 		// The initial value for content hashes
@@ -195,29 +220,54 @@ namespace pr::rdr12
 			}
 		}
 
-		// Find the world space bounds of each element and of all casters. Elements whose bounds cannot be known
-		// (skinned, non-affine, or without a valid model bbox) are drawn into every view.
+		// Find the world space bounds and the content hash of each element, and the bounds of all casters. Elements whose bounds
+		// cannot be known (skinned, non-affine, or without a valid model bbox) are drawn into every view.
 		auto caster_bounds = BBox::Reset();
-		pr::vector<BBox> element_bounds;
+		pr::vector<ElementInfo> elements;
 		{
 			auto drawlist = m_drawlist.lock();
-			element_bounds.reserve(drawlist->size());
-			for (auto& dle : *drawlist)
+			elements.resize(drawlist->size());
+			for (int e = 0, eend = isize(*drawlist); e != eend; ++e)
 			{
+				auto const& dle = (*drawlist)[e];
 				auto const& nugget = *dle.m_nugget;
 				auto const& instance = *dle.m_instance;
 				auto const& mbox = nugget.m_model->m_bbox;
-				auto i2w = GetO2W(instance);
-				if (!mbox.valid() || !IsAffine(i2w))
+				auto const& i2w = GetO2W(instance);
+				auto const pose = FindPose(instance);
+				auto& info = elements[e];
+
+				// Hash everything that can change the depth this element writes into a view
+				auto h = HashSeed;
+				HashPtr(h, &instance);
+				HashPtr(h, &nugget);
+				HashMix(h, i2w);
+				HashMix(h, nugget.m_vrange);
+				HashMix(h, nugget.m_irange);
+				HashPtr(h, nugget.m_model);
+				HashWord(h, nugget.m_model->m_revision);
+				HashPtr(h, FindMaterial(instance).get());
+				HashPtr(h, &nugget.mat());
+				if (pose != nullptr)
 				{
-					element_bounds.push_back(BBox::Reset());
-					continue;
+					HashPtr(h, pose.get());
+					HashWord(h, std::bit_cast<uint64_t>(pose->m_time1));
+					HashWord(h, pose->m_revision);
 				}
+				info.m_hash = h;
+				info.m_cull = false;
+				if (!mbox.valid() || !IsAffine(i2w))
+					continue;
 
 				// Skinned models can move outside their bind pose bounds, so they contribute to the caster bounds but are never culled
 				auto bbox = i2w * mbox;
 				Grow(caster_bounds, bbox);
-				element_bounds.push_back(FindPose(instance) != nullptr ? BBox::Reset() : bbox);
+				if (pose != nullptr)
+					continue;
+
+				info.m_lower = bbox.Lower();
+				info.m_upper = bbox.Upper();
+				info.m_cull = true;
 			}
 		}
 
@@ -238,17 +288,18 @@ namespace pr::rdr12
 		BuildShadowViews(scn().ResolvedLights(), caster_bounds, camera, m_settings, m_views);
 
 		// Decide which views need rendering this frame
-		FindDirtyViews(element_bounds);
+		FindDirtyViews(elements);
 	}
 
 	// Find the views that each element can see, and the views whose content has changed since they were last rendered
-	void RenderSmap::FindDirtyViews(std::span<BBox const> element_bounds)
+	void RenderSmap::FindDirtyViews(std::span<ElementInfo const> elements)
 	{
 		// Start each view's content hash from the view itself. A change of transform or atlas region changes the content.
 		auto const view_count = isize(m_views.m_views);
 		auto const all_views = view_count == 32 ? ~0U : (1U << view_count) - 1;
 		std::array<uint64_t, MaxShadowViews> hashes;
 		std::array<IRect, MaxShadowViews> rects;
+		pr::vector<ShadowViewVolume, MaxShadowViews> volumes;
 		for (int v = 0; v != view_count; ++v)
 		{
 			auto const& view = m_views.m_views[v];
@@ -257,23 +308,24 @@ namespace pr::rdr12
 			HashMix(hashes[v], view.m_atlas_rect);
 			HashMix(hashes[v], view.m_clamp_depth);
 			rects[v] = view.m_atlas_rect;
+
+			// Clamped views also see casters in front of their near plane
+			volumes.push_back(ShadowViewVolume(view.m_w2s, !view.m_clamp_depth));
 		}
 
 		// Mix a hash of each element into the hash of every view that can see it. Views that see elements drawn with a
 		// custom vertex shader are always rendered, because their geometry can change without anything here changing.
 		auto forced = uint32_t(0);
 		auto drawlist = m_drawlist.lock();
+		auto const check_volatile = !m_volatile.empty();
 		m_element_views.resize(0);
 		for (int e = 0, eend = isize(*drawlist); e != eend; ++e)
 		{
-			auto const& dle = (*drawlist)[e];
-			auto const& nugget = *dle.m_nugget;
-			auto const& instance = *dle.m_instance;
-			auto const& bounds = element_bounds[e];
+			auto const& info = elements[e];
 
-			// Find the views that can see the element. Clamped views also see casters in front of their near plane.
+			// Find the views that can see the element
 			auto mask = uint32_t(0);
-			if (!bounds.valid())
+			if (!info.m_cull)
 			{
 				mask = all_views;
 			}
@@ -281,8 +333,7 @@ namespace pr::rdr12
 			{
 				for (int v = 0; v != view_count; ++v)
 				{
-					auto const& view = m_views.m_views[v];
-					if (ShadowViewSees(view.m_w2s, bounds, !view.m_clamp_depth))
+					if (volumes[v].Sees(info.m_lower, info.m_upper))
 						mask |= 1U << v;
 				}
 			}
@@ -290,32 +341,14 @@ namespace pr::rdr12
 			if (mask == 0)
 				continue;
 
-			// Hash everything that can change the depth this element writes into a view
-			auto h = HashSeed;
-			HashMix(h, &instance);
-			HashMix(h, &nugget);
-			HashMix(h, GetO2W(instance));
-			HashMix(h, nugget.m_vrange);
-			HashMix(h, nugget.m_irange);
-			HashMix(h, nugget.m_model);
-			HashMix(h, nugget.m_model->m_revision);
-			HashMix(h, FindMaterial(instance).get());
-			HashMix(h, &nugget.mat());
-			if (auto pose = FindPose(instance); pose != nullptr)
-			{
-				HashMix(h, pose.get());
-				HashMix(h, pose->m_time1);
-				HashMix(h, pose->m_revision);
-			}
-
 			// Add the element to the content of each view that sees it
 			for (int v = 0; v != view_count; ++v)
 			{
 				if ((mask & (1U << v)) != 0)
-					HashMix(hashes[v], h);
+					HashWord(hashes[v], info.m_hash);
 			}
 
-			if (m_volatile.contains(&nugget))
+			if (check_volatile && m_volatile.contains((*drawlist)[e].m_nugget))
 				forced |= mask;
 		}
 
@@ -364,13 +397,22 @@ namespace pr::rdr12
 			m_cmd_list.ClearDepthStencilView(atlas.m_dsv.m_cpu, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, clear_rects);
 		}
 
-		// Upload the transforms of the views being rendered
+		// Upload the transforms of the views being rendered, and the constants of every element that some view can see
 		m_cmd_list.SetGraphicsRootSignature(m_shader.m_signature.get());
 		auto views_gpu = UploadShadowViews(m_upload_buffer, { views.data(), views.size() }, m_settings);
-		m_shader.SetupFrame(m_cmd_list.get(), views_gpu);
+		{
+			auto drawlist = m_drawlist.lock();
+			assert(m_element_views.size() == drawlist->size() && "Draw list changed between Prepare and Execute");
+			auto elements_gpu = shaders::ShadowMap::UploadElements(m_upload_buffer, std::span{ *drawlist }, std::span{ m_element_views.data(), m_element_views.size() });
+			m_shader.SetupFrame(m_cmd_list.get(), views_gpu, elements_gpu);
+		}
 
 		// Per-element projections use the scene camera
 		auto const camera = CameraTransforms(scn().m_cam);
+
+		// Remember the bound material descriptors so that consecutive elements sharing a texture or sampler skip redundant binds.
+		// The draw list is sorted by texture, so most elements reuse the previous descriptors.
+		Descriptor last_tex = {}, last_sam = {};
 
 		// Render the views in batches, one viewport per view in the batch. Depth clamping is part of the pipeline state,
 		// so a batch only contains views with the same clamp mode.
@@ -444,7 +486,8 @@ namespace pr::rdr12
 				m_cmd_list.IASetVertexBuffers(0U, { vb_view, 1 });
 				m_cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
 
-				// Let the material bind per-draw resources, constants, and pipeline overrides
+				// Select this element's entry in the uploaded element constants table, then let the material bind per-draw resources and pipeline overrides
+				shaders::ShadowMap::SetupElement(m_cmd_list.get(), e);
 				auto ctx = MaterialPassContext{
 					.m_step_id = m_step_id,
 					.m_wnd = wnd(),
@@ -458,11 +501,18 @@ namespace pr::rdr12
 					.m_shader = &m_shader,
 					.m_default_tex = m_default_tex.get(),
 					.m_default_sam = m_default_sam.get(),
-					.m_last_tex = nullptr,
-					.m_last_sam = nullptr,
+					.m_last_tex = &last_tex,
+					.m_last_sam = &last_sam,
 				};
 				pass->Bind(ctx);
 				pass->ApplyPipeline(ctx);
+
+				// A root signature change invalidates the bound descriptor tables
+				if (ctx.m_root_signature_changed)
+				{
+					last_tex = {};
+					last_sam = {};
+				}
 
 				// Remember nuggets drawn with a custom vertex shader, because the view content hash cannot detect changes to their geometry
 				if (desc.Get<EPipeState::VS>().pShaderBytecode != m_shader.m_code.VS.pShaderBytecode)

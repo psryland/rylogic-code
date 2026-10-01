@@ -1283,7 +1283,7 @@ namespace pr::physics::tests
 			auto const large_ms = large_samples[SampleCount / 2];
 			auto const small_rows = SmallSlotCount * GpuConstraintRowsPerBlock;
 			auto const large_rows = LargeSlotCount * GpuConstraintRowsPerBlock;
-			pr::unittests::TestFramework::out() << std::format(
+			log_stream() << std::format(
 				"  [benchmark] {} constraint rows: {:.3f} ms; {} rows: {:.3f} ms ({:.2f}x time for {:.2f}x rows)\n",
 				small_rows,
 				small_ms,

@@ -1,6 +1,8 @@
 #include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 ConstantBuffer<CBufFrame> g_frame : register(b0);
-ConstantBuffer<CBufNugget> g_nugget : register(b1);
+ConstantBuffer<CBufElement> g_element : register(b1);
+StructuredBuffer<ElementConstants> g_elements : register(t17);
+static const ElementConstants g_nugget = g_elements[g_element.index];
 
 // Deform geometry in world space while preserving the stock forward pixel-input contract.
 PSIn VSMain(VSIn input)

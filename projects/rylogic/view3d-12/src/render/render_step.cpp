@@ -122,20 +122,6 @@ namespace pr::rdr12
 				PR_INFO(PR_DBG_RDR, std::format("This model ({}) has no nuggets, you need to call CreateNugget() on the model first\n", model->m_name));
 				model->m_dbg_flags = SetBits(model->m_dbg_flags, Model::EDbgFlags::WarnedNoRenderNuggets, true);
 			}
-
-			// Check the instance transform is valid
-			auto& o2w = GetO2W(inst);
-			auto flags = GetFlags(inst);
-			if (!IsFinite(o2w) && !AllSet(model->m_dbg_flags, Model::EDbgFlags::WarnedInvalidTransform))
-			{
-				PR_INFO(PR_DBG_RDR, std::format("This model (%s) has an invalid instance transform\n", model->m_name));
-				model->m_dbg_flags = SetBits(model->m_dbg_flags, Model::EDbgFlags::WarnedInvalidTransform, true);
-			}
-			if (!AllSet(flags, EInstFlag::NonAffine) && !IsAffine(o2w) && !AllSet(model->m_dbg_flags, Model::EDbgFlags::WarnedInvalidTransform))
-			{
-				PR_INFO(PR_DBG_RDR, std::format("This model (%s) has a non-affine instance transform\n", model->m_name));
-				model->m_dbg_flags = SetBits(model->m_dbg_flags, Model::EDbgFlags::WarnedInvalidTransform, true);
-			}
 		}
 		#endif
 

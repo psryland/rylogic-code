@@ -67,8 +67,8 @@ pipelines, conservative existing model bounds suppress near-only recollection. I
 skinning, custom vertex/geometry/tessellation stages, and non-affine transforms bypass that optimization.
 No mesh copying or per-frame vertex scan is required.
 
-The forward nugget constants reuse three reserved padding floats without changing their size or
-existing offsets. Rebuild compatible application shaders against the matching headers when deploying
+The far-clip fade parameters occupy three otherwise-padding floats in the forward element constants
+(`ElementConstants`, see `forward_cbuf.hlsli`). Rebuild application shaders against the matching headers when deploying
 the updated Native/Gfx package pair.
 
 ## Validation

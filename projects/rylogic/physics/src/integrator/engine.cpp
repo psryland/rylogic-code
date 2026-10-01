@@ -2038,4 +2038,12 @@ namespace pr::physics
 	{
 		delete cache;
 	}
+	void Deleter<MaterialMap>::operator()(MaterialMap* map) const
+	{
+		delete map;
+	}
+	void Deleter<Gpu>::operator()(Gpu* gpu) const
+	{
+		delete gpu;
+	}
 }

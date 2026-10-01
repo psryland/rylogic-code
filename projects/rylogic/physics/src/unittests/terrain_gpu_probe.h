@@ -23,7 +23,7 @@ namespace pr::physics::tests::terrain_probe
 	}
 
 	// Reject unsupported hardware rather than silently executing a reduced-precision landscape.
-	inline void RequireBaselineDevice(Gpu& gpu)
+	inline void RequireBaselineDevice(Gpu& gpu, std::ostream& out)
 	{
 		auto options = D3D12_FEATURE_DATA_D3D12_OPTIONS{};
 		auto options1 = D3D12_FEATURE_DATA_D3D12_OPTIONS1{};
@@ -35,7 +35,7 @@ namespace pr::physics::tests::terrain_probe
 			throw std::runtime_error("Terrain baseline requires SM6.0, FP64 and Int64ShaderOps");
 
 		// Pipeline creation also validates the DXIL double-precision extension requirements.
-		std::printf("Terrain device: FP64=%d Int64=%d SM=%x\n", options.DoublePrecisionFloatShaderOps, options1.Int64ShaderOps, model.HighestShaderModel);
+		out << std::format("Terrain device: FP64={} Int64={} SM={:x}\n", options.DoublePrecisionFloatShaderOps, options1.Int64ShaderOps, static_cast<unsigned int>(model.HighestShaderModel));
 
 		// Identify the actual D3D12 adapter rather than assuming the machine's primary display adapter.
 		auto factory = D3DPtr<IDXGIFactory4>{};
@@ -44,7 +44,7 @@ namespace pr::physics::tests::terrain_probe
 		Check(factory->EnumAdapterByLuid(gpu->GetAdapterLuid(), __uuidof(IDXGIAdapter1), (void**)adapter.address_of()));
 		auto description = DXGI_ADAPTER_DESC1{};
 		Check(adapter->GetDesc1(&description));
-		std::printf("Terrain adapter: %ls (vendor %04x device %04x)\n", description.Description, description.VendorId, description.DeviceId);
+		out << std::format("Terrain adapter: {} (vendor {:04x} device {:04x})\n", pr::Narrow(description.Description), description.VendorId, description.DeviceId);
 
 		// Identify the loaded compiler, rather than a potentially different dxc.exe found on PATH.
 		auto compiler = D3DPtr<IDxcVersionInfo>{};
@@ -55,8 +55,7 @@ namespace pr::physics::tests::terrain_probe
 		if (!module)
 			throw std::runtime_error("Loaded DXC module not found");
 
-		std::printf("Terrain DXC: %u.%u module=%ls\n", major, minor, win32::ModuleFileName(module).c_str());
-		std::fflush(stdout);
+		out << std::format("Terrain DXC: {}.{} module={}\n", major, minor, pr::Narrow(win32::ModuleFileName(module).wstring())) << std::flush;
 	}
 
 	// Execute one bounded synchronous proof batch; resources live until the shared job has completed.

@@ -1220,7 +1220,7 @@ namespace pr::physics::tests
 			auto const chain_end = std::chrono::steady_clock::now();
 			auto const shallow_ms = std::chrono::duration<double, std::milli>(shallow_end - shallow_start).count();
 			auto const chain_ms = std::chrono::duration<double, std::milli>(chain_end - shallow_end).count();
-			std::cout << "[articulation-midpoint] shallow-24x5=" << shallow_ms << "ms, chain-100=" << chain_ms << "ms\n";
+			log_stream() << std::format("[articulation-midpoint] shallow-24x5={}ms, chain-100={}ms\n", shallow_ms, chain_ms);
 			PR_EXPECT(shallow_result.AllSucceeded());
 			PR_EXPECT(chain_result.AllSucceeded());
 			PR_EXPECT(shallow_ms < 15000.0);

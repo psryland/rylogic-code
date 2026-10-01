@@ -29,6 +29,15 @@ namespace pr::rdr12
 
 		using GfxCmdList = ::pr::compute::GfxCmdList;
 
+		// Per draw list element data used to choose the views that need rendering
+		struct ElementInfo
+		{
+			v4 m_lower;      // World space lower corner of the element bounds. Valid when 'm_cull' is true
+			v4 m_upper;      // World space upper corner of the element bounds. Valid when 'm_cull' is true
+			uint64_t m_hash; // Hash of everything that can change the depth the element writes into a view
+			bool m_cull;     // True if the bounds are known, so views that cannot see the element can skip it
+		};
+
 	private:
 
 		shaders::ShadowMap m_shader;      // The shader for this render step
@@ -74,6 +83,6 @@ namespace pr::rdr12
 		void CreateAtlas(ShadowSettings const& settings);
 
 		// Find the views that each element can see, and the views whose content has changed since they were last rendered
-		void FindDirtyViews(std::span<BBox const> element_bounds);
+		void FindDirtyViews(std::span<ElementInfo const> elements);
 	};
 }

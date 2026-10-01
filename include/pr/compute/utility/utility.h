@@ -30,7 +30,7 @@ namespace pr::compute
 	[[nodiscard]] inline T* New(Args&&... args)
 	{
 		Allocator<T> alex;
-		auto ptr = alloc_traits<T>::allocate(alex, sizeof(T));
+		auto ptr = alloc_traits<T>::allocate(alex, 1);
 		alloc_traits<T>::construct(alex, ptr, std::forward<Args>(args)...);
 		return ptr;
 	}

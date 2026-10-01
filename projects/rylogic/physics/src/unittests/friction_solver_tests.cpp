@@ -234,7 +234,7 @@ namespace pr::physics::tests
 				PR_EXPECT(FEqlAbsolute(body.O2W().pos, contact_o2w.pos, 1.0e-6f));
 				auto const velocity = body.VelocityWS();
 				auto const friction_limit = accepted_normal * 0.3f / (1.000001f - 0.3f);
-				printf("Mixed preload: initial vn=%g, expected accepted Jn=%g, final vx=%g, final vz=%g, angular speed=%g, local point delta=%g\n",
+				log_stream() << std::format("Mixed preload: initial vn={:g}, expected accepted Jn={:g}, final vx={:g}, final vz={:g}, angular speed={:g}, local point delta={:g}\n",
 					normal_velocity, accepted_normal, velocity.lin.x, velocity.lin.z, Length(velocity.ang), Length(replay_contact.Point() - seed_contact.Point()));
 				PR_EXPECT(FEqlAbsolute(velocity.lin.z, normal_velocity + accepted_normal, 2.0e-5f));
 				PR_EXPECT(FEqlAbsolute(velocity.lin.x, 1 - friction_limit, 2.0e-5f));
@@ -294,7 +294,7 @@ namespace pr::physics::tests
 			}
 
 			// Zero-feedback hold isolates the solver: the old normal-only warm-start path slides downhill and spins despite sufficient traction.
-			printf("Exact hold: late speed=%g, late slip=%g, uphill displacement=%g\n", max_late_speed, max_late_slip, Dot3(body.O2W().pos - start, uphill));
+			log_stream() << std::format("Exact hold: late speed={:g}, late slip={:g}, uphill displacement={:g}\n", max_late_speed, max_late_slip, Dot3(body.O2W().pos - start, uphill));
 			PR_EXPECT(max_late_speed < 0.05f);
 			PR_EXPECT(max_late_slip < 0.05f);
 			PR_EXPECT(Abs(Dot3(body.O2W().pos - start, uphill)) < 0.05f);

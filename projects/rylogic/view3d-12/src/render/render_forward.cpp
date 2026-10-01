@@ -243,6 +243,12 @@ namespace pr::rdr12
 		dl_boundaries boundaries;
 		SortIfNeeded(&boundaries);
 
+		// Upload the constants for every element once, in drawlist order. Each draw selects its entry by drawlist position.
+		{
+			auto drawlist = m_drawlist.lock();
+			m_elements = shaders::Forward::UploadElements(m_upload_buffer, scn(), CameraTransforms(scn().m_cam), std::span{ *drawlist });
+		}
+
 		// Bind the descriptor heaps
 		auto des_heaps = { wnd().m_heap_view.get(), wnd().m_heap_samp.get() };
 		m_cmd_list.SetDescriptorHeaps({ des_heaps.begin(), des_heaps.size() });
@@ -288,7 +294,7 @@ namespace pr::rdr12
 			auto drawlist = m_drawlist.lock();
 			auto opaque_end = kbuf ? boundaries[ESortGroup::AlphaBack] : s_cast<int>(drawlist->size());
 			auto pix_opaque = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF7EB8E5, "View3D::Opaque");
-			DrawNuggets(frame, m_cmd_list, pipe_state, std::span{ *drawlist }.subspan(0, s_cast<size_t>(opaque_end)), false);
+			DrawNuggets(frame, m_cmd_list, pipe_state, std::span{ *drawlist }.subspan(0, s_cast<size_t>(opaque_end)), 0, false);
 		}
 
 		// Render the alpha nuggets
@@ -316,10 +322,10 @@ namespace pr::rdr12
 			
 			// Recollect only the opaque fragments excluded from their depth-writing pass.
 			if (fade_enabled)
-				DrawNuggets(frame, m_alp_list, m_alpha_pipe_state, std::span{ *drawlist }.subspan(0, s_cast<size_t>(alpha_start)), true);
+				DrawNuggets(frame, m_alp_list, m_alpha_pipe_state, std::span{ *drawlist }.subspan(0, s_cast<size_t>(alpha_start)), 0, true);
 
 			// Use the alpha collect shader and disable depth writes for the alpha pass
-			DrawNuggets(frame, m_alp_list, m_alpha_pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(alpha_start), s_cast<size_t>(alpha_end - alpha_start)), true);
+			DrawNuggets(frame, m_alp_list, m_alpha_pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(alpha_start), s_cast<size_t>(alpha_end - alpha_start)), alpha_start, true);
 
 			BarrierBatch bb_end(m_alp_list);
 			bb_end.Transition(frame.bb_main().m_depth_stencil.get(), D3D12_RESOURCE_STATE_DEPTH_WRITE);
@@ -347,7 +353,7 @@ namespace pr::rdr12
 				frame.m_composite.RSSetViewports({ &vp, 1 });
 				frame.m_composite.RSSetScissorRects(vp.m_clip);
 				frame.m_composite.OMSetRenderTargets({ &frame.bb_post().m_rtv, 1 }, FALSE, nullptr);
-				DrawNuggets(frame, frame.m_composite, m_post_alpha_pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(post_alpha_start)), false);
+				DrawNuggets(frame, frame.m_composite, m_post_alpha_pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(post_alpha_start)), post_alpha_start, false);
 			}
 		}
 
@@ -364,6 +370,7 @@ namespace pr::rdr12
 
 		// Set shader constants for the frame
 		m_shader.SetupFrame(cmd_list.get(), m_upload_buffer, scn());
+		shaders::Forward::SetupElements(cmd_list.get(), m_elements);
 
 		// Add the shadow atlas. It is only read for lights with shadow views, so it is not needed when there are none.
 		if (auto* smap_step = scn().FindRStep<RenderSmap>(); smap_step != nullptr && !smap_step->Views().empty())
@@ -397,7 +404,7 @@ namespace pr::rdr12
 	}
 
 	// Add the nuggets in the draw list to 'cmd_list' for rendering.
-	void RenderForward::DrawNuggets(Frame& frame, GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist, bool alpha_pass)
+	void RenderForward::DrawNuggets(Frame& frame, GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, 	std::span<DrawListElement const> drawlist, int first_index, bool alpha_pass)
 	{
 		// Keep camera inversion and default projection composition outside the per-nugget loop.
 		auto const camera = CameraTransforms(scn().m_cam);
@@ -464,6 +471,9 @@ namespace pr::rdr12
 
 			if (!frame_resources_bound)
 				bind_frame_resources();
+
+			// Select this element's entry in the uploaded element constants table.
+			shaders::Forward::SetupElement(cmd_list.get(), first_index + s_cast<int>(&dle - drawlist.data()));
 
 			auto ctx = MaterialPassContext{
 				.m_step_id = m_step_id,

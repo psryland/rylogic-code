@@ -192,6 +192,7 @@
 #include "pr/view3d-12/lighting/light.h"
 #include "pr/view3d-12/lighting/shadow_view.h"
 #include "pr/view3d-12/model/animator.h"
+#include "pr/view3d-12/utility/normal_transform.h"
 #include "pr/win32/dummy_window.h"
 #include "pr/win32/stackdump.h"
 #include "pr/win32/win32.h"

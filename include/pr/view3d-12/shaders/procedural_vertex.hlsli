@@ -8,17 +8,19 @@
 #include "pr/hlsl/camera.hlsli"
 
 // Contract version implemented by the public ShaderOptions descriptor.
-#define VIEW3D_PROCEDURAL_VERTEX_VERSION 2
+#define VIEW3D_PROCEDURAL_VERTEX_VERSION 4
 
 // Renderer-owned and caller-owned constants occupy these fixed stage-local registers.
 #define VIEW3D_FORWARD_FRAME_REGISTER b0
-#define VIEW3D_FORWARD_NUGGET_REGISTER b1
+#define VIEW3D_FORWARD_ELEMENT_INDEX_REGISTER b1
+#define VIEW3D_FORWARD_ELEMENTS_REGISTER t17
 #define VIEW3D_PROCEDURAL_FORWARD_CONSTANTS_REGISTER b6
 #define VIEW3D_RAYCAST_NUGGET_REGISTER b1
 #define VIEW3D_PROCEDURAL_RAYCAST_CONSTANTS_REGISTER b2
 #define VIEW3D_SHADOW_DRAW_VIEWS_REGISTER b0
 #define VIEW3D_SHADOW_VIEWS_REGISTER t1
-#define VIEW3D_SHADOW_NUGGET_REGISTER b1
+#define VIEW3D_SHADOW_ELEMENT_INDEX_REGISTER b1
+#define VIEW3D_SHADOW_ELEMENTS_REGISTER t2
 #define VIEW3D_PROCEDURAL_SHADOW_CONSTANTS_REGISTER b2
 
 // The optional caller-owned immutable buffer is a vertex-stage ByteAddressBuffer at this register in every supported render step.
@@ -26,8 +28,16 @@
 // It is bound as a root descriptor, so it has no bounds checking and GetDimensions is undefined: pass sizes/offsets through the constants.
 #define VIEW3D_PROCEDURAL_BUFFER_REGISTER t14
 
-// Stock per-nugget constants shared by Forward and ShadowMap procedural vertex wrappers.
-struct View3DForwardShadowNugget
+// The per-draw index into the step's element constants table. Bind as 'ConstantBuffer<View3DElementIndex>' at the step's element index register.
+// The table is a 'StructuredBuffer' of the step's element type at the step's elements register, with one entry per drawn element.
+// A wrapper typically reads its entry once, e.g. 'static const View3DForwardElement g_nugget = g_elements[g_element.index];'.
+struct View3DElementIndex
+{
+	uint index;
+};
+
+// Stock per-element constants consumed by a procedural Forward vertex wrapper. Bind the table as 'StructuredBuffer<View3DForwardElement>'.
+struct View3DForwardElement
 {
 	int4 flags;
 	row_major float4x4 m2o;
@@ -39,6 +49,16 @@ struct View3DForwardShadowNugget
 	float4 colour_blend;
 	float env_reflectivity;
 	float3 far_clip_fade;
+};
+
+// Stock per-element constants consumed by a procedural ShadowMap vertex wrapper. Bind the table as 'StructuredBuffer<View3DShadowElement>'.
+struct View3DShadowElement
+{
+	int4 flags;
+	row_major float4x4 m2o;
+	row_major float4x4 o2w;
+	row_major float4x4 tex2surf0;
+	float4 tint;
 };
 
 // Stock Forward frame data needed to transform generated world-space positions.
@@ -103,10 +123,10 @@ struct View3DShadowVertexOut
 };
 
 // Transform a generated model-space position through the stock object placement.
-float4 View3DProceduralWorldPosition(float4 ms_vert, View3DForwardShadowNugget nugget)
+float4 View3DProceduralWorldPosition(float4 ms_vert, row_major float4x4 m2o, row_major float4x4 o2w)
 {
 	// Preserve the renderer's model-to-object and object-to-world transform order.
-	return mul(mul(ms_vert, nugget.m2o), nugget.o2w);
+	return mul(mul(ms_vert, m2o), o2w);
 }
 
 // Produce the stock Forward output from caller-generated model-space surface data.
@@ -119,11 +139,11 @@ View3DForwardVertexOut View3DProceduralForwardVertex(
 	float2 tex0,
 	float2 idx0,
 	View3DForwardFrame frame,
-	View3DForwardShadowNugget nugget)
+	View3DForwardElement nugget)
 {
 	// Match the stock Forward vertex-to-pixel semantic and transform contract.
 	View3DForwardVertexOut output = (View3DForwardVertexOut)0;
-	output.ws_vert = View3DProceduralWorldPosition(ms_vert, nugget);
+	output.ws_vert = View3DProceduralWorldPosition(ms_vert, nugget.m2o, nugget.o2w);
 	output.ss_vert = mul(output.ws_vert, frame.w2s);
 	output.ws_norm = mul(ms_norm, nugget.n2w);
 	output.diff = diff * nugget.tint;
@@ -137,7 +157,7 @@ View3DRayCastVertexOut View3DProceduralRayCastVertex(float4 ms_vert, View3DRayCa
 {
 	// Match the stock RayCast model-to-world transform contract.
 	View3DRayCastVertexOut output = (View3DRayCastVertexOut)0;
-	output.ws_vert = mul(mul(ms_vert, nugget.m2o), nugget.o2w);
+	output.ws_vert = View3DProceduralWorldPosition(ms_vert, nugget.m2o, nugget.o2w);
 	return output;
 }
 
@@ -150,12 +170,12 @@ View3DShadowVertexOut View3DProceduralShadowVertex(
 	uint instance_id,
 	View3DShadowDrawViews draw,
 	StructuredBuffer<View3DShadowView> views,
-	View3DForwardShadowNugget nugget)
+	View3DShadowElement nugget)
 {
 	// Match the stock shadow view selection, tint, and texture-coordinate contract.
 	View3DShadowVertexOut output = (View3DShadowVertexOut)0;
 	uint view = draw.views[instance_id / 4][instance_id % 4];
-	output.ss_vert = mul(View3DProceduralWorldPosition(ms_vert, nugget), views[view].w2s);
+	output.ss_vert = mul(View3DProceduralWorldPosition(ms_vert, nugget.m2o, nugget.o2w), views[view].w2s);
 	output.diff = diff * nugget.tint;
 	output.tex0 = mul(float4(tex0, 0, 1), nugget.tex2surf0).xy;
 	output.viewport = view - draw.info.x;

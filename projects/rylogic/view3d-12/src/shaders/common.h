@@ -69,7 +69,7 @@ namespace pr::rdr12
 		{
 			#include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 			static_assert((sizeof(CBufFrame) % 16) == 0);
-			static_assert((sizeof(CBufNugget) % 16) == 0);
+			static_assert((sizeof(ElementConstants) % 16) == 0);
 			static_assert((sizeof(CBufPbrSurface) % 16) == 0);
 			static_assert((sizeof(CBufFade) % 16) == 0);
 			static_assert((sizeof(CBufScreenSpace) % 16) == 0);
@@ -79,7 +79,7 @@ namespace pr::rdr12
 		{
 			#include "view3d-12/src/shaders/hlsl/shadow/shadow_map_cbuf.hlsli"
 			static_assert(sizeof(CBufDrawViews) == 20 * sizeof(uint32_t));
-			static_assert((sizeof(CBufNugget) % 16) == 0);
+			static_assert((sizeof(ElementConstants) % 16) == 0);
 		}
 		namespace ray_cast
 		{
@@ -165,18 +165,22 @@ namespace pr::rdr12
 		cb.flags = iv4{ model_flags, texture_flags, alpha_flags, inst_id };
 	}
 
+	// Set the model-to-object and object-to-world placement of a constants buffer
+	template <typename TCBuf> requires(requires(TCBuf cb) { cb.m2o; cb.o2w; })
+	void SetPlacement(TCBuf& cb, BaseInstance const& inst, Model const* model)
+	{
+		// A missing model has no model-root offset.
+		cb.m2o = model ? model->m_m2root : m4x4::Identity();
+		cb.o2w = GetO2W(inst);
+	}
+
 	// Set the transform properties of a constants buffer
 	template <typename TCBuf> requires(requires(TCBuf cb) { cb.o2w; cb.n2w; })
 	void SetTxfm(TCBuf& cb, BaseInstance const& inst, Model const* model)
 	{
-		m4x4 o2w = GetO2W(inst);
-		m4x4 m2o = model ? model->m_m2root : m4x4::Identity();
-
-		cb.m2o = m2o;
-		cb.o2w = o2w;
-
 		// Transform normals through the complete model placement, including nonuniform scale and shear.
-		cb.n2w = NormalTransform(o2w * m2o);
+		SetPlacement(cb, inst, model);
+		cb.n2w = NormalTransform(cb.o2w * cb.m2o);
 	}
 	// Set placement and projection using the current pass's camera transforms, retaining instance-specific projections.
 	template <typename TCBuf> requires(requires(TCBuf cb) { cb.o2s; cb.o2w; cb.n2w; })
@@ -204,8 +208,8 @@ namespace pr::rdr12
 		return Colour(*colour).rgba;
 	}
 
-	// Set the multiplicative tint and independent surface RGB override of a constants buffer.
-	template <typename TCBuf> requires(requires(TCBuf cb) { cb.tint; cb.colour_blend; })
+	// Set the multiplicative tint, and the independent surface RGB override when the constants buffer has one.
+	template <typename TCBuf> requires(requires(TCBuf cb) { cb.tint; })
 	void SetTint(TCBuf& cb, BaseInstance const& inst, Material const& material)
 	{
 		// Preserve the existing combination of instance and material tint.
@@ -214,7 +218,8 @@ namespace pr::rdr12
 		cb.tint = c.rgba;
 
 		// Missing components preserve the original surface; this changes no material or alpha flags.
-		cb.colour_blend = ColourBlendConstant(inst);
+		if constexpr (requires { cb.colour_blend; })
+			cb.colour_blend = ColourBlendConstant(inst);
 	}
 
 	// Set the texture properties of a constants buffer

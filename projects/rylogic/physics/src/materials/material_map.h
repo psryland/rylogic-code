@@ -77,9 +77,4 @@ namespace pr::physics
 			return m_mats;
 		}
 	};
-
-	inline void Deleter<MaterialMap>::operator()(MaterialMap* p) const
-	{
-		delete p;
-	}
 }
