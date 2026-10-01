@@ -13,9 +13,13 @@ static const int AlphaModeBlend = 2;
 
 // Constant buffers
 ConstantBuffer<CBufFrame> g_frame : register(b0);
-ConstantBuffer<CBufNugget> g_nugget : register(b1);
+ConstantBuffer<CBufElement> g_element : register(b1);
 ConstantBuffer<CBufFade> g_fade: register(b2);
 ConstantBuffer<CBufPbrSurface> g_pbr : register(b4);
+
+// The render step's per-element constants, selected by the draw's element index
+StructuredBuffer<ElementConstants> g_elements : register(t17);
+static const ElementConstants g_nugget = g_elements[g_element.index];
 
 // Textures /w samplers
 Texture2D<float4> g_base_texture :register(t0);

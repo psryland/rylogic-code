@@ -17,12 +17,18 @@ struct CBufDrawViews //:reg(b0)
 	uint4 info;     // x = index of the shadow view bound to viewport 0, yzw = unused
 };
 
-// Constants per render nugget.
-// Only the data needed for depth and alpha cut-out is included, because these constants are built once per element for every shadow view batch.
-struct CBufNugget //:reg(b1)
+// The index of the current draw's entry in the element constants table. Provided as a root constant.
+struct CBufElement //:reg(b1)
+{
+	uint index;
+};
+
+// Constants per drawlist element. The render step uploads one entry per drawlist element as a structured buffer (t2).
+// Only the data needed for depth and alpha cut-out is included.
+struct ElementConstants
 {
 	// Sync with:
-	//   View3DShadowNugget in pr/view3d-12/shaders/procedural_vertex.hlsli
+	//   View3DShadowElement in pr/view3d-12/shaders/procedural_vertex.hlsli
 
 	// x = Model flags - See types.hlsli
 	// y = Texture flags

@@ -16,7 +16,9 @@ namespace las
 #endif
 
 ConstantBuffer<CBufFrame> resource(g_frame, b0);
-ConstantBuffer<CBufNugget> resource(g_nugget, b1);
+ConstantBuffer<CBufElement> resource(g_element, b1);
+StructuredBuffer<ElementConstants> resource(g_elements, t17);
+static const ElementConstants g_nugget = g_elements[g_element.index];
 ConstantBuffer<CBufDistantOcean> resource(g_distant_ocean, b3);
 
 // Environment map cubemap (bound by forward render step when scene env map is set)

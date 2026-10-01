@@ -1,7 +1,9 @@
 #include "procedural_vertex_common.hlsli"
 
 ConstantBuffer<View3DForwardFrame> g_frame : register(VIEW3D_FORWARD_FRAME_REGISTER);
-ConstantBuffer<View3DForwardNugget> g_nugget : register(VIEW3D_FORWARD_NUGGET_REGISTER);
+ConstantBuffer<View3DElementIndex> g_element : register(VIEW3D_FORWARD_ELEMENT_INDEX_REGISTER);
+StructuredBuffer<View3DForwardElement> g_elements : register(VIEW3D_FORWARD_ELEMENTS_REGISTER);
+static const View3DForwardElement g_nugget = g_elements[g_element.index];
 ConstantBuffer<ProceduralConstants> g_procedural : register(VIEW3D_PROCEDURAL_FORWARD_CONSTANTS_REGISTER);
 
 // Emit generated geometry through the public Forward contract.

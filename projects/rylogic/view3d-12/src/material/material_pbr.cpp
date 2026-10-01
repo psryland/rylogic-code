@@ -515,9 +515,8 @@ namespace pr::rdr12
 				BindSampler(ctx, shaders::fwd::ERootParam::PbrNormalSampler, normal_map.m_tex, false);
 				BindTexCoordStreams(ctx, texcoords);
 
-				if (auto* shader = dynamic_cast<shaders::Forward*>(ctx.m_shader); shader != nullptr)
+				if (dynamic_cast<shaders::Forward*>(ctx.m_shader) != nullptr)
 				{
-					shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene, ctx.m_camera, &ctx.m_dle, ctx.m_material);
 					BindPbrConstants(ctx, texcoords);
 					return;
 				}
@@ -531,13 +530,8 @@ namespace pr::rdr12
 				auto const& base_colour = *ctx.m_material.Component<materials::BaseColour>();
 				BindTexture(ctx, shaders::smap::ERootParam::DiffTexture, base_colour.m_tex, true);
 				BindSampler(ctx, shaders::smap::ERootParam::DiffTextureSampler, base_colour.m_tex, true);
-				if (auto* shader = dynamic_cast<shaders::ShadowMap*>(ctx.m_shader); shader != nullptr)
-				{
-					shader->SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, &ctx.m_dle, ctx.m_material);
-					return;
-				}
-
-				throw std::runtime_error("PBR shadow-map material pass requires a shadow-map shader");
+				if (dynamic_cast<shaders::ShadowMap*>(ctx.m_shader) == nullptr)
+					throw std::runtime_error("PBR shadow-map material pass requires a shadow-map shader");
 			}
 
 			// Bind resources and constants for the PBR ray-cast pass.

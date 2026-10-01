@@ -17,7 +17,7 @@ namespace pr::rdr12::shaders
 	struct EReg
 	{
 		inline static constexpr auto CBufFrame = ECBufReg::b0;
-		inline static constexpr auto CBufNugget = ECBufReg::b1;
+		inline static constexpr auto ElementIndex = ECBufReg::b1;
 		inline static constexpr auto CBufFade = ECBufReg::b2;
 		inline static constexpr auto CBufScreenSpace = ECBufReg::b3;
 		inline static constexpr auto CBufPbrSurface = ECBufReg::b4;
@@ -41,6 +41,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto ProceduralBuffer = ESRVReg::t14;
 		inline static constexpr auto Lights = ESRVReg::t15;
 		inline static constexpr auto ShadowViews = ESRVReg::t16;
+		inline static constexpr auto Elements = ESRVReg::t17;
 		inline static constexpr auto AlphaColour = EUAVReg::u0;
 		inline static constexpr auto AlphaDepth = EUAVReg::u1;
 		inline static constexpr auto AlphaRtAttrs = EUAVReg::u2;
@@ -70,10 +71,10 @@ namespace pr::rdr12::shaders
 			.CS = shader_code::none,
 		};
 		
-		// Create the root signature
+		// Create the root signature. The element index is a root constant because it changes for every draw.
 		m_signature = RootSig(ERootSigFlags::GraphicsOnly)
 			.CBuf(EReg::CBufFrame)
-			.CBuf(EReg::CBufNugget)
+			.U32(EReg::ElementIndex, sizeof(CBufElement) / sizeof(uint32_t))
 			.CBuf(EReg::CBufFade)
 			.CBuf(EReg::CBufScreenSpace)
 			.CBuf(EReg::CBufPbrSurface)
@@ -107,6 +108,7 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::Lights, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::ShadowViews, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::ProceduralBuffer, D3D12_SHADER_VISIBILITY_VERTEX)
+			.SRV(EReg::Elements)
 			.Create(rdr.d3d(), "ForwardSig");
 	}
 
@@ -132,34 +134,58 @@ namespace pr::rdr12::shaders
 			: UploadShadowViews(upload, {}, ShadowSettings{});
 		cmd_list->SetGraphicsRootShaderResourceView((UINT)ERootParam::ShadowViews, shadow_views_address);
 	}
-	void Forward::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const& camera, DrawListElement const* dle)
+	// Upload the per-element constants table for a drawlist
+	D3D12_GPU_VIRTUAL_ADDRESS Forward::UploadElements(GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const& camera, std::span<DrawListElement const> drawlist)
 	{
-		SetupElement(cmd_list, upload, scene, camera, dle, dle->m_nugget->mat());
-	}
-	void Forward::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const& camera, DrawListElement const* dle, Material const& material)
-	{
-		// Set the per-element constants
-		auto& inst = *dle->m_instance;
-		auto& nug = *dle->m_nugget;
+		// Allocate at least one entry so the table always has a valid address, even for an empty drawlist
+		auto count = std::max<int>(isize(drawlist), 1);
+		auto alex = upload.Alloc(count * sizeof(ElementConstants), alignof(ElementConstants));
+		auto* elements = alex.ptr<ElementConstants>();
+		auto const env_mapped = scene.m_global_envmap != nullptr;
 
-		CBufNugget cb1 = {};
-		SetFlags(cb1, inst, material, nug, scene.m_global_envmap != nullptr);
-		SetTxfm(cb1, inst, nug.m_model, camera);
-		SetTint(cb1, inst, material);
-		SetTex2Surf(cb1, inst, material);
-		SetReflectivity(cb1, inst, material);
+		// The far clip fade range is the same for all elements. Only the source mode depends on the element's sort group.
+		auto const fade = scene.FarClipFadeProperties();
+		auto const fade_range = fade.m_enabled ? fade.DepthRange(scene.m_cam.ClipPlanes(false).y) : v2::Zero();
 
-		// Keep background and post-alpha overlays outside the scene's world-opacity policy.
-		auto fade = scene.FarClipFadeProperties();
-		auto group = dle->m_sort_key.Group();
-		if (fade.m_enabled && FarClipFadeApplies(group))
+		// Fill one entry per element, using the same material selection as the material passes
+		for (auto const& dle : drawlist)
 		{
-			auto range = fade.DepthRange(scene.m_cam.ClipPlanes(false).y);
-			cb1.far_clip_fade = v3{range.x, range.y, group < ESortGroup::AlphaBack ? 1.0f : 2.0f};
+			auto& inst = *dle.m_instance;
+			auto& nug = *dle.m_nugget;
+			auto material_override = FindMaterial(inst);
+			auto const& material = material_override != nullptr ? *material_override.get() : nug.mat();
+
+			// Build the entry in cached memory, then copy it in one write. The upload heap is write-combined, so the setters'
+			// read-modify-write accesses would be uncached reads if made directly on the table.
+			ElementConstants cb = {};
+			SetFlags(cb, inst, material, nug, env_mapped);
+			SetTxfm(cb, inst, nug.m_model, camera);
+			SetTint(cb, inst, material);
+			SetTex2Surf(cb, inst, material);
+			SetReflectivity(cb, inst, material);
+
+			// Keep background and post-alpha overlays outside the scene's world-opacity policy.
+			auto group = dle.m_sort_key.Group();
+			if (fade.m_enabled && FarClipFadeApplies(group))
+				cb.far_clip_fade = v3{ fade_range.x, fade_range.y, group < ESortGroup::AlphaBack ? 1.0f : 2.0f };
+
+			// Write the complete entry to the table
+			*elements++ = cb;
 		}
 
-		// Upload the common forward constants without changing their existing register or layout.
-		auto gpu_address = upload.Add(cb1, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);
-		cmd_list->SetGraphicsRootConstantBufferView((UINT)ERootParam::CBufNugget, gpu_address);
+		// Return the GPU address of the table
+		return alex.m_res->GetGPUVirtualAddress() + alex.m_ofs;
+	}
+
+	// Bind a table of element constants
+	void Forward::SetupElements(ID3D12GraphicsCommandList* cmd_list, D3D12_GPU_VIRTUAL_ADDRESS elements)
+	{
+		cmd_list->SetGraphicsRootShaderResourceView((UINT)ERootParam::Elements, elements);
+	}
+
+	// Select the element table entry for the next draw
+	void Forward::SetupElement(ID3D12GraphicsCommandList* cmd_list, int index)
+	{
+		cmd_list->SetGraphicsRoot32BitConstant((UINT)ERootParam::ElementIndex, s_cast<UINT>(index), 0);
 	}
 }

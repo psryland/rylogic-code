@@ -8,17 +8,19 @@
 #include "pr/hlsl/camera.hlsli"
 
 // Contract version implemented by the public ShaderOptions descriptor.
-#define VIEW3D_PROCEDURAL_VERTEX_VERSION 3
+#define VIEW3D_PROCEDURAL_VERTEX_VERSION 4
 
 // Renderer-owned and caller-owned constants occupy these fixed stage-local registers.
 #define VIEW3D_FORWARD_FRAME_REGISTER b0
-#define VIEW3D_FORWARD_NUGGET_REGISTER b1
+#define VIEW3D_FORWARD_ELEMENT_INDEX_REGISTER b1
+#define VIEW3D_FORWARD_ELEMENTS_REGISTER t17
 #define VIEW3D_PROCEDURAL_FORWARD_CONSTANTS_REGISTER b6
 #define VIEW3D_RAYCAST_NUGGET_REGISTER b1
 #define VIEW3D_PROCEDURAL_RAYCAST_CONSTANTS_REGISTER b2
 #define VIEW3D_SHADOW_DRAW_VIEWS_REGISTER b0
 #define VIEW3D_SHADOW_VIEWS_REGISTER t1
-#define VIEW3D_SHADOW_NUGGET_REGISTER b1
+#define VIEW3D_SHADOW_ELEMENT_INDEX_REGISTER b1
+#define VIEW3D_SHADOW_ELEMENTS_REGISTER t2
 #define VIEW3D_PROCEDURAL_SHADOW_CONSTANTS_REGISTER b2
 
 // The optional caller-owned immutable buffer is a vertex-stage ByteAddressBuffer at this register in every supported render step.
@@ -26,8 +28,16 @@
 // It is bound as a root descriptor, so it has no bounds checking and GetDimensions is undefined: pass sizes/offsets through the constants.
 #define VIEW3D_PROCEDURAL_BUFFER_REGISTER t14
 
-// Stock per-nugget constants consumed by a procedural Forward vertex wrapper.
-struct View3DForwardNugget
+// The per-draw index into the step's element constants table. Bind as 'ConstantBuffer<View3DElementIndex>' at the step's element index register.
+// The table is a 'StructuredBuffer' of the step's element type at the step's elements register, with one entry per drawn element.
+// A wrapper typically reads its entry once, e.g. 'static const View3DForwardElement g_nugget = g_elements[g_element.index];'.
+struct View3DElementIndex
+{
+	uint index;
+};
+
+// Stock per-element constants consumed by a procedural Forward vertex wrapper. Bind the table as 'StructuredBuffer<View3DForwardElement>'.
+struct View3DForwardElement
 {
 	int4 flags;
 	row_major float4x4 m2o;
@@ -41,8 +51,8 @@ struct View3DForwardNugget
 	float3 far_clip_fade;
 };
 
-// Stock per-nugget constants consumed by a procedural ShadowMap vertex wrapper.
-struct View3DShadowNugget
+// Stock per-element constants consumed by a procedural ShadowMap vertex wrapper. Bind the table as 'StructuredBuffer<View3DShadowElement>'.
+struct View3DShadowElement
 {
 	int4 flags;
 	row_major float4x4 m2o;
@@ -129,7 +139,7 @@ View3DForwardVertexOut View3DProceduralForwardVertex(
 	float2 tex0,
 	float2 idx0,
 	View3DForwardFrame frame,
-	View3DForwardNugget nugget)
+	View3DForwardElement nugget)
 {
 	// Match the stock Forward vertex-to-pixel semantic and transform contract.
 	View3DForwardVertexOut output = (View3DForwardVertexOut)0;
@@ -160,7 +170,7 @@ View3DShadowVertexOut View3DProceduralShadowVertex(
 	uint instance_id,
 	View3DShadowDrawViews draw,
 	StructuredBuffer<View3DShadowView> views,
-	View3DShadowNugget nugget)
+	View3DShadowElement nugget)
 {
 	// Match the stock shadow view selection, tint, and texture-coordinate contract.
 	View3DShadowVertexOut output = (View3DShadowVertexOut)0;

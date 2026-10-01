@@ -385,10 +385,15 @@ namespace pr::rdr12
 			m_cmd_list.ClearDepthStencilView(atlas.m_dsv.m_cpu, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, clear_rects);
 		}
 
-		// Upload the transforms of the views being rendered
+		// Upload the transforms of the views being rendered, and the constants of every element that some view can see
 		m_cmd_list.SetGraphicsRootSignature(m_shader.m_signature.get());
 		auto views_gpu = UploadShadowViews(m_upload_buffer, { views.data(), views.size() }, m_settings);
-		m_shader.SetupFrame(m_cmd_list.get(), views_gpu);
+		{
+			auto drawlist = m_drawlist.lock();
+			assert(m_element_views.size() == drawlist->size() && "Draw list changed between Prepare and Execute");
+			auto elements_gpu = shaders::ShadowMap::UploadElements(m_upload_buffer, std::span{ *drawlist }, std::span{ m_element_views.data(), m_element_views.size() });
+			m_shader.SetupFrame(m_cmd_list.get(), views_gpu, elements_gpu);
+		}
 
 		// Per-element projections use the scene camera
 		auto const camera = CameraTransforms(scn().m_cam);
@@ -469,7 +474,8 @@ namespace pr::rdr12
 				m_cmd_list.IASetVertexBuffers(0U, { vb_view, 1 });
 				m_cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
 
-				// Let the material bind per-draw resources, constants, and pipeline overrides
+				// Select this element's entry in the uploaded element constants table, then let the material bind per-draw resources and pipeline overrides
+				shaders::ShadowMap::SetupElement(m_cmd_list.get(), e);
 				auto ctx = MaterialPassContext{
 					.m_step_id = m_step_id,
 					.m_wnd = wnd(),

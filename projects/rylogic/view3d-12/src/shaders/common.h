@@ -69,7 +69,7 @@ namespace pr::rdr12
 		{
 			#include "view3d-12/src/shaders/hlsl/forward/forward_cbuf.hlsli"
 			static_assert((sizeof(CBufFrame) % 16) == 0);
-			static_assert((sizeof(CBufNugget) % 16) == 0);
+			static_assert((sizeof(ElementConstants) % 16) == 0);
 			static_assert((sizeof(CBufPbrSurface) % 16) == 0);
 			static_assert((sizeof(CBufFade) % 16) == 0);
 			static_assert((sizeof(CBufScreenSpace) % 16) == 0);
@@ -79,7 +79,7 @@ namespace pr::rdr12
 		{
 			#include "view3d-12/src/shaders/hlsl/shadow/shadow_map_cbuf.hlsli"
 			static_assert(sizeof(CBufDrawViews) == 20 * sizeof(uint32_t));
-			static_assert((sizeof(CBufNugget) % 16) == 0);
+			static_assert((sizeof(ElementConstants) % 16) == 0);
 		}
 		namespace ray_cast
 		{
