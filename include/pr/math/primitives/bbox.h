@@ -278,7 +278,29 @@ namespace pr::math
 
 			// The transformed centre is the transformed point. The transformed half-extent on each world axis is the sum of the
 			// absolute contributions of each box axis, which gives the tightest axis-aligned box around the rotated box.
-			// Written with explicit components because the generic vector helpers are slow in unoptimised builds.
+			// Both are sums of matrix columns scaled by broadcast components, so no transpose or dot products are needed.
+			if constexpr (Vec4::IntrinsicF)
+			{
+				// Clearing the sign bit gives the absolute value of each column. 'w' of the radius stays zero because the columns' 'w' is zero.
+				auto x = _mm_load_ps(m.x.arr);
+				auto y = _mm_load_ps(m.y.arr);
+				auto z = _mm_load_ps(m.z.arr);
+				auto w = _mm_load_ps(m.w.arr);
+				auto sign = _mm_set_ps1(-0.0f);
+				auto centre = _mm_add_ps(
+					_mm_add_ps(_mm_mul_ps(_mm_set_ps1(rhs.m_centre.x), x), _mm_mul_ps(_mm_set_ps1(rhs.m_centre.y), y)),
+					_mm_add_ps(_mm_mul_ps(_mm_set_ps1(rhs.m_centre.z), z), w));
+				auto radius = _mm_add_ps(
+					_mm_add_ps(_mm_mul_ps(_mm_set_ps1(rhs.m_radius.x), _mm_andnot_ps(sign, x)), _mm_mul_ps(_mm_set_ps1(rhs.m_radius.y), _mm_andnot_ps(sign, y))),
+					_mm_mul_ps(_mm_set_ps1(rhs.m_radius.z), _mm_andnot_ps(sign, z)));
+
+				BoundingBox bb;
+				_mm_store_ps(bb.m_centre.arr, centre);
+				_mm_store_ps(bb.m_radius.arr, radius);
+				return bb;
+			}
+
+			// Explicit components because the generic vector helpers are slow in unoptimised builds.
 			auto const& c = rhs.m_centre;
 			auto const& r = rhs.m_radius;
 			BoundingBox bb;
@@ -300,13 +322,44 @@ namespace pr::math
 		{
 			pr_assert("Transforming an invalid bounding box" && rhs.valid());
 
-			BoundingBox bb(Origin<Vec4>(), math::Zero<Vec4>());
-			auto mat = Transpose(m);
-			for (int i = 0; i != 3; ++i)
+			// Same column-sum form as the Mat4x4 overload, without a translation. The result is a point, so 'w' of the centre is one.
+			if constexpr (Vec4::IntrinsicF)
 			{
-				bb.m_centre[i] += Dot(    mat[i] , rhs.m_centre.xyz);
-				bb.m_radius[i] += Dot(Abs(mat[i]), rhs.m_radius.xyz);
+				// Clear the columns' 'w' padding so it does not contribute to the result. Clearing the sign bit gives the absolute value of each column.
+				auto xyz = _mm_castsi128_ps(_mm_set_epi32(0, -1, -1, -1));
+				auto x = _mm_and_ps(_mm_load_ps(m.x4.arr), xyz);
+				auto y = _mm_and_ps(_mm_load_ps(m.y4.arr), xyz);
+				auto z = _mm_and_ps(_mm_load_ps(m.z4.arr), xyz);
+				auto sign = _mm_set_ps1(-0.0f);
+				auto centre = _mm_add_ps(
+					_mm_add_ps(_mm_mul_ps(_mm_set_ps1(rhs.m_centre.x), x), _mm_mul_ps(_mm_set_ps1(rhs.m_centre.y), y)),
+					_mm_add_ps(_mm_mul_ps(_mm_set_ps1(rhs.m_centre.z), z), _mm_set_ps(1, 0, 0, 0)));
+				auto radius = _mm_add_ps(
+					_mm_add_ps(_mm_mul_ps(_mm_set_ps1(rhs.m_radius.x), _mm_andnot_ps(sign, x)), _mm_mul_ps(_mm_set_ps1(rhs.m_radius.y), _mm_andnot_ps(sign, y))),
+					_mm_mul_ps(_mm_set_ps1(rhs.m_radius.z), _mm_andnot_ps(sign, z)));
+
+				BoundingBox bb;
+				_mm_store_ps(bb.m_centre.arr, centre);
+				_mm_store_ps(bb.m_radius.arr, radius);
+				return bb;
 			}
+
+			// Explicit components because the generic vector helpers are slow in unoptimised builds.
+			auto const& c = rhs.m_centre;
+			auto const& r = rhs.m_radius;
+			BoundingBox bb;
+			bb.m_centre = Vec4{
+				m.x.x * c.x + m.y.x * c.y + m.z.x * c.z,
+				m.x.y * c.x + m.y.y * c.y + m.z.y * c.z,
+				m.x.z * c.x + m.y.z * c.y + m.z.z * c.z,
+				S(1),
+			};
+			bb.m_radius = Vec4{
+				std::abs(m.x.x) * r.x + std::abs(m.y.x) * r.y + std::abs(m.z.x) * r.z,
+				std::abs(m.x.y) * r.x + std::abs(m.y.y) * r.y + std::abs(m.z.y) * r.z,
+				std::abs(m.x.z) * r.x + std::abs(m.y.z) * r.y + std::abs(m.z.z) * r.z,
+				S(0),
+			};
 			return bb;
 		}
 		#pragma endregion
