@@ -504,7 +504,9 @@ namespace pr::coroutine
 		Task(Task const& rhs)
 			: m_promise(rhs.m_promise)
 		{
-			m_promise->add_ref();
+			// A moved-from task has no promise to share
+			if (m_promise)
+				m_promise->add_ref();
 		}
 		Task& operator =(Task&& rhs) noexcept
 		{
@@ -514,9 +516,9 @@ namespace pr::coroutine
 		}
 		Task& operator =(Task const& rhs)
 		{
-			if (this == &rhs) return *this;
-			m_promise = rhs.m_promise;
-			m_promise->add_ref();
+			// Take a reference to the new promise first, then release the old one when 'copy' is destroyed
+			Task copy(rhs);
+			std::swap(m_promise, copy.m_promise);
 			return *this;
 		}
 		~Task()
