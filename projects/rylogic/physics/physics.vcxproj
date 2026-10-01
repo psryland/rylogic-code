@@ -315,8 +315,12 @@
   <!--
   Targets
   -->
-  <Target Name="BuildLandscapeLibrary" AfterTargets="Lib" Condition="Exists('$(IntDir)baseline_surface.obj')">
-    <Exec Command="lib.exe /nologo /out:&quot;$(OutDir)physics-landscape.lib&quot; &quot;$(IntDir)baseline_surface.obj&quot; &quot;$(IntDir)height_bounds.obj&quot; &quot;$(IntDir)water_field.obj&quot; &quot;$(IntDir)bathymetry.obj&quot; &quot;$(IntDir)wave_spectrum.obj&quot;" />
+  <!-- Incremental so an unchanged build does not rewrite the library; lib.exe embeds timestamps, so a needless rewrite looks like a content change to anything that consumes the library. -->
+  <ItemGroup>
+    <LandscapeLibraryObj Include="$(IntDir)baseline_surface.obj;$(IntDir)height_bounds.obj;$(IntDir)water_field.obj;$(IntDir)bathymetry.obj;$(IntDir)wave_spectrum.obj" />
+  </ItemGroup>
+  <Target Name="BuildLandscapeLibrary" AfterTargets="Lib" Condition="Exists('$(IntDir)baseline_surface.obj')" Inputs="@(LandscapeLibraryObj)" Outputs="$(OutDir)physics-landscape.lib">
+    <Exec Command="lib.exe /nologo /out:&quot;$(OutDir)physics-landscape.lib&quot; @(LandscapeLibraryObj->'&quot;%(Identity)&quot;', ' ')" />
   </Target>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Import Project="$(TargetsPath)WinPixEventRuntime.targets" />

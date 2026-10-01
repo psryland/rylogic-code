@@ -934,6 +934,10 @@ public class AllNative : Group
 		// A complete aggregate build must regenerate every included project's runtime declaration.
 		NativeRuntimePackage.ClearManifests(Workspace, m_platforms, m_configs);
 		base.Build();
+
+		// Publish the local Rylogic.Native development package once, after every native project has built. See docs/local-dev-packages.md.
+		if (BuildOptions.GeneratePackageOnBuild && m_platforms.Contains("x64", StringComparer.OrdinalIgnoreCase) && m_configs.Contains("Debug", StringComparer.OrdinalIgnoreCase))
+			Tools.MSBuild(RylogicSln, [@"Rylogic\Rylogic_Native_Dev"], ["x64"], ["Debug"]);
 	}
 	public override void Deploy()
 	{

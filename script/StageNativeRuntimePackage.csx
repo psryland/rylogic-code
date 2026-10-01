@@ -17,6 +17,9 @@ void Main(IList<string> args)
 	string? output_dir = null;
 	var require_all_projects = false;
 	var skip_if_incomplete = false;
+	string? publish_stamp = null;
+	string? nuget_cache = null;
+	var extra_inputs = new List<string>();
 
 	for (var i = 0; i != args.Count;)
 	{
@@ -53,6 +56,21 @@ void Main(IList<string> args)
 				skip_if_incomplete = true;
 				break;
 			}
+			case "-publishstamp":
+			{
+				publish_stamp = args[i++];
+				break;
+			}
+			case "-nugetcache":
+			{
+				nuget_cache = args[i++];
+				break;
+			}
+			case "-input":
+			{
+				extra_inputs.Add(args[i++]);
+				break;
+			}
 			default:
 			{
 				throw new ArgumentException($"Unknown command line argument: {arg}");
@@ -64,6 +82,8 @@ void Main(IList<string> args)
 		throw new ArgumentException("Native runtime staging output path is required.");
 	if (skip_if_incomplete && !require_all_projects)
 		throw new ArgumentException("-skipincomplete requires -requireall.");
+	if (publish_stamp is not null && (!skip_if_incomplete || nuget_cache is null))
+		throw new ArgumentException("-publishstamp requires -skipincomplete and -nugetcache.");
 
 	// Preserve the last complete local package when a partial native build cannot provide the full package closure.
 	if (skip_if_incomplete && !NativeRuntimePackage.HasCompleteManifestSet(workspace, platform, config, out var unavailable_inputs))
@@ -71,7 +91,7 @@ void Main(IList<string> args)
 		Console.WriteLine($"Skipping local Rylogic.Native package because its {platform}|{config} manifest set is incomplete:");
 		foreach (var unavailable_input in unavailable_inputs)
 			Console.WriteLine($"  {unavailable_input}");
-		Console.WriteLine("Build AllNative to publish a complete local native package.");
+		Console.WriteLine("Build the Rylogic.Native.Dev project (Debug|x64) to publish a complete local native package.");
 		return;
 	}
 
@@ -81,7 +101,7 @@ void Main(IList<string> args)
 		Console.WriteLine($"Skipping local Rylogic.Native package because its {platform}|{config} native link assets are incomplete:");
 		foreach (var unavailable_link_asset in unavailable_link_assets)
 			Console.WriteLine($"  {unavailable_link_asset}");
-		Console.WriteLine("Build AllNative to publish a complete local native package.");
+		Console.WriteLine("Build the Rylogic.Native.Dev project (Debug|x64) to publish a complete local native package.");
 		return;
 	}
 
@@ -92,12 +112,28 @@ void Main(IList<string> args)
 		Console.WriteLine($"Skipping local Rylogic.Native package because its {platform}|{config} tools are incomplete:");
 		foreach (var unavailable_tool in unavailable_tools)
 			Console.WriteLine($"  {unavailable_tool}");
-		Console.WriteLine("Build AllNative to publish a complete local native package.");
+		Console.WriteLine("Build the Rylogic.Native.Dev project (Debug|x64) to publish a complete local native package.");
 		return;
+	}
+
+	// Skip staging when the last published package was built from identical inputs and is still installed in the NuGet cache.
+	// The stamp holds the input fingerprint on its first line and the published version on its second; see PublishRylogicNativeDevPackage.
+	string? fingerprint = null;
+	if (publish_stamp is not null)
+	{
+		fingerprint = NativeRuntimePackage.InputFingerprint(workspace, platform, config, extra_inputs);
+		var stamp = File.Exists(publish_stamp) ? File.ReadAllLines(publish_stamp) : [];
+		if (stamp.Length >= 2 && stamp[0] == fingerprint && File.Exists(IOPath.Combine(nuget_cache!, "rylogic.native", stamp[1], ".nupkg.metadata")))
+		{
+			Console.WriteLine($"Rylogic.Native {stamp[1]} is up to date.");
+			return;
+		}
 	}
 
 	// Mark only a fully staged and validated closure as eligible for publication by the calling MSBuild target.
 	NativeRuntimePackage.Stage(workspace, platform, config, output_dir, require_all_projects);
+	if (fingerprint is not null)
+		File.WriteAllText(IOPath.Combine(output_dir, ".fingerprint"), fingerprint);
 	if (skip_if_incomplete)
 		File.WriteAllText(IOPath.Combine(output_dir, ".complete"), string.Empty);
 }

@@ -69,6 +69,46 @@ public static class NativeRuntimePackage
 		return staging_dir;
 	}
 
+	// Returns a hash of every input that contributes to a staged package for one configuration, so an unchanged closure can be detected without staging it.
+	// Requires a complete manifest, link-asset, and tool set; extra_inputs are additional files (for example a package nuspec) that also shape the package.
+	public static string InputFingerprint(string workspace, string platform, string config, IEnumerable<string> extra_inputs)
+	{
+		// Collect each input under a stable key so that renamed, added, or removed files change the fingerprint as well as edited ones.
+		var inputs = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		foreach (var runtime_asset in CollectRuntimeAssets(workspace, platform, config, require_all_projects: true))
+			inputs[$"runtime/{runtime_asset.Key}"] = runtime_asset.Value;
+
+		// Link assets and tools are packaged beside the runtime closure, so they are inputs too.
+		var link_manifest_dir = LinkManifestDirectory(workspace, platform, config);
+		foreach (var project in DiscoverLinkProjects(workspace).Where(x => x.Disposition == IncludeDisposition))
+		{
+			var manifest_path = IOPath.Combine(link_manifest_dir, $"{project.ProjectName}.txt");
+			foreach (var source_path in File.ReadLines(manifest_path).Select(x => x.Trim()).Where(x => x.Length != 0))
+				inputs[$"link/{IOPath.GetFileName(source_path)}"] = source_path;
+		}
+		foreach (var tool_name in PackagedToolNames)
+			inputs[$"tools/{tool_name}.exe"] = PackagedToolPath(workspace, tool_name, platform, config);
+
+		// Headers, the package props, and caller-supplied package definition files complete the payload.
+		var header_dir = IOPath.Combine(workspace, "include", "pr");
+		foreach (var header_path in Directory.EnumerateFiles(header_dir, "*", SearchOption.AllDirectories))
+			inputs[$"include/{IOPath.GetRelativePath(header_dir, header_path).Replace('\\', '/')}"] = header_path;
+
+		inputs["props/Rylogic.Native.props"] = IOPath.Combine(workspace, "build", "Rylogic.Native.props");
+		foreach (var extra_input in extra_inputs)
+			inputs[$"extra/{IOPath.GetFileName(extra_input)}"] = extra_input;
+
+		// Hash each key with its file content so the result depends only on what would be packaged, not on file timestamps.
+		using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+		foreach (var input in inputs)
+		{
+			using var stream = File.OpenRead(input.Value);
+			hash.AppendData(System.Text.Encoding.UTF8.GetBytes($"{input.Key}\n"));
+			hash.AppendData(SHA256.HashData(stream));
+		}
+		return Convert.ToHexString(hash.GetHashAndReset());
+	}
+
 	// Reports whether every included native project has a usable manifest so a local package selector can advance safely.
 	public static bool HasCompleteManifestSet(string workspace, string platform, string config, out IReadOnlyList<string> unavailable_inputs)
 	{
