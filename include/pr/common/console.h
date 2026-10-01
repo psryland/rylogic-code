@@ -281,13 +281,14 @@ namespace pr::console
 	{
 		return r.bottom - r.top;
 	}
+	// Console rectangles use inclusive bounds, so the size includes both edge cells
 	inline long width(SMALL_RECT const& r)
 	{
-		return r.Right - r.Left;
+		return r.Right - r.Left + 1;
 	}
 	inline long height(SMALL_RECT const& r)
 	{
-		return r.Bottom - r.Top;
+		return r.Bottom - r.Top + 1;
 	}
 
 	#pragma endregion
