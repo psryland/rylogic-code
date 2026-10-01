@@ -477,12 +477,11 @@ namespace pr::console
 		{
 			if (result != 0) return;
 
-			// Retrieve the system error message for the last-error code
-			char lpMsgBuf[1024];
+			// Retrieve the system error message for the last-error code. The buffer stays empty if no message is found.
+			char msg_buf[1024] = {};
 			DWORD dw = GetLastError();
-			FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS, NULL, dw, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), lpMsgBuf, sizeof(lpMsgBuf), NULL);
-			std::string err; err.append(msg).append("\n").append(lpMsgBuf).append("\n");
-			LocalFree(lpMsgBuf);
+			FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS, NULL, dw, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), msg_buf, sizeof(msg_buf), NULL);
+			std::string err; err.append(msg).append("\n").append(msg_buf).append("\n");
 
 			throw std::runtime_error(err);
 		}
