@@ -2807,16 +2807,18 @@ namespace pr::math
 		using C = typename vt::component_t;
 		using S = typename vt::element_t;
 
-		// Only check w components if the component type has them (dimension >= 4)
-		if constexpr (vt::dimension >= 3 && vector_traits<C>::dimension >= 4)
+		// Only check w components if the component type has them (dimension >= 4).
+		// 'vec(mat)' copies the rows of a const matrix, so take the copy once; unoptimised builds would copy it per access.
+		if constexpr (vector_traits<C>::dimension >= 4)
 		{
-			if (vec(vec(mat).x).w != S(0)) return false;
-			if (vec(vec(mat).y).w != S(0)) return false;
-			if (vec(vec(mat).z).w != S(0)) return false;
-		}
-		if constexpr (vt::dimension >= 4 && vector_traits<C>::dimension >= 4)
-		{
-			if (vec(vec(mat).w).w != S(1)) return false;
+			auto const rows = vec(mat);
+			if (vec(rows.x).w != S(0)) return false;
+			if (vec(rows.y).w != S(0)) return false;
+			if (vec(rows.z).w != S(0)) return false;
+			if constexpr (vt::dimension >= 4)
+			{
+				if (vec(rows.w).w != S(1)) return false;
+			}
 		}
 		return true;
 	}

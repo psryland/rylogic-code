@@ -276,13 +276,24 @@ namespace pr::math
 			pr_assert("m4x4 * BoundingBox: Transform is not affine" && IsAffine(m));
 			pr_assert("Transforming an invalid bounding box" && rhs.valid());
 
-			BoundingBox bb(m.pos, math::Zero<Vec4>());
-			auto mat = Transpose3x3(m);
-			for (int i = 0; i != 3; ++i)
-			{
-				bb.m_centre[i] += Dot(    mat[i] , rhs.m_centre);
-				bb.m_radius[i] += Dot(Abs(mat[i]), rhs.m_radius);
-			}
+			// The transformed centre is the transformed point. The transformed half-extent on each world axis is the sum of the
+			// absolute contributions of each box axis, which gives the tightest axis-aligned box around the rotated box.
+			// Written with explicit components because the generic vector helpers are slow in unoptimised builds.
+			auto const& c = rhs.m_centre;
+			auto const& r = rhs.m_radius;
+			BoundingBox bb;
+			bb.m_centre = Vec4{
+				m.x.x * c.x + m.y.x * c.y + m.z.x * c.z + m.pos.x,
+				m.x.y * c.x + m.y.y * c.y + m.z.y * c.z + m.pos.y,
+				m.x.z * c.x + m.y.z * c.y + m.z.z * c.z + m.pos.z,
+				m.pos.w,
+			};
+			bb.m_radius = Vec4{
+				std::abs(m.x.x) * r.x + std::abs(m.y.x) * r.y + std::abs(m.z.x) * r.z,
+				std::abs(m.x.y) * r.x + std::abs(m.y.y) * r.y + std::abs(m.z.y) * r.z,
+				std::abs(m.x.z) * r.x + std::abs(m.y.z) * r.y + std::abs(m.z.z) * r.z,
+				S(0),
+			};
 			return bb;
 		}
 		friend BoundingBox pr_vectorcall operator * (Mat3x3<S> const& m, BoundingBox rhs) noexcept
