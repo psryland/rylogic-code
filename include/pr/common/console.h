@@ -808,7 +808,7 @@ namespace pr::console
 
 			// Get/Set the fore/back colours for selected items in the pad
 			Colours SelectionColour() const {  return m_selection_colour; }
-			void SelectionColour(EColour fore, EColour back = EColour::Default) { Colour(Colours(fore,back)); }
+			void SelectionColour(EColour fore, EColour back = EColour::Default) { SelectionColour(Colours(fore,back)); }
 			void SelectionColour(Colours c) { m_selection_colour = c; }
 
 			// Set the title for the pad
