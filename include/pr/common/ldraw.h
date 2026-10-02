@@ -2643,17 +2643,175 @@ namespace pr::ldraw
 	};
 	struct LdrChart : LdrBase
 	{
+		// A plotted series of a chart. The axis expressions select values from the chart data (e.g. "C0", "CI", "abs(C2 - C1)").
 		struct LdrSeries
 		{
-			// @Copilot, implement this please. Base the implementation on the C# LDraw builder's version
+			seri::Name m_name;
+			seri::Colour m_colour;
+			std::string m_xaxis;
+			std::string m_yaxis;
+			seri::Width m_width;
+			seri::Dashed m_dashed;
+			seri::Smooth m_smooth;
+			seri::DataPoints m_data_points;
+
+			LdrSeries(seri::Name name, seri::Colour colour)
+				: m_name(name)
+				, m_colour(colour)
+			{}
+
+			LdrSeries& xaxis(std::string_view expr)
+			{
+				m_xaxis = expr;
+				return *this;
+			}
+			LdrSeries& yaxis(std::string_view expr)
+			{
+				m_yaxis = expr;
+				return *this;
+			}
+			LdrSeries& width(seri::Width w)
+			{
+				m_width = w;
+				return *this;
+			}
+			LdrSeries& dashed(seri::Vec2 dash)
+			{
+				m_dashed = seri::Dashed(dash);
+				return *this;
+			}
+			LdrSeries& smooth(bool on = true)
+			{
+				m_smooth = on;
+				return *this;
+			}
+			LdrSeries& data_points(seri::TToString auto style = "Square", seri::Vec2 size = { 10.0f, 10.0f }, seri::Colour colour = {})
+			{
+				m_data_points = seri::DataPoints(size, colour, style);
+				return *this;
+			}
+
+			void Write(textbuf& out) const
+			{
+				using namespace seri;
+				Append(out, EKeywords::Series, m_name, m_colour, "{");
+				{
+					if (!m_xaxis.empty()) Append(out, EKeywords::XAxis, std::format("{{\"{}\"}}", m_xaxis));
+					if (!m_yaxis.empty()) Append(out, EKeywords::YAxis, std::format("{{\"{}\"}}", m_yaxis));
+					Append(out, m_width, m_dashed, m_smooth, m_data_points);
+				}
+				Append(out, "}");
+			}
+			void Write(bytebuf& out) const
+			{
+				using namespace seri;
+				auto s = Append(out, seri::Header{ EKeywords::Series, m_name, m_colour });
+				{
+					if (!m_xaxis.empty()) Append(out, seri::Header{ EKeywords::XAxis }, m_xaxis);
+					if (!m_yaxis.empty()) Append(out, seri::Header{ EKeywords::YAxis }, m_yaxis);
+					Append(out, m_width, m_dashed, m_smooth, m_data_points);
+				}
+			}
 		};
+
+		std::filesystem::path m_filepath;
+		int m_dim_columns = 0;
+		int m_dim_rows = 0;
+		std::vector<double> m_data;
+		std::vector<std::unique_ptr<LdrSeries>> m_series; // Pointers so references returned by 'Series()' remain valid
 
 		LdrChart(seri::Name name, seri::Colour colour)
 			:LdrBase(name, colour)
 		{}
 
-		
-		// @Copilot, implement this please. Base the implementation on the C# LDraw builder's version
+		// Reference an external CSV data file (an alternative to 'data')
+		LdrChart& filepath(std::filesystem::path filepath)
+		{
+			m_filepath = filepath.lexically_normal();
+			return *this;
+		}
+
+		// Set the data dimensions. 'rows' == 0 means the row count is inferred from the data.
+		LdrChart& dim(int columns, int rows = 0)
+		{
+			m_dim_columns = columns;
+			m_dim_rows = rows;
+			return *this;
+		}
+
+		// Append values to the chart data (row-major)
+		LdrChart& data(std::initializer_list<double> values)
+		{
+			m_data.insert(m_data.end(), values);
+			return *this;
+		}
+		LdrChart& data(std::ranges::input_range auto&& values)
+		{
+			for (auto v : values) m_data.push_back(static_cast<double>(v));
+			return *this;
+		}
+
+		// Add a series to the chart
+		LdrSeries& Series(seri::Name name = {}, seri::Colour colour = {})
+		{
+			m_series.push_back(std::make_unique<LdrSeries>(name, colour));
+			return *m_series.back();
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::Chart, m_name, m_colour, "{");
+			{
+				if (!m_filepath.empty())
+					Append(out, EKeywords::FilePath, std::format("{{\"{}\"}}", m_filepath.string()));
+
+				if (m_dim_columns != 0)
+				{
+					if (m_dim_rows != 0)
+						Append(out, EKeywords::Dim, "{", m_dim_columns, m_dim_rows, "}");
+					else
+						Append(out, EKeywords::Dim, "{", m_dim_columns, "}");
+				}
+				if (!m_data.empty())
+				{
+					Append(out, EKeywords::Data, "{");
+					for (auto v : m_data) Append(out, v);
+					Append(out, "}");
+				}
+				for (auto const& series : m_series)
+					series->Write(out);
+
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::Chart, m_name, m_colour });
+			{
+				if (!m_filepath.empty())
+					Append(out, seri::Header{ EKeywords::FilePath }, m_filepath.string());
+
+				if (m_dim_columns != 0)
+				{
+					if (m_dim_rows != 0)
+						Append(out, seri::Header{ EKeywords::Dim }, m_dim_columns, m_dim_rows);
+					else
+						Append(out, seri::Header{ EKeywords::Dim }, m_dim_columns);
+				}
+				if (!m_data.empty())
+				{
+					auto sd = Append(out, seri::Header{ EKeywords::Data });
+					for (auto v : m_data) Append(out, v);
+				}
+				for (auto const& series : m_series)
+					series->Write(out);
+
+				LdrBase::Write(out);
+			}
+		}
 	};
 	struct LdrCircle : LdrBase
 	{
@@ -3089,10 +3247,87 @@ namespace pr::ldraw
 	};
 	struct LdrEquation : LdrBase
 	{
+		struct Param
+		{
+			std::string m_name;
+			double m_value;
+		};
+
+		std::string m_equation;
+		int m_resolution = 0; // 0 means use the parser's default
+		std::vector<Param> m_params;
+		std::optional<float> m_weight;
+
 		LdrEquation(seri::Name name, seri::Colour colour)
 			:LdrBase(name, colour)
 		{}
-		// @Copilot, implement this please. Base the implementation on the C# LDraw builder's version
+
+		// The equation to plot (e.g. "sin(x) * y")
+		LdrEquation& equation(std::string_view eq)
+		{
+			m_equation = eq;
+			return *this;
+		}
+
+		// The number of vertices used to approximate the equation
+		LdrEquation& resolution(int res)
+		{
+			m_resolution = res;
+			return *this;
+		}
+
+		// Assign a value to a named constant in the equation
+		LdrEquation& param(std::string_view name, double value)
+		{
+			m_params.push_back({ std::string(name), value });
+			return *this;
+		}
+
+		// Weight in [-1,+1] (see the LDraw '*Equation' documentation)
+		LdrEquation& weight(float w)
+		{
+			m_weight = w;
+			return *this;
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::Equation, m_name, m_colour, "{");
+			{
+				Append(out, EKeywords::Data, std::format("{{\"{}\"}}", m_equation));
+				if (m_resolution != 0)
+					Append(out, EKeywords::Resolution, "{", m_resolution, "}");
+
+				for (auto const& p : m_params)
+					Append(out, EKeywords::Param, "{", std::format("\"{}\"", p.m_name), p.m_value, "}");
+
+				if (m_weight)
+					Append(out, EKeywords::Weight, "{", *m_weight, "}");
+
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::Equation, m_name, m_colour });
+			{
+				Append(out, seri::Header{ EKeywords::Data }, m_equation);
+				if (m_resolution != 0)
+					Append(out, seri::Header{ EKeywords::Resolution }, m_resolution);
+
+				// The name needs a length prefix because the value follows it in the same section
+				for (auto const& p : m_params)
+					Append(out, seri::Header{ EKeywords::Param }, seri::StringWithLength{ p.m_name }, p.m_value);
+
+				if (m_weight)
+					Append(out, seri::Header{ EKeywords::Weight }, *m_weight);
+
+				LdrBase::Write(out);
+			}
+		}
 	};
 	struct LdrFrustum : LdrBase
 	{
@@ -5398,6 +5633,51 @@ namespace pr::ldraw
 			"	*Diffuse {ffffffff}\n"
 			"	*CastShadow {true}\n"
 			"}");
+		}
+		PRUnitTestMethod(Chart, Quick)
+		{
+			Builder builder;
+			auto& chart = builder.Chart("c", 0xFF00FF00).dim(2).data({ 0, 1, 1, 4, 2, 9 });
+			chart.Series("s0", 0xFFFF0000).xaxis("C0").yaxis("C1").width(2).smooth();
+			chart.Series("s1").xaxis("CI").yaxis("abs(C1 - C0)").data_points("Circle");
+			auto ldr = builder.ToString();
+			PR_EXPECT(ldr ==
+			"*Chart c ff00ff00 {\n"
+			"	*Dim {2}\n"
+			"	*Data {0 1 1 4 2 9}\n"
+			"	*Series s0 ffff0000 {\n"
+			"		*XAxis {\"C0\"}\n"
+			"		*YAxis {\"C1\"}\n"
+			"		*Width {2}\n"
+			"		*Smooth {true}\n"
+			"	}\n"
+			"	*Series s1 {\n"
+			"		*XAxis {\"CI\"}\n"
+			"		*YAxis {\"abs(C1 - C0)\"}\n"
+			"		*DataPoints {\n"
+			"			*Style {Circle}\n"
+			"			*Size {10 10}\n"
+			"		}\n"
+			"	}\n"
+			"}");
+
+			auto bdr = builder.ToBinary();
+			PR_EXPECT(!bdr.empty());
+		}
+		PRUnitTestMethod(Equation, Quick)
+		{
+			Builder builder;
+			builder.Equation("e", 0xFF00FF00).equation("a * sin(x)").resolution(100).param("a", 2.5).weight(0.5f);
+			auto ldr = builder.ToString(ESaveFlags::Flat);
+			PR_EXPECT(ldr == "*Equation e ff00ff00 {*Data {\"a * sin(x)\"} *Resolution {100} *Param {\"a\" 2.5} *Weight {0.5}}");
+
+			// Binary 'Param' sections hold a length-prefixed name followed by an 8-byte value
+			auto bdr = builder.ToBinary();
+			auto param = std::string_view{ reinterpret_cast<char const*>(bdr.data()), bdr.size() }.find("\x81" "a");
+			PR_EXPECT(param != std::string_view::npos);
+			double value;
+			std::memcpy(&value, bdr.data() + param + 2, sizeof(value));
+			PR_EXPECT(value == 2.5);
 		}
 	};
 }
