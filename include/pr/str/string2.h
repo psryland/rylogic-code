@@ -487,20 +487,26 @@ namespace pr::str::experimental
 			append(s, e);
 		}
 
-		// From single code point
+		// From 'count' copies of a single code point
 		string(size_type count, char32_t c, Allocator const& a = Allocator())
 			:m_string(a)
 		{
-			Encoding::encode(c, [&](char_t b) { m_string.push_back(b); });
-			auto len = m_string.size();
-			--count;
+			// Encode the code point once, then repeat its code units 'count' times
+			char_t units[8] = {};
+			auto len = size_t{};
+			Encoding::encode(c, [&](char_t b) { units[len++] = b; });
 
-			throw std::runtime_error("not implemented");
-			//m_string.resize();
-			//for (; count-- != 0; )
-			//{
-			//}
+			m_string.reserve(count * len + 1);
+			for (size_type i = 0; i != count; ++i)
+				m_string.insert(m_string.end(), units, units + len);
 
+			m_string.push_back(0);
+		}
+
+		// The null terminated encoded code units
+		char_t const* c_str() const
+		{
+			return m_string.data();
 		}
 
 		#if 0
@@ -584,6 +590,13 @@ namespace pr::str
 
 		{// Test 1
 			u8string str = char8_ptr(u8"zß水🍌");
+		}
+		{// Repeated code point
+			u8string str(3, U'水');
+			PR_EXPECT(std::u8string_view(str.c_str()) == u8"水水水");
+
+			u8string empty(0, U'水');
+			PR_EXPECT(std::u8string_view(empty.c_str()).empty());
 		}
 
 		#if 0
