@@ -8,6 +8,7 @@
 #include <type_traits>
 #include <memory>
 #include <vector>
+#include <span>
 #include <string>
 #include <string_view>
 #include <filesystem>
@@ -4961,10 +4962,209 @@ namespace pr::ldraw
 	};
 	struct LdrTube : LdrBase
 	{
+		// The shape of the tube's cross section
+		enum class ECrossSection
+		{
+			Round,
+			Square,
+			Polygon,
+		};
+		struct Pt
+		{
+			seri::Vec3 pt;
+			seri::Colour col;
+		};
+		std::vector<Pt> m_points;
+		ECrossSection m_cs_type;
+		seri::Vec2 m_cs_radius;
+		std::vector<seri::Vec2> m_cs_polygon;
+		seri::Facets m_cs_facets;
+		seri::Smooth m_cs_smooth;
+		seri::PerItemColour m_per_item_colour;
+		seri::Smooth m_smooth;
+		seri::Closed m_closed;
+
 		LdrTube(seri::Name name, seri::Colour colour)
 			:LdrBase(name, colour)
+			,m_points()
+			,m_cs_type(ECrossSection::Round)
+			,m_cs_radius{ 0.2f, 0.2f }
+			,m_cs_polygon()
+			,m_cs_facets()
+			,m_cs_smooth()
+			,m_per_item_colour()
+			,m_smooth()
+			,m_closed()
 		{}
-		// @Copilot, implement this please. Base the implementation on the C# LDraw builder's version
+
+		// Use an elliptical cross section with radii 'rx' and 'ry'. 'ry' defaults to 'rx' when zero.
+		LdrTube& cross_section_round(float rx, float ry = 0)
+		{
+			m_cs_type = ECrossSection::Round;
+			m_cs_radius = { rx, ry != 0 ? ry : rx };
+			return *this;
+		}
+
+		// Use a rectangular cross section with half-widths 'rx' and 'ry'. 'ry' defaults to 'rx' when zero.
+		LdrTube& cross_section_square(float rx, float ry = 0)
+		{
+			m_cs_type = ECrossSection::Square;
+			m_cs_radius = { rx, ry != 0 ? ry : rx };
+			return *this;
+		}
+
+		// Use the 2D polygon 'pts' as the cross section
+		LdrTube& cross_section_polygon(std::span<seri::Vec2 const> pts)
+		{
+			m_cs_type = ECrossSection::Polygon;
+			m_cs_polygon.assign(pts.begin(), pts.end());
+			return *this;
+		}
+
+		// The number of divisions around a round cross section
+		LdrTube& cross_section_facets(int facets)
+		{
+			m_cs_facets = facets;
+			return *this;
+		}
+
+		// Smooth the normals around the cross section
+		LdrTube& cross_section_smooth(bool on = true)
+		{
+			m_cs_smooth = on;
+			return *this;
+		}
+
+		// Add a point to the extrusion path
+		LdrTube& pt(seri::Vec3 p, seri::Colour colour = {})
+		{
+			m_points.push_back({ p, colour });
+			if (colour) m_per_item_colour = true;
+			return *this;
+		}
+		LdrTube& pt(float x, float y, float z, seri::Colour colour = {})
+		{
+			return pt({ x, y, z }, colour);
+		}
+
+		// Smooth the extrusion path
+		LdrTube& smooth(bool on = true)
+		{
+			m_smooth = on;
+			return *this;
+		}
+
+		// Fill in the tube end caps
+		LdrTube& closed(bool on = true)
+		{
+			m_closed = on;
+			return *this;
+		}
+
+		virtual void Write(textbuf& out) const override
+		{
+			using namespace seri;
+			Append(out, EKeywords::Tube, m_name, m_colour, "{");
+			{
+				// The cross section shape and how it is tessellated
+				Append(out, EKeywords::CrossSection, "{");
+				switch (m_cs_type)
+				{
+					case ECrossSection::Round:
+					{
+						Append(out, EKeywords::Round, "{", m_cs_radius, "}");
+						break;
+					}
+					case ECrossSection::Square:
+					{
+						Append(out, EKeywords::Square, "{", m_cs_radius, "}");
+						break;
+					}
+					case ECrossSection::Polygon:
+					{
+						Append(out, EKeywords::Polygon, "{");
+						for (auto& p : m_cs_polygon)
+							Append(out, p);
+
+						Append(out, "}");
+						break;
+					}
+					default:
+					{
+						throw std::runtime_error("Unknown tube cross section type");
+					}
+				}
+				Append(out, m_cs_facets, m_cs_smooth);
+				Append(out, "}");
+
+				// The extrusion path
+				Append(out, m_per_item_colour);
+				Append(out, EKeywords::Data, "{");
+				for (auto& p : m_points)
+				{
+					Append(out, p.pt);
+					if (m_per_item_colour && *m_per_item_colour.m_active)
+						Append(out, p.col ? *p.col.m_colour : seri::Colour::Default);
+				}
+				Append(out, "}");
+				Append(out, m_smooth, m_closed);
+				LdrBase::Write(out);
+			}
+			Append(out, "}");
+		}
+		virtual void Write(bytebuf& out) const override
+		{
+			using namespace seri;
+			auto s = Append(out, seri::Header{ EKeywords::Tube, m_name, m_colour });
+			{
+				// The cross section shape and how it is tessellated
+				{
+					auto sc = Append(out, seri::Header{ EKeywords::CrossSection });
+					switch (m_cs_type)
+					{
+						case ECrossSection::Round:
+						{
+							auto sr = Append(out, seri::Header{ EKeywords::Round });
+							Append(out, m_cs_radius);
+							break;
+						}
+						case ECrossSection::Square:
+						{
+							auto sq = Append(out, seri::Header{ EKeywords::Square });
+							Append(out, m_cs_radius);
+							break;
+						}
+						case ECrossSection::Polygon:
+						{
+							auto sp = Append(out, seri::Header{ EKeywords::Polygon });
+							for (auto& p : m_cs_polygon)
+								Append(out, p);
+
+							break;
+						}
+						default:
+						{
+							throw std::runtime_error("Unknown tube cross section type");
+						}
+					}
+					Append(out, m_cs_facets, m_cs_smooth);
+				}
+
+				// The extrusion path
+				Append(out, m_per_item_colour);
+				{
+					auto sd = Append(out, seri::Header{ EKeywords::Data });
+					for (auto& p : m_points)
+					{
+						Append(out, p.pt);
+						if (m_per_item_colour && *m_per_item_colour.m_active)
+							Append(out, p.col ? *p.col.m_colour : seri::Colour::Default);
+					}
+				}
+				Append(out, m_smooth, m_closed);
+				LdrBase::Write(out);
+			}
+		}
 	};
 	struct Builder : LdrBase
 	{
@@ -5539,6 +5739,31 @@ namespace pr::ldraw
 			builder.Polygon("p", 0xFF00FF00).pt(0, 0).pt(1, 0).pt(1, 1).pt(0, 1);
 			auto ldr = builder.ToString(ESaveFlags::Flat);
 			PR_EXPECT(ldr == "*Polygon p ff00ff00 {*Data {0 0 1 0 1 1 0 1}}");
+		}
+		PRUnitTestMethod(Tube, Quick)
+		{
+			{
+				Builder builder;
+				builder.Tube("t", 0xFF00FF00).cross_section_round(0.5f).cross_section_facets(12).cross_section_smooth().pt(0, 0, 0).pt(1, 0, 0).pt(1, 1, 0).smooth().closed();
+				auto ldr = builder.ToString(ESaveFlags::Flat);
+				PR_EXPECT(ldr == "*Tube t ff00ff00 {*CrossSection {*Round {0.5 0.5} *Facets {12} *Smooth {true}} *Data {0 0 0 1 0 0 1 1 0} *Smooth {true} *Closed {true}}");
+			}
+			{
+				Builder builder;
+				builder.Tube("t", 0xFF00FF00).cross_section_square(0.5f, 0.25f).pt(0, 0, 0).pt(1, 0, 0);
+				auto ldr = builder.ToString(ESaveFlags::Flat);
+				PR_EXPECT(ldr == "*Tube t ff00ff00 {*CrossSection {*Square {0.5 0.25}} *Data {0 0 0 1 0 0}}");
+			}
+			{
+				seri::Vec2 const cs[] = { { 0, 0 }, { 1, 0 }, { 0, 1 } };
+				Builder builder;
+				builder.Tube("t", 0xFF00FF00).cross_section_polygon(cs).pt(0, 0, 0).pt(1, 0, 0, 0xFFFF0000);
+				auto ldr = builder.ToString(ESaveFlags::Flat);
+				PR_EXPECT(ldr == "*Tube t ff00ff00 {*CrossSection {*Polygon {0 0 1 0 0 1}} *PerItemColour {true} *Data {0 0 0 ffffffff 1 0 0 ffff0000}}");
+
+				auto bdr = builder.ToBinary();
+				PR_EXPECT(!bdr.empty());
+			}
 		}
 		PRUnitTestMethod(Sphere, Quick)
 		{
