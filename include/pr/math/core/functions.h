@@ -2808,7 +2808,6 @@ namespace pr::math
 		using S = typename vt::element_t;
 
 		// Only check w components if the component type has them (dimension >= 4).
-		// 'vec(mat)' copies the rows of a const matrix, so take the copy once; unoptimised builds would copy it per access.
 		if constexpr (vector_traits<C>::dimension >= 4)
 		{
 			auto const rows = vec(mat);
