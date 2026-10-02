@@ -265,6 +265,7 @@ namespace physics_sandbox
 		, m_terrain_gfx()
 		, m_water()
 		, m_water_gfx()
+		, m_atmosphere_gfx()
 		, m_env_map()
 		, m_sky_gfx()
 		, m_origin_gfx()
@@ -740,6 +741,7 @@ namespace physics_sandbox
 		m_terrain_gfx = nullptr;
 		m_water.reset();
 		m_water_gfx = nullptr;
+		m_atmosphere_gfx = nullptr;
 		m_env_map = nullptr;
 		m_sky_gfx = nullptr;
 
@@ -925,6 +927,8 @@ namespace physics_sandbox
 		profile.m_gravity_ms += ElapsedMs(gravity_beg, Clock::now());
 
 		auto const physics_beg = Clock::now();
+		if (m_atmosphere_gfx != nullptr)
+			m_atmosphere_gfx->Step(dt);
 		m_physics.BeginStep(physics::Engine::StepInput{
 			.m_bodies = m_body_ptrs,
 			.m_articulations = m_articulation_ptrs,
@@ -959,6 +963,7 @@ namespace physics_sandbox
 		ClearSimulationObjects();
 		m_water.reset();
 		m_water_gfx = nullptr;
+		m_atmosphere_gfx = nullptr;
 		m_env_map = nullptr;
 		m_sky_gfx = nullptr;
 
@@ -1095,6 +1100,7 @@ namespace physics_sandbox
 		m_terrain_gfx = nullptr;
 		m_water = scene_desc.water;
 		m_water_gfx = nullptr;
+		m_atmosphere_gfx = nullptr;
 		m_env_map = nullptr;
 		m_sky_gfx = nullptr;
 
@@ -1297,6 +1303,11 @@ namespace physics_sandbox
 		auto const buoyancy_beg = Clock::now();
 		ConfigureBuoyancy(scene_desc);
 		m_last_load_profile.m_buoyancy_ms = ElapsedMs(buoyancy_beg, Clock::now());
+
+		// Create the scene-owned atmosphere solver on the physics engine's device. A second standalone device is not possible here because
+		// creating one enables the D3D debug layer, and D3D12 removes every existing device when that happens after device creation.
+		if (scene_desc.atmosphere && m_rdr != nullptr)
+			m_atmosphere_gfx = std::make_unique<AtmosphereVisual>(m_physics.Device(), *m_rdr, m_shader_cache, std::move(*scene_desc.atmosphere));
 
 		// Show the surface samples used by the physics that this scene exercises: buoyancy in water scenes, otherwise terrain collision.
 		if (m_gpu_buoyancy)

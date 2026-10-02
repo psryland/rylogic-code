@@ -60,6 +60,19 @@ namespace physics_sandbox::scene_loader
 				a[1].to<int>(),
 			};
 		}
+		// Read a three-component integer vector from a JSON array.
+		iv3 ReadInt3(pr::json::Value const& arr)
+		{
+			auto const& a = arr.to_array();
+			if (a.size() < 3)
+				throw std::runtime_error("Expected a 3-element array for integer vector");
+
+			return iv3{
+				a[0].to<int>(),
+				a[1].to<int>(),
+				a[2].to<int>(),
+			};
+		}
 		float LinearT(int index, int count)
 		{
 			return count <= 1 ? 0.0f : float(index) / float(count - 1);
@@ -933,6 +946,149 @@ namespace physics_sandbox::scene_loader
 		return water;
 	}
 
+
+	// Parse a side-boundary value for the atmosphere block.
+	physics::atmosphere::EAtmosphereBoundary ReadAtmosphereBoundary(pr::json::Value const& jboundary)
+	{
+		// Text keeps scene files readable while mapping to the physics API enum at the parser boundary.
+		auto const value = jboundary.to<std::string>();
+		if (value == "solid")
+			return physics::atmosphere::EAtmosphereBoundary::Solid;
+		if (value == "open")
+			return physics::atmosphere::EAtmosphereBoundary::Open;
+		throw std::runtime_error(std::format("Unknown atmosphere boundary '{}'", value));
+	}
+
+	// Parse the optional GPU atmosphere solver and visualisation block.
+	AtmosphereDesc ReadAtmosphere(pr::json::Value const& jatmosphere)
+	{
+		// The first atmosphere scene is flat-floored, but the parsed structures mirror the reusable solver API.
+		auto desc = AtmosphereDesc{};
+		auto const& obj = jatmosphere.to_object();
+		auto& config = desc.m_config;
+		config.m_grid = physics::atmosphere::AtmosphereGrid{ .m_cell_count = iv3{64, 64, 8}, .m_origin = v4{-640.0f, -640.0f, 0.0f, 1.0f}, .m_dx = 20.0f, .m_lid_z = 400.0f, .m_first_layer_thickness = 8.0f, .m_layer_stretch_power = 0.75f };
+		config.m_reference = physics::atmosphere::AtmosphereReferenceProfile{ .m_temperature_at_origin = 288.0f, .m_lapse_rate = -0.0065f, .m_min_temperature = 220.0f };
+		config.m_surface_forcing_height = 220.0f;
+		config.m_pressure_vcycles = 2;
+		config.m_pressure_pre_smooth = 4;
+		config.m_pressure_post_smooth = 4;
+		config.m_pressure_coarse_smooth = 64;
+
+		if (auto const* grid = obj.find("grid"))
+		{
+			auto const& jgrid = grid->to_object();
+			if (auto const* value = jgrid.find("cell_count"))
+				config.m_grid.m_cell_count = ReadInt3(*value);
+			if (auto const* value = jgrid.find("origin"))
+				config.m_grid.m_origin = ReadVec3(*value, 1.0f);
+			if (auto const* value = jgrid.find("dx"))
+				config.m_grid.m_dx = value->to<float>();
+			if (auto const* value = jgrid.find("lid_z"))
+				config.m_grid.m_lid_z = value->to<float>();
+			if (auto const* value = jgrid.find("first_layer_thickness"))
+				config.m_grid.m_first_layer_thickness = value->to<float>();
+			if (auto const* value = jgrid.find("layer_stretch_power"))
+				config.m_grid.m_layer_stretch_power = value->to<float>();
+		}
+
+		if (auto const* boundaries = obj.find("boundaries"))
+		{
+			auto const& b = boundaries->to_object();
+			if (auto const* value = b.find("x_min")) config.m_boundaries.m_x_min = ReadAtmosphereBoundary(*value);
+			if (auto const* value = b.find("x_max")) config.m_boundaries.m_x_max = ReadAtmosphereBoundary(*value);
+			if (auto const* value = b.find("y_min")) config.m_boundaries.m_y_min = ReadAtmosphereBoundary(*value);
+			if (auto const* value = b.find("y_max")) config.m_boundaries.m_y_max = ReadAtmosphereBoundary(*value);
+			if (auto const* value = b.find("z_min")) config.m_boundaries.m_z_min = ReadAtmosphereBoundary(*value);
+			if (auto const* value = b.find("z_max")) config.m_boundaries.m_z_max = ReadAtmosphereBoundary(*value);
+		}
+
+		if (auto const* reference = obj.find("reference"))
+		{
+			auto const& r = reference->to_object();
+			if (auto const* value = r.find("temperature_at_origin")) config.m_reference.m_temperature_at_origin = value->to<float>();
+			if (auto const* value = r.find("lapse_rate")) config.m_reference.m_lapse_rate = value->to<float>();
+			if (auto const* value = r.find("min_temperature")) config.m_reference.m_min_temperature = value->to<float>();
+		}
+
+		if (auto const* reservoir = obj.find("reservoir"))
+		{
+			auto const& r = reservoir->to_object();
+			if (auto const* value = r.find("wind")) desc.m_reservoir_wind = ReadVec3(*value, 0.0f);
+			if (auto const* value = r.find("temperature_offset")) desc.m_reservoir_temperature_offset = value->to<float>();
+		}
+
+		if (auto const* sources = obj.find("heat_sources"))
+		{
+			for (auto const& jsource : sources->to_array())
+			{
+				auto const& s = jsource.to_object();
+				auto source = physics::atmosphere::AtmosphereHeatSource{};
+				if (auto const* value = s.find("centre")) source.m_centre = ReadVec3(*value, 1.0f);
+				if (auto const* value = s.find("radius")) source.m_radius = value->to<float>();
+				if (auto const* value = s.find("heating_rate")) source.m_heating_rate = value->to<float>();
+				if (auto const* value = s.find("target_temperature")) source.m_target_temperature = value->to<float>();
+				if (auto const* value = s.find("relaxation_rate")) source.m_relaxation_rate = value->to<float>();
+				desc.m_heat_sources.push_back(source);
+			}
+		}
+
+		if (auto const* nodes = obj.find("pressure_nodes"))
+		{
+			for (auto const& jnode : nodes->to_array())
+			{
+				auto const& n = jnode.to_object();
+				auto node = physics::atmosphere::AtmospherePressureNode{};
+				if (auto const* value = n.find("centre")) node.m_centre = ReadVec2(*value);
+				if (auto const* value = n.find("drift")) node.m_drift = ReadVec2(*value);
+				if (auto const* value = n.find("strength")) node.m_strength = value->to<float>();
+				if (auto const* value = n.find("radius")) node.m_radius = value->to<float>();
+				if (auto const* value = n.find("age")) node.m_age = value->to<float>();
+				if (auto const* value = n.find("lifetime")) node.m_lifetime = value->to<float>();
+				if (auto const* value = n.find("growth_rate")) node.m_growth_rate = value->to<float>();
+				if (auto const* value = n.find("temperature_offset")) node.m_temperature_offset = value->to<float>();
+				desc.m_forcing.m_nodes.push_back(node);
+			}
+		}
+		if (auto const* value = obj.find("pressure_seed"))
+			desc.m_forcing.m_seed = static_cast<uint32_t>(value->to<int64_t>());
+
+		// Respawned nodes use the same magnitudes as the authored ones so the scene keeps a similar character.
+		for (auto const& node : desc.m_forcing.m_nodes)
+		{
+			desc.m_forcing_pressure_scale = std::max(desc.m_forcing_pressure_scale, std::abs(node.m_strength));
+			desc.m_forcing_temperature_scale = std::max(desc.m_forcing_temperature_scale, std::abs(node.m_temperature_offset));
+		}
+
+		if (auto const* tracers = obj.find("tracers"))
+		{
+			auto const& t = tracers->to_object();
+			if (auto const* value = t.find("count")) desc.m_tracers.m_particle_count = value->to<int>();
+			if (auto const* value = t.find("seed")) desc.m_tracers.m_seed = static_cast<uint32_t>(value->to<int64_t>());
+			if (auto const* value = t.find("max_age")) desc.m_tracers.m_max_age = value->to<float>();
+		}
+
+		if (auto const* visual = obj.find("visual"))
+		{
+			auto const& v = visual->to_object();
+			if (auto const* value = v.find("temperature_range"))
+			{
+				auto const& range = value->to_array();
+				desc.m_visual.m_min_temperature = range[0].to<float>();
+				desc.m_visual.m_max_temperature = range[1].to<float>();
+			}
+			if (auto const* value = v.find("particle_size")) desc.m_visual.m_particle_size = value->to<float>();
+			if (auto const* value = v.find("grid_line_limit")) desc.m_visual.m_grid_line_limit = value->to<int>();
+			if (auto const* value = v.find("show_grid")) desc.m_visual.m_show_grid = value->to<bool>();
+			if (auto const* value = v.find("show_particles")) desc.m_visual.m_show_particles = value->to<bool>();
+			if (auto const* value = v.find("show_pressure_nodes")) desc.m_visual.m_show_pressure_nodes = value->to<bool>();
+			if (auto const* value = v.find("show_heat_sources")) desc.m_visual.m_show_heat_sources = value->to<bool>();
+		}
+
+		config.Validate();
+		desc.m_tracers.Validate();
+		return desc;
+	}
+
 	// Parse a scene description from a JSON file
 	SceneDesc LoadFromFile(std::filesystem::path const& filepath)
 	{
@@ -1167,6 +1323,10 @@ namespace physics_sandbox::scene_loader
 		// Water surface
 		if (auto* jwater = jscene.find("water"))
 			desc.water = ReadWater(*jwater);
+
+		// Atmosphere solver
+		if (auto* jatmosphere = jscene.find("atmosphere"))
+			desc.atmosphere = ReadAtmosphere(*jatmosphere);
 
 		// Bodies
 		if (auto* jbodies = jscene.find("bodies"))

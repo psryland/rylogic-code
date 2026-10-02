@@ -48,6 +48,7 @@ static const float AtmosphereSmallDiagonal = 1.0e-20f;    // operator units; avo
 static const float AtmosphereMinHeatRadius = 0.0001f;     // metres; avoids division by zero for point-like heat sources
 static const int AtmosphereOpenEdgeMaxBand = 48;          // columns; limits the open-edge sponge width on large domains
 static const float AtmosphereOpenEdgeWindRate = 8.0f;     // 1/s; blends reservoir wind into the open-edge sponge over a short solver step
+#define ATMOSPHERE_TRACER_THREAD_X 64
 
 // Root constants shared by every atmosphere kernel. Must match CBufAtmosphere in atmosphere.cpp.
 // HLSL constant packing does not let a vector cross a 16-byte boundary, so the byte offset of each group is noted on the right.
@@ -104,6 +105,15 @@ struct CBufAtmosphere
 	int use_floor_temp_buffer;      // non-zero: g_floor_temperature has one value per column; zero: one uniform value  @128
 };
 
+// Root constants shared by tracer kernels. Must match CBufAtmosphereTracers in atmosphere.cpp.
+struct CBufAtmosphereTracers
+{
+	int tracer_count;               // number of tracer particles in g_tracers_in/g_tracers_out
+	uint tracer_seed;               // deterministic seed mixed with particle index and frame counter
+	uint tracer_frame;              // monotonically increasing tracer dispatch index
+	float tracer_max_age;           // particle lifetime before deterministic respawn, seconds
+};
+
 // Spherical heat or relaxation source supplied by the caller. Must match GpuHeatSource in atmosphere.cpp.
 struct HeatSource
 {
@@ -144,7 +154,20 @@ StructuredBuffer<HeatSource> resource(g_sources, t5);             // active heat
 StructuredBuffer<float> resource(g_floor_height, t6);             // one floor height per column, metres
 StructuredBuffer<PressureNode> resource(g_nodes, t7);             // active pressure nodes
 
+// One advected tracer particle. Must match GpuTracerParticle in atmosphere.cpp.
+struct TracerParticle
+{
+	float4 position;                // world-space position, metres
+	float temperature;              // sampled cell-centred air temperature, K
+	float age;                      // particle age, seconds
+	float2 pad;                     // keeps the structure size a multiple of 16 bytes
+};
+
+RWStructuredBuffer<TracerParticle> resource(g_tracers_out, u7);     // output tracer particles
+StructuredBuffer<TracerParticle> resource(g_tracers_in, t8);        // input tracer particles
+
 ConstantBuffer<CBufAtmosphere> resource(g, b0);                   // per-dispatch constants
+ConstantBuffer<CBufAtmosphereTracers> resource(gt, b1);             // per-dispatch tracer constants
 
 static const int BoundarySolid = 0;
 static const int BoundaryOpen = 1;
@@ -1156,4 +1179,160 @@ void CSProject(uint3 dtid : SV_DispatchThreadID)
 	{
 		g_temperature_out[CellIndex(p)] = g_temperature_in[CellIndex(p)];
 	}
+}
+
+// Return a deterministic hash for tracer respawn sampling.
+uint TracerHash(uint x)
+{
+	// Integer avalanching keeps neighbouring particle indexes visually decorrelated.
+	x ^= x >> 16;
+	x *= 0x7feb352du;
+	x ^= x >> 15;
+	x *= 0x846ca68bu;
+	x ^= x >> 16;
+	return x;
+}
+
+// Return a deterministic unit random value for one particle lane.
+float TracerRand(uint particle_index, uint lane)
+{
+	// Mix the seed, particle index, frame, and lane so each coordinate has a stable independent sequence.
+	uint h = TracerHash(gt.tracer_seed ^ (particle_index * 0x9e3779b9u) ^ (gt.tracer_frame * 0x85ebca6bu) ^ (lane * 0xc2b2ae35u));
+	return ((float)(h & 0x00ffffffu) + 0.5f) / 16777216.0f;
+}
+
+// Return true when a world-space position is outside the terrain-following domain.
+bool TracerOutside(float3 pos)
+{
+	// Tracers are visual probes and should respawn instead of clamping when they leave the valid domain.
+	if (pos.x < g.origin.x || pos.x > g.origin.x + (float)g.cell_count.x * g.dx)
+		return true;
+	if (pos.y < g.origin.y || pos.y > g.origin.y + (float)g.cell_count.y * g.dx)
+		return true;
+	int2 col = ClampColumn((int2)floor(float2((pos.x - g.origin.x) / g.dx, (pos.y - g.origin.y) / g.dx)));
+	return pos.z < FloorHeight(col) || pos.z > g.lid_z;
+}
+
+// Return a deterministic respawned tracer inside the terrain-following domain.
+TracerParticle RespawnTracer(uint particle_index)
+{
+	// Sample XY uniformly by area, then sample sigma uniformly so flat and terrain-following grids both stay inside the local column.
+	float rx = TracerRand(particle_index, 0u);
+	float ry = TracerRand(particle_index, 1u);
+	float rz = TracerRand(particle_index, 2u);
+	float3 pos;
+	pos.x = g.origin.x + rx * (float)g.cell_count.x * g.dx;
+	pos.y = g.origin.y + ry * (float)g.cell_count.y * g.dx;
+	int2 col = ClampColumn((int2)floor(float2((pos.x - g.origin.x) / g.dx, (pos.y - g.origin.y) / g.dx)));
+	pos.z = FloorHeight(col) + rz * ColumnHeight(col);
+	TracerParticle particle;
+	particle.position = float4(pos, 1.0f);
+	particle.temperature = SampleTemperature(pos);
+	particle.age = 0.0f;
+	particle.pad = float2(0.0f, 0.0f);
+	return particle;
+}
+
+// Return a deterministic tracer respawned on an open side face where reservoir wind flows into the domain.
+// Each inflow face is chosen in proportion to its inflow rate, so a steady wind keeps tracer density even along the flow.
+// Falls back to RespawnTracer when no open side has inflow.
+TracerParticle RespawnTracerAtInflow(uint particle_index)
+{
+	// Weight each open side by inward wind speed times side length. Column height is ignored because the reservoir wind is uniform with height.
+	float lx = (float)g.cell_count.x * g.dx;
+	float ly = (float)g.cell_count.y * g.dx;
+	float w_xmin = (BoundaryXMin() == BoundaryOpen) ? max(g.reservoir_wind.x, 0.0f) * ly : 0.0f;
+	float w_xmax = (BoundaryXMax() == BoundaryOpen) ? max(-g.reservoir_wind.x, 0.0f) * ly : 0.0f;
+	float w_ymin = (BoundaryYMin() == BoundaryOpen) ? max(g.reservoir_wind.y, 0.0f) * lx : 0.0f;
+	float w_ymax = (BoundaryYMax() == BoundaryOpen) ? max(-g.reservoir_wind.y, 0.0f) * lx : 0.0f;
+	float total = w_xmin + w_xmax + w_ymin + w_ymax;
+	if (total <= 0.0f)
+		return RespawnTracer(particle_index);
+
+	// Pick a side, then a point along it. The point sits just inside the face so it is not immediately classed as outside.
+	float pick = TracerRand(particle_index, 3u) * total;
+	float along = TracerRand(particle_index, 4u);
+	float rz = TracerRand(particle_index, 5u);
+	float inset = 1.0e-3f * g.dx;
+	float3 pos;
+	if (pick < w_xmin)
+	{
+		// West face.
+		pos.x = g.origin.x + inset;
+		pos.y = g.origin.y + along * ly;
+	}
+	else if (pick < w_xmin + w_xmax)
+	{
+		// East face.
+		pos.x = g.origin.x + lx - inset;
+		pos.y = g.origin.y + along * ly;
+	}
+	else if (pick < w_xmin + w_xmax + w_ymin)
+	{
+		// South face.
+		pos.x = g.origin.x + along * lx;
+		pos.y = g.origin.y + inset;
+	}
+	else
+	{
+		// North face.
+		pos.x = g.origin.x + along * lx;
+		pos.y = g.origin.y + ly - inset;
+	}
+
+	// Sample height uniformly within the local column, as RespawnTracer does.
+	int2 col = ClampColumn((int2)floor(float2((pos.x - g.origin.x) / g.dx, (pos.y - g.origin.y) / g.dx)));
+	pos.z = FloorHeight(col) + rz * ColumnHeight(col);
+	TracerParticle particle;
+	particle.position = float4(pos, 1.0f);
+	particle.temperature = SampleTemperature(pos);
+	particle.age = 0.0f;
+	particle.pad = float2(0.0f, 0.0f);
+	return particle;
+}
+
+// Initialise deterministic tracer particles inside the domain.
+numthreads(CSInitialiseTracers, ATMOSPHERE_TRACER_THREAD_X, 1, 1)
+void CSInitialiseTracers(uint3 dtid : SV_DispatchThreadID)
+{
+	// One thread owns one particle slot.
+	uint particle_index = dtid.x;
+	if (particle_index >= (uint)gt.tracer_count)
+		return;
+
+	g_tracers_out[particle_index] = RespawnTracer(particle_index);
+}
+
+// Advect tracer particles through the current MAC field.
+numthreads(CSAdvectTracers, ATMOSPHERE_TRACER_THREAD_X, 1, 1)
+void CSAdvectTracers(uint3 dtid : SV_DispatchThreadID)
+{
+	// Midpoint integration gives smoother tracks than a single Euler step while keeping this visual kernel cheap.
+	uint particle_index = dtid.x;
+	if (particle_index >= (uint)gt.tracer_count)
+		return;
+
+	TracerParticle particle = g_tracers_in[particle_index];
+	float3 pos = particle.position.xyz;
+	float3 v0 = SampleVelocity(pos);
+	float3 mid = pos + 0.5f * g.dt * v0;
+	float3 v1 = SampleVelocity(mid);
+	pos += g.dt * v1;
+	particle.age += g.dt;
+	if (TracerOutside(pos))
+	{
+		// Tracers carried out of the domain re-enter with the inflow, keeping density even along the flow.
+		particle = RespawnTracerAtInflow(particle_index);
+	}
+	else if (particle.age > gt.tracer_max_age)
+	{
+		// Expired tracers respawn anywhere in the volume. Uniform removal and uniform respawn keep the density unchanged.
+		particle = RespawnTracer(particle_index);
+	}
+	else
+	{
+		particle.position = float4(pos, 1.0f);
+		particle.temperature = SampleTemperature(pos);
+	}
+	g_tracers_out[particle_index] = particle;
 }

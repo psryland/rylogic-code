@@ -18,6 +18,7 @@ namespace pr::physics::atmosphere
 		// The kernels cover cells and all three face arrays with one conservative dispatch extent.
 		constexpr auto AtmosphereThreadGroup = iv3{ 8, 8, 4 };
 		constexpr auto MaxHeatSources = 64;
+		constexpr auto AtmosphereTracerThreadGroup = 64;
 
 		// Root constants shared by every atmosphere kernel. Must match CBufAtmosphere in atmosphere.hlsl, which documents each field.
 		// HLSL constant packing does not let a vector cross a 16-byte boundary, so the field order keeps every vector inside one 16-byte row.
@@ -67,10 +68,21 @@ namespace pr::physics::atmosphere
 
 			// Floor temperature source.
 			int m_use_floor_temp_buffer;   // non-zero when the floor temperature buffer has one value per column
+
 		};
 		static_assert(sizeof(CBufAtmosphere) == 33 * sizeof(uint32_t));
 		static_assert(offsetof(CBufAtmosphere, m_origin) == 16 && offsetof(CBufAtmosphere, m_reservoir_wind) == 80);
 		static_assert(offsetof(CBufAtmosphere, m_mg_size) == 96 && offsetof(CBufAtmosphere, m_use_floor_temp_buffer) == 128);
+
+		// Root constants shared by tracer kernels. Must match CBufAtmosphereTracers in atmosphere.hlsl.
+		struct CBufAtmosphereTracers
+		{
+			int m_tracer_count;
+			uint32_t m_tracer_seed;
+			uint32_t m_tracer_frame;
+			float m_tracer_max_age;
+		};
+		static_assert(sizeof(CBufAtmosphereTracers) == 4 * sizeof(uint32_t));
 
 		// GPU heat source layout. Must match HeatSource in atmosphere.hlsl.
 		struct GpuHeatSource
@@ -93,6 +105,15 @@ namespace pr::physics::atmosphere
 			float m_lifetime;
 			float m_growth_rate;
 			float m_temperature_offset;
+		};
+
+		// GPU tracer particle layout. Must match TracerParticle in atmosphere.hlsl.
+		struct GpuTracerParticle
+		{
+			v4 m_position;
+			float m_temperature;
+			float m_age;
+			v2 m_pad;
 		};
 
 		// Create a structured UAV buffer in the requested default state.
@@ -150,6 +171,16 @@ namespace pr::physics::atmosphere
 		(void)BoundaryValue(m_y_max);
 		(void)BoundaryValue(m_z_min);
 		(void)BoundaryValue(m_z_max);
+	}
+
+	// Reject invalid tracer configuration at the caller boundary.
+	void AtmosphereTracerConfig::Validate() const
+	{
+		// Tracer buffers are optional, but a created tracer set needs a finite positive lifetime.
+		if (m_particle_count < 0)
+			throw std::invalid_argument("Atmosphere tracer count cannot be negative");
+		if (!std::isfinite(m_max_age) || m_max_age <= 0.0f)
+			throw std::invalid_argument("Atmosphere tracer lifetime must be finite and positive");
 	}
 
 	// Build one floor height per column from row-major caller data.
@@ -498,10 +529,11 @@ namespace pr::physics::atmosphere
 		};
 
 		std::vector<MgLevel> m_levels;
+		v4 m_reservoir_wind;
 		int m_current;
 
 		// Compile kernels and allocate persistent field buffers.
-		Impl(Gpu& gpu, AtmosphereConfig config)
+		Impl(Gpu& gpu, AtmosphereConfig config, IShaderCache* cache)
 			: m_gpu(gpu)
 			, m_config(std::move(config))
 			, m_initialise()
@@ -525,6 +557,7 @@ namespace pr::physics::atmosphere
 			, m_source_sentinel()
 			, m_floor_height()
 			, m_node_sentinel()
+			, m_reservoir_wind(v4::Zero())
 			, m_current(0)
 		{
 			// Validate once before any GPU resources are created.
@@ -533,8 +566,8 @@ namespace pr::physics::atmosphere
 			auto resolver = shader_cache::ResourceSourceResolver{};
 			auto compile = [&](wchar_t const* entry_point)
 			{
-				// Runtime compilation matches the other physics GPU modules and uses the embedded resource resolver.
-				return ShaderCompiler{}.Source("src/atmosphere/atmosphere.hlsl", resolver).HlslVersion(EHlslVersion::Hlsl2021).Define(L"SHADER_BUILD").Optimise(true).ShaderModel(L"cs_6_6").EntryPoint(entry_point).Compile();
+				// Runtime compilation matches the other physics GPU modules and uses the embedded resource resolver. The optional cache skips DXC when the source is unchanged.
+				return ShaderCompiler{}.Source("src/atmosphere/atmosphere.hlsl", resolver).Cache(cache).HlslVersion(EHlslVersion::Hlsl2021).Define(L"SHADER_BUILD").Optimise(true).ShaderModel(L"cs_6_6").EntryPoint(entry_point).Compile();
 			};
 			auto make_step = [&](wchar_t const* entry_point, char const* name)
 			{
@@ -641,24 +674,7 @@ namespace pr::physics::atmosphere
 		{
 			// Multigrid kernels share resources with the main step but use smaller dispatch extents on coarse levels.
 			auto const dispatch = LevelDispatch(level);
-			job.m_cmd_list.SetPipelineState(step.m_pso.get());
-			job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cb);
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_u[dst]->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_v[dst]->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_w[dst]->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_temperature[dst]->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_pressure->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_divergence_buffer->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_residual_buffer->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(m_u[src]->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(m_v[src]->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(m_w[src]->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(m_temperature[src]->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(floor_temp_buffer);
-			job.m_cmd_list.AddComputeRootShaderResourceView(source_buffer);
-			job.m_cmd_list.AddComputeRootShaderResourceView(m_floor_height->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(node_buffer);
+			BindFields(job, step, cb, src, dst, floor_temp_buffer, source_buffer, node_buffer);
 			job.m_cmd_list.Dispatch(dispatch.x, dispatch.y, dispatch.z);
 		}
 
@@ -783,11 +799,23 @@ namespace pr::physics::atmosphere
 			};
 		}
 
-		// Bind the common root layout and dispatch one kernel.
-		void Dispatch(GpuJob& job, ComputeStep& step, CBufAtmosphere const& cb, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS node_buffer)
+		// Transition the fields into the states the common root layout requires, then bind 'step' and its resources.
+		void BindFields(GpuJob& job, ComputeStep& step, CBufAtmosphere const& cb, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS node_buffer)
 		{
+			// The ping-pong fields default to UAV state but 'src' is bound as root SRVs. The barrier batch tracks the current state so repeated transitions are dropped.
+			assert(src != dst && "Ping-pong fields cannot be bound as both input and output");
+			job.m_barriers
+				.Transition(m_u[dst].get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+				.Transition(m_v[dst].get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+				.Transition(m_w[dst].get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+				.Transition(m_temperature[dst].get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+				.Transition(m_u[src].get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+				.Transition(m_v[src].get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+				.Transition(m_w[src].get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+				.Transition(m_temperature[src].get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+				.Commit();
+
 			// Root descriptors use GPU virtual addresses, so no descriptor heap pressure is added by the solver.
-			auto const dispatch = DispatchSize();
 			job.m_cmd_list.SetPipelineState(step.m_pso.get());
 			job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
 			job.m_cmd_list.AddComputeRoot32BitConstants(cb);
@@ -806,6 +834,14 @@ namespace pr::physics::atmosphere
 			job.m_cmd_list.AddComputeRootShaderResourceView(source_buffer);
 			job.m_cmd_list.AddComputeRootShaderResourceView(m_floor_height->GetGPUVirtualAddress());
 			job.m_cmd_list.AddComputeRootShaderResourceView(node_buffer);
+		}
+
+		// Bind the common root layout and dispatch one kernel over the full grid.
+		void Dispatch(GpuJob& job, ComputeStep& step, CBufAtmosphere const& cb, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS node_buffer)
+		{
+			// Full-grid kernels cover every cell and face.
+			auto const dispatch = DispatchSize();
+			BindFields(job, step, cb, src, dst, floor_temp_buffer, source_buffer, node_buffer);
 			job.m_cmd_list.Dispatch(dispatch.x, dispatch.y, dispatch.z);
 		}
 
@@ -827,10 +863,10 @@ namespace pr::physics::atmosphere
 		// Reset velocity to zero, pressure to zero, and temperature to the reference profile.
 		void InitialiseReference(GpuJob& job)
 		{
-			// Both ping-pong buffers are reset so the next Step has no hidden stale state.
+			// Both ping-pong buffers are reset so the next Step has no hidden stale state. The initialise kernel does not read 'src'.
 			auto const empty = AtmosphereStepSources{};
 			auto const cb = Constants(0.0f, empty, 0, 0, 0);
-			Dispatch(job, m_initialise, cb, 0, 0, m_floor_temp_sentinel->GetGPUVirtualAddress(), m_source_sentinel->GetGPUVirtualAddress(), m_node_sentinel->GetGPUVirtualAddress());
+			Dispatch(job, m_initialise, cb, 1, 0,  m_floor_temp_sentinel->GetGPUVirtualAddress(), m_source_sentinel->GetGPUVirtualAddress(), m_node_sentinel->GetGPUVirtualAddress());
 			BarrierFields(job);
 			Dispatch(job, m_initialise, cb, 0, 1, m_floor_temp_sentinel->GetGPUVirtualAddress(), m_source_sentinel->GetGPUVirtualAddress(), m_node_sentinel->GetGPUVirtualAddress());
 			BarrierFields(job);
@@ -848,8 +884,8 @@ namespace pr::physics::atmosphere
 	};
 
 	// Create GPU buffers and initialise the field to the reference profile at rest.
-	AtmosphereSolver::AtmosphereSolver(Gpu& gpu, AtmosphereConfig config)
-		: m_impl(std::make_unique<Impl>(gpu, std::move(config)))
+	AtmosphereSolver::AtmosphereSolver(Gpu& gpu, AtmosphereConfig config, IShaderCache* shader_cache)
+		: m_impl(std::make_unique<Impl>(gpu, std::move(config), shader_cache))
 	{
 		// Construction is fully delegated to the implementation object.
 	}
@@ -1042,6 +1078,7 @@ namespace pr::physics::atmosphere
 		auto src = m_impl->m_current;
 		auto dst = 1 - src;
 		auto cb = m_impl->Constants(dt, sources, isize(sources.m_heat_sources), isize(sources.m_pressure_nodes), 0);
+		m_impl->m_reservoir_wind = sources.m_reservoir_wind;
 		if (dt != 0.0f)
 		{
 			// A zero-duration step is a pure projection of the caller's MAC field; semi-Lagrangian sampling is intentionally skipped because sampling a terrain-following face at its world position is not an exact identity on sloped columns.
@@ -1207,4 +1244,192 @@ namespace pr::physics::atmosphere
 		stats.m_mean_top_temperature = static_cast<float>(top_sum / std::max(1, top_count));
 		return stats;
 	}
+
+	// Private implementation for GPU tracer particles.
+	struct AtmosphereTracers::Impl
+	{
+		AtmosphereSolver& m_solver;
+		Gpu& m_gpu;
+		AtmosphereTracerConfig m_config;
+		ComputeStep m_initialise;
+		ComputeStep m_advect;
+		D3DPtr<ID3D12Resource> m_particles[2];
+		int m_current;
+		uint32_t m_frame;
+
+		// Compile tracer kernels and allocate particle buffers.
+		Impl(AtmosphereSolver& solver, Gpu& gpu, AtmosphereTracerConfig config, IShaderCache* cache)
+			: m_solver(solver)
+			, m_gpu(gpu)
+			, m_config(config)
+			, m_initialise()
+			, m_advect()
+			, m_particles{}
+			, m_current(0)
+			, m_frame(0)
+		{
+			// Tracer state is valid only when its solver and buffers have a defined lifetime.
+			m_config.Validate();
+			auto resolver = shader_cache::ResourceSourceResolver{};
+			auto compile = [&](wchar_t const* entry_point)
+			{
+				// Runtime compilation uses the same embedded source and optional cache as the solver kernels.
+				return ShaderCompiler{}.Source("src/atmosphere/atmosphere.hlsl", resolver).Cache(cache).HlslVersion(EHlslVersion::Hlsl2021).Define(L"SHADER_BUILD").Optimise(true).ShaderModel(L"cs_6_6").EntryPoint(entry_point).Compile();
+			};
+			auto make_step = [&](wchar_t const* entry_point, char const* name)
+			{
+				// The tracer kernels share the atmosphere root layout so they can sample the solver buffers directly.
+				auto step = ComputeStep{};
+				auto code = compile(entry_point);
+				auto sig_name = std::format("Physics.Atmosphere.Tracers.{}.RootSig", name);
+				auto pso_name = std::format("Physics.Atmosphere.Tracers.{}.PSO", name);
+				step.m_sig = RootSig(ERootSigFlags::ComputeOnly)
+					.U32<CBufAtmosphere>(hlsl::ECBufReg::b0)
+					.U32<CBufAtmosphereTracers>(hlsl::ECBufReg::b1)
+					.UAV(hlsl::EUAVReg::u7)
+					.SRV(hlsl::ESRVReg::t0).SRV(hlsl::ESRVReg::t1).SRV(hlsl::ESRVReg::t2).SRV(hlsl::ESRVReg::t3).SRV(hlsl::ESRVReg::t6).SRV(hlsl::ESRVReg::t8)
+					.Create(gpu, sig_name.c_str());
+				step.m_pso = ComputePSO(step.m_sig.get(), code).Create(gpu, pso_name.c_str());
+				return step;
+			};
+
+			// Allocate both ping-pong buffers, then fill them deterministically.
+			m_initialise = make_step(L"CSInitialiseTracers", "Initialise");
+			m_advect = make_step(L"CSAdvectTracers", "Advect");
+			for (int slot = 0; slot != 2; ++slot)
+				m_particles[slot] = CreateBuffer<GpuTracerParticle>(m_gpu, m_gpu.m_job, m_config.m_particle_count, slot == 0 ? "Atmosphere:Tracer0" : "Atmosphere:Tracer1");
+			Initialise(m_gpu.m_job);
+			m_gpu.m_job.RetireRecordedWork();
+		}
+
+		// Build tracer-specific constants while preserving the solver's domain constants.
+		CBufAtmosphereTracers TracerConstants() const
+		{
+			// Tracer constants control deterministic respawn and lifetime.
+			return CBufAtmosphereTracers{ .m_tracer_count = m_config.m_particle_count, .m_tracer_seed = m_config.m_seed, .m_tracer_frame = m_frame, .m_tracer_max_age = m_config.m_max_age };
+		}
+
+		// Bind the shared root layout and dispatch a tracer kernel.
+		void Dispatch(GpuJob& job, ComputeStep& step, CBufAtmosphere const& cb, CBufAtmosphereTracers const& tracer_cb, int src, int dst)
+		{
+			// The solver buffers are read-only here; only the tracer output buffer is written. Transition each binding into the state its root descriptor requires.
+			assert(src != dst && "Ping-pong particles cannot be bound as both input and output");
+			auto const solver_src = m_solver.m_impl->m_current;
+			job.m_barriers
+				.Transition(m_particles[dst].get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+				.Transition(m_particles[src].get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+				.Transition(m_solver.m_impl->m_u[solver_src].get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+				.Transition(m_solver.m_impl->m_v[solver_src].get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+				.Transition(m_solver.m_impl->m_w[solver_src].get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+				.Transition(m_solver.m_impl->m_temperature[solver_src].get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+				.Commit();
+
+			// Bind the shared root layout and dispatch.
+			auto const dispatch_x = (m_config.m_particle_count + AtmosphereTracerThreadGroup - 1) / AtmosphereTracerThreadGroup;
+			job.m_cmd_list.SetPipelineState(step.m_pso.get());
+			job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
+			job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+			job.m_cmd_list.AddComputeRoot32BitConstants(tracer_cb);
+			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_particles[dst]->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_solver.m_impl->m_u[solver_src]->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_solver.m_impl->m_v[solver_src]->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_solver.m_impl->m_w[solver_src]->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_solver.m_impl->m_temperature[solver_src]->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_solver.m_impl->m_floor_height->GetGPUVirtualAddress());
+			job.m_cmd_list.AddComputeRootShaderResourceView(m_particles[src]->GetGPUVirtualAddress());
+			job.m_cmd_list.Dispatch(dispatch_x, 1, 1);
+		}
+
+		// Insert a UAV barrier for the tracer ping-pong buffers.
+		void Barrier(GpuJob& job)
+		{
+			// The next tracer dispatch may read the buffer just written.
+			for (auto const& resource : m_particles)
+				job.m_barriers.UAV(resource.get());
+			job.m_barriers.Commit();
+		}
+
+		// Reset all tracer particles to deterministic domain positions.
+		void Initialise(GpuJob& job)
+		{
+			// Write both slots so the first advect has no hidden dependency on old data. The initialise kernel does not read 'src'.
+			++m_frame;
+			auto cb = m_solver.m_impl->Constants(0.0f, AtmosphereStepSources{}, 0, 0, 0);
+			auto tracer_cb = TracerConstants();
+			Dispatch(job, m_initialise, cb, tracer_cb, 1, 0);
+			Barrier(job);
+			Dispatch(job, m_initialise, cb, tracer_cb, 0, 1);
+			Barrier(job);
+			m_current = 0;
+		}
+	};
+
+	// Create GPU buffers for deterministic tracer particles associated with 'solver'.
+	AtmosphereTracers::AtmosphereTracers(AtmosphereSolver& solver, Gpu& gpu, AtmosphereTracerConfig config, IShaderCache* shader_cache)
+		: m_impl(std::make_unique<Impl>(solver, gpu, config, shader_cache))
+	{
+		// Construction is fully delegated to the implementation object.
+	}
+
+	// Release GPU resources owned by the tracer set.
+	AtmosphereTracers::~AtmosphereTracers() = default;
+
+	// Return the immutable tracer configuration.
+	AtmosphereTracerConfig const& AtmosphereTracers::Config() const
+	{
+		// Expose the validated config for callers and tests.
+		return m_impl->m_config;
+	}
+
+	// Reset all particles to deterministic positions inside the solver domain.
+	void AtmosphereTracers::Initialise(GpuJob& job)
+	{
+		// Queue reset work into the caller-owned job.
+		m_impl->Initialise(job);
+	}
+
+	// Advect all particles through the solver's current velocity and temperature fields.
+	void AtmosphereTracers::Advect(GpuJob& job, float dt)
+	{
+		// Reject invalid integration intervals at the API boundary.
+		if (!std::isfinite(dt) || dt < 0.0f)
+			throw std::invalid_argument("Atmosphere tracer dt must be finite and non-negative");
+
+		// Ping-pong particle state so the kernel reads a stable previous particle set.
+		++m_impl->m_frame;
+		auto src = m_impl->m_current;
+		auto dst = 1 - src;
+		auto cb = m_impl->m_solver.m_impl->Constants(dt, AtmosphereStepSources{ .m_reservoir_wind = m_impl->m_solver.m_impl->m_reservoir_wind }, 0, 0, 0);
+		auto tracer_cb = m_impl->TracerConstants();
+		m_impl->Dispatch(job, m_impl->m_advect, cb, tracer_cb, src, dst);
+		m_impl->Barrier(job);
+		m_impl->m_current = dst;
+	}
+
+	// Read all particles after all previously recorded tracer work in 'job' has completed.
+	std::vector<AtmosphereTracerParticle> AtmosphereTracers::ReadBack(GpuJob& job)
+	{
+		// Copy the current GPU particle buffer to readback memory and synchronise through the supplied job.
+		auto const count = m_impl->m_config.m_particle_count;
+		auto const current = m_impl->m_current;
+		job.m_barriers.Transition(m_impl->m_particles[current].get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+		auto readback = job.m_readback.Alloc<GpuTracerParticle>(count);
+		job.m_cmd_list.CopyBufferRegion(readback, m_impl->m_particles[current].get(), 0);
+		job.m_barriers.Transition(m_impl->m_particles[current].get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+		job.Run();
+
+		// Convert from the shader layout to the public CPU layout.
+		auto particles = std::vector<AtmosphereTracerParticle>(count);
+		auto const* src = readback.ptr<GpuTracerParticle>();
+		for (int i = 0; i != count; ++i)
+		{
+			particles[i] = AtmosphereTracerParticle{
+				.m_position = src[i].m_position,
+				.m_temperature = src[i].m_temperature,
+				.m_age = src[i].m_age,
+			};
+		}
+		return particles;
+	}
+
 }

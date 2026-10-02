@@ -212,12 +212,34 @@ namespace pr::physics::atmosphere
 		float m_peak_vertical_velocity = 0.0f;
 	};
 
+	// Configuration for deterministic GPU tracer particles that follow the atmosphere velocity field.
+	struct AtmosphereTracerConfig
+	{
+		int m_particle_count = 0; // number of tracer particles
+		uint32_t m_seed = 0;      // seed for the deterministic start and respawn positions
+		float m_max_age = 20.0f;  // seconds before a particle respawns, so tracers do not collect in stagnant regions
+
+		// Reject invalid tracer configuration at the caller boundary.
+		void Validate() const;
+	};
+
+	// CPU-visible state for one atmosphere tracer particle.
+	struct AtmosphereTracerParticle
+	{
+		v4 m_position = v4::Origin();
+		float m_temperature = 0.0f;
+		float m_age = 0.0f;
+	};
+
+	class AtmosphereTracers;
+
 	// Standalone GPU atmosphere solver for a terrain-following MAC-grid domain.
 	class AtmosphereSolver
 	{
 	public:
 		// Create GPU buffers and initialise the field to the reference profile at rest.
-		AtmosphereSolver(Gpu& gpu, AtmosphereConfig config);
+		// 'shader_cache' is optional; when given, compiled kernels are reused across runs.
+		AtmosphereSolver(Gpu& gpu, AtmosphereConfig config, IShaderCache* shader_cache = nullptr);
 
 		// Release GPU resources owned by the solver.
 		~AtmosphereSolver();
@@ -245,6 +267,37 @@ namespace pr::physics::atmosphere
 
 		// Return simple CPU diagnostics for a staggered field.
 		AtmosphereFieldStats Stats(AtmosphereState const& state) const;
+
+	private:
+		friend class AtmosphereTracers;
+		struct Impl;
+		std::unique_ptr<Impl> m_impl;
+	};
+
+	// GPU tracer particle set that advects through an AtmosphereSolver field.
+	class AtmosphereTracers
+	{
+	public:
+		// Create GPU buffers for deterministic tracer particles associated with 'solver'.
+		// Tracers that leave the domain re-enter through open sides where the last solver step's reservoir wind flows inward.
+		// Tracers that exceed their maximum age, or leave when no side has inflow, respawn anywhere in the domain.
+		// 'shader_cache' is optional; when given, compiled kernels are reused across runs.
+		AtmosphereTracers(AtmosphereSolver& solver, Gpu& gpu, AtmosphereTracerConfig config, IShaderCache* shader_cache = nullptr);
+
+		// Release GPU resources owned by the tracer set.
+		~AtmosphereTracers();
+
+		// Return the immutable tracer configuration.
+		AtmosphereTracerConfig const& Config() const;
+
+		// Reset all particles to deterministic positions inside the solver domain.
+		void Initialise(GpuJob& job);
+
+		// Advect all particles through the solver's current velocity and temperature fields.
+		void Advect(GpuJob& job, float dt);
+
+		// Read all particles after all previously recorded tracer work in 'job' has completed.
+		std::vector<AtmosphereTracerParticle> ReadBack(GpuJob& job);
 
 	private:
 		struct Impl;

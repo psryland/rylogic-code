@@ -299,7 +299,7 @@
     <ShaderBuild Include="src\compute\articulation_link_proxies.hlsl" ComputeEntryPoints="CSArticulationRefreshProxies" />
     <ShaderBuild Include="src\compute\articulation_midpoint.hlsl" ComputeEntryPoints="CSArticulationMidpoint" />
     <ShaderBuild Include="src\compute\selective.hlsl" ComputeEntryPoints="CSPrepareSelectiveRefresh;CSScoreSelectiveContacts;CSDetectSelectiveRefresh;CSCompactSelectivePairs;CSBuildSelectiveDispatch" />
-    <ShaderBuild Include="src\atmosphere\atmosphere.hlsl" ComputeEntryPoints="CSInitialise;CSAdvect;CSForcesHeat;CSDivergence;CSMgSmooth;CSMgResidual;CSMgRestrict;CSMgProlongate;CSNormalisePressure;CSProject">
+    <ShaderBuild Include="src\atmosphere\atmosphere.hlsl" ComputeEntryPoints="CSInitialise;CSAdvect;CSForcesHeat;CSDivergence;CSMgSmooth;CSMgResidual;CSMgRestrict;CSMgProlongate;CSNormalisePressure;CSProject;CSInitialiseTracers;CSAdvectTracers">
       <StampDir>$(ProjectDir)src\atmosphere\compiled\$(Configuration)\</StampDir>
     </ShaderBuild>
     <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl" ComputeEntryPoints="CSBuoyancyVolumeSamples;CSBuoyancyVolumeReduce;CSBuoyancyDragSurfaceSamples;CSBuoyancyDragSurfaceReduce">

@@ -241,6 +241,179 @@ namespace pr::physics::tests
 		}
 	};
 
+
+	PRUnitTestClass(AtmosphereTracerTests)
+	{
+		// Build a small flat-domain configuration for focused tracer tests.
+		static AtmosphereConfig Config()
+		{
+			// A uniform grid keeps expected motion simple and independent of terrain metrics.
+			return AtmosphereConfig{
+				.m_grid = AtmosphereGrid{ .m_cell_count = iv3{ 8, 8, 4 }, .m_origin = v4::Zero(), .m_dx = 1.0f, .m_lid_z = 4.0f, .m_first_layer_thickness = 1.0f, .m_layer_stretch_power = 1.0f },
+				.m_boundaries = AtmosphereBoundaries{ .m_x_min = EAtmosphereBoundary::Open, .m_x_max = EAtmosphereBoundary::Open, .m_y_min = EAtmosphereBoundary::Open, .m_y_max = EAtmosphereBoundary::Open },
+				.m_reference = AtmosphereReferenceProfile{ .m_temperature_at_origin = 280.0f, .m_lapse_rate = 0.0f, .m_min_temperature = 200.0f },
+				.m_pressure_vcycles = 1,
+				.m_pressure_pre_smooth = 1,
+				.m_pressure_post_smooth = 1,
+				.m_pressure_coarse_smooth = 1,
+			};
+		}
+
+		// Return true when a tracer particle is inside the configured domain.
+		static bool Inside(AtmosphereConfig const& config, AtmosphereTracerParticle const& particle)
+		{
+			// The fixture has a flat floor, so simple box tests match the shader domain test.
+			auto const& grid = config.m_grid;
+			return particle.m_position.x >= grid.m_origin.x && particle.m_position.x <= grid.m_origin.x + grid.m_cell_count.x * grid.m_dx
+				&& particle.m_position.y >= grid.m_origin.y && particle.m_position.y <= grid.m_origin.y + grid.m_cell_count.y * grid.m_dx
+				&& particle.m_position.z >= grid.m_origin.z && particle.m_position.z <= grid.m_lid_z;
+		}
+
+		PRUnitTestMethod(UniformWindAdvectsAndRespawnsDeterministically, Quick)
+		{
+			// A uniform MAC wind should move every non-respawned tracer by the same distance, while short-lived tracers respawn inside the domain deterministically.
+			auto gpu = Gpu{};
+			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTracerTests.UniformWind", 0xFF00AAFF, 1 };
+			auto config = Config();
+			auto solver = AtmosphereSolver{ gpu, config };
+			auto state = AtmosphereState{
+				.m_u_faces = std::vector<float>(config.m_grid.UFaceCount(), 1.0f),
+				.m_v_faces = std::vector<float>(config.m_grid.VFaceCount(), 0.0f),
+				.m_w_faces = std::vector<float>(config.m_grid.WFaceCount(), 0.0f),
+				.m_temperature = std::vector<float>(config.m_grid.CellCount(), 300.0f),
+				.m_pressure = std::vector<float>(config.m_grid.CellCount(), 0.0f),
+			};
+			solver.UploadState(job, state);
+			job.Run();
+
+			auto tracers = AtmosphereTracers{ solver, gpu, AtmosphereTracerConfig{ .m_particle_count = 64, .m_seed = 12345u, .m_max_age = 0.04f } };
+			auto initial = tracers.ReadBack(job);
+			tracers.Advect(job, 0.025f);
+			auto moved = tracers.ReadBack(job);
+			auto moved_count = 0;
+			for (int i = 0; i != isize(moved); ++i)
+			{
+				PR_EXPECT(Inside(config, moved[i]));
+				PR_EXPECT(std::abs(moved[i].m_temperature - 300.0f) < 1.0e-4f);
+				if (moved[i].m_age > 0.0f)
+				{
+					PR_EXPECT(std::abs((moved[i].m_position.x - initial[i].m_position.x) - 0.025f) < 2.0e-3f);
+					++moved_count;
+				}
+			}
+			PR_EXPECT(moved_count > 0);
+
+			tracers.Advect(job, 0.05f);
+			auto respawned = tracers.ReadBack(job);
+			for (auto const& particle : respawned)
+			{
+				PR_EXPECT(Inside(config, particle));
+				PR_EXPECT(particle.m_age == 0.0f);
+			}
+
+			auto tracers_again = AtmosphereTracers{ solver, gpu, AtmosphereTracerConfig{ .m_particle_count = 64, .m_seed = 12345u, .m_max_age = 0.04f } };
+			auto initial_again = tracers_again.ReadBack(job);
+			for (int i = 0; i != isize(initial); ++i)
+			{
+				PR_EXPECT(Length(initial[i].m_position - initial_again[i].m_position) < 1.0e-5f);
+			}
+		}
+
+		PRUnitTestMethod(StretchedSolidBoxWithForcing, Quick)
+		{
+			// A closed box with stretched layers, heat and pressure forcing, and thousands of tracers should keep every tracer inside the domain.
+			auto gpu = Gpu{};
+			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTracerTests.SolidBox", 0xFF00AAFF, 1 };
+			auto const solid = EAtmosphereBoundary::Solid;
+			auto config = AtmosphereConfig{
+				.m_grid = AtmosphereGrid{ .m_cell_count = iv3{ 64, 64, 8 }, .m_origin = v4{ -640.0f, -640.0f, 0.0f, 1.0f }, .m_dx = 20.0f, .m_lid_z = 360.0f, .m_first_layer_thickness = 8.0f, .m_layer_stretch_power = 0.72f },
+				.m_boundaries = AtmosphereBoundaries{ .m_x_min = solid, .m_x_max = solid, .m_y_min = solid, .m_y_max = solid, .m_z_min = solid, .m_z_max = solid },
+				.m_reference = AtmosphereReferenceProfile{ .m_temperature_at_origin = 288.0f, .m_lapse_rate = -0.004f, .m_min_temperature = 250.0f },
+			};
+			auto solver = AtmosphereSolver{ gpu, config };
+			auto tracers = AtmosphereTracers{ solver, gpu, AtmosphereTracerConfig{ .m_particle_count = 4096, .m_seed = 12648430u, .m_max_age = 26.0f } };
+			auto particles = tracers.ReadBack(job);
+
+			auto heat = AtmosphereHeatSource{ .m_centre = v4{ 0.0f, -80.0f, 28.0f, 1.0f }, .m_radius = 95.0f, .m_heating_rate = 28.0f, .m_target_temperature = 306.0f, .m_relaxation_rate = 0.08f };
+			auto nodes = std::array{
+				AtmospherePressureNode{ .m_centre = v2{ -260.0f, -120.0f }, .m_strength = 24.0f, .m_radius = 170.0f, .m_lifetime = 180.0f },
+				AtmospherePressureNode{ .m_centre = v2{ 260.0f, 160.0f }, .m_strength = -22.0f, .m_radius = 160.0f, .m_lifetime = 180.0f },
+			};
+			auto sources = AtmosphereStepSources{ .m_heat_sources = std::span{ &heat, 1 }, .m_pressure_nodes = nodes };
+			for (int i = 0; i != 10; ++i)
+			{
+				// Each step submits solver and tracer work together, as an interactive caller would.
+				solver.Step(job, 1.0f / 60.0f, sources);
+				tracers.Advect(job, 1.0f / 60.0f);
+				particles = tracers.ReadBack(job);
+			}
+			for (auto const& particle : particles)
+				PR_EXPECT(Inside(config, particle));
+		}
+
+		PRUnitTestMethod(ReservoirWindCarriesTracers, Quick)
+		{
+			// A small wind tunnel with open west/east edges should carry tracers downwind at roughly the reservoir wind speed.
+			auto gpu = Gpu{};
+			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTracerTests.WindTunnel", 0xFF00AAFF, 1 };
+			auto const open = EAtmosphereBoundary::Open;
+			auto const solid = EAtmosphereBoundary::Solid;
+			auto config = AtmosphereConfig{
+				.m_grid = AtmosphereGrid{ .m_cell_count = iv3{ 5, 5, 3 }, .m_origin = v4{ -50.0f, -50.0f, 0.0f, 1.0f }, .m_dx = 20.0f, .m_lid_z = 60.0f, .m_first_layer_thickness = 20.0f, .m_layer_stretch_power = 1.0f },
+				.m_boundaries = AtmosphereBoundaries{ .m_x_min = open, .m_x_max = open, .m_y_min = solid, .m_y_max = solid, .m_z_min = solid, .m_z_max = solid },
+				.m_reference = AtmosphereReferenceProfile{ .m_temperature_at_origin = 288.0f, .m_lapse_rate = -0.004f, .m_min_temperature = 250.0f },
+			};
+			auto solver = AtmosphereSolver{ gpu, config };
+			auto tracers = AtmosphereTracers{ solver, gpu, AtmosphereTracerConfig{ .m_particle_count = 512, .m_seed = 12648430u, .m_max_age = 30.0f } };
+			auto const sources = AtmosphereStepSources{ .m_reservoir_wind = v4{ 5.0f, 0.0f, 0.0f, 0.0f } };
+			auto const dt = 1.0f / 60.0f;
+
+			// Let the reservoir wind fill the tunnel before measuring.
+			for (int i = 0; i != 300; ++i)
+			{
+				// Advance the solver and tracers together, as the sandbox does.
+				solver.Step(job, dt, sources);
+				tracers.Advect(job, dt);
+			}
+			auto const before = tracers.ReadBack(job);
+
+			// Advance one second, then compare drift and respawn positions.
+			for (int i = 0; i != 60; ++i)
+			{
+				// Same per-step order as the spin-up.
+				solver.Step(job, dt, sources);
+				tracers.Advect(job, dt);
+			}
+			auto const after = tracers.ReadBack(job);
+			auto drift = 0.0f;
+			auto count = 0;
+			auto respawned = 0;
+			for (int i = 0; i != isize(after); ++i)
+			{
+				// Respawned tracers must have re-entered through the west inflow face, so they can be at most one second of wind downstream of it.
+				PR_EXPECT(Inside(config, after[i]));
+				if (after[i].m_age < before[i].m_age)
+				{
+					PR_EXPECT(after[i].m_position.x < config.m_grid.m_origin.x + 6.0f);
+					++respawned;
+					continue;
+				}
+
+				// Measure drift only for tracers that start in the western half, so none reach the outflow edge.
+				if (before[i].m_position.x >= 0.0f)
+					continue;
+
+				drift += after[i].m_position.x - before[i].m_position.x;
+				++count;
+			}
+			PR_EXPECT(respawned > 0);
+			PR_EXPECT(count > 50);
+			auto const mean_speed = drift / std::max(count, 1);
+			std::printf("Atmosphere wind tunnel tracer speed %f m/s target 5.000000 count %d\n", mean_speed, count);
+			PR_EXPECT(mean_speed > 3.5f && mean_speed < 6.5f);
+		}
+	};
+
 	PRUnitTestClass(AtmosphereTerrainTests)
 	{
 		// Return the large terrain-following fixture used by the domain-scale tests.

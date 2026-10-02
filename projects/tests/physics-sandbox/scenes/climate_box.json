@@ -1,0 +1,55 @@
+{
+	"scene": {
+		"demo": {
+			"command": "climate-box",
+			"name": "Climate Box",
+			"group": "Atmosphere",
+			"order": 0
+		},
+		"description": "GPU atmosphere solver demo: a small wind tunnel with a steady west-to-east reservoir wind carrying tracer particles.",
+		"gravity": [0, 0, 0],
+		"camera": {
+			"position": [60, -230, 150],
+			"lookat": [0, 0, 30]
+		},
+		"atmosphere": {
+			"grid": {
+				"cell_count": [5, 5, 3],
+				"dx": 20.0,
+				"origin": [-50, -50, 0],
+				"lid_z": 60.0,
+				"first_layer_thickness": 20.0,
+				"layer_stretch_power": 1.0
+			},
+			"boundaries": {
+				"x_min": "open", "x_max": "open",
+				"y_min": "solid", "y_max": "solid",
+				"z_min": "solid", "z_max": "solid"
+			},
+			"reference": {
+				"temperature_at_origin": 288.0,
+				"lapse_rate": -0.004,
+				"min_temperature": 250.0
+			},
+			"reservoir": {
+				"wind": [5, 0, 0],
+				"temperature_offset": 0.0
+			},
+			"tracers": {
+				"count": 5120,
+				"seed": 12648430,
+				"max_age": 30.0
+			},
+			"visual": {
+				"temperature_range": [287.0, 289.0],
+				"particle_size": 10.0,
+				"grid_line_limit": 48,
+				"show_grid": true,
+				"show_particles": true,
+				"show_pressure_nodes": true,
+				"show_heat_sources": true
+			}
+		},
+		"bodies": []
+	}
+}
