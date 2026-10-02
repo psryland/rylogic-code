@@ -11,6 +11,30 @@ namespace pr::math::tests
 {
 	PRUnitTestClass(PolynomialUtilTests)
 	{
+		// Return the roots in ascending order
+		static std::vector<double> Sorted(Roots const& roots)
+		{
+			// Order the roots so tests do not depend on solver output order
+			std::vector<double> result(roots.m_root, roots.m_root + roots.m_count);
+			std::sort(result.begin(), result.end());
+			return result;
+		}
+
+		// True if 'actual' and 'expected' have the same length and matching values
+		static bool Near(std::vector<double> const& actual, std::vector<double> const& expected)
+		{
+			// Allow only small rounding errors
+			if (actual.size() != expected.size())
+				return false;
+
+			for (size_t i = 0; i != actual.size(); ++i)
+			{
+				if (Abs(actual[i] - expected[i]) > 1e-9)
+					return false;
+			}
+			return true;
+		}
+
 		PRUnitTestMethod(MonicRoots, Quick)
 		{
 			// Ax + B = 0 => x = -B/A
@@ -100,6 +124,19 @@ namespace pr::math::tests
 			// Verify all roots evaluate to ~0
 			for (int i = 0; i != roots.m_count; ++i)
 				PR_EXPECT(Abs(c.F(roots[i])) < 1e-6);
+
+			// Verify the roots are accurate to near double precision
+			PR_EXPECT(Near(Sorted(roots), { 1, 2, 3 }));
+		}
+
+		PRUnitTestMethod(CubicRepeatedRoot, Quick)
+		{
+			// x³ - 3x + 2 = (x - 1)²(x + 2) has a zero discriminant
+			auto c = Cubic{ 1.0, 0.0, -3.0, 2.0 };
+			PR_EXPECT(Near(Sorted(FindRoots(c)), { -2, 1, 1 }));
+
+			// x³ has a triple root at 0
+			PR_EXPECT(Near(Sorted(FindRoots(Cubic{ 1.0, 0.0, 0.0, 0.0 })), { 0, 0, 0 }));
 		}
 
 		PRUnitTestMethod(CubicEvaluation, Quick)
@@ -112,12 +149,23 @@ namespace pr::math::tests
 
 		PRUnitTestMethod(QuarticRoots, Quick)
 		{
-			// Simple quartic: x⁴ = 0 has root x = 0 (multiplicity 4)
-			auto q1 = Quartic{ 1.0, 0.0, 0.0, 0.0, 0.0 };
-			auto r1 = FindRoots(q1);
-			PR_EXPECT(r1.m_count >= 1);
-			for (int i = 0; i != r1.m_count; ++i)
-				PR_EXPECT(Abs(r1[i]) < 0.01);
+			// x⁴ = 0 has root x = 0 (multiplicity 4)
+			PR_EXPECT(Near(Sorted(FindRoots(Quartic{ 1.0, 0.0, 0.0, 0.0, 0.0 })), { 0, 0, 0, 0 }));
+
+			// x⁴ + 1 = 0 has no real roots
+			PR_EXPECT(FindRoots(Quartic{ 1.0, 0.0, 0.0, 0.0, 1.0 }).m_count == 0);
+
+			// (x² - 1)(x² - 4) has no linear term
+			PR_EXPECT(Near(Sorted(FindRoots(Quartic{ 1.0, 0.0, -5.0, 0.0, 4.0 })), { -2, -1, 1, 2 }));
+
+			// (x - 1)(x - 2)(x - 3)(x - 4) has four distinct real roots
+			PR_EXPECT(Near(Sorted(FindRoots(Quartic{ 1.0, -10.0, 35.0, -50.0, 24.0 })), { 1, 2, 3, 4 }));
+
+			// (x - 1)(x + 2)(x² + 1) has two real roots
+			PR_EXPECT(Near(Sorted(FindRoots(Quartic{ 1.0, 1.0, -1.0, 1.0, -2.0 })), { -2, 1 }));
+
+			// 0x⁴ + (x - 1)(x - 2)(x - 3) is a cubic
+			PR_EXPECT(Near(Sorted(FindRoots(Quartic{ 0.0, 1.0, -6.0, 11.0, -6.0 })), { 1, 2, 3 }));
 		}
 
 		PRUnitTestMethod(StationaryPointsTest, Quick)

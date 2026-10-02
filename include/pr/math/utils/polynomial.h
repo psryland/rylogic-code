@@ -384,6 +384,11 @@ namespace pr::math
 				auto sign2 = Sign(real_s2);
 				real_s2 = sign2 * Cubert(Abs(real_s2));
 			}
+
+			// A zero discriminant means three real roots, with at least two equal
+			if (temp == 0)
+				return Roots(real_s1 + real_s2 - a2 / 3.0, -real_s1 - a2 / 3.0, -real_s1 - a2 / 3.0);
+
 			return Roots(real_s1 + real_s2 - a2 / 3.0f);
 		}
 
@@ -405,7 +410,7 @@ namespace pr::math
 		real_s2 = magnitude * cos(theta);
 		imaginary_s2 = magnitude * sin(theta);
 
-		double const root3_ovr_2 = 0.866025;
+		double const root3_ovr_2 = 0.86602540378443864676;
 		return Roots
 		(
 			real_s1 + real_s2 - a2 / 3.0f,
@@ -415,6 +420,10 @@ namespace pr::math
 	}
 	inline constexpr Roots FindRoots(Quartic const& quartic) noexcept
 	{
+		// Check for degenerate quartic (A == 0)
+		if (Abs(quartic.A) < tiny<double>)
+			return FindRoots(Cubic(quartic.B, quartic.C, quartic.D, quartic.E));
+
 		// See http://forum.swarthmore.edu/dr.math/problems/cowan2.5.27.98.html
 		// Calculate depressed equation (x^4 coefft. = 1, x^3 coefft. = 0) by substituting x = y - b / 4a
 		// See http://www.sosmath.com/algebra/factor/fac12/fac12.html
@@ -427,6 +436,26 @@ namespace pr::math
 			(((quartic.E - (quartic.B * quartic.B * quartic.B * quartic.B * 3.0f / (256.0f * quartic.A * quartic.A * quartic.A))) + (quartic.B * quartic.B * quartic.C / (16.0f * quartic.A * quartic.A))) - (quartic.B * quartic.D / (4.0f * quartic.A))) / quartic.A
 		};
 
+		// Roots of the depressed equation 'y' map back to roots of the quartic by x = y - offset
+		auto offset = quartic.B / (quartic.A * 4.0);
+		auto roots = Roots{};
+
+		// With no linear term, the depressed equation is a quadratic in y², and each non-negative solution gives y = ±sqrt(y²)
+		if (depressed_eqn.D == 0)
+		{
+			auto y2 = FindRoots(Quadratic(1.0, depressed_eqn.C, depressed_eqn.E));
+			for (int i = 0; i != y2.m_count; ++i)
+			{
+				if (y2.m_root[i] < 0)
+					continue;
+
+				auto y = Sqrt(y2.m_root[i]);
+				roots.m_root[roots.m_count++] = +y - offset;
+				roots.m_root[roots.m_count++] = -y - offset;
+			}
+			return roots;
+		}
+
 		// Calculate coefficients. of resolvent cubic equation.
 		Cubic res_cubic =
 		{
@@ -436,39 +465,23 @@ namespace pr::math
 			-depressed_eqn.D * depressed_eqn.D
 		};
 
+		// The product of the resolvent roots is D² > 0, so its largest real root is positive.
 		auto res_cubic_roots = FindRoots(res_cubic);
-		if (res_cubic_roots.m_count == 0)
-			return Roots{ 0 };
+		auto Y = res_cubic_roots.m_root[0];
+		for (int i = 1; i != res_cubic_roots.m_count; ++i)
+			Y = (std::max)(Y, res_cubic_roots.m_root[i]);
 
-		// Find a positive root
-		int n = res_cubic_roots.m_count;
-		while (res_cubic_roots.m_root[--n] < 0.0f)
-		{
-			if (n == 0)
-				return Roots{ 0 };
-		}
-		auto h = Sqrt(res_cubic_roots.m_root[n]);
-		auto j = (depressed_eqn.C + res_cubic_roots.m_root[n] - depressed_eqn.D / h) / 2.0f;
+		// Factor the depressed equation into (y² + hy + j0)(y² - hy + j1), where h² = Y
+		auto h = Sqrt(Y);
+		auto j0 = (depressed_eqn.C + Y - depressed_eqn.D / h) / 2.0;
+		auto j1 = (depressed_eqn.C + Y + depressed_eqn.D / h) / 2.0;
 
-		auto roots = Roots{ 0 };
-		if (h * h - 4.0f * j >= 0.0f)
+		// The quartic's real roots are the real roots of both quadratic factors
+		for (auto const& quad : { Quadratic(1.0, +h, j0), Quadratic(1.0, -h, j1) })
 		{
-			Quadratic quad = { 1.0f, h, j };
 			auto quad_roots = FindRoots(quad);
-			roots.m_count += quad_roots.m_count;
-			roots.m_root[roots.m_count - 1] = quad_roots.m_root[0] - (quartic.B / (quartic.A * 4.0f));
-			roots.m_root[roots.m_count - 2] = quad_roots.m_root[1] - (quartic.B / (quartic.A * 4.0f));
-		}
-
-		h = -h;
-		j = depressed_eqn.E / j;
-		if (h * h - 4.0f * j >= 0.0f)
-		{
-			Quadratic quad = { 1.0f, h, j };
-			auto quad_roots = FindRoots(quad);
-			roots.m_count += quad_roots.m_count;
-			roots.m_root[roots.m_count - 1] = quad_roots.m_root[0] - (quartic.B / (quartic.A * 4.0f));
-			roots.m_root[roots.m_count - 2] = quad_roots.m_root[1] - (quartic.B / (quartic.A * 4.0f));
+			for (int i = 0; i != quad_roots.m_count; ++i)
+				roots.m_root[roots.m_count++] = quad_roots.m_root[i] - offset;
 		}
 		return roots;
 	}
