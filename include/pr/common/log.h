@@ -273,7 +273,9 @@ namespace pr::log
 
 		// A callback function used in immediate mode
 		OutputCB m_output_cb;
-		EMode m_mode;
+
+		// Atomic because 'WriteMode' can be called while other threads are logging
+		std::atomic<EMode> m_mode;
 
 		// The worker thread that forwards log events to the callback function
 		std::thread m_thread;
@@ -468,7 +470,7 @@ namespace pr::log
 	public:
 
 		// Default for disabled logging
-		inline static std::shared_ptr<NullContext> const Instance = {};
+		inline static std::shared_ptr<NullContext> const Instance = std::make_shared<NullContext>();
 
 		// Enable/Disable immediate mode.
 		// In immediate mode, log events are written to 'log_cb' instead of being queued for processing
@@ -582,6 +584,12 @@ namespace pr::log
 
 			log2.Write(ELevel::Debug, "event 1");
 			log2.Flush();
+
+			// An enabled null logger discards events
+			log2.Enabled = true;
+			log2.SharedContext().WriteMode(EMode::Immediate);
+			log2.Write(ELevel::Debug, "event 2");
+			log2.Flush();
 		}
 		{// Single instance
 			str.resize(0);
@@ -599,6 +607,11 @@ namespace pr::log
 			log.Flush();
 			log.Flush();
 			PR_EXPECT(str == "Debug,test: event 1,1\n");
+
+			// Immediate mode writes to the callback before 'Write' returns
+			log.SharedContext().WriteMode(EMode::Immediate);
+			log.Write(ELevel::Info, "event 2");
+			PR_EXPECT(str == "Debug,test: event 1,1\nInfo,test: event 2,1\n");
 		}
 		{// Copied instances
 			str.resize(0);
