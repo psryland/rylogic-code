@@ -299,24 +299,26 @@ namespace pr::math
 				_mm_store_ps(bb.m_radius.arr, radius);
 				return bb;
 			}
-
-			// Explicit components because the generic vector helpers are slow in unoptimised builds.
-			auto const& c = rhs.m_centre;
-			auto const& r = rhs.m_radius;
-			BoundingBox bb;
-			bb.m_centre = Vec4{
-				m.x.x * c.x + m.y.x * c.y + m.z.x * c.z + m.pos.x,
-				m.x.y * c.x + m.y.y * c.y + m.z.y * c.z + m.pos.y,
-				m.x.z * c.x + m.y.z * c.y + m.z.z * c.z + m.pos.z,
-				m.pos.w,
-			};
-			bb.m_radius = Vec4{
-				std::abs(m.x.x) * r.x + std::abs(m.y.x) * r.y + std::abs(m.z.x) * r.z,
-				std::abs(m.x.y) * r.x + std::abs(m.y.y) * r.y + std::abs(m.z.y) * r.z,
-				std::abs(m.x.z) * r.x + std::abs(m.y.z) * r.y + std::abs(m.z.z) * r.z,
-				S(0),
-			};
-			return bb;
+			else
+			{
+				// Explicit components because the generic vector helpers are slow in unoptimised builds.
+				auto const& c = rhs.m_centre;
+				auto const& r = rhs.m_radius;
+				BoundingBox bb;
+				bb.m_centre = Vec4{
+					m.x.x * c.x + m.y.x * c.y + m.z.x * c.z + m.pos.x,
+					m.x.y * c.x + m.y.y * c.y + m.z.y * c.z + m.pos.y,
+					m.x.z * c.x + m.y.z * c.y + m.z.z * c.z + m.pos.z,
+					m.pos.w,
+				};
+				bb.m_radius = Vec4{
+					std::abs(m.x.x) * r.x + std::abs(m.y.x) * r.y + std::abs(m.z.x) * r.z,
+					std::abs(m.x.y) * r.x + std::abs(m.y.y) * r.y + std::abs(m.z.y) * r.z,
+					std::abs(m.x.z) * r.x + std::abs(m.y.z) * r.y + std::abs(m.z.z) * r.z,
+					S(0),
+				};
+				return bb;
+			}
 		}
 		friend BoundingBox pr_vectorcall operator * (Mat3x3<S> const& m, BoundingBox rhs) noexcept
 		{
@@ -343,24 +345,26 @@ namespace pr::math
 				_mm_store_ps(bb.m_radius.arr, radius);
 				return bb;
 			}
-
-			// Explicit components because the generic vector helpers are slow in unoptimised builds.
-			auto const& c = rhs.m_centre;
-			auto const& r = rhs.m_radius;
-			BoundingBox bb;
-			bb.m_centre = Vec4{
-				m.x.x * c.x + m.y.x * c.y + m.z.x * c.z,
-				m.x.y * c.x + m.y.y * c.y + m.z.y * c.z,
-				m.x.z * c.x + m.y.z * c.y + m.z.z * c.z,
-				S(1),
-			};
-			bb.m_radius = Vec4{
-				std::abs(m.x.x) * r.x + std::abs(m.y.x) * r.y + std::abs(m.z.x) * r.z,
-				std::abs(m.x.y) * r.x + std::abs(m.y.y) * r.y + std::abs(m.z.y) * r.z,
-				std::abs(m.x.z) * r.x + std::abs(m.y.z) * r.y + std::abs(m.z.z) * r.z,
-				S(0),
-			};
-			return bb;
+			else
+			{
+				// Explicit components because the generic vector helpers are slow in unoptimised builds.
+				auto const& c = rhs.m_centre;
+				auto const& r = rhs.m_radius;
+				BoundingBox bb;
+				bb.m_centre = Vec4{
+					m.x.x * c.x + m.y.x * c.y + m.z.x * c.z,
+					m.x.y * c.x + m.y.y * c.y + m.z.y * c.z,
+					m.x.z * c.x + m.y.z * c.y + m.z.z * c.z,
+					S(1),
+				};
+				bb.m_radius = Vec4{
+					std::abs(m.x.x) * r.x + std::abs(m.y.x) * r.y + std::abs(m.z.x) * r.z,
+					std::abs(m.x.y) * r.x + std::abs(m.y.y) * r.y + std::abs(m.z.y) * r.z,
+					std::abs(m.x.z) * r.x + std::abs(m.y.z) * r.y + std::abs(m.z.z) * r.z,
+					S(0),
+				};
+				return bb;
+			}
 		}
 		#pragma endregion
 
@@ -472,15 +476,17 @@ namespace pr::math
 		return bbox.m_centre + Sign(separating_axis, false) * bbox.m_radius;
 	}
 
-	// Return the planes of 'BoundingBox'. Returns inward facing planes
-	template <ScalarType S> constexpr std::array<Plane3<S>,6> pr_vectorcall ToPlanes(BoundingBox<S> bbox) noexcept
+	// Return the planes of 'BoundingBox', in 'EBoundingBoxPlane' order. Returns inward facing planes
+	template <ScalarType S> constexpr std::array<Plane3<S>, static_cast<int>(EBoundingBoxPlane::NumberOf)> pr_vectorcall ToPlanes(BoundingBox<S> bbox) noexcept
 	{
-		return std::array<Plane3<S>, EBoundingBoxPlane::NumberOf> {
-			Plane3<S>(+S(1), +S(0), +S(0), bbox.m_centre.x + bbox.m_radius.x),
+		// Each plane is zero on its face, so 'w' is minus the face position along the inward normal.
+		// Lower faces have +ve normals (w = -lower = radius - centre), upper faces have -ve normals (w = upper = centre + radius).
+		return {
+			Plane3<S>(+S(1), +S(0), +S(0), bbox.m_radius.x - bbox.m_centre.x),
 			Plane3<S>(-S(1), +S(0), +S(0), bbox.m_centre.x + bbox.m_radius.x),
-			Plane3<S>(+S(0), +S(1), +S(0), bbox.m_centre.y + bbox.m_radius.y),
+			Plane3<S>(+S(0), +S(1), +S(0), bbox.m_radius.y - bbox.m_centre.y),
 			Plane3<S>(+S(0), -S(1), +S(0), bbox.m_centre.y + bbox.m_radius.y),
-			Plane3<S>(+S(0), +S(0), +S(1), bbox.m_centre.z + bbox.m_radius.z),
+			Plane3<S>(+S(0), +S(0), +S(1), bbox.m_radius.z - bbox.m_centre.z),
 			Plane3<S>(+S(0), +S(0), -S(1), bbox.m_centre.z + bbox.m_radius.z),
 		};
 	}
@@ -717,6 +723,28 @@ namespace pr::math
 			// Support in diagonal direction
 			auto sp3 = SupportPoint(bb, vec4_t(S(1), S(1), S(1), S(0)));
 			PR_EXPECT(sp3.x == S(2) && sp3.y == S(3) && sp3.z == S(4));
+		}
+
+		PRUnitTestMethod(PlanesTest, Quick)
+		{
+			using S = float;
+			using vec4_t = Vec4<S>;
+			using bbox_t = BoundingBox<S>;
+
+			// Use an off-centre box so that errors in the plane offsets are visible
+			auto bb = bbox_t(vec4_t(S(5), S(-6), S(7), S(1)), vec4_t(S(1), S(2), S(3), S(0)));
+			auto lower = bb.Lower();
+			auto upper = bb.Upper();
+
+			// Each face lies on its plane, and the centre is on the inside of every plane
+			PR_EXPECT(FEql(Distance(GetPlane(bb, EBoundingBoxPlane::Lx), lower), S(0)));
+			PR_EXPECT(FEql(Distance(GetPlane(bb, EBoundingBoxPlane::Ux), upper), S(0)));
+			PR_EXPECT(FEql(Distance(GetPlane(bb, EBoundingBoxPlane::Ly), lower), S(0)));
+			PR_EXPECT(FEql(Distance(GetPlane(bb, EBoundingBoxPlane::Uy), upper), S(0)));
+			PR_EXPECT(FEql(Distance(GetPlane(bb, EBoundingBoxPlane::Lz), lower), S(0)));
+			PR_EXPECT(FEql(Distance(GetPlane(bb, EBoundingBoxPlane::Uz), upper), S(0)));
+			for (auto const& plane : ToPlanes(bb))
+				PR_EXPECT(Distance(plane, bb.Centre()) > S(0));
 		}
 
 		PRUnitTestMethod(MakeTest, Quick)
