@@ -1063,7 +1063,9 @@ namespace pr::sqlite
 		Query(Query const&) = delete;
 		Query& operator=(Query&& rhs)
 		{
+			// Release the current statement before taking ownership of 'rhs's
 			if (this == &rhs) return *this;
+			Finalize();
 			m_stmt      = rhs.m_stmt;
 			rhs.m_stmt  = 0;
 			return *this;
@@ -1366,7 +1368,7 @@ namespace pr::sqlite
 		template <typename PKArgs> bool Find(PKArgs const& pks) const
 		{
 			DBRecord item;
-			return Find(pks);
+			return Find(pks, item);
 		}
 
 		// Return the value of a specific column
@@ -2093,6 +2095,29 @@ namespace pr::sqlite
 			Record R;
 			PR_EXPECT( table.Find(PKs(3), R));
 			PR_EXPECT(!table.Find(PKs(6), R));
+			PR_EXPECT( table.Find(PKs(3)));
+			PR_EXPECT(!table.Find(PKs(6)));
+		}
+		PRUnitTestMethod(QueryMoveAssign, Quick)
+		{
+			DB db;
+
+			// Count the statements that have not been finalised
+			auto StmtCount = [&]
+			{
+				auto count = 0;
+				for (auto stmt = sqlite3_next_stmt(db, nullptr); stmt != nullptr; stmt = sqlite3_next_stmt(db, stmt))
+					++count;
+
+				return count;
+			};
+
+			// Assigning over a query finalises its previous statement
+			Query q0(db, "select 1");
+			Query q1(db, "select 2");
+			PR_EXPECT(StmtCount() == 2);
+			q0 = std::move(q1);
+			PR_EXPECT(StmtCount() == 1);
 		}
 		PRUnitTestMethod(Unicode, Quick)
 		{
