@@ -378,29 +378,6 @@ namespace pr::sqlite
 		{
 			return List(cont, sep, value, False<decltype(cont[0])>);
 		}
-
-		// Adds quotes to a string and escapes quotes within the string
-		template <typename TString> static TString Quote(TString str, bool add)
-		{
-			auto q = static_cast<TString::value_type>('\'');
-
-			TString out;
-			out.reserve(str.size() + 10);
-			if (add)
-			{
-				out.append(1,q);
-				for (auto i : str) { if (i == q) { out.append(1,q); } out.append(1,i); }
-				out.append(1,q);
-			}
-			else
-			{
-				bool qlast = false;
-				for (auto i = std::begin(str), iend = std::end(str); i != iend; qlast = *i == q, ++i)
-					if (*i != q || qlast)
-						out.append(1,*i);
-			}
-			return out;
-		}
 	};
 
 	// Return the number of result columns in 'stmt'
@@ -502,7 +479,7 @@ namespace pr::sqlite
 		int res = sqlite3_bind_double(stmt, idx, value);
 		if (res != SQLITE_OK) throw Exception(res, "Failed to bind real", false);
 	}
-	template <typename StrType> inline  void bind_text(sqlite3_stmt* stmt, int idx, StrType value)
+	template <typename StrType> inline  void bind_text(sqlite3_stmt* stmt, int idx, StrType const& value)
 	{
 		struct S
 		{
@@ -510,8 +487,7 @@ namespace pr::sqlite
 			static int bind(sqlite3_stmt* stmt, int idx, wchar_t const* str, size_t len) { return sqlite3_bind_text16(stmt, idx, str, int(len * sizeof(wchar_t)), SQLITE_TRANSIENT); }
 		};
 
-		// Note passing value == 0 will bind null
-		value =  StrHelper::Quote<StrType>(value, true);
+		// Bound parameters are never parsed as SQL, so the text is stored exactly as given
 		int res = S::bind(stmt, idx, value.c_str(), value.size());
 		if (res != SQLITE_OK) throw Exception(res, "Failed to bind text", false);
 	}
@@ -588,7 +564,6 @@ namespace pr::sqlite
 		size_t length = S::len(stmt, col, StrType::value_type());
 		if (ptr == nullptr) return value = StrType();
 		Assign(value, ptr, ptr + length/sizeof(StrType::value_type));
-		value = StrHelper::Quote<StrType>(value, false);
 		return value;
 	}
 	template <typename CharType> inline               CharType* read_text(sqlite3_stmt* stmt, int col, size_t max_length, CharType* value, size_t& length)
@@ -2147,6 +2122,29 @@ namespace pr::sqlite
 
 			std::wstring STR = table.GetColumn<std::wstring>(PKs(row), 1);
 			PR_EXPECT(str == STR);
+		}
+		PRUnitTestMethod(TextIsStoredVerbatim, Quick)
+		{
+			DB db;
+			db.Execute("create table T (x text)");
+
+			// Bound text is stored without added quotes, so SQL functions and comparisons see the real value
+			{
+				Query q(db, "insert into T values (?)");
+				q.Bind(1, std::string{ "it's" });
+				PR_EXPECT(q.Run() == 1);
+			}
+			PR_EXPECT(db.ExecuteScalar("select length(x) from T") == 4);
+			PR_EXPECT(db.ExecuteScalar("select count(*) from T where x = 'it''s'") == 1);
+
+			// Text written by plain SQL reads back unchanged
+			db.Execute("delete from T");
+			db.Execute("insert into T values ('''quoted''')");
+			{
+				Query q(db, "select x from T");
+				std::string value;
+				PR_EXPECT(q.Step() && read_text(q, 0, value) == "'quoted'");
+			}
 		}
 		PRUnitTestMethod(GUIDs, Quick)
 		{
