@@ -326,6 +326,9 @@ namespace pr::str
 						if (r == converter_t::partial)
 							break;
 
+						// The code point is complete, so start the next one with an empty buffer
+						m_buf_count = 0;
+
 						// Emit the canonical escape width so '\u' stays 4 hex digits and '\U' stays 8.
 						char_t code[9] = {};
 						auto const target_width = c32 <= 0xFFFF ? 4U : 8U;
@@ -701,6 +704,10 @@ namespace pr::str
 			test_escape(std::u8string(u8"\u0123"), "\\u0123");
 			test_escape(std::u8string(u8"\u1234"), "\\u1234");
 			test_escape(std::u8string(u8"\U0001F4A9"), "\\U0001f4a9");
+
+			// Consecutive multi-byte characters are each converted from their own code units.
+			// Together these exceed the code unit buffer if it is not emptied after each code point.
+			test_escape(std::u8string(u8"\u00b1\u1234\U0001F4A9\U0001F4A9"), "\\u00b1\\u1234\\U0001f4a9\\U0001f4a9");
 		}
 		PRUnitTestMethod(Unescape, Quick)
 		{
