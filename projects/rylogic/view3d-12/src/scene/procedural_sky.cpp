@@ -4,6 +4,8 @@
 //************************************
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/scene/procedural_sky.h"
+#include "pr/view3d-12/scene/weather_map.h"
+#include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/shaders/shader_forward.h"
 #include "pr/view3d-12/model/model_generator.h"
 #include "pr/view3d-12/model/vertex_layout.h"
@@ -19,7 +21,9 @@ namespace pr::rdr12
 	{
 		sky::CBufProceduralSky m_cbuf;
 		TextureCubePtr m_background;
+		WeatherMapPtr m_weather;
 		::pr::compute::Descriptor m_null_cube;
+		::pr::compute::Descriptor m_null_weather;
 
 		// Use the renderer's build-time shader bytecode and default daylight parameters.
 		explicit ProceduralSkyShader(Renderer& rdr)
@@ -33,26 +37,34 @@ namespace pr::rdr12
 				.world_to_cube = m4x4::Identity(),
 			}
 		{
-			static_assert(sizeof(m_cbuf) == 176);
+			static_assert(sizeof(m_cbuf) == 240);
 			m_code.VS = shader_code::procedural_sky_vs;
 			m_code.PS = shader_code::procedural_sky_ps;
 
-			// Bind a valid null descriptor even when the atmosphere has no source cubemap.
+			// Bind valid null descriptors even when the atmosphere has no source cubemap or weather map.
 			ResourceStore::Access store(rdr);
-			auto desc = D3D12_SHADER_RESOURCE_VIEW_DESC{
+			auto cube_desc = D3D12_SHADER_RESOURCE_VIEW_DESC{
 				.Format = DXGI_FORMAT_R8G8B8A8_UNORM,
 				.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE,
 				.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
 				.TextureCube = { .MostDetailedMip = 0, .MipLevels = 1, .ResourceMinLODClamp = 0 },
 			};
-			m_null_cube = store.Descriptors().Create(nullptr, desc);
+			auto weather_desc = D3D12_SHADER_RESOURCE_VIEW_DESC{
+				.Format = DXGI_FORMAT_R32_FLOAT,
+				.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
+				.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+				.Texture2D = { .MostDetailedMip = 0, .MipLevels = 1, .PlaneSlice = 0, .ResourceMinLODClamp = 0 },
+			};
+			m_null_cube = store.Descriptors().Create(nullptr, cube_desc);
+			m_null_weather = store.Descriptors().Create(nullptr, weather_desc);
 		}
 
-		// Return the owned null view to the store; the texture member releases the retained source independently.
+		// Return the owned null views to the store; the texture members release their sources independently.
 		~ProceduralSkyShader() override
 		{
 			ResourceStore::Access store(rdr());
 			store.Descriptors().Release(m_null_cube);
+			store.Descriptors().Release(m_null_weather);
 		}
 
 		// Bind sky constants and the background without replacing the shared material or reflection descriptors.
@@ -61,10 +73,21 @@ namespace pr::rdr12
 			if (dle == nullptr)
 				return;
 
+			// Read the weather area now, so moving the area takes effect without re-binding the map.
+			m_cbuf.has_weather = m_weather ? 1.0f : 0.0f;
+			m_cbuf.weather_area = m_weather
+				? v4(m_weather->m_area_min.x, m_weather->m_area_min.y, 1.0f / (m_weather->m_area_max.x - m_weather->m_area_min.x), 1.0f / (m_weather->m_area_max.y - m_weather->m_area_min.y))
+				: v4(0, 0, 1, 1);
 			auto gpu_address = upload.Add(m_cbuf, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
 			cmd_list->SetGraphicsRootConstantBufferView(static_cast<UINT>(shaders::fwd::ERootParam::CBufScreenSpace), gpu_address);
-			auto cube = scene.wnd().m_heap_view.Add(m_background ? m_background->m_srv : m_null_cube);
-			cmd_list->SetGraphicsRootDescriptorTable(static_cast<UINT>(shaders::fwd::ERootParam::SkyTexture), cube);
+
+			// The cube and the weather map are a contiguous descriptor table.
+			::pr::compute::Descriptor const descriptors[] = {
+				m_background ? m_background->m_srv : m_null_cube,
+				m_weather ? m_weather->m_tex->m_srv : m_null_weather,
+			};
+			auto table = scene.wnd().m_heap_view.Add(descriptors);
+			cmd_list->SetGraphicsRootDescriptorTable(static_cast<UINT>(shaders::fwd::ERootParam::SkyTexture), table);
 		}
 	};
 
@@ -72,6 +95,9 @@ namespace pr::rdr12
 	ProceduralSky::ProceduralSky(Renderer& rdr)
 		: m_inst()
 		, m_shader()
+		, m_last_time()
+		, m_cloud_offset()
+		, m_cloud_evolve()
 	{
 		// A full-screen triangle covers perspective and orthographic views without cube seams or clip-distance dependence.
 		rdr12::ModelGenerator::Buffers<Vert> buf;
@@ -120,19 +146,58 @@ namespace pr::rdr12
 	}
 
 	// Reject invalid values before modifying the live shader so failed updates leave the previous sky intact.
-	void ProceduralSky::Update(v4 sun_direction, v4 sun_colour, float sun_intensity)
+	void ProceduralSky::Update(ProceduralSkySettings const& settings)
 	{
+		auto sun_direction = settings.m_sun_direction;
+		auto sun_colour = settings.m_sun_colour;
 		sun_direction.w = 0;
 		auto length_sq = LengthSq(sun_direction);
 		if (!std::isfinite(length_sq) || length_sq <= 0 ||
 			!std::isfinite(sun_colour.x) || !std::isfinite(sun_colour.y) || !std::isfinite(sun_colour.z) ||
 			sun_colour.x < 0 || sun_colour.y < 0 || sun_colour.z < 0 ||
-			!std::isfinite(sun_intensity) || sun_intensity < 0)
+			!std::isfinite(settings.m_sun_intensity) || settings.m_sun_intensity < 0)
 			throw std::invalid_argument("Procedural sky requires a finite nonzero sun direction and finite nonnegative colour/intensity");
+		if (!(settings.m_cloud_cover >= 0 && settings.m_cloud_cover <= 1) ||
+			!(settings.m_wind_speed >= 0) || !std::isfinite(settings.m_wind_speed) ||
+			!std::isfinite(settings.m_wind_direction) || !std::isfinite(settings.m_time))
+			throw std::invalid_argument("Procedural sky requires cloud cover in [0,1], a finite nonnegative wind speed, and a finite wind direction and time");
+
+		// Move the clouds by the wind over the elapsed time. The first update, and time going backwards, do not move them.
+		auto dt = m_last_time ? std::max(settings.m_time - *m_last_time, 0.0) : 0.0;
+		m_last_time = settings.m_time;
+		auto wind = v2(std::cos(settings.m_wind_direction), std::sin(settings.m_wind_direction)) * settings.m_wind_speed;
+		v4 const layers[] = { v4(PR_SKY_CLOUD_LAYER0), v4(PR_SKY_CLOUD_LAYER1), v4(PR_SKY_CLOUD_LAYER2) };
+		for (int i = 0; i != 3; ++i)
+		{
+			// Offsets are in noise space and wrapped at the noise period, so they stay precise over long run times.
+			auto& offset = m_cloud_offset[i];
+			auto const& layer = layers[i];
+			auto period = s_cast<double>(PR_SKY_CLOUD_PERIOD);
+			offset.x = s_cast<float>(std::fmod(offset.x + wind.x * layer.w * dt / layer.y + period, period));
+			offset.y = s_cast<float>(std::fmod(offset.y + wind.y * layer.w * dt / layer.z + period, period));
+
+			// Shapes change slowly in still air, and faster in wind: about half a feature's change per feature size travelled.
+			auto evolve_rate = PR_SKY_CLOUD_EVOLVE_RATE + 0.5 * settings.m_wind_speed * layer.w / std::min(layer.y, layer.z);
+			m_cloud_evolve[i] = s_cast<float>(std::fmod(m_cloud_evolve[i] + evolve_rate * dt, s_cast<double>(PR_SKY_CLOUD_EVOLVE_PERIOD)));
+		}
 
 		m_shader->m_cbuf.sun_direction = Normalise(sun_direction);
 		m_shader->m_cbuf.sun_colour = sun_colour;
-		m_shader->m_cbuf.sun_intensity = sun_intensity;
+		m_shader->m_cbuf.sun_intensity = settings.m_sun_intensity;
+		m_shader->m_cbuf.cloud_cover = settings.m_cloud_cover;
+		m_shader->m_cbuf.time = s_cast<float>(std::fmod(settings.m_time, 3600.0));
+		m_shader->m_cbuf.cloud_offset01 = v4(m_cloud_offset[0].x, m_cloud_offset[0].y, m_cloud_offset[1].x, m_cloud_offset[1].y);
+		m_shader->m_cbuf.cloud_offset2 = m_cloud_offset[2];
+		m_shader->m_cbuf.cloud_evolve = v4(m_cloud_evolve[0], m_cloud_evolve[1], m_cloud_evolve[2], 0);
+	}
+
+	// Retain the weather map; the shader reads its area and texture each frame.
+	void ProceduralSky::Weather(WeatherMapPtr weather)
+	{
+		if (weather && weather->m_rdr != &m_shader->rdr())
+			throw std::invalid_argument("The weather map must belong to the same renderer as the sky");
+
+		m_shader->m_weather = std::move(weather);
 	}
 
 	// The shader handles the far plane, while the instance remains at the camera for scene bookkeeping.

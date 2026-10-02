@@ -14,6 +14,7 @@
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/texture/texture_desc.h"
 #include "pr/view3d-12/scene/procedural_sky.h"
+#include "pr/view3d-12/scene/weather_map.h"
 #include "pr/view3d-12/shaders/shader_procedural.h"
 #include "pr/view3d-12/utility/conversion.h"
 #include "view3d-12/src/ldraw/sources/source_base.h"
@@ -724,23 +725,32 @@ namespace pr::rdr12
 	}
 
 	// Create an atmospheric sky without temporary textures or application-owned shader state.
-	ldraw::LdrObject* Context::ObjectCreateProceduralSky(char const* name, v4 sun_direction, v4 sun_colour, float sun_intensity, Guid const* context_id)
+	ldraw::LdrObject* Context::ObjectCreateProceduralSky(char const* name, ProceduralSkySettings const& settings, Guid const* context_id)
 	{
 		// Keep ownership local until parameter validation and resource creation have succeeded.
 		auto sky = std::make_unique<ProceduralSky>(m_rdr);
-		sky->Update(sun_direction, sun_colour, sun_intensity);
+		sky->Update(settings);
 		auto obj = CreateSkyObject(std::move(sky), name, context_id);
 		m_sources.Add(obj);
 		return obj.get();
 	}
 
 	// Update only sun constants; a normal object cannot be reinterpreted as a procedural sky.
-	void Context::ObjectUpdateProceduralSky(ldraw::LdrObject* object, v4 sun_direction, v4 sun_colour, float sun_intensity)
+	void Context::ObjectUpdateProceduralSky(ldraw::LdrObject* object, ProceduralSkySettings const& settings)
 	{
 		if (!object->m_user_data.has<std::unique_ptr<ProceduralSky>>())
 			throw std::invalid_argument("The object is not a procedural sky");
 
-		object->m_user_data.get<std::unique_ptr<ProceduralSky>>()->Update(sun_direction, sun_colour, sun_intensity);
+		object->m_user_data.get<std::unique_ptr<ProceduralSky>>()->Update(settings);
+	}
+
+	// Replace the sky's weather map; a normal object cannot be reinterpreted as a procedural sky.
+	void Context::ObjectProceduralSkyWeatherSet(ldraw::LdrObject* object, WeatherMapPtr weather)
+	{
+		if (!object->m_user_data.has<std::unique_ptr<ProceduralSky>>())
+			throw std::invalid_argument("The object is not a procedural sky");
+
+		object->m_user_data.get<std::unique_ptr<ProceduralSky>>()->Weather(std::move(weather));
 	}
 
 	// Change only the shared sky's blend parameters, retaining the source independently of caller ownership.

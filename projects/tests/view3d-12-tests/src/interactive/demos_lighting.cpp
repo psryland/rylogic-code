@@ -3,6 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
 // Demos of lighting features: shadow mapping, skyboxes, and environment map reflections.
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <format>
@@ -26,6 +27,20 @@ namespace view3d_test
 			auto el = elevation * constants<float>::tau / 360.0f;
 			auto az = azimuth * constants<float>::tau / 360.0f;
 			return view3d::Vec4{ std::cos(el) * std::cos(az), std::cos(el) * std::sin(az), std::sin(el), 0 };
+		}
+
+		// Interpolate each channel of two ARGB colours. 't' is in [0,1].
+		view3d::Colour LerpColour(view3d::Colour a, view3d::Colour b, float t)
+		{
+			// Blend each 8-bit channel independently, rounding to the nearest value
+			auto result = view3d::Colour{};
+			for (int shift = 0; shift != 32; shift += 8)
+			{
+				auto ca = static_cast<float>((a >> shift) & 0xFF);
+				auto cb = static_cast<float>((b >> shift) & 0xFF);
+				result |= static_cast<view3d::Colour>(ca + (cb - ca) * t + 0.5f) << shift;
+			}
+			return result;
 		}
 
 		// A scene of shadow casters on a ground plane, lit by one shadow casting light
@@ -155,6 +170,14 @@ namespace view3d_test
 			Procedural,
 		};
 
+		// The weather map spans this distance (in metres) either side of the origin. It reaches far enough that a storm front first appears on the horizon.
+		constexpr float WeatherHalfSize = 60000.0f;
+
+		// The storm band's width, edge softness, and the time (in seconds) it takes to cross the weather map. The crossing is time-lapsed so it can be watched.
+		constexpr float StormWidth = 40000.0f;
+		constexpr float StormEdge = 15000.0f;
+		constexpr float StormCrossingTime = 90.0f;
+
 		// Cube map and procedural skyboxes, with environment map reflections on a row of spheres
 		struct SkyboxDemo :IDemo
 		{
@@ -163,11 +186,19 @@ namespace view3d_test
 			view3d::Object m_sky;
 			view3d::CubeMapPtr m_env_map;
 			view3d::CubeMapPtr m_sky_env_map;
+			view3d::WeatherMapPtr m_weather;
 			std::vector<view3d::Object> m_balls;
 			std::filesystem::path m_cube_map_faces;
 			ESky m_sky_kind;
+			view3d::Colour m_base_ambient;
 			float m_sun_elevation;
 			float m_sun_azimuth;
+			float m_cloud_cover;
+			float m_wind_speed;
+			float m_wind_direction;
+			float m_storm_progress;
+			double m_time;
+			bool m_storm_front;
 			bool m_reflections;
 			bool m_recapture;
 
@@ -177,11 +208,19 @@ namespace view3d_test
 				, m_sky()
 				, m_env_map()
 				, m_sky_env_map()
+				, m_weather()
 				, m_balls()
 				, m_cube_map_faces(ctx.m_assets / "textures/cubemaps/hanger/hanger-??.jpg")
 				, m_sky_kind(ESky::None)
+				, m_base_ambient(View3D_AmbientGet(ctx.m_window))
 				, m_sun_elevation(30.0f)
 				, m_sun_azimuth(45.0f)
+				, m_cloud_cover(0.4f)
+				, m_wind_speed(20.0f)
+				, m_wind_direction(45.0f)
+				, m_storm_progress(0.0f)
+				, m_time(0.0)
+				, m_storm_front(false)
 				, m_reflections(true)
 				, m_recapture(false)
 			{
@@ -198,6 +237,13 @@ namespace view3d_test
 				};
 				m_env_map.reset(View3D_CubeMapCreateFromUri(m_cube_map_faces.string().c_str(), options));
 				m_sky_env_map.reset(View3D_CubeMapCreate(256));
+
+				// The weather map varies the cloud cover across the sky. Its contents are rebuilt each frame while the storm front moves.
+				m_weather.reset(View3D_WeatherMapCreate(256, 256, view3d::Vec2{ -WeatherHalfSize, -WeatherHalfSize }, view3d::Vec2{ +WeatherHalfSize, +WeatherHalfSize }));
+				if (m_weather == nullptr)
+					throw std::runtime_error("Weather map creation failed");
+
+				RebuildWeather();
 
 				// Spheres of increasing reflectivity show the environment map
 				for (int i = 0; i != 5; ++i)
@@ -241,6 +287,33 @@ namespace view3d_test
 				{
 					SetReflections(on);
 				});
+
+				// Clouds: cover ranges from clear, through white cumulus, to dark storm overcast
+				ui.AddLabel(L"Clouds:");
+				ui.AddSlider(L"Cover", 0, 1, m_cloud_cover, [this](float v)
+				{
+					m_cloud_cover = v;
+					RebuildWeather();
+					UpdateSun();
+				});
+				ui.AddSlider(L"Wind speed (m/s)", 0, 200, m_wind_speed, [this](float v)
+				{
+					m_wind_speed = v;
+					UpdateSun();
+				});
+				ui.AddSlider(L"Wind direction (deg)", 0, 360, m_wind_direction, [this](float v)
+				{
+					m_wind_direction = v;
+					RebuildWeather();
+					UpdateSun();
+				}, 72);
+				ui.AddCheckBox(L"Storm front", m_storm_front, [this](bool on)
+				{
+					m_storm_front = on;
+					m_storm_progress = 0.0f;
+					RebuildWeather();
+					UpdateSun();
+				});
 			}
 			~SkyboxDemo()
 			{
@@ -248,9 +321,19 @@ namespace view3d_test
 				RemoveSky();
 			}
 
-			// Recapture the procedural sky's reflections at most once per frame, however many times the sun moved since the last frame
-			void Step(double) override
+			// Animate the clouds, then recapture the procedural sky's reflections at most once per frame
+			void Step(double dt) override
 			{
+				// The sky integrates the wind over the change in time, and the storm band advances across the weather map, wrapping around
+				m_time += dt;
+				if (m_storm_front)
+				{
+					m_storm_progress = std::fmod(m_storm_progress + static_cast<float>(dt) / StormCrossingTime, 1.0f);
+					RebuildWeather();
+				}
+				if (m_sky_kind == ESky::Procedural && (m_wind_speed != 0 || m_storm_front))
+					UpdateSun();
+
 				// Spheres are hidden during the capture so they do not appear in their own reflections
 				if (!m_recapture)
 					return;
@@ -283,7 +366,10 @@ namespace view3d_test
 					}
 					case ESky::Procedural:
 					{
-						m_sky = View3D_ObjectCreateProceduralSky("sky", SunDirection(m_sun_elevation, m_sun_azimuth), view3d::Vec4{ 1, 0.95f, 0.85f, 1 }, 1.0f, nullptr);
+						m_sky = View3D_ObjectCreateProceduralSky("sky", SkySettings(), nullptr);
+						if (m_sky != nullptr && !View3D_ObjectProceduralSkyWeatherSet(m_sky, m_weather.get()))
+							throw std::runtime_error("Procedural sky weather failed");
+
 						break;
 					}
 					default:
@@ -308,17 +394,75 @@ namespace view3d_test
 				m_sky = nullptr;
 			}
 
-			// Point the main light away from the sun, and move the procedural sky's sun
+			// The unit vector of cloud travel
+			view3d::Vec2 WindDirection() const
+			{
+				// Measured from +X toward +Y, matching the sky's wind direction
+				auto az = m_wind_direction * constants<float>::tau / 360.0f;
+				return view3d::Vec2{ std::cos(az), std::sin(az) };
+			}
+
+			// The procedural sky's settings for the current sun, clouds and time
+			view3d::ProceduralSkySettings SkySettings() const
+			{
+				// The sun colour is fixed; the sky adds sunset colours itself
+				return view3d::ProceduralSkySettings{
+					.m_sun_direction = SunDirection(m_sun_elevation, m_sun_azimuth),
+					.m_sun_colour = view3d::Vec4{ 1, 0.95f, 0.85f, 1 },
+					.m_sun_intensity = 1.0f,
+					.m_cloud_cover = m_cloud_cover,
+					.m_wind_speed = m_wind_speed,
+					.m_wind_direction = m_wind_direction * constants<float>::tau / 360.0f,
+					.m_time = m_time,
+				};
+			}
+
+			// Fill the weather map with the default cover plus some variation, and add the storm band when enabled
+			void RebuildWeather()
+			{
+				// Noise breaks up the uniform cover so the sky has clearer and cloudier regions
+				View3D_WeatherMapFill(m_weather.get(), m_cloud_cover);
+				View3D_WeatherMapAddNoise(m_weather.get(), 15000.0f, 0.15f, 1234);
+
+				// The storm band travels downwind from beyond one edge of the map to beyond the other. The leading front darkens everything
+				// upwind of it, and the trailing front restores the default cover upwind of the band.
+				if (m_storm_front)
+				{
+					auto dir = WindDirection();
+					auto travel = 2.0f * WeatherHalfSize + StormWidth + 2.0f * StormEdge;
+					auto lead = -WeatherHalfSize - StormEdge + m_storm_progress * travel;
+					auto trail = lead - StormWidth;
+					View3D_WeatherMapAddFront(m_weather.get(), view3d::Vec2{ dir.x * lead, dir.y * lead }, dir, StormEdge, 0.95f);
+					View3D_WeatherMapAddFront(m_weather.get(), view3d::Vec2{ dir.x * trail, dir.y * trail }, dir, StormEdge, m_cloud_cover);
+				}
+				View3D_WeatherMapUpload(m_weather.get());
+			}
+
+			// Point the main light away from the sun, dim it under cloud, and update the procedural sky
 			void UpdateSun()
 			{
+				// Only the procedural sky has clouds, so other skies keep the full light
+				auto cover = 0.0f;
+				if (m_sky_kind == ESky::Procedural)
+				{
+					auto c2w = View3D_CameraToWorldGet(m_ctx.m_window);
+					cover = View3D_WeatherMapCoverAt(m_weather.get(), view3d::Vec2{ c2w.w.x, c2w.w.y }, m_cloud_cover);
+				}
+
+				// Thick cloud overhead blocks the direct light, leaving a flat grey ambient
+				auto overcast = std::clamp((cover - 0.4f) / 0.6f, 0.0f, 1.0f);
+				auto ambient = LerpColour(m_base_ambient, 0xFF5A5E64U, overcast);
+				View3D_AmbientSet(m_ctx.m_window, ambient);
+
 				// The light travels from the sun toward the scene
 				auto sun = SunDirection(m_sun_elevation, m_sun_azimuth);
 				demo::EditLight(m_ctx.m_window, 0, [&](view3d::Light& light)
 				{
 					light.m_type = view3d::ELight::Directional;
 					light.m_direction = view3d::Vec4{ -sun.x, -sun.y, -sun.z, 0 };
+					light.m_intensity = 1.0f - 0.85f * overcast;
 				});
-				if (m_sky_kind == ESky::Procedural && !View3D_ObjectUpdateProceduralSky(m_sky, sun, view3d::Vec4{ 1, 0.95f, 0.85f, 1 }, 1.0f))
+				if (m_sky_kind == ESky::Procedural && !View3D_ObjectUpdateProceduralSky(m_sky, SkySettings()))
 					throw std::runtime_error("Procedural sky update failed");
 
 				// The procedural sky's reflections depend on the sun, so they are recaptured whenever it moves

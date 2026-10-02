@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -258,6 +258,12 @@ namespace pr::rdr12
 	struct TextureCube;
 	using Texture2DPtr = RefPtr<Texture2D>;
 	using TextureCubePtr = RefPtr<TextureCube>;
+
+	// Sky
+	struct ProceduralSky;
+	struct ProceduralSkySettings;
+	struct WeatherMap;
+	using WeatherMapPtr = RefPtr<WeatherMap>;
 	    struct AllocPres;
 	    struct ProjectedTexture;
 

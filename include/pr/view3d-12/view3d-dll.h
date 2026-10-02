@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -32,6 +32,7 @@ namespace pr
 		struct TextureCube;
 		struct Sampler;
 		struct Shader;
+		struct WeatherMap;
 
 		namespace ldraw
 		{
@@ -49,6 +50,7 @@ namespace pr
 		using CubeMap = rdr12::TextureCube*;
 		using Sampler = rdr12::Sampler*;
 		using Shader = rdr12::Shader*;
+		using WeatherMap = rdr12::WeatherMap*;
 		using Window = rdr12::V3dWindow*;
 		using Colour = unsigned int;
 
@@ -620,6 +622,21 @@ namespace pr
 		struct Mat4x4
 		{
 			Vec4 x, y, z, w;
+		};
+
+		// Procedural sky state. The sky is Z-up. 'm_sun_direction' points toward the sun; the finite sun colour and intensity must be nonnegative.
+		// 'm_cloud_cover' in [0,1] is the default cover (0 = clear, 0.5 = scattered white cloud, 1 = dark overcast), used where no weather map applies.
+		// 'm_wind_speed' (>= 0, world units per second) and 'm_wind_direction' (radians from +X toward +Y) move the clouds; lower layers move faster.
+		// 'm_time' is the caller's absolute time in seconds; clouds advance by the change in time between updates, and time may not go backwards.
+		struct ProceduralSkySettings
+		{
+			Vec4 m_sun_direction = { 0.5f, 0.3f, 0.8f, 0.0f };
+			Vec4 m_sun_colour = { 1.0f, 0.95f, 0.85f, 1.0f };
+			float m_sun_intensity = 1.0f;
+			float m_cloud_cover = 0.0f;
+			float m_wind_speed = 0.0f;
+			float m_wind_direction = 0.0f;
+			double m_time = 0.0;
 		};
 
 		// Whole-screen underwater post effect. Colours are sRGB ARGB; alpha is ignored.
@@ -1461,16 +1478,43 @@ extern "C"
 	// The sky retains the cube map and uses its orientation (CubeMapOptions::m_cube2w). Object transforms are ignored. Destroy using View3D_ObjectDelete.
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateSkybox(char const* name, pr::view3d::CubeMap cube_map, GUID const* context_id);
 
-	// Create a Z-up GPU atmosphere. Sun direction points toward the sun; finite colour and intensity must be nonnegative.
+	// Create a Z-up GPU atmosphere with clouds and stars. See ProceduralSkySettings for the parameter contract.
 	// Destroy using View3D_ObjectDelete. This object has no reflection cube map and ignores object transforms.
-	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateProceduralSky(char const* name, pr::view3d::Vec4 sun_direction, pr::view3d::Vec4 sun_colour, float sun_intensity, GUID const* context_id);
+	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateProceduralSky(char const* name, pr::view3d::ProceduralSkySettings const& settings, GUID const* context_id);
 
 	// Update an atmosphere on its render owner thread. Returns FALSE on invalid parameters or a non-sky object, without changing the previous sky.
-	VIEW3D_API BOOL __stdcall View3D_ObjectUpdateProceduralSky(pr::view3d::Object object, pr::view3d::Vec4 sun_direction, pr::view3d::Vec4 sun_colour, float sun_intensity);
+	VIEW3D_API BOOL __stdcall View3D_ObjectUpdateProceduralSky(pr::view3d::Object object, pr::view3d::ProceduralSkySettings const& settings);
+
+	// Set the weather map that varies cloud cover across the sky, or null to use only the default cover. The sky retains the map.
+	// Returns FALSE on a non-sky object, without changing the previous weather.
+	VIEW3D_API BOOL __stdcall View3D_ObjectProceduralSkyWeatherSet(pr::view3d::Object object, pr::view3d::WeatherMap weather);
 
 	// Retain and blend a source cube map (0=cubemap, 1=atmosphere). Direction transforms must be finite rotations.
 	// The cubemap's own orientation is composed with world_to_background. Null background requires weight 1. FALSE leaves the sky unchanged.
 	VIEW3D_API BOOL __stdcall View3D_ObjectBlendProceduralSky(pr::view3d::Object object, pr::view3d::CubeMap background, float weight, pr::view3d::Mat4x4 const& world_to_sky, pr::view3d::Mat4x4 const& world_to_background);
+
+	// Create a 'width' x 'height' grid (each in [2,4096]) of cloud cover over the sky-frame XY area [area_min, area_max), initially clear.
+	// Cover fades to the sky's default cover over the outer 10% of the area. Edits apply to the CPU copy; call View3D_WeatherMapUpload to show them.
+	// Release using View3D_WeatherMapRelease. Returns null on failure.
+	VIEW3D_API pr::view3d::WeatherMap __stdcall View3D_WeatherMapCreate(int width, int height, pr::view3d::Vec2 area_min, pr::view3d::Vec2 area_max);
+	VIEW3D_API void __stdcall View3D_WeatherMapRelease(pr::view3d::WeatherMap weather);
+
+	// Move the area the grid covers (e.g. to follow the camera). The grid contents are unchanged.
+	VIEW3D_API void __stdcall View3D_WeatherMapAreaSet(pr::view3d::WeatherMap weather, pr::view3d::Vec2 area_min, pr::view3d::Vec2 area_max);
+
+	// Brushes. Each blends cells toward 'cover' in [0,1]. A storm cell is solid inside 40% of 'radius' and fades to nothing at 'radius'.
+	// A front covers the half-plane behind 'point', where 'travel_direction' points from the covered side to the clear side, with a soft edge 'width' wide.
+	// Noise adds smooth variation in [-amplitude, +amplitude] with feature size 'scale', clamped to [0,1].
+	VIEW3D_API void __stdcall View3D_WeatherMapFill(pr::view3d::WeatherMap weather, float cover);
+	VIEW3D_API void __stdcall View3D_WeatherMapAddStormCell(pr::view3d::WeatherMap weather, pr::view3d::Vec2 centre, float radius, float cover);
+	VIEW3D_API void __stdcall View3D_WeatherMapAddFront(pr::view3d::WeatherMap weather, pr::view3d::Vec2 point, pr::view3d::Vec2 travel_direction, float width, float cover);
+	VIEW3D_API void __stdcall View3D_WeatherMapAddNoise(pr::view3d::WeatherMap weather, float scale, float amplitude, uint32_t seed);
+
+	// Return the cover at 'position', faded to 'default_cover' toward the area edges, matching what the sky renders. Returns 'default_cover' on failure.
+	VIEW3D_API float __stdcall View3D_WeatherMapCoverAt(pr::view3d::WeatherMap weather, pr::view3d::Vec2 position, float default_cover);
+
+	// Copy the CPU grid to the GPU so later frames show the edits.
+	VIEW3D_API void __stdcall View3D_WeatherMapUpload(pr::view3d::WeatherMap weather);
 
 	// Create an ldr object using a callback to populate the model data.
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateWithCallback(char const* name, pr::view3d::Colour colour, int vcount, int icount, int ncount, pr::view3d::EditObjectCB edit_cb, GUID const& context_id);
@@ -1807,6 +1851,7 @@ namespace pr::view3d
 			void operator()(CubeMap p) noexcept { if (p) View3D_CubeMapRelease(p); }
 			void operator()(Sampler p) noexcept { if (p) View3D_SamplerRelease(p); }
 			void operator()(Shader p) noexcept { if (p) View3D_ShaderRelease(p); }
+			void operator()(WeatherMap p) noexcept { if (p) View3D_WeatherMapRelease(p); }
 			void operator()(Window p) noexcept { if (p) View3D_WindowDestroy(p); }
 		};
 	}
@@ -1817,5 +1862,6 @@ namespace pr::view3d
 	using CubeMapPtr = std::unique_ptr<rdr12::TextureCube, impl::Deleter>;
 	using SamplerPtr = std::unique_ptr<rdr12::Sampler, impl::Deleter>;
 	using ShaderPtr  = std::unique_ptr<rdr12::Shader, impl::Deleter>;
+	using WeatherMapPtr = std::unique_ptr<rdr12::WeatherMap, impl::Deleter>;
 	using WindowPtr  = std::unique_ptr<rdr12::V3dWindow, impl::Deleter>;
 }

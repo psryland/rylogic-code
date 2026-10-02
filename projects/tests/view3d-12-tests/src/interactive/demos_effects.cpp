@@ -110,7 +110,7 @@ namespace view3d_test
 				// Fading objects should blend into the sky as well as into the background colour
 				if (on && m_sky == nullptr)
 				{
-					m_sky = View3D_ObjectCreateProceduralSky("sky", { 0.5f, 0.3f, 0.8f, 0 }, { 1, 0.95f, 0.85f, 1 }, 1, nullptr);
+					m_sky = View3D_ObjectCreateProceduralSky("sky", view3d::ProceduralSkySettings{}, nullptr);
 					View3D_WindowAddObject(m_ctx.m_window, m_sky);
 				}
 				else if (!on && m_sky != nullptr)

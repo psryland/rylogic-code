@@ -1912,7 +1912,7 @@ namespace fade_tests
 		// Background and retained final overlays stay outside the world fade.
 		std::cout << "Background and UI" << std::endl;
 		fixture.Clear();
-		auto procedural_sky = View3D_ObjectCreateProceduralSky("FadeProceduralSky", {0.5f,0.3f,0.8f,0}, {1,0.95f,0.85f,1}, 1, nullptr);
+		auto procedural_sky = View3D_ObjectCreateProceduralSky("FadeProceduralSky", api::ProceduralSkySettings{}, nullptr);
 		Require(procedural_sky != nullptr, "Procedural sky creation failed");
 		fixture.m_objects.push_back(procedural_sky);
 		Require(View3D_ObjectSortGroupGet(procedural_sky, nullptr) == api::ESortGroup::Skybox, "Procedural sky lost its background classification");
@@ -2184,7 +2184,7 @@ namespace fade_tests
 			fixture.Fade(true);
 
 			// Sky creation and repeated toggling must preserve its exclusion with populated draw lists.
-			auto sky = View3D_ObjectCreateProceduralSky("HandoffSky", {0.5f,0.3f,0.8f,0}, {1,0.95f,0.85f,1}, 1, nullptr);
+			auto sky = View3D_ObjectCreateProceduralSky("HandoffSky", api::ProceduralSkySettings{}, nullptr);
 			Require(sky != nullptr, "Handoff sky creation failed");
 			fixture.m_objects.push_back(sky);
 			View3D_WindowAddObject(fixture.m_window, sky);

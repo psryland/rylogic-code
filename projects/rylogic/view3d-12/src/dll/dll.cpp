@@ -21,6 +21,8 @@
 #include "pr/view3d-12/texture/texture_desc.h"
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/texture/texture_cube.h"
+#include "pr/view3d-12/scene/procedural_sky.h"
+#include "pr/view3d-12/scene/weather_map.h"
 #include "pr/view3d-12/sampler/sampler_desc.h"
 #include "pr/view3d-12/sampler/sampler.h"
 #include "pr/view3d-12/shaders/shader_procedural.h"
@@ -2310,28 +2312,149 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateSkybox(char const* name, 
 	CatchAndReport(View3D_ObjectCreateSkybox, , {});
 }
 
+// Convert the DLL sky settings to the renderer's settings.
+static rdr12::ProceduralSkySettings ToSkySettings(view3d::ProceduralSkySettings const& s)
+{
+	// Copy field by field because the DLL vector types differ from the renderer's
+	return rdr12::ProceduralSkySettings{
+		.m_sun_direction = To<v4>(s.m_sun_direction),
+		.m_sun_colour = To<v4>(s.m_sun_colour),
+		.m_sun_intensity = s.m_sun_intensity,
+		.m_cloud_cover = s.m_cloud_cover,
+		.m_wind_speed = s.m_wind_speed,
+		.m_wind_direction = s.m_wind_direction,
+		.m_time = s.m_time,
+	};
+}
+
 // Create a shared GPU atmosphere with ordinary View3D object ownership.
-VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateProceduralSky(char const* name, view3d::Vec4 sun_direction, view3d::Vec4 sun_colour, float sun_intensity, GUID const* context_id)
+VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateProceduralSky(char const* name, view3d::ProceduralSkySettings const& settings, GUID const* context_id)
 {
 	try
 	{
 		DllLockGuard;
-		return Dll().ObjectCreateProceduralSky(name, To<v4>(sun_direction), To<v4>(sun_colour), sun_intensity, context_id);
+		return Dll().ObjectCreateProceduralSky(name, ToSkySettings(settings), context_id);
 	}
 	CatchAndReport(View3D_ObjectCreateProceduralSky, , {});
 }
 
 // Report update failure explicitly so managed callers cannot mistake rejected parameters for success.
-VIEW3D_API BOOL __stdcall View3D_ObjectUpdateProceduralSky(view3d::Object object, view3d::Vec4 sun_direction, view3d::Vec4 sun_colour, float sun_intensity)
+VIEW3D_API BOOL __stdcall View3D_ObjectUpdateProceduralSky(view3d::Object object, view3d::ProceduralSkySettings const& settings)
 {
 	try
 	{
 		Validate(object);
 		DllLockGuard;
-		Dll().ObjectUpdateProceduralSky(object, To<v4>(sun_direction), To<v4>(sun_colour), sun_intensity);
+		Dll().ObjectUpdateProceduralSky(object, ToSkySettings(settings));
 		return TRUE;
 	}
 	CatchAndReport(View3D_ObjectUpdateProceduralSky, , FALSE);
+}
+
+// Attach or detach a weather map. The sky takes its own reference.
+VIEW3D_API BOOL __stdcall View3D_ObjectProceduralSkyWeatherSet(view3d::Object object, view3d::WeatherMap weather)
+{
+	try
+	{
+		Validate(object);
+		DllLockGuard;
+		Dll().ObjectProceduralSkyWeatherSet(object, rdr12::WeatherMapPtr(weather, true));
+		return TRUE;
+	}
+	CatchAndReport(View3D_ObjectProceduralSkyWeatherSet, , FALSE);
+}
+
+// Create a weather map. The caller owns the returned reference.
+VIEW3D_API view3d::WeatherMap __stdcall View3D_WeatherMapCreate(int width, int height, view3d::Vec2 area_min, view3d::Vec2 area_max)
+{
+	try
+	{
+		DllLockGuard;
+		auto weather = rdr12::WeatherMapPtr(new rdr12::WeatherMap(Dll().m_rdr, width, height, To<v2>(area_min), To<v2>(area_max)), true);
+		return weather.release();
+	}
+	CatchAndReport(View3D_WeatherMapCreate, , nullptr);
+}
+VIEW3D_API void __stdcall View3D_WeatherMapRelease(view3d::WeatherMap weather)
+{
+	try
+	{
+		// Release is idempotent
+		if (!weather) return;
+		DllLockGuard;
+		weather->Release();
+	}
+	CatchAndReport(View3D_WeatherMapRelease, , );
+}
+VIEW3D_API void __stdcall View3D_WeatherMapAreaSet(view3d::WeatherMap weather, view3d::Vec2 area_min, view3d::Vec2 area_max)
+{
+	try
+	{
+		Validate(weather);
+		DllLockGuard;
+		weather->Area(To<v2>(area_min), To<v2>(area_max));
+	}
+	CatchAndReport(View3D_WeatherMapAreaSet, , );
+}
+VIEW3D_API void __stdcall View3D_WeatherMapFill(view3d::WeatherMap weather, float cover)
+{
+	try
+	{
+		Validate(weather);
+		DllLockGuard;
+		weather->Fill(cover);
+	}
+	CatchAndReport(View3D_WeatherMapFill, , );
+}
+VIEW3D_API void __stdcall View3D_WeatherMapAddStormCell(view3d::WeatherMap weather, view3d::Vec2 centre, float radius, float cover)
+{
+	try
+	{
+		Validate(weather);
+		DllLockGuard;
+		weather->AddStormCell(To<v2>(centre), radius, cover);
+	}
+	CatchAndReport(View3D_WeatherMapAddStormCell, , );
+}
+VIEW3D_API void __stdcall View3D_WeatherMapAddFront(view3d::WeatherMap weather, view3d::Vec2 point, view3d::Vec2 travel_direction, float width, float cover)
+{
+	try
+	{
+		Validate(weather);
+		DllLockGuard;
+		weather->AddFront(To<v2>(point), To<v2>(travel_direction), width, cover);
+	}
+	CatchAndReport(View3D_WeatherMapAddFront, , );
+}
+VIEW3D_API void __stdcall View3D_WeatherMapAddNoise(view3d::WeatherMap weather, float scale, float amplitude, uint32_t seed)
+{
+	try
+	{
+		Validate(weather);
+		DllLockGuard;
+		weather->AddNoise(scale, amplitude, seed);
+	}
+	CatchAndReport(View3D_WeatherMapAddNoise, , );
+}
+VIEW3D_API float __stdcall View3D_WeatherMapCoverAt(view3d::WeatherMap weather, view3d::Vec2 position, float default_cover)
+{
+	try
+	{
+		Validate(weather);
+		DllLockGuard;
+		return weather->CoverAt(To<v2>(position), default_cover);
+	}
+	CatchAndReport(View3D_WeatherMapCoverAt, , default_cover);
+}
+VIEW3D_API void __stdcall View3D_WeatherMapUpload(view3d::WeatherMap weather)
+{
+	try
+	{
+		Validate(weather);
+		DllLockGuard;
+		weather->Upload();
+	}
+	CatchAndReport(View3D_WeatherMapUpload, , );
 }
 
 // Blend a retained source cubemap and independent direction frames into an existing atmosphere.
