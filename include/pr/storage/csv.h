@@ -13,6 +13,9 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include <algorithm>
+#include <stdexcept>
+#include <sstream>
 #include <iostream>
 #include <fstream>
 #include <cassert>
@@ -214,6 +217,10 @@ namespace pr::csv
 			// Expect the quoted string to be closed
 			if (!esc) // i.e. we should've seen one '"' followed by not '"' or eof
 				throw std::runtime_error("incomplete CSV item");
+
+			// Only a delimiter or the end of the data may follow the closing quote
+			if (s.good() && ch != ',' && ch != '\n')
+				throw std::runtime_error("unexpected character after closing quote in CSV item");
 		}
 
 		// Read to the next ',' or '\n'
@@ -452,6 +459,27 @@ namespace pr::storage
 
 			// Characters trailing the closing quote are not valid CSV and should still be rejected.
 			PR_THROWS(UnescapeString("\"a\"x"), std::exception);
+		}
+		PRUnitTestMethod(ReadQuotedItemTerminator, Quick)
+		{
+			using namespace pr::csv;
+
+			// A closing quote followed by a delimiter or the end of the data is valid
+			{
+				std::stringstream ss("\"a\",\"b\"\n\"c\"");
+				Csv csv;
+				PR_EXPECT(Read(ss, csv));
+				PR_EXPECT(csv.size() == 2U);
+				PR_EXPECT(csv[0].size() == 2U && csv[0][0] == "a" && csv[0][1] == "b");
+				PR_EXPECT(csv[1].size() == 1U && csv[1][0] == "c");
+			}
+
+			// Characters after the closing quote are rejected rather than appended to the item
+			{
+				std::stringstream ss("\"a\"x,b");
+				Str item;
+				PR_THROWS(Read(ss, item), std::exception);
+			}
 		}
 		PRUnitTestMethod(BasicCSV, Stress)
 		{
