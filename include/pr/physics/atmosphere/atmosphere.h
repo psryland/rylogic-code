@@ -31,6 +31,14 @@ namespace pr::physics::atmosphere
 		void Validate() const;
 	};
 
+	// Air outside one boundary column. Where its wind blows into the domain through an open side, it sets the inflow wind and temperature.
+	// Where its wind blows out of the domain, the inside air leaves freely.
+	struct AtmosphereOutsideAir
+	{
+		v2 m_wind = v2::Zero();            // horizontal wind of the outside air, m/s
+		float m_temperature_offset = 0.0f; // outside air temperature relative to the reference profile, K
+	};
+
 	// Grid dimensions and terrain-following metric conversion for the atmosphere solver.
 	struct AtmosphereGrid
 	{
@@ -68,6 +76,13 @@ namespace pr::physics::atmosphere
 
 		// Return the packed column index for 'cell'.
 		int ColumnIndex(iv2 cell) const;
+
+		// Return the number of boundary columns. Each side has one boundary column per grid column along it, packed in this order:
+		// the x- side by y, the x+ side by y, the y- side by x, then the y+ side by x.
+		int BoundaryColumnCount() const;
+
+		// Build outside air for every boundary column by sampling a caller-owned function at the centre of each column's outside face.
+		std::vector<AtmosphereOutsideAir> BuildOutsideAir(std::function<AtmosphereOutsideAir(v2)> const& outside_air_function) const;
 
 		// Return the packed cell-centre index for 'cell'.
 		int CellIndex(iv3 cell) const;
@@ -127,11 +142,18 @@ namespace pr::physics::atmosphere
 		float m_floor_exchange_rate = 0.0f;
 		float m_lid_temperature = 270.0f;
 		float m_lid_relaxation_rate = 0.0f;
-		float m_surface_forcing_height = 600.0f;
 		int m_pressure_vcycles = 3;
 		int m_pressure_pre_smooth = 4;
 		int m_pressure_post_smooth = 4;
 		int m_pressure_coarse_smooth = 96;
+
+		// Width, in columns, of the band inside each open side where the wind is nudged toward the inflowing outside air.
+		// The nudge is strongest at the side and fades to zero across the band. Zero applies the outside wind at the boundary faces only.
+		int m_open_edge_band = 8;
+
+		// Strength of the force that restores small swirls lost to numerical smoothing, 1/s. The added acceleration is this value times
+		// the cell size times the local swirl rate, pushed toward the swirl centre. Zero disables it.
+		float m_vorticity_confinement = 0.0f;
 
 		// Reject invalid solver configuration at the caller boundary.
 		void Validate() const;
@@ -147,42 +169,16 @@ namespace pr::physics::atmosphere
 		float m_relaxation_rate = 0.0f;
 	};
 
-	// One large-scale pressure node used to build the forcing surface.
-	struct AtmospherePressureNode
-	{
-		v2 m_centre = v2::Zero();
-		v2 m_drift = v2::Zero();
-		float m_strength = 0.0f;
-		float m_radius = 1.0f;
-		float m_age = 0.0f;
-		float m_lifetime = 1.0f;
-		float m_growth_rate = 0.0f;
-		float m_temperature_offset = 0.0f;
-	};
-
-	// Deterministic pressure-node state that callers can copy into their own save format.
-	struct AtmospherePressureForcingState
-	{
-		uint32_t m_seed = 0;
-		float m_time_s = 0.0f;
-		std::vector<AtmospherePressureNode> m_nodes;
-
-		// Build a deterministic initial node set from a seed.
-		static AtmospherePressureForcingState Create(uint32_t seed, int node_count, float domain_radius, float pressure_scale, float temperature_scale);
-
-		// Advance nodes deterministically without sampling external state.
-		void Evolve(float dt, float domain_radius, float pressure_scale, float temperature_scale);
-	};
-
 	// Per-step forcing and heat data supplied by the caller.
 	struct AtmosphereStepSources
 	{
 		std::span<AtmosphereHeatSource const> m_heat_sources = {};
 		std::span<float const> m_floor_temperatures = {};
-		std::span<AtmospherePressureNode const> m_pressure_nodes = {};
 		float m_uniform_floor_temperature = 288.0f;
-		v4 m_reservoir_wind = v4::Zero();
-		float m_reservoir_temperature_offset = 0.0f;
+
+		// Air outside the open sides; it drives large-scale wind through the domain. Either empty, for calm outside air at the
+		// reference temperature, or one entry per boundary column (see AtmosphereGrid::BoundaryColumnCount and BuildOutsideAir).
+		std::span<AtmosphereOutsideAir const> m_outside_air = {};
 	};
 
 	// Full staggered MAC field state. U, V, and W are stored on x, y, and z faces; temperature and pressure are stored at cell centres.
@@ -279,7 +275,7 @@ namespace pr::physics::atmosphere
 	{
 	public:
 		// Create GPU buffers for deterministic tracer particles associated with 'solver'.
-		// Tracers that leave the domain re-enter through open sides where the last solver step's reservoir wind flows inward.
+		// Tracers that leave the domain re-enter through open sides where the solved wind flows inward, roughly in proportion to the local inflow.
 		// Tracers that exceed their maximum age, or leave when no side has inflow, respawn anywhere in the domain.
 		// 'shader_cache' is optional; when given, compiled kernels are reused across runs.
 		AtmosphereTracers(AtmosphereSolver& solver, Gpu& gpu, AtmosphereTracerConfig config, IShaderCache* shader_cache = nullptr);

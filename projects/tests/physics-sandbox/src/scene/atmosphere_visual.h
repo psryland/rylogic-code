@@ -21,7 +21,6 @@ namespace physics_sandbox
 		bool m_gfx_stale; // True when 'm_gfx' must be rebuilt at the next AddToScene
 		bool m_show_grid;
 		bool m_show_particles;
-		bool m_show_pressure_nodes;
 
 		// Create the solver, tracer set, and initial diagnostic geometry on 'device', using a separate command queue so atmosphere work does not
 		// interleave with physics steps that are still in flight. 'shader_cache' must outlive this object.
@@ -39,17 +38,11 @@ namespace physics_sandbox
 		// Toggle tracer particle rendering.
 		void ShowParticles(bool show);
 
-		// Toggle pressure-node rendering.
-		void ShowPressureNodes(bool show);
-
 		// Return true when the grid overlay is enabled.
 		bool ShowGrid() const;
 
 		// Return true when tracer particle rendering is enabled.
 		bool ShowParticles() const;
-
-		// Return true when pressure-node rendering is enabled.
-		bool ShowPressureNodes() const;
 
 	private:
 		// Rebuild the LDraw diagnostic overlay from the latest CPU-visible state.

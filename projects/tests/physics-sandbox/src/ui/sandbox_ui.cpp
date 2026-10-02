@@ -26,6 +26,10 @@ namespace physics_sandbox
 					MenuItem(L"&Volume samples", MenuID::VolumeSamples),
 					MenuItem(L"Sleeping-body &transparency", MenuID::SleepingTransparency, MenuItem::EState::Checked),
 				})),
+				MenuItem(L"&Atmosphere", Menu(Menu::EKind::Popup, {
+					MenuItem(L"&Grid", MenuID::AtmosphereGrid),
+					MenuItem(L"&Particles", MenuID::AtmosphereParticles),
+				})),
 				MenuItem(MenuItem::Separator),
 				MenuItem(L"&Details panel\tD", MenuID::DetailsPanel),
 			});
@@ -56,10 +60,8 @@ namespace physics_sandbox
 			auto const has_atmosphere = scene.m_atmosphere_gfx != nullptr;
 			::EnableMenuItem(atmosphere_menu, MenuID::AtmosphereGrid, MF_BYCOMMAND | (has_atmosphere ? MF_ENABLED : MF_GRAYED));
 			::EnableMenuItem(atmosphere_menu, MenuID::AtmosphereParticles, MF_BYCOMMAND | (has_atmosphere ? MF_ENABLED : MF_GRAYED));
-			::EnableMenuItem(atmosphere_menu, MenuID::AtmospherePressureNodes, MF_BYCOMMAND | (has_atmosphere ? MF_ENABLED : MF_GRAYED));
 			::CheckMenuItem(atmosphere_menu, MenuID::AtmosphereGrid, MF_BYCOMMAND | (has_atmosphere && scene.m_atmosphere_gfx->ShowGrid() ? MF_CHECKED : MF_UNCHECKED));
 			::CheckMenuItem(atmosphere_menu, MenuID::AtmosphereParticles, MF_BYCOMMAND | (has_atmosphere && scene.m_atmosphere_gfx->ShowParticles() ? MF_CHECKED : MF_UNCHECKED));
-			::CheckMenuItem(atmosphere_menu, MenuID::AtmospherePressureNodes, MF_BYCOMMAND | (has_atmosphere && scene.m_atmosphere_gfx->ShowPressureNodes() ? MF_CHECKED : MF_UNCHECKED));
 		}
 
 		// Build behavior-oriented submenus from the runtime-discovered JSON demonstration catalogue.
@@ -404,16 +406,14 @@ namespace physics_sandbox
 			}
 
 			// Atmosphere overlays are independent diagnostics for the loaded climate scene.
-			if (id == MenuID::AtmosphereGrid || id == MenuID::AtmosphereParticles || id == MenuID::AtmospherePressureNodes)
+			if (id == MenuID::AtmosphereGrid || id == MenuID::AtmosphereParticles)
 			{
 				if (m_scene.m_atmosphere_gfx != nullptr)
 				{
 					if (id == MenuID::AtmosphereGrid)
 						m_scene.m_atmosphere_gfx->ShowGrid(!m_scene.m_atmosphere_gfx->ShowGrid());
-					else if (id == MenuID::AtmosphereParticles)
-						m_scene.m_atmosphere_gfx->ShowParticles(!m_scene.m_atmosphere_gfx->ShowParticles());
 					else
-						m_scene.m_atmosphere_gfx->ShowPressureNodes(!m_scene.m_atmosphere_gfx->ShowPressureNodes());
+						m_scene.m_atmosphere_gfx->ShowParticles(!m_scene.m_atmosphere_gfx->ShowParticles());
 				}
 				UpdateVisualModeMenu();
 				Render(0);

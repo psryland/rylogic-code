@@ -6,19 +6,19 @@
 			"group": "Atmosphere",
 			"order": 0
 		},
-		"description": "GPU atmosphere solver demo: a small wind tunnel with a steady west-to-east reservoir wind carrying tracer particles.",
+		"description": "GPU atmosphere solver demo: a shallow wind tunnel with opposing outside winds, west-to-east on the near (south) side and east-to-west on the far (north) side. Small random inflow noise seeds the shear instability so vortices roll up along the centre line.",
 		"gravity": [0, 0, 0],
 		"camera": {
-			"position": [60, -230, 150],
-			"lookat": [0, 0, 30]
+			"position": [0, -300, 320],
+			"lookat": [0, 0, 0]
 		},
 		"atmosphere": {
 			"grid": {
-				"cell_count": [5, 5, 3],
-				"dx": 20.0,
-				"origin": [-50, -50, 0],
-				"lid_z": 60.0,
-				"first_layer_thickness": 20.0,
+				"cell_count": [64, 64, 4],
+				"dx": 5.0,
+				"origin": [-160, -160, 0],
+				"lid_z": 20.0,
+				"first_layer_thickness": 5.0,
 				"layer_stretch_power": 1.0
 			},
 			"boundaries": {
@@ -31,12 +31,14 @@
 				"lapse_rate": -0.004,
 				"min_temperature": 250.0
 			},
-			"reservoir": {
-				"wind": [5, 0, 0],
-				"temperature_offset": 0.0
-			},
+			"open_edge_band": 4,
+			"vorticity_confinement": 0.3,
+			"outside_air": [
+				{ "max": [1e9, 0], "wind": [5, 0], "wind_noise": 0.5 },
+				{ "min": [-1e9, 0], "wind": [-5, 0], "wind_noise": 0.5 }
+			],
 			"tracers": {
-				"count": 5120,
+				"count": 65536,
 				"seed": 12648430,
 				"max_age": 30.0
 			},
@@ -46,7 +48,6 @@
 				"grid_line_limit": 48,
 				"show_grid": true,
 				"show_particles": true,
-				"show_pressure_nodes": true,
 				"show_heat_sources": true
 			}
 		},

@@ -49,14 +49,9 @@ namespace pr::physics::atmosphere
 			float m_lid_temperature;       // top-layer relaxation target, K
 			float m_lid_relaxation_rate;   // top-layer relaxation rate; zero disables it, 1/s
 
-			// Large-scale forcing.
-			float m_surface_forcing_height; // height above the floor where pressure-node forcing fades to zero, metres
-			float m_reservoir_temp_offset; // reservoir temperature relative to the reference profile, K
-			v2 m_reservoir_wind;           // XY wind of the outside reservoir, m/s
-
-			// Valid entry counts in the caller-supplied buffers.
-			int m_source_count;            // heat sources
-			int m_node_count;              // pressure nodes
+			// Caller-supplied buffers.
+			int m_source_count;            // valid heat sources
+			int m_use_floor_temp_buffer;   // non-zero when the floor temperature buffer has one value per column
 
 			// Multigrid level selection.
 			iv2 m_mg_size;                 // column counts of the active level
@@ -66,13 +61,13 @@ namespace pr::physics::atmosphere
 			int m_mg_scale;                // fine-grid columns per active-level column
 			int m_mg_phase;                // red-black colour for smoothing, or the pressure-normalisation pass
 
-			// Floor temperature source.
-			int m_use_floor_temp_buffer;   // non-zero when the floor temperature buffer has one value per column
-
+			// Open edges and swirl restoration.
+			int m_open_edge_band;          // columns over which inflow outside wind is blended in
+			float m_vorticity_confinement; // swirl-restoring strength; zero disables it, 1/s
 		};
-		static_assert(sizeof(CBufAtmosphere) == 33 * sizeof(uint32_t));
-		static_assert(offsetof(CBufAtmosphere, m_origin) == 16 && offsetof(CBufAtmosphere, m_reservoir_wind) == 80);
-		static_assert(offsetof(CBufAtmosphere, m_mg_size) == 96 && offsetof(CBufAtmosphere, m_use_floor_temp_buffer) == 128);
+		static_assert(sizeof(CBufAtmosphere) == 30 * sizeof(uint32_t));
+		static_assert(offsetof(CBufAtmosphere, m_origin) == 16 && offsetof(CBufAtmosphere, m_source_count) == 72);
+		static_assert(offsetof(CBufAtmosphere, m_mg_size) == 80 && offsetof(CBufAtmosphere, m_mg_phase) == 108);
 
 		// Root constants shared by tracer kernels. Must match CBufAtmosphereTracers in atmosphere.hlsl.
 		struct CBufAtmosphereTracers
@@ -94,17 +89,12 @@ namespace pr::physics::atmosphere
 			float m_relaxation_rate;
 		};
 
-		// GPU pressure-node layout. Must match PressureNode in atmosphere.hlsl.
-		struct GpuPressureNode
+		// GPU outside-air layout. Must match OutsideAir in atmosphere.hlsl.
+		struct GpuOutsideAir
 		{
-			v2 m_centre;
-			v2 m_drift;
-			float m_strength;
-			float m_radius;
-			float m_age;
-			float m_lifetime;
-			float m_growth_rate;
+			v2 m_wind;
 			float m_temperature_offset;
+			float m_pad;
 		};
 
 		// GPU tracer particle layout. Must match TracerParticle in atmosphere.hlsl.
@@ -282,6 +272,37 @@ namespace pr::physics::atmosphere
 		return cell.y * m_cell_count.x + cell.x;
 	}
 
+	// Return the number of boundary columns.
+	int AtmosphereGrid::BoundaryColumnCount() const
+	{
+		// Each x side has one column per row, and each y side has one column per x position.
+		return 2 * (m_cell_count.x + m_cell_count.y);
+	}
+
+	// Build outside air for every boundary column by sampling a caller-owned function at the centre of each column's outside face.
+	std::vector<AtmosphereOutsideAir> AtmosphereGrid::BuildOutsideAir(std::function<AtmosphereOutsideAir(v2)> const& outside_air_function) const
+	{
+		// Validate the sampling function before calling it.
+		if (!outside_air_function)
+			throw std::invalid_argument("Atmosphere outside-air builder needs an outside-air function");
+
+		// Sample in the packed side order used by the solver: x- by y, x+ by y, y- by x, then y+ by x.
+		auto const lo = m_origin.xy;
+		auto const hi = lo + v2{ m_cell_count.x * m_dx, m_cell_count.y * m_dx };
+		auto result = std::vector<AtmosphereOutsideAir>{};
+		result.reserve(BoundaryColumnCount());
+		for (int y = 0; y != m_cell_count.y; ++y)
+			result.push_back(outside_air_function(v2{ lo.x, lo.y + (y + 0.5f) * m_dx }));
+		for (int y = 0; y != m_cell_count.y; ++y)
+			result.push_back(outside_air_function(v2{ hi.x, lo.y + (y + 0.5f) * m_dx }));
+		for (int x = 0; x != m_cell_count.x; ++x)
+			result.push_back(outside_air_function(v2{ lo.x + (x + 0.5f) * m_dx, lo.y }));
+		for (int x = 0; x != m_cell_count.x; ++x)
+			result.push_back(outside_air_function(v2{ lo.x + (x + 0.5f) * m_dx, hi.y }));
+
+		return result;
+	}
+
 	// Return the packed cell-centre index for 'cell'.
 	int AtmosphereGrid::CellIndex(iv3 cell) const
 	{
@@ -419,79 +440,17 @@ namespace pr::physics::atmosphere
 			throw std::invalid_argument("Atmosphere lid temperature must be finite and positive");
 		if (!std::isfinite(m_lid_relaxation_rate) || m_lid_relaxation_rate < 0.0f)
 			throw std::invalid_argument("Atmosphere lid relaxation rate must be finite and non-negative");
-		if (!std::isfinite(m_surface_forcing_height) || m_surface_forcing_height <= 0.0f)
-			throw std::invalid_argument("Atmosphere surface forcing height must be finite and positive");
 		if (m_pressure_vcycles < 0)
 			throw std::invalid_argument("Atmosphere pressure V-cycle count must be non-negative");
 		if (m_pressure_pre_smooth < 0 || m_pressure_post_smooth < 0 || m_pressure_coarse_smooth < 0)
 			throw std::invalid_argument("Atmosphere multigrid smoothing counts must be non-negative");
+		if (m_open_edge_band < 0)
+			throw std::invalid_argument("Atmosphere open-edge band must be non-negative");
+		if (!std::isfinite(m_vorticity_confinement) || m_vorticity_confinement < 0.0f)
+			throw std::invalid_argument("Atmosphere vorticity confinement must be finite and non-negative");
 	}
 
 
-	// Build a deterministic initial node set from a seed.
-	AtmospherePressureForcingState AtmospherePressureForcingState::Create(uint32_t seed, int node_count, float domain_radius, float pressure_scale, float temperature_scale)
-	{
-		// A small local generator makes node evolution independent of platform library RNG details.
-		if (node_count < 0)
-			throw std::invalid_argument("Atmosphere pressure node count must be non-negative");
-		if (!std::isfinite(domain_radius) || domain_radius <= 0.0f || !std::isfinite(pressure_scale) || !std::isfinite(temperature_scale))
-			throw std::invalid_argument("Atmosphere pressure forcing parameters must be finite");
-
-		// Generate paired highs and lows over the requested square domain.
-		auto next_u32 = [state = seed]() mutable
-		{
-			state = state * 1664525u + 1013904223u;
-			return state;
-		};
-		auto next_float = [&]()
-		{
-			return static_cast<float>((next_u32() >> 8) * (1.0 / 16777216.0));
-		};
-		auto result = AtmospherePressureForcingState{ .m_seed = seed, .m_time_s = 0.0f, .m_nodes = {} };
-		result.m_nodes.reserve(node_count);
-		for (int i = 0; i != node_count; ++i)
-		{
-			// Alternating signs guarantee early worlds have both warm highs and cool lows.
-			auto const sign = (i & 1) == 0 ? 1.0f : -1.0f;
-			result.m_nodes.push_back(AtmospherePressureNode{
-				.m_centre = v2{ (next_float() * 2.0f - 1.0f) * domain_radius, (next_float() * 2.0f - 1.0f) * domain_radius },
-				.m_drift = v2{ (next_float() * 2.0f - 1.0f) * 2.0f, (next_float() * 2.0f - 1.0f) * 2.0f },
-				.m_strength = sign * pressure_scale * (0.5f + next_float()),
-				.m_radius = domain_radius * (0.18f + 0.18f * next_float()),
-				.m_age = 0.0f,
-				.m_lifetime = 900.0f + 600.0f * next_float(),
-				.m_growth_rate = domain_radius * 0.00002f * (next_float() - 0.5f),
-				.m_temperature_offset = sign * temperature_scale * (0.5f + next_float()),
-			});
-		}
-		return result;
-	}
-
-	// Advance nodes deterministically without sampling external state.
-	void AtmospherePressureForcingState::Evolve(float dt, float domain_radius, float pressure_scale, float temperature_scale)
-	{
-		// The update is a pure function of saved state and dt, so save-then-restore can continue identically in M4.
-		if (!std::isfinite(dt) || dt < 0.0f || !std::isfinite(domain_radius) || domain_radius <= 0.0f || !std::isfinite(pressure_scale) || !std::isfinite(temperature_scale))
-			throw std::invalid_argument("Atmosphere pressure forcing evolution parameters are invalid");
-		m_time_s += dt;
-		for (auto& node : m_nodes)
-		{
-			// Drift, grow, and decay within the saved node record; expired nodes are deterministically respawned from seed and node age.
-			node.m_age += dt;
-			node.m_centre += node.m_drift * dt;
-			node.m_radius = std::max(1.0f, node.m_radius + node.m_growth_rate * dt);
-			auto const life = std::clamp(1.0f - node.m_age / node.m_lifetime, 0.0f, 1.0f);
-			node.m_strength = std::copysign(std::abs(node.m_strength) * life, node.m_strength);
-			node.m_temperature_offset = std::copysign(std::abs(node.m_temperature_offset) * life, node.m_temperature_offset);
-			if (Length(node.m_centre) > domain_radius * 1.4f || node.m_age >= node.m_lifetime)
-			{
-				// Recreate this slot from a seed derived from its previous deterministic state.
-				auto const slot_seed = m_seed ^ static_cast<uint32_t>(node.m_lifetime * 17.0f + m_time_s * 13.0f);
-				auto replacement = Create(slot_seed, 1, domain_radius, pressure_scale, temperature_scale);
-				node = replacement.m_nodes.front();
-			}
-		}
-	}
 	// Private implementation kept out of the public header so shader plumbing can change without API churn.
 	struct AtmosphereSolver::Impl
 	{
@@ -499,6 +458,7 @@ namespace pr::physics::atmosphere
 		AtmosphereConfig m_config;
 		ComputeStep m_initialise;
 		ComputeStep m_advect;
+		ComputeStep m_vorticity;
 		ComputeStep m_forces_heat;
 		ComputeStep m_divergence;
 		ComputeStep m_mg_smooth;
@@ -517,7 +477,7 @@ namespace pr::physics::atmosphere
 		D3DPtr<ID3D12Resource> m_floor_temp_sentinel;
 		D3DPtr<ID3D12Resource> m_source_sentinel;
 		D3DPtr<ID3D12Resource> m_floor_height;
-		D3DPtr<ID3D12Resource> m_node_sentinel;
+		D3DPtr<ID3D12Resource> m_outside_air_sentinel;
 
 		// Description of one horizontally coarsened multigrid level.
 		struct MgLevel
@@ -529,7 +489,6 @@ namespace pr::physics::atmosphere
 		};
 
 		std::vector<MgLevel> m_levels;
-		v4 m_reservoir_wind;
 		int m_current;
 
 		// Compile kernels and allocate persistent field buffers.
@@ -538,6 +497,7 @@ namespace pr::physics::atmosphere
 			, m_config(std::move(config))
 			, m_initialise()
 			, m_advect()
+			, m_vorticity()
 			, m_forces_heat()
 			, m_divergence()
 			, m_mg_smooth()
@@ -556,8 +516,7 @@ namespace pr::physics::atmosphere
 			, m_floor_temp_sentinel()
 			, m_source_sentinel()
 			, m_floor_height()
-			, m_node_sentinel()
-			, m_reservoir_wind(v4::Zero())
+			, m_outside_air_sentinel()
 			, m_current(0)
 		{
 			// Validate once before any GPU resources are created.
@@ -588,6 +547,7 @@ namespace pr::physics::atmosphere
 			// Allocate buffers using the solver's job because resource creation can record initial transitions.
 			m_initialise = make_step(L"CSInitialise", "Initialise");
 			m_advect = make_step(L"CSAdvect", "Advect");
+			m_vorticity = make_step(L"CSVorticity", "Vorticity");
 			m_forces_heat = make_step(L"CSForcesHeat", "ForcesHeat");
 			m_divergence = make_step(L"CSDivergence", "Divergence");
 			m_mg_smooth = make_step(L"CSMgSmooth", "MgSmooth");
@@ -670,16 +630,16 @@ namespace pr::physics::atmosphere
 		}
 
 		// Bind the common root layout and dispatch one kernel over a selected multigrid level.
-		void DispatchLevel(GpuJob& job, ComputeStep& step, CBufAtmosphere const& cb, MgLevel const& level, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS node_buffer)
+		void DispatchLevel(GpuJob& job, ComputeStep& step, CBufAtmosphere const& cb, MgLevel const& level, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS outside_air_buffer)
 		{
 			// Multigrid kernels share resources with the main step but use smaller dispatch extents on coarse levels.
 			auto const dispatch = LevelDispatch(level);
-			BindFields(job, step, cb, src, dst, floor_temp_buffer, source_buffer, node_buffer);
+			BindFields(job, step, cb, src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
 			job.m_cmd_list.Dispatch(dispatch.x, dispatch.y, dispatch.z);
 		}
 
 		// Run red-black Gauss-Seidel smoothing on a pressure level.
-		void SmoothLevel(GpuJob& job, CBufAtmosphere cb, int level_index, int passes, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS node_buffer)
+		void SmoothLevel(GpuJob& job, CBufAtmosphere cb, int level_index, int passes, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS outside_air_buffer)
 		{
 			// Each pass performs both colours so the result is independent of thread order within one colour.
 			for (int iter = 0; iter != passes; ++iter)
@@ -687,35 +647,35 @@ namespace pr::physics::atmosphere
 				for (int phase = 0; phase != 2; ++phase)
 				{
 					auto level_cb = LevelConstants(cb, level_index, phase);
-					DispatchLevel(job, m_mg_smooth, level_cb, m_levels[level_index], src, dst, floor_temp_buffer, source_buffer, node_buffer);
+					DispatchLevel(job, m_mg_smooth, level_cb, m_levels[level_index], src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
 					BarrierFields(job);
 				}
 			}
 		}
 
 		// Run one recursive multigrid V-cycle from 'level_index'.
-		void VCycle(GpuJob& job, CBufAtmosphere cb, int level_index, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS node_buffer)
+		void VCycle(GpuJob& job, CBufAtmosphere cb, int level_index, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS outside_air_buffer)
 		{
 			// Coarse levels receive residual equations; the finest level starts with the physical divergence from the MAC field.
 			auto const coarse = level_index + 1 == isize(m_levels);
 			if (coarse)
 			{
-				SmoothLevel(job, cb, level_index, m_config.m_pressure_coarse_smooth, src, dst, floor_temp_buffer, source_buffer, node_buffer);
+				SmoothLevel(job, cb, level_index, m_config.m_pressure_coarse_smooth, src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
 				return;
 			}
 
 			// Pre-smoothing damps cell-scale errors before residual restriction.
-			SmoothLevel(job, cb, level_index, m_config.m_pressure_pre_smooth, src, dst, floor_temp_buffer, source_buffer, node_buffer);
-			DispatchLevel(job, m_mg_residual, LevelConstants(cb, level_index, 0), m_levels[level_index], src, dst, floor_temp_buffer, source_buffer, node_buffer);
+			SmoothLevel(job, cb, level_index, m_config.m_pressure_pre_smooth, src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
+			DispatchLevel(job, m_mg_residual, LevelConstants(cb, level_index, 0), m_levels[level_index], src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
 			BarrierFields(job);
-			DispatchLevel(job, m_mg_restrict, LevelConstants(cb, level_index, 0), m_levels[level_index + 1], src, dst, floor_temp_buffer, source_buffer, node_buffer);
+			DispatchLevel(job, m_mg_restrict, LevelConstants(cb, level_index, 0), m_levels[level_index + 1], src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
 			BarrierFields(job);
 
 			// The coarse correction removes long wavelengths that local smoothing cannot reach on large grids.
-			VCycle(job, cb, level_index + 1, src, dst, floor_temp_buffer, source_buffer, node_buffer);
-			DispatchLevel(job, m_mg_prolongate, LevelConstants(cb, level_index, 0), m_levels[level_index], src, dst, floor_temp_buffer, source_buffer, node_buffer);
+			VCycle(job, cb, level_index + 1, src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
+			DispatchLevel(job, m_mg_prolongate, LevelConstants(cb, level_index, 0), m_levels[level_index], src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
 			BarrierFields(job);
-			SmoothLevel(job, cb, level_index, m_config.m_pressure_post_smooth, src, dst, floor_temp_buffer, source_buffer, node_buffer);
+			SmoothLevel(job, cb, level_index, m_config.m_pressure_post_smooth, src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
 		}
 
 		// Create all persistent buffers.
@@ -736,7 +696,7 @@ namespace pr::physics::atmosphere
 			m_floor_temp_sentinel = CreateSrvSentinel<float>(m_gpu, job, "Atmosphere:FloorTemperatureSentinel");
 			m_source_sentinel = CreateSrvSentinel<GpuHeatSource>(m_gpu, job, "Atmosphere:SourceSentinel");
 			m_floor_height = m_gpu.CreateResource(ResDesc::Buf<float>(grid.ColumnCount(), {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE), job.m_cmd_list, "Atmosphere:FloorHeight");
-			m_node_sentinel = CreateSrvSentinel<GpuPressureNode>(m_gpu, job, "Atmosphere:NodeSentinel");
+			m_outside_air_sentinel = CreateSrvSentinel<GpuOutsideAir>(m_gpu, job, "Atmosphere:OutsideAirSentinel");
 			UploadFloors(job, grid.m_floor_heights.empty() ? FlatFloors() : grid.m_floor_heights);
 		}
 
@@ -763,7 +723,7 @@ namespace pr::physics::atmosphere
 		}
 
 		// Build constants shared by all kernels.
-		CBufAtmosphere Constants(float dt, AtmosphereStepSources const& sources, int source_count, int node_count, int pressure_iteration) const
+		CBufAtmosphere Constants(float dt, AtmosphereStepSources const& sources, int pressure_iteration) const
 		{
 			// Pack scalar config into a 32-bit root constant block for cheap per-dispatch updates.
 			auto const& grid = m_config.m_grid;
@@ -784,23 +744,21 @@ namespace pr::physics::atmosphere
 				.m_floor_exchange_rate = m_config.m_floor_exchange_rate,
 				.m_lid_temperature = m_config.m_lid_temperature,
 				.m_lid_relaxation_rate = m_config.m_lid_relaxation_rate,
-				.m_surface_forcing_height = m_config.m_surface_forcing_height,
-				.m_reservoir_temp_offset = sources.m_reservoir_temperature_offset,
-				.m_reservoir_wind = sources.m_reservoir_wind.xy,
-				.m_source_count = source_count,
-				.m_node_count = node_count,
+				.m_source_count = isize(sources.m_heat_sources),
+				.m_use_floor_temp_buffer = sources.m_floor_temperatures.empty() ? 0 : 1,
 				.m_mg_size = grid.m_cell_count.xy,
 				.m_mg_child_size = iv2{ 0, 0 },
 				.m_mg_offset = 0,
 				.m_mg_child_offset = 0,
 				.m_mg_scale = 1,
 				.m_mg_phase = pressure_iteration,
-				.m_use_floor_temp_buffer = sources.m_floor_temperatures.empty() ? 0 : 1,
+				.m_open_edge_band = m_config.m_open_edge_band,
+				.m_vorticity_confinement = m_config.m_vorticity_confinement,
 			};
 		}
 
 		// Transition the fields into the states the common root layout requires, then bind 'step' and its resources.
-		void BindFields(GpuJob& job, ComputeStep& step, CBufAtmosphere const& cb, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS node_buffer)
+		void BindFields(GpuJob& job, ComputeStep& step, CBufAtmosphere const& cb, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS outside_air_buffer)
 		{
 			// The ping-pong fields default to UAV state but 'src' is bound as root SRVs. The barrier batch tracks the current state so repeated transitions are dropped.
 			assert(src != dst && "Ping-pong fields cannot be bound as both input and output");
@@ -833,15 +791,15 @@ namespace pr::physics::atmosphere
 			job.m_cmd_list.AddComputeRootShaderResourceView(floor_temp_buffer);
 			job.m_cmd_list.AddComputeRootShaderResourceView(source_buffer);
 			job.m_cmd_list.AddComputeRootShaderResourceView(m_floor_height->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(node_buffer);
+			job.m_cmd_list.AddComputeRootShaderResourceView(outside_air_buffer);
 		}
 
 		// Bind the common root layout and dispatch one kernel over the full grid.
-		void Dispatch(GpuJob& job, ComputeStep& step, CBufAtmosphere const& cb, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS node_buffer)
+		void Dispatch(GpuJob& job, ComputeStep& step, CBufAtmosphere const& cb, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS outside_air_buffer)
 		{
 			// Full-grid kernels cover every cell and face.
 			auto const dispatch = DispatchSize();
-			BindFields(job, step, cb, src, dst, floor_temp_buffer, source_buffer, node_buffer);
+			BindFields(job, step, cb, src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
 			job.m_cmd_list.Dispatch(dispatch.x, dispatch.y, dispatch.z);
 		}
 
@@ -865,10 +823,10 @@ namespace pr::physics::atmosphere
 		{
 			// Both ping-pong buffers are reset so the next Step has no hidden stale state. The initialise kernel does not read 'src'.
 			auto const empty = AtmosphereStepSources{};
-			auto const cb = Constants(0.0f, empty, 0, 0, 0);
-			Dispatch(job, m_initialise, cb, 1, 0,  m_floor_temp_sentinel->GetGPUVirtualAddress(), m_source_sentinel->GetGPUVirtualAddress(), m_node_sentinel->GetGPUVirtualAddress());
+			auto const cb = Constants(0.0f, empty, 0);
+			Dispatch(job, m_initialise, cb, 1, 0,  m_floor_temp_sentinel->GetGPUVirtualAddress(), m_source_sentinel->GetGPUVirtualAddress(), m_outside_air_sentinel->GetGPUVirtualAddress());
 			BarrierFields(job);
-			Dispatch(job, m_initialise, cb, 0, 1, m_floor_temp_sentinel->GetGPUVirtualAddress(), m_source_sentinel->GetGPUVirtualAddress(), m_node_sentinel->GetGPUVirtualAddress());
+			Dispatch(job, m_initialise, cb, 0, 1, m_floor_temp_sentinel->GetGPUVirtualAddress(), m_source_sentinel->GetGPUVirtualAddress(), m_outside_air_sentinel->GetGPUVirtualAddress());
 			BarrierFields(job);
 			m_current = 0;
 		}
@@ -1019,13 +977,11 @@ namespace pr::physics::atmosphere
 			throw std::invalid_argument("Atmosphere step dt must be finite and non-negative");
 		if (isize(sources.m_heat_sources) > MaxHeatSources)
 			throw std::invalid_argument("Atmosphere heat-source count exceeds the per-step limit");
-		if (isize(sources.m_pressure_nodes) > 32)
-			throw std::invalid_argument("Atmosphere pressure-node count exceeds the per-step limit");
-		auto const column_count = m_impl->m_config.m_grid.ColumnCount();
-		if (!sources.m_floor_temperatures.empty() && isize(sources.m_floor_temperatures) != column_count)
+		auto const& grid = m_impl->m_config.m_grid;
+		if (!sources.m_floor_temperatures.empty() && isize(sources.m_floor_temperatures) != grid.ColumnCount())
 			throw std::invalid_argument("Atmosphere floor temperature buffer must contain one value per column");
-		if (!IsFinite(sources.m_reservoir_wind) || !std::isfinite(sources.m_reservoir_temperature_offset))
-			throw std::invalid_argument("Atmosphere reservoir forcing contains invalid values");
+		if (!sources.m_outside_air.empty() && isize(sources.m_outside_air) != grid.BoundaryColumnCount())
+			throw std::invalid_argument("Atmosphere outside air must contain one value per boundary column");
 
 		// Stage floor temperatures and heat sources for the recorded frame.
 		auto floor_buffer = m_impl->m_floor_temp_sentinel->GetGPUVirtualAddress();
@@ -1058,56 +1014,59 @@ namespace pr::physics::atmosphere
 			source_buffer = upload.m_res->GetGPUVirtualAddress() + upload.m_ofs;
 		}
 
-		// Pressure nodes define both surface acceleration and open-edge reservoir temperature.
-		auto node_buffer = m_impl->m_node_sentinel->GetGPUVirtualAddress();
-		if (!sources.m_pressure_nodes.empty())
+		// Stage one outside-air entry per boundary column. Calm reference air fills the buffer when the caller supplies none,
+		// so the kernels always read a full-size buffer.
+		auto outside_air_upload = job.m_upload.Alloc<GpuOutsideAir>(grid.BoundaryColumnCount());
+		for (int i = 0; i != grid.BoundaryColumnCount(); ++i)
 		{
-			auto upload = job.m_upload.Alloc<GpuPressureNode>(isize(sources.m_pressure_nodes));
-			for (int i = 0; i != isize(sources.m_pressure_nodes); ++i)
-			{
-				auto const& node = sources.m_pressure_nodes[i];
-				if (!IsFinite(node.m_centre) || !IsFinite(node.m_drift) || !std::isfinite(node.m_strength) || !std::isfinite(node.m_radius) || node.m_radius <= 0.0f || !std::isfinite(node.m_age) || !std::isfinite(node.m_lifetime) || node.m_lifetime <= 0.0f || !std::isfinite(node.m_growth_rate) || !std::isfinite(node.m_temperature_offset))
-					throw std::invalid_argument("Atmosphere pressure node contains invalid values");
+			// Validate caller values where they enter the GPU layout.
+			auto const air = sources.m_outside_air.empty() ? AtmosphereOutsideAir{} : sources.m_outside_air[i];
+			if (!IsFinite(air.m_wind) || !std::isfinite(air.m_temperature_offset))
+				throw std::invalid_argument("Atmosphere outside air contains invalid values");
 
-				upload.ptr<GpuPressureNode>()[i] = GpuPressureNode{ .m_centre = node.m_centre, .m_drift = node.m_drift, .m_strength = node.m_strength, .m_radius = node.m_radius, .m_age = node.m_age, .m_lifetime = node.m_lifetime, .m_growth_rate = node.m_growth_rate, .m_temperature_offset = node.m_temperature_offset };
-			}
-			node_buffer = upload.m_res->GetGPUVirtualAddress() + upload.m_ofs;
+			outside_air_upload.ptr<GpuOutsideAir>()[i] = GpuOutsideAir{ .m_wind = air.m_wind, .m_temperature_offset = air.m_temperature_offset, .m_pad = 0.0f };
 		}
+		auto const outside_air_buffer = outside_air_upload.m_res->GetGPUVirtualAddress() + outside_air_upload.m_ofs;
 
 		// Run advection, heat/forces, MAC divergence, multigrid pressure, and metric face-gradient subtraction.
 		auto src = m_impl->m_current;
 		auto dst = 1 - src;
-		auto cb = m_impl->Constants(dt, sources, isize(sources.m_heat_sources), isize(sources.m_pressure_nodes), 0);
-		m_impl->m_reservoir_wind = sources.m_reservoir_wind;
+		auto cb = m_impl->Constants(dt, sources, 0);
 		if (dt != 0.0f)
 		{
 			// A zero-duration step is a pure projection of the caller's MAC field; semi-Lagrangian sampling is intentionally skipped because sampling a terrain-following face at its world position is not an exact identity on sloped columns.
-			m_impl->Dispatch(job, m_impl->m_advect, cb, src, dst, floor_buffer, source_buffer, node_buffer);
+			m_impl->Dispatch(job, m_impl->m_advect, cb, src, dst, floor_buffer, source_buffer, outside_air_buffer);
 			m_impl->BarrierFields(job);
 			src = dst;
 			dst = 1 - src;
-			m_impl->Dispatch(job, m_impl->m_forces_heat, cb, src, dst, floor_buffer, source_buffer, node_buffer);
+			if (m_impl->m_config.m_vorticity_confinement != 0.0f)
+			{
+				// Store the swirl magnitude of the advected field in the divergence scratch buffer for the forces pass. The divergence pass overwrites it afterwards.
+				m_impl->Dispatch(job, m_impl->m_vorticity, cb, src, dst, floor_buffer, source_buffer, outside_air_buffer);
+				m_impl->BarrierFields(job);
+			}
+			m_impl->Dispatch(job, m_impl->m_forces_heat, cb, src, dst, floor_buffer, source_buffer, outside_air_buffer);
 			m_impl->BarrierFields(job);
 			src = dst;
 			dst = 1 - src;
 		}
-		m_impl->Dispatch(job, m_impl->m_divergence, cb, src, dst, floor_buffer, source_buffer, node_buffer);
+		m_impl->Dispatch(job, m_impl->m_divergence, cb, src, dst, floor_buffer, source_buffer, outside_air_buffer);
 		m_impl->BarrierFields(job);
 		for (int cycle = 0; cycle != m_impl->m_config.m_pressure_vcycles; ++cycle)
 		{
 			// Warm-started V-cycles preserve the previous pressure on the finest level and rebuild coarse corrections from the current residual.
-			m_impl->VCycle(job, cb, 0, src, dst, floor_buffer, source_buffer, node_buffer);
+			m_impl->VCycle(job, cb, 0, src, dst, floor_buffer, source_buffer, outside_air_buffer);
 		}
-		m_impl->Dispatch(job, m_impl->m_normalise_pressure, cb, src, dst, floor_buffer, source_buffer, node_buffer);
+		m_impl->Dispatch(job, m_impl->m_normalise_pressure, cb, src, dst, floor_buffer, source_buffer, outside_air_buffer);
 		m_impl->BarrierFields(job);
 		if (m_impl->m_config.m_boundaries.m_x_min == EAtmosphereBoundary::Solid && m_impl->m_config.m_boundaries.m_x_max == EAtmosphereBoundary::Solid && m_impl->m_config.m_boundaries.m_y_min == EAtmosphereBoundary::Solid && m_impl->m_config.m_boundaries.m_y_max == EAtmosphereBoundary::Solid)
 		{
 			auto normalise_cb = cb;
 			normalise_cb.m_mg_phase = 1;
-			m_impl->Dispatch(job, m_impl->m_normalise_pressure, normalise_cb, src, dst, floor_buffer, source_buffer, node_buffer);
+			m_impl->Dispatch(job, m_impl->m_normalise_pressure, normalise_cb, src, dst, floor_buffer, source_buffer, outside_air_buffer);
 			m_impl->BarrierFields(job);
 		}
-		m_impl->Dispatch(job, m_impl->m_project, cb, src, dst, floor_buffer, source_buffer, node_buffer);
+		m_impl->Dispatch(job, m_impl->m_project, cb, src, dst, floor_buffer, source_buffer, outside_air_buffer);
 		m_impl->BarrierFields(job);
 		m_impl->m_current = dst;
 	}
@@ -1354,7 +1313,7 @@ namespace pr::physics::atmosphere
 		{
 			// Write both slots so the first advect has no hidden dependency on old data. The initialise kernel does not read 'src'.
 			++m_frame;
-			auto cb = m_solver.m_impl->Constants(0.0f, AtmosphereStepSources{}, 0, 0, 0);
+			auto cb = m_solver.m_impl->Constants(0.0f, AtmosphereStepSources{}, 0);
 			auto tracer_cb = TracerConstants();
 			Dispatch(job, m_initialise, cb, tracer_cb, 1, 0);
 			Barrier(job);
@@ -1399,7 +1358,7 @@ namespace pr::physics::atmosphere
 		++m_impl->m_frame;
 		auto src = m_impl->m_current;
 		auto dst = 1 - src;
-		auto cb = m_impl->m_solver.m_impl->Constants(dt, AtmosphereStepSources{ .m_reservoir_wind = m_impl->m_solver.m_impl->m_reservoir_wind }, 0, 0, 0);
+		auto cb = m_impl->m_solver.m_impl->Constants(dt, AtmosphereStepSources{}, 0);
 		auto tracer_cb = m_impl->TracerConstants();
 		m_impl->Dispatch(job, m_impl->m_advect, cb, tracer_cb, src, dst);
 		m_impl->Barrier(job);

@@ -49,7 +49,6 @@ namespace physics_sandbox
 		, m_gfx_stale(true)
 		, m_show_grid(m_desc.m_visual.m_show_grid)
 		, m_show_particles(m_desc.m_visual.m_show_particles)
-		, m_show_pressure_nodes(m_desc.m_visual.m_show_pressure_nodes)
 	{
 		// Tracers are optional so diagnostic-only atmosphere scenes can omit particle cost.
 		if (m_desc.m_tracers.m_particle_count > 0)
@@ -62,16 +61,10 @@ namespace physics_sandbox
 	// Advance the atmosphere solver and refresh CPU-visible tracer state.
 	void AtmosphereVisual::Step(float dt)
 	{
-		// Evolve the pressure nodes with the solver's own rules so drift, decay, and respawn match what a game would see.
-		// Evolve treats the domain as centred on the world origin, so use the half-width of the grid as its radius.
-		auto const& grid = m_desc.m_config.m_grid;
-		auto const domain_radius = 0.5f * grid.m_dx * static_cast<float>(std::max(grid.m_cell_count.x, grid.m_cell_count.y));
-		m_desc.m_forcing.Evolve(dt, domain_radius, m_desc.m_forcing_pressure_scale, m_desc.m_forcing_temperature_scale);
+		// The scene's heat sources and outside air are static, so the same inputs drive every step.
 		auto const sources = physics::atmosphere::AtmosphereStepSources{
 			.m_heat_sources = m_desc.m_heat_sources,
-			.m_pressure_nodes = m_desc.m_forcing.m_nodes,
-			.m_reservoir_wind = m_desc.m_reservoir_wind,
-			.m_reservoir_temperature_offset = m_desc.m_reservoir_temperature_offset,
+			.m_outside_air = m_desc.m_outside_air,
 		};
 
 		// Run the solver and tracers in submission order, then read back the particles for the CPU LDraw overlay.
@@ -121,14 +114,6 @@ namespace physics_sandbox
 		m_gfx_stale = true;
 	}
 
-	// Toggle pressure-node rendering.
-	void AtmosphereVisual::ShowPressureNodes(bool show)
-	{
-		// Mark stale so the next render shows the change, even while the simulation is paused.
-		m_show_pressure_nodes = show;
-		m_gfx_stale = true;
-	}
-
 	// Return true when the grid overlay is enabled.
 	bool AtmosphereVisual::ShowGrid() const
 	{
@@ -141,13 +126,6 @@ namespace physics_sandbox
 	{
 		// The UI uses this to keep menu checks in sync.
 		return m_show_particles;
-	}
-
-	// Return true when pressure-node rendering is enabled.
-	bool AtmosphereVisual::ShowPressureNodes() const
-	{
-		// The UI uses this to keep menu checks in sync.
-		return m_show_pressure_nodes;
 	}
 
 	// Rebuild the LDraw diagnostic overlay from the latest CPU-visible state.
@@ -187,42 +165,6 @@ namespace physics_sandbox
 			auto& points = group.Point("tracers", 0xFFFFFFFFU).size(m_desc.m_visual.m_particle_size).style(ldraw::seri::PointStyle{"Circle"}).depth(false);
 			for (auto const& particle : m_particles)
 				points.pt(particle.m_position, TemperatureColour(particle.m_temperature, m_desc.m_visual.m_min_temperature, m_desc.m_visual.m_max_temperature));
-		}
-
-		if (m_show_pressure_nodes)
-		{
-			// Transparent spheres show the Gaussian influence radius, with opacity scaled by strength relative to the strongest node.
-			// Spheres sit a quarter of the way up the domain because the forcing is a column-wide surface with no height of its own.
-			auto const& nodes = m_desc.m_forcing.m_nodes;
-			auto max_strength = 1.0f;
-			for (auto const& node : nodes)
-				max_strength = std::max(max_strength, std::abs(node.m_strength));
-
-			// Draw each node as a sphere plus a sign ring.
-			for (auto const& node : nodes)
-			{
-				// Colour by the air temperature the node imposes: reference surface temperature plus the outside and node offsets.
-				auto const alpha = 48 + static_cast<int>(96.0f * std::clamp(std::abs(node.m_strength) / max_strength, 0.0f, 1.0f));
-				auto const node_temperature = m_desc.m_config.m_reference.Temperature(0.0f) + m_desc.m_reservoir_temperature_offset + node.m_temperature_offset;
-				auto const colour = TemperatureColour(node_temperature, m_desc.m_visual.m_min_temperature, m_desc.m_visual.m_max_temperature, alpha);
-				auto const centre = v4{node.m_centre.x, node.m_centre.y, grid.m_origin.z + 0.25f * (grid.m_lid_z - grid.m_origin.z), 1.0f};
-				group.Sphere("pressure_node", colour).sphere(node.m_radius).pos(centre).solid(true);
-
-				// Highs get a white horizontal ring and lows a black vertical ring, so the sign reads at a glance.
-				auto const is_high = node.m_strength >= 0.0f;
-				auto const ring_axis = is_high ? v4{0, 1, 0, 0} : v4{0, 0, 1, 0};
-				auto& ring = group.Line("pressure_node_ring", is_high ? 0xFFFFFFFFU : 0xFF000000U).width(2.0f);
-				constexpr int RingSegments = 48;
-				for (int i = 0; i != RingSegments; ++i)
-				{
-					// Each segment joins two consecutive points on the ring in the x/ring_axis plane.
-					auto const a0 = constants<float>::tau * float(i) / float(RingSegments);
-					auto const a1 = constants<float>::tau * float(i + 1) / float(RingSegments);
-					auto const p0 = centre + node.m_radius * (std::cos(a0) * v4{1, 0, 0, 0} + std::sin(a0) * ring_axis);
-					auto const p1 = centre + node.m_radius * (std::cos(a1) * v4{1, 0, 0, 0} + std::sin(a1) * ring_axis);
-					ring.line(p0, p1);
-				}
-			}
 		}
 
 		if (m_desc.m_visual.m_show_heat_sources)

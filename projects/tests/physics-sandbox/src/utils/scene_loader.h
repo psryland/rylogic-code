@@ -45,20 +45,19 @@ namespace physics_sandbox::scene_loader
 	//             },
 	//             "boundaries": { "x_min":"solid", "x_max":"solid", "y_min":"solid", "y_max":"solid", "z_min":"solid", "z_max":"solid" },
 	//             "reference": { "temperature_at_origin": 288.0, "lapse_rate": -0.0065, "min_temperature": 220.0 },
-	//             "reservoir": { "wind": [0,0,0], "temperature_offset": 0.0 },
-	//             "pressure_seed": 7,          // Seed used when an expired pressure node respawns
-	//             "pressure_nodes": [          // Nodes drift, grow, fade over 'lifetime', then respawn from 'pressure_seed'
-	//                 { "centre":[-250,0], "drift":[0.5,0], "strength":18.0, "radius":180.0, "lifetime":120.0, "growth_rate":0.2, "temperature_offset":2.0 }
+	//             "open_edge_band": 8,         // Width in cells of the sponge that nudges open-side inflow toward the outside wind
+	//             "vorticity_confinement": 0.0,// Strength (1/s) of the force that restores swirls smoothed away by advection; 0 disables it
+	//             "outside_air": [             // Air beside open sides. The first region containing a boundary column's position wins; elsewhere the air is calm
+	//                 { "min":[-1e9,-1e9], "max":[1e9,0], "wind":[5,0], "wind_noise":0.0, "temperature_offset":0.0 } // wind_noise: max fixed random wind offset per column, m/s
 	//             ],
 	//             "heat_sources": [
 	//                 { "centre":[0,0,25], "radius":90.0, "heating_rate":20.0, "target_temperature":305.0, "relaxation_rate":0.1 }
 	//             ],
 	//             "tracers": { "count":4096, "seed":42, "max_age":30.0 },
 	//             "visual": {
-	//                 "temperature_range":[280,305], "show_grid":true, "show_particles":true, "show_pressure_nodes":true, "show_heat_sources":true,
+	//                 "temperature_range":[280,305], "show_grid":true, "show_particles":true, "show_heat_sources":true,
 	//                 "particle_size":4.0, "grid_line_limit":48
 	//             }
-	//             // Pressure nodes render as translucent spheres. A wire equator marks highs and a vertical ring marks lows.
 	//         },
 	//         "ground_plane": {               // Optional ground plane
 	//             "height": 0.0,              // Z height of the ground surface
@@ -284,21 +283,16 @@ namespace physics_sandbox::scene_loader
 		int m_grid_line_limit = 48;        // maximum lattice lines per axis on the floor and lid
 		bool m_show_grid = true;           // draw the domain box and floor/lid lattices
 		bool m_show_particles = true;      // draw tracer particles
-		bool m_show_pressure_nodes = true; // draw pressure-node spheres
 		bool m_show_heat_sources = true;   // draw heat-source wire spheres
 	};
 
 	// Parsed GPU atmosphere solver and visualisation block.
 	struct AtmosphereDesc
 	{
-		physics::atmosphere::AtmosphereConfig m_config;                   // grid, boundaries, and reference temperature profile
-		physics::atmosphere::AtmospherePressureForcingState m_forcing;    // authored pressure nodes; evolved with the solver's deterministic rules
-		float m_forcing_pressure_scale = 0.0f;                            // strength scale for nodes that respawn after expiring
-		float m_forcing_temperature_scale = 0.0f;                         // temperature-offset scale for nodes that respawn after expiring
+		physics::atmosphere::AtmosphereConfig m_config;                        // grid, boundaries, and reference temperature profile
 		std::vector<physics::atmosphere::AtmosphereHeatSource> m_heat_sources; // static heat sources
-		v4 m_reservoir_wind = v4::Zero();                                 // outside air wind used at open sides, m/s
-		float m_reservoir_temperature_offset = 0.0f;                      // outside air temperature relative to the reference profile, K
-		physics::atmosphere::AtmosphereTracerConfig m_tracers;            // flow-visualisation particles
+		std::vector<physics::atmosphere::AtmosphereOutsideAir> m_outside_air;  // static air beside every boundary column, in AtmosphereGrid::BuildOutsideAir order
+		physics::atmosphere::AtmosphereTracerConfig m_tracers;                 // flow-visualisation particles
 		AtmosphereVisualDesc m_visual;                                    // display options
 	};
 

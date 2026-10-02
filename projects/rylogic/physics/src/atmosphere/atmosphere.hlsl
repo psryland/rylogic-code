@@ -15,15 +15,18 @@
 //
 // One solver step records these passes in order:
 //   1. CSAdvect traces velocity and temperature backward through the previous MAC field.
-//   2. CSForcesHeat applies pressure-node forcing, buoyancy, floor exchange, lid relaxation, and heat sources.
-//   3. CSDivergence builds the metric-corrected divergence of the intermediate MAC velocity.
-//   4. CSMgSmooth, CSMgResidual, CSMgRestrict, and CSMgProlongate run the pressure V-cycle.
-//   5. CSNormalisePressure removes the closed-domain pressure null space.
-//   6. CSProject subtracts the metric-corrected perturbation-pressure gradient from face velocities.
+//   2. CSVorticity stores the swirl magnitude of the advected field (only when vorticity confinement is enabled).
+//   3. CSForcesHeat applies buoyancy, vorticity confinement, floor exchange, lid relaxation, heat sources, and the open-edge sponge.
+//   4. CSDivergence builds the metric-corrected divergence of the intermediate MAC velocity.
+//   5. CSMgSmooth, CSMgResidual, CSMgRestrict, and CSMgProlongate run the pressure V-cycle.
+//   6. CSNormalisePressure removes the closed-domain pressure null space.
+//   7. CSProject subtracts the metric-corrected perturbation-pressure gradient from face velocities.
 //
 // Units are metres (m), seconds (s), Kelvin (K), and metres per second (m/s). The pressure field is a perturbation
 // potential whose gradient has velocity units for projection. Outside faces are either solid, with zero normal flow,
-// or open, with reservoir inflow/outflow values supplied by the caller.
+// or open. On an open side, each boundary column has caller-supplied outside air. Where the outside wind blows into the
+// domain, the face takes the outside wind and the boundary cell takes the outside temperature. Elsewhere the face copies
+// the neighbouring interior face so air can leave freely.
 //
 // Terrain-following pressure gradients use the sigma metric. Horizontal gradients subtract dz/dx or dz/dy times a
 // vertical pressure gradient average so that pressure differences along sloped layers represent a world-horizontal
@@ -46,8 +49,8 @@ static const float AtmosphereMinCellHeight = 0.001f;      // metres; prevents ze
 static const float AtmosphereSmallWeight = 1.0e-6f;       // dimensionless; protects interpolation denominators at clipped boundaries
 static const float AtmosphereSmallDiagonal = 1.0e-20f;    // operator units; avoids division by zero in degenerate local stencils
 static const float AtmosphereMinHeatRadius = 0.0001f;     // metres; avoids division by zero for point-like heat sources
-static const int AtmosphereOpenEdgeMaxBand = 48;          // columns; limits the open-edge sponge width on large domains
-static const float AtmosphereOpenEdgeWindRate = 8.0f;     // 1/s; blends reservoir wind into the open-edge sponge over a short solver step
+static const float AtmosphereMinSwirlGradient = 1.0e-8f;  // 1/(s m); below this the swirl has no clear centre and confinement adds no force
+static const float AtmosphereOpenEdgeWindRate = 8.0f;     // 1/s; blends outside inflow wind into the open-edge sponge over a short solver step
 #define ATMOSPHERE_TRACER_THREAD_X 64
 
 // Root constants shared by every atmosphere kernel. Must match CBufAtmosphere in atmosphere.cpp.
@@ -82,27 +85,23 @@ struct CBufAtmosphere
 	float lid_temperature;          // temperature that the top layer relaxes toward, K                                 @64
 	float lid_relaxation_rate;      // rate of the top-layer relaxation; zero disables it, 1/s                          @68
 
-	// Large-scale forcing from pressure nodes and the outside reservoir.
-	float surface_forcing_height;   // height above the local floor where pressure-node forcing fades to zero, metres   @72
-	float reservoir_temp_offset;    // reservoir air temperature relative to the reference profile, K                   @76
-	float2 reservoir_wind;          // XY wind of the outside reservoir; used for inflow at open sides, m/s            @80
-
-	// Counts of the valid entries in the caller-supplied buffers.
-	int source_count;               // number of valid entries in g_sources                                             @88
-	int node_count;                 // number of valid entries in g_nodes                                               @92
+	// Caller-supplied buffers.
+	int source_count;               // number of valid entries in g_sources                                             @72
+	int use_floor_temp_buffer;      // non-zero: g_floor_temperature has one value per column; zero: one uniform value  @76
 
 	// Multigrid level selection (used by the CSMg* kernels and CSNormalisePressure). All levels are packed into the same
 	// pressure buffers. A level keeps every vertical layer and has fewer columns, so 'mg_offset' is the index of the
 	// level's first cell in the packed buffers. The child is the next coarser level.
-	int2 mg_size;                   // column counts of the active level in X and Y                                     @96
-	int2 mg_child_size;             // column counts of the child (coarser) level in X and Y; zero on the coarsest level @104
-	int mg_offset;                  // index of the active level's first cell in the packed pressure buffers            @112
-	int mg_child_offset;            // index of the child level's first cell in the packed pressure buffers             @116
-	int mg_scale;                   // number of fine-grid columns per active-level column along X and Y                @120
-	int mg_phase;                   // red-black colour (0/1) for CSMgSmooth, or the reduction pass for CSNormalisePressure @124
+	int2 mg_size;                   // column counts of the active level in X and Y                                     @80
+	int2 mg_child_size;             // column counts of the child (coarser) level in X and Y; zero on the coarsest level @88
+	int mg_offset;                  // index of the active level's first cell in the packed pressure buffers            @96
+	int mg_child_offset;            // index of the child level's first cell in the packed pressure buffers             @100
+	int mg_scale;                   // number of fine-grid columns per active-level column along X and Y                @104
+	int mg_phase;                   // red-black colour (0/1) for CSMgSmooth, or the reduction pass for CSNormalisePressure @108
 
-	// Floor temperature source.
-	int use_floor_temp_buffer;      // non-zero: g_floor_temperature has one value per column; zero: one uniform value  @128
+	// Open edges and swirl restoration (used by CSForcesHeat).
+	int open_edge_band;             // columns inside each open side over which the inflow outside wind is blended in    @112
+	float vorticity_confinement;    // swirl-restoring strength; the acceleration is this times dx times the swirl rate, 1/s @116
 };
 
 // Root constants shared by tracer kernels. Must match CBufAtmosphereTracers in atmosphere.cpp.
@@ -124,17 +123,14 @@ struct HeatSource
 	float relaxation_rate;          // first-order relaxation rate at the centre, 1/s
 };
 
-// Large-scale pressure forcing node supplied by the caller. Must match GpuPressureNode in atmosphere.cpp.
-struct PressureNode
+// Outside air beside one boundary column. Must match GpuOutsideAir in atmosphere.cpp.
+// The buffer always has one entry per boundary column, packed as: x- side by y, x+ side by y, y- side by x, y+ side by x.
+// Entries for solid sides are unused.
+struct OutsideAir
 {
-	float2 centre;                  // world-space XY centre, metres
-	float2 drift;                   // deterministic XY drift, m/s
-	float strength;                 // horizontal pressure-potential strength, m/s^2 scale
-	float radius;                   // Gaussian radius, metres
-	float age;                      // node age, seconds
-	float lifetime;                 // node lifetime, seconds
-	float growth_rate;              // radius growth rate, m/s
-	float temperature_offset;       // reservoir temperature contribution near the node, K
+	float2 wind;                    // XY wind of the outside air, m/s
+	float temperature_offset;       // outside air temperature relative to the reference profile, K
+	float pad;                      // keeps the structure size a multiple of 16 bytes
 };
 
 RWStructuredBuffer<float> resource(g_u_out, u0);                  // output U face velocity, m/s
@@ -152,7 +148,7 @@ StructuredBuffer<float> resource(g_temperature_in, t3);           // input cell-
 StructuredBuffer<float> resource(g_floor_temperature, t4);        // one floor temperature per column, or one uniform value, K
 StructuredBuffer<HeatSource> resource(g_sources, t5);             // active heat sources
 StructuredBuffer<float> resource(g_floor_height, t6);             // one floor height per column, metres
-StructuredBuffer<PressureNode> resource(g_nodes, t7);             // active pressure nodes
+StructuredBuffer<OutsideAir> resource(g_outside_air, t7);         // outside air, one entry per boundary column
 
 // One advected tracer particle. Must match GpuTracerParticle in atmosphere.cpp.
 struct TracerParticle
@@ -442,28 +438,55 @@ float SampleTemperature(float3 pos)
 	return TrilinearTemperature(c0, c1, f);
 }
 
-// Sample U velocity at the nearest staggered face for a world-space position.
+// Return one staggered velocity component, selected by 'axis' (0 = U, 1 = V, 2 = W), or zero outside active flow faces.
+float LoadFace(int axis, int3 f)
+{
+	switch (axis)
+	{
+		case 0: return LoadU(f);
+		case 1: return LoadV(f);
+		default: return LoadW(f);
+	}
+}
+
+// Interpolate one staggered velocity component at fractional face coordinates 'grid'. 'max_index' is the largest face index on each axis.
+// Coordinates outside the face range clamp to the nearest face, and inactive faces contribute zero.
+float TrilinearFace(int axis, float3 grid, int3 max_index)
+{
+	// Blend the eight surrounding faces so motion of less than half a cell still moves the sampled value.
+	float3 base_f = floor(grid);
+	float3 f = saturate(grid - base_f);
+	int3 c0 = clamp((int3)base_f, int3(0, 0, 0), max_index);
+	int3 c1 = clamp((int3)base_f + int3(1, 1, 1), int3(0, 0, 0), max_index);
+	float c00 = lerp(LoadFace(axis, int3(c0.x, c0.y, c0.z)), LoadFace(axis, int3(c1.x, c0.y, c0.z)), f.x);
+	float c10 = lerp(LoadFace(axis, int3(c0.x, c1.y, c0.z)), LoadFace(axis, int3(c1.x, c1.y, c0.z)), f.x);
+	float c01 = lerp(LoadFace(axis, int3(c0.x, c0.y, c1.z)), LoadFace(axis, int3(c1.x, c0.y, c1.z)), f.x);
+	float c11 = lerp(LoadFace(axis, int3(c0.x, c1.y, c1.z)), LoadFace(axis, int3(c1.x, c1.y, c1.z)), f.x);
+	return lerp(lerp(c00, c10, f.y), lerp(c01, c11, f.y), f.z);
+}
+
+// Sample U velocity at a world-space position by interpolating the surrounding U faces.
 float SampleU(float3 pos)
 {
+	// U faces sit half a cell below the cell centres along X.
 	float3 grid = GridSample(pos) + float3(0.5f, 0.0f, 0.0f);
-	int3 c = clamp((int3)round(grid), int3(0, 0, 0), int3(g.cell_count.x, g.cell_count.y - 1, g.cell_count.z - 1));
-	return LoadU(c);
+	return TrilinearFace(0, grid, int3(g.cell_count.x, g.cell_count.y - 1, g.cell_count.z - 1));
 }
 
-// Sample V velocity at the nearest staggered face for a world-space position.
+// Sample V velocity at a world-space position by interpolating the surrounding V faces.
 float SampleV(float3 pos)
 {
+	// V faces sit half a cell below the cell centres along Y.
 	float3 grid = GridSample(pos) + float3(0.0f, 0.5f, 0.0f);
-	int3 c = clamp((int3)round(grid), int3(0, 0, 0), int3(g.cell_count.x - 1, g.cell_count.y, g.cell_count.z - 1));
-	return LoadV(c);
+	return TrilinearFace(1, grid, int3(g.cell_count.x - 1, g.cell_count.y, g.cell_count.z - 1));
 }
 
-// Sample W velocity at the nearest staggered face for a world-space position.
+// Sample W velocity at a world-space position by interpolating the surrounding W faces.
 float SampleW(float3 pos)
 {
+	// W faces sit approximately half a layer below the cell centres along Z.
 	float3 grid = GridSample(pos) + float3(0.0f, 0.0f, 0.5f);
-	int3 c = clamp((int3)round(grid), int3(0, 0, 0), int3(g.cell_count.x - 1, g.cell_count.y - 1, g.cell_count.z));
-	return LoadW(c);
+	return TrilinearFace(2, grid, int3(g.cell_count.x - 1, g.cell_count.y - 1, g.cell_count.z));
 }
 
 // Return a staggered velocity sample at a world-space position.
@@ -483,52 +506,198 @@ float3 ClampToDomain(float3 pos)
 }
 
 
-// Return the open-boundary reservoir temperature at a world-space position.
-float ReservoirTemp(float3 pos)
+// Return the outside air beside one boundary column. See OutsideAir for the packed order.
+OutsideAir OutsideAirXMin(int y)
 {
-	float temp = ReferenceTemperature(pos.z) + g.reservoir_temp_offset;
-	for (int i = 0; i != g.node_count; ++i)
-	{
-		PressureNode node = g_nodes[i];
-		float2 d = pos.xy - node.centre;
-		float r2 = max(node.radius * node.radius, 1.0f);
-		temp += node.temperature_offset * exp(-dot(d, d) / r2);
-	}
-	return temp;
+	return g_outside_air[y];
+}
+OutsideAir OutsideAirXMax(int y)
+{
+	return g_outside_air[g.cell_count.y + y];
+}
+OutsideAir OutsideAirYMin(int x)
+{
+	return g_outside_air[2 * g.cell_count.y + x];
+}
+OutsideAir OutsideAirYMax(int x)
+{
+	return g_outside_air[2 * g.cell_count.y + g.cell_count.x + x];
 }
 
-// Return the horizontal acceleration from pressure nodes at a world-space position.
-float2 PressureNodeAcceleration(float3 pos)
+// True when the outside air beside the given boundary column blows into the domain through an open side.
+bool InflowXMin(int y)
 {
-	float2 acc = float2(0.0f, 0.0f);
-	for (int i = 0; i != g.node_count; ++i)
-	{
-		PressureNode node = g_nodes[i];
-		float2 d = pos.xy - node.centre;
-		float r2 = max(node.radius * node.radius, 1.0f);
-		float e = exp(-dot(d, d) / r2);
-		acc += 2.0f * node.strength * d * e / r2;
-	}
-	int2 col = ClampColumn((int2)floor(float2((pos.x - g.origin.x) / g.dx, (pos.y - g.origin.y) / g.dx)));
-	float fade = saturate(1.0f - (pos.z - FloorHeight(col)) / max(g.surface_forcing_height, 1.0f));
-	return acc * fade;
+	return BoundaryXMin() == BoundaryOpen && OutsideAirXMin(y).wind.x > 0.0f;
+}
+bool InflowXMax(int y)
+{
+	return BoundaryXMax() == BoundaryOpen && OutsideAirXMax(y).wind.x < 0.0f;
+}
+bool InflowYMin(int x)
+{
+	return BoundaryYMin() == BoundaryOpen && OutsideAirYMin(x).wind.y > 0.0f;
+}
+bool InflowYMax(int x)
+{
+	return BoundaryYMax() == BoundaryOpen && OutsideAirYMax(x).wind.y < 0.0f;
 }
 
-// Return the blend weight for nudging open-edge cells toward the reservoir wind.
-float OpenEdgeWindBlend(int2 col)
+// True when U face 'p' lies on an open x side.
+bool OpenBoundaryUFace(int3 p)
 {
-	// The current coarse solver step needs a broad open-edge sponge to let a reservoir wind fill the test domain within one simulated minute without forcing the whole field.
-	int band = min(AtmosphereOpenEdgeMaxBand, max(g.cell_count.x, g.cell_count.y) / 2);
+	return (p.x == 0 && BoundaryXMin() == BoundaryOpen) || (p.x == g.cell_count.x && BoundaryXMax() == BoundaryOpen);
+}
+
+// True when V face 'p' lies on an open y side.
+bool OpenBoundaryVFace(int3 p)
+{
+	return (p.y == 0 && BoundaryYMin() == BoundaryOpen) || (p.y == g.cell_count.y && BoundaryYMax() == BoundaryOpen);
+}
+
+// Return the velocity of an open-boundary U face. Inflow faces take the outside wind. Outflow faces copy the
+// neighbouring interior face from the input field, so air leaves without being pushed back. Requires OpenBoundaryUFace(p).
+float OpenBoundaryU(int3 p)
+{
+	// Choose the side from the face index; the caller guarantees that this side is open.
+	if (p.x == 0)
+		return InflowXMin(p.y) ? OutsideAirXMin(p.y).wind.x : g_u_in[UIndex(int3(1, p.y, p.z))];
+
+	return InflowXMax(p.y) ? OutsideAirXMax(p.y).wind.x : g_u_in[UIndex(int3(g.cell_count.x - 1, p.y, p.z))];
+}
+
+// Return the velocity of an open-boundary V face. See OpenBoundaryU. Requires OpenBoundaryVFace(p).
+float OpenBoundaryV(int3 p)
+{
+	// Choose the side from the face index; the caller guarantees that this side is open.
+	if (p.y == 0)
+		return InflowYMin(p.x) ? OutsideAirYMin(p.x).wind.y : g_v_in[VIndex(int3(p.x, 1, p.z))];
+
+	return InflowYMax(p.x) ? OutsideAirYMax(p.x).wind.y : g_v_in[VIndex(int3(p.x, g.cell_count.y - 1, p.z))];
+}
+
+// Find the outside air that flows into boundary cell 'p'. Returns false when no open side of the cell has inflow.
+// A corner cell with inflow on two sides uses the x side.
+bool InflowOutsideAir(int3 p, out OutsideAir air)
+{
+	// Test each side the cell touches, in packed-buffer order.
+	air = (OutsideAir)0;
+	if (p.x == 0 && InflowXMin(p.y))
+		air = OutsideAirXMin(p.y);
+	else if (p.x == g.cell_count.x - 1 && InflowXMax(p.y))
+		air = OutsideAirXMax(p.y);
+	else if (p.y == 0 && InflowYMin(p.x))
+		air = OutsideAirYMin(p.x);
+	else if (p.y == g.cell_count.y - 1 && InflowYMax(p.x))
+		air = OutsideAirYMax(p.x);
+	else
+		return false;
+
+	return true;
+}
+
+// Return the blend weight for nudging an open-edge column toward the inflow outside air, and that air's wind.
+// The weight is 1 at an inflow side and falls to 0 across the sponge band. Where bands from two inflow sides overlap,
+// the side with the larger weight provides the wind.
+float OpenEdgeWindBlend(int2 col, out float2 wind)
+{
+	// A zero-width band leaves the outside wind on the boundary faces only.
+	int band = g.open_edge_band;
 	float edge = 0.0f;
-	if (BoundaryXMin() == BoundaryOpen && g.reservoir_wind.x > 0.0f)
-		edge = max(edge, saturate((float)(band - col.x) / (float)band));
-	if (BoundaryXMax() == BoundaryOpen && g.reservoir_wind.x < 0.0f)
-		edge = max(edge, saturate((float)(band - (g.cell_count.x - 1 - col.x)) / (float)band));
-	if (BoundaryYMin() == BoundaryOpen && g.reservoir_wind.y > 0.0f)
-		edge = max(edge, saturate((float)(band - col.y) / (float)band));
-	if (BoundaryYMax() == BoundaryOpen && g.reservoir_wind.y < 0.0f)
-		edge = max(edge, saturate((float)(band - (g.cell_count.y - 1 - col.y)) / (float)band));
+	wind = float2(0.0f, 0.0f);
+	if (band <= 0)
+		return 0.0f;
+
+	// Each side only affects the columns in its own row or column, so neighbouring rows can have opposing winds.
+	if (InflowXMin(col.y))
+	{
+		float weight = saturate((float)(band - col.x) / (float)band);
+		if (weight > edge)
+		{
+			edge = weight;
+			wind = OutsideAirXMin(col.y).wind;
+		}
+	}
+	if (InflowXMax(col.y))
+	{
+		float weight = saturate((float)(band - (g.cell_count.x - 1 - col.x)) / (float)band);
+		if (weight > edge)
+		{
+			edge = weight;
+			wind = OutsideAirXMax(col.y).wind;
+		}
+	}
+	if (InflowYMin(col.x))
+	{
+		float weight = saturate((float)(band - col.y) / (float)band);
+		if (weight > edge)
+		{
+			edge = weight;
+			wind = OutsideAirYMin(col.x).wind;
+		}
+	}
+	if (InflowYMax(col.x))
+	{
+		float weight = saturate((float)(band - (g.cell_count.y - 1 - col.y)) / (float)band);
+		if (weight > edge)
+		{
+			edge = weight;
+			wind = OutsideAirYMax(col.x).wind;
+		}
+	}
 	return edge;
+}
+
+// Return the velocity at the centre of cell 'c', averaged from its two faces on each axis. 'c' is clamped into the grid.
+float3 CellVelocity(int3 c)
+{
+	// Clamping lets neighbour lookups at the domain edges reuse the edge cell.
+	c = clamp(c, int3(0, 0, 0), g.cell_count - 1);
+	return 0.5f * float3(LoadU(c) + LoadU(c + int3(1, 0, 0)), LoadV(c) + LoadV(c + int3(0, 1, 0)), LoadW(c) + LoadW(c + int3(0, 0, 1)));
+}
+
+// Return the swirl (curl of the velocity) at the centre of cell 'c', 1/s.
+// Derivatives are taken along the grid layers and ignore the terrain slope. This is accurate enough for the confinement force, which only restores small swirls.
+float3 CellVorticity(int3 c)
+{
+	// Use central differences, or one-sided differences at the domain edges. An axis with one cell has no derivative.
+	int3 lo = max(c - 1, int3(0, 0, 0));
+	int3 hi = min(c + 1, g.cell_count - 1);
+	float span_x = (float)max(hi.x - lo.x, 1) * g.dx;
+	float span_y = (float)max(hi.y - lo.y, 1) * g.dx;
+	float span_z = max(CellZ(c.xy, hi.z) - CellZ(c.xy, lo.z), AtmosphereMinCellHeight);
+	float3 d_dx = (CellVelocity(int3(hi.x, c.y, c.z)) - CellVelocity(int3(lo.x, c.y, c.z))) / span_x;
+	float3 d_dy = (CellVelocity(int3(c.x, hi.y, c.z)) - CellVelocity(int3(c.x, lo.y, c.z))) / span_y;
+	float3 d_dz = (CellVelocity(int3(c.x, c.y, hi.z)) - CellVelocity(int3(c.x, c.y, lo.z))) / span_z;
+	return float3(d_dy.z - d_dz.y, d_dz.x - d_dx.z, d_dx.y - d_dy.x);
+}
+
+// Return the swirl magnitude stored by CSVorticity for cell 'c', 1/s. 'c' is clamped into the grid.
+float SwirlMagnitude(int3 c)
+{
+	return g_divergence[CellIndex(clamp(c, int3(0, 0, 0), g.cell_count - 1))];
+}
+
+// Return the vorticity confinement acceleration at the centre of cell 'c', m/s^2. Requires the swirl magnitudes from CSVorticity.
+// The force pushes the flow around each local peak of swirl, which restores rotation that numerical smoothing removes.
+float3 ConfinementAcceleration(int3 c)
+{
+	// Find the direction toward stronger swirl from the stored swirl magnitudes.
+	c = clamp(c, int3(0, 0, 0), g.cell_count - 1);
+	int3 lo = max(c - 1, int3(0, 0, 0));
+	int3 hi = min(c + 1, g.cell_count - 1);
+	float span_x = (float)max(hi.x - lo.x, 1) * g.dx;
+	float span_y = (float)max(hi.y - lo.y, 1) * g.dx;
+	float span_z = max(CellZ(c.xy, hi.z) - CellZ(c.xy, lo.z), AtmosphereMinCellHeight);
+	float3 gradient = float3(
+		(SwirlMagnitude(int3(hi.x, c.y, c.z)) - SwirlMagnitude(int3(lo.x, c.y, c.z))) / span_x,
+		(SwirlMagnitude(int3(c.x, hi.y, c.z)) - SwirlMagnitude(int3(c.x, lo.y, c.z))) / span_y,
+		(SwirlMagnitude(int3(c.x, c.y, hi.z)) - SwirlMagnitude(int3(c.x, c.y, lo.z))) / span_z);
+	float len = length(gradient);
+	if (len < AtmosphereMinSwirlGradient)
+		return float3(0.0f, 0.0f, 0.0f);
+
+	// Push at right angles to both that direction and the swirl axis. The cell size keeps the force consistent as the grid is refined.
+	return g.vorticity_confinement * g.dx * cross(gradient / len, CellVorticity(c));
 }
 
 
@@ -855,10 +1024,9 @@ void CSAdvect(uint3 dtid : SV_DispatchThreadID)
 		float3 pos = UFaceCentre(p);
 		float3 prev = ClampToDomain(pos - SampleVelocity(pos) * g.dt);
 		float value = SampleU(prev);
-		if (p.x == 0 && BoundaryXMin() == BoundaryOpen && g.reservoir_wind.x > 0.0f) value = g.reservoir_wind.x;
-		if (p.x == 0 && BoundaryXMin() == BoundaryOpen && g.reservoir_wind.x <= 0.0f) value = g_u_in[UIndex(int3(1, p.y, p.z))];
-		if (p.x == g.cell_count.x && BoundaryXMax() == BoundaryOpen && g.reservoir_wind.x < 0.0f) value = g.reservoir_wind.x;
-		if (p.x == g.cell_count.x && BoundaryXMax() == BoundaryOpen && g.reservoir_wind.x >= 0.0f) value = g_u_in[UIndex(int3(g.cell_count.x - 1, p.y, p.z))];
+		if (OpenBoundaryUFace(p))
+			value = OpenBoundaryU(p);
+
 		g_u_out[UIndex(p)] = UFaceActive(p) ? value : 0.0f;
 	}
 	if (InV(p))
@@ -866,10 +1034,9 @@ void CSAdvect(uint3 dtid : SV_DispatchThreadID)
 		float3 pos = VFaceCentre(p);
 		float3 prev = ClampToDomain(pos - SampleVelocity(pos) * g.dt);
 		float value = SampleV(prev);
-		if (p.y == 0 && BoundaryYMin() == BoundaryOpen && g.reservoir_wind.y > 0.0f) value = g.reservoir_wind.y;
-		if (p.y == 0 && BoundaryYMin() == BoundaryOpen && g.reservoir_wind.y <= 0.0f) value = g_v_in[VIndex(int3(p.x, 1, p.z))];
-		if (p.y == g.cell_count.y && BoundaryYMax() == BoundaryOpen && g.reservoir_wind.y < 0.0f) value = g.reservoir_wind.y;
-		if (p.y == g.cell_count.y && BoundaryYMax() == BoundaryOpen && g.reservoir_wind.y >= 0.0f) value = g_v_in[VIndex(int3(p.x, g.cell_count.y - 1, p.z))];
+		if (OpenBoundaryVFace(p))
+			value = OpenBoundaryV(p);
+
 		g_v_out[VIndex(p)] = VFaceActive(p) ? value : 0.0f;
 	}
 	if (InW(p))
@@ -883,12 +1050,26 @@ void CSAdvect(uint3 dtid : SV_DispatchThreadID)
 		float3 pos = CellCentre(p);
 		float3 prev = ClampToDomain(pos - SampleVelocity(pos) * g.dt);
 		float temp = SampleTemperature(prev);
-		if ((p.x == 0 && BoundaryXMin() == BoundaryOpen && g.reservoir_wind.x > 0.0f) || (p.x == g.cell_count.x - 1 && BoundaryXMax() == BoundaryOpen && g.reservoir_wind.x < 0.0f) || (p.y == 0 && BoundaryYMin() == BoundaryOpen && g.reservoir_wind.y > 0.0f) || (p.y == g.cell_count.y - 1 && BoundaryYMax() == BoundaryOpen && g.reservoir_wind.y < 0.0f))
+		OutsideAir air;
+		if (InflowOutsideAir(p, air))
 		{
-			temp = ReservoirTemp(pos);
+			// Inflow boundary cells take the temperature of the outside air that enters them.
+			temp = ReferenceTemperature(pos.z) + air.temperature_offset;
 		}
 		g_temperature_out[CellIndex(p)] = temp;
 	}
+}
+
+// Store the swirl magnitude of the advected field in the divergence scratch buffer for the confinement force in CSForcesHeat.
+numthreads(CSVorticity, ATMOSPHERE_THREAD_X, ATMOSPHERE_THREAD_Y, ATMOSPHERE_THREAD_Z)
+void CSVorticity(uint3 dtid : SV_DispatchThreadID)
+{
+	// Ignore coordinates outside the cell-centred scratch field.
+	int3 c = int3(dtid);
+	if (!InCells(c))
+		return;
+
+	g_divergence[CellIndex(c)] = length(CellVorticity(c));
 }
 
 // Apply forcing, buoyancy, floor exchange, lid relaxation, and heat sources.
@@ -897,44 +1078,57 @@ void CSForcesHeat(uint3 dtid : SV_DispatchThreadID)
 {
 	// Process each velocity component and cell value that exists at this dispatch coordinate.
 	int3 p = int3(dtid);
+	bool confine = g.vorticity_confinement != 0.0f;
 	if (InU(p))
 	{
-		float3 pos = UFaceCentre(p);
-		float2 acc = PressureNodeAcceleration(pos);
-		float value = g_u_in[UIndex(p)] + acc.x * g.dt;
+		// Restore lost swirl on interior faces using the average confinement force of the two cells that share the face.
+		float value = g_u_in[UIndex(p)];
+		if (confine && p.x > 0 && p.x < g.cell_count.x)
+			value += 0.5f * (ConfinementAcceleration(p - int3(1, 0, 0)).x + ConfinementAcceleration(p).x) * g.dt;
+
+		// Nudge the face toward the inflow outside wind inside the open-edge sponge.
 		int2 col = ClampColumn(int2(min(p.x, g.cell_count.x - 1), p.y));
-		float sponge = OpenEdgeWindBlend(col);
+		float2 wind;
+		float sponge = OpenEdgeWindBlend(col, wind);
 		if (sponge > 0.0f)
-			value = lerp(value, g.reservoir_wind.x, saturate(AtmosphereOpenEdgeWindRate * sponge * g.dt));
+			value = lerp(value, wind.x, saturate(AtmosphereOpenEdgeWindRate * sponge * g.dt));
 
 		g_u_out[UIndex(p)] = UFaceActive(p) ? value : 0.0f;
 	}
 	if (InV(p))
 	{
-		float3 pos = VFaceCentre(p);
-		float2 acc = PressureNodeAcceleration(pos);
-		float value = g_v_in[VIndex(p)] + acc.y * g.dt;
+		// Restore lost swirl on interior faces using the average confinement force of the two cells that share the face.
+		float value = g_v_in[VIndex(p)];
+		if (confine && p.y > 0 && p.y < g.cell_count.y)
+			value += 0.5f * (ConfinementAcceleration(p - int3(0, 1, 0)).y + ConfinementAcceleration(p).y) * g.dt;
+
+		// Nudge the face toward the inflow outside wind inside the open-edge sponge.
 		int2 col = ClampColumn(int2(p.x, min(p.y, g.cell_count.y - 1)));
-		float sponge = OpenEdgeWindBlend(col);
+		float2 wind;
+		float sponge = OpenEdgeWindBlend(col, wind);
 		if (sponge > 0.0f)
-			value = lerp(value, g.reservoir_wind.y, saturate(AtmosphereOpenEdgeWindRate * sponge * g.dt));
+			value = lerp(value, wind.y, saturate(AtmosphereOpenEdgeWindRate * sponge * g.dt));
 
 		g_v_out[VIndex(p)] = VFaceActive(p) ? value : 0.0f;
 	}
 	if (InW(p))
 	{
-		float buoyancy = 0.0f;
+		// Accelerate active faces by buoyancy from the temperature difference, plus the vertical confinement force.
+		float accel = 0.0f;
 		if (WFaceActive(p))
 		{
+			// Average the two cells that share the face; floor and lid faces clamp to their single neighbour.
 			int z0 = max(0, p.z - 1);
 			int z1 = min(g.cell_count.z - 1, p.z);
 			float temp0 = g_temperature_in[CellIndex(int3(p.x, p.y, z0))];
 			float temp1 = g_temperature_in[CellIndex(int3(p.x, p.y, z1))];
 			float temp = 0.5f * (temp0 + temp1);
 			float ref_temp = 0.5f * (ReferenceTemperature(CellZ(p.xy, z0)) + ReferenceTemperature(CellZ(p.xy, z1)));
-			buoyancy = g.gravity * (temp - ref_temp) / max(ref_temp, 1.0f);
+			accel = g.gravity * (temp - ref_temp) / max(ref_temp, 1.0f);
+			if (confine)
+				accel += 0.5f * (ConfinementAcceleration(int3(p.x, p.y, z0)).z + ConfinementAcceleration(int3(p.x, p.y, z1)).z);
 		}
-		g_w_out[WIndex(p)] = WFaceActive(p) ? g_w_in[WIndex(p)] + buoyancy * g.dt : 0.0f;
+		g_w_out[WIndex(p)] = WFaceActive(p) ? g_w_in[WIndex(p)] + accel * g.dt : 0.0f;
 	}
 	if (InCells(p))
 	{
@@ -1134,14 +1328,8 @@ void CSProject(uint3 dtid : SV_DispatchThreadID)
 		else if (p.x == 0 && BoundaryXMin() == BoundaryOpen) grad = PressureAt(int3(0, p.y, p.z)) / g.dx;
 		else if (p.x == g.cell_count.x && BoundaryXMax() == BoundaryOpen) grad = -PressureAt(int3(g.cell_count.x - 1, p.y, p.z)) / g.dx;
 		float value = g_u_in[UIndex(p)] - grad;
-		if (p.x == 0 && BoundaryXMin() == BoundaryOpen && g.reservoir_wind.x > 0.0f)
-			value = g.reservoir_wind.x;
-		else if (p.x == 0 && BoundaryXMin() == BoundaryOpen && g.reservoir_wind.x <= 0.0f)
-			value = g_u_in[UIndex(int3(1, p.y, p.z))];
-		else if (p.x == g.cell_count.x && BoundaryXMax() == BoundaryOpen && g.reservoir_wind.x < 0.0f)
-			value = g.reservoir_wind.x;
-		else if (p.x == g.cell_count.x && BoundaryXMax() == BoundaryOpen && g.reservoir_wind.x >= 0.0f)
-			value = g_u_in[UIndex(int3(g.cell_count.x - 1, p.y, p.z))];
+		if (OpenBoundaryUFace(p))
+			value = OpenBoundaryU(p);
 
 		g_u_out[UIndex(p)] = UFaceActive(p) ? value : 0.0f;
 	}
@@ -1158,14 +1346,8 @@ void CSProject(uint3 dtid : SV_DispatchThreadID)
 		else if (p.y == 0 && BoundaryYMin() == BoundaryOpen) grad = PressureAt(int3(p.x, 0, p.z)) / g.dx;
 		else if (p.y == g.cell_count.y && BoundaryYMax() == BoundaryOpen) grad = -PressureAt(int3(p.x, g.cell_count.y - 1, p.z)) / g.dx;
 		float value = g_v_in[VIndex(p)] - grad;
-		if (p.y == 0 && BoundaryYMin() == BoundaryOpen && g.reservoir_wind.y > 0.0f)
-			value = g.reservoir_wind.y;
-		else if (p.y == 0 && BoundaryYMin() == BoundaryOpen && g.reservoir_wind.y <= 0.0f)
-			value = g_v_in[VIndex(int3(p.x, 1, p.z))];
-		else if (p.y == g.cell_count.y && BoundaryYMax() == BoundaryOpen && g.reservoir_wind.y < 0.0f)
-			value = g.reservoir_wind.y;
-		else if (p.y == g.cell_count.y && BoundaryYMax() == BoundaryOpen && g.reservoir_wind.y >= 0.0f)
-			value = g_v_in[VIndex(int3(p.x, g.cell_count.y - 1, p.z))];
+		if (OpenBoundaryVFace(p))
+			value = OpenBoundaryV(p);
 
 		g_v_out[VIndex(p)] = VFaceActive(p) ? value : 0.0f;
 	}
@@ -1233,26 +1415,23 @@ TracerParticle RespawnTracer(uint particle_index)
 	return particle;
 }
 
-// Return a deterministic tracer respawned on an open side face where reservoir wind flows into the domain.
-// Each inflow face is chosen in proportion to its inflow rate, so a steady wind keeps tracer density even along the flow.
-// Falls back to RespawnTracer when no open side has inflow.
-TracerParticle RespawnTracerAtInflow(uint particle_index)
+// Return a random point just inside one of the open side faces, chosen uniformly by side area.
+// 'lane' selects the three random lanes used, so callers can draw several independent candidates.
+float3 OpenSidePoint(uint particle_index, uint lane, out float3 inward)
 {
-	// Weight each open side by inward wind speed times side length. Column height is ignored because the reservoir wind is uniform with height.
+	// Weight each open side by its length. Column height is ignored because the grid is a flat rectangle in XY.
 	float lx = (float)g.cell_count.x * g.dx;
 	float ly = (float)g.cell_count.y * g.dx;
-	float w_xmin = (BoundaryXMin() == BoundaryOpen) ? max(g.reservoir_wind.x, 0.0f) * ly : 0.0f;
-	float w_xmax = (BoundaryXMax() == BoundaryOpen) ? max(-g.reservoir_wind.x, 0.0f) * ly : 0.0f;
-	float w_ymin = (BoundaryYMin() == BoundaryOpen) ? max(g.reservoir_wind.y, 0.0f) * lx : 0.0f;
-	float w_ymax = (BoundaryYMax() == BoundaryOpen) ? max(-g.reservoir_wind.y, 0.0f) * lx : 0.0f;
+	float w_xmin = (BoundaryXMin() == BoundaryOpen) ? ly : 0.0f;
+	float w_xmax = (BoundaryXMax() == BoundaryOpen) ? ly : 0.0f;
+	float w_ymin = (BoundaryYMin() == BoundaryOpen) ? lx : 0.0f;
+	float w_ymax = (BoundaryYMax() == BoundaryOpen) ? lx : 0.0f;
 	float total = w_xmin + w_xmax + w_ymin + w_ymax;
-	if (total <= 0.0f)
-		return RespawnTracer(particle_index);
 
 	// Pick a side, then a point along it. The point sits just inside the face so it is not immediately classed as outside.
-	float pick = TracerRand(particle_index, 3u) * total;
-	float along = TracerRand(particle_index, 4u);
-	float rz = TracerRand(particle_index, 5u);
+	float pick = TracerRand(particle_index, lane + 0u) * total;
+	float along = TracerRand(particle_index, lane + 1u);
+	float rz = TracerRand(particle_index, lane + 2u);
 	float inset = 1.0e-3f * g.dx;
 	float3 pos;
 	if (pick < w_xmin)
@@ -1260,32 +1439,69 @@ TracerParticle RespawnTracerAtInflow(uint particle_index)
 		// West face.
 		pos.x = g.origin.x + inset;
 		pos.y = g.origin.y + along * ly;
+		inward = float3(1.0f, 0.0f, 0.0f);
 	}
 	else if (pick < w_xmin + w_xmax)
 	{
 		// East face.
 		pos.x = g.origin.x + lx - inset;
 		pos.y = g.origin.y + along * ly;
+		inward = float3(-1.0f, 0.0f, 0.0f);
 	}
 	else if (pick < w_xmin + w_xmax + w_ymin)
 	{
 		// South face.
 		pos.x = g.origin.x + along * lx;
 		pos.y = g.origin.y + inset;
+		inward = float3(0.0f, 1.0f, 0.0f);
 	}
 	else
 	{
 		// North face.
 		pos.x = g.origin.x + along * lx;
 		pos.y = g.origin.y + ly - inset;
+		inward = float3(0.0f, -1.0f, 0.0f);
 	}
 
 	// Sample height uniformly within the local column, as RespawnTracer does.
 	int2 col = ClampColumn((int2)floor(float2((pos.x - g.origin.x) / g.dx, (pos.y - g.origin.y) / g.dx)));
 	pos.z = FloorHeight(col) + rz * ColumnHeight(col);
+	return pos;
+}
+
+// Return a deterministic tracer respawned on an open side face where the solved wind flows into the domain.
+// Re-entry points are chosen roughly in proportion to the local inflow rate, so tracer density stays even along the flow.
+// Falls back to RespawnTracer when none of the candidate points has inflow.
+TracerParticle RespawnTracerAtInflow(uint particle_index)
+{
+	// Exact flux-weighted sampling would need the total inflow over every boundary face, which one thread cannot afford.
+	// Instead, draw a few points uniformly over the open sides and keep one with probability proportional to its inflow speed.
+	// Keeping a running total lets each candidate replace the current choice with probability 'its inflow / total inflow so far'.
+	static const uint candidate_count = 8u;
+	float3 chosen = float3(0.0f, 0.0f, 0.0f);
+	float total = 0.0f;
+	if (BoundaryXMin() == BoundaryOpen || BoundaryXMax() == BoundaryOpen || BoundaryYMin() == BoundaryOpen || BoundaryYMax() == BoundaryOpen)
+	{
+		for (uint i = 0u; i != candidate_count; ++i)
+		{
+			// Lanes 0-2 are used by RespawnTracer; each candidate uses three more lanes plus one for the keep decision.
+			float3 inward;
+			float3 pos = OpenSidePoint(particle_index, 3u + 4u * i, inward);
+			float inflow = max(dot(SampleVelocity(pos), inward), 0.0f);
+			if (inflow <= 0.0f)
+				continue;
+
+			total += inflow;
+			if (TracerRand(particle_index, 6u + 4u * i) * total < inflow)
+				chosen = pos;
+		}
+	}
+	if (total <= 0.0f)
+		return RespawnTracer(particle_index);
+
 	TracerParticle particle;
-	particle.position = float4(pos, 1.0f);
-	particle.temperature = SampleTemperature(pos);
+	particle.position = float4(chosen, 1.0f);
+	particle.temperature = SampleTemperature(chosen);
 	particle.age = 0.0f;
 	particle.pad = float2(0.0f, 0.0f);
 	return particle;

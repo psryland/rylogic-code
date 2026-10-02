@@ -968,7 +968,6 @@ namespace physics_sandbox::scene_loader
 		auto& config = desc.m_config;
 		config.m_grid = physics::atmosphere::AtmosphereGrid{ .m_cell_count = iv3{64, 64, 8}, .m_origin = v4{-640.0f, -640.0f, 0.0f, 1.0f}, .m_dx = 20.0f, .m_lid_z = 400.0f, .m_first_layer_thickness = 8.0f, .m_layer_stretch_power = 0.75f };
 		config.m_reference = physics::atmosphere::AtmosphereReferenceProfile{ .m_temperature_at_origin = 288.0f, .m_lapse_rate = -0.0065f, .m_min_temperature = 220.0f };
-		config.m_surface_forcing_height = 220.0f;
 		config.m_pressure_vcycles = 2;
 		config.m_pressure_pre_smooth = 4;
 		config.m_pressure_post_smooth = 4;
@@ -1010,11 +1009,35 @@ namespace physics_sandbox::scene_loader
 			if (auto const* value = r.find("min_temperature")) config.m_reference.m_min_temperature = value->to<float>();
 		}
 
-		if (auto const* reservoir = obj.find("reservoir"))
+		if (auto const* value = obj.find("open_edge_band"))
+			config.m_open_edge_band = value->to<int>();
+		if (auto const* value = obj.find("vorticity_confinement"))
+			config.m_vorticity_confinement = value->to<float>();
+
+		// Outside air is authored as rectangles in the horizontal plane. Positions outside every rectangle get calm, reference-temperature air.
+		// 'wind_noise' adds a fixed pseudo-random offset to each boundary column's wind so symmetric flows have a disturbance to grow from.
+		struct OutsideAirRegion
 		{
-			auto const& r = reservoir->to_object();
-			if (auto const* value = r.find("wind")) desc.m_reservoir_wind = ReadVec3(*value, 0.0f);
-			if (auto const* value = r.find("temperature_offset")) desc.m_reservoir_temperature_offset = value->to<float>();
+			v2 m_min;
+			v2 m_max;
+			float m_wind_noise;
+			physics::atmosphere::AtmosphereOutsideAir m_air;
+		};
+		auto outside_air_regions = std::vector<OutsideAirRegion>{};
+		if (auto const* regions = obj.find("outside_air"))
+		{
+			for (auto const& jregion : regions->to_array())
+			{
+				// Read one region; omitted bounds cover the whole plane.
+				auto const& r = jregion.to_object();
+				auto region = OutsideAirRegion{ .m_min = v2{ -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max() }, .m_max = v2{ std::numeric_limits<float>::max(), std::numeric_limits<float>::max() }, .m_wind_noise = 0.0f, .m_air = {} };
+				if (auto const* value = r.find("min")) region.m_min = ReadVec2(*value);
+				if (auto const* value = r.find("max")) region.m_max = ReadVec2(*value);
+				if (auto const* value = r.find("wind")) region.m_air.m_wind = ReadVec2(*value);
+				if (auto const* value = r.find("wind_noise")) region.m_wind_noise = value->to<float>();
+				if (auto const* value = r.find("temperature_offset")) region.m_air.m_temperature_offset = value->to<float>();
+				outside_air_regions.push_back(region);
+			}
 		}
 
 		if (auto const* sources = obj.find("heat_sources"))
@@ -1030,33 +1053,6 @@ namespace physics_sandbox::scene_loader
 				if (auto const* value = s.find("relaxation_rate")) source.m_relaxation_rate = value->to<float>();
 				desc.m_heat_sources.push_back(source);
 			}
-		}
-
-		if (auto const* nodes = obj.find("pressure_nodes"))
-		{
-			for (auto const& jnode : nodes->to_array())
-			{
-				auto const& n = jnode.to_object();
-				auto node = physics::atmosphere::AtmospherePressureNode{};
-				if (auto const* value = n.find("centre")) node.m_centre = ReadVec2(*value);
-				if (auto const* value = n.find("drift")) node.m_drift = ReadVec2(*value);
-				if (auto const* value = n.find("strength")) node.m_strength = value->to<float>();
-				if (auto const* value = n.find("radius")) node.m_radius = value->to<float>();
-				if (auto const* value = n.find("age")) node.m_age = value->to<float>();
-				if (auto const* value = n.find("lifetime")) node.m_lifetime = value->to<float>();
-				if (auto const* value = n.find("growth_rate")) node.m_growth_rate = value->to<float>();
-				if (auto const* value = n.find("temperature_offset")) node.m_temperature_offset = value->to<float>();
-				desc.m_forcing.m_nodes.push_back(node);
-			}
-		}
-		if (auto const* value = obj.find("pressure_seed"))
-			desc.m_forcing.m_seed = static_cast<uint32_t>(value->to<int64_t>());
-
-		// Respawned nodes use the same magnitudes as the authored ones so the scene keeps a similar character.
-		for (auto const& node : desc.m_forcing.m_nodes)
-		{
-			desc.m_forcing_pressure_scale = std::max(desc.m_forcing_pressure_scale, std::abs(node.m_strength));
-			desc.m_forcing_temperature_scale = std::max(desc.m_forcing_temperature_scale, std::abs(node.m_temperature_offset));
 		}
 
 		if (auto const* tracers = obj.find("tracers"))
@@ -1080,12 +1076,42 @@ namespace physics_sandbox::scene_loader
 			if (auto const* value = v.find("grid_line_limit")) desc.m_visual.m_grid_line_limit = value->to<int>();
 			if (auto const* value = v.find("show_grid")) desc.m_visual.m_show_grid = value->to<bool>();
 			if (auto const* value = v.find("show_particles")) desc.m_visual.m_show_particles = value->to<bool>();
-			if (auto const* value = v.find("show_pressure_nodes")) desc.m_visual.m_show_pressure_nodes = value->to<bool>();
 			if (auto const* value = v.find("show_heat_sources")) desc.m_visual.m_show_heat_sources = value->to<bool>();
 		}
 
 		config.Validate();
 		desc.m_tracers.Validate();
+
+		// Sample the authored regions once per boundary column. The scene's outside air does not change over time.
+		auto column = uint32_t{};
+		desc.m_outside_air = config.m_grid.BuildOutsideAir([&](v2 pos)
+		{
+			// Each call is the next boundary column, so the column index seeds that column's repeatable wind noise.
+			auto noise = [seed = column++](uint32_t channel)
+			{
+				// Mix the column and channel bits, then map the hash to [-1, 1].
+				auto h = seed * 0x9E3779B9u ^ channel * 0x85EBCA6Bu;
+				h ^= h >> 16;
+				h *= 0x7FEB352Du;
+				h ^= h >> 15;
+				h *= 0x846CA68Bu;
+				h ^= h >> 16;
+				return static_cast<float>(h) / static_cast<float>(std::numeric_limits<uint32_t>::max()) * 2.0f - 1.0f;
+			};
+
+			// The first region containing the sample position supplies the air.
+			for (auto const& region : outside_air_regions)
+			{
+				// Bounds are inclusive so a region edge on the domain edge still applies.
+				if (pos.x < region.m_min.x || pos.x > region.m_max.x || pos.y < region.m_min.y || pos.y > region.m_max.y)
+					continue;
+
+				auto air = region.m_air;
+				air.m_wind += region.m_wind_noise * v2{ noise(0), noise(1) };
+				return air;
+			}
+			return physics::atmosphere::AtmosphereOutsideAir{};
+		});
 		return desc;
 	}
 

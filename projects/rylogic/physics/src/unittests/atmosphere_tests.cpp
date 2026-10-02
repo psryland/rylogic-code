@@ -11,6 +11,16 @@ namespace pr::physics::tests
 {
 	using namespace pr::physics::atmosphere;
 
+	// Return outside air with the same wind and temperature offset beside every boundary column of 'grid'.
+	static std::vector<AtmosphereOutsideAir> UniformOutsideAir(AtmosphereGrid const& grid, v2 wind, float temperature_offset = 0.0f)
+	{
+		// Every sample position gets the same air.
+		return grid.BuildOutsideAir([=](v2)
+		{
+			return AtmosphereOutsideAir{ .m_wind = wind, .m_temperature_offset = temperature_offset };
+		});
+	}
+
 	PRUnitTestClass(AtmosphereTests)
 	{
 		// Build a small stable default configuration for focused solver tests.
@@ -159,7 +169,6 @@ namespace pr::physics::tests
 			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTests.ColdDrainage", 0xFF00AAFF, 1 };
 			auto solver = AtmosphereSolver{ gpu, Config() };
 			auto source = AtmosphereHeatSource{ .m_centre = v4{ 3.0f, 8.0f, 1.5f, 1.0f }, .m_radius = 3.0f, .m_heating_rate = -80.0f, .m_target_temperature = 0.0f, .m_relaxation_rate = 0.0f };
-			auto node = AtmospherePressureNode{ .m_centre = v2{ -20.0f, 8.0f }, .m_strength = -10.0f, .m_radius = 30.0f, .m_lifetime = 100.0f };
 			auto sources = AtmosphereStepSources{ .m_heat_sources = std::span{ &source, 1 }, .m_uniform_floor_temperature = 288.0f };
 			auto state = Run(solver, job, 20, 0.05f, sources);
 			auto cells = solver.CellStates(state);
@@ -319,9 +328,9 @@ namespace pr::physics::tests
 			}
 		}
 
-		PRUnitTestMethod(StretchedSolidBoxWithForcing, Quick)
+		PRUnitTestMethod(StretchedSolidBoxWithHeat, Quick)
 		{
-			// A closed box with stretched layers, heat and pressure forcing, and thousands of tracers should keep every tracer inside the domain.
+			// A closed box with stretched layers, a heat source, and thousands of tracers should keep every tracer inside the domain.
 			auto gpu = Gpu{};
 			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTracerTests.SolidBox", 0xFF00AAFF, 1 };
 			auto const solid = EAtmosphereBoundary::Solid;
@@ -335,11 +344,7 @@ namespace pr::physics::tests
 			auto particles = tracers.ReadBack(job);
 
 			auto heat = AtmosphereHeatSource{ .m_centre = v4{ 0.0f, -80.0f, 28.0f, 1.0f }, .m_radius = 95.0f, .m_heating_rate = 28.0f, .m_target_temperature = 306.0f, .m_relaxation_rate = 0.08f };
-			auto nodes = std::array{
-				AtmospherePressureNode{ .m_centre = v2{ -260.0f, -120.0f }, .m_strength = 24.0f, .m_radius = 170.0f, .m_lifetime = 180.0f },
-				AtmospherePressureNode{ .m_centre = v2{ 260.0f, 160.0f }, .m_strength = -22.0f, .m_radius = 160.0f, .m_lifetime = 180.0f },
-			};
-			auto sources = AtmosphereStepSources{ .m_heat_sources = std::span{ &heat, 1 }, .m_pressure_nodes = nodes };
+			auto sources = AtmosphereStepSources{ .m_heat_sources = std::span{ &heat, 1 } };
 			for (int i = 0; i != 10; ++i)
 			{
 				// Each step submits solver and tracer work together, as an interactive caller would.
@@ -351,9 +356,9 @@ namespace pr::physics::tests
 				PR_EXPECT(Inside(config, particle));
 		}
 
-		PRUnitTestMethod(ReservoirWindCarriesTracers, Quick)
+		PRUnitTestMethod(OutsideWindCarriesTracers, Quick)
 		{
-			// A small wind tunnel with open west/east edges should carry tracers downwind at roughly the reservoir wind speed.
+			// A small wind tunnel with open west/east edges should carry tracers downwind at roughly the outside wind speed.
 			auto gpu = Gpu{};
 			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTracerTests.WindTunnel", 0xFF00AAFF, 1 };
 			auto const open = EAtmosphereBoundary::Open;
@@ -365,10 +370,11 @@ namespace pr::physics::tests
 			};
 			auto solver = AtmosphereSolver{ gpu, config };
 			auto tracers = AtmosphereTracers{ solver, gpu, AtmosphereTracerConfig{ .m_particle_count = 512, .m_seed = 12648430u, .m_max_age = 30.0f } };
-			auto const sources = AtmosphereStepSources{ .m_reservoir_wind = v4{ 5.0f, 0.0f, 0.0f, 0.0f } };
+			auto const outside_air = UniformOutsideAir(config.m_grid, v2{ 5.0f, 0.0f });
+			auto const sources = AtmosphereStepSources{ .m_outside_air = outside_air };
 			auto const dt = 1.0f / 60.0f;
 
-			// Let the reservoir wind fill the tunnel before measuring.
+			// Let the outside wind fill the tunnel before measuring.
 			for (int i = 0; i != 300; ++i)
 			{
 				// Advance the solver and tracers together, as the sandbox does.
@@ -412,6 +418,76 @@ namespace pr::physics::tests
 			std::printf("Atmosphere wind tunnel tracer speed %f m/s target 5.000000 count %d\n", mean_speed, count);
 			PR_EXPECT(mean_speed > 3.5f && mean_speed < 6.5f);
 		}
+
+		PRUnitTestMethod(OpposingOutsideWindDrivesCounterFlow, Quick)
+		{
+			// Opposing outside winds on the open ends of a tunnel should drive west-to-east flow in the southern half and east-to-west flow in the northern half.
+			auto gpu = Gpu{};
+			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTracerTests.CounterFlow", 0xFF00AAFF, 1 };
+			auto const open = EAtmosphereBoundary::Open;
+			auto const solid = EAtmosphereBoundary::Solid;
+			auto config = AtmosphereConfig{
+				.m_grid = AtmosphereGrid{ .m_cell_count = iv3{ 5, 5, 3 }, .m_origin = v4{ -50.0f, -50.0f, 0.0f, 1.0f }, .m_dx = 20.0f, .m_lid_z = 60.0f, .m_first_layer_thickness = 20.0f, .m_layer_stretch_power = 1.0f },
+				.m_boundaries = AtmosphereBoundaries{ .m_x_min = open, .m_x_max = open, .m_y_min = solid, .m_y_max = solid, .m_z_min = solid, .m_z_max = solid },
+				.m_reference = AtmosphereReferenceProfile{ .m_temperature_at_origin = 288.0f, .m_lapse_rate = -0.004f, .m_min_temperature = 250.0f },
+			};
+			auto solver = AtmosphereSolver{ gpu, config };
+			auto tracers = AtmosphereTracers{ solver, gpu, AtmosphereTracerConfig{ .m_particle_count = 512, .m_seed = 12648430u, .m_max_age = 30.0f } };
+			auto const outside_air = config.m_grid.BuildOutsideAir([](v2 pos)
+			{
+				// The outside air south of the tunnel axis blows east, and north of it blows west.
+				return AtmosphereOutsideAir{ .m_wind = v2{ pos.y < 0.0f ? +5.0f : -5.0f, 0.0f } };
+			});
+			auto const sources = AtmosphereStepSources{ .m_outside_air = outside_air };
+			auto const dt = 1.0f / 60.0f;
+
+			// Let the flow develop before measuring.
+			for (int i = 0; i != 600; ++i)
+			{
+				// Advance the solver and tracers together, as the sandbox does.
+				solver.Step(job, dt, sources);
+				tracers.Advect(job, dt);
+			}
+			auto const before = tracers.ReadBack(job);
+
+			// Advance one second, then compare drift in each half.
+			for (int i = 0; i != 60; ++i)
+			{
+				// Same per-step order as the spin-up.
+				solver.Step(job, dt, sources);
+				tracers.Advect(job, dt);
+			}
+			auto const after = tracers.ReadBack(job);
+			auto south_drift = 0.0f;
+			auto north_drift = 0.0f;
+			auto south_count = 0;
+			auto north_count = 0;
+			for (int i = 0; i != isize(after); ++i)
+			{
+				// Skip respawned tracers and the middle row, where the two flows shear against each other.
+				PR_EXPECT(Inside(config, after[i]));
+				if (after[i].m_age < before[i].m_age)
+					continue;
+
+				auto const drift = after[i].m_position.x - before[i].m_position.x;
+				if (before[i].m_position.y < -10.0f)
+				{
+					south_drift += drift;
+					++south_count;
+				}
+				else if (before[i].m_position.y > 10.0f)
+				{
+					north_drift += drift;
+					++north_count;
+				}
+			}
+			PR_EXPECT(south_count > 50 && north_count > 50);
+			auto const south_speed = south_drift / std::max(south_count, 1);
+			auto const north_speed = north_drift / std::max(north_count, 1);
+			std::printf("Atmosphere counter-flow tracer speed south %f m/s north %f m/s\n", south_speed, north_speed);
+			PR_EXPECT(south_speed > 1.0f);
+			PR_EXPECT(north_speed < -1.0f);
+		}
 	};
 
 	PRUnitTestClass(AtmosphereTerrainTests)
@@ -428,7 +504,6 @@ namespace pr::physics::tests
 				.m_floor_exchange_rate = 0.0f,
 				.m_lid_temperature = 282.0f,
 				.m_lid_relaxation_rate = 0.0f,
-				.m_surface_forcing_height = 600.0f,
 				.m_pressure_vcycles = 3,
 				.m_pressure_pre_smooth = 12,
 				.m_pressure_post_smooth = 12,
@@ -553,12 +628,13 @@ namespace pr::physics::tests
 
 		PRUnitTestMethod(FlowAroundOrOverMountain, Quick)
 		{
-			// A 5 m/s reservoir wind should remain bounded and show terrain-induced acceleration or deflection around the mountain fixture.
+			// A 5 m/s outside wind should remain bounded and show terrain-induced acceleration or deflection around the mountain fixture.
 			auto const cells = iv3{ 96, 96, 16 };
 			auto gpu = Gpu{};
 			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTerrainTests.FlowMountain", 0xFF00AAFF, 1 };
 			auto solver = AtmosphereSolver{ gpu, Config(cells, Mountain(cells)) };
-			auto sources = AtmosphereStepSources{ .m_reservoir_wind = v4{ 5.0f, 0.0f, 0.0f, 0.0f } };
+			auto const outside_air = UniformOutsideAir(solver.Config().m_grid, v2{ 5.0f, 0.0f });
+			auto sources = AtmosphereStepSources{ .m_outside_air = outside_air };
 			auto state = Run(solver, job, 450, 1.0f / 15.0f, sources);
 			auto stats = solver.Stats(state);
 			auto upstream = MeanVelocity(solver, state, iv3{ 8, 44, 1 }, iv3{ 16, 52, 4 });
@@ -592,7 +668,7 @@ namespace pr::physics::tests
 			config.m_floor_exchange_rate = 0.25f;
 			auto solver = AtmosphereSolver{ gpu, config };
 			auto cold = std::vector<float>(cells.x * cells.y, 278.0f);
-			auto state = Run(solver, job, 900, 1.0f / 15.0f, AtmosphereStepSources{ .m_floor_temperatures = cold, .m_reservoir_temperature_offset = 6.0f });
+			auto state = Run(solver, job, 900, 1.0f / 15.0f, AtmosphereStepSources{ .m_floor_temperatures = cold });
 			auto downslope = -MeanVelocity(solver, state, iv3{ 24, 12, 0 }, iv3{ 40, 20, 3 }).x;
 			std::printf("Atmosphere cold drainage downslope %.6f m/s threshold 0.200000\n", downslope);
 			PR_EXPECT(downslope > 0.2f);
@@ -658,14 +734,19 @@ namespace pr::physics::tests
 			PR_EXPECT(relative_heat_change < 0.02);
 		}
 
-		PRUnitTestMethod(OpenEdgesReservoirWind, Quick)
+		PRUnitTestMethod(OpenEdgesOutsideWind, Quick)
 		{
-			// Open edges should admit a 5 m/s reservoir wind without overshoot or material divergence after one simulated minute.
+			// Open edges should admit a 5 m/s outside wind without overshoot or material divergence after one simulated minute.
 			auto const cells = iv3{ 96, 96, 16 };
 			auto gpu = Gpu{};
 			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTerrainTests.OpenEdges", 0xFF00AAFF, 1 };
-			auto solver = AtmosphereSolver{ gpu, Config(cells, std::vector<float>(cells.x * cells.y, 0.0f)) };
-			auto state = Run(solver, job, 900, 1.0f / 15.0f, AtmosphereStepSources{ .m_reservoir_wind = v4{ 5.0f, 0.0f, 0.0f, 0.0f } });
+			auto config = Config(cells, std::vector<float>(cells.x * cells.y, 0.0f));
+
+			// A sponge reaching the domain centre drives the whole interior toward the outside wind within the test time.
+			config.m_open_edge_band = cells.x / 2;
+			auto solver = AtmosphereSolver{ gpu, config };
+			auto const outside_air = UniformOutsideAir(solver.Config().m_grid, v2{ 5.0f, 0.0f });
+			auto state = Run(solver, job, 900, 1.0f / 15.0f, AtmosphereStepSources{ .m_outside_air = outside_air });
 			auto stats = solver.Stats(state);
 			auto interior = MeanVelocity(solver, state, iv3{ 32, 32, 1 }, iv3{ 64, 64, 8 });
 			std::printf("Atmosphere open edges interior %.6f m/s target 5.000000 max_speed %.6f threshold 7.500000 rms_div %.9f threshold 0.005000\n", interior.x, stats.m_max_speed, stats.m_rms_divergence);
@@ -674,47 +755,28 @@ namespace pr::physics::tests
 			PR_EXPECT(stats.m_rms_divergence < 0.005f);
 		}
 
-		PRUnitTestMethod(PressureNodesDeterministicAndSigns, Quick)
+		PRUnitTestMethod(OutsideAirTemperatureInflow, Quick)
 		{
-			// Node state is ordinary data; evolving a copied saved state by the same dt must produce identical fields.
-			auto a = AtmospherePressureForcingState::Create(1234u, 6, 4000.0f, 0.4f, 2.0f);
-			auto b = a;
-			a.Evolve(10.0f, 4000.0f, 0.4f, 2.0f);
-			b.Evolve(10.0f, 4000.0f, 0.4f, 2.0f);
-			auto same = a.m_time_s == b.m_time_s && a.m_nodes.size() == b.m_nodes.size();
-			for (int i = 0; same && i != isize(a.m_nodes); ++i)
-			{
-				// Bitwise equality is expected because evolution uses only saved scalar state.
-				same = memcmp(&a.m_nodes[i], &b.m_nodes[i], sizeof(AtmospherePressureNode)) == 0;
-			}
-
-			// A high node pushes air away and warms reservoir inflow; a low node pulls air inward and cools it.
+			// Warm outside air should warm the inflow edge and cold outside air should cool it, relative to the reference profile.
 			auto const cells = iv3{ 64, 64, 16 };
 			auto gpu = Gpu{};
-			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTerrainTests.NodeSigns", 0xFF00AAFF, 1 };
-			auto high = AtmospherePressureNode{ .m_centre = v2{ 0.0f, 0.0f }, .m_strength = 60.0f, .m_radius = 700.0f, .m_lifetime = 100.0f, .m_temperature_offset = 4.0f };
-			auto high_solver = AtmosphereSolver{ gpu, Config(cells, std::vector<float>(cells.x * cells.y, 0.0f)) };
-			auto high_state = Run(high_solver, job, 20, 1.0f / 15.0f, AtmosphereStepSources{ .m_pressure_nodes = std::span{ &high, 1 } });
-			auto low = high;
-			low.m_strength = -high.m_strength;
-			low.m_temperature_offset = -high.m_temperature_offset;
-			auto low_solver = AtmosphereSolver{ gpu, Config(cells, std::vector<float>(cells.x * cells.y, 0.0f)) };
-			auto low_state = Run(low_solver, job, 20, 1.0f / 15.0f, AtmosphereStepSources{ .m_pressure_nodes = std::span{ &low, 1 } });
-			auto high_west = MeanVelocity(high_solver, high_state, iv3{ 20, 30, 0 }, iv3{ 24, 34, 2 }).x;
-			auto high_east = MeanVelocity(high_solver, high_state, iv3{ 40, 30, 0 }, iv3{ 44, 34, 2 }).x;
-			auto low_west = MeanVelocity(low_solver, low_state, iv3{ 20, 30, 0 }, iv3{ 24, 34, 2 }).x;
-			auto low_east = MeanVelocity(low_solver, low_state, iv3{ 40, 30, 0 }, iv3{ 44, 34, 2 }).x;
-			auto high_temp_solver = AtmosphereSolver{ gpu, Config(cells, std::vector<float>(cells.x * cells.y, 0.0f)) };
-			auto high_temp_state = Run(high_temp_solver, job, 20, 1.0f / 15.0f, AtmosphereStepSources{ .m_pressure_nodes = std::span{ &high, 1 }, .m_reservoir_wind = v4{ 5.0f, 0.0f, 0.0f, 0.0f } });
-			auto low_temp_solver = AtmosphereSolver{ gpu, Config(cells, std::vector<float>(cells.x * cells.y, 0.0f)) };
-			auto low_temp_state = Run(low_temp_solver, job, 20, 1.0f / 15.0f, AtmosphereStepSources{ .m_pressure_nodes = std::span{ &low, 1 }, .m_reservoir_wind = v4{ 5.0f, 0.0f, 0.0f, 0.0f } });
-			auto high_temp = high_temp_state.m_temperature[high_temp_solver.Config().m_grid.CellIndex(iv3{ 0, 32, 0 })] - high_temp_solver.Config().m_reference.Temperature(high_temp_solver.Config().m_grid.CellCentre(iv3{ 0, 32, 0 }).z);
-			auto low_temp = low_temp_state.m_temperature[low_temp_solver.Config().m_grid.CellIndex(iv3{ 0, 32, 0 })] - low_temp_solver.Config().m_reference.Temperature(low_temp_solver.Config().m_grid.CellCentre(iv3{ 0, 32, 0 }).z);
-			std::printf("Atmosphere pressure nodes deterministic %d high_west %.6f high_east %.6f low_west %.6f low_east %.6f high_inflow_dt %.6f low_inflow_dt %.6f\n", same ? 1 : 0, high_west, high_east, low_west, low_east, high_temp, low_temp);
-			PR_EXPECT(same);
-			PR_EXPECT(high_west < 0.0f && high_east > 0.0f);
-			PR_EXPECT(low_west > 0.0f && low_east < 0.0f);
-			PR_EXPECT(high_temp > 0.0f && low_temp < 0.0f);
+			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTerrainTests.OutsideTemperature", 0xFF00AAFF, 1 };
+			auto warm_solver = AtmosphereSolver{ gpu, Config(cells, std::vector<float>(cells.x * cells.y, 0.0f)) };
+			auto const& grid = warm_solver.Config().m_grid;
+			auto const warm_air = UniformOutsideAir(grid, v2{ 5.0f, 0.0f }, +4.0f);
+			auto const warm_state = Run(warm_solver, job, 20, 1.0f / 15.0f, AtmosphereStepSources{ .m_outside_air = warm_air });
+			auto cold_solver = AtmosphereSolver{ gpu, Config(cells, std::vector<float>(cells.x * cells.y, 0.0f)) };
+			auto const cold_air = UniformOutsideAir(grid, v2{ 5.0f, 0.0f }, -4.0f);
+			auto const cold_state = Run(cold_solver, job, 20, 1.0f / 15.0f, AtmosphereStepSources{ .m_outside_air = cold_air });
+
+			// Compare the west inflow edge cell with the reference temperature at its height.
+			auto const edge = iv3{ 0, 32, 0 };
+			auto const ref_temp = warm_solver.Config().m_reference.Temperature(grid.CellCentre(edge).z);
+			auto const warm_dt = warm_state.m_temperature[grid.CellIndex(edge)] - ref_temp;
+			auto const cold_dt = cold_state.m_temperature[grid.CellIndex(edge)] - ref_temp;
+			std::printf("Atmosphere outside air inflow warm_dt %.6f cold_dt %.6f\n", warm_dt, cold_dt);
+			PR_EXPECT(warm_dt > 1.0f);
+			PR_EXPECT(cold_dt < -1.0f);
 		}
 
 		PRUnitTestMethod(RuntimeDivergenceReduction, Quick)
