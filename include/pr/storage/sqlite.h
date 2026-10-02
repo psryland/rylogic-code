@@ -1527,14 +1527,11 @@ namespace pr::sqlite
 
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	// An RAII wrapper for a database transaction
+	// An RAII wrapper for a database transaction. An unfinished transaction is rolled back on destruction.
 	class Transaction
 	{
 		Database& m_db;
 		bool m_completed;
-
-		Transaction(Transaction const&); // no copying
-		Transaction& operator=(Transaction const&);
 
 	public:
 		explicit Transaction(Database& db)
@@ -1543,10 +1540,17 @@ namespace pr::sqlite
 		{
 			m_db.Execute("begin transaction");
 		}
+		Transaction(Transaction const&) = delete;
+		Transaction& operator=(Transaction const&) = delete;
 		~Transaction()
 		{
-			if (!m_completed)
-				Rollback();
+			// Sqlite rolls back automatically after some errors, so there may be no transaction left to roll back.
+			// A destructor must not throw, so a failed rollback is ignored.
+			if (m_completed || m_db.AutoCommit())
+				return;
+
+			try { Rollback(); }
+			catch (...) {}
 		}
 		void Commit()
 		{
@@ -2181,6 +2185,30 @@ namespace pr::sqlite
 				}
 				PR_EXPECT(std::filesystem::exists(filepath));
 				std::filesystem::remove(filepath);
+		}
+		PRUnitTestMethod(Transactions, Quick)
+		{
+				DB db;
+				db.Execute("create table T (x integer)");
+
+				// Committed changes are kept, unfinished ones are rolled back at scope exit
+				{
+					Transaction tx(db);
+					db.Execute("insert into T values (1)");
+					tx.Commit();
+				}
+				{
+					Transaction tx(db);
+					db.Execute("insert into T values (2)");
+				}
+				PR_EXPECT(db.ExecuteScalar("select count(*) from T") == 1);
+
+				// Destroying a transaction that sqlite has already ended does not throw
+				{
+					Transaction tx(db);
+					db.Execute("rollback");
+				}
+				PR_EXPECT(db.AutoCommit());
 		}
 		PRUnitTestMethod(GUIDs, Quick)
 		{
