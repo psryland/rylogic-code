@@ -106,6 +106,9 @@ namespace pr::rdr12
 		// Forward-declared below; full type lives in v3d_flight_camera.h.
 		std::unique_ptr<struct FlightCameraController> m_flight_cam;
 
+		// Off-screen resources reused by 'EnvMapCapture' (lazy-created on first capture)
+		std::unique_ptr<struct EnvMapCaptureResources> m_envmap_capture;
+
 		V3dWindow(Renderer& rdr, HWND hwnd, view3d::WindowOptions const& opts);
 		V3dWindow(V3dWindow&&) = default;
 		V3dWindow(V3dWindow const&) = delete;
@@ -356,9 +359,10 @@ namespace pr::rdr12
 		TextureCube const* EnvMap() const;
 		void EnvMap(TextureCube* env_map);
 
-		// Render this window's objects, lights, and shadows into a new cube map centred at 'position', with 'face_size' pixels per face edge.
-		// The cube has a full mip chain for roughness-dependent sampling and is not assigned to the window.
-		TextureCubePtr EnvMapCapture(v4 const& position, int face_size);
+		// Render this window's objects, lights, and shadows into 'env_map', centred at 'position'. 'env_map' must be a square RGBA8 sRGB cube
+		// with a full mip chain (see View3D_CubeMapCreate). The capture overwrites the cube's contents and orientation transform. Off-screen
+		// capture resources are kept between calls while the face size and background colour are unchanged.
+		void EnvMapCapture(TextureCube& env_map, v4 const& position);
 
 		// Enable/Disable the depth buffer
 		bool DepthBufferEnabled() const;

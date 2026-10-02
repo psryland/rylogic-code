@@ -367,6 +367,9 @@ namespace view3d_test
 		std::unique_ptr<IDemo> m_demo;
 		int m_demo_index;
 		std::wstring m_status_text;
+		std::chrono::steady_clock::time_point m_fps_start;
+		int m_fps_frames;
+		double m_fps;
 
 		Main(InteractiveConfig const& config, UserSettings const& settings)
 			: Form(Params<>()
@@ -398,6 +401,9 @@ namespace view3d_test
 			, m_demo()
 			, m_demo_index(-1)
 			, m_status_text()
+			, m_fps_start(std::chrono::steady_clock::now())
+			, m_fps_frames(0)
+			, m_fps(0)
 		{
 			// All controls exist now, so messages can be handled
 			m_ui_ready = true;
@@ -501,12 +507,23 @@ namespace view3d_test
 			View3D_CameraPositionSet(m_view.m_win, { 5, -5, 4, 1 }, { 0, 0, 0, 1 }, { 0, 0, 1, 0 });
 		}
 
-		// Show the camera position and direction in the status bar
+		// Show the frame rate, camera position, and camera direction in the status bar
 		void UpdateStatus()
 		{
+			// Average the frame rate over half-second windows so the value is readable and the text does not change every frame
+			++m_fps_frames;
+			auto now = std::chrono::steady_clock::now();
+			auto elapsed = std::chrono::duration<double>(now - m_fps_start).count();
+			if (elapsed >= 0.5)
+			{
+				m_fps = m_fps_frames / elapsed;
+				m_fps_frames = 0;
+				m_fps_start = now;
+			}
+
 			// Only update the status bar when the text changes, to avoid redrawing it every frame
 			auto c2w = View3D_CameraToWorldGet(m_view.m_win);
-			auto text = std::format(L"Cam: {:.3f} {:.3f} {:.3f}  Dir: {:.3f} {:.3f} {:.3f}", c2w.w.x, c2w.w.y, c2w.w.z, -c2w.z.x, -c2w.z.y, -c2w.z.z);
+			auto text = std::format(L"FPS: {:.1f}  Cam: {:.3f} {:.3f} {:.3f}  Dir: {:.3f} {:.3f} {:.3f}", m_fps, c2w.w.x, c2w.w.y, c2w.w.z, -c2w.z.x, -c2w.z.y, -c2w.z.z);
 			if (text == m_status_text)
 				return;
 

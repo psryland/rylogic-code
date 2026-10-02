@@ -162,22 +162,28 @@ namespace view3d_test
 			demo::SceneObjects m_scene;
 			view3d::Object m_sky;
 			view3d::CubeMapPtr m_env_map;
+			view3d::CubeMapPtr m_sky_env_map;
+			std::vector<view3d::Object> m_balls;
 			std::filesystem::path m_cube_map_faces;
 			ESky m_sky_kind;
 			float m_sun_elevation;
 			float m_sun_azimuth;
 			bool m_reflections;
+			bool m_recapture;
 
 			explicit SkyboxDemo(DemoContext const& ctx)
 				: m_ctx(ctx)
 				, m_scene(ctx.m_window)
 				, m_sky()
 				, m_env_map()
+				, m_sky_env_map()
+				, m_balls()
 				, m_cube_map_faces(ctx.m_assets / "textures/cubemaps/hanger/hanger-??.jpg")
 				, m_sky_kind(ESky::None)
 				, m_sun_elevation(30.0f)
 				, m_sun_azimuth(45.0f)
 				, m_reflections(true)
+				, m_recapture(false)
 			{
 				// The cube map comes from the rylogic assets checkout named in the config file
 				auto first_face = ctx.m_assets / "textures/cubemaps/hanger/hanger-px.jpg";
@@ -191,6 +197,7 @@ namespace view3d_test
 					.m_dbg_name = "hanger",
 				};
 				m_env_map.reset(View3D_CubeMapCreateFromUri(m_cube_map_faces.string().c_str(), options));
+				m_sky_env_map.reset(View3D_CubeMapCreate(256));
 
 				// Spheres of increasing reflectivity show the environment map
 				for (int i = 0; i != 5; ++i)
@@ -198,10 +205,10 @@ namespace view3d_test
 					auto script = std::format("*Sphere ball{} FF808080 {{ *Data {{0.6}} *o2w {{*pos {{{} 0 0.6}}}} }}", i, (i - 2) * 1.5f);
 					auto ball = m_scene.Add(script.c_str());
 					View3D_ObjectReflectivitySet(ball, 0.25f * i, "");
+					m_balls.push_back(ball);
 				}
 				m_scene.Add("*Plane ground FF606060 { *Data {12 6} *AxisId {+3} }");
 				SetSky(ESky::CubeMap);
-				SetReflections(m_reflections);
 
 				// Sky selection
 				auto& ui = ctx.m_controls;
@@ -239,6 +246,22 @@ namespace view3d_test
 			{
 				// The host clears the window's environment map before destroying the demo, so the cube map is no longer in use
 				RemoveSky();
+			}
+
+			// Recapture the procedural sky's reflections at most once per frame, however many times the sun moved since the last frame
+			void Step(double) override
+			{
+				// Spheres are hidden during the capture so they do not appear in their own reflections
+				if (!m_recapture)
+					return;
+
+				m_recapture = false;
+				for (auto ball : m_balls)
+					View3D_ObjectVisibilitySet(ball, FALSE, "");
+
+				View3D_WindowEnvMapCapture(m_ctx.m_window, m_sky_env_map.get(), view3d::Vec4{ 0, 0, 0.6f, 1 });
+				for (auto ball : m_balls)
+					View3D_ObjectVisibilitySet(ball, TRUE, "");
 			}
 
 			// Replace the sky object
@@ -297,14 +320,28 @@ namespace view3d_test
 				});
 				if (m_sky_kind == ESky::Procedural && !View3D_ObjectUpdateProceduralSky(m_sky, sun, view3d::Vec4{ 1, 0.95f, 0.85f, 1 }, 1.0f))
 					throw std::runtime_error("Procedural sky update failed");
+
+				// The procedural sky's reflections depend on the sun, so they are recaptured whenever it moves
+				SetReflections(m_reflections);
 			}
 
-			// Use the hanger cube map for reflections, or turn reflections off
+			// Reflect the visible sky, or turn reflections off
 			void SetReflections(bool on)
 			{
-				// The environment map is independent of the visible sky
+				// The procedural sky is drawn by a shader and has no cube map, so one is captured from the scene in 'Step'.
+				// The cube map sky and no sky both reflect the hanger.
 				m_reflections = on;
-				View3D_WindowEnvMapSet(m_ctx.m_window, on ? m_env_map.get() : nullptr);
+				view3d::CubeMap env_map = nullptr;
+				if (on && m_sky_kind == ESky::Procedural)
+				{
+					m_recapture = true;
+					env_map = m_sky_env_map.get();
+				}
+				else if (on)
+				{
+					env_map = m_env_map.get();
+				}
+				View3D_WindowEnvMapSet(m_ctx.m_window, env_map);
 			}
 		};
 	}

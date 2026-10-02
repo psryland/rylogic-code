@@ -1272,20 +1272,19 @@ VIEW3D_API void __stdcall View3D_WindowEnvMapSet(view3d::Window window, view3d::
 	CatchAndReport(View3D_WindowEnvMapSet, window, );
 }
 
-// Render the window's objects into a new cube map centred at 'position'
-VIEW3D_API view3d::CubeMap __stdcall View3D_WindowEnvMapCapture(view3d::Window window, view3d::Vec4 position, int face_size)
+// Render the window's objects into 'env_map', centred at 'position'
+VIEW3D_API void __stdcall View3D_WindowEnvMapCapture(view3d::Window window, view3d::CubeMap env_map, view3d::Vec4 position)
 {
 	try
 	{
 		Validate(window);
+		if (env_map == nullptr)
+			throw std::runtime_error("Environment map is null");
 
 		DllLockGuard;
-		auto env_map = window->EnvMapCapture(To<v4>(position), face_size);
-
-		// Rely on the caller for correct reference counting
-		return env_map.release();
+		window->EnvMapCapture(*env_map, To<v4>(position));
 	}
-	CatchAndReport(View3D_WindowEnvMapCapture, window, nullptr);
+	CatchAndReport(View3D_WindowEnvMapCapture, window, );
 }
 
 // Enable/Disable the depth buffer
@@ -3234,6 +3233,26 @@ VIEW3D_API view3d::CubeMap __stdcall View3D_CubeMapCreateFromUri(char const* res
 		return tex.release();
 	}
 	CatchAndReport(View3D_CubeMapCreateFromUri, , nullptr);
+}
+
+// Create an uninitialised RGBA8 sRGB cube map with a full mip chain
+VIEW3D_API view3d::CubeMap __stdcall View3D_CubeMapCreate(int face_size)
+{
+	try
+	{
+		if (face_size <= 0)
+			throw std::runtime_error("Cube map face size must be positive");
+
+		DllLockGuard;
+		ResourceFactory factory(Dll().m_rdr);
+		auto tdesc = TextureDesc(rdr12::AutoId, ResDesc::TexCube(Image{face_size, face_size, nullptr, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB}, 0)).name("CubeMap");
+		auto tex = factory.CreateTextureCube(tdesc);
+		factory.FlushToGpu(EGpuFlush::Block);
+
+		// Rely on the caller for correct reference counting
+		return tex.release();
+	}
+	CatchAndReport(View3D_CubeMapCreate, , nullptr);
 }
 
 // Create a texture sampler

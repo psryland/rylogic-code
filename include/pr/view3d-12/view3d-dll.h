@@ -1253,9 +1253,10 @@ extern "C"
 	// Set the global environment map for the window
 	VIEW3D_API void __stdcall View3D_WindowEnvMapSet(pr::view3d::Window window, pr::view3d::CubeMap env_map);
 
-	// Render the window's objects, lights, and shadows into a new cube map centred at 'position'. 'face_size' is the pixel size of each face.
-	// The result is a full-mip sRGB cube map that is not assigned to the window. The caller owns one reference to it.
-	VIEW3D_API pr::view3d::CubeMap __stdcall View3D_WindowEnvMapCapture(pr::view3d::Window window, pr::view3d::Vec4 position, int face_size);
+	// Render the window's objects, lights, and shadows into 'env_map', centred at 'position'. 'env_map' must be a cube map created by View3D_CubeMapCreate.
+	// The capture replaces the cube's contents and orientation transform. It does not assign the cube to the window. Capture resources are cached on the window,
+	// so repeated captures at the same face size are much cheaper than the first.
+	VIEW3D_API void __stdcall View3D_WindowEnvMapCapture(pr::view3d::Window window, pr::view3d::CubeMap env_map, pr::view3d::Vec4 position);
 
 	// Enable/Disable the depth buffer
 	VIEW3D_API BOOL __stdcall View3D_DepthBufferEnabledGet(pr::view3d::Window window);
@@ -1604,6 +1605,9 @@ extern "C"
 
 	// Load a cube map from file, embedded resource, or stock assets. Specify width == 0, height == 0 to use the dimensions of the file
 	VIEW3D_API pr::view3d::CubeMap __stdcall View3D_CubeMapCreateFromUri(char const* resource, pr::view3d::CubeMapOptions const& options);
+
+	// Create an uninitialised RGBA8 sRGB cube map with 'face_size' pixels per face edge and a full mip chain. Use as a target for View3D_WindowEnvMapCapture.
+	VIEW3D_API pr::view3d::CubeMap __stdcall View3D_CubeMapCreate(int face_size);
 
 	// Create a texture sampler
 	VIEW3D_API pr::view3d::Sampler __stdcall View3D_SamplerCreate(pr::view3d::SamplerOptions const& options);

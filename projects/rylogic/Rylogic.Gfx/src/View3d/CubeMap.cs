@@ -44,6 +44,15 @@ namespace Rylogic.Gfx
 				//View3D_TextureGetInfo(Handle, out Info);
 			}
 
+			/// <summary>Create an uninitialised RGBA8 sRGB cube map with 'face_size' pixels per face edge and a full mip chain, for use as an environment map capture target</summary>
+			public CubeMap(int face_size)
+			{
+				m_owned = true;
+				Handle = View3D_CubeMapCreate(face_size);
+				if (Handle == HCubeMap.Zero)
+					throw new Exception($"Failed to create a cube map with face size {face_size}");
+			}
+
 
 			/// <inheritdoc/>
 			public void Dispose()
