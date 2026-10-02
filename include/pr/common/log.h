@@ -18,6 +18,7 @@
 #include <concepts>
 #include <cassert>
 #include <cstdint>
+#include <algorithm>
 #include <concurrent_queue.h>
 #include <libloaderapi.h>
 #include <debugapi.h>
@@ -85,7 +86,7 @@ namespace pr::log
 
 		ELevel           m_level;       // Debug, Info, Warn, Error
 		EEventType       m_event_type;  // Normal, Fence, TerminationSentinel
-		uint16_t         m_event_data;  // Data specific to the event type
+		int64_t          m_event_data;  // Data specific to the event type
 		path             m_file;        // Source file
 		int              m_line;        // Line number in the source file
 		int              m_occurrences; // When event type != normal, this is the fence count
@@ -129,9 +130,10 @@ namespace pr::log
 		explicit Event(EEventType event_type)
 			: Event()
 		{
-			static std::atomic_int s_fence = 0;
+			// Fence ids increase for the life of the process, 64 bits so they never wrap
+			static std::atomic<int64_t> s_fence = 0;
 			m_event_type = event_type;
-			m_event_data = static_cast<decltype(m_event_data)>(++s_fence);
+			m_event_data = ++s_fence;
 		}
 
 		// Compare two event for equality
@@ -265,9 +267,9 @@ namespace pr::log
 		std::condition_variable m_cv_queue;
 		std::mutex m_mutex;
 			
-		// A signal for when a fence message is reached in the log
+		// A signal for when a fence message is reached in the log. 'm_fence' is the highest fence id reached, guarded by 'm_mutex'.
 		std::condition_variable m_cv_fence;
-		std::atomic_int m_fence;
+		int64_t m_fence;
 
 		// A callback function used in immediate mode
 		OutputCB m_output_cb;
@@ -328,14 +330,12 @@ namespace pr::log
 					{
 						case log::EEventType::TerminationSentinel:
 						{
-							ctx.m_fence = ev.m_event_data;
-							ctx.m_cv_fence.notify_all();
+							ctx.FenceReached(ev.m_event_data);
 							return;
 						}
 						case log::EEventType::Fence:
 						{
-							ctx.m_fence = ev.m_event_data;
-							ctx.m_cv_fence.notify_all();
+							ctx.FenceReached(ev.m_event_data);
 							continue;
 						}
 						case log::EEventType::Normal:
@@ -378,6 +378,28 @@ namespace pr::log
 			}
 		}
 
+		// Add 'ev' to the queue and wake the consumer thread
+		void Push(log::Event&& ev)
+		{
+			// Take the lock before notifying, so the wake can't land between the consumer checking the queue and starting to wait
+			m_queue.push(std::move(ev));
+			{
+				std::lock_guard<std::mutex> lock(m_mutex);
+			}
+			m_cv_queue.notify_all();
+		}
+
+		// Record that the consumer has reached fence 'id' and wake threads waiting in 'Flush'
+		void FenceReached(int64_t id)
+		{
+			// Concurrent 'Flush' calls can queue their fences out of id order, so only ever increase 'm_fence'
+			{
+				std::lock_guard<std::mutex> lock(m_mutex);
+				m_fence = (std::max)(m_fence, id);
+			}
+			m_cv_fence.notify_all();
+		}
+
 	public:
 
 		Context(OutputCB log_cb, EMode mode, int occurrences_batch_size)
@@ -418,8 +440,7 @@ namespace pr::log
 			}
 
 			// Otherwise queue the log event for the background thread
-			m_queue.push(std::move(ev));
-			m_cv_queue.notify_all();
+			Push(std::move(ev));
 		}
 
 		// Pull an event from the queue of log events
@@ -431,11 +452,13 @@ namespace pr::log
 		// Wait for all log events to be flushed (all at the time of calling)
 		void Flush() override
 		{
+			// Queue a fence and wait for the consumer thread to reach it
 			auto fence = log::Event(log::EEventType::Fence);
-			m_queue.push(fence);
+			auto id = fence.m_event_data;
+			Push(std::move(fence));
 
 			std::unique_lock<std::mutex> lock(m_mutex);
-			m_cv_fence.wait(lock, [&]{ return m_fence >= fence.m_event_data; });
+			m_cv_fence.wait(lock, [&]{ return m_fence >= id; });
 		}
 	};
 
@@ -569,6 +592,11 @@ namespace pr::log
 				str += s.str();
 			}, EMode::Async, 0);
 			log.Write(ELevel::Debug, "event 1");
+			log.Flush();
+			PR_EXPECT(str == "Debug,test: event 1,1\n");
+
+			// Flushing an idle log returns once the consumer thread reaches the fence
+			log.Flush();
 			log.Flush();
 			PR_EXPECT(str == "Debug,test: event 1,1\n");
 		}
