@@ -31,6 +31,9 @@
     <Filter Include="src\diagnostics">
       <UniqueIdentifier>{e01f84db-e905-41c2-8d06-1600f8872c94}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\atmosphere">
+      <UniqueIdentifier>{a0fa2d47-28e5-463a-b776-85b5e0cc8c74}</UniqueIdentifier>
+    </Filter>
     <Filter Include="src\buoyancy">
       <UniqueIdentifier>{c76d630e-0e6d-42eb-92b3-cdd6fca41b68}</UniqueIdentifier>
     </Filter>
@@ -71,6 +74,9 @@
     </ClCompile>
     <ClCompile Include="src\articulation\articulation_gpu_data.cpp">
       <Filter>src\articulation</Filter>
+    </ClCompile>
+    <ClCompile Include="src\atmosphere\atmosphere.cpp">
+      <Filter>src\atmosphere</Filter>
     </ClCompile>
     <ClCompile Include="src\buoyancy\gpu_water_forces.cpp">
       <Filter>src\buoyancy</Filter>
@@ -238,6 +244,9 @@
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\rigid_body.h">
       <Filter>src\rigid_body</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\atmosphere\atmosphere.h">
+      <Filter>src\atmosphere</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\buoyancy_primitives.h">
       <Filter>src\buoyancy</Filter>
@@ -554,6 +563,9 @@
     </ShaderBuild>
     <ShaderBuild Include="src\compute\sweep.hlsl">
       <Filter>src\compute</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\atmosphere\atmosphere.hlsl">
+      <Filter>src\atmosphere</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\buoyancy\gpu_water_forces.hlsl">
       <Filter>src\buoyancy</Filter>

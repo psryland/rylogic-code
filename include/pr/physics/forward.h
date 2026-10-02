@@ -152,6 +152,15 @@ namespace pr::physics
 	struct EngineBufferCache;
 	struct ShapeCache;
 
+	namespace atmosphere
+	{
+		class AtmosphereSolver;
+		struct AtmosphereConfig;
+		struct AtmosphereStepSources;
+		struct AtmosphereState;
+		struct AtmosphereCellState;
+	}
+
 	using MaterialMapPtr = std::unique_ptr<MaterialMap, Deleter<MaterialMap>>;
 	using GpuPtr = std::unique_ptr<Gpu, Deleter<Gpu>>;
 	using GpuIntegratorPtr = std::unique_ptr<GpuIntegrator, Deleter<GpuIntegrator>>;

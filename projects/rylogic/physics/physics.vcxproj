@@ -130,6 +130,7 @@
     <ClCompile Include="src\articulation\articulation_integrator.cpp" />
     <ClCompile Include="src\articulation\articulation_kinematics.cpp" />
     <ClCompile Include="src\articulation\articulation_gpu_data.cpp" />
+    <ClCompile Include="src\atmosphere\atmosphere.cpp" />
     <ClCompile Include="src\buoyancy\gpu_buoyancy.cpp" />
     <ClCompile Include="src\buoyancy\gpu_water_forces.cpp" />
     <ClCompile Include="src\collision\broadphase_brute.cpp" />
@@ -198,6 +199,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\constraint\constraint_desc.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\constraint\constraint_ids.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\constraint\constraint_set.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\atmosphere\atmosphere.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\buoyancy_primitives.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\gpu_buoyancy.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine_water.h" />
@@ -297,6 +299,9 @@
     <ShaderBuild Include="src\compute\articulation_link_proxies.hlsl" ComputeEntryPoints="CSArticulationRefreshProxies" />
     <ShaderBuild Include="src\compute\articulation_midpoint.hlsl" ComputeEntryPoints="CSArticulationMidpoint" />
     <ShaderBuild Include="src\compute\selective.hlsl" ComputeEntryPoints="CSPrepareSelectiveRefresh;CSScoreSelectiveContacts;CSDetectSelectiveRefresh;CSCompactSelectivePairs;CSBuildSelectiveDispatch" />
+    <ShaderBuild Include="src\atmosphere\atmosphere.hlsl" ComputeEntryPoints="CSInitialise;CSAdvect;CSForcesHeat;CSDivergence;CSMgSmooth;CSMgResidual;CSMgRestrict;CSMgProlongate;CSNormalisePressure;CSProject">
+      <StampDir>$(ProjectDir)src\atmosphere\compiled\$(Configuration)\</StampDir>
+    </ShaderBuild>
     <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl" ComputeEntryPoints="CSBuoyancyVolumeSamples;CSBuoyancyVolumeReduce;CSBuoyancyDragSurfaceSamples;CSBuoyancyDragSurfaceReduce">
       <StampDir>$(ProjectDir)src\buoyancy\compiled\$(Configuration)\</StampDir>
     </ShaderBuild>
