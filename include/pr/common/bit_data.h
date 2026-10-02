@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // Bit Reader
 //  Copyright (c) Rylogic Ltd 2024
 //*********************************************
@@ -14,6 +14,7 @@
 #include <type_traits>
 #include <limits>
 #include <span>
+#include <bit>
 
 namespace pr
 {
@@ -232,22 +233,22 @@ namespace pr
 				if constexpr (bit_size == 8)
 				{
 					auto value = ReadBits<uint8_t>(bit_size);
-					return reinterpret_cast<T const&>(value);
+					return std::bit_cast<T>(value);
 				}
 				else if constexpr (bit_size == 16)
 				{
 					auto value = ReadBits<uint16_t>(bit_size);
-					return reinterpret_cast<T const&>(value);
+					return std::bit_cast<T>(value);
 				}
 				else if constexpr (bit_size == 32)
 				{
 					auto value = ReadBits<uint32_t>(bit_size);
-					return reinterpret_cast<T const&>(value);
+					return std::bit_cast<T>(value);
 				}
 				else if constexpr (bit_size == 64)
 				{
 					auto value = ReadBits<uint64_t>(bit_size);
-					return reinterpret_cast<T const&>(value);
+					return std::bit_cast<T>(value);
 				}
 				else
 				{
@@ -377,22 +378,22 @@ namespace pr
 				constexpr int bit_size = sizeof(T) * 8;
 				if constexpr (bit_size == 8)
 				{
-					auto data = reinterpret_cast<uint8_t const&>(value);
+					auto data = std::bit_cast<uint8_t>(value);
 					WriteBits<uint8_t>(data, bit_size);
 				}
 				else if constexpr (bit_size == 16)
 				{
-					auto data = reinterpret_cast<uint16_t const&>(value);
+					auto data = std::bit_cast<uint16_t>(value);
 					WriteBits<uint16_t>(data, bit_size);
 				}
 				else if constexpr (bit_size == 32)
 				{
-					auto data = reinterpret_cast<uint32_t const&>(value);
+					auto data = std::bit_cast<uint32_t>(value);
 					WriteBits<uint32_t>(data, bit_size);
 				}
 				else if constexpr (bit_size == 64)
 				{
-					auto data = reinterpret_cast<uint64_t const&>(value);
+					auto data = std::bit_cast<uint64_t>(value);
 					WriteBits<uint64_t>(data, bit_size);
 				}
 				else
@@ -686,6 +687,21 @@ namespace pr::common
 			writer.Flush();
 			PR_EXPECT(ss.str().size() == 5);
 			PR_EXPECT(ss.str() == "Boobs");
+		}
+
+		// Floating-point values are written and read as their exact bit patterns, at a non-byte-aligned position.
+		{
+			uint8_t data[16] = {};
+			auto writer = BitWriter({ &data[0], _countof(data) });
+			writer.WriteBit(1);
+			writer.Write(-1.5f);
+			writer.Write(3.25);
+			writer.Flush();
+
+			auto reader = BitReader(data);
+			PR_EXPECT(reader.ReadBit() == 1);
+			PR_EXPECT(reader.Read<float>() == -1.5f);
+			PR_EXPECT(reader.Read<double>() == 3.25);
 		}
 	}
 }
