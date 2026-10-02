@@ -3,6 +3,8 @@
 // //  Copyright (c) Rylogic Ltd 2024
 //************************************************************************
 #pragma once
+#include <atomic>
+#include <memory>
 #include <chrono>
 #include <vector>
 #include <span>
@@ -36,19 +38,13 @@ namespace pr
 			std::atomic<bool> m_cancelled;
 			std::mutex m_mutex_cancelled;
 			std::condition_variable m_cv_cancelled;
-			std::vector<std::shared_ptr<State>> m_notify; // Tokens to notify when cancelled (downstream)
-			std::vector<std::shared_ptr<State>> m_linked; // Tokens that we're linked to this state (upstream)
+			std::vector<std::weak_ptr<State>> m_notify; // Tokens to notify when cancelled (downstream). Weak, so linked sources don't keep each other alive.
 
 			State() = default;
 			State(State&&) = delete;
 			State(State const&) = delete;
 			State& operator=(State&&) = delete;
 			State& operator=(State const&) = delete;
-			~State()
-			{
-				for (auto& link : m_linked)
-					erase(link->m_notify, std::shared_ptr<State>(this));
-			}
 
 			// True if cancel has been requested on the token
 			[[nodiscard]] bool IsCancelRequested() const
@@ -66,17 +62,41 @@ namespace pr
 			// Cancel the token
 			void Cancel()
 			{
-				std::unique_lock<std::mutex> lock(m_mutex_cancelled);
+				// Set the flag and take the downstream list under the lock, so it can't race with 'Link'. Only signal once.
+				std::vector<std::weak_ptr<State>> notify;
+				{
+					std::unique_lock<std::mutex> lock(m_mutex_cancelled);
+					if (m_cancelled)
+						return;
 
-				// Only signal once
-				if (m_cancelled)
-					return;
+					m_cancelled = true;
+					notify.swap(m_notify);
+					m_cv_cancelled.notify_all();
+				}
 
-				m_cancelled = true;
-				for (auto& downstream : m_notify)
-					downstream->Cancel();
+				// Cancel downstream tokens that still exist
+				for (auto& downstream : notify)
+				{
+					if (auto state = downstream.lock())
+						state->Cancel();
+				}
+			}
 
-				m_cv_cancelled.notify_all();
+			// Cancel 'downstream' when this token is cancelled. 'downstream' is cancelled immediately if this token is already cancelled.
+			void Link(std::shared_ptr<State> const& downstream)
+			{
+				// Register 'downstream' under the lock, so a concurrent 'Cancel' either sees it or has already set the flag
+				{
+					std::unique_lock<std::mutex> lock(m_mutex_cancelled);
+					if (!m_cancelled)
+					{
+						// Drop links to tokens that no longer exist, so long-lived sources don't grow without bound
+						std::erase_if(m_notify, [](auto const& w) { return w.expired(); });
+						m_notify.push_back(downstream);
+						return;
+					}
+				}
+				downstream->Cancel();
 			}
 
 			// Wait for the token to be cancelled
@@ -171,8 +191,7 @@ namespace pr
 				if (rhs.m_state == nullptr)
 					continue;
 
-				lhs.m_state->m_linked.push_back(rhs.m_state);
-				rhs.m_state->m_notify.push_back(lhs.m_state);
+				rhs.m_state->Link(lhs.m_state);
 			}
 			return lhs;
 		}
@@ -244,6 +263,10 @@ namespace pr::common
 
 		token1.Wait(); // Should return immediately
 		PR_EXPECT(token1.IsCancelRequested());
+
+		// Linking to an already cancelled source gives a cancelled source
+		auto cts3 = CancelTokenSource::CreateLinked(cts1);
+		PR_EXPECT(cts3.IsCancelRequested());
 	}
 }
 #endif
