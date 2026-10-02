@@ -10,8 +10,10 @@
 #include <sstream>
 #include <exception>
 #include <algorithm>
+#include <filesystem>
 #include <xmllite.h>
 #include <Shlwapi.h>
+#include "pr/common/bit_fields.h"
 #include "pr/common/flags_enum.h"
 #include "pr/common/refptr.h"
 #include "pr/str/string_core.h"
@@ -381,13 +383,14 @@ namespace pr::xml
 			ParseAttributes(reader, node);
 		}
 
-		// Parse a string value between tags
+		// Parse a string value between tags. Text interrupted by comments, processing instructions, or CDATA sections is concatenated.
 		template <typename Node>
-		void ParseValue(Ptr<IXmlReader>& reader, Node& node)
+		void ParseValue(Ptr<IXmlReader>& reader, Node& node, bool cdata)
 		{
 			WCHAR const* value;
 			Check(reader->GetValue(&value, 0));
-			node.m_value = value;
+			node.m_value += value;
+			node.m_cdata |= cdata;
 		}
 
 		// Parse a processing instruction
@@ -449,8 +452,10 @@ namespace pr::xml
 					ParseEndElement(reader, node);
 					return;
 				case XmlNodeType_Text:
+					ParseValue(reader, node, false);
+					break;
 				case XmlNodeType_CDATA:
-					ParseValue(reader, node);
+					ParseValue(reader, node, true);
 					break;
 				case XmlNodeType_ProcessingInstruction:
 					ParseProcessingInstruction(reader, node);
@@ -480,8 +485,21 @@ namespace pr::xml
 			for (auto& attr : node.m_proc_instr)
 				Check(writer->WriteProcessingInstruction(attr.m_localname.c_str(), attr.m_value.c_str()));
 
-			// Begin the element
-			Check(writer->WriteStartElement(0, node.m_tag.c_str(), 0));
+			// Begin the element. A prefixed element's namespace URI comes from its own 'xmlns:prefix' attribute when present,
+			// because attributes are written after the start tag. Otherwise, a null URI resolves the prefix from an ancestor's declaration.
+			WCHAR const* prefix = nullptr;
+			WCHAR const* ns_uri = nullptr;
+			if (!node.m_prefix.empty())
+			{
+				prefix = node.m_prefix.c_str();
+				for (auto& attr : node.m_attr)
+				{
+					if (attr.m_prefix != L"xmlns" || attr.m_localname != node.m_prefix) continue;
+					ns_uri = attr.m_value.c_str();
+					break;
+				}
+			}
+			Check(writer->WriteStartElement(prefix, node.m_tag.c_str(), ns_uri));
 
 			// Write the attributes
 			for (auto& attr : node.m_attr)
@@ -663,6 +681,34 @@ R"(
 		auto& node1 = child.m_child[0];
 		PR_EXPECT(node1.m_child.size() == 0U);
 		PR_EXPECT(node1.as<std::string>() == "a string");
+	}
+	PRUnitTest(XmlMixedContentAndPrefixTests, Quick)
+	{
+		char const xml[] =
+R"(<p:root xmlns:p="urn:test">
+	<p:text>one<!-- note -->two<![CDATA[<three>]]></p:text>
+</p:root>)";
+
+		// Text split by comments and CDATA sections is concatenated, and CDATA is recorded
+		auto root = xml::Load(xml, sizeof(xml) - 1);
+		PR_EXPECT(root.m_prefix == L"p");
+		PR_EXPECT(root.m_tag == L"root");
+		PR_EXPECT(root.m_child.size() == 1U);
+		auto& text = root.m_child[0];
+		PR_EXPECT(text.m_value == L"onetwo<three>");
+		PR_EXPECT(text.m_cdata);
+
+		// Saving preserves element prefixes, so the reloaded tree matches
+		xml::Ptr<IStream> stream(SHCreateMemStream(nullptr, 0), false);
+		xml::Save(stream, root, xml::EProperty::OmitXmlDeclaration);
+		PR_EXPECT(SUCCEEDED(stream->Seek({}, STREAM_SEEK_SET, nullptr)));
+		auto reloaded = xml::Load(stream);
+		PR_EXPECT(reloaded.m_prefix == L"p");
+		PR_EXPECT(reloaded.m_tag == L"root");
+		PR_EXPECT(reloaded.m_child.size() == 1U);
+		PR_EXPECT(reloaded.m_child[0].m_prefix == L"p");
+		PR_EXPECT(reloaded.m_child[0].m_tag == L"text");
+		PR_EXPECT(reloaded.m_child[0].m_value == L"onetwo<three>");
 	}
 }
 #endif
