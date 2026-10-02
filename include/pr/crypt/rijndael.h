@@ -15,6 +15,7 @@
 #pragma once
 #include <cstring>
 #include <cassert>
+#include <stdexcept>
 
 namespace pr::crypt
 {
