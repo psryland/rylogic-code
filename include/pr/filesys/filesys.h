@@ -1374,43 +1374,6 @@ namespace pr::filesys
 		Str path(const_cast<Char const*>(impl::fullpath(buf, c_str(str), _MAX_PATH)));
 		return Standardise<Str>(path);
 	}
-
-	// Make 'full_path' relative to 'relative_to'.  e.g.  C:/path1/path2/file relative to C:/path1/path3/ = ../path2/file
-	template <typename Str, typename Char = Str::value_type>
-	[[deprecated]] inline Str GetRelativePath(Str const& full_path, Str const& relative_to)
-	{
-		Char const prev_dir[]  = {'.','.','/',0};
-		Char const dir_marks[] = {'\\','/',0};
-
-		// Find where the paths differ, recording the last common directory marker
-		int i, d = -1;
-		auto fpath = c_str(full_path);
-		auto rpath = c_str(relative_to);
-		for (i = 0; EqualPathChar(fpath[i], rpath[i]); ++i)
-		{
-			if (DirMark(full_path[i]))
-				d = i;
-		}
-
-		// If the paths match for all of 'relative_to' just return the remainder of 'full_path'
-		if (DirMark(fpath[i]) && rpath[i] == 0)
-			return full_path.substr(i + 1);
-
-		// If 'd==-1' then none of the paths matched.
-		// If either path contains a drive then return 'full_path'
-		if (d == -1 && (*find(fpath, Char(':')) != 0 || *find(rpath, Char(':')) != 0))
-			return full_path;
-
-		// Otherwise, the part of the path up to and including 'd' matches, so it's not part of the relative path
-		Str path(fpath + d + 1);
-		for (Char const *end = rpath + d + 1; *end; end += *end != 0)
-		{
-			auto ptr = end;
-			end = find_first(ptr, dir_marks);
-			path.insert(0, prev_dir);
-		}
-		return path;
-	}
 }
 
 
@@ -1583,41 +1546,6 @@ namespace pr::filesys
 				std::string p1 = "./path4/path5";
 				std::string P  = "C:\\path4\\path5";
 				std::string R  = CombinePath(p0, p1);
-				PR_CHECK(P, R);
-			}
-			{
-				std::string p0 = "C:/path0/path1/path2/path3/file.extn";
-				std::string p1 = "C:/path0/path4/path5";
-				std::string P  = "../../path1/path2/path3/file.extn";
-				std::string R  = GetRelativePath(p0, p1);
-				PR_CHECK(P, R);
-			}
-			{
-				std::string p0 = "/path1/path2/file.extn";
-				std::string p1 = "/path1/path3/path4";
-				std::string P  = "../../path2/file.extn";
-				std::string R  = GetRelativePath(p0, p1);
-				PR_CHECK(P, R);
-			}
-			{
-				std::string p0 = "/path1/file.extn";
-				std::string p1 = "/path1";
-				std::string P  = "file.extn";
-				std::string R  = GetRelativePath(p0, p1);
-				PR_CHECK(P, R);
-			}
-			{
-				std::string p0 = "path1/file.extn";
-				std::string p1 = "path2";
-				std::string P  = "../path1/file.extn";
-				std::string R  = GetRelativePath(p0, p1);
-				PR_CHECK(P, R);
-			}
-			{
-				std::string p0 = "c:/path1/file.extn";
-				std::string p1 = "d:/path2";
-				std::string P  = "c:/path1/file.extn";
-				std::string R  = GetRelativePath(p0, p1);
 				PR_CHECK(P, R);
 			}
 		}
