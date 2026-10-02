@@ -8,7 +8,6 @@
 #include <dxfile.h>
 #include "pr/common/assert.h"
 #include "pr/common/hresult.h"
-#include "pr/filesys/filesys.h"
 #include "pr/storage/xfile/prxfiletemplates.h"
 #include "pr/storage/xfile/xsaver.h"
 #include "pr/storage/xfile/xfile.h"

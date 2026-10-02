@@ -508,9 +508,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\crypt\sha512.h">
       <Filter>pr\crypt</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\filesys\filesys.h">
-      <Filter>pr\filesys</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\filesys\filewatch.h">
       <Filter>pr\filesys</Filter>
     </ClInclude>
