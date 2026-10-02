@@ -71,8 +71,10 @@ namespace pr
 			if (ProcessInfo.hProcess != nullptr)
 				Stop();
 
-			// Construct the new command line
-			auto cmdline = str::Quotes<std::wstring>(exe_path, true).append(L" ").append(args);
+			// Construct the new command line. 'args' is optional
+			auto cmdline = str::Quotes<std::wstring>(exe_path, true);
+			if (args != nullptr)
+				cmdline.append(L" ").append(args);
 
 			// Create the child process
 			auto res = CreateProcessW(exe_path, &cmdline[0], &SecurityAttributes, nullptr, TRUE, EXTENDED_STARTUPINFO_PRESENT, nullptr, startdir, &StartupInfo.StartupInfo, &ProcessInfo);
