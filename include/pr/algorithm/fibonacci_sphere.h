@@ -37,75 +37,63 @@ namespace pr::algorithm
 		return v4{(float)x, (float)y, (float)z, 0};
 	}
 
-	// Inverse mapping from a spherical direction vector to the nearest point of a Fibonacci sphere
+	// Inverse mapping from a spherical direction vector to the nearest point of a Fibonacci sphere. 'dir' must be normalised.
 	inline int FibonacciSphericalMapping(v4 dir, int N)
 	{
 		// Notes:
-		//  - If N points are distributed evenly over the sphere, then each point can be associated with
-		//    an equal amount of surface area, equal to:
-		//      patch_area = sphere_surface_area / N = (2*tau*r^2) / N.
-		//  - Approximating each spherical patch as a circle of equal area means we can estimate the
-		//    distance between points:
-		//      patch_area = circle_area = 0.5 * tau * patch_radius^2
-		//      patch_radius = sqrt(2.0 * patch_area / tau)
-		//  - The patch circle gives us a range on the Z-axis that should contain the nearest point.
-		//      radius_at_z = sqrt(1 - z*z)
-		//      dz = patch_radius * radius_at_z
-		//  - The phase angle of the i'th point is:
-		//      i * golden_angle (mod tau)
-		//  - The range of phase angles for the patch centred on 'dir' is:
-		//      tang = cross(ZAxis, dir) / radius_at_z
-		//      dir0 = dir - patch_radius * tang
-		//      dir1 = dir + patch_radius * tang
-		//      phase_range = [atan2(dir0.y, dir0.x), atan2(dir1.y, dir1.x)] (mod tau)
-		//  - Iterate over the values of 'i' that satisfy:
-		//      i * golden_angle >=< [phase_range] (mod tau) (i.e. i's that fall within the phase range)
+		//  - The search region is a spherical cap of angular radius 'cap' centred on 'dir'. The z range and the
+		//    phase range that contain the cap can be calculated exactly, so only those points are tested.
+		//  - Point 'i' has z = -1 + (2i+1)/N, so a z range maps directly to an index range.
+		//  - The phase angle of the i'th point is: i * golden_angle (mod tau).
+		//  - The nearest point found within the cap is the true nearest point only if it is no further than 'cap'.
+		//    Otherwise a closer point might lie just outside the cap, so the cap is doubled and the search repeated.
+		//    A cap of 'tau/2' covers the whole sphere, so the loop always ends.
+		constexpr double tau = constants<double>::tau;
+		auto polar = acos(std::clamp<double>(dir.z, -1.0, +1.0));
+		auto azimuth = fmod(atan2(dir.y, dir.x) + tau, tau);
 
-		// Find the patch on the sphere that contains the nearest point
-		constexpr double Inflate = 1.5;
-		auto patch_area = 2.0 * constants<double>::tau / N;
-		auto patch_radius = Sqrt(2.0 * patch_area / constants<double>::tau) * Inflate;
-		auto radius_at_z = Sqrt(1.0 - Sqr(dir.z));
-		auto dz = std::max(patch_radius * radius_at_z, 0.0001);
-
-		// Find the phase range of the patch
-		auto tang = Cross(v4::ZAxis(), dir) / static_cast<float>(radius_at_z);
-		auto dir0 = dir - static_cast<float>(patch_radius) * tang;
-		auto dir1 = dir + static_cast<float>(patch_radius) * tang;
-		auto phase0 = fmod((atan2(dir0.y, dir0.x) + constants<double>::tau), constants<double>::tau);
-		auto phase1 = fmod((atan2(dir1.y, dir1.x) + constants<double>::tau), constants<double>::tau);
-		auto phase_span = phase1 - phase0;
-		if (phase_span < 0) phase_span += constants<double>::tau;
-
-		// Get the Fibonacci sphere index range to search
-		auto ZtoI = [=](double z) { return (int)Lerp<double>(0.0, N, Frac(-1.0, z, +1.0)); };
-		auto i0 = ZtoI(std::max(-1.0, dir.z - dz));
-		auto i1 = ZtoI(std::min(+1.0, dir.z + dz));
-
-		auto nearest = -1;
-		auto distsq = limits<double>::infinity();
-		auto phase = fmod(i0 * constants<double>::golden_angle, constants<double>::tau);
-		for (auto i = i0; i != i1; ++i)
+		// Start with a cap a bit larger than the typical spacing between points
+		for (auto cap = 1.5 * Sqrt(4.0 / N);; cap *= 2.0)
 		{
-			auto dphase = phase - phase0;
-			if (dphase < 0) dphase += constants<double>::tau;
-			if (dphase < phase_span)
+			// Find the index range of the points within the z range of the cap
+			auto z_min = cos(std::min(tau / 2, polar + cap));
+			auto z_max = cos(std::max(0.0, polar - cap));
+			auto i0 = std::clamp(static_cast<int>(floor((N * (z_min + 1.0) - 1.0) / 2.0)), 0, N);
+			auto i1 = std::clamp(static_cast<int>(ceil((N * (z_max + 1.0) - 1.0) / 2.0)) + 1, 0, N);
+
+			// Find the phase half-width of the cap. If the cap contains a pole, it covers all phases.
+			// Otherwise 'sin(cap) < sin(polar)', so the ratio is less than one.
+			auto contains_pole = polar - cap <= 0.0 || polar + cap >= tau / 2;
+			auto half_width = contains_pole ? tau : asin(sin(cap) / sin(polar));
+
+			// Test the points that fall within the phase range
+			auto nearest = -1;
+			auto distsq = limits<double>::infinity();
+			auto phase = fmod(i0 * constants<double>::golden_angle, tau);
+			for (auto i = i0; i != i1; ++i)
 			{
-				auto p = FibonacciSphericalMapping(i, N);
-				auto d = LengthSq(p - dir);
-				if (d < distsq)
+				// Phase difference wrapped into [-tau/2, +tau/2]. Both phases are in [0, tau).
+				auto dphase = phase - azimuth;
+				dphase += (dphase < -tau / 2) * tau - (dphase > tau / 2) * tau;
+				if (Abs(dphase) <= half_width)
 				{
-					nearest = i;
-					distsq = d;
+					auto p = FibonacciSphericalMapping(i, N);
+					auto d = LengthSq(p - dir);
+					if (d < distsq)
+					{
+						nearest = i;
+						distsq = d;
+					}
 				}
+
+				phase += constants<double>::golden_angle;
+				phase -= (phase >= tau) * tau;
 			}
 
-			phase += constants<double>::golden_angle;
-			phase -= (phase > constants<double>::tau) * constants<double>::tau;
+			// Accept the nearest point if no closer point can lie outside the cap. Convert the chord length to an angle to compare with 'cap'.
+			if (nearest != -1 && 2.0 * asin(std::min(1.0, Sqrt(distsq) / 2.0)) <= cap)
+				return nearest;
 		}
-		
-		// Exception here means no points fell within the search patch. It probably means 'Inflate' needs to be bigger
-		return nearest != -1 ? nearest : throw std::runtime_error("No nearest point found in fibonacci sphere mapping");
 	}
 }
 
@@ -143,6 +131,40 @@ namespace pr::algorithm::tests
 				}
 			}
 			PR_EXPECT(max_dist < 0.02f);
+		}
+		{// Compare with a brute force search, including the poles and small point counts
+			auto BruteForce = [](v4 dir, int N)
+			{
+				// Test every point
+				auto nearest = -1;
+				auto distsq = limits<float>::infinity();
+				for (int i = 0; i != N; ++i)
+				{
+					auto d = LengthSq(FibonacciSphericalMapping(i, N) - dir);
+					if (d < distsq)
+					{
+						nearest = i;
+						distsq = d;
+					}
+				}
+				return nearest;
+			};
+
+			std::default_random_engine rng(1);
+			for (auto N : { 1, 2, 10, 100, 1000 })
+			{
+				// Directions at and near the poles, then random directions
+				std::vector<v4> dirs = { v4::ZAxis(), -v4::ZAxis(), Normalise(v4{0.001f, 0, 1, 0}), Normalise(v4{0, -0.001f, -1, 0}) };
+				for (int i = 0; i != 1000; ++i)
+					dirs.push_back(RandomN<v3>(rng).w0());
+
+				for (auto dir : dirs)
+				{
+					auto idx = FibonacciSphericalMapping(dir, N);
+					auto best = BruteForce(dir, N);
+					PR_EXPECT(FEql(LengthSq(FibonacciSphericalMapping(idx, N) - dir), LengthSq(FibonacciSphericalMapping(best, N) - dir)));
+				}
+			}
 		}
 	}
 }

@@ -5,6 +5,8 @@
 #pragma once
 
 #include <string>
+#include <format>
+#include <iterator>
 #include <stdexcept>
 #include <windows.h>
 
@@ -51,12 +53,13 @@ namespace pr
 			auto* lptr = reinterpret_cast<int const*>(&lhs);
 			auto* rptr = reinterpret_cast<int const*>(&rhs);
 
-			char msg[1024];
-			int e = snprintf(msg, _countof(msg), "Build option values don't match.\nCheck all projects are compiled with the same settings.\n");
-			for (int i = 0, iend = sizeof(TBuildOptions)/sizeof(int); i != iend; ++i)
-				snprintf(msg, _countof(msg) - e, "\t%d - %d\n", *lptr++, *rptr++);
+			std::string msg = "Build option values don't match.\nCheck all projects are compiled with the same settings.\n";
 
-			OutputDebugStringA(msg);
+			// List every value pair so the mismatched options can be identified.
+			for (int i = 0, iend = sizeof(TBuildOptions)/sizeof(int); i != iend; ++i)
+				std::format_to(std::back_inserter(msg), "\t{} - {}\n", lptr[i], rptr[i]);
+
+			OutputDebugStringA(msg.c_str());
 			throw std::runtime_error(msg);
 		}
 	}

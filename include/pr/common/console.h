@@ -281,13 +281,14 @@ namespace pr::console
 	{
 		return r.bottom - r.top;
 	}
+	// Console rectangles use inclusive bounds, so the size includes both edge cells
 	inline long width(SMALL_RECT const& r)
 	{
-		return r.Right - r.Left;
+		return r.Right - r.Left + 1;
 	}
 	inline long height(SMALL_RECT const& r)
 	{
-		return r.Bottom - r.Top;
+		return r.Bottom - r.Top + 1;
 	}
 
 	#pragma endregion
@@ -477,12 +478,11 @@ namespace pr::console
 		{
 			if (result != 0) return;
 
-			// Retrieve the system error message for the last-error code
-			char lpMsgBuf[1024];
+			// Retrieve the system error message for the last-error code. The buffer stays empty if no message is found.
+			char msg_buf[1024] = {};
 			DWORD dw = GetLastError();
-			FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS, NULL, dw, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), lpMsgBuf, sizeof(lpMsgBuf), NULL);
-			std::string err; err.append(msg).append("\n").append(lpMsgBuf).append("\n");
-			LocalFree(lpMsgBuf);
+			FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM|FORMAT_MESSAGE_IGNORE_INSERTS, NULL, dw, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), msg_buf, sizeof(msg_buf), NULL);
+			std::string err; err.append(msg).append("\n").append(msg_buf).append("\n");
 
 			throw std::runtime_error(err);
 		}
@@ -808,7 +808,7 @@ namespace pr::console
 
 			// Get/Set the fore/back colours for selected items in the pad
 			Colours SelectionColour() const {  return m_selection_colour; }
-			void SelectionColour(EColour fore, EColour back = EColour::Default) { Colour(Colours(fore,back)); }
+			void SelectionColour(EColour fore, EColour back = EColour::Default) { SelectionColour(Colours(fore,back)); }
 			void SelectionColour(Colours c) { m_selection_colour = c; }
 
 			// Set the title for the pad

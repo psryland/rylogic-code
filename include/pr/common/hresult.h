@@ -28,7 +28,7 @@
 	#pragma comment(lib, "dxerr.lib")
 #endif
 #if defined(PR_SUPPORT_D3D_HRESULTS) || defined(__d3d11_h__)
-	#ifdef PR_SUPPORT_D3D11_ERRORS
+	#ifndef PR_SUPPORT_D3D11_ERRORS
 	#define PR_SUPPORT_D3D11_ERRORS 1
 	#endif
 #endif

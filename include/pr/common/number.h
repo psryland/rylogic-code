@@ -183,9 +183,11 @@ namespace pr
 
 			// Parse digits as unsigned, then apply sign manually.
 			// from_chars can't handle sign + prefix being non-contiguous (e.g. "-0xFF" → "-" then "FF").
+			// A negative magnitude above 2^63 does not fit in 'long long', so it is out of integer range, like a magnitude above ULLONG_MAX.
 			unsigned long long raw = 0;
 			auto int_result = std::from_chars(digit_start, end, raw, int_radix);
-			auto int_end = (int_result.ec == std::errc{}) ? int_result.ptr : beg;
+			auto int_in_range = int_result.ec == std::errc{} && (!is_neg || raw <= (1ULL << 63));
+			auto int_end = int_in_range ? int_result.ptr : beg;
 
 			// If no characters contributed to either parse, not a number
 			if (fp_end <= beg && int_end <= beg)
@@ -199,7 +201,8 @@ namespace pr
 			}
 			else if (is_neg)
 			{
-				num.m_ll = -static_cast<long long>(raw);
+				// Negate in the unsigned domain so that a magnitude of 2^63 gives LLONG_MIN without signed overflow
+				num.m_ll = static_cast<long long>(0ULL - raw);
 				num.m_type = EType::Int;
 			}
 			else if (raw <= static_cast<unsigned long long>((std::numeric_limits<long long>::max)()))
@@ -319,6 +322,19 @@ namespace pr::common
 		PR_EXPECT(FEql(n6.db(), static_cast<double>(0b10110101)));
 		PR_EXPECT(n6.ll() == 0b10110101LL);
 		PR_EXPECT(n6.ul() == 0b10110101ULL);
+
+		// The most negative 'long long' is exact, and larger negative magnitudes are parsed as floating point
+		auto n7 = Number("-9223372036854775808");
+		PR_EXPECT(n7.m_type == Number::EType::Int);
+		PR_EXPECT(n7.ll() == (std::numeric_limits<long long>::min)());
+
+		auto n8 = Number("-0x8000000000000000");
+		PR_EXPECT(n8.m_type == Number::EType::Int);
+		PR_EXPECT(n8.ll() == (std::numeric_limits<long long>::min)());
+
+		auto n9 = Number("-9223372036854775809");
+		PR_EXPECT(n9.m_type == Number::EType::FP);
+		PR_EXPECT(n9.db() == -9223372036854775809.0);
 
 		// Exercise each integer operator with a UInt above LLONG_MAX so the unsigned branch is the one that matters.
 		auto add = big + Number{ 1ULL };

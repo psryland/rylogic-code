@@ -11,12 +11,13 @@
 //	for (int i = 0; i != PR_COUNTOF(ptr); ++i) {...}
 
 #pragma once
+#include <cstddef>
 
 namespace pr
 {
 	namespace impl
 	{
-		template <typename T, size_t N>
+		template <typename T, std::size_t N>
 		char (&countofhelper(T(&)[N]))[N];
 	}
 }

@@ -5,6 +5,8 @@
 #pragma once
 #include <cstdint>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 
 namespace pr::str::utf8
 {
@@ -50,6 +52,7 @@ namespace pr::str::utf8
 	}
 
 	// Convert utf-8 bytes into a code point.
+	// Throws on malformed sequences, including overlong forms and encoded surrogates or values above U+10FFFF.
 	inline code_point_t CodePoint(char const*& ptr, char const* end)
 	{
 		int len;
@@ -60,12 +63,18 @@ namespace pr::str::utf8
 		if (len == 1)
 			return *ptr++;
 
+		// Combine the lead byte bits with 6 bits from each continuation byte
+		static constexpr code_point_t min_value[] = { 0, 0, 0x80, 0x800, 0x10000 };
 		code_point_t code = *ptr++ & (0x7F >> len);
-		for (--len; len != 0; --len)
+		for (auto i = 1; i != len; ++i)
 		{
 			if (!Continuation(*ptr)) throw std::runtime_error("Invalid unicode character");
 			code = (code << 6) | (*ptr++ & 0x3F);
 		}
+
+		// Reject values that use more bytes than needed, and values that are not Unicode scalar values
+		if (code < min_value[len] || (code >= 0xD800 && code <= 0xDFFF) || code > 0x10FFFF)
+			throw std::runtime_error("Invalid unicode character");
 
 		return code;
 	}
@@ -77,8 +86,13 @@ namespace pr::str::utf8
 	}
 
 	// Write a unicode code point into a utf-8 string. Returns the number of bytes written.
+	// Throws if 'code_point' is not a Unicode scalar value or does not fit in [ptr, end).
 	inline int Write(code_point_t code_point, char* ptr, char const* end)
 	{
+		// Surrogates are reserved for UTF-16 and have no UTF-8 encoding
+		if (code_point >= 0xD800 && code_point <= 0xDFFF)
+			throw std::runtime_error("Invalid unicode character");
+
 		if (code_point < 0x80 && end - ptr >= 1)
 		{
 			*ptr++ = static_cast<char>(code_point);
@@ -229,6 +243,19 @@ namespace pr::str
 			PR_EXPECT(utf8::CodePoint(ptr, end) == 0x1f4a9);
 			PR_EXPECT(utf8::CodePoint(ptr, end) == 'B');
 			PR_EXPECT(ptr == end);
+		}
+		{// Malformed sequences: overlong forms, encoded surrogates, values above U+10FFFF
+			PR_THROWS(utf8::CodePoint("\xC0\x80"), std::runtime_error);
+			PR_THROWS(utf8::CodePoint("\xE0\x80\x80"), std::runtime_error);
+			PR_THROWS(utf8::CodePoint("\xF0\x80\x80\x80"), std::runtime_error);
+			PR_THROWS(utf8::CodePoint("\xED\xA0\x80"), std::runtime_error);
+			PR_THROWS(utf8::CodePoint("\xF4\x90\x80\x80"), std::runtime_error);
+			PR_EXPECT(utf8::CodePoint("\xF4\x8F\xBF\xBF") == 0x10FFFF);
+		}
+		{// Surrogates have no UTF-8 encoding
+			PR_THROWS(utf8::Write(0xD800), std::runtime_error);
+			PR_THROWS(utf8::Write(0xDFFF), std::runtime_error);
+			PR_THROWS(utf8::Write(0x110000), std::runtime_error);
 		}
 	}
 }

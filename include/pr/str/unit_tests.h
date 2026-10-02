@@ -304,6 +304,11 @@ namespace pr::str
 			PR_EXPECT(*FindChar(wptr, 'i', 2) == L'i' && *FindChar(wptr, L'c', 4) == ' ');
 			PR_EXPECT(*FindChar(warr, L'i', 2) == L'i' && *FindChar(warr, 'c', 4) == ' ');
 			PR_EXPECT(*FindChar(wstr, 'i', 2) == L'i' && *FindChar(wstr, L'c', 4) == ' ');
+
+			// Views are not null terminated, so the string end is reported as 'zero'
+			std::string_view aview = std::string_view("find char!").substr(0, 9);
+			PR_EXPECT(*FindChar(aview, 'i', 2) == 'i' && *FindChar(aview, 'c', 4) == ' ');
+			PR_EXPECT(*FindChar(aview, '!', 20) == 0 && FindChar(aview, 'r', 20) == aview.data() + 8);
 		}
 		PRUnitTestMethod(FindStr, Quick)
 		{
@@ -541,6 +546,20 @@ namespace pr::str
 			PR_EXPECT(Equal(LowerCase(astr), L"case") && Equal(astr, "case"));
 			PR_EXPECT(Equal(LowerCaseC(wstr), L"case") && Equal(wstr, "CaSe"));
 		}
+		PRUnitTestMethod(CaseConversionPreservesUtf8, Quick)
+		{
+			// Only ASCII letters change in single-byte strings, so UTF-8 sequences stay valid
+			std::u8string u8 = u8"\u00C9t\u00C9";
+			std::string a = "\xC3\x89t\xC3\x89";
+			PR_EXPECT(LowerCase(u8) == u8"\u00C9t\u00C9");
+			PR_EXPECT(UpperCase(u8) == u8"\u00C9T\u00C9");
+			PR_EXPECT(LowerCase(a) == "\xC3\x89t\xC3\x89");
+			PR_EXPECT(UpperCase(a) == "\xC3\x89T\xC3\x89");
+
+			// Wide strings still use the locale for non-ASCII letters
+			std::wstring w = L"\u00C9t\u0416";
+			PR_EXPECT(LowerCase(w) == L"\u00E9t\u0436");
+		}
 		PRUnitTestMethod(SubStr, Quick)
 		{
 			char    asrc[] = "SubstringExtract";
@@ -652,6 +671,31 @@ namespace pr::str
 				auto r = convert_utf<wchar_t, char>::convert<std::string>(s);
 				PR_EXPECT(r.size() == 6U);
 				PR_EXPECT(UTEqual(r.c_str(), { 0xe4_ch, 0xbd_ch, 0xa0_ch, 0xe5_ch, 0xa5_ch, 0xbd_ch, 0_ch }));
+			}
+			{// Malformed utf-8: overlong forms, encoded surrogates, values above U+10FFFF, truncated sequences
+				using cvt_t = convert_utf<char, char32_t>;
+				PR_THROWS(cvt_t::convert<std::u32string>("\xC0\x80"sv), std::runtime_error);
+				PR_THROWS(cvt_t::convert<std::u32string>("\xE0\x80\x80"sv), std::runtime_error);
+				PR_THROWS(cvt_t::convert<std::u32string>("\xED\xA0\x80"sv), std::runtime_error);
+				PR_THROWS(cvt_t::convert<std::u32string>("\xF4\x90\x80\x80"sv), std::runtime_error);
+				PR_THROWS(cvt_t::convert<std::u32string>("a\xE6\xB0"sv), std::runtime_error);
+				PR_EXPECT(cvt_t::convert<std::u32string>("\xF4\x8F\xBF\xBF"sv) == U"\U0010FFFF");
+			}
+			{// Malformed utf-16: unpaired or reversed surrogates
+				using cvt_t = convert_utf<char16_t, char32_t>;
+				char16_t const lone_hi[] = { 0xD83C, u'a' };
+				char16_t const lone_lo[] = { 0xDF4C };
+				char16_t const reversed[] = { 0xDF4C, 0xD83C };
+				char16_t const trailing_hi[] = { u'a', 0xD83C };
+				PR_THROWS(cvt_t::convert<std::u32string>(std::u16string_view(lone_hi, 2)), std::runtime_error);
+				PR_THROWS(cvt_t::convert<std::u32string>(std::u16string_view(lone_lo, 1)), std::runtime_error);
+				PR_THROWS(cvt_t::convert<std::u32string>(std::u16string_view(reversed, 2)), std::runtime_error);
+				PR_THROWS(cvt_t::convert<std::u32string>(std::u16string_view(trailing_hi, 2)), std::runtime_error);
+			}
+			{// utf-32 values that are not scalar values are replaced by the default character
+				char32_t const s[] = { 0xD800, 0x110000, U'a' };
+				auto r = convert_utf<char32_t, char32_t>::convert<std::u32string>(std::u32string_view(s, 3));
+				PR_EXPECT(r == U"__a");
 			}
 		}
 	};

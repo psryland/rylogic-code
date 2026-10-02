@@ -83,7 +83,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\collision\support.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\alloca.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\allocator.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\archiver.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\arena_allocator.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\assert.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\async_wrap.h" />
@@ -126,7 +125,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\common\pe_file.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\pollingtoevent.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\profile.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\profile_manager.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\range.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\refcount.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\refptr.h" />
@@ -168,7 +166,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\crypt\rijndael.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\crypt\sha1.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\crypt\sha512.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\filesys\filesys.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\filesys\filewatch.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\filesys\file_encoding.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\filesys\file_snapshot.h" />
@@ -291,18 +288,12 @@
     <ClInclude Include="$(RylogicRoot)include\pr\hardware\find_bt_device.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\input\dinput.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\lua\lua.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\align.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\auto_do.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\constexpr.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\macros\count_of.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\macros\enum.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\macros\join.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\macros\link.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\noexcept.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\macros\no_copy.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\on_exit.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\macros\remove_parenthesis.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\repeat.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\macros\stringise.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\maths\bit_fields.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\convex_hull.h" />
