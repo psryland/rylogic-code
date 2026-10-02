@@ -699,8 +699,8 @@ namespace pr::str
 				esc.Translate(ch, out, len);
 
 			PR_EXPECT(out == res);
-			// Overlong UTF-8 is only used here to reach the 1-digit hex formatting path.
-			test_escape(std::u8string{ static_cast<char8_t>(0xC0), static_cast<char8_t>(0x8F) }, "\\u000f");
+			// U+0080 is the smallest multi-byte code point, so it needs the most zero padding.
+			test_escape(std::u8string(u8"\u0080"), "\\u0080");
 			test_escape(std::u8string(u8"\u0123"), "\\u0123");
 			test_escape(std::u8string(u8"\u1234"), "\\u1234");
 			test_escape(std::u8string(u8"\U0001F4A9"), "\\U0001f4a9");

@@ -672,6 +672,31 @@ namespace pr::str
 				PR_EXPECT(r.size() == 6U);
 				PR_EXPECT(UTEqual(r.c_str(), { 0xe4_ch, 0xbd_ch, 0xa0_ch, 0xe5_ch, 0xa5_ch, 0xbd_ch, 0_ch }));
 			}
+			{// Malformed utf-8: overlong forms, encoded surrogates, values above U+10FFFF, truncated sequences
+				using cvt_t = convert_utf<char, char32_t>;
+				PR_THROWS(cvt_t::convert<std::u32string>("\xC0\x80"sv), std::runtime_error);
+				PR_THROWS(cvt_t::convert<std::u32string>("\xE0\x80\x80"sv), std::runtime_error);
+				PR_THROWS(cvt_t::convert<std::u32string>("\xED\xA0\x80"sv), std::runtime_error);
+				PR_THROWS(cvt_t::convert<std::u32string>("\xF4\x90\x80\x80"sv), std::runtime_error);
+				PR_THROWS(cvt_t::convert<std::u32string>("a\xE6\xB0"sv), std::runtime_error);
+				PR_EXPECT(cvt_t::convert<std::u32string>("\xF4\x8F\xBF\xBF"sv) == U"\U0010FFFF");
+			}
+			{// Malformed utf-16: unpaired or reversed surrogates
+				using cvt_t = convert_utf<char16_t, char32_t>;
+				char16_t const lone_hi[] = { 0xD83C, u'a' };
+				char16_t const lone_lo[] = { 0xDF4C };
+				char16_t const reversed[] = { 0xDF4C, 0xD83C };
+				char16_t const trailing_hi[] = { u'a', 0xD83C };
+				PR_THROWS(cvt_t::convert<std::u32string>(std::u16string_view(lone_hi, 2)), std::runtime_error);
+				PR_THROWS(cvt_t::convert<std::u32string>(std::u16string_view(lone_lo, 1)), std::runtime_error);
+				PR_THROWS(cvt_t::convert<std::u32string>(std::u16string_view(reversed, 2)), std::runtime_error);
+				PR_THROWS(cvt_t::convert<std::u32string>(std::u16string_view(trailing_hi, 2)), std::runtime_error);
+			}
+			{// utf-32 values that are not scalar values are replaced by the default character
+				char32_t const s[] = { 0xD800, 0x110000, U'a' };
+				auto r = convert_utf<char32_t, char32_t>::convert<std::u32string>(std::u32string_view(s, 3));
+				PR_EXPECT(r == U"__a");
+			}
 		}
 	};
 }

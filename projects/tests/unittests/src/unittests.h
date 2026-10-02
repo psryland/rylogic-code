@@ -95,6 +95,7 @@
 #include "pr/crypt/rijndael.h"
 #include "pr/crypt/sha1.h"
 #include "pr/crypt/sha512.h"
+#include "pr/filesys/file_encoding.h"
 #include "pr/filesys/file_snapshot.h"
 #include "pr/geometry/3ds.h"
 #include "pr/geometry/convex_hull.h"
