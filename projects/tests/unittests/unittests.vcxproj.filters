@@ -691,15 +691,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\lua\lua.h">
       <Filter>pr\lua</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\align.h">
-      <Filter>pr\macros</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\auto_do.h">
-      <Filter>pr\macros</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\constexpr.h">
-      <Filter>pr\macros</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\macros\count_of.h">
       <Filter>pr\macros</Filter>
     </ClInclude>
@@ -712,13 +703,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\macros\link.h">
       <Filter>pr\macros</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\noexcept.h">
-      <Filter>pr\macros</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\macros\no_copy.h">
-      <Filter>pr\macros</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\on_exit.h">
       <Filter>pr\macros</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\macros\remove_parenthesis.h">
