@@ -1403,12 +1403,21 @@ namespace pr::sqlite
 			return m_db;
 		}
 
-		// Open a database file
+		// Open a database file, closing any connection that is already open
 		void Open(std::filesystem::path const& db_file, int flags = SQLITE_OPEN_READWRITE|SQLITE_OPEN_CREATE, char const* vfs = 0)
 		{
-			int res = sqlite3_open_v2(db_file.string().c_str(), &m_db, flags, vfs);
+			// Sqlite expects UTF-8 file names. 'path::string()' would convert to the ANSI code page.
+			Close();
+			auto filepath = db_file.u8string();
+			int res = sqlite3_open_v2(reinterpret_cast<char const*>(filepath.c_str()), &m_db, flags, vfs);
 			if (res != SQLITE_OK)
-				throw Exception(res, sqlite3_errmsg(m_db), false);
+			{
+				// Sqlite usually allocates a connection even when opening fails. It must be closed, and the message copied before closing.
+				auto ex = Exception(res, m_db ? sqlite3_errmsg(m_db) : sqlite3_errstr(res), false);
+				sqlite3_close(m_db);
+				m_db = nullptr;
+				throw ex;
+			}
 			BusyTimeout(BusyTimeoutDefault);
 		}
 
@@ -2145,6 +2154,33 @@ namespace pr::sqlite
 				std::string value;
 				PR_EXPECT(q.Step() && read_text(q, 0, value) == "'quoted'");
 			}
+		}
+		PRUnitTestMethod(OpenAndClose, Quick)
+		{
+				// Every connection is released: after a failed open, and when reopening an open database
+				auto baseline = sqlite3_memory_used();
+				auto missing = std::filesystem::temp_directory_path() / "pr_sqlite_missing_dir" / "missing.db";
+				PR_THROWS(Database(missing, SQLITE_OPEN_READONLY), Exception);
+				{
+					Database db;
+					PR_THROWS(db.Open(missing, SQLITE_OPEN_READONLY), Exception);
+					PR_EXPECT(!db.IsOpen());
+
+					db.Open(L":memory:");
+					db.Open(L":memory:");
+					PR_EXPECT(db.IsOpen());
+				}
+				PR_EXPECT(sqlite3_memory_used() == baseline);
+
+				// File names are passed to sqlite as UTF-8
+				auto filepath = std::filesystem::temp_directory_path() / L"pr_sqlite_\u00E9\u4E2D.db";
+				std::filesystem::remove(filepath);
+				{
+					Database db(filepath);
+					db.Execute("create table T (x integer)");
+				}
+				PR_EXPECT(std::filesystem::exists(filepath));
+				std::filesystem::remove(filepath);
 		}
 		PRUnitTestMethod(GUIDs, Quick)
 		{
