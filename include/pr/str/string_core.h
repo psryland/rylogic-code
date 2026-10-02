@@ -903,10 +903,13 @@ namespace pr
 			}
 			else
 			{
+				// Stop at 'length' if it is within the string, otherwise at the string end.
+				// Only the string end is replaced by 'zero', because there is no null terminator to point to.
 				auto ptr = string_traits<Str1>::ptr(str);
-				auto end = ptr + string_traits<Str1>::size(str, length);
+				auto str_end = ptr + string_traits<Str1>::size(str);
+				auto end = ptr + std::min(length, string_traits<Str1>::size(str));
 				for (; ptr != end && static_cast<int>(*ptr) != static_cast<int>(ch); ++ptr) {}
-				return ptr != end ? ptr : &string_traits<Str1>::zero;
+				return ptr != str_end ? ptr : &string_traits<Str1>::zero;
 			}
 		}
 

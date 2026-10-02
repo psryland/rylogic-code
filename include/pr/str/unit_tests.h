@@ -304,6 +304,11 @@ namespace pr::str
 			PR_EXPECT(*FindChar(wptr, 'i', 2) == L'i' && *FindChar(wptr, L'c', 4) == ' ');
 			PR_EXPECT(*FindChar(warr, L'i', 2) == L'i' && *FindChar(warr, 'c', 4) == ' ');
 			PR_EXPECT(*FindChar(wstr, 'i', 2) == L'i' && *FindChar(wstr, L'c', 4) == ' ');
+
+			// Views are not null terminated, so the string end is reported as 'zero'
+			std::string_view aview = std::string_view("find char!").substr(0, 9);
+			PR_EXPECT(*FindChar(aview, 'i', 2) == 'i' && *FindChar(aview, 'c', 4) == ' ');
+			PR_EXPECT(*FindChar(aview, '!', 20) == 0 && FindChar(aview, 'r', 20) == aview.data() + 8);
 		}
 		PRUnitTestMethod(FindStr, Quick)
 		{
