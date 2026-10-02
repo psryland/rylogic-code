@@ -546,6 +546,20 @@ namespace pr::str
 			PR_EXPECT(Equal(LowerCase(astr), L"case") && Equal(astr, "case"));
 			PR_EXPECT(Equal(LowerCaseC(wstr), L"case") && Equal(wstr, "CaSe"));
 		}
+		PRUnitTestMethod(CaseConversionPreservesUtf8, Quick)
+		{
+			// Only ASCII letters change in single-byte strings, so UTF-8 sequences stay valid
+			std::u8string u8 = u8"\u00C9t\u00C9";
+			std::string a = "\xC3\x89t\xC3\x89";
+			PR_EXPECT(LowerCase(u8) == u8"\u00C9t\u00C9");
+			PR_EXPECT(UpperCase(u8) == u8"\u00C9T\u00C9");
+			PR_EXPECT(LowerCase(a) == "\xC3\x89t\xC3\x89");
+			PR_EXPECT(UpperCase(a) == "\xC3\x89T\xC3\x89");
+
+			// Wide strings still use the locale for non-ASCII letters
+			std::wstring w = L"\u00C9t\u0416";
+			PR_EXPECT(LowerCase(w) == L"\u00E9t\u0436");
+		}
 		PRUnitTestMethod(SubStr, Quick)
 		{
 			char    asrc[] = "SubstringExtract";

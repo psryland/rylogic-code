@@ -107,14 +107,24 @@ namespace pr
 			return count;
 		}
 
-		// Convert a code point to lower case. WARNING: This is broken for multi-byte encodings
+		// Convert a character to lower/upper case.
+		// Single-byte characters (char, char8_t) are treated as UTF-8, so only ASCII letters change, because changing a byte >= 0x80 would corrupt a
+		// multi-byte sequence. Wider characters use the user's locale, one code unit at a time.
 		static Char lwr(Char ch)
 		{
-			return std::char_traits<Char>::to_char_type(std::tolower(std::char_traits<Char>::to_int_type(ch), locale()));
+			// ASCII only for single-byte characters, see above
+			if constexpr (sizeof(Char) == 1)
+				return ch >= 'A' && ch <= 'Z' ? static_cast<Char>(ch - 'A' + 'a') : ch;
+			else
+				return std::char_traits<Char>::to_char_type(std::tolower(std::char_traits<Char>::to_int_type(ch), locale()));
 		}
 		static Char upr(Char ch)
 		{
-			return std::char_traits<Char>::to_char_type(std::toupper(std::char_traits<Char>::to_int_type(ch), locale()));
+			// ASCII only for single-byte characters, see 'lwr'
+			if constexpr (sizeof(Char) == 1)
+				return ch >= 'a' && ch <= 'z' ? static_cast<Char>(ch - 'a' + 'A') : ch;
+			else
+				return std::char_traits<Char>::to_char_type(std::toupper(std::char_traits<Char>::to_int_type(ch), locale()));
 		}
 	};
 
