@@ -83,7 +83,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\collision\support.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\alloca.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\allocator.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\common\archiver.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\arena_allocator.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\assert.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\common\async_wrap.h" />

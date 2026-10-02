@@ -256,9 +256,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\common\allocator.h">
       <Filter>pr\common</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\common\archiver.h">
-      <Filter>pr\common</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\common\arena_allocator.h">
       <Filter>pr\common</Filter>
     </ClInclude>
