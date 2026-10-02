@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include <atomic>
 #include <mutex>
 #include <thread>
 #include <condition_variable>
@@ -150,7 +151,6 @@ namespace pr::threads
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
-#include <atomic>
 #include "pr/threads/name_thread.h"
 namespace pr::threads
 {
