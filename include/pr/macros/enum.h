@@ -459,7 +459,7 @@ namespace pr::common
 		TestEnum1 values[] = {TestEnum1::A, TestEnum1::B, TestEnum1::C};
 		for (int i = 0; i != Enum<TestEnum1>::NumberOf; ++i)
 		{
-			PR_EXPECT(Enum<TestEnum1>::MemberNameA(i) == names[i]); // Access names by index
+			PR_EXPECT(UTEqual(Enum<TestEnum1>::MemberNameA(i), names[i])); // Access names by index
 			PR_EXPECT(Enum<TestEnum1>::Member(i) == values[i]);     // Access members by index
 		}
 
