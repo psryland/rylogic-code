@@ -69,8 +69,8 @@ checks ABI discovery, layouts, errors, thread affinity, handle generations, resi
 voices, voice priority/virtualization, malformed Ogg rejection, stream limits, playback,
 completion events, seeking, and stale stream handles.
 
-`projects/tests/view3d-12-tests --interactive` is the manual spatial demonstrator. Its camera drives the listener;
-one emitter is stationary and directional, and another orbits to demonstrate panning and Doppler.
-Press `O` to toggle strong caller-supplied occlusion. Subjective localization, headphone/spatial
+`projects/tests/view3d-12-tests --interactive --demo audio_box` is the manual spatial demonstrator. Its camera drives the
+listener, and a directional emitter on the rotating box demonstrates panning, cone attenuation, and Doppler.
+Press `O`, or use the controls panel, to toggle strong caller-supplied occlusion. Subjective localization, headphone/spatial
 processing, loudness balance, and endpoint-switch quality require perceptual verification on the
 actual output device.

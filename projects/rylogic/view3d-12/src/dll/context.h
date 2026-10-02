@@ -91,8 +91,8 @@ namespace pr::rdr12
 		ldraw::LdrObject* ObjectCreateP3D(char const* name, Colour32 colour, std::filesystem::path const& p3d_filepath, view3d::ResolveTextureCB tex_resolver, Guid const* context_id);
 		ldraw::LdrObject* ObjectCreateP3D(char const* name, Colour32 colour, std::span<std::byte const> p3d_data, view3d::ResolveTextureCB tex_resolver, Guid const* context_id);
 
-		// Create a six-sided skybox from individual cube-map face images.
-		ldraw::LdrObject* ObjectCreateSkybox(char const* name, std::filesystem::path const& resource, float radius, Guid const* context_id);
+		// Create a camera-centred background that shows a cube map at the far plane, using the cube map's own orientation.
+		ldraw::LdrObject* ObjectCreateSkybox(char const* name, TextureCubePtr cube_map, Guid const* context_id);
 
 		// Create or update a Z-up GPU atmosphere; its native owner is tied to the ordinary object lifetime.
 		ldraw::LdrObject* ObjectCreateProceduralSky(char const* name, v4 sun_direction, v4 sun_colour, float sun_intensity, Guid const* context_id);

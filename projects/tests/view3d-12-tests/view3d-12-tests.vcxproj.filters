@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="interactive">
@@ -24,6 +24,30 @@
       <Filter>interactive</Filter>
     </ClInclude>
     <ClCompile Include="src\interactive\main_window.cpp">
+      <Filter>interactive</Filter>
+    </ClCompile>
+    <ClInclude Include="src\interactive\demo.h">
+      <Filter>interactive</Filter>
+    </ClInclude>
+    <ClInclude Include="src\interactive\controls_panel.h">
+      <Filter>interactive</Filter>
+    </ClInclude>
+    <ClCompile Include="src\interactive\demo_catalogue.cpp">
+      <Filter>interactive</Filter>
+    </ClCompile>
+     <ClCompile Include="src\interactive\controls_panel.cpp">
+      <Filter>interactive</Filter>
+    </ClCompile>
+     <ClCompile Include="src\interactive\demos_scene.cpp">
+      <Filter>interactive</Filter>
+    </ClCompile>
+     <ClCompile Include="src\interactive\demos_lighting.cpp">
+      <Filter>interactive</Filter>
+    </ClCompile>
+     <ClCompile Include="src\interactive\demos_effects.cpp">
+      <Filter>interactive</Filter>
+    </ClCompile>
+     <ClCompile Include="src\interactive\demos_procedural.cpp">
       <Filter>interactive</Filter>
     </ClCompile>
     <ClCompile Include="src\interactive\view3d_ui_demo.cpp">
@@ -54,6 +78,9 @@
       <Filter>view3d-12\shaders</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_vertex_buffer.hlsl">
+      <Filter>view3d-12\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\view3d-12\shaders\hlsl\wave_grid.hlsl">
       <Filter>view3d-12\shaders</Filter>
     </ShaderBuild>
     <None Include="src\view3d-12\shaders\hlsl\procedural_vertex_common.hlsli">

@@ -1,559 +1,667 @@
-﻿#include <stdexcept>
-#include <charconv>
-#include <optional>
+//*********************************************
+// View3d-12 Tests
+//  Copyright (C) Rylogic Ltd 2026
+//*********************************************
+// The interactive demo host: a main window with menus, a 3D view, a controls panel, and a status bar.
+#include <cstdlib>
+#include <format>
+#include <fstream>
+#include <iostream>
+#include <stdexcept>
 #include <windows.h>
 #include "pr/math/math.h"
 #include "pr/gui/wingui.h"
-#include "pr/common/ldraw.h"
+#include "pr/gui/view3d_panel.h"
 #include "pr/win32/windows_com.h"
 #include "pr/win32/win32.h"
 #include "pr/storage/json.h"
-
-#include "pr/view3d-12/view3d.h"
 #include "pr/view3d-12/view3d-dll.h"
-#include "pr/view3d-12/utility/conversion.h"
 #include "pr/audio/audio-dll.h"
 #include "interactive.h"
-#include "view3d_ui_demo.h"
+#include "demo.h"
+#include "controls_panel.h"
 
 using namespace pr;
 using namespace pr::gui;
-using namespace pr::rdr12;
 
-// Settings for interactive mode, read from 'view3d-12-tests.config.json' beside the executable.
-struct InteractiveConfig
+namespace view3d_test
 {
-	std::filesystem::path m_rylogic_assets; // Root of a rylogic-assets checkout
-
-	// Load the config file. Throws if the file or a required key is missing.
-	static InteractiveConfig Load(std::filesystem::path const& filepath)
+	// Settings for interactive mode, read from 'view3d-12-tests.config.json' beside the executable.
+	struct InteractiveConfig
 	{
-		// The config file is copied beside the executable by the build.
-		if (!std::filesystem::exists(filepath))
-			throw std::runtime_error(std::format("Config file not found: {}", filepath.string()));
+		std::filesystem::path m_rylogic_assets; // Root of a rylogic-assets checkout
 
-		auto doc = json::Read(filepath, json::Options{ .AllowComments = true, .AllowTrailingCommas = true });
-		auto const& root = doc.to_object();
-		auto const* rylogic_assets = root.find("RylogicAssets");
-		if (rylogic_assets == nullptr)
-			throw std::runtime_error(std::format("'RylogicAssets' is missing from {}", filepath.string()));
+		// Load the config file. Throws if the file or a required key is missing.
+		static InteractiveConfig Load(std::filesystem::path const& filepath)
+		{
+			// The config file is copied beside the executable by the build
+			if (!std::filesystem::exists(filepath))
+				throw std::runtime_error(std::format("Config file not found: {}", filepath.string()));
 
-		return InteractiveConfig{
-			.m_rylogic_assets = rylogic_assets->to<std::filesystem::path>(),
-		};
-	}
-};
+			auto doc = json::Read(filepath, json::Options{ .AllowComments = true, .AllowTrailingCommas = true });
+			auto const& root = doc.to_object();
+			auto const* rylogic_assets = root.find("RylogicAssets");
+			if (rylogic_assets == nullptr)
+				throw std::runtime_error(std::format("'RylogicAssets' is missing from {}", filepath.string()));
 
-enum class EStepMode
-{
-	Single,
-	Run,
-};
+			return InteractiveConfig{
+				.m_rylogic_assets = rylogic_assets->to<std::filesystem::path>(),
+			};
+		}
+	};
 
-// Application window
-struct Main :Form
-{
-	enum { IDR_MAINFRAME = 100 };
-	enum { ID_FILE, ID_FILE_EXIT };
-	enum { IDC_PROGRESS = 100, IDC_NM_PROGRESS, IDC_MODELESS, IDC_CONTEXTMENU, IDC_POSTEST, IDC_ABOUT, IDC_MSGBOX, IDC_SCINT, IDC_TAB, IDC_TAB1, IDC_TAB2, IDC_SPLITL, IDC_SPLITR };
+	// Per-user settings that persist between runs
+	struct UserSettings
+	{
+		std::string m_last_demo; // The name of the demo shown when the window last closed
 
-	bool m_ui_ready;
-	view3d::DllHandle m_view3d;
-	view3d::Window m_win3d;
-	std::optional<view3d_test::View3dUiDemo> m_ui_demo;
-	view3d::CubeMap m_envmap;
-	view3d::Object m_obj0;
-	view3d::Object m_obj1;
-	audio::DllHandle m_audio;
-	audio::EngineHandle m_audio_engine;
-	audio::ClipHandle m_audio_clip;
-	audio::VoiceHandle m_box_voice;
-	audio::Vector3 m_previous_listener_position;
-	bool m_listener_initialized;
-	bool m_audio_occluded;
-	GUID m_file_ctx;
-	EStepMode m_step_mode;
-	int m_pending_steps;
-	double m_time = 0.0;
-	float m_box_dimension = 1.23f;
-	
-	// Error handler
+		// The settings file location. Creates the directory if needed.
+		static std::filesystem::path FilePath()
+		{
+			// Store settings under %APPDATA% so they survive rebuilds and are independent of the build output folder
+			char appdata[MAX_PATH] = {};
+			size_t len = 0;
+			if (getenv_s(&len, appdata, "APPDATA") != 0 || len == 0)
+				throw std::runtime_error("The APPDATA environment variable is not set");
+
+			auto dir = std::filesystem::path(appdata) / "RylogicView3d12Tests";
+			std::filesystem::create_directories(dir);
+			return dir / "settings.json";
+		}
+
+		// Load the settings. Missing or unreadable settings give the defaults, since they only affect convenience.
+		static UserSettings Load()
+		{
+			// Read 'LastDemo' if the file exists and contains it
+			auto settings = UserSettings{};
+			try
+			{
+				auto filepath = FilePath();
+				if (!std::filesystem::exists(filepath))
+					return settings;
+
+				auto doc = json::Read(filepath, json::Options{ .AllowComments = true, .AllowTrailingCommas = true });
+				if (auto const* last_demo = doc.to_object().find("LastDemo"); last_demo != nullptr)
+					settings.m_last_demo = last_demo->to<std::string>();
+			}
+			catch (std::exception const& ex)
+			{
+				std::cerr << "Ignoring unreadable settings: " << ex.what() << std::endl;
+			}
+			return settings;
+		}
+
+		// Save the settings
+		void Save() const
+		{
+			// Demo names are plain identifiers, so they need no JSON escaping
+			std::ofstream file(FilePath());
+			file << std::format("{{\n\t\"LastDemo\": \"{}\"\n}}\n", m_last_demo);
+		}
+	};
+
+	// View3d error handler. Errors are programming or asset errors, so they stop the current operation.
 	static void __stdcall ReportError(void*, char const* msg, char const* filepath, int line, int64_t)
 	{
+		// Report to the console as well, since the exception may be caught and summarised
 		std::cout << filepath << "(" << line << "): " << msg << std::endl;
 		throw std::runtime_error(std::string(msg));
 	}
 
-	// Surface synchronous audio failures through the same visible test-host path.
+	// Audio error handler. Failures are also returned as status codes, so only report them here.
 	static void __stdcall ReportAudioError(void*, char const* msg, char const* filepath, int line)
 	{
+		// Make asynchronous audio failures visible in the console
 		std::cout << filepath << "(" << line << "): " << msg << std::endl;
 	}
 
-	// Reject a failed audio ABI operation at its call site.
-	static void CheckAudio(audio::EStatus status, char const* operation)
+	// The scene settings that demos may change. The host restores them between demos so each demo starts from the same state.
+	struct SceneDefaults
 	{
-		if (status != audio::EStatus::Success)
-			throw std::runtime_error(std::format("{} failed with audio status {}", operation, static_cast<int>(status)));
-	}
+		std::vector<view3d::Light> m_lights;
+		view3d::Colour m_ambient;
+		view3d::ShadowSettings m_shadows;
+		view3d::FarClipFadeProps m_far_clip_fade;
+		view3d::UnderwaterProps m_underwater;
+		float m_dither;
+		view3d::Vec2 m_clip_planes;
 
-	// Generate a small loopable mono PCM16 tone without adding a demo asset dependency.
-	static std::vector<std::byte> MakeToneWave(float frequency_hz)
-	{
-		constexpr auto sample_rate = std::uint32_t{48000};
-		constexpr auto sample_count = sample_rate;
-		auto data_size = sample_count * sizeof(std::int16_t);
-		auto bytes = std::vector<std::byte>(44 + data_size);
-		auto write = [&](std::size_t offset, auto value)
+		// Record the current settings of 'window'
+		static SceneDefaults Capture(view3d::Window window)
 		{
-			std::memcpy(bytes.data() + offset, &value, sizeof(value));
-		};
+			// Read every setting that a demo is allowed to change
+			auto defaults = SceneDefaults{};
+			for (int i = 0, iend = View3D_LightCount(window); i != iend; ++i)
+				defaults.m_lights.push_back(View3D_LightGet(window, i));
 
-		write(0, std::uint32_t{0x46464952});
-		write(4, std::uint32_t{36 + static_cast<std::uint32_t>(data_size)});
-		write(8, std::uint32_t{0x45564157});
-		write(12, std::uint32_t{0x20746D66});
-		write(16, std::uint32_t{16});
-		write(20, std::uint16_t{1});
-		write(22, std::uint16_t{1});
-		write(24, sample_rate);
-		write(28, sample_rate * sizeof(std::int16_t));
-		write(32, std::uint16_t{sizeof(std::int16_t)});
-		write(34, std::uint16_t{16});
-		write(36, std::uint32_t{0x61746164});
-		write(40, data_size);
-
-		auto samples = reinterpret_cast<std::int16_t*>(bytes.data() + 44);
-		for (auto i = std::uint32_t{}; i != sample_count; ++i)
-		{
-			auto phase = constants<float>::tau * frequency_hz * i / sample_rate;
-			samples[i] = static_cast<std::int16_t>(std::sin(phase) * 5000.0f);
-		}
-		return bytes;
-	}
-	static view3d::WindowOptions WndOptions(Main& main)
-	{
-		return view3d::WindowOptions()
-			.error_cb({ &main, ReportError })
-			.back_colour(0xFF908080)
-			.alt_enter()
-			.multisamp(8)
-			.name("TestWnd")
-			//.xr_support()
-			;
-	}
-
-	Main(InteractiveConfig const& config)
-		: Form(Params<>()
-			.name("main")
-			.title(L"View3d 12 Test")
-			.xy(1400,100).wh(1024, 768, true)
-			.main_wnd(true)
-			.dbl_buffer(true)
-			.wndclass(RegisterWndClass<Main>()))
-		, m_ui_ready(false)
-		, m_view3d(View3D_Initialise({ this, ReportError }))
-		, m_win3d(View3D_WindowCreate(CreateHandle(), WndOptions(*this)))
-		, m_ui_demo(std::in_place, m_view3d, m_win3d, [this](float value) { UpdateBoxDimensions(value); })
-		, m_envmap(View3D_CubeMapCreateFromUri((config.m_rylogic_assets / "textures/cubemaps/hanger/hanger-??.jpg").string().c_str(), {}))
-		, m_obj0()
-		, m_obj1()
-		, m_audio(Audio_Initialise({this, ReportAudioError}))
-		, m_audio_engine()
-		, m_audio_clip()
-		, m_box_voice()
-		, m_previous_listener_position()
-		, m_listener_initialized(false)
-		, m_audio_occluded(false)
-		, m_file_ctx()
-		, m_step_mode(EStepMode::Run)
-		, m_pending_steps()
-	{
-		m_ui_ready = true;
-
-		if (m_audio == nullptr)
-			throw std::runtime_error("Audio initialization failed");
-
-		// Create one looping spatial voice owned by the rotating box demonstration.
-		CheckAudio(Audio_EngineCreate(m_audio, nullptr, &m_audio_engine), "Audio_EngineCreate");
-		auto tone = MakeToneWave(220.0f);
-		CheckAudio(Audio_ClipCreateWave(m_audio_engine, tone.data(), tone.size(), &m_audio_clip), "Audio_ClipCreateWave");
-		auto voice_desc = audio::VoiceDesc{
-			.header = {sizeof(audio::VoiceDesc), audio::AUDIO_STRUCT_VERSION},
-			.clip = m_audio_clip,
-			.bus = audio::EBus::Effects,
-			.spatial = true,
-			.loop_count = audio::AUDIO_INFINITE_LOOP,
-			.priority = 100,
-			.volume = 0.3f,
-			.pitch = 1.0f,
-		};
-		CheckAudio(Audio_VoiceCreate(m_audio_engine, &voice_desc, &m_box_voice), "Audio_VoiceCreate");
-		CheckAudio(Audio_VoicePlay(m_audio_engine, m_box_voice), "Audio_VoicePlay");
-
-		// Set up the scene
-		View3D_CameraPositionSet(m_win3d, {5, -5, 4, 1}, {0, 0, 0, 1}, {0, 0, 1, 0});
-	
-		// Cast shadows
-		auto light = View3D_LightGet(m_win3d, 0);
-		light.m_type = view3d::ELight::Directional;
-		light.m_direction = To<view3d::Vec4>(v4::Normal(-1, -1, -1, 0));
-		light.m_cast_shadow = 0.0f;// 10.0f;
-		light.m_cam_relative = false;
-		View3D_LightSet(m_win3d, 0, light);
-
-		// Create 'm_obj0', 'm_obj1'
-		{
-			std::default_random_engine rng;
-			std::uniform_real_distribution dist(-10.0f, 10.0f);
-
-			m_obj0 = View3D_ObjectCreateLdrA(
-				//"*Triangle nice_tri FF00FF00 { *Data { -1 -1 0  +1 -1 0  0 +1 0} }"
-				"*Box nice_box FF00FF00 { *Data {1.23 1.23 1.23} }"
-				//"*Model { *Filepath { \"E:\\Rylogic\\Code\\art\\models\\Pendulum\\Pendulum.fbx\" } }"
-				//"*Model { *Filepath { \"E:\\Rylogic\\Code\\art\\models\\AnimCharacter\\AnimatedCharacter.fbx\" } }"
-				//"*Model { *Filepath { \"E:\\Rylogic\\Code\\art\\models\\Pendulum\\Pendulum.fbx\" } *Animation{*Style{Repeat}} }"
-				//"*Model { *Filepath { \"E:\\Rylogic\\Code\\art\\models\\AnimCharacter\\AnimatedCharacter.fbx\" } *Animation{*Style{PingPong}} }"
-				, false, nullptr, nullptr);
-
-			m_obj1 = View3D_ObjectCreateLdrA(
-				//"*Sphere sever FF0080FF { *Data {0.4} }"
-				//"*Box Origin FF00FF00 { *Data {1 1 1} }"
-				"*CoordFrame origin { *Scale {1} }"
-				, false, nullptr, nullptr);
-
-			//auto builder = ldraw::Builder();
-			//auto& pts = builder.Point("pts", 0xFF00FF00).size({ 40, 40 }).style(ldraw::EPointStyle::Star);
-			//for (int i = 0; i != 100; ++i)
-			//	pts.pt(v3::Random(rng, v3::Zero(), 0.5f).w1());
-			//m_obj0 = View3D_ObjectCreateLdrA(builder.ToString(true).c_str(), false, nullptr, nullptr);
-
-			//auto builder = ldr::Builder();
-			//auto& points = builder.Point("points", 0xFF00FF00);
-			//points.size(10.0f);
-			//for (int i = 0; i != 10000; ++i) points.pt({ dist(rng), dist(rng), 0, 1 });
-			//auto& spline = builder.Spline("spline");
-			//spline.spline(v4{ 0, 0, 0, 1 }, v4{ -1, 1, 0, 1 }, v4{ -1, 2, 0, 1 }, v4{ 0, 1.5f, 0, 1 }, 0xFF00FF00);
-			//spline.spline(v4{ 0, 0, 0, 1 }, v4{ +1, 1, 0, 1 }, v4{ +1, 2, 0, 1 }, v4{ 0, 1.5f, 0, 1 }, 0xFFFF0000);
-			//spline.width(4);
-			//spline.pos(v4{ 0, 10, 0, 1 });
-
-			// Load script
-			//m_file_ctx = View3D_LoadScriptFromFile("E:/Dump/Splines.Scene.bdr", nullptr, nullptr, {});
-
-			View3D_ObjectFlagsSet(m_obj1, view3d::ELdrFlags::HitTestExclude, true, nullptr);
+			defaults.m_ambient = View3D_AmbientGet(window);
+			defaults.m_shadows = View3D_ShadowSettingsGet(window);
+			defaults.m_far_clip_fade = View3D_FarClipFadePropertiesGet(window);
+			defaults.m_underwater = View3D_PostEffectUnderwaterGet(window);
+			defaults.m_dither = View3D_DitherAmountGet(window);
+			defaults.m_clip_planes = View3D_CameraClipPlanesGet(window, view3d::EClipPlanes::Both);
+			return defaults;
 		}
 
-		// Add objects to the scene
+		// Apply the recorded settings to 'window'
+		void Restore(view3d::Window window) const
 		{
-			View3D_WindowAddObject(m_win3d, m_obj0);
-			View3D_WindowAddObject(m_win3d, m_obj1);
-			//View3D_WindowAddObjectsById(m_win3d, { &m_file_ctx, [](void* ctx, GUID const& id) { return *type_ptr<GUID>(ctx) == id; } });
-			//View3D_DemoSceneCreateText(m_win3d);
-			//View3D_DemoSceneCreateBinary(m_win3d);
+			// Match the light count first, then overwrite every light
+			while (View3D_LightCount(window) > static_cast<int>(m_lights.size()))
+				View3D_LightRemove(window, View3D_LightCount(window) - 1);
+			while (View3D_LightCount(window) < static_cast<int>(m_lights.size()))
+				View3D_LightAdd(window, m_lights[View3D_LightCount(window)]);
+			for (int i = 0, iend = static_cast<int>(m_lights.size()); i != iend; ++i)
+				View3D_LightSet(window, i, m_lights[i]);
+
+			// Restore the remaining scene settings
+			View3D_AmbientSet(window, m_ambient);
+			View3D_ShadowSettingsSet(window, m_shadows);
+			View3D_FarClipFadePropertiesSet(window, m_far_clip_fade);
+			View3D_PostEffectUnderwaterSet(window, m_underwater);
+			View3D_DitherAmountSet(window, m_dither);
+			View3D_CameraClipPlanesSet(window, m_clip_planes.x, m_clip_planes.y, view3d::EClipPlanes::Both);
+		}
+	};
+
+	// The 3D view. Input goes to the active demo before the default view3d navigation and key bindings.
+	struct ViewHost :View3DPanel
+	{
+		IDemo* m_demo; // The active demo, not owned. Null when no demo is active.
+
+		explicit ViewHost(View3DPanel::Params const& p)
+			: View3DPanel(p)
+			, m_demo()
+		{
 		}
 
-		// EnvMap
-		//View3D_WindowEnvMapSet(m_win3d, m_envmap);
-		View3D_WindowEnumObjects(m_win3d, { nullptr, [](void*, view3d::Object obj)
-			{
-				View3D_ObjectReflectivitySet(obj, 0.2f, "");
-				return true;
-			}});
-
-		// Streaming
-		View3D_StreamingEnable(true, 1976);
-
-		// Refresh the retained View3DUI demonstration tree once against this window's real size/DPI/camera.
-		m_ui_demo->Update(*this, 0.0);
-	}
-	~Main()
-	{
-		// Detach and release View3DUI before destroying its View3D host window and device.
-		m_ui_ready = false;
-		m_ui_demo.reset();
-
-		// Release audio children before their owning engine and DLL context.
-		if (m_box_voice != 0)
-			Audio_VoiceDestroy(m_audio_engine, m_box_voice);
-		if (m_audio_clip != 0)
-			Audio_ClipDestroy(m_audio_engine, m_audio_clip);
-		if (m_audio_engine != 0)
-			Audio_EngineDestroy(m_audio_engine);
-		if (m_audio != nullptr)
-			Audio_Shutdown(m_audio);
-
-		View3D_CubeMapRelease(m_envmap);
-		View3D_WindowDestroy(m_win3d);
-		View3D_ObjectDelete(m_obj0);
-		View3D_ObjectDelete(m_obj1);
-		View3D_Shutdown(m_view3d);
-	}
-	void Step(double dt)
-	{
-		// The demo's UI clock advances at real elapsed time, independent of the scene's simulated time scale.
-		auto ui_elapsed_seconds = dt;
-
-		static double time_scale = 1.0;
-		dt *= time_scale;
-		auto previous_time = m_time;
-
-		switch (m_step_mode)
+		// Give raw window messages to the demo first, so that demos with their own UI see unmodified input
+		LRESULT WndProc(UINT message, WPARAM wparam, LPARAM lparam) override
 		{
-			case EStepMode::Run:
-			{
-				m_time += dt;
-				break;
-			}
-			case EStepMode::Single:
-			{
-				if (m_pending_steps > 0)
-				{
-					m_time += dt;
-					--m_pending_steps;
-				}
-				break;
-			}
-			default:
-			{
-				throw std::runtime_error("Unknown step mode");
-			}
+			// Demos that consume a message prevent the default handling
+			LRESULT result = 0;
+			if (m_demo != nullptr && m_demo->ProcessWindowMessage(m_hwnd, message, wparam, lparam, result))
+				return result;
+
+			return View3DPanel::WndProc(message, wparam, lparam);
 		}
 
-		auto c2w = View3D_CameraToWorldGet(m_win3d);
-
-		// Drive the rendered listener from the same camera pose used for the frame.
-		auto listener_position = audio::Vector3{c2w.w.x, c2w.w.y, c2w.w.z};
-		auto listener_velocity = m_listener_initialized && dt > 0.0 && dt < 0.25
-			? audio::Vector3{
-				static_cast<float>((listener_position.x - m_previous_listener_position.x) / dt),
-				static_cast<float>((listener_position.y - m_previous_listener_position.y) / dt),
-				static_cast<float>((listener_position.z - m_previous_listener_position.z) / dt)}
-			: audio::Vector3{};
-		auto listener = audio::ListenerState{
-			.header = {sizeof(audio::ListenerState), audio::AUDIO_STRUCT_VERSION},
-			.position = listener_position,
-			.forward = {-c2w.z.x, -c2w.z.y, -c2w.z.z},
-			.up = {c2w.y.x, c2w.y.y, c2w.y.z},
-			.velocity = listener_velocity,
-		};
-		CheckAudio(Audio_ListenerSet(m_audio_engine, &listener), "Audio_ListenerSet");
-		m_previous_listener_position = listener_position;
-		m_listener_initialized = true;
-
-		// Spin the box about world Z at the origin and derive the sound pose from the same transform.
-		constexpr auto spin_rate = 0.8f;
-		auto angle = static_cast<float>(m_time) * spin_rate;
-		auto box_o2w = m4x4::Transform(v4::ZAxis(), angle, v4::Origin());
-		View3D_ObjectO2WSet(m_obj0, To<view3d::Mat4x4>(box_o2w), nullptr);
-
-		auto emitter_position = box_o2w * v4{m_box_dimension * 0.5f, 0, 0, 1};
-		auto emitter_forward = box_o2w * v4::XAxis();
-		auto angular_speed = dt > 0.0 ? static_cast<float>((m_time - previous_time) / dt) * spin_rate : 0.0f;
-		auto emitter_velocity = v4{-angular_speed * emitter_position.y, angular_speed * emitter_position.x, 0, 0};
-		auto emitter = audio::EmitterState{
-			.header = {sizeof(audio::EmitterState), audio::AUDIO_STRUCT_VERSION},
-			.position = {emitter_position.x, emitter_position.y, emitter_position.z},
-			.forward = {emitter_forward.x, emitter_forward.y, emitter_forward.z},
-			.up = {0, 0, 1},
-			.velocity = {emitter_velocity.x, emitter_velocity.y, emitter_velocity.z},
-			.min_distance = 0.5f,
-			.max_distance = 30.0f,
-			.cone_inner_angle = constants<float>::tau / 8.0f,
-			.cone_outer_angle = constants<float>::tau / 3.0f,
-			.cone_outer_gain = 0.1f,
-			.doppler_scale = 1.0f,
-			.obstruction = 0.0f,
-			.occlusion = m_audio_occluded ? 0.8f : 0.0f,
-			.reverb_send = 0.25f,
-		};
-		CheckAudio(Audio_VoiceEmitterSet(m_audio_engine, m_box_voice, &emitter), "Audio_VoiceEmitterSet");
-		CheckAudio(Audio_EngineUpdate(m_audio_engine), "Audio_EngineUpdate");
-
-		SetWindowTextA(*this, pr::FmtS("View3d 12 Test - Cam: %3.3f %3.3f %3.3f  Dir: %3.3f %3.3f %3.3f", c2w.w.x, c2w.w.y, c2w.w.z, -c2w.z.x, -c2w.z.y, -c2w.z.z));
-		m_ui_demo->Update(*this, ui_elapsed_seconds);
-		View3D_WindowRender(m_win3d);
-	}
-	bool ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, LRESULT& result) override
-	{
-		// UI receives untouched Win32 messages before Form translates them into camera input.
-		if (m_ui_ready && m_ui_demo && m_ui_demo->ProcessWindowMessage(hwnd, message, wparam, lparam, result))
-			return true;
-
-		return Form::ProcessWindowMessage(hwnd, message, wparam, lparam, result);
-	}
-	void OnWindowPosChange(WindowPosEventArgs const& args) override
-	{
-		Form::OnWindowPosChange(args);
-		if (!args.m_before && args.IsResize() && !IsIconic(*this))
+		// Give key events to the demo before the default key bindings
+		void OnKey(KeyEventArgs& args) override
 		{
-			auto rect = ClientRect(false);
-			auto w = rect.width();
-			auto h = rect.height();
-			View3D_WindowBackBufferSizeSet(m_win3d, { w, h }, false);
-			View3D_WindowViewportSet(m_win3d, view3d::Viewport{
-				.m_x = 0,
-				.m_y = 0,
-				.m_width = 1.f * w,
-				.m_height = 1.f * h,
-				.m_min_depth = 0,
-				.m_max_depth = 1,
-				.m_screen_w = w,
-				.m_screen_h = h,
+			// The base class skips its bindings for keys that the demo handled
+			if (m_demo != nullptr)
+				m_demo->OnKey(args);
+
+			View3DPanel::OnKey(args);
+		}
+
+		// Give mouse button events to the demo before the default navigation
+		void OnMouseButton(MouseEventArgs& args) override
+		{
+			// Demos that handle a click prevent it from starting a camera navigation
+			if (m_demo != nullptr)
+				m_demo->OnMouseButton(args);
+			if (args.m_handled)
+				return;
+
+			View3DPanel::OnMouseButton(args);
+		}
+
+		// Keep the viewport matched to the window size
+		void OnWindowPosChange(WindowPosEventArgs const& args) override
+		{
+			// The base class resizes the back buffer. The viewport is set to cover all of it.
+			View3DPanel::OnWindowPosChange(args);
+			if (!args.m_before && args.IsResize() && !args.Iconic())
+			{
+				auto w = args.m_wp->cx;
+				auto h = args.m_wp->cy;
+				View3D_WindowViewportSet(m_win, view3d::Viewport{
+					.m_x = 0,
+					.m_y = 0,
+					.m_width = 1.f * w,
+					.m_height = 1.f * h,
+					.m_min_depth = 0,
+					.m_max_depth = 1,
+					.m_screen_w = w,
+					.m_screen_h = h,
 				});
-		}
-	}
-	void OnMouseButton(MouseEventArgs& args) override
-	{
-		Form::OnMouseButton(args);
-		if (AllSet(args.m_key_state, EMouseKey::Shift) && AllSet(args.m_button, EMouseKey::Left))
-		{
-			HitTest(args.point_px());
-			args.m_handled = true;
-		}
-		if (!args.m_handled)
-		{
-			view3d::Vec2 pt = {s_cast<float>(args.m_point.x), s_cast<float>(args.m_point.y)};
-			auto nav_op =
-				AllSet(args.m_button, EMouseKey::Left) ? view3d::ENavOp::Rotate :
-				AllSet(args.m_button, EMouseKey::Right) ? view3d::ENavOp::Translate :
-				view3d::ENavOp::None;
-
-			View3D_MouseNavigate(m_win3d, pt, nav_op, TRUE);
-		}
-	}
-	void OnMouseMove(MouseEventArgs& args) override
-	{
-		Form::OnMouseMove(args);
-		if (!args.m_handled)
-		{
-			view3d::Vec2 pt = {s_cast<float>(args.m_point.x), s_cast<float>(args.m_point.y)};
-			auto nav_op =
-				AllSet(args.m_button, EMouseKey::Left) ? view3d::ENavOp::Rotate :
-				AllSet(args.m_button, EMouseKey::Right) ? view3d::ENavOp::Translate :
-				view3d::ENavOp::None;
-
-			View3D_MouseNavigate(m_win3d, pt, nav_op, FALSE);
-		}
-	}
-	void OnMouseWheel(MouseWheelArgs& args) override
-	{
-		Form::OnMouseWheel(args);
-		if (!args.m_handled)
-		{
-			view3d::Vec2 pt = {s_cast<float>(args.m_point.x), s_cast<float>(args.m_point.y)};
-			View3D_MouseNavigateZ(m_win3d, pt, args.m_delta, TRUE);
-		}
-	}
-	void OnKey(KeyEventArgs& args) override
-	{
-		Form::OnKey(args);
-		if (args.m_down)
-			return;
-
-		switch (args.m_vk_key)
-		{
-			case VK_F7:
-			{
-				View3D_ReloadScriptSources();
-				args.m_handled = true;
-				break;
-			}
-			case 'E':
-			{
-				m_step_mode = EStepMode::Single;
-				m_time = 0.0;
-				break;
-			}
-			case 'R':
-			{
-				m_step_mode = EStepMode::Run;
-				args.m_handled = true;
-				break;
-			}
-			case 'T':
-			{
-				m_step_mode = EStepMode::Single;
-				++m_pending_steps;
-				args.m_handled = true;
-				break;
-			}
-			case 'O':
-			{
-				m_audio_occluded = !m_audio_occluded;
-				args.m_handled = true;
-				break;
-			}
-			case VK_SPACE:
-			{
-				if (m_step_mode == EStepMode::Single)
-					++m_pending_steps;
-				break;
 			}
 		}
-	}
-	void HitTest(gui::Point screen_px)
-	{
-		auto screen = view3d::Vec2{ static_cast<float>(screen_px.x), static_cast<float>(screen_px.y) };
-		auto c2w = View3D_CameraToWorldGet(m_win3d);
-		view3d::Vec4 ws_pos, ws_dir; View3D_SSPointToWSRay(m_win3d, screen, ws_pos, ws_dir);
-		view3d::HitTestRay rays[1] = {
-			{ws_pos, ws_dir, view3d::ESnapMode::Faces, 0.001f},
-		//	{c2w.w, {-c2w.z.x, -c2w.z.y, -c2w.z.z, 0}},
-		};
-		view3d::HitTestResult results[2] = {};
-		View3D_WindowHitTestByCtx(m_win3d, &rays[0], &results[0], _countof(rays), {});
+	};
 
-		for (auto const& hit : results)
+	// Menu command identifiers
+	enum EMenuId :int
+	{
+		ID_ReloadScripts = 1000,
+		ID_ResetCamera,
+		ID_ShowFocusPoint,
+		ID_ShowOrigin,
+		ID_MultiSampling1,
+		ID_MultiSampling2,
+		ID_MultiSampling4,
+		ID_MultiSampling8,
+		ID_FillSolid,
+		ID_FillWireframe,
+		ID_FillSolidWire,
+		ID_FillPoints,
+		ID_Background0,
+		ID_DemoBase = 2000,
+	};
+
+	// Multi-sampling menu options
+	struct MultiSamplingOption
+	{
+		int m_id;
+		int m_samples;
+		wchar_t const* m_label;
+	};
+	static MultiSamplingOption const s_multi_sampling[] =
+	{
+		{ ID_MultiSampling1, 1, L"&Off" },
+		{ ID_MultiSampling2, 2, L"&2x" },
+		{ ID_MultiSampling4, 4, L"&4x" },
+		{ ID_MultiSampling8, 8, L"&8x" },
+	};
+
+	// Fill mode menu options
+	struct FillModeOption
+	{
+		int m_id;
+		view3d::EFillMode m_mode;
+		wchar_t const* m_label;
+	};
+	static FillModeOption const s_fill_modes[] =
+	{
+		{ ID_FillSolid, view3d::EFillMode::Solid, L"&Solid" },
+		{ ID_FillWireframe, view3d::EFillMode::Wireframe, L"&Wireframe" },
+		{ ID_FillSolidWire, view3d::EFillMode::SolidWire, L"Solid + W&ire" },
+		{ ID_FillPoints, view3d::EFillMode::Points, L"&Points" },
+	};
+
+	// Background colour menu options. The first is the default.
+	struct BackgroundOption
+	{
+		unsigned int m_argb;
+		wchar_t const* m_label;
+	};
+	static BackgroundOption const s_backgrounds[] =
+	{
+		{ 0xFF908080, L"&Grey" },
+		{ 0xFF000000, L"&Black" },
+		{ 0xFFFFFFFF, L"&White" },
+		{ 0xFF203050, L"&Navy" },
+	};
+
+	// Build the 'View' menu
+	static HMENU CreateViewMenu()
+	{
+		// Radio-style sub menus for the multi-valued settings. Check marks are refreshed when the menu opens.
+		auto msaa = Menu(Menu::EKind::Popup);
+		for (auto const& opt : s_multi_sampling)
+			msaa.Insert(MenuItem(opt.m_label, opt.m_id));
+
+		auto fill = Menu(Menu::EKind::Popup);
+		for (auto const& opt : s_fill_modes)
+			fill.Insert(MenuItem(opt.m_label, opt.m_id));
+
+		auto bkgd = Menu(Menu::EKind::Popup);
+		for (int i = 0, iend = static_cast<int>(std::size(s_backgrounds)); i != iend; ++i)
+			bkgd.Insert(MenuItem(s_backgrounds[i].m_label, ID_Background0 + i));
+
+		return Menu(Menu::EKind::Popup, {
+			MenuItem(L"&Multi-sampling", msaa),
+			MenuItem(L"&Fill mode", fill),
+			MenuItem(L"&Background", bkgd),
+			MenuItem(MenuItem::Separator),
+			MenuItem(L"Show &focus point", ID_ShowFocusPoint),
+			MenuItem(L"Show &origin", ID_ShowOrigin),
+			MenuItem(MenuItem::Separator),
+			MenuItem(L"&Reset camera", ID_ResetCamera),
+		});
+	}
+
+	// Build the 'Demos' menu, with one sub menu per category
+	static HMENU CreateDemoMenu()
+	{
+		// The catalogue keeps demos of the same category adjacent, so a new sub menu starts whenever the category changes
+		auto menu = Menu(Menu::EKind::Popup);
+		auto demos = DemoCatalogue();
+		for (int i = 0, iend = static_cast<int>(demos.size()); i != iend;)
 		{
-			if (!hit.IsHit()) continue;
-			auto o2w = m4x4::Translation(To<v4>(hit.m_ws_intercept));
-			View3D_ObjectO2WSet(m_obj1, To<view3d::Mat4x4>(o2w), nullptr);
+			// Collect the demos in this category
+			auto category = demos[i].m_category;
+			auto sub = Menu(Menu::EKind::Popup);
+			for (; i != iend && std::wstring_view(demos[i].m_category) == category; ++i)
+				sub.Insert(MenuItem(demos[i].m_display_name, ID_DemoBase + i));
+
+			menu.Insert(MenuItem(category, sub));
 		}
+		return menu;
 	}
 
-	// Replace only the existing box model so its object identity and per-frame transform remain stable.
-	void UpdateBoxDimensions(float value)
+	// The 3D view creation parameters
+	static View3DPanel::Params ViewParams(Control* parent)
 	{
-		char buffer[64] = {};
-		auto [end, error] = std::to_chars(std::begin(buffer), std::end(buffer), value, std::chars_format::general, 9);
-		if (error != std::errc{})
-			throw std::runtime_error("Failed to format box dimensions");
-
-		auto value_text = std::string(buffer, end);
-		auto value_wide = std::wstring(value_text.begin(), value_text.end());
-		auto script = L"*Box nice_box FF00FF00 { *Data {" + value_wide + L" " + value_wide + L" " + value_wide + L"} }";
-		auto object_count = View3D_WindowObjectCount(m_win3d);
-		View3D_ObjectUpdate(m_obj0, script.c_str(), view3d::EUpdateObject::Model);
-
-		// The update must preserve the existing object's scene membership.
-		if (View3D_WindowObjectCount(m_win3d) != object_count)
-			throw std::runtime_error("Updating box dimensions changed its scene membership");
-
-		auto bounds = View3D_ObjectBBoxMS(m_obj0, view3d::EBBoxFlags::None);
-		auto expected_radius = value * 0.5f;
-		if (std::abs(bounds.radius.x - expected_radius) > 1e-5f || std::abs(bounds.radius.y - expected_radius) > 1e-5f || std::abs(bounds.radius.z - expected_radius) > 1e-5f)
-			throw std::runtime_error("Updated box dimensions do not match the accepted value");
-
-		m_box_dimension = value;
+		// The view fills the space that the status bar and controls panel leave
+		auto p = View3DPanel::Params();
+		p.parent(parent).dock(EDock::Fill).error_cb(ReportError, nullptr).multisamp(8);
+		p.m_win_opts.back_colour(s_backgrounds[0].m_argb).alt_enter().name("TestWnd");
+		return p;
 	}
-};
 
-// Run the interactive 3D scene until its window closes
-int RunInteractive()
+	// The application window
+	struct Main :Form
+	{
+		// Members are constructed in order. 'm_view' creates all window handles, so it must follow the other controls,
+		// and 'm_ui_ready' must come first because messages arrive while the controls are being created.
+		bool m_ui_ready;
+		InteractiveConfig m_config;
+		UserSettings m_settings;
+		StatusBar m_status;
+		ControlsPanel m_controls;
+		ViewHost m_view;
+		audio::DllHandle m_audio;
+		SceneDefaults m_defaults;
+		std::unique_ptr<IDemo> m_demo;
+		int m_demo_index;
+		std::wstring m_status_text;
+
+		Main(InteractiveConfig const& config, UserSettings const& settings)
+			: Form(Params<>()
+				.name("main")
+				.title(L"View3d 12 Tests")
+				.wh(1600, 1000)
+				.xy(10, 10)
+				.start_pos(EStartPosition::Manual)
+				.padding(0)
+				.menu({
+					{ L"&File", Menu(Menu::EKind::Popup, {
+						MenuItem(L"&Reload scripts", ID_ReloadScripts),
+						MenuItem(MenuItem::Separator),
+						MenuItem(L"E&xit", IDCLOSE),
+					})},
+					{ L"&View", CreateViewMenu() },
+					{ L"&Demos", CreateDemoMenu() },
+				})
+				.main_wnd(true)
+				.wndclass(RegisterWndClass<Main>()))
+			, m_ui_ready(false)
+			, m_config(config)
+			, m_settings(settings)
+			, m_status(StatusBar::Params<>().parent(this_).dock(EDock::Bottom))
+			, m_controls(ControlsPanel::Params().parent(this_))
+			, m_view(ViewParams(this_))
+			, m_audio(Audio_Initialise({ this, ReportAudioError }))
+			, m_defaults()
+			, m_demo()
+			, m_demo_index(-1)
+			, m_status_text()
+		{
+			// All controls exist now, so messages can be handled
+			m_ui_ready = true;
+			if (m_audio == nullptr)
+				throw std::runtime_error("Audio initialization failed");
+
+			// The baseline light is a fixed directional light, so that shading does not change as the camera moves
+			demo::EditLight(m_view.m_win, 0, [](view3d::Light& light)
+			{
+				light.m_type = view3d::ELight::Directional;
+				light.m_direction = view3d::Vec4{ -0.577f, -0.577f, -0.577f, 0 };
+				light.m_cast_shadow = 0.0f;
+				light.m_cam_relative = FALSE;
+			});
+
+			// Record the baseline that every demo starts from
+			m_defaults = SceneDefaults::Capture(m_view.m_win);
+			ResetCamera();
+
+			// Allow external tools to stream LDraw script into the view (see StreamingTest.csx)
+			View3D_StreamingEnable(TRUE, 1976);
+		}
+		~Main()
+		{
+			// Destroy the demo before the audio context and the 3D view that it uses
+			m_ui_ready = false;
+			CloseDemo();
+			if (m_audio != nullptr)
+				Audio_Shutdown(m_audio);
+		}
+
+		// Advance the active demo and render a frame
+		void Step(double dt)
+		{
+			// Demos animate before rendering so that each frame shows the latest state
+			if (m_demo != nullptr)
+				m_demo->Step(dt);
+
+			UpdateStatus();
+			View3D_WindowRender(m_view.m_win);
+		}
+
+		// Show the demo at 'index' in the catalogue, replacing the active demo
+		void SelectDemo(int index)
+		{
+			// Remove the previous demo and return the scene to the baseline state
+			CloseDemo();
+			m_defaults.Restore(m_view.m_win);
+			ResetCamera();
+
+			// Describe the demo above its own controls
+			auto const& info = DemoCatalogue()[index];
+			m_demo_index = index;
+			m_controls.AddHeading(info.m_display_name);
+			m_controls.AddLabel(info.m_description);
+			Text(std::format(L"View3d 12 Tests - {}", info.m_display_name).c_str());
+
+			// Remember the choice for the next run, even if the demo fails, so the failure is reproducible
+			m_settings.m_last_demo = std::string(info.m_name);
+			m_settings.Save();
+
+			// A failing demo is reported in the controls panel so that other demos remain usable
+			try
+			{
+				auto ctx = DemoContext{
+					.m_view3d = m_view.m_ctx,
+					.m_window = m_view.m_win,
+					.m_view_hwnd = m_view,
+					.m_assets = m_config.m_rylogic_assets,
+					.m_audio = m_audio,
+					.m_controls = m_controls,
+				};
+				m_demo = info.m_create(ctx);
+				m_view.m_demo = m_demo.get();
+			}
+			catch (std::exception const& ex)
+			{
+				// Show the failure in the panel, and on the console for scripted runs
+				CloseDemo();
+				m_controls.AddHeading(info.m_display_name);
+				m_controls.AddLabel(std::format(L"Demo failed: {}", Widen(ex.what())));
+				std::cerr << "Demo '" << info.m_name << "' failed: " << ex.what() << std::endl;
+			}
+		}
+
+		// Destroy the active demo and remove everything it added to the scene
+		void CloseDemo()
+		{
+			// The controls' callbacks capture the demo, so they go first
+			m_view.m_demo = nullptr;
+			m_controls.Clear();
+			View3D_WindowRemoveAllObjects(m_view.m_win);
+			View3D_WindowEnvMapSet(m_view.m_win, nullptr);
+			m_demo.reset();
+		}
+
+		// Move the camera to the default viewing position
+		void ResetCamera()
+		{
+			// Look at the origin from above and to one side, with Z up
+			View3D_CameraPositionSet(m_view.m_win, { 5, -5, 4, 1 }, { 0, 0, 0, 1 }, { 0, 0, 1, 0 });
+		}
+
+		// Show the camera position and direction in the status bar
+		void UpdateStatus()
+		{
+			// Only update the status bar when the text changes, to avoid redrawing it every frame
+			auto c2w = View3D_CameraToWorldGet(m_view.m_win);
+			auto text = std::format(L"Cam: {:.3f} {:.3f} {:.3f}  Dir: {:.3f} {:.3f} {:.3f}", c2w.w.x, c2w.w.y, c2w.w.z, -c2w.z.x, -c2w.z.y, -c2w.z.z);
+			if (text == m_status_text)
+				return;
+
+			m_status_text = text;
+			m_status.Text(0, m_status_text);
+		}
+
+		// Update the menu check marks to match the current state
+		void UpdateMenuChecks()
+		{
+			// The check marks are read from the renderer, so there is no separate menu state to keep in sync
+			auto menu = ::GetMenu(m_hwnd);
+			auto check = [=](int id, bool on)
+			{
+				::CheckMenuItem(menu, id, MF_BYCOMMAND | (on ? MF_CHECKED : MF_UNCHECKED));
+			};
+
+			auto samples = View3D_MultiSamplingGet(m_view.m_win);
+			for (auto const& opt : s_multi_sampling)
+				check(opt.m_id, opt.m_samples == samples);
+
+			auto fill_mode = View3D_WindowFillModeGet(m_view.m_win);
+			for (auto const& opt : s_fill_modes)
+				check(opt.m_id, opt.m_mode == fill_mode || (fill_mode == view3d::EFillMode::Default && opt.m_mode == view3d::EFillMode::Solid));
+
+			auto bkgd = View3D_WindowBackgroundColourGet(m_view.m_win);
+			for (int i = 0, iend = static_cast<int>(std::size(s_backgrounds)); i != iend; ++i)
+				check(ID_Background0 + i, s_backgrounds[i].m_argb == bkgd);
+
+			check(ID_ShowFocusPoint, View3D_StockObjectVisibleGet(m_view.m_win, view3d::EStockObject::FocusPoint) != 0);
+			check(ID_ShowOrigin, View3D_StockObjectVisibleGet(m_view.m_win, view3d::EStockObject::OriginPoint) != 0);
+			for (int i = 0, iend = static_cast<int>(DemoCatalogue().size()); i != iend; ++i)
+				check(ID_DemoBase + i, i == m_demo_index);
+		}
+
+		// Handle a menu command. Returns false for commands that this window does not handle.
+		bool HandleCommand(int id)
+		{
+			// Fixed commands
+			auto win = m_view.m_win;
+			switch (id)
+			{
+				case ID_ReloadScripts:
+				{
+					View3D_ReloadScriptSources();
+					return true;
+				}
+				case ID_ResetCamera:
+				{
+					ResetCamera();
+					return true;
+				}
+				case ID_ShowFocusPoint:
+				{
+					View3D_StockObjectVisibleSet(win, view3d::EStockObject::FocusPoint, !View3D_StockObjectVisibleGet(win, view3d::EStockObject::FocusPoint));
+					return true;
+				}
+				case ID_ShowOrigin:
+				{
+					View3D_StockObjectVisibleSet(win, view3d::EStockObject::OriginPoint, !View3D_StockObjectVisibleGet(win, view3d::EStockObject::OriginPoint));
+					return true;
+				}
+				default:
+				{
+					break;
+				}
+			}
+
+			// Option commands
+			for (auto const& opt : s_multi_sampling)
+			{
+				if (opt.m_id != id)
+					continue;
+
+				View3D_MultiSamplingSet(win, opt.m_samples);
+				return true;
+			}
+			for (auto const& opt : s_fill_modes)
+			{
+				if (opt.m_id != id)
+					continue;
+
+				View3D_WindowFillModeSet(win, opt.m_mode);
+				return true;
+			}
+			if (id >= ID_Background0 && id < ID_Background0 + static_cast<int>(std::size(s_backgrounds)))
+			{
+				View3D_WindowBackgroundColourSet(win, s_backgrounds[id - ID_Background0].m_argb);
+				return true;
+			}
+
+			// Demo selection
+			if (id >= ID_DemoBase && id < ID_DemoBase + static_cast<int>(DemoCatalogue().size()))
+			{
+				SelectDemo(id - ID_DemoBase);
+				return true;
+			}
+			return false;
+		}
+
+		// Handle menu messages
+		bool ProcessWindowMessage(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam, LRESULT& result) override
+		{
+			// Messages arrive while the child controls are being created, before the members are ready
+			if (m_ui_ready && hwnd == m_hwnd)
+			{
+				// Refresh the check marks just before a menu is shown
+				if (message == WM_INITMENUPOPUP)
+					UpdateMenuChecks();
+
+				// Menu commands have a zero 'lparam'. Control notifications carry the control's handle instead.
+				if (message == WM_COMMAND && lparam == 0 && HandleCommand(LOWORD(wparam)))
+				{
+					result = 0;
+					return true;
+				}
+			}
+			return Form::ProcessWindowMessage(hwnd, message, wparam, lparam, result);
+		}
+	};
+}
+
+// Run the interactive demos until the window closes
+int RunInteractive(std::string_view demo_name)
 {
+	using namespace view3d_test;
 	try
 	{
-		// Load settings and the runtime DLLs that only interactive mode uses.
+		// Choose the initial demo: the command line, then the last used demo, then the first demo
+		auto settings = UserSettings::Load();
+		auto const* initial = FindDemo(demo_name.empty() ? std::string_view(settings.m_last_demo) : demo_name);
+		if (initial == nullptr && !demo_name.empty())
+		{
+			std::cerr << "Unknown demo: " << demo_name << "\nAvailable demos:\n";
+			for (auto const& info : DemoCatalogue())
+				std::cerr << "  " << info.m_name << "\n";
+
+			return 2;
+		}
+		if (initial == nullptr)
+			initial = &DemoCatalogue()[0];
+
+		// Load settings and the runtime DLLs that only interactive mode uses
 		pr::InitCom com;
 		auto config = InteractiveConfig::Load(pr::win32::ExeDir() / "view3d-12-tests.config.json");
 		pr::win32::LoadDll<struct Audio>("audio.dll");
 
-		// Register the owning message loop so window destruction can drain continuously posted renderer messages and observe WM_QUIT.
+		// Register the owning message loop so window destruction can drain continuously posted renderer messages and observe WM_QUIT
 		WinGuiMsgLoop loop;
-		Main main(config);
+		Main main(config, settings);
 		main.cp().msg_loop(&loop);
 		main.Show();
+
+		// Start the demo once the window has its final size, since some demos lay out against the view size
+		main.SelectDemo(static_cast<int>(initial - DemoCatalogue().data()));
 
 		loop.AddMessageFilter(main);
 		loop.AddLoop(100.0, true, [&main](auto dt) { main.Step(dt); });
@@ -561,7 +669,7 @@ int RunInteractive()
 	}
 	catch (std::exception const& ex)
 	{
-		// Report to the console and the debugger, since either may be watching.
+		// Report to the console and the debugger, since either may be watching
 		std::cerr << "Died: " << ex.what() << std::endl;
 		OutputDebugStringA("Died: ");
 		OutputDebugStringA(ex.what());

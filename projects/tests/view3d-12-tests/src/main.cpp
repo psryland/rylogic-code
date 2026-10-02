@@ -3,7 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
 // Console entry point for the view3d-12-tests project.
-// With '--interactive', shows the interactive 3D scene. Otherwise, runs the unit tests using the same
+// With '--interactive', shows the interactive demos. '--demo <name>' selects the initial demo. Otherwise, runs the unit tests using the same
 // '-verbose'/'-exclude:'/'-flags:'/positional-filter command line contract as 'projects\tests\unittests\src\main.cpp'.
 #include "pr/common/unittests.h"
 #include "interactive/interactive.h"
@@ -15,12 +15,19 @@
 
 int main(int argc, char* argv[])
 {
-	// Interactive mode replaces the unit test run entirely.
+	// Interactive mode replaces the unit test run entirely
+	auto interactive = false;
+	auto demo_name = std::string_view{};
 	for (auto i = 1; i != argc; ++i)
 	{
 		if (std::string_view{argv[i]} == "--interactive")
-			return RunInteractive();
+			interactive = true;
+		else if (std::string_view{argv[i]} == "--demo" && i + 1 != argc)
+			demo_name = argv[++i];
 	}
+	if (interactive)
+		return RunInteractive(demo_name);
+
 
 	// Parse the unit test selection options.
 	auto wordy = false;

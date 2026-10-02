@@ -2300,13 +2300,13 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateP3DStream(char const* nam
 	CatchAndReport(View3D_ObjectCreateP3D, , {});
 }
 
-// Create a six-sided skybox from individual cube-map face images.
-VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateSkybox(char const* name, char const* resource, float radius, GUID const* context_id)
+// Create a far-plane background from a retained cube map.
+VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateSkybox(char const* name, view3d::CubeMap cube_map, GUID const* context_id)
 {
 	try
 	{
 		DllLockGuard;
-		return Dll().ObjectCreateSkybox(name, resource, radius, context_id);
+		return Dll().ObjectCreateSkybox(name, TextureCubePtr(cube_map, true), context_id);
 	}
 	CatchAndReport(View3D_ObjectCreateSkybox, , {});
 }

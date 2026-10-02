@@ -740,7 +740,7 @@ namespace pr
 			int   m_point_resolution;       // Largest size of each of the six point light shadow views (in pixels)
 			int   m_max_shadow_lights;      // The maximum number of lights that cast shadows. Zero disables shadows
 			int   m_cascade_count;          // The number of cascades for directional lights, in [1,4]
-			float m_shadow_distance;        // Distance from the camera beyond which directional lights cast no shadows. Zero means fit to the shadow casters
+			float m_shadow_distance;        // Distance from the camera beyond which directional lights cast no shadows. Shadows fade out over the last 10% of this distance. Zero means fit to the shadow casters
 			float m_cascade_split_blend;    // Cascade split distribution in [0,1]. 0 = even spacing, 1 = logarithmic spacing
 			int   m_filter_size;            // Width of the shadow edge filter (in shadow texels). Either 5 or 7
 			int   m_depth_bias;             // Constant depth bias (in units of the smallest depth step)
@@ -1456,8 +1456,9 @@ extern "C"
 	// Load a p3d model in memory as a view3d object. 'tex_resolver' may be empty when the model's textures are plain file paths.
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateP3DStream(char const* name, pr::view3d::Colour colour, size_t size, void const* p3d_data, pr::view3d::ResolveTextureCB tex_resolver, GUID const* context_id);
 
-	// Create a six-sided skybox from a cube-map filename pattern containing '??', replaced by px, nx, py, ny, pz, and nz.
-	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateSkybox(char const* name, char const* resource, float radius, GUID const* context_id);
+	// Create a background that shows 'cube_map' behind all scene geometry, centred on the camera at the far plane.
+	// The sky retains the cube map and uses its orientation (CubeMapOptions::m_cube2w). Object transforms are ignored. Destroy using View3D_ObjectDelete.
+	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateSkybox(char const* name, pr::view3d::CubeMap cube_map, GUID const* context_id);
 
 	// Create a Z-up GPU atmosphere. Sun direction points toward the sun; finite colour and intensity must be nonnegative.
 	// Destroy using View3D_ObjectDelete. This object has no reflection cube map and ignores object transforms.

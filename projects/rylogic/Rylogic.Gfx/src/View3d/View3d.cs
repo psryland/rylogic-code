@@ -2263,7 +2263,7 @@ namespace Rylogic.Gfx
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HObject View3D_ObjectCreateP3DStream([MarshalAs(UnmanagedType.LPStr)] string name, uint colour, int size, IntPtr p3d_data, ResolveTextureCBInternal tex_resolver, ref Guid context_id);
 
 		// Create a six-sided skybox from individual cube-map face images.
-		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HObject View3D_ObjectCreateSkybox([MarshalAs(UnmanagedType.LPStr)] string name, [MarshalAs(UnmanagedType.LPStr)] string resource, float radius, ref Guid context_id);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HObject View3D_ObjectCreateSkybox([MarshalAs(UnmanagedType.LPStr)] string name, HCubeMap cube_map, ref Guid context_id);
 
 		// Create an ldr object using a callback to populate the model data.
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HObject View3D_ObjectCreateWithCallback([MarshalAs(UnmanagedType.LPStr)] string name, uint colour, int vcount, int icount, int ncount, EditObjectCBInternal edit_cb, ref Guid context_id);

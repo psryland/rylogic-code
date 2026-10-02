@@ -71,7 +71,8 @@ float FilteredShadow(Texture2D<float> atlas, SamplerComparisonState cmp_sampler,
 
 // Returns a value in [0,1] where 0 means 'ws_pos' is fully in the shadow of 'light', and 1 means not in shadow.
 // 'light' must have shadow views. 'ws_norm' is the surface normal at 'ws_pos' (it does not need to be normalised).
-float ShadowVisibility(Texture2D<float> atlas, SamplerComparisonState cmp_sampler, StructuredBuffer<ShadowView> views, Light light, float4 ws_pos, float4 ws_norm)
+// 'view_depth' is the distance of 'ws_pos' in front of the camera, used to fade out shadows that end at a set distance.
+float ShadowVisibility(Texture2D<float> atlas, SamplerComparisonState cmp_sampler, StructuredBuffer<ShadowView> views, Light light, float4 ws_pos, float4 ws_norm, float view_depth)
 {
 	// The filter reads up to half its width plus one texel from the sample position. Samples are kept this far inside the view's region.
 	float2 atlas_dim;
@@ -90,6 +91,13 @@ float ShadowVisibility(Texture2D<float> atlas, SamplerComparisonState cmp_sample
 	int count = DirectionalLight(light) ? light.info.z : 1;
 	if (PointLight(light))
 		first += ShadowCubeFace(light_to_pos.xyz);
+
+	// Views that end at a set distance fade to fully lit over a range of camera depths, so the edge of the views is not visible.
+	// The fade range is the same for all views of a light.
+	float2 fade_depth = views[first].bias.zw;
+	float fade = fade_depth.y > 0 ? saturate((view_depth - fade_depth.x) / (fade_depth.y - fade_depth.x)) : 0.0f;
+	if (fade >= 1.0f)
+		return 1.0f;
 
 	for (int i = 0; i != count; ++i)
 	{
@@ -124,7 +132,7 @@ float ShadowVisibility(Texture2D<float> atlas, SamplerComparisonState cmp_sample
 		// Map to the view's region of the atlas. Keep the filter footprint inside the region so neighbouring views are never sampled.
 		float2 atlas_uv = uv * view.atlas_rect.xy + view.atlas_rect.zw;
 		atlas_uv = clamp(atlas_uv, view.atlas_rect.zw + margin * texel, view.atlas_rect.zw + view.atlas_rect.xy - margin * texel);
-		return FilteredShadow(atlas, cmp_sampler, atlas_uv, ss_pos.z, atlas_dim, (int)view.bias.y);
+		return lerp(FilteredShadow(atlas, cmp_sampler, atlas_uv, ss_pos.z, atlas_dim, (int)view.bias.y), 1.0f, fade);
 	}
 	return 1.0f;
 }

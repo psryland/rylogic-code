@@ -41,7 +41,8 @@ struct ShadowView
 {
 	row_major float4x4 w2s; // World space to clip space for the view (depth in [0,1])
 	float4 atlas_rect;      // Region of the atlas in UV units: xy = size, zw = offset
-	float4 bias;            // x = receiver normal offset (world units, or world units per unit distance for spot and point lights), y = filter width in texels (5 or 7), zw = reserved
+	float4 bias;            // x = receiver normal offset (world units, or world units per unit distance for spot and point lights), y = filter width in texels (5 or 7),
+	                        // zw = distances from the camera (start, end) over which the shadow fades to fully lit (end = 0 means no fade)
 };
 
 // Light types

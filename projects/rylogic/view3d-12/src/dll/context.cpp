@@ -695,39 +695,30 @@ namespace pr::rdr12
 		return obj.get();
 	}
 
-	// Create a six-sided skybox from individual cube-map face images.
-	ldraw::LdrObject* Context::ObjectCreateSkybox(char const* name, std::filesystem::path const& resource, float radius, Guid const* context_id)
+	// Wrap a configured sky as a scene object. The sky follows the camera, so it is excluded from bounds, hit tests, and shadow casting.
+	static ldraw::LdrObjectPtr CreateSkyObject(std::unique_ptr<ProceduralSky> sky, char const* name, Guid const* context_id)
 	{
-		if (radius <= 0.0f)
-			throw std::invalid_argument("Skybox radius must be positive");
-
-		auto pattern = resource.string();
-		auto marker = pattern.find("??");
-		if (marker == std::string::npos)
-			throw std::invalid_argument(std::format("Skybox texture path '{}' does not include '??' characters", pattern));
-
-		// Use the cube-map face convention so one source set provides both the visible backdrop and material reflections.
-		ResourceFactory factory(m_rdr);
-		Texture2DPtr face_textures[6] = {};
-		auto face_index = 0;
-		for (auto face : { "px", "nx", "py", "ny", "pz", "nz" })
-		{
-			pattern[marker + 0] = face[0];
-			pattern[marker + 1] = face[1];
-			auto desc = TextureDesc(AutoId, ResDesc()).name(std::format("{}.{}", name, face));
-			face_textures[face_index++] = factory.CreateTexture2D(pattern, desc);
-		}
-
-		// Draw after opaque geometry without writing depth so the cube fills only the remaining background pixels.
-		auto model = ModelGenerator::SkyboxSixSidedCube(factory, face_textures, radius);
-		model->m_name = name;
-
+		// The object owns the sky so the shader state lives as long as the model it draws.
 		auto id = context_id ? *context_id : GenerateGUID();
 		auto obj = ldraw::LdrObjectPtr(new ldraw::LdrObject(ldraw::ELdrObject::Custom, nullptr, id), true);
-		obj->m_model = model;
+		obj->m_model = sky->m_inst.m_model;
 		obj->m_name = name;
-		obj->m_pso.Set<EPipeState::DepthWriteMask>(D3D12_DEPTH_WRITE_MASK_ZERO);
 		obj->m_sko.Group(ESortGroup::Skybox);
+		obj->Flags(ldraw::ELdrFlags::SceneBoundsExclude | ldraw::ELdrFlags::HitTestExclude | ldraw::ELdrFlags::ShadowCastExclude, true);
+		obj->m_user_data.get<std::unique_ptr<ProceduralSky>>() = std::move(sky);
+		return obj;
+	}
+
+	// Create a cube-map background using the sky renderer with the atmosphere fully blended out.
+	ldraw::LdrObject* Context::ObjectCreateSkybox(char const* name, TextureCubePtr cube_map, Guid const* context_id)
+	{
+		// The sky renderer draws at far depth around the camera, so the background is never clipped by the far plane.
+		if (!cube_map)
+			throw std::invalid_argument("Skybox requires a cube map");
+
+		auto sky = std::make_unique<ProceduralSky>(m_rdr);
+		sky->Blend(std::move(cube_map), 0.0f, m4x4::Identity(), m4x4::Identity());
+		auto obj = CreateSkyObject(std::move(sky), name, context_id);
 		m_sources.Add(obj);
 		return obj.get();
 	}
@@ -738,13 +729,7 @@ namespace pr::rdr12
 		// Keep ownership local until parameter validation and resource creation have succeeded.
 		auto sky = std::make_unique<ProceduralSky>(m_rdr);
 		sky->Update(sun_direction, sun_colour, sun_intensity);
-		auto id = context_id ? *context_id : GenerateGUID();
-		auto obj = ldraw::LdrObjectPtr(new ldraw::LdrObject(ldraw::ELdrObject::Custom, nullptr, id), true);
-		obj->m_model = sky->m_inst.m_model;
-		obj->m_name = name;
-		obj->m_sko.Group(ESortGroup::Skybox);
-		obj->Flags(ldraw::ELdrFlags::SceneBoundsExclude | ldraw::ELdrFlags::HitTestExclude | ldraw::ELdrFlags::ShadowCastExclude, true);
-		obj->m_user_data.get<std::unique_ptr<ProceduralSky>>() = std::move(sky);
+		auto obj = CreateSkyObject(std::move(sky), name, context_id);
 		m_sources.Add(obj);
 		return obj.get();
 	}

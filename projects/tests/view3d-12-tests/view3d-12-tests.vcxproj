@@ -72,8 +72,16 @@
 	<!-- Interactive 3D scene, shown with the 'interactive' command line option -->
 	<ItemGroup>
 		<ClInclude Include="src\interactive\interactive.h" />
+		<ClInclude Include="src\interactive\demo.h" />
+		<ClInclude Include="src\interactive\controls_panel.h" />
 		<ClInclude Include="src\interactive\view3d_ui_demo.h" />
 		<ClCompile Include="src\interactive\main_window.cpp" />
+		<ClCompile Include="src\interactive\demo_catalogue.cpp" />
+		<ClCompile Include="src\interactive\controls_panel.cpp" />
+		<ClCompile Include="src\interactive\demos_scene.cpp" />
+		<ClCompile Include="src\interactive\demos_lighting.cpp" />
+		<ClCompile Include="src\interactive\demos_effects.cpp" />
+		<ClCompile Include="src\interactive\demos_procedural.cpp" />
 		<ClCompile Include="src\interactive\view3d_ui_demo.cpp" />
 		<None Include="src\interactive\StreamingTest.csx" />
 	</ItemGroup>
@@ -89,6 +97,7 @@
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_vertex_raycast.hlsl" VertexEntryPoints="procedural_vertex_raycast=VSMain" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_vertex_shadow.hlsl" VertexEntryPoints="procedural_vertex_shadow=VSMain" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_vertex_buffer.hlsl" VertexEntryPoints="procedural_vertex_buffer=VSMain" />
+		<ShaderBuild Include="src\view3d-12\shaders\hlsl\wave_grid.hlsl" VertexEntryPoints="wave_grid=VSMain" />
 		<None Include="src\view3d-12\shaders\hlsl\procedural_vertex_common.hlsli" />
 	</ItemGroup>
 

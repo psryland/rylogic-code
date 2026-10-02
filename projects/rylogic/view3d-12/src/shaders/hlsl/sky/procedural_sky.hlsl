@@ -113,10 +113,14 @@ PSOut PSProceduralSky(PSIn In)
 	PSOut Out = (PSOut) 0;
 
 	float3 view_dir = normalize(In.ws_norm.xyz);
-	float3 sky_dir = mul(float4(view_dir, 0), g_sky.world_to_sky).xyz;
-	float3 sky = AtmosphericSky(sky_dir, g_sky.sun_direction.xyz, g_sky.sun_colour.rgb, g_sky.sun_intensity);
 
-	// Blend linear colour in one opaque background draw; exact endpoints do not depend on the unused source.
+	// Evaluate only the sources that contribute, blending linear colour in one opaque background draw.
+	float3 sky = 0;
+	if (g_sky.blend_weight > 0)
+	{
+		float3 sky_dir = mul(float4(view_dir, 0), g_sky.world_to_sky).xyz;
+		sky = AtmosphericSky(sky_dir, g_sky.sun_direction.xyz, g_sky.sun_colour.rgb, g_sky.sun_intensity);
+	}
 	if (g_sky.blend_weight < 1)
 	{
 		float3 cube_dir = mul(float4(view_dir, 0), g_sky.world_to_cube).xyz;

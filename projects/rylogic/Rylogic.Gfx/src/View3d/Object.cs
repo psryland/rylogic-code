@@ -79,14 +79,15 @@ namespace Rylogic.Gfx
 					throw new Exception($"Failed to create object from p3d model data stream");
 			}
 
-			/// <summary>Create a six-sided skybox from a cube-map filename pattern containing '??'.</summary>
-			public Object(string name, string skybox_resource, float radius, Guid? context_id)
+			/// <summary>Create a background that shows 'cube_map' behind all scene geometry, centred on the camera at the far plane.</summary>
+			/// <remarks>The sky retains the cube map and uses its orientation. Object transforms are ignored.</remarks>
+			public Object(string name, CubeMap cube_map, Guid? context_id)
 			{
 				Owned = true;
 				var ctx = context_id ?? Guid.NewGuid();
-				Handle = View3D_ObjectCreateSkybox(name, skybox_resource, radius, ref ctx);
+				Handle = View3D_ObjectCreateSkybox(name, cube_map.Handle, ref ctx);
 				if (Handle == HObject.Zero)
-					throw new Exception($"Failed to create skybox from '{skybox_resource}'");
+					throw new Exception($"Failed to create skybox '{name}'");
 			}
 
 			/// <summary>Presents a managed texture lookup to native code as a callback over pinned image bytes.</summary>
