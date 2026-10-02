@@ -361,7 +361,7 @@ namespace pr::math
 		{
 			return m_variance.PopStdVar(m_count.m_count);
 		}
-		Type SamStdVar(int count) const noexcept
+		Type SamStdVar() const noexcept
 		{
 			return m_variance.SamStdVar(m_count.m_count);
 		}
