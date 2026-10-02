@@ -724,9 +724,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\macros\remove_parenthesis.h">
       <Filter>pr\macros</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\repeat.h">
-      <Filter>pr\macros</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\macros\stringise.h">
       <Filter>pr\macros</Filter>
     </ClInclude>

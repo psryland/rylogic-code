@@ -299,7 +299,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\macros\no_copy.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\macros\on_exit.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\macros\remove_parenthesis.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\repeat.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\macros\stringise.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\maths\bit_fields.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\geometry\convex_hull.h" />
