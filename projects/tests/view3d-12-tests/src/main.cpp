@@ -1,10 +1,13 @@
 //*********************************************
-// View3DUI Tests
+// View3d-12 Tests
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
-// Console entry point for the view3d-ui-tests project. Mirrors 'projects\tests\unittests\src\main.cpp'
-// so the same '-verbose'/'-exclude:'/'-flags:'/positional-filter command line contract works here.
+// Console entry point for the view3d-12-tests project.
+// With '--interactive', shows the interactive 3D scene. Otherwise, runs the unit tests using the same
+// '-verbose'/'-exclude:'/'-flags:'/positional-filter command line contract as 'projects\tests\unittests\src\main.cpp'.
 #include "pr/common/unittests.h"
+#include "interactive/interactive.h"
+#include <windows.h>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -12,6 +15,14 @@
 
 int main(int argc, char* argv[])
 {
+	// Interactive mode replaces the unit test run entirely.
+	for (auto i = 1; i != argc; ++i)
+	{
+		if (std::string_view{argv[i]} == "--interactive")
+			return RunInteractive();
+	}
+
+	// Parse the unit test selection options.
 	auto wordy = false;
 	auto filters = std::vector<std::string_view>{};
 	auto excludes = std::vector<std::string_view>{};
@@ -37,5 +48,11 @@ int main(int argc, char* argv[])
 		else
 			filters.push_back(argv[i]);
 	}
+	// The renderer tests check for D3D12 validation messages, which needs the debug layer enabled before any device exists.
+	// A caller-provided value takes precedence.
+	SetLastError(ERROR_SUCCESS);
+	if (GetEnvironmentVariableW(L"VIEW3D_DEVICE_DEBUG", nullptr, 0) == 0 && GetLastError() == ERROR_ENVVAR_NOT_FOUND)
+		SetEnvironmentVariableW(L"VIEW3D_DEVICE_DEBUG", L"1");
+
 	return pr::unittests::RunAllTests(wordy, filters, excludes, flag_filters);
 }

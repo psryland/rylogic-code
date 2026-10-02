@@ -1,0 +1,4 @@
+{
+	// Root folder of a checkout of the rylogic-assets repository, used by interactive mode (--interactive).
+	"RylogicAssets": "E:\\Rylogic\\rylogic-assets"
+}

@@ -7,18 +7,42 @@
 #include "pr/common/ldraw.h"
 #include "pr/win32/windows_com.h"
 #include "pr/win32/win32.h"
+#include "pr/storage/json.h"
 
 #include "pr/view3d-12/view3d.h"
 #include "pr/view3d-12/view3d-dll.h"
 #include "pr/view3d-12/utility/conversion.h"
 #include "pr/audio/audio-dll.h"
+#include "interactive.h"
 #include "view3d_ui_demo.h"
 
 using namespace pr;
 using namespace pr::gui;
 using namespace pr::rdr12;
 
-std::filesystem::path const RylogicAssets = "E:\\Rylogic\\rylogic-assets";
+// Settings for interactive mode, read from 'view3d-12-tests.config.json' beside the executable.
+struct InteractiveConfig
+{
+	std::filesystem::path m_rylogic_assets; // Root of a rylogic-assets checkout
+
+	// Load the config file. Throws if the file or a required key is missing.
+	static InteractiveConfig Load(std::filesystem::path const& filepath)
+	{
+		// The config file is copied beside the executable by the build.
+		if (!std::filesystem::exists(filepath))
+			throw std::runtime_error(std::format("Config file not found: {}", filepath.string()));
+
+		auto doc = json::Read(filepath, json::Options{ .AllowComments = true, .AllowTrailingCommas = true });
+		auto const& root = doc.to_object();
+		auto const* rylogic_assets = root.find("RylogicAssets");
+		if (rylogic_assets == nullptr)
+			throw std::runtime_error(std::format("'RylogicAssets' is missing from {}", filepath.string()));
+
+		return InteractiveConfig{
+			.m_rylogic_assets = rylogic_assets->to<std::filesystem::path>(),
+		};
+	}
+};
 
 enum class EStepMode
 {
@@ -119,7 +143,7 @@ struct Main :Form
 			;
 	}
 
-	Main(HINSTANCE)
+	Main(InteractiveConfig const& config)
 		: Form(Params<>()
 			.name("main")
 			.title(L"View3d 12 Test")
@@ -131,7 +155,7 @@ struct Main :Form
 		, m_view3d(View3D_Initialise({ this, ReportError }))
 		, m_win3d(View3D_WindowCreate(CreateHandle(), WndOptions(*this)))
 		, m_ui_demo(std::in_place, m_view3d, m_win3d, [this](float value) { UpdateBoxDimensions(value); })
-		, m_envmap(View3D_CubeMapCreateFromUri((RylogicAssets / "textures/cubemaps/hanger/hanger-??.jpg").string().c_str(), {}))
+		, m_envmap(View3D_CubeMapCreateFromUri((config.m_rylogic_assets / "textures/cubemaps/hanger/hanger-??.jpg").string().c_str(), {}))
 		, m_obj0()
 		, m_obj1()
 		, m_audio(Audio_Initialise({this, ReportAudioError}))
@@ -515,18 +539,19 @@ struct Main :Form
 	}
 };
 
-// Entry point
-int __stdcall WinMain(HINSTANCE hinstance, HINSTANCE, LPTSTR, int)
+// Run the interactive 3D scene until its window closes
+int RunInteractive()
 {
 	try
 	{
+		// Load settings and the runtime DLLs that only interactive mode uses.
 		pr::InitCom com;
+		auto config = InteractiveConfig::Load(pr::win32::ExeDir() / "view3d-12-tests.config.json");
 		pr::win32::LoadDll<struct Audio>("audio.dll");
-		pr::win32::LoadDll<struct View3d>("view3d-12.dll");
 
 		// Register the owning message loop so window destruction can drain continuously posted renderer messages and observe WM_QUIT.
 		WinGuiMsgLoop loop;
-		Main main(hinstance);
+		Main main(config);
 		main.cp().msg_loop(&loop);
 		main.Show();
 
@@ -536,6 +561,8 @@ int __stdcall WinMain(HINSTANCE hinstance, HINSTANCE, LPTSTR, int)
 	}
 	catch (std::exception const& ex)
 	{
+		// Report to the console and the debugger, since either may be watching.
+		std::cerr << "Died: " << ex.what() << std::endl;
 		OutputDebugStringA("Died: ");
 		OutputDebugStringA(ex.what());
 		OutputDebugStringA("\n");

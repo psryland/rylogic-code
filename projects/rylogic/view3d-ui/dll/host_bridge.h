@@ -35,4 +35,10 @@ namespace pr::view3d::ui
 	// already being destroyed or abandoned; the bridge's own DetachedThunk handles host-initiated
 	// detachment (e.g. the host window is destroyed first).
 	void Detach(ContextHandle context_handle, void* window) noexcept;
+
+	// Force every later Attach to fail with EStatus::UnsupportedFeature, exactly as if view3d-12.dll
+	// were not loaded, while 'unavailable' is true. Detach is unaffected so existing attachments
+	// still tear down normally. Test support only: lets tests cover the "no host bridge" path in a
+	// process that has loaded view3d-12.dll.
+	void ForceUnavailable(bool unavailable) noexcept;
 }

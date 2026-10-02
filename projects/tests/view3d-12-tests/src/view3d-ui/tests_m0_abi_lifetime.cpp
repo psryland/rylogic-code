@@ -205,11 +205,11 @@ namespace pr::view3d::ui::tests
 
 	PRUnitTest(ContextCreateWithHostWindowFailsWithoutHostBridgeAndLeavesNoState, Quick)
 	{
-		// This test process never loads view3d-12.dll, so the private UI host bridge's four named
-		// exports (View3D_UIHostApiVersion/StructSize/Attach/Detach) cannot be resolved; a non-null
-		// 'view3d_window' must therefore fail with UnsupportedFeature rather than crash, and the
+		// With the private UI host bridge forced unavailable (as when view3d-12.dll is not loaded), a
+		// non-null 'view3d_window' must fail with UnsupportedFeature rather than crash, and the
 		// attempt must commit no context state (the bridge attach is attempted before anything is
 		// mutated - implementation-plan.md section 4).
+		auto no_bridge = HostBridgeUnavailableScope{};
 		auto runtime = Runtime{};
 		auto device = FakeDevice{};
 		auto fake_window = int{};

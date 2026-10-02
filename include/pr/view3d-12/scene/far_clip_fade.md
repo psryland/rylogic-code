@@ -73,8 +73,8 @@ the updated Native/Gfx package pair.
 
 ## Validation
 
-Build `projects\tests\view3d-fade-tests\view3d-fade-tests.vcxproj` with VS 2026, v145, Debug/x64, then
-run its `obj\x64\Debug\view3d-fade-tests.exe`. The isolated invisible-window fixture uses the freshly
+Build `projects\tests\view3d-12-tests\view3d-12-tests.vcxproj` with VS 2026, v145, Debug/x64, then
+run its `obj\x64\Debug\view3d-12-tests.exe View3d12_FarClipFade View3d12_SceneHandoff`. The isolated invisible-window fixture uses the freshly
 built DLL and reads rendered pixels at 1x and 4x MSAA. It covers defaults and invalid inputs,
 disabled-image equality, the opacity ramp, crossing primitives, off-axis orthographic/perspective
 depth, camera updates, custom vertex deformation, PBR, material alpha, sorted overlap, opaque

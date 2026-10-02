@@ -40,7 +40,7 @@ because dark translucent layers are where banding is most visible. This applies 
 
 ## Validation
 
-Build `projects\tests\view3d-fade-tests\view3d-fade-tests.vcxproj` (Debug/x64) and run
-`obj\x64\Debug\view3d-fade-tests.exe --dither`. At 1x and 4x MSAA, it checks that dithering is off by default, that
+Build `projects\tests\view3d-12-tests\view3d-12-tests.vcxproj` (Debug/x64) and run
+`obj\x64\Debug\view3d-12-tests.exe View3d12_Dither`. At 1x and 4x MSAA, it checks that dithering is off by default, that
 noise stays within a few steps and keeps the mean colour for opaque and translucent surfaces, and that turning it off
 restores the exact original image.

@@ -556,3 +556,10 @@ VIEW3D_UI_API EStatus __stdcall View3DUI_SemanticsCopy(ContextHandle context_han
 			engine.SemanticsCopy(std::span{nodes, nodes != nullptr ? capacity : 0U}, std::span{text_blob, text_blob != nullptr ? text_capacity : 0U});
 		}, __FILE__, __LINE__);
 }
+
+// Force or release the test-only "host bridge unavailable" state. See host_bridge.h.
+VIEW3D_UI_API void __stdcall View3DUI_TestHostBridgeForceUnavailable(std::int32_t unavailable)
+{
+	// Forward to the host bridge, which owns the flag.
+	ForceUnavailable(unavailable != 0);
+}

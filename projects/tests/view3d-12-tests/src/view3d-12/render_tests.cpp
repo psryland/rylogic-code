@@ -2660,104 +2660,81 @@ namespace fade_tests
 	}
 }
 
-// Run only the bounded far-clip fixture and return a failing process status for any mismatch.
-int main(int argc, char const* const* argv)
+// Register the view3d-12 renderer tests. CPU-only tests are 'Quick'; tests that render and read back on the GPU are 'Extended'.
+// Tests with an MSAA-dependent path run both single-sampled and 4x multisampled.
+namespace pr::unittests::view3d12
 {
-	// Select the focused fixture before running any unrelated numeric or GPU cases.
-	try
+	PRUnitTest(View3d12_FarClipFadeNumeric, Quick)
 	{
-		if (argc == 2 && std::string_view(argv[1]) == "--descriptor-bindings")
-		{
-			fade_tests::DescriptorBindingTests();
-			fade_tests::DescriptorBindingRenderTests(1);
-			fade_tests::DescriptorBindingRenderTests(4);
-			return 0;
-		}
-		if (argc == 2 && std::string_view(argv[1]) == "--camera-transforms")
-		{
-			fade_tests::CameraTransformTests();
-			return 0;
-		}
-		// The RGB blend selector deliberately excludes the pre-existing fade tests.
-		if (argc == 2 && std::string_view(argv[1]) == "--colour-blend")
-		{
-			// Validate both ordinary and multisampled rendering with the same surface expectations.
-			fade_tests::ColourBlendTests(1);
-			fade_tests::ColourBlendTests(4);
-			return 0;
-		}
-		if (argc == 2 && std::string_view(argv[1]) == "--procedural-surface")
-		{
-			// Run only the focused procedural GPU/readback evidence.
-			fade_tests::ProceduralSurfaceTests();
-			return 0;
-		}
-		if (argc == 2 && std::string_view(argv[1]) == "--procedural-vertex-abi")
-		{
-			// Run only the focused U32 procedural vertex ABI evidence.
-			fade_tests::ProceduralVertexAbiTests();
-			fade_tests::ProceduralVertexBufferTests();
-			return 0;
-		}
-		if (argc == 2 && std::string_view(argv[1]) == "--procedural-vertex-lighting")
-		{
-			// Isolate generated surface flags and stock lighting from the broader ABI/DXR/shadow cases.
-			std::cout << std::unitbuf;
-			fade_tests::ProceduralVertexLightingTests();
-			return 0;
-		}
-		if (argc == 2 && std::string_view(argv[1]) == "--shadows")
-		{
-			// Run only the shadow atlas cases
-			fade_tests::ShadowTests(1);
-			fade_tests::ShadowTests(4);
-			fade_tests::DirectionalShadowTests(1);
-			fade_tests::DirectionalShadowTests(4);
-			return 0;
-		}
-		if (argc == 2 && std::string_view(argv[1]) == "--raycast-lifetime")
-		{
-			// Run only the independently granted lifetime/cancellation regression.
-			fade_tests::RayCastLifetimeTests();
-			return 0;
-		}
-		if (argc == 2 && std::string_view(argv[1]) == "--post-effects")
-		{
-			// Run only the post-processing effects at both sample counts.
-			fade_tests::PostEffectTests(1);
-			fade_tests::PostEffectTests(4);
-			return 0;
-		}
-		if (argc == 2 && std::string_view(argv[1]) == "--dither")
-		{
-			// Run only the output dithering tests at both sample counts.
-			fade_tests::DitherTests(1);
-			fade_tests::DitherTests(4);
-			return 0;
-		}
-		fade_tests::Require(argc == 1 || (argc == 2 && std::string_view(argv[1]) == "--numeric-only"), "Expected no arguments or --numeric-only");
 		fade_tests::NumericTests();
+	}
+	PRUnitTest(View3d12_NormalTransform, Quick)
+	{
 		fade_tests::NormalTransformTests();
-		if (argc == 2)
-			return 0;
-
-		fade_tests::CameraTransformTests();
+	}
+	PRUnitTest(View3d12_DescriptorBinding, Quick)
+	{
 		fade_tests::DescriptorBindingTests();
+	}
+	PRUnitTest(View3d12_DescriptorBindingRender, Extended)
+	{
 		fade_tests::DescriptorBindingRenderTests(1);
 		fade_tests::DescriptorBindingRenderTests(4);
+	}
+	PRUnitTest(View3d12_CameraTransform, Extended)
+	{
+		fade_tests::CameraTransformTests();
+	}
+	PRUnitTest(View3d12_FarClipFadeRender, Extended)
+	{
 		fade_tests::RenderTests(1);
 		fade_tests::RenderTests(4);
+	}
+	PRUnitTest(View3d12_SceneHandoff, Extended)
+	{
 		fade_tests::SceneHandoffTests(1);
 		fade_tests::SceneHandoffTests(4);
+	}
+	PRUnitTest(View3d12_Shadows, Extended)
+	{
 		fade_tests::ShadowTests(1);
 		fade_tests::ShadowTests(4);
+	}
+	PRUnitTest(View3d12_DirectionalShadows, Extended)
+	{
 		fade_tests::DirectionalShadowTests(1);
 		fade_tests::DirectionalShadowTests(4);
-		return 0;
 	}
-	catch (std::exception const& error)
+	PRUnitTest(View3d12_ColourBlend, Extended)
 	{
-		std::cerr << error.what() << '\n';
-		return 1;
+		fade_tests::ColourBlendTests(1);
+		fade_tests::ColourBlendTests(4);
+	}
+	PRUnitTest(View3d12_ProceduralSurface, Extended)
+	{
+		fade_tests::ProceduralSurfaceTests();
+	}
+	PRUnitTest(View3d12_ProceduralVertexAbi, Extended)
+	{
+		fade_tests::ProceduralVertexAbiTests();
+		fade_tests::ProceduralVertexBufferTests();
+	}
+	PRUnitTest(View3d12_ProceduralVertexLighting, Extended)
+	{
+		fade_tests::ProceduralVertexLightingTests();
+	}
+	PRUnitTest(View3d12_RayCastLifetime, Extended)
+	{
+		fade_tests::RayCastLifetimeTests();
+	}
+	PRUnitTest(View3d12_PostEffects, Extended)
+	{
+		fade_tests::PostEffectTests(1);
+		fade_tests::PostEffectTests(4);
+	}
+	PRUnitTest(View3d12_Dither, Extended)
+	{
+		fade_tests::DitherTests(1);
+		fade_tests::DitherTests(4);
 	}
 }

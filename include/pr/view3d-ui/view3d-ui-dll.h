@@ -72,4 +72,11 @@ extern "C"
 
 	// --- Diagnostics ---------------------------------------------------------------------------
 	VIEW3D_UI_API pr::view3d::ui::EStatus __stdcall View3DUI_DiagnosticsGet(pr::view3d::ui::ContextHandle context, pr::view3d::ui::Diagnostics* diagnostics);
+
+	// --- Test support ----------------------------------------------------------------------------
+	// While 'unavailable' is non-zero, every ContextCreate with a non-null 'view3d_window' fails with
+	// EStatus::UnsupportedFeature, as if view3d-12.dll were not loaded. Existing attachments still
+	// detach normally. Process-wide; intended only for tests, and deliberately absent from the
+	// dynamic facade's API table.
+	VIEW3D_UI_API void __stdcall View3DUI_TestHostBridgeForceUnavailable(std::int32_t unavailable);
 }
