@@ -356,15 +356,15 @@ namespace pr::math
 		// Evaluate rotation at time t (t=0 at midpoint, t=-T at rot_prev, t=+T at rot_next, where T = interval/2)
 		Quat Eval(S t) const noexcept
 		{
-			auto u = (t + S(0.5) * rot.m_interval) / rot.m_interval;
-			auto log_u = rot.m_p.Eval(u);
-			return rot.m_q1 * ExpMap<Quat>(log_u);
+			// 'rot' is parameterised over [0, interval], starting at rot_prev
+			return rot.Eval(t + S(0.5) * rot.m_interval);
 		}
 
 		// Evaluate angular velocity at time t (in world-space radians per second)
 		Vec4 EvalDerivative(S t) const noexcept
 		{
-			return Rotate(rot.m_q1, S(2) * (rot.m_p.EvalDerivative((t + S(0.5) * rot.m_interval) / rot.m_interval) / rot.m_interval));
+			// 'rot' is parameterised over [0, interval], starting at rot_prev
+			return rot.EvalDerivative(t + S(0.5) * rot.m_interval);
 		}
 	};
 
@@ -785,6 +785,27 @@ namespace pr::math::tests
 					auto q1 = interp.Eval(t + eps);
 					auto diff = Length(q1.xyzw - q0.xyzw);
 					PR_EXPECT(diff < 0.1f);
+				}
+			}
+
+			// Angular velocity matches the rate of change of orientation
+			{
+				auto rot_prev = Q(V4::XAxis(), -0.5f);
+				auto rot_mid  = Q(V4::YAxis(), +0.3f);
+				auto rot_next = Q(V4::ZAxis(), +1.2f);
+				auto interval = 2.0f;
+				auto T = interval / 2;
+				auto eps = 0.001f;
+
+				HermiteQuaternion_MidPoint<float> interp(rot_prev, rot_mid, rot_next, interval);
+
+				for (float t = -T + eps; t < T - eps; t += 0.1f)
+				{
+					// World-space angular velocity from the central difference of the orientations
+					auto dq = interp.Eval(t + eps) * ~interp.Eval(t - eps);
+					if (vec(dq).w < 0) dq = -dq;
+					auto avl = 2.0f * LogMap<V4>(dq) / (2 * eps);
+					PR_EXPECT(FEqlAbsolute(interp.EvalDerivative(t), avl, tol));
 				}
 			}
 		}
