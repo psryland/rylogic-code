@@ -9,13 +9,20 @@
 namespace physics_sandbox
 {
 	// GPU atmosphere solver and LDraw diagnostics for a scene-loaded atmosphere block.
+	// The climate steps at a fixed rate on its own compute queue. Each step is submitted without waiting and collected on a later frame,
+	// so the solver overlaps rendering and physics, and the particles shown are those of the last completed step.
 	struct AtmosphereVisual
 	{
+		// Simulated seconds per climate step. The climate changes slowly, so stepping at 15 Hz is enough and frees GPU time for the frame.
+		static constexpr float ClimateStepPeriod = 1.0f / 15.0f;
+
 		physics::Gpu m_gpu;
 		physics::atmosphere::AtmosphereSolver m_solver;
 		std::unique_ptr<physics::atmosphere::AtmosphereTracers> m_tracers;
 		scene_loader::AtmosphereDesc m_desc;
 		std::vector<physics::atmosphere::AtmosphereTracerParticle> m_particles;
+		physics::GpuJob::RunHandle m_pending;    // The climate step in flight on the GPU, if any
+		float m_unstepped_time;                  // Simulated time not yet covered by a submitted climate step
 		rdr12::Renderer& m_rdr;
 		rdr12::ldraw::LdrObjectPtr m_gfx;        // Static diagnostics (grid and heat sources)
 		rdr12::ldraw::LdrObjectPtr m_tracer_gfx; // Persistent point sprite model with one vertex per tracer
@@ -29,7 +36,10 @@ namespace physics_sandbox
 		// interleave with physics steps that are still in flight. 'shader_cache' must outlive this object.
 		AtmosphereVisual(ID3D12Device4* device, rdr12::Renderer& rdr, ::pr::compute::shader_cache::IShaderCache& shader_cache, scene_loader::AtmosphereDesc desc);
 
-		// Advance the atmosphere solver and refresh CPU-visible tracer state.
+		// Wait for any climate step still in flight before the GPU resources are released.
+		~AtmosphereVisual();
+
+		// Advance simulated time by 'dt'. Collects a finished climate step without blocking and submits a new one each 'ClimateStepPeriod'.
 		void Step(float dt);
 
 		// Add current atmosphere diagnostics to the render scene. Call only after the scene's drawlists have been cleared.

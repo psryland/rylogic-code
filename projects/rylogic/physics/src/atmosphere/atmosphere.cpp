@@ -1308,6 +1308,7 @@ namespace pr::physics::atmosphere
 		ComputeStep m_initialise;
 		ComputeStep m_advect;
 		D3DPtr<ID3D12Resource> m_particles[2];
+		GpuReadbackBuffer::Allocation m_pending_readback; // Destination of the last recorded particle copy, valid until resolved
 		int m_current;
 		uint32_t m_frame;
 
@@ -1319,6 +1320,7 @@ namespace pr::physics::atmosphere
 			, m_initialise()
 			, m_advect()
 			, m_particles{}
+			, m_pending_readback()
 			, m_current(0)
 			, m_frame(0)
 		{
@@ -1463,18 +1465,32 @@ namespace pr::physics::atmosphere
 	// Read all particles after all previously recorded tracer work in 'job' has completed.
 	std::vector<AtmosphereTracerParticle> AtmosphereTracers::ReadBack(GpuJob& job)
 	{
-		// Copy the current GPU particle buffer to readback memory and synchronise through the supplied job.
+		// Copy the particles and wait for the job so the copy can be resolved immediately.
+		RecordReadBack(job);
+		job.Run();
+		return ResolveReadBack();
+	}
+
+	// Record a copy of all particles into 'job' without submitting it.
+	void AtmosphereTracers::RecordReadBack(GpuJob& job)
+	{
+		// Copy the current GPU particle buffer to readback memory. The particles return to UAV state for the next advect.
 		auto const count = m_impl->m_config.m_particle_count;
 		auto const current = m_impl->m_current;
 		job.m_barriers.Transition(m_impl->m_particles[current].get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
-		auto readback = job.m_readback.Alloc<GpuTracerParticle>(count);
-		job.m_cmd_list.CopyBufferRegion(readback, m_impl->m_particles[current].get(), 0);
+		m_impl->m_pending_readback = job.m_readback.Alloc<GpuTracerParticle>(count);
+		job.m_cmd_list.CopyBufferRegion(m_impl->m_pending_readback, m_impl->m_particles[current].get(), 0);
 		job.m_barriers.Transition(m_impl->m_particles[current].get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
-		job.Run();
+	}
 
-		// Convert from the shader layout to the public CPU layout.
+	// Return the particles copied by the last 'RecordReadBack'.
+	std::vector<AtmosphereTracerParticle> AtmosphereTracers::ResolveReadBack()
+	{
+		// Convert from the shader layout to the public CPU layout, then release the pending copy.
+		auto const count = m_impl->m_config.m_particle_count;
+		assert(m_impl->m_pending_readback.m_mem != nullptr && "No particle read back has been recorded");
 		auto particles = std::vector<AtmosphereTracerParticle>(count);
-		auto const* src = readback.ptr<GpuTracerParticle>();
+		auto const* src = m_impl->m_pending_readback.ptr<GpuTracerParticle>();
 		for (int i = 0; i != count; ++i)
 		{
 			particles[i] = AtmosphereTracerParticle{
@@ -1483,6 +1499,7 @@ namespace pr::physics::atmosphere
 				.m_age = src[i].m_age,
 			};
 		}
+		m_impl->m_pending_readback = {};
 		return particles;
 	}
 

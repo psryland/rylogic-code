@@ -296,8 +296,14 @@ namespace pr::physics::atmosphere
 		// Advect all particles through the solver's current velocity and temperature fields.
 		void Advect(GpuJob& job, float dt);
 
-		// Read all particles after all previously recorded tracer work in 'job' has completed.
+		// Read all particles after all previously recorded tracer work in 'job' has completed. Blocks until 'job' has run.
 		std::vector<AtmosphereTracerParticle> ReadBack(GpuJob& job);
+
+		// Record a copy of all particles into 'job' without submitting it. Collect the copy with 'ResolveReadBack' once the submission has completed.
+		void RecordReadBack(GpuJob& job);
+
+		// Return the particles copied by the last 'RecordReadBack'. Call after that submission has completed and before 'job' records another read back.
+		std::vector<AtmosphereTracerParticle> ResolveReadBack();
 
 	private:
 		struct Impl;

@@ -44,6 +44,8 @@ namespace physics_sandbox
 		, m_tracers()
 		, m_desc(std::move(desc))
 		, m_particles()
+		, m_pending()
+		, m_unstepped_time(0.0f)
 		, m_rdr(rdr)
 		, m_gfx()
 		, m_tracer_gfx()
@@ -62,29 +64,57 @@ namespace physics_sandbox
 		}
 	}
 
-	// Advance the atmosphere solver and refresh CPU-visible tracer state.
+	// Wait for any climate step still in flight before the GPU resources are released.
+	AtmosphereVisual::~AtmosphereVisual()
+	{
+		// The solver and tracer buffers must outlive GPU work that references them.
+		if (m_pending)
+			m_gpu.m_job.Abandon(m_pending);
+	}
+
+	// Advance simulated time, collecting finished climate steps and submitting new ones at the fixed climate rate.
 	void AtmosphereVisual::Step(float dt)
 	{
+		// Collect the step in flight only once the GPU has finished it, so the frame never waits on the climate.
+		auto& job = m_gpu.m_job;
+		if (m_pending)
+		{
+			// Keep showing the previous particles while the GPU is still busy.
+			if (job.m_gsync.CompletedSyncPoint() < m_pending.m_sync_point)
+				return;
+
+			job.Complete(m_pending);
+			if (m_tracers != nullptr)
+			{
+				// The read back recorded with the step is now valid.
+				m_particles = m_tracers->ResolveReadBack();
+				m_tracers_stale = true;
+			}
+		}
+
+		// Submit one climate step per elapsed period. Time beyond one pending period is dropped, so a slow GPU slows the climate
+		// rather than building an ever-growing backlog.
+		m_unstepped_time = std::min(m_unstepped_time + dt, 2.0f * ClimateStepPeriod);
+		if (m_unstepped_time < ClimateStepPeriod)
+			return;
+
+		m_unstepped_time -= ClimateStepPeriod;
+
 		// The scene's heat sources and outside air are static, so the same inputs drive every step.
 		auto const sources = physics::atmosphere::AtmosphereStepSources{
 			.m_heat_sources = m_desc.m_heat_sources,
 			.m_outside_air = m_desc.m_outside_air,
 		};
 
-		// Run the solver and tracers in submission order, then read back the particles for the CPU LDraw overlay.
-		m_solver.Step(m_gpu.m_job, dt, sources);
+		// Record the solver, tracers, and particle copy in submission order, then submit without waiting.
+		m_solver.Step(job, ClimateStepPeriod, sources);
 		if (m_tracers != nullptr)
 		{
-			// The tracer readback also submits the solver work recorded above.
-			m_tracers->Advect(m_gpu.m_job, dt);
-			m_particles = m_tracers->ReadBack(m_gpu.m_job);
-			m_tracers_stale = true;
+			// The particle copy is collected when this submission completes.
+			m_tracers->Advect(job, ClimateStepPeriod);
+			m_tracers->RecordReadBack(job);
 		}
-		else
-		{
-			// Without tracers the recorded solver work still needs submitting.
-			m_gpu.m_job.Run();
-		}
+		m_pending = job.Submit();
 	}
 
 	// Add current atmosphere diagnostics to the render scene.
