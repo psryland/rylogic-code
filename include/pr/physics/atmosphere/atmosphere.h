@@ -42,6 +42,7 @@ namespace pr::physics::atmosphere
 	// Grid dimensions and terrain-following metric conversion for the atmosphere solver.
 	struct AtmosphereGrid
 	{
+		// Cell counts in X, Y (columns) and Z (layers). Every axis must exceed one, and there may be at most 32 layers.
 		iv3 m_cell_count = iv3{ 0, 0, 0 };
 		v4 m_origin = v4::Zero();
 		float m_dx = 0.0f;

@@ -44,6 +44,9 @@
 #define ATMOSPHERE_THREAD_Y 8
 #define ATMOSPHERE_THREAD_Z 4
 #define ATMOSPHERE_COARSE_COLUMNS 4 // the coarsest multigrid level has at most this many columns along X and Y
+#define ATMOSPHERE_COLUMN_THREAD_X 8 // column kernels run one thread per column, so their groups are flat in Z
+#define ATMOSPHERE_COLUMN_THREAD_Y 8
+#define ATMOSPHERE_MAX_LAYERS 32 // largest supported 'cell_count.z'; sizes the per-thread vertical solve arrays. Must match MaxLayers in atmosphere.cpp
 
 static const float AtmosphereMinLayerPower = 0.05f;       // dimensionless lower bound that keeps stretched-layer powers finite
 static const float AtmosphereMinCellHeight = 0.001f;      // metres; prevents zero-thickness metric denominators
@@ -92,20 +95,18 @@ struct CBufAtmosphere
 
 	// Multigrid level selection (used by the CSMg* kernels and CSNormalisePressure). All levels are packed into the same
 	// pressure buffers. A level keeps every vertical layer and has fewer columns, so 'mg_offset' is the index of the
-	// level's first cell in the packed buffers. The child is the next coarser level.
+	// level's first cell in the packed buffers. The child (next coarser) level is derived from these; see MgChildLevel.
 	int2 mg_size;                   // column counts of the active level in X and Y                                     @80
-	int2 mg_child_size;             // column counts of the child (coarser) level in X and Y; zero on the coarsest level @88
-	int mg_offset;                  // index of the active level's first cell in the packed pressure buffers            @96
-	int mg_child_offset;            // index of the child level's first cell in the packed pressure buffers             @100
-	int mg_scale;                   // number of fine-grid columns per active-level column along X and Y                @104
-	int mg_phase;                   // red-black colour (0/1) for CSMgSmooth, or the reduction pass for CSNormalisePressure @108
+	int mg_offset;                  // index of the active level's first cell in the packed pressure buffers            @88
+	int mg_scale;                   // number of fine-grid columns per active-level column along X and Y                @92
+	int mg_phase;                   // red-black colour (0/1) for CSMgSmooth, or the reduction pass for CSNormalisePressure @96
 
 	// Open edges and swirl restoration (used by CSForcesHeat).
-	int open_edge_band;             // columns inside each open side over which the inflow outside wind is blended in    @112
-	float vorticity_confinement;    // swirl-restoring strength; the acceleration is this times dx times the swirl rate, 1/s @116
+	int open_edge_band;             // columns inside each open side over which the inflow outside wind is blended in    @100
+	float vorticity_confinement;    // swirl-restoring strength; the acceleration is this times dx times the swirl rate, 1/s @104
 
 	// Coarse pressure solve (used by CSMgCoarseSolve).
-	int mg_passes;                  // red-black smoothing passes run inside the single coarse-level dispatch          @120
+	int mg_passes;                  // red-black smoothing passes run inside the single coarse-level dispatch          @108
 };
 
 // Root constants shared by tracer kernels. Must match CBufAtmosphereTracers in atmosphere.cpp.
@@ -705,83 +706,129 @@ float3 ConfinementAcceleration(int3 c)
 }
 
 
-// Return pressure from one packed multigrid level, or zero outside it.
-float PressureAtLevel(int3 c, int nx, int ny, int offset)
+// One horizontally coarsened multigrid level. All levels are packed one after another into the pressure, divergence, and
+// residual buffers. Every level keeps all 'cell_count.z' layers and has fewer columns than the level above it.
+struct MgLevel
 {
-	if (c.x < 0 || c.x >= nx || c.y < 0 || c.y >= ny || c.z < 0 || c.z >= g.cell_count.z)
-		return 0.0f;
-	return g_pressure[offset + (c.z * ny + c.y) * nx + c.x];
+	int2 size;                      // column counts in X and Y
+	int offset;                     // index of the level's first cell in the packed buffers
+	int scale;                      // number of fine-grid columns per level column along X and Y
+};
+
+// Return the fine grid as a multigrid level.
+MgLevel MgFineLevel()
+{
+	MgLevel level;
+	level.size = g.cell_count.xy;
+	level.offset = 0;
+	level.scale = 1;
+	return level;
+}
+
+// Return the level selected by the root constants.
+MgLevel MgActiveLevel()
+{
+	MgLevel level;
+	level.size = g.mg_size;
+	level.offset = g.mg_offset;
+	level.scale = g.mg_scale;
+	return level;
+}
+
+// Return the next coarser level below 'level'. Must match BuildMultigridLevels in atmosphere.cpp.
+MgLevel MgChildLevel(MgLevel level)
+{
+	// Each coarser level halves the column counts, rounding up, and is packed directly after its parent.
+	MgLevel child;
+	child.size = max(int2(1, 1), (level.size + 1) / 2);
+	child.offset = level.offset + level.size.x * level.size.y * g.cell_count.z;
+	child.scale = level.scale * 2;
+	return child;
+}
+
+// Return the horizontal column spacing on 'level', metres.
+float LevelDx(MgLevel level)
+{
+	return g.dx * (float)level.scale;
+}
+
+// Return true when a column is inside 'level'.
+bool InLevelColumns(MgLevel level, int2 c)
+{
+	return all(c >= 0) && all(c < level.size);
+}
+
+// Return true when a cell is inside 'level'.
+bool InLevelCells(MgLevel level, int3 c)
+{
+	return InLevelColumns(level, c.xy) && c.z >= 0 && c.z < g.cell_count.z;
+}
+
+// Return the packed index for one cell on 'level'.
+int LevelIndex(MgLevel level, int3 c)
+{
+	return level.offset + (c.z * level.size.y + c.y) * level.size.x + c.x;
+}
+
+// Return pressure from one cell on 'level', or zero outside it.
+float PressureAtLevel(MgLevel level, int3 c)
+{
+	return InLevelCells(level, c) ? g_pressure[LevelIndex(level, c)] : 0.0f;
 }
 
 // Return fine-level pressure for a cell coordinate.
 float PressureAt(int3 c)
 {
-	return PressureAtLevel(c, g.cell_count.x, g.cell_count.y, 0);
+	return PressureAtLevel(MgFineLevel(), c);
 }
 
-// Return the packed index for one cell on a selected multigrid level.
-int LevelIndex(int3 c, int nx, int ny, int offset)
+// Map a column on 'level' to the representative fine-grid column.
+int2 FineColumnFromLevel(MgLevel level, int2 c)
 {
-	return offset + (c.z * ny + c.y) * nx + c.x;
+	return ClampColumn(min(c * level.scale + (level.scale >> 1), g.cell_count.xy - 1));
 }
 
-// Map a multigrid column to the representative fine-grid column.
-int2 FineColumnFromLevel(int2 c)
+// Return world-space face height for a column on 'level'.
+float FaceZLevel(MgLevel level, int2 c, int z)
 {
-	return ClampColumn(int2(min(c.x * g.mg_scale + (g.mg_scale >> 1), g.cell_count.x - 1), min(c.y * g.mg_scale + (g.mg_scale >> 1), g.cell_count.y - 1)));
-}
-
-// Return floor height for a multigrid column through its representative fine column.
-float FloorHeightLevel(int2 c)
-{
-	return FloorHeight(FineColumnFromLevel(c));
-}
-
-// Return world-space face height for a multigrid column.
-float FaceZLevel(int2 c, int z)
-{
-	float floor_height = FloorHeightLevel(c);
+	// Coarse columns use the floor of their representative fine column.
+	float floor_height = FloorHeight(FineColumnFromLevel(level, c));
 	return floor_height + SigmaFace(z) * max(g.lid_z - floor_height, g.first_layer_thickness * max((float)g.cell_count.z, 1.0f));
 }
 
-// Return world-space centre height for a multigrid cell.
-float CellZLevel(int2 c, int z)
+// Return world-space centre height for a cell on 'level'.
+float CellZLevel(MgLevel level, int2 c, int z)
 {
-	return 0.5f * (FaceZLevel(c, z) + FaceZLevel(c, z + 1));
+	return 0.5f * (FaceZLevel(level, c, z) + FaceZLevel(level, c, z + 1));
 }
 
-// Return guarded physical height for a multigrid cell.
-float CellDzLevel(int2 c, int z)
+// Return guarded physical height for a cell on 'level'.
+float CellDzLevel(MgLevel level, int2 c, int z)
 {
-	return max(FaceZLevel(c, z + 1) - FaceZLevel(c, z), AtmosphereMinCellHeight);
+	return max(FaceZLevel(level, c, z + 1) - FaceZLevel(level, c, z), AtmosphereMinCellHeight);
 }
 
-// Return true when a coordinate is inside the active multigrid level.
-bool InLevelCells(int3 c)
-{
-	return c.x >= 0 && c.x < g.mg_size.x && c.y >= 0 && c.y < g.mg_size.y && c.z >= 0 && c.z < g.cell_count.z;
-}
-
-// Return a one-sided or centred vertical pressure gradient on one level.
-float VerticalPressureGradientLevel(int3 c, int nx, int ny, int offset)
+// Return a one-sided or centred vertical pressure gradient on 'level'.
+float VerticalPressureGradientLevel(MgLevel level, int3 c)
 {
 	if (c.z <= 0)
 	{
-		return (PressureAtLevel(c + int3(0, 0, 1), nx, ny, offset) - PressureAtLevel(c, nx, ny, offset)) / max(CellZLevel(c.xy, 1) - CellZLevel(c.xy, 0), AtmosphereMinCellHeight);
+		return (PressureAtLevel(level, c + int3(0, 0, 1)) - PressureAtLevel(level, c)) / max(CellZLevel(level, c.xy, 1) - CellZLevel(level, c.xy, 0), AtmosphereMinCellHeight);
 	}
 	if (c.z >= g.cell_count.z - 1)
 	{
-		return (PressureAtLevel(c, nx, ny, offset) - PressureAtLevel(c + int3(0, 0, -1), nx, ny, offset)) / max(CellZLevel(c.xy, g.cell_count.z - 1) - CellZLevel(c.xy, g.cell_count.z - 2), AtmosphereMinCellHeight);
+		return (PressureAtLevel(level, c) - PressureAtLevel(level, c + int3(0, 0, -1))) / max(CellZLevel(level, c.xy, g.cell_count.z - 1) - CellZLevel(level, c.xy, g.cell_count.z - 2), AtmosphereMinCellHeight);
 	}
-	return (PressureAtLevel(c + int3(0, 0, 1), nx, ny, offset) - PressureAtLevel(c + int3(0, 0, -1), nx, ny, offset)) / max(CellZLevel(c.xy, c.z + 1) - CellZLevel(c.xy, c.z - 1), AtmosphereMinCellHeight);
+	return (PressureAtLevel(level, c + int3(0, 0, 1)) - PressureAtLevel(level, c + int3(0, 0, -1))) / max(CellZLevel(level, c.xy, c.z + 1) - CellZLevel(level, c.xy, c.z - 1), AtmosphereMinCellHeight);
 }
 
-// Accumulate one pressure neighbour and its coefficient for the local column solve.
-void AddPressureNeighbourLevel(int3 n, int boundary, float coeff, int nx, int ny, int offset, inout float sum, inout float denom)
+// Accumulate one horizontal pressure neighbour and its coefficient for the column smoother.
+// Open sides hold zero perturbation pressure outside the domain, so they add to the coefficient sum but not to the neighbour sum.
+void AddPressureNeighbourLevel(MgLevel level, int3 n, int boundary, float coeff, inout float sum, inout float denom)
 {
-	if (n.x >= 0 && n.x < nx && n.y >= 0 && n.y < ny && n.z >= 0 && n.z < g.cell_count.z)
+	if (InLevelCells(level, n))
 	{
-		sum += coeff * PressureAtLevel(n, nx, ny, offset);
+		sum += coeff * g_pressure[LevelIndex(level, n)];
 		denom += coeff;
 	}
 	else if (boundary == BoundaryOpen)
@@ -790,213 +837,89 @@ void AddPressureNeighbourLevel(int3 n, int boundary, float coeff, int nx, int ny
 	}
 }
 
-// Return the metric-corrected X pressure gradient at a level face.
-float PressureGradientXLevel(int3 f, int nx, int ny, int offset)
+// Return the metric-corrected X pressure gradient at a face on 'level'.
+float PressureGradientXLevel(MgLevel level, int3 f)
 {
-	float h = g.dx * (float)g.mg_scale;
-	if (f.x > 0 && f.x < nx)
+	float h = LevelDx(level);
+	if (f.x > 0 && f.x < level.size.x)
 	{
 		int3 c0 = int3(f.x - 1, f.y, f.z);
 		int3 c1 = int3(f.x, f.y, f.z);
-		float dzdx = (CellZLevel(c1.xy, f.z) - CellZLevel(c0.xy, f.z)) / h;
-		return (PressureAtLevel(c1, nx, ny, offset) - PressureAtLevel(c0, nx, ny, offset)) / h - dzdx * 0.5f * (VerticalPressureGradientLevel(c0, nx, ny, offset) + VerticalPressureGradientLevel(c1, nx, ny, offset));
+		float dzdx = (CellZLevel(level, c1.xy, f.z) - CellZLevel(level, c0.xy, f.z)) / h;
+		return (PressureAtLevel(level, c1) - PressureAtLevel(level, c0)) / h - dzdx * 0.5f * (VerticalPressureGradientLevel(level, c0) + VerticalPressureGradientLevel(level, c1));
 	}
 	if (f.x == 0 && BoundaryXMin() == BoundaryOpen)
-		return PressureAtLevel(int3(0, f.y, f.z), nx, ny, offset) / h;
-	if (f.x == nx && BoundaryXMax() == BoundaryOpen)
-		return -PressureAtLevel(int3(nx - 1, f.y, f.z), nx, ny, offset) / h;
+		return PressureAtLevel(level, int3(0, f.y, f.z)) / h;
+	if (f.x == level.size.x && BoundaryXMax() == BoundaryOpen)
+		return -PressureAtLevel(level, int3(level.size.x - 1, f.y, f.z)) / h;
 	return 0.0f;
 }
 
-// Return the metric-corrected Y pressure gradient at a level face.
-float PressureGradientYLevel(int3 f, int nx, int ny, int offset)
+// Return the metric-corrected Y pressure gradient at a face on 'level'.
+float PressureGradientYLevel(MgLevel level, int3 f)
 {
-	float h = g.dx * (float)g.mg_scale;
-	if (f.y > 0 && f.y < ny)
+	float h = LevelDx(level);
+	if (f.y > 0 && f.y < level.size.y)
 	{
 		int3 c0 = int3(f.x, f.y - 1, f.z);
 		int3 c1 = int3(f.x, f.y, f.z);
-		float dzdy = (CellZLevel(c1.xy, f.z) - CellZLevel(c0.xy, f.z)) / h;
-		return (PressureAtLevel(c1, nx, ny, offset) - PressureAtLevel(c0, nx, ny, offset)) / h - dzdy * 0.5f * (VerticalPressureGradientLevel(c0, nx, ny, offset) + VerticalPressureGradientLevel(c1, nx, ny, offset));
+		float dzdy = (CellZLevel(level, c1.xy, f.z) - CellZLevel(level, c0.xy, f.z)) / h;
+		return (PressureAtLevel(level, c1) - PressureAtLevel(level, c0)) / h - dzdy * 0.5f * (VerticalPressureGradientLevel(level, c0) + VerticalPressureGradientLevel(level, c1));
 	}
 	if (f.y == 0 && BoundaryYMin() == BoundaryOpen)
-		return PressureAtLevel(int3(f.x, 0, f.z), nx, ny, offset) / h;
-	if (f.y == ny && BoundaryYMax() == BoundaryOpen)
-		return -PressureAtLevel(int3(f.x, ny - 1, f.z), nx, ny, offset) / h;
+		return PressureAtLevel(level, int3(f.x, 0, f.z)) / h;
+	if (f.y == level.size.y && BoundaryYMax() == BoundaryOpen)
+		return -PressureAtLevel(level, int3(f.x, level.size.y - 1, f.z)) / h;
 	return 0.0f;
 }
 
-// Return the vertical pressure gradient at a level face.
-float PressureGradientZLevel(int3 f, int nx, int ny, int offset)
+// Return the vertical pressure gradient at a face on 'level'.
+float PressureGradientZLevel(MgLevel level, int3 f)
 {
 	if (f.z > 0 && f.z < g.cell_count.z)
-		return (PressureAtLevel(int3(f.x, f.y, f.z), nx, ny, offset) - PressureAtLevel(int3(f.x, f.y, f.z - 1), nx, ny, offset)) / CellDzLevel(f.xy, max(0, f.z - 1));
+		return (PressureAtLevel(level, f) - PressureAtLevel(level, int3(f.x, f.y, f.z - 1))) / CellDzLevel(level, f.xy, max(0, f.z - 1));
 	return 0.0f;
 }
 
-// Return the terrain-following layer slope in X for one level cell.
-float LevelTerrainSlopeX(int2 c, int z, int nx)
+// Return the terrain-following layer slope in X for one cell on 'level'.
+float LevelTerrainSlopeX(MgLevel level, int2 c, int z)
 {
 	int2 c0 = int2(max(0, c.x - 1), c.y);
-	int2 c1 = int2(min(nx - 1, c.x + 1), c.y);
-	return (CellZLevel(c1, z) - CellZLevel(c0, z)) / (g.dx * (float)g.mg_scale * (float)(abs(c1.x - c0.x) + AtmosphereSmallWeight));
+	int2 c1 = int2(min(level.size.x - 1, c.x + 1), c.y);
+	return (CellZLevel(level, c1, z) - CellZLevel(level, c0, z)) / (LevelDx(level) * (float)(abs(c1.x - c0.x) + AtmosphereSmallWeight));
 }
 
-// Return the terrain-following layer slope in Y for one level cell.
-float LevelTerrainSlopeY(int2 c, int z, int ny)
+// Return the terrain-following layer slope in Y for one cell on 'level'.
+float LevelTerrainSlopeY(MgLevel level, int2 c, int z)
 {
 	int2 c0 = int2(c.x, max(0, c.y - 1));
-	int2 c1 = int2(c.x, min(ny - 1, c.y + 1));
-	return (CellZLevel(c1, z) - CellZLevel(c0, z)) / (g.dx * (float)g.mg_scale * (float)(abs(c1.y - c0.y) + AtmosphereSmallWeight));
+	int2 c1 = int2(c.x, min(level.size.y - 1, c.y + 1));
+	return (CellZLevel(level, c1, z) - CellZLevel(level, c0, z)) / (LevelDx(level) * (float)(abs(c1.y - c0.y) + AtmosphereSmallWeight));
 }
 
-// Apply the metric pressure operator to one level cell.
-float PressureOperatorLevel(int3 c, int nx, int ny, int offset)
+// Apply the metric pressure operator to one cell on 'level'.
+float PressureOperatorLevel(MgLevel level, int3 c)
 {
 	// The pressure matrix is the negative divergence of the same terrain-following pressure gradient used by projection. Matching these operators lets the V-cycle remove the divergence that projection will actually create on sloped sigma layers.
-	float h = g.dx * (float)g.mg_scale;
-	float dz = CellDzLevel(c.xy, c.z);
-	float gx0 = PressureGradientXLevel(int3(c.x, c.y, c.z), nx, ny, offset);
-	float gx1 = PressureGradientXLevel(int3(c.x + 1, c.y, c.z), nx, ny, offset);
-	float gy0 = PressureGradientYLevel(int3(c.x, c.y, c.z), nx, ny, offset);
-	float gy1 = PressureGradientYLevel(int3(c.x, c.y + 1, c.z), nx, ny, offset);
-	float gz0 = PressureGradientZLevel(int3(c.x, c.y, c.z), nx, ny, offset);
-	float gz1 = PressureGradientZLevel(int3(c.x, c.y, c.z + 1), nx, ny, offset);
+	float h = LevelDx(level);
+	float dz = CellDzLevel(level, c.xy, c.z);
+	float gx0 = PressureGradientXLevel(level, int3(c.x, c.y, c.z));
+	float gx1 = PressureGradientXLevel(level, int3(c.x + 1, c.y, c.z));
+	float gy0 = PressureGradientYLevel(level, int3(c.x, c.y, c.z));
+	float gy1 = PressureGradientYLevel(level, int3(c.x, c.y + 1, c.z));
+	float gz0 = PressureGradientZLevel(level, int3(c.x, c.y, c.z));
+	float gz1 = PressureGradientZLevel(level, int3(c.x, c.y, c.z + 1));
 	float base_div = (gx1 - gx0) / h + (gy1 - gy0) / h + (gz1 - gz0) / dz;
-	float z_x = LevelTerrainSlopeX(c.xy, c.z, nx);
-	float z_y = LevelTerrainSlopeY(c.xy, c.z, ny);
+	float z_x = LevelTerrainSlopeX(level, c.xy, c.z);
+	float z_y = LevelTerrainSlopeY(level, c.xy, c.z);
 	int z0 = max(0, c.z - 1);
 	int z1 = min(g.cell_count.z - 1, c.z + 1);
-	float z_span = max(CellZLevel(c.xy, z1) - CellZLevel(c.xy, z0), AtmosphereMinCellHeight);
-	float gx_lo = 0.5f * (PressureGradientXLevel(int3(c.x, c.y, z0), nx, ny, offset) + PressureGradientXLevel(int3(c.x + 1, c.y, z0), nx, ny, offset));
-	float gx_hi = 0.5f * (PressureGradientXLevel(int3(c.x, c.y, z1), nx, ny, offset) + PressureGradientXLevel(int3(c.x + 1, c.y, z1), nx, ny, offset));
-	float gy_lo = 0.5f * (PressureGradientYLevel(int3(c.x, c.y, z0), nx, ny, offset) + PressureGradientYLevel(int3(c.x, c.y + 1, z0), nx, ny, offset));
-	float gy_hi = 0.5f * (PressureGradientYLevel(int3(c.x, c.y, z1), nx, ny, offset) + PressureGradientYLevel(int3(c.x, c.y + 1, z1), nx, ny, offset));
+	float z_span = max(CellZLevel(level, c.xy, z1) - CellZLevel(level, c.xy, z0), AtmosphereMinCellHeight);
+	float gx_lo = 0.5f * (PressureGradientXLevel(level, int3(c.x, c.y, z0)) + PressureGradientXLevel(level, int3(c.x + 1, c.y, z0)));
+	float gx_hi = 0.5f * (PressureGradientXLevel(level, int3(c.x, c.y, z1)) + PressureGradientXLevel(level, int3(c.x + 1, c.y, z1)));
+	float gy_lo = 0.5f * (PressureGradientYLevel(level, int3(c.x, c.y, z0)) + PressureGradientYLevel(level, int3(c.x, c.y + 1, z0)));
+	float gy_hi = 0.5f * (PressureGradientYLevel(level, int3(c.x, c.y, z1)) + PressureGradientYLevel(level, int3(c.x, c.y + 1, z1)));
 	return -(base_div - z_x * (gx_hi - gx_lo) / z_span - z_y * (gy_hi - gy_lo) / z_span);
-}
-
-// Return one entry of a unit pressure basis vector.
-float PressureBasisAtLevel(int3 c, int3 target)
-{
-	return all(c == target) ? 1.0f : 0.0f;
-}
-
-// Return the vertical gradient of a unit pressure basis vector.
-float VerticalPressureBasisGradientLevel(int3 c, int3 target)
-{
-	if (c.z <= 0)
-	{
-		return (PressureBasisAtLevel(c + int3(0, 0, 1), target) - PressureBasisAtLevel(c, target)) / max(CellZLevel(c.xy, 1) - CellZLevel(c.xy, 0), AtmosphereMinCellHeight);
-	}
-	if (c.z >= g.cell_count.z - 1)
-	{
-		return (PressureBasisAtLevel(c, target) - PressureBasisAtLevel(c + int3(0, 0, -1), target)) / max(CellZLevel(c.xy, g.cell_count.z - 1) - CellZLevel(c.xy, g.cell_count.z - 2), AtmosphereMinCellHeight);
-	}
-	return (PressureBasisAtLevel(c + int3(0, 0, 1), target) - PressureBasisAtLevel(c + int3(0, 0, -1), target)) / max(CellZLevel(c.xy, c.z + 1) - CellZLevel(c.xy, c.z - 1), AtmosphereMinCellHeight);
-}
-
-// Return the X gradient of a unit pressure basis vector.
-float PressureBasisGradientXLevel(int3 f, int nx, int ny, int3 target)
-{
-	float h = g.dx * (float)g.mg_scale;
-	if (f.x > 0 && f.x < nx)
-	{
-		int3 c0 = int3(f.x - 1, f.y, f.z);
-		int3 c1 = int3(f.x, f.y, f.z);
-		float dzdx = (CellZLevel(c1.xy, f.z) - CellZLevel(c0.xy, f.z)) / h;
-		return (PressureBasisAtLevel(c1, target) - PressureBasisAtLevel(c0, target)) / h - dzdx * 0.5f * (VerticalPressureBasisGradientLevel(c0, target) + VerticalPressureBasisGradientLevel(c1, target));
-	}
-	if (f.x == 0 && BoundaryXMin() == BoundaryOpen)
-		return PressureBasisAtLevel(int3(0, f.y, f.z), target) / h;
-	if (f.x == nx && BoundaryXMax() == BoundaryOpen)
-		return -PressureBasisAtLevel(int3(nx - 1, f.y, f.z), target) / h;
-	return 0.0f;
-}
-
-// Return the Y gradient of a unit pressure basis vector.
-float PressureBasisGradientYLevel(int3 f, int nx, int ny, int3 target)
-{
-	float h = g.dx * (float)g.mg_scale;
-	if (f.y > 0 && f.y < ny)
-	{
-		int3 c0 = int3(f.x, f.y - 1, f.z);
-		int3 c1 = int3(f.x, f.y, f.z);
-		float dzdy = (CellZLevel(c1.xy, f.z) - CellZLevel(c0.xy, f.z)) / h;
-		return (PressureBasisAtLevel(c1, target) - PressureBasisAtLevel(c0, target)) / h - dzdy * 0.5f * (VerticalPressureBasisGradientLevel(c0, target) + VerticalPressureBasisGradientLevel(c1, target));
-	}
-	if (f.y == 0 && BoundaryYMin() == BoundaryOpen)
-		return PressureBasisAtLevel(int3(f.x, 0, f.z), target) / h;
-	if (f.y == ny && BoundaryYMax() == BoundaryOpen)
-		return -PressureBasisAtLevel(int3(f.x, ny - 1, f.z), target) / h;
-	return 0.0f;
-}
-
-// Return the Z gradient of a unit pressure basis vector.
-float PressureBasisGradientZLevel(int3 f, int3 target)
-{
-	if (f.z > 0 && f.z < g.cell_count.z)
-		return (PressureBasisAtLevel(int3(f.x, f.y, f.z), target) - PressureBasisAtLevel(int3(f.x, f.y, f.z - 1), target)) / CellDzLevel(f.xy, max(0, f.z - 1));
-	return 0.0f;
-}
-
-// Return the exact local diagonal of the metric pressure operator.
-float PressureOperatorDiagonalLevel(int3 c, int nx, int ny)
-{
-	// The smoother uses the exact local diagonal of the metric operator instead of the simpler Cartesian stencil so sloped terrain corrections are relaxed instead of left for coarse-grid residuals only.
-	float h = g.dx * (float)g.mg_scale;
-	float dz = CellDzLevel(c.xy, c.z);
-	float gx0 = PressureBasisGradientXLevel(int3(c.x, c.y, c.z), nx, ny, c);
-	float gx1 = PressureBasisGradientXLevel(int3(c.x + 1, c.y, c.z), nx, ny, c);
-	float gy0 = PressureBasisGradientYLevel(int3(c.x, c.y, c.z), nx, ny, c);
-	float gy1 = PressureBasisGradientYLevel(int3(c.x, c.y + 1, c.z), nx, ny, c);
-	float gz0 = PressureBasisGradientZLevel(int3(c.x, c.y, c.z), c);
-	float gz1 = PressureBasisGradientZLevel(int3(c.x, c.y, c.z + 1), c);
-	float base_div = (gx1 - gx0) / h + (gy1 - gy0) / h + (gz1 - gz0) / dz;
-	float z_x = LevelTerrainSlopeX(c.xy, c.z, nx);
-	float z_y = LevelTerrainSlopeY(c.xy, c.z, ny);
-	int z0 = max(0, c.z - 1);
-	int z1 = min(g.cell_count.z - 1, c.z + 1);
-	float z_span = max(CellZLevel(c.xy, z1) - CellZLevel(c.xy, z0), AtmosphereMinCellHeight);
-	float gx_lo = 0.5f * (PressureBasisGradientXLevel(int3(c.x, c.y, z0), nx, ny, c) + PressureBasisGradientXLevel(int3(c.x + 1, c.y, z0), nx, ny, c));
-	float gx_hi = 0.5f * (PressureBasisGradientXLevel(int3(c.x, c.y, z1), nx, ny, c) + PressureBasisGradientXLevel(int3(c.x + 1, c.y, z1), nx, ny, c));
-	float gy_lo = 0.5f * (PressureBasisGradientYLevel(int3(c.x, c.y, z0), nx, ny, c) + PressureBasisGradientYLevel(int3(c.x, c.y + 1, z0), nx, ny, c));
-	float gy_hi = 0.5f * (PressureBasisGradientYLevel(int3(c.x, c.y, z1), nx, ny, c) + PressureBasisGradientYLevel(int3(c.x, c.y + 1, z1), nx, ny, c));
-	return -(base_div - z_x * (gx_hi - gx_lo) / z_span - z_y * (gy_hi - gy_lo) / z_span);
-}
-
-// Return a residual correction for one pressure cell.
-float PressureJacobiDeltaLevel(int3 c, int nx, int ny, int offset, float rhs)
-{
-	// Metric cross-terms couple nearby rows and layers, so the correction uses a local residual step instead of assuming a six-point Cartesian stencil.
-	float diag = PressureOperatorDiagonalLevel(c, nx, ny);
-	float op = PressureOperatorLevel(c, nx, ny, offset);
-	return (rhs - op) / max(diag, AtmosphereSmallDiagonal);
-}
-
-// Return the neighbour-coefficient sum used by the column smoother.
-float PressureDenomLevel(int3 c, int nx, int ny)
-{
-	float sum = 0.0f;
-	float denom = 0.0f;
-	float h = g.dx * (float)g.mg_scale;
-	float idx2 = 1.0f / (h * h);
-	float idz2 = 1.0f / (CellDzLevel(c.xy, c.z) * CellDzLevel(c.xy, c.z));
-	AddPressureNeighbourLevel(c + int3(-1, 0, 0), BoundaryXMin(), idx2, nx, ny, g.mg_offset, sum, denom);
-	AddPressureNeighbourLevel(c + int3( 1, 0, 0), BoundaryXMax(), idx2, nx, ny, g.mg_offset, sum, denom);
-	AddPressureNeighbourLevel(c + int3(0, -1, 0), BoundaryYMin(), idx2, nx, ny, g.mg_offset, sum, denom);
-	AddPressureNeighbourLevel(c + int3(0,  1, 0), BoundaryYMax(), idx2, nx, ny, g.mg_offset, sum, denom);
-	AddPressureNeighbourLevel(c + int3(0, 0, -1), BoundarySolid, idz2, nx, ny, g.mg_offset, sum, denom);
-	AddPressureNeighbourLevel(c + int3(0, 0,  1), BoundarySolid, idz2, nx, ny, g.mg_offset, sum, denom);
-	return max(denom, AtmosphereSmallDiagonal);
-}
-
-// Return the mean pressure through one vertical column.
-float AverageColumnPressureLevel(int2 c, int nx, int ny, int offset)
-{
-	float sum = 0.0f;
-	for (int z = 0; z != g.cell_count.z; ++z)
-		sum += PressureAtLevel(int3(c.x, c.y, z), nx, ny, offset);
-	return sum / max((float)g.cell_count.z, 1.0f);
 }
 
 // Initialise both MAC velocity and scalar fields to a reference atmosphere at rest.
@@ -1189,67 +1112,65 @@ void CSDivergence(uint3 dtid : SV_DispatchThreadID)
 	g_divergence[CellIndex(c)] = base_div - z_x * (u_hi - u_lo) / z_span - z_y * (v_hi - v_lo) / z_span;
 }
 
-// Relax one vertical column of pressure on the active multigrid level. Horizontal neighbours are read from 'g_pressure',
+// Relax one vertical column of pressure on 'level'. Horizontal neighbours are read from 'g_pressure' and held fixed,
 // and the column's own layers are solved together because the thin near-floor layers couple much more strongly in Z.
-void RelaxColumn(int2 xy)
+void RelaxColumn(MgLevel level, int2 xy)
 {
-	// Build the tridiagonal vertical system with the horizontal neighbours moved to the right-hand side.
-	int3 c = int3(xy, 0);
-	float h = g.dx * (float)g.mg_scale;
+	// The vertical system is tridiagonal. Forward elimination builds each row as it goes and keeps only the eliminated
+	// coefficients 'cp' and 'dp', so each thread needs two small arrays instead of one array per matrix diagonal.
+	float h = LevelDx(level);
 	float idx2 = 1.0f / (h * h);
-	float lower[64];
-	float diag[64];
-	float upper[64];
-	float rhs[64];
-	float cp[64];
-	float dp[64];
+	float cp[ATMOSPHERE_MAX_LAYERS];
+	float dp[ATMOSPHERE_MAX_LAYERS];
+	float cp_lo = 0.0f;
+	float dp_lo = 0.0f;
+	float dz_lo = 0.0f;
 	for (int z = 0; z != g.cell_count.z; ++z)
 	{
-		int3 cz = int3(c.x, c.y, z);
+		// Row 'z' couples the layer to the layers above and below; the horizontal neighbours move to the right-hand side.
+		int3 cz = int3(xy, z);
 		float sum = 0.0f;
 		float denom = 0.0f;
-		AddPressureNeighbourLevel(cz + int3(-1, 0, 0), BoundaryXMin(), idx2, g.mg_size.x, g.mg_size.y, g.mg_offset, sum, denom);
-		AddPressureNeighbourLevel(cz + int3( 1, 0, 0), BoundaryXMax(), idx2, g.mg_size.x, g.mg_size.y, g.mg_offset, sum, denom);
-		AddPressureNeighbourLevel(cz + int3(0, -1, 0), BoundaryYMin(), idx2, g.mg_size.x, g.mg_size.y, g.mg_offset, sum, denom);
-		AddPressureNeighbourLevel(cz + int3(0,  1, 0), BoundaryYMax(), idx2, g.mg_size.x, g.mg_size.y, g.mg_offset, sum, denom);
-		float dz = CellDzLevel(c.xy, z);
-		float dz_lo = z != 0 ? CellDzLevel(c.xy, z - 1) : dz;
-		lower[z] = z != 0 ? -1.0f / (dz * dz_lo) : 0.0f;
-		upper[z] = z + 1 != g.cell_count.z ? -1.0f / (dz * dz) : 0.0f;
-		diag[z] = denom - lower[z] - upper[z];
-		rhs[z] = sum - g_divergence[LevelIndex(cz, g.mg_size.x, g.mg_size.y, g.mg_offset)];
+		AddPressureNeighbourLevel(level, cz + int3(-1, 0, 0), BoundaryXMin(), idx2, sum, denom);
+		AddPressureNeighbourLevel(level, cz + int3( 1, 0, 0), BoundaryXMax(), idx2, sum, denom);
+		AddPressureNeighbourLevel(level, cz + int3(0, -1, 0), BoundaryYMin(), idx2, sum, denom);
+		AddPressureNeighbourLevel(level, cz + int3(0,  1, 0), BoundaryYMax(), idx2, sum, denom);
+		float dz = CellDzLevel(level, xy, z);
+		float lower = z != 0 ? -1.0f / (dz * dz_lo) : 0.0f;
+		float upper = z + 1 != g.cell_count.z ? -1.0f / (dz * dz) : 0.0f;
+		float diag = denom - lower - upper;
+		float rhs = sum - g_divergence[LevelIndex(level, cz)];
+
+		// Eliminate the lower diagonal using the previous row.
+		float m = 1.0f / max(diag - lower * cp_lo, AtmosphereSmallDiagonal);
+		cp_lo = cp[z] = upper * m;
+		dp_lo = dp[z] = (rhs - lower * dp_lo) * m;
+		dz_lo = dz;
 	}
-	cp[0] = upper[0] / max(diag[0], AtmosphereSmallDiagonal);
-	dp[0] = rhs[0] / max(diag[0], AtmosphereSmallDiagonal);
-	for (int z = 1; z != g.cell_count.z; ++z)
-	{
-		float m = 1.0f / max(diag[z] - lower[z] * cp[z - 1], AtmosphereSmallDiagonal);
-		cp[z] = upper[z] * m;
-		dp[z] = (rhs[z] - lower[z] * dp[z - 1]) * m;
-	}
-	float p = dp[g.cell_count.z - 1];
-	g_pressure[LevelIndex(int3(c.x, c.y, g.cell_count.z - 1), g.mg_size.x, g.mg_size.y, g.mg_offset)] = p;
+
+	// Back substitution writes the relaxed pressures from the top layer down.
+	float p = dp_lo;
+	g_pressure[LevelIndex(level, int3(xy, g.cell_count.z - 1))] = p;
 	for (int z = g.cell_count.z - 2; z >= 0; --z)
 	{
 		p = dp[z] - cp[z] * p;
-		g_pressure[LevelIndex(int3(c.x, c.y, z), g.mg_size.x, g.mg_size.y, g.mg_offset)] = p;
+		g_pressure[LevelIndex(level, int3(xy, z))] = p;
 	}
 }
 
-// Relax one red-black set of vertical columns on the active multigrid level.
-numthreads(CSMgSmooth, ATMOSPHERE_THREAD_X, ATMOSPHERE_THREAD_Y, ATMOSPHERE_THREAD_Z)
+// Relax one red-black colour of vertical columns on the active multigrid level.
+// Each thread owns one column of the selected colour: thread x selects the x-th column of that colour within its row.
+numthreads(CSMgSmooth, ATMOSPHERE_COLUMN_THREAD_X, ATMOSPHERE_COLUMN_THREAD_Y, 1)
 void CSMgSmooth(uint3 dtid : SV_DispatchThreadID)
 {
-	// One thread per column, using the layer-zero thread, relaxes only the columns of the selected colour.
-	int3 c = int3(dtid);
-	if (!InLevelCells(c))
-		return;
-	if (c.z != 0)
-		return;
-	if (((c.x + c.y) & 1) != g.mg_phase)
+	// Map the thread to the column of colour 'mg_phase', skipping threads past the end of the row.
+	MgLevel level = MgActiveLevel();
+	int y = (int)dtid.y;
+	int2 c = int2(2 * (int)dtid.x + ((y + g.mg_phase) & 1), y);
+	if (!InLevelColumns(level, c))
 		return;
 
-	RelaxColumn(c.xy);
+	RelaxColumn(level, c);
 }
 
 // Run 'mg_passes' red-black smoothing passes on the coarsest multigrid level in a single thread group.
@@ -1260,8 +1181,9 @@ numthreads(CSMgCoarseSolve, ATMOSPHERE_COARSE_COLUMNS, ATMOSPHERE_COARSE_COLUMNS
 void CSMgCoarseSolve(uint3 gtid : SV_GroupThreadID)
 {
 	// Every thread must reach each barrier, so threads outside the level skip the work instead of returning.
+	MgLevel level = MgActiveLevel();
 	int2 xy = int2(gtid.xy);
-	bool active = xy.x < g.mg_size.x && xy.y < g.mg_size.y;
+	bool active = InLevelColumns(level, xy);
 	int colour = (xy.x + xy.y) & 1;
 	for (int pass = 0; pass != g.mg_passes; ++pass)
 	{
@@ -1270,7 +1192,7 @@ void CSMgCoarseSolve(uint3 gtid : SV_GroupThreadID)
 		{
 			// Only columns of the current colour write; the other colour's pressures are read as neighbours.
 			if (active && colour == phase)
-				RelaxColumn(xy);
+				RelaxColumn(level, xy);
 
 			DeviceMemoryBarrierWithGroupSync();
 		}
@@ -1282,36 +1204,43 @@ numthreads(CSMgResidual, ATMOSPHERE_THREAD_X, ATMOSPHERE_THREAD_Y, ATMOSPHERE_TH
 void CSMgResidual(uint3 dtid : SV_DispatchThreadID)
 {
 	// Ignore coordinates outside the active multigrid level.
+	MgLevel level = MgActiveLevel();
 	int3 c = int3(dtid);
-	if (!InLevelCells(c))
+	if (!InLevelCells(level, c))
 		return;
-	int idx = LevelIndex(c, g.mg_size.x, g.mg_size.y, g.mg_offset);
-	g_residual[idx] = -g_divergence[idx] - PressureOperatorLevel(c, g.mg_size.x, g.mg_size.y, g.mg_offset);
+
+	int idx = LevelIndex(level, c);
+	g_residual[idx] = -g_divergence[idx] - PressureOperatorLevel(level, c);
 }
 
-// Restrict residuals from the active level into its horizontal child level.
+// Restrict residuals from the active level into its child level, and clear the child's pressure for a fresh correction.
+// Dispatched over the child level's cells.
 numthreads(CSMgRestrict, ATMOSPHERE_THREAD_X, ATMOSPHERE_THREAD_Y, ATMOSPHERE_THREAD_Z)
 void CSMgRestrict(uint3 dtid : SV_DispatchThreadID)
 {
-	// Average valid child residuals that overlap this coarse-grid column.
+	// Average the valid active-level residuals that overlap this child cell.
+	MgLevel level = MgActiveLevel();
+	MgLevel child = MgChildLevel(level);
 	int3 c = int3(dtid);
-	if (c.x >= g.mg_child_size.x || c.y >= g.mg_child_size.y || c.z >= g.cell_count.z)
+	if (!InLevelCells(child, c))
 		return;
+
 	float sum = 0.0f;
 	float weight = 0.0f;
 	for (int oy = 0; oy != 2; ++oy)
 	{
 		for (int ox = 0; ox != 2; ++ox)
 		{
+			// Odd-sized levels have child columns that cover only one active-level column.
 			int3 f = int3(c.x * 2 + ox, c.y * 2 + oy, c.z);
-			if (f.x < g.mg_size.x && f.y < g.mg_size.y)
+			if (InLevelColumns(level, f.xy))
 			{
-				sum -= g_residual[LevelIndex(f, g.mg_size.x, g.mg_size.y, g.mg_offset)];
+				sum -= g_residual[LevelIndex(level, f)];
 				weight += 1.0f;
 			}
 		}
 	}
-	int idx = LevelIndex(c, g.mg_child_size.x, g.mg_child_size.y, g.mg_child_offset);
+	int idx = LevelIndex(child, c);
 	g_divergence[idx] = sum / max(weight, 1.0f);
 	g_pressure[idx] = 0.0f;
 }
@@ -1320,12 +1249,15 @@ void CSMgRestrict(uint3 dtid : SV_DispatchThreadID)
 numthreads(CSMgProlongate, ATMOSPHERE_THREAD_X, ATMOSPHERE_THREAD_Y, ATMOSPHERE_THREAD_Z)
 void CSMgProlongate(uint3 dtid : SV_DispatchThreadID)
 {
-	// Add the nearest coarse correction to this fine pressure cell.
+	// Add the nearest child correction to this active-level pressure cell.
+	MgLevel level = MgActiveLevel();
+	MgLevel child = MgChildLevel(level);
 	int3 c = int3(dtid);
-	if (!InLevelCells(c))
+	if (!InLevelCells(level, c))
 		return;
-	int3 cc = int3(min(c.x / 2, g.mg_child_size.x - 1), min(c.y / 2, g.mg_child_size.y - 1), c.z);
-	g_pressure[LevelIndex(c, g.mg_size.x, g.mg_size.y, g.mg_offset)] += g_pressure[LevelIndex(cc, g.mg_child_size.x, g.mg_child_size.y, g.mg_child_offset)];
+
+	int3 cc = int3(min(c.xy / 2, child.size - 1), c.z);
+	g_pressure[LevelIndex(level, c)] += g_pressure[LevelIndex(child, cc)];
 }
 
 // Remove the closed-domain pressure null space without changing pressure gradients.
@@ -1361,7 +1293,7 @@ void CSProject(uint3 dtid : SV_DispatchThreadID)
 			int3 c0 = int3(p.x - 1, p.y, p.z);
 			int3 c1 = int3(p.x, p.y, p.z);
 			float dzdx = (CellZ(c1.xy, p.z) - CellZ(c0.xy, p.z)) / g.dx;
-			grad = (PressureAt(c1) - PressureAt(c0)) / g.dx - dzdx * 0.5f * (VerticalPressureGradientLevel(c0, g.cell_count.x, g.cell_count.y, 0) + VerticalPressureGradientLevel(c1, g.cell_count.x, g.cell_count.y, 0));
+			grad = (PressureAt(c1) - PressureAt(c0)) / g.dx - dzdx * 0.5f * (VerticalPressureGradientLevel(MgFineLevel(), c0) + VerticalPressureGradientLevel(MgFineLevel(), c1));
 		}
 		else if (p.x == 0 && BoundaryXMin() == BoundaryOpen) grad = PressureAt(int3(0, p.y, p.z)) / g.dx;
 		else if (p.x == g.cell_count.x && BoundaryXMax() == BoundaryOpen) grad = -PressureAt(int3(g.cell_count.x - 1, p.y, p.z)) / g.dx;
@@ -1379,7 +1311,7 @@ void CSProject(uint3 dtid : SV_DispatchThreadID)
 			int3 c0 = int3(p.x, p.y - 1, p.z);
 			int3 c1 = int3(p.x, p.y, p.z);
 			float dzdy = (CellZ(c1.xy, p.z) - CellZ(c0.xy, p.z)) / g.dx;
-			grad = (PressureAt(c1) - PressureAt(c0)) / g.dx - dzdy * 0.5f * (VerticalPressureGradientLevel(c0, g.cell_count.x, g.cell_count.y, 0) + VerticalPressureGradientLevel(c1, g.cell_count.x, g.cell_count.y, 0));
+			grad = (PressureAt(c1) - PressureAt(c0)) / g.dx - dzdy * 0.5f * (VerticalPressureGradientLevel(MgFineLevel(), c0) + VerticalPressureGradientLevel(MgFineLevel(), c1));
 		}
 		else if (p.y == 0 && BoundaryYMin() == BoundaryOpen) grad = PressureAt(int3(p.x, 0, p.z)) / g.dx;
 		else if (p.y == g.cell_count.y && BoundaryYMax() == BoundaryOpen) grad = -PressureAt(int3(p.x, g.cell_count.y - 1, p.z)) / g.dx;

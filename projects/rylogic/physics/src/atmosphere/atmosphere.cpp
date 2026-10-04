@@ -21,6 +21,12 @@ namespace pr::physics::atmosphere
 		// Largest column count along X and Y of the coarsest multigrid level. Must match ATMOSPHERE_COARSE_COLUMNS in atmosphere.hlsl,
 		// because the coarse solve runs one thread per coarse column inside a single thread group.
 		constexpr auto MgCoarseColumns = 4;
+
+		// Thread group of the column kernels, which run one thread per vertical column. Must match ATMOSPHERE_COLUMN_THREAD_X/Y in atmosphere.hlsl.
+		constexpr auto AtmosphereColumnThreadGroup = iv3{ 8, 8, 1 };
+
+		// Largest supported layer count. Must match ATMOSPHERE_MAX_LAYERS in atmosphere.hlsl, which sizes the per-thread vertical solve arrays.
+		constexpr auto MaxLayers = 32;
 		constexpr auto MaxHeatSources = 64;
 		constexpr auto AtmosphereTracerThreadGroup = 64;
 
@@ -57,11 +63,9 @@ namespace pr::physics::atmosphere
 			int m_source_count;            // valid heat sources
 			int m_use_floor_temp_buffer;   // non-zero when the floor temperature buffer has one value per column
 
-			// Multigrid level selection.
+			// Multigrid level selection. The child (next coarser) level is derived from these in the shader.
 			iv2 m_mg_size;                 // column counts of the active level
-			iv2 m_mg_child_size;           // column counts of the next coarser level; zero on the coarsest level
 			int m_mg_offset;               // index of the active level's first cell in the packed pressure buffers
-			int m_mg_child_offset;         // index of the child level's first cell in the packed pressure buffers
 			int m_mg_scale;                // fine-grid columns per active-level column
 			int m_mg_phase;                // red-black colour for smoothing, or the pressure-normalisation pass
 
@@ -72,9 +76,9 @@ namespace pr::physics::atmosphere
 			// Coarse pressure solve.
 			int m_mg_passes;               // red-black smoothing passes run inside the single coarse-level dispatch
 		};
-		static_assert(sizeof(CBufAtmosphere) == 31 * sizeof(uint32_t));
+		static_assert(sizeof(CBufAtmosphere) == 28 * sizeof(uint32_t));
 		static_assert(offsetof(CBufAtmosphere, m_origin) == 16 && offsetof(CBufAtmosphere, m_source_count) == 72);
-		static_assert(offsetof(CBufAtmosphere, m_mg_size) == 80 && offsetof(CBufAtmosphere, m_mg_phase) == 108);
+		static_assert(offsetof(CBufAtmosphere, m_mg_size) == 80 && offsetof(CBufAtmosphere, m_mg_phase) == 96 && offsetof(CBufAtmosphere, m_mg_passes) == 108);
 
 		// Root constants shared by tracer kernels. Must match CBufAtmosphereTracers in atmosphere.hlsl.
 		struct CBufAtmosphereTracers
@@ -389,6 +393,10 @@ namespace pr::physics::atmosphere
 		if (m_cell_count.x <= 1 || m_cell_count.y <= 1 || m_cell_count.z <= 1)
 			throw std::invalid_argument("Atmosphere grid dimensions must all be greater than one");
 
+		// The pressure smoother solves each column's layers with fixed-size per-thread arrays.
+		if (m_cell_count.z > MaxLayers)
+			throw std::invalid_argument(std::format("Atmosphere grid layer count must not exceed {}", MaxLayers));
+
 		// Spacing and lid geometry define the metric used by advection, divergence and pressure projection.
 		if (!std::isfinite(m_dx) || m_dx <= 0.0f)
 			throw std::invalid_argument("Atmosphere horizontal cell size must be finite and positive");
@@ -620,7 +628,7 @@ namespace pr::physics::atmosphere
 			return DispatchCount(iv3{ level.m_nx, level.m_ny, m_config.m_grid.m_cell_count.z }, AtmosphereThreadGroup);
 		}
 
-		// Build constants for a selected multigrid level and optional child level.
+		// Build constants for a selected multigrid level. The shader derives the child level from these (see MgChildLevel in atmosphere.hlsl).
 		CBufAtmosphere LevelConstants(CBufAtmosphere cb, int level_index, int phase) const
 		{
 			// Level metadata selects the packed pressure range and the floor metric scale for the shader.
@@ -629,13 +637,6 @@ namespace pr::physics::atmosphere
 			cb.m_mg_size = iv2{ level.m_nx, level.m_ny };
 			cb.m_mg_offset = level.m_offset;
 			cb.m_mg_scale = level.m_scale;
-			if (level_index + 1 != isize(m_levels))
-			{
-				// The child level receives restricted residuals or supplies prolongated corrections.
-				auto const& child = m_levels[level_index + 1];
-				cb.m_mg_child_size = iv2{ child.m_nx, child.m_ny };
-				cb.m_mg_child_offset = child.m_offset;
-			}
 			return cb;
 		}
 
@@ -652,12 +653,16 @@ namespace pr::physics::atmosphere
 		void SmoothLevel(GpuJob& job, CBufAtmosphere cb, int level_index, int passes, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS outside_air_buffer)
 		{
 			// Each pass performs both colours so the result is independent of thread order within one colour.
+			// The smoother runs one thread per column of the selected colour, so each row needs only half its columns' threads.
+			auto const& level = m_levels[level_index];
+			auto const dispatch = DispatchCount(iv3{ (level.m_nx + 1) / 2, level.m_ny, 1 }, AtmosphereColumnThreadGroup);
 			for (int iter = 0; iter != passes; ++iter)
 			{
 				for (int phase = 0; phase != 2; ++phase)
 				{
-					auto level_cb = LevelConstants(cb, level_index, phase);
-					DispatchLevel(job, m_mg_smooth, level_cb, m_levels[level_index], src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
+					// Each colour reads the other colour's latest pressures, so a barrier separates them.
+					BindFields(job, m_mg_smooth, LevelConstants(cb, level_index, phase), src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
+					job.m_cmd_list.Dispatch(dispatch.x, dispatch.y, dispatch.z);
 					BarrierFields(job);
 				}
 			}
@@ -683,7 +688,7 @@ namespace pr::physics::atmosphere
 			SmoothLevel(job, cb, level_index, m_config.m_pressure_pre_smooth, src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
 			DispatchLevel(job, m_mg_residual, LevelConstants(cb, level_index, 0), m_levels[level_index], src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
 			BarrierFields(job);
-			DispatchLevel(job, m_mg_restrict, LevelConstants(cb, level_index, 0), m_levels[level_index + 1], src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
+			DispatchLevel(job, m_mg_restrict, LevelConstants(cb, level_index, 0), m_levels[level_index + 1], src, dst, floor_temp_buffer, source_buffer, outside_air_buffer); // dispatched over the child level's cells
 			BarrierFields(job);
 
 			// The coarse correction removes long wavelengths that local smoothing cannot reach on large grids.
@@ -762,9 +767,7 @@ namespace pr::physics::atmosphere
 				.m_source_count = isize(sources.m_heat_sources),
 				.m_use_floor_temp_buffer = sources.m_floor_temperatures.empty() ? 0 : 1,
 				.m_mg_size = grid.m_cell_count.xy,
-				.m_mg_child_size = iv2{ 0, 0 },
 				.m_mg_offset = 0,
-				.m_mg_child_offset = 0,
 				.m_mg_scale = 1,
 				.m_mg_phase = pressure_iteration,
 				.m_open_edge_band = m_config.m_open_edge_band,
