@@ -18,7 +18,7 @@
 //   2. CSVorticity stores the swirl magnitude of the advected field (only when vorticity confinement is enabled).
 //   3. CSForcesHeat applies buoyancy, vorticity confinement, floor exchange, lid relaxation, heat sources, and the open-edge sponge.
 //   4. CSDivergence builds the metric-corrected divergence of the intermediate MAC velocity.
-//   5. CSMgSmooth, CSMgResidual, CSMgRestrict, and CSMgProlongate run the pressure V-cycle.
+//   5. CSMgSmooth, CSMgResidual, CSMgRestrict, and CSMgProlongate run the pressure V-cycle; CSMgCoarseSolve smooths the coarsest level in one dispatch.
 //   6. CSNormalisePressure removes the closed-domain pressure null space.
 //   7. CSProject subtracts the metric-corrected perturbation-pressure gradient from face velocities.
 //
@@ -43,6 +43,7 @@
 #define ATMOSPHERE_THREAD_X 8
 #define ATMOSPHERE_THREAD_Y 8
 #define ATMOSPHERE_THREAD_Z 4
+#define ATMOSPHERE_COARSE_COLUMNS 4 // the coarsest multigrid level has at most this many columns along X and Y
 
 static const float AtmosphereMinLayerPower = 0.05f;       // dimensionless lower bound that keeps stretched-layer powers finite
 static const float AtmosphereMinCellHeight = 0.001f;      // metres; prevents zero-thickness metric denominators
@@ -102,6 +103,9 @@ struct CBufAtmosphere
 	// Open edges and swirl restoration (used by CSForcesHeat).
 	int open_edge_band;             // columns inside each open side over which the inflow outside wind is blended in    @112
 	float vorticity_confinement;    // swirl-restoring strength; the acceleration is this times dx times the swirl rate, 1/s @116
+
+	// Coarse pressure solve (used by CSMgCoarseSolve).
+	int mg_passes;                  // red-black smoothing passes run inside the single coarse-level dispatch          @120
 };
 
 // Root constants shared by tracer kernels. Must match CBufAtmosphereTracers in atmosphere.cpp.
@@ -1185,19 +1189,12 @@ void CSDivergence(uint3 dtid : SV_DispatchThreadID)
 	g_divergence[CellIndex(c)] = base_div - z_x * (u_hi - u_lo) / z_span - z_y * (v_hi - v_lo) / z_span;
 }
 
-// Relax one red-black set of vertical columns on the active multigrid level.
-numthreads(CSMgSmooth, ATMOSPHERE_THREAD_X, ATMOSPHERE_THREAD_Y, ATMOSPHERE_THREAD_Z)
-void CSMgSmooth(uint3 dtid : SV_DispatchThreadID)
+// Relax one vertical column of pressure on the active multigrid level. Horizontal neighbours are read from 'g_pressure',
+// and the column's own layers are solved together because the thin near-floor layers couple much more strongly in Z.
+void RelaxColumn(int2 xy)
 {
-	// Select the first layer of one red-black column on the active multigrid level.
-	int3 c = int3(dtid);
-	if (!InLevelCells(c))
-		return;
-	if (c.z != 0)
-		return;
-	if (((c.x + c.y) & 1) != g.mg_phase)
-		return;
-
+	// Build the tridiagonal vertical system with the horizontal neighbours moved to the right-hand side.
+	int3 c = int3(xy, 0);
 	float h = g.dx * (float)g.mg_scale;
 	float idx2 = 1.0f / (h * h);
 	float lower[64];
@@ -1236,6 +1233,47 @@ void CSMgSmooth(uint3 dtid : SV_DispatchThreadID)
 	{
 		p = dp[z] - cp[z] * p;
 		g_pressure[LevelIndex(int3(c.x, c.y, z), g.mg_size.x, g.mg_size.y, g.mg_offset)] = p;
+	}
+}
+
+// Relax one red-black set of vertical columns on the active multigrid level.
+numthreads(CSMgSmooth, ATMOSPHERE_THREAD_X, ATMOSPHERE_THREAD_Y, ATMOSPHERE_THREAD_Z)
+void CSMgSmooth(uint3 dtid : SV_DispatchThreadID)
+{
+	// One thread per column, using the layer-zero thread, relaxes only the columns of the selected colour.
+	int3 c = int3(dtid);
+	if (!InLevelCells(c))
+		return;
+	if (c.z != 0)
+		return;
+	if (((c.x + c.y) & 1) != g.mg_phase)
+		return;
+
+	RelaxColumn(c.xy);
+}
+
+// Run 'mg_passes' red-black smoothing passes on the coarsest multigrid level in a single thread group.
+// The coarsest level has at most ATMOSPHERE_COARSE_COLUMNS columns along X and Y, so one thread per column fits in one group.
+// A group-wide device memory barrier between colours makes each colour's writes visible before the other colour reads them,
+// which replaces one dispatch and one UAV barrier per colour per pass.
+numthreads(CSMgCoarseSolve, ATMOSPHERE_COARSE_COLUMNS, ATMOSPHERE_COARSE_COLUMNS, 1)
+void CSMgCoarseSolve(uint3 gtid : SV_GroupThreadID)
+{
+	// Every thread must reach each barrier, so threads outside the level skip the work instead of returning.
+	int2 xy = int2(gtid.xy);
+	bool active = xy.x < g.mg_size.x && xy.y < g.mg_size.y;
+	int colour = (xy.x + xy.y) & 1;
+	for (int pass = 0; pass != g.mg_passes; ++pass)
+	{
+		// Each pass relaxes both colours in order, matching the dispatch-per-colour smoother.
+		for (int phase = 0; phase != 2; ++phase)
+		{
+			// Only columns of the current colour write; the other colour's pressures are read as neighbours.
+			if (active && colour == phase)
+				RelaxColumn(xy);
+
+			DeviceMemoryBarrierWithGroupSync();
+		}
 	}
 }
 

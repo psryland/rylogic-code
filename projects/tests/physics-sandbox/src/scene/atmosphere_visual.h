@@ -17,8 +17,11 @@ namespace physics_sandbox
 		scene_loader::AtmosphereDesc m_desc;
 		std::vector<physics::atmosphere::AtmosphereTracerParticle> m_particles;
 		rdr12::Renderer& m_rdr;
-		rdr12::ldraw::LdrObjectPtr m_gfx;
-		bool m_gfx_stale; // True when 'm_gfx' must be rebuilt at the next AddToScene
+		rdr12::ldraw::LdrObjectPtr m_gfx;        // Static diagnostics (grid and heat sources)
+		rdr12::ldraw::LdrObjectPtr m_tracer_gfx; // Persistent point sprite model with one vertex per tracer
+		std::array<Colour, 256> m_tracer_palette; // Temperature ramp spanning the visual min/max temperature
+		bool m_gfx_stale;                        // True when 'm_gfx' must be rebuilt at the next AddToScene
+		bool m_tracers_stale;                    // True when 'm_tracer_gfx' vertices must be refreshed from 'm_particles'
 		bool m_show_grid;
 		bool m_show_particles;
 
@@ -45,7 +48,13 @@ namespace physics_sandbox
 		bool ShowParticles() const;
 
 	private:
-		// Rebuild the LDraw diagnostic overlay from the latest CPU-visible state.
+		// Rebuild the static LDraw diagnostic overlay from the current toggle state.
 		void RebuildGfx();
+
+		// Create the tracer point sprite model sized for the tracer set.
+		void CreateTracerGfx();
+
+		// Overwrite the tracer model's vertices with the latest particle readback.
+		void UpdateTracerGfx();
 	};
 }

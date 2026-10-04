@@ -17,6 +17,10 @@ namespace pr::physics::atmosphere
 	{
 		// The kernels cover cells and all three face arrays with one conservative dispatch extent.
 		constexpr auto AtmosphereThreadGroup = iv3{ 8, 8, 4 };
+
+		// Largest column count along X and Y of the coarsest multigrid level. Must match ATMOSPHERE_COARSE_COLUMNS in atmosphere.hlsl,
+		// because the coarse solve runs one thread per coarse column inside a single thread group.
+		constexpr auto MgCoarseColumns = 4;
 		constexpr auto MaxHeatSources = 64;
 		constexpr auto AtmosphereTracerThreadGroup = 64;
 
@@ -64,8 +68,11 @@ namespace pr::physics::atmosphere
 			// Open edges and swirl restoration.
 			int m_open_edge_band;          // columns over which inflow outside wind is blended in
 			float m_vorticity_confinement; // swirl-restoring strength; zero disables it, 1/s
+
+			// Coarse pressure solve.
+			int m_mg_passes;               // red-black smoothing passes run inside the single coarse-level dispatch
 		};
-		static_assert(sizeof(CBufAtmosphere) == 30 * sizeof(uint32_t));
+		static_assert(sizeof(CBufAtmosphere) == 31 * sizeof(uint32_t));
 		static_assert(offsetof(CBufAtmosphere, m_origin) == 16 && offsetof(CBufAtmosphere, m_source_count) == 72);
 		static_assert(offsetof(CBufAtmosphere, m_mg_size) == 80 && offsetof(CBufAtmosphere, m_mg_phase) == 108);
 
@@ -462,6 +469,7 @@ namespace pr::physics::atmosphere
 		ComputeStep m_forces_heat;
 		ComputeStep m_divergence;
 		ComputeStep m_mg_smooth;
+		ComputeStep m_mg_coarse_solve;
 		ComputeStep m_mg_residual;
 		ComputeStep m_mg_restrict;
 		ComputeStep m_mg_prolongate;
@@ -501,6 +509,7 @@ namespace pr::physics::atmosphere
 			, m_forces_heat()
 			, m_divergence()
 			, m_mg_smooth()
+			, m_mg_coarse_solve()
 			, m_mg_residual()
 			, m_mg_restrict()
 			, m_mg_prolongate()
@@ -551,6 +560,7 @@ namespace pr::physics::atmosphere
 			m_forces_heat = make_step(L"CSForcesHeat", "ForcesHeat");
 			m_divergence = make_step(L"CSDivergence", "Divergence");
 			m_mg_smooth = make_step(L"CSMgSmooth", "MgSmooth");
+			m_mg_coarse_solve = make_step(L"CSMgCoarseSolve", "MgCoarseSolve");
 			m_mg_residual = make_step(L"CSMgResidual", "MgResidual");
 			m_mg_restrict = make_step(L"CSMgRestrict", "MgRestrict");
 			m_mg_prolongate = make_step(L"CSMgProlongate", "MgProlongate");
@@ -583,7 +593,7 @@ namespace pr::physics::atmosphere
 			{
 				m_levels.push_back(MgLevel{ .m_nx = nx, .m_ny = ny, .m_offset = offset, .m_scale = scale });
 				offset += nx * ny * n.z;
-				if (nx <= 4 && ny <= 4)
+				if (nx <= MgCoarseColumns && ny <= MgCoarseColumns)
 					break;
 
 				nx = std::max(1, (nx + 1) / 2);
@@ -660,7 +670,12 @@ namespace pr::physics::atmosphere
 			auto const coarse = level_index + 1 == isize(m_levels);
 			if (coarse)
 			{
-				SmoothLevel(job, cb, level_index, m_config.m_pressure_coarse_smooth, src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
+				// The coarsest level fits in one thread group, so all of its smoothing passes run in one dispatch with group barriers between colours.
+				auto level_cb = LevelConstants(cb, level_index, 0);
+				level_cb.m_mg_passes = m_config.m_pressure_coarse_smooth;
+				BindFields(job, m_mg_coarse_solve, level_cb, src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
+				job.m_cmd_list.Dispatch(1, 1, 1);
+				BarrierFields(job);
 				return;
 			}
 
@@ -754,6 +769,7 @@ namespace pr::physics::atmosphere
 				.m_mg_phase = pressure_iteration,
 				.m_open_edge_band = m_config.m_open_edge_band,
 				.m_vorticity_confinement = m_config.m_vorticity_confinement,
+				.m_mg_passes = 0,
 			};
 		}
 

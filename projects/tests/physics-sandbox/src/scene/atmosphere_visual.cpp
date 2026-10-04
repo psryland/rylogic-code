@@ -46,7 +46,10 @@ namespace physics_sandbox
 		, m_particles()
 		, m_rdr(rdr)
 		, m_gfx()
+		, m_tracer_gfx()
+		, m_tracer_palette()
 		, m_gfx_stale(true)
+		, m_tracers_stale(false)
 		, m_show_grid(m_desc.m_visual.m_show_grid)
 		, m_show_particles(m_desc.m_visual.m_show_particles)
 	{
@@ -55,6 +58,7 @@ namespace physics_sandbox
 		{
 			m_tracers = std::make_unique<physics::atmosphere::AtmosphereTracers>(m_solver, m_gpu, m_desc.m_tracers, &shader_cache);
 			m_particles = m_tracers->ReadBack(m_gpu.m_job);
+			CreateTracerGfx();
 		}
 	}
 
@@ -74,28 +78,40 @@ namespace physics_sandbox
 			// The tracer readback also submits the solver work recorded above.
 			m_tracers->Advect(m_gpu.m_job, dt);
 			m_particles = m_tracers->ReadBack(m_gpu.m_job);
+			m_tracers_stale = true;
 		}
 		else
 		{
 			// Without tracers the recorded solver work still needs submitting.
 			m_gpu.m_job.Run();
 		}
-		m_gfx_stale = true;
 	}
 
 	// Add current atmosphere diagnostics to the render scene.
 	void AtmosphereVisual::AddToScene(rdr12::Scene& scene)
 	{
 		// Rebuild here, after the scene has cleared its drawlists, because releasing a model that is still in a drawlist is an error.
-		// A single parsed LDraw object owns all atmosphere diagnostics for straightforward toggling.
+		// The static overlay only changes when a toggle changes.
 		if (m_gfx_stale)
 		{
-			// Replace the overlay with one built from the latest readback and toggle state.
+			// Replace the overlay with one built from the current toggle state.
 			RebuildGfx();
 			m_gfx_stale = false;
 		}
 		if (m_gfx)
 			m_gfx->AddToScene(scene);
+
+		// Tracer vertices are refreshed in place, and only when visible, because rebuilding a large point model every frame is expensive.
+		if (m_show_particles && m_tracer_gfx)
+		{
+			// Upload the latest readback before adding the model to the drawlist.
+			if (m_tracers_stale)
+			{
+				UpdateTracerGfx();
+				m_tracers_stale = false;
+			}
+			m_tracer_gfx->AddToScene(scene);
+		}
 	}
 
 	// Toggle the floor/lid/domain grid overlay.
@@ -109,9 +125,8 @@ namespace physics_sandbox
 	// Toggle tracer particle rendering.
 	void AtmosphereVisual::ShowParticles(bool show)
 	{
-		// Mark stale so the next render shows the change, even while the simulation is paused.
+		// The tracer model persists, so the next AddToScene simply includes or omits it.
 		m_show_particles = show;
-		m_gfx_stale = true;
 	}
 
 	// Return true when the grid overlay is enabled.
@@ -128,10 +143,10 @@ namespace physics_sandbox
 		return m_show_particles;
 	}
 
-	// Rebuild the LDraw diagnostic overlay from the latest CPU-visible state.
+	// Rebuild the static LDraw diagnostic overlay from the current toggle state.
 	void AtmosphereVisual::RebuildGfx()
 	{
-		// All diagnostics are regenerated together because the particle cloud already changes every frame.
+		// Grid and heat sources share one object for straightforward toggling. Tracers live in 'm_tracer_gfx'.
 		ldraw::Builder ldr;
 		auto& group = ldr.Group("atmosphere_visual", 0xFFFFFFFFU);
 		auto const& grid = m_desc.m_config.m_grid;
@@ -159,14 +174,6 @@ namespace physics_sandbox
 			}
 		}
 
-		if (m_show_particles && !m_particles.empty())
-		{
-			// Point sprites show sampled air temperature for each tracer.
-			auto& points = group.Point("tracers", 0xFFFFFFFFU).size(m_desc.m_visual.m_particle_size).style(ldraw::seri::PointStyle{"Circle"}).depth(false);
-			for (auto const& particle : m_particles)
-				points.pt(particle.m_position, TemperatureColour(particle.m_temperature, m_desc.m_visual.m_min_temperature, m_desc.m_visual.m_max_temperature));
-		}
-
 		if (m_desc.m_visual.m_show_heat_sources)
 		{
 			// Heat sources are wire spheres so their radius can be compared with nearby tracer motion.
@@ -176,5 +183,63 @@ namespace physics_sandbox
 
 		auto result = rdr12::ldraw::Parse(m_rdr, ldr.ToBinary());
 		m_gfx = !result.m_objects.empty() ? result.m_objects.front() : nullptr;
+	}
+
+	// Create the tracer point sprite model sized for the tracer set.
+	void AtmosphereVisual::CreateTracerGfx()
+	{
+		// LDraw creates the point sprite material and one vertex per point, in order, so later frames can overwrite the vertices directly.
+		ldraw::Builder ldr;
+		auto& points = ldr.Point("atmosphere_tracers", 0xFFFFFFFFU).size(m_desc.m_visual.m_particle_size).style(ldraw::seri::PointStyle{"Circle"}).depth(false);
+		for (auto const& particle : m_particles)
+			points.pt(particle.m_position, TemperatureColour(particle.m_temperature, m_desc.m_visual.m_min_temperature, m_desc.m_visual.m_max_temperature));
+
+		auto result = rdr12::ldraw::Parse(m_rdr, ldr.ToBinary());
+		m_tracer_gfx = !result.m_objects.empty() ? result.m_objects.front() : nullptr;
+		if (m_tracer_gfx == nullptr || m_tracer_gfx->m_model == nullptr || m_tracer_gfx->m_model->m_vcount != isize(m_particles))
+			throw std::runtime_error("Atmosphere tracer model must have one vertex per tracer");
+
+		// Precompute the temperature ramp so the per-frame vertex update is a table lookup per tracer.
+		for (int i = 0; i != isize(m_tracer_palette); ++i)
+		{
+			auto const t = static_cast<float>(i) / static_cast<float>(isize(m_tracer_palette) - 1);
+			auto const temperature = m_desc.m_visual.m_min_temperature + t * (m_desc.m_visual.m_max_temperature - m_desc.m_visual.m_min_temperature);
+			m_tracer_palette[i] = Colour(Colour32(TemperatureColour(temperature, m_desc.m_visual.m_min_temperature, m_desc.m_visual.m_max_temperature)));
+		}
+
+		// Tracers can move anywhere in the domain, so bound the model by the domain rather than the initial particle positions.
+		auto const& grid = m_desc.m_config.m_grid;
+		auto const min_corner = grid.m_origin;
+		auto const max_corner = v4{ grid.m_origin.x + grid.m_cell_count.x * grid.m_dx, grid.m_origin.y + grid.m_cell_count.y * grid.m_dx, grid.m_lid_z, 1.0f };
+		m_tracer_gfx->m_model->m_bbox = BBox((min_corner + max_corner) * 0.5f, (max_corner - min_corner) * 0.5f);
+	}
+
+	// Overwrite the tracer model's vertices with the latest particle readback.
+	void AtmosphereVisual::UpdateTracerGfx()
+	{
+		// The tracer count is fixed at creation, so the vertex buffer size always matches the readback.
+		auto& model = *m_tracer_gfx->m_model.get();
+		rdr12::ResourceFactory factory(m_rdr);
+		auto update = model.UpdateVertices(factory.CmdList(), factory.UploadBuffer(), { 0, isize(m_particles) });
+		auto vout = update.ptr<rdr12::Vert>();
+
+		// Map temperature to a palette index. The loop avoids helper calls because this runs for every tracer every frame, including in Debug builds.
+		auto const palette_max = isize(m_tracer_palette) - 1;
+		auto const min_temperature = m_desc.m_visual.m_min_temperature;
+		auto const palette_scale = palette_max / std::max(m_desc.m_visual.m_max_temperature - min_temperature, 0.001f);
+		auto vert = rdr12::Vert{ .m_vert = v4::Origin(), .m_diff = {}, .m_norm = v4::Zero(), .m_tex0 = v2::Zero(), .m_idx0 = iv2::Zero() };
+		auto const* particle = m_particles.data();
+		for (auto const* end = particle + m_particles.size(); particle != end; ++particle)
+		{
+			// Point sprites only use position and colour. The template vertex keeps the unused fields defined.
+			auto index = static_cast<int>((particle->m_temperature - min_temperature) * palette_scale);
+			index = index < 0 ? 0 : index > palette_max ? palette_max : index;
+			vert.m_vert.x = particle->m_position.x;
+			vert.m_vert.y = particle->m_position.y;
+			vert.m_vert.z = particle->m_position.z;
+			vert.m_diff = m_tracer_palette[index];
+			*vout++ = vert;
+		}
+		update.Commit();
 	}
 }
