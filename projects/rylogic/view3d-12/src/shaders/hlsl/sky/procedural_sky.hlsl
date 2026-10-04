@@ -114,34 +114,55 @@ float Unorm(uint h)
 	return (h & 0xFFFFFFu) / 16777215.0;
 }
 
-// Smooth value noise in [0,1] with one feature per unit. It repeats every 'period' units in x and y, and every 'z_period' units in z.
+// The slope of the ramp at a lattice corner toward the offset 'd'. The hash picks one of 12 directions toward the edges of a cube.
+float LatticeRamp(int3 cell, uint seed, float3 d)
+{
+	uint h = LatticeHash(cell, seed) & 15u;
+	float u = h < 8u ? d.x : d.y;
+	float v = h < 4u ? d.y : (h == 12u || h == 14u) ? d.x : d.z;
+	return ((h & 1u) ? -u : u) + ((h & 2u) ? -v : v);
+}
+
+// Smooth gradient noise in [0,1] with mean 0.5 and about one feature per unit. It repeats every 'period' units in x and y,
+// and every 'z_period' units in z. Gradient noise has no flat-topped cells, so it shows less of the square lattice than value noise.
 float PeriodicNoise(float3 p, int period, int z_period, uint seed)
 {
 	// Wrap the lattice so the pattern repeats exactly, which lets the CPU wrap cloud offsets and evolution without a visible jump.
 	float3 i = floor(p);
 	float3 f = p - i;
-	f = f * f * (3.0 - 2.0 * f);
-	int3 c0 = ((int3(i) % int3(period, period, z_period)) + int3(period, period, z_period)) % int3(period, period, z_period);
-	int3 c1 = (c0 + 1) % int3(period, period, z_period);
+	float3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+	int3 per = int3(period, period, z_period);
+	int3 c0 = ((int3(i) % per) + per) % per;
+	int3 c1 = (c0 + 1) % per;
 
-	// Blend the eight corner values, first along x, then y, then z.
-	float a0 = lerp(Unorm(LatticeHash(int3(c0.x, c0.y, c0.z), seed)), Unorm(LatticeHash(int3(c1.x, c0.y, c0.z), seed)), f.x);
-	float b0 = lerp(Unorm(LatticeHash(int3(c0.x, c1.y, c0.z), seed)), Unorm(LatticeHash(int3(c1.x, c1.y, c0.z), seed)), f.x);
-	float a1 = lerp(Unorm(LatticeHash(int3(c0.x, c0.y, c1.z), seed)), Unorm(LatticeHash(int3(c1.x, c0.y, c1.z), seed)), f.x);
-	float b1 = lerp(Unorm(LatticeHash(int3(c0.x, c1.y, c1.z), seed)), Unorm(LatticeHash(int3(c1.x, c1.y, c1.z), seed)), f.x);
-	return lerp(lerp(a0, b0, f.y), lerp(a1, b1, f.y), f.z);
+	// Blend the ramps from the eight corners, first along x, then y, then z.
+	float x00 = lerp(LatticeRamp(int3(c0.x, c0.y, c0.z), seed, f - float3(0, 0, 0)), LatticeRamp(int3(c1.x, c0.y, c0.z), seed, f - float3(1, 0, 0)), u.x);
+	float x10 = lerp(LatticeRamp(int3(c0.x, c1.y, c0.z), seed, f - float3(0, 1, 0)), LatticeRamp(int3(c1.x, c1.y, c0.z), seed, f - float3(1, 1, 0)), u.x);
+	float x01 = lerp(LatticeRamp(int3(c0.x, c0.y, c1.z), seed, f - float3(0, 0, 1)), LatticeRamp(int3(c1.x, c0.y, c1.z), seed, f - float3(1, 0, 1)), u.x);
+	float x11 = lerp(LatticeRamp(int3(c0.x, c1.y, c1.z), seed, f - float3(0, 1, 1)), LatticeRamp(int3(c1.x, c1.y, c1.z), seed, f - float3(1, 1, 1)), u.x);
+	float n = lerp(lerp(x00, x10, u.y), lerp(x01, x11, u.y), u.z);
+
+	// The raw noise lies in about [-1,1] with a spread of 0.27. Scaling to a spread of about 0.185 keeps cover thresholds meaningful.
+	return saturate(0.5 + 0.68 * n);
 }
 
-// Sum of noise octaves in [0,1] with mean 0.5, from 'first' to 'last' octave. 'p' is in feature sizes; xy repeats every PR_SKY_CLOUD_PERIOD
+// The frequency gain from one noise octave to the next. See CloudFbm.
+static const float OctaveGain = 2.2360680; // sqrt(5)
+
+// The average of a smoothly folded noise octave (see CloudFbm), given the spread of PeriodicNoise.
+static const float BillowMean = 0.865;
+
+// Sum of noise octaves in [0,1] with mean 0.5 (BillowMean when folded), from 'first' to 'last' octave. 'p' is in feature sizes; xy repeats every PR_SKY_CLOUD_PERIOD
 // and z every PR_SKY_CLOUD_EVOLVE_PERIOD. 'last' may be fractional: the final octave fades out, which removes shimmer at a distance.
-// With 'billow', each octave is folded (1 - |2n - 1|), which gives rounded, heaped lumps instead of smooth hills.
+// With 'billow', each octave is folded smoothly (1 - (2n - 1)^2), which gives rounded, heaped lumps with soft creases between them.
 float CloudFbm(float3 p, int first, float last, bool billow, uint seed)
 {
-	// Each octave doubles the frequency and the period, so every octave repeats with the base period. Higher octaves also evolve faster.
+	// Each octave rotates by about 27 degrees and scales by OctaveGain, so the lattices of different octaves do not line up.
+	// The integer matrix maps whole periods to whole periods, so every octave repeats with the base period. Higher octaves also evolve faster.
+	float mean = billow ? BillowMean : 0.5;
 	float sum = 0;
 	float total = 0;
 	float amp = 1.0;
-	int period = PR_SKY_CLOUD_PERIOD;
 	int z_period = PR_SKY_CLOUD_EVOLVE_PERIOD;
 	[loop] for (int o = 0; o != 6; ++o)
 	{
@@ -152,19 +173,18 @@ float CloudFbm(float3 p, int first, float last, bool billow, uint seed)
 
 		if (o >= first)
 		{
-			float n = PeriodicNoise(p, period, z_period, seed + o);
-			n = billow ? 1.0 - abs(2.0 * n - 1.0) : n;
-			sum += amp * lerp(0.5, n, weight);
+			float n = PeriodicNoise(p, PR_SKY_CLOUD_PERIOD, z_period, seed + o);
+			n = billow ? 1.0 - (2.0 * n - 1.0) * (2.0 * n - 1.0) : n;
+			sum += amp * lerp(mean, n, weight);
 			total += amp;
 		}
-		p = p * 2.0 + float3(17.31, 9.13, 5.71);
-		period *= 2;
+		p = float3(2.0 * p.x + p.y, 2.0 * p.y - p.x, 2.0 * p.z) + float3(17.31, 9.13, 5.71);
 		z_period *= 2;
-		amp *= 0.5;
+		amp *= 0.4;
 	}
 
-	// Faded octaves contribute the mean, so fading detail does not change the average coverage.
-	return total > 0 ? sum / total : 0.5;
+	// Faded octaves contribute their mean, so fading detail does not change the average coverage.
+	return total > 0 ? sum / total : mean;
 }
 // Cloud cover in [0,1] at a position in the atmosphere frame. Matches WeatherMap::CoverAt.
 float WeatherCover(float2 xy)
@@ -204,33 +224,35 @@ float3 Stars(float3 dir, float pixel_size, float time)
 	float sigma = max(pixel_size * 0.6, 0.04);
 	float shape = exp(-d * d / (sigma * sigma));
 	float brightness = 0.15 + 2.0 * pow(r.x, 6.0);
-	float twinkle = 0.75 + 0.25 * sin(time * (1.5 + 4.0 * r.y) + r.z * 6.283);
+
+	// Twinkle rates are whole cycles per PR_SKY_TIME_PERIOD, so the twinkle is continuous when the CPU wraps the time.
+	float cycles = 15.0 + floor(40.0 * r.y);
+	float twinkle = 0.75 + 0.25 * sin(6.2831853 * cycles * time / PR_SKY_TIME_PERIOD + r.z * 6.283);
 	float3 colour = lerp(float3(0.75, 0.85, 1.0), float3(1.0, 0.9, 0.75), r.y);
 	return colour * brightness * twinkle * shape;
 }
 
 // Cloud shape at noise position 'p' (xy in feature sizes, z = evolution phase), with detail up to octave 'last'.
-// Returns x = density in [0,1], which has soft, lumpy edges, and y = mass in [0,1], which is how far inside a large cloud the point is.
-float2 CloudDensity(float3 p, float last, float threshold, float softness, bool heaped, uint seed)
+// Returns x = opacity in [0,1]; y = thickness, which is 0 at the edge and keeps growing inside the cloud; z = mass in [0,1], which is how far
+// inside a large cloud the point is; and w = lumps in [0,1], which is high on rounded bulges and low in the creases between them.
+float4 CloudShape(float3 p, float last, float threshold, float softness, bool heaped, uint seed)
 {
 	// The low octaves set the overall cloud masses. A wide soft edge gives soft clouds instead of hard-edged blobs.
-	float base = CloudFbm(p, 0, min(last, 2.0), false, seed);
-	float coverage = (base - threshold) / softness;
-	if (coverage <= 0)
+	float coverage = (CloudFbm(p, 0, min(last, 2.0), false, seed) - threshold) / softness;
+
+	// Lumps can push the edge out by at most this much, so points further outside are clear.
+	float lump_reach = heaped ? 0.6 : 0.0;
+	if (coverage <= -lump_reach)
 		return 0;
 
-	// Heaped cloud (cumulus) has its edges eaten by rounded detail, so outlines are lumpy while the cores stay solid.
-	float density = saturate(coverage);
-	if (heaped && last > 2)
-	{
-		float detail = CloudFbm(p, 3, last, true, seed + 50u);
-		float erode = 0.55 * (1.0 - detail);
-		density = saturate((density - erode) / (1.0 - erode));
-	}
+	// Heaped cloud (cumulus) is built from rounded lumps. The lumps change the thickness everywhere, not only at the edge,
+	// so outlines are lumpy and the base has bulges and creases. Lumps are centred on their average, so they do not change the cover.
+	// They start one octave above the cloud masses, so each cloud has a few large bulges rather than fine texture.
+	float lumps = heaped ? CloudFbm(p, 1, last, true, seed + 50u) : BillowMean;
+	float thickness = coverage + 4.0 * (lumps - BillowMean);
 
-	// Mass grows more slowly than density, so only large clouds have thick, dark middles.
-	float mass = saturate(coverage * 0.3);
-	return float2(density, mass);
+	// Mass grows more slowly than thickness and ignores the lumps, so only large clouds have dark middles.
+	return float4(saturate(thickness), max(thickness, 0.0), saturate(coverage * 0.3), lumps);
 }
 
 // One cloud layer seen along 'dir' from 'cam'. Returns premultiplied radiance and alpha.
@@ -264,14 +286,21 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 	float2 offset = layer == 0 ? g_sky.cloud_offset01.xy : layer == 1 ? g_sky.cloud_offset01.zw : g_sky.cloud_offset2;
 	float3 p = float3(hit.xy / config.yz - offset, g_sky.cloud_evolve[layer]);
 	uint seed = 31u * (layer + 1);
+	bool heaped = layer != 2;
 
 	// Limit detail to what a pixel can resolve. Footprints stretch where the ray grazes the layer.
 	float footprint = t * pixel_angle / mu / min(config.y, config.z);
-	float last = clamp(-log2(footprint * 2.0) - 1.0, 0.0, 5.0);
+	float last = clamp(-log2(footprint * 2.0) / log2(OctaveGain) - 1.0, 0.0, 5.0);
 
 	// Cirrus is streaked by warping along its long axis.
 	if (layer == 2)
 		p.x += 1.5 * (CloudFbm(p, 0, 2.0, false, 101u) - 0.5);
+
+	// Bend the noise space with a broad, slowly changing flow, so cloud outlines and cloud fields do not follow the noise lattice.
+	float3 pw = p * 0.5;
+	p.xy += 0.5 * (float2(
+		PeriodicNoise(pw, PR_SKY_CLOUD_PERIOD / 2, PR_SKY_CLOUD_EVOLVE_PERIOD / 2, seed + 70u),
+		PeriodicNoise(pw, PR_SKY_CLOUD_PERIOD / 2, PR_SKY_CLOUD_EVOLVE_PERIOD / 2, seed + 71u)) - 0.5);
 
 	// Group clouds into fields with clear gaps between them. A large, slowly changing field raises or lowers the local threshold.
 	float cluster = PeriodicNoise(p * 0.25, PR_SKY_CLOUD_PERIOD / 4, PR_SKY_CLOUD_EVOLVE_PERIOD / 4, seed + 90u);
@@ -279,44 +308,48 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 	// Threshold the noise by cover: none at 0, about half the sky at 0.5, and all of it at 1. Storms fill in the gaps.
 	float threshold = lerp(0.72, 0.25, layer_cover) + 0.4 * (0.5 - cluster) * (1.0 - storm);
 	float softness = layer == 2 ? 0.2 : 0.1;
-	float2 shape = CloudDensity(p, last, threshold, softness, layer != 2, seed);
-	float density = shape.x;
-	float mass = shape.y;
+	float4 shape = CloudShape(p, last, threshold, softness, heaped, seed);
 	if (layer == 0)
 	{
-		density = lerp(density, 1.0, storm * 0.8);
-		mass = lerp(mass, 1.0, storm);
+		shape.x = lerp(shape.x, 1.0, storm * 0.8);
+		shape.z = lerp(shape.z, 1.0, storm);
 	}
-	if (density <= 0)
+	if (shape.x <= 0)
 		return 0;
 
-	// Sunlight reaching the underside passes through the cloud above it. A high sun shines through the full thickness of large clouds;
-	// a low sun lights the undersides from the side, which gives warm bases at sunset. Cloud toward the sun adds shadow.
+	// Sunlight reaching the base passes through the cloud above it. A high sun shines through the full thickness of large clouds;
+	// a low sun lights the bases from the side, which gives warm bases at sunset. Cloud toward the sun adds shadow.
+	// Higher layers are thinner, so they darken less than the low layer.
+	float darkening = layer == 0 ? 1.0 : layer == 1 ? 0.5 : 0.15;
 	float2 to_sun = sun_dir.xy * 0.2;
 	float shadow = saturate((CloudFbm(p + float3(to_sun, 0), 0, min(last, 2.0), false, seed) - threshold) / softness * 0.3);
-	float depth = mass * lerp(0.8, 3.0, saturate(sun_dir.z * 2.0)) + 1.5 * shadow + 2.0 * storm;
+	float depth = darkening * (shape.z * lerp(0.8, 3.0, saturate(sun_dir.z * 2.0)) + 1.5 * shadow) + 2.0 * storm;
 	float sunlit = exp(-depth);
 
-	// Lumps that face the sun catch more light than those facing away, which gives the base a rounded look.
-	float sunward = CloudDensity(p + float3(to_sun * 0.3, 0), min(last, 4.0), threshold, softness, layer != 2, seed).x;
-	float bump = clamp(1.0 + 3.0 * (density - sunward), 0.3, 1.8);
+	// Bulges that face the sun catch more light than those facing away, and creases between bulges are shaded from the sky.
+	// Both use the unclamped thickness with only the coarse detail, so the whole base has broad, soft shading rather than fine streaks.
+	float lighting_detail = min(last, 2.0);
+	float4 coarse = heaped ? CloudShape(p, lighting_detail, threshold, softness, true, seed) : shape;
+	float sunward = heaped ? CloudShape(p + float3(sun_dir.xy * 0.15, 0), lighting_detail, threshold, softness, true, seed).y : coarse.y;
+	float bump = clamp(1.0 + 1.5 * (coarse.y - sunward), 0.5, 1.5);
+	float crease = heaped ? lerp(0.7, 1.15, saturate((coarse.w - 0.6) / 0.35)) : 1.0;
 
 	// Thin cloud near the sun glows from light scattered forward through it (silver lining).
 	float cos_sun = dot(dir, sun_dir);
-	float phase = 0.6 + 3.0 * pow(saturate(cos_sun), 10.0) * (1.0 - 0.8 * density);
+	float phase = 0.6 + 3.0 * pow(saturate(cos_sun), 10.0) * exp(-2.0 * shape.y);
 
 	// Sky light reaches thin cloud from all sides but is blocked inside large clouds. Storm cloud absorbs more.
 	float albedo = layer == 0 ? lerp(1.0, 0.3, storm) : lerp(1.0, 0.6, storm);
-	float3 radiance = albedo * (sun_light * sunlit * bump * phase * 0.6 + ambient * lerp(0.4, 0.15, mass));
+	float3 radiance = albedo * crease * (sun_light * sunlit * bump * phase * 0.6 + ambient * lerp(0.4, 0.15, shape.z * darkening));
 
-	// Denser cloud, and longer paths where the ray grazes the layer, are more opaque. Squaring the density softens the edges.
+	// Denser cloud, and longer paths where the ray grazes the layer, are more opaque. Squaring the opacity softens the edges.
 	float thickness = layer == 0 ? 6.0 : layer == 1 ? 3.0 : 0.8;
 	float path = 1.0 + min(0.3 / mu, 3.0);
-	float alpha = 1.0 - exp(-density * density * thickness * path);
+	float alpha = 1.0 - exp(-shape.x * shape.x * thickness * path);
 
-	// Distant cloud fades into the air in front of it.
+	// Distant cloud fades into the air in front of it, which is dim under a storm.
 	float fog = 1.0 - exp(-t / 70000.0);
-	radiance = lerp(radiance, haze, fog);
+	radiance = lerp(radiance, haze * lerp(1.0, 0.35, storm), fog);
 	alpha *= saturate(dir.z * 50.0);
 
 	return float4(radiance * alpha, alpha);
@@ -336,10 +369,11 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle)
 	if (star_visibility > 0)
 		sky += Stars(dir, pixel_angle * 300.0, g_sky.time) * star_visibility;
 
-	// Overcast skies are grey, including the haze behind distant cloud.
-	float overcast = smoothstep(0.6, 1.0, WeatherCover(cam.xy)) * 0.7;
-	sky = lerp(sky, Luminance(sky) * float3(0.85, 0.88, 0.92), overcast);
-	haze = lerp(haze, Luminance(haze) * float3(0.85, 0.88, 0.92), overcast);
+	// Under heavy cloud little sunlight reaches the air below it, so the clear air seen toward the horizon and below it is dim and grey.
+	float heavy = smoothstep(0.6, 1.0, WeatherCover(cam.xy));
+	float gloom = lerp(1.0, 0.35, heavy);
+	sky = lerp(sky, Luminance(sky) * float3(0.85, 0.88, 0.92), 0.7 * heavy) * gloom;
+	haze = lerp(haze, Luminance(haze) * float3(0.85, 0.88, 0.92), 0.7 * heavy) * gloom;
 	if (dir.z > 0)
 	{
 		// Sunlight at the clouds is reddened by its path through the atmosphere. Clouds keep a little light just after sunset.
@@ -348,7 +382,7 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle)
 		// Cloud bases are lit by the sky overhead and the horizon in the same direction, which is warm toward a setting sun.
 		float3 horizon_dir = normalize(float3(normalize(dir.xy + float2(1e-4, 0)), 0.1));
 		float3 ambient = 0.5 * (SkyRadiance(float3(0, 0, 1), sun_dir, sun_top) + SkyRadiance(horizon_dir, sun_dir, sun_top));
-		ambient = lerp(ambient, Luminance(ambient), 0.5 + 0.5 * overcast);
+		ambient = lerp(ambient, Luminance(ambient), 0.5 + 0.35 * heavy);
 
 		// Composite from the highest layer down, because the lowest layer is nearest to an observer below the clouds.
 		[unroll] for (int layer = 2; layer >= 0; --layer)

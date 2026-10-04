@@ -185,7 +185,7 @@ namespace pr::rdr12
 		m_shader->m_cbuf.sun_colour = sun_colour;
 		m_shader->m_cbuf.sun_intensity = settings.m_sun_intensity;
 		m_shader->m_cbuf.cloud_cover = settings.m_cloud_cover;
-		m_shader->m_cbuf.time = s_cast<float>(std::fmod(settings.m_time, 3600.0));
+		m_shader->m_cbuf.time = s_cast<float>(std::fmod(settings.m_time, s_cast<double>(PR_SKY_TIME_PERIOD)));
 		m_shader->m_cbuf.cloud_offset01 = v4(m_cloud_offset[0].x, m_cloud_offset[0].y, m_cloud_offset[1].x, m_cloud_offset[1].y);
 		m_shader->m_cbuf.cloud_offset2 = m_cloud_offset[2];
 		m_shader->m_cbuf.cloud_evolve = v4(m_cloud_evolve[0], m_cloud_evolve[1], m_cloud_evolve[2], 0);

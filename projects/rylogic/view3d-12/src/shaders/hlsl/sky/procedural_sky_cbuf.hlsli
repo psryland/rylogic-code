@@ -28,6 +28,9 @@ namespace pr::rdr12::sky
 #define PR_SKY_CLOUD_EVOLVE_PERIOD 32
 #define PR_SKY_CLOUD_EVOLVE_RATE 0.01f
 
+// The CPU wraps the time it passes to the shader at this period (seconds). Time-based effects must repeat exactly over this period.
+#define PR_SKY_TIME_PERIOD 60.0f
+
 // Planet radius in world units (assumed metres). Cloud layers are spherical shells, so they curve down to meet the horizon.
 #define PR_SKY_PLANET_RADIUS 6371000.0f
 
@@ -44,7 +47,7 @@ struct CBufProceduralSky //:reg(b3)
 	float4 sun_colour;
 
 	// Sun intensity (0=night, 1=noon), the atmosphere's share of the background colour, the default cloud cover in [0,1],
-	// and time in seconds (wrapped to a bounded range) for star twinkle.
+	// and time in seconds, wrapped at PR_SKY_TIME_PERIOD, for star twinkle.
 	float sun_intensity;
 	float blend_weight;
 	float cloud_cover;
