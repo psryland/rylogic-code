@@ -161,6 +161,23 @@ float3 Stars(float3 dir, float pixel_size, float time)
 	return colour * brightness * twinkle * shape;
 }
 
+// The cloud field from the two noise samples of a layer (see CloudLayer). Masses come from the broad noise; lumps add rounded bulges,
+// scaled by 'lump_scale'. Both samples are averaged, so they are rescaled to keep the spread of a single sample.
+float CloudFieldFromNoise(float4 n1, float4 n2, float lump_scale)
+{
+	// Combine the broad masses with the heaped lumps.
+	return 0.5 + 0.72 * (n1.r + n2.g - 1.0) + lump_scale * (n1.b + n2.a - 1.0);
+}
+
+// The cloud field at the noise coordinates 'uv1' and 'uv2' of a layer (see CloudLayer).
+float CloudField(float2 uv1, float2 uv2, float lod, float lump_scale)
+{
+	// Read both noise samples at the layer's mip level.
+	float4 n1 = g_cloud_noise.SampleLevel(g_noise_sampler, uv1, lod);
+	float4 n2 = g_cloud_noise.SampleLevel(g_noise_sampler, uv2, lod + 0.5);
+	return CloudFieldFromNoise(n1, n2, lump_scale);
+}
+
 // One cloud layer seen along 'dir' from 'cam'. Returns premultiplied radiance and alpha.
 // The cloud field is read from a tileable noise texture (see ProceduralSky), so each layer costs a few texture reads:
 // R and G hold independent broad noise that sets the cloud masses, and B and A hold independent heaped lumps (rounded bulges with creases).
@@ -215,44 +232,98 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 	float4 n1 = g_cloud_noise.SampleLevel(g_noise_sampler, uv1, lod);
 	float4 n2 = g_cloud_noise.SampleLevel(g_noise_sampler, uv2, lod + 0.5);
 	float lump_scale = layer == 2 ? 0.1 : 0.3;
-	float mass = 0.5 + 0.72 * (n1.r + n2.g - 1.0);
-	float field = mass + lump_scale * (n1.b + n2.a - 1.0);
+	float field = CloudFieldFromNoise(n1, n2, lump_scale);
 
 	// Opacity rises over a soft band above the threshold. Cirrus and sparse mid-level cloud have a wide band, so they are wispy;
 	// low cumulus stays puffy. The band narrows as cover grows, so heavy cloud and storm cloud have well defined edges.
 	float build = smoothstep(0.2, 0.6, cover);
 	float softness = layer == 2 ? 0.2 : lerp(lerp(layer == 1 ? 0.18 : 0.1, 0.07, build), 0.05, storm);
 	float coverage = saturate((field - threshold) / softness);
+
+	// Light reaching the visible base has crossed the cloud above it, so thick cloud is darker than its thin edges.
+	// 'depth' measures how far the field rises above the cloud edge, including the lumps, so bulges and creases are shaded too.
+	// 'shade' is the amount of greying, from 0 (white) to 1 (the darkest grey for this cover).
+	float depth_range = lerp(0.35, 0.2, storm);
+	float depth = saturate((field - threshold) / depth_range);
+
+	// A sun just above the horizon shines under the clouds. Their bases, which are usually the shaded side, are then lit in sunset colours.
+	// Storm decks block the low sun, so they stay shaded.
+	float under_lit = smoothstep(0.12, 0.02, sun_dir.z) * smoothstep(-0.05, 0.0, sun_dir.z) * (1.0 - storm);
+	float shade = lerp(depth, 0.2 * depth, under_lit);
 	if (layer == 0)
-		coverage = lerp(coverage, 1.0, storm * 0.8);
+	{
+		// Low cloud is a height field: each cloud has a flat base on the layer and rises to a height that grows with 'depth'.
+		// Where the ray meets the base under a cloud, the grey base is visible. Where it passes through a gap, it rises past the base and can meet
+		// the side of a cloud farther away. A side is lit from above, so it is white near the top and greys toward the base.
+		// Seen from below, the far edge of each base is a sharp bottom edge with the white side of a farther cloud below it on the screen,
+		// so overlapping clouds form layered tiers. Ray samples at fixed heights find the first side the ray meets.
+		float height = lerp(lerp(600.0, 1500.0, build), 3000.0, storm);
+		float tan_elev = mu * rsqrt(max(1.0 - mu * mu, 1e-4));
+		float2 away = float2(dot(dir.xy, wind_dir), dot(dir.xy, wind_perp));
+		away *= rsqrt(max(dot(away, away), 1e-8));
+
+		// Find where the ray first drops below the cloud top. 'gap' is the ray height above the cloud top, so the side is crossed where it becomes negative.
+		// Interpolating between samples keeps the crossing height continuous, which avoids steps in the shading. The lowest 'gap' sets the soft silhouette.
+		float z_prev = 0.0;
+		float gap_prev = -height * depth;
+		float z_hit = height;
+		float gap_min = 1e9;
+		[unroll] for (int i = 0; i != 3; ++i)
+		{
+			// Each sample is at a fixed fraction of the cloud height, at the distance where the ray reaches that height.
+			float z = height * (0.2 + 0.35 * i);
+			float2 duv1 = away * (z / tan_elev) / config.yz;
+			float2 duv2 = float2(duv1.x + duv1.y, duv1.y - duv1.x);
+			float field_i = CloudField(uv1 + duv1, uv2 + duv2, lod, lump_scale);
+			float gap = z - height * saturate((field_i - threshold) / depth_range);
+			if (gap < 0 && gap_min >= 0)
+				z_hit = lerp(z_prev, z, saturate(gap_prev / (gap_prev - gap)));
+
+			gap_min = min(gap_min, gap);
+			z_prev = z;
+			gap_prev = gap;
+		}
+
+		// Sides are white at the top and grey at the base. The base is grey, darker under thick cloud. The base hides any side behind it.
+		// When the sun is near the horizon it shines under the cloud, so the gradient inverts: the base is lit and the side tops are in shade.
+		float side = saturate(-gap_min / (0.05 * height)) * (1.0 - coverage);
+		float side_height = saturate(z_hit / (0.8 * height));
+		float side_shade = lerp(0.85 * (1.0 - side_height), 0.2 + 0.7 * side_height, under_lit);
+		float base_shade = lerp(0.6 + 0.4 * depth, 0.1 * depth, under_lit);
+		float total = coverage + side;
+		shade = (coverage * base_shade + side * side_shade) / max(total, 1e-4);
+
+		// Storms close the gaps with a dark, even deck, so lighter upper layers cannot show through. The sides still mark the tiers.
+		float fill = (1.0 - total) * storm;
+		shade = (total * shade + fill * 0.85) / max(total + fill, 1e-4);
+		coverage = total + fill;
+
+		// Full cover is one continuous deck with no gaps or sides. Its shade follows the field across the former gaps, so the deck keeps
+		// broad light and dark regions without outlines.
+		float deck_shade = 0.55 + 0.45 * saturate((field - threshold + 0.3) / 0.5);
+		shade = lerp(shade, deck_shade, storm * storm);
+	}
 
 	if (coverage <= 0)
 		return 0;
 
-	// Light reaching the visible base has crossed the cloud above it, so thick cloud is darker than its thin edges.
-	// 'depth' measures how far the field rises above the cloud edge, including the lumps, so bulges and creases are shaded too.
-	// Under a storm the gaps are filled with thick cloud, so the depth has a high floor, and the lumps still vary the shade within it.
-	float depth = saturate((field - threshold) / lerp(0.35, 0.2, storm));
-	if (layer == 0)
-		depth = lerp(depth, 0.6 + 0.4 * depth, storm);
-
 	// The thickest cloud has light grey bases in sparse cloud, mid grey bases at half cover, and dark grey bases in a storm.
 	// Higher layers are thinner, so they darken less than the low layer.
 	float darkening = layer == 0 ? 1.0 : layer == 1 ? 0.6 : 0.25;
-	float dark_max = lerp(lerp(0.25, 0.55, build), 0.85, storm) * darkening;
-	float grey = 1.0 - dark_max * smoothstep(0.0, 1.0, depth);
+	float dark_max = lerp(lerp(0.25, 0.55, build), 0.9, storm) * darkening;
+	float grey = 1.0 - dark_max * smoothstep(0.0, 1.0, shade);
 
 	// Sides facing the sun are brighter than sides facing away. Compare the cloud here with the cloud a short way toward the sun.
 	float2 to_sun = float2(dot(sun_dir.xy, wind_dir), dot(sun_dir.xy, wind_perp)) * 0.02;
 	float4 n1s = g_cloud_noise.SampleLevel(g_noise_sampler, uv1 + to_sun, lod);
-	float field_sunward = 0.5 + 0.72 * (n1s.r + n2.g - 1.0) + lump_scale * (n1s.b + n2.a - 1.0);
+	float field_sunward = CloudFieldFromNoise(n1s, n2, lump_scale);
 	float facing = clamp(1.0 - 2.0 * (field_sunward - field), 0.75, 1.25);
 
 	// Thin cloud near the sun glows from light scattered forward through it (silver lining). Storm cloud lets little direct sunlight through.
 	float cos_sun = dot(dir, sun_dir);
 	float phase = 1.0 + 2.0 * pow(saturate(cos_sun), 8.0) * (1.0 - coverage);
-	float sunlit = lerp(1.0, 0.35, storm * darkening);
-	float3 radiance = grey * (sun_light * (0.65 * sunlit * phase * facing) + ambient * 0.9) * lerp(1.0, 0.85, storm * darkening);
+	float sunlit = lerp(1.0, 0.3, storm * darkening);
+	float3 radiance = grey * (sun_light * (0.65 * sunlit * phase * facing) + ambient * 0.9) * lerp(1.0, 0.75, storm * darkening);
 
 	// Denser cloud, and longer paths where the ray grazes the layer, are more opaque. Squaring the opacity softens the edges.
 	// Sparse cloud is thinner, so it is partly translucent.
@@ -263,6 +334,10 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 	// Distant cloud fades into the air in front of it, which is dim under a storm.
 	float fog = 1.0 - exp(-t / 70000.0);
 	radiance = lerp(radiance, haze * lerp(1.0, 0.35, storm), fog);
+
+	// Storm cloud is lit mostly by blue skylight scattered through the cloud deck, so it is a cool slate grey rather than a warm grey.
+	float luminance = dot(radiance, float3(0.2126, 0.7152, 0.0722));
+	radiance = lerp(radiance, luminance * float3(0.86, 0.93, 1.08), storm * darkening * 0.85);
 	alpha *= saturate(dir.z * 50.0);
 
 	return float4(radiance * alpha, alpha);
