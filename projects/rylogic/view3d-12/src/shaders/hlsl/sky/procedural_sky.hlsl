@@ -81,6 +81,18 @@ float3 SkyRadiance(float3 view_dir, float3 sun_dir, float3 sun_light)
 	float phase_mie = 0.5 * (1.0 - g * g) / pow(abs(1.0 + g * g - 2.0 * g * c), 1.5);
 	float3 radiance = sun_light * sun_trans * (TauRayleigh * phase_rayleigh + TauMie * phase_mie) / extinction * view_scatter;
 
+	// At twilight the sky depends on the direction relative to the sun. Toward the sun the low sky glows, while the opposite sky is darker.
+	// Light reaching the opposite sky has scattered more often, so it is violet rather than orange. The effects are strongest near the horizon.
+	float twilight = smoothstep(0.2, 0.0, sun_dir.z) * lerp(0.5, 1.0, 1.0 - view_z);
+	float toward = 0.5 + 0.5 * c;
+	radiance *= lerp(1.0, lerp(0.3, 1.3, toward * toward), twilight);
+	radiance = lerp(radiance, Luminance(radiance) * float3(0.85, 0.68, 1.2), twilight * (1.0 - toward) * 0.75);
+
+	// After sunset the Earth's shadow rises from the horizon opposite the sun as a dark blue-grey band. Its top edge is at about the sun's depression angle.
+	float shadow_top = -sun_dir.z;
+	float in_shadow = (1.0 - smoothstep(shadow_top - 0.01, shadow_top + 0.04, view_z)) * smoothstep(0.3, -0.5, c);
+	radiance = lerp(radiance, Luminance(radiance) * float3(0.55, 0.6, 0.85) * 0.35, in_shadow);
+
 	// Fade to night as the sun sets below the horizon, leaving a faint blue night sky.
 	float day = saturate(sun_dir.z * 12.0 + 1.0);
 	return radiance * day * day + float3(0.002, 0.003, 0.006);
