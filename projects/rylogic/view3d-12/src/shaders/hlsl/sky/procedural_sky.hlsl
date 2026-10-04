@@ -20,7 +20,9 @@ ConstantBuffer<CBufFrame> resource(g_frame, b0);
 ConstantBuffer<CBufProceduralSky> resource(g_sky, b3);
 TextureCube<float4> resource(g_background, t18);
 Texture2D<float> resource(g_weather, t19);
+Texture2D<float4> resource(g_cloud_noise, t20);
 SamplerState resource(g_background_sampler, s1);
+SamplerState resource(g_noise_sampler, s8);
 
 // Cloud layers, lowest first. See PR_SKY_CLOUD_LAYER0.
 static const float4 CloudLayers[3] = { float4(PR_SKY_CLOUD_LAYER0), float4(PR_SKY_CLOUD_LAYER1), float4(PR_SKY_CLOUD_LAYER2) };
@@ -84,11 +86,9 @@ float3 SkyRadiance(float3 view_dir, float3 sun_dir, float3 sun_light)
 	return radiance * day * day + float3(0.002, 0.003, 0.006);
 }
 
-// Linear sky radiance including the sun disc, darkened below the horizon.
-float3 AtmosphericSky(float3 view_dir, float3 sun_dir, float3 sun_light)
+// Add the sun disc to the sky radiance 'sky' along 'view_dir', and darken views below the horizon.
+float3 AtmosphericSky(float3 sky, float3 view_dir, float3 sun_dir, float3 sun_light)
 {
-	float3 sky = SkyRadiance(view_dir, sun_dir, sun_light);
-
 	// The sun disc, reddened by the same path through the atmosphere as sunlight on the ground.
 	float cos_sun = dot(view_dir, sun_dir);
 	sky += 40.0 * sun_light * SunTransmittance(sun_dir.z, 1.0) * smoothstep(0.99985, 0.99993, cos_sun) * step(-0.02, sun_dir.z);
@@ -97,6 +97,7 @@ float3 AtmosphericSky(float3 view_dir, float3 sun_dir, float3 sun_light)
 	float below = saturate(-view_dir.z * 3.0);
 	return lerp(sky, sky * 0.3, below);
 }
+
 // Scramble an integer lattice point and seed into a well-mixed 32-bit value.
 uint LatticeHash(int3 cell, uint seed)
 {
@@ -114,78 +115,6 @@ float Unorm(uint h)
 	return (h & 0xFFFFFFu) / 16777215.0;
 }
 
-// The slope of the ramp at a lattice corner toward the offset 'd'. The hash picks one of 12 directions toward the edges of a cube.
-float LatticeRamp(int3 cell, uint seed, float3 d)
-{
-	uint h = LatticeHash(cell, seed) & 15u;
-	float u = h < 8u ? d.x : d.y;
-	float v = h < 4u ? d.y : (h == 12u || h == 14u) ? d.x : d.z;
-	return ((h & 1u) ? -u : u) + ((h & 2u) ? -v : v);
-}
-
-// Smooth gradient noise in [0,1] with mean 0.5 and about one feature per unit. It repeats every 'period' units in x and y,
-// and every 'z_period' units in z. Gradient noise has no flat-topped cells, so it shows less of the square lattice than value noise.
-float PeriodicNoise(float3 p, int period, int z_period, uint seed)
-{
-	// Wrap the lattice so the pattern repeats exactly, which lets the CPU wrap cloud offsets and evolution without a visible jump.
-	float3 i = floor(p);
-	float3 f = p - i;
-	float3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-	int3 per = int3(period, period, z_period);
-	int3 c0 = ((int3(i) % per) + per) % per;
-	int3 c1 = (c0 + 1) % per;
-
-	// Blend the ramps from the eight corners, first along x, then y, then z.
-	float x00 = lerp(LatticeRamp(int3(c0.x, c0.y, c0.z), seed, f - float3(0, 0, 0)), LatticeRamp(int3(c1.x, c0.y, c0.z), seed, f - float3(1, 0, 0)), u.x);
-	float x10 = lerp(LatticeRamp(int3(c0.x, c1.y, c0.z), seed, f - float3(0, 1, 0)), LatticeRamp(int3(c1.x, c1.y, c0.z), seed, f - float3(1, 1, 0)), u.x);
-	float x01 = lerp(LatticeRamp(int3(c0.x, c0.y, c1.z), seed, f - float3(0, 0, 1)), LatticeRamp(int3(c1.x, c0.y, c1.z), seed, f - float3(1, 0, 1)), u.x);
-	float x11 = lerp(LatticeRamp(int3(c0.x, c1.y, c1.z), seed, f - float3(0, 1, 1)), LatticeRamp(int3(c1.x, c1.y, c1.z), seed, f - float3(1, 1, 1)), u.x);
-	float n = lerp(lerp(x00, x10, u.y), lerp(x01, x11, u.y), u.z);
-
-	// The raw noise lies in about [-1,1] with a spread of 0.27. Scaling to a spread of about 0.185 keeps cover thresholds meaningful.
-	return saturate(0.5 + 0.68 * n);
-}
-
-// The frequency gain from one noise octave to the next. See CloudFbm.
-static const float OctaveGain = 2.2360680; // sqrt(5)
-
-// The average of a smoothly folded noise octave (see CloudFbm), given the spread of PeriodicNoise.
-static const float BillowMean = 0.865;
-
-// Sum of noise octaves in [0,1] with mean 0.5 (BillowMean when folded), from 'first' to 'last' octave. 'p' is in feature sizes; xy repeats every PR_SKY_CLOUD_PERIOD
-// and z every PR_SKY_CLOUD_EVOLVE_PERIOD. 'last' may be fractional: the final octave fades out, which removes shimmer at a distance.
-// With 'billow', each octave is folded smoothly (1 - (2n - 1)^2), which gives rounded, heaped lumps with soft creases between them.
-float CloudFbm(float3 p, int first, float last, bool billow, uint seed)
-{
-	// Each octave rotates by about 27 degrees and scales by OctaveGain, so the lattices of different octaves do not line up.
-	// The integer matrix maps whole periods to whole periods, so every octave repeats with the base period. Higher octaves also evolve faster.
-	float mean = billow ? BillowMean : 0.5;
-	float sum = 0;
-	float total = 0;
-	float amp = 1.0;
-	int z_period = PR_SKY_CLOUD_EVOLVE_PERIOD;
-	[loop] for (int o = 0; o != 6; ++o)
-	{
-		// Octaves before 'first' only advance the frequency.
-		float weight = saturate(last + 1 - o);
-		if (weight <= 0)
-			break;
-
-		if (o >= first)
-		{
-			float n = PeriodicNoise(p, PR_SKY_CLOUD_PERIOD, z_period, seed + o);
-			n = billow ? 1.0 - (2.0 * n - 1.0) * (2.0 * n - 1.0) : n;
-			sum += amp * lerp(mean, n, weight);
-			total += amp;
-		}
-		p = float3(2.0 * p.x + p.y, 2.0 * p.y - p.x, 2.0 * p.z) + float3(17.31, 9.13, 5.71);
-		z_period *= 2;
-		amp *= 0.4;
-	}
-
-	// Faded octaves contribute their mean, so fading detail does not change the average coverage.
-	return total > 0 ? sum / total : mean;
-}
 // Cloud cover in [0,1] at a position in the atmosphere frame. Matches WeatherMap::CoverAt.
 float WeatherCover(float2 xy)
 {
@@ -232,30 +161,9 @@ float3 Stars(float3 dir, float pixel_size, float time)
 	return colour * brightness * twinkle * shape;
 }
 
-// Cloud shape at noise position 'p' (xy in feature sizes, z = evolution phase), with detail up to octave 'last'.
-// Returns x = opacity in [0,1]; y = thickness, which is 0 at the edge and keeps growing inside the cloud; z = mass in [0,1], which is how far
-// inside a large cloud the point is; and w = lumps in [0,1], which is high on rounded bulges and low in the creases between them.
-float4 CloudShape(float3 p, float last, float threshold, float softness, bool heaped, uint seed)
-{
-	// The low octaves set the overall cloud masses. A wide soft edge gives soft clouds instead of hard-edged blobs.
-	float coverage = (CloudFbm(p, 0, min(last, 2.0), false, seed) - threshold) / softness;
-
-	// Lumps can push the edge out by at most this much, so points further outside are clear.
-	float lump_reach = heaped ? 0.6 : 0.0;
-	if (coverage <= -lump_reach)
-		return 0;
-
-	// Heaped cloud (cumulus) is built from rounded lumps. The lumps change the thickness everywhere, not only at the edge,
-	// so outlines are lumpy and the base has bulges and creases. Lumps are centred on their average, so they do not change the cover.
-	// They start one octave above the cloud masses, so each cloud has a few large bulges rather than fine texture.
-	float lumps = heaped ? CloudFbm(p, 1, last, true, seed + 50u) : BillowMean;
-	float thickness = coverage + 4.0 * (lumps - BillowMean);
-
-	// Mass grows more slowly than thickness and ignores the lumps, so only large clouds have dark middles.
-	return float4(saturate(thickness), max(thickness, 0.0), saturate(coverage * 0.3), lumps);
-}
-
 // One cloud layer seen along 'dir' from 'cam'. Returns premultiplied radiance and alpha.
+// The cloud field is read from a tileable noise texture (see ProceduralSky), so each layer costs a few texture reads:
+// R and G hold independent broad noise that sets the cloud masses, and B and A hold independent heaped lumps (rounded bulges with creases).
 float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 sun_dir, float3 sun_light, float3 ambient, float3 haze)
 {
 	// Intersect the layer's spherical shell around the planet centre. The shell curves down to meet the horizon at a finite distance,
@@ -275,77 +183,82 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 	float mu = max((b + t) / radius, 0.02);
 
 	// Cover comes from the weather at the hit point, adjusted per layer so higher layers appear at lower cover
-	// and thin out before the low layer closes over.
+	// and thin out before the low layer closes over. Zero cover is always clear sky.
 	float cover = WeatherCover(hit.xy);
 	float storm = smoothstep(0.7, 1.0, cover);
-	float layer_cover = layer == 0 ? cover : layer == 1 ? saturate(cover * 1.2 - 0.2) : saturate(cover * 1.5) * 0.6;
+	float layer_cover = layer == 0 ? cover : layer == 1 ? saturate(cover * 1.2 - 0.2) : saturate(cover * 2.5) * 0.6;
 	if (layer_cover <= 0)
 		return 0;
 
-	// Position in noise space. The CPU integrates the wind into the offsets and the shape changes into the evolution phase.
+	// Texture coordinates in noise tiles of a wind-aligned frame (x along the wind), so stretched clouds streak along the wind in every layer.
+	// The second sample is rotated by 45 degrees, scaled by sqrt(2), and drifts with the evolution phase,
+	// so the sum of the two samples changes shape over time and hides the tiling of each. Its integer matrix maps whole tiles to whole tiles,
+	// so it repeats with the CPU's offset wrapping.
+	float2 wind_dir;
+	sincos(g_sky.wind_direction, wind_dir.y, wind_dir.x);
+	float2 wind_perp = float2(-wind_dir.y, wind_dir.x);
 	float2 offset = layer == 0 ? g_sky.cloud_offset01.xy : layer == 1 ? g_sky.cloud_offset01.zw : g_sky.cloud_offset2;
-	float3 p = float3(hit.xy / config.yz - offset, g_sky.cloud_evolve[layer]);
-	uint seed = 31u * (layer + 1);
-	bool heaped = layer != 2;
+	float2 uv1 = float2(dot(hit.xy, wind_dir), dot(hit.xy, wind_perp)) / config.yz - offset;
+	float2 uv2 = float2(uv1.x + uv1.y, uv1.y - uv1.x) + g_sky.cloud_evolve[layer] * float2(1.0, 0.5) + float2(0.37, 0.61);
 
-	// Limit detail to what a pixel can resolve. Footprints stretch where the ray grazes the layer.
-	float footprint = t * pixel_angle / mu / min(config.y, config.z);
-	float last = clamp(-log2(footprint * 2.0) / log2(OctaveGain) - 1.0, 0.0, 5.0);
+	// Choose the mip level from the pixel footprint on the layer, which stretches where the ray grazes the layer.
+	float footprint = t * pixel_angle / sqrt(mu);
+	float lod = log2(max(footprint * PR_SKY_CLOUD_NOISE_SIZE / min(config.y, config.z), 1e-3));
 
-	// Cirrus is streaked by warping along its long axis.
-	if (layer == 2)
-		p.x += 1.5 * (CloudFbm(p, 0, 2.0, false, 101u) - 0.5);
-
-	// Bend the noise space with a broad, slowly changing flow, so cloud outlines and cloud fields do not follow the noise lattice.
-	float3 pw = p * 0.5;
-	p.xy += 0.5 * (float2(
-		PeriodicNoise(pw, PR_SKY_CLOUD_PERIOD / 2, PR_SKY_CLOUD_EVOLVE_PERIOD / 2, seed + 70u),
-		PeriodicNoise(pw, PR_SKY_CLOUD_PERIOD / 2, PR_SKY_CLOUD_EVOLVE_PERIOD / 2, seed + 71u)) - 0.5);
-
-	// Group clouds into fields with clear gaps between them. A large, slowly changing field raises or lowers the local threshold.
-	float cluster = PeriodicNoise(p * 0.25, PR_SKY_CLOUD_PERIOD / 4, PR_SKY_CLOUD_EVOLVE_PERIOD / 4, seed + 90u);
-
+	// Group clouds into fields with clear gaps between them. A broad, slowly changing field raises or lowers the local threshold.
 	// Threshold the noise by cover: none at 0, about half the sky at 0.5, and all of it at 1. Storms fill in the gaps.
-	float threshold = lerp(0.72, 0.25, layer_cover) + 0.4 * (0.5 - cluster) * (1.0 - storm);
-	float softness = layer == 2 ? 0.2 : 0.1;
-	float4 shape = CloudShape(p, last, threshold, softness, heaped, seed);
+	float cluster = g_cloud_noise.SampleLevel(g_noise_sampler, uv1 * 0.25, max(lod - 2.0, 4.0)).g;
+	float threshold = lerp(0.85, 0.15, layer_cover) + 0.3 * (0.5 - cluster) * (1.0 - storm);
+
+	// Masses come from the broad noise; lumps add rounded bulges to cumulus, and only slight texture to cirrus.
+	// Both samples are averaged, so they are rescaled to keep the spread of a single sample.
+	float4 n1 = g_cloud_noise.SampleLevel(g_noise_sampler, uv1, lod);
+	float4 n2 = g_cloud_noise.SampleLevel(g_noise_sampler, uv2, lod + 0.5);
+	float lump_scale = layer == 2 ? 0.1 : 0.3;
+	float mass = 0.5 + 0.72 * (n1.r + n2.g - 1.0);
+	float field = mass + lump_scale * (n1.b + n2.a - 1.0);
+
+	// Opacity rises over a soft band above the threshold. Cirrus and sparse mid-level cloud have a wide band, so they are wispy;
+	// low cumulus stays puffy. The band narrows as cover grows, so heavy cloud and storm cloud have well defined edges.
+	float build = smoothstep(0.2, 0.6, cover);
+	float softness = layer == 2 ? 0.2 : lerp(lerp(layer == 1 ? 0.18 : 0.1, 0.07, build), 0.05, storm);
+	float coverage = saturate((field - threshold) / softness);
 	if (layer == 0)
-	{
-		shape.x = lerp(shape.x, 1.0, storm * 0.8);
-		shape.z = lerp(shape.z, 1.0, storm);
-	}
-	if (shape.x <= 0)
+		coverage = lerp(coverage, 1.0, storm * 0.8);
+
+	if (coverage <= 0)
 		return 0;
 
-	// Sunlight reaching the base passes through the cloud above it. A high sun shines through the full thickness of large clouds;
-	// a low sun lights the bases from the side, which gives warm bases at sunset. Cloud toward the sun adds shadow.
+	// Light reaching the visible base has crossed the cloud above it, so thick cloud is darker than its thin edges.
+	// 'depth' measures how far the field rises above the cloud edge, including the lumps, so bulges and creases are shaded too.
+	// Under a storm the gaps are filled with thick cloud, so the depth has a high floor, and the lumps still vary the shade within it.
+	float depth = saturate((field - threshold) / lerp(0.35, 0.2, storm));
+	if (layer == 0)
+		depth = lerp(depth, 0.6 + 0.4 * depth, storm);
+
+	// The thickest cloud has light grey bases in sparse cloud, mid grey bases at half cover, and dark grey bases in a storm.
 	// Higher layers are thinner, so they darken less than the low layer.
-	float darkening = layer == 0 ? 1.0 : layer == 1 ? 0.5 : 0.15;
-	float2 to_sun = sun_dir.xy * 0.2;
-	float shadow = saturate((CloudFbm(p + float3(to_sun, 0), 0, min(last, 2.0), false, seed) - threshold) / softness * 0.3);
-	float depth = darkening * (shape.z * lerp(0.8, 3.0, saturate(sun_dir.z * 2.0)) + 1.5 * shadow) + 2.0 * storm;
-	float sunlit = exp(-depth);
+	float darkening = layer == 0 ? 1.0 : layer == 1 ? 0.6 : 0.25;
+	float dark_max = lerp(lerp(0.25, 0.55, build), 0.85, storm) * darkening;
+	float grey = 1.0 - dark_max * smoothstep(0.0, 1.0, depth);
 
-	// Bulges that face the sun catch more light than those facing away, and creases between bulges are shaded from the sky.
-	// Both use the unclamped thickness with only the coarse detail, so the whole base has broad, soft shading rather than fine streaks.
-	float lighting_detail = min(last, 2.0);
-	float4 coarse = heaped ? CloudShape(p, lighting_detail, threshold, softness, true, seed) : shape;
-	float sunward = heaped ? CloudShape(p + float3(sun_dir.xy * 0.15, 0), lighting_detail, threshold, softness, true, seed).y : coarse.y;
-	float bump = clamp(1.0 + 1.5 * (coarse.y - sunward), 0.5, 1.5);
-	float crease = heaped ? lerp(0.7, 1.15, saturate((coarse.w - 0.6) / 0.35)) : 1.0;
+	// Sides facing the sun are brighter than sides facing away. Compare the cloud here with the cloud a short way toward the sun.
+	float2 to_sun = float2(dot(sun_dir.xy, wind_dir), dot(sun_dir.xy, wind_perp)) * 0.02;
+	float4 n1s = g_cloud_noise.SampleLevel(g_noise_sampler, uv1 + to_sun, lod);
+	float field_sunward = 0.5 + 0.72 * (n1s.r + n2.g - 1.0) + lump_scale * (n1s.b + n2.a - 1.0);
+	float facing = clamp(1.0 - 2.0 * (field_sunward - field), 0.75, 1.25);
 
-	// Thin cloud near the sun glows from light scattered forward through it (silver lining).
+	// Thin cloud near the sun glows from light scattered forward through it (silver lining). Storm cloud lets little direct sunlight through.
 	float cos_sun = dot(dir, sun_dir);
-	float phase = 0.6 + 3.0 * pow(saturate(cos_sun), 10.0) * exp(-2.0 * shape.y);
-
-	// Sky light reaches thin cloud from all sides but is blocked inside large clouds. Storm cloud absorbs more.
-	float albedo = layer == 0 ? lerp(1.0, 0.3, storm) : lerp(1.0, 0.6, storm);
-	float3 radiance = albedo * crease * (sun_light * sunlit * bump * phase * 0.6 + ambient * lerp(0.4, 0.15, shape.z * darkening));
+	float phase = 1.0 + 2.0 * pow(saturate(cos_sun), 8.0) * (1.0 - coverage);
+	float sunlit = lerp(1.0, 0.35, storm * darkening);
+	float3 radiance = grey * (sun_light * (0.65 * sunlit * phase * facing) + ambient * 0.9) * lerp(1.0, 0.85, storm * darkening);
 
 	// Denser cloud, and longer paths where the ray grazes the layer, are more opaque. Squaring the opacity softens the edges.
-	float thickness = layer == 0 ? 6.0 : layer == 1 ? 3.0 : 0.8;
+	// Sparse cloud is thinner, so it is partly translucent.
+	float thickness = (layer == 0 ? 6.0 : layer == 1 ? 3.0 : 0.8) * lerp(0.5, 1.0, build);
 	float path = 1.0 + min(0.3 / mu, 3.0);
-	float alpha = 1.0 - exp(-shape.x * shape.x * thickness * path);
+	float alpha = 1.0 - exp(-coverage * coverage * thickness * path);
 
 	// Distant cloud fades into the air in front of it, which is dim under a storm.
 	float fog = 1.0 - exp(-t / 70000.0);
@@ -358,11 +271,11 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 // The full procedural sky along 'dir' from 'cam' (both in the atmosphere frame). Returns linear colour in [0,1].
 float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle)
 {
-	// Sky radiance, lit by the sun above the atmosphere.
+	// Sky radiance, lit by the sun above the atmosphere. 'haze' is the air without the sun disc, which distant clouds fade into.
 	float3 sun_dir = g_sky.sun_direction.xyz;
 	float3 sun_top = g_sky.sun_colour.rgb * g_sky.sun_intensity * SkyExposure;
-	float3 sky = AtmosphericSky(dir, sun_dir, sun_top);
 	float3 haze = SkyRadiance(dir, sun_dir, sun_top);
+	float3 sky = AtmosphericSky(haze, dir, sun_dir, sun_top);
 
 	// Stars fade in at dusk and fade out near the horizon where the air is thick.
 	float star_visibility = smoothstep(0.05, -0.12, sun_dir.z) * saturate(dir.z * 5.0);
@@ -371,7 +284,7 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle)
 
 	// Under heavy cloud little sunlight reaches the air below it, so the clear air seen toward the horizon and below it is dim and grey.
 	float heavy = smoothstep(0.6, 1.0, WeatherCover(cam.xy));
-	float gloom = lerp(1.0, 0.35, heavy);
+	float gloom = lerp(1.0, 0.17, heavy);
 	sky = lerp(sky, Luminance(sky) * float3(0.85, 0.88, 0.92), 0.7 * heavy) * gloom;
 	haze = lerp(haze, Luminance(haze) * float3(0.85, 0.88, 0.92), 0.7 * heavy) * gloom;
 	if (dir.z > 0)
@@ -379,9 +292,9 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle)
 		// Sunlight at the clouds is reddened by its path through the atmosphere. Clouds keep a little light just after sunset.
 		float3 sun_light = sun_top * SunTransmittance(sun_dir.z, 0.8) * saturate(sun_dir.z * 15.0 + 1.0);
 
-		// Cloud bases are lit by the sky overhead and the horizon in the same direction, which is warm toward a setting sun.
-		float3 horizon_dir = normalize(float3(normalize(dir.xy + float2(1e-4, 0)), 0.1));
-		float3 ambient = 0.5 * (SkyRadiance(float3(0, 0, 1), sun_dir, sun_top) + SkyRadiance(horizon_dir, sun_dir, sun_top));
+		// Cloud bases are lit by the sky overhead and the air in the same direction, which is warm toward a setting sun.
+		// Sky light is mostly grey in effect, because it arrives from all over the sky.
+		float3 ambient = 0.5 * (SkyRadiance(float3(0, 0, 1), sun_dir, sun_top) * gloom + haze);
 		ambient = lerp(ambient, Luminance(ambient), 0.5 + 0.35 * heavy);
 
 		// Composite from the highest layer down, because the lowest layer is nearest to an observer below the clouds.
@@ -395,6 +308,7 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle)
 	// Compress the radiance into display range; bright areas roll off smoothly instead of clipping.
 	return 1.0 - exp(-sky);
 }
+
 // Vertex shader: derive world directions independently of camera translation and object transforms.
 PSIn VSProceduralSky(VSIn In)
 {

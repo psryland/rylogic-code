@@ -178,6 +178,9 @@ namespace view3d_test
 		constexpr float StormEdge = 15000.0f;
 		constexpr float StormCrossingTime = 90.0f;
 
+		// The minimum time (in seconds) between reflection captures while the sky animates. Reflections change slowly, so a few updates per second are enough.
+		constexpr double RecapturePeriod = 0.25;
+
 		// Cube map and procedural skyboxes, with environment map reflections on a row of spheres
 		struct SkyboxDemo :IDemo
 		{
@@ -198,6 +201,7 @@ namespace view3d_test
 			float m_wind_direction;
 			float m_storm_progress;
 			double m_time;
+			double m_since_capture;
 			bool m_storm_front;
 			bool m_reflections;
 			bool m_recapture;
@@ -220,6 +224,7 @@ namespace view3d_test
 				, m_wind_direction(45.0f)
 				, m_storm_progress(0.0f)
 				, m_time(0.0)
+				, m_since_capture(0.0)
 				, m_storm_front(false)
 				, m_reflections(true)
 				, m_recapture(false)
@@ -324,6 +329,11 @@ namespace view3d_test
 			// Animate the clouds, then recapture the procedural sky's reflections at most once per frame
 			void Step(double dt) override
 			{
+				// A recapture requested by a UI change since the last frame is shown immediately, while animation only refreshes it periodically.
+				// Capturing six cube faces of the sky every frame would cost far more than drawing the sky itself.
+				auto capture_now = m_recapture;
+				m_since_capture += dt;
+
 				// The sky integrates the wind over the change in time, and the storm band advances across the weather map, wrapping around
 				m_time += dt;
 				if (m_storm_front)
@@ -335,10 +345,13 @@ namespace view3d_test
 					UpdateSun();
 
 				// Spheres are hidden during the capture so they do not appear in their own reflections
-				if (!m_recapture)
+				// Animation requests a recapture every frame, so a request skipped by the period is dropped rather than carried to the next frame
+				auto due = m_recapture && (capture_now || m_since_capture >= RecapturePeriod);
+				m_recapture = false;
+				if (!due)
 					return;
 
-				m_recapture = false;
+				m_since_capture = 0.0;
 				for (auto ball : m_balls)
 					View3D_ObjectVisibilitySet(ball, FALSE, "");
 
@@ -420,9 +433,9 @@ namespace view3d_test
 			// Fill the weather map with the default cover plus some variation, and add the storm band when enabled
 			void RebuildWeather()
 			{
-				// Noise breaks up the uniform cover so the sky has clearer and cloudier regions
+				// Noise breaks up the uniform cover so the sky has clearer and cloudier regions. Its amplitude is limited by the cover so a clear sky stays clear.
 				View3D_WeatherMapFill(m_weather.get(), m_cloud_cover);
-				View3D_WeatherMapAddNoise(m_weather.get(), 15000.0f, 0.15f, 1234);
+				View3D_WeatherMapAddNoise(m_weather.get(), 15000.0f, std::min(0.15f, m_cloud_cover), 1234);
 
 				// The storm band travels downwind from beyond one edge of the map to beyond the other. The leading front darkens everything
 				// upwind of it, and the trailing front restores the default cover upwind of the band.

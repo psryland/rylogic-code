@@ -14,19 +14,25 @@ namespace pr::rdr12::sky
 	using namespace pr::hlsl;
 #endif
 
-// Cloud layer parameters shared by the CPU and the shader: (altitude, noise feature size x, noise feature size y, wind speed multiplier).
-// Altitudes and feature sizes are in world units (assumed metres). Lower layers move faster to give parallax.
-#define PR_SKY_CLOUD_LAYER0 1500.0f, 2400.0f, 2400.0f, 1.00f
-#define PR_SKY_CLOUD_LAYER1 4000.0f, 1100.0f, 1100.0f, 0.60f
-#define PR_SKY_CLOUD_LAYER2 9000.0f, 9000.0f, 1800.0f, 0.35f
+// Cloud layer parameters shared by the CPU and the shader: (altitude, noise tile size along the wind, noise tile size across the wind, wind speed multiplier).
+// Altitudes and tile sizes are in world units (assumed metres). One tile of the cloud noise texture spans about eight cloud masses.
+// Longer tiles along the wind stretch the clouds into streaks that follow it: strongly for cirrus, moderately for mid-level cloud, slightly for cumulus.
+// Lower layers move faster to give parallax.
+#define PR_SKY_CLOUD_LAYER0 1500.0f, 22000.0f, 18000.0f, 1.00f
+#define PR_SKY_CLOUD_LAYER1 4000.0f, 14000.0f, 6000.0f, 0.60f
+#define PR_SKY_CLOUD_LAYER2 9000.0f, 72000.0f, 14400.0f, 0.35f
 
-// Cloud noise repeats every PR_SKY_CLOUD_PERIOD feature sizes, so the CPU wraps layer offsets at this period without visible jumps.
-#define PR_SKY_CLOUD_PERIOD 128
+// The width and height, in texels, of the tileable cloud noise texture.
+#define PR_SKY_CLOUD_NOISE_SIZE 512
 
-// Cloud shapes change along a third noise axis. That axis repeats every PR_SKY_CLOUD_EVOLVE_PERIOD units, so the CPU wraps the
-// evolution phase at this period. PR_SKY_CLOUD_EVOLVE_RATE is the change rate (units per second) in still air; wind adds to it.
-#define PR_SKY_CLOUD_EVOLVE_PERIOD 32
-#define PR_SKY_CLOUD_EVOLVE_RATE 0.01f
+// Layer offsets are in noise tiles. The shader samples the noise at whole-number multiples and quarter fractions of the offset, so all samples
+// repeat after PR_SKY_CLOUD_PERIOD tiles, and the CPU wraps the offsets at this period without visible jumps.
+#define PR_SKY_CLOUD_PERIOD 4
+
+// Cloud shapes change as a second noise sample drifts across the first. The drift repeats every PR_SKY_CLOUD_EVOLVE_PERIOD units, so the CPU
+// wraps the evolution phase at this period. PR_SKY_CLOUD_EVOLVE_RATE is the change rate (units per second) in still air; wind adds to it.
+#define PR_SKY_CLOUD_EVOLVE_PERIOD 2
+#define PR_SKY_CLOUD_EVOLVE_RATE 0.0003f
 
 // The CPU wraps the time it passes to the shader at this period (seconds). Time-based effects must repeat exactly over this period.
 #define PR_SKY_TIME_PERIOD 60.0f
@@ -53,13 +59,14 @@ struct CBufProceduralSky //:reg(b3)
 	float cloud_cover;
 	float time;
 
-	// Cloud layer offsets in noise space (feature sizes), in [0, PR_SKY_CLOUD_PERIOD). Layer 0 = xy, layer 1 = zw.
+	// Cloud layer offsets in noise tiles, in [0, PR_SKY_CLOUD_PERIOD). Layer 0 = xy, layer 1 = zw.
 	float4 cloud_offset01;
 
-	// Layer 2 offset in noise space, and nonzero when a weather map is bound.
+	// Layer 2 offset in noise tiles, nonzero when a weather map is bound, and the direction the wind blows toward
+	// (radians, counter-clockwise from the atmosphere frame's +X axis).
 	float2 cloud_offset2;
 	float has_weather;
-	float pad0;
+	float wind_direction;
 
 	// Cloud evolution phase per layer (xyz) in [0, PR_SKY_CLOUD_EVOLVE_PERIOD).
 	float4 cloud_evolve;
