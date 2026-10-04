@@ -33,6 +33,9 @@ namespace pr::rdr12
 
 		// Absolute time in seconds. Clouds move by the wind over the change in time since the previous update, so wind changes never make the clouds jump.
 		double m_time = 0.0;
+
+		// Bit mask of cloud layers to hide: bit i hides layer i (0 = low, 1 = mid, 2 = cirrus). Zero shows all layers.
+		uint32_t m_hidden_cloud_layers = 0;
 	};
 
 	// Owns a Z-up atmospheric sky with an optional retained cubemap. Create, update and release on the renderer owner thread.

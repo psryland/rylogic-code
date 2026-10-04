@@ -628,6 +628,7 @@ namespace pr
 		// 'm_cloud_cover' in [0,1] is the default cover (0 = clear, 0.5 = scattered white cloud, 1 = dark overcast), used where no weather map applies.
 		// 'm_wind_speed' (>= 0, world units per second) and 'm_wind_direction' (radians from +X toward +Y) move the clouds; lower layers move faster.
 		// 'm_time' is the caller's absolute time in seconds; clouds advance by the change in time between updates, and time may not go backwards.
+		// 'm_hidden_cloud_layers' is a bit mask: bit i hides cloud layer i (0 = low, 1 = mid, 2 = cirrus). Zero shows all layers.
 		struct ProceduralSkySettings
 		{
 			Vec4 m_sun_direction = { 0.5f, 0.3f, 0.8f, 0.0f };
@@ -637,6 +638,7 @@ namespace pr
 			float m_wind_speed = 0.0f;
 			float m_wind_direction = 0.0f;
 			double m_time = 0.0;
+			uint32_t m_hidden_cloud_layers = 0;
 		};
 
 		// Whole-screen underwater post effect. Colours are sRGB ARGB; alpha is ignored.

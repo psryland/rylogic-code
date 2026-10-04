@@ -172,7 +172,7 @@ namespace pr::rdr12
 				.world_to_cube = m4x4::Identity(),
 			}
 		{
-			static_assert(sizeof(m_cbuf) == 240);
+			static_assert(sizeof(m_cbuf) == 256);
 			m_code.VS = shader_code::procedural_sky_vs;
 			m_code.PS = shader_code::procedural_sky_ps;
 
@@ -326,6 +326,7 @@ namespace pr::rdr12
 		m_shader->m_cbuf.cloud_offset2 = m_cloud_offset[2];
 		m_shader->m_cbuf.wind_direction = s_cast<float>(std::fmod(settings.m_wind_direction, constants<double>::tau));
 		m_shader->m_cbuf.cloud_evolve = v4(m_cloud_evolve[0], m_cloud_evolve[1], m_cloud_evolve[2], 0);
+		m_shader->m_cbuf.hidden_cloud_layers = settings.m_hidden_cloud_layers;
 	}
 
 	// Retain the weather map; the shader reads its area and texture each frame.

@@ -2324,6 +2324,7 @@ static rdr12::ProceduralSkySettings ToSkySettings(view3d::ProceduralSkySettings 
 		.m_wind_speed = s.m_wind_speed,
 		.m_wind_direction = s.m_wind_direction,
 		.m_time = s.m_time,
+		.m_hidden_cloud_layers = s.m_hidden_cloud_layers,
 	};
 }
 

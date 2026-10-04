@@ -74,6 +74,12 @@ struct CBufProceduralSky //:reg(b3)
 	// Weather map area in the atmosphere frame: xy = area minimum, zw = 1 / area size.
 	float4 weather_area;
 
+	// Bit i hides cloud layer i. The padding keeps the following matrices 16-byte aligned.
+	uint hidden_cloud_layers;
+	uint pad0;
+	uint pad1;
+	uint pad2;
+
 	// Direction transforms from the current scene frame into the atmosphere and source cube frames.
 	row_major float4x4 world_to_sky;
 	row_major float4x4 world_to_cube;

@@ -31,6 +31,9 @@ public sealed partial class View3d
 		/// <summary>Absolute time in seconds. Clouds advance by the change in time between updates; time may not go backwards.</summary>
 		public double Time;
 
+		/// <summary>Bit mask of cloud layers to hide: bit i hides layer i (0 = low, 1 = mid, 2 = cirrus). Zero shows all layers.</summary>
+		public uint HiddenCloudLayers;
+
 		/// <summary>Default settings: a clear midday sky with no wind.</summary>
 		public static ProceduralSkySettings Default
 		{

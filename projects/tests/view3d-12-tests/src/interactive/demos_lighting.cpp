@@ -202,6 +202,7 @@ namespace view3d_test
 			float m_storm_progress;
 			double m_time;
 			double m_since_capture;
+			uint32_t m_hidden_cloud_layers;
 			bool m_storm_front;
 			bool m_reflections;
 			bool m_recapture;
@@ -225,6 +226,7 @@ namespace view3d_test
 				, m_storm_progress(0.0f)
 				, m_time(0.0)
 				, m_since_capture(0.0)
+				, m_hidden_cloud_layers(0)
 				, m_storm_front(false)
 				, m_reflections(true)
 				, m_recapture(false)
@@ -319,6 +321,17 @@ namespace view3d_test
 					RebuildWeather();
 					UpdateSun();
 				});
+
+				// Each cloud layer can be hidden, to see which layer a feature belongs to
+				wchar_t const* layer_names[] = { L"Low cloud layer", L"Mid cloud layer", L"Cirrus layer" };
+				for (int i = 0; i != 3; ++i)
+				{
+					ui.AddCheckBox(layer_names[i], true, [this, i](bool on)
+					{
+						m_hidden_cloud_layers = on ? (m_hidden_cloud_layers & ~(1u << i)) : (m_hidden_cloud_layers | (1u << i));
+						UpdateSun();
+					});
+				}
 			}
 			~SkyboxDemo()
 			{
@@ -427,6 +440,7 @@ namespace view3d_test
 					.m_wind_speed = m_wind_speed,
 					.m_wind_direction = m_wind_direction * constants<float>::tau / 360.0f,
 					.m_time = m_time,
+					.m_hidden_cloud_layers = m_hidden_cloud_layers,
 				};
 			}
 

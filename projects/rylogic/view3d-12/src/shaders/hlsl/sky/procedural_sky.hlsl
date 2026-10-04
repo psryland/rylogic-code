@@ -212,10 +212,10 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 	float mu = max((b + t) / radius, 0.02);
 
 	// Cover comes from the weather at the hit point, adjusted per layer so higher layers appear at lower cover
-	// and thin out before the low layer closes over. Zero cover is always clear sky.
+	// and thin out before the low layer closes over. Zero cover is always clear sky. Cirrus grows with cover up to 0.25, then stays light.
 	float cover = WeatherCover(hit.xy);
 	float storm = smoothstep(0.7, 1.0, cover);
-	float layer_cover = layer == 0 ? cover : layer == 1 ? saturate(cover * 1.2 - 0.2) : saturate(cover * 2.5) * 0.6;
+	float layer_cover = layer == 0 ? cover : layer == 1 ? saturate(cover * 1.2 - 0.2) : min(cover * 1.5, 0.375);
 	if (layer_cover <= 0)
 		return 0;
 
@@ -238,9 +238,9 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 	// Threshold the noise by cover: none at 0, about half the sky at 0.5, and all of it at 1. Storms fill in the gaps.
 	// At mid cover the threshold is near the middle of the noise, so every small wiggle would cross it and scatter many small clouds.
 	// Grouping is strongest there, so low and mid-level clouds gather into large masses with wide gaps. Cirrus keeps light grouping.
-	float cluster = g_cloud_noise.SampleLevel(g_noise_sampler, uv1 * 0.25, max(lod - 2.0, 4.0)).g;
-	float mid_cover = layer == 2 ? 0.0 : smoothstep(0.1, 0.3, cover) * (1.0 - smoothstep(0.55, 0.8, cover));
-	float threshold = lerp(0.85, 0.15, layer_cover) + lerp(0.3, 0.8, mid_cover) * (0.5 - cluster) * (1.0 - storm);
+	float cluster = g_cloud_noise.SampleLevel(g_noise_sampler, uv1 * 0.18, max(lod - 2.5, 4.0)).g;
+	float mid_cover = layer == 2 ? 0.0 : smoothstep(0.1, 0.35, cover) * (1.0 - smoothstep(0.55, 0.8, cover));
+	float threshold = lerp(0.85, 0.15, layer_cover) + lerp(0.3, 1.3, mid_cover) * (0.5 - cluster) * (1.0 - storm);
 
 	// Masses come from the broad noise; lumps add rounded bulges to cumulus, and only slight texture to cirrus.
 	// Both samples are averaged, so they are rescaled to keep the spread of a single sample.
@@ -398,6 +398,10 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle)
 		// Composite from the highest layer down, because the lowest layer is nearest to an observer below the clouds.
 		[unroll] for (int layer = 2; layer >= 0; --layer)
 		{
+			// Hidden layers are skipped entirely.
+			if ((g_sky.hidden_cloud_layers >> layer) & 1)
+				continue;
+
 			float4 cloud = CloudLayer(layer, cam, dir, pixel_angle, sun_dir, sun_light, ambient, haze);
 			sky = sky * (1.0 - cloud.a) + cloud.rgb;
 		}
