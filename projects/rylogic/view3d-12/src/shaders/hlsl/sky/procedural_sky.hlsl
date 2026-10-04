@@ -93,6 +93,12 @@ float3 SkyRadiance(float3 view_dir, float3 sun_dir, float3 sun_light)
 	float in_shadow = (1.0 - smoothstep(shadow_top - 0.01, shadow_top + 0.04, view_z)) * smoothstep(0.3, -0.5, c);
 	radiance = lerp(radiance, Luminance(radiance) * float3(0.55, 0.6, 0.85) * 0.35, in_shadow);
 
+	// At dusk the sky darkens quickly to a deep blue, before the sun has set. Only the low sky around the sun keeps its bright orange glow.
+	float dusk = smoothstep(0.17, 0.0, sun_dir.z);
+	float glow = pow(saturate(toward), 6.0) * pow(1.0 - view_z, 3.0);
+	float3 deep_blue = Luminance(radiance) * float3(0.45, 0.62, 1.0);
+	radiance = lerp(radiance, lerp(deep_blue * 0.3, radiance, glow), dusk);
+
 	// Fade to night as the sun sets below the horizon, leaving a faint blue night sky.
 	float day = saturate(sun_dir.z * 12.0 + 1.0);
 	return radiance * day * day + float3(0.002, 0.003, 0.006);
@@ -265,7 +271,7 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 
 	// A sun just above the horizon shines under the clouds. Their bases, which are usually the shaded side, are then lit in sunset colours.
 	// Storm decks block the low sun, so they stay shaded.
-	float under_lit = smoothstep(0.12, 0.02, sun_dir.z) * smoothstep(-0.05, 0.0, sun_dir.z) * (1.0 - storm);
+	float under_lit = smoothstep(0.15, 0.03, sun_dir.z) * smoothstep(-0.05, 0.0, sun_dir.z) * (1.0 - storm);
 	float shade = lerp(depth, 0.2 * depth, under_lit);
 	if (layer == 0)
 	{
@@ -331,9 +337,10 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 		return 0;
 
 	// The thickest cloud has light grey bases in sparse cloud, mid grey bases at half cover, and dark grey bases in a storm.
-	// Higher layers are thinner, so they darken less than the low layer.
+	// Higher layers are thinner, so they darken less than the low layer. When the sun shines from below, the unlit tops are much darker, which gives
+	// strong contrast with the glowing bases.
 	float darkening = layer == 0 ? 1.0 : layer == 1 ? 0.6 : 0.25;
-	float dark_max = lerp(lerp(0.25, 0.55, build), 0.9, storm) * darkening;
+	float dark_max = lerp(lerp(lerp(0.25, 0.55, build), 0.9, storm), 0.85, under_lit) * darkening;
 	float grey = 1.0 - dark_max * smoothstep(0.0, 1.0, shade);
 
 	// Sides facing the sun are brighter than sides facing away. Compare the cloud here with the cloud a short way toward the sun.
@@ -345,8 +352,12 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 	// Thin cloud near the sun glows from light scattered forward through it (silver lining). Storm cloud lets little direct sunlight through.
 	float cos_sun = dot(dir, sun_dir);
 	float phase = 1.0 + 2.0 * pow(saturate(cos_sun), 8.0) * (1.0 - coverage);
-	float sunlit = lerp(1.0, 0.3, storm * darkening);
+	float sunlit = lerp(1.0, 0.3, storm * darkening) + 1.2 * under_lit * (1.0 - shade);
 	float3 radiance = grey * (sun_light * (0.65 * sunlit * phase * facing) + ambient * 0.9) * lerp(1.0, 0.75, storm * darkening);
+
+	// Toward a low sun, the viewer sees the unlit side of the cloud, so thick cloud there is a dark silhouette. Its thin edges still glow.
+	float backlit = pow(saturate(cos_sun), 3.0) * smoothstep(0.25, 0.02, sun_dir.z);
+	radiance *= lerp(1.0, 0.3, backlit * coverage);
 
 	// Denser cloud, and longer paths where the ray grazes the layer, are more opaque. Squaring the opacity softens the edges.
 	// Sparse cloud is thinner, so it is partly translucent.
@@ -375,8 +386,8 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle)
 	float3 haze = SkyRadiance(dir, sun_dir, sun_top);
 	float3 sky = AtmosphericSky(haze, dir, sun_dir, sun_top);
 
-	// Stars fade in at dusk and fade out near the horizon where the air is thick.
-	float star_visibility = smoothstep(0.05, -0.12, sun_dir.z) * saturate(dir.z * 5.0);
+	// Stars appear in the darkening sky before sunset and fade out near the horizon where the air is thick.
+	float star_visibility = smoothstep(0.08, -0.08, sun_dir.z) * saturate(dir.z * 5.0);
 	if (star_visibility > 0)
 		sky += Stars(dir, pixel_angle * 300.0, g_sky.time) * star_visibility;
 
