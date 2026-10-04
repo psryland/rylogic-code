@@ -18,7 +18,8 @@
 //   2. CSVorticity stores the swirl magnitude of the advected field (only when vorticity confinement is enabled).
 //   3. CSForcesHeat applies buoyancy, vorticity confinement, floor exchange, lid relaxation, heat sources, and the open-edge sponge.
 //   4. CSDivergence builds the metric-corrected divergence of the intermediate MAC velocity.
-//   5. CSMgSmooth, CSMgResidual, CSMgRestrict, and CSMgProlongate run the pressure V-cycle; CSMgCoarseSolve smooths the coarsest level in one dispatch.
+//   5. CSMgSmooth, CSMgResidual, CSMgRestrict, and CSMgProlongate run the pressure V-cycle on the large levels; CSMgSmallLevels
+//      runs the rest of the V-cycle, from the first level with at most ATMOSPHERE_FUSED_COLUMNS columns per axis, in one dispatch.
 //   6. CSNormalisePressure removes the closed-domain pressure null space.
 //   7. CSProject subtracts the metric-corrected perturbation-pressure gradient from face velocities.
 //
@@ -44,6 +45,7 @@
 #define ATMOSPHERE_THREAD_Y 8
 #define ATMOSPHERE_THREAD_Z 4
 #define ATMOSPHERE_COARSE_COLUMNS 4 // the coarsest multigrid level has at most this many columns along X and Y
+#define ATMOSPHERE_FUSED_COLUMNS 32 // levels with at most this many columns along X and Y run in one CSMgSmallLevels thread group
 #define ATMOSPHERE_COLUMN_THREAD_X 8 // column kernels run one thread per column, so their groups are flat in Z
 #define ATMOSPHERE_COLUMN_THREAD_Y 8
 #define ATMOSPHERE_MAX_LAYERS 32 // largest supported 'cell_count.z'; sizes the per-thread vertical solve arrays. Must match MaxLayers in atmosphere.cpp
@@ -105,8 +107,10 @@ struct CBufAtmosphere
 	int open_edge_band;             // columns inside each open side over which the inflow outside wind is blended in    @100
 	float vorticity_confinement;    // swirl-restoring strength; the acceleration is this times dx times the swirl rate, 1/s @104
 
-	// Coarse pressure solve (used by CSMgCoarseSolve).
-	int mg_passes;                  // red-black smoothing passes run inside the single coarse-level dispatch          @108
+	// Fused small-level V-cycle (used by CSMgSmallLevels).
+	int mg_passes;                  // red-black smoothing passes on the coarsest level                                @108
+	int mg_pre_smooth;              // red-black smoothing passes on each level before its residual is restricted       @112
+	int mg_post_smooth;             // red-black smoothing passes on each level after the child correction is added     @116
 };
 
 // Root constants shared by tracer kernels. Must match CBufAtmosphereTracers in atmosphere.cpp.
@@ -1173,65 +1177,26 @@ void CSMgSmooth(uint3 dtid : SV_DispatchThreadID)
 	RelaxColumn(level, c);
 }
 
-// Run 'mg_passes' red-black smoothing passes on the coarsest multigrid level in a single thread group.
-// The coarsest level has at most ATMOSPHERE_COARSE_COLUMNS columns along X and Y, so one thread per column fits in one group.
-// A group-wide device memory barrier between colours makes each colour's writes visible before the other colour reads them,
-// which replaces one dispatch and one UAV barrier per colour per pass.
-numthreads(CSMgCoarseSolve, ATMOSPHERE_COARSE_COLUMNS, ATMOSPHERE_COARSE_COLUMNS, 1)
-void CSMgCoarseSolve(uint3 gtid : SV_GroupThreadID)
+// Compute the multigrid residual of cell 'c' on 'level'.
+void ResidualCell(MgLevel level, int3 c)
 {
-	// Every thread must reach each barrier, so threads outside the level skip the work instead of returning.
-	MgLevel level = MgActiveLevel();
-	int2 xy = int2(gtid.xy);
-	bool active = InLevelColumns(level, xy);
-	int colour = (xy.x + xy.y) & 1;
-	for (int pass = 0; pass != g.mg_passes; ++pass)
-	{
-		// Each pass relaxes both colours in order, matching the dispatch-per-colour smoother.
-		for (int phase = 0; phase != 2; ++phase)
-		{
-			// Only columns of the current colour write; the other colour's pressures are read as neighbours.
-			if (active && colour == phase)
-				RelaxColumn(level, xy);
-
-			DeviceMemoryBarrierWithGroupSync();
-		}
-	}
-}
-
-// Compute the multigrid residual on the active level.
-numthreads(CSMgResidual, ATMOSPHERE_THREAD_X, ATMOSPHERE_THREAD_Y, ATMOSPHERE_THREAD_Z)
-void CSMgResidual(uint3 dtid : SV_DispatchThreadID)
-{
-	// Ignore coordinates outside the active multigrid level.
-	MgLevel level = MgActiveLevel();
-	int3 c = int3(dtid);
-	if (!InLevelCells(level, c))
-		return;
-
+	// The residual is the part of the pressure equation that the current pressure does not yet satisfy.
 	int idx = LevelIndex(level, c);
 	g_residual[idx] = -g_divergence[idx] - PressureOperatorLevel(level, c);
 }
 
-// Restrict residuals from the active level into its child level, and clear the child's pressure for a fresh correction.
-// Dispatched over the child level's cells.
-numthreads(CSMgRestrict, ATMOSPHERE_THREAD_X, ATMOSPHERE_THREAD_Y, ATMOSPHERE_THREAD_Z)
-void CSMgRestrict(uint3 dtid : SV_DispatchThreadID)
+// Restrict the residuals of 'level' into cell 'c' of its child level, and clear the child's pressure for a fresh correction.
+void RestrictCell(MgLevel level, int3 c)
 {
-	// Average the valid active-level residuals that overlap this child cell.
-	MgLevel level = MgActiveLevel();
+	// Average the valid residuals of the up-to-four columns that this child cell covers.
 	MgLevel child = MgChildLevel(level);
-	int3 c = int3(dtid);
-	if (!InLevelCells(child, c))
-		return;
-
 	float sum = 0.0f;
 	float weight = 0.0f;
 	for (int oy = 0; oy != 2; ++oy)
 	{
 		for (int ox = 0; ox != 2; ++ox)
 		{
-			// Odd-sized levels have child columns that cover only one active-level column.
+			// Odd-sized levels have child columns that cover only one column along that axis.
 			int3 f = int3(c.x * 2 + ox, c.y * 2 + oy, c.z);
 			if (InLevelColumns(level, f.xy))
 			{
@@ -1245,19 +1210,137 @@ void CSMgRestrict(uint3 dtid : SV_DispatchThreadID)
 	g_pressure[idx] = 0.0f;
 }
 
-// Prolongate child-level pressure corrections back into the active level.
-numthreads(CSMgProlongate, ATMOSPHERE_THREAD_X, ATMOSPHERE_THREAD_Y, ATMOSPHERE_THREAD_Z)
-void CSMgProlongate(uint3 dtid : SV_DispatchThreadID)
+// Add the child-level pressure correction to cell 'c' of 'level'.
+void ProlongateCell(MgLevel level, int3 c)
 {
-	// Add the nearest child correction to this active-level pressure cell.
-	MgLevel level = MgActiveLevel();
+	// Each cell takes the correction of the child cell that covers it.
 	MgLevel child = MgChildLevel(level);
+	int3 cc = int3(min(c.xy / 2, child.size - 1), c.z);
+	g_pressure[LevelIndex(level, c)] += g_pressure[LevelIndex(child, cc)];
+}
+
+// Compute the multigrid residual on the active level.
+numthreads(CSMgResidual, ATMOSPHERE_THREAD_X, ATMOSPHERE_THREAD_Y, ATMOSPHERE_THREAD_Z)
+void CSMgResidual(uint3 dtid : SV_DispatchThreadID)
+{
+	// Ignore coordinates outside the active multigrid level.
+	MgLevel level = MgActiveLevel();
 	int3 c = int3(dtid);
 	if (!InLevelCells(level, c))
 		return;
 
-	int3 cc = int3(min(c.xy / 2, child.size - 1), c.z);
-	g_pressure[LevelIndex(level, c)] += g_pressure[LevelIndex(child, cc)];
+	ResidualCell(level, c);
+}
+
+// Restrict residuals from the active level into its child level. Dispatched over the child level's cells.
+numthreads(CSMgRestrict, ATMOSPHERE_THREAD_X, ATMOSPHERE_THREAD_Y, ATMOSPHERE_THREAD_Z)
+void CSMgRestrict(uint3 dtid : SV_DispatchThreadID)
+{
+	// Ignore coordinates outside the child level.
+	MgLevel level = MgActiveLevel();
+	int3 c = int3(dtid);
+	if (!InLevelCells(MgChildLevel(level), c))
+		return;
+
+	RestrictCell(level, c);
+}
+
+// Prolongate child-level pressure corrections back into the active level.
+numthreads(CSMgProlongate, ATMOSPHERE_THREAD_X, ATMOSPHERE_THREAD_Y, ATMOSPHERE_THREAD_Z)
+void CSMgProlongate(uint3 dtid : SV_DispatchThreadID)
+{
+	// Ignore coordinates outside the active multigrid level.
+	MgLevel level = MgActiveLevel();
+	int3 c = int3(dtid);
+	if (!InLevelCells(level, c))
+		return;
+
+	ProlongateCell(level, c);
+}
+
+// Run 'passes' red-black smoothing passes on 'level' within one thread group, where thread 'xy' owns column 'xy'.
+// Must be called by every thread in the group, because it contains group barriers.
+void GroupSmooth(MgLevel level, int2 xy, int passes)
+{
+	// A group-wide device memory barrier after each colour makes that colour's writes visible before the other colour reads them.
+	bool active = InLevelColumns(level, xy);
+	int colour = (xy.x + xy.y) & 1;
+	for (int pass = 0; pass != passes; ++pass)
+	{
+		// Each pass relaxes both colours in order, matching the dispatch-per-colour smoother.
+		for (int phase = 0; phase != 2; ++phase)
+		{
+			// Only columns of the current colour write; the other colour's pressures are read as neighbours.
+			if (active && colour == phase)
+				RelaxColumn(level, xy);
+
+			DeviceMemoryBarrierWithGroupSync();
+		}
+	}
+}
+
+// Run the remainder of a V-cycle, from the active level down to the coarsest level and back, in a single thread group.
+// The active level has at most ATMOSPHERE_FUSED_COLUMNS columns along X and Y, so each thread owns one column on every level.
+// Small levels have too few columns to fill the GPU, so running them in one group with group barriers replaces many short
+// dispatches and UAV barriers. Uses 'mg_pre_smooth' and 'mg_post_smooth' passes on each level above the coarsest, and
+// 'mg_passes' passes on the coarsest level.
+numthreads(CSMgSmallLevels, ATMOSPHERE_FUSED_COLUMNS, ATMOSPHERE_FUSED_COLUMNS, 1)
+void CSMgSmallLevels(uint3 gtid : SV_GroupThreadID)
+{
+	// Count the levels between the active level and the coarsest level. Every thread must reach each barrier,
+	// so threads outside a level skip its work instead of returning.
+	MgLevel top = MgActiveLevel();
+	int2 xy = int2(gtid.xy);
+	int depth = 0;
+	for (MgLevel l = top; any(l.size > ATMOSPHERE_COARSE_COLUMNS); l = MgChildLevel(l))
+		++depth;
+
+	// Down sweep: smooth each level, then pass its residual to the child level as the child's equation.
+	MgLevel level = top;
+	for (int d = 0; d != depth; ++d)
+	{
+		// Pre-smoothing damps cell-scale errors before the residual is restricted.
+		GroupSmooth(level, xy, g.mg_pre_smooth);
+		if (InLevelColumns(level, xy))
+		{
+			// Each thread computes the residual for its own column.
+			for (int z = 0; z != g.cell_count.z; ++z)
+				ResidualCell(level, int3(xy, z));
+		}
+		DeviceMemoryBarrierWithGroupSync();
+
+		// Restriction reads the residuals of up to four columns, so it waits for the barrier above.
+		MgLevel child = MgChildLevel(level);
+		if (InLevelColumns(child, xy))
+		{
+			// Each thread restricts into its own column of the child level.
+			for (int z = 0; z != g.cell_count.z; ++z)
+				RestrictCell(level, int3(xy, z));
+		}
+		DeviceMemoryBarrierWithGroupSync();
+		level = child;
+	}
+
+	// Smooth the coarsest level many times; it is small enough that this approximates an exact solve.
+	GroupSmooth(level, xy, g.mg_passes);
+
+	// Up sweep: add each child's correction to its parent level, then post-smooth the parent.
+	for (int d = depth - 1; d >= 0; --d)
+	{
+		// Levels store no link to their parent, so walk down from the active level to level 'd'.
+		MgLevel parent = top;
+		for (int i = 0; i != d; ++i)
+			parent = MgChildLevel(parent);
+
+		if (InLevelColumns(parent, xy))
+		{
+			// Each thread corrects its own column.
+			for (int z = 0; z != g.cell_count.z; ++z)
+				ProlongateCell(parent, int3(xy, z));
+		}
+		DeviceMemoryBarrierWithGroupSync();
+		GroupSmooth(parent, xy, g.mg_post_smooth);
+	}
 }
 
 // Remove the closed-domain pressure null space without changing pressure gradients.

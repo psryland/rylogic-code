@@ -19,8 +19,11 @@ namespace pr::physics::atmosphere
 		constexpr auto AtmosphereThreadGroup = iv3{ 8, 8, 4 };
 
 		// Largest column count along X and Y of the coarsest multigrid level. Must match ATMOSPHERE_COARSE_COLUMNS in atmosphere.hlsl,
-		// because the coarse solve runs one thread per coarse column inside a single thread group.
+		// because the fused small-level kernel uses it to find the coarsest level.
 		constexpr auto MgCoarseColumns = 4;
+
+		// Levels with at most this many columns along X and Y run in one fused thread group. Must match ATMOSPHERE_FUSED_COLUMNS in atmosphere.hlsl.
+		constexpr auto MgFusedColumns = 32;
 
 		// Thread group of the column kernels, which run one thread per vertical column. Must match ATMOSPHERE_COLUMN_THREAD_X/Y in atmosphere.hlsl.
 		constexpr auto AtmosphereColumnThreadGroup = iv3{ 8, 8, 1 };
@@ -73,12 +76,14 @@ namespace pr::physics::atmosphere
 			int m_open_edge_band;          // columns over which inflow outside wind is blended in
 			float m_vorticity_confinement; // swirl-restoring strength; zero disables it, 1/s
 
-			// Coarse pressure solve.
-			int m_mg_passes;               // red-black smoothing passes run inside the single coarse-level dispatch
+			// Fused small-level V-cycle.
+			int m_mg_passes;               // red-black smoothing passes on the coarsest level
+			int m_mg_pre_smooth;           // red-black smoothing passes on each level before restriction
+			int m_mg_post_smooth;          // red-black smoothing passes on each level after prolongation
 		};
-		static_assert(sizeof(CBufAtmosphere) == 28 * sizeof(uint32_t));
+		static_assert(sizeof(CBufAtmosphere) == 30 * sizeof(uint32_t));
 		static_assert(offsetof(CBufAtmosphere, m_origin) == 16 && offsetof(CBufAtmosphere, m_source_count) == 72);
-		static_assert(offsetof(CBufAtmosphere, m_mg_size) == 80 && offsetof(CBufAtmosphere, m_mg_phase) == 96 && offsetof(CBufAtmosphere, m_mg_passes) == 108);
+		static_assert(offsetof(CBufAtmosphere, m_mg_size) == 80 && offsetof(CBufAtmosphere, m_mg_phase) == 96 && offsetof(CBufAtmosphere, m_mg_passes) == 108 && offsetof(CBufAtmosphere, m_mg_post_smooth) == 116);
 
 		// Root constants shared by tracer kernels. Must match CBufAtmosphereTracers in atmosphere.hlsl.
 		struct CBufAtmosphereTracers
@@ -477,7 +482,7 @@ namespace pr::physics::atmosphere
 		ComputeStep m_forces_heat;
 		ComputeStep m_divergence;
 		ComputeStep m_mg_smooth;
-		ComputeStep m_mg_coarse_solve;
+		ComputeStep m_mg_small_levels;
 		ComputeStep m_mg_residual;
 		ComputeStep m_mg_restrict;
 		ComputeStep m_mg_prolongate;
@@ -517,7 +522,7 @@ namespace pr::physics::atmosphere
 			, m_forces_heat()
 			, m_divergence()
 			, m_mg_smooth()
-			, m_mg_coarse_solve()
+			, m_mg_small_levels()
 			, m_mg_residual()
 			, m_mg_restrict()
 			, m_mg_prolongate()
@@ -568,7 +573,7 @@ namespace pr::physics::atmosphere
 			m_forces_heat = make_step(L"CSForcesHeat", "ForcesHeat");
 			m_divergence = make_step(L"CSDivergence", "Divergence");
 			m_mg_smooth = make_step(L"CSMgSmooth", "MgSmooth");
-			m_mg_coarse_solve = make_step(L"CSMgCoarseSolve", "MgCoarseSolve");
+			m_mg_small_levels = make_step(L"CSMgSmallLevels", "MgSmallLevels");
 			m_mg_residual = make_step(L"CSMgResidual", "MgResidual");
 			m_mg_restrict = make_step(L"CSMgRestrict", "MgRestrict");
 			m_mg_prolongate = make_step(L"CSMgProlongate", "MgProlongate");
@@ -672,13 +677,15 @@ namespace pr::physics::atmosphere
 		void VCycle(GpuJob& job, CBufAtmosphere cb, int level_index, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS outside_air_buffer)
 		{
 			// Coarse levels receive residual equations; the finest level starts with the physical divergence from the MAC field.
-			auto const coarse = level_index + 1 == isize(m_levels);
-			if (coarse)
+			auto const& level = m_levels[level_index];
+			if (level.m_nx <= MgFusedColumns && level.m_ny <= MgFusedColumns)
 			{
-				// The coarsest level fits in one thread group, so all of its smoothing passes run in one dispatch with group barriers between colours.
+				// Small levels cannot fill the GPU, so the rest of the V-cycle runs in one thread group with group barriers between passes.
 				auto level_cb = LevelConstants(cb, level_index, 0);
 				level_cb.m_mg_passes = m_config.m_pressure_coarse_smooth;
-				BindFields(job, m_mg_coarse_solve, level_cb, src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
+				level_cb.m_mg_pre_smooth = m_config.m_pressure_pre_smooth;
+				level_cb.m_mg_post_smooth = m_config.m_pressure_post_smooth;
+				BindFields(job, m_mg_small_levels, level_cb, src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
 				job.m_cmd_list.Dispatch(1, 1, 1);
 				BarrierFields(job);
 				return;
@@ -773,6 +780,8 @@ namespace pr::physics::atmosphere
 				.m_open_edge_band = m_config.m_open_edge_band,
 				.m_vorticity_confinement = m_config.m_vorticity_confinement,
 				.m_mg_passes = 0,
+				.m_mg_pre_smooth = 0,
+				.m_mg_post_smooth = 0,
 			};
 		}
 
