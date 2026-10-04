@@ -234,11 +234,13 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 	float lump_scale = layer == 2 ? 0.1 : 0.3;
 	float field = CloudFieldFromNoise(n1, n2, lump_scale);
 
-	// Opacity rises over a soft band above the threshold. Cirrus and sparse mid-level cloud have a wide band, so they are wispy;
-	// low cumulus stays puffy. The band narrows as cover grows, so heavy cloud and storm cloud have well defined edges.
+	// Opacity rises over a soft band above the threshold. Cirrus has a wide band, so it is wispy. Low and mid-level cloud are fluffy: their band is
+	// widened, and fine lumpy noise frays their edges. Storm cloud has a narrow band and no fraying, so it has well defined edges.
 	float build = smoothstep(0.2, 0.6, cover);
-	float softness = layer == 2 ? 0.2 : lerp(lerp(layer == 1 ? 0.18 : 0.1, 0.07, build), 0.05, storm);
-	float coverage = saturate((field - threshold) / softness);
+	float fluff = 1.0 - storm;
+	float fray = layer == 2 ? 0.0 : g_cloud_noise.SampleLevel(g_noise_sampler, uv1 * 3.0 + float2(0.21, 0.43), lod + 1.585).b - 0.5;
+	float softness = layer == 2 ? 0.2 : layer == 1 ? lerp(0.18, 0.05, storm) * lerp(1.0, 2.0, fluff) : lerp(lerp(0.1, 0.07, build), 0.05, storm) * lerp(1.0, 3.5, fluff);
+	float coverage = saturate((field - threshold + 0.35 * fray * fluff) / softness);
 
 	// Light reaching the visible base has crossed the cloud above it, so thick cloud is darker than its thin edges.
 	// 'depth' measures how far the field rises above the cloud edge, including the lumps, so bulges and creases are shaded too.
@@ -262,12 +264,16 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 		float2 away = float2(dot(dir.xy, wind_dir), dot(dir.xy, wind_perp));
 		away *= rsqrt(max(dot(away, away), 1e-8));
 
-		// Find where the ray first drops below the cloud top. 'gap' is the ray height above the cloud top, so the side is crossed where it becomes negative.
-		// Interpolating between samples keeps the crossing height continuous, which avoids steps in the shading. The lowest 'gap' sets the soft silhouette.
+		// Find where the ray meets a cloud side. 'gap' is the ray height above the cloud top, so the ray is inside a cloud where it is negative.
+		// Each sample is a soft hit: it is partly opaque over a fluffy, frayed band around the cloud top, and it hides the samples after it.
+		// The hit height is the opacity-weighted crossing height, so it changes smoothly as hits move between samples. A hard first-hit test
+		// would make the height jump between samples, which draws crisp contours across the sides.
+		float band = lerp(0.05, 0.45, fluff) * height;
+		float bias = 0.5 * height * fray * fluff;
 		float z_prev = 0.0;
-		float gap_prev = -height * depth;
-		float z_hit = height;
-		float gap_min = 1e9;
+		float gap_prev = max(-height * (field - threshold) / depth_range, 0.0);
+		float clear = 1.0;
+		float z_sum = 0.0;
 		[unroll] for (int i = 0; i != 3; ++i)
 		{
 			// Each sample is at a fixed fraction of the cloud height, at the distance where the ray reaches that height.
@@ -276,22 +282,20 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 			float2 duv2 = float2(duv1.x + duv1.y, duv1.y - duv1.x);
 			float field_i = CloudField(uv1 + duv1, uv2 + duv2, lod, lump_scale);
 			float gap = z - height * saturate((field_i - threshold) / depth_range);
-			if (gap < 0 && gap_min >= 0)
-				z_hit = lerp(z_prev, z, saturate(gap_prev / (gap_prev - gap)));
 
-			gap_min = min(gap_min, gap);
+			// Interpolate the crossing height between samples, then add this sample's share of the hit.
+			float z_cross = lerp(z_prev, z, saturate(gap_prev / max(gap_prev - min(gap, 0.0), 1e-3)));
+			float hit = saturate((bias - gap) / band) * clear;
+			z_sum += z_cross * hit;
+			clear -= hit;
 			z_prev = z;
-			gap_prev = gap;
+			gap_prev = max(gap, 0.0);
 		}
 
 		// Sides are white at the top and grey at the base. The base is grey, darker under thick cloud. The base hides any side behind it.
 		// When the sun is near the horizon it shines under the cloud, so the gradient inverts: the base is lit and the side tops are in shade.
-		// Edges are fluffy: they fade in over a wide band, and fine lumpy noise frays them. Storm cloud keeps sharper, well defined edges.
-		float fluff = 1.0 - storm;
-		float fray = g_cloud_noise.SampleLevel(g_noise_sampler, uv1 * 3.0 + float2(0.21, 0.43), lod + 1.585).b - 0.5;
-		coverage = saturate((field - threshold + 0.35 * fray * fluff) / (softness * lerp(1.0, 3.5, fluff)));
-		float side = saturate((-gap_min + 0.5 * height * fray * fluff) / (lerp(0.05, 0.45, fluff) * height)) * (1.0 - coverage);
-		float side_height = saturate(z_hit / (0.8 * height));
+		float side = (1.0 - clear) * (1.0 - coverage);
+		float side_height = saturate(z_sum / max(1.0 - clear, 1e-4) / (0.8 * height));
 		float side_shade = lerp(0.85 * (1.0 - side_height), 0.2 + 0.7 * side_height, under_lit);
 		float base_shade = lerp(0.6 + 0.4 * depth, 0.1 * depth, under_lit);
 		float total = coverage + side;
