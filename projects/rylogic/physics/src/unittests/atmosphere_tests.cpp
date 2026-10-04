@@ -223,12 +223,8 @@ namespace pr::physics::tests
 			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTests.SharedGpu", 0xFF00AAFF, 1 };
 			auto const measure = [&](iv3 cells)
 			{
-				// Exclude first-run shader work by constructing the solver and running one warm-up step before timing.
+				// Exclude first-run shader work by constructing the solver and running one warm-up step before timing. The default solver settings are timed.
 				auto config = Config(cells);
-				config.m_pressure_vcycles = 3;
-				config.m_pressure_pre_smooth = 8;
-				config.m_pressure_post_smooth = 8;
-				config.m_pressure_coarse_smooth = 96;
 				auto solver = AtmosphereSolver{ gpu, config };
 				solver.Step(job, 0.025f, AtmosphereStepSources{});
 				job.Run();
@@ -495,7 +491,7 @@ namespace pr::physics::tests
 		// Return the large terrain-following fixture used by the domain-scale tests.
 		static AtmosphereConfig Config(iv3 cells, std::vector<float> floors)
 		{
-			// These tests use a 1/15 s step with the configured V-cycle solver.
+			// These tests use a 1/15 s step with the default V-cycle settings, so they also check that the defaults are good enough for real terrain.
 			return AtmosphereConfig{
 				.m_grid = AtmosphereGrid{ .m_cell_count = cells, .m_origin = v4{ -0.5f * cells.x * 32.0f, -0.5f * cells.y * 32.0f, 0.0f, 1.0f }, .m_dx = 32.0f, .m_lid_z = 1500.0f, .m_first_layer_thickness = 5.0f, .m_layer_stretch_power = 0.58f, .m_floor_heights = std::move(floors) },
 				.m_boundaries = AtmosphereBoundaries{ .m_x_min = EAtmosphereBoundary::Open, .m_x_max = EAtmosphereBoundary::Open, .m_y_min = EAtmosphereBoundary::Open, .m_y_max = EAtmosphereBoundary::Open, .m_z_min = EAtmosphereBoundary::Solid, .m_z_max = EAtmosphereBoundary::Solid },
@@ -504,10 +500,6 @@ namespace pr::physics::tests
 				.m_floor_exchange_rate = 0.0f,
 				.m_lid_temperature = 282.0f,
 				.m_lid_relaxation_rate = 0.0f,
-				.m_pressure_vcycles = 3,
-				.m_pressure_pre_smooth = 12,
-				.m_pressure_post_smooth = 12,
-				.m_pressure_coarse_smooth = 128,
 			};
 		}
 

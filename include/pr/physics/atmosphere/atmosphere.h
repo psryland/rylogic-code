@@ -143,10 +143,13 @@ namespace pr::physics::atmosphere
 		float m_floor_exchange_rate = 0.0f;
 		float m_lid_temperature = 270.0f;
 		float m_lid_relaxation_rate = 0.0f;
-		int m_pressure_vcycles = 3;
-		int m_pressure_pre_smooth = 4;
-		int m_pressure_post_smooth = 4;
-		int m_pressure_coarse_smooth = 96;
+
+		// Pressure solve effort per step. The pressure is warm-started from the previous step, so a few smoothing passes are enough to keep the field stable.
+		// Two V-cycles with two pre- and post-smoothing passes are the smallest settings that remain stable on steep terrain; fewer passes let errors grow.
+		int m_pressure_vcycles = 2;
+		int m_pressure_pre_smooth = 2;
+		int m_pressure_post_smooth = 2;
+		int m_pressure_coarse_smooth = 8;
 
 		// Width, in columns, of the band inside each open side where the wind is nudged toward the inflowing outside air.
 		// The nudge is strongest at the side and fades to zero across the band. Zero applies the outside wind at the boundary faces only.

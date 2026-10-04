@@ -968,10 +968,6 @@ namespace physics_sandbox::scene_loader
 		auto& config = desc.m_config;
 		config.m_grid = physics::atmosphere::AtmosphereGrid{ .m_cell_count = iv3{64, 64, 8}, .m_origin = v4{-640.0f, -640.0f, 0.0f, 1.0f}, .m_dx = 20.0f, .m_lid_z = 400.0f, .m_first_layer_thickness = 8.0f, .m_layer_stretch_power = 0.75f };
 		config.m_reference = physics::atmosphere::AtmosphereReferenceProfile{ .m_temperature_at_origin = 288.0f, .m_lapse_rate = -0.0065f, .m_min_temperature = 220.0f };
-		config.m_pressure_vcycles = 2;
-		config.m_pressure_pre_smooth = 4;
-		config.m_pressure_post_smooth = 4;
-		config.m_pressure_coarse_smooth = 64;
 
 		if (auto const* grid = obj.find("grid"))
 		{
