@@ -474,8 +474,29 @@ namespace pr::physics::atmosphere
 	// Private implementation kept out of the public header so shader plumbing can change without API churn.
 	struct AtmosphereSolver::Impl
 	{
+		// Root parameter indices of the root layout shared by every atmosphere kernel.
+		enum class ERootParam
+		{
+			Constants = 0,
+			FieldsOut = 1,  // u0..u6
+			FieldsIn = 8,   // t0..t7
+		};
+
+		// Buffers a kernel writes, used to emit UAV barriers only where a later kernel can read the result.
+		enum class EFieldWrites
+		{
+			None = 0,
+			Velocity = 1 << 0,
+			Pressure = 1 << 1,
+			Divergence = 1 << 2,
+			Residual = 1 << 3,
+			_flags_enum = 0,
+		};
+
 		Gpu& m_gpu;
 		AtmosphereConfig m_config;
+		D3DPtr<ID3D12RootSignature> m_sig;
+		ID3D12PipelineState* m_bound_pso;
 		ComputeStep m_initialise;
 		ComputeStep m_advect;
 		ComputeStep m_vorticity;
@@ -516,6 +537,8 @@ namespace pr::physics::atmosphere
 		Impl(Gpu& gpu, AtmosphereConfig config, IShaderCache* cache)
 			: m_gpu(gpu)
 			, m_config(std::move(config))
+			, m_sig()
+			, m_bound_pso()
 			, m_initialise()
 			, m_advect()
 			, m_vorticity()
@@ -550,19 +573,21 @@ namespace pr::physics::atmosphere
 				// Runtime compilation matches the other physics GPU modules and uses the embedded resource resolver. The optional cache skips DXC when the source is unchanged.
 				return ShaderCompiler{}.Source("src/atmosphere/atmosphere.hlsl", resolver).Cache(cache).HlslVersion(EHlslVersion::Hlsl2021).Define(L"SHADER_BUILD").Optimise(true).ShaderModel(L"cs_6_6").EntryPoint(entry_point).Compile();
 			};
+
+			// Every kernel shares one root signature so the field views stay bound across pipeline changes within a step. The order must match ERootParam.
+			m_sig = RootSig(ERootSigFlags::ComputeOnly)
+				.U32<CBufAtmosphere>(hlsl::ECBufReg::b0)
+				.UAV(hlsl::EUAVReg::u0).UAV(hlsl::EUAVReg::u1).UAV(hlsl::EUAVReg::u2).UAV(hlsl::EUAVReg::u3).UAV(hlsl::EUAVReg::u4).UAV(hlsl::EUAVReg::u5).UAV(hlsl::EUAVReg::u6)
+				.SRV(hlsl::ESRVReg::t0).SRV(hlsl::ESRVReg::t1).SRV(hlsl::ESRVReg::t2).SRV(hlsl::ESRVReg::t3).SRV(hlsl::ESRVReg::t4).SRV(hlsl::ESRVReg::t5).SRV(hlsl::ESRVReg::t6).SRV(hlsl::ESRVReg::t7)
+				.Create(gpu, "Physics.Atmosphere.RootSig");
 			auto make_step = [&](wchar_t const* entry_point, char const* name)
 			{
-				// Every kernel uses the same root layout so Step can bind buffers consistently.
+				// Each kernel only needs its own pipeline state on top of the shared root signature.
 				auto step = ComputeStep{};
 				auto code = compile(entry_point);
-				auto sig_name = std::format("Physics.Atmosphere.{}.RootSig", name);
 				auto pso_name = std::format("Physics.Atmosphere.{}.PSO", name);
-				step.m_sig = RootSig(ERootSigFlags::ComputeOnly)
-					.U32<CBufAtmosphere>(hlsl::ECBufReg::b0)
-					.UAV(hlsl::EUAVReg::u0).UAV(hlsl::EUAVReg::u1).UAV(hlsl::EUAVReg::u2).UAV(hlsl::EUAVReg::u3).UAV(hlsl::EUAVReg::u4).UAV(hlsl::EUAVReg::u5).UAV(hlsl::EUAVReg::u6)
-					.SRV(hlsl::ESRVReg::t0).SRV(hlsl::ESRVReg::t1).SRV(hlsl::ESRVReg::t2).SRV(hlsl::ESRVReg::t3).SRV(hlsl::ESRVReg::t4).SRV(hlsl::ESRVReg::t5).SRV(hlsl::ESRVReg::t6).SRV(hlsl::ESRVReg::t7)
-					.Create(gpu, sig_name.c_str());
-				step.m_pso = ComputePSO(step.m_sig.get(), code).Create(gpu, pso_name.c_str());
+				step.m_sig = m_sig;
+				step.m_pso = ComputePSO(m_sig.get(), code).Create(gpu, pso_name.c_str());
 				return step;
 			};
 
@@ -645,17 +670,16 @@ namespace pr::physics::atmosphere
 			return cb;
 		}
 
-		// Bind the common root layout and dispatch one kernel over a selected multigrid level.
-		void DispatchLevel(GpuJob& job, ComputeStep& step, CBufAtmosphere const& cb, MgLevel const& level, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS outside_air_buffer)
+		// Dispatch one kernel over a selected multigrid level using the fields bound by BindFields.
+		void DispatchLevel(GpuJob& job, ComputeStep& step, CBufAtmosphere const& cb, MgLevel const& level)
 		{
 			// Multigrid kernels share resources with the main step but use smaller dispatch extents on coarse levels.
 			auto const dispatch = LevelDispatch(level);
-			BindFields(job, step, cb, src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
-			job.m_cmd_list.Dispatch(dispatch.x, dispatch.y, dispatch.z);
+			Run(job, step, cb, dispatch);
 		}
 
 		// Run red-black Gauss-Seidel smoothing on a pressure level.
-		void SmoothLevel(GpuJob& job, CBufAtmosphere cb, int level_index, int passes, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS outside_air_buffer)
+		void SmoothLevel(GpuJob& job, CBufAtmosphere cb, int level_index, int passes)
 		{
 			// Each pass performs both colours so the result is independent of thread order within one colour.
 			// The smoother runs one thread per column of the selected colour, so each row needs only half its columns' threads.
@@ -666,15 +690,14 @@ namespace pr::physics::atmosphere
 				for (int phase = 0; phase != 2; ++phase)
 				{
 					// Each colour reads the other colour's latest pressures, so a barrier separates them.
-					BindFields(job, m_mg_smooth, LevelConstants(cb, level_index, phase), src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
-					job.m_cmd_list.Dispatch(dispatch.x, dispatch.y, dispatch.z);
-					BarrierFields(job);
+					Run(job, m_mg_smooth, LevelConstants(cb, level_index, phase), dispatch);
+					Barrier(job, EFieldWrites::Pressure);
 				}
 			}
 		}
 
 		// Run one recursive multigrid V-cycle from 'level_index'.
-		void VCycle(GpuJob& job, CBufAtmosphere cb, int level_index, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS outside_air_buffer)
+		void VCycle(GpuJob& job, CBufAtmosphere cb, int level_index)
 		{
 			// Coarse levels receive residual equations; the finest level starts with the physical divergence from the MAC field.
 			auto const& level = m_levels[level_index];
@@ -685,24 +708,23 @@ namespace pr::physics::atmosphere
 				level_cb.m_mg_passes = m_config.m_pressure_coarse_smooth;
 				level_cb.m_mg_pre_smooth = m_config.m_pressure_pre_smooth;
 				level_cb.m_mg_post_smooth = m_config.m_pressure_post_smooth;
-				BindFields(job, m_mg_small_levels, level_cb, src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
-				job.m_cmd_list.Dispatch(1, 1, 1);
-				BarrierFields(job);
+				Run(job, m_mg_small_levels, level_cb, iv3{ 1, 1, 1 });
+				Barrier(job, EFieldWrites::Pressure | EFieldWrites::Residual | EFieldWrites::Divergence);
 				return;
 			}
 
 			// Pre-smoothing damps cell-scale errors before residual restriction.
-			SmoothLevel(job, cb, level_index, m_config.m_pressure_pre_smooth, src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
-			DispatchLevel(job, m_mg_residual, LevelConstants(cb, level_index, 0), m_levels[level_index], src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
-			BarrierFields(job);
-			DispatchLevel(job, m_mg_restrict, LevelConstants(cb, level_index, 0), m_levels[level_index + 1], src, dst, floor_temp_buffer, source_buffer, outside_air_buffer); // dispatched over the child level's cells
-			BarrierFields(job);
+			SmoothLevel(job, cb, level_index, m_config.m_pressure_pre_smooth);
+			DispatchLevel(job, m_mg_residual, LevelConstants(cb, level_index, 0), m_levels[level_index]);
+			Barrier(job, EFieldWrites::Residual);
+			DispatchLevel(job, m_mg_restrict, LevelConstants(cb, level_index, 0), m_levels[level_index + 1]); // dispatched over the child level's cells
+			Barrier(job, EFieldWrites::Divergence | EFieldWrites::Pressure);
 
 			// The coarse correction removes long wavelengths that local smoothing cannot reach on large grids.
-			VCycle(job, cb, level_index + 1, src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
-			DispatchLevel(job, m_mg_prolongate, LevelConstants(cb, level_index, 0), m_levels[level_index], src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
-			BarrierFields(job);
-			SmoothLevel(job, cb, level_index, m_config.m_pressure_post_smooth, src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
+			VCycle(job, cb, level_index + 1);
+			DispatchLevel(job, m_mg_prolongate, LevelConstants(cb, level_index, 0), m_levels[level_index]);
+			Barrier(job, EFieldWrites::Pressure);
+			SmoothLevel(job, cb, level_index, m_config.m_pressure_post_smooth);
 		}
 
 		// Create all persistent buffers.
@@ -785,10 +807,12 @@ namespace pr::physics::atmosphere
 			};
 		}
 
-		// Transition the fields into the states the common root layout requires, then bind 'step' and its resources.
-		void BindFields(GpuJob& job, ComputeStep& step, CBufAtmosphere const& cb, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS outside_air_buffer)
+		// Transition the ping-pong fields for one 'src'/'dst' arrangement and bind the shared root signature and every field view.
+		// Field views stay bound until the next call, so call this only when the arrangement changes. Run then only changes the pipeline and constants.
+		void BindFields(GpuJob& job, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS outside_air_buffer)
 		{
 			// The ping-pong fields default to UAV state but 'src' is bound as root SRVs. The barrier batch tracks the current state so repeated transitions are dropped.
+			// A UAV-to-SRV transition also orders the previous kernel's writes before the next kernel's reads, so velocity writes need no separate UAV barrier.
 			assert(src != dst && "Ping-pong fields cannot be bound as both input and output");
 			job.m_barriers
 				.Transition(m_u[dst].get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
@@ -802,48 +826,81 @@ namespace pr::physics::atmosphere
 				.Commit();
 
 			// Root descriptors use GPU virtual addresses, so no descriptor heap pressure is added by the solver.
-			job.m_cmd_list.SetPipelineState(step.m_pso.get());
-			job.m_cmd_list.SetComputeRootSignature(step.m_sig.get());
-			job.m_cmd_list.AddComputeRoot32BitConstants(cb);
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_u[dst]->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_v[dst]->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_w[dst]->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_temperature[dst]->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_pressure->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_divergence_buffer->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootUnorderedAccessView(m_residual_buffer->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(m_u[src]->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(m_v[src]->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(m_w[src]->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(m_temperature[src]->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(floor_temp_buffer);
-			job.m_cmd_list.AddComputeRootShaderResourceView(source_buffer);
-			job.m_cmd_list.AddComputeRootShaderResourceView(m_floor_height->GetGPUVirtualAddress());
-			job.m_cmd_list.AddComputeRootShaderResourceView(outside_air_buffer);
+			// Setting the root signature clears all root arguments, so the constants are left for Run to set.
+			auto const uav = [&](int i, ID3D12Resource* res)
+			{
+				// UAV root parameters follow the constants in register order.
+				job.m_cmd_list.SetComputeRootUnorderedAccessView(s_cast<int>(ERootParam::FieldsOut) + i, res->GetGPUVirtualAddress());
+			};
+			auto const srv = [&](int i, D3D12_GPU_VIRTUAL_ADDRESS address)
+			{
+				// SRV root parameters follow the UAVs in register order.
+				job.m_cmd_list.SetComputeRootShaderResourceView(s_cast<int>(ERootParam::FieldsIn) + i, address);
+			};
+			job.m_cmd_list.SetComputeRootSignature(m_sig.get());
+			uav(0, m_u[dst].get());
+			uav(1, m_v[dst].get());
+			uav(2, m_w[dst].get());
+			uav(3, m_temperature[dst].get());
+			uav(4, m_pressure.get());
+			uav(5, m_divergence_buffer.get());
+			uav(6, m_residual_buffer.get());
+			srv(0, m_u[src]->GetGPUVirtualAddress());
+			srv(1, m_v[src]->GetGPUVirtualAddress());
+			srv(2, m_w[src]->GetGPUVirtualAddress());
+			srv(3, m_temperature[src]->GetGPUVirtualAddress());
+			srv(4, floor_temp_buffer);
+			srv(5, source_buffer);
+			srv(6, m_floor_height->GetGPUVirtualAddress());
+			srv(7, outside_air_buffer);
 		}
 
-		// Bind the common root layout and dispatch one kernel over the full grid.
-		void Dispatch(GpuJob& job, ComputeStep& step, CBufAtmosphere const& cb, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS outside_air_buffer)
+		// Forget the recorded pipeline state. Call before recording into a command list that other code may have used since the last atmosphere dispatch.
+		void ResetBinding()
 		{
-			// Full-grid kernels cover every cell and face.
-			auto const dispatch = DispatchSize();
-			BindFields(job, step, cb, src, dst, floor_temp_buffer, source_buffer, outside_air_buffer);
+			// The next Run then sets its pipeline unconditionally.
+			m_bound_pso = nullptr;
+		}
+
+		// Dispatch 'step' with 'cb' over 'dispatch' thread groups using the fields bound by BindFields.
+		void Run(GpuJob& job, ComputeStep& step, CBufAtmosphere const& cb, iv3 dispatch)
+		{
+			// Consecutive dispatches of the same kernel (for example the smoother passes) only need new constants.
+			if (step.m_pso.get() != m_bound_pso)
+			{
+				job.m_cmd_list.SetPipelineState(step.m_pso.get());
+				m_bound_pso = step.m_pso.get();
+			}
+			job.m_cmd_list.SetComputeRoot32BitConstants(ERootParam::Constants, cb);
 			job.m_cmd_list.Dispatch(dispatch.x, dispatch.y, dispatch.z);
 		}
 
-		// Insert UAV barriers for every field that may be read by the next kernel.
-		void BarrierFields(GpuJob& job)
+		// Dispatch one kernel over the full grid using the fields bound by BindFields.
+		void Dispatch(GpuJob& job, ComputeStep& step, CBufAtmosphere const& cb)
 		{
-			// Conservative barriers keep kernel ordering obvious while the solver is still small.
-			for (auto const& resource : m_u)
-				job.m_barriers.UAV(resource.get());
-			for (auto const& resource : m_v)
-				job.m_barriers.UAV(resource.get());
-			for (auto const& resource : m_w)
-				job.m_barriers.UAV(resource.get());
-			for (auto const& resource : m_temperature)
-				job.m_barriers.UAV(resource.get());
-			job.m_barriers.UAV(m_pressure.get()).UAV(m_divergence_buffer.get()).UAV(m_residual_buffer.get()).Commit();
+			// Full-grid kernels cover every cell and face.
+			Run(job, step, cb, DispatchSize());
+		}
+
+		// Insert UAV barriers for the buffers in 'writes' so the next kernel sees the completed results.
+		void Barrier(GpuJob& job, EFieldWrites writes)
+		{
+			// Velocity barriers cover both ping-pong slots. Inside Step, velocity writes are ordered by the next BindFields transition instead.
+			if (AllSet(writes, EFieldWrites::Velocity))
+			{
+				for (int slot = 0; slot != 2; ++slot)
+					job.m_barriers.UAV(m_u[slot].get()).UAV(m_v[slot].get()).UAV(m_w[slot].get()).UAV(m_temperature[slot].get());
+			}
+			if (AllSet(writes, EFieldWrites::Pressure))
+				job.m_barriers.UAV(m_pressure.get());
+
+			if (AllSet(writes, EFieldWrites::Divergence))
+				job.m_barriers.UAV(m_divergence_buffer.get());
+
+			if (AllSet(writes, EFieldWrites::Residual))
+				job.m_barriers.UAV(m_residual_buffer.get());
+
+			job.m_barriers.Commit();
 		}
 
 		// Reset velocity to zero, pressure to zero, and temperature to the reference profile.
@@ -852,10 +909,14 @@ namespace pr::physics::atmosphere
 			// Both ping-pong buffers are reset so the next Step has no hidden stale state. The initialise kernel does not read 'src'.
 			auto const empty = AtmosphereStepSources{};
 			auto const cb = Constants(0.0f, empty, 0);
-			Dispatch(job, m_initialise, cb, 1, 0,  m_floor_temp_sentinel->GetGPUVirtualAddress(), m_source_sentinel->GetGPUVirtualAddress(), m_outside_air_sentinel->GetGPUVirtualAddress());
-			BarrierFields(job);
-			Dispatch(job, m_initialise, cb, 0, 1, m_floor_temp_sentinel->GetGPUVirtualAddress(), m_source_sentinel->GetGPUVirtualAddress(), m_outside_air_sentinel->GetGPUVirtualAddress());
-			BarrierFields(job);
+			auto const all = EFieldWrites::Velocity | EFieldWrites::Pressure | EFieldWrites::Divergence | EFieldWrites::Residual;
+			ResetBinding();
+			BindFields(job, 1, 0, m_floor_temp_sentinel->GetGPUVirtualAddress(), m_source_sentinel->GetGPUVirtualAddress(), m_outside_air_sentinel->GetGPUVirtualAddress());
+			Dispatch(job, m_initialise, cb);
+			Barrier(job, all);
+			BindFields(job, 0, 1, m_floor_temp_sentinel->GetGPUVirtualAddress(), m_source_sentinel->GetGPUVirtualAddress(), m_outside_air_sentinel->GetGPUVirtualAddress());
+			Dispatch(job, m_initialise, cb);
+			Barrier(job, all);
 			m_current = 0;
 		}
 
@@ -1060,43 +1121,49 @@ namespace pr::physics::atmosphere
 		auto src = m_impl->m_current;
 		auto dst = 1 - src;
 		auto cb = m_impl->Constants(dt, sources, 0);
+		auto& impl = *m_impl;
+		impl.ResetBinding();
 		if (dt != 0.0f)
 		{
 			// A zero-duration step is a pure projection of the caller's MAC field; semi-Lagrangian sampling is intentionally skipped because sampling a terrain-following face at its world position is not an exact identity on sloped columns.
-			m_impl->Dispatch(job, m_impl->m_advect, cb, src, dst, floor_buffer, source_buffer, outside_air_buffer);
-			m_impl->BarrierFields(job);
+			impl.BindFields(job, src, dst, floor_buffer, source_buffer, outside_air_buffer);
+			impl.Dispatch(job, impl.m_advect, cb);
 			src = dst;
 			dst = 1 - src;
-			if (m_impl->m_config.m_vorticity_confinement != 0.0f)
+			impl.BindFields(job, src, dst, floor_buffer, source_buffer, outside_air_buffer);
+			if (impl.m_config.m_vorticity_confinement != 0.0f)
 			{
 				// Store the swirl magnitude of the advected field in the divergence scratch buffer for the forces pass. The divergence pass overwrites it afterwards.
-				m_impl->Dispatch(job, m_impl->m_vorticity, cb, src, dst, floor_buffer, source_buffer, outside_air_buffer);
-				m_impl->BarrierFields(job);
+				impl.Dispatch(job, impl.m_vorticity, cb);
+				impl.Barrier(job, Impl::EFieldWrites::Divergence);
 			}
-			m_impl->Dispatch(job, m_impl->m_forces_heat, cb, src, dst, floor_buffer, source_buffer, outside_air_buffer);
-			m_impl->BarrierFields(job);
+			impl.Dispatch(job, impl.m_forces_heat, cb);
 			src = dst;
 			dst = 1 - src;
 		}
-		m_impl->Dispatch(job, m_impl->m_divergence, cb, src, dst, floor_buffer, source_buffer, outside_air_buffer);
-		m_impl->BarrierFields(job);
-		for (int cycle = 0; cycle != m_impl->m_config.m_pressure_vcycles; ++cycle)
+
+		// The pressure solve and projection all read the same 'src' fields and write 'dst' only in the final projection.
+		impl.BindFields(job, src, dst, floor_buffer, source_buffer, outside_air_buffer);
+		impl.Dispatch(job, impl.m_divergence, cb);
+		impl.Barrier(job, Impl::EFieldWrites::Divergence);
+		for (int cycle = 0; cycle != impl.m_config.m_pressure_vcycles; ++cycle)
 		{
 			// Warm-started V-cycles preserve the previous pressure on the finest level and rebuild coarse corrections from the current residual.
-			m_impl->VCycle(job, cb, 0, src, dst, floor_buffer, source_buffer, outside_air_buffer);
+			impl.VCycle(job, cb, 0);
 		}
-		m_impl->Dispatch(job, m_impl->m_normalise_pressure, cb, src, dst, floor_buffer, source_buffer, outside_air_buffer);
-		m_impl->BarrierFields(job);
-		if (m_impl->m_config.m_boundaries.m_x_min == EAtmosphereBoundary::Solid && m_impl->m_config.m_boundaries.m_x_max == EAtmosphereBoundary::Solid && m_impl->m_config.m_boundaries.m_y_min == EAtmosphereBoundary::Solid && m_impl->m_config.m_boundaries.m_y_max == EAtmosphereBoundary::Solid)
+		impl.Dispatch(job, impl.m_normalise_pressure, cb);
+		impl.Barrier(job, Impl::EFieldWrites::Pressure | Impl::EFieldWrites::Residual);
+		if (impl.m_config.m_boundaries.m_x_min == EAtmosphereBoundary::Solid && impl.m_config.m_boundaries.m_x_max == EAtmosphereBoundary::Solid && impl.m_config.m_boundaries.m_y_min == EAtmosphereBoundary::Solid && impl.m_config.m_boundaries.m_y_max == EAtmosphereBoundary::Solid)
 		{
 			auto normalise_cb = cb;
 			normalise_cb.m_mg_phase = 1;
-			m_impl->Dispatch(job, m_impl->m_normalise_pressure, normalise_cb, src, dst, floor_buffer, source_buffer, outside_air_buffer);
-			m_impl->BarrierFields(job);
+			impl.Dispatch(job, impl.m_normalise_pressure, normalise_cb);
+			impl.Barrier(job, Impl::EFieldWrites::Pressure);
 		}
-		m_impl->Dispatch(job, m_impl->m_project, cb, src, dst, floor_buffer, source_buffer, outside_air_buffer);
-		m_impl->BarrierFields(job);
-		m_impl->m_current = dst;
+
+		// Later readers bind the projected fields as SRVs or copy sources, and that transition orders these writes.
+		impl.Dispatch(job, impl.m_project, cb);
+		impl.m_current = dst;
 	}
 
 	// Read the full staggered field after all previously recorded work in 'job' has completed.
