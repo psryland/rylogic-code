@@ -1,4 +1,4 @@
-﻿//***************************************************************************************************
+//***************************************************************************************************
 // View 3D
 //  Copyright (c) Rylogic Ltd 2009
 //***************************************************************************************************
@@ -150,8 +150,9 @@ namespace pr::gui
 		// Handle window size changing starting or stopping
 		void OnWindowPosChange(WindowPosEventArgs const& args) override
 		{
+			// A panel can collapse to zero area (e.g. while its parent is closing). A back buffer needs a positive size, so keep the old one until the panel has area again.
 			Control::OnWindowPosChange(args);
-			if (!args.m_before && args.IsResize() && !args.Iconic())
+			if (!args.m_before && args.IsResize() && !args.Iconic() && args.m_wp->cx > 0 && args.m_wp->cy > 0)
 				View3D_WindowBackBufferSizeSet(m_win, { args.m_wp->cx, args.m_wp->cy }, FALSE);
 		}
 	};

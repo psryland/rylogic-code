@@ -1154,7 +1154,7 @@ extern "C"
 	VIEW3D_API BOOL __stdcall View3D_PostEffectUnderwaterSet(pr::view3d::Window window, pr::view3d::UnderwaterProps const& props);
 
 	// Get/Set the dimensions of the render target. Note: Not equal to window size for non-96 dpi screens!
-	// In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.
+	// In set, 'width' and 'height' must both be greater than zero. A zero-area window has no back buffer, so callers skip such resizes.
 	VIEW3D_API SIZE __stdcall View3D_WindowBackBufferSizeGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_WindowBackBufferSizeSet(pr::view3d::Window window, SIZE size, BOOL force_recreate);
 

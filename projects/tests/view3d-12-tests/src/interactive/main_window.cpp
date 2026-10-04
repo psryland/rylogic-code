@@ -503,8 +503,9 @@ namespace view3d_test
 		// Move the camera to the default viewing position
 		void ResetCamera()
 		{
-			// Look at the origin from above and to one side, with Z up
+			// Look at the origin from above and to one side, with Z up. Navigation keeps the camera's up axis aligned to Z, so the horizon stays level.
 			View3D_CameraPositionSet(m_view.m_win, { 5, -5, 4, 1 }, { 0, 0, 0, 1 }, { 0, 0, 1, 0 });
+			View3D_CameraAlignAxisSet(m_view.m_win, { 0, 0, 1, 0 });
 		}
 
 		// Show the frame rate, camera position, and camera direction in the status bar
