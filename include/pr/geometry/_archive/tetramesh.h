@@ -30,14 +30,11 @@
 
 #include "pr/common/min_max_fix.h"
 #include "pr/common/assert.h"
-#include "pr/common/profile.h"
-#include "pr/common/profile_manager.h"
 #include "pr/container/vector.h"
 #include "pr/math/math.h"
 
 #define PR_DBG_GEOM_TETRAMESH 0 //PR_DBG
 #define PR_LDR_TETRAMESH 0
-#define PR_PROFILE_TETRAMESH 0
 
 namespace pr
 {
@@ -307,9 +304,6 @@ namespace pr
 		template <typename Pred>
 		tetramesh::Face GetNeighbouringFace(tetramesh::Mesh const& mesh, tetramesh::Face const& face, int i, Pred& pred)
 		{
-			PR_DECLARE_PROFILE(PR_PROFILE_TETRAMESH, GetNbringFace);
-			PR_PROFILE_SCOPE  (PR_PROFILE_TETRAMESH, GetNbringFace);
-
 			tetramesh::Face iter = face;
 			iter.m_i[(i+1)%3]	= face.m_i[(i+2)%3];
 			iter.m_i[(i+2)%3]	= face.m_i[(i+1)%3];

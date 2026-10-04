@@ -4,7 +4,6 @@
 #include "pr/common/fmt.h"
 #include "pr/str/prstring.h"
 #include "pr/filesys/file.h"
-#include "pr/filesys/filesys.h"
 #include "pr/geometry/mesh_tools.h"
 #include "pr/storage/xfile/xfile.h"
 #include "pr/linedrawer/ldr_helper2.h"

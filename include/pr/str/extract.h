@@ -6,9 +6,13 @@
 #include <type_traits>
 #include <charconv>
 #include <cerrno>
+#include <cmath>
 #include "pr/common/number.h"
+#include "pr/common/bit_fields.h"
+#include "pr/macros/enum.h"
 #include "pr/str/string_core.h"
 #include "pr/str/string.h"
+#include "pr/str/string_filter.h"
 
 namespace pr::str
 {
@@ -592,25 +596,24 @@ namespace pr::str
 		int radix = 10;
 		pr::string<Char, 256> str = {};
 		BufferNumber(str, src, radix, ENumType::FP, delim);
-		if (str.empty())
+
+		// Non-finite values. 'BufferNumber' stops at the first letter, so 'str' holds at most the sign.
+		// The keyword must not be followed by identifier characters (e.g. 'nanx' or 'infinity' are not numbers).
+		if (str.empty() || (str.size() == 1 && (str[0] == '+' || str[0] == '-')))
 		{
 			// Convert a char to a lower case 'wchar_t'
 			auto lwr = [](Char ch){ return char_traits<wchar_t>::lwr(wchar_t(ch)); };
+			auto sign = !str.empty() && str[0] == '-' ? Real(-1) : Real(+1);
 
-			// Check for 'nan'
-			if (lwr(*src) == 'n' && lwr(*++src) == 'a' && lwr(*++src) == 'n')
+			// Check for '(+/-)nan'
+			if (lwr(*src) == 'n' && lwr(*++src) == 'a' && lwr(*++src) == 'n' && !IsIdentifier(*++src, false))
 			{
-				real = std::numeric_limits<Real>::quiet_NaN();
+				real = static_cast<Real>(std::copysign(std::numeric_limits<Real>::quiet_NaN(), sign));
 				return true;
 			}
 
-			auto sign =
-				*src == '-' ? (++src, -1) :
-				*src == '+' ? (++src, +1) :
-				+1;
-
 			// Check for '(+/-)inf'
-			if (lwr(*src) == 'i' && lwr(*++src) == 'n' && lwr(*++src) == 'f')
+			if (lwr(*src) == 'i' && lwr(*++src) == 'n' && lwr(*++src) == 'f' && !IsIdentifier(*++src, false))
 			{
 				real = sign * std::numeric_limits<Real>::infinity();
 				return true;
@@ -954,6 +957,19 @@ namespace pr::str::tests
 				char src[] = "-1.25e-4Z", *ptr = src;
 				PR_EXPECT(ExtractReal(d, ptr) && d == -1.25e-4);
 				PR_EXPECT(*ptr == 'Z');
+			}
+			{// Non-finite values consume the whole keyword, including any sign
+				char src[] = " nan -INF +inf,NaN", *ptr = src;
+				PR_EXPECT(ExtractReal(d, ptr) && std::isnan(d) && *ptr == ' ');
+				PR_EXPECT(ExtractReal(d, ptr) && d == -std::numeric_limits<double>::infinity() && *ptr == ' ');
+				PR_EXPECT(ExtractReal(d, ptr) && d == +std::numeric_limits<double>::infinity() && *ptr == ',');
+				++ptr;
+				PR_EXPECT(ExtractReal(d, ptr) && std::isnan(d) && *ptr == '\0');
+			}
+			{// Identifiers that start with 'nan' or 'inf' are not numbers
+				PR_EXPECT(!ExtractRealC(d, "nanx"));
+				PR_EXPECT(!ExtractRealC(d, "infinity"));
+				PR_EXPECT(!ExtractRealC(d, "-inf3"));
 			}
 		}
 		{// Arrays

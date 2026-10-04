@@ -94,8 +94,9 @@ namespace pr::storage::zip
 			// Opening an archive normally scans through the records in the 
 			// file to find the end of central directory record. This might
 			// be slow for archives containing many files. Scan from end
-			// searches from the end of the archive data, but is volnerable
-			// to archives containing malicious data in the archive comment.
+			// searches from the end of the archive data for a record whose
+			// comment ends at the end of the archive. It is vulnerable to
+			// archive comments crafted to contain such a record.
 			ScanFromEnd = 1 << 0,
 
 			// Used when searching for items by name
@@ -1257,7 +1258,7 @@ namespace pr::storage::zip
 		}
 		template <typename Elem = uint8_t> void Extract(int index, std::basic_ostream<Elem> & out) const
 		{
-			void Extract(index, out, m_flags);
+			Extract(index, out, m_flags);
 		}
 		template <typename Elem = uint8_t> void Extract(int index, std::basic_ostream<Elem>& out, EZipFlags flags) const
 		{
@@ -1400,8 +1401,10 @@ namespace pr::storage::zip
 			// Search backwards from the end of the data
 			if (has_flag(m_flags, EZipFlags::ScanFromEnd))
 			{
+				// 'sig' carries across chunk boundaries. It holds the little-endian 4 bytes at the current scan position.
+				ofs = archive_size;
 				std::array<uint8_t, 4096> buf = {};
-				for (uint32_t sig = 0;;)
+				for (uint32_t sig = 0; ofs != 0;)
 				{
 					// Read a chunk from the end of the archive
 					auto n = std::min<int64_t>(buf.size(), ofs);
@@ -1411,18 +1414,22 @@ namespace pr::storage::zip
 					// Search backwards for the ECD marker
 					for (; n-- != 0;)
 					{
+						// The archive comment can contain the marker bytes, so a match is only the ECD if its comment ends exactly at the end of the archive.
 						sig = (sig << 8) | buf[static_cast<size_t>(n)];
-						if (sig == ECD::Signature) break;
-					}
-					if (ofs == 0 && n == -1)
-						throw std::runtime_error("Invalid zip. Central directory header not found");
-					if (n == -1)
-						continue;
+						if (sig != ECD::Signature)
+							continue;
 
-					// Found the CDH end marker at '@buf[n]', move 'ofs' to the start of the ECD.
-					ofs += n;
-					break;
+						auto ecd_ofs = ofs + n;
+						if (ecd_ofs + s_cast<int64_t>(sizeof(ECD)) > archive_size)
+							continue;
+
+						ECD ecd = {};
+						m_read(*this, ecd_ofs, &ecd, sizeof(ecd));
+						if (ecd_ofs + s_cast<int64_t>(sizeof(ECD)) + ecd.CommentSize == archive_size)
+							return ecd_ofs;
+					}
 				}
+				throw std::runtime_error("Invalid zip. Central directory header not found");
 			}
 
 			// Traverse the data forwards
@@ -4189,6 +4196,18 @@ namespace pr::storage
 			std::basic_string<uint8_t> bytes;
 			pr::mem_ostream mem(bytes);
 			z.Extract("binary-00-0F.bin", mem);
+			PR_EXPECT(MatchToFile(bytes, path / "binary-00-0F.bin"));
+		}
+
+		// Read a zip by searching backwards for the central directory, and extract by index
+		{
+			zip::ZipArchive z(path / "binary-00-0F.zip", zip::ZipArchive::EMode::ReadOnly, zip::ZipArchive::EZipFlags::ScanFromEnd);
+			PR_EXPECT(z.Count() == 1);
+			PR_EXPECT(z.Name(0) == "binary-00-0F.bin");
+
+			std::basic_string<uint8_t> bytes;
+			pr::mem_ostream mem(bytes);
+			z.Extract(0, mem);
 			PR_EXPECT(MatchToFile(bytes, path / "binary-00-0F.bin"));
 		}
 

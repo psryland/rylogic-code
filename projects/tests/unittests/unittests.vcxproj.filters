@@ -256,9 +256,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\common\allocator.h">
       <Filter>pr\common</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\common\archiver.h">
-      <Filter>pr\common</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\common\arena_allocator.h">
       <Filter>pr\common</Filter>
     </ClInclude>
@@ -380,9 +377,6 @@
       <Filter>pr\common</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\common\profile.h">
-      <Filter>pr\common</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\common\profile_manager.h">
       <Filter>pr\common</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\common\range.h">
@@ -510,9 +504,6 @@
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\crypt\sha512.h">
       <Filter>pr\crypt</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\filesys\filesys.h">
-      <Filter>pr\filesys</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\filesys\filewatch.h">
       <Filter>pr\filesys</Filter>
@@ -700,15 +691,6 @@
     <ClInclude Include="$(RylogicRoot)include\pr\lua\lua.h">
       <Filter>pr\lua</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\align.h">
-      <Filter>pr\macros</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\auto_do.h">
-      <Filter>pr\macros</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\constexpr.h">
-      <Filter>pr\macros</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\macros\count_of.h">
       <Filter>pr\macros</Filter>
     </ClInclude>
@@ -721,19 +703,10 @@
     <ClInclude Include="$(RylogicRoot)include\pr\macros\link.h">
       <Filter>pr\macros</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\noexcept.h">
-      <Filter>pr\macros</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\macros\no_copy.h">
       <Filter>pr\macros</Filter>
     </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\on_exit.h">
-      <Filter>pr\macros</Filter>
-    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\macros\remove_parenthesis.h">
-      <Filter>pr\macros</Filter>
-    </ClInclude>
-    <ClInclude Include="$(RylogicRoot)include\pr\macros\repeat.h">
       <Filter>pr\macros</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\macros\stringise.h">

@@ -351,9 +351,9 @@ namespace pr::eval
 		{
 			switch (rhs.m_ty)
 			{
-				case EType::Intg: return Val(-rhs.ll());
+				case EType::Intg: return Val(int_sub(0, rhs.ll()));
 				case EType::Real: return Val(-rhs.db());
-				case EType::Intg4: return Val(-rhs.ivec(), rhs.m_dim);
+				case EType::Intg4: return int_vec_op(Val(0LL), rhs, int_sub);
 				case EType::Real4: return Val(-rhs.vec(), rhs.m_dim);
 				default: throw std::runtime_error("Unknown value type for unary minus");
 			}
@@ -362,9 +362,9 @@ namespace pr::eval
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-				case EType::Intg: return Val(lhs.ll() + rhs.ll());
+				case EType::Intg: return Val(int_add(lhs.ll(), rhs.ll()));
 				case EType::Real: return Val(lhs.db() + rhs.db());
-				case EType::Intg4: return Val(lhs.ivec() + rhs.ivec(), result_dim(lhs, rhs));
+				case EType::Intg4: return int_vec_op(lhs, rhs, int_add);
 				case EType::Real4: return Val(lhs.vec() + rhs.vec(), result_dim(lhs, rhs));
 				default: throw std::runtime_error("Unknown value type");
 			}
@@ -373,9 +373,9 @@ namespace pr::eval
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-				case EType::Intg: return Val(lhs.ll() - rhs.ll());
+				case EType::Intg: return Val(int_sub(lhs.ll(), rhs.ll()));
 				case EType::Real: return Val(lhs.db() - rhs.db());
-				case EType::Intg4: return Val(lhs.ivec() - rhs.ivec(), result_dim(lhs, rhs));
+				case EType::Intg4: return int_vec_op(lhs, rhs, int_sub);
 				case EType::Real4: return Val(lhs.vec() - rhs.vec(), result_dim(lhs, rhs));
 				default: throw std::runtime_error("Unknown value type");
 			}
@@ -384,49 +384,33 @@ namespace pr::eval
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-				case EType::Intg: return Val(lhs.ll() * rhs.ll());
+				case EType::Intg: return Val(int_mul(lhs.ll(), rhs.ll()));
 				case EType::Real: return Val(lhs.db() * rhs.db());
-				case EType::Intg4: return Val(lhs.ivec() * rhs.ivec(), result_dim(lhs, rhs));
+				case EType::Intg4: return int_vec_op(lhs, rhs, int_mul);
 				case EType::Real4: return Val(lhs.vec() * rhs.vec(), result_dim(lhs, rhs));
 				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend Val  operator /  (Val const& lhs, Val const& rhs)
 		{
-			// Integer division by zero is undefined, but floating-point division keeps IEEE behaviour.
+			// Integer division checks for zero and overflow, but floating-point division keeps IEEE behaviour.
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-				case EType::Intg:
-				{
-					validate_integer_division(lhs, rhs);
-					return Val(lhs.ll() / rhs.ll());
-				}
+				case EType::Intg: return Val(int_div(lhs.ll(), rhs.ll()));
 				case EType::Real: return Val(lhs.db() / rhs.db());
-				case EType::Intg4:
-				{
-					validate_integer_division(lhs, rhs);
-					return Val(lhs.ivec() / rhs.ivec(), result_dim(lhs, rhs));
-				}
+				case EType::Intg4: return int_vec_op(lhs, rhs, int_div);
 				case EType::Real4: return Val(lhs.vec() / rhs.vec(), result_dim(lhs, rhs));
 				default: throw std::runtime_error("Unknown value type");
 			}
 		}
 		friend Val  operator %  (Val const& lhs, Val const& rhs)
 		{
-			// Integer modulo by zero is undefined, but floating-point modulo keeps std::fmod behaviour.
+			// Integer modulo checks for zero and overflow, but floating-point modulo keeps std::fmod behaviour.
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-				case EType::Intg:
-				{
-					validate_integer_division(lhs, rhs);
-					return Val(lhs.ll() % rhs.ll());
-				}
+				case EType::Intg: return Val(int_mod(lhs.ll(), rhs.ll()));
 				case EType::Real: return Val(std::fmod(lhs.db(), rhs.db()));
-				case EType::Intg4:
-				{
-					validate_integer_division(lhs, rhs);
-					return Val(lhs.ivec() % rhs.ivec(), result_dim(lhs, rhs));
-				}
+				case EType::Intg4: return int_vec_op(lhs, rhs, int_mod);
 				case EType::Real4: return Val(lhs.vec() % rhs.vec(), result_dim(lhs, rhs));
 				default: throw std::runtime_error("Unknown value type");
 			}
@@ -490,9 +474,9 @@ namespace pr::eval
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-				case EType::Intg: return Val(static_cast<int64_t>(static_cast<uint64_t>(lhs.ll()) << rhs.ll()));
+				case EType::Intg: return Val(int_shl(lhs.ll(), rhs.ll()));
 				case EType::Real: throw std::runtime_error("Bitwise LEFT SHIFT is not supported for double");
-				case EType::Intg4: return Val(lhs.ivec() << rhs.ivec(), result_dim(lhs, rhs));
+				case EType::Intg4: return int_vec_op(lhs, rhs, int_shl);
 				case EType::Real4: throw std::runtime_error("Bitwise LEFT SHIFT is not supported for vector4");
 				default: throw std::runtime_error("Unknown value type");
 			}
@@ -501,9 +485,9 @@ namespace pr::eval
 		{
 			switch (common_type(lhs.m_ty, rhs.m_ty))
 			{
-				case EType::Intg: return Val(static_cast<int64_t>(static_cast<uint64_t>(lhs.ll()) >> rhs.ll()));
+				case EType::Intg: return Val(int_shr(lhs.ll(), rhs.ll()));
 				case EType::Real: throw std::runtime_error("Bitwise RIGHT SHIFT is not supported for double");
-				case EType::Intg4: return Val(lhs.ivec() >> rhs.ivec(), result_dim(lhs, rhs));
+				case EType::Intg4: return int_vec_op(lhs, rhs, int_shr);
 				case EType::Real4: throw std::runtime_error("Bitwise RIGHT SHIFT is not supported for vector4");
 				default: throw std::runtime_error("Unknown value type");
 			}
@@ -595,45 +579,90 @@ namespace pr::eval
 			return lhs.m_dim > rhs.m_dim ? lhs.m_dim : rhs.m_dim;
 		}
 
-		// Guard the signed integer quotient/remainder corner cases before any arithmetic runs.
-		static void validate_integer_division(Val const& lhs, Val const& rhs)
+		// Signed integer arithmetic for script values. Results that do not fit in an int64_t throw "Integer overflow".
+		static int64_t int_add(int64_t l, int64_t r)
 		{
-			auto const int_min = std::numeric_limits<long long>::lowest();
+			// Test against the limits before adding, because signed overflow is undefined behaviour
+			if (r > 0 ? l > std::numeric_limits<int64_t>::max() - r : l < std::numeric_limits<int64_t>::lowest() - r)
+				throw std::runtime_error("Integer overflow");
 
-			switch (common_type(lhs.m_ty, rhs.m_ty))
-			{
-				case EType::Intg:
-				{
-					auto const l = lhs.ll();
-					auto const r = rhs.ll();
-					if (r == 0) throw std::runtime_error("Divide by zero");
-					if (r == -1 && l == int_min) throw std::runtime_error("Integer overflow");
-					break;
-				}
-				case EType::Intg4:
-				{
-					auto const l = lhs.ivec();
-					auto const r = rhs.ivec();
-					if (
-						r.x == 0 || r.y == 0 || r.z == 0 || r.w == 0)
-					{
-						throw std::runtime_error("Divide by zero");
-					}
-					if (
-						(r.x == -1 && l.x == int_min) ||
-						(r.y == -1 && l.y == int_min) ||
-						(r.z == -1 && l.z == int_min) ||
-						(r.w == -1 && l.w == int_min))
-					{
-						throw std::runtime_error("Integer overflow");
-					}
-					break;
-				}
-				default:
-				{
-					break;
-				}
-			}
+			return l + r;
+		}
+		static int64_t int_sub(int64_t l, int64_t r)
+		{
+			// Test against the limits before subtracting, because signed overflow is undefined behaviour
+			if (r < 0 ? l > std::numeric_limits<int64_t>::max() + r : l < std::numeric_limits<int64_t>::lowest() + r)
+				throw std::runtime_error("Integer overflow");
+
+			return l - r;
+		}
+		static int64_t int_mul(int64_t l, int64_t r)
+		{
+			// Multiply in unsigned arithmetic (which wraps), then divide back to detect a wrapped result.
+			// The divide-back test cannot itself divide 'lowest' by -1, so those two cases are tested first.
+			auto const lowest = std::numeric_limits<int64_t>::lowest();
+			if ((l == -1 && r == lowest) || (r == -1 && l == lowest))
+				throw std::runtime_error("Integer overflow");
+
+			auto const res = static_cast<int64_t>(static_cast<uint64_t>(l) * static_cast<uint64_t>(r));
+			if (l != 0 && res / l != r)
+				throw std::runtime_error("Integer overflow");
+
+			return res;
+		}
+		static int64_t int_div(int64_t l, int64_t r)
+		{
+			// Division truncates toward zero. 'lowest / -1' is the only quotient that does not fit.
+			if (r == 0)
+				throw std::runtime_error("Divide by zero");
+			if (r == -1 && l == std::numeric_limits<int64_t>::lowest())
+				throw std::runtime_error("Integer overflow");
+
+			return l / r;
+		}
+		static int64_t int_mod(int64_t l, int64_t r)
+		{
+			// The remainder has the sign of 'l'. 'lowest % -1' is undefined in C++ because 'lowest / -1' overflows.
+			if (r == 0)
+				throw std::runtime_error("Divide by zero");
+			if (r == -1 && l == std::numeric_limits<int64_t>::lowest())
+				throw std::runtime_error("Integer overflow");
+
+			return l % r;
+		}
+
+		// Logical bit shifts. Bits shifted out are discarded and zeros are shifted in, for both left and right shifts.
+		// The shift count must be in the range [0, 63].
+		static int64_t int_shl(int64_t l, int64_t r)
+		{
+			// Shift the unsigned bit pattern so that the sign bit is treated like any other bit
+			if (r < 0 || r > 63)
+				throw std::runtime_error("Shift count out of range");
+
+			return static_cast<int64_t>(static_cast<uint64_t>(l) << r);
+		}
+		static int64_t int_shr(int64_t l, int64_t r)
+		{
+			// Shift the unsigned bit pattern so that zeros, not copies of the sign bit, are shifted in
+			if (r < 0 || r > 63)
+				throw std::runtime_error("Shift count out of range");
+
+			return static_cast<int64_t>(static_cast<uint64_t>(l) >> r);
+		}
+
+		// Apply a scalar integer operation to each significant component of 'lhs' and 'rhs', where either may be a scalar.
+		// Components beyond the result dimension are not used, so they are set to zero and cannot cause errors.
+		static Val int_vec_op(Val const& lhs, Val const& rhs, int64_t (*op)(int64_t, int64_t))
+		{
+			// Combine only the components that are significant in the result
+			auto const l = lhs.ivec();
+			auto const r = rhs.ivec();
+			auto const dim = result_dim(lhs, rhs);
+			IVec4 res = {0, 0, 0, 0};
+			for (int i = 0; i != dim; ++i)
+				res[i] = op(l[i], r[i]);
+
+			return Val(res, dim);
 		}
 	};
 	static_assert(std::is_trivially_copyable_v<Val>, "Val must be pod for performance");
@@ -1284,9 +1313,9 @@ namespace pr::eval
 						auto x = stack.back(); stack.pop_back();
 						switch (x.m_ty)
 						{
-							case Val::EType::Intg: stack.push_back(Abs(x.ll())); break;
+							case Val::EType::Intg: stack.push_back(x.ll() < 0 ? -x : x); break;
 							case Val::EType::Real: stack.push_back(Abs(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Abs(x.ivec())); break;
+							case Val::EType::Intg4: stack.push_back(Val::int_vec_op(x, x, [](int64_t l, int64_t) { return l < 0 ? Val::int_sub(0, l) : l; })); break;
 							case Val::EType::Real4: stack.push_back(Abs(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
@@ -1496,9 +1525,9 @@ namespace pr::eval
 						auto x = stack.back(); stack.pop_back();
 						switch (x.m_ty)
 						{
-							case Val::EType::Intg: stack.push_back(Sqr(x.ll())); break;
+							case Val::EType::Intg: stack.push_back(x * x); break;
 							case Val::EType::Real: stack.push_back(Sqr(x.db())); break;
-							case Val::EType::Intg4: stack.push_back(Sqr(x.ivec())); break;
+							case Val::EType::Intg4: stack.push_back(x * x); break;
 							case Val::EType::Real4: stack.push_back(Sqr(x.vec())); break;
 							default: throw std::runtime_error("Unknown value type");
 						}
@@ -2598,6 +2627,39 @@ namespace pr::common::tests
 				auto expr = Compile("x >> y");
 				PR_EXPECT(expr(0xC, 2) == Val(0x3));
 				PR_EXPECT(expr(iv4(0xC), iv4(1,2,3,4)) == Val(iv4(0x6,0x3,0x1,0x0)));
+			}
+			{ // integer overflow and shift counts
+				auto const mx = std::numeric_limits<int64_t>::max();
+				auto const mn = std::numeric_limits<int64_t>::lowest();
+				PR_THROWS(Compile("x + y")(mx, 1LL), std::runtime_error);
+				PR_THROWS(Compile("x + y")(mn, -1LL), std::runtime_error);
+				PR_EXPECT(Compile("x + y")(mx, mn) == Val(-1LL));
+				PR_THROWS(Compile("x - y")(mn, 1LL), std::runtime_error);
+				PR_THROWS(Compile("x - y")(0LL, mn), std::runtime_error);
+				PR_EXPECT(Compile("x - y")(-1LL, mn) == Val(mx));
+				PR_THROWS(Compile("x * y")(mx, 2LL), std::runtime_error);
+				PR_THROWS(Compile("x * y")(mn, -1LL), std::runtime_error);
+				PR_THROWS(Compile("x * y")(-1LL, mn), std::runtime_error);
+				PR_THROWS(Compile("x * y")(4294967296LL, 4294967296LL), std::runtime_error);
+				PR_EXPECT(Compile("x * y")(mn, 1LL) == Val(mn));
+				PR_EXPECT(Compile("x * y")(-4611686018427387904LL, 2LL) == Val(mn));
+				PR_THROWS(Compile("-x")(mn), std::runtime_error);
+				PR_THROWS(Compile("abs(x)")(mn), std::runtime_error);
+				PR_THROWS(Compile("sqr(x)")(4294967296LL), std::runtime_error);
+				PR_THROWS(Compile("x + y")(Val(Val::IVec4(1, mx, 0, 0), 2), Val(Val::IVec4(1, 1, 0, 0), 2)), std::runtime_error);
+				PR_THROWS(Compile("x << y")(1LL, 64LL), std::runtime_error);
+				PR_THROWS(Compile("x >> y")(1LL, -1LL), std::runtime_error);
+				PR_THROWS(Compile("x << y")(iv4(1), iv4(1, 2, 3, 64)), std::runtime_error);
+				PR_EXPECT(Compile("x << y")(1LL, 63LL) == Val(mn));
+				PR_EXPECT(Compile("x >> y")(mn, 63LL) == Val(1LL));
+				PR_EXPECT(Compile("x >> y")(Val(Val::IVec4(mn, -1, 0, 0), 2), 63LL) == Val(Val::IVec4(1, 1, 0, 0), 2));
+			}
+			{ // only the significant components of a vector take part in integer operations
+				auto const a = Val(Val::IVec4(4, 6, 0, 0), 2);
+				auto const b = Val(Val::IVec4(2, 3, 0, 0), 2);
+				PR_EXPECT(Compile("x / y")(a, b) == Val(Val::IVec4(2, 2, 0, 0), 2));
+				PR_EXPECT(Compile("x % y")(a, b) == Val(Val::IVec4(0, 0, 0, 0), 2));
+				PR_EXPECT(Compile("abs(x)")(Val(Val::IVec4(-4, 6, 0, 0), 2)).dim() == 2);
 			}
 			{ // ceil
 				auto expr = Compile("ceil(x)");

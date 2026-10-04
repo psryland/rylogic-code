@@ -71,6 +71,7 @@ namespace pr::math::tests
 
 			// Sample variance: 10/4 = 2.5
 			PR_EXPECT(FEqlAbsolute(s.m_variance.SamStdVar(count), T(2.5), T(1e-6)));
+			PR_EXPECT(FEqlAbsolute(s.SamStdVar(), T(2.5), T(1e-6)));
 
 			// Standard deviations
 			PR_EXPECT(FEqlAbsolute(s.PopStdDev(), static_cast<T>(std::sqrt(T(2))), T(1e-5)));

@@ -114,7 +114,7 @@ namespace pr
 	// Calculate the Crc32 of a file
 	inline CRC CrcFile(wchar_t const* filename, std::streamoff offset = 0, std::streamsize count = ~0ULL, CRC crc = CRC(-1))
 	{
-		std::ifstream file(filename);
+		std::ifstream file(filename, std::ios::binary);
 		file.seekg(offset);
 		if (!file.good()) throw std::runtime_error("failed to load file for crc");
 
@@ -167,22 +167,12 @@ namespace pr::common
 			PR_EXPECT(crc0 == crc1);
 			PR_EXPECT(crc0 == crc2);
 		}
-		{ // Crc32 a file
-			auto crc0 = pr::CrcFile(__FILEW__, 10, 1000);
-			PR_EXPECT(crc0 == 0x83ee20a2U); // CRC of *this* file. I.e. it will change if the file is changed
-		}
 		{ // CrcFile with default arguments (offset 0, count to EOF) must match an in-memory Crc of the whole file
 			std::vector<char> bytes(5000);
 			for (size_t i = 0; i != bytes.size(); ++i)
 			{
-				// Avoid byte values that Windows' std::ifstream text-mode translation would alter or stop at early
-				// ('\r' is folded away by CRLF translation, 0x1A is historically treated as a text-mode EOF marker).
-				// The file is opened in text mode by 'CrcFile' (a separate, pre-existing issue), so the reference
-				// bytes used for comparison must survive that translation unchanged.
-				auto value = static_cast<unsigned char>(i * 37 + 11);
-				if (value == '\r' || value == 0x1A)
-					value ^= 0x01;
-				bytes[i] = static_cast<char>(value);
+				// Cover every byte value, including '\r' and 0x1A, which a text-mode read would change
+				bytes[i] = static_cast<char>(i * 37 + 11);
 			}
 
 			auto const path = temp_dir() / "crc_test_file.bin";

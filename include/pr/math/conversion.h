@@ -6,7 +6,9 @@
 #include <format>
 #include "pr/common/to.h"
 #include "pr/common/cast.h"
+#include "pr/common/bit_fields.h"
 #include "pr/str/string_core.h"
+#include "pr/str/to_string.h"
 #include "pr/math/math.h"
 
 namespace pr
@@ -337,9 +339,9 @@ namespace pr
 			using Char = typename string_traits<Str>::value_type;
 
 			Char const* e = {};
-			auto x = To<Vec3<S, void>>(s, &e);
-			auto y = To<Vec3<S, void>>(e, &e);
-			auto z = To<Vec3<S, void>>(e, &e);
+			auto x = To<math::Vec3<S>>(s, &e);
+			auto y = To<math::Vec3<S>>(e, &e);
+			auto z = To<math::Vec3<S>>(e, &e);
 			if (end) *end = e;
 			return math::Mat3x3<S>(x, y, z);
 		}
@@ -626,6 +628,11 @@ namespace pr::math::tests
 				"1 2 -3 "
 				"5 6 -7 "
 				"9 0 -1");
+
+			auto m = To<Mat3x3<float>>("1.2 2.4 -4.8  2.1 4.2 -8.4  1.1 2.2 -3.3");
+			PR_EXPECT(All(m.x == Vec3<float>(1.2f, 2.4f, -4.8f)));
+			PR_EXPECT(All(m.y == Vec3<float>(2.1f, 4.2f, -8.4f)));
+			PR_EXPECT(All(m.z == Vec3<float>(1.1f, 2.2f, -3.3f)));
 		}
 		PRUnitTestMethod(Mat4x4, Quick)
 		{

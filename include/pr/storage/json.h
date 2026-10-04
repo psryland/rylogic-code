@@ -736,7 +736,9 @@ namespace pr::json
 		// Return the next token in the json string
 		inline Token NextToken(std::string_view& src, Options const& opts)
 		{
-			EatWS(src, EEatFlags::AllowEndOfString);
+			// Skip whitespace, and comments when they are allowed
+			auto eat_flags = opts.AllowComments ? EEatFlags::Comments : EEatFlags::None;
+			EatWS(src, static_cast<EEatFlags>(static_cast<int>(eat_flags) | static_cast<int>(EEatFlags::AllowEndOfString)));
 			if (src.empty())
 				return { EToken::EndOfString, {} };
 
@@ -838,23 +840,11 @@ namespace pr::json
 				}
 				case '/':
 				{
-					if (src.size() < 2 || src[1] != '/')
-						throw std::runtime_error("Unknown token");
-
-					if (!opts.AllowComments)
+					// Allowed comments have already been skipped by EatWS
+					if (!opts.AllowComments && src.size() >= 2 && (src[1] == '/' || src[1] == '*'))
 						throw std::runtime_error("Comments not allowed");
 
-					auto ptr = src.data();
-					auto end = src.data() + src.size();
-
-					// Eat up to the end of the line
-					for (; ptr != end && *ptr != '\n'; ++ptr) {}
-					if (ptr == end)
-						return { EToken::EndOfString, {} };
-
-					// Tail recursion optimisation should prevent stack overflow
-					src.remove_prefix(ptr - src.data());
-					return NextToken(src, opts);
+					throw std::runtime_error("Unknown token");
 				}
 				default:
 				{
@@ -1203,12 +1193,18 @@ namespace pr::json
 					}
 					case Value::TypeIndex::Number:
 					{
+						// JSON cannot represent NaN or infinity, so write 'null' for them (as JavaScript's JSON.stringify does)
+						auto num = std::get<double>(val);
+						if (!std::isfinite(num))
+						{
+							buf.append("null");
+							break;
+						}
+
+						// 32 chars is enough for the shortest round-trip form of any finite double
 						char s[32] = {};
-						auto [ptr,ec] = std::to_chars(&s[0], &s[0] + _countof(s), std::get<double>(val));
-						if (ec == std::errc{})
-							buf.append(&s[0], ptr - &s[0]);
-						else
-							buf.append("NaN");
+						auto ptr = std::to_chars(&s[0], &s[0] + _countof(s), num).ptr;
+						buf.append(&s[0], ptr - &s[0]);
 						break;
 					}
 					case Value::TypeIndex::ChildArray:
@@ -1420,7 +1416,12 @@ namespace pr::json
 		auto start = src;
 		try
 		{
-			return NextValue(src, opts);
+			// The document is a single value, with only whitespace (or allowed comments) after it
+			auto value = NextValue(src, opts);
+			if (NextToken(src, opts).token != EToken::EndOfString)
+				throw std::runtime_error("Unexpected trailing content");
+
+			return value;
 		}
 		catch (std::runtime_error& ex)
 		{
@@ -1567,6 +1568,39 @@ namespace pr::storage
 			std::istringstream stream_with_estimate("{\"key\":456}");
 			root = json::Read(stream_with_estimate, {}, 4);
 			PR_EXPECT(root["key"].to<int>() == 456);
+		}
+		PRUnitTestMethod(ReadingTrailingContent, Quick)
+		{
+			// A document is one value; anything but whitespace or allowed comments after it is an error
+			auto comments = json::Options{ .AllowComments = true };
+			PR_THROWS(json::Read(std::string_view{ "123 456" }), std::runtime_error);
+			PR_THROWS(json::Read(std::string_view{ "{} x" }), std::runtime_error);
+			PR_THROWS(json::Read(std::string_view{ "truegarbage" }), std::runtime_error);
+			PR_THROWS(json::Read(std::string_view{ "[1] // c" }), std::runtime_error);
+			PR_EXPECT(json::Read(std::string_view{ "[1] // c" }, comments)[0].to<int>() == 1);
+			PR_EXPECT(json::Read(std::string_view{ "[1] /* c */\n" }, comments)[0].to<int>() == 1);
+			PR_EXPECT(json::Read(std::string_view{ " 42 \n" }).to<int>() == 42);
+		}
+		PRUnitTestMethod(ReadingBlockCommentBeforeValue, Quick)
+		{
+			// Block comments are allowed anywhere whitespace is
+			auto comments = json::Options{ .AllowComments = true };
+			PR_EXPECT(json::Read(std::string_view{ "/*c*/ 1" }, comments).to<int>() == 1);
+			PR_EXPECT(json::Read(std::string_view{ "{\"a\": /*c*/ 1}" }, comments)["a"].to<int>() == 1);
+			PR_EXPECT(json::Read(std::string_view{ "[/*c*/ 1, // c\n 2]" }, comments)[1].to<int>() == 2);
+			PR_THROWS(json::Read(std::string_view{ "/*c*/ 1" }), std::runtime_error);
+		}
+		PRUnitTestMethod(WritingNonFinite, Quick)
+		{
+			// NaN and infinity have no JSON form, so they are written as null and the output stays readable
+			auto obj = json::Object{
+				{"nan", std::numeric_limits<double>::quiet_NaN()},
+				{"inf", -std::numeric_limits<double>::infinity()},
+			};
+			auto str = json::Write(json::Value{ std::move(obj) });
+			auto root = json::Read(std::string_view{ str });
+			PR_EXPECT(root["nan"] == nullptr);
+			PR_EXPECT(root["inf"] == nullptr);
 		}
 		PRUnitTestMethod(Writing, Quick)
 		{

@@ -212,7 +212,6 @@ namespace pr
 #include <dbt.h>
 #include <bthdef.h>
 #include "pr/common/unittests.h"
-#include "pr/filesys/filesys.h"
 namespace pr::hardware
 {
 	PRUnitTest(FindBTRadiosTests, Quick)

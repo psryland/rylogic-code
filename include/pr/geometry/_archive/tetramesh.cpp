@@ -34,10 +34,6 @@
 	static bool pr_ldr_tetramesh_output_enable = true;
 #endif//PR_LDR_TETRAMESH == 1
 
-#if PR_PROFILE_TETRAMESH == 1
-	#pragma message("Q:/SDK/pr/pr/geometry/TetraMesh.h: PR_PROFILE_TETRAMESH is defined")
-#endif//PR_PROFILE_TETRAMESH == 1
-
 namespace pr
 {
 	namespace tetramesh
@@ -249,8 +245,6 @@ void pr::tetramesh::Decompose(tetramesh::Mesh& mesh, IPolytopeGenerator& gen, fl
 	// Validate the mesh
 	PR_ASSERT(PR_LDR_TETRAMESH, Validate(mesh), "");
 	PR_EXPAND(PR_LDR_TETRAMESH, DumpMesh(mesh, 1.0f, "8000FF00", "mesh");)
-	PR_DECLARE_PROFILE(PR_PROFILE_TETRAMESH, Decompose);
-	PR_PROFILE_SCOPE  (PR_PROFILE_TETRAMESH, Decompose);
 
 	// Generally speaking, the way this works is to set all tetras to the poly_id
 	// of the next polytope to be created (so to start with, all tetras are poly_id == 0)
@@ -378,9 +372,6 @@ void pr::tetramesh::InitTetras(tetramesh::Mesh& mesh, Tetra& consider)
 // Add any concave edges that surround the face opposite 'tetra.m_nbr[nbr_idx]' to 'edge_cache'.
 void pr::tetramesh::AddConcaveEdges(tetramesh::Mesh const& mesh, Tetra const& tetra, CIndex nbr_idx, float convex_tolerance, EdgeCache& edge_cache)
 {
-	PR_DECLARE_PROFILE(PR_PROFILE_TETRAMESH, AddCCEdges);
-	PR_PROFILE_SCOPE  (PR_PROFILE_TETRAMESH, AddCCEdges);
-
 	PR_ASSERT(PR_DBG_GEOM_TETRAMESH, IsBoundaryFace(mesh, tetra, nbr_idx), "");
 	PR_EXPAND(PR_LDR_TETRAMESH, DumpTetra(mesh, tetra, 1.0f, "800000FF", "tetra");)
 	PR_EXPAND(PR_LDR_TETRAMESH, DumpFace (mesh, tetra.OppFace(nbr_idx), "FF0000FF", "face");)
@@ -431,9 +422,6 @@ void pr::tetramesh::AddConcaveEdges(tetramesh::Mesh const& mesh, Tetra const& te
 // Loop through the boundary faces of the tetras in the 'consider' list looking for the concave edges
 void pr::tetramesh::CacheConcaveEdges(tetramesh::Mesh const& mesh, Tetra const& consider, float convex_tolerance, EdgeCache& edge_cache)
 {
-	PR_DECLARE_PROFILE(PR_PROFILE_TETRAMESH, CacheCCEdges);
-	PR_PROFILE_SCOPE  (PR_PROFILE_TETRAMESH, CacheCCEdges);
-
 	for (pr::chain::Iter<Tetra const> t(consider); t; ++t)
 	{
 		Tetra const& tetra = *t;
@@ -452,9 +440,6 @@ void pr::tetramesh::CacheConcaveEdges(tetramesh::Mesh const& mesh, Tetra const& 
 // Measure the concavity of an edge.
 void pr::tetramesh::MeasureConcavity(tetramesh::Mesh const& mesh, Edge& edge)
 {
-	PR_DECLARE_PROFILE(PR_PROFILE_TETRAMESH, MeasureCcv);
-	PR_PROFILE_SCOPE  (PR_PROFILE_TETRAMESH, MeasureCcv);
-
 	// Get the vertex indices of the 'other two' vertices.
 	// These are the verts opposite the edge in each of the connected faces
 	VIndex Lidx = edge.m_Lface.m_i[0] + edge.m_Lface.m_i[1] + edge.m_Lface.m_i[2] - edge.m_i0 - edge.m_i1;
@@ -505,9 +490,6 @@ struct SplitPlaneFinder
 	,m_split_plane(-GetPlane(mesh, edge.m_Lface))
 	,m_start(edge.m_Lface.m_tetra0)
 	{
-		PR_DECLARE_PROFILE(PR_PROFILE_TETRAMESH, SPFinder);
-		PR_PROFILE_SCOPE  (PR_PROFILE_TETRAMESH, SPFinder);
-
 		// Try to use the left face as a split plane. If the right hand tetra is classed
 		// as behind the split plane then we're done. If not, then start iterating from
 		// the right hand face until the left hand tetra is in front of the split plane.
@@ -544,9 +526,6 @@ struct SplitPlaneFinder
 // Returns true if a concave edge was found
 bool pr::tetramesh::FindMostConcaveEdge(EdgeCache const& edge_cache, Edge& concave_edge)
 {
-	PR_DECLARE_PROFILE(PR_PROFILE_TETRAMESH, FindMCE);
-	PR_PROFILE_SCOPE  (PR_PROFILE_TETRAMESH, FindMCE);
-
 	concave_edge.m_concavity = 0.0f;
 	Edge const* most_concave = &concave_edge;
 	for( Edge const* e = edge_cache.begin(), *e_end = edge_cache.end(); e != e_end; ++e )
@@ -598,9 +577,6 @@ bool pr::tetramesh::FindSplitPlane(tetramesh::Mesh const& mesh, EdgeCache const&
 // Add tetras that are connected to 'start' and in front of 'split_plane' to 'polytope'
 void pr::tetramesh::PartitionTetras(tetramesh::Mesh& mesh, Tetra& polytope, Plane const& split_plane, float convex_tolerance, TIndex start, TSize search_id)
 {
-	PR_DECLARE_PROFILE(PR_PROFILE_TETRAMESH, Partition);
-	PR_PROFILE_SCOPE  (PR_PROFILE_TETRAMESH, Partition);
-
 	// Mark the starting tetra
 	mesh.m_tetra[start].m_id = search_id;
 
@@ -646,9 +622,6 @@ void pr::tetramesh::PartitionTetras(tetramesh::Mesh& mesh, Tetra& polytope, Plan
 // interface between 'polytope' and 'consider'
 void pr::tetramesh::UpdateEdgeCache(tetramesh::Mesh const& mesh, Tetra const& polytope, Tetra const& consider, EdgeCache& edge_cache, float convex_tolerance)
 {
-	PR_DECLARE_PROFILE(PR_PROFILE_TETRAMESH, UpdateECache);
-	PR_PROFILE_SCOPE  (PR_PROFILE_TETRAMESH, UpdateECache);
-
 	// Remove any edges that are not part of 'polytope' i.e. keep edges
 	// that are between tetras that both belong to polytope.
 	Edge* edge_out = edge_cache.begin();
@@ -727,9 +700,6 @@ struct VertRemapper
 // Generate polytopes from the convex sets in 'polytope'
 void pr::tetramesh::GeneratePolytopes(tetramesh::Mesh& mesh, Tetra& polytopes, IPolytopeGenerator& gen, TSize& next_poly_id, TSize search_id)
 {
-	PR_DECLARE_PROFILE(PR_PROFILE_TETRAMESH, GenPolys);
-	PR_PROFILE_SCOPE  (PR_PROFILE_TETRAMESH, GenPolys);
-
 	// Repeat until all the tetras in 'polytopes' have been added to a polytope
 	while (!pr::chain::Empty(polytopes))
 	{
@@ -791,9 +761,6 @@ void pr::tetramesh::GeneratePolytopes(tetramesh::Mesh& mesh, Tetra& polytopes, I
 // Generate a polytope using the boundary faces in 'polytope'
 void pr::tetramesh::GeneratePolytope(tetramesh::Mesh& mesh, Tetra& polytope, IPolytopeGenerator& gen)
 {
-	PR_DECLARE_PROFILE(PR_PROFILE_TETRAMESH, GenPoly);
-	PR_PROFILE_SCOPE  (PR_PROFILE_TETRAMESH, GenPoly);
-
 	VertRemapper map(mesh, gen, static_cast<VIndex*>(alloca(mesh.m_num_verts * sizeof(VIndex))), mesh.m_num_verts);
 
 	gen.BeginPolytope();
@@ -817,9 +784,6 @@ void pr::tetramesh::GeneratePolytope(tetramesh::Mesh& mesh, Tetra& polytope, IPo
 // This can be called repeatedly for different vertices	to accumulate tetra indices
 void NbrFinder::Find(tetramesh::Mesh const& mesh, TIndex tetra_idx, CIndex cnr_idx)
 {
-	PR_DECLARE_PROFILE(PR_PROFILE_TETRAMESH, FindNbrTetra);
-	PR_PROFILE_SCOPE  (PR_PROFILE_TETRAMESH, FindNbrTetra);
-
 	// If this tetra is already in the list of nbrs then don't consider it
 	TTIndices::iterator iter = std::lower_bound(m_nbrs.begin(), m_nbrs.end(), tetra_idx);
 	if( iter != m_nbrs.end() && *iter == tetra_idx ) return;
@@ -855,9 +819,6 @@ void NbrFinder::Find(tetramesh::Mesh const& mesh, TIndex tetra_idx, CIndex cnr_i
 // Be careful about adding 'maths::tiny's in here, volumes can be smaller that this error tolerance
 float pr::tetramesh::ConstrainVertexDisplacement(tetramesh::Mesh const& mesh, TIndex tetra_idx, CIndex cnr_idx, v4 const& displacement, float min_volume)
 {
-	PR_DECLARE_PROFILE(PR_PROFILE_TETRAMESH, ConstrainVert);
-	PR_PROFILE_SCOPE  (PR_PROFILE_TETRAMESH, ConstrainVert);
-
 	// Check the entire mesh for positive volume
 	// If this fires then 'min_volume' is too big or the mesh is not set up correctly
 	#if PR_DBG_GEOM_TETRAMESH == 1
@@ -984,9 +945,6 @@ float pr::tetramesh::ConstrainVertexDisplacement(tetramesh::Mesh const& mesh, TI
 // Checks the neighbours and vertex order for the tetras in the mesh
 bool pr::tetramesh::Validate(tetramesh::Mesh const& mesh)
 {
-	PR_DECLARE_PROFILE(PR_PROFILE_TETRAMESH, Validate);
-	PR_PROFILE_SCOPE  (PR_PROFILE_TETRAMESH, Validate);
-
 	tetramesh::TIndex t_idx = 0;
 	for( Tetra const *i = mesh.m_tetra, *i_end = mesh.m_tetra + mesh.m_num_tetra; i != i_end; ++i, ++t_idx )
 	{

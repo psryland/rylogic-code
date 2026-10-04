@@ -30,7 +30,6 @@ try
 		new Regex(@"pr/geometry/mesh_tools\.h"),
 		new Regex(@"pr/gui/"),
 		new Regex(@"pr/image/"),
-		new Regex(@"pr/macros/on_exit\.h"),
 		new Regex(@"pr/maths/pr_to_ode\.h"),
 		new Regex(@"pr/physics/"),
 		new Regex(@"pr/sound/"),
@@ -73,8 +72,9 @@ try
 		);
 	output.Append(string.Join("\n", includes));
 
-	// Read the existing file, and replace it if different
-	var existing = Path.Exists(outfile) ? File.ReadAllText(outfile) : "";
+	// Read the existing file, and replace it only if the content differs. Line endings are ignored because
+	// git may check the file out with CRLF, and rewriting it on every build would trigger needless rebuilds.
+	var existing = Path.Exists(outfile) ? File.ReadAllText(outfile).Replace("\r\n", "\n") : "";
 	if (existing.CompareTo(output.ToString()) != 0)
 		File.WriteAllText(outfile, output.ToString());
 }

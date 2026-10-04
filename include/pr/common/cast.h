@@ -208,7 +208,7 @@ namespace pr
 	}
 	template <typename T> inline std::span<std::byte> byte_span(std::span<T> x)
 	{
-		return std::span<std::byte>(reinterpret_cast<std::byte const*>(x.data()), x.size_bytes());
+		return std::span<std::byte>(reinterpret_cast<std::byte*>(x.data()), x.size_bytes());
 	}
 
 	// Convert a span of bytes into a span of 'T'

@@ -3,6 +3,7 @@
 //  Copyright (c) Oct 2003 Paul Ryland
 //******************************************
 #pragma once
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstdint>
@@ -11,6 +12,7 @@
 #include <span>
 #include <concepts>
 #include <initializer_list>
+#include <iterator>
 #include <sstream>
 #include <stdexcept>
 #include <malloc.h>
@@ -262,7 +264,7 @@ namespace pr
 			// Notes:
 			//  Cannot add a template overload for inserting an array of 'Type' because
 			//  the method signature is ambiguous.
-			if (ofs < 0 || ofs > s_cast<ptrdiff_t>(m_size))
+			if (ofs < 0 || ofs > static_cast<ptrdiff_t>(m_size))
 				throw std::out_of_range("Offset position out of range");
 
 			// Insert from a sub range
@@ -299,7 +301,7 @@ namespace pr
 		// Overwrite bytes at 'ofs'
 		void overwrite(ptrdiff_t ofs, std::span<value_type const> data)
 		{
-			if (ofs < 0 || ofs > s_cast<ptrdiff_t>(m_size))
+			if (ofs < 0 || ofs > static_cast<ptrdiff_t>(m_size))
 				throw std::out_of_range("Offset position out of range");
 
 			// Overwrite from a sub range
@@ -655,7 +657,7 @@ namespace pr
 		// Read bytes to align to 'alignment'
 		void align_to(int alignment)
 		{
-			auto rem = (m_beg - (value_type const*)0) % alignment;
+			auto rem = reinterpret_cast<std::uintptr_t>(m_beg) % alignment;
 			if (rem != 0)
 				read<std::byte>(static_cast<int>(alignment - rem));
 		}
@@ -712,10 +714,10 @@ namespace pr
 			}
 		}
 
-		// Read bytes to align to 'alignment'
+		// Write zero bytes to align to 'alignment'
 		void align_to(int alignment)
 		{
-			auto rem = (m_beg - (value_type const*)0) % alignment;
+			auto rem = reinterpret_cast<std::uintptr_t>(m_beg) % alignment;
 			if (rem != 0)
 				write<std::byte>({}, static_cast<int>(alignment - rem));
 		}
@@ -935,7 +937,7 @@ namespace pr::container
 			buf1.overwrite(2, buf0.span().subspan(0, 8));
 			PR_EXPECT(buf1.size() == 2 + buf0.size());
 			for (int i = 0; i != 2; ++i) { PR_EXPECT(buf1[i + 0] == buf0[i]); }
-			for (int i = 0; i != isize(buf0); ++i) { PR_EXPECT(buf1[i + 2] == buf0[i]); }
+			for (int i = 0; i != std::ssize(buf0); ++i) { PR_EXPECT(buf1[i + 2] == buf0[i]); }
 			buf1 = buf0;
 			buf1.overwrite(6, buf1.span().subspan(0, 4)); // subrange overwrite
 			PR_EXPECT(buf1.size() == 10);
@@ -1031,10 +1033,17 @@ namespace pr::container
 			PR_THROWS((mptr.as<OverAligned>()), std::runtime_error);
 
 			// Align-to must skip the full padding width, not just one byte.
-			std::array<std::byte, 4> pad_bytes{ std::byte{0}, std::byte{1}, std::byte{2}, std::byte{3} };
+			alignas(4) std::array<std::byte, 4> pad_bytes{ std::byte{0}, std::byte{1}, std::byte{2}, std::byte{3} };
 			byte_data_cptr align_ptr(std::span<std::byte const>{ pad_bytes.data() + 1, pad_bytes.size() - 1 });
 			align_ptr.align_to(4);
 			PR_EXPECT(align_ptr.m_beg == pad_bytes.data() + 4);
+
+			// Writer align-to must zero-fill the padding up to the next aligned address.
+			alignas(4) std::array<std::byte, 8> out_bytes{ std::byte{9}, std::byte{9}, std::byte{9}, std::byte{9}, std::byte{9}, std::byte{9}, std::byte{9}, std::byte{9} };
+			byte_data_mptr align_out(std::span<std::byte>{ out_bytes.data() + 1, out_bytes.size() - 1 });
+			align_out.align_to(4);
+			PR_EXPECT(align_out.m_beg == out_bytes.data() + 4);
+			PR_EXPECT(out_bytes[0] == std::byte{9} && out_bytes[1] == std::byte{0} && out_bytes[3] == std::byte{0} && out_bytes[4] == std::byte{9});
 		}
 		{ // Stream
 			byte_data buf0;

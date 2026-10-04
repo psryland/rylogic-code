@@ -9,6 +9,7 @@
 #include <span>
 #include <string>
 #include "pr/str/encoding.h"
+#include "pr/str/convert_utf.h"
 
 namespace pr::filesys
 {
@@ -35,27 +36,15 @@ namespace pr::filesys
 			return EEncoding::utf16_le;
 		}
 
-		// Assume UTF-8 unless we find invalid UTF-8 sequences.
+		// Assume UTF-8 unless the data contains malformed UTF-8. A sequence cut off by the end of the scanned data is not an error.
+		using converter_t = str::convert_utf<char, char32_t>;
 		bom_size = 0;
+		converter_t cvt;
+		auto ignore = [](char32_t const*, char32_t const*) {};
 		auto const scan_size = std::min<size_t>(size, 0x100000);
 		for (auto i = size_t{}; i != scan_size; ++i)
 		{
-			auto c =
-				(bytes[i] & 0b10000000) == 0          ? 0 : // ASCII character, 0 continuation bytes
-				(bytes[i] & 0b11100000) == 0b11000000 ? 1 : // 2-byte UTF-8 character, 1 continuation byte
-				(bytes[i] & 0b11110000) == 0b11100000 ? 2 : // 3-byte UTF-8 character, 2 continuation bytes
-				(bytes[i] & 0b11111000) == 0b11110000 ? 3 : // 4-byte UTF-8 character, 3 continuation bytes
-				-1;                                      // Not a valid UTF-8 character
-
-			if (c == 0)
-				continue;
-			if (c < 0)
-				return EEncoding::ascii_extended;
-			if (i + static_cast<size_t>(c) >= scan_size)
-				break;
-
-			for (; c != 0 && (bytes[++i] & 0b11000000) == 0b10000000; --c) {}
-			if (c != 0)
+			if (cvt(data[i], ignore) == converter_t::error)
 				return EEncoding::ascii_extended;
 		}
 		return EEncoding::utf8;
@@ -91,3 +80,30 @@ namespace pr::filesys
 		return DetectFileEncoding(filepath, bom_size);
 	}
 }
+
+#if PR_UNITTESTS
+#include "pr/common/unittests.h"
+namespace pr::filesys
+{
+	PRUnitTest(DetectFileEncodingTests, Quick)
+	{
+		using namespace std::string_view_literals;
+		auto Detect = [](std::string_view s)
+		{
+			return DetectFileEncoding(std::span<char const>(s.data(), s.size()));
+		};
+
+		// Well-formed UTF-8, including a sequence cut off by the end of the data
+		PR_EXPECT(Detect("abc \xE6\xB0\xB4 \xF0\x9F\x8D\x8C"sv) == EEncoding::utf8);
+		PR_EXPECT(Detect("abc \xE6\xB0"sv) == EEncoding::utf8);
+
+		// Malformed UTF-8: overlong forms, encoded surrogates, values above U+10FFFF, and stray continuation bytes
+		PR_EXPECT(Detect("a\xC0\x80"sv) == EEncoding::ascii_extended);
+		PR_EXPECT(Detect("a\xE0\x80\x80"sv) == EEncoding::ascii_extended);
+		PR_EXPECT(Detect("a\xED\xA0\x80"sv) == EEncoding::ascii_extended);
+		PR_EXPECT(Detect("a\xF4\x90\x80\x80"sv) == EEncoding::ascii_extended);
+		PR_EXPECT(Detect("a\x80"sv) == EEncoding::ascii_extended);
+		PR_EXPECT(Detect("caf\xE9!"sv) == EEncoding::ascii_extended);
+	}
+}
+#endif

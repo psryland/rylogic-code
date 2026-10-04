@@ -64,7 +64,7 @@ namespace pr
 			,m_last_error(ERROR_SUCCESS)
 			,m_was_created(false)
 		{}
-		RegistryKey(HKEY key, TCHAR const* subkey, registry::EAccess access, int reg_option = REG_OPTION_NON_VOLATILE)
+		RegistryKey(HKEY key, char const* subkey, registry::EAccess access, int reg_option = REG_OPTION_NON_VOLATILE)
 			:RegistryKey()
 		{
 			if (!Open(key, subkey, access, reg_option))
@@ -93,7 +93,7 @@ namespace pr
 		operator HKEY () { return m_hkey; }
 
 		// Returns true if a given key exists
-		static bool Exists(HKEY key, TCHAR const* subkey)
+		static bool Exists(HKEY key, char const* subkey)
 		{
 			RegistryKey k;
 			return k.Open(key, subkey, registry::EAccess::KeyRead);
@@ -103,20 +103,19 @@ namespace pr
 		// 'key' = the open registry key to open, e.g HKEY_CURRENT_USER
 		// 'subkey' = the "subfolders" under 'key'
 		// 'access' = the desired access to the key
-		// If unicode is used, 'subkey' must be aligned.
-		bool Open(HKEY key, TCHAR const* subkey, registry::EAccess access, int reg_option = REG_OPTION_NON_VOLATILE)
+		bool Open(HKEY key, char const* subkey, registry::EAccess access, int reg_option = REG_OPTION_NON_VOLATILE)
 		{
 			Close();
 
 			if ((access & registry::EAccess::SetValue) != registry::EAccess(0))
 			{
 				DWORD was_created;
-				m_last_error = RegCreateKeyEx(key, subkey, 0, nullptr, reg_option, REGSAM(access), nullptr, &m_hkey, &was_created);
+				m_last_error = RegCreateKeyExA(key, subkey, 0, nullptr, reg_option, REGSAM(access), nullptr, &m_hkey, &was_created);
 				m_was_created = was_created == REG_CREATED_NEW_KEY;
 			}
 			else
 			{
-				m_last_error = RegOpenKeyEx(key, subkey, 0, REGSAM(access), &m_hkey);
+				m_last_error = RegOpenKeyExA(key, subkey, 0, REGSAM(access), &m_hkey);
 				m_was_created = false;
 			}
 			return m_last_error == ERROR_SUCCESS;
@@ -132,25 +131,25 @@ namespace pr
 		// Returns the length of a registry value in bytes. If the value type is a string,
 		// this method returns the number of characters it contains (including the terminating
 		// null character). Returns 0 if the value doesn't exist.
-		DWORD GetKeyLength(TCHAR const* value) const
+		DWORD GetKeyLength(char const* value) const
 		{
 			if (!m_hkey)
 				throw std::exception("RegKey invalid");
 
 			auto length = DWORD{};
-			Check(RegQueryValueEx(m_hkey, value, nullptr, nullptr, nullptr, &length), "failed to read registry value data length");
+			Check(RegQueryValueExA(m_hkey, value, nullptr, nullptr, nullptr, &length), "failed to read registry value data length");
 			return length;
 		}
 
 		// Returns true if 'value' exists in the current key and is of type 'data_type'
-		bool HasValue(TCHAR const* value, DWORD data_type) const
+		bool HasValue(char const* value, DWORD data_type) const
 		{
 			DWORD type;
-			return RegQueryValueEx(m_hkey, value, nullptr, &type, nullptr, nullptr) == ERROR_SUCCESS && type == data_type;
+			return RegQueryValueExA(m_hkey, value, nullptr, &type, nullptr, nullptr) == ERROR_SUCCESS && type == data_type;
 		}
-		bool HasValue(TCHAR const* value) const
+		bool HasValue(char const* value) const
 		{
-			return RegQueryValueEx(m_hkey, value, nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS;
+			return RegQueryValueExA(m_hkey, value, nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS;
 		}
 
 		// Read/Write raw data from/to the registry key.
@@ -159,33 +158,33 @@ namespace pr
 		// 'length' is the size in bytes of the memory pointed to by 'data'
 		// 'subkey' is an option subfolder from the opened key
 		// 'data_type' is the data type of the value to read (default is REG_BINARY)
-		void Read(TCHAR const* value, void* data, DWORD length, DWORD data_type = REG_BINARY) const
+		void Read(char const* value, void* data, DWORD length, DWORD data_type = REG_BINARY) const
 		{
 			if (!m_hkey) throw std::exception("RegKey invalid");
-			Check(RegQueryValueEx(m_hkey, value, nullptr, &data_type, (BYTE*)data, &length), "failed to read registry value");
+			Check(RegQueryValueExA(m_hkey, value, nullptr, &data_type, (BYTE*)data, &length), "failed to read registry value");
 		}
-		void Write(TCHAR const* value, void const* data, DWORD length, int data_type = REG_BINARY)
+		void Write(char const* value, void const* data, DWORD length, int data_type = REG_BINARY)
 		{
 			if (!m_hkey) throw std::exception("RegKey invalid");
-			Check(RegSetValueEx(m_hkey, value, 0, data_type, (BYTE const*)data, length), "failed to read registry value");
+			Check(RegSetValueExA(m_hkey, value, 0, data_type, (BYTE const*)data, length), "failed to write registry value");
 		}
 
 		// Read/Write a value from/to the registry as a POD type
 		template <typename T, typename = std::enable_if_t<std::is_trivially_copyable_v<T>>>
-		T Read(TCHAR const* value, int data_type) const
+		T Read(char const* value, int data_type) const
 		{
 			auto data = T{};
 			Read(value, &data, DWORD(sizeof(data)), data_type);
 			return data;
 		}
 		template <typename T, typename = std::enable_if_t<std::is_trivially_copyable_v<T>>>
-		T Read(TCHAR const* value) const
+		T Read(char const* value) const
 		{
 			return Read<T>(value, REG_BINARY);
 		}
 
 		// Read/Write a string from/to the registry key.
-		std::string Read(TCHAR const* value) const
+		std::string Read(char const* value) const
 		{
 			if (!m_hkey)
 				throw std::exception("RegKey invalid");
@@ -194,98 +193,92 @@ namespace pr
 			if (len == 0)
 				return std::string{};
 
+			// The stored data may or may not include a null terminator, so trim any trailing nulls after reading.
 			auto type = DWORD{REG_SZ};
-			if (len < 1024)
-			{
-				char str[1024];
-				Check(RegQueryValueEx(m_hkey, value, nullptr, &type, (BYTE*)&str[0], &len), "failed to read registry value");
-				return str;
-			}
-			else
-			{
-				auto str = std::string{};
-				str.resize(len);
-				Check(RegQueryValueEx(m_hkey, value, nullptr, &type, (BYTE*)&str[0], &len), "failed to read registry value");
+			auto str = std::string(len, '\0');
+			Check(RegQueryValueExA(m_hkey, value, nullptr, &type, (BYTE*)str.data(), &len), "failed to read registry value");
+			str.resize(len);
 
-				for (;!str.empty() && *--str.end() == 0; str.resize(str.size() - 1)) {} // rtrim null terminator
-				return str;
-			}
+			for (;!str.empty() && str.back() == 0; str.pop_back()) {}
+			return str;
 		}
-		void Write(TCHAR const* value, std::string const& data)
+		void Write(char const* value, std::string const& data)
 		{
-			Write(value, data.c_str(), DWORD(data.size()), REG_SZ);
+			// REG_SZ data should include the null terminator
+			Write(value, data.c_str(), DWORD(data.size() + 1), REG_SZ);
 		}
-		void Write(TCHAR const* value, char const* data)
+		void Write(char const* value, char const* data)
 		{
-			Write(value, data, DWORD(strlen(data)), REG_SZ);
+			// REG_SZ data should include the null terminator
+			Write(value, data, DWORD(strlen(data) + 1), REG_SZ);
 		}
 
 		// Read/Write a DWORD from/to the registry key.
-		template <> DWORD Read<DWORD>(TCHAR const* value) const
+		template <> DWORD Read<DWORD>(char const* value) const
 		{
 			return Read<DWORD>(value, REG_DWORD);
 		}
-		void Write(TCHAR const* value, unsigned long data)
+		void Write(char const* value, unsigned long data)
 		{
 			Write(value, &data, sizeof(data), REG_DWORD);
 		}
-		void Write(TCHAR const* value, unsigned int data)
+		void Write(char const* value, unsigned int data)
 		{
 			Write(value, &data, sizeof(data), REG_DWORD);
 		}
-		void Write(TCHAR const* value, long data)
+		void Write(char const* value, long data)
 		{
 			Write(value, &data, sizeof(data), REG_DWORD);
 		}
-		void Write(TCHAR const* value, int data)
+		void Write(char const* value, int data)
 		{
 			Write(value, &data, sizeof(data), REG_DWORD);
 		}
 
 		// Read/Write a boolean flag from/to the registry key.
-		template <> bool Read<bool>(TCHAR const* value) const
+		template <> bool Read<bool>(char const* value) const
 		{
 			return Read<DWORD>(value) != 0;
 		}
-		void Write(TCHAR const* value, bool data)
+		void Write(char const* value, bool data)
 		{
 			auto d = data ? DWORD(1) : DWORD(0);
 			Write(value, &d, sizeof(d), REG_DWORD);
 		}
 
 		// Read/Write a floating point value from/to the registry key.
-		template <> double Read<double>(TCHAR const* value) const
+		template <> double Read<double>(char const* value) const
 		{
 			auto s = Read(value);
 			return std::stod(s);
 		}
-		void Write(TCHAR const* value, double data)
+		void Write(char const* value, double data)
 		{
 			auto str = std::to_string(data);
 			Write(value, str);
 		}
 
 		// Delete a value from the currently open registry key
-		void DeleteValue(TCHAR const* value)
+		void DeleteValue(char const* value)
 		{
-			Check(RegDeleteKeyValue(m_hkey, nullptr, value), "failed to delete registry value");
+			Check(RegDeleteKeyValueA(m_hkey, nullptr, value), "failed to delete registry value");
 		}
 
 		// Delete a registry key.
-		static void Delete(HKEY hkey, TCHAR const* subkey)
+		static void Delete(HKEY hkey, char const* subkey)
 		{
 			// This is not a member because 'subkey' is a required parameter
 			// and I don't want to have to store 'subkey' in this class
 			// This is a better fit for typical usage as well, why would
 			// you want to open a subkey only to delete it?
-			if (RegDeleteKey(hkey, subkey) != ERROR_SUCCESS)
+			if (RegDeleteKeyA(hkey, subkey) != ERROR_SUCCESS)
 				throw std::exception("failed to delete registry key");
 		}
 
 		// Delete the currently open registry key and all subkeys
-		static std::enable_if<_WIN32_WINNT >= 0x0600, void>::type DeleteTree(HKEY hkey, TCHAR const* subkey)
+		static std::enable_if<_WIN32_WINNT >= 0x0600, void>::type DeleteTree(HKEY hkey, char const* subkey)
 		{
-			if (RegDeleteTree(hkey, subkey) != ERROR_SUCCESS)
+			if (RegDeleteTreeA(hkey, subkey) != ERROR_SUCCESS)
 				throw std::exception("failed to delete registry key and subkeys");
 		}
 	};
@@ -307,6 +300,7 @@ namespace pr::common
 			rkey.Write("DWord", 1234U);
 			rkey.Write("Double", 3.14);
 			rkey.Write("Blob", "ABCD", sizeof("ABCD"), REG_BINARY);
+			rkey.Write("Unterminated", "XYZ", 3, REG_SZ);
 		}
 		{// Check values exist
 			auto rkey = pr::RegistryKey(HKEY_CURRENT_USER, subkey, pr::registry::EAccess::KeyRead);
@@ -318,6 +312,7 @@ namespace pr::common
 
 			// Read the values
 			PR_EXPECT(rkey.Read("String") == "Paul Was Here");
+			PR_EXPECT(rkey.Read("Unterminated") == "XYZ");
 			PR_EXPECT(rkey.Read<DWORD>("DWord") == 1234U);
 			PR_EXPECT(FEql(rkey.Read<double>("Double"), 3.14));
 
@@ -332,6 +327,7 @@ namespace pr::common
 			rkey.DeleteValue("DWord");
 			rkey.DeleteValue("Double");
 			rkey.DeleteValue("Blob");
+			rkey.DeleteValue("Unterminated");
 		}
 		{// Check values deleted
 			auto rkey = pr::RegistryKey(HKEY_CURRENT_USER, subkey, pr::registry::EAccess::KeyRead);

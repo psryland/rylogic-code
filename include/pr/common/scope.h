@@ -127,8 +127,9 @@ namespace pr
 		Scope& operator = (Scope&& rhs) noexcept
 		{
 			if (this == &rhs) return *this;
+
+			// 'rhs' takes ownership of the previous flag so that it is cleared when 'rhs' is destroyed
 			std::swap(m_flag, rhs.m_flag);
-			rhs.m_flag = nullptr;
 			return *this;
 		}
 		Scope& operator = (Scope const&) = delete;
@@ -167,6 +168,19 @@ namespace pr::common
 			PR_EXPECT(value == 2);
 		}
 		PR_EXPECT(value == 1);
+
+		bool flag0 = false, flag1 = false;
+		{
+			auto s0 = Scope<bool&>(flag0);
+			{
+				auto s1 = Scope<bool&>(flag1);
+				PR_EXPECT(flag0 && flag1);
+
+				s0 = std::move(s1);
+			}
+			PR_EXPECT(!flag0 && flag1);
+		}
+		PR_EXPECT(!flag0 && !flag1);
 	}
 }
 #endif

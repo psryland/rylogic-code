@@ -4,7 +4,6 @@
 //*********************************************
 
 #include <algorithm>
-#include "pr/common/profile.h"
 #include "pr/common/cast.h"
 #include "pr/geometry/tetramesh.h"
 #include "pr/geometry/deformablemesh.h"
@@ -120,8 +119,6 @@ struct Pred_BySmallestDisplacement
 // 'min_volume' is the minimum volume all tetras must have after deformation
 void pr::deformable::Deform(deformable::Mesh& mesh, float min_volume, VIndex* vert_indices, TSize num_vert_indices)
 {
-	//PR_DECLARE_PROFILE(PR_PROFILE_TETRAMESH, TM_Deform);
-	//PR_PROFILE_SCOPE(PR_PROFILE_TETRAMESH, TM_Deform);
 	PR_EXPAND(PR_LDR_TETRAMESH, DumpMesh(mesh.m_tetra_mesh, 1.0f, "8000FF00", "deform");)
 	//PR_EXPAND(PR_LDR_TETRAMESH, DumpDisplacements(mesh, "FFFF8000", "displacements");)
 

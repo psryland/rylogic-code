@@ -54,7 +54,6 @@
 #include "pr/camera/camera.h"
 #include "pr/math/math.h"
 #include "pr/gfx/colour.h"
-#include "pr/filesys/filesys.h"
 #include "pr/gui/wingui.h"
 #include "pr/gui/misc.h"
 #include "pr/gui/menu_list.h"

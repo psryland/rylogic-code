@@ -70,15 +70,15 @@ namespace pr
 			result.y = norm[(i + 2) % 3];
 
 			// Encode the index or the dropped component, the sign, and the 'w' value in the LSB
-			reinterpret_cast<uint32_t&>(result.x) = SetBits(reinterpret_cast<uint32_t const&>(result.x), 0x3, i);
-			reinterpret_cast<uint32_t&>(result.y) = SetBits(reinterpret_cast<uint32_t const&>(result.y), 0x3, s);
+			result.x = std::bit_cast<float>(SetBits(std::bit_cast<uint32_t>(result.x), 0x3, i));
+			result.y = std::bit_cast<float>(SetBits(std::bit_cast<uint32_t>(result.y), 0x3, s));
 
 			return result;
 		}
 		static v4 Decompress(v2 const& packed_norm)
 		{
-			auto i = reinterpret_cast<uint32_t const&>(packed_norm.x) & 0x3;
-			auto s = reinterpret_cast<uint32_t const&>(packed_norm.y) & 0x3;
+			auto i = std::bit_cast<uint32_t>(packed_norm.x) & 0x3;
+			auto s = std::bit_cast<uint32_t>(packed_norm.y) & 0x3;
 			auto w = (s & 0x1) != 0 ? 1.0f : 0.0f;
 			auto sign = (s & 0x2) != 0 ? -1.0f : +1.0f;
 

@@ -378,29 +378,6 @@ namespace pr::sqlite
 		{
 			return List(cont, sep, value, False<decltype(cont[0])>);
 		}
-
-		// Adds quotes to a string and escapes quotes within the string
-		template <typename TString> static TString Quote(TString str, bool add)
-		{
-			auto q = static_cast<TString::value_type>('\'');
-
-			TString out;
-			out.reserve(str.size() + 10);
-			if (add)
-			{
-				out.append(1,q);
-				for (auto i : str) { if (i == q) { out.append(1,q); } out.append(1,i); }
-				out.append(1,q);
-			}
-			else
-			{
-				bool qlast = false;
-				for (auto i = std::begin(str), iend = std::end(str); i != iend; qlast = *i == q, ++i)
-					if (*i != q || qlast)
-						out.append(1,*i);
-			}
-			return out;
-		}
 	};
 
 	// Return the number of result columns in 'stmt'
@@ -502,7 +479,7 @@ namespace pr::sqlite
 		int res = sqlite3_bind_double(stmt, idx, value);
 		if (res != SQLITE_OK) throw Exception(res, "Failed to bind real", false);
 	}
-	template <typename StrType> inline  void bind_text(sqlite3_stmt* stmt, int idx, StrType value)
+	template <typename StrType> inline  void bind_text(sqlite3_stmt* stmt, int idx, StrType const& value)
 	{
 		struct S
 		{
@@ -510,8 +487,7 @@ namespace pr::sqlite
 			static int bind(sqlite3_stmt* stmt, int idx, wchar_t const* str, size_t len) { return sqlite3_bind_text16(stmt, idx, str, int(len * sizeof(wchar_t)), SQLITE_TRANSIENT); }
 		};
 
-		// Note passing value == 0 will bind null
-		value =  StrHelper::Quote<StrType>(value, true);
+		// Bound parameters are never parsed as SQL, so the text is stored exactly as given
 		int res = S::bind(stmt, idx, value.c_str(), value.size());
 		if (res != SQLITE_OK) throw Exception(res, "Failed to bind text", false);
 	}
@@ -588,7 +564,6 @@ namespace pr::sqlite
 		size_t length = S::len(stmt, col, StrType::value_type());
 		if (ptr == nullptr) return value = StrType();
 		Assign(value, ptr, ptr + length/sizeof(StrType::value_type));
-		value = StrHelper::Quote<StrType>(value, false);
 		return value;
 	}
 	template <typename CharType> inline               CharType* read_text(sqlite3_stmt* stmt, int col, size_t max_length, CharType* value, size_t& length)
@@ -1063,7 +1038,9 @@ namespace pr::sqlite
 		Query(Query const&) = delete;
 		Query& operator=(Query&& rhs)
 		{
+			// Release the current statement before taking ownership of 'rhs's
 			if (this == &rhs) return *this;
+			Finalize();
 			m_stmt      = rhs.m_stmt;
 			rhs.m_stmt  = 0;
 			return *this;
@@ -1366,7 +1343,7 @@ namespace pr::sqlite
 		template <typename PKArgs> bool Find(PKArgs const& pks) const
 		{
 			DBRecord item;
-			return Find(pks);
+			return Find(pks, item);
 		}
 
 		// Return the value of a specific column
@@ -1426,12 +1403,21 @@ namespace pr::sqlite
 			return m_db;
 		}
 
-		// Open a database file
+		// Open a database file, closing any connection that is already open
 		void Open(std::filesystem::path const& db_file, int flags = SQLITE_OPEN_READWRITE|SQLITE_OPEN_CREATE, char const* vfs = 0)
 		{
-			int res = sqlite3_open_v2(db_file.string().c_str(), &m_db, flags, vfs);
+			// Sqlite expects UTF-8 file names. 'path::string()' would convert to the ANSI code page.
+			Close();
+			auto filepath = db_file.u8string();
+			int res = sqlite3_open_v2(reinterpret_cast<char const*>(filepath.c_str()), &m_db, flags, vfs);
 			if (res != SQLITE_OK)
-				throw Exception(res, sqlite3_errmsg(m_db), false);
+			{
+				// Sqlite usually allocates a connection even when opening fails. It must be closed, and the message copied before closing.
+				auto ex = Exception(res, m_db ? sqlite3_errmsg(m_db) : sqlite3_errstr(res), false);
+				sqlite3_close(m_db);
+				m_db = nullptr;
+				throw ex;
+			}
 			BusyTimeout(BusyTimeoutDefault);
 		}
 
@@ -1541,14 +1527,11 @@ namespace pr::sqlite
 
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	// An RAII wrapper for a database transaction
+	// An RAII wrapper for a database transaction. An unfinished transaction is rolled back on destruction.
 	class Transaction
 	{
 		Database& m_db;
 		bool m_completed;
-
-		Transaction(Transaction const&); // no copying
-		Transaction& operator=(Transaction const&);
 
 	public:
 		explicit Transaction(Database& db)
@@ -1557,10 +1540,17 @@ namespace pr::sqlite
 		{
 			m_db.Execute("begin transaction");
 		}
+		Transaction(Transaction const&) = delete;
+		Transaction& operator=(Transaction const&) = delete;
 		~Transaction()
 		{
-			if (!m_completed)
-				Rollback();
+			// Sqlite rolls back automatically after some errors, so there may be no transaction left to roll back.
+			// A destructor must not throw, so a failed rollback is ignored.
+			if (m_completed || m_db.AutoCommit())
+				return;
+
+			try { Rollback(); }
+			catch (...) {}
 		}
 		void Commit()
 		{
@@ -2093,6 +2083,29 @@ namespace pr::sqlite
 			Record R;
 			PR_EXPECT( table.Find(PKs(3), R));
 			PR_EXPECT(!table.Find(PKs(6), R));
+			PR_EXPECT( table.Find(PKs(3)));
+			PR_EXPECT(!table.Find(PKs(6)));
+		}
+		PRUnitTestMethod(QueryMoveAssign, Quick)
+		{
+			DB db;
+
+			// Count the statements that have not been finalised
+			auto StmtCount = [&]
+			{
+				auto count = 0;
+				for (auto stmt = sqlite3_next_stmt(db, nullptr); stmt != nullptr; stmt = sqlite3_next_stmt(db, stmt))
+					++count;
+
+				return count;
+			};
+
+			// Assigning over a query finalises its previous statement
+			Query q0(db, "select 1");
+			Query q1(db, "select 2");
+			PR_EXPECT(StmtCount() == 2);
+			q0 = std::move(q1);
+			PR_EXPECT(StmtCount() == 1);
 		}
 		PRUnitTestMethod(Unicode, Quick)
 		{
@@ -2122,6 +2135,80 @@ namespace pr::sqlite
 
 			std::wstring STR = table.GetColumn<std::wstring>(PKs(row), 1);
 			PR_EXPECT(str == STR);
+		}
+		PRUnitTestMethod(TextIsStoredVerbatim, Quick)
+		{
+			DB db;
+			db.Execute("create table T (x text)");
+
+			// Bound text is stored without added quotes, so SQL functions and comparisons see the real value
+			{
+				Query q(db, "insert into T values (?)");
+				q.Bind(1, std::string{ "it's" });
+				PR_EXPECT(q.Run() == 1);
+			}
+			PR_EXPECT(db.ExecuteScalar("select length(x) from T") == 4);
+			PR_EXPECT(db.ExecuteScalar("select count(*) from T where x = 'it''s'") == 1);
+
+			// Text written by plain SQL reads back unchanged
+			db.Execute("delete from T");
+			db.Execute("insert into T values ('''quoted''')");
+			{
+				Query q(db, "select x from T");
+				std::string value;
+				PR_EXPECT(q.Step() && read_text(q, 0, value) == "'quoted'");
+			}
+		}
+		PRUnitTestMethod(OpenAndClose, Quick)
+		{
+				// Every connection is released: after a failed open, and when reopening an open database
+				auto baseline = sqlite3_memory_used();
+				auto missing = std::filesystem::temp_directory_path() / "pr_sqlite_missing_dir" / "missing.db";
+				PR_THROWS(Database(missing, SQLITE_OPEN_READONLY), Exception);
+				{
+					Database db;
+					PR_THROWS(db.Open(missing, SQLITE_OPEN_READONLY), Exception);
+					PR_EXPECT(!db.IsOpen());
+
+					db.Open(L":memory:");
+					db.Open(L":memory:");
+					PR_EXPECT(db.IsOpen());
+				}
+				PR_EXPECT(sqlite3_memory_used() == baseline);
+
+				// File names are passed to sqlite as UTF-8
+				auto filepath = std::filesystem::temp_directory_path() / L"pr_sqlite_\u00E9\u4E2D.db";
+				std::filesystem::remove(filepath);
+				{
+					Database db(filepath);
+					db.Execute("create table T (x integer)");
+				}
+				PR_EXPECT(std::filesystem::exists(filepath));
+				std::filesystem::remove(filepath);
+		}
+		PRUnitTestMethod(Transactions, Quick)
+		{
+				DB db;
+				db.Execute("create table T (x integer)");
+
+				// Committed changes are kept, unfinished ones are rolled back at scope exit
+				{
+					Transaction tx(db);
+					db.Execute("insert into T values (1)");
+					tx.Commit();
+				}
+				{
+					Transaction tx(db);
+					db.Execute("insert into T values (2)");
+				}
+				PR_EXPECT(db.ExecuteScalar("select count(*) from T") == 1);
+
+				// Destroying a transaction that sqlite has already ended does not throw
+				{
+					Transaction tx(db);
+					db.Execute("rollback");
+				}
+				PR_EXPECT(db.AutoCommit());
 		}
 		PRUnitTestMethod(GUIDs, Quick)
 		{

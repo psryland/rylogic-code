@@ -381,7 +381,7 @@ namespace pr
 		{
 			auto w = word(n);
 			n %= BitsPerWord;
-			return w & (1 << n);
+			return w & (WordType(1) << n);
 		}
 
 		// Set the value of the 'nth' bit
@@ -389,8 +389,8 @@ namespace pr
 		{
 			auto& w = word(n);
 			n %= BitsPerWord;
-			if (val) w |=  (1 << n);
-			else     w &= ~(1 << n);
+			if (val) w |=  (WordType(1) << n);
+			else     w &= ~(WordType(1) << n);
 			return *this;
 		}
 
@@ -628,13 +628,14 @@ namespace pr
 					m_unused = BitsPerWord;
 				}
 
+				// 'count' is in [1,64], so shift the mask right rather than shifting 1 left by up to 64 bits
 				auto count = std::min(bits, m_unused);
-				auto mask = (1ULL << count) - 1;
+				auto mask = ~0ULL >> (64 - count);
 
 				m_bits.back() |= WordType(value & mask) << (BitsPerWord - m_unused);
 
 				m_unused -= count;
-				value >>= count;
+				value = count < 64 ? value >> count : 0;
 				bits -= count;
 			}
 			return *this;
@@ -910,6 +911,19 @@ namespace pr::container
 
 			PR_THROWS(bs1.ptr<uint32_t>(1), std::invalid_argument);
 			PR_THROWS(bs1.ptr<uint32_t>(6), std::out_of_range);
+		}
+		{
+			// 64-bit words need full-width shifts
+			bitsetRT<uint64_t> bs1;
+			bs1.append(0x8000000180000001ULL, 64);
+			PR_EXPECT(bs1.size() == 64);
+			PR_EXPECT(bs1.data()[0] == 0x8000000180000001ULL);
+			PR_EXPECT(bs1.test(0) && bs1.test(31) && bs1.test(32) && bs1.test(63));
+			PR_EXPECT(!bs1.test(1) && !bs1.test(33));
+
+			bs1.set(40);
+			bs1.set(63, false);
+			PR_EXPECT(bs1.data()[0] == 0x0000010180000001ULL);
 		}
 	}
 }

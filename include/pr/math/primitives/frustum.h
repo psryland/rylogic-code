@@ -506,14 +506,15 @@ namespace pr::math
 			return false;
 
 		// The bbox and frustum are both axis aligned, so the test is basically a 2D quad intersection test.
-		// Only need to test the cross section of the bbox and the frustum at the minimum z value.
+		// The frustum cross section grows with distance from the apex, so the widest cross section within the box's z range is at the
+		// minimum z value. The box overlaps the frustum if its xy rectangle overlaps that cross section.
 		auto z = Clamp(bb.LowerZ(), zfar, znear);
 		auto wh = S(0.5) * frustum.area(frustum_apex - z);
 
 		// This assumes the frustum is symmetric....
 		return
-			bb.LowerX() >= -wh.x && bb.UpperX() <= +wh.x &&
-			bb.LowerY() >= -wh.y && bb.UpperY() <= +wh.y;
+			bb.UpperX() >= -wh.x && bb.LowerX() <= +wh.x &&
+			bb.UpperY() >= -wh.y && bb.LowerY() <= +wh.y;
 	}
 
 	// Grow a frustum (i.e. move it along +f2w.Z growing zfar while preserving fov/aspect) so that 'ws_pt','ws_bbox', or 'ws_sphere' are within the frustum.
@@ -707,6 +708,15 @@ namespace pr::math::tests
 			// Radius test
 			PR_EXPECT(IsWithin(f, Vec4<T>{T(+0.6), T(-0.4), T(-0.8), 1}, T(0.07)));
 			PR_EXPECT(!IsWithin(f, Vec4<T>{T(+0.6), T(-0.4), T(-0.8), 1}, T(0.06)));
+
+			// BBox test. Any overlap with the frustum counts as within.
+			using BBoxT = BoundingBox<T>;
+			PR_EXPECT(IsWithin(f, BBoxT(Vec4<T>{0, 0, T(-1), 1}, Vec4<T>{T(0.1), T(0.1), T(0.1), 0})));
+			PR_EXPECT(IsWithin(f, BBoxT(Vec4<T>{T(0.8), 0, T(-1), 1}, Vec4<T>{T(0.2), T(0.1), T(0.1), 0})));
+			PR_EXPECT(IsWithin(f, BBoxT(Vec4<T>{0, 0, T(-1), 1}, Vec4<T>{T(5), T(5), T(0.1), 0})));
+			PR_EXPECT(!IsWithin(f, BBoxT(Vec4<T>{T(1.5), 0, T(-1), 1}, Vec4<T>{T(0.2), T(0.2), T(0.2), 0})));
+			PR_EXPECT(!IsWithin(f, BBoxT(Vec4<T>{0, T(-0.8), T(-1), 1}, Vec4<T>{T(0.2), T(0.2), T(0.2), 0})));
+			PR_EXPECT(!IsWithin(f, BBoxT(Vec4<T>{0, 0, T(-3), 1}, Vec4<T>{T(0.5), T(0.5), T(0.5), 0})));
 
 			// GetCorners
 			auto corners = Corners(f, T(1));
