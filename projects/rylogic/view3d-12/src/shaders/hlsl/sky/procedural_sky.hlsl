@@ -224,8 +224,11 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 
 	// Group clouds into fields with clear gaps between them. A broad, slowly changing field raises or lowers the local threshold.
 	// Threshold the noise by cover: none at 0, about half the sky at 0.5, and all of it at 1. Storms fill in the gaps.
+	// At mid cover the threshold is near the middle of the noise, so every small wiggle would cross it and scatter many small clouds.
+	// Grouping is strongest there, so low and mid-level clouds gather into large masses with wide gaps. Cirrus keeps light grouping.
 	float cluster = g_cloud_noise.SampleLevel(g_noise_sampler, uv1 * 0.25, max(lod - 2.0, 4.0)).g;
-	float threshold = lerp(0.85, 0.15, layer_cover) + 0.3 * (0.5 - cluster) * (1.0 - storm);
+	float mid_cover = layer == 2 ? 0.0 : smoothstep(0.1, 0.3, cover) * (1.0 - smoothstep(0.55, 0.8, cover));
+	float threshold = lerp(0.85, 0.15, layer_cover) + lerp(0.3, 0.8, mid_cover) * (0.5 - cluster) * (1.0 - storm);
 
 	// Masses come from the broad noise; lumps add rounded bulges to cumulus, and only slight texture to cirrus.
 	// Both samples are averaged, so they are rescaled to keep the spread of a single sample.
