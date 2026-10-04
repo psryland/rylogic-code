@@ -286,7 +286,11 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 
 		// Sides are white at the top and grey at the base. The base is grey, darker under thick cloud. The base hides any side behind it.
 		// When the sun is near the horizon it shines under the cloud, so the gradient inverts: the base is lit and the side tops are in shade.
-		float side = saturate(-gap_min / (0.05 * height)) * (1.0 - coverage);
+		// Edges are fluffy: they fade in over a wide band, and fine lumpy noise frays them. Storm cloud keeps sharper, well defined edges.
+		float fluff = 1.0 - storm;
+		float fray = g_cloud_noise.SampleLevel(g_noise_sampler, uv1 * 3.0 + float2(0.21, 0.43), lod + 1.585).b - 0.5;
+		coverage = saturate((field - threshold + 0.35 * fray * fluff) / (softness * lerp(1.0, 3.5, fluff)));
+		float side = saturate((-gap_min + 0.5 * height * fray * fluff) / (lerp(0.05, 0.45, fluff) * height)) * (1.0 - coverage);
 		float side_height = saturate(z_hit / (0.8 * height));
 		float side_shade = lerp(0.85 * (1.0 - side_height), 0.2 + 0.7 * side_height, under_lit);
 		float base_shade = lerp(0.6 + 0.4 * depth, 0.1 * depth, under_lit);
@@ -327,7 +331,7 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 
 	// Denser cloud, and longer paths where the ray grazes the layer, are more opaque. Squaring the opacity softens the edges.
 	// Sparse cloud is thinner, so it is partly translucent.
-	float thickness = (layer == 0 ? 6.0 : layer == 1 ? 3.0 : 0.8) * lerp(0.5, 1.0, build);
+	float thickness = (layer == 0 ? lerp(3.0, 6.0, storm) : layer == 1 ? 3.0 : 0.8) * lerp(0.5, 1.0, build);
 	float path = 1.0 + min(0.3 / mu, 3.0);
 	float alpha = 1.0 - exp(-coverage * coverage * thickness * path);
 
