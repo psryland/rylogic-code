@@ -9,8 +9,8 @@ namespace Rylogic.Gfx.UI;
 internal static unsafe class Native
 {
 	internal const string Dll = "view3d-ui";
-	internal const uint ApiVersion = 0x00070000U;
-	internal const uint StructVersion = 7U;
+	internal const uint ApiVersion = 0x00080000U;
+	internal const uint StructVersion = 8U;
 	private static IntPtr m_module;
 
 	/// <summary>Load the configuration-appropriate native runtime before the first P/Invoke.</summary>
@@ -149,9 +149,19 @@ internal static unsafe class Native
 		internal float m_maximum;
 		internal float m_step;
 		internal int m_masked;
+		internal uint m_combo_item_offset;
+		internal uint m_combo_item_count;
+		internal int m_selected_index;
+		internal uint m_max_visible_items;
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
+	internal struct ComboBoxItem
+	{
+		internal uint m_text_offset;
+		internal uint m_text_length;
+	}
+
 	internal struct ChildOrder
 	{
 		internal ControlId m_parent_id;
@@ -303,6 +313,8 @@ internal static unsafe class Native
 		internal uint m_style_count;
 		internal IntPtr m_templates;
 		internal uint m_template_count;
+		internal IntPtr m_combo_box_items;
+		internal uint m_combo_box_item_count;
 		internal IntPtr m_resource_removals;
 		internal uint m_resource_removal_count;
 		internal IntPtr m_style_removals;

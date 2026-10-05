@@ -33,6 +33,7 @@ namespace pr::view3d::ui
 				return TextPlacement{ .align = ETextAlign::Left, .inset_dip = 0.0f }; // a bare label has no box of its own to inset from
 			}
 			case EControlType::TextBox:
+			case EControlType::ComboBox:
 			{
 				return TextPlacement{ .align = ETextAlign::Left, .inset_dip = TextBoxHorizontalInsetDip };
 			}

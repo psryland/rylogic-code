@@ -15,8 +15,8 @@
 
 namespace pr::view3d::ui
 {
-	inline constexpr std::uint32_t VIEW3D_UI_API_VERSION = 0x00070000U;
-	inline constexpr std::uint32_t VIEW3D_UI_STRUCT_VERSION = 7U;
+	inline constexpr std::uint32_t VIEW3D_UI_API_VERSION = 0x00080000U;
+	inline constexpr std::uint32_t VIEW3D_UI_STRUCT_VERSION = 8U;
 
 	// Maximum named parts recorded directly within one TemplateDesc. Bounded so the descriptor
 	// stays fixed-layout; the closed template vocabulary (section 6.3) never needs more than this.
@@ -81,6 +81,7 @@ namespace pr::view3d::ui
 		HostBridgeVersion = 13,
 		HostPassContext = 14,
 		InputTextPayload = 15,
+		ComboBoxItem = 16,
 	};
 
 	// Subtree visibility and layout participation. Hidden retains layout space; Collapsed has
@@ -104,7 +105,8 @@ namespace pr::view3d::ui
 		Button = 4,
 		ProgressBar = 5,
 		Slider = 6,
-		Count = 7,
+		ComboBox = 7,
+		Count = 8,
 	};
 
 	// Closed layout vocabulary (section 6.2). Overlay and the two Stack orientations place a
@@ -368,6 +370,7 @@ namespace pr::view3d::ui
 		// The node exposes a caret and a selection range that a text pattern could move. Reported
 		// only for an editable control, which is the only kind whose text ranges this module owns.
 		SetSelection = 1U << 3,
+		ExpandCollapse = 1U << 4,
 	};
 
 	// Bitmask of boolean semantic state flags (section 5.5), packed to keep SemanticNode compact.
@@ -382,6 +385,7 @@ namespace pr::view3d::ui
 		Invalid = 1U << 5,
 		Offscreen = 1U << 6,
 		Protected = 1U << 7,
+		Expanded = 1U << 8,
 	};
 
 	// Bitmask describing which of a SemanticNode's text-range fields carry meaning. Reporting
@@ -624,6 +628,23 @@ namespace pr::view3d::ui
 		// proposals carry that real text, but View3DUI displays one bullet per grapheme cluster and
 		// never exposes the value through semantics or UI Automation.
 		std::int32_t masked;
+
+		// ComboBox item range within Transaction::combo_box_items. The selected index is -1 for
+		// no selection, otherwise it must name an item in this control's item span. max_visible_items
+		// is the required positive popup row limit. Interaction only proposes a new selected index
+		// via ValueChangeProposed; the descriptor remains authoritative.
+		std::uint32_t combo_item_offset;
+		std::uint32_t combo_item_count;
+		std::int32_t selected_index;
+		std::uint32_t max_visible_items;
+	};
+
+	// One ComboBox item text range. Ranges index Transaction::blob and are copied into the
+	// retained tree before TransactionApply returns.
+	struct ComboBoxItem
+	{
+		std::uint32_t text_offset;
+		std::uint32_t text_length;
 	};
 
 	// Explicit child order for one parent (section 5.3). 'offset'/'count' index into the shared
@@ -754,6 +775,8 @@ namespace pr::view3d::ui
 		std::uint32_t style_count;
 		TemplateDesc const* templates;
 		std::uint32_t template_count;
+		ComboBoxItem const* combo_box_items;
+		std::uint32_t combo_box_item_count;
 
 		// Resource/style/template ids to remove after 'operations' has been fully applied and
 		// before the whole-tree consistency pass (so a transaction may both stop referencing an id
@@ -956,6 +979,7 @@ namespace pr::view3d::ui
 	static_assert(std::is_standard_layout_v<LayoutParams>);
 	static_assert(std::is_standard_layout_v<WorldRootParams>);
 	static_assert(std::is_standard_layout_v<ControlDesc>);
+	static_assert(std::is_standard_layout_v<ComboBoxItem>);
 	static_assert(std::is_standard_layout_v<ChildOrder>);
 	static_assert(std::is_standard_layout_v<Operation>);
 	static_assert(std::is_standard_layout_v<ResourceDesc>);

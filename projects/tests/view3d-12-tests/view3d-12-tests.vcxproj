@@ -134,6 +134,7 @@
 		<ClCompile Include="src\view3d-ui\tests_m9_corrections.cpp" />
 		<ClCompile Include="src\view3d-ui\tests_m10_uia.cpp" />
 		<ClCompile Include="src\view3d-ui\tests_slider.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_combo_box.cpp" />
 		<ClInclude Include="$(RylogicRoot)projects\rylogic\view3d-ui\dll\renderer.h" />
 		<ClCompile Include="$(RylogicRoot)projects\rylogic\view3d-ui\dll\renderer.cpp" />
 	</ItemGroup>

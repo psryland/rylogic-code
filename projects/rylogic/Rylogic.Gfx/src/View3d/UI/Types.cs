@@ -63,6 +63,7 @@ public enum EStructId
 	HostBridgeVersion = 13,
 	HostPassContext = 14,
 	InputTextPayload = 15,
+	ComboBoxItem = 16,
 }
 
 /// <summary>Only Visible draws and accepts input. Hidden retains layout space; Collapsed removes the subtree from layout.</summary>
@@ -83,7 +84,8 @@ public enum EControlType
 	Button = 4,
 	ProgressBar = 5,
 	Slider = 6,
-	Count = 7,
+	ComboBox = 7,
+	Count = 8,
 }
 
 /// <summary>
@@ -320,6 +322,7 @@ public enum ESemanticAction : uint
 
 	/// <summary>The node exposes a caret and a selection range that a text pattern could move; reported only for an editable control.</summary>
 	SetSelection = 1U << 3,
+	ExpandCollapse = 1U << 4,
 }
 
 /// <summary>Bitmask of boolean semantic state flags, packed to keep SemanticNode compact.</summary>
@@ -335,6 +338,7 @@ public enum ESemanticState : uint
 	Invalid = 1U << 5,
 	Offscreen = 1U << 6,
 	Protected = 1U << 7,
+	Expanded = 1U << 8,
 }
 
 /// <summary>

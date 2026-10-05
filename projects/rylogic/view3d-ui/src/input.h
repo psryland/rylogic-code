@@ -105,6 +105,9 @@ namespace pr::view3d::ui
 		ControlId m_focus_id = 0;
 		ControlId m_composing_id = 0; // the one control with an active composition, or 0
 		std::unordered_map<ControlId, TextEditState> m_text_edits;
+		ControlId m_open_combo_id = 0;
+		std::int32_t m_combo_highlight_index = -1;
+		std::uint32_t m_combo_scroll_offset = 0;
 
 		// Discard hover/pressed/capture/focus targets and text-edit state for controls no longer
 		// present in the accepted tree.
@@ -118,6 +121,16 @@ namespace pr::view3d::ui
 	// none (an "outside" hit). Root/Panel/Text are hit-test transparent: the search still descends
 	// through them to find an interactive descendant, but their own bounds are never returned as a
 	// hit, so a click over layout/decoration area with no interactive descendant is a miss.
+	Rect ComboBoxPopupRect(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, ViewportState const& viewport, ControlId combo_id);
+
+	// The topmost visible, interactive control or open ComboBox popup item at 'pt'.
+	struct HitTestResult
+	{
+		ControlId control_id;
+		std::int32_t combo_item_index;
+		std::int32_t in_combo_popup;
+	};
+	HitTestResult HitTestDetailed(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, InputState const& state, ViewportState const& viewport, Vec2 pt);
 	ControlId HitTest(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, Vec2 pt);
 
 	// Borrowed variable-length text accompanying one normalized input record. The caller owns the
@@ -160,7 +173,7 @@ namespace pr::view3d::ui
 	// that are not on code-point boundaries, a composition record that does not follow the
 	// start/update/commit-or-cancel ordering, or a composition record naming a control that is no
 	// longer the composing one).
-	InputResult ProcessNormalizedInput(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, NormalizedInput const& input, InputTextRecord const* text_payload, TextHitContext const& hit_context, InputState& state, EventQueue& events, std::uint64_t accepted_revision);
+	InputResult ProcessNormalizedInput(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, ViewportState const& viewport, NormalizedInput const& input, InputTextRecord const* text_payload, TextHitContext const& hit_context, InputState& state, EventQueue& events, std::uint64_t accepted_revision);
 
 	// Reconcile interaction after a transaction changes the accepted tree (section 7.5): if the
 	// currently focused control is no longer a valid focus target in 'new_tree' (removed, hidden/collapsed,
@@ -207,6 +220,7 @@ namespace pr::view3d::ui
 		Invoke,
 		SetValue,
 		SetSelection,
+		ExpandCollapse,
 	};
 
 	// One semantic action request. 'text' is the replacement UTF-8 value for a text SetValue,

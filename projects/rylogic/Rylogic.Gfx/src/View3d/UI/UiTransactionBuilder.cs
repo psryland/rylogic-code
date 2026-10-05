@@ -19,6 +19,7 @@ public sealed unsafe class UiTransactionBuilder
 	private readonly List<Native.ResourceDesc> m_resources = new();
 	private readonly List<Native.StyleDesc> m_styles = new();
 	private readonly List<Native.TemplateDesc> m_templates = new();
+	private readonly List<Native.ComboBoxItem> m_combo_box_items = new();
 	private readonly List<ResourceId> m_resource_removals = new();
 	private readonly List<StyleId> m_style_removals = new();
 	private readonly List<TemplateId> m_template_removals = new();
@@ -223,6 +224,7 @@ public sealed unsafe class UiTransactionBuilder
 		var resources = m_resources.ToArray();
 		var styles = m_styles.ToArray();
 		var templates = m_templates.ToArray();
+		var combo_box_items = m_combo_box_items.ToArray();
 		var resource_removals = m_resource_removals.ToArray();
 		var style_removals = m_style_removals.ToArray();
 		var template_removals = m_template_removals.ToArray();
@@ -235,6 +237,7 @@ public sealed unsafe class UiTransactionBuilder
 		fixed (Native.ResourceDesc* resources_ptr = resources)
 		fixed (Native.StyleDesc* styles_ptr = styles)
 		fixed (Native.TemplateDesc* templates_ptr = templates)
+		fixed (Native.ComboBoxItem* combo_box_items_ptr = combo_box_items)
 		fixed (ResourceId* resource_removals_ptr = resource_removals)
 		fixed (StyleId* style_removals_ptr = style_removals)
 		fixed (TemplateId* template_removals_ptr = template_removals)
@@ -259,6 +262,8 @@ public sealed unsafe class UiTransactionBuilder
 				m_style_count = checked((uint)styles.Length),
 				m_templates = (IntPtr)templates_ptr,
 				m_template_count = checked((uint)templates.Length),
+				m_combo_box_items = (IntPtr)combo_box_items_ptr,
+				m_combo_box_item_count = checked((uint)combo_box_items.Length),
 				m_resource_removals = (IntPtr)resource_removals_ptr,
 				m_resource_removal_count = checked((uint)resource_removals.Length),
 				m_style_removals = (IntPtr)style_removals_ptr,
@@ -335,6 +340,13 @@ public sealed unsafe class UiTransactionBuilder
 		var (text_offset, text_length) = AddText(control.Text);
 		var (name_offset, name_length) = AddText(control.Name);
 		var (desc_offset, desc_length) = AddText(control.Description);
+		var combo_item_offset = checked((uint)m_combo_box_items.Count);
+		foreach (var item in control.Items)
+		{
+			var (item_offset, item_length) = AddText(item ?? string.Empty);
+			m_combo_box_items.Add(new Native.ComboBoxItem { m_text_offset = item_offset, m_text_length = item_length });
+		}
+		var combo_item_count = checked((uint)m_combo_box_items.Count - combo_item_offset);
 		return new Native.ControlDesc
 		{
 			m_header = NativeHeader.Create<Native.ControlDesc>(),
@@ -366,6 +378,10 @@ public sealed unsafe class UiTransactionBuilder
 			m_maximum = control.Maximum,
 			m_step = control.Step,
 			m_masked = control.Masked ? 1 : 0,
+			m_combo_item_offset = combo_item_offset,
+			m_combo_item_count = combo_item_count,
+			m_selected_index = control.SelectedIndex,
+			m_max_visible_items = control.MaxVisibleItems,
 			m_world = ToNative(control.World),
 		};
 	}

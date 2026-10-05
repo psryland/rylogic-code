@@ -179,6 +179,12 @@ public sealed class UiDocument
 		writer.WriteNumber("maximum", control.Maximum);
 		writer.WriteNumber("step", control.Step);
 		writer.WriteBoolean("masked", control.Masked);
+		writer.WriteStartArray("items");
+		foreach (var item in control.Items)
+			writer.WriteStringValue(item);
+		writer.WriteEndArray();
+		writer.WriteNumber("selected_index", control.SelectedIndex);
+		writer.WriteNumber("max_visible_items", control.MaxVisibleItems);
 		WriteWorld(writer, control.World);
 
 		writer.WriteStartArray("children");
@@ -427,6 +433,9 @@ public sealed class UiDocument
 			Maximum = GetFloat(node, "maximum", path, 1),
 			Step = GetFloat(node, "step", path, 0.1f),
 			Masked = GetBool(node, "masked", path, false),
+			Items = ParseStringArray(node, "items", path),
+			SelectedIndex = TryGetInt32(node, "selected_index", out var selected_index) ? selected_index : -1,
+			MaxVisibleItems = GetUInt32(node, "max_visible_items", path, 0),
 			World = ParseWorld(node, $"{path}.world"),
 		};
 		// Reject invalid completion at the authoring boundary, before constructing a transaction.
@@ -448,6 +457,15 @@ public sealed class UiDocument
 					throw new UiJsonException($"{path}.value", "Slider value must be finite and within [Minimum, Maximum].");
 				if (float.IsNaN(control.Step) || float.IsInfinity(control.Step) || control.Step <= 0 || control.Step > control.Maximum - control.Minimum)
 					throw new UiJsonException($"{path}.step", "Slider step must be finite, positive, and no greater than Maximum - Minimum.");
+
+				break;
+			}
+			case EControlType.ComboBox:
+			{
+				if (control.MaxVisibleItems == 0)
+					throw new UiJsonException($"{path}.max_visible_items", "ComboBox max_visible_items must be greater than zero.");
+				if (control.SelectedIndex < -1 || control.SelectedIndex >= control.Items.Count)
+					throw new UiJsonException($"{path}.selected_index", "ComboBox selected_index must be -1 or within the items array.");
 
 				break;
 			}
@@ -646,6 +664,18 @@ public sealed class UiDocument
 		return result;
 	}
 
+	/// <summary>Parse an optional string array property, rejecting non-string elements with their exact path.</summary>
+	private static List<string> ParseStringArray(JsonElement parent, string property_name, string parent_path)
+	{
+		return ParseArray(parent, property_name, parent_path, (element, path) =>
+		{
+			if (element.ValueKind != JsonValueKind.String)
+				throw new UiJsonException(path, $"Expected a string, found {element.ValueKind}.");
+
+			return element.GetString() ?? string.Empty;
+		});
+	}
+
 	/// <summary>Build a duplicate-checked set of ids for one closed collection (resources/styles/templates), reporting the first duplicate found.</summary>
 	private static HashSet<ulong> ToIdSet<T>(IReadOnlyList<T> items, Func<T, ulong> get_id, string collection_path, string kind_name)
 	{
@@ -668,6 +698,13 @@ public sealed class UiDocument
 			throw new UiJsonException($"{path}.{property_name}", $"Expected an integer, found {value}.");
 
 		return result;
+	}
+
+	/// <summary>Try to parse an optional int32 property.</summary>
+	private static bool TryGetInt32(JsonElement element, string property_name, out int value)
+	{
+		value = 0;
+		return element.TryGetProperty(property_name, out var json_value) && json_value.ValueKind == JsonValueKind.Number && json_value.TryGetInt32(out value);
 	}
 
 	/// <summary>Parse a required uint64 property (used for every stable id).</summary>

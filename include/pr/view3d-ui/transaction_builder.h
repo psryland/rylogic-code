@@ -28,6 +28,7 @@ namespace pr::view3d::ui
 		std::vector<ResourceDesc> m_resources;
 		std::vector<StyleDesc> m_styles;
 		std::vector<TemplateDesc> m_templates;
+		std::vector<ComboBoxItem> m_combo_box_items;
 		std::vector<ResourceId> m_resource_removals;
 		std::vector<StyleId> m_style_removals;
 		std::vector<TemplateId> m_template_removals;
@@ -114,6 +115,25 @@ namespace pr::view3d::ui
 			m_templates.push_back(desc);
 		}
 
+		// Append one ComboBox item string and return its transaction-level item index.
+		std::uint32_t AddComboBoxItem(std::string_view text)
+		{
+			auto const index = static_cast<std::uint32_t>(m_combo_box_items.size());
+			auto const [offset, length] = AddText(text);
+			m_combo_box_items.push_back(ComboBoxItem{ .text_offset = offset, .text_length = length });
+			return index;
+		}
+
+		// Append a contiguous ComboBox item span and return its first index and count.
+		std::pair<std::uint32_t, std::uint32_t> AddComboBoxItems(std::initializer_list<std::string_view> items)
+		{
+			auto const offset = static_cast<std::uint32_t>(m_combo_box_items.size());
+			for (auto item : items)
+				AddComboBoxItem(item);
+
+			return { offset, static_cast<std::uint32_t>(items.size()) };
+		}
+
 		// Queue removal of a previously-accepted resource/style/template id. Rejected atomically if
 		// the id does not exist (EStatus::UnknownResource) or is still referenced by a control
 		// present once this transaction's operations have applied (EStatus::ResourceInUse).
@@ -168,6 +188,8 @@ namespace pr::view3d::ui
 				.style_count = static_cast<std::uint32_t>(m_styles.size()),
 				.templates = m_templates.data(),
 				.template_count = static_cast<std::uint32_t>(m_templates.size()),
+				.combo_box_items = m_combo_box_items.data(),
+				.combo_box_item_count = static_cast<std::uint32_t>(m_combo_box_items.size()),
 				.resource_removals = m_resource_removals.data(),
 				.resource_removal_count = static_cast<std::uint32_t>(m_resource_removals.size()),
 				.style_removals = m_style_removals.data(),

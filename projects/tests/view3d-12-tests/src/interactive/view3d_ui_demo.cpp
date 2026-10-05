@@ -55,6 +55,8 @@ namespace view3d_test
 		inline constexpr ControlId UI_IndeterminateProgress = 28;
 		inline constexpr ControlId UI_MaskedLabel = 29;
 		inline constexpr ControlId UI_MaskedTextBox = 30;
+		inline constexpr ControlId UI_ComboLabel = 31;
+		inline constexpr ControlId UI_ServiceCombo = 32;
 
 		// Stable per-control ids for the three clickable world-anchored roots.
 		inline constexpr ControlId UI_WorldOverlayRoot = 40;
@@ -103,7 +105,7 @@ namespace view3d_test
 			desc.style_id = style_id;
 			desc.enabled = 1;
 			desc.visibility = EVisibility::Visible;
-			desc.focusable = type == EControlType::TextBox || type == EControlType::Button;
+			desc.focusable = type == EControlType::TextBox || type == EControlType::Button || type == EControlType::ComboBox;
 			desc.validation_state = EValidationState::NotApplicable;
 			desc.layout = layout;
 			desc.max_text_length = 32;
@@ -169,6 +171,23 @@ namespace view3d_test
 			resource.colour = colour;
 			resource.font_size = size;
 			builder.AddNamedResource(resource, family);
+		}
+
+		// Attach the fixed AI-service item list to 'combo' using the ComboBox transaction encoding.
+		void AddAIServiceItems(TransactionBuilder& builder, ControlDesc& combo)
+		{
+			auto const [offset, count] = builder.AddComboBoxItems({
+				"OpenAI",
+				"Anthropic",
+				"Google Gemini",
+				"Azure OpenAI",
+				"Mistral",
+				"Groq",
+				"Local Ollama",
+			});
+			combo.combo_item_offset = offset;
+			combo.combo_item_count = count;
+			combo.max_visible_items = 4;
 		}
 
 		// Parsed numeric state owned by the demonstration application.
@@ -263,6 +282,7 @@ namespace view3d_test
 		std::string m_gallery_status;
 		std::uint32_t m_gallery_status_sequence;
 		std::uint32_t m_progress_step;
+		std::int32_t m_ai_service_index;
 		std::vector<pr::view3d::ui::Event> m_ui_events;
 		std::vector<std::byte> m_ui_event_payload;
 
@@ -281,6 +301,7 @@ namespace view3d_test
 			, m_gallery_status("Last action: none")
 			, m_gallery_status_sequence(0)
 			, m_progress_step(0)
+			, m_ai_service_index(0)
 		{
 			ApplyInitialUI();
 		}
@@ -369,7 +390,7 @@ namespace view3d_test
 
 		// Screen-space gallery: vertical composition containing examples of every layout mode.
 		auto root_layout = UILayout(0, 0, EHAlign::Stretch, EVAlign::Stretch);
-		auto panel_layout = UILayout(430, 690, EHAlign::Right, EVAlign::Top);
+		auto panel_layout = UILayout(430, 750, EHAlign::Right, EVAlign::Top);
 		panel_layout.margin_top = 24;
 		panel_layout.margin_right = 24;
 		panel_layout.padding_left = 16;
@@ -472,6 +493,11 @@ namespace view3d_test
 		auto masked_textbox = UIControl(UI_MaskedTextBox, UI_Panel, EControlType::TextBox, ELayoutMode::Overlay, UILayout(398, 40, EHAlign::Stretch), UI_TextBoxStyle, UI_TextBoxTemplate);
 		masked_textbox.masked = 1;
 		builder.Upsert(masked_textbox, "petri-api-key", "Masked API key", "A password-style TextBox that displays bullets");
+		builder.Upsert(UIControl(UI_ComboLabel, UI_Panel, EControlType::Text, ELayoutMode::Overlay, UILayout(398, 22, EHAlign::Stretch), UI_TextStyle), "AI service ComboBox", "AI service ComboBox label");
+		auto service_combo = UIControl(UI_ServiceCombo, UI_Panel, EControlType::ComboBox, ELayoutMode::Overlay, UILayout(398, 40, EHAlign::Stretch), UI_ButtonStyle);
+		service_combo.selected_index = m_ai_service_index;
+		AddAIServiceItems(builder, service_combo);
+		builder.Upsert(service_combo, {}, "AI service", "A drop-down list of AI service providers");
 
 		// One clickable button per world policy, using both apparent-DIP and world-unit sizing.
 		auto world_button_layout = UILayout(0, 0, EHAlign::Stretch, EVAlign::Stretch);
@@ -483,7 +509,7 @@ namespace view3d_test
 		builder.Upsert(UIControl(UI_WorldFadeButton, UI_WorldFadeRoot, EControlType::Button, ELayoutMode::Overlay, world_button_layout, UI_WorldFadeStyle, UI_ButtonTemplate), "Occlusion Fade", "Occlusion-faded world button");
 
 		builder.Reorder(UI_Root, {UI_Panel});
-		builder.Reorder(UI_Panel, {UI_Title, UI_DimensionSection, UI_ButtonLabel, UI_ButtonRow, UI_OverlayPanel, UI_CanvasPanel, UI_ScrollPanel, UI_Status, UI_ProgressSection, UI_MaskedLabel, UI_MaskedTextBox});
+		builder.Reorder(UI_Panel, {UI_Title, UI_DimensionSection, UI_ButtonLabel, UI_ButtonRow, UI_OverlayPanel, UI_CanvasPanel, UI_ScrollPanel, UI_Status, UI_ProgressSection, UI_MaskedLabel, UI_MaskedTextBox, UI_ComboLabel, UI_ServiceCombo});
 		builder.Reorder(UI_DimensionSection, {UI_Label, UI_DimensionRow});
 		builder.Reorder(UI_DimensionRow, {UI_Dimension, UI_Update});
 		builder.Reorder(UI_ButtonRow, {UI_SoftButton, UI_PillButton, UI_DisabledButton});
@@ -514,6 +540,10 @@ namespace view3d_test
 		auto status = UIControl(UI_Status, UI_Panel, EControlType::Text, ELayoutMode::Overlay, UILayout(398, 26, EHAlign::Stretch), UI_TextStyle);
 		status.value_sequence = m_gallery_status_sequence;
 		builder.Upsert(status, m_gallery_status, m_gallery_status);
+		auto service_combo = UIControl(UI_ServiceCombo, UI_Panel, EControlType::ComboBox, ELayoutMode::Overlay, UILayout(398, 40, EHAlign::Stretch), UI_ButtonStyle);
+		service_combo.selected_index = m_ai_service_index;
+		AddAIServiceItems(builder, service_combo);
+		builder.Upsert(service_combo, {}, "AI service", "A drop-down list of AI service providers");
 
 		m_ui.TransactionApply(builder.Build(m_ui_revision, m_ui_revision + 1));
 		++m_ui_revision;
@@ -594,6 +624,17 @@ namespace view3d_test
 						case UI_WorldDepthButton: { SetGalleryStatus("depth-tested world button"); break; }
 						case UI_WorldFadeButton: { SetGalleryStatus("occlusion-faded world button"); break; }
 						default: break;
+					}
+					break;
+				}
+				case pr::view3d::ui::EEventKind::ValueChangeProposed:
+				{
+					// ComboBox proposals are item indices; the gallery accepts them directly.
+					if (event.control_id == UI_ServiceCombo && event.has_numeric_value != 0)
+					{
+						// Reconcile the accepted selection through the retained descriptor model.
+						m_ai_service_index = static_cast<std::int32_t>(event.numeric_value);
+						SetGalleryStatus("AI service changed");
 					}
 					break;
 				}

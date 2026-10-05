@@ -3,6 +3,7 @@
 //  Copyright (C) Rylogic Ltd 2026
 //*********************************************
 #include "tree.h"
+#include "text_unicode.h"
 
 namespace pr::view3d::ui
 {
@@ -29,6 +30,7 @@ namespace pr::view3d::ui
 		std::array<std::string_view, 5> const g_textbox_parts = { "PART_Text", "PART_Selection", "PART_Caret", "PART_ValidationOutline", "PART_FocusOutline" };
 		std::array<std::string_view, 2> const g_progress_parts = { "PART_Track", "PART_Indicator" };
 		std::array<std::string_view, 2> const g_slider_parts = { "PART_Track", "PART_Thumb" };
+		std::array<std::string_view, 2> const g_combo_parts = { "PART_SelectionBox", "PART_DropDownIndicator" };
 
 		// Recursively remove 'id' and its whole subtree from 'tree', unlinking it from its parent's
 		// children and, if it is a root, from the root list. No-op if 'id' is not present.
@@ -141,7 +143,8 @@ namespace pr::view3d::ui
 				case EControlType::Panel:
 				case EControlType::Text:
 				case EControlType::TextBox:
-				case EControlType::Button: { break; }
+				case EControlType::Button:
+				case EControlType::ComboBox: { break; }
 				default: { throw EngineException(EStatus::UnknownType, "unknown control type"); }
 			}
 
@@ -201,6 +204,7 @@ namespace pr::view3d::ui
 			case EControlType::TextBox: return std::span<std::string_view const>(g_textbox_parts);
 			case EControlType::ProgressBar: { return std::span<std::string_view const>(g_progress_parts); }
 			case EControlType::Slider: { return std::span<std::string_view const>(g_slider_parts); }
+			case EControlType::ComboBox: { return std::span<std::string_view const>(g_combo_parts); }
 			case EControlType::Root:
 			case EControlType::Panel:
 			case EControlType::Text:
@@ -245,6 +249,7 @@ namespace pr::view3d::ui
 			map.emplace(EControlType::ProgressBar, make(EControlType::ProgressBar, { { "PART_Track", EVisualPrimitive::SolidBox }, { "PART_Indicator", EVisualPrimitive::SolidBox } }));
 			map.emplace(EControlType::Slider, make(EControlType::Slider, { { "PART_Track", EVisualPrimitive::SolidBox }, { "PART_Thumb", EVisualPrimitive::SolidBox } }));
 			map.emplace(EControlType::Button, make(EControlType::Button, { { "PART_ContentPresenter", EVisualPrimitive::ContentPresenter }, { "PART_FocusOutline", EVisualPrimitive::Border } }));
+			map.emplace(EControlType::ComboBox, make(EControlType::ComboBox, { { "PART_SelectionBox", EVisualPrimitive::ContentPresenter }, { "PART_DropDownIndicator", EVisualPrimitive::TextPresenter } }));
 			map.emplace(EControlType::TextBox, make(EControlType::TextBox, {
 				{ "PART_Text", EVisualPrimitive::TextPresenter },
 				{ "PART_Selection", EVisualPrimitive::SolidBox },
@@ -304,6 +309,8 @@ namespace pr::view3d::ui
 			throw EngineException(EStatus::InvalidStruct, "transaction style_removal_count is non-zero but style_removals is null");
 		if (txn.template_removal_count != 0 && txn.template_removals == nullptr)
 			throw EngineException(EStatus::InvalidStruct, "transaction template_removal_count is non-zero but template_removals is null");
+		if (txn.combo_box_item_count != 0 && txn.combo_box_items == nullptr)
+			throw EngineException(EStatus::InvalidStruct, "transaction combo_box_item_count is non-zero but combo_box_items is null");
 
 		// Stage all mutation on a copy; 'next' is only ever returned once every check has passed,
 		// which makes rejection-preserves-last-accepted-snapshot trivially correct (section 5.3).
@@ -428,6 +435,16 @@ namespace pr::view3d::ui
 
 					ValidateControlDescLocal(*found);
 
+					if (found->type == EControlType::ComboBox)
+					{
+						if (found->max_visible_items == 0)
+							throw EngineException(EStatus::InvalidArgument, std::format("control {}: ComboBox max_visible_items must be greater than zero", found->id));
+						if (found->combo_item_offset > txn.combo_box_item_count || found->combo_item_count > txn.combo_box_item_count - found->combo_item_offset)
+							throw EngineException(EStatus::InvalidStruct, std::format("control {}: ComboBox item range [{}, {}) exceeds combo_box_item_count {}", found->id, found->combo_item_offset, found->combo_item_offset + found->combo_item_count, txn.combo_box_item_count));
+						if (found->selected_index < -1 || (found->selected_index >= 0 && static_cast<std::uint32_t>(found->selected_index) >= found->combo_item_count))
+							throw EngineException(EStatus::InvalidArgument, std::format("control {}: ComboBox selected_index {} is not -1 or within item count {}", found->id, found->selected_index, found->combo_item_count));
+					}
+
 					// template_id/style_id of 0 select the built-in defaults; non-zero values must
 					// already be registered (by this transaction's merge step above, or earlier).
 					if (found->template_id != 0 && next.m_templates.find(found->template_id) == next.m_templates.end())
@@ -448,6 +465,23 @@ namespace pr::view3d::ui
 					}
 
 					auto existing = next.m_controls.find(found->id);
+
+					auto copy_combo_items = [&]()
+					{
+						auto items = std::vector<std::string>{};
+						items.reserve(found->combo_item_count);
+						for (auto item_index = std::uint32_t{}; item_index != found->combo_item_count; ++item_index)
+						{
+							auto const& item = txn.combo_box_items[found->combo_item_offset + item_index];
+							auto text = CopyBlobRange(txn.blob, txn.blob_length, item.text_offset, item.text_length, "ComboBox item text");
+							if (!Utf8Validate(text))
+								throw EngineException(EStatus::InvalidArgument, std::format("control {}: ComboBox item {} is not valid UTF-8", found->id, item_index));
+
+							items.push_back(std::move(text));
+						}
+						return items;
+					};
+
 					if (existing == next.m_controls.end())
 					{
 						// First-time Upsert: the parent must already exist (unless this is itself a
@@ -471,6 +505,7 @@ namespace pr::view3d::ui
 						node.text = CopyBlobRange(txn.blob, txn.blob_length, found->text_offset, found->text_length, "control text");
 						node.name = CopyBlobRange(txn.blob, txn.blob_length, found->name_offset, found->name_length, "control name");
 						node.description = CopyBlobRange(txn.blob, txn.blob_length, found->desc_offset, found->desc_length, "control description");
+						node.combo_items = copy_combo_items();
 						next.m_controls.emplace(found->id, std::move(node));
 					}
 					else
@@ -485,6 +520,7 @@ namespace pr::view3d::ui
 						existing->second.text = CopyBlobRange(txn.blob, txn.blob_length, found->text_offset, found->text_length, "control text");
 						existing->second.name = CopyBlobRange(txn.blob, txn.blob_length, found->name_offset, found->name_length, "control name");
 						existing->second.description = CopyBlobRange(txn.blob, txn.blob_length, found->desc_offset, found->desc_length, "control description");
+						existing->second.combo_items = copy_combo_items();
 					}
 					break;
 				}

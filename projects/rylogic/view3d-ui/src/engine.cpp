@@ -213,7 +213,7 @@ namespace pr::view3d::ui
 		m_impl->m_placements = std::move(placements);
 		m_impl->m_semantics = std::move(semantics);
 		m_impl->m_visual_sequence++;
-		m_impl->m_draw_packet = BuildDrawPacket(m_impl->m_tree, m_impl->m_layout, m_impl->m_placements, m_impl->m_styles, m_impl->m_input, m_impl->m_tree.m_revision, m_impl->m_visual_sequence, m_impl->m_time_ms, viewport.dpi);
+		m_impl->m_draw_packet = BuildDrawPacket(m_impl->m_tree, m_impl->m_layout, m_impl->m_placements, m_impl->m_styles, m_impl->m_input, m_impl->m_tree.m_revision, m_impl->m_visual_sequence, m_impl->m_time_ms, viewport.dpi, m_impl->m_viewport);
 
 		// Republish the accessibility projection from the committed snapshot, on the owner thread,
 		// after everything else has succeeded. This is a no-throw step so a UI Automation failure
@@ -370,7 +370,7 @@ namespace pr::view3d::ui
 		try
 		{
 			auto const hit_context = TextHitContext{ .shaper = TextShaperOrNull(), .placements = &m_impl->m_placements };
-			return ProcessNormalizedInput(m_impl->m_tree, m_impl->m_layout, input, text_payload, hit_context, m_impl->m_input, m_impl->m_events, m_impl->m_tree.m_revision);
+			return ProcessNormalizedInput(m_impl->m_tree, m_impl->m_layout, m_impl->m_viewport, input, text_payload, hit_context, m_impl->m_input, m_impl->m_events, m_impl->m_tree.m_revision);
 		}
 		catch (EngineException const& ex)
 		{

@@ -170,6 +170,15 @@ public sealed record UiControlDesc
 	/// <summary>When true for a TextBox, View3DUI displays bullets and never exposes the value through semantics/UI Automation.</summary>
 	public bool Masked { get; set; }
 
+	/// <summary>ComboBox items in display order. Applies only to ComboBox.</summary>
+	public IReadOnlyList<string> Items { get; set; } = Array.Empty<string>();
+
+	/// <summary>ComboBox selected item index, or -1 for no selection. Applies only to ComboBox.</summary>
+	public int SelectedIndex { get; set; } = -1;
+
+	/// <summary>Maximum visible drop-down rows for ComboBox; must be greater than zero for ComboBox.</summary>
+	public uint MaxVisibleItems { get; set; }
+
 	/// <summary>
 	/// Create an independent deep copy: mutating the clone's Layout/World (or this instance's) afterward cannot affect the
 	/// other, because Layout and World are themselves replaced with their own independent copies rather than shared by
@@ -177,7 +186,7 @@ public sealed record UiControlDesc
 	/// </summary>
 	public UiControlDesc DeepClone()
 	{
-		return this with { Layout = Layout with { }, World = World with { } };
+		return this with { Layout = Layout with { }, World = World with { }, Items = new List<string>(Items).ToArray() };
 	}
 }
 

@@ -204,6 +204,7 @@ VIEW3D_UI_API EStatus __stdcall View3DUI_StructSize(EStructId struct_id, std::ui
 				case EStructId::Template: { *size = sizeof(TemplateDesc); break; }
 				case EStructId::NormalizedInput: { *size = sizeof(NormalizedInput); break; }
 				case EStructId::InputTextPayload: { *size = sizeof(InputTextPayload); break; }
+				case EStructId::ComboBoxItem: { *size = sizeof(ComboBoxItem); break; }
 				case EStructId::ViewportState: { *size = sizeof(ViewportState); break; }
 				case EStructId::Event: { *size = sizeof(Event); break; }
 				case EStructId::SemanticNode: { *size = sizeof(SemanticNode); break; }
