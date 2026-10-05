@@ -47,6 +47,15 @@ public sealed class TestPhysics
 		AssertNativeSize(21, Marshal.SizeOf<CylindricalBoundaryConfiguration>());
 		AssertNativeSize(22, Marshal.SizeOf<Native.WaterDesc>());
 		AssertNativeSize(23, Marshal.SizeOf<Native.WaterBathymetryDesc>());
+		AssertNativeSize(24, sizeof(Native.AtmosphereDesc));
+		AssertNativeSize(25, Marshal.SizeOf<Native.AtmosphereStepDesc>());
+		AssertNativeSize(26, Marshal.SizeOf<Native.AtmosphereStats>());
+		Assert.Equal(32, sizeof(AtmosphereHeatSource));
+		Assert.Equal(16, sizeof(AtmosphereOutsideAir));
+		Assert.Equal(24, sizeof(AtmosphereTracerParticle));
+		Assert.Equal(16, sizeof(AtmosphereCellState));
+		Assert.Equal(48, Marshal.OffsetOf<Native.AtmosphereDesc>(nameof(Native.AtmosphereDesc.m_floor_heights)).ToInt32());
+		Assert.Equal(184, Marshal.OffsetOf<Native.AtmosphereDesc>(nameof(Native.AtmosphereDesc.m_tracer_break_height)).ToInt32());
 		Assert.Equal(WaterFieldElement.SizeInBytes, sizeof(WaterFieldElement));
 		Assert.Equal(8, Marshal.OffsetOf<Native.WaterDesc>(nameof(Native.WaterDesc.m_level)).ToInt32());
 		Assert.Equal(40, Marshal.OffsetOf<Native.WaterDesc>(nameof(Native.WaterDesc.m_elements)).ToInt32());
@@ -150,6 +159,78 @@ public sealed class TestPhysics
 		ExpectStatus(EStatus.InvalidArgument, () => engine.SetWater(new WaterConfiguration(0, breaking_ratio: 0), elements.AsSpan(0, long_only)));
 		engine.ClearWaterBathymetry();
 		engine.SetWater(null);
+	}
+
+	/// <summary>An atmosphere heats rising air, reports pending steps, copies tracers from any thread, and is released with its engine.</summary>
+	[Test]
+	public void AtmosphereLifecycle()
+	{
+		var runtime = new Physics();
+		var engine = runtime.CreateEngine();
+		var options = new AtmosphereOptions
+		{
+			CellCountX = 8,
+			CellCountY = 8,
+			CellCountZ = 4,
+			CellSize = 1,
+			LidZ = 4,
+			TracerCount = 64,
+			TracerSeed = 1,
+		};
+		ExpectStatus(EStatus.InvalidArgument, () => engine.CreateAtmosphere(new AtmosphereOptions { CellCountX = 8, CellCountY = 8, CellCountZ = 4, CellSize = 0, LidZ = 4 }));
+		var atmosphere = engine.CreateAtmosphere(options);
+		Assert.Equal(256, atmosphere.CellCount);
+		Assert.Equal(32, atmosphere.BoundaryColumnCount);
+
+		// A heat source at one cell warms its air and drives flow; the pending step blocks a second submission and field readback.
+		var heat = new[] { new AtmosphereHeatSource(new v4(4, 4, 1, 1), 1.5f, 5, 320, 0) };
+		ExpectStatus(EStatus.NoStepPending, () => atmosphere.CompleteStep());
+		atmosphere.BeginStep(0.1f, heat_sources: heat);
+		ExpectStatus(EStatus.StepPending, () => atmosphere.BeginStep(0.1f, heat_sources: heat));
+		var cells = new AtmosphereCellState[atmosphere.CellCount];
+		ExpectStatus(EStatus.StepPending, () => atmosphere.CopyCellStates(cells));
+		atmosphere.CompleteStep();
+		for (var step = 0; step != 20; ++step)
+		{
+			atmosphere.BeginStep(0.1f, heat_sources: heat);
+			while (!atmosphere.PollStep())
+				Thread.Yield();
+		}
+		var stats = atmosphere.CopyCellStates(cells);
+		Assert.True(cells[atmosphere.CellIndex(4, 4, 0)].m_temperature > 288.5f);
+		Assert.True(stats.MaxSpeed > 0);
+		ExpectStatus(EStatus.BufferTooSmall, () => atmosphere.CopyCellStates(cells.AsSpan(1)));
+
+		// Tracers are readable from a worker thread; mutation from a worker is rejected before reaching native code.
+		var particles = new AtmosphereTracerParticle[atmosphere.TracerCount];
+		var copied = 0;
+		Exception? worker_failure = null;
+		var worker = new Thread(() =>
+		{
+			try
+			{
+				copied = atmosphere.CopyTracers(particles);
+				atmosphere.CompleteStep();
+			}
+			catch (Exception ex)
+			{
+				worker_failure = ex;
+			}
+		});
+		worker.Start();
+		worker.Join();
+		Assert.Equal(64, copied);
+		Assert.True(worker_failure is InvalidOperationException);
+		Assert.True(Array.TrueForAll(particles, p => p.m_z >= 0 && p.m_z <= 4));
+
+		// Floors must match the column count; atmospheres block checkpoint restore and are released with their engine.
+		ExpectStatus(EStatus.InvalidArgument, () => atmosphere.SetFloors(new float[3]));
+		atmosphere.SetFloors(new float[atmosphere.ColumnCount]);
+		Assert.Throws<InvalidOperationException>(() => engine.ReadCheckpoint(new byte[16]));
+		atmosphere.BeginStep(0.1f);
+		engine.Dispose();
+		Assert.True(atmosphere.IsDisposed);
+		runtime.Dispose();
 	}
 
 	/// <summary>Terrain supports a falling body, rejects pending mutation and incomplete checkpoints, and can be removed.</summary>

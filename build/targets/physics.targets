@@ -6,6 +6,8 @@ the project which copies them to the build target directory.
 -->
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
+	<Import Project="$(MSBuildThisFileDirectory)..\props\dxc.props" />
+
 	<!-- Add a dependency on the dll (C#) -->
 	<ItemGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
 		<Content Include="$(RylogicRoot)lib\x64\debug\physics.dll" Condition="Exists('$(RylogicRoot)lib\x64\debug\physics.dll')">
@@ -18,6 +20,13 @@ the project which copies them to the build target directory.
 			<Link>lib\x64\release\physics.dll</Link>
 			<Pack>false</Pack>
 			<CopyToOutputDirectory Condition="'$(Configuration)'!='Debug'">PreserveNewest</CopyToOutputDirectory>
+		</Content>
+
+		<!-- physics.dll compiles atmosphere kernels at runtime, so the shader compiler must sit beside it where the loader searches. -->
+		<Content Include="$(DxcRuntimeDir)dxcompiler.dll;$(DxcRuntimeDir)dxil.dll" Condition="Exists('$(DxcRuntimeDir)dxcompiler.dll')">
+			<Link>lib\x64\$(Configuration.ToLowerInvariant())\%(Filename)%(Extension)</Link>
+			<Pack>false</Pack>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
 	</ItemGroup>
 
