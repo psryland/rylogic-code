@@ -304,7 +304,7 @@ namespace Rylogic.Gfx
 			// True if the object has animation data.
 			Animated = 1 << 13,
 
-			// Not rendered into environment maps captured with EnvMapCapture
+			// Not rendered into captured environment maps (EnvMapCapture and the environment map probe)
 			EnvMapCaptureExclude = 1 << 15,
 
 			// Indicates invalidated flags that need to be refreshed
@@ -2094,6 +2094,12 @@ namespace Rylogic.Gfx
 
 		// Render the window's objects into a new cube map centred at 'position'
 		[DllImport(Dll)] private static extern void View3D_WindowEnvMapCapture(HWindow window, HCubeMap env_map, v4 position);
+
+		// Enable/Disable the window's time-sliced environment map probe
+		[DllImport(Dll)] private static extern void View3D_WindowEnvMapProbeSet(HWindow window, int face_size);
+
+		// Render the next face of the window's environment map probe
+		[DllImport(Dll)] private static extern void View3D_WindowEnvMapProbeUpdate(HWindow window, v4 position);
 
 		// Enable/Disable the depth buffer
 		[DllImport(Dll)] private static extern bool View3D_DepthBufferEnabledGet(HWindow window);

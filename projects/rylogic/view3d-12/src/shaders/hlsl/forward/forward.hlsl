@@ -29,6 +29,9 @@ SamplerState      g_base_sampler :register(s0);
 TextureCube<float4> g_envmap_texture :register(t1);
 SamplerState        g_envmap_sampler :register(s1);
 
+// The previous environment map, which 'g_envmap_texture' fades in over (see 'g_frame.env_map.blend')
+TextureCube<float4> g_envmap_prev_texture :register(t13);
+
 // Shadow atlas. The regions of the atlas are described by the shadow views in 'g_shadow_views'.
 Texture2D<float> g_shadow_atlas         :register(t2);
 SamplerComparisonState g_shadow_sampler :register(s2);
@@ -311,7 +314,7 @@ PSOut ForwardShade(PSIn In, bool is_front_face)
 		if (EnvMapProj(g_nugget.flags))
 		{
 			float3 dir = mul(In.ws_vert, g_nugget.tex2surf0).xyz;
-			Out.diff = g_envmap_texture.Sample(g_envmap_sampler, dir);
+			Out.diff = SampleEnvMap(dir);
 		}
 		else
 		{
@@ -436,7 +439,7 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 		g_envmap_texture.GetDimensions(0, env_w, env_h, env_mips);
 
 		float3 r = mul(float4(reflect(-view, normal), 0.0f), g_frame.env_map.w2env).xyz;
-		float3 env = g_envmap_texture.SampleLevel(g_envmap_sampler, r, roughness * (env_mips - 1)).rgb;
+		float3 env = SampleEnvMapLevel(r, roughness * (env_mips - 1)).rgb;
 
 		float3 f0 = lerp(0.04f, albedo, metallic);
 		float n_dot_v = saturate(dot(normal, view));

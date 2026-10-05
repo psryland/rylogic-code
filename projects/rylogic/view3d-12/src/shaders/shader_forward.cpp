@@ -37,6 +37,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto Tex3Stream = ESRVReg:: t10;
 		inline static constexpr auto Tex4Stream = ESRVReg:: t11;
 		inline static constexpr auto PbrNormalTexture = ESRVReg::t12;
+		inline static constexpr auto EnvMapPrev = ESRVReg::t13;
 		inline static constexpr auto SkyTexture = ESRVReg::t18;
 		inline static constexpr auto ProceduralBuffer = ESRVReg::t14;
 		inline static constexpr auto Lights = ESRVReg::t15;
@@ -111,6 +112,7 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::ShadowViews, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::ProceduralBuffer, D3D12_SHADER_VISIBILITY_VERTEX)
 			.SRV(EReg::Elements)
+			.SRV(EReg::EnvMapPrev, 1)
 			.Create(rdr.d3d(), "ForwardSig");
 	}
 
@@ -121,7 +123,7 @@ namespace pr::rdr12::shaders
 		CBufFrame cb0 = {};
 		SetViewConstants(cb0.cam, scene.m_cam);
 		SetLightingConstants(cb0, scene);
-		SetEnvMapConstants(cb0.env_map, scene.m_global_envmap.get());
+		SetEnvMapConstants(cb0.env_map, scene.m_global_envmap.get(), scene.m_global_envmap_prev.get(), scene.m_global_envmap_blend);
 		cb0.output = v4(scene.wnd().m_dither_amount, 0, 0, 0);
 		auto gpu_address = upload.Add(cb0, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
 		cmd_list->SetGraphicsRootConstantBufferView((UINT)ERootParam::CBufFrame, gpu_address);

@@ -1289,6 +1289,32 @@ VIEW3D_API void __stdcall View3D_WindowEnvMapCapture(view3d::Window window, view
 	CatchAndReport(View3D_WindowEnvMapCapture, window, );
 }
 
+// Enable the window's time-sliced environment map probe, or disable it with 'face_size' == 0
+VIEW3D_API void __stdcall View3D_WindowEnvMapProbeSet(view3d::Window window, int face_size)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->EnvMapProbe(face_size);
+	}
+	CatchAndReport(View3D_WindowEnvMapProbeSet, window, );
+}
+
+// Render the next face of the window's environment map probe
+VIEW3D_API void __stdcall View3D_WindowEnvMapProbeUpdate(view3d::Window window, view3d::Vec4 position)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->EnvMapProbeUpdate(To<v4>(position));
+	}
+	CatchAndReport(View3D_WindowEnvMapProbeUpdate, window, );
+}
+
 // Enable/Disable the depth buffer
 VIEW3D_API BOOL __stdcall View3D_DepthBufferEnabledGet(view3d::Window window)
 {

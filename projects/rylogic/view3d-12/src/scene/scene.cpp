@@ -46,6 +46,8 @@ namespace pr::rdr12
 		, m_lights()
 		, m_ambient(0xFF808080U)
 		, m_global_envmap()
+		, m_global_envmap_prev()
+		, m_global_envmap_blend(1.0f)
 		, m_global_fill_mode(EFillMode::Default)
 		, m_pso()
 		, m_ray_tracing_props()

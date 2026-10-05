@@ -353,8 +353,8 @@ namespace pr::rdr12
 		return alex.m_res->GetGPUVirtualAddress() + alex.m_ofs;
 	}
 
-	// Set the env-map to world orientation
-	inline void SetEnvMapConstants(shaders::EnvMap& cb, TextureCube const* env_map)
+	// Set the env-map to world orientation and the blend weight of the current map over the previous one
+	inline void SetEnvMapConstants(shaders::EnvMap& cb, TextureCube const* env_map, TextureCube const* env_map_prev, float blend)
 	{
 		if (env_map == nullptr) return;
 
@@ -363,5 +363,8 @@ namespace pr::rdr12
 		assert(IsOrthogonal(c2w.rot, 0.0001f) && FEql(LengthSq(c2w.x), 1.0f) && FEql(LengthSq(c2w.y), 1.0f) && FEql(LengthSq(c2w.z), 1.0f) && "Cube map orientation must be an orthonormal basis");
 		cb.w2env = Transpose3x3(c2w);
 		cb.w2env.pos = v4::Origin();
+
+		// Without a previous map, only the current map contributes
+		cb.blend = v4(env_map_prev != nullptr ? Clamp(blend, 0.0f, 1.0f) : 1.0f, 0, 0, 0);
 	}
 }

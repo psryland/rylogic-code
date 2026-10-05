@@ -49,6 +49,7 @@ struct Camera
 struct EnvMap
 {
 	row_major float4x4 w2env; // world to environment map to transform
+	float4 blend;             // x = weight of the current environment map over the previous one, in [0,1]
 };
 
 // Projected textures

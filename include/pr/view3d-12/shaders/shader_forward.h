@@ -46,6 +46,7 @@ namespace pr::rdr12::shaders
 			ShadowViews,
 			ProceduralBuffer,
 			Elements,
+			EnvMapPrev,
 		};
 
 		enum class ESampParam

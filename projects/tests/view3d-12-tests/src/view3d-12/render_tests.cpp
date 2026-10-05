@@ -2693,6 +2693,61 @@ namespace fade_tests
 		fixture.CheckDebugLayer();
 		std::cout << "PASS environment map capture exclusion\n";
 	}
+
+	// Check that the environment map probe completes a cube every six updates and fades each new cube in over the previous one
+	void EnvMapProbeTests()
+	{
+		// An unlit red quad fills the view against the black background
+		auto fixture = Fixture(1);
+		fixture.Quad(10, 0xFFFF0000);
+		auto& scene = fixture.m_window->m_scene;
+		auto update = [&](int count)
+		{
+			// Each update renders one face of the capture cube
+			for (int i = 0; i != count; ++i)
+				View3D_WindowEnvMapProbeUpdate(fixture.m_window, api::Vec4{0, 0, 0, 1});
+
+			fixture.CheckErrors();
+		};
+
+		// No environment map is bound until the first cube is complete
+		View3D_WindowEnvMapProbeSet(fixture.m_window, 32);
+		fixture.CheckErrors();
+		Require(scene.m_global_envmap == nullptr, "Probe bound an environment map before any capture");
+		update(5);
+		Require(scene.m_global_envmap == nullptr, "Probe bound an incomplete cube");
+
+		// The first complete cube is used alone because there is nothing to fade from
+		update(1);
+		auto* first = scene.m_global_envmap.get();
+		Require(first != nullptr && scene.m_global_envmap_prev == nullptr, "First complete cube not bound alone");
+		Expect(fixture.Image(), 1, 0, 0);
+
+		// The second complete cube starts fully weighted to the first, then fades in over the next five updates
+		update(6);
+		Require(scene.m_global_envmap.get() != first && scene.m_global_envmap_prev.get() == first, "Second cube did not replace the first");
+		Require(scene.m_global_envmap_blend == 0.0f, "Fade did not start from the previous cube");
+		update(1);
+		Require(std::abs(scene.m_global_envmap_blend - 0.2f) < 1e-6f, "Fade did not advance by one step");
+		Expect(fixture.Image(), 1, 0, 0);
+		update(4);
+		Require(scene.m_global_envmap_blend == 1.0f, "Fade did not finish within one cycle");
+
+		// The third cube was captured into a spare cube, and the first cube, now the oldest, is unbound so that the next capture can reuse it
+		update(1);
+		Require(scene.m_global_envmap.get() != first && scene.m_global_envmap_prev.get() != first, "Probe did not retire the oldest cube");
+		update(6);
+		Require(scene.m_global_envmap.get() == first, "Probe did not reuse the oldest cube");
+
+		// Setting an explicit environment map disables the probe and removes the fade
+		View3D_WindowEnvMapSet(fixture.m_window, nullptr);
+		fixture.CheckErrors();
+		Require(scene.m_global_envmap == nullptr && scene.m_global_envmap_prev == nullptr && fixture.m_window->m_envmap_probe == nullptr, "Environment map set did not disable the probe");
+
+		// Any GPU validation error fails the fixture.
+		fixture.CheckDebugLayer();
+		std::cout << "PASS environment map probe\n";
+	}
 }
 
 // Register the view3d-12 renderer tests. CPU-only tests are 'Quick'; tests that render and read back on the GPU are 'Extended'.
@@ -2770,6 +2825,10 @@ namespace pr::unittests::view3d12
 	PRUnitTest(View3d12_EnvMapCaptureExclude, Extended)
 	{
 		fade_tests::EnvMapCaptureExcludeTests();
+	}
+	PRUnitTest(View3d12_EnvMapProbe, Extended)
+	{
+		fade_tests::EnvMapProbeTests();
 	}
 	PRUnitTest(View3d12_Dither, Extended)
 	{

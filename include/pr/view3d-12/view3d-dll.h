@@ -326,7 +326,7 @@ namespace pr
 			// True if the object has animation data.
 			Animated = 1 << 13,
 
-			// Not rendered into environment maps captured with EnvMapCapture
+			// Not rendered into captured environment maps (EnvMapCapture and the environment map probe)
 			EnvMapCaptureExclude = 1 << 15,
 
 			// Indicates invalidated flags that need to be refreshed
@@ -1279,6 +1279,14 @@ extern "C"
 	// The capture replaces the cube's contents and orientation transform. It does not assign the cube to the window. Capture resources are cached on the window,
 	// so repeated captures at the same face size are much cheaper than the first. Objects with ELdrFlags::EnvMapCaptureExclude are not captured.
 	VIEW3D_API void __stdcall View3D_WindowEnvMapCapture(pr::view3d::Window window, pr::view3d::CubeMap env_map, pr::view3d::Vec4 position);
+
+	// Enable the window's time-sliced environment map probe with 'face_size' pixels per face edge, or disable it with 0. While enabled, the probe owns the window's
+	// environment map. Each View3D_WindowEnvMapProbeUpdate renders one face, and every six updates complete a new cube that fades in over the previous one.
+	// Setting an environment map with View3D_WindowEnvMapSet disables the probe.
+	VIEW3D_API void __stdcall View3D_WindowEnvMapProbeSet(pr::view3d::Window window, int face_size);
+
+	// Render the next face of the window's environment map probe. 'position' is sampled when the first face of each cube is rendered. Call once per frame before rendering.
+	VIEW3D_API void __stdcall View3D_WindowEnvMapProbeUpdate(pr::view3d::Window window, pr::view3d::Vec4 position);
 
 	// Enable/Disable the depth buffer
 	VIEW3D_API BOOL __stdcall View3D_DepthBufferEnabledGet(pr::view3d::Window window);
