@@ -48,7 +48,7 @@ namespace pr::physics
 
 namespace pr::physics
 {
-	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00030000U;
+	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00030200U;
 	inline constexpr std::uint32_t PHYSICS_STRUCT_VERSION = 2U;
 	inline constexpr std::uint32_t PHYSICS_CHECKPOINT_VERSION = 3U;
 
@@ -63,6 +63,7 @@ namespace pr::physics
 	using BodyHandle = std::uint64_t;
 	using ArticulationHandle = std::uint64_t;
 	using PersistentConstraintHandle = std::uint64_t;
+	using AtmosphereHandle = std::uint64_t;
 
 	enum class EStatus : std::int32_t
 	{
@@ -105,6 +106,9 @@ namespace pr::physics
 		CylindricalBoundary = 21,
 		Water = 22,
 		WaterBathymetry = 23,
+		AtmosphereDesc = 24,
+		AtmosphereStep = 25,
+		AtmosphereStats = 26,
 	};
 
 	// One explicit terrain frequency band; roundness and weight gain apply to the mountain band.
@@ -298,6 +302,114 @@ namespace pr::physics
 		std::int32_t bands, directions;
 	};
 	static_assert(sizeof(WaveSpectrumDesc) == 24);
+
+	// Boundary condition of one outside face of an atmosphere domain.
+	enum class EAtmosphereBoundary : std::int32_t
+	{
+		Solid = 0,
+		Open = 1,
+	};
+
+	// Indices of the six outside faces of an atmosphere domain, used by 'AtmosphereDesc::boundaries' and 'AtmosphereDesc::wall_drag'.
+	enum class EAtmosphereSide : std::int32_t
+	{
+		XMin = 0,
+		XMax = 1,
+		YMin = 2,
+		YMax = 3,
+		ZMin = 4,
+		ZMax = 5,
+	};
+
+	// A terrain-following GPU air solver and its optional tracer particles. Distances are metres, temperatures are kelvin, and rates are 1/s.
+	// The domain has 'cell_count_x * cell_count_y' columns of 'cell_count_z' layers (each count above one, at most 32 layers) with square columns
+	// of size 'dx' starting at 'origin'. Each column runs from its floor to 'lid_z'. 'floor_heights' is null for a flat floor at 'origin_z', or
+	// one height per column in row-major order (x fastest); a floor at or above the lid makes the column solid. The heights are copied.
+	// 'boundaries' and 'wall_drag' are indexed by EAtmosphereSide; drag is a quadratic coefficient in [0, 1] and only solid sides may have drag.
+	// The reference profile 'reference_temperature + lapse_rate * (z - origin_z)', limited below by 'min_temperature', sets the initial air at rest.
+	// 'tracer_count' particles follow the wind for diagnostics; zero disables them. Tracer heights are spread with the relative densities
+	// 'tracer_ground_density' at the floor, 'tracer_break_density' at the column fraction 'tracer_break_height', and 'tracer_upper_density' above it.
+	// The pressure and stability fields match 'atmosphere::AtmosphereConfig', which documents their effect.
+	struct AtmosphereDesc
+	{
+		StructHeader header;
+		std::int32_t cell_count_x, cell_count_y, cell_count_z;
+		float origin_x, origin_y, origin_z;
+		float dx, lid_z, first_layer_thickness, layer_stretch_power;
+		float const* floor_heights;
+		EAtmosphereBoundary boundaries[6];
+		float wall_drag[6];
+		float reference_temperature, lapse_rate, min_temperature;
+		float gravity, floor_exchange_rate, lid_temperature, lid_relaxation_rate;
+		std::int32_t pressure_vcycles, pressure_pre_smooth, pressure_post_smooth, pressure_coarse_smooth, open_edge_band;
+		float vorticity_confinement, vertical_viscosity;
+		std::int32_t tracer_count;
+		std::uint32_t tracer_seed;
+		float tracer_max_age, tracer_ground_density, tracer_break_density, tracer_upper_density, tracer_break_height;
+		std::int32_t reserved;
+	};
+	static_assert(sizeof(AtmosphereDesc) == 192);
+
+	// A sphere that heats air at 'heating_rate' (K/s) and relaxes it towards 'target_temperature' at 'relaxation_rate' (1/s).
+	struct AtmosphereHeatSource
+	{
+		float centre_x, centre_y, centre_z, radius;
+		float heating_rate, target_temperature, relaxation_rate;
+		float reserved;
+	};
+	static_assert(sizeof(AtmosphereHeatSource) == 32);
+
+	// Air outside one boundary column: its horizontal wind (m/s) and its temperature relative to the reference profile (K).
+	struct AtmosphereOutsideAir
+	{
+		float wind_x, wind_y, temperature_offset;
+		float reserved;
+	};
+	static_assert(sizeof(AtmosphereOutsideAir) == 16);
+
+	// The inputs to one atmosphere step of 'dt' seconds; all arrays are copied. At most 64 heat sources.
+	// 'floor_temperatures' is null for 'uniform_floor_temperature' everywhere, or one temperature per column in the floor-height order.
+	// 'outside_air' is null for calm outside air at the reference temperature, or one entry per boundary column: the x- side by y,
+	// the x+ side by y, the y- side by x, then the y+ side by x, so '2 * (cell_count_x + cell_count_y)' entries.
+	struct AtmosphereStepDesc
+	{
+		StructHeader header;
+		float dt;
+		float uniform_floor_temperature;
+		AtmosphereHeatSource const* heat_sources;
+		float const* floor_temperatures;
+		AtmosphereOutsideAir const* outside_air;
+		std::int32_t heat_source_count;
+		std::int32_t floor_temperature_count;
+		std::int32_t outside_air_count;
+		std::int32_t reserved;
+	};
+	static_assert(sizeof(AtmosphereStepDesc) == 56);
+
+	// One atmosphere tracer particle: world position (m), air temperature (K), age (s), and the air speed that last moved it (m/s).
+	struct AtmosphereTracerParticle
+	{
+		float x, y, z;
+		float temperature, age, speed;
+	};
+	static_assert(sizeof(AtmosphereTracerParticle) == 24);
+
+	// The air at one cell centre: velocity (m/s, averaged from the cell faces) and temperature (K).
+	struct AtmosphereCellState
+	{
+		float velocity_x, velocity_y, velocity_z;
+		float temperature;
+	};
+	static_assert(sizeof(AtmosphereCellState) == 16);
+
+	// Simple diagnostics of a completed atmosphere field.
+	struct AtmosphereStats
+	{
+		StructHeader header;
+		float max_speed, max_divergence, rms_divergence, mean_top_temperature, peak_vertical_velocity;
+		std::int32_t reserved;
+	};
+	static_assert(sizeof(AtmosphereStats) == 32);
 
 	struct Vector4
 	{
@@ -770,6 +882,10 @@ extern "C"
 	PHYSICS_API pr::physics::DllHandle __stdcall Physics_Initialise(pr::physics::ReportErrorCB global_error_cb);
 	PHYSICS_API void __stdcall Physics_Shutdown(pr::physics::DllHandle context);
 
+	// Cache runtime-compiled GPU kernels in 'directory' for engines created afterwards, and for their atmospheres; null disables caching.
+	// Each engine keeps the cache that was current when it was created. The cache is shared by every context token.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_ShaderCacheDirectorySet(pr::physics::DllHandle context, wchar_t const* directory);
+
 	// ABI discovery and error reporting.
 	PHYSICS_API std::uint32_t __stdcall Physics_ApiVersion();
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_StructSize(pr::physics::EStructId struct_id, std::uint32_t* size);
@@ -862,4 +978,29 @@ extern "C"
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_CheckpointSize(pr::physics::EngineHandle engine, std::uint64_t* required);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_CheckpointWrite(pr::physics::EngineHandle engine, void* buffer, std::uint64_t capacity, std::uint64_t* written);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_CheckpointRead(pr::physics::EngineHandle engine, void const* buffer, std::uint64_t size);
+
+	// Engine-owned atmosphere solvers. Each atmosphere runs on the engine's device with its own compute queue, steps independently of the engine
+	// step, and is destroyed with its engine. Atmospheres are not part of native checkpoints. All calls except Physics_AtmosphereTracersCopy
+	// are owner-thread only. Creation compiles the solver kernels and blocks until the air is at rest on the reference profile.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereCreate(pr::physics::EngineHandle engine, pr::physics::AtmosphereDesc const* desc, pr::physics::AtmosphereHandle* atmosphere);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereDestroy(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere);
+
+	// Submit one step, and tracer advection when tracers exist, without waiting for the GPU. Fails with StepPending while a step is in flight.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereBeginStep(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereStepDesc const* step);
+
+	// Finish the step in flight if the GPU has completed it, without waiting. 'idle' is set to 1 when no step is in flight after the call.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmospherePollStep(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere, std::int32_t* idle);
+
+	// Wait for and finish the step in flight. Fails with NoStepPending when there is none.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereCompleteStep(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere);
+
+	// Change the column floor heights (one per column, as in AtmosphereDesc) and remap the air in changed columns. Blocks; requires no step in flight.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereFloorsSet(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere, float const* floor_heights, std::int32_t count);
+
+	// Copy the tracer particles from the last finished step, or from creation. 'required' is the particle count.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereTracersCopy(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereTracerParticle* particles, std::uint32_t capacity, std::uint32_t* required);
+
+	// Read the whole field back from the GPU and copy the cell-centre states, packed by layer, then row, then column (x fastest).
+	// 'required' is the cell count and 'stats' is optional. Blocks; requires no step in flight.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereCellStatesCopy(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereCellState* cells, std::uint32_t capacity, std::uint32_t* required, pr::physics::AtmosphereStats* stats);
 }

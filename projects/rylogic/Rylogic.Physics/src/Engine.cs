@@ -16,6 +16,7 @@ public sealed class Engine :IDisposable
 	private readonly HashSet<RigidBody> m_bodies;
 	private readonly HashSet<Articulation> m_articulations;
 	private readonly HashSet<PersistentConstraint> m_constraints;
+	private readonly HashSet<Atmosphere> m_atmospheres;
 	private EngineSafeHandle? m_handle;
 
 	/// <summary>Adopt a newly-created native engine.</summary>
@@ -27,6 +28,7 @@ public sealed class Engine :IDisposable
 		m_bodies = new HashSet<RigidBody>();
 		m_articulations = new HashSet<Articulation>();
 		m_constraints = new HashSet<PersistentConstraint>();
+		m_atmospheres = new HashSet<Atmosphere>();
 		m_handle = new EngineSafeHandle(handle, runtime);
 	}
 
@@ -318,6 +320,27 @@ public sealed class Engine :IDisposable
 		}
 	}
 
+	/// <summary>
+	/// Create an engine-owned atmosphere. Creation compiles the solver kernels and blocks until the air is at rest on the reference profile,
+	/// so it can take seconds; callers with a frame budget should create atmospheres outside their frame work.
+	/// </summary>
+	public unsafe Atmosphere CreateAtmosphere(AtmosphereOptions options)
+	{
+		EnsureOwner();
+		if (options == null)
+			throw new ArgumentNullException(nameof(options));
+
+		// Native validation owns the grid and solver limits; only the pinned floor array is prepared here.
+		fixed (float* floor_ptr = options.FloorHeights)
+		{
+			var desc = Native.AtmosphereDesc.From(options, floor_ptr);
+			Native.Check(Native.Physics_AtmosphereCreate(Handle, &desc, out var handle));
+			var atmosphere = new Atmosphere(this, handle, options);
+			m_atmospheres.Add(atmosphere);
+			return atmosphere;
+		}
+	}
+
 	/// <summary>Create an engine-owned persistent D6 constraint between validated world, body, or articulation-link endpoints.</summary>
 	public unsafe PersistentConstraint CreateConstraint(D6ConstraintOptions options)
 	{
@@ -488,7 +511,7 @@ public sealed class Engine :IDisposable
 	public unsafe void ReadCheckpoint(ReadOnlySpan<byte> checkpoint)
 	{
 		EnsureOwner();
-		if (m_shapes.Count != 0 || m_bodies.Count != 0 || m_articulations.Count != 0 || m_constraints.Count != 0)
+		if (m_shapes.Count != 0 || m_bodies.Count != 0 || m_articulations.Count != 0 || m_constraints.Count != 0 || m_atmospheres.Count != 0)
 			throw new InvalidOperationException("Checkpoint restore requires an engine with no managed object wrappers.");
 
 		fixed (byte* checkpoint_ptr = checkpoint)
@@ -510,6 +533,8 @@ public sealed class Engine :IDisposable
 		m_constraints.CopyTo(constraints);
 		var shapes = new Shape[m_shapes.Count];
 		m_shapes.CopyTo(shapes);
+		var atmospheres = new Atmosphere[m_atmospheres.Count];
+		m_atmospheres.CopyTo(atmospheres);
 
 		// A terminal native cleanup failure still retires the engine, so preserve it while invalidating every managed identity exactly once.
 		var destroy_status = Native.Physics_EngineDestroy(Handle);
@@ -549,6 +574,8 @@ public sealed class Engine :IDisposable
 			body.ReleaseFromEngine();
 		foreach (var shape in shapes)
 			shape.ReleaseFromEngine();
+		foreach (var atmosphere in atmospheres)
+			atmosphere.ReleaseFromEngine();
 
 		m_handle.MarkDestroyed();
 		m_handle.Dispose();
@@ -599,6 +626,12 @@ public sealed class Engine :IDisposable
 	internal void Remove(PersistentConstraint constraint)
 	{
 		m_constraints.Remove(constraint);
+	}
+
+	/// <summary>Remove a disposed atmosphere from managed ownership tracking.</summary>
+	internal void Remove(Atmosphere atmosphere)
+	{
+		m_atmospheres.Remove(atmosphere);
 	}
 
 	/// <summary>Resolve a stable body identity returned by native constraint state.</summary>

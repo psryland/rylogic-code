@@ -304,6 +304,9 @@ namespace Rylogic.Gfx
 			// True if the object has animation data.
 			Animated = 1 << 13,
 
+			// Not rendered into environment maps captured with EnvMapCapture
+			EnvMapCaptureExclude = 1 << 15,
+
 			// Indicates invalidated flags that need to be refreshed
 			Invalidated = 1 << 31,
 

@@ -1,26 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
-	<PropertyGroup>
-		<DxcPackagePath>$(NuGetPackageRoot)\Microsoft.Direct3D.DXC\1.8.2407.12\</DxcPackagePath>
-	</PropertyGroup>
+	<Import Project="$(MSBuildThisFileDirectory)..\props\dxc.props" />
 
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Direct3D.DXC" />
-		<PackageVersion Include="Microsoft.Direct3D.DXC" version="1.8.2407.12"/>
+		<PackageVersion Include="Microsoft.Direct3D.DXC" version="$(DxcPackageVersion)"/>
 	</ItemGroup>
 
 	<ItemGroup>
-		<Content Include="$(DxcPackagePath)build\native\bin\x64\dxcompiler.dll">
+		<Content Include="$(DxcRuntimeDir)dxcompiler.dll">
 			<Link>dxcompiler.dll</Link>
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
-		<Content Include="$(DxcPackagePath)build\native\bin\x64\dxil.dll">
+		<Content Include="$(DxcRuntimeDir)dxil.dll">
 			<Link>dxil.dll</Link>
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
-		<BuildArtifacts Include="$(DxcPackagePath)build\native\bin\x64\dxcompiler.dll" />
-		<BuildArtifacts Include="$(DxcPackagePath)build\native\bin\x64\dxil.dll" />
+		<BuildArtifacts Include="$(DxcRuntimeDir)dxcompiler.dll" />
+		<BuildArtifacts Include="$(DxcRuntimeDir)dxil.dll" />
 	</ItemGroup>
 
 	<ItemDefinitionGroup>

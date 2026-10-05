@@ -59,6 +59,7 @@ namespace pr::rdr12
 		EFillMode        m_global_fill_mode; // A scene-wide fill mode override. EFillMode::Default means "use the model's default"
 		PipeStates       m_pso;              // Scene-wide pipe state overrides
 		RayTracingProps  m_ray_tracing_props; // Ray tracing render settings for this scene.
+		EInstFlag        m_inst_exclude;     // Instances with any of these flags are not added to this scene
 		AutoSub          m_eh_resize;        // RT resize event handler subscription
 
 		Scene(Window& wnd, std::initializer_list<ERenderStep> rsteps = {ERenderStep::RenderForward}, SceneCamera const& cam = SceneCamera{});

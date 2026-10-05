@@ -424,6 +424,9 @@ namespace pr::rdr12::ldraw
 		// Hide animated models when the time is outside their animation time range
 		HideWhenNotAnimating = 1 << 14,
 
+		// Not rendered into environment maps captured with EnvMapCapture
+		EnvMapCaptureExclude = 1 << 15,
+
 		// Indicates invalidated flags that need to be refreshed
 		Invalidated = 1 << 31,
 

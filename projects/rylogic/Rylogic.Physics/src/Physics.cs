@@ -43,6 +43,16 @@ public sealed class Physics :IDisposable
 		}
 	}
 
+	/// <summary>
+	/// Cache runtime-compiled GPU kernels in 'directory' for engines created afterwards, including their atmospheres; null disables caching.
+	/// The cache is shared by every Physics instance in the process.
+	/// </summary>
+	public void SetShaderCacheDirectory(string? directory)
+	{
+		EnsureOwner();
+		Native.Check(Native.Physics_ShaderCacheDirectorySet(Context, directory));
+	}
+
 	/// <summary>Create a physics engine using either its own D3D12 device or an externally leased device.</summary>
 	public unsafe Engine CreateEngine(EngineOptions? options = null, DeviceLease? device = null)
 	{

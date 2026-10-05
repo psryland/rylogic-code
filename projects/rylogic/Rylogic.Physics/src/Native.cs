@@ -10,7 +10,7 @@ namespace Rylogic.Physics;
 internal static unsafe partial class Native
 {
 	internal const string Dll = "physics";
-	internal const uint ApiVersion = 0x00030000U;
+	internal const uint ApiVersion = 0x00030200U;
 	internal const uint StructVersion = 2U;
 	private static IntPtr m_module;
 
@@ -385,6 +385,7 @@ internal static unsafe partial class Native
 	[DllImport(Dll)] internal static extern uint Physics_ApiVersion();
 	[DllImport(Dll)] internal static extern IntPtr Physics_Initialise(ReportErrorCallback callback);
 	[DllImport(Dll)] internal static extern void Physics_Shutdown(IntPtr context);
+	[DllImport(Dll, CharSet = CharSet.Unicode)] internal static extern EStatus Physics_ShaderCacheDirectorySet(IntPtr context, string? directory);
 	[DllImport(Dll)] private static extern EStatus Physics_LastError(byte* buffer, uint capacity, out uint required);
 	[DllImport(Dll)] internal static extern EStatus Physics_StructSize(int struct_id, out uint size);
 

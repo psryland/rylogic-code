@@ -4,6 +4,8 @@
 //*********************************************
 #include <atomic>
 #include <cstring>
+#include <filesystem>
+#include <format>
 #include <thread>
 #include <unknwn.h>
 #include "pr/physics/physics-dll.h"
@@ -23,6 +25,7 @@ namespace pr::unittests
 			DllModule m_module;
 			decltype(&Physics_Initialise) Initialise;
 			decltype(&Physics_Shutdown) Shutdown;
+			decltype(&Physics_ShaderCacheDirectorySet) ShaderCacheDirectorySet;
 			decltype(&Physics_ApiVersion) ApiVersion;
 			decltype(&Physics_StructSize) StructSize;
 			decltype(&Physics_LastError) LastError;
@@ -73,11 +76,20 @@ namespace pr::unittests
 			decltype(&Physics_CheckpointSize) CheckpointSize;
 			decltype(&Physics_CheckpointWrite) CheckpointWrite;
 			decltype(&Physics_CheckpointRead) CheckpointRead;
+			decltype(&Physics_AtmosphereCreate) AtmosphereCreate;
+			decltype(&Physics_AtmosphereDestroy) AtmosphereDestroy;
+			decltype(&Physics_AtmosphereBeginStep) AtmosphereBeginStep;
+			decltype(&Physics_AtmospherePollStep) AtmospherePollStep;
+			decltype(&Physics_AtmosphereCompleteStep) AtmosphereCompleteStep;
+			decltype(&Physics_AtmosphereFloorsSet) AtmosphereFloorsSet;
+			decltype(&Physics_AtmosphereTracersCopy) AtmosphereTracersCopy;
+			decltype(&Physics_AtmosphereCellStatesCopy) AtmosphereCellStatesCopy;
 
 			PhysicsApi()
 				: m_module(__FILE__, L"physics.dll", L"physics.dll")
 				, Initialise(m_module.Proc<decltype(Initialise)>("Physics_Initialise"))
 				, Shutdown(m_module.Proc<decltype(Shutdown)>("Physics_Shutdown"))
+				, ShaderCacheDirectorySet(m_module.Proc<decltype(ShaderCacheDirectorySet)>("Physics_ShaderCacheDirectorySet"))
 				, ApiVersion(m_module.Proc<decltype(ApiVersion)>("Physics_ApiVersion"))
 				, StructSize(m_module.Proc<decltype(StructSize)>("Physics_StructSize"))
 				, LastError(m_module.Proc<decltype(LastError)>("Physics_LastError"))
@@ -128,6 +140,14 @@ namespace pr::unittests
 				, CheckpointSize(m_module.Proc<decltype(CheckpointSize)>("Physics_CheckpointSize"))
 				, CheckpointWrite(m_module.Proc<decltype(CheckpointWrite)>("Physics_CheckpointWrite"))
 				, CheckpointRead(m_module.Proc<decltype(CheckpointRead)>("Physics_CheckpointRead"))
+				, AtmosphereCreate(m_module.Proc<decltype(AtmosphereCreate)>("Physics_AtmosphereCreate"))
+				, AtmosphereDestroy(m_module.Proc<decltype(AtmosphereDestroy)>("Physics_AtmosphereDestroy"))
+				, AtmosphereBeginStep(m_module.Proc<decltype(AtmosphereBeginStep)>("Physics_AtmosphereBeginStep"))
+				, AtmospherePollStep(m_module.Proc<decltype(AtmospherePollStep)>("Physics_AtmospherePollStep"))
+				, AtmosphereCompleteStep(m_module.Proc<decltype(AtmosphereCompleteStep)>("Physics_AtmosphereCompleteStep"))
+				, AtmosphereFloorsSet(m_module.Proc<decltype(AtmosphereFloorsSet)>("Physics_AtmosphereFloorsSet"))
+				, AtmosphereTracersCopy(m_module.Proc<decltype(AtmosphereTracersCopy)>("Physics_AtmosphereTracersCopy"))
+				, AtmosphereCellStatesCopy(m_module.Proc<decltype(AtmosphereCellStatesCopy)>("Physics_AtmosphereCellStatesCopy"))
 			{}
 		};
 
@@ -532,6 +552,9 @@ namespace pr::unittests
 				std::pair{EStructId::ArticulationLinkState, static_cast<std::uint32_t>(sizeof(pr::physics::ArticulationLinkState))},
 				std::pair{EStructId::D6Constraint, static_cast<std::uint32_t>(sizeof(pr::physics::D6ConstraintProperties))},
 				std::pair{EStructId::CylindricalBoundary, static_cast<std::uint32_t>(sizeof(pr::physics::CylindricalBoundaryDesc))},
+				std::pair{EStructId::AtmosphereDesc, static_cast<std::uint32_t>(sizeof(pr::physics::AtmosphereDesc))},
+				std::pair{EStructId::AtmosphereStep, static_cast<std::uint32_t>(sizeof(pr::physics::AtmosphereStepDesc))},
+				std::pair{EStructId::AtmosphereStats, static_cast<std::uint32_t>(sizeof(pr::physics::AtmosphereStats))},
 			};
 			for (auto const& [id, expected] : sizes)
 			{
@@ -1396,6 +1419,223 @@ namespace pr::unittests
 			api.Shutdown(context);
 			PR_EXPECT(failures.load() == 0);
 			PR_EXPECT(steps.load() == 40);
+		}
+	};
+
+	// Verify engine-owned atmosphere lifetime, asynchronous stepping, readback, and contract errors through the public ABI.
+	PRUnitTestClass(PhysicsDllAtmosphereTests)
+	{
+		// Return a small closed box of still air with a few tracers, matching the native solver tests' scale.
+		static AtmosphereDesc MakeAtmosphereDesc()
+		{
+			// All sides are solid with no drag; the mild lapse keeps buoyancy easy to observe in a few steps.
+			return AtmosphereDesc{
+				.header = {sizeof(AtmosphereDesc), PHYSICS_STRUCT_VERSION},
+				.cell_count_x = 8,
+				.cell_count_y = 8,
+				.cell_count_z = 4,
+				.origin_x = 0.0f,
+				.origin_y = 0.0f,
+				.origin_z = 0.0f,
+				.dx = 1.0f,
+				.lid_z = 4.0f,
+				.first_layer_thickness = 1.0f,
+				.layer_stretch_power = 1.0f,
+				.floor_heights = nullptr,
+				.boundaries = {},
+				.wall_drag = {},
+				.reference_temperature = 288.0f,
+				.lapse_rate = -0.001f,
+				.min_temperature = 250.0f,
+				.gravity = 9.8f,
+				.floor_exchange_rate = 0.5f,
+				.lid_temperature = 284.0f,
+				.lid_relaxation_rate = 0.05f,
+				.pressure_vcycles = 2,
+				.pressure_pre_smooth = 4,
+				.pressure_post_smooth = 4,
+				.pressure_coarse_smooth = 16,
+				.open_edge_band = 2,
+				.vorticity_confinement = 0.0f,
+				.vertical_viscosity = 0.0f,
+				.tracer_count = 64,
+				.tracer_seed = 1,
+				.tracer_max_age = 20.0f,
+				.tracer_ground_density = 1.0f,
+				.tracer_break_density = 1.0f,
+				.tracer_upper_density = 1.0f,
+				.tracer_break_height = 0.5f,
+				.reserved = 0,
+			};
+		}
+
+		// Return a step with one hot source in the middle of the box.
+		static AtmosphereStepDesc MakeStepDesc(AtmosphereHeatSource const& source)
+		{
+			// The step borrows 'source' only for the duration of the call.
+			return AtmosphereStepDesc{
+				.header = {sizeof(AtmosphereStepDesc), PHYSICS_STRUCT_VERSION},
+				.dt = 0.1f,
+				.uniform_floor_temperature = 288.0f,
+				.heat_sources = &source,
+				.floor_temperatures = nullptr,
+				.outside_air = nullptr,
+				.heat_source_count = 1,
+				.floor_temperature_count = 0,
+				.outside_air_count = 0,
+				.reserved = 0,
+			};
+		}
+
+		PRUnitTestMethod(LifecycleSteppingAndReadback, Extended)
+		{
+			auto fix = PhysicsFixture{};
+			auto& api = fix.m_api;
+
+			// Invalid descriptions are rejected without creating anything.
+			auto atmosphere = AtmosphereHandle{};
+			auto bad = MakeAtmosphereDesc();
+			bad.dx = 0.0f;
+			PR_EXPECT(api.AtmosphereCreate(fix.m_engine, &bad, &atmosphere) == EStatus::InvalidArgument);
+			bad = MakeAtmosphereDesc();
+			bad.header.version = 0;
+			PR_EXPECT(api.AtmosphereCreate(fix.m_engine, &bad, &atmosphere) == EStatus::InvalidStruct);
+			bad = MakeAtmosphereDesc();
+			bad.boundaries[0] = static_cast<EAtmosphereBoundary>(7);
+			PR_EXPECT(api.AtmosphereCreate(fix.m_engine, &bad, &atmosphere) == EStatus::InvalidArgument);
+
+			// A valid atmosphere publishes its starting tracers straight away.
+			auto desc = MakeAtmosphereDesc();
+			PR_EXPECT(api.AtmosphereCreate(fix.m_engine, &desc, &atmosphere) == EStatus::Success);
+			auto required = std::uint32_t{};
+			PR_EXPECT(api.AtmosphereTracersCopy(fix.m_engine, atmosphere, nullptr, 0, &required) == EStatus::BufferTooSmall);
+			PR_EXPECT(required == 64U);
+
+			// Only one step may be in flight, and blocking reads wait for it to be finished.
+			auto const source = AtmosphereHeatSource{ .centre_x = 4.0f, .centre_y = 4.0f, .centre_z = 1.0f, .radius = 1.5f, .heating_rate = 5.0f, .target_temperature = 320.0f, .relaxation_rate = 1.0f };
+			auto step = MakeStepDesc(source);
+			auto cells = std::vector<AtmosphereCellState>(8 * 8 * 4);
+			PR_EXPECT(api.AtmosphereCompleteStep(fix.m_engine, atmosphere) == EStatus::NoStepPending);
+			PR_EXPECT(api.AtmosphereBeginStep(fix.m_engine, atmosphere, &step) == EStatus::Success);
+			PR_EXPECT(api.AtmosphereBeginStep(fix.m_engine, atmosphere, &step) == EStatus::StepPending);
+			PR_EXPECT(api.AtmosphereCellStatesCopy(fix.m_engine, atmosphere, cells.data(), static_cast<std::uint32_t>(cells.size()), &required, nullptr) == EStatus::StepPending);
+			PR_EXPECT(api.AtmosphereCompleteStep(fix.m_engine, atmosphere) == EStatus::Success);
+			PR_EXPECT(api.AtmosphereCompleteStep(fix.m_engine, atmosphere) == EStatus::NoStepPending);
+
+			// Polling finishes a step once the GPU has run it, without blocking the caller.
+			for (auto i = 0; i != 10; ++i)
+			{
+				PR_EXPECT(api.AtmosphereBeginStep(fix.m_engine, atmosphere, &step) == EStatus::Success);
+				auto idle = std::int32_t{};
+				for (; idle == 0;)
+				{
+					PR_EXPECT(api.AtmospherePollStep(fix.m_engine, atmosphere, &idle) == EStatus::Success);
+					if (idle == 0)
+						std::this_thread::yield();
+				}
+			}
+
+			// Tracer copies are allowed from any thread and report finite particles.
+			auto particles = std::vector<AtmosphereTracerParticle>(64);
+			auto copied = EStatus::InternalError;
+			std::thread([&]
+			{
+				copied = api.AtmosphereTracersCopy(fix.m_engine, atmosphere, particles.data(), static_cast<std::uint32_t>(particles.size()), &required);
+			}).join();
+			PR_EXPECT(copied == EStatus::Success);
+			for (auto const& p : particles)
+				PR_EXPECT(std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z) && std::isfinite(p.temperature));
+
+			// Heated air near the source is warmer than the reference, and the statistics describe a finite field.
+			auto stats = AtmosphereStats{ .header = {sizeof(AtmosphereStats), PHYSICS_STRUCT_VERSION} };
+			PR_EXPECT(api.AtmosphereCellStatesCopy(fix.m_engine, atmosphere, nullptr, 0, &required, nullptr) == EStatus::BufferTooSmall);
+			PR_EXPECT(required == static_cast<std::uint32_t>(cells.size()));
+			PR_EXPECT(api.AtmosphereCellStatesCopy(fix.m_engine, atmosphere, cells.data(), static_cast<std::uint32_t>(cells.size()), &required, &stats) == EStatus::Success);
+			auto const source_cell = cells[(0 * 8 + 4) * 8 + 4];
+			PR_EXPECT(source_cell.temperature > 288.5f);
+			PR_EXPECT(std::isfinite(stats.max_speed) && stats.max_speed > 0.0f);
+
+			// Raised floors remap the air; a wrong column count is rejected.
+			auto floors = std::vector<float>(8 * 8, 0.0f);
+			floors[0] = 1.0f;
+			PR_EXPECT(api.AtmosphereFloorsSet(fix.m_engine, atmosphere, floors.data(), 3) == EStatus::InvalidArgument);
+			PR_EXPECT(api.AtmosphereFloorsSet(fix.m_engine, atmosphere, floors.data(), static_cast<std::int32_t>(floors.size())) == EStatus::Success);
+
+			// Atmospheres are not part of checkpoints, so importing one would leave them inconsistent with the new engine.
+			auto checkpoint = WriteCheckpoint(api, fix.m_engine);
+			PR_EXPECT(api.CheckpointRead(fix.m_engine, checkpoint.data(), checkpoint.size()) == EStatus::InvalidArgument);
+
+			// Destroying the atmosphere makes its handle stale and frees the slot for reuse.
+			PR_EXPECT(api.AtmosphereDestroy(fix.m_engine, atmosphere) == EStatus::Success);
+			PR_EXPECT(api.AtmosphereTracersCopy(fix.m_engine, atmosphere, particles.data(), 64, &required) == EStatus::StaleHandle);
+			PR_EXPECT(api.AtmosphereDestroy(fix.m_engine, atmosphere) == EStatus::StaleHandle);
+		}
+		PRUnitTestMethod(EngineDestroyWaitsForStepInFlight, Extended)
+		{
+			auto fix = PhysicsFixture{};
+			auto& api = fix.m_api;
+
+			// Field-only atmospheres need no tracers.
+			auto desc = MakeAtmosphereDesc();
+			desc.tracer_count = 0;
+			auto atmosphere = AtmosphereHandle{};
+			PR_EXPECT(api.AtmosphereCreate(fix.m_engine, &desc, &atmosphere) == EStatus::Success);
+			auto required = std::uint32_t{ 1 };
+			PR_EXPECT(api.AtmosphereTracersCopy(fix.m_engine, atmosphere, nullptr, 0, &required) == EStatus::Success);
+			PR_EXPECT(required == 0U);
+
+			// The engine owns the atmosphere and drains its pending step on destruction.
+			auto const source = AtmosphereHeatSource{ .centre_x = 4.0f, .centre_y = 4.0f, .centre_z = 1.0f, .radius = 1.5f, .heating_rate = 5.0f, .target_temperature = 320.0f, .relaxation_rate = 1.0f };
+			auto step = MakeStepDesc(source);
+			PR_EXPECT(api.AtmosphereBeginStep(fix.m_engine, atmosphere, &step) == EStatus::Success);
+			PR_EXPECT(api.EngineDestroy(fix.m_engine) == EStatus::Success);
+			auto idle = std::int32_t{};
+			PR_EXPECT(api.AtmospherePollStep(fix.m_engine, atmosphere, &idle) == EStatus::StaleHandle);
+			fix.m_engine = 0;
+		}
+		PRUnitTestMethod(ShaderCacheStoresAndReusesKernels, Extended)
+		{
+			auto fix = PhysicsFixture{};
+			auto& api = fix.m_api;
+			auto const cache_dir = std::filesystem::temp_directory_path() / std::format("physics-shader-cache-{}", GetCurrentProcessId());
+			std::filesystem::remove_all(cache_dir);
+
+			// Count the files currently stored in the cache directory.
+			auto count_files = [&]
+			{
+				auto count = 0;
+				for (auto const& entry : std::filesystem::recursive_directory_iterator(cache_dir))
+					count += entry.is_regular_file() ? 1 : 0;
+
+				return count;
+			};
+
+			// Create an engine and an atmosphere, so that both compile their kernels through the current cache.
+			auto create_engine_and_atmosphere = [&]
+			{
+				auto engine = EngineHandle{};
+				PR_EXPECT(api.EngineCreate(fix.m_context, nullptr, fix.m_external_device, &engine) == EStatus::Success);
+				auto desc = MakeAtmosphereDesc();
+				auto atmosphere = AtmosphereHandle{};
+				PR_EXPECT(api.AtmosphereCreate(engine, &desc, &atmosphere) == EStatus::Success);
+				PR_EXPECT(api.EngineDestroy(engine) == EStatus::Success);
+			};
+
+			// Contract errors leave the current cache unchanged.
+			PR_EXPECT(api.ShaderCacheDirectorySet(nullptr, cache_dir.c_str()) == EStatus::InvalidHandle);
+			PR_EXPECT(api.ShaderCacheDirectorySet(fix.m_context, L"") == EStatus::InvalidArgument);
+
+			// The first creation fills the cache, and an identical second creation reuses it without adding entries.
+			PR_EXPECT(api.ShaderCacheDirectorySet(fix.m_context, cache_dir.c_str()) == EStatus::Success);
+			create_engine_and_atmosphere();
+			auto const cached = count_files();
+			PR_EXPECT(cached > 0);
+			create_engine_and_atmosphere();
+			PR_EXPECT(count_files() == cached);
+
+			// The cache is shared by the whole process, so restore the uncached default for later tests.
+			PR_EXPECT(api.ShaderCacheDirectorySet(fix.m_context, nullptr) == EStatus::Success);
+			std::filesystem::remove_all(cache_dir);
 		}
 	};
 }

@@ -2658,6 +2658,41 @@ namespace fade_tests
 		fixture.CheckDebugLayer();
 		std::cout << "PASS underwater post-effect: MSAA " << samples << '\n';
 	}
+
+	// Check that 'EnvMapCaptureExclude' objects are rejected by scenes that exclude capture content, and that a capture with them runs.
+	void EnvMapCaptureExcludeTests()
+	{
+		// An unlit red quad fills the view against the black background.
+		auto fixture = Fixture(1);
+		auto object = fixture.Quad(10, 0xFFFF0000);
+		Expect(fixture.Image(), 1, 0, 0);
+
+		// The flag alone does not affect ordinary scenes.
+		View3D_ObjectFlagsSet(object, api::ELdrFlags::EnvMapCaptureExclude, TRUE, nullptr);
+		fixture.CheckErrors();
+		Expect(fixture.Image(), 1, 0, 0);
+
+		// A scene that excludes capture content, as the capture scene does, does not draw the flagged object.
+		auto& scene = fixture.m_window->m_scene;
+		scene.m_inst_exclude = pr::rdr12::EInstFlag::EnvMapCaptureExclude;
+		Expect(fixture.Image(), 0, 0, 0);
+		View3D_ObjectFlagsSet(object, api::ELdrFlags::EnvMapCaptureExclude, FALSE, nullptr);
+		fixture.CheckErrors();
+		Expect(fixture.Image(), 1, 0, 0);
+		scene.m_inst_exclude = pr::rdr12::EInstFlag::None;
+
+		// Capturing with a flagged object must complete without errors.
+		View3D_ObjectFlagsSet(object, api::ELdrFlags::EnvMapCaptureExclude, TRUE, nullptr);
+		auto cube = api::CubeMapPtr(View3D_CubeMapCreate(32));
+		Require(cube != nullptr, "Cube map creation failed");
+		View3D_WindowEnvMapCapture(fixture.m_window, cube.get(), api::Vec4{0, 0, 0, 1});
+		fixture.CheckErrors();
+		Expect(fixture.Image(), 1, 0, 0);
+
+		// Any GPU validation error fails the fixture.
+		fixture.CheckDebugLayer();
+		std::cout << "PASS environment map capture exclusion\n";
+	}
 }
 
 // Register the view3d-12 renderer tests. CPU-only tests are 'Quick'; tests that render and read back on the GPU are 'Extended'.
@@ -2731,6 +2766,10 @@ namespace pr::unittests::view3d12
 	{
 		fade_tests::PostEffectTests(1);
 		fade_tests::PostEffectTests(4);
+	}
+	PRUnitTest(View3d12_EnvMapCaptureExclude, Extended)
+	{
+		fade_tests::EnvMapCaptureExcludeTests();
 	}
 	PRUnitTest(View3d12_Dither, Extended)
 	{

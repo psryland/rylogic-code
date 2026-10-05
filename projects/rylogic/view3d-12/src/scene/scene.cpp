@@ -49,6 +49,7 @@ namespace pr::rdr12
 		, m_global_fill_mode(EFillMode::Default)
 		, m_pso()
 		, m_ray_tracing_props()
+		, m_inst_exclude(EInstFlag::None)
 		, m_eh_resize()
 		, m_far_clip_fade()
 		, m_shadow_settings()
@@ -163,6 +164,10 @@ namespace pr::rdr12
 	// Instances can be added to render steps directly if finer control is needed
 	void Scene::AddInstance(BaseInstance const& inst)
 	{
+		// Scenes can opt out of instances by flag, e.g. content that must not appear in a capture
+		if (AnySet(GetFlags(inst), m_inst_exclude))
+			return;
+
 		// Reject incompatible geometry before publishing it to any drawlist. Rebuilt scenes perform this admission check each frame.
 		if (FindRStep<RenderRayTracing>() != nullptr)
 		{

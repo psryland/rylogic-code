@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Locates the DirectX Shader Compiler package that supplies dxcompiler.lib, dxcompiler.dll and dxil.dll.
+Native projects that compile shaders import dxc.targets; projects that only copy the runtime import this file.
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+	<PropertyGroup>
+		<DxcPackageVersion>1.8.2407.12</DxcPackageVersion>
+		<DxcPackagePath>$(NuGetPackageRoot)\Microsoft.Direct3D.DXC\$(DxcPackageVersion)\</DxcPackagePath>
+		<DxcRuntimeDir>$(DxcPackagePath)build\native\bin\x64\</DxcRuntimeDir>
+	</PropertyGroup>
+
+</Project>

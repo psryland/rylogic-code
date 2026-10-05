@@ -496,6 +496,12 @@ namespace pr::rdr12::ldraw
 				o->m_iflags = SetBits(o->m_iflags, EInstFlag::ShadowCastExclude, vampire);
 			}
 
+			// Environment map capture
+			{
+				auto envmap_exclude = AllSet(o->Flags(), ELdrFlags::EnvMapCaptureExclude);
+				o->m_iflags = SetBits(o->m_iflags, EInstFlag::EnvMapCaptureExclude, envmap_exclude);
+			}
+
 			// Non-Affine
 			{
 				auto non_affine = AllSet(o->Flags(), ELdrFlags::NonAffine);

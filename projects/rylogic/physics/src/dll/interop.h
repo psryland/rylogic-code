@@ -5,6 +5,11 @@
 #pragma once
 #include "physics/src/dll/dll_forward.h"
 
+namespace pr::compute::shader_cache
+{
+	struct IShaderCache;
+}
+
 namespace pr::physics
 {
 	struct EngineSlot;
@@ -16,6 +21,9 @@ namespace pr::physics
 		std::vector<std::unique_ptr<InteropGpuBackend>> m_gpu_backends;
 		std::vector<std::unique_ptr<EngineSlot>> m_engines;
 		std::uint32_t m_next_cookie;
+
+		// Compiled-kernel cache given to engines when they are created, or null for no caching.
+		std::shared_ptr<compute::shader_cache::IShaderCache> m_shader_cache;
 
 		InteropState();
 		~InteropState();

@@ -326,6 +326,9 @@ namespace pr
 			// True if the object has animation data.
 			Animated = 1 << 13,
 
+			// Not rendered into environment maps captured with EnvMapCapture
+			EnvMapCaptureExclude = 1 << 15,
+
 			// Indicates invalidated flags that need to be refreshed
 			Invalidated = 1 << 31,
 
@@ -1274,7 +1277,7 @@ extern "C"
 
 	// Render the window's objects, lights, and shadows into 'env_map', centred at 'position'. 'env_map' must be a cube map created by View3D_CubeMapCreate.
 	// The capture replaces the cube's contents and orientation transform. It does not assign the cube to the window. Capture resources are cached on the window,
-	// so repeated captures at the same face size are much cheaper than the first.
+	// so repeated captures at the same face size are much cheaper than the first. Objects with ELdrFlags::EnvMapCaptureExclude are not captured.
 	VIEW3D_API void __stdcall View3D_WindowEnvMapCapture(pr::view3d::Window window, pr::view3d::CubeMap env_map, pr::view3d::Vec4 position);
 
 	// Enable/Disable the depth buffer
