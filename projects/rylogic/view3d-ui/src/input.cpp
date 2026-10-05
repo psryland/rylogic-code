@@ -690,7 +690,8 @@ namespace pr::view3d::ui
 		}
 	}
 
-	InputResult ProcessNormalizedInput(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, ViewportState const& viewport, NormalizedInput const& input, InputTextRecord const* text_payload, TextHitContext const& hit_context, InputState& state, EventQueue& events, std::uint64_t accepted_revision)
+	// Interpret one input record against the current UI state, without pointer press ownership.
+	static InputResult ProcessInputRecord(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, ViewportState const& viewport, NormalizedInput const& input, InputTextRecord const* text_payload, TextHitContext const& hit_context, InputState& state, EventQueue& events, std::uint64_t accepted_revision)
 	{
 		switch (input.kind)
 		{
@@ -1337,6 +1338,58 @@ namespace pr::view3d::ui
 			default:
 			{
 				throw EngineException(EStatus::UnknownType, std::format("ProcessNormalizedInput: unknown EInputKind {}", static_cast<int>(input.kind)));
+			}
+		}
+	}
+
+	InputResult ProcessNormalizedInput(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, ViewportState const& viewport, NormalizedInput const& input, InputTextRecord const* text_payload, TextHitContext const& hit_context, InputState& state, EventQueue& events, std::uint64_t accepted_revision)
+	{
+		// A press consumed by the UI owns its button until release. A press can change the UI so
+		// that the pointer is no longer over it (for example a closing ComboBox popup), and the
+		// application must not then see the drag or release as scene input without its press.
+		auto result = ProcessInputRecord(tree, layout, viewport, input, text_payload, hit_context, state, events, accepted_revision);
+		auto const button_bit = [&]
+		{
+			// Map the record's button to its ownership bit; 'None' owns nothing.
+			auto const index = static_cast<std::int32_t>(input.button);
+			return index > 0 && index < static_cast<std::int32_t>(EPointerButton::Count) ? 1U << (index - 1) : 0U;
+		};
+		switch (input.kind)
+		{
+			case EInputKind::PointerButtonDown:
+			{
+				if (result.consumed)
+					state.m_owned_buttons |= button_bit();
+
+				return result;
+			}
+			case EInputKind::PointerButtonUp:
+			{
+				// The release that ends an owned press belongs to the UI.
+				auto const bit = button_bit();
+				if ((state.m_owned_buttons & bit) != 0)
+				{
+					state.m_owned_buttons &= ~bit;
+					result.consumed = true;
+				}
+				return result;
+			}
+			case EInputKind::PointerMove:
+			{
+				if (state.m_owned_buttons != 0)
+					result.consumed = true;
+
+				return result;
+			}
+			case EInputKind::FocusLost:
+			{
+				// The window will not deliver releases for presses that span a focus loss.
+				state.m_owned_buttons = 0;
+				return result;
+			}
+			default:
+			{
+				return result;
 			}
 		}
 	}

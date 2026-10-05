@@ -253,6 +253,30 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT(proposal.numeric_value == 1.0);
 	}
 
+	// A press that commits a popup item owns the pointer until release, even though the popup has
+	// closed, so a drag or release over the scene behind it is not reported as unconsumed scene input.
+	PRUnitTest(ComboBoxPopupCommitPressOwnsPointerUntilRelease, Quick)
+	{
+		// Open the popup with a full click, then commit an item with a press.
+		auto engine = UiEngine(MakeConfig());
+		BuildCombo(engine);
+		LRESULT result = 0;
+		std::int32_t invalidate = 0;
+		PR_EXPECT(engine.ProcessWindowMessage(nullptr, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(20, 20), result, invalidate) != 0);
+		PR_EXPECT(engine.ProcessWindowMessage(nullptr, WM_LBUTTONUP, 0, MAKELPARAM(20, 20), result, invalidate) != 0);
+		PR_EXPECT(engine.ProcessWindowMessage(nullptr, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(20, 58), result, invalidate) != 0);
+		PR_EXPECT(ComboProposal(DrainEvents(engine)).control_id == 2);
+
+		// The held drag and release now lie outside every control but still belong to the UI.
+		PR_EXPECT(engine.ProcessWindowMessage(nullptr, WM_MOUSEMOVE, MK_LBUTTON, MAKELPARAM(200, 150), result, invalidate) != 0);
+		PR_EXPECT(engine.ProcessWindowMessage(nullptr, WM_LBUTTONUP, 0, MAKELPARAM(200, 150), result, invalidate) != 0);
+
+		// After the release, ordinary scene input outside the UI is unconsumed again.
+		PR_EXPECT(engine.ProcessWindowMessage(nullptr, WM_MOUSEMOVE, 0, MAKELPARAM(201, 150), result, invalidate) == 0);
+		PR_EXPECT(engine.ProcessWindowMessage(nullptr, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(200, 150), result, invalidate) == 0);
+		PR_EXPECT(engine.ProcessWindowMessage(nullptr, WM_LBUTTONUP, 0, MAKELPARAM(200, 150), result, invalidate) == 0);
+	}
+
 	// Popup placement flips above when there is no room below and clamps inside the viewport.
 	PRUnitTest(ComboBoxPopupPlacementFlipsAndClamps, Quick)
 	{

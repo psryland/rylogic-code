@@ -606,6 +606,7 @@ Injection does not call Win32 capture, clipboard, or IME services; deterministic
 - A consumed message does not reach `Main::OnMouse*` or `Main::OnKey`.
 - Mouse down on no UI element clears UI keyboard focus and is returned as unconsumed, allowing the same message to begin camera interaction.
 - Mouse down outside an open ComboBox drop-down is consumed for light dismiss, so that click does not also activate lower UI or begin camera interaction.
+- A consumed mouse down owns that button until its release: the moves while it is held and the matching release are also consumed, even when the press changed the UI so that the pointer is no longer over it (for example, choosing a drop-down item closes the popup). The application therefore never sees a drag or release without its press. Focus loss ends this ownership.
 - Active UI pointer capture continues receiving pointer messages outside UI bounds until release/cancel.
 - Losing HWND focus clears UI focus/capture and emits ordered focus/capture events.
 - Tab, Enter, and Space are consumed only while UI focus makes them applicable; existing host shortcuts remain unchanged when UI has no focus.

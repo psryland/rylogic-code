@@ -109,6 +109,9 @@ namespace pr::view3d::ui
 		std::int32_t m_combo_highlight_index = -1;
 		std::uint32_t m_combo_scroll_offset = 0;
 
+		// Pointer buttons (bit = EPointerButton - 1) whose press the UI consumed and whose release has not arrived.
+		std::uint32_t m_owned_buttons = 0;
+
 		// Discard hover/pressed/capture/focus targets and text-edit state for controls no longer
 		// present in the accepted tree.
 		void Prune(std::unordered_set<ControlId> const& live_ids);
