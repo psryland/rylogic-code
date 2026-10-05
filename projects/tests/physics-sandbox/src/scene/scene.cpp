@@ -265,6 +265,7 @@ namespace physics_sandbox
 		, m_terrain_gfx()
 		, m_water()
 		, m_water_gfx()
+		, m_atmosphere_gfx()
 		, m_env_map()
 		, m_sky_gfx()
 		, m_origin_gfx()
@@ -740,6 +741,7 @@ namespace physics_sandbox
 		m_terrain_gfx = nullptr;
 		m_water.reset();
 		m_water_gfx = nullptr;
+		m_atmosphere_gfx = nullptr;
 		m_env_map = nullptr;
 		m_sky_gfx = nullptr;
 
@@ -925,6 +927,8 @@ namespace physics_sandbox
 		profile.m_gravity_ms += ElapsedMs(gravity_beg, Clock::now());
 
 		auto const physics_beg = Clock::now();
+		if (m_atmosphere_gfx != nullptr)
+			m_atmosphere_gfx->Step(dt);
 		m_physics.BeginStep(physics::Engine::StepInput{
 			.m_bodies = m_body_ptrs,
 			.m_articulations = m_articulation_ptrs,
@@ -959,6 +963,7 @@ namespace physics_sandbox
 		ClearSimulationObjects();
 		m_water.reset();
 		m_water_gfx = nullptr;
+		m_atmosphere_gfx = nullptr;
 		m_env_map = nullptr;
 		m_sky_gfx = nullptr;
 
@@ -1095,6 +1100,7 @@ namespace physics_sandbox
 		m_terrain_gfx = nullptr;
 		m_water = scene_desc.water;
 		m_water_gfx = nullptr;
+		m_atmosphere_gfx = nullptr;
 		m_env_map = nullptr;
 		m_sky_gfx = nullptr;
 
@@ -1297,6 +1303,11 @@ namespace physics_sandbox
 		auto const buoyancy_beg = Clock::now();
 		ConfigureBuoyancy(scene_desc);
 		m_last_load_profile.m_buoyancy_ms = ElapsedMs(buoyancy_beg, Clock::now());
+
+		// Create the scene-owned atmosphere solver on the physics engine's device. A second standalone device is not possible here because
+		// creating one enables the D3D debug layer, and D3D12 removes every existing device when that happens after device creation.
+		if (scene_desc.atmosphere && m_rdr != nullptr)
+			m_atmosphere_gfx = std::make_unique<AtmosphereVisual>(m_physics.Device(), *m_rdr, m_shader_cache, std::move(*scene_desc.atmosphere));
 
 		// Show the surface samples used by the physics that this scene exercises: buoyancy in water scenes, otherwise terrain collision.
 		if (m_gpu_buoyancy)
@@ -2216,6 +2227,46 @@ namespace physics_sandbox::tests
 			auto scene_desc = scene_loader::LoadFromFile("projects\\tests\\physics-sandbox\\scenes\\buoyancy_stress_1000.json");
 			sandbox.LoadScene(std::move(scene_desc));
 			PR_EXPECT(sandbox.m_water_gfx != nullptr);
+			window.WaitForGpu();
+		}
+	};
+
+	// Exercise the renderer-backed atmosphere demo over procedural terrain.
+	PRUnitTestClass(SceneAtmosphereTests)
+	{
+		// The terrain climate demo must load and keep its tracers finite and inside the air over a sustained run.
+		PRUnitTestMethod(ClimateTerrainSceneStaysStable, Quick)
+		{
+			// Use the real renderer and scene fixture so the solver, tracers and terrain are built exactly as in the demo.
+			auto renderer = rdr12::Renderer(rdr12::RdrSettings(GetModuleHandle(nullptr)));
+			auto window = rdr12::Window(renderer, rdr12::WndSettings(nullptr, true, renderer.Settings()).Size(96, 96));
+			auto sandbox = Scene(&renderer);
+			sandbox.LoadScene(scene_loader::LoadFromFile("projects\\tests\\physics-sandbox\\scenes\\climate_terrain.json"));
+			PR_EXPECT(sandbox.m_atmosphere_gfx != nullptr);
+			auto& atmosphere = *sandbox.m_atmosphere_gfx;
+
+			// Run 20 simulated seconds, waiting on each submitted step so every period is simulated rather than dropped.
+			auto const step_period = 1.0f / atmosphere.m_desc.m_step_rate;
+			for (int i = 0; i != static_cast<int>(20.0f * atmosphere.m_desc.m_step_rate); ++i)
+			{
+				// Each call collects the previous step and submits the next.
+				atmosphere.Step(step_period);
+				if (atmosphere.m_pending)
+					atmosphere.m_gpu.m_job.m_gsync.Wait(atmosphere.m_pending.m_sync_point);
+			}
+			atmosphere.Step(step_period);
+
+			// Tracers must stay finite, between the floor and the lid, and moving at plausible wind speeds.
+			auto const& grid = atmosphere.m_desc.m_config.m_grid;
+			auto max_speed = 0.0f;
+			for (auto const& particle : atmosphere.m_particles)
+			{
+				// Allow a small tolerance at the lid for the final advection substep.
+				PR_EXPECT(IsFinite(particle.m_position) && std::isfinite(particle.m_speed));
+				PR_EXPECT(particle.m_position.z <= grid.m_lid_z + 1.0f);
+				max_speed = std::max(max_speed, particle.m_speed);
+			}
+			PR_EXPECT(max_speed > 40.0f && max_speed < 240.0f);
 			window.WaitForGpu();
 		}
 	};

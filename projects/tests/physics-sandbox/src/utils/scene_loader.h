@@ -38,6 +38,34 @@ namespace physics_sandbox::scene_loader
 	//                 { "direction": [1, 0], "wavelength": 8.0, "amplitude": 0.25, "phase_speed": 1.5 } // "period" is accepted as a wavelength alias
 	//             ]
 	//         },
+	//         "atmosphere": {                  // Optional GPU atmosphere solver and tracer visualisation
+	//             "grid": {
+	//                 "cell_count": [64,64,8], "dx": 20.0, "origin": [-640,-640,0],
+	//                 "lid_z": 400.0, "first_layer_thickness": 8.0, "layer_stretch_power": 0.75
+	//             },
+	//             "floor": "flat",             // "flat" (at origin z) or "terrain": sample the scene 'terrain' block per column, raised to the 'water' level if present
+	//             "boundaries": { "x_min":"solid", "x_max":"solid", "y_min":"solid", "y_max":"solid", "z_min":"solid", "z_max":"solid" },
+	//             "wall_drag": { "z_min": 0.005 }, // Quadratic drag coefficient per solid side (x_min..z_max); omitted sides are frictionless
+	//             "reference": { "temperature_at_origin": 288.0, "lapse_rate": -0.0065, "min_temperature": 220.0 },
+	//             "step_rate": 15.0,           // Climate steps per simulated second (Hz). Each step advances the solver by 1/step_rate seconds
+	//             "open_edge_band": 8,         // Width in cells of the sponge that nudges open-side air toward the outside wind
+	//             "vorticity_confinement": 0.0,// Strength (1/s) of the force that restores swirls smoothed away by advection; 0 disables it
+	//             "outside_air": [             // Air beside open sides. The first region containing a boundary column's position wins; elsewhere the air is calm
+	//                 { "min":[-1e9,-1e9], "max":[1e9,0], "wind":[5,0], "wind_noise":0.0, "temperature_offset":0.0 } // wind_noise: max fixed random wind offset per column, m/s
+	//             ],
+	//             "heat_sources": [
+	//                 { "centre":[0,0,25], "radius":90.0, "heating_rate":20.0, "target_temperature":305.0, "relaxation_rate":0.1 }
+	//             ],
+	//             "cylinders": [               // Vertical solid cylinders from floor to lid. Columns whose centre is inside become solid walls
+	//                 { "centre":[-80,-10], "radius":15.0 }
+	//             ],
+	//             "tracers": { "count":4096, "seed":42, "max_age":30.0, "ground_density":1.0, "break_density":1.0, "upper_density":1.0, "break_height":0.5 }, // relative tracer densities: linear from the floor to 'break_height' (column fraction), then 'upper_density' to the lid
+	//             "visual": {
+	//                 "colour_by":"temperature",  // "temperature" or "speed"
+	//                 "temperature_range":[280,305], "speed_range":[0,15], "show_grid":true, "show_particles":true, "show_heat_sources":true,
+	//                 "show_obstacles":true, "particle_size":4.0, "grid_line_limit":48
+	//             }
+	//         },
 	//         "ground_plane": {               // Optional ground plane
 	//             "height": 0.0,              // Z height of the ground surface
 	//             "texture": "#checker3"      // Stock texture name (optional)
@@ -253,6 +281,49 @@ namespace physics_sandbox::scene_loader
 		Colour32 colour = Colour32(0x602080FFU);
 	};
 
+	// The tracer property that sets particle colour in the atmosphere demonstration.
+	enum class EAtmosphereColourBy
+	{
+		Temperature,
+		Speed,
+	};
+
+	// Parsed display options for the atmosphere demonstration.
+	struct AtmosphereVisualDesc
+	{
+		EAtmosphereColourBy m_colour_by = EAtmosphereColourBy::Temperature; // tracer property mapped to the colour ramp
+		float m_min_temperature = 280.0f;  // temperature drawn fully blue, K
+		float m_max_temperature = 305.0f;  // temperature drawn fully red, K
+		float m_min_speed = 0.0f;          // speed drawn at the low end of the speed ramp, m/s
+		float m_max_speed = 15.0f;         // speed drawn at the high end of the speed ramp, m/s
+		float m_particle_size = 10.0f;     // tracer point-sprite size passed to view3d (screen-space sprites currently draw at half this many pixels)
+		int m_grid_line_limit = 48;        // maximum lattice lines per axis on the floor and lid
+		bool m_show_grid = true;           // draw the domain box and floor/lid lattices
+		bool m_show_particles = true;      // draw tracer particles
+		bool m_show_heat_sources = true;   // draw heat-source wire spheres
+		bool m_show_obstacles = true;      // draw solid cylinders
+	};
+
+	// A vertical solid cylinder from the atmosphere floor to the lid.
+	struct AtmosphereCylinderDesc
+	{
+		v2 m_centre = v2::Zero(); // world XY of the axis
+		float m_radius = 1.0f;    // m
+	};
+
+	// Parsed GPU atmosphere solver and visualisation block.
+	struct AtmosphereDesc
+	{
+		physics::atmosphere::AtmosphereConfig m_config;                        // grid, boundaries, and reference temperature profile
+		std::vector<physics::atmosphere::AtmosphereHeatSource> m_heat_sources; // static heat sources
+		std::vector<physics::atmosphere::AtmosphereOutsideAir> m_outside_air;  // static air beside every boundary column, in AtmosphereGrid::BuildOutsideAir order
+		std::vector<AtmosphereCylinderDesc> m_cylinders;                       // solid obstacles, already applied to the grid floor heights
+		bool m_terrain_floor = false;                                          // true when the grid floor follows the scene terrain (and water surface)
+		physics::atmosphere::AtmosphereTracerConfig m_tracers;                 // flow-visualisation particles
+		float m_step_rate = 15.0f;                                             // climate steps per simulated second, Hz
+		AtmosphereVisualDesc m_visual;                                     // display options
+	};
+
 	// Parsed scene description
 	struct SceneDesc
 	{
@@ -310,6 +381,9 @@ namespace physics_sandbox::scene_loader
 
 		// Water surface
 		std::optional<WaterDesc> water;
+
+		// Atmosphere solver and tracer visualisation
+		std::optional<AtmosphereDesc> atmosphere;
 
 		// Bodies in the scene
 		std::vector<BodyDesc> bodies;

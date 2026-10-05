@@ -26,6 +26,10 @@ namespace physics_sandbox
 					MenuItem(L"&Volume samples", MenuID::VolumeSamples),
 					MenuItem(L"Sleeping-body &transparency", MenuID::SleepingTransparency, MenuItem::EState::Checked),
 				})),
+				MenuItem(L"&Atmosphere", Menu(Menu::EKind::Popup, {
+					MenuItem(L"&Grid", MenuID::AtmosphereGrid),
+					MenuItem(L"&Particles", MenuID::AtmosphereParticles),
+				})),
 				MenuItem(MenuItem::Separator),
 				MenuItem(L"&Details panel\tD", MenuID::DetailsPanel),
 			});
@@ -38,12 +42,26 @@ namespace physics_sandbox
 		}
 
 		// Apply independent check marks without including overlay commands in the base-mode radio range.
-		void UpdateDiagnosticMenu(HMENU view_menu, SampleOverlays const& overlays, bool sleeping_transparency)
+		void UpdateOverlayMenu(HMENU view_menu, SampleOverlays const& overlays, bool sleeping_transparency)
 		{
+			// Overlay submenus mirror the current scene state whenever the View menu opens or a command changes.
 			auto const menu = ::GetSubMenu(view_menu, 3);
 			::CheckMenuItem(menu, MenuID::SurfaceSamples, MF_BYCOMMAND | (overlays.m_surface_enabled ? MF_CHECKED : MF_UNCHECKED));
 			::CheckMenuItem(menu, MenuID::VolumeSamples, MF_BYCOMMAND | (overlays.m_volume_enabled ? MF_CHECKED : MF_UNCHECKED));
 			::CheckMenuItem(menu, MenuID::SleepingTransparency, MF_BYCOMMAND | (sleeping_transparency ? MF_CHECKED : MF_UNCHECKED));
+		}
+
+		// Apply atmosphere diagnostic checks and disabled state from the loaded scene.
+		void UpdateDiagnosticMenu(HMENU view_menu, Scene const& scene)
+		{
+			// Scene-owned atmosphere graphics are optional, so grey the commands when the current scene has none.
+			UpdateOverlayMenu(view_menu, scene.m_sample_overlays, scene.SleepingTransparency());
+			auto const atmosphere_menu = ::GetSubMenu(view_menu, 4);
+			auto const has_atmosphere = scene.m_atmosphere_gfx != nullptr;
+			::EnableMenuItem(atmosphere_menu, MenuID::AtmosphereGrid, MF_BYCOMMAND | (has_atmosphere ? MF_ENABLED : MF_GRAYED));
+			::EnableMenuItem(atmosphere_menu, MenuID::AtmosphereParticles, MF_BYCOMMAND | (has_atmosphere ? MF_ENABLED : MF_GRAYED));
+			::CheckMenuItem(atmosphere_menu, MenuID::AtmosphereGrid, MF_BYCOMMAND | (has_atmosphere && scene.m_atmosphere_gfx->ShowGrid() ? MF_CHECKED : MF_UNCHECKED));
+			::CheckMenuItem(atmosphere_menu, MenuID::AtmosphereParticles, MF_BYCOMMAND | (has_atmosphere && scene.m_atmosphere_gfx->ShowParticles() ? MF_CHECKED : MF_UNCHECKED));
 		}
 
 		// Build behavior-oriented submenus from the runtime-discovered JSON demonstration catalogue.
@@ -269,6 +287,8 @@ namespace physics_sandbox
 				m_scene.m_terrain_gfx->AddToScene(scene);
 			if (m_scene.m_water_gfx)
 				m_scene.m_water_gfx->AddToScene(scene, static_cast<float>(m_scene.m_clock));
+			if (m_scene.m_atmosphere_gfx)
+				m_scene.m_atmosphere_gfx->AddToScene(scene);
 			if (m_scene.m_origin_gfx)
 				m_scene.m_origin_gfx->AddToScene(scene);
 			if (m_scene.m_contacts_gfx)
@@ -324,7 +344,10 @@ namespace physics_sandbox
 
 		// Reflect visibility changes made through any control before displaying the View menu.
 		if (message == WM_INITMENUPOPUP && reinterpret_cast<HMENU>(wparam) == ::GetSubMenu(::GetMenu(hwnd), 1))
+		{
 			UpdateDetailsMenu(reinterpret_cast<HMENU>(wparam), m_details.m_pinned);
+			UpdateDiagnosticMenu(reinterpret_cast<HMENU>(wparam), m_scene);
+		}
 
 		// Handle menu commands
 		if (message == WM_COMMAND)
@@ -376,6 +399,22 @@ namespace physics_sandbox
 			if (id == MenuID::SleepingTransparency)
 			{
 				m_scene.SleepingTransparency(!m_scene.SleepingTransparency());
+				UpdateVisualModeMenu();
+				Render(0);
+				result = 0;
+				return true;
+			}
+
+			// Atmosphere overlays are independent diagnostics for the loaded climate scene.
+			if (id == MenuID::AtmosphereGrid || id == MenuID::AtmosphereParticles)
+			{
+				if (m_scene.m_atmosphere_gfx != nullptr)
+				{
+					if (id == MenuID::AtmosphereGrid)
+						m_scene.m_atmosphere_gfx->ShowGrid(!m_scene.m_atmosphere_gfx->ShowGrid());
+					else
+						m_scene.m_atmosphere_gfx->ShowParticles(!m_scene.m_atmosphere_gfx->ShowParticles());
+				}
 				UpdateVisualModeMenu();
 				Render(0);
 				result = 0;
@@ -525,7 +564,7 @@ namespace physics_sandbox
 		}
 
 		::CheckMenuRadioItem(view_menu, MenuID::VisualModeNormal, MenuID::VisualModeContactPriority, checked_id, MF_BYCOMMAND);
-		UpdateDiagnosticMenu(view_menu, m_scene.m_sample_overlays, m_scene.SleepingTransparency());
+		UpdateDiagnosticMenu(view_menu, m_scene);
 		::DrawMenuBar(m_hwnd);
 	}
 
@@ -913,12 +952,12 @@ namespace physics_sandbox::tests
 				::CheckMenuRadioItem(menu, MenuID::VisualModeNormal, MenuID::VisualModeContactPriority, mode, MF_BYCOMMAND);
 				overlays.Surface(true);
 				overlays.Volume(true);
-				UpdateDiagnosticMenu(menu, overlays, true);
+				UpdateOverlayMenu(menu, overlays, true);
 				PR_EXPECT((::GetMenuState(menu, mode, MF_BYCOMMAND) & MF_CHECKED) != 0);
 				PR_EXPECT((::GetMenuState(submenu, MenuID::SurfaceSamples, MF_BYCOMMAND) & MF_CHECKED) != 0);
 				PR_EXPECT((::GetMenuState(submenu, MenuID::VolumeSamples, MF_BYCOMMAND) & MF_CHECKED) != 0);
 				overlays.Surface(false);
-				UpdateDiagnosticMenu(menu, overlays, false);
+				UpdateOverlayMenu(menu, overlays, false);
 				PR_EXPECT((::GetMenuState(submenu, MenuID::SurfaceSamples, MF_BYCOMMAND) & MF_CHECKED) == 0);
 				PR_EXPECT((::GetMenuState(submenu, MenuID::VolumeSamples, MF_BYCOMMAND) & MF_CHECKED) != 0);
 				PR_EXPECT((::GetMenuState(menu, mode, MF_BYCOMMAND) & MF_CHECKED) != 0);

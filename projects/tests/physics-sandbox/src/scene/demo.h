@@ -11,6 +11,7 @@ namespace physics_sandbox
 		ConstraintsAndMechanisms,
 		ArticulationsAndRobotics,
 		Buoyancy,
+		Atmosphere,
 		StressAndScaling,
 		FeatureShowcases,
 	};

@@ -47,6 +47,7 @@
 
 #include "pr/physics/physics.h"
 #include "pr/physics/buoyancy/buoyancy_sampler.h"
+#include "physics/src/utility/gpu.h"
 #include "pr/compute/gpu_job.h"
 
 using namespace pr;

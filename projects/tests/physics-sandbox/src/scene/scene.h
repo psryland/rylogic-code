@@ -6,6 +6,7 @@
 #include "src/utils/scene_loader.h"
 #include "src/scene/terrain/terrain_visual.h"
 #include "src/scene/water/water_visual.h"
+#include "src/scene/atmosphere_visual.h"
 #include "src/scene/scenario.h"
 #include "src/scene/articulation_visual.h"
 #include "src/scene/sample_overlays.h"
@@ -133,6 +134,9 @@ namespace physics_sandbox
 		// Water surface visual described by the loaded scene.
 		std::optional<scene_loader::WaterDesc> m_water;
 		std::unique_ptr<WaterVisual> m_water_gfx;
+
+		// Optional GPU atmosphere solver and visual diagnostics described by the loaded scene.
+		std::unique_ptr<AtmosphereVisual> m_atmosphere_gfx;
 
 		// Procedural environment map cube + sky-dome model. Created alongside the water visual so
 		// reflective surfaces have something to reflect; null when no water is present.

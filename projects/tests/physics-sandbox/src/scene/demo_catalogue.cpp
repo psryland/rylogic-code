@@ -14,6 +14,7 @@ namespace physics_sandbox
 			DemoCategoryInfo{EDemoCategory::ConstraintsAndMechanisms, "Constraints and Mechanisms"},
 			DemoCategoryInfo{EDemoCategory::ArticulationsAndRobotics, "Articulations and Robotics"},
 			DemoCategoryInfo{EDemoCategory::Buoyancy, "Buoyancy"},
+			DemoCategoryInfo{EDemoCategory::Atmosphere, "Atmosphere"},
 			DemoCategoryInfo{EDemoCategory::StressAndScaling, "Stress and Scaling"},
 			DemoCategoryInfo{EDemoCategory::FeatureShowcases, "Feature Showcases"},
 		};

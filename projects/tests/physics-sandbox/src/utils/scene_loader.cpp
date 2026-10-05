@@ -60,6 +60,19 @@ namespace physics_sandbox::scene_loader
 				a[1].to<int>(),
 			};
 		}
+		// Read a three-component integer vector from a JSON array.
+		iv3 ReadInt3(pr::json::Value const& arr)
+		{
+			auto const& a = arr.to_array();
+			if (a.size() < 3)
+				throw std::runtime_error("Expected a 3-element array for integer vector");
+
+			return iv3{
+				a[0].to<int>(),
+				a[1].to<int>(),
+				a[2].to<int>(),
+			};
+		}
 		float LinearT(int index, int count)
 		{
 			return count <= 1 ? 0.0f : float(index) / float(count - 1);
@@ -933,6 +946,331 @@ namespace physics_sandbox::scene_loader
 		return water;
 	}
 
+
+	// Parse a side-boundary value for the atmosphere block.
+	physics::atmosphere::EAtmosphereBoundary ReadAtmosphereBoundary(pr::json::Value const& jboundary)
+	{
+		// Text keeps scene files readable while mapping to the physics API enum at the parser boundary.
+		auto const value = jboundary.to<std::string>();
+		if (value == "solid")
+			return physics::atmosphere::EAtmosphereBoundary::Solid;
+		if (value == "open")
+			return physics::atmosphere::EAtmosphereBoundary::Open;
+		throw std::runtime_error(std::format("Unknown atmosphere boundary '{}'", value));
+	}
+
+	// Level the floor near the open sides of 'config'. Columns within 'm_open_edge_band' of an open side are set to the mean floor height of
+	// those columns, and the next band blends smoothly back to the original floor. Solid columns are not changed.
+	static void LevelOpenEdgeFloor(physics::atmosphere::AtmosphereConfig& config)
+	{
+		// Find each column's distance, in columns, to the nearest open side.
+		using EBoundary = physics::atmosphere::EAtmosphereBoundary;
+		auto& grid = config.m_grid;
+		auto const& sides = config.m_boundaries;
+		auto const band = config.m_open_edge_band;
+		auto const nx = grid.m_cell_count.x;
+		auto const ny = grid.m_cell_count.y;
+		auto EdgeDistance = [&](int x, int y)
+		{
+			// Sides that are not open do not constrain the floor.
+			auto d = std::numeric_limits<int>::max();
+			if (sides.m_x_min == EBoundary::Open) d = std::min(d, x);
+			if (sides.m_x_max == EBoundary::Open) d = std::min(d, nx - 1 - x);
+			if (sides.m_y_min == EBoundary::Open) d = std::min(d, y);
+			if (sides.m_y_max == EBoundary::Open) d = std::min(d, ny - 1 - y);
+			return d;
+		};
+
+		// The level height is the mean floor of the air columns inside the band, so the levelled region keeps about the same air volume.
+		auto sum = 0.0;
+		auto count = 0;
+		for (int y = 0; y != ny; ++y)
+		{
+			for (int x = 0; x != nx; ++x)
+			{
+				// Solid columns hold no air and are excluded.
+				auto const floor = grid.m_floor_heights[y * nx + x];
+				if (EdgeDistance(x, y) >= band || floor >= grid.m_lid_z)
+					continue;
+
+				sum += floor;
+				++count;
+			}
+		}
+		if (count == 0)
+			return;
+
+		// Blend each air column toward the level height. The weight is 1 inside the band and eases to 0 across the next band.
+		auto const level = static_cast<float>(sum / count);
+		for (int y = 0; y != ny; ++y)
+		{
+			for (int x = 0; x != nx; ++x)
+			{
+				// Leave solid columns, and columns beyond the blend band, unchanged.
+				auto& floor = grid.m_floor_heights[y * nx + x];
+				auto const d = EdgeDistance(x, y);
+				if (d >= 2 * band || floor >= grid.m_lid_z)
+					continue;
+
+				auto const t = std::clamp(static_cast<float>(d - band + 1) / static_cast<float>(band + 1), 0.0f, 1.0f);
+				auto const weight = 1.0f - t * t * (3.0f - 2.0f * t);
+				floor += weight * (level - floor);
+			}
+		}
+	}
+
+	// Parse the optional GPU atmosphere solver and visualisation block. 'terrain' and 'water' are the scene's parsed blocks, or null when absent.
+	// They are needed when the atmosphere floor follows the scene terrain.
+	AtmosphereDesc ReadAtmosphere(pr::json::Value const& jatmosphere, TerrainDesc const* terrain, WaterDesc const* water)
+	{
+		// The first atmosphere scene is flat-floored, but the parsed structures mirror the reusable solver API.
+		auto desc = AtmosphereDesc{};
+		auto const& obj = jatmosphere.to_object();
+		auto& config = desc.m_config;
+		config.m_grid = physics::atmosphere::AtmosphereGrid{ .m_cell_count = iv3{64, 64, 8}, .m_origin = v4{-640.0f, -640.0f, 0.0f, 1.0f}, .m_dx = 20.0f, .m_lid_z = 400.0f, .m_first_layer_thickness = 8.0f, .m_layer_stretch_power = 0.75f };
+		config.m_reference = physics::atmosphere::AtmosphereReferenceProfile{ .m_temperature_at_origin = 288.0f, .m_lapse_rate = -0.0065f, .m_min_temperature = 220.0f };
+
+		if (auto const* grid = obj.find("grid"))
+		{
+			auto const& jgrid = grid->to_object();
+			if (auto const* value = jgrid.find("cell_count"))
+				config.m_grid.m_cell_count = ReadInt3(*value);
+			if (auto const* value = jgrid.find("origin"))
+				config.m_grid.m_origin = ReadVec3(*value, 1.0f);
+			if (auto const* value = jgrid.find("dx"))
+				config.m_grid.m_dx = value->to<float>();
+			if (auto const* value = jgrid.find("lid_z"))
+				config.m_grid.m_lid_z = value->to<float>();
+			if (auto const* value = jgrid.find("first_layer_thickness"))
+				config.m_grid.m_first_layer_thickness = value->to<float>();
+			if (auto const* value = jgrid.find("layer_stretch_power"))
+				config.m_grid.m_layer_stretch_power = value->to<float>();
+		}
+
+		if (auto const* boundaries = obj.find("boundaries"))
+		{
+			auto const& b = boundaries->to_object();
+			if (auto const* value = b.find("x_min")) config.m_boundaries.m_x_min = ReadAtmosphereBoundary(*value);
+			if (auto const* value = b.find("x_max")) config.m_boundaries.m_x_max = ReadAtmosphereBoundary(*value);
+			if (auto const* value = b.find("y_min")) config.m_boundaries.m_y_min = ReadAtmosphereBoundary(*value);
+			if (auto const* value = b.find("y_max")) config.m_boundaries.m_y_max = ReadAtmosphereBoundary(*value);
+			if (auto const* value = b.find("z_min")) config.m_boundaries.m_z_min = ReadAtmosphereBoundary(*value);
+			if (auto const* value = b.find("z_max")) config.m_boundaries.m_z_max = ReadAtmosphereBoundary(*value);
+		}
+
+		if (auto const* wall_drag = obj.find("wall_drag"))
+		{
+			auto const& d = wall_drag->to_object();
+			if (auto const* value = d.find("x_min")) config.m_wall_drag.m_x_min = value->to<float>();
+			if (auto const* value = d.find("x_max")) config.m_wall_drag.m_x_max = value->to<float>();
+			if (auto const* value = d.find("y_min")) config.m_wall_drag.m_y_min = value->to<float>();
+			if (auto const* value = d.find("y_max")) config.m_wall_drag.m_y_max = value->to<float>();
+			if (auto const* value = d.find("z_min")) config.m_wall_drag.m_z_min = value->to<float>();
+			if (auto const* value = d.find("z_max")) config.m_wall_drag.m_z_max = value->to<float>();
+		}
+
+		if (auto const* reference = obj.find("reference"))
+		{
+			auto const& r = reference->to_object();
+			if (auto const* value = r.find("temperature_at_origin")) config.m_reference.m_temperature_at_origin = value->to<float>();
+			if (auto const* value = r.find("lapse_rate")) config.m_reference.m_lapse_rate = value->to<float>();
+			if (auto const* value = r.find("min_temperature")) config.m_reference.m_min_temperature = value->to<float>();
+		}
+
+		if (auto const* value = obj.find("open_edge_band"))
+			config.m_open_edge_band = value->to<int>();
+		if (auto const* value = obj.find("vorticity_confinement"))
+			config.m_vorticity_confinement = value->to<float>();
+		if (auto const* value = obj.find("vertical_viscosity"))
+			config.m_vertical_viscosity = value->to<float>();
+
+		// Outside air is authored as rectangles in the horizontal plane. Positions outside every rectangle get calm, reference-temperature air.
+		// 'wind_noise' adds a fixed pseudo-random offset to each boundary column's wind so symmetric flows have a disturbance to grow from.
+		struct OutsideAirRegion
+		{
+			v2 m_min;
+			v2 m_max;
+			float m_wind_noise;
+			physics::atmosphere::AtmosphereOutsideAir m_air;
+		};
+		auto outside_air_regions = std::vector<OutsideAirRegion>{};
+		if (auto const* regions = obj.find("outside_air"))
+		{
+			for (auto const& jregion : regions->to_array())
+			{
+				// Read one region; omitted bounds cover the whole plane.
+				auto const& r = jregion.to_object();
+				auto region = OutsideAirRegion{ .m_min = v2{ -std::numeric_limits<float>::max(), -std::numeric_limits<float>::max() }, .m_max = v2{ std::numeric_limits<float>::max(), std::numeric_limits<float>::max() }, .m_wind_noise = 0.0f, .m_air = {} };
+				if (auto const* value = r.find("min")) region.m_min = ReadVec2(*value);
+				if (auto const* value = r.find("max")) region.m_max = ReadVec2(*value);
+				if (auto const* value = r.find("wind")) region.m_air.m_wind = ReadVec2(*value);
+				if (auto const* value = r.find("wind_noise")) region.m_wind_noise = value->to<float>();
+				if (auto const* value = r.find("temperature_offset")) region.m_air.m_temperature_offset = value->to<float>();
+				outside_air_regions.push_back(region);
+			}
+		}
+
+		if (auto const* sources = obj.find("heat_sources"))
+		{
+			for (auto const& jsource : sources->to_array())
+			{
+				auto const& s = jsource.to_object();
+				auto source = physics::atmosphere::AtmosphereHeatSource{};
+				if (auto const* value = s.find("centre")) source.m_centre = ReadVec3(*value, 1.0f);
+				if (auto const* value = s.find("radius")) source.m_radius = value->to<float>();
+				if (auto const* value = s.find("heating_rate")) source.m_heating_rate = value->to<float>();
+				if (auto const* value = s.find("target_temperature")) source.m_target_temperature = value->to<float>();
+				if (auto const* value = s.find("relaxation_rate")) source.m_relaxation_rate = value->to<float>();
+				desc.m_heat_sources.push_back(source);
+			}
+		}
+
+		if (auto const* cylinders = obj.find("cylinders"))
+		{
+			for (auto const& jcylinder : cylinders->to_array())
+			{
+				// Read one floor-to-lid cylinder.
+				auto const& c = jcylinder.to_object();
+				auto cylinder = AtmosphereCylinderDesc{};
+				if (auto const* value = c.find("centre")) cylinder.m_centre = ReadVec2(*value);
+				if (auto const* value = c.find("radius")) cylinder.m_radius = value->to<float>();
+				desc.m_cylinders.push_back(cylinder);
+			}
+		}
+
+		// The step rate sets the solver time step, so it must be positive.
+		if (auto const* value = obj.find("step_rate"))
+		{
+			desc.m_step_rate = value->to<float>();
+			if (!(desc.m_step_rate > 0.0f))
+				throw std::runtime_error("atmosphere.step_rate must be positive");
+		}
+
+		if (auto const* tracers = obj.find("tracers"))
+		{
+			auto const& t = tracers->to_object();
+			if (auto const* value = t.find("count")) desc.m_tracers.m_particle_count = value->to<int>();
+			if (auto const* value = t.find("seed")) desc.m_tracers.m_seed = static_cast<uint32_t>(value->to<int64_t>());
+			if (auto const* value = t.find("max_age")) desc.m_tracers.m_max_age = value->to<float>();
+			if (auto const* value = t.find("ground_density")) desc.m_tracers.m_ground_density = value->to<float>();
+			if (auto const* value = t.find("break_density")) desc.m_tracers.m_break_density = value->to<float>();
+			if (auto const* value = t.find("upper_density")) desc.m_tracers.m_upper_density = value->to<float>();
+			if (auto const* value = t.find("break_height")) desc.m_tracers.m_break_height = value->to<float>();
+		}
+
+		if (auto const* visual = obj.find("visual"))
+		{
+			auto const& v = visual->to_object();
+			if (auto const* value = v.find("colour_by"))
+			{
+				auto const mode = value->to<std::string>();
+				if (mode == "temperature")
+					desc.m_visual.m_colour_by = EAtmosphereColourBy::Temperature;
+				else if (mode == "speed")
+					desc.m_visual.m_colour_by = EAtmosphereColourBy::Speed;
+				else
+					throw std::runtime_error(std::format("Unknown atmosphere colour_by '{}'", mode));
+			}
+			if (auto const* value = v.find("temperature_range"))
+			{
+				auto const& range = value->to_array();
+				desc.m_visual.m_min_temperature = range[0].to<float>();
+				desc.m_visual.m_max_temperature = range[1].to<float>();
+			}
+			if (auto const* value = v.find("speed_range"))
+			{
+				auto const& range = value->to_array();
+				desc.m_visual.m_min_speed = range[0].to<float>();
+				desc.m_visual.m_max_speed = range[1].to<float>();
+			}
+			if (auto const* value = v.find("particle_size")) desc.m_visual.m_particle_size = value->to<float>();
+			if (auto const* value = v.find("grid_line_limit")) desc.m_visual.m_grid_line_limit = value->to<int>();
+			if (auto const* value = v.find("show_grid")) desc.m_visual.m_show_grid = value->to<bool>();
+			if (auto const* value = v.find("show_particles")) desc.m_visual.m_show_particles = value->to<bool>();
+			if (auto const* value = v.find("show_heat_sources")) desc.m_visual.m_show_heat_sources = value->to<bool>();
+			if (auto const* value = v.find("show_obstacles")) desc.m_visual.m_show_obstacles = value->to<bool>();
+		}
+
+		// The floor is either flat at the grid origin or follows the scene terrain. Over water the floor is the water surface, so lakes are flat.
+		if (auto const* value = obj.find("floor"))
+		{
+			auto const mode = value->to<std::string>();
+			if (mode == "terrain")
+				desc.m_terrain_floor = true;
+			else if (mode != "flat")
+				throw std::runtime_error(std::format("Unknown atmosphere floor '{}'", mode));
+		}
+		if (desc.m_terrain_floor && terrain == nullptr)
+			throw std::runtime_error("atmosphere.floor 'terrain' needs a scene 'terrain' block");
+
+		// Cylinders become solid columns by raising the floor of every column whose centre lies inside one up to the lid.
+		if (desc.m_terrain_floor || !desc.m_cylinders.empty())
+		{
+			// The terrain source is evaluated once per column, so it only lives for the build.
+			auto const& grid = config.m_grid;
+			auto const surface = desc.m_terrain_floor ? std::make_optional<pr::physics::terrain::landscape::BaselineSurface>(terrain->surface) : std::nullopt;
+			config.m_grid.m_floor_heights = physics::atmosphere::AtmosphereGrid::BuildFloorHeights(iv2{ grid.m_cell_count.x, grid.m_cell_count.y }, grid.m_origin, grid.m_dx, [&](v2 pos)
+			{
+				// Cylinders reach the lid wherever they are.
+				for (auto const& cylinder : desc.m_cylinders)
+				{
+					if (LengthSq(pos - cylinder.m_centre) <= cylinder.m_radius * cylinder.m_radius)
+						return grid.m_lid_z;
+				}
+				if (!surface)
+					return grid.m_origin.z;
+
+				// Air rests on the higher of the ground and the still water surface.
+				auto height = surface->Sample(pr::physics::terrain::v2d{ pos.x, pos.y }).m_height;
+				if (water != nullptr)
+					height = std::max(height, water->surface.Level());
+
+				return static_cast<float>(height);
+			});
+
+			// Uniform outside wind needs level ground near open sides. See AtmosphereConfig::m_open_edge_band. Level the terrain floor
+			// across the band of each open side, then blend back to the terrain over the next band so the air floor has no step.
+			// The visual and collision terrain is not changed, so the air floor departs from it near open sides.
+			if (desc.m_terrain_floor && config.m_open_edge_band > 0)
+				LevelOpenEdgeFloor(config);
+		}
+
+		config.Validate();
+		desc.m_tracers.Validate();
+
+		// Sample the authored regions once per boundary column. The scene's outside air does not change over time.
+		auto column = uint32_t{};
+		desc.m_outside_air = config.m_grid.BuildOutsideAir([&](v2 pos)
+		{
+			// Each call is the next boundary column, so the column index seeds that column's repeatable wind noise.
+			auto noise = [seed = column++](uint32_t channel)
+			{
+				// Mix the column and channel bits, then map the hash to [-1, 1].
+				auto h = seed * 0x9E3779B9u ^ channel * 0x85EBCA6Bu;
+				h ^= h >> 16;
+				h *= 0x7FEB352Du;
+				h ^= h >> 15;
+				h *= 0x846CA68Bu;
+				h ^= h >> 16;
+				return static_cast<float>(h) / static_cast<float>(std::numeric_limits<uint32_t>::max()) * 2.0f - 1.0f;
+			};
+
+			// The first region containing the sample position supplies the air.
+			for (auto const& region : outside_air_regions)
+			{
+				// Bounds are inclusive so a region edge on the domain edge still applies.
+				if (pos.x < region.m_min.x || pos.x > region.m_max.x || pos.y < region.m_min.y || pos.y > region.m_max.y)
+					continue;
+
+				auto air = region.m_air;
+				air.m_wind += region.m_wind_noise * v2{ noise(0), noise(1) };
+				return air;
+			}
+			return physics::atmosphere::AtmosphereOutsideAir{};
+		});
+		return desc;
+	}
+
 	// Parse a scene description from a JSON file
 	SceneDesc LoadFromFile(std::filesystem::path const& filepath)
 	{
@@ -1168,6 +1506,10 @@ namespace physics_sandbox::scene_loader
 		if (auto* jwater = jscene.find("water"))
 			desc.water = ReadWater(*jwater);
 
+		// Atmosphere solver
+		if (auto* jatmosphere = jscene.find("atmosphere"))
+			desc.atmosphere = ReadAtmosphere(*jatmosphere, desc.terrain ? &*desc.terrain : nullptr, desc.water ? &*desc.water : nullptr);
+
 		// Bodies
 		if (auto* jbodies = jscene.find("bodies"))
 		{
@@ -1298,6 +1640,57 @@ namespace physics_sandbox::scene_loader
 				PR_THROWS(ParseTerrain(R"json({"scene":{"terrain":{"surface_spacing":0}}})json"), std::exception);
 				PR_THROWS(ParseTerrain(R"json({"scene":{"terrain":{"surface_spacing":-0.1}}})json"), std::exception);
 				PR_THROWS(ParseTerrain(R"json({"scene":{"terrain":{"recipe":{"regional_base":{"wavelength":0}}}}})json"), std::exception);
+			}
+		};
+
+		PRUnitTestClass(SceneLoaderAtmosphereTests)
+		{
+			// A terrain floor rests on the ground, or on the water surface over lakes, and stays below the lid so every column holds air.
+			// The demo's sides are all open, so the floor is level inside the edge band and follows the terrain beyond the blend band.
+			PRUnitTestMethod(TerrainFloorFollowsGroundAndWater, Quick)
+			{
+				auto const desc = LoadFromFile("projects\\tests\\physics-sandbox\\scenes\\climate_terrain.json");
+				PR_EXPECT(desc.atmosphere.has_value() && desc.atmosphere->m_terrain_floor);
+
+				auto const& grid = desc.atmosphere->m_config.m_grid;
+				auto const surface = pr::physics::terrain::landscape::BaselineSurface(desc.terrain->surface);
+				auto const level = static_cast<float>(desc.water->surface.Level());
+				auto const band = desc.atmosphere->m_config.m_open_edge_band;
+				auto const edge_level = grid.FloorHeight(iv2{ 0, 0 });
+				auto water_columns = 0;
+				auto max_floor = -std::numeric_limits<float>::max();
+				for (int y = 0; y != grid.m_cell_count.y; ++y)
+				{
+					for (int x = 0; x != grid.m_cell_count.x; ++x)
+					{
+						// Compare each column with the terrain at its centre.
+						auto const centre = v2{ grid.m_origin.x + (x + 0.5f) * grid.m_dx, grid.m_origin.y + (y + 0.5f) * grid.m_dx };
+						auto const ground = static_cast<float>(surface.Sample(pr::physics::terrain::v2d{ centre.x, centre.y }).m_height);
+						auto const floor = grid.FloorHeight(iv2{ x, y });
+						auto const edge = std::min({ x, y, grid.m_cell_count.x - 1 - x, grid.m_cell_count.y - 1 - y });
+						if (edge < band)
+							PR_EXPECT(FEql(floor, edge_level));
+						else if (edge >= 2 * band)
+							PR_EXPECT(FEql(floor, std::max(ground, level)));
+
+						PR_EXPECT(!grid.ColumnSolid(iv2{ x, y }));
+						water_columns += ground < level ? 1 : 0;
+						max_floor = std::max(max_floor, floor);
+					}
+				}
+
+				// The demo region is chosen to contain both lakes and high ground.
+				PR_EXPECT(water_columns > 0);
+				PR_EXPECT(max_floor > level + 200.0f);
+			}
+
+			// A terrain floor needs a terrain source.
+			PRUnitTestMethod(TerrainFloorNeedsTerrain, Quick)
+			{
+				auto document = pr::json::Read(std::string_view{ R"json({"floor":"terrain"})json" });
+				PR_THROWS(ReadAtmosphere(document, nullptr, nullptr), std::exception);
+				auto unknown = pr::json::Read(std::string_view{ R"json({"floor":"bumpy"})json" });
+				PR_THROWS(ReadAtmosphere(unknown, nullptr, nullptr), std::exception);
 			}
 		};
 	}

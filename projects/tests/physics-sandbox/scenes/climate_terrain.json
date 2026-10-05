@@ -1,0 +1,87 @@
+{
+	"scene": {
+		"demo": {
+			"command": "climate-terrain",
+			"name": "Climate Terrain",
+			"group": "Atmosphere",
+			"order": 1
+		},
+		"description": "GPU atmosphere solver demo: a steady west wind blowing over procedural Petri terrain with hills, mountains and lakes. The air floor follows the ground (and the water surface over lakes), all four sides are open, and the lid is flat and frictionless. Tracers are coloured by speed.",
+		"gravity": [0, 0, 0],
+		"camera": {
+			"position": [0, -5600, 3200],
+			"lookat": [0, 0, 150]
+		},
+		"terrain": {
+			"seed": 12648430,
+			"radius": 3500.0,
+			"intervals": 384,
+			"display": "elevation",
+			"recipe": {
+				"sea_level_bias": -110.0,
+				"uplift_height": 260.0,
+				"mountain_base_height": 220.0,
+				"basin_depth": 240.0,
+				"regional_base": { "amplitude": 280.0 },
+				"plains": { "amplitude": 32.0 },
+				"hills": { "amplitude": 140.0 },
+				"mountains": { "amplitude": 520.0 }
+			}
+		},
+		"water": {
+			"level": 0.0,
+			"size": [4800, 4800],
+			"grid": [8, 8]
+		},
+		"atmosphere": {
+			"grid": {
+				"cell_count": [96, 96, 10],
+				"dx": 50.0,
+				"origin": [-2400, -2400, -60],
+				"lid_z": 2400.0,
+				"first_layer_thickness": 30.0,
+				"layer_stretch_power": 0.75
+			},
+			"floor": "terrain",
+			"boundaries": {
+				"x_min": "open", "x_max": "open",
+				"y_min": "open", "y_max": "open",
+				"z_min": "solid", "z_max": "solid"
+			},
+			"wall_drag": { "z_min": 0.02 },
+			"reference": {
+				"temperature_at_origin": 288.0,
+				"lapse_rate": -0.0095,
+				"min_temperature": 220.0
+			},
+			"step_rate": 30.0,
+			"open_edge_band": 4,
+			"vorticity_confinement": 0.3,
+			"vertical_viscosity": 20.0,
+			"outside_air": [
+				{ "wind": [80, 0], "wind_noise": 0.5 }
+			],
+			"tracers": {
+				"count": 65536,
+				"seed": 12648430,
+				"max_age": 60.0,
+				"ground_density": 10.0,
+				"break_density": 1.0,
+				"upper_density": 0.1,
+				"break_height": 0.2
+			},
+			"visual": {
+				"colour_by": "speed",
+				"temperature_range": [266.0, 289.0],
+				"speed_range": [0.0, 120.0],
+				"particle_size": 8.0,
+				"grid_line_limit": 24,
+				"show_grid": true,
+				"show_particles": true,
+				"show_heat_sources": false,
+				"show_obstacles": false
+			}
+		},
+		"bodies": []
+	}
+}
