@@ -57,7 +57,8 @@
 	<!-- Fail early when a project declares itself part of Rylogic.Native but is not referenced above, because it could then still be building while the package is staged. -->
 	<Target Name="ValidateRylogicNativeDevReferences" BeforeTargets="PrepareForBuild">
 		<ItemGroup>
-			<_RylogicNativeCandidate Include="$(RylogicRoot)projects\rylogic\**\*.vcxproj;$(RylogicRoot)sdk\**\*.vcxproj" />
+			<!-- Build-output directories can hold scratch copies of source projects, which are not package contributors. -->
+			<_RylogicNativeCandidate Include="$(RylogicRoot)projects\rylogic\**\*.vcxproj;$(RylogicRoot)sdk\**\*.vcxproj" Exclude="$(RylogicRoot)projects\rylogic\**\obj\**;$(RylogicRoot)projects\rylogic\**\bin\**;$(RylogicRoot)sdk\**\obj\**;$(RylogicRoot)sdk\**\bin\**" />
 			<_RylogicNativePackaged Include="@(_RylogicNativeCandidate->'%(FullPath)')" Condition="$([System.IO.File]::ReadAllText('%(_RylogicNativeCandidate.FullPath)').Contains('&gt;Include&lt;/RylogicNativeRuntimePackage&gt;')) OR $([System.IO.File]::ReadAllText('%(_RylogicNativeCandidate.FullPath)').Contains('&gt;Include&lt;/RylogicNativeLinkPackage&gt;'))" />
 			<_RylogicNativeUnreferenced Include="@(_RylogicNativePackaged)" Exclude="@(ProjectReference->'%(FullPath)')" />
 		</ItemGroup>
