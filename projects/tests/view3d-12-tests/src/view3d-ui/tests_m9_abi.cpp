@@ -61,13 +61,22 @@ namespace pr::view3d::ui::tests
 	PRUnitTest(TheUiAbiVersionIsDeclaredConsistentlyAcrossHeaderAndDll, Quick)
 	{
 		// A caller using the boolean visibility contract must be rejected even though field sizes match.
-		PR_EXPECT(VIEW3D_UI_STRUCT_VERSION == 6U);
-		PR_EXPECT(VIEW3D_UI_API_VERSION == 0x00060000U);
+		PR_EXPECT(VIEW3D_UI_STRUCT_VERSION == 7U);
+		PR_EXPECT(VIEW3D_UI_API_VERSION == 0x00070000U);
 		PR_EXPECT(ApiVersion() == VIEW3D_UI_API_VERSION);
 
 		// The header's compiled-in version and the DLL's reported version are the same value, so a
 		// stale DLL beside a fresh header is caught at load rather than at first misuse.
 		PR_EXPECT(Dll::Get().ApiVersion() == VIEW3D_UI_API_VERSION);
+	}
+
+	PRUnitTest(MaskedTextBoxAbiAppendsThePasswordFlagAndProtectedState, Quick)
+	{
+		// The password flag is appended after the slider block so every preceding field keeps its
+		// exact offset; managed callers learn the new tail through the version and StructSize.
+		static_assert(offsetof(ControlDesc, masked) > offsetof(ControlDesc, step), "masked must remain appended to ControlDesc");
+		PR_EXPECT(StructSize(EStructId::Control) == sizeof(ControlDesc));
+		PR_EXPECT(static_cast<std::uint32_t>(ESemanticState::Protected) == (1U << 7));
 	}
 
 	PRUnitTest(InputTextPayloadIsAFixedLayoutBorrowedRecord, Quick)

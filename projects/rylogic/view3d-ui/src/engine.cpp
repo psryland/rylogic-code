@@ -458,8 +458,8 @@ namespace pr::view3d::ui
 		// application's own text.
 		auto const edit_it = m_impl->m_input.m_text_edits.find(control_id);
 		auto const has_edit = edit_it != m_impl->m_input.m_text_edits.end() && edit_it->second.initialized != 0;
-		auto const display = has_edit ? DisplayTextOf(edit_it->second) : node.text;
-		auto const caret_offset = has_edit ? DisplayRangesOf(edit_it->second).caret : 0u;
+		auto const display = has_edit ? DisplayTextOf(node.desc, edit_it->second) : node.desc.masked != 0 ? MaskedTextOf(node.text) : node.text;
+		auto const caret_offset = has_edit ? DisplayRangesOf(node.desc, edit_it->second).caret : 0u;
 		auto const scale = ControlScale(m_impl->m_tree, &m_impl->m_placements, control_id);
 		auto const font = ResolveControlFont(m_impl->m_tree, node.desc.font_resource_id);
 		auto const placement = TextPlacementFor(node.desc.type);

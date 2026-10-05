@@ -628,6 +628,55 @@ namespace pr::view3d::ui::tests
 		button->Release();
 	}
 
+	PRUnitTest(UiaProviderTreatsMaskedTextBoxAsPassword, Quick)
+	{
+		auto engine = UiEngine{ DefaultConfig() };
+		auto b = TxnBuilder{};
+		b.Upsert(MakeControl(1, 0, EControlType::Root, ELayoutMode::StackVertical, Lp(200, 100)), "", "Root", "");
+		auto text_box = MakeControl(2, 1, EControlType::TextBox, ELayoutMode::Canvas, Lp(120, 20));
+		text_box.masked = 1;
+		b.Upsert(text_box, "secret", "API key", "masked value");
+		engine.TransactionApply(b.Build(0, 1));
+		auto const vp = Viewport(400, 300);
+		engine.Update(vp);
+
+		auto window = TestWindow{};
+		auto shared = SharedWith(window.Handle(), Publish(engine, vp));
+		auto* text_box_provider = CreateUiaElementProvider(shared, 2);
+
+		// A protected edit still accepts SetValue through ValuePattern, but exposes no value and no
+		// TextPattern surface that could enumerate its characters.
+		auto value = VARIANT{};
+		PR_EXPECT(text_box_provider->GetPropertyValue(UIA_IsPasswordPropertyId, &value) == S_OK);
+		PR_EXPECT(value.vt == VT_BOOL && value.boolVal == VARIANT_TRUE);
+		VariantClear(&value);
+		PR_EXPECT(text_box_provider->GetPropertyValue(UIA_ValueValuePropertyId, &value) == S_OK);
+		PR_EXPECT(value.vt == VT_BSTR && std::wstring(value.bstrVal).empty());
+		VariantClear(&value);
+		PR_EXPECT(text_box_provider->GetPropertyValue(UIA_IsValuePatternAvailablePropertyId, &value) == S_OK);
+		PR_EXPECT(value.vt == VT_BOOL && value.boolVal == VARIANT_TRUE);
+		VariantClear(&value);
+		PR_EXPECT(text_box_provider->GetPropertyValue(UIA_IsTextPatternAvailablePropertyId, &value) == S_OK);
+		PR_EXPECT(value.vt == VT_BOOL && value.boolVal == VARIANT_FALSE);
+		VariantClear(&value);
+
+		auto* pattern = static_cast<IUnknown*>(nullptr);
+		PR_EXPECT(text_box_provider->GetPatternProvider(UIA_ValuePatternId, &pattern) == S_OK && pattern != nullptr);
+		pattern->Release();
+		PR_EXPECT(text_box_provider->GetPatternProvider(UIA_TextPatternId, &pattern) == S_OK && pattern == nullptr);
+		PR_EXPECT(text_box_provider->GetPatternProvider(UIA_TextPattern2Id, &pattern) == S_OK && pattern == nullptr);
+
+		auto* value_provider = static_cast<IValueProvider*>(nullptr);
+		PR_EXPECT(text_box_provider->QueryInterface(IID_PPV_ARGS(&value_provider)) == S_OK);
+		auto* bstr = static_cast<BSTR>(nullptr);
+		PR_EXPECT(value_provider->get_Value(&bstr) == S_OK);
+		PR_EXPECT(std::wstring(bstr).empty());
+		SysFreeString(bstr);
+
+		value_provider->Release();
+		text_box_provider->Release();
+	}
+
 	PRUnitTest(UiaProviderNavigatesInDeterministicSemanticOrder, Quick)
 	{
 		auto engine = UiEngine{ DefaultConfig() };

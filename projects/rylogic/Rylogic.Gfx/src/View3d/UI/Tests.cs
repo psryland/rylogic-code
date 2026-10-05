@@ -31,7 +31,7 @@ public sealed class TestUiProgressBar
 		Assert.Equal(true, clone.IsIndeterminate);
 		Assert.Equal(0.25f, builder.DebugControls[0].m_value);
 		Assert.Equal(1, builder.DebugControls[0].m_is_indeterminate);
-		Assert.Equal(6U, builder.DebugControls[0].m_header.m_version);
+		Assert.Equal(7U, builder.DebugControls[0].m_header.m_version);
 		var visual = new StyleVisual(Colour.TransparentBlack, foreground: new Colour(0, 1, 0, 1));
 		var different = new StyleVisual(Colour.TransparentBlack, foreground: new Colour(1, 0, 0, 1));
 		Assert.Equal(false, visual == different);
@@ -73,12 +73,12 @@ public sealed class TestUiProgressBar
 		Assert.Equal(false, defaults.Controls[1].IsIndeterminate);
 	}
 
-	/// <summary>ABI 6's changed records match their native layouts and expose decoded numeric semantics.</summary>
+	/// <summary>ABI 7's changed records match their native layouts and expose decoded numeric semantics.</summary>
 	[Test]
 	public void AbiAndSemantics()
 	{
 		Native.EnsureLoaded();
-		Assert.Equal(0x00060000U, Native.View3DUI_ApiVersion());
+		Assert.Equal(0x00070000U, Native.View3DUI_ApiVersion());
 		Native.Check(Native.View3DUI_StructSize(EStructId.Control, out var control_size));
 		Native.Check(Native.View3DUI_StructSize(EStructId.Style, out var style_size));
 		Native.Check(Native.View3DUI_StructSize(EStructId.SemanticNode, out var semantic_size));
@@ -89,6 +89,24 @@ public sealed class TestUiProgressBar
 			ESemanticAction.None, ESemanticTextFlag.None, 0, 0, 0, 0, 0, 0, new Rect(0, 0, 100, 20), 1, 1, 0.25f, true);
 		Assert.Equal(0.25f, node.ProgressValue);
 		Assert.Equal(true, node.IsIndeterminate);
+	}
+
+	/// <summary>Managed masked TextBox descriptors snapshot, pack, and round-trip through JSON.</summary>
+	[Test]
+	public void MaskedTextBoxDescriptorAndJson()
+	{
+		var control = new UiControlDesc { Id = new ControlId(2), ParentId = new ControlId(1), Type = EControlType.TextBox, Masked = true };
+		var builder = new UiTransactionBuilder().Upsert(control);
+		control.Masked = false;
+		Assert.Equal(1, builder.DebugControls[0].m_masked);
+		Assert.Equal(true, builder.DebugDecodeBlobText(builder.DebugControls[0].m_text_offset, builder.DebugControls[0].m_text_length).Length == 0);
+
+		var document = UiDocument.Parse("""{"schema_version":2,"tree":[{"id":1,"type":"Root","children":[{"id":2,"type":"TextBox","masked":true}]}]}""");
+		var canonical = document.Serialize();
+		Assert.True(canonical.Contains("\"masked\": true"));
+		var parsed = UiDocument.Parse(canonical);
+		Assert.Equal(true, parsed.Controls[1].Masked);
+		Assert.Equal(1, parsed.ToTransactionBuilder().DebugControls[1].m_masked);
 	}
 }
 
@@ -408,7 +426,7 @@ public sealed class TestUiDescriptorSnapshotSemantics
 			var builder = new UiTransactionBuilder().Upsert(control);
 			control.Visibility = EVisibility.Visible;
 			Assert.Equal(visibility, builder.DebugControls[0].m_visibility);
-			Assert.Equal(6U, builder.DebugControls[0].m_header.m_version);
+			Assert.Equal(7U, builder.DebugControls[0].m_header.m_version);
 		}
 
 		// A failed upsert must not leave a partially packed control behind.

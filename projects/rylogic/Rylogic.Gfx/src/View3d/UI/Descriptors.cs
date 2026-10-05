@@ -167,6 +167,9 @@ public sealed record UiControlDesc
 	/// <summary>Slider proposal increment, anchored at Minimum; must be finite, positive, and no greater than Maximum - Minimum.</summary>
 	public float Step { get; set; } = 0.1f;
 
+	/// <summary>When true for a TextBox, View3DUI displays bullets and never exposes the value through semantics/UI Automation.</summary>
+	public bool Masked { get; set; }
+
 	/// <summary>
 	/// Create an independent deep copy: mutating the clone's Layout/World (or this instance's) afterward cannot affect the
 	/// other, because Layout and World are themselves replaced with their own independent copies rather than shared by

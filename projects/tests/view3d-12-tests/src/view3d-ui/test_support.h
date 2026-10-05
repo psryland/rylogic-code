@@ -176,6 +176,7 @@ namespace pr::view3d::ui::tests
 			.minimum = 0.0f,
 			.maximum = 1.0f,
 			.step = 0.1f,
+			.masked = 0,
 		};
 	}
 

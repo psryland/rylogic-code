@@ -53,6 +53,8 @@ namespace view3d_test
 		inline constexpr ControlId UI_DeterminateProgress = 26;
 		inline constexpr ControlId UI_IndeterminateLabel = 27;
 		inline constexpr ControlId UI_IndeterminateProgress = 28;
+		inline constexpr ControlId UI_MaskedLabel = 29;
+		inline constexpr ControlId UI_MaskedTextBox = 30;
 
 		// Stable per-control ids for the three clickable world-anchored roots.
 		inline constexpr ControlId UI_WorldOverlayRoot = 40;
@@ -466,6 +468,10 @@ namespace view3d_test
 		auto indeterminate_progress = UIControl(UI_IndeterminateProgress, UI_ProgressSection, EControlType::ProgressBar, ELayoutMode::Overlay, UILayout(374, 18, EHAlign::Stretch), UI_ProgressStyle);
 		indeterminate_progress.is_indeterminate = 1;
 		builder.Upsert(indeterminate_progress, {}, "Indeterminate progress");
+		builder.Upsert(UIControl(UI_MaskedLabel, UI_Panel, EControlType::Text, ELayoutMode::Overlay, UILayout(398, 22, EHAlign::Stretch), UI_TextStyle), "Masked TextBox", "Masked TextBox label");
+		auto masked_textbox = UIControl(UI_MaskedTextBox, UI_Panel, EControlType::TextBox, ELayoutMode::Overlay, UILayout(398, 40, EHAlign::Stretch), UI_TextBoxStyle, UI_TextBoxTemplate);
+		masked_textbox.masked = 1;
+		builder.Upsert(masked_textbox, "petri-api-key", "Masked API key", "A password-style TextBox that displays bullets");
 
 		// One clickable button per world policy, using both apparent-DIP and world-unit sizing.
 		auto world_button_layout = UILayout(0, 0, EHAlign::Stretch, EVAlign::Stretch);
@@ -477,7 +483,7 @@ namespace view3d_test
 		builder.Upsert(UIControl(UI_WorldFadeButton, UI_WorldFadeRoot, EControlType::Button, ELayoutMode::Overlay, world_button_layout, UI_WorldFadeStyle, UI_ButtonTemplate), "Occlusion Fade", "Occlusion-faded world button");
 
 		builder.Reorder(UI_Root, {UI_Panel});
-		builder.Reorder(UI_Panel, {UI_Title, UI_DimensionSection, UI_ButtonLabel, UI_ButtonRow, UI_OverlayPanel, UI_CanvasPanel, UI_ScrollPanel, UI_Status, UI_ProgressSection});
+		builder.Reorder(UI_Panel, {UI_Title, UI_DimensionSection, UI_ButtonLabel, UI_ButtonRow, UI_OverlayPanel, UI_CanvasPanel, UI_ScrollPanel, UI_Status, UI_ProgressSection, UI_MaskedLabel, UI_MaskedTextBox});
 		builder.Reorder(UI_DimensionSection, {UI_Label, UI_DimensionRow});
 		builder.Reorder(UI_DimensionRow, {UI_Dimension, UI_Update});
 		builder.Reorder(UI_ButtonRow, {UI_SoftButton, UI_PillButton, UI_DisabledButton});

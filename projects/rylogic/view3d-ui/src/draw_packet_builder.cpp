@@ -165,8 +165,8 @@ namespace pr::view3d::ui
 					auto edit_it = input_state.m_text_edits.find(id);
 					if (edit_it != input_state.m_text_edits.end() && edit_it->second.initialized != 0)
 					{
-						text = DisplayTextOf(edit_it->second);
-						ranges = DisplayRangesOf(edit_it->second);
+						text = DisplayTextOf(node.desc, edit_it->second);
+						ranges = DisplayRangesOf(node.desc, edit_it->second);
 						has_edit_state = true;
 					}
 				}

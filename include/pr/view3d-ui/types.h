@@ -15,8 +15,8 @@
 
 namespace pr::view3d::ui
 {
-	inline constexpr std::uint32_t VIEW3D_UI_API_VERSION = 0x00060000U;
-	inline constexpr std::uint32_t VIEW3D_UI_STRUCT_VERSION = 6U;
+	inline constexpr std::uint32_t VIEW3D_UI_API_VERSION = 0x00070000U;
+	inline constexpr std::uint32_t VIEW3D_UI_STRUCT_VERSION = 7U;
 
 	// Maximum named parts recorded directly within one TemplateDesc. Bounded so the descriptor
 	// stays fixed-layout; the closed template vocabulary (section 6.3) never needs more than this.
@@ -381,6 +381,7 @@ namespace pr::view3d::ui
 		Selected = 1U << 4,
 		Invalid = 1U << 5,
 		Offscreen = 1U << 6,
+		Protected = 1U << 7,
 	};
 
 	// Bitmask describing which of a SemanticNode's text-range fields carry meaning. Reporting
@@ -618,6 +619,11 @@ namespace pr::view3d::ui
 		float minimum;
 		float maximum;
 		float step;
+
+		// TextBox password mode when nonzero. The application still owns the real text, and text
+		// proposals carry that real text, but View3DUI displays one bullet per grapheme cluster and
+		// never exposes the value through semantics or UI Automation.
+		std::int32_t masked;
 	};
 
 	// Explicit child order for one parent (section 5.3). 'offset'/'count' index into the shared

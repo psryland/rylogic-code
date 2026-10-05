@@ -62,10 +62,19 @@ namespace pr::view3d::ui
 		CompositionState composition;
 	};
 
-	// The text a control currently displays: its pending edit with any active composition spliced
-	// in. Rendering, semantics and hit testing all measure this exact string, which is what stops
-	// the caret, the selection highlight and the reported text ranges from disagreeing.
-	std::string DisplayTextOf(TextEditState const& edit);
+	// The unmasked text a control currently edits: its pending edit with any active composition
+	// spliced in. Text-change proposals continue to use this value because the application owns
+	// the real text.
+	std::string RawDisplayTextOf(TextEditState const& edit);
+
+	// Returns one U+2022 bullet per extended grapheme cluster in 'text'.
+	std::string MaskedTextOf(std::string_view text);
+
+	// The text a control currently displays: either RawDisplayTextOf() or one U+2022 bullet per
+	// raw grapheme cluster for a masked TextBox. Rendering, semantics and hit testing all measure
+	// this exact string, which is what stops the caret, the selection highlight and reported text
+	// ranges from disagreeing.
+	std::string DisplayTextOf(ControlDesc const& desc, TextEditState const& edit);
 
 	// Caret/selection/composition offsets expressed as UTF-8 byte offsets into DisplayTextOf(),
 	// so a consumer never has to know whether a composition is in progress to interpret them.
@@ -78,7 +87,12 @@ namespace pr::view3d::ui
 		std::uint32_t composition_start;
 		std::uint32_t composition_length;
 	};
-	TextEditRanges DisplayRangesOf(TextEditState const& edit);
+	TextEditRanges DisplayRangesOf(ControlDesc const& desc, TextEditState const& edit);
+
+	// Maps a UTF-8 byte offset in a TextBox's real text to the corresponding byte offset in its
+	// displayed text. For unmasked controls this is the identity mapping; for masked controls it
+	// maps by grapheme-cluster index into the bullet string.
+	std::uint32_t DisplayOffsetOf(ControlDesc const& desc, std::string_view raw_text, std::uint32_t raw_offset);
 
 	// All input focus/capture/editing state that persists across ProcessNormalizedInput calls.
 	// Bounded by the live control count via Prune(), never grows without bound.

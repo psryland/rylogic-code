@@ -178,6 +178,7 @@ public sealed class UiDocument
 		writer.WriteNumber("minimum", control.Minimum);
 		writer.WriteNumber("maximum", control.Maximum);
 		writer.WriteNumber("step", control.Step);
+		writer.WriteBoolean("masked", control.Masked);
 		WriteWorld(writer, control.World);
 
 		writer.WriteStartArray("children");
@@ -425,6 +426,7 @@ public sealed class UiDocument
 			Minimum = GetFloat(node, "minimum", path, 0),
 			Maximum = GetFloat(node, "maximum", path, 1),
 			Step = GetFloat(node, "step", path, 0.1f),
+			Masked = GetBool(node, "masked", path, false),
 			World = ParseWorld(node, $"{path}.world"),
 		};
 		// Reject invalid completion at the authoring boundary, before constructing a transaction.

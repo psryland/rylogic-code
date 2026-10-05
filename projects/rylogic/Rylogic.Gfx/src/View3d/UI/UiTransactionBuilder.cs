@@ -365,6 +365,7 @@ public sealed unsafe class UiTransactionBuilder
 			m_minimum = control.Minimum,
 			m_maximum = control.Maximum,
 			m_step = control.Step,
+			m_masked = control.Masked ? 1 : 0,
 			m_world = ToNative(control.World),
 		};
 	}

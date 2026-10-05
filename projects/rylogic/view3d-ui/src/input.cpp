@@ -376,11 +376,12 @@ namespace pr::view3d::ui
 		// which is what Shift+click and drag selection both need.
 		void PlaceCaretFromPointer(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, TextHitContext const& hit_context, ControlNode const& node, TextEditState& edit, Vec2 pt, bool extend)
 		{
-			auto const text = edit.pending_text;
+			auto const raw_text = edit.pending_text;
+			auto const text = node.desc.masked != 0 ? MaskedTextOf(raw_text) : raw_text;
 			auto layout_it = layout.find(node.desc.id);
 			if (hit_context.shaper == nullptr || layout_it == layout.end() || text.empty())
 			{
-				edit.caret = static_cast<std::uint32_t>(text.size());
+				edit.caret = static_cast<std::uint32_t>(raw_text.size());
 				if (!extend)
 					edit.selection_start = edit.caret;
 
@@ -398,13 +399,15 @@ namespace pr::view3d::ui
 
 			// OffsetFromPoint already reports a grapheme boundary chosen by proximity, so it is
 			// used verbatim; rounding it down again here would discard the trailing-hit result.
-			edit.caret = hit_context.shaper->OffsetFromPoint(font.family, font.size * scale, text, pt.x - origin_x, pt.y - origin_y);
+			auto const display_offset = hit_context.shaper->OffsetFromPoint(font.family, font.size * scale, text, pt.x - origin_x, pt.y - origin_y);
+			auto const cluster_index = GraphemeCount(std::string_view(text).substr(0, display_offset));
+			edit.caret = GraphemeOffsetAt(raw_text, cluster_index);
 			if (!extend)
 				edit.selection_start = edit.caret;
 		}
 	}
 
-	std::string DisplayTextOf(TextEditState const& edit)
+	std::string RawDisplayTextOf(TextEditState const& edit)
 	{
 		if (edit.composition.active == 0)
 			return edit.pending_text;
@@ -416,14 +419,42 @@ namespace pr::view3d::ui
 		return display;
 	}
 
-	TextEditRanges DisplayRangesOf(TextEditState const& edit)
+	std::string MaskedTextOf(std::string_view text)
+	{
+		auto display = std::string{};
+		auto const count = GraphemeCount(text);
+		display.reserve(count * 3);
+		for (auto i = std::uint32_t{}; i != count; ++i)
+			display.append("\xE2\x80\xA2");
+
+		return display;
+	}
+
+	std::uint32_t DisplayOffsetOf(ControlDesc const& desc, std::string_view raw_text, std::uint32_t raw_offset)
+	{
+		if (desc.masked == 0)
+			return raw_offset;
+
+		auto const clamped = ClampToGraphemeBoundary(raw_text, std::min<std::uint32_t>(raw_offset, static_cast<std::uint32_t>(raw_text.size())));
+		auto const cluster_index = GraphemeCount(raw_text.substr(0, clamped));
+		return cluster_index * 3U;
+	}
+
+	std::string DisplayTextOf(ControlDesc const& desc, TextEditState const& edit)
+	{
+		auto const raw = RawDisplayTextOf(edit);
+		return desc.masked != 0 ? MaskedTextOf(raw) : raw;
+	}
+
+	TextEditRanges DisplayRangesOf(ControlDesc const& desc, TextEditState const& edit)
 	{
 		if (edit.composition.active == 0)
 		{
+			auto const raw = std::string_view(edit.pending_text);
 			return TextEditRanges{
-				.caret = edit.caret,
-				.selection_start = std::min(edit.caret, edit.selection_start),
-				.selection_end = std::max(edit.caret, edit.selection_start),
+				.caret = DisplayOffsetOf(desc, raw, edit.caret),
+				.selection_start = DisplayOffsetOf(desc, raw, std::min(edit.caret, edit.selection_start)),
+				.selection_end = DisplayOffsetOf(desc, raw, std::max(edit.caret, edit.selection_start)),
 				.composition_start = 0,
 				.composition_length = 0,
 			};
@@ -432,12 +463,15 @@ namespace pr::view3d::ui
 		// While composing, the caret follows the IME's cursor inside the composition and the
 		// selection is the IME's target clause, both reported against the spliced display string.
 		auto const at = std::min<std::uint32_t>(edit.composition.insert_at, static_cast<std::uint32_t>(edit.pending_text.size()));
+		auto const raw = RawDisplayTextOf(edit);
+		auto const raw_composition_start = at;
+		auto const raw_composition_end = at + static_cast<std::uint32_t>(edit.composition.text.size());
 		return TextEditRanges{
-			.caret = at + edit.composition.caret,
-			.selection_start = at + edit.composition.sel_start,
-			.selection_end = at + edit.composition.sel_end,
-			.composition_start = at,
-			.composition_length = static_cast<std::uint32_t>(edit.composition.text.size()),
+			.caret = DisplayOffsetOf(desc, raw, at + edit.composition.caret),
+			.selection_start = DisplayOffsetOf(desc, raw, at + edit.composition.sel_start),
+			.selection_end = DisplayOffsetOf(desc, raw, at + edit.composition.sel_end),
+			.composition_start = DisplayOffsetOf(desc, raw, raw_composition_start),
+			.composition_length = DisplayOffsetOf(desc, raw, raw_composition_end) - DisplayOffsetOf(desc, raw, raw_composition_start),
 		};
 	}
 
@@ -752,6 +786,7 @@ namespace pr::view3d::ui
 					return InputResult{ false, false };
 
 				auto& edit = GetOrInitTextEdit(state, node);
+				auto const masked = node.desc.masked != 0;
 
 				// While an IME owns the keyboard, editing keys belong to the IME, not to this edit
 				// buffer; the IME reports their effect as composition updates instead.
@@ -775,6 +810,15 @@ namespace pr::view3d::ui
 						{
 							changed = ReplaceSelection(node.desc, edit, {});
 						}
+						else if (ctrl_held && masked && !edit.pending_text.empty())
+						{
+							// A masked value behaves like one password word, so Ctrl+Backspace
+							// clears the whole value rather than revealing structure through stops.
+							edit.pending_text.clear();
+							edit.caret = 0;
+							edit.selection_start = 0;
+							changed = true;
+						}
 						else if (edit.caret > 0)
 						{
 							// Backspace removes one whole grapheme cluster, so a flag, a skin-toned
@@ -794,6 +838,15 @@ namespace pr::view3d::ui
 						{
 							changed = ReplaceSelection(node.desc, edit, {});
 						}
+						else if (ctrl_held && masked && !edit.pending_text.empty())
+						{
+							// A masked value behaves like one password word, so Ctrl+Delete clears
+							// the whole value rather than revealing structure through stops.
+							edit.pending_text.clear();
+							edit.caret = 0;
+							edit.selection_start = 0;
+							changed = true;
+						}
 						else if (edit.caret < edit.pending_text.size())
 						{
 							auto to = NextGraphemeBoundary(edit.pending_text, edit.caret);
@@ -804,7 +857,7 @@ namespace pr::view3d::ui
 					}
 					case VK_LEFT:
 					{
-						edit.caret = ctrl_held ? PrevWordBoundary(edit.pending_text, edit.caret) : PrevGraphemeBoundary(edit.pending_text, edit.caret);
+						edit.caret = ctrl_held && masked ? 0 : ctrl_held ? PrevWordBoundary(edit.pending_text, edit.caret) : PrevGraphemeBoundary(edit.pending_text, edit.caret);
 						if (!shift_held)
 							edit.selection_start = edit.caret;
 
@@ -812,7 +865,7 @@ namespace pr::view3d::ui
 					}
 					case VK_RIGHT:
 					{
-						edit.caret = ctrl_held ? NextWordBoundary(edit.pending_text, edit.caret) : NextGraphemeBoundary(edit.pending_text, edit.caret);
+						edit.caret = ctrl_held && masked ? static_cast<std::uint32_t>(edit.pending_text.size()) : ctrl_held ? NextWordBoundary(edit.pending_text, edit.caret) : NextGraphemeBoundary(edit.pending_text, edit.caret);
 						if (!shift_held)
 							edit.selection_start = edit.caret;
 
@@ -848,6 +901,9 @@ namespace pr::view3d::ui
 					{
 						if (!ctrl_held)
 							return InputResult{ false, false };
+
+						if (masked)
+							break;
 
 						auto lo = std::min(edit.caret, edit.selection_start);
 						auto hi = std::max(edit.caret, edit.selection_start);

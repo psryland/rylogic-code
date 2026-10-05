@@ -441,12 +441,29 @@ Current placement and overflow contract:
 - Layout, drawing, and semantic bounds are viewport-relative DIPs. Client-pixel input and accessibility bounds include the viewport offset and client/target ratio.
   Updating viewport dimensions or DPI recomputes placement from authored values, rather than scaling the previous layout.
 
-Current native API version is `0x00060000`, and every wire struct header uses version `6`. `ControlDesc::visibility` is a signed 32-bit `EVisibility`
-at the former boolean field's offset; unchanged byte size does not make version-3 callers compatible. The private View3D host bridge version is unchanged.
+Current native API version is `0x00070000`, and every wire struct header uses version `7`. `ControlDesc::visibility` is a signed 32-bit `EVisibility`
+at the former boolean field's offset; unchanged byte size does not make version-3 callers compatible. `ControlDesc::masked != 0` is an appended
+TextBox-only password flag; zero-initialised older descriptors remain unmasked only when submitted through the current struct version. The private View3D
+host bridge version is unchanged.
 Managed callers use `UiControlDesc.Visibility`; replace old `true` with `EVisibility.Visible` and old `false` with `EVisibility.Hidden` to preserve behavior.
 Choose `Collapsed` explicitly when controls should stop reserving space. The native demonstration and existing tests preserve their former Visible/Hidden intent.
 JSON schema version `2` uses `"visibility": "Visible" | "Hidden" | "Collapsed"` (default Visible); schema version `1` and the boolean `visible` property are rejected.
 There are no compatibility adapters or automatic conversions.
+
+### Retained TextBox password mode
+
+`TextBox` remains the editable text control; password behaviour is selected by `ControlDesc::masked != 0` (`UiControlDesc.Masked` in managed code and
+`"masked": true` in JSON). The application remains the only owner of the real text. Editing proposals still emit `TextChangeProposed` with the real proposed
+UTF-8 text and edit generation, and reconciliation still happens only through a later accepted descriptor revision.
+
+A masked TextBox displays one U+2022 bullet for each extended grapheme cluster of the accepted or pending text. Caret geometry, selection drawing, hit testing,
+composition spans, and max-text-length enforcement all use the same grapheme-cluster model. IME composition updates are included in the display as bullets, so
+composition text is never shown in the clear. Ctrl+Left/Ctrl+Right jump only to the start/end of the value, and Ctrl+Backspace/Ctrl+Delete treat the value as
+one password word. Copy and cut are consumed without writing to the clipboard; cut does not delete. Paste remains allowed and inserts the clipboard text through
+the normal proposal path.
+
+Semantics deliberately expose an empty value for a masked TextBox and set `ESemanticState::Protected`. UI Automation reports `IsPassword = true`, leaves
+`ValuePattern.Value` empty, keeps `ValuePattern.SetValue` available while enabled, and does not advertise TextPattern/TextPattern2 for the protected element.
 
 ### Retained ProgressBar
 

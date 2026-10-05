@@ -334,6 +334,7 @@ public enum ESemanticState : uint
 	Selected = 1U << 4,
 	Invalid = 1U << 5,
 	Offscreen = 1U << 6,
+	Protected = 1U << 7,
 }
 
 /// <summary>

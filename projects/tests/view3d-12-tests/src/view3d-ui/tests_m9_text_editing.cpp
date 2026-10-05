@@ -6,7 +6,9 @@
 // composition lifecycle, driven entirely through the public UiContext facade (deterministic
 // NormalizedInput plus InputTextPayload). No live IME, no window and no real device are required.
 #include "pr/common/unittests.h"
+#include "pr/view3d-ui/engine.h"
 #include "test_support.h"
+#include "semantics.h"
 #include <algorithm>
 #include <optional>
 #include <string>
@@ -17,7 +19,7 @@ namespace pr::view3d::ui::tests
 	{
 		// Root (id 1, 300x200) containing one focusable TextBox (id 2) at [10,40)x[210,60) seeded
 		// with 'initial_text'. 'max_text_length' of 0 means unbounded.
-		void M9Scene(UiContext& ctx, std::string_view initial_text, std::uint32_t max_text_length = 0)
+		void M9Scene(UiContext& ctx, std::string_view initial_text, std::uint32_t max_text_length = 0, bool masked = false)
 		{
 			auto b = TxnBuilder{};
 			b.Upsert(MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(300.0f, 200.0f)));
@@ -26,12 +28,45 @@ namespace pr::view3d::ui::tests
 			text_box.layout.margin_left = 10.0f;
 			text_box.layout.margin_top = 40.0f;
 			text_box.max_text_length = max_text_length;
+			text_box.masked = masked ? 1 : 0;
 			std::tie(text_box.text_offset, text_box.text_length) = b.AddText(initial_text);
 			b.Upsert(text_box);
 
 			ctx.TransactionApply(b.Build(0, 1));
 			ctx.Update(Viewport(300, 200));
 			ctx.InputInject(KeyDownInput(VK_TAB));
+		}
+
+		// The same one-TextBox scene built directly on UiEngine so draw packets can be inspected.
+		void M9EngineScene(UiEngine& engine, std::string_view initial_text, bool masked)
+		{
+			auto b = TxnBuilder{};
+			b.Upsert(MakeControl(1, 0, EControlType::Root, ELayoutMode::Overlay, Lp(300.0f, 200.0f)));
+
+			auto text_box = MakeControl(2, 1, EControlType::TextBox, ELayoutMode::Overlay, Lp(200.0f, 20.0f));
+			text_box.layout.margin_left = 10.0f;
+			text_box.layout.margin_top = 40.0f;
+			text_box.masked = masked ? 1 : 0;
+			b.Upsert(text_box, initial_text, "Password", "Protected text box");
+
+			engine.TransactionApply(b.Build(0, 1));
+			engine.Update(Viewport(300, 200));
+			engine.InputInject(KeyDownInput(VK_TAB));
+			engine.Update(Viewport(300, 200));
+		}
+
+		// The text presenter generated for the scene's TextBox in the current draw packet.
+		DrawItem const& TextBoxTextItem(UiEngine const& engine)
+		{
+			auto const& items = engine.DrawPackets().items;
+			auto it = std::find_if(items.begin(), items.end(), [](DrawItem const& item)
+			{
+				return item.control_id == 2 && item.primitive == EVisualPrimitive::TextPresenter;
+			});
+			if (it == items.end())
+				throw std::runtime_error("test helper: TextBox text item not found");
+
+			return *it;
 		}
 
 		// The semantic node reported for 'id' in a freshly refreshed snapshot, together with the
@@ -644,5 +679,79 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT(!first.empty());
 		PR_EXPECT(first == second);
 		PR_EXPECT(first.back() == "abcd\u65E5");
+	}
+
+	PRUnitTest(MaskedTextBoxDisplaysBulletsAndHidesSemantics, Quick)
+	{
+		auto engine = UiEngine(DefaultConfig());
+		M9EngineScene(engine, "a\U0001F600b", true);
+
+		// One bullet is emitted per grapheme cluster while the semantic value remains empty and
+		// marked protected so assistive clients know the absence is intentional.
+		auto const& item = TextBoxTextItem(engine);
+		PR_EXPECT(item.text == "\u2022\u2022\u2022");
+		PR_EXPECT(item.caret_offset == item.text.size());
+		auto snapshot = SemanticSnapshot{};
+		snapshot.m_nodes.resize(engine.SemanticCount());
+		snapshot.m_text_blob.resize(engine.SemanticTextBytesPending());
+		engine.SemanticsCopy(snapshot.m_nodes, std::span<char>(snapshot.m_text_blob.data(), snapshot.m_text_blob.size()));
+		auto found = std::find_if(snapshot.m_nodes.begin(), snapshot.m_nodes.end(), [](SemanticNode const& node) { return node.id == 2; });
+		PR_EXPECT(found != snapshot.m_nodes.end());
+		PR_EXPECT(found->value_length == 0);
+		PR_EXPECT((found->state_flags & static_cast<std::uint32_t>(ESemanticState::Protected)) != 0);
+	}
+
+	PRUnitTest(MaskedTextBoxBlocksCopyCutButAllowsPasteAndRealProposals, Quick)
+	{
+		auto runtime = Runtime{};
+		auto device = FakeDevice{};
+		auto plain = UiContext(runtime, &device);
+		M9Scene(plain, "clip");
+		plain.InputInject(KeyDownInput('A', kCtrl));
+		plain.InputInject(KeyDownInput('C', kCtrl));
+
+		auto masked = UiContext(runtime, &device);
+		M9Scene(masked, "secret", 0, true);
+		PR_EXPECT(!AnyProposal(masked, 2)); // drain focus.
+
+		// Copy and cut are consumed for a password box but do not write the clipboard and do not
+		// propose deletion. Paste remains allowed and carries the real pasted text to the owner.
+		masked.InputInject(KeyDownInput('A', kCtrl));
+		masked.InputInject(KeyDownInput('C', kCtrl));
+		masked.InputInject(KeyDownInput('X', kCtrl));
+		PR_EXPECT(!AnyProposal(masked, 2));
+		masked.InputInject(KeyDownInput('V', kCtrl));
+		PR_EXPECT(LatestProposal(masked, 2) == std::optional<std::string>("clip"));
+		PR_EXPECT(SemanticOf(masked, 2).Value().empty());
+	}
+
+	PRUnitTest(MaskedTextBoxTreatsTheWholeValueAsOneWordAndMasksComposition, Quick)
+	{
+		auto engine = UiEngine(DefaultConfig());
+		M9EngineScene(engine, "one two", true);
+
+		// Ctrl+Left/Right use the password-box word model, so they jump only to the ends rather
+		// than stopping at internal whitespace.
+		engine.InputInject(KeyDownInput(VK_LEFT, kCtrl));
+		engine.Update(Viewport(300, 200));
+		PR_EXPECT(TextBoxTextItem(engine).caret_offset == 0);
+		engine.InputInject(KeyDownInput(VK_RIGHT, kCtrl));
+		engine.Update(Viewport(300, 200));
+		PR_EXPECT(TextBoxTextItem(engine).caret_offset == TextBoxTextItem(engine).text.size());
+
+		// Composition text is represented by bullets while composing; the committed proposal still
+		// carries the real text because the application owns the value.
+		engine.InputInject(TextInputRecord(EInputKind::CompositionStart));
+		engine.InputInjectText(TextInputRecord(EInputKind::CompositionUpdate), TextPayload("\u3042\u3044"));
+		engine.Update(Viewport(300, 200));
+		PR_EXPECT(TextBoxTextItem(engine).text == "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022");
+		engine.InputInjectText(TextInputRecord(EInputKind::CompositionCommit), TextPayload("\u3046"));
+
+		auto events = std::vector<Event>(engine.EventCount());
+		auto payload = std::vector<std::byte>(engine.EventPayloadBytesPending());
+		engine.EventsCopy(events, payload);
+		auto it = std::find_if(events.rbegin(), events.rend(), [](Event const& event) { return event.kind == EEventKind::TextChangeProposed && event.control_id == 2; });
+		PR_EXPECT(it != events.rend());
+		PR_EXPECT(std::string(reinterpret_cast<char const*>(payload.data()) + it->payload_offset, it->payload_length) == "one two\u3046");
 	}
 }

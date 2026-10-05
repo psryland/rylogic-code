@@ -26,7 +26,10 @@ namespace pr::view3d::ui
 				case EControlType::TextBox:
 				{
 					auto it = input.m_text_edits.find(node.desc.id);
-					return it != input.m_text_edits.end() && it->second.initialized != 0 ? DisplayTextOf(it->second) : node.text;
+					if (node.desc.masked != 0)
+						return {};
+
+					return it != input.m_text_edits.end() && it->second.initialized != 0 ? DisplayTextOf(node.desc, it->second) : node.text;
 				}
 				case EControlType::Text:
 				{
@@ -58,6 +61,8 @@ namespace pr::view3d::ui
 		{
 			if (node.desc.type != EControlType::TextBox)
 				return;
+			if (node.desc.masked != 0)
+				return;
 
 			auto it = input.m_text_edits.find(node.desc.id);
 			if (it == input.m_text_edits.end() || it->second.initialized == 0)
@@ -68,8 +73,8 @@ namespace pr::view3d::ui
 			// every offset is snapped to a grapheme boundary of that display string here: the
 			// semantic contract promises boundaries a UI Automation text provider can rely on.
 			auto const& edit = it->second;
-			auto const display = DisplayTextOf(edit);
-			auto const ranges = DisplayRangesOf(edit);
+			auto const display = DisplayTextOf(node.desc, edit);
+			auto const ranges = DisplayRangesOf(node.desc, edit);
 			auto const snap = [&display](std::uint32_t offset)
 			{
 				return ClampToGraphemeBoundary(display, std::min<std::uint32_t>(offset, static_cast<std::uint32_t>(display.size())));
@@ -146,6 +151,8 @@ namespace pr::view3d::ui
 				flags |= static_cast<std::uint32_t>(ESemanticState::Selected);
 			if (node.desc.validation_state == EValidationState::Invalid)
 				flags |= static_cast<std::uint32_t>(ESemanticState::Invalid);
+			if (node.desc.type == EControlType::TextBox && node.desc.masked != 0)
+				flags |= static_cast<std::uint32_t>(ESemanticState::Protected);
 			if (!visible || !RectsIntersect(bounds, root_bounds))
 				flags |= static_cast<std::uint32_t>(ESemanticState::Offscreen);
 			return flags;

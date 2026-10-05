@@ -299,6 +299,17 @@ namespace pr::view3d::ui
 			// so a range captured before an edit can never index into the middle of a cluster.
 			void Normalize(std::string_view text, std::uint32_t& start, std::uint32_t& end) const
 			{
+				// Password text is not available through UI Automation TextPattern. The element can
+				// still expose TextPattern to report a caret shape, but every text range is empty.
+				auto const snapshot = RequireSnapshot();
+				auto const& node = RequireNode(snapshot);
+				if (node.is_protected != 0)
+				{
+					start = 0;
+					end = 0;
+					return;
+				}
+
 				auto const size = static_cast<std::uint32_t>(text.size());
 				start = ClampToGraphemeBoundary(text, std::min(m_start, size));
 				end = ClampToGraphemeBoundary(text, std::min(m_end, size));
@@ -594,6 +605,9 @@ namespace pr::view3d::ui
 					*ret = nullptr;
 					auto const snapshot = RequireSnapshot();
 					auto const& node = RequireNode(snapshot);
+					if (node.is_protected != 0)
+						return S_OK;
+
 					auto start = std::uint32_t{};
 					auto end = std::uint32_t{};
 					Normalize(node.value_utf8, start, end);
@@ -981,7 +995,7 @@ namespace pr::view3d::ui
 					// can never claim a pattern the owner-thread action path would then reject.
 					auto const invoke = pattern == UIA_InvokePatternId && node.role == EControlType::Button && node.HasAction(ESemanticAction::Invoke);
 					auto const value = pattern == UIA_ValuePatternId && node.role == EControlType::TextBox;
-					auto const text = (pattern == UIA_TextPatternId || pattern == UIA_TextPattern2Id) && node.role == EControlType::TextBox;
+					auto const text = (pattern == UIA_TextPatternId || pattern == UIA_TextPattern2Id) && node.role == EControlType::TextBox && node.is_protected == 0;
 					auto const range = pattern == UIA_RangeValuePatternId && ((node.role == EControlType::ProgressBar && node.is_indeterminate == 0) || node.role == EControlType::Slider);
 					if (!invoke && !value && !text && !range)
 						return S_OK;
@@ -1025,11 +1039,12 @@ namespace pr::view3d::ui
 						case UIA_IsOffscreenPropertyId: { *ret = BoolVariant(node.HasState(ESemanticState::Offscreen) || !node.HasState(ESemanticState::Visible)); break; }
 						case UIA_HasKeyboardFocusPropertyId: { *ret = BoolVariant(node.HasState(ESemanticState::Focused)); break; }
 						case UIA_IsKeyboardFocusablePropertyId: { *ret = BoolVariant(node.HasState(ESemanticState::Focusable)); break; }
+						case UIA_IsPasswordPropertyId: { *ret = BoolVariant(node.is_protected != 0); break; }
 						case UIA_SelectionItemIsSelectedPropertyId: { *ret = BoolVariant(node.HasState(ESemanticState::Selected)); break; }
 						case UIA_IsDataValidForFormPropertyId: { *ret = BoolVariant(!node.HasState(ESemanticState::Invalid)); break; }
 						case UIA_IsContentElementPropertyId: { *ret = BoolVariant(IsContentElement(node.role)); break; }
 						case UIA_IsControlElementPropertyId: { *ret = BoolVariant(true); break; }
-						case UIA_ValueValuePropertyId: { *ret = BstrVariant(node.value); break; }
+						case UIA_ValueValuePropertyId: { *ret = BstrVariant(node.is_protected != 0 ? std::wstring{} : node.value); break; }
 						case UIA_ValueIsReadOnlyPropertyId: { *ret = BoolVariant(node.role == EControlType::ProgressBar || node.role == EControlType::Slider || !node.HasState(ESemanticState::Enabled)); break; }
 						case UIA_IsInvokePatternAvailablePropertyId: { *ret = BoolVariant(node.role == EControlType::Button && node.HasAction(ESemanticAction::Invoke)); break; }
 						case UIA_IsValuePatternAvailablePropertyId: { *ret = BoolVariant(node.role == EControlType::TextBox); break; }
@@ -1054,7 +1069,7 @@ namespace pr::view3d::ui
 							break;
 						}
 						case UIA_IsTextPatternAvailablePropertyId:
-						case UIA_IsTextPattern2AvailablePropertyId: { *ret = BoolVariant(node.role == EControlType::TextBox); break; }
+						case UIA_IsTextPattern2AvailablePropertyId: { *ret = BoolVariant(node.role == EControlType::TextBox && node.is_protected == 0); break; }
 						default: break;
 					}
 
@@ -1214,6 +1229,9 @@ namespace pr::view3d::ui
 				{
 					auto const snapshot = RequireSnapshot();
 					auto const& node = RequireNode(snapshot);
+					if (node.is_protected != 0)
+						return AssignBstr(L"", ret);
+
 					return AssignBstr(node.value, ret);
 				});
 			}
