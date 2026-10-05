@@ -28,7 +28,7 @@ namespace pr::physics::tests
 		{
 			// Use metre-scale cells and a mild reference lapse so buoyancy is easy to observe in short runs.
 			return AtmosphereConfig{
-				.m_grid = AtmosphereGrid{ .m_cell_count = cells, .m_origin = v4::Zero(), .m_dx = 1.0f, .m_lid_z = static_cast<float>(cells.z), .m_first_layer_thickness = 1.0f, .m_layer_stretch_power = 1.0f },
+				.m_grid = AtmosphereGrid{ .m_cell_count = cells, .m_origin = v4::Zero(), .m_dx = 1.0f, .m_lid_z = static_cast<float>(cells.z), .m_first_layer_thickness = 1.0f },
 				.m_boundaries = AtmosphereBoundaries{},
 				.m_reference = AtmosphereReferenceProfile{ .m_temperature_at_origin = 288.0f, .m_lapse_rate = -0.001f, .m_min_temperature = 250.0f },
 				.m_gravity = 9.8f,
@@ -263,7 +263,7 @@ namespace pr::physics::tests
 		{
 			// A uniform grid keeps expected motion simple and independent of terrain metrics.
 			return AtmosphereConfig{
-				.m_grid = AtmosphereGrid{ .m_cell_count = iv3{ 8, 8, 4 }, .m_origin = v4::Zero(), .m_dx = 1.0f, .m_lid_z = 4.0f, .m_first_layer_thickness = 1.0f, .m_layer_stretch_power = 1.0f },
+				.m_grid = AtmosphereGrid{ .m_cell_count = iv3{ 8, 8, 4 }, .m_origin = v4::Zero(), .m_dx = 1.0f, .m_lid_z = 4.0f, .m_first_layer_thickness = 1.0f },
 				.m_boundaries = AtmosphereBoundaries{ .m_x_min = EAtmosphereBoundary::Open, .m_x_max = EAtmosphereBoundary::Open, .m_y_min = EAtmosphereBoundary::Open, .m_y_max = EAtmosphereBoundary::Open },
 				.m_reference = AtmosphereReferenceProfile{ .m_temperature_at_origin = 280.0f, .m_lapse_rate = 0.0f, .m_min_temperature = 200.0f },
 				.m_pressure_vcycles = 1,
@@ -369,7 +369,7 @@ namespace pr::physics::tests
 			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTracerTests.SolidBox", 0xFF00AAFF, 1 };
 			auto const solid = EAtmosphereBoundary::Solid;
 			auto config = AtmosphereConfig{
-				.m_grid = AtmosphereGrid{ .m_cell_count = iv3{ 64, 64, 8 }, .m_origin = v4{ -640.0f, -640.0f, 0.0f, 1.0f }, .m_dx = 20.0f, .m_lid_z = 360.0f, .m_first_layer_thickness = 8.0f, .m_layer_stretch_power = 0.72f },
+				.m_grid = AtmosphereGrid{ .m_cell_count = iv3{ 64, 64, 8 }, .m_origin = v4{ -640.0f, -640.0f, 0.0f, 1.0f }, .m_dx = 20.0f, .m_lid_z = 360.0f, .m_first_layer_thickness = 8.0f },
 				.m_boundaries = AtmosphereBoundaries{ .m_x_min = solid, .m_x_max = solid, .m_y_min = solid, .m_y_max = solid, .m_z_min = solid, .m_z_max = solid },
 				.m_reference = AtmosphereReferenceProfile{ .m_temperature_at_origin = 288.0f, .m_lapse_rate = -0.004f, .m_min_temperature = 250.0f },
 			};
@@ -398,7 +398,7 @@ namespace pr::physics::tests
 			auto const open = EAtmosphereBoundary::Open;
 			auto const solid = EAtmosphereBoundary::Solid;
 			auto config = AtmosphereConfig{
-				.m_grid = AtmosphereGrid{ .m_cell_count = iv3{ 5, 5, 3 }, .m_origin = v4{ -50.0f, -50.0f, 0.0f, 1.0f }, .m_dx = 20.0f, .m_lid_z = 60.0f, .m_first_layer_thickness = 20.0f, .m_layer_stretch_power = 1.0f },
+				.m_grid = AtmosphereGrid{ .m_cell_count = iv3{ 5, 5, 3 }, .m_origin = v4{ -50.0f, -50.0f, 0.0f, 1.0f }, .m_dx = 20.0f, .m_lid_z = 60.0f, .m_first_layer_thickness = 20.0f },
 				.m_boundaries = AtmosphereBoundaries{ .m_x_min = open, .m_x_max = open, .m_y_min = solid, .m_y_max = solid, .m_z_min = solid, .m_z_max = solid },
 				.m_reference = AtmosphereReferenceProfile{ .m_temperature_at_origin = 288.0f, .m_lapse_rate = -0.004f, .m_min_temperature = 250.0f },
 			};
@@ -462,7 +462,7 @@ namespace pr::physics::tests
 			auto const open = EAtmosphereBoundary::Open;
 			auto const solid = EAtmosphereBoundary::Solid;
 			auto config = AtmosphereConfig{
-				.m_grid = AtmosphereGrid{ .m_cell_count = iv3{ 5, 5, 3 }, .m_origin = v4{ -50.0f, -50.0f, 0.0f, 1.0f }, .m_dx = 20.0f, .m_lid_z = 60.0f, .m_first_layer_thickness = 20.0f, .m_layer_stretch_power = 1.0f },
+				.m_grid = AtmosphereGrid{ .m_cell_count = iv3{ 5, 5, 3 }, .m_origin = v4{ -50.0f, -50.0f, 0.0f, 1.0f }, .m_dx = 20.0f, .m_lid_z = 60.0f, .m_first_layer_thickness = 20.0f },
 				.m_boundaries = AtmosphereBoundaries{ .m_x_min = open, .m_x_max = open, .m_y_min = solid, .m_y_max = solid, .m_z_min = solid, .m_z_max = solid },
 				.m_reference = AtmosphereReferenceProfile{ .m_temperature_at_origin = 288.0f, .m_lapse_rate = -0.004f, .m_min_temperature = 250.0f },
 			};
@@ -533,7 +533,7 @@ namespace pr::physics::tests
 		{
 			// These tests use a 1/15 s step with the default V-cycle settings, so they also check that the defaults are good enough for real terrain.
 			return AtmosphereConfig{
-				.m_grid = AtmosphereGrid{ .m_cell_count = cells, .m_origin = v4{ -0.5f * cells.x * 32.0f, -0.5f * cells.y * 32.0f, 0.0f, 1.0f }, .m_dx = 32.0f, .m_lid_z = 1500.0f, .m_first_layer_thickness = 5.0f, .m_layer_stretch_power = 0.58f, .m_floor_heights = std::move(floors) },
+				.m_grid = AtmosphereGrid{ .m_cell_count = cells, .m_origin = v4{ -0.5f * cells.x * 32.0f, -0.5f * cells.y * 32.0f, 0.0f, 1.0f }, .m_dx = 32.0f, .m_lid_z = 1500.0f, .m_first_layer_thickness = 5.0f, .m_floor_heights = std::move(floors) },
 				.m_boundaries = AtmosphereBoundaries{ .m_x_min = EAtmosphereBoundary::Open, .m_x_max = EAtmosphereBoundary::Open, .m_y_min = EAtmosphereBoundary::Open, .m_y_max = EAtmosphereBoundary::Open, .m_z_min = EAtmosphereBoundary::Solid, .m_z_max = EAtmosphereBoundary::Solid },
 				.m_reference = AtmosphereReferenceProfile{ .m_temperature_at_origin = 288.0f, .m_lapse_rate = -0.004f, .m_min_temperature = 250.0f },
 				.m_gravity = 9.80665f,
@@ -907,7 +907,7 @@ namespace pr::physics::tests
 			config.m_boundaries.m_y_min = EAtmosphereBoundary::Solid;
 			config.m_boundaries.m_y_max = EAtmosphereBoundary::Solid;
 			config.m_grid.m_lid_z = 100.0f;
-			config.m_grid.m_layer_stretch_power = 1.0f;
+			config.m_grid.m_first_layer_thickness = 12.5f;
 			config.m_open_edge_band = 4;
 			auto dragged_config = config;
 			dragged_config.m_wall_drag.m_z_min = 0.05f;
@@ -944,7 +944,7 @@ namespace pr::physics::tests
 			config.m_boundaries.m_y_min = EAtmosphereBoundary::Solid;
 			config.m_boundaries.m_y_max = EAtmosphereBoundary::Solid;
 			config.m_grid.m_lid_z = 100.0f;
-			config.m_grid.m_layer_stretch_power = 1.0f;
+			config.m_grid.m_first_layer_thickness = 12.5f;
 			config.m_open_edge_band = 4;
 			config.m_wall_drag.m_z_min = 0.05f;
 			auto mixed_config = config;

@@ -19,7 +19,6 @@ internal static unsafe partial class Native
 		internal float m_dx;
 		internal float m_lid_z;
 		internal float m_first_layer_thickness;
-		internal float m_layer_stretch_power;
 		internal float* m_floor_heights;
 		internal fixed int m_boundaries[6];
 		internal fixed float m_wall_drag[6];
@@ -61,7 +60,6 @@ internal static unsafe partial class Native
 				m_dx = options.CellSize,
 				m_lid_z = options.LidZ,
 				m_first_layer_thickness = options.FirstLayerThickness,
-				m_layer_stretch_power = options.LayerStretchPower,
 				m_floor_heights = floor_heights,
 				m_reference_temperature = options.ReferenceTemperature,
 				m_lapse_rate = options.LapseRate,

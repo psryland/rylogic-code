@@ -1440,7 +1440,6 @@ namespace pr::unittests
 				.dx = 1.0f,
 				.lid_z = 4.0f,
 				.first_layer_thickness = 1.0f,
-				.layer_stretch_power = 1.0f,
 				.floor_heights = nullptr,
 				.boundaries = {},
 				.wall_drag = {},

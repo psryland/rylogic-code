@@ -64,8 +64,11 @@ namespace pr::physics::atmosphere
 		v4 m_origin = v4::Zero();
 		float m_dx = 0.0f;
 		float m_lid_z = 1.0f;
+
+		// Thickness of the bottom layer in every column, metres. Layers above it grow thicker with height so that each column reaches the lid in
+		// 'm_cell_count.z' layers. A column shorter than 'm_cell_count.z' layers of this thickness uses uniform layers of this thickness instead,
+		// so its top faces lie above the lid. See ColumnHeight and SigmaFace.
 		float m_first_layer_thickness = 1.0f;
-		float m_layer_stretch_power = 1.0f;
 
 		// Optional floor height per column, row-major. Empty means a flat floor at 'm_origin.z'.
 		// A floor at or above 'm_lid_z' makes the column solid, which models obstacles that reach the lid. See ColumnSolid.
@@ -124,8 +127,14 @@ namespace pr::physics::atmosphere
 		// their layer heights are not meaningful and must not be used.
 		bool ColumnSolid(iv2 cell) const;
 
-		// Return the sigma face fraction for a vertical face index.
-		float SigmaFace(int z) const;
+		// Return the height spanned by the layers of a column whose floor is at 'floor_height'. This is the floor-to-lid height,
+		// but never less than 'm_cell_count.z' layers of 'm_first_layer_thickness', so every layer has a positive height.
+		float ColumnHeight(float floor_height) const;
+
+		// Return the fraction of the height of a column, from 0 at the floor to 1 at the top, at vertical face index 'z'.
+		// The layers of the column follow a power curve whose exponent makes the bottom layer exactly 'm_first_layer_thickness' thick.
+		// 'column_height' must come from ColumnHeight.
+		float SigmaFace(float column_height, int z) const;
 
 		// Return the world-space height of a sigma face in one column.
 		float FaceZ(iv2 cell, int z) const;

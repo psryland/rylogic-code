@@ -48,7 +48,7 @@ namespace pr::physics
 
 namespace pr::physics
 {
-	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00030200U;
+	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00030300U;
 	inline constexpr std::uint32_t PHYSICS_STRUCT_VERSION = 2U;
 	inline constexpr std::uint32_t PHYSICS_CHECKPOINT_VERSION = 3U;
 
@@ -335,7 +335,7 @@ namespace pr::physics
 		StructHeader header;
 		std::int32_t cell_count_x, cell_count_y, cell_count_z;
 		float origin_x, origin_y, origin_z;
-		float dx, lid_z, first_layer_thickness, layer_stretch_power;
+		float dx, lid_z, first_layer_thickness;
 		float const* floor_heights;
 		EAtmosphereBoundary boundaries[6];
 		float wall_drag[6];
