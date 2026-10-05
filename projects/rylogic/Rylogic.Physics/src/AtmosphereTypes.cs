@@ -52,9 +52,11 @@ public sealed class AtmosphereOptions
 	/// <summary>World height of the top of every column.</summary>
 	public float LidZ { get; set; } = 1.0f;
 
-	/// <summary>Thickness of the lowest layer, and how strongly the layers above it grow thicker.</summary>
+	/// <summary>
+	/// Thickness of the lowest layer in every column. The layers above it grow thicker with height so each column reaches the lid in
+	/// <see cref="CellCountZ"/> layers. A column shorter than <see cref="CellCountZ"/> layers of this thickness uses uniform layers of this thickness.
+	/// </summary>
 	public float FirstLayerThickness { get; set; } = 1.0f;
-	public float LayerStretchPower { get; set; } = 1.0f;
 
 	/// <summary>
 	/// Null for a flat floor at <see cref="OriginZ"/>, or one floor height per column in row-major order (x fastest).

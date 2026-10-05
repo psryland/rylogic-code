@@ -1027,7 +1027,7 @@ namespace physics_sandbox::scene_loader
 		auto desc = AtmosphereDesc{};
 		auto const& obj = jatmosphere.to_object();
 		auto& config = desc.m_config;
-		config.m_grid = physics::atmosphere::AtmosphereGrid{ .m_cell_count = iv3{64, 64, 8}, .m_origin = v4{-640.0f, -640.0f, 0.0f, 1.0f}, .m_dx = 20.0f, .m_lid_z = 400.0f, .m_first_layer_thickness = 8.0f, .m_layer_stretch_power = 0.75f };
+		config.m_grid = physics::atmosphere::AtmosphereGrid{ .m_cell_count = iv3{64, 64, 8}, .m_origin = v4{-640.0f, -640.0f, 0.0f, 1.0f}, .m_dx = 20.0f, .m_lid_z = 400.0f, .m_first_layer_thickness = 8.0f };
 		config.m_reference = physics::atmosphere::AtmosphereReferenceProfile{ .m_temperature_at_origin = 288.0f, .m_lapse_rate = -0.0065f, .m_min_temperature = 220.0f };
 
 		if (auto const* grid = obj.find("grid"))
@@ -1043,8 +1043,6 @@ namespace physics_sandbox::scene_loader
 				config.m_grid.m_lid_z = value->to<float>();
 			if (auto const* value = jgrid.find("first_layer_thickness"))
 				config.m_grid.m_first_layer_thickness = value->to<float>();
-			if (auto const* value = jgrid.find("layer_stretch_power"))
-				config.m_grid.m_layer_stretch_power = value->to<float>();
 		}
 
 		if (auto const* boundaries = obj.find("boundaries"))

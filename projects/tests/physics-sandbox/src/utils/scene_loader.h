@@ -41,7 +41,7 @@ namespace physics_sandbox::scene_loader
 	//         "atmosphere": {                  // Optional GPU atmosphere solver and tracer visualisation
 	//             "grid": {
 	//                 "cell_count": [64,64,8], "dx": 20.0, "origin": [-640,-640,0],
-	//                 "lid_z": 400.0, "first_layer_thickness": 8.0, "layer_stretch_power": 0.75
+	//                 "lid_z": 400.0, "first_layer_thickness": 8.0 // bottom layer thickness; layers above it thicken to reach the lid
 	//             },
 	//             "floor": "flat",             // "flat" (at origin z) or "terrain": sample the scene 'terrain' block per column, raised to the 'water' level if present
 	//             "boundaries": { "x_min":"solid", "x_max":"solid", "y_min":"solid", "y_max":"solid", "z_min":"solid", "z_max":"solid" },

@@ -39,8 +39,7 @@
 				"dx": 50.0,
 				"origin": [-2400, -2400, -60],
 				"lid_z": 2400.0,
-				"first_layer_thickness": 30.0,
-				"layer_stretch_power": 0.75
+				"first_layer_thickness": 30.0
 			},
 			"floor": "terrain",
 			"boundaries": {

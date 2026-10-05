@@ -10,7 +10,7 @@ namespace Rylogic.Physics;
 internal static unsafe partial class Native
 {
 	internal const string Dll = "physics";
-	internal const uint ApiVersion = 0x00030200U;
+	internal const uint ApiVersion = 0x00030300U;
 	internal const uint StructVersion = 2U;
 	private static IntPtr m_module;
 

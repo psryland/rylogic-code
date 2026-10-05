@@ -49,8 +49,8 @@ namespace pr::physics::atmosphere
 			// Step and layer shape.
 			float m_dt;                    // duration of this solver step, seconds
 			float m_gravity;               // positive gravitational acceleration, m/s^2
-			float m_first_layer_thickness; // smallest allowed column height per layer, metres
-			float m_layer_power;           // sigma stretch exponent
+			float m_first_layer_thickness; // bottom layer thickness in every column, metres
+			float m_inv_log_layer_count;   // 1 / ln(layer count), which converts a column's height ratio into its layer exponent
 
 			// Reference temperature profile: T_ref(z) = max(temp0 + lapse * z, min_temp).
 			float m_temp0;                 // reference temperature at world Z = 0, K
@@ -441,22 +441,33 @@ namespace pr::physics::atmosphere
 		return FloorHeight(cell) >= m_lid_z;
 	}
 
-	// Return the sigma face fraction for a vertical face index.
-	float AtmosphereGrid::SigmaFace(int z) const
+	// Return the height spanned by the layers of a column.
+	float AtmosphereGrid::ColumnHeight(float floor_height) const
 	{
-		// A power below one packs faces near the floor while preserving the lid exactly.
-		auto const raw = std::clamp(static_cast<float>(z) / std::max(1, m_cell_count.z), 0.0f, 1.0f);
-		return std::pow(raw, m_layer_stretch_power);
+		// The lid is flat, so the height is the lid minus the floor. The lower bound matches the shader metric, so thin and solid columns
+		// still have positive layer heights and their layer exponent is at least one. See SigmaFace.
+		return std::max(m_lid_z - floor_height, m_first_layer_thickness * m_cell_count.z);
+	}
+
+	// Return the fraction of the height of a column at a vertical face index.
+	float AtmosphereGrid::SigmaFace(float column_height, int z) const
+	{
+		// The faces sit at (z/n)^p of the column height. Choosing p = ln(H/t) / ln(n) puts the first face exactly 't' above the floor.
+		// ColumnHeight keeps H >= n*t, so p >= 1 and the layers thicken with height; the lower bound only absorbs rounding error.
+		// This must match SigmaFace in atmosphere.hlsl.
+		auto const n = static_cast<float>(m_cell_count.z);
+		auto const raw = std::clamp(static_cast<float>(z) / n, 0.0f, 1.0f);
+		auto const power = std::max(std::log(column_height / m_first_layer_thickness) / std::log(n), 1.0f);
+		return std::pow(raw, power);
 	}
 
 	// Return the world-space height of a sigma face in one column.
 	float AtmosphereGrid::FaceZ(iv2 cell, int z) const
 	{
-		// The lid is flat, so column height is the difference between the lid and the local floor. The height is guarded by the
-		// requested first-layer thickness, matching the shader metric, so very thin and solid columns still have positive layer heights.
+		// Faces rise from the local floor through the column's own layer spacing. See SigmaFace.
 		auto const floor_height = FloorHeight(cell);
-		auto const column_height = std::max(m_lid_z - floor_height, m_first_layer_thickness * std::max(m_cell_count.z, 1));
-		return floor_height + SigmaFace(z) * column_height;
+		auto const column_height = ColumnHeight(floor_height);
+		return floor_height + SigmaFace(column_height, z) * column_height;
 	}
 
 	// Return the world-space centre height of a cell in one column.
@@ -498,8 +509,6 @@ namespace pr::physics::atmosphere
 			throw std::invalid_argument("Atmosphere lid height must be finite");
 		if (!std::isfinite(m_first_layer_thickness) || m_first_layer_thickness <= 0.0f)
 			throw std::invalid_argument("Atmosphere first layer thickness must be finite and positive");
-		if (!std::isfinite(m_layer_stretch_power) || m_layer_stretch_power <= 0.0f)
-			throw std::invalid_argument("Atmosphere layer stretch power must be finite and positive");
 		if (!IsFinite(m_origin))
 			throw std::invalid_argument("Atmosphere origin must be finite");
 		if (!m_floor_heights.empty() && isize(m_floor_heights) != ColumnCount())
@@ -877,7 +886,7 @@ namespace pr::physics::atmosphere
 				.m_dt = dt,
 				.m_gravity = m_config.m_gravity,
 				.m_first_layer_thickness = grid.m_first_layer_thickness,
-				.m_layer_power = grid.m_layer_stretch_power,
+				.m_inv_log_layer_count = 1.0f / std::log(static_cast<float>(grid.m_cell_count.z)),
 				.m_temp0 = m_config.m_reference.m_temperature_at_origin,
 				.m_lapse = m_config.m_reference.m_lapse_rate,
 				.m_min_temp = m_config.m_reference.m_min_temperature,
@@ -1133,8 +1142,9 @@ namespace pr::physics::atmosphere
 					// Solid cells use the reference profile at the flat-floor height of their layer.
 					if (new_solid)
 					{
-						auto const sigma = 0.5f * (new_grid.SigmaFace(z) + new_grid.SigmaFace(z + 1));
-						remapped[z] = m_impl->m_config.m_reference.Temperature(new_grid.m_origin.z + sigma * (new_grid.m_lid_z - new_grid.m_origin.z));
+						auto const flat_height = new_grid.ColumnHeight(new_grid.m_origin.z);
+						auto const sigma = 0.5f * (new_grid.SigmaFace(flat_height, z) + new_grid.SigmaFace(flat_height, z + 1));
+						remapped[z] = m_impl->m_config.m_reference.Temperature(new_grid.m_origin.z + sigma * flat_height);
 						continue;
 					}
 

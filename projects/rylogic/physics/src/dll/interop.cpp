@@ -114,7 +114,6 @@ namespace
 				.m_dx = desc.dx,
 				.m_lid_z = desc.lid_z,
 				.m_first_layer_thickness = desc.first_layer_thickness,
-				.m_layer_stretch_power = desc.layer_stretch_power,
 				.m_floor_heights = std::move(floor_heights),
 			},
 			.m_boundaries = AtmosphereBoundaries{

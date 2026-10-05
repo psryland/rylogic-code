@@ -57,7 +57,6 @@
 #define ATMOSPHERE_COLUMN_THREAD_Y 8
 #define ATMOSPHERE_MAX_LAYERS 32 // largest supported 'cell_count.z'; sizes the per-thread vertical solve arrays. Must match MaxLayers in atmosphere.cpp
 
-static const float AtmosphereMinLayerPower = 0.05f;       // dimensionless lower bound that keeps stretched-layer powers finite
 static const float AtmosphereMinCellHeight = 0.001f;      // metres; prevents zero-thickness metric denominators
 static const float AtmosphereSmallWeight = 1.0e-6f;       // dimensionless; protects interpolation denominators at clipped boundaries
 static const float AtmosphereSmallDiagonal = 1.0e-20f;    // operator units; avoids division by zero in degenerate local stencils
@@ -85,8 +84,8 @@ struct CBufAtmosphere
 	// Step and layer shape.
 	float dt;                       // duration of this solver step, seconds                                            @32
 	float gravity;                  // positive gravitational acceleration used for buoyancy, m/s^2                    @36
-	float first_layer_thickness;    // smallest allowed column height per layer; guards metric denominators, metres     @40
-	float layer_power;              // sigma stretch exponent; values above 1 make the layers near the floor thinner    @44
+	float first_layer_thickness;    // bottom layer thickness in every column, metres. See SigmaFace                     @40
+	float inv_log_layer_count;      // 1 / ln(cell_count.z); converts a column's height ratio into its layer exponent    @44
 
 	// Reference temperature profile. Buoyancy is driven by the difference between the cell temperature and this
 	// profile at the same height: T_ref(z) = max(temp0 + lapse * z, min_temp).
@@ -325,36 +324,47 @@ float2 FloorSlope(int2 c)
 	return float2(sx, sy);
 }
 
-// Return the stretched sigma value for a vertical face index.
-float SigmaFace(int z)
+// Return the height spanned by the layers of a column whose floor is at 'floor_height': the floor-to-lid height, but never less than
+// 'cell_count.z' layers of 'first_layer_thickness', so every layer has a positive height. Must match AtmosphereGrid::ColumnHeight.
+float ColumnHeightAt(float floor_height)
 {
-	float raw = saturate((float)z / max((float)g.cell_count.z, 1.0f));
-	float power = max(g.layer_power, AtmosphereMinLayerPower);
+	return max(g.lid_z - floor_height, g.first_layer_thickness * (float)g.cell_count.z);
+}
+
+// Return the fraction of a column's height at a vertical face index. The faces sit at (z/n)^p of the height, with p = ln(H/t) / ln(n),
+// which puts the first face exactly 'first_layer_thickness' above the floor. ColumnHeightAt keeps H >= n*t, so p >= 1 and the layers
+// thicken with height; the lower bound only absorbs rounding error. Must match AtmosphereGrid::SigmaFace.
+float SigmaFace(float column_height, int z)
+{
+	float raw = saturate((float)z / (float)g.cell_count.z);
+	float power = max(log(column_height / g.first_layer_thickness) * g.inv_log_layer_count, 1.0f);
 	return pow(raw, power);
 }
 
 // Return the stretched sigma value at a vertical cell centre.
-float SigmaCentre(int z)
+float SigmaCentre(float column_height, int z)
 {
-	return 0.5f * (SigmaFace(z) + SigmaFace(z + 1));
+	return 0.5f * (SigmaFace(column_height, z) + SigmaFace(column_height, z + 1));
 }
 
-// Return the guarded floor-to-lid height of one column.
+// Return the guarded floor-to-lid height of one column. See ColumnHeightAt.
 float ColumnHeight(int2 c)
 {
-	return max(g.lid_z - FloorHeight(c), g.first_layer_thickness * max((float)g.cell_count.z, 1.0f));
+	return ColumnHeightAt(FloorHeight(c));
 }
 
 // Return the world-space Z of a vertical face in one fine-grid column.
 float FaceZ(int2 c, int z)
 {
-	return FloorHeight(c) + SigmaFace(z) * ColumnHeight(c);
+	float h = ColumnHeight(c);
+	return FloorHeight(c) + SigmaFace(h, z) * h;
 }
 
 // Return the world-space Z of a cell centre in one fine-grid column.
 float CellZ(int2 c, int z)
 {
-	return FloorHeight(c) + SigmaCentre(z) * ColumnHeight(c);
+	float h = ColumnHeight(c);
+	return FloorHeight(c) + SigmaCentre(h, z) * h;
 }
 
 // Return the guarded physical height of one cell.
@@ -469,13 +479,14 @@ float LoadTemperature(int3 c)
 // Return the fractional cell-centred vertical coordinate that contains a world-space height.
 float CellCoordZ(int2 col, float z)
 {
-	float sigma = saturate((z - FloorHeight(col)) / ColumnHeight(col));
-	float first = SigmaCentre(0);
+	float h = ColumnHeight(col);
+	float sigma = saturate((z - FloorHeight(col)) / h);
+	float first = SigmaCentre(h, 0);
 	if (sigma <= first) return 0.0f;
 	for (int iz = 0; iz != g.cell_count.z - 1; ++iz)
 	{
-		float lo = SigmaCentre(iz);
-		float hi = SigmaCentre(iz + 1);
+		float lo = SigmaCentre(h, iz);
+		float hi = SigmaCentre(h, iz + 1);
 		if (sigma <= hi)
 		{
 			return (float)iz + saturate((sigma - lo) / max(hi - lo, AtmosphereSmallWeight));
@@ -970,7 +981,8 @@ float FaceZLevel(MgLevel level, int2 c, int z)
 {
 	// Coarse columns use the floor of their representative fine column.
 	float floor_height = FloorHeight(FineColumnFromLevel(level, c));
-	return floor_height + SigmaFace(z) * max(g.lid_z - floor_height, g.first_layer_thickness * max((float)g.cell_count.z, 1.0f));
+	float h = ColumnHeightAt(floor_height);
+	return floor_height + SigmaFace(h, z) * h;
 }
 
 // Return world-space centre height for a cell on 'level'.
@@ -1141,7 +1153,8 @@ void CSInitialise(uint3 dtid : SV_DispatchThreadID)
 	{
 		// Solid columns have no layer heights, so their cells use the reference temperature of the same layer in a column standing on the grid origin.
 		// Temperature samples beside a wall blend in these values, which keeps them close to the surrounding air.
-		float z = ColumnSolid(p.xy) ? g.origin_z + SigmaCentre(p.z) * (g.lid_z - g.origin_z) : CellCentre(p).z;
+		float flat_height = ColumnHeightAt(g.origin_z);
+		float z = ColumnSolid(p.xy) ? g.origin_z + SigmaCentre(flat_height, p.z) * flat_height : CellCentre(p).z;
 		g_temperature_out[CellIndex(p)] = ReferenceTemperature(z);
 		g_pressure[CellIndex(p)] = 0.0f;
 		g_divergence[CellIndex(p)] = 0.0f;

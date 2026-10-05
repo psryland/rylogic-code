@@ -18,8 +18,7 @@
 				"dx": 5.0,
 				"origin": [-160, -160, 0],
 				"lid_z": 20.0,
-				"first_layer_thickness": 5.0,
-				"layer_stretch_power": 1.0
+				"first_layer_thickness": 5.0
 			},
 			"boundaries": {
 				"x_min": "open", "x_max": "open",
