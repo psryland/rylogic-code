@@ -9,6 +9,8 @@ namespace pr::view3d::ui
 {
 	namespace
 	{
+		StyleRecord const& StyleFor(TreeModel const& tree, StyleId style_id);
+
 		EVisualPrimitive PrimitiveFor(EControlType type, StyleVisual const& visual)
 		{
 			switch (type)
@@ -20,6 +22,7 @@ namespace pr::view3d::ui
 				case EControlType::Button:
 				case EControlType::ProgressBar:
 				case EControlType::Slider:
+				case EControlType::ComboBox:
 				{
 					return visual.corner_radius > 0.0f ? EVisualPrimitive::RoundedBox : EVisualPrimitive::SolidBox;
 				}
@@ -69,6 +72,105 @@ namespace pr::view3d::ui
 			out.items.push_back(std::move(thumb));
 		}
 
+
+		// Paint the closed ComboBox face using the accepted selected item and a fixed drop-down glyph.
+		void AppendComboBoxFace(TreeModel const& tree, ControlNode const& node, Rect bounds, float scale, DrawPacket& out)
+		{
+			// The closed box shows only the caller-authoritative selected item plus a glyph indicator.
+			auto const& style_record = StyleFor(tree, node.desc.style_id);
+			auto const normal = style_record.desc.visuals[static_cast<std::size_t>(EStateChannel::Normal)];
+			auto const font = ResolveControlFont(tree, node.desc.font_resource_id);
+			auto const placement = TextPlacementFor(EControlType::TextBox);
+			auto const selected_text = node.desc.selected_index >= 0 && static_cast<std::uint32_t>(node.desc.selected_index) < node.combo_items.size() ? node.combo_items[static_cast<std::size_t>(node.desc.selected_index)] : std::string{};
+			if (!selected_text.empty())
+			{
+				DrawItem text_item{};
+				text_item.control_id = node.desc.id;
+				text_item.primitive = EVisualPrimitive::TextPresenter;
+				text_item.bounds = Rect{ bounds.x, bounds.y, std::max(0.0f, bounds.w - 24.0f * scale), bounds.h };
+				text_item.fill = font.colour;
+				text_item.opacity = normal.opacity;
+				text_item.text = selected_text;
+				text_item.font_family = font.family;
+				text_item.font_size = font.size * scale;
+				text_item.text_align = placement.align;
+				text_item.text_inset_dip = placement.inset_dip * scale;
+				out.items.push_back(std::move(text_item));
+			}
+
+			DrawItem glyph{};
+			glyph.control_id = node.desc.id;
+			glyph.primitive = EVisualPrimitive::TextPresenter;
+			glyph.bounds = Rect{ bounds.x + std::max(0.0f, bounds.w - 24.0f * scale), bounds.y, 24.0f * scale, bounds.h };
+			glyph.fill = font.colour;
+			glyph.opacity = normal.opacity;
+			glyph.text = "\xE2\x96\xBE";
+			glyph.font_family = font.family;
+			glyph.font_size = font.size * scale;
+			glyph.text_align = ETextAlign::Center;
+			glyph.text_inset_dip = 0.0f;
+			out.items.push_back(std::move(glyph));
+		}
+
+		// Paint the transient ComboBox popup as a topmost draw group.
+		void AppendComboBoxPopup(TreeModel const& tree, ControlNode const& node, std::unordered_map<ControlId, Rect> const& layout, InputState const& input_state, ViewportState const& viewport, float scale, DrawPacket& out)
+		{
+			// A closed or empty popup contributes no transient visuals.
+			if (input_state.m_open_combo_id != node.desc.id)
+				return;
+
+			auto const popup = ComboBoxPopupRect(tree, layout, viewport, node.desc.id);
+			if (popup.w <= 0.0f || popup.h <= 0.0f)
+				return;
+
+			auto const& style_record = StyleFor(tree, node.desc.style_id);
+			auto const normal = style_record.desc.visuals[static_cast<std::size_t>(EStateChannel::Normal)];
+			auto const hover = style_record.desc.visuals[static_cast<std::size_t>(EStateChannel::Hover)];
+			auto const selected = style_record.desc.visuals[static_cast<std::size_t>(EStateChannel::Selected)];
+			auto const font = ResolveControlFont(tree, node.desc.font_resource_id);
+			auto const placement = TextPlacementFor(EControlType::TextBox);
+
+			DrawItem background{};
+			background.control_id = node.desc.id;
+			background.primitive = normal.corner_radius > 0.0f ? EVisualPrimitive::RoundedBox : EVisualPrimitive::SolidBox;
+			background.bounds = popup;
+			background.fill = normal.fill;
+			background.border_colour = normal.border_colour;
+			background.border_thickness = normal.border_thickness * scale;
+			background.corner_radius = normal.corner_radius * scale;
+			background.opacity = normal.opacity;
+			out.items.push_back(std::move(background));
+
+			auto const row_h = popup.h / static_cast<float>(std::max<std::uint32_t>(1U, std::min(node.desc.combo_item_count, node.desc.max_visible_items)));
+			auto const visible_count = std::min(node.desc.combo_item_count - input_state.m_combo_scroll_offset, node.desc.max_visible_items);
+			for (auto row = std::uint32_t{}; row != visible_count; ++row)
+			{
+				auto const item_index = input_state.m_combo_scroll_offset + row;
+				auto const row_bounds = Rect{ popup.x, popup.y + row_h * static_cast<float>(row), popup.w, row_h };
+				auto const& row_visual = static_cast<std::int32_t>(item_index) == input_state.m_combo_highlight_index ? hover : static_cast<std::int32_t>(item_index) == node.desc.selected_index ? selected : normal;
+				DrawItem row_box{};
+				row_box.control_id = node.desc.id;
+				row_box.primitive = EVisualPrimitive::SolidBox;
+				row_box.bounds = row_bounds;
+				row_box.fill = row_visual.fill;
+				row_box.opacity = row_visual.opacity;
+				out.items.push_back(std::move(row_box));
+
+				DrawItem row_text{};
+				row_text.control_id = node.desc.id;
+				row_text.primitive = EVisualPrimitive::TextPresenter;
+				row_text.bounds = row_bounds;
+				row_text.fill = font.colour;
+				row_text.opacity = row_visual.opacity;
+				row_text.text = item_index < node.combo_items.size() ? node.combo_items[item_index] : std::string{};
+				row_text.font_family = font.family;
+				row_text.font_size = font.size * scale;
+				row_text.text_align = placement.align;
+				row_text.text_inset_dip = placement.inset_dip * scale;
+				out.items.push_back(std::move(row_text));
+			}
+		}
+
 		StyleRecord const& StyleFor(TreeModel const& tree, StyleId style_id)
 		{
 			if (style_id == 0)
@@ -102,7 +204,7 @@ namespace pr::view3d::ui
 			out.items.push_back(std::move(item));
 		}
 
-		void Walk(TreeModel const& tree, ControlId id, std::unordered_map<ControlId, Rect> const& layout, StyleResolver& styles, InputState const& input_state, double time_ms, float scale, DrawPacket& out)
+		void Walk(TreeModel const& tree, ControlId id, std::unordered_map<ControlId, Rect> const& layout, ViewportState const& viewport, StyleResolver& styles, InputState const& input_state, double time_ms, float scale, DrawPacket& out)
 		{
 			auto const& node = tree.m_controls.at(id);
 			if (!IsVisible(node.desc.visibility))
@@ -143,11 +245,15 @@ namespace pr::view3d::ui
 			{
 				case EControlType::ProgressBar: { AppendProgress(node, bounds, visual, time_ms, scale, out); break; }
 				case EControlType::Slider: { AppendSlider(node, bounds, visual, scale, out); break; }
+				case EControlType::ComboBox: { AppendComboBoxFace(tree, node, bounds, scale, out); break; }
 				case EControlType::Root:
 				case EControlType::Panel:
 				case EControlType::Text:
 				case EControlType::TextBox:
-				case EControlType::Button: { break; }
+				case EControlType::Button:
+				{
+					break;
+				}
 				default: { throw EngineException(EStatus::UnknownType, "unknown control type"); }
 			}
 
@@ -165,8 +271,8 @@ namespace pr::view3d::ui
 					auto edit_it = input_state.m_text_edits.find(id);
 					if (edit_it != input_state.m_text_edits.end() && edit_it->second.initialized != 0)
 					{
-						text = DisplayTextOf(edit_it->second);
-						ranges = DisplayRangesOf(edit_it->second);
+						text = DisplayTextOf(node.desc, edit_it->second);
+						ranges = DisplayRangesOf(node.desc, edit_it->second);
 						has_edit_state = true;
 					}
 				}
@@ -210,11 +316,11 @@ namespace pr::view3d::ui
 			}
 
 			for (auto child_id : node.children)
-				Walk(tree, child_id, layout, styles, input_state, time_ms, scale, out);
+				Walk(tree, child_id, layout, viewport, styles, input_state, time_ms, scale, out);
 		}
 	}
 
-	DrawPacket BuildDrawPacket(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, std::unordered_map<ControlId, RootPlacement> const& placements, StyleResolver& styles, InputState const& input_state, std::uint64_t accepted_revision, std::uint64_t visual_sequence, double time_ms, float viewport_dpi)
+	DrawPacket BuildDrawPacket(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, std::unordered_map<ControlId, RootPlacement> const& placements, StyleResolver& styles, InputState const& input_state, std::uint64_t accepted_revision, std::uint64_t visual_sequence, double time_ms, float viewport_dpi, ViewportState const& viewport)
 	{
 		DrawPacket out;
 		out.accepted_revision = accepted_revision;
@@ -236,7 +342,7 @@ namespace pr::view3d::ui
 				continue;
 
 			auto first_item = static_cast<std::uint32_t>(out.items.size());
-			Walk(tree, root_id, layout, styles, input_state, time_ms, placement.scale, out);
+			Walk(tree, root_id, layout, viewport, styles, input_state, time_ms, placement.scale, out);
 
 			// An entirely-invisible subtree emits no items; skipping the empty group keeps the
 			// renderer's per-pass work proportional to what is actually drawn.
@@ -255,6 +361,47 @@ namespace pr::view3d::ui
 				.occlusion_fade_depth = placement.occlusion_fade_depth,
 				.occlusion_depth_bias = placement.occlusion_depth_bias,
 			});
+		}
+
+		if (input_state.m_open_combo_id != 0)
+		{
+			// Emit the open popup as the final draw group so it renders above every normal root.
+			auto combo_it = tree.m_controls.find(input_state.m_open_combo_id);
+			if (combo_it != tree.m_controls.end() && combo_it->second.desc.type == EControlType::ComboBox)
+			{
+				auto root_id = input_state.m_open_combo_id;
+				for (;;)
+				{
+					auto const& walk = tree.m_controls.at(root_id);
+					if (walk.desc.parent_id == 0)
+						break;
+
+					root_id = walk.desc.parent_id;
+				}
+
+				auto placement_it = placements.find(root_id);
+				if (placement_it != placements.end() && placement_it->second.visible != 0)
+				{
+					auto first_item = static_cast<std::uint32_t>(out.items.size());
+					auto const& placement = placement_it->second;
+					AppendComboBoxPopup(tree, combo_it->second, layout, input_state, viewport, placement.scale, out);
+					auto item_count = static_cast<std::uint32_t>(out.items.size()) - first_item;
+					if (item_count != 0)
+					{
+						out.groups.push_back(DrawGroup{
+							.root_id = root_id,
+							.policy = placement.policy,
+							.first_item = first_item,
+							.item_count = item_count,
+							.clip_depth = placement.clip_depth,
+							.view_depth = placement.view_depth,
+							.occlusion_min_opacity = placement.occlusion_min_opacity,
+							.occlusion_fade_depth = placement.occlusion_fade_depth,
+							.occlusion_depth_bias = placement.occlusion_depth_bias,
+						});
+					}
+				}
+			}
 		}
 
 		return out;

@@ -43,6 +43,7 @@ namespace pr::view3d::ui
 		std::string text;
 		std::string name;
 		std::string description;
+		std::vector<std::string> combo_items;
 		std::vector<ControlId> children; // explicit, authoritative child order
 	};
 

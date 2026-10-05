@@ -123,6 +123,7 @@ namespace pr::view3d::ui
 				.range_minimum = record.range_minimum,
 				.range_maximum = record.range_maximum,
 				.range_step = record.range_step,
+				.is_protected = (record.state_flags & static_cast<std::uint32_t>(ESemanticState::Protected)) != 0 ? 1 : 0,
 				.parent_index = UiaNoIndex,
 				.sibling_position = 0,
 				.children = {},

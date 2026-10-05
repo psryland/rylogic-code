@@ -26,7 +26,10 @@ namespace pr::view3d::ui
 				case EControlType::TextBox:
 				{
 					auto it = input.m_text_edits.find(node.desc.id);
-					return it != input.m_text_edits.end() && it->second.initialized != 0 ? DisplayTextOf(it->second) : node.text;
+					if (node.desc.masked != 0)
+						return {};
+
+					return it != input.m_text_edits.end() && it->second.initialized != 0 ? DisplayTextOf(node.desc, it->second) : node.text;
 				}
 				case EControlType::Text:
 				{
@@ -39,6 +42,10 @@ namespace pr::view3d::ui
 				case EControlType::Slider:
 				{
 					return std::format("{}", node.desc.value);
+				}
+				case EControlType::ComboBox:
+				{
+					return node.desc.selected_index >= 0 && static_cast<std::uint32_t>(node.desc.selected_index) < node.combo_items.size() ? node.combo_items[static_cast<std::size_t>(node.desc.selected_index)] : std::string{};
 				}
 				case EControlType::Root:
 				case EControlType::Panel:
@@ -58,6 +65,8 @@ namespace pr::view3d::ui
 		{
 			if (node.desc.type != EControlType::TextBox)
 				return;
+			if (node.desc.masked != 0)
+				return;
 
 			auto it = input.m_text_edits.find(node.desc.id);
 			if (it == input.m_text_edits.end() || it->second.initialized == 0)
@@ -68,8 +77,8 @@ namespace pr::view3d::ui
 			// every offset is snapped to a grapheme boundary of that display string here: the
 			// semantic contract promises boundaries a UI Automation text provider can rely on.
 			auto const& edit = it->second;
-			auto const display = DisplayTextOf(edit);
-			auto const ranges = DisplayRangesOf(edit);
+			auto const display = DisplayTextOf(node.desc, edit);
+			auto const ranges = DisplayRangesOf(node.desc, edit);
 			auto const snap = [&display](std::uint32_t offset)
 			{
 				return ClampToGraphemeBoundary(display, std::min<std::uint32_t>(offset, static_cast<std::uint32_t>(display.size())));
@@ -117,6 +126,7 @@ namespace pr::view3d::ui
 					}
 					case EControlType::Button: actions |= static_cast<std::uint32_t>(ESemanticAction::Invoke); break;
 					case EControlType::Slider: actions |= static_cast<std::uint32_t>(ESemanticAction::SetValue); break;
+					case EControlType::ComboBox: actions |= static_cast<std::uint32_t>(ESemanticAction::ExpandCollapse); break;
 					case EControlType::Root:
 					case EControlType::Panel:
 					case EControlType::Text:
@@ -146,6 +156,10 @@ namespace pr::view3d::ui
 				flags |= static_cast<std::uint32_t>(ESemanticState::Selected);
 			if (node.desc.validation_state == EValidationState::Invalid)
 				flags |= static_cast<std::uint32_t>(ESemanticState::Invalid);
+			if (node.desc.type == EControlType::TextBox && node.desc.masked != 0)
+				flags |= static_cast<std::uint32_t>(ESemanticState::Protected);
+			if (node.desc.type == EControlType::ComboBox && node.desc.id == input.m_open_combo_id)
+				flags |= static_cast<std::uint32_t>(ESemanticState::Expanded);
 			if (!visible || !RectsIntersect(bounds, root_bounds))
 				flags |= static_cast<std::uint32_t>(ESemanticState::Offscreen);
 			return flags;
@@ -206,7 +220,8 @@ namespace pr::view3d::ui
 				case EControlType::Panel:
 				case EControlType::Text:
 				case EControlType::TextBox:
-				case EControlType::Button: { break; }
+				case EControlType::Button:
+				case EControlType::ComboBox: { break; }
 				default: { throw EngineException(EStatus::UnknownType, "unknown control type"); }
 			}
 			out.m_nodes.push_back(semantic);

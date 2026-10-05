@@ -25,6 +25,7 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT(StructSize(EStructId::Template) == sizeof(TemplateDesc));
 		PR_EXPECT(StructSize(EStructId::NormalizedInput) == sizeof(NormalizedInput));
 		PR_EXPECT(StructSize(EStructId::InputTextPayload) == sizeof(InputTextPayload));
+		PR_EXPECT(StructSize(EStructId::ComboBoxItem) == sizeof(ComboBoxItem));
 		PR_EXPECT(StructSize(EStructId::ViewportState) == sizeof(ViewportState));
 		PR_EXPECT(StructSize(EStructId::Event) == sizeof(Event));
 		PR_EXPECT(StructSize(EStructId::SemanticNode) == sizeof(SemanticNode));

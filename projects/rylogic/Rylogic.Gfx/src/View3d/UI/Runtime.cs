@@ -136,6 +136,7 @@ public sealed class UiRuntime :IDisposable
 		VerifyStructSize(EStructId.HostBridgeVersion, Marshal.SizeOf<Native.HostBridgeVersion>());
 		VerifyStructSize(EStructId.HostPassContext, Marshal.SizeOf<Native.HostPassContext>());
 		VerifyStructSize(EStructId.InputTextPayload, Marshal.SizeOf<Native.InputTextPayload>());
+		VerifyStructSize(EStructId.ComboBoxItem, Marshal.SizeOf<Native.ComboBoxItem>());
 	}
 
 	/// <summary>Compare one native reported struct size against the managed mirror size for 'struct_id'.</summary>

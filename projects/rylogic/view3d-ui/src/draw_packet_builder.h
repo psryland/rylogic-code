@@ -22,5 +22,5 @@ namespace pr::view3d::ui
 	// root that draws anything, in tree root order, carrying the root's host-stage policy and
 	// depth/fade parameters; culled world roots contribute nothing. 'styles' is mutated (its
 	// transition runtime state advances to 'time_ms' for every visited control).
-	DrawPacket BuildDrawPacket(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, std::unordered_map<ControlId, RootPlacement> const& placements, StyleResolver& styles, InputState const& input_state, std::uint64_t accepted_revision, std::uint64_t visual_sequence, double time_ms, float viewport_dpi);
+	DrawPacket BuildDrawPacket(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, std::unordered_map<ControlId, RootPlacement> const& placements, StyleResolver& styles, InputState const& input_state, std::uint64_t accepted_revision, std::uint64_t visual_sequence, double time_ms, float viewport_dpi, ViewportState const& viewport);
 }

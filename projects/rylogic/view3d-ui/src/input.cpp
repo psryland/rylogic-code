@@ -34,6 +34,7 @@ namespace pr::view3d::ui
 				{
 					return false;
 				}
+				case EControlType::ComboBox:
 				case EControlType::TextBox:
 				case EControlType::Button:
 				case EControlType::Slider:
@@ -376,11 +377,12 @@ namespace pr::view3d::ui
 		// which is what Shift+click and drag selection both need.
 		void PlaceCaretFromPointer(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, TextHitContext const& hit_context, ControlNode const& node, TextEditState& edit, Vec2 pt, bool extend)
 		{
-			auto const text = edit.pending_text;
+			auto const raw_text = edit.pending_text;
+			auto const text = node.desc.masked != 0 ? MaskedTextOf(raw_text) : raw_text;
 			auto layout_it = layout.find(node.desc.id);
 			if (hit_context.shaper == nullptr || layout_it == layout.end() || text.empty())
 			{
-				edit.caret = static_cast<std::uint32_t>(text.size());
+				edit.caret = static_cast<std::uint32_t>(raw_text.size());
 				if (!extend)
 					edit.selection_start = edit.caret;
 
@@ -398,13 +400,15 @@ namespace pr::view3d::ui
 
 			// OffsetFromPoint already reports a grapheme boundary chosen by proximity, so it is
 			// used verbatim; rounding it down again here would discard the trailing-hit result.
-			edit.caret = hit_context.shaper->OffsetFromPoint(font.family, font.size * scale, text, pt.x - origin_x, pt.y - origin_y);
+			auto const display_offset = hit_context.shaper->OffsetFromPoint(font.family, font.size * scale, text, pt.x - origin_x, pt.y - origin_y);
+			auto const cluster_index = GraphemeCount(std::string_view(text).substr(0, display_offset));
+			edit.caret = GraphemeOffsetAt(raw_text, cluster_index);
 			if (!extend)
 				edit.selection_start = edit.caret;
 		}
 	}
 
-	std::string DisplayTextOf(TextEditState const& edit)
+	std::string RawDisplayTextOf(TextEditState const& edit)
 	{
 		if (edit.composition.active == 0)
 			return edit.pending_text;
@@ -416,14 +420,42 @@ namespace pr::view3d::ui
 		return display;
 	}
 
-	TextEditRanges DisplayRangesOf(TextEditState const& edit)
+	std::string MaskedTextOf(std::string_view text)
+	{
+		auto display = std::string{};
+		auto const count = GraphemeCount(text);
+		display.reserve(count * 3);
+		for (auto i = std::uint32_t{}; i != count; ++i)
+			display.append("\xE2\x80\xA2");
+
+		return display;
+	}
+
+	std::uint32_t DisplayOffsetOf(ControlDesc const& desc, std::string_view raw_text, std::uint32_t raw_offset)
+	{
+		if (desc.masked == 0)
+			return raw_offset;
+
+		auto const clamped = ClampToGraphemeBoundary(raw_text, std::min<std::uint32_t>(raw_offset, static_cast<std::uint32_t>(raw_text.size())));
+		auto const cluster_index = GraphemeCount(raw_text.substr(0, clamped));
+		return cluster_index * 3U;
+	}
+
+	std::string DisplayTextOf(ControlDesc const& desc, TextEditState const& edit)
+	{
+		auto const raw = RawDisplayTextOf(edit);
+		return desc.masked != 0 ? MaskedTextOf(raw) : raw;
+	}
+
+	TextEditRanges DisplayRangesOf(ControlDesc const& desc, TextEditState const& edit)
 	{
 		if (edit.composition.active == 0)
 		{
+			auto const raw = std::string_view(edit.pending_text);
 			return TextEditRanges{
-				.caret = edit.caret,
-				.selection_start = std::min(edit.caret, edit.selection_start),
-				.selection_end = std::max(edit.caret, edit.selection_start),
+				.caret = DisplayOffsetOf(desc, raw, edit.caret),
+				.selection_start = DisplayOffsetOf(desc, raw, std::min(edit.caret, edit.selection_start)),
+				.selection_end = DisplayOffsetOf(desc, raw, std::max(edit.caret, edit.selection_start)),
 				.composition_start = 0,
 				.composition_length = 0,
 			};
@@ -432,14 +464,83 @@ namespace pr::view3d::ui
 		// While composing, the caret follows the IME's cursor inside the composition and the
 		// selection is the IME's target clause, both reported against the spliced display string.
 		auto const at = std::min<std::uint32_t>(edit.composition.insert_at, static_cast<std::uint32_t>(edit.pending_text.size()));
+		auto const raw = RawDisplayTextOf(edit);
+		auto const raw_composition_start = at;
+		auto const raw_composition_end = at + static_cast<std::uint32_t>(edit.composition.text.size());
 		return TextEditRanges{
-			.caret = at + edit.composition.caret,
-			.selection_start = at + edit.composition.sel_start,
-			.selection_end = at + edit.composition.sel_end,
-			.composition_start = at,
-			.composition_length = static_cast<std::uint32_t>(edit.composition.text.size()),
+			.caret = DisplayOffsetOf(desc, raw, at + edit.composition.caret),
+			.selection_start = DisplayOffsetOf(desc, raw, at + edit.composition.sel_start),
+			.selection_end = DisplayOffsetOf(desc, raw, at + edit.composition.sel_end),
+			.composition_start = DisplayOffsetOf(desc, raw, raw_composition_start),
+			.composition_length = DisplayOffsetOf(desc, raw, raw_composition_end) - DisplayOffsetOf(desc, raw, raw_composition_start),
 		};
 	}
+
+	// The height of one drop-down row follows the accepted control's font size with padding.
+	float ComboBoxRowHeight(TreeModel const& tree, ControlNode const& node)
+	{
+		// Match the closed box's resolved font closely enough for deterministic input and drawing.
+		auto const font = ResolveControlFont(tree, node.desc.font_resource_id);
+		return std::max(1.0f, font.size + 8.0f);
+	}
+
+	// Clamp the highlighted item into the visible scroll window.
+	void KeepComboHighlightVisible(ControlNode const& node, InputState& state)
+	{
+		// A closed or empty ComboBox has no list window to maintain.
+		if (state.m_open_combo_id != node.desc.id || node.desc.combo_item_count == 0 || state.m_combo_highlight_index < 0)
+			return;
+
+		auto const max_rows = std::max<std::uint32_t>(1U, std::min(node.desc.max_visible_items, node.desc.combo_item_count));
+		auto const highlight = static_cast<std::uint32_t>(state.m_combo_highlight_index);
+		if (highlight < state.m_combo_scroll_offset)
+			state.m_combo_scroll_offset = highlight;
+		else if (highlight >= state.m_combo_scroll_offset + max_rows)
+			state.m_combo_scroll_offset = highlight + 1U - max_rows;
+	}
+
+	// Open the transient drop-down for 'node' and initialise highlight/scroll from the accepted selection.
+	void OpenComboBox(ControlNode const& node, InputState& state)
+	{
+		// The accepted descriptor remains the only durable selection authority.
+		state.m_open_combo_id = node.desc.id;
+		state.m_combo_highlight_index = node.desc.selected_index >= 0 ? node.desc.selected_index : (node.desc.combo_item_count != 0 ? 0 : -1);
+		state.m_combo_scroll_offset = 0;
+		KeepComboHighlightVisible(node, state);
+	}
+
+	// Close any transient ComboBox popup without proposing a selection.
+	void CloseComboBox(InputState& state)
+	{
+		// Closing forgets only transient list navigation state.
+		state.m_open_combo_id = 0;
+		state.m_combo_highlight_index = -1;
+		state.m_combo_scroll_offset = 0;
+	}
+
+	// Emit the owning-app selection proposal for a ComboBox item index.
+	void ProposeComboBoxSelection(EventQueue& events, ControlNode const& node, std::int32_t index, std::uint64_t accepted_revision)
+	{
+		// Keep descriptor selection immutable; this is the same proposal contract as Slider.
+		if (index < 0 || static_cast<std::uint32_t>(index) >= node.desc.combo_item_count)
+			return;
+		if (!events.Push(node.desc.id, EEventKind::ValueChangeProposed, accepted_revision, 0, {}, 1, static_cast<double>(index)))
+			throw EngineException(EStatus::QueueOverflow, std::format("event queue overflow while enqueueing ComboBox proposal for control {}", node.desc.id));
+	}
+
+	// Move an open ComboBox highlight by a signed row delta.
+	void MoveComboHighlight(ControlNode const& node, InputState& state, std::int32_t delta)
+	{
+		// Clamp to the application-authored item domain.
+		if (node.desc.combo_item_count == 0)
+			return;
+
+		auto const last = static_cast<std::int32_t>(node.desc.combo_item_count) - 1;
+		auto current = state.m_combo_highlight_index >= 0 ? state.m_combo_highlight_index : 0;
+		state.m_combo_highlight_index = std::clamp(current + delta, 0, last);
+		KeepComboHighlightVisible(node, state);
+	}
+
 
 	void InputState::Prune(std::unordered_set<ControlId> const& live_ids)
 	{
@@ -474,6 +575,54 @@ namespace pr::view3d::ui
 
 		return order;
 	}
+
+	Rect ComboBoxPopupRect(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, ViewportState const& viewport, ControlId combo_id)
+	{
+		// Place the popup in viewport DIP space, flipping above when below has too little room.
+		auto node_it = tree.m_controls.find(combo_id);
+		auto layout_it = layout.find(combo_id);
+		if (node_it == tree.m_controls.end() || layout_it == layout.end() || node_it->second.desc.type != EControlType::ComboBox)
+			return Rect{};
+
+		auto const& node = node_it->second;
+		auto const control = layout_it->second;
+		auto const row_count = std::min(node.desc.combo_item_count, node.desc.max_visible_items);
+		auto const row_h = ComboBoxRowHeight(tree, node);
+		auto const popup_h = row_h * static_cast<float>(row_count);
+		auto const viewport_w = viewport.viewport_width_px * 96.0f / viewport.dpi;
+		auto const viewport_h = viewport.viewport_height_px * 96.0f / viewport.dpi;
+		auto x = std::clamp(control.x, 0.0f, std::max(0.0f, viewport_w - control.w));
+		auto y = control.y + control.h;
+		if (y + popup_h > viewport_h && control.y >= popup_h)
+			y = control.y - popup_h;
+		y = std::clamp(y, 0.0f, std::max(0.0f, viewport_h - popup_h));
+		return Rect{ x, y, std::min(control.w, viewport_w), popup_h };
+	}
+
+	HitTestResult HitTestDetailed(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, InputState const& state, ViewportState const& viewport, Vec2 pt)
+	{
+		// The open popup is a topmost transient layer above every root.
+		if (state.m_open_combo_id != 0)
+		{
+			auto node_it = tree.m_controls.find(state.m_open_combo_id);
+			if (node_it != tree.m_controls.end() && node_it->second.desc.type == EControlType::ComboBox && tree.IsVisible(state.m_open_combo_id) && node_it->second.desc.enabled != 0)
+			{
+				auto popup = ComboBoxPopupRect(tree, layout, viewport, state.m_open_combo_id);
+				if (RectContains(popup, pt))
+				{
+					auto const row_h = ComboBoxRowHeight(tree, node_it->second);
+					auto const row = row_h > 0.0f ? static_cast<std::uint32_t>((pt.y - popup.y) / row_h) : 0U;
+					auto const index = state.m_combo_scroll_offset + row;
+					return HitTestResult{ state.m_open_combo_id, index < node_it->second.desc.combo_item_count ? static_cast<std::int32_t>(index) : -1, 1 };
+				}
+			}
+		}
+
+		// Fall back to ordinary control hit testing.
+		auto id = HitTest(tree, layout, pt);
+		return HitTestResult{ id, -1, 0 };
+	}
+
 
 	ControlId HitTest(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, Vec2 pt)
 	{
@@ -541,15 +690,22 @@ namespace pr::view3d::ui
 		}
 	}
 
-	InputResult ProcessNormalizedInput(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, NormalizedInput const& input, InputTextRecord const* text_payload, TextHitContext const& hit_context, InputState& state, EventQueue& events, std::uint64_t accepted_revision)
+	// Interpret one input record against the current UI state, without pointer press ownership.
+	static InputResult ProcessInputRecord(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, ViewportState const& viewport, NormalizedInput const& input, InputTextRecord const* text_payload, TextHitContext const& hit_context, InputState& state, EventQueue& events, std::uint64_t accepted_revision)
 	{
 		switch (input.kind)
 		{
 			case EInputKind::PointerMove:
 			{
-				auto hit = HitTest(tree, layout, Vec2{ input.pointer_x, input.pointer_y });
+				auto hit_info = HitTestDetailed(tree, layout, state, viewport, Vec2{ input.pointer_x, input.pointer_y });
+				auto hit = hit_info.control_id;
 				auto changed = hit != state.m_hover_id;
 				state.m_hover_id = hit;
+				if (hit_info.in_combo_popup != 0 && hit_info.combo_item_index >= 0)
+				{
+					state.m_combo_highlight_index = hit_info.combo_item_index;
+					changed = true;
+				}
 
 				// A captured TextBox is mid drag-selection, so the pointer sweeps the caret away
 				// from the anchor the press established. Capture is what makes this keep working
@@ -581,9 +737,33 @@ namespace pr::view3d::ui
 				auto const was_composing = state.m_composing_id != 0;
 				CancelActiveComposition(state);
 
-				auto hit = HitTest(tree, layout, Vec2{ input.pointer_x, input.pointer_y });
+				auto hit_info = HitTestDetailed(tree, layout, state, viewport, Vec2{ input.pointer_x, input.pointer_y });
+				auto hit = hit_info.control_id;
+				if (hit_info.in_combo_popup != 0)
+				{
+					if (hit_info.combo_item_index >= 0)
+					{
+						auto const& combo = tree.m_controls.at(hit_info.control_id);
+						state.m_combo_highlight_index = hit_info.combo_item_index;
+						ProposeComboBoxSelection(events, combo, hit_info.combo_item_index, accepted_revision);
+						CloseComboBox(state);
+					}
+					return InputResult{ true, true };
+				}
+				if (state.m_open_combo_id != 0 && hit != state.m_open_combo_id)
+				{
+					CloseComboBox(state);
+					return InputResult{ true, true };
+				}
 				if (hit == 0)
 				{
+					// Outside click closes an open ComboBox first and consumes that light-dismiss click.
+					if (state.m_open_combo_id != 0)
+					{
+						CloseComboBox(state);
+						return InputResult{ true, true };
+					}
+
 					// Outside click: clear focus (if any) but do not consume the input, so the
 					// application's own scene/game input still observes it (section 7.3). Capture
 					// whether focus actually existed before clearing it, since 'invalidate' must
@@ -633,6 +813,14 @@ namespace pr::view3d::ui
 					state.m_pressed_id = textbox_target;
 					state.m_captured_id = textbox_target;
 				}
+				else if (auto combo_target = NearestOfType(tree, hit, EControlType::ComboBox); combo_target != 0 && tree.m_controls.at(combo_target).desc.enabled != 0)
+				{
+					auto const& node = tree.m_controls.at(combo_target);
+					if (state.m_open_combo_id == combo_target)
+						CloseComboBox(state);
+					else
+						OpenComboBox(node, state);
+				}
 				else if (auto slider_target = NearestOfType(tree, hit, EControlType::Slider); slider_target != 0 && tree.m_controls.at(slider_target).desc.enabled != 0)
 				{
 					auto const& node = tree.m_controls.at(slider_target);
@@ -650,7 +838,15 @@ namespace pr::view3d::ui
 				if (input.button != EPointerButton::Left || state.m_pressed_id == 0)
 					return InputResult{ state.m_captured_id != 0, false };
 
-				auto hit = HitTest(tree, layout, Vec2{ input.pointer_x, input.pointer_y });
+				auto hit_info = HitTestDetailed(tree, layout, state, viewport, Vec2{ input.pointer_x, input.pointer_y });
+				auto hit = hit_info.control_id;
+				if (hit_info.in_combo_popup != 0 && hit_info.combo_item_index >= 0)
+				{
+					auto const& combo = tree.m_controls.at(hit_info.control_id);
+					ProposeComboBoxSelection(events, combo, hit_info.combo_item_index, accepted_revision);
+					CloseComboBox(state);
+					return InputResult{ true, true };
+				}
 				auto pressed_id = state.m_pressed_id;
 				if (NearestOfType(tree, hit, EControlType::Button) == pressed_id)
 					PushOrThrow(events, pressed_id, EEventKind::CommandInvoked, accepted_revision, 0, {});
@@ -668,6 +864,18 @@ namespace pr::view3d::ui
 				// (LayoutParams::scroll_offset_x/y, set via transaction), not a runtime input
 				// target the state machine owns the way it owns hover/focus/pressed; wheel input
 				// therefore has nothing to directly act on here and is left unconsumed.
+				if (state.m_open_combo_id != 0)
+				{
+					auto node_it = tree.m_controls.find(state.m_open_combo_id);
+					if (node_it != tree.m_controls.end() && node_it->second.desc.type == EControlType::ComboBox)
+					{
+						auto const& node = node_it->second;
+						auto const rows = static_cast<std::int32_t>(std::max<std::uint32_t>(1U, node.desc.max_visible_items));
+						MoveComboHighlight(node, state, input.wheel_delta < 0.0f ? 1 : -1);
+						(void)rows;
+						return InputResult{ true, true };
+					}
+				}
 				return InputResult{ false, false };
 			}
 			case EInputKind::KeyDown:
@@ -676,6 +884,7 @@ namespace pr::view3d::ui
 				{
 					// Moving focus away abandons any composition, exactly as a pointer press does.
 					CancelActiveComposition(state);
+					CloseComboBox(state);
 
 					auto order = ComputeTabOrder(tree);
 					if (order.empty())
@@ -703,9 +912,64 @@ namespace pr::view3d::ui
 				}
 
 				if (state.m_focus_id == 0)
+				{
+					if (input.vk == VK_ESCAPE && state.m_open_combo_id != 0)
+					{
+						CloseComboBox(state);
+						return InputResult{ true, true };
+					}
 					return InputResult{ false, false };
+				}
 
 				auto const& node = tree.m_controls.at(state.m_focus_id);
+				if (node.desc.type == EControlType::ComboBox && node.desc.enabled != 0)
+				{
+					// Closed keys either open the list or propose adjacent accepted indices directly.
+					auto const alt_held = (input.modifiers & static_cast<std::uint32_t>(EInputModifier::Alt)) != 0;
+					if (state.m_open_combo_id != node.desc.id)
+					{
+						switch (input.vk)
+						{
+							case VK_DOWN:
+							{
+								if (alt_held)
+									OpenComboBox(node, state);
+								else
+									ProposeComboBoxSelection(events, node, std::min<std::int32_t>(static_cast<std::int32_t>(node.desc.combo_item_count) - 1, node.desc.selected_index + 1), accepted_revision);
+								return InputResult{ true, true };
+							}
+							case VK_UP:
+							{
+								ProposeComboBoxSelection(events, node, std::max(0, node.desc.selected_index <= 0 ? 0 : node.desc.selected_index - 1), accepted_revision);
+								return InputResult{ true, true };
+							}
+							case VK_HOME: { ProposeComboBoxSelection(events, node, 0, accepted_revision); return InputResult{ true, true }; }
+							case VK_END: { ProposeComboBoxSelection(events, node, static_cast<std::int32_t>(node.desc.combo_item_count) - 1, accepted_revision); return InputResult{ true, true }; }
+							case VK_F4:
+							case VK_SPACE:
+							case VK_RETURN: { OpenComboBox(node, state); return InputResult{ true, true }; }
+							default: { break; }
+						}
+					}
+					else
+					{
+						auto const page = static_cast<std::int32_t>(std::max<std::uint32_t>(1U, node.desc.max_visible_items));
+						switch (input.vk)
+						{
+							case VK_ESCAPE: { CloseComboBox(state); return InputResult{ true, true }; }
+							case VK_RETURN: { ProposeComboBoxSelection(events, node, state.m_combo_highlight_index, accepted_revision); CloseComboBox(state); return InputResult{ true, true }; }
+							case VK_UP: { MoveComboHighlight(node, state, -1); return InputResult{ true, true }; }
+							case VK_DOWN: { MoveComboHighlight(node, state, 1); return InputResult{ true, true }; }
+							case VK_HOME: { state.m_combo_highlight_index = 0; KeepComboHighlightVisible(node, state); return InputResult{ true, true }; }
+							case VK_END: { state.m_combo_highlight_index = static_cast<std::int32_t>(node.desc.combo_item_count) - 1; KeepComboHighlightVisible(node, state); return InputResult{ true, true }; }
+							case VK_PRIOR: { MoveComboHighlight(node, state, -page); return InputResult{ true, true }; }
+							case VK_NEXT: { MoveComboHighlight(node, state, page); return InputResult{ true, true }; }
+							case VK_F4: { CloseComboBox(state); return InputResult{ true, true }; }
+							default: { break; }
+						}
+					}
+				}
+
 				if (input.vk == VK_RETURN && node.desc.type == EControlType::Button && node.desc.enabled != 0)
 				{
 					PushOrThrow(events, node.desc.id, EEventKind::CommandInvoked, accepted_revision, 0, {});
@@ -752,6 +1016,7 @@ namespace pr::view3d::ui
 					return InputResult{ false, false };
 
 				auto& edit = GetOrInitTextEdit(state, node);
+				auto const masked = node.desc.masked != 0;
 
 				// While an IME owns the keyboard, editing keys belong to the IME, not to this edit
 				// buffer; the IME reports their effect as composition updates instead.
@@ -775,6 +1040,15 @@ namespace pr::view3d::ui
 						{
 							changed = ReplaceSelection(node.desc, edit, {});
 						}
+						else if (ctrl_held && masked && !edit.pending_text.empty())
+						{
+							// A masked value behaves like one password word, so Ctrl+Backspace
+							// clears the whole value rather than revealing structure through stops.
+							edit.pending_text.clear();
+							edit.caret = 0;
+							edit.selection_start = 0;
+							changed = true;
+						}
 						else if (edit.caret > 0)
 						{
 							// Backspace removes one whole grapheme cluster, so a flag, a skin-toned
@@ -794,6 +1068,15 @@ namespace pr::view3d::ui
 						{
 							changed = ReplaceSelection(node.desc, edit, {});
 						}
+						else if (ctrl_held && masked && !edit.pending_text.empty())
+						{
+							// A masked value behaves like one password word, so Ctrl+Delete clears
+							// the whole value rather than revealing structure through stops.
+							edit.pending_text.clear();
+							edit.caret = 0;
+							edit.selection_start = 0;
+							changed = true;
+						}
 						else if (edit.caret < edit.pending_text.size())
 						{
 							auto to = NextGraphemeBoundary(edit.pending_text, edit.caret);
@@ -804,7 +1087,7 @@ namespace pr::view3d::ui
 					}
 					case VK_LEFT:
 					{
-						edit.caret = ctrl_held ? PrevWordBoundary(edit.pending_text, edit.caret) : PrevGraphemeBoundary(edit.pending_text, edit.caret);
+						edit.caret = ctrl_held && masked ? 0 : ctrl_held ? PrevWordBoundary(edit.pending_text, edit.caret) : PrevGraphemeBoundary(edit.pending_text, edit.caret);
 						if (!shift_held)
 							edit.selection_start = edit.caret;
 
@@ -812,7 +1095,7 @@ namespace pr::view3d::ui
 					}
 					case VK_RIGHT:
 					{
-						edit.caret = ctrl_held ? NextWordBoundary(edit.pending_text, edit.caret) : NextGraphemeBoundary(edit.pending_text, edit.caret);
+						edit.caret = ctrl_held && masked ? static_cast<std::uint32_t>(edit.pending_text.size()) : ctrl_held ? NextWordBoundary(edit.pending_text, edit.caret) : NextGraphemeBoundary(edit.pending_text, edit.caret);
 						if (!shift_held)
 							edit.selection_start = edit.caret;
 
@@ -848,6 +1131,9 @@ namespace pr::view3d::ui
 					{
 						if (!ctrl_held)
 							return InputResult{ false, false };
+
+						if (masked)
+							break;
 
 						auto lo = std::min(edit.caret, edit.selection_start);
 						auto hi = std::max(edit.caret, edit.selection_start);
@@ -1031,6 +1317,7 @@ namespace pr::view3d::ui
 				// deterministic outcome is the pending edit exactly as it was before composing.
 				auto const was_composing = state.m_composing_id != 0;
 				CancelActiveComposition(state);
+				CloseComboBox(state);
 
 				if (state.m_focus_id == 0)
 					return InputResult{ true, was_composing };
@@ -1051,6 +1338,58 @@ namespace pr::view3d::ui
 			default:
 			{
 				throw EngineException(EStatus::UnknownType, std::format("ProcessNormalizedInput: unknown EInputKind {}", static_cast<int>(input.kind)));
+			}
+		}
+	}
+
+	InputResult ProcessNormalizedInput(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, ViewportState const& viewport, NormalizedInput const& input, InputTextRecord const* text_payload, TextHitContext const& hit_context, InputState& state, EventQueue& events, std::uint64_t accepted_revision)
+	{
+		// A press consumed by the UI owns its button until release. A press can change the UI so
+		// that the pointer is no longer over it (for example a closing ComboBox popup), and the
+		// application must not then see the drag or release as scene input without its press.
+		auto result = ProcessInputRecord(tree, layout, viewport, input, text_payload, hit_context, state, events, accepted_revision);
+		auto const button_bit = [&]
+		{
+			// Map the record's button to its ownership bit; 'None' owns nothing.
+			auto const index = static_cast<std::int32_t>(input.button);
+			return index > 0 && index < static_cast<std::int32_t>(EPointerButton::Count) ? 1U << (index - 1) : 0U;
+		};
+		switch (input.kind)
+		{
+			case EInputKind::PointerButtonDown:
+			{
+				if (result.consumed)
+					state.m_owned_buttons |= button_bit();
+
+				return result;
+			}
+			case EInputKind::PointerButtonUp:
+			{
+				// The release that ends an owned press belongs to the UI.
+				auto const bit = button_bit();
+				if ((state.m_owned_buttons & bit) != 0)
+				{
+					state.m_owned_buttons &= ~bit;
+					result.consumed = true;
+				}
+				return result;
+			}
+			case EInputKind::PointerMove:
+			{
+				if (state.m_owned_buttons != 0)
+					result.consumed = true;
+
+				return result;
+			}
+			case EInputKind::FocusLost:
+			{
+				// The window will not deliver releases for presses that span a focus loss.
+				state.m_owned_buttons = 0;
+				return result;
+			}
+			default:
+			{
+				return result;
 			}
 		}
 	}
@@ -1106,6 +1445,16 @@ namespace pr::view3d::ui
 
 		if (focus_changed)
 			PushOrThrow(events, state.m_focus_id, EEventKind::FocusChanged, accepted_revision, 0, {});
+
+		if (state.m_open_combo_id != 0)
+		{
+			auto open_it = new_tree.m_controls.find(state.m_open_combo_id);
+			if (open_it == new_tree.m_controls.end() || open_it->second.desc.type != EControlType::ComboBox || open_it->second.desc.enabled == 0 || !new_tree.IsVisible(state.m_open_combo_id))
+			{
+				CloseComboBox(state);
+				changed = true;
+			}
+		}
 
 		return changed || focus_changed ? 1 : 0;
 	}
@@ -1223,6 +1572,18 @@ namespace pr::view3d::ui
 					return InputResult{ true, false };
 
 				ProposeTextChange(events, node.desc.id, edit, accepted_revision);
+				return InputResult{ true, true };
+			}
+			case ESemanticActionKind::ExpandCollapse:
+			{
+				if (node.desc.type != EControlType::ComboBox || node.desc.enabled == 0)
+					throw EngineException(EStatus::UnsupportedFeature, std::format("control {} does not support ExpandCollapse", request.control_id));
+
+				if (state.m_open_combo_id == request.control_id)
+					CloseComboBox(state);
+				else
+					OpenComboBox(node, state);
+
 				return InputResult{ true, true };
 			}
 			case ESemanticActionKind::SetSelection:

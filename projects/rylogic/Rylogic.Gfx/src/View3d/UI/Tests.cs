@@ -31,7 +31,7 @@ public sealed class TestUiProgressBar
 		Assert.Equal(true, clone.IsIndeterminate);
 		Assert.Equal(0.25f, builder.DebugControls[0].m_value);
 		Assert.Equal(1, builder.DebugControls[0].m_is_indeterminate);
-		Assert.Equal(6U, builder.DebugControls[0].m_header.m_version);
+		Assert.Equal(7U, builder.DebugControls[0].m_header.m_version);
 		var visual = new StyleVisual(Colour.TransparentBlack, foreground: new Colour(0, 1, 0, 1));
 		var different = new StyleVisual(Colour.TransparentBlack, foreground: new Colour(1, 0, 0, 1));
 		Assert.Equal(false, visual == different);
@@ -73,12 +73,12 @@ public sealed class TestUiProgressBar
 		Assert.Equal(false, defaults.Controls[1].IsIndeterminate);
 	}
 
-	/// <summary>ABI 6's changed records match their native layouts and expose decoded numeric semantics.</summary>
+	/// <summary>ABI 7's changed records match their native layouts and expose decoded numeric semantics.</summary>
 	[Test]
 	public void AbiAndSemantics()
 	{
 		Native.EnsureLoaded();
-		Assert.Equal(0x00060000U, Native.View3DUI_ApiVersion());
+		Assert.Equal(0x00080000U, Native.View3DUI_ApiVersion());
 		Native.Check(Native.View3DUI_StructSize(EStructId.Control, out var control_size));
 		Native.Check(Native.View3DUI_StructSize(EStructId.Style, out var style_size));
 		Native.Check(Native.View3DUI_StructSize(EStructId.SemanticNode, out var semantic_size));
@@ -89,6 +89,24 @@ public sealed class TestUiProgressBar
 			ESemanticAction.None, ESemanticTextFlag.None, 0, 0, 0, 0, 0, 0, new Rect(0, 0, 100, 20), 1, 1, 0.25f, true);
 		Assert.Equal(0.25f, node.ProgressValue);
 		Assert.Equal(true, node.IsIndeterminate);
+	}
+
+	/// <summary>Managed masked TextBox descriptors snapshot, pack, and round-trip through JSON.</summary>
+	[Test]
+	public void MaskedTextBoxDescriptorAndJson()
+	{
+		var control = new UiControlDesc { Id = new ControlId(2), ParentId = new ControlId(1), Type = EControlType.TextBox, Masked = true };
+		var builder = new UiTransactionBuilder().Upsert(control);
+		control.Masked = false;
+		Assert.Equal(1, builder.DebugControls[0].m_masked);
+		Assert.Equal(true, builder.DebugDecodeBlobText(builder.DebugControls[0].m_text_offset, builder.DebugControls[0].m_text_length).Length == 0);
+
+		var document = UiDocument.Parse("""{"schema_version":2,"tree":[{"id":1,"type":"Root","children":[{"id":2,"type":"TextBox","masked":true}]}]}""");
+		var canonical = document.Serialize();
+		Assert.True(canonical.Contains("\"masked\": true"));
+		var parsed = UiDocument.Parse(canonical);
+		Assert.Equal(true, parsed.Controls[1].Masked);
+		Assert.Equal(1, parsed.ToTransactionBuilder().DebugControls[1].m_masked);
 	}
 }
 
@@ -191,6 +209,112 @@ public sealed class TestUiSlider
 	}
 }
 
+/// <summary>ComboBox managed descriptors, typed events, JSON authoring, and native interaction.</summary>
+[TestFixture]
+public sealed class TestUiComboBox
+{
+	/// <summary>Managed descriptors snapshot all item and selection fields and expose the shared numeric proposal accessor.</summary>
+	[Test]
+	public void DescriptorAndEventShape()
+	{
+		// Snapshot the descriptor, then verify the public typed proposal contract.
+		var combo = new UiControlDesc
+		{
+			Id = new ControlId(2),
+			ParentId = new ControlId(1),
+			Type = EControlType.ComboBox,
+			Items = new[] { "Alpha", "Beta", "Gamma" },
+			SelectedIndex = 1,
+			MaxVisibleItems = 2,
+		};
+		var clone = combo.DeepClone();
+		var builder = new UiTransactionBuilder().Upsert(combo);
+		combo.Items = new[] { "Changed" };
+		combo.SelectedIndex = 0;
+		combo.MaxVisibleItems = 1;
+		Assert.Equal(new[] { "Alpha", "Beta", "Gamma" }, clone.Items);
+		Assert.Equal(0U, builder.DebugControls[0].m_combo_item_offset);
+		Assert.Equal(3U, builder.DebugControls[0].m_combo_item_count);
+		Assert.Equal(1, builder.DebugControls[0].m_selected_index);
+		Assert.Equal(2U, builder.DebugControls[0].m_max_visible_items);
+
+		var proposal = new UiEvent(new ControlId(2), EEventKind.ValueChangeProposed, 3, 9, 0, string.Empty, true, 2.0);
+		Assert.True(proposal.HasNumericValue);
+		Assert.Equal(2.0, proposal.NumericValue);
+		Assert.Equal(2.0, proposal.ProposedValue);
+	}
+
+	/// <summary>ComboBox JSON round-trips canonically and rejects invalid item-selection relationships at the authoring boundary.</summary>
+	[Test]
+	public void JsonRoundTripAndValidation()
+	{
+		// Round-trip a list longer than the visible row count before exercising invalid relationships.
+		const string json = """
+			{"schema_version":2,"tree":[{"id":1,"type":"Root","children":[
+			  {"id":2,"type":"ComboBox","items":["Alpha","Beta","Gamma","Delta"],"selected_index":1,"max_visible_items":3,"focusable":true,"layout":{"width":160,"height":28}}
+			]}]}
+			""";
+		var document = UiDocument.Parse(json);
+		var canonical = document.Serialize();
+		var parsed = UiDocument.Parse(canonical);
+		var combo = parsed.Controls[1];
+		Assert.Equal(EControlType.ComboBox, combo.Type);
+		Assert.Equal(new[] { "Alpha", "Beta", "Gamma", "Delta" }, combo.Items);
+		Assert.Equal(1, combo.SelectedIndex);
+		Assert.Equal(3U, combo.MaxVisibleItems);
+		Assert.Equal(4U, parsed.ToTransactionBuilder().DebugControls[1].m_combo_item_count);
+		foreach (var replacement in new[]
+		{
+			"\"items\":[\"Alpha\",\"Beta\",\"Gamma\",\"Delta\"],\"selected_index\":4,\"max_visible_items\":3",
+			"\"items\":[\"Alpha\",\"Beta\",\"Gamma\",\"Delta\"],\"selected_index\":-2,\"max_visible_items\":3",
+			"\"items\":[\"Alpha\",\"Beta\",\"Gamma\",\"Delta\"],\"selected_index\":1,\"max_visible_items\":0",
+		})
+		{
+			Assert.Throws<UiJsonException>(() => UiDocument.Parse(json.Replace("\"items\":[\"Alpha\",\"Beta\",\"Gamma\",\"Delta\"],\"selected_index\":1,\"max_visible_items\":3", replacement)));
+		}
+	}
+
+	/// <summary>A live managed context receives an item-index proposal and keeps accepted semantics authoritative until reconciliation.</summary>
+	[Test]
+	public void NativeProposalAndReconciliation()
+	{
+		// Skip only when the environment cannot create the native D3D12-backed context.
+		var lease = UiTestDevice.Lease;
+		if (lease == null)
+			return;
+
+		using var runtime = new UiRuntime();
+		using var context = runtime.CreateContext(device: lease);
+		var root = new UiControlDesc { Id = new ControlId(1), Type = EControlType.Root };
+		var combo = new UiControlDesc
+		{
+			Id = new ControlId(2),
+			ParentId = root.Id,
+			Type = EControlType.ComboBox,
+			Focusable = true,
+			Items = new[] { "Alpha", "Beta", "Gamma", "Delta" },
+			SelectedIndex = 1,
+			MaxVisibleItems = 3,
+			Layout = new UiLayoutParams { Width = 160, Height = 28, HAlign = EHAlign.Left, VAlign = EVAlign.Top },
+		};
+		new UiTransactionBuilder().Upsert(root).Upsert(combo).Apply(context, 0, 1);
+		context.Update(new ViewportState(220, 120, 220, 120, 0, 0, 220, 120, 96, 0));
+		context.InjectInput(NormalizedInput.PointerButtonDown(10, 10, EPointerButton.Left, EPointerButtonMask.Left, EInputModifier.None, time_ms: 0));
+		context.InjectInput(NormalizedInput.PointerButtonDown(10, 84, EPointerButton.Left, EPointerButtonMask.Left, EInputModifier.None, time_ms: 1));
+		var proposal = Array.Find(context.DrainEvents(), x => x.Kind == EEventKind.ValueChangeProposed);
+		Assert.True(proposal != null);
+		Assert.Equal(2.0, proposal!.ProposedValue);
+		Assert.Equal("Beta", Array.Find(context.CaptureSemantics(), x => x.Id == combo.Id)!.Value);
+
+		combo.SelectedIndex = (int)proposal.ProposedValue;
+		new UiTransactionBuilder().Upsert(combo).Apply(context, 1, 2);
+		context.Update(new ViewportState(220, 120, 220, 120, 0, 0, 220, 120, 96, 1));
+		var semantic = Array.Find(context.CaptureSemantics(), x => x.Id == combo.Id)!;
+		Assert.Equal("Gamma", semantic.Value);
+		Assert.True((semantic.SupportedActions & ESemanticAction.ExpandCollapse) != 0);
+	}
+}
+
 /// <summary>
 /// Lazily acquires a live D3D12 device lease (via View3d) for the small subset of tests below that need a real native
 /// View3DUI context. Mirrors LDraw.Builder's View3dValidator: initialisation is attempted at most once per process, and
@@ -279,6 +403,7 @@ public sealed class TestUiAbi
 		AssertNativeSize(EStructId.HostBridgeVersion, Marshal.SizeOf<Native.HostBridgeVersion>());
 		AssertNativeSize(EStructId.HostPassContext, Marshal.SizeOf<Native.HostPassContext>());
 		AssertNativeSize(EStructId.InputTextPayload, Marshal.SizeOf<Native.InputTextPayload>());
+		AssertNativeSize(EStructId.ComboBoxItem, Marshal.SizeOf<Native.ComboBoxItem>());
 
 		// Constructing a runtime independently re-verifies the same complete EStructId set through its own VerifyStructLayout pass.
 		using var runtime = new UiRuntime();
@@ -408,7 +533,7 @@ public sealed class TestUiDescriptorSnapshotSemantics
 			var builder = new UiTransactionBuilder().Upsert(control);
 			control.Visibility = EVisibility.Visible;
 			Assert.Equal(visibility, builder.DebugControls[0].m_visibility);
-			Assert.Equal(6U, builder.DebugControls[0].m_header.m_version);
+			Assert.Equal(7U, builder.DebugControls[0].m_header.m_version);
 		}
 
 		// A failed upsert must not leave a partially packed control behind.
@@ -1195,6 +1320,15 @@ public sealed class TestUiJson
 		Assert.Equal(expected.FontResourceId, actual.FontResourceId);
 		Assert.Equal(expected.Selected, actual.Selected);
 		Assert.Equal(expected.ValueSequence, actual.ValueSequence);
+		Assert.Equal(expected.Value, actual.Value);
+		Assert.Equal(expected.IsIndeterminate, actual.IsIndeterminate);
+		Assert.Equal(expected.Minimum, actual.Minimum);
+		Assert.Equal(expected.Maximum, actual.Maximum);
+		Assert.Equal(expected.Step, actual.Step);
+		Assert.Equal(expected.Masked, actual.Masked);
+		Assert.Equal(expected.Items, actual.Items);
+		Assert.Equal(expected.SelectedIndex, actual.SelectedIndex);
+		Assert.Equal(expected.MaxVisibleItems, actual.MaxVisibleItems);
 		Assert.Equal(expected.Layout.Width, actual.Layout.Width);
 		Assert.Equal(expected.Layout.Height, actual.Layout.Height);
 		Assert.Equal(expected.Layout.HAlign, actual.Layout.HAlign);

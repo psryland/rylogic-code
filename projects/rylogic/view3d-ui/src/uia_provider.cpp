@@ -126,6 +126,7 @@ namespace pr::view3d::ui
 				case EControlType::Button: { return UIA_ButtonControlTypeId; }
 				case EControlType::ProgressBar: { return UIA_ProgressBarControlTypeId; }
 				case EControlType::Slider: { return UIA_SliderControlTypeId; }
+				case EControlType::ComboBox: { return UIA_ComboBoxControlTypeId; }
 				default: throw EngineException(EStatus::InvalidArgument, std::format("unknown control type {}", static_cast<std::int32_t>(role)));
 			}
 		}
@@ -142,7 +143,8 @@ namespace pr::view3d::ui
 				case EControlType::ProgressBar:
 				case EControlType::Slider:
 				case EControlType::TextBox:
-				case EControlType::Button: { return true; }
+				case EControlType::Button:
+				case EControlType::ComboBox: { return true; }
 				default: throw EngineException(EStatus::InvalidArgument, std::format("unknown control type {}", static_cast<std::int32_t>(role)));
 			}
 		}
@@ -299,6 +301,17 @@ namespace pr::view3d::ui
 			// so a range captured before an edit can never index into the middle of a cluster.
 			void Normalize(std::string_view text, std::uint32_t& start, std::uint32_t& end) const
 			{
+				// Password text is not available through UI Automation TextPattern. The element can
+				// still expose TextPattern to report a caret shape, but every text range is empty.
+				auto const snapshot = RequireSnapshot();
+				auto const& node = RequireNode(snapshot);
+				if (node.is_protected != 0)
+				{
+					start = 0;
+					end = 0;
+					return;
+				}
+
 				auto const size = static_cast<std::uint32_t>(text.size());
 				start = ClampToGraphemeBoundary(text, std::min(m_start, size));
 				end = ClampToGraphemeBoundary(text, std::min(m_end, size));
@@ -594,6 +607,9 @@ namespace pr::view3d::ui
 					*ret = nullptr;
 					auto const snapshot = RequireSnapshot();
 					auto const& node = RequireNode(snapshot);
+					if (node.is_protected != 0)
+						return S_OK;
+
 					auto start = std::uint32_t{};
 					auto end = std::uint32_t{};
 					Normalize(node.value_utf8, start, end);
@@ -857,6 +873,7 @@ namespace pr::view3d::ui
 			, public IInvokeProvider
 			, public IValueProvider
 			, public IRangeValueProvider
+			, public IExpandCollapseProvider
 			, public ITextProvider2
 		{
 			ControlId m_id;
@@ -931,6 +948,8 @@ namespace pr::view3d::ui
 					*obj = static_cast<IValueProvider*>(this);
 				else if (riid == __uuidof(IRangeValueProvider))
 					*obj = static_cast<IRangeValueProvider*>(this);
+				else if (riid == __uuidof(IExpandCollapseProvider))
+					*obj = static_cast<IExpandCollapseProvider*>(this);
 				else if (riid == __uuidof(ITextProvider))
 					*obj = static_cast<ITextProvider*>(static_cast<ITextProvider2*>(this));
 				else if (riid == __uuidof(ITextProvider2))
@@ -980,10 +999,11 @@ namespace pr::view3d::ui
 					// Patterns are advertised from the node's own supported-action set, so a control
 					// can never claim a pattern the owner-thread action path would then reject.
 					auto const invoke = pattern == UIA_InvokePatternId && node.role == EControlType::Button && node.HasAction(ESemanticAction::Invoke);
-					auto const value = pattern == UIA_ValuePatternId && node.role == EControlType::TextBox;
-					auto const text = (pattern == UIA_TextPatternId || pattern == UIA_TextPattern2Id) && node.role == EControlType::TextBox;
+					auto const value = pattern == UIA_ValuePatternId && (node.role == EControlType::TextBox || node.role == EControlType::ComboBox);
+					auto const text = (pattern == UIA_TextPatternId || pattern == UIA_TextPattern2Id) && node.role == EControlType::TextBox && node.is_protected == 0;
 					auto const range = pattern == UIA_RangeValuePatternId && ((node.role == EControlType::ProgressBar && node.is_indeterminate == 0) || node.role == EControlType::Slider);
-					if (!invoke && !value && !text && !range)
+					auto const expand = pattern == UIA_ExpandCollapsePatternId && node.role == EControlType::ComboBox;
+					if (!invoke && !value && !text && !range && !expand)
 						return S_OK;
 
 					AddRef();
@@ -993,6 +1013,8 @@ namespace pr::view3d::ui
 						*ret = static_cast<IValueProvider*>(this);
 					else if (range)
 						*ret = static_cast<IRangeValueProvider*>(this);
+					else if (expand)
+						*ret = static_cast<IExpandCollapseProvider*>(this);
 					else
 						*ret = static_cast<ITextProvider2*>(this);
 
@@ -1025,14 +1047,16 @@ namespace pr::view3d::ui
 						case UIA_IsOffscreenPropertyId: { *ret = BoolVariant(node.HasState(ESemanticState::Offscreen) || !node.HasState(ESemanticState::Visible)); break; }
 						case UIA_HasKeyboardFocusPropertyId: { *ret = BoolVariant(node.HasState(ESemanticState::Focused)); break; }
 						case UIA_IsKeyboardFocusablePropertyId: { *ret = BoolVariant(node.HasState(ESemanticState::Focusable)); break; }
+						case UIA_IsPasswordPropertyId: { *ret = BoolVariant(node.is_protected != 0); break; }
 						case UIA_SelectionItemIsSelectedPropertyId: { *ret = BoolVariant(node.HasState(ESemanticState::Selected)); break; }
 						case UIA_IsDataValidForFormPropertyId: { *ret = BoolVariant(!node.HasState(ESemanticState::Invalid)); break; }
 						case UIA_IsContentElementPropertyId: { *ret = BoolVariant(IsContentElement(node.role)); break; }
 						case UIA_IsControlElementPropertyId: { *ret = BoolVariant(true); break; }
-						case UIA_ValueValuePropertyId: { *ret = BstrVariant(node.value); break; }
-						case UIA_ValueIsReadOnlyPropertyId: { *ret = BoolVariant(node.role == EControlType::ProgressBar || node.role == EControlType::Slider || !node.HasState(ESemanticState::Enabled)); break; }
+						case UIA_ValueValuePropertyId: { *ret = BstrVariant(node.is_protected != 0 ? std::wstring{} : node.value); break; }
+						case UIA_ValueIsReadOnlyPropertyId: { *ret = BoolVariant(node.role == EControlType::ProgressBar || node.role == EControlType::Slider || node.role == EControlType::ComboBox || !node.HasState(ESemanticState::Enabled)); break; }
 						case UIA_IsInvokePatternAvailablePropertyId: { *ret = BoolVariant(node.role == EControlType::Button && node.HasAction(ESemanticAction::Invoke)); break; }
-						case UIA_IsValuePatternAvailablePropertyId: { *ret = BoolVariant(node.role == EControlType::TextBox); break; }
+						case UIA_IsValuePatternAvailablePropertyId: { *ret = BoolVariant(node.role == EControlType::TextBox || node.role == EControlType::ComboBox); break; }
+						case UIA_IsExpandCollapsePatternAvailablePropertyId: { *ret = BoolVariant(node.role == EControlType::ComboBox); break; }
 						case UIA_IsRangeValuePatternAvailablePropertyId: { *ret = BoolVariant((node.role == EControlType::ProgressBar && node.is_indeterminate == 0) || node.role == EControlType::Slider); break; }
 						case UIA_RangeValueIsReadOnlyPropertyId:
 						{
@@ -1054,7 +1078,7 @@ namespace pr::view3d::ui
 							break;
 						}
 						case UIA_IsTextPatternAvailablePropertyId:
-						case UIA_IsTextPattern2AvailablePropertyId: { *ret = BoolVariant(node.role == EControlType::TextBox); break; }
+						case UIA_IsTextPattern2AvailablePropertyId: { *ret = BoolVariant(node.role == EControlType::TextBox && node.is_protected == 0); break; }
 						default: break;
 					}
 
@@ -1198,6 +1222,11 @@ namespace pr::view3d::ui
 					if (value != nullptr && !Utf16ToUtf8(value, text))
 						return E_INVALIDARG;
 
+					auto const snapshot = RequireSnapshot();
+					auto const& node = RequireNode(snapshot);
+					if (node.role == EControlType::ComboBox)
+						return UIA_E_INVALIDOPERATION;
+
 					auto const request = SemanticActionRequest{
 						.kind = ESemanticActionKind::SetValue,
 						.control_id = m_id,
@@ -1214,6 +1243,9 @@ namespace pr::view3d::ui
 				{
 					auto const snapshot = RequireSnapshot();
 					auto const& node = RequireNode(snapshot);
+					if (node.is_protected != 0)
+						return AssignBstr(L"", ret);
+
 					return AssignBstr(node.value, ret);
 				});
 			}
@@ -1226,7 +1258,43 @@ namespace pr::view3d::ui
 
 					auto const snapshot = RequireSnapshot();
 					auto const& node = RequireNode(snapshot);
-					*ret = node.role == EControlType::ProgressBar || node.role == EControlType::Slider || !node.HasState(ESemanticState::Enabled) ? TRUE : FALSE;
+					*ret = node.role == EControlType::ProgressBar || node.role == EControlType::Slider || node.role == EControlType::ComboBox || !node.HasState(ESemanticState::Enabled) ? TRUE : FALSE;
+					return S_OK;
+				});
+			}
+
+			HRESULT STDMETHODCALLTYPE Expand() override
+			{
+				return ComGuard([&]() -> HRESULT
+				{
+					auto const request = SemanticActionRequest{
+						.kind = ESemanticActionKind::ExpandCollapse,
+						.control_id = m_id,
+					};
+					return m_shared->InvokeAction(request);
+				});
+			}
+			HRESULT STDMETHODCALLTYPE Collapse() override
+			{
+				return ComGuard([&]() -> HRESULT
+				{
+					auto const request = SemanticActionRequest{
+						.kind = ESemanticActionKind::ExpandCollapse,
+						.control_id = m_id,
+					};
+					return m_shared->InvokeAction(request);
+				});
+			}
+			HRESULT STDMETHODCALLTYPE get_ExpandCollapseState(ExpandCollapseState* ret) override
+			{
+				return ComGuard([&]() -> HRESULT
+				{
+					if (ret == nullptr)
+						return E_POINTER;
+
+					auto const snapshot = RequireSnapshot();
+					auto const& node = RequireNode(snapshot);
+					*ret = node.HasState(ESemanticState::Expanded) ? ExpandCollapseState_Expanded : ExpandCollapseState_Collapsed;
 					return S_OK;
 				});
 			}

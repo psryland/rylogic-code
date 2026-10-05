@@ -35,7 +35,7 @@ public sealed class UiEvent
 	/// <summary>The typed numeric payload, meaningful only when HasNumericValue is true.</summary>
 	public double NumericValue { get; }
 
-	/// <summary>The Slider value proposed by a ValueChangeProposed event.</summary>
+	/// <summary>The numeric value proposed by a ValueChangeProposed event: a Slider value or a ComboBox item index.</summary>
 	public double ProposedValue
 	{
 		get

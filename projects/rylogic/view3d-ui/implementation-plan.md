@@ -306,7 +306,7 @@ Names are provisional but the responsibilities are fixed:
 
 No public render export accepts an application command list.
 
-`EStructId` covers at least Config, Transaction, Operation, Control, Resource, Style, Template, NormalizedInput, ViewportState, Event, SemanticNode, Diagnostics, HostBridge, and HostPass. Native and managed startup tests enumerate the complete set rather than checking a hand-selected subset.
+`EStructId` covers at least Config, Transaction, Operation, Control, Resource, Style, Template, NormalizedInput, ViewportState, Event, SemanticNode, Diagnostics, HostBridge, HostPass, InputTextPayload, and ComboBoxItem. Native and managed startup tests enumerate the complete set rather than checking a hand-selected subset.
 
 ### 5.3 Transaction format
 
@@ -318,8 +318,11 @@ One delta `Transaction` contains only changed records plus:
 - child-order arrays;
 - style descriptors;
 - template descriptors;
+- combo-box item descriptors;
 - font/image/resource descriptors;
 - a shared UTF-8/blob table referenced by offset and length.
+
+ComboBox items use a transaction-level `ComboBoxItem` array. Each item is one UTF-8 range into the shared blob, and `ControlDesc::combo_item_offset/count` selects a contiguous span for one ComboBox. The transaction copies every referenced string before `TransactionApply` returns. `selected_index` is `-1` for no selection or an index within that span. `max_visible_items` is a required positive caller-owned row limit for ComboBox descriptors.
 
 Validation applies the delta to a staging clone/reference model of the last accepted revision. The transaction is one bulk interop call even when a text proposal changes TextBox text, validation state, and Button enabled state together; it does not resend the full tree and does not make per-property calls.
 
@@ -341,6 +344,7 @@ Validation occurs against a staging model and checks:
 - known control, layout, visual, state, transition, and resource types;
 - required template parts for each interactive control;
 - valid references and blob ranges;
+- valid ComboBox item spans, selected indices, and positive visible-row counts;
 - finite dimensions, durations, transforms, and numeric values;
 - bounded node, operation, string/blob, depth, and resource counts;
 - supported root/render policies for the current implementation level.
@@ -405,7 +409,8 @@ The first vertical slice implements:
 - `TextBox`;
 - `Button`;
 - `ProgressBar`;
-- `Slider`.
+- `Slider`;
+- `ComboBox`.
 
 Later demonstrated needs can add controls to the schema. Applications cannot register control classes.
 
@@ -441,12 +446,31 @@ Current placement and overflow contract:
 - Layout, drawing, and semantic bounds are viewport-relative DIPs. Client-pixel input and accessibility bounds include the viewport offset and client/target ratio.
   Updating viewport dimensions or DPI recomputes placement from authored values, rather than scaling the previous layout.
 
-Current native API version is `0x00060000`, and every wire struct header uses version `6`. `ControlDesc::visibility` is a signed 32-bit `EVisibility`
-at the former boolean field's offset; unchanged byte size does not make version-3 callers compatible. The private View3D host bridge version is unchanged.
+Current native API version is `0x00080000`, and every wire struct header uses version `8`. `ControlDesc::visibility` is a signed 32-bit `EVisibility`
+at the former boolean field's offset; unchanged byte size does not make version-3 callers compatible. `ControlDesc::masked != 0` is an appended
+TextBox-only password flag; zero-initialised older descriptors remain unmasked only when submitted through the current struct version. The private View3D
+host bridge version is unchanged.
+ABI 8 appends ComboBox item encoding: `Transaction::combo_box_items`, `Transaction::combo_box_item_count`, `ControlDesc::combo_item_offset`,
+`combo_item_count`, `selected_index`, and `max_visible_items`, plus the `ComboBoxItem` struct. Native clients and managed mirrors must refresh together.
 Managed callers use `UiControlDesc.Visibility`; replace old `true` with `EVisibility.Visible` and old `false` with `EVisibility.Hidden` to preserve behavior.
 Choose `Collapsed` explicitly when controls should stop reserving space. The native demonstration and existing tests preserve their former Visible/Hidden intent.
 JSON schema version `2` uses `"visibility": "Visible" | "Hidden" | "Collapsed"` (default Visible); schema version `1` and the boolean `visible` property are rejected.
 There are no compatibility adapters or automatic conversions.
+
+### Retained TextBox password mode
+
+`TextBox` remains the editable text control; password behaviour is selected by `ControlDesc::masked != 0` (`UiControlDesc.Masked` in managed code and
+`"masked": true` in JSON). The application remains the only owner of the real text. Editing proposals still emit `TextChangeProposed` with the real proposed
+UTF-8 text and edit generation, and reconciliation still happens only through a later accepted descriptor revision.
+
+A masked TextBox displays one U+2022 bullet for each extended grapheme cluster of the accepted or pending text. Caret geometry, selection drawing, hit testing,
+composition spans, and max-text-length enforcement all use the same grapheme-cluster model. IME composition updates are included in the display as bullets, so
+composition text is never shown in the clear. Ctrl+Left/Ctrl+Right jump only to the start/end of the value, and Ctrl+Backspace/Ctrl+Delete treat the value as
+one password word. Copy and cut are consumed without writing to the clipboard; cut does not delete. Paste remains allowed and inserts the clipboard text through
+the normal proposal path.
+
+Semantics deliberately expose an empty value for a masked TextBox and set `ESemanticState::Protected`. UI Automation reports `IsPassword = true`, leaves
+`ValuePattern.Value` empty, keeps `ValuePattern.SetValue` available while enabled, and does not advertise TextPattern/TextPattern2 for the protected element.
 
 ### Retained ProgressBar
 
@@ -481,6 +505,18 @@ The default lookless template supplies `PART_Track` and `PART_Thumb`. The track 
 `StyleVisual::foreground`, with no custom draw callback. Slider participates in normal hover, pressed, focused, disabled, visibility, DPI, layout, and Tab-order
 behaviour. Disabled sliders are not hit-test targets and advertise no SetValue semantic action. SemanticNode exposes Slider role, accepted range/value/step, and
 SetValue/Focus actions. UI Automation maps it to Slider with a writable RangeValue pattern while enabled and a read-only pattern while disabled.
+
+### Retained ComboBox
+
+`EControlType::ComboBox = 7` adds a read-only closed-box plus transient drop-down list. Items are authored by `Transaction::combo_box_items` and selected by `ControlDesc::combo_item_offset/count`; each item is a UTF-8 string range in the transaction blob. `ControlDesc::selected_index` is the application-owned accepted selection (`-1` means none). `ControlDesc::max_visible_items` must be greater than zero and caps the visible drop-down rows; extra items are reached by mouse wheel, arrow keys, PageUp/PageDown, Home, and End. Invalid item ranges, UTF-8, selected indices, or row counts reject the transaction atomically.
+
+The accepted descriptor remains the only durable selection authority. Pointer selection, closed Up/Down/Home/End keys, and UI Automation selection proposals emit `ValueChangeProposed` with `has_numeric_value != 0` and `numeric_value` equal to the proposed item index as a culture-independent `double`. Drawing and semantics continue to expose the previous accepted selection until the application submits a later descriptor revision.
+
+Only one drop-down can be open. Click toggles the focused ComboBox; Alt+Down, F4, Space, and Enter open it while closed. While open, hover and navigation keys move a highlight, Enter or a popup click proposes the highlighted/clicked index and closes, Escape or F4 closes without proposing, focus loss closes, and disabling, hiding, or removing the control closes during transaction reconciliation. A click outside an open popup is consumed as light dismiss and does not reach lower UI or the host camera.
+
+The popup is a topmost transient layer above all roots and has hit-test priority over normal controls. It is placed in final viewport-relative DIP space using the ComboBox's projected bounds, so screen roots and world-anchored roots are both supported. The popup uses the control width, a row height derived from the resolved font, flips above when there is not enough room below, and clamps inside the viewport. The closed face uses the control style, selected text, and a fixed drop-down glyph; the popup background uses Normal, highlighted rows use Hover, and the accepted selected row uses Selected.
+
+SemanticNode exposes ComboBox role, selected item text as value, Focus and ExpandCollapse actions, and `ESemanticState::Expanded` while the transient popup is open. UI Automation maps it to ComboBox, exposes read-only ValuePattern, and exposes ExpandCollapsePattern/state. The current provider does not yet expose child list items or SelectionPattern; clients still receive the selected value and can expand/collapse the popup.
 
 ### 6.3 Lookless templates
 
@@ -569,6 +605,8 @@ Injection does not call Win32 capture, clipboard, or IME services; deterministic
 - UI hit testing and active pointer capture run before scene/camera handling.
 - A consumed message does not reach `Main::OnMouse*` or `Main::OnKey`.
 - Mouse down on no UI element clears UI keyboard focus and is returned as unconsumed, allowing the same message to begin camera interaction.
+- Mouse down outside an open ComboBox drop-down is consumed for light dismiss, so that click does not also activate lower UI or begin camera interaction.
+- A consumed mouse down owns that button until its release: the moves while it is held and the matching release are also consumed, even when the press changed the UI so that the pointer is no longer over it (for example, choosing a drop-down item closes the popup). The application therefore never sees a drag or release without its press. Focus loss ends this ownership.
 - Active UI pointer capture continues receiving pointer messages outside UI bounds until release/cancel.
 - Losing HWND focus clears UI focus/capture and emits ordered focus/capture events.
 - Tab, Enter, and Space are consumed only while UI focus makes them applicable; existing host shortcuts remain unchanged when UI has no focus.

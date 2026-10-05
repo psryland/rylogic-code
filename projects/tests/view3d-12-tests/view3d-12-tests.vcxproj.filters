@@ -158,6 +158,9 @@
     <ClCompile Include="src\view3d-ui\tests_slider.cpp">
       <Filter>view3d-ui</Filter>
     </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_combo_box.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
     <ClInclude Include="$(RylogicRoot)projects\rylogic\view3d-ui\dll\renderer.h">
       <Filter>view3d-ui</Filter>
     </ClInclude>

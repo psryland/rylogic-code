@@ -140,7 +140,7 @@ namespace pr::view3d::ui::tests
 			InputResult Send(NormalizedInput const& input)
 			{
 				auto const hit = TextHitContext{ .shaper = nullptr, .placements = nullptr };
-				return ProcessNormalizedInput(tree, layout, input, nullptr, hit, state, events, tree.m_revision);
+				return ProcessNormalizedInput(tree, layout, Viewport(240, 120), input, nullptr, hit, state, events, tree.m_revision);
 			}
 
 			// True when a TextChangeProposed is queued; drains the queue either way.
