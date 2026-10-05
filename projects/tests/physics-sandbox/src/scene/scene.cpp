@@ -2231,6 +2231,46 @@ namespace physics_sandbox::tests
 		}
 	};
 
+	// Exercise the renderer-backed atmosphere demo over procedural terrain.
+	PRUnitTestClass(SceneAtmosphereTests)
+	{
+		// The terrain climate demo must load and keep its tracers finite and inside the air over a sustained run.
+		PRUnitTestMethod(ClimateTerrainSceneStaysStable, Quick)
+		{
+			// Use the real renderer and scene fixture so the solver, tracers and terrain are built exactly as in the demo.
+			auto renderer = rdr12::Renderer(rdr12::RdrSettings(GetModuleHandle(nullptr)));
+			auto window = rdr12::Window(renderer, rdr12::WndSettings(nullptr, true, renderer.Settings()).Size(96, 96));
+			auto sandbox = Scene(&renderer);
+			sandbox.LoadScene(scene_loader::LoadFromFile("projects\\tests\\physics-sandbox\\scenes\\climate_terrain.json"));
+			PR_EXPECT(sandbox.m_atmosphere_gfx != nullptr);
+			auto& atmosphere = *sandbox.m_atmosphere_gfx;
+
+			// Run 20 simulated seconds, waiting on each submitted step so every period is simulated rather than dropped.
+			auto const step_period = 1.0f / atmosphere.m_desc.m_step_rate;
+			for (int i = 0; i != static_cast<int>(20.0f * atmosphere.m_desc.m_step_rate); ++i)
+			{
+				// Each call collects the previous step and submits the next.
+				atmosphere.Step(step_period);
+				if (atmosphere.m_pending)
+					atmosphere.m_gpu.m_job.m_gsync.Wait(atmosphere.m_pending.m_sync_point);
+			}
+			atmosphere.Step(step_period);
+
+			// Tracers must stay finite, between the floor and the lid, and moving at plausible wind speeds.
+			auto const& grid = atmosphere.m_desc.m_config.m_grid;
+			auto max_speed = 0.0f;
+			for (auto const& particle : atmosphere.m_particles)
+			{
+				// Allow a small tolerance at the lid for the final advection substep.
+				PR_EXPECT(IsFinite(particle.m_position) && std::isfinite(particle.m_speed));
+				PR_EXPECT(particle.m_position.z <= grid.m_lid_z + 1.0f);
+				max_speed = std::max(max_speed, particle.m_speed);
+			}
+			PR_EXPECT(max_speed > 40.0f && max_speed < 240.0f);
+			window.WaitForGpu();
+		}
+	};
+
 	// Scene initialization must preserve explicitly requested articulation sleep state.
 	PRUnitTestClass(SceneArticulationSleepTests)
 	{

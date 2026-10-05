@@ -126,6 +126,15 @@ namespace pr::physics::tests
 			bad = config;
 			bad.m_boundaries.m_x_min = static_cast<EAtmosphereBoundary>(99);
 			PR_THROWS(bad.Validate(), std::invalid_argument);
+
+			bad = config;
+			bad.m_wall_drag.m_z_min = -0.01f;
+			PR_THROWS(bad.Validate(), std::invalid_argument);
+
+			bad = config;
+			bad.m_boundaries.m_x_min = EAtmosphereBoundary::Open;
+			bad.m_wall_drag.m_x_min = 0.01f;
+			PR_THROWS(bad.Validate(), std::invalid_argument);
 		}
 
 		PRUnitTestMethod(RestStability, Quick)
@@ -324,6 +333,35 @@ namespace pr::physics::tests
 			}
 		}
 
+		PRUnitTestMethod(GroundDensityConcentratesTracersLow, Quick)
+		{
+			// Densities 10 at the floor, 1 at a fifth of the height, and 0.1 above sum to 1.18. That places 0.775/1.18 of new tracers
+			// below a tenth of the column and 0.08/1.18 above a fifth.
+			auto gpu = Gpu{};
+			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTracerTests.GroundDensity", 0xFF00AAFF, 1 };
+			auto config = Config();
+			auto solver = AtmosphereSolver{ gpu, config };
+			auto tracers = AtmosphereTracers{ solver, gpu, AtmosphereTracerConfig{ .m_particle_count = 16384, .m_seed = 777u, .m_max_age = 10.0f, .m_ground_density = 10.0f, .m_break_density = 1.0f, .m_upper_density = 0.1f, .m_break_height = 0.2f } };
+			auto particles = tracers.ReadBack(job);
+
+			// Count tracers by height band. The fixture floor is at zero, so height over the lid is the column fraction.
+			auto low = 0;
+			auto high = 0;
+			for (auto const& particle : particles)
+			{
+				// Each tracer must still start inside the domain.
+				PR_EXPECT(Inside(config, particle));
+				auto const s = particle.m_position.z / config.m_grid.m_lid_z;
+				low += s < 0.1f ? 1 : 0;
+				high += s > 0.2f ? 1 : 0;
+			}
+			auto const low_share = static_cast<float>(low) / isize(particles);
+			auto const high_share = static_cast<float>(high) / isize(particles);
+			std::printf("Atmosphere tracer ground density low %.4f (%.4f) high %.4f (%.4f)\n", low_share, 0.775f / 1.18f, high_share, 0.08f / 1.18f);
+			PR_EXPECT(std::abs(low_share - 0.775f / 1.18f) < 0.02f);
+			PR_EXPECT(std::abs(high_share - 0.08f / 1.18f) < 0.01f);
+		}
+
 		PRUnitTestMethod(StretchedSolidBoxWithHeat, Quick)
 		{
 			// A closed box with stretched layers, a heat source, and thousands of tracers should keep every tracer inside the domain.
@@ -365,7 +403,8 @@ namespace pr::physics::tests
 				.m_reference = AtmosphereReferenceProfile{ .m_temperature_at_origin = 288.0f, .m_lapse_rate = -0.004f, .m_min_temperature = 250.0f },
 			};
 			auto solver = AtmosphereSolver{ gpu, config };
-			auto tracers = AtmosphereTracers{ solver, gpu, AtmosphereTracerConfig{ .m_particle_count = 512, .m_seed = 12648430u, .m_max_age = 30.0f } };
+			// Initial ages are staggered across the lifetime, so use a lifetime long enough that no tracer expires by age and every respawn is an inflow respawn.
+			auto tracers = AtmosphereTracers{ solver, gpu, AtmosphereTracerConfig{ .m_particle_count = 512, .m_seed = 12648430u, .m_max_age = 1.0e6f } };
 			auto const outside_air = UniformOutsideAir(config.m_grid, v2{ 5.0f, 0.0f });
 			auto const sources = AtmosphereStepSources{ .m_outside_air = outside_air };
 			auto const dt = 1.0f / 60.0f;
@@ -428,7 +467,8 @@ namespace pr::physics::tests
 				.m_reference = AtmosphereReferenceProfile{ .m_temperature_at_origin = 288.0f, .m_lapse_rate = -0.004f, .m_min_temperature = 250.0f },
 			};
 			auto solver = AtmosphereSolver{ gpu, config };
-			auto tracers = AtmosphereTracers{ solver, gpu, AtmosphereTracerConfig{ .m_particle_count = 512, .m_seed = 12648430u, .m_max_age = 30.0f } };
+			// Initial ages are staggered across the lifetime, so use a lifetime long enough that no tracer expires by age and every respawn is an inflow respawn.
+			auto tracers = AtmosphereTracers{ solver, gpu, AtmosphereTracerConfig{ .m_particle_count = 512, .m_seed = 12648430u, .m_max_age = 1.0e6f } };
 			auto const outside_air = config.m_grid.BuildOutsideAir([](v2 pos)
 			{
 				// The outside air south of the tunnel axis blows east, and north of it blows west.
@@ -642,6 +682,49 @@ namespace pr::physics::tests
 			PR_EXPECT(stats.m_max_speed < 16.0f);
 		}
 
+		PRUnitTestMethod(WindClimbsRamp, Quick)
+		{
+			// Wind blowing up a 10% ramp cannot pass through the ground, so air near the floor must rise at about the wind speed times the slope.
+			auto const cells = iv3{ 64, 32, 16 };
+			auto const slope = 0.1f;
+			auto floors = std::vector<float>(cells.x * cells.y, 0.0f);
+			for (int y = 0; y != cells.y; ++y)
+			{
+				// The ramp rises from x = 16 to x = 48 and is flat on either side.
+				for (int x = 0; x != cells.x; ++x)
+					floors[y * cells.x + x] = std::clamp(x - 16.0f, 0.0f, 32.0f) * 32.0f * slope;
+			}
+
+			// Solid side walls stop air escaping sideways around the ramp, and a neutral lapse rate removes buoyancy so only the ground's kinematics lift the air.
+			auto gpu = Gpu{};
+			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTerrainTests.Ramp", 0xFF00AAFF, 1 };
+			auto config = Config(cells, floors);
+			config.m_boundaries.m_y_min = EAtmosphereBoundary::Solid;
+			config.m_boundaries.m_y_max = EAtmosphereBoundary::Solid;
+			config.m_reference.m_lapse_rate = -config.m_gravity / 1004.5f;
+			auto solver = AtmosphereSolver{ gpu, config };
+
+			// Start from the outside wind everywhere so a short run measures the developed flow rather than the spin-up from rest.
+			auto const wind = 10.0f;
+			auto const outside_air = UniformOutsideAir(solver.Config().m_grid, v2{ wind, 0.0f });
+			auto initial = solver.ReadBack(job);
+			for (auto& u : initial.m_u_faces)
+				u = wind;
+
+			solver.UploadState(job, initial);
+			job.Run();
+			auto state = Run(solver, job, 150, 1.0f / 15.0f, AtmosphereStepSources{ .m_outside_air = outside_air });
+
+			// The lowest layers lie between 0 and about 300 m above the ground, where the rise is expected to fade from u * slope towards zero at the lid.
+			auto const ramp = MeanVelocity(solver, state, iv3{ 24, 8, 0 }, iv3{ 40, 24, 2 });
+			auto const stats = solver.Stats(state);
+			std::printf("Atmosphere ramp u %.6f w %.6f floor_w %.6f max_speed %.6f\n", ramp.x, ramp.z, ramp.x * slope, stats.m_max_speed);
+			PR_EXPECT(ramp.x > 0.5f * wind);
+			PR_EXPECT(ramp.z > 0.3f * ramp.x * slope);
+			PR_EXPECT(ramp.z < 1.0f * ramp.x * slope);
+			PR_EXPECT(stats.m_max_speed < 2.0f * wind);
+		}
+
 		PRUnitTestMethod(ColdDrainageSlope, Quick)
 		{
 			// A cold floor on a real 15 degree slope should produce downslope near-floor flow within one simulated minute.
@@ -743,6 +826,150 @@ namespace pr::physics::tests
 			auto interior = MeanVelocity(solver, state, iv3{ 32, 32, 1 }, iv3{ 64, 64, 8 });
 			std::printf("Atmosphere open edges interior %.6f m/s target 5.000000 max_speed %.6f threshold 7.500000 rms_div %.9f threshold 0.005000\n", interior.x, stats.m_max_speed, stats.m_rms_divergence);
 			PR_EXPECT(std::abs(interior.x - 5.0f) < 0.5f);
+			PR_EXPECT(stats.m_max_speed < 7.5f);
+			PR_EXPECT(stats.m_rms_divergence < 0.005f);
+		}
+
+		PRUnitTestMethod(FlowAroundSolidCylinder, Quick)
+		{
+			// Columns whose floor reaches the lid are solid. Wind should pass around them without crossing any of their faces, speeding up
+			// beside the obstacle and slowing in its wake, while the projection stays divergence-free.
+			auto const cells = iv3{ 64, 32, 8 };
+			auto const centre = v2{ 20.5f, 16.0f };
+			auto const radius = 4.0f;
+			auto config = Config(cells, std::vector<float>(cells.x * cells.y, 0.0f));
+			auto solid = std::vector<uint8_t>(cells.x * cells.y, 0);
+			for (int y = 0; y != cells.y; ++y)
+			{
+				// Mark columns whose centre lies inside the cylinder and raise their floor to the lid.
+				for (int x = 0; x != cells.x; ++x)
+				{
+					// Distances are measured in cells from the cylinder axis.
+					auto const d = v2{ x + 0.5f, y + 0.5f } - centre;
+					if (LengthSq(d) > radius * radius)
+						continue;
+
+					solid[y * cells.x + x] = 1;
+					config.m_grid.m_floor_heights[y * cells.x + x] = config.m_grid.m_lid_z;
+				}
+			}
+			config.m_boundaries.m_y_min = EAtmosphereBoundary::Solid;
+			config.m_boundaries.m_y_max = EAtmosphereBoundary::Solid;
+			auto gpu = Gpu{};
+			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTerrainTests.SolidCylinder", 0xFF00AAFF, 1 };
+			auto solver = AtmosphereSolver{ gpu, config };
+			auto const& grid = solver.Config().m_grid;
+			auto const outside_air = UniformOutsideAir(grid, v2{ 5.0f, 0.0f });
+			auto state = Run(solver, job, 450, 1.0f / 15.0f, AtmosphereStepSources{ .m_outside_air = outside_air });
+			auto stats = solver.Stats(state);
+
+			// Every face of a solid column must carry no flow.
+			auto max_wall_flux = 0.0f;
+			for (int y = 0; y != cells.y; ++y)
+			{
+				// Only solid columns are checked; their six face families are all walls.
+				for (int x = 0; x != cells.x; ++x)
+				{
+					// Air columns are not walls.
+					if (solid[y * cells.x + x] == 0)
+						continue;
+
+					for (int z = 0; z != cells.z; ++z)
+					{
+						// Check the x, y and z faces bounding this cell.
+						max_wall_flux = std::max(max_wall_flux, std::abs(state.m_u_faces[grid.UFaceIndex(iv3{ x, y, z })]));
+						max_wall_flux = std::max(max_wall_flux, std::abs(state.m_u_faces[grid.UFaceIndex(iv3{ x + 1, y, z })]));
+						max_wall_flux = std::max(max_wall_flux, std::abs(state.m_v_faces[grid.VFaceIndex(iv3{ x, y, z })]));
+						max_wall_flux = std::max(max_wall_flux, std::abs(state.m_v_faces[grid.VFaceIndex(iv3{ x, y + 1, z })]));
+						max_wall_flux = std::max(max_wall_flux, std::abs(state.m_w_faces[grid.WFaceIndex(iv3{ x, y, z })]));
+						max_wall_flux = std::max(max_wall_flux, std::abs(state.m_w_faces[grid.WFaceIndex(iv3{ x, y, z + 1 })]));
+					}
+				}
+			}
+
+			// Compare the air beside the cylinder with the air in its wake.
+			auto const flank = 0.5f * (MeanVelocity(solver, state, iv3{ 19, 21, 0 }, iv3{ 23, 24, 8 }).x + MeanVelocity(solver, state, iv3{ 19, 8, 0 }, iv3{ 23, 11, 8 }).x);
+			auto const wake = MeanVelocity(solver, state, iv3{ 25, 14, 0 }, iv3{ 28, 18, 8 }).x;
+			std::printf("Atmosphere solid cylinder wall_flux %.9f flank %.6f wake %.6f max_speed %.6f threshold 10.000000 rms_div %.9f threshold 0.005000\n", max_wall_flux, flank, wake, stats.m_max_speed, stats.m_rms_divergence);
+			PR_EXPECT(max_wall_flux == 0.0f);
+			PR_EXPECT(flank > 5.0f);
+			PR_EXPECT(wake < flank - 1.0f);
+			PR_EXPECT(stats.m_max_speed < 10.0f);
+			PR_EXPECT(stats.m_rms_divergence < 0.005f);
+		}
+
+		PRUnitTestMethod(FloorDragSlowsNearFloorFlow, Quick)
+		{
+			// Floor drag should slow the wind in the lowest layer, leave the upper layers close to the outside wind, and have no effect when zero.
+			// Thin, even layers make the drag on the 12.5 m bottom layer strong enough to measure over a short run.
+			auto const cells = iv3{ 48, 16, 8 };
+			auto config = Config(cells, std::vector<float>(cells.x * cells.y, 0.0f));
+			config.m_boundaries.m_y_min = EAtmosphereBoundary::Solid;
+			config.m_boundaries.m_y_max = EAtmosphereBoundary::Solid;
+			config.m_grid.m_lid_z = 100.0f;
+			config.m_grid.m_layer_stretch_power = 1.0f;
+			config.m_open_edge_band = 4;
+			auto dragged_config = config;
+			dragged_config.m_wall_drag.m_z_min = 0.05f;
+			auto gpu = Gpu{};
+			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTerrainTests.FloorDrag", 0xFF00AAFF, 1 };
+			auto free_solver = AtmosphereSolver{ gpu, config };
+			auto dragged_solver = AtmosphereSolver{ gpu, dragged_config };
+			auto const outside_air = UniformOutsideAir(free_solver.Config().m_grid, v2{ 5.0f, 0.0f });
+			auto const free_state = Run(free_solver, job, 300, 1.0f / 15.0f, AtmosphereStepSources{ .m_outside_air = outside_air });
+			auto const dragged_state = Run(dragged_solver, job, 300, 1.0f / 15.0f, AtmosphereStepSources{ .m_outside_air = outside_air });
+
+			// Compare the bottom and top layers in the interior, away from the sponge bands.
+			auto const lo = iv3{ 16, 4, 0 };
+			auto const hi = iv3{ 32, 12, 1 };
+			auto const free_floor = MeanVelocity(free_solver, free_state, lo, hi).x;
+			auto const dragged_floor = MeanVelocity(dragged_solver, dragged_state, lo, hi).x;
+			auto const dragged_top = MeanVelocity(dragged_solver, dragged_state, iv3{ lo.x, lo.y, cells.z - 1 }, iv3{ hi.x, hi.y, cells.z }).x;
+			auto const stats = dragged_solver.Stats(dragged_state);
+			std::printf("Atmosphere floor drag free_floor %.6f dragged_floor %.6f dragged_top %.6f max_speed %.6f rms_div %.9f\n", free_floor, dragged_floor, dragged_top, stats.m_max_speed, stats.m_rms_divergence);
+			PR_EXPECT(std::abs(free_floor - 5.0f) < 0.25f);
+			PR_EXPECT(dragged_floor > 0.0f);
+			PR_EXPECT(dragged_floor < free_floor - 1.0f);
+			PR_EXPECT(dragged_top > dragged_floor + 1.0f);
+			PR_EXPECT(stats.m_max_speed < 7.5f);
+			PR_EXPECT(stats.m_rms_divergence < 0.005f);
+		}
+
+		PRUnitTestMethod(VerticalViscositySpreadsFloorDrag, Quick)
+		{
+			// Vertical viscosity should carry the floor drag up into the layers above, and in return speed up the bottom layer.
+			// Uses the same thin, even layers as FloorDragSlowsNearFloorFlow so the effect is measurable over a short run.
+			auto const cells = iv3{ 48, 16, 8 };
+			auto config = Config(cells, std::vector<float>(cells.x * cells.y, 0.0f));
+			config.m_boundaries.m_y_min = EAtmosphereBoundary::Solid;
+			config.m_boundaries.m_y_max = EAtmosphereBoundary::Solid;
+			config.m_grid.m_lid_z = 100.0f;
+			config.m_grid.m_layer_stretch_power = 1.0f;
+			config.m_open_edge_band = 4;
+			config.m_wall_drag.m_z_min = 0.05f;
+			auto mixed_config = config;
+			mixed_config.m_vertical_viscosity = 50.0f;
+			auto gpu = Gpu{};
+			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTerrainTests.VerticalViscosity", 0xFF00AAFF, 1 };
+			auto unmixed_solver = AtmosphereSolver{ gpu, config };
+			auto mixed_solver = AtmosphereSolver{ gpu, mixed_config };
+			auto const outside_air = UniformOutsideAir(unmixed_solver.Config().m_grid, v2{ 5.0f, 0.0f });
+			auto const unmixed_state = Run(unmixed_solver, job, 300, 1.0f / 15.0f, AtmosphereStepSources{ .m_outside_air = outside_air });
+			auto const mixed_state = Run(mixed_solver, job, 300, 1.0f / 15.0f, AtmosphereStepSources{ .m_outside_air = outside_air });
+
+			// Compare the bottom layer and the layer just above it in the interior, away from the sponge bands.
+			auto const lo = iv3{ 16, 4, 0 };
+			auto const hi = iv3{ 32, 12, 1 };
+			auto const above_lo = iv3{ lo.x, lo.y, 1 };
+			auto const above_hi = iv3{ hi.x, hi.y, 2 };
+			auto const unmixed_floor = MeanVelocity(unmixed_solver, unmixed_state, lo, hi).x;
+			auto const mixed_floor = MeanVelocity(mixed_solver, mixed_state, lo, hi).x;
+			auto const unmixed_above = MeanVelocity(unmixed_solver, unmixed_state, above_lo, above_hi).x;
+			auto const mixed_above = MeanVelocity(mixed_solver, mixed_state, above_lo, above_hi).x;
+			auto const stats = mixed_solver.Stats(mixed_state);
+			std::printf("Atmosphere vertical viscosity unmixed_floor %.6f mixed_floor %.6f unmixed_above %.6f mixed_above %.6f max_speed %.6f rms_div %.9f\n", unmixed_floor, mixed_floor, unmixed_above, mixed_above, stats.m_max_speed, stats.m_rms_divergence);
+			PR_EXPECT(mixed_floor > unmixed_floor + 0.2f);
+			PR_EXPECT(mixed_above < unmixed_above - 0.2f);
 			PR_EXPECT(stats.m_max_speed < 7.5f);
 			PR_EXPECT(stats.m_rms_divergence < 0.005f);
 		}

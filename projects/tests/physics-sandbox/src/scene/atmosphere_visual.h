@@ -9,13 +9,10 @@
 namespace physics_sandbox
 {
 	// GPU atmosphere solver and LDraw diagnostics for a scene-loaded atmosphere block.
-	// The climate steps at a fixed rate on its own compute queue. Each step is submitted without waiting and collected on a later frame,
+	// The climate steps at the scene's step rate on its own compute queue. Each step is submitted without waiting and collected on a later frame,
 	// so the solver overlaps rendering and physics, and the particles shown are those of the last completed step.
 	struct AtmosphereVisual
 	{
-		// Simulated seconds per climate step. The climate changes slowly, so stepping at 15 Hz is enough and frees GPU time for the frame.
-		static constexpr float ClimateStepPeriod = 1.0f / 15.0f;
-
 		physics::Gpu m_gpu;
 		physics::atmosphere::AtmosphereSolver m_solver;
 		std::unique_ptr<physics::atmosphere::AtmosphereTracers> m_tracers;
@@ -24,9 +21,9 @@ namespace physics_sandbox
 		physics::GpuJob::RunHandle m_pending;    // The climate step in flight on the GPU, if any
 		float m_unstepped_time;                  // Simulated time not yet covered by a submitted climate step
 		rdr12::Renderer& m_rdr;
-		rdr12::ldraw::LdrObjectPtr m_gfx;        // Static diagnostics (grid and heat sources)
+		rdr12::ldraw::LdrObjectPtr m_gfx;        // Static diagnostics (grid, heat sources, and obstacles)
 		rdr12::ldraw::LdrObjectPtr m_tracer_gfx; // Persistent point sprite model with one vertex per tracer
-		std::array<Colour, 256> m_tracer_palette; // Temperature ramp spanning the visual min/max temperature
+		std::array<Colour, 256> m_tracer_palette; // Colour ramp spanning the visual range of the tracer property chosen by 'colour_by'
 		bool m_gfx_stale;                        // True when 'm_gfx' must be rebuilt at the next AddToScene
 		bool m_tracers_stale;                    // True when 'm_tracer_gfx' vertices must be refreshed from 'm_particles'
 		bool m_show_grid;
@@ -39,7 +36,7 @@ namespace physics_sandbox
 		// Wait for any climate step still in flight before the GPU resources are released.
 		~AtmosphereVisual();
 
-		// Advance simulated time by 'dt'. Collects a finished climate step without blocking and submits a new one each 'ClimateStepPeriod'.
+		// Advance simulated time by 'dt'. Collects a finished climate step without blocking and submits a new one each step period (1 / step_rate).
 		void Step(float dt);
 
 		// Add current atmosphere diagnostics to the render scene. Call only after the scene's drawlists have been cleared.

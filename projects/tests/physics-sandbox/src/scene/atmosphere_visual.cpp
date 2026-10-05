@@ -19,6 +19,24 @@ namespace physics_sandbox
 			return (static_cast<uint32_t>(alpha) << 24) | (static_cast<uint32_t>(r) << 16) | (static_cast<uint32_t>(g) << 8) | static_cast<uint32_t>(b);
 		}
 
+		// Return an ARGB colour on a blue-cyan-green-yellow-red speed ramp, for 't' in [0, 1].
+		uint32_t SpeedColour(float t)
+		{
+			// Four equal segments between five key colours give clear bands for slow, medium and fast air.
+			static constexpr uint32_t keys[] = { 0xFF2040FFU, 0xFF00D0FFU, 0xFF20E040U, 0xFFFFE000U, 0xFFFF2010U };
+			auto const s = std::clamp(t, 0.0f, 1.0f) * 4.0f;
+			auto const i = std::min(static_cast<int>(s), 3);
+			auto const f = s - static_cast<float>(i);
+			auto const lerp_channel = [&](int shift)
+			{
+				// Blend one 8-bit channel between the two keys of this segment.
+				auto const a = static_cast<float>((keys[i] >> shift) & 0xFF);
+				auto const b = static_cast<float>((keys[i + 1] >> shift) & 0xFF);
+				return static_cast<uint32_t>(a + f * (b - a) + 0.5f) << shift;
+			};
+			return 0xFF000000U | lerp_channel(16) | lerp_channel(8) | lerp_channel(0);
+		}
+
 		// Append one box outline to a line builder.
 		void AddBoxLines(ldraw::LdrLine& lines, v4 const& min_corner, v4 const& max_corner, uint32_t colour)
 		{
@@ -61,6 +79,7 @@ namespace physics_sandbox
 			m_tracers = std::make_unique<physics::atmosphere::AtmosphereTracers>(m_solver, m_gpu, m_desc.m_tracers, &shader_cache);
 			m_particles = m_tracers->ReadBack(m_gpu.m_job);
 			CreateTracerGfx();
+			m_tracers_stale = true;
 		}
 	}
 
@@ -94,11 +113,12 @@ namespace physics_sandbox
 
 		// Submit one climate step per elapsed period. Time beyond one pending period is dropped, so a slow GPU slows the climate
 		// rather than building an ever-growing backlog.
-		m_unstepped_time = std::min(m_unstepped_time + dt, 2.0f * ClimateStepPeriod);
-		if (m_unstepped_time < ClimateStepPeriod)
+		auto const step_period = 1.0f / m_desc.m_step_rate;
+		m_unstepped_time = std::min(m_unstepped_time + dt, 2.0f * step_period);
+		if (m_unstepped_time < step_period)
 			return;
 
-		m_unstepped_time -= ClimateStepPeriod;
+		m_unstepped_time -= step_period;
 
 		// The scene's heat sources and outside air are static, so the same inputs drive every step.
 		auto const sources = physics::atmosphere::AtmosphereStepSources{
@@ -107,11 +127,11 @@ namespace physics_sandbox
 		};
 
 		// Record the solver, tracers, and particle copy in submission order, then submit without waiting.
-		m_solver.Step(job, ClimateStepPeriod, sources);
+		m_solver.Step(job, step_period, sources);
 		if (m_tracers != nullptr)
 		{
 			// The particle copy is collected when this submission completes.
-			m_tracers->Advect(job, ClimateStepPeriod);
+			m_tracers->Advect(job, step_period);
 			m_tracers->RecordReadBack(job);
 		}
 		m_pending = job.Submit();
@@ -185,21 +205,28 @@ namespace physics_sandbox
 
 		if (m_show_grid)
 		{
-			// Draw the domain box and readable floor/lid lattices with automatic line decimation.
+			// Draw the domain box and readable floor/lid lattices with automatic line decimation. A flat floor lattice would cut through terrain, so terrain floors only get the lid lattice.
 			auto& lines = group.Line("grid", 0x80404040U).width(1.0f).per_item_colour();
 			AddBoxLines(lines, min_corner, max_corner, 0xFF202020U);
+			auto const draw_floor = !m_desc.m_terrain_floor;
 			auto const stride_x = std::max(1, grid.m_cell_count.x / std::max(m_desc.m_visual.m_grid_line_limit, 1));
 			auto const stride_y = std::max(1, grid.m_cell_count.y / std::max(m_desc.m_visual.m_grid_line_limit, 1));
 			for (int x = 0; x <= grid.m_cell_count.x; x += stride_x)
 			{
+				// One line across the lid, and the floor when it is flat.
 				auto const wx = grid.m_origin.x + x * grid.m_dx;
-				lines.line(v4{wx, min_corner.y, min_corner.z, 1.0f}, v4{wx, max_corner.y, min_corner.z, 1.0f}, 0x60303030U);
+				if (draw_floor)
+					lines.line(v4{wx, min_corner.y, min_corner.z, 1.0f}, v4{wx, max_corner.y, min_corner.z, 1.0f}, 0x60303030U);
+
 				lines.line(v4{wx, min_corner.y, max_corner.z, 1.0f}, v4{wx, max_corner.y, max_corner.z, 1.0f}, 0x60303030U);
 			}
 			for (int y = 0; y <= grid.m_cell_count.y; y += stride_y)
 			{
+				// One line across the lid, and the floor when it is flat.
 				auto const wy = grid.m_origin.y + y * grid.m_dx;
-				lines.line(v4{min_corner.x, wy, min_corner.z, 1.0f}, v4{max_corner.x, wy, min_corner.z, 1.0f}, 0x60303030U);
+				if (draw_floor)
+					lines.line(v4{min_corner.x, wy, min_corner.z, 1.0f}, v4{max_corner.x, wy, min_corner.z, 1.0f}, 0x60303030U);
+
 				lines.line(v4{min_corner.x, wy, max_corner.z, 1.0f}, v4{max_corner.x, wy, max_corner.z, 1.0f}, 0x60303030U);
 			}
 		}
@@ -211,6 +238,14 @@ namespace physics_sandbox
 				group.Sphere("heat_source", 0xFFFFA000U).sphere(source.m_radius).pos(source.m_centre).wireframe(true).solid(false);
 		}
 
+		if (m_desc.m_visual.m_show_obstacles)
+		{
+			// Obstacles are semi-transparent so tracers passing behind them stay visible. LDraw cylinders are centred and lie along Z.
+			auto const height = grid.m_lid_z - grid.m_origin.z;
+			for (auto const& cylinder : m_desc.m_cylinders)
+				group.Cylinder("obstacle", 0x80A0A0A0U).cylinder(height, cylinder.m_radius).facets(1, 40).pos(v4{ cylinder.m_centre.x, cylinder.m_centre.y, grid.m_origin.z + 0.5f * height, 1.0f });
+		}
+
 		auto result = rdr12::ldraw::Parse(m_rdr, ldr.ToBinary());
 		m_gfx = !result.m_objects.empty() ? result.m_objects.front() : nullptr;
 	}
@@ -218,23 +253,39 @@ namespace physics_sandbox
 	// Create the tracer point sprite model sized for the tracer set.
 	void AtmosphereVisual::CreateTracerGfx()
 	{
-		// LDraw creates the point sprite material and one vertex per point, in order, so later frames can overwrite the vertices directly.
+		// Create the point list first; the vertex colours are filled from the palette by UpdateTracerGfx below.
 		ldraw::Builder ldr;
 		auto& points = ldr.Point("atmosphere_tracers", 0xFFFFFFFFU).size(m_desc.m_visual.m_particle_size).style(ldraw::seri::PointStyle{"Circle"}).depth(false);
 		for (auto const& particle : m_particles)
-			points.pt(particle.m_position, TemperatureColour(particle.m_temperature, m_desc.m_visual.m_min_temperature, m_desc.m_visual.m_max_temperature));
+			points.pt(particle.m_position, 0xFFFFFFFFU);
 
 		auto result = rdr12::ldraw::Parse(m_rdr, ldr.ToBinary());
 		m_tracer_gfx = !result.m_objects.empty() ? result.m_objects.front() : nullptr;
 		if (m_tracer_gfx == nullptr || m_tracer_gfx->m_model == nullptr || m_tracer_gfx->m_model->m_vcount != isize(m_particles))
 			throw std::runtime_error("Atmosphere tracer model must have one vertex per tracer");
 
-		// Precompute the temperature ramp so the per-frame vertex update is a table lookup per tracer.
+		// Precompute the colour ramp so the per-frame vertex update is a table lookup per tracer.
 		for (int i = 0; i != isize(m_tracer_palette); ++i)
 		{
 			auto const t = static_cast<float>(i) / static_cast<float>(isize(m_tracer_palette) - 1);
-			auto const temperature = m_desc.m_visual.m_min_temperature + t * (m_desc.m_visual.m_max_temperature - m_desc.m_visual.m_min_temperature);
-			m_tracer_palette[i] = Colour(Colour32(TemperatureColour(temperature, m_desc.m_visual.m_min_temperature, m_desc.m_visual.m_max_temperature)));
+			switch (m_desc.m_visual.m_colour_by)
+			{
+				case scene_loader::EAtmosphereColourBy::Temperature:
+				{
+					auto const temperature = m_desc.m_visual.m_min_temperature + t * (m_desc.m_visual.m_max_temperature - m_desc.m_visual.m_min_temperature);
+					m_tracer_palette[i] = Colour(Colour32(TemperatureColour(temperature, m_desc.m_visual.m_min_temperature, m_desc.m_visual.m_max_temperature)));
+					break;
+				}
+				case scene_loader::EAtmosphereColourBy::Speed:
+				{
+					m_tracer_palette[i] = Colour(Colour32(SpeedColour(t)));
+					break;
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown atmosphere tracer colour mode");
+				}
+			}
 		}
 
 		// Tracers can move anywhere in the domain, so bound the model by the domain rather than the initial particle positions.
@@ -253,16 +304,39 @@ namespace physics_sandbox
 		auto update = model.UpdateVertices(factory.CmdList(), factory.UploadBuffer(), { 0, isize(m_particles) });
 		auto vout = update.ptr<rdr12::Vert>();
 
-		// Map temperature to a palette index. The loop avoids helper calls because this runs for every tracer every frame, including in Debug builds.
+		// Map the coloured property to a palette index. The loop avoids helper calls because this runs for every tracer every frame, including in Debug builds.
 		auto const palette_max = isize(m_tracer_palette) - 1;
-		auto const min_temperature = m_desc.m_visual.m_min_temperature;
-		auto const palette_scale = palette_max / std::max(m_desc.m_visual.m_max_temperature - min_temperature, 0.001f);
+		auto field = &physics::atmosphere::AtmosphereTracerParticle::m_temperature;
+		auto min_value = 0.0f;
+		auto max_value = 1.0f;
+		switch (m_desc.m_visual.m_colour_by)
+		{
+			case scene_loader::EAtmosphereColourBy::Temperature:
+			{
+				field = &physics::atmosphere::AtmosphereTracerParticle::m_temperature;
+				min_value = m_desc.m_visual.m_min_temperature;
+				max_value = m_desc.m_visual.m_max_temperature;
+				break;
+			}
+			case scene_loader::EAtmosphereColourBy::Speed:
+			{
+				field = &physics::atmosphere::AtmosphereTracerParticle::m_speed;
+				min_value = m_desc.m_visual.m_min_speed;
+				max_value = m_desc.m_visual.m_max_speed;
+				break;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown atmosphere tracer colour mode");
+			}
+		}
+		auto const palette_scale = palette_max / std::max(max_value - min_value, 0.001f);
 		auto vert = rdr12::Vert{ .m_vert = v4::Origin(), .m_diff = {}, .m_norm = v4::Zero(), .m_tex0 = v2::Zero(), .m_idx0 = iv2::Zero() };
 		auto const* particle = m_particles.data();
 		for (auto const* end = particle + m_particles.size(); particle != end; ++particle)
 		{
 			// Point sprites only use position and colour. The template vertex keeps the unused fields defined.
-			auto index = static_cast<int>((particle->m_temperature - min_temperature) * palette_scale);
+			auto index = static_cast<int>((particle->*field - min_value) * palette_scale);
 			index = index < 0 ? 0 : index > palette_max ? palette_max : index;
 			vert.m_vert.x = particle->m_position.x;
 			vert.m_vert.y = particle->m_position.y;

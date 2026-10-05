@@ -31,6 +31,23 @@ namespace pr::physics::atmosphere
 		void Validate() const;
 	};
 
+	// Surface drag coefficients for the six outside faces of the atmosphere domain. Each value is a dimensionless quadratic drag coefficient in [0, 1],
+	// typically 0.001 to 0.01 for land and water. Zero means the wall is frictionless. Only solid sides can have drag.
+	// Drag slows the flow along the wall in the layer of cells that touches it, at the rate 'coefficient * speed / cell thickness'. The floor
+	// (z_min) follows the terrain. Solid columns inside the domain do not apply drag.
+	struct AtmosphereWallDrag
+	{
+		float m_x_min = 0.0f;
+		float m_x_max = 0.0f;
+		float m_y_min = 0.0f;
+		float m_y_max = 0.0f;
+		float m_z_min = 0.0f;
+		float m_z_max = 0.0f;
+
+		// Reject invalid coefficients, and drag on sides that are not solid, at the caller boundary.
+		void Validate(AtmosphereBoundaries const& boundaries) const;
+	};
+
 	// Air outside one boundary column. Where its wind blows into the domain through an open side, it sets the inflow wind and temperature.
 	// Where its wind blows out of the domain, the inside air leaves freely.
 	struct AtmosphereOutsideAir
@@ -49,6 +66,9 @@ namespace pr::physics::atmosphere
 		float m_lid_z = 1.0f;
 		float m_first_layer_thickness = 1.0f;
 		float m_layer_stretch_power = 1.0f;
+
+		// Optional floor height per column, row-major. Empty means a flat floor at 'm_origin.z'.
+		// A floor at or above 'm_lid_z' makes the column solid, which models obstacles that reach the lid. See ColumnSolid.
 		std::vector<float> m_floor_heights;
 
 		// Build one floor height per column from row-major caller data.
@@ -100,6 +120,10 @@ namespace pr::physics::atmosphere
 		// Return the floor height for a column.
 		float FloorHeight(iv2 cell) const;
 
+		// Return true when a column holds no air because its floor is at or above the lid. Solid columns are walls to the flow;
+		// their layer heights are not meaningful and must not be used.
+		bool ColumnSolid(iv2 cell) const;
+
 		// Return the sigma face fraction for a vertical face index.
 		float SigmaFace(int z) const;
 
@@ -138,6 +162,7 @@ namespace pr::physics::atmosphere
 	{
 		AtmosphereGrid m_grid = {};
 		AtmosphereBoundaries m_boundaries = {};
+		AtmosphereWallDrag m_wall_drag = {};
 		AtmosphereReferenceProfile m_reference = {};
 		float m_gravity = 9.80665f;
 		float m_floor_exchange_rate = 0.0f;
@@ -153,11 +178,18 @@ namespace pr::physics::atmosphere
 
 		// Width, in columns, of the band inside each open side where the wind is nudged toward the inflowing outside air.
 		// The nudge is strongest at the side and fades to zero across the band. Zero applies the outside wind at the boundary faces only.
+		// The outside wind is the same at every height, which only conserves mass where the floor is level. A floor that rises or falls
+		// across the band changes the column depth under a fixed wind, and the pressure solve then creates false vertical flow to balance it.
+		// Callers should keep the floor level across the band of each open side.
 		int m_open_edge_band = 8;
 
 		// Strength of the force that restores small swirls lost to numerical smoothing, 1/s. The added acceleration is this value times
 		// the cell size times the local swirl rate, pushed toward the swirl centre. Zero disables it.
 		float m_vorticity_confinement = 0.0f;
+
+		// Vertical eddy viscosity of the horizontal wind, m^2/s. It mixes horizontal momentum between neighbouring layers, so drag at the
+		// floor or lid reaches the layers above or below it, and fast layers share their speed with slow ones. Zero disables it.
+		float m_vertical_viscosity = 0.0f;
 
 		// Reject invalid solver configuration at the caller boundary.
 		void Validate() const;
@@ -217,7 +249,15 @@ namespace pr::physics::atmosphere
 	{
 		int m_particle_count = 0; // number of tracer particles
 		uint32_t m_seed = 0;      // seed for the deterministic start and respawn positions
-		float m_max_age = 20.0f;  // seconds before a particle respawns, so tracers do not collect in stagnant regions
+		float m_max_age = 20.0f;  // seconds before a particle respawns, so tracers do not collect in stagnant regions. Initial ages are spread over [0, m_max_age) so tracers do not all respawn together
+
+		// Height profile for new tracers, as relative densities over the column fraction (0 at the floor, 1 at the lid). The density falls linearly
+		// from 'm_ground_density' at the floor to 'm_break_density' at 'm_break_height', then is 'm_upper_density' up to the lid. The profile is
+		// normalised, so only the ratios matter and the total count is unchanged. Equal densities give an even spread.
+		float m_ground_density = 1.0f;
+		float m_break_density = 1.0f;
+		float m_upper_density = 1.0f;
+		float m_break_height = 0.5f;   // column fraction in (0, 1]
 
 		// Reject invalid tracer configuration at the caller boundary.
 		void Validate() const;
@@ -229,6 +269,7 @@ namespace pr::physics::atmosphere
 		v4 m_position = v4::Origin();
 		float m_temperature = 0.0f;
 		float m_age = 0.0f;
+		float m_speed = 0.0f;     // air speed that moved the particle in the last step, m/s
 	};
 
 	class AtmosphereTracers;

@@ -73,17 +73,27 @@ namespace pr::physics::atmosphere
 			int m_mg_phase;                // red-black colour for smoothing, or the pressure-normalisation pass
 
 			// Open edges and swirl restoration.
-			int m_open_edge_band;          // columns over which inflow outside wind is blended in
+			int m_open_edge_band;          // columns over which the outside wind is blended in
 			float m_vorticity_confinement; // swirl-restoring strength; zero disables it, 1/s
 
 			// Fused small-level V-cycle.
 			int m_mg_passes;               // red-black smoothing passes on the coarsest level
-			int m_mg_pre_smooth;           // red-black smoothing passes on each level before restriction
-			int m_mg_post_smooth;          // red-black smoothing passes on each level after prolongation
+			uint32_t m_mg_smooth;          // red-black smoothing passes on each level: before restriction in the low 16 bits, after prolongation in the high 16 bits
+
+			// Vertical mixing of horizontal momentum.
+			float m_vertical_viscosity;    // vertical eddy viscosity, m^2/s
+
+			// Solid columns.
+			float m_origin_z;              // world-space Z of the flat floor used for the layer heights of solid columns, metres
+
+			// Wall drag coefficients as pairs of 16-bit floats, low side in the low half. Packing keeps the root signature within 64 DWORDs.
+			uint32_t m_drag_x;
+			uint32_t m_drag_y;
+			uint32_t m_drag_z;
 		};
-		static_assert(sizeof(CBufAtmosphere) == 30 * sizeof(uint32_t));
+		static_assert(sizeof(CBufAtmosphere) == 34 * sizeof(uint32_t));
 		static_assert(offsetof(CBufAtmosphere, m_origin) == 16 && offsetof(CBufAtmosphere, m_source_count) == 72);
-		static_assert(offsetof(CBufAtmosphere, m_mg_size) == 80 && offsetof(CBufAtmosphere, m_mg_phase) == 96 && offsetof(CBufAtmosphere, m_mg_passes) == 108 && offsetof(CBufAtmosphere, m_mg_post_smooth) == 116);
+		static_assert(offsetof(CBufAtmosphere, m_mg_size) == 80 && offsetof(CBufAtmosphere, m_mg_phase) == 96 && offsetof(CBufAtmosphere, m_mg_passes) == 108 && offsetof(CBufAtmosphere, m_mg_smooth) == 112);
 
 		// Root constants shared by tracer kernels. Must match CBufAtmosphereTracers in atmosphere.hlsl.
 		struct CBufAtmosphereTracers
@@ -92,8 +102,12 @@ namespace pr::physics::atmosphere
 			uint32_t m_tracer_seed;
 			uint32_t m_tracer_frame;
 			float m_tracer_max_age;
+			float m_tracer_ground_density; // normalised tracer height profile. See AtmosphereTracerConfig
+			float m_tracer_break_density;
+			float m_tracer_upper_density;
+			float m_tracer_break_height;
 		};
-		static_assert(sizeof(CBufAtmosphereTracers) == 4 * sizeof(uint32_t));
+		static_assert(sizeof(CBufAtmosphereTracers) == 8 * sizeof(uint32_t));
 
 		// GPU heat source layout. Must match HeatSource in atmosphere.hlsl.
 		struct GpuHeatSource
@@ -119,7 +133,8 @@ namespace pr::physics::atmosphere
 			v4 m_position;
 			float m_temperature;
 			float m_age;
-			v2 m_pad;
+			float m_speed;
+			float m_pad;
 		};
 
 		// Create a structured UAV buffer in the requested default state.
@@ -136,6 +151,13 @@ namespace pr::physics::atmosphere
 			// Empty caller spans bind to this harmless one-element buffer.
 			auto desc = ResDesc::Buf<Type>(1, {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 			return gpu.CreateResource(desc, job.m_cmd_list, name);
+		}
+
+		// Pack two non-negative drag coefficients as 16-bit floats, 'lo' in the low half, to match UnpackDragPair in atmosphere.hlsl.
+		uint32_t PackDragPair(float lo, float hi)
+		{
+			// Half precision is ample for drag coefficients, which are small tuning values.
+			return static_cast<uint32_t>(math::F32toF16(lo)) | (static_cast<uint32_t>(math::F32toF16(hi)) << 16);
 		}
 
 		// Convert a public boundary enum to a packed open-boundary bit.
@@ -158,6 +180,38 @@ namespace pr::physics::atmosphere
 			}
 			}
 		}
+
+		// Return the column used for a slope sample, matching the shader's MetricNeighbour. Edge and solid neighbours fall back to 'cell'
+		// itself, giving a one-sided difference.
+		iv2 MetricNeighbour(AtmosphereGrid const& grid, iv2 cell, iv2 neighbour)
+		{
+			// Clamp to the grid, then reject solid columns because they hold no air.
+			auto const n = iv2{
+				std::clamp(neighbour.x, 0, grid.m_cell_count.x - 1),
+				std::clamp(neighbour.y, 0, grid.m_cell_count.y - 1),
+			};
+			return grid.ColumnSolid(n) ? cell : n;
+		}
+
+		// Return the W-face value, deriving floor faces of air columns from the ground slope. Matches LoadW in atmosphere.hlsl.
+		float LoadW(AtmosphereGrid const& grid, AtmosphereState const& state, iv3 face)
+		{
+			// Interior and lid faces are stored directly.
+			if (face.z != 0 || grid.ColumnSolid(iv2{ face.x, face.y }))
+				return state.m_w_faces[grid.WFaceIndex(face)];
+
+			// Air at the floor moves along the ground, so its vertical speed is the bottom-layer horizontal velocity times the floor slope.
+			auto const c = iv2{ face.x, face.y };
+			auto const x0 = MetricNeighbour(grid, c, c + iv2{ -1, 0 });
+			auto const x1 = MetricNeighbour(grid, c, c + iv2{ +1, 0 });
+			auto const y0 = MetricNeighbour(grid, c, c + iv2{ 0, -1 });
+			auto const y1 = MetricNeighbour(grid, c, c + iv2{ 0, +1 });
+			auto const sx = (grid.FloorHeight(x1) - grid.FloorHeight(x0)) / (grid.m_dx * (static_cast<float>(std::abs(x1.x - x0.x)) + 1.0e-6f));
+			auto const sy = (grid.FloorHeight(y1) - grid.FloorHeight(y0)) / (grid.m_dx * (static_cast<float>(std::abs(y1.y - y0.y)) + 1.0e-6f));
+			auto const u = 0.5f * (state.m_u_faces[grid.UFaceIndex(iv3{ c.x, c.y, 0 })] + state.m_u_faces[grid.UFaceIndex(iv3{ c.x + 1, c.y, 0 })]);
+			auto const v = 0.5f * (state.m_v_faces[grid.VFaceIndex(iv3{ c.x, c.y, 0 })] + state.m_v_faces[grid.VFaceIndex(iv3{ c.x, c.y + 1, 0 })]);
+			return u * sx + v * sy;
+		}
 	}
 
 	// Return true when every outside face is a solid wall.
@@ -179,6 +233,26 @@ namespace pr::physics::atmosphere
 		(void)BoundaryValue(m_z_max);
 	}
 
+	// Reject invalid coefficients, and drag on sides that are not solid, at the caller boundary.
+	void AtmosphereWallDrag::Validate(AtmosphereBoundaries const& boundaries) const
+	{
+		// Each side is checked with its boundary mode, because air leaving through an open side has no wall to rub against.
+		auto check = [](float drag, EAtmosphereBoundary boundary)
+		{
+			// A coefficient must be a finite number in [0, 1], and only a wall can have drag. The GPU stores coefficients as 16-bit floats.
+			if (!std::isfinite(drag) || drag < 0.0f || drag > 1.0f)
+				throw std::invalid_argument("Atmosphere wall drag must be in the range [0, 1]");
+			if (drag != 0.0f && boundary != EAtmosphereBoundary::Solid)
+				throw std::invalid_argument("Atmosphere wall drag is only allowed on solid sides");
+		};
+		check(m_x_min, boundaries.m_x_min);
+		check(m_x_max, boundaries.m_x_max);
+		check(m_y_min, boundaries.m_y_min);
+		check(m_y_max, boundaries.m_y_max);
+		check(m_z_min, boundaries.m_z_min);
+		check(m_z_max, boundaries.m_z_max);
+	}
+
 	// Reject invalid tracer configuration at the caller boundary.
 	void AtmosphereTracerConfig::Validate() const
 	{
@@ -187,6 +261,12 @@ namespace pr::physics::atmosphere
 			throw std::invalid_argument("Atmosphere tracer count cannot be negative");
 		if (!std::isfinite(m_max_age) || m_max_age <= 0.0f)
 			throw std::invalid_argument("Atmosphere tracer lifetime must be finite and positive");
+		if (!std::isfinite(m_ground_density) || !std::isfinite(m_break_density) || !std::isfinite(m_upper_density) || m_ground_density < 0.0f || m_break_density < 0.0f || m_upper_density < 0.0f)
+			throw std::invalid_argument("Atmosphere tracer height densities must be finite and non-negative");
+		if (!std::isfinite(m_break_height) || m_break_height <= 0.0f || m_break_height > 1.0f)
+			throw std::invalid_argument("Atmosphere tracer break height must be in (0, 1]");
+		if (!(0.5f * m_break_height * (m_ground_density + m_break_density) + (1.0f - m_break_height) * m_upper_density > 0.0f))
+			throw std::invalid_argument("Atmosphere tracer height profile must have a positive total density");
 	}
 
 	// Build one floor height per column from row-major caller data.
@@ -354,6 +434,13 @@ namespace pr::physics::atmosphere
 		return TerrainFollowing() ? m_floor_heights[ColumnIndex(cell)] : m_origin.z;
 	}
 
+	// Return true when a column holds no air.
+	bool AtmosphereGrid::ColumnSolid(iv2 cell) const
+	{
+		// The solver treats every face of a column whose floor reaches the lid as a wall.
+		return FloorHeight(cell) >= m_lid_z;
+	}
+
 	// Return the sigma face fraction for a vertical face index.
 	float AtmosphereGrid::SigmaFace(int z) const
 	{
@@ -365,9 +452,11 @@ namespace pr::physics::atmosphere
 	// Return the world-space height of a sigma face in one column.
 	float AtmosphereGrid::FaceZ(iv2 cell, int z) const
 	{
-		// The lid is flat, so column height is the difference between the lid and the local floor.
+		// The lid is flat, so column height is the difference between the lid and the local floor. The height is guarded by the
+		// requested first-layer thickness, matching the shader metric, so very thin and solid columns still have positive layer heights.
 		auto const floor_height = FloorHeight(cell);
-		return floor_height + SigmaFace(z) * (m_lid_z - floor_height);
+		auto const column_height = std::max(m_lid_z - floor_height, m_first_layer_thickness * std::max(m_cell_count.z, 1));
+		return floor_height + SigmaFace(z) * column_height;
 	}
 
 	// Return the world-space centre height of a cell in one column.
@@ -416,13 +505,11 @@ namespace pr::physics::atmosphere
 		if (!m_floor_heights.empty() && isize(m_floor_heights) != ColumnCount())
 			throw std::invalid_argument("Atmosphere floor height count must match the grid columns");
 
-		// Every column must have positive air height and enough room for the requested first layer.
+		// Every floor must be finite. A floor at or above the lid marks a solid column. See ColumnSolid.
 		for (auto floor_height : m_floor_heights)
 		{
 			if (!std::isfinite(floor_height))
 				throw std::invalid_argument("Atmosphere floor heights must be finite");
-			if (floor_height >= m_lid_z)
-				throw std::invalid_argument("Atmosphere floor heights must be below the lid");
 		}
 	}
 
@@ -451,6 +538,7 @@ namespace pr::physics::atmosphere
 		// Validate owned sub-objects first so error messages identify the failing contract.
 		m_grid.Validate();
 		m_boundaries.Validate();
+		m_wall_drag.Validate(m_boundaries);
 		m_reference.Validate();
 		if (!std::isfinite(m_gravity) || m_gravity < 0.0f)
 			throw std::invalid_argument("Atmosphere gravity must be finite and non-negative");
@@ -464,10 +552,14 @@ namespace pr::physics::atmosphere
 			throw std::invalid_argument("Atmosphere pressure V-cycle count must be non-negative");
 		if (m_pressure_pre_smooth < 0 || m_pressure_post_smooth < 0 || m_pressure_coarse_smooth < 0)
 			throw std::invalid_argument("Atmosphere multigrid smoothing counts must be non-negative");
+		if (m_pressure_pre_smooth > 0xFFFF || m_pressure_post_smooth > 0xFFFF)
+			throw std::invalid_argument("Atmosphere multigrid pre- and post-smoothing counts must fit in 16 bits");
 		if (m_open_edge_band < 0)
 			throw std::invalid_argument("Atmosphere open-edge band must be non-negative");
 		if (!std::isfinite(m_vorticity_confinement) || m_vorticity_confinement < 0.0f)
 			throw std::invalid_argument("Atmosphere vorticity confinement must be finite and non-negative");
+		if (!std::isfinite(m_vertical_viscosity) || m_vertical_viscosity < 0.0f)
+			throw std::invalid_argument("Atmosphere vertical viscosity must be finite and non-negative");
 	}
 
 
@@ -706,8 +798,7 @@ namespace pr::physics::atmosphere
 				// Small levels cannot fill the GPU, so the rest of the V-cycle runs in one thread group with group barriers between passes.
 				auto level_cb = LevelConstants(cb, level_index, 0);
 				level_cb.m_mg_passes = m_config.m_pressure_coarse_smooth;
-				level_cb.m_mg_pre_smooth = m_config.m_pressure_pre_smooth;
-				level_cb.m_mg_post_smooth = m_config.m_pressure_post_smooth;
+				level_cb.m_mg_smooth = s_cast<uint32_t>(m_config.m_pressure_pre_smooth) | (s_cast<uint32_t>(m_config.m_pressure_post_smooth) << 16);
 				Run(job, m_mg_small_levels, level_cb, iv3{ 1, 1, 1 });
 				Barrier(job, EFieldWrites::Pressure | EFieldWrites::Residual | EFieldWrites::Divergence);
 				return;
@@ -802,8 +893,12 @@ namespace pr::physics::atmosphere
 				.m_open_edge_band = m_config.m_open_edge_band,
 				.m_vorticity_confinement = m_config.m_vorticity_confinement,
 				.m_mg_passes = 0,
-				.m_mg_pre_smooth = 0,
-				.m_mg_post_smooth = 0,
+				.m_mg_smooth = 0,
+				.m_vertical_viscosity = m_config.m_vertical_viscosity,
+				.m_origin_z = grid.m_origin.z,
+				.m_drag_x = PackDragPair(m_config.m_wall_drag.m_x_min, m_config.m_wall_drag.m_x_max),
+				.m_drag_y = PackDragPair(m_config.m_wall_drag.m_y_min, m_config.m_wall_drag.m_y_max),
+				.m_drag_z = PackDragPair(m_config.m_wall_drag.m_z_min, m_config.m_wall_drag.m_z_max),
 			};
 		}
 
@@ -1028,14 +1123,27 @@ namespace pr::physics::atmosphere
 					continue;
 
 				// Conserving layer-integrated heat in the affected column avoids adding or removing energy when floor geometry changes.
+				// Solid columns hold no air, so they neither give nor receive heat. They take the reference temperature at their
+				// flat-floor layer height, matching the shader initialisation, so trilinear samples near walls stay plausible.
+				auto const old_solid = old_grid.ColumnSolid(column);
+				auto const new_solid = new_grid.ColumnSolid(column);
 				auto remapped = std::vector<float>(new_grid.m_cell_count.z, 0.0f);
 				for (int z = 0; z != new_grid.m_cell_count.z; ++z)
 				{
+					// Solid cells use the reference profile at the flat-floor height of their layer.
+					if (new_solid)
+					{
+						auto const sigma = 0.5f * (new_grid.SigmaFace(z) + new_grid.SigmaFace(z + 1));
+						remapped[z] = m_impl->m_config.m_reference.Temperature(new_grid.m_origin.z + sigma * (new_grid.m_lid_z - new_grid.m_origin.z));
+						continue;
+					}
+
+					// Air cells take the overlap-weighted heat of the old air layers.
 					auto const lo = new_grid.FaceZ(column, z);
 					auto const hi = new_grid.FaceZ(column, z + 1);
 					auto heat = 0.0;
 					auto weight = 0.0;
-					for (int oz = 0; oz != old_grid.m_cell_count.z; ++oz)
+					for (int oz = 0; oz != old_grid.m_cell_count.z && !old_solid; ++oz)
 					{
 						auto const old_lo = old_grid.FaceZ(column, oz);
 						auto const old_hi = old_grid.FaceZ(column, oz + 1);
@@ -1216,7 +1324,7 @@ namespace pr::physics::atmosphere
 					auto const idx = grid.CellIndex(cell);
 					auto const u = 0.5f * (state.m_u_faces[grid.UFaceIndex(iv3{ x, y, z })] + state.m_u_faces[grid.UFaceIndex(iv3{ x + 1, y, z })]);
 					auto const v = 0.5f * (state.m_v_faces[grid.VFaceIndex(iv3{ x, y, z })] + state.m_v_faces[grid.VFaceIndex(iv3{ x, y + 1, z })]);
-					auto const w = 0.5f * (state.m_w_faces[grid.WFaceIndex(iv3{ x, y, z })] + state.m_w_faces[grid.WFaceIndex(iv3{ x, y, z + 1 })]);
+					auto const w = 0.5f * (LoadW(grid, state, iv3{ x, y, z }) + LoadW(grid, state, iv3{ x, y, z + 1 }));
 					cells[idx] = AtmosphereCellState{ .m_velocity = v4{ u, v, w, 0.0f }, .m_temperature = state.m_temperature[idx] };
 				}
 			}
@@ -1236,14 +1344,7 @@ namespace pr::physics::atmosphere
 		auto sum_div2 = 0.0;
 		auto top_sum = 0.0;
 		auto top_count = 0;
-		auto const clamp_column = [&](iv2 cell)
-		{
-			// Slope samples at the outermost cells use the nearest valid column, matching the shader metric helper.
-			return iv2{
-				std::clamp(cell.x, 0, grid.m_cell_count.x - 1),
-				std::clamp(cell.y, 0, grid.m_cell_count.y - 1),
-			};
-		};
+		auto air_cell_count = 0;
 		for (int z = 0; z != grid.m_cell_count.z; ++z)
 		{
 			// Scan one horizontal layer at a time for locality in the packed state.
@@ -1252,25 +1353,30 @@ namespace pr::physics::atmosphere
 				// Rows use contiguous x cells.
 				for (int x = 0; x != grid.m_cell_count.x; ++x)
 				{
+					// Solid cells hold no air, so they do not contribute to flow statistics.
+					auto const column = iv2{ x, y };
+					if (grid.ColumnSolid(column))
+						continue;
+
 					// MAC divergence uses the two faces that bound each cell on every axis.
+					++air_cell_count;
 					auto const cell = iv3{ x, y, z };
 					auto const idx = grid.CellIndex(cell);
 					auto const u0 = state.m_u_faces[grid.UFaceIndex(iv3{ x, y, z })];
 					auto const u1 = state.m_u_faces[grid.UFaceIndex(iv3{ x + 1, y, z })];
 					auto const v0 = state.m_v_faces[grid.VFaceIndex(iv3{ x, y, z })];
 					auto const v1 = state.m_v_faces[grid.VFaceIndex(iv3{ x, y + 1, z })];
-					auto const w0 = state.m_w_faces[grid.WFaceIndex(iv3{ x, y, z })];
-					auto const w1 = state.m_w_faces[grid.WFaceIndex(iv3{ x, y, z + 1 })];
+					auto const w0 = LoadW(grid, state, iv3{ x, y, z });
+					auto const w1 = LoadW(grid, state, iv3{ x, y, z + 1 });
 					auto const u = 0.5f * (u0 + u1);
 					auto const v = 0.5f * (v0 + v1);
 					auto const w = 0.5f * (w0 + w1);
-					auto const column = iv2{ x, y };
 					auto const dz = grid.CellHeight(column, z);
 					auto const base_div = (u1 - u0) / grid.m_dx + (v1 - v0) / grid.m_dx + (w1 - w0) / dz;
-					auto const x0 = clamp_column(column + iv2{ -1, 0 });
-					auto const x1 = clamp_column(column + iv2{ +1, 0 });
-					auto const y0 = clamp_column(column + iv2{ 0, -1 });
-					auto const y1 = clamp_column(column + iv2{ 0, +1 });
+					auto const x0 = MetricNeighbour(grid, column, column + iv2{ -1, 0 });
+					auto const x1 = MetricNeighbour(grid, column, column + iv2{ +1, 0 });
+					auto const y0 = MetricNeighbour(grid, column, column + iv2{ 0, -1 });
+					auto const y1 = MetricNeighbour(grid, column, column + iv2{ 0, +1 });
 					auto const z_x = (grid.CellZ(x1, z) - grid.CellZ(x0, z)) / (grid.m_dx * static_cast<float>(std::abs(x1.x - x0.x) + 1.0e-6f));
 					auto const z_y = (grid.CellZ(y1, z) - grid.CellZ(y0, z)) / (grid.m_dx * static_cast<float>(std::abs(y1.y - y0.y) + 1.0e-6f));
 					auto const z0 = std::max(0, z - 1);
@@ -1294,7 +1400,7 @@ namespace pr::physics::atmosphere
 				}
 			}
 		}
-		stats.m_rms_divergence = static_cast<float>(std::sqrt(sum_div2 / std::max(1, grid.CellCount())));
+		stats.m_rms_divergence = static_cast<float>(std::sqrt(sum_div2 / std::max(1, air_cell_count)));
 		stats.m_mean_top_temperature = static_cast<float>(top_sum / std::max(1, top_count));
 		return stats;
 	}
@@ -1362,7 +1468,19 @@ namespace pr::physics::atmosphere
 		CBufAtmosphereTracers TracerConstants() const
 		{
 			// Tracer constants control deterministic respawn and lifetime.
-			return CBufAtmosphereTracers{ .m_tracer_count = m_config.m_particle_count, .m_tracer_seed = m_config.m_seed, .m_tracer_frame = m_frame, .m_tracer_max_age = m_config.m_max_age };
+			// Normalise the height profile so its integral over the column is 1.
+			auto const& c = m_config;
+			auto const total = 0.5f * c.m_break_height * (c.m_ground_density + c.m_break_density) + (1.0f - c.m_break_height) * c.m_upper_density;
+			return CBufAtmosphereTracers{
+				.m_tracer_count = c.m_particle_count,
+				.m_tracer_seed = c.m_seed,
+				.m_tracer_frame = m_frame,
+				.m_tracer_max_age = c.m_max_age,
+				.m_tracer_ground_density = c.m_ground_density / total,
+				.m_tracer_break_density = c.m_break_density / total,
+				.m_tracer_upper_density = c.m_upper_density / total,
+				.m_tracer_break_height = c.m_break_height,
+			};
 		}
 
 		// Bind the shared root layout and dispatch a tracer kernel.
@@ -1497,6 +1615,7 @@ namespace pr::physics::atmosphere
 				.m_position = src[i].m_position,
 				.m_temperature = src[i].m_temperature,
 				.m_age = src[i].m_age,
+				.m_speed = src[i].m_speed,
 			};
 		}
 		m_impl->m_pending_readback = {};

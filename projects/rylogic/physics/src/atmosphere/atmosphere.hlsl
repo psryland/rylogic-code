@@ -13,10 +13,17 @@
 //   maps to world Z by lerping from the local floor to the lid. The optional layer stretch raises sigma to a power so
 //   the first layers can be thinner near the floor while the lid remains exact.
 //
+// Solid columns:
+//   A column whose floor is at or above the lid holds no air. All of its faces are walls with zero normal flow, it takes no
+//   part in the pressure solve, and its pressure is zero. Neighbouring layer-slope terms use one-sided differences. Solid cells
+//   keep the reference temperature of a flat-floor column. Trilinear sampling next to a wall still blends in those solid
+//   values, so temperature and velocity samples within one cell of a wall are approximate. Coarse multigrid levels decide
+//   solidity from one representative fine column; the fine-level smoother corrects the error this causes.
+//
 // One solver step records these passes in order:
 //   1. CSAdvect traces velocity and temperature backward through the previous MAC field.
 //   2. CSVorticity stores the swirl magnitude of the advected field (only when vorticity confinement is enabled).
-//   3. CSForcesHeat applies buoyancy, vorticity confinement, floor exchange, lid relaxation, heat sources, and the open-edge sponge.
+//   3. CSForcesHeat applies buoyancy, vorticity confinement, floor exchange, lid relaxation, heat sources, the open-edge sponge, and wall drag.
 //   4. CSDivergence builds the metric-corrected divergence of the intermediate MAC velocity.
 //   5. CSMgSmooth, CSMgResidual, CSMgRestrict, and CSMgProlongate run the pressure V-cycle on the large levels; CSMgSmallLevels
 //      runs the rest of the V-cycle, from the first level with at most ATMOSPHERE_FUSED_COLUMNS columns per axis, in one dispatch.
@@ -57,6 +64,7 @@ static const float AtmosphereSmallDiagonal = 1.0e-20f;    // operator units; avo
 static const float AtmosphereMinHeatRadius = 0.0001f;     // metres; avoids division by zero for point-like heat sources
 static const float AtmosphereMinSwirlGradient = 1.0e-8f;  // 1/(s m); below this the swirl has no clear centre and confinement adds no force
 static const float AtmosphereOpenEdgeWindRate = 8.0f;     // 1/s; blends outside inflow wind into the open-edge sponge over a short solver step
+static const float AtmosphereSpecificHeat = 1004.5f;      // J/(kg K); dry air at constant pressure. Gravity divided by this is the dry adiabatic lapse rate
 #define ATMOSPHERE_TRACER_THREAD_X 64
 
 // Root constants shared by every atmosphere kernel. Must match CBufAtmosphere in atmosphere.cpp.
@@ -109,8 +117,19 @@ struct CBufAtmosphere
 
 	// Fused small-level V-cycle (used by CSMgSmallLevels).
 	int mg_passes;                  // red-black smoothing passes on the coarsest level                                @108
-	int mg_pre_smooth;              // red-black smoothing passes on each level before its residual is restricted       @112
-	int mg_post_smooth;             // red-black smoothing passes on each level after the child correction is added     @116
+	uint mg_smooth;                 // red-black smoothing passes on each level: before restriction in the low 16 bits, after the child correction is added in the high 16 bits @112
+
+	// Vertical mixing of horizontal momentum (used by CSForcesHeat).
+	float vertical_viscosity;       // vertical eddy viscosity of the horizontal wind; zero disables it, m^2/s          @116
+
+	// Solid columns (see "Solid columns" above).
+	float origin_z;                 // world-space Z of the flat floor used for the layer heights of solid columns, metres @120
+
+	// Wall drag (used by CSForcesHeat). Dimensionless quadratic drag coefficient per outside face; zero is frictionless.
+	// Each axis packs its min and max side as 16-bit floats (min in the low half) to keep the root signature within 64 DWORDs.
+	uint drag_x;                    //                                                                                  @124
+	uint drag_y;                    //                                                                                  @128
+	uint drag_z;                    //                                                                                  @132
 };
 
 // Root constants shared by tracer kernels. Must match CBufAtmosphereTracers in atmosphere.cpp.
@@ -120,6 +139,10 @@ struct CBufAtmosphereTracers
 	uint tracer_seed;               // deterministic seed mixed with particle index and frame counter
 	uint tracer_frame;              // monotonically increasing tracer dispatch index
 	float tracer_max_age;           // particle lifetime before deterministic respawn, seconds
+	float tracer_ground_density;    // normalised tracer density at the floor. See TracerColumnFraction
+	float tracer_break_density;     // normalised tracer density at the break height
+	float tracer_upper_density;     // normalised tracer density from the break height to the lid
+	float tracer_break_height;      // column fraction where the linear lower profile ends
 };
 
 // Spherical heat or relaxation source supplied by the caller. Must match GpuHeatSource in atmosphere.cpp.
@@ -165,7 +188,8 @@ struct TracerParticle
 	float4 position;                // world-space position, metres
 	float temperature;              // sampled cell-centred air temperature, K
 	float age;                      // particle age, seconds
-	float2 pad;                     // keeps the structure size a multiple of 16 bytes
+	float speed;                    // magnitude of the air velocity that moved the particle in the last step, m/s
+	float pad;                      // keeps the structure size a multiple of 16 bytes
 };
 
 RWStructuredBuffer<TracerParticle> resource(g_tracers_out, u7);     // output tracer particles
@@ -274,6 +298,33 @@ float FloorHeight(int2 c)
 	return g_floor_height[ColumnIndex(ClampColumn(c))];
 }
 
+// Return true when the nearest valid column is solid. A column whose floor reaches the lid holds no air, so all of its faces are walls.
+bool ColumnSolid(int2 c)
+{
+	return FloorHeight(c) >= g.lid_z;
+}
+
+// Return 'n' when that neighbour column is air, otherwise 'c'. Layer-slope differences use this so a solid neighbour,
+// whose floor is at the lid, does not create a false slope. The difference becomes one-sided next to a solid column.
+int2 MetricNeighbour(int2 c, int2 n)
+{
+	n = ClampColumn(n);
+	return ColumnSolid(n) ? c : n;
+}
+
+// Return the floor slope (dz/dx, dz/dy) under one fine-grid column. Solid neighbours are replaced by the column itself. See MetricNeighbour.
+float2 FloorSlope(int2 c)
+{
+	// Use centred differences where both neighbours hold air, and one-sided differences at domain edges and beside solid columns.
+	int2 cx0 = MetricNeighbour(c, c - int2(1, 0));
+	int2 cx1 = MetricNeighbour(c, c + int2(1, 0));
+	int2 cy0 = MetricNeighbour(c, c - int2(0, 1));
+	int2 cy1 = MetricNeighbour(c, c + int2(0, 1));
+	float sx = (FloorHeight(cx1) - FloorHeight(cx0)) / (g.dx * ((float)abs(cx1.x - cx0.x) + AtmosphereSmallWeight));
+	float sy = (FloorHeight(cy1) - FloorHeight(cy0)) / (g.dx * ((float)abs(cy1.y - cy0.y) + AtmosphereSmallWeight));
+	return float2(sx, sy);
+}
+
 // Return the stretched sigma value for a vertical face index.
 float SigmaFace(int z)
 {
@@ -352,6 +403,7 @@ float ReferenceTemperature(float z)
 bool UFaceActive(int3 f)
 {
 	if (!InU(f)) return false;
+	if (ColumnSolid(int2(f.x - 1, f.y)) || ColumnSolid(int2(f.x, f.y))) return false;
 	if (f.x == 0) return BoundaryXMin() == BoundaryOpen;
 	if (f.x == g.cell_count.x) return BoundaryXMax() == BoundaryOpen;
 	return true;
@@ -361,6 +413,7 @@ bool UFaceActive(int3 f)
 bool VFaceActive(int3 f)
 {
 	if (!InV(f)) return false;
+	if (ColumnSolid(int2(f.x, f.y - 1)) || ColumnSolid(int2(f.x, f.y))) return false;
 	if (f.y == 0) return BoundaryYMin() == BoundaryOpen;
 	if (f.y == g.cell_count.y) return BoundaryYMax() == BoundaryOpen;
 	return true;
@@ -370,6 +423,7 @@ bool VFaceActive(int3 f)
 bool WFaceActive(int3 f)
 {
 	if (!InW(f)) return false;
+	if (ColumnSolid(f.xy)) return false;
 	if (f.z == 0) return false;
 	if (f.z == g.cell_count.z) return false;
 	return true;
@@ -387,9 +441,22 @@ float LoadV(int3 f)
 	return VFaceActive(f) ? g_v_in[VIndex(f)] : 0.0f;
 }
 
-// Return a W-face value or zero outside active flow faces.
+// Return the vertical velocity at the floor of an air column. Air cannot pass through the ground, so at the floor it moves along the
+// slope: the vertical speed equals the bottom layer's horizontal velocity times the floor slope. On a flat floor this is zero.
+float FloorW(int2 c)
+{
+	// Average the bottom-layer faces to the column centre, where the floor slope is measured.
+	float u = 0.5f * (LoadU(int3(c.x, c.y, 0)) + LoadU(int3(c.x + 1, c.y, 0)));
+	float v = 0.5f * (LoadV(int3(c.x, c.y, 0)) + LoadV(int3(c.x, c.y + 1, 0)));
+	return dot(float2(u, v), FloorSlope(c));
+}
+
+// Return a W-face value or zero outside active flow faces. Floor faces of air columns follow the ground. See FloorW.
 float LoadW(int3 f)
 {
+	if (f.z == 0 && InW(f) && !ColumnSolid(f.xy))
+		return FloorW(f.xy);
+
 	return WFaceActive(f) ? g_w_in[WIndex(f)] : 0.0f;
 }
 
@@ -510,7 +577,8 @@ float3 ClampToDomain(float3 pos)
 	float x = clamp(pos.x, g.origin.x, g.origin.x + g.cell_count.x * g.dx);
 	float y = clamp(pos.y, g.origin.y, g.origin.y + g.cell_count.y * g.dx);
 	int2 col = ClampColumn((int2)floor(float2((x - g.origin.x) / g.dx, (y - g.origin.y) / g.dx)));
-	float z = clamp(pos.z, FloorHeight(col), g.lid_z);
+	float floor_z = ColumnSolid(col) ? min(pos.z, g.lid_z) : FloorHeight(col);
+	float z = clamp(pos.z, floor_z, g.lid_z);
 	return float3(x, y, z);
 }
 
@@ -709,6 +777,98 @@ float3 ConfinementAcceleration(int3 c)
 	return g.vorticity_confinement * g.dx * cross(gradient / len, CellVorticity(c));
 }
 
+// Return the wall drag of the bottom or top cell layer of column 'col' at layer 'z', 1/m. This is the drag coefficient divided by
+// the layer thickness, summed over the floor and lid when the layer touches them. Zero when 'z' touches neither.
+float FloorLidDrag(int2 col, int z)
+{
+	// The thickness of the touching layer sets how much air the wall must slow, so thin near-floor layers slow faster.
+	float drag = 0.0f;
+	if (z == 0)
+		drag += f16tof32(g.drag_z & 0xFFFFu) / max(CellDz(col, 0), AtmosphereMinCellHeight);
+	if (z == g.cell_count.z - 1)
+		drag += f16tof32(g.drag_z >> 16) / max(CellDz(col, z), AtmosphereMinCellHeight);
+
+	return drag;
+}
+
+// Return the wall drag on U face 'p', 1/m. U faces run along the y and z walls.
+float WallDragU(int3 p)
+{
+	// Side walls are one column thick; the floor and lid use the layer thickness of the column on the low side of the face.
+	float drag = FloorLidDrag(ClampColumn(int2(min(p.x, g.cell_count.x - 1), p.y)), p.z);
+	if (p.y == 0)
+		drag += f16tof32(g.drag_y & 0xFFFFu) / g.dx;
+	if (p.y == g.cell_count.y - 1)
+		drag += f16tof32(g.drag_y >> 16) / g.dx;
+
+	return drag;
+}
+
+// Return the wall drag on V face 'p', 1/m. V faces run along the x and z walls.
+float WallDragV(int3 p)
+{
+	// Side walls are one column thick; the floor and lid use the layer thickness of the column on the low side of the face.
+	float drag = FloorLidDrag(ClampColumn(int2(p.x, min(p.y, g.cell_count.y - 1))), p.z);
+	if (p.x == 0)
+		drag += f16tof32(g.drag_x & 0xFFFFu) / g.dx;
+	if (p.x == g.cell_count.x - 1)
+		drag += f16tof32(g.drag_x >> 16) / g.dx;
+
+	return drag;
+}
+
+// Return the wall drag on W face 'p', 1/m. W faces run along the x and y walls.
+float WallDragW(int3 p)
+{
+	// Side walls are one column thick.
+	float drag = 0.0f;
+	if (p.x == 0)
+		drag += f16tof32(g.drag_x & 0xFFFFu) / g.dx;
+	if (p.x == g.cell_count.x - 1)
+		drag += f16tof32(g.drag_x >> 16) / g.dx;
+	if (p.y == 0)
+		drag += f16tof32(g.drag_y & 0xFFFFu) / g.dx;
+	if (p.y == g.cell_count.y - 1)
+		drag += f16tof32(g.drag_y >> 16) / g.dx;
+
+	return drag;
+}
+
+// Return 'value' slowed by quadratic wall drag over one step. 'drag' is the face's wall drag (1/m) and 'speed' is the local air speed (m/s).
+// The deceleration rate is drag * speed. The implicit form slows the flow toward zero without reversing it, for any step size.
+float ApplyWallDrag(float value, float drag, float speed)
+{
+	// Dividing by the growth factor is the implicit form of 'dv/dt = -drag * speed * v'.
+	return value / (1.0f + g.dt * drag * speed);
+}
+
+// Return horizontal face value 'value' at layer 'z' after one step of vertical momentum mixing with the faces directly above and below.
+// 'below' and 'above' are those neighbour values, 'col' is the column whose layer heights apply. Faces on the floor or lid mix only inward.
+float MixVertical(float value, float below, float above, int2 col, int z)
+{
+	// The flux between two layers is the viscosity times the velocity difference over the distance between the layer centres.
+	// Treating this face implicitly and its neighbours explicitly gives a weighted average of the three values, so the result
+	// always lies between them and stays stable for any viscosity or step size.
+	float dz = max(CellDz(col, z), AtmosphereMinCellHeight);
+	float sum = value;
+	float weight = 1.0f;
+	if (z > 0)
+	{
+		// Mix with the layer below.
+		float a = g.vertical_viscosity * g.dt / (dz * max(0.5f * (dz + CellDz(col, z - 1)), AtmosphereMinCellHeight));
+		sum += a * below;
+		weight += a;
+	}
+	if (z < g.cell_count.z - 1)
+	{
+		// Mix with the layer above.
+		float a = g.vertical_viscosity * g.dt / (dz * max(0.5f * (dz + CellDz(col, z + 1)), AtmosphereMinCellHeight));
+		sum += a * above;
+		weight += a;
+	}
+	return sum / weight;
+}
+
 
 // One horizontally coarsened multigrid level. All levels are packed one after another into the pressure, divergence, and
 // residual buffers. Every level keeps all 'cell_count.z' layers and has fewer columns than the level above it.
@@ -792,6 +952,19 @@ int2 FineColumnFromLevel(MgLevel level, int2 c)
 	return ClampColumn(min(c * level.scale + (level.scale >> 1), g.cell_count.xy - 1));
 }
 
+// Return true when the nearest valid column on 'level' is solid. Coarse columns take the state of their representative fine column.
+bool LevelColumnSolid(MgLevel level, int2 c)
+{
+	return ColumnSolid(FineColumnFromLevel(level, clamp(c, int2(0, 0), level.size - 1)));
+}
+
+// Return 'n' when that neighbour column on 'level' is air, otherwise 'c'. See MetricNeighbour.
+int2 LevelMetricNeighbour(MgLevel level, int2 c, int2 n)
+{
+	n = clamp(n, int2(0, 0), level.size - 1);
+	return LevelColumnSolid(level, n) ? c : n;
+}
+
 // Return world-space face height for a column on 'level'.
 float FaceZLevel(MgLevel level, int2 c, int z)
 {
@@ -828,10 +1001,14 @@ float VerticalPressureGradientLevel(MgLevel level, int3 c)
 
 // Accumulate one horizontal pressure neighbour and its coefficient for the column smoother.
 // Open sides hold zero perturbation pressure outside the domain, so they add to the coefficient sum but not to the neighbour sum.
+// Solid columns are walls with no flow through them, so they add to neither sum.
 void AddPressureNeighbourLevel(MgLevel level, int3 n, int boundary, float coeff, inout float sum, inout float denom)
 {
 	if (InLevelCells(level, n))
 	{
+		if (LevelColumnSolid(level, n.xy))
+			return;
+
 		sum += coeff * g_pressure[LevelIndex(level, n)];
 		denom += coeff;
 	}
@@ -841,10 +1018,12 @@ void AddPressureNeighbourLevel(MgLevel level, int3 n, int boundary, float coeff,
 	}
 }
 
-// Return the metric-corrected X pressure gradient at a face on 'level'.
+// Return the metric-corrected X pressure gradient at a face on 'level'. Faces beside a solid column are walls with no gradient.
 float PressureGradientXLevel(MgLevel level, int3 f)
 {
 	float h = LevelDx(level);
+	if (LevelColumnSolid(level, int2(f.x - 1, f.y)) || LevelColumnSolid(level, int2(f.x, f.y)))
+		return 0.0f;
 	if (f.x > 0 && f.x < level.size.x)
 	{
 		int3 c0 = int3(f.x - 1, f.y, f.z);
@@ -859,10 +1038,12 @@ float PressureGradientXLevel(MgLevel level, int3 f)
 	return 0.0f;
 }
 
-// Return the metric-corrected Y pressure gradient at a face on 'level'.
+// Return the metric-corrected Y pressure gradient at a face on 'level'. Faces beside a solid column are walls with no gradient.
 float PressureGradientYLevel(MgLevel level, int3 f)
 {
 	float h = LevelDx(level);
+	if (LevelColumnSolid(level, int2(f.x, f.y - 1)) || LevelColumnSolid(level, int2(f.x, f.y)))
+		return 0.0f;
 	if (f.y > 0 && f.y < level.size.y)
 	{
 		int3 c0 = int3(f.x, f.y - 1, f.z);
@@ -877,34 +1058,50 @@ float PressureGradientYLevel(MgLevel level, int3 f)
 	return 0.0f;
 }
 
-// Return the vertical pressure gradient at a face on 'level'.
+// Return the vertical pressure gradient at a face on 'level'. Solid columns have no vertical flow.
 float PressureGradientZLevel(MgLevel level, int3 f)
 {
-	if (f.z > 0 && f.z < g.cell_count.z)
+	if (f.z > 0 && f.z < g.cell_count.z && !LevelColumnSolid(level, f.xy))
 		return (PressureAtLevel(level, f) - PressureAtLevel(level, int3(f.x, f.y, f.z - 1))) / CellDzLevel(level, f.xy, max(0, f.z - 1));
 	return 0.0f;
 }
 
-// Return the terrain-following layer slope in X for one cell on 'level'.
+// Return the terrain-following layer slope in X for one cell on 'level'. Solid neighbours are replaced by the cell's own column.
 float LevelTerrainSlopeX(MgLevel level, int2 c, int z)
 {
-	int2 c0 = int2(max(0, c.x - 1), c.y);
-	int2 c1 = int2(min(level.size.x - 1, c.x + 1), c.y);
+	int2 c0 = LevelMetricNeighbour(level, c, int2(c.x - 1, c.y));
+	int2 c1 = LevelMetricNeighbour(level, c, int2(c.x + 1, c.y));
 	return (CellZLevel(level, c1, z) - CellZLevel(level, c0, z)) / (LevelDx(level) * (float)(abs(c1.x - c0.x) + AtmosphereSmallWeight));
 }
 
-// Return the terrain-following layer slope in Y for one cell on 'level'.
+// Return the terrain-following layer slope in Y for one cell on 'level'. Solid neighbours are replaced by the cell's own column.
 float LevelTerrainSlopeY(MgLevel level, int2 c, int z)
 {
-	int2 c0 = int2(c.x, max(0, c.y - 1));
-	int2 c1 = int2(c.x, min(level.size.y - 1, c.y + 1));
+	int2 c0 = LevelMetricNeighbour(level, c, int2(c.x, c.y - 1));
+	int2 c1 = LevelMetricNeighbour(level, c, int2(c.x, c.y + 1));
 	return (CellZLevel(level, c1, z) - CellZLevel(level, c0, z)) / (LevelDx(level) * (float)(abs(c1.y - c0.y) + AtmosphereSmallWeight));
 }
 
-// Apply the metric pressure operator to one cell on 'level'.
+// Return the floor slope (dz/dx, dz/dy) under one column on 'level'. See FloorSlope.
+float2 LevelFloorSlope(MgLevel level, int2 c)
+{
+	// Use the same neighbour rules as the layer slopes so the floor term follows the level's own geometry.
+	int2 cx0 = LevelMetricNeighbour(level, c, int2(c.x - 1, c.y));
+	int2 cx1 = LevelMetricNeighbour(level, c, int2(c.x + 1, c.y));
+	int2 cy0 = LevelMetricNeighbour(level, c, int2(c.x, c.y - 1));
+	int2 cy1 = LevelMetricNeighbour(level, c, int2(c.x, c.y + 1));
+	float sx = (FaceZLevel(level, cx1, 0) - FaceZLevel(level, cx0, 0)) / (LevelDx(level) * ((float)abs(cx1.x - cx0.x) + AtmosphereSmallWeight));
+	float sy = (FaceZLevel(level, cy1, 0) - FaceZLevel(level, cy0, 0)) / (LevelDx(level) * ((float)abs(cy1.y - cy0.y) + AtmosphereSmallWeight));
+	return float2(sx, sy);
+}
+
+// Apply the metric pressure operator to one cell on 'level'. Solid cells hold zero pressure and have no equation.
 float PressureOperatorLevel(MgLevel level, int3 c)
 {
 	// The pressure matrix is the negative divergence of the same terrain-following pressure gradient used by projection. Matching these operators lets the V-cycle remove the divergence that projection will actually create on sloped sigma layers.
+	if (LevelColumnSolid(level, c.xy))
+		return 0.0f;
+
 	float h = LevelDx(level);
 	float dz = CellDzLevel(level, c.xy, c.z);
 	float gx0 = PressureGradientXLevel(level, int3(c.x, c.y, c.z));
@@ -913,6 +1110,11 @@ float PressureOperatorLevel(MgLevel level, int3 c)
 	float gy1 = PressureGradientYLevel(level, int3(c.x, c.y + 1, c.z));
 	float gz0 = PressureGradientZLevel(level, int3(c.x, c.y, c.z));
 	float gz1 = PressureGradientZLevel(level, int3(c.x, c.y, c.z + 1));
+
+	// The floor face carries the horizontal gradient along the ground slope, matching the floor velocity used by the divergence. See FloorW.
+	if (c.z == 0)
+		gz0 = dot(float2(0.5f * (gx0 + gx1), 0.5f * (gy0 + gy1)), LevelFloorSlope(level, c.xy));
+
 	float base_div = (gx1 - gx0) / h + (gy1 - gy0) / h + (gz1 - gz0) / dz;
 	float z_x = LevelTerrainSlopeX(level, c.xy, c.z);
 	float z_y = LevelTerrainSlopeY(level, c.xy, c.z);
@@ -937,7 +1139,10 @@ void CSInitialise(uint3 dtid : SV_DispatchThreadID)
 	if (InW(p)) g_w_out[WIndex(p)] = 0.0f;
 	if (InCells(p))
 	{
-		g_temperature_out[CellIndex(p)] = ReferenceTemperature(CellCentre(p).z);
+		// Solid columns have no layer heights, so their cells use the reference temperature of the same layer in a column standing on the grid origin.
+		// Temperature samples beside a wall blend in these values, which keeps them close to the surrounding air.
+		float z = ColumnSolid(p.xy) ? g.origin_z + SigmaCentre(p.z) * (g.lid_z - g.origin_z) : CellCentre(p).z;
+		g_temperature_out[CellIndex(p)] = ReferenceTemperature(z);
 		g_pressure[CellIndex(p)] = 0.0f;
 		g_divergence[CellIndex(p)] = 0.0f;
 		g_residual[CellIndex(p)] = 0.0f;
@@ -978,9 +1183,17 @@ void CSAdvect(uint3 dtid : SV_DispatchThreadID)
 	}
 	if (InCells(p))
 	{
+		// Solid cells hold no air, so they keep their temperature.
 		float3 pos = CellCentre(p);
+		if (ColumnSolid(p.xy))
+		{
+			g_temperature_out[CellIndex(p)] = g_temperature_in[CellIndex(p)];
+			return;
+		}
+		// Air that rises expands and cools at the dry adiabatic rate, and air that sinks warms. Without this, a lifted parcel would stay
+		// warmer than the stable surrounding air and keep rising.
 		float3 prev = ClampToDomain(pos - SampleVelocity(pos) * g.dt);
-		float temp = SampleTemperature(prev);
+		float temp = SampleTemperature(prev) - g.gravity / AtmosphereSpecificHeat * (pos.z - prev.z);
 		OutsideAir air;
 		if (InflowOutsideAir(p, air))
 		{
@@ -1003,7 +1216,7 @@ void CSVorticity(uint3 dtid : SV_DispatchThreadID)
 	g_divergence[CellIndex(c)] = length(CellVorticity(c));
 }
 
-// Apply forcing, buoyancy, floor exchange, lid relaxation, and heat sources.
+// Apply forcing, buoyancy, wall drag, floor exchange, lid relaxation, and heat sources.
 numthreads(CSForcesHeat, ATMOSPHERE_THREAD_X, ATMOSPHERE_THREAD_Y, ATMOSPHERE_THREAD_Z)
 void CSForcesHeat(uint3 dtid : SV_DispatchThreadID)
 {
@@ -1012,33 +1225,47 @@ void CSForcesHeat(uint3 dtid : SV_DispatchThreadID)
 	bool confine = g.vorticity_confinement != 0.0f;
 	if (InU(p))
 	{
-		// Restore lost swirl on interior faces using the average confinement force of the two cells that share the face.
+		// Share momentum with the layers above and below, then restore lost swirl on interior faces using the average confinement force of the two cells that share the face.
 		float value = g_u_in[UIndex(p)];
+		int2 col = ClampColumn(int2(min(p.x, g.cell_count.x - 1), p.y));
+		if (g.vertical_viscosity != 0.0f)
+			value = MixVertical(value, g_u_in[UIndex(int3(p.xy, max(p.z - 1, 0)))], g_u_in[UIndex(int3(p.xy, min(p.z + 1, g.cell_count.z - 1)))], col, p.z);
 		if (confine && p.x > 0 && p.x < g.cell_count.x)
 			value += 0.5f * (ConfinementAcceleration(p - int3(1, 0, 0)).x + ConfinementAcceleration(p).x) * g.dt;
 
-		// Nudge the face toward the inflow outside wind inside the open-edge sponge.
-		int2 col = ClampColumn(int2(min(p.x, g.cell_count.x - 1), p.y));
+		// Nudge the face toward the outside wind inside the open-edge sponge.
 		float2 wind;
 		float sponge = OpenEdgeWindBlend(col, wind);
 		if (sponge > 0.0f)
 			value = lerp(value, wind.x, saturate(AtmosphereOpenEdgeWindRate * sponge * g.dt));
 
+		// Slow faces that run along a dragged wall, using the air speed averaged over the two cells that share the face.
+		float drag = WallDragU(p);
+		if (drag > 0.0f)
+			value = ApplyWallDrag(value, drag, 0.5f * length(CellVelocity(p - int3(1, 0, 0)) + CellVelocity(p)));
+
 		g_u_out[UIndex(p)] = UFaceActive(p) ? value : 0.0f;
 	}
 	if (InV(p))
 	{
-		// Restore lost swirl on interior faces using the average confinement force of the two cells that share the face.
+		// Share momentum with the layers above and below, then restore lost swirl on interior faces using the average confinement force of the two cells that share the face.
 		float value = g_v_in[VIndex(p)];
+		int2 col = ClampColumn(int2(p.x, min(p.y, g.cell_count.y - 1)));
+		if (g.vertical_viscosity != 0.0f)
+			value = MixVertical(value, g_v_in[VIndex(int3(p.xy, max(p.z - 1, 0)))], g_v_in[VIndex(int3(p.xy, min(p.z + 1, g.cell_count.z - 1)))], col, p.z);
 		if (confine && p.y > 0 && p.y < g.cell_count.y)
 			value += 0.5f * (ConfinementAcceleration(p - int3(0, 1, 0)).y + ConfinementAcceleration(p).y) * g.dt;
 
-		// Nudge the face toward the inflow outside wind inside the open-edge sponge.
-		int2 col = ClampColumn(int2(p.x, min(p.y, g.cell_count.y - 1)));
+		// Nudge the face toward the outside wind inside the open-edge sponge.
 		float2 wind;
 		float sponge = OpenEdgeWindBlend(col, wind);
 		if (sponge > 0.0f)
 			value = lerp(value, wind.y, saturate(AtmosphereOpenEdgeWindRate * sponge * g.dt));
+
+		// Slow faces that run along a dragged wall, using the air speed averaged over the two cells that share the face.
+		float drag = WallDragV(p);
+		if (drag > 0.0f)
+			value = ApplyWallDrag(value, drag, 0.5f * length(CellVelocity(p - int3(0, 1, 0)) + CellVelocity(p)));
 
 		g_v_out[VIndex(p)] = VFaceActive(p) ? value : 0.0f;
 	}
@@ -1059,12 +1286,25 @@ void CSForcesHeat(uint3 dtid : SV_DispatchThreadID)
 			if (confine)
 				accel += 0.5f * (ConfinementAcceleration(int3(p.x, p.y, z0)).z + ConfinementAcceleration(int3(p.x, p.y, z1)).z);
 		}
-		g_w_out[WIndex(p)] = WFaceActive(p) ? g_w_in[WIndex(p)] + accel * g.dt : 0.0f;
+		float value = g_w_in[WIndex(p)] + accel * g.dt;
+
+		// Slow faces that run along a dragged side wall, using the air speed averaged over the two cells that share the face.
+		float drag = WallDragW(p);
+		if (drag > 0.0f)
+			value = ApplyWallDrag(value, drag, 0.5f * length(CellVelocity(p - int3(0, 0, 1)) + CellVelocity(p)));
+
+		g_w_out[WIndex(p)] = WFaceActive(p) ? value : 0.0f;
 	}
 	if (InCells(p))
 	{
+		// Solid cells hold no air, so floor, lid, and heat-source exchange do not apply to them.
 		float3 pos = CellCentre(p);
 		float temp = g_temperature_in[CellIndex(p)];
+		if (ColumnSolid(p.xy))
+		{
+			g_temperature_out[CellIndex(p)] = temp;
+			return;
+		}
 		if (p.z == 0)
 		{
 			float floor_temp = g.use_floor_temp_buffer != 0 ? g_floor_temperature[p.y * g.cell_count.x + p.x] : g_floor_temperature[0];
@@ -1100,12 +1340,25 @@ void CSDivergence(uint3 dtid : SV_DispatchThreadID)
 	int3 c = int3(dtid);
 	if (!InCells(c))
 		return;
+
+	// Solid cells have no pressure equation.
+	if (ColumnSolid(c.xy))
+	{
+		g_divergence[CellIndex(c)] = 0.0f;
+		return;
+	}
+
+	// Layer slopes use one-sided differences beside solid columns. See MetricNeighbour.
 	float dz = CellDz(c.xy, c.z);
 	float base_div = (g_u_in[UIndex(int3(c.x + 1, c.y, c.z))] - g_u_in[UIndex(int3(c.x, c.y, c.z))]) / g.dx
 		+ (g_v_in[VIndex(int3(c.x, c.y + 1, c.z))] - g_v_in[VIndex(int3(c.x, c.y, c.z))]) / g.dx
-		+ (g_w_in[WIndex(int3(c.x, c.y, c.z + 1))] - g_w_in[WIndex(int3(c.x, c.y, c.z))]) / dz;
-	float z_x = (CellZ(ClampColumn(c.xy + int2(1, 0)), c.z) - CellZ(ClampColumn(c.xy - int2(1, 0)), c.z)) / (g.dx * (float)(abs(ClampColumn(c.xy + int2(1, 0)).x - ClampColumn(c.xy - int2(1, 0)).x) + AtmosphereSmallWeight));
-	float z_y = (CellZ(ClampColumn(c.xy + int2(0, 1)), c.z) - CellZ(ClampColumn(c.xy - int2(0, 1)), c.z)) / (g.dx * (float)(abs(ClampColumn(c.xy + int2(0, 1)).y - ClampColumn(c.xy - int2(0, 1)).y) + AtmosphereSmallWeight));
+		+ (g_w_in[WIndex(int3(c.x, c.y, c.z + 1))] - LoadW(int3(c.x, c.y, c.z))) / dz;
+	int2 cx0 = MetricNeighbour(c.xy, c.xy - int2(1, 0));
+	int2 cx1 = MetricNeighbour(c.xy, c.xy + int2(1, 0));
+	int2 cy0 = MetricNeighbour(c.xy, c.xy - int2(0, 1));
+	int2 cy1 = MetricNeighbour(c.xy, c.xy + int2(0, 1));
+	float z_x = (CellZ(cx1, c.z) - CellZ(cx0, c.z)) / (g.dx * (float)(abs(cx1.x - cx0.x) + AtmosphereSmallWeight));
+	float z_y = (CellZ(cy1, c.z) - CellZ(cy0, c.z)) / (g.dx * (float)(abs(cy1.y - cy0.y) + AtmosphereSmallWeight));
 	int z0 = max(0, c.z - 1);
 	int z1 = min(g.cell_count.z - 1, c.z + 1);
 	float z_span = max(CellZ(c.xy, z1) - CellZ(c.xy, z0), AtmosphereMinCellHeight);
@@ -1122,6 +1375,15 @@ void RelaxColumn(MgLevel level, int2 xy)
 {
 	// The vertical system is tridiagonal. Forward elimination builds each row as it goes and keeps only the eliminated
 	// coefficients 'cp' and 'dp', so each thread needs two small arrays instead of one array per matrix diagonal.
+	if (LevelColumnSolid(level, xy))
+	{
+		// Solid columns hold no air and keep zero pressure.
+		for (int sz = 0; sz != g.cell_count.z; ++sz)
+			g_pressure[LevelIndex(level, int3(xy, sz))] = 0.0f;
+
+		return;
+	}
+
 	float h = LevelDx(level);
 	float idx2 = 1.0f / (h * h);
 	float cp[ATMOSPHERE_MAX_LAYERS];
@@ -1180,9 +1442,9 @@ void CSMgSmooth(uint3 dtid : SV_DispatchThreadID)
 // Compute the multigrid residual of cell 'c' on 'level'.
 void ResidualCell(MgLevel level, int3 c)
 {
-	// The residual is the part of the pressure equation that the current pressure does not yet satisfy.
+	// The residual is the part of the pressure equation that the current pressure does not yet satisfy. Solid cells have no equation.
 	int idx = LevelIndex(level, c);
-	g_residual[idx] = -g_divergence[idx] - PressureOperatorLevel(level, c);
+	g_residual[idx] = LevelColumnSolid(level, c.xy) ? 0.0f : -g_divergence[idx] - PressureOperatorLevel(level, c);
 }
 
 // Restrict the residuals of 'level' into cell 'c' of its child level, and clear the child's pressure for a fresh correction.
@@ -1282,7 +1544,7 @@ void GroupSmooth(MgLevel level, int2 xy, int passes)
 // Run the remainder of a V-cycle, from the active level down to the coarsest level and back, in a single thread group.
 // The active level has at most ATMOSPHERE_FUSED_COLUMNS columns along X and Y, so each thread owns one column on every level.
 // Small levels have too few columns to fill the GPU, so running them in one group with group barriers replaces many short
-// dispatches and UAV barriers. Uses 'mg_pre_smooth' and 'mg_post_smooth' passes on each level above the coarsest, and
+// dispatches and UAV barriers. Uses the pre- and post-smoothing counts packed in 'mg_smooth' on each level above the coarsest, and
 // 'mg_passes' passes on the coarsest level.
 numthreads(CSMgSmallLevels, ATMOSPHERE_FUSED_COLUMNS, ATMOSPHERE_FUSED_COLUMNS, 1)
 void CSMgSmallLevels(uint3 gtid : SV_GroupThreadID)
@@ -1300,7 +1562,7 @@ void CSMgSmallLevels(uint3 gtid : SV_GroupThreadID)
 	for (int d = 0; d != depth; ++d)
 	{
 		// Pre-smoothing damps cell-scale errors before the residual is restricted.
-		GroupSmooth(level, xy, g.mg_pre_smooth);
+		GroupSmooth(level, xy, int(g.mg_smooth & 0xFFFFu));
 		if (InLevelColumns(level, xy))
 		{
 			// Each thread computes the residual for its own column.
@@ -1339,7 +1601,7 @@ void CSMgSmallLevels(uint3 gtid : SV_GroupThreadID)
 				ProlongateCell(parent, int3(xy, z));
 		}
 		DeviceMemoryBarrierWithGroupSync();
-		GroupSmooth(parent, xy, g.mg_post_smooth);
+		GroupSmooth(parent, xy, int(g.mg_smooth >> 16));
 	}
 }
 
@@ -1366,21 +1628,12 @@ void CSNormalisePressure(uint3 dtid : SV_DispatchThreadID)
 numthreads(CSProject, ATMOSPHERE_THREAD_X, ATMOSPHERE_THREAD_Y, ATMOSPHERE_THREAD_Z)
 void CSProject(uint3 dtid : SV_DispatchThreadID)
 {
-	// Project every staggered sample type that exists at this dispatch coordinate.
+	// Project every staggered sample type that exists at this dispatch coordinate. The fine-level gradients match the operator
+	// used by the pressure solve, including open sides and solid columns.
 	int3 p = int3(dtid);
 	if (InU(p))
 	{
-		float grad = 0.0f;
-		if (p.x > 0 && p.x < g.cell_count.x)
-		{
-			int3 c0 = int3(p.x - 1, p.y, p.z);
-			int3 c1 = int3(p.x, p.y, p.z);
-			float dzdx = (CellZ(c1.xy, p.z) - CellZ(c0.xy, p.z)) / g.dx;
-			grad = (PressureAt(c1) - PressureAt(c0)) / g.dx - dzdx * 0.5f * (VerticalPressureGradientLevel(MgFineLevel(), c0) + VerticalPressureGradientLevel(MgFineLevel(), c1));
-		}
-		else if (p.x == 0 && BoundaryXMin() == BoundaryOpen) grad = PressureAt(int3(0, p.y, p.z)) / g.dx;
-		else if (p.x == g.cell_count.x && BoundaryXMax() == BoundaryOpen) grad = -PressureAt(int3(g.cell_count.x - 1, p.y, p.z)) / g.dx;
-		float value = g_u_in[UIndex(p)] - grad;
+		float value = g_u_in[UIndex(p)] - PressureGradientXLevel(MgFineLevel(), p);
 		if (OpenBoundaryUFace(p))
 			value = OpenBoundaryU(p);
 
@@ -1388,17 +1641,7 @@ void CSProject(uint3 dtid : SV_DispatchThreadID)
 	}
 	if (InV(p))
 	{
-		float grad = 0.0f;
-		if (p.y > 0 && p.y < g.cell_count.y)
-		{
-			int3 c0 = int3(p.x, p.y - 1, p.z);
-			int3 c1 = int3(p.x, p.y, p.z);
-			float dzdy = (CellZ(c1.xy, p.z) - CellZ(c0.xy, p.z)) / g.dx;
-			grad = (PressureAt(c1) - PressureAt(c0)) / g.dx - dzdy * 0.5f * (VerticalPressureGradientLevel(MgFineLevel(), c0) + VerticalPressureGradientLevel(MgFineLevel(), c1));
-		}
-		else if (p.y == 0 && BoundaryYMin() == BoundaryOpen) grad = PressureAt(int3(p.x, 0, p.z)) / g.dx;
-		else if (p.y == g.cell_count.y && BoundaryYMax() == BoundaryOpen) grad = -PressureAt(int3(p.x, g.cell_count.y - 1, p.z)) / g.dx;
-		float value = g_v_in[VIndex(p)] - grad;
+		float value = g_v_in[VIndex(p)] - PressureGradientYLevel(MgFineLevel(), p);
 		if (OpenBoundaryVFace(p))
 			value = OpenBoundaryV(p);
 
@@ -1406,9 +1649,7 @@ void CSProject(uint3 dtid : SV_DispatchThreadID)
 	}
 	if (InW(p))
 	{
-		float grad = 0.0f;
-		if (p.z > 0 && p.z < g.cell_count.z) grad = (PressureAt(int3(p.x, p.y, p.z)) - PressureAt(int3(p.x, p.y, p.z - 1))) / CellDz(p.xy, max(0, p.z - 1));
-		g_w_out[WIndex(p)] = WFaceActive(p) ? g_w_in[WIndex(p)] - grad : 0.0f;
+		g_w_out[WIndex(p)] = WFaceActive(p) ? g_w_in[WIndex(p)] - PressureGradientZLevel(MgFineLevel(), p) : 0.0f;
 	}
 	if (InCells(p))
 	{
@@ -1436,6 +1677,24 @@ float TracerRand(uint particle_index, uint lane)
 	return ((float)(h & 0x00ffffffu) + 0.5f) / 16777216.0f;
 }
 
+// Map a unit random value 'r' to a fraction of the column height (0 at the floor, 1 at the lid) for a new tracer.
+// The density of new tracers falls linearly from 'tracer_ground_density' at the floor to 'tracer_break_density' at 'tracer_break_height',
+// then is 'tracer_upper_density' up to the lid. The densities are normalised so the integral over the column is 1.
+float TracerColumnFraction(float r)
+{
+	// Invert the cumulative density. Below the break it is 'ground * s + (brk - ground) * s^2 / (2 h)', which reaches 'lower_share' at s = h.
+	float ground = gt.tracer_ground_density;
+	float brk = gt.tracer_break_density;
+	float upper = gt.tracer_upper_density;
+	float h = gt.tracer_break_height;
+	float lower_share = 0.5f * h * (ground + brk);
+	if (r >= lower_share)
+		return min(h + (r - lower_share) / max(upper, 1e-20f), 1.0f);
+
+	// This form of the quadratic root avoids cancellation and stays finite when the lower density is even (ground == brk).
+	return 2.0f * r / (ground + sqrt(max(ground * ground + 2.0f * (brk - ground) * r / h, 0.0f)));
+}
+
 // Return true when a world-space position is outside the terrain-following domain.
 bool TracerOutside(float3 pos)
 {
@@ -1445,27 +1704,45 @@ bool TracerOutside(float3 pos)
 	if (pos.y < g.origin.y || pos.y > g.origin.y + (float)g.cell_count.y * g.dx)
 		return true;
 	int2 col = ClampColumn((int2)floor(float2((pos.x - g.origin.x) / g.dx, (pos.y - g.origin.y) / g.dx)));
-	return pos.z < FloorHeight(col) || pos.z > g.lid_z;
+	return ColumnSolid(col) || pos.z < FloorHeight(col) || pos.z > g.lid_z;
 }
 
-// Return a deterministic respawned tracer inside the terrain-following domain.
-TracerParticle RespawnTracer(uint particle_index)
+// Return a new tracer at rest at 'pos', sampling the local air.
+TracerParticle MakeTracer(float3 pos)
 {
-	// Sample XY uniformly by area, then sample sigma uniformly so flat and terrain-following grids both stay inside the local column.
-	float rx = TracerRand(particle_index, 0u);
-	float ry = TracerRand(particle_index, 1u);
-	float rz = TracerRand(particle_index, 2u);
-	float3 pos;
-	pos.x = g.origin.x + rx * (float)g.cell_count.x * g.dx;
-	pos.y = g.origin.y + ry * (float)g.cell_count.y * g.dx;
-	int2 col = ClampColumn((int2)floor(float2((pos.x - g.origin.x) / g.dx, (pos.y - g.origin.y) / g.dx)));
-	pos.z = FloorHeight(col) + rz * ColumnHeight(col);
+	// Speed is sampled here so a respawned tracer is coloured correctly before its first advection step.
 	TracerParticle particle;
 	particle.position = float4(pos, 1.0f);
 	particle.temperature = SampleTemperature(pos);
 	particle.age = 0.0f;
-	particle.pad = float2(0.0f, 0.0f);
+	particle.speed = length(SampleVelocity(pos));
+	particle.pad = 0.0f;
 	return particle;
+}
+
+// Return a deterministic respawned tracer inside the terrain-following domain.
+// Positions inside solid columns are redrawn a few times. If every draw is solid, the tracer respawns again on the next step.
+TracerParticle RespawnTracer(uint particle_index)
+{
+	// Sample XY uniformly by area, then sample a fraction of the local column height so flat and terrain-following grids both stay inside the column. See TracerColumnFraction.
+	// The first draw uses lanes 0-2. Redraws use lanes above those used by RespawnTracerAtInflow.
+	static const uint attempt_count = 4u;
+	float3 pos = float3(0.0f, 0.0f, 0.0f);
+	for (uint attempt = 0u; attempt != attempt_count; ++attempt)
+	{
+		// Draw one candidate position from three random lanes.
+		uint lane = attempt == 0u ? 0u : 64u + 3u * attempt;
+		float rx = TracerRand(particle_index, lane + 0u);
+		float ry = TracerRand(particle_index, lane + 1u);
+		float rz = TracerRand(particle_index, lane + 2u);
+		pos.x = g.origin.x + rx * (float)g.cell_count.x * g.dx;
+		pos.y = g.origin.y + ry * (float)g.cell_count.y * g.dx;
+		int2 col = ClampColumn((int2)floor(float2((pos.x - g.origin.x) / g.dx, (pos.y - g.origin.y) / g.dx)));
+		pos.z = FloorHeight(col) + TracerColumnFraction(rz) * ColumnHeight(col);
+		if (!ColumnSolid(col))
+			break;
+	}
+	return MakeTracer(pos);
 }
 
 // Return a random point just inside one of the open side faces, chosen uniformly by side area.
@@ -1516,9 +1793,9 @@ float3 OpenSidePoint(uint particle_index, uint lane, out float3 inward)
 		inward = float3(0.0f, -1.0f, 0.0f);
 	}
 
-	// Sample height uniformly within the local column, as RespawnTracer does.
+	// Sample height within the local column with the same profile as RespawnTracer.
 	int2 col = ClampColumn((int2)floor(float2((pos.x - g.origin.x) / g.dx, (pos.y - g.origin.y) / g.dx)));
-	pos.z = FloorHeight(col) + rz * ColumnHeight(col);
+	pos.z = FloorHeight(col) + TracerColumnFraction(rz) * ColumnHeight(col);
 	return pos;
 }
 
@@ -1540,6 +1817,9 @@ TracerParticle RespawnTracerAtInflow(uint particle_index)
 			// Lanes 0-2 are used by RespawnTracer; each candidate uses three more lanes plus one for the keep decision.
 			float3 inward;
 			float3 pos = OpenSidePoint(particle_index, 3u + 4u * i, inward);
+			if (TracerOutside(pos))
+				continue;
+
 			float inflow = max(dot(SampleVelocity(pos), inward), 0.0f);
 			if (inflow <= 0.0f)
 				continue;
@@ -1552,12 +1832,7 @@ TracerParticle RespawnTracerAtInflow(uint particle_index)
 	if (total <= 0.0f)
 		return RespawnTracer(particle_index);
 
-	TracerParticle particle;
-	particle.position = float4(chosen, 1.0f);
-	particle.temperature = SampleTemperature(chosen);
-	particle.age = 0.0f;
-	particle.pad = float2(0.0f, 0.0f);
-	return particle;
+	return MakeTracer(chosen);
 }
 
 // Initialise deterministic tracer particles inside the domain.
@@ -1569,7 +1844,11 @@ void CSInitialiseTracers(uint3 dtid : SV_DispatchThreadID)
 	if (particle_index >= (uint)gt.tracer_count)
 		return;
 
-	g_tracers_out[particle_index] = RespawnTracer(particle_index);
+	// Start each tracer part way through its lifetime. If all tracers started at age zero, they would all expire on the same frame
+	// and respawn together, causing a visible jump in the density pattern. Lane 128 is above the lanes used by the respawn functions.
+	TracerParticle particle = RespawnTracer(particle_index);
+	particle.age = TracerRand(particle_index, 128u) * gt.tracer_max_age;
+	g_tracers_out[particle_index] = particle;
 }
 
 // Advect tracer particles through the current MAC field.
@@ -1595,13 +1874,14 @@ void CSAdvectTracers(uint3 dtid : SV_DispatchThreadID)
 	}
 	else if (particle.age > gt.tracer_max_age)
 	{
-		// Expired tracers respawn anywhere in the volume. Uniform removal and uniform respawn keep the density unchanged.
+		// Expired tracers respawn anywhere in the volume. Removal does not depend on position, so the density relaxes towards the respawn profile.
 		particle = RespawnTracer(particle_index);
 	}
 	else
 	{
 		particle.position = float4(pos, 1.0f);
 		particle.temperature = SampleTemperature(pos);
+		particle.speed = length(v1);
 	}
 	g_tracers_out[particle_index] = particle;
 }

@@ -6,7 +6,7 @@
 			"group": "Atmosphere",
 			"order": 0
 		},
-		"description": "GPU atmosphere solver demo: a shallow wind tunnel with opposing outside winds, west-to-east on the near (south) side and east-to-west on the far (north) side. Small random inflow noise seeds the shear instability so vortices roll up along the centre line.",
+		"description": "GPU atmosphere solver demo: a shallow wind tunnel with a strong west-to-east jet through the centre third, flowing past a solid cylinder. Small random inflow noise breaks the symmetry so vortices can shed behind the cylinder. Tracers are coloured by speed.",
 		"gravity": [0, 0, 0],
 		"camera": {
 			"position": [0, -300, 320],
@@ -26,16 +26,21 @@
 				"y_min": "solid", "y_max": "solid",
 				"z_min": "solid", "z_max": "solid"
 			},
+			"wall_drag": { "z_min": 0.03 },
 			"reference": {
 				"temperature_at_origin": 288.0,
 				"lapse_rate": -0.004,
 				"min_temperature": 250.0
 			},
+			"step_rate": 60.0,
 			"open_edge_band": 4,
 			"vorticity_confinement": 0.3,
+			"vertical_viscosity": 5.0,
 			"outside_air": [
-				{ "max": [1e9, 0], "wind": [5, 0], "wind_noise": 0.5 },
-				{ "min": [-1e9, 0], "wind": [-5, 0], "wind_noise": 0.5 }
+				{ "min": [-1e9, -55], "max": [1e9, 55], "wind": [10, 0], "wind_noise": 0.5 }
+			],
+			"cylinders": [
+				{ "centre": [-80, -10], "radius": 15.0 }
 			],
 			"tracers": {
 				"count": 65536,
@@ -43,12 +48,15 @@
 				"max_age": 30.0
 			},
 			"visual": {
+				"colour_by": "speed",
 				"temperature_range": [287.0, 289.0],
+				"speed_range": [0.0, 14.0],
 				"particle_size": 10.0,
 				"grid_line_limit": 48,
 				"show_grid": true,
 				"show_particles": true,
-				"show_heat_sources": true
+				"show_heat_sources": true,
+				"show_obstacles": true
 			}
 		},
 		"bodies": []
