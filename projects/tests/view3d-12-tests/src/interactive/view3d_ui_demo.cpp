@@ -390,7 +390,7 @@ namespace view3d_test
 
 		// Screen-space gallery: vertical composition containing examples of every layout mode.
 		auto root_layout = UILayout(0, 0, EHAlign::Stretch, EVAlign::Stretch);
-		auto panel_layout = UILayout(430, 750, EHAlign::Right, EVAlign::Top);
+		auto panel_layout = UILayout(430, 800, EHAlign::Right, EVAlign::Top);
 		panel_layout.margin_top = 24;
 		panel_layout.margin_right = 24;
 		panel_layout.padding_left = 16;
