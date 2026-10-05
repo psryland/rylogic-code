@@ -60,6 +60,9 @@ namespace pr::rdr12
 		// Doesn't cast a shadow
 		ShadowCastExclude = 1 << 12,
 
+		// Not rendered by scenes that exclude environment map capture content
+		EnvMapCaptureExclude = 1 << 15,
+
 		// flags
 		_flags_enum = 0,
 	};

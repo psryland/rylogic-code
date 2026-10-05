@@ -1586,7 +1586,9 @@ namespace pr::rdr12
 			throw std::runtime_error("Environment map capture requires a cube map with a full mip chain");
 
 		// Copy the lighting and render state from the window's scene. The capture has no environment map, so it cannot reflect itself.
+		// Objects flagged 'EnvMapCaptureExclude' are not rendered into the capture. The flag is per object; children do not inherit it.
 		auto& scene = res.m_scene;
+		scene.m_inst_exclude = EInstFlag::EnvMapCaptureExclude;
 		scene.m_lights = m_scene.m_lights;
 		scene.m_ambient = m_scene.m_ambient;
 		scene.m_global_fill_mode = m_scene.m_global_fill_mode;
