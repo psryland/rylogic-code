@@ -73,7 +73,9 @@ RasterizerOrderedTexture2D<uint4> g_alpha_rt_attrs :register(u2);
 // Lights are shadowed by the shadow atlas
 float SampleLightShadow(Light light, float4 ws_pos, float4 ws_norm)
 {
-	return ShadowVisibility(g_shadow_atlas, g_shadow_sampler, g_shadow_views, light, ws_pos, ws_norm);
+	// Shadow fading is measured along the camera's view direction (-Z)
+	float view_depth = dot(g_frame.cam.c2w[3].xyz - ws_pos.xyz, g_frame.cam.c2w[2].xyz);
+	return ShadowVisibility(g_shadow_atlas, g_shadow_sampler, g_shadow_views, light, ws_pos, ws_norm, view_depth);
 }
 
 #include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"

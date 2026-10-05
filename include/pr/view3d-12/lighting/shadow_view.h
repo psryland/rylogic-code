@@ -26,7 +26,7 @@ namespace pr::rdr12
 		int   m_point_resolution;       // Largest size of each of the six point light shadow views (in pixels). Smaller sizes are used for lights that cover less of the screen
 		int   m_max_shadow_lights;      // The maximum number of lights that cast shadows. Zero disables shadows
 		int   m_cascade_count;          // The number of cascades for directional lights, in [1, MaxShadowCascades]
-		float m_shadow_distance;        // Distance from the camera beyond which directional lights cast no shadows. Zero means fit to the shadow casters
+		float m_shadow_distance;        // Distance from the camera beyond which directional lights cast no shadows. Shadows fade out over the last 10% of this distance. Zero means fit to the shadow casters
 		float m_cascade_split_blend;    // Cascade split distribution in [0,1]. 0 = even spacing, 1 = logarithmic spacing (more detail near the camera)
 		int   m_filter_size;            // Width of the shadow edge filter (in shadow texels). Either 5 or 7
 		int   m_depth_bias;             // Constant depth bias applied when rendering shadow depth (in units of the smallest depth step)
@@ -76,6 +76,7 @@ namespace pr::rdr12
 		m4x4  m_w2s;         // World space to clip space transform (D3D clip space, depth in [0,1])
 		IRect m_atlas_rect;  // The region of the atlas that holds this view (in pixels)
 		float m_normal_bias; // Receiver normal offset. World units for orthographic views, world units per unit distance from the light for perspective views
+		v2    m_fade_depth;  // Distances from the camera (start, end) over which the shadow fades to fully lit. An end of zero means no fade
 		int   m_light_index; // Index of the light (in the resolved light list) that this view belongs to
 		int   m_face;        // Cube face index for point lights (+X,-X,+Y,-Y,+Z,-Z), cascade index for directional lights, otherwise 0
 		bool  m_clamp_depth; // True if casters in front of the near plane are rendered at depth 0 instead of being clipped (orthographic views)

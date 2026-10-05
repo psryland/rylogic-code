@@ -8,7 +8,7 @@
 
 Add View3DUI as a dynamically loaded native satellite for View3D-12. View3DUI supplies retained control behaviour, deterministic layout, input, semantics, and rendering while applications retain ownership of content, composition, styles, lookless templates, and durable application values.
 
-The first production-shaped vertical slice proves the architecture in `view3d-12-test` with a screen-space panel containing:
+The first production-shaped vertical slice proves the architecture in `view3d-12-tests --interactive` with a screen-space panel containing:
 
 - static instructional text;
 - a number-only text box;
@@ -105,7 +105,7 @@ Physics is the direct device-sharing precedent: `Physics_EngineCreate()` accepts
 
 ### 2.6 Existing input and test-application surfaces
 
-`projects/tests/view3d-12-test/src/main.cpp` derives `Main` from `gui::Form` and handles:
+`projects/tests/view3d-12-tests/src/interactive/main_window.cpp` derives `Main` from `gui::Form` and handles:
 
 - resize in `OnWindowPosChange`;
 - scene navigation in `OnMouseButton`, `OnMouseMove`, and `OnMouseWheel`;
@@ -114,7 +114,7 @@ Physics is the direct device-sharing precedent: `Physics_EngineCreate()` accepts
 - window messages through the overridable `ProcessWindowMessage` path in `wingui.h`; and
 - scene-owned application of accepted box dimensions through a callback supplied to `view3d_test::View3dUiDemo`.
 
-`projects/tests/view3d-12-test/src/view3d_ui_demo.h/.cpp` owns the demonstration's UI runtime, context, retained descriptors, managed-equivalent
+`projects/tests/view3d-12-tests/src/interactive/view3d_ui_demo.h/.cpp` owns the demonstration's UI runtime, context, retained descriptors, managed-equivalent
 application state, event draining, viewport/camera publication, and action dispatch. `Main` retains only the early-construction readiness guard,
 message/update delegation, and scene callback so View3DUI details do not dominate the test application's scene and audio code.
 
@@ -583,7 +583,7 @@ The host supplies all coordinate spaces explicitly:
 - the normal HWND swap-chain path uses equal client/render-target dimensions, so the ratio is one;
 - custom/off-screen targets may use a non-one ratio but use the same formula.
 
-For `view3d-12-test`, `OnWindowPosChange` must use `GetClientRect` physical width/height directly for the back buffer and viewport screen dimensions. It must remove the current extra DPI multiplication and must not use outer-window `WINDOWPOS` dimensions as client size.
+For `view3d-12-tests --interactive`, `OnWindowPosChange` must use `GetClientRect` physical width/height directly for the back buffer and viewport screen dimensions. It must remove the current extra DPI multiplication and must not use outer-window `WINDOWPOS` dimensions as client size.
 
 ### 7.5 Keyboard focus
 
@@ -755,11 +755,11 @@ The existing public `View3D_WindowRenderingCB` remains unchanged but is not used
 
 | Path | Change |
 | --- | --- |
-| `projects/tests/view3d-ui-tests/view3d-ui-tests.vcxproj[.filters]` | Focused native test runner for core logic, ABI, bridge, and deterministic render packets |
-| `projects/tests/view3d-ui-tests/src/...` | Transaction, layout, input, focus, semantics, lifecycle, thread, DPI, queue, and render-order tests |
-| `projects/tests/view3d-12-test/src/main.cpp` | Own the scene callback and lifetime/readiness guard, forward raw messages first, update `m_obj0`, and render |
-| `projects/tests/view3d-12-test/src/view3d_ui_demo.h/.cpp` | Encapsulate the gallery runtime/context, retained descriptors, state, events, camera/viewport publication, and application action dispatch |
-| `projects/tests/view3d-12-test/view3d-12-test.vcxproj[.filters]` | Add the facade header/project reference and `view3d-ui.targets` copy rule |
+| `projects/tests/view3d-12-tests/view3d-12-tests.vcxproj[.filters]` | Focused native test runner for core logic, ABI, bridge, and deterministic render packets |
+| `projects/tests/view3d-12-tests/src/view3d-ui/...` | Transaction, layout, input, focus, semantics, lifecycle, thread, DPI, queue, and render-order tests |
+| `projects/tests/view3d-12-tests/src/interactive/main_window.cpp` | Own the scene callback and lifetime/readiness guard, forward raw messages first, update `m_obj0`, and render |
+| `projects/tests/view3d-12-tests/src/interactive/view3d_ui_demo.h/.cpp` | Encapsulate the gallery runtime/context, retained descriptors, state, events, camera/viewport publication, and application action dispatch |
+| `projects/tests/view3d-12-tests/view3d-12-tests.vcxproj[.filters]` | Add the facade header/project reference and `view3d-ui.targets` copy rule |
 | `Rylogic.sln` | Add View3DUI native, DLL, native-test, and later managed projects with dependencies/configurations |
 
 ### 10.4 Build, deployment, and package files
@@ -800,7 +800,7 @@ The existing public `View3D_WindowRenderingCB` remains unchanged but is not used
 
 ```powershell
 $msbuild = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\amd64\MSBuild.exe"
-& $msbuild "projects\tests\view3d-ui-tests\view3d-ui-tests.vcxproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /nologo /verbosity:minimal
+& $msbuild "projects\tests\view3d-12-tests\view3d-12-tests.vcxproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /nologo /verbosity:minimal
 ```
 
 ### M1. Atomic retained model, resources, semantics, and diagnostics
@@ -827,7 +827,7 @@ $msbuild = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Curre
 Build with the M0 command, then run the standalone console test executable:
 
 ```powershell
-.\bin\x64\Debug\view3d-ui-tests.exe --filter Transaction
+.\projects\tests\view3d-12-tests\obj\x64\Debug\view3d-12-tests.exe Transaction
 ```
 
 The project uses `PR_UNITTESTS=1` and the existing native unit-test framework, but remains a focused executable rather than adding GPU/DLL lifecycle tests to the broad harvested `projects\tests\unittests` target.
@@ -856,8 +856,8 @@ The project uses `PR_UNITTESTS=1` and the existing native unit-test framework, b
 ```powershell
 $msbuild = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\amd64\MSBuild.exe"
 & $msbuild "projects\rylogic\view3d-12\view3d-12.dll.vcxproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /nologo /verbosity:minimal
-& $msbuild "projects\tests\view3d-ui-tests\view3d-ui-tests.vcxproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /nologo /verbosity:minimal
-.\bin\x64\Debug\view3d-ui-tests.exe --filter RenderBridge
+& $msbuild "projects\tests\view3d-12-tests\view3d-12-tests.vcxproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /nologo /verbosity:minimal
+.\projects\tests\view3d-12-tests\obj\x64\Debug\view3d-12-tests.exe RenderBridge
 ```
 
 ### M2. Layout, templates, styles, input, focus, and events
@@ -885,7 +885,7 @@ $msbuild = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Curre
 **Validation**
 
 ```powershell
-.\bin\x64\Debug\view3d-ui-tests.exe --filter "Layout|Input|Focus|Transition|Semantics"
+.\projects\tests\view3d-12-tests\obj\x64\Debug\view3d-12-tests.exe Layout Input Focus Transition Semantics
 ```
 
 Repeat deterministic scenarios with the same inputs/time and compare serialized snapshots.
@@ -915,11 +915,11 @@ Repeat deterministic scenarios with the same inputs/time and compare serialized 
 ```powershell
 $msbuild = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\amd64\MSBuild.exe"
 & $msbuild "projects\rylogic\view3d-12\view3d-12.dll.vcxproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /nologo /verbosity:minimal
-& $msbuild "projects\tests\view3d-ui-tests\view3d-ui-tests.vcxproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /nologo /verbosity:minimal
-.\bin\x64\Debug\view3d-ui-tests.exe --filter "Renderer|Text|Resize|Dpi|Lifecycle"
+& $msbuild "projects\tests\view3d-12-tests\view3d-12-tests.vcxproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /nologo /verbosity:minimal
+.\projects\tests\view3d-12-tests\obj\x64\Debug\view3d-12-tests.exe Renderer Text Resize Dpi Lifecycle
 ```
 
-### M4. Native `view3d-12-test` demonstration
+### M4. Native `view3d-12-tests --interactive` demonstration
 
 **Depends on:** M3.
 
@@ -952,7 +952,7 @@ $msbuild = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Curre
 
 ```powershell
 $msbuild = "C:\Program Files\Microsoft Visual Studio\18\Enterprise\MSBuild\Current\Bin\amd64\MSBuild.exe"
-& $msbuild "projects\tests\view3d-12-test\view3d-12-test.vcxproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /nologo /verbosity:minimal
+& $msbuild "projects\tests\view3d-12-tests\view3d-12-tests.vcxproj" /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /nologo /verbosity:minimal
 ```
 
 Attended evidence records:

@@ -18,14 +18,20 @@ namespace pr::rdr12
 	// The smallest shadow view size used for point and spot lights that cover little of the screen (in pixels)
 	static constexpr int MinShadowViewSize = 64;
 
+	// The fraction of the shadow distance, at its far end, over which directional shadows fade out
+	static constexpr float ShadowFadeFraction = 0.1f;
+
 	// A shadow view before its atlas region is known
 	struct ShadowViewRequest
 	{
 		m4x4  m_w2s;        // Perspective views: the final world to clip transform. Orthographic views: the light orientation (rotation only)
 		v4    m_centre;     // Orthographic views: centre of the sphere that the view covers
 		float m_radius;     // Orthographic views: radius of the sphere that the view covers
+		float m_depth_min;  // Orthographic views: signed distance along the light direction from 'm_centre' to the near plane (<= -m_radius)
+		float m_depth_max;  // Orthographic views: signed distance along the light direction from 'm_centre' to the far plane (>= m_radius)
 		float m_bias_scale; // World size of the view across its width. For perspective views, per unit distance from the light
-		int   m_size;       // Requested width and height (in pixels)
+		v2    m_fade_depth; // Distances from the camera (start, end) over which the shadow fades to fully lit. An end of zero means no fade
+		int   m_size;        // Requested width and height (in pixels)
 		bool  m_ortho;      // True for orthographic views
 	};
 
@@ -54,8 +60,14 @@ namespace pr::rdr12
 		auto depth = Dot(centre - cam_pos, cam_fwd);
 		auto zn = std::max(camera.m_near, depth - radius);
 		auto zf = std::min(camera.m_far, depth + radius);
-		if (settings.m_shadow_distance > 0)
-			zf = std::min(zf, settings.m_shadow_distance);
+
+		// A shadow distance that cuts off the casters ends the shadows with a fade, so that the edge of the last cascade is not visible
+		auto fade = v2::Zero();
+		if (settings.m_shadow_distance > 0 && settings.m_shadow_distance < zf)
+		{
+			zf = settings.m_shadow_distance;
+			fade = v2(zf * (1.0f - ShadowFadeFraction), zf);
+		}
 		if (zf <= zn)
 			return;
 
@@ -63,6 +75,25 @@ namespace pr::rdr12
 		auto count = std::clamp(settings.m_cascade_count, 1, MaxShadowCascades);
 		float splits[MaxShadowCascades + 1];
 		ShadowCascadeSplits(zn, zf, count, std::clamp(settings.m_cascade_split_blend, 0.0f, 1.0f), { &splits[0], s_cast<size_t>(count + 1) });
+
+		// Add a view of the sphere ('view_centre', 'view_radius'). Receivers and casters outside a view's depth range are clamped to its near
+		// or far plane, where they can no longer be ordered. The depth range therefore covers all casters as well as the view's sphere,
+		// so a clamped receiver is always in front of, or behind, every caster on its light ray.
+		auto add_view = [&](v4 view_centre, float view_radius)
+		{
+			auto d = Dot(centre - view_centre, dir);
+			views.push_back({
+				.m_w2s = rot,
+				.m_centre = view_centre,
+				.m_radius = view_radius,
+				.m_depth_min = std::min(-view_radius, d - radius),
+				.m_depth_max = std::max(view_radius, d + radius),
+				.m_bias_scale = 2 * view_radius,
+				.m_fade_depth = fade,
+				.m_size = settings.m_directional_resolution,
+				.m_ortho = true,
+			});
+		};
 		for (int c = 0; c != count; ++c)
 		{
 			// The slice is a truncated pyramid with half-diagonals 'h0' and 'h1' at its ends. Place the sphere centre on the view axis
@@ -81,10 +112,10 @@ namespace pr::rdr12
 			// A cascade that would cover all of the casters is replaced by one fitted to the casters. Further cascades are not needed.
 			if (r >= radius)
 			{
-				views.push_back({ .m_w2s = rot, .m_centre = centre, .m_radius = radius, .m_bias_scale = 2 * radius, .m_size = settings.m_directional_resolution, .m_ortho = true });
+				add_view(centre, radius);
 				break;
 			}
-			views.push_back({ .m_w2s = rot, .m_centre = cam_pos + t * cam_fwd, .m_radius = r, .m_bias_scale = 2 * r, .m_size = settings.m_directional_resolution, .m_ortho = true });
+			add_view(cam_pos + t * cam_fwd, r);
 		}
 	}
 
@@ -99,10 +130,10 @@ namespace pr::rdr12
 		ls_centre.x = std::floor(ls_centre.x / texel + 0.5f) * texel;
 		ls_centre.y = std::floor(ls_centre.y / texel + 0.5f) * texel;
 
-		// Look along the light direction from the front of the sphere. Casters in front of the sphere are clamped to depth 0 when rendering.
+		// Look along the light direction from the near plane. The rotation's z axis points back toward the light.
 		auto l2w = rot;
-		l2w.pos = rot * ls_centre + req.m_radius * rot.z;
-		auto proj = m4x4::ProjectionOrthographic(2 * req.m_radius, 2 * req.m_radius, 0.0f, 2 * req.m_radius, true);
+		l2w.pos = rot * ls_centre - req.m_depth_min * rot.z;
+		auto proj = m4x4::ProjectionOrthographic(2 * req.m_radius, 2 * req.m_radius, 0.0f, req.m_depth_max - req.m_depth_min, true);
 		return proj * InvertOrthonormal(l2w);
 	}
 
@@ -209,6 +240,7 @@ namespace pr::rdr12
 					.m_w2s = req.m_ortho ? OrthographicViewTransform(req, rects[v].SizeX()) : req.m_w2s,
 					.m_atlas_rect = rects[v],
 					.m_normal_bias = req.m_bias_scale * settings.m_normal_bias / rects[v].SizeX(),
+					.m_fade_depth = req.m_fade_depth,
 					.m_light_index = i,
 					.m_face = v - first,
 					.m_clamp_depth = req.m_ortho,

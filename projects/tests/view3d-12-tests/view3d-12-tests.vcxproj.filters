@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="interactive">
+      <UniqueIdentifier>{6A1D2B30-4C1E-4F7B-9E0A-1B2C3D4E5F01}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="view3d-12">
+      <UniqueIdentifier>{6A1D2B30-4C1E-4F7B-9E0A-1B2C3D4E5F02}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="view3d-12\shaders">
+      <UniqueIdentifier>{6A1D2B30-4C1E-4F7B-9E0A-1B2C3D4E5F03}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="view3d-ui">
+      <UniqueIdentifier>{6A1D2B30-4C1E-4F7B-9E0A-1B2C3D4E5F04}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\main.cpp" />
+    <CopyFileToFolders Include="view3d-12-tests.config.json" />
+    <ClInclude Include="src\interactive\interactive.h">
+      <Filter>interactive</Filter>
+    </ClInclude>
+    <ClInclude Include="src\interactive\view3d_ui_demo.h">
+      <Filter>interactive</Filter>
+    </ClInclude>
+    <ClCompile Include="src\interactive\main_window.cpp">
+      <Filter>interactive</Filter>
+    </ClCompile>
+    <ClInclude Include="src\interactive\demo.h">
+      <Filter>interactive</Filter>
+    </ClInclude>
+    <ClInclude Include="src\interactive\controls_panel.h">
+      <Filter>interactive</Filter>
+    </ClInclude>
+    <ClCompile Include="src\interactive\demo_catalogue.cpp">
+      <Filter>interactive</Filter>
+    </ClCompile>
+     <ClCompile Include="src\interactive\controls_panel.cpp">
+      <Filter>interactive</Filter>
+    </ClCompile>
+     <ClCompile Include="src\interactive\demos_scene.cpp">
+      <Filter>interactive</Filter>
+    </ClCompile>
+     <ClCompile Include="src\interactive\demos_lighting.cpp">
+      <Filter>interactive</Filter>
+    </ClCompile>
+     <ClCompile Include="src\interactive\demos_effects.cpp">
+      <Filter>interactive</Filter>
+    </ClCompile>
+     <ClCompile Include="src\interactive\demos_procedural.cpp">
+      <Filter>interactive</Filter>
+    </ClCompile>
+    <ClCompile Include="src\interactive\view3d_ui_demo.cpp">
+      <Filter>interactive</Filter>
+    </ClCompile>
+    <None Include="src\interactive\StreamingTest.csx">
+      <Filter>interactive</Filter>
+    </None>
+    <ClInclude Include="src\view3d-12\forward.h">
+      <Filter>view3d-12</Filter>
+    </ClInclude>
+    <ClCompile Include="src\view3d-12\render_tests.cpp">
+      <Filter>view3d-12</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-12\raycast_lifetime.cpp">
+      <Filter>view3d-12</Filter>
+    </ClCompile>
+    <ShaderBuild Include="src\view3d-12\shaders\hlsl\fade_vertex.hlsl">
+      <Filter>view3d-12\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_vertex_forward.hlsl">
+      <Filter>view3d-12\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_vertex_raycast.hlsl">
+      <Filter>view3d-12\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_vertex_shadow.hlsl">
+      <Filter>view3d-12\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_vertex_buffer.hlsl">
+      <Filter>view3d-12\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\view3d-12\shaders\hlsl\wave_grid.hlsl">
+      <Filter>view3d-12\shaders</Filter>
+    </ShaderBuild>
+    <None Include="src\view3d-12\shaders\hlsl\procedural_vertex_common.hlsli">
+      <Filter>view3d-12\shaders</Filter>
+    </None>
+    <ClInclude Include="src\view3d-ui\test_support.h">
+      <Filter>view3d-ui</Filter>
+    </ClInclude>
+    <ClCompile Include="src\view3d-ui\tests_m0_abi_lifetime.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m1_transactions.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m1_events.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m2_layout.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m2_input_focus.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m2_semantics.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m3_glyph_cache.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m3_text_shaper.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m3_draw_packet.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m3_renderer.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m3_input_activation.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m3_bridge_and_lifecycle.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m3_text_reconciliation.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m5_hardening.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m8_world_roots.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m9_text_unicode.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m9_text_layout.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m9_text_editing.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m9_win32_input.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m9_abi.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m9_corrections.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_m10_uia.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-ui\tests_slider.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+    <ClInclude Include="$(RylogicRoot)projects\rylogic\view3d-ui\dll\renderer.h">
+      <Filter>view3d-ui</Filter>
+    </ClInclude>
+    <ClCompile Include="$(RylogicRoot)projects\rylogic\view3d-ui\dll\renderer.cpp">
+      <Filter>view3d-ui</Filter>
+    </ClCompile>
+  </ItemGroup>
+</Project>

@@ -8,7 +8,7 @@
 // through the public dynamic facade (pr/view3d-ui/view3d-ui.h), because GlyphCache's placement
 // bookkeeping has no public ABI surface at all - it is a pure implementation detail the renderer
 // alone consumes. This is deliberately white-box, in contrast to every other test file in this
-// project; view3d-ui-tests.vcxproj links view3d-ui.vcxproj's static library directly to make this
+// project; view3d-12-tests.vcxproj links view3d-ui.vcxproj's static library directly to make this
 // possible without disturbing the DLL's own dependency-minimal public surface.
 #include "pr/common/unittests.h"
 #include "pr/view3d-ui/engine.h"

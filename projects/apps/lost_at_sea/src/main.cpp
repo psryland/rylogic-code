@@ -299,9 +299,14 @@ namespace las
 		});
 
 		// Per-system tasks: prepare shader constant buffers (thread-safe, parallel)
-		m_render_graph.Add(RenderTaskId::Skybox, [&, sun_dir, sun_col, sun_int](auto ctx) -> pr::task_graph::Task {
+		m_render_graph.Add(RenderTaskId::Skybox, [&, sun_dir, sun_col, sun_int, sim_time = sim.m_sim_time](auto ctx) -> pr::task_graph::Task {
 			co_await ctx.Wait(RenderTaskId::PrepareFrame);
-			m_sky.Update(sun_dir, sun_col, sun_int);
+			m_sky.Update(ProceduralSkySettings{
+				.m_sun_direction = sun_dir,
+				.m_sun_colour = sun_col,
+				.m_sun_intensity = sun_int,
+				.m_time = sim_time,
+			});
 			co_return;
 		});
 		m_render_graph.Add(RenderTaskId::Ocean, [&, cam_pos, sun_dir, sun_col](auto ctx) -> pr::task_graph::Task {

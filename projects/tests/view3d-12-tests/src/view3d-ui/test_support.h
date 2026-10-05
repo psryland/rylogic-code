@@ -5,7 +5,7 @@
 // Shared test-only helpers: a minimal fake external ID3D12Device stand-in, header/record builders,
 // and a TxnBuilder alias for the public pr::view3d::ui::TransactionBuilder. Only the fake device and
 // the record builders are test-only; TxnBuilder itself is the product's own facade type. Owned
-// entirely by projects/tests/view3d-ui-tests.
+// entirely by projects/tests/view3d-12-tests.
 #pragma once
 #include "pr/view3d-ui/view3d-ui.h"
 #include "pr/view3d-ui/transaction_builder.h"
@@ -56,6 +56,35 @@ namespace pr::view3d::ui::tests
 	{
 		return StructHeader{ .size = sizeof(T), .version = VIEW3D_UI_STRUCT_VERSION };
 	}
+
+	// Make view3d-ui.dll report the view3d-12 UI host bridge as missing for this object's lifetime,
+	// so "no host bridge" behaviour can be tested whether or not view3d-12.dll is loaded in this process.
+	class HostBridgeUnavailableScope
+	{
+		using ForceUnavailableFn = void(__stdcall*)(std::int32_t unavailable);
+		ForceUnavailableFn m_force_unavailable;
+
+	public:
+		HostBridgeUnavailableScope()
+			: m_force_unavailable()
+		{
+			// The test-only export is not in the facade's API table, so resolve it from the module that the facade loaded.
+			Dll::Get();
+			auto module = ::GetModuleHandleW(L"view3d-ui.dll");
+			m_force_unavailable = module != nullptr ? reinterpret_cast<ForceUnavailableFn>(::GetProcAddress(module, "View3DUI_TestHostBridgeForceUnavailable")) : nullptr;
+			if (m_force_unavailable == nullptr)
+				throw std::runtime_error("view3d-ui.dll does not export View3DUI_TestHostBridgeForceUnavailable");
+
+			m_force_unavailable(1);
+		}
+		~HostBridgeUnavailableScope()
+		{
+			// Restore normal bridge resolution for later tests.
+			m_force_unavailable(0);
+		}
+		HostBridgeUnavailableScope(HostBridgeUnavailableScope const&) = delete;
+		HostBridgeUnavailableScope& operator=(HostBridgeUnavailableScope const&) = delete;
+	};
 
 	// A Config carrying the same defaults as the native DefaultConfig() (not itself reachable from
 	// this eager-facade-only test project), with every bound individually overridable so a test

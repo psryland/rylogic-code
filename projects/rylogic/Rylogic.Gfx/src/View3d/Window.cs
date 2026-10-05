@@ -698,17 +698,13 @@ namespace Rylogic.Gfx
 			}
 
 			/// <summary>
-			/// Render this window's objects, lights, and shadows into a new cube map centred at 'position' (in world space).
-			/// The window's current environment map is not used during the capture. The caller owns the returned cube map.
+			/// Render this window's objects, lights, and shadows into 'env_map', centred at 'position' (in world space).
+			/// 'env_map' must be created with 'CubeMap(int face_size)'. The window's current environment map is not used during the capture.
+			/// Capture resources are cached on the window, so repeated captures at the same face size are much cheaper than the first.
 			/// </summary>
-			public CubeMap EnvMapCapture(v4 position, int face_size)
+			public void EnvMapCapture(CubeMap env_map, v4 position)
 			{
-				// Wrap the new native cube map so that disposing releases it
-				var handle = View3D_WindowEnvMapCapture(Handle, position, face_size);
-				if (handle == HCubeMap.Zero)
-					throw new Exception("Failed to capture the environment map");
-
-				return new CubeMap(handle, owned: true);
+				View3D_WindowEnvMapCapture(Handle, env_map.Handle, position);
 			}
 
 			/// <summary>Show the lighting dialog</summary>

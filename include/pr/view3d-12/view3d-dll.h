@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -32,6 +32,7 @@ namespace pr
 		struct TextureCube;
 		struct Sampler;
 		struct Shader;
+		struct WeatherMap;
 
 		namespace ldraw
 		{
@@ -49,6 +50,7 @@ namespace pr
 		using CubeMap = rdr12::TextureCube*;
 		using Sampler = rdr12::Sampler*;
 		using Shader = rdr12::Shader*;
+		using WeatherMap = rdr12::WeatherMap*;
 		using Window = rdr12::V3dWindow*;
 		using Colour = unsigned int;
 
@@ -622,6 +624,23 @@ namespace pr
 			Vec4 x, y, z, w;
 		};
 
+		// Procedural sky state. The sky is Z-up. 'm_sun_direction' points toward the sun; the finite sun colour and intensity must be nonnegative.
+		// 'm_cloud_cover' in [0,1] is the default cover (0 = clear, 0.5 = scattered white cloud, 1 = dark overcast), used where no weather map applies.
+		// 'm_wind_speed' (>= 0, world units per second) and 'm_wind_direction' (radians from +X toward +Y) move the clouds; lower layers move faster.
+		// 'm_time' is the caller's absolute time in seconds; clouds advance by the change in time between updates, and time may not go backwards.
+		// 'm_hidden_cloud_layers' is a bit mask: bit i hides cloud layer i (0 = low, 1 = mid, 2 = cirrus). Zero shows all layers.
+		struct ProceduralSkySettings
+		{
+			Vec4 m_sun_direction = { 0.5f, 0.3f, 0.8f, 0.0f };
+			Vec4 m_sun_colour = { 1.0f, 0.95f, 0.85f, 1.0f };
+			float m_sun_intensity = 1.0f;
+			float m_cloud_cover = 0.0f;
+			float m_wind_speed = 0.0f;
+			float m_wind_direction = 0.0f;
+			double m_time = 0.0;
+			uint32_t m_hidden_cloud_layers = 0;
+		};
+
 		// Whole-screen underwater post effect. Colours are sRGB ARGB; alpha is ignored.
 		// Requires finite visibility > 0, distortion amplitude >= 0, frequency > 0, and speed >= 0.
 		// 'm_surface' is a world-space plane with its normal pointing out of the water; fog applies only below it.
@@ -740,7 +759,7 @@ namespace pr
 			int   m_point_resolution;       // Largest size of each of the six point light shadow views (in pixels)
 			int   m_max_shadow_lights;      // The maximum number of lights that cast shadows. Zero disables shadows
 			int   m_cascade_count;          // The number of cascades for directional lights, in [1,4]
-			float m_shadow_distance;        // Distance from the camera beyond which directional lights cast no shadows. Zero means fit to the shadow casters
+			float m_shadow_distance;        // Distance from the camera beyond which directional lights cast no shadows. Shadows fade out over the last 10% of this distance. Zero means fit to the shadow casters
 			float m_cascade_split_blend;    // Cascade split distribution in [0,1]. 0 = even spacing, 1 = logarithmic spacing
 			int   m_filter_size;            // Width of the shadow edge filter (in shadow texels). Either 5 or 7
 			int   m_depth_bias;             // Constant depth bias (in units of the smallest depth step)
@@ -1137,7 +1156,7 @@ extern "C"
 	VIEW3D_API BOOL __stdcall View3D_PostEffectUnderwaterSet(pr::view3d::Window window, pr::view3d::UnderwaterProps const& props);
 
 	// Get/Set the dimensions of the render target. Note: Not equal to window size for non-96 dpi screens!
-	// In set, if 'width' and 'height' are zero, the RT is resized to the associated window automatically.
+	// In set, 'width' and 'height' must both be greater than zero. A zero-area window has no back buffer, so callers skip such resizes.
 	VIEW3D_API SIZE __stdcall View3D_WindowBackBufferSizeGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_WindowBackBufferSizeSet(pr::view3d::Window window, SIZE size, BOOL force_recreate);
 
@@ -1253,9 +1272,10 @@ extern "C"
 	// Set the global environment map for the window
 	VIEW3D_API void __stdcall View3D_WindowEnvMapSet(pr::view3d::Window window, pr::view3d::CubeMap env_map);
 
-	// Render the window's objects, lights, and shadows into a new cube map centred at 'position'. 'face_size' is the pixel size of each face.
-	// The result is a full-mip sRGB cube map that is not assigned to the window. The caller owns one reference to it.
-	VIEW3D_API pr::view3d::CubeMap __stdcall View3D_WindowEnvMapCapture(pr::view3d::Window window, pr::view3d::Vec4 position, int face_size);
+	// Render the window's objects, lights, and shadows into 'env_map', centred at 'position'. 'env_map' must be a cube map created by View3D_CubeMapCreate.
+	// The capture replaces the cube's contents and orientation transform. It does not assign the cube to the window. Capture resources are cached on the window,
+	// so repeated captures at the same face size are much cheaper than the first.
+	VIEW3D_API void __stdcall View3D_WindowEnvMapCapture(pr::view3d::Window window, pr::view3d::CubeMap env_map, pr::view3d::Vec4 position);
 
 	// Enable/Disable the depth buffer
 	VIEW3D_API BOOL __stdcall View3D_DepthBufferEnabledGet(pr::view3d::Window window);
@@ -1456,19 +1476,47 @@ extern "C"
 	// Load a p3d model in memory as a view3d object. 'tex_resolver' may be empty when the model's textures are plain file paths.
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateP3DStream(char const* name, pr::view3d::Colour colour, size_t size, void const* p3d_data, pr::view3d::ResolveTextureCB tex_resolver, GUID const* context_id);
 
-	// Create a six-sided skybox from a cube-map filename pattern containing '??', replaced by px, nx, py, ny, pz, and nz.
-	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateSkybox(char const* name, char const* resource, float radius, GUID const* context_id);
+	// Create a background that shows 'cube_map' behind all scene geometry, centred on the camera at the far plane.
+	// The sky retains the cube map and uses its orientation (CubeMapOptions::m_cube2w). Object transforms are ignored. Destroy using View3D_ObjectDelete.
+	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateSkybox(char const* name, pr::view3d::CubeMap cube_map, GUID const* context_id);
 
-	// Create a Z-up GPU atmosphere. Sun direction points toward the sun; finite colour and intensity must be nonnegative.
+	// Create a Z-up GPU atmosphere with clouds and stars. See ProceduralSkySettings for the parameter contract.
 	// Destroy using View3D_ObjectDelete. This object has no reflection cube map and ignores object transforms.
-	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateProceduralSky(char const* name, pr::view3d::Vec4 sun_direction, pr::view3d::Vec4 sun_colour, float sun_intensity, GUID const* context_id);
+	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateProceduralSky(char const* name, pr::view3d::ProceduralSkySettings const& settings, GUID const* context_id);
 
 	// Update an atmosphere on its render owner thread. Returns FALSE on invalid parameters or a non-sky object, without changing the previous sky.
-	VIEW3D_API BOOL __stdcall View3D_ObjectUpdateProceduralSky(pr::view3d::Object object, pr::view3d::Vec4 sun_direction, pr::view3d::Vec4 sun_colour, float sun_intensity);
+	VIEW3D_API BOOL __stdcall View3D_ObjectUpdateProceduralSky(pr::view3d::Object object, pr::view3d::ProceduralSkySettings const& settings);
+
+	// Set the weather map that varies cloud cover across the sky, or null to use only the default cover. The sky retains the map.
+	// Returns FALSE on a non-sky object, without changing the previous weather.
+	VIEW3D_API BOOL __stdcall View3D_ObjectProceduralSkyWeatherSet(pr::view3d::Object object, pr::view3d::WeatherMap weather);
 
 	// Retain and blend a source cube map (0=cubemap, 1=atmosphere). Direction transforms must be finite rotations.
 	// The cubemap's own orientation is composed with world_to_background. Null background requires weight 1. FALSE leaves the sky unchanged.
 	VIEW3D_API BOOL __stdcall View3D_ObjectBlendProceduralSky(pr::view3d::Object object, pr::view3d::CubeMap background, float weight, pr::view3d::Mat4x4 const& world_to_sky, pr::view3d::Mat4x4 const& world_to_background);
+
+	// Create a 'width' x 'height' grid (each in [2,4096]) of cloud cover over the sky-frame XY area [area_min, area_max), initially clear.
+	// Cover fades to the sky's default cover over the outer 10% of the area. Edits apply to the CPU copy; call View3D_WeatherMapUpload to show them.
+	// Release using View3D_WeatherMapRelease. Returns null on failure.
+	VIEW3D_API pr::view3d::WeatherMap __stdcall View3D_WeatherMapCreate(int width, int height, pr::view3d::Vec2 area_min, pr::view3d::Vec2 area_max);
+	VIEW3D_API void __stdcall View3D_WeatherMapRelease(pr::view3d::WeatherMap weather);
+
+	// Move the area the grid covers (e.g. to follow the camera). The grid contents are unchanged.
+	VIEW3D_API void __stdcall View3D_WeatherMapAreaSet(pr::view3d::WeatherMap weather, pr::view3d::Vec2 area_min, pr::view3d::Vec2 area_max);
+
+	// Brushes. Each blends cells toward 'cover' in [0,1]. A storm cell is solid inside 40% of 'radius' and fades to nothing at 'radius'.
+	// A front covers the half-plane behind 'point', where 'travel_direction' points from the covered side to the clear side, with a soft edge 'width' wide.
+	// Noise adds smooth variation in [-amplitude, +amplitude] with feature size 'scale', clamped to [0,1].
+	VIEW3D_API void __stdcall View3D_WeatherMapFill(pr::view3d::WeatherMap weather, float cover);
+	VIEW3D_API void __stdcall View3D_WeatherMapAddStormCell(pr::view3d::WeatherMap weather, pr::view3d::Vec2 centre, float radius, float cover);
+	VIEW3D_API void __stdcall View3D_WeatherMapAddFront(pr::view3d::WeatherMap weather, pr::view3d::Vec2 point, pr::view3d::Vec2 travel_direction, float width, float cover);
+	VIEW3D_API void __stdcall View3D_WeatherMapAddNoise(pr::view3d::WeatherMap weather, float scale, float amplitude, uint32_t seed);
+
+	// Return the cover at 'position', faded to 'default_cover' toward the area edges, matching what the sky renders. Returns 'default_cover' on failure.
+	VIEW3D_API float __stdcall View3D_WeatherMapCoverAt(pr::view3d::WeatherMap weather, pr::view3d::Vec2 position, float default_cover);
+
+	// Copy the CPU grid to the GPU so later frames show the edits.
+	VIEW3D_API void __stdcall View3D_WeatherMapUpload(pr::view3d::WeatherMap weather);
 
 	// Create an ldr object using a callback to populate the model data.
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateWithCallback(char const* name, pr::view3d::Colour colour, int vcount, int icount, int ncount, pr::view3d::EditObjectCB edit_cb, GUID const& context_id);
@@ -1603,6 +1651,9 @@ extern "C"
 
 	// Load a cube map from file, embedded resource, or stock assets. Specify width == 0, height == 0 to use the dimensions of the file
 	VIEW3D_API pr::view3d::CubeMap __stdcall View3D_CubeMapCreateFromUri(char const* resource, pr::view3d::CubeMapOptions const& options);
+
+	// Create an uninitialised RGBA8 sRGB cube map with 'face_size' pixels per face edge and a full mip chain. Use as a target for View3D_WindowEnvMapCapture.
+	VIEW3D_API pr::view3d::CubeMap __stdcall View3D_CubeMapCreate(int face_size);
 
 	// Create a texture sampler
 	VIEW3D_API pr::view3d::Sampler __stdcall View3D_SamplerCreate(pr::view3d::SamplerOptions const& options);
@@ -1802,6 +1853,7 @@ namespace pr::view3d
 			void operator()(CubeMap p) noexcept { if (p) View3D_CubeMapRelease(p); }
 			void operator()(Sampler p) noexcept { if (p) View3D_SamplerRelease(p); }
 			void operator()(Shader p) noexcept { if (p) View3D_ShaderRelease(p); }
+			void operator()(WeatherMap p) noexcept { if (p) View3D_WeatherMapRelease(p); }
 			void operator()(Window p) noexcept { if (p) View3D_WindowDestroy(p); }
 		};
 	}
@@ -1812,5 +1864,6 @@ namespace pr::view3d
 	using CubeMapPtr = std::unique_ptr<rdr12::TextureCube, impl::Deleter>;
 	using SamplerPtr = std::unique_ptr<rdr12::Sampler, impl::Deleter>;
 	using ShaderPtr  = std::unique_ptr<rdr12::Shader, impl::Deleter>;
+	using WeatherMapPtr = std::unique_ptr<rdr12::WeatherMap, impl::Deleter>;
 	using WindowPtr  = std::unique_ptr<rdr12::V3dWindow, impl::Deleter>;
 }

@@ -39,10 +39,11 @@ namespace pr::rdr12
 				#endif
 			}
 
-			// Create the pipeline state instance
+			// Create the pipeline state instance. Append it, because draining the pool invalidates 'iter'.
 			D3DPtr<ID3D12PipelineState> pso;
 			Check(device->CreateGraphicsPipelineState(desc, __uuidof(ID3D12PipelineState), (void**)pso.address_of()));
-			iter = m_pool.insert(iter, PipeStateObject(pso, frame_number, desc.hash()));
+			m_pool.emplace_back(pso, frame_number, desc.hash());
+			iter = m_pool.end() - 1;
 		}
 
 		auto& pso = *iter;

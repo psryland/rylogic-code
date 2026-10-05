@@ -28,6 +28,7 @@
 #include "view3d-12/src/dll/v3d_window.h"
 #include "view3d-12/src/shaders/common.h"
 #include "pr/hlsl/interop.h"
+#include "pr/common/unittests.h"
 
 // Exercise the same RGB blend expression compiled into the renderer's GPU shaders.
 namespace colour_blend_tests

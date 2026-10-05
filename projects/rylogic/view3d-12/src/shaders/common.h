@@ -346,7 +346,7 @@ namespace pr::rdr12
 					view.m_atlas_rect.SizeY() * inv_size,
 					view.m_atlas_rect.m_min.x * inv_size,
 					view.m_atlas_rect.m_min.y * inv_size),
-				.bias = v4(view.m_normal_bias, s_cast<float>(settings.m_filter_size), 0, 0),
+				.bias = v4(view.m_normal_bias, s_cast<float>(settings.m_filter_size), view.m_fade_depth.x, view.m_fade_depth.y),
 			};
 		}
 

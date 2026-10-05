@@ -2090,7 +2090,7 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern void View3D_WindowEnvMapSet(HWindow window, HCubeMap env_map);
 
 		// Render the window's objects into a new cube map centred at 'position'
-		[DllImport(Dll)] private static extern HCubeMap View3D_WindowEnvMapCapture(HWindow window, v4 position, int face_size);
+		[DllImport(Dll)] private static extern void View3D_WindowEnvMapCapture(HWindow window, HCubeMap env_map, v4 position);
 
 		// Enable/Disable the depth buffer
 		[DllImport(Dll)] private static extern bool View3D_DepthBufferEnabledGet(HWindow window);
@@ -2263,7 +2263,7 @@ namespace Rylogic.Gfx
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HObject View3D_ObjectCreateP3DStream([MarshalAs(UnmanagedType.LPStr)] string name, uint colour, int size, IntPtr p3d_data, ResolveTextureCBInternal tex_resolver, ref Guid context_id);
 
 		// Create a six-sided skybox from individual cube-map face images.
-		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HObject View3D_ObjectCreateSkybox([MarshalAs(UnmanagedType.LPStr)] string name, [MarshalAs(UnmanagedType.LPStr)] string resource, float radius, ref Guid context_id);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HObject View3D_ObjectCreateSkybox([MarshalAs(UnmanagedType.LPStr)] string name, HCubeMap cube_map, ref Guid context_id);
 
 		// Create an ldr object using a callback to populate the model data.
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern HObject View3D_ObjectCreateWithCallback([MarshalAs(UnmanagedType.LPStr)] string name, uint colour, int vcount, int icount, int ncount, EditObjectCBInternal edit_cb, ref Guid context_id);
@@ -2385,6 +2385,7 @@ namespace Rylogic.Gfx
 
 		// Load a cube map from file, embedded resource, or stock assets. Specify width == 0, height == 0 to use the dimensions of the file
 		[DllImport(Dll)] private static extern HCubeMap View3D_CubeMapCreateFromUri([MarshalAs(UnmanagedType.LPStr)] string resource, ref CubeMapOptions options);
+		[DllImport(Dll)] private static extern HCubeMap View3D_CubeMapCreate(int face_size);
 
 		// Create a texture sampler
 		[DllImport(Dll)] private static extern HSampler View3D_SamplerCreate(ref SamplerOptions options);

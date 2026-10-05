@@ -6,7 +6,7 @@
 // immutable, renderer-neutral draw packet consumed natively by the future View3D host bridge.
 // DrawPacket/DrawItem carry no public ABI surface (draw_packet.h is a plain internal header, not
 // part of view3d-ui.h), so these tests construct UiEngine directly rather than going through the
-// UiContext facade every other test file in this project uses; view3d-ui-tests.vcxproj links
+// UiContext facade every other test file in this project uses; view3d-12-tests.vcxproj links
 // view3d-ui.vcxproj's static library directly to make UiEngine reachable here.
 #include "pr/common/unittests.h"
 #include "pr/view3d-ui/engine.h"

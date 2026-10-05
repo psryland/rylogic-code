@@ -6,11 +6,9 @@
 // view3d-12.dll, entirely independent of host_bridge.cpp's own permanent export-resolution cache,
 // and (b) View3DUI_ContextCreate's all-or-nothing COM-rollback contract when the host bridge
 // attach step fails. The bridge-integration test only runs its assertions when view3d-12.dll can
-// actually be found via the process's normal DLL search order; it always balances its own
-// LoadLibrary with a matching FreeLibrary, so it can never change whether a later test in this
-// same process observes view3d-12.dll as loaded (see tests_m0_abi_lifetime.cpp's
-// ContextCreateWithHostWindowFailsWithoutHostBridgeAndLeavesNoState, whose "this test process
-// never loads view3d-12.dll" assumption must remain true regardless of test run order).
+// actually be found via the process's normal DLL search order; it balances its own LoadLibrary
+// with a matching FreeLibrary. The "no host bridge" tests use HostBridgeUnavailableScope (see
+// test_support.h), so they do not depend on whether view3d-12.dll is loaded in this process.
 #include "pr/common/unittests.h"
 #include "test_support.h"
 #include "pr/view3d-12/view3d-ui-bridge.h"
@@ -51,7 +49,7 @@ namespace pr::view3d::ui::tests
 		}
 
 		// Balance the LoadLibrary above unconditionally, regardless of which assertions above
-		// failed, so this test can never leave view3d-12.dll loaded for any test that runs after it.
+		// failed, so this test does not change the module's load count for later tests.
 		::FreeLibrary(module);
 	}
 
@@ -61,6 +59,7 @@ namespace pr::view3d::ui::tests
 		// AndLeavesNoState, but additionally asserts the COM refcount side of the "all-or-nothing"
 		// contract: a failed attach must leave the externally-owned device exactly as it found it,
 		// not holding an orphaned AddRef the failed context can never release.
+		auto no_bridge = HostBridgeUnavailableScope{};
 		auto runtime = Runtime{};
 		auto device = FakeDevice{};
 		auto fake_window = int{};

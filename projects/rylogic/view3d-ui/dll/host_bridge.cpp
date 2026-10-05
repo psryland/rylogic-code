@@ -30,6 +30,9 @@ namespace pr::view3d::ui
 		BridgeExports g_exports = {};
 		bool g_resolved = false;
 
+		// See ForceUnavailable. Only Attach observes it, so Detach still releases existing attachments.
+		std::atomic<bool> g_force_unavailable = false;
+
 		// Resolve and validate the bridge export table on first use, throwing a diagnosable
 		// EStatus if view3d-12.dll is not loaded, does not export the bridge, or exposes an
 		// incompatible ABI/schema version. Cached thereafter so every subsequent Attach/Detach call
@@ -178,6 +181,10 @@ namespace pr::view3d::ui
 
 	void Attach(ContextHandle context_handle, void* window)
 	{
+		// Report the bridge as missing when forced, before touching the real module.
+		if (g_force_unavailable)
+			throw EngineException(EStatus::UnsupportedFeature, "view3d-12 UI host bridge is forced unavailable");
+
 		auto const& exports = ResolveExports();
 
 		// The provider's context token is the context handle itself, erased to void*; no extra
@@ -205,5 +212,11 @@ namespace pr::view3d::ui
 		}
 		catch (...)
 		{}
+	}
+
+	void ForceUnavailable(bool unavailable) noexcept
+	{
+		// Set the flag that Attach checks first.
+		g_force_unavailable = unavailable;
 	}
 }

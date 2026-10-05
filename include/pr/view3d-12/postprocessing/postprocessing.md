@@ -133,15 +133,15 @@ before it is sent to the GPU, so precision does not degrade after long run times
    render target; they must not assume which target is the scene colour.
 4. Add `View3D_PostEffect<Effect>Get/Set` to the DLL, a matching window accessor, and a C# struct and property in
    `Rylogic.Gfx`. Keep the DLL and C# struct layouts identical and cover them with layout tests.
-5. Add GPU pixel tests to `view3d-fade-tests`.
+5. Add GPU pixel tests to `view3d-12-tests` (`src\view3d-12\render_tests.cpp`).
 
 The planned order puts depth-dependent effects that need a clean image first (ambient occlusion, depth of field,
 motion blur) and whole-screen colour effects (such as underwater) last.
 
 ## Validation
 
-Build `projects\tests\view3d-fade-tests\view3d-fade-tests.vcxproj` (VS 2026, v145, Debug/x64), then run
-`obj\x64\Debug\view3d-fade-tests.exe --post-effects`. The invisible-window fixture reads rendered pixels at
+Build `projects\tests\view3d-12-tests\view3d-12-tests.vcxproj` (VS 2026, v145, Debug/x64), then run
+`obj\x64\Debug\view3d-12-tests.exe View3d12_PostEffects`. The invisible-window fixture reads rendered pixels at
 1x and 4x MSAA. It covers defaults, invalid-settings rejection, disabled-image equality, tint, depth fog,
 background fog, surface-plane fog (orthographic and perspective, from above and below the plane), the waterline
 split, the fade depth, and the skipped pass above the water, overlay exclusion,

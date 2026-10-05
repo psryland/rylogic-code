@@ -7,6 +7,12 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\scene\procedural_sky.h">
       <Filter>pr</Filter>
     </ClInclude>
+    <ClCompile Include="src\scene\weather_map.cpp">
+      <Filter>src\scene</Filter>
+    </ClCompile>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\scene\weather_map.h">
+      <Filter>pr</Filter>
+    </ClInclude>
     <None Include="src\shaders\hlsl\sky\procedural_sky_cbuf.hlsli">
       <Filter>src\shaders</Filter>
     </None>

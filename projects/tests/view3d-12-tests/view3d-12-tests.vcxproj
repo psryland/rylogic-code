@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+	<!-- Globals -->
+	<PropertyGroup Label="Globals">
+		<ConfigurationType>Application</ConfigurationType>
+		<ProjectGuid>{029199FD-C815-46E4-ADAF-5F51AFFF5CA1}</ProjectGuid>
+		<ProjectName>view3d-12-tests</ProjectName>
+		<RootNamespace>view3d_12_tests</RootNamespace>
+		<RylogicGeneratePackageOnBuild>false</RylogicGeneratePackageOnBuild>
+		<ShaderBuildStampDir>$(MSBuildProjectDirectory)\src\view3d-12\shaders\hlsl\compiled\$(Configuration)\</ShaderBuildStampDir>
+	</PropertyGroup>
+
+	<!-- Property Sheets -->
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+	<Import Project="$(PropsPath)build_configurations.props" />
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+	<Import Project="$(PropsPath)app.props" />
+	<Import Project="$(PropsPath)shader_build.props" />
+
+	<!-- Build options -->
+	<ItemDefinitionGroup>
+		<ClCompile>
+			<EnableModules>false</EnableModules>
+			<LanguageStandard>stdcpplatest</LanguageStandard>
+			<PreprocessorDefinitions>
+				;PR_UNITTESTS=1
+				;%(PreprocessorDefinitions)
+			</PreprocessorDefinitions>
+			<AdditionalIncludeDirectories>
+				;$(RylogicRoot)include
+				;$(RylogicRoot)projects\rylogic
+				;$(RylogicRoot)projects\rylogic\view3d-ui\src
+				;$(RylogicRoot)projects\rylogic\view3d-ui\dll
+				;$(ShaderBuildStampDir)
+				;%(AdditionalIncludeDirectories)
+			</AdditionalIncludeDirectories>
+		</ClCompile>
+		<Link>
+			<SubSystem>Console</SubSystem>
+			<!-- root.props sets LinkLibraryDependencies=false repo-wide, so ProjectReference alone does not link a referenced
+			     static library's output; the static libraries below must be named explicitly. compute_shaders.res embeds the
+			     compute HLSL sources that the compute headers' GPU unit tests compile at run time. -->
+			<AdditionalDependencies>
+				;$(RylogicRoot)obj\view3d-12.dll\$(Platform)\$(Configuration)\view3d-12.imp
+				;$(RylogicRoot)obj\view3d-12\$(Platform)\$(Configuration)\view3d-12-static.lib
+				;$(RylogicRoot)obj\compute\$(Platform)\$(Configuration)\compute-static.lib
+				;$(RylogicRoot)obj\compute\$(Platform)\$(Configuration)\compute_shaders.res
+				;$(RylogicRoot)obj\view3d-ui\$(Platform)\$(Configuration)\view3d-ui-static.lib
+				;audio.imp
+				;d3d12.lib
+				;%(AdditionalDependencies)
+			</AdditionalDependencies>
+			<!-- view3d-12.dll is delay-loaded so it only enters the process when a test (or interactive mode) first calls it.
+			     audio.dll is only used by interactive mode, which loads it with win32::LoadDll before first use. -->
+			<DelayLoadDLLs>
+				;view3d-12.dll
+				;audio.dll
+				;%(DelayLoadDLLs)
+			</DelayLoadDLLs>
+		</Link>
+	</ItemDefinitionGroup>
+
+	<!-- Entry point and configuration -->
+	<ItemGroup>
+		<ClCompile Include="src\main.cpp" />
+		<CopyFileToFolders Include="view3d-12-tests.config.json">
+			<DestinationFolders>$(OutDir)</DestinationFolders>
+		</CopyFileToFolders>
+	</ItemGroup>
+
+	<!-- Interactive 3D scene, shown with the 'interactive' command line option -->
+	<ItemGroup>
+		<ClInclude Include="src\interactive\interactive.h" />
+		<ClInclude Include="src\interactive\demo.h" />
+		<ClInclude Include="src\interactive\controls_panel.h" />
+		<ClInclude Include="src\interactive\view3d_ui_demo.h" />
+		<ClCompile Include="src\interactive\main_window.cpp" />
+		<ClCompile Include="src\interactive\demo_catalogue.cpp" />
+		<ClCompile Include="src\interactive\controls_panel.cpp" />
+		<ClCompile Include="src\interactive\demos_scene.cpp" />
+		<ClCompile Include="src\interactive\demos_lighting.cpp" />
+		<ClCompile Include="src\interactive\demos_effects.cpp" />
+		<ClCompile Include="src\interactive\demos_procedural.cpp" />
+		<ClCompile Include="src\interactive\view3d_ui_demo.cpp" />
+		<None Include="src\interactive\StreamingTest.csx" />
+	</ItemGroup>
+
+	<!-- view3d-12 renderer tests. These link view3d-12-static.lib to reach renderer internals, alongside the DLL's
+	     public API, and build their own test shaders into src\view3d-12\shaders\hlsl\compiled\$(Configuration). -->
+	<ItemGroup>
+		<ClInclude Include="src\view3d-12\forward.h" />
+		<ClCompile Include="src\view3d-12\render_tests.cpp" />
+		<ClCompile Include="src\view3d-12\raycast_lifetime.cpp" />
+		<ShaderBuild Include="src\view3d-12\shaders\hlsl\fade_vertex.hlsl" VertexEntryPoints="fade_vertex=VSMain" PixelEntryPoints="unsupported_pixel=PSMain" />
+		<ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_vertex_forward.hlsl" VertexEntryPoints="procedural_vertex_forward=VSMain" />
+		<ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_vertex_raycast.hlsl" VertexEntryPoints="procedural_vertex_raycast=VSMain" />
+		<ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_vertex_shadow.hlsl" VertexEntryPoints="procedural_vertex_shadow=VSMain" />
+		<ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_vertex_buffer.hlsl" VertexEntryPoints="procedural_vertex_buffer=VSMain" />
+		<ShaderBuild Include="src\view3d-12\shaders\hlsl\wave_grid.hlsl" VertexEntryPoints="wave_grid=VSMain" />
+		<None Include="src\view3d-12\shaders\hlsl\procedural_vertex_common.hlsli" />
+	</ItemGroup>
+
+	<!-- view3d-ui tests. view3d-ui.h loads view3d-ui.dll dynamically at runtime (GetProcAddress), so there is no import
+	     library to link against. The M3 white-box tests additionally link view3d-ui.vcxproj's static library directly
+	     (view3d-ui-static.lib) to reach UiEngine/DrawPacket/GlyphCache/TextShaper, which are internal, non-ABI headers
+	     never exposed through the dynamic facade; this mirrors how view3d-ui.dll.vcxproj itself links the same static
+	     library, and produces its own separate object code inside this executable (the DLL never exports these
+	     symbols, so there is no ODR risk between the two binaries). tests_m3_renderer.cpp additionally compiles
+	     dll\renderer.cpp directly into this project for the same white-box reason; renderer.cpp only depends on
+	     GlyphCache/TextShaper (supplied by the static library) and the private view3d-12 UI host bridge header. -->
+	<ItemGroup>
+		<ClInclude Include="src\view3d-ui\test_support.h" />
+		<ClCompile Include="src\view3d-ui\tests_m0_abi_lifetime.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m1_transactions.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m1_events.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m2_layout.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m2_input_focus.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m2_semantics.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m3_glyph_cache.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m3_text_shaper.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m3_draw_packet.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m3_renderer.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m3_input_activation.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m3_bridge_and_lifecycle.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m3_text_reconciliation.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m5_hardening.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m8_world_roots.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m9_text_unicode.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m9_text_layout.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m9_text_editing.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m9_win32_input.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m9_abi.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m9_corrections.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_m10_uia.cpp" />
+		<ClCompile Include="src\view3d-ui\tests_slider.cpp" />
+		<ClInclude Include="$(RylogicRoot)projects\rylogic\view3d-ui\dll\renderer.h" />
+		<ClCompile Include="$(RylogicRoot)projects\rylogic\view3d-ui\dll\renderer.cpp" />
+	</ItemGroup>
+
+	<!-- Dependencies -->
+	<ItemGroup>
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\audio\audio.dll.vcxproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-12\view3d-12.dll.vcxproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-ui\view3d-ui.dll.vcxproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-ui\view3d-ui.vcxproj" />
+	</ItemGroup>
+
+	<!-- Runtime DLLs. view3d-12.dll sits beside the exe so the delay-load helper's normal search finds it.
+	     fbx.dll and the OpenXR loader are loaded on demand by view3d-12, so they are copied only when present and
+	     never block a build or a unit test run. -->
+	<ItemGroup>
+		<DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\view3d-12.dll">
+			<OutDir>$(OutDir)</OutDir>
+		</DependencyLink>
+		<DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\view3d-ui.dll" />
+		<DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\audio.dll" />
+		<DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\fbx.dll" Condition="Exists('$(RylogicRoot)lib\$(Platform)\$(Configuration)\fbx.dll')" />
+		<DependencyLink Include="$(SDKPath)openxr\openxr\$(Platform)\bin\openxr_loader.dll" Condition="Exists('$(SDKPath)openxr\openxr\$(Platform)\bin\openxr_loader.dll')">
+			<OutDir>$(OutDir)lib\$(Platform)\</OutDir>
+		</DependencyLink>
+	</ItemGroup>
+
+	<!-- Targets -->
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+	<Import Project="$(TargetsPath)WinPixEventRuntime.targets" />
+</Project>

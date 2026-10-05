@@ -37,7 +37,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto Tex3Stream = ESRVReg:: t10;
 		inline static constexpr auto Tex4Stream = ESRVReg:: t11;
 		inline static constexpr auto PbrNormalTexture = ESRVReg::t12;
-		inline static constexpr auto SkyTexture = ESRVReg::t13;
+		inline static constexpr auto SkyTexture = ESRVReg::t18;
 		inline static constexpr auto ProceduralBuffer = ESRVReg::t14;
 		inline static constexpr auto Lights = ESRVReg::t15;
 		inline static constexpr auto ShadowViews = ESRVReg::t16;
@@ -52,6 +52,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto EnvMap = SamDescStatic(ESamReg::s1);
 		inline static constexpr auto ShadowAtlas = SamDescStatic(ESamReg::s2).addr(D3D12_TEXTURE_ADDRESS_MODE_CLAMP).filter(D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT).compare(D3D12_COMPARISON_FUNC_LESS_EQUAL);
 		inline static constexpr auto ProjTex = SamDescStatic(ESamReg::s3);
+		inline static constexpr auto SkyNoise = SamDescStatic(ESamReg::s8).addr(D3D12_TEXTURE_ADDRESS_MODE_WRAP);
 		inline static constexpr auto PbrMetallic = ESamReg::s4;
 		inline static constexpr auto PbrRoughness = ESamReg::s5;
 		inline static constexpr auto PbrEmissive = ESamReg::s6;
@@ -101,10 +102,11 @@ namespace pr::rdr12::shaders
 			.Samp(ESamp::EnvMap)
 			.Samp(ESamp::ShadowAtlas)
 			.Samp(ESamp::ProjTex)
+			.Samp(ESamp::SkyNoise)
 			.UAV(EReg::AlphaColour, 1)
 			.UAV(EReg::AlphaDepth, 1)
 			.UAV(EReg::AlphaRtAttrs, 1)
-			.SRV(EReg::SkyTexture, 1)
+			.SRV(EReg::SkyTexture, 3)
 			.SRV(EReg::Lights, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::ShadowViews, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::ProceduralBuffer, D3D12_SHADER_VISIBILITY_VERTEX)
