@@ -599,7 +599,7 @@ namespace pr::rdr12
 	}
 
 	// Replace the detail-normal layers of every nugget of 'object' that has detail normals.
-	void Context::ObjectDetailNormalLayers(ldraw::LdrObject* object, std::span<materials::DetailNormalLayer const> layers)
+	void Context::ObjectDetailNormalLayers(ldraw::LdrObject* object, std::span<materials::DetailNormalLayer const> layers, float base_slope_variance)
 	{
 		// Only the object's own model is updated; children keep their own layers.
 		auto& model = object->m_model;
@@ -614,7 +614,7 @@ namespace pr::rdr12
 			if (detail == nullptr)
 				continue;
 
-			detail->m_layers->Set(layers);
+			detail->m_layers->Set(layers, base_slope_variance);
 			++updated;
 		}
 		if (updated == 0)

@@ -60,17 +60,18 @@ void EnvMapDirections(float3 ws_pos, float3 ws_dir, out float3 dir, out float3 d
 
 // Sample the environment map in env-map space directions 'dir' (current map) and 'dir_prev' (previous map). While a new map fades in, the
 // result blends from the previous map. The blend weight is the same for every pixel in the frame, so the branch does not diverge.
-// Maps that store distances in alpha return an alpha of 1.
-float4 SampleEnvMap(float3 dir, float3 dir_prev)
+// Maps that store distances in alpha return an alpha of 1. 'lod_bias' is added to the mip level the hardware selects; 0 gives the sharpest
+// result without aliasing.
+float4 SampleEnvMap(float3 dir, float3 dir_prev, float lod_bias)
 {
-	float4 col = g_envmap_texture.Sample(g_envmap_sampler, dir);
+	float4 col = g_envmap_texture.SampleBias(g_envmap_sampler, dir, lod_bias);
 	col.a = g_frame.env_map.centre.w > 0.0f ? 1.0f : col.a;
 
 	float blend = g_frame.env_map.blend.x;
 	if (blend < 1.0f)
 	{
 		// Blend from the previous map, which may or may not store distances
-		float4 prev = g_envmap_prev_texture.Sample(g_envmap_sampler, dir_prev);
+		float4 prev = g_envmap_prev_texture.SampleBias(g_envmap_sampler, dir_prev, lod_bias);
 		prev.a = g_frame.env_map.centre_prev.w > 0.0f ? 1.0f : prev.a;
 		col = lerp(prev, col, blend);
 	}
@@ -96,19 +97,29 @@ float4 SampleEnvMapLevel(float3 dir, float3 dir_prev, float lod)
 
 // Blend the reflected environment into 'initial_diff'. 'env_reflectivity' is the reflectivity when viewed straight on; the reflection
 // strengthens towards a full mirror at grazing angles, so a value of 1 is a perfect mirror from every direction.
-float4 EnvironmentMap(float4 ws_pos, float4 ws_norm, float4 ws_cam, float4 initial_diff)
+// 'slope_variance' is the mean square slope of surface detail too fine for 'ws_norm' to show. Zero gives a sharp mirror reflection; larger
+// values blur the reflection and weaken it at grazing angles, the way a rough surface does.
+float4 EnvironmentMap(float4 ws_pos, float4 ws_norm, float4 ws_cam, float4 initial_diff, float slope_variance)
 {
+	// A rough surface acts like many tiny mirrors tilted about the normal, so it reflects a cone of directions. A coarser mip averages
+	// that cone. Roughness is the fourth root of the mean square slope, which is the scale the PBR path uses to choose its mip level.
+	uint env_w, env_h, env_mips;
+	g_envmap_texture.GetDimensions(0, env_w, env_h, env_mips);
+	float roughness = sqrt(sqrt(max(slope_variance, 0.0f)));
+
 	// Sample the environment in the mirror direction
 	float4 to_surface = ws_pos - ws_cam;
 	float3 dir, dir_prev;
 	EnvMapDirections(ws_pos.xyz, reflect(to_surface, ws_norm).xyz, dir, dir_prev);
-	float4 col = SampleEnvMap(dir, dir_prev);
+	float4 col = SampleEnvMap(dir, dir_prev, roughness * (env_mips - 1));
 
-	// Weight the reflection with the Schlick approximation to the Fresnel term, so reflection rises from the straight-on value to 1 as
-	// the view becomes parallel to the surface. 'abs' treats both sides of the surface the same.
+	// Weight the reflection with the Schlick approximation to the Fresnel term, so reflection rises from the straight-on value as the view
+	// becomes parallel to the surface. On a rough surface, some facets still face the viewer at grazing angles, so the limit falls from 1
+	// to 1 - roughness. 'abs' treats both sides of the surface the same.
 	float reflectivity = saturate(g_nugget.env_reflectivity);
 	float cos_theta = saturate(abs(dot(normalize(to_surface.xyz), normalize(ws_norm.xyz))));
-	float fresnel = reflectivity + (1.0f - reflectivity) * pow(1.0f - cos_theta, 5.0f);
+	float grazing = max(1.0f - roughness, reflectivity);
+	float fresnel = reflectivity + (grazing - reflectivity) * pow(1.0f - cos_theta, 5.0f);
 	return lerp(initial_diff, col, fresnel);
 }
 

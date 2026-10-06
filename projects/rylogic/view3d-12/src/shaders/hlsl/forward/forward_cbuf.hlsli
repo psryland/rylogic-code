@@ -149,6 +149,10 @@ struct CBufDetailNormals// :reg(b7)
 	float4 row_u[DetailNormalsMaxLayers]; // u = dot(ws.xyz, row_u.xyz) + row_u.w
 	float4 row_v[DetailNormalsMaxLayers]; // v = dot(ws.xyz, row_v.xyz) + row_v.w
 	float4 height_scale;                  // World height per unit of map height, per layer
+	float4 weight_noise;                  // Amount in [0,1] by which world noise varies each layer's weight
+	float4 noise_frequency;               // Noise cells per texture unit, per layer
+	float4 warp;                          // Largest shift of each layer's texture coordinates by world noise, in texture units
+	float4 surface;                       // x = base slope variance added to every fragment
 	int4 info;                            // x = layer count
 };
 

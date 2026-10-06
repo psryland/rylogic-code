@@ -1271,10 +1271,11 @@ namespace Rylogic.Gfx
 
 			public v4 RowU;
 			public v4 RowV;
-			public float HeightScale; // World height per unit of map height, per texture unit of slope
+			public float HeightScale;    // World height per unit of map height, per texture unit of slope
+			public float WeightNoise;    // In [0, 1]. Smooth world noise scales the height by a factor in [1 - WeightNoise, 1 + WeightNoise]
+			public float NoiseFrequency; // Finite, and positive when WeightNoise or Warp is non-zero. Noise cells per texture unit; ignores row offsets
+			public float Warp;           // Finite and non-negative. Noise shifts the texture coordinates by up to this many texture units
 			private float m_pad0;
-			private float m_pad1;
-			private float m_pad2;
 		}
 
 		/// <summary></summary>
@@ -2396,7 +2397,7 @@ namespace Rylogic.Gfx
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetProceduralSurfaceSet(HObject obj, ref ProceduralSurface surface, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetProceduralSurfaceClear(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetDetailNormalsSet(HObject obj, HTexture tex, HSampler sam, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
-		[DllImport(Dll)] private static extern void View3D_ObjectDetailNormalLayersSet(HObject obj, [MarshalAs(UnmanagedType.LPArray)] DetailNormalLayer[]? layers, int count);
+		[DllImport(Dll)] private static extern void View3D_ObjectDetailNormalLayersSet(HObject obj, [MarshalAs(UnmanagedType.LPArray)] DetailNormalLayer[]? layers, int count, float base_slope_variance);
 
 		// Materials ******************************
 

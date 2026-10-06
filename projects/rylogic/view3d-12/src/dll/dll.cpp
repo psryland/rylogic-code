@@ -3326,7 +3326,7 @@ VIEW3D_API void __stdcall View3D_ObjectNuggetDetailNormalsSet(view3d::Object obj
 }
 
 // Replace the detail-normal layers of an object's own nuggets.
-VIEW3D_API void __stdcall View3D_ObjectDetailNormalLayersSet(view3d::Object object, view3d::DetailNormalLayer const* layers, int count)
+VIEW3D_API void __stdcall View3D_ObjectDetailNormalLayersSet(view3d::Object object, view3d::DetailNormalLayer const* layers, int count, float base_slope_variance)
 {
 	// Convert the public layout before taking the lock; the material validates the values.
 	try
@@ -3343,11 +3343,14 @@ VIEW3D_API void __stdcall View3D_ObjectDetailNormalLayersSet(view3d::Object obje
 				.m_row_u = To<v4>(layers[i].m_row_u),
 				.m_row_v = To<v4>(layers[i].m_row_v),
 				.m_height_scale = layers[i].m_height_scale,
+				.m_weight_noise = layers[i].m_weight_noise,
+				.m_noise_frequency = layers[i].m_noise_frequency,
+				.m_warp = layers[i].m_warp,
 			};
 		}
 
 		DllLockGuard;
-		Dll().ObjectDetailNormalLayers(object, std::span(values.data(), static_cast<size_t>(count)));
+		Dll().ObjectDetailNormalLayers(object, std::span(values.data(), static_cast<size_t>(count)), base_slope_variance);
 	}
 	CatchAndReport(View3D_ObjectDetailNormalLayersSet, ,);
 }

@@ -77,7 +77,8 @@ namespace pr::physics::terrain::water
 
 		// Write the equilibrium amplitude (m) of every component for 'weather' into 'amplitudes' (ComponentCount values).
 		// Amplitudes follow a fetch-limited wind-sea spectrum. The energy is spread about downwind most narrowly at the spectrum peak and more
-		// widely for longer and shorter waves, so the dominant waves have a clear direction.
+		// widely for longer and shorter waves, so the dominant waves have a clear direction. Above 8 m/s every band is held to a minimum
+		// alignment that grows with the wind, so a gale has a clear dominant direction even when its peak is longer than every band.
 		void Targets(WaveWeather const& weather, std::span<float> amplitudes) const;
 
 		// Move 'amplitudes' towards 'targets' over 'dt' seconds with an exponential time constant of 'time_constant' seconds.
@@ -89,7 +90,7 @@ namespace pr::physics::terrain::water
 		static float CrestSharpness(float wind_speed);
 
 		// Largest sharpness returned by CrestSharpness.
-		static constexpr float MaxCrestSharpness = 0.7f;
+		static constexpr float MaxCrestSharpness = 0.6f;
 
 		// Write Gerstner elements for the components with a positive amplitude and a wavelength of at least 'min_wavelength'.
 		// 'heading' is the direction the wind blows towards, in radians anticlockwise from +X; component directions are rotated by it.

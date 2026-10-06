@@ -647,11 +647,14 @@ namespace Rylogic.Gfx
 				View3D_ObjectNuggetDetailNormalsSet(Handle, IntPtr.Zero, IntPtr.Zero, name, index);
 			}
 
-			/// <summary>Replace the detail-normal layers of this object's nuggets. Cheap enough to call every frame. At most 4 layers.</summary>
-			public void DetailNormalLayersSet(DetailNormalLayer[] layers)
+			/// <summary>
+			/// Replace the detail-normal layers of this object's nuggets. Cheap enough to call every frame. At most 4 layers.
+			/// 'base_slope_variance' (non-negative) is the mean square slope of roughness finer than every layer.
+			/// </summary>
+			public void DetailNormalLayersSet(DetailNormalLayer[] layers, float base_slope_variance)
 			{
 				// Layers are shared by the materials, so no material is replaced.
-				View3D_ObjectDetailNormalLayersSet(Handle, layers, layers.Length);
+				View3D_ObjectDetailNormalLayersSet(Handle, layers, layers.Length, base_slope_variance);
 			}
 
 			/// <summary>

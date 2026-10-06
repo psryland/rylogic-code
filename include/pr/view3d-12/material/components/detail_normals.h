@@ -15,9 +15,18 @@ namespace pr::rdr12::materials
 	{
 		// The texture coordinates of a world position 'p' are u = dot(p.xyz, m_row_u.xyz) + m_row_u.w and v = dot(p.xyz, m_row_v.xyz) + m_row_v.w.
 		// Animate a layer by changing the w offsets. 'm_height_scale' converts one unit of the map's height per texture unit into world height.
+		// Smooth world noise scales the layer's height by a factor in [1 - m_weight_noise, 1 + m_weight_noise], which hides the tiling. The noise
+		// has 'm_noise_frequency' cells per texture unit. It follows the orientation and scale of the layer's projection but not its offsets, so a
+		// scrolling layer does not drag its noise.
+		// Smooth world noise from the same cells also shifts the layer's texture coordinates by up to 'm_warp' texture units in u and v. This
+		// bends the straight rows of repeated tiles, so the repetition does not line up across a large area. The normal is computed as if the
+		// map were not warped, so keep m_warp * m_noise_frequency well below 1 to avoid a visible stretch of the map.
 		v4 m_row_u = v4::XAxis();
 		v4 m_row_v = v4::ZAxis();
 		float m_height_scale = 0.0f;
+		float m_weight_noise = 0.0f;    // In [0, 1].
+		float m_noise_frequency = 0.0f; // Finite, and positive when m_weight_noise or m_warp is non-zero.
+		float m_warp = 0.0f;            // Finite and non-negative.
 	};
 
 	// A set of detail-normal layers shared by every material copy that refers to it.
@@ -27,14 +36,18 @@ namespace pr::rdr12::materials
 
 		std::array<DetailNormalLayer, MaxLayers> m_layers = {}; // Layers in use are [0, m_count).
 		int m_count = 0;                                        // Number of layers in use, in [0, MaxLayers].
+		float m_base_slope_variance = 0.0f;                     // Mean square slope of detail finer than every layer. Non-negative.
 
-		// Replace the layers in use. 'layers' must contain at most MaxLayers entries with finite values.
-		void Set(std::span<DetailNormalLayer const> layers);
+		// Replace the layers in use and the base slope variance. 'layers' must contain at most MaxLayers valid entries.
+		void Set(std::span<DetailNormalLayer const> layers, float base_slope_variance);
 	};
 
 	// Detail normals for MaterialSimple. Each layer samples the same tileable slope map in a world-space projection, and the summed
 	// height gradients tilt the interpolated surface normal. The map's red and green channels hold the height slope along u and v,
-	// encoded as (slope + 1) / 2. Layers are shared by reference, so changing them updates every material copy without replacing materials.
+	// encoded as (slope + 1) / 2, and the blue channel holds (slope_u² + slope_v²) / 2. Mip filtering averages both, so where the map is
+	// minified the shader recovers the slope variance the filtered normal has lost. That variance, plus the base slope variance, blurs and
+	// weakens the environment reflection as a rough surface does. Layers are shared by reference, so changing them updates every material
+	// copy without replacing materials.
 	// While disabled, the owning material does not report this component and the stock pixel shaders are used.
 	struct DetailNormals
 	{

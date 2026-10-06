@@ -2717,14 +2717,15 @@ namespace fade_tests
 		};
 		auto flat = fixture.Image();
 
-		// A uniform slope map of +1 along u, 0 along v. Wrapping matches the tileable maps the feature is designed for.
+		// A uniform slope map of +1 along u, 0 along v, with half the mean square slope (0.5) in blue. Wrapping matches the tileable maps
+		// the feature is designed for.
 		auto options = api::TextureOptions{};
 		options.m_format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		options.m_resource_state = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
 		options.m_mips = 0;
 		options.m_multisamp = {1, 0};
 		options.m_t2s = {{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1}};
-		std::array<uint32_t, 4> pixels; pixels.fill(0xFF0080FFU);
+		std::array<uint32_t, 4> pixels; pixels.fill(0xFF8080FFU);
 		auto texture = api::TexturePtr(View3D_TextureCreate(2, 2, pixels.data(), sizeof(pixels), options));
 		auto sampler = api::SamplerPtr(View3D_SamplerCreate(api::SamplerOptions{D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP, "DetailNormals"}));
 		fixture.CheckErrors();
@@ -2741,7 +2742,7 @@ namespace fade_tests
 		layer.m_row_u = api::Vec4{1, 0, 0, 0};
 		layer.m_row_v = api::Vec4{0, 1, 0, 0};
 		layer.m_height_scale = 0.5f;
-		View3D_ObjectDetailNormalLayersSet(object, &layer, 1);
+		View3D_ObjectDetailNormalLayersSet(object, &layer, 1, 0.0f);
 		fixture.CheckErrors();
 		auto tilted = fixture.Image();
 		Require(std::abs(brightness(tilted) / brightness(flat) - 1.342f) < 0.03f, (std::string("Detail-normal layer tilted the lighting normal incorrectly: flat ") + std::to_string(brightness(flat)) + ", tilted " + std::to_string(brightness(tilted))).c_str());
@@ -2751,26 +2752,77 @@ namespace fade_tests
 		Require(ImageDifference(tilted, fixture.Image()) < 100, "Far-fade detail-normal variant differs from the forward variant");
 		fixture.Fade(false);
 
+		// Weight noise varies the tilt across the quad, which spans several noise cells. Without weight noise the frequency has no effect.
+		auto noisy_layer = layer;
+		noisy_layer.m_weight_noise = 1.0f;
+		noisy_layer.m_noise_frequency = 0.5f;
+		View3D_ObjectDetailNormalLayersSet(object, &noisy_layer, 1, 0.0f);
+		fixture.CheckErrors();
+		auto noisy_difference = ImageDifference(tilted, fixture.Image());
+		Require(noisy_difference > 100, (std::string("Detail-normal weight noise did not vary the surface: difference ") + std::to_string(noisy_difference)).c_str());
+		noisy_layer.m_weight_noise = 0.0f;
+		View3D_ObjectDetailNormalLayersSet(object, &noisy_layer, 1, 0.0f);
+		fixture.CheckErrors();
+		Require(ImageDifference(tilted, fixture.Image()) < 100, "Noise frequency changed the surface without weight noise");
+
+		// Warp shifts where a non-uniform map is sampled. Columns of opposite u slope make the shift visible, while a uniform map would hide it.
+		std::array<uint32_t, 4> stripes = {0xFF8080FFU, 0xFF808000U, 0xFF8080FFU, 0xFF808000U};
+		auto striped = api::TexturePtr(View3D_TextureCreate(2, 2, stripes.data(), sizeof(stripes), options));
+		Require(striped != nullptr, "Striped detail-normal map was not created");
+		auto stripe_layer = layer;
+		stripe_layer.m_noise_frequency = 0.5f;
+		View3D_ObjectNuggetDetailNormalsSet(object, striped.get(), sampler.get(), nullptr, 0);
+		View3D_ObjectDetailNormalLayersSet(object, &stripe_layer, 1, 0.0f);
+		fixture.CheckErrors();
+		auto unwarped = fixture.Image();
+		stripe_layer.m_warp = 0.5f;
+		View3D_ObjectDetailNormalLayersSet(object, &stripe_layer, 1, 0.0f);
+		fixture.CheckErrors();
+		auto warp_difference = ImageDifference(unwarped, fixture.Image());
+		Require(warp_difference > 100, (std::string("Detail-normal warp did not move the map: difference ") + std::to_string(warp_difference)).c_str());
+		View3D_ObjectNuggetDetailNormalsSet(object, texture.get(), sampler.get(), nullptr, 0);
+		View3D_ObjectDetailNormalLayersSet(object, &stripe_layer, 1, 0.0f);
+		fixture.CheckErrors();
+		Require(ImageDifference(tilted, fixture.Image()) < 100, "Warp changed a uniform map");
+
 		// Removing the layers restores the flat surface without replacing the material.
-		View3D_ObjectDetailNormalLayersSet(object, nullptr, 0);
+		View3D_ObjectDetailNormalLayersSet(object, nullptr, 0, 0.0f);
 		fixture.CheckErrors();
 		Require(ImageDifference(flat, fixture.Image()) < 100, "Clearing detail-normal layers did not restore the surface");
 
 		// Invalid inputs are reported and leave the active state unchanged.
 		auto layers = std::array<api::DetailNormalLayer, 5>{layer, layer, layer, layer, layer};
-		View3D_ObjectDetailNormalLayersSet(object, layers.data(), 5);
+		View3D_ObjectDetailNormalLayersSet(object, layers.data(), 5, 0.0f);
 		Require(!fixture.m_errors.empty(), "Too many detail-normal layers were accepted");
+		fixture.m_errors.clear();
+		View3D_ObjectDetailNormalLayersSet(object, &layer, 1, -0.1f);
+		Require(!fixture.m_errors.empty(), "A negative base slope variance was accepted");
+		fixture.m_errors.clear();
+		auto bad_noise = layer;
+		bad_noise.m_weight_noise = 0.5f;
+		View3D_ObjectDetailNormalLayersSet(object, &bad_noise, 1, 0.0f);
+		Require(!fixture.m_errors.empty(), "Weight noise without a positive noise frequency was accepted");
+		fixture.m_errors.clear();
+		auto bad_warp = layer;
+		bad_warp.m_warp = 0.5f;
+		View3D_ObjectDetailNormalLayersSet(object, &bad_warp, 1, 0.0f);
+		Require(!fixture.m_errors.empty(), "Warp without a positive noise frequency was accepted");
+		fixture.m_errors.clear();
+		bad_warp.m_noise_frequency = 0.5f;
+		bad_warp.m_warp = -0.5f;
+		View3D_ObjectDetailNormalLayersSet(object, &bad_warp, 1, 0.0f);
+		Require(!fixture.m_errors.empty(), "A negative warp was accepted");
 		fixture.m_errors.clear();
 		View3D_ObjectNuggetDetailNormalsSet(object, texture.get(), nullptr, nullptr, 0);
 		Require(!fixture.m_errors.empty(), "A detail-normal map without a sampler was accepted");
 		fixture.m_errors.clear();
 
 		// Removing the component restores the stock shader; layer updates then report that the object has no detail normals.
-		View3D_ObjectDetailNormalLayersSet(object, &layer, 1);
+		View3D_ObjectDetailNormalLayersSet(object, &layer, 1, 0.0f);
 		View3D_ObjectNuggetDetailNormalsSet(object, nullptr, nullptr, nullptr, 0);
 		fixture.CheckErrors();
 		Require(ImageDifference(flat, fixture.Image()) < 100, "Removing detail normals did not restore the surface");
-		View3D_ObjectDetailNormalLayersSet(object, &layer, 1);
+		View3D_ObjectDetailNormalLayersSet(object, &layer, 1, 0.0f);
 		Require(!fixture.m_errors.empty(), "Layers were accepted by an object without detail normals");
 		fixture.m_errors.clear();
 

@@ -81,7 +81,7 @@ namespace pr::rdr12
 		void ObjectProceduralConstants(ldraw::LdrObject* object, std::span<std::byte const> constants);
 
 		// Replace the detail-normal layers of every nugget of 'object' that has detail normals.
-		void ObjectDetailNormalLayers(ldraw::LdrObject* object, std::span<materials::DetailNormalLayer const> layers);
+		void ObjectDetailNormalLayers(ldraw::LdrObject* object, std::span<materials::DetailNormalLayer const> layers, float base_slope_variance);
 
 		// Load/Add ldr objects and return the first object from the script
 		template <typename Char>

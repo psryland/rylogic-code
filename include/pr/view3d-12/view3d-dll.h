@@ -694,10 +694,11 @@ namespace pr
 
 			Vec4 m_row_u;         // u = dot(world_pos.xyz, m_row_u.xyz) + m_row_u.w
 			Vec4 m_row_v;         // v = dot(world_pos.xyz, m_row_v.xyz) + m_row_v.w
-			float m_height_scale; // World height per unit of map height, per texture unit of slope
+			float m_height_scale;    // World height per unit of map height, per texture unit of slope
+			float m_weight_noise;    // In [0, 1]. Smooth world noise scales the height by a factor in [1 - m_weight_noise, 1 + m_weight_noise]
+			float m_noise_frequency; // Finite, and positive when m_weight_noise or m_warp is non-zero. Noise cells per texture unit; ignores row offsets
+			float m_warp;            // Finite and non-negative. Noise shifts the texture coordinates by up to this many texture units
 			float m_pad0;
-			float m_pad1;
-			float m_pad2;
 		};
 		struct BBox
 		{
@@ -1658,13 +1659,16 @@ extern "C"
 	VIEW3D_API void __stdcall View3D_ObjectNuggetProceduralSurfaceClear(pr::view3d::Object object, char const* name, int index);
 
 	// Detail normals tilt a simple material's normals with world-projected layers of a tileable slope map. The map's red and green channels hold
-	// the height slope along u and v, encoded as (slope + 1) / 2. Set 'tex' and 'sam' to null to remove detail normals. Layers are kept when the map
+	// the height slope along u and v, encoded as (slope + 1) / 2, and the blue channel holds (slope_u² + slope_v²) / 2, so mip filtering keeps
+	// the roughness that minified slopes lose. Set 'tex' and 'sam' to null to remove detail normals. Layers are kept when the map
 	// changes; a new assignment starts with no layers. Throws if the nugget material is not a simple material.
 	VIEW3D_API void __stdcall View3D_ObjectNuggetDetailNormalsSet(pr::view3d::Object object, pr::view3d::Texture tex, pr::view3d::Sampler sam, char const* name, int index);
 
 	// Replace the detail-normal layers of every nugget of 'object' (not its children) that has detail normals. Layers are shared by the
-	// material, so this is cheap enough to call every frame. 'count' must be in [0, 4]. Throws if the object has no detail normals.
-	VIEW3D_API void __stdcall View3D_ObjectDetailNormalLayersSet(pr::view3d::Object object, pr::view3d::DetailNormalLayer const* layers, int count);
+	// material, so this is cheap enough to call every frame. 'count' must be in [0, 4]. 'base_slope_variance' (non-negative) is the mean square
+	// slope of roughness finer than every layer; it blurs and weakens the environment reflection everywhere on the surface. Throws if the object
+	// has no detail normals.
+	VIEW3D_API void __stdcall View3D_ObjectDetailNormalLayersSet(pr::view3d::Object object, pr::view3d::DetailNormalLayer const* layers, int count, float base_slope_variance);
 
 	// Override stock-shader surface RGB after material/vertex/texture colour and before lighting. Packed RGB is an sRGB target, decoded at
 	// shader upload; packed alpha is the linear UNORM8 blend weight (A/255), not opacity. Surface alpha and sorting remain unchanged.

@@ -57,22 +57,31 @@ namespace pr::rdr12
 		}
 	}
 
-	// Replace the layers in use. 'layers' must contain at most MaxLayers entries with finite values.
-	void materials::DetailNormalLayers::Set(std::span<DetailNormalLayer const> layers)
+	// Replace the layers in use and the base slope variance. 'layers' must contain at most MaxLayers valid entries.
+	void materials::DetailNormalLayers::Set(std::span<DetailNormalLayer const> layers, float base_slope_variance)
 	{
 		// Reject invalid layers at the public boundary so shaders never see non-finite projections.
 		if (layers.size() > MaxLayers)
 			throw std::runtime_error("Too many detail-normal layers");
+		if (!std::isfinite(base_slope_variance) || base_slope_variance < 0.0f)
+			throw std::runtime_error("Detail-normal base slope variance must be finite and non-negative");
 
 		for (auto const& layer : layers)
 		{
-			// Every projection row and scale must be finite.
+			// Every projection row and scale must be finite, and the weight noise must stay within its documented domain.
 			if (!IsFinite(layer.m_row_u) || !IsFinite(layer.m_row_v) || !std::isfinite(layer.m_height_scale))
 				throw std::runtime_error("Detail-normal layers must be finite");
+			if (!(layer.m_weight_noise >= 0.0f && layer.m_weight_noise <= 1.0f))
+				throw std::runtime_error("Detail-normal weight noise must be in [0, 1]");
+			if (!std::isfinite(layer.m_warp) || layer.m_warp < 0.0f)
+				throw std::runtime_error("Detail-normal warp must be finite and non-negative");
+			if (!std::isfinite(layer.m_noise_frequency) || ((layer.m_weight_noise != 0.0f || layer.m_warp != 0.0f) && !(layer.m_noise_frequency > 0.0f)))
+				throw std::runtime_error("Detail-normal noise frequency must be finite, and positive when weight noise or warp is used");
 		}
 
 		std::copy(layers.begin(), layers.end(), m_layers.begin());
 		m_count = static_cast<int>(layers.size());
+		m_base_slope_variance = base_slope_variance;
 	}
 
 	// Replace a stock simple-material forward pixel shader in 'desc' with its detail-normal variant. Throws for any other pixel shader.
@@ -298,11 +307,15 @@ namespace pr::rdr12
 				static_assert(DetailNormalsMaxLayers == materials::DetailNormalLayers::MaxLayers);
 				for (int i = 0; i != layers.m_count; ++i)
 				{
-					// Copy one layer's projection rows and height scale.
+					// Copy one layer's projection rows, height scale, weight noise, and warp.
 					cb.row_u[i] = layers.m_layers[i].m_row_u;
 					cb.row_v[i] = layers.m_layers[i].m_row_v;
 					cb.height_scale[i] = layers.m_layers[i].m_height_scale;
+					cb.weight_noise[i] = layers.m_layers[i].m_weight_noise;
+					cb.noise_frequency[i] = layers.m_layers[i].m_noise_frequency;
+					cb.warp[i] = layers.m_layers[i].m_warp;
 				}
+				cb.surface.x = layers.m_base_slope_variance;
 				cb.info.x = layers.m_count;
 
 				auto gpu_address = ctx.m_upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);

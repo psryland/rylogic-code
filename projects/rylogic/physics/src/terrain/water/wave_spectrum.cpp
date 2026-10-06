@@ -17,6 +17,10 @@ namespace pr::physics::terrain::water
 		// Directional spreading exponent at the spectrum peak. Larger values concentrate the wave energy closer to the wind direction.
 		constexpr double PeakSpreading = 12.0;
 
+		// Wind speed (m/s) above which every band is held to a minimum spreading exponent, and the growth of that minimum per m/s.
+		constexpr double GaleSpreadingOnset = 8.0;
+		constexpr double GaleSpreadingRate = 0.4;
+
 		// Return the angle from the wind that divides a cos² spread over ±90° so that a fraction 'u' (0 < u < 1) of it lies below the angle.
 		double SpreadQuantile(double u)
 		{
@@ -147,16 +151,20 @@ namespace pr::physics::terrain::water
 
 		// The directional spread at frequency 'omega' is proportional to cos(delta/2)^(2s) for angles 'delta' from downwind (the Mitsuyasu form).
 		// The exponent 's' is largest at the spectrum peak, so waves near the peak are the most closely aligned with the wind; longer swell and
-		// shorter ripples spread more widely. The spread is integrated numerically over the full circle, and each direction takes the share
-		// between the midpoints to its neighbours. The outermost directions take everything beyond them, so no energy is lost.
+		// shorter ripples spread more widely. In strong winds the peak can be longer than every band, which would leave all of them widely
+		// spread, so the exponent has a minimum that grows with the wind above a fresh breeze and keeps a clear dominant direction in a gale.
+		// The spread is integrated numerically over the full circle, and each direction takes the share between the midpoints to its
+		// neighbours. The outermost directions take everything beyond them, so no energy is lost.
 		auto const directions = m_layout.m_directions;
+		auto const min_spreading = GaleSpreadingRate * std::max(wind - GaleSpreadingOnset, 0.0);
 		constexpr int SpreadSamples = 720;
 		std::vector<double> shares(directions);
 		auto const spread_shares = [&](int band, double omega)
 		{
 			// Accumulate the spread into the sector of each direction. Directions are sorted by angle within a band and the samples run in
 			// increasing angle, so the sector index only ever moves forward.
-			auto const exponent = 2.0 * PeakSpreading * (omega <= peak ? std::pow(omega / peak, 5.0) : std::pow(omega / peak, -2.5));
+			auto const spreading = PeakSpreading * (omega <= peak ? std::pow(omega / peak, 5.0) : std::pow(omega / peak, -2.5));
+			auto const exponent = 2.0 * std::max(spreading, min_spreading);
 			auto const angle = [&](int d)
 			{
 				auto const& direction = m_components[band * directions + d].m_direction;
@@ -236,9 +244,9 @@ namespace pr::physics::terrain::water
 		if (!std::isfinite(wind_speed) || wind_speed < 0.0f)
 			throw std::invalid_argument("Wind speed must be finite and non-negative");
 
-		// Sharpness starts at the calm-sea threshold and approaches its limit with an 8 m/s scale, so moderate winds already add visible chop.
+		// Sharpness starts at the calm-sea threshold and approaches its limit with a 6 m/s scale, so moderate winds already add visible chop.
 		constexpr auto calm_wind_speed = 4.0f;
-		constexpr auto wind_speed_scale = 8.0f;
+		constexpr auto wind_speed_scale = 6.0f;
 		if (wind_speed <= calm_wind_speed)
 			return 0.0f;
 

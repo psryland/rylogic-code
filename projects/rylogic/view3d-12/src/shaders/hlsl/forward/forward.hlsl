@@ -288,6 +288,10 @@ PSInTexN VSForwardTexN(VSIn In, uint vertex_id : SV_VertexID)
 	return Out;
 }
 
+// Mean square slope of surface detail too fine for the interpolated normal to show. Pixel-shader variants that know it set it before shading.
+// The stock shaders leave it at zero, so their reflections stay mirror-sharp.
+static float g_unresolved_slope_variance = 0.0f;
+
 // Shade one simple-material fragment, returning the linear colour before output dithering.
 PSOut ForwardShade(PSIn In, bool is_front_face)
 {
@@ -314,7 +318,7 @@ PSOut ForwardShade(PSIn In, bool is_front_face)
 		if (EnvMapProj(g_nugget.flags))
 		{
 			float3 dir = mul(In.ws_vert, g_nugget.tex2surf0).xyz;
-			Out.diff = SampleEnvMap(dir, dir);
+			Out.diff = SampleEnvMap(dir, dir, 0.0f);
 		}
 		else
 		{
@@ -328,7 +332,7 @@ PSOut ForwardShade(PSIn In, bool is_front_face)
 
 	// Env Map
 	if (HasEnvMap(g_nugget.flags) && HasNormals(g_nugget.flags))
-		Out.diff = EnvironmentMap(In.ws_vert, In.ws_norm, g_frame.cam.c2w[3], Out.diff);
+		Out.diff = EnvironmentMap(In.ws_vert, In.ws_norm, g_frame.cam.c2w[3], Out.diff, g_unresolved_slope_variance);
 
 	// Lighting, including shadows
 	if (HasNormals(g_nugget.flags))

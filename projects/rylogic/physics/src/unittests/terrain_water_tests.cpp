@@ -364,6 +364,20 @@ namespace pr::physics::terrain::water::tests
 			}
 			PR_EXPECT(weighted_cos / variance > 0.8);
 
+			// A gale's spectrum peak is longer than every band, yet its energy is still concentrated closer to downwind than a fresh breeze's.
+			auto const mean_cos = [&](float wind_speed)
+			{
+				auto gale = std::vector<float>(count);
+				spectrum.Targets(WaveWeather{.m_wind_speed = wind_speed, .m_fetch = 500000.0f}, gale);
+				auto cos_sum = 0.0;
+				for (auto i = 0; i != spectrum.ComponentCount(); ++i)
+					cos_sum += 0.5 * gale[i] * gale[i] * spectrum.Components()[i].m_direction.x;
+
+				return cos_sum / total_variance(gale);
+			};
+			PR_EXPECT(mean_cos(30.0f) > mean_cos(8.0f));
+			PR_EXPECT(mean_cos(30.0f) > 0.9);
+
 			// Every component has its own wavelength and direction. Directions crowd near downwind, so 'distinct' means more than about a quarter degree apart.
 			for (auto i = 0; i != spectrum.ComponentCount(); ++i)
 			{
