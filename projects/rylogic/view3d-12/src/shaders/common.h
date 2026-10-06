@@ -353,8 +353,8 @@ namespace pr::rdr12
 		return alex.m_res->GetGPUVirtualAddress() + alex.m_ofs;
 	}
 
-	// Set the env-map to world orientation and the blend weight of the current map over the previous one
-	inline void SetEnvMapConstants(shaders::EnvMap& cb, TextureCube const* env_map, TextureCube const* env_map_prev, float blend)
+	// Set the env-map to world orientation, the blend weight of the current map over the previous one, and the parallax proxy sphere
+	inline void SetEnvMapConstants(shaders::EnvMap& cb, TextureCube const* env_map, TextureCube const* env_map_prev, float blend, float proxy_radius)
 	{
 		if (env_map == nullptr) return;
 
@@ -365,6 +365,11 @@ namespace pr::rdr12
 		cb.w2env.pos = v4::Origin();
 
 		// Without a previous map, only the current map contributes
-		cb.blend = v4(env_map_prev != nullptr ? Clamp(blend, 0.0f, 1.0f) : 1.0f, 0, 0, 0);
+		cb.blend = v4(env_map_prev != nullptr ? Clamp(blend, 0.0f, 1.0f) : 1.0f, std::max(proxy_radius, 0.0f), 0, 0);
+
+		// Each map is corrected about its own capture centre using its own stored distances, so the previous map uses its own values when present
+		auto const& prev = env_map_prev != nullptr ? *env_map_prev : *env_map;
+		cb.centre = v4(env_map->m_centre.xyz, env_map->m_distance_scale);
+		cb.centre_prev = v4(prev.m_centre.xyz, prev.m_distance_scale);
 	}
 }

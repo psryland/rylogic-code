@@ -376,6 +376,12 @@ namespace pr::rdr12
 		// first face of each cube is rendered. Call once per frame, before rendering, while the probe is enabled.
 		void EnvMapProbeUpdate(v4 const& position);
 
+		// Get/Set the radius of the sphere that reflections assume the environment lies on, centred on each environment map's capture position.
+		// Looking up a cube map by direction alone treats the environment as infinitely distant, which shifts nearby objects in reflections.
+		// Objects near this radius from the capture position are reflected in the right place. 0 (the default) uses direction-only lookups.
+		float EnvMapProxyRadius() const;
+		void EnvMapProxyRadius(float radius);
+
 		// Enable/Disable the depth buffer
 		bool DepthBufferEnabled() const;
 		void DepthBufferEnabled(bool enabled);

@@ -314,7 +314,7 @@ PSOut ForwardShade(PSIn In, bool is_front_face)
 		if (EnvMapProj(g_nugget.flags))
 		{
 			float3 dir = mul(In.ws_vert, g_nugget.tex2surf0).xyz;
-			Out.diff = SampleEnvMap(dir);
+			Out.diff = SampleEnvMap(dir, dir);
 		}
 		else
 		{
@@ -328,7 +328,7 @@ PSOut ForwardShade(PSIn In, bool is_front_face)
 
 	// Env Map
 	if (HasEnvMap(g_nugget.flags) && HasNormals(g_nugget.flags))
-		Out.diff = EnvironmentMap(g_frame.env_map, In.ws_vert, In.ws_norm, g_frame.cam.c2w[3], Out.diff);
+		Out.diff = EnvironmentMap(In.ws_vert, In.ws_norm, g_frame.cam.c2w[3], Out.diff);
 
 	// Lighting, including shadows
 	if (HasNormals(g_nugget.flags))
@@ -438,8 +438,9 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 		uint env_w, env_h, env_mips;
 		g_envmap_texture.GetDimensions(0, env_w, env_h, env_mips);
 
-		float3 r = mul(float4(reflect(-view, normal), 0.0f), g_frame.env_map.w2env).xyz;
-		float3 env = SampleEnvMapLevel(r, roughness * (env_mips - 1)).rgb;
+		float3 r, r_prev;
+		EnvMapDirections(In.ws_vert.xyz, reflect(-view, normal), r, r_prev);
+		float3 env = SampleEnvMapLevel(r, r_prev, roughness * (env_mips - 1)).rgb;
 
 		float3 f0 = lerp(0.04f, albedo, metallic);
 		float n_dot_v = saturate(dot(normal, view));

@@ -2739,6 +2739,13 @@ namespace fade_tests
 		update(6);
 		Require(scene.m_global_envmap.get() == first, "Probe did not reuse the oldest cube");
 
+		// A proxy radius makes each new cube store distances in alpha. Rendering with the distance-correcting lookup must complete without errors.
+		View3D_WindowEnvMapProxyRadiusSet(fixture.m_window, 5.0f);
+		fixture.CheckErrors();
+		update(12);
+		Require(scene.m_global_envmap->m_distance_scale == 5.0f && scene.m_global_envmap_prev->m_distance_scale == 5.0f, "Probe cubes did not record the distance scale");
+		Expect(fixture.Image(), 1, 0, 0);
+
 		// Setting an explicit environment map disables the probe and removes the fade
 		View3D_WindowEnvMapSet(fixture.m_window, nullptr);
 		fixture.CheckErrors();

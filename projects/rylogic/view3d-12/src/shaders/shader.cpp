@@ -245,8 +245,10 @@ namespace pr::rdr12
 		{
 			#include PR_RDR_SHADER_COMPILED_DIR(mipmap_generator_cs.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(skinning_cs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(env_map_distance_cs.h)
 		}
 		ByteCode const mipmap_generator_cs(compiled::mipmap_generator_cs);
+		ByteCode const env_map_distance_cs(compiled::env_map_distance_cs);
 		ByteCode const skinning_cs(compiled::skinning_cs);
 	}
 }

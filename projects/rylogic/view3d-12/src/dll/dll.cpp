@@ -1315,6 +1315,30 @@ VIEW3D_API void __stdcall View3D_WindowEnvMapProbeUpdate(view3d::Window window, 
 	CatchAndReport(View3D_WindowEnvMapProbeUpdate, window, );
 }
 
+// Get/Set the radius of the sphere that reflections assume the environment lies on
+VIEW3D_API float __stdcall View3D_WindowEnvMapProxyRadiusGet(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->EnvMapProxyRadius();
+	}
+	CatchAndReport(View3D_WindowEnvMapProxyRadiusGet, window, 0.0f);
+}
+VIEW3D_API void __stdcall View3D_WindowEnvMapProxyRadiusSet(view3d::Window window, float radius)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		window->EnvMapProxyRadius(radius);
+	}
+	CatchAndReport(View3D_WindowEnvMapProxyRadiusSet, window, );
+}
+
 // Enable/Disable the depth buffer
 VIEW3D_API BOOL __stdcall View3D_DepthBufferEnabledGet(view3d::Window window)
 {

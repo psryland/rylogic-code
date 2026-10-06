@@ -373,6 +373,7 @@
     <ShaderBuild Include="src\shaders\hlsl\screenspace\thick_line_strip.hlsl" GeometryEntryPoints="thick_line_strip_gs=GSThickLineStrip" />
     <ShaderBuild Include="src\shaders\hlsl\utility\show_normals.hlsl" GeometryEntryPoints="show_normals_gs=GSShowNormals" />
     <ShaderBuild Include="src\shaders\hlsl\utility\mipmap_generator.hlsl" ComputeEntryPoints="mipmap_generator_cs=CSMipMapGenerator" />
+    <ShaderBuild Include="src\shaders\hlsl\utility\env_map_distance.hlsl" ComputeEntryPoints="env_map_distance_cs=CSEnvMapDistance" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="src\shaders\view3d_render_shaders.rc" />

@@ -14,6 +14,7 @@
 #include "pr/view3d-12/ldraw/ldraw.h"
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/main/settings.h"
+#include "pr/view3d-12/shaders/shader.h"
 #include "pr/view3d-12/shaders/shader_point_sprites.h"
 #include "pr/view3d-12/ray_tracing/render_ray_tracing.h"
 #include "pr/view3d-12/resource/resource_factory.h"
@@ -1519,6 +1520,14 @@ namespace pr::rdr12
 		// The capture target is written through an sRGB view, so the stored bytes are sRGB encoded and can be copied directly into an sRGB cube
 		static constexpr DXGI_FORMAT Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 
+		// Root parameters of the distance pass, see 'env_map_distance.hlsl'
+		enum class EDistanceParam { Constants, Colour, Depth, Face };
+		struct DistanceConstants
+		{
+			m4x4 s2c; // Screen to camera space for the face camera
+			v4 info;  // x = face size in pixels, y = distance scale
+		};
+
 		ResourceFactory m_factory;          // Records the face copies and mip generation. It is kept so that captures do not wait for the GPU.
 		int m_face_size;                    // Pixels per face edge
 		Colour m_bkgd_colour;               // The clear colour, which is also the render target's optimised clear value
@@ -1527,6 +1536,9 @@ namespace pr::rdr12
 		D3DPtr<ID3D12Resource> m_scratch;   // Full-mip copy of the most recently rendered face
 		UINT m_mips;                        // The number of mips in each face
 		Scene m_scene;                      // The scene used to render the faces
+		Window::GpuViewHeap m_view_heap;    // Shader-visible views for the distance pass. Retired by the capture window's frames.
+		D3DPtr<ID3D12RootSignature> m_distance_sig; // Root signature of the distance pass
+		D3DPtr<ID3D12PipelineState> m_distance_pso; // Pipeline state of the distance pass
 
 		EnvMapCaptureResources(Renderer& rdr, int face_size, Colour bkgd_colour)
 			: m_factory(rdr)
@@ -1537,7 +1549,21 @@ namespace pr::rdr12
 			, m_scratch()
 			, m_mips()
 			, m_scene(m_wnd)
+			, m_view_heap(64, m_wnd.m_gsync)
+			, m_distance_sig()
+			, m_distance_pso()
 		{
+			// Create the pass that copies a face and stores each texel's distance in alpha
+			auto device = rdr.D3DDevice();
+			m_distance_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
+				.U32(hlsl::ECBufReg::b0, sizeof(DistanceConstants) / sizeof(uint32_t))
+				.SRV(hlsl::ESRVReg::t0, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
+				.SRV(hlsl::ESRVReg::t1, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
+				.UAV(hlsl::EUAVReg::u0, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
+				.Create(device, "EnvMapDistanceSig");
+			m_distance_pso = ::pr::compute::ComputePSO(m_distance_sig.get(), shader_code::env_map_distance_cs)
+				.Create(device, "EnvMapDistancePSO");
+
 			// Create the render target and make it the window's only back buffer
 			auto target_desc = TextureDesc(AutoId, ResDesc::Tex2D(Image{face_size, face_size, nullptr, Format}, 1U, EUsage::RenderTarget).clear(m_wnd.m_rt_props));
 			target_desc.rtv_format(ToSRGB(Format));
@@ -1606,9 +1632,9 @@ namespace pr::rdr12
 			return face_size;
 		}
 
-		// Render face 'face' of 'cube' from 'position', using the lighting, render state, and objects of 'src'. The work is submitted to the GPU without waiting.
-		// The caller sets the cube's orientation to 'CubeToWorld()'.
-		void CaptureFace(V3dWindow& src, TextureCube& cube, int face, v4 const& position)
+		// Render face 'face' of 'cube' from the cube's centre, using the lighting, render state, and objects of 'src'. The work is submitted to the GPU without waiting.
+		// The caller sets the cube's orientation to 'CubeToWorld()', and its centre and distance scale. A positive distance scale stores distances in alpha.
+		void CaptureFace(V3dWindow& src, TextureCube& cube, int face)
 		{
 			// Copy the lighting and render state from the source scene. The capture has no environment map, so it cannot reflect itself.
 			// Objects flagged 'EnvMapCaptureExclude' are not rendered into the capture. The flag is per object; children do not inherit it.
@@ -1639,7 +1665,7 @@ namespace pr::rdr12
 			auto forward = mirror * axes.major;
 			auto right = mirror * axes.u;
 			auto up = -(mirror * axes.v);
-			m_scene.m_cam.CameraToWorld(m4x4{ right, up, -forward, position });
+			m_scene.m_cam.CameraToWorld(m4x4{ right, up, -forward, cube.m_centre });
 
 			// Render the source window's objects from the face camera. The draw lists are cleared afterwards so that
 			// captured objects can be freed between captures.
@@ -1654,8 +1680,57 @@ namespace pr::rdr12
 
 			// Copy the rendered face into the scratch texture and generate its mips.
 			// Mip generation averages the sRGB encoded values, which slightly darkens high-contrast detail in the blurrier mips.
+			// Mips also average the stored distances, which blurs distances across silhouettes in the blurrier mips.
 			auto* rendered = m_wnd.FrameOutput().m_render_target.get();
 			auto& cmd_list = m_factory.CmdList();
+			if (cube.m_distance_scale > 0.0f)
+			{
+				// Copy the colour and store distances with a compute pass. Its output view is untyped-load free, so any device can run it.
+				auto* depth = m_wnd.m_msaa_bb.m_depth_stencil.get();
+				BarrierBatch barriers(cmd_list);
+				barriers.Transition(rendered, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+				barriers.Transition(depth, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+				barriers.Transition(m_scratch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, 0);
+				barriers.Commit();
+
+				// Bind the pass. Each view gets its own table, because consecutive heap entries can wrap around the ring.
+				cmd_list.SetComputeRootSignature(m_distance_sig.get());
+				cmd_list.SetPipelineState(m_distance_pso.get());
+				auto heaps = { m_view_heap.get() };
+				cmd_list.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
+
+				auto cb = DistanceConstants{
+					.s2c = Invert(m_scene.m_cam.CameraToScreen()),
+					.info = v4(s_cast<float>(m_face_size), cube.m_distance_scale, 0, 0),
+				};
+				cmd_list.SetComputeRoot32BitConstants(EDistanceParam::Constants, sizeof(cb) / sizeof(uint32_t), &cb, 0);
+
+				auto colour_srv = D3D12_SHADER_RESOURCE_VIEW_DESC{
+					.Format = Format,
+					.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D,
+					.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+					.Texture2D = { .MostDetailedMip = 0, .MipLevels = 1, .PlaneSlice = 0, .ResourceMinLODClamp = 0.0f },
+				};
+				cmd_list.SetComputeRootDescriptorTable(EDistanceParam::Colour, m_view_heap.Add(rendered, colour_srv));
+
+				auto depth_srv = colour_srv;
+				depth_srv.Format = m_wnd.ResolvedDepthSrvFormat();
+				cmd_list.SetComputeRootDescriptorTable(EDistanceParam::Depth, m_view_heap.Add(depth, depth_srv));
+
+				auto face_uav = D3D12_UNORDERED_ACCESS_VIEW_DESC{
+					.Format = Format,
+					.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D,
+					.Texture2D = { .MipSlice = 0, .PlaneSlice = 0 },
+				};
+				cmd_list.SetComputeRootDescriptorTable(EDistanceParam::Face, m_view_heap.Add(m_scratch.get(), face_uav));
+
+				// One thread per texel, in 8x8 groups
+				auto groups = s_cast<UINT>((m_face_size + 7) / 8);
+				cmd_list.Dispatch(groups, groups, 1);
+				barriers.UAV(m_scratch.get());
+				barriers.Commit();
+			}
+			else
 			{
 				BarrierBatch barriers(cmd_list);
 				barriers.Transition(rendered, D3D12_RESOURCE_STATE_COPY_SOURCE);
@@ -1693,11 +1768,14 @@ namespace pr::rdr12
 		assert(std::this_thread::get_id() == m_main_thread_id);
 
 		// Render all six faces. GPU queue ordering makes frames that use 'env_map' after this call see the complete capture.
+		// Distances are stored relative to the proxy radius, so reflections that use this map can correct for parallax.
 		auto& res = EnvMapCaptureResources::Get(*this, EnvMapCaptureResources::ValidateCube(env_map));
-		for (int f = 0; f != 6; ++f)
-			res.CaptureFace(*this, env_map, f, position);
-
 		env_map.m_cube2w = EnvMapCaptureResources::CubeToWorld();
+		env_map.m_centre = position;
+		env_map.m_distance_scale = m_scene.m_global_envmap_proxy_radius;
+		for (int f = 0; f != 6; ++f)
+			res.CaptureFace(*this, env_map, f);
+
 		Invalidate();
 	}
 
@@ -1709,7 +1787,6 @@ namespace pr::rdr12
 
 		int m_face_size;                      // Pixels per face edge
 		std::array<TextureCubePtr, 3> m_cubes; // The previous, current, and capture cubes, in that order
-		v4 m_position;                         // The capture position for every face of the capture cube
 		int m_face;                            // The next face to render into the capture cube
 		int m_fade;                            // Updates since the current cube was completed, up to 'FadeSteps'
 		int m_complete;                        // The number of complete cubes, up to 2
@@ -1717,7 +1794,6 @@ namespace pr::rdr12
 		EnvMapProbeResources(Renderer& rdr, int face_size)
 			: m_face_size(face_size)
 			, m_cubes()
-			, m_position(v4::Origin())
 			, m_face()
 			, m_fade()
 			, m_complete()
@@ -1761,13 +1837,17 @@ namespace pr::rdr12
 		if (m_envmap_probe == nullptr)
 			throw std::runtime_error("Environment map probe is not enabled");
 
-		// Render the next face. The position is fixed for the whole cube so that its faces agree.
+		// Render the next face. The position and distance scale are fixed for the whole cube so that its faces agree.
 		auto& probe = *m_envmap_probe;
+		auto& capture = *probe.m_cubes[2].get();
 		if (probe.m_face == 0)
-			probe.m_position = position;
+		{
+			capture.m_centre = position;
+			capture.m_distance_scale = m_scene.m_global_envmap_proxy_radius;
+		}
 
 		auto& res = EnvMapCaptureResources::Get(*this, probe.m_face_size);
-		res.CaptureFace(*this, *probe.m_cubes[2].get(), probe.m_face, probe.m_position);
+		res.CaptureFace(*this, capture, probe.m_face);
 
 		// When the capture cube is complete, it becomes current and fades in over the old current cube. The oldest cube is reused for the next capture.
 		// The fade restarts at zero, which shows only the old current cube, so the image does not jump.
@@ -1787,6 +1867,22 @@ namespace pr::rdr12
 		m_scene.m_global_envmap = probe.m_complete >= 1 ? probe.m_cubes[1] : nullptr;
 		m_scene.m_global_envmap_prev = probe.m_complete >= 2 ? probe.m_cubes[0] : nullptr;
 		m_scene.m_global_envmap_blend = s_cast<float>(probe.m_fade) / EnvMapProbeResources::FadeSteps;
+		Invalidate();
+	}
+
+	// Get/Set the radius of the sphere that reflections assume the environment lies on, around each environment map's capture centre
+	float V3dWindow::EnvMapProxyRadius() const
+	{
+		return m_scene.m_global_envmap_proxy_radius;
+	}
+	void V3dWindow::EnvMapProxyRadius(float radius)
+	{
+		if (!(radius >= 0.0f))
+			throw std::runtime_error("Environment map proxy radius must not be negative");
+		if (radius == m_scene.m_global_envmap_proxy_radius)
+			return;
+
+		m_scene.m_global_envmap_proxy_radius = radius;
 		Invalidate();
 	}
 

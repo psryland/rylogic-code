@@ -58,6 +58,7 @@ namespace pr::rdr12
 		TextureCubePtr   m_global_envmap;    // A global environment map
 		TextureCubePtr   m_global_envmap_prev;  // An optional environment map that 'm_global_envmap' fades in over. It is sampled with 'm_global_envmap's orientation
 		float            m_global_envmap_blend; // The weight of 'm_global_envmap' over 'm_global_envmap_prev', in [0,1]. Ignored when 'm_global_envmap_prev' is null
+		float            m_global_envmap_proxy_radius; // Reflections treat the environment as a sphere of this radius around each map's capture centre. 0 means infinitely distant
 		EFillMode         m_global_fill_mode; // A scene-wide fill mode override. EFillMode::Default means "use the model's default"
 		PipeStates       m_pso;              // Scene-wide pipe state overrides
 		RayTracingProps  m_ray_tracing_props; // Ray tracing render settings for this scene.

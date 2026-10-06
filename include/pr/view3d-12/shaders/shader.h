@@ -141,5 +141,8 @@ namespace pr::rdr12
 
 		// Skinning
 		extern ByteCode const skinning_cs;
+
+		// Environment map face distances
+		extern ByteCode const env_map_distance_cs;
 	}
 }
