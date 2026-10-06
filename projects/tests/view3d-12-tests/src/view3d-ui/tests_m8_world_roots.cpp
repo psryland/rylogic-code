@@ -643,7 +643,7 @@ namespace pr::view3d::ui::tests
 
 		// The version pair must move together with the layout; M8 is the second revision.
 		PR_EXPECT(HostStructVersion == 2U);
-		PR_EXPECT(HostApiVersion == 0x00020000U);
+		PR_EXPECT(HostApiVersion == 0x00030000U);
 
 		// EPass is a closed set of five host stages; the renderer switches exhaustively over it.
 		PR_EXPECT(static_cast<int>(EPass::Prepare) == 0);

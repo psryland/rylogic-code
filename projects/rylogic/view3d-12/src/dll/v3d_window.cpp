@@ -66,7 +66,7 @@ namespace pr::rdr12
 		, m_ht_results()
 		, m_bbox_scene(BBox::Reset())
 		, m_main_thread_id(std::this_thread::get_id())
-		, m_ui_provider()
+		, m_ui_providers()
 		, m_invalidated(false)
 		, m_ht_invalidated(false)
 		, m_ui_lighting()
@@ -145,12 +145,15 @@ namespace pr::rdr12
 	{
 		AnimControl(view3d::EAnimCommand::Stop);
 
-		// Invalidate the copied provider before notifying a satellite that outlived its documented detach point.
-		auto detached_cb = m_ui_provider.m_detached;
-		auto provider_context = m_ui_provider.m_context;
-		m_ui_provider = {};
-		if (detached_cb != nullptr)
-			detached_cb(provider_context);
+		// Invalidate the copied providers before notifying satellites that outlived their documented detach point.
+		auto providers = std::move(m_ui_providers);
+		m_ui_providers.clear();
+		for (auto const& provider : providers)
+		{
+			// Notify in attach order so each satellite releases its own window state.
+			if (provider.m_detached != nullptr)
+				provider.m_detached(provider.m_context);
+		}
 
 		// Disable the flight camera before tearing down the renderer / scene.
 		// FlightCameraController owns a renderer poll-callback registration and
@@ -803,7 +806,7 @@ namespace pr::rdr12
 		// Produce the single-sample depth copy after every scene depth writer has run, then record
 		// the two world overlay passes that consume it. Occlusion-faded work is recorded before
 		// plain world overlays so unoccluded world UI always composites on top.
-		if (m_ui_provider.m_record != nullptr)
+		if (!m_ui_providers.empty())
 			m_wnd.RecordDepthResolve(frame.m_depth_resolve, frame.bb_main());
 
 		// Draw world-anchored roots that fade per pixel when the resolved scene depth occludes them.
@@ -822,46 +825,50 @@ namespace pr::rdr12
 		Validate();
 	}
 
-	// Attach the one optional provider supported by this bridge version.
+	// Append a provider so it draws after every provider attached before it.
 	view3d::ui::EHostStatus V3dWindow::UIProviderAttach(view3d::ui::Provider const& provider)
 	{
 		using namespace view3d::ui;
 
+		// Reject invalid calls, and reject a context that is already attached so detach by context stays unambiguous.
 		if (std::this_thread::get_id() != m_main_thread_id)
 			return EHostStatus::WrongThread;
 		if (provider.m_header.m_size < sizeof(Provider) || provider.m_header.m_version != HostStructVersion)
 			return EHostStatus::InvalidStruct;
 		if (provider.m_context == nullptr || provider.m_record == nullptr)
 			return EHostStatus::InvalidArgument;
-		if (m_ui_provider.m_record != nullptr)
+		if (std::ranges::any_of(m_ui_providers, [&](Provider const& p) { return p.m_context == provider.m_context; }))
 			return EHostStatus::AlreadyAttached;
 
-		m_ui_provider = provider;
+		m_ui_providers.push_back(provider);
 		return EHostStatus::Success;
 	}
 
-	// Detach the provider only when the supplied identity matches the attached context.
+	// Detach the provider whose context matches the supplied identity, keeping the order of the others.
 	view3d::ui::EHostStatus V3dWindow::UIProviderDetach(void* provider_context)
 	{
 		using namespace view3d::ui;
 
+		// Find the provider by context identity.
 		if (std::this_thread::get_id() != m_main_thread_id)
 			return EHostStatus::WrongThread;
-		if (m_ui_provider.m_record == nullptr)
-			return EHostStatus::NotAttached;
-		if (provider_context == nullptr || provider_context != m_ui_provider.m_context)
+		if (provider_context == nullptr)
 			return EHostStatus::InvalidArgument;
 
-		m_ui_provider = {};
+		auto iter = std::ranges::find_if(m_ui_providers, [&](Provider const& p) { return p.m_context == provider_context; });
+		if (iter == m_ui_providers.end())
+			return EHostStatus::NotAttached;
+
+		m_ui_providers.erase(iter);
 		return EHostStatus::Success;
 	}
 
-	// Record one provider pass without transferring command-list or target ownership.
+	// Record one pass for every attached provider without transferring command-list or target ownership.
 	void V3dWindow::RecordUIProvider(view3d::ui::EPass pass_id, Frame& frame)
 	{
 		using namespace view3d::ui;
 
-		if (m_ui_provider.m_record == nullptr)
+		if (m_ui_providers.empty())
 			return;
 
 		auto& bb_main = frame.bb_main();
@@ -944,7 +951,17 @@ namespace pr::rdr12
 			.m_camera = UIProviderCamera(),
 			.m_resolved_depth = resolved_depth,
 		};
-		auto status = m_ui_provider.m_record(m_ui_provider.m_context, &pass);
+		// Record providers in attach order inside one target bracket. Copy the list so a provider cannot invalidate the iteration.
+		// Each provider sets its own pipeline state and descriptor heaps, so no state is shared between providers.
+		auto status = EHostStatus::Success;
+		auto providers = m_ui_providers;
+		for (auto const& provider : providers)
+		{
+			// Stop at the first failure so the error identifies one provider.
+			status = provider.m_record(provider.m_context, &pass);
+			if (status != EHostStatus::Success)
+				break;
+		}
 
 		// Restore the swap target in the same command list that made it writable, so the bridge
 		// phase remains self-contained even when no earlier composite writer ran this frame.

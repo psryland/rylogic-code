@@ -142,16 +142,21 @@
 	<!-- Dependencies -->
 	<ItemGroup>
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\audio\audio.dll.vcxproj" />
+		<ProjectReference Include="$(RylogicRoot)projects\rylogic\imgui\imgui.vcxproj" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-12\view3d-12.dll.vcxproj" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-ui\view3d-ui.dll.vcxproj" />
 		<ProjectReference Include="$(RylogicRoot)projects\rylogic\view3d-ui\view3d-ui.vcxproj" />
 	</ItemGroup>
 
-	<!-- Runtime DLLs. view3d-12.dll sits beside the exe so the delay-load helper's normal search finds it.
+	<!-- Runtime DLLs. view3d-12.dll sits beside the exe so the delay-load helper's normal search finds it, and imgui.dll sits there
+	     because its client header loads it from the exe directory.
 	     fbx.dll and the OpenXR loader are loaded on demand by view3d-12, so they are copied only when present and
 	     never block a build or a unit test run. -->
 	<ItemGroup>
 		<DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\view3d-12.dll">
+			<OutDir>$(OutDir)</OutDir>
+		</DependencyLink>
+		<DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\imgui.dll">
 			<OutDir>$(OutDir)</OutDir>
 		</DependencyLink>
 		<DependencyLink Include="$(RylogicRoot)lib\$(Platform)\$(Configuration)\view3d-ui.dll" />

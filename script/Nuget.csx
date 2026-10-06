@@ -305,11 +305,23 @@ public class Nuget
 		return new ReleasePackageManifestEntry(package.PackageName, expected_name, package_stream.Length, hash);
 	}
 
+	// Return the NuGet global packages folder that restores from this repository use.
+	private static string GlobalPackagesFolder()
+	{
+		// Ask NuGet so that NUGET_PACKAGES and every NuGet.Config level (user, machine, repository) apply exactly as they do during restore.
+		var (_, output) = Tools.Run([UserVars.Nuget, "locals", "global-packages", "-list"], cwd: UserVars.Root);
+		var match = Regex.Match(output, @"^\s*global-packages:\s*(?<path>.+?)\s*$", RegexOptions.Multiline);
+		if (!match.Success)
+			throw new Exception($"Unable to determine the NuGet global packages folder from: {output}");
+
+		return match.Groups["path"].Value;
+	}
+
 	// Synchronise a staged package into the canonical local feed and NuGet cache without leaving stale extracted
 	// payload behind from a previous same-version archive.
 	private void SyncPackageOutputs(string staged_nupkg, string feed_nupkg)
 	{
-		var cache_root = NormalizeDirectory(Tools.Path([Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages", PackageName.ToLowerInvariant(), Version], check_exists: false));
+		var cache_root = NormalizeDirectory(Tools.Path([GlobalPackagesFolder(), PackageName.ToLowerInvariant(), Version], check_exists: false));
 		var cache_nupkg_name = $"{PackageName.ToLowerInvariant()}.{Version}.nupkg";
 		var cache_nupkg = Path.Combine(cache_root, cache_nupkg_name);
 		var cache_metadata = Path.Combine(cache_root, ".nupkg.metadata");

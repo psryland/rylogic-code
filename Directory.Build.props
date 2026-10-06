@@ -13,9 +13,11 @@
 		<DeployPath>$(MSBuildThisFileDirectory)lib\</DeployPath>
 		<SDKPath>$(MSBuildThisFileDirectory)sdk\</SDKPath>
 
-		<!-- NuGet's generated props are disabled for most C++ projects, so expose its standard package root to shared native targets. -->
-		<NuGetPackageRoot Condition="'$(NuGetPackageRoot)' == '' AND '$(NUGET_PACKAGES)' != ''">$(NUGET_PACKAGES)</NuGetPackageRoot>
-		<NuGetPackageRoot Condition="'$(NuGetPackageRoot)' == ''">$(USERPROFILE)\.nuget\packages</NuGetPackageRoot>
+		<!--
+		NuGet's generated props are disabled for most C++ projects, so expose its standard package root to shared native targets.
+		SDK projects are excluded because their generated props, imported after this file, supply the folder that restore actually uses. -->
+		<NuGetPackageRoot Condition="'$(UsingMicrosoftNETSdk)' != 'true' AND '$(NuGetPackageRoot)' == '' AND '$(NUGET_PACKAGES)' != ''">$(NUGET_PACKAGES)</NuGetPackageRoot>
+		<NuGetPackageRoot Condition="'$(UsingMicrosoftNETSdk)' != 'true' AND '$(NuGetPackageRoot)' == ''">$(USERPROFILE)\.nuget\packages</NuGetPackageRoot>
 	</PropertyGroup>
 
 	<Import Project="$(MSBuildThisFileDirectory)Directory.Build.user.props" Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.user.props')" />
