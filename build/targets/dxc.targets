@@ -3,6 +3,15 @@
 
 	<Import Project="$(MSBuildThisFileDirectory)..\props\dxc.props" />
 
+	<!--
+	The DXC package sets the FxCompile tool path to its own 'bin' directory, which contains 'dxc.exe' but not 'fxc.exe'.
+	The standard FXC task picks 'dxc.exe' for shader model 6+ by itself, but the MultiToolTask shader path (used when UseMultiToolTask is true)
+	does not. Naming the executable makes both paths use the package's compiler.
+	-->
+	<PropertyGroup>
+		<FxCompileToolExe>dxc.exe</FxCompileToolExe>
+	</PropertyGroup>
+
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Direct3D.DXC" />
 		<PackageVersion Include="Microsoft.Direct3D.DXC" version="$(DxcPackageVersion)"/>

@@ -72,36 +72,11 @@ public abstract class Common
 		RylogicSln = Tools.Path([Workspace, "Rylogic.sln"]);
 	}
 	public virtual void Clean() { }
-	public virtual void Build() { }
 	public virtual void Deploy() { }
 	public virtual void Publish() { }
 
-	// Restores package references for every configuration that the subsequent build will use.
-	public static void DotNetRestore(string sln_or_proj, IList<string> configs)
-	{
-		if (!BuildOptions.Restore)
-		{
-			Console.WriteLine($"Nuget restore skipped: {sln_or_proj}");
-			return;
-		}
-
-		// MSBuild restore needs the same discovered Visual Studio environment as compilation.
-		Tools.SetupVcEnvironment();
-
-		// Restore each requested configuration once because conditional package references can differ between Debug and Release.
-		foreach (var config in configs.Distinct(StringComparer.OrdinalIgnoreCase))
-		{
-			var restore_key = $"{sln_or_proj}|{config}";
-			if (m_restored.Contains(restore_key))
-				continue;
-
-			// Restore through MSBuild so project and solution imports are evaluated consistently.
-			Console.WriteLine($"Nuget restore: {sln_or_proj} ({config})");
-			Tools.Run([UserVars.MSBuild, sln_or_proj, "/t:restore", $"/p:Configuration={config}", "/verbosity:minimal", "/nologo"]);
-			m_restored.Add(restore_key);
-		}
-	}
-	private static List<string> m_restored = [];
+	// Adds the solution projects this builder needs to 'plan'. Builders never invoke MSBuild directly; the plan builds every selected project together.
+	public virtual void Build(BuildPlan plan) { }
 }
 
 // Options parsed from the Build.csx command line.
@@ -112,6 +87,226 @@ public static class BuildOptions
 	public static bool GeneratePackageOnBuild { get; set; } = true;
 	public static bool Profile { get; set; } = false;
 	public static string ProfileDir { get; set; } = string.Empty;
+}
+
+// Build phases, in execution order. Managed projects copy native DLLs from 'lib\<platform>\<config>' and Debug managed projects restore the
+// local Rylogic.Native package that the native phase publishes, so every native project must finish before any managed project starts.
+public enum EPhase
+{
+	Native,
+	Managed,
+}
+
+// The set of solution projects to build, grouped by phase, platform, and configuration.
+public sealed class BuildPlan
+{
+	// Managed projects are built through this solution platform. Rylogic.sln maps 'x64' and 'Any CPU' to the same project configurations,
+	// so using one platform guarantees that each managed project is built at most once per configuration.
+	public const string ManagedSolutionPlatform = "x64";
+
+	private readonly Dictionary<(EPhase Phase, string Platform, string Config), SortedSet<string>> m_projects = [];
+
+	// Adds native project files (full paths) for every combination of 'platforms' and 'configs'.
+	public void AddNative(IEnumerable<string> platforms, IEnumerable<string> configs, params string[] project_files)
+	{
+		// Native outputs are platform-specific, so each requested platform is a separate build.
+		foreach (var platform in platforms)
+			Add(EPhase.Native, platform, configs, project_files);
+	}
+
+	// Adds managed project files (full paths) for every configuration in 'configs'.
+	public void AddManaged(IEnumerable<string> configs, params string[] project_files)
+	{
+		// Managed projects are platform-neutral; see 'ManagedSolutionPlatform'.
+		Add(EPhase.Managed, ManagedSolutionPlatform, configs, project_files);
+	}
+
+	// Returns the platform/config builds for 'phase'. Debug sorts last because the shared project.assets.json keeps the last restored configuration,
+	// and only Debug builds reference the local Rylogic.Native package.
+	public IReadOnlyList<(string Platform, string Config, IReadOnlyCollection<string> Projects)> Builds(EPhase phase)
+	{
+		// Order the builds so restores run deterministically with Debug last.
+		return m_projects
+			.Where(x => x.Key.Phase == phase)
+			.OrderBy(x => string.Equals(x.Key.Config, "Debug", StringComparison.OrdinalIgnoreCase))
+			.ThenBy(x => x.Key.Config, StringComparer.OrdinalIgnoreCase)
+			.ThenBy(x => x.Key.Platform, StringComparer.OrdinalIgnoreCase)
+			.Select(x => (x.Key.Platform, x.Key.Config, (IReadOnlyCollection<string>)x.Value))
+			.ToList();
+	}
+
+	// Records each project once per phase, platform, and configuration so overlapping builder selections do not build twice.
+	private void Add(EPhase phase, string platform, IEnumerable<string> configs, string[] project_files)
+	{
+		// Use the full path as the identity so different spellings of the same project are merged.
+		foreach (var config in configs)
+		{
+			var key = (phase, platform, config);
+			if (!m_projects.TryGetValue(key, out var projects))
+				m_projects[key] = projects = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+
+			foreach (var project_file in project_files)
+				projects.Add(IOPath.GetFullPath(project_file));
+		}
+	}
+}
+
+// Executes a BuildPlan with as few MSBuild invocations as the phase order allows.
+// Each phase is one MSBuild process that builds every platform/config at once. It uses a generated solution filter (.slnf) for each
+// platform/config, so solution configuration mappings and project references behave exactly as they do in Visual Studio.
+public static class ParallelBuild
+{
+	// Builds every phase of 'plan' in order. Throws if any MSBuild invocation fails.
+	public static void Run(string workspace, BuildPlan plan)
+	{
+		// Generated files and logs live in one place so agents and humans can find build diagnostics.
+		var build_dir = Tools.Path([workspace, "obj", "build"], check_exists: false);
+		Directory.CreateDirectory(build_dir);
+		Tools.SetupVcEnvironment();
+
+		// Phases run in order because each one consumes the outputs of the previous one.
+		var total = Stopwatch.StartNew();
+		foreach (var phase in Enum.GetValues<EPhase>())
+		{
+			var builds = plan.Builds(phase);
+			if (builds.Count == 0)
+				continue;
+
+			RunPhase(workspace, build_dir, phase, builds);
+		}
+		Console.WriteLine($"Build complete in {total.Elapsed.TotalSeconds:F1}s. Logs: {build_dir}\n");
+	}
+
+	// Restores, then builds, all platform/config combinations of one phase.
+	private static void RunPhase(string workspace, string build_dir, EPhase phase, IReadOnlyList<(string Platform, string Config, IReadOnlyCollection<string> Projects)> builds)
+	{
+		// Describe the work up front so long-running phases are easy to follow.
+		var phase_name = phase.ToString().ToLowerInvariant();
+		var solution = Tools.Path([workspace, "Rylogic.sln"]);
+		var timer = Stopwatch.StartNew();
+		Console.WriteLine($"=== {phase} phase: {string.Join(", ", builds.Select(x => $"{x.Platform}|{x.Config} ({x.Projects.Count} projects)"))} ===");
+
+		// Write one solution filter per platform/config. A filter's Build target builds all of its projects in parallel.
+		var filters = new List<(string Platform, string Config, string Filter)>();
+		foreach (var (platform, config, projects) in builds)
+		{
+			var filter = IOPath.Combine(build_dir, $"{phase_name}-{SafeName(platform)}-{config}.slnf");
+			WriteSolutionFilter(filter, solution, projects);
+			filters.Add((platform, config, filter));
+		}
+
+		// Restore one configuration at a time because Debug and Release share each project's project.assets.json.
+		if (BuildOptions.Restore)
+		{
+			foreach (var (platform, config, filter) in filters)
+			{
+				// Write a separate log for each restore so failures point at the right configuration.
+				var log = IOPath.Combine(build_dir, $"{phase_name}-{SafeName(platform)}-{config}-restore");
+				RunMSBuild(filter, ["-t:Restore", $"-p:Configuration={config}", $"-p:Platform={platform}"], log, $"{phase} restore {platform}|{config}");
+			}
+		}
+
+		// Build every platform/config from one traversal project so a single MSBuild scheduler shares all cores across them.
+		var traversal = IOPath.Combine(build_dir, $"{phase_name}.proj");
+		WriteTraversalProject(traversal, filters);
+		RunMSBuild(traversal, [], IOPath.Combine(build_dir, phase_name), $"{phase} build");
+		Console.WriteLine($"=== {phase} phase complete in {timer.Elapsed.TotalSeconds:F1}s ===\n");
+	}
+
+	// Runs MSBuild on 'project' with the shared parallel options. 'log' is the log file path without an extension.
+	private static void RunMSBuild(string project, IList<string> extra_args, string log, string description)
+	{
+		// MultiToolTask with a shared process limit stops each project's '/MP' compiler from multiplying the number of compiler processes.
+		// Node reuse is off so that each run owns its worker nodes. Shared nodes can be shut down by other builds, and idle nodes keep output files locked.
+		// The 64-bit compiler and linker avoid running out of address space when many large translation units build at once.
+		var args = new List<string>
+		{
+			UserVars.MSBuild ?? throw new Exception("MSBuild path has not been set in UserVars"),
+			project,
+			"-m",
+			"-nr:false",
+			"-nologo",
+			"-v:minimal",
+			"-p:UseMultiToolTask=true",
+			"-p:EnforceProcessCountAcrossBuilds=true",
+			"-p:PreferredToolArchitecture=x64",
+			$"-flp1:LogFile={log}.log;Verbosity=normal",
+			$"-flp2:LogFile={log}.errors.log;ErrorsOnly",
+		};
+		if (!BuildOptions.RunUnitTests)
+			args.Add("-p:RunUnitTests=false");
+		if (!BuildOptions.GeneratePackageOnBuild)
+			args.Add("-p:RylogicGeneratePackageOnBuild=false");
+
+		// Profiling adds a binary log and per-target timing to the console summary.
+		if (BuildOptions.Profile)
+		{
+			Directory.CreateDirectory(BuildOptions.ProfileDir);
+			args.Add($"-bl:{IOPath.Combine(BuildOptions.ProfileDir, IOPath.GetFileName(log))}.binlog");
+			args.Add("-clp:PerformanceSummary;Summary");
+		}
+		args.AddRange(extra_args);
+
+		// Run MSBuild in this console so its live output is visible, then report the errors file on failure.
+		var (success, _) = Tools.Run(args, throw_on_error: false, return_output: false);
+		if (!success)
+			throw new Exception($"{description} failed. Errors: {log}.errors.log  Full log: {log}.log");
+	}
+
+	// Writes a solution filter that selects 'projects' (full paths) from 'solution'.
+	private static void WriteSolutionFilter(string filter, string solution, IReadOnlyCollection<string> projects)
+	{
+		// Solution filters use paths relative to the solution directory, and the solution path relative to the filter.
+		var solution_dir = IOPath.GetDirectoryName(solution)!;
+		var json = new System.Text.Json.Nodes.JsonObject
+		{
+			["solution"] = new System.Text.Json.Nodes.JsonObject
+			{
+				["path"] = IOPath.GetRelativePath(IOPath.GetDirectoryName(filter)!, solution),
+				["projects"] = new System.Text.Json.Nodes.JsonArray(projects.Select(x => (System.Text.Json.Nodes.JsonNode?)IOPath.GetRelativePath(solution_dir, x)).ToArray()),
+			},
+		};
+		WriteIfChanged(filter, json.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+	}
+
+	// Writes a traversal project whose Build target builds every solution filter in parallel.
+	private static void WriteTraversalProject(string traversal, IReadOnlyList<(string Platform, string Config, string Filter)> filters)
+	{
+		// Each filter becomes an item with its own Configuration and Platform, and the MSBuild task schedules all items together.
+		var items = filters.Select(x => new XElement("SolutionFilter",
+			new XAttribute("Include", x.Filter),
+			new XAttribute("AdditionalProperties", $"Configuration={x.Config};Platform={x.Platform}")));
+		var xml = new XDocument(
+			new XElement("Project",
+				new XElement("ItemGroup", items),
+				new XElement("Target", new XAttribute("Name", "Build"),
+					new XElement("MSBuild",
+						new XAttribute("Projects", "@(SolutionFilter)"),
+						new XAttribute("Targets", "Build"),
+						new XAttribute("BuildInParallel", "true"),
+						new XAttribute("StopOnFirstFailure", "false")))));
+		WriteIfChanged(traversal, xml.ToString());
+	}
+
+	// Writes 'text' to 'path' only if the content differs, so unchanged generated files keep their timestamps.
+	private static void WriteIfChanged(string path, string text)
+	{
+		// Skip the write when the file already holds the same content.
+		if (File.Exists(path) && File.ReadAllText(path) == text)
+			return;
+
+		File.WriteAllText(path, text);
+	}
+
+	// Returns 'value' with characters that are not valid in file names replaced, e.g. "Any CPU" -> "Any_CPU".
+	private static string SafeName(string value)
+	{
+		// Spaces are also replaced so generated paths never need quoting.
+		foreach (var ch in IOPath.GetInvalidFileNameChars().Append(' '))
+			value = value.Replace(ch, '_');
+
+		return value;
+	}
 }
 
 // Groups of projects
@@ -127,10 +322,11 @@ public abstract class Group : Common
 		foreach (var item in Items)
 			item.Clean();
 	}
-	public override void Build()
+	public override void Build(BuildPlan plan)
 	{
+		// Each member adds its own projects; the plan removes duplicates.
 		foreach (var item in Items)
-			item.Build();
+			item.Build(plan);
 	}
 	public override void Deploy()
 	{
@@ -165,6 +361,20 @@ public abstract class Native : Common
 		ObjDir = Tools.Path([Workspace, "obj"], check_exists: false);
 		Directory.CreateDirectory(ObjDir);
 	}
+
+	// Adds this builder's project file to 'plan'. Builders with more than one project override this.
+	public override void Build(BuildPlan plan)
+	{
+		// Most native builders own exactly one project.
+		plan.AddNative(Platforms, Configs, ProjFile);
+	}
+
+	// Returns the full path of the project file 'name'.vcxproj in this builder's project directory.
+	protected string SiblingProject(string name)
+	{
+		// Library builders keep their static library and DLL projects side by side.
+		return Tools.Path([ProjDir, $"{name}.vcxproj"]);
+	}
 }
 
 // Base class for .NET projects
@@ -174,35 +384,35 @@ public abstract class Managed : Common
 	public string ProjDir;
 	public string ProjFile;
 	public IList<string> Frameworks;
-	public IList<string> Platforms;
 	public IList<string> Configs;
 
-	public Managed(string proj_name, string proj_dir, IList<string> frameworks, string workspace, IList<string>? platforms, IList<string>? configs)
+	public Managed(string proj_name, string proj_dir, IList<string> frameworks, string workspace, IList<string>? configs)
 		:base(workspace)
 	{
 		ProjName = proj_name;
 		ProjDir = Tools.Path([workspace, proj_dir]);
 		ProjFile = Tools.Path([ProjDir, $"{ProjName}.csproj"]);
 		Frameworks = frameworks;
-		Platforms = platforms ?? ["Any CPU"];
 		Configs = configs ?? ["Release", "Debug"];
 	}
 	public override void Clean()
 	{
-		CleanDotNet(ProjDir, Platforms, Configs);
+		CleanDotNet(ProjDir);
+	}
+
+	// Adds this builder's project file to 'plan'. Builders with more than one project override this.
+	public override void Build(BuildPlan plan)
+	{
+		// Most managed builders own exactly one project.
+		plan.AddManaged(Configs, ProjFile);
 	}
 
 	// Clean the 'bin' and 'obj' directory of a dot net project
-	public static void CleanDotNet(string proj_dir, IList<string>? platforms = null, IList<string>? configs = null)
+	public static void CleanDotNet(string proj_dir)
 	{
 		Tools.CleanDir(Tools.Path([proj_dir, "obj"], check_exists: false));
 		Tools.CleanDir(Tools.Path([proj_dir, "bin"], check_exists: false));
-		if (platforms is not null && configs is not null)
-		{
-			// todo - only clean specific directories
-		}
 	}
-
 }
 
 // Audio
@@ -217,10 +427,10 @@ public class Audio : Native
 		Tools.CleanDir(Tools.Path([ObjDir, "audio"], check_exists: false));
 		Tools.CleanDir(Tools.Path([ObjDir, "audio.dll"], check_exists: false));
 	}
-	public override void Build()
+	public override void Build(BuildPlan plan)
 	{
-		Tools.MSBuild(RylogicSln, [@"Rylogic\audio"], Platforms, Configs);
-		Tools.MSBuild(RylogicSln, [@"Rylogic\audio.dll"], Platforms, Configs);
+		// The static library and the DLL are separate projects.
+		plan.AddNative(Platforms, Configs, SiblingProject("audio"), SiblingProject("audio.dll"));
 	}
 	public override void Deploy()
 	{
@@ -247,12 +457,6 @@ public class Compute : Native
 	{
 		Tools.CleanDir(Tools.Path([ObjDir, "compute"], check_exists: false));
 	}
-	public override void Build()
-	{
-		// Restore DXC before native compilation because its imported PackageReference owns the compiler runtime files.
-		DotNetRestore(ProjFile, Configs);
-		Tools.MSBuild(RylogicSln, [@"Rylogic\compute"], Platforms, Configs);
-	}
 	public override void Deploy()
 	{
 		foreach (var p in Platforms)
@@ -277,10 +481,10 @@ public class Physics : Native
 		Tools.CleanDir(Tools.Path([ObjDir, "physics"], check_exists: false));
 		Tools.CleanDir(Tools.Path([ObjDir, "physics.dll"], check_exists: false));
 	}
-	public override void Build()
+	public override void Build(BuildPlan plan)
 	{
-		Tools.MSBuild(RylogicSln, [@"Rylogic\physics"], Platforms, Configs);
-		Tools.MSBuild(RylogicSln, [@"Rylogic\physics.dll"], Platforms, Configs);
+		// The static library and the DLL are separate projects.
+		plan.AddNative(Platforms, Configs, SiblingProject("physics"), SiblingProject("physics.dll"));
 	}
 	public override void Deploy()
 	{
@@ -308,12 +512,10 @@ public class View3d : Native
 		Tools.CleanDir(Tools.Path([ObjDir, "view3d-12"], check_exists: false));
 		Tools.CleanDir(Tools.Path([ObjDir, "view3d-12.dll"], check_exists: false));
 	}
-	public override void Build()
+	public override void Build(BuildPlan plan)
 	{
-		// Restore DXC before native compilation because both View3D projects consume its runtime files.
-		DotNetRestore(ProjFile, Configs);
-		Tools.MSBuild(RylogicSln, [@"Rylogic\view3d-12"], Platforms, Configs);
-		Tools.MSBuild(RylogicSln, [@"Rylogic\view3d-12.dll"], Platforms, Configs);
+		// The static library and the DLL are separate projects.
+		plan.AddNative(Platforms, Configs, SiblingProject("view3d-12"), SiblingProject("view3d-12.dll"));
 	}
 	public override void Deploy()
 	{
@@ -341,10 +543,10 @@ public class View3dUI : Native
 		Tools.CleanDir(Tools.Path([ObjDir, "view3d-ui"], check_exists: false));
 		Tools.CleanDir(Tools.Path([ObjDir, "view3d-ui.dll"], check_exists: false));
 	}
-	public override void Build()
+	public override void Build(BuildPlan plan)
 	{
-		Tools.MSBuild(RylogicSln, [@"Rylogic\view3d-ui"], Platforms, Configs);
-		Tools.MSBuild(RylogicSln, [@"Rylogic\view3d-ui.dll"], Platforms, Configs);
+		// The static library and the DLL are separate projects.
+		plan.AddNative(Platforms, Configs, SiblingProject("view3d-ui"), SiblingProject("view3d-ui.dll"));
 	}
 	public override void Deploy()
 	{
@@ -370,10 +572,6 @@ public class Fbx : Native
 	{
 		Tools.CleanDir(Tools.Path([ObjDir, "fbx"], check_exists: false));
 	}
-	public override void Build()
-	{
-		Tools.MSBuild(RylogicSln, [@"Rylogic\fbx"], Platforms, Configs);
-	}
 	public override void Deploy()
 	{
 		foreach (var p in Platforms)
@@ -397,10 +595,6 @@ public class Gltf : Native
 	{
 		Tools.CleanDir(Tools.Path([ObjDir, "gltf"], check_exists: false));
 	}
-	public override void Build()
-	{
-		Tools.MSBuild(RylogicSln, [@"Rylogic\gltf"], Platforms, Configs);
-	}
 	public override void Deploy()
 	{
 		foreach (var p in Platforms)
@@ -421,10 +615,6 @@ public class Imgui : Native
 	public override void Clean()
 	{
 		Tools.CleanDir(Tools.Path([ObjDir, "imgui"], check_exists: false));
-	}
-	public override void Build()
-	{
-		Tools.MSBuild(RylogicSln, [@"Rylogic\imgui"], Platforms, Configs);
 	}
 	public override void Deploy()
 	{
@@ -447,10 +637,6 @@ public class Sqlite3 : Native
 	{
 		Tools.CleanDir(Tools.Path([ObjDir, "sqlite"], check_exists: false));
 	}
-	public override void Build()
-	{
-		Tools.MSBuild(ProjFile, platforms: Platforms, configs: Configs);
-	}
 	public override void Deploy()
 	{
 		foreach (var p in Platforms)
@@ -471,10 +657,6 @@ public class Scintilla : Native
 	public override void Clean()
 	{
 		Tools.CleanDir(Tools.Path([ObjDir, "scintilla"], check_exists: false));
-	}
-	public override void Build()
-	{
-		Tools.MSBuild(ProjFile, platforms: Platforms, configs: Configs);
 	}
 	public override void Deploy()
 	{
@@ -509,10 +691,6 @@ public class P3d : Native
 				Tools.CleanDir(Tools.Path([ProjDir, "obj", p, c], check_exists: false));
 		}
 	}
-	public override void Build()
-	{
-		Tools.MSBuild(RylogicSln, [@"Tools\p3d"], Platforms, Configs);
-	}
 	public override void Deploy()
 	{
 		// The tool loads 'gltf.dll' from its own directory at run time, so it is deployed alongside the
@@ -539,13 +717,8 @@ public abstract class RylogicAssembly : Managed
 	public Nuget? Package = null;
 
 	public RylogicAssembly(string proj_name, List<string> frameworks, string workspace, List<string>? platforms, List<string>? configs)
-		:base(proj_name, Tools.Path([workspace, "projects\\rylogic", proj_name]), frameworks, workspace, platforms, configs)
+		:base(proj_name, Tools.Path([workspace, "projects\\rylogic", proj_name]), frameworks, workspace, configs)
 	{
-	}
-	public override void Build()
-	{
-		DotNetRestore(RylogicSln, Configs);
-		Tools.MSBuild(RylogicSln, [$"Rylogic\\{ProjName}"], Platforms, Configs);
 	}
 	public override void Deploy()
 	{
@@ -829,15 +1002,15 @@ public class LDraw : Managed
 	public string? MsiPath = null;
 
 	public LDraw(string workspace, List<string>? platforms = null, List<string>? configs = null)
-		:base("LDraw", Tools.Path([workspace, "projects\\apps\\LDraw\\LDraw"]), ["net10.0-windows"], workspace, ["x64"], configs)
+		:base("LDraw", Tools.Path([workspace, "projects\\apps\\LDraw\\LDraw"]), ["net10.0-windows"], workspace, configs)
 	{
 		DeployDir = Tools.Path([UserVars.Root, "bin/LDraw"], check_exists: false);
 	}
 
-	public override void Build()
+	public override void Build(BuildPlan plan)
 	{
-		DotNetRestore(RylogicSln, Configs);
-		Tools.MSBuild(RylogicSln, projects: [$"Apps\\LDraw\\{ProjName}", "Apps\\LDraw\\LDrawMcpHost"], platforms: Platforms, configs: Configs);
+		// The MCP tray host is deployed alongside LDraw, so both are built together.
+		plan.AddManaged(Configs, ProjFile, Tools.Path([ProjDir, "..", "LDrawMcpHost", "LDrawMcpHost.csproj"]));
 	}
 
 	public override void Deploy()
@@ -910,6 +1083,71 @@ public class LDraw : Managed
 	}
 }
 
+// Builds the Csex command line tool. Build only; it has no deploy step.
+public class Csex : Managed
+{
+	public Csex(string workspace, List<string>? platforms = null, List<string>? configs = null)
+		:base("Csex", Tools.Path([workspace, "projects\\tools\\Csex"]), ["net10.0-windows"], workspace, configs)
+	{
+	}
+}
+
+// Builds the RyLogViewer application. Build only; it has no deploy step.
+public class RyLogViewer : Managed
+{
+	public RyLogViewer(string workspace, List<string>? platforms = null, List<string>? configs = null)
+		:base("RyLogViewer", Tools.Path([workspace, "projects\\apps\\RyLogViewer"]), ["net10.0-windows"], workspace, configs)
+	{
+	}
+}
+
+// Builds the Rylogic.TextAligner Visual Studio extensions. Build only; it has no deploy step.
+public class RylogicTextAligner : Managed
+{
+	public RylogicTextAligner(string workspace, List<string>? platforms = null, List<string>? configs = null)
+		:base("Rylogic.TextAligner.Shared", Tools.Path([workspace, "projects\\apps\\Rylogic.TextAligner\\Shared"]), ["net481"], workspace, configs)
+	{
+	}
+	public override void Clean()
+	{
+		// Each Visual Studio version has its own project next to the shared one.
+		foreach (var version in VersionProjects)
+			CleanDotNet(IOPath.GetDirectoryName(version)!);
+	}
+	public override void Build(BuildPlan plan)
+	{
+		// Build the shared library and every Visual Studio version-specific extension.
+		plan.AddManaged(Configs, [.. VersionProjects]);
+	}
+
+	// The shared project and the extension projects for each supported Visual Studio version.
+	private IEnumerable<string> VersionProjects
+	{
+		get
+		{
+			// The version folders sit next to the 'Shared' folder.
+			var root = IOPath.GetDirectoryName(ProjDir)!;
+			foreach (var version in new[] { "Shared", "2022", "2019" })
+				yield return Tools.Path([root, version, $"Rylogic.TextAligner.{version}.csproj"]);
+		}
+	}
+}
+
+// All managed projects
+public class AllManaged : Group
+{
+	public AllManaged(string workspace, List<string>? platforms = null, List<string>? configs = null)
+		: base(workspace)
+	{
+		// Discover managed builders so new ones join this group automatically.
+		foreach (var type in typeof(Managed).Assembly.GetTypes().Where(t => t.IsClass && !t.IsAbstract && t.IsSubclassOf(typeof(Managed))))
+		{
+			var instance = (Common?)Activator.CreateInstance(type, workspace, platforms, configs) ?? throw new Exception($"Failed to create instance of type {type}");
+			Items.Add(instance);
+		}
+	}
+}
+
 // All Native projects
 public class AllNative : Group
 {
@@ -929,15 +1167,16 @@ public class AllNative : Group
 			Items.Add(instance);
 		}
 	}
-	public override void Build()
+	public override void Build(BuildPlan plan)
 	{
 		// A complete aggregate build must regenerate every included project's runtime declaration.
 		NativeRuntimePackage.ClearManifests(Workspace, m_platforms, m_configs);
-		base.Build();
+		base.Build(plan);
 
-		// Publish the local Rylogic.Native development package once, after every native project has built. See docs/local-dev-packages.md.
+		// Publish the local Rylogic.Native development package once per build. The project references every packaged native project,
+		// so MSBuild builds it after them. See docs/local-dev-packages.md.
 		if (BuildOptions.GeneratePackageOnBuild && m_platforms.Contains("x64", StringComparer.OrdinalIgnoreCase) && m_configs.Contains("Debug", StringComparer.OrdinalIgnoreCase))
-			Tools.MSBuild(RylogicSln, [@"Rylogic\Rylogic_Native_Dev"], ["x64"], ["Debug"]);
+			plan.AddNative(["x64"], ["Debug"], Tools.Path([Workspace, "build", "nuget", "Rylogic.Native.Dev.vcxproj"]));
 	}
 	public override void Deploy()
 	{
@@ -1090,22 +1329,6 @@ void SetupWorkspace(string workspace)
 		Tools.Run([nuget_exe, "restore", package_config, "-PackagesDirectory", packages_dir, "-Verbosity", "quiet", "-NonInteractive"], return_output: false);
 	}
 	Console.WriteLine("");
-}
-
-// Configure shared MSBuild arguments from the parsed command line.
-void ConfigureMSBuildOptions(string workspace)
-{
-	Tools.DefaultMSBuildArgs.Clear();
-	if (!BuildOptions.RunUnitTests)
-		Tools.DefaultMSBuildArgs.Add("/p:RunUnitTests=false");
-	if (!BuildOptions.GeneratePackageOnBuild)
-		Tools.DefaultMSBuildArgs.Add("/p:RylogicGeneratePackageOnBuild=false");
-
-	// Apply profiling settings once so every subsequent MSBuild invocation follows the same policy.
-	Tools.MSBuildProfiling = BuildOptions.Profile;
-	Tools.MSBuildProfileDir = !string.IsNullOrEmpty(BuildOptions.ProfileDir)
-		? BuildOptions.ProfileDir
-		: Tools.Path([workspace, "obj", "build-profile"], check_exists: false);
 }
 
 // Build script main function
@@ -1267,44 +1490,59 @@ void Main(IList<string> args)
 	build |= !clean && !build && !deploy && !publish;
 	deploy |= publish;
 
-	// Configure shared MSBuild options before any restore or build invocations.
-	ConfigureMSBuildOptions(workspace);
+	// Profiles go to a fixed location unless the caller chose one.
+	if (BuildOptions.Profile && string.IsNullOrEmpty(BuildOptions.ProfileDir))
+		BuildOptions.ProfileDir = Tools.Path([workspace, "obj", "build-profile"], check_exists: false);
 
 	// Ensure workspace is ready (directories, SDK dependencies)
 	SetupWorkspace(workspace);
 
-	// Build/Clean/Deploy each given project
+	// Instantiate every selected builder with the command-line platform and configuration scope.
+	var builders = new List<Common>();
 	foreach (var project in projects)
 	{
-		var builder_type = Type.GetType($"Submission#0+{project}");
-		if (builder_type == null)
-			throw new Exception($"Builder type '{project}' not found");
+		// Builder classes are named after the EProjects values.
+		var builder_type = Type.GetType($"Submission#0+{project}") ?? throw new Exception($"Builder type '{project}' not found");
+		var builder = (Common?)Activator.CreateInstance(builder_type, workspace, platforms, configs) ?? throw new Exception($"Failed to create the builder type for {project}");
+		builders.Add(builder);
+	}
 
-		// Instantiate the selected builder with the command-line platform and configuration scope.
-		var builder = (Common?)Activator.CreateInstance(builder_type, workspace, platforms, configs)
-			?? throw new Exception($"Failed to create the builder type foe {project}");
+	// Warn once if Azure signing is not configured for deploy/publish
+	if (deploy && !Tools.SigningAvailable)
+		Console.WriteLine("Warning: Azure Trusted Signing not configured. Artifacts will not be signed.");
 
-		// Warn if Azure signing is not configured for deploy/publish
-		if (deploy || publish)
-		{
-			if (!Tools.SigningAvailable)
-				Console.WriteLine("Warning: Azure Trusted Signing not configured. Artifacts will not be signed.");
-		}
-
-		// Clean if '-clean' is used
-		if (clean)
+	// Clean every selected project before anything is built.
+	if (clean)
+	{
+		// Cleaning is file deletion only, so order does not matter.
+		foreach (var builder in builders)
 			builder.Clean();
+	}
 
-		// If no project name is given build them all
-		if (build)
-			builder.Build();
+	// Collect the projects of every selected builder into one plan, then build them all in parallel.
+	if (build)
+	{
+		// Builders only describe their projects; ParallelBuild owns all MSBuild invocations.
+		var plan = new BuildPlan();
+		foreach (var builder in builders)
+			builder.Build(plan);
 
-		// Deploy the named project(s)
-		if (deploy)
+		ParallelBuild.Run(workspace, plan);
+	}
+
+	// Deploy the named project(s). Deploy steps package shared outputs, so they run one at a time.
+	if (deploy)
+	{
+		// Run in command-line order so dependent packages see their dependencies first.
+		foreach (var builder in builders)
 			builder.Deploy();
+	}
 
-		// Publish the named project(s)
-		if (publish)
+	// Publish the named project(s)
+	if (publish)
+	{
+		// Publish only after every package has been created successfully.
+		foreach (var builder in builders)
 			builder.Publish();
 	}
 
