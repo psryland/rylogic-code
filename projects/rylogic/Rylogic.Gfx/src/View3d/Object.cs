@@ -227,7 +227,7 @@ namespace Rylogic.Gfx
 				set => ColourSet(true, value, null);
 			}
 
-			/// <summary>Get/Set the reflectivity for this object (set applies to all child objects as well)</summary>
+			/// <summary>Get/Set the reflectivity for this object when viewed straight on. Reflection rises to a full mirror at grazing angles. (set applies to all child objects as well)</summary>
 			public float Reflectivity
 			{
 				get => ReflectivityGet(string.Empty);
@@ -631,6 +631,30 @@ namespace Rylogic.Gfx
 				// Remove only the procedural component and notify bindings for the common first-nugget property.
 				View3D_ObjectNuggetProceduralSurfaceClear(Handle, name, index);
 				NotifyPropertyChanged(nameof(NuggetProceduralSurface));
+			}
+
+			/// <summary>Assign a tileable slope map as detail normals of a simple-material nugget. New assignments start with no layers.</summary>
+			public void NuggetDetailNormalsSet(Texture slope_map, Sampler sampler, string? name = null, int index = 0)
+			{
+				// The renderer holds its own references to both resources.
+				View3D_ObjectNuggetDetailNormalsSet(Handle, slope_map.Handle, sampler.Handle, name, index);
+			}
+
+			/// <summary>Remove detail normals from a selected nugget.</summary>
+			public void NuggetDetailNormalsClear(string? name = null, int index = 0)
+			{
+				// Null resources remove the component.
+				View3D_ObjectNuggetDetailNormalsSet(Handle, IntPtr.Zero, IntPtr.Zero, name, index);
+			}
+
+			/// <summary>
+			/// Replace the detail-normal layers of this object's nuggets. Cheap enough to call every frame. At most 4 layers.
+			/// 'base_slope_variance' (non-negative) is the mean square slope of roughness finer than every layer.
+			/// </summary>
+			public void DetailNormalLayersSet(DetailNormalLayer[] layers, float base_slope_variance)
+			{
+				// Layers are shared by the materials, so no material is replaced.
+				View3D_ObjectDetailNormalLayersSet(Handle, layers, layers.Length, base_slope_variance);
 			}
 
 			/// <summary>

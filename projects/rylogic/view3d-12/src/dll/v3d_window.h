@@ -90,7 +90,7 @@ namespace pr::rdr12
 		HitTestResults       m_ht_results;     // The results of async hit tests
 		mutable pr::BBox     m_bbox_scene;     // Bounding box for all objects in the scene (Lazy updated)
 		std::thread::id      m_main_thread_id; // The thread that created this window
-		view3d::ui::Provider m_ui_provider;    // Optional final-overlay provider copied from the attached satellite
+		std::vector<view3d::ui::Provider> m_ui_providers; // Attached UI providers in attach order. Later providers draw on top of earlier ones.
 		AutoSub              m_eh_hittests;    // Event handler for async hit test results
 		bool                 m_invalidated;    // True after Invalidate has been called but before Render has been called
 		bool                 m_ht_invalidated; // True if async hit tests need to be performed
@@ -108,6 +108,9 @@ namespace pr::rdr12
 
 		// Off-screen resources reused by 'EnvMapCapture' (lazy-created on first capture)
 		std::unique_ptr<struct EnvMapCaptureResources> m_envmap_capture;
+
+		// Time-sliced environment map probe (see 'EnvMapProbe'). Null while disabled.
+		std::unique_ptr<struct EnvMapProbeResources> m_envmap_probe;
 
 		V3dWindow(Renderer& rdr, HWND hwnd, view3d::WindowOptions const& opts);
 		V3dWindow(V3dWindow&&) = default;
@@ -211,7 +214,7 @@ namespace pr::rdr12
 		// Render this window into whatever render target is currently set
 		void Render();
 
-		// Attach or detach the optional View3DUI provider.
+		// Attach or detach a UI provider. Providers record each pass in attach order.
 		view3d::ui::EHostStatus UIProviderAttach(view3d::ui::Provider const& provider);
 		view3d::ui::EHostStatus UIProviderDetach(void* provider_context);
 
@@ -238,7 +241,7 @@ namespace pr::rdr12
 
 	private:
 
-		// Record one optional provider stage into a View3D-owned command list.
+		// Record one provider stage for every attached provider into a View3D-owned command list.
 		void RecordUIProvider(view3d::ui::EPass pass_id, Frame& frame);
 
 		// The scene camera expressed in the bridge's right-handed convention, so a provider can
@@ -355,7 +358,7 @@ namespace pr::rdr12
 		ShadowSettings const& Shadows() const;
 		void Shadows(ShadowSettings const& settings);
 
-		// Get/Set the global environment map for this window
+		// Get/Set the global environment map for this window. Setting an environment map disables the environment map probe.
 		TextureCube const* EnvMap() const;
 		void EnvMap(TextureCube* env_map);
 
@@ -363,6 +366,21 @@ namespace pr::rdr12
 		// with a full mip chain (see View3D_CubeMapCreate). The capture overwrites the cube's contents and orientation transform. Off-screen
 		// capture resources are kept between calls while the face size and background colour are unchanged.
 		void EnvMapCapture(TextureCube& env_map, v4 const& position);
+
+		// Enable the time-sliced environment map probe with 'face_size' pixel faces, or disable it with 0. While enabled, the probe owns the
+		// window's global environment map. Each 'EnvMapProbeUpdate' renders one cube face, and every six updates complete a new cube that
+		// then fades in over the previous one during the next six updates. No environment map is bound until the first cube is complete.
+		void EnvMapProbe(int face_size);
+
+		// Render the next face of the probe's environment map. 'position' is used for all six faces of a cube; it is sampled when the
+		// first face of each cube is rendered. Call once per frame, before rendering, while the probe is enabled.
+		void EnvMapProbeUpdate(v4 const& position);
+
+		// Get/Set the radius of the sphere that reflections assume the environment lies on, centred on each environment map's capture position.
+		// Looking up a cube map by direction alone treats the environment as infinitely distant, which shifts nearby objects in reflections.
+		// Objects near this radius from the capture position are reflected in the right place. 0 (the default) uses direction-only lookups.
+		float EnvMapProxyRadius() const;
+		void EnvMapProxyRadius(float radius);
 
 		// Enable/Disable the depth buffer
 		bool DepthBufferEnabled() const;

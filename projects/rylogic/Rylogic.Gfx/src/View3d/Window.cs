@@ -1,4 +1,4 @@
-﻿//#define PR_VIEW3D_CREATE_STACKTRACE
+//#define PR_VIEW3D_CREATE_STACKTRACE
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -705,6 +705,35 @@ namespace Rylogic.Gfx
 			public void EnvMapCapture(CubeMap env_map, v4 position)
 			{
 				View3D_WindowEnvMapCapture(Handle, env_map.Handle, position);
+			}
+
+			/// <summary>
+			/// Enable the time-sliced environment map probe with 'face_size' pixels per face edge, or disable it with 0.
+			/// While enabled, the probe owns the window's environment map. Each 'EnvMapProbeUpdate' renders one face, and every six updates
+			/// complete a new cube that fades in over the previous one. Setting 'EnvironmentMap' disables the probe.
+			/// </summary>
+			public void EnvMapProbe(int face_size)
+			{
+				View3D_WindowEnvMapProbeSet(Handle, face_size);
+			}
+
+			/// <summary>
+			/// Render the next face of the environment map probe. 'position' is sampled when the first face of each cube is rendered.
+			/// Call once per frame, before rendering, while the probe is enabled.
+			/// </summary>
+			public void EnvMapProbeUpdate(v4 position)
+			{
+				View3D_WindowEnvMapProbeUpdate(Handle, position);
+			}
+
+			/// <summary>
+			/// The radius of the sphere that reflections assume the environment lies on, centred on each environment map's capture position.
+			/// Objects near this distance from the capture position are reflected without parallax error. 0 (the default) treats the environment as infinitely distant.
+			/// </summary>
+			public float EnvMapProxyRadius
+			{
+				get => View3D_WindowEnvMapProxyRadiusGet(Handle);
+				set => View3D_WindowEnvMapProxyRadiusSet(Handle, value);
 			}
 
 			/// <summary>Show the lighting dialog</summary>

@@ -56,42 +56,67 @@ internal sealed class VisualStudio : IDisposable
 		}
 	}
 
-	// ROT absence is also checked against live processes, including elevated or not-yet-registered instances.
-	public IReadOnlyList<Instance> Inspect(Request request)
+	// Upper bound on inspecting all registered IDEs. Instances that have not answered by then are skipped.
+	private static readonly TimeSpan InspectionTimeout = TimeSpan.FromSeconds(10);
+
+	// Inspect every IDE registered in the ROT. An IDE that cannot be fully inspected is reported as skipped rather than failing the request,
+	// so routing uses only the instances that answered. Elevated, starting, or dead devenv processes have no visible ROT entry and are never considered.
+	public Discovery Inspect(Request request)
 	{
-		var before = ProcessIds();
-		BindRunning();
-		var missing = before.Except(m_instances.Keys).ToArray();
-		if (missing.Length != 0)
-			throw new InvalidOperationException($"Cannot inspect Visual Studio PID(s) {string.Join(", ", missing)}. They may be starting, elevated, or inaccessible. Wait for startup/modal dialogs to finish and run GitKraken and VS at the same normal privilege level. No fallback instance will be launched.");
-
+		// Each IDE gets its own STA thread and proxies, so a hung or busy IDE costs at most the shared deadline and cannot block the others.
 		var windows = WindowOrder();
-		var facts = new List<Instance>();
-		foreach (var pid in before)
+		var probes = RegisteredProcessIds().Select(pid => new Probe(pid, request.FilePath, windows)).ToArray();
+		var timer = Stopwatch.StartNew();
+		var instances = new List<Instance>();
+		var skipped = new List<SkippedInstance>();
+		foreach (var probe in probes)
 		{
-			try
-			{
-				facts.Add(Retry(() => InspectInstance(pid, request.FilePath, windows)));
-			}
-			catch (Exception ex) when (ex is Microsoft.CSharp.RuntimeBinder.RuntimeBinderException or InvalidCastException)
-			{
-				throw new InvalidOperationException($"VSRedirector could not bind a Visual Studio automation member in PID {pid}. This is an automation compatibility defect, not a busy/access diagnosis. No fallback instance will be launched.", ex);
-			}
-			catch (COMException ex)
-			{
-				var guidance = ex.HResult switch
-				{
-					unchecked((int)0x80010001) or unchecked((int)0x8001010A) => "The IDE is busy; finish loading projects and close modal dialogs.",
-					unchecked((int)0x80070005) => "Access was denied; run GitKraken and VS at the same normal privilege level.",
-					_ => "The IDE returned an automation error; this does not establish a busy/access problem.",
-				};
-				throw new InvalidOperationException($"Could not completely inspect Visual Studio PID {pid}. {guidance} No fallback instance will be launched.", ex);
-			}
+			// Results are read only after a successful join; an abandoned probe thread is a background thread and ends with the worker.
+			var remaining = InspectionTimeout - timer.Elapsed;
+			if (!probe.Thread.Join(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero))
+				skipped.Add(new SkippedInstance(probe.ProcessId, $"No response within {InspectionTimeout.TotalSeconds} seconds."));
+			else if (probe.Result != null)
+				instances.Add(probe.Result);
+			else
+				skipped.Add(new SkippedInstance(probe.ProcessId, probe.Failure ?? "Unknown failure."));
 		}
-		if (!before.SetEquals(ProcessIds()))
-			throw new InvalidOperationException("Visual Studio instances changed during discovery. Retry once startup/shutdown finishes.");
+		return new Discovery(instances, skipped);
+	}
 
-		return facts;
+	// Inspects one IDE on a dedicated STA thread with its own automation objects.
+	private sealed class Probe
+	{
+		public int ProcessId { get; }
+		public Thread Thread { get; }
+		public Instance? Result { get; private set; }
+		public string? Failure { get; private set; }
+
+		public Probe(int pid, string file, IReadOnlyDictionary<nint, int> windows)
+		{
+			ProcessId = pid;
+			Thread = new Thread(() =>
+			{
+				// Any failure means this IDE cannot be used for routing; record why so diagnostics can explain the choice.
+				try
+				{
+					using var vs = new VisualStudio();
+					if (!vs.Bind(pid))
+						throw new InvalidOperationException("No longer registered for automation.");
+
+					Result = Retry(() => vs.InspectInstance(pid, file, windows));
+				}
+				catch (COMException ex)
+				{
+					Failure = $"{ex.Message} (0x{ex.HResult:X8})";
+				}
+				catch (Exception ex)
+				{
+					Failure = ex.Message;
+				}
+			}) { IsBackground = true, Name = $"Inspect devenv {pid}" };
+			Thread.SetApartmentState(ApartmentState.STA);
+			Thread.Start();
+		}
 	}
 
 	private Instance InspectInstance(int pid, string file, IReadOnlyDictionary<nint, int> windows)
@@ -192,6 +217,10 @@ internal sealed class VisualStudio : IDisposable
 	// Reuse the exact ROT object. File and line navigation never go through devenv /Edit.
 	public void Open(int pid, Request request, bool require_empty_solution = false)
 	{
+		// Inspection used per-thread proxies, so bind this thread's own proxy to the selected IDE.
+		if (!m_instances.ContainsKey(pid) && !Bind(pid))
+			throw new InvalidOperationException($"Visual Studio PID {pid} is no longer registered for automation. Retry.");
+
 		dynamic dte = m_instances[pid];
 		if (require_empty_solution)
 		{
@@ -237,69 +266,84 @@ internal sealed class VisualStudio : IDisposable
 			if (process.HasExited)
 				throw new InvalidOperationException($"New Visual Studio PID {process.Id} exited before automation became available.");
 
-			BindRunning(process.Id);
-			if (m_instances.ContainsKey(process.Id)) return;
+			if (Bind(process.Id)) return;
 			Thread.Sleep(250);
 		}
 		throw new TimeoutException($"New Visual Studio PID {process.Id} did not register automation within 60 seconds. It was left running; check its startup before retrying.");
 	}
 
-	private void BindRunning(int? only_pid = null)
+	// Bind this thread's DTE proxy for 'pid'. Returns false if the IDE is not registered in the ROT; throws if it is registered but cannot be bound.
+	private bool Bind(int pid)
 	{
-		using var scope = new ComScope();
-		Marshal.ThrowExceptionForHR(Native.GetRunningObjectTable(0, out var rot));
-		scope.Own(rot);
-		Marshal.ThrowExceptionForHR(Native.CreateBindCtx(0, out var context));
-		scope.Own(context);
-		rot.EnumRunning(out var enumerator);
-		scope.Own(enumerator);
-		var monikers = new IMoniker[1];
-		while (enumerator.Next(1, monikers, nint.Zero) == 0)
+		// The ROT entry is matched by PID and bound while its moniker is still live.
+		var found = false;
+		VisitRegistered((registered_pid, rot, moniker) =>
 		{
-			using var moniker_scope = new ComScope();
-			var moniker = monikers[0];
-			moniker_scope.Own(moniker);
-			moniker.GetDisplayName(context, null, out var name);
-			if (!name.StartsWith("!VisualStudio.DTE.", StringComparison.OrdinalIgnoreCase)) continue;
-			if (!int.TryParse(name[(name.LastIndexOf(':') + 1)..], out var pid))
-				throw new InvalidOperationException($"Unrecognized Visual Studio ROT identity: {name}");
-
-			if (only_pid != null && pid != only_pid || m_instances.ContainsKey(pid)) continue;
-			try
-			{
-				Retry(() => { Marshal.ThrowExceptionForHR(rot.GetObject(moniker, out var value)); m_instances.Add(pid, m_com.Own(value)); return true; });
-			}
-			catch (COMException ex)
-			{
-				throw new InvalidOperationException($"Cannot access Visual Studio PID {pid}. Finish startup, close modal dialogs, and run GitKraken and VS at the same normal privilege level.", ex);
-			}
-		}
+			// Stop the walk once the requested IDE has been bound.
+			if (registered_pid != pid) return true;
+			Retry(() => { Marshal.ThrowExceptionForHR(rot.GetObject(moniker, out var value)); m_instances.Add(pid, m_com.Own(value)); return true; });
+			found = true;
+			return false;
+		});
+		return found;
 	}
 
-	private static HashSet<int> ProcessIds()
+	// PIDs of the Visual Studio DTE objects visible in this caller's ROT. Elevated IDEs are not visible to a normal-privilege caller.
+	private static List<int> RegisteredProcessIds()
 	{
-		using var self = Process.GetCurrentProcess();
-		var result = new HashSet<int>();
-		foreach (var process in Process.GetProcessesByName("devenv"))
+		// Reading moniker names does not call into the IDEs, so this cannot be blocked by a hung instance.
+		var result = new List<int>();
+		VisitRegistered((pid, rot, moniker) =>
 		{
-			using (process)
-			{
-				if (process.SessionId == self.SessionId) result.Add(process.Id);
-			}
-		}
+			// Collect every DTE registration.
+			result.Add(pid);
+			return true;
+		});
 		return result;
 	}
 
+	// Call 'visit' for each '!VisualStudio.DTE.<version>:<pid>' ROT entry until it returns false. Entries with other name formats are ignored.
+	private static void VisitRegistered(Func<int, IRunningObjectTable, IMoniker, bool> visit)
+	{
+		// The ROT, bind context, enumerator, and monikers are free-threaded in-process objects, so concurrent probe threads share their runtime
+		// wrappers. Release only this call's reference to each; a final release would disconnect the wrapper from the other threads.
+		var owned = new List<object>();
+		try
+		{
+			Marshal.ThrowExceptionForHR(Native.GetRunningObjectTable(0, out var rot));
+			owned.Add(rot);
+			Marshal.ThrowExceptionForHR(Native.CreateBindCtx(0, out var context));
+			owned.Add(context);
+			rot.EnumRunning(out var enumerator);
+			owned.Add(enumerator);
+			var monikers = new IMoniker[1];
+			while (enumerator.Next(1, monikers, nint.Zero) == 0)
+			{
+				// Match DTE registrations by name and pass the live moniker to the visitor.
+				var moniker = monikers[0];
+				owned.Add(moniker);
+				moniker.GetDisplayName(context, null, out var name);
+				if (!name.StartsWith("!VisualStudio.DTE.", StringComparison.OrdinalIgnoreCase)) continue;
+				if (!int.TryParse(name[(name.LastIndexOf(':') + 1)..], out var pid)) continue;
+				if (!visit(pid, rot, moniker)) return;
+			}
+		}
+		finally
+		{
+			// Release in reverse acquisition order.
+			for (var i = owned.Count; i != 0;)
+				Marshal.ReleaseComObject(owned[--i]);
+		}
+	}
+
 	// Owned popups count with their main window. Z-order can change independently of activation history.
+	// If the stacking order changes during the walk, the windows ranked so far are kept and the rest are treated as unranked.
 	private static Dictionary<nint, int> WindowOrder()
 	{
 		var result = new Dictionary<nint, int>();
 		var visited = new HashSet<nint>();
-		for (var hwnd = Native.GetTopWindow(nint.Zero); hwnd != nint.Zero; hwnd = Native.GetWindow(hwnd, 2))
+		for (var hwnd = Native.GetTopWindow(nint.Zero); hwnd != nint.Zero && visited.Add(hwnd); hwnd = Native.GetWindow(hwnd, 2))
 		{
-			if (!visited.Add(hwnd))
-				throw new InvalidOperationException("Window stacking order changed during discovery. Retry.");
-
 			if (!Native.IsWindowVisible(hwnd)) continue;
 			var root = Native.GetAncestor(hwnd, 3);
 			result.TryAdd(root, visited.Count);

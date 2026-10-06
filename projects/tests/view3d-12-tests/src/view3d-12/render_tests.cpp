@@ -83,6 +83,35 @@ namespace fade_tests
 		}
 	}
 
+	// A final-overlay marker whose colour and rectangle are supplied through the provider context.
+	struct OverlayMarker
+	{
+		float m_colour[4];
+		D3D12_RECT m_rect;
+	};
+
+	// Paint the marker described by 'context' so tests can attach several distinguishable providers.
+	ui::EHostStatus __stdcall MarkerOverlay(void* context, ui::Pass const* pass)
+	{
+		switch (pass->m_pass)
+		{
+			case ui::EPass::FinalOverlay:
+			{
+				auto const& marker = *static_cast<OverlayMarker const*>(context);
+				pass->m_command_list->ClearRenderTargetView(pass->m_rtv, marker.m_colour, 1, &marker.m_rect);
+				return ui::EHostStatus::Success;
+			}
+			case ui::EPass::Prepare:
+			case ui::EPass::DepthTested:
+			case ui::EPass::OcclusionFaded:
+			case ui::EPass::Overlay:
+			{
+				return ui::EHostStatus::Success;
+			}
+			default: { throw std::runtime_error("Unknown UI pass"); }
+		}
+	}
+
 	// Convert framebuffer bytes back to the linear colour space used by alpha blending.
 	float Linear(unsigned char value)
 	{
@@ -2693,6 +2722,309 @@ namespace fade_tests
 		fixture.CheckDebugLayer();
 		std::cout << "PASS environment map capture exclusion\n";
 	}
+
+	// Check that detail normals tilt lighting only while layers are set, in both forward and far-fade variants, and can be removed.
+	void DetailNormalsTests()
+	{
+		// A lit white quad faces the camera, with a directional light from the -X side so a normal tilt along X changes its brightness.
+		auto fixture = Fixture(1);
+		auto object = fixture.Quad(10, 0xFFFFFFFF, 45, nullptr, 0, 0xFFFFFFFF, false, true);
+		auto light = SceneLightingGet(fixture.m_window);
+		light.m_type = api::ELight::Directional;
+		light.m_direction = api::Vec4{0.70710678f, 0, -0.70710678f, 0};
+		light.m_ambient = 0xFF000000;
+		light.m_diffuse = 0xFFFFFFFF;
+		light.m_specular = 0xFF000000;
+		light.m_intensity = 1;
+		light.m_cast_shadow = 0;
+		light.m_on = TRUE;
+		SceneLightingSet(fixture.m_window, light);
+		auto brightness = [](std::vector<unsigned char> const& image)
+		{
+			// The quad is grey, so one channel at the centre measures its lighting.
+			return Linear(image[(64 * ImageSize + 64) * 4 + 1]);
+		};
+		auto flat = fixture.Image();
+
+		// A uniform slope map of +1 along u, 0 along v, with half the mean square slope (0.5) in blue. Wrapping matches the tileable maps
+		// the feature is designed for.
+		auto options = api::TextureOptions{};
+		options.m_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		options.m_resource_state = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+		options.m_mips = 0;
+		options.m_multisamp = {1, 0};
+		options.m_t2s = {{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1}};
+		std::array<uint32_t, 4> pixels; pixels.fill(0xFF8080FFU);
+		auto texture = api::TexturePtr(View3D_TextureCreate(2, 2, pixels.data(), sizeof(pixels), options));
+		auto sampler = api::SamplerPtr(View3D_SamplerCreate(api::SamplerOptions{D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP, "DetailNormals"}));
+		fixture.CheckErrors();
+		Require(texture != nullptr && sampler != nullptr, "Detail-normal resources were not created");
+
+		// A map without layers leaves the surface unchanged.
+		View3D_ObjectNuggetDetailNormalsSet(object, texture.get(), sampler.get(), nullptr, 0);
+		fixture.CheckErrors();
+		Require(ImageDifference(flat, fixture.Image()) < 100, "Detail normals without layers changed the surface");
+
+		// Height rising along +X with gradient 0.5 tilts the normal to (-0.5, 0, 1). Diffuse lighting from 45 degrees then rises by
+		// cos(45 - atan(0.5)) / cos(45), about 1.342, relative to the flat surface.
+		auto layer = api::DetailNormalLayer{};
+		layer.m_row_u = api::Vec4{1, 0, 0, 0};
+		layer.m_row_v = api::Vec4{0, 1, 0, 0};
+		layer.m_height_scale = 0.5f;
+		View3D_ObjectDetailNormalLayersSet(object, &layer, 1, 0.0f);
+		fixture.CheckErrors();
+		auto tilted = fixture.Image();
+		Require(std::abs(brightness(tilted) / brightness(flat) - 1.342f) < 0.03f, (std::string("Detail-normal layer tilted the lighting normal incorrectly: flat ") + std::to_string(brightness(flat)) + ", tilted " + std::to_string(brightness(tilted))).c_str());
+
+		// The far-fade variant applies the same tilt when the surface is nearer than the fade band.
+		fixture.Fade(true);
+		Require(ImageDifference(tilted, fixture.Image()) < 100, "Far-fade detail-normal variant differs from the forward variant");
+		fixture.Fade(false);
+
+		// Weight noise varies the tilt across the quad, which spans several noise cells. Without weight noise the frequency has no effect.
+		auto noisy_layer = layer;
+		noisy_layer.m_weight_noise = 1.0f;
+		noisy_layer.m_noise_frequency = 0.5f;
+		View3D_ObjectDetailNormalLayersSet(object, &noisy_layer, 1, 0.0f);
+		fixture.CheckErrors();
+		auto noisy_difference = ImageDifference(tilted, fixture.Image());
+		Require(noisy_difference > 100, (std::string("Detail-normal weight noise did not vary the surface: difference ") + std::to_string(noisy_difference)).c_str());
+		noisy_layer.m_weight_noise = 0.0f;
+		View3D_ObjectDetailNormalLayersSet(object, &noisy_layer, 1, 0.0f);
+		fixture.CheckErrors();
+		Require(ImageDifference(tilted, fixture.Image()) < 100, "Noise frequency changed the surface without weight noise");
+
+		// Warp shifts where a non-uniform map is sampled. Columns of opposite u slope make the shift visible, while a uniform map would hide it.
+		std::array<uint32_t, 4> stripes = {0xFF8080FFU, 0xFF808000U, 0xFF8080FFU, 0xFF808000U};
+		auto striped = api::TexturePtr(View3D_TextureCreate(2, 2, stripes.data(), sizeof(stripes), options));
+		Require(striped != nullptr, "Striped detail-normal map was not created");
+		auto stripe_layer = layer;
+		stripe_layer.m_noise_frequency = 0.5f;
+		View3D_ObjectNuggetDetailNormalsSet(object, striped.get(), sampler.get(), nullptr, 0);
+		View3D_ObjectDetailNormalLayersSet(object, &stripe_layer, 1, 0.0f);
+		fixture.CheckErrors();
+		auto unwarped = fixture.Image();
+		stripe_layer.m_warp = 0.5f;
+		View3D_ObjectDetailNormalLayersSet(object, &stripe_layer, 1, 0.0f);
+		fixture.CheckErrors();
+		auto warp_difference = ImageDifference(unwarped, fixture.Image());
+		Require(warp_difference > 100, (std::string("Detail-normal warp did not move the map: difference ") + std::to_string(warp_difference)).c_str());
+		View3D_ObjectNuggetDetailNormalsSet(object, texture.get(), sampler.get(), nullptr, 0);
+		View3D_ObjectDetailNormalLayersSet(object, &stripe_layer, 1, 0.0f);
+		fixture.CheckErrors();
+		Require(ImageDifference(tilted, fixture.Image()) < 100, "Warp changed a uniform map");
+
+		// Removing the layers restores the flat surface without replacing the material.
+		View3D_ObjectDetailNormalLayersSet(object, nullptr, 0, 0.0f);
+		fixture.CheckErrors();
+		Require(ImageDifference(flat, fixture.Image()) < 100, "Clearing detail-normal layers did not restore the surface");
+
+		// Invalid inputs are reported and leave the active state unchanged.
+		auto layers = std::array<api::DetailNormalLayer, 5>{layer, layer, layer, layer, layer};
+		View3D_ObjectDetailNormalLayersSet(object, layers.data(), 5, 0.0f);
+		Require(!fixture.m_errors.empty(), "Too many detail-normal layers were accepted");
+		fixture.m_errors.clear();
+		View3D_ObjectDetailNormalLayersSet(object, &layer, 1, -0.1f);
+		Require(!fixture.m_errors.empty(), "A negative base slope variance was accepted");
+		fixture.m_errors.clear();
+		auto bad_noise = layer;
+		bad_noise.m_weight_noise = 0.5f;
+		View3D_ObjectDetailNormalLayersSet(object, &bad_noise, 1, 0.0f);
+		Require(!fixture.m_errors.empty(), "Weight noise without a positive noise frequency was accepted");
+		fixture.m_errors.clear();
+		auto bad_warp = layer;
+		bad_warp.m_warp = 0.5f;
+		View3D_ObjectDetailNormalLayersSet(object, &bad_warp, 1, 0.0f);
+		Require(!fixture.m_errors.empty(), "Warp without a positive noise frequency was accepted");
+		fixture.m_errors.clear();
+		bad_warp.m_noise_frequency = 0.5f;
+		bad_warp.m_warp = -0.5f;
+		View3D_ObjectDetailNormalLayersSet(object, &bad_warp, 1, 0.0f);
+		Require(!fixture.m_errors.empty(), "A negative warp was accepted");
+		fixture.m_errors.clear();
+		View3D_ObjectNuggetDetailNormalsSet(object, texture.get(), nullptr, nullptr, 0);
+		Require(!fixture.m_errors.empty(), "A detail-normal map without a sampler was accepted");
+		fixture.m_errors.clear();
+
+		// Removing the component restores the stock shader; layer updates then report that the object has no detail normals.
+		View3D_ObjectDetailNormalLayersSet(object, &layer, 1, 0.0f);
+		View3D_ObjectNuggetDetailNormalsSet(object, nullptr, nullptr, nullptr, 0);
+		fixture.CheckErrors();
+		Require(ImageDifference(flat, fixture.Image()) < 100, "Removing detail normals did not restore the surface");
+		View3D_ObjectDetailNormalLayersSet(object, &layer, 1, 0.0f);
+		Require(!fixture.m_errors.empty(), "Layers were accepted by an object without detail normals");
+		fixture.m_errors.clear();
+
+		// Any GPU validation error fails the fixture.
+		fixture.CheckDebugLayer();
+		std::cout << "PASS detail normals\n";
+	}
+
+	// Check that the environment map probe completes a cube every six updates and fades each new cube in over the previous one
+	void EnvMapProbeTests()
+	{
+		// An unlit red quad fills the view against the black background
+		auto fixture = Fixture(1);
+		fixture.Quad(10, 0xFFFF0000);
+		auto& scene = fixture.m_window->m_scene;
+		auto update = [&](int count)
+		{
+			// Each update renders one face of the capture cube
+			for (int i = 0; i != count; ++i)
+				View3D_WindowEnvMapProbeUpdate(fixture.m_window, api::Vec4{0, 0, 0, 1});
+
+			fixture.CheckErrors();
+		};
+
+		// No environment map is bound until the first cube is complete
+		View3D_WindowEnvMapProbeSet(fixture.m_window, 32);
+		fixture.CheckErrors();
+		Require(scene.m_global_envmap == nullptr, "Probe bound an environment map before any capture");
+		update(5);
+		Require(scene.m_global_envmap == nullptr, "Probe bound an incomplete cube");
+
+		// The first complete cube is used alone because there is nothing to fade from
+		update(1);
+		auto* first = scene.m_global_envmap.get();
+		Require(first != nullptr && scene.m_global_envmap_prev == nullptr, "First complete cube not bound alone");
+		Expect(fixture.Image(), 1, 0, 0);
+
+		// The second complete cube starts fully weighted to the first, then fades in over the next five updates
+		update(6);
+		Require(scene.m_global_envmap.get() != first && scene.m_global_envmap_prev.get() == first, "Second cube did not replace the first");
+		Require(scene.m_global_envmap_blend == 0.0f, "Fade did not start from the previous cube");
+		update(1);
+		Require(std::abs(scene.m_global_envmap_blend - 0.2f) < 1e-6f, "Fade did not advance by one step");
+		Expect(fixture.Image(), 1, 0, 0);
+		update(4);
+		Require(scene.m_global_envmap_blend == 1.0f, "Fade did not finish within one cycle");
+
+		// The third cube was captured into a spare cube, and the first cube, now the oldest, is unbound so that the next capture can reuse it
+		update(1);
+		Require(scene.m_global_envmap.get() != first && scene.m_global_envmap_prev.get() != first, "Probe did not retire the oldest cube");
+		update(6);
+		Require(scene.m_global_envmap.get() == first, "Probe did not reuse the oldest cube");
+
+		// A proxy radius makes each new cube store distances in alpha. Rendering with the distance-correcting lookup must complete without errors.
+		View3D_WindowEnvMapProxyRadiusSet(fixture.m_window, 5.0f);
+		fixture.CheckErrors();
+		update(12);
+		Require(scene.m_global_envmap->m_distance_scale == 5.0f && scene.m_global_envmap_prev->m_distance_scale == 5.0f, "Probe cubes did not record the distance scale");
+		Expect(fixture.Image(), 1, 0, 0);
+
+		// Setting an explicit environment map disables the probe and removes the fade
+		View3D_WindowEnvMapSet(fixture.m_window, nullptr);
+		fixture.CheckErrors();
+		Require(scene.m_global_envmap == nullptr && scene.m_global_envmap_prev == nullptr && fixture.m_window->m_envmap_probe == nullptr, "Environment map set did not disable the probe");
+
+		// Any GPU validation error fails the fixture.
+		fixture.CheckDebugLayer();
+		std::cout << "PASS environment map probe\n";
+	}
+
+	// Check that several UI providers record in attach order, and that attach and detach identify providers by context.
+	void UIProviderOrderTests()
+	{
+		// Two overlapping markers: red at [4,20) and blue at [12,28), against the black background.
+		auto fixture = Fixture(1);
+		auto module = GetModuleHandleW(L"view3d-12.dll");
+		auto attach = reinterpret_cast<ui::AttachFn>(GetProcAddress(module, ui::AttachExport));
+		auto detach = reinterpret_cast<ui::DetachFn>(GetProcAddress(module, ui::DetachExport));
+		Require(attach != nullptr && detach != nullptr, "UI bridge missing");
+		auto red = OverlayMarker{{1, 0, 0, 1}, {4, 4, 20, 20}};
+		auto blue = OverlayMarker{{0, 0, 1, 1}, {12, 12, 28, 28}};
+		auto red_provider = ui::Provider{{sizeof(ui::Provider), ui::HostStructVersion}, &red, MarkerOverlay, nullptr};
+		auto blue_provider = ui::Provider{{sizeof(ui::Provider), ui::HostStructVersion}, &blue, MarkerOverlay, nullptr};
+
+		// The later provider draws on top where the markers overlap.
+		Require(attach(fixture.m_window, &red_provider) == ui::EHostStatus::Success, "First provider attach failed");
+		Require(attach(fixture.m_window, &blue_provider) == ui::EHostStatus::Success, "Second provider attach failed");
+		auto both = fixture.Image();
+		Expect(both, 1,0,0, 6,6);
+		Expect(both, 0,0,1, 16,16);
+		Expect(both, 0,0,1, 24,24);
+		Expect(both, 0,0,0);
+
+		// A context can only be attached once, and detaching an unknown context reports that it is not attached.
+		Require(attach(fixture.m_window, &red_provider) == ui::EHostStatus::AlreadyAttached, "Duplicate provider was accepted");
+		auto unknown = int{};
+		Require(detach(fixture.m_window, &unknown) == ui::EHostStatus::NotAttached, "Unknown provider detach was accepted");
+
+		// Detaching the first provider leaves the second provider drawing.
+		Require(detach(fixture.m_window, &red) == ui::EHostStatus::Success, "First provider detach failed");
+		auto second_only = fixture.Image();
+		Expect(second_only, 0,0,0, 6,6);
+		Expect(second_only, 0,0,1, 16,16);
+
+		// Reattaching the first provider moves it to the top of the order.
+		Require(attach(fixture.m_window, &red_provider) == ui::EHostStatus::Success, "Provider reattach failed");
+		Expect(fixture.Image(), 1,0,0, 16,16);
+		Require(detach(fixture.m_window, &red) == ui::EHostStatus::Success, "First provider detach failed");
+		Require(detach(fixture.m_window, &blue) == ui::EHostStatus::Success, "Second provider detach failed");
+		Expect(fixture.Image(), 0,0,0, 16,16);
+
+		// Any GPU validation error fails the fixture.
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+		std::cout << "PASS UI provider order\n";
+	}
+
+	// Check that an imgui.dll context attached to a window draws its completed frames into the final overlay, in display colours.
+	void ImGuiProviderTests()
+	{
+		// The context takes the render target format from the window, so it cannot start a frame before the window first renders.
+		auto fixture = Fixture(1);
+		auto errors = std::vector<std::string>{};
+		auto report = [](void* context, char const* message, size_t length)
+		{
+			// Collect messages so the test can fail with the first one.
+			static_cast<std::vector<std::string>*>(context)->emplace_back(message, length);
+		};
+		auto ui = pr::rdr12::imgui::ImGuiUI({fixture.m_device.Get(), nullptr, fixture.m_hwnd, DXGI_FORMAT_UNKNOWN, 0, 1.0f}, {&errors, report});
+		Require(static_cast<bool>(ui), "ImGui context creation failed");
+		Require(ui.AttachToWindow(fixture.m_window), "ImGui attach failed");
+		Require(!ui.NewFrame(), "ImGui started a frame before the window rendered");
+		Expect(fixture.Image(), 0,0,0, 40,40);
+
+		// Check raw bytes because ImGui colours are display colours that must be written without sRGB encoding.
+		auto expect_bytes = [](std::vector<unsigned char> const& image, int value, int x, int y)
+		{
+			// Allow for rounding differences between GPUs.
+			auto pixel = image.data() + (y * ImageSize + x) * 4;
+			for (auto channel = 0; channel != 3; ++channel)
+			{
+				if (std::abs(pixel[channel] - value) > 2)
+					throw std::runtime_error("ImGui pixel mismatch channel " + std::to_string(channel) + ": actual " + std::to_string(pixel[channel]) + ", expected " + std::to_string(value));
+			}
+		};
+
+		// An opaque, undecorated window fills [8,72) with the default dark style's window background, (0.06, 0.06, 0.06).
+		// A new window may be hidden on its first frame, so the second frame is checked.
+		auto image = std::vector<unsigned char>{};
+		for (auto frame = 0; frame != 2; ++frame)
+		{
+			Require(ui.NewFrame(), "ImGui did not start a frame after the window rendered");
+			ui.SetNextWindowPos(8, 8);
+			ui.SetNextWindowSize(64, 64);
+			ui.SetNextWindowBgAlpha(1.0f);
+			ui.BeginWindow("ImGuiProviderTest", nullptr, 1 | 2 | 4 | 8);
+			ui.EndWindow();
+			ui.EndFrame();
+			image = fixture.Image();
+		}
+		expect_bytes(image, 15, 40, 40);
+		Expect(image, 0,0,0, 100,100);
+
+		// Detaching stops drawing.
+		ui.DetachFromWindow();
+		Expect(fixture.Image(), 0,0,0, 40,40);
+
+		// Any error reported by the DLL or GPU validation fails the fixture.
+		Require(errors.empty(), errors.empty() ? "" : errors.front().c_str());
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+		std::cout << "PASS ImGui provider\n";
+	}
 }
 
 // Register the view3d-12 renderer tests. CPU-only tests are 'Quick'; tests that render and read back on the GPU are 'Extended'.
@@ -2770,6 +3102,22 @@ namespace pr::unittests::view3d12
 	PRUnitTest(View3d12_EnvMapCaptureExclude, Extended)
 	{
 		fade_tests::EnvMapCaptureExcludeTests();
+	}
+	PRUnitTest(View3d12_DetailNormals, Extended)
+	{
+		fade_tests::DetailNormalsTests();
+	}
+	PRUnitTest(View3d12_EnvMapProbe, Extended)
+	{
+		fade_tests::EnvMapProbeTests();
+	}
+	PRUnitTest(View3d12_UIProviderOrder, Extended)
+	{
+		fade_tests::UIProviderOrderTests();
+	}
+	PRUnitTest(View3d12_ImGuiProvider, Extended)
+	{
+		fade_tests::ImGuiProviderTests();
 	}
 	PRUnitTest(View3d12_Dither, Extended)
 	{

@@ -326,7 +326,7 @@ namespace pr
 			// True if the object has animation data.
 			Animated = 1 << 13,
 
-			// Not rendered into environment maps captured with EnvMapCapture
+			// Not rendered into captured environment maps (EnvMapCapture and the environment map probe)
 			EnvMapCaptureExclude = 1 << 15,
 
 			// Indicates invalidated flags that need to be refreshed
@@ -685,6 +685,20 @@ namespace pr
 			float m_pad1;
 			float m_pad2;
 			float m_pad3;
+		};
+
+		// One world-space projection of a detail-normal slope map. See View3D_ObjectDetailNormalLayersSet.
+		struct DetailNormalLayer
+		{
+			// Field order is part of the native/managed ABI contract.
+
+			Vec4 m_row_u;         // u = dot(world_pos.xyz, m_row_u.xyz) + m_row_u.w
+			Vec4 m_row_v;         // v = dot(world_pos.xyz, m_row_v.xyz) + m_row_v.w
+			float m_height_scale;    // World height per unit of map height, per texture unit of slope
+			float m_weight_noise;    // In [0, 1]. Smooth world noise scales the height by a factor in [1 - m_weight_noise, 1 + m_weight_noise]
+			float m_noise_frequency; // Finite, and positive when m_weight_noise or m_warp is non-zero. Noise cells per texture unit; ignores row offsets
+			float m_warp;            // Finite and non-negative. Noise shifts the texture coordinates by up to this many texture units
+			float m_pad0;
 		};
 		struct BBox
 		{
@@ -1280,6 +1294,19 @@ extern "C"
 	// so repeated captures at the same face size are much cheaper than the first. Objects with ELdrFlags::EnvMapCaptureExclude are not captured.
 	VIEW3D_API void __stdcall View3D_WindowEnvMapCapture(pr::view3d::Window window, pr::view3d::CubeMap env_map, pr::view3d::Vec4 position);
 
+	// Enable the window's time-sliced environment map probe with 'face_size' pixels per face edge, or disable it with 0. While enabled, the probe owns the window's
+	// environment map. Each View3D_WindowEnvMapProbeUpdate renders one face, and every six updates complete a new cube that fades in over the previous one.
+	// Setting an environment map with View3D_WindowEnvMapSet disables the probe.
+	VIEW3D_API void __stdcall View3D_WindowEnvMapProbeSet(pr::view3d::Window window, int face_size);
+
+	// Render the next face of the window's environment map probe. 'position' is sampled when the first face of each cube is rendered. Call once per frame before rendering.
+	VIEW3D_API void __stdcall View3D_WindowEnvMapProbeUpdate(pr::view3d::Window window, pr::view3d::Vec4 position);
+
+	// Get/Set the radius of the sphere that reflections assume the environment lies on, centred on each environment map's capture position.
+	// Objects near this distance from the capture position are reflected without parallax error. 0 (the default) treats the environment as infinitely distant.
+	VIEW3D_API float __stdcall View3D_WindowEnvMapProxyRadiusGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_WindowEnvMapProxyRadiusSet(pr::view3d::Window window, float radius);
+
 	// Enable/Disable the depth buffer
 	VIEW3D_API BOOL __stdcall View3D_DepthBufferEnabledGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_DepthBufferEnabledSet(pr::view3d::Window window, BOOL enabled);
@@ -1630,6 +1657,18 @@ extern "C"
 	VIEW3D_API BOOL __stdcall View3D_ObjectNuggetProceduralSurfaceGet(pr::view3d::Object object, pr::view3d::ProceduralSurface& surface, char const* name, int index);
 	VIEW3D_API void __stdcall View3D_ObjectNuggetProceduralSurfaceSet(pr::view3d::Object object, pr::view3d::ProceduralSurface const& surface, char const* name, int index);
 	VIEW3D_API void __stdcall View3D_ObjectNuggetProceduralSurfaceClear(pr::view3d::Object object, char const* name, int index);
+
+	// Detail normals tilt a simple material's normals with world-projected layers of a tileable slope map. The map's red and green channels hold
+	// the height slope along u and v, encoded as (slope + 1) / 2, and the blue channel holds (slope_u² + slope_v²) / 2, so mip filtering keeps
+	// the roughness that minified slopes lose. Set 'tex' and 'sam' to null to remove detail normals. Layers are kept when the map
+	// changes; a new assignment starts with no layers. Throws if the nugget material is not a simple material.
+	VIEW3D_API void __stdcall View3D_ObjectNuggetDetailNormalsSet(pr::view3d::Object object, pr::view3d::Texture tex, pr::view3d::Sampler sam, char const* name, int index);
+
+	// Replace the detail-normal layers of every nugget of 'object' (not its children) that has detail normals. Layers are shared by the
+	// material, so this is cheap enough to call every frame. 'count' must be in [0, 4]. 'base_slope_variance' (non-negative) is the mean square
+	// slope of roughness finer than every layer; it blurs and weakens the environment reflection everywhere on the surface. Throws if the object
+	// has no detail normals.
+	VIEW3D_API void __stdcall View3D_ObjectDetailNormalLayersSet(pr::view3d::Object object, pr::view3d::DetailNormalLayer const* layers, int count, float base_slope_variance);
 
 	// Override stock-shader surface RGB after material/vertex/texture colour and before lighting. Packed RGB is an sRGB target, decoded at
 	// shader upload; packed alpha is the linear UNORM8 blend weight (A/255), not opacity. Surface alpha and sorting remain unchanged.

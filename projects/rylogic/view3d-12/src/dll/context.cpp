@@ -8,6 +8,7 @@
 #include "pr/view3d-12/ldraw/ldraw_parsing.h"
 #include "pr/view3d-12/ldraw/ldraw_reader_text.h"
 #include "pr/view3d-12/ldraw/ldraw_commands.h"
+#include "pr/view3d-12/material/components/detail_normals.h"
 #include "pr/view3d-12/material/components/shader_overlays.h"
 #include "pr/view3d-12/model/model_generator.h"
 #include "pr/view3d-12/model/vertex_layout.h"
@@ -595,6 +596,29 @@ namespace pr::rdr12
 		}
 		if (updated == 0)
 			throw std::invalid_argument("Object has no procedural vertex shaders");
+	}
+
+	// Replace the detail-normal layers of every nugget of 'object' that has detail normals.
+	void Context::ObjectDetailNormalLayers(ldraw::LdrObject* object, std::span<materials::DetailNormalLayer const> layers, float base_slope_variance)
+	{
+		// Only the object's own model is updated; children keep their own layers.
+		auto& model = object->m_model;
+		if (model == nullptr)
+			throw std::invalid_argument("Object has no model with detail normals");
+
+		auto updated = 0;
+		for (auto* nugget = model->m_nuggets.get(); nugget != nullptr; nugget = nugget->m_next.get())
+		{
+			// Layers are shared by every copy of the material, including alpha variants, so the material itself is not replaced.
+			auto const* detail = nugget->mat().Component<materials::DetailNormals>();
+			if (detail == nullptr)
+				continue;
+
+			detail->m_layers->Set(layers, base_slope_variance);
+			++updated;
+		}
+		if (updated == 0)
+			throw std::invalid_argument("Object has no detail normals");
 	}
 
 	// Load/Add ldr objects and return the first object from the script

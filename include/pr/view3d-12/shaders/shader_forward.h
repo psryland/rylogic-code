@@ -20,6 +20,7 @@ namespace pr::rdr12::shaders
 			CBufPbrSurface,
 			CBufDiag,
 			CBufProcedural,
+			CBufDetailNormals,
 			DiffTexture,
 			EnvMap,
 			ShadowAtlas,
@@ -46,6 +47,7 @@ namespace pr::rdr12::shaders
 			ShadowViews,
 			ProceduralBuffer,
 			Elements,
+			EnvMapPrev,
 		};
 
 		enum class ESampParam

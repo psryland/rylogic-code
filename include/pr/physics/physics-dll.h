@@ -912,15 +912,21 @@ extern "C"
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineWaterBathymetrySet(pr::physics::EngineHandle engine, pr::physics::WaterBathymetryDesc const* bathymetry);
 
 	// Wind-driven wave spectrum with the fixed components described by 'spectrum'. 'count' must equal the component count, bands * directions.
-	// Wind direction is the direction the wind blows towards, in radians anticlockwise from +X. Wind speed is m/s and fetch is metres.
-	PHYSICS_API pr::physics::EStatus __stdcall Physics_WaveSpectrumTargets(pr::physics::WaveSpectrumDesc const* spectrum, float wind_speed, float wind_direction, float fetch, float* amplitudes, std::int32_t count);
+	// Wind speed is m/s and fetch is metres. Amplitudes are for component directions relative to downwind; see Physics_WaveSpectrumElements.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_WaveSpectrumTargets(pr::physics::WaveSpectrumDesc const* spectrum, float wind_speed, float fetch, float* amplitudes, std::int32_t count);
 
 	// Move each amplitude towards its target over 'dt' seconds with exponential time constant 'time_constant' seconds.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_WaveSpectrumRelax(float* amplitudes, float const* targets, std::int32_t count, float dt, float time_constant);
 
+	// Return the crest sharpness of wind-driven waves for 'wind_speed' (m/s), for use with Physics_WaveSpectrumElements. Zero up to 4 m/s, rising
+	// towards 0.7 in storms.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_WaveSpectrumCrestSharpness(float wind_speed, float* sharpness);
+
 	// Write Gerstner elements for the components with a positive amplitude and a wavelength of at least 'min_wavelength', in component order.
+	// 'heading' is the direction the wind blows towards, in radians anticlockwise from +X; component directions are rotated by it.
+	// 'sharpness' in [0, 0.9] narrows wave crests and flattens troughs (see shared::WaterFieldWaveProfile) and is stored in each element's timing.x.
 	// Steepness is zero. Fails when more than 'capacity' elements are needed.
-	PHYSICS_API pr::physics::EStatus __stdcall Physics_WaveSpectrumElements(pr::physics::WaveSpectrumDesc const* spectrum, float const* amplitudes, std::int32_t count, float min_wavelength, pr::physics::WaterElement* elements, std::int32_t capacity, std::int32_t* element_count);
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_WaveSpectrumElements(pr::physics::WaveSpectrumDesc const* spectrum, float const* amplitudes, std::int32_t count, float heading, float sharpness, float min_wavelength, pr::physics::WaterElement* elements, std::int32_t capacity, std::int32_t* element_count);
 
 	// Material properties.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_MaterialGet(pr::physics::EngineHandle engine, std::int32_t material_id, pr::physics::MaterialProperties* material);

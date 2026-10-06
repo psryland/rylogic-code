@@ -101,7 +101,7 @@
 			<_PkgIdLower>$(PackageId.ToLowerInvariant())</_PkgIdLower>
 			<_RylogicEffectivePackageVersion Condition="'$(PackageVersion)' != ''">$(PackageVersion)</_RylogicEffectivePackageVersion>
 			<_RylogicEffectivePackageVersion Condition="'$(_RylogicEffectivePackageVersion)' == ''">$(Version)</_RylogicEffectivePackageVersion>
-			<_NuGetCacheDir>$(UserProfile)\.nuget\packages\$(_PkgIdLower)\$(_RylogicEffectivePackageVersion)</_NuGetCacheDir>
+			<_NuGetCacheDir>$(NuGetPackageRoot.TrimEnd('\'))\$(_PkgIdLower)\$(_RylogicEffectivePackageVersion)</_NuGetCacheDir>
 			<_NuGetFeedPath>$(RylogicRoot)lib\packages\$(PackageId).$(_RylogicEffectivePackageVersion).nupkg</_NuGetFeedPath>
 			<_NuPkgPath>$([System.IO.Path]::Combine('$(PackageOutputPath)', '$(PackageId).$(Version).nupkg'))</_NuPkgPath>
 			<_NuPkgPath Condition="'$(PackageVersion)' != ''">$([System.IO.Path]::Combine('$(PackageOutputPath)', '$(PackageId).$(PackageVersion).nupkg'))</_NuPkgPath>
