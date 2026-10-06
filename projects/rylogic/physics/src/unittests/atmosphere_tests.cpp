@@ -150,6 +150,56 @@ namespace pr::physics::tests
 			PR_EXPECT(stats.m_rms_divergence < 0.002f);
 		}
 
+		PRUnitTestMethod(LargeOpenGridProjectionConverges, Quick)
+		{
+			// Deep, odd-sized multigrid hierarchies with open sides must keep the coarse levels' zero-pressure boundary at the fine domain edge.
+			// A misplaced coarse boundary over-corrects the largest-scale pressure mode, so repeated projections of the same field grow without bound.
+			auto gpu = Gpu{};
+			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTests.LargeOpenGrid", 0xFF00AAFF, 1 };
+			auto const n = 136;
+			auto const open = EAtmosphereBoundary::Open;
+			auto config = AtmosphereConfig{
+				.m_grid = AtmosphereGrid{ .m_cell_count = iv3{ n, n, 12 }, .m_origin = v4{ -16.0f * n, -16.0f * n, -100.0f, 1.0f }, .m_dx = 32.0f, .m_lid_z = 1500.0f, .m_first_layer_thickness = 5.0f },
+				.m_boundaries = AtmosphereBoundaries{ .m_x_min = open, .m_x_max = open, .m_y_min = open, .m_y_max = open },
+			};
+			config.m_open_edge_band = 8;
+			auto solver = AtmosphereSolver{ gpu, config };
+
+			// Fill the interior horizontal faces with deterministic noise so every pressure scale has divergence to remove.
+			auto const& grid = config.m_grid;
+			auto state = solver.ReadBack(job);
+			auto rng = 12345u;
+			auto noise = [&]
+			{
+				// A small linear congruential generator in [-0.5, 0.5).
+				rng = rng * 1664525u + 1013904223u;
+				return static_cast<float>(rng >> 8) / 16777216.0f - 0.5f;
+			};
+			for (int z = 0; z != grid.m_cell_count.z; ++z)
+			{
+				// Fill one layer of U and V faces, skipping the boundary faces.
+				for (int y = 0; y != grid.m_cell_count.y; ++y)
+				{
+					for (int x = 1; x != grid.m_cell_count.x; ++x)
+						state.m_u_faces[grid.UFaceIndex(iv3{ x, y, z })] = noise();
+				}
+				for (int y = 1; y != grid.m_cell_count.y; ++y)
+				{
+					for (int x = 0; x != grid.m_cell_count.x; ++x)
+						state.m_v_faces[grid.VFaceIndex(iv3{ x, y, z })] = noise();
+				}
+			}
+			auto initial = solver.Stats(state);
+			solver.UploadState(job, state);
+			job.Run();
+
+			// Zero-length steps only project the field, so divergence must fall and speed must stay near its initial size.
+			auto stats = solver.Stats(Run(solver, job, 8, 0.0f, AtmosphereStepSources{}));
+			std::printf("Atmosphere large open grid rms_div %.6f -> %.6f max_speed %.6f -> %.6f\n", initial.m_rms_divergence, stats.m_rms_divergence, initial.m_max_speed, stats.m_max_speed);
+			PR_EXPECT(stats.m_rms_divergence < 0.05f * initial.m_rms_divergence);
+			PR_EXPECT(stats.m_max_speed < 2.0f * initial.m_max_speed);
+		}
+
 		PRUnitTestMethod(WarmPlume, Quick)
 		{
 			// A warm sphere near the floor should drive upward motion and warm the lid layer.

@@ -1011,6 +1011,24 @@ float VerticalPressureGradientLevel(MgLevel level, int3 c)
 	return (PressureAtLevel(level, c + int3(0, 0, 1)) - PressureAtLevel(level, c + int3(0, 0, -1))) / max(CellZLevel(level, c.xy, c.z + 1) - CellZLevel(level, c.xy, c.z - 1), AtmosphereMinCellHeight);
 }
 
+// Return the horizontal distance, metres, from the centre of the edge column beside the outside column 'n' to the open-boundary point where
+// the perturbation pressure is zero. 'n' must be outside 'level' along exactly one axis.
+float OpenBoundaryDistance(MgLevel level, int2 n)
+{
+	// The fine grid holds zero pressure one fine column beyond each edge column, half a fine column outside the domain face.
+	// Every level keeps that zero point at the same physical position, so coarse levels solve the same domain as the fine level.
+	// A coarse level can extend past the fine domain when a column count is odd, so its last column covers fewer fine columns,
+	// and its centre is taken as the centre of the fine columns it actually covers.
+	int axis = (n.x < 0 || n.x >= level.size.x) ? 0 : 1;
+	if (n[axis] < 0)
+		return 0.5f * g.dx * (float)(level.scale + 1);
+
+	int count = g.cell_count[axis];
+	int first = (level.size[axis] - 1) * level.scale;
+	int end = min(level.size[axis] * level.scale, count);
+	return g.dx * ((float)count + 0.5f - 0.5f * (float)(first + end));
+}
+
 // Accumulate one horizontal pressure neighbour and its coefficient for the column smoother.
 // Open sides hold zero perturbation pressure outside the domain, so they add to the coefficient sum but not to the neighbour sum.
 // Solid columns are walls with no flow through them, so they add to neither sum.
@@ -1026,7 +1044,8 @@ void AddPressureNeighbourLevel(MgLevel level, int3 n, int boundary, float coeff,
 	}
 	else if (boundary == BoundaryOpen)
 	{
-		denom += coeff;
+		// 'coeff' is 1/h², so scale it to 1/(h·d) for the open-boundary distance 'd'. See OpenBoundaryDistance.
+		denom += coeff * LevelDx(level) / OpenBoundaryDistance(level, n.xy);
 	}
 }
 
@@ -1044,9 +1063,9 @@ float PressureGradientXLevel(MgLevel level, int3 f)
 		return (PressureAtLevel(level, c1) - PressureAtLevel(level, c0)) / h - dzdx * 0.5f * (VerticalPressureGradientLevel(level, c0) + VerticalPressureGradientLevel(level, c1));
 	}
 	if (f.x == 0 && BoundaryXMin() == BoundaryOpen)
-		return PressureAtLevel(level, int3(0, f.y, f.z)) / h;
+		return PressureAtLevel(level, int3(0, f.y, f.z)) / OpenBoundaryDistance(level, int2(-1, f.y));
 	if (f.x == level.size.x && BoundaryXMax() == BoundaryOpen)
-		return -PressureAtLevel(level, int3(level.size.x - 1, f.y, f.z)) / h;
+		return -PressureAtLevel(level, int3(level.size.x - 1, f.y, f.z)) / OpenBoundaryDistance(level, int2(level.size.x, f.y));
 	return 0.0f;
 }
 
@@ -1064,9 +1083,9 @@ float PressureGradientYLevel(MgLevel level, int3 f)
 		return (PressureAtLevel(level, c1) - PressureAtLevel(level, c0)) / h - dzdy * 0.5f * (VerticalPressureGradientLevel(level, c0) + VerticalPressureGradientLevel(level, c1));
 	}
 	if (f.y == 0 && BoundaryYMin() == BoundaryOpen)
-		return PressureAtLevel(level, int3(f.x, 0, f.z)) / h;
+		return PressureAtLevel(level, int3(f.x, 0, f.z)) / OpenBoundaryDistance(level, int2(f.x, -1));
 	if (f.y == level.size.y && BoundaryYMax() == BoundaryOpen)
-		return -PressureAtLevel(level, int3(f.x, level.size.y - 1, f.z)) / h;
+		return -PressureAtLevel(level, int3(f.x, level.size.y - 1, f.z)) / OpenBoundaryDistance(level, int2(f.x, level.size.y));
 	return 0.0f;
 }
 
