@@ -31,7 +31,7 @@ public sealed class TestUiProgressBar
 		Assert.Equal(true, clone.IsIndeterminate);
 		Assert.Equal(0.25f, builder.DebugControls[0].m_value);
 		Assert.Equal(1, builder.DebugControls[0].m_is_indeterminate);
-		Assert.Equal(7U, builder.DebugControls[0].m_header.m_version);
+		Assert.Equal(Native.StructVersion, builder.DebugControls[0].m_header.m_version);
 		var visual = new StyleVisual(Colour.TransparentBlack, foreground: new Colour(0, 1, 0, 1));
 		var different = new StyleVisual(Colour.TransparentBlack, foreground: new Colour(1, 0, 0, 1));
 		Assert.Equal(false, visual == different);
@@ -533,7 +533,7 @@ public sealed class TestUiDescriptorSnapshotSemantics
 			var builder = new UiTransactionBuilder().Upsert(control);
 			control.Visibility = EVisibility.Visible;
 			Assert.Equal(visibility, builder.DebugControls[0].m_visibility);
-			Assert.Equal(7U, builder.DebugControls[0].m_header.m_version);
+			Assert.Equal(Native.StructVersion, builder.DebugControls[0].m_header.m_version);
 		}
 
 		// A failed upsert must not leave a partially packed control behind.

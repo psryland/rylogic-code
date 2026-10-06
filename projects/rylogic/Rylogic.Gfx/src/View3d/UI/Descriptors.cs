@@ -170,8 +170,20 @@ public sealed record UiControlDesc
 	/// <summary>When true for a TextBox, View3DUI displays bullets and never exposes the value through semantics/UI Automation.</summary>
 	public bool Masked { get; set; }
 
-	/// <summary>ComboBox items in display order. Applies only to ComboBox.</summary>
-	public IReadOnlyList<string> Items { get; set; } = Array.Empty<string>();
+	/// <summary>ComboBox items in display order. Applies only to ComboBox. Assigning stores an immutable copy, so later changes to the assigned collection have no effect.</summary>
+	public IReadOnlyList<string> Items
+	{
+		get
+		{
+			return m_items;
+		}
+		set
+		{
+			// Share existing snapshots because they are immutable; copy anything else
+			m_items = value as ItemList ?? new ItemList(value);
+		}
+	}
+	private ItemList m_items = ItemList.Empty;
 
 	/// <summary>ComboBox selected item index, or -1 for no selection. Applies only to ComboBox.</summary>
 	public int SelectedIndex { get; set; } = -1;
@@ -186,7 +198,89 @@ public sealed record UiControlDesc
 	/// </summary>
 	public UiControlDesc DeepClone()
 	{
-		return this with { Layout = Layout with { }, World = World with { }, Items = new List<string>(Items).ToArray() };
+		// Items is an immutable snapshot, so the clone can share it
+		return this with { Layout = Layout with { }, World = World with { } };
+	}
+
+	/// <summary>An immutable list of strings that compares equal to another list with the same items in the same order.</summary>
+	private sealed class ItemList : IReadOnlyList<string>, IEquatable<ItemList>
+	{
+		/// <summary>The shared empty list.</summary>
+		public static readonly ItemList Empty = new(Array.Empty<string>());
+
+		// Private copy, never exposed for mutation
+		private readonly string[] m_items;
+
+		/// <summary>Copy 'items' into a new immutable list.</summary>
+		public ItemList(IEnumerable<string> items)
+		{
+			// Take a private copy so the caller cannot change this list later
+			m_items = [.. items];
+		}
+
+		/// <inheritdoc/>
+		public string this[int index]
+		{
+			get
+			{
+				return m_items[index];
+			}
+		}
+
+		/// <inheritdoc/>
+		public int Count
+		{
+			get
+			{
+				return m_items.Length;
+			}
+		}
+
+		/// <inheritdoc/>
+		public IEnumerator<string> GetEnumerator()
+		{
+			// Enumerate the private array through the generic interface
+			return ((IEnumerable<string>)m_items).GetEnumerator();
+		}
+
+		/// <inheritdoc/>
+		System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+		{
+			// Forward to the generic enumerator
+			return GetEnumerator();
+		}
+
+		/// <summary>True when both lists contain the same strings in the same order.</summary>
+		public bool Equals(ItemList? other)
+		{
+			// Compare item by item with ordinal string equality
+			return other is not null && System.Linq.Enumerable.SequenceEqual(m_items, other.m_items);
+		}
+
+		/// <inheritdoc/>
+		public override bool Equals(object? obj)
+		{
+			// Only another ItemList can compare equal
+			return Equals(obj as ItemList);
+		}
+
+		/// <inheritdoc/>
+		public override int GetHashCode()
+		{
+			// Combine every item so that equal lists give equal hash codes
+			var hash = 17;
+			foreach (var item in m_items)
+				hash = unchecked(hash * 31 + StringComparer.Ordinal.GetHashCode(item));
+
+			return hash;
+		}
+
+		/// <inheritdoc/>
+		public override string ToString()
+		{
+			// Show the items so assertion failures are readable
+			return $"[{string.Join(", ", m_items)}]";
+		}
 	}
 }
 
