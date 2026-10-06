@@ -72,9 +72,16 @@ internal static class Paths
 // Facts from one completely inspected, running IDE; PID is identity, never an activity ranking.
 internal sealed record Instance(int ProcessId, string Solution, bool ContainsFile, bool DocumentOpen, int WindowRank);
 
+// A registered IDE that could not be inspected and was excluded from routing.
+internal sealed record SkippedInstance(int ProcessId, string Reason);
+
+// The result of inspecting all registered IDEs.
+internal sealed record Discovery(IReadOnlyList<Instance> Instances, IReadOnlyList<SkippedInstance> Skipped);
+
 internal static class Routing
 {
 	// A null result means a genuine no-match. Window stacking order is the approved approximation, not historical activity.
+	// Candidates with no visible window rank lose ties to ranked candidates.
 	public static Instance? Select(IReadOnlyList<Instance> instances)
 	{
 		var matches = instances.Where(x => x.ContainsFile).ToArray();
@@ -87,9 +94,6 @@ internal static class Routing
 		{
 			matches = instances.Where(x => x.DocumentOpen).ToArray();
 		}
-		if (matches.Length > 1 && matches.Any(x => x.WindowRank == int.MaxValue))
-			throw new InvalidOperationException("A matching Visual Studio window is not visible in this desktop's stacking order. Make the IDE windows visible and retry.");
-
 		return matches.OrderBy(x => x.WindowRank).FirstOrDefault();
 	}
 }
@@ -110,7 +114,7 @@ internal static partial class Tests
 		Check(Routing.Select([solution, solution with { ProcessId = 4, WindowRank = 2 }])?.ProcessId == 4, "solution stacking-order tie");
 		Check(Routing.Select([solution_open, solution_open with { ProcessId = 4, WindowRank = 2 }])?.ProcessId == 4, "open solution stacking-order tie");
 		Check(Routing.Select([loose with { WindowRank = 10 }, loose with { ProcessId = 4 }])?.ProcessId == 4, "loose document stacking-order tie");
-		Throws(() => Routing.Select([solution, solution with { WindowRank = int.MaxValue }]), "unavailable stacking order");
+		Check(Routing.Select([solution with { WindowRank = int.MaxValue }, solution with { ProcessId = 4 }])?.ProcessId == 4, "unranked window loses tie");
 		Check(Paths.Same(@"C:\clone a\src\..\file.cs", @"c:\CLONE A\file.cs"), "full path normalization");
 		Check(!Paths.Same(@"C:\clone a\file.cs", @"C:\clone b\file.cs"), "clone isolation");
 		Check(!Paths.Same(@"C:\clone\file.cs", @"C:\clone\file.cs.bak"), "no prefix identity");

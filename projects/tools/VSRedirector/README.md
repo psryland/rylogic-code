@@ -89,7 +89,7 @@ Open-at-line is available through the direct command shown above; it does not im
 
 The approved window stacking-order tie-break is **approximate recency**, not historical most-recent activation. Owned popups count with their main window.
 Windows allows z-order changes without activation; process start time, PID, and ROT enumeration order are not recency measures.
-A tied candidate with no visible window rank produces an error rather than an arbitrary choice.
+A tied candidate with no visible window rank loses to ranked candidates.
 
 Identity uses normalized, case-insensitive Windows full paths, not basenames, repository names, directory proximity, or common ancestors. Different clones
 remain distinct. Symlinks, junctions, hardlinks, short names, and mapped-drive/UNC aliases are not unified; use consistent path spellings.
@@ -98,8 +98,8 @@ Membership uses DTE's loaded-solution lookup, verifies the item's full file name
 solution-folder item shadows the actual member. Linked files retain their real full paths. Solution folders, miscellaneous-file projects, and unloaded
 projects do not establish membership. An open synthetic solution with no solution path, as used by loose-file windows, does not establish membership either.
 The indexed `FileNames` property is read through the declared `EnvDTE.ProjectItem` dispatch interface: managed project systems can expose a different default
-dispatch interface from native C++ projects. Project systems that fail DTE inspection produce errors, not guessed matches. Binding defects are reported
-separately from busy or access-denied errors. Finish solution/project loading before invoking the redirector.
+dispatch interface from native C++ projects. An instance whose project system fails DTE inspection is skipped, not guessed as a match.
+Finish solution/project loading before invoking the redirector for the best routing.
 
 Reuse calls the selected instance's DTE object directly. Fallback starts the selected `devenv.exe` with no arguments, then binds only that new process's ROT
 object and opens the file through DTE. File paths never pass through devenv's command-line parser; `/Edit` cannot redirect the launch to another instance.
@@ -109,9 +109,11 @@ The IDE's startup/project-picker window may also appear according to its existin
 
 ## Failure boundaries and verification
 
-All same-Windows-session `devenv` processes must be inspectable before routing. Missing ROT registration, elevation/access denial, unsupported automation,
-busy/modal IDEs, and processes appearing/disappearing during discovery are not treated as no-match. Run GitKraken and VS as the same normal user, finish
-startup, close modal dialogs, and retry. The redirector does not auto-elevate.
+Routing considers only the IDEs that can be inspected. Discovery starts from the ROT's `!VisualStudio.DTE.*:<pid>` entries, so elevated IDEs (invisible
+to a normal-privilege caller), IDEs still starting, and dead `devenv` processes are simply not considered. Each registered IDE is inspected on its own STA
+thread; an IDE that is busy or modal past the retry window, denies access, fails automation, or does not answer within 10 seconds in total is **skipped**.
+Skipping can route the file to a less preferred instance or start a new one when the best match was unavailable. Skipped PIDs and reasons are listed in
+`--inspect` output and written to stderr. The redirector does not auto-elevate.
 
 COM runs in a short-lived STA worker. Rejected/busy calls retry for up to three seconds; the supervisor bounds the complete operation at 90 seconds.
 `vswhere` has a ten-second timeout and a new IDE has up to 60 seconds to register. Only owned helper processes are terminated on timeout, never VS.
