@@ -141,6 +141,22 @@ odr float WaterFieldWavePhase(WaterFieldElement element, float2 world_xy, float 
 	return k * dot(element.position.xy, world_xy) + omega * time + element.position.z;
 }
 
+// Return the crest profile P (x) and its derivative dP/dphase (y) at 'phase' for a wave with crest 'sharpness' r in [0, 1).
+// P(phase) = (1 - r^2)(sin(phase) - r) / (1 - 2r*sin(phase) + r^2). It is sin(phase) when r is zero. As r grows, the crest at phase = pi/2 becomes
+// narrower and higher (1 + r) and the trough becomes wider and flatter (-(1 - r)). The crest-to-trough height stays 2 and the mean stays zero, so an
+// amplitude A still describes a wave of height 2A. P is smooth for r < 1: it is the sum of harmonics whose amplitudes fall by a factor r per harmonic,
+// all travelling with the fundamental, so a sharp wave keeps its shape as it moves.
+odr float2 WaterFieldWaveProfile(float phase, float sharpness)
+{
+	// Share one reciprocal of the denominator between the profile and its derivative.
+	float s, c;
+	sincos(phase, s, c);
+	float r = sharpness;
+	float q = 1.0f - r * r;
+	float inv_d = 1.0f / (1.0f - 2.0f * r * s + r * r);
+	return float2(q * (s - r) * inv_d, q * q * c * inv_d * inv_d);
+}
+
 // Return the signed angular frequency used by WaterFieldWavePhase for a sine or Gerstner element.
 odr float WaterFieldWaveAngularFrequency(WaterFieldElement element)
 {
@@ -155,6 +171,10 @@ odr float WaterFieldElementAmplitudeBound(WaterFieldElement element)
 	{
 		case WaterFieldElementSineWave:
 		case WaterFieldElementGerstnerWave:
+		{
+			// The crest profile rises to 1 + sharpness above the still-water level.
+			return abs(element.wave.x) * (1.0f + element.timing.x);
+		}
 		case WaterFieldElementRadialPacket:
 		{
 			// Attenuation, envelope, and fade factors of radial packets are all at most one.
@@ -175,7 +195,7 @@ odr float WaterFieldElementHeight(WaterFieldElement element, float2 world_xy, fl
 		case WaterFieldElementSineWave:
 		case WaterFieldElementGerstnerWave:
 		{
-			return element.wave.x * sin(WaterFieldWavePhase(element, world_xy, time));
+			return element.wave.x * WaterFieldWaveProfile(WaterFieldWavePhase(element, world_xy, time), element.timing.x).x;
 		}
 		case WaterFieldElementRadialPacket:
 		{
@@ -197,10 +217,9 @@ odr float3 WaterFieldElementHeightAndGradient(WaterFieldElement element, float2 
 		case WaterFieldElementGerstnerWave:
 		{
 			float k = tau / element.wave.y;
-			float s, c;
-			sincos(WaterFieldWavePhase(element, world_xy, time), s, c);
-			float slope = element.wave.x * k * c;
-			return float3(element.wave.x * s, element.position.x * slope, element.position.y * slope);
+			float2 profile = WaterFieldWaveProfile(WaterFieldWavePhase(element, world_xy, time), element.timing.x);
+			float slope = element.wave.x * k * profile.y;
+			return float3(element.wave.x * profile.x, element.position.x * slope, element.position.y * slope);
 		}
 		case WaterFieldElementRadialPacket:
 		{
@@ -215,7 +234,7 @@ odr float3 WaterFieldElementHeightAndGradient(WaterFieldElement element, float2 
 }
 
 // Return one element's height and dimensionless lateral pressure-gradient contribution.
-// Waves contribute A*omega^2/g*cos(phase), matching their orbital acceleration; this equals the geometric slope when omega^2 = g*k.
+// Waves contribute A*omega^2/g*P'(phase), matching their orbital acceleration; this equals the geometric slope when omega^2 = g*k.
 odr float3 WaterFieldElementHeightAndPressureGradient(WaterFieldElement element, float2 world_xy, float time, float gravity)
 {
 	switch (element.info.x)
@@ -224,10 +243,9 @@ odr float3 WaterFieldElementHeightAndPressureGradient(WaterFieldElement element,
 		case WaterFieldElementGerstnerWave:
 		{
 			float omega = WaterFieldWaveAngularFrequency(element);
-			float s, c;
-			sincos(WaterFieldWavePhase(element, world_xy, time), s, c);
-			float pressure_gradient = element.wave.x * omega * omega * c / gravity;
-			return float3(element.wave.x * s, element.position.x * pressure_gradient, element.position.y * pressure_gradient);
+			float2 profile = WaterFieldWaveProfile(WaterFieldWavePhase(element, world_xy, time), element.timing.x);
+			float pressure_gradient = element.wave.x * omega * omega * profile.y / gravity;
+			return float3(element.wave.x * profile.x, element.position.x * pressure_gradient, element.position.y * pressure_gradient);
 		}
 		case WaterFieldElementRadialPacket:
 		{
@@ -245,6 +263,8 @@ odr float3 WaterFieldElementHeightAndPressureGradient(WaterFieldElement element,
 
 // Return one element's water-particle velocity contribution at a world-space position.
 // Waves use linear deep-water orbital flow that decays exponentially below the still-water level; points above the level use the surface value.
+// Sharp crests use the crest profile in place of the sine, so the vertical velocity is the rate the surface rises and the horizontal flow follows
+// the height. Every harmonic decays at the fundamental's rate, which slightly overstates the deep flow of sharp waves.
 odr float3 WaterFieldElementVelocity(WaterFieldElement element, float3 world_pos, float time, float water_level)
 {
 	switch (element.info.x)
@@ -254,11 +274,10 @@ odr float3 WaterFieldElementVelocity(WaterFieldElement element, float3 world_pos
 		{
 			float k = tau / element.wave.y;
 			float omega = WaterFieldWaveAngularFrequency(element);
-			float s, c;
-			sincos(WaterFieldWavePhase(element, world_pos.xy, time), s, c);
+			float2 profile = WaterFieldWaveProfile(WaterFieldWavePhase(element, world_pos.xy, time), element.timing.x);
 			float depth = min(world_pos.z - water_level, 0.0f);
 			float speed = element.wave.x * omega * exp(k * depth);
-			return float3(-speed * s * element.position.x, -speed * s * element.position.y, speed * c);
+			return float3(-speed * profile.x * element.position.x, -speed * profile.x * element.position.y, speed * profile.y);
 		}
 		case WaterFieldElementRadialPacket:
 		{
@@ -280,29 +299,31 @@ odr void WaterFieldAccumulateSurface(WaterFieldElement element, float2 world_xy,
 		case WaterFieldElementSineWave:
 		{
 			float k = tau / element.wave.y;
-			float s, c;
-			sincos(WaterFieldWavePhase(element, world_xy, time), s, c);
-			sample.displacement_foam.z += element.wave.x * s;
-			sample.normal_delta.x -= element.position.x * k * element.wave.x * c;
-			sample.normal_delta.y -= element.position.y * k * element.wave.x * c;
+			float2 profile = WaterFieldWaveProfile(WaterFieldWavePhase(element, world_xy, time), element.timing.x);
+			sample.displacement_foam.z += element.wave.x * profile.x;
+			sample.normal_delta.x -= element.position.x * k * element.wave.x * profile.y;
+			sample.normal_delta.y -= element.position.y * k * element.wave.x * profile.y;
 			break;
 		}
 		case WaterFieldElementGerstnerWave:
 		{
-			// Steepness moves vertices towards crests, which sharpens them and compresses the normal. The height is A*sin(phase), so a
+			// Steepness moves vertices towards crests, which sharpens them and compresses the normal. The fundamental's height is A*sin(phase), so a
 			// horizontal offset of +Q*A*cos(phase) along the travel direction pulls points on both sides of a crest (sin = 1) towards it.
+			// The sideways motion follows the fundamental only, because the steep sides of a sharp crest profile would fold the surface.
 			float2 direction = element.position.xy;
 			float amplitude = element.wave.x;
 			float steepness = element.wave.w;
 			float k = tau / element.wave.y;
+			float phase = WaterFieldWavePhase(element, world_xy, time);
+			float2 profile = WaterFieldWaveProfile(phase, element.timing.x);
 			float s, c;
-			sincos(WaterFieldWavePhase(element, world_xy, time), s, c);
+			sincos(phase, s, c);
 			sample.displacement_foam.x += steepness * amplitude * direction.x * c;
 			sample.displacement_foam.y += steepness * amplitude * direction.y * c;
-			sample.displacement_foam.z += amplitude * s;
+			sample.displacement_foam.z += amplitude * profile.x;
 			sample.displacement_foam.w += steepness * k * amplitude * s;
-			sample.normal_delta.x -= direction.x * k * amplitude * c;
-			sample.normal_delta.y -= direction.y * k * amplitude * c;
+			sample.normal_delta.x -= direction.x * k * amplitude * profile.y;
+			sample.normal_delta.y -= direction.y * k * amplitude * profile.y;
 			sample.normal_delta.z -= steepness * k * amplitude * s;
 			break;
 		}

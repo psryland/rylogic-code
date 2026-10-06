@@ -15,6 +15,7 @@
 #include "pr/view3d-12/view3d-dll.h"
 #include "pr/view3d-12/ldraw/ldraw_ui_script_editor.h"
 #include "pr/view3d-12/model/model.h"
+#include "pr/view3d-12/material/components/detail_normals.h"
 #include "pr/view3d-12/material/components/procedural_surface.h"
 #include "pr/view3d-12/resource/stock_resources.h"
 #include "pr/view3d-12/resource/resource_factory.h"
@@ -3308,6 +3309,49 @@ VIEW3D_API void __stdcall View3D_ObjectNuggetProceduralSurfaceClear(view3d::Obje
 	CatchAndReport(View3D_ObjectNuggetProceduralSurfaceClear, ,);
 }
 
+// Set or remove the detail-normal slope map of a simple-material model nugget.
+VIEW3D_API void __stdcall View3D_ObjectNuggetDetailNormalsSet(view3d::Object object, view3d::Texture tex, view3d::Sampler sam, char const* name, int index)
+{
+	// A map needs both resources; null for both removes detail normals.
+	try
+	{
+		Validate(object);
+		if ((tex == nullptr) != (sam == nullptr))
+			throw std::invalid_argument("Detail normals require both a texture and a sampler, or neither");
+
+		DllLockGuard;
+		object->NuggetDetailNormals(tex, sam, name, index);
+	}
+	CatchAndReport(View3D_ObjectNuggetDetailNormalsSet, ,);
+}
+
+// Replace the detail-normal layers of an object's own nuggets.
+VIEW3D_API void __stdcall View3D_ObjectDetailNormalLayersSet(view3d::Object object, view3d::DetailNormalLayer const* layers, int count)
+{
+	// Convert the public layout before taking the lock; the material validates the values.
+	try
+	{
+		Validate(object);
+		if (count < 0 || count > materials::DetailNormalLayers::MaxLayers || (count != 0 && layers == nullptr))
+			throw std::invalid_argument("Detail-normal layer count must be in [0, 4]");
+
+		auto values = std::array<materials::DetailNormalLayer, materials::DetailNormalLayers::MaxLayers>{};
+		for (int i = 0; i != count; ++i)
+		{
+			// Copy one public layer into the renderer layout.
+			values[i] = materials::DetailNormalLayer{
+				.m_row_u = To<v4>(layers[i].m_row_u),
+				.m_row_v = To<v4>(layers[i].m_row_v),
+				.m_height_scale = layers[i].m_height_scale,
+			};
+		}
+
+		DllLockGuard;
+		Dll().ObjectDetailNormalLayers(object, std::span(values.data(), static_cast<size_t>(count)));
+	}
+	CatchAndReport(View3D_ObjectDetailNormalLayersSet, ,);
+}
+
 // Materials ******************************
 
 // Create a texture from data in memory.
@@ -3324,8 +3368,12 @@ VIEW3D_API view3d::Texture __stdcall View3D_TextureCreate(int width, int height,
 
 		ResDesc rdesc = ResDesc::Tex2D(src, s_cast<uint16_t>(options.m_mips), s_cast<EUsage>(options.m_usage))
 			.multisamp(To<pr::compute::MultiSamp>(options.m_multisamp))
-			.def_state(options.m_resource_state)
-			.clear(options.m_clear_value);
+			.def_state(options.m_resource_state);
+
+		// D3D12 accepts an optimised clear value only for render-target and depth-stencil textures.
+		if ((options.m_usage & (D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL)) != 0)
+			rdesc.clear(options.m_clear_value);
+
 		TextureDesc tdesc = TextureDesc(rdr12::AutoId, rdesc)
 			.has_alpha(options.m_has_alpha != 0)
 			.name(options.m_dbg_name ? options.m_dbg_name : "");

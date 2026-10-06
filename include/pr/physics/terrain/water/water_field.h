@@ -22,8 +22,9 @@ namespace pr::physics::terrain::water
 	// Return a sine wave element with height A*sin(k*dot(d, xy) + omega*t + phase). 'direction' need not be unit length.
 	WaterFieldElement SineWave(v2 direction, float amplitude, float wavelength, float angular_frequency, float phase = 0.0f);
 
-	// Return a Gerstner wave element with height A*sin(k*dot(d, xy) - k*c*t + phase). 'steepness' in [0,1] only affects rendered horizontal displacement.
-	WaterFieldElement GerstnerWave(v2 direction, float amplitude, float wavelength, float phase_speed, float steepness, float phase = 0.0f);
+	// Return a Gerstner wave element with height A*P(k*dot(d, xy) - k*c*t + phase). 'steepness' in [0,1] only affects rendered horizontal displacement.
+	// P is the crest profile (see shared::WaterFieldWaveProfile): a sine for zero 'sharpness', with narrower crests and flatter troughs as it rises.
+	WaterFieldElement GerstnerWave(v2 direction, float amplitude, float wavelength, float phase_speed, float steepness, float sharpness = 0.0f, float phase = 0.0f);
 
 	// Return a finite radial packet travelling outward from 'source'. See water_field_types.hlsli for the parameter meaning.
 	WaterFieldElement RadialPacket(v2 source, float amplitude, float wavelength, float half_width, float propagation_speed, float age, float lifetime, float attack_time, float attenuation_scale);
@@ -51,7 +52,7 @@ namespace pr::physics::terrain::water
 		static constexpr float DefaultBreakingRatio = 0.78f;
 
 		// Construct a validated water field. Throws invalid_argument for non-finite values, unknown element types,
-		// non-unit wave directions, non-positive wavelengths, or more than MaxElementCount elements.
+		// non-unit wave directions, non-positive wavelengths, crest sharpness outside [0, WaterFieldMaxCrestSharpness], or more than MaxElementCount elements.
 		explicit WaterField(double level, std::span<WaterFieldElement const> elements = {});
 
 		// Construct still water at level zero.

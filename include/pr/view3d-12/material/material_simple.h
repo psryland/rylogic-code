@@ -4,6 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/view3d-12/material/components/base_colour.h"
+#include "pr/view3d-12/material/components/detail_normals.h"
 #include "pr/view3d-12/material/components/optics.h"
 #include "pr/view3d-12/material/components/reflectivity.h"
 #include "pr/view3d-12/material/components/shader_overlays.h"
@@ -22,6 +23,7 @@ namespace pr::rdr12
 		materials::ShaderOverlays m_shaders;     // Shader overlays used by this material.
 		materials::TwoSided m_two_sided;         // Two-sided lighting state.
 		materials::Optics m_optics;              // Optical properties used by RT paths.
+		materials::DetailNormals m_detail_normals; // World-projected detail normals. Disabled uses the stock pixel shaders.
 
 		MaterialSimple(Colour32 tint = Colour32White, Texture2DPtr tex_diffuse = {}, SamplerPtr sam_diffuse = {}, float rel_reflec = 1.0f);
 		MaterialSimple(MaterialSimple const& rhs);
@@ -55,6 +57,12 @@ namespace pr::rdr12
 
 		// Add a shader overlay to this material.
 		MaterialSimple& use_shader_overlay(ERenderStep step, ShaderPtr overlay);
+
+		// Use 'tex' and 'sam' as the detail-normal slope map. Existing layers are kept; a new component starts with no layers.
+		MaterialSimple& detail_normals(Texture2DPtr tex, SamplerPtr sam);
+
+		// Remove detail normals so the stock pixel shaders are used.
+		MaterialSimple& detail_normals_clear();
 
 	protected:
 

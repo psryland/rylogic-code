@@ -633,6 +633,27 @@ namespace Rylogic.Gfx
 				NotifyPropertyChanged(nameof(NuggetProceduralSurface));
 			}
 
+			/// <summary>Assign a tileable slope map as detail normals of a simple-material nugget. New assignments start with no layers.</summary>
+			public void NuggetDetailNormalsSet(Texture slope_map, Sampler sampler, string? name = null, int index = 0)
+			{
+				// The renderer holds its own references to both resources.
+				View3D_ObjectNuggetDetailNormalsSet(Handle, slope_map.Handle, sampler.Handle, name, index);
+			}
+
+			/// <summary>Remove detail normals from a selected nugget.</summary>
+			public void NuggetDetailNormalsClear(string? name = null, int index = 0)
+			{
+				// Null resources remove the component.
+				View3D_ObjectNuggetDetailNormalsSet(Handle, IntPtr.Zero, IntPtr.Zero, name, index);
+			}
+
+			/// <summary>Replace the detail-normal layers of this object's nuggets. Cheap enough to call every frame. At most 4 layers.</summary>
+			public void DetailNormalLayersSet(DetailNormalLayer[] layers)
+			{
+				// Layers are shared by the materials, so no material is replaced.
+				View3D_ObjectDetailNormalLayersSet(Handle, layers, layers.Length);
+			}
+
 			/// <summary>
 			/// Get/Set the colour of this object or the first child object that matches 'name'.
 			/// 'base_colour', if true returns the objects base colour, if false, returns the current colour.

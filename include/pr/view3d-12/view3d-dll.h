@@ -686,6 +686,19 @@ namespace pr
 			float m_pad2;
 			float m_pad3;
 		};
+
+		// One world-space projection of a detail-normal slope map. See View3D_ObjectDetailNormalLayersSet.
+		struct DetailNormalLayer
+		{
+			// Field order is part of the native/managed ABI contract.
+
+			Vec4 m_row_u;         // u = dot(world_pos.xyz, m_row_u.xyz) + m_row_u.w
+			Vec4 m_row_v;         // v = dot(world_pos.xyz, m_row_v.xyz) + m_row_v.w
+			float m_height_scale; // World height per unit of map height, per texture unit of slope
+			float m_pad0;
+			float m_pad1;
+			float m_pad2;
+		};
 		struct BBox
 		{
 			Vec4 centre;
@@ -1643,6 +1656,15 @@ extern "C"
 	VIEW3D_API BOOL __stdcall View3D_ObjectNuggetProceduralSurfaceGet(pr::view3d::Object object, pr::view3d::ProceduralSurface& surface, char const* name, int index);
 	VIEW3D_API void __stdcall View3D_ObjectNuggetProceduralSurfaceSet(pr::view3d::Object object, pr::view3d::ProceduralSurface const& surface, char const* name, int index);
 	VIEW3D_API void __stdcall View3D_ObjectNuggetProceduralSurfaceClear(pr::view3d::Object object, char const* name, int index);
+
+	// Detail normals tilt a simple material's normals with world-projected layers of a tileable slope map. The map's red and green channels hold
+	// the height slope along u and v, encoded as (slope + 1) / 2. Set 'tex' and 'sam' to null to remove detail normals. Layers are kept when the map
+	// changes; a new assignment starts with no layers. Throws if the nugget material is not a simple material.
+	VIEW3D_API void __stdcall View3D_ObjectNuggetDetailNormalsSet(pr::view3d::Object object, pr::view3d::Texture tex, pr::view3d::Sampler sam, char const* name, int index);
+
+	// Replace the detail-normal layers of every nugget of 'object' (not its children) that has detail normals. Layers are shared by the
+	// material, so this is cheap enough to call every frame. 'count' must be in [0, 4]. Throws if the object has no detail normals.
+	VIEW3D_API void __stdcall View3D_ObjectDetailNormalLayersSet(pr::view3d::Object object, pr::view3d::DetailNormalLayer const* layers, int count);
 
 	// Override stock-shader surface RGB after material/vertex/texture colour and before lighting. Packed RGB is an sRGB target, decoded at
 	// shader upload; packed alpha is the linear UNORM8 blend weight (A/255), not opacity. Surface alpha and sorting remain unchanged.

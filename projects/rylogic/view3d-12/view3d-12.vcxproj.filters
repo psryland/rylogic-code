@@ -350,6 +350,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\base_colour.h">
       <Filter>src\material\components</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\detail_normals.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\emissive.h">
       <Filter>src\material\components</Filter>
     </ClInclude>
@@ -899,6 +902,9 @@
       <Filter>src\shaders\hlsl\forward</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\shaders\hlsl\forward\far_clip_fade.hlsl">
+      <Filter>src\shaders\hlsl\forward</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\forward\detail_normals.hlsl">
       <Filter>src\shaders\hlsl\forward</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\shaders\hlsl\postprocessing\underwater.hlsl">

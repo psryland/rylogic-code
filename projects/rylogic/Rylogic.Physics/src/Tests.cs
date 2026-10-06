@@ -133,9 +133,9 @@ public sealed class TestPhysics
 		// Calm air makes no waves, and wind makes waves.
 		var layout = new WaveSpectrumLayout(9.81f, 1024f, 0.5f, 256f, 16, 4);
 		var targets = new float[layout.ComponentCount];
-		WaveSpectrum.Targets(layout, new WaveWeather(0, 0, 10_000), targets);
+		WaveSpectrum.Targets(layout, new WaveWeather(0, 10_000), targets);
 		Assert.True(Array.TrueForAll(targets, a => a == 0));
-		WaveSpectrum.Targets(layout, new WaveWeather(10, 0, 10_000), targets);
+		WaveSpectrum.Targets(layout, new WaveWeather(10, 10_000), targets);
 		Assert.True(Array.Exists(targets, a => a > 0));
 
 		// Relaxation reaches the targets, and a minimum wavelength removes short components.
@@ -143,11 +143,18 @@ public sealed class TestPhysics
 		WaveSpectrum.Relax(amplitudes, targets, 1e4f, 20f);
 		Assert.Equal(targets[targets.Length - 1], amplitudes[amplitudes.Length - 1]);
 		var elements = new WaterFieldElement[layout.ComponentCount];
-		var all = WaveSpectrum.Elements(layout, amplitudes, 0, elements);
-		var long_only = WaveSpectrum.Elements(layout, amplitudes, 4, elements);
+		var all = WaveSpectrum.Elements(layout, amplitudes, 0, 0, 0, elements);
+		var sharpness = WaveSpectrum.CrestSharpness(10);
+		var long_only = WaveSpectrum.Elements(layout, amplitudes, 0, sharpness, 4, elements);
 		Assert.True(all > long_only && long_only > 0);
 		Assert.Equal(WaterFieldElement.TypeGerstnerWave, elements[0].m_type);
 		Assert.True(elements[0].m_wave.y >= 4);
+
+		// Light wind gives sine-shaped waves, and stronger wind sharpens the crests.
+		Assert.Equal(0f, WaveSpectrum.CrestSharpness(4));
+		Assert.True(sharpness > 0 && sharpness < WaveSpectrum.CrestSharpness(40));
+		Assert.Equal(sharpness, elements[0].m_timing.x);
+		ExpectStatus(EStatus.InvalidArgument, () => WaveSpectrum.Elements(layout, amplitudes, 0, 0.95f, 4, elements));
 
 		// The engine accepts the waves with terrain heights, and rejects a grid that does not match its heights.
 		using var runtime = new Physics();

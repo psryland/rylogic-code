@@ -229,6 +229,8 @@ namespace pr::rdr12
 	namespace materials
 	{
 		struct ProceduralSurface;
+		struct DetailNormalLayer;
+		struct DetailNormals;
 		struct BaseColour;
 		struct Optics;
 		struct PbrAlpha;

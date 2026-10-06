@@ -2491,7 +2491,7 @@ extern "C"
 	}
 
 	// Return the wind-driven target amplitude of each spectrum component.
-	PhysicsStatus __stdcall Physics_WaveSpectrumTargets(pr::physics::WaveSpectrumDesc const* desc, float wind_speed, float wind_direction, float fetch, float* amplitudes, std::int32_t count)
+	PhysicsStatus __stdcall Physics_WaveSpectrumTargets(pr::physics::WaveSpectrumDesc const* desc, float wind_speed, float fetch, float* amplitudes, std::int32_t count)
 	{
 		return pr::physics::ApiCall([&]
 		{
@@ -2502,7 +2502,7 @@ extern "C"
 			try
 			{
 				auto const spectrum = WaveSpectrum{ ToWaveSpectrumLayout(*desc) };
-				spectrum.Targets(WaveWeather{ .m_wind_speed = wind_speed, .m_wind_direction = wind_direction, .m_fetch = fetch }, std::span{ amplitudes, static_cast<size_t>(count) });
+				spectrum.Targets(WaveWeather{ .m_wind_speed = wind_speed, .m_fetch = fetch }, std::span{ amplitudes, static_cast<size_t>(count) });
 			}
 			catch (std::exception const& ex)
 			{
@@ -2531,8 +2531,28 @@ extern "C"
 		});
 	}
 
+	// Return the crest sharpness of wind-driven waves for 'wind_speed'.
+	PhysicsStatus __stdcall Physics_WaveSpectrumCrestSharpness(float wind_speed, float* sharpness)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			using namespace pr::physics::terrain::water;
+			if (sharpness == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid crest sharpness output");
+
+			try
+			{
+				*sharpness = WaveSpectrum::CrestSharpness(wind_speed);
+			}
+			catch (std::exception const& ex)
+			{
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
+			}
+		});
+	}
+
 	// Build water elements for the spectrum components with non-zero amplitude and a wavelength of at least 'min_wavelength'.
-	PhysicsStatus __stdcall Physics_WaveSpectrumElements(pr::physics::WaveSpectrumDesc const* desc, float const* amplitudes, std::int32_t count, float min_wavelength, pr::physics::WaterElement* elements, std::int32_t capacity, std::int32_t* element_count)
+	PhysicsStatus __stdcall Physics_WaveSpectrumElements(pr::physics::WaveSpectrumDesc const* desc, float const* amplitudes, std::int32_t count, float heading, float sharpness, float min_wavelength, pr::physics::WaterElement* elements, std::int32_t capacity, std::int32_t* element_count)
 	{
 		return pr::physics::ApiCall([&]
 		{
@@ -2547,7 +2567,7 @@ extern "C"
 				// The ABI element has the same layout but weaker alignment than the shared element, so build locally and copy out.
 				auto const spectrum = WaveSpectrum{ ToWaveSpectrumLayout(*desc) };
 				auto built = std::array<WaterFieldElement, MaxElementCount>{};
-				auto const n = spectrum.Elements(std::span{ amplitudes, static_cast<size_t>(count) }, min_wavelength, built);
+				auto const n = spectrum.Elements(std::span{ amplitudes, static_cast<size_t>(count) }, heading, sharpness, min_wavelength, built);
 				if (n > capacity)
 					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Wave spectrum element output is too small");
 

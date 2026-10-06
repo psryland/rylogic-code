@@ -8,14 +8,11 @@
 
 namespace pr::physics::terrain::water
 {
-	// Wind conditions that drive a wave spectrum.
+	// Wind conditions that drive a wave spectrum. The wind direction is not needed because spectrum directions are relative to downwind.
 	struct WaveWeather
 	{
 		// Wind speed at 10 m above the water, in m/s. Speeds below 0.1 m/s produce no waves.
 		float m_wind_speed;
-
-		// Direction the wind blows towards, in radians anticlockwise from +X.
-		float m_wind_direction;
 
 		// Distance over which the wind has blown across open water, in metres. Longer fetches produce longer, higher waves.
 		float m_fetch;
@@ -43,18 +40,20 @@ namespace pr::physics::terrain::water
 	// One fixed wave component of a spectrum.
 	struct WaveComponent
 	{
-		v2 m_direction;            // Unit travel direction in the XY plane.
+		v2 m_direction;            // Unit travel direction in the XY plane, relative to downwind (+X).
 		float m_wavelength;        // Metres.
 		float m_angular_frequency; // rad/s, a whole multiple of 2*pi/repeat period.
 		float m_phase;             // Constant phase offset in radians.
 	};
 
 	// A fixed set of wave components whose amplitudes follow the weather.
-	// The components never change, so changing the weather only changes amplitudes and never makes the surface jump. Each band has its
-	// directions evenly spaced around the circle, and the directions of successive bands are rotated by the golden angle. Within a band each
-	// direction has a different wavelength, and phases come from a fixed hash, so no two components share a wavelength or direction and
-	// the surface has no obvious repeating pattern. Each component carries the energy of its whole band and direction sector, so the total
-	// energy does not depend on where the spectrum peak falls between components.
+	// The components never change, so changing the wind strength only changes amplitudes and never makes the surface jump. Component
+	// directions are relative to downwind; callers rotate them to the actual wind direction (the heading) when building elements.
+	// Each band places its directions at equal-share points of a cos² spread within ±90° of downwind, so most components travel roughly
+	// with the wind. The share points are offset differently in each band, so neighbouring bands do not travel in the same directions.
+	// Within a band each direction has a different wavelength, and phases come from a fixed hash, so the surface has no obvious repeating
+	// pattern. Each component carries the energy of its whole band and direction sector, so the total energy does not depend on where the
+	// spectrum peak falls between components.
 	// Every angular frequency is a whole multiple of 2*pi/repeat_period, so the surface repeats exactly after the repeat period and callers
 	// can wrap a long simulation clock into [0, repeat_period) without a visible jump (see WaterField::LocalTime).
 	class WaveSpectrum
@@ -77,14 +76,25 @@ namespace pr::physics::terrain::water
 		std::span<WaveComponent const> Components() const noexcept;
 
 		// Write the equilibrium amplitude (m) of every component for 'weather' into 'amplitudes' (ComponentCount values).
-		// Amplitudes follow a fetch-limited wind-sea spectrum with a cos² spread about the wind direction; components facing away from the wind are zero.
+		// Amplitudes follow a fetch-limited wind-sea spectrum. The energy is spread about downwind most narrowly at the spectrum peak and more
+		// widely for longer and shorter waves, so the dominant waves have a clear direction.
 		void Targets(WaveWeather const& weather, std::span<float> amplitudes) const;
 
 		// Move 'amplitudes' towards 'targets' over 'dt' seconds with an exponential time constant of 'time_constant' seconds.
 		static void Relax(std::span<float> amplitudes, std::span<float const> targets, float dt, float time_constant);
 
+		// Return the crest sharpness of wind-driven waves for 'wind_speed' (m/s, finite and non-negative). See shared::WaterFieldWaveProfile.
+		// Light winds (up to 4 m/s) make sine-shaped waves. Stronger winds make choppier seas with narrower crests and flatter troughs; the
+		// sharpness approaches MaxCrestSharpness in a storm.
+		static float CrestSharpness(float wind_speed);
+
+		// Largest sharpness returned by CrestSharpness.
+		static constexpr float MaxCrestSharpness = 0.7f;
+
 		// Write Gerstner elements for the components with a positive amplitude and a wavelength of at least 'min_wavelength'.
+		// 'heading' is the direction the wind blows towards, in radians anticlockwise from +X; component directions are rotated by it.
+		// 'sharpness' is the crest sharpness of every element, in [0, shared::WaterFieldMaxCrestSharpness] (see CrestSharpness).
 		// Steepness is zero; renderers choose their own. Returns the number of elements written, at most ComponentCount.
-		int Elements(std::span<float const> amplitudes, float min_wavelength, std::span<WaterFieldElement> elements) const;
+		int Elements(std::span<float const> amplitudes, float heading, float sharpness, float min_wavelength, std::span<WaterFieldElement> elements) const;
 	};
 }

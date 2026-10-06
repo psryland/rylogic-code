@@ -74,6 +74,7 @@ namespace pr::rdr12
 			static_assert((sizeof(CBufFade) % 16) == 0);
 			static_assert((sizeof(CBufScreenSpace) % 16) == 0);
 			static_assert((sizeof(CBufDiag) % 16) == 0);
+			static_assert((sizeof(CBufDetailNormals) % 16) == 0);
 		}
 		namespace smap
 		{

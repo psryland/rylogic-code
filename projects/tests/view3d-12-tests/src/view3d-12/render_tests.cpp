@@ -2694,6 +2694,91 @@ namespace fade_tests
 		std::cout << "PASS environment map capture exclusion\n";
 	}
 
+	// Check that detail normals tilt lighting only while layers are set, in both forward and far-fade variants, and can be removed.
+	void DetailNormalsTests()
+	{
+		// A lit white quad faces the camera, with a directional light from the -X side so a normal tilt along X changes its brightness.
+		auto fixture = Fixture(1);
+		auto object = fixture.Quad(10, 0xFFFFFFFF, 45, nullptr, 0, 0xFFFFFFFF, false, true);
+		auto light = SceneLightingGet(fixture.m_window);
+		light.m_type = api::ELight::Directional;
+		light.m_direction = api::Vec4{0.70710678f, 0, -0.70710678f, 0};
+		light.m_ambient = 0xFF000000;
+		light.m_diffuse = 0xFFFFFFFF;
+		light.m_specular = 0xFF000000;
+		light.m_intensity = 1;
+		light.m_cast_shadow = 0;
+		light.m_on = TRUE;
+		SceneLightingSet(fixture.m_window, light);
+		auto brightness = [](std::vector<unsigned char> const& image)
+		{
+			// The quad is grey, so one channel at the centre measures its lighting.
+			return Linear(image[(64 * ImageSize + 64) * 4 + 1]);
+		};
+		auto flat = fixture.Image();
+
+		// A uniform slope map of +1 along u, 0 along v. Wrapping matches the tileable maps the feature is designed for.
+		auto options = api::TextureOptions{};
+		options.m_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		options.m_resource_state = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+		options.m_mips = 0;
+		options.m_multisamp = {1, 0};
+		options.m_t2s = {{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1}};
+		std::array<uint32_t, 4> pixels; pixels.fill(0xFF0080FFU);
+		auto texture = api::TexturePtr(View3D_TextureCreate(2, 2, pixels.data(), sizeof(pixels), options));
+		auto sampler = api::SamplerPtr(View3D_SamplerCreate(api::SamplerOptions{D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12_TEXTURE_ADDRESS_MODE_WRAP, "DetailNormals"}));
+		fixture.CheckErrors();
+		Require(texture != nullptr && sampler != nullptr, "Detail-normal resources were not created");
+
+		// A map without layers leaves the surface unchanged.
+		View3D_ObjectNuggetDetailNormalsSet(object, texture.get(), sampler.get(), nullptr, 0);
+		fixture.CheckErrors();
+		Require(ImageDifference(flat, fixture.Image()) < 100, "Detail normals without layers changed the surface");
+
+		// Height rising along +X with gradient 0.5 tilts the normal to (-0.5, 0, 1). Diffuse lighting from 45 degrees then rises by
+		// cos(45 - atan(0.5)) / cos(45), about 1.342, relative to the flat surface.
+		auto layer = api::DetailNormalLayer{};
+		layer.m_row_u = api::Vec4{1, 0, 0, 0};
+		layer.m_row_v = api::Vec4{0, 1, 0, 0};
+		layer.m_height_scale = 0.5f;
+		View3D_ObjectDetailNormalLayersSet(object, &layer, 1);
+		fixture.CheckErrors();
+		auto tilted = fixture.Image();
+		Require(std::abs(brightness(tilted) / brightness(flat) - 1.342f) < 0.03f, (std::string("Detail-normal layer tilted the lighting normal incorrectly: flat ") + std::to_string(brightness(flat)) + ", tilted " + std::to_string(brightness(tilted))).c_str());
+
+		// The far-fade variant applies the same tilt when the surface is nearer than the fade band.
+		fixture.Fade(true);
+		Require(ImageDifference(tilted, fixture.Image()) < 100, "Far-fade detail-normal variant differs from the forward variant");
+		fixture.Fade(false);
+
+		// Removing the layers restores the flat surface without replacing the material.
+		View3D_ObjectDetailNormalLayersSet(object, nullptr, 0);
+		fixture.CheckErrors();
+		Require(ImageDifference(flat, fixture.Image()) < 100, "Clearing detail-normal layers did not restore the surface");
+
+		// Invalid inputs are reported and leave the active state unchanged.
+		auto layers = std::array<api::DetailNormalLayer, 5>{layer, layer, layer, layer, layer};
+		View3D_ObjectDetailNormalLayersSet(object, layers.data(), 5);
+		Require(!fixture.m_errors.empty(), "Too many detail-normal layers were accepted");
+		fixture.m_errors.clear();
+		View3D_ObjectNuggetDetailNormalsSet(object, texture.get(), nullptr, nullptr, 0);
+		Require(!fixture.m_errors.empty(), "A detail-normal map without a sampler was accepted");
+		fixture.m_errors.clear();
+
+		// Removing the component restores the stock shader; layer updates then report that the object has no detail normals.
+		View3D_ObjectDetailNormalLayersSet(object, &layer, 1);
+		View3D_ObjectNuggetDetailNormalsSet(object, nullptr, nullptr, nullptr, 0);
+		fixture.CheckErrors();
+		Require(ImageDifference(flat, fixture.Image()) < 100, "Removing detail normals did not restore the surface");
+		View3D_ObjectDetailNormalLayersSet(object, &layer, 1);
+		Require(!fixture.m_errors.empty(), "Layers were accepted by an object without detail normals");
+		fixture.m_errors.clear();
+
+		// Any GPU validation error fails the fixture.
+		fixture.CheckDebugLayer();
+		std::cout << "PASS detail normals\n";
+	}
+
 	// Check that the environment map probe completes a cube every six updates and fades each new cube in over the previous one
 	void EnvMapProbeTests()
 	{
@@ -2832,6 +2917,10 @@ namespace pr::unittests::view3d12
 	PRUnitTest(View3d12_EnvMapCaptureExclude, Extended)
 	{
 		fade_tests::EnvMapCaptureExcludeTests();
+	}
+	PRUnitTest(View3d12_DetailNormals, Extended)
+	{
+		fade_tests::DetailNormalsTests();
 	}
 	PRUnitTest(View3d12_EnvMapProbe, Extended)
 	{

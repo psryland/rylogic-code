@@ -401,9 +401,10 @@ internal static unsafe partial class Native
 	/// <summary>Copy a water configuration into an idle engine, or remove water with a null pointer.</summary>
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineWaterSet(ulong engine, WaterDesc* water);
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineWaterBathymetrySet(ulong engine, WaterBathymetryDesc* bathymetry);
-	[DllImport(Dll)] internal static extern EStatus Physics_WaveSpectrumTargets(WaveSpectrumLayout* spectrum, float wind_speed, float wind_direction, float fetch, float* amplitudes, int count);
+	[DllImport(Dll)] internal static extern EStatus Physics_WaveSpectrumTargets(WaveSpectrumLayout* spectrum, float wind_speed, float fetch, float* amplitudes, int count);
 	[DllImport(Dll)] internal static extern EStatus Physics_WaveSpectrumRelax(float* amplitudes, float* targets, int count, float dt, float time_constant);
-	[DllImport(Dll)] internal static extern EStatus Physics_WaveSpectrumElements(WaveSpectrumLayout* spectrum, float* amplitudes, int count, float min_wavelength, WaterFieldElement* elements, int capacity, int* element_count);
+	[DllImport(Dll)] internal static extern EStatus Physics_WaveSpectrumCrestSharpness(float wind_speed, float* sharpness);
+	[DllImport(Dll)] internal static extern EStatus Physics_WaveSpectrumElements(WaveSpectrumLayout* spectrum, float* amplitudes, int count, float heading, float sharpness, float min_wavelength, WaterFieldElement* elements, int capacity, int* element_count);
 	[DllImport(Dll)] internal static extern EStatus Physics_MaterialGet(ulong engine, int material_id, MaterialValue* material);
 	[DllImport(Dll)] internal static extern EStatus Physics_MaterialSet(ulong engine, MaterialValue* material);
 

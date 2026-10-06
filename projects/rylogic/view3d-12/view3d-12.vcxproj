@@ -241,6 +241,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\material_component.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\alpha.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\base_colour.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\detail_normals.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\emissive.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\metallic.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\normal_map.h" />
@@ -362,6 +363,7 @@
     <ShaderBuild Include="src\shaders\hlsl\shadow\shadow_map.hlsl" VertexEntryPoints="shadow_map_vs=VSShadowMap" PixelEntryPoints="shadow_map_ps=PSShadowMap" />
     <ShaderBuild Include="src\shaders\hlsl\forward\forward.hlsl" VertexEntryPoints="forward_vs=VSForward;forward_texn_pbr_vs=VSForwardTexN" PixelEntryPoints="forward_ps=PSForward;forward_reflection_attrs_ps=PSForwardReflectionAttrs;forward_pbr_ps=PSForwardPbr;forward_reflection_attrs_pbr_ps=PSForwardPbrReflectionAttrs;forward_alpha_collect_pbr_ps=PSForwardPbrAlphaCollect;forward_texn_pbr_ps=PSForwardPbrTexN;forward_reflection_attrs_texn_pbr_ps=PSForwardPbrTexNReflectionAttrs;forward_alpha_collect_texn_pbr_ps=PSForwardPbrTexNAlphaCollect;forward_radial_fade_ps=PSForwardRadialFade;forward_alpha_collect_ps=PSForwardAlphaCollect" />
     <ShaderBuild Include="src\shaders\hlsl\forward\far_clip_fade.hlsl" PixelEntryPoints="forward_far_fade_ps=PSFarFade;forward_far_fade_pbr_ps=PSFarFadePbr;forward_far_fade_texn_pbr_ps=PSFarFadePbrTexN;forward_far_fade_alpha_collect_ps=PSFarFadeAlphaCollect;forward_far_fade_alpha_collect_pbr_ps=PSFarFadePbrAlphaCollect;forward_far_fade_alpha_collect_texn_pbr_ps=PSFarFadePbrTexNAlphaCollect;forward_far_fade_reflection_attrs_ps=PSFarFadeReflectionAttrs;forward_far_fade_reflection_attrs_pbr_ps=PSFarFadePbrReflectionAttrs;forward_far_fade_reflection_attrs_texn_pbr_ps=PSFarFadePbrTexNReflectionAttrs" />
+    <ShaderBuild Include="src\shaders\hlsl\forward\detail_normals.hlsl" PixelEntryPoints="forward_detail_ps=PSForwardDetail;forward_reflection_attrs_detail_ps=PSForwardDetailReflectionAttrs;forward_alpha_collect_detail_ps=PSForwardDetailAlphaCollect;forward_far_fade_detail_ps=PSFarFadeDetail;forward_far_fade_alpha_collect_detail_ps=PSFarFadeDetailAlphaCollect;forward_far_fade_reflection_attrs_detail_ps=PSFarFadeDetailReflectionAttrs" />
     <ShaderBuild Include="src\shaders\hlsl\screenspace\arrow_head.hlsl" GeometryEntryPoints="arrow_head_gs=GSArrowHead" />
     <ShaderBuild Include="src\shaders\hlsl\forward\kbuffer_resolve.hlsl" VertexEntryPoints="kbuffer_resolve_vs=VSFullScreenTriangle" PixelEntryPoints="kbuffer_alpha_resolve_ps=PSAlphaResolve" />
     <ShaderBuild Include="src\shaders\hlsl\postprocessing\underwater.hlsl" VertexEntryPoints="post_effect_vs=VSPostEffect" PixelEntryPoints="underwater_ps=PSUnderwater" />

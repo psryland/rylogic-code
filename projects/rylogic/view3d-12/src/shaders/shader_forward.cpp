@@ -23,6 +23,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto CBufPbrSurface = ECBufReg::b4;
 		inline static constexpr auto CBufDiag = ECBufReg::b5;
 		inline static constexpr auto CBufProcedural = ECBufReg::b6;
+		inline static constexpr auto CBufDetailNormals = ECBufReg::b7;
 
 		inline static constexpr auto DiffTexture = ESRVReg::t0;
 		inline static constexpr auto EnvMap = ESRVReg::t1;
@@ -82,6 +83,7 @@ namespace pr::rdr12::shaders
 			.CBuf(EReg::CBufPbrSurface)
 			.CBuf(EReg::CBufDiag)
 			.CBuf(EReg::CBufProcedural, D3D12_SHADER_VISIBILITY_VERTEX)
+			.CBuf(EReg::CBufDetailNormals, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::DiffTexture, 1)
 			.SRV(EReg::EnvMap, 1)
 			.SRV(EReg::ShadowAtlas, 1, D3D12_SHADER_VISIBILITY_PIXEL)
