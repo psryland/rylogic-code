@@ -73,14 +73,20 @@ internal static class Program
 	private static int Run(Request request)
 	{
 		using var visual_studio = new VisualStudio();
-		var instances = visual_studio.Inspect(request);
+		var discovery = visual_studio.Inspect(request);
+		var instances = discovery.Instances;
 		var selected = Routing.Select(instances);
 		var installation = selected == null ? Installations.Newest() : null;
 		if (request.Inspect)
 		{
-			Console.WriteLine(JsonSerializer.Serialize(new { Request = request, Instances = instances, SelectedProcessId = selected?.ProcessId, NewInstallation = installation }, new JsonSerializerOptions { WriteIndented = true }));
+			Console.WriteLine(JsonSerializer.Serialize(new { Request = request, Instances = instances, discovery.Skipped, SelectedProcessId = selected?.ProcessId, NewInstallation = installation }, new JsonSerializerOptions { WriteIndented = true }));
 			return 0;
 		}
+
+		// Skipped instances do not block routing, but are reported for terminal diagnostics.
+		foreach (var skipped in discovery.Skipped)
+			Console.Error.WriteLine($"VSRedirector: skipped Visual Studio PID {skipped.ProcessId}: {skipped.Reason}");
+
 		if (selected != null)
 		{
 			visual_studio.Open(selected.ProcessId, request);
