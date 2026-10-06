@@ -22,11 +22,6 @@ using IOPath = System.IO.Path;
 
 public class Tools
 {
-	public static List<string> DefaultMSBuildArgs { get; } = [];
-	public static bool MSBuildProfiling { get; set; } = false;
-	public static string MSBuildProfileDir { get; set; } = string.Empty;
-	private static int m_msbuild_profile_index = 0;
-
 	/// <summary>Path helper</summary>
 	public static string Path(IEnumerable<string> path_parts, bool check_exists = true, bool normalise = true)
 	{
@@ -36,8 +31,11 @@ public class Tools
 	// Ensure the directory 'dir' exists and is empty
 	public static void CleanDir(string dir)
 	{
-		Console.WriteLine($"Cleaning deploy directory: {dir}");
-		Directory.Delete(dir, true);
+		// A missing directory is already clean, so only delete one that exists.
+		Console.WriteLine($"Cleaning directory: {dir}");
+		if (Directory.Exists(dir))
+			Directory.Delete(dir, true);
+
 		Directory.CreateDirectory(dir);
 	}
 
@@ -133,51 +131,6 @@ public class Tools
 		}
 	}
 
-	// Run a program in a separate console window
-	// Returns the process for the caller to call wait() on,
-	//  e.g.
-	//    proc = Spawn(["cmd", "/C" ,"echo Hello"])
-	//    proc.wait()
-	public static Process Spawn(string prefix, IList<string> args, int expected_return_code = 0, bool same_window = false, bool show_window = true, bool show_arguments = false)
-	{
-		if (args.Count == 0)
-			throw new ArgumentException("args must contain at least one element (the program to run)");
-		if (show_arguments)
-			Console.WriteLine(string.Join(" ", args));
-
-		var filename = args[0];
-		var arguments = string.Join(" ", args.Skip(1).Select(x => x.Contains(" ") ? $"\"{x}\"" : x));
-		var psi = new ProcessStartInfo
-		{
-			FileName = filename,
-			Arguments = arguments,
-			RedirectStandardOutput = true,
-			RedirectStandardError = true,
-			UseShellExecute = false, // Required to open a new console
-			CreateNoWindow = !show_window,
-			WindowStyle = show_window ? ProcessWindowStyle.Normal : ProcessWindowStyle.Hidden,
-		};
-
-		var process = new Process { StartInfo = psi, EnableRaisingEvents = true };
-		process.OutputDataReceived += (s, e) =>
-		{
-			if (e.Data == null) return;
-			System.Console.WriteLine($"{prefix}{e.Data}");
-		};
-		process.ErrorDataReceived += (s, e) =>
-		{
-			if (e.Data == null) return;
-			System.Console.Error.WriteLine($"{prefix}{e.Data}");
-		};
-
-		if (!process.Start())
-			throw new Exception("Failed to start process");
-
-		process.BeginOutputReadLine();
-		process.BeginErrorReadLine();
-		return process;
-	}
-
 	// Find the visual studio batch file for setting up a dev environment
 	public static void SetupVcEnvironment()
 	{
@@ -256,138 +209,6 @@ public class Tools
 		m_vc_env_setup = true;
 	}
 	private static bool m_vc_env_setup = false;
-
-	// Invoke MSBuild on a solution or project file.
-	// Solution file usage:
-	//   sln_or_proj_file = "C:\path\mysolution.sln"
-	//	projects = ["project_name","\"folder\proj_name:Rebuild\""]
-	//	platforms = ["x64","x86","Any CPU"]
-	//	configs = ["release","debug"]
-	//	Tools.MSBuild(sln_or_proj_file, projects, platforms, configs, True, True)
-	// Project file usage:
-	//   sln_or_proj_file = "C:\path\myproject.csproj"
-	//	projects = []
-	//	platforms = ["x64","x86","AnyCPU"]
-	//	configs = ["release","debug"]
-	//	Tools.MSBuild(sln_or_proj_file, projects, platforms, configs, True, True)
-	public static bool MSBuild(string sln_or_proj_file, IList<string>? projects = null, IList<string>? platforms = null, IList<string>? configs = null, bool parallel = true, bool same_window = true, IList<string>? additional_args = null)
-	{
-		SetupVcEnvironment();
-
-		if (UserVars.MSBuild is null)
-			throw new Exception("MSBuild path has not been set in UserVars");
-
-		// Handle default options
-		projects ??= [];
-		platforms ??= [];
-		configs ??= [];
-		additional_args ??= [];
-
-		// Build the arguments list
-		List<string> args = [UserVars.MSBuild, sln_or_proj_file, "/m", "/verbosity:minimal", "/nologo", ..DefaultMSBuildArgs, ..additional_args];
-		if (MSBuildProfiling)
-		{
-			args.Add("/clp:PerformanceSummary;Summary");
-			args.Add("/detailedsummary");
-		}
-
-		// Set the targets to build
-		// Targets should be the names as shown in the solution explorer (i.e. Folder\Project.Name)
-		if (projects.Count != 0)
-		{
-			// Replace '.' in the project name with '_'
-			projects = [..projects.Select(x => x.Replace(".", "_")), ];
-			args.Add($"/t:{string.Join(';', projects)}");
-		}
-
-		// Set the platform/config
-		List<Process> procs = [];
-		bool errors = false;
-		try
-		{
-			if (platforms.Count == 0 && configs.Count == 0)
-			{
-				AddMSBuildBinLog(args, sln_or_proj_file, projects, null, null);
-				Run(args);
-			}
-			else
-			{
-				// Build the first config synchronously to handle one-time setup
-				// (code generation, package file copies) before spawning parallel builds.
-				int i = 0;
-				bool first = true;
-				foreach (var platform in platforms)
-				{
-					foreach (var config in configs)
-					{
-						List<string> args_ = [..args, $"/p:Configuration={config};Platform={platform}"];
-						AddMSBuildBinLog(args_, sln_or_proj_file, projects, platform, config);
-						if (parallel && !first)
-						{
-							var instance_id = ++i;
-							Console.WriteLine($"{instance_id}> --- {string.Join(",", projects)} --- {platform}|{config} ---");
-							procs.Add(Spawn($"{instance_id}>", args_, same_window: same_window));
-						}
-						else
-						{
-							Console.WriteLine($"--- {string.Join(",", projects)} --- {platform}|{config} ---");
-							Run(args_, return_output: false, show_arguments: false);
-							first = false;
-						}
-					}
-				}
-			}
-		}
-		catch (Exception ex)
-		{
-			Console.WriteLine($"Build Errors: {ex.Message}");
-			errors = true;
-		}
-		finally
-		{
-			// Wait for all processes to finish, and check for error return codes
-			foreach (var proc in procs)
-			{
-				proc.WaitForExit();
-				errors |= proc.ExitCode != 0;
-			}
-		}
-
-		return !errors;
-	}
-
-	// Add a unique binary log path when MSBuild profiling is enabled.
-	private static void AddMSBuildBinLog(List<string> args, string sln_or_proj_file, IList<string> projects, string? platform, string? config)
-	{
-		if (!MSBuildProfiling)
-			return;
-
-		var profile_dir = string.IsNullOrEmpty(MSBuildProfileDir)
-			? Path([UserVars.Root, "obj", "build-profile"], check_exists: false)
-			: MSBuildProfileDir;
-		Directory.CreateDirectory(profile_dir);
-
-		var label = projects.Count != 0
-			? string.Join("_", projects)
-			: IOPath.GetFileNameWithoutExtension(sln_or_proj_file);
-		if (!string.IsNullOrEmpty(platform))
-			label += $"_{platform}";
-		if (!string.IsNullOrEmpty(config))
-			label += $"_{config}";
-
-		var index = System.Threading.Interlocked.Increment(ref m_msbuild_profile_index);
-		var binlog = IOPath.Combine(profile_dir, $"{index:00}-{SafeFilename(label)}.binlog");
-		args.Add($"/bl:{binlog}");
-	}
-
-	// Replace characters that are invalid in filenames.
-	private static string SafeFilename(string value)
-	{
-		var invalid = IOPath.GetInvalidFileNameChars();
-		foreach (var ch in invalid)
-			value = value.Replace(ch, '_');
-		return value;
-	}
 
 	// True if code signing is configured (PFX certificate available and not expired)
 	public static bool SigningAvailable
