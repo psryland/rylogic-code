@@ -61,7 +61,7 @@ struct ElementConstants
 	float4 colour_blend; // linear override RGB; w = surface blend amount
 
 	// EnvMap
-	float env_reflectivity; // Reflectivity of the environment map
+	float env_reflectivity; // Environment map reflectivity when viewed straight on (rises to 1 at grazing angles)
 	float3 far_clip_fade; // x/y = forward-depth interval; z = 0 disabled, 1 opaque source, 2 blended source
 };
 

@@ -94,13 +94,22 @@ float4 SampleEnvMapLevel(float3 dir, float3 dir_prev, float lod)
 	return col;
 }
 
-// Return the colour due to lighting. Returns unlit_diff if ws_norm is zero
+// Blend the reflected environment into 'initial_diff'. 'env_reflectivity' is the reflectivity when viewed straight on; the reflection
+// strengthens towards a full mirror at grazing angles, so a value of 1 is a perfect mirror from every direction.
 float4 EnvironmentMap(float4 ws_pos, float4 ws_norm, float4 ws_cam, float4 initial_diff)
 {
+	// Sample the environment in the mirror direction
+	float4 to_surface = ws_pos - ws_cam;
 	float3 dir, dir_prev;
-	EnvMapDirections(ws_pos.xyz, reflect(ws_pos - ws_cam, ws_norm).xyz, dir, dir_prev);
+	EnvMapDirections(ws_pos.xyz, reflect(to_surface, ws_norm).xyz, dir, dir_prev);
 	float4 col = SampleEnvMap(dir, dir_prev);
-	return lerp(initial_diff, col, g_nugget.env_reflectivity);
+
+	// Weight the reflection with the Schlick approximation to the Fresnel term, so reflection rises from the straight-on value to 1 as
+	// the view becomes parallel to the surface. 'abs' treats both sides of the surface the same.
+	float reflectivity = saturate(g_nugget.env_reflectivity);
+	float cos_theta = saturate(abs(dot(normalize(to_surface.xyz), normalize(ws_norm.xyz))));
+	float fresnel = reflectivity + (1.0f - reflectivity) * pow(1.0f - cos_theta, 5.0f);
+	return lerp(initial_diff, col, fresnel);
 }
 
 #endif

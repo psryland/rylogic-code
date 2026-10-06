@@ -227,7 +227,7 @@ namespace Rylogic.Gfx
 				set => ColourSet(true, value, null);
 			}
 
-			/// <summary>Get/Set the reflectivity for this object (set applies to all child objects as well)</summary>
+			/// <summary>Get/Set the reflectivity for this object when viewed straight on. Reflection rises to a full mirror at grazing angles. (set applies to all child objects as well)</summary>
 			public float Reflectivity
 			{
 				get => ReflectivityGet(string.Empty);
