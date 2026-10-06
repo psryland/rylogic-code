@@ -213,6 +213,9 @@ namespace pr::rdr12
 							desc.Apply(PSO<EPipeState::PS>(overlay.m_code.PS));
 					}
 				}
+				if (material.Component<materials::DetailNormals>() != nullptr)
+					materials::ApplyDetailNormalsPixelShader(desc);
+
 				break;
 			}
 			default:
@@ -379,11 +382,15 @@ namespace pr::rdr12
 			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::ShadowAtlas, gpu);
 		}
 
-		// Add the global environment map
+		// Add the global environment map. Without a previous map, the current map fills the previous slot so the table is always valid.
 		if (auto* envmap = scn().m_global_envmap.get())
 		{
 			auto gpu = wnd().m_heap_view.Add(envmap->m_srv);
 			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::EnvMap, gpu);
+
+			auto* envmap_prev = scn().m_global_envmap_prev.get();
+			auto gpu_prev = envmap_prev != nullptr ? wnd().m_heap_view.Add(envmap_prev->m_srv) : gpu;
+			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::EnvMapPrev, gpu_prev);
 		}
 	}
 
@@ -569,6 +576,7 @@ namespace pr::rdr12
 		};
 		if (!select_family(shader_code::forward_ps, shader_code::forward_reflection_attrs_ps, shader_code::forward_alpha_collect_ps, shader_code::forward_far_fade_ps, shader_code::forward_far_fade_reflection_attrs_ps, shader_code::forward_far_fade_alpha_collect_ps) &&
 			!select_family(shader_code::forward_pbr_ps, shader_code::forward_reflection_attrs_pbr_ps, shader_code::forward_alpha_collect_pbr_ps, shader_code::forward_far_fade_pbr_ps, shader_code::forward_far_fade_reflection_attrs_pbr_ps, shader_code::forward_far_fade_alpha_collect_pbr_ps) &&
+			!select_family(shader_code::forward_detail_ps, shader_code::forward_reflection_attrs_detail_ps, shader_code::forward_alpha_collect_detail_ps, shader_code::forward_far_fade_detail_ps, shader_code::forward_far_fade_reflection_attrs_detail_ps, shader_code::forward_far_fade_alpha_collect_detail_ps) &&
 			!select_family(shader_code::forward_texn_pbr_ps, shader_code::forward_reflection_attrs_texn_pbr_ps, shader_code::forward_alpha_collect_texn_pbr_ps, shader_code::forward_far_fade_texn_pbr_ps, shader_code::forward_far_fade_reflection_attrs_texn_pbr_ps, shader_code::forward_far_fade_alpha_collect_texn_pbr_ps))
 			throw std::runtime_error("Far clip fade requires a stock forward simple/PBR pixel shader");
 

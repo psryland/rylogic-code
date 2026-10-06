@@ -350,6 +350,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\base_colour.h">
       <Filter>src\material\components</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\detail_normals.h">
+      <Filter>src\material\components</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\material\components\emissive.h">
       <Filter>src\material\components</Filter>
     </ClInclude>
@@ -844,6 +847,9 @@
     <ShaderBuild Include="src\shaders\hlsl\utility\mipmap_generator.hlsl">
       <Filter>src\shaders\hlsl\utility</Filter>
     </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\utility\env_map_distance.hlsl">
+      <Filter>src\shaders\hlsl\utility</Filter>
+    </ShaderBuild>
     <None Include="src\shaders\hlsl\utility\env_map.hlsli">
       <Filter>src\shaders\hlsl\utility</Filter>
     </None>
@@ -896,6 +902,9 @@
       <Filter>src\shaders\hlsl\forward</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\shaders\hlsl\forward\far_clip_fade.hlsl">
+      <Filter>src\shaders\hlsl\forward</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\forward\detail_normals.hlsl">
       <Filter>src\shaders\hlsl\forward</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\shaders\hlsl\postprocessing\underwater.hlsl">

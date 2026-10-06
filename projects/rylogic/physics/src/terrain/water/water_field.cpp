@@ -51,6 +51,10 @@ namespace pr::physics::terrain::water
 					if (std::abs(length - 1.0f) > 1e-4f)
 						throw std::invalid_argument("Water field wave direction must be unit length");
 
+					// The crest profile is only defined for sharpness below one; the limit keeps its slopes bounded.
+					if (!(element.timing.x >= 0.0f && element.timing.x <= shared::WaterFieldMaxCrestSharpness))
+						throw std::invalid_argument(std::format("Water field crest sharpness must be in [0, {}]", shared::WaterFieldMaxCrestSharpness));
+
 					return;
 				}
 				case shared::WaterFieldElementRadialPacket:
@@ -89,15 +93,15 @@ namespace pr::physics::terrain::water
 		};
 	}
 
-	// Return a Gerstner wave element with height A*sin(k*dot(d, xy) - k*c*t + phase).
-	WaterFieldElement GerstnerWave(v2 direction, float amplitude, float wavelength, float phase_speed, float steepness, float phase)
+	// Return a Gerstner wave element with height A*P(k*dot(d, xy) - k*c*t + phase), where P is the crest profile for 'sharpness'.
+	WaterFieldElement GerstnerWave(v2 direction, float amplitude, float wavelength, float phase_speed, float steepness, float sharpness, float phase)
 	{
 		auto const d = UnitDirection(direction);
 		return WaterFieldElement{
 			.info = {shared::WaterFieldElementGerstnerWave, 0, 0, 0},
 			.position = {d.x, d.y, phase, 0},
 			.wave = {amplitude, wavelength, phase_speed, steepness},
-			.timing = {0, 0, 0, 0},
+			.timing = {sharpness, 0, 0, 0},
 		};
 	}
 

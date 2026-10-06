@@ -21,6 +21,14 @@ namespace pr::rdr12
 		// mirror; a mirror maps right-handed world directions onto the left-handed DX cube face layout.
 		m4x4 m_cube2w;
 
+		// The world-space position the cube's contents were captured from. Reflections use it to correct parallax when the
+		// scene's environment map proxy radius is non-zero (see Scene::m_global_envmap_proxy_radius).
+		v4 m_centre;
+
+		// The scale 'S' of the distances stored in the cube's alpha channel, or 0 if alpha does not hold distances. A texel's distance 'd' from
+		// 'm_centre' is stored as 'd / (d + S)', so alpha 1 means infinitely distant. Reflections use the distances to refine the parallax correction.
+		float m_distance_scale;
+
 		TextureCube(Renderer& rdr, ID3D12Resource* res, TextureDesc const& desc);
 	};
 }

@@ -80,6 +80,9 @@ namespace pr::rdr12
 		// Replace the constants of every procedural vertex shader on the nuggets of 'object'.
 		void ObjectProceduralConstants(ldraw::LdrObject* object, std::span<std::byte const> constants);
 
+		// Replace the detail-normal layers of every nugget of 'object' that has detail normals.
+		void ObjectDetailNormalLayers(ldraw::LdrObject* object, std::span<materials::DetailNormalLayer const> layers, float base_slope_variance);
+
 		// Load/Add ldr objects and return the first object from the script
 		template <typename Char>
 		ldraw::LdrObject* ObjectCreateLdr(std::basic_string_view<Char> ldr_script, bool file, EEncoding enc, Guid const* context_id, view3d::Includes const* includes);

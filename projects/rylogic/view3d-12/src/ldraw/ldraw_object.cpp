@@ -5,6 +5,7 @@
 #include "pr/view3d-12/ldraw/ldraw_object.h"
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/material/material_pbr.h"
+#include "pr/view3d-12/material/material_simple.h"
 #include "pr/view3d-12/material/components/shader_overlays.h"
 #include "pr/view3d-12/model/animation.h"
 #include "pr/view3d-12/scene/scene.h"
@@ -699,6 +700,38 @@ namespace pr::rdr12::ldraw
 				material->procedural_surface(*surface);
 			else
 				material->procedural_surface_clear();
+
+			nug->mat(static_cast<MaterialPtr>(material));
+			return true;
+		}, name);
+	}
+
+	// Set the detail-normal slope map of a simple-material model nugget, or remove detail normals when 'tex' is null.
+	void LdrObject::NuggetDetailNormals(Texture2D* tex, Sampler* sam, char const* name, int index)
+	{
+		// Apply model-owned material replacement consistently with existing nugget editing APIs.
+		Apply([=](LdrObject* obj)
+		{
+			// Ignore matched objects without geometry, as the existing nugget setters do.
+			if (obj->m_model == nullptr)
+				return true;
+
+			auto nug = obj->m_model->m_nuggets;
+			for (auto i = 0; i != index && nug; ++i, nug = nug->m_next)
+			{}
+			if (nug == nullptr)
+				throw std::runtime_error("nugget index out of range");
+
+			// Detail normals are a simple-material feature; copying keeps the shared layer set of an existing component.
+			auto const* current = dynamic_cast<MaterialSimple const*>(&nug->mat());
+			if (current == nullptr)
+				throw std::runtime_error("Detail normals require a simple material");
+
+			auto material = RefPtr<MaterialSimple>(::pr::compute::New<MaterialSimple>(*current), true);
+			if (tex != nullptr)
+				material->detail_normals(Texture2DPtr(tex, true), SamplerPtr(sam, true));
+			else
+				material->detail_normals_clear();
 
 			nug->mat(static_cast<MaterialPtr>(material));
 			return true;

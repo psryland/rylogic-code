@@ -14,6 +14,7 @@
 #include "pr/view3d-12/shaders/shader_ray_cast.h"
 #include "pr/view3d-12/shaders/shader_smap.h"
 #include "pr/view3d-12/texture/texture_2d.h"
+#include "view3d-12/src/shaders/common.h"
 
 namespace pr::rdr12
 {
@@ -54,6 +55,59 @@ namespace pr::rdr12
 			overlay.SetupFrame(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene);
 			overlay.SetupElement(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene, ctx.m_camera, &ctx.m_dle);
 		}
+	}
+
+	// Replace the layers in use and the base slope variance. 'layers' must contain at most MaxLayers valid entries.
+	void materials::DetailNormalLayers::Set(std::span<DetailNormalLayer const> layers, float base_slope_variance)
+	{
+		// Reject invalid layers at the public boundary so shaders never see non-finite projections.
+		if (layers.size() > MaxLayers)
+			throw std::runtime_error("Too many detail-normal layers");
+		if (!std::isfinite(base_slope_variance) || base_slope_variance < 0.0f)
+			throw std::runtime_error("Detail-normal base slope variance must be finite and non-negative");
+
+		for (auto const& layer : layers)
+		{
+			// Every projection row and scale must be finite, and the weight noise must stay within its documented domain.
+			if (!IsFinite(layer.m_row_u) || !IsFinite(layer.m_row_v) || !std::isfinite(layer.m_height_scale))
+				throw std::runtime_error("Detail-normal layers must be finite");
+			if (!(layer.m_weight_noise >= 0.0f && layer.m_weight_noise <= 1.0f))
+				throw std::runtime_error("Detail-normal weight noise must be in [0, 1]");
+			if (!std::isfinite(layer.m_warp) || layer.m_warp < 0.0f)
+				throw std::runtime_error("Detail-normal warp must be finite and non-negative");
+			if (!std::isfinite(layer.m_noise_frequency) || ((layer.m_weight_noise != 0.0f || layer.m_warp != 0.0f) && !(layer.m_noise_frequency > 0.0f)))
+				throw std::runtime_error("Detail-normal noise frequency must be finite, and positive when weight noise or warp is used");
+		}
+
+		std::copy(layers.begin(), layers.end(), m_layers.begin());
+		m_count = static_cast<int>(layers.size());
+		m_base_slope_variance = base_slope_variance;
+	}
+
+	// Replace a stock simple-material forward pixel shader in 'desc' with its detail-normal variant. Throws for any other pixel shader.
+	void materials::ApplyDetailNormalsPixelShader(PipeStateDesc& desc)
+	{
+		// Map each stock simple-material entry point to the variant that perturbs the normal before calling it.
+		// Far-clip-fade variants are selected later from the detail family, so only the stock sub-pass entries are mapped here.
+		struct Mapping { shader_code::ByteCode const* m_stock; shader_code::ByteCode const* m_detail; };
+		static Mapping const mappings[] =
+		{
+			{ &shader_code::forward_ps, &shader_code::forward_detail_ps },
+			{ &shader_code::forward_reflection_attrs_ps, &shader_code::forward_reflection_attrs_detail_ps },
+			{ &shader_code::forward_alpha_collect_ps, &shader_code::forward_alpha_collect_detail_ps },
+		};
+
+		auto const* gfx = static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(desc);
+		for (auto const& mapping : mappings)
+		{
+			// Pixel shaders are identified by their compiled byte code.
+			if (gfx->PS.pShaderBytecode != mapping.m_stock->pShaderBytecode || gfx->PS.BytecodeLength != mapping.m_stock->BytecodeLength)
+				continue;
+
+			desc.Apply(PSO<EPipeState::PS>(*mapping.m_detail));
+			return;
+		}
+		throw std::runtime_error("Detail normals require a stock simple-material forward pixel shader");
 	}
 
 	namespace
@@ -171,8 +225,11 @@ namespace pr::rdr12
 				{
 					case ERenderStep::RenderForward:
 					{
-						// Forward retains all existing overlay behavior.
+						// Forward retains all existing overlay behavior. Detail normals then swap in their variant of the resulting stock pixel shader.
 						materials::ApplyShaderOverlays(ctx, false);
+						if (ctx.m_material.Component<materials::DetailNormals>() != nullptr)
+							materials::ApplyDetailNormalsPixelShader(ctx.m_pipe_state);
+
 						ApplyTwoSidedPipeline(ctx);
 						return;
 					}
@@ -231,6 +288,38 @@ namespace pr::rdr12
 				BindDiffuseSampler(ctx, shaders::fwd::ERootParam::DiffTextureSampler);
 				if (dynamic_cast<shaders::Forward*>(ctx.m_shader) == nullptr)
 					throw std::runtime_error("Forward material pass requires a shader");
+
+				// Detail normals use the otherwise idle PBR normal-map slot and their own constant buffer.
+				if (auto const* detail = ctx.m_material.Component<materials::DetailNormals>(); detail != nullptr)
+					BindDetailNormals(ctx, *detail);
+			}
+
+			// Bind the slope map and layer constants used by the detail-normal pixel shader variants.
+			static void BindDetailNormals(MaterialPassContext& ctx, materials::DetailNormals const& detail)
+			{
+				// The slot is validated when the component is set, so both resources are present.
+				BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_view, shaders::fwd::ERootParam::PbrNormalTexture, detail.m_tex.m_texture->m_srv, nullptr);
+				BindMaterialDescriptor(ctx.m_cmd_list, ctx.m_wnd.m_heap_samp, shaders::fwd::ERootParam::PbrNormalSampler, detail.m_tex.m_sampler->m_samp, nullptr);
+
+				// Pack the shared layers into the shader's per-layer arrays.
+				auto const& layers = *detail.m_layers;
+				auto cb = shaders::fwd::CBufDetailNormals{};
+				static_assert(DetailNormalsMaxLayers == materials::DetailNormalLayers::MaxLayers);
+				for (int i = 0; i != layers.m_count; ++i)
+				{
+					// Copy one layer's projection rows, height scale, weight noise, and warp.
+					cb.row_u[i] = layers.m_layers[i].m_row_u;
+					cb.row_v[i] = layers.m_layers[i].m_row_v;
+					cb.height_scale[i] = layers.m_layers[i].m_height_scale;
+					cb.weight_noise[i] = layers.m_layers[i].m_weight_noise;
+					cb.noise_frequency[i] = layers.m_layers[i].m_noise_frequency;
+					cb.warp[i] = layers.m_layers[i].m_warp;
+				}
+				cb.surface.x = layers.m_base_slope_variance;
+				cb.info.x = layers.m_count;
+
+				auto gpu_address = ctx.m_upload.Add(cb, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, false);
+				ctx.m_cmd_list.SetGraphicsRootConstantBufferView((UINT)shaders::fwd::ERootParam::CBufDetailNormals, gpu_address);
 			}
 
 			// Bind fixed-function style resources for the simple shadow-map pass.
@@ -282,6 +371,7 @@ namespace pr::rdr12
 		, m_shaders()
 		, m_two_sided()
 		, m_optics()
+		, m_detail_normals()
 	{}
 
 	// Copy simple material properties into a new ref-counted material instance.
@@ -291,6 +381,7 @@ namespace pr::rdr12
 		, m_shaders(rhs.m_shaders)
 		, m_two_sided(rhs.m_two_sided)
 		, m_optics(rhs.m_optics)
+		, m_detail_normals(rhs.m_detail_normals)
 	{}
 
 	// Return the extensible type id for this material.
@@ -374,9 +465,39 @@ namespace pr::rdr12
 		return *this;
 	}
 
+	// Use 'tex' and 'sam' as the detail-normal slope map. Existing layers are kept; a new component starts with no layers.
+	MaterialSimple& MaterialSimple::detail_normals(Texture2DPtr tex, SamplerPtr sam)
+	{
+		// The pixel shader variant samples the map unconditionally, so both resources are required.
+		if (tex == nullptr || sam == nullptr)
+			throw std::runtime_error("Detail normals require a texture and a sampler");
+
+		// Enabling starts a new layer set, so this material does not share layers with copies made before detail normals were removed.
+		if (!m_detail_normals.m_enable)
+		{
+			m_detail_normals.m_layers = std::make_shared<materials::DetailNormalLayers>();
+			m_detail_normals.m_enable = true;
+		}
+
+		m_detail_normals.m_tex.m_texture = tex;
+		m_detail_normals.m_tex.m_sampler = sam;
+		return *this;
+	}
+
+	// Remove detail normals so the stock pixel shaders are used.
+	MaterialSimple& MaterialSimple::detail_normals_clear()
+	{
+		// Reset to the disabled default, which also releases the slope map and the layers.
+		m_detail_normals = {};
+		return *this;
+	}
+
 	// Return a component block for 'component_id', or null if this material does not provide that block.
 	void const* MaterialSimple::Component(RdrId component_id) const
 	{
+		if (component_id == materials::DetailNormals::Id)
+			return m_detail_normals.m_enable ? &m_detail_normals : nullptr;
+
 		if (component_id == materials::BaseColour::Id)
 			return &m_base_colour;
 

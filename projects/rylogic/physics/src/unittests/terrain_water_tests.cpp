@@ -67,6 +67,7 @@ namespace pr::physics::terrain::water::tests
 			auto const elements = std::array{
 				SineWave(v2{1.0f, 0.0f}, 0.2f, 4.0f, 1.5f),
 				GerstnerWave(v2{0.0f, 1.0f}, 0.1f, 6.0f, -0.75f, 0.3f),
+				GerstnerWave(v2{0.6f, 0.8f}, 0.15f, 5.0f, 1.25f, 0.0f, 0.7f),
 				RadialPacket(v2{0.5f, -0.5f}, 0.3f, 3.0f, 4.0f, 1.2f, 1.0f, 6.0f, 0.2f, 5.0f),
 			};
 			auto const field = WaterField(0.0, elements);
@@ -111,6 +112,7 @@ namespace pr::physics::terrain::water::tests
 			auto const elements = std::array{
 				SineWave(v2{1.0f, 0.0f}, 0.2f, 4.0f, 1.5f),
 				GerstnerWave(v2{0.0f, 1.0f}, 0.1f, 6.0f, 0.75f, 0.0f),
+				GerstnerWave(v2{0.6f, 0.8f}, 0.15f, 5.0f, 1.25f, 0.0f, 0.5f),
 			};
 			auto const field = WaterField(0.0, elements);
 			auto const samples = std::array<std::pair<v2, float>, 3>{
@@ -140,6 +142,48 @@ namespace pr::physics::terrain::water::tests
 			PR_EXPECT(FEqlAbsolute(above_vel, surface_vel, 1e-6f));
 		}
 
+		// The crest profile is a sine at zero sharpness. Sharper profiles keep the crest-to-trough height, raise the crest, flatten the trough,
+		// keep a zero mean, and have an exact phase derivative.
+		PRUnitTestMethod(CrestProfileSharpensCrests, Quick)
+		{
+			auto const pi = constants<float>::tau / 2.0f;
+			for (auto i = 0; i != 16; ++i)
+			{
+				auto const phase = constants<float>::tau * i / 16.0f;
+				auto const sine = shared::WaterFieldWaveProfile(phase, 0.0f);
+				PR_EXPECT(FEqlAbsolute(sine.x, std::sin(phase), 1e-6f));
+				PR_EXPECT(FEqlAbsolute(sine.y, std::cos(phase), 1e-6f));
+			}
+			for (auto r : {0.2f, 0.5f, 0.9f})
+			{
+				// Crest at phase pi/2 and trough at 3pi/2.
+				PR_EXPECT(FEqlAbsolute(shared::WaterFieldWaveProfile(pi / 2.0f, r).x, 1.0f + r, 1e-5f));
+				PR_EXPECT(FEqlAbsolute(shared::WaterFieldWaveProfile(3.0f * pi / 2.0f, r).x, -(1.0f - r), 1e-5f));
+
+				// Zero mean, and the derivative matches a central difference.
+				auto mean = 0.0;
+				auto const n = 4096;
+				for (auto j = 0; j != n; ++j)
+				{
+					auto const phase = constants<float>::tau * (j + 0.5f) / n;
+					mean += shared::WaterFieldWaveProfile(phase, r).x / n;
+					if (j % 64 == 0)
+					{
+						auto const eps = 1e-3f;
+						auto const fd = (shared::WaterFieldWaveProfile(phase + eps, r).x - shared::WaterFieldWaveProfile(phase - eps, r).x) / (2.0f * eps);
+						PR_EXPECT(FEqlAbsolute(shared::WaterFieldWaveProfile(phase, r).y, fd, 5e-3f * (1.0f + std::abs(fd))));
+					}
+				}
+				PR_EXPECT(FEqlAbsolute(mean, 0.0, 1e-5));
+			}
+
+			// The field's height bound includes the raised crest.
+			auto const wave = GerstnerWave(v2{1.0f, 0.0f}, 0.2f, 8.0f, 2.0f, 0.0f, 0.5f);
+			auto const field = WaterField(0.0, std::span{&wave, 1});
+			PR_EXPECT(FEqlAbsolute(field.MaxHeight(), 0.3, 1e-6) && FEqlAbsolute(field.MinHeight(), -0.3, 1e-6));
+			PR_EXPECT(FEqlAbsolute(field.Height(v2d{2.0, 0.0}, 0.0), 0.3, 1e-5));
+		}
+
 		// Rendered Gerstner displacement pulls points towards crests, and the analytic normal matches the displaced surface's geometry.
 		PRUnitTestMethod(GerstnerSurfaceSharpensCrests, Quick)
 		{
@@ -202,6 +246,12 @@ namespace pr::physics::terrain::water::tests
 			PR_THROWS(field.Elements(std::span{&unknown, 1}), std::invalid_argument);
 			auto const many = std::vector<WaterFieldElement>(MaxElementCount + 1, SineWave(v2{1.0f, 0.0f}, 0.1f, 4.0f, 1.0f));
 			PR_THROWS(field.Elements(many), std::invalid_argument);
+
+			// Crest sharpness outside its range.
+			auto const blunt = GerstnerWave(v2{1.0f, 0.0f}, 0.1f, 4.0f, 1.0f, 0.0f, -0.1f);
+			auto const too_sharp = GerstnerWave(v2{1.0f, 0.0f}, 0.1f, 4.0f, 1.0f, 0.0f, shared::WaterFieldMaxCrestSharpness + 0.01f);
+			PR_THROWS(field.Elements(std::span{&blunt, 1}), std::invalid_argument);
+			PR_THROWS(field.Elements(std::span{&too_sharp, 1}), std::invalid_argument);
 
 			PR_EXPECT(field.Level() == 1.0 && field.Elements().empty());
 		}
@@ -290,8 +340,7 @@ namespace pr::physics::terrain::water::tests
 			auto targets = std::vector<float>(count);
 			PR_EXPECT(spectrum.ComponentCount() == 64);
 
-			// A 10 m/s wind over 10 km gives a significant wave height of about 0.6 m. Components whose whole direction sector faces
-			// against the wind have no energy.
+			// A 10 m/s wind over 10 km gives a significant wave height of about 0.6 m.
 			auto const total_variance = [&](std::span<float const> amplitudes)
 			{
 				auto variance = 0.0;
@@ -300,25 +349,36 @@ namespace pr::physics::terrain::water::tests
 
 				return variance;
 			};
-			spectrum.Targets(WaveWeather{.m_wind_speed = 10.0f, .m_wind_direction = 0.0f, .m_fetch = 10000.0f}, targets);
-			for (auto i = 0; i != spectrum.ComponentCount(); ++i)
-			{
-				if (spectrum.Components()[i].m_direction.x <= -0.71f)
-					PR_EXPECT(targets[i] == 0.0f);
-			}
+			spectrum.Targets(WaveWeather{.m_wind_speed = 10.0f, .m_fetch = 10000.0f}, targets);
 			auto const variance = total_variance(targets);
 			auto const hs = 4.0 * std::sqrt(variance);
 			PR_EXPECT(hs > 0.45 && hs < 0.85);
 
-			// Each component carries its whole band and direction sector, so the total energy does not depend on the wind direction.
-			for (auto i = 1; i != 16; ++i)
+			// Every direction lies within a quarter turn of downwind, and the energy-weighted mean direction is close to downwind.
+			auto weighted_cos = 0.0;
+			for (auto i = 0; i != spectrum.ComponentCount(); ++i)
 			{
-				auto turned = std::vector<float>(count);
-				spectrum.Targets(WaveWeather{.m_wind_speed = 10.0f, .m_wind_direction = 0.37f * i, .m_fetch = 10000.0f}, turned);
-				PR_EXPECT(FEqlRelative(total_variance(turned), variance, 1e-3));
+				auto const& direction = spectrum.Components()[i].m_direction;
+				PR_EXPECT(direction.x > 0.0f);
+				weighted_cos += 0.5 * targets[i] * targets[i] * direction.x;
 			}
+			PR_EXPECT(weighted_cos / variance > 0.8);
 
-			// Every component has its own wavelength and direction.
+			// A gale's spectrum peak is longer than every band, yet its energy is still concentrated closer to downwind than a fresh breeze's.
+			auto const mean_cos = [&](float wind_speed)
+			{
+				auto gale = std::vector<float>(count);
+				spectrum.Targets(WaveWeather{.m_wind_speed = wind_speed, .m_fetch = 500000.0f}, gale);
+				auto cos_sum = 0.0;
+				for (auto i = 0; i != spectrum.ComponentCount(); ++i)
+					cos_sum += 0.5 * gale[i] * gale[i] * spectrum.Components()[i].m_direction.x;
+
+				return cos_sum / total_variance(gale);
+			};
+			PR_EXPECT(mean_cos(30.0f) > mean_cos(8.0f));
+			PR_EXPECT(mean_cos(30.0f) > 0.9);
+
+			// Every component has its own wavelength and direction. Directions crowd near downwind, so 'distinct' means more than about a quarter degree apart.
 			for (auto i = 0; i != spectrum.ComponentCount(); ++i)
 			{
 				for (auto j = i + 1; j != spectrum.ComponentCount(); ++j)
@@ -326,7 +386,7 @@ namespace pr::physics::terrain::water::tests
 					auto const& a = spectrum.Components()[i];
 					auto const& b = spectrum.Components()[j];
 					PR_EXPECT(a.m_wavelength != b.m_wavelength);
-					PR_EXPECT(Dot(a.m_direction, b.m_direction) < 0.9999f);
+					PR_EXPECT(Dot(a.m_direction, b.m_direction) < 0.99999f);
 				}
 			}
 
@@ -334,9 +394,10 @@ namespace pr::physics::terrain::water::tests
 			PR_THROWS(WaveSpectrum(WaveSpectrumLayout{.m_min_wavelength = 4.0f, .m_max_wavelength = 2.0f}), std::invalid_argument);
 			PR_THROWS(WaveSpectrum(WaveSpectrumLayout{.m_bands = 17, .m_directions = 4}), std::invalid_argument);
 			PR_THROWS(WaveSpectrum(WaveSpectrumLayout{.m_directions = 0}), std::invalid_argument);
+
 			// Calm air makes no waves.
 			auto calm = std::vector<float>(count);
-			spectrum.Targets(WaveWeather{.m_wind_speed = 0.0f, .m_wind_direction = 0.0f, .m_fetch = 10000.0f}, calm);
+			spectrum.Targets(WaveWeather{.m_wind_speed = 0.0f, .m_fetch = 10000.0f}, calm);
 			PR_EXPECT(std::ranges::all_of(calm, [](float a) { return a == 0.0f; }));
 
 			// Relaxing moves part way towards the targets, then reaches them.
@@ -350,11 +411,36 @@ namespace pr::physics::terrain::water::tests
 			// A minimum wavelength removes the short components.
 			auto all = std::vector<WaterFieldElement>(count);
 			auto some = std::vector<WaterFieldElement>(count);
-			auto const n_all = spectrum.Elements(amps, 0.0f, all);
-			auto const n_some = spectrum.Elements(amps, 4.0f, some);
+			auto const n_all = spectrum.Elements(amps, 0.0f, 0.0f, 0.0f, all);
+			auto const n_some = spectrum.Elements(amps, 0.0f, 0.0f, 4.0f, some);
 			PR_EXPECT(n_all > n_some && n_some > 0);
 			for (auto i = 0; i != n_some; ++i)
 				PR_EXPECT(some[i].wave.y >= 4.0f);
+
+			// The heading rotates every element direction about +Z.
+			auto rotated = std::vector<WaterFieldElement>(count);
+			auto const n_rotated = spectrum.Elements(amps, constants<float>::tau_by_4, 0.0f, 0.0f, rotated);
+			PR_EXPECT(n_rotated == n_all);
+			for (auto i = 0; i != n_all; ++i)
+			{
+				PR_EXPECT(FEqlAbsolute(rotated[i].position.x, -all[i].position.y, 1e-5f));
+				PR_EXPECT(FEqlAbsolute(rotated[i].position.y, +all[i].position.x, 1e-5f));
+			}
+
+			// Light winds give sine-shaped crests; stronger winds sharpen them, within the limit, and the sharpness reaches every element.
+			PR_EXPECT(WaveSpectrum::CrestSharpness(0.0f) == 0.0f && WaveSpectrum::CrestSharpness(4.0f) == 0.0f);
+			auto previous = 0.0f;
+			for (auto wind_speed : {5.0f, 10.0f, 20.0f, 40.0f, 1000.0f})
+			{
+				auto const sharpness = WaveSpectrum::CrestSharpness(wind_speed);
+				PR_EXPECT(sharpness > previous && sharpness <= WaveSpectrum::MaxCrestSharpness);
+				previous = sharpness;
+			}
+			PR_THROWS(WaveSpectrum::CrestSharpness(-1.0f), std::invalid_argument);
+			auto sharp = std::vector<WaterFieldElement>(count);
+			auto const n_sharp = spectrum.Elements(amps, 0.0f, 0.5f, 0.0f, sharp);
+			PR_EXPECT(n_sharp == n_all && sharp[0].timing.x == 0.5f);
+			PR_THROWS(spectrum.Elements(amps, 0.0f, 0.95f, 0.0f, sharp), std::invalid_argument);
 
 			// The surface repeats after the repeat period, so wrapping the clock does not move it.
 			auto field = WaterField(0.0, std::span{all.data(), static_cast<size_t>(n_all)});

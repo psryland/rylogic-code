@@ -22,11 +22,16 @@ static const int WaterFieldElementSineWave = 1;
 static const int WaterFieldElementGerstnerWave = 2;
 static const int WaterFieldElementRadialPacket = 3;
 
+// Largest crest sharpness a sine or Gerstner wave accepts. The crest profile (see WaterFieldWaveProfile) becomes a spike as sharpness nears one.
+static const float WaterFieldMaxCrestSharpness = 0.9f;
+
 // One water-field element. It adds to a still-water level, and info.x selects how the payload is read:
-//   SineWave:     position.xy = unit direction, position.z = phase offset (rad); wave = amplitude (m), wavelength (m), angular frequency (rad/s), unused.
-//                 Height is A*sin(k*dot(d, xy) + omega*t + phase).
-//   GerstnerWave: position.xy = unit direction, position.z = phase offset (rad); wave = amplitude (m), wavelength (m), phase speed (m/s), steepness [0,1].
-//                 Height is A*sin(k*dot(d, xy) - k*c*t + phase). Steepness moves rendered vertices sideways but does not change the sampled height.
+//   SineWave:     position.xy = unit direction, position.z = phase offset (rad); wave = amplitude (m), wavelength (m), angular frequency (rad/s), unused;
+//                 timing.x = crest sharpness [0, WaterFieldMaxCrestSharpness].
+//                 Height is A*P(k*dot(d, xy) + omega*t + phase), where P is the crest profile (see WaterFieldWaveProfile).
+//   GerstnerWave: position.xy = unit direction, position.z = phase offset (rad); wave = amplitude (m), wavelength (m), phase speed (m/s), steepness [0,1];
+//                 timing.x = crest sharpness [0, WaterFieldMaxCrestSharpness].
+//                 Height is A*P(k*dot(d, xy) - k*c*t + phase). Steepness moves rendered vertices sideways but does not change the sampled height.
 //   RadialPacket: position.xy = source; wave = amplitude (m), wavelength (m), packet half-width (m), propagation speed (m/s);
 //                 timing = age (s), lifetime (s), attack time (s), radial attenuation scale (m).
 // Unused fields must be zero.

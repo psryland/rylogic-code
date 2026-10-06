@@ -304,7 +304,7 @@ namespace Rylogic.Gfx
 			// True if the object has animation data.
 			Animated = 1 << 13,
 
-			// Not rendered into environment maps captured with EnvMapCapture
+			// Not rendered into captured environment maps (EnvMapCapture and the environment map probe)
 			EnvMapCaptureExclude = 1 << 15,
 
 			// Indicates invalidated flags that need to be refreshed
@@ -1263,6 +1263,21 @@ namespace Rylogic.Gfx
 			}
 		}
 
+		/// <summary>One world-space projection of a detail-normal slope map. u = dot(p.xyz, RowU.xyz) + RowU.w, and similarly for v.</summary>
+		[StructLayout(LayoutKind.Sequential)]
+		public struct DetailNormalLayer
+		{
+			// Field order matches the public native ABI.
+
+			public v4 RowU;
+			public v4 RowV;
+			public float HeightScale;    // World height per unit of map height, per texture unit of slope
+			public float WeightNoise;    // In [0, 1]. Smooth world noise scales the height by a factor in [1 - WeightNoise, 1 + WeightNoise]
+			public float NoiseFrequency; // Finite, and positive when WeightNoise or Warp is non-zero. Noise cells per texture unit; ignores row offsets
+			public float Warp;           // Finite and non-negative. Noise shifts the texture coordinates by up to this many texture units
+			private float m_pad0;
+		}
+
 		/// <summary></summary>
 		[StructLayout(LayoutKind.Sequential)]
 		public struct WindowOptions
@@ -2095,6 +2110,16 @@ namespace Rylogic.Gfx
 		// Render the window's objects into a new cube map centred at 'position'
 		[DllImport(Dll)] private static extern void View3D_WindowEnvMapCapture(HWindow window, HCubeMap env_map, v4 position);
 
+		// Enable/Disable the window's time-sliced environment map probe
+		[DllImport(Dll)] private static extern void View3D_WindowEnvMapProbeSet(HWindow window, int face_size);
+
+		// Render the next face of the window's environment map probe
+		[DllImport(Dll)] private static extern void View3D_WindowEnvMapProbeUpdate(HWindow window, v4 position);
+
+		// Get/Set the radius of the sphere that reflections assume the environment lies on
+		[DllImport(Dll)] private static extern float View3D_WindowEnvMapProxyRadiusGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_WindowEnvMapProxyRadiusSet(HWindow window, float radius);
+
 		// Enable/Disable the depth buffer
 		[DllImport(Dll)] private static extern bool View3D_DepthBufferEnabledGet(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_DepthBufferEnabledSet(HWindow window, bool enabled);
@@ -2371,6 +2396,8 @@ namespace Rylogic.Gfx
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern bool View3D_ObjectNuggetProceduralSurfaceGet(HObject obj, out ProceduralSurface surface, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetProceduralSurfaceSet(HObject obj, ref ProceduralSurface surface, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetProceduralSurfaceClear(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetDetailNormalsSet(HObject obj, HTexture tex, HSampler sam, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
+		[DllImport(Dll)] private static extern void View3D_ObjectDetailNormalLayersSet(HObject obj, [MarshalAs(UnmanagedType.LPArray)] DetailNormalLayer[]? layers, int count, float base_slope_variance);
 
 		// Materials ******************************
 
