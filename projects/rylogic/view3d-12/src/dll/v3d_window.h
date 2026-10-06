@@ -90,7 +90,7 @@ namespace pr::rdr12
 		HitTestResults       m_ht_results;     // The results of async hit tests
 		mutable pr::BBox     m_bbox_scene;     // Bounding box for all objects in the scene (Lazy updated)
 		std::thread::id      m_main_thread_id; // The thread that created this window
-		view3d::ui::Provider m_ui_provider;    // Optional final-overlay provider copied from the attached satellite
+		std::vector<view3d::ui::Provider> m_ui_providers; // Attached UI providers in attach order. Later providers draw on top of earlier ones.
 		AutoSub              m_eh_hittests;    // Event handler for async hit test results
 		bool                 m_invalidated;    // True after Invalidate has been called but before Render has been called
 		bool                 m_ht_invalidated; // True if async hit tests need to be performed
@@ -214,7 +214,7 @@ namespace pr::rdr12
 		// Render this window into whatever render target is currently set
 		void Render();
 
-		// Attach or detach the optional View3DUI provider.
+		// Attach or detach a UI provider. Providers record each pass in attach order.
 		view3d::ui::EHostStatus UIProviderAttach(view3d::ui::Provider const& provider);
 		view3d::ui::EHostStatus UIProviderDetach(void* provider_context);
 
@@ -241,7 +241,7 @@ namespace pr::rdr12
 
 	private:
 
-		// Record one optional provider stage into a View3D-owned command list.
+		// Record one provider stage for every attached provider into a View3D-owned command list.
 		void RecordUIProvider(view3d::ui::EPass pass_id, Frame& frame);
 
 		// The scene camera expressed in the bridge's right-handed convention, so a provider can

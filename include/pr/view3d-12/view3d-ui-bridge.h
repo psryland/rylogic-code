@@ -2,9 +2,11 @@
 // View 3d
 //  Copyright (c) Rylogic Ltd 2026
 //*********************************************
-// Private, versioned host bridge that lets an out-of-tree renderer module (currently only
-// view3d-ui.dll) attach one render-callback provider to a pr::rdr12::V3dWindow without either
-// module linking against the other's static/import library. Resolved dynamically via
+// Private, versioned host bridge that lets out-of-tree renderer modules (such as view3d-ui.dll
+// and imgui.dll) attach render-callback providers to a pr::rdr12::V3dWindow without either
+// module linking against the other's static/import library. A window holds any number of
+// providers, each identified by its context token. Every pass is recorded for each provider
+// in attach order, so later providers draw on top of earlier ones. Resolved dynamically via
 // GetProcAddress against the four named exports below (see the Export name constants); this
 // header is not part of view3d-12's public API and is never included from view3d-dll.h.
 #pragma once
@@ -16,8 +18,8 @@
 namespace pr::view3d::ui
 {
 	// Bridge ABI version, independent of view3d-12's own public View3D_ApiVersion. Bumped whenever
-	// any exported function signature or struct layout in this header changes.
-	constexpr std::uint32_t HostApiVersion = 0x00020000U;
+	// any exported function signature, struct layout, or attach semantic in this header changes.
+	constexpr std::uint32_t HostApiVersion = 0x00030000U;
 
 	// Struct schema version stamped into every HostStructHeader below.
 	constexpr std::uint32_t HostStructVersion = 2U;
@@ -150,7 +152,9 @@ namespace pr::view3d::ui
 	using DetachedFn = void(__stdcall*)(void* context);
 
 	// One attached render-callback provider. 'm_context' is an opaque token the attaching module
-	// supplies and receives back unmodified in every callback.
+	// supplies and receives back unmodified in every callback. It also identifies the provider:
+	// attaching a context that is already attached returns AlreadyAttached, and detaching a context
+	// that is not attached returns NotAttached.
 	struct Provider
 	{
 		HostStructHeader m_header;
