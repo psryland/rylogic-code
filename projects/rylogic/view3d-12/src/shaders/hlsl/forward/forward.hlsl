@@ -34,6 +34,9 @@ SamplerState        g_envmap_sampler :register(s1);
 // The previous environment map, which 'g_envmap_texture' fades in over (see 'g_frame.env_map.blend')
 TextureCube<float4> g_envmap_prev_texture :register(t13);
 
+// Distances from the current environment map's capture centre, stored as 'd / (d + S)' (see 'g_frame.env_map.centre')
+TextureCube<float> g_envmap_distance :register(t21);
+
 // Shadow atlas. The regions of the atlas are described by the shadow views in 'g_shadow_views'.
 Texture2D<float> g_shadow_atlas         :register(t2);
 SamplerComparisonState g_shadow_sampler :register(s2);
@@ -320,7 +323,7 @@ PSOut ForwardShade(PSIn In, bool is_front_face)
 		if (EnvMapProj(g_nugget.flags))
 		{
 			float3 dir = mul(In.ws_vert, g_nugget.tex2surf0).xyz;
-			Out.diff = SampleEnvMap(dir, dir, 0.0f);
+			Out.diff = SampleEnvMap(dir, dir, ddx(dir), ddy(dir));
 		}
 		else
 		{
@@ -334,7 +337,7 @@ PSOut ForwardShade(PSIn In, bool is_front_face)
 
 	// Env Map
 	if (HasEnvMap(g_nugget.flags) && HasNormals(g_nugget.flags))
-		Out.diff = EnvironmentMap(In.ws_vert, In.ws_norm, g_frame.cam.c2w[3], Out.diff, g_unresolved_slope_variance);
+		Out.diff = EnvironmentMap(In.ws_vert, In.ws_norm, g_frame.cam.c2w[3], In.ss_vert.xy, Out.diff, g_unresolved_slope_variance);
 
 	// Lighting, including shadows
 	if (HasNormals(g_nugget.flags))
@@ -435,14 +438,16 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 	{
 		uint env_w, env_h, env_mips;
 		g_envmap_texture.GetDimensions(0, env_w, env_h, env_mips);
-
-		float3 r, r_prev;
-		EnvMapDirections(In.ws_vert.xyz, reflect(-view, normal), r, r_prev);
-		float3 env = SampleEnvMapLevel(r, r_prev, roughness * (env_mips - 1)).rgb;
+		float lod = roughness * (env_mips - 1);
 
 		float3 f0 = lerp(0.04f, albedo, metallic);
 		float n_dot_v = saturate(dot(normal, view));
 		float3 fresnel = f0 + (max(1.0f - roughness, f0) - f0) * pow(1.0f - n_dot_v, 5.0f);
+		float importance = max(max(fresnel.r, fresnel.g), fresnel.b) * saturate(g_nugget.env_reflectivity);
+
+		float3 r, r_prev;
+		EnvMapDirections(In.ws_vert.xyz, reflect(-view, normal), In.ss_vert.xy, importance, lod, r, r_prev);
+		float3 env = SampleEnvMapLevel(r, r_prev, lod).rgb;
 		colour += env * fresnel * g_nugget.env_reflectivity;
 	}
 

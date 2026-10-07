@@ -1537,8 +1537,11 @@ namespace pr::rdr12
 		// The capture target is written through an sRGB view, so the stored bytes are sRGB encoded and can be copied directly into an sRGB cube
 		static constexpr DXGI_FORMAT Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 
+		// The format of distance cubes. 16 bits avoid visible steps where reflections meet the captured surfaces.
+		static constexpr DXGI_FORMAT DistanceFormat = DXGI_FORMAT_R16_UNORM;
+
 		// Root parameters of the distance pass, see 'env_map_distance.hlsl'
-		enum class EDistanceParam { Constants, Colour, Depth, Face };
+		enum class EDistanceParam { Constants, Colour, Depth, Face, Distance };
 		struct DistanceConstants
 		{
 			m4x4 s2c; // Screen to camera space for the face camera
@@ -1551,6 +1554,7 @@ namespace pr::rdr12
 		Window m_wnd;                       // Single-sample off-screen window that renders the faces
 		Texture2DPtr m_target;              // The window's render target
 		D3DPtr<ID3D12Resource> m_scratch;   // Full-mip copy of the most recently rendered face
+		D3DPtr<ID3D12Resource> m_scratch_distance; // Full-mip distances of the most recently rendered face
 		UINT m_mips;                        // The number of mips in each face
 		Scene m_scene;                      // The scene used to render the faces
 		Window::GpuViewHeap m_view_heap;    // Shader-visible views for the distance pass. Retired by the capture window's frames.
@@ -1564,19 +1568,21 @@ namespace pr::rdr12
 			, m_wnd(rdr, Settings(rdr, face_size, bkgd_colour))
 			, m_target()
 			, m_scratch()
+			, m_scratch_distance()
 			, m_mips()
 			, m_scene(m_wnd)
 			, m_view_heap(64, m_wnd.m_gsync)
 			, m_distance_sig()
 			, m_distance_pso()
 		{
-			// Create the pass that copies a face and stores each texel's distance in alpha
+			// Create the pass that copies a face and stores each texel's distance in a separate texture
 			auto device = rdr.D3DDevice();
 			m_distance_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
 				.U32(hlsl::ECBufReg::b0, sizeof(DistanceConstants) / sizeof(uint32_t))
 				.SRV(hlsl::ESRVReg::t0, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
 				.SRV(hlsl::ESRVReg::t1, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
 				.UAV(hlsl::EUAVReg::u0, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
+				.UAV(hlsl::EUAVReg::u1, 1, D3D12_SHADER_VISIBILITY_ALL, D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE)
 				.Create(device, "EnvMapDistanceSig");
 			m_distance_pso = ::pr::compute::ComputePSO(m_distance_sig.get(), shader_code::env_map_distance_cs)
 				.Create(device, "EnvMapDistancePSO");
@@ -1589,6 +1595,7 @@ namespace pr::rdr12
 			// Mip generation supports only single 2D textures, so each face is copied into a full-mip 2D texture before it is copied into the cube.
 			// The texture allows unordered access so that mips are generated in place.
 			m_scratch = m_factory.CreateResource(ResDesc::Tex2D(Image{face_size, face_size, nullptr, Format}, 0, EUsage::UnorderedAccess), "EnvMapCaptureFace");
+			m_scratch_distance = m_factory.CreateResource(ResDesc::Tex2D(Image{face_size, face_size, nullptr, DistanceFormat}, 0, EUsage::UnorderedAccess), "EnvMapCaptureDistance");
 			m_mips = m_scratch->GetDesc().MipLevels;
 			m_factory.FlushToGpu(EGpuFlush::Block);
 
@@ -1650,7 +1657,8 @@ namespace pr::rdr12
 		}
 
 		// Render face 'face' of 'cube' from the cube's centre, using the lighting, render state, and objects of 'src'. The work is submitted to the GPU without waiting.
-		// The caller sets the cube's orientation to 'CubeToWorld()', and its centre and distance scale. A positive distance scale stores distances in alpha.
+		// The caller sets the cube's orientation to 'CubeToWorld()', and its centre and distance scale. A positive distance scale stores distances in 'cube.m_distance',
+		// which is created if needed.
 		void CaptureFace(V3dWindow& src, TextureCube& cube, int face)
 		{
 			// Copy the lighting and render state from the source scene. The capture has no environment map, so it cannot reflect itself.
@@ -1700,14 +1708,23 @@ namespace pr::rdr12
 			// Mips also average the stored distances, which blurs distances across silhouettes in the blurrier mips.
 			auto* rendered = m_wnd.FrameOutput().m_render_target.get();
 			auto& cmd_list = m_factory.CmdList();
-			if (cube.m_distance_scale > 0.0f)
+			auto const store_distance = cube.m_distance_scale > 0.0f;
+			if (store_distance)
 			{
-				// Copy the colour and store distances with a compute pass. Its output view is untyped-load free, so any device can run it.
+				// Give the cube a distance cube the first time it stores distances. It has the same size and mips as the colour cube.
+				if (cube.m_distance == nullptr)
+				{
+					auto tdesc = TextureDesc(AutoId, ResDesc::TexCube(Image{m_face_size, m_face_size, nullptr, DistanceFormat}, 0)).name("EnvMapDistance");
+					cube.m_distance = m_factory.CreateTextureCube(tdesc);
+				}
+
+				// Copy the colour and store distances with a compute pass. Its output views are untyped-load free, so any device can run it.
 				auto* depth = m_wnd.m_msaa_bb.m_depth_stencil.get();
 				BarrierBatch barriers(cmd_list);
 				barriers.Transition(rendered, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 				barriers.Transition(depth, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 				barriers.Transition(m_scratch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, 0);
+				barriers.Transition(m_scratch_distance.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, 0);
 				barriers.Commit();
 
 				// Bind the pass. Each view gets its own table, because consecutive heap entries can wrap around the ring.
@@ -1741,10 +1758,15 @@ namespace pr::rdr12
 				};
 				cmd_list.SetComputeRootDescriptorTable(EDistanceParam::Face, m_view_heap.Add(m_scratch.get(), face_uav));
 
+				auto distance_uav = face_uav;
+				distance_uav.Format = DistanceFormat;
+				cmd_list.SetComputeRootDescriptorTable(EDistanceParam::Distance, m_view_heap.Add(m_scratch_distance.get(), distance_uav));
+
 				// One thread per texel, in 8x8 groups
 				auto groups = s_cast<UINT>((m_face_size + 7) / 8);
 				cmd_list.Dispatch(groups, groups, 1);
 				barriers.UAV(m_scratch.get());
+				barriers.UAV(m_scratch_distance.get());
 				barriers.Commit();
 			}
 			else
@@ -1759,18 +1781,31 @@ namespace pr::rdr12
 				cmd_list.CopyTextureRegion(&dst, 0, 0, 0, &src_loc, nullptr);
 			}
 			m_factory.GenerateMips(m_scratch.get());
+			if (store_distance)
+				m_factory.GenerateMips(m_scratch_distance.get());
 
-			// Copy every mip of the face into the cube. Cube subresources are ordered by face (array slice), then mip.
+			// Copy every mip of the face into the cube, and its distances into the distance cube. Cube subresources are ordered by face (array slice), then mip.
 			{
 				BarrierBatch barriers(cmd_list);
 				barriers.Transition(m_scratch.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
 				barriers.Transition(cube.m_res.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+				if (store_distance)
+				{
+					barriers.Transition(m_scratch_distance.get(), D3D12_RESOURCE_STATE_COPY_SOURCE);
+					barriers.Transition(cube.m_distance->m_res.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+				}
 				barriers.Commit();
 
 				for (UINT mip = 0; mip != m_mips; ++mip)
 				{
 					auto dst = D3D12_TEXTURE_COPY_LOCATION{ .pResource = cube.m_res.get(), .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = mip + s_cast<UINT>(face) * m_mips };
 					auto src_loc = D3D12_TEXTURE_COPY_LOCATION{ .pResource = m_scratch.get(), .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = mip };
+					cmd_list.CopyTextureRegion(&dst, 0, 0, 0, &src_loc, nullptr);
+					if (!store_distance)
+						continue;
+
+					dst.pResource = cube.m_distance->m_res.get();
+					src_loc.pResource = m_scratch_distance.get();
 					cmd_list.CopyTextureRegion(&dst, 0, 0, 0, &src_loc, nullptr);
 				}
 			}
@@ -1785,11 +1820,11 @@ namespace pr::rdr12
 		assert(std::this_thread::get_id() == m_main_thread_id);
 
 		// Render all six faces. GPU queue ordering makes frames that use 'env_map' after this call see the complete capture.
-		// Distances are stored relative to the proxy radius, so reflections that use this map can correct for parallax.
+		// Distances are stored relative to the parallax bounds' size, so reflections that use this map can correct for parallax.
 		auto& res = EnvMapCaptureResources::Get(*this, EnvMapCaptureResources::ValidateCube(env_map));
 		env_map.m_cube2w = EnvMapCaptureResources::CubeToWorld();
 		env_map.m_centre = position;
-		env_map.m_distance_scale = m_scene.m_global_envmap_proxy_radius;
+		env_map.m_distance_scale = EnvMapDistanceScale();
 		for (int f = 0; f != 6; ++f)
 			res.CaptureFace(*this, env_map, f);
 
@@ -1860,7 +1895,7 @@ namespace pr::rdr12
 		if (probe.m_face == 0)
 		{
 			capture.m_centre = position;
-			capture.m_distance_scale = m_scene.m_global_envmap_proxy_radius;
+			capture.m_distance_scale = EnvMapDistanceScale();
 		}
 
 		auto& res = EnvMapCaptureResources::Get(*this, probe.m_face_size);
@@ -1887,20 +1922,29 @@ namespace pr::rdr12
 		Invalidate();
 	}
 
-	// Get/Set the radius of the sphere that reflections assume the environment lies on, around each environment map's capture centre
-	float V3dWindow::EnvMapProxyRadius() const
+	// Get/Set the world-space bounds of the captured geometry that reflections correct for parallax
+	BBox V3dWindow::EnvMapParallaxBounds() const
 	{
-		return m_scene.m_global_envmap_proxy_radius;
+		return m_scene.m_global_envmap_parallax_bounds;
 	}
-	void V3dWindow::EnvMapProxyRadius(float radius)
+	void V3dWindow::EnvMapParallaxBounds(BBox const& bounds)
 	{
-		if (!(radius >= 0.0f))
-			throw std::runtime_error("Environment map proxy radius must not be negative");
-		if (radius == m_scene.m_global_envmap_proxy_radius)
+		// An invalid box disables parallax correction. A valid box must be finite, because the march works between its faces.
+		if (bounds.valid() && !IsFinite(bounds.m_radius))
+			throw std::runtime_error("Environment map parallax bounds must be finite");
+		if (bounds == m_scene.m_global_envmap_parallax_bounds)
 			return;
 
-		m_scene.m_global_envmap_proxy_radius = radius;
+		m_scene.m_global_envmap_parallax_bounds = bounds;
 		Invalidate();
+	}
+
+	// The scale of the distances stored in captured cubes. It matches the size of the parallax bounds, so that the 8-bit 'd / (d + S)' encoding
+	// spends most of its precision on distances within the bounds. 0 means the cube stores no distances.
+	float V3dWindow::EnvMapDistanceScale() const
+	{
+		auto const& bounds = m_scene.m_global_envmap_parallax_bounds;
+		return bounds.valid() ? Length(bounds.Radius().xyz) : 0.0f;
 	}
 
 	// Enable/Disable the depth buffer

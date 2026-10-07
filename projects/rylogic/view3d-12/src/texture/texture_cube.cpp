@@ -11,5 +11,6 @@ namespace pr::rdr12
 		,m_cube2w(m4x4::Identity())
 		,m_centre(v4::Origin())
 		,m_distance_scale()
+		,m_distance()
 	{}
 }

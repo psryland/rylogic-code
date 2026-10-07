@@ -144,9 +144,11 @@ namespace pr::rdr12
 					throw std::runtime_error(std::format("A render nugget covering this index range already exists. Did you forget the 'ENuggetFlag::RangesCanOverlap' flag, or is a DeleteNuggets() call needed ({})", m_name));
 		#endif
 
-		auto nug = factory.CreateNugget(ndata, this);
-		nug->m_next = std::move(m_nuggets);
-		m_nuggets = std::move(nug);
+		// Append, so the chain keeps creation order and nugget indices match the order callers supplied the nuggets.
+		auto* tail = &m_nuggets;
+		for (; *tail != nullptr; tail = &(*tail)->m_next)
+		{}
+		*tail = factory.CreateNugget(ndata, this);
 		m_ray_tracing.Invalidate(rdr());
 	}
 

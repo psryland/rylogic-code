@@ -1346,28 +1346,28 @@ VIEW3D_API void __stdcall View3D_WindowEnvMapProbeUpdate(view3d::Window window, 
 	CatchAndReport(View3D_WindowEnvMapProbeUpdate, window, );
 }
 
-// Get/Set the radius of the sphere that reflections assume the environment lies on
-VIEW3D_API float __stdcall View3D_WindowEnvMapProxyRadiusGet(view3d::Window window)
+// Get/Set the world-space bounds of the captured geometry that reflections correct for parallax
+VIEW3D_API view3d::BBox __stdcall View3D_WindowEnvMapParallaxBoundsGet(view3d::Window window)
 {
 	try
 	{
 		Validate(window);
 
 		DllLockGuard;
-		return window->EnvMapProxyRadius();
+		return To<view3d::BBox>(window->EnvMapParallaxBounds());
 	}
-	CatchAndReport(View3D_WindowEnvMapProxyRadiusGet, window, 0.0f);
+	CatchAndReport(View3D_WindowEnvMapParallaxBoundsGet, window, To<view3d::BBox>(pr::BBox::Reset()));
 }
-VIEW3D_API void __stdcall View3D_WindowEnvMapProxyRadiusSet(view3d::Window window, float radius)
+VIEW3D_API void __stdcall View3D_WindowEnvMapParallaxBoundsSet(view3d::Window window, view3d::BBox bounds)
 {
 	try
 	{
 		Validate(window);
 
 		DllLockGuard;
-		window->EnvMapProxyRadius(radius);
+		window->EnvMapParallaxBounds(To<pr::BBox>(bounds));
 	}
-	CatchAndReport(View3D_WindowEnvMapProxyRadiusSet, window, );
+	CatchAndReport(View3D_WindowEnvMapParallaxBoundsSet, window, );
 }
 
 // Enable/Disable the depth buffer

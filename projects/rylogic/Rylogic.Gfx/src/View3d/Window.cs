@@ -727,13 +727,14 @@ namespace Rylogic.Gfx
 			}
 
 			/// <summary>
-			/// The radius of the sphere that reflections assume the environment lies on, centred on each environment map's capture position.
-			/// Objects near this distance from the capture position are reflected without parallax error. 0 (the default) treats the environment as infinitely distant.
+			/// The world-space bounds of the captured geometry that reflections correct for parallax. Within the bounds, reflections march along the
+			/// reflected ray to find the captured surface it meets; anything beyond them stays infinitely distant. BBox.Reset (the default) uses
+			/// direction-only lookups. Bounds must be finite. Changes affect cubes captured afterwards.
 			/// </summary>
-			public float EnvMapProxyRadius
+			public BBox EnvMapParallaxBounds
 			{
-				get => View3D_WindowEnvMapProxyRadiusGet(Handle);
-				set => View3D_WindowEnvMapProxyRadiusSet(Handle, value);
+				get => View3D_WindowEnvMapParallaxBoundsGet(Handle);
+				set => View3D_WindowEnvMapParallaxBoundsSet(Handle, value);
 			}
 
 			/// <summary>Show the lighting dialog</summary>

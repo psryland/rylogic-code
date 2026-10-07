@@ -49,7 +49,7 @@ namespace pr::rdr12
 		D3DPtr<ID3D12Resource>   m_ib;             // The index buffer
 		D3D12_VERTEX_BUFFER_VIEW m_vb_view;        // Buffer views for shader binding
 		D3D12_INDEX_BUFFER_VIEW  m_ib_view;        // Buffer views for shader binding
-		NuggetPtr                m_nuggets;        // The chain of nuggets for this model
+		NuggetPtr                m_nuggets;        // The chain of nuggets for this model, in creation order
 		int64_t                  m_vcount;         // The count of elements in the V-buffer
 		int64_t                  m_icount;         // The count of elements in the I-buffer
 		int64_t                  m_vcount_logical; // Vertex-ID domain used by procedural models.
@@ -97,6 +97,7 @@ namespace pr::rdr12
 		// Create a nugget from a range within this model
 		// Ranges are model relative, i.e. the first vert in the model is range [0,1)
 		// Remember you might need to delete render nuggets first
+		// Nuggets keep their creation order, which is the order nugget indices refer to.
 		void CreateNugget(ResourceFactory& factory, NuggetDesc const& props);
 
 		// Call to release the nuggets that this model has been

@@ -633,6 +633,12 @@ namespace fade_tests
 			inspect_flags(mixed, *nug, has_normals, false);
 		}
 		inspect_flags(textured, *textured->m_model->m_nuggets.get(), true, true);
+
+		// Nugget indices follow the order the caller supplied the nuggets, so index 1 is the second range.
+		Require(mixed->m_model->m_nuggets->m_irange.begin() == 0, "Nugget chain does not keep creation order");
+		View3D_ObjectNuggetFlagsSet(mixed, api::ENuggetFlag::ShadowCastExclude, TRUE, nullptr, 1);
+		Require(AllSet(mixed->m_model->m_nuggets->m_next->m_nflags, rdr::ENuggetFlag::ShadowCastExclude) && !AllSet(mixed->m_model->m_nuggets->m_nflags, rdr::ENuggetFlag::ShadowCastExclude), "Nugget index does not follow creation order");
+		View3D_ObjectNuggetFlagsSet(mixed, api::ENuggetFlag::ShadowCastExclude, FALSE, nullptr, 1);
 		inspect_flags(position_only, *position_only->m_model->m_nuggets.get(), false, false);
 		for (auto object : {lit, unlit, position_only, textured, mixed})
 		{
@@ -3043,6 +3049,17 @@ namespace fade_tests
 		Require(!fixture.m_errors.empty(), "Layers were accepted by an object without detail normals");
 		fixture.m_errors.clear();
 
+		// Translucent surfaces render through the alpha collection pass, which must apply the same tilt. Blending over the black background
+		// scales the brightness equally with and without the tilt, so the ratio is unchanged.
+		View3D_WindowRemoveObject(fixture.m_window, object);
+		auto translucent = fixture.Quad(10, 0x80FFFFFF, 45, nullptr, 0, 0xFFFFFFFF, false, true);
+		auto translucent_flat = fixture.Image();
+		View3D_ObjectNuggetDetailNormalsSet(translucent, texture.get(), sampler.get(), nullptr, 0);
+		View3D_ObjectDetailNormalLayersSet(translucent, &layer, 1, 0.0f);
+		fixture.CheckErrors();
+		auto translucent_tilted = fixture.Image();
+		Require(std::abs(brightness(translucent_tilted) / brightness(translucent_flat) - 1.342f) < 0.05f, (std::string("Translucent detail-normal layer tilted the lighting normal incorrectly: flat ") + std::to_string(brightness(translucent_flat)) + ", tilted " + std::to_string(brightness(translucent_tilted))).c_str());
+
 		// Any GPU validation error fails the fixture.
 		fixture.CheckDebugLayer();
 		std::cout << "PASS detail normals\n";
@@ -3093,11 +3110,12 @@ namespace fade_tests
 		update(6);
 		Require(scene.m_global_envmap.get() == first, "Probe did not reuse the oldest cube");
 
-		// A proxy radius makes each new cube store distances in alpha. Rendering with the distance-correcting lookup must complete without errors.
-		View3D_WindowEnvMapProxyRadiusSet(fixture.m_window, 5.0f);
+		// Parallax bounds make each new cube store distances in its distance cube, scaled by the bounds' half-diagonal. Rendering with the marching lookup must complete without errors.
+		View3D_WindowEnvMapParallaxBoundsSet(fixture.m_window, pr::view3d::BBox{ .centre = {0, 0, 0, 1}, .radius = {3, 0, 4, 0} });
 		fixture.CheckErrors();
 		update(12);
 		Require(scene.m_global_envmap->m_distance_scale == 5.0f && scene.m_global_envmap_prev->m_distance_scale == 5.0f, "Probe cubes did not record the distance scale");
+		Require(scene.m_global_envmap->m_distance != nullptr && scene.m_global_envmap_prev->m_distance != nullptr, "Probe cubes did not create distance cubes");
 		Expect(fixture.Image(), 1, 0, 0);
 
 		// Setting an explicit environment map disables the probe and removes the fade

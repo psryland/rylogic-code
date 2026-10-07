@@ -40,6 +40,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto PbrNormalTexture = ESRVReg::t12;
 		inline static constexpr auto EnvMapPrev = ESRVReg::t13;
 		inline static constexpr auto SkyTexture = ESRVReg::t18;
+		inline static constexpr auto EnvMapDistance = ESRVReg::t21;
 		inline static constexpr auto ProceduralBuffer = ESRVReg::t14;
 		inline static constexpr auto Lights = ESRVReg::t15;
 		inline static constexpr auto ShadowViews = ESRVReg::t16;
@@ -115,6 +116,7 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::ProceduralBuffer, D3D12_SHADER_VISIBILITY_ALL)
 			.SRV(EReg::Elements)
 			.SRV(EReg::EnvMapPrev, 1)
+			.SRV(EReg::EnvMapDistance, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.Create(rdr.d3d(), "ForwardSig");
 	}
 
@@ -125,7 +127,7 @@ namespace pr::rdr12::shaders
 		CBufFrame cb0 = {};
 		SetViewConstants(cb0.cam, scene.m_cam);
 		SetLightingConstants(cb0, scene);
-		SetEnvMapConstants(cb0.env_map, scene.m_global_envmap.get(), scene.m_global_envmap_prev.get(), scene.m_global_envmap_blend, scene.m_global_envmap_proxy_radius);
+		SetEnvMapConstants(cb0.env_map, scene.m_global_envmap.get(), scene.m_global_envmap_prev.get(), scene.m_global_envmap_blend, scene.m_global_envmap_parallax_bounds);
 		cb0.output = v4(scene.wnd().m_dither_amount, 0, 0, 0);
 
 		// Transparent layers fade over the same depth interval as the opaque scene. See 'far_clip_fade.md'.
