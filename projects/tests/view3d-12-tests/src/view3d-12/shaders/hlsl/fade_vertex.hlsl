@@ -18,7 +18,7 @@ PSIn VSMain(VSIn input)
 	return output;
 }
 
-// Deliberately unsupported custom pixel output, used only to verify explicit rejection.
+// Custom pixel output that bypasses the stock forward pixel families.
 float4 PSMain(PSIn input) : SV_Target
 {
 	return input.diff;

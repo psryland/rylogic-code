@@ -16,7 +16,7 @@
 //   }
 //   VIEW3D_FORWARD_PBR_PIXEL_ENTRY_POINTS(My, MyShade)
 //
-// This generates PSMy, PSMyReflectionAttrs, PSMyAlphaCollect, PSMyFarFade, PSMyFarFadeReflectionAttrs and PSMyFarFadeAlphaCollect.
+// This generates PSMy, PSMyReflectionAttrs and PSMyAlphaCollect.
 // Compile each with '-T ps_6_6 -HV 2021' and the Rylogic native include directory on the include path, then pass the bytecode to
 // ShaderOptions::m_procedural.m_forward_pixel in that order with 'm_forward_pixel_model' set to EForwardPixelModel::Pbr.
 // Changes made to 'In' by the shading function are used for the reflection attributes.
@@ -31,7 +31,6 @@
 #define PR_VIEW3D_FORWARD_PIXEL_PBR_HLSLI
 #include "pr/view3d-12/shaders/procedural_vertex.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/forward.hlsl"
-#include "view3d-12/src/shaders/hlsl/forward/far_clip_fade.hlsli"
 
 // Shade a PBR fragment with the stock PBR forward shading. The colour is linear and not yet dithered.
 PSOut ForwardShadePbr(PSIn In, bool is_front_face)
@@ -56,7 +55,7 @@ uint ForwardPbrAlphaRtAttrs(PSIn In, float4 diff, bool is_front_face)
 	return AlphaRtAttributesFromNormal(diff, normal, g_nugget.env_reflectivity);
 }
 
-// Generate the six PBR forward pixel entry points 'PS<Prefix>...' around 'Shade', a function 'float4 Shade(inout PSIn In, bool is_front_face)'
+// Generate the three PBR forward pixel entry points 'PS<Prefix>...' around 'Shade', a function 'float4 Shade(inout PSIn In, bool is_front_face)'
 // that returns the linear fragment colour before output dithering.
 #define VIEW3D_FORWARD_PBR_PIXEL_ENTRY_POINTS(Prefix, Shade)\
 	PSOut PS##Prefix(PSIn In, bool is_front_face : SV_IsFrontFace)\
@@ -77,22 +76,6 @@ uint ForwardPbrAlphaRtAttrs(PSIn In, float4 diff, bool is_front_face)
 	{\
 		float4 diff = Shade(In, is_front_face);\
 		CollectAlphaLayer(In, diff, ForwardPbrAlphaRtAttrs(In, diff, is_front_face));\
-	}\
-	PSOut PS##Prefix##FarFade(PSIn In, bool is_front_face : SV_IsFrontFace)\
-	{\
-		ClipFarFadeOpaque(In.ws_vert);\
-		return PS##Prefix(In, is_front_face);\
-	}\
-	PSReflectionOut PS##Prefix##FarFadeReflectionAttrs(PSIn In, bool is_front_face : SV_IsFrontFace)\
-	{\
-		ClipFarFadeOpaque(In.ws_vert);\
-		return PS##Prefix##ReflectionAttrs(In, is_front_face);\
-	}\
-	void PS##Prefix##FarFadeAlphaCollect(PSIn In, bool is_front_face : SV_IsFrontFace)\
-	{\
-		ClipFarFadeCollect(In.ws_vert);\
-		float4 diff = Shade(In, is_front_face);\
-		CollectAlphaLayer(In, ApplyFarFadeAlpha(In.ws_vert, diff), ForwardPbrAlphaRtAttrs(In, diff, is_front_face));\
 	}
 
 #endif

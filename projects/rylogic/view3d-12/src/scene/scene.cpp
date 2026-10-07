@@ -96,15 +96,11 @@ namespace pr::rdr12
 	// Validate the complete range before replacing the current scene settings.
 	void Scene::FarClipFadeProperties(FarClipFadeProps props)
 	{
+		// An invalid range leaves the current option unchanged.
 		props.Validate();
 		if (props.m_enabled)
-		{
 			props.DepthRange(m_cam.ClipPlanes(false).y);
-			if (auto* forward = FindRStep<RenderForward>())
-				forward->ValidateFarClipFade();
-		}
 
-		// Failed material validation leaves the current option unchanged.
 		m_far_clip_fade = props;
 	}
 

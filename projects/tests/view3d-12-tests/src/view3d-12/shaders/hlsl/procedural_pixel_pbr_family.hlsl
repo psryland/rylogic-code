@@ -13,5 +13,5 @@ float4 RotateShadePbr(inout PSIn In, bool is_front_face)
 	return diff;
 }
 
-// Generate the six PBR forward pixel entry points.
+// Generate the three PBR forward pixel entry points.
 VIEW3D_FORWARD_PBR_PIXEL_ENTRY_POINTS(RotatePbr, RotateShadePbr)

@@ -48,7 +48,7 @@ struct View3DForwardElement
 	float4 tint;
 	float4 colour_blend;
 	float env_reflectivity;
-	float3 far_clip_fade;
+	float3 pad0;
 };
 
 // Stock per-element constants consumed by a procedural ShadowMap vertex wrapper. Bind the table as 'StructuredBuffer<View3DShadowElement>'.

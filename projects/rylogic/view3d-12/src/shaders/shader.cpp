@@ -178,21 +178,12 @@ namespace pr::rdr12
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_reflection_attrs_texn_pbr_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_alpha_collect_texn_pbr_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_radial_fade_ps.h)
-			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_ps.h)
-			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_pbr_ps.h)
-			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_texn_pbr_ps.h)
-			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_alpha_collect_ps.h)
-			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_alpha_collect_pbr_ps.h)
-			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_alpha_collect_texn_pbr_ps.h)
-			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_reflection_attrs_ps.h)
-			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_reflection_attrs_pbr_ps.h)
-			#include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_reflection_attrs_texn_pbr_ps.h)
 	        #include PR_RDR_SHADER_COMPILED_DIR(forward_detail_ps.h)
 	        #include PR_RDR_SHADER_COMPILED_DIR(forward_reflection_attrs_detail_ps.h)
 	        #include PR_RDR_SHADER_COMPILED_DIR(forward_alpha_collect_detail_ps.h)
-	        #include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_detail_ps.h)
-	        #include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_alpha_collect_detail_ps.h)
-	        #include PR_RDR_SHADER_COMPILED_DIR(forward_far_fade_reflection_attrs_detail_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(background_fade_vs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(background_fade_weight_ps.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(background_fade_clear_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(kbuffer_resolve_vs.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(kbuffer_alpha_resolve_ps.h)
 		}
@@ -208,29 +199,20 @@ namespace pr::rdr12
 		ByteCode const forward_reflection_attrs_texn_pbr_ps(compiled::forward_reflection_attrs_texn_pbr_ps);
 		ByteCode const forward_alpha_collect_texn_pbr_ps(compiled::forward_alpha_collect_texn_pbr_ps);
 		ByteCode const forward_radial_fade_ps(compiled::forward_radial_fade_ps);
-		ByteCode const forward_far_fade_ps(compiled::forward_far_fade_ps);
-		ByteCode const forward_far_fade_pbr_ps(compiled::forward_far_fade_pbr_ps);
-		ByteCode const forward_far_fade_texn_pbr_ps(compiled::forward_far_fade_texn_pbr_ps);
-		ByteCode const forward_far_fade_alpha_collect_ps(compiled::forward_far_fade_alpha_collect_ps);
-		ByteCode const forward_far_fade_alpha_collect_pbr_ps(compiled::forward_far_fade_alpha_collect_pbr_ps);
-		ByteCode const forward_far_fade_alpha_collect_texn_pbr_ps(compiled::forward_far_fade_alpha_collect_texn_pbr_ps);
-		ByteCode const forward_far_fade_reflection_attrs_ps(compiled::forward_far_fade_reflection_attrs_ps);
-		ByteCode const forward_far_fade_reflection_attrs_pbr_ps(compiled::forward_far_fade_reflection_attrs_pbr_ps);
-		ByteCode const forward_far_fade_reflection_attrs_texn_pbr_ps(compiled::forward_far_fade_reflection_attrs_texn_pbr_ps);
 	    ByteCode const forward_detail_ps(compiled::forward_detail_ps);
 	    ByteCode const forward_reflection_attrs_detail_ps(compiled::forward_reflection_attrs_detail_ps);
 	    ByteCode const forward_alpha_collect_detail_ps(compiled::forward_alpha_collect_detail_ps);
-	    ByteCode const forward_far_fade_detail_ps(compiled::forward_far_fade_detail_ps);
-	    ByteCode const forward_far_fade_alpha_collect_detail_ps(compiled::forward_far_fade_alpha_collect_detail_ps);
-	    ByteCode const forward_far_fade_reflection_attrs_detail_ps(compiled::forward_far_fade_reflection_attrs_detail_ps);
+		ByteCode const background_fade_vs(compiled::background_fade_vs);
+		ByteCode const background_fade_weight_ps(compiled::background_fade_weight_ps);
+		ByteCode const background_fade_clear_ps(compiled::background_fade_clear_ps);
 		ByteCode const kbuffer_resolve_vs(compiled::kbuffer_resolve_vs);
 		ByteCode const kbuffer_alpha_resolve_ps(compiled::kbuffer_alpha_resolve_ps);
 
 		// Stock families, defined after their members in this translation unit so the members are initialised first. The detail family replaces simple-material shading.
-		ForwardPixelFamily const forward_family = {{ forward_ps, forward_reflection_attrs_ps, forward_alpha_collect_ps, forward_far_fade_ps, forward_far_fade_reflection_attrs_ps, forward_far_fade_alpha_collect_ps }, nullptr};
-		ForwardPixelFamily const forward_pbr_family = {{ forward_pbr_ps, forward_reflection_attrs_pbr_ps, forward_alpha_collect_pbr_ps, forward_far_fade_pbr_ps, forward_far_fade_reflection_attrs_pbr_ps, forward_far_fade_alpha_collect_pbr_ps }, nullptr};
-		ForwardPixelFamily const forward_texn_pbr_family = {{ forward_texn_pbr_ps, forward_reflection_attrs_texn_pbr_ps, forward_alpha_collect_texn_pbr_ps, forward_far_fade_texn_pbr_ps, forward_far_fade_reflection_attrs_texn_pbr_ps, forward_far_fade_alpha_collect_texn_pbr_ps }, nullptr};
-		ForwardPixelFamily const forward_detail_family = {{ forward_detail_ps, forward_reflection_attrs_detail_ps, forward_alpha_collect_detail_ps, forward_far_fade_detail_ps, forward_far_fade_reflection_attrs_detail_ps, forward_far_fade_alpha_collect_detail_ps }, &forward_family};
+		ForwardPixelFamily const forward_family = {{ forward_ps, forward_reflection_attrs_ps, forward_alpha_collect_ps }, nullptr};
+		ForwardPixelFamily const forward_pbr_family = {{ forward_pbr_ps, forward_reflection_attrs_pbr_ps, forward_alpha_collect_pbr_ps }, nullptr};
+		ForwardPixelFamily const forward_texn_pbr_family = {{ forward_texn_pbr_ps, forward_reflection_attrs_texn_pbr_ps, forward_alpha_collect_texn_pbr_ps }, nullptr};
+		ForwardPixelFamily const forward_detail_family = {{ forward_detail_ps, forward_reflection_attrs_detail_ps, forward_alpha_collect_detail_ps }, &forward_family};
 
 		// Post-processing
 		namespace compiled
