@@ -13,5 +13,5 @@ float4 RotateShade(inout PSIn In, bool is_front_face)
 	return diff;
 }
 
-// Generate the six forward pixel entry points.
+// Generate the three forward pixel entry points.
 VIEW3D_FORWARD_PIXEL_ENTRY_POINTS(Rotate, RotateShade)

@@ -901,7 +901,7 @@
     <ShaderBuild Include="src\shaders\hlsl\forward\kbuffer_resolve.hlsl">
       <Filter>src\shaders\hlsl\forward</Filter>
     </ShaderBuild>
-    <ShaderBuild Include="src\shaders\hlsl\forward\far_clip_fade.hlsl">
+    <ShaderBuild Include="src\shaders\hlsl\forward\background_fade.hlsl">
       <Filter>src\shaders\hlsl\forward</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\shaders\hlsl\forward\forward_pbr.hlsl">
@@ -960,9 +960,6 @@
     </None>
     <None Include="$(RylogicRoot)include\pr\hlsl\bounding_box.hlsli">
       <Filter>pr\hlsl</Filter>
-    </None>
-    <None Include="src\shaders\hlsl\forward\far_clip_fade.hlsli">
-      <Filter>src\shaders\hlsl\forward</Filter>
     </None>
     <None Include="src\shaders\hlsl\postprocessing\underwater_cbuf.hlsli">
       <Filter>src\shaders\hlsl\postprocessing</Filter>

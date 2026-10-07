@@ -475,6 +475,11 @@ PSOut PSForwardPbrTexN(PSInTexN In, bool is_front_face : SV_IsFrontFace)
 // Collect one transparent fragment into the forward alpha K-buffer.
 void CollectAlphaLayer(PSIn In, float4 diff, uint rt_attrs)
 {
+	// Fade transparent layers with view depth so they vanish into the background with the opaque scene. See scene/far_clip_fade.md.
+	float view_z = -mul(In.ws_vert, g_frame.cam.w2c).z;
+	if (g_frame.far_fade.z != 0.0f)
+		diff.a *= 1.0f - smoothstep(g_frame.far_fade.x, g_frame.far_fade.y, view_z);
+
 	// Discard fully transparent fragments before accessing the ordered layer buffers.
 	clip(diff.a - (1.0f / 255.0f));
 
@@ -490,7 +495,6 @@ void CollectAlphaLayer(PSIn In, float4 diff, uint rt_attrs)
 		discard;
 
 	// Pack view-space depth, colour, and optional RT side-buffer metadata for later resolve.
-	float view_z = -mul(In.ws_vert, g_frame.cam.w2c).z;
 	uint depth = PackDepthKey(view_z, ClipPlanes(g_frame.cam.c2s), uint(g_nugget.flags.w));
 	uint colour = PackSrgbRGBA8(diff, DitherOffsetSrgb8(pix, g_frame.output.x, 1));
 

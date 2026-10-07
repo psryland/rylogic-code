@@ -550,7 +550,7 @@ namespace pr
 			ERayTracingFeature m_features;
 			int m_max_reflection_bounces;
 		};
-		// Forward world opacity range; finite 0 <= start < end < 1 leaves an invisible margin before clipping.
+		// Forward background fade range; finite 0 <= start < end < 1 leaves a fully faded margin before clipping.
 		struct FarClipFadeProps
 		{
 			BOOL m_enabled = FALSE;
@@ -837,7 +837,7 @@ namespace pr
 		{
 			static constexpr size_t ConstantsSize = 1024;
 			static constexpr size_t MaxBufferSize = 64 * 1024 * 1024;
-			static constexpr size_t ForwardPixelCount = 6;
+			static constexpr size_t ForwardPixelCount = 3;
 
 			ERenderStep m_rdr_step;
 			void const* m_constants;
@@ -847,7 +847,7 @@ namespace pr
 
 			// Forward pixel family that replaces the stock forward pixel shaders of the 'm_forward_pixel_model' material type. All entries are null, or all are
 			// valid, and only for ForwardRender. Optional for the Vertex stage and required for the Pixel stage. Materials of the other type reject the family.
-			// Order: Opaque, ReflectionAttrs, AlphaCollect, FarFade, FarFadeReflectionAttrs, FarFadeAlphaCollect. See 'pr/view3d-12/shaders/forward_pixel.hlsli'.
+			// Order: Opaque, ReflectionAttrs, AlphaCollect. See 'pr/view3d-12/shaders/forward_pixel.hlsli'.
 			EForwardPixelModel m_forward_pixel_model;
 			ShaderByteCode m_forward_pixel[ForwardPixelCount];
 		};
@@ -855,7 +855,7 @@ namespace pr
 		// Callers supply readable descriptor storage and buffers matching this header and runtime; size/version are not a global ABI handshake.
 		struct ShaderOptions
 		{
-			static constexpr int CurrentVersion = 6;
+			static constexpr int CurrentVersion = 7;
 			static constexpr size_t MaxByteCodeSize = 1024 * 1024;
 
 			int m_struct_size;
@@ -1184,8 +1184,8 @@ extern "C"
 	VIEW3D_API pr::view3d::RayTracingProps __stdcall View3D_RayTracingPropertiesGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_RayTracingPropertiesSet(pr::view3d::Window window, pr::view3d::RayTracingProps const& props);
 
-	// Get/Set the opt-in world fade. Invalid settings are reported and leave the previous value unchanged.
-	// Skybox, PostAlpha and retained UI are excluded. Picking/shadows remain geometric; see scene/far_clip_fade.md.
+	// Get/Set the opt-in fade of distant geometry into the background (Skybox group objects, or the clear colour). Invalid settings are reported and leave
+	// the previous value unchanged. Skybox, PostOpaques, PreAlpha and PostAlpha groups are not faded. Picking/shadows remain geometric; see scene/far_clip_fade.md.
 	VIEW3D_API pr::view3d::FarClipFadeProps __stdcall View3D_FarClipFadePropertiesGet(pr::view3d::Window window);
 	VIEW3D_API BOOL __stdcall View3D_FarClipFadePropertiesSet(pr::view3d::Window window, pr::view3d::FarClipFadeProps const& props);
 	VIEW3D_API pr::view3d::UnderwaterProps __stdcall View3D_PostEffectUnderwaterGet(pr::view3d::Window window);

@@ -22,6 +22,9 @@ struct CBufFrame// :reg(b0)
 	// Output settings
 	float4 output;     // x = dither amount applied before 8-bit colour output (see DitherSrgb8); 0 disables dithering
 
+	// Far clip fade. x/y = camera-forward depth interval over which world geometry fades to the background; z = 1 when enabled, otherwise 0.
+	float4 far_fade;
+
 	// EnvMap
 	EnvMap env_map;
 
@@ -62,7 +65,7 @@ struct ElementConstants
 
 	// EnvMap
 	float env_reflectivity; // Environment map reflectivity when viewed straight on (rises to 1 at grazing angles)
-	float3 far_clip_fade; // x/y = forward-depth interval; z = 0 disabled, 1 opaque source, 2 blended source
+	float3 pad0;
 };
 
 // Constants used for radial fading.

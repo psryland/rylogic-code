@@ -127,6 +127,14 @@ namespace pr::rdr12::shaders
 		SetLightingConstants(cb0, scene);
 		SetEnvMapConstants(cb0.env_map, scene.m_global_envmap.get(), scene.m_global_envmap_prev.get(), scene.m_global_envmap_blend, scene.m_global_envmap_proxy_radius);
 		cb0.output = v4(scene.wnd().m_dither_amount, 0, 0, 0);
+
+		// Transparent layers fade over the same depth interval as the opaque scene. See 'far_clip_fade.md'.
+		if (auto const fade = scene.FarClipFadeProperties(); fade.m_enabled)
+		{
+			auto range = fade.DepthRange(scene.m_cam.ClipPlanes(false).y);
+			cb0.far_fade = v4(range.x, range.y, 1, 0);
+		}
+
 		auto gpu_address = upload.Add(cb0, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
 		cmd_list->SetGraphicsRootConstantBufferView((UINT)ERootParam::CBufFrame, gpu_address);
 
@@ -150,10 +158,6 @@ namespace pr::rdr12::shaders
 		auto* elements = alex.ptr<ElementConstants>();
 		auto const env_mapped = scene.m_global_envmap != nullptr;
 
-		// The far clip fade range is the same for all elements. Only the source mode depends on the element's sort group.
-		auto const fade = scene.FarClipFadeProperties();
-		auto const fade_range = fade.m_enabled ? fade.DepthRange(scene.m_cam.ClipPlanes(false).y) : v2::Zero();
-
 		// Fill one entry per element, using the same material selection as the material passes
 		for (auto const& dle : drawlist)
 		{
@@ -170,11 +174,6 @@ namespace pr::rdr12::shaders
 			SetTint(cb, inst, material);
 			SetTex2Surf(cb, inst, material);
 			SetReflectivity(cb, inst, material);
-
-			// Keep background and post-alpha overlays outside the scene's world-opacity policy.
-			auto group = dle.m_sort_key.Group();
-			if (fade.m_enabled && FarClipFadeApplies(group))
-				cb.far_clip_fade = v3{ fade_range.x, fade_range.y, group < ESortGroup::AlphaBack ? 1.0f : 2.0f };
 
 			// Write the complete entry to the table
 			*elements++ = cb;

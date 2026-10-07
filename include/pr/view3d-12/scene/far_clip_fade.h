@@ -8,17 +8,7 @@
 
 namespace pr::rdr12
 {
-	// Sort groups are an extensible numeric range; background and post-alpha overlays are not world geometry.
-	inline bool FarClipFadeApplies(ESortGroup group)
-	{
-		switch (group)
-		{
-			case ESortGroup::Skybox: { return false; }
-			default: { return group < ESortGroup::PostAlpha; }
-		}
-	}
-
-	// Opt-in forward-rendered world opacity, expressed as fractions of camera-forward far depth.
+	// Opt-in fade of distant forward-rendered geometry into the background, expressed as fractions of camera-forward far depth.
 	struct FarClipFadeProps
 	{
 		bool m_enabled = false;

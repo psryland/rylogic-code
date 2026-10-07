@@ -8,7 +8,7 @@ namespace Rylogic.Gfx;
 
 public sealed partial class View3d
 {
-	/// <summary>Opt-in world opacity range, as fractions of camera-forward far depth. UI and sky are not faded.</summary>
+	/// <summary>Opt-in range, as fractions of camera-forward far depth, over which world geometry blends into the sky or clear colour. UI and sky are not faded.</summary>
 	[StructLayout(LayoutKind.Sequential)]
 	public struct FarClipFadeProps
 	{
@@ -31,7 +31,7 @@ public sealed partial class View3d
 			Validate();
 		}
 
-		/// <summary>Whether world geometry fades near the far plane.</summary>
+		/// <summary>Whether world geometry blends into the background near the far plane.</summary>
 		public bool Enabled
 		{
 			get
@@ -40,7 +40,7 @@ public sealed partial class View3d
 			}
 		}
 
-		/// <summary>Camera-forward depth divided by far depth where opacity starts decreasing.</summary>
+		/// <summary>Camera-forward depth divided by far depth where the blend to the background starts.</summary>
 		public float StartFraction
 		{
 			get
@@ -49,7 +49,7 @@ public sealed partial class View3d
 			}
 		}
 
-		/// <summary>Camera-forward depth divided by far depth where opacity reaches zero.</summary>
+		/// <summary>Camera-forward depth divided by far depth where only the background remains.</summary>
 		public float EndFraction
 		{
 			get

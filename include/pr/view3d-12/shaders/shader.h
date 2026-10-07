@@ -21,15 +21,12 @@ namespace pr::rdr12
 		ByteCode CS;
 	};
 
-	// The output contract of one forward pixel-shader entry point. Each forward sub-pass, with or without far-clip fade, needs a different entry point.
+	// The output contract of one forward pixel-shader entry point. Each forward sub-pass needs a different entry point.
 	enum class EForwardPixelSlot
 	{
 		Opaque,
 		ReflectionAttrs,
 		AlphaCollect,
-		FarFade,
-		FarFadeReflectionAttrs,
-		FarFadeAlphaCollect,
 	};
 
 	// The set of forward pixel-shader entry points that share one shading function, one per output contract.
@@ -37,7 +34,7 @@ namespace pr::rdr12
 	struct ForwardPixelFamily
 	{
 		using ByteCode = ::pr::compute::ByteCode;
-		static constexpr size_t SlotCount = static_cast<size_t>(EForwardPixelSlot::FarFadeAlphaCollect) + 1;
+		static constexpr size_t SlotCount = static_cast<size_t>(EForwardPixelSlot::AlphaCollect) + 1;
 		std::array<ByteCode, SlotCount> m_code;
 
 		// The stock family whose entry points this family replaces, or null for a stock family. Its pixel shader identifies the slot to replace.
@@ -130,23 +127,14 @@ namespace pr::rdr12
 		extern ByteCode const forward_reflection_attrs_texn_pbr_ps;
 		extern ByteCode const forward_alpha_collect_texn_pbr_ps;
 		extern ByteCode const forward_radial_fade_ps;
-
-		// Opt-in forward far-depth output variants.
-		extern ByteCode const forward_far_fade_ps;
-		extern ByteCode const forward_far_fade_pbr_ps;
-		extern ByteCode const forward_far_fade_texn_pbr_ps;
-		extern ByteCode const forward_far_fade_alpha_collect_ps;
-		extern ByteCode const forward_far_fade_alpha_collect_pbr_ps;
-		extern ByteCode const forward_far_fade_alpha_collect_texn_pbr_ps;
-		extern ByteCode const forward_far_fade_reflection_attrs_ps;
-		extern ByteCode const forward_far_fade_reflection_attrs_pbr_ps;
-		extern ByteCode const forward_far_fade_reflection_attrs_texn_pbr_ps;
 	    extern ByteCode const forward_detail_ps;
 	    extern ByteCode const forward_reflection_attrs_detail_ps;
 	    extern ByteCode const forward_alpha_collect_detail_ps;
-	    extern ByteCode const forward_far_fade_detail_ps;
-	    extern ByteCode const forward_far_fade_alpha_collect_detail_ps;
-	    extern ByteCode const forward_far_fade_reflection_attrs_detail_ps;
+
+		// Far clip fade to the background. See scene/far_clip_fade.md.
+		extern ByteCode const background_fade_vs;
+		extern ByteCode const background_fade_weight_ps;
+		extern ByteCode const background_fade_clear_ps;
 
 		// The stock forward pixel families. Each groups the entries above that share one shading function.
 		extern ForwardPixelFamily const forward_family;
