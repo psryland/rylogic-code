@@ -17,6 +17,10 @@ static const int EnvMapMarchMaxLaneSteps = 8;
 // The most halving steps used to refine a hit
 static const int EnvMapMarchMaxRefineSteps = 6;
 
+// The most extra samples used to search near the closest approach of a ray whose coarse samples all missed. Each one shrinks the searched
+// interval by about 0.618.
+static const int EnvMapMarchMaxNearMissSteps = 5;
+
 // Stored distances at or above this are treated as infinitely distant. Nothing rendered (the far plane) stores exactly 1, but filtering between
 // far-plane texels and distant geometry gives values just below it.
 static const float EnvMapMaxDistance = 1.0f - 4.0f / 65535.0f;
@@ -46,14 +50,21 @@ float3 EnvMapRayPoint(EnvMapRay ray, float s)
 
 // Return how far the point at fraction 's' of 'ray' is in front of the captured surface seen in the same direction. Positive means the ray has
 // not reached the surface yet. Distances are compared in their stored form, 'd / (d + S)', which keeps their order without decoding them.
-float EnvMapRayGap(EnvMapRay ray, float s)
+// 'on_surface' is false when the centre sees nothing in that direction (the sky or the far plane).
+float EnvMapRayGap(EnvMapRay ray, float s, out bool on_surface)
 {
 	// Distances near 1 are the sky or the far plane, which no ray point can be behind
 	float3 v = EnvMapRayPoint(ray, s) - ray.centre;
 	float d = length(v);
 	float a = g_envmap_distance.SampleLevel(g_envmap_sampler, mul(float4(v, 0.0f), g_frame.env_map.w2env).xyz, ray.lod);
-	a = a < EnvMapMaxDistance ? a : 1.0f;
+	on_surface = a < EnvMapMaxDistance;
+	a = on_surface ? a : 1.0f;
 	return a - d / (d + ray.scale);
+}
+float EnvMapRayGap(EnvMapRay ray, float s)
+{
+	bool on_surface;
+	return EnvMapRayGap(ray, s, on_surface);
 }
 
 // Return the part [t0, t1] of the ray from 'pos' in normalised direction 'dir' that is inside the box from 'lo' to 'hi'. The part starts no
@@ -112,16 +123,27 @@ void EnvMapDirections(float3 ws_pos, float3 ws_dir, float2 ss_pos, float importa
 		int quad_lane = (int(ss_pos.x) & 1) + 2 * (int(ss_pos.y) & 1);
 		float step = 1.0f / (4 * lane_steps);
 		float s_own = 2.0f;
+		float s_near = 2.0f;
+		float gap_near = 1e30f;
 		if (ray.span > 0.0f)
 		{
 			for (int j = 0; j != lane_steps; ++j)
 			{
 				// Stop at the first sample behind the surface
 				float s = (4 * j + quad_lane + 1) * step;
-				if (EnvMapRayGap(ray, s) <= 0.0f)
+				bool on_surface;
+				float gap = EnvMapRayGap(ray, s, on_surface);
+				if (gap <= 0.0f)
 				{
 					s_own = s;
 					break;
+				}
+
+				// Remember the sample that came closest to a surface, in case the ray passes behind it between samples
+				if (on_surface && gap < gap_near)
+				{
+					s_near = s;
+					gap_near = gap;
 				}
 			}
 		}
@@ -167,6 +189,59 @@ void EnvMapDirections(float3 ws_pos, float3 ws_dir, float2 ss_pos, float importa
 			}
 		}
 
+		// A ray can pass behind a thin part of a surface, such as just below the top edge of a wall, entirely between its samples. If no sample
+		// found a hit but one came close to a surface, search around it for a point behind that surface. Each step keeps the part of the interval
+		// that holds the smaller gap (a golden-section search), and stops at the first point behind the surface. Rays that only saw the sky skip this.
+		if (hi > 1.0f && s_near <= 1.0f)
+		{
+			// Search between the neighbouring samples of this pixel, which were both in front of the surface
+			const float golden = 0.618034f;
+			float a = max(s_near - 4.0f * step, 0.0f);
+			float b = min(s_near + 4.0f * step, 1.0f);
+			float x1 = b - golden * (b - a);
+			float x2 = a + golden * (b - a);
+			float f1 = EnvMapRayGap(ray, x1);
+			float f2 = EnvMapRayGap(ray, x2);
+			float s_hit = 2.0f;
+			for (int i = 0; i != EnvMapMarchMaxNearMissSteps + 1; ++i)
+			{
+				// Stop at the first point found behind the surface
+				if (f1 <= 0.0f || f2 <= 0.0f)
+				{
+					s_hit = f1 <= 0.0f ? x1 : x2;
+					break;
+				}
+
+				// Narrow the interval towards the smaller gap, reusing the inner point that stays inside it
+				if (i == EnvMapMarchMaxNearMissSteps)
+					break;
+
+				if (f1 < f2)
+				{
+					b = x2;
+					x2 = x1;
+					f2 = f1;
+					x1 = b - golden * (b - a);
+					f1 = EnvMapRayGap(ray, x1);
+				}
+				else
+				{
+					a = x1;
+					x1 = x2;
+					f1 = f2;
+					x2 = a + golden * (b - a);
+					f2 = EnvMapRayGap(ray, x2);
+				}
+			}
+
+			// Bracket the crossing with a point known to be in front: 's_near' if it comes before the hit, else this pixel's previous sample.
+			if (s_hit <= 1.0f)
+			{
+				lo = s_near < s_hit ? s_near : max(s_near - 4.0f * step, 0.0f);
+				hi = s_hit;
+			}
+		}
+
 		// Halve the interval until it spans about one texel of the sampled mip, then use its middle as the hit. A ray that reaches no surface
 		// inside the bounds sees the infinitely distant environment, so it keeps its own direction.
 		if (hi <= 1.0f)
@@ -188,22 +263,22 @@ void EnvMapDirections(float3 ws_pos, float3 ws_dir, float2 ss_pos, float importa
 			ws_hit_dir_prev = hit - g_frame.env_map.centre_prev.xyz;
 		}
 	}
-	dir = mul(float4(ws_hit_dir, 0.0f), g_frame.env_map.w2env).xyz;
-	dir_prev = mul(float4(ws_hit_dir_prev, 0.0f), g_frame.env_map.w2env).xyz;
+	dir = mul(float4(normalize(ws_hit_dir), 0.0f), g_frame.env_map.w2env).xyz;
+	dir_prev = mul(float4(normalize(ws_hit_dir_prev), 0.0f), g_frame.env_map.w2env).xyz;
 }
 
 // Sample the environment map in env-map space directions 'dir' (current map) and 'dir_prev' (previous map). While a new map fades in, the
 // result blends from the previous map. The blend weight is the same for every pixel in the frame, so the branch does not diverge.
-// 'lod_bias' is added to the mip level the hardware selects; 0 gives the sharpest result without aliasing.
-float4 SampleEnvMap(float3 dir, float3 dir_prev, float lod_bias)
+// 'dir_dx' and 'dir_dy' are the screen-space changes in the direction that set the filtering; the same values are used for both maps.
+float4 SampleEnvMap(float3 dir, float3 dir_prev, float3 dir_dx, float3 dir_dy)
 {
-	float4 col = g_envmap_texture.SampleBias(g_envmap_sampler, dir, lod_bias);
+	float4 col = g_envmap_texture.SampleGrad(g_envmap_sampler, dir, dir_dx, dir_dy);
 
 	float blend = g_frame.env_map.blend.x;
 	if (blend < 1.0f)
 	{
 		// Blend from the previous map
-		float4 prev = g_envmap_prev_texture.SampleBias(g_envmap_sampler, dir_prev, lod_bias);
+		float4 prev = g_envmap_prev_texture.SampleGrad(g_envmap_sampler, dir_prev, dir_dx, dir_dy);
 		col = lerp(prev, col, blend);
 	}
 	return col;
@@ -247,10 +322,15 @@ float4 EnvironmentMap(float4 ws_pos, float4 ws_norm, float4 ws_cam, float2 ss_po
 	float grazing = max(1.0f - roughness, reflectivity);
 	float fresnel = reflectivity + (grazing - reflectivity) * pow(1.0f - cos_theta, 5.0f);
 
-	// Sample the environment in the mirror direction. The Fresnel weight sets how much effort the parallax correction gets.
+	// Sample the environment at the parallax-corrected hit. The filtering follows the plain mirror direction, which changes smoothly across the
+	// surface; the hit directions jump between near and far surfaces at their edges, which would otherwise select a needlessly blurred mip.
+	// Scaling the changes by 2^lod moves the selected mip 'lod' levels coarser. The Fresnel weight sets how much effort the parallax correction gets.
+	float3 ws_mirror = reflect(to_surface, ws_norm).xyz;
+	float3 mirror = mul(float4(normalize(ws_mirror), 0.0f), g_frame.env_map.w2env).xyz;
+	float lod_scale = exp2(lod);
 	float3 dir, dir_prev;
-	EnvMapDirections(ws_pos.xyz, reflect(to_surface, ws_norm).xyz, ss_pos, fresnel, lod, dir, dir_prev);
-	float4 col = SampleEnvMap(dir, dir_prev, lod);
+	EnvMapDirections(ws_pos.xyz, ws_mirror, ss_pos, fresnel, lod, dir, dir_prev);
+	float4 col = SampleEnvMap(dir, dir_prev, ddx(mirror) * lod_scale, ddy(mirror) * lod_scale);
 	return lerp(initial_diff, col, fresnel);
 }
 

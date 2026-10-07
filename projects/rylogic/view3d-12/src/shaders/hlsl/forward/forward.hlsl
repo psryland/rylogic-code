@@ -323,7 +323,7 @@ PSOut ForwardShade(PSIn In, bool is_front_face)
 		if (EnvMapProj(g_nugget.flags))
 		{
 			float3 dir = mul(In.ws_vert, g_nugget.tex2surf0).xyz;
-			Out.diff = SampleEnvMap(dir, dir, 0.0f);
+			Out.diff = SampleEnvMap(dir, dir, ddx(dir), ddy(dir));
 		}
 		else
 		{
