@@ -48,7 +48,7 @@ namespace pr::physics::atmosphere
 		void Validate(AtmosphereBoundaries const& boundaries) const;
 	};
 
-	// Air outside one boundary column. Where its wind blows into the domain through an open side, it sets the inflow wind and temperature.
+	// Air outside one column. Where its wind blows into the domain through an open side or inactive mask neighbour, it sets the inflow wind and temperature.
 	// Where its wind blows out of the domain, the inside air leaves freely.
 	struct AtmosphereOutsideAir
 	{
@@ -71,11 +71,18 @@ namespace pr::physics::atmosphere
 		float m_first_layer_thickness = 1.0f;
 
 		// Optional floor height per column, row-major. Empty means a flat floor at 'm_origin.z'.
-		// A floor at or above 'm_lid_z' makes the column solid, which models obstacles that reach the lid. See ColumnSolid.
+		// A floor at or above 'm_lid_z' makes an active column solid, which models obstacles that reach the lid. See ColumnSolid.
 		std::vector<float> m_floor_heights;
+
+		// Optional active mask per column, row-major. Empty means every column is active. A zero entry removes that column from the solve and makes
+		// neighbouring active columns treat its faces as open boundaries. Floor heights in inactive columns are ignored.
+		std::vector<uint8_t> m_active_columns;
 
 		// Build one floor height per column from row-major caller data.
 		static std::vector<float> BuildFloorHeights(iv2 cell_count, std::span<float const> floor_heights);
+
+		// Build one active-mask value per column from row-major caller data. Non-zero values are active.
+		static std::vector<uint8_t> BuildActiveColumns(iv2 cell_count, std::span<uint8_t const> active_columns);
 
 		// Build one floor height per column by sampling a caller-owned floor-height function at cell centres.
 		static std::vector<float> BuildFloorHeights(iv2 cell_count, v4 origin, float dx, std::function<float(v2)> const& floor_height_function);
@@ -101,11 +108,8 @@ namespace pr::physics::atmosphere
 		// Return the packed column index for 'cell'.
 		int ColumnIndex(iv2 cell) const;
 
-		// Return the number of boundary columns. Each side has one boundary column per grid column along it, packed in this order:
-		// the x- side by y, the x+ side by y, the y- side by x, then the y+ side by x.
-		int BoundaryColumnCount() const;
-
-		// Build outside air for every boundary column by sampling a caller-owned function at the centre of each column's outside face.
+		// Build outside air for every column by sampling a caller-owned function at the column centre. Open square sides use their edge-column entry,
+		// and active/inactive mask faces use the inactive column's entry.
 		std::vector<AtmosphereOutsideAir> BuildOutsideAir(std::function<AtmosphereOutsideAir(v2)> const& outside_air_function) const;
 
 		// Return the packed cell-centre index for 'cell'.
@@ -123,7 +127,10 @@ namespace pr::physics::atmosphere
 		// Return the floor height for a column.
 		float FloorHeight(iv2 cell) const;
 
-		// Return true when a column holds no air because its floor is at or above the lid. Solid columns are walls to the flow;
+		// Return true when a column is included in the solve. Inactive columns act as open outside air to neighbouring active columns.
+		bool ColumnActive(iv2 cell) const;
+
+		// Return true when a column holds no air because it is active and its floor is at or above the lid. Solid columns are walls to the flow;
 		// their layer heights are not meaningful and must not be used.
 		bool ColumnSolid(iv2 cell) const;
 
@@ -179,7 +186,8 @@ namespace pr::physics::atmosphere
 		float m_lid_relaxation_rate = 0.0f;
 
 		// Pressure solve effort per step. The pressure is warm-started from the previous step, so a few smoothing passes are enough to keep the field stable.
-		// Two V-cycles with two pre- and post-smoothing passes are the smallest settings that remain stable on steep terrain; fewer passes let errors grow.
+		// Fewer than two pre- and post-smoothing passes let errors grow. Two V-cycles are a conservative default; grids whose flow changes little
+		// between steps may give the same result with one V-cycle and fewer coarse-level passes.
 		int m_pressure_vcycles = 2;
 		int m_pressure_pre_smooth = 2;
 		int m_pressure_post_smooth = 2;
@@ -212,18 +220,6 @@ namespace pr::physics::atmosphere
 		float m_heating_rate = 0.0f;
 		float m_target_temperature = 0.0f;
 		float m_relaxation_rate = 0.0f;
-	};
-
-	// Per-step forcing and heat data supplied by the caller.
-	struct AtmosphereStepSources
-	{
-		std::span<AtmosphereHeatSource const> m_heat_sources = {};
-		std::span<float const> m_floor_temperatures = {};
-		float m_uniform_floor_temperature = 288.0f;
-
-		// Air outside the open sides; it drives large-scale wind through the domain. Either empty, for calm outside air at the
-		// reference temperature, or one entry per boundary column (see AtmosphereGrid::BoundaryColumnCount and BuildOutsideAir).
-		std::span<AtmosphereOutsideAir const> m_outside_air = {};
 	};
 
 	// Full staggered MAC field state. U, V, and W are stored on x, y, and z faces; temperature and pressure are stored at cell centres.
@@ -306,8 +302,19 @@ namespace pr::physics::atmosphere
 		// Change column floors and remap only changed columns into the new terrain-following layers.
 		void RemapFloors(GpuJob& job, std::span<float const> floor_heights);
 
-		// Record one solver step into 'job'. The caller owns command submission and completion.
-		void Step(GpuJob& job, float dt, AtmosphereStepSources const& sources);
+		// Set the temperature of the floor under each column, K, in AtmosphereGrid column order. The lowest layer relaxes toward it at
+		// AtmosphereConfig::m_floor_exchange_rate. Initially the reference temperature at each column's floor height; RemapFloors does not change it.
+		// The values are kept on the CPU and uploaded by the next Step, so this may be called while a recorded step is still running.
+		void SetFloorTemperatures(std::span<float const> floor_temperatures);
+
+		// Set the air outside the open faces, one entry per column (see AtmosphereGrid::ColumnCount and BuildOutsideAir); it drives large-scale
+		// wind through the domain. Square sides use the edge-column entry. Active/inactive mask faces use the inactive column's entry.
+		// The open-edge sponge is still measured from the square domain sides. Initially calm air at the reference temperature.
+		// The values are kept on the CPU and uploaded by the next Step, so this may be called while a recorded step is still running.
+		void SetOutsideAir(std::span<AtmosphereOutsideAir const> outside_air);
+
+		// Record one solver step into 'job', with at most 64 'heat_sources' active for this step only. The caller owns command submission and completion.
+		void Step(GpuJob& job, float dt, std::span<AtmosphereHeatSource const> heat_sources = {});
 
 		// Read the full staggered field after all previously recorded work in 'job' has completed.
 		AtmosphereState ReadBack(GpuJob& job);

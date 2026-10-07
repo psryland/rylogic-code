@@ -50,7 +50,7 @@ namespace physics_sandbox::scene_loader
 	//             "step_rate": 15.0,           // Climate steps per simulated second (Hz). Each step advances the solver by 1/step_rate seconds
 	//             "open_edge_band": 8,         // Width in cells of the sponge that nudges open-side air toward the outside wind
 	//             "vorticity_confinement": 0.0,// Strength (1/s) of the force that restores swirls smoothed away by advection; 0 disables it
-	//             "outside_air": [             // Air beside open sides. The first region containing a boundary column's position wins; elsewhere the air is calm
+	//             "outside_air": [             // Air outside open faces. The first region containing a column centre wins; elsewhere the air is calm
 	//                 { "min":[-1e9,-1e9], "max":[1e9,0], "wind":[5,0], "wind_noise":0.0, "temperature_offset":0.0 } // wind_noise: max fixed random wind offset per column, m/s
 	//             ],
 	//             "heat_sources": [
@@ -316,7 +316,7 @@ namespace physics_sandbox::scene_loader
 	{
 		physics::atmosphere::AtmosphereConfig m_config;                        // grid, boundaries, and reference temperature profile
 		std::vector<physics::atmosphere::AtmosphereHeatSource> m_heat_sources; // static heat sources
-		std::vector<physics::atmosphere::AtmosphereOutsideAir> m_outside_air;  // static air beside every boundary column, in AtmosphereGrid::BuildOutsideAir order
+		std::vector<physics::atmosphere::AtmosphereOutsideAir> m_outside_air;  // static outside air for every column, in AtmosphereGrid::BuildOutsideAir order
 		std::vector<AtmosphereCylinderDesc> m_cylinders;                       // solid obstacles, already applied to the grid floor heights
 		bool m_terrain_floor = false;                                          // true when the grid floor follows the scene terrain (and water surface)
 		physics::atmosphere::AtmosphereTracerConfig m_tracers;                 // flow-visualisation particles

@@ -39,7 +39,7 @@ namespace pr::physics::atmosphere
 		{
 			// Grid shape.
 			iv3 m_cell_count;              // fine-grid cell counts in X, Y (columns) and Z (layers)
-			int m_boundary_mask;           // one bit per open side: bit 0 = x-, 1 = x+, 2 = y-, 3 = y+
+			int m_boundary_mask;           // one bit per open side: bit 0 = x-, 1 = x+, 2 = y-, 3 = y+; bit 4 = all columns active
 
 			// Domain placement.
 			v2 m_origin;                   // world-space XY of the low corner of cell (0,0), metres
@@ -62,9 +62,9 @@ namespace pr::physics::atmosphere
 			float m_lid_temperature;       // top-layer relaxation target, K
 			float m_lid_relaxation_rate;   // top-layer relaxation rate; zero disables it, 1/s
 
-			// Caller-supplied buffers.
+			// Per-step heat sources.
 			int m_source_count;            // valid heat sources
-			int m_use_floor_temp_buffer;   // non-zero when the floor temperature buffer has one value per column
+			int m_pad0;
 
 			// Multigrid level selection. The child (next coarser) level is derived from these in the shader.
 			iv2 m_mg_size;                 // column counts of the active level
@@ -190,7 +190,7 @@ namespace pr::physics::atmosphere
 				std::clamp(neighbour.x, 0, grid.m_cell_count.x - 1),
 				std::clamp(neighbour.y, 0, grid.m_cell_count.y - 1),
 			};
-			return grid.ColumnSolid(n) ? cell : n;
+			return !grid.ColumnActive(n) || grid.ColumnSolid(n) ? cell : n;
 		}
 
 		// Return the W-face value, deriving floor faces of air columns from the ground slope. Matches LoadW in atmosphere.hlsl.
@@ -289,6 +289,19 @@ namespace pr::physics::atmosphere
 		return result;
 	}
 
+	// Build one active-mask value per column from row-major caller data.
+	std::vector<uint8_t> AtmosphereGrid::BuildActiveColumns(iv2 cell_count, std::span<uint8_t const> active_columns)
+	{
+		// Copy the caller buffer so the solver's mask is immutable after creation.
+		auto const column_count = cell_count.x * cell_count.y;
+		if (cell_count.x <= 1 || cell_count.y <= 1)
+			throw std::invalid_argument("Atmosphere active-mask grid dimensions must be greater than one");
+		if (isize(active_columns) != column_count)
+			throw std::invalid_argument("Atmosphere active mask must contain one value per column");
+
+		return std::vector<uint8_t>(active_columns.begin(), active_columns.end());
+	}
+
 	// Build one floor height per column by sampling a caller-owned floor-height function at cell centres.
 	std::vector<float> AtmosphereGrid::BuildFloorHeights(iv2 cell_count, v4 origin, float dx, std::function<float(v2)> const& floor_height_function)
 	{
@@ -368,33 +381,25 @@ namespace pr::physics::atmosphere
 		return cell.y * m_cell_count.x + cell.x;
 	}
 
-	// Return the number of boundary columns.
-	int AtmosphereGrid::BoundaryColumnCount() const
-	{
-		// Each x side has one column per row, and each y side has one column per x position.
-		return 2 * (m_cell_count.x + m_cell_count.y);
-	}
-
-	// Build outside air for every boundary column by sampling a caller-owned function at the centre of each column's outside face.
+	// Build outside air for every column by sampling a caller-owned function at the column centre.
 	std::vector<AtmosphereOutsideAir> AtmosphereGrid::BuildOutsideAir(std::function<AtmosphereOutsideAir(v2)> const& outside_air_function) const
 	{
 		// Validate the sampling function before calling it.
 		if (!outside_air_function)
 			throw std::invalid_argument("Atmosphere outside-air builder needs an outside-air function");
 
-		// Sample in the packed side order used by the solver: x- by y, x+ by y, y- by x, then y+ by x.
+		// Sample every column centre so the same layout can serve square sides and ragged mask boundaries.
 		auto const lo = m_origin.xy;
-		auto const hi = lo + v2{ m_cell_count.x * m_dx, m_cell_count.y * m_dx };
 		auto result = std::vector<AtmosphereOutsideAir>{};
-		result.reserve(BoundaryColumnCount());
+		result.reserve(ColumnCount());
 		for (int y = 0; y != m_cell_count.y; ++y)
-			result.push_back(outside_air_function(v2{ lo.x, lo.y + (y + 0.5f) * m_dx }));
-		for (int y = 0; y != m_cell_count.y; ++y)
-			result.push_back(outside_air_function(v2{ hi.x, lo.y + (y + 0.5f) * m_dx }));
-		for (int x = 0; x != m_cell_count.x; ++x)
-			result.push_back(outside_air_function(v2{ lo.x + (x + 0.5f) * m_dx, lo.y }));
-		for (int x = 0; x != m_cell_count.x; ++x)
-			result.push_back(outside_air_function(v2{ lo.x + (x + 0.5f) * m_dx, hi.y }));
+		{
+			for (int x = 0; x != m_cell_count.x; ++x)
+			{
+				// The caller owns spatial variation in the outside-air field.
+				result.push_back(outside_air_function(v2{ lo.x + (x + 0.5f) * m_dx, lo.y + (y + 0.5f) * m_dx }));
+			}
+		}
 
 		return result;
 	}
@@ -434,11 +439,18 @@ namespace pr::physics::atmosphere
 		return TerrainFollowing() ? m_floor_heights[ColumnIndex(cell)] : m_origin.z;
 	}
 
+	// Return true when a column is included in the solve.
+	bool AtmosphereGrid::ColumnActive(iv2 cell) const
+	{
+		// A missing active mask preserves the previous all-active behaviour.
+		return m_active_columns.empty() || m_active_columns[ColumnIndex(cell)] != 0;
+	}
+
 	// Return true when a column holds no air.
 	bool AtmosphereGrid::ColumnSolid(iv2 cell) const
 	{
 		// The solver treats every face of a column whose floor reaches the lid as a wall.
-		return FloorHeight(cell) >= m_lid_z;
+		return ColumnActive(cell) && FloorHeight(cell) >= m_lid_z;
 	}
 
 	// Return the height spanned by the layers of a column.
@@ -513,10 +525,18 @@ namespace pr::physics::atmosphere
 			throw std::invalid_argument("Atmosphere origin must be finite");
 		if (!m_floor_heights.empty() && isize(m_floor_heights) != ColumnCount())
 			throw std::invalid_argument("Atmosphere floor height count must match the grid columns");
+		if (!m_active_columns.empty() && isize(m_active_columns) != ColumnCount())
+			throw std::invalid_argument("Atmosphere active-mask count must match the grid columns");
+		if (!m_active_columns.empty() && std::ranges::none_of(m_active_columns, [](uint8_t active) { return active != 0; }))
+			throw std::invalid_argument("Atmosphere active mask must include at least one active column");
 
-		// Every floor must be finite. A floor at or above the lid marks a solid column. See ColumnSolid.
-		for (auto floor_height : m_floor_heights)
+		// Every active floor must be finite. A floor at or above the lid marks a solid column. Inactive floors are ignored by the solver.
+		for (int i = 0; i != isize(m_floor_heights); ++i)
 		{
+			if (!m_active_columns.empty() && m_active_columns[i] == 0)
+				continue;
+
+			auto const floor_height = m_floor_heights[i];
 			if (!std::isfinite(floor_height))
 				throw std::invalid_argument("Atmosphere floor heights must be finite");
 		}
@@ -617,10 +637,17 @@ namespace pr::physics::atmosphere
 		D3DPtr<ID3D12Resource> m_pressure;
 		D3DPtr<ID3D12Resource> m_divergence_buffer;
 		D3DPtr<ID3D12Resource> m_residual_buffer;
-		D3DPtr<ID3D12Resource> m_floor_temp_sentinel;
+		D3DPtr<ID3D12Resource> m_floor_temperature;
 		D3DPtr<ID3D12Resource> m_source_sentinel;
 		D3DPtr<ID3D12Resource> m_floor_height;
-		D3DPtr<ID3D12Resource> m_outside_air_sentinel;
+		D3DPtr<ID3D12Resource> m_outside_air;
+
+		// Floor temperatures and outside air set since the last Step, waiting to be uploaded. Empty when nothing is waiting.
+		std::vector<float> m_pending_floor_temperatures;
+		std::vector<GpuOutsideAir> m_pending_outside_air;
+
+		// True when every column is active, so the shaders can skip mask lookups.
+		bool m_all_columns_active;
 
 		// Description of one horizontally coarsened multigrid level.
 		struct MgLevel
@@ -659,14 +686,18 @@ namespace pr::physics::atmosphere
 			, m_pressure()
 			, m_divergence_buffer()
 			, m_residual_buffer()
-			, m_floor_temp_sentinel()
+			, m_floor_temperature()
 			, m_source_sentinel()
 			, m_floor_height()
-			, m_outside_air_sentinel()
+			, m_outside_air()
+			, m_pending_floor_temperatures()
+			, m_pending_outside_air()
+			, m_all_columns_active()
 			, m_current(0)
 		{
 			// Validate once before any GPU resources are created.
 			m_config.Validate();
+			m_all_columns_active = std::ranges::all_of(m_config.m_grid.m_active_columns, [](uint8_t active) { return active != 0; });
 			BuildMultigridLevels();
 			auto resolver = shader_cache::ResourceSourceResolver{};
 			auto compile = [&](wchar_t const* entry_point)
@@ -842,11 +873,56 @@ namespace pr::physics::atmosphere
 			m_pressure = CreateBuffer<float>(m_gpu, job, MultigridCellCount(), "Atmosphere:Pressure");
 			m_divergence_buffer = CreateBuffer<float>(m_gpu, job, MultigridCellCount(), "Atmosphere:Divergence");
 			m_residual_buffer = CreateBuffer<float>(m_gpu, job, MultigridCellCount(), "Atmosphere:Residual");
-			m_floor_temp_sentinel = CreateSrvSentinel<float>(m_gpu, job, "Atmosphere:FloorTemperatureSentinel");
 			m_source_sentinel = CreateSrvSentinel<GpuHeatSource>(m_gpu, job, "Atmosphere:SourceSentinel");
-			m_floor_height = m_gpu.CreateResource(ResDesc::Buf<float>(grid.ColumnCount(), {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE), job.m_cmd_list, "Atmosphere:FloorHeight");
-			m_outside_air_sentinel = CreateSrvSentinel<GpuOutsideAir>(m_gpu, job, "Atmosphere:OutsideAirSentinel");
-			UploadFloors(job, grid.m_floor_heights.empty() ? FlatFloors() : grid.m_floor_heights);
+			m_floor_height = m_gpu.CreateResource(ResDesc::Buf<float>(grid.ColumnCount() + MultigridColumnCount(), {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE), job.m_cmd_list, "Atmosphere:FloorHeightAndActiveMask");
+			m_floor_temperature = m_gpu.CreateResource(ResDesc::Buf<float>(grid.ColumnCount(), {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE), job.m_cmd_list, "Atmosphere:FloorTemperature");
+			m_outside_air = m_gpu.CreateResource(ResDesc::Buf<GpuOutsideAir>(grid.ColumnCount(), {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE), job.m_cmd_list, "Atmosphere:OutsideAir");
+			auto const floors = grid.m_floor_heights.empty() ? FlatFloors() : grid.m_floor_heights;
+			UploadFloors(job, floors);
+			UploadActiveMask(job);
+
+			// Start with floors at the reference temperature and calm outside air, so a solver with no caller forcing stays at rest.
+			m_pending_floor_temperatures.resize(floors.size());
+			std::ranges::transform(floors, m_pending_floor_temperatures.begin(), [&](float z) { return m_config.m_reference.Temperature(z); });
+			m_pending_outside_air.assign(grid.ColumnCount(), GpuOutsideAir{});
+			UploadPending(job);
+		}
+
+		// Copy 'data' into the start of the shader-resource buffer 'buffer'.
+		template <typename T> void UploadBuffer(GpuJob& job, ID3D12Resource* buffer, std::span<T const> data)
+		{
+			// Persistent inputs live in shader-resource state, so the copy is wrapped in transitions.
+			job.m_barriers.Transition(buffer, D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+			auto upload = job.m_upload.Alloc<T>(isize(data));
+			memcpy(upload.ptr<T>(), data.data(), data.size_bytes());
+			job.m_cmd_list.CopyBufferRegion(buffer, 0, upload);
+			job.m_barriers.Transition(buffer, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).Commit();
+		}
+
+		// Upload floor temperatures and outside air that changed since the last upload.
+		void UploadPending(GpuJob& job)
+		{
+			// Both inputs change rarely, so most steps upload nothing.
+			if (!m_pending_floor_temperatures.empty())
+			{
+				UploadBuffer<float>(job, m_floor_temperature.get(), m_pending_floor_temperatures);
+				m_pending_floor_temperatures.clear();
+			}
+			if (!m_pending_outside_air.empty())
+			{
+				UploadBuffer<GpuOutsideAir>(job, m_outside_air.get(), m_pending_outside_air);
+				m_pending_outside_air.clear();
+			}
+		}
+
+		// Return the total column slots needed by all pressure levels.
+		int MultigridColumnCount() const
+		{
+			// The active mask is packed by level using the same level order as the pressure buffers, but without the vertical layers.
+			auto result = 0;
+			for (auto const& level : m_levels)
+				result += level.m_nx * level.m_ny;
+			return result;
 		}
 
 		// Return flat floors for a uniform-box configuration.
@@ -864,22 +940,61 @@ namespace pr::physics::atmosphere
 			if (isize(floor_heights) != grid.ColumnCount())
 				throw std::invalid_argument("Atmosphere floor height upload count must match the grid columns");
 
+			UploadBuffer(job, m_floor_height.get(), floor_heights);
+		}
+
+		// Upload the fine and coarsened active masks used by all solver levels.
+		void UploadActiveMask(GpuJob& job)
+		{
+			// Coarse columns are active only when every fine child column is active. Coarse levels then hold zero pressure on or inside the fine
+			// mask boundary, so their corrections never extend the domain past the fine boundary and overshoot. The fine smoother resolves the rim.
+			auto const& grid = m_config.m_grid;
+			auto masks = std::vector<float>{};
+			masks.reserve(MultigridColumnCount());
+			for (auto const& level : m_levels)
+			{
+				for (int y = 0; y != level.m_ny; ++y)
+				{
+					for (int x = 0; x != level.m_nx; ++x)
+					{
+						// Scan the fine columns covered by this level column, clipping odd edge columns to the fine domain.
+						auto active = true;
+						auto const x0 = x * level.m_scale;
+						auto const y0 = y * level.m_scale;
+						auto const x1 = std::min((x + 1) * level.m_scale, grid.m_cell_count.x);
+						auto const y1 = std::min((y + 1) * level.m_scale, grid.m_cell_count.y);
+						for (int fy = y0; fy != y1 && active; ++fy)
+						{
+							for (int fx = x0; fx != x1; ++fx)
+							{
+								// Empty masks preserve the all-active solver contract.
+								auto const idx = grid.ColumnIndex(iv2{ fx, fy });
+								active = grid.m_active_columns.empty() || grid.m_active_columns[idx] != 0;
+								if (!active)
+									break;
+							}
+						}
+						masks.push_back(active ? 1.0f : 0.0f);
+					}
+				}
+			}
+
 			job.m_barriers.Transition(m_floor_height.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
-			auto upload = job.m_upload.Alloc<float>(grid.ColumnCount());
-			memcpy(upload.ptr<float>(), floor_heights.data(), floor_heights.size_bytes());
-			job.m_cmd_list.CopyBufferRegion(m_floor_height.get(), 0, upload);
+			auto upload = job.m_upload.Alloc<float>(isize(masks));
+			memcpy(upload.ptr<float>(), masks.data(), masks.size() * sizeof(float));
+			job.m_cmd_list.CopyBufferRegion(m_floor_height.get(), sizeof(float) * grid.ColumnCount(), upload);
 			job.m_barriers.Transition(m_floor_height.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).Commit();
 		}
 
 		// Build constants shared by all kernels.
-		CBufAtmosphere Constants(float dt, AtmosphereStepSources const& sources, int pressure_iteration) const
+		CBufAtmosphere Constants(float dt, int source_count, int pressure_iteration) const
 		{
 			// Pack scalar config into a 32-bit root constant block for cheap per-dispatch updates.
 			auto const& grid = m_config.m_grid;
 			auto const& boundaries = m_config.m_boundaries;
 			return CBufAtmosphere{
 				.m_cell_count = grid.m_cell_count,
-				.m_boundary_mask = (BoundaryValue(boundaries.m_x_min) << 0) | (BoundaryValue(boundaries.m_x_max) << 1) | (BoundaryValue(boundaries.m_y_min) << 2) | (BoundaryValue(boundaries.m_y_max) << 3),
+				.m_boundary_mask = (BoundaryValue(boundaries.m_x_min) << 0) | (BoundaryValue(boundaries.m_x_max) << 1) | (BoundaryValue(boundaries.m_y_min) << 2) | (BoundaryValue(boundaries.m_y_max) << 3) | (m_all_columns_active ? 1 << 4 : 0),
 				.m_origin = grid.m_origin.xy,
 				.m_lid_z = grid.m_lid_z,
 				.m_dx = grid.m_dx,
@@ -893,8 +1008,7 @@ namespace pr::physics::atmosphere
 				.m_floor_exchange_rate = m_config.m_floor_exchange_rate,
 				.m_lid_temperature = m_config.m_lid_temperature,
 				.m_lid_relaxation_rate = m_config.m_lid_relaxation_rate,
-				.m_source_count = isize(sources.m_heat_sources),
-				.m_use_floor_temp_buffer = sources.m_floor_temperatures.empty() ? 0 : 1,
+				.m_source_count = source_count,
 				.m_mg_size = grid.m_cell_count.xy,
 				.m_mg_offset = 0,
 				.m_mg_scale = 1,
@@ -913,7 +1027,7 @@ namespace pr::physics::atmosphere
 
 		// Transition the ping-pong fields for one 'src'/'dst' arrangement and bind the shared root signature and every field view.
 		// Field views stay bound until the next call, so call this only when the arrangement changes. Run then only changes the pipeline and constants.
-		void BindFields(GpuJob& job, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS floor_temp_buffer, D3D12_GPU_VIRTUAL_ADDRESS source_buffer, D3D12_GPU_VIRTUAL_ADDRESS outside_air_buffer)
+		void BindFields(GpuJob& job, int src, int dst, D3D12_GPU_VIRTUAL_ADDRESS source_buffer)
 		{
 			// The ping-pong fields default to UAV state but 'src' is bound as root SRVs. The barrier batch tracks the current state so repeated transitions are dropped.
 			// A UAV-to-SRV transition also orders the previous kernel's writes before the next kernel's reads, so velocity writes need no separate UAV barrier.
@@ -953,10 +1067,10 @@ namespace pr::physics::atmosphere
 			srv(1, m_v[src]->GetGPUVirtualAddress());
 			srv(2, m_w[src]->GetGPUVirtualAddress());
 			srv(3, m_temperature[src]->GetGPUVirtualAddress());
-			srv(4, floor_temp_buffer);
+			srv(4, m_floor_temperature->GetGPUVirtualAddress());
 			srv(5, source_buffer);
 			srv(6, m_floor_height->GetGPUVirtualAddress());
-			srv(7, outside_air_buffer);
+			srv(7, m_outside_air->GetGPUVirtualAddress());
 		}
 
 		// Forget the recorded pipeline state. Call before recording into a command list that other code may have used since the last atmosphere dispatch.
@@ -1011,14 +1125,13 @@ namespace pr::physics::atmosphere
 		void InitialiseReference(GpuJob& job)
 		{
 			// Both ping-pong buffers are reset so the next Step has no hidden stale state. The initialise kernel does not read 'src'.
-			auto const empty = AtmosphereStepSources{};
-			auto const cb = Constants(0.0f, empty, 0);
+			auto const cb = Constants(0.0f, 0, 0);
 			auto const all = EFieldWrites::Velocity | EFieldWrites::Pressure | EFieldWrites::Divergence | EFieldWrites::Residual;
 			ResetBinding();
-			BindFields(job, 1, 0, m_floor_temp_sentinel->GetGPUVirtualAddress(), m_source_sentinel->GetGPUVirtualAddress(), m_outside_air_sentinel->GetGPUVirtualAddress());
+			BindFields(job, 1, 0, m_source_sentinel->GetGPUVirtualAddress());
 			Dispatch(job, m_initialise, cb);
 			Barrier(job, all);
-			BindFields(job, 0, 1, m_floor_temp_sentinel->GetGPUVirtualAddress(), m_source_sentinel->GetGPUVirtualAddress(), m_outside_air_sentinel->GetGPUVirtualAddress());
+			BindFields(job, 0, 1, m_source_sentinel->GetGPUVirtualAddress());
 			Dispatch(job, m_initialise, cb);
 			Barrier(job, all);
 			m_current = 0;
@@ -1108,11 +1221,25 @@ namespace pr::physics::atmosphere
 		// Read back the old field because floor changes are rare and conservative CPU remapping is simpler and auditable.
 		auto old_grid = m_impl->m_config.m_grid;
 		auto state = ReadBack(job);
-		auto new_floors = AtmosphereGrid::BuildFloorHeights(iv2{ old_grid.m_cell_count.x, old_grid.m_cell_count.y }, floor_heights);
+		if (isize(floor_heights) != old_grid.ColumnCount())
+			throw std::invalid_argument("Atmosphere floor buffer must contain one height per column");
+
+		// Inactive column floors are ignored by the fixed mask and may contain caller-owned sentinel values.
+		auto new_floors = std::vector<float>(floor_heights.begin(), floor_heights.end());
+		for (int i = 0; i != old_grid.ColumnCount(); ++i)
+		{
+			if (!old_grid.m_active_columns.empty() && old_grid.m_active_columns[i] == 0)
+				continue;
+			if (!std::isfinite(new_floors[i]))
+				throw std::invalid_argument("Atmosphere floor heights must be finite in active columns");
+		}
 		auto changed = std::vector<uint8_t>(old_grid.ColumnCount(), 0);
 		auto any_changed = false;
 		for (int i = 0; i != old_grid.ColumnCount(); ++i)
 		{
+			if (!old_grid.m_active_columns.empty() && old_grid.m_active_columns[i] == 0)
+				continue;
+
 			changed[i] = std::abs(new_floors[i] - old_grid.FloorHeight(iv2{ i % old_grid.m_cell_count.x, i / old_grid.m_cell_count.x })) > 1.0e-5f ? 1 : 0;
 			any_changed = any_changed || changed[i] != 0;
 		}
@@ -1176,43 +1303,56 @@ namespace pr::physics::atmosphere
 		UploadState(job, state);
 	}
 
+	// Set the floor temperature under each column. See the declaration for the contract.
+	void AtmosphereSolver::SetFloorTemperatures(std::span<float const> floor_temperatures)
+	{
+		// Validate once here, so steps upload the stored values without checking them again.
+		auto& impl = *m_impl;
+		if (isize(floor_temperatures) != impl.m_config.m_grid.ColumnCount())
+			throw std::invalid_argument("Atmosphere floor temperatures must contain one value per column");
+		if (!std::ranges::all_of(floor_temperatures, [](float t) { return std::isfinite(t) && t > 0.0f; }))
+			throw std::invalid_argument("Atmosphere floor temperatures must be finite and positive");
+
+		impl.m_pending_floor_temperatures.assign(floor_temperatures.begin(), floor_temperatures.end());
+	}
+
+	// Set the air outside the open faces. See the declaration for the contract.
+	void AtmosphereSolver::SetOutsideAir(std::span<AtmosphereOutsideAir const> outside_air)
+	{
+		// Validate and convert to the shader layout once here, so steps upload the stored values directly.
+		auto& impl = *m_impl;
+		if (isize(outside_air) != impl.m_config.m_grid.ColumnCount())
+			throw std::invalid_argument("Atmosphere outside air must contain one value per column");
+
+		impl.m_pending_outside_air.resize(outside_air.size());
+		for (int i = 0; i != isize(outside_air); ++i)
+		{
+			// Each column's entry is checked as it is converted.
+			auto const& air = outside_air[i];
+			if (!IsFinite(air.m_wind) || !std::isfinite(air.m_temperature_offset))
+				throw std::invalid_argument("Atmosphere outside air contains invalid values");
+
+			impl.m_pending_outside_air[i] = GpuOutsideAir{ .m_wind = air.m_wind, .m_temperature_offset = air.m_temperature_offset, .m_pad = 0.0f };
+		}
+	}
+
 	// Record one solver step into 'job'. The caller owns command submission and completion.
-	void AtmosphereSolver::Step(GpuJob& job, float dt, AtmosphereStepSources const& sources)
+	void AtmosphereSolver::Step(GpuJob& job, float dt, std::span<AtmosphereHeatSource const> heat_sources)
 	{
 		// Reject invalid per-step values where they enter the solver.
 		if (!std::isfinite(dt) || dt < 0.0f)
 			throw std::invalid_argument("Atmosphere step dt must be finite and non-negative");
-		if (isize(sources.m_heat_sources) > MaxHeatSources)
+		if (isize(heat_sources) > MaxHeatSources)
 			throw std::invalid_argument("Atmosphere heat-source count exceeds the per-step limit");
-		auto const& grid = m_impl->m_config.m_grid;
-		if (!sources.m_floor_temperatures.empty() && isize(sources.m_floor_temperatures) != grid.ColumnCount())
-			throw std::invalid_argument("Atmosphere floor temperature buffer must contain one value per column");
-		if (!sources.m_outside_air.empty() && isize(sources.m_outside_air) != grid.BoundaryColumnCount())
-			throw std::invalid_argument("Atmosphere outside air must contain one value per boundary column");
 
-		// Stage floor temperatures and heat sources for the recorded frame.
-		auto floor_buffer = m_impl->m_floor_temp_sentinel->GetGPUVirtualAddress();
-		if (!sources.m_floor_temperatures.empty())
-		{
-			auto upload = job.m_upload.Alloc<float>(isize(sources.m_floor_temperatures));
-			memcpy(upload.ptr<float>(), sources.m_floor_temperatures.data(), sources.m_floor_temperatures.size_bytes());
-			floor_buffer = upload.m_res->GetGPUVirtualAddress() + upload.m_ofs;
-		}
-		else
-		{
-			auto upload = job.m_upload.Alloc<float>(1);
-			*upload.ptr<float>() = sources.m_uniform_floor_temperature;
-			floor_buffer = upload.m_res->GetGPUVirtualAddress() + upload.m_ofs;
-		}
-
-		// Convert public sources to the shader layout in upload memory.
+		// Convert heat sources to the shader layout in upload memory.
 		auto source_buffer = m_impl->m_source_sentinel->GetGPUVirtualAddress();
-		if (!sources.m_heat_sources.empty())
+		if (!heat_sources.empty())
 		{
-			auto upload = job.m_upload.Alloc<GpuHeatSource>(isize(sources.m_heat_sources));
-			for (int i = 0; i != isize(sources.m_heat_sources); ++i)
+			auto upload = job.m_upload.Alloc<GpuHeatSource>(isize(heat_sources));
+			for (int i = 0; i != isize(heat_sources); ++i)
 			{
-				auto const& src = sources.m_heat_sources[i];
+				auto const& src = heat_sources[i];
 				if (!IsFinite(src.m_centre) || !std::isfinite(src.m_radius) || src.m_radius < 0.0f || !std::isfinite(src.m_heating_rate) || !std::isfinite(src.m_target_temperature) || !std::isfinite(src.m_relaxation_rate) || src.m_relaxation_rate < 0.0f)
 					throw std::invalid_argument("Atmosphere heat source contains invalid values");
 
@@ -1221,34 +1361,23 @@ namespace pr::physics::atmosphere
 			source_buffer = upload.m_res->GetGPUVirtualAddress() + upload.m_ofs;
 		}
 
-		// Stage one outside-air entry per boundary column. Calm reference air fills the buffer when the caller supplies none,
-		// so the kernels always read a full-size buffer.
-		auto outside_air_upload = job.m_upload.Alloc<GpuOutsideAir>(grid.BoundaryColumnCount());
-		for (int i = 0; i != grid.BoundaryColumnCount(); ++i)
-		{
-			// Validate caller values where they enter the GPU layout.
-			auto const air = sources.m_outside_air.empty() ? AtmosphereOutsideAir{} : sources.m_outside_air[i];
-			if (!IsFinite(air.m_wind) || !std::isfinite(air.m_temperature_offset))
-				throw std::invalid_argument("Atmosphere outside air contains invalid values");
-
-			outside_air_upload.ptr<GpuOutsideAir>()[i] = GpuOutsideAir{ .m_wind = air.m_wind, .m_temperature_offset = air.m_temperature_offset, .m_pad = 0.0f };
-		}
-		auto const outside_air_buffer = outside_air_upload.m_res->GetGPUVirtualAddress() + outside_air_upload.m_ofs;
+		// Floor temperatures and outside air are uploaded only when they changed since the last step.
+		m_impl->UploadPending(job);
 
 		// Run advection, heat/forces, MAC divergence, multigrid pressure, and metric face-gradient subtraction.
 		auto src = m_impl->m_current;
 		auto dst = 1 - src;
-		auto cb = m_impl->Constants(dt, sources, 0);
+		auto cb = m_impl->Constants(dt, isize(heat_sources), 0);
 		auto& impl = *m_impl;
 		impl.ResetBinding();
 		if (dt != 0.0f)
 		{
 			// A zero-duration step is a pure projection of the caller's MAC field; semi-Lagrangian sampling is intentionally skipped because sampling a terrain-following face at its world position is not an exact identity on sloped columns.
-			impl.BindFields(job, src, dst, floor_buffer, source_buffer, outside_air_buffer);
+			impl.BindFields(job, src, dst, source_buffer);
 			impl.Dispatch(job, impl.m_advect, cb);
 			src = dst;
 			dst = 1 - src;
-			impl.BindFields(job, src, dst, floor_buffer, source_buffer, outside_air_buffer);
+			impl.BindFields(job, src, dst, source_buffer);
 			if (impl.m_config.m_vorticity_confinement != 0.0f)
 			{
 				// Store the swirl magnitude of the advected field in the divergence scratch buffer for the forces pass. The divergence pass overwrites it afterwards.
@@ -1261,7 +1390,7 @@ namespace pr::physics::atmosphere
 		}
 
 		// The pressure solve and projection all read the same 'src' fields and write 'dst' only in the final projection.
-		impl.BindFields(job, src, dst, floor_buffer, source_buffer, outside_air_buffer);
+		impl.BindFields(job, src, dst, source_buffer);
 		impl.Dispatch(job, impl.m_divergence, cb);
 		impl.Barrier(job, Impl::EFieldWrites::Divergence);
 		for (int cycle = 0; cycle != impl.m_config.m_pressure_vcycles; ++cycle)
@@ -1332,6 +1461,9 @@ namespace pr::physics::atmosphere
 					// A cell-centred sample is a convenience view, not the authoritative storage layout.
 					auto const cell = iv3{ x, y, z };
 					auto const idx = grid.CellIndex(cell);
+					if (!grid.ColumnActive(cell.xy))
+						continue;
+
 					auto const u = 0.5f * (state.m_u_faces[grid.UFaceIndex(iv3{ x, y, z })] + state.m_u_faces[grid.UFaceIndex(iv3{ x + 1, y, z })]);
 					auto const v = 0.5f * (state.m_v_faces[grid.VFaceIndex(iv3{ x, y, z })] + state.m_v_faces[grid.VFaceIndex(iv3{ x, y + 1, z })]);
 					auto const w = 0.5f * (LoadW(grid, state, iv3{ x, y, z }) + LoadW(grid, state, iv3{ x, y, z + 1 }));
@@ -1365,7 +1497,7 @@ namespace pr::physics::atmosphere
 				{
 					// Solid cells hold no air, so they do not contribute to flow statistics.
 					auto const column = iv2{ x, y };
-					if (grid.ColumnSolid(column))
+					if (!grid.ColumnActive(column) || grid.ColumnSolid(column))
 						continue;
 
 					// MAC divergence uses the two faces that bound each cell on every axis.
@@ -1459,7 +1591,7 @@ namespace pr::physics::atmosphere
 					.U32<CBufAtmosphere>(hlsl::ECBufReg::b0)
 					.U32<CBufAtmosphereTracers>(hlsl::ECBufReg::b1)
 					.UAV(hlsl::EUAVReg::u7)
-					.SRV(hlsl::ESRVReg::t0).SRV(hlsl::ESRVReg::t1).SRV(hlsl::ESRVReg::t2).SRV(hlsl::ESRVReg::t3).SRV(hlsl::ESRVReg::t6).SRV(hlsl::ESRVReg::t8)
+					.SRV(hlsl::ESRVReg::t0).SRV(hlsl::ESRVReg::t1).SRV(hlsl::ESRVReg::t2).SRV(hlsl::ESRVReg::t3).SRV(hlsl::ESRVReg::t6).SRV(hlsl::ESRVReg::t9)
 					.Create(gpu, sig_name.c_str());
 				step.m_pso = ComputePSO(step.m_sig.get(), code).Create(gpu, pso_name.c_str());
 				return step;
@@ -1538,7 +1670,7 @@ namespace pr::physics::atmosphere
 		{
 			// Write both slots so the first advect has no hidden dependency on old data. The initialise kernel does not read 'src'.
 			++m_frame;
-			auto cb = m_solver.m_impl->Constants(0.0f, AtmosphereStepSources{}, 0);
+			auto cb = m_solver.m_impl->Constants(0.0f, 0, 0);
 			auto tracer_cb = TracerConstants();
 			Dispatch(job, m_initialise, cb, tracer_cb, 1, 0);
 			Barrier(job);
@@ -1583,7 +1715,7 @@ namespace pr::physics::atmosphere
 		++m_impl->m_frame;
 		auto src = m_impl->m_current;
 		auto dst = 1 - src;
-		auto cb = m_impl->m_solver.m_impl->Constants(dt, AtmosphereStepSources{}, 0);
+		auto cb = m_impl->m_solver.m_impl->Constants(dt, 0, 0);
 		auto tracer_cb = m_impl->TracerConstants();
 		m_impl->Dispatch(job, m_impl->m_advect, cb, tracer_cb, src, dst);
 		m_impl->Barrier(job);

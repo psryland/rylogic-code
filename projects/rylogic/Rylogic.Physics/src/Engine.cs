@@ -330,10 +330,11 @@ public sealed class Engine :IDisposable
 		if (options == null)
 			throw new ArgumentNullException(nameof(options));
 
-		// Native validation owns the grid and solver limits; only the pinned floor array is prepared here.
+		// Native validation owns the grid and solver limits; only the pinned optional arrays are prepared here.
 		fixed (float* floor_ptr = options.FloorHeights)
+		fixed (byte* active_ptr = options.ActiveColumns)
 		{
-			var desc = Native.AtmosphereDesc.From(options, floor_ptr);
+			var desc = Native.AtmosphereDesc.From(options, floor_ptr, active_ptr);
 			Native.Check(Native.Physics_AtmosphereCreate(Handle, &desc, out var handle));
 			var atmosphere = new Atmosphere(this, handle, options);
 			m_atmospheres.Add(atmosphere);

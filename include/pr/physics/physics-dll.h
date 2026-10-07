@@ -337,6 +337,7 @@ namespace pr::physics
 		float origin_x, origin_y, origin_z;
 		float dx, lid_z, first_layer_thickness;
 		float const* floor_heights;
+		std::uint8_t const* active_columns;
 		EAtmosphereBoundary boundaries[6];
 		float wall_drag[6];
 		float reference_temperature, lapse_rate, min_temperature;
@@ -348,7 +349,7 @@ namespace pr::physics
 		float tracer_max_age, tracer_ground_density, tracer_break_density, tracer_upper_density, tracer_break_height;
 		std::int32_t reserved;
 	};
-	static_assert(sizeof(AtmosphereDesc) == 192);
+	static_assert(sizeof(AtmosphereDesc) == 200);
 
 	// A sphere that heats air at 'heating_rate' (K/s) and relaxes it towards 'target_temperature' at 'relaxation_rate' (1/s).
 	struct AtmosphereHeatSource
@@ -359,7 +360,7 @@ namespace pr::physics
 	};
 	static_assert(sizeof(AtmosphereHeatSource) == 32);
 
-	// Air outside one boundary column: its horizontal wind (m/s) and its temperature relative to the reference profile (K).
+	// Air outside one column: its horizontal wind (m/s) and its temperature relative to the reference profile (K).
 	struct AtmosphereOutsideAir
 	{
 		float wind_x, wind_y, temperature_offset;
@@ -367,24 +368,15 @@ namespace pr::physics
 	};
 	static_assert(sizeof(AtmosphereOutsideAir) == 16);
 
-	// The inputs to one atmosphere step of 'dt' seconds; all arrays are copied. At most 64 heat sources.
-	// 'floor_temperatures' is null for 'uniform_floor_temperature' everywhere, or one temperature per column in the floor-height order.
-	// 'outside_air' is null for calm outside air at the reference temperature, or one entry per boundary column: the x- side by y,
-	// the x+ side by y, the y- side by x, then the y+ side by x, so '2 * (cell_count_x + cell_count_y)' entries.
+	// The inputs to one atmosphere step of 'dt' seconds; the heat sources are copied and apply to this step only. At most 64 heat sources.
 	struct AtmosphereStepDesc
 	{
 		StructHeader header;
 		float dt;
-		float uniform_floor_temperature;
-		AtmosphereHeatSource const* heat_sources;
-		float const* floor_temperatures;
-		AtmosphereOutsideAir const* outside_air;
 		std::int32_t heat_source_count;
-		std::int32_t floor_temperature_count;
-		std::int32_t outside_air_count;
-		std::int32_t reserved;
+		AtmosphereHeatSource const* heat_sources;
 	};
-	static_assert(sizeof(AtmosphereStepDesc) == 56);
+	static_assert(sizeof(AtmosphereStepDesc) == 24);
 
 	// One atmosphere tracer particle: world position (m), air temperature (K), age (s), and the air speed that last moved it (m/s).
 	struct AtmosphereTracerParticle
@@ -1002,6 +994,14 @@ extern "C"
 
 	// Change the column floor heights (one per column, as in AtmosphereDesc) and remap the air in changed columns. Blocks; requires no step in flight.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereFloorsSet(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere, float const* floor_heights, std::int32_t count);
+
+	// Set the floor temperature under each column (K, one per column in the floor-height order). The lowest layer relaxes toward it at the
+	// descriptor's 'floor_exchange_rate'. Initially the reference temperature at each column's floor. The values are copied and used from the next step.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereFloorTemperaturesSet(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere, float const* floor_temperatures, std::int32_t count);
+
+	// Set the air outside the open faces (one entry per column in row-major floor-height order). Initially calm air at the reference temperature.
+	// The values are copied and used from the next step.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereOutsideAirSet(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereOutsideAir const* outside_air, std::int32_t count);
 
 	// Copy the tracer particles from the last finished step, or from creation. 'required' is the particle count.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereTracersCopy(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereTracerParticle* particles, std::uint32_t capacity, std::uint32_t* required);

@@ -64,6 +64,12 @@ public sealed class AtmosphereOptions
 	/// </summary>
 	public float[]? FloorHeights { get; set; }
 
+	/// <summary>
+	/// Null for every column active, or one mask value per column in row-major order (x fastest). Zero removes the column from the solve and
+	/// makes neighbouring active columns treat it as open outside air. Floor heights in inactive columns are ignored.
+	/// </summary>
+	public byte[]? ActiveColumns { get; set; }
+
 	/// <summary>Boundary condition of each outside face, indexed by <see cref="EAtmosphereSide"/>.</summary>
 	public EAtmosphereBoundary[] Boundaries { get; } = new EAtmosphereBoundary[6];
 
@@ -146,7 +152,7 @@ public readonly struct AtmosphereHeatSource
 	}
 }
 
-/// <summary>Air outside one boundary column: its horizontal wind (m/s) and its temperature relative to the reference profile (K).</summary>
+/// <summary>Air outside one column: its horizontal wind (m/s) and its temperature relative to the reference profile (K).</summary>
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct AtmosphereOutsideAir
 {

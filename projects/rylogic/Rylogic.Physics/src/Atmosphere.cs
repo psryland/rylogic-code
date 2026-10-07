@@ -48,15 +48,6 @@ public sealed class Atmosphere :IDisposable
 		}
 	}
 
-	/// <summary>The number of boundary columns, and the length of an outside-air array. See <see cref="BeginStep"/> for their order.</summary>
-	public int BoundaryColumnCount
-	{
-		get
-		{
-			return 2 * (CellCountX + CellCountY);
-		}
-	}
-
 	/// <summary>The number of diagnostic tracer particles.</summary>
 	public int TracerCount { get; }
 
@@ -88,32 +79,46 @@ public sealed class Atmosphere :IDisposable
 	}
 
 	/// <summary>
-	/// Submit one step of 'dt' seconds, and tracer advection when tracers exist, without waiting for the GPU. All inputs are copied.
-	/// At most 64 heat sources. Empty 'floor_temperatures' uses 'uniform_floor_temperature' everywhere; otherwise give one per column.
-	/// Empty 'outside_air' means calm outside air at the reference temperature; otherwise give one per boundary column: the x- side by y,
-	/// the x+ side by y, the y- side by x, then the y+ side by x. Fails with <see cref="EStatus.StepPending"/> while a step is in flight.
+	/// Submit one step of 'dt' seconds, and tracer advection when tracers exist, without waiting for the GPU. The heat sources are copied and
+	/// apply to this step only; at most 64. Floor temperatures and outside air persist from <see cref="SetFloorTemperatures"/> and <see cref="SetOutsideAir"/>.
+	/// Fails with <see cref="EStatus.StepPending"/> while a step is in flight.
 	/// </summary>
-	public unsafe void BeginStep(float dt, float uniform_floor_temperature = 288.0f, ReadOnlySpan<AtmosphereHeatSource> heat_sources = default, ReadOnlySpan<float> floor_temperatures = default, ReadOnlySpan<AtmosphereOutsideAir> outside_air = default)
+	public unsafe void BeginStep(float dt, ReadOnlySpan<AtmosphereHeatSource> heat_sources = default)
 	{
 		Engine.EnsureOwner();
 		fixed (AtmosphereHeatSource* heat_ptr = heat_sources)
-		fixed (float* floor_ptr = floor_temperatures)
-		fixed (AtmosphereOutsideAir* outside_ptr = outside_air)
 		{
 			var step = new Native.AtmosphereStepDesc
 			{
 				m_header = NativeHeader.Create<Native.AtmosphereStepDesc>(),
 				m_dt = dt,
-				m_uniform_floor_temperature = uniform_floor_temperature,
-				m_heat_sources = heat_ptr,
-				m_floor_temperatures = floor_ptr,
-				m_outside_air = outside_ptr,
 				m_heat_source_count = heat_sources.Length,
-				m_floor_temperature_count = floor_temperatures.Length,
-				m_outside_air_count = outside_air.Length,
+				m_heat_sources = heat_ptr,
 			};
 			Native.Check(Native.Physics_AtmosphereBeginStep(Engine.Handle, Handle, &step));
 		}
+	}
+
+	/// <summary>
+	/// Set the floor temperature under each column (K, one per column in <see cref="AtmosphereOptions.FloorHeights"/> order). The lowest layer relaxes
+	/// toward it. Initially the reference temperature at each column's floor. The values are copied and used from the next step, so this may be called while a step is in flight.
+	/// </summary>
+	public unsafe void SetFloorTemperatures(ReadOnlySpan<float> floor_temperatures)
+	{
+		Engine.EnsureOwner();
+		fixed (float* ptr = floor_temperatures)
+			Native.Check(Native.Physics_AtmosphereFloorTemperaturesSet(Engine.Handle, Handle, ptr, floor_temperatures.Length));
+	}
+
+	/// <summary>
+	/// Set the air outside the open faces, one entry per column in row-major order. Square sides use the edge-column entry, and active/inactive mask faces
+	/// use the inactive column's entry. Initially calm air at the reference temperature. The values are copied and used from the next step, so this may be called while a step is in flight.
+	/// </summary>
+	public unsafe void SetOutsideAir(ReadOnlySpan<AtmosphereOutsideAir> outside_air)
+	{
+		Engine.EnsureOwner();
+		fixed (AtmosphereOutsideAir* ptr = outside_air)
+			Native.Check(Native.Physics_AtmosphereOutsideAirSet(Engine.Handle, Handle, ptr, outside_air.Length));
 	}
 
 	/// <summary>Finish the step in flight if the GPU has completed it, without waiting. Returns true when no step is in flight after the call.</summary>
