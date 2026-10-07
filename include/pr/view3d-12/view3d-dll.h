@@ -1321,10 +1321,11 @@ extern "C"
 	// Render the next face of the window's environment map probe. 'position' is sampled when the first face of each cube is rendered. Call once per frame before rendering.
 	VIEW3D_API void __stdcall View3D_WindowEnvMapProbeUpdate(pr::view3d::Window window, pr::view3d::Vec4 position);
 
-	// Get/Set the radius of the sphere that reflections assume the environment lies on, centred on each environment map's capture position.
-	// Objects near this distance from the capture position are reflected without parallax error. 0 (the default) treats the environment as infinitely distant.
-	VIEW3D_API float __stdcall View3D_WindowEnvMapProxyRadiusGet(pr::view3d::Window window);
-	VIEW3D_API void __stdcall View3D_WindowEnvMapProxyRadiusSet(pr::view3d::Window window, float radius);
+	// Get/Set the world-space bounds of the captured geometry that reflections correct for parallax. Within the bounds, reflections march along the
+	// reflected ray to find the captured surface it meets; anything beyond them stays infinitely distant. An invalid box (the default) uses direction-only
+	// lookups. Bounds must be finite. Changes affect cubes captured afterwards.
+	VIEW3D_API pr::view3d::BBox __stdcall View3D_WindowEnvMapParallaxBoundsGet(pr::view3d::Window window);
+	VIEW3D_API void __stdcall View3D_WindowEnvMapParallaxBoundsSet(pr::view3d::Window window, pr::view3d::BBox bounds);
 
 	// Enable/Disable the depth buffer
 	VIEW3D_API BOOL __stdcall View3D_DepthBufferEnabledGet(pr::view3d::Window window);

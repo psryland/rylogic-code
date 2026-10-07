@@ -3093,11 +3093,12 @@ namespace fade_tests
 		update(6);
 		Require(scene.m_global_envmap.get() == first, "Probe did not reuse the oldest cube");
 
-		// A proxy radius makes each new cube store distances in alpha. Rendering with the distance-correcting lookup must complete without errors.
-		View3D_WindowEnvMapProxyRadiusSet(fixture.m_window, 5.0f);
+		// Parallax bounds make each new cube store distances in its distance cube, scaled by the bounds' half-diagonal. Rendering with the marching lookup must complete without errors.
+		View3D_WindowEnvMapParallaxBoundsSet(fixture.m_window, pr::view3d::BBox{ .centre = {0, 0, 0, 1}, .radius = {3, 0, 4, 0} });
 		fixture.CheckErrors();
 		update(12);
 		Require(scene.m_global_envmap->m_distance_scale == 5.0f && scene.m_global_envmap_prev->m_distance_scale == 5.0f, "Probe cubes did not record the distance scale");
+		Require(scene.m_global_envmap->m_distance != nullptr && scene.m_global_envmap_prev->m_distance != nullptr, "Probe cubes did not create distance cubes");
 		Expect(fixture.Image(), 1, 0, 0);
 
 		// Setting an explicit environment map disables the probe and removes the fade

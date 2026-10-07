@@ -376,11 +376,16 @@ namespace pr::rdr12
 		// first face of each cube is rendered. Call once per frame, before rendering, while the probe is enabled.
 		void EnvMapProbeUpdate(v4 const& position);
 
-		// Get/Set the radius of the sphere that reflections assume the environment lies on, centred on each environment map's capture position.
-		// Looking up a cube map by direction alone treats the environment as infinitely distant, which shifts nearby objects in reflections.
-		// Objects near this radius from the capture position are reflected in the right place. 0 (the default) uses direction-only lookups.
-		float EnvMapProxyRadius() const;
-		void EnvMapProxyRadius(float radius);
+		// Get/Set the world-space bounds of the captured geometry that reflections correct for parallax. Looking up a cube map by direction alone
+		// treats the environment as infinitely distant, which shifts nearby objects in reflections. Within these bounds, reflections march along
+		// the reflected ray to find the captured surface it meets; anything beyond them, such as the sky, stays infinitely distant. Tighter bounds
+		// give shorter, cheaper, and more accurate marches. An invalid box (the default) uses direction-only lookups. Bounds must be finite.
+		// Changing the bounds affects cubes captured afterwards, because a cube stores its distances relative to the bounds' size.
+		BBox EnvMapParallaxBounds() const;
+		void EnvMapParallaxBounds(BBox const& bounds);
+
+		// The scale of the distances stored in newly captured environment map cubes, derived from the parallax bounds. 0 means no distances.
+		float EnvMapDistanceScale() const;
 
 		// Enable/Disable the depth buffer
 		bool DepthBufferEnabled() const;

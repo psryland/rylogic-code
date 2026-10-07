@@ -354,8 +354,8 @@ namespace pr::rdr12
 		return alex.m_res->GetGPUVirtualAddress() + alex.m_ofs;
 	}
 
-	// Set the env-map to world orientation, the blend weight of the current map over the previous one, and the parallax proxy sphere
-	inline void SetEnvMapConstants(shaders::EnvMap& cb, TextureCube const* env_map, TextureCube const* env_map_prev, float blend, float proxy_radius)
+	// Set the env-map to world orientation, the blend weight of the current map over the previous one, and the parallax bounds
+	inline void SetEnvMapConstants(shaders::EnvMap& cb, TextureCube const* env_map, TextureCube const* env_map_prev, float blend, BBox const& parallax_bounds)
 	{
 		if (env_map == nullptr) return;
 
@@ -366,11 +366,16 @@ namespace pr::rdr12
 		cb.w2env.pos = v4::Origin();
 
 		// Without a previous map, only the current map contributes
-		cb.blend = v4(env_map_prev != nullptr ? Clamp(blend, 0.0f, 1.0f) : 1.0f, std::max(proxy_radius, 0.0f), 0, 0);
+		cb.blend = v4(env_map_prev != nullptr ? Clamp(blend, 0.0f, 1.0f) : 1.0f, 0, 0, 0);
 
-		// Each map is corrected about its own capture centre using its own stored distances, so the previous map uses its own values when present
+		// Only the current map's distances are marched. A map without a distance cube has no distances, whatever its scale.
 		auto const& prev = env_map_prev != nullptr ? *env_map_prev : *env_map;
-		cb.centre = v4(env_map->m_centre.xyz, env_map->m_distance_scale);
-		cb.centre_prev = v4(prev.m_centre.xyz, prev.m_distance_scale);
+		cb.centre = v4(env_map->m_centre.xyz, env_map->m_distance != nullptr ? env_map->m_distance_scale : 0.0f);
+		cb.centre_prev = v4(prev.m_centre.xyz, 0.0f);
+
+		// Reflections only march through the parallax bounds. Without bounds, the environment is infinitely distant.
+		auto has_bounds = parallax_bounds.valid();
+		cb.bounds_min = has_bounds ? parallax_bounds.Lower().w1() : v4::Zero();
+		cb.bounds_max = has_bounds ? parallax_bounds.Upper().w0() : v4::Zero();
 	}
 }

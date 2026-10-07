@@ -445,7 +445,8 @@ namespace pr::rdr12
 			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::ShadowAtlas, gpu);
 		}
 
-		// Add the global environment map. Without a previous map, the current map fills the previous slot so the table is always valid.
+		// Add the global environment map. Without a previous map or distances, the current map fills those slots so the tables are always valid.
+		// The shader reads distances only when the map has them (see 'SetEnvMapConstants').
 		if (auto* envmap = scn().m_global_envmap.get())
 		{
 			auto gpu = wnd().m_heap_view.Add(envmap->m_srv);
@@ -454,6 +455,10 @@ namespace pr::rdr12
 			auto* envmap_prev = scn().m_global_envmap_prev.get();
 			auto gpu_prev = envmap_prev != nullptr ? wnd().m_heap_view.Add(envmap_prev->m_srv) : gpu;
 			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::EnvMapPrev, gpu_prev);
+
+			auto* envmap_distance = envmap->m_distance.get();
+			auto gpu_distance = envmap_distance != nullptr ? wnd().m_heap_view.Add(envmap_distance->m_srv) : gpu;
+			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::EnvMapDistance, gpu_distance);
 		}
 	}
 

@@ -2,7 +2,7 @@
 // View 3d
 //  Copyright (c) Rylogic Ltd 2026
 //*********************************************
-// Copies a rendered environment map face and stores each texel's distance from the capture position in alpha.
+// Copies a rendered environment map face and stores each texel's distance from the capture position in a separate distance texture.
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
 
 struct CBufEnvMapDistance
@@ -13,9 +13,10 @@ struct CBufEnvMapDistance
 
 // Resources
 ConstantBuffer<CBufEnvMapDistance> g_cb : register(b0);
-Texture2D<float4> g_colour : register(t0);   // The rendered face. Its bytes are copied unchanged.
+Texture2D<float4> g_colour : register(t0);   // The rendered face
 Texture2D<float> g_depth : register(t1);     // The face's depth buffer, with 1 at the far plane
-RWTexture2D<float4> g_face : register(u0);   // Mip 0 of the face texture that receives colour and distance
+RWTexture2D<float4> g_face : register(u0);   // Mip 0 of the face texture that receives the colour
+RWTexture2D<float> g_distance : register(u1); // Mip 0 of the face texture that receives the distance
 
 // Compute shader entry point
 numthreads(CSEnvMapDistance, 8, 8, 1)
@@ -38,5 +39,7 @@ void CSEnvMapDistance(uint3 DTid : SV_DispatchThreadID)
 		a = d / (d + g_cb.info.y);
 	}
 
-	g_face[DTid.xy] = float4(g_colour[DTid.xy].rgb, a);
+	// Reflections treat the captured environment as opaque, so the colour's alpha is always 1
+	g_face[DTid.xy] = float4(g_colour[DTid.xy].rgb, 1.0f);
+	g_distance[DTid.xy] = a;
 }

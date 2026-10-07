@@ -48,6 +48,7 @@ namespace pr::rdr12::shaders
 			ProceduralBuffer,
 			Elements,
 			EnvMapPrev,
+			EnvMapDistance,
 		};
 
 		enum class ESampParam

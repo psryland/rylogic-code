@@ -2117,8 +2117,8 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern void View3D_WindowEnvMapProbeUpdate(HWindow window, v4 position);
 
 		// Get/Set the radius of the sphere that reflections assume the environment lies on
-		[DllImport(Dll)] private static extern float View3D_WindowEnvMapProxyRadiusGet(HWindow window);
-		[DllImport(Dll)] private static extern void View3D_WindowEnvMapProxyRadiusSet(HWindow window, float radius);
+		[DllImport(Dll)] private static extern BBox View3D_WindowEnvMapParallaxBoundsGet(HWindow window);
+		[DllImport(Dll)] private static extern void View3D_WindowEnvMapParallaxBoundsSet(HWindow window, BBox bounds);
 
 		// Enable/Disable the depth buffer
 		[DllImport(Dll)] private static extern bool View3D_DepthBufferEnabledGet(HWindow window);

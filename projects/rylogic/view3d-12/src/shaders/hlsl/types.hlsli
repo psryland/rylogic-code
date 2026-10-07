@@ -49,9 +49,11 @@ struct Camera
 struct EnvMap
 {
 	row_major float4x4 w2env; // world to environment map to transform
-	float4 blend;             // x = weight of the current environment map over the previous one, in [0,1], y = parallax proxy sphere radius (0 = infinitely distant)
-	float4 centre;            // xyz = world-space capture centre of the current map, w = scale of the distances in the map's alpha (0 = no distances)
-	float4 centre_prev;       // xyz = world-space capture centre of the previous map, w = scale of the distances in the map's alpha (0 = no distances)
+	float4 blend;             // x = weight of the current environment map over the previous one, in [0,1]
+	float4 centre;            // xyz = world-space capture centre of the current map, w = scale of the distances in the map's distance cube (0 = no distances)
+	float4 centre_prev;       // xyz = world-space capture centre of the previous map, w = unused
+	float4 bounds_min;        // xyz = world-space lower corner of the parallax bounds, w = 1 if reflections correct parallax within the bounds, 0 otherwise
+	float4 bounds_max;        // xyz = world-space upper corner of the parallax bounds
 };
 
 // Projected textures
