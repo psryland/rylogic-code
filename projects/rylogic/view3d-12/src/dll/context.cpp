@@ -360,15 +360,15 @@ namespace pr::rdr12
 			material->rel_reflec(nugget.m_rel_reflec);
 			for (auto const& shdr : nugget.shader_span())
 			{
-				// A procedural shader is valid only for its declared render step and source kind.
+				// A procedural shader is valid only for its declared render step. A procedural vertex shader also needs logical vertex IDs to decode.
 				if (shdr.m_shader == nullptr)
 					throw std::invalid_argument("Nugget shader handle is null");
-				if (auto* procedural = dynamic_cast<ProceduralVertexShader*>(shdr.m_shader); procedural != nullptr)
+				if (auto* procedural = dynamic_cast<ProceduralShader*>(shdr.m_shader); procedural != nullptr)
 				{
-					if (vertex_source != EVertexSource::ProceduralVertexId)
+					if (procedural->HasVertexShader() && vertex_source != EVertexSource::ProceduralVertexId)
 						throw std::invalid_argument("Procedural vertex shaders require a procedural vertex-ID model");
 					if (procedural->m_rdr_step != static_cast<ERenderStep>(shdr.m_rdr_step))
-						throw std::invalid_argument("Procedural vertex shader render-step contract does not match its nugget binding");
+						throw std::invalid_argument("Procedural shader render-step contract does not match its nugget binding");
 				}
 				material->use_shader_overlay(static_cast<ERenderStep>(shdr.m_rdr_step), ShaderPtr(shdr.m_shader, true));
 			}
@@ -500,11 +500,16 @@ namespace pr::rdr12
 			material->rel_reflec(nugget.m_rel_reflec);
 			for (auto const& shader : nugget.shader_span())
 			{
-				// Procedural raster shaders are incompatible with the newly buffered vertex source.
+				// Procedural vertex shaders decode logical IDs, so they are incompatible with the newly buffered vertex source. Pixel-only shaders keep the stock vertex shader.
 				if (shader.m_shader == nullptr)
 					throw std::invalid_argument("GPU-generated nugget shader handle is null");
-				if (dynamic_cast<ProceduralVertexShader*>(shader.m_shader) != nullptr)
-					throw std::invalid_argument("GPU-generated buffered objects cannot use procedural vertex shaders");
+				if (auto* procedural = dynamic_cast<ProceduralShader*>(shader.m_shader); procedural != nullptr)
+				{
+					if (procedural->HasVertexShader())
+						throw std::invalid_argument("GPU-generated buffered objects cannot use procedural vertex shaders");
+					if (procedural->m_rdr_step != static_cast<ERenderStep>(shader.m_rdr_step))
+						throw std::invalid_argument("Procedural shader render-step contract does not match its nugget binding");
+				}
 				material->use_shader_overlay(static_cast<ERenderStep>(shader.m_rdr_step), ShaderPtr(shader.m_shader, true));
 			}
 
@@ -586,7 +591,7 @@ namespace pr::rdr12
 			for (auto const& overlay : overlays->m_overlays)
 			{
 				// Ignore ordinary overlays that do not consume the procedural constants block.
-				auto* procedural = dynamic_cast<ProceduralVertexShader*>(overlay.m_overlay.get());
+				auto* procedural = dynamic_cast<ProceduralShader*>(overlay.m_overlay.get());
 				if (procedural == nullptr)
 					continue;
 
@@ -595,7 +600,7 @@ namespace pr::rdr12
 			}
 		}
 		if (updated == 0)
-			throw std::invalid_argument("Object has no procedural vertex shaders");
+			throw std::invalid_argument("Object has no procedural shaders");
 	}
 
 	// Replace the detail-normal layers of every nugget of 'object' that has detail normals.

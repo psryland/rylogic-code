@@ -150,10 +150,9 @@ namespace pr::rdr12
 				// Let the material add pass-specific sort key information.
 				sk = pass->AddSortKey(m_step_id, inst, material, nug, sk);
 
-				// Reject unsupported fade materials before a window starts recording a frame.
+				// Reject unsupported materials before a window starts recording a frame, because a frame abandoned during recording cannot be retired.
 				auto element = DrawListElement{ .m_sort_key = sk, .m_nugget = &nug, .m_instance = &inst };
-				if (scn().FarClipFadeProperties().m_enabled)
-					ValidateFarFadeMaterial(element);
+				ValidateMaterial(element, scn().FarClipFadeProperties().m_enabled);
 
 				// Add an element to the draw list
 				drawlist.push_back(element);
@@ -167,20 +166,23 @@ namespace pr::rdr12
 	{
 		auto drawlist = m_drawlist.lock();
 		for (auto const& element : *drawlist)
-			ValidateFarFadeMaterial(element);
+			ValidateMaterial(element, true);
 	}
 
 	// Evaluate the known material pipeline contract without issuing commands or allocating frame resources.
-	void RenderForward::ValidateFarFadeMaterial(DrawListElement const& dle) const
+	void RenderForward::ValidateMaterial(DrawListElement const& dle, bool far_fade) const
 	{
-		if (!FarClipFadeApplies(dle.m_sort_key.Group()))
-			return;
-
-		// Material passes are immutable; apply their documented shader selection after caller-owned overrides.
+		// Only far-faded groups and procedural pixel families change the pixel shader selection, so other draws need no evaluation.
 		auto const& nugget = *dle.m_nugget;
 		auto const& instance = *dle.m_instance;
 		auto material_override = FindMaterial(instance);
 		auto const& material = material_override != nullptr ? *material_override.get() : nugget.mat();
+		auto const* procedural_family = materials::ProceduralPixelFamily(material, m_step_id);
+		far_fade = far_fade && FarClipFadeApplies(dle.m_sort_key.Group());
+		if (!far_fade && procedural_family == nullptr)
+			return;
+
+		// Material passes are immutable; apply their documented shader selection after caller-owned overrides.
 		auto desc = m_default_pipe_state;
 		for (auto const& state : scn().m_pso)
 			desc.Apply(state);
@@ -189,12 +191,15 @@ namespace pr::rdr12
 		for (auto const& state : GetPipeStates(instance))
 			desc.Apply(state);
 
-		// Stock PBR chooses its own pixel variant; simple materials apply shader overlays in order.
+		// Stock PBR chooses its own pixel variant, which a PBR procedural family may replace; simple materials apply shader overlays in order.
 		switch (material.TypeId())
 		{
 			case MaterialPBR::MaterialTypeId:
 			{
-				desc.Apply(PSO<EPipeState::PS>(shader_code::forward_pbr_ps));
+				desc.Apply(PSO<EPipeState::PS>(MaterialPBR::UsesExtraTexCoords(material, &nugget) ? shader_code::forward_texn_pbr_ps : shader_code::forward_pbr_ps));
+				if (procedural_family != nullptr)
+					materials::ApplyForwardPixelFamily(desc, *procedural_family);
+
 				break;
 			}
 			case MaterialSimple::MaterialTypeId:
@@ -213,17 +218,24 @@ namespace pr::rdr12
 							desc.Apply(PSO<EPipeState::PS>(overlay.m_code.PS));
 					}
 				}
+				if (procedural_family != nullptr)
+					materials::ApplyForwardPixelFamily(desc, *procedural_family);
 				if (material.Component<materials::DetailNormals>() != nullptr)
-					materials::ApplyDetailNormalsPixelShader(desc);
+					materials::ApplyForwardPixelFamily(desc, shader_code::forward_detail_family);
 
 				break;
 			}
 			default:
 			{
+				// Other material types own their pixel shaders; only far-fade output requires the stock contract.
+				if (!far_fade)
+					return;
+
 				throw std::runtime_error("Far clip fade requires stock forward simple/PBR material passes");
 			}
 		}
-		ApplyFarFadePipeline(desc, false);
+		if (far_fade)
+			ApplyFarFadePipeline(desc, false, procedural_family);
 	}
 
 	// Perform the render step
@@ -515,7 +527,7 @@ namespace pr::rdr12
 
 			// Inspect the final output contract rather than excluding compatible custom vertex/geometry stages.
 			if (fade_world)
-				ApplyFarFadePipeline(desc, alpha_pass);
+				ApplyFarFadePipeline(desc, alpha_pass, materials::ProceduralPixelFamily(material, m_step_id));
 
 			// Even a bounds-rejected draw can have changed the material's root bindings.
 			if (ctx.m_root_signature_changed)
@@ -555,30 +567,29 @@ namespace pr::rdr12
 	}
 
 	// Keep stock lighting with its correct opaque/reflection/alpha output after caller-owned shader overrides.
-	void RenderForward::ApplyFarFadePipeline(PipeStateDesc& desc, bool alpha_pass) const
+	void RenderForward::ApplyFarFadePipeline(PipeStateDesc& desc, bool alpha_pass, ForwardPixelFamily const* custom) const
 	{
 		auto const* pipeline = static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(desc);
 		if (pipeline->pRootSignature != m_shader.m_signature.get())
 			throw std::runtime_error("Far clip fade requires the forward root signature");
 
-		// Bytecode identity identifies supported stock pixel contracts without restricting vertex deformation.
-		auto same_shader = [&](shader_code::ByteCode const& code)
+		// Bytecode identity identifies the pixel family without restricting vertex deformation.
+		ForwardPixelFamily const* const families[] = { &shader_code::forward_family, &shader_code::forward_pbr_family, &shader_code::forward_detail_family, &shader_code::forward_texn_pbr_family, custom };
+		auto const* family = static_cast<ForwardPixelFamily const*>(nullptr);
+		for (auto const* candidate : families)
 		{
-			return pipeline->PS.pShaderBytecode == code.pShaderBytecode && pipeline->PS.BytecodeLength == code.BytecodeLength;
-		};
-		auto select_family = [&](shader_code::ByteCode const& opaque, shader_code::ByteCode const& reflection, shader_code::ByteCode const& collect, shader_code::ByteCode const& fade_opaque, shader_code::ByteCode const& fade_reflection, shader_code::ByteCode const& fade_collect)
-		{
-			if (!same_shader(opaque) && !same_shader(reflection) && !same_shader(collect))
-				return false;
+			// The custom family is optional.
+			if (candidate == nullptr || !candidate->Find(pipeline->PS))
+				continue;
 
-			desc.Apply(PSO<EPipeState::PS>(alpha_pass ? fade_collect : pipeline->NumRenderTargets > 1U ? fade_reflection : fade_opaque));
-			return true;
-		};
-		if (!select_family(shader_code::forward_ps, shader_code::forward_reflection_attrs_ps, shader_code::forward_alpha_collect_ps, shader_code::forward_far_fade_ps, shader_code::forward_far_fade_reflection_attrs_ps, shader_code::forward_far_fade_alpha_collect_ps) &&
-			!select_family(shader_code::forward_pbr_ps, shader_code::forward_reflection_attrs_pbr_ps, shader_code::forward_alpha_collect_pbr_ps, shader_code::forward_far_fade_pbr_ps, shader_code::forward_far_fade_reflection_attrs_pbr_ps, shader_code::forward_far_fade_alpha_collect_pbr_ps) &&
-			!select_family(shader_code::forward_detail_ps, shader_code::forward_reflection_attrs_detail_ps, shader_code::forward_alpha_collect_detail_ps, shader_code::forward_far_fade_detail_ps, shader_code::forward_far_fade_reflection_attrs_detail_ps, shader_code::forward_far_fade_alpha_collect_detail_ps) &&
-			!select_family(shader_code::forward_texn_pbr_ps, shader_code::forward_reflection_attrs_texn_pbr_ps, shader_code::forward_alpha_collect_texn_pbr_ps, shader_code::forward_far_fade_texn_pbr_ps, shader_code::forward_far_fade_reflection_attrs_texn_pbr_ps, shader_code::forward_far_fade_alpha_collect_texn_pbr_ps))
-			throw std::runtime_error("Far clip fade requires a stock forward simple/PBR pixel shader");
+			family = candidate;
+			break;
+		}
+		if (family == nullptr)
+			throw std::runtime_error("Far clip fade requires a stock forward simple/PBR pixel shader or a forward pixel family");
+
+		// Select the far-fade entry point with the output contract of this sub-pass.
+		desc.Apply(PSO<EPipeState::PS>((*family)[alpha_pass ? EForwardPixelSlot::FarFadeAlphaCollect : pipeline->NumRenderTargets > 1U ? EForwardPixelSlot::FarFadeReflectionAttrs : EForwardPixelSlot::FarFade]));
 
 		// Recollected opaque material state cannot re-enable depth testing or writes on the UAV-only pass.
 		if (alpha_pass)

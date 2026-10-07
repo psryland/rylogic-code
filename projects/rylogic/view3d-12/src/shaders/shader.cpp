@@ -48,32 +48,72 @@ namespace pr::rdr12
 		::pr::compute::Delete<Shader>(this);
 	}
 
-	// Create a procedural vertex shader by copying all caller-owned data.
-	ProceduralVertexShader::ProceduralVertexShader(Renderer& rdr, ERenderStep rdr_step, std::span<BYTE const> vs_bytecode, std::span<std::byte const> constants, D3DPtr<ID3D12Resource> buffer, std::string_view name)
+	// Create a procedural shader by copying all caller-owned data.
+	ProceduralShader::ProceduralShader(Renderer& rdr, ERenderStep rdr_step, std::span<BYTE const> vs_bytecode, std::span<std::span<BYTE const> const> pixel_family, ForwardPixelFamily const& replaces, std::span<std::byte const> constants, D3DPtr<ID3D12Resource> buffer, std::string_view name)
 		:Shader(rdr)
 		,m_rdr_step(rdr_step)
 		,m_vs_bytecode(vs_bytecode.begin(), vs_bytecode.end())
+		,m_ps_bytecode()
+		,m_pixel_family()
 		,m_constants()
 		,m_buffer(buffer)
 		,m_name(name)
 	{
-		// Retain stable storage for the bytecode referenced by the pipeline state.
+		// A pixel family is all or nothing, and only the forward step has pixel shaders to replace.
+		if (!pixel_family.empty() && pixel_family.size() != ForwardPixelFamily::SlotCount)
+			throw std::invalid_argument("A procedural pixel family must contain one pixel shader per forward pixel slot");
+		if (!pixel_family.empty() && rdr_step != ERenderStep::RenderForward)
+			throw std::invalid_argument("Procedural pixel shaders are only supported for the forward render step");
+		if (vs_bytecode.empty() && pixel_family.empty())
+			throw std::invalid_argument("A procedural shader must replace the vertex shader, the forward pixel shaders, or both");
+		if (replaces.m_replaces != nullptr)
+			throw std::invalid_argument("A procedural pixel family must replace a stock forward pixel family");
+
+		// Retain stable storage for the bytecode referenced by the pipeline state. An empty vertex stage leaves the stock vertex shader in place.
 		std::copy(constants.begin(), constants.end(), m_constants.begin());
-		m_code.VS = ShaderCode::ByteCode(std::span<BYTE const>(m_vs_bytecode));
+		if (!m_vs_bytecode.empty())
+			m_code.VS = ShaderCode::ByteCode(std::span<BYTE const>(m_vs_bytecode));
+		if (!pixel_family.empty())
+			m_pixel_family.m_replaces = &replaces;
+
+		for (size_t i = 0; i != pixel_family.size(); ++i)
+		{
+			// The family is selected per sub-pass when the pipeline is built, so it is not stored in 'm_code.PS'.
+			m_ps_bytecode[i].assign(pixel_family[i].begin(), pixel_family[i].end());
+			m_pixel_family.m_code[i] = ShaderCode::ByteCode(std::span<BYTE const>(m_ps_bytecode[i]));
+		}
+	}
+
+	// True if this shader replaces the stock vertex shader.
+	bool ProceduralShader::HasVertexShader() const
+	{
+		return !m_vs_bytecode.empty();
+	}
+
+	// True if this shader replaces the stock forward pixel shaders.
+	bool ProceduralShader::HasPixelFamily() const
+	{
+		return !m_ps_bytecode[0].empty();
+	}
+
+	// True if this shader's forward pixel family replaces the stock PBR pixel shaders.
+	bool ProceduralShader::HasPbrPixelFamily() const
+	{
+		return m_pixel_family.m_replaces == &shader_code::forward_pbr_family;
 	}
 
 	// Replace the copied constants used by later draws.
-	void ProceduralVertexShader::Constants(std::span<std::byte const> constants)
+	void ProceduralShader::Constants(std::span<std::byte const> constants)
 	{
 		// The fixed-size block is the procedural binding contract, so partial updates are not supported.
 		if (constants.size() != ConstantsSize)
-			throw std::invalid_argument("Procedural vertex shader constants must be exactly 1024 bytes");
+			throw std::invalid_argument("Procedural shader constants must be exactly 1024 bytes");
 
 		std::copy(constants.begin(), constants.end(), m_constants.begin());
 	}
 
 	// Bind the copied constants and optional buffer through the render-step-specific reserved root slots.
-	void ProceduralVertexShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const&, CameraTransforms const&, DrawListElement const*)
+	void ProceduralShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const&, CameraTransforms const&, DrawListElement const*)
 	{
 		// Upload the current copy each draw; identical content is shared within the frame.
 		auto gpu_address = upload.Add(m_constants, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
@@ -104,17 +144,17 @@ namespace pr::rdr12
 			}
 			default:
 			{
-				throw std::runtime_error("Unsupported procedural vertex shader render step");
+				throw std::runtime_error("Unsupported procedural shader render step");
 			}
 		}
 	}
 
 	// Destroy the concrete shader rather than the base subobject.
-	void ProceduralVertexShader::Delete()
+	void ProceduralShader::Delete()
 	{
 		// Release copied bytecode and constants with the shader handle. The GPU may still be reading the buffer from in-flight frames.
 		rdr().DeferRelease(m_buffer);
-		::pr::compute::Delete<ProceduralVertexShader>(this);
+		::pr::compute::Delete<ProceduralShader>(this);
 	}
 
 	// Compiled shader byte code
@@ -185,6 +225,12 @@ namespace pr::rdr12
 	    ByteCode const forward_far_fade_reflection_attrs_detail_ps(compiled::forward_far_fade_reflection_attrs_detail_ps);
 		ByteCode const kbuffer_resolve_vs(compiled::kbuffer_resolve_vs);
 		ByteCode const kbuffer_alpha_resolve_ps(compiled::kbuffer_alpha_resolve_ps);
+
+		// Stock families, defined after their members in this translation unit so the members are initialised first. The detail family replaces simple-material shading.
+		ForwardPixelFamily const forward_family = {{ forward_ps, forward_reflection_attrs_ps, forward_alpha_collect_ps, forward_far_fade_ps, forward_far_fade_reflection_attrs_ps, forward_far_fade_alpha_collect_ps }, nullptr};
+		ForwardPixelFamily const forward_pbr_family = {{ forward_pbr_ps, forward_reflection_attrs_pbr_ps, forward_alpha_collect_pbr_ps, forward_far_fade_pbr_ps, forward_far_fade_reflection_attrs_pbr_ps, forward_far_fade_alpha_collect_pbr_ps }, nullptr};
+		ForwardPixelFamily const forward_texn_pbr_family = {{ forward_texn_pbr_ps, forward_reflection_attrs_texn_pbr_ps, forward_alpha_collect_texn_pbr_ps, forward_far_fade_texn_pbr_ps, forward_far_fade_reflection_attrs_texn_pbr_ps, forward_far_fade_alpha_collect_texn_pbr_ps }, nullptr};
+		ForwardPixelFamily const forward_detail_family = {{ forward_detail_ps, forward_reflection_attrs_detail_ps, forward_alpha_collect_detail_ps, forward_far_fade_detail_ps, forward_far_fade_reflection_attrs_detail_ps, forward_far_fade_alpha_collect_detail_ps }, &forward_family};
 
 		// Post-processing
 		namespace compiled

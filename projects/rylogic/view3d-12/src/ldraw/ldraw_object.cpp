@@ -684,11 +684,14 @@ namespace pr::rdr12::ldraw
 					material->m_two_sided = *two_sided;
 				if (auto const* overlays = nug->mat().Component<materials::ShaderOverlays>(); overlays != nullptr)
 				{
-					// Promotion preserves only the bounded procedural vertex stages supported by the stock PBR passes.
+					// Promotion preserves the bounded procedural vertex stages supported by the stock PBR passes, and forward pixel families written for PBR.
 					for (auto const& overlay : overlays->m_overlays)
 					{
-						if (dynamic_cast<ProceduralVertexShader*>(overlay.m_overlay.get()) == nullptr)
+						auto const* procedural = dynamic_cast<ProceduralShader*>(overlay.m_overlay.get());
+						if (procedural == nullptr)
 							throw std::runtime_error("Procedural surface assignment does not support custom shader overlays");
+						if (procedural->HasPixelFamily() && !procedural->HasPbrPixelFamily())
+							throw std::runtime_error("Procedural surface assignment does not support simple-material procedural pixel shaders");
 					}
 					material->m_shaders = *overlays;
 				}

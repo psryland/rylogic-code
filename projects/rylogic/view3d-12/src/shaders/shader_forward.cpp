@@ -82,7 +82,7 @@ namespace pr::rdr12::shaders
 			.CBuf(EReg::CBufScreenSpace)
 			.CBuf(EReg::CBufPbrSurface)
 			.CBuf(EReg::CBufDiag)
-			.CBuf(EReg::CBufProcedural, D3D12_SHADER_VISIBILITY_VERTEX)
+			.CBuf(EReg::CBufProcedural, D3D12_SHADER_VISIBILITY_ALL)
 			.CBuf(EReg::CBufDetailNormals, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::DiffTexture, 1)
 			.SRV(EReg::EnvMap, 1)
@@ -112,7 +112,7 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::SkyTexture, 3)
 			.SRV(EReg::Lights, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::ShadowViews, D3D12_SHADER_VISIBILITY_PIXEL)
-			.SRV(EReg::ProceduralBuffer, D3D12_SHADER_VISIBILITY_VERTEX)
+			.SRV(EReg::ProceduralBuffer, D3D12_SHADER_VISIBILITY_ALL)
 			.SRV(EReg::Elements)
 			.SRV(EReg::EnvMapPrev, 1)
 			.Create(rdr.d3d(), "ForwardSig");

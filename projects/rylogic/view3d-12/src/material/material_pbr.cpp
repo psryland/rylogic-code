@@ -253,13 +253,13 @@ namespace pr::rdr12
 			};
 
 			// Return the PBR texture slots in the order used when assigning shader UV lanes.
-			static std::array<materials::TextureSlot const*, 5> TextureSlots(MaterialPassContext const& ctx)
+			static std::array<materials::TextureSlot const*, 5> TextureSlots(Material const& material)
 			{
-				auto const* base_colour = ctx.m_material.Component<materials::BaseColour>();
-				auto const* metallic = ctx.m_material.Component<materials::Metallic>();
-				auto const* roughness = ctx.m_material.Component<materials::Roughness>();
-				auto const* emissive = ctx.m_material.Component<materials::Emissive>();
-				auto const* normal_map = ctx.m_material.Component<materials::NormalMap>();
+				auto const* base_colour = material.Component<materials::BaseColour>();
+				auto const* metallic = material.Component<materials::Metallic>();
+				auto const* roughness = material.Component<materials::Roughness>();
+				auto const* emissive = material.Component<materials::Emissive>();
+				auto const* normal_map = material.Component<materials::NormalMap>();
 				return {
 					base_colour != nullptr ? &base_colour->m_tex : nullptr,
 					metallic != nullptr ? &metallic->m_tex.m_slot : nullptr,
@@ -270,27 +270,26 @@ namespace pr::rdr12
 			}
 
 			// Return the model vertex stream that contains a source texture-coordinate channel.
-			static VertexStream const* FindTexCoordStream(MaterialPassContext const& ctx, int texcoord)
+			static VertexStream const* FindTexCoordStream(Nugget const* nugget, int texcoord)
 			{
-				auto const* nugget = ctx.m_dle.m_nugget;
 				if (nugget == nullptr || nugget->m_model == nullptr)
 					return nullptr;
 
 				return nugget->m_model->FindVertexStream(vertex_stream::TexCoord(texcoord));
 			}
 
-			// Return the model vertex streams that need shader UV lanes for this draw.
-			static TexCoordBindings GatherTexCoordBindings(MaterialPassContext const& ctx)
+			// Return the model vertex streams that need shader UV lanes when 'nugget' is drawn with 'material'.
+			static TexCoordBindings GatherTexCoordBindings(Material const& material, Nugget const* nugget)
 			{
 				auto bindings = TexCoordBindings{};
-				for (auto const* slot : TextureSlots(ctx))
+				for (auto const* slot : TextureSlots(material))
 				{
 					if (slot == nullptr || slot->m_texture == nullptr || slot->m_texcoord == 0)
 						continue;
 					if (bindings.Lane(slot->m_texcoord) != -1)
 						continue;
 
-					auto const* stream = FindTexCoordStream(ctx, slot->m_texcoord);
+					auto const* stream = FindTexCoordStream(nugget, slot->m_texcoord);
 					if (stream == nullptr)
 						continue;
 
@@ -501,7 +500,7 @@ namespace pr::rdr12
 				auto const& roughness = *ctx.m_material.Component<materials::Roughness>();
 				auto const& emissive = *ctx.m_material.Component<materials::Emissive>();
 				auto const& normal_map = *ctx.m_material.Component<materials::NormalMap>();
-				auto texcoords = GatherTexCoordBindings(ctx);
+				auto texcoords = GatherTexCoordBindings(ctx.m_material, ctx.m_dle.m_nugget);
 
 				BindTexture(ctx, shaders::fwd::ERootParam::DiffTexture, base_colour.m_tex, true);
 				BindSampler(ctx, shaders::fwd::ERootParam::DiffTextureSampler, base_colour.m_tex, true);
@@ -565,8 +564,7 @@ namespace pr::rdr12
 				auto const* desc = static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(ctx.m_pipe_state);
 				
 				// If the pass uses extra texture coordinate streams, select a shader variant that samples them
-				auto texcoords = GatherTexCoordBindings(ctx);
-				if (texcoords.m_count != 0)
+				if (MaterialPBR::UsesExtraTexCoords(ctx.m_material, ctx.m_dle.m_nugget))
 				{
 					ctx.m_pipe_state.Apply(PSO<EPipeState::VS>(shader_code::forward_texn_pbr_vs));
 					ctx.m_pipe_state.Apply(PSO<EPipeState::PS>(
@@ -656,6 +654,13 @@ namespace pr::rdr12
 	bool MaterialPBR::RequiresAlpha() const
 	{
 		return m_alpha.RequiresAlpha();
+	}
+
+	// Return true if forward drawing 'nugget' with 'material' samples extra texture coordinate streams.
+	bool MaterialPBR::UsesExtraTexCoords(Material const& material, Nugget const* nugget)
+	{
+		// A texture slot needs an extra lane only when it names a non-zero channel that the nugget's model provides.
+		return MaterialPBRPass::GatherTexCoordBindings(material, nugget).m_count != 0;
 	}
 
 	// Return the material colour that should be folded into the shared nugget tint constant.

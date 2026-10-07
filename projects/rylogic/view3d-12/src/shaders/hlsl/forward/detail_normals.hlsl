@@ -1,6 +1,6 @@
 // Opt-in simple-material variants that tilt the interpolated normal with world-projected detail-normal layers.
 // The stock entry points shade the perturbed fragment unchanged, so materials without detail normals pay nothing.
-#include "view3d-12/src/shaders/hlsl/forward/far_clip_fade.hlsl"
+#include "pr/view3d-12/shaders/forward_pixel.hlsli"
 
 // Detail-normal layer constants. The slope map uses the PBR normal-map slot (t12/s7), which simple materials do not otherwise use.
 ConstantBuffer<CBufDetailNormals> g_detail : register(b7);
@@ -89,38 +89,13 @@ PSIn ApplyDetailNormals(PSIn In)
 	return In;
 }
 
-// Forward PS with detail normals.
-PSOut PSForwardDetail(PSIn In, bool is_front_face : SV_IsFrontFace)
+// Shade a simple-material fragment with its normal tilted by the detail-normal layers.
+float4 DetailShade(inout PSIn In, bool is_front_face)
 {
-	return PSForward(ApplyDetailNormals(In), is_front_face);
+	// Keep the tilted normal in 'In' so the reflection attributes use it too.
+	In = ApplyDetailNormals(In);
+	return ForwardShade(In, is_front_face).diff;
 }
 
-// Forward PS with detail normals that also writes reflection attributes for RT reflections.
-PSReflectionOut PSForwardDetailReflectionAttrs(PSIn In, bool is_front_face : SV_IsFrontFace)
-{
-	return PSForwardReflectionAttrs(ApplyDetailNormals(In), is_front_face);
-}
-
-// Collect transparent detail-normal fragments into the alpha K-buffer.
-void PSForwardDetailAlphaCollect(PSIn In, bool is_front_face : SV_IsFrontFace)
-{
-	PSForwardAlphaCollect(ApplyDetailNormals(In), is_front_face);
-}
-
-// Far-clip-fade variant of PSForwardDetail.
-PSOut PSFarFadeDetail(PSIn In, bool is_front_face : SV_IsFrontFace)
-{
-	return PSFarFade(ApplyDetailNormals(In), is_front_face);
-}
-
-// Far-clip-fade variant of PSForwardDetailReflectionAttrs.
-PSReflectionOut PSFarFadeDetailReflectionAttrs(PSIn In, bool is_front_face : SV_IsFrontFace)
-{
-	return PSFarFadeReflectionAttrs(ApplyDetailNormals(In), is_front_face);
-}
-
-// Far-clip-fade variant of PSForwardDetailAlphaCollect.
-void PSFarFadeDetailAlphaCollect(PSIn In, bool is_front_face : SV_IsFrontFace)
-{
-	PSFarFadeAlphaCollect(ApplyDetailNormals(In), is_front_face);
-}
+// Generate the forward pixel family for detail-normal materials.
+VIEW3D_FORWARD_PIXEL_ENTRY_POINTS(ForwardDetail, DetailShade)

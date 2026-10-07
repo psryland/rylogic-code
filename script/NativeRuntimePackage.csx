@@ -93,6 +93,8 @@ public static class NativeRuntimePackage
 		var header_dir = IOPath.Combine(workspace, "include", "pr");
 		foreach (var header_path in Directory.EnumerateFiles(header_dir, "*", SearchOption.AllDirectories))
 			inputs[$"include/{IOPath.GetRelativePath(header_dir, header_path).Replace('\\', '/')}"] = header_path;
+		foreach (var shader_source in ShaderSources(workspace))
+			inputs[$"shaders/{shader_source.Key}"] = shader_source.Value;
 
 		inputs["props/Rylogic.Native.props"] = IOPath.Combine(workspace, "build", "Rylogic.Native.props");
 		foreach (var extra_input in extra_inputs)
@@ -383,6 +385,27 @@ public static class NativeRuntimePackage
 		var source_dir = IOPath.Combine(workspace, "include", "pr");
 		var target_dir = IOPath.Combine(staging_dir, "build", "native", "include", "pr");
 		CopyDirectory(source_dir, target_dir);
+
+		// Public shader headers such as forward_pixel.hlsli include the internal View3D HLSL sources by their 'view3d-12/src/shaders/hlsl' path.
+		var shader_dir = IOPath.Combine(staging_dir, "build", "native", "include");
+		foreach (var shader_source in ShaderSources(workspace))
+		{
+			// Recreate each source at its include-relative path.
+			var target_path = IOPath.Combine(shader_dir, shader_source.Key);
+			Directory.CreateDirectory(IOPath.GetDirectoryName(target_path) ?? throw new InvalidOperationException("Unable to determine the shader staging directory."));
+			File.Copy(shader_source.Value, target_path, overwrite: true);
+		}
+	}
+
+	// Returns the View3D HLSL sources that public shader headers include, keyed by their include-relative path ('view3d-12/src/shaders/hlsl/...').
+	private static IEnumerable<KeyValuePair<string, string>> ShaderSources(string workspace)
+	{
+		// Take only shader sources; generated compiler outputs in the same tree are not part of the include contract.
+		var include_root = IOPath.Combine(workspace, "projects", "rylogic");
+		var source_dir = IOPath.Combine(include_root, "view3d-12", "src", "shaders", "hlsl");
+		return Directory.EnumerateFiles(source_dir, "*", SearchOption.AllDirectories)
+			.Where(x => IOPath.GetExtension(x) is ".hlsl" or ".hlsli")
+			.Select(x => KeyValuePair.Create(IOPath.GetRelativePath(include_root, x).Replace('\\', '/'), x));
 	}
 
 	// Copies the package-root props file that exposes include/lib/runtime locations without auto-linking.
