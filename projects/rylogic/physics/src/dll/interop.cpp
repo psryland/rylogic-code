@@ -101,10 +101,13 @@ namespace
 			return desc.wall_drag[static_cast<int>(side)];
 		};
 
-		// A null floor array selects the solver's flat floor.
+		// Null arrays select the solver's flat floor and all-active mask.
 		auto floor_heights = std::vector<float>{};
 		if (desc.floor_heights != nullptr)
 			floor_heights.assign(desc.floor_heights, desc.floor_heights + static_cast<size_t>(desc.cell_count_x) * static_cast<size_t>(desc.cell_count_y));
+		auto active_columns = std::vector<uint8_t>{};
+		if (desc.active_columns != nullptr)
+			active_columns.assign(desc.active_columns, desc.active_columns + static_cast<size_t>(desc.cell_count_x) * static_cast<size_t>(desc.cell_count_y));
 
 		using ESide = pr::physics::EAtmosphereSide;
 		return AtmosphereConfig{
@@ -115,6 +118,7 @@ namespace
 				.m_lid_z = desc.lid_z,
 				.m_first_layer_thickness = desc.first_layer_thickness,
 				.m_floor_heights = std::move(floor_heights),
+				.m_active_columns = std::move(active_columns),
 			},
 			.m_boundaries = AtmosphereBoundaries{
 				.m_x_min = boundary(ESide::XMin),
@@ -262,8 +266,8 @@ namespace pr::physics
 			atmosphere::AtmosphereSolver m_solver;
 			std::unique_ptr<atmosphere::AtmosphereTracers> m_tracers;
 
-			// Tracer particles from the last finished step, or from creation.
-			std::vector<atmosphere::AtmosphereTracerParticle> m_particles;
+			// The tracer slot holding the particles from the last finished step, or from creation. A step in flight writes a different slot.
+			int m_published_slot;
 
 			// The step in flight on the GPU, if any.
 			GpuJob::RunHandle m_pending;
@@ -272,14 +276,14 @@ namespace pr::physics
 				: m_gpu(device)
 				, m_solver(m_gpu, std::move(config), shader_cache)
 				, m_tracers()
-				, m_particles()
+				, m_published_slot(-1)
 				, m_pending()
 			{
 				// Tracers are optional so field-only atmospheres pay no particle cost.
 				if (tracers.m_particle_count > 0)
 				{
 					m_tracers = std::make_unique<atmosphere::AtmosphereTracers>(m_solver, m_gpu, tracers, shader_cache);
-					m_particles = m_tracers->ReadBack(m_gpu.m_job);
+					m_published_slot = m_tracers->CurrentSlot();
 				}
 			}
 			AtmosphereRecord(AtmosphereRecord&&) = delete;
@@ -311,12 +315,12 @@ namespace pr::physics
 				return m_gpu.m_job.m_gsync.CompletedSyncPoint() >= m_pending.m_sync_point;
 			}
 
-			// Wait for the submitted step, then publish its tracer particles.
+			// Wait for the submitted step, then publish the tracer slot it wrote.
 			void FinishStep()
 			{
 				m_gpu.m_job.Complete(m_pending);
 				if (m_tracers)
-					m_particles = m_tracers->ResolveReadBack();
+					m_published_slot = m_tracers->CurrentSlot();
 			}
 		};
 
@@ -3842,7 +3846,7 @@ extern "C"
 			auto const& d = pr::physics::RequireStruct(desc);
 			if (d.reserved != 0)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid atmosphere reserved field");
-			if (d.floor_heights != nullptr && (d.cell_count_x <= 0 || d.cell_count_y <= 0 || static_cast<std::int64_t>(d.cell_count_x) * d.cell_count_y > std::numeric_limits<std::int32_t>::max()))
+			if ((d.floor_heights != nullptr || d.active_columns != nullptr) && (d.cell_count_x <= 0 || d.cell_count_y <= 0 || static_cast<std::int64_t>(d.cell_count_x) * d.cell_count_y > std::numeric_limits<std::int32_t>::max()))
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid atmosphere column count");
 			for (auto boundary : d.boundaries)
 			{
@@ -3905,16 +3909,10 @@ extern "C"
 			if (object.Pending())
 				throw pr::physics::ApiException(PhysicsStatus::StepPending, "An atmosphere step is already in flight");
 
-			// Each array pointer must agree with its count. The solver checks the counts against the grid.
+			// The heat-source pointer must agree with its count. The solver checks the count limit.
 			auto const& s = pr::physics::RequireStruct(step);
-			if (s.reserved != 0)
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid atmosphere step reserved field");
 			if (s.heat_source_count < 0 || (s.heat_source_count != 0) != (s.heat_sources != nullptr))
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere heat source pointer and count disagree");
-			if (s.floor_temperature_count < 0 || (s.floor_temperature_count != 0) != (s.floor_temperatures != nullptr))
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere floor temperature pointer and count disagree");
-			if (s.outside_air_count < 0 || (s.outside_air_count != 0) != (s.outside_air != nullptr))
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere outside air pointer and count disagree");
 
 			// Copy the sources into the solver's layout.
 			auto heat_sources = std::vector<pr::physics::atmosphere::AtmosphereHeatSource>{};
@@ -3932,40 +3930,20 @@ extern "C"
 					.m_relaxation_rate = h.relaxation_rate,
 				});
 			}
-			auto outside_air = std::vector<pr::physics::atmosphere::AtmosphereOutsideAir>{};
-			outside_air.reserve(static_cast<size_t>(s.outside_air_count));
-			for (auto const& a : std::span{ s.outside_air, static_cast<size_t>(s.outside_air_count) })
-			{
-				if (a.reserved != 0)
-					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid atmosphere outside air reserved field");
-
-				outside_air.push_back(pr::physics::atmosphere::AtmosphereOutsideAir{
-					.m_wind = pr::v2{ a.wind_x, a.wind_y },
-					.m_temperature_offset = a.temperature_offset,
-				});
-			}
-			auto const sources = pr::physics::atmosphere::AtmosphereStepSources{
-				.m_heat_sources = heat_sources,
-				.m_floor_temperatures = std::span{ s.floor_temperatures, static_cast<size_t>(s.floor_temperature_count) },
-				.m_uniform_floor_temperature = s.uniform_floor_temperature,
-				.m_outside_air = outside_air,
-			};
 
 			// Record the step and tracer advection, with a tracer copy that the finishing call collects. The solver validates before recording.
 			auto& job = object.m_gpu.m_job;
 			try
 			{
-				object.m_solver.Step(job, s.dt, sources);
+				object.m_solver.Step(job, s.dt, heat_sources);
 			}
 			catch (std::invalid_argument const& ex)
 			{
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
 			}
 			if (object.m_tracers)
-			{
 				object.m_tracers->Advect(job, s.dt);
-				object.m_tracers->RecordReadBack(job);
-			}
+
 			object.m_pending = job.Submit();
 		});
 	}
@@ -4031,25 +4009,92 @@ extern "C"
 		});
 	}
 
+	PhysicsStatus __stdcall Physics_AtmosphereFloorTemperaturesSet(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, float const* floor_temperatures, std::int32_t count)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			// The solver keeps a CPU copy that the next step uploads, so this is allowed while a step is in flight.
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
+			if (count < 0 || (count != 0) != (floor_temperatures != nullptr))
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere floor temperature pointer and count disagree");
+
+			try
+			{
+				object.m_solver.SetFloorTemperatures(std::span{ floor_temperatures, static_cast<size_t>(count) });
+			}
+			catch (std::invalid_argument const& ex)
+			{
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
+			}
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_AtmosphereOutsideAirSet(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereOutsideAir const* outside_air, std::int32_t count)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			// The solver keeps a CPU copy that the next step uploads, so this is allowed while a step is in flight.
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
+			if (count < 0 || (count != 0) != (outside_air != nullptr))
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere outside air pointer and count disagree");
+
+			// Convert to the solver's layout, rejecting non-zero reserved fields.
+			auto air = std::vector<pr::physics::atmosphere::AtmosphereOutsideAir>(static_cast<size_t>(count));
+			for (auto i = 0; i != count; ++i)
+			{
+				auto const& a = outside_air[i];
+				if (a.reserved != 0)
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid atmosphere outside air reserved field");
+
+				air[i] = pr::physics::atmosphere::AtmosphereOutsideAir{
+					.m_wind = pr::v2{ a.wind_x, a.wind_y },
+					.m_temperature_offset = a.temperature_offset,
+				};
+			}
+			try
+			{
+				object.m_solver.SetOutsideAir(air);
+			}
+			catch (std::invalid_argument const& ex)
+			{
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
+			}
+		});
+	}
+
 	PhysicsStatus __stdcall Physics_AtmosphereTracersCopy(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereTracerParticle* particles, std::uint32_t capacity, std::uint32_t* required)
 	{
 		return pr::physics::ApiCall([&]
 		{
-			// Any thread may copy: the engine lock orders this read against the owner publishing a finished step.
+			// The read back uses the atmosphere's queue, so it requires the owner thread and no step in flight.
 			auto scope = pr::physics::EngineScope(engine);
 			auto& record = *scope;
+			pr::physics::RequireOwner(record);
 			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
+			if (object.Pending())
+				throw pr::physics::ApiException(PhysicsStatus::StepPending, "Atmosphere tracers cannot be read while a step is in flight");
 			if (required == nullptr)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Tracer required-count pointer is null");
 
-			auto const count = static_cast<std::uint32_t>(object.m_particles.size());
+			// Report the size before the read back so a sizing call does not touch the GPU.
+			auto const count = object.m_tracers ? static_cast<std::uint32_t>(object.m_tracers->Config().m_particle_count) : 0U;
 			*required = count;
 			if (capacity < count || (count != 0 && particles == nullptr))
 				throw pr::physics::ApiException(PhysicsStatus::BufferTooSmall, "Tracer buffer is too small");
+			if (count == 0)
+				return;
 
+			// No step is in flight, so the current slot is the published one.
+			auto const source = object.m_tracers->ReadBack(object.m_gpu.m_job);
 			for (auto i = std::uint32_t{}; i != count; ++i)
 			{
-				auto const& p = object.m_particles[i];
+				auto const& p = source[i];
 				particles[i] = pr::physics::AtmosphereTracerParticle{
 					.x = p.m_position.x,
 					.y = p.m_position.y,
@@ -4058,6 +4103,58 @@ extern "C"
 					.age = p.m_age,
 					.speed = p.m_speed,
 				};
+			}
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_AtmosphereTracersAcquire(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereTracerSlot* slot)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			// Holding the published slot is safe while a step is in flight, because that step reads it and writes another slot.
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
+			if (slot == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Tracer slot pointer is null");
+			if (!object.m_tracers)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere has no tracers");
+
+			// Hold before handing out the reference, so the hold and the COM reference are both owned by the caller on return.
+			auto const index = object.m_published_slot;
+			auto* resource = object.m_tracers->Slot(index);
+			object.m_tracers->Hold(index);
+			resource->AddRef();
+			*slot = pr::physics::AtmosphereTracerSlot{
+				.resource = resource,
+				.slot = index,
+				.count = static_cast<std::uint32_t>(object.m_tracers->Config().m_particle_count),
+				.stride = static_cast<std::uint32_t>(sizeof(pr::physics::AtmosphereGpuTracerParticle)),
+				.reserved = 0,
+			};
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_AtmosphereTracersRelease(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, std::int32_t slot, void* fence, std::uint64_t value)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			// The next step that writes the slot makes its queue wait for the fence, so no CPU wait is needed here.
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
+			if (!object.m_tracers)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere has no tracers");
+
+			try
+			{
+				object.m_tracers->Release(slot, static_cast<ID3D12Fence*>(fence), value);
+			}
+			catch (std::logic_error const& ex)
+			{
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
 			}
 		});
 	}

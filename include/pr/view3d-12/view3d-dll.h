@@ -1102,6 +1102,14 @@ extern "C"
 	// The caller must release the returned interface exactly once using IUnknown::Release.
 	VIEW3D_API void* __stdcall View3D_DeviceLeaseAcquire(pr::view3d::DllHandle context);
 
+	// Acquire an owned ID3D12Fence COM reference to the fence that the graphics queue signals at sync points. Other queues on the same device
+	// can wait on it to order their work after graphics work. The caller must release the returned interface exactly once using IUnknown::Release.
+	VIEW3D_API void* __stdcall View3D_GfxQueueFenceAcquire(pr::view3d::DllHandle context);
+
+	// Signal the graphics queue fence after all graphics work submitted so far, including every frame already rendered, and return the fence
+	// value that marks that point. Does not wait. The values increase with each call.
+	VIEW3D_API uint64_t __stdcall View3D_GfxQueueSyncPointAdd(pr::view3d::DllHandle context);
+
 	// Return the D3D12 device-removal reason, or S_OK while the device remains usable.
 	VIEW3D_API HRESULT __stdcall View3D_DeviceRemovedReasonGet(pr::view3d::DllHandle context);
 
@@ -1511,6 +1519,12 @@ extern "C"
 	// Replace the ProceduralBinding::ConstantsSize constants of every procedural shader on the object's own nuggets. Later frames use the new values.
 	// Shaders are shared by reference, so other objects that use the same shader handles also see the change.
 	VIEW3D_API void __stdcall View3D_ObjectProceduralConstantsSet(pr::view3d::Object object, void const* constants, size_t constants_size);
+
+	// Replace the buffer (an ID3D12Resource, or null to unbind) of every procedural shader on the object's own nuggets. Later frames bind the new buffer
+	// at VIEW3D_PROCEDURAL_BUFFER_REGISTER. The shaders take their own references; the caller keeps its reference. The caller keeps the buffer contents
+	// valid until the frames that use them have finished on the graphics queue (see View3D_GfxQueueSyncPointAdd). Shaders are shared by reference,
+	// so other objects that use the same shader handles also see the change. A shader that declares the buffer must not be drawn while none is bound.
+	VIEW3D_API void __stdcall View3D_ObjectProceduralBufferSet(pr::view3d::Object object, void* buffer);
 
 	// Create an graphics object from ldr script, either a string or a file 
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateLdrW(wchar_t const* ldr_script, BOOL file, GUID const* context_id, pr::view3d::Includes const* includes);

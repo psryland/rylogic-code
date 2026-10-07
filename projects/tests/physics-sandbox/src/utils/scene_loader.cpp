@@ -1083,7 +1083,7 @@ namespace physics_sandbox::scene_loader
 			config.m_vertical_viscosity = value->to<float>();
 
 		// Outside air is authored as rectangles in the horizontal plane. Positions outside every rectangle get calm, reference-temperature air.
-		// 'wind_noise' adds a fixed pseudo-random offset to each boundary column's wind so symmetric flows have a disturbance to grow from.
+		// 'wind_noise' adds a fixed pseudo-random offset to each column's outside wind so symmetric flows have a disturbance to grow from.
 		struct OutsideAirRegion
 		{
 			v2 m_min;
@@ -1236,11 +1236,11 @@ namespace physics_sandbox::scene_loader
 		config.Validate();
 		desc.m_tracers.Validate();
 
-		// Sample the authored regions once per boundary column. The scene's outside air does not change over time.
+		// Sample the authored regions once per column. The scene's outside air does not change over time.
 		auto column = uint32_t{};
 		desc.m_outside_air = config.m_grid.BuildOutsideAir([&](v2 pos)
 		{
-			// Each call is the next boundary column, so the column index seeds that column's repeatable wind noise.
+			// Each call is the next column, so the column index seeds that column's repeatable wind noise.
 			auto noise = [seed = column++](uint32_t channel)
 			{
 				// Mix the column and channel bits, then map the hash to [-1, 1].

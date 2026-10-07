@@ -11,7 +11,8 @@ namespace pr::rdr12
 	// A caller-compiled procedural shader with renderer-owned constants. Constants may be replaced between frames; each draw uploads the current copy.
 	// The shader has a procedural vertex shader, a forward pixel family that replaces the stock simple-material or PBR pixel shaders, or both. Without a
 	// vertex shader the stock vertex shader is used, so a pixel-only shader suits any vertex source. A procedural vertex shader requires a ProceduralVertexId model.
-	// An optional immutable GPU buffer is bound as a raw SRV at VIEW3D_PROCEDURAL_BUFFER_REGISTER for every draw.
+	// An optional GPU buffer is bound as a raw SRV at VIEW3D_PROCEDURAL_BUFFER_REGISTER for every draw. The caller keeps its contents valid while frames
+	// that use it are in flight; the buffer may be replaced between frames.
 	struct ProceduralShader :Shader
 	{
 		static constexpr size_t ConstantsSize = 1024;
@@ -42,6 +43,10 @@ namespace pr::rdr12
 
 		// Replace the copied constants with exactly ConstantsSize caller bytes. Draws recorded after this call use the new values.
 		void Constants(std::span<std::byte const> constants);
+
+		// Replace the bound buffer, or unbind it with null. Draws recorded after this call use the new buffer. 'buffer' must be readable as a shader
+		// resource by the graphics queue, and a shader that declares the buffer must not be drawn while none is bound.
+		void Buffer(D3DPtr<ID3D12Resource> buffer);
 
 		// Bind the current procedural constants for one draw.
 		void SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const&, CameraTransforms const&, DrawListElement const*) override;

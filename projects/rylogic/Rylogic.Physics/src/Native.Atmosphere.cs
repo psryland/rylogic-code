@@ -20,6 +20,7 @@ internal static unsafe partial class Native
 		internal float m_lid_z;
 		internal float m_first_layer_thickness;
 		internal float* m_floor_heights;
+		internal byte* m_active_columns;
 		internal fixed int m_boundaries[6];
 		internal fixed float m_wall_drag[6];
 		internal float m_reference_temperature;
@@ -45,8 +46,8 @@ internal static unsafe partial class Native
 		internal float m_tracer_break_height;
 		private int m_reserved;
 
-		/// <summary>Convert managed creation options into the exact native layout. 'floor_heights' must stay pinned until creation returns.</summary>
-		internal static AtmosphereDesc From(AtmosphereOptions options, float* floor_heights)
+		/// <summary>Convert managed creation options into the exact native layout. Pinned arrays must stay pinned until creation returns.</summary>
+		internal static AtmosphereDesc From(AtmosphereOptions options, float* floor_heights, byte* active_columns)
 		{
 			var result = new AtmosphereDesc
 			{
@@ -61,6 +62,7 @@ internal static unsafe partial class Native
 				m_lid_z = options.LidZ,
 				m_first_layer_thickness = options.FirstLayerThickness,
 				m_floor_heights = floor_heights,
+				m_active_columns = active_columns,
 				m_reference_temperature = options.ReferenceTemperature,
 				m_lapse_rate = options.LapseRate,
 				m_min_temperature = options.MinTemperature,
@@ -99,14 +101,8 @@ internal static unsafe partial class Native
 	{
 		internal NativeHeader m_header;
 		internal float m_dt;
-		internal float m_uniform_floor_temperature;
-		internal AtmosphereHeatSource* m_heat_sources;
-		internal float* m_floor_temperatures;
-		internal AtmosphereOutsideAir* m_outside_air;
 		internal int m_heat_source_count;
-		internal int m_floor_temperature_count;
-		internal int m_outside_air_count;
-		private int m_reserved;
+		internal AtmosphereHeatSource* m_heat_sources;
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
@@ -121,12 +117,26 @@ internal static unsafe partial class Native
 		private int m_reserved;
 	}
 
+	[StructLayout(LayoutKind.Sequential)]
+	internal struct AtmosphereTracerSlot
+	{
+		internal IntPtr m_resource;
+		internal int m_slot;
+		internal uint m_count;
+		internal uint m_stride;
+		private uint m_reserved;
+	}
+
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereCreate(ulong engine, AtmosphereDesc* desc, out ulong atmosphere);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereDestroy(ulong engine, ulong atmosphere);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereBeginStep(ulong engine, ulong atmosphere, AtmosphereStepDesc* step);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmospherePollStep(ulong engine, ulong atmosphere, out int idle);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereCompleteStep(ulong engine, ulong atmosphere);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereFloorsSet(ulong engine, ulong atmosphere, float* floor_heights, int count);
+	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereFloorTemperaturesSet(ulong engine, ulong atmosphere, float* floor_temperatures, int count);
+	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereOutsideAirSet(ulong engine, ulong atmosphere, AtmosphereOutsideAir* outside_air, int count);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereTracersCopy(ulong engine, ulong atmosphere, AtmosphereTracerParticle* particles, uint capacity, out uint required);
+	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereTracersAcquire(ulong engine, ulong atmosphere, AtmosphereTracerSlot* slot);
+	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereTracersRelease(ulong engine, ulong atmosphere, int slot, IntPtr fence, ulong value);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereCellStatesCopy(ulong engine, ulong atmosphere, AtmosphereCellState* cells, uint capacity, out uint required, AtmosphereStats* stats);
 }

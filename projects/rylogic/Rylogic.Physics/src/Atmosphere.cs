@@ -4,7 +4,7 @@ namespace Rylogic.Physics;
 
 /// <summary>
 /// Owns one engine-owned GPU air solver and its optional tracer particles. The atmosphere runs on its engine's device with its own compute queue
-/// and steps independently of the engine step. Every member except <see cref="CopyTracers"/> must run on the engine's owner thread.
+/// and steps independently of the engine step. Every member must run on the engine's owner thread.
 /// The atmosphere is destroyed with its engine and is not part of engine checkpoints.
 /// </summary>
 public sealed class Atmosphere :IDisposable
@@ -48,15 +48,6 @@ public sealed class Atmosphere :IDisposable
 		}
 	}
 
-	/// <summary>The number of boundary columns, and the length of an outside-air array. See <see cref="BeginStep"/> for their order.</summary>
-	public int BoundaryColumnCount
-	{
-		get
-		{
-			return 2 * (CellCountX + CellCountY);
-		}
-	}
-
 	/// <summary>The number of diagnostic tracer particles.</summary>
 	public int TracerCount { get; }
 
@@ -88,32 +79,46 @@ public sealed class Atmosphere :IDisposable
 	}
 
 	/// <summary>
-	/// Submit one step of 'dt' seconds, and tracer advection when tracers exist, without waiting for the GPU. All inputs are copied.
-	/// At most 64 heat sources. Empty 'floor_temperatures' uses 'uniform_floor_temperature' everywhere; otherwise give one per column.
-	/// Empty 'outside_air' means calm outside air at the reference temperature; otherwise give one per boundary column: the x- side by y,
-	/// the x+ side by y, the y- side by x, then the y+ side by x. Fails with <see cref="EStatus.StepPending"/> while a step is in flight.
+	/// Submit one step of 'dt' seconds, and tracer advection when tracers exist, without waiting for the GPU. The heat sources are copied and
+	/// apply to this step only; at most 64. Floor temperatures and outside air persist from <see cref="SetFloorTemperatures"/> and <see cref="SetOutsideAir"/>.
+	/// Fails with <see cref="EStatus.StepPending"/> while a step is in flight.
 	/// </summary>
-	public unsafe void BeginStep(float dt, float uniform_floor_temperature = 288.0f, ReadOnlySpan<AtmosphereHeatSource> heat_sources = default, ReadOnlySpan<float> floor_temperatures = default, ReadOnlySpan<AtmosphereOutsideAir> outside_air = default)
+	public unsafe void BeginStep(float dt, ReadOnlySpan<AtmosphereHeatSource> heat_sources = default)
 	{
 		Engine.EnsureOwner();
 		fixed (AtmosphereHeatSource* heat_ptr = heat_sources)
-		fixed (float* floor_ptr = floor_temperatures)
-		fixed (AtmosphereOutsideAir* outside_ptr = outside_air)
 		{
 			var step = new Native.AtmosphereStepDesc
 			{
 				m_header = NativeHeader.Create<Native.AtmosphereStepDesc>(),
 				m_dt = dt,
-				m_uniform_floor_temperature = uniform_floor_temperature,
-				m_heat_sources = heat_ptr,
-				m_floor_temperatures = floor_ptr,
-				m_outside_air = outside_ptr,
 				m_heat_source_count = heat_sources.Length,
-				m_floor_temperature_count = floor_temperatures.Length,
-				m_outside_air_count = outside_air.Length,
+				m_heat_sources = heat_ptr,
 			};
 			Native.Check(Native.Physics_AtmosphereBeginStep(Engine.Handle, Handle, &step));
 		}
+	}
+
+	/// <summary>
+	/// Set the floor temperature under each column (K, one per column in <see cref="AtmosphereOptions.FloorHeights"/> order). The lowest layer relaxes
+	/// toward it. Initially the reference temperature at each column's floor. The values are copied and used from the next step, so this may be called while a step is in flight.
+	/// </summary>
+	public unsafe void SetFloorTemperatures(ReadOnlySpan<float> floor_temperatures)
+	{
+		Engine.EnsureOwner();
+		fixed (float* ptr = floor_temperatures)
+			Native.Check(Native.Physics_AtmosphereFloorTemperaturesSet(Engine.Handle, Handle, ptr, floor_temperatures.Length));
+	}
+
+	/// <summary>
+	/// Set the air outside the open faces, one entry per column in row-major order. Square sides use the edge-column entry, and active/inactive mask faces
+	/// use the inactive column's entry. Initially calm air at the reference temperature. The values are copied and used from the next step, so this may be called while a step is in flight.
+	/// </summary>
+	public unsafe void SetOutsideAir(ReadOnlySpan<AtmosphereOutsideAir> outside_air)
+	{
+		Engine.EnsureOwner();
+		fixed (AtmosphereOutsideAir* ptr = outside_air)
+			Native.Check(Native.Physics_AtmosphereOutsideAirSet(Engine.Handle, Handle, ptr, outside_air.Length));
 	}
 
 	/// <summary>Finish the step in flight if the GPU has completed it, without waiting. Returns true when no step is in flight after the call.</summary>
@@ -141,15 +146,47 @@ public sealed class Atmosphere :IDisposable
 
 	/// <summary>
 	/// Copy the tracer particles from the last finished step, or from creation, into 'particles', which needs room for <see cref="TracerCount"/>.
-	/// Any thread may call this; the copy is ordered against the owner thread finishing a step. Returns the particle count.
+	/// Reads the GPU back, so it blocks and requires no step in flight. Prefer <see cref="AcquireTracers"/> for display. Returns the particle count.
 	/// </summary>
 	public unsafe int CopyTracers(Span<AtmosphereTracerParticle> particles)
 	{
+		Engine.EnsureOwner();
 		fixed (AtmosphereTracerParticle* particle_ptr = particles)
 		{
 			Native.Check(Native.Physics_AtmosphereTracersCopy(Engine.Handle, Handle, particle_ptr, checked((uint)particles.Length), out var required));
 			return checked((int)required);
 		}
+	}
+
+	/// <summary>
+	/// Hold the GPU buffer of the tracer particles from the last finished step, or from creation, so later steps do not write it. At most two slots can be
+	/// held at once, and a step fails while it has no free buffer to write. The caller disposes the returned buffer lease and calls <see cref="ReleaseTracers"/>
+	/// once for each acquire. May be called while a step is in flight.
+	/// </summary>
+	public unsafe AtmosphereTracerSlot AcquireTracers()
+	{
+		// The native call returns an owned COM reference, which the lease adopts.
+		Engine.EnsureOwner();
+		var slot = default(Native.AtmosphereTracerSlot);
+		Native.Check(Native.Physics_AtmosphereTracersAcquire(Engine.Handle, Handle, &slot));
+		return new AtmosphereTracerSlot(new Rylogic.D3D12.ResourceLease(slot.m_resource), slot.m_slot, checked((int)slot.m_count), checked((int)slot.m_stride));
+	}
+
+	/// <summary>
+	/// Release one hold on 'slot'. 'fence' reaches 'value' when the caller's GPU reads of the slot have finished; pass null when they already have.
+	/// The step that next writes the slot waits for the fence on the GPU, so this never blocks.
+	/// </summary>
+	public void ReleaseTracers(int slot, Rylogic.D3D12.FenceLease? fence, ulong value)
+	{
+		// The fence is pinned only for the call; the atmosphere takes its own reference.
+		Engine.EnsureOwner();
+		if (fence == null)
+		{
+			Native.Check(Native.Physics_AtmosphereTracersRelease(Engine.Handle, Handle, slot, IntPtr.Zero, 0));
+			return;
+		}
+		using var borrowed = fence.Borrow();
+		Native.Check(Native.Physics_AtmosphereTracersRelease(Engine.Handle, Handle, slot, borrowed.Handle, value));
 	}
 
 	/// <summary>Read the whole field back from the GPU into 'cells', which needs room for <see cref="CellCount"/>, and return its diagnostics. Blocks; requires no step in flight.</summary>

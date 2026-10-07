@@ -1705,6 +1705,28 @@ namespace Rylogic.Gfx
 			return new Rylogic.D3D12.DeviceLease(device);
 		}
 
+		/// <summary>Acquire an independently owned lease to the fence that the graphics queue signals at sync points.</summary>
+		public Rylogic.D3D12.FenceLease AcquireGfxQueueFence()
+		{
+			var fence = View3D_GfxQueueFenceAcquire(m_context);
+			if (fence == IntPtr.Zero)
+				throw LastError ?? new Exception("Failed to acquire the View3D graphics queue fence");
+
+			return new Rylogic.D3D12.FenceLease(fence);
+		}
+
+		/// <summary>
+		/// Signal the graphics queue fence after all graphics work submitted so far, including every frame already rendered, and return the fence value
+		/// that marks that point. Does not wait.</summary>
+		public ulong AddGfxQueueSyncPoint()
+		{
+			var value = View3D_GfxQueueSyncPointAdd(m_context);
+			if (value == 0)
+				throw LastError ?? new Exception("Failed to add a View3D graphics queue sync point");
+
+			return value;
+		}
+
 		/// <summary>The D3D12 device-removal reason, or zero while the device remains usable.</summary>
 		public int DeviceRemovedReason
 		{
@@ -1917,6 +1939,8 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern HContext View3D_Initialise(ReportErrorCB global_error_cb);
 		[DllImport(Dll)] private static extern void View3D_Shutdown(HContext context);
 		[DllImport(Dll)] private static extern IntPtr View3D_DeviceLeaseAcquire(HContext context);
+		[DllImport(Dll)] private static extern IntPtr View3D_GfxQueueFenceAcquire(HContext context);
+		[DllImport(Dll)] private static extern ulong View3D_GfxQueueSyncPointAdd(HContext context);
 		[DllImport(Dll)] private static extern int View3D_DeviceRemovedReasonGet(HContext context);
 		[DllImport(Dll)] private static extern StrView View3D_DeviceRemovedReportGet(HContext context);
 
@@ -2398,6 +2422,7 @@ namespace Rylogic.Gfx
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetProceduralSurfaceClear(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetDetailNormalsSet(HObject obj, HTexture tex, HSampler sam, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
 		[DllImport(Dll)] private static extern void View3D_ObjectDetailNormalLayersSet(HObject obj, [MarshalAs(UnmanagedType.LPArray)] DetailNormalLayer[]? layers, int count, float base_slope_variance);
+		[DllImport(Dll)] private static extern void View3D_ObjectProceduralBufferSet(HObject obj, IntPtr buffer);
 
 		// Materials ******************************
 

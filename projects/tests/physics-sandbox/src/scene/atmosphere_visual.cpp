@@ -73,6 +73,10 @@ namespace physics_sandbox
 		, m_show_grid(m_desc.m_visual.m_show_grid)
 		, m_show_particles(m_desc.m_visual.m_show_particles)
 	{
+		// The scene's outside air is static, so the solver keeps it for every step. An empty list leaves the calm default.
+		if (!m_desc.m_outside_air.empty())
+			m_solver.SetOutsideAir(m_desc.m_outside_air);
+
 		// Tracers are optional so diagnostic-only atmosphere scenes can omit particle cost.
 		if (m_desc.m_tracers.m_particle_count > 0)
 		{
@@ -120,14 +124,8 @@ namespace physics_sandbox
 
 		m_unstepped_time -= step_period;
 
-		// The scene's heat sources and outside air are static, so the same inputs drive every step.
-		auto const sources = physics::atmosphere::AtmosphereStepSources{
-			.m_heat_sources = m_desc.m_heat_sources,
-			.m_outside_air = m_desc.m_outside_air,
-		};
-
-		// Record the solver, tracers, and particle copy in submission order, then submit without waiting.
-		m_solver.Step(job, step_period, sources);
+		// Record the solver, tracers, and particle copy in submission order, then submit without waiting. The scene's heat sources are static.
+		m_solver.Step(job, step_period, m_desc.m_heat_sources);
 		if (m_tracers != nullptr)
 		{
 			// The particle copy is collected when this submission completes.
