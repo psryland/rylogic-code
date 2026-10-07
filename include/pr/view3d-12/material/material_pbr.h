@@ -51,6 +51,10 @@ namespace pr::rdr12
 		// Return true if this material requires alpha rendering.
 		virtual bool RequiresAlpha() const override;
 
+		// Return true if forward drawing 'nugget' with 'material' (a PBR material) samples extra texture coordinate streams.
+		// Such draws use the stock TexN forward shader variants instead of the TEXCOORD_0 variants.
+		static bool UsesExtraTexCoords(Material const& material, Nugget const* nugget);
+
 		// Return the material colour that should be folded into the shared nugget tint constant.
 		Colour TintColour() const override;
 

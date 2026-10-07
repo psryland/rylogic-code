@@ -820,23 +820,42 @@ namespace pr
 			Domain,
 			Compute,
 		};
-		// Binding recipe for a procedural vertex overlay on a stock raster pass.
-		struct ProceduralVertexBinding
+		// The stock forward material shading that a procedural forward pixel family is built on and replaces.
+		enum class EForwardPixelModel : int
+		{
+			Simple, // Stock simple-material shading. See 'pr/view3d-12/shaders/forward_pixel.hlsli'.
+			Pbr,    // Stock PBR shading without extra texture-coordinate streams. See 'pr/view3d-12/shaders/forward_pixel_pbr.hlsli'.
+		};
+		// Caller-owned shader bytecode, copied when the shader is created.
+		struct ShaderByteCode
+		{
+			void const* m_bytecode;
+			size_t m_size;
+		};
+		// Binding recipe for a procedural shader overlay on a stock raster pass.
+		struct ProceduralBinding
 		{
 			static constexpr size_t ConstantsSize = 1024;
 			static constexpr size_t MaxBufferSize = 64 * 1024 * 1024;
+			static constexpr size_t ForwardPixelCount = 6;
 
 			ERenderStep m_rdr_step;
 			void const* m_constants;
 			size_t m_constants_size;
 			void const* m_buffer;    // Optional immutable data, copied once and bound as a raw root SRV (ByteAddressBuffer, no bounds) at VIEW3D_PROCEDURAL_BUFFER_REGISTER. Null for none.
 			size_t m_buffer_size;    // Size of 'm_buffer' in bytes. A non-zero multiple of 4 up to MaxBufferSize when 'm_buffer' is not null, otherwise 0.
+
+			// Forward pixel family that replaces the stock forward pixel shaders of the 'm_forward_pixel_model' material type. All entries are null, or all are
+			// valid, and only for ForwardRender. Optional for the Vertex stage and required for the Pixel stage. Materials of the other type reject the family.
+			// Order: Opaque, ReflectionAttrs, AlphaCollect, FarFade, FarFadeReflectionAttrs, FarFadeAlphaCollect. See 'pr/view3d-12/shaders/forward_pixel.hlsli'.
+			EForwardPixelModel m_forward_pixel_model;
+			ShaderByteCode m_forward_pixel[ForwardPixelCount];
 		};
-		// Versioned shader creation descriptor. Only Vertex with ProceduralVertexBinding is currently implemented.
+		// Versioned shader creation descriptor. Only Vertex and Pixel with ProceduralBinding are currently implemented. See View3D_ShaderCreate.
 		// Callers supply readable descriptor storage and buffers matching this header and runtime; size/version are not a global ABI handshake.
 		struct ShaderOptions
 		{
-			static constexpr int CurrentVersion = 4;
+			static constexpr int CurrentVersion = 6;
 			static constexpr size_t MaxByteCodeSize = 1024 * 1024;
 
 			int m_struct_size;
@@ -845,7 +864,7 @@ namespace pr
 			void const* m_bytecode;
 			size_t m_bytecode_size;
 			char const* m_dbg_name;
-			ProceduralVertexBinding m_procedural_vertex;
+			ProceduralBinding m_procedural;
 		};
 		// Versioned extended-object descriptor with an explicit vertex source and authoritative model-space bounds.
 		struct ObjectCreateOptions
@@ -1489,7 +1508,7 @@ extern "C"
 	// Uses the same b0/u0 contract as creation. u0 holds the current vertices, so the shader may update records in place. Blocks until the GPU work completes.
 	VIEW3D_API void __stdcall View3D_ObjectGpuGenerate(pr::view3d::Object object, void const* compute_bytecode, size_t compute_bytecode_size, void const* constants, size_t constants_size, int thread_group_size_x);
 
-	// Replace the ProceduralVertexBinding::ConstantsSize constants of every procedural vertex shader on the object's own nuggets. Later frames use the new values.
+	// Replace the ProceduralBinding::ConstantsSize constants of every procedural shader on the object's own nuggets. Later frames use the new values.
 	// Shaders are shared by reference, so other objects that use the same shader handles also see the change.
 	VIEW3D_API void __stdcall View3D_ObjectProceduralConstantsSet(pr::view3d::Object object, void const* constants, size_t constants_size);
 
@@ -1703,9 +1722,12 @@ extern "C"
 	// Create one of the stock samplers
 	VIEW3D_API pr::view3d::Sampler __stdcall View3D_SamplerCreateStock(pr::view3d::EStockSampler stock_sampler);
 
-	// Create a shader for the selected hardware stage. Currently only Vertex with the procedural binding recipe is supported,
-	// for Forward, RayCast, or ShadowMap. This is not an arbitrary vertex-shader binding API; other stages report unsupported.
-	// The renderer copies bytecode and exactly 1024 constant bytes before returning. Stock pixel/geometry stages remain unchanged.
+	// Create a procedural shader for the selected hardware stage. This is not an arbitrary shader binding API; other stages report unsupported.
+	// Vertex: 'm_bytecode' is a procedural vertex shader for Forward, RayCast, or ShadowMap, used only on ProceduralVertexId objects. A ForwardRender
+	//   vertex shader may also supply a forward pixel family.
+	// Pixel: 'm_bytecode' must be null, and 'm_procedural' must be ForwardRender with a complete forward pixel family. The stock vertex shader is kept,
+	//   so the shader may be used on objects with any vertex source.
+	// The renderer copies bytecode and exactly 1024 constant bytes before returning. Stages not supplied keep their stock shaders.
 	// Invalid or unsupported descriptors report through the public error callback and return null.
 	VIEW3D_API pr::view3d::Shader __stdcall View3D_ShaderCreate(pr::view3d::ShaderOptions const& options);
 

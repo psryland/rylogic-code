@@ -58,7 +58,4 @@ namespace pr::rdr12::materials
 		bool m_enable = false;                                                // True when detail normals are applied.
 	};
 	static_assert(ComponentType<DetailNormals>);
-
-	// Replace a stock simple-material forward pixel shader in 'desc' with its detail-normal variant. Throws for any other pixel shader.
-	void ApplyDetailNormalsPixelShader(PipeStateDesc& desc);
 }

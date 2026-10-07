@@ -904,6 +904,12 @@
     <ShaderBuild Include="src\shaders\hlsl\forward\far_clip_fade.hlsl">
       <Filter>src\shaders\hlsl\forward</Filter>
     </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\forward\forward_pbr.hlsl">
+      <Filter>src\shaders\hlsl\forward</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\forward\forward_simple.hlsl">
+      <Filter>src\shaders\hlsl\forward</Filter>
+    </ShaderBuild>
     <ShaderBuild Include="src\shaders\hlsl\forward\detail_normals.hlsl">
       <Filter>src\shaders\hlsl\forward</Filter>
     </ShaderBuild>

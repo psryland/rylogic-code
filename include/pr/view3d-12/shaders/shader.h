@@ -21,6 +21,46 @@ namespace pr::rdr12
 		ByteCode CS;
 	};
 
+	// The output contract of one forward pixel-shader entry point. Each forward sub-pass, with or without far-clip fade, needs a different entry point.
+	enum class EForwardPixelSlot
+	{
+		Opaque,
+		ReflectionAttrs,
+		AlphaCollect,
+		FarFade,
+		FarFadeReflectionAttrs,
+		FarFadeAlphaCollect,
+	};
+
+	// The set of forward pixel-shader entry points that share one shading function, one per output contract.
+	// See 'pr/view3d-12/shaders/forward_pixel.hlsli' for how a family is written in HLSL.
+	struct ForwardPixelFamily
+	{
+		using ByteCode = ::pr::compute::ByteCode;
+		static constexpr size_t SlotCount = static_cast<size_t>(EForwardPixelSlot::FarFadeAlphaCollect) + 1;
+		std::array<ByteCode, SlotCount> m_code;
+
+		// The stock family whose entry points this family replaces, or null for a stock family. Its pixel shader identifies the slot to replace.
+		ForwardPixelFamily const* m_replaces;
+
+		// Return the entry point for 'slot'.
+		ByteCode const& operator[](EForwardPixelSlot slot) const
+		{
+			return m_code[static_cast<size_t>(slot)];
+		}
+
+		// Return the slot that holds 'ps', or nothing if 'ps' is not part of this family. Byte code is identified by address and length.
+		std::optional<EForwardPixelSlot> Find(D3D12_SHADER_BYTECODE const& ps) const
+		{
+			for (size_t i = 0; i != m_code.size(); ++i)
+			{
+				if (m_code[i].pShaderBytecode == ps.pShaderBytecode && m_code[i].BytecodeLength == ps.BytecodeLength)
+					return static_cast<EForwardPixelSlot>(i);
+			}
+			return std::nullopt;
+		}
+	};
+
 	// A shader base class
 	struct Shader :RefCounted<Shader>
 	{
@@ -107,6 +147,12 @@ namespace pr::rdr12
 	    extern ByteCode const forward_far_fade_detail_ps;
 	    extern ByteCode const forward_far_fade_alpha_collect_detail_ps;
 	    extern ByteCode const forward_far_fade_reflection_attrs_detail_ps;
+
+		// The stock forward pixel families. Each groups the entries above that share one shading function.
+		extern ForwardPixelFamily const forward_family;
+		extern ForwardPixelFamily const forward_pbr_family;
+		extern ForwardPixelFamily const forward_texn_pbr_family;
+		extern ForwardPixelFamily const forward_detail_family;
 
 		// Procedural atmosphere
 		extern ByteCode const procedural_sky_vs;

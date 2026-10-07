@@ -8,7 +8,7 @@
 #include "pr/hlsl/camera.hlsli"
 
 // Contract version implemented by the public ShaderOptions descriptor.
-#define VIEW3D_PROCEDURAL_VERTEX_VERSION 4
+#define VIEW3D_PROCEDURAL_VERTEX_VERSION 5
 
 // Renderer-owned and caller-owned constants occupy these fixed stage-local registers.
 #define VIEW3D_FORWARD_FRAME_REGISTER b0
@@ -23,7 +23,7 @@
 #define VIEW3D_SHADOW_ELEMENTS_REGISTER t2
 #define VIEW3D_PROCEDURAL_SHADOW_CONSTANTS_REGISTER b2
 
-// The optional caller-owned immutable buffer is a vertex-stage ByteAddressBuffer at this register in every supported render step.
+// The optional caller-owned immutable buffer is a ByteAddressBuffer, visible to all stages, at this register in every supported render step.
 // Declare it only when the shader was created with a buffer; the root slot is unbound otherwise.
 // It is bound as a root descriptor, so it has no bounds checking and GetDimensions is undefined: pass sizes/offsets through the constants.
 #define VIEW3D_PROCEDURAL_BUFFER_REGISTER t14

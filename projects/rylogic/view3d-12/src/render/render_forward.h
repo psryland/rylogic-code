@@ -39,7 +39,9 @@ namespace pr::rdr12
 
 		// Reject unsupported material output before a scene option change or frame recording.
 		void ValidateFarClipFade();
-		void ValidateFarFadeMaterial(DrawListElement const& dle) const;
+
+		// Reject a draw whose material cannot select its forward pixel shaders: a mismatched procedural pixel family, or unsupported far-fade output when 'far_fade' is set.
+		void ValidateMaterial(DrawListElement const& dle, bool far_fade) const;
 
 		// Perform the render step
 		void Execute(Frame& frame) override;
@@ -56,8 +58,9 @@ namespace pr::rdr12
 		// Add the nuggets in the draw list to 'cmd_list' for rendering. 'first_index' is the position of 'drawlist[0]' in the step's drawlist.
 		void DrawNuggets(Frame& frame, GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist, int first_index, bool alpha_pass);
 
-		// Select the stock output contract after overrides, rejecting unsupported far-fade pipelines.
-		void ApplyFarFadePipeline(PipeStateDesc& desc, bool alpha_pass) const;
+		// Select the far-fade entry point with the output contract of this sub-pass, rejecting unsupported far-fade pipelines.
+		// 'custom' is the material's procedural forward pixel family, or null if it has none.
+		void ApplyFarFadePipeline(PipeStateDesc& desc, bool alpha_pass, ForwardPixelFamily const* custom) const;
 
 		// Return true only when undeformed model bounds prove there is no fading opaque coverage.
 		bool IsBeforeFarFade(DrawListElement const& dle, PipeStateDesc const& desc) const;

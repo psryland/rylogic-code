@@ -52,6 +52,18 @@ namespace fade_tests::compiled
 	#include "procedural_vertex_raycast.h"
 	#include "procedural_vertex_shadow.h"
 	#include "procedural_vertex_buffer.h"
+	#include "procedural_pixel_opaque.h"
+	#include "procedural_pixel_reflection_attrs.h"
+	#include "procedural_pixel_alpha_collect.h"
+	#include "procedural_pixel_far_fade.h"
+	#include "procedural_pixel_far_fade_reflection_attrs.h"
+	#include "procedural_pixel_far_fade_alpha_collect.h"
+	#include "procedural_pixel_pbr_opaque.h"
+	#include "procedural_pixel_pbr_reflection_attrs.h"
+	#include "procedural_pixel_pbr_alpha_collect.h"
+	#include "procedural_pixel_pbr_far_fade.h"
+	#include "procedural_pixel_pbr_far_fade_reflection_attrs.h"
+	#include "procedural_pixel_pbr_far_fade_alpha_collect.h"
 	#include "unsupported_pixel.h"
 }
 

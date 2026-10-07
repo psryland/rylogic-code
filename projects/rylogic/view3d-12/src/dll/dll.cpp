@@ -3526,15 +3526,15 @@ VIEW3D_API view3d::Shader __stdcall View3D_ShaderCreate(view3d::ShaderOptions co
 		if (options.m_version != view3d::ShaderOptions::CurrentVersion)
 			throw std::invalid_argument("Unsupported ShaderOptions version");
 
-		// Reject unimplemented stages before inspecting fields belonging to the procedural vertex recipe.
+		// Reject unimplemented stages before inspecting fields belonging to the procedural recipe.
 		switch (options.m_stage)
 		{
 			case view3d::EShaderStage::Vertex:
+			case view3d::EShaderStage::Pixel:
 			{
-				// Vertex creation currently implements only the stock-pass procedural binding.
+				// Vertex and Pixel creation implement only the stock-pass procedural binding.
 				break;
 			}
-			case view3d::EShaderStage::Pixel:
 			case view3d::EShaderStage::Geometry:
 			case view3d::EShaderStage::Hull:
 			case view3d::EShaderStage::Domain:
@@ -3551,7 +3551,7 @@ VIEW3D_API view3d::Shader __stdcall View3D_ShaderCreate(view3d::ShaderOptions co
 		}
 
 		// Only these raster passes reserve a constant-buffer slot and retain compatible stock non-vertex stages.
-		auto const& binding = options.m_procedural_vertex;
+		auto const& binding = options.m_procedural;
 		switch (binding.m_rdr_step)
 		{
 			case view3d::ERenderStep::ForwardRender:
@@ -3563,27 +3563,75 @@ VIEW3D_API view3d::Shader __stdcall View3D_ShaderCreate(view3d::ShaderOptions co
 			}
 			default:
 			{
-				// No other render step implements this procedural vertex contract.
-				throw std::invalid_argument("Procedural vertex shaders support only Forward, RayCast, and ShadowMap render steps");
+				// No other render step implements this procedural contract.
+				throw std::invalid_argument("Procedural shaders support only Forward, RayCast, and ShadowMap render steps");
 			}
 		}
 
 		// Bound the bytecode copy and reject input that is not a DXIL container.
-		if (options.m_bytecode == nullptr || options.m_bytecode_size < sizeof(uint32_t) || options.m_bytecode_size > view3d::ShaderOptions::MaxByteCodeSize)
-			throw std::invalid_argument("Procedural vertex shader bytecode is missing or outside the supported size range");
+		auto validate_bytecode = [](void const* bytecode, size_t size, char const* what)
+		{
+			// Each stage uses the same size bound and container check.
+			if (bytecode == nullptr || size < sizeof(uint32_t) || size > view3d::ShaderOptions::MaxByteCodeSize)
+				throw std::invalid_argument(std::format("Procedural {} shader bytecode is missing or outside the supported size range", what));
 
-		if (memcmp(options.m_bytecode, "DXBC", 4) != 0)
-			throw std::invalid_argument("Procedural vertex shader bytecode is not a DXIL container");
+			if (memcmp(bytecode, "DXBC", 4) != 0)
+				throw std::invalid_argument(std::format("Procedural {} shader bytecode is not a DXIL container", what));
+		};
+		// A vertex shader supplies its bytecode directly. A pixel-only shader has none and keeps the stock vertex shader.
+		auto const is_pixel_stage = options.m_stage == view3d::EShaderStage::Pixel;
+		if (is_pixel_stage && (options.m_bytecode != nullptr || options.m_bytecode_size != 0))
+			throw std::invalid_argument("Procedural pixel shaders supply their bytecode in the forward pixel family, not as vertex bytecode");
+		if (!is_pixel_stage)
+			validate_bytecode(options.m_bytecode, options.m_bytecode_size, "vertex");
+
+		// The forward pixel family is all or nothing, and only the forward pass has pixel shaders to replace.
+		auto pixel_count = std::ranges::count_if(binding.m_forward_pixel, [](auto const& ps) { return ps.m_bytecode != nullptr || ps.m_size != 0; });
+		if (pixel_count != 0 && pixel_count != view3d::ProceduralBinding::ForwardPixelCount)
+			throw std::invalid_argument("Procedural forward pixel shaders must be all supplied or all omitted");
+		if (pixel_count != 0 && binding.m_rdr_step != view3d::ERenderStep::ForwardRender)
+			throw std::invalid_argument("Procedural pixel shaders are only supported for the ForwardRender render step");
+		if (is_pixel_stage && pixel_count == 0)
+			throw std::invalid_argument("Procedural pixel shaders require a forward pixel family");
+
+		// The family replaces the entry points of the stock forward family for its material model.
+		auto const* replaces = static_cast<ForwardPixelFamily const*>(nullptr);
+		switch (binding.m_forward_pixel_model)
+		{
+			case view3d::EForwardPixelModel::Simple:
+			{
+				replaces = &shader_code::forward_family;
+				break;
+			}
+			case view3d::EForwardPixelModel::Pbr:
+			{
+				replaces = &shader_code::forward_pbr_family;
+				break;
+			}
+			default:
+			{
+				throw std::invalid_argument("Procedural forward pixel model is not supported");
+			}
+		}
+
+		std::array<std::span<BYTE const>, view3d::ProceduralBinding::ForwardPixelCount> pixel_family = {};
+		for (size_t i = 0; pixel_count != 0 && i != pixel_family.size(); ++i)
+		{
+			// Validate each entry point before any storage is allocated.
+			auto const& ps = binding.m_forward_pixel[i];
+			validate_bytecode(ps.m_bytecode, ps.m_size, "pixel");
+			pixel_family[i] = std::span<BYTE const>(static_cast<BYTE const*>(ps.m_bytecode), ps.m_size);
+		}
 
 		// Every supported pass uses the same fixed-size immutable caller data contract.
-		if (binding.m_constants == nullptr || binding.m_constants_size != view3d::ProceduralVertexBinding::ConstantsSize)
-			throw std::invalid_argument("Procedural vertex shader constants must contain exactly 1024 bytes");
+		if (binding.m_constants == nullptr || binding.m_constants_size != view3d::ProceduralBinding::ConstantsSize)
+			throw std::invalid_argument("Procedural shader constants must contain exactly 1024 bytes");
 
 		// The optional raw buffer is addressed in 4-byte words by ByteAddressBuffer loads.
 		if (binding.m_buffer == nullptr && binding.m_buffer_size != 0)
-			throw std::invalid_argument("Procedural vertex shader buffer size must be zero when no buffer is supplied");
-		if (binding.m_buffer != nullptr && (binding.m_buffer_size == 0 || binding.m_buffer_size % 4 != 0 || binding.m_buffer_size > view3d::ProceduralVertexBinding::MaxBufferSize))
-			throw std::invalid_argument("Procedural vertex shader buffer size must be a non-zero multiple of 4 bytes within the supported maximum");
+			throw std::invalid_argument("Procedural shader buffer size must be zero when no buffer is supplied");
+		if (binding.m_buffer != nullptr && (binding.m_buffer_size == 0 || binding.m_buffer_size % 4 != 0 || binding.m_buffer_size > view3d::ProceduralBinding::MaxBufferSize))
+			throw std::invalid_argument("Procedural shader buffer size must be a non-zero multiple of 4 bytes within the supported maximum");
 
 		// Copy the caller buffers into shader-owned storage before returning the owning handle.
 		ResourceFactory factory(Dll().m_rdr);
@@ -3597,10 +3645,12 @@ VIEW3D_API view3d::Shader __stdcall View3D_ShaderCreate(view3d::ShaderOptions co
 			auto rdesc = ResDesc::Buf(words, 4, data, 4).def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 			buffer = factory.CreateResource(rdesc, string32(name).append("-buffer"));
 		}
-		auto shdr = rdr12::Shader::Create<ProceduralVertexShader>(
+		auto shdr = rdr12::Shader::Create<ProceduralShader>(
 			factory.rdr(),
 			static_cast<rdr12::ERenderStep>(binding.m_rdr_step),
 			std::span<BYTE const>(static_cast<BYTE const*>(options.m_bytecode), options.m_bytecode_size),
+			pixel_count != 0 ? std::span<std::span<BYTE const> const>(pixel_family) : std::span<std::span<BYTE const> const>(),
+			*replaces,
 			std::span<std::byte const>(static_cast<std::byte const*>(binding.m_constants), binding.m_constants_size),
 			buffer,
 			name);
