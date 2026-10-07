@@ -1663,6 +1663,7 @@ extern "C"
 	VIEW3D_API void __stdcall View3D_ObjectSetSampler(pr::view3d::Object object, pr::view3d::Sampler sam, char const* name);
 
 	// Get/Set the nugget flags on an object or its children (See LdrObject::Apply)
+	// In the 'Nugget' functions, 'index' selects a nugget of each matched model in the order its nuggets were created.
 	VIEW3D_API pr::view3d::ENuggetFlag __stdcall View3D_ObjectNuggetFlagsGet(pr::view3d::Object object, char const* name, int index);
 	VIEW3D_API void __stdcall View3D_ObjectNuggetFlagsSet(pr::view3d::Object object, pr::view3d::ENuggetFlag flags, BOOL state, char const* name, int index);
 
