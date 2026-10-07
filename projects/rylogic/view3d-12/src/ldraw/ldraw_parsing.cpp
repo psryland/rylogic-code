@@ -4870,12 +4870,12 @@ namespace pr::rdr12::ldraw
 		{
 			ObjectCreator<ELdrObject::Model>& m_self;
 			geometry::ESceneParts m_parts;
-			LdrObject* m_obj;
+			ModelTree m_tree;
 
-			ModelOut(ObjectCreator<ELdrObject::Model>& self, geometry::ESceneParts parts, LdrObject* obj)
+			ModelOut(ObjectCreator<ELdrObject::Model>& self, geometry::ESceneParts parts)
 				: m_self(self)
 				, m_parts(parts)
-				, m_obj(obj)
+				, m_tree()
 			{
 			}
 
@@ -4899,7 +4899,8 @@ namespace pr::rdr12::ldraw
 			}
 			EResult Model(ModelTree&& tree) override
 			{
-				ModelTreeToLdr(m_obj, tree);
+				// Loaders may emit one tree per root, so collect them all before building the object hierarchy
+				m_tree.insert(m_tree.end(), tree.begin(), tree.end());
 				return EResult::Continue;
 			}
 			EResult Skeleton(SkeletonPtr&& skel) override
@@ -5059,9 +5060,10 @@ namespace pr::rdr12::ldraw
 			if (m_ignore_materials) parts = SetBits(parts, geometry::ESceneParts::Materials, false);
 
 			// Create the models
-			ModelOut out(*this, parts, obj);
+			ModelOut out(*this, parts);
 			auto opts = ModelGenerator::CreateOptions().colours(m_colours).bake(m_bake.O2WPtr()).source_path(m_filepath);
 			ModelGenerator::LoadModel(format, m_pp.m_factory, *m_file_stream, out, &opts);
+			ModelTreeToLdr(obj, out.m_tree);
 
 			// If animation data is specified, load the model's animation sources and build the animation
 			if (m_anim_info)
@@ -6519,50 +6521,41 @@ namespace pr::rdr12::ldraw
 		return obj;
 	}
 
+	// Create an ldr object from a p3d model stream.
+	static LdrObjectPtr CreateP3D(Renderer& rdr, ELdrObject type, std::istream& src, ModelGenerator::CreateOptions const* opts, Guid const& context_id)
+	{
+		// The P3D loader emits one tree per root mesh, so collect them all before building the object hierarchy
+		struct ModelOut :ModelGenerator::IModelOut
+		{
+			ModelTree m_tree;
+			virtual EResult Model(ModelTree&& tree) override
+			{
+				m_tree.insert(m_tree.end(), tree.begin(), tree.end());
+				return EResult::Continue;
+			}
+		} model_out;
+
+		// Create the models, then the object hierarchy
+		ResourceFactory factory(rdr);
+		ModelGenerator::LoadP3DModel(factory, src, model_out, opts);
+		LdrObjectPtr obj(new LdrObject(type, nullptr, context_id), true);
+		ModelTreeToLdr(obj.get(), model_out.m_tree);
+		return obj;
+	}
+
 	// Create an ldr object from a p3d model.
 	LdrObjectPtr CreateP3D(Renderer& rdr, ELdrObject type, std::filesystem::path const& p3d_filepath, ModelGenerator::CreateOptions const* opts, Guid const& context_id)
 	{
-		LdrObjectPtr obj(new LdrObject(type, nullptr, context_id), true);
-
-		struct ModelOut :ModelGenerator::IModelOut
-		{
-			LdrObject* m_obj;
-			ModelOut(LdrObject* obj) :m_obj(obj) {}
-			virtual EResult Model(ModelTree&& tree) override
-			{
-				ModelTreeToLdr(m_obj, tree);
-				return EResult::Continue;
-			}
-		} model_out = { obj.get() };
-
-		// Create the model
-		ResourceFactory factory(rdr);
+		// Read the model from the file
 		std::ifstream src(p3d_filepath, std::ios::binary);
-		ModelGenerator::LoadP3DModel(factory, src, model_out, opts);
-		return obj;
+		return CreateP3D(rdr, type, src, opts, context_id);
 	}
 	LdrObjectPtr CreateP3D(Renderer& rdr, ELdrObject type, std::span<std::byte const> p3d_data, ModelGenerator::CreateOptions const* opts, Guid const& context_id)
 	{
-		LdrObjectPtr obj(new LdrObject(type, nullptr, context_id), true);
-
-		struct ModelOut :ModelGenerator::IModelOut
-		{
-			LdrObject* m_obj;
-			ModelOut(LdrObject* obj) :m_obj(obj) {}
-			virtual EResult Model(ModelTree&& tree) override
-			{
-				ModelTreeToLdr(m_obj, tree);
-				return EResult::Continue;
-			}
-		} model_out = { obj.get() };
-
-		// Create the model
-		ResourceFactory factory(rdr);
+		// Read the model from memory
 		mem_istream<char> src(p3d_data.data(), p3d_data.size());
-		ModelGenerator::LoadP3DModel(factory, src, model_out, opts);
-		return obj;
+		return CreateP3D(rdr, type, src, opts, context_id);
 	}
-
 	// Create an instance of an existing ldr object.
 	LdrObjectPtr CreateInstance(LdrObject const* existing)
 	{
