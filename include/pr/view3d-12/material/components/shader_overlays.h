@@ -32,6 +32,13 @@ namespace pr::rdr12::materials
 	};
 	static_assert(ComponentType<ShaderOverlays>);
 
-	// Apply overlays for the active material render step, optionally accepting only the public procedural vertex contract.
+	// Apply overlays for the active material render step, optionally accepting only the public procedural contract.
 	void ApplyShaderOverlays(MaterialPassContext& ctx, bool procedural_only);
+
+	// Replace a stock forward pixel shader in 'desc' with the entry point of 'family' that has the same output contract.
+	// Throws if the current pixel shader is not an entry point of the stock family that 'family' replaces (see ForwardPixelFamily::m_replaces).
+	void ApplyForwardPixelFamily(PipeStateDesc& desc, ForwardPixelFamily const& family);
+
+	// Return the forward pixel family of the procedural overlay that 'material' applies for 'step', or null if it has none.
+	ForwardPixelFamily const* ProceduralPixelFamily(Material const& material, ERenderStep step);
 }

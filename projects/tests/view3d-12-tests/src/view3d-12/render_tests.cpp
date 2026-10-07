@@ -289,18 +289,6 @@ namespace fade_tests
 			return shader;
 		}
 
-		// Supply a different root signature to prove that incompatible resource bindings fail explicitly.
-		api::Shader UnsupportedRootSignature()
-		{
-			auto shader = CustomShader(true);
-			D3D12_ROOT_SIGNATURE_DESC desc{};
-			ComPtr<ID3DBlob> blob;
-			ComPtr<ID3DBlob> errors;
-			Check(D3D12SerializeRootSignature(&desc, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &errors));
-			Check(m_device->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(shader->m_signature.address_of())));
-			return shader;
-		}
-
 		// Read the completed final image on a separate queue after synchronizing the renderer.
 		std::vector<unsigned char> Image()
 		{
@@ -449,14 +437,15 @@ namespace fade_tests
 		api::Vec4 m_positions[3];
 		api::Vec4 m_colour;
 		api::Vec4 m_normal = {0, 0, 1, 0};
-		std::array<unsigned char, api::ProceduralVertexBinding::ConstantsSize - 5 * sizeof(api::Vec4)> m_padding;
+		std::array<unsigned char, api::ProceduralBinding::ConstantsSize - 5 * sizeof(api::Vec4)> m_padding;
 	};
-	static_assert(sizeof(ProceduralVertexConstants) == api::ProceduralVertexBinding::ConstantsSize);
-	static_assert(sizeof(api::ProceduralVertexBinding) == 40);
-	static_assert(sizeof(api::ShaderOptions) == 80);
+	static_assert(sizeof(ProceduralVertexConstants) == api::ProceduralBinding::ConstantsSize);
+	static_assert(sizeof(api::ProceduralBinding) == 96);
+	static_assert(offsetof(api::ProceduralBinding, m_forward_pixel_model) == 40);
+	static_assert(sizeof(api::ShaderOptions) == 136);
 	static_assert(offsetof(api::ShaderOptions, m_stage) == 8);
 	static_assert(offsetof(api::ShaderOptions, m_bytecode) == 16);
-	static_assert(offsetof(api::ShaderOptions, m_procedural_vertex) == 40);
+	static_assert(offsetof(api::ShaderOptions, m_procedural) == 40);
 
 	// Assert one framebuffer pixel against linear source-over expectations.
 	void Expect(std::vector<unsigned char> const& image, float red, float green, float blue, int x = 64, int y = 64);
@@ -472,7 +461,7 @@ namespace fade_tests
 			.m_bytecode = bytecode,
 			.m_bytecode_size = bytecode_size,
 			.m_dbg_name = "ProceduralVertexAbiTest",
-			.m_procedural_vertex = {
+			.m_procedural = {
 				.m_rdr_step = rdr_step,
 				.m_constants = &constants,
 				.m_constants_size = sizeof(constants),
@@ -856,7 +845,7 @@ namespace fade_tests
 			.m_bytecode = compiled::procedural_vertex_buffer,
 			.m_bytecode_size = sizeof(compiled::procedural_vertex_buffer),
 			.m_dbg_name = "ProceduralVertexBuffer",
-			.m_procedural_vertex = {
+			.m_procedural = {
 				.m_rdr_step = api::ERenderStep::ForwardRender,
 				.m_constants = &constants,
 				.m_constants_size = sizeof(constants),
@@ -874,16 +863,16 @@ namespace fade_tests
 			Require(!fixture.m_errors.empty() && fixture.m_errors.back().find("buffer size") != std::string::npos, "Malformed procedural buffer reported the wrong error");
 		};
 		auto bad = valid;
-		bad.m_procedural_vertex.m_buffer_size = 0;
+		bad.m_procedural.m_buffer_size = 0;
 		expect_error(bad);
 		bad = valid;
-		bad.m_procedural_vertex.m_buffer_size -= 2;
+		bad.m_procedural.m_buffer_size -= 2;
 		expect_error(bad);
 		bad = valid;
-		bad.m_procedural_vertex.m_buffer = nullptr;
+		bad.m_procedural.m_buffer = nullptr;
 		expect_error(bad);
 		bad = valid;
-		bad.m_procedural_vertex.m_buffer_size = api::ProceduralVertexBinding::MaxBufferSize + 4;
+		bad.m_procedural.m_buffer_size = api::ProceduralBinding::MaxBufferSize + 4;
 		expect_error(bad);
 		fixture.m_errors.clear();
 
@@ -925,6 +914,199 @@ namespace fade_tests
 		std::cout << "PASS procedural vertex buffer\n";
 	}
 
+	// Prove a caller-supplied forward pixel family replaces every rasterised forward pixel shader while keeping the stock outputs.
+	void ProceduralPixelFamilyTests()
+	{
+		// The fixture family rotates the stock colour channels (rgb -> gbr), so stock green renders red.
+		Fixture fixture(1);
+		std::cout << "Procedural pixel family\n";
+		std::array<api::ShaderByteCode, api::ProceduralBinding::ForwardPixelCount> family = {{
+			{compiled::procedural_pixel_opaque, sizeof(compiled::procedural_pixel_opaque)},
+			{compiled::procedural_pixel_reflection_attrs, sizeof(compiled::procedural_pixel_reflection_attrs)},
+			{compiled::procedural_pixel_alpha_collect, sizeof(compiled::procedural_pixel_alpha_collect)},
+		}};
+		auto options_at = [&family](float depth, ProceduralVertexConstants& constants)
+		{
+			// Place a large generated triangle at the requested forward depth, covering the sampled centre pixel.
+			constants = ProceduralVertexConstants{
+				.m_positions = {{-40, -40, -depth, 1}, {40, -40, -depth, 1}, {0, 40, -depth, 1}},
+				.m_colour = {0, 1, 0, 1},
+			};
+			auto options = api::ShaderOptions{
+				.m_struct_size = sizeof(api::ShaderOptions),
+				.m_version = api::ShaderOptions::CurrentVersion,
+				.m_stage = api::EShaderStage::Vertex,
+				.m_bytecode = compiled::procedural_vertex_forward,
+				.m_bytecode_size = sizeof(compiled::procedural_vertex_forward),
+				.m_dbg_name = "ProceduralPixelFamilyTest",
+				.m_procedural = {
+					.m_rdr_step = api::ERenderStep::ForwardRender,
+					.m_constants = &constants,
+					.m_constants_size = sizeof(constants),
+				},
+			};
+			std::ranges::copy(family, std::begin(options.m_procedural.m_forward_pixel));
+			return options;
+		};
+
+		// Malformed families fail through the public error callback without publishing a shader.
+		auto expect_shader_error = [&fixture](api::ShaderOptions const& options, std::string_view expected)
+		{
+			// Require both a null handle and the diagnostic for the violated family contract.
+			fixture.m_errors.clear();
+			Require(View3D_ShaderCreate(options) == nullptr, "Malformed procedural pixel family was accepted");
+			Require(!fixture.m_errors.empty() && fixture.m_errors.back().find(expected) != std::string::npos, "Malformed pixel family reported the wrong error");
+		};
+		auto constants = ProceduralVertexConstants{};
+		auto bad = options_at(10, constants);
+		bad.m_procedural.m_forward_pixel[1] = {};
+		expect_shader_error(bad, "all supplied or all omitted");
+		bad = options_at(10, constants);
+		bad.m_procedural.m_rdr_step = api::ERenderStep::ShadowMap;
+		expect_shader_error(bad, "only supported for the ForwardRender");
+		bad = options_at(10, constants);
+		bad.m_procedural.m_forward_pixel[2].m_size = 3;
+		expect_shader_error(bad, "pixel shader bytecode");
+
+		// A pixel-stage shader has no vertex bytecode and requires a forward family.
+		auto pixel_only = options_at(10, constants);
+		pixel_only.m_stage = api::EShaderStage::Pixel;
+		pixel_only.m_bytecode = nullptr;
+		pixel_only.m_bytecode_size = 0;
+		bad = pixel_only;
+		bad.m_bytecode = compiled::procedural_vertex_forward;
+		bad.m_bytecode_size = sizeof(compiled::procedural_vertex_forward);
+		expect_shader_error(bad, "not as vertex bytecode");
+		bad = pixel_only;
+		std::ranges::fill(bad.m_procedural.m_forward_pixel, api::ShaderByteCode{});
+		expect_shader_error(bad, "require a forward pixel family");
+		bad = pixel_only;
+		bad.m_procedural.m_rdr_step = api::ERenderStep::RayCast;
+		expect_shader_error(bad, "only supported for the ForwardRender");
+		fixture.m_errors.clear();
+
+		// Render one generated triangle per case, each with its own copied constants.
+		auto draw = [&](float depth, unsigned tint)
+		{
+			// The geometry contract is the same as the vertex-only fixtures; only the pixel stage differs.
+			fixture.Clear();
+			auto shader_constants = ProceduralVertexConstants{};
+			auto shader = View3D_ShaderCreate(options_at(depth, shader_constants));
+			Require(shader != nullptr, "Procedural pixel family shader creation failed");
+			fixture.m_shaders.push_back(shader);
+			auto placeholder = api::Vertex{};
+			uint32_t indices[] = {70000, 70001, 70002};
+			auto nugget = api::Nugget{};
+			nugget.m_topo = api::ETopo::TriList;
+			nugget.m_geom = api::EGeom::Vert;
+			nugget.m_v1 = 1;
+			nugget.m_cull_mode = api::ECullMode::None;
+			nugget.m_tint = tint;
+			nugget.m_shaders[0] = api::Nugget::Shader{shader, api::ERenderStep::ForwardRender, 0};
+			auto object_options = api::ObjectCreateOptions{
+				.m_struct_size = sizeof(api::ObjectCreateOptions),
+				.m_version = api::ObjectCreateOptions::CurrentVersion,
+				.m_vertex_source = api::EVertexSource::ProceduralVertexId,
+				.m_vcount_logical = 70003,
+				.m_bbox = {{0, 0, -depth, 1}, {40, 40, 0, 0}},
+			};
+			auto object = View3D_ObjectCreateU32("ProceduralPixelFamily", 0xFFFFFFFF, 1, 3, 1, &placeholder, indices, &nugget, object_options, GUID{});
+			Require(object != nullptr, "Procedural pixel family object creation failed");
+			fixture.m_objects.push_back(object);
+			View3D_WindowAddObject(fixture.m_window, object);
+			fixture.CheckErrors();
+			return fixture.Image();
+		};
+
+		// Opaque and transparent materials use the family's opaque and alpha-collect entry points.
+		Expect(draw(10, 0xFFFFFFFF), 1, 0, 0);
+		Expect(draw(10, 0x80FFFFFF), 0.5f, 0, 0);
+
+		// Far-fade variants keep the stock fade: half opacity at 94.5 of 100, multiplied by material opacity.
+		fixture.Fade(true);
+		Expect(draw(94.5f, 0xFFFFFFFF), 0.5f, 0, 0);
+		Expect(draw(94.5f, 0x80FFFFFF), 0.25f, 0, 0);
+		fixture.Fade(false);
+		fixture.CheckErrors();
+
+		// A pixel-only family keeps the stock vertex shader, so it shades an ordinary buffered mesh.
+		fixture.Clear();
+		auto pixel_shader = View3D_ShaderCreate(pixel_only);
+		Require(pixel_shader != nullptr, "Pixel-only procedural shader creation failed");
+		fixture.m_shaders.push_back(pixel_shader);
+		fixture.Quad(10, 0xFFFFFFFF, 45, pixel_shader, 0, 0xFF00FF00);
+		Expect(fixture.Image(), 1, 0, 0);
+		fixture.CheckErrors();
+
+		// The forward pixel model must be one of the published material models.
+		bad = pixel_only;
+		bad.m_procedural.m_forward_pixel_model = static_cast<api::EForwardPixelModel>(7);
+		expect_shader_error(bad, "forward pixel model");
+		fixture.m_errors.clear();
+
+		// A PBR family replaces the stock PBR entry points of a promoted procedural-surface material.
+		std::array<api::ShaderByteCode, api::ProceduralBinding::ForwardPixelCount> pbr_family = {{
+			{compiled::procedural_pixel_pbr_opaque, sizeof(compiled::procedural_pixel_pbr_opaque)},
+			{compiled::procedural_pixel_pbr_reflection_attrs, sizeof(compiled::procedural_pixel_pbr_reflection_attrs)},
+			{compiled::procedural_pixel_pbr_alpha_collect, sizeof(compiled::procedural_pixel_pbr_alpha_collect)},
+		}};
+		auto pbr_options = pixel_only;
+		pbr_options.m_procedural.m_forward_pixel_model = api::EForwardPixelModel::Pbr;
+		std::ranges::copy(pbr_family, std::begin(pbr_options.m_procedural.m_forward_pixel));
+		auto pbr_shader = View3D_ShaderCreate(pbr_options);
+		Require(pbr_shader != nullptr, "PBR procedural pixel family shader creation failed");
+		fixture.m_shaders.push_back(pbr_shader);
+
+		// Render the same flat-coloured procedural surface with and without the PBR family; the family output is the stock output with rotated channels.
+		auto surface = View3D_ProceduralSurfacePreset(api::EProceduralSurfacePreset::Soil);
+		surface.m_colour0 = surface.m_colour1 = surface.m_colour2 = surface.m_colour3 = 0xFF20C040;
+		surface.m_normal_strength = 0.0f;
+		auto draw_surface = [&](api::Shader shader, float depth)
+		{
+			// Promote an ordinary normal-carrying quad to the stock PBR procedural-surface material.
+			fixture.Clear();
+			auto object = fixture.Quad(depth, 0xFFFFFFFF, 45, shader, 0, 0xFFFFFFFF, false, true);
+			View3D_ObjectNuggetProceduralSurfaceSet(object, surface, nullptr, 0);
+			fixture.CheckErrors();
+			return fixture.Image();
+		};
+		auto expect_rotated = [](std::vector<unsigned char> const& image, std::vector<unsigned char> const& stock, float scale)
+		{
+			// Compare in linear colour so the expected values can be scaled by the far-fade opacity.
+			auto pixel = (ImageSize / 2 * ImageSize + ImageSize / 2) * 4;
+			Require(Linear(stock[pixel + 1]) > 0.1f, "Stock PBR procedural surface did not render its colour");
+			Expect(image, scale * Linear(stock[pixel + 1]), scale * Linear(stock[pixel + 2]), scale * Linear(stock[pixel + 0]));
+		};
+		auto stock_image = draw_surface(nullptr, 10);
+		expect_rotated(draw_surface(pbr_shader, 10), stock_image, 1.0f);
+
+		// The PBR family's far-fade variants keep the stock fade: half opacity at 94.5 of 100, matching the faded stock output.
+		fixture.Fade(true);
+		auto stock_faded = draw_surface(nullptr, 94.5f);
+		auto centre = (ImageSize / 2 * ImageSize + ImageSize / 2) * 4;
+		Expect(stock_faded, 0.5f * Linear(stock_image[centre + 0]), 0.5f * Linear(stock_image[centre + 1]), 0.5f * Linear(stock_image[centre + 2]));
+		expect_rotated(draw_surface(pbr_shader, 94.5f), stock_faded, 1.0f);
+		fixture.Fade(false);
+		fixture.CheckErrors();
+
+		// Promotion to PBR rejects a family written for simple materials.
+		fixture.Clear();
+		auto simple_promoted = fixture.Quad(10, 0xFFFFFFFF, 45, pixel_shader, 0, 0xFFFFFFFF, false, true);
+		View3D_ObjectNuggetProceduralSurfaceSet(simple_promoted, surface, nullptr, 0);
+		Require(!fixture.m_errors.empty() && fixture.m_errors.back().find("simple-material procedural pixel shaders") != std::string::npos, "PBR promotion accepted a simple-material pixel family");
+		fixture.m_errors.clear();
+
+		// A PBR family drawn with a simple material fails at render time instead of shading with the wrong material constants.
+		fixture.Clear();
+		fixture.Quad(10, 0xFFFFFFFF, 45, pbr_shader);
+		View3D_WindowRender(fixture.m_window);
+		Require(!fixture.m_errors.empty() && fixture.m_errors.back().find("PBR forward pixel families require") != std::string::npos, "A simple material accepted a PBR pixel family");
+		fixture.m_errors.clear();
+		fixture.Clear();
+		fixture.CheckDebugLayer();
+		std::cout << "PASS procedural pixel family\n";
+	}
+
 	// Exercise the public U32 logical-ID domain, copied shader inputs, raster output, and stock RayCast geometry stage.
 	void ProceduralVertexAbiTests()
 	{
@@ -960,7 +1142,7 @@ namespace fade_tests
 			.m_bytecode = forward_bytecode.data(),
 			.m_bytecode_size = forward_bytecode.size(),
 			.m_dbg_name = "ProceduralVertexAbiValidation",
-			.m_procedural_vertex = {
+			.m_procedural = {
 				.m_rdr_step = api::ERenderStep::ForwardRender,
 				.m_constants = &constants,
 				.m_constants_size = sizeof(constants),
@@ -973,14 +1155,14 @@ namespace fade_tests
 		bad_shader_options.m_version = 1;
 		expect_shader_error(bad_shader_options, "version");
 		bad_shader_options = valid_shader_options;
-		bad_shader_options.m_procedural_vertex.m_constants_size -= 16;
+		bad_shader_options.m_procedural.m_constants_size -= 16;
 		expect_shader_error(bad_shader_options, "1024");
 		bad_shader_options = valid_shader_options;
 		bad_shader_options.m_bytecode_size = 3;
 		expect_shader_error(bad_shader_options, "bytecode");
 
 		// Unsupported stages must not require bytecode or a procedural binding that they do not implement.
-		for (auto stage : {api::EShaderStage::Pixel, api::EShaderStage::Geometry, api::EShaderStage::Hull, api::EShaderStage::Domain, api::EShaderStage::Compute})
+		for (auto stage : {api::EShaderStage::Geometry, api::EShaderStage::Hull, api::EShaderStage::Domain, api::EShaderStage::Compute})
 		{
 			// Allocate the complete current descriptor; null buffers are deliberately irrelevant for this stage.
 			auto unsupported = api::ShaderOptions{
@@ -1910,20 +2092,23 @@ namespace fade_tests
 		View3D_WindowAddObject(fixture.m_window, pbr);
 		Expect(fixture.Image(), 0.5f,0,0);
 
-		// Edge pixels retain the existing single-sample alpha policy even when opaque geometry uses MSAA.
+		// Faded opaque geometry keeps its MSAA edge coverage; the fade scales each resolved edge pixel like an interior pixel.
 		fixture.Clear();
 		fixture.Quad(94.5f, 0xFFFF0000, 31.125f);
 		auto faded_edge = fixture.Image();
 		fixture.Clear();
-		fixture.Quad(89, 0x80FF0000, 31.125f);
-		Require(faded_edge == fixture.Image(), "Fade introduced different coverage from existing alpha");
-		std::cout << "Edge coverage matches existing alpha, MSAA " << samples << std::endl;
+		fixture.Quad(89, 0xFFFF0000, 31.125f);
+		auto solid_edge = fixture.Image();
+		for (auto x = 0; x != ImageSize; ++x)
+			Expect(faded_edge, 0.5f * Linear(solid_edge[(64 * ImageSize + x) * 4 + 0]), 0, 0, x, 64);
 
-		// Source-over ordering is the same whether fading opaque geometry is in front of or behind transparency.
+		std::cout << "Edge coverage fades with MSAA " << samples << std::endl;
+
+		// Faded opaque geometry still writes depth, so it hides farther alpha layers, while nearer layers fade by their own depth.
 		fixture.Clear();
 		fixture.Quad(94.5f, 0xFFFF0000);
 		fixture.Quad(96.75f, 0x800000FF);
-		Expect(fixture.Image(), 0.5f,0,0.0392f);
+		Expect(fixture.Image(), 0.5f,0,0);
 		fixture.Clear();
 		auto front = fixture.Quad(92.25f, 0x800000FF);
 		auto back = fixture.Quad(94.5f, 0xFFFF0000);
@@ -1956,10 +2141,25 @@ namespace fade_tests
 		fixture.Clear();
 		fixture.Fade(true);
 
-		// A plain skybox-group object follows the same exclusion as the procedural sky.
+		// A plain skybox-group object is not faded itself, and faded world geometry blends into it rather than the clear colour.
 		auto sky = fixture.Quad(99.5f, 0xFF0000FF);
 		View3D_ObjectSortGroupSet(sky, api::ESortGroup::Skybox, nullptr);
 		Expect(fixture.Image(), 0,0,1);
+		fixture.Quad(94.5f, 0xFFFF0000);
+		Expect(fixture.Image(), 0.5f,0,0.5f);
+		fixture.Clear();
+
+		// World geometry beyond the fade end is fully replaced by the sky.
+		View3D_WindowAddObject(fixture.m_window, sky);
+		fixture.Quad(99.5f, 0xFF00FF00);
+		Expect(fixture.Image(), 0,0,1);
+		fixture.Clear();
+
+		// Without background objects, faded geometry blends into the window's clear colour.
+		View3D_WindowBackgroundColourSet(fixture.m_window, 0xFFFFFFFF);
+		fixture.Quad(94.5f, 0xFFFF0000);
+		Expect(fixture.Image(), 1,0.5f,0.5f);
+		View3D_WindowBackgroundColourSet(fixture.m_window, 0xFF000000);
 		fixture.Clear();
 		auto post_alpha = fixture.Quad(94.5f, 0xFF0000FF);
 		View3D_ObjectSortGroupSet(post_alpha, api::ESortGroup::PostAlpha, nullptr);
@@ -1994,24 +2194,14 @@ namespace fade_tests
 
 		fixture.CheckDebugLayer();
 
-		// Unsupported custom pixel output is an explicit error, not silently unfaded world geometry.
-		std::cout << "Unsupported pixel rejection" << std::endl;
+		// The fade is a separate pass over the depth buffer, so custom pixel shaders fade without needing a stock pixel family.
+		std::cout << "Custom pixel shader" << std::endl;
 		fixture.Fade(true);
 		fixture.Clear();
 		fixture.Quad(94.5f, 0xFFFF0000, 45, fixture.CustomShader(false));
-		View3D_WindowRender(fixture.m_window);
-		Require(!fixture.m_errors.empty(), "Unsupported pixel shader was silently accepted");
-		Require(fixture.m_errors.back().find("stock forward") != std::string::npos, "Wrong custom shader rejection");
-		fixture.m_errors.clear();
-
-		// A custom vertex stage is supported only when it retains the stock resource-binding contract.
-		fixture.Clear();
-		fixture.Quad(94.5f, 0xFFFF0000, 45, fixture.UnsupportedRootSignature());
-		View3D_WindowRender(fixture.m_window);
-		Require(!fixture.m_errors.empty(), "Unsupported root signature was silently accepted");
-		Require(fixture.m_errors.back().find("forward root signature") != std::string::npos, "Wrong root signature rejection");
-		fixture.m_errors.clear();
-		std::cout << "PASS fade ramp/crossing, camera, material alpha, custom VS, PBR, overlap, coverage, sky/PostAlpha/UI, picking, custom PS/root rejection: MSAA " << samples << '\n';
+		Expect(fixture.Image(), 0.5f,0,0);
+		fixture.CheckErrors();
+		std::cout << "PASS fade ramp/crossing, camera, material alpha, custom VS/PS, PBR, overlap, coverage, sky/clear colour/PostAlpha/UI, picking: MSAA " << samples << '\n';
 	}
 
 	// Validate the RGB override API and GPU output without running the unrelated fade cases.
@@ -2201,16 +2391,14 @@ namespace fade_tests
 		Fixture fixture(samples);
 		for (auto cycle = 0; cycle != 2; ++cycle)
 		{
-			// Existing unsupported world pixels still block opt-in until their scene membership is removed.
+			// Custom pixel shaders do not block enabling the fade, because the fade does not replace pixel shaders.
 			fixture.Fade(false);
 			fixture.Clear();
 			auto custom = fixture.Quad(89, 0xFFFF0000, 45, fixture.CustomShader(false));
 			fixture.Image();
-			Require(!View3D_FarClipFadePropertiesSet(fixture.m_window, api::FarClipFadeProps{TRUE,0.9f,0.99f}), "Existing custom pixel shader was accepted");
-			Require(!fixture.m_errors.empty(), "Unsupported retained draw did not report its rejection");
-			fixture.m_errors.clear();
-			View3D_WindowRemoveObject(fixture.m_window, custom);
 			fixture.Fade(true);
+			fixture.Image();
+			View3D_WindowRemoveObject(fixture.m_window, custom);
 
 			// Sky creation and repeated toggling must preserve its exclusion with populated draw lists.
 			auto sky = View3D_ObjectCreateProceduralSky("HandoffSky", api::ProceduralSkySettings{}, nullptr);
@@ -2222,11 +2410,11 @@ namespace fade_tests
 			Require(sky_image == fixture.Image(), "Scene handoff changed sky pixels");
 			fixture.Fade(true);
 
-			// Both fading opaque and ordinary alpha layers reveal the excluded sky through the same resolve.
+			// Faded opaque geometry blends into the sky by its fade weight and hides the farther alpha layer.
 			fixture.Quad(94.5f, 0xFFFF0000);
 			fixture.Quad(96.75f, 0x800000FF);
 			auto pixel = sky_image.data() + (64 * ImageSize + 64) * 4;
-			Expect(fixture.Image(), 0.5f + 0.4608f * Linear(pixel[0]), 0.4608f * Linear(pixel[1]), 0.0392f + 0.4608f * Linear(pixel[2]));
+			Expect(fixture.Image(), 0.5f + 0.5f * Linear(pixel[0]), 0.5f * Linear(pixel[1]), 0.5f * Linear(pixel[2]));
 			fixture.CheckDebugLayer();
 		}
 
@@ -3085,6 +3273,10 @@ namespace pr::unittests::view3d12
 	{
 		fade_tests::ProceduralVertexAbiTests();
 		fade_tests::ProceduralVertexBufferTests();
+	}
+	PRUnitTest(View3d12_ProceduralPixelFamily, Extended)
+	{
+		fade_tests::ProceduralPixelFamilyTests();
 	}
 	PRUnitTest(View3d12_ProceduralVertexLighting, Extended)
 	{

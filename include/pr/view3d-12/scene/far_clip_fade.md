@@ -26,63 +26,61 @@ The DLL/window accessors delegate to the scene; they do not maintain another cop
 
 ## Rendering contract
 
-Depth is the negative camera-space Z of the fragment's emitted world position, not radial distance.
-The existing scene camera supplies the transform and absolute far plane, so camera motion, projection
-changes, and clip-plane updates automatically change the interval. Opacity is
-`1 - smoothstep(start_fraction * far_depth, end_fraction * far_depth, forward_depth)`.
-It reaches zero before the hardware far plane.
+Depth is the negative camera-space Z of the stored depth sample, not radial distance. The scene camera
+supplies the projection and absolute far plane, so camera motion, projection changes, and clip-plane
+updates automatically change the interval. The fade weight is
+`smoothstep(start_fraction * far_depth, end_fraction * far_depth, forward_depth)`; it reaches one
+before the hardware far plane. The fade is a blend towards the background, not a change in opacity.
+Faded geometry still writes depth and still hides everything behind it.
 
-* Near opaque fragments keep normal depth writes and full coverage.
-* Opaque fragments beyond the fade start are discarded from that pass, then submitted to the existing
-  alpha K-buffer with fade opacity. Their full-coverage source alpha is preserved; PBR cutout masking
-  happens before collection.
-* Ordinary transparent fragments multiply their material opacity by fade opacity. Both kinds of
-  fragments enter the same depth-sorted K-buffer before its one resolve, regardless of submission order.
-  Near opaque depth still rejects hidden layers.
-* Skybox and `PostAlpha` sort groups, and retained UI host passes, are excluded. Background colour is
-  not faded. Shadows and picking remain geometric rather than using visual fade opacity.
+The opaque pass is split at the `Skybox` sort group:
+
+1. Opaque world groups (before `Skybox`) draw normally, with no fade work in their pixel shaders.
+2. A full-screen pass reads the opaque depth buffer for every MSAA sample and computes the fade weight.
+   * With `Skybox` objects present, it writes `1 - fade` into the colour target's alpha channel.
+     The `Skybox` objects are then drawn with a viewport depth range pinned to the fade start depth,
+     so the `LESS_EQUAL` depth test passes only on samples at or beyond the fade start. Their colour
+     blends as `src * (1 - dst_alpha) + dst * dst_alpha`. Empty samples (depth 1) receive the full background.
+   * Without `Skybox` objects, it blends the window clear colour directly by the fade weight.
+3. `PostOpaques` groups draw after the background and are not faded.
+
+Transparent layers stored in the alpha K-buffer multiply their opacity by `1 - fade` when they are
+collected, so they vanish over the same interval. Without a K-buffer, alpha draws are not faded.
+`PreAlpha` and `PostAlpha` groups, and retained UI host passes, are not faded. Shadows and picking
+remain geometric rather than using the visual fade.
 
 Explicit object sort groups survive unrelated flag changes, including visibility, bounds, picking,
 and shadow exclusions. Only changes to `NoZTest`/`NoZWrite` select automatic depth-policy ordering;
 `NoZTest` takes precedence when both are enabled. Disabling both clears that automatic group override.
 The procedural sky therefore keeps its `Skybox` classification when its exclusion flags are applied.
 
-The K-buffer's existing limits also apply to faded opaque coverage: a bounded number of stored
-layers, quantized opacity, and **single-sample alpha coverage**, even when opaque rendering uses MSAA.
-Alpha rejection uses the nearest opaque MSAA depth sample. Thus fade-band silhouettes have the same
-coverage limitations as existing transparency; this feature does not implement per-sample alpha.
+Limitations:
+
+* Opaque `Skybox` objects do not stack: each one blends against the faded scene, not against the others.
+* The fade assumes standard depth (cleared to 1, `LESS` comparisons).
+* The ray-traced reflection attributes still mark faded far pixels as reflective surfaces.
 
 ## Supported pipelines and cost
 
-Stock simple, PBR, and multi-UV PBR pixel families have explicit opt-in opaque, reflection-attribute,
-and alpha-collect variants. Compatible custom vertex stages (including world-position deformation)
-remain supported when they emit the stock forward inputs and retain the stock root signature.
-Unsupported custom pixel shaders, custom root signatures, and unknown material passes fail explicitly
-instead of silently bypassing the fade. A forward alpha K-buffer is required.
+The fade does not depend on the pixel shader that drew the geometry, so every pipeline is supported,
+including custom pixel shaders, custom root signatures, and procedural pixel families. Each forward
+pixel family has only three entry points: opaque, reflection attributes, and alpha collect.
 
-Disabled rendering uses the original pixel entry points and pass count: no fade pixel calculations,
-extra raster passes, or geometry allocations. Enabled rendering adds one linear traversal of the
-existing opaque draw list, reusing its meshes and the existing alpha storage. For rigid stock vertex
-pipelines, conservative existing model bounds suppress near-only recollection. Invalid bounds,
-skinning, custom vertex/geometry/tessellation stages, and non-affine transforms bypass that optimization.
-No mesh copying or per-frame vertex scan is required.
-
-The far-clip fade parameters occupy three otherwise-padding floats in the forward element constants
-(`ElementConstants`, see `forward_cbuf.hlsli`). Rebuild application shaders against the matching headers when deploying
-the updated Native/Gfx package pair.
+Disabled rendering adds no passes and no pixel shader work. Enabled rendering adds one full-screen
+pass that reads the depth buffer per sample, plus one extra draw of the `Skybox` objects. The fade
+range is passed in `CBufFrame::far_fade` (see `forward_cbuf.hlsli`); the K-buffer collect reads it.
 
 ## Validation
 
 Build `projects\tests\view3d-12-tests\view3d-12-tests.vcxproj` with VS 2026, v145, Debug/x64, then
-run its `obj\x64\Debug\view3d-12-tests.exe View3d12_FarClipFade View3d12_SceneHandoff`. The isolated invisible-window fixture uses the freshly
-built DLL and reads rendered pixels at 1x and 4x MSAA. It covers defaults and invalid inputs,
-disabled-image equality, the opacity ramp, crossing primitives, off-axis orthographic/perspective
-depth, camera updates, custom vertex deformation, PBR, material alpha, sorted overlap, opaque
-occlusion, existing alpha edge coverage, sky/PostAlpha exclusions, retained final UI, picking, and
-explicit custom pixel/root-signature rejection. Repeated scene-handoff tests remove a rendered custom-PS
-object, enable fade without an intervening render, and composite world alpha over a real procedural sky.
-They also verify that visibility and exclusion flags preserve sky/overlay sort groups and that depth
-flag transitions retain their automatic ordering. GPU debug-layer errors fail the fixture when the
+run `obj\x64\Debug\view3d-12-tests.exe View3d12_FarClipFadeNumeric View3d12_FarClipFadeRender View3d12_SceneHandoff`.
+The invisible-window fixture uses the freshly built DLL and reads rendered pixels at 1x and 4x MSAA.
+It covers defaults and invalid inputs, disabled-image equality, the fade ramp, crossing primitives,
+off-axis orthographic/perspective depth, camera updates, custom vertex and pixel shaders, PBR,
+K-buffer alpha fading, occlusion of farther alpha by faded opaque geometry, MSAA edge coverage,
+blending into a `Skybox` object and into the clear colour, `PostAlpha` exclusion, retained final UI,
+and picking. Repeated scene-handoff tests blend faded world geometry into a real procedural sky and
+verify that flags preserve sky/overlay sort groups. GPU debug-layer errors fail the fixture when the
 debug interface is available.
 
 Build `projects\rylogic\Rylogic.Gfx\Rylogic.Gfx.csproj` in Debug to run inline managed validation

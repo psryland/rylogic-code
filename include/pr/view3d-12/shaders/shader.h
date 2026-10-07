@@ -21,6 +21,43 @@ namespace pr::rdr12
 		ByteCode CS;
 	};
 
+	// The output contract of one forward pixel-shader entry point. Each forward sub-pass needs a different entry point.
+	enum class EForwardPixelSlot
+	{
+		Opaque,
+		ReflectionAttrs,
+		AlphaCollect,
+	};
+
+	// The set of forward pixel-shader entry points that share one shading function, one per output contract.
+	// See 'pr/view3d-12/shaders/forward_pixel.hlsli' for how a family is written in HLSL.
+	struct ForwardPixelFamily
+	{
+		using ByteCode = ::pr::compute::ByteCode;
+		static constexpr size_t SlotCount = static_cast<size_t>(EForwardPixelSlot::AlphaCollect) + 1;
+		std::array<ByteCode, SlotCount> m_code;
+
+		// The stock family whose entry points this family replaces, or null for a stock family. Its pixel shader identifies the slot to replace.
+		ForwardPixelFamily const* m_replaces;
+
+		// Return the entry point for 'slot'.
+		ByteCode const& operator[](EForwardPixelSlot slot) const
+		{
+			return m_code[static_cast<size_t>(slot)];
+		}
+
+		// Return the slot that holds 'ps', or nothing if 'ps' is not part of this family. Byte code is identified by address and length.
+		std::optional<EForwardPixelSlot> Find(D3D12_SHADER_BYTECODE const& ps) const
+		{
+			for (size_t i = 0; i != m_code.size(); ++i)
+			{
+				if (m_code[i].pShaderBytecode == ps.pShaderBytecode && m_code[i].BytecodeLength == ps.BytecodeLength)
+					return static_cast<EForwardPixelSlot>(i);
+			}
+			return std::nullopt;
+		}
+	};
+
 	// A shader base class
 	struct Shader :RefCounted<Shader>
 	{
@@ -90,23 +127,20 @@ namespace pr::rdr12
 		extern ByteCode const forward_reflection_attrs_texn_pbr_ps;
 		extern ByteCode const forward_alpha_collect_texn_pbr_ps;
 		extern ByteCode const forward_radial_fade_ps;
-
-		// Opt-in forward far-depth output variants.
-		extern ByteCode const forward_far_fade_ps;
-		extern ByteCode const forward_far_fade_pbr_ps;
-		extern ByteCode const forward_far_fade_texn_pbr_ps;
-		extern ByteCode const forward_far_fade_alpha_collect_ps;
-		extern ByteCode const forward_far_fade_alpha_collect_pbr_ps;
-		extern ByteCode const forward_far_fade_alpha_collect_texn_pbr_ps;
-		extern ByteCode const forward_far_fade_reflection_attrs_ps;
-		extern ByteCode const forward_far_fade_reflection_attrs_pbr_ps;
-		extern ByteCode const forward_far_fade_reflection_attrs_texn_pbr_ps;
 	    extern ByteCode const forward_detail_ps;
 	    extern ByteCode const forward_reflection_attrs_detail_ps;
 	    extern ByteCode const forward_alpha_collect_detail_ps;
-	    extern ByteCode const forward_far_fade_detail_ps;
-	    extern ByteCode const forward_far_fade_alpha_collect_detail_ps;
-	    extern ByteCode const forward_far_fade_reflection_attrs_detail_ps;
+
+		// Far clip fade to the background. See scene/far_clip_fade.md.
+		extern ByteCode const background_fade_vs;
+		extern ByteCode const background_fade_weight_ps;
+		extern ByteCode const background_fade_clear_ps;
+
+		// The stock forward pixel families. Each groups the entries above that share one shading function.
+		extern ForwardPixelFamily const forward_family;
+		extern ForwardPixelFamily const forward_pbr_family;
+		extern ForwardPixelFamily const forward_texn_pbr_family;
+		extern ForwardPixelFamily const forward_detail_family;
 
 		// Procedural atmosphere
 		extern ByteCode const procedural_sky_vs;

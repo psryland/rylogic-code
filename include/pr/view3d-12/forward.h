@@ -217,6 +217,7 @@ namespace pr::rdr12
 	struct DrawListElement;
 	struct BackBuffer;
 	struct PipeState;
+	struct PipeStateDesc;
 	struct SortKey;
 
 	// Materials

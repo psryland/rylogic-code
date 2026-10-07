@@ -20,7 +20,7 @@ namespace pr::rdr12
 		using drawlist_t       = vector<DrawListElement, 1024, false, alignof(DrawListElement), Allocator<DrawListElement>>;
 		using drawlist_async_t = AsyncWrap<drawlist_t>;
 		using dl_mutex_t       = std::recursive_mutex;
-		using dl_boundaries    = vector_map<ESortGroup, int, vector<std::pair<ESortGroup, int>, 4, true>>;
+		using dl_boundaries    = vector_map<ESortGroup, int, vector<std::pair<ESortGroup, int>, 8, true>>;
 		using GpuUploadBuffer  = ::pr::compute::GpuUploadBuffer;
 		using GpuSync          = ::pr::compute::GpuSync;
 

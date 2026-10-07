@@ -33,11 +33,11 @@ namespace pr::rdr12
 				continue;
 
 			auto& overlay = *shdr_overlay.m_overlay.get();
-			auto* procedural = dynamic_cast<ProceduralVertexShader*>(&overlay);
+			auto* procedural = dynamic_cast<ProceduralShader*>(&overlay);
 			if (procedural_only && procedural == nullptr)
 				continue;
 			if (procedural != nullptr && procedural->m_rdr_step != ctx.m_step_id)
-				throw std::runtime_error("Procedural vertex shader render-step contract mismatch");
+				throw std::runtime_error("Procedural shader render-step contract mismatch");
 			if (overlay.m_signature)
 			{
 				// A complete legacy overlay owns its signature as well as its shader stages.
@@ -50,6 +50,8 @@ namespace pr::rdr12
 			if (overlay.m_code.DS) ctx.m_pipe_state.Apply(PSO<EPipeState::DS>(overlay.m_code.DS));
 			if (overlay.m_code.HS) ctx.m_pipe_state.Apply(PSO<EPipeState::HS>(overlay.m_code.HS));
 			if (overlay.m_code.GS) ctx.m_pipe_state.Apply(PSO<EPipeState::GS>(overlay.m_code.GS));
+			if (procedural != nullptr && procedural->HasPixelFamily())
+				ApplyForwardPixelFamily(ctx.m_pipe_state, procedural->m_pixel_family);
 
 			// Bind overlay-owned resources after the base material has established its stock root contract.
 			overlay.SetupFrame(ctx.m_cmd_list.get(), ctx.m_upload, ctx.m_scene);
@@ -84,30 +86,39 @@ namespace pr::rdr12
 		m_base_slope_variance = base_slope_variance;
 	}
 
-	// Replace a stock simple-material forward pixel shader in 'desc' with its detail-normal variant. Throws for any other pixel shader.
-	void materials::ApplyDetailNormalsPixelShader(PipeStateDesc& desc)
+	// Replace a stock forward pixel shader in 'desc' with the matching entry point of 'family'.
+	void materials::ApplyForwardPixelFamily(PipeStateDesc& desc, ForwardPixelFamily const& family)
 	{
-		// Map each stock simple-material entry point to the variant that perturbs the normal before calling it.
-		// Far-clip-fade variants are selected later from the detail family, so only the stock sub-pass entries are mapped here.
-		struct Mapping { shader_code::ByteCode const* m_stock; shader_code::ByteCode const* m_detail; };
-		static Mapping const mappings[] =
-		{
-			{ &shader_code::forward_ps, &shader_code::forward_detail_ps },
-			{ &shader_code::forward_reflection_attrs_ps, &shader_code::forward_reflection_attrs_detail_ps },
-			{ &shader_code::forward_alpha_collect_ps, &shader_code::forward_alpha_collect_detail_ps },
-		};
-
+		// The current pixel shader identifies the sub-pass output contract, which selects the replacement slot. It must belong to the stock family that 'family'
+		// replaces, so a family written for one material model cannot shade another.
 		auto const* gfx = static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(desc);
-		for (auto const& mapping : mappings)
-		{
-			// Pixel shaders are identified by their compiled byte code.
-			if (gfx->PS.pShaderBytecode != mapping.m_stock->pShaderBytecode || gfx->PS.BytecodeLength != mapping.m_stock->BytecodeLength)
-				continue;
+		auto slot = family.m_replaces->Find(gfx->PS);
+		if (!slot)
+			throw std::runtime_error(family.m_replaces == &shader_code::forward_pbr_family
+				? "PBR forward pixel families require a stock PBR forward pixel shader without extra texture coordinate streams"
+				: "Simple forward pixel families require a stock simple-material forward pixel shader");
 
-			desc.Apply(PSO<EPipeState::PS>(*mapping.m_detail));
-			return;
+		desc.Apply(PSO<EPipeState::PS>(family[*slot]));
+	}
+
+	// Return the forward pixel family of the procedural overlay that 'material' applies for 'step'.
+	ForwardPixelFamily const* materials::ProceduralPixelFamily(Material const& material, ERenderStep step)
+	{
+		// Later overlays win for repeated stages, so the last matching family is the one in effect.
+		ForwardPixelFamily const* family = nullptr;
+		if (auto const* overlays = material.Component<ShaderOverlays>(); overlays != nullptr)
+		{
+			for (auto const& overlay : overlays->m_overlays)
+			{
+				// Only procedural overlays for this step can supply a family.
+				if (overlay.m_rdr_step != step)
+					continue;
+
+				if (auto const* procedural = dynamic_cast<ProceduralShader const*>(overlay.m_overlay.get()); procedural != nullptr && procedural->HasPixelFamily())
+					family = &procedural->m_pixel_family;
+			}
 		}
-		throw std::runtime_error("Detail normals require a stock simple-material forward pixel shader");
+		return family;
 	}
 
 	namespace
@@ -228,7 +239,7 @@ namespace pr::rdr12
 						// Forward retains all existing overlay behavior. Detail normals then swap in their variant of the resulting stock pixel shader.
 						materials::ApplyShaderOverlays(ctx, false);
 						if (ctx.m_material.Component<materials::DetailNormals>() != nullptr)
-							materials::ApplyDetailNormalsPixelShader(ctx.m_pipe_state);
+							materials::ApplyForwardPixelFamily(ctx.m_pipe_state, shader_code::forward_detail_family);
 
 						ApplyTwoSidedPipeline(ctx);
 						return;

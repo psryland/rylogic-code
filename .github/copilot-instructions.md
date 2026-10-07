@@ -38,6 +38,11 @@ dotnet build projects/rylogic/Rylogic.Core/Rylogic.Core.csproj
 For faster local Visual Studio builds, copy `Directory.Build.user.props.template` to
 `Directory.Build.user.props` and opt into skipping post-build unit tests/package generation there.
 
+`Build.csx` builds all selected projects together, not one at a time. It runs the native phase first and then the managed phase. In each phase it writes
+one solution filter per platform/config to `obj/build/`, restores each filter, and then builds all filters with a single parallel MSBuild invocation.
+Each phase writes a full log (`obj/build/{phase}.log`) and an errors-only log (`obj/build/{phase}.errors.log`). The script exits with a non-zero code
+when any build fails. Run `dotnet-script ./script/Build.csx -project` to list the available projects.
+
 ### Deploy and Publish
 ```powershell
 # Build and deploy to /lib folder

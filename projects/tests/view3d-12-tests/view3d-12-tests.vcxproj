@@ -97,6 +97,8 @@
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_vertex_raycast.hlsl" VertexEntryPoints="procedural_vertex_raycast=VSMain" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_vertex_shadow.hlsl" VertexEntryPoints="procedural_vertex_shadow=VSMain" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_vertex_buffer.hlsl" VertexEntryPoints="procedural_vertex_buffer=VSMain" />
+		<ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_pixel_family.hlsl" PixelEntryPoints="procedural_pixel_opaque=PSRotate;procedural_pixel_reflection_attrs=PSRotateReflectionAttrs;procedural_pixel_alpha_collect=PSRotateAlphaCollect" />
+		<ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_pixel_pbr_family.hlsl" PixelEntryPoints="procedural_pixel_pbr_opaque=PSRotatePbr;procedural_pixel_pbr_reflection_attrs=PSRotatePbrReflectionAttrs;procedural_pixel_pbr_alpha_collect=PSRotatePbrAlphaCollect" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\wave_grid.hlsl" VertexEntryPoints="wave_grid=VSMain" />
 		<None Include="src\view3d-12\shaders\hlsl\procedural_vertex_common.hlsli" />
 	</ItemGroup>

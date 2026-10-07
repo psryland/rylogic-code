@@ -63,6 +63,10 @@ namespace pr::rdr12
 		// Sort by sort key
 		std::sort(std::begin(*drawlist), std::end(*drawlist));
 
+		// Find the background range, which steps such as the far clip fade draw separately.
+		auto skybox = std::lower_bound(drawlist->begin(), drawlist->end(), SortKey(ESortGroup::Skybox));
+		auto post_opaques = std::lower_bound(drawlist->begin(), drawlist->end(), SortKey(ESortGroup::PostOpaques));
+
 		// Find the AlphaFront and AlphaBack range, and sort them by distance from the camera
 		auto alpha_back = std::lower_bound(drawlist->begin(), drawlist->end(), SortKey(ESortGroup::AlphaBack));
 		auto alpha_front = std::lower_bound(drawlist->begin(), drawlist->end(), SortKey(ESortGroup::AlphaFront));
@@ -83,6 +87,8 @@ namespace pr::rdr12
 		});
 
 		// Sorting done
+		m_boundaries[ESortGroup::Skybox] = s_cast<int>(std::distance(drawlist->begin(), skybox));
+		m_boundaries[ESortGroup::PostOpaques] = s_cast<int>(std::distance(drawlist->begin(), post_opaques));
 		m_boundaries[ESortGroup::AlphaBack] = s_cast<int>(std::distance(drawlist->begin(), alpha_back));
 		m_boundaries[ESortGroup::AlphaFront] = s_cast<int>(std::distance(drawlist->begin(), alpha_front));
 		m_boundaries[ESortGroup::PostAlpha] = s_cast<int>(std::distance(drawlist->begin(), alpha_end));

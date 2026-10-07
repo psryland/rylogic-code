@@ -33,9 +33,9 @@ namespace view3d_test
 			api::Vec4 m_grid;      // x = vertices per side, y = side length
 			api::Vec4 m_colour_lo; // Colour at the wave troughs
 			api::Vec4 m_colour_hi; // Colour at the wave crests
-			std::array<unsigned char, api::ProceduralVertexBinding::ConstantsSize - 4 * sizeof(api::Vec4)> m_padding;
+			std::array<unsigned char, api::ProceduralBinding::ConstantsSize - 4 * sizeof(api::Vec4)> m_padding;
 		};
-		static_assert(sizeof(WaveGridConstants) == api::ProceduralVertexBinding::ConstantsSize);
+		static_assert(sizeof(WaveGridConstants) == api::ProceduralBinding::ConstantsSize);
 
 		// A grid whose vertices are computed each frame by a vertex shader, from the vertex index and a few animation constants
 		struct WaveGridDemo :IDemo
@@ -73,7 +73,7 @@ namespace view3d_test
 					.m_bytecode = compiled::wave_grid,
 					.m_bytecode_size = sizeof(compiled::wave_grid),
 					.m_dbg_name = "WaveGrid",
-					.m_procedural_vertex = {
+					.m_procedural = {
 						.m_rdr_step = api::ERenderStep::ForwardRender,
 						.m_constants = &m_constants,
 						.m_constants_size = sizeof(m_constants),
