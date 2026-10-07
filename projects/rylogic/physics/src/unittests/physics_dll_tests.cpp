@@ -85,6 +85,8 @@ namespace pr::unittests
 			decltype(&Physics_AtmosphereFloorTemperaturesSet) AtmosphereFloorTemperaturesSet;
 			decltype(&Physics_AtmosphereOutsideAirSet) AtmosphereOutsideAirSet;
 			decltype(&Physics_AtmosphereTracersCopy) AtmosphereTracersCopy;
+			decltype(&Physics_AtmosphereTracersAcquire) AtmosphereTracersAcquire;
+			decltype(&Physics_AtmosphereTracersRelease) AtmosphereTracersRelease;
 			decltype(&Physics_AtmosphereCellStatesCopy) AtmosphereCellStatesCopy;
 
 			PhysicsApi()
@@ -151,6 +153,8 @@ namespace pr::unittests
 				, AtmosphereFloorTemperaturesSet(m_module.Proc<decltype(AtmosphereFloorTemperaturesSet)>("Physics_AtmosphereFloorTemperaturesSet"))
 				, AtmosphereOutsideAirSet(m_module.Proc<decltype(AtmosphereOutsideAirSet)>("Physics_AtmosphereOutsideAirSet"))
 				, AtmosphereTracersCopy(m_module.Proc<decltype(AtmosphereTracersCopy)>("Physics_AtmosphereTracersCopy"))
+				, AtmosphereTracersAcquire(m_module.Proc<decltype(AtmosphereTracersAcquire)>("Physics_AtmosphereTracersAcquire"))
+				, AtmosphereTracersRelease(m_module.Proc<decltype(AtmosphereTracersRelease)>("Physics_AtmosphereTracersRelease"))
 				, AtmosphereCellStatesCopy(m_module.Proc<decltype(AtmosphereCellStatesCopy)>("Physics_AtmosphereCellStatesCopy"))
 			{}
 		};
@@ -1533,16 +1537,34 @@ namespace pr::unittests
 				}
 			}
 
-			// Tracer copies are allowed from any thread and report finite particles.
+			// Tracer copies require the owner thread and report finite particles.
 			auto particles = std::vector<AtmosphereTracerParticle>(64);
 			auto copied = EStatus::InternalError;
 			std::thread([&]
 			{
 				copied = api.AtmosphereTracersCopy(fix.m_engine, atmosphere, particles.data(), static_cast<std::uint32_t>(particles.size()), &required);
 			}).join();
-			PR_EXPECT(copied == EStatus::Success);
+			PR_EXPECT(copied == EStatus::WrongThread);
+			PR_EXPECT(api.AtmosphereTracersCopy(fix.m_engine, atmosphere, particles.data(), static_cast<std::uint32_t>(particles.size()), &required) == EStatus::Success);
 			for (auto const& p : particles)
 				PR_EXPECT(std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z) && std::isfinite(p.temperature));
+
+			// The published GPU slot can be held across steps, which write other slots, and is released without a fence when no GPU reads it.
+			{
+				auto slot = AtmosphereTracerSlot{};
+				PR_EXPECT(api.AtmosphereTracersAcquire(fix.m_engine, atmosphere, nullptr) == EStatus::InvalidArgument);
+				PR_EXPECT(api.AtmosphereTracersAcquire(fix.m_engine, atmosphere, &slot) == EStatus::Success);
+				PR_EXPECT(slot.resource != nullptr && slot.count == 64U && slot.stride == sizeof(AtmosphereGpuTracerParticle));
+				for (auto i = 0; i != 6; ++i)
+				{
+					// Each step must find a free slot while one is held.
+					PR_EXPECT(api.AtmosphereBeginStep(fix.m_engine, atmosphere, &step) == EStatus::Success);
+					PR_EXPECT(api.AtmosphereCompleteStep(fix.m_engine, atmosphere) == EStatus::Success);
+				}
+				PR_EXPECT(api.AtmosphereTracersRelease(fix.m_engine, atmosphere, slot.slot, nullptr, 0) == EStatus::Success);
+				PR_EXPECT(api.AtmosphereTracersRelease(fix.m_engine, atmosphere, slot.slot, nullptr, 0) == EStatus::InvalidArgument);
+				static_cast<IUnknown*>(slot.resource)->Release();
+			}
 
 			// Heated air near the source is warmer than the reference, and the statistics describe a finite field.
 			auto stats = AtmosphereStats{ .header = {sizeof(AtmosphereStats), PHYSICS_STRUCT_VERSION} };

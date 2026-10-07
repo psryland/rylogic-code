@@ -572,8 +572,8 @@ namespace pr::rdr12
 		model->m_ray_tracing.Invalidate(model->rdr());
 	}
 
-	// Replace the constants of every procedural vertex shader used by the nuggets of 'object'.
-	void Context::ObjectProceduralConstants(ldraw::LdrObject* object, std::span<std::byte const> constants)
+	// Apply 'apply' to every procedural shader used by the nuggets of 'object's own model. Throws if there are none.
+	static void ForEachProceduralShader(ldraw::LdrObject* object, std::function<void(ProceduralShader&)> const& apply)
 	{
 		// Only the object's own model is updated; children keep their own shaders.
 		auto& model = object->m_model;
@@ -583,24 +583,46 @@ namespace pr::rdr12
 		auto updated = 0;
 		for (auto* nugget = model->m_nuggets.get(); nugget != nullptr; nugget = nugget->m_next.get())
 		{
-			// Overlay shaders are shared by reference, so each shader receives the same block exactly as the caller supplied it.
+			// Overlay shaders are shared by reference, so each shader receives the same value exactly as the caller supplied it.
 			auto const* overlays = nugget->mat().Component<materials::ShaderOverlays>();
 			if (overlays == nullptr)
 				continue;
 
 			for (auto const& overlay : overlays->m_overlays)
 			{
-				// Ignore ordinary overlays that do not consume the procedural constants block.
+				// Ignore ordinary overlays that are not procedural.
 				auto* procedural = dynamic_cast<ProceduralShader*>(overlay.m_overlay.get());
 				if (procedural == nullptr)
 					continue;
 
-				procedural->Constants(constants);
+				apply(*procedural);
 				++updated;
 			}
 		}
 		if (updated == 0)
 			throw std::invalid_argument("Object has no procedural shaders");
+	}
+
+	// Replace the constants of every procedural vertex shader used by the nuggets of 'object'.
+	void Context::ObjectProceduralConstants(ldraw::LdrObject* object, std::span<std::byte const> constants)
+	{
+		// Each shader validates the exact constants size.
+		ForEachProceduralShader(object, [&](ProceduralShader& shader)
+		{
+			// Draws recorded after this use the new block.
+			shader.Constants(constants);
+		});
+	}
+
+	// Replace the buffer of every procedural shader used by the nuggets of 'object'.
+	void Context::ObjectProceduralBuffer(ldraw::LdrObject* object, D3DPtr<ID3D12Resource> buffer)
+	{
+		// Each shader holds its own reference to the buffer.
+		ForEachProceduralShader(object, [&](ProceduralShader& shader)
+		{
+			// Draws recorded after this bind the new buffer.
+			shader.Buffer(buffer);
+		});
 	}
 
 	// Replace the detail-normal layers of every nugget of 'object' that has detail normals.

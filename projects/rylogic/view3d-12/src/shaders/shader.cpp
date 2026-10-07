@@ -112,6 +112,14 @@ namespace pr::rdr12
 		std::copy(constants.begin(), constants.end(), m_constants.begin());
 	}
 
+	// Replace the buffer bound by later draws.
+	void ProceduralShader::Buffer(D3DPtr<ID3D12Resource> buffer)
+	{
+		// Frames already recorded may still read the old buffer, so its release waits for them.
+		rdr().DeferRelease(m_buffer);
+		m_buffer = buffer;
+	}
+
 	// Bind the copied constants and optional buffer through the render-step-specific reserved root slots.
 	void ProceduralShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const&, CameraTransforms const&, DrawListElement const*)
 	{

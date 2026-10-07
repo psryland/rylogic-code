@@ -80,6 +80,9 @@ namespace pr::rdr12
 		// Replace the constants of every procedural vertex shader on the nuggets of 'object'.
 		void ObjectProceduralConstants(ldraw::LdrObject* object, std::span<std::byte const> constants);
 
+		// Replace the buffer of every procedural shader on the nuggets of 'object', or unbind it with null.
+		void ObjectProceduralBuffer(ldraw::LdrObject* object, D3DPtr<ID3D12Resource> buffer);
+
 		// Replace the detail-normal layers of every nugget of 'object' that has detail normals.
 		void ObjectDetailNormalLayers(ldraw::LdrObject* object, std::span<materials::DetailNormalLayer const> layers, float base_slope_variance);
 

@@ -213,16 +213,14 @@ public sealed class TestPhysics
 		Assert.True(stats.MaxSpeed > 0);
 		ExpectStatus(EStatus.BufferTooSmall, () => atmosphere.CopyCellStates(cells.AsSpan(1)));
 
-		// Tracers are readable from a worker thread; mutation from a worker is rejected before reaching native code.
+		// Tracer reads and mutation from a worker thread are rejected before reaching native code.
 		var particles = new AtmosphereTracerParticle[atmosphere.TracerCount];
-		var copied = 0;
 		Exception? worker_failure = null;
 		var worker = new Thread(() =>
 		{
 			try
 			{
-				copied = atmosphere.CopyTracers(particles);
-				atmosphere.CompleteStep();
+				atmosphere.CopyTracers(particles);
 			}
 			catch (Exception ex)
 			{
@@ -231,10 +229,24 @@ public sealed class TestPhysics
 		});
 		worker.Start();
 		worker.Join();
-		Assert.Equal(64, copied);
 		Assert.True(worker_failure is InvalidOperationException);
+		var copied = atmosphere.CopyTracers(particles);
+		Assert.Equal(64, copied);
 		Assert.True(Array.TrueForAll(particles, p => p.m_z >= 0 && p.m_z <= 4));
 		Assert.True(Array.TrueForAll(particles, p => !(p.m_x < 1 && p.m_y < 1)));
+
+		// A held GPU tracer buffer survives later steps, and each acquire is released exactly once.
+		var slot = atmosphere.AcquireTracers();
+		Assert.Equal(64, slot.Count);
+		Assert.Equal(32, slot.Stride);
+		for (var step = 0; step != 4; ++step)
+		{
+			atmosphere.BeginStep(0.1f, heat_sources: heat);
+			atmosphere.CompleteStep();
+		}
+		atmosphere.ReleaseTracers(slot.Slot, null, 0);
+		ExpectStatus(EStatus.InvalidArgument, () => atmosphere.ReleaseTracers(slot.Slot, null, 0));
+		slot.Buffer.Dispose();
 
 		// Floors must match the column count; atmospheres block checkpoint restore and are released with their engine.
 		ExpectStatus(EStatus.InvalidArgument, () => atmosphere.SetFloors(new float[3]));

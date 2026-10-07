@@ -277,10 +277,16 @@ namespace pr::rdr12
 		}
 
 		// Signal the deferred-deletion fence on the gfx queue.
-		// Call this after submitting GPU work that may reference deferred resources.
-		void AddDeferredSyncPoint()
+		// Call this after submitting GPU work that may reference deferred resources. Returns the value the fence reaches when that work finishes.
+		uint64_t AddDeferredSyncPoint()
 		{
-			m_gsync.AddSyncPoint(GfxQueue());
+			return m_gsync.AddSyncPoint(GfxQueue());
+		}
+
+		// The fence that the gfx queue signals at each sync point.
+		ID3D12Fence* GfxQueueFence()
+		{
+			return m_gsync.m_fence.get();
 		}
 		void FlushDeferredReleases()
 		{

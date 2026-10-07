@@ -192,6 +192,35 @@ public readonly struct AtmosphereTracerParticle
 	}
 }
 
+/// <summary>
+/// A held GPU tracer buffer from <see cref="Atmosphere.AcquireTracers"/>. 'Buffer' is a raw buffer of 'Count' records, 'Stride' (32) bytes apart:
+/// world position x, y, z (m) and w = 1, air temperature (K), age (s), the air speed that last moved the particle (m/s), and padding.
+/// Pass 'Slot' to <see cref="Atmosphere.ReleaseTracers"/> when the GPU reads are submitted.
+/// </summary>
+public readonly struct AtmosphereTracerSlot
+{
+	/// <summary>Adopt a held slot.</summary>
+	internal AtmosphereTracerSlot(Rylogic.D3D12.ResourceLease buffer, int slot, int count, int stride)
+	{
+		Buffer = buffer;
+		Slot = slot;
+		Count = count;
+		Stride = stride;
+	}
+
+	/// <summary>The held GPU buffer. The caller disposes it.</summary>
+	public Rylogic.D3D12.ResourceLease Buffer { get; }
+
+	/// <summary>The ring slot to pass to <see cref="Atmosphere.ReleaseTracers"/>.</summary>
+	public int Slot { get; }
+
+	/// <summary>The number of particle records in the buffer.</summary>
+	public int Count { get; }
+
+	/// <summary>The byte size of one particle record.</summary>
+	public int Stride { get; }
+}
+
 /// <summary>The air at one cell centre: velocity (m/s, averaged from the cell faces) and temperature (K).</summary>
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct AtmosphereCellState

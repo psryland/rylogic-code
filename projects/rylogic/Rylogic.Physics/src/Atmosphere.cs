@@ -4,7 +4,7 @@ namespace Rylogic.Physics;
 
 /// <summary>
 /// Owns one engine-owned GPU air solver and its optional tracer particles. The atmosphere runs on its engine's device with its own compute queue
-/// and steps independently of the engine step. Every member except <see cref="CopyTracers"/> must run on the engine's owner thread.
+/// and steps independently of the engine step. Every member must run on the engine's owner thread.
 /// The atmosphere is destroyed with its engine and is not part of engine checkpoints.
 /// </summary>
 public sealed class Atmosphere :IDisposable
@@ -146,15 +146,47 @@ public sealed class Atmosphere :IDisposable
 
 	/// <summary>
 	/// Copy the tracer particles from the last finished step, or from creation, into 'particles', which needs room for <see cref="TracerCount"/>.
-	/// Any thread may call this; the copy is ordered against the owner thread finishing a step. Returns the particle count.
+	/// Reads the GPU back, so it blocks and requires no step in flight. Prefer <see cref="AcquireTracers"/> for display. Returns the particle count.
 	/// </summary>
 	public unsafe int CopyTracers(Span<AtmosphereTracerParticle> particles)
 	{
+		Engine.EnsureOwner();
 		fixed (AtmosphereTracerParticle* particle_ptr = particles)
 		{
 			Native.Check(Native.Physics_AtmosphereTracersCopy(Engine.Handle, Handle, particle_ptr, checked((uint)particles.Length), out var required));
 			return checked((int)required);
 		}
+	}
+
+	/// <summary>
+	/// Hold the GPU buffer of the tracer particles from the last finished step, or from creation, so later steps do not write it. At most two slots can be
+	/// held at once, and a step fails while it has no free buffer to write. The caller disposes the returned buffer lease and calls <see cref="ReleaseTracers"/>
+	/// once for each acquire. May be called while a step is in flight.
+	/// </summary>
+	public unsafe AtmosphereTracerSlot AcquireTracers()
+	{
+		// The native call returns an owned COM reference, which the lease adopts.
+		Engine.EnsureOwner();
+		var slot = default(Native.AtmosphereTracerSlot);
+		Native.Check(Native.Physics_AtmosphereTracersAcquire(Engine.Handle, Handle, &slot));
+		return new AtmosphereTracerSlot(new Rylogic.D3D12.ResourceLease(slot.m_resource), slot.m_slot, checked((int)slot.m_count), checked((int)slot.m_stride));
+	}
+
+	/// <summary>
+	/// Release one hold on 'slot'. 'fence' reaches 'value' when the caller's GPU reads of the slot have finished; pass null when they already have.
+	/// The step that next writes the slot waits for the fence on the GPU, so this never blocks.
+	/// </summary>
+	public void ReleaseTracers(int slot, Rylogic.D3D12.FenceLease? fence, ulong value)
+	{
+		// The fence is pinned only for the call; the atmosphere takes its own reference.
+		Engine.EnsureOwner();
+		if (fence == null)
+		{
+			Native.Check(Native.Physics_AtmosphereTracersRelease(Engine.Handle, Handle, slot, IntPtr.Zero, 0));
+			return;
+		}
+		using var borrowed = fence.Borrow();
+		Native.Check(Native.Physics_AtmosphereTracersRelease(Engine.Handle, Handle, slot, borrowed.Handle, value));
 	}
 
 	/// <summary>Read the whole field back from the GPU into 'cells', which needs room for <see cref="CellCount"/>, and return its diagnostics. Blocks; requires no step in flight.</summary>

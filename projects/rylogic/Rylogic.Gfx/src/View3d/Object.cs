@@ -658,6 +658,22 @@ namespace Rylogic.Gfx
 			}
 
 			/// <summary>
+			/// Replace the buffer of every procedural shader on this object's own nuggets, or unbind it with null. Later frames bind the new buffer.
+			/// The shaders take their own references. The caller keeps the buffer contents valid until the frames that use them have finished on the
+			/// graphics queue (see View3d.AddGfxQueueSyncPoint). A shader that declares the buffer must not be drawn while none is bound.</summary>
+			public void ProceduralBufferSet(Rylogic.D3D12.ResourceLease? buffer)
+			{
+				// The pointer is pinned only for the call; View3D adds its own reference.
+				if (buffer == null)
+				{
+					View3D_ObjectProceduralBufferSet(Handle, IntPtr.Zero);
+					return;
+				}
+				using var borrowed = buffer.Borrow();
+				View3D_ObjectProceduralBufferSet(Handle, borrowed.Handle);
+			}
+
+			/// <summary>
 			/// Get/Set the colour of this object or the first child object that matches 'name'.
 			/// 'base_colour', if true returns the objects base colour, if false, returns the current colour.
 			/// If 'name' is null, then the state change is applied to this object only

@@ -117,6 +117,16 @@ internal static unsafe partial class Native
 		private int m_reserved;
 	}
 
+	[StructLayout(LayoutKind.Sequential)]
+	internal struct AtmosphereTracerSlot
+	{
+		internal IntPtr m_resource;
+		internal int m_slot;
+		internal uint m_count;
+		internal uint m_stride;
+		private uint m_reserved;
+	}
+
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereCreate(ulong engine, AtmosphereDesc* desc, out ulong atmosphere);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereDestroy(ulong engine, ulong atmosphere);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereBeginStep(ulong engine, ulong atmosphere, AtmosphereStepDesc* step);
@@ -126,5 +136,7 @@ internal static unsafe partial class Native
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereFloorTemperaturesSet(ulong engine, ulong atmosphere, float* floor_temperatures, int count);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereOutsideAirSet(ulong engine, ulong atmosphere, AtmosphereOutsideAir* outside_air, int count);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereTracersCopy(ulong engine, ulong atmosphere, AtmosphereTracerParticle* particles, uint capacity, out uint required);
+	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereTracersAcquire(ulong engine, ulong atmosphere, AtmosphereTracerSlot* slot);
+	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereTracersRelease(ulong engine, ulong atmosphere, int slot, IntPtr fence, ulong value);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereCellStatesCopy(ulong engine, ulong atmosphere, AtmosphereCellState* cells, uint capacity, out uint required, AtmosphereStats* stats);
 }

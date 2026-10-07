@@ -128,14 +128,7 @@ namespace pr::physics::atmosphere
 		};
 
 		// GPU tracer particle layout. Must match TracerParticle in atmosphere.hlsl.
-		struct GpuTracerParticle
-		{
-			v4 m_position;
-			float m_temperature;
-			float m_age;
-			float m_speed;
-			float m_pad;
-		};
+		using GpuTracerParticle = AtmosphereTracers::GpuParticle;
 
 		// Create a structured UAV buffer in the requested default state.
 		template <typename Type> D3DPtr<ID3D12Resource> CreateBuffer(Gpu& gpu, GpuJob& job, int count, char const* name)
@@ -1550,12 +1543,27 @@ namespace pr::physics::atmosphere
 	// Private implementation for GPU tracer particles.
 	struct AtmosphereTracers::Impl
 	{
+		// A GPU wait that must pass before a released slot is written again.
+		struct PendingRead
+		{
+			D3DPtr<ID3D12Fence> m_fence;
+			uint64_t m_value;
+		};
+
+		// Consumer state of one ring slot.
+		struct SlotState
+		{
+			int m_holds = 0;
+			std::vector<PendingRead> m_reads;
+		};
+
 		AtmosphereSolver& m_solver;
 		Gpu& m_gpu;
 		AtmosphereTracerConfig m_config;
 		ComputeStep m_initialise;
 		ComputeStep m_advect;
-		D3DPtr<ID3D12Resource> m_particles[2];
+		D3DPtr<ID3D12Resource> m_particles[SlotCount];
+		SlotState m_slots[SlotCount];
 		GpuReadbackBuffer::Allocation m_pending_readback; // Destination of the last recorded particle copy, valid until resolved
 		int m_current;
 		uint32_t m_frame;
@@ -1568,6 +1576,7 @@ namespace pr::physics::atmosphere
 			, m_initialise()
 			, m_advect()
 			, m_particles{}
+			, m_slots{}
 			, m_pending_readback()
 			, m_current(0)
 			, m_frame(0)
@@ -1597,11 +1606,14 @@ namespace pr::physics::atmosphere
 				return step;
 			};
 
-			// Allocate both ping-pong buffers, then fill them deterministically.
+			// Allocate the ring of particle buffers, then fill the first written slot deterministically.
 			m_initialise = make_step(L"CSInitialiseTracers", "Initialise");
 			m_advect = make_step(L"CSAdvectTracers", "Advect");
-			for (int slot = 0; slot != 2; ++slot)
-				m_particles[slot] = CreateBuffer<GpuTracerParticle>(m_gpu, m_gpu.m_job, m_config.m_particle_count, slot == 0 ? "Atmosphere:Tracer0" : "Atmosphere:Tracer1");
+			for (int slot = 0; slot != SlotCount; ++slot)
+			{
+				auto name = std::format("Atmosphere:Tracer{}", slot);
+				m_particles[slot] = CreateBuffer<GpuTracerParticle>(m_gpu, m_gpu.m_job, m_config.m_particle_count, name.c_str());
+			}
 			Initialise(m_gpu.m_job);
 			m_gpu.m_job.RetireRecordedWork();
 		}
@@ -1629,7 +1641,7 @@ namespace pr::physics::atmosphere
 		void Dispatch(GpuJob& job, ComputeStep& step, CBufAtmosphere const& cb, CBufAtmosphereTracers const& tracer_cb, int src, int dst)
 		{
 			// The solver buffers are read-only here; only the tracer output buffer is written. Transition each binding into the state its root descriptor requires.
-			assert(src != dst && "Ping-pong particles cannot be bound as both input and output");
+			assert(src != dst && "Tracer slots cannot be bound as both input and output");
 			auto const solver_src = m_solver.m_impl->m_current;
 			job.m_barriers
 				.Transition(m_particles[dst].get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
@@ -1656,27 +1668,56 @@ namespace pr::physics::atmosphere
 			job.m_cmd_list.Dispatch(dispatch_x, 1, 1);
 		}
 
-		// Insert a UAV barrier for the tracer ping-pong buffers.
-		void Barrier(GpuJob& job)
+		// Choose the slot that the next tracer dispatch writes, and make 'job's queue wait for consumers that have released it.
+		int NextSlot(GpuJob& job)
+		{
+			// Any slot that is neither current nor held may be written. The current slot is the next dispatch's input.
+			for (int i = 1; i != SlotCount; ++i)
+			{
+				auto const slot = (m_current + i) % SlotCount;
+				auto& state = m_slots[slot];
+				if (state.m_holds != 0)
+					continue;
+
+				// A queue wait applies to every later submission on the queue, including the one that will contain this dispatch.
+				for (auto& read : state.m_reads)
+					Check(job.m_queue->Wait(read.m_fence.get(), read.m_value));
+
+				state.m_reads.clear();
+				return slot;
+			}
+			throw std::logic_error("Every atmosphere tracer slot is in use; release a held slot before stepping");
+		}
+
+		// Insert a UAV barrier for the tracer slot just written.
+		void Barrier(GpuJob& job, int slot)
 		{
 			// The next tracer dispatch may read the buffer just written.
-			for (auto const& resource : m_particles)
-				job.m_barriers.UAV(resource.get());
+			job.m_barriers.UAV(m_particles[slot].get());
 			job.m_barriers.Commit();
 		}
 
 		// Reset all tracer particles to deterministic domain positions.
 		void Initialise(GpuJob& job)
 		{
-			// Write both slots so the first advect has no hidden dependency on old data. The initialise kernel does not read 'src'.
+			// The initialise kernel does not read 'src', so one written slot is enough.
+			auto const dst = NextSlot(job);
 			++m_frame;
 			auto cb = m_solver.m_impl->Constants(0.0f, 0, 0);
 			auto tracer_cb = TracerConstants();
-			Dispatch(job, m_initialise, cb, tracer_cb, 1, 0);
-			Barrier(job);
-			Dispatch(job, m_initialise, cb, tracer_cb, 0, 1);
-			Barrier(job);
-			m_current = 0;
+			Dispatch(job, m_initialise, cb, tracer_cb, m_current, dst);
+			Barrier(job, dst);
+			m_current = dst;
+		}
+
+		// Return 'slot' after checking that it names a ring buffer.
+		static int RequireSlot(int slot)
+		{
+			// Slot indices come from callers, so reject values outside the ring.
+			if (slot < 0 || slot >= SlotCount)
+				throw std::out_of_range("Atmosphere tracer slot index is out of range");
+
+			return slot;
 		}
 	};
 
@@ -1711,15 +1752,49 @@ namespace pr::physics::atmosphere
 		if (!std::isfinite(dt) || dt < 0.0f)
 			throw std::invalid_argument("Atmosphere tracer dt must be finite and non-negative");
 
-		// Ping-pong particle state so the kernel reads a stable previous particle set.
-		++m_impl->m_frame;
+		// Read the current slot so the kernel sees a stable previous particle set, and write a slot no consumer is reading.
 		auto src = m_impl->m_current;
-		auto dst = 1 - src;
+		auto dst = m_impl->NextSlot(job);
+		++m_impl->m_frame;
 		auto cb = m_impl->m_solver.m_impl->Constants(dt, 0, 0);
 		auto tracer_cb = m_impl->TracerConstants();
 		m_impl->Dispatch(job, m_impl->m_advect, cb, tracer_cb, src, dst);
-		m_impl->Barrier(job);
+		m_impl->Barrier(job, dst);
 		m_impl->m_current = dst;
+	}
+
+	// Return the index of the slot written by the last recorded 'Initialise' or 'Advect'.
+	int AtmosphereTracers::CurrentSlot() const
+	{
+		// Steps record in order, so the last recorded write is the newest particle set.
+		return m_impl->m_current;
+	}
+
+	// Return the particle buffer of 'slot'.
+	ID3D12Resource* AtmosphereTracers::Slot(int slot) const
+	{
+		// The ring buffers live as long as the tracer set.
+		return m_impl->m_particles[Impl::RequireSlot(slot)].get();
+	}
+
+	// Prevent later steps from writing 'slot' until it is released.
+	void AtmosphereTracers::Hold(int slot)
+	{
+		// Holds are counted so independent consumers can share a slot.
+		++m_impl->m_slots[Impl::RequireSlot(slot)].m_holds;
+	}
+
+	// Release one hold on 'slot', recording when the consumer's GPU reads finish.
+	void AtmosphereTracers::Release(int slot, ID3D12Fence* fence, uint64_t value)
+	{
+		// A release must match a hold, or a slot still being read could be written.
+		auto& state = m_impl->m_slots[Impl::RequireSlot(slot)];
+		if (state.m_holds == 0)
+			throw std::logic_error("Atmosphere tracer slot is not held");
+
+		--state.m_holds;
+		if (fence != nullptr)
+			state.m_reads.push_back(Impl::PendingRead{ .m_fence = D3DPtr<ID3D12Fence>(fence, true), .m_value = value });
 	}
 
 	// Read all particles after all previously recorded tracer work in 'job' has completed.

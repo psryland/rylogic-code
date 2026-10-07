@@ -586,6 +586,87 @@ namespace pr::physics::tests
 				PR_EXPECT(Inside(config, particle));
 		}
 
+		// Copy one tracer slot to the CPU, whether or not it is current.
+		static std::vector<AtmosphereTracers::GpuParticle> ReadSlot(GpuJob& job, AtmosphereTracers const& tracers, int slot)
+		{
+			// Copy through the job's read back heap and wait, so the copy is complete when returned.
+			auto const count = tracers.Config().m_particle_count;
+			auto* resource = tracers.Slot(slot);
+			job.m_barriers.Transition(resource, D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+			auto buffer = job.m_readback.Alloc<AtmosphereTracers::GpuParticle>(count);
+			job.m_cmd_list.CopyBufferRegion(buffer, resource, 0);
+			job.m_barriers.Transition(resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+			job.Run();
+			auto const* src = buffer.ptr<AtmosphereTracers::GpuParticle>();
+			return std::vector<AtmosphereTracers::GpuParticle>(src, src + count);
+		}
+
+		PRUnitTestMethod(HeldSlotsAreNotWritten, Quick)
+		{
+			// Steps must never write a held slot, must wait on the GPU for a released fence value, and must fail when no slot is free.
+			auto gpu = Gpu{};
+			auto job = GpuJob{ gpu.m_gpu, "AtmosphereTracerTests.HeldSlots", 0xFF00AAFF, 1 };
+			auto config = Config();
+			auto solver = AtmosphereSolver{ gpu, config };
+			auto tracers = AtmosphereTracers{ solver, gpu, AtmosphereTracerConfig{ .m_particle_count = 256, .m_seed = 99u, .m_max_age = 0.01f } };
+
+			// Hold the initial slot, then step many times. The short maximum age respawns every particle, so a write to the held slot would change it.
+			auto const held = tracers.CurrentSlot();
+			auto const before = ReadSlot(job, tracers, held);
+			tracers.Hold(held);
+			for (int i = 0; i != 2 * AtmosphereTracers::SlotCount; ++i)
+			{
+				// Every step writes some other slot.
+				tracers.Advect(job, 0.02f);
+				PR_EXPECT(tracers.CurrentSlot() != held);
+			}
+			job.Run();
+
+			// Holding the remaining non-current slots leaves nothing to write.
+			auto const current = tracers.CurrentSlot();
+			auto others = std::vector<int>{};
+			for (int slot = 0; slot != AtmosphereTracers::SlotCount; ++slot)
+			{
+				// Hold every slot that is neither current nor already held.
+				if (slot == current || slot == held)
+					continue;
+
+				tracers.Hold(slot);
+				others.push_back(slot);
+			}
+			PR_THROWS(tracers.Advect(job, 0.02f), std::logic_error);
+
+			// Release one slot with an unsignalled fence. The step that writes it must not finish until the fence is signalled from the CPU.
+			auto fence = D3DPtr<ID3D12Fence>{};
+			Check(gpu.m_gpu.device()->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), (void**)fence.address_of()));
+			tracers.Release(others[0], fence.get(), 1);
+			tracers.Advect(job, 0.02f);
+			PR_EXPECT(tracers.CurrentSlot() == others[0]);
+			auto handle = job.Submit();
+			std::this_thread::sleep_for(std::chrono::milliseconds(50));
+			PR_EXPECT(job.m_gsync.CompletedSyncPoint() < handle.m_sync_point);
+			Check(fence->Signal(1));
+			job.Complete(handle);
+
+			// Release the remaining holds. A release without a matching hold is a caller error.
+			tracers.Release(held, nullptr, 0);
+			for (auto slot : others)
+			{
+				// The first of 'others' was already released above.
+				if (slot != others[0])
+					tracers.Release(slot, nullptr, 0);
+			}
+			PR_THROWS(tracers.Release(held, nullptr, 0), std::logic_error);
+
+			// The held slot still has its original contents.
+			auto const after = ReadSlot(job, tracers, held);
+			for (int i = 0; i != isize(before); ++i)
+			{
+				// Compare the raw records, so any write would be detected.
+				PR_EXPECT(std::memcmp(&before[i], &after[i], sizeof(before[i])) == 0);
+			}
+		}
+
 		PRUnitTestMethod(StretchedSolidBoxWithHeat, Quick)
 		{
 			// A closed box with stretched layers, a heat source, and thousands of tracers should keep every tracer inside the domain.

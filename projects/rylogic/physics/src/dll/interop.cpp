@@ -266,8 +266,8 @@ namespace pr::physics
 			atmosphere::AtmosphereSolver m_solver;
 			std::unique_ptr<atmosphere::AtmosphereTracers> m_tracers;
 
-			// Tracer particles from the last finished step, or from creation.
-			std::vector<atmosphere::AtmosphereTracerParticle> m_particles;
+			// The tracer slot holding the particles from the last finished step, or from creation. A step in flight writes a different slot.
+			int m_published_slot;
 
 			// The step in flight on the GPU, if any.
 			GpuJob::RunHandle m_pending;
@@ -276,14 +276,14 @@ namespace pr::physics
 				: m_gpu(device)
 				, m_solver(m_gpu, std::move(config), shader_cache)
 				, m_tracers()
-				, m_particles()
+				, m_published_slot(-1)
 				, m_pending()
 			{
 				// Tracers are optional so field-only atmospheres pay no particle cost.
 				if (tracers.m_particle_count > 0)
 				{
 					m_tracers = std::make_unique<atmosphere::AtmosphereTracers>(m_solver, m_gpu, tracers, shader_cache);
-					m_particles = m_tracers->ReadBack(m_gpu.m_job);
+					m_published_slot = m_tracers->CurrentSlot();
 				}
 			}
 			AtmosphereRecord(AtmosphereRecord&&) = delete;
@@ -315,12 +315,12 @@ namespace pr::physics
 				return m_gpu.m_job.m_gsync.CompletedSyncPoint() >= m_pending.m_sync_point;
 			}
 
-			// Wait for the submitted step, then publish its tracer particles.
+			// Wait for the submitted step, then publish the tracer slot it wrote.
 			void FinishStep()
 			{
 				m_gpu.m_job.Complete(m_pending);
 				if (m_tracers)
-					m_particles = m_tracers->ResolveReadBack();
+					m_published_slot = m_tracers->CurrentSlot();
 			}
 		};
 
@@ -3942,10 +3942,8 @@ extern "C"
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
 			}
 			if (object.m_tracers)
-			{
 				object.m_tracers->Advect(job, s.dt);
-				object.m_tracers->RecordReadBack(job);
-			}
+
 			object.m_pending = job.Submit();
 		});
 	}
@@ -4074,21 +4072,29 @@ extern "C"
 	{
 		return pr::physics::ApiCall([&]
 		{
-			// Any thread may copy: the engine lock orders this read against the owner publishing a finished step.
+			// The read back uses the atmosphere's queue, so it requires the owner thread and no step in flight.
 			auto scope = pr::physics::EngineScope(engine);
 			auto& record = *scope;
+			pr::physics::RequireOwner(record);
 			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
+			if (object.Pending())
+				throw pr::physics::ApiException(PhysicsStatus::StepPending, "Atmosphere tracers cannot be read while a step is in flight");
 			if (required == nullptr)
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Tracer required-count pointer is null");
 
-			auto const count = static_cast<std::uint32_t>(object.m_particles.size());
+			// Report the size before the read back so a sizing call does not touch the GPU.
+			auto const count = object.m_tracers ? static_cast<std::uint32_t>(object.m_tracers->Config().m_particle_count) : 0U;
 			*required = count;
 			if (capacity < count || (count != 0 && particles == nullptr))
 				throw pr::physics::ApiException(PhysicsStatus::BufferTooSmall, "Tracer buffer is too small");
+			if (count == 0)
+				return;
 
+			// No step is in flight, so the current slot is the published one.
+			auto const source = object.m_tracers->ReadBack(object.m_gpu.m_job);
 			for (auto i = std::uint32_t{}; i != count; ++i)
 			{
-				auto const& p = object.m_particles[i];
+				auto const& p = source[i];
 				particles[i] = pr::physics::AtmosphereTracerParticle{
 					.x = p.m_position.x,
 					.y = p.m_position.y,
@@ -4097,6 +4103,58 @@ extern "C"
 					.age = p.m_age,
 					.speed = p.m_speed,
 				};
+			}
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_AtmosphereTracersAcquire(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereTracerSlot* slot)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			// Holding the published slot is safe while a step is in flight, because that step reads it and writes another slot.
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
+			if (slot == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Tracer slot pointer is null");
+			if (!object.m_tracers)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere has no tracers");
+
+			// Hold before handing out the reference, so the hold and the COM reference are both owned by the caller on return.
+			auto const index = object.m_published_slot;
+			auto* resource = object.m_tracers->Slot(index);
+			object.m_tracers->Hold(index);
+			resource->AddRef();
+			*slot = pr::physics::AtmosphereTracerSlot{
+				.resource = resource,
+				.slot = index,
+				.count = static_cast<std::uint32_t>(object.m_tracers->Config().m_particle_count),
+				.stride = static_cast<std::uint32_t>(sizeof(pr::physics::AtmosphereGpuTracerParticle)),
+				.reserved = 0,
+			};
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_AtmosphereTracersRelease(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, std::int32_t slot, void* fence, std::uint64_t value)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			// The next step that writes the slot makes its queue wait for the fence, so no CPU wait is needed here.
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
+			if (!object.m_tracers)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere has no tracers");
+
+			try
+			{
+				object.m_tracers->Release(slot, static_cast<ID3D12Fence*>(fence), value);
+			}
+			catch (std::logic_error const& ex)
+			{
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
 			}
 		});
 	}

@@ -138,6 +138,36 @@ VIEW3D_API void* __stdcall View3D_DeviceLeaseAcquire(DllHandle context)
 	CatchAndReport(View3D_DeviceLeaseAcquire, , nullptr);
 }
 
+// Hand out an owned reference to the fence that the graphics queue signals at sync points.
+VIEW3D_API void* __stdcall View3D_GfxQueueFenceAcquire(DllHandle context)
+{
+	try
+	{
+		DllLockGuard;
+		if (!Dll().m_inits.contains(context))
+			throw std::runtime_error("Invalid View3D context");
+
+		auto* fence = Dll().rdr().GfxQueueFence();
+		fence->AddRef();
+		return fence;
+	}
+	CatchAndReport(View3D_GfxQueueFenceAcquire, , nullptr);
+}
+
+// Signal the graphics queue fence after all work submitted so far, and return the value it will reach.
+VIEW3D_API uint64_t __stdcall View3D_GfxQueueSyncPointAdd(DllHandle context)
+{
+	try
+	{
+		DllLockGuard;
+		if (!Dll().m_inits.contains(context))
+			throw std::runtime_error("Invalid View3D context");
+
+		return Dll().rdr().AddDeferredSyncPoint();
+	}
+	CatchAndReport(View3D_GfxQueueSyncPointAdd, , 0);
+}
+
 // Query the removal reason while pinning the process-global context against concurrent shutdown.
 VIEW3D_API HRESULT __stdcall View3D_DeviceRemovedReasonGet(DllHandle context)
 {
@@ -2288,6 +2318,19 @@ VIEW3D_API void __stdcall View3D_ObjectProceduralConstantsSet(view3d::Object obj
 		Dll().ObjectProceduralConstants(object, std::span(static_cast<std::byte const*>(constants), constants_size));
 	}
 	CatchAndReport(View3D_ObjectProceduralConstantsSet, , );
+}
+
+// Replace the buffer of every procedural shader used by an object's nuggets.
+VIEW3D_API void __stdcall View3D_ObjectProceduralBufferSet(view3d::Object object, void* buffer)
+{
+	try
+	{
+		// The shaders take their own references, so the caller keeps ownership of its reference.
+		Validate(object);
+		DllLockGuard;
+		Dll().ObjectProceduralBuffer(object, D3DPtr<ID3D12Resource>(static_cast<ID3D12Resource*>(buffer), true));
+	}
+	CatchAndReport(View3D_ObjectProceduralBufferSet, , );
 }
 
 // Create objects given in an ldraw string or file.

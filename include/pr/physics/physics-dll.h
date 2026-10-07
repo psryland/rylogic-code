@@ -386,6 +386,28 @@ namespace pr::physics
 	};
 	static_assert(sizeof(AtmosphereTracerParticle) == 24);
 
+	// One atmosphere tracer particle as stored in a GPU tracer slot: world position (m, w = 1), air temperature (K), age (s), the air speed that last
+	// moved it (m/s), and padding. HLSL readers of a slot buffer use this 32-byte layout.
+	struct AtmosphereGpuTracerParticle
+	{
+		float x, y, z, w;
+		float temperature, age, speed;
+		float reserved;
+	};
+	static_assert(sizeof(AtmosphereGpuTracerParticle) == 32);
+
+	// A held GPU tracer slot. 'resource' is an owned ID3D12Resource COM reference that the caller releases exactly once with IUnknown::Release.
+	// It is a buffer of 'count' AtmosphereGpuTracerParticle records, 'stride' bytes apart, on the engine's device.
+	struct AtmosphereTracerSlot
+	{
+		void* resource;
+		std::int32_t slot;
+		std::uint32_t count;
+		std::uint32_t stride;
+		std::uint32_t reserved;
+	};
+	static_assert(sizeof(AtmosphereTracerSlot) == 24);
+
 	// The air at one cell centre: velocity (m/s, averaged from the cell faces) and temperature (K).
 	struct AtmosphereCellState
 	{
@@ -978,8 +1000,8 @@ extern "C"
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_CheckpointRead(pr::physics::EngineHandle engine, void const* buffer, std::uint64_t size);
 
 	// Engine-owned atmosphere solvers. Each atmosphere runs on the engine's device with its own compute queue, steps independently of the engine
-	// step, and is destroyed with its engine. Atmospheres are not part of native checkpoints. All calls except Physics_AtmosphereTracersCopy
-	// are owner-thread only. Creation compiles the solver kernels and blocks until the air is at rest on the reference profile.
+	// step, and is destroyed with its engine. Atmospheres are not part of native checkpoints. All calls are owner-thread only.
+	// Creation compiles the solver kernels and blocks until the air is at rest on the reference profile.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereCreate(pr::physics::EngineHandle engine, pr::physics::AtmosphereDesc const* desc, pr::physics::AtmosphereHandle* atmosphere);
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereDestroy(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere);
 
@@ -1003,8 +1025,18 @@ extern "C"
 	// The values are copied and used from the next step.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereOutsideAirSet(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereOutsideAir const* outside_air, std::int32_t count);
 
-	// Copy the tracer particles from the last finished step, or from creation. 'required' is the particle count.
+	// Read the tracer particles from the last finished step, or from creation, back from the GPU. 'required' is the particle count.
+	// Blocks; requires no step in flight. For display, prefer reading the GPU buffers directly with Physics_AtmosphereTracersAcquire.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereTracersCopy(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereTracerParticle* particles, std::uint32_t capacity, std::uint32_t* required);
+
+	// Hold the GPU buffer of the tracer particles from the last finished step, or from creation, so that later steps do not write it. Tracers
+	// advance through a small ring of buffers, so at most two slots can be held at once; a step fails while it has no free buffer to write.
+	// The buffer may be read on any queue of the engine's device until the matching Physics_AtmosphereTracersRelease. Fails if the atmosphere has no tracers.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereTracersAcquire(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereTracerSlot* slot);
+
+	// Release one hold on 'slot'. 'fence' is an ID3D12Fence that reaches 'value' when the caller's GPU reads of the slot have finished, or null when
+	// they already have. The step that next writes the slot waits for the fence on the GPU, so this call never blocks.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereTracersRelease(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere, std::int32_t slot, void* fence, std::uint64_t value);
 
 	// Read the whole field back from the GPU and copy the cell-centre states, packed by layer, then row, then column (x fastest).
 	// 'required' is the cell count and 'stats' is optional. Blocks; requires no step in flight.

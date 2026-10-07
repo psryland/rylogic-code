@@ -332,9 +332,26 @@ namespace pr::physics::atmosphere
 	};
 
 	// GPU tracer particle set that advects through an AtmosphereSolver field.
+	// Particles live in a ring of 'SlotCount' GPU buffers. Each 'Initialise' or 'Advect' writes a new slot, which then becomes the current slot.
+	// Other GPU consumers, such as a renderer on another queue, may read a slot directly: 'Hold' the slot so that later steps do not write it, then
+	// 'Release' it with a fence value that is signalled when the consumer's reads have finished. Each slot buffer is an array of 'GpuParticle'.
 	class AtmosphereTracers
 	{
 	public:
+		// The number of particle buffers in the ring. One is current and the step writes one, so at most 'SlotCount - 2' slots can be held.
+		static constexpr int SlotCount = 4;
+
+		// GPU layout of one particle in a slot buffer.
+		struct GpuParticle
+		{
+			v4 m_position;       // world position, w = 1
+			float m_temperature; // air temperature at the particle, K
+			float m_age;         // seconds since the particle last spawned
+			float m_speed;       // air speed that moved the particle in the last step, m/s
+			float m_pad;
+		};
+		static_assert(sizeof(GpuParticle) == 32);
+
 		// Create GPU buffers for deterministic tracer particles associated with 'solver'.
 		// Tracers that leave the domain re-enter through open sides where the solved wind flows inward, roughly in proportion to the local inflow.
 		// Tracers that exceed their maximum age, or leave when no side has inflow, respawn anywhere in the domain.
@@ -347,11 +364,26 @@ namespace pr::physics::atmosphere
 		// Return the immutable tracer configuration.
 		AtmosphereTracerConfig const& Config() const;
 
-		// Reset all particles to deterministic positions inside the solver domain.
+		// Reset all particles to deterministic positions inside the solver domain. Writes a new current slot; see 'Advect'.
 		void Initialise(GpuJob& job);
 
 		// Advect all particles through the solver's current velocity and temperature fields.
+		// The result is written to a slot that is neither current nor held, which then becomes current. If that slot was released with a fence,
+		// 'job's queue waits on the GPU for the fence value before running later submissions. Throws if every non-current slot is held.
 		void Advect(GpuJob& job, float dt);
+
+		// Return the index of the slot that holds the particles written by the last recorded 'Initialise' or 'Advect'.
+		int CurrentSlot() const;
+
+		// Return the particle buffer of 'slot'. The buffer holds 'Config().m_particle_count' 'GpuParticle' records.
+		ID3D12Resource* Slot(int slot) const;
+
+		// Prevent later steps from writing 'slot' until it is released. A slot may be held more than once; each hold needs its own release.
+		void Hold(int slot);
+
+		// Release one hold on 'slot'. 'fence' and 'value' identify when the consumer's GPU reads finish; a null 'fence' means they already have.
+		// The next step that writes the slot waits on the GPU for every fence value released since the slot was last written.
+		void Release(int slot, ID3D12Fence* fence, uint64_t value);
 
 		// Read all particles after all previously recorded tracer work in 'job' has completed. Blocks until 'job' has run.
 		std::vector<AtmosphereTracerParticle> ReadBack(GpuJob& job);
