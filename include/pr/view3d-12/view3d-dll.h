@@ -169,6 +169,12 @@ namespace pr
 			Object,
 			World,
 		};
+		// How a normal map's samples are interpreted (see View3D_ObjectNuggetNormalMapSet).
+		enum class ENormalMapSpace :int
+		{
+			Tangent,
+			Model,
+		};
 		enum class EStockShader : int // rdr12::EStockShader
 		{
 			Invalid = 0,
@@ -869,18 +875,20 @@ namespace pr
 		// Versioned extended-object descriptor with an explicit vertex source and authoritative model-space bounds.
 		struct ObjectCreateOptions
 		{
-			static constexpr int CurrentVersion = 1;
+			static constexpr int CurrentVersion = 2;
 
 			int m_struct_size;
 			int m_version;
 			EVertexSource m_vertex_source;  // Selects supplied buffered vertices, procedural logical IDs, or a one-time generated vertex buffer.
 			int m_vcount_logical;           // Positive logical ID limit for ProceduralVertexId; every U32 index must be below this count.
 			BBox m_bbox;                    // Required finite bounds when positions are not supplied through the public vertex array.
-			void const* m_compute_bytecode; // GpuGeneratedBuffer compute bytecode using b0 and u0 RWStructuredBuffer<View3DVertex>.
+			void const* m_compute_bytecode; // GpuGeneratedBuffer compute bytecode using b0, u0 RWStructuredBuffer<View3DVertex>, and t0 when input is supplied.
 			size_t m_compute_bytecode_size;
 			void const* m_constants;        // GpuGeneratedBuffer immutable constants copied for the dispatch.
 			size_t m_constants_size;
 			int m_thread_group_size_x;      // GpuGeneratedBuffer numthreads X dimension used to derive the dispatch count.
+			void const* m_input;            // Optional GpuGeneratedBuffer input copied to a GPU buffer and bound as a root SRV at t0 for the dispatch only.
+			size_t m_input_size;            // Size of 'm_input' in bytes. A nonzero multiple of 4 when 'm_input' is supplied, otherwise zero.
 		};
 		struct WindowOptions
 		{
@@ -1692,6 +1700,12 @@ extern "C"
 	VIEW3D_API BOOL __stdcall View3D_ObjectNuggetProceduralSurfaceGet(pr::view3d::Object object, pr::view3d::ProceduralSurface& surface, char const* name, int index);
 	VIEW3D_API void __stdcall View3D_ObjectNuggetProceduralSurfaceSet(pr::view3d::Object object, pr::view3d::ProceduralSurface const& surface, char const* name, int index);
 	VIEW3D_API void __stdcall View3D_ObjectNuggetProceduralSurfaceClear(pr::view3d::Object object, char const* name, int index);
+
+	// Set or remove the normal map of a nugget, promoting the nugget to a PBR material if needed. The map is sampled with the nugget's first
+	// texture coordinate, and its red and green channels hold X and Y encoded as (n + 1) / 2, scaled by 'scale'. Tangent maps perturb the vertex
+	// normal using a frame derived from the UVs. Model maps hold model-space normals with Z rebuilt as non-negative, so they replace the vertex
+	// normal and suit height fields facing model +Z; the nugget must still have vertex normals. Set 'tex' and 'sam' to null to remove the map.
+	VIEW3D_API void __stdcall View3D_ObjectNuggetNormalMapSet(pr::view3d::Object object, pr::view3d::Texture tex, pr::view3d::Sampler sam, pr::view3d::ENormalMapSpace space, float scale, char const* name, int index);
 
 	// Detail normals tilt a simple material's normals with world-projected layers of a tileable slope map. The map's red and green channels hold
 	// the height slope along u and v, encoded as (slope + 1) / 2, and the blue channel holds (slope_u² + slope_v²) / 2, so mip filtering keeps

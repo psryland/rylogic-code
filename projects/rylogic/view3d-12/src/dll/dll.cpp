@@ -16,6 +16,7 @@
 #include "pr/view3d-12/ldraw/ldraw_ui_script_editor.h"
 #include "pr/view3d-12/model/model.h"
 #include "pr/view3d-12/material/components/detail_normals.h"
+#include "pr/view3d-12/material/components/normal_map.h"
 #include "pr/view3d-12/material/components/procedural_surface.h"
 #include "pr/view3d-12/resource/stock_resources.h"
 #include "pr/view3d-12/resource/resource_factory.h"
@@ -2259,6 +2260,8 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateU32(char const* name, vie
 				// Supplied and procedural-placeholder sources require their declared public vertex array.
 				if (vcount != 0 && verts == nullptr)
 					throw std::invalid_argument("Object vertex buffer pointer is null for a nonempty range");
+				if (options.m_input != nullptr || options.m_input_size != 0)
+					throw std::invalid_argument("Only GPU-generated objects accept generator input");
 				break;
 			}
 			case view3d::EVertexSource::GpuGeneratedBuffer:
@@ -2268,6 +2271,8 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateU32(char const* name, vie
 					throw std::invalid_argument("GPU-generated objects require nonempty vertex, index, and nugget ranges");
 				if (verts != nullptr)
 					throw std::invalid_argument("GPU-generated objects do not accept a CPU vertex buffer");
+				if ((options.m_input == nullptr) != (options.m_input_size == 0) || options.m_input_size % 4 != 0)
+					throw std::invalid_argument("GPU-generated object input must be null with zero size, or a nonempty multiple of 4 bytes");
 				break;
 			}
 			default:
@@ -3350,6 +3355,43 @@ VIEW3D_API void __stdcall View3D_ObjectNuggetProceduralSurfaceClear(view3d::Obje
 		object->NuggetProceduralSurface(nullptr, name, index);
 	}
 	CatchAndReport(View3D_ObjectNuggetProceduralSurfaceClear, ,);
+}
+
+// Set or remove the normal map of a model nugget.
+VIEW3D_API void __stdcall View3D_ObjectNuggetNormalMapSet(view3d::Object object, view3d::Texture tex, view3d::Sampler sam, view3d::ENormalMapSpace space, float scale, char const* name, int index)
+{
+	// Validate the public values before replacing the immutable renderer material.
+	try
+	{
+		Validate(object);
+		if ((tex == nullptr) != (sam == nullptr))
+			throw std::invalid_argument("A normal map requires both a texture and a sampler, or neither");
+		if (!std::isfinite(scale))
+			throw std::invalid_argument("Normal map scale must be finite");
+
+		auto map_space = materials::ENormalMapSpace::Tangent;
+		switch (space)
+		{
+			case view3d::ENormalMapSpace::Tangent:
+			{
+				map_space = materials::ENormalMapSpace::Tangent;
+				break;
+			}
+			case view3d::ENormalMapSpace::Model:
+			{
+				map_space = materials::ENormalMapSpace::Model;
+				break;
+			}
+			default:
+			{
+				throw std::invalid_argument("Unknown normal map space");
+			}
+		}
+
+		DllLockGuard;
+		object->NuggetNormalMap(tex, sam, map_space, scale, name, index);
+	}
+	CatchAndReport(View3D_ObjectNuggetNormalMapSet, ,);
 }
 
 // Set or remove the detail-normal slope map of a simple-material model nugget.

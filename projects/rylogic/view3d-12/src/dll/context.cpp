@@ -32,14 +32,17 @@ namespace pr::rdr12
 	{
 		// Run a caller-compiled vertex generator over every record of a UAV-capable canonical vertex buffer, then block until it completes.
 		// The b0 constants are copied for the dispatch, and the u0 RWStructuredBuffer<View3DVertex> retains its previous contents, so shaders may update records in place.
+		// When 'input' is nonempty it is copied to a GPU buffer and bound as a root SRV at t0; otherwise the root signature has no t0.
 		// The buffer rests in the vertex-buffer state afterwards.
-		void DispatchVertexGenerator(ResourceFactory& factory, ID3D12Resource* vertex_buffer, int64_t vertex_count, std::span<uint8_t const> bytecode, std::span<std::byte const> constants, int thread_group_size_x)
+		void DispatchVertexGenerator(ResourceFactory& factory, ID3D12Resource* vertex_buffer, int64_t vertex_count, std::span<uint8_t const> bytecode, std::span<std::byte const> constants, std::span<std::byte const> input, int thread_group_size_x)
 		{
 			// Validate the dispatch contract before recording GPU work.
 			if (bytecode.empty())
 				throw std::invalid_argument("Vertex generator compute bytecode is required");
 			if (constants.empty() || constants.size() > D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * 16ULL)
 				throw std::invalid_argument("Vertex generator constants must contain 1 to 65536 bytes");
+			if (input.size() % 4 != 0)
+				throw std::invalid_argument("Vertex generator input must be a multiple of 4 bytes");
 			if (thread_group_size_x <= 0 || thread_group_size_x > D3D12_CS_THREAD_GROUP_MAX_THREADS_PER_GROUP)
 				throw std::invalid_argument("Vertex generator thread-group size is invalid");
 			if (vertex_count <= 0)
@@ -50,14 +53,25 @@ namespace pr::rdr12
 			if (!AllSet(vertex_buffer->GetDesc().Flags, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
 				throw std::invalid_argument("Vertex generator requires a GPU-generated vertex buffer");
 
-			// Bind the fixed b0/u0 contract. The pipeline is not retained because generation is rare compared to drawing.
-			auto root_signature = compute::RootSig(compute::ERootSigFlags::ComputeOnly)
+			// Bind the fixed b0/u0 contract, plus t0 for input. The pipeline is not retained because generation is rare compared to drawing.
+			auto root_signature_desc = compute::RootSig(compute::ERootSigFlags::ComputeOnly)
 				.CBuf(hlsl::ECBufReg::b0)
-				.UAV(hlsl::EUAVReg::u0)
-				.Create(factory.d3d(), "Vertex generator root signature");
+				.UAV(hlsl::EUAVReg::u0);
+			if (!input.empty())
+				root_signature_desc.SRV(hlsl::ESRVReg::t0);
+			auto root_signature = root_signature_desc.Create(factory.d3d(), "Vertex generator root signature");
 			auto pipeline = compute::ComputePSO(root_signature.get(), bytecode).Create(factory.d3d(), "Vertex generator pipeline");
 			auto cbuf = factory.UploadBuffer().Alloc(s_cast<int>(constants.size()), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
 			std::memcpy(cbuf.m_mem + cbuf.m_ofs, constants.data(), constants.size());
+
+			// Copy the input into a default-heap buffer. The blocking flush below keeps it alive until the dispatch completes.
+			D3DPtr<ID3D12Resource> input_buffer;
+			if (!input.empty())
+			{
+				auto input_desc = ResDesc::Buf(s_cast<int64_t>(input.size() / 4), 4, input, 4)
+					.def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+				input_buffer = factory.CreateResource(input_desc, "Vertex generator input");
+			}
 
 			// Expose the buffer for writing. Earlier frames that draw from it were submitted to the same queue, so they complete first.
 			auto& command_list = factory.CmdList();
@@ -69,6 +83,8 @@ namespace pr::rdr12
 			command_list.SetComputeRootSignature(root_signature.get());
 			command_list.SetComputeRootConstantBufferView(0, cbuf.m_res->GetGPUVirtualAddress() + cbuf.m_ofs);
 			command_list.SetComputeRootUnorderedAccessView(1, vertex_buffer->GetGPUVirtualAddress());
+			if (input_buffer != nullptr)
+				command_list.SetComputeRootShaderResourceView(2, input_buffer->GetGPUVirtualAddress());
 			command_list.Dispatch(s_cast<UINT>(group_count), 1, 1);
 
 			// Make all generated records visible to the input assembler and retain that as the resting state.
@@ -546,7 +562,8 @@ namespace pr::rdr12
 		// Fill every canonical vertex exactly once before publishing the model.
 		auto const bytecode = std::span(static_cast<uint8_t const*>(options.m_compute_bytecode), options.m_compute_bytecode_size);
 		auto const constants = std::span(static_cast<std::byte const*>(options.m_constants), options.m_constants_size);
-		DispatchVertexGenerator(factory, vertex_buffer.get(), vertex_count, bytecode, constants, options.m_thread_group_size_x);
+		auto const input = std::span(static_cast<std::byte const*>(options.m_input), options.m_input_size);
+		DispatchVertexGenerator(factory, vertex_buffer.get(), vertex_count, bytecode, constants, input, options.m_thread_group_size_x);
 
 		// Publish an ordinary object only after the generated buffer is complete.
 		auto object = ldraw::LdrObjectPtr(new ldraw::LdrObject(ldraw::ELdrObject::Custom, nullptr, context_id), true);
@@ -566,7 +583,7 @@ namespace pr::rdr12
 			throw std::invalid_argument("Object has no model to regenerate");
 
 		ResourceFactory factory(m_rdr);
-		DispatchVertexGenerator(factory, model->m_vb.get(), model->m_vcount, bytecode, constants, thread_group_size_x);
+		DispatchVertexGenerator(factory, model->m_vb.get(), model->m_vcount, bytecode, constants, {}, thread_group_size_x);
 
 		// Acceleration structures were built from the previous vertex contents.
 		model->m_ray_tracing.Invalidate(model->rdr());

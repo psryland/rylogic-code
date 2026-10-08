@@ -59,6 +59,7 @@ namespace fade_tests::compiled
 	#include "procedural_pixel_pbr_reflection_attrs.h"
 	#include "procedural_pixel_pbr_alpha_collect.h"
 	#include "unsupported_pixel.h"
+	#include "generated_vertex_input.h"
 }
 
 namespace fade_tests

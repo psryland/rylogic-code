@@ -211,9 +211,30 @@ float3 PerturbWorldNormal(PSIn In, float3 normal, float2 normal_uv)
 		normal * map_normal.z);
 }
 
+// Return the world-space normal from a model-space normal map.
+// The map stores model-space X/Y in [0,1]; Z is rebuilt as non-negative, so the map can only describe normals in the model +Z hemisphere.
+float3 ModelSpaceMapWorldNormal(bool is_front_face, float2 normal_uv)
+{
+	// Rebuild Z after scaling X/Y. Filtered mips shorten X/Y, which the rebuild keeps unit length.
+	float2 map_xy = g_normal_texture.Sample(g_normal_sampler, normal_uv).xy * 2.0f - 1.0f;
+	map_xy *= g_pbr.normal_scale;
+	float3 ms_normal = float3(map_xy, sqrt(saturate(1.0f - dot(map_xy, map_xy))));
+
+	// Transform with the nugget normal transform, then flip back faces like the geometric normal.
+	float3 normal = normalize(mul(float4(ms_normal, 0), g_nugget.n2w).xyz);
+	if (TwoSided(g_nugget.flags) && !is_front_face)
+		normal = -normal;
+
+	return normal;
+}
+
 // Return the PBR surface normal after applying any usable normal-map texture.
 float3 ResolvePbrWorldNormal(PSIn In, bool is_front_face, float2 normal_uv)
 {
+	// A model-space map replaces the interpolated vertex normal completely.
+	if (AnySet(g_pbr.texture_flags, PbrTextureFlag_HasNormalMap) && AnySet(g_pbr.texture_flags, PbrTextureFlag_NormalMapModel) && HasNormals(g_nugget.flags))
+		return ModelSpaceMapWorldNormal(is_front_face, normal_uv);
+
 	float3 normal = ResolveWorldNormal(In, is_front_face).xyz;
 	if (dot(normal, normal) == 0.0f)
 		return normal;

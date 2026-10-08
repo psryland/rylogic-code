@@ -633,6 +633,23 @@ namespace Rylogic.Gfx
 				NotifyPropertyChanged(nameof(NuggetProceduralSurface));
 			}
 
+			/// <summary>
+			/// Assign a normal map to a selected nugget, promoting it to a PBR material if needed. The map uses the nugget's first texture coordinate.
+			/// Red/green hold X/Y encoded as (n + 1) / 2. See ENormalMapSpace for how the samples are interpreted.
+			/// </summary>
+			public void NuggetNormalMapSet(Texture normal_map, Sampler sampler, ENormalMapSpace space, float scale = 1.0f, string? name = null, int index = 0)
+			{
+				// The renderer holds its own references to both resources.
+				View3D_ObjectNuggetNormalMapSet(Handle, normal_map.Handle, sampler.Handle, space, scale, name, index);
+			}
+
+			/// <summary>Remove the normal map from a selected nugget.</summary>
+			public void NuggetNormalMapClear(string? name = null, int index = 0)
+			{
+				// Null resources leave the material with an empty normal-map slot.
+				View3D_ObjectNuggetNormalMapSet(Handle, IntPtr.Zero, IntPtr.Zero, ENormalMapSpace.Tangent, 1.0f, name, index);
+			}
+
 			/// <summary>Assign a tileable slope map as detail normals of a simple-material nugget. New assignments start with no layers.</summary>
 			public void NuggetDetailNormalsSet(Texture slope_map, Sampler sampler, string? name = null, int index = 0)
 			{

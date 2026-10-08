@@ -920,6 +920,88 @@ namespace fade_tests
 		std::cout << "PASS procedural vertex buffer\n";
 	}
 
+	// Prove a GPU-generated object receives its optional caller input at t0, and that malformed input descriptors are rejected.
+	void GeneratedVertexInputTests()
+	{
+		// The generator copies positions from the input buffer, so a rendered triangle proves the input reached the dispatch.
+		Fixture fixture(1);
+		std::cout << "Generated vertex input: validation and t0 binding\n";
+		struct GeneratedConstants
+		{
+			api::Vec4 m_colour;
+			uint32_t m_count[4];
+		};
+		auto constants = GeneratedConstants{
+			.m_colour = api::Vec4{0, 1, 0, 1},
+			.m_count = {3, 0, 0, 0},
+		};
+		auto positions = std::vector<api::Vec4>{
+			api::Vec4{-25, -25, -10, 1},
+			api::Vec4{+25, -25, -10, 1},
+			api::Vec4{0, +25, -10, 1},
+		};
+		uint32_t indices[] = {0, 1, 2};
+		auto nugget = api::Nugget{};
+		nugget.m_topo = api::ETopo::TriList;
+		nugget.m_geom = api::EGeom::Vert | api::EGeom::Colr;
+		nugget.m_cull_mode = api::ECullMode::None;
+		nugget.m_tint = 0xFFFFFFFF;
+		auto options = api::ObjectCreateOptions{
+			.m_struct_size = sizeof(api::ObjectCreateOptions),
+			.m_version = api::ObjectCreateOptions::CurrentVersion,
+			.m_vertex_source = api::EVertexSource::GpuGeneratedBuffer,
+			.m_bbox = api::BBox{
+				.centre = api::Vec4{0, 0, -10, 1},
+				.radius = api::Vec4{25, 25, 0, 0},
+			},
+			.m_compute_bytecode = compiled::generated_vertex_input,
+			.m_compute_bytecode_size = sizeof(compiled::generated_vertex_input),
+			.m_constants = &constants,
+			.m_constants_size = sizeof(constants),
+			.m_thread_group_size_x = 64,
+			.m_input = positions.data(),
+			.m_input_size = positions.size() * sizeof(api::Vec4),
+		};
+
+		// Inconsistent or unaligned input descriptors, and input on non-generated sources, fail without publishing an object.
+		auto expect_error = [&fixture, &indices, &nugget](api::ObjectCreateOptions const& object_options, api::Vertex const* verts)
+		{
+			// Require a null object and the input-specific diagnostic.
+			fixture.m_errors.clear();
+			auto rejected = View3D_ObjectCreateU32("RejectedGeneratedInput", 0xFFFFFFFF, 3, 3, 1, verts, indices, &nugget, object_options, GUID{});
+			Require(rejected == nullptr, "Malformed generator input descriptor was accepted");
+			Require(!fixture.m_errors.empty() && fixture.m_errors.back().find("input") != std::string::npos, "Malformed generator input reported the wrong error");
+		};
+		auto bad = options;
+		bad.m_input_size = 0;
+		expect_error(bad, nullptr);
+		bad = options;
+		bad.m_input = nullptr;
+		expect_error(bad, nullptr);
+		bad = options;
+		bad.m_input_size -= 2;
+		expect_error(bad, nullptr);
+		api::Vertex buffered[3] = {};
+		bad = options;
+		bad.m_vertex_source = api::EVertexSource::Buffer;
+		expect_error(bad, buffered);
+		fixture.m_errors.clear();
+
+		// Publish the object, then clear the caller's input to show the dispatch already consumed it.
+		auto object = View3D_ObjectCreateU32("GeneratedVertexInput", 0xFFFFFFFF, 3, 3, 1, nullptr, indices, &nugget, options, GUID{});
+		Require(object != nullptr, "Generated input object creation failed");
+		fixture.m_objects.push_back(object);
+		std::fill(positions.begin(), positions.end(), api::Vec4{});
+		View3D_WindowAddObject(fixture.m_window, object);
+		fixture.CheckErrors();
+
+		// The triangle covers the image centre only if the generator read the input positions.
+		Expect(fixture.Image(), 0, 1, 0);
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+		std::cout << "PASS generated vertex input\n";
+	}
+
 	// Prove a caller-supplied forward pixel family replaces every rasterised forward pixel shader while keeping the stock outputs.
 	void ProceduralPixelFamilyTests()
 	{
@@ -3065,6 +3147,73 @@ namespace fade_tests
 		std::cout << "PASS detail normals\n";
 	}
 
+	// Check that a model-space normal map replaces the vertex normal, and that removing it restores the surface.
+	void ModelNormalMapTests()
+	{
+		// A lit white quad faces the camera, with a directional light from the -X side so a normal tilt along X changes its brightness.
+		auto fixture = Fixture(1);
+		auto object = fixture.Quad(10, 0xFFFFFFFF, 45, nullptr, 0, 0xFFFFFFFF, true, true);
+		auto light = SceneLightingGet(fixture.m_window);
+		light.m_type = api::ELight::Directional;
+		light.m_direction = api::Vec4{0.70710678f, 0, -0.70710678f, 0};
+		light.m_ambient = 0xFF000000;
+		light.m_diffuse = 0xFFFFFFFF;
+		light.m_specular = 0xFF000000;
+		light.m_intensity = 1;
+		light.m_cast_shadow = 0;
+		light.m_on = TRUE;
+		SceneLightingSet(fixture.m_window, light);
+		auto brightness = [](std::vector<unsigned char> const& image)
+		{
+			// The quad is grey, so one channel at the centre measures its lighting.
+			return Linear(image[(64 * ImageSize + 64) * 4 + 1]);
+		};
+
+		// An empty normal-map slot promotes the nugget to PBR without changing its normal, giving the flat reference.
+		View3D_ObjectNuggetNormalMapSet(object, nullptr, nullptr, api::ENormalMapSpace::Model, 1.0f, nullptr, 0);
+		fixture.CheckErrors();
+		auto flat = fixture.Image();
+
+		// A uniform map holding the model-space normal (-0.5, 0, 1) normalised. X encodes as 70 of 255, Y as 128, and Z is rebuilt.
+		// Diffuse lighting from 45 degrees then rises by cos(45 - atan(0.5)) / cos(45), about 1.342, relative to the flat surface.
+		auto options = api::TextureOptions{};
+		options.m_format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		options.m_resource_state = D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE;
+		options.m_mips = 0;
+		options.m_multisamp = {1, 0};
+		options.m_t2s = {{1,0,0,0}, {0,1,0,0}, {0,0,1,0}, {0,0,0,1}};
+		std::array<uint32_t, 4> pixels; pixels.fill(0xFF008046U);
+		auto texture = api::TexturePtr(View3D_TextureCreate(2, 2, pixels.data(), sizeof(pixels), options));
+		auto sampler = api::SamplerPtr(View3D_SamplerCreate(api::SamplerOptions{D3D12_FILTER_MIN_MAG_MIP_LINEAR, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, D3D12_TEXTURE_ADDRESS_MODE_CLAMP, "ModelNormalMap"}));
+		fixture.CheckErrors();
+		Require(texture != nullptr && sampler != nullptr, "Model normal-map resources were not created");
+		View3D_ObjectNuggetNormalMapSet(object, texture.get(), sampler.get(), api::ENormalMapSpace::Model, 1.0f, nullptr, 0);
+		fixture.CheckErrors();
+		auto tilted = fixture.Image();
+		Require(std::abs(brightness(tilted) / brightness(flat) - 1.342f) < 0.03f, (std::string("Model normal map tilted the lighting normal incorrectly: flat ") + std::to_string(brightness(flat)) + ", tilted " + std::to_string(brightness(tilted))).c_str());
+
+		// Invalid inputs are reported and leave the active map unchanged.
+		View3D_ObjectNuggetNormalMapSet(object, texture.get(), nullptr, api::ENormalMapSpace::Model, 1.0f, nullptr, 0);
+		Require(!fixture.m_errors.empty(), "A normal map without a sampler was accepted");
+		fixture.m_errors.clear();
+		View3D_ObjectNuggetNormalMapSet(object, texture.get(), sampler.get(), api::ENormalMapSpace::Model, std::numeric_limits<float>::infinity(), nullptr, 0);
+		Require(!fixture.m_errors.empty(), "A non-finite normal-map scale was accepted");
+		fixture.m_errors.clear();
+		View3D_ObjectNuggetNormalMapSet(object, texture.get(), sampler.get(), static_cast<api::ENormalMapSpace>(-1), 1.0f, nullptr, 0);
+		Require(!fixture.m_errors.empty(), "An unknown normal-map space was accepted");
+		fixture.m_errors.clear();
+		Require(ImageDifference(tilted, fixture.Image()) < 100, "A rejected normal-map update changed the surface");
+
+		// Removing the map restores the flat surface.
+		View3D_ObjectNuggetNormalMapSet(object, nullptr, nullptr, api::ENormalMapSpace::Model, 1.0f, nullptr, 0);
+		fixture.CheckErrors();
+		Require(ImageDifference(flat, fixture.Image()) < 100, "Removing the model normal map did not restore the surface");
+
+		// Any GPU validation error fails the fixture.
+		fixture.CheckDebugLayer();
+		std::cout << "PASS model normal map\n";
+	}
+
 	// Check that the environment map probe completes a cube every six updates and fades each new cube in over the previous one
 	void EnvMapProbeTests()
 	{
@@ -3292,6 +3441,10 @@ namespace pr::unittests::view3d12
 		fade_tests::ProceduralVertexAbiTests();
 		fade_tests::ProceduralVertexBufferTests();
 	}
+	PRUnitTest(View3d12_GeneratedVertexInput, Extended)
+	{
+		fade_tests::GeneratedVertexInputTests();
+	}
 	PRUnitTest(View3d12_ProceduralPixelFamily, Extended)
 	{
 		fade_tests::ProceduralPixelFamilyTests();
@@ -3316,6 +3469,10 @@ namespace pr::unittests::view3d12
 	PRUnitTest(View3d12_DetailNormals, Extended)
 	{
 		fade_tests::DetailNormalsTests();
+	}
+	PRUnitTest(View3d12_ModelNormalMap, Extended)
+	{
+		fade_tests::ModelNormalMapTests();
 	}
 	PRUnitTest(View3d12_EnvMapProbe, Extended)
 	{
