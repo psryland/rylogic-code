@@ -48,7 +48,7 @@ namespace pr::physics
 
 namespace pr::physics
 {
-	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00030300U;
+	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00040000U;
 	inline constexpr std::uint32_t PHYSICS_STRUCT_VERSION = 2U;
 	inline constexpr std::uint32_t PHYSICS_CHECKPOINT_VERSION = 3U;
 
@@ -111,319 +111,27 @@ namespace pr::physics
 		AtmosphereStats = 26,
 	};
 
-	// One explicit terrain frequency band; roundness and weight gain apply to the mountain band.
-	struct TerrainBand
-	{
-		double amplitude, wavelength, lacunarity, persistence, roundness, weight_gain;
-		std::int32_t octaves, reserved;
-	};
-
-	enum class EMotionType : std::int32_t
-	{
-		Static = 0,
-		Dynamic = 1,
-		Kinematic = 2,
-	};
-
-	enum class EMassMode : std::int32_t
-	{
-		ExplicitInertia = 0,
-		Mass = 1,
-		Density = 2,
-	};
-
-	enum class ECommand : std::int32_t
-	{
-		SetTransform = 0,
-		SetVelocity = 1,
-		SetMomentum = 2,
-		SetForce = 3,
-		ApplyForce = 4,
-		ApplyImpulse = 5,
-		SetGravity = 6,
-		SetKinematicTransform = 7,
-		SetEnabled = 8,
-		Wake = 9,
-		Sleep = 10,
-	};
-
-	enum class EEvent : std::int32_t
-	{
-		Contact = 0,
-		Wake = 1,
-		Sleep = 2,
-		ConstraintBreak = 3,
-		CoupledConstraintFailure = 4,
-		WorldContact = 5,
-	};
-
-	// Selects whether an articulation root is fixed to world or contributes a floating six-velocity base.
-	enum class EArticulationRoot : std::int32_t
-	{
-		Fixed = 0,
-		Floating = 1,
-	};
-
-	// Selects the scalar screw motion represented by one articulation joint coordinate.
-	enum class EArticulationAxis : std::int32_t
-	{
-		Revolute = 0,
-		Prismatic = 1,
-	};
-
-	// Selects the dynamics owner addressed by a persistent constraint endpoint.
-	enum class EConstraintEndpoint : std::int32_t
-	{
-		World = 0,
-		RigidBody = 1,
-		ArticulationLink = 2,
-	};
-
-	// Selects how one translational or rotational D6 coordinate contributes to the projected solve.
-	enum class EConstraintMode : std::int32_t
-	{
-		Free = 0,
-		Locked = 1,
-		Limited = 2,
-		Driven = 3,
-	};
-
-	enum class EBodyFlags : std::uint32_t
-	{
-		None = 0,
-		Enabled = 1U << 0,
-		Sleeping = 1U << 1,
-		NeverSleep = 1U << 2,
-	};
-
-	// Bit flags controlling articulation participation and whole-tree sleeping.
-	enum class EArticulationFlags : std::uint32_t
-	{
-		None = 0,
-		Enabled = 1U << 0,
-		Sleeping = 1U << 1,
-		NeverSleep = 1U << 2,
-	};
-
-	// Bit flags controlling immutable per-link collision policy.
-	enum class EArticulationLinkFlags : std::uint32_t
-	{
-		None = 0,
-		CollideParent = 1U << 0,
-		CollideSelf = 1U << 1,
-	};
-
-	// Bit flags controlling persistent-constraint participation and connected-body collision policy.
-	enum class EConstraintFlags : std::uint32_t
-	{
-		None = 0,
-		Enabled = 1U << 0,
-		CollideConnected = 1U << 1,
-	};
-
 	struct StructHeader
 	{
 		std::uint32_t size;
 		std::uint32_t version;
 	};
 
-	// Complete immutable baseline terrain settings. Zero spacing selects the engine's shared surface-sampling default.
-	struct TerrainDesc
+	#pragma region Vector types
+
+	// Two-component float vector.
+	struct Vector2
 	{
-		StructHeader header;
-		std::uint32_t seed;
-		std::int32_t material_id;
-		double supported_coordinate, sea_level_bias, uplift_height, mountain_base, basin_depth, basin_threshold;
-		TerrainBand regional_base, region_selector, region_uplift, domain_warp, plains, hills, mountains, basin_selector;
-		float surface_spacing;
-		std::uint32_t reserved;
+		float x;
+		float y;
 	};
 
-	// Infinite-height inward cylinder and surface-sample spacing; all distances are metres.
-	struct CylindricalBoundaryDesc
+	// Two-component double-precision vector, for world coordinates that need more precision than float.
+	struct Vector2d
 	{
-		StructHeader header;
-		double centre_x, centre_y, radius;
-		std::int32_t material_id;
-		float surface_spacing;
+		double x;
+		double y;
 	};
-	static_assert(sizeof(CylindricalBoundaryDesc) == 40);
-
-	// One water-surface element with the same layout as 'terrain::water::shared::WaterFieldElement'; see water_field_types.hlsli for the fields.
-	struct WaterElement
-	{
-		std::int32_t info[4];
-		float position[4];
-		float wave[4];
-		float timing[4];
-	};
-	static_assert(sizeof(WaterElement) == 64);
-
-	// A water surface with buoyancy and drag for every dynamic body. Density is kg/m³ and drag rates are 1/s.
-	// The surface is the still-water 'level' plus 'element_count' elements from 'elements'; the engine copies them.
-	// Wave amplitudes are corrected for depth only after terrain heights are supplied with Physics_EngineWaterBathymetrySet.
-	// 'breaking_ratio' limits the total wave amplitude to half this fraction of the depth. 'repeat_period' (s) is the period
-	// of the wave motion; the engine samples waves at time modulo this period, so element frequencies should repeat within it.
-	// Zero means no wrap.
-	struct WaterDesc
-	{
-		StructHeader header;
-		double level;
-		float density;
-		float linear_drag_rate;
-		float quadratic_drag_coefficient;
-		float angular_drag_rate;
-		float breaking_ratio;
-		float repeat_period;
-		WaterElement const* elements;
-		std::int32_t element_count;
-		std::int32_t reserved;
-	};
-	static_assert(sizeof(WaterDesc) == 56);
-
-	// Terrain heights sampled on a regular world-space grid, used to correct waves for water depth.
-	// Node (i, j) is at origin + (i, j) * cell_size and its height is heights[j * width + i]. The engine copies the heights.
-	struct WaterBathymetryDesc
-	{
-		StructHeader header;
-		double origin_x, origin_y, cell_size;
-		std::int32_t width, height;
-		float const* heights;
-	};
-	static_assert(sizeof(WaterBathymetryDesc) == 48);
-
-	// The fixed component layout of a wind-driven wave spectrum. Gravity (m/s²) and the repeat period (s) are positive. The wavelength range
-	// [min_wavelength, max_wavelength] (m, 0 < min < max) is split into 'bands' equal log-wavelength bands of 'directions' components each.
-	// The component count, bands * directions, is at most 64.
-	struct WaveSpectrumDesc
-	{
-		float gravity, repeat_period;
-		float min_wavelength, max_wavelength;
-		std::int32_t bands, directions;
-	};
-	static_assert(sizeof(WaveSpectrumDesc) == 24);
-
-	// Boundary condition of one outside face of an atmosphere domain.
-	enum class EAtmosphereBoundary : std::int32_t
-	{
-		Solid = 0,
-		Open = 1,
-	};
-
-	// Indices of the six outside faces of an atmosphere domain, used by 'AtmosphereDesc::boundaries' and 'AtmosphereDesc::wall_drag'.
-	enum class EAtmosphereSide : std::int32_t
-	{
-		XMin = 0,
-		XMax = 1,
-		YMin = 2,
-		YMax = 3,
-		ZMin = 4,
-		ZMax = 5,
-	};
-
-	// A terrain-following GPU air solver and its optional tracer particles. Distances are metres, temperatures are kelvin, and rates are 1/s.
-	// The domain has 'cell_count_x * cell_count_y' columns of 'cell_count_z' layers (each count above one, at most 32 layers) with square columns
-	// of size 'dx' starting at 'origin'. Each column runs from its floor to 'lid_z'. 'floor_heights' is null for a flat floor at 'origin_z', or
-	// one height per column in row-major order (x fastest); a floor at or above the lid makes the column solid. The heights are copied.
-	// 'boundaries' and 'wall_drag' are indexed by EAtmosphereSide; drag is a quadratic coefficient in [0, 1] and only solid sides may have drag.
-	// The reference profile 'reference_temperature + lapse_rate * (z - origin_z)', limited below by 'min_temperature', sets the initial air at rest.
-	// 'tracer_count' particles follow the wind for diagnostics; zero disables them. Tracer heights are spread with the relative densities
-	// 'tracer_ground_density' at the floor, 'tracer_break_density' at the column fraction 'tracer_break_height', and 'tracer_upper_density' above it.
-	// The pressure and stability fields match 'atmosphere::AtmosphereConfig', which documents their effect.
-	struct AtmosphereDesc
-	{
-		StructHeader header;
-		std::int32_t cell_count_x, cell_count_y, cell_count_z;
-		float origin_x, origin_y, origin_z;
-		float dx, lid_z, first_layer_thickness;
-		float const* floor_heights;
-		std::uint8_t const* active_columns;
-		EAtmosphereBoundary boundaries[6];
-		float wall_drag[6];
-		float reference_temperature, lapse_rate, min_temperature;
-		float gravity, floor_exchange_rate, lid_temperature, lid_relaxation_rate;
-		std::int32_t pressure_vcycles, pressure_pre_smooth, pressure_post_smooth, pressure_coarse_smooth, open_edge_band;
-		float vorticity_confinement, vertical_viscosity;
-		std::int32_t tracer_count;
-		std::uint32_t tracer_seed;
-		float tracer_max_age, tracer_ground_density, tracer_break_density, tracer_upper_density, tracer_break_height;
-		std::int32_t reserved;
-	};
-	static_assert(sizeof(AtmosphereDesc) == 200);
-
-	// A sphere that heats air at 'heating_rate' (K/s) and relaxes it towards 'target_temperature' at 'relaxation_rate' (1/s).
-	struct AtmosphereHeatSource
-	{
-		float centre_x, centre_y, centre_z, radius;
-		float heating_rate, target_temperature, relaxation_rate;
-		float reserved;
-	};
-	static_assert(sizeof(AtmosphereHeatSource) == 32);
-
-	// Air outside one column: its horizontal wind (m/s) and its temperature relative to the reference profile (K).
-	struct AtmosphereOutsideAir
-	{
-		float wind_x, wind_y, temperature_offset;
-		float reserved;
-	};
-	static_assert(sizeof(AtmosphereOutsideAir) == 16);
-
-	// The inputs to one atmosphere step of 'dt' seconds; the heat sources are copied and apply to this step only. At most 64 heat sources.
-	struct AtmosphereStepDesc
-	{
-		StructHeader header;
-		float dt;
-		std::int32_t heat_source_count;
-		AtmosphereHeatSource const* heat_sources;
-	};
-	static_assert(sizeof(AtmosphereStepDesc) == 24);
-
-	// One atmosphere tracer particle: world position (m), air temperature (K), age (s), and the air speed that last moved it (m/s).
-	struct AtmosphereTracerParticle
-	{
-		float x, y, z;
-		float temperature, age, speed;
-	};
-	static_assert(sizeof(AtmosphereTracerParticle) == 24);
-
-	// One atmosphere tracer particle as stored in a GPU tracer slot: world position (m, w = 1), air temperature (K), age (s), the air speed that last
-	// moved it (m/s), and padding. HLSL readers of a slot buffer use this 32-byte layout.
-	struct AtmosphereGpuTracerParticle
-	{
-		float x, y, z, w;
-		float temperature, age, speed;
-		float reserved;
-	};
-	static_assert(sizeof(AtmosphereGpuTracerParticle) == 32);
-
-	// A held GPU tracer slot. 'resource' is an owned ID3D12Resource COM reference that the caller releases exactly once with IUnknown::Release.
-	// It is a buffer of 'count' AtmosphereGpuTracerParticle records, 'stride' bytes apart, on the engine's device.
-	struct AtmosphereTracerSlot
-	{
-		void* resource;
-		std::int32_t slot;
-		std::uint32_t count;
-		std::uint32_t stride;
-		std::uint32_t reserved;
-	};
-	static_assert(sizeof(AtmosphereTracerSlot) == 24);
-
-	// The air at one cell centre: velocity (m/s, averaged from the cell faces) and temperature (K).
-	struct AtmosphereCellState
-	{
-		float velocity_x, velocity_y, velocity_z;
-		float temperature;
-	};
-	static_assert(sizeof(AtmosphereCellState) == 16);
-
-	// Simple diagnostics of a completed atmosphere field.
-	struct AtmosphereStats
-	{
-		StructHeader header;
-		float max_speed, max_divergence, rms_divergence, mean_top_temperature, peak_vertical_velocity;
-		std::int32_t reserved;
-	};
-	static_assert(sizeof(AtmosphereStats) == 32);
 
 	struct Vector4
 	{
@@ -431,6 +139,15 @@ namespace pr::physics
 		float y;
 		float z;
 		float w;
+	};
+
+	// Four-component integer vector.
+	struct Vector4i
+	{
+		std::int32_t x;
+		std::int32_t y;
+		std::int32_t z;
+		std::int32_t w;
 	};
 
 	struct Matrix4
@@ -447,12 +164,9 @@ namespace pr::physics
 		Vector4 linear;
 	};
 
-	struct InertiaProperties
-	{
-		Vector4 diagonal;
-		Vector4 products;
-		Vector4 centre_of_mass_and_mass;
-	};
+	#pragma endregion
+
+	#pragma region Engine
 
 	struct Config
 	{
@@ -510,6 +224,10 @@ namespace pr::physics
 		float constraint_warm_start_factor;
 	};
 
+	#pragma endregion
+
+	#pragma region Materials
+
 	struct MaterialProperties
 	{
 		StructHeader header;
@@ -520,6 +238,10 @@ namespace pr::physics
 		float torsional_elasticity;
 		float density;
 	};
+
+	#pragma endregion
+
+	#pragma region Shapes
 
 	struct ShapeCommon
 	{
@@ -555,6 +277,54 @@ namespace pr::physics
 		Vector4 a;
 		Vector4 b;
 		Vector4 c;
+	};
+
+	#pragma endregion
+
+	#pragma region Rigid bodies
+
+	enum class EMotionType : std::int32_t
+	{
+		Static = 0,
+		Dynamic = 1,
+		Kinematic = 2,
+	};
+
+	enum class EMassMode : std::int32_t
+	{
+		ExplicitInertia = 0,
+		Mass = 1,
+		Density = 2,
+	};
+
+	enum class EBodyFlags : std::uint32_t
+	{
+		None = 0,
+		Enabled = 1U << 0,
+		Sleeping = 1U << 1,
+		NeverSleep = 1U << 2,
+	};
+
+	enum class ECommand : std::int32_t
+	{
+		SetTransform = 0,
+		SetVelocity = 1,
+		SetMomentum = 2,
+		SetForce = 3,
+		ApplyForce = 4,
+		ApplyImpulse = 5,
+		SetGravity = 6,
+		SetKinematicTransform = 7,
+		SetEnabled = 8,
+		Wake = 9,
+		Sleep = 10,
+	};
+
+	struct InertiaProperties
+	{
+		Vector4 diagonal;
+		Vector4 products;
+		Vector4 centre_of_mass_and_mass;
 	};
 
 	struct BodyDesc
@@ -610,6 +380,41 @@ namespace pr::physics
 		std::uint64_t user_tag;
 		EMotionType motion_type;
 		EBodyFlags flags;
+	};
+
+	#pragma endregion
+
+	#pragma region Articulations
+
+	// Selects whether an articulation root is fixed to world or contributes a floating six-velocity base.
+	enum class EArticulationRoot : std::int32_t
+	{
+		Fixed = 0,
+		Floating = 1,
+	};
+
+	// Selects the scalar screw motion represented by one articulation joint coordinate.
+	enum class EArticulationAxis : std::int32_t
+	{
+		Revolute = 0,
+		Prismatic = 1,
+	};
+
+	// Bit flags controlling articulation participation and whole-tree sleeping.
+	enum class EArticulationFlags : std::uint32_t
+	{
+		None = 0,
+		Enabled = 1U << 0,
+		Sleeping = 1U << 1,
+		NeverSleep = 1U << 2,
+	};
+
+	// Bit flags controlling immutable per-link collision policy.
+	enum class EArticulationLinkFlags : std::uint32_t
+	{
+		None = 0,
+		CollideParent = 1U << 0,
+		CollideSelf = 1U << 1,
 	};
 
 	// Immutable articulation topology metadata supplied with ordered link and joint arrays.
@@ -680,6 +485,35 @@ namespace pr::physics
 		Vector4 gravity;
 	};
 
+	#pragma endregion
+
+	#pragma region Persistent constraints
+
+	// Selects the dynamics owner addressed by a persistent constraint endpoint.
+	enum class EConstraintEndpoint : std::int32_t
+	{
+		World = 0,
+		RigidBody = 1,
+		ArticulationLink = 2,
+	};
+
+	// Selects how one translational or rotational D6 coordinate contributes to the projected solve.
+	enum class EConstraintMode : std::int32_t
+	{
+		Free = 0,
+		Locked = 1,
+		Limited = 2,
+		Driven = 3,
+	};
+
+	// Bit flags controlling persistent-constraint participation and connected-body collision policy.
+	enum class EConstraintFlags : std::uint32_t
+	{
+		None = 0,
+		Enabled = 1U << 0,
+		CollideConnected = 1U << 1,
+	};
+
 	// One endpoint-local constraint frame; object_handle is a body or articulation handle according to type.
 	struct ConstraintFrameProperties
 	{
@@ -716,6 +550,249 @@ namespace pr::physics
 		std::uint32_t reserved;
 	};
 
+	#pragma endregion
+
+	#pragma region Terrain and boundaries
+
+	// One explicit terrain frequency band; roundness and weight gain apply to the mountain band.
+	struct TerrainBand
+	{
+		double amplitude, wavelength, lacunarity, persistence, roundness, weight_gain;
+		std::int32_t octaves, reserved;
+	};
+
+	// Complete immutable baseline terrain settings. Zero spacing selects the engine's shared surface-sampling default.
+	struct TerrainDesc
+	{
+		StructHeader header;
+		std::uint32_t seed;
+		std::int32_t material_id;
+		double supported_coordinate, sea_level_bias, uplift_height, mountain_base, basin_depth, basin_threshold;
+		TerrainBand regional_base, region_selector, region_uplift, domain_warp, plains, hills, mountains, basin_selector;
+		float surface_spacing;
+		std::uint32_t reserved;
+	};
+
+	// Infinite-height inward cylinder and surface-sample spacing; all distances are metres.
+	struct CylindricalBoundaryDesc
+	{
+		StructHeader header;
+		Vector2d centre;
+		double radius;
+		std::int32_t material_id;
+		float surface_spacing;
+	};
+	static_assert(sizeof(CylindricalBoundaryDesc) == 40);
+
+	#pragma endregion
+
+	#pragma region Water
+
+	// One water-surface element with the same layout as 'terrain::water::shared::WaterFieldElement'; see water_field_types.hlsli for the fields.
+	struct WaterElement
+	{
+		Vector4i info;
+		Vector4 position;
+		Vector4 wave;
+		Vector4 timing;
+	};
+	static_assert(sizeof(WaterElement) == 64);
+
+	// A water surface with buoyancy and drag for every dynamic body. Density is kg/m³ and drag rates are 1/s.
+	// The surface is the still-water 'level' plus 'element_count' elements from 'elements'; the engine copies them.
+	// Wave amplitudes are corrected for depth only after terrain heights are supplied with Physics_EngineWaterBathymetrySet.
+	// 'breaking_ratio' limits the total wave amplitude to half this fraction of the depth. 'repeat_period' (s) is the period
+	// of the wave motion; the engine samples waves at time modulo this period, so element frequencies should repeat within it.
+	// Zero means no wrap.
+	struct WaterDesc
+	{
+		StructHeader header;
+		double level;
+		float density;
+		float linear_drag_rate;
+		float quadratic_drag_coefficient;
+		float angular_drag_rate;
+		float breaking_ratio;
+		float repeat_period;
+		WaterElement const* elements;
+		std::int32_t element_count;
+		std::int32_t reserved;
+	};
+	static_assert(sizeof(WaterDesc) == 56);
+
+	// Terrain heights sampled on a regular world-space grid, used to correct waves for water depth.
+	// Node (i, j) is at origin + (i, j) * cell_size and its height is heights[j * width + i]. The engine copies the heights.
+	struct WaterBathymetryDesc
+	{
+		StructHeader header;
+		Vector2d origin;
+		double cell_size;
+		std::int32_t width, height;
+		float const* heights;
+	};
+	static_assert(sizeof(WaterBathymetryDesc) == 48);
+
+	// The fixed component layout of a wind-driven wave spectrum. Gravity (m/s²) and the repeat period (s) are positive. The wavelength range
+	// [min_wavelength, max_wavelength] (m, 0 < min < max) is split into 'bands' equal log-wavelength bands of 'directions' components each.
+	// The component count, bands * directions, is at most 64.
+	struct WaveSpectrumDesc
+	{
+		float gravity, repeat_period;
+		float min_wavelength, max_wavelength;
+		std::int32_t bands, directions;
+	};
+	static_assert(sizeof(WaveSpectrumDesc) == 24);
+
+	#pragma endregion
+
+	#pragma region Atmosphere
+
+	// Boundary condition of one outside face of an atmosphere domain.
+	enum class EAtmosphereBoundary : std::int32_t
+	{
+		Solid = 0,
+		Open = 1,
+	};
+
+	// Indices of the six outside faces of an atmosphere domain, used by 'AtmosphereDesc::boundaries' and 'AtmosphereDesc::wall_drag'.
+	enum class EAtmosphereSide : std::int32_t
+	{
+		XMin = 0,
+		XMax = 1,
+		YMin = 2,
+		YMax = 3,
+		ZMin = 4,
+		ZMax = 5,
+	};
+
+	// A terrain-following GPU air solver and its optional tracer particles. Distances are metres, temperatures are kelvin, and rates are 1/s.
+	// The domain has 'cell_count.x * cell_count.y' columns of 'cell_count.z' layers (each count above one, at most 32 layers) with square columns
+	// of size 'dx' starting at 'origin'; the w components of 'cell_count' and 'origin' are ignored. Each column runs from its floor to 'lid_z'.
+	// 'floor_heights' is null for a flat floor at 'origin.z', or one height per column in row-major order (x fastest); a floor at or above the lid
+	// makes the column solid. The heights are copied.
+	// 'boundaries' and 'wall_drag' are indexed by EAtmosphereSide; drag is a quadratic coefficient in [0, 1] and only solid sides may have drag.
+	// The reference profile 'reference_temperature + lapse_rate * (z - origin.z)', limited below by 'min_temperature', sets the initial air at rest.
+	// 'tracer_count' particles follow the wind for diagnostics; zero disables them. Tracer heights are spread with the relative densities
+	// 'tracer_ground_density' at the floor, 'tracer_break_density' at the column fraction 'tracer_break_height', and 'tracer_upper_density' above it.
+	// The pressure and stability fields match 'atmosphere::AtmosphereConfig', which documents their effect.
+	struct AtmosphereDesc
+	{
+		StructHeader header;
+		Vector4i cell_count;
+		Vector4 origin;
+		float dx, lid_z, first_layer_thickness;
+		float const* floor_heights;
+		std::uint8_t const* active_columns;
+		EAtmosphereBoundary boundaries[6];
+		float wall_drag[6];
+		float reference_temperature, lapse_rate, min_temperature;
+		float gravity, floor_exchange_rate, lid_temperature, lid_relaxation_rate;
+		std::int32_t pressure_vcycles, pressure_pre_smooth, pressure_post_smooth, pressure_coarse_smooth, open_edge_band;
+		float vorticity_confinement, vertical_viscosity;
+		std::int32_t tracer_count;
+		std::uint32_t tracer_seed;
+		float tracer_max_age, tracer_ground_density, tracer_break_density, tracer_upper_density, tracer_break_height;
+		std::int32_t reserved;
+	};
+	static_assert(sizeof(AtmosphereDesc) == 208);
+
+	// A sphere at 'centre' (m, w = 1) with 'radius' (m) that heats air at 'heating_rate' (K/s) and relaxes it towards 'target_temperature'
+	// at 'relaxation_rate' (1/s).
+	struct AtmosphereHeatSource
+	{
+		Vector4 centre;
+		float radius;
+		float heating_rate, target_temperature, relaxation_rate;
+	};
+	static_assert(sizeof(AtmosphereHeatSource) == 32);
+
+	// Air outside one column: its horizontal wind (m/s) and its temperature relative to the reference profile (K).
+	struct AtmosphereOutsideAir
+	{
+		Vector2 wind;
+		float temperature_offset;
+		float reserved;
+	};
+	static_assert(sizeof(AtmosphereOutsideAir) == 16);
+
+	// The air at one probe point after a step: velocity (m/s, w = 0) and temperature (K). 'inside' is 1 when the point is in the air of the domain,
+	// otherwise 0 with zero velocity and temperature.
+	struct AtmosphereProbeSample
+	{
+		Vector4 velocity;
+		float temperature;
+		std::int32_t inside;
+	};
+	static_assert(sizeof(AtmosphereProbeSample) == 24);
+
+	// The inputs to one atmosphere step of 'dt' seconds; the heat sources are copied and apply to this step only. At most 64 heat sources.
+	// The air is sampled at the 'probe_count' world-space probe points (m, w = 1; at most 64) once the step has updated it; read the samples with
+	// Physics_AtmosphereProbesCopy.
+	struct AtmosphereStepDesc
+	{
+		StructHeader header;
+		float dt;
+		std::int32_t heat_source_count;
+		AtmosphereHeatSource const* heat_sources;
+		std::int32_t probe_count;
+		std::int32_t reserved;
+		Vector4 const* probes;
+	};
+	static_assert(sizeof(AtmosphereStepDesc) == 40);
+
+	// One atmosphere tracer particle: world position (m, w = 1), air temperature (K), age (s), the air speed that last moved it (m/s), and padding.
+	// GPU tracer slots store particles in this 32-byte layout, which HLSL readers of a slot buffer use.
+	struct AtmosphereTracerParticle
+	{
+		Vector4 position;
+		float temperature, age, speed;
+		float reserved;
+	};
+	static_assert(sizeof(AtmosphereTracerParticle) == 32);
+
+	// A held GPU tracer slot. 'resource' is an owned ID3D12Resource COM reference that the caller releases exactly once with IUnknown::Release.
+	// It is a buffer of 'count' AtmosphereTracerParticle records, 'stride' bytes apart, on the engine's device.
+	struct AtmosphereTracerSlot
+	{
+		void* resource;
+		std::int32_t slot;
+		std::uint32_t count;
+		std::uint32_t stride;
+		std::uint32_t reserved;
+	};
+	static_assert(sizeof(AtmosphereTracerSlot) == 24);
+
+	// The air at one cell centre: velocity (m/s, w = 0, averaged from the cell faces) and temperature (K).
+	struct AtmosphereCellState
+	{
+		Vector4 velocity;
+		float temperature;
+	};
+	static_assert(sizeof(AtmosphereCellState) == 20);
+
+	// Simple diagnostics of a completed atmosphere field.
+	struct AtmosphereStats
+	{
+		StructHeader header;
+		float max_speed, max_divergence, rms_divergence, mean_top_temperature, peak_vertical_velocity;
+		std::int32_t reserved;
+	};
+	static_assert(sizeof(AtmosphereStats) == 32);
+
+	#pragma endregion
+
+	#pragma region Events
+
+	enum class EEvent : std::int32_t
+	{
+		Contact = 0,
+		Wake = 1,
+		Sleep = 2,
+		ConstraintBreak = 3,
+		CoupledConstraintFailure = 4,
+		WorldContact = 5,
+	};
+
 	// Completed contact geometry and lifecycle diagnostics. WorldContact has exactly one zero body handle for the
 	// engine-owned terrain/boundary endpoint; Contact has two caller-owned handles. Normals point from A towards B.
 	struct Event
@@ -749,6 +826,10 @@ namespace pr::physics
 		float failure_relaxation;
 		float failure_merit_change;
 	};
+
+	#pragma endregion
+
+	#pragma region Diagnostics
 
 	struct StepProfile
 	{
@@ -882,9 +963,14 @@ namespace pr::physics
 		StepFailureDiagnostics failure;
 	};
 
+	#pragma endregion
+
 	static_assert(std::is_standard_layout_v<Config>);
 	static_assert(std::is_standard_layout_v<BodyState>);
+	static_assert(sizeof(Vector2) == 8);
+	static_assert(sizeof(Vector2d) == 16);
 	static_assert(sizeof(Vector4) == 16);
+	static_assert(sizeof(Vector4i) == 16);
 	static_assert(sizeof(Matrix4) == 64);
 	static_assert(sizeof(SpatialVector) == 32);
 	static_assert(sizeof(InertiaProperties) == 48);
@@ -1010,6 +1096,10 @@ extern "C"
 
 	// Finish the step in flight if the GPU has completed it, without waiting. 'idle' is set to 1 when no step is in flight after the call.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmospherePollStep(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere, std::int32_t* idle);
+
+	// Copy the probe samples of the last finished step, in the order of its probes. 'required' is the sample count, which is zero before the
+	// first finished step and after a step without probes. Does not wait, and may be called while a step is in flight.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereProbesCopy(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereProbeSample* samples, std::uint32_t capacity, std::uint32_t* required);
 
 	// Wait for and finish the step in flight. Fails with NoStepPending when there is none.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_AtmosphereCompleteStep(pr::physics::EngineHandle engine, pr::physics::AtmosphereHandle atmosphere);

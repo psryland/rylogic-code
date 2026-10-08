@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using Rylogic.Maths;
 
 namespace Rylogic.Physics;
 
@@ -10,12 +11,8 @@ internal static unsafe partial class Native
 	internal struct AtmosphereDesc
 	{
 		internal NativeHeader m_header;
-		internal int m_cell_count_x;
-		internal int m_cell_count_y;
-		internal int m_cell_count_z;
-		internal float m_origin_x;
-		internal float m_origin_y;
-		internal float m_origin_z;
+		internal Vector4i m_cell_count;
+		internal v4 m_origin;
 		internal float m_dx;
 		internal float m_lid_z;
 		internal float m_first_layer_thickness;
@@ -52,12 +49,8 @@ internal static unsafe partial class Native
 			var result = new AtmosphereDesc
 			{
 				m_header = NativeHeader.Create<AtmosphereDesc>(),
-				m_cell_count_x = options.CellCountX,
-				m_cell_count_y = options.CellCountY,
-				m_cell_count_z = options.CellCountZ,
-				m_origin_x = options.OriginX,
-				m_origin_y = options.OriginY,
-				m_origin_z = options.OriginZ,
+				m_cell_count = new Vector4i(options.CellCountX, options.CellCountY, options.CellCountZ, 0),
+				m_origin = new v4(options.OriginX, options.OriginY, options.OriginZ, 1.0f),
 				m_dx = options.CellSize,
 				m_lid_z = options.LidZ,
 				m_first_layer_thickness = options.FirstLayerThickness,
@@ -103,6 +96,9 @@ internal static unsafe partial class Native
 		internal float m_dt;
 		internal int m_heat_source_count;
 		internal AtmosphereHeatSource* m_heat_sources;
+		internal int m_probe_count;
+		private int m_reserved;
+		internal v4* m_probes;
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
@@ -131,6 +127,7 @@ internal static unsafe partial class Native
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereDestroy(ulong engine, ulong atmosphere);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereBeginStep(ulong engine, ulong atmosphere, AtmosphereStepDesc* step);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmospherePollStep(ulong engine, ulong atmosphere, out int idle);
+	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereProbesCopy(ulong engine, ulong atmosphere, AtmosphereProbeSample* samples, uint capacity, out uint required);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereCompleteStep(ulong engine, ulong atmosphere);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereFloorsSet(ulong engine, ulong atmosphere, float* floor_heights, int count);
 	[DllImport(Dll)] internal static extern EStatus Physics_AtmosphereFloorTemperaturesSet(ulong engine, ulong atmosphere, float* floor_temperatures, int count);

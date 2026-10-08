@@ -130,6 +130,23 @@ namespace pr::physics::atmosphere
 		// GPU tracer particle layout. Must match TracerParticle in atmosphere.hlsl.
 		using GpuTracerParticle = AtmosphereTracers::GpuParticle;
 
+		// Root constants of the probe kernel. Must match CBufAtmosphereProbes in atmosphere.hlsl.
+		struct CBufAtmosphereProbes
+		{
+			int m_probe_count;
+		};
+		static_assert(sizeof(CBufAtmosphereProbes) == 1 * sizeof(uint32_t));
+
+		// GPU probe sample layout. Must match ProbeSample in atmosphere.hlsl.
+		struct GpuProbeSample
+		{
+			v4 m_velocity;
+			float m_temperature;
+			uint32_t m_inside;
+			float m_pad[2];
+		};
+		static_assert(sizeof(GpuProbeSample) == 32);
+
 		// Create a structured UAV buffer in the requested default state.
 		template <typename Type> D3DPtr<ID3D12Resource> CreateBuffer(Gpu& gpu, GpuJob& job, int count, char const* name)
 		{
@@ -1839,4 +1856,122 @@ namespace pr::physics::atmosphere
 		return particles;
 	}
 
+	// Private implementation for GPU point samples.
+	struct AtmosphereProbes::Impl
+	{
+		AtmosphereSolver& m_solver;
+		ComputeStep m_sample;
+		D3DPtr<ID3D12Resource> m_samples;                 // results of the last recorded sampling, 'MaxPoints' entries
+		GpuReadbackBuffer::Allocation m_pending_readback; // destination of the last recorded copy, valid until resolved
+		int m_pending_count;                              // number of samples in 'm_pending_readback'
+
+		// Compile the sampling kernel and allocate the result buffer.
+		Impl(AtmosphereSolver& solver, Gpu& gpu, IShaderCache* cache)
+			: m_solver(solver)
+			, m_sample()
+			, m_samples()
+			, m_pending_readback()
+			, m_pending_count(0)
+		{
+			// The kernel reads the same solver buffers as the tracer kernels, plus the probe points, and writes only the sample buffer.
+			auto resolver = shader_cache::ResourceSourceResolver{};
+			auto code = ShaderCompiler{}.Source("src/atmosphere/atmosphere.hlsl", resolver).Cache(cache).HlslVersion(EHlslVersion::Hlsl2021).Define(L"SHADER_BUILD").Optimise(true).ShaderModel(L"cs_6_6").EntryPoint(L"CSSampleProbes").Compile();
+			m_sample.m_sig = RootSig(ERootSigFlags::ComputeOnly)
+				.U32<CBufAtmosphere>(hlsl::ECBufReg::b0)
+				.U32<CBufAtmosphereProbes>(hlsl::ECBufReg::b2)
+				.UAV(hlsl::EUAVReg::u8)
+				.SRV(hlsl::ESRVReg::t0).SRV(hlsl::ESRVReg::t1).SRV(hlsl::ESRVReg::t2).SRV(hlsl::ESRVReg::t3).SRV(hlsl::ESRVReg::t6).SRV(hlsl::ESRVReg::t8)
+				.Create(gpu, "Physics.Atmosphere.Probes.RootSig");
+			m_sample.m_pso = ComputePSO(m_sample.m_sig.get(), code).Create(gpu, "Physics.Atmosphere.Probes.PSO");
+			m_samples = CreateBuffer<GpuProbeSample>(gpu, gpu.m_job, MaxPoints, "Atmosphere:ProbeSamples");
+			gpu.m_job.RetireRecordedWork();
+		}
+	};
+
+	// Compile the sampling kernel and allocate the result buffer for 'solver'.
+	AtmosphereProbes::AtmosphereProbes(AtmosphereSolver& solver, Gpu& gpu, IShaderCache* shader_cache)
+		: m_impl(std::make_unique<Impl>(solver, gpu, shader_cache))
+	{
+		// Construction is fully delegated to the implementation object.
+	}
+
+	// Release GPU resources owned by the probes.
+	AtmosphereProbes::~AtmosphereProbes() = default;
+
+	// Record a sample of the solver's current field at each of 'points', and a copy of the results, into 'job'.
+	void AtmosphereProbes::Record(GpuJob& job, std::span<v4 const> points)
+	{
+		// Callers own point validation; recording cannot be undone once the solver step is in the job.
+		assert(isize(points) <= MaxPoints && "Atmosphere probe count exceeds the per-record limit");
+		assert(std::all_of(points.begin(), points.end(), [](v4 const& point) { return IsFinite(point); }) && "Atmosphere probe point is not finite");
+
+		// Nothing is dispatched for an empty set, but the empty result still replaces any earlier unresolved one.
+		auto& impl = *m_impl;
+		impl.m_pending_count = isize(points);
+		impl.m_pending_readback = {};
+		if (points.empty())
+			return;
+
+		// Upload the points to memory the kernel reads directly through a root descriptor.
+		auto upload = job.m_upload.Alloc<v4>(isize(points));
+		for (int i = 0; i != isize(points); ++i)
+			upload.ptr<v4>()[i] = points[i];
+
+		// Bind the solver's current fields as read-only inputs. The transitions also order the solver's earlier writes before these reads.
+		auto& solver = *impl.m_solver.m_impl;
+		auto const current = solver.m_current;
+		job.m_barriers
+			.Transition(impl.m_samples.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
+			.Transition(solver.m_u[current].get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+			.Transition(solver.m_v[current].get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+			.Transition(solver.m_w[current].get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+			.Transition(solver.m_temperature[current].get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+			.Commit();
+
+		// Dispatch one thread per point.
+		auto const cb = solver.Constants(0.0f, 0, 0);
+		auto const probe_cb = CBufAtmosphereProbes{ .m_probe_count = isize(points) };
+		job.m_cmd_list.SetPipelineState(impl.m_sample.m_pso.get());
+		job.m_cmd_list.SetComputeRootSignature(impl.m_sample.m_sig.get());
+		job.m_cmd_list.AddComputeRoot32BitConstants(cb);
+		job.m_cmd_list.AddComputeRoot32BitConstants(probe_cb);
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(impl.m_samples->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(solver.m_u[current]->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(solver.m_v[current]->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(solver.m_w[current]->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(solver.m_temperature[current]->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(solver.m_floor_height->GetGPUVirtualAddress());
+		job.m_cmd_list.AddComputeRootShaderResourceView(upload.m_res->GetGPUVirtualAddress() + upload.m_ofs);
+		job.m_cmd_list.Dispatch((isize(points) + AtmosphereTracerThreadGroup - 1) / AtmosphereTracerThreadGroup, 1, 1);
+
+		// Copy only the written samples to readback memory. The buffer returns to UAV state for the next record.
+		job.m_barriers.Transition(impl.m_samples.get(), D3D12_RESOURCE_STATE_COPY_SOURCE).Commit();
+		impl.m_pending_readback = job.m_readback.Alloc<GpuProbeSample>(isize(points));
+		job.m_cmd_list.CopyBufferRegion(impl.m_pending_readback, impl.m_samples.get(), 0);
+		job.m_barriers.Transition(impl.m_samples.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
+	}
+
+	// Return the samples copied by the last 'Record', in point order.
+	std::vector<AtmosphereProbeSample> AtmosphereProbes::Resolve()
+	{
+		// Convert from the shader layout to the public CPU layout, then release the pending copy.
+		auto& impl = *m_impl;
+		auto samples = std::vector<AtmosphereProbeSample>(impl.m_pending_count);
+		if (impl.m_pending_count != 0)
+		{
+			assert(impl.m_pending_readback.m_mem != nullptr && "No probe sample read back has been recorded");
+			auto const* src = impl.m_pending_readback.ptr<GpuProbeSample>();
+			for (int i = 0; i != impl.m_pending_count; ++i)
+			{
+				samples[i] = AtmosphereProbeSample{
+					.m_velocity = src[i].m_velocity.w0(),
+					.m_temperature = src[i].m_temperature,
+					.m_inside = src[i].m_inside != 0,
+				};
+			}
+		}
+		impl.m_pending_readback = {};
+		impl.m_pending_count = 0;
+		return samples;
+	}
 }

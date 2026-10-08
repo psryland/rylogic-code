@@ -80,6 +80,7 @@ namespace pr::unittests
 			decltype(&Physics_AtmosphereDestroy) AtmosphereDestroy;
 			decltype(&Physics_AtmosphereBeginStep) AtmosphereBeginStep;
 			decltype(&Physics_AtmospherePollStep) AtmospherePollStep;
+			decltype(&Physics_AtmosphereProbesCopy) AtmosphereProbesCopy;
 			decltype(&Physics_AtmosphereCompleteStep) AtmosphereCompleteStep;
 			decltype(&Physics_AtmosphereFloorsSet) AtmosphereFloorsSet;
 			decltype(&Physics_AtmosphereFloorTemperaturesSet) AtmosphereFloorTemperaturesSet;
@@ -148,6 +149,7 @@ namespace pr::unittests
 				, AtmosphereDestroy(m_module.Proc<decltype(AtmosphereDestroy)>("Physics_AtmosphereDestroy"))
 				, AtmosphereBeginStep(m_module.Proc<decltype(AtmosphereBeginStep)>("Physics_AtmosphereBeginStep"))
 				, AtmospherePollStep(m_module.Proc<decltype(AtmospherePollStep)>("Physics_AtmospherePollStep"))
+				, AtmosphereProbesCopy(m_module.Proc<decltype(AtmosphereProbesCopy)>("Physics_AtmosphereProbesCopy"))
 				, AtmosphereCompleteStep(m_module.Proc<decltype(AtmosphereCompleteStep)>("Physics_AtmosphereCompleteStep"))
 				, AtmosphereFloorsSet(m_module.Proc<decltype(AtmosphereFloorsSet)>("Physics_AtmosphereFloorsSet"))
 				, AtmosphereFloorTemperaturesSet(m_module.Proc<decltype(AtmosphereFloorTemperaturesSet)>("Physics_AtmosphereFloorTemperaturesSet"))
@@ -1439,12 +1441,8 @@ namespace pr::unittests
 			// All sides are solid with no drag; the mild lapse keeps buoyancy easy to observe in a few steps.
 			return AtmosphereDesc{
 				.header = {sizeof(AtmosphereDesc), PHYSICS_STRUCT_VERSION},
-				.cell_count_x = 8,
-				.cell_count_y = 8,
-				.cell_count_z = 4,
-				.origin_x = 0.0f,
-				.origin_y = 0.0f,
-				.origin_z = 0.0f,
+				.cell_count = { 8, 8, 4, 0 },
+				.origin = { 0.0f, 0.0f, 0.0f, 1.0f },
 				.dx = 1.0f,
 				.lid_z = 4.0f,
 				.first_layer_thickness = 1.0f,
@@ -1514,7 +1512,7 @@ namespace pr::unittests
 			PR_EXPECT(required == 64U);
 
 			// Only one step may be in flight, and blocking reads wait for it to be finished.
-			auto const source = AtmosphereHeatSource{ .centre_x = 4.0f, .centre_y = 4.0f, .centre_z = 1.0f, .radius = 1.5f, .heating_rate = 5.0f, .target_temperature = 320.0f, .relaxation_rate = 1.0f };
+			auto const source = AtmosphereHeatSource{ .centre = { 4.0f, 4.0f, 1.0f, 1.0f }, .radius = 1.5f, .heating_rate = 5.0f, .target_temperature = 320.0f, .relaxation_rate = 1.0f };
 			auto step = MakeStepDesc(source);
 			auto cells = std::vector<AtmosphereCellState>(8 * 8 * 4);
 			PR_EXPECT(api.AtmosphereCompleteStep(fix.m_engine, atmosphere) == EStatus::NoStepPending);
@@ -1547,14 +1545,14 @@ namespace pr::unittests
 			PR_EXPECT(copied == EStatus::WrongThread);
 			PR_EXPECT(api.AtmosphereTracersCopy(fix.m_engine, atmosphere, particles.data(), static_cast<std::uint32_t>(particles.size()), &required) == EStatus::Success);
 			for (auto const& p : particles)
-				PR_EXPECT(std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z) && std::isfinite(p.temperature));
+				PR_EXPECT(std::isfinite(p.position.x) && std::isfinite(p.position.y) && std::isfinite(p.position.z) && p.position.w == 1.0f && std::isfinite(p.temperature));
 
 			// The published GPU slot can be held across steps, which write other slots, and is released without a fence when no GPU reads it.
 			{
 				auto slot = AtmosphereTracerSlot{};
 				PR_EXPECT(api.AtmosphereTracersAcquire(fix.m_engine, atmosphere, nullptr) == EStatus::InvalidArgument);
 				PR_EXPECT(api.AtmosphereTracersAcquire(fix.m_engine, atmosphere, &slot) == EStatus::Success);
-				PR_EXPECT(slot.resource != nullptr && slot.count == 64U && slot.stride == sizeof(AtmosphereGpuTracerParticle));
+				PR_EXPECT(slot.resource != nullptr && slot.count == 64U && slot.stride == sizeof(AtmosphereTracerParticle));
 				for (auto i = 0; i != 6; ++i)
 				{
 					// Each step must find a free slot while one is held.
@@ -1583,7 +1581,7 @@ namespace pr::unittests
 
 			// Persistent floor temperatures and outside air need one finite entry per column.
 			auto floor_temperatures = std::vector<float>(8 * 8, 290.0f);
-			auto outside_air = std::vector<AtmosphereOutsideAir>(8 * 8, AtmosphereOutsideAir{ .wind_x = 1.0f });
+			auto outside_air = std::vector<AtmosphereOutsideAir>(8 * 8, AtmosphereOutsideAir{ .wind = { 1.0f, 0.0f } });
 			PR_EXPECT(api.AtmosphereFloorTemperaturesSet(fix.m_engine, atmosphere, floor_temperatures.data(), 3) == EStatus::InvalidArgument);
 			PR_EXPECT(api.AtmosphereFloorTemperaturesSet(fix.m_engine, atmosphere, floor_temperatures.data(), static_cast<std::int32_t>(floor_temperatures.size())) == EStatus::Success);
 			PR_EXPECT(api.AtmosphereOutsideAirSet(fix.m_engine, atmosphere, outside_air.data(), 3) == EStatus::InvalidArgument);
@@ -1616,13 +1614,70 @@ namespace pr::unittests
 			PR_EXPECT(required == 0U);
 
 			// The engine owns the atmosphere and drains its pending step on destruction.
-			auto const source = AtmosphereHeatSource{ .centre_x = 4.0f, .centre_y = 4.0f, .centre_z = 1.0f, .radius = 1.5f, .heating_rate = 5.0f, .target_temperature = 320.0f, .relaxation_rate = 1.0f };
+			auto const source = AtmosphereHeatSource{ .centre = { 4.0f, 4.0f, 1.0f, 1.0f }, .radius = 1.5f, .heating_rate = 5.0f, .target_temperature = 320.0f, .relaxation_rate = 1.0f };
 			auto step = MakeStepDesc(source);
 			PR_EXPECT(api.AtmosphereBeginStep(fix.m_engine, atmosphere, &step) == EStatus::Success);
 			PR_EXPECT(api.EngineDestroy(fix.m_engine) == EStatus::Success);
 			auto idle = std::int32_t{};
 			PR_EXPECT(api.AtmospherePollStep(fix.m_engine, atmosphere, &idle) == EStatus::StaleHandle);
 			fix.m_engine = 0;
+		}
+		PRUnitTestMethod(ProbesSampleAfterEachStep, Extended)
+		{
+			auto fix = PhysicsFixture{};
+			auto& api = fix.m_api;
+			auto desc = MakeAtmosphereDesc();
+			desc.tracer_count = 0;
+			auto atmosphere = AtmosphereHandle{};
+			PR_EXPECT(api.AtmosphereCreate(fix.m_engine, &desc, &atmosphere) == EStatus::Success);
+
+			// No step has finished, so there are no samples.
+			auto required = std::uint32_t{ 1 };
+			PR_EXPECT(api.AtmosphereProbesCopy(fix.m_engine, atmosphere, nullptr, 0, nullptr) == EStatus::InvalidArgument);
+			PR_EXPECT(api.AtmosphereProbesCopy(fix.m_engine, atmosphere, nullptr, 0, &required) == EStatus::Success);
+			PR_EXPECT(required == 0U);
+
+			// Invalid probe lists are rejected without starting a step.
+			auto const source = AtmosphereHeatSource{ .centre = { 4.0f, 4.0f, 1.0f, 1.0f }, .radius = 1.5f, .heating_rate = 5.0f, .target_temperature = 320.0f, .relaxation_rate = 1.0f };
+			auto points = std::vector<Vector4>(65, Vector4{ 4.0f, 4.0f, 2.0f, 1.0f });
+			points[1] = Vector4{ -5.0f, 4.0f, 2.0f, 1.0f };
+			auto step = MakeStepDesc(source);
+			step.probe_count = 65;
+			step.probes = points.data();
+			PR_EXPECT(api.AtmosphereBeginStep(fix.m_engine, atmosphere, &step) == EStatus::InvalidArgument);
+			step.probe_count = 2;
+			step.probes = nullptr;
+			PR_EXPECT(api.AtmosphereBeginStep(fix.m_engine, atmosphere, &step) == EStatus::InvalidArgument);
+			step.probes = points.data();
+			points[0].w = 0.0f;
+			PR_EXPECT(api.AtmosphereBeginStep(fix.m_engine, atmosphere, &step) == EStatus::InvalidArgument);
+			points[0].w = 1.0f;
+			points[0].z = std::numeric_limits<float>::quiet_NaN();
+			PR_EXPECT(api.AtmosphereBeginStep(fix.m_engine, atmosphere, &step) == EStatus::InvalidArgument);
+			points[0].z = 2.0f;
+
+			// A valid step publishes one sample per probe once it finishes, and the samples stay readable while the next step is in flight.
+			PR_EXPECT(api.AtmosphereBeginStep(fix.m_engine, atmosphere, &step) == EStatus::Success);
+			PR_EXPECT(api.AtmosphereProbesCopy(fix.m_engine, atmosphere, nullptr, 0, &required) == EStatus::Success);
+			PR_EXPECT(required == 0U);
+			PR_EXPECT(api.AtmosphereCompleteStep(fix.m_engine, atmosphere) == EStatus::Success);
+			auto samples = std::vector<AtmosphereProbeSample>(2);
+			PR_EXPECT(api.AtmosphereProbesCopy(fix.m_engine, atmosphere, samples.data(), 1, &required) == EStatus::BufferTooSmall);
+			PR_EXPECT(required == 2U);
+			PR_EXPECT(api.AtmosphereBeginStep(fix.m_engine, atmosphere, &step) == EStatus::Success);
+			PR_EXPECT(api.AtmosphereProbesCopy(fix.m_engine, atmosphere, samples.data(), 2, &required) == EStatus::Success);
+			PR_EXPECT(samples[0].inside == 1 && std::isfinite(samples[0].velocity.x) && samples[0].temperature > 250.0f && samples[0].temperature < 330.0f);
+			PR_EXPECT(samples[1].inside == 0 && samples[1].temperature == 0.0f);
+
+			// A step without probes publishes an empty set.
+			PR_EXPECT(api.AtmosphereCompleteStep(fix.m_engine, atmosphere) == EStatus::Success);
+			step.probe_count = 0;
+			step.probes = nullptr;
+			PR_EXPECT(api.AtmosphereBeginStep(fix.m_engine, atmosphere, &step) == EStatus::Success);
+			PR_EXPECT(api.AtmosphereCompleteStep(fix.m_engine, atmosphere) == EStatus::Success);
+			PR_EXPECT(api.AtmosphereProbesCopy(fix.m_engine, atmosphere, nullptr, 0, &required) == EStatus::Success);
+			PR_EXPECT(required == 0U);
+			PR_EXPECT(api.AtmosphereDestroy(fix.m_engine, atmosphere) == EStatus::Success);
 		}
 		PRUnitTestMethod(ShaderCacheStoresAndReusesKernels, Extended)
 		{

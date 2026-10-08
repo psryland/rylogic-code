@@ -192,8 +192,27 @@ struct TracerParticle
 RWStructuredBuffer<TracerParticle> resource(g_tracers_out, u7);     // output tracer particles
 StructuredBuffer<TracerParticle> resource(g_tracers_in, t9);        // input tracer particles
 
+// The air sampled at one probe point. Must match GpuProbeSample in atmosphere.cpp.
+struct ProbeSample
+{
+	float4 velocity;                // interpolated air velocity, m/s; w is unused
+	float temperature;              // interpolated air temperature, K
+	uint inside;                    // 1 when the point is in the air of the domain, otherwise 0
+	float2 pad;                     // keeps the structure size a multiple of 16 bytes
+};
+
+// Root constants of the probe kernel. Must match CBufAtmosphereProbes in atmosphere.cpp.
+struct CBufAtmosphereProbes
+{
+	int probe_count;                // number of valid entries in g_probe_points
+};
+
+RWStructuredBuffer<ProbeSample> resource(g_probes_out, u8);         // output probe samples
+StructuredBuffer<float4> resource(g_probe_points, t8);              // world-space probe points, metres; w is unused
+
 ConstantBuffer<CBufAtmosphere> resource(g, b0);                   // per-dispatch constants
 ConstantBuffer<CBufAtmosphereTracers> resource(gt, b1);             // per-dispatch tracer constants
+ConstantBuffer<CBufAtmosphereProbes> resource(gp, b2);              // per-dispatch probe constants
 
 static const int BoundarySolid = 0;
 static const int BoundaryOpen = 1;
@@ -2147,4 +2166,28 @@ void CSAdvectTracers(uint3 dtid : SV_DispatchThreadID)
 		particle.speed = length(v1);
 	}
 	g_tracers_out[particle_index] = particle;
+}
+
+// Sample the current MAC field at caller-chosen world-space points.
+numthreads(CSSampleProbes, ATMOSPHERE_TRACER_THREAD_X, 1, 1)
+void CSSampleProbes(uint3 dtid : SV_DispatchThreadID)
+{
+	// One thread samples one point. Points outside the air report zeros, because the clamped lookups would describe other air.
+	uint probe_index = dtid.x;
+	if (probe_index >= (uint)gp.probe_count)
+		return;
+
+	float3 pos = g_probe_points[probe_index].xyz;
+	ProbeSample sample;
+	sample.velocity = float4(0.0f, 0.0f, 0.0f, 0.0f);
+	sample.temperature = 0.0f;
+	sample.inside = 0u;
+	sample.pad = float2(0.0f, 0.0f);
+	if (!TracerOutside(pos))
+	{
+		sample.velocity = float4(SampleVelocity(pos), 0.0f);
+		sample.temperature = SampleTemperature(pos);
+		sample.inside = 1u;
+	}
+	g_probes_out[probe_index] = sample;
 }

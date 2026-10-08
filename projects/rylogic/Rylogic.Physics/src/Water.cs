@@ -49,16 +49,13 @@ public struct WaterFieldElement
 	/// <summary>Stride of one element in bytes.</summary>
 	public const int SizeInBytes = 64;
 
-	/// <summary>Element types stored in the first info value.</summary>
+	/// <summary>Element types stored in 'm_info.x'.</summary>
 	public const int TypeNone = 0;
 	public const int TypeSineWave = 1;
 	public const int TypeGerstnerWave = 2;
 	public const int TypeRadialPacket = 3;
 
-	public int m_type;
-	public int m_info_y;
-	public int m_info_z;
-	public int m_info_w;
+	public Vector4i m_info;
 	public v4 m_position;
 	public v4 m_wave;
 	public v4 m_timing;
