@@ -638,6 +638,7 @@ namespace pr
 		// 'm_wind_speed' (>= 0, world units per second) and 'm_wind_direction' (radians from +X toward +Y) move the clouds; lower layers move faster.
 		// 'm_time' is the caller's absolute time in seconds; clouds advance by the change in time between updates, and time may not go backwards.
 		// 'm_hidden_cloud_layers' is a bit mask: bit i hides cloud layer i (0 = low, 1 = mid, 2 = cirrus). Zero shows all layers.
+		// 'm_lightning' are flashes inside the cloud: xy = position in the sky frame, z = radius (> 0), w = finite brightness (>= 0, 0 = no flash).
 		struct ProceduralSkySettings
 		{
 			Vec4 m_sun_direction = { 0.5f, 0.3f, 0.8f, 0.0f };
@@ -648,6 +649,7 @@ namespace pr
 			float m_wind_direction = 0.0f;
 			double m_time = 0.0;
 			uint32_t m_hidden_cloud_layers = 0;
+			Vec4 m_lightning[4] = {};
 		};
 
 		// Whole-screen underwater post effect. Colours are sRGB ARGB; alpha is ignored.

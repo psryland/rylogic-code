@@ -2420,7 +2420,7 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateSkybox(char const* name, 
 static rdr12::ProceduralSkySettings ToSkySettings(view3d::ProceduralSkySettings const& s)
 {
 	// Copy field by field because the DLL vector types differ from the renderer's
-	return rdr12::ProceduralSkySettings{
+	auto settings = rdr12::ProceduralSkySettings{
 		.m_sun_direction = To<v4>(s.m_sun_direction),
 		.m_sun_colour = To<v4>(s.m_sun_colour),
 		.m_sun_intensity = s.m_sun_intensity,
@@ -2430,6 +2430,11 @@ static rdr12::ProceduralSkySettings ToSkySettings(view3d::ProceduralSkySettings 
 		.m_time = s.m_time,
 		.m_hidden_cloud_layers = s.m_hidden_cloud_layers,
 	};
+	static_assert(std::extent_v<decltype(view3d::ProceduralSkySettings::m_lightning)> == rdr12::ProceduralSkySettings::LightningMax);
+	for (int i = 0; i != rdr12::ProceduralSkySettings::LightningMax; ++i)
+		settings.m_lightning[i] = To<v4>(s.m_lightning[i]);
+
+	return settings;
 }
 
 // Create a shared GPU atmosphere with ordinary View3D object ownership.
