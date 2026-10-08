@@ -632,6 +632,46 @@ namespace pr::rdr12::ldraw
 		}, name);
 	}
 
+	namespace
+	{
+		// Return a new PBR material to replace the material of 'nug'. An existing PBR material is copied. Any other material is promoted,
+		// keeping its base colour, roughness, two-sided state, and supported shader overlays. Throws if an overlay cannot run with PBR passes.
+		RefPtr<MaterialPBR> EditablePbrMaterial(Nugget const& nug)
+		{
+			// Copy an existing PBR material so that all of its channels are preserved.
+			if (auto const* current = dynamic_cast<MaterialPBR const*>(&nug.mat()); current != nullptr)
+				return RefPtr<MaterialPBR>(::pr::compute::New<MaterialPBR>(*current), true);
+
+			// Copy the common surface components from the ordinary material.
+			auto requires_alpha = nug.RequiresAlpha();
+			auto material = RefPtr<MaterialPBR>(::pr::compute::New<MaterialPBR>(), true);
+			if (auto const* base_colour = nug.mat().Component<materials::BaseColour>(); base_colour != nullptr)
+				material->m_base_colour = *base_colour;
+			if (auto const* roughness = nug.mat().Component<materials::Roughness>(); roughness != nullptr)
+				material->m_roughness = *roughness;
+			if (auto const* two_sided = nug.mat().Component<materials::TwoSided>(); two_sided != nullptr)
+				material->m_two_sided = *two_sided;
+
+			// Keep the bounded procedural vertex stages supported by the stock PBR passes, and forward pixel families written for PBR.
+			if (auto const* overlays = nug.mat().Component<materials::ShaderOverlays>(); overlays != nullptr)
+			{
+				for (auto const& overlay : overlays->m_overlays)
+				{
+					auto const* procedural = dynamic_cast<ProceduralShader*>(overlay.m_overlay.get());
+					if (procedural == nullptr)
+						throw std::runtime_error("PBR material promotion does not support custom shader overlays");
+					if (procedural->HasPixelFamily() && !procedural->HasPbrPixelFamily())
+						throw std::runtime_error("PBR material promotion does not support simple-material procedural pixel shaders");
+				}
+				material->m_shaders = *overlays;
+			}
+			if (requires_alpha)
+				material->m_alpha.m_mode = materials::EAlphaMode::Blend;
+
+			return material;
+		}
+	}
+
 	// Return the procedural surface assigned to a model nugget.
 	std::optional<materials::ProceduralSurface> LdrObject::NuggetProceduralSurface(char const* name, int index) const
 	{
@@ -666,43 +706,37 @@ namespace pr::rdr12::ldraw
 			if (nug == nullptr)
 				throw std::runtime_error("nugget index out of range");
 
-			// Preserve existing PBR properties, or promote an ordinary material while retaining its common surface components.
-			RefPtr<MaterialPBR> material;
-			if (auto const* current = dynamic_cast<MaterialPBR const*>(&nug->mat()); current != nullptr)
-			{
-				material = RefPtr<MaterialPBR>(::pr::compute::New<MaterialPBR>(*current), true);
-			}
-			else
-			{
-				auto requires_alpha = nug->RequiresAlpha();
-				material = RefPtr<MaterialPBR>(::pr::compute::New<MaterialPBR>(), true);
-				if (auto const* base_colour = nug->mat().Component<materials::BaseColour>(); base_colour != nullptr)
-					material->m_base_colour = *base_colour;
-				if (auto const* roughness = nug->mat().Component<materials::Roughness>(); roughness != nullptr)
-					material->m_roughness = *roughness;
-				if (auto const* two_sided = nug->mat().Component<materials::TwoSided>(); two_sided != nullptr)
-					material->m_two_sided = *two_sided;
-				if (auto const* overlays = nug->mat().Component<materials::ShaderOverlays>(); overlays != nullptr)
-				{
-					// Promotion preserves the bounded procedural vertex stages supported by the stock PBR passes, and forward pixel families written for PBR.
-					for (auto const& overlay : overlays->m_overlays)
-					{
-						auto const* procedural = dynamic_cast<ProceduralShader*>(overlay.m_overlay.get());
-						if (procedural == nullptr)
-							throw std::runtime_error("Procedural surface assignment does not support custom shader overlays");
-						if (procedural->HasPixelFamily() && !procedural->HasPbrPixelFamily())
-							throw std::runtime_error("Procedural surface assignment does not support simple-material procedural pixel shaders");
-					}
-					material->m_shaders = *overlays;
-				}
-				if (requires_alpha)
-					material->m_alpha.m_mode = materials::EAlphaMode::Blend;
-			}
-
+			auto material = EditablePbrMaterial(*nug.get());
 			if (surface != nullptr)
 				material->procedural_surface(*surface);
 			else
 				material->procedural_surface_clear();
+
+			nug->mat(static_cast<MaterialPtr>(material));
+			return true;
+		}, name);
+	}
+
+	// Set or clear the normal map of a model nugget, promoting the nugget to a PBR material if needed.
+	void LdrObject::NuggetNormalMap(Texture2D* tex, Sampler* sam, materials::ENormalMapSpace space, float scale, char const* name, int index)
+	{
+		// Apply model-owned material replacement consistently with existing nugget editing APIs.
+		Apply([=](LdrObject* obj)
+		{
+			// Ignore matched objects without geometry, as the existing nugget setters do.
+			if (obj->m_model == nullptr)
+				return true;
+
+			auto nug = obj->m_model->m_nuggets;
+			for (auto i = 0; i != index && nug; ++i, nug = nug->m_next)
+			{}
+			if (nug == nullptr)
+				throw std::runtime_error("nugget index out of range");
+
+			// A null texture leaves an empty slot, which the PBR passes treat as having no normal map.
+			auto material = EditablePbrMaterial(*nug.get());
+			auto slot = materials::TextureSlot{ Texture2DPtr(tex, true), SamplerPtr(sam, true), {}, materials::ETextureColourSpace::Linear, {} };
+			material->normal_texture(slot, scale, space);
 
 			nug->mat(static_cast<MaterialPtr>(material));
 			return true;

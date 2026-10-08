@@ -76,8 +76,8 @@ namespace pr::rdr12
 		MaterialPBR& emissive(Colour colour);
 		MaterialPBR& emissive_texture(materials::TextureSlot slot);
 
-		// Set the texture slot used for tangent-space normals.
-		MaterialPBR& normal_texture(materials::TextureSlot slot, float scale = 1.0f);
+		// Set the normal-map texture and how its samples are interpreted.
+		MaterialPBR& normal_texture(materials::TextureSlot slot, float scale = 1.0f, materials::ENormalMapSpace space = materials::ENormalMapSpace::Tangent);
 
 		// Set or clear the GPU-evaluated procedural surface.
 		MaterialPBR& procedural_surface(materials::ProceduralSurface surface);
