@@ -638,6 +638,7 @@ namespace pr
 		// 'm_wind_speed' (>= 0, world units per second) and 'm_wind_direction' (radians from +X toward +Y) move the clouds; lower layers move faster.
 		// 'm_time' is the caller's absolute time in seconds; clouds advance by the change in time between updates, and time may not go backwards.
 		// 'm_hidden_cloud_layers' is a bit mask: bit i hides cloud layer i (0 = low, 1 = mid, 2 = cirrus). Zero shows all layers.
+		// 'm_lightning' are flashes inside the cloud: xy = position in the sky frame, z = radius (> 0), w = finite brightness (>= 0, 0 = no flash).
 		struct ProceduralSkySettings
 		{
 			Vec4 m_sun_direction = { 0.5f, 0.3f, 0.8f, 0.0f };
@@ -648,13 +649,16 @@ namespace pr
 			float m_wind_direction = 0.0f;
 			double m_time = 0.0;
 			uint32_t m_hidden_cloud_layers = 0;
+			Vec4 m_lightning[4] = {};
 		};
 
 		// Whole-screen underwater post effect. Colours are sRGB ARGB; alpha is ignored.
-		// Requires finite visibility > 0, distortion amplitude >= 0, frequency > 0, and speed >= 0.
+		// Requires visibility > 0 (positive infinity disables the fog), finite distortion amplitude >= 0, frequency > 0, and speed >= 0.
 		// 'm_surface' is a world-space plane with its normal pointing out of the water; fog applies only below it.
 		// It must be finite, and either zero (the whole view is in water) or have a non-zero normal.
 		// 'm_fade_depth' (finite, >= 0) is the depth below the surface over which the effect fades in; zero gives a sharp waterline.
+		// 'm_waterline_offsets' (finite) are the real surface's heights above 'm_surface' at an 8x8 grid on the near plane, row-major from the
+		// top-left corner of the viewport. The waterline follows the interpolated heights. See UnderwaterProps in post_processing.h.
 		struct UnderwaterProps
 		{
 			BOOL m_enabled = FALSE;
@@ -666,6 +670,7 @@ namespace pr
 			float m_distortion_speed = 0.25f;
 			Vec4 m_surface = {};
 			float m_fade_depth = 0.0f;
+			float m_waterline_offsets[64] = {};
 		};
 
 		// Parameters for a UV-free GPU procedural surface applied to a PBR material.

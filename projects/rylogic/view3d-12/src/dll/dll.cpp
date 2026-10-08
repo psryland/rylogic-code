@@ -634,7 +634,7 @@ VIEW3D_API view3d::UnderwaterProps __stdcall View3D_PostEffectUnderwaterGet(view
 		Validate(window);
 		DllLockGuard;
 		auto props = window->PostEffectUnderwater();
-		return view3d::UnderwaterProps{
+		auto result = view3d::UnderwaterProps{
 			.m_enabled = props.m_enabled,
 			.m_tint = props.m_tint.argb,
 			.m_fog_colour = props.m_fog_colour.argb,
@@ -645,6 +645,9 @@ VIEW3D_API view3d::UnderwaterProps __stdcall View3D_PostEffectUnderwaterGet(view
 			.m_surface = To<view3d::Vec4>(props.m_surface),
 			.m_fade_depth = props.m_fade_depth,
 		};
+		static_assert(sizeof(result.m_waterline_offsets) == sizeof(props.m_waterline_offsets));
+		std::memcpy(result.m_waterline_offsets, props.m_waterline_offsets.data(), sizeof(result.m_waterline_offsets));
+		return result;
 	}
 	CatchAndReport(View3D_PostEffectUnderwaterGet, window, {});
 }
@@ -656,7 +659,7 @@ VIEW3D_API BOOL __stdcall View3D_PostEffectUnderwaterSet(view3d::Window window, 
 	{
 		Validate(window);
 		DllLockGuard;
-		window->PostEffectUnderwater(rdr12::UnderwaterProps{
+		auto settings = rdr12::UnderwaterProps{
 			.m_enabled = props.m_enabled != FALSE,
 			.m_tint = Colour32{props.m_tint},
 			.m_fog_colour = Colour32{props.m_fog_colour},
@@ -666,7 +669,9 @@ VIEW3D_API BOOL __stdcall View3D_PostEffectUnderwaterSet(view3d::Window window, 
 			.m_distortion_speed = props.m_distortion_speed,
 			.m_surface = To<v4>(props.m_surface),
 			.m_fade_depth = props.m_fade_depth,
-		});
+		};
+		std::memcpy(settings.m_waterline_offsets.data(), props.m_waterline_offsets, sizeof(props.m_waterline_offsets));
+		window->PostEffectUnderwater(settings);
 		return TRUE;
 	}
 	CatchAndReport(View3D_PostEffectUnderwaterSet, window, FALSE);
@@ -2415,7 +2420,7 @@ VIEW3D_API view3d::Object __stdcall View3D_ObjectCreateSkybox(char const* name, 
 static rdr12::ProceduralSkySettings ToSkySettings(view3d::ProceduralSkySettings const& s)
 {
 	// Copy field by field because the DLL vector types differ from the renderer's
-	return rdr12::ProceduralSkySettings{
+	auto settings = rdr12::ProceduralSkySettings{
 		.m_sun_direction = To<v4>(s.m_sun_direction),
 		.m_sun_colour = To<v4>(s.m_sun_colour),
 		.m_sun_intensity = s.m_sun_intensity,
@@ -2425,6 +2430,11 @@ static rdr12::ProceduralSkySettings ToSkySettings(view3d::ProceduralSkySettings 
 		.m_time = s.m_time,
 		.m_hidden_cloud_layers = s.m_hidden_cloud_layers,
 	};
+	static_assert(std::extent_v<decltype(view3d::ProceduralSkySettings::m_lightning)> == rdr12::ProceduralSkySettings::LightningMax);
+	for (int i = 0; i != rdr12::ProceduralSkySettings::LightningMax; ++i)
+		settings.m_lightning[i] = To<v4>(s.m_lightning[i]);
+
+	return settings;
 }
 
 // Create a shared GPU atmosphere with ordinary View3D object ownership.

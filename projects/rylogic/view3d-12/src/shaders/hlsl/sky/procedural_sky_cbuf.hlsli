@@ -22,6 +22,14 @@ namespace pr::rdr12::sky
 #define PR_SKY_CLOUD_LAYER1 4000.0f, 14000.0f, 6000.0f, 0.60f
 #define PR_SKY_CLOUD_LAYER2 9000.0f, 72000.0f, 14400.0f, 0.35f
 
+// Storm cloud hangs lower: as the cover above the camera rises from PR_SKY_CLOUD_LOWER_START to 1, the low and mid layers drop to
+// PR_SKY_CLOUD_LOWER_SCALE times their altitude. Cirrus keeps its altitude.
+#define PR_SKY_CLOUD_LOWER_START 0.9f
+#define PR_SKY_CLOUD_LOWER_SCALE (1.0f / 3.0f)
+
+// The maximum number of lightning flashes the sky shows at once.
+#define PR_SKY_LIGHTNING_MAX 4
+
 // The width and height, in texels, of the tileable cloud noise texture.
 #define PR_SKY_CLOUD_NOISE_SIZE 512
 
@@ -79,6 +87,9 @@ struct CBufProceduralSky //:reg(b3)
 	uint pad0;
 	uint pad1;
 	uint pad2;
+
+	// Lightning flashes inside the cloud: xy = position in the atmosphere frame, z = radius, w = brightness (0 = no flash).
+	float4 lightning[PR_SKY_LIGHTNING_MAX];
 
 	// Direction transforms from the current scene frame into the atmosphere and source cube frames.
 	row_major float4x4 world_to_sky;

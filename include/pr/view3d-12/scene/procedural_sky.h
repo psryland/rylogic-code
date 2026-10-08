@@ -36,6 +36,11 @@ namespace pr::rdr12
 
 		// Bit mask of cloud layers to hide: bit i hides layer i (0 = low, 1 = mid, 2 = cirrus). Zero shows all layers.
 		uint32_t m_hidden_cloud_layers = 0;
+
+		// Lightning flashes inside the cloud: xy = position in the sky frame, z = radius (> 0), w = brightness (>= 0, 1 is a strong flash, 0 is no flash).
+		// The caller owns when flashes happen and how they flicker; the sky shows each flash's current brightness.
+		static constexpr int LightningMax = 4;
+		v4 m_lightning[LightningMax] = {};
 	};
 
 	// Owns a Z-up atmospheric sky with an optional retained cubemap. Create, update and release on the renderer owner thread.

@@ -89,11 +89,13 @@ namespace pr::rdr12
 		auto h0 = Height(0, 0);
 		auto waterline = v4{ Height(1, 0) - h0, Height(0, 1) - h0, h0, 0 };
 
-		// The highest and lowest points of the near plane are at its corners, NDC (+/-1, +/-1).
+		// The highest and lowest points of the near plane are at its corners, NDC (+/-1, +/-1). The real surface lies within the
+		// range of the waterline offsets around the plane, because interpolation never leaves the range of its samples.
 		auto spread = Abs(waterline.x) + Abs(waterline.y);
-		if (h0 - spread >= 0)
+		auto [min_offset, max_offset] = std::ranges::minmax(props.m_waterline_offsets);
+		if (h0 - spread - max_offset >= 0)
 			return { EUnderwaterView::Hidden, v4::Zero() };
-		if (h0 + spread < -props.m_fade_depth)
+		if (h0 + spread - min_offset < -props.m_fade_depth)
 			return { EUnderwaterView::Immersed, v4::Zero() };
 
 		return { EUnderwaterView::Split, waterline };
@@ -367,6 +369,10 @@ namespace pr::rdr12
 			.fade_depth = props.m_fade_depth,
 			.dither = ctx.m_scene.wnd().m_dither_amount,
 		};
+
+		// Pack the waterline offsets four per vector, in the same order as the settings.
+		static_assert(UnderwaterProps::WaterlineGridSize == 8 && sizeof(cb.waterline_offsets) == sizeof(props.m_waterline_offsets), "The shader assumes an 8x8 waterline grid");
+		std::memcpy(&cb.waterline_offsets[0], props.m_waterline_offsets.data(), sizeof(cb.waterline_offsets));
 
 		// Draw the full-screen pass.
 		auto& cmd_list = ctx.m_cmd_list;

@@ -1,6 +1,9 @@
 using System;
 using System.Runtime.InteropServices;
 using Rylogic.Maths;
+#if PR_UNITTESTS
+using Rylogic.UnitTests;
+#endif
 
 namespace Rylogic.Gfx;
 
@@ -8,8 +11,11 @@ public sealed partial class View3d
 {
 	/// <summary>Procedural sky state. The sky is Z-up. Matches 'view3d::ProceduralSkySettings'.</summary>
 	[StructLayout(LayoutKind.Sequential)]
-	public struct ProceduralSkySettings
+	public unsafe struct ProceduralSkySettings
 	{
+		/// <summary>The maximum number of lightning flashes the sky shows at once.</summary>
+		public const int LightningMax = 4;
+
 		/// <summary>Direction toward the sun. Must be finite and nonzero.</summary>
 		public v4 SunDirection;
 
@@ -33,6 +39,33 @@ public sealed partial class View3d
 
 		/// <summary>Bit mask of cloud layers to hide: bit i hides layer i (0 = low, 1 = mid, 2 = cirrus). Zero shows all layers.</summary>
 		public uint HiddenCloudLayers;
+
+		// Lightning flashes, four floats each. See Lightning.
+		private fixed float m_lightning[LightningMax * 4];
+
+		/// <summary>
+		/// Lightning flash 'i' inside the cloud: xy = position in the sky frame, z = radius (> 0), w = finite brightness (>= 0, 1 is a strong flash,
+		/// 0 is no flash). The caller decides when flashes happen and how they flicker; the sky shows each flash's current brightness.
+		/// </summary>
+		public readonly v4 Lightning(int i)
+		{
+			// Reject slots outside the array rather than reading other fields.
+			if (i < 0 || i >= LightningMax)
+				throw new ArgumentOutOfRangeException(nameof(i), "Lightning flash index is out of range.");
+
+			return new v4(m_lightning[i * 4 + 0], m_lightning[i * 4 + 1], m_lightning[i * 4 + 2], m_lightning[i * 4 + 3]);
+		}
+		public void SetLightning(int i, v4 flash)
+		{
+			// Reject slots outside the array rather than writing other fields.
+			if (i < 0 || i >= LightningMax)
+				throw new ArgumentOutOfRangeException(nameof(i), "Lightning flash index is out of range.");
+
+			m_lightning[i * 4 + 0] = flash.x;
+			m_lightning[i * 4 + 1] = flash.y;
+			m_lightning[i * 4 + 2] = flash.z;
+			m_lightning[i * 4 + 3] = flash.w;
+		}
 
 		/// <summary>Default settings: a clear midday sky with no wind.</summary>
 		public static ProceduralSkySettings Default
@@ -241,3 +274,26 @@ public sealed partial class View3d
 	[DllImport(Dll)]
 	private static extern void View3D_WeatherMapUpload(IntPtr weather);
 }
+
+#if PR_UNITTESTS
+/// <summary>Validate the managed procedural sky contracts independently of native DLL availability.</summary>
+[TestFixture]
+public class ProceduralSkyTests
+{
+	/// <summary>The settings match the native layout, and lightning flashes round trip through their slots.</summary>
+	[Test]
+	public void SettingsLayoutAndLightning()
+	{
+		var settings = View3d.ProceduralSkySettings.Default;
+		Assert.Equal(128, Marshal.SizeOf<View3d.ProceduralSkySettings>());
+		Assert.Equal(48, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.Time)).ToInt32());
+		Assert.Equal(56, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.HiddenCloudLayers)).ToInt32());
+		Assert.Equal(60, Marshal.OffsetOf<View3d.ProceduralSkySettings>("m_lightning").ToInt32());
+		Assert.Equal(v4.Zero, settings.Lightning(3));
+
+		settings.SetLightning(2, new v4(100, -200, 3000, 0.5f));
+		Assert.Equal(new v4(100, -200, 3000, 0.5f), settings.Lightning(2));
+		Assert.Throws<ArgumentOutOfRangeException>(() => settings.SetLightning(View3d.ProceduralSkySettings.LightningMax, v4.Zero));
+	}
+}
+#endif

@@ -89,13 +89,14 @@ So an application can leave the effect enabled with a surface plane whenever wat
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | `m_tint` | `FFA6D9F2` | sRGB colour multiplied into the scene colour |
-| `m_fog_colour` | `FF0A384D` | sRGB colour that distant surfaces fade towards |
-| `m_visibility` | `40` | World distance at which fog hides 95% of a surface (must be > 0) |
+| `m_fog_colour` | `FF0A384D` | sRGB colour that distant surfaces fade towards; alpha is the fog strength (largest fog amount) |
+| `m_visibility` | `40` | World distance at which fog hides 95% of a surface (must be > 0; +infinity = no fog) |
 | `m_distortion_amplitude` | `0.002` | Largest screen offset, as a fraction of the viewport height (>= 0, 0 = no distortion) |
 | `m_distortion_frequency` | `6` | Ripples per viewport height (must be > 0) |
 | `m_distortion_speed` | `0.25` | Animation cycles per second (>= 0, 0 = still) |
 | `m_surface` | zero | World-space water surface plane, normal pointing out of the water (zero = no surface) |
 | `m_fade_depth` | `0` | Depth below the surface over which the effect fades in (>= 0, 0 = sharp waterline) |
+| `m_waterline_offsets` | zeros | 8x8 heights of the real surface above `m_surface` on the near plane (finite) |
 
 For each pixel:
 
@@ -110,11 +111,18 @@ For each pixel:
    an unbounded ray is infinitely long, so the background is fully fogged. With a surface plane, only the part of the
    ray below the plane counts. So terrain and sky seen through the surface from below keep their colour (with the tint
    and distortion), while an unbounded ray that never rises through the surface is still fully fogged.
-5. `fog = 1 - exp(-3 * distance / visibility)` and `colour = lerp(colour * tint, fog_colour, fog)`.
-   The blend happens in linear colour space.
+5. `fog = fog_colour.a * (1 - exp(-3 * distance / visibility))` and `colour = lerp(colour * tint, fog_colour, fog)`.
+   The blend happens in linear colour space. With infinite visibility, steps 3 to 5 are skipped and only the tint
+   applies, for applications that fog the scene in their own shaders.
 
-The surface plane is flat, so the waterline is a straight line. For a wavy surface, pass a plane that matches the water
-height near the camera. The plane does not produce refraction or total internal reflection at the surface.
+The waterline follows `m_waterline_offsets`: the heights of the real surface above the plane, measured along its normal,
+at an 8x8 grid of evenly spaced points on the near plane. Sample `(i, j)` is at index `j * 8 + i` and at viewport position
+`(i, j) / 7`, with `(0, 0)` at the top-left corner. Each pixel interpolates the four nearest samples (bilinear), so the
+waterline can follow waves that cross the near plane. All zeros gives a straight waterline on the plane. The CPU
+classification uses the smallest and largest offsets, so the skipped and full-strength cases stay exact. For a wavy
+surface, pass a plane near the water height at the camera, and the sampled wave heights relative to it. The offsets
+move only the waterline; the fog still uses the plane. The effect does not produce refraction or total internal
+reflection at the surface.
 
 Depth is read at the same distorted position as the colour, so the fog always matches the surface it covers.
 
