@@ -21,6 +21,21 @@ namespace pr::physics::tests
 		});
 	}
 
+	// Return a small flat-domain configuration with open sides, for focused tests of sampling the field.
+	static AtmosphereConfig FlatOpenConfig()
+	{
+		// A uniform grid keeps expected motion simple and independent of terrain metrics.
+		return AtmosphereConfig{
+			.m_grid = AtmosphereGrid{ .m_cell_count = iv3{ 8, 8, 4 }, .m_origin = v4::Zero(), .m_dx = 1.0f, .m_lid_z = 4.0f, .m_first_layer_thickness = 1.0f },
+			.m_boundaries = AtmosphereBoundaries{ .m_x_min = EAtmosphereBoundary::Open, .m_x_max = EAtmosphereBoundary::Open, .m_y_min = EAtmosphereBoundary::Open, .m_y_max = EAtmosphereBoundary::Open },
+			.m_reference = AtmosphereReferenceProfile{ .m_temperature_at_origin = 280.0f, .m_lapse_rate = 0.0f, .m_min_temperature = 200.0f },
+			.m_pressure_vcycles = 1,
+			.m_pressure_pre_smooth = 1,
+			.m_pressure_post_smooth = 1,
+			.m_pressure_coarse_smooth = 1,
+		};
+	}
+
 	PRUnitTestClass(AtmosphereTests)
 	{
 		// Build a small stable default configuration for focused solver tests.
@@ -458,16 +473,8 @@ namespace pr::physics::tests
 		// Build a small flat-domain configuration for focused tracer tests.
 		static AtmosphereConfig Config()
 		{
-			// A uniform grid keeps expected motion simple and independent of terrain metrics.
-			return AtmosphereConfig{
-				.m_grid = AtmosphereGrid{ .m_cell_count = iv3{ 8, 8, 4 }, .m_origin = v4::Zero(), .m_dx = 1.0f, .m_lid_z = 4.0f, .m_first_layer_thickness = 1.0f },
-				.m_boundaries = AtmosphereBoundaries{ .m_x_min = EAtmosphereBoundary::Open, .m_x_max = EAtmosphereBoundary::Open, .m_y_min = EAtmosphereBoundary::Open, .m_y_max = EAtmosphereBoundary::Open },
-				.m_reference = AtmosphereReferenceProfile{ .m_temperature_at_origin = 280.0f, .m_lapse_rate = 0.0f, .m_min_temperature = 200.0f },
-				.m_pressure_vcycles = 1,
-				.m_pressure_pre_smooth = 1,
-				.m_pressure_post_smooth = 1,
-				.m_pressure_coarse_smooth = 1,
-			};
+			// The tracer tests share the flat open domain with the probe tests.
+			return FlatOpenConfig();
 		}
 
 		// Return true when a tracer particle is inside the configured domain.
@@ -828,6 +835,55 @@ namespace pr::physics::tests
 			std::printf("Atmosphere counter-flow tracer speed south %f m/s north %f m/s\n", south_speed, north_speed);
 			PR_EXPECT(south_speed > 1.0f);
 			PR_EXPECT(north_speed < -1.0f);
+		}
+	};
+
+	PRUnitTestClass(AtmosphereProbeTests)
+	{
+		PRUnitTestMethod(SamplesUniformFieldAndRejectsOutsidePoints, Quick)
+		{
+			// A uniform field must be sampled exactly at points in the air, while points beyond the domain or above the lid report outside.
+			auto gpu = Gpu{};
+			auto job = GpuJob{ gpu.m_gpu, "AtmosphereProbeTests.Uniform", 0xFF00AAFF, 1 };
+			auto config = FlatOpenConfig();
+			auto solver = AtmosphereSolver{ gpu, config };
+			auto state = AtmosphereState{
+				.m_u_faces = std::vector<float>(config.m_grid.UFaceCount(), 1.5f),
+				.m_v_faces = std::vector<float>(config.m_grid.VFaceCount(), -0.5f),
+				.m_w_faces = std::vector<float>(config.m_grid.WFaceCount(), 0.0f),
+				.m_temperature = std::vector<float>(config.m_grid.CellCount(), 290.0f),
+				.m_pressure = std::vector<float>(config.m_grid.CellCount(), 0.0f),
+			};
+			solver.UploadState(job, state);
+
+			// Sample in the same job as the upload, so the result shows that recorded solver work is visible to the probes.
+			auto probes = AtmosphereProbes{ solver, gpu };
+			auto const points = std::vector<v4>{ v4{ 4.0f, 4.0f, 2.0f, 1.0f }, v4{ -1.0f, 4.0f, 2.0f, 1.0f }, v4{ 4.0f, 4.0f, 5.0f, 1.0f }, v4{ 2.5f, 6.5f, 0.5f, 1.0f } };
+			probes.Record(job, points);
+			job.Run();
+			auto samples = probes.Resolve();
+			PR_EXPECT(isize(samples) == isize(points));
+			for (int i : { 0, 3 })
+			{
+				// Points in the air interpolate the uniform values exactly.
+				PR_EXPECT(samples[i].m_inside);
+				PR_EXPECT(std::abs(samples[i].m_velocity.x - 1.5f) < 1.0e-4f);
+				PR_EXPECT(std::abs(samples[i].m_velocity.y + 0.5f) < 1.0e-4f);
+				PR_EXPECT(std::abs(samples[i].m_velocity.z) < 1.0e-4f);
+				PR_EXPECT(std::abs(samples[i].m_temperature - 290.0f) < 1.0e-3f);
+			}
+			for (int i : { 1, 2 })
+			{
+				// Points outside the air report nothing.
+				PR_EXPECT(!samples[i].m_inside);
+				PR_EXPECT(LengthSq(samples[i].m_velocity) == 0.0f);
+				PR_EXPECT(samples[i].m_temperature == 0.0f);
+			}
+
+			// An empty record replaces the earlier result with an empty one.
+			probes.Record(job, {});
+			job.Run();
+			PR_EXPECT(probes.Resolve().empty());
 		}
 	};
 

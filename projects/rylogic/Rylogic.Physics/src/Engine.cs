@@ -123,10 +123,10 @@ public sealed class Engine :IDisposable
 
 	/// <summary>
 	/// Supply terrain heights on a regular grid so waves are corrected for water depth: they grow in shallow water, are limited to the breaking
-	/// height, and vanish over dry land. Node (i, j) is at (origin_x, origin_y) + (i, j) * cell_size, with height heights[j * width + i].
+	/// height, and vanish over dry land. Node (i, j) is at origin + (i, j) * cell_size, with height heights[j * width + i].
 	/// Positions outside the grid use the nearest edge height. The engine copies the heights and applies them to current and later water.
 	/// </summary>
-	public unsafe void SetWaterBathymetry(double origin_x, double origin_y, double cell_size, int width, int height, ReadOnlySpan<float> heights)
+	public unsafe void SetWaterBathymetry(Vector2d origin, double cell_size, int width, int height, ReadOnlySpan<float> heights)
 	{
 		EnsureOwner();
 		if ((long)width * height != heights.Length)
@@ -138,8 +138,7 @@ public sealed class Engine :IDisposable
 			var desc = new Native.WaterBathymetryDesc
 			{
 				m_header = NativeHeader.Create<Native.WaterBathymetryDesc>(),
-				m_origin_x = origin_x,
-				m_origin_y = origin_y,
+				m_origin = origin,
 				m_cell_size = cell_size,
 				m_width = width,
 				m_height = height,

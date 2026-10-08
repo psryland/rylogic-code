@@ -104,16 +104,16 @@ namespace
 		// Null arrays select the solver's flat floor and all-active mask.
 		auto floor_heights = std::vector<float>{};
 		if (desc.floor_heights != nullptr)
-			floor_heights.assign(desc.floor_heights, desc.floor_heights + static_cast<size_t>(desc.cell_count_x) * static_cast<size_t>(desc.cell_count_y));
+			floor_heights.assign(desc.floor_heights, desc.floor_heights + static_cast<size_t>(desc.cell_count.x) * static_cast<size_t>(desc.cell_count.y));
 		auto active_columns = std::vector<uint8_t>{};
 		if (desc.active_columns != nullptr)
-			active_columns.assign(desc.active_columns, desc.active_columns + static_cast<size_t>(desc.cell_count_x) * static_cast<size_t>(desc.cell_count_y));
+			active_columns.assign(desc.active_columns, desc.active_columns + static_cast<size_t>(desc.cell_count.x) * static_cast<size_t>(desc.cell_count.y));
 
 		using ESide = pr::physics::EAtmosphereSide;
 		return AtmosphereConfig{
 			.m_grid = AtmosphereGrid{
-				.m_cell_count = pr::iv3{ desc.cell_count_x, desc.cell_count_y, desc.cell_count_z },
-				.m_origin = pr::v4{ desc.origin_x, desc.origin_y, desc.origin_z, 1.0f },
+				.m_cell_count = pr::iv3{ desc.cell_count.x, desc.cell_count.y, desc.cell_count.z },
+				.m_origin = pr::v4{ desc.origin.x, desc.origin.y, desc.origin.z, 1.0f },
 				.m_dx = desc.dx,
 				.m_lid_z = desc.lid_z,
 				.m_first_layer_thickness = desc.first_layer_thickness,
@@ -139,6 +139,7 @@ namespace
 			.m_reference = AtmosphereReferenceProfile{
 				.m_temperature_at_origin = desc.reference_temperature,
 				.m_lapse_rate = desc.lapse_rate,
+				.m_adiabatic_lapse_rate = desc.adiabatic_lapse_rate,
 				.m_min_temperature = desc.min_temperature,
 			},
 			.m_gravity = desc.gravity,
@@ -265,6 +266,7 @@ namespace pr::physics
 			Gpu m_gpu;
 			atmosphere::AtmosphereSolver m_solver;
 			std::unique_ptr<atmosphere::AtmosphereTracers> m_tracers;
+			atmosphere::AtmosphereProbes m_probes;
 
 			// The tracer slot holding the particles from the last finished step, or from creation. A step in flight writes a different slot.
 			int m_published_slot;
@@ -272,12 +274,17 @@ namespace pr::physics
 			// The step in flight on the GPU, if any.
 			GpuJob::RunHandle m_pending;
 
+			// The probe samples of the last finished step.
+			std::vector<atmosphere::AtmosphereProbeSample> m_probe_samples;
+
 			AtmosphereRecord(ID3D12Device4* device, atmosphere::AtmosphereConfig config, atmosphere::AtmosphereTracerConfig const& tracers, IShaderCache* shader_cache)
 				: m_gpu(device)
 				, m_solver(m_gpu, std::move(config), shader_cache)
 				, m_tracers()
+				, m_probes(m_solver, m_gpu, shader_cache)
 				, m_published_slot(-1)
 				, m_pending()
+				, m_probe_samples()
 			{
 				// Tracers are optional so field-only atmospheres pay no particle cost.
 				if (tracers.m_particle_count > 0)
@@ -315,12 +322,15 @@ namespace pr::physics
 				return m_gpu.m_job.m_gsync.CompletedSyncPoint() >= m_pending.m_sync_point;
 			}
 
-			// Wait for the submitted step, then publish the tracer slot it wrote.
+			// Wait for the submitted step, then publish the tracer slot and probe samples it wrote.
 			void FinishStep()
 			{
 				m_gpu.m_job.Complete(m_pending);
 				if (m_tracers)
 					m_published_slot = m_tracers->CurrentSlot();
+
+				// Every step records its probes, possibly none, so stale samples never describe a later field.
+				m_probe_samples = m_probes.Resolve();
 			}
 		};
 
@@ -2387,7 +2397,7 @@ extern "C"
 				auto const& c = pr::physics::RequireStruct(boundary);
 				pr::physics::RequireMaterialId(c.material_id);
 				config = pr::physics::CylindricalBoundaryConfig{
-					.m_centre_x = c.centre_x, .m_centre_y = c.centre_y, .m_radius = c.radius, .m_material_id = c.material_id,
+					.m_centre_x = c.centre.x, .m_centre_y = c.centre.y, .m_radius = c.radius, .m_material_id = c.material_id,
 					.m_surface_spacing = c.surface_spacing,
 				};
 				try
@@ -2475,7 +2485,7 @@ extern "C"
 				try
 				{
 					auto const count = static_cast<size_t>(c.width) * static_cast<size_t>(c.height);
-					replacement = std::make_shared<pr::physics::terrain::water::Bathymetry const>(pr::physics::terrain::v2d{ c.origin_x, c.origin_y }, c.cell_size, c.width, c.height, std::span{ c.heights, count });
+					replacement = std::make_shared<pr::physics::terrain::water::Bathymetry const>(pr::physics::terrain::v2d{ c.origin.x, c.origin.y }, c.cell_size, c.width, c.height, std::span{ c.heights, count });
 				}
 				catch (std::exception const& ex)
 				{
@@ -3844,9 +3854,7 @@ extern "C"
 
 			// The column counts size the floor array, so they are checked before it is read. The solver validates everything else.
 			auto const& d = pr::physics::RequireStruct(desc);
-			if (d.reserved != 0)
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid atmosphere reserved field");
-			if ((d.floor_heights != nullptr || d.active_columns != nullptr) && (d.cell_count_x <= 0 || d.cell_count_y <= 0 || static_cast<std::int64_t>(d.cell_count_x) * d.cell_count_y > std::numeric_limits<std::int32_t>::max()))
+			if ((d.floor_heights != nullptr || d.active_columns != nullptr) && (d.cell_count.x <= 0 || d.cell_count.y <= 0 || static_cast<std::int64_t>(d.cell_count.x) * d.cell_count.y > std::numeric_limits<std::int32_t>::max()))
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid atmosphere column count");
 			for (auto boundary : d.boundaries)
 			{
@@ -3919,11 +3927,11 @@ extern "C"
 			heat_sources.reserve(static_cast<size_t>(s.heat_source_count));
 			for (auto const& h : std::span{ s.heat_sources, static_cast<size_t>(s.heat_source_count) })
 			{
-				if (h.reserved != 0)
-					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid atmosphere heat source reserved field");
+				if (h.centre.w != 1.0f)
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere heat source centre is not a point");
 
 				heat_sources.push_back(pr::physics::atmosphere::AtmosphereHeatSource{
-					.m_centre = pr::v4{ h.centre_x, h.centre_y, h.centre_z, 1.0f },
+					.m_centre = pr::v4{ h.centre.x, h.centre.y, h.centre.z, h.centre.w },
 					.m_radius = h.radius,
 					.m_heating_rate = h.heating_rate,
 					.m_target_temperature = h.target_temperature,
@@ -3931,7 +3939,23 @@ extern "C"
 				});
 			}
 
-			// Record the step and tracer advection, with a tracer copy that the finishing call collects. The solver validates before recording.
+			// Probe points enter the engine here, so reject anything the sampler cannot accept before any work is recorded.
+			if (s.probe_count < 0 || s.probe_count > pr::physics::atmosphere::AtmosphereProbes::MaxPoints || (s.probe_count != 0) != (s.probes != nullptr))
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Atmosphere probe pointer and count disagree, or the count exceeds the limit");
+			if (s.reserved != 0)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid atmosphere step reserved field");
+
+			auto probes = std::vector<pr::v4>{};
+			probes.reserve(static_cast<size_t>(s.probe_count));
+			for (auto const& p : std::span{ s.probes, static_cast<size_t>(s.probe_count) })
+			{
+				if (p.w != 1.0f || !std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z))
+					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid atmosphere probe point");
+
+				probes.push_back(pr::v4{ p.x, p.y, p.z, p.w });
+			}
+
+			// Record the step, tracer advection, and probe samples. The finishing call collects the probe copy. The solver validates before recording.
 			auto& job = object.m_gpu.m_job;
 			try
 			{
@@ -3944,6 +3968,7 @@ extern "C"
 			if (object.m_tracers)
 				object.m_tracers->Advect(job, s.dt);
 
+			object.m_probes.Record(job, probes);
 			object.m_pending = job.Submit();
 		});
 	}
@@ -3964,6 +3989,37 @@ extern "C"
 				object.FinishStep();
 
 			*idle = object.Pending() ? 0 : 1;
+		});
+	}
+
+	PhysicsStatus __stdcall Physics_AtmosphereProbesCopy(PhysicsEngineHandle engine, pr::physics::AtmosphereHandle atmosphere, pr::physics::AtmosphereProbeSample* samples, std::uint32_t capacity, std::uint32_t* required)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			// The published samples are CPU memory owned by the record, so copying them never touches the GPU or the step in flight.
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			auto& object = pr::physics::RequireAtmosphere(record, atmosphere);
+			if (required == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Probe required-count pointer is null");
+
+			// Report the size first so a sizing call succeeds with no buffer.
+			auto const count = static_cast<std::uint32_t>(object.m_probe_samples.size());
+			*required = count;
+			if (capacity < count || (count != 0 && samples == nullptr))
+				throw pr::physics::ApiException(PhysicsStatus::BufferTooSmall, "Probe sample buffer is too small");
+
+			// Convert to the ABI layout.
+			for (auto i = std::uint32_t{}; i != count; ++i)
+			{
+				auto const& p = object.m_probe_samples[i];
+				samples[i] = pr::physics::AtmosphereProbeSample{
+					.velocity = { p.m_velocity.x, p.m_velocity.y, p.m_velocity.z, 0.0f },
+					.temperature = p.m_temperature,
+					.inside = p.m_inside ? 1 : 0,
+				};
+			}
 		});
 	}
 
@@ -4053,7 +4109,7 @@ extern "C"
 					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid atmosphere outside air reserved field");
 
 				air[i] = pr::physics::atmosphere::AtmosphereOutsideAir{
-					.m_wind = pr::v2{ a.wind_x, a.wind_y },
+					.m_wind = pr::v2{ a.wind.x, a.wind.y },
 					.m_temperature_offset = a.temperature_offset,
 				};
 			}
@@ -4096,12 +4152,11 @@ extern "C"
 			{
 				auto const& p = source[i];
 				particles[i] = pr::physics::AtmosphereTracerParticle{
-					.x = p.m_position.x,
-					.y = p.m_position.y,
-					.z = p.m_position.z,
+					.position = { p.m_position.x, p.m_position.y, p.m_position.z, 1.0f },
 					.temperature = p.m_temperature,
 					.age = p.m_age,
 					.speed = p.m_speed,
+					.reserved = 0.0f,
 				};
 			}
 		});
@@ -4130,7 +4185,7 @@ extern "C"
 				.resource = resource,
 				.slot = index,
 				.count = static_cast<std::uint32_t>(object.m_tracers->Config().m_particle_count),
-				.stride = static_cast<std::uint32_t>(sizeof(pr::physics::AtmosphereGpuTracerParticle)),
+				.stride = static_cast<std::uint32_t>(sizeof(pr::physics::AtmosphereTracerParticle)),
 				.reserved = 0,
 			};
 		});
@@ -4187,9 +4242,7 @@ extern "C"
 			{
 				auto const& c = states[i];
 				cells[i] = pr::physics::AtmosphereCellState{
-					.velocity_x = c.m_velocity.x,
-					.velocity_y = c.m_velocity.y,
-					.velocity_z = c.m_velocity.z,
+					.velocity = { c.m_velocity.x, c.m_velocity.y, c.m_velocity.z, 0.0f },
 					.temperature = c.m_temperature,
 				};
 			}

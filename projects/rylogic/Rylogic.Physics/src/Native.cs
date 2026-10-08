@@ -10,7 +10,7 @@ namespace Rylogic.Physics;
 internal static unsafe partial class Native
 {
 	internal const string Dll = "physics";
-	internal const uint ApiVersion = 0x00030300U;
+	internal const uint ApiVersion = 0x00050000U;
 	internal const uint StructVersion = 2U;
 	private static IntPtr m_module;
 
@@ -233,8 +233,7 @@ internal static unsafe partial class Native
 	internal struct WaterBathymetryDesc
 	{
 		internal NativeHeader m_header;
-		internal double m_origin_x;
-		internal double m_origin_y;
+		internal Vector2d m_origin;
 		internal double m_cell_size;
 		internal int m_width;
 		internal int m_height;

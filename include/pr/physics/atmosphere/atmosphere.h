@@ -159,11 +159,15 @@ namespace pr::physics::atmosphere
 		void Validate() const;
 	};
 
-	// Linear reference potential-temperature profile used by buoyancy and reset initialisation.
+	// Linear reference potential-temperature profile used by buoyancy and reset initialisation, and the temperature change of moving air.
+	// 'm_adiabatic_lapse_rate' is the temperature change per metre that a parcel of air rises; the default is dry air under Earth gravity.
+	// The air at rest is stable when 'm_lapse_rate' is greater (less negative) than 'm_adiabatic_lapse_rate'. A world with exaggerated heights
+	// can scale both rates by the same factor to keep the same stability over its shorter heights.
 	struct AtmosphereReferenceProfile
 	{
 		float m_temperature_at_origin = 288.0f;
 		float m_lapse_rate = -0.0065f;
+		float m_adiabatic_lapse_rate = -0.00976f;
 		float m_min_temperature = 180.0f;
 
 		// Return the reference temperature at world height 'z'.
@@ -277,7 +281,16 @@ namespace pr::physics::atmosphere
 		float m_speed = 0.0f;     // air speed that moved the particle in the last step, m/s
 	};
 
+	// The air sampled at one world-space point. Points outside the air of the domain have 'm_inside' false and zero velocity and temperature.
+	struct AtmosphereProbeSample
+	{
+		v4 m_velocity = v4::Zero(); // interpolated air velocity, m/s
+		float m_temperature = 0.0f; // interpolated air temperature, K
+		bool m_inside = false;      // true when the point is in an air column, between its floor and the lid
+	};
+
 	class AtmosphereTracers;
+	class AtmosphereProbes;
 
 	// Standalone GPU atmosphere solver for a terrain-following MAC-grid domain.
 	class AtmosphereSolver
@@ -327,6 +340,7 @@ namespace pr::physics::atmosphere
 
 	private:
 		friend class AtmosphereTracers;
+		friend class AtmosphereProbes;
 		struct Impl;
 		std::unique_ptr<Impl> m_impl;
 	};
@@ -393,6 +407,33 @@ namespace pr::physics::atmosphere
 
 		// Return the particles copied by the last 'RecordReadBack'. Call after that submission has completed and before 'job' records another read back.
 		std::vector<AtmosphereTracerParticle> ResolveReadBack();
+
+	private:
+		struct Impl;
+		std::unique_ptr<Impl> m_impl;
+	};
+
+	// Samples the air of an AtmosphereSolver at a few world-space points on the GPU, without reading back the whole field.
+	// 'Record' adds the sampling and a small copy to a caller-owned job, so the results can be collected without waiting once that job has run.
+	class AtmosphereProbes
+	{
+	public:
+		// The largest number of points that one 'Record' can sample.
+		static constexpr int MaxPoints = 64;
+
+		// Compile the sampling kernel and allocate the result buffer for 'solver'.
+		// 'shader_cache' is optional; when given, the compiled kernel is reused across runs.
+		AtmosphereProbes(AtmosphereSolver& solver, Gpu& gpu, IShaderCache* shader_cache = nullptr);
+
+		// Release GPU resources owned by the probes.
+		~AtmosphereProbes();
+
+		// Record a sample of the solver's current field at each of 'points' (world space, at most 'MaxPoints', all finite), and a copy of the results, into 'job'.
+		// The samples see all solver work recorded into 'job' before this call. Collect them with 'Resolve' once the submission has completed.
+		void Record(GpuJob& job, std::span<v4 const> points);
+
+		// Return the samples copied by the last 'Record', in point order. Call after that submission has completed and before 'job' records another read back.
+		std::vector<AtmosphereProbeSample> Resolve();
 
 	private:
 		struct Impl;

@@ -81,6 +81,12 @@ public sealed class AtmosphereOptions
 	public float LapseRate { get; set; } = -0.0065f;
 	public float MinTemperature { get; set; } = 180.0f;
 
+	/// <summary>
+	/// Temperature change in K/m of moving air per metre that it rises; the default is dry air under Earth gravity. The air at rest is stable when
+	/// <see cref="LapseRate"/> is greater (less negative) than this. A world with exaggerated heights can scale both rates by the same factor.
+	/// </summary>
+	public float AdiabaticLapseRate { get; set; } = -0.00976f;
+
 	/// <summary>Gravity in m/s², positive.</summary>
 	public float Gravity { get; set; } = 9.80665f;
 
@@ -129,26 +135,20 @@ public sealed class AtmosphereOptions
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct AtmosphereHeatSource
 {
-	public readonly float m_centre_x;
-	public readonly float m_centre_y;
-	public readonly float m_centre_z;
+	public readonly v4 m_centre;
 	public readonly float m_radius;
 	public readonly float m_heating_rate;
 	public readonly float m_target_temperature;
 	public readonly float m_relaxation_rate;
-	private readonly float m_reserved;
 
-	/// <summary>Specify the world centre and radius (m), heating rate (K/s), target temperature (K), and relaxation rate (1/s).</summary>
+	/// <summary>Specify the world centre as a point (m, w = 1) and radius (m), heating rate (K/s), target temperature (K), and relaxation rate (1/s).</summary>
 	public AtmosphereHeatSource(v4 centre, float radius, float heating_rate, float target_temperature, float relaxation_rate)
 	{
-		m_centre_x = centre.x;
-		m_centre_y = centre.y;
-		m_centre_z = centre.z;
+		m_centre = centre;
 		m_radius = radius;
 		m_heating_rate = heating_rate;
 		m_target_temperature = target_temperature;
 		m_relaxation_rate = relaxation_rate;
-		m_reserved = 0;
 	}
 }
 
@@ -156,45 +156,51 @@ public readonly struct AtmosphereHeatSource
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct AtmosphereOutsideAir
 {
-	public readonly float m_wind_x;
-	public readonly float m_wind_y;
+	public readonly v2 m_wind;
 	public readonly float m_temperature_offset;
 	private readonly float m_reserved;
 
 	/// <summary>Specify the horizontal wind (m/s) and the temperature offset from the reference profile (K).</summary>
-	public AtmosphereOutsideAir(float wind_x, float wind_y, float temperature_offset)
+	public AtmosphereOutsideAir(v2 wind, float temperature_offset)
 	{
-		m_wind_x = wind_x;
-		m_wind_y = wind_y;
+		m_wind = wind;
 		m_temperature_offset = temperature_offset;
 		m_reserved = 0;
 	}
 }
 
-/// <summary>One atmosphere tracer particle: world position (m), air temperature (K), age (s), and the air speed that last moved it (m/s).</summary>
+/// <summary>The air at one probe point after a step: velocity (m/s, w = 0) and temperature (K). Points outside the air of the domain have 'Inside' false and zero values.</summary>
 [StructLayout(LayoutKind.Sequential)]
-public readonly struct AtmosphereTracerParticle
+public readonly struct AtmosphereProbeSample
 {
-	public readonly float m_x;
-	public readonly float m_y;
-	public readonly float m_z;
+	public readonly v4 m_velocity;
 	public readonly float m_temperature;
-	public readonly float m_age;
-	public readonly float m_speed;
+	private readonly int m_inside;
 
-	/// <summary>The world position as a point.</summary>
-	public v4 Position
+	/// <summary>True when the point is in an air column, between its floor and the lid.</summary>
+	public bool Inside
 	{
 		get
 		{
-			return new v4(m_x, m_y, m_z, 1.0f);
+			return m_inside != 0;
 		}
 	}
 }
 
+/// <summary>One atmosphere tracer particle: world position (m, w = 1), air temperature (K), age (s), and the air speed that last moved it (m/s).</summary>
+[StructLayout(LayoutKind.Sequential)]
+public readonly struct AtmosphereTracerParticle
+{
+	public readonly v4 m_position;
+	public readonly float m_temperature;
+	public readonly float m_age;
+	public readonly float m_speed;
+	private readonly float m_reserved;
+}
+
 /// <summary>
-/// A held GPU tracer buffer from <see cref="Atmosphere.AcquireTracers"/>. 'Buffer' is a raw buffer of 'Count' records, 'Stride' (32) bytes apart:
-/// world position x, y, z (m) and w = 1, air temperature (K), age (s), the air speed that last moved the particle (m/s), and padding.
+/// A held GPU tracer buffer from <see cref="Atmosphere.AcquireTracers"/>. 'Buffer' is a raw buffer of 'Count' <see cref="AtmosphereTracerParticle"/>
+/// records, 'Stride' (32) bytes apart.
 /// Pass 'Slot' to <see cref="Atmosphere.ReleaseTracers"/> when the GPU reads are submitted.
 /// </summary>
 public readonly struct AtmosphereTracerSlot
@@ -221,23 +227,12 @@ public readonly struct AtmosphereTracerSlot
 	public int Stride { get; }
 }
 
-/// <summary>The air at one cell centre: velocity (m/s, averaged from the cell faces) and temperature (K).</summary>
+/// <summary>The air at one cell centre: velocity (m/s, w = 0, averaged from the cell faces) and temperature (K).</summary>
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct AtmosphereCellState
 {
-	public readonly float m_velocity_x;
-	public readonly float m_velocity_y;
-	public readonly float m_velocity_z;
+	public readonly v4 m_velocity;
 	public readonly float m_temperature;
-
-	/// <summary>The velocity as a direction vector.</summary>
-	public v4 Velocity
-	{
-		get
-		{
-			return new v4(m_velocity_x, m_velocity_y, m_velocity_z, 0.0f);
-		}
-	}
 }
 
 /// <summary>Simple diagnostics of a completed atmosphere field.</summary>

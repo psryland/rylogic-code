@@ -53,16 +53,18 @@ public sealed class TestPhysics
 		AssertNativeSize(26, Marshal.SizeOf<Native.AtmosphereStats>());
 		Assert.Equal(32, sizeof(AtmosphereHeatSource));
 		Assert.Equal(16, sizeof(AtmosphereOutsideAir));
-		Assert.Equal(24, sizeof(AtmosphereTracerParticle));
-		Assert.Equal(16, sizeof(AtmosphereCellState));
-		Assert.Equal(48, Marshal.OffsetOf<Native.AtmosphereDesc>(nameof(Native.AtmosphereDesc.m_floor_heights)).ToInt32());
-		Assert.Equal(56, Marshal.OffsetOf<Native.AtmosphereDesc>(nameof(Native.AtmosphereDesc.m_active_columns)).ToInt32());
-		Assert.Equal(192, Marshal.OffsetOf<Native.AtmosphereDesc>(nameof(Native.AtmosphereDesc.m_tracer_break_height)).ToInt32());
+		Assert.Equal(32, sizeof(AtmosphereTracerParticle));
+		Assert.Equal(24, sizeof(AtmosphereProbeSample));
+		Assert.Equal(32, Marshal.OffsetOf<Native.AtmosphereStepDesc>(nameof(Native.AtmosphereStepDesc.m_probes)).ToInt32());
+		Assert.Equal(20, sizeof(AtmosphereCellState));
+		Assert.Equal(56, Marshal.OffsetOf<Native.AtmosphereDesc>(nameof(Native.AtmosphereDesc.m_floor_heights)).ToInt32());
+		Assert.Equal(64, Marshal.OffsetOf<Native.AtmosphereDesc>(nameof(Native.AtmosphereDesc.m_active_columns)).ToInt32());
+		Assert.Equal(204, Marshal.OffsetOf<Native.AtmosphereDesc>(nameof(Native.AtmosphereDesc.m_tracer_break_height)).ToInt32());
 		Assert.Equal(WaterFieldElement.SizeInBytes, sizeof(WaterFieldElement));
 		Assert.Equal(8, Marshal.OffsetOf<Native.WaterDesc>(nameof(Native.WaterDesc.m_level)).ToInt32());
 		Assert.Equal(40, Marshal.OffsetOf<Native.WaterDesc>(nameof(Native.WaterDesc.m_elements)).ToInt32());
 		Assert.Equal(40, Marshal.OffsetOf<Native.WaterBathymetryDesc>(nameof(Native.WaterBathymetryDesc.m_heights)).ToInt32());
-		Assert.Equal(8, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_centre_x)).ToInt32());
+		Assert.Equal(8, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_centre)).ToInt32());
 		Assert.Equal(32, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_material_id)).ToInt32());
 		Assert.Equal(36, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_surface_spacing)).ToInt32());
 	}
@@ -75,8 +77,8 @@ public sealed class TestPhysics
 		using var engine = runtime.CreateEngine();
 		var checkpoint = new byte[engine.CheckpointSize()];
 		engine.WriteCheckpoint(checkpoint);
-		engine.SetCylindricalBoundary(new CylindricalBoundaryConfiguration(0, 0, 4000));
-		ExpectStatus(EStatus.InvalidArgument, () => engine.SetCylindricalBoundary(new CylindricalBoundaryConfiguration(0, 0, double.NaN)));
+		engine.SetCylindricalBoundary(new CylindricalBoundaryConfiguration(new Vector2d(0, 0), 4000));
+		ExpectStatus(EStatus.InvalidArgument, () => engine.SetCylindricalBoundary(new CylindricalBoundaryConfiguration(new Vector2d(0, 0), double.NaN)));
 		ExpectStatus(EStatus.InvalidArgument, () => engine.ReadCheckpoint(checkpoint));
 		using var shape = engine.CreateSphere(0.3f);
 		using var body = engine.CreateBody(shape, new BodyOptions { ObjectToWorld = m4x4.Translation(3999.65f, 0, 1000), MassOrDensity = 1 });
@@ -149,7 +151,7 @@ public sealed class TestPhysics
 		var sharpness = WaveSpectrum.CrestSharpness(10);
 		var long_only = WaveSpectrum.Elements(layout, amplitudes, 0, sharpness, 4, elements);
 		Assert.True(all > long_only && long_only > 0);
-		Assert.Equal(WaterFieldElement.TypeGerstnerWave, elements[0].m_type);
+		Assert.Equal(WaterFieldElement.TypeGerstnerWave, elements[0].m_info.x);
 		Assert.True(elements[0].m_wave.y >= 4);
 
 		// Light wind gives sine-shaped waves, and stronger wind sharpens the crests.
@@ -162,9 +164,9 @@ public sealed class TestPhysics
 		using var runtime = new Physics();
 		using var engine = runtime.CreateEngine();
 		var heights = new float[] { -20, -20, 5, 5 };
-		engine.SetWaterBathymetry(-100, -100, 200, 2, 2, heights);
+		engine.SetWaterBathymetry(new Vector2d(-100, -100), 200, 2, 2, heights);
 		engine.SetWater(new WaterConfiguration(0, repeat_period: 1024), elements.AsSpan(0, long_only));
-		Assert.Throws<ArgumentException>(() => engine.SetWaterBathymetry(0, 0, 1, 3, 3, heights));
+		Assert.Throws<ArgumentException>(() => engine.SetWaterBathymetry(new Vector2d(0, 0), 1, 3, 3, heights));
 		ExpectStatus(EStatus.InvalidArgument, () => engine.SetWater(new WaterConfiguration(0, breaking_ratio: 0), elements.AsSpan(0, long_only)));
 		engine.ClearWaterBathymetry();
 		engine.SetWater(null);
@@ -213,6 +215,16 @@ public sealed class TestPhysics
 		Assert.True(stats.MaxSpeed > 0);
 		ExpectStatus(EStatus.BufferTooSmall, () => atmosphere.CopyCellStates(cells.AsSpan(1)));
 
+		// Probes sample the air after their step, and points outside the air report nothing.
+		var probes = new[] { new v4(4, 4, 2, 1), new v4(4, 4, 9, 1) };
+		var samples = new AtmosphereProbeSample[2];
+		atmosphere.BeginStep(0.1f, heat_sources: heat, probes: probes);
+		atmosphere.CompleteStep();
+		Assert.Equal(2, atmosphere.CopyProbes(samples));
+		Assert.True(samples[0].Inside && samples[0].m_temperature > 250 && samples[0].m_temperature < 330);
+		Assert.True(!samples[1].Inside && samples[1].m_temperature == 0);
+		ExpectStatus(EStatus.BufferTooSmall, () => atmosphere.CopyProbes(samples.AsSpan(1)));
+
 		// Tracer reads and mutation from a worker thread are rejected before reaching native code.
 		var particles = new AtmosphereTracerParticle[atmosphere.TracerCount];
 		Exception? worker_failure = null;
@@ -232,8 +244,8 @@ public sealed class TestPhysics
 		Assert.True(worker_failure is InvalidOperationException);
 		var copied = atmosphere.CopyTracers(particles);
 		Assert.Equal(64, copied);
-		Assert.True(Array.TrueForAll(particles, p => p.m_z >= 0 && p.m_z <= 4));
-		Assert.True(Array.TrueForAll(particles, p => !(p.m_x < 1 && p.m_y < 1)));
+		Assert.True(Array.TrueForAll(particles, p => p.m_position.z >= 0 && p.m_position.z <= 4 && p.m_position.w == 1));
+		Assert.True(Array.TrueForAll(particles, p => !(p.m_position.x < 1 && p.m_position.y < 1)));
 
 		// A held GPU tracer buffer survives later steps, and each acquire is released exactly once.
 		var slot = atmosphere.AcquireTracers();
