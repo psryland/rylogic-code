@@ -104,12 +104,20 @@ float3 SkyRadiance(float3 view_dir, float3 sun_dir, float3 sun_light)
 	return radiance * day * day + float3(0.002, 0.003, 0.006);
 }
 
-// Add the sun disc to the sky radiance 'sky' along 'view_dir', and darken views below the horizon.
+// Add the sun disc and its glow to the sky radiance 'sky' along 'view_dir', and darken views below the horizon.
 float3 AtmosphericSky(float3 sky, float3 view_dir, float3 sun_dir, float3 sun_light)
 {
 	// The sun disc, reddened by the same path through the atmosphere as sunlight on the ground.
 	float cos_sun = dot(view_dir, sun_dir);
-	sky += 40.0 * sun_light * SunTransmittance(sun_dir.z, 1.0) * smoothstep(0.99985, 0.99993, cos_sun) * step(-0.02, sun_dir.z);
+	float3 sun_seen = sun_light * SunTransmittance(sun_dir.z, 1.0);
+	sky += 40.0 * sun_seen * smoothstep(0.99985, 0.99993, cos_sun) * step(-0.02, sun_dir.z);
+
+	// A bright hazy glow around the sun, from light scattered slightly forward by haze. The phase function above is too broad to show it.
+	// The angle from the sun (radians) is approximated by the chord length, which is accurate near the sun where the glow matters.
+	// A tight bright core blends into a wide faint halo. Clouds are composited over this, so thick cloud hides the glow.
+	float sun_angle = sqrt(max(2.0 * (1.0 - cos_sun), 0.0));
+	float glow = 1.125 * exp(-sun_angle / 0.02) + 0.2625 * exp(-sun_angle / 0.12);
+	sky += sun_seen * glow * smoothstep(-0.03, 0.0, sun_dir.z);
 
 	// Below the horizon the background is darker, standing in for ground or sea.
 	float below = saturate(-view_dir.z * 3.0);
