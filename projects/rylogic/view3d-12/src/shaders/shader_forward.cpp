@@ -42,6 +42,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto EnvMapPrev = ESRVReg::t13;
 		inline static constexpr auto SkyTexture = ESRVReg::t18;
 		inline static constexpr auto EnvMapDistance = ESRVReg::t21;
+		inline static constexpr auto SkyHistory = ESRVReg::t22;
 		inline static constexpr auto ProceduralBuffer = ESRVReg::t14;
 		inline static constexpr auto Lights = ESRVReg::t15;
 		inline static constexpr auto ShadowViews = ESRVReg::t16;
@@ -49,6 +50,7 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto AlphaColour = EUAVReg::u0;
 		inline static constexpr auto AlphaDepth = EUAVReg::u1;
 		inline static constexpr auto AlphaRtAttrs = EUAVReg::u2;
+		inline static constexpr auto SkyHistoryOut = EUAVReg::u3;
 	};
 	struct ESamp
 	{
@@ -65,6 +67,7 @@ namespace pr::rdr12::shaders
 
 	Forward::Forward(Renderer& rdr)
 		:Shader(rdr)
+		,m_sky_history()
 	{
 		m_code = ShaderCode
 		{
@@ -118,6 +121,8 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::Elements)
 			.SRV(EReg::EnvMapPrev, 1)
 			.SRV(EReg::EnvMapDistance, 1, D3D12_SHADER_VISIBILITY_PIXEL)
+			.SRV(EReg::SkyHistory, 1, D3D12_SHADER_VISIBILITY_PIXEL)
+			.UAV(EReg::SkyHistoryOut, 1)
 			.Create(rdr.d3d(), "ForwardSig");
 	}
 
@@ -130,6 +135,8 @@ namespace pr::rdr12::shaders
 		SetLightingConstants(cb0, scene);
 		SetEnvMapConstants(cb0.env_map, scene.m_global_envmap.get(), scene.m_global_envmap_prev.get(), scene.m_global_envmap_blend, scene.m_global_envmap_parallax_bounds);
 		cb0.output = v4(scene.wnd().m_dither_amount, 0, 0, 0);
+		if (m_sky_history != nullptr)
+			cb0.sky_history = *m_sky_history;
 
 		// Clouds shade the sun when a visible procedural sky has them. Otherwise the zero shadow strength turns cloud shadows off,
 		// and the sky's descriptor table is left unbound because the shader does not read it.

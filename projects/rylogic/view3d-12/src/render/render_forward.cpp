@@ -24,12 +24,46 @@
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/texture/texture_cube.h"
 #include "pr/view3d-12/sampler/sampler.h"
+#include "pr/view3d-12/resource/resource_factory.h"
+#include "pr/view3d-12/scene/procedural_sky.h"
+#include "pr/view3d-12/texture/texture_desc.h"
 #include "pr/view3d-12/utility/pipe_state.h"
 #include "view3d-12/src/shaders/common.h"
 
 namespace pr::rdr12
 {
 	using namespace ::pr::compute;
+
+	// The procedural sky's low cloud accumulated over frames. The sky shader reads the previous frame's history and writes this frame's.
+	struct RenderForward::SkyHistory
+	{
+		// The history textures, with one texel per 2x2 pixel quad of the render target. [0] is written this frame, [1] holds the previous frame.
+		Texture2DPtr m_tex[2];
+		iv2 m_size;
+
+		// The previous frame's viewport, world to screen transform, and low cloud offset, and whether the previous frame wrote the history.
+		v4 m_prev_viewport;
+		m4x4 m_prev_w2s;
+		v2 m_prev_cloud_offset;
+		bool m_valid;
+
+		// The number of frames accumulated, which selects each frame's offset along the march steps.
+		uint64_t m_frame;
+
+		// The constants for this frame's shaders.
+		shaders::fwd::SkyHistory m_constants;
+
+		SkyHistory()
+			: m_tex()
+			, m_size()
+			, m_prev_viewport()
+			, m_prev_w2s(m4x4::Identity())
+			, m_prev_cloud_offset()
+			, m_valid()
+			, m_frame()
+			, m_constants()
+		{}
+	};
 
 	RenderForward::RenderForward(Scene& scene)
 		: RenderStep(Id, scene, scene.wnd().m_gsync)
@@ -38,6 +72,7 @@ namespace pr::rdr12
 		, m_alp_list(scene.d3d(), nullptr, "RenderForwardAlpha", EColours::Blue)
 		, m_default_tex(rdr().store().StockTexture(EStockTexture::White))
 		, m_default_sam(rdr().store().StockSampler(EStockSampler::LinearClamp))
+		, m_sky_history(std::make_unique<SkyHistory>())
 	{
 		// Create the default PSO description
 		m_default_pipe_state = D3D12_GRAPHICS_PIPELINE_STATE_DESC {
@@ -298,6 +333,7 @@ namespace pr::rdr12
 		auto des_heaps = { wnd().m_heap_view.get(), wnd().m_heap_samp.get() };
 		m_cmd_list.SetDescriptorHeaps({ des_heaps.begin(), des_heaps.size() });
 		m_alp_list.SetDescriptorHeaps({ des_heaps.begin(), des_heaps.size() });
+		PrepareSkyHistory();
 
 		// Set the viewport and scissor rect.
 		auto const& vp = scn().m_viewport;
@@ -428,6 +464,76 @@ namespace pr::rdr12
 		m_alp_list.Close();
 	}
 
+	// Prepare the sky's low cloud history for this frame.
+	void RenderForward::PrepareSkyHistory()
+	{
+		// Blend frames only when a procedural sky is drawn, in a scene whose camera moves smoothly between frames.
+		// Otherwise the shader's history constants are zero, which turns the blending off.
+		auto& history = *m_sky_history;
+		auto const* sky = scn().CloudSky();
+		auto const bb_size = wnd().BackBufferSize();
+		if (sky == nullptr || !scn().m_sky_history || bb_size.x == 0 || bb_size.y == 0)
+		{
+			m_shader.m_sky_history = nullptr;
+			history.m_valid = false;
+			return;
+		}
+
+		// Size the history to one texel per 2x2 pixel quad of the render target. A new size, or a moved viewport, starts a new history.
+		auto const& vp = scn().m_viewport;
+		auto const viewport = v4(vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height);
+		auto const size = (bb_size + iv2(1, 1)) / 2;
+		if (Any(size != history.m_size))
+		{
+			ResourceFactory factory(rdr());
+			auto desc = ResDesc::Tex2D(Image{ size.x, size.y, nullptr, DXGI_FORMAT_R16G16B16A16_FLOAT }, 1U, EUsage::UnorderedAccess)
+				.def_state(D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+			history.m_tex[0] = factory.CreateTexture2D(TextureDesc(AutoId, desc).name("SkyHistory0"));
+			history.m_tex[1] = factory.CreateTexture2D(TextureDesc(AutoId, desc).name("SkyHistory1"));
+			history.m_size = size;
+			history.m_valid = false;
+		}
+		if (Any(viewport != history.m_prev_viewport))
+			history.m_valid = false;
+
+		// Read the previous frame's history and write this frame's into the other texture. The written texture is cleared to a negative alpha,
+		// which marks pixels the sky does not draw this frame, such as pixels behind scene geometry.
+		std::swap(history.m_tex[0], history.m_tex[1]);
+		auto& tex_out = *history.m_tex[0].get();
+		{
+			BarrierBatch bb(m_cmd_list);
+			bb.Transition(tex_out.m_res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+			bb.Commit();
+
+			float const cleared[4] = { 0.0f, 0.0f, 0.0f, -1.0f };
+			m_cmd_list.ClearUnorderedAccessViewFloat(wnd().m_heap_view.Add(tex_out.m_uav), tex_out.m_uav.m_cpu, tex_out.m_res.get(), cleared);
+
+			// The sky's writes must follow the clear.
+			bb.UAV(tex_out.m_res.get());
+			bb.Commit();
+		}
+
+		// Set the constants that map this frame's cloud to where it was in the previous frame, then remember this frame for the next.
+		// Each frame moves the march samples along their steps by the golden ratio, which spreads the samples of consecutive frames evenly.
+		auto const& cam = scn().m_cam;
+		auto const w2s = cam.CameraToScreen() * InvertOrthonormal(cam.CameraToWorld());
+		auto const cloud_offset = sky->m_cloud_offset[0];
+		history.m_constants = shaders::fwd::SkyHistory{
+			.prev_w2s = history.m_prev_w2s,
+			.viewport = viewport,
+			.prev_cloud_offset = history.m_prev_cloud_offset,
+			.frame_jitter = s_cast<float>(std::fmod(s_cast<double>(history.m_frame) * 0.6180339887, 1.0)),
+			.valid = history.m_valid ? 1.0f : 0.0f,
+			.enabled = 1,
+		};
+		m_shader.m_sky_history = &history.m_constants;
+		history.m_prev_viewport = viewport;
+		history.m_prev_w2s = w2s;
+		history.m_prev_cloud_offset = cloud_offset;
+		history.m_valid = true;
+		++history.m_frame;
+	}
+
 	// Set up shader resources that are common to all nuggets in this render step.
 	void RenderForward::BindFrameResources(GfxCmdList& cmd_list)
 	{
@@ -459,6 +565,14 @@ namespace pr::rdr12
 			auto* envmap_distance = envmap->m_distance.get();
 			auto gpu_distance = envmap_distance != nullptr ? wnd().m_heap_view.Add(envmap_distance->m_srv) : gpu;
 			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::EnvMapDistance, gpu_distance);
+		}
+
+		// Add the sky's low cloud history. It is only read and written while the history constants are set (see PrepareSkyHistory).
+		if (m_shader.m_sky_history != nullptr)
+		{
+			auto& history = *m_sky_history;
+			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::SkyHistory, wnd().m_heap_view.Add(history.m_tex[1]->m_srv));
+			cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::SkyHistoryOut, wnd().m_heap_view.Add(history.m_tex[0]->m_uav));
 		}
 	}
 

@@ -29,6 +29,9 @@ namespace pr::rdr12
 
 	private:
 
+		// The procedural sky's low cloud accumulated over frames. See AccumulateLowCloud in procedural_sky.hlsl.
+		struct SkyHistory;
+
 		shaders::Forward m_shader;
 		GfxCmdList m_cmd_list;
 		GfxCmdList m_alp_list;
@@ -41,6 +44,7 @@ namespace pr::rdr12
 		Texture2DPtr m_default_tex;
 		SamplerPtr m_default_sam;
 		D3D12_GPU_VIRTUAL_ADDRESS m_elements = {}; // This frame's element constants table, one entry per drawlist element
+		std::unique_ptr<SkyHistory> m_sky_history;
 	public:
 
 		explicit RenderForward(Scene& scene);
@@ -56,6 +60,9 @@ namespace pr::rdr12
 
 		// Perform the render step
 		void Execute(Frame& frame) override;
+
+		// Prepare the sky's low cloud history for this frame: size, swap, and clear the history textures, and set the shader's history constants.
+		void PrepareSkyHistory();
 
 		// Add model nuggets to the draw list for this render step
 		void AddNuggets(BaseInstance const& inst, NuggetPtr nuggets, drawlist_t& drawlist) override;

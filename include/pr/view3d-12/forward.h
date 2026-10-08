@@ -321,6 +321,10 @@ namespace pr::rdr12
 		struct ThickLineListGS;
 		struct ShadowMap;
 		struct CloudConstants;
+		namespace fwd
+		{
+			struct SkyHistory;
+		}
 	}
 	using ShaderPtr = RefPtr<Shader>;
 

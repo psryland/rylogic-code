@@ -22,6 +22,10 @@ ConstantBuffer<CBufProceduralSky> resource(g_sky, b3);
 TextureCube<float4> resource(g_background, t18);
 SamplerState resource(g_background_sampler, s1);
 
+// The low cloud accumulated over previous frames, and its update for this frame. One texel per 2x2 pixel quad. See AccumulateLowCloud.
+Texture2D<float4> resource(g_sky_history, t22);
+RWTexture2D<float4> resource(g_sky_history_out, u3);
+
 struct PSOut
 {
 	float4 diff semantic(SV_TARGET);
@@ -250,16 +254,30 @@ float PhaseHG(float cos_angle, float g)
 	return (1.0 - g * g) / pow(abs(1.0 + g * g - 2.0 * g * cos_angle), 1.5);
 }
 
-// A pseudo-random value in [0,1) for a pixel, with no visible pattern across the screen. Used to offset ray march samples, so the error
-// left by widely spaced samples shows as fine grain rather than bands or stripes.
-float PixelHash(float2 pixel)
+// A pseudo-random value in [0,1) for an integer cell, with no visible pattern between neighbouring cells.
+float CellHash(int2 cell)
 {
-	// Mix the integer pixel coordinates with an integer hash, which has no repeating structure at screen scales.
-	uint2 p = uint2(pixel);
+	// Mix the cell coordinates with an integer hash, which has no repeating structure at the scales used.
+	uint2 p = asuint(cell);
 	uint h = p.x * 1973u + p.y * 9277u;
 	h = (h << 13) ^ h;
 	h = h * (h * h * 15731u + 789221u) + 1376312589u;
 	return float(h & 0x00ffffffu) / 16777216.0;
+}
+
+// A pseudo-random value in [0,1) fixed to the cloud field, at noise coordinate 'uv1' of a layer read at mip level 'lod' (see CloudLod).
+// Used to offset ray march samples, so the error left by widely spaced samples shows as fine grain rather than bands or stripes.
+// The grain is made of cells in the layer's noise coordinates, so it drifts with the clouds instead of staying fixed on the screen.
+// The cells are about one noise texel at 'lod', which is about one pixel. Values from the two nearest cell sizes are blended, so the
+// grain does not jump as the cell size changes with distance.
+float CloudGrain(float2 uv1, float lod)
+{
+	// Hash the cells at the two mip levels around 'lod'.
+	float level = floor(lod);
+	float2 texels = uv1 * PR_SKY_CLOUD_NOISE_SIZE;
+	float g0 = CellHash(int2(floor(texels * exp2(-level))));
+	float g1 = CellHash(int2(floor(texels * exp2(-level - 1.0))) + int2(7919, 104729));
+	return lerp(g0, g1, lod - level);
 }
 
 // Finish the colour of a cloud layer: fade it into the air, tint storm cloud, and fade it out at the horizon. Returns premultiplied radiance and alpha.
@@ -338,8 +356,11 @@ float4 CloudSheet(int layer, float3 cam, float3 dir, float pixel_angle, float lo
 // The low cloud is a slab of finite height (see CloudLayerShape). Each column of the slab has a flat-ish base near the layer plane and a rounded top
 // whose height follows the cloud field, so clouds have lit tops, shaded bases, and sides. The ray is marched through the slab, front to back,
 // and each sample is lit by the sunlight that passes through the cloud toward the sun, the sky light, and any lightning.
-// 'pixel' is the pixel position on the screen. 'lower_scale' scales the layer's altitude (see PR_SKY_CLOUD_LOWER_SCALE).
-float4 CloudSlab(float3 cam, float3 dir, float2 pixel, float pixel_angle, float lower_scale, float3 sun_dir, float3 sun_light, float3 ambient, float3 haze)
+// 'lower_scale' scales the layer's altitude (see PR_SKY_CLOUD_LOWER_SCALE). 'quad_slot' is the pixel's index, 0 to 3, within its 2x2 pixel quad.
+// 'frame_jitter', in [0,1), moves every sample along its step, so that frames sample different points. Use 0 when frames are not accumulated.
+// 'anchor' receives the point where the ray meets the layer plane. It is left unchanged when the ray does not meet the plane.
+// The result is noisy per pixel and is meant to be averaged over the quad with QuadAverage, and over frames with AccumulateLowCloud.
+float4 CloudSlab(float3 cam, float3 dir, float pixel_angle, float quad_slot, float frame_jitter, float lower_scale, float3 sun_dir, float3 sun_light, float3 ambient, float3 haze, inout float3 anchor)
 {
 	// The cloud's shape is set by the cover where the ray meets the layer plane, which is where most of the bases sit.
 	CloudConstants clouds = g_sky.clouds;
@@ -348,7 +369,8 @@ float4 CloudSlab(float3 cam, float3 dir, float2 pixel, float pixel_angle, float 
 	if (!ShellExit(cam, dir, altitude, t_plane, mu))
 		return 0;
 
-	float2 plane_xy = cam.xy + dir.xy * t_plane;
+	anchor = cam + dir * t_plane;
+	float2 plane_xy = anchor.xy;
 	float2 uv1, uv2;
 	CloudUV(clouds, 0, plane_xy, uv1, uv2);
 	float lod = CloudLod(0, t_plane, pixel_angle, mu);
@@ -365,13 +387,22 @@ float4 CloudSlab(float3 cam, float3 dir, float2 pixel, float pixel_angle, float 
 	ShellExit(cam, dir, altitude + s.height, t1, mu_bounds);
 
 	// Steps are spaced at about a fifth of the slab height, so rays that graze the slab near the horizon take more steps and do not skip over
-	// whole clouds. Footprints this wide are a reflection probe or a distant view, where fewer samples are enough. Coarser noise on long steps
-	// keeps the gaps between samples from showing as noise.
-	float max_steps = pixel_angle > 0.003 ? 12.0 : 48.0;
-	int steps = (int)clamp(ceil((t1 - t0) / (0.2 * s.height)), 8.0, max_steps);
-	float dt = (t1 - t0) / steps;
+	// whole clouds, up to a limit that keeps the cost bounded. Accumulating frames averages the remaining gaps away. Footprints this wide are
+	// a reflection probe or a distant view, where fewer samples are enough. Coarser noise on long steps keeps the gaps between samples from
+	// showing as noise. The step count is fractional, with a shorter last step, so the spacing changes smoothly between neighbouring rays.
+	// A whole number of steps would change the spacing suddenly and leave visible seams.
+	float max_steps = pixel_angle > 0.003 ? 12.0 : 24.0;
+	float step_count = clamp((t1 - t0) / (0.2 * s.height), 8.0, max_steps);
+	int steps = (int)ceil(step_count);
+	float dt = (t1 - t0) / step_count;
 	float march_lod = max(lod, log2(max(dt * PR_SKY_CLOUD_NOISE_SIZE / min(CloudLayers[0].y, CloudLayers[0].z), 1e-3)) - 1.0);
-	float jitter = PixelHash(pixel);
+
+	// Each pixel of a 2x2 pixel quad samples a different quarter of every step, so the average over the quad holds one sample from each
+	// quarter (see QuadAverage). The cloud-fixed grain picks the point within the quarter. The grain's cells are sized for the pixel's
+	// longest footprint on the layer, which is across the horizon where the ray grazes it, so they are no bigger than a pixel in any
+	// direction. Larger cells would share one offset along a row of pixels and show as horizontal streaks.
+	float grain_lod = lod - 0.5 * log2(max(mu, 1e-4));
+	float jitter = frac((quad_slot + CloudGrain(uv1, grain_lod)) * 0.25 + frame_jitter);
 
 	// Lighting that is the same for the whole ray. Light is scattered mainly forward, which makes thin cloud glow near the sun (silver lining),
 	// with some even scattering. Sky light is weaker low in the cloud, because the cloud above blocks it, and weaker in larger and storm cloud.
@@ -394,8 +425,12 @@ float4 CloudSlab(float3 cam, float3 dir, float2 pixel, float pixel_angle, float 
 	float t_sum = 0.0;
 	[loop] for (int i = 0; i != steps; ++i)
 	{
-		// Skip samples outside the slab's possible height range without reading the noise.
-		float t = t0 + (i + jitter) * dt;
+		// Skip samples outside the slab's possible height range without reading the noise. The last step is shortened to end at the slab exit.
+		// The offset within each step moves on by the golden ratio, so samples of neighbouring rays do not line up at the same heights,
+		// which would show as stacked slices. The quad's four offsets stay a quarter step apart.
+		float ta = t0 + i * dt;
+		float step_len = min(dt, t1 - ta);
+		float t = ta + frac(jitter + i * 0.618034) * step_len;
 		float3 p = cam + dir * t;
 		float hz = ShellHeight(p, altitude);
 		if (hz < floor_z || hz > s.height)
@@ -424,7 +459,7 @@ float4 CloudSlab(float3 cam, float3 dir, float2 pixel, float pixel_angle, float 
 
 		// Add the light scattered toward the camera over this step, dimmed by the cloud in front. Every droplet scatters the light it stops,
 		// so the light a step adds is its light times the fraction of light it stops.
-		float stopped = 1.0 - exp(-s.sigma * density * dt);
+		float stopped = 1.0 - exp(-s.sigma * density * step_len);
 		radiance += transmit * stopped * light;
 		t_sum += transmit * stopped * t;
 		transmit *= 1.0 - stopped;
@@ -448,9 +483,94 @@ float4 CloudSlab(float3 cam, float3 dir, float2 pixel, float pixel_angle, float 
 	return CloudFinish(radiance, alpha, t_sum / alpha, dir, s.storm, 1.0, haze);
 }
 
+// The average of 'value' over the 2x2 pixel quad that contains 'pixel'. Must be called where every pixel of the quad runs the same code,
+// because it reads the neighbouring pixels' values through the screen-space derivatives.
+float4 QuadAverage(float4 value, uint2 pixel)
+{
+	// A fine derivative is the difference between the two pixels of a row (or column) of the quad, so half of it moves the value to the pair's mean.
+	// Averaging the rows, then the columns, gives the mean of all four pixels.
+	float2 side = 0.5 - float2(pixel & 1);
+	value += side.x * ddx_fine(value);
+	value += side.y * ddy_fine(value);
+	return value;
+}
+
+// The per-channel range of 'value' over the 2x2 pixel quad. Must be called where every pixel of the quad runs the same code.
+void QuadRange(float4 value, out float4 lo, out float4 hi)
+{
+	// Combine with the pixel across the row, then with the pixel pair across the column.
+	float4 across = QuadReadAcrossX(value);
+	lo = min(value, across);
+	hi = max(value, across);
+	lo = min(lo, QuadReadAcrossY(lo));
+	hi = max(hi, QuadReadAcrossY(hi));
+}
+
+// Blend this frame's quad-averaged low cloud 'low_cloud' with the low cloud of previous frames, which averages away the grain of the ray march
+// (see CloudSlab). Returns the blended low cloud, and stores it for the next frame. 'lo' and 'hi' are the range of this frame's samples over the
+// quad (see QuadRange). 'anchor' is a point on the cloud seen through this pixel, in the atmosphere frame. 'drifts' is 1 when the anchor moves
+// with the low cloud's wind, otherwise 0. 'pixel' is the screen pixel.
+// Must be called where every pixel of the quad runs the same code, because the history is shared by the quad.
+float4 AccumulateLowCloud(float4 low_cloud, float4 lo, float4 hi, float3 anchor, float drifts, uint2 pixel)
+{
+	// Frames are not accumulated in views whose camera jumps between frames, such as reflection probe captures.
+	SkyHistory history = g_frame.sky_history;
+	if (history.enabled == 0)
+		return low_cloud;
+
+	// Move the anchor back to where the cloud was in the previous frame. The low cloud's offset is in noise tiles of the wind frame (see CloudUV),
+	// so a change in the offset moves the cloud by the change times the tile size, along and across the wind. The change is wrapped, because
+	// the offset wraps at the noise period.
+	CloudConstants clouds = g_sky.clouds;
+	float2 wind;
+	sincos(clouds.wind_direction, wind.y, wind.x);
+	float2 moved = clouds.offset01.xy - history.prev_cloud_offset;
+	moved -= PR_SKY_CLOUD_PERIOD * round(moved / PR_SKY_CLOUD_PERIOD);
+	moved *= CloudLayers[0].yz;
+	float2 shift = moved.x * wind + moved.y * float2(-wind.y, wind.x);
+	float3 prev_anchor = anchor - drifts * float3(shift, 0);
+
+	// Find where that point was on screen in the previous frame. The atmosphere frame is a rotation of the world frame, so the transpose of
+	// 'world_to_sky' maps it back to the world. History texel 'i' holds the quad covering pixels 2i and 2i+1, so its centre is at pixel 2i+1.
+	float3 prev_world = mul((float3x3)clouds.world_to_sky, prev_anchor);
+	float4 prev_clip = mul(float4(prev_world, 1), history.prev_w2s);
+	float2 prev_ndc = prev_clip.xy / max(prev_clip.w, 1e-6);
+	float2 prev_pixel = history.viewport.xy + (prev_ndc * float2(0.5, -0.5) + 0.5) * history.viewport.zw;
+	float2 texel = 0.5 * prev_pixel - 0.5;
+
+	// Read the history with bilinear filtering. The history is unusable if the point was behind the camera, outside the history, or behind
+	// scene geometry. Pixels behind geometry are not drawn by the sky, so they keep the cleared value, which has a negative alpha.
+	uint2 size;
+	g_sky_history.GetDimensions(size.x, size.y);
+	int2 i0 = (int2)floor(texel);
+	float2 f = texel - i0;
+	float usable = history.valid * (prev_clip.w > 0) * all(i0 >= 0) * all(i0 + 1 < (int2)size);
+	int2 c = clamp(i0, 0, (int2)size - 2);
+	float4 h00 = g_sky_history.Load(int3(c, 0));
+	float4 h10 = g_sky_history.Load(int3(c + int2(1, 0), 0));
+	float4 h01 = g_sky_history.Load(int3(c + int2(0, 1), 0));
+	float4 h11 = g_sky_history.Load(int3(c + int2(1, 1), 0));
+	usable *= min(min(h00.a, h10.a), min(h01.a, h11.a)) >= 0;
+	float4 prev = lerp(lerp(h00, h10, f.x), lerp(h01, h11, f.x), f.y);
+
+	// Share one history between the pixels of the quad, so the quad keeps a single value. Any unusable pixel makes the whole quad unusable.
+	prev = QuadAverage(prev, pixel);
+	usable = min(usable, QuadReadAcrossX(usable));
+	usable = min(usable, QuadReadAcrossY(usable));
+
+	// Limit the history to the range of this frame's samples, which removes stale cloud left by changes the reprojection does not follow, such as
+	// the clouds evolving or lightning. Then blend in a small part of this frame. Each frame's samples sit at different points along the ray
+	// (see CloudSlab), so the blend averages over many sample points.
+	static const float NewWeight = 0.1;
+	float4 result = usable > 0 ? lerp(clamp(prev, lo, hi), low_cloud, NewWeight) : low_cloud;
+	g_sky_history_out[pixel >> 1] = result;
+	return result;
+}
+
 // The full procedural sky along 'dir' from 'cam' (both in the atmosphere frame). Returns linear colour in [0,1].
-// 'pixel' is the pixel position on the screen, and 'pixel_angle' the angle one pixel covers.
-float3 ProceduralSkyColour(float3 dir, float3 cam, float2 pixel, float pixel_angle)
+// 'pixel_angle' is the angle one pixel covers. 'pixel' is the screen pixel, used to share the low cloud's samples within each 2x2 pixel quad.
+// Must be called where every pixel of a quad runs the same code (see QuadAverage).
+float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle, uint2 pixel)
 {
 	// Sky radiance, lit by the sun above the atmosphere. 'haze' is the air without the sun disc, which distant clouds fade into.
 	CloudConstants clouds = g_sky.clouds;
@@ -472,6 +592,12 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float2 pixel, float pixel_ang
 
 	// Lightning also lights the air below the cloud, faintly, by the flashes near the camera.
 	sky += LightningColour * 0.03 * LightningGlow(cam.xy);
+
+	// The low cloud's anchor for accumulating frames (see AccumulateLowCloud). Rays that miss the layer anchor to a distant point in their
+	// direction, which does not drift with the wind.
+	float4 low_cloud = 0;
+	float3 anchor = cam + dir * 1e6;
+	float drifts = 0;
 	if (dir.z > 0)
 	{
 		// Sunlight at the clouds is reddened by its path through the atmosphere. Clouds keep a little light just after sunset.
@@ -495,11 +621,20 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float2 pixel, float pixel_ang
 		}
 		if ((clouds.hidden_layers & 1) == 0)
 		{
-			// The low cloud is nearest.
-			float4 cloud = CloudSlab(cam, dir, pixel, pixel_angle, lower_scale, sun_dir, sun_light, ambient, haze);
-			sky = sky * (1.0 - cloud.a) + cloud.rgb;
+			// The low cloud is nearest. It is composited below, once all pixels of the quad have their samples.
+			float quad_slot = (pixel.x & 1) + 2 * (pixel.y & 1);
+			low_cloud = CloudSlab(cam, dir, pixel_angle, quad_slot, g_frame.sky_history.frame_jitter, lower_scale, sun_dir, sun_light, ambient, haze, anchor);
+			drifts = 1;
 		}
 	}
+
+	// Blend the low cloud's samples over each 2x2 pixel quad, then over frames, which removes the grain left by the widely spaced march steps.
+	// Then put the low cloud in front of the rest of the sky.
+	float4 lo, hi;
+	QuadRange(low_cloud, lo, hi);
+	low_cloud = QuadAverage(low_cloud, pixel);
+	low_cloud = AccumulateLowCloud(low_cloud, lo, hi, anchor, drifts, pixel);
+	sky = sky * (1.0 - low_cloud.a) + low_cloud.rgb;
 
 	// Compress the radiance into display range; bright areas roll off smoothly instead of clipping.
 	return 1.0 - exp(-sky);
@@ -527,7 +662,9 @@ PSIn VSProceduralSky(VSIn In)
 	return Out;
 }
 
-// Pixel shader: procedural atmospheric sky
+// Pixel shader: procedural atmospheric sky.
+// The history writes would otherwise disable the early depth test. The test is still correct early because the sky neither writes depth nor discards pixels.
+[earlydepthstencil]
 PSOut PSProceduralSky(PSIn In)
 {
 	PSOut Out = (PSOut) 0;
@@ -542,7 +679,7 @@ PSOut PSProceduralSky(PSIn In)
 	{
 		float3 sky_dir = mul(float4(view_dir, 0), g_sky.clouds.world_to_sky).xyz;
 		float3 cam = mul(float4(g_frame.cam.c2w[3].xyz, 0), g_sky.clouds.world_to_sky).xyz;
-		sky = ProceduralSkyColour(sky_dir, cam, In.ss_vert.xy, pixel_angle);
+		sky = ProceduralSkyColour(sky_dir, cam, pixel_angle, uint2(In.ss_vert.xy));
 	}
 	if (g_sky.blend_weight < 1)
 	{

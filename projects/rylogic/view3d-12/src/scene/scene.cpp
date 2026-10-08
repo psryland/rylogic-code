@@ -53,6 +53,7 @@ namespace pr::rdr12
 		, m_pso()
 		, m_ray_tracing_props()
 		, m_inst_exclude(EInstFlag::None)
+		, m_sky_history(true)
 		, m_eh_resize()
 		, m_far_clip_fade()
 		, m_shadow_settings()

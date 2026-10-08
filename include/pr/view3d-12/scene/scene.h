@@ -63,6 +63,7 @@ namespace pr::rdr12
 		PipeStates       m_pso;              // Scene-wide pipe state overrides
 		RayTracingProps  m_ray_tracing_props; // Ray tracing render settings for this scene.
 		EInstFlag        m_inst_exclude;     // Instances with any of these flags are not added to this scene
+		bool             m_sky_history;      // True if the procedural sky may blend its low cloud over frames. Turn off for scenes whose camera jumps between frames, such as cube map captures
 		AutoSub          m_eh_resize;        // RT resize event handler subscription
 
 		Scene(Window& wnd, std::initializer_list<ERenderStep> rsteps = {ERenderStep::RenderForward}, SceneCamera const& cam = SceneCamera{});

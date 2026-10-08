@@ -49,6 +49,8 @@ namespace pr::rdr12::shaders
 			Elements,
 			EnvMapPrev,
 			EnvMapDistance,
+			SkyHistory,
+			SkyHistoryOut,
 		};
 
 		enum class ESampParam
@@ -61,6 +63,10 @@ namespace pr::rdr12::shaders
 
 	struct Forward :Shader
 	{
+		// The procedural sky's low cloud history constants for the frame, or null when the sky does not blend its low cloud over frames.
+		// Not owned; the render step that sets it keeps it valid while it renders.
+		fwd::SkyHistory const* m_sky_history;
+
 		explicit Forward(Renderer& rdr);
 		void SetupFrame(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene) override;
 
