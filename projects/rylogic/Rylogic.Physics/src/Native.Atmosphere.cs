@@ -22,6 +22,7 @@ internal static unsafe partial class Native
 		internal fixed float m_wall_drag[6];
 		internal float m_reference_temperature;
 		internal float m_lapse_rate;
+		internal float m_adiabatic_lapse_rate;
 		internal float m_min_temperature;
 		internal float m_gravity;
 		internal float m_floor_exchange_rate;
@@ -41,7 +42,6 @@ internal static unsafe partial class Native
 		internal float m_tracer_break_density;
 		internal float m_tracer_upper_density;
 		internal float m_tracer_break_height;
-		private int m_reserved;
 
 		/// <summary>Convert managed creation options into the exact native layout. Pinned arrays must stay pinned until creation returns.</summary>
 		internal static AtmosphereDesc From(AtmosphereOptions options, float* floor_heights, byte* active_columns)
@@ -58,6 +58,7 @@ internal static unsafe partial class Native
 				m_active_columns = active_columns,
 				m_reference_temperature = options.ReferenceTemperature,
 				m_lapse_rate = options.LapseRate,
+				m_adiabatic_lapse_rate = options.AdiabaticLapseRate,
 				m_min_temperature = options.MinTemperature,
 				m_gravity = options.Gravity,
 				m_floor_exchange_rate = options.FloorExchangeRate,

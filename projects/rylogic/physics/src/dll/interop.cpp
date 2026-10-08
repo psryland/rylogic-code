@@ -139,6 +139,7 @@ namespace
 			.m_reference = AtmosphereReferenceProfile{
 				.m_temperature_at_origin = desc.reference_temperature,
 				.m_lapse_rate = desc.lapse_rate,
+				.m_adiabatic_lapse_rate = desc.adiabatic_lapse_rate,
 				.m_min_temperature = desc.min_temperature,
 			},
 			.m_gravity = desc.gravity,
@@ -3853,8 +3854,6 @@ extern "C"
 
 			// The column counts size the floor array, so they are checked before it is read. The solver validates everything else.
 			auto const& d = pr::physics::RequireStruct(desc);
-			if (d.reserved != 0)
-				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid atmosphere reserved field");
 			if ((d.floor_heights != nullptr || d.active_columns != nullptr) && (d.cell_count.x <= 0 || d.cell_count.y <= 0 || static_cast<std::int64_t>(d.cell_count.x) * d.cell_count.y > std::numeric_limits<std::int32_t>::max()))
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid atmosphere column count");
 			for (auto boundary : d.boundaries)

@@ -56,6 +56,7 @@ namespace pr::physics::atmosphere
 			float m_temp0;                 // reference temperature at world Z = 0, K
 			float m_lapse;                 // change in reference temperature per metre of height, K/m
 			float m_min_temp;              // lower clamp for the reference temperature, K
+			float m_adiabatic_lapse;       // temperature change of moving air per metre that it rises, K/m
 
 			// Floor and lid heat exchange.
 			float m_floor_exchange_rate;   // lowest-layer relaxation rate toward the floor temperature, 1/s
@@ -64,7 +65,6 @@ namespace pr::physics::atmosphere
 
 			// Per-step heat sources.
 			int m_source_count;            // valid heat sources
-			int m_pad0;
 
 			// Multigrid level selection. The child (next coarser) level is derived from these in the shader.
 			iv2 m_mg_size;                 // column counts of the active level
@@ -92,7 +92,7 @@ namespace pr::physics::atmosphere
 			uint32_t m_drag_z;
 		};
 		static_assert(sizeof(CBufAtmosphere) == 34 * sizeof(uint32_t));
-		static_assert(offsetof(CBufAtmosphere, m_origin) == 16 && offsetof(CBufAtmosphere, m_source_count) == 72);
+		static_assert(offsetof(CBufAtmosphere, m_origin) == 16 && offsetof(CBufAtmosphere, m_source_count) == 76);
 		static_assert(offsetof(CBufAtmosphere, m_mg_size) == 80 && offsetof(CBufAtmosphere, m_mg_phase) == 96 && offsetof(CBufAtmosphere, m_mg_passes) == 108 && offsetof(CBufAtmosphere, m_mg_smooth) == 112);
 
 		// Root constants shared by tracer kernels. Must match CBufAtmosphereTracers in atmosphere.hlsl.
@@ -569,6 +569,8 @@ namespace pr::physics::atmosphere
 			throw std::invalid_argument("Atmosphere lapse rate must be finite");
 		if (!std::isfinite(m_min_temperature) || m_min_temperature <= 0.0f)
 			throw std::invalid_argument("Atmosphere minimum reference temperature must be finite and positive");
+		if (!std::isfinite(m_adiabatic_lapse_rate))
+			throw std::invalid_argument("Atmosphere adiabatic lapse rate must be finite");
 	}
 
 	// Reject invalid solver configuration at the caller boundary.
@@ -1015,6 +1017,7 @@ namespace pr::physics::atmosphere
 				.m_temp0 = m_config.m_reference.m_temperature_at_origin,
 				.m_lapse = m_config.m_reference.m_lapse_rate,
 				.m_min_temp = m_config.m_reference.m_min_temperature,
+				.m_adiabatic_lapse = m_config.m_reference.m_adiabatic_lapse_rate,
 				.m_floor_exchange_rate = m_config.m_floor_exchange_rate,
 				.m_lid_temperature = m_config.m_lid_temperature,
 				.m_lid_relaxation_rate = m_config.m_lid_relaxation_rate,

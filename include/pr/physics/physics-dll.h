@@ -48,7 +48,7 @@ namespace pr::physics
 
 namespace pr::physics
 {
-	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00040000U;
+	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00050000U;
 	inline constexpr std::uint32_t PHYSICS_STRUCT_VERSION = 2U;
 	inline constexpr std::uint32_t PHYSICS_CHECKPOINT_VERSION = 3U;
 
@@ -672,6 +672,8 @@ namespace pr::physics
 	// makes the column solid. The heights are copied.
 	// 'boundaries' and 'wall_drag' are indexed by EAtmosphereSide; drag is a quadratic coefficient in [0, 1] and only solid sides may have drag.
 	// The reference profile 'reference_temperature + lapse_rate * (z - origin.z)', limited below by 'min_temperature', sets the initial air at rest.
+	// Moving air changes temperature by 'adiabatic_lapse_rate' (K/m, normally negative) per metre that it rises; the air at rest is stable when
+	// 'lapse_rate' is greater than 'adiabatic_lapse_rate'.
 	// 'tracer_count' particles follow the wind for diagnostics; zero disables them. Tracer heights are spread with the relative densities
 	// 'tracer_ground_density' at the floor, 'tracer_break_density' at the column fraction 'tracer_break_height', and 'tracer_upper_density' above it.
 	// The pressure and stability fields match 'atmosphere::AtmosphereConfig', which documents their effect.
@@ -685,14 +687,13 @@ namespace pr::physics
 		std::uint8_t const* active_columns;
 		EAtmosphereBoundary boundaries[6];
 		float wall_drag[6];
-		float reference_temperature, lapse_rate, min_temperature;
+		float reference_temperature, lapse_rate, adiabatic_lapse_rate, min_temperature;
 		float gravity, floor_exchange_rate, lid_temperature, lid_relaxation_rate;
 		std::int32_t pressure_vcycles, pressure_pre_smooth, pressure_post_smooth, pressure_coarse_smooth, open_edge_band;
 		float vorticity_confinement, vertical_viscosity;
 		std::int32_t tracer_count;
 		std::uint32_t tracer_seed;
 		float tracer_max_age, tracer_ground_density, tracer_break_density, tracer_upper_density, tracer_break_height;
-		std::int32_t reserved;
 	};
 	static_assert(sizeof(AtmosphereDesc) == 208);
 

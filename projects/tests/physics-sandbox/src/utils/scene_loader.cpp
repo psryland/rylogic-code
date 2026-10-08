@@ -1072,6 +1072,7 @@ namespace physics_sandbox::scene_loader
 			auto const& r = reference->to_object();
 			if (auto const* value = r.find("temperature_at_origin")) config.m_reference.m_temperature_at_origin = value->to<float>();
 			if (auto const* value = r.find("lapse_rate")) config.m_reference.m_lapse_rate = value->to<float>();
+			if (auto const* value = r.find("adiabatic_lapse_rate")) config.m_reference.m_adiabatic_lapse_rate = value->to<float>();
 			if (auto const* value = r.find("min_temperature")) config.m_reference.m_min_temperature = value->to<float>();
 		}
 

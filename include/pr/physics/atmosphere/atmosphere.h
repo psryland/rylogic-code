@@ -159,11 +159,15 @@ namespace pr::physics::atmosphere
 		void Validate() const;
 	};
 
-	// Linear reference potential-temperature profile used by buoyancy and reset initialisation.
+	// Linear reference potential-temperature profile used by buoyancy and reset initialisation, and the temperature change of moving air.
+	// 'm_adiabatic_lapse_rate' is the temperature change per metre that a parcel of air rises; the default is dry air under Earth gravity.
+	// The air at rest is stable when 'm_lapse_rate' is greater (less negative) than 'm_adiabatic_lapse_rate'. A world with exaggerated heights
+	// can scale both rates by the same factor to keep the same stability over its shorter heights.
 	struct AtmosphereReferenceProfile
 	{
 		float m_temperature_at_origin = 288.0f;
 		float m_lapse_rate = -0.0065f;
+		float m_adiabatic_lapse_rate = -0.00976f;
 		float m_min_temperature = 180.0f;
 
 		// Return the reference temperature at world height 'z'.

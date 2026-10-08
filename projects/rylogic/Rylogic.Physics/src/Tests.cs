@@ -59,7 +59,7 @@ public sealed class TestPhysics
 		Assert.Equal(20, sizeof(AtmosphereCellState));
 		Assert.Equal(56, Marshal.OffsetOf<Native.AtmosphereDesc>(nameof(Native.AtmosphereDesc.m_floor_heights)).ToInt32());
 		Assert.Equal(64, Marshal.OffsetOf<Native.AtmosphereDesc>(nameof(Native.AtmosphereDesc.m_active_columns)).ToInt32());
-		Assert.Equal(200, Marshal.OffsetOf<Native.AtmosphereDesc>(nameof(Native.AtmosphereDesc.m_tracer_break_height)).ToInt32());
+		Assert.Equal(204, Marshal.OffsetOf<Native.AtmosphereDesc>(nameof(Native.AtmosphereDesc.m_tracer_break_height)).ToInt32());
 		Assert.Equal(WaterFieldElement.SizeInBytes, sizeof(WaterFieldElement));
 		Assert.Equal(8, Marshal.OffsetOf<Native.WaterDesc>(nameof(Native.WaterDesc.m_level)).ToInt32());
 		Assert.Equal(40, Marshal.OffsetOf<Native.WaterDesc>(nameof(Native.WaterDesc.m_elements)).ToInt32());

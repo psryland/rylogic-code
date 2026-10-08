@@ -1452,6 +1452,7 @@ namespace pr::unittests
 				.wall_drag = {},
 				.reference_temperature = 288.0f,
 				.lapse_rate = -0.001f,
+				.adiabatic_lapse_rate = -0.00976f,
 				.min_temperature = 250.0f,
 				.gravity = 9.8f,
 				.floor_exchange_rate = 0.5f,
@@ -1471,7 +1472,6 @@ namespace pr::unittests
 				.tracer_break_density = 1.0f,
 				.tracer_upper_density = 1.0f,
 				.tracer_break_height = 0.5f,
-				.reserved = 0,
 			};
 		}
 

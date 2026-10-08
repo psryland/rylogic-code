@@ -46,7 +46,7 @@ namespace physics_sandbox::scene_loader
 	//             "floor": "flat",             // "flat" (at origin z) or "terrain": sample the scene 'terrain' block per column, raised to the 'water' level if present
 	//             "boundaries": { "x_min":"solid", "x_max":"solid", "y_min":"solid", "y_max":"solid", "z_min":"solid", "z_max":"solid" },
 	//             "wall_drag": { "z_min": 0.005 }, // Quadratic drag coefficient per solid side (x_min..z_max); omitted sides are frictionless
-	//             "reference": { "temperature_at_origin": 288.0, "lapse_rate": -0.0065, "min_temperature": 220.0 },
+	//             "reference": { "temperature_at_origin": 288.0, "lapse_rate": -0.0065, "adiabatic_lapse_rate": -0.00976, "min_temperature": 220.0 },
 	//             "step_rate": 15.0,           // Climate steps per simulated second (Hz). Each step advances the solver by 1/step_rate seconds
 	//             "open_edge_band": 8,         // Width in cells of the sponge that nudges open-side air toward the outside wind
 	//             "vorticity_confinement": 0.0,// Strength (1/s) of the force that restores swirls smoothed away by advection; 0 disables it

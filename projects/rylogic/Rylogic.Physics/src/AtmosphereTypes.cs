@@ -81,6 +81,12 @@ public sealed class AtmosphereOptions
 	public float LapseRate { get; set; } = -0.0065f;
 	public float MinTemperature { get; set; } = 180.0f;
 
+	/// <summary>
+	/// Temperature change in K/m of moving air per metre that it rises; the default is dry air under Earth gravity. The air at rest is stable when
+	/// <see cref="LapseRate"/> is greater (less negative) than this. A world with exaggerated heights can scale both rates by the same factor.
+	/// </summary>
+	public float AdiabaticLapseRate { get; set; } = -0.00976f;
+
 	/// <summary>Gravity in m/s², positive.</summary>
 	public float Gravity { get; set; } = 9.80665f;
 

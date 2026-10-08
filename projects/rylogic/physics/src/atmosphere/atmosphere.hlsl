@@ -62,7 +62,6 @@ static const float AtmosphereSmallDiagonal = 1.0e-20f;    // operator units; avo
 static const float AtmosphereMinHeatRadius = 0.0001f;     // metres; avoids division by zero for point-like heat sources
 static const float AtmosphereMinSwirlGradient = 1.0e-8f;  // 1/(s m); below this the swirl has no clear centre and confinement adds no force
 static const float AtmosphereOpenEdgeWindRate = 8.0f;     // 1/s; blends outside inflow wind into the open-edge sponge over a short solver step
-static const float AtmosphereSpecificHeat = 1004.5f;      // J/(kg K); dry air at constant pressure. Gravity divided by this is the dry adiabatic lapse rate
 #define ATMOSPHERE_TRACER_THREAD_X 64
 
 // Root constants shared by every atmosphere kernel. Must match CBufAtmosphere in atmosphere.cpp.
@@ -91,15 +90,15 @@ struct CBufAtmosphere
 	float temp0;                    // reference temperature at world Z = 0, K                                          @48
 	float lapse;                    // change in reference temperature per metre of height (normally negative), K/m     @52
 	float min_temp;                 // lower clamp for the reference temperature, K                                     @56
+	float adiabatic_lapse;          // temperature change of moving air per metre that it rises (normally negative), K/m @60
 
 	// Floor and lid heat exchange (used by CSForcesHeat).
-	float floor_exchange_rate;      // rate at which the lowest layer relaxes toward the floor temperature, 1/s         @60
-	float lid_temperature;          // temperature that the top layer relaxes toward, K                                 @64
-	float lid_relaxation_rate;      // rate of the top-layer relaxation; zero disables it, 1/s                          @68
+	float floor_exchange_rate;      // rate at which the lowest layer relaxes toward the floor temperature, 1/s         @64
+	float lid_temperature;          // temperature that the top layer relaxes toward, K                                 @68
+	float lid_relaxation_rate;      // rate of the top-layer relaxation; zero disables it, 1/s                          @72
 
 	// Per-step heat sources.
-	int source_count;               // number of valid entries in g_sources                                             @72
-	int pad0;                       //                                                                                  @76
+	int source_count;               // number of valid entries in g_sources                                             @76
 
 	// Multigrid level selection (used by the CSMg* kernels and CSNormalisePressure). All levels are packed into the same
 	// pressure buffers. A level keeps every vertical layer and has fewer columns, so 'mg_offset' is the index of the
@@ -1432,10 +1431,10 @@ void CSAdvect(uint3 dtid : SV_DispatchThreadID)
 		}
 
 		float3 pos = CellCentre(p);
-		// Air that rises expands and cools at the dry adiabatic rate, and air that sinks warms. Without this, a lifted parcel would stay
+		// Air that rises expands and cools at the adiabatic rate, and air that sinks warms. Without this, a lifted parcel would stay
 		// warmer than the stable surrounding air and keep rising.
 		float3 prev = ClampToDomain(pos - SampleVelocity(pos) * g.dt);
-		float temp = SampleTemperature(prev) - g.gravity / AtmosphereSpecificHeat * (pos.z - prev.z);
+		float temp = SampleTemperature(prev) + g.adiabatic_lapse * (pos.z - prev.z);
 		OutsideAir air;
 		if (InflowOutsideAir(p, air))
 		{
