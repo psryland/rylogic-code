@@ -65,6 +65,9 @@
     <ClCompile Include="src\view3d-12\raycast_lifetime.cpp">
       <Filter>view3d-12</Filter>
     </ClCompile>
+    <ShaderBuild Include="src\view3d-12\shaders\hlsl\generated_vertex_input.hlsl">
+      <Filter>view3d-12\shaders</Filter>
+    </ShaderBuild>
     <ShaderBuild Include="src\view3d-12\shaders\hlsl\fade_vertex.hlsl">
       <Filter>view3d-12\shaders</Filter>
     </ShaderBuild>

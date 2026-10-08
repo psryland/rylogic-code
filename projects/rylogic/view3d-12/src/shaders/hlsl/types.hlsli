@@ -29,6 +29,7 @@ static const int PbrTextureFlag_HasMetallicMap    = (1 << 3);
 static const int PbrTextureFlag_HasRoughnessMap   = (1 << 4);
 static const int PbrTextureFlag_HasEmissiveMap    = (1 << 5);
 static const int PbrTextureFlag_HasNormalMap      = (1 << 6);
+static const int PbrTextureFlag_NormalMapModel    = (1 << 7); // The normal map stores model-space normals rather than tangent-space perturbations.
 
 // Row major matrix for use in structured buffers
 struct Mat4x4

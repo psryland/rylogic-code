@@ -229,6 +229,7 @@ namespace pr::rdr12
 	using MaterialPtr = RefPtr<Material const>;
 	namespace materials
 	{
+		enum class ENormalMapSpace;
 		struct ProceduralSurface;
 		struct DetailNormalLayer;
 		struct DetailNormals;

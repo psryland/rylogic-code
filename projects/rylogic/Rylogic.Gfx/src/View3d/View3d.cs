@@ -115,6 +115,15 @@ namespace Rylogic.Gfx
 			Object,
 			World,
 		}
+		/// <summary>How a normal map's samples are interpreted.</summary>
+		public enum ENormalMapSpace : int
+		{
+			/// <summary>X/Y perturb the vertex normal in a frame derived from the UVs.</summary>
+			Tangent,
+
+			/// <summary>X/Y are model-space normal components with Z rebuilt as non-negative; the map replaces the vertex normal.</summary>
+			Model,
+		}
 		public enum ERenderStep :int
 		{
 			Invalid = 0,
@@ -2421,6 +2430,7 @@ namespace Rylogic.Gfx
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetProceduralSurfaceSet(HObject obj, ref ProceduralSurface surface, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetProceduralSurfaceClear(HObject obj, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
 		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetDetailNormalsSet(HObject obj, HTexture tex, HSampler sam, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
+		[DllImport(Dll, CharSet = CharSet.Ansi)] private static extern void View3D_ObjectNuggetNormalMapSet(HObject obj, HTexture tex, HSampler sam, ENormalMapSpace space, float scale, [MarshalAs(UnmanagedType.LPStr)] string? name, int index);
 		[DllImport(Dll)] private static extern void View3D_ObjectDetailNormalLayersSet(HObject obj, [MarshalAs(UnmanagedType.LPArray)] DetailNormalLayer[]? layers, int count, float base_slope_variance);
 		[DllImport(Dll)] private static extern void View3D_ObjectProceduralBufferSet(HObject obj, IntPtr buffer);
 

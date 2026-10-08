@@ -428,6 +428,22 @@ namespace pr::rdr12
 				if (HasUsableTexture(ctx, normal_map.m_tex, texcoords))
 				{
 					texture_flags |= shaders::PbrTextureFlag_HasNormalMap;
+					switch (normal_map.m_space)
+					{
+						case materials::ENormalMapSpace::Tangent:
+						{
+							break;
+						}
+						case materials::ENormalMapSpace::Model:
+						{
+							texture_flags |= shaders::PbrTextureFlag_NormalMapModel;
+							break;
+						}
+						default:
+						{
+							throw std::runtime_error("Unknown normal map space");
+						}
+					}
 				}
 
 				auto cb = shaders::fwd::CBufPbrSurface{
@@ -729,11 +745,12 @@ namespace pr::rdr12
 		return *this;
 	}
 
-	// Set the texture slot used for tangent-space normals.
-	MaterialPBR& MaterialPBR::normal_texture(materials::TextureSlot slot, float scale)
+	// Set the normal-map texture and how its samples are interpreted.
+	MaterialPBR& MaterialPBR::normal_texture(materials::TextureSlot slot, float scale, materials::ENormalMapSpace space)
 	{
 		m_normal_map.m_tex = slot;
 		m_normal_map.m_scale = scale;
+		m_normal_map.m_space = space;
 		return *this;
 	}
 

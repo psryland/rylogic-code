@@ -241,6 +241,9 @@ namespace pr::rdr12::ldraw
 		std::optional<materials::ProceduralSurface> NuggetProceduralSurface(char const* name, int index) const;
 		void NuggetProceduralSurface(materials::ProceduralSurface const* surface, char const* name, int index);
 
+		// Set the normal map of a model nugget, or remove it when 'tex' is null. The nugget is promoted to a PBR material if needed.
+		void NuggetNormalMap(Texture2D* tex, Sampler* sam, materials::ENormalMapSpace space, float scale, char const* name, int index);
+
 		// Set the detail-normal slope map of a simple-material model nugget, or remove detail normals when 'tex' is null.
 		void NuggetDetailNormals(Texture2D* tex, Sampler* sam, char const* name, int index);
 
