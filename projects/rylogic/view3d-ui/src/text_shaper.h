@@ -159,6 +159,9 @@ namespace pr::view3d::ui
 		// fallback-font line metrics. Empty text uses the same line height as its caret.
 		float LayoutHeight(std::string_view family, float size_dip, std::string_view utf8_text);
 
+		// Width of the widest line of the complete unwrapped layout in DIPs, including trailing spaces. Empty text has zero width.
+		float LayoutWidth(std::string_view family, float size_dip, std::string_view utf8_text);
+
 		// Maps a layout-relative point to the UTF-8 byte offset of the nearest insertion position
 		// in 'utf8_text'. DirectWrite's trailing-hit flag is honoured, then the result is snapped to
 		// the *nearest* grapheme-cluster boundary, so clicking the right-hand half of a cluster

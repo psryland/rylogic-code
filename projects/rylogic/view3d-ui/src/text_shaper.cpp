@@ -575,6 +575,20 @@ namespace pr::view3d::ui
 		return metrics.height;
 	}
 
+	float TextShaper::LayoutWidth(std::string_view family, float size_dip, std::string_view utf8_text)
+	{
+		// Trailing spaces count, because a caret typed after them must still be inside the measured text.
+		if (utf8_text.empty())
+			return 0.0f;
+
+		auto& entry = ResolveLayout(family, size_dip, utf8_text);
+		DWRITE_TEXT_METRICS metrics{};
+		if (FAILED(entry.layout->GetMetrics(&metrics)))
+			throw EngineException(EStatus::InternalError, "TextShaper: GetMetrics failed");
+
+		return metrics.widthIncludingTrailingWhitespace;
+	}
+
 	std::uint32_t TextShaper::OffsetFromPoint(std::string_view family, float size_dip, std::string_view utf8_text, float x_dip, float y_dip)
 	{
 		if (utf8_text.empty())

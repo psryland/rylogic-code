@@ -150,8 +150,8 @@ namespace pr::view3d::ui
 
 		// Resolves the DIP x-coordinate a TextPresenter glyph run must start at within 'item's own
 		// bounds, given the run's already-shaped 'total_advance_dip' (TextShaper::Shape's return
-		// value): ETextAlign::Left starts at bounds.x + text_inset_dip; ETextAlign::Center centers
-		// the run within bounds.w and ignores text_inset_dip. Pure/static so it is directly testable
+		// value): ETextAlign::Left starts at bounds.x + text_inset_dip - text_scroll_dip; ETextAlign::Center centers
+		// the run within bounds.w and ignores text_inset_dip and text_scroll_dip. Pure/static so it is directly testable
 		// without a live TextShaper or D3D12 device.
 		static float TextRunStartXDip(DrawItem const& item, float total_advance_dip);
 
@@ -163,6 +163,11 @@ namespace pr::view3d::ui
 		// falls back to the target extent so a division by zero can never reach the shader.
 		// Pure/static so it is directly testable without a D3D12 device.
 		static Vec2 NdcDivisorPx(Pass const& pass);
+
+		// The scissor rectangle, in render-target pixels, that limits drawing to 'clip_dip' (viewport-local DIPs) within the pass's own scissor.
+		// Partly covered pixels are kept. A clip outside the pass scissor yields an empty rectangle. Pure/static so it is directly testable
+		// without a D3D12 device.
+		static D3D12_RECT ClipScissorPx(Pass const& pass, Rect const& clip_dip, float dpi_scale);
 
 		// Number of times an occlusion-faded pass has (re)created the resolved-depth SRV in heap
 		// slot 1. Exposed so a test can prove the descriptor is rebuilt when the host recreates the

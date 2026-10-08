@@ -266,6 +266,7 @@ namespace pr::view3d::ui
 				auto text = node.text;
 				auto ranges = TextEditRanges{ .caret = 0, .selection_start = 0, .selection_end = 0, .composition_start = 0, .composition_length = 0 };
 				auto has_edit_state = false;
+				auto scroll_dip = 0.0f;
 				if (node.desc.type == EControlType::TextBox)
 				{
 					auto edit_it = input_state.m_text_edits.find(id);
@@ -273,6 +274,7 @@ namespace pr::view3d::ui
 					{
 						text = DisplayTextOf(node.desc, edit_it->second);
 						ranges = DisplayRangesOf(node.desc, edit_it->second);
+						scroll_dip = edit_it->second.scroll_dip;
 						has_edit_state = true;
 					}
 				}
@@ -299,6 +301,15 @@ namespace pr::view3d::ui
 					text_item.font_size = font.size * scale;
 					text_item.text_align = placement.align;
 					text_item.text_inset_dip = placement.inset_dip * scale;
+					text_item.text_scroll_dip = scroll_dip;
+
+					// A TextBox keeps its text inside its border, so long text is cut at the inner edge rather than drawn over its neighbours.
+					if (node.desc.type == EControlType::TextBox)
+					{
+						auto const border = std::clamp(visual.border_thickness * scale, 0.0f, std::min(bounds.w, bounds.h) * 0.5f);
+						text_item.text_clip = Rect{ bounds.x + border, bounds.y + border, bounds.w - 2.0f * border, bounds.h - 2.0f * border };
+						text_item.text_clipped = 1;
+					}
 
 					// Selection/composition/caret decorations are only meaningful for the control
 					// the user is actually editing, so an unfocused TextBox reports none of them.

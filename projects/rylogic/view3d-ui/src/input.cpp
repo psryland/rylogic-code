@@ -390,11 +390,12 @@ namespace pr::view3d::ui
 			}
 
 			// The run origin must match the renderer's: a TextBox is left-aligned and inset from
-			// its own left edge, with both the inset and the font size taking the root's scale.
+			// its own left edge, with both the inset and the font size taking the root's scale,
+			// and shifted left by the scroll that was drawn.
 			auto const scale = ControlScale(tree, hit_context.placements, node.desc.id);
 			auto const font = ResolveControlFont(tree, node.desc.font_resource_id);
 			auto const placement = TextPlacementFor(node.desc.type);
-			auto const origin_x = layout_it->second.x + placement.inset_dip * scale;
+			auto const origin_x = layout_it->second.x + placement.inset_dip * scale - edit.scroll_dip;
 			auto const layout_height = hit_context.shaper->LayoutHeight(font.family, font.size * scale, text);
 			auto const origin_y = TextOriginYDip(layout_it->second.y, layout_it->second.h, layout_height);
 
@@ -687,6 +688,58 @@ namespace pr::view3d::ui
 			{
 				throw EngineException(EStatus::InvalidArgument, "NormalizedInput: unknown input kind");
 			}
+		}
+	}
+
+	void UpdateTextScroll(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, TextHitContext const& hit_context, InputState& state)
+	{
+		// Only the TextBox being edited can move its caret out of view; every other edit shows the start of its text.
+		for (auto& [id, edit] : state.m_text_edits)
+		{
+			// Start from the unscrolled position, which is also the result whenever the text cannot be measured.
+			auto const previous = edit.scroll_dip;
+			edit.scroll_dip = 0.0f;
+			if (id != state.m_focus_id || edit.initialized == 0 || hit_context.shaper == nullptr)
+				continue;
+
+			auto const node_it = tree.m_controls.find(id);
+			auto const layout_it = layout.find(id);
+			if (node_it == tree.m_controls.end() || layout_it == layout.end() || node_it->second.desc.type != EControlType::TextBox)
+				continue;
+
+			// Measure exactly what the renderer draws, at the same scale, so the visible text area and the caret agree with the pixels.
+			auto const& node = node_it->second;
+			auto const scale = ControlScale(tree, hit_context.placements, id);
+			auto const font = ResolveControlFont(tree, node.desc.font_resource_id);
+			auto const placement = TextPlacementFor(node.desc.type);
+			auto const display = DisplayTextOf(node.desc, edit);
+			auto const caret_offset = DisplayRangesOf(node.desc, edit).caret;
+			auto const visible_w = std::max(0.0f, layout_it->second.w - 2.0f * placement.inset_dip * scale);
+			auto caret_x = 0.0f;
+			auto text_w = 0.0f;
+			try
+			{
+				caret_x = hit_context.shaper->CaretAt(font.family, font.size * scale, display, caret_offset).x;
+				text_w = hit_context.shaper->LayoutWidth(font.family, font.size * scale, display);
+			}
+			catch (EngineException const& ex)
+			{
+				// A missing font is reported by the renderer for the whole frame; such text is not drawn, so it needs no scroll.
+				if (ex.Status() != EStatus::MissingAsset)
+					throw;
+
+				continue;
+			}
+
+			// Keep the previous scroll while the caret stays in view, so the text only moves when the caret would leave the visible area.
+			// The scroll never exceeds what the text needs, so deleting text pulls the end of the text back to the right edge.
+			auto scroll = previous;
+			if (caret_x - scroll > visible_w)
+				scroll = caret_x - visible_w;
+			if (caret_x < scroll)
+				scroll = caret_x;
+
+			edit.scroll_dip = std::clamp(scroll, 0.0f, std::max(0.0f, text_w - visible_w));
 		}
 	}
 

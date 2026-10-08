@@ -673,6 +673,76 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT(it->caret_visible != 0);
 	}
 
+	PRUnitTest(ALongTextBoxScrollsToKeepItsCaretVisibleAndClipsItsText, Quick)
+	{
+		// The TextBox spans x in [10, 210); this text is much wider than that.
+		auto const text = std::string("The quick brown fox jumps over the lazy dog, then keeps running far past the edge");
+		auto engine = UiEngine(MakeConfig());
+		Scene(engine, text);
+		FocusTextBox(engine);
+		engine.InputInject(KeyDownInput(VK_END));
+		engine.Update(Viewport(300, 200));
+
+		// The caret at the end of the text must still be inside the box.
+		Rect caret{};
+		std::int32_t valid = 0;
+		engine.CaretGeometry(2, caret, valid);
+		PR_EXPECT(valid != 0);
+		PR_EXPECT(caret.x > 10.0f);
+		PR_EXPECT(caret.x + caret.w <= 210.0f);
+
+		// The drawn text is scrolled by the same amount and clipped to the box.
+		auto text_item_of = [&engine]() -> DrawItem
+		{
+			// Each call reads the packet from the most recent Update.
+			auto const& packet = engine.DrawPackets();
+			auto it = std::find_if(packet.items.begin(), packet.items.end(), [](DrawItem const& i) { return i.control_id == 2 && i.primitive == EVisualPrimitive::TextPresenter; });
+			if (it == packet.items.end())
+				throw std::runtime_error("test helper: TextBox text item not found");
+
+			return *it;
+		};
+		auto const scrolled = text_item_of();
+		PR_EXPECT(scrolled.text_scroll_dip > 0.0f);
+		PR_EXPECT(scrolled.text_clipped != 0);
+		PR_EXPECT(scrolled.text_clip.x >= 10.0f);
+		PR_EXPECT(scrolled.text_clip.x + scrolled.text_clip.w <= 210.0f);
+
+		// Clicking where the caret is drawn keeps the caret at the end, so pointer hits use the drawn scroll.
+		engine.InputInject(PointerDownInput(caret.x, caret.y + caret.h * 0.5f));
+		engine.InputInject(PointerUpInput(caret.x, caret.y + caret.h * 0.5f));
+		PR_EXPECT(SemanticOf(engine, 2).node.caret == text.size());
+
+		// Home brings the start of the text back into view.
+		engine.InputInject(KeyDownInput(VK_HOME));
+		engine.Update(Viewport(300, 200));
+		PR_EXPECT(text_item_of().text_scroll_dip == 0.0f);
+
+		// Moving back to the end and then leaving the box shows the start of the text again.
+		engine.InputInject(KeyDownInput(VK_END));
+		engine.Update(Viewport(300, 200));
+		PR_EXPECT(text_item_of().text_scroll_dip > 0.0f);
+		engine.InputInject(KeyDownInput(VK_TAB));
+		engine.Update(Viewport(300, 200));
+		PR_EXPECT(text_item_of().text_scroll_dip == 0.0f);
+	}
+
+	PRUnitTest(ShortTextInAFocusedTextBoxDoesNotScroll, Quick)
+	{
+		// Text that fits never moves, wherever the caret is.
+		auto engine = UiEngine(MakeConfig());
+		Scene(engine, "short");
+		FocusTextBox(engine);
+		engine.InputInject(KeyDownInput(VK_END));
+		engine.Update(Viewport(300, 200));
+
+		auto const& packet = engine.DrawPackets();
+		auto it = std::find_if(packet.items.begin(), packet.items.end(), [](DrawItem const& i) { return i.control_id == 2 && i.primitive == EVisualPrimitive::TextPresenter; });
+		PR_EXPECT(it != packet.items.end());
+		PR_EXPECT(it->text_scroll_dip == 0.0f);
+		PR_EXPECT(it->text_clipped != 0);
+	}
+
 	PRUnitTest(TheFontAndRunFaceCachesStayBoundedUnderRepeatedDistinctRequests, Quick)
 	{
 		// N13: a long-running UI must not accumulate one cached DirectWrite object per font it has

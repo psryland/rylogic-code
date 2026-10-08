@@ -259,4 +259,45 @@ namespace pr::view3d::ui::tests
 		item.text_align = static_cast<ETextAlign>(99);
 		PR_THROWS(Renderer::TextRunStartXDip(item, 0.0f), EngineException);
 	}
+
+	PRUnitTest(TextRunStartXDipShiftsLeftAlignedTextByItsScrollOnly, Quick)
+	{
+		// A scrolled TextBox moves its whole run left; centred labels never scroll.
+		auto item = DrawItem{};
+		item.bounds = Rect{ 10.0f, 0.0f, 100.0f, 20.0f };
+		item.text_inset_dip = 8.0f;
+		item.text_scroll_dip = 30.0f;
+
+		item.text_align = ETextAlign::Left;
+		PR_EXPECT(Renderer::TextRunStartXDip(item, 200.0f) == -12.0f);
+
+		item.text_align = ETextAlign::Center;
+		PR_EXPECT(Renderer::TextRunStartXDip(item, 40.0f) == 40.0f);
+	}
+
+	PRUnitTest(ClipScissorPxMapsViewportDipsToTargetPixelsInsideThePassScissor, Quick)
+	{
+		// A viewport offset into the target, at 150% DPI, with a pass scissor smaller than the target.
+		auto pass = Pass{};
+		pass.m_viewport = D3D12_VIEWPORT{ .TopLeftX = 100.0f, .TopLeftY = 50.0f, .Width = 400.0f, .Height = 300.0f, .MinDepth = 0.0f, .MaxDepth = 1.0f };
+		pass.m_scissor = D3D12_RECT{ .left = 100, .top = 50, .right = 500, .bottom = 350 };
+
+		// Partly covered pixels are kept, so the edges round outwards.
+		auto const inside = Renderer::ClipScissorPx(pass, Rect{ 10.5f, 20.0f, 100.0f, 13.0f }, 1.5f);
+		PR_EXPECT(inside.left == 115);
+		PR_EXPECT(inside.top == 80);
+		PR_EXPECT(inside.right == 266);
+		PR_EXPECT(inside.bottom == 100);
+
+		// A clip that reaches past the pass scissor is cut by it.
+		auto const overhanging = Renderer::ClipScissorPx(pass, Rect{ -20.0f, 150.0f, 400.0f, 200.0f }, 1.5f);
+		PR_EXPECT(overhanging.left == 100);
+		PR_EXPECT(overhanging.top == 275);
+		PR_EXPECT(overhanging.right == 500);
+		PR_EXPECT(overhanging.bottom == 350);
+
+		// A clip entirely outside the pass scissor is empty.
+		auto const outside = Renderer::ClipScissorPx(pass, Rect{ 500.0f, 0.0f, 10.0f, 10.0f }, 1.0f);
+		PR_EXPECT(outside.right == outside.left);
+	}
 }

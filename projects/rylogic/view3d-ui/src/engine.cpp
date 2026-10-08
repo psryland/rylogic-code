@@ -205,6 +205,9 @@ namespace pr::view3d::ui
 		if (semantics.m_nodes.size() > m_impl->m_config.max_semantic_records)
 			throw EngineException(EStatus::ResourceLimit, std::format("semantic snapshot has {} records, exceeding max_semantic_records {}", semantics.m_nodes.size(), m_impl->m_config.max_semantic_records));
 
+		// Scroll the edited TextBox against this frame's layout, so the draw packet below and later pointer hits use the same text position.
+		UpdateTextScroll(m_impl->m_tree, layout, TextHitContext{ .shaper = TextShaperOrNull(), .placements = &placements }, m_impl->m_input);
+
 		// Every prior step succeeded; commit the whole observation (viewport/time/layout/semantics/
 		// draw-packet) together so every accessor reflects one consistent host-time snapshot (section 9.3).
 		m_impl->m_viewport = viewport;
@@ -460,6 +463,7 @@ namespace pr::view3d::ui
 		auto const has_edit = edit_it != m_impl->m_input.m_text_edits.end() && edit_it->second.initialized != 0;
 		auto const display = has_edit ? DisplayTextOf(node.desc, edit_it->second) : node.desc.masked != 0 ? MaskedTextOf(node.text) : node.text;
 		auto const caret_offset = has_edit ? DisplayRangesOf(node.desc, edit_it->second).caret : 0u;
+		auto const scroll_dip = has_edit ? edit_it->second.scroll_dip : 0.0f;
 		auto const scale = ControlScale(m_impl->m_tree, &m_impl->m_placements, control_id);
 		auto const font = ResolveControlFont(m_impl->m_tree, node.desc.font_resource_id);
 		auto const placement = TextPlacementFor(node.desc.type);
@@ -470,7 +474,7 @@ namespace pr::view3d::ui
 		auto const measured = shaper->CaretAt(font.family, font.size * scale, display, caret_offset);
 		auto const layout_height = shaper->LayoutHeight(font.family, font.size * scale, display);
 		out_caret_dip = Rect{
-			layout_it->second.x + placement.inset_dip * scale + measured.x,
+			layout_it->second.x + placement.inset_dip * scale - scroll_dip + measured.x,
 			TextOriginYDip(layout_it->second.y, layout_it->second.h, layout_height) + measured.y,
 			1.0f,
 			measured.height,

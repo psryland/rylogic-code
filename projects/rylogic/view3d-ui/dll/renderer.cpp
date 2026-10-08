@@ -536,6 +536,26 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 		return Vec2{ w, h };
 	}
 
+	D3D12_RECT Renderer::ClipScissorPx(Pass const& pass, Rect const& clip_dip, float dpi_scale)
+	{
+		// Packet rects are local to the viewport, so the viewport origin moves them into render-target pixels.
+		auto const left = static_cast<LONG>(std::floor(pass.m_viewport.TopLeftX + clip_dip.x * dpi_scale));
+		auto const top = static_cast<LONG>(std::floor(pass.m_viewport.TopLeftY + clip_dip.y * dpi_scale));
+		auto const right = static_cast<LONG>(std::ceil(pass.m_viewport.TopLeftX + (clip_dip.x + clip_dip.w) * dpi_scale));
+		auto const bottom = static_cast<LONG>(std::ceil(pass.m_viewport.TopLeftY + (clip_dip.y + clip_dip.h) * dpi_scale));
+
+		// The clip may only narrow the pass's own scissor; an empty intersection collapses to a zero-area rect.
+		auto rect = D3D12_RECT{
+			.left = std::max(left, pass.m_scissor.left),
+			.top = std::max(top, pass.m_scissor.top),
+			.right = std::min(right, pass.m_scissor.right),
+			.bottom = std::min(bottom, pass.m_scissor.bottom),
+		};
+		rect.right = std::max(rect.right, rect.left);
+		rect.bottom = std::max(rect.bottom, rect.top);
+		return rect;
+	}
+
 	void Renderer::CreateGlyphAtlasResources(ID3D12Device* device, std::uint32_t atlas_dim_px, std::uint32_t pages_capacity, Microsoft::WRL::ComPtr<ID3D12Resource>& out_atlas, Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>& out_srv_heap)
 	{
 		// One committed default-heap texture array, one slice per page, sized to this Renderer's
@@ -743,7 +763,7 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 	{
 		switch (item.text_align)
 		{
-			case ETextAlign::Left: return item.bounds.x + item.text_inset_dip;
+			case ETextAlign::Left: return item.bounds.x + item.text_inset_dip - item.text_scroll_dip;
 			case ETextAlign::Center: return item.bounds.x + (item.bounds.w - total_advance_dip) * 0.5f;
 			case ETextAlign::Count:
 			default:
@@ -828,6 +848,16 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 		// some substitute face would contradict the module's font-resolution policy.
 		if (m_missing_fonts.contains(TextShaper::FontKey(item.font_family, item.font_size)))
 			return bound;
+
+		// A clipped item narrows the scissor for its glyphs and decorations only; the pass scissor is restored before the next item.
+		if (item.text_clipped != 0)
+		{
+			auto const scissor = ClipScissorPx(pass, item.text_clip, dpi_scale);
+			if (scissor.right == scissor.left || scissor.bottom == scissor.top)
+				return bound;
+
+			pass.m_command_list->RSSetScissorRects(1, &scissor);
+		}
 
 		// Re-shape purely to recover this frame's pen positions; PrepareText already guaranteed
 		// every non-whitespace glyph here is either resident or was omitted under ResourceLimit,
@@ -942,6 +972,10 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 			pass.m_command_list->SetGraphicsRoot32BitConstants(0, kRootConstantCount, &rc, 0);
 			pass.m_command_list->DrawInstanced(4, 1, 0, 0);
 		}
+
+		// Later items draw under the pass scissor again.
+		if (item.text_clipped != 0)
+			pass.m_command_list->RSSetScissorRects(1, &pass.m_scissor);
 
 		return bound;
 	}

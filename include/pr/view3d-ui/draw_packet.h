@@ -15,7 +15,7 @@ namespace pr::view3d::ui
 	// Internal (non-ABI) horizontal placement rule for a TextPresenter DrawItem, resolved once by
 	// draw_packet_builder.cpp per control type and applied by the renderer against the actual
 	// shaped run width it alone knows (TextShaper::Shape's returned total advance): Left starts
-	// the run at bounds.x + text_inset_dip (a bare Text label uses inset 0; a TextBox insets its
+	// the run at bounds.x + text_inset_dip - text_scroll_dip (a bare Text label uses inset 0; a TextBox insets its
 	// content from the left edge like a conventional text field); Center places the run in the
 	// middle of bounds.w, ignoring text_inset_dip, used for a Button's label. This is purely a
 	// renderer hint - it never reaches the public C ABI - so it uses ordinary C++ enum semantics
@@ -47,6 +47,12 @@ namespace pr::view3d::ui
 		float font_size;         // DIPs; resolved from the referenced Font resource, or a fixed default
 		ETextAlign text_align;   // renderer hint only, see ETextAlign; not part of the public C ABI
 		float text_inset_dip;    // DIPs; only applied when text_align == Left (see ETextAlign)
+		float text_scroll_dip;   // DIPs the whole text layout, with its decorations, is shifted left; only applied when text_align == Left
+
+		// When 'text_clipped' is non-zero, the glyphs and text-edit decorations are drawn only inside 'text_clip' (screen DIPs), so text longer
+		// than its control is cut at the control's inner edge instead of drawing over its neighbours.
+		Rect text_clip;
+		std::int32_t text_clipped;
 
 		// Text-edit decorations, as UTF-8 byte offsets into 'text'. They are populated only for the
 		// focused editable control, so an unfocused field costs no extra draws. The renderer

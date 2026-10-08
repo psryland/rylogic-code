@@ -59,6 +59,7 @@ namespace pr::view3d::ui
 		std::uint32_t selection_start = 0;
 		std::uint32_t edit_generation = 0;
 		std::int32_t initialized = 0; // 0 until pending_text has been seeded from the accepted tree
+		float scroll_dip = 0.0f;      // screen DIPs the text is shifted left so the caret stays visible; set by UpdateTextScroll
 		CompositionState composition;
 	};
 
@@ -159,6 +160,11 @@ namespace pr::view3d::ui
 	// Whether 'kind' must be accompanied by an InputTextRecord. Pure, so the ABI layer and the
 	// state machine agree on which records carry text without duplicating the list.
 	bool InputKindCarriesText(EInputKind kind);
+
+	// Update each TextBox's horizontal scroll from the latest layout. The focused TextBox scrolls just enough to keep its caret inside the text area
+	// between its insets, and never further than its text needs; every other TextBox shows the start of its text. Without a metrics source, or when
+	// the font is missing, the scroll is zero. Drawing, pointer caret placement and caret geometry all use the scroll from the most recent call.
+	void UpdateTextScroll(TreeModel const& tree, std::unordered_map<ControlId, Rect> const& layout, TextHitContext const& hit_context, InputState& state);
 
 	// Result of processing one normalized input record.
 	struct InputResult
