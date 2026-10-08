@@ -9,8 +9,8 @@
 //
 // Conventions match View3D's camera (pr::math::ProjectionPerspective/ProjectionOrthographic with
 // righthanded == true): the camera looks along CameraState::forward, camera space is right-handed
-// with -z along the look direction, and normalised device depth runs 0 at the near plane to 1 at
-// the far plane.
+// with -z along the look direction, and normalised device depth is reversed: 1 at the near plane
+// and 0 at the far plane.
 #pragma once
 #include "pr/view3d-ui/forward.h"
 #include "pr/view3d-ui/types.h"
@@ -70,7 +70,8 @@ namespace pr::view3d::ui
 	float DipsPerWorldUnit(CameraState const& camera, ViewportState const& viewport, float view_depth);
 
 	// Normalised [0, 1] device depth for a point 'view_depth' world units in front of 'camera',
-	// using the same right-handed convention as View3D's projection matrices. Values outside the
-	// near/far range are clamped so a recorded depth is always inside the depth buffer's domain.
+	// using the same right-handed, reversed depth convention as View3D's projection matrices (1 at the
+	// near plane, 0 at the far plane). Values outside the near/far range are clamped so a recorded
+	// depth is always inside the depth buffer's domain.
 	float NormalisedDeviceDepth(CameraState const& camera, float view_depth);
 }

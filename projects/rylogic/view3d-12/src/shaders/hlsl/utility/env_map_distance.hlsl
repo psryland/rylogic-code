@@ -14,7 +14,7 @@ struct CBufEnvMapDistance
 // Resources
 ConstantBuffer<CBufEnvMapDistance> g_cb : register(b0);
 Texture2D<float4> g_colour : register(t0);   // The rendered face
-Texture2D<float> g_depth : register(t1);     // The face's depth buffer, with 1 at the far plane
+Texture2D<float> g_depth : register(t1);     // The face's depth buffer. Depth is reversed, with 0 at the far plane
 RWTexture2D<float4> g_face : register(u0);   // Mip 0 of the face texture that receives the colour
 RWTexture2D<float> g_distance : register(u1); // Mip 0 of the face texture that receives the distance
 
@@ -31,7 +31,7 @@ void CSEnvMapDistance(uint3 DTid : SV_DispatchThreadID)
 	// that position. Distance 'd' is stored as 'd / (d + S)', which gives most precision near 'S' and maps the far plane (nothing rendered) to 1.
 	float depth = g_depth[DTid.xy];
 	float a = 1.0f;
-	if (depth < 1.0f)
+	if (depth > 0.0f)
 	{
 		float2 uv = (DTid.xy + 0.5f) / size;
 		float4 cs = mul(float4(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f, depth, 1.0f), g_cb.s2c);

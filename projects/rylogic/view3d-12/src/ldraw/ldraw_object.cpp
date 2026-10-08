@@ -390,10 +390,10 @@ namespace pr::rdr12::ldraw
 					auto h = float(scene.m_viewport.Height);
 					auto c2w = scene.m_cam.CameraToWorld();
 
-					// Screen space uses a standard normalised orthographic projection
+					// Screen space uses a normalised orthographic projection, with reversed depth to match the main camera
 					ob.m_c2s = w >= h
-						? m4x4::ProjectionOrthographic(float(ViewPortSize) * w / h, float(ViewPortSize), -0.01f, 1.01f, true)
-						: m4x4::ProjectionOrthographic(float(ViewPortSize), float(ViewPortSize) * h / w, -0.01f, 1.01f, true);
+						? m4x4::ProjectionOrthographic(float(ViewPortSize) * w / h, float(ViewPortSize), 1.01f, -0.01f, true)
+						: m4x4::ProjectionOrthographic(float(ViewPortSize), float(ViewPortSize) * h / w, 1.01f, -0.01f, true);
 
 					// Scale the object to normalised screen space
 					auto scale = w >= h

@@ -51,7 +51,7 @@ namespace pr::rdr12
 			.BlendState = BlendStateDesc{},
 			.SampleMask = UINT_MAX,
 			.RasterizerState = RasterStateDesc{},
-			.DepthStencilState = DepthStateDesc{},
+			.DepthStencilState = DepthStateDesc{}.Func(D3D12_COMPARISON_FUNC_GREATER), // Reversed depth: nearer surfaces have greater depth
 			.InputLayout = Vert::LayoutDesc(),
 			.IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED,
 			.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
@@ -600,7 +600,7 @@ namespace pr::rdr12
 					blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
 					desc.Apply(PSO<EPipeState::DepthEnable>(TRUE));
 					desc.Apply(PSO<EPipeState::DepthWriteMask>(D3D12_DEPTH_WRITE_MASK_ZERO));
-					desc.Apply(PSO<EPipeState::DepthFunc>(D3D12_COMPARISON_FUNC_LESS_EQUAL));
+					desc.Apply(PSO<EPipeState::DepthFunc>(D3D12_COMPARISON_FUNC_GREATER_EQUAL));
 					desc.Apply(PSO<EPipeState::BlendState0>(blend));
 					break;
 				}
@@ -664,7 +664,8 @@ namespace pr::rdr12
 			return;
 
 		// Draw the background objects at the fade start depth. A depth range of one value gives every background fragment that depth,
-		// so the LESS_EQUAL test passes only on samples at or beyond the fade start. All other samples keep their opaque colour.
+		// so the reversed-depth GREATER_EQUAL test passes only on samples at or beyond the fade start (farther samples have smaller depth).
+		// All other samples keep their opaque colour.
 		auto start_ss = c2s * v4(0, 0, -fade_range.x, 1);
 		auto start_z = std::clamp(start_ss.z / start_ss.w, 0.0f, 1.0f);
 		auto background_vp = vp;

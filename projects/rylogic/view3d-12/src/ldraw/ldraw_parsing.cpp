@@ -5975,8 +5975,8 @@ namespace pr::rdr12::ldraw
 					// Scale up the view port to reduce floating point precision noise.
 					constexpr int ViewPortSize = 1024;
 
-					// Screen space uses a standard normalised orthographic projection
-					obj->m_c2s = m4x4::ProjectionOrthographic(float(ViewPortSize), float(ViewPortSize), -0.01f, 1, true);
+					// Screen space uses a normalised orthographic projection, with reversed depth to match the main camera
+					obj->m_c2s = m4x4::ProjectionOrthographic(float(ViewPortSize), float(ViewPortSize), 1, -0.01f, true);
 
 					// Update the rendering 'i2w' transform on add-to-scene
 					obj->OnAddToScene += [](LdrObject& ob, Scene const& scene)
@@ -6023,8 +6023,8 @@ namespace pr::rdr12::ldraw
 					// Scale up the view port to reduce floating point precision noise.
 					constexpr int ViewPortSize = 1024;
 
-					// Screen space uses a standard normalised orthographic projection
-					obj->m_c2s = m4x4::ProjectionOrthographic(float(ViewPortSize), float(ViewPortSize), -0.01f, 1, true);
+					// Screen space uses a normalised orthographic projection, with reversed depth to match the main camera
+					obj->m_c2s = m4x4::ProjectionOrthographic(float(ViewPortSize), float(ViewPortSize), 1, -0.01f, true);
 
 					// Update the rendering 'i2w' transform on add-to-scene.
 					obj->OnAddToScene += [](LdrObject& ob, Scene const& scene)

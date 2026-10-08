@@ -264,7 +264,7 @@ namespace pr::rdr12
 				.flags(ENuggetFlag::ShadowCastExclude)
 				.pso<EPipeState::CullMode>(D3D12_CULL_MODE_NONE)
 				.pso<EPipeState::DepthWriteMask>(D3D12_DEPTH_WRITE_MASK_ZERO)
-				.pso<EPipeState::DepthFunc>(D3D12_COMPARISON_FUNC_LESS_EQUAL)
+				.pso<EPipeState::DepthFunc>(D3D12_COMPARISON_FUNC_GREATER_EQUAL)
 				.mat([&](MaterialSimple& m) {
 					m.use_shader_overlay(ERenderStep::RenderForward, shdr);
 				})

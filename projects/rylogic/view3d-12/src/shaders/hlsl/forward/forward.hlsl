@@ -514,10 +514,11 @@ void CollectAlphaLayer(PSIn In, float4 diff, uint rt_attrs)
 	uint width, height, sample_count;
 	g_opaque_depth.GetDimensions(width, height, sample_count);
 
-	float opaque_depth = 1.0f;
+	// Reversed depth: the nearest sample has the greatest depth. Start at the far plane (0).
+	float opaque_depth = 0.0f;
 	for (uint sample = 0; sample != sample_count; ++sample)
-		opaque_depth = min(opaque_depth, g_opaque_depth.Load(pix, sample));
-	if (In.ss_vert.z >= opaque_depth)
+		opaque_depth = max(opaque_depth, g_opaque_depth.Load(pix, sample));
+	if (In.ss_vert.z <= opaque_depth)
 		discard;
 
 	// Pack view-space depth, colour, and optional RT side-buffer metadata for later resolve.

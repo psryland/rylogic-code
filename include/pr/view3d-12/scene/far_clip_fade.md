@@ -39,8 +39,8 @@ The opaque pass is split at the `Skybox` sort group:
 2. A full-screen pass reads the opaque depth buffer for every MSAA sample and computes the fade weight.
    * With `Skybox` objects present, it writes `1 - fade` into the colour target's alpha channel.
      The `Skybox` objects are then drawn with a viewport depth range pinned to the fade start depth,
-     so the `LESS_EQUAL` depth test passes only on samples at or beyond the fade start. Their colour
-     blends as `src * (1 - dst_alpha) + dst * dst_alpha`. Empty samples (depth 1) receive the full background.
+     so the reversed-depth `GREATER_EQUAL` test passes only on samples at or beyond the fade start. Their colour
+     blends as `src * (1 - dst_alpha) + dst * dst_alpha`. Empty samples (depth 0) receive the full background.
    * Without `Skybox` objects, it blends the window clear colour directly by the fade weight.
 3. `PostOpaques` groups draw after the background and are not faded.
 
@@ -57,7 +57,7 @@ The procedural sky therefore keeps its `Skybox` classification when its exclusio
 Limitations:
 
 * Opaque `Skybox` objects do not stack: each one blends against the faded scene, not against the others.
-* The fade assumes standard depth (cleared to 1, `LESS` comparisons).
+* The fade uses View3D's reversed depth (1 at the near plane, cleared to 0 at the far plane, `GREATER` comparisons).
 * The ray-traced reflection attributes still mark faded far pixels as reflective surfaces.
 
 ## Supported pipelines and cost

@@ -213,18 +213,19 @@ namespace pr::view3d::ui
 		if (!(zf > zn))
 			return 0.0f;
 
+		// Reversed depth: the near plane maps to 1 and the far plane maps to 0.
 		auto z = std::clamp(view_depth, zn, zf);
 		auto depth = 0.0f;
 		switch (camera.projection)
 		{
 			case EProjection::Perspective:
 			{
-				depth = zf * (z - zn) / (z * (zf - zn));
+				depth = zn * (zf - z) / (z * (zf - zn));
 				break;
 			}
 			case EProjection::Orthographic:
 			{
-				depth = (z - zn) / (zf - zn);
+				depth = (zf - z) / (zf - zn);
 				break;
 			}
 			case EProjection::Count:

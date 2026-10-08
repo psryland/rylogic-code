@@ -462,8 +462,8 @@ PSIn VSProceduralSky(VSIn In)
 	}
 	Out.ws_norm = mul(float4(camera_direction, 0), g_frame.cam.c2w);
 
-	// Far depth fills only background pixels; interpolation preserves the unnormalized ray until the pixel shader.
-	Out.ss_vert = float4(In.vert.xy, 1, 1);
+	// Far depth (0 under reversed depth) fills only background pixels; interpolation preserves the unnormalized ray until the pixel shader.
+	Out.ss_vert = float4(In.vert.xy, 0, 1);
 	Out.diff = float4(0, 0, 0, 1);
 	Out.tex0 = In.tex0;
 	Out.idx0 = In.idx0;

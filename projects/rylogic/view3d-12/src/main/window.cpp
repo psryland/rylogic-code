@@ -73,7 +73,7 @@ namespace pr::rdr12
 		, m_msaa_bb()
 		, m_bb_index()
 		, m_rt_props(settings.m_mode.Format, settings.m_bkgd_colour)
-		, m_ds_props(settings.m_depth_format, 1.0f, 0)
+		, m_ds_props(settings.m_depth_format, 0.0f, 0) // Reversed depth: the far plane is at 0
 		, m_cmd_alloc_pool(m_gsync)
 		, m_cmd_list_pool(m_gsync)
 		, m_heap_view(HeapCapacityView, m_gsync)
@@ -891,11 +891,11 @@ namespace pr::rdr12
 
 		if (bb.m_multisamp.Count > 1)
 		{
-			// MAX keeps the farthest sample, so a UI element only fades where every sample of the
-			// pixel is occluded, which avoids shimmering along geometry silhouettes.
+			// MIN keeps the farthest sample under reversed depth, so a UI element only fades where every
+			// sample of the pixel is occluded, which avoids shimmering along geometry silhouettes.
 			D3DPtr<ID3D12GraphicsCommandList1> cmd_list1;
 			Check(cmd_list.get()->QueryInterface(__uuidof(ID3D12GraphicsCommandList1), (void**)cmd_list1.address_of()));
-			cmd_list1->ResolveSubresourceRegion(dst, 0, 0, 0, src, 0, nullptr, srv_format, D3D12_RESOLVE_MODE_MAX);
+			cmd_list1->ResolveSubresourceRegion(dst, 0, 0, 0, src, 0, nullptr, srv_format, D3D12_RESOLVE_MODE_MIN);
 		}
 		else
 		{
