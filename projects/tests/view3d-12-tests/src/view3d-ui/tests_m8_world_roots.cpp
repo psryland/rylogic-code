@@ -244,8 +244,8 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT(Near(near_p.rect.y + near_p.rect.h * 0.5f, 300.0f - 100.0f, 0.01f));
 		PR_EXPECT(Near(near_p.rect.x + near_p.rect.w * 0.5f, 400.0f - 100.0f, 0.01f));
 
-		// Distance still drives the recorded device depth even though the screen position does not.
-		PR_EXPECT(far_p.clip_depth > near_p.clip_depth);
+		// Distance still drives the recorded device depth even though the screen position does not. Depth is reversed, so farther is smaller.
+		PR_EXPECT(far_p.clip_depth < near_p.clip_depth);
 	}
 
 	PRUnitTest(AnchorsBehindTheCameraOrNearerThanTheNearPlaneAreCulled, Quick)
@@ -271,7 +271,7 @@ namespace pr::view3d::ui::tests
 
 		PR_EXPECT(Near(a.rect.x, b.rect.x) && Near(a.rect.y, b.rect.y) && Near(a.rect.w, b.rect.w));
 		PR_EXPECT(Near(a.view_depth, b.view_depth)); // sizing is unaffected: the root did not move
-		PR_EXPECT(b.clip_depth < a.clip_depth);      // but it wins the depth test against the same geometry
+		PR_EXPECT(b.clip_depth > a.clip_depth);      // but it wins the depth test against the same geometry (reversed depth: nearer is greater)
 	}
 
 	PRUnitTest(RootsProjectedEntirelyOutsideTheViewportAreCulled, Quick)
@@ -312,18 +312,19 @@ namespace pr::view3d::ui::tests
 
 	PRUnitTest(NormalisedDeviceDepthIsMonotonicAndClampedToTheDepthBufferDomain, Quick)
 	{
+		// Depth is reversed: the near plane is 1 and the far plane is 0.
 		for (auto const& cam : { PerspectiveCamera(Vec3{0,0,0}, 1.0471976f, 1.0f, 100.0f), OrthographicCamera(6.0f, Vec3{0,0,0}, 1.0f, 100.0f) })
 		{
-			PR_EXPECT(Near(NormalisedDeviceDepth(cam, 1.0f), 0.0f, 1e-5f));
-			PR_EXPECT(Near(NormalisedDeviceDepth(cam, 100.0f), 1.0f, 1e-5f));
-			PR_EXPECT(Near(NormalisedDeviceDepth(cam, 0.5f), 0.0f, 1e-5f));   // clamped, not negative
-			PR_EXPECT(Near(NormalisedDeviceDepth(cam, 1000.0f), 1.0f, 1e-5f)); // clamped, not > 1
+			PR_EXPECT(Near(NormalisedDeviceDepth(cam, 1.0f), 1.0f, 1e-5f));
+			PR_EXPECT(Near(NormalisedDeviceDepth(cam, 100.0f), 0.0f, 1e-5f));
+			PR_EXPECT(Near(NormalisedDeviceDepth(cam, 0.5f), 1.0f, 1e-5f));    // clamped, not > 1
+			PR_EXPECT(Near(NormalisedDeviceDepth(cam, 1000.0f), 0.0f, 1e-5f)); // clamped, not negative
 
-			auto previous = -1.0f;
+			auto previous = 2.0f;
 			for (auto d = 1.0f; d <= 100.0f; d += 4.5f)
 			{
 				auto const z = NormalisedDeviceDepth(cam, d);
-				PR_EXPECT(z >= previous);
+				PR_EXPECT(z <= previous);
 				PR_EXPECT(z >= 0.0f && z <= 1.0f);
 				previous = z;
 			}

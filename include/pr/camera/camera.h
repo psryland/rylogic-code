@@ -251,13 +251,15 @@ namespace pr
 			return InvertOrthonormal(m_c2w);
 		}
 
-		// Return a projection transform
+		// Return a projection transform. Depth is reversed: the near plane maps to depth 1 and the far plane maps to depth 0.
 		m4x4 CameraToScreen(double near_clip, double far_clip, double aspect, double fovY, double focus_dist) const
 		{
+			// Swapping the clip planes reverses the depth range. Floating point depth has most of its precision near 0,
+			// which balances the perspective divide's loss of precision with distance.
 			auto height = 2.0 * focus_dist * std::tan(fovY * 0.5);
 			return m_orthographic
-				? m4x4::ProjectionOrthographic(s_cast<float>(height*aspect), s_cast<float>(height), s_cast<float>(near_clip), s_cast<float>(far_clip), true)
-				: m4x4::ProjectionPerspectiveFOV(s_cast<float>(fovY), s_cast<float>(aspect), s_cast<float>(near_clip), s_cast<float>(far_clip), true);
+				? m4x4::ProjectionOrthographic(s_cast<float>(height*aspect), s_cast<float>(height), s_cast<float>(far_clip), s_cast<float>(near_clip), true)
+				: m4x4::ProjectionPerspectiveFOV(s_cast<float>(fovY), s_cast<float>(aspect), s_cast<float>(far_clip), s_cast<float>(near_clip), true);
 		}
 		m4x4 CameraToScreen(double near_clip, double far_clip) const
 		{

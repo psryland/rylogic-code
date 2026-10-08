@@ -195,18 +195,19 @@ RayDesc MakeCameraRay(uint2 pixel, uint2 dim)
 }
 
 // Return the closest raster depth sample for a pixel, plus the sample index that produced it.
+// Depth is reversed, so the closest sample has the greatest depth and 0 means no geometry.
 RasterDepth LoadRasterDepth(uint2 pixel)
 {
 	uint width, height, sample_count;
 	g_depth.GetDimensions(width, height, sample_count);
 
 	RasterDepth raster = (RasterDepth)0;
-	raster.depth = 1.0f;
+	raster.depth = 0.0f;
 	raster.sample = 0;
 	for (uint sample = 0; sample != sample_count; ++sample)
 	{
 		float depth = g_depth.Load(pixel, sample);
-		if (depth < raster.depth)
+		if (depth > raster.depth)
 		{
 			raster.depth = depth;
 			raster.sample = sample;
@@ -265,9 +266,9 @@ float3 ReceiverNormal(uint2 pixel, uint2 dim, float depth, RayDesc camera_ray)
 	// Missing neighbour depth means the neighbour is background. Reuse the centre depth so silhouettes don't generate enormous derivatives.
 	float depth_x = LoadDepth(pixel_x);
 	float depth_y = LoadDepth(pixel_y);
-	if (depth_x >= 0.999999f)
+	if (depth_x <= 0.0f)
 		depth_x = depth;
-	if (depth_y >= 0.999999f)
+	if (depth_y <= 0.0f)
 		depth_y = depth;
 
 	float3 dx = (WorldPosition(pixel_x, dim, depth_x) - pos) * x_sign;
@@ -891,7 +892,7 @@ void RayGen()
 	if (RayTracingModeIncludesReflections(mode))
 	{
 		RasterDepth raster = LoadRasterDepth(pixel);
-		if (raster.depth < 0.999999f)
+		if (raster.depth > 0.0f)
 		{
 			float4 reflection_attrs = g_reflection_attrs.Load(pixel, raster.sample);
 			float reflectivity = saturate(reflection_attrs.a * g_frame.reflection.x);
@@ -920,7 +921,7 @@ void RayGen()
 	if (RayTracingModeIncludesCaustics(mode))
 	{
 		RasterDepth raster = LoadRasterDepth(pixel);
-		if (HasKeyLight() && raster.depth < 0.999999f)
+		if (HasKeyLight() && raster.depth > 0.0f)
 		{
 			RayDesc camera_ray = MakeCameraRay(pixel, dim);
 			float3 hit_pos = WorldPosition(pixel, dim, raster.depth);
@@ -1006,7 +1007,7 @@ void RayGen()
 
 	// Hard-shadow mode is the fallback RT path. It traces a visibility ray from the raster receiver toward the directional light.
 	float depth = LoadDepth(pixel);
-	if (depth < 0.999999f)
+	if (depth > 0.0f)
 	{
 		float3 light_to_surface = normalize(KeyLight().ws_direction.xyz);
 		float3 surface_to_light = -light_to_surface;

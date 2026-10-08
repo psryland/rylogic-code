@@ -72,8 +72,10 @@ namespace pr::view3d::ui
 
 	// The host camera for the frame being recorded, in the same right-handed convention as
 	// pr::math::ProjectionPerspective/ProjectionOrthographic with righthanded == true: the camera
-	// looks along m_forward (camera-space -z), and normalised device depth runs 0 at the near
-	// plane to 1 at the far plane. 'm_valid' is 0 when the host has no camera this frame, in which
+	// looks along m_forward (camera-space -z). Normalised device depth is reversed: it runs from 1 at
+	// the near plane to 0 at the far plane. The host clears depth to 0 and tests with GREATER, so a
+	// depth-tested provider must use GREATER or GREATER_EQUAL, and a resolved depth of 0 means no
+	// geometry. 'm_valid' is 0 when the host has no camera this frame, in which
 	// case every other field is zero and the provider must not project anything.
 	// Supplied so a provider can reconstruct the host's exact projection during recording without
 	// calling back into any View3D API.
