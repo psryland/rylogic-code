@@ -16,6 +16,12 @@
     <None Include="src\shaders\hlsl\sky\procedural_sky_cbuf.hlsli">
       <Filter>src\shaders</Filter>
     </None>
+    <None Include="src\shaders\hlsl\sky\cloud_cbuf.hlsli">
+      <Filter>src\shaders</Filter>
+    </None>
+    <None Include="src\shaders\hlsl\sky\cloud_field.hlsli">
+      <Filter>src\shaders</Filter>
+    </None>
     <ShaderBuild Include="src\shaders\hlsl\sky\procedural_sky.hlsl">
       <Filter>src\shaders</Filter>
     </ShaderBuild>

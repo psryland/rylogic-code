@@ -164,12 +164,16 @@ namespace pr::rdr12
 		explicit ProceduralSkyShader(Renderer& rdr)
 			: Shader(rdr)
 			, m_cbuf{
-				.sun_direction = Normalise(v4(0.5f, 0.3f, 0.8f, 0)),
 				.sun_colour = v4(1.0f, 0.95f, 0.85f, 1),
 				.sun_intensity = 1.0f,
 				.blend_weight = 1.0f,
-				.world_to_sky = m4x4::Identity(),
 				.world_to_cube = m4x4::Identity(),
+				.clouds = {
+					.sun_direction = Normalise(v4(0.5f, 0.3f, 0.8f, 0)),
+					.shadow_strength = 1.0f,
+					.weather_area = v4(0, 0, 1, 1),
+					.world_to_sky = m4x4::Identity(),
+				},
 			}
 		{
 			static_assert(sizeof(m_cbuf) == 320);
@@ -202,26 +206,38 @@ namespace pr::rdr12
 			store.Descriptors().Release(m_null_weather);
 		}
 
+		// Read the weather area now, so moving the area takes effect without re-binding the map.
+		void UpdateWeatherArea()
+		{
+			// Without a map, the cover is uniform and the area is unused.
+			m_cbuf.clouds.has_weather = m_weather ? 1.0f : 0.0f;
+			m_cbuf.clouds.weather_area = m_weather
+				? v4(m_weather->m_area_min.x, m_weather->m_area_min.y, 1.0f / (m_weather->m_area_max.x - m_weather->m_area_min.x), 1.0f / (m_weather->m_area_max.y - m_weather->m_area_min.y))
+				: v4(0, 0, 1, 1);
+		}
+
+		// The cube, the weather map and the cloud noise, in the order of the sky's contiguous descriptor table.
+		void Textures(::pr::compute::Descriptor (&textures)[3]) const
+		{
+			// Missing sources use null views, so the table is always complete.
+			textures[0] = m_background ? m_background->m_srv : m_null_cube;
+			textures[1] = m_weather ? m_weather->m_tex->m_srv : m_null_weather;
+			textures[2] = m_cloud_noise->m_srv;
+		}
+
 		// Bind sky constants and the background without replacing the shared material or reflection descriptors.
 		void SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const& scene, CameraTransforms const&, DrawListElement const* dle) override
 		{
 			if (dle == nullptr)
 				return;
 
-			// Read the weather area now, so moving the area takes effect without re-binding the map.
-			m_cbuf.has_weather = m_weather ? 1.0f : 0.0f;
-			m_cbuf.weather_area = m_weather
-				? v4(m_weather->m_area_min.x, m_weather->m_area_min.y, 1.0f / (m_weather->m_area_max.x - m_weather->m_area_min.x), 1.0f / (m_weather->m_area_max.y - m_weather->m_area_min.y))
-				: v4(0, 0, 1, 1);
+			UpdateWeatherArea();
 			auto gpu_address = upload.Add(m_cbuf, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true);
 			cmd_list->SetGraphicsRootConstantBufferView(static_cast<UINT>(shaders::fwd::ERootParam::CBufScreenSpace), gpu_address);
 
-			// The cube, the weather map and the cloud noise are a contiguous descriptor table.
-			::pr::compute::Descriptor const descriptors[] = {
-				m_background ? m_background->m_srv : m_null_cube,
-				m_weather ? m_weather->m_tex->m_srv : m_null_weather,
-				m_cloud_noise->m_srv,
-			};
+			// The textures are a contiguous descriptor table.
+			::pr::compute::Descriptor descriptors[3];
+			Textures(descriptors);
 			auto table = scene.wnd().m_heap_view.Add(descriptors);
 			cmd_list->SetGraphicsRootDescriptorTable(static_cast<UINT>(shaders::fwd::ERootParam::SkyTexture), table);
 		}
@@ -296,8 +312,9 @@ namespace pr::rdr12
 			throw std::invalid_argument("Procedural sky requires a finite nonzero sun direction and finite nonnegative colour/intensity");
 		if (!(settings.m_cloud_cover >= 0 && settings.m_cloud_cover <= 1) ||
 			!(settings.m_wind_speed >= 0) || !std::isfinite(settings.m_wind_speed) ||
-			!std::isfinite(settings.m_wind_direction) || !std::isfinite(settings.m_time))
-			throw std::invalid_argument("Procedural sky requires cloud cover in [0,1], a finite nonnegative wind speed, and a finite wind direction and time");
+			!std::isfinite(settings.m_wind_direction) || !std::isfinite(settings.m_time) ||
+			!(settings.m_cloud_shadow_strength >= 0 && settings.m_cloud_shadow_strength <= 1))
+			throw std::invalid_argument("Procedural sky requires cloud cover and cloud shadow strength in [0,1], a finite nonnegative wind speed, and a finite wind direction and time");
 		static_assert(ProceduralSkySettings::LightningMax == PR_SKY_LIGHTNING_MAX);
 		for (auto const& flash : settings.m_lightning)
 		{
@@ -324,16 +341,18 @@ namespace pr::rdr12
 			m_cloud_evolve[i] = s_cast<float>(std::fmod(m_cloud_evolve[i] + evolve_rate * dt, s_cast<double>(PR_SKY_CLOUD_EVOLVE_PERIOD)));
 		}
 
-		m_shader->m_cbuf.sun_direction = Normalise(sun_direction);
+		auto& clouds = m_shader->m_cbuf.clouds;
+		clouds.sun_direction = Normalise(sun_direction);
+		clouds.cover = settings.m_cloud_cover;
+		clouds.wind_direction = s_cast<float>(std::fmod(settings.m_wind_direction, constants<double>::tau));
+		clouds.shadow_strength = settings.m_cloud_shadow_strength;
+		clouds.offset01 = v4(m_cloud_offset[0].x, m_cloud_offset[0].y, m_cloud_offset[1].x, m_cloud_offset[1].y);
+		clouds.offset2 = m_cloud_offset[2];
+		clouds.hidden_layers = settings.m_hidden_cloud_layers;
+		clouds.evolve = v4(m_cloud_evolve[0], m_cloud_evolve[1], m_cloud_evolve[2], 0);
 		m_shader->m_cbuf.sun_colour = sun_colour;
 		m_shader->m_cbuf.sun_intensity = settings.m_sun_intensity;
-		m_shader->m_cbuf.cloud_cover = settings.m_cloud_cover;
 		m_shader->m_cbuf.time = s_cast<float>(std::fmod(settings.m_time, s_cast<double>(PR_SKY_TIME_PERIOD)));
-		m_shader->m_cbuf.cloud_offset01 = v4(m_cloud_offset[0].x, m_cloud_offset[0].y, m_cloud_offset[1].x, m_cloud_offset[1].y);
-		m_shader->m_cbuf.cloud_offset2 = m_cloud_offset[2];
-		m_shader->m_cbuf.wind_direction = s_cast<float>(std::fmod(settings.m_wind_direction, constants<double>::tau));
-		m_shader->m_cbuf.cloud_evolve = v4(m_cloud_evolve[0], m_cloud_evolve[1], m_cloud_evolve[2], 0);
-		m_shader->m_cbuf.hidden_cloud_layers = settings.m_hidden_cloud_layers;
 		for (int i = 0; i != PR_SKY_LIGHTNING_MAX; ++i)
 			m_shader->m_cbuf.lightning[i] = settings.m_lightning[i].w > 0 ? settings.m_lightning[i] : v4::Zero();
 	}
@@ -357,6 +376,18 @@ namespace pr::rdr12
 		m_inst.m_i2w = m4x4::Identity();
 		m_inst.m_i2w.pos = scene.m_cam.CameraToWorld().pos;
 		scene.AddInstance(m_inst);
+		scene.CloudSky(this);
+	}
+
+	// The shadows weaken with the atmosphere's share of the background, so a cubemap-only background casts none.
+	bool ProceduralSky::CloudShadows(shaders::CloudConstants& clouds, Descriptor (&textures)[3]) const
+	{
+		// Copy the constants with the current weather area.
+		m_shader->UpdateWeatherArea();
+		clouds = m_shader->m_cbuf.clouds;
+		clouds.shadow_strength *= m_shader->m_cbuf.blend_weight;
+		m_shader->Textures(textures);
+		return clouds.shadow_strength > 0;
 	}
 
 	// Validate first so a rejected update cannot partly replace the source or its direction mapping.
@@ -395,7 +426,7 @@ namespace pr::rdr12
 
 		// Retain the native texture independently of the caller's wrapper; update only constants during a fade.
 		m_shader->m_cbuf.blend_weight = weight;
-		m_shader->m_cbuf.world_to_sky = world_to_sky;
+		m_shader->m_cbuf.clouds.world_to_sky = world_to_sky;
 		m_shader->m_cbuf.world_to_cube = background ? Transpose3x3(background->m_cube2w) * world_to_background : m4x4::Identity();
 		m_shader->m_background = std::move(background);
 	}

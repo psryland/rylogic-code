@@ -44,6 +44,12 @@ public sealed partial class View3d
 		private fixed float m_lightning[LightningMax * 4];
 
 		/// <summary>
+		/// Strength of the low and mid clouds' shadows in [0,1] (0 = no cloud shadows). Clouds shade the scene's directional light that shines from
+		/// the sky's sun, drifting with the clouds.
+		/// </summary>
+		public float CloudShadowStrength;
+
+		/// <summary>
 		/// Lightning flash 'i' inside the cloud: xy = position in the sky frame, z = radius (> 0), w = finite brightness (>= 0, 1 is a strong flash,
 		/// 0 is no flash). The caller decides when flashes happen and how they flicker; the sky shows each flash's current brightness.
 		/// </summary>
@@ -77,6 +83,7 @@ public sealed partial class View3d
 					SunDirection = new v4(0.5f, 0.3f, 0.8f, 0f),
 					SunColour = new v4(1f, 0.95f, 0.85f, 1f),
 					SunIntensity = 1f,
+					CloudShadowStrength = 1f,
 				};
 			}
 		}
@@ -289,6 +296,8 @@ public class ProceduralSkyTests
 		Assert.Equal(48, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.Time)).ToInt32());
 		Assert.Equal(56, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.HiddenCloudLayers)).ToInt32());
 		Assert.Equal(60, Marshal.OffsetOf<View3d.ProceduralSkySettings>("m_lightning").ToInt32());
+		Assert.Equal(124, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.CloudShadowStrength)).ToInt32());
+		Assert.Equal(1f, settings.CloudShadowStrength);
 		Assert.Equal(v4.Zero, settings.Lightning(3));
 
 		settings.SetLightning(2, new v4(100, -200, 3000, 0.5f));

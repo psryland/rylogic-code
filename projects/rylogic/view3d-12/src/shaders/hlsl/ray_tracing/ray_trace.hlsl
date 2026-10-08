@@ -10,6 +10,12 @@ float SampleLightShadow(Light light, float4 ws_pos, float4 ws_norm)
 	return 1.0f;
 }
 
+// Ray traced lighting does not read the sky's clouds, so clouds cast no shadows
+float SampleCloudShadow(float4 ws_pos, float4 ws_to_light)
+{
+	return 1.0f;
+}
+
 #include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/kbuffer.hlsli"
 #include "view3d-12/src/shaders/hlsl/utility/colour_space.hlsli"

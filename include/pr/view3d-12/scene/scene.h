@@ -126,6 +126,13 @@ namespace pr::rdr12
 		// Frame lights are removed by 'ClearDrawlists' and are ordered after 'm_lights' when the light limit is applied.
 		void AddFrameLight(Light const& light);
 
+		// Set the procedural sky whose clouds shade the scene's sun light in the current frame, or null for none.
+		// The sky must remain valid until 'ClearDrawlists', which removes it. 'ProceduralSky::AddToScene' sets it.
+		void CloudSky(ProceduralSky const* sky);
+
+		// The procedural sky whose clouds shade the current frame, or null.
+		ProceduralSky const* CloudSky() const;
+
 		// The world space lights that shade the current frame. Valid from the start of 'Render' until the next 'Render'.
 		std::span<Light const> ResolvedLights() const;
 
@@ -184,6 +191,9 @@ namespace pr::rdr12
 		LightList m_frame_lights;
 		LightList m_resolved_lights;
 		int m_dropped_lights;
+
+		// The sky whose clouds shade the current frame. See 'CloudSky'.
+		ProceduralSky const* m_cloud_sky;
 
 		// Post-processing effects applied after the scene is composited.
 		PostProcessing m_post_effects;

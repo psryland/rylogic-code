@@ -2429,6 +2429,7 @@ static rdr12::ProceduralSkySettings ToSkySettings(view3d::ProceduralSkySettings 
 		.m_wind_direction = s.m_wind_direction,
 		.m_time = s.m_time,
 		.m_hidden_cloud_layers = s.m_hidden_cloud_layers,
+		.m_cloud_shadow_strength = s.m_cloud_shadow_strength,
 	};
 	static_assert(std::extent_v<decltype(view3d::ProceduralSkySettings::m_lightning)> == rdr12::ProceduralSkySettings::LightningMax);
 	for (int i = 0; i != rdr12::ProceduralSkySettings::LightningMax; ++i)

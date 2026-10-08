@@ -8,6 +8,7 @@
 #define PR_VIEW3D_SHADER_FORWARD_CBUF_HLSL
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
 #include "view3d-12/src/shaders/hlsl/lighting/lighting_cbuf.hlsli"
+#include "view3d-12/src/shaders/hlsl/sky/cloud_cbuf.hlsli"
 
 // Constants per frame.
 struct CBufFrame// :reg(b0)
@@ -30,6 +31,9 @@ struct CBufFrame// :reg(b0)
 
 	// Projected textures
 	ProjTexture proj_tex;
+
+	// The procedural sky's cloud field, for cloud shadows on the scene. 'clouds.shadow_strength' is 0 when there are no cloud shadows.
+	CloudConstants clouds;
 };
 
 // The index of the current draw's entry in the element constants table. Provided as a root constant.

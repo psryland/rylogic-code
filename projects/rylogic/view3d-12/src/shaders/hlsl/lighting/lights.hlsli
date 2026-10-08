@@ -3,8 +3,11 @@
 //  Copyright (c) Rylogic Ltd 2026
 //***********************************************
 // Light model functions shared by the Phong and PBR lighting paths.
-// Includers must define 'float SampleLightShadow(Light light, float4 ws_pos, float4 ws_norm)' before including this file.
-// It returns the fraction of 'light' that reaches 'ws_pos' past shadow casters, in [0,1], and is only called for lights with shadow views.
+// Includers must define these before including this file:
+//  - 'float SampleLightShadow(Light light, float4 ws_pos, float4 ws_norm)' returns the fraction of 'light' that reaches 'ws_pos' past shadow casters,
+//    in [0,1]. It is only called for lights with shadow views.
+//  - 'float SampleCloudShadow(float4 ws_pos, float4 ws_to_light)' returns the fraction of a directional light that reaches 'ws_pos' through the sky's
+//    clouds, in [0,1]. 'ws_to_light' is the normalised direction toward the light.
 #ifndef PR_VIEW3D_SHADER_LIGHTS_HLSLI
 #define PR_VIEW3D_SHADER_LIGHTS_HLSLI
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
@@ -47,15 +50,18 @@ float4 LightDirectionAt(Light light, float4 ws_pos)
 		: normalize(ws_pos - light.ws_position);
 }
 
-// Return the fraction of 'light' that is not blocked by shadow casters at 'ws_pos' on a surface with normal 'ws_norm'
+// Return the fraction of 'light' that is not blocked by shadow casters or clouds at 'ws_pos' on a surface with normal 'ws_norm'
 float LightShadowVisibility(Light light, float4 ws_pos, float4 ws_norm)
 {
-	// Lights without shadow views are never blocked
+	// Clouds shade directional light independently of the shadow casters and their shadow strength
+	float visibility = DirectionalLight(light) ? SampleCloudShadow(ws_pos, -light.ws_direction) : 1.0f;
+
+	// Lights without shadow views are never blocked by shadow casters
 	if (!HasShadow(light))
-		return 1.0f;
+		return visibility;
 
 	// The shadow strength blends between unshadowed and fully shadowed
-	return lerp(1.0f, SampleLightShadow(light, ws_pos, ws_norm), saturate(light.shadow.x));
+	return visibility * lerp(1.0f, SampleLightShadow(light, ws_pos, ws_norm), saturate(light.shadow.x));
 }
 
 #endif

@@ -94,6 +94,15 @@ even if its managed wrapper is disposed. `Blend(null, 1, ..., ...)` releases tha
 atmosphere. Invalid weights, rotations, or disposed wrappers are rejected without changing the previous state.
 The blend uses a dedicated descriptor binding, leaving material textures and the reflection environment untouched.
 
+`ProceduralSkySettings` also sets the cloud cover, wind, time and lightning. The low cloud layer is drawn as a slab of
+cloud with a short ray march through its thickness, lit by the sun through the cloud above each point, so it looks
+solid from below; the mid and high layers are thin sheets. The camera is expected to stay below the clouds.
+While the sky's object is visible, its low and mid clouds also shade the scene's directional light that shines from
+the sky's sun (`CloudShadowStrength`, 0 to 1, default 1 in `ProceduralSkySettings.Default`). The forward lighting uses
+the same cloud field as the sky, so the shadows match the visible clouds and drift with them. Cloud shadows are
+independent of shadow maps, fade out in a full storm, and weaken with the atmosphere's blend weight, so a
+cubemap-only background casts none. Ray traced reflections are not shaded by clouds.
+
 The sky does **not** generate a reflection cube map. Set `window.EnvironmentMap = null` when switching from an
 authored environment to this sky unless a separate reflection source is intended. The C ABI exposes
 `View3D_ObjectCreateProceduralSky`, `View3D_ObjectUpdateProceduralSky` and `View3D_ObjectBlendProceduralSky`;

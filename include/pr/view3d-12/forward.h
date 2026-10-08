@@ -320,6 +320,7 @@ namespace pr::rdr12
 		struct ThickLineStripGS;
 		struct ThickLineListGS;
 		struct ShadowMap;
+		struct CloudConstants;
 	}
 	using ShaderPtr = RefPtr<Shader>;
 

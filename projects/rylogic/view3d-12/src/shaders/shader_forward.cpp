@@ -4,6 +4,7 @@
 //*********************************************
 #include "pr/view3d-12/shaders/shader_forward.h"
 #include "pr/view3d-12/scene/scene.h"
+#include "pr/view3d-12/scene/procedural_sky.h"
 #include "pr/view3d-12/render/drawlist_element.h"
 #include "pr/view3d-12/model/nugget.h"
 #include "pr/view3d-12/instance/instance.h"
@@ -129,6 +130,19 @@ namespace pr::rdr12::shaders
 		SetLightingConstants(cb0, scene);
 		SetEnvMapConstants(cb0.env_map, scene.m_global_envmap.get(), scene.m_global_envmap_prev.get(), scene.m_global_envmap_blend, scene.m_global_envmap_parallax_bounds);
 		cb0.output = v4(scene.wnd().m_dither_amount, 0, 0, 0);
+
+		// Clouds shade the sun when a visible procedural sky has them. Otherwise the zero shadow strength turns cloud shadows off,
+		// and the sky's descriptor table is left unbound because the shader does not read it.
+		Descriptor sky_textures[3];
+		if (auto const* sky = scene.CloudSky(); sky != nullptr && sky->CloudShadows(cb0.clouds, sky_textures))
+		{
+			auto table = scene.wnd().m_heap_view.Add(sky_textures);
+			cmd_list->SetGraphicsRootDescriptorTable((UINT)ERootParam::SkyTexture, table);
+		}
+		else
+		{
+			cb0.clouds.shadow_strength = 0;
+		}
 
 		// Transparent layers fade over the same depth interval as the opaque scene. See 'far_clip_fade.md'.
 		if (auto const fade = scene.FarClipFadeProperties(); fade.m_enabled)
