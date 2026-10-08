@@ -105,7 +105,8 @@ float3 SkyRadiance(float3 view_dir, float3 sun_dir, float3 sun_light)
 }
 
 // Add the sun disc and its glow to the sky radiance 'sky' along 'view_dir', and darken views below the horizon.
-float3 AtmosphericSky(float3 sky, float3 view_dir, float3 sun_dir, float3 sun_light)
+// 'time' is in seconds, wrapped at PR_SKY_TIME_PERIOD, and slowly moves the soft rays in the glow.
+float3 AtmosphericSky(float3 sky, float3 view_dir, float3 sun_dir, float3 sun_light, float time)
 {
 	// The sun disc, reddened by the same path through the atmosphere as sunlight on the ground.
 	float cos_sun = dot(view_dir, sun_dir);
@@ -116,7 +117,24 @@ float3 AtmosphericSky(float3 sky, float3 view_dir, float3 sun_dir, float3 sun_li
 	// The angle from the sun (radians) is approximated by the chord length, which is accurate near the sun where the glow matters.
 	// A tight bright core blends into a wide faint halo. Clouds are composited over this, so thick cloud hides the glow.
 	float sun_angle = sqrt(max(2.0 * (1.0 - cos_sun), 0.0));
-	float glow = 1.125 * exp(-sun_angle / 0.02) + 0.2625 * exp(-sun_angle / 0.12);
+
+	// Soft rays that slowly drift and shimmer in the halo. The angle around the sun is measured in a world-fixed frame so the rays do not turn
+	// with the camera. That frame has no fixed reference when the sun is exactly overhead, so another axis is used then.
+	// Only whole multiples of the angle are used, so there is no seam where atan2 wraps. Time rates are whole cycles per PR_SKY_TIME_PERIOD,
+	// so the motion is continuous when the CPU wraps the time. The rays fade out near the centre, where the angle around the sun is undefined.
+	float3 side = cross(sun_dir, float3(0, 0, 1));
+	side = dot(side, side) > 1e-6 ? normalize(side) : float3(1, 0, 0);
+	float around = atan2(dot(view_dir, cross(sun_dir, side)), dot(view_dir, side));
+	float w = 6.2831853 * time / PR_SKY_TIME_PERIOD;
+	float rays = 0.5 * sin(7.0 * around + 10.0 * w) + 0.3 * sin(13.0 * around - 17.0 * w) + 0.2 * sin(23.0 * around + 29.0 * w);
+
+	// A low sun is seen through much more haze, so its glow and shimmer are stronger. This also keeps the glow visible against the bright
+	// twilight sky, even though the sunlight reaching the eye is heavily dimmed.
+	float low = smoothstep(0.2, 0.0, sun_dir.z);
+	float halo = 1.0 + lerp(0.3, 0.6, low) * rays * smoothstep(0.0, 0.03, sun_angle);
+
+	// A tight bright core blends into a wide faint halo carrying the rays.
+	float glow = (1.0 + 3.0 * low) * (1.125 * exp(-sun_angle / 0.02) + 0.2625 * halo * exp(-sun_angle / 0.12));
 	sky += sun_seen * glow * smoothstep(-0.03, 0.0, sun_dir.z);
 
 	// Below the horizon the background is darker, standing in for ground or sea.
@@ -392,7 +410,7 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle)
 	float3 sun_dir = g_sky.sun_direction.xyz;
 	float3 sun_top = g_sky.sun_colour.rgb * g_sky.sun_intensity * SkyExposure;
 	float3 haze = SkyRadiance(dir, sun_dir, sun_top);
-	float3 sky = AtmosphericSky(haze, dir, sun_dir, sun_top);
+	float3 sky = AtmosphericSky(haze, dir, sun_dir, sun_top, g_sky.time);
 
 	// Stars appear in the darkening sky before sunset and fade out near the horizon where the air is thick.
 	float star_visibility = smoothstep(0.08, -0.08, sun_dir.z) * saturate(dir.z * 5.0);

@@ -53,7 +53,7 @@ struct CBufProceduralSky //:reg(b3)
 	float4 sun_colour;
 
 	// Sun intensity (0=night, 1=noon), the atmosphere's share of the background colour, the default cloud cover in [0,1],
-	// and time in seconds, wrapped at PR_SKY_TIME_PERIOD, for star twinkle.
+	// and time in seconds, wrapped at PR_SKY_TIME_PERIOD, for star twinkle and sun rays.
 	float sun_intensity;
 	float blend_weight;
 	float cloud_cover;
