@@ -15,8 +15,11 @@ public sealed partial class View3d
 	/// get the effect. The distortion animates only while frames are being rendered.
 	/// </summary>
 	[StructLayout(LayoutKind.Sequential)]
-	public struct UnderwaterProps
+	public unsafe struct UnderwaterProps
 	{
+		/// <summary>Number of waterline offset samples along each edge of the near plane. See SetWaterlineOffset.</summary>
+		public const int WaterlineGridSize = 8;
+
 		private int m_enabled;
 		private Colour32 m_tint;
 		private Colour32 m_fog_colour;
@@ -26,6 +29,7 @@ public sealed partial class View3d
 		private float m_distortion_speed;
 		private v4 m_surface;
 		private float m_fade_depth;
+		private fixed float m_waterline_offsets[WaterlineGridSize * WaterlineGridSize];
 
 		/// <summary>Create disabled settings with the native defaults.</summary>
 		public UnderwaterProps()
@@ -39,6 +43,8 @@ public sealed partial class View3d
 			m_distortion_speed = 0.25f;
 			m_surface = v4.Zero;
 			m_fade_depth = 0.0f;
+			for (var i = 0; i != WaterlineGridSize * WaterlineGridSize; ++i)
+				m_waterline_offsets[i] = 0.0f;
 		}
 
 		/// <summary>Whether the effect is applied.</summary>
@@ -67,7 +73,7 @@ public sealed partial class View3d
 			}
 		}
 
-		/// <summary>sRGB colour that distant surfaces fade towards. Alpha is ignored.</summary>
+		/// <summary>sRGB colour that distant surfaces fade towards. Alpha is the fog strength, the largest fraction of the scene colour the fog replaces.</summary>
 		public Colour32 FogColour
 		{
 			readonly get
@@ -80,7 +86,7 @@ public sealed partial class View3d
 			}
 		}
 
-		/// <summary>Distance (in world units) at which the fog hides 95% of a surface. Must be finite and greater than zero.</summary>
+		/// <summary>Distance (in world units) at which the fog hides 95% of a surface. Must be greater than zero. Positive infinity disables the fog.</summary>
 		public float Visibility
 		{
 			readonly get
@@ -172,11 +178,34 @@ public sealed partial class View3d
 			return new UnderwaterProps();
 		}
 
+		/// <summary>
+		/// The real water surface's height above Surface, measured along its normal, at sample (i, j) of a WaterlineGridSize square grid of points
+		/// on the camera's near plane. Sample (i, j) is at viewport-normalised position (i, j) / (WaterlineGridSize - 1), where (0, 0) is the
+		/// top-left corner. The waterline follows the surface height interpolated between the samples, so it can follow waves that a plane cannot.
+		/// Fog still uses the plane. All zeros means the surface is the plane. Values must be finite.
+		/// </summary>
+		public readonly float WaterlineOffset(int i, int j)
+		{
+			// Reject positions outside the grid rather than reading other fields.
+			if (i < 0 || i >= WaterlineGridSize || j < 0 || j >= WaterlineGridSize)
+				throw new ArgumentOutOfRangeException(nameof(i), "Waterline sample is outside the grid.");
+
+			return m_waterline_offsets[j * WaterlineGridSize + i];
+		}
+		public void SetWaterlineOffset(int i, int j, float offset)
+		{
+			// Reject positions outside the grid rather than writing other fields.
+			if (i < 0 || i >= WaterlineGridSize || j < 0 || j >= WaterlineGridSize)
+				throw new ArgumentOutOfRangeException(nameof(i), "Waterline sample is outside the grid.");
+
+			m_waterline_offsets[j * WaterlineGridSize + i] = offset;
+		}
+
 		/// <summary>Reject invalid settings, even while the effect is disabled.</summary>
 		public readonly void Validate()
 		{
-			if (float.IsNaN(m_visibility) || float.IsInfinity(m_visibility) || m_visibility <= 0)
-				throw new ArgumentOutOfRangeException(nameof(Visibility), "Underwater visibility must be finite and greater than zero.");
+			if (float.IsNaN(m_visibility) || m_visibility <= 0)
+				throw new ArgumentOutOfRangeException(nameof(Visibility), "Underwater visibility must be greater than zero, or positive infinity for no fog.");
 			if (float.IsNaN(m_distortion_amplitude) || float.IsInfinity(m_distortion_amplitude) || m_distortion_amplitude < 0)
 				throw new ArgumentOutOfRangeException(nameof(DistortionAmplitude), "Underwater distortion amplitude must be finite and not negative.");
 			if (float.IsNaN(m_distortion_frequency) || float.IsInfinity(m_distortion_frequency) || m_distortion_frequency <= 0)
@@ -185,9 +214,15 @@ public sealed partial class View3d
 				throw new ArgumentOutOfRangeException(nameof(DistortionSpeed), "Underwater distortion speed must be finite and not negative.");
 			if (!Math_.IsFinite(m_surface) || (m_surface != v4.Zero && m_surface.w0.LengthSq == 0))
 				throw new ArgumentOutOfRangeException(nameof(Surface), "Underwater surface must be finite, and either zero or have a non-zero normal.");
-							if (float.IsNaN(m_fade_depth) || float.IsInfinity(m_fade_depth) || m_fade_depth < 0)
-								throw new ArgumentOutOfRangeException(nameof(FadeDepth), "Underwater fade depth must be finite and not negative.");
-						}
+			if (float.IsNaN(m_fade_depth) || float.IsInfinity(m_fade_depth) || m_fade_depth < 0)
+				throw new ArgumentOutOfRangeException(nameof(FadeDepth), "Underwater fade depth must be finite and not negative.");
+			for (var i = 0; i != WaterlineGridSize * WaterlineGridSize; ++i)
+			{
+				// Each offset must be a finite height.
+				if (float.IsNaN(m_waterline_offsets[i]) || float.IsInfinity(m_waterline_offsets[i]))
+					throw new ArgumentOutOfRangeException(nameof(SetWaterlineOffset), "Underwater waterline offsets must be finite.");
+			}
+		}
 	}
 
 	[DllImport(Dll)]
@@ -203,7 +238,7 @@ public sealed partial class View3d
 [TestFixture]
 public class PostEffectTests
 {
-	/// <summary>New views have the effect disabled, with a stable 48-byte ABI.</summary>
+	/// <summary>New views have the effect disabled, with a stable 304-byte ABI.</summary>
 	[Test]
 	public void UnderwaterDefaultAndLayout()
 	{
@@ -215,15 +250,17 @@ public class PostEffectTests
 		Assert.Equal(0.002f, props.DistortionAmplitude);
 		Assert.Equal(6.0f, props.DistortionFrequency);
 		Assert.Equal(0.25f, props.DistortionSpeed);
-		Assert.Equal(48, Marshal.SizeOf<View3d.UnderwaterProps>());
+		Assert.Equal(304, Marshal.SizeOf<View3d.UnderwaterProps>());
 		Assert.Equal(4, Marshal.OffsetOf<View3d.UnderwaterProps>("m_tint").ToInt32());
 		Assert.Equal(8, Marshal.OffsetOf<View3d.UnderwaterProps>("m_fog_colour").ToInt32());
 		Assert.Equal(12, Marshal.OffsetOf<View3d.UnderwaterProps>("m_visibility").ToInt32());
 		Assert.Equal(24, Marshal.OffsetOf<View3d.UnderwaterProps>("m_distortion_speed").ToInt32());
 		Assert.Equal(28, Marshal.OffsetOf<View3d.UnderwaterProps>("m_surface").ToInt32());
 		Assert.Equal(44, Marshal.OffsetOf<View3d.UnderwaterProps>("m_fade_depth").ToInt32());
+		Assert.Equal(48, Marshal.OffsetOf<View3d.UnderwaterProps>("m_waterline_offsets").ToInt32());
 		Assert.Equal(v4.Zero, props.Surface);
 		Assert.Equal(0.0f, props.FadeDepth);
+		Assert.Equal(0.0f, props.WaterlineOffset(7, 7));
 	}
 
 	/// <summary>Invalid settings fail before reaching the native setter.</summary>
@@ -251,6 +288,17 @@ public class PostEffectTests
 		props.Validate();
 		props.FadeDepth = -1;
 		Assert.Throws<ArgumentOutOfRangeException>(() => props.Validate());
+
+		// Infinite visibility disables the fog; offsets must be finite and inside the grid.
+		props = View3d.UnderwaterProps.Default();
+		props.Visibility = float.PositiveInfinity;
+		props.Validate();
+		props.SetWaterlineOffset(3, 5, 1.5f);
+		Assert.Equal(1.5f, props.WaterlineOffset(3, 5));
+		props.Validate();
+		props.SetWaterlineOffset(0, 7, float.NaN);
+		Assert.Throws<ArgumentOutOfRangeException>(() => props.Validate());
+		Assert.Throws<ArgumentOutOfRangeException>(() => props.SetWaterlineOffset(8, 0, 0));
 	}
 }
 #endif

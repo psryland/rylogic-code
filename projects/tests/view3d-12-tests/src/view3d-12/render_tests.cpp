@@ -2917,6 +2917,28 @@ namespace fade_tests
 		}
 		props.m_fade_depth = 0.0f;
 
+		// Waterline offsets tilt the real surface: it rises 25 above the plane at the left edge of the near plane and falls 25 below it at the
+		// right edge. Each column's waterline therefore sits at near-plane height 25 - 50 * u, with u the viewport-normalised column position.
+		// The offsets move only the waterline, so pixels below it but above the plane are tinted without fog.
+		for (auto j = 0; j != 8; ++j)
+		{
+			for (auto i = 0; i != 8; ++i)
+				props.m_waterline_offsets[j * 8 + i] = 25.0f - 50.0f * i / 7.0f;
+		}
+		underwater(true);
+		auto sloped = fixture.Image();
+		Expect(sloped, 1,1,1, 16,32);
+		Expect(sloped, 1,0,1, 16,50);
+		Expect(sloped, 1,1,1, 112,70);
+		Expect(sloped, 0.5f,0.5f,0.5f, 112,100);
+		std::ranges::fill(props.m_waterline_offsets, 0.0f);
+
+		// Infinite visibility disables the fog, leaving only the tint.
+		props.m_visibility = std::numeric_limits<float>::infinity();
+		underwater(true);
+		Expect(fixture.Image(), 1,0,1, 64,96);
+		props.m_visibility = 150.0f / std::log(2.0f);
+
 		// With the whole near plane above the surface, the pass is skipped and the image is unchanged, even where rays
 		// descend into the water.
 		props.m_surface = api::Vec4{0, 0, 1, 30};

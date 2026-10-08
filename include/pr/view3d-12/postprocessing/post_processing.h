@@ -14,15 +14,19 @@ namespace pr::rdr12
 	// With a surface plane, the effect applies only to pixels whose point on the camera's near plane is below the surface.
 	struct UnderwaterProps
 	{
+		// Number of waterline offset samples along each edge of the near plane. See 'm_waterline_offsets'.
+		static constexpr int WaterlineGridSize = 8;
+
 		bool m_enabled = false;
 
 		// sRGB colour multiplied into the scene colour. Alpha is ignored.
 		Colour32 m_tint = Colour32{0xFFA6D9F2U};
 
-		// sRGB colour that distant surfaces fade towards. Alpha is ignored.
+		// sRGB colour that distant surfaces fade towards. Alpha is the fog strength, the largest fraction of the scene colour the fog replaces.
 		Colour32 m_fog_colour = Colour32{0xFF0A384DU};
 
 		// Distance (in world units) at which the fog hides 95% of a surface. Pixels without scene geometry are fully fogged.
+		// Positive infinity disables the fog, for callers that fog the scene in their own shaders.
 		float m_visibility = 40.0f;
 
 		// Largest screen offset of the distortion, as a fraction of the viewport height. Zero disables the distortion.
@@ -46,11 +50,17 @@ namespace pr::rdr12
 		// one pixel. Ignored without a surface.
 		float m_fade_depth = 0.0f;
 
+		// Heights of the real water surface above 'm_surface', measured along its normal, at a regular grid of points on the camera's near plane.
+		// Sample (i, j) is at index 'j * WaterlineGridSize + i' and at viewport-normalised position (i, j) / (WaterlineGridSize - 1), where (0, 0)
+		// is the top-left corner. The waterline uses the surface height interpolated between the samples, so it can follow waves that a single plane
+		// cannot. Fog still uses the plane. All zeros means the surface is the plane. Ignored without a surface.
+		std::array<float, WaterlineGridSize * WaterlineGridSize> m_waterline_offsets = {};
+
 		// Reject invalid settings without changing the current scene settings.
 		void Validate() const
 		{
-			if (!std::isfinite(m_visibility) || m_visibility <= 0.0f)
-				throw std::invalid_argument("Underwater visibility must be finite and greater than zero");
+			if (std::isnan(m_visibility) || m_visibility <= 0.0f)
+				throw std::invalid_argument("Underwater visibility must be greater than zero, or positive infinity for no fog");
 			if (!std::isfinite(m_distortion_amplitude) || m_distortion_amplitude < 0.0f)
 				throw std::invalid_argument("Underwater distortion amplitude must be finite and not negative");
 			if (!std::isfinite(m_distortion_frequency) || m_distortion_frequency <= 0.0f)
@@ -61,6 +71,8 @@ namespace pr::rdr12
 				throw std::invalid_argument("Underwater surface must be finite, and either zero or have a non-zero normal");
 			if (!std::isfinite(m_fade_depth) || m_fade_depth < 0.0f)
 				throw std::invalid_argument("Underwater fade depth must be finite and not negative");
+			if (!std::ranges::all_of(m_waterline_offsets, [](float offset) { return std::isfinite(offset); }))
+				throw std::invalid_argument("Underwater waterline offsets must be finite");
 		}
 
 		// Compare all settings, including those retained while disabled.
@@ -76,7 +88,8 @@ namespace pr::rdr12
 				lhs.m_distortion_frequency == rhs.m_distortion_frequency &&
 				lhs.m_distortion_speed == rhs.m_distortion_speed &&
 				All(lhs.m_surface == rhs.m_surface) &&
-				lhs.m_fade_depth == rhs.m_fade_depth;
+				lhs.m_fade_depth == rhs.m_fade_depth &&
+				lhs.m_waterline_offsets == rhs.m_waterline_offsets;
 		}
 	};
 

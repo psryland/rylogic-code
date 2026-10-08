@@ -634,7 +634,7 @@ VIEW3D_API view3d::UnderwaterProps __stdcall View3D_PostEffectUnderwaterGet(view
 		Validate(window);
 		DllLockGuard;
 		auto props = window->PostEffectUnderwater();
-		return view3d::UnderwaterProps{
+		auto result = view3d::UnderwaterProps{
 			.m_enabled = props.m_enabled,
 			.m_tint = props.m_tint.argb,
 			.m_fog_colour = props.m_fog_colour.argb,
@@ -645,6 +645,9 @@ VIEW3D_API view3d::UnderwaterProps __stdcall View3D_PostEffectUnderwaterGet(view
 			.m_surface = To<view3d::Vec4>(props.m_surface),
 			.m_fade_depth = props.m_fade_depth,
 		};
+		static_assert(sizeof(result.m_waterline_offsets) == sizeof(props.m_waterline_offsets));
+		std::memcpy(result.m_waterline_offsets, props.m_waterline_offsets.data(), sizeof(result.m_waterline_offsets));
+		return result;
 	}
 	CatchAndReport(View3D_PostEffectUnderwaterGet, window, {});
 }
@@ -656,7 +659,7 @@ VIEW3D_API BOOL __stdcall View3D_PostEffectUnderwaterSet(view3d::Window window, 
 	{
 		Validate(window);
 		DllLockGuard;
-		window->PostEffectUnderwater(rdr12::UnderwaterProps{
+		auto settings = rdr12::UnderwaterProps{
 			.m_enabled = props.m_enabled != FALSE,
 			.m_tint = Colour32{props.m_tint},
 			.m_fog_colour = Colour32{props.m_fog_colour},
@@ -666,7 +669,9 @@ VIEW3D_API BOOL __stdcall View3D_PostEffectUnderwaterSet(view3d::Window window, 
 			.m_distortion_speed = props.m_distortion_speed,
 			.m_surface = To<v4>(props.m_surface),
 			.m_fade_depth = props.m_fade_depth,
-		});
+		};
+		std::memcpy(settings.m_waterline_offsets.data(), props.m_waterline_offsets, sizeof(props.m_waterline_offsets));
+		window->PostEffectUnderwater(settings);
 		return TRUE;
 	}
 	CatchAndReport(View3D_PostEffectUnderwaterSet, window, FALSE);

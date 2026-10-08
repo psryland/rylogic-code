@@ -20,7 +20,7 @@ struct CBufUnderwater //:reg(b0)
 	// Transform from normalised device coordinates (x,y in [-1,+1], z = depth buffer value) to camera space.
 	row_major float4x4 s2c;
 
-	// Linear colour multiplied into the scene colour, and the linear colour that distance fades towards.
+	// Linear colour multiplied into the scene colour, and the linear colour that distance fades towards (alpha is the largest fog amount).
 	float4 tint;
 	float4 fog_colour;
 
@@ -30,10 +30,14 @@ struct CBufUnderwater //:reg(b0)
 	// Camera-space water surface plane (xyz = normal out of the water, w = offset), or zero when the whole view is in water.
 	float4 surface;
 
-	// Height of the camera's near plane above the water surface, as 'x*ndc.x + y*ndc.y + z'. Used only when 'split' is non-zero.
+	// Height of the camera's near plane above the water surface plane, as 'x*ndc.x + y*ndc.y + z'. Used only when 'split' is non-zero.
 	float4 waterline;
 
-	// Distance at which the fog hides 95% of a surface.
+	// Heights of the real water surface above the surface plane at an 8x8 grid of points on the near plane, packed four per vector.
+	// Sample (i, j) is at index 'j * 8 + i' and viewport-normalised position (i, j) / 7. Used only when 'split' is non-zero.
+	float4 waterline_offsets[16];
+
+	// Distance at which the fog hides 95% of a surface, or positive infinity for no fog.
 	float visibility;
 
 	// Animation phase of the distortion in radians, in [0, 2pi).

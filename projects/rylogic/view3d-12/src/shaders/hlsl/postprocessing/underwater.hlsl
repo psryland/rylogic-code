@@ -96,12 +96,24 @@ float WaterPathLength(int2 pixel, float2 uv)
 	return h0 < 0 ? t * len : (1 - t) * len;
 }
 
-// Height of the camera's near plane above the water surface at viewport-normalised 'uv'. Negative below the surface.
+// Height of the camera's near plane above the real water surface at viewport-normalised 'uv'. Negative below the surface.
 float WaterlineHeight(float2 uv)
 {
-	// The near plane is flat, so its height above the surface is linear in NDC.
+	// The near plane is flat, so its height above the surface plane is linear in NDC.
 	float2 ndc = float2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
-	return dot(g_underwater.waterline.xyz, float3(ndc, 1.0f));
+	float plane_height = dot(g_underwater.waterline.xyz, float3(ndc, 1.0f));
+
+	// Interpolate the real surface's height above the plane between the four nearest grid samples.
+	float2 g = saturate(uv) * 7.0f;
+	int2 i0 = min(int2(g), 6);
+	float2 f = g - i0;
+	int k = i0.y * 8 + i0.x;
+	float o00 = g_underwater.waterline_offsets[(k + 0) >> 2][(k + 0) & 3];
+	float o10 = g_underwater.waterline_offsets[(k + 1) >> 2][(k + 1) & 3];
+	float o01 = g_underwater.waterline_offsets[(k + 8) >> 2][(k + 8) & 3];
+	float o11 = g_underwater.waterline_offsets[(k + 9) >> 2][(k + 9) & 3];
+	float offset = lerp(lerp(o00, o10, f.x), lerp(o01, o11, f.x), f.y);
+	return plane_height - offset;
 }
 
 // Tint, fog, and distort the scene colour.
@@ -118,7 +130,7 @@ float4 PSUnderwater(PSIn_PostEffect In) :SV_Target
 	if (g_underwater.split != 0)
 	{
 		// Pixels above the waterline keep the scene colour. With a fade depth, the strength rises smoothly with depth below the surface;
-		// without one, it blends over about one pixel so the edge is smooth.
+		// without one, it blends over about one pixel so the edge is smooth. The branch is uniform, so screen-space derivatives are valid.
 		float height = WaterlineHeight(uv);
 		if (g_underwater.fade_depth > 0.0f)
 		{
@@ -126,8 +138,8 @@ float4 PSUnderwater(PSIn_PostEffect In) :SV_Target
 		}
 		else
 		{
-			float2 height_per_pixel = g_underwater.waterline.xy * 2.0f / vp.zw;
-			coverage = saturate(0.5f - height / length(height_per_pixel));
+			float height_per_pixel = max(length(float2(ddx(height), ddy(height))), 1e-12f);
+			coverage = saturate(0.5f - height / height_per_pixel);
 		}
 		if (coverage == 0.0f)
 			return g_scene_colour.Load(int3(In.ss_vert.xy, 0));
@@ -144,10 +156,14 @@ float4 PSUnderwater(PSIn_PostEffect In) :SV_Target
 	float4 colour = g_scene_colour.SampleLevel(g_linear_clamp, pixel / target_size, 0);
 
 	// Tint the colour, then fade towards the fog colour over the part of the view ray that is in water.
-	// The fog reaches 95% after the visibility distance.
-	float dist = WaterPathLength(int2(pixel), sample_uv);
-	float fog = 1.0f - exp(-3.0f * dist / g_underwater.visibility);
-	colour.rgb = lerp(colour.rgb * g_underwater.tint.rgb, g_underwater.fog_colour.rgb, fog);
+	// The fog reaches 95% after the visibility distance. Infinite visibility means no fog.
+	colour.rgb *= g_underwater.tint.rgb;
+	if (g_underwater.visibility != INF)
+	{
+		float dist = WaterPathLength(int2(pixel), sample_uv);
+		float fog = g_underwater.fog_colour.a * (1.0f - exp(-3.0f * dist / g_underwater.visibility));
+		colour.rgb = lerp(colour.rgb, g_underwater.fog_colour.rgb, fog);
+	}
 
 	// Blend with the unmodified scene colour where a pixel straddles the waterline.
 	if (coverage < 1.0f)
