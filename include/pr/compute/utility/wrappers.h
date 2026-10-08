@@ -1002,6 +1002,11 @@ namespace pr::compute
 			DepthEnable = enabled ? TRUE : FALSE;
 			return *this;
 		}
+		DepthStateDesc& Func(D3D12_COMPARISON_FUNC func)
+		{
+			DepthFunc = func;
+			return *this;
+		}
 	};
 
 	// Stream output description

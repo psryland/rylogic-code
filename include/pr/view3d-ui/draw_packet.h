@@ -76,7 +76,7 @@ namespace pr::view3d::ui
 		ERootPolicy policy;
 		std::uint32_t first_item;        // Index of the group's first item in DrawPacket::items.
 		std::uint32_t item_count;
-		float clip_depth;                // Normalised [0, 1] device depth recorded for depth-tested/occlusion-faded roots.
+		float clip_depth;                // Normalised [0, 1] reversed device depth (1 = near plane) recorded for depth-tested/occlusion-faded roots.
 		float view_depth;                // Distance from the camera to the root's anchor along the look direction, world units.
 		float occlusion_min_opacity;     // Opacity floor reached when fully occluded; only used by ERootPolicy::OcclusionFaded.
 		float occlusion_fade_depth;      // World units of occluding depth over which opacity falls to the floor.

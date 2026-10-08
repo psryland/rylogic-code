@@ -738,7 +738,7 @@ namespace pr::rdr12::ldraw
 				NuggetDesc(ETopo::TriList, Vert::GeomMask)
 				.sort_key(ESortGroup::PostOpaques)
 				.pso<EPipeState::CullMode>(D3D12_CULL_MODE_BACK)
-				.pso<EPipeState::DepthFunc>(D3D12_COMPARISON_FUNC_GREATER)
+				.pso<EPipeState::DepthFunc>(D3D12_COMPARISON_FUNC_LESS)
 				.mat([&](MaterialSimple& m) { m.base_texture(rdr().store().StockTexture(EStockTexture::Gray), {}); })
 			);
 		}

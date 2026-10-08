@@ -172,7 +172,7 @@ namespace pr::rdr12
 				.world_to_cube = m4x4::Identity(),
 			}
 		{
-			static_assert(sizeof(m_cbuf) == 256);
+			static_assert(sizeof(m_cbuf) == 320);
 			m_code.VS = shader_code::procedural_sky_vs;
 			m_code.PS = shader_code::procedural_sky_ps;
 
@@ -264,7 +264,7 @@ namespace pr::rdr12
 				.flags(ENuggetFlag::ShadowCastExclude)
 				.pso<EPipeState::CullMode>(D3D12_CULL_MODE_NONE)
 				.pso<EPipeState::DepthWriteMask>(D3D12_DEPTH_WRITE_MASK_ZERO)
-				.pso<EPipeState::DepthFunc>(D3D12_COMPARISON_FUNC_LESS_EQUAL)
+				.pso<EPipeState::DepthFunc>(D3D12_COMPARISON_FUNC_GREATER_EQUAL)
 				.mat([&](MaterialSimple& m) {
 					m.use_shader_overlay(ERenderStep::RenderForward, shdr);
 				})
@@ -298,6 +298,13 @@ namespace pr::rdr12
 			!(settings.m_wind_speed >= 0) || !std::isfinite(settings.m_wind_speed) ||
 			!std::isfinite(settings.m_wind_direction) || !std::isfinite(settings.m_time))
 			throw std::invalid_argument("Procedural sky requires cloud cover in [0,1], a finite nonnegative wind speed, and a finite wind direction and time");
+		static_assert(ProceduralSkySettings::LightningMax == PR_SKY_LIGHTNING_MAX);
+		for (auto const& flash : settings.m_lightning)
+		{
+			// Unused flashes have zero brightness. A visible flash needs a finite position and a positive radius.
+			if (!std::isfinite(flash.w) || flash.w < 0 || (flash.w > 0 && (!std::isfinite(flash.x) || !std::isfinite(flash.y) || !std::isfinite(flash.z) || flash.z <= 0)))
+				throw std::invalid_argument("Procedural sky lightning requires a finite nonnegative brightness, and a finite position and positive radius when visible");
+		}
 
 		// Move the clouds by the wind over the elapsed time. The first update, and time going backwards, do not move them.
 		auto dt = m_last_time ? std::max(settings.m_time - *m_last_time, 0.0) : 0.0;
@@ -327,6 +334,8 @@ namespace pr::rdr12
 		m_shader->m_cbuf.wind_direction = s_cast<float>(std::fmod(settings.m_wind_direction, constants<double>::tau));
 		m_shader->m_cbuf.cloud_evolve = v4(m_cloud_evolve[0], m_cloud_evolve[1], m_cloud_evolve[2], 0);
 		m_shader->m_cbuf.hidden_cloud_layers = settings.m_hidden_cloud_layers;
+		for (int i = 0; i != PR_SKY_LIGHTNING_MAX; ++i)
+			m_shader->m_cbuf.lightning[i] = settings.m_lightning[i].w > 0 ? settings.m_lightning[i] : v4::Zero();
 	}
 
 	// Retain the weather map; the shader reads its area and texture each frame.

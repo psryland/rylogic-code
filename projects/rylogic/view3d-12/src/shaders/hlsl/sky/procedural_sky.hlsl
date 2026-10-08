@@ -222,17 +222,42 @@ float CloudField(float2 uv1, float2 uv2, float lod, float lump_scale)
 	return CloudFieldFromNoise(n1, n2, lump_scale);
 }
 
+// The colour and radiance of lightning light in cloud at brightness 1.
+static const float3 LightningColour = float3(0.75, 0.82, 1.0) * 4.0;
+
+// Lightning light at 'pos' on a cloud layer, from the flashes in g_sky.lightning. Each flash lights a soft patch around its position,
+// and a faint wide glow spreads through the rest of the deck.
+float LightningGlow(float2 pos)
+{
+	// Sum the flashes. Unused slots have zero brightness.
+	float glow = 0;
+	[unroll] for (int i = 0; i != PR_SKY_LIGHTNING_MAX; ++i)
+	{
+		// Skip unused slots so their radius is never read.
+		float4 flash = g_sky.lightning[i];
+		if (flash.w <= 0)
+			continue;
+
+		float2 d = (pos - flash.xy) / flash.z;
+		float r2 = dot(d, d);
+		glow += flash.w * (exp(-r2) + 0.15 * exp(-0.05 * r2));
+	}
+	return glow;
+}
+
 // One cloud layer seen along 'dir' from 'cam'. Returns premultiplied radiance and alpha.
+// 'lower_scale' scales the altitude of the low and mid layers (see PR_SKY_CLOUD_LOWER_SCALE).
 // The cloud field is read from a tileable noise texture (see ProceduralSky), so each layer costs a few texture reads:
 // R and G hold independent broad noise that sets the cloud masses, and B and A hold independent heaped lumps (rounded bulges with creases).
-float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 sun_dir, float3 sun_light, float3 ambient, float3 haze)
+float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float lower_scale, float3 sun_dir, float3 sun_light, float3 ambient, float3 haze)
 {
 	// Intersect the layer's spherical shell around the planet centre. The shell curves down to meet the horizon at a finite distance,
 	// which limits how squashed distant cloud becomes. The terms are arranged to avoid losing precision with the large planet radius.
 	float4 config = CloudLayers[layer];
-	float radius = PR_SKY_PLANET_RADIUS + config.x;
+	float altitude = layer == 2 ? config.x : config.x * lower_scale;
+	float radius = PR_SKY_PLANET_RADIUS + altitude;
 	float b = dot(cam.xy, dir.xy) + (cam.z + PR_SKY_PLANET_RADIUS) * dir.z;
-	float c = dot(cam.xy, cam.xy) + (cam.z - config.x) * (cam.z + config.x + 2.0 * PR_SKY_PLANET_RADIUS);
+	float c = dot(cam.xy, cam.xy) + (cam.z - altitude) * (cam.z + altitude + 2.0 * PR_SKY_PLANET_RADIUS);
 	if (c >= 0)
 		return 0;
 
@@ -306,7 +331,8 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 		// the side of a cloud farther away. A side is lit from above, so it is white near the top and greys toward the base.
 		// Seen from below, the far edge of each base is a sharp bottom edge with the white side of a farther cloud below it on the screen,
 		// so overlapping clouds form layered tiers. Ray samples at fixed heights find the first side the ray meets.
-		float height = lerp(lerp(600.0, 1500.0, build), 3000.0, storm);
+		// Lowered storm cloud is thinner in proportion, so its tops stay well below the mid layer.
+		float height = lerp(lerp(600.0, 1500.0, build), 3000.0, storm) * lower_scale;
 		float tan_elev = mu * rsqrt(max(1.0 - mu * mu, 1e-4));
 		float2 away = float2(dot(dir.xy, wind_dir), dot(dir.xy, wind_perp));
 		away *= rsqrt(max(dot(away, away), 1e-8));
@@ -385,6 +411,11 @@ float4 CloudLayer(int layer, float3 cam, float3 dir, float pixel_angle, float3 s
 	float backlit = pow(saturate(cos_sun), 3.0) * smoothstep(0.25, 0.02, sun_dir.z);
 	radiance *= lerp(1.0, 0.3, backlit * coverage);
 
+	// Lightning inside the low and mid cloud lights it from within. Thick cloud scatters more of the light toward the viewer, which makes the
+	// flash patchy. Cirrus is far above the flashes and catches little of their light.
+	float lightning = LightningGlow(hit.xy) * (layer == 0 ? 1.0 : layer == 1 ? 0.5 : 0.1);
+	radiance += LightningColour * lightning * lerp(0.4, 1.0, depth);
+
 	// Denser cloud, and longer paths where the ray grazes the layer, are more opaque. Squaring the opacity softens the edges.
 	// Sparse cloud is thinner, so it is partly translucent.
 	float thickness = (layer == 0 ? lerp(3.0, 6.0, storm) : layer == 1 ? 3.0 : 0.8) * lerp(0.5, 1.0, build);
@@ -422,10 +453,16 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle)
 	float gloom = lerp(1.0, 0.17, heavy);
 	sky = lerp(sky, Luminance(sky) * float3(0.85, 0.88, 0.92), 0.7 * heavy) * gloom;
 	haze = lerp(haze, Luminance(haze) * float3(0.85, 0.88, 0.92), 0.7 * heavy) * gloom;
+
+	// Lightning also lights the air below the cloud, faintly, by the flashes near the camera.
+	sky += LightningColour * 0.03 * LightningGlow(cam.xy);
 	if (dir.z > 0)
 	{
 		// Sunlight at the clouds is reddened by its path through the atmosphere. Clouds keep a little light just after sunset.
 		float3 sun_light = sun_top * SunTransmittance(sun_dir.z, 0.8) * saturate(sun_dir.z * 15.0 + 1.0);
+
+		// Storm cloud hangs lower over the camera. See PR_SKY_CLOUD_LOWER_START.
+		float lower_scale = lerp(1.0, PR_SKY_CLOUD_LOWER_SCALE, smoothstep(PR_SKY_CLOUD_LOWER_START, 1.0, WeatherCover(cam.xy)));
 
 		// Cloud bases are lit by the sky overhead and the air in the same direction, which is warm toward a setting sun.
 		// Sky light is mostly grey in effect, because it arrives from all over the sky.
@@ -439,7 +476,7 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle)
 			if ((g_sky.hidden_cloud_layers >> layer) & 1)
 				continue;
 
-			float4 cloud = CloudLayer(layer, cam, dir, pixel_angle, sun_dir, sun_light, ambient, haze);
+			float4 cloud = CloudLayer(layer, cam, dir, pixel_angle, lower_scale, sun_dir, sun_light, ambient, haze);
 			sky = sky * (1.0 - cloud.a) + cloud.rgb;
 		}
 	}
@@ -462,8 +499,8 @@ PSIn VSProceduralSky(VSIn In)
 	}
 	Out.ws_norm = mul(float4(camera_direction, 0), g_frame.cam.c2w);
 
-	// Far depth fills only background pixels; interpolation preserves the unnormalized ray until the pixel shader.
-	Out.ss_vert = float4(In.vert.xy, 1, 1);
+	// Far depth (0 under reversed depth) fills only background pixels; interpolation preserves the unnormalized ray until the pixel shader.
+	Out.ss_vert = float4(In.vert.xy, 0, 1);
 	Out.diff = float4(0, 0, 0, 1);
 	Out.tex0 = In.tex0;
 	Out.idx0 = In.idx0;

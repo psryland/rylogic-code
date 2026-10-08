@@ -145,18 +145,17 @@ float BoxCoverage(VSOut i, out float4 straight)
 }
 
 // Convert a normalised device depth back to a linear distance in front of the camera, matching
-// View3D's right-handed projection. A sample still at the far plane means nothing was drawn there,
-// which must never be treated as an occluder.
+// View3D's right-handed, reversed depth projection (near plane at 1, far plane at 0). A sample still
+// at the far plane means nothing was drawn there, which must never be treated as an occluder.
 float LinearViewDepth(float ndc_z)
 {
 	float zn = g7.x;
 	float zf = g7.y;
 	bool orthographic = g7.z != 0.0;
 	if (orthographic)
-		return zn + ndc_z * (zf - zn);
+		return zf - ndc_z * (zf - zn);
 
-	float denom = zf - ndc_z * (zf - zn);
-	return denom > 0.0 ? (zn * zf) / denom : zf;
+	return (zn * zf) / (zn + ndc_z * (zf - zn));
 }
 
 // Opacity multiplier for one pixel of an occlusion-faded root: 1 while the nearest scene sample is
@@ -430,7 +429,7 @@ float4 PSGlyphFaded(VSOut i) : SV_TARGET
 		{
 			depth_stencil.DepthEnable = TRUE;
 			depth_stencil.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-			depth_stencil.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+			depth_stencil.DepthFunc = D3D12_COMPARISON_FUNC_GREATER_EQUAL; // Reversed depth: nearer is greater
 		}
 
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
