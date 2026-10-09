@@ -349,6 +349,7 @@ namespace pr::rdr12
 		clouds.offset01 = v4(m_cloud_offset[0].x, m_cloud_offset[0].y, m_cloud_offset[1].x, m_cloud_offset[1].y);
 		clouds.offset2 = m_cloud_offset[2];
 		clouds.hidden_layers = settings.m_hidden_cloud_layers;
+		clouds.wind_speed = settings.m_wind_speed;
 		clouds.evolve = v4(m_cloud_evolve[0], m_cloud_evolve[1], m_cloud_evolve[2], 0);
 		m_shader->m_cbuf.sun_colour = sun_colour;
 		m_shader->m_cbuf.sun_intensity = settings.m_sun_intensity;

@@ -117,16 +117,19 @@ struct CloudShape
 	float lump_scale;  // The weight of the heaped lumps in the field.
 	float height;      // Low cloud only: the slab's height above its base plane, in world units.
 	float sigma;       // Low cloud only: the extinction per world unit of the densest cloud.
+	float opacity;     // Mid-level and cirrus only: the optical thickness of the sheet's densest cloud, seen straight up.
 };
 
-// The shape of 'layer' where the cover is 'cover'. 'uv1' is the layer's first noise coordinate there, and 'lod' its mip level.
-CloudShape CloudLayerShape(int layer, float cover, float2 uv1, float lod, float lower_scale)
+// The shape of 'layer' where the cover is 'cover' and the wind speed is 'wind_speed'. 'uv1' is the layer's first noise coordinate there, and 'lod' its mip level.
+CloudShape CloudLayerShape(int layer, float cover, float wind_speed, float2 uv1, float lod, float lower_scale)
 {
 	CloudShape s;
 
-	// Cover is adjusted per layer, so higher layers appear at lower cover and thin out before the low layer closes over.
-	// Zero cover is always clear sky. Cirrus grows with cover up to 0.25, then stays light.
-	s.layer_cover = layer == 0 ? cover : layer == 1 ? saturate(cover * 1.2 - 0.2) : min(cover * 1.5, 0.375);
+	// Cover is adjusted per layer. Zero cover is always clear sky. Mid-level cloud starts as sparse, faint patches, and grows in extent and opacity
+	// until PR_SKY_MID_CLOUD_FULL_COVER. Cirrus needs strong wind (see PR_SKY_CIRRUS_WIND_MIN), grows with cover up to 0.25, then stays light.
+	float mid_ramp = saturate(cover / PR_SKY_MID_CLOUD_FULL_COVER);
+	float cirrus_wind = saturate((wind_speed - PR_SKY_CIRRUS_WIND_MIN) / (PR_SKY_CIRRUS_WIND_FULL - PR_SKY_CIRRUS_WIND_MIN));
+	s.layer_cover = layer == 0 ? cover : layer == 1 ? cover * mid_ramp : min(cover * 1.5, 0.375) * cirrus_wind;
 	s.storm = smoothstep(0.7, 1.0, cover);
 	s.build = smoothstep(0.2, 0.6, cover);
 	s.fluff = 1.0 - s.storm;
@@ -151,6 +154,9 @@ CloudShape CloudLayerShape(int layer, float cover, float2 uv1, float lod, float 
 	// opaque through its full height, and larger cloud absorbs a little more light over the same height.
 	s.height = lerp(lerp(400.0, 1500.0, s.build * s.build), 3000.0, s.storm) * lower_scale;
 	s.sigma = lerp(9.0, 12.0, s.storm) * lerp(0.8, 1.0, s.build) / s.height;
+
+	// The thin sheets are partly translucent while the cover is sparse. Mid-level cloud is thicker than cirrus, and faint until its cover ramp completes.
+	s.opacity = layer == 0 ? 0.0 : (layer == 1 ? 3.0 * mid_ramp : 0.8) * lerp(0.5, 1.0, s.build);
 	return s;
 }
 
@@ -242,7 +248,7 @@ float CloudShadow(CloudConstants clouds, float3 ws_pos, float3 ws_to_light, floa
 		float2 uv1, uv2;
 		CloudUV(clouds, 0, xy, uv1, uv2);
 		float cover = CloudCover(clouds, xy);
-		CloudShape s = CloudLayerShape(0, cover, uv1, lod, lower_scale);
+		CloudShape s = CloudLayerShape(0, cover, clouds.wind_speed, uv1, lod, lower_scale);
 		storm = s.storm;
 
 		// Average the column thickness at two heights along the light, which softens the shadow edges where the light crosses the slab at an angle.
@@ -264,9 +270,9 @@ float CloudShadow(CloudConstants clouds, float3 ws_pos, float3 ws_to_light, floa
 		float2 xy = pos.xy + travel * (altitude - pos.z);
 		float2 uv1, uv2;
 		CloudUV(clouds, 1, xy, uv1, uv2);
-		CloudShape s = CloudLayerShape(1, CloudCover(clouds, xy), uv1, lod, lower_scale);
+		CloudShape s = CloudLayerShape(1, CloudCover(clouds, xy), clouds.wind_speed, uv1, lod, lower_scale);
 		float coverage = saturate(CloudEdge(s, CloudField(uv1, uv2, lod, s.lump_scale), 0.0) / s.softness);
-		float alpha = 1.0 - exp(-coverage * coverage * 3.0 * lerp(0.5, 1.0, s.build) * slant);
+		float alpha = 1.0 - exp(-coverage * coverage * s.opacity * slant);
 		transmit *= 1.0 - 0.4 * alpha;
 	}
 

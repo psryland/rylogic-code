@@ -103,6 +103,18 @@ float3 SkyRadiance(float3 view_dir, float3 sun_dir, float3 sun_light)
 	return radiance * day * day + float3(0.002, 0.003, 0.006);
 }
 
+// Scale for the radiance seen in the clear daytime sky along a view with vertical component 'view_z', when the sun's vertical component is 'sun_z'.
+// The single scattering model above gives a pale, washed out blue high in the sky. A real clear sky in daylight is a deep, saturated blue overhead
+// that pales toward the horizon. The scale is 1 at the horizon, and for a low sun so twilight colours are unchanged. 'heavy' (0 to 1) removes the
+// effect under heavy cloud, where the clear sky is dim and grey instead.
+float3 DaytimeSkyDepth(float view_z, float sun_z, float heavy)
+{
+	// The deep blue is fitted to photographs of the clear sky at midday. It strengthens as the sun rises from about 12 to 30 degrees.
+	float daytime = smoothstep(0.2, 0.5, sun_z) * (1.0 - heavy);
+	float overhead = pow(saturate(view_z), 0.6);
+	return lerp(1.0, float3(0.16, 0.23, 0.35), daytime * overhead);
+}
+
 // Add the sun disc and its glow to the sky radiance 'sky' along 'view_dir', and darken views below the horizon.
 // 'time' is in seconds, wrapped at PR_SKY_TIME_PERIOD, and slowly moves the soft rays in the glow.
 float3 AtmosphericSky(float3 sky, float3 view_dir, float3 sun_dir, float3 sun_light, float time)
@@ -308,7 +320,7 @@ float4 CloudSheet(int layer, float3 cam, float3 dir, float pixel_angle, float lo
 	float2 uv1, uv2;
 	CloudUV(clouds, layer, hit.xy, uv1, uv2);
 	float lod = CloudLod(layer, t, pixel_angle, mu);
-	CloudShape s = CloudLayerShape(layer, CloudCover(clouds, hit.xy), uv1, lod, lower_scale);
+	CloudShape s = CloudLayerShape(layer, CloudCover(clouds, hit.xy), clouds.wind_speed, uv1, lod, lower_scale);
 	if (s.layer_cover <= 0)
 		return 0;
 
@@ -345,10 +357,8 @@ float4 CloudSheet(int layer, float3 cam, float3 dir, float pixel_angle, float lo
 	radiance += LightningColour * LightningGlow(hit.xy) * (layer == 1 ? 0.5 : 0.1) * lerp(0.4, 1.0, depth);
 
 	// Denser cloud, and longer paths where the ray grazes the layer, are more opaque. Squaring the opacity softens the edges.
-	// Sparse cloud is thinner, so it is partly translucent.
-	float thickness = (layer == 1 ? 3.0 : 0.8) * lerp(0.5, 1.0, s.build);
 	float path = 1.0 + min(0.3 / mu, 3.0);
-	float alpha = 1.0 - exp(-coverage * coverage * thickness * path);
+	float alpha = 1.0 - exp(-coverage * coverage * s.opacity * path);
 	return CloudFinish(radiance, alpha, t, dir, s.storm, darkening, haze);
 }
 
@@ -374,7 +384,7 @@ float4 CloudSlab(float3 cam, float3 dir, float pixel_angle, float quad_slot, flo
 	float2 uv1, uv2;
 	CloudUV(clouds, 0, plane_xy, uv1, uv2);
 	float lod = CloudLod(0, t_plane, pixel_angle, mu);
-	CloudShape s = CloudLayerShape(0, CloudCover(clouds, plane_xy), uv1, lod, lower_scale);
+	CloudShape s = CloudLayerShape(0, CloudCover(clouds, plane_xy), clouds.wind_speed, uv1, lod, lower_scale);
 	if (s.layer_cover <= 0)
 		return 0;
 
@@ -572,11 +582,14 @@ float4 AccumulateLowCloud(float4 low_cloud, float4 lo, float4 hi, float3 anchor,
 // Must be called where every pixel of a quad runs the same code (see QuadAverage).
 float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle, uint2 pixel)
 {
-	// Sky radiance, lit by the sun above the atmosphere. 'haze' is the air without the sun disc, which distant clouds fade into.
+	// Sky radiance, lit by the sun above the atmosphere. 'air' is the scattered light that lights the clouds. 'haze' is the air as seen,
+	// without the sun disc, which distant clouds fade into. Under heavy cloud the clear sky is not seen deep blue (see below).
 	CloudConstants clouds = g_sky.clouds;
 	float3 sun_dir = clouds.sun_direction.xyz;
 	float3 sun_top = g_sky.sun_colour.rgb * g_sky.sun_intensity * SkyExposure;
-	float3 haze = SkyRadiance(dir, sun_dir, sun_top);
+	float heavy = smoothstep(0.6, 1.0, CloudCover(clouds, cam.xy));
+	float3 air = SkyRadiance(dir, sun_dir, sun_top);
+	float3 haze = air * DaytimeSkyDepth(dir.z, sun_dir.z, heavy);
 	float3 sky = AtmosphericSky(haze, dir, sun_dir, sun_top, g_sky.time);
 
 	// Stars appear in the darkening sky before sunset and fade out near the horizon where the air is thick.
@@ -585,10 +598,10 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle, uint2 pixe
 		sky += Stars(dir, pixel_angle * 300.0, g_sky.time) * star_visibility;
 
 	// Under heavy cloud little sunlight reaches the air below it, so the clear air seen toward the horizon and below it is dim and grey.
-	float heavy = smoothstep(0.6, 1.0, CloudCover(clouds, cam.xy));
 	float gloom = lerp(1.0, 0.17, heavy);
 	sky = lerp(sky, Luminance(sky) * float3(0.85, 0.88, 0.92), 0.7 * heavy) * gloom;
 	haze = lerp(haze, Luminance(haze) * float3(0.85, 0.88, 0.92), 0.7 * heavy) * gloom;
+	air = lerp(air, Luminance(air) * float3(0.85, 0.88, 0.92), 0.7 * heavy) * gloom;
 
 	// Lightning also lights the air below the cloud, faintly, by the flashes near the camera.
 	sky += LightningColour * 0.03 * LightningGlow(cam.xy);
@@ -606,7 +619,7 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle, uint2 pixe
 
 		// Cloud bases are lit by the sky overhead and the air in the same direction, which is warm toward a setting sun.
 		// Sky light is mostly grey in effect, because it arrives from all over the sky.
-		float3 ambient = 0.5 * (SkyRadiance(float3(0, 0, 1), sun_dir, sun_top) * gloom + haze);
+		float3 ambient = 0.5 * (SkyRadiance(float3(0, 0, 1), sun_dir, sun_top) * gloom + air);
 		ambient = lerp(ambient, Luminance(ambient), 0.5 + 0.35 * heavy);
 
 		// Composite from the highest layer down, because the lowest layer is nearest to an observer below the clouds. Hidden layers are skipped.

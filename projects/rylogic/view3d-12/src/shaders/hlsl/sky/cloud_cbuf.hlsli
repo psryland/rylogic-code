@@ -21,6 +21,13 @@
 #define PR_SKY_CLOUD_LOWER_START 0.9f
 #define PR_SKY_CLOUD_LOWER_SCALE (1.0f / 3.0f)
 
+// Cirrus forms in strong winds aloft. It is absent below PR_SKY_CIRRUS_WIND_MIN and reaches its full cover at PR_SKY_CIRRUS_WIND_FULL (m/s).
+#define PR_SKY_CIRRUS_WIND_MIN 15.0f
+#define PR_SKY_CIRRUS_WIND_FULL 25.0f
+
+// Mid-level cloud starts as faint, sparse patches at any cover, and reaches its full opacity at this cover.
+#define PR_SKY_MID_CLOUD_FULL_COVER 0.7f
+
 // The maximum number of lightning flashes the sky shows at once.
 #define PR_SKY_LIGHTNING_MAX 4
 
@@ -61,10 +68,10 @@ struct CloudConstants
 	// Cloud layer offsets in noise tiles, in [0, PR_SKY_CLOUD_PERIOD). Layer 0 = xy, layer 1 = zw.
 	float4 offset01;
 
-	// Layer 2 offset in noise tiles, and a bit mask where bit i hides cloud layer i.
+	// Layer 2 offset in noise tiles, a bit mask where bit i hides cloud layer i, and the wind speed (world units per second, assumed m/s).
 	float2 offset2;
 	uint hidden_layers;
-	uint pad0;
+	float wind_speed;
 
 	// Cloud evolution phase per layer (xyz) in [0, PR_SKY_CLOUD_EVOLVE_PERIOD).
 	float4 evolve;
