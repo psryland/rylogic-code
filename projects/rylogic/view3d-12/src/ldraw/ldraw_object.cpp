@@ -9,6 +9,7 @@
 #include "pr/view3d-12/material/components/shader_overlays.h"
 #include "pr/view3d-12/model/animation.h"
 #include "pr/view3d-12/scene/scene.h"
+#include "pr/view3d-12/scene/procedural_sky.h"
 #include "pr/view3d-12/shaders/shader_procedural.h"
 #include "pr/view3d-12/resource/resource_factory.h"
 #include "pr/view3d-12/utility/diagnostics.h"
@@ -180,6 +181,10 @@ namespace pr::rdr12::ldraw
 			light.m_direction = Normalise(m_i2w * light.m_direction);
 			scene.AddFrameLight(light);
 		}
+
+		// A visible procedural sky also shades the frame with its cloud shadows
+		if (!is_hidden && m_user_data.has<std::unique_ptr<ProceduralSky>>())
+			scene.CloudSky(m_user_data.get<std::unique_ptr<ProceduralSky>>().get());
 
 		// Rinse and repeat for all children
 		for (auto& child : m_child)

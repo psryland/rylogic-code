@@ -1664,6 +1664,7 @@ namespace pr::rdr12
 			// Copy the lighting and render state from the source scene. The capture has no environment map, so it cannot reflect itself.
 			// Objects flagged 'EnvMapCaptureExclude' are not rendered into the capture. The flag is per object; children do not inherit it.
 			m_scene.m_inst_exclude = EInstFlag::EnvMapCaptureExclude;
+			m_scene.m_sky_history = false; // Each face looks a different way, so the sky has no previous frame to blend with.
 			m_scene.m_lights = src.m_scene.m_lights;
 			m_scene.m_ambient = src.m_scene.m_ambient;
 			m_scene.m_global_fill_mode = src.m_scene.m_global_fill_mode;

@@ -86,6 +86,13 @@ float SampleLightShadow(Light light, float4 ws_pos, float4 ws_norm)
 	return ShadowVisibility(g_shadow_atlas, g_shadow_sampler, g_shadow_views, light, ws_pos, ws_norm, view_depth);
 }
 
+// Directional light from the procedural sky's sun is shaded by its clouds. See CloudShadow.
+#include "view3d-12/src/shaders/hlsl/sky/cloud_field.hlsli"
+float SampleCloudShadow(float4 ws_pos, float4 ws_to_light)
+{
+	return CloudShadow(g_frame.clouds, ws_pos.xyz, ws_to_light.xyz, g_frame.cam.c2w[3].xyz);
+}
+
 #include "view3d-12/src/shaders/hlsl/lighting/phong_lighting.hlsli"
 #include "view3d-12/src/shaders/hlsl/lighting/pbr.hlsli"
 #include "view3d-12/src/shaders/hlsl/ray_tracing/ray_tracing.hlsli"

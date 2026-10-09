@@ -8,6 +8,27 @@
 #define PR_VIEW3D_SHADER_FORWARD_CBUF_HLSL
 #include "view3d-12/src/shaders/hlsl/types.hlsli"
 #include "view3d-12/src/shaders/hlsl/lighting/lighting_cbuf.hlsli"
+#include "view3d-12/src/shaders/hlsl/sky/cloud_cbuf.hlsli"
+
+// The low cloud accumulated over frames by the procedural sky. See AccumulateLowCloud in procedural_sky.hlsl.
+struct SkyHistory
+{
+	// The previous frame's world to screen transform, used to find where a cloud point was on screen in that frame.
+	row_major float4x4 prev_w2s;
+
+	// The viewport of both frames, in pixels: (x, y, width, height).
+	float4 viewport;
+
+	// The previous frame's low cloud offset in noise tiles (see CloudConstants::offset01), the offset along each march step for this frame in [0,1),
+	// and 1 when the history holds the previous frame, otherwise 0.
+	float2 prev_cloud_offset;
+	float frame_jitter;
+	float valid;
+
+	// 1 when the low cloud is accumulated over frames, otherwise 0.
+	int enabled;
+	int pad0, pad1, pad2;
+};
 
 // Constants per frame.
 struct CBufFrame// :reg(b0)
@@ -30,6 +51,12 @@ struct CBufFrame// :reg(b0)
 
 	// Projected textures
 	ProjTexture proj_tex;
+
+	// The procedural sky's cloud field, for cloud shadows on the scene. 'clouds.shadow_strength' is 0 when there are no cloud shadows.
+	CloudConstants clouds;
+
+	// The procedural sky's low cloud history. 'sky_history.enabled' is 0 when frames are not accumulated.
+	SkyHistory sky_history;
 };
 
 // The index of the current draw's entry in the element constants table. Provided as a root constant.

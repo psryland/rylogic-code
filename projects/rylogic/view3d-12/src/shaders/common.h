@@ -63,6 +63,8 @@ namespace pr::rdr12
 
 		#include "view3d-12/src/shaders/hlsl/types.hlsli"
 		#include "view3d-12/src/shaders/hlsl/lighting/lighting_cbuf.hlsli"
+		#include "view3d-12/src/shaders/hlsl/sky/cloud_cbuf.hlsli"
+		static_assert(sizeof(CloudConstants) == 160);
 
 		// The constant buffer definitions
 		namespace fwd

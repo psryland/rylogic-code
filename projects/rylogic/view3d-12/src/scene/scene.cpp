@@ -53,12 +53,14 @@ namespace pr::rdr12
 		, m_pso()
 		, m_ray_tracing_props()
 		, m_inst_exclude(EInstFlag::None)
+		, m_sky_history(true)
 		, m_eh_resize()
 		, m_far_clip_fade()
 		, m_shadow_settings()
 		, m_frame_lights()
 		, m_resolved_lights()
 		, m_dropped_lights()
+		, m_cloud_sky()
 		, m_post_effects(*wnd.m_rdr)
 	{
 		// Initialise the scene camera to match the full window
@@ -133,6 +135,7 @@ namespace pr::rdr12
 	{
 		m_instances.clear();
 		m_frame_lights.resize(0);
+		m_cloud_sky = nullptr;
 		for (auto& rs : m_render_steps)
 			rs->ClearDrawlist();
 	}
@@ -274,6 +277,18 @@ namespace pr::rdr12
 	void Scene::AddFrameLight(Light const& light)
 	{
 		m_frame_lights.push_back(light);
+	}
+
+	// Set the sky whose clouds shade the current frame
+	void Scene::CloudSky(ProceduralSky const* sky)
+	{
+		m_cloud_sky = sky;
+	}
+
+	// The sky whose clouds shade the current frame
+	ProceduralSky const* Scene::CloudSky() const
+	{
+		return m_cloud_sky;
 	}
 
 	// The world space lights that shade the current frame

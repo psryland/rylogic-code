@@ -41,6 +41,10 @@ namespace pr::rdr12
 		// The caller owns when flashes happen and how they flicker; the sky shows each flash's current brightness.
 		static constexpr int LightningMax = 4;
 		v4 m_lightning[LightningMax] = {};
+
+		// Strength of the low and mid clouds' shadows on the scene, in [0,1]. 0 casts no cloud shadows.
+		// Cloud shadows dim the scene's directional light that shines from the sky's sun.
+		float m_cloud_shadow_strength = 1.0f;
 	};
 
 	// Owns a Z-up atmospheric sky with an optional retained cubemap. Create, update and release on the renderer owner thread.
@@ -77,7 +81,11 @@ namespace pr::rdr12
 		// With no cubemap only weight 1 is valid. Updates must not overlap rendering.
 		void Blend(TextureCubePtr background, float weight, m4x4 const& world_to_sky, m4x4 const& world_to_background);
 
-		// Add the background, independent of camera translation and clip distances.
+		// Add the background, independent of camera translation and clip distances. The scene also uses this sky for cloud shadows.
 		void AddToScene(Scene& scene);
+
+		// Get the cloud field for cloud shadows on the scene, and the sky's texture table (cube, weather map, cloud noise) that the cloud field reads.
+		// Returns false, with 'clouds' still filled, when the sky casts no cloud shadows.
+		bool CloudShadows(shaders::CloudConstants& clouds, Descriptor (&textures)[3]) const;
 	};
 }

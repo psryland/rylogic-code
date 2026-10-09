@@ -94,6 +94,22 @@ even if its managed wrapper is disposed. `Blend(null, 1, ..., ...)` releases tha
 atmosphere. Invalid weights, rotations, or disposed wrappers are rejected without changing the previous state.
 The blend uses a dedicated descriptor binding, leaving material textures and the reflection environment untouched.
 
+`ProceduralSkySettings` also sets the cloud cover, wind, time and lightning. The low cloud layer is drawn as a slab of
+cloud with a short ray march through its thickness, lit by the sun through the cloud above each point, so it looks
+solid from below; the mid and high layers are thin sheets. The mid layer spreads and thickens slowly, reaching its full
+extent and density at 70% cover. The high (cirrus) layer appears only in strong wind, fading in from 15 to 25 m/s.
+The clear sky is a deep blue overhead in daylight, paling toward the horizon; the deep blue fades out as the sun drops
+below about 30 degrees, so twilight colours are unchanged. The camera is expected to stay below the clouds.
+Each frame offsets the march samples differently, and the window blends the low cloud with the previous frames through
+a half-resolution history that follows the camera and the cloud drift, so a few samples per pixel look smooth. A sudden
+change, such as a cut to a new view, shows a few frames of fine grain while the history refills; environment map
+captures draw each frame on its own.
+While the sky's object is visible, its low and mid clouds also shade the scene's directional light that shines from
+the sky's sun (`CloudShadowStrength`, 0 to 1, default 1 in `ProceduralSkySettings.Default`). The forward lighting uses
+the same cloud field as the sky, so the shadows match the visible clouds and drift with them. Cloud shadows are
+independent of shadow maps, fade out in a full storm, and weaken with the atmosphere's blend weight, so a
+cubemap-only background casts none. Ray traced reflections are not shaded by clouds.
+
 The sky does **not** generate a reflection cube map. Set `window.EnvironmentMap = null` when switching from an
 authored environment to this sky unless a separate reflection source is intended. The C ABI exposes
 `View3D_ObjectCreateProceduralSky`, `View3D_ObjectUpdateProceduralSky` and `View3D_ObjectBlendProceduralSky`;

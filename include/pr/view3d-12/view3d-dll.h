@@ -639,6 +639,7 @@ namespace pr
 		// 'm_time' is the caller's absolute time in seconds; clouds advance by the change in time between updates, and time may not go backwards.
 		// 'm_hidden_cloud_layers' is a bit mask: bit i hides cloud layer i (0 = low, 1 = mid, 2 = cirrus). Zero shows all layers.
 		// 'm_lightning' are flashes inside the cloud: xy = position in the sky frame, z = radius (> 0), w = finite brightness (>= 0, 0 = no flash).
+		// 'm_cloud_shadow_strength' in [0,1] scales how much the clouds shade the scene's directional light that follows the sun (0 = no cloud shadows).
 		struct ProceduralSkySettings
 		{
 			Vec4 m_sun_direction = { 0.5f, 0.3f, 0.8f, 0.0f };
@@ -650,6 +651,7 @@ namespace pr
 			double m_time = 0.0;
 			uint32_t m_hidden_cloud_layers = 0;
 			Vec4 m_lightning[4] = {};
+			float m_cloud_shadow_strength = 1.0f;
 		};
 
 		// Whole-screen underwater post effect. Colours are sRGB ARGB; alpha is ignored.
