@@ -435,12 +435,17 @@ float4 CloudSlab(float3 cam, float3 dir, float pixel_angle, float quad_slot, flo
 	float t_sum = 0.0;
 	[loop] for (int i = 0; i != steps; ++i)
 	{
-		// Skip samples outside the slab's possible height range without reading the noise. The last step is shortened to end at the slab exit.
-		// The offset within each step moves on by the golden ratio, so samples of neighbouring rays do not line up at the same heights,
-		// which would show as stacked slices. The quad's four offsets stay a quarter step apart.
-		float ta = t0 + i * dt;
-		float step_len = min(dt, t1 - ta);
-		float t = ta + frac(jitter + i * 0.618034) * step_len;
+		// All samples of a ray share one offset within their step, so the ray samples an evenly spaced comb. Each step is nearly opaque in thick
+		// cloud, so the result depends on where the comb meets the cloud surface. Moving the whole comb with the jitter averages that over frames
+		// and over the quad. Separate offsets per step would make the bias depend on how the step grid lines up with the surface, which changes
+		// with view elevation and shows as fixed horizontal stripes on cloud sides. The last step is partial, so its sample falls inside the slab
+		// only for some offsets, which gives that part of the ray its correct share on average. Skip samples outside the slab's possible height
+		// range without reading the noise.
+		float t = t0 + (i + jitter) * dt;
+		if (t > t1)
+			break;
+
+		float step_len = dt;
 		float3 p = cam + dir * t;
 		float hz = ShellHeight(p, altitude);
 		if (hz < floor_z || hz > s.height)
