@@ -226,6 +226,9 @@ namespace pr::rdr12
 			}
 			case MaterialSimple::MaterialTypeId:
 			{
+				if (material.Component<materials::DetailNormals>() != nullptr)
+					materials::ApplyForwardPixelFamily(desc, shader_code::forward_detail_family);
+
 				if (auto const* overlays = material.Component<materials::ShaderOverlays>())
 				{
 					for (auto const& entry : overlays->m_overlays)
@@ -242,8 +245,6 @@ namespace pr::rdr12
 				}
 				if (procedural_family != nullptr)
 					materials::ApplyForwardPixelFamily(desc, *procedural_family);
-				if (material.Component<materials::DetailNormals>() != nullptr)
-					materials::ApplyForwardPixelFamily(desc, shader_code::forward_detail_family);
 
 				break;
 			}

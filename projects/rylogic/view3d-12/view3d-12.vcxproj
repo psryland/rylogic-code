@@ -343,6 +343,7 @@
     <None Include="$(RylogicRoot)include\pr\hlsl\vector.hlsli" />
     <None Include="$(RylogicRoot)include\pr\view3d-12\shaders\forward_pixel.hlsli" />
     <None Include="$(RylogicRoot)include\pr\view3d-12\shaders\forward_pixel_pbr.hlsli" />
+    <None Include="$(RylogicRoot)include\pr\view3d-12\shaders\forward_pixel_detail.hlsli" />
     <None Include="src\shaders\hlsl\types.hlsli" />
     <None Include="src\shaders\hlsl\forward\forward_cbuf.hlsli" />
     <None Include="src\shaders\hlsl\forward\kbuffer.hlsli" />

@@ -172,10 +172,15 @@ namespace pr::rdr12
 		auto const* gfx = static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC const*>(desc);
 		auto slot = family.m_replaces->Find(gfx->PS);
 		if (!slot)
-			throw std::runtime_error(family.m_replaces == &shader_code::forward_pbr_family
-				? "PBR forward pixel families require a stock PBR forward pixel shader without extra texture coordinate streams"
-				: "Simple forward pixel families require a stock simple-material forward pixel shader");
+		{
+			// Name the material requirement of the family's model.
+			if (family.m_replaces == &shader_code::forward_pbr_family)
+				throw std::runtime_error("PBR forward pixel families require a stock PBR forward pixel shader without extra texture coordinate streams");
+			if (family.m_replaces == &shader_code::forward_detail_family)
+				throw std::runtime_error("Detail-normal forward pixel families require a simple material with detail normals");
 
+			throw std::runtime_error("Simple forward pixel families require a stock simple-material forward pixel shader without detail normals");
+		}
 		desc.Apply(PSO<EPipeState::PS>(family[*slot]));
 	}
 
@@ -314,11 +319,12 @@ namespace pr::rdr12
 				{
 					case ERenderStep::RenderForward:
 					{
-						// Forward retains all existing overlay behavior. Detail normals then swap in their variant of the resulting stock pixel shader.
-						materials::ApplyShaderOverlays(ctx, false);
+						// Detail normals swap in their variant of the stock pixel shader first, so a procedural family written for detail-normal
+						// materials can replace that variant. Overlays then apply as for other simple materials.
 						if (ctx.m_material.Component<materials::DetailNormals>() != nullptr)
 							materials::ApplyForwardPixelFamily(ctx.m_pipe_state, shader_code::forward_detail_family);
 
+						materials::ApplyShaderOverlays(ctx, false);
 						ApplyTwoSidedPipeline(ctx);
 						return;
 					}

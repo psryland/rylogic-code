@@ -833,8 +833,9 @@ namespace pr
 		// The stock forward material shading that a procedural forward pixel family is built on and replaces.
 		enum class EForwardPixelModel : int
 		{
-			Simple, // Stock simple-material shading. See 'pr/view3d-12/shaders/forward_pixel.hlsli'.
-			Pbr,    // Stock PBR shading without extra texture-coordinate streams. See 'pr/view3d-12/shaders/forward_pixel_pbr.hlsli'.
+			Simple,       // Stock simple-material shading. See 'pr/view3d-12/shaders/forward_pixel.hlsli'.
+			Pbr,          // Stock PBR shading without extra texture-coordinate streams. See 'pr/view3d-12/shaders/forward_pixel_pbr.hlsli'.
+			SimpleDetail, // Stock simple-material shading with detail normals. See 'pr/view3d-12/shaders/forward_pixel_detail.hlsli'.
 		};
 		// Caller-owned shader bytecode, copied when the shader is created.
 		struct ShaderByteCode
@@ -855,8 +856,8 @@ namespace pr
 			void const* m_buffer;    // Optional immutable data, copied once and bound as a raw root SRV (ByteAddressBuffer, no bounds) at VIEW3D_PROCEDURAL_BUFFER_REGISTER. Null for none.
 			size_t m_buffer_size;    // Size of 'm_buffer' in bytes. A non-zero multiple of 4 up to MaxBufferSize when 'm_buffer' is not null, otherwise 0.
 
-			// Forward pixel family that replaces the stock forward pixel shaders of the 'm_forward_pixel_model' material type. All entries are null, or all are
-			// valid, and only for ForwardRender. Optional for the Vertex stage and required for the Pixel stage. Materials of the other type reject the family.
+			// Forward pixel family that replaces the stock forward pixel shaders of the 'm_forward_pixel_model' material model. All entries are null, or all are
+			// valid, and only for ForwardRender. Optional for the Vertex stage and required for the Pixel stage. Materials of other models reject the family.
 			// Order: Opaque, ReflectionAttrs, AlphaCollect. See 'pr/view3d-12/shaders/forward_pixel.hlsli'.
 			EForwardPixelModel m_forward_pixel_model;
 			ShaderByteCode m_forward_pixel[ForwardPixelCount];

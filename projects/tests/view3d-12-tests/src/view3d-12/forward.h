@@ -57,6 +57,9 @@ namespace render_tests::compiled
 	#include "procedural_pixel_pbr_opaque.h"
 	#include "procedural_pixel_pbr_reflection_attrs.h"
 	#include "procedural_pixel_pbr_alpha_collect.h"
+	#include "procedural_pixel_detail_opaque.h"
+	#include "procedural_pixel_detail_reflection_attrs.h"
+	#include "procedural_pixel_detail_alpha_collect.h"
 	#include "unsupported_pixel.h"
 	#include "generated_vertex_input.h"
 }

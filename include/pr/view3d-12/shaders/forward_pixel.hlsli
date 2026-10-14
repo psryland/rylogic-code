@@ -21,6 +21,7 @@
 // Compile each with '-T ps_6_6 -HV 2021' and the Rylogic native include directory on the include path, then pass the bytecode to
 // ShaderOptions::m_procedural.m_forward_pixel in that order with 'm_forward_pixel_model' set to EForwardPixelModel::Simple.
 // Changes made to 'In' by the shading function are used for the reflection attributes. For PBR materials, see 'forward_pixel_pbr.hlsli'.
+// For simple materials with detail normals, see 'forward_pixel_detail.hlsli'.
 //
 // Resources:
 //  - The stock forward resources are declared by this header (for example 'g_frame', 'g_nugget', 'g_lights').

@@ -289,7 +289,7 @@ namespace render_tests
 					skinned.m_model = factory.CreateModel(rdr::ModelDesc().vbuf(std::span<rdr::Vert const>(vertices)).ibuf(indices).bbox(pr::BBox(pr::v4::Origin(), pr::v4(2, 2, 0, 0))));
 					skinned.m_model->CreateNugget(factory, rdr::NuggetDesc(rdr::ETopo::TriList, rdr::EGeom::Vert | rdr::EGeom::Norm).pso<rdr::EPipeState::CullMode>(D3D12_CULL_MODE_NONE));
 					auto influence = rdr::Skinfluence{.m_bones = {0}, .m_weights = {65535}};
-					skinned.m_model->m_skin = rdr::Skin(factory, {&influence, 1}, skeleton->Id(), 0, 0);
+					skinned.m_model->m_skin = rdr::Skin(factory, {&influence, 1}, skeleton, 0, 0);
 					factory.FlushToGpu(rdr::EGpuFlush::Block);
 				}
 				auto gsync = gpu::GpuSync(renderer.d3d());
