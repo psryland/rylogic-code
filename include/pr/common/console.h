@@ -674,7 +674,21 @@ namespace pr::console
 				Item(std::wstring line) :m_what(WString)     ,m_linew(new std::wstring(line)) {}
 				Item(Colours colour)    :m_what(SetColours)  ,m_colour(new Colours(colour)) {}
 				Item(Coord coord)       :m_what(SetCursor)   ,m_cursor(new Coord(coord)) {}
-				~Item() { delete m_ptr; }
+				~Item()
+				{
+					// Delete through the active union member so the owned value is destroyed with its own type
+					switch (m_what)
+					{
+					case Unknown:      break;
+					case NewLine:      break;
+					case CurrentInput: break;
+					case AString:      delete m_linea; break;
+					case WString:      delete m_linew; break;
+					case SetColours:   delete m_colour; break;
+					case SetCursor:    delete m_cursor; break;
+					default:           assert(false && "Unknown item type"); break;
+					}
+				}
 
 				Item(Item const& rhs) :m_what(rhs.m_what) ,m_ptr()
 				{
@@ -695,8 +709,21 @@ namespace pr::console
 					rhs.m_what = Unknown;
 					rhs.m_ptr = 0;
 				}
-				Item& operator = (Item const& rhs) { this->~Item(); new (this) Item(rhs); }
-				Item& operator = (Item&& rhs)      { this->~Item(); new (this) Item((Item&&)rhs); }
+				Item& operator = (Item const& rhs)
+				{
+					// Copy first so a failed allocation leaves this item unchanged, then swap so the temporary frees the old value
+					if (this != &rhs)
+						*this = Item(rhs);
+
+					return *this;
+				}
+				Item& operator = (Item&& rhs) noexcept
+				{
+					// Swap so 'rhs' frees the old value when it is destroyed
+					std::swap(m_what, rhs.m_what);
+					std::swap(m_ptr, rhs.m_ptr);
+					return *this;
+				}
 			};
 
 			Console*          m_cons; // The console that this pad belongs to

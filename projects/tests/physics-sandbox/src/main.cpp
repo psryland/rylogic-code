@@ -23,24 +23,14 @@ using namespace physics_sandbox;
 
 namespace physics_sandbox
 {
-	// Route CRT assertions to places that automation can see rather than to modal dialogs.
-	void ConfigureAssertReporting(bool console_output)
+	// Send CRT assertion reports to the debugger output only, so interactive runs never block on a modal dialog.
+	void RouteAssertsToDebugger()
 	{
+		// The release CRT has no report modes to configure
 		#if defined(_DEBUG)
 		_set_error_mode(_OUT_TO_STDERR);
-
-		auto mode = _CRTDBG_MODE_DEBUG;
-		if (console_output)
-			mode |= _CRTDBG_MODE_FILE;
-
 		for (auto report_type : {_CRT_WARN, _CRT_ERROR, _CRT_ASSERT})
-		{
-			_CrtSetReportMode(report_type, mode);
-			if (console_output)
-				_CrtSetReportFile(report_type, _CRTDBG_FILE_STDERR);
-		}
-		#else
-		(void)console_output;
+			_CrtSetReportMode(report_type, _CRTDBG_MODE_DEBUG);
 		#endif
 	}
 
@@ -53,7 +43,7 @@ namespace physics_sandbox
 		FILE* fp = nullptr;
 		freopen_s(&fp, "CONOUT$", "w", stdout);
 		freopen_s(&fp, "CONOUT$", "w", stderr);
-		ConfigureAssertReporting(true);
+		pr::RouteAssertsToStdErr();
 	}
 
 	// Run embedded unit tests to a console window and exit.
@@ -289,7 +279,7 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, LPTSTR lpCmdLine, int)
 	if (autoplay)
 		OpenConsoleOutput();
 	else
-		ConfigureAssertReporting(false);
+		RouteAssertsToDebugger();
 
 	try
 	{

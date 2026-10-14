@@ -137,12 +137,21 @@ namespace pr::rdr12
 		}
 		catch (...)
 		{
-			this->~V3dWindow();
+			// Members are fully constructed here and are destroyed by unwinding, so release only what the destructor body owns
+			Teardown();
 			throw;
 		}
 	}
 	V3dWindow::~V3dWindow()
 	{
+		// Release state that the member destructors do not own
+		Teardown();
+	}
+
+	// Release state acquired in the constructor body. Called exactly once, from the destructor or a failed constructor.
+	void V3dWindow::Teardown()
+	{
+		// Stop animation before the window state it updates is released
 		AnimControl(view3d::EAnimCommand::Stop);
 
 		// Invalidate the copied providers before notifying satellites that outlived their documented detach point.

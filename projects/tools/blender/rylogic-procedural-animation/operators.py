@@ -409,7 +409,7 @@ _COLLECTIONS = [("CHAINS", "Chains", ""), ("CONTACTS", "Contacts", ""), ("CYCLES
 
 
 class RYLOGIC_OT_gait_validate(_ArmatureOperator):
-	"""Measure the movement cycles and check the gait for the rules that the runtime relies on"""
+	"""Measure the exported movement cycles and check the gait for the rules that the runtime relies on"""
 
 	bl_idname = "rylogic_rig.gait_validate"
 	bl_label = "Validate Gait"
@@ -440,7 +440,7 @@ class RYLOGIC_OT_gait_validate(_ArmatureOperator):
 
 
 class RYLOGIC_OT_gait_export(_ArmatureOperator, ExportHelper):
-	"""Write the movement cycles to a '.gait' file"""
+	"""Write the exported movement cycles to a '.gait' file"""
 
 	bl_idname = "rylogic_rig.gait_export"
 	bl_label = "Export .gait"

@@ -28,6 +28,7 @@
 #include <string_view>
 #include <stdexcept>
 #include <format>
+#include "pr/common/assert_reporting.h"
 
 // View3D host bridge, for drawing into a View3D window's final overlay pass
 #include "pr/view3d-12/view3d-ui-bridge.h"
@@ -379,8 +380,11 @@ extern "C"
 {
 	BOOL APIENTRY DllMain(HINSTANCE hInstance, DWORD ul_reason_for_call, LPVOID)
 	{
-		(void)ul_reason_for_call;
+		// Record the module handle, and apply the process's assert reporting choice when first loaded.
 		g_instance = hInstance;
+		if (ul_reason_for_call == DLL_PROCESS_ATTACH)
+			pr::ApplyAssertReportingFromEnvironment();
+
 		return TRUE;
 	}
 

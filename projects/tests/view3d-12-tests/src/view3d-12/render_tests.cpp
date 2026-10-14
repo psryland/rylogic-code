@@ -3472,8 +3472,9 @@ namespace pr::unittests::view3d12
 	{
 		render_tests::ProceduralVertexLightingTests();
 	}
-	PRUnitTest(View3d12_RayCastLifetime, Extended)
+	PRUnitTest(View3d12_RayCastLifetime, Extended | Serial)
 	{
+		// Serial because the native part turns on GPU-based validation, a process-wide setting that would also apply to devices other running tests create.
 		render_tests::RayCastLifetimeTests();
 	}
 	PRUnitTest(View3d12_PostEffects, Extended)

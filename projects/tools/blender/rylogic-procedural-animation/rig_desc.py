@@ -12,7 +12,7 @@ from typing import Any
 import bpy
 from mathutils import Matrix, Vector
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class ModelSpace:
@@ -126,7 +126,10 @@ def BuildRigDesc(armature_obj: bpy.types.Object) -> dict[str, Any]:
 			"normal": _List(Vector(contact.normal).normalized()),
 		})
 
-	return {"schema_version": SCHEMA_VERSION, "bones": bones, "chains": chains, "contacts": contacts}
+	# The body axis is the line between two bone heads that the collision shape follows
+	rig = armature.rylogic_rig
+	body_axis = {"from": rig.body_axis_from, "to": rig.body_axis_to}
+	return {"schema_version": SCHEMA_VERSION, "bones": bones, "chains": chains, "contacts": contacts, "body_axis": body_axis}
 
 
 def WriteRigDesc(desc: dict[str, Any], path: Path) -> None:

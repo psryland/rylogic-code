@@ -28,6 +28,9 @@ cancels.
 
 Selecting a chain in the panel selects its bones. Selecting a bone makes a chain and a contact that use it active, unless the active ones already do.
 
+The body axis is the line from the head of its 'From' bone (e.g. the hips) to the head of its 'To' bone (e.g. the neck). The runtime's collision
+capsule lies along this line as the body bends and rears up. Both bones are required.
+
 The viewport overlay draws swing limits (orange), twist limits (yellow), limb poles (magenta), the neck's facing direction (sky blue) and contacts
 (green). Limb poles and facing directions are fixed rest-pose model-space directions. The toggles under 'Show Overlay' hide each type. In Pose Mode
 with bones selected, only the overlays of the selected bones are drawn. A bone whose current pose is outside its joint limit is drawn in red, with its
@@ -47,8 +50,9 @@ footfall order and timing, and the body's sway from them, then places the feet i
 	   chain bone holds still while the frame changes, the bones of its chain above it bend with IK to reach it, and each frame change keys the
 	   result. Step through the frames one at a time, changing the selection as feet lift and land. 'Copy to IK Limits' first keeps the bending
 	   within the joint limits.
-	3. 'Validate Gait' measures every cycle and lists the footfalls it found. 'Export .gait' writes them all to a '.gait' JSON file next to the
-	   '.rig'. The schema is owned by 'pr/animation/gait.h'.
+	3. 'Validate Gait' measures every exported cycle and lists the footfalls it found. 'Export .gait' writes them to a '.gait' JSON file next to
+	   the '.rig'. The schema is owned by 'pr/animation/gait.h'. Untick a cycle's checkbox in the list to keep it in the .blend but leave it out of
+	   validation and export, e.g. while it is unfinished.
 The walking limbs are the LEG chains ending on a SOLE contact and the ARM chains ending on a PALM contact.
 
 Scripted use, e.g. from an asset exporter:

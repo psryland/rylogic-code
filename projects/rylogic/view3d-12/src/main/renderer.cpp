@@ -69,155 +69,150 @@ namespace pr::rdr12
 		,m_d2d_device()
 		,m_main_thread_id(GetCurrentThreadId())
 	{
-		try
+		// If construction throws, the member destructors release any COM objects created so far.
+		// The destructor body only adds release ordering and leak diagnostics, which a failed construction does not need.
+
+		// Check for incompatible build settings
+		RdrSettings::BuildOptions bo;
+		CheckBuildOptions(bo, settings.m_build_options);
+
+		// Find the first adapter that supports Dx12
+		if (m_settings.m_adapter.ptr == nullptr)
+			m_settings.DefaultAdapter();
+		if (m_settings.m_adapter.ptr == nullptr)
+			throw std::runtime_error("No DirectX Adapter found that supports the requested feature level");
+
+		// Load event instrumentation only; explicit GPU capture must be enabled before renderer or adapter initialization.
+		PR_INFO_IF(PR_PIX_ENABLED, pix::LoadDll() != 0, "PIX event runtime loaded");
+
+		// Device diagnostics follow the caller's explicit settings, independently of the build's assertion policy.
+		PR_INFO_IF(PR_DBG_RDR, AllSet(m_settings.m_options, ERdrOptions::DeviceDebug), "DeviceDebug is enabled");
+		PR_INFO_IF(PR_DBG_RDR, AllSet(m_settings.m_options, ERdrOptions::BGRASupport), "BGRASupport is enabled");
+
+		// Enable the debug layer. Must be done before creating the d3d12 device.
+		if (AllSet(m_settings.m_options, ERdrOptions::DeviceDebug))
 		{
-			// Check for incompatible build settings
-			RdrSettings::BuildOptions bo;
-			CheckBuildOptions(bo, settings.m_build_options);
+			compute::EnableDeviceRemovedDiagnostics();
 
-			// Find the first adapter that supports Dx12
-			if (m_settings.m_adapter.ptr == nullptr)
-				m_settings.DefaultAdapter();
-			if (m_settings.m_adapter.ptr == nullptr)
-				throw std::runtime_error("No DirectX Adapter found that supports the requested feature level");
+			D3DPtr<ID3D12Debug> dbg;
+			Check(D3D12GetDebugInterface(__uuidof(ID3D12Debug), (void**)dbg.address_of()));
+			dbg->EnableDebugLayer();
 
-			// Load event instrumentation only; explicit GPU capture must be enabled before renderer or adapter initialization.
-			PR_INFO_IF(PR_PIX_ENABLED, pix::LoadDll() != 0, "PIX event runtime loaded");
-
-			// Device diagnostics follow the caller's explicit settings, independently of the build's assertion policy.
-			PR_INFO_IF(PR_DBG_RDR, AllSet(m_settings.m_options, ERdrOptions::DeviceDebug), "DeviceDebug is enabled");
-			PR_INFO_IF(PR_DBG_RDR, AllSet(m_settings.m_options, ERdrOptions::BGRASupport), "BGRASupport is enabled");
-
-			// Enable the debug layer. Must be done before creating the d3d12 device.
-			if (AllSet(m_settings.m_options, ERdrOptions::DeviceDebug))
+			if (AllSet(m_settings.m_options, ERdrOptions::DeviceGPUDebug))
 			{
-				compute::EnableDeviceRemovedDiagnostics();
+				D3DPtr<ID3D12Debug1> dbg1;
+				Check(dbg->QueryInterface<ID3D12Debug1>(dbg1.address_of()));
+				dbg1->SetEnableGPUBasedValidation(true);
+			}
+		}
 
-				D3DPtr<ID3D12Debug> dbg;
-				Check(D3D12GetDebugInterface(__uuidof(ID3D12Debug), (void**)dbg.address_of()));
-				dbg->EnableDebugLayer();
+		// Create the d3d device
+		D3DPtr<ID3D12Device> device;
+		Check(D3D12CreateDevice(m_settings.m_adapter.ptr.get(), m_settings.m_feature_level, __uuidof(ID3D12Device), (void**)device.address_of()));
+		Check(device->QueryInterface<ID3D12Device4>(m_d3d_device.address_of()));
 
-				if (AllSet(m_settings.m_options, ERdrOptions::DeviceGPUDebug))
-				{
-					D3DPtr<ID3D12Debug1> dbg1;
-					Check(dbg->QueryInterface<ID3D12Debug1>(dbg1.address_of()));
-					dbg1->SetEnableGPUBasedValidation(true);
-				}
+		// More debugging now the device exists
+		if (AllSet(m_settings.m_options, ERdrOptions::DeviceDebug))
+		{
+			D3DPtr<ID3D12InfoQueue> info;
+			Check(device->QueryInterface<ID3D12InfoQueue>(info.address_of()));
+
+			if (AllSet(m_settings.m_options, ERdrOptions::BreakOnErrors))
+			{
+				Check(info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE));
+				Check(info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE));
+				Check(info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, TRUE));
 			}
 
-			// Create the d3d device
-			D3DPtr<ID3D12Device> device;
-			Check(D3D12CreateDevice(m_settings.m_adapter.ptr.get(), m_settings.m_feature_level, __uuidof(ID3D12Device), (void**)device.address_of()));
-			Check(device->QueryInterface<ID3D12Device4>(m_d3d_device.address_of()));
+			// Suppress the CREATERESOURCE_STATE_IGNORED warning because ID3D11On12 is generating these.
+				D3D12_MESSAGE_ID hide[] = {
+					D3D12_MESSAGE_ID_CREATERESOURCE_STATE_IGNORED,
+					D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
+					D3D12_MESSAGE_ID_LIVE_DEVICE,
 
-			// More debugging now the device exists
-			if (AllSet(m_settings.m_options, ERdrOptions::DeviceDebug))
-			{
-				D3DPtr<ID3D12InfoQueue> info;
-				Check(device->QueryInterface<ID3D12InfoQueue>(info.address_of()));
-
-				if (AllSet(m_settings.m_options, ERdrOptions::BreakOnErrors))
-				{
-					Check(info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE));
-					Check(info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE));
-					Check(info->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, TRUE));
-				}
-
-				// Suppress the CREATERESOURCE_STATE_IGNORED warning because ID3D11On12 is generating these.
-					D3D12_MESSAGE_ID hide[] = {
-						D3D12_MESSAGE_ID_CREATERESOURCE_STATE_IGNORED,
-						D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
-						D3D12_MESSAGE_ID_LIVE_DEVICE,
-
-					/*
-					D3D12_MESSAGE_ID_MAP_INVALID_NULLRANGE,
-					D3D12_MESSAGE_ID_UNMAP_INVALID_NULLRANGE,
-
-					// Workarounds for debug layer issues on hybrid-graphics systems
-					D3D12_MESSAGE_ID_EXECUTECOMMANDLISTS_WRONGSWAPCHAINBUFFERREFERENCE,
-					D3D12_MESSAGE_ID_RESOURCE_BARRIER_MISMATCHING_COMMAND_LIST_TYPE,
-					*/
-				};
-				D3D12_INFO_QUEUE_FILTER filter = {
-					.AllowList = D3D12_INFO_QUEUE_FILTER_DESC{},
-					.DenyList = D3D12_INFO_QUEUE_FILTER_DESC{
-						.NumCategories = 0,
-						.pCategoryList = nullptr,
-						.NumSeverities = 0,
-						.pSeverityList = nullptr,
-						.NumIDs = _countof(hide),
-						.pIDList = &hide[0],
-					}
-				};
-				Check(info->AddStorageFilterEntries(&filter));
-		
-				// These are work arounds for issues with integrated graphics chips
 				/*
-				DXGI_INFO_QUEUE_MESSAGE_ID hide[] =
-				{
-					// IDXGISwapChain::GetContainingOutput: The swapchain's adapter does
-					// not control the output on which the swapchain's window resides.
-					80
-				};
-				DXGI_INFO_QUEUE_FILTER filter = {};
-				filter.DenyList.NumIDs = static_cast<UINT>(std::size(hide));
-				filter.DenyList.pIDList = hide;
-				info->AddStorageFilterEntries(DXGI_DEBUG_DXGI, &filter);
+				D3D12_MESSAGE_ID_MAP_INVALID_NULLRANGE,
+				D3D12_MESSAGE_ID_UNMAP_INVALID_NULLRANGE,
+
+				// Workarounds for debug layer issues on hybrid-graphics systems
+				D3D12_MESSAGE_ID_EXECUTECOMMANDLISTS_WRONGSWAPCHAINBUFFERREFERENCE,
+				D3D12_MESSAGE_ID_RESOURCE_BARRIER_MISMATCHING_COMMAND_LIST_TYPE,
 				*/
-			}
-
-			// Read the supported features
-			m_features.Read(m_d3d_device.get());
-			m_ray_tracing = RayTracingSupport(m_settings.m_options, m_features);
-			PR_INFO_IF(PR_DBG_RDR, m_ray_tracing.Requested(), std::format(
-				"RayTracingSupport requested. Device tier: {}. Available: {}\n",
-				m_ray_tracing.TierName(),
-				m_ray_tracing.Available() ? "true" : "false"));
-
-			// Create the command queues
-			D3D12_COMMAND_QUEUE_DESC queue_desc = {
-				.Type = D3D12_COMMAND_LIST_TYPE_DIRECT,
-				.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL,
-				.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE,
-				.NodeMask = 0,
 			};
-			queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-			Check(m_d3d_device->CreateCommandQueue(&queue_desc, __uuidof(ID3D12CommandQueue), (void**)m_gfx_queue.address_of()));
-			queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
-			Check(m_d3d_device->CreateCommandQueue(&queue_desc, __uuidof(ID3D12CommandQueue), (void**)m_com_queue.address_of()));
-			queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COPY;
-			Check(m_d3d_device->CreateCommandQueue(&queue_desc, __uuidof(ID3D12CommandQueue), (void**)m_cpy_queue.address_of()));
-
-			// Check dlls,DX features,etc required to run the renderer are available.
-			// Check the given settings are valid for the current adaptor.
-			if (m_settings.m_feature_level < D3D_FEATURE_LEVEL_10_0)
-				throw std::runtime_error("Graphics hardware does not meet the required feature level.\r\nFeature level 10.0 required\r\n\r\n(e.g. Shader Model 4.0, non power-of-two texture sizes)");
-			
-			// Check feature support
-			if (m_features.ShaderModel.HighestShaderModel < D3D_SHADER_MODEL_5_1)
-				throw std::runtime_error("DirectX device does not support Compute Shaders 4x");
-
-			// Create the D3D11-on-12 device so that D2D can draw on Dx12 resources
-			D3DPtr<ID3D11Device> dx11_device;
-			IUnknown* gfx_queue = m_gfx_queue.get();
-			UINT dx11_device_flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT | (AllSet(m_settings.m_options, ERdrOptions::DeviceDebug) ? D3D11_CREATE_DEVICE_DEBUG : 0);
-			Check(D3D11On12CreateDevice(m_d3d_device.get(), dx11_device_flags, nullptr, 0, &gfx_queue, 1, 0, dx11_device.address_of(), m_dx11_dc.address_of(), nullptr));
-			Check(dx11_device->QueryInterface<ID3D11On12Device>(m_dx11_device.address_of()));
-
-			// Create the direct2d factory
-			D2D1_FACTORY_OPTIONS d2dfactory_options = { .debugLevel = AllSet(m_settings.m_options, ERdrOptions::D2D1_DebugInfo) ? D2D1_DEBUG_LEVEL_INFORMATION  : D2D1_DEBUG_LEVEL_NONE };
-			Check(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory2), &d2dfactory_options, (void**)m_d2dfactory.address_of()));
-
-			// Create a D2D device
-			D3DPtr<IDXGIDevice> dxgi_device;
-			Check(m_dx11_device->QueryInterface<IDXGIDevice>(dxgi_device.address_of()));
-			Check(m_d2dfactory->CreateDevice(dxgi_device.get(), m_d2d_device.address_of()));
+			D3D12_INFO_QUEUE_FILTER filter = {
+				.AllowList = D3D12_INFO_QUEUE_FILTER_DESC{},
+				.DenyList = D3D12_INFO_QUEUE_FILTER_DESC{
+					.NumCategories = 0,
+					.pCategoryList = nullptr,
+					.NumSeverities = 0,
+					.pSeverityList = nullptr,
+					.NumIDs = _countof(hide),
+					.pIDList = &hide[0],
+				}
+			};
+			Check(info->AddStorageFilterEntries(&filter));
+	
+			// These are work arounds for issues with integrated graphics chips
+			/*
+			DXGI_INFO_QUEUE_MESSAGE_ID hide[] =
+			{
+				// IDXGISwapChain::GetContainingOutput: The swapchain's adapter does
+				// not control the output on which the swapchain's window resides.
+				80
+			};
+			DXGI_INFO_QUEUE_FILTER filter = {};
+			filter.DenyList.NumIDs = static_cast<UINT>(std::size(hide));
+			filter.DenyList.pIDList = hide;
+			info->AddStorageFilterEntries(DXGI_DEBUG_DXGI, &filter);
+			*/
 		}
-		catch (...)
-		{
-			this->~RdrState();
-			throw;
-		}
+
+		// Read the supported features
+		m_features.Read(m_d3d_device.get());
+		m_ray_tracing = RayTracingSupport(m_settings.m_options, m_features);
+		PR_INFO_IF(PR_DBG_RDR, m_ray_tracing.Requested(), std::format(
+			"RayTracingSupport requested. Device tier: {}. Available: {}\n",
+			m_ray_tracing.TierName(),
+			m_ray_tracing.Available() ? "true" : "false"));
+
+		// Create the command queues
+		D3D12_COMMAND_QUEUE_DESC queue_desc = {
+			.Type = D3D12_COMMAND_LIST_TYPE_DIRECT,
+			.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL,
+			.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE,
+			.NodeMask = 0,
+		};
+		queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
+		Check(m_d3d_device->CreateCommandQueue(&queue_desc, __uuidof(ID3D12CommandQueue), (void**)m_gfx_queue.address_of()));
+		queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+		Check(m_d3d_device->CreateCommandQueue(&queue_desc, __uuidof(ID3D12CommandQueue), (void**)m_com_queue.address_of()));
+		queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COPY;
+		Check(m_d3d_device->CreateCommandQueue(&queue_desc, __uuidof(ID3D12CommandQueue), (void**)m_cpy_queue.address_of()));
+
+		// Check dlls,DX features,etc required to run the renderer are available.
+		// Check the given settings are valid for the current adaptor.
+		if (m_settings.m_feature_level < D3D_FEATURE_LEVEL_10_0)
+			throw std::runtime_error("Graphics hardware does not meet the required feature level.\r\nFeature level 10.0 required\r\n\r\n(e.g. Shader Model 4.0, non power-of-two texture sizes)");
+		
+		// Check feature support
+		if (m_features.ShaderModel.HighestShaderModel < D3D_SHADER_MODEL_5_1)
+			throw std::runtime_error("DirectX device does not support Compute Shaders 4x");
+
+		// Create the D3D11-on-12 device so that D2D can draw on Dx12 resources
+		D3DPtr<ID3D11Device> dx11_device;
+		IUnknown* gfx_queue = m_gfx_queue.get();
+		UINT dx11_device_flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT | (AllSet(m_settings.m_options, ERdrOptions::DeviceDebug) ? D3D11_CREATE_DEVICE_DEBUG : 0);
+		Check(D3D11On12CreateDevice(m_d3d_device.get(), dx11_device_flags, nullptr, 0, &gfx_queue, 1, 0, dx11_device.address_of(), m_dx11_dc.address_of(), nullptr));
+		Check(dx11_device->QueryInterface<ID3D11On12Device>(m_dx11_device.address_of()));
+
+		// Create the direct2d factory
+		D2D1_FACTORY_OPTIONS d2dfactory_options = { .debugLevel = AllSet(m_settings.m_options, ERdrOptions::D2D1_DebugInfo) ? D2D1_DEBUG_LEVEL_INFORMATION  : D2D1_DEBUG_LEVEL_NONE };
+		Check(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory2), &d2dfactory_options, (void**)m_d2dfactory.address_of()));
+
+		// Create a D2D device
+		D3DPtr<IDXGIDevice> dxgi_device;
+		Check(m_dx11_device->QueryInterface<IDXGIDevice>(dxgi_device.address_of()));
+		Check(m_d2dfactory->CreateDevice(dxgi_device.get(), m_d2d_device.address_of()));
 	}
 	Renderer::RdrState::~RdrState()
 	{
@@ -311,12 +306,21 @@ namespace pr::rdr12
 		}
 		catch (...)
 		{
-			this->~Renderer();
+			// Members are fully constructed here and are destroyed by unwinding, so release only what the destructor body owns
+			Teardown();
 			throw;
 		}
 	}
 	Renderer::~Renderer()
 	{
+		// Release resources that the member destructors do not own
+		Teardown();
+	}
+
+	// Release resources acquired in the constructor body. Called exactly once, from the destructor or a failed constructor.
+	void Renderer::Teardown()
+	{
+		// Finish outstanding work before the callbacks and windows it may use are removed
 		LastTask();
 		FlushDeferredReleases();
 

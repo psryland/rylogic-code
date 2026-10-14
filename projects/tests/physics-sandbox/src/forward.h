@@ -23,6 +23,7 @@
 #include <unordered_map>
 
 #include "pr/common/assert.h"
+#include "pr/common/assert_reporting.h"
 #include "pr/common/command_line.h"
 #include "pr/common/min_max_fix.h"
 #include "pr/common/guid.h"

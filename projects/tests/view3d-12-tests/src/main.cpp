@@ -8,6 +8,8 @@
 #include "pr/common/unittests.h"
 #include "interactive/interactive.h"
 #include <windows.h>
+#include <d3d12.h>
+#include <wrl/client.h>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -39,6 +41,12 @@ int main(int argc, char* argv[])
 	SetLastError(ERROR_SUCCESS);
 	if (GetEnvironmentVariableW(L"VIEW3D_DEVICE_DEBUG", nullptr, 0) == 0 && GetLastError() == ERROR_ENVVAR_NOT_FOUND)
 		SetEnvironmentVariableW(L"VIEW3D_DEVICE_DEBUG", L"1");
+
+	// Enable the D3D12 debug layer for the whole process before any test creates a device. Enabling it later removes every device
+	// that already exists, and tests run in parallel, so a test that enables it would break the devices of other running tests.
+	// Once it is on, the later 'EnableDebugLayer' calls made by renderers do nothing.
+	if (Microsoft::WRL::ComPtr<ID3D12Debug> debug; SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))
+		debug->EnableDebugLayer();
 
 	return pr::unittests::RunAllTests(options);
 }

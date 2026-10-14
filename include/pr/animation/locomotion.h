@@ -11,13 +11,17 @@
 //  - Walking limbs step in the footfall order of the family's cycles. Planted feet stay fixed in the world, swinging feet arc to a predicted
 //    landing point on the ground, and a standing character steps until its feet are back beneath it. Stride and cadence follow the body's
 //    actual speed, so the movement is never a playback of the authored cycles.
-//  - The pelvis and chest follow the height of the ground under the hind and fore feet, so the body pitches on slopes.
+//  - The pelvis and chest follow the height of the ground under the hind and fore feet, so the body pitches on slopes. The cycles' hip height
+//    sets how high the legs carry the body above the ground, blended by speed.
 //  - Neck chains turn to look at a world point, fading in and out.
 //  - Tail chains take their shape from the guide and are lifted out of the ground.
+//  - A body that stays unsupported falls with its walking limbs spread out from the body, and they swing down to the ground when it lands.
 //
 // The body's motion comes from outside (for example, a physics simulation); the controller does not move the character's origin.
-// World space and model space both have +Z up. The ground is found by vertical probes, gathered so that each step queries the ground at most three
-// times: once for the feet beneath the body, once for the landings of swinging feet, and once for the tail joints.
+// Model space has +Z up. The body's up is the model's +Z axis in world space, so the body may stand on any surface: a slope, a wall, or a ceiling.
+// The ground is found by short rays cast along the body's down direction, each about as long as the limb or tail that it serves. The rays are
+// gathered so that each step queries the ground at most three times: once for the feet beneath the body, once for the landings of swinging feet,
+// and once for the tail joints.
 #pragma once
 #include "pr/animation/forward.h"
 #include "pr/animation/rig.h"
@@ -30,21 +34,30 @@
 
 namespace pr::animation
 {
-	// A point on the ground and the ground's upward unit normal there, in world space
-	struct GroundHit
+	// A world-space ray that looks for the ground
+	struct GroundRay
 	{
-		v4 point = v4::Origin();
-		v4 normal = v4::ZAxis();
+		v4 origin = v4::Origin();     // The start of the ray (w = 1)
+		v4 direction = -v4::ZAxis();  // Unit direction (w = 0)
+		float length = 0.0f;          // The distance searched from the origin (> 0)
 	};
 
-	// The ground that a character stands on
+	// Where a ground ray first meets a surface, in world space
+	struct GroundHit
+	{
+		v4 point = v4::Origin();    // The surface point
+		v4 normal = v4::ZAxis();    // The surface's unit normal, on the side that the ray came from
+		bool hit = false;           // False if the ray met no surface within its length; 'point' and 'normal' are then unspecified
+	};
+
+	// The surfaces that a character can stand on
 	struct IGround
 	{
 		virtual ~IGround() = default;
 
-		// Write into 'hits[i]' the ground directly above or below 'points[i]' (world space, w = 1). The spans have equal lengths.
-		// Callers gather their queries so that one call answers many points.
-		virtual void Probe(std::span<v4 const> points, std::span<GroundHit> hits) const = 0;
+		// Write into 'hits[i]' the first surface that 'rays[i]' meets within its length. A ray that starts inside a solid meets it at its origin.
+		// The spans have equal lengths. Callers gather their queries so that one call answers many rays.
+		virtual void Probe(std::span<GroundRay const> rays, std::span<GroundHit> hits) const = 0;
 	};
 
 	// The world-space motion of a character's model origin
@@ -82,9 +95,10 @@ namespace pr::animation
 		xform lift = xform::Identity();       // Swing: where the foot left the ground
 		xform land = xform::Identity();       // Swing: where the foot will touch down
 		v4 ground = v4::Origin();             // The point on the ground beneath the foot's contact, ignoring the swing's arc
-		v4 stance_contact = v4::Origin();     // The limb's contact point in the family's stance, in model space. Its height is the foot's clearance.
+		v4 stance_contact = v4::Origin();     // The limb's contact point in the family's stance, in model space, on the ground plane (z = 0)
 		quat stance_rot = Identity<quat>();   // The end bone's model-space orientation in the family's stance
 		float support = 1.0f;                 // In [0,1]. How much the limb stands on 'foot'. Otherwise it hangs from the body as in the guide pose.
+		float reach = 0.0f;                   // The limb's length from its root joint to its contact. Ground rays for the foot reach this far either side of it.
 	};
 
 	// Animates a rig from its body's motion. See the top of this file.
@@ -104,12 +118,14 @@ namespace pr::animation
 			, m_neutral()
 			, m_landings()
 			, m_tail_joints()
-			, m_probe_points()
+			, m_probe_rays()
 			, m_probe_hits()
 			, m_rot_offset(rig.bones.size())
 			, m_pos_offset(rig.bones.size())
 			, m_tail()
 			, m_tail_effectors()
+			, m_legs()
+			, m_leg_reach(0.0f)
 			, m_spine(-1)
 			, m_terrain()
 			, m_family(0)
@@ -120,6 +136,8 @@ namespace pr::animation
 			, m_look_weight(0.0f)
 			, m_phase(0.0f)
 			, m_unsupported_s(0.0f)
+			, m_fall(0.0f)
+			, m_up(v4::ZAxis())
 			, m_started(false)
 		{
 			// Reject gaits that do not fit the rig at the construction boundary so that stepping can rely on them
@@ -140,10 +158,27 @@ namespace pr::animation
 				{
 					auto chain = LimbChain(rig, foot.role, foot.side);
 					if (std::none_of(m_limbs.begin(), m_limbs.end(), [=](LimbState const& l) { return l.chain == chain; }))
-						m_limbs.push_back(LimbState{ .chain = chain, .contact = LimbContact(rig, rig.chains[chain]), .footfall = foot });
+					{
+						auto contact = LimbContact(rig, rig.chains[chain]);
+						m_limbs.push_back(LimbState{ .chain = chain, .contact = contact, .footfall = foot, .reach = ChainLength(chain, rig.rest_model[rig.contacts[contact].bone] * rig.contacts[contact].offset) });
+					}
 				}
 			}
 			m_neutral.resize(m_limbs.size());
+
+			// The legs carry the hips at the cycles' hip height. Rigs that walk on no legs measure the hip height on all of their walking limbs.
+			for (int i = 0, iend = static_cast<int>(m_limbs.size()); i != iend; ++i)
+			{
+				if (rig.chains[m_limbs[i].chain].role == EChainRole::Leg)
+					m_legs.push_back(i);
+			}
+			if (m_legs.empty())
+			{
+				for (int i = 0, iend = static_cast<int>(m_limbs.size()); i != iend; ++i)
+					m_legs.push_back(i);
+			}
+			for (auto i : m_legs)
+				m_leg_reach += m_limbs[i].reach / static_cast<float>(m_legs.size());
 
 			// Resolve each family's names to bone and limb indices
 			for (auto const& family : m_gait.families)
@@ -225,6 +260,7 @@ namespace pr::animation
 		void Step(float dt, BodyState const& body, IGround const& ground)
 		{
 			// Find where each foot would stand beneath the body now. Planting, settling and lifting all compare the feet with these frames.
+			m_up = Rotate(body.model_to_world.rot, v4::ZAxis());
 			FindNeutralFeet(body.model_to_world, ground);
 
 			// The first step plants every foot beneath the body
@@ -242,14 +278,15 @@ namespace pr::animation
 			// Only a support loss that lasts longer than 'AirborneDelay' lifts the feet off the ground, so brief losses do not interrupt the stepping.
 			m_unsupported_s = body.supported ? 0.0f : m_unsupported_s + dt;
 			auto airborne = m_unsupported_s > AirborneDelay;
+			m_fall = Clamp(m_fall + (airborne ? dt : -dt) / FallResponse, 0.0f, 1.0f);
 
-			// Measure the speed that the feet must keep up with, including turning on the spot. The family's slowest cycle sets what counts as moving.
+			// Measure the speed along the surface that the feet must keep up with, including turning on the spot. The family's slowest cycle sets
+			// what counts as moving.
 			auto const& family = m_gait.families[m_family];
 			auto const& slowest = family.cycles.front();
-			auto up = v4::ZAxis();
-			auto horizontal = body.velocity - up * Dot(body.velocity, up);
-			auto turn = Dot(body.angular_velocity, up) * TurnRadius();
-			auto speed = Sqrt(LengthSq(horizontal) + Sqr(turn));
+			auto tangential = body.velocity - m_up * Dot(body.velocity, m_up);
+			auto turn = Dot(body.angular_velocity, m_up) * TurnRadius();
+			auto speed = Sqrt(LengthSq(tangential) + Sqr(turn));
 			auto moving = !airborne && speed >= StandSpeedFraction * slowest.speed;
 
 			// The cycle blend and the body motion follow a smoothed speed, so that footfall timing and body motion change gradually
@@ -266,7 +303,7 @@ namespace pr::animation
 
 			// Advance each limb's stance and swing, collecting the landings that swinging feet still need to aim at
 			m_landings.clear();
-			m_probe_points.clear();
+			m_probe_rays.clear();
 			for (int i = 0, iend = static_cast<int>(m_limbs.size()); i != iend; ++i)
 				AdvanceLimb(i, body, airborne, moving, cadence, dphase);
 
@@ -275,14 +312,14 @@ namespace pr::animation
 			for (int k = 0, kend = static_cast<int>(m_landings.size()); k != kend; ++k)
 			{
 				auto& limb = m_limbs[m_landings[k].limb];
-				limb.land = FootOnGround(limb, hits[k], m_landings[k].body_rot);
+				limb.land = FootOnGround(limb, m_probe_rays[k], hits[k], m_landings[k].body_rot);
 			}
 
 			// Move each foot along its swing, then find the ground beneath it
 			auto swing_height = SwingHeight(family);
 			for (auto& limb : m_limbs)
 			{
-				MoveSwingingFoot(limb, swing_height);
+				MoveSwingingFoot(limb, swing_height * m_up);
 				limb.ground = GroundUnder(limb);
 			}
 
@@ -320,6 +357,9 @@ namespace pr::animation
 
 		// The seconds that the body takes to follow changes of ground height and speed
 		static constexpr float BodyResponse = 0.2f;
+
+		// The seconds that the limbs take to spread out once airborne, or to fold back in on landing
+		static constexpr float FallResponse = 0.3f;
 
 		// A bone motion with its bone index resolved
 		struct BoneTrack
@@ -371,12 +411,14 @@ namespace pr::animation
 		std::vector<xform> m_neutral;              // Per limb, the foot frame beneath the body this step
 		std::vector<Landing> m_landings;           // The landings that this step's second ground query answers
 		std::vector<TailJoint> m_tail_joints;      // The tail joints that this step's third ground query answers
-		std::vector<v4> m_probe_points;            // The points of the next ground query
+		std::vector<GroundRay> m_probe_rays;       // The rays of the next ground query
 		std::vector<GroundHit> m_probe_hits;       // The answers to the latest ground query
 		std::vector<v4> m_rot_offset;              // Per bone, this step's rotation-vector motion (scratch)
 		std::vector<v4> m_pos_offset;              // Per bone, this step's position motion (scratch)
 		TailSolver m_tail;
 		std::vector<fabrik::Effector<float>> m_tail_effectors;
+		std::vector<int> m_legs;    // Indices into 'm_limbs' of the limbs that carry the hips at the cycles' hip height
+		float m_leg_reach;          // The mean reach of 'm_legs', which scales the cycles' hip height
 		int m_spine;                // The spine chain index, or -1 if the rig has none
 		TargetPath m_terrain;       // The smoothed ground height under the hind feet (pos.x) and fore feet (pos.y), in model space
 		int m_family;               // The family being moved in, or blended to
@@ -387,7 +429,9 @@ namespace pr::animation
 		Fade m_look_weight;         // How strongly the necks face 'm_look'
 		float m_phase;              // The step cycle position in [0,1)
 		float m_unsupported_s;      // How long the body has been continuously unsupported, in seconds
-		bool m_started;              // False until the feet have been planted
+		float m_fall;               // In [0,1]. How far the limbs are spread out for falling.
+		v4 m_up;                    // The body's up direction (model +Z) in world space this step
+		bool m_started;               // False until the feet have been planted
 
 		// Return the fractional part of 'x'
 		static float Frac(float x)
@@ -417,10 +461,23 @@ namespace pr::animation
 				if (bone.position)
 					local.pos = *bone.position;
 			}
-			for (int b = 0, bend = static_cast<int>(m_rig.bones.size()); b != bend; ++b)
+			data.stance_model = ModelFrames(data.stance_local);
+
+			// Raise or lower the root bones so that the stance carries the hip joints at the slowest cycle's hip height. The authored height
+			// of the hips is ignored because the body's height should follow the legs, not the pose that the cycles happened to be made in.
+			if (!m_legs.empty())
 			{
-				auto parent = m_rig.bones[b].parent;
-				data.stance_model.push_back(parent < 0 ? data.stance_local[b] : data.stance_model[parent] * data.stance_local[b]);
+				auto hip_z = 0.0f;
+				for (auto i : m_legs)
+					hip_z += data.stance_model[m_rig.chains[m_limbs[i].chain].bones.front()].pos.z / static_cast<float>(m_legs.size());
+
+				auto lift = family.cycles.front().hip_height * m_leg_reach - hip_z;
+				for (int b = 0, bend = static_cast<int>(m_rig.bones.size()); b != bend; ++b)
+				{
+					if (m_rig.bones[b].parent < 0)
+						data.stance_local[b].pos.z += lift;
+				}
+				data.stance_model = ModelFrames(data.stance_local);
 			}
 
 			// Each cycle's bone motions
@@ -441,15 +498,30 @@ namespace pr::animation
 			return data;
 		}
 
+		// The model-space frame of each bone, given each bone's frame relative to its parent
+		std::vector<xform> ModelFrames(std::span<xform const> local) const
+		{
+			// Parents come before their children
+			std::vector<xform> model;
+			model.reserve(local.size());
+			for (int b = 0, bend = static_cast<int>(m_rig.bones.size()); b != bend; ++b)
+			{
+				auto parent = m_rig.bones[b].parent;
+				model.push_back(parent < 0 ? local[b] : model[parent] * local[b]);
+			}
+			return model;
+		}
+
 		// Set each limb's stance contact and orientation from the stance of family 'f'
 		void UseStance(int f)
 		{
-			// The contact's model-space height is the clearance that the foot keeps above the ground
+			// Contacts stand on the ground, so only their position across the ground plane is kept
 			auto const& model = m_families[f].stance_model;
 			for (auto& limb : m_limbs)
 			{
 				auto const& contact = m_rig.contacts[limb.contact];
 				limb.stance_contact = model[contact.bone] * contact.offset;
+				limb.stance_contact.z = 0.0f;
 				limb.stance_rot = model[m_rig.chains[limb.chain].bones.back()].rot;
 			}
 		}
@@ -489,6 +561,16 @@ namespace pr::animation
 			// Blend between the cycles either side of the smoothed speed
 			auto b = Bracket(family, m_gait_speed);
 			return Lerp(family.cycles[b.lo].swing_height, family.cycles[b.hi].swing_height, b.t);
+		}
+
+		// The model-space height by which family 'f' raises its hips above its stance at the current speed
+		float HipLift(int f) const
+		{
+			// The stance already carries the hips at the slowest cycle's hip height
+			auto const& family = m_gait.families[f];
+			auto b = Bracket(family, m_gait_speed);
+			auto hip_height = Lerp(family.cycles[b.lo].hip_height, family.cycles[b.hi].hip_height, b.t);
+			return (hip_height - family.cycles.front().hip_height) * m_leg_reach;
 		}
 
 		// Blend each limb's support between the previous and current families, and take its timing from the family that it walks in
@@ -536,6 +618,14 @@ namespace pr::animation
 			std::fill(m_pos_offset.begin(), m_pos_offset.end(), v4::Zero());
 			AddMotion(m_prev_family, (1.0f - w) * amplitude);
 			AddMotion(m_family, w * amplitude);
+
+			// Root bones carry the hips at the hip height of the cycles either side of the speed
+			auto lift = v4(0, 0, Lerp(HipLift(m_prev_family), HipLift(m_family), w), 0);
+			for (int b = 0, bend = static_cast<int>(m_rig.bones.size()); b != bend; ++b)
+			{
+				if (m_rig.bones[b].parent < 0)
+					m_pos_offset[b] += lift;
+			}
 
 			// Rotations apply in the bone's own frame after the stance rotation. Positions are model-space offsets of root bones.
 			for (int b = 0, bend = static_cast<int>(m_rig.bones.size()); b != bend; ++b)
@@ -621,25 +711,33 @@ namespace pr::animation
 			return foot * m_rig.contacts[limb.contact].offset;
 		}
 
-		// Query the ground at every point in 'm_probe_points' in one call. The answers stay valid until the next query.
+		// Query the ground along every ray in 'm_probe_rays' in one call. The answers stay valid until the next query.
 		std::span<GroundHit const> ProbeGround(IGround const& ground)
 		{
 			// An empty query does not reach the ground at all
-			m_probe_hits.resize(m_probe_points.size());
-			if (!m_probe_points.empty())
-				ground.Probe(m_probe_points, m_probe_hits);
+			m_probe_hits.resize(m_probe_rays.size());
+			if (!m_probe_rays.empty())
+				ground.Probe(m_probe_rays, m_probe_hits);
 
 			return m_probe_hits;
 		}
 
-		// The end bone frame that puts the limb's contact on the ground at 'hit', with the stance's clearance and orientation relative to the
-		// body, tilted to match the ground's slope
-		xform FootOnGround(LimbState const& limb, GroundHit const& hit, quat const& body_rot) const
+		// The ray that looks for the ground beneath 'point' for a body whose up direction is 'up'. It starts 'reach' above the point and
+		// searches as far below it, so that ground that rises or falls by up to 'reach' is found.
+		static GroundRay RayBeneath(v4 point, v4 up, float reach)
 		{
-			// The stance contact's height above the model origin is kept as clearance above the ground
+			return GroundRay{ .origin = point + up * reach, .direction = -up, .length = 2.0f * reach };
+		}
+
+		// The end bone frame that puts the limb's contact on the ground at 'hit', with the stance's orientation relative to the body, tilted from
+		// the body's up to the ground's normal. A ray that found no ground leaves the foot reaching to the end of the ray.
+		xform FootOnGround(LimbState const& limb, GroundRay const& ray, GroundHit const& hit, quat const& body_rot) const
+		{
+			// Turn the stance orientation from the body's up to the ground's normal
 			auto const& contact = m_rig.contacts[limb.contact];
-			auto rot = Normalise(quat(v4::ZAxis(), hit.normal) * body_rot * limb.stance_rot);
-			auto point = hit.point + hit.normal * limb.stance_contact.z;
+			auto point = hit.hit ? hit.point : ray.origin + ray.direction * ray.length;
+			auto normal = hit.hit ? hit.normal : -ray.direction;
+			auto rot = Normalise(quat(Rotate(body_rot, v4::ZAxis()), normal) * body_rot * limb.stance_rot);
 			return xform(point - Rotate(rot, contact.offset.w0()), rot);
 		}
 
@@ -647,23 +745,24 @@ namespace pr::animation
 		void FindNeutralFeet(xform const& model_to_world, IGround const& ground)
 		{
 			// One query covers every limb
-			m_probe_points.clear();
+			m_probe_rays.clear();
 			for (auto const& limb : m_limbs)
-				m_probe_points.push_back(model_to_world * limb.stance_contact);
+				m_probe_rays.push_back(RayBeneath(model_to_world * limb.stance_contact, m_up, limb.reach));
 
 			auto hits = ProbeGround(ground);
 			for (int i = 0, iend = static_cast<int>(m_limbs.size()); i != iend; ++i)
-				m_neutral[i] = FootOnGround(m_limbs[i], hits[i], model_to_world.rot);
+				m_neutral[i] = FootOnGround(m_limbs[i], m_probe_rays[i], hits[i], model_to_world.rot);
 		}
 
 		// True if limb 'i' is planted further than the settle distance from its neutral position
 		bool IsDisplaced(int i) const
 		{
-			// Only the horizontal distance matters; the neutral frame is already on the ground
+			// Only the distance along the surface matters; the neutral frame is already on the ground
 			auto const& limb = m_limbs[i];
 			auto offset = ContactOf(limb, limb.foot) - ContactOf(limb, m_neutral[i]);
+			offset -= m_up * Dot(offset, m_up);
 			auto settle = SettleFraction * m_gait.families[m_family].cycles.front().stride;
-			return Sqr(offset.x) + Sqr(offset.y) > Sqr(settle);
+			return LengthSq(offset) > Sqr(settle);
 		}
 
 		// True if a standing body must keep stepping: a supporting foot is swinging or is away from its neutral position
@@ -689,16 +788,17 @@ namespace pr::animation
 			return xform(body.model_to_world.pos + body.velocity * t, rot);
 		}
 
-		// Advance limb 'i' through its stance and swing. A swinging foot that still needs a landing adds its query to 'm_probe_points'.
+		// Advance limb 'i' through its stance and swing. A swinging foot that still needs a landing adds its query to 'm_probe_rays'.
 		void AdvanceLimb(int i, BodyState const& body, bool airborne, bool moving, float cadence, float dphase)
 		{
-			// An airborne body holds its feet beneath it in the stance. On regaining support, the feet swing down to the ground.
+			// An airborne body spreads its feet out from its sides, arms forwards and legs backwards, which steadies a falling body. On regaining
+			// support, the feet swing down to the ground.
 			auto& limb = m_limbs[i];
 			auto duty = limb.footfall.duty;
 			if (airborne)
 			{
 				limb.state = EFootState::Air;
-				limb.foot = body.model_to_world * m_families[m_family].stance_model[m_rig.chains[limb.chain].bones.back()];
+				limb.foot = body.model_to_world * BlendFrame(m_families[m_family].stance_model[m_rig.chains[limb.chain].bones.back()], FallFrame(limb), m_fall);
 				return;
 			}
 			if (limb.state == EFootState::Air)
@@ -732,12 +832,44 @@ namespace pr::animation
 				auto half_stance = moving && cadence > 0 ? 0.5f * duty / cadence : 0.0f;
 				auto predicted = PredictBody(body, to_landing + half_stance);
 				m_landings.push_back(Landing{ .limb = i, .body_rot = predicted.rot });
-				m_probe_points.push_back(predicted * limb.stance_contact);
+				m_probe_rays.push_back(RayBeneath(predicted * limb.stance_contact, Rotate(predicted.rot, v4::ZAxis()), limb.reach));
 			}
 		}
 
-		// Move a swinging foot from lift-off towards its landing, raised by up to 'swing_height', touching down at the end of the swing
-		static void MoveSwingingFoot(LimbState& limb, float swing_height)
+		// The model-space end bone frame of a limb spread out for falling: reaching out from its root joint, sideways and slightly upwards,
+		// arms angled forwards and legs backwards, in the stance's orientation
+		xform FallFrame(LimbState const& limb) const
+		{
+			// Model space faces -Y. The side comes from the limb's root joint, so left and right limbs spread apart.
+			auto const& model = m_families[m_family].stance_model;
+			auto const& chain = m_rig.chains[limb.chain];
+			auto root = model[chain.bones.front()].pos;
+			auto side = root.x < 0 ? -1.0f : 1.0f;
+			auto fore = limb.footfall.role == EChainRole::Leg ? 1.0f : -1.0f;
+			auto direction = Normalise(v4(side, 0.6f * fore, 0.2f, 0));
+
+			// Keep a little bend in the limb, and place the end bone so that its contact is at the reach point
+			auto rot = model[chain.bones.back()].rot;
+			auto contact = root + direction * (0.9f * limb.reach);
+			return xform(contact - Rotate(rot, m_rig.contacts[limb.contact].offset.w0()), rot);
+		}
+
+		// The length of chain 'c' in the rest pose: the sum of its bone lengths, ending at 'tip' (model space)
+		float ChainLength(int c, v4 tip) const
+		{
+			// Each bone's length is the distance to the next joint
+			auto const& bones = m_rig.chains[c].bones;
+			auto length = 0.0f;
+			for (int k = 0, kend = static_cast<int>(bones.size()); k != kend; ++k)
+			{
+				auto next = k + 1 != kend ? m_rig.rest_model[bones[k + 1]].pos : tip;
+				length += Length(next - m_rig.rest_model[bones[k]].pos);
+			}
+			return length;
+		}
+
+		// Move a swinging foot from lift-off towards its landing, raised by up to 'lift', touching down at the end of the swing
+		static void MoveSwingingFoot(LimbState& limb, v4 lift)
 		{
 			// Only swinging feet move
 			if (limb.state != EFootState::Swing)
@@ -754,7 +886,7 @@ namespace pr::animation
 			auto s = limb.swing;
 			auto ease = s * s * s * (10.0f + s * (-15.0f + 6.0f * s));
 			auto arc = 64.0f * Cube(s * (1.0f - s));
-			limb.foot = xform(limb.lift.pos + (limb.land.pos - limb.lift.pos) * ease + v4::ZAxis() * swing_height * arc, Slerp(limb.lift.rot, limb.land.rot, ease));
+			limb.foot = xform(limb.lift.pos + (limb.land.pos - limb.lift.pos) * ease + lift * arc, Slerp(limb.lift.rot, limb.land.rot, ease));
 		}
 
 		// Lift a foot from where it is, for a swing lasting 'window' of the step cycle
@@ -806,7 +938,7 @@ namespace pr::animation
 					continue;
 
 				auto i = limb.footfall.role == EChainRole::Leg ? 0 : 1;
-				height[i] += (world_to_model * limb.ground).z - limb.stance_contact.z;
+				height[i] += (world_to_model * limb.ground).z;
 				count[i] += 1;
 				arm_support += i == 1 ? limb.support : 0.0f;
 			}
@@ -851,12 +983,13 @@ namespace pr::animation
 			}
 		}
 
-		// Lift any part of each tail that is below the ground back onto the ground
+		// Lift any part of each tail that is below the ground back onto the ground, measured along the body's up direction
 		void StepTails(xform const& model_to_world, xform const& world_to_model, IGround const& ground)
 		{
-			// Gather the joints of every tail, so that one ground query covers all of them
+			// Gather the joints of every tail, so that one ground query covers all of them. Each joint's ray comes down to the joint from as
+			// far above it as the joint is from the tail's base, which is attached to the body, so a hit means the joint is buried.
 			m_tail_joints.clear();
-			m_probe_points.clear();
+			m_probe_rays.clear();
 			for (int c = 0, cend = static_cast<int>(m_rig.chains.size()); c != cend; ++c)
 			{
 				// Check each joint after the base, which is attached to the body
@@ -865,15 +998,17 @@ namespace pr::animation
 					continue;
 
 				auto count = static_cast<int>(chain.bones.size());
+				auto base = model_to_world * m_pose.model[chain.bones.front()].pos;
 				for (int k = 1; k <= count; ++k)
 				{
-					auto joint = k != count ? m_pose.model[chain.bones[k]].pos : m_pose.Tip(m_rig, chain.bones.back());
+					auto joint = model_to_world * (k != count ? m_pose.model[chain.bones[k]].pos : m_pose.Tip(m_rig, chain.bones.back()));
+					auto reach = Length(joint - base);
 					m_tail_joints.push_back(TailJoint{ .chain = c, .joint = k });
-					m_probe_points.push_back(model_to_world * joint);
+					m_probe_rays.push_back(GroundRay{ .origin = joint + m_up * reach, .direction = -m_up, .length = reach });
 				}
 			}
 
-			// Pull each buried joint up to the ground directly above it. The joints of one tail are adjacent in the query.
+			// Pull each buried joint up to the ground above it. The joints of one tail are adjacent in the query.
 			auto hits = ProbeGround(ground);
 			for (int j = 0, jend = static_cast<int>(m_tail_joints.size()); j != jend;)
 			{
@@ -882,10 +1017,8 @@ namespace pr::animation
 				m_tail_effectors.clear();
 				for (; j != jend && m_tail_joints[j].chain == chain; ++j)
 				{
-					auto const& world = m_probe_points[j];
-					auto ground_z = hits[j].point.z;
-					if (world.z < ground_z)
-						m_tail_effectors.push_back(fabrik::Effector<float>{ .joint = m_tail_joints[j].joint, .target = world_to_model * v4(world.x, world.y, ground_z, 1) });
+					if (hits[j].hit)
+						m_tail_effectors.push_back(fabrik::Effector<float>{ .joint = m_tail_joints[j].joint, .target = world_to_model * hits[j].point });
 				}
 				if (!m_tail_effectors.empty())
 					m_tail.Solve(m_rig, chain, m_pose, m_tail_effectors, fabrik::Settings<float>{});
@@ -899,25 +1032,37 @@ namespace pr::animation
 #include "pr/common/unittests.h"
 namespace pr::animation::tests
 {
-	// A ground plane through the origin with height 'slope' * y. Counts the queries it answers.
+	// A solid ground plane through the origin with unit normal 'm_normal'. Counts the queries it answers.
 	struct TestGround : IGround
 	{
-		float m_slope;
+		v4 m_normal;
 		mutable int m_queries;
 
+		// A plane with height 'slope' * y
 		explicit TestGround(float slope = 0.0f)
-			: m_slope(slope)
+			: TestGround(Normalise(v4(0, -slope, 1, 0)))
+		{
+		}
+		explicit TestGround(v4 normal)
+			: m_normal(normal)
 			, m_queries(0)
 		{
 		}
 
-		void Probe(std::span<v4 const> points, std::span<GroundHit> hits) const override
+		void Probe(std::span<GroundRay const> rays, std::span<GroundHit> hits) const override
 		{
-			// Every probe drops straight onto the plane
-			auto normal = Normalise(v4(0, -m_slope, 1, 0));
-			for (size_t i = 0; i != points.size(); ++i)
-				hits[i] = GroundHit{ .point = v4(points[i].x, points[i].y, m_slope * points[i].y, 1), .normal = normal };
-
+			// Intersect each ray with the plane. A ray that starts inside the ground hits at its origin.
+			for (size_t i = 0; i != rays.size(); ++i)
+			{
+				// Measure heights above the plane along its normal
+				auto const& ray = rays[i];
+				auto h0 = Dot(ray.origin.w0(), m_normal);
+				auto rate = Dot(ray.direction, m_normal);
+				auto t = h0 <= 0 ? 0.0f : rate < 0 ? -h0 / rate : ray.length + 1;
+				hits[i] = t <= ray.length
+					? GroundHit{ .point = ray.origin + ray.direction * t, .normal = m_normal, .hit = true }
+					: GroundHit{ .point = ray.origin + ray.direction * ray.length, .normal = -ray.direction, .hit = false };
+			}
 			++m_queries;
 		}
 	};
@@ -1068,6 +1213,99 @@ namespace pr::animation::tests
 			}
 			auto chest = rig.BoneIndex("chest");
 			PR_EXPECT(loco.pose().model[chest].pos.z < rig.rest_model[chest].pos.z - 0.05f);
+		}
+		PRUnitTestMethod(HipHeightFollowsLegs, Quick)
+		{
+			// The legs carry the hip joint at the cycles' hip height, as a fraction of the leg's reach: the slowest cycle's height when standing,
+			// and the fastest cycle's height at its speed. The feet stay on the ground.
+			auto rig = TestRig();
+			auto gait = TestGait();
+			auto& quad = gait.families[0];
+			quad.cycles[0].hip_height = 0.5f;
+			quad.cycles[1].hip_height = 0.7f;
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround();
+			auto thigh = rig.BoneIndex("thigh.L");
+			auto reach = loco.limbs()[0].reach;
+			auto dt = 1.0f / 60;
+			auto body = BodyState{};
+			for (int i = 0; i != 60; ++i)
+				loco.Step(dt, body, ground);
+
+			PR_EXPECT(FEqlAbsolute(loco.pose().model[thigh].pos.z, 0.5f * reach, 1e-3f));
+
+			body.velocity = v4(0, -quad.cycles[1].speed, 0, 0);
+			for (int i = 0; i != 120; ++i)
+			{
+				body.model_to_world.pos += body.velocity * dt;
+				loco.Step(dt, body, ground);
+			}
+			PR_EXPECT(FEqlAbsolute(loco.pose().model[thigh].pos.z, 0.7f * reach, 1e-2f));
+			for (auto const& limb : loco.limbs())
+			{
+				if (limb.state == EFootState::Stance)
+					PR_EXPECT(FEqlAbsolute(limb.ground.z, 0.0f, 1e-5f));
+			}
+		}
+		PRUnitTestMethod(WallWalkingPlantsFeetOnWall, Quick)
+		{
+			// A body on a vertical wall (the ground is x < 0), with its up along +X, walks along the wall and then stands. The feet rest on the wall.
+			auto rig = TestRig();
+			auto gait = TestGait();
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround(v4::XAxis());
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .model_to_world = xform(v4::Origin(), quat(v4::ZAxis(), v4::XAxis())), .velocity = v4(0, -gait.families[0].cycles[0].speed, 0, 0) };
+			for (int i = 0; i != 60; ++i)
+			{
+				body.model_to_world.pos += body.velocity * dt;
+				loco.Step(dt, body, ground);
+				for (auto const& limb : loco.limbs())
+				{
+					if (limb.state == EFootState::Stance)
+						PR_EXPECT(FEqlAbsolute(limb.ground.x, 0.0f, 1e-4f));
+				}
+			}
+			body.velocity = v4::Zero();
+			for (int i = 0; i != 180; ++i)
+				loco.Step(dt, body, ground);
+
+			for (auto const& limb : loco.limbs())
+			{
+				auto contact = body.model_to_world * (loco.pose().model[rig.contacts[limb.contact].bone] * rig.contacts[limb.contact].offset);
+				PR_EXPECT(limb.state == EFootState::Stance);
+				PR_EXPECT(FEqlAbsolute(contact.x, 0.0f, 1e-3f));
+			}
+		}
+		PRUnitTestMethod(FallingSpreadsLimbs, Quick)
+		{
+			// A body that stays unsupported spreads its feet out to its sides, and folds them back to the ground after landing
+			auto rig = TestRig();
+			auto gait = TestGait();
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .supported = false };
+			for (int i = 0; i != 60; ++i)
+				loco.Step(dt, body, ground);
+
+			for (auto const& limb : loco.limbs())
+			{
+				auto contact = loco.pose().model[rig.contacts[limb.contact].bone] * rig.contacts[limb.contact].offset;
+				PR_EXPECT(limb.state == EFootState::Air);
+				PR_EXPECT(Abs(contact.x) > Abs(limb.stance_contact.x) + 0.1f * limb.reach);
+				PR_EXPECT(contact.z > limb.stance_contact.z + 0.1f * limb.reach);
+			}
+
+			body.supported = true;
+			for (int i = 0; i != 180; ++i)
+				loco.Step(dt, body, ground);
+
+			for (auto const& limb : loco.limbs())
+			{
+				PR_EXPECT(limb.state == EFootState::Stance);
+				PR_EXPECT(FEqlAbsolute(limb.ground.z, 0.0f, 1e-4f));
+			}
 		}
 		PRUnitTestMethod(BodyMotionFollowsSpeed, Quick)
 		{

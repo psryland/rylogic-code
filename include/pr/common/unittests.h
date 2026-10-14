@@ -35,7 +35,8 @@ namespace pr::unittests
 //  Test classes run in parallel, one class at a time per worker thread, and the tests within a class run in order.
 //  Use 'PRUnitTestClass(Name, Serial)' for a class that must not run at the same time as any other class.
 //  Per-class shared state (e.g. a GPU device or engine) should be registered with 'TestFramework::AddClassFixture' so it is released after the class.
-//  Runner arguments: '-flags:<expression>' (e.g. Quick), '-exclude:<pattern>', '-threads:<count>' (0 = one per processor), '-verbose', and class name filters.
+//  Runner arguments: '-flags:<expression>' (e.g. Quick), '-exclude:<pattern>', '-threads:<count>' (0 = one per processor), '-verbose',
+//  '-asserts:stderr' (report assertion failures to stderr instead of dialogs, for unattended runs), and class name filters.
 //  Each run writes the duration of every test to '<repo>/obj/unittests/<runner>/timings.csv' and lists the slowest tests.
 #pragma once
 #include <type_traits>
@@ -71,6 +72,7 @@ namespace pr::unittests
 #include <atomic>
 #include <charconv>
 #include <Windows.h>
+#include "pr/common/assert_reporting.h"
 
 // Optionally use Microsoft's C++ unit test framework
 // To use the Microsoft.VisualStudio.TestTools.CppUnitTestFramework framework,
@@ -546,10 +548,13 @@ namespace pr::unittests
 
 		// The number of test classes that run at the same time. Zero means one per hardware thread. One runs everything on the calling thread.
 		int threads = 0;
+
+		// Report assertion failures to stderr rather than showing dialogs, so unattended runs (e.g. from a build) cannot block.
+		bool asserts_to_stderr = false;
 	};
 
 	// Parse the standard unit test command line into 'options'.
-	// Supports '-verbose', '-exclude:<pattern>', '-flags:<expression>', '-threads:<count>'. Any other argument is a class filter.
+	// Supports '-verbose', '-exclude:<pattern>', '-flags:<expression>', '-threads:<count>', '-asserts:stderr'. Any other argument is a class filter.
 	// Returns false, after writing a message to 'err', when an argument is invalid.
 	inline bool TryParseUnitTestCommandLine(std::span<char* const> args, UnitTestOptions& options, std::ostream& err)
 	{
@@ -560,6 +565,10 @@ namespace pr::unittests
 			if (arg == "-verbose")
 			{
 				options.wordy = true;
+			}
+			else if (arg == "-asserts:stderr")
+			{
+				options.asserts_to_stderr = true;
 			}
 			else if (arg.starts_with("-exclude:"))
 			{
@@ -773,6 +782,10 @@ namespace pr::unittests
 		using namespace std::chrono;
 		try
 		{
+			// Unattended runs must report assertion failures rather than block on a dialog.
+			if (options.asserts_to_stderr)
+				RouteAssertsToStdErr();
+
 			TestFramework::out() << " **** Begin Unit Tests **** " << std::endl;
 			auto const T0 = steady_clock::now();
 

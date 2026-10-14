@@ -19,7 +19,7 @@ from mathutils import Matrix, Quaternion, Vector
 
 from .rig_desc import BonesParentFirst, ModelSpace
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # The number of harmonics in each bone motion
 HARMONICS = 2
@@ -27,7 +27,8 @@ HARMONICS = 2
 # A foot is planted while it moves slower than this fraction of the body's speed...
 PLANTED_SPEED_FRACTION = 0.1
 
-# ...and is within this fraction of its vertical travel above its lowest point
+# ...and is near the lowest height at which it is still: within this fraction of its vertical travel. Measuring from the still heights, rather than
+# the lowest of all heights, keeps a foot planted when its swing dips lower than where it stands.
 PLANTED_HEIGHT_FRACTION = 0.25
 
 # Motion smaller than these amplitudes is dropped: radians for rotations, and a fraction of the stride for positions
@@ -80,26 +81,29 @@ def WalkingLimbs(armature: bpy.types.Armature) -> list[_Limb]:
 
 
 def BuildGaitDesc(armature_obj: bpy.types.Object, context: bpy.types.Context) -> dict[str, Any]:
-	"""Return the '.gait' description of an armature's movement cycles as a JSON-compatible dictionary.
+	"""Return the '.gait' description of an armature's movement cycles as a JSON-compatible dictionary. Cycles with 'use_export' off are left out.
 
 	Plays each cycle's action on the armature to measure it, then restores the armature's action and the scene's frame. Raises ValueError if a cycle
 	cannot be measured. The description is not validated; see 'ValidateGaitDesc'.
 	"""
-	# Group the cycles by family, keeping the order in which families first appear
+	# Group the exported cycles by family, keeping the order in which families first appear. Unexported cycles are not measured, so they may be unfinished.
 	space = ModelSpace(armature_obj)
 	limbs = WalkingLimbs(armature_obj.data)
-	families: dict[str, list[tuple[str, _Samples]]] = {}
+	families: dict[str, list[tuple[str, float, _Samples]]] = {}
 	for cycle in armature_obj.data.rylogic_rig.cycles:
+		if not cycle.use_export:
+			continue
+
 		if cycle.action is None:
 			raise ValueError(f"Cycle '{cycle.name}' has no action")
 
-		families.setdefault(cycle.family, []).append((cycle.name, _SampleAction(armature_obj, context, space, cycle.action)))
+		families.setdefault(cycle.family, []).append((cycle.name, cycle.hip_height, _SampleAction(armature_obj, context, space, cycle.action)))
 
 	# Measure each cycle, then order each family's cycles by speed. The family's stance is the mean pose of its slowest cycle, the nearest to standing.
 	out: list[dict[str, Any]] = []
 	root = _RootBone(armature_obj.data)
 	for family, cycles in families.items():
-		measured = sorted((_MeasureCycle(armature_obj.data, space, root, limbs, name, samples) for name, samples in cycles), key=lambda c: c[0]["speed"])
+		measured = sorted((_MeasureCycle(armature_obj.data, space, root, limbs, name, hip_height, samples) for name, hip_height, samples in cycles), key=lambda c: c[0]["speed"])
 		out.append({"name": family, "stance": measured[0][1], "cycles": [cycle for cycle, _ in measured]})
 
 	return {"schema_version": SCHEMA_VERSION, "families": out}
@@ -112,7 +116,7 @@ def ValidateGaitDesc(desc: dict[str, Any]) -> list[str]:
 	"""
 	errors: list[str] = []
 	if not desc["families"]:
-		errors.append("There are no movement cycles")
+		errors.append("There are no exported movement cycles")
 
 	names = [family["name"] for family in desc["families"]]
 	for family in desc["families"]:
@@ -130,6 +134,8 @@ def ValidateGaitDesc(desc: dict[str, Any]) -> list[str]:
 				errors.append(f"{cctx} has the same speed as cycle '{cycles[i - 1]['name']}'")
 			if not cycle["stride"] > 0:
 				errors.append(f"{cctx} does not move the root bone forward")
+			if not 0 < cycle["hip_height"] <= 1:
+				errors.append(f"{cctx} needs a hip height in (0,1]")
 			if not cycle["footfalls"]:
 				errors.append(f"{cctx} has no planted feet")
 			if [(f["role"], f["side"]) for f in cycle["footfalls"]] != limbs:
@@ -179,8 +185,8 @@ def _SampleAction(armature_obj: bpy.types.Object, context: bpy.types.Context, sp
 	return _Samples(frames=end - start, fps=scene.render.fps / scene.render.fps_base, model=model)
 
 
-def _MeasureCycle(armature: bpy.types.Armature, space: ModelSpace, root: str, limbs: list[_Limb], name: str, samples: _Samples) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-	"""Measure one sampled cycle. Returns its '.gait' cycle and the stance of its mean pose.
+def _MeasureCycle(armature: bpy.types.Armature, space: ModelSpace, root: str, limbs: list[_Limb], name: str, hip_height: float, samples: _Samples) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+	"""Measure one sampled cycle, which carries the hips at 'hip_height' (see the cycle property). Returns its '.gait' cycle and the stance of its mean pose.
 
 	Raises ValueError if the root bone does not move forward, or if the cycle does not loop (see '_CheckLoops').
 	"""
@@ -204,7 +210,7 @@ def _MeasureCycle(armature: bpy.types.Armature, space: ModelSpace, root: str, li
 	feet_centre = Vector()
 	for limb in limbs:
 		points = _ContactPoints(limb, samples, space.scale)
-		footfall, lift = _Footfall(limb, points, samples, speed)
+		footfall, lift = _Footfall(limb, points, samples, stride)
 		if footfall is not None:
 			footfalls.append(footfall)
 			walking.update(limb.bones)
@@ -259,7 +265,7 @@ def _MeasureCycle(armature: bpy.types.Armature, space: ModelSpace, root: str, li
 		if _Amplitude(harmonics) >= MIN_ROTATION_AMPLITUDE:
 			motion.append({"bone": bone.name, "channel": "rotation", "harmonics": harmonics})
 
-	cycle = {"name": name, "speed": speed, "stride": stride, "swing_height": swing_height, "footfalls": footfalls, "motion": motion}
+	cycle = {"name": name, "speed": speed, "stride": stride, "swing_height": swing_height, "hip_height": hip_height, "footfalls": footfalls, "motion": motion}
 	return cycle, stance
 
 
@@ -294,16 +300,21 @@ def _ContactPoints(limb: _Limb, samples: _Samples, scale: float) -> list[Vector]
 	return [samples.model[i][end] @ offset for i in range(samples.frames + 1)]
 
 
-def _Footfall(limb: _Limb, points: list[Vector], samples: _Samples, body_speed: float) -> tuple[dict[str, Any] | None, float]:
-	"""Find when a limb's contact is planted from its sampled positions. Returns its footfall, or None if the limb does not walk, and the height that it lifts."""
-	# A contact is planted from frame i to i+1 while it stays still and near its lowest point, so the planted frames count the time spent planted
+def _Footfall(limb: _Limb, points: list[Vector], samples: _Samples, stride: float) -> tuple[dict[str, Any] | None, float]:
+	"""Find when a limb's contact is planted from its sampled positions, in a cycle whose body moves 'stride' forward.
+	Returns its footfall, or None if the limb does not walk, and the height that it lifts."""
+	# A contact is planted from frame i to i+1 while it stays still and near the ground, so the planted frames count the time spent planted.
+	# The ground is the lowest still height, which excludes a foot paused high in its swing and a swing that dips below the ground.
 	n = samples.frames
+	body_speed = stride * samples.fps / n
 	heights = [p.z for p in points[:n]]
 	low, high = min(heights), max(heights)
-	planted = []
-	for i in range(n):
-		speed = (points[i + 1] - points[i]).length * samples.fps
-		planted.append(speed < PLANTED_SPEED_FRACTION * body_speed and heights[i] <= low + max(PLANTED_HEIGHT_FRACTION * (high - low), 1e-5))
+	still = [(points[i + 1] - points[i]).length * samples.fps < PLANTED_SPEED_FRACTION * body_speed for i in range(n)]
+	if not any(still):
+		return None, 0.0
+
+	ground = min(heights[i] for i in range(n) if still[i]) + max(PLANTED_HEIGHT_FRACTION * (high - low), 1e-5)
+	planted = [still[i] and heights[i] <= ground for i in range(n)]
 
 	# The limb walks if it is planted for part of the cycle. Touchdown is the start of the longest planted run.
 	count = sum(planted)

@@ -89,6 +89,9 @@ namespace pr::rdr12
 		ResourceStore m_res_store;
 		SkinnedGeometryCache m_skinned_geometry;
 
+		// Release resources acquired in the constructor body
+		void Teardown();
+
 	public:
 
 		explicit Renderer(RdrSettings const& settings);

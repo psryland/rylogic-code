@@ -499,6 +499,9 @@ namespace pr::rdr12
 
 		// Create stock models such as the focus point, origin, etc
 		void CreateStockObjects();
+
+		// Release state acquired in the constructor body
+		void Teardown();
 	};
 
 	// Validate a window pointer

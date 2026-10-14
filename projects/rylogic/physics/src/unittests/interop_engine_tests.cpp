@@ -118,7 +118,7 @@ namespace pr::physics::tests
 					rc.depth = gc.depth;
 					rc.collision_time = 0.0f;
 					rc.feature = gc.feature;
-					rc.pad1 = 0;
+					rc.approach_speed = 0.0f;
 					contacts.push_back(rc);
 				}
 			}

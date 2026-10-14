@@ -320,38 +320,6 @@ float FrictionCoefficient(float friction)
 	return ratio / (1.000001f - ratio);
 }
 
-// Compute the restitution impulse with Coulomb friction cone clamping.
-// Returns the final impulse vector in A's object space.
-float3 ComputeImpulse(float3x3 col_I, float3 V_rel, float3 axis, float elasticity, float friction)
-{
-	float3x3 col_I_inv = Invert(col_I);
-
-	// Start with the impulse that would cancel the full relative velocity, then split it into normal and tangential components. The normal part gets
-	// restitution, while the tangential part is clamped by the Coulomb cone below.
-	float3 impulse0 = -mul(col_I, V_rel);
-	float denom = dot(axis, mul(col_I_inv, axis));
-	float3 impulseN = (float3)0;
-	if (abs(denom) > 1e-12f)
-		impulseN = -(dot(axis, V_rel) / denom) * axis;
-
-	float3 impulseT = impulse0 - impulseN;
-	float3 impulse = (1.0f + elasticity) * impulseN + impulseT;
-
-	// Clamp the tangent impulse using the same cone slope as the accumulated manifold solve.
-	float Jn = dot(impulse, axis);
-	float Jt_sq = max(0.0f, dot(impulse, impulse) - Jn * Jn);
-	float Jt = sqrt(Jt_sq);
-	if (Jt > friction * abs(Jn))
-	{
-		Jt = friction * abs(Jn);
-		float impulseT_lenSq = dot(impulseT, impulseT);
-		if (impulseT_lenSq > 1e-12f)
-			impulseT = Jt * (impulseT / sqrt(impulseT_lenSq));
-		impulse = (1.0f + elasticity) * impulseN + impulseT;
-	}
-	return impulse;
-}
-
 // Return only the change needed to move this point's accumulated tangent impulse within its physical support budget.
 float3 ComputeFrictionImpulse(float3x3 col_I_inv, float3 V_rel, float3 axis, float friction, float Jn, float3 old_impulse)
 {
@@ -501,26 +469,26 @@ void StoreWarmStartImpulse(GpuResolveContact c)
 	}
 }
 
-// Estimate the sub-step collision time for a contact.
-// Projects the contact point backward along the relative velocity to find when penetration began.
-// Returns a negative value (earlier in the timestep = more negative).
-float EstimateCollisionTime(GpuResolveContact c)
+// Return the relative velocity of B w.r.t. A at the stored contact centroid, in A's object space.
+float3 ContactRelativeVelocity(GpuResolveContact c)
 {
-	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
-	GpuRigidBody bodyB = g_bodies[c.body_idx_b];
-
 	// Most resolver calculations use body A space. Body B's CoM is transformed into A space using the current b2a transform so relative velocity can be
 	// evaluated at the stored contact centroid without changing coordinate frames.
+	GpuRigidBody bodyA = g_bodies[c.body_idx_a];
+	GpuRigidBody bodyB = g_bodies[c.body_idx_b];
 	float3 os_com_a = bodyA.os_com_and_invmass.xyz;
 	float3 os_com_b = bodyB.os_com_and_invmass.xyz;
 	float3x3 rot_a = (float3x3)bodyA.o2w;
 	float3x3 b2a_rot = (float3x3)c.b2a;
 	float3 com_b_in_a = c.b2a[3].xyz + mul(os_com_b, b2a_rot);
+	return RelativeVelocityAtContact(c, bodyA, bodyB, OsInverseInertia(bodyA), OsInverseInertia(bodyB), rot_a, os_com_a, com_b_in_a);
+}
 
-	float3 rel_vel = RelativeVelocityAtContact(c, bodyA, bodyB,
-		OsInverseInertia(bodyA), OsInverseInertia(bodyB),
-		rot_a, os_com_a, com_b_in_a);
-
+// Estimate the sub-step collision time for a contact with relative contact velocity 'rel_vel' (see ContactRelativeVelocity).
+// Projects the contact point backward along the relative velocity to find when penetration began.
+// Returns a negative value (earlier in the timestep = more negative).
+float EstimateCollisionTime(GpuResolveContact c, float3 rel_vel)
+{
 	// Project backward along relative motion and ask what fraction of the current normal displacement corresponds to the penetration depth. The value is
 	// negative because it is a rewind within the current step, and more negative values sort before later impacts.
 	float3 point_at_t0 = c.contact_point.xyz - g.dt * rel_vel;
@@ -800,12 +768,17 @@ void CSComputeCollisionTimes(int3 DTID(dtid))
 	if (idx < contact_count)
 	{
 		// The contact buffer has already been prepared by the narrowphase/interop path. This pass does not
-		// change contact geometry; it only records the estimated collision time and a sortable index.
+		// change contact geometry; it records the estimated collision time, the pre-solve approach speed, and a sortable index.
 		GpuResolveContact c = g_contacts[idx];
 		GpuRigidBody bodyA = g_bodies[c.body_idx_a];
 		GpuRigidBody bodyB = g_bodies[c.body_idx_b];
-		float collision_time = EstimateCollisionTime(c);
+		float3 rel_vel = ContactRelativeVelocity(c);
+		float collision_time = EstimateCollisionTime(c, rel_vel);
 		g_contacts[idx].collision_time = collision_time;
+
+		// Capture the normal speed before warm starting and velocity iterations change it. Restitution must respond to this impact speed only; closing speed
+		// that other constraints re-create during the iterations (for example a motor pushing into a slope) is not an impact and must not bounce.
+		g_contacts[idx].approach_speed = dot(rel_vel, c.axis.xyz);
 
 		// Collision time remains primary. The propagation key is deliberately tiny and only reorders near-simultaneous
 		// contacts so support reactions and high-residual impact contacts get an earlier colour in the sequential solve.
@@ -1228,11 +1201,12 @@ void ResolveContact(uint idx)
 	// the Collided flag when the contact was actually doing work.
 	bool any_impulse = false;
 
-	// ===== Phase 1: Centroid restitution + friction (energy-guarded) =====
+	// ===== Phase 1: Centroid normal impulse (energy-guarded) =====
 	// This is the dynamic-collision part. Using the centroid (rather than per-point) for
 	// the restitution impulse is critical for symmetric pair-wise elastic collisions to
 	// match the analytic v' = ((m1-m2)v1 + 2 m2 v2) / (m1+m2) result, because per-point
 	// sequential impulses systematically underestimate the total impulse needed.
+	// Friction is left to Phase 3 so that all tangent impulse is limited by the accumulated normal impulse of this solve.
 	{
 		float3 pt = c.contact_point.xyz;
 		float3 V_rel = RelativeVelocityAtPoint(bodyA, bodyB, pt,
@@ -1246,39 +1220,58 @@ void ResolveContact(uint idx)
 
 		float closing_speed = dot(V_rel, axis);
 
-		// Only apply the restitution impulse when actually approaching (vn < 0 with our
-		// convention: V_rel = v_b - v_a, axis A→B, so closing => negative vn).
-		PR_HLSL_BRANCH
-		if (closing_speed < 0.0f)
+		// Restitution targets a separation speed derived from the approach speed captured before the velocity iterations (see CSComputeCollisionTimes).
+		// Every iteration then solves toward the same target, so the response does not grow with the iteration count when other constraints re-create
+		// closing speed between iterations. Slow approaches get reduced elasticity so resting contacts do not bounce on micro-impacts.
+		float approach_speed = min(c.approach_speed, 0.0f);
+		float rest_factor = saturate(abs(approach_speed) * 10.0f);
+		float elasticity = g.restitution_scale * rest_factor * (mat_a.elasticity_norm + mat_b.elasticity_norm) * 0.5f;
+		float target_normal_speed = -elasticity * approach_speed;
+
+		// Normal speed change per unit normal impulse at the contact point (V_rel = v_b - v_a, axis A→B, so closing means negative normal speed).
+		float k_n = dot(axis, mul(Invert(CollisionMassMatrix(
+			pt - com_a_in_a, pt - com_b_in_a,
+			inv_mass_a, inv_mass_b,
+			os_iinv_a, b2a_iinv_b)), axis));
+
+		// The accumulated normal impulse is the contact's support for this solve, so it must be able to shrink as well as grow. Push when the normal speed is
+		// below the restitution target. Other constraints (for example a motor pushing a body into a slope) can also create closing speed that they relax later
+		// in the same solve; keeping that excess would push the bodies apart and inflate the friction budget that Phase 3 derives from it. So when the speed is
+		// above the larger of the restitution and Baumgarte targets, withdraw impulse, but never so much that the accumulated impulse becomes a pull.
+		float Jn_accumulated = dot(c.warmstart_impulse.xyz, axis);
+		float release_speed = max(target_normal_speed, bias);
+		float Jn_delta = 0.0f;
+		if (k_n > 1e-12f && closing_speed < target_normal_speed)
 		{
-			// Build collision mass matrix at the centroid for this phase.
-			float3x3 col_I = CollisionMassMatrix(
-				pt - com_a_in_a, pt - com_b_in_a,
-				inv_mass_a, inv_mass_b,
-				os_iinv_a, b2a_iinv_b);
+			Jn_delta = (target_normal_speed - closing_speed) / k_n;
+		}
+		else if (k_n > 1e-12f && closing_speed > release_speed && Jn_accumulated > 0.0f)
+		{
+			Jn_delta = max((release_speed - closing_speed) / k_n, -Jn_accumulated);
 
-			// Reduce elasticity for resting contacts so they don't bounce on micro-impacts.
-			float rest_factor = saturate(abs(closing_speed) * 10.0f);
-			float elasticity = g.restitution_scale * rest_factor * (mat_a.elasticity_norm + mat_b.elasticity_norm) * 0.5f;
+			// Phase 2 keeps the centre-of-mass normal speed at or above the Baumgarte bias using linear momentum only. Releasing below that floor would
+			// let Phase 2 re-add the linear part every iteration while the released torque is lost, steadily converting spin into linear motion.
+			float k_n_c = inv_mass_a + inv_mass_b;
+			if (bias > 0.0f && k_n_c > 1e-12f)
+			{
+				float3 v_com_a = mul(rot_a, inv_mass_a * bodyA.momentum_lin.xyz);
+				float3 v_com_b = mul(rot_a, inv_mass_b * bodyB.momentum_lin.xyz);
+				float vn_com = dot(v_com_b - v_com_a, axis);
+				Jn_delta = max(Jn_delta, -max(vn_com - bias, 0.0f) / k_n_c);
+			}
+		}
 
-			float3 impulse = ComputeImpulse(col_I, V_rel, axis, elasticity, friction);
-			float3 applied_impulse = ApplyImpulseWithEnergyGuard(bodyA, bodyB, impulse, pt,
+		// Apply the normal change and keep the accumulator equal to what the energy guard accepted.
+		PR_HLSL_BRANCH
+		if (Jn_delta != 0.0f)
+		{
+			float3 applied_impulse = ApplyImpulseWithEnergyGuard(bodyA, bodyB, Jn_delta * axis, pt,
 				com_a_in_a, com_b_in_a, rot_a, ws_iinv_a, ws_iinv_b,
 				inv_mass_a, inv_mass_b, true);
 			c.warmstart_impulse.xyz += applied_impulse;
 			any_impulse = any(applied_impulse != float3(0, 0, 0));
-
-			// Account for centroid friction at every manifold point before spending the remaining physical support budget.
-			float3 tangent_share = (applied_impulse - dot(applied_impulse, axis) * axis) / float(point_count);
-			PR_HLSL_UNROLL
-			for (int pi = 0; pi != GpuContactMaxPoints; ++pi)
-			{
-				if (pi < point_count)
-					c.friction_impulses[pi].xyz += tangent_share;
-			}
 		}
 	}
-
 	// ===== Phase 2: Linear Baumgarte bias =====
 	// Baumgarte bias is a pseudo-impulse that clears position error. Applying it through the current contact point makes broad resting contacts sensitive to
 	// transient manifold reduction: a one-point contact patch can inject spin before the next frame restores the wider manifold. Use the centre-of-mass

@@ -154,12 +154,20 @@ namespace pr::animation
 		EContactKind kind = EContactKind::Sole;
 	};
 
+	// The line through the body that a collision shape follows. It runs from the head of bone 'from' to the head of bone 'to'.
+	struct BodyAxis
+	{
+		int from = -1;            // The bone whose head is the start of the axis, e.g. the hips
+		int to = -1;              // The bone whose head is the end of the axis, e.g. the neck
+	};
+
 	// A complete rig description, as authored and stored. 'Rig' is the validated runtime form.
 	struct RigDesc
 	{
 		std::vector<Bone> bones;
 		std::vector<Chain> chains;
 		std::vector<Contact> contacts;
+		BodyAxis body_axis;
 	};
 
 	// Return the model-space rest transforms of 'bones'. Parents must come before their children.
@@ -381,6 +389,14 @@ namespace pr::animation
 				}
 			}
 		}
+
+		// The body axis needs two existing bones with separate heads, so that it has a direction
+		auto const& axis = desc.body_axis;
+		if (axis.from < 0 || axis.from >= bone_count || axis.to < 0 || axis.to >= bone_count)
+			errors.push_back(std::format("The body axis refers to bones {} and {}, which must both exist", axis.from, axis.to));
+		else if (FEqlAbsolute(rest_model[axis.from].pos, rest_model[axis.to].pos, 1e-6f))
+			errors.push_back(std::format("The body axis bones '{}' and '{}' have the same head", bones[axis.from].name, bones[axis.to].name));
+
 		return errors;
 	}
 
@@ -425,16 +441,18 @@ namespace pr::animation
 		for (auto& contact : result.contacts)
 			contact.bone = remap(contact.bone);
 
+		result.body_axis = BodyAxis{ .from = remap(desc.body_axis.from), .to = remap(desc.body_axis.to) };
 		return result;
 	}
 
-	// A validated rig: the skeleton plus its chains and contacts, with derived rest-pose data
+	// A validated rig: the skeleton plus its chains, contacts and body axis, with derived rest-pose data
 	struct Rig
 	{
 		std::vector<Bone> bones;
 		std::vector<Chain> chains;
 		std::vector<Contact> contacts;
-		std::vector<xform> rest_model;                         // The model-space rest transform of each bone
+		BodyAxis body_axis;
+		std::vector<xform> rest_model;                          // The model-space rest transform of each bone
 		std::vector<int> solve_order;                          // Chain indices ordered so that ancestor chains are solved first
 		std::vector<std::vector<fabrik::Joint<float>>> tails;  // FABRIK joints for each tail chain (empty for other roles)
 
@@ -443,6 +461,7 @@ namespace pr::animation
 			: bones()
 			, chains()
 			, contacts()
+			, body_axis()
 			, rest_model()
 			, solve_order()
 			, tails()
@@ -460,6 +479,7 @@ namespace pr::animation
 			bones = std::move(desc.bones);
 			chains = std::move(desc.chains);
 			contacts = std::move(desc.contacts);
+			body_axis = desc.body_axis;
 
 			// Cache the rest pose and per-chain solver data
 			rest_model = RestModelTransforms(bones);
@@ -544,7 +564,8 @@ namespace pr::animation::tests
 			Contact{ .name = "sole.L", .bone = 8, .offset = v4(0, 0.1f, 0, 1), .normal = v4(0, 0, 1, 0), .kind = EContactKind::Sole },
 			Contact{ .name = "palm.L", .bone = 11, .offset = v4(0, 0.05f, 0, 1), .normal = v4(0, 0, 1, 0), .kind = EContactKind::Palm },
 		};
-		return RigDesc{ .bones = std::move(bones), .chains = std::move(chains), .contacts = std::move(contacts) };
+		// The body axis runs from the hips to the neck
+		return RigDesc{ .bones = std::move(bones), .chains = std::move(chains), .contacts = std::move(contacts), .body_axis = { .from = 1, .to = 4 } };
 	}
 	inline Rig TestRig()
 	{
@@ -589,6 +610,8 @@ namespace pr::animation::tests
 			expect_error([](RigDesc& d) { d.contacts[1].name = "sole.L"; });
 			expect_error([](RigDesc& d) { d.contacts[0].bone = 99; });
 			expect_error([](RigDesc& d) { d.contacts[0].normal = v4::Zero(); });
+			expect_error([](RigDesc& d) { d.body_axis.to = 99; });
+			expect_error([](RigDesc& d) { d.body_axis.to = 12; });
 			PR_EXPECT(Validate(desc).empty());
 		}
 		PRUnitTestMethod(InvalidRigThrows, Quick)
@@ -616,6 +639,7 @@ namespace pr::animation::tests
 			auto restored = ReorderBones(reordered, std::vector<std::string>{ order.begin(), order.end() });
 			PR_EXPECT(restored.bones[12].name == "tail.0" && restored.bones[13].parent == 12);
 			PR_EXPECT(restored.contacts[0].bone == 8);
+			PR_EXPECT(restored.body_axis.from == 1 && restored.body_axis.to == 4);
 			PR_EXPECT(Validate(restored).empty());
 
 			order.back() = "missing";

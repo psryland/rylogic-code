@@ -30,14 +30,15 @@ class _Template:
 	frames: int                                     # Frames per cycle
 	stride: float                                   # The distance moved per cycle, as a multiple of the leg length, if the limbs can reach it
 	swing_height: float                             # The foot lift, as a multiple of the leg length
+	hip_height: float                               # The cycle's hip height (see 'RYLOGIC_PG_GaitCycle.hip_height')
 	duty: float                                     # The fraction of the cycle that each foot is planted
 	touchdowns: dict[tuple[str, str], float]        # The touchdown phase of each walking limb, by (role, side)
 
 
 TEMPLATES = {
-	"BIPEDAL_WALK": _Template("bipedal", "walk", 24, 1.0, 0.15, 0.6, {("LEG", "LEFT"): 0.0, ("LEG", "RIGHT"): 0.5}),
-	"QUADRUPED_WALK": _Template("quadruped", "walk", 24, 1.0, 0.15, 0.75, {("LEG", "LEFT"): 0.0, ("ARM", "LEFT"): 0.25, ("LEG", "RIGHT"): 0.5, ("ARM", "RIGHT"): 0.75}),
-	"QUADRUPED_TROT": _Template("quadruped", "trot", 16, 1.4, 0.2, 0.5, {("LEG", "LEFT"): 0.0, ("ARM", "RIGHT"): 0.0, ("LEG", "RIGHT"): 0.5, ("ARM", "LEFT"): 0.5}),
+	"BIPEDAL_WALK": _Template("bipedal", "walk", 24, 1.0, 0.15, 0.9, 0.6, {("LEG", "LEFT"): 0.0, ("LEG", "RIGHT"): 0.5}),
+	"QUADRUPED_WALK": _Template("quadruped", "walk", 24, 1.0, 0.15, 0.5, 0.75, {("LEG", "LEFT"): 0.0, ("ARM", "LEFT"): 0.25, ("LEG", "RIGHT"): 0.5, ("ARM", "RIGHT"): 0.75}),
+	"QUADRUPED_TROT": _Template("quadruped", "trot", 16, 1.4, 0.2, 0.5, 0.5, {("LEG", "LEFT"): 0.0, ("ARM", "RIGHT"): 0.0, ("LEG", "RIGHT"): 0.5, ("ARM", "LEFT"): 0.5}),
 }
 TEMPLATE_ITEMS = [
 	("BIPEDAL_WALK", "Bipedal Walk", "Legs only, alternating"),
@@ -103,7 +104,7 @@ def GenerateTemplate(armature_obj: bpy.types.Object, context: bpy.types.Context,
 
 	# Register the cycle
 	cycle = armature.rylogic_rig.cycles.add()
-	cycle.name, cycle.family, cycle.action = template.name, template.family, action
+	cycle.name, cycle.family, cycle.action, cycle.hip_height = template.name, template.family, action, template.hip_height
 	armature.rylogic_rig.active_cycle = len(armature.rylogic_rig.cycles) - 1
 	return action
 

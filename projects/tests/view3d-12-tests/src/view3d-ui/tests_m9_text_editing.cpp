@@ -281,7 +281,8 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT(ValueOf(ctx, 2) == "two three");
 	}
 
-	PRUnitTest(SelectAllCutAndPasteRoundTripThroughTheClipboard, Quick)
+	// Serial because the OS clipboard is shared by the whole process
+	PRUnitTest(SelectAllCutAndPasteRoundTripThroughTheClipboard, Quick | Serial)
 	{
 		auto runtime = Runtime{};
 		auto device = FakeDevice{};
@@ -701,7 +702,8 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT((found->state_flags & static_cast<std::uint32_t>(ESemanticState::Protected)) != 0);
 	}
 
-	PRUnitTest(MaskedTextBoxBlocksCopyCutButAllowsPasteAndRealProposals, Quick)
+	// Serial because the OS clipboard is shared by the whole process
+	PRUnitTest(MaskedTextBoxBlocksCopyCutButAllowsPasteAndRealProposals, Quick | Serial)
 	{
 		auto runtime = Runtime{};
 		auto device = FakeDevice{};

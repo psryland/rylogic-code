@@ -135,6 +135,8 @@ class RYLOGIC_PG_GaitCycle(PropertyGroup):
 
 	action: PointerProperty(name="Action", type=bpy.types.Action, description="The cycle's action. Its frame range covers exactly one cycle")
 	family: StringProperty(name="Family", default="quadruped", description="The group of cycles that share a stance and walking limbs, e.g. 'bipedal' or 'quadruped'")
+	use_export: BoolProperty(name="Export", default=True, description="Include the cycle in the '.gait'. Turn off to keep an unfinished cycle without validating or exporting it")
+	hip_height: FloatProperty(name="Hip Height", default=0.5, min=0.05, max=1.0, description="The height at which the legs carry the hip joints above the ground, as a fraction of the legs' reach, e.g. 0.5 for a crouching quadruped or 0.9 for an upright biped. The runtime sets the body's height from this, not from the action's poses")
 
 
 class RYLOGIC_PG_Rig(PropertyGroup):
@@ -144,6 +146,8 @@ class RYLOGIC_PG_Rig(PropertyGroup):
 	active_chain: IntProperty(name="Active Chain", default=0, update=_OnActiveChainChanged, description="The chain shown below. Selecting a chain selects its bones")
 	contacts: CollectionProperty(name="Contacts", type=RYLOGIC_PG_RigContact)
 	active_contact: IntProperty(name="Active Contact", default=0)
+	body_axis_from: StringProperty(name="Body Axis From", description="The bone whose head is the rear end of the body axis, e.g. the hips. The collision capsule's axis passes through both bone heads")
+	body_axis_to: StringProperty(name="Body Axis To", description="The bone whose head is the front end of the body axis, e.g. the neck. The collision capsule's axis passes through both bone heads")
 	show_overlay: BoolProperty(name="Show Overlay", default=True, description="Draw joint limits, poles, facing directions and contacts in the viewport")
 	show_limits: BoolProperty(name="Limits", default=True, description="Draw each joint's swing (orange) and twist (yellow) limits. A bone outside its limit is drawn in red even when this is off")
 	show_poles: BoolProperty(name="Poles", default=True, description="Draw the outward bend direction (magenta) of each leg and arm chain")

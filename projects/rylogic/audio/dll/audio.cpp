@@ -165,6 +165,7 @@ BOOL APIENTRY DllMain(HMODULE instance, DWORD reason, LPVOID)
 		case DLL_PROCESS_ATTACH:
 		{
 			g_hInstance = instance;
+			pr::ApplyAssertReportingFromEnvironment();
 			break;
 		}
 		case DLL_PROCESS_DETACH:

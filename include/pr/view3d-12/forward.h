@@ -68,6 +68,7 @@
 #include "pr/common/alloca.h"
 #include "pr/common/allocator.h"
 #include "pr/common/assert.h"
+#include "pr/common/assert_reporting.h"
 #include "pr/common/bstr_t.h"
 #include "pr/common/build_options.h"
 #include "pr/common/cast.h"

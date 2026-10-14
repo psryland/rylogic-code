@@ -3451,7 +3451,9 @@ namespace Rylogic.UnitTests
 		}
 	}
 
+	// Serial because View3d is a single-threaded process singleton, shared with other fixtures that use it.
 	[TestFixture]
+	[TestFlags(EUnitTestFlags.Serial)]
 	public class TestLdrawBulderBinary
 	{
 		[Test]

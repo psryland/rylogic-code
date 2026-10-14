@@ -233,10 +233,13 @@ namespace pr::physics::tests
 				PR_EXPECT(FEqlAbsolute(replay_contact.Point(), seed_contact.Point(), 1.0e-6f));
 				PR_EXPECT(FEqlAbsolute(body.O2W().pos, contact_o2w.pos, 1.0e-6f));
 				auto const velocity = body.VelocityWS();
-				auto const friction_limit = accepted_normal * 0.3f / (1.000001f - 0.3f);
-				log_stream() << std::format("Mixed preload: initial vn={:g}, expected accepted Jn={:g}, final vx={:g}, final vz={:g}, angular speed={:g}, local point delta={:g}\n",
-					normal_velocity, accepted_normal, velocity.lin.x, velocity.lin.z, Length(velocity.ang), Length(replay_contact.Point() - seed_contact.Point()));
-				PR_EXPECT(FEqlAbsolute(velocity.lin.z, normal_velocity + accepted_normal, 2.0e-5f));
+
+				// The solver iteration withdraws any accepted support that leaves the bodies separating, but never more than the accepted preload.
+				auto const retained_normal = accepted_normal - Min(Max(normal_velocity + accepted_normal, 0.0f), accepted_normal);
+				auto const friction_limit = retained_normal * 0.3f / (1.000001f - 0.3f);
+				log_stream() << std::format("Mixed preload: initial vn={:g}, expected accepted Jn={:g}, retained Jn={:g}, final vx={:g}, final vz={:g}, angular speed={:g}, local point delta={:g}\n",
+					normal_velocity, accepted_normal, retained_normal, velocity.lin.x, velocity.lin.z, Length(velocity.ang), Length(replay_contact.Point() - seed_contact.Point()));
+				PR_EXPECT(FEqlAbsolute(velocity.lin.z, normal_velocity + retained_normal, 2.0e-5f));
 				PR_EXPECT(FEqlAbsolute(velocity.lin.x, 1 - friction_limit, 2.0e-5f));
 				if (accepted_normal == 0)
 				{
@@ -298,6 +301,93 @@ namespace pr::physics::tests
 			PR_EXPECT(max_late_speed < 0.05f);
 			PR_EXPECT(max_late_slip < 0.05f);
 			PR_EXPECT(Abs(Dot3(body.O2W().pos - start, uphill)) < 0.05f);
+		}
+	};
+
+	// A bounded horizontal velocity motor must carry a sliding capsule across a slope in every direction.
+	PRUnitTestClass(SlopeVelocityMotorTests)
+	{
+		// The motor force far exceeds friction plus the downhill weight component, so each drive direction reaches its target on shallow and steep slopes.
+		// The result must not depend on the solver iteration count, because extra iterations must not build up extra contact impulse.
+		PRUnitTestMethod(UprightCapsuleReachesDriveVelocity, Extended)
+		{
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			engine.Terrain(std::nullopt);
+			engine.CylindricalBoundary(std::nullopt);
+
+			// An upright capsule with its lower cap at the body origin, matching a walking character.
+			auto const radius = 0.25f;
+			auto const height = 0.8f;
+			auto const mass = 90.0f;
+			auto const com_height = 0.5f * height;
+			auto capsule = collision::ShapeLine{height - 2 * radius, radius, m4x4::Translation(0, 0, com_height)};
+			auto const directions = std::array{v4{+1, 0, 0, 0}, v4{0, +1, 0, 0}, v4{-1, 0, 0, 0}, Normalise(v4{1, 1, 0, 0})};
+			auto const cases = std::array{std::pair{13.0f, 8}, std::pair{13.0f, 32}, std::pair{35.0f, 8}};
+			for (auto const& [slope_degrees, solver_iterations] : cases)
+			{
+				// A static box tilted about the world Y axis forms the slope, rising towards +X.
+				auto const angle = DegreesToRadians(slope_degrees);
+				auto const normal = v4{-Sin(angle), 0, Cos(angle), 0};
+				auto const uphill = v4{Cos(angle), 0, Sin(angle), 0};
+				auto ground_shape = collision::ShapeBox{v4{200, 200, 2, 0}};
+				auto ground = RigidBody{&ground_shape, m4x4{uphill, v4::YAxis(), normal, v4::Origin() - normal}, Inertia::Infinite()};
+
+				for (auto const speed : {1.5f, 2.5f})
+				{
+					for (auto const& direction : directions)
+					{
+						// Reset the engine with the iteration count under test.
+						ResetEngineForNextTest(engine);
+						engine.Material(Material{.m_friction_static = 0.3f, .m_elasticity_norm = 0.05f, .m_elasticity_tang = 0, .m_elasticity_tors = 0, .m_density = 1});
+						auto config = EngineConfig{};
+						config.solver_iterations = solver_iterations;
+						engine.Config(config);
+
+						// Rest the lower cap on the slope at the origin, upright, with no initial motion.
+						auto body = RigidBody{};
+						body.Shape(collision::shape_cast(&capsule), mass, false);
+						body.O2W(m4x4::Translation(v4::Origin() + radius * normal - v4{0, 0, radius, 0}));
+						auto bodies = std::array<RigidBody*, 2>{&body, &ground};
+
+						// Posture constraint: world X/Y velocity motors at the centre of mass, free vertical motion, locked tilt and driven yaw.
+						auto desc = D6ConstraintDesc{};
+						desc.m_frame_b.m_body = BodyRef::Rigid(body);
+						desc.m_frame_b.m_constraint_to_body = m4x4::Translation(0, 0, com_height);
+						for (int axis = 0; axis != 2; ++axis)
+						{
+							desc.m_linear[axis].m_mode = EConstraintAxisMode::Driven;
+							desc.m_linear[axis].m_target_velocity = speed * direction[axis];
+							desc.m_linear[axis].m_max_force = 3000.0f;
+						}
+						desc.m_linear[2].m_mode = EConstraintAxisMode::Free;
+						desc.m_angular[0].m_mode = EConstraintAxisMode::Locked;
+						desc.m_angular[1].m_mode = EConstraintAxisMode::Locked;
+						desc.m_angular[2].m_mode = EConstraintAxisMode::Driven;
+						desc.m_angular[2].m_max_force = 400.0f;
+						auto constraints = ConstraintSet{};
+						constraints.Add(desc);
+
+						// Measure the steady horizontal velocity error after the motor has had time to accelerate the body.
+						auto max_error = 0.0f;
+						auto min_speed = std::numeric_limits<float>::infinity();
+						for (int tick = 0; tick != 90; ++tick)
+						{
+							body.GravityWS(v4{0, 0, -9.81f, 0});
+							engine.Step(Engine::StepInput{.m_bodies = bodies, .m_constraints = &constraints, .m_elapsed_seconds = 1.0f / 60, .m_substep_count = 4, .m_time_s = tick / 60.0});
+							auto const velocity = body.VelocityWS().lin;
+							auto const horizontal = v4{velocity.x, velocity.y, 0, 0};
+							if (tick >= 30)
+							{
+								max_error = Max(max_error, Length(horizontal - speed * direction));
+								min_speed = Min(min_speed, Length(horizontal));
+							}
+						}
+						log_stream() << std::format("slope motor slope={:g} iterations={} dir=({:g},{:g}) speed={:g}: max error={:.4f} min speed={:.4f}\n", slope_degrees, solver_iterations, direction.x, direction.y, speed, max_error, min_speed);
+						PR_EXPECT(max_error < 0.05f);
+					}
+				}
+			}
 		}
 	};
 }

@@ -14,6 +14,16 @@
 
 using namespace pr::view3d::ui;
 
+// DLL entry point. Applies the process's assert reporting choice when first loaded.
+BOOL APIENTRY DllMain(HINSTANCE, DWORD reason, LPVOID)
+{
+	// Only process attach needs handling.
+	if (reason == DLL_PROCESS_ATTACH)
+		pr::ApplyAssertReportingFromEnvironment();
+
+	return TRUE;
+}
+
 namespace
 {
 	thread_local std::string g_last_error;

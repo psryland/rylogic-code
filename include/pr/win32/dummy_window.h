@@ -39,7 +39,6 @@ namespace pr
 				auto cp = reinterpret_cast<LPCREATESTRUCT>(lparam);
 				self = reinterpret_cast<DummyWindow*>(cp->lpCreateParams);
 				SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LPARAM>(self));
-				self->m_hwnd = hwnd;
 			} 
 			else
 			{
@@ -56,41 +55,36 @@ namespace pr
 			:m_hinstance(hinstance ? hinstance : GetModuleHandleW(nullptr))
 			,m_hwnd()
 		{
-			try
+			// Nothing needs releasing if this throws: a failed registration creates no window, and a failed creation leaves 'm_hwnd' null.
+
+			// Register a window class for the dummy window
+			WNDCLASSEXW wc = {sizeof(WNDCLASSEXW)};
+			auto atom = ATOM(::GetClassInfoExW(m_hinstance, DummyWndClassName, &wc));
+			if (atom == 0)
 			{
-				// Register a window class for the dummy window
-				WNDCLASSEXW wc = {sizeof(WNDCLASSEXW)};
-				auto atom = ATOM(::GetClassInfoExW(m_hinstance, DummyWndClassName, &wc));
+				// RegisterClass only sets last error if there is actually an error
+				SetLastError(S_OK);
+
+				wc.style         = 0;
+				wc.cbClsExtra    = 0;
+				wc.cbWndExtra    = 0;
+				wc.hInstance     = m_hinstance;
+				wc.hIcon         = nullptr;
+				wc.hIconSm       = nullptr;
+				wc.hCursor       = nullptr;
+				wc.hbrBackground = nullptr;
+				wc.lpszMenuName  = nullptr;
+				wc.lpfnWndProc   = &StaticWndProc;
+				wc.lpszClassName = DummyWndClassName;
+				atom = ATOM(::RegisterClassExW(&wc));
 				if (atom == 0)
-				{
-					// RegisterClass only sets last error if there is actually an error
-					SetLastError(S_OK);
-
-					wc.style         = 0;
-					wc.cbClsExtra    = 0;
-					wc.cbWndExtra    = 0;
-					wc.hInstance     = m_hinstance;
-					wc.hIcon         = nullptr;
-					wc.hIconSm       = nullptr;
-					wc.hCursor       = nullptr;
-					wc.hbrBackground = nullptr;
-					wc.lpszMenuName  = nullptr;
-					wc.lpfnWndProc   = &StaticWndProc;
-					wc.lpszClassName = DummyWndClassName;
-					atom = ATOM(::RegisterClassExW(&wc));
-					if (atom == 0)
-						throw std::runtime_error(HrMsg(GetLastError()).c_str());
-				}
-
-				::CreateWindowExW(0, (LPCWSTR)MAKEINTATOM(atom), L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, m_hinstance, this);
-				if (m_hwnd == nullptr)
 					throw std::runtime_error(HrMsg(GetLastError()).c_str());
 			}
-			catch (std::exception const&)
-			{
-				this->~DummyWindow();
-				throw;
-			}
+
+			// Take the handle only from a successful creation. Creation can fail after WM_NCCREATE, and the system has then already destroyed the window.
+			m_hwnd = ::CreateWindowExW(0, (LPCWSTR)MAKEINTATOM(atom), L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, m_hinstance, this);
+			if (m_hwnd == nullptr)
+				throw std::runtime_error(HrMsg(GetLastError()).c_str());
 		}
 		DummyWindow(DummyWindow&&) = delete;
 		DummyWindow(DummyWindow const&) = delete;

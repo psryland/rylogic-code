@@ -31,6 +31,7 @@
 #define MEMPOOL_H
 
 #include <new>
+#include <utility>
 #include "pr/meta/if.h"
 #include "pr/meta/is_pod.h"
 #include "pr/common/assert.h"
@@ -60,7 +61,19 @@ namespace pr
 		MemPool(uint32_t estimated_size = 1);
 		MemPool(const MemPool<T>& copy);
 		~MemPool();
-		MemPool<T>& operator = (const MemPool<T>& copy) { this->~MemPool(); return *new (this) MemPool<T>(copy); }
+		MemPool<T>& operator = (const MemPool<T>& copy)
+		{
+			// Build the copy first so a failed allocation leaves this pool unchanged, then swap so the temporary frees the old blocks.
+			// The semaphore is not swapped because it guards this object, not its contents.
+			auto temp = MemPool<T>(copy);
+			std::swap(m_block_list, temp.m_block_list);
+			std::swap(m_object_list, temp.m_object_list);
+			std::swap(m_objects_per_block, temp.m_objects_per_block);
+			std::swap(m_allocated_objects, temp.m_allocated_objects);
+			std::swap(m_free_objects, temp.m_free_objects);
+			std::swap(m_block_ptr, temp.m_block_ptr);
+			return *this;
+		}
 
 		T*	 Get();
 		void Return(T* object);

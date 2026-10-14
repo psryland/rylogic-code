@@ -57,7 +57,7 @@ BOOL APIENTRY DllMain(HINSTANCE hInstance, DWORD ul_reason_for_call, LPVOID)
 {
 	switch (ul_reason_for_call)
 	{
-	case DLL_PROCESS_ATTACH: g_hInstance = hInstance; break;
+	case DLL_PROCESS_ATTACH: g_hInstance = hInstance; pr::ApplyAssertReportingFromEnvironment(); break;
 	case DLL_PROCESS_DETACH: g_hInstance = nullptr; break;
 	case DLL_THREAD_ATTACH:  break;
 	case DLL_THREAD_DETACH:  break;

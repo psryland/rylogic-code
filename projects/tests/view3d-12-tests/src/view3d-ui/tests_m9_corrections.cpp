@@ -309,7 +309,8 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT(SemanticOf(engine, 2).Value() == "A\u00A0");
 	}
 
-	PRUnitTest(CaretOnlyKeystrokesInvalidateWithoutProposingATextChange, Quick)
+	// Serial because Ctrl+C writes to the OS clipboard, which is shared by the whole process
+	PRUnitTest(CaretOnlyKeystrokesInvalidateWithoutProposingATextChange, Quick | Serial)
 	{
 		// B5: moving or selecting must repaint, because the caret and selection are drawn, but must
 		// never look like an edit to the application.

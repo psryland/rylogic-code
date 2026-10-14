@@ -72,6 +72,7 @@
 #include <uiautomation.h>
 
 // win32::LoadDll<Tag> is used by the eager dynamic facade (view3d-ui.h) to resolve view3d-ui.dll.
+#include "pr/common/assert_reporting.h"
 #include "pr/win32/win32.h"
 
 namespace pr::view3d::ui

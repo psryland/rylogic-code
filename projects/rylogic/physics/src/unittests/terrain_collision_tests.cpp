@@ -593,9 +593,12 @@ namespace pr::physics::tests
 					peak_spin = std::max(peak_spin, Length(body.VelocityWS().ang));
 					PR_EXPECT(peak < 0.01);
 				}
-				PR_EXPECT(peak_spin > 40);
+				// The wall impact alone can spin the sphere by at most mu * m * (1 + e) * v_n * r / I, because friction is bounded by the normal impulse.
+				// Expect friction to deliver most of that limit, which shows the wall converts the fast vertical slip into rotation.
+				auto const impact_spin_limit = 0.3f * 1.0f * (1 + 0.05f) * 20 * 0.5f / (0.4f * 1.0f * 0.5f * 0.5f);
+				log_stream() << std::format("Cylinder friction azimuth={:.0f} completed=60 peak_spin={:g} impact_spin_limit={:g} peak_overlap={:g} radial_speed={:g}\n", degrees, peak_spin, impact_spin_limit, peak, Dot(body.VelocityWS().lin, radial));
+				PR_EXPECT(peak_spin > 0.9f * impact_spin_limit);
 				PR_EXPECT(Dot(body.VelocityWS().lin, radial) < 1);
-				log_stream() << std::format("Cylinder friction azimuth={:.0f} completed=60 peak_spin={:g} peak_overlap={:g}\n", degrees, peak_spin, peak);
 			}
 		}
 	};

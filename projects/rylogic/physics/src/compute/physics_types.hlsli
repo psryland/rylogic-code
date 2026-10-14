@@ -317,7 +317,7 @@ struct GpuResolveContact
 	int child_idx_a;        // Leaf index within body A's compound shape (0 for a single-shape body)
 	float4 warmstart_impulse; // Accumulated physical impulse from the velocity solver, in body A space.
 	int child_idx_b;        // Leaf index within body B's compound shape (0 for a single-shape body)
-	int pad1;
+	float approach_speed;   // Pre-solve normal relative speed at the centroid (negative = closing). Written by CSComputeCollisionTimes; drives restitution.
 	int pad2;
 	int pad3;
 	float4 friction_impulses[GpuContactMaxPoints]; // Per-point physical tangent accumulators for this solve; not replayed across contact frames.

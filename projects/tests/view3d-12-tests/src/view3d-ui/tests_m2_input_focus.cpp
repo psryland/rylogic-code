@@ -211,7 +211,8 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT(text == "a");
 	}
 
-	PRUnitTest(InputTextBoxCtrlAThenCtrlCThenCtrlVRoundTripsSelectionThroughClipboard, Quick)
+	// Serial because the OS clipboard is shared by the whole process
+	PRUnitTest(InputTextBoxCtrlAThenCtrlCThenCtrlVRoundTripsSelectionThroughClipboard, Quick | Serial)
 	{
 		auto runtime = Runtime{};
 		auto device = FakeDevice{};

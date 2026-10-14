@@ -5,7 +5,7 @@
 // A '.rig' file is a JSON rig description. Bones, chains and contacts refer to bones by name. Angles are in radians and lengths are in model units.
 //
 //  {
-//    "schema_version": 2,
+//    "schema_version": 3,
 //    "bones": [{
 //      "name": "thigh.L",
 //      "parent": "hips",                 // or null for a root bone
@@ -32,7 +32,11 @@
 //      "kind": "sole" | "toe" | "palm" | "finger" | "tail",
 //      "offset": [x, y, z],              // bone-space point
 //      "normal": [x, y, z]               // bone-space outward surface direction
-//    }]
+//    }],
+//    "body_axis": {                      // the line from the head of bone 'from' to the head of bone 'to' that a body collision shape follows
+//      "from": "hips",
+//      "to": "neck"
+//    }
 //  }
 #pragma once
 #include "pr/animation/forward.h"
@@ -41,7 +45,7 @@
 namespace pr::animation
 {
 	// The '.rig' schema version that this code reads and writes
-	inline constexpr int RigSchemaVersion = 2;
+	inline constexpr int RigSchemaVersion = 3;
 
 	namespace rig_json
 	{
@@ -261,6 +265,13 @@ namespace pr::animation
 				.kind = ParseEnum<EContactKind>(ReadString(Member(obj, "kind", context), context + ".kind"), ContactKindNames, context + ".kind"),
 			});
 		}
+
+		// Read the body axis
+		auto const& body_axis = ReadObject(Member(root, "body_axis", "rig"), "rig.body_axis");
+		desc.body_axis = BodyAxis{
+			.from = bone_index(Member(body_axis, "from", "rig.body_axis"), "rig.body_axis.from"),
+			.to = bone_index(Member(body_axis, "to", "rig.body_axis"), "rig.body_axis.to"),
+		};
 		return desc;
 	}
 
@@ -351,6 +362,12 @@ namespace pr::animation
 			});
 		}
 		root["contacts"] = std::move(contacts);
+
+		// Write the body axis
+		root["body_axis"] = json::Object{
+			{ "from", desc.bones[desc.body_axis.from].name },
+			{ "to", desc.bones[desc.body_axis.to].name },
+		};
 		return doc;
 	}
 
@@ -416,6 +433,7 @@ namespace pr::animation::tests
 				auto const& r = desc.contacts[i];
 				PR_EXPECT(l.name == r.name && l.bone == r.bone && l.kind == r.kind && FEql(l.offset, r.offset) && FEql(l.normal, r.normal));
 			}
+			PR_EXPECT(read.body_axis.from == desc.body_axis.from && read.body_axis.to == desc.body_axis.to);
 		}
 		PRUnitTestMethod(SchemaErrors, Quick)
 		{
@@ -440,11 +458,12 @@ namespace pr::animation::tests
 					PR_EXPECT(std::string_view(ex.what()).find(field) != std::string_view::npos);
 				}
 			};
-			expect_error("\"schema_version\": 2", "\"schema_version\": 1", "schema_version");
+			expect_error("\"schema_version\": 3", "\"schema_version\": 2", "schema_version");
 			expect_error("\"parent\": \"root\"", "\"parent\": \"nobody\"", "rig.bones[1].parent");
 			expect_error("\"role\": \"spine\"", "\"role\": \"wing\"", "rig.chains[0].role");
 			expect_error("\"kind\": \"sole\"", "\"kind\": \"hoof\"", "rig.contacts[0].kind");
 			expect_error("\"twist\"", "\"spin\"", "rig.bones[14].limit");
+			expect_error("\"to\": \"neck\"", "\"to\": \"nobody\"", "rig.body_axis.to");
 		}
 	};
 }

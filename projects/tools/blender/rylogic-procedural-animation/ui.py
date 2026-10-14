@@ -30,8 +30,10 @@ class RYLOGIC_UL_rig_cycles(UIList):
 	"""Lists an armature's movement cycles."""
 
 	def draw_item(self, context, layout, data, item, icon, active_data, active_property, index):
-		# Show the editable name with its family and action
+		# Show the export toggle and the editable name with its family and action. Unexported cycles are greyed out.
 		row = layout.row()
+		row.active = item.use_export
+		row.prop(item, "use_export", text="")
 		row.prop(item, "name", text="", emboss=False, icon="ANIM")
 		row.label(text=f"{item.family}: {item.action.name if item.action else '(no action)'}")
 
@@ -125,6 +127,12 @@ class RYLOGIC_PT_rig(Panel):
 			box.prop_search(contact, "bone", armature, "bones")
 			box.prop(contact, "kind")
 
+		# The body axis that the collision capsule follows
+		layout.label(text="Body Axis")
+		box = layout.box()
+		box.prop_search(rig, "body_axis_from", armature, "bones", text="From")
+		box.prop_search(rig, "body_axis_to", armature, "bones", text="To")
+
 		# Movement cycles: example actions that guide the runtime's procedural locomotion, exported as a '.gait'
 		layout.label(text="Movement Cycles")
 		row = layout.row()
@@ -138,6 +146,7 @@ class RYLOGIC_PT_rig(Panel):
 			box = layout.box()
 			box.prop(cycle, "family")
 			box.prop(cycle, "action")
+			box.prop(cycle, "hip_height")
 
 		# Hold planted feet still while the body moves over them
 		layout.prop(rig, "pin_live", icon="PINNED", toggle=True)

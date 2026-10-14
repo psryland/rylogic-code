@@ -119,11 +119,6 @@ extern "C"
 }
 int main(int argc, char* argv[])
 {
-	#if defined(_MSC_VER) && defined(_DEBUG)
-	_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
-	_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
-	#endif
-
 	// Parse the test selection options, rejecting invalid arguments before running anything.
 	auto options = pr::unittests::UnitTestOptions{};
 	if (!pr::unittests::TryParseUnitTestCommandLine(std::span{argv + 1, static_cast<std::size_t>(argc - 1)}, options, std::cerr))
