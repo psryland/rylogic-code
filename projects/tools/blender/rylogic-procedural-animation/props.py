@@ -137,6 +137,7 @@ class RYLOGIC_PG_GaitCycle(PropertyGroup):
 	family: StringProperty(name="Family", default="quadruped", description="The group of cycles that share a stance and walking limbs, e.g. 'bipedal' or 'quadruped'")
 	use_export: BoolProperty(name="Export", default=True, description="Include the cycle in the '.gait'. Turn off to keep an unfinished cycle without validating or exporting it")
 	hip_height: FloatProperty(name="Hip Height", default=0.5, min=0.05, max=1.0, description="The height at which the legs carry the hip joints above the ground, as a fraction of the legs' reach, e.g. 0.5 for a crouching quadruped or 0.9 for an upright biped. The runtime sets the body's height from this, not from the action's poses")
+	spine_sway: FloatProperty(name="Spine Sway", default=0.25, min=0.0, max=1.5, subtype='ANGLE', description="The angle by which the hips and shoulders turn with the walking limbs, so that each limb's side moves forward as its foot lands, e.g. 0.1 rad for an upright biped or 0.3 rad for a lizard. The runtime adds this to the action's own spine motion")
 
 
 class RYLOGIC_PG_Rig(PropertyGroup):

@@ -19,7 +19,7 @@ from mathutils import Matrix, Quaternion, Vector
 
 from .rig_desc import BonesParentFirst, ModelSpace
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # The number of harmonics in each bone motion
 HARMONICS = 2
@@ -89,7 +89,7 @@ def BuildGaitDesc(armature_obj: bpy.types.Object, context: bpy.types.Context) ->
 	# Group the exported cycles by family, keeping the order in which families first appear. Unexported cycles are not measured, so they may be unfinished.
 	space = ModelSpace(armature_obj)
 	limbs = WalkingLimbs(armature_obj.data)
-	families: dict[str, list[tuple[str, float, _Samples]]] = {}
+	families: dict[str, list[tuple[str, float, float, _Samples]]] = {}
 	for cycle in armature_obj.data.rylogic_rig.cycles:
 		if not cycle.use_export:
 			continue
@@ -97,13 +97,13 @@ def BuildGaitDesc(armature_obj: bpy.types.Object, context: bpy.types.Context) ->
 		if cycle.action is None:
 			raise ValueError(f"Cycle '{cycle.name}' has no action")
 
-		families.setdefault(cycle.family, []).append((cycle.name, cycle.hip_height, _SampleAction(armature_obj, context, space, cycle.action)))
+		families.setdefault(cycle.family, []).append((cycle.name, cycle.hip_height, cycle.spine_sway, _SampleAction(armature_obj, context, space, cycle.action)))
 
 	# Measure each cycle, then order each family's cycles by speed. The family's stance is the mean pose of its slowest cycle, the nearest to standing.
 	out: list[dict[str, Any]] = []
 	root = _RootBone(armature_obj.data)
 	for family, cycles in families.items():
-		measured = sorted((_MeasureCycle(armature_obj.data, space, root, limbs, name, hip_height, samples) for name, hip_height, samples in cycles), key=lambda c: c[0]["speed"])
+		measured = sorted((_MeasureCycle(armature_obj.data, space, root, limbs, name, hip_height, spine_sway, samples) for name, hip_height, spine_sway, samples in cycles), key=lambda c: c[0]["speed"])
 		out.append({"name": family, "stance": measured[0][1], "cycles": [cycle for cycle, _ in measured]})
 
 	return {"schema_version": SCHEMA_VERSION, "families": out}
@@ -136,6 +136,8 @@ def ValidateGaitDesc(desc: dict[str, Any]) -> list[str]:
 				errors.append(f"{cctx} does not move the root bone forward")
 			if not 0 < cycle["hip_height"] <= 1:
 				errors.append(f"{cctx} needs a hip height in (0,1]")
+			if not 0 <= cycle["spine_sway"] < math.pi / 2:
+				errors.append(f"{cctx} needs a spine sway in [0,pi/2)")
 			if not cycle["footfalls"]:
 				errors.append(f"{cctx} has no planted feet")
 			if [(f["role"], f["side"]) for f in cycle["footfalls"]] != limbs:
@@ -185,8 +187,8 @@ def _SampleAction(armature_obj: bpy.types.Object, context: bpy.types.Context, sp
 	return _Samples(frames=end - start, fps=scene.render.fps / scene.render.fps_base, model=model)
 
 
-def _MeasureCycle(armature: bpy.types.Armature, space: ModelSpace, root: str, limbs: list[_Limb], name: str, hip_height: float, samples: _Samples) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-	"""Measure one sampled cycle, which carries the hips at 'hip_height' (see the cycle property). Returns its '.gait' cycle and the stance of its mean pose.
+def _MeasureCycle(armature: bpy.types.Armature, space: ModelSpace, root: str, limbs: list[_Limb], name: str, hip_height: float, spine_sway: float, samples: _Samples) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+	"""Measure one sampled cycle, which carries the hips at 'hip_height' and sways the spine by 'spine_sway' (see the cycle properties). Returns its '.gait' cycle and the stance of its mean pose.
 
 	Raises ValueError if the root bone does not move forward, or if the cycle does not loop (see '_CheckLoops').
 	"""
@@ -265,7 +267,7 @@ def _MeasureCycle(armature: bpy.types.Armature, space: ModelSpace, root: str, li
 		if _Amplitude(harmonics) >= MIN_ROTATION_AMPLITUDE:
 			motion.append({"bone": bone.name, "channel": "rotation", "harmonics": harmonics})
 
-	cycle = {"name": name, "speed": speed, "stride": stride, "swing_height": swing_height, "hip_height": hip_height, "footfalls": footfalls, "motion": motion}
+	cycle = {"name": name, "speed": speed, "stride": stride, "swing_height": swing_height, "hip_height": hip_height, "spine_sway": spine_sway, "footfalls": footfalls, "motion": motion}
 	return cycle, stance
 
 

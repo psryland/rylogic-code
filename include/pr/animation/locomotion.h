@@ -13,7 +13,9 @@
 //    actual speed, so the movement is never a playback of the authored cycles.
 //  - The pelvis and chest follow the height of the ground under the hind and fore feet, so the body pitches on slopes. The cycles' hip height
 //    sets how high the legs carry the body above the ground, blended by speed.
-//  - Neck chains turn to look at a world point, fading in and out.
+//  - The pelvis and chest turn about the up axis in time with the legs and arms by the cycles' spine sway, so the spine bends from side to
+//    side as the limbs step. While the body turns, the chest leads into the turn and the pelvis trails it.
+//  - Neck chains turn to look at a world point, fading in and out. A level look turns the head only about the body's up axis.
 //  - Tail chains take their shape from the guide and are lifted out of the ground.
 //  - A body that stays unsupported falls with its walking limbs spread out from the body, and they swing down to the ground when it lands.
 //
@@ -82,6 +84,16 @@ namespace pr::animation
 		Air,
 	};
 
+	// How the neck chains face a look point
+	enum class ELook
+	{
+		// Face the point directly
+		Point,
+
+		// Turn only about the body's up axis towards the point, keeping the head's pitch from the guide pose
+		Level,
+	};
+
 	// The state of one limb that walks in at least one family. Frames are world-space transforms of the limb's end bone.
 	struct LimbState
 	{
@@ -132,8 +144,10 @@ namespace pr::animation
 			, m_prev_family(0)
 			, m_family_weight(1.0f)
 			, m_gait_speed(0.0f)
+			, m_turn_rate(0.0f)
 			, m_look(v4::Origin())
 			, m_look_weight(0.0f)
+			, m_look_mode(ELook::Point)
 			, m_phase(0.0f)
 			, m_unsupported_s(0.0f)
 			, m_fall(0.0f)
@@ -246,12 +260,15 @@ namespace pr::animation
 			UseStance(m_family);
 		}
 
-		// Turn the neck chains towards 'world_point', or back to rest if it is empty, over 'fade_s' seconds (> 0)
-		void SetLook(std::optional<v4> world_point, float fade_s)
+		// Turn the neck chains towards 'world_point' in the manner of 'mode', or back to rest if it is empty, over 'fade_s' seconds (> 0)
+		void SetLook(std::optional<v4> world_point, float fade_s, ELook mode = ELook::Point)
 		{
-			// Fading out keeps the last point so that the head turns back along the same path
+			// Fading out keeps the last point and mode so that the head turns back along the same path
 			if (world_point)
+			{
 				m_look = *world_point;
+				m_look_mode = mode;
+			}
 
 			m_look_weight.Start(world_point ? 1.0f : 0.0f, fade_s);
 		}
@@ -291,6 +308,7 @@ namespace pr::animation
 
 			// The cycle blend and the body motion follow a smoothed speed, so that footfall timing and body motion change gradually
 			m_gait_speed += ((moving ? speed : 0.0f) - m_gait_speed) * std::min(dt / BodyResponse, 1.0f);
+			m_turn_rate += (Dot(body.angular_velocity, m_up) - m_turn_rate) * std::min(dt / BodyResponse, 1.0f);
 
 			// Blend the limbs' support and timing towards the chosen family
 			m_family_weight.Step(dt);
@@ -361,6 +379,10 @@ namespace pr::animation
 		// The seconds that the limbs take to spread out once airborne, or to fold back in on landing
 		static constexpr float FallResponse = 0.3f;
 
+		// The seconds of turning by which the chest leads into a turn and the pelvis trails it, and the largest angle (radians) of each
+		static constexpr float SpineLeadTime = 0.25f;
+		static constexpr float MaxSpineLead = 0.5f;
+
 		// A bone motion with its bone index resolved
 		struct BoneTrack
 		{
@@ -425,8 +447,10 @@ namespace pr::animation
 		int m_prev_family;          // The family being blended from
 		Fade m_family_weight;       // From the previous family (0) to the current family (1)
 		float m_gait_speed;         // The smoothed speed that selects cycles and scales body motion
+		float m_turn_rate;          // The smoothed rate of turning about the body's up direction, in radians per second
 		v4 m_look;                  // World-space look point
 		Fade m_look_weight;         // How strongly the necks face 'm_look'
+		ELook m_look_mode;          // How the necks face 'm_look'
 		float m_phase;              // The step cycle position in [0,1)
 		float m_unsupported_s;      // How long the body has been continuously unsupported, in seconds
 		float m_fall;               // In [0,1]. How far the limbs are spread out for falling.
@@ -571,6 +595,15 @@ namespace pr::animation
 			auto b = Bracket(family, m_gait_speed);
 			auto hip_height = Lerp(family.cycles[b.lo].hip_height, family.cycles[b.hi].hip_height, b.t);
 			return (hip_height - family.cycles.front().hip_height) * m_leg_reach;
+		}
+
+		// The spine sway angle (radians) of family 'f' at the current speed
+		float SpineSway(int f) const
+		{
+			// Blend between the cycles either side of the smoothed speed
+			auto const& family = m_gait.families[f];
+			auto b = Bracket(family, m_gait_speed);
+			return Lerp(family.cycles[b.lo].spine_sway, family.cycles[b.hi].spine_sway, b.t);
 		}
 
 		// Blend each limb's support between the previous and current families, and take its timing from the family that it walks in
@@ -922,7 +955,8 @@ namespace pr::animation
 			}
 		}
 
-		// Raise or lower the guide's pelvis and chest by the height of the ground under the hind and fore feet, pitching the body between them
+		// Raise or lower the guide's pelvis and chest by the height of the ground under the hind and fore feet, pitching the body between them, and
+		// turn them about the up axis with the walking limbs and into turns
 		void StepSpine(float dt, xform const& world_to_model)
 		{
 			// Hind feet are legs and fore feet are arms. With only one group, the body moves without pitching.
@@ -959,8 +993,43 @@ namespace pr::animation
 			auto const& chest0 = m_guide_targets[m_spine].frame;
 			auto span = chest0.pos - pelvis0.pos;
 			auto pitch = quat(Normalise(span), Normalise(span + v4::ZAxis() * (fore - hind)));
-			m_targets[m_spine].base = xform(pelvis0.pos + v4::ZAxis() * hind, Normalise(pitch * pelvis0.rot));
-			m_targets[m_spine].frame = xform(chest0.pos + v4::ZAxis() * fore, Normalise(pitch * chest0.rot));
+
+			// Each end also turns about the up axis by its girdle's sway, and the chest leads into a turn while the pelvis trails. The ends
+			// turn about their own positions, so the spine bends between them without moving its ends.
+			auto [pelvis_yaw, chest_yaw] = GirdleSway();
+			auto lead = Clamp(m_turn_rate * SpineLeadTime, -MaxSpineLead, MaxSpineLead);
+			auto pelvis_turn = quat(v4::ZAxis(), pelvis_yaw - lead);
+			auto chest_turn = quat(v4::ZAxis(), chest_yaw + lead);
+			m_targets[m_spine].base = xform(pelvis0.pos + v4::ZAxis() * hind, Normalise(pelvis_turn * pitch * pelvis0.rot));
+			m_targets[m_spine].frame = xform(chest0.pos + v4::ZAxis() * fore, Normalise(chest_turn * pitch * chest0.rot));
+		}
+
+		// The yaw angles (radians, about model +Z) of the pelvis and the chest that swing each walking limb's root joint forward as its foot lands
+		// and back as it lifts. Each limb turns its girdle by the cycles' spine sway times cos(2 pi (phase - touchdown)), in the direction that
+		// moves its side forward (-Y) at touchdown. Each girdle takes the mean over its limbs, weighted by how much each limb walks, so that
+		// a pair of limbs half a cycle apart turn it together and limbs that hang do not turn it.
+		std::pair<float, float> GirdleSway() const
+		{
+			// The sway grows with speed up to the slowest cycle's speed, like the guide's motion
+			auto w = m_family_weight.Value();
+			auto slowest = m_gait.families[m_family].cycles.front().speed;
+			auto amplitude = Lerp(SpineSway(m_prev_family), SpineSway(m_family), w) * std::min(m_gait_speed / slowest, 1.0f);
+
+			// Turning a girdle by a small angle 'a' about +Z moves a point at lateral offset 'x' by 'a * x' along Y, so a root joint on the +X
+			// side moves forward for a negative angle
+			float yaw[2] = {};
+			int count[2] = {};
+			for (auto const& limb : m_limbs)
+			{
+				auto i = limb.footfall.role == EChainRole::Leg ? 0 : 1;
+				auto side = limb.stance_contact.x > 0 ? 1.0f : limb.stance_contact.x < 0 ? -1.0f : 0.0f;
+				yaw[i] -= side * limb.support * std::cos(math::constants<float>::tau * (m_phase - limb.footfall.touchdown));
+				count[i] += 1;
+			}
+			return {
+				count[0] != 0 ? amplitude * yaw[0] / count[0] : 0.0f,
+				count[1] != 0 ? amplitude * yaw[1] / count[1] : 0.0f,
+			};
 		}
 
 		// Turn each neck from its guide aim towards the look point by the look weight
@@ -978,7 +1047,29 @@ namespace pr::animation
 
 				auto base = m_guide.model[chain.bones.front()].pos;
 				auto aim = m_guide_targets[c].frame.pos - base;
-				auto turn = Slerp(Identity<quat>(), quat(Normalise(aim), Normalise(look - base, Normalise(aim))), weight);
+				auto to = look - base;
+				auto turn = Identity<quat>();
+				switch (m_look_mode)
+				{
+					case ELook::Point:
+					{
+						// Swing the aim directly onto the look direction
+						turn = Slerp(Identity<quat>(), quat(Normalise(aim), Normalise(to, Normalise(aim))), weight);
+						break;
+					}
+					case ELook::Level:
+					{
+						// Turn about the body's up axis (model +Z) by the angle from the aim to the look direction as seen from above.
+						// The aim keeps its pitch, so the head stays as level as the guide holds it whatever the height of the point.
+						auto angle = std::atan2(aim.x * to.y - aim.y * to.x, aim.x * to.x + aim.y * to.y);
+						turn = quat(v4::ZAxis(), angle * weight);
+						break;
+					}
+					default:
+					{
+						throw std::invalid_argument("Unknown look mode");
+					}
+				}
 				m_targets[c].frame.pos = base + Rotate(turn, aim);
 			}
 		}
@@ -1346,6 +1437,83 @@ namespace pr::animation::tests
 
 			PR_EXPECT(FEqlAbsolute(loco.pose().model[chest].pos.x, 0.0f, 1e-3f));
 		}
+		PRUnitTestMethod(SpineSwaysWithLimbs, Quick)
+		{
+			// Walking straight, the pelvis turns with the leg and the chest with the arm, half a cycle apart, so they turn in opposite directions.
+			// Each girdle moves its limb's side forward when the foot lands. Standing still, the sway dies away.
+			auto rig = TestRig();
+			auto gait = TestGait();
+			auto& walk = gait.families[0].cycles[0];
+			walk.motion.clear();
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .velocity = v4(0, -walk.speed, 0, 0) };
+
+			// The pelvis and chest bones point forward (-Y), so a turn by 'a' about +Z points them along (sin a, -cos a)
+			auto yaw = [](xform const& frame)
+			{
+				auto dir = Rotate(frame.rot, v4::YAxis());
+				return std::atan2(dir.x, -dir.y);
+			};
+			for (int i = 0; i != 120; ++i)
+			{
+				body.model_to_world.pos += body.velocity * dt;
+				loco.Step(dt, body, ground);
+			}
+
+			// The leg is on the +X side and lands at phase 0; the arm lands half a cycle later
+			for (int i = 0; i != 60; ++i)
+			{
+				body.model_to_world.pos += body.velocity * dt;
+				loco.Step(dt, body, ground);
+				auto expected = walk.spine_sway * std::cos(math::constants<float>::tau * loco.phase());
+				PR_EXPECT(FEqlAbsolute(yaw(loco.targets()[0].base), -expected, 5e-3f));
+				PR_EXPECT(FEqlAbsolute(yaw(loco.targets()[0].frame), +expected, 5e-3f));
+			}
+
+			// Standing still, the sway dies away
+			body.velocity = v4::Zero();
+			for (int i = 0; i != 300; ++i)
+				loco.Step(dt, body, ground);
+
+			PR_EXPECT(FEqlAbsolute(yaw(loco.targets()[0].base), 0.0f, 1e-3f));
+			PR_EXPECT(FEqlAbsolute(yaw(loco.targets()[0].frame), 0.0f, 1e-3f));
+		}
+		PRUnitTestMethod(SpineLeadsTurns, Quick)
+		{
+			// Turning on the spot to the left (+Z), the chest turns into the turn and the pelvis away from it. They straighten once the turn stops.
+			auto rig = TestRig();
+			auto gait = TestGait();
+			for (auto& cycle : gait.families[0].cycles)
+			{
+				cycle.motion.clear();
+				cycle.spine_sway = 0.0f;
+			}
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .angular_velocity = v4(0, 0, 1.0f, 0) };
+			auto yaw = [](xform const& frame)
+			{
+				auto dir = Rotate(frame.rot, v4::YAxis());
+				return std::atan2(dir.x, -dir.y);
+			};
+			for (int i = 0; i != 120; ++i)
+			{
+				body.model_to_world.rot = Normalise(quat(v4::ZAxis(), body.angular_velocity.z * dt) * body.model_to_world.rot);
+				loco.Step(dt, body, ground);
+			}
+			PR_EXPECT(yaw(loco.targets()[0].frame) > 0.2f);
+			PR_EXPECT(yaw(loco.targets()[0].base) < -0.2f);
+
+			body.angular_velocity = v4::Zero();
+			for (int i = 0; i != 300; ++i)
+				loco.Step(dt, body, ground);
+
+			PR_EXPECT(FEqlAbsolute(yaw(loco.targets()[0].base), 0.0f, 1e-3f));
+			PR_EXPECT(FEqlAbsolute(yaw(loco.targets()[0].frame), 0.0f, 1e-3f));
+		}
 		PRUnitTestMethod(FamilyChangesWalkingLimbs, Quick)
 		{
 			// Changing from the quadruped to the bipedal family fades the arm's support out, after which it hangs in the guide pose and only
@@ -1411,6 +1579,31 @@ namespace pr::animation::tests
 				loco.Step(1.0f / 60, BodyState{}, ground);
 
 			PR_EXPECT(Dot(facing(), neck.forward) > 0.999f);
+		}
+		PRUnitTestMethod(LevelLookKeepsPitch, Quick)
+		{
+			// A level look at a point below and to the side turns the head towards it, but not down
+			auto rig = TestRig();
+			auto loco = Locomotion(rig, TestGait());
+			auto ground = TestGround();
+			auto head = rig.BoneIndex("head");
+			auto const& neck = rig.chains[1];
+			auto facing = [&]
+			{
+				// The direction the head faces, from its rotation away from rest
+				return Rotate(loco.pose().model[head].rot * ~rig.rest_model[head].rot, neck.forward);
+			};
+
+			auto look = v4(3, -1.1f, -2.0f, 1);
+			loco.SetLook(look, 0.25f, ELook::Level);
+			for (int i = 0; i != 60; ++i)
+				loco.Step(1.0f / 60, BodyState{}, ground);
+
+			// The rest facing is level (-Y), so a level look faces along the look direction seen from above
+			auto to = look - loco.pose().model[head].pos;
+			auto face = facing();
+			PR_EXPECT(Dot(face, Normalise(v4(to.x, to.y, 0, 0))) > 0.95f);
+			PR_EXPECT(std::abs(face.z) < 0.05f);
 		}
 	};
 }

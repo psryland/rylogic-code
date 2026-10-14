@@ -15,7 +15,7 @@
 // A '.gait' file is a JSON gait description:
 //
 //  {
-//    "schema_version": 3,
+//    "schema_version": 4,
 //    "families": [{
 //      "name": "quadruped",
 //      "stance": [{                        // The family's standing pose. Bones that are not listed keep their rest rotation.
@@ -29,6 +29,7 @@
 //        "stride": 0.3,                    // the distance the body moves in one cycle of the example
 //        "swing_height": 0.04,             // the height that a foot is lifted in the middle of its swing
 //        "hip_height": 0.5,                // in (0,1]. The height of the hip joints above the ground, as a fraction of the legs' reach.
+//        "spine_sway": 0.3,                // in [0,pi/2). The angle, in radians, by which the hips and shoulders swing with the walking limbs.
 //        "footfalls": [{                   // the walking limbs. Every cycle of a family has the same limbs in the same order.
 //          "role": "leg" | "arm",          // the limb is the rig chain with this role and side
 //          "side": "left" | "right",
@@ -53,6 +54,11 @@
 // The hip height sets how high the body is carried, independently of the authored poses: a crouching quadruped might use 0.5, and an upright
 // biped 0.9. The legs are the walking limbs with the "leg" role (all walking limbs if there are none). A leg's reach is its rest length from its
 // root joint to its contact, and its hip joint is the root joint of its chain.
+//
+// The spine sway turns the hips and the shoulders about the body's up axis in time with the walking limbs, so that each limb's root joint
+// moves forward as its foot lands and back as it lifts. The hips swing with the legs and the shoulders with the arms. When diagonal limbs move
+// together, the hips and shoulders swing in opposite directions and the spine bends from side to side, as in a lizard's walk. An upright
+// biped might use a small sway, so that its hips turn a little with each step.
 #pragma once
 #include "pr/animation/forward.h"
 #include "pr/animation/rig.h"
@@ -61,7 +67,7 @@
 namespace pr::animation
 {
 	// The '.gait' schema version that this code reads and writes
-	inline constexpr int GaitSchemaVersion = 3;
+	inline constexpr int GaitSchemaVersion = 4;
 
 	// The number of harmonics in each bone motion
 	inline constexpr int GaitHarmonics = 2;
@@ -108,6 +114,7 @@ namespace pr::animation
 		float stride = 0.5f;               // The distance the body moves per cycle in the example. Must be positive.
 		float swing_height = 0.05f;        // The height that a foot is lifted in the middle of its swing. Must not be negative.
 		float hip_height = 0.5f;           // In (0,1]. The height of the hip joints above the ground, as a fraction of the legs' reach.
+		float spine_sway = 0.0f;           // In [0,pi/2). The angle, in radians, by which the hips and shoulders swing with the walking limbs.
 		std::vector<Footfall> footfalls;   // The walking limbs
 		std::vector<BoneMotion> motion;    // The repeating motion of bones outside the walking limbs
 	};
@@ -242,6 +249,8 @@ namespace pr::animation
 					errors.push_back(std::format("{} must have a positive stride and a swing height that is not negative", cctx));
 				if (!(cycle.hip_height > 0 && cycle.hip_height <= 1))
 					errors.push_back(std::format("{} must have a hip height in (0,1]", cctx));
+				if (!(cycle.spine_sway >= 0 && cycle.spine_sway < math::constants<float>::tau_by_4))
+					errors.push_back(std::format("{} must have a spine sway in [0,pi/2)", cctx));
 
 				// The walking limbs must match the family's first cycle, so that cycles blend limb by limb
 				auto const& first = family.cycles[0].footfalls;
@@ -335,6 +344,7 @@ namespace pr::animation
 					.stride = ReadFloat(Member(cobj, "stride", cctx), cctx + ".stride"),
 					.swing_height = ReadFloat(Member(cobj, "swing_height", cctx), cctx + ".swing_height"),
 					.hip_height = ReadFloat(Member(cobj, "hip_height", cctx), cctx + ".hip_height"),
+					.spine_sway = ReadFloat(Member(cobj, "spine_sway", cctx), cctx + ".spine_sway"),
 				});
 
 				// Read the footfalls
@@ -433,6 +443,7 @@ namespace pr::animation
 					{ "stride", cycle.stride },
 					{ "swing_height", cycle.swing_height },
 					{ "hip_height", cycle.hip_height },
+					{ "spine_sway", cycle.spine_sway },
 					{ "footfalls", std::move(footfalls) },
 					{ "motion", std::move(motions) },
 				});
@@ -472,7 +483,7 @@ namespace pr::animation
 namespace pr::animation::tests
 {
 	// A gait for the test rig (see 'TestRigDesc'), whose stances are its rest pose:
-	//  - "quadruped": the leg and arm step half a cycle apart, in a walk and a faster trot. The walk sways the spine and bobs the root.
+	//  - "quadruped": the leg and arm step half a cycle apart, in a walk and a faster trot. The walk sways the spine and bobs the root, and both cycles swing the hips and shoulders.
 	//  - "bipedal": only the leg steps, and the arm hangs.
 	inline GaitDesc TestGait()
 	{
@@ -485,6 +496,7 @@ namespace pr::animation::tests
 			.stride = 0.5f,
 			.swing_height = 0.1f,
 			.hip_height = rest_hip_height,
+			.spine_sway = 0.2f,
 			.footfalls = {
 				Footfall{ .role = EChainRole::Leg, .side = ESide::Left, .touchdown = 0.0f, .duty = 0.75f },
 				Footfall{ .role = EChainRole::Arm, .side = ESide::Left, .touchdown = 0.5f, .duty = 0.75f },
@@ -500,6 +512,7 @@ namespace pr::animation::tests
 			.stride = 0.8f,
 			.swing_height = 0.15f,
 			.hip_height = rest_hip_height,
+			.spine_sway = 0.3f,
 			.footfalls = {
 				Footfall{ .role = EChainRole::Leg, .side = ESide::Left, .touchdown = 0.0f, .duty = 0.5f },
 				Footfall{ .role = EChainRole::Arm, .side = ESide::Left, .touchdown = 0.5f, .duty = 0.5f },
@@ -545,7 +558,7 @@ namespace pr::animation::tests
 
 			auto const& l = read.families[0].cycles[0];
 			auto const& r = gait.families[0].cycles[0];
-			PR_EXPECT(l.name == r.name && l.speed == r.speed && l.stride == r.stride && l.swing_height == r.swing_height && l.hip_height == r.hip_height);
+			PR_EXPECT(l.name == r.name && l.speed == r.speed && l.stride == r.stride && l.swing_height == r.swing_height && l.hip_height == r.hip_height && l.spine_sway == r.spine_sway);
 			PR_EXPECT(l.footfalls.size() == 2 && l.footfalls[1].role == EChainRole::Arm && l.footfalls[1].touchdown == 0.5f && l.footfalls[1].duty == 0.75f);
 			PR_EXPECT(l.motion.size() == 2 && l.motion[1].channel == EMotionChannel::Position);
 			PR_EXPECT(FEqlAbsolute(l.motion[0].harmonics[0].sin, r.motion[0].harmonics[0].sin, 1e-6f));
