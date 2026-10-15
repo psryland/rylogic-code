@@ -109,7 +109,7 @@
 
 		<!--
 		Advance the version pointer that Debug consumers restore against. Cleanup keeps this version and the one it replaces, because projects in the
-		current build restored against the replaced version before this publish happened.
+		current build restored against the replaced version before this publish happened. It also keeps versions that other checkouts' pointers name.
 		-->
 		<PublishLocalPackageVersion
 			Condition="'$(_NativePackageSynced)' == 'true'"

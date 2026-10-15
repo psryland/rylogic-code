@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -10,7 +11,7 @@ using Microsoft.Build.Utilities;
 
 // Publishes the newest immutable local package version through MSBuild props without allowing parallel builds to move the pointer backwards.
 // Callers that opt in via CleanupOldDevVersions also have older locally-cached '-dev.<timestamp>' builds of the same package removed, keeping the version
-// just published and the version it replaced.
+// just published, the version it replaced, and every version that another checkout sharing the cache still points at.
 public sealed class PublishLocalPackageVersion : Task
 {
 	private static readonly Regex s_version_pattern = new(@"(?<version>\d+\.\d+\.\d+-dev\.\d+)", RegexOptions.CultureInvariant);
@@ -57,6 +58,7 @@ public sealed class PublishLocalPackageVersion : Task
 
 	// Opt-in: once this build's version is confirmed the newest, delete locally-cached '-dev.<timestamp>' versions of this exact package that are older
 	// than the version it replaced. The replaced version is kept because other projects may have restored against it earlier in the same build.
+	// Opting in also registers CentralVersionPropsPath in the cache, so cleanup by any checkout keeps the version that this checkout's pointer names.
 	// Left false for ordinary managed packages; the native Rylogic.Native development package opts in explicitly.
 	public bool CleanupOldDevVersions
 	{
@@ -104,6 +106,10 @@ public sealed class PublishLocalPackageVersion : Task
 					return false;
 				}
 
+				// Register this checkout's pointer before anything else, so other checkouts sharing the cache keep the version it names.
+				if (CleanupOldDevVersions)
+					RegisterPointer();
+
 				// A slower parallel pack must not overwrite the pointer published by a newer build.
 				var current_version = ReadVersion(CentralVersionPropsPath);
 				// A version that does not advance the pointer is left in the cache; the next successful publish removes it once it is older than the replaced version.
@@ -146,7 +152,7 @@ public sealed class PublishLocalPackageVersion : Task
 		}
 	}
 
-	// Remove every locally-cached '-dev.<timestamp>' version of PackageId that is strictly older than baseline_version.
+	// Remove every locally-cached '-dev.<timestamp>' version of PackageId that is strictly older than baseline_version and not named by a registered pointer.
 	// Stable releases, malformed folder names, and anything not matching this build system's owned dev-version shape are left untouched.
 	private void CleanupOldCacheVersions(string baseline_version)
 	{
@@ -154,10 +160,7 @@ public sealed class PublishLocalPackageVersion : Task
 		if (!s_owned_dev_version_pattern.IsMatch(baseline_version))
 			return;
 
-		var cache_root = string.IsNullOrWhiteSpace(NuGetCacheRoot)
-			? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages")
-			: NuGetCacheRoot;
-		var package_cache_dir = Path.Combine(cache_root, PackageId.ToLowerInvariant());
+		var package_cache_dir = PackageCacheDir();
 		if (!Directory.Exists(package_cache_dir))
 			return;
 
@@ -176,6 +179,9 @@ public sealed class PublishLocalPackageVersion : Task
 			return;
 		}
 
+		// Other checkouts share this cache, and their consumers restore the versions their pointers name, so those versions must stay.
+		var pointed_versions = ReadRegisteredPointerVersions();
+
 		foreach (var version_dir in Directory.EnumerateDirectories(package_cache_dir))
 		{
 			var version_name = Path.GetFileName(version_dir);
@@ -186,8 +192,105 @@ public sealed class PublishLocalPackageVersion : Task
 			if (CompareVersions(version_name, baseline_version) >= 0)
 				continue;
 
+			if (pointed_versions.Contains(version_name))
+				continue;
+
 			TryDeleteVersionDirectory(version_dir);
 		}
+	}
+
+	// The directory in the global NuGet cache that holds one folder per cached version of PackageId.
+	private string PackageCacheDir()
+	{
+		var cache_root = string.IsNullOrWhiteSpace(NuGetCacheRoot)
+			? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages")
+			: NuGetCacheRoot;
+		return Path.Combine(cache_root, PackageId.ToLowerInvariant());
+	}
+
+	// The shared list of pointer props files, one full path per line, whose versions every checkout's cleanup keeps.
+	// It lives beside the version folders, so clearing the cache also forgets it; each checkout registers again when it next publishes.
+	private string PointerRegistryPath()
+	{
+		return Path.Combine(PackageCacheDir(), ".local-pointers.txt");
+	}
+
+	// Add CentralVersionPropsPath to the shared pointer registry.
+	private void RegisterPointer()
+	{
+		// Rewrite the registry only when this checkout is new to it.
+		var pointer_path = Path.GetFullPath(CentralVersionPropsPath);
+		WithPointerRegistry(registry_path =>
+		{
+			// Add this pointer to the registered pointers that still exist.
+			var pointers = ReadPointerRegistry(registry_path);
+			if (pointers.Contains(pointer_path, StringComparer.OrdinalIgnoreCase))
+				return;
+
+			pointers.Add(pointer_path);
+			WriteAtomically(registry_path, string.Join(Environment.NewLine, pointers) + Environment.NewLine);
+		});
+	}
+
+	// Read the version named by every registered pointer that still exists.
+	private HashSet<string> ReadRegisteredPointerVersions()
+	{
+		// Collect the versions under the registry lock so a concurrent registration is not half-read.
+		var versions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		WithPointerRegistry(registry_path =>
+		{
+			// A pointer whose checkout has been deleted names nothing that needs keeping.
+			foreach (var pointer_path in ReadPointerRegistry(registry_path))
+			{
+				var version = ReadVersion(pointer_path);
+				if (version != null)
+					versions.Add(version);
+			}
+		});
+		return versions;
+	}
+
+	// Run 'action' on the registry path while holding the cross-process lock for that registry.
+	private void WithPointerRegistry(Action<string> action)
+	{
+		// The registry is shared by every checkout, so it has its own lock rather than this checkout's pointer lock.
+		var registry_path = PointerRegistryPath();
+		using var mutex = new Mutex(false, MutexName("Rylogic.PointerRegistry", registry_path));
+		var acquired = false;
+		try
+		{
+			try
+			{
+				acquired = mutex.WaitOne(TimeSpan.FromSeconds(15));
+			}
+			catch (AbandonedMutexException)
+			{
+				acquired = true;
+			}
+
+			if (!acquired)
+				throw new IOException($"Timed out waiting for the local package pointer registry '{registry_path}'.");
+
+			action(registry_path);
+		}
+		finally
+		{
+			if (acquired)
+				mutex.ReleaseMutex();
+		}
+	}
+
+	// Read the registered pointer paths whose files still exist.
+	private static List<string> ReadPointerRegistry(string registry_path)
+	{
+		if (!File.Exists(registry_path))
+			return new List<string>();
+
+		return File.ReadAllLines(registry_path)
+			.Select(line => line.Trim())
+			.Where(line => line.Length != 0 && File.Exists(line))
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.ToList();
 	}
 
 	// Walk a directory and its full subtree exactly once, inspecting each entry's attributes before descending so a reparse point
@@ -494,9 +597,15 @@ public sealed class PublishLocalPackageVersion : Task
 	// Derive a process-independent mutex name from the canonical props path.
 	private static string MutexName(string path)
 	{
+		return MutexName("Rylogic.PackageVersion", path);
+	}
+
+	// Derive a process-independent mutex name from a lock family and a canonical file path.
+	private static string MutexName(string family, string path)
+	{
 		var normalized_path = Path.GetFullPath(path).ToUpperInvariant();
 		using var sha256 = SHA256.Create();
 		var hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(normalized_path));
-		return $@"Local\Rylogic.PackageVersion.{BitConverter.ToString(hash).Replace("-", string.Empty)}";
+		return $@"Local\{family}.{BitConverter.ToString(hash).Replace("-", string.Empty)}";
 	}
 }
