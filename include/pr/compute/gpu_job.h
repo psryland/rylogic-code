@@ -532,6 +532,25 @@ namespace pr::compute::tests
 			}
 		}
 
+		// An update clipped to nothing stages no memory, so 'ptr' must reject access while 'Write' and 'Commit' do nothing.
+		PRUnitTestMethod(UpdateSubresourceClippedAwayHasNoStaging, Extended)
+		{
+			// Update a box that starts outside a 4x4 texture
+			GfxGpu gpu;
+			GraphicsJob job(gpu, "UpdateSubresourceClipped", 0xFF000000);
+			auto tex = gpu.CreateResource(ResDesc::Tex2D(Image(4, 4, nullptr, DXGI_FORMAT_R32_FLOAT), 1), job, "Clipped");
+			GfxUpdateSubresourceScope update(job.m_cmd_list, job.m_upload, tex.get(), 0, 0, 1, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT, { 4, 0, 0 }, { 2, 2, 1 });
+			PR_EXPECT(update.m_layout.empty());
+			PR_THROWS(update.ptr<float>(), std::runtime_error);
+			PR_THROWS(update.ptr<float>(iv3(0, 0, 0)), std::runtime_error);
+
+			// 'Write' and 'Commit' record nothing, so the job still runs cleanly
+			float const data[] = { 1, 2, 3, 4 };
+			update.Write(Image(2, 2, data, DXGI_FORMAT_R32_FLOAT), true);
+			update.Commit();
+			job.Run();
+		}
+
 		// Restoring after an update must return each subresource to its own prior state, not the state of another array slice.
 		PRUnitTestMethod(UpdateSubresourceRestoresSliceState, Extended)
 		{

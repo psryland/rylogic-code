@@ -153,9 +153,11 @@ namespace pr::compute
 		// Note: there is no 'end' because RowPitch != Width which means 'end' isn't well defined.
 		template <typename TElement> TElement const* ptr(int mip = 0) const
 		{
-			// Make sure the mip is within the range of mips being updated
+			// Make sure the mip is within the range of mips being updated, and that the update has staging memory
 			if (mip < 0 || mip >= m_mipN)
 				throw std::runtime_error("Mip level out of range for this update");
+			if (m_layout.empty())
+				throw std::runtime_error("The update range is empty, so there is no staging memory");
 
 			// The mip in the staging buffer
 			auto const& layout = m_layout[mip];
