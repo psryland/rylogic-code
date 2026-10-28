@@ -85,21 +85,27 @@ using LockGuard = std::lock_guard<std::recursive_mutex>;
 
 // Dll Context ****************************
 
-// Initialise calls are reference counted and must be matched with Shutdown calls
-// 'initialise_error_cb' is used to report dll initialisation errors only (i.e. it isn't stored)
-// Note: this function is not thread safe, avoid race calls
+// Initialise calls are reference counted and must be matched with Shutdown calls.
+// The first Initialise call binds the dll context to the calling thread. Later Initialise calls, and all Shutdown calls, must be made on that thread
+// until the last Shutdown call destroys the context. 'global_error_cb' receives initialisation errors and, until the matching Shutdown call, errors
+// associated with the dll.
 VIEW3D_API DllHandle  __stdcall View3D_Initialise(view3d::ReportErrorCB global_error_cb)
 {
 	try
 	{
-		// Create the dll context on the first call
+		// Create the dll context on the first call. Otherwise, reject callers on other threads because the renderer is bound to its creating thread.
 		if (g_ctx == nullptr)
-			g_ctx = new Context(g_hInstance, global_error_cb);
+			g_ctx = new Context(g_hInstance);
+		else if (std::this_thread::get_id() != g_ctx->m_main_thread_id)
+			throw std::runtime_error("View3D is already initialised on a different thread. All clients must use the thread that first initialised View3D");
 
-		// Generate a unique handle per Initialise call, used to match up with Shutdown calls
+		// Generate a unique handle per Initialise call, used to match up with Shutdown calls.
+		// Lock the context, because API calls from other threads read 'm_inits' under the context mutex.
 		static DllHandle handles = nullptr;
-		g_ctx->m_inits.insert(++handles);
-		return handles;
+		DllLockGuard;
+		auto handle = ++handles;
+		g_ctx->m_inits[handle] = g_ctx->ReportError += global_error_cb;
+		return handle;
 	}
 	catch (std::exception const& e)
 	{
@@ -114,12 +120,29 @@ VIEW3D_API DllHandle  __stdcall View3D_Initialise(view3d::ReportErrorCB global_e
 }
 VIEW3D_API void __stdcall View3D_Shutdown(DllHandle context)
 {
-	if (!g_ctx) return;
-
-	g_ctx->m_inits.erase(context);
-	if (!g_ctx->m_inits.empty())
+	// Ignore calls after the context is destroyed, and reject calls from other threads (see View3D_Initialise)
+	if (!g_ctx)
 		return;
+	if (std::this_thread::get_id() != g_ctx->m_main_thread_id)
+	{
+		g_ctx->ReportError("View3D_Shutdown failed.\nShutdown must be called on the thread that first initialised View3D\n", "", 0, 0);
+		return;
+	}
 
+	// Release this caller's handle and its error callback, because the caller may destroy the callback's context after Shutdown returns
+	{
+		DllLockGuard;
+		auto it = g_ctx->m_inits.find(context);
+		if (it == g_ctx->m_inits.end())
+			return;
+
+		g_ctx->ReportError -= it->second;
+		g_ctx->m_inits.erase(it);
+		if (!g_ctx->m_inits.empty())
+			return;
+	}
+
+	// Destroy the context once the last client has shut down
 	delete g_ctx;
 	g_ctx = nullptr;
 }

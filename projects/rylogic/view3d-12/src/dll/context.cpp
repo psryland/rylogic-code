@@ -143,18 +143,17 @@ namespace pr::rdr12
 		}
 	}
 
-	Context::Context(HINSTANCE instance, view3d::ReportErrorCB global_error_cb)
+	Context::Context(HINSTANCE instance)
 		: m_rdr(MakeRdrSettings(instance))
 		, m_windows()
 		, m_sources(m_rdr, *this)
 		, m_inits()
 		, m_mutex()
+		, m_main_thread_id(std::this_thread::get_id())
 		, ReportError()
 		, ParsingProgress()
 		, StoreChange()
-	{
-		ReportError += global_error_cb;
-	}
+	{}
 	Context::~Context()
 	{
 		for (auto& wnd : m_windows)

@@ -14,7 +14,7 @@ namespace pr::rdr12
 {
 	struct Context : ldraw::ISourceEvents
 	{
-		using InitSet = std::unordered_set<view3d::DllHandle>;
+		using InitMap = std::unordered_map<view3d::DllHandle, Sub>;
 		using WindowCont = std::vector<V3dWindow*>;
 		using ScriptSources = rdr12::ldraw::ScriptSources;
 
@@ -23,10 +23,11 @@ namespace pr::rdr12
 		Renderer             m_rdr;      // The renderer
 		WindowCont           m_windows;  // The created windows
 		ScriptSources        m_sources;  // A container of Ldr objects and a file watcher
-		InitSet              m_inits;    // A unique id assigned to each Initialise call
+		InitMap              m_inits;    // The unique id of each Initialise call, mapped to that caller's 'ReportError' subscription
 		std::recursive_mutex m_mutex;
+		std::thread::id      m_main_thread_id; // The thread that created the context. Initialise and Shutdown calls must be made on this thread.
 
-		Context(HINSTANCE instance, view3d::ReportErrorCB global_error_cb);
+		explicit Context(HINSTANCE instance);
 		Context(Context&&) = delete;
 		Context(Context const&) = delete;
 		Context& operator=(Context&) = delete;

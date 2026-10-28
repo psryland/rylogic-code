@@ -1109,9 +1109,10 @@ extern "C"
 {
 	// Dll Context ****************************
 	
-	// Initialise calls are reference counted and must be matched with Shutdown calls
-	// 'initialise_error_cb' is used to report dll initialisation errors only (i.e. it isn't stored)
-	// Note: this function is not thread safe, avoid race calls
+	// Initialise calls are reference counted and must be matched with Shutdown calls.
+	// The first Initialise call binds View3D to the calling thread. Later Initialise calls, and all Shutdown calls, must be made on that thread until
+	// the last Shutdown call; calls from other threads fail. 'global_error_cb' receives initialisation errors and, until the matching Shutdown call,
+	// errors associated with the dll (see View3D_GlobalErrorCBSet).
 	VIEW3D_API pr::view3d::DllHandle __stdcall View3D_Initialise(pr::view3d::ReportErrorCB global_error_cb);
 	VIEW3D_API void __stdcall View3D_Shutdown(pr::view3d::DllHandle context);
 
