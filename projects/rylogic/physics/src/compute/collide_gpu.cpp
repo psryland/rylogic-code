@@ -160,7 +160,7 @@ namespace pr::physics
 
 	// Create GPU buffers for collision pipeline.
 	// Returns true if shape or vertex buffers were reallocated (requiring re-upload).
-	bool GpuCollisionDetector::ResizeBuffers(CmdList& cmd_list, int max_contacts, int max_pairs, int max_shapes, int max_verts, int max_faces, int max_edges)
+	bool GpuCollisionDetector::ResizeBuffers(GpuJob& job, int max_contacts, int max_pairs, int max_shapes, int max_verts, int max_faces, int max_edges)
 	{
 		max_contacts = std::max(1, max_contacts);
 		max_pairs = std::max(1, max_pairs);
@@ -173,49 +173,49 @@ namespace pr::physics
 
 		if (m_r_shapes == nullptr || max_shapes > m_max_shapes)
 		{
-			m_r_shapes = m_gpu.CreateResource(ResDesc::Buf<GpuShape>(max_shapes, {}), cmd_list, "Physics:Shapes");
+			m_r_shapes = m_gpu.CreateResource(ResDesc::Buf<GpuShape>(max_shapes, {}), job, "Physics:Shapes");
 			m_max_shapes = max_shapes;
 			shapes_resized = true;
 		}
 		if (m_r_verts == nullptr || max_verts > m_max_verts)
 		{
-			m_r_verts = m_gpu.CreateResource(ResDesc::Buf<v4>(max_verts, {}), cmd_list, "Physics:ShapeVerts");
+			m_r_verts = m_gpu.CreateResource(ResDesc::Buf<v4>(max_verts, {}), job, "Physics:ShapeVerts");
 			m_max_verts = max_verts;
 			shapes_resized = true;
 		}
 		if (m_r_faces == nullptr || max_faces > m_max_faces)
 		{
-			m_r_faces = m_gpu.CreateResource(ResDesc::Buf<GpuPolytopeFace>(max_faces, {}), cmd_list, "Physics:ShapeFaces");
+			m_r_faces = m_gpu.CreateResource(ResDesc::Buf<GpuPolytopeFace>(max_faces, {}), job, "Physics:ShapeFaces");
 			m_max_faces = max_faces;
 			shapes_resized = true;
 		}
 		if (m_r_edges == nullptr || max_edges > m_max_edges)
 		{
-			m_r_edges = m_gpu.CreateResource(ResDesc::Buf<GpuPolytopeEdge>(max_edges, {}), cmd_list, "Physics:ShapeEdges");
+			m_r_edges = m_gpu.CreateResource(ResDesc::Buf<GpuPolytopeEdge>(max_edges, {}), job, "Physics:ShapeEdges");
 			m_max_edges = max_edges;
 			shapes_resized = true;
 		}
 		if (m_r_contacts == nullptr || max_contacts > m_max_contacts)
 		{
-			m_r_contacts = m_gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:Contacts");
+			m_r_contacts = m_gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(max_contacts, {}).usage(EUsage::UnorderedAccess), job, "Physics:Contacts");
 			m_max_contacts = max_contacts;
 		}
 		if (m_r_bin_pair_indices == nullptr || max_pairs > m_max_pairs)
 		{
-			m_r_bin_pair_indices = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(COLLISION_BIN_COUNT * max_pairs, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CollisionBinPairIndices");
+			m_r_bin_pair_indices = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(COLLISION_BIN_COUNT * max_pairs, {}).usage(EUsage::UnorderedAccess), job, "Physics:CollisionBinPairIndices");
 			m_max_pairs = max_pairs;
 		}
 		if (m_r_resolve_dispatch == nullptr)
 		{
-			m_r_resolve_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ResolveDispatchArgs");
+			m_r_resolve_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:ResolveDispatchArgs");
 		}
 		if (m_r_bin_counts == nullptr)
 		{
-			m_r_bin_counts = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(COLLISION_BIN_COUNT, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CollisionBinCounts");
+			m_r_bin_counts = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(COLLISION_BIN_COUNT, {}).usage(EUsage::UnorderedAccess), job, "Physics:CollisionBinCounts");
 		}
 		if (m_r_bin_dispatch == nullptr)
 		{
-			m_r_bin_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(COLLISION_BIN_COUNT, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CollisionBinDispatchArgs");
+			m_r_bin_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(COLLISION_BIN_COUNT, {}).usage(EUsage::UnorderedAccess), job, "Physics:CollisionBinDispatchArgs");
 		}
 		return shapes_resized;
 	}
@@ -233,7 +233,7 @@ namespace pr::physics
 
 		// A reallocated buffer contains garbage, so it must be re-uploaded regardless of the dirty flag.
 		auto upload_needed = shape_cache.m_changed;
-		upload_needed |= ResizeBuffers(job.m_cmd_list, m_max_contacts, m_max_pairs, shape_count, vert_count, face_count, edge_count);
+		upload_needed |= ResizeBuffers(job, m_max_contacts, m_max_pairs, shape_count, vert_count, face_count, edge_count);
 		if (!upload_needed)
 			return;
 
@@ -292,7 +292,7 @@ namespace pr::physics
 
 		// Size the contact and bin buffers. The shape buffers cannot move here because UploadShapes has
 		// already sized them for the same shape counts.
-		ResizeBuffers(job.m_cmd_list, max_contacts, max_pairs, shape_count, vert_count, face_count, edge_count);
+		ResizeBuffers(job, max_contacts, max_pairs, shape_count, vert_count, face_count, edge_count);
 		if (contacts == nullptr)
 			contacts = m_r_contacts;
 		if (resolve_dispatch == nullptr)
@@ -420,9 +420,9 @@ namespace pr::physics
 			return {};
 
 		// Create temporary GPU resources for the CPU-provided data
-		auto r_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempDispatchArgs");
-		auto r_pairs = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionPair>(pair_count, {}), job.m_cmd_list, "Physics:TempPairs");
-		auto r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempCounters");
+		auto r_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:TempDispatchArgs");
+		auto r_pairs = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionPair>(pair_count, {}), job, "Physics:TempPairs");
+		auto r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:TempCounters");
 
 		// Upload pairs to GPU
 		{

@@ -725,19 +725,19 @@ namespace pr::rdr12::compute::fluid
 			// Create the particle (vertex) buffer
 			{
 				ResDesc desc = ResDesc::VBuf<Particle>(setup.ParticleCapacity, setup.ParticleInitData).usage(EUsage::UnorderedAccess);
-				m_r_particles = m_gpu->CreateResource(desc, job.m_cmd_list, "Fluid:ParticlePositions");
+				m_r_particles = m_gpu->CreateResource(desc, job, "Fluid:ParticlePositions");
 			}
 
 			// Create the particle dynamics buffer
 			{
 				ResDesc desc = ResDesc::Buf<Dynamics>(setup.ParticleCapacity, setup.DynamicsInitData).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
-				m_r_dynamics = m_gpu->CreateResource(desc, job.m_cmd_list, "Fluid:ParticleDynamics");
+				m_r_dynamics = m_gpu->CreateResource(desc, job, "Fluid:ParticleDynamics");
 			}
 
 			// Create the output buffer
 			{
 				ResDesc desc = ResDesc::Buf<OutputData>(1, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
-				m_r_output = m_gpu->CreateResource(desc, job.m_cmd_list, "Fluid:Output");
+				m_r_output = m_gpu->CreateResource(desc, job, "Fluid:Output");
 			}
 		}
 

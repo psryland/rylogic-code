@@ -232,8 +232,8 @@ namespace pr::compute::spatial_partition
 		void CreateResourceBuffers(GraphicsJob& job)
 		{
 			ResDesc desc = ResDesc::Buf<uint32_t>(Config.CellCount, {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).usage(EUsage::UnorderedAccess);
-			m_idx_start = m_gpu->CreateResource(desc, job.m_cmd_list, "SpatialPartition:IdxStart");
-			m_idx_count = m_gpu->CreateResource(desc, job.m_cmd_list, "SpatialPartition:IdxCount");
+			m_idx_start = m_gpu->CreateResource(desc, job, "SpatialPartition:IdxStart");
+			m_idx_count = m_gpu->CreateResource(desc, job, "SpatialPartition:IdxCount");
 		}
 
 		// Ensure the buffers are large enough to partition 'size' positions
@@ -245,20 +245,20 @@ namespace pr::compute::spatial_partition
 			// Grid hash
 			{
 				ResDesc desc = ResDesc::Buf<uint32_t>(size, {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).usage(EUsage::UnorderedAccess);
-				m_grid_hash = m_gpu->CreateResource(desc, job.m_cmd_list, "SpatialPartition:GridHash");
+				m_grid_hash = m_gpu->CreateResource(desc, job, "SpatialPartition:GridHash");
 			}
 
 			// Position indices
 			{
 				ResDesc desc = ResDesc::Buf<uint32_t>(size, {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).usage(EUsage::UnorderedAccess);
-				m_spatial = m_gpu->CreateResource(desc, job.m_cmd_list, "SpatialPartition:Spatial");
+				m_spatial = m_gpu->CreateResource(desc, job, "SpatialPartition:Spatial");
 			}
 
 			// Resize the sorter
 			{
 				// Point the sort and payload buffers of the sorter to our grid-hash and pos-index
 				// buffer so that we don't need to copy data from 'm_grid_hash' to 'm_sort[0]' etc.
-				m_sorter.Bind(job.m_cmd_list, size, m_grid_hash, m_spatial);
+				m_sorter.Bind(job, size, m_grid_hash, m_spatial);
 			}
 
 			m_size = size;

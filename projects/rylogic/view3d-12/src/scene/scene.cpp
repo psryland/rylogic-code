@@ -241,8 +241,8 @@ namespace pr::rdr12
 		auto is_pow2 = [](int x) { return x > 0 && (x & (x - 1)) == 0; };
 		if (!is_pow2(settings.m_atlas_size) || settings.m_atlas_size > D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION)
 			throw std::invalid_argument("Shadow atlas size must be a power of two no larger than the maximum texture size");
-		if (settings.m_directional_resolution <= 0 || settings.m_spot_resolution <= 0 || settings.m_point_resolution <= 0)
-			throw std::invalid_argument("Shadow view resolutions must be positive");
+		if (settings.m_directional_resolution <= 0 || settings.m_far_cascade_resolution < 0 || settings.m_spot_resolution <= 0 || settings.m_point_resolution <= 0)
+			throw std::invalid_argument("Shadow view resolutions must be positive, except the far cascade resolution, which may be zero");
 		if (settings.m_max_shadow_lights < 0 || settings.m_depth_bias < 0 || settings.m_slope_bias < 0 || settings.m_normal_bias < 0)
 			throw std::invalid_argument("Shadow light count and biases must not be negative");
 		if (settings.m_cascade_count < 1 || settings.m_cascade_count > MaxShadowCascades)

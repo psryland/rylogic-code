@@ -257,7 +257,7 @@ namespace pr::physics
 	}
 
 	// Create or grow GPU buffers for contacts and colour assignments.
-	void GpuResolver::ResizeBuffers(CmdList& cmd_list, int body_count, int max_contacts, int max_materials)
+	void GpuResolver::ResizeBuffers(GpuJob& job, int body_count, int max_contacts, int max_materials)
 	{
 		body_count = std::max(1, body_count);
 		max_contacts = std::max(1, max_contacts);
@@ -268,33 +268,33 @@ namespace pr::physics
 
 		// Dispatch arguments have fixed size, independent of retained contact capacity.
 		if (m_r_colour_dispatch == nullptr)
-			m_r_colour_dispatch = m_gpu.CreateResource(ResDesc::Buf<DispatchArguments>(MaxColours, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ColourDispatch");
+			m_r_colour_dispatch = m_gpu.CreateResource(ResDesc::Buf<DispatchArguments>(MaxColours, {}).usage(EUsage::UnorderedAccess), job, "Physics:ColourDispatch");
 
 		if (m_r_materials == nullptr || max_materials > m_max_materials)
 		{
-			m_r_materials = m_gpu.CreateResource(ResDesc::Buf<GpuMaterial>(max_materials, {}), cmd_list, "Physics:Materials");
+			m_r_materials = m_gpu.CreateResource(ResDesc::Buf<GpuMaterial>(max_materials, {}), job, "Physics:Materials");
 			m_max_materials = max_materials;
 			m_materials_dirty = true;
 		}
 		if (m_r_colours == nullptr || m_max_contacts < max_contacts)
 		{
 			// Reserve one element beyond the retained contact capacity for the frame-wide colour-overflow flag.
-			m_r_colours = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts + 1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ResolveColours");
-			m_r_contact_times = m_gpu.CreateResource(ResDesc::Buf<float>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ContactTimes");
-			m_r_contact_order = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ContactOrder");
-			m_r_contact_next_a = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ContactNextA");
-			m_r_contact_next_b = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ContactNextB");
+			m_r_colours = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts + 1, {}).usage(EUsage::UnorderedAccess), job, "Physics:ResolveColours");
+			m_r_contact_times = m_gpu.CreateResource(ResDesc::Buf<float>(max_contacts, {}).usage(EUsage::UnorderedAccess), job, "Physics:ContactTimes");
+			m_r_contact_order = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts, {}).usage(EUsage::UnorderedAccess), job, "Physics:ContactOrder");
+			m_r_contact_next_a = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts, {}).usage(EUsage::UnorderedAccess), job, "Physics:ContactNextA");
+			m_r_contact_next_b = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(max_contacts, {}).usage(EUsage::UnorderedAccess), job, "Physics:ContactNextB");
 			m_max_contacts = max_contacts;
 		}
 		if (m_r_body_contact_head == nullptr || m_body_capacity < body_count)
 		{
-			m_r_body_contact_head = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(body_count, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:BodyContactHead");
+			m_r_body_contact_head = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(body_count, {}).usage(EUsage::UnorderedAccess), job, "Physics:BodyContactHead");
 			m_body_capacity = body_count;
 		}
 		if (m_r_warm_start_prev == nullptr || m_warm_start_capacity < warm_start_capacity)
 		{
-			m_r_warm_start_prev = m_gpu.CreateResource(ResDesc::Buf<GpuWarmStartEntry>(warm_start_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:WarmStartPrev");
-			m_r_warm_start_curr = m_gpu.CreateResource(ResDesc::Buf<GpuWarmStartEntry>(warm_start_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:WarmStartCurr");
+			m_r_warm_start_prev = m_gpu.CreateResource(ResDesc::Buf<GpuWarmStartEntry>(warm_start_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:WarmStartPrev");
+			m_r_warm_start_curr = m_gpu.CreateResource(ResDesc::Buf<GpuWarmStartEntry>(warm_start_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:WarmStartCurr");
 			m_warm_start_capacity = warm_start_capacity;
 			m_reset_warm_start_cache = true;
 		}
@@ -313,7 +313,7 @@ namespace pr::physics
 		auto material_count = static_cast<int>(materials.size());
 		pix::BeginEvent(job.m_cmd_list.get(), 0xFF6799Ab, "Physics::Resolve");
 
-		ResizeBuffers(job.m_cmd_list, body_count, max_contacts, material_count);
+		ResizeBuffers(job, body_count, max_contacts, material_count);
 
 		auto const push_out_steps = std::max(0, push_out_iterations >= 0 ? push_out_iterations : m_config.push_out_iterations);
 		auto const solver_iterations = std::max(0, solver_iterations_ >= 0 ? solver_iterations_ : m_config.solver_iterations);
@@ -601,8 +601,8 @@ namespace pr::physics
 			void SortContacts()
 			{
 				// Use the same current-pass clamp as ContactCount(), not the retained allocation. Equal keys keep their original contact order.
-				m_resolver.m_contact_sorter.Bind(m_job.m_cmd_list, m_max_contacts, m_resolver.m_r_contact_times, m_resolver.m_r_contact_order);
-				m_resolver.m_contact_sorter.Sort(m_job.m_cmd_list, m_counters.get(), offsetof(GpuCollisionCounters, contact_count), 1, "Physics::SortContactPriority");
+				m_resolver.m_contact_sorter.Bind(m_job, m_max_contacts, m_resolver.m_r_contact_times, m_resolver.m_r_contact_order);
+				m_resolver.m_contact_sorter.Sort(m_job, m_counters.get(), offsetof(GpuCollisionCounters, contact_count), 1, "Physics::SortContactPriority");
 
 				m_job.m_barriers.UAV(m_resolver.m_r_contact_times.get());
 				m_job.m_barriers.UAV(m_resolver.m_r_contact_order.get());
@@ -794,9 +794,9 @@ namespace pr::physics
 						throw std::invalid_argument("Shared position correction requires a finite non-negative maximum speed");
 
 					if (m_coupled_constraint_solver != nullptr)
-						rigid_pseudo = m_coupled_constraint_solver->RigidPseudoVelocityStorage(m_job.m_cmd_list, m_rigid_body_count);
+						rigid_pseudo = m_coupled_constraint_solver->RigidPseudoVelocityStorage(m_job, m_rigid_body_count);
 					else if (m_constraint_solver != nullptr)
-						rigid_pseudo = m_constraint_solver->PseudoVelocityStorage(m_job.m_cmd_list, m_rigid_body_count);
+						rigid_pseudo = m_constraint_solver->PseudoVelocityStorage(m_job, m_rigid_body_count);
 				}
 
 				// Contacts own complete-forest pseudo streams; compact joint work maps into the same streams for one coherent configuration.
@@ -961,10 +961,10 @@ namespace pr::physics
 		}
 
 		// Create temporary GPU resources
-		auto r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}), job.m_cmd_list, "Physics:TempCounters");
-		auto r_contacts = m_gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(contact_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempContacts");
-		auto r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(body_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempBodies");
-		auto r_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempDispatch");
+		auto r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}), job, "Physics:TempCounters");
+		auto r_contacts = m_gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(contact_count, {}).usage(EUsage::UnorderedAccess), job, "Physics:TempContacts");
+		auto r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(body_count, {}).usage(EUsage::UnorderedAccess), job, "Physics:TempBodies");
+		auto r_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:TempDispatch");
 
 		// Upload counters
 		{

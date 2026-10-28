@@ -91,6 +91,45 @@ namespace pr::rdr12::ldraw
 		#endif
 	}
 
+	// Return the index of the visible child at 'time_s' given 'frame_count' children. Returns -1 if there are no children.
+	int Flipbook::FrameIndex(double time_s, int frame_count) const
+	{
+		// A flipbook without frames has nothing to show. Parsing guarantees a valid rate and style.
+		assert(m_frame_rate > 0.0 && m_style != EAnimStyle::Continuous && "Invalid flipbook");
+		if (frame_count == 0)
+			return -1;
+
+		// Map the time into the duration of the frame sequence, then convert to a frame index.
+		// The small bias stops times that are exact frame boundaries (e.g. k / frame_rate) from rounding down to the previous frame.
+		// The clamp handles the end time of the sequence, which is the end of the last frame rather than the start of another.
+		auto duration_s = frame_count / m_frame_rate;
+		auto time = AdjTime(time_s, TimeRange{ 0.0, duration_s }, m_style);
+		auto index = static_cast<int>(std::floor(time * m_frame_rate + 1e-6));
+		return std::clamp(index, 0, frame_count - 1);
+	}
+	double Flipbook::Duration(int frame_count) const
+	{
+		// 'NoAnimation' always shows the first frame, so no time is needed to see the others.
+		assert(m_frame_rate > 0.0 && m_style != EAnimStyle::Continuous && "Invalid flipbook");
+		switch (m_style)
+		{
+			case EAnimStyle::NoAnimation:
+			{
+				return 0.0;
+			}
+			case EAnimStyle::Once:
+			case EAnimStyle::Repeat:
+			case EAnimStyle::PingPong:
+			{
+				return frame_count / m_frame_rate;
+			}
+			default:
+			{
+				throw std::runtime_error("Unsupported flipbook animation style");
+			}
+		}
+	}
+
 	LdrObject::LdrObject(ELdrObject type, LdrObject* parent, Guid const& context_id)
 		: RdrInstance()
 		, m_o2p(m4x4::Identity())
@@ -102,6 +141,8 @@ namespace pr::rdr12::ldraw
 		, m_base_colour(Colour32White)
 		, m_group_tint(Colour32White)
 		, m_root_anim()
+		, m_flipbook()
+		, m_anim_time_s()
 		, m_bbox_instance()
 		, m_screen_space()
 		, m_flags_local(ELdrFlags::None)
@@ -143,7 +184,7 @@ namespace pr::rdr12::ldraw
 
 		// Set the instance to world.
 		auto i2w = p2w * m_o2p; // = this LdrObject's position in world space
-		if (m_root_anim) i2w *= m_root_anim.RootToAnim(); // = this LdrObject's position in world space, adjusted by the simple root animation
+		if (m_root_anim) i2w *= m_root_anim.RootToAnim(m_anim_time_s); // = this LdrObject's position in world space, adjusted by the simple root animation
 		m_i2w = i2w; // Set the i2w for rendering
 
 		// Combine recursive flags
@@ -186,9 +227,14 @@ namespace pr::rdr12::ldraw
 		if (!is_hidden && m_user_data.has<std::unique_ptr<ProceduralSky>>())
 			scene.CloudSky(m_user_data.get<std::unique_ptr<ProceduralSky>>().get());
 
-		// Rinse and repeat for all children
-		for (auto& child : m_child)
-			child->AddToScene(scene, i2w, flags);
+		// Rinse and repeat for all children. A flipbook hides all but the active frame for this render only, so persistent visibility is unchanged.
+		auto active_frame = m_flipbook ? m_flipbook.FrameIndex(m_anim_time_s, isize(m_child)) : -1;
+		for (int i = 0; auto& child : m_child)
+		{
+			auto is_inactive_frame = m_flipbook && i != active_frame;
+			child->AddToScene(scene, i2w, is_inactive_frame ? flags | ELdrFlags::Hidden : flags);
+			++i;
+		}
 	}
 
 	// Recursively add this object using 'bbox_model' instead of its
@@ -199,11 +245,11 @@ namespace pr::rdr12::ldraw
 		// 'bbox2w' is the transform for the bbox:
 		//   - Static bboxes start in model-buffer space, so they pass through m_m2root, optional pose root motion, and i2w.
 		//   - Skinned bboxes are already current-pose object/root-space bounds, so they only pass through i2w.
-		//   - 'm_root_anim.RootToAnim()' is already included in i2w because it is an instance-space offset.
+		//   - 'm_root_anim.RootToAnim(m_anim_time_s)' is already included in i2w because it is an instance-space offset.
 
 		// Get the 'instance to world' transform
 		auto i2w = p2w * m_o2p; // = this LdrObject's position in world space
-		if (m_root_anim) i2w *= m_root_anim.RootToAnim(); // = this LdrObject's position in world space, adjusted by the simple root animation
+		if (m_root_anim) i2w *= m_root_anim.RootToAnim(m_anim_time_s); // = this LdrObject's position in world space, adjusted by the simple root animation
 
 		// Combine recursive flags
 		auto flags = Flags() | (parent_flags & (ELdrFlags::Hidden | ELdrFlags::Wireframe | ELdrFlags::NonAffine));
@@ -242,9 +288,14 @@ namespace pr::rdr12::ldraw
 			scene.AddInstance(m_bbox_instance);
 		}
 
-		// Repeat for all children
-		for (auto& child : m_child)
-			child->AddBBoxToScene(scene, i2w, flags);
+		// Repeat for all children. Inactive flipbook frames are hidden, matching AddToScene.
+		auto active_frame = m_flipbook ? m_flipbook.FrameIndex(m_anim_time_s, isize(m_child)) : -1;
+		for (int i = 0; auto& child : m_child)
+		{
+			auto is_inactive_frame = m_flipbook && i != active_frame;
+			child->AddBBoxToScene(scene, i2w, is_inactive_frame ? flags | ELdrFlags::Hidden : flags);
+			++i;
+		}
 	}
 
 	// Get the first child object of this object that matches 'name' (see Apply)
@@ -317,14 +368,14 @@ namespace pr::rdr12::ldraw
 	double LdrObject::AnimTime(char const* name) const
 	{
 		auto obj = Child(name);
-		return obj ? obj->m_root_anim.m_time_s : 0.0;
+		return obj ? obj->m_anim_time_s : 0.0;
 	}
 	void LdrObject::AnimTime(double time_s, char const* name)
 	{
 		Apply([&](LdrObject* o)
 		{
-			// Set the time for the root animation
-			o->m_root_anim.AnimTime(time_s);
+			// Set the time for the root animation and flipbook
+			o->m_anim_time_s = time_s;
 
 			// Set the time for any skinned model animation
 			if (o->m_pose)
@@ -1053,7 +1104,7 @@ namespace pr::rdr12::ldraw
 				// 'base' is the LdrObject within the hierarchy that the bbox is being calculated relative to.
 				auto c2base = o2base * child->m_o2p;
 				if (child->m_root_anim)
-					c2base *= child->m_root_anim.RootToAnim();
+					c2base *= child->m_root_anim.RootToAnim(child->m_anim_time_s);
 
 				// Calculate the child bbox in 'base' model space
 				auto cbbox = child->BBoxMS(bbox_flags, pred, &c2base, ldr_flags);
@@ -1081,7 +1132,7 @@ namespace pr::rdr12::ldraw
 			for (LdrObject const* p = this; p; p = p->m_parent)
 			{
 				auto o2p = p->m_o2p;
-				if (p->m_root_anim) o2p *= p->m_root_anim.RootToAnim();
+				if (p->m_root_anim) o2p *= p->m_root_anim.RootToAnim(p->m_anim_time_s);
 				bbox = IsAffine(o2p) ? (o2p * bbox) : MulNonAffine(o2p, bbox);
 			}
 		}
@@ -1128,7 +1179,7 @@ namespace pr::rdr12::ldraw
 		
 		return Apply([](LdrObject const* obj)
 		{
-			if (obj->m_root_anim)
+			if (obj->m_root_anim || obj->m_flipbook)
 				return false; // stop, found an animating object
 
 			if (obj->m_pose && obj->m_pose->IsAnimating())

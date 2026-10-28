@@ -90,7 +90,7 @@ namespace pr::physics
 			std::string_view name)
 		{
 			auto const count = std::max(1, isize(values));
-			auto resource = gpu.CreateResource(ResDesc::Buf<Type>(count, {}).usage(usage), job.m_cmd_list, name);
+			auto resource = gpu.CreateResource(ResDesc::Buf<Type>(count, {}).usage(usage), job, name);
 			job.m_barriers.Transition(resource.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
 			auto allocation = job.m_upload.Alloc<Type>(count);
 			std::fill_n(allocation.ptr<Type>(), count, Type{});
@@ -256,7 +256,7 @@ namespace pr::physics
 		m_timestep = timestep;
 		m_body_count = body_count;
 		m_velocity_delta_count = mobility.m_velocity_delta_count;
-		constraints.EnsurePseudoVelocityStorage(job.m_cmd_list, body_count);
+		constraints.EnsurePseudoVelocityStorage(job, body_count);
 		m_shared_pseudo = shares_state;
 		if (m_shared_pseudo)
 		{
@@ -264,7 +264,7 @@ namespace pr::physics
 		}
 		else
 		{
-			ResizeBuffers(job.m_cmd_list);
+			ResizeBuffers(job);
 			m_pseudo_buffers = GpuPositionPseudoBuffers{
 				.m_rigid_velocities = constraints.m_r_pseudo_velocities,
 				.m_link_velocities = m_r_link_pseudo,
@@ -501,17 +501,17 @@ namespace pr::physics
 	}
 
 	// Create or geometrically grow compact pseudo link and generalized streams.
-	void GpuCoupledConstraintPosition::ResizeBuffers(CmdList& cmd_list)
+	void GpuCoupledConstraintPosition::ResizeBuffers(GpuJob& job)
 	{
 		if (m_velocity.m_mobility_count > m_stats.m_link_pseudo_capacity)
 		{
 			m_stats.m_link_pseudo_capacity = std::max(m_velocity.m_mobility_count, std::max(1, 2 * m_stats.m_link_pseudo_capacity));
-			m_r_link_pseudo = m_gpu.CreateResource(ResDesc::Buf<GpuArticulationSpatialVector>(m_stats.m_link_pseudo_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledPositionLinkPseudo");
+			m_r_link_pseudo = m_gpu.CreateResource(ResDesc::Buf<GpuArticulationSpatialVector>(m_stats.m_link_pseudo_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:CoupledPositionLinkPseudo");
 		}
 		if (std::max(1, m_velocity_delta_count) > m_stats.m_generalized_pseudo_capacity)
 		{
 			m_stats.m_generalized_pseudo_capacity = std::max(std::max(1, m_velocity_delta_count), std::max(1, 2 * m_stats.m_generalized_pseudo_capacity));
-			m_r_generalized_pseudo = m_gpu.CreateResource(ResDesc::Buf<float>(m_stats.m_generalized_pseudo_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledPositionGeneralizedPseudo");
+			m_r_generalized_pseudo = m_gpu.CreateResource(ResDesc::Buf<float>(m_stats.m_generalized_pseudo_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:CoupledPositionGeneralizedPseudo");
 		}
 	}
 

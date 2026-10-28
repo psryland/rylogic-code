@@ -42,9 +42,9 @@ namespace pr::physics
 	private:
 
 		// Resize the buffers to support 'capacity' sleep islands.
-		void ResizeIslandBuffers(CmdList& cmd_list, int capacity);
+		void ResizeIslandBuffers(GpuJob& job, int capacity);
 
 		// Resize scratch buffers to support 'capacity' bodies.
-		void ResizeBodyBuffers(CmdList& cmd_list, int capacity);
+		void ResizeBodyBuffers(GpuJob& job, int capacity);
 	};
 }

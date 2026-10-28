@@ -154,10 +154,10 @@ namespace pr::physics::tests
 				.feature = 1,
 			}};
 			auto materials = std::array{GpuMaterial{}};
-			auto counters = gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}), job.m_cmd_list, "Test:ColourCounters");
-			auto contact_buffer = gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(1, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Test:ColourContacts");
-			auto body_buffer = gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(2, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Test:ColourBodies");
-			auto dispatch = gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}), job.m_cmd_list, "Test:ColourDispatch");
+			auto counters = gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}), job, "Test:ColourCounters");
+			auto contact_buffer = gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(1, {}).usage(EUsage::UnorderedAccess), job, "Test:ColourContacts");
+			auto body_buffer = gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(2, {}).usage(EUsage::UnorderedAccess), job, "Test:ColourBodies");
+			auto dispatch = gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}), job, "Test:ColourDispatch");
 			auto upload = [&]<typename Container>(ID3D12Resource* resource, Container const& values)
 			{
 				using Value = typename Container::value_type;
@@ -254,10 +254,10 @@ namespace pr::physics::tests
 				// Repeated, exactly representable depths give distinct negative collision times and equal-key stability across partitions.
 				contacts[index].depth = static_cast<float>((index * 17 + index / 5) % 7) / 1024.0f;
 			}
-			auto counters = gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}), job.m_cmd_list, "Test:KeyCounters");
-			auto contact_buffer = gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(capacity, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Test:KeyContacts");
-			auto body_buffer = gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(2, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Test:KeyBodies");
-			auto dispatch = gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}), job.m_cmd_list, "Test:KeyDispatch");
+			auto counters = gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}), job, "Test:KeyCounters");
+			auto contact_buffer = gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(capacity, {}).usage(EUsage::UnorderedAccess), job, "Test:KeyContacts");
+			auto body_buffer = gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(2, {}).usage(EUsage::UnorderedAccess), job, "Test:KeyBodies");
+			auto dispatch = gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}), job, "Test:KeyDispatch");
 			auto upload = [&]<typename Container>(ID3D12Resource* resource, Container const& values)
 			{
 				// Own each upload until this job's ordinary completion fence.

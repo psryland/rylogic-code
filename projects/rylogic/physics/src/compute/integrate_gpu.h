@@ -56,6 +56,6 @@ namespace pr::physics
 		void EnsureSeedForcesPipeline();
 
 		// Resize the core buffers and optional immutable force storage to hold 'capacity' bodies.
-		void ResizeBuffers(CmdList& cmd_list, int capacity, bool retain_frame_forces);
+		void ResizeBuffers(GpuJob& job, int capacity, bool retain_frame_forces);
 	};
 }

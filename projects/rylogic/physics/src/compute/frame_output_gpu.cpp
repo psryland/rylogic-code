@@ -171,13 +171,13 @@ namespace pr::physics
 	}
 
 	// Create one predicate per candidate event prefix; the final prefix ends at the configured capacity.
-	void GpuFrameOutput::EnsureEventCopyPipeline(CmdList& cmd_list)
+	void GpuFrameOutput::EnsureEventCopyPipeline(GpuJob& job)
 	{
 		// The predicate buffer remains allocated for future subscribed frames.
 		if (m_cs_event_copy_predicates.m_pso != nullptr)
 			return;
 
-		m_r_event_copy_predicates = m_gpu.CreateResource(ResDesc::Buf<uint64_t>(MaxEventCopyPredicates, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:EventCopyPredicates");
+		m_r_event_copy_predicates = m_gpu.CreateResource(ResDesc::Buf<uint64_t>(MaxEventCopyPredicates, {}).usage(EUsage::UnorderedAccess), job, "Physics:EventCopyPredicates");
 		auto sig = RootSig(ERootSigFlags::ComputeOnly)
 			.U32<cbFrameOutput>(EReg::Params)
 			.UAV(EReg::Header)
@@ -188,16 +188,16 @@ namespace pr::physics
 	}
 
 	// Grow resources before command recording references the current allocation.
-	void GpuFrameOutput::ResizeBuffers(CmdList& cmd_list, int64_t capacity, bool requires_substep_state)
+	void GpuFrameOutput::ResizeBuffers(GpuJob& job, int64_t capacity, bool requires_substep_state)
 	{
 		if (requires_substep_state && m_r_substep_state == nullptr)
-			m_r_substep_state = m_gpu.CreateResource(ResDesc::Buf<GpuSubstepOutputState>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:SubstepOutputState");
+			m_r_substep_state = m_gpu.CreateResource(ResDesc::Buf<GpuSubstepOutputState>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:SubstepOutputState");
 
 		if (m_r_output != nullptr && capacity <= m_capacity)
 			return;
 
 		auto word_count = static_cast<int>((capacity + sizeof(uint32_t) - 1) / sizeof(uint32_t));
-		m_r_output = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(word_count, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:FrameOutput");
+		m_r_output = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(word_count, {}).usage(EUsage::UnorderedAccess), job, "Physics:FrameOutput");
 		m_capacity = static_cast<int64_t>(word_count) * sizeof(uint32_t);
 	}
 
@@ -269,9 +269,9 @@ namespace pr::physics
 		};
 		if (articulations.m_articulation_count != 0)
 			EnsureArticulationGatherPipeline();
-		ResizeBuffers(job.m_cmd_list, resource_size, capture_substep_state);
+		ResizeBuffers(job, resource_size, capture_substep_state);
 		if (event_capacity != 0)
-			EnsureEventCopyPipeline(job.m_cmd_list);
+			EnsureEventCopyPipeline(job);
 
 		// Only the header needs clearing; logical counts make stale body/event storage unreachable.
 		auto header = GpuFrameOutputHeader{

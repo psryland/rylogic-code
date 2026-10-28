@@ -78,7 +78,7 @@ namespace pr::physics::tests
 		{
 			auto& gpu = SharedTestGpu();
 			auto output = GpuFrameOutput{gpu};
-			auto states = gpu.CreateResource(pr::compute::ResDesc::Buf<GpuConstraintBreakState>(1, {}).usage(pr::compute::EUsage::UnorderedAccess), gpu.m_job.m_cmd_list, "Physics:PredicatedTestBreakState");
+			auto states = gpu.CreateResource(pr::compute::ResDesc::Buf<GpuConstraintBreakState>(1, {}).usage(pr::compute::EUsage::UnorderedAccess), gpu.m_job, "Physics:PredicatedTestBreakState");
 			auto source = gpu.m_job.m_upload.Alloc<GpuConstraintBreakState>(1);
 			*source.ptr<GpuConstraintBreakState>() = GpuConstraintBreakState{.generation = 1234};
 			gpu.m_job.m_barriers.Transition(states.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();

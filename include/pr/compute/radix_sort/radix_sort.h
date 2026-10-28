@@ -42,6 +42,7 @@ namespace pr::compute::gpu_radix_sort
 
 		using Gpu = Gpu<QueueType>;
 		using CmdList = CmdList<QueueType>;
+		using Job = GpuJob<QueueType>;
 		using IShaderCache = shader_cache::IShaderCache;
 
 		static constexpr int KeyBits = sizeof(Key) * 8; // 32-bit keys atm
@@ -315,23 +316,23 @@ namespace pr::compute::gpu_radix_sort
 	public:
 
 		// Create sort-size independent buffers
-		void CreateStaticSizeBuffers(CmdList& cmd_list)
+		void CreateStaticSizeBuffers(Job& job)
 		{
 			if (m_global_histogram == nullptr)
 			{
 				ResDesc desc = ResDesc::Buf<Key>(Radix * RadixPasses, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
-				m_global_histogram = m_gpu->CreateResource(desc, cmd_list, "RadixSort:histogram");
+				m_global_histogram = m_gpu->CreateResource(desc, job, "RadixSort:histogram");
 			}
 			if (m_error_count == nullptr)
 			{
 				ResDesc desc = ResDesc::Buf<Key>(1, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
-				m_error_count = m_gpu->CreateResource(desc, cmd_list, "RadixSort:error_count");
+				m_error_count = m_gpu->CreateResource(desc, job, "RadixSort:error_count");
 			}
 		}
 
 		// Bind externally owned streams; 'size' is the CPU-known length or the capacity for a GPU-counted sort.
 		// Size must fit a nonnegative int; zero needs no resources. Bound resources must remain alive until recorded work has completed.
-		void Bind(CmdList& cmd_list, int64_t size, D3DPtr<ID3D12Resource> sort0, D3DPtr<ID3D12Resource> payload0)
+		void Bind(Job& job, int64_t size, D3DPtr<ID3D12Resource> sort0, D3DPtr<ID3D12Resource> payload0)
 		{
 			// Validate capacity before allocating scratch, and avoid zero-width D3D12 resources.
 			auto const partitions = PartitionCount(size);
@@ -348,19 +349,19 @@ namespace pr::compute::gpu_radix_sort
 				ValidateStream(payload0.get(), size);
 
 			// Retain high-water scratch across smaller bound ranges. The bound size still limits GPU counts; allocation size does not.
-			CreateStaticSizeBuffers(cmd_list);
+			CreateStaticSizeBuffers(job);
 
 			if (m_sort[1] == nullptr || m_payload[1] == nullptr || m_pass_histogram == nullptr || m_sort[1]->GetDesc().Width < size * sizeof(Key))
 			{
 				ResDesc sort_desc = ResDesc::Buf<Key>(size, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
-				m_sort[1] = m_gpu->CreateResource(sort_desc, cmd_list, "RadixSort:sort1");
+				m_sort[1] = m_gpu->CreateResource(sort_desc, job, "RadixSort:sort1");
 
 				using T = std::conditional_t<HasPayload, Value, int>;
 				ResDesc payload_desc = ResDesc::Buf<T>(HasPayload ? size : 1, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
-				m_payload[1] = m_gpu->CreateResource(payload_desc, cmd_list, "RadixSort:payload1");
+				m_payload[1] = m_gpu->CreateResource(payload_desc, job, "RadixSort:payload1");
 
 				ResDesc histogram_desc = ResDesc::Buf<Key>(s_cast<int64_t>(Radix) * partitions, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
-				m_pass_histogram = m_gpu->CreateResource(histogram_desc, cmd_list, "RadixSort:passHistBuffer");
+				m_pass_histogram = m_gpu->CreateResource(histogram_desc, job, "RadixSort:passHistBuffer");
 			}
 
 			m_sort[0] = sort0;
@@ -429,7 +430,7 @@ namespace pr::compute::gpu_radix_sort
 		}
 
 		// Resize the GPU buffers in preparation for sorting 'size' elements
-		void Resize(CmdList& cmd_list, int64_t size)
+		void Resize(Job& job, int64_t size)
 		{
 			auto const partitions = PartitionCount(size);
 			if (size == m_size && !m_bound_to_external)
@@ -440,23 +441,23 @@ namespace pr::compute::gpu_radix_sort
 				ReleaseBuffers();
 				return;
 			}
-			CreateStaticSizeBuffers(cmd_list);
+			CreateStaticSizeBuffers(job);
 
 			// Create sort-size dependent buffers
 			{
 				ResDesc desc = ResDesc::Buf<Key>(size, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
-				m_sort[0] = m_gpu->CreateResource(desc, cmd_list, "RadixSort:sort0");
-				m_sort[1] = m_gpu->CreateResource(desc, cmd_list, "RadixSort:sort1");
+				m_sort[0] = m_gpu->CreateResource(desc, job, "RadixSort:sort0");
+				m_sort[1] = m_gpu->CreateResource(desc, job, "RadixSort:sort1");
 			}
 			{
 				using T = std::conditional_t<HasPayload, Value, int>;
 				ResDesc desc = ResDesc::Buf<T>(HasPayload ? size : 1, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
-				m_payload[0] = m_gpu->CreateResource(desc, cmd_list, "RadixSort:payload0");
-				m_payload[1] = m_gpu->CreateResource(desc, cmd_list, "RadixSort:payload1");
+				m_payload[0] = m_gpu->CreateResource(desc, job, "RadixSort:payload0");
+				m_payload[1] = m_gpu->CreateResource(desc, job, "RadixSort:payload1");
 			}
 			{
 				ResDesc desc = ResDesc::Buf<Key>(s_cast<int64_t>(Radix) * partitions, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
-				m_pass_histogram = m_gpu->CreateResource(desc, cmd_list, "RadixSort:passHistBuffer");
+				m_pass_histogram = m_gpu->CreateResource(desc, job, "RadixSort:passHistBuffer");
 			}
 
 			m_size = size;
@@ -578,8 +579,10 @@ namespace pr::compute::gpu_radix_sort
 		// The counter's tracked resource state is restored. Streams must already be in UAV state, as for the CPU-known overload.
 		// The first nonempty-capacity call creates count-only pipeline state and CBV-aligned arguments; subsequent calls reuse them.
 		// Record reuse on one ordered GPU queue. Keep resources alive and fence before resizing or releasing scratch used by unfinished work.
-		void Sort(CmdList& cmd_list, ID3D12Resource* counter, uint64_t counter_offset = 0, uint32_t count_multiplier = 1, char const* purpose = "Gpu Radix Sort")
+		void Sort(Job& job, ID3D12Resource* counter, uint64_t counter_offset = 0, uint32_t count_multiplier = 1, char const* purpose = "Gpu Radix Sort")
 		{
+			auto& cmd_list = job.m_cmd_list;
+
 			// An empty capacity is a no-op, including when no counter or streams have been bound.
 			if (m_size == 0)
 				return;
@@ -602,7 +605,7 @@ namespace pr::compute::gpu_radix_sort
 				throw std::invalid_argument("GpuRadixSort::Sort: CPU and shader partition sizes must agree");
 
 			// CPU-known sorts never create count-only pipeline state or allocate its argument buffer.
-			EnsureIndirectResources(cmd_list);
+			EnsureIndirectResources(job);
 
 			// A transition orders earlier counter writes; returning arguments to UAV orders reuse after earlier indirect reads.
 			BarrierBatch barriers(cmd_list);
@@ -665,7 +668,7 @@ namespace pr::compute::gpu_radix_sort
 	private:
 
 		// Create count-only state on first use, or restore its argument buffer after ReleaseBuffers.
-		void EnsureIndirectResources(CmdList& cmd_list)
+		void EnsureIndirectResources(Job& job)
 		{
 			if (m_indirect_arguments != nullptr)
 				return;
@@ -694,7 +697,7 @@ namespace pr::compute::gpu_radix_sort
 
 			// Capacity and counter changes do not change the fixed argument-table allocation.
 			auto desc = ResDesc::Buf<uint32_t>(IndirectArgumentBytes / sizeof(uint32_t), {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
-			m_indirect_arguments = m_gpu->CreateResource(desc, cmd_list, "RadixSort:indirect_arguments");
+			m_indirect_arguments = m_gpu->CreateResource(desc, job, "RadixSort:indirect_arguments");
 		}
 
 		// Return an overflow-safe partition count within the existing signed-size and two-dimensional dispatch limits.
@@ -936,10 +939,10 @@ namespace pr::compute::gpu_radix_sort::tests
 			{
 				auto stream_desc = ResDesc::Buf<uint32_t>(int64_t(capacity) + 32, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
 				auto counter_desc = ResDesc::Buf<uint32_t>(8, {}).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS).usage(EUsage::UnorderedAccess);
-				m_keys = m_gpu.CreateResource(stream_desc, m_job.m_cmd_list, "RadixSortTest:keys");
-				m_values = m_gpu.CreateResource(stream_desc, m_job.m_cmd_list, "RadixSortTest:values");
-				m_counter = m_gpu.CreateResource(counter_desc, m_job.m_cmd_list, "RadixSortTest:counter");
-				m_sorter.Bind(m_job.m_cmd_list, capacity, m_keys, m_values);
+				m_keys = m_gpu.CreateResource(stream_desc, m_job, "RadixSortTest:keys");
+				m_values = m_gpu.CreateResource(stream_desc, m_job, "RadixSortTest:values");
+				m_counter = m_gpu.CreateResource(counter_desc, m_job, "RadixSortTest:counter");
+				m_sorter.Bind(m_job, capacity, m_keys, m_values);
 			}
 
 			// Opt into counted sorting without touching uninitialized key or payload streams.
@@ -947,7 +950,7 @@ namespace pr::compute::gpu_radix_sort::tests
 			{
 				std::array<uint32_t, 8> counter = {};
 				Upload(m_counter.get(), counter);
-				m_sorter.Sort(m_job.m_cmd_list, m_counter.get(), 4, 2);
+				m_sorter.Sort(m_job, m_counter.get(), 4, 2);
 				m_job.Run();
 			}
 
@@ -1081,14 +1084,14 @@ namespace pr::compute::gpu_radix_sort::tests
 				std::array<uint32_t, 8> counter = { 0xffffffffU, 0x11111111U, 0x22222222U, 0x33333333U, 0x44444444U, 0x55555555U, 0x66666666U, 0x77777777U };
 				counter[counter_index] = 0;
 				fixture.Upload(fixture.m_counter.get(), counter);
-				sorter.Sort(cmd_list, fixture.m_counter.get(), counter_offset, test.multiplier);
+				sorter.Sort(fixture.m_job, fixture.m_counter.get(), counter_offset, test.multiplier);
 				counter[counter_index] = test.raw_count;
 				fixture.Upload(fixture.m_counter.get(), counter);
-				sorter.Bind(cmd_list, capacity, fixture.m_keys, fixture.m_values);
+				sorter.Bind(fixture.m_job, capacity, fixture.m_keys, fixture.m_values);
 				if (test.cpu_known)
 					sorter.Sort(cmd_list);
 				else
-					sorter.Sort(cmd_list, fixture.m_counter.get(), counter_offset, test.multiplier);
+					sorter.Sort(fixture.m_job, fixture.m_counter.get(), counter_offset, test.multiplier);
 
 				// Readbacks are test-only; the sorter itself never transfers the counter or active length to the CPU.
 				PR_EXPECT(cmd_list.ResState(fixture.m_counter.get()).Mip0State() == D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -1124,20 +1127,20 @@ namespace pr::compute::gpu_radix_sort::tests
 			}
 
 			// Reject invalid inputs before recording GPU work, then release and verify the empty-capacity contract.
-			PR_THROWS(sorter.Sort(cmd_list, nullptr), std::invalid_argument);
-			PR_THROWS(sorter.Sort(cmd_list, fixture.m_counter.get(), 1), std::invalid_argument);
-			PR_THROWS(sorter.Sort(cmd_list, fixture.m_counter.get(), 32), std::invalid_argument);
-			PR_THROWS(sorter.Sort(cmd_list, fixture.m_counter.get(), UINT64_MAX), std::invalid_argument);
-			PR_THROWS(sorter.Sort(cmd_list, fixture.m_counter.get(), 4, 0), std::invalid_argument);
-			PR_THROWS(sorter.Bind(cmd_list, -1, nullptr, nullptr), std::out_of_range);
-			PR_THROWS(sorter.Bind(cmd_list, int64_t(std::numeric_limits<int>::max()) + 1, nullptr, nullptr), std::out_of_range);
-			PR_THROWS(sorter.Bind(cmd_list, capacity, nullptr, fixture.m_values), std::invalid_argument);
-			PR_THROWS(sorter.Bind(cmd_list, capacity + 33, fixture.m_keys, fixture.m_values), std::invalid_argument);
+			PR_THROWS(sorter.Sort(fixture.m_job, nullptr), std::invalid_argument);
+			PR_THROWS(sorter.Sort(fixture.m_job, fixture.m_counter.get(), 1), std::invalid_argument);
+			PR_THROWS(sorter.Sort(fixture.m_job, fixture.m_counter.get(), 32), std::invalid_argument);
+			PR_THROWS(sorter.Sort(fixture.m_job, fixture.m_counter.get(), UINT64_MAX), std::invalid_argument);
+			PR_THROWS(sorter.Sort(fixture.m_job, fixture.m_counter.get(), 4, 0), std::invalid_argument);
+			PR_THROWS(sorter.Bind(fixture.m_job, -1, nullptr, nullptr), std::out_of_range);
+			PR_THROWS(sorter.Bind(fixture.m_job, int64_t(std::numeric_limits<int>::max()) + 1, nullptr, nullptr), std::out_of_range);
+			PR_THROWS(sorter.Bind(fixture.m_job, capacity, nullptr, fixture.m_values), std::invalid_argument);
+			PR_THROWS(sorter.Bind(fixture.m_job, capacity + 33, fixture.m_keys, fixture.m_values), std::invalid_argument);
 			sorter.ReleaseBuffers();
 			PR_EXPECT(sorter.AllocatedBufferBytes() == 0);
-			sorter.Bind(cmd_list, 0, nullptr, nullptr);
+			sorter.Bind(fixture.m_job, 0, nullptr, nullptr);
 			sorter.Sort(cmd_list);
-			sorter.Sort(cmd_list, nullptr);
+			sorter.Sort(fixture.m_job, nullptr);
 			sorter.InitPayload(cmd_list);
 			sorter.Sort(std::span<uint32_t>{}, std::span<uint32_t>{}, fixture.m_job);
 			PR_EXPECT(sorter.SortDispatchCount() == 0 && sorter.IndirectSortDispatchCount() == 0);
@@ -1152,7 +1155,7 @@ namespace pr::compute::gpu_radix_sort::tests
 			auto& cmd_list = fixture.m_job.m_cmd_list;
 			CheckIndirectUnused(sorter);
 			fixture.m_job.Run();
-			sorter.Resize(cmd_list, 32);
+			sorter.Resize(fixture.m_job, 32);
 			CheckIndirectUnused(sorter);
 			auto const bytes = sorter.AllocatedBufferBytes();
 
@@ -1176,8 +1179,8 @@ namespace pr::compute::gpu_radix_sort::tests
 
 			// An empty-capacity counted call also leaves the optional capability cold.
 			sorter.ReleaseBuffers();
-			sorter.Bind(cmd_list, 0, nullptr, nullptr);
-			sorter.Sort(cmd_list, nullptr);
+			sorter.Bind(fixture.m_job, 0, nullptr, nullptr);
+			sorter.Sort(fixture.m_job, nullptr);
 			CheckIndirectUnused(sorter);
 			PR_EXPECT(sorter.AllocatedBufferBytes() == 0);
 		}
@@ -1250,8 +1253,8 @@ namespace pr::compute::gpu_radix_sort::tests
 				fixture.Upload(fixture.m_keys.get(), keys);
 				fixture.Upload(fixture.m_values.get(), values);
 				fixture.Upload(fixture.m_counter.get(), std::array<uint32_t, 8>{0, UINT32_MAX});
-				sorter.Bind(fixture.m_job.m_cmd_list, capacity, fixture.m_keys, fixture.m_values);
-				sorter.Sort(fixture.m_job.m_cmd_list, fixture.m_counter.get(), 4);
+				sorter.Bind(fixture.m_job, capacity, fixture.m_keys, fixture.m_values);
+				sorter.Sort(fixture.m_job, fixture.m_counter.get(), 4);
 				auto result_keys = fixture.Readback(fixture.m_keys.get());
 				auto result_values = fixture.Readback(fixture.m_values.get());
 				auto arguments = fixture.Readback(sorter.m_indirect_arguments.get());

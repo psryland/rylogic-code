@@ -46,14 +46,14 @@ namespace pr::physics
 		};
 
 		// Create or geometrically grow one integration-only typed buffer.
-		template <typename T> void EnsureMidpointBuffer(Gpu& gpu, CmdList& cmd_list, D3DPtr<ID3D12Resource>& resource, int count, int& capacity, std::string_view name)
+		template <typename T> void EnsureMidpointBuffer(Gpu& gpu, GpuJob& job, D3DPtr<ID3D12Resource>& resource, int count, int& capacity, std::string_view name)
 		{
 			if (count <= capacity)
 				return;
 
 			auto const doubled_capacity = capacity <= std::numeric_limits<int>::max() / 2 ? capacity * 2 : std::numeric_limits<int>::max();
 			capacity = std::max(count, std::max(1, doubled_capacity));
-			resource = gpu.CreateResource(ResDesc::Buf<T>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, name);
+			resource = gpu.CreateResource(ResDesc::Buf<T>(capacity, {}).usage(EUsage::UnorderedAccess), job, name);
 		}
 
 		// Return the exact group count for a non-empty articulation range.
@@ -118,12 +118,12 @@ namespace pr::physics
 	}
 
 	// Create or geometrically grow the exact P, V, V, and A integration scratch ranges.
-	void GpuArticulationMidpoint::ResizeBuffers(CmdList& cmd_list)
+	void GpuArticulationMidpoint::ResizeBuffers(GpuJob& job)
 	{
-		EnsureMidpointBuffer<float>(m_aba.m_gpu, cmd_list, m_r_position_start, m_aba.m_position_count, m_stats.m_position_start_capacity, "Physics:ArticulationMidpointPositionStart");
-		EnsureMidpointBuffer<float>(m_aba.m_gpu, cmd_list, m_r_velocity_start, m_aba.m_velocity_count, m_stats.m_velocity_start_capacity, "Physics:ArticulationMidpointVelocityStart");
-		EnsureMidpointBuffer<float>(m_aba.m_gpu, cmd_list, m_r_midpoint_velocity, m_aba.m_velocity_count, m_stats.m_midpoint_velocity_capacity, "Physics:ArticulationMidpointVelocity");
-		EnsureMidpointBuffer<GpuArticulationIntegrationState>(m_aba.m_gpu, cmd_list, m_r_integration_state, m_aba.m_articulation_count, m_stats.m_integration_state_capacity, "Physics:ArticulationMidpointState");
+		EnsureMidpointBuffer<float>(m_aba.m_gpu, job, m_r_position_start, m_aba.m_position_count, m_stats.m_position_start_capacity, "Physics:ArticulationMidpointPositionStart");
+		EnsureMidpointBuffer<float>(m_aba.m_gpu, job, m_r_velocity_start, m_aba.m_velocity_count, m_stats.m_velocity_start_capacity, "Physics:ArticulationMidpointVelocityStart");
+		EnsureMidpointBuffer<float>(m_aba.m_gpu, job, m_r_midpoint_velocity, m_aba.m_velocity_count, m_stats.m_midpoint_velocity_capacity, "Physics:ArticulationMidpointVelocity");
+		EnsureMidpointBuffer<GpuArticulationIntegrationState>(m_aba.m_gpu, job, m_r_integration_state, m_aba.m_articulation_count, m_stats.m_integration_state_capacity, "Physics:ArticulationMidpointState");
 	}
 
 	// Upload one validated forest, initialize diagnostics, and prepare shared state without submitting or waiting.
@@ -136,7 +136,7 @@ namespace pr::physics
 			return false;
 		}
 
-		ResizeBuffers(job.m_cmd_list);
+		ResizeBuffers(job);
 
 		// Initialize one success record per articulation while preserving the uploaded root as the first accepted pose.
 		auto states = std::vector<GpuArticulationIntegrationState>{};

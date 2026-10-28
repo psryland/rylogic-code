@@ -84,25 +84,25 @@ namespace pr::physics
 	}
 
 	// Resize the core buffers and optional immutable force storage to hold 'capacity' bodies.
-	void GpuIntegrator::ResizeBuffers(CmdList& cmd_list, int capacity, bool retain_frame_forces)
+	void GpuIntegrator::ResizeBuffers(GpuJob& job, int capacity, bool retain_frame_forces)
 	{
 		capacity = std::max(1, capacity);
 
 		if (m_r_counters == nullptr)
 		{
-			m_r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CollisionCounters");
+			m_r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:CollisionCounters");
 		}
 		if (m_r_bodies == nullptr || m_capacity < capacity)
 		{
-			m_r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:BodyDynamics");
-			m_r_aabb_sort = m_gpu.CreateResource(ResDesc::Buf<float>(2 * capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_Sort");
-			m_r_aabb_idx = m_gpu.CreateResource(ResDesc::Buf<int>(2 * capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_Idx");
-			m_r_aabb_box = m_gpu.CreateResource(ResDesc::Buf<BBox>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:IntegrateAABB_Box");
+			m_r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:BodyDynamics");
+			m_r_aabb_sort = m_gpu.CreateResource(ResDesc::Buf<float>(2 * capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:IntegrateAABB_Sort");
+			m_r_aabb_idx = m_gpu.CreateResource(ResDesc::Buf<int>(2 * capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:IntegrateAABB_Idx");
+			m_r_aabb_box = m_gpu.CreateResource(ResDesc::Buf<BBox>(capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:IntegrateAABB_Box");
 			m_capacity = capacity;
 		}
 		if (retain_frame_forces && (m_r_frame_forces == nullptr || m_frame_force_capacity < capacity))
 		{
-			m_r_frame_forces = m_gpu.CreateResource(ResDesc::Buf<GpuFrameForce>(capacity, {}), cmd_list, "Physics:FrameForces");
+			m_r_frame_forces = m_gpu.CreateResource(ResDesc::Buf<GpuFrameForce>(capacity, {}), job, "Physics:FrameForces");
 			m_frame_force_capacity = capacity;
 		}
 	}
@@ -141,7 +141,7 @@ namespace pr::physics
 		// Keep the force replay resources absent unless this frame will actually consume them.
 		if (retain_frame_forces)
 			EnsureSeedForcesPipeline();
-		ResizeBuffers(job.m_cmd_list, body_count, retain_frame_forces);
+		ResizeBuffers(job, body_count, retain_frame_forces);
 
 		ResetCounters(job);
 

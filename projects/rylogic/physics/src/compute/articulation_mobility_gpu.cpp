@@ -38,14 +38,14 @@ namespace pr::physics
 		};
 
 		// Create or geometrically grow one mobility-owned typed buffer.
-		template <typename T> void EnsureMobilityBuffer(Gpu& gpu, CmdList& cmd_list, D3DPtr<ID3D12Resource>& resource, int count, int& capacity, EUsage usage, std::string_view name)
+		template <typename T> void EnsureMobilityBuffer(Gpu& gpu, GpuJob& job, D3DPtr<ID3D12Resource>& resource, int count, int& capacity, EUsage usage, std::string_view name)
 		{
 			if (count <= capacity)
 				return;
 
 			auto const doubled_capacity = capacity <= std::numeric_limits<int>::max() / 2 ? 2 * capacity : std::numeric_limits<int>::max();
 			capacity = std::max(count, std::max(1, doubled_capacity));
-			resource = gpu.CreateResource(ResDesc::Buf<T>(capacity, {}).usage(usage), cmd_list, name);
+			resource = gpu.CreateResource(ResDesc::Buf<T>(capacity, {}).usage(usage), job, name);
 		}
 
 		// Return the exact group count for a non-empty participating-articulation range.
@@ -142,11 +142,11 @@ namespace pr::physics
 	}
 
 	// Create or geometrically grow the range and compact mobility resources.
-	void GpuArticulationMobility::ResizeBuffers(CmdList& cmd_list)
+	void GpuArticulationMobility::ResizeBuffers(GpuJob& job)
 	{
 		EnsureMobilityBuffer<GpuArticulationMobilityRange>(
 			m_aba.m_gpu,
-			cmd_list,
+			job,
 			m_r_ranges,
 			isize(m_ranges),
 			m_stats.m_range_capacity,
@@ -154,7 +154,7 @@ namespace pr::physics
 			"Physics:ArticulationMobilityRanges");
 		EnsureMobilityBuffer<GpuArticulationSpatialMobility>(
 			m_aba.m_gpu,
-			cmd_list,
+			job,
 			m_r_mobilities,
 			m_mobility_count,
 			m_stats.m_mobility_capacity,
@@ -182,7 +182,7 @@ namespace pr::physics
 		m_mobility_count = final_range.mobility_offset + final_range.link_count;
 		auto const& final_articulation = upload.m_articulations[final_range.articulation_index];
 		m_velocity_delta_count = final_range.velocity_delta_offset + final_articulation.velocity_count;
-		ResizeBuffers(job.m_cmd_list);
+		ResizeBuffers(job);
 
 		// Participating ranges are immutable for the frame while mobility output is regenerated per substep.
 		job.m_barriers.Transition(m_r_ranges.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();

@@ -39,9 +39,10 @@ namespace pr::physics::tests
 			UnpackDynamics(bodies[0], body);
 
 			// Neither fresh closing nor bias is available: only the already-applied normal support can fund this tangent impulse.
+			// The solver withdraws the part of that support that leaves the bodies separating, so the normal speed settles at zero.
 			auto const velocity = body.VelocityWS();
 			PR_EXPECT(Abs(velocity.LinAt(v4{0, 0, -0.5f, 0}).x) < 1.0e-5f);
-			PR_EXPECT(FEqlAbsolute(velocity.lin.z, 0.001f, 1.0e-6f));
+			PR_EXPECT(FEqlAbsolute(velocity.lin.z, 0.0f, 1.0e-6f));
 			PR_EXPECT(body.KineticEnergy() <= energy_before + 1.0e-7f);
 		}
 

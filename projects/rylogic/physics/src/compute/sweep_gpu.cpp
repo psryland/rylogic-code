@@ -119,22 +119,22 @@ namespace pr::physics
 	}
 
 	// Resize the broadphase output and optional collision-exclusion buffers.
-	void GpuSortAndSweep::ResizeBuffers(CmdList& cmd_list, int max_col_pairs, int collision_exclusion_count)
+	void GpuSortAndSweep::ResizeBuffers(GpuJob& job, int max_col_pairs, int collision_exclusion_count)
 	{
 		max_col_pairs = std::max(1, max_col_pairs);
 		
 		if (m_r_col_pairs == nullptr || m_max_col_pairs < max_col_pairs)
 		{
-			m_r_col_pairs = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionPair>(max_col_pairs, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CollisionPairs");
+			m_r_col_pairs = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionPair>(max_col_pairs, {}).usage(EUsage::UnorderedAccess), job, "Physics:CollisionPairs");
 			m_max_col_pairs = max_col_pairs;
 		}
 		if (m_r_cd_dispatch == nullptr)
 		{
-			m_r_cd_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CDDispatchArgs");
+			m_r_cd_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:CDDispatchArgs");
 		}
 		if (collision_exclusion_count != 0 && (m_r_collision_exclusions == nullptr || m_collision_exclusion_capacity < collision_exclusion_count))
 		{
-			m_r_collision_exclusions = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionExclusion>(collision_exclusion_count, {}), cmd_list, "Physics:CollisionExclusions");
+			m_r_collision_exclusions = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionExclusion>(collision_exclusion_count, {}), job, "Physics:CollisionExclusions");
 			m_collision_exclusion_capacity = collision_exclusion_count;
 		}
 	}
@@ -143,7 +143,7 @@ namespace pr::physics
 	void GpuSortAndSweep::Sort(GpuJob& job, int body_count, D3DPtr<ID3D12Resource> aabb, D3DPtr<ID3D12Resource> aabb_idx)
 	{
 		// Defer sorting to the radix sorter. This wills sort the "payload" in 'aabb_idx' based on the "keys" in 'aabb'
-		m_sorter.Bind(job.m_cmd_list, 2*body_count, aabb, aabb_idx);
+		m_sorter.Bind(job, 2*body_count, aabb, aabb_idx);
 		m_sorter.Sort("Physics::SortBroadphaseEndpoints", job.m_cmd_list);
 	}
 
@@ -165,7 +165,7 @@ namespace pr::physics
 		pix::BeginEvent(job.m_cmd_list.get(), 0xFF45bcf2, "Physics::Sweep");
 
 		auto const filtered = !collision_exclusions.empty();
-		ResizeBuffers(job.m_cmd_list, max_col_pairs, s_cast<int>(collision_exclusions.size()));
+		ResizeBuffers(job, max_col_pairs, s_cast<int>(collision_exclusions.size()));
 		if (filtered)
 		{
 			EnsureFilteredSweep();
@@ -302,13 +302,13 @@ namespace pr::physics
 			return {};
 
 		// Create temporary GPU resources
-		auto r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempCounters");
-		auto r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(body_count, {}), job.m_cmd_list, "Physics:TempBodies");
-		auto r_shapes = m_gpu.CreateResource(ResDesc::Buf<GpuShape>(shape_count, {}), job.m_cmd_list, "Physics:TempShapes");
-		auto r_aabb_sort = m_gpu.CreateResource(ResDesc::Buf<float>(2 * body_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempAABB_Sort");
-		auto r_aabb_box = m_gpu.CreateResource(ResDesc::Buf<BBox>(body_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempAABB_Box");
-		auto r_aabb_idx = m_gpu.CreateResource(ResDesc::Buf<int>(2 * body_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:TempAABBIdx");
-		auto r_sleep_islands = m_gpu.CreateResource(ResDesc::Buf<GpuSleepIsland>(1, {}), job.m_cmd_list, "Physics:TempSleepIslands");
+		auto r_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:TempCounters");
+		auto r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(body_count, {}), job, "Physics:TempBodies");
+		auto r_shapes = m_gpu.CreateResource(ResDesc::Buf<GpuShape>(shape_count, {}), job, "Physics:TempShapes");
+		auto r_aabb_sort = m_gpu.CreateResource(ResDesc::Buf<float>(2 * body_count, {}).usage(EUsage::UnorderedAccess), job, "Physics:TempAABB_Sort");
+		auto r_aabb_box = m_gpu.CreateResource(ResDesc::Buf<BBox>(body_count, {}).usage(EUsage::UnorderedAccess), job, "Physics:TempAABB_Box");
+		auto r_aabb_idx = m_gpu.CreateResource(ResDesc::Buf<int>(2 * body_count, {}).usage(EUsage::UnorderedAccess), job, "Physics:TempAABBIdx");
+		auto r_sleep_islands = m_gpu.CreateResource(ResDesc::Buf<GpuSleepIsland>(1, {}), job, "Physics:TempSleepIslands");
 
 		// Upload counters
 		{

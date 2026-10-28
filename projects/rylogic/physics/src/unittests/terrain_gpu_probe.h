@@ -72,9 +72,9 @@ namespace pr::physics::tests::terrain_probe
 		auto const count = static_cast<uint32_t>(positions.size());
 		auto output = std::vector<BaselineResult>(count);
 		auto& job = gpu.m_job;
-		auto recipe_buffer = gpu.CreateResource(ResDesc::Buf<Recipe>(1, {}), job.m_cmd_list, "Terrain:Recipe");
-		auto positions_buffer = gpu.CreateResource(ResDesc::Buf<v2d>(count, {}), job.m_cmd_list, "Terrain:Positions");
-		auto results_buffer = gpu.CreateResource(ResDesc::Buf<BaselineResult>(count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Terrain:Results");
+		auto recipe_buffer = gpu.CreateResource(ResDesc::Buf<Recipe>(1, {}), job, "Terrain:Recipe");
+		auto positions_buffer = gpu.CreateResource(ResDesc::Buf<v2d>(count, {}), job, "Terrain:Positions");
+		auto results_buffer = gpu.CreateResource(ResDesc::Buf<BaselineResult>(count, {}).usage(EUsage::UnorderedAccess), job, "Terrain:Results");
 		auto recipe_upload = job.m_upload.Alloc<Recipe>(1);
 		auto positions_upload = job.m_upload.Alloc<v2d>(static_cast<int>(count));
 		auto readback = job.m_readback.Alloc<BaselineResult>(static_cast<int>(count));

@@ -61,25 +61,37 @@ namespace pr::rdr12
 		auto zn = std::max(camera.m_near, depth - radius);
 		auto zf = std::min(camera.m_far, depth + radius);
 
-		// A shadow distance that cuts off the casters ends the shadows with a fade, so that the edge of the last cascade is not visible
+		// A shadow distance that cuts off the casters ends the shadows with a fade, so that the edge of the last cascade is not visible.
+		// The light's own shadow layout, where given, replaces the scene settings.
+		auto shadow_distance = light.m_shadow_distance > 0 ? light.m_shadow_distance : settings.m_shadow_distance;
 		auto fade = v2::Zero();
-		if (settings.m_shadow_distance > 0 && settings.m_shadow_distance < zf)
+		if (shadow_distance > 0 && shadow_distance < zf)
 		{
-			zf = settings.m_shadow_distance;
-			fade = v2(zf * (1.0f - ShadowFadeFraction), zf);
+			zf = shadow_distance;
+			auto fade_start = light.m_shadow_fade_start > 0 ? std::min(light.m_shadow_fade_start, zf) : zf * (1.0f - ShadowFadeFraction);
+			fade = v2(fade_start, zf);
 		}
 		if (zf <= zn)
 			return;
 
 		// Split the depth range into cascades. Each cascade covers the bounding sphere of its slice of the camera view.
-		auto count = std::clamp(settings.m_cascade_count, 1, MaxShadowCascades);
+		auto count = std::clamp(light.m_shadow_cascades > 0 ? light.m_shadow_cascades : settings.m_cascade_count, 1, MaxShadowCascades);
 		float splits[MaxShadowCascades + 1];
 		count = ShadowCascadeSplits(zn, zf, count, std::clamp(settings.m_cascade_split_blend, 0.0f, 1.0f), settings.m_first_cascade_distance, { &splits[0], s_cast<size_t>(count + 1) });
+
+		// The first cascade has the scene's directional resolution and the others may use a lower one. A light with its own resolution uses it for every cascade.
+		auto cascade_size = [&](int cascade)
+		{
+			if (light.m_shadow_resolution > 0)
+				return light.m_shadow_resolution;
+
+			return cascade != 0 && settings.m_far_cascade_resolution > 0 ? settings.m_far_cascade_resolution : settings.m_directional_resolution;
+		};
 
 		// Add a view of the sphere ('view_centre', 'view_radius'). Receivers and casters outside a view's depth range are clamped to its near
 		// or far plane, where they can no longer be ordered. The depth range therefore covers all casters as well as the view's sphere,
 		// so a clamped receiver is always in front of, or behind, every caster on its light ray.
-		auto add_view = [&](v4 view_centre, float view_radius)
+		auto add_view = [&](v4 view_centre, float view_radius, int cascade)
 		{
 			auto d = Dot(centre - view_centre, dir);
 			views.push_back({
@@ -90,7 +102,7 @@ namespace pr::rdr12
 				.m_depth_max = std::max(view_radius, d + radius),
 				.m_bias_scale = 2 * view_radius,
 				.m_fade_depth = fade,
-				.m_size = settings.m_directional_resolution,
+				.m_size = cascade_size(cascade),
 				.m_ortho = true,
 			});
 		};
@@ -112,10 +124,10 @@ namespace pr::rdr12
 			// A cascade that would cover all of the casters is replaced by one fitted to the casters. Further cascades are not needed.
 			if (r >= radius)
 			{
-				add_view(centre, radius);
+				add_view(centre, radius, c);
 				break;
 			}
-			add_view(cam_pos + t * cam_fwd, r);
+			add_view(cam_pos + t * cam_fwd, r, c);
 		}
 	}
 

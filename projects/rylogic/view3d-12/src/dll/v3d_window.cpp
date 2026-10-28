@@ -1445,6 +1445,8 @@ namespace pr::rdr12
 		if (prev.m_inner_angle != light.m_inner_angle) settings |= view3d::ESettings::Lighting_Range;
 		if (prev.m_outer_angle != light.m_outer_angle) settings |= view3d::ESettings::Lighting_Range;
 		if (prev.m_cast_shadow != light.m_cast_shadow) settings |= view3d::ESettings::Lighting_Shadows;
+		if (prev.m_shadow_cascades != light.m_shadow_cascades || prev.m_shadow_resolution != light.m_shadow_resolution) settings |= view3d::ESettings::Lighting_Shadows;
+		if (prev.m_shadow_distance != light.m_shadow_distance || prev.m_shadow_fade_start != light.m_shadow_fade_start) settings |= view3d::ESettings::Lighting_Shadows;
 		if (prev.m_cam_relative != light.m_cam_relative) settings |= view3d::ESettings::Lighting_Position | view3d::ESettings::Lighting_Direction;
 		if (prev.m_on != light.m_on) settings |= view3d::ESettings::Lighting_All;
 
@@ -2137,6 +2139,25 @@ namespace pr::rdr12
 	{
 		assert(IsFinite(clock.count()) && clock.count() >= 0);
 		m_anim_data.m_clock.store(clock);
+	}
+
+	// Return the longest time needed to show every frame of any flipbook in this window
+	seconds_t V3dWindow::FlipbookDuration() const
+	{
+		// Flipbooks can be nested anywhere in an object tree, so search every object recursively
+		assert(std::this_thread::get_id() == m_main_thread_id);
+		auto duration_s = 0.0;
+		for (auto& obj : m_objects)
+		{
+			obj->Apply([&](ldraw::LdrObject const* ob)
+			{
+				if (ob->m_flipbook)
+					duration_s = std::max(duration_s, ob->m_flipbook.Duration(static_cast<int>(ob->m_child.size())));
+
+				return true;
+			}, "");
+		}
+		return seconds_t(duration_s);
 	}
 
 	// Called when the animation time has changed

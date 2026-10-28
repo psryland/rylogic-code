@@ -133,7 +133,7 @@ namespace pr::physics
 	private:
 
 		// Create or geometrically grow all contact, endpoint, target, participant, and tree transaction buffers.
-		void ResizeBuffers(CmdList& cmd_list);
+		void ResizeBuffers(GpuJob& job);
 
 		// Refresh logical and retained byte counts after topology or optional position storage changes.
 		void UpdateMemoryStats();

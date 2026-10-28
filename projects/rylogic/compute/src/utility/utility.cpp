@@ -516,16 +516,22 @@ namespace pr::compute
 		#endif
 
 		UINT size(sizeof(D3D12_RESOURCE_STATES));
-		char bytes[sizeof(D3D12_RESOURCE_STATES)];
-		auto hr = const_cast<ID3D12Resource*>(res)->GetPrivateData(Guid_DefaultResourceState, &size, &bytes[0]);
-		return hr != DXGI_ERROR_NOT_FOUND
-			? *reinterpret_cast<D3D12_RESOURCE_STATES*>(&bytes[0])
-			: D3D12_RESOURCE_STATE_COMMON;
+		auto state = D3D12_RESOURCE_STATE_COMMON;
+		auto hr = const_cast<ID3D12Resource*>(res)->GetPrivateData(Guid_DefaultResourceState, &size, &state);
+
+		// Resources without a stored default state are in the COMMON state. Any other failure, or data of the wrong size, is an error.
+		if (hr == DXGI_ERROR_NOT_FOUND)
+			return D3D12_RESOURCE_STATE_COMMON;
+
+		Check(hr);
+		if (size != sizeof(D3D12_RESOURCE_STATES))
+			throw std::runtime_error("The stored default resource state has the wrong size");
+
+		return state;
 	}
 	void DefaultResState(ID3D12Resource* res, D3D12_RESOURCE_STATES state)
 	{
-		// Assume 'Common' state and don't store it
-		if (state == D3D12_RESOURCE_STATE_COMMON) return;
+		// Always store the state, so that setting COMMON replaces any previously stored state
 		Check(res->SetPrivateData(Guid_DefaultResourceState, s_cast<UINT>(sizeof(D3D12_RESOURCE_STATES)), &state));
 	}
 

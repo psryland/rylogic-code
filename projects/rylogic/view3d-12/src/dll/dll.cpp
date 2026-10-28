@@ -85,21 +85,27 @@ using LockGuard = std::lock_guard<std::recursive_mutex>;
 
 // Dll Context ****************************
 
-// Initialise calls are reference counted and must be matched with Shutdown calls
-// 'initialise_error_cb' is used to report dll initialisation errors only (i.e. it isn't stored)
-// Note: this function is not thread safe, avoid race calls
+// Initialise calls are reference counted and must be matched with Shutdown calls.
+// The first Initialise call binds the dll context to the calling thread. Later Initialise calls, and all Shutdown calls, must be made on that thread
+// until the last Shutdown call destroys the context. 'global_error_cb' receives initialisation errors and, until the matching Shutdown call, errors
+// associated with the dll.
 VIEW3D_API DllHandle  __stdcall View3D_Initialise(view3d::ReportErrorCB global_error_cb)
 {
 	try
 	{
-		// Create the dll context on the first call
+		// Create the dll context on the first call. Otherwise, reject callers on other threads because the renderer is bound to its creating thread.
 		if (g_ctx == nullptr)
-			g_ctx = new Context(g_hInstance, global_error_cb);
+			g_ctx = new Context(g_hInstance);
+		else if (std::this_thread::get_id() != g_ctx->m_main_thread_id)
+			throw std::runtime_error("View3D is already initialised on a different thread. All clients must use the thread that first initialised View3D");
 
-		// Generate a unique handle per Initialise call, used to match up with Shutdown calls
+		// Generate a unique handle per Initialise call, used to match up with Shutdown calls.
+		// Lock the context, because API calls from other threads read 'm_inits' under the context mutex.
 		static DllHandle handles = nullptr;
-		g_ctx->m_inits.insert(++handles);
-		return handles;
+		DllLockGuard;
+		auto handle = ++handles;
+		g_ctx->m_inits[handle] = g_ctx->ReportError += global_error_cb;
+		return handle;
 	}
 	catch (std::exception const& e)
 	{
@@ -114,12 +120,29 @@ VIEW3D_API DllHandle  __stdcall View3D_Initialise(view3d::ReportErrorCB global_e
 }
 VIEW3D_API void __stdcall View3D_Shutdown(DllHandle context)
 {
-	if (!g_ctx) return;
-
-	g_ctx->m_inits.erase(context);
-	if (!g_ctx->m_inits.empty())
+	// Ignore calls after the context is destroyed, and reject calls from other threads (see View3D_Initialise)
+	if (!g_ctx)
 		return;
+	if (std::this_thread::get_id() != g_ctx->m_main_thread_id)
+	{
+		g_ctx->ReportError("View3D_Shutdown failed.\nShutdown must be called on the thread that first initialised View3D\n", "", 0, 0);
+		return;
+	}
 
+	// Release this caller's handle and its error callback, because the caller may destroy the callback's context after Shutdown returns
+	{
+		DllLockGuard;
+		auto it = g_ctx->m_inits.find(context);
+		if (it == g_ctx->m_inits.end())
+			return;
+
+		g_ctx->ReportError -= it->second;
+		g_ctx->m_inits.erase(it);
+		if (!g_ctx->m_inits.empty())
+			return;
+	}
+
+	// Destroy the context once the last client has shut down
 	delete g_ctx;
 	g_ctx = nullptr;
 }
@@ -1260,6 +1283,19 @@ VIEW3D_API void __stdcall View3D_WindowAnimTimeSet(view3d::Window window, double
 	CatchAndReport(View3D_WindowAnimTimeSet, window, );
 }
 
+// Return the longest time needed to show every frame of any flipbook in 'window'. Zero if there are no flipbooks.
+VIEW3D_API double __stdcall View3D_WindowFlipbookDuration(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->FlipbookDuration().count();
+	}
+	CatchAndReport(View3D_WindowFlipbookDuration, window, 0.0);
+}
+
 // Return the DPI of the monitor that 'window' is displayed on
 VIEW3D_API view3d::Vec2 __stdcall View3D_WindowDpiScale(view3d::Window window)
 {
@@ -2022,15 +2058,21 @@ static view3d::Light ToDllLight(rdr12::Light const& light)
 		.m_inner_angle    = light.m_inner_angle,
 		.m_outer_angle    = light.m_outer_angle,
 		.m_cast_shadow    = light.m_cast_shadow,
+		.m_shadow_cascades   = light.m_shadow_cascades,
+		.m_shadow_resolution = light.m_shadow_resolution,
+		.m_shadow_distance   = light.m_shadow_distance,
+		.m_shadow_fade_start = light.m_shadow_fade_start,
 		.m_cam_relative   = light.m_cam_relative,
 		.m_on             = light.m_on,
 	};
 }
 static rdr12::Light ToRdrLight(view3d::Light const& light)
 {
-	// Validate caller-supplied light positions at the DLL boundary
+	// Validate caller-supplied light positions and shadow layout at the DLL boundary
 	if (light.m_position.w != 1.0f)
 		throw std::invalid_argument("Light position must have w = 1");
+	if (light.m_shadow_cascades < 0 || light.m_shadow_cascades > rdr12::MaxShadowCascades || light.m_shadow_resolution < 0 || !(light.m_shadow_distance >= 0) || !(light.m_shadow_fade_start >= 0))
+		throw std::invalid_argument(std::format("Light shadow cascades must be in [0, {}], and the shadow resolution, distance, and fade start must not be negative", rdr12::MaxShadowCascades));
 
 	rdr12::Light result;
 	result.m_position       = To<v4>(light.m_position);
@@ -2045,6 +2087,10 @@ static rdr12::Light ToRdrLight(view3d::Light const& light)
 	result.m_inner_angle    = light.m_inner_angle;
 	result.m_outer_angle    = light.m_outer_angle;
 	result.m_cast_shadow    = light.m_cast_shadow;
+	result.m_shadow_cascades   = light.m_shadow_cascades;
+	result.m_shadow_resolution = light.m_shadow_resolution;
+	result.m_shadow_distance   = light.m_shadow_distance;
+	result.m_shadow_fade_start = light.m_shadow_fade_start;
 	result.m_cam_relative   = light.m_cam_relative != 0;
 	result.m_on             = light.m_on != 0;
 	return result;
@@ -2159,6 +2205,7 @@ VIEW3D_API view3d::ShadowSettings __stdcall View3D_ShadowSettingsGet(view3d::Win
 		return view3d::ShadowSettings{
 			.m_atlas_size = s.m_atlas_size,
 			.m_directional_resolution = s.m_directional_resolution,
+			.m_far_cascade_resolution = s.m_far_cascade_resolution,
 			.m_spot_resolution = s.m_spot_resolution,
 			.m_point_resolution = s.m_point_resolution,
 			.m_max_shadow_lights = s.m_max_shadow_lights,
@@ -2185,6 +2232,7 @@ VIEW3D_API void __stdcall View3D_ShadowSettingsSet(view3d::Window window, view3d
 		auto s = rdr12::ShadowSettings{};
 		s.m_atlas_size = settings.m_atlas_size;
 		s.m_directional_resolution = settings.m_directional_resolution;
+		s.m_far_cascade_resolution = settings.m_far_cascade_resolution;
 		s.m_spot_resolution = settings.m_spot_resolution;
 		s.m_point_resolution = settings.m_point_resolution;
 		s.m_max_shadow_lights = settings.m_max_shadow_lights;

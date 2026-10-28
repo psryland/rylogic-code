@@ -67,6 +67,7 @@ namespace Rylogic.LDraw
 		Far = unchecked((int)3170376174),
 		FilePath = unchecked((int)1962937316),
 		Filter = unchecked((int)3353438327),
+		Flipbook = unchecked((int)198275595),
 		Font = unchecked((int)659427984),
 		ForeColour = unchecked((int)3815865055),
 		Format = unchecked((int)3114108242),

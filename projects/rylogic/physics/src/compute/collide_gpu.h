@@ -63,6 +63,6 @@ namespace pr::physics
 	private:
 
 		// Resize the GPU buffers to support 'max_contacts' contact points, and the cached shape data.
-		bool ResizeBuffers(CmdList& cmd_list, int max_contacts, int max_pairs, int max_shapes, int max_verts, int max_faces, int max_edges);
+		bool ResizeBuffers(GpuJob& job, int max_contacts, int max_pairs, int max_shapes, int max_verts, int max_faces, int max_edges);
 	};
 }

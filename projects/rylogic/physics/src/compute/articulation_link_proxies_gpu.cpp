@@ -48,7 +48,7 @@ namespace pr::physics
 
 		// Create or geometrically grow one typed proxy-owned resource.
 		template <typename T>
-		void EnsureProxyBuffer(Gpu& gpu, CmdList& cmd_list, D3DPtr<ID3D12Resource>& resource, int count, int& capacity, EUsage usage, char const* name)
+		void EnsureProxyBuffer(Gpu& gpu, GpuJob& job, D3DPtr<ID3D12Resource>& resource, int count, int& capacity, EUsage usage, char const* name)
 		{
 			if (resource != nullptr && capacity >= count)
 				return;
@@ -57,7 +57,7 @@ namespace pr::physics
 				? 2 * capacity
 				: std::numeric_limits<int>::max();
 			capacity = std::max(count, std::max(1, doubled_capacity));
-			resource = gpu.CreateResource(ResDesc::Buf<T>(capacity, {}).usage(usage), cmd_list, name);
+			resource = gpu.CreateResource(ResDesc::Buf<T>(capacity, {}).usage(usage), job, name);
 		}
 	}
 
@@ -109,7 +109,7 @@ namespace pr::physics
 		// Geometric growth avoids reallocating persistent frames when forest sizes fluctuate modestly.
 		EnsureProxyBuffer<GpuConstraintFrame>(
 			m_aba.m_gpu,
-			job.m_cmd_list,
+			job,
 			m_r_link_to_world,
 			m_aba.m_link_count,
 			m_stats.m_link_frame_capacity,

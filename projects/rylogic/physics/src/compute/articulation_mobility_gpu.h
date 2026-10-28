@@ -88,6 +88,6 @@ namespace pr::physics
 		void ReleaseBuffers();
 
 		// Create or geometrically grow the range and compact mobility resources.
-		void ResizeBuffers(CmdList& cmd_list);
+		void ResizeBuffers(GpuJob& job);
 	};
 }

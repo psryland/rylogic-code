@@ -3,6 +3,7 @@
 //  Copyright (c) Rylogic Ltd 2015
 //**********************************
 #include "pr/compute/gpu.h"
+#include "pr/compute/gpu_job.h"
 #include "pr/compute/utility/barrier_batch.h"
 #include "pr/compute/utility/update_resource.h"
 #include "pr/compute/utility/utility.h"
@@ -14,10 +15,6 @@ namespace pr::compute
 	Gpu<ListType>::Gpu(ID3D12Device4* existing_device, ID3D12CommandQueue* existing_queue)
 		: m_device(existing_device, true)
 		, m_cmd_queue(existing_queue, true)
-		, m_gsync()
-		, m_cmd_alloc_pool(m_gsync)
-		, m_cmd_list_pool(m_gsync)
-		, m_upload_buffer(m_gsync, 1ULL * 1024 * 1024)
 	{
 		if (existing_device == nullptr)
 		{
@@ -68,19 +65,16 @@ namespace pr::compute
 			Check(m_device->CreateCommandQueue(&queue_desc, __uuidof(ID3D12CommandQueue), (void**)m_cmd_queue.address_of()));
 		}
 
-		// Check feature support
-		D3D12_FEATURE_DATA_SHADER_MODEL ShaderModel = { .HighestShaderModel = D3D_SHADER_MODEL_5_1 };
-		Check(m_device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &ShaderModel, sizeof(D3D12_FEATURE_DATA_SHADER_MODEL)));
-		if (ShaderModel.HighestShaderModel < D3D_SHADER_MODEL_5_1)
-			throw std::runtime_error("DirectX device does not support Compute Shaders 4.x");
-
-		// Initialise the fence
-		m_gsync.Init(m_device.get());
+		// Require Shader Model 6.6 because the compute shaders are compiled for it
+		D3D12_FEATURE_DATA_SHADER_MODEL shader_model = { .HighestShaderModel = D3D_SHADER_MODEL_6_6 };
+		Check(m_device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &shader_model, sizeof(D3D12_FEATURE_DATA_SHADER_MODEL)));
+		if (shader_model.HighestShaderModel < D3D_SHADER_MODEL_6_6)
+			throw std::runtime_error("DirectX device does not support Shader Model 6.6");
 	}
 
 	// Allocate a DX resource
 	template <D3D12_COMMAND_LIST_TYPE ListType>
-	D3DPtr<ID3D12Resource> Gpu<ListType>::CreateResource(ResDesc const& desc, CmdList<ListType>& cmd_list, std::string_view name)
+	D3DPtr<ID3D12Resource> Gpu<ListType>::CreateResource(ResDesc const& desc, GpuJob<ListType>& job, std::string_view name)
 	{
 		D3DPtr<ID3D12Resource> res;
 		auto has_init_data = !desc.Data.empty();
@@ -115,7 +109,7 @@ namespace pr::compute
 			{
 				// Note: here 'desc.Data' is an array of mip-level-zero images.
 				// The span of images expected by 'UpdateSubresource' is for each mip level.
-				UpdateSubresourceScope map(cmd_list, m_upload_buffer, res.get(), i, 0, 1, desc.DataAlignment);
+				UpdateSubresourceScope map(job.m_cmd_list, job.m_upload, res.get(), i, 0, 1, desc.DataAlignment);
 				map.Write(desc.Data[i], AllSet(desc.MiscFlags, ResDesc::EMiscFlags::PartialInitData));
 				map.Commit(EFinalState::Override, desc.DefaultState);
 			}
@@ -131,7 +125,7 @@ namespace pr::compute
 		DefaultResState(res.get(), desc.DefaultState);
 
 		// Transition the resource to the default state
-		BarrierBatch barriers(cmd_list);
+		BarrierBatch barriers(job.m_cmd_list);
 		barriers.Transition(res.get(), desc.DefaultState);
 		barriers.Commit();
 		return res;

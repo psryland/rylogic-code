@@ -107,34 +107,23 @@ namespace pr::compute
 				? iv3(s_cast<int>(ddesc.Width), s_cast<int>(ddesc.Height), s_cast<int>(ddesc.DepthOrArraySize))
 				: iv3(s_cast<int>(ddesc.Width), s_cast<int>(ddesc.Height), 1));
 
-			// If the update volume is clipped away, then there's nothing to do
-			if (range.x == 0 || range.y == 0 || range.z == 0)
+			// If the update volume is clipped away, then there's nothing to do. 'Write' and 'Commit' are no-ops without a staging layout.
+			if (m_range.right <= m_range.left || m_range.bottom <= m_range.top || m_range.back <= m_range.front)
 				return;
 
 			// Calculate the sub resource range spanned by [m_mip0, m_mip0 + m_mipN)
 			auto array_length = ddesc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 1 : ddesc.DepthOrArraySize;
 			m_sub0 = SubResIndex(0, ddesc.MipLevels, array_slice, array_length); // Subresource index of the array slice
 
-			// Get the size and footprints for copying sub-resources.
+			// Get the footprints for copying sub-resources, and the staging size they need. Each footprint describes a whole mip,
+			// and mips after the first are placed at aligned offsets, so the staging size must come from the footprints rather than
+			// from the row pitches. The update box of each mip is staged at the origin of its footprint.
+			auto total_size = 0ULL;
 			m_layout.resize(m_mipN);
-			device->GetCopyableFootprints(&ddesc, m_sub0 + m_mip0, m_mipN, 0ULL, m_layout.data(), nullptr, nullptr, nullptr);
+			device->GetCopyableFootprints(&ddesc, m_sub0 + m_mip0, m_mipN, 0ULL, m_layout.data(), nullptr, nullptr, &total_size);
 
-			// Determine the total size of the staging memory needed to hold the update data
-			auto total_size = 0LL;
-			for (auto i = 0; i != m_mipN; ++i)
-			{
-				auto const& footprint = m_layout[i].Footprint;
-
-				// The size of the box at mip 'i' (in elements, not bytes)
-				auto size_at_mip = m_range.size(m_mip0 + i);
-				total_size += footprint.RowPitch * size_at_mip.y * size_at_mip.z;
-			}
-
-			// Get a staging buffer big enough for all of the sub-resources.
-			// The staging buffer is just big enough to contain the range to be updated, not the full resource.
-			// If 'dest' is a volume texture, and [first, range) is a box within that texture, then the size of the
-			// staging buffer is just the size of the box + subsequent mip levels.
-			m_staging = upload.Alloc(total_size, m_alignment);
+			// Get a staging buffer big enough for all of the updated mips
+			m_staging = upload.Alloc(s_cast<int64_t>(total_size), m_alignment);
 
 			// 'GetCopyableFootprints' returns values relative to the start of the staging resource, but,
 			// 'staging' is an allocation *within* the staging resource, so we need to adjust the Offset values.
@@ -164,9 +153,11 @@ namespace pr::compute
 		// Note: there is no 'end' because RowPitch != Width which means 'end' isn't well defined.
 		template <typename TElement> TElement const* ptr(int mip = 0) const
 		{
-			// Make sure the mip is within the range of mips being updated
+			// Make sure the mip is within the range of mips being updated, and that the update has staging memory
 			if (mip < 0 || mip >= m_mipN)
 				throw std::runtime_error("Mip level out of range for this update");
+			if (m_layout.empty())
+				throw std::runtime_error("The update range is empty, so there is no staging memory");
 
 			// The mip in the staging buffer
 			auto const& layout = m_layout[mip];
@@ -181,8 +172,8 @@ namespace pr::compute
 			// The z slice in the staging buffer
 			auto slice = byte_ptr(ptr<TElement>(mip));
 
-			// The dimensions of the range being updated
-			auto const& dim = m_range.size(mip);
+			// The dimensions of the range being updated. 'mip' is relative to 'm_mip0' but 'm_range' is relative to mip 0.
+			auto const& dim = m_range.size(m_mip0 + mip);
 			if (pos.x < 0 || pos.x >= dim.x ||
 				pos.y < 0 || pos.y >= dim.y ||
 				pos.z < 0 || pos.z >= dim.z)
@@ -212,6 +203,10 @@ namespace pr::compute
 			// There must be one image per mip level being updated
 			if (s_cast<int>(images.size()) != m_mipN)
 				throw std::runtime_error("Insufficient image data provided");
+
+			// Nothing is staged when the update range was clipped away
+			if (m_layout.empty())
+				return;
 
 			auto check_size = [partial_data](int res_size, int image_dim)
 			{
@@ -267,6 +262,10 @@ namespace pr::compute
 		// Submit the command to the command list.
 		void Commit(EFinalState state = EFinalState::Restore, D3D12_RESOURCE_STATES override_state = {})
 		{
+			// Nothing is staged when the update range was clipped away
+			if (m_layout.empty())
+				return;
+
 			BarrierBatch barriers(m_cmd_list);
 			auto ddesc = m_dest->GetDesc();
 
@@ -298,6 +297,9 @@ namespace pr::compute
 					auto box = m_range.mip(m_mip0 + i);
 					auto sub = s_cast<uint32_t>(m_sub0 + m_mip0 + i);
 
+					// 'Write' stages the update box at the origin of the mip's footprint, so copy from there to the box position in 'm_dest'
+					auto src_box = Box(iv3::Zero(), m_range.size(m_mip0 + i));
+
 					barriers.Transition(m_dest, D3D12_RESOURCE_STATE_COPY_DEST, sub);
 					barriers.Commit();
 
@@ -311,14 +313,14 @@ namespace pr::compute
 					{
 						.pResource = m_dest,
 						.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-						.SubresourceIndex = s_cast<UINT>(m_sub0 + m_mip0 + i),
+						.SubresourceIndex = sub,
 					};
-					m_cmd_list.CopyTextureRegion(&dst, s_cast<UINT>(box.left), s_cast<UINT>(box.top), s_cast<UINT>(box.front), &src, &box);
+					m_cmd_list.CopyTextureRegion(&dst, s_cast<UINT>(box.left), s_cast<UINT>(box.top), s_cast<UINT>(box.front), &src, &src_box);
 
-					// Transition the resource to the final state (if provided)
+					// Transition the resource to the final state (if provided). States are tracked per subresource, not per mip.
 					if (state != EFinalState::DontSet)
 					{
-						barriers.Transition(m_dest, state == EFinalState::Override ? override_state : res_state[m_mip0 + i], sub);
+						barriers.Transition(m_dest, state == EFinalState::Override ? override_state : res_state[s_cast<int>(sub)], sub);
 						barriers.Commit();
 					}
 				}

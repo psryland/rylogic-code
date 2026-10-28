@@ -104,7 +104,7 @@ namespace pr::physics
 		void ReleaseBuffers();
 
 		// Create or geometrically grow compact pseudo link and generalized streams.
-		void ResizeBuffers(CmdList& cmd_list);
+		void ResizeBuffers(GpuJob& job);
 
 		// Bind and dispatch one phase using the 64-DWORD common transaction layout.
 		void DispatchCommon(GpuJob& job, ComputeStep& step, int phase, int attempt_index, int item_count, ID3D12Resource* bodies, int substep_index);

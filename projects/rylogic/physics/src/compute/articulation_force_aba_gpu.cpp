@@ -42,7 +42,7 @@ namespace pr::physics
 		};
 
 		// Create or geometrically grow one typed feature buffer without allocating for an empty logical range.
-		template <typename T> void EnsureArticulationBuffer(Gpu& gpu, CmdList& cmd_list, D3DPtr<ID3D12Resource>& resource, int count, int& capacity, EUsage usage, std::string_view name)
+		template <typename T> void EnsureArticulationBuffer(Gpu& gpu, GpuJob& job, D3DPtr<ID3D12Resource>& resource, int count, int& capacity, EUsage usage, std::string_view name)
 		{
 			if (count <= capacity)
 				return;
@@ -50,7 +50,7 @@ namespace pr::physics
 			auto const doubled_capacity = capacity <= std::numeric_limits<int>::max() / 2 ? capacity * 2 : std::numeric_limits<int>::max();
 			capacity = std::max(count, std::max(1, doubled_capacity));
 			auto desc = ResDesc::Buf<T>(capacity, {}).usage(usage);
-			resource = gpu.CreateResource(desc, cmd_list, name);
+			resource = gpu.CreateResource(desc, job, name);
 		}
 
 		// Copy one non-empty CPU vector through the job-owned upload ring.
@@ -175,22 +175,22 @@ namespace pr::physics
 	}
 
 	// Create or grow all typed buffers required by the current packed forest.
-	void GpuArticulationForceAba::ResizeBuffers(CmdList& cmd_list, GpuArticulationUpload const& upload)
+	void GpuArticulationForceAba::ResizeBuffers(GpuJob& job, GpuArticulationUpload const& upload)
 	{
-		EnsureArticulationBuffer<GpuArticulation>(m_gpu, cmd_list, m_r_articulations, isize(upload.m_articulations), m_stats.m_articulation_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaArticulations");
-		EnsureArticulationBuffer<GpuArticulationLink>(m_gpu, cmd_list, m_r_links, isize(upload.m_links), m_stats.m_link_capacity, EUsage::Default, "Physics:ArticulationForceAbaLinks");
-		EnsureArticulationBuffer<GpuArticulationDof>(m_gpu, cmd_list, m_r_dofs, isize(upload.m_dofs), m_stats.m_dof_capacity, EUsage::Default, "Physics:ArticulationForceAbaDofs");
-		EnsureArticulationBuffer<float>(m_gpu, cmd_list, m_r_positions, isize(upload.m_positions), m_stats.m_position_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaPositions");
-		EnsureArticulationBuffer<float>(m_gpu, cmd_list, m_r_velocities, isize(upload.m_velocities), m_stats.m_velocity_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaVelocities");
-		EnsureArticulationBuffer<float>(m_gpu, cmd_list, m_r_forces, isize(upload.m_forces), m_stats.m_force_capacity, EUsage::Default, "Physics:ArticulationForceAbaForces");
-		EnsureArticulationBuffer<GpuFrameForce>(m_gpu, cmd_list, m_r_external_forces, isize(upload.m_external_forces), m_stats.m_external_force_capacity, EUsage::Default, "Physics:ArticulationForceAbaExternalForces");
-		EnsureArticulationBuffer<GpuFrameForce>(m_gpu, cmd_list, m_r_world_forces, isize(upload.m_world_forces), m_stats.m_world_force_capacity, EUsage::Default, "Physics:ArticulationForceAbaWorldForces");
-		EnsureArticulationBuffer<uint32_t>(m_gpu, cmd_list, m_r_children, isize(upload.m_children), m_stats.m_child_capacity, EUsage::Default, "Physics:ArticulationForceAbaChildren");
-		EnsureArticulationBuffer<uint32_t>(m_gpu, cmd_list, m_r_level_links, isize(upload.m_level_links), m_stats.m_level_link_capacity, EUsage::Default, "Physics:ArticulationForceAbaLevelLinks");
-		EnsureArticulationBuffer<float>(m_gpu, cmd_list, m_r_accelerations, isize(upload.m_accelerations), m_stats.m_acceleration_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaAccelerations");
-		EnsureArticulationBuffer<GpuArticulationAbaScratch>(m_gpu, cmd_list, m_r_scratch, isize(upload.m_links), m_stats.m_scratch_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaScratch");
-		EnsureArticulationBuffer<GpuArticulationAbaDofScratch>(m_gpu, cmd_list, m_r_dof_scratch, isize(upload.m_dofs), m_stats.m_dof_scratch_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaDofScratch");
-		EnsureArticulationBuffer<float>(m_gpu, cmd_list, m_r_joint_matrix_scratch, upload.m_joint_matrix_scratch_count, m_stats.m_joint_matrix_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaJointMatrices");
+		EnsureArticulationBuffer<GpuArticulation>(m_gpu, job, m_r_articulations, isize(upload.m_articulations), m_stats.m_articulation_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaArticulations");
+		EnsureArticulationBuffer<GpuArticulationLink>(m_gpu, job, m_r_links, isize(upload.m_links), m_stats.m_link_capacity, EUsage::Default, "Physics:ArticulationForceAbaLinks");
+		EnsureArticulationBuffer<GpuArticulationDof>(m_gpu, job, m_r_dofs, isize(upload.m_dofs), m_stats.m_dof_capacity, EUsage::Default, "Physics:ArticulationForceAbaDofs");
+		EnsureArticulationBuffer<float>(m_gpu, job, m_r_positions, isize(upload.m_positions), m_stats.m_position_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaPositions");
+		EnsureArticulationBuffer<float>(m_gpu, job, m_r_velocities, isize(upload.m_velocities), m_stats.m_velocity_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaVelocities");
+		EnsureArticulationBuffer<float>(m_gpu, job, m_r_forces, isize(upload.m_forces), m_stats.m_force_capacity, EUsage::Default, "Physics:ArticulationForceAbaForces");
+		EnsureArticulationBuffer<GpuFrameForce>(m_gpu, job, m_r_external_forces, isize(upload.m_external_forces), m_stats.m_external_force_capacity, EUsage::Default, "Physics:ArticulationForceAbaExternalForces");
+		EnsureArticulationBuffer<GpuFrameForce>(m_gpu, job, m_r_world_forces, isize(upload.m_world_forces), m_stats.m_world_force_capacity, EUsage::Default, "Physics:ArticulationForceAbaWorldForces");
+		EnsureArticulationBuffer<uint32_t>(m_gpu, job, m_r_children, isize(upload.m_children), m_stats.m_child_capacity, EUsage::Default, "Physics:ArticulationForceAbaChildren");
+		EnsureArticulationBuffer<uint32_t>(m_gpu, job, m_r_level_links, isize(upload.m_level_links), m_stats.m_level_link_capacity, EUsage::Default, "Physics:ArticulationForceAbaLevelLinks");
+		EnsureArticulationBuffer<float>(m_gpu, job, m_r_accelerations, isize(upload.m_accelerations), m_stats.m_acceleration_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaAccelerations");
+		EnsureArticulationBuffer<GpuArticulationAbaScratch>(m_gpu, job, m_r_scratch, isize(upload.m_links), m_stats.m_scratch_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaScratch");
+		EnsureArticulationBuffer<GpuArticulationAbaDofScratch>(m_gpu, job, m_r_dof_scratch, isize(upload.m_dofs), m_stats.m_dof_scratch_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaDofScratch");
+		EnsureArticulationBuffer<float>(m_gpu, job, m_r_joint_matrix_scratch, upload.m_joint_matrix_scratch_count, m_stats.m_joint_matrix_capacity, EUsage::UnorderedAccess, "Physics:ArticulationForceAbaJointMatrices");
 
 		// One 64-byte resource per access state safely backs every logically empty optional structured stream.
 		auto const needs_srv_sentinel =
@@ -204,9 +204,9 @@ namespace pr::physics
 			upload.m_dofs.empty() ||
 			upload.m_joint_matrix_scratch_count == 0;
 		if (needs_srv_sentinel && m_r_srv_sentinel == nullptr)
-			m_r_srv_sentinel = m_gpu.CreateResource(ResDesc::Buf<GpuArticulationAbaDofScratch>(1, {}), cmd_list, "Physics:ArticulationForceAbaSrvSentinel");
+			m_r_srv_sentinel = m_gpu.CreateResource(ResDesc::Buf<GpuArticulationAbaDofScratch>(1, {}), job, "Physics:ArticulationForceAbaSrvSentinel");
 		if (needs_uav_sentinel && m_r_uav_sentinel == nullptr)
-			m_r_uav_sentinel = m_gpu.CreateResource(ResDesc::Buf<GpuArticulationAbaDofScratch>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ArticulationForceAbaUavSentinel");
+			m_r_uav_sentinel = m_gpu.CreateResource(ResDesc::Buf<GpuArticulationAbaDofScratch>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:ArticulationForceAbaUavSentinel");
 	}
 
 	// Upload one validated packed forest without submitting or waiting, returning whether work is active.
@@ -220,7 +220,7 @@ namespace pr::physics
 			return false;
 		}
 
-		ResizeBuffers(job.m_cmd_list, upload);
+		ResizeBuffers(job, upload);
 		m_levels = upload.m_levels;
 		m_articulation_count = isize(upload.m_articulations);
 		m_link_count = isize(upload.m_links);

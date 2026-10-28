@@ -48,7 +48,7 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> CreateCoupledInputResource(Gpu& gpu, GpuJob& job, std::span<Type const> values, EUsage usage, D3D12_RESOURCE_STATES final_state, std::string_view name)
 		{
 			auto const count = std::max(1, isize(values));
-			auto resource = gpu.CreateResource(ResDesc::Buf<Type>(count, {}).usage(usage), job.m_cmd_list, name);
+			auto resource = gpu.CreateResource(ResDesc::Buf<Type>(count, {}).usage(usage), job, name);
 			job.m_barriers.Transition(resource.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
 			auto allocation = job.m_upload.Alloc<Type>(count);
 			std::fill_n(allocation.ptr<Type>(), count, Type{});
@@ -163,7 +163,7 @@ namespace pr::physics
 	}
 
 	// Create or geometrically grow stable-slot metadata and preconditioner buffers.
-	void GpuCoupledConstraintPrepare::ResizeBuffers(CmdList& cmd_list)
+	void GpuCoupledConstraintPrepare::ResizeBuffers(GpuJob& job)
 	{
 		if (m_slot_count <= m_stats.m_slot_capacity)
 			return;
@@ -174,11 +174,11 @@ namespace pr::physics
 		m_stats.m_slot_capacity = std::max(m_slot_count, std::max(1, doubled_capacity));
 		m_r_coupled_endpoints = m_gpu.CreateResource(
 			ResDesc::Buf<GpuCoupledConstraintEndpoint>(m_stats.m_slot_capacity, {}),
-			cmd_list,
+			job,
 			"Physics:CoupledConstraintEndpoints");
 		m_r_preconditioners = m_gpu.CreateResource(
 			ResDesc::Buf<GpuCoupledConstraintPreconditioner>(m_stats.m_slot_capacity, {}).usage(EUsage::UnorderedAccess),
-			cmd_list,
+			job,
 			"Physics:CoupledConstraintPreconditioners");
 	}
 
@@ -204,7 +204,7 @@ namespace pr::physics
 		m_source = upload.m_source;
 		m_slot_count = isize(upload.m_endpoints);
 		m_active_count = s_cast<int>(upload.m_coupled_active_count);
-		ResizeBuffers(job.m_cmd_list);
+		ResizeBuffers(job);
 
 		// Link ownership changes with frame-local packing, so upload the complete stable-slot stream every active frame.
 		job.m_barriers.Transition(m_r_coupled_endpoints.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();

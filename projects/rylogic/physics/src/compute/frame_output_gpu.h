@@ -142,9 +142,9 @@ namespace pr::physics
 		void EnsureArticulationGatherPipeline();
 
 		// Create the GPU event-prefix predicates only when event readback is requested.
-		void EnsureEventCopyPipeline(CmdList& cmd_list);
+		void EnsureEventCopyPipeline(GpuJob& job);
 
 		// Grow resources before command recording references the current allocation.
-		void ResizeBuffers(CmdList& cmd_list, int64_t capacity, bool requires_substep_state);
+		void ResizeBuffers(GpuJob& job, int64_t capacity, bool requires_substep_state);
 	};
 }

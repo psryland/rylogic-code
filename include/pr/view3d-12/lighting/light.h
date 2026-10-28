@@ -24,7 +24,14 @@ namespace pr::rdr12
 		float    m_inner_angle;    // Spot light inner angle 100% light (in radians)
 		float    m_outer_angle;    // Spot light outer angle 0% light (in radians)
 		float    m_cast_shadow;    // Shadow strength in [0,1]. Values > 0 mean the light casts shadows
-		bool     m_cam_relative;   // True if the light should move with the camera
+
+		// Directional lights only: shadow layout for this light. Zero values use the scene's shadow settings.
+		int      m_shadow_cascades;   // The number of shadow cascades, in [0, MaxShadowCascades]
+		int      m_shadow_resolution; // Requested size of each shadow cascade view (in pixels)
+		float    m_shadow_distance;   // Distance from the camera beyond which the light casts no shadows
+		float    m_shadow_fade_start; // Distance from the camera at which shadows start to fade out, when the shadow distance ends them. Zero means 90% of the shadow distance
+
+		bool      m_cam_relative;   // True if the light should move with the camera
 		bool     m_on;             // True if this light is on
 
 		Light();
@@ -60,6 +67,10 @@ namespace pr::rdr12
 				lhs.m_inner_angle == rhs.m_inner_angle &&
 				lhs.m_outer_angle == rhs.m_outer_angle &&
 				lhs.m_cast_shadow == rhs.m_cast_shadow &&
+				lhs.m_shadow_cascades == rhs.m_shadow_cascades &&
+				lhs.m_shadow_resolution == rhs.m_shadow_resolution &&
+				lhs.m_shadow_distance == rhs.m_shadow_distance &&
+				lhs.m_shadow_fade_start == rhs.m_shadow_fade_start &&
 				lhs.m_cam_relative == rhs.m_cam_relative &&
 				lhs.m_on == rhs.m_on;
 		}

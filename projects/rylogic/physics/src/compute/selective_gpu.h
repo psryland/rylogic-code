@@ -61,6 +61,6 @@ namespace pr::physics
 	private:
 
 		// Resize scratch buffers.
-		void ResizeBuffers(CmdList& cmd_list, int body_count, int max_pairs, int max_contacts);
+		void ResizeBuffers(GpuJob& job, int body_count, int max_pairs, int max_contacts);
 	};
 }

@@ -74,7 +74,7 @@ namespace pr::physics
 	private:
 
 		// Resize the broadphase output and optional collision-exclusion buffers.
-		void ResizeBuffers(CmdList& cmd_list, int max_col_pairs, int collision_exclusion_count = 0);
+		void ResizeBuffers(GpuJob& job, int max_col_pairs, int collision_exclusion_count = 0);
 
 		// Lazily create the filtered sweep pipeline only when connected-body collision suppression is used.
 		void EnsureFilteredSweep();

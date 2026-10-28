@@ -67,7 +67,7 @@ namespace pr::physics
 		template <typename Type>
 		void EnsureCoupledVelocityBuffer(
 			Gpu& gpu,
-			CmdList& cmd_list,
+			GpuJob& job,
 			D3DPtr<ID3D12Resource>& resource,
 			int required_count,
 			int& capacity,
@@ -78,7 +78,7 @@ namespace pr::physics
 				return;
 
 			auto const grown_capacity = std::max(required_count, std::max(1, 2 * capacity));
-			resource = gpu.CreateResource(ResDesc::Buf<Type>(grown_capacity, {}).usage(usage), cmd_list, name);
+			resource = gpu.CreateResource(ResDesc::Buf<Type>(grown_capacity, {}).usage(usage), job, name);
 			capacity = grown_capacity;
 		}
 
@@ -107,7 +107,7 @@ namespace pr::physics
 			std::string_view name)
 		{
 			auto const count = std::max(1, isize(values));
-			auto resource = gpu.CreateResource(ResDesc::Buf<Type>(count, {}).usage(usage), job.m_cmd_list, name);
+			auto resource = gpu.CreateResource(ResDesc::Buf<Type>(count, {}).usage(usage), job, name);
 			job.m_barriers.Transition(resource.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
 			auto allocation = job.m_upload.Alloc<Type>(count);
 			std::fill_n(allocation.ptr<Type>(), count, Type{});
@@ -252,7 +252,7 @@ namespace pr::physics
 		m_mobility_count = ranges.empty() ? 0 : ranges.back().mobility_offset + ranges.back().link_count;
 		if (m_mobility_count <= 0 || !m_impulse_aba.Prepare(job))
 			throw std::logic_error("Coupled velocity upload requires prepared articulation impulse storage");
-		ResizeBuffers(job.m_cmd_list);
+		ResizeBuffers(job);
 
 		// Immutable topology is rebuilt frame-locally because rigid and articulation packing indices may change.
 		UploadCoupledVelocityStream(job, m_r_block_topology.get(), std::span{upload.m_coupled_block_topology});
@@ -521,41 +521,41 @@ namespace pr::physics
 	}
 
 	// Create or geometrically grow topology and detached transaction buffers.
-	void GpuCoupledConstraintVelocity::ResizeBuffers(CmdList& cmd_list)
+	void GpuCoupledConstraintVelocity::ResizeBuffers(GpuJob& job)
 	{
 		// Resources sharing one logical index grow together so one capacity describes their retained cost exactly.
 		if (m_slot_count > m_stats.m_slot_capacity)
 		{
 			m_stats.m_slot_capacity = std::max(m_slot_count, std::max(1, 2 * m_stats.m_slot_capacity));
-			m_r_block_topology = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledConstraintBlockTopology>(m_stats.m_slot_capacity, {}).usage(EUsage::Default), cmd_list, "Physics:CoupledVelocityBlockTopology");
-			m_r_scratch = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledConstraintSolveScratch>(m_stats.m_slot_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledVelocityScratch");
-			m_r_contributions = m_gpu.CreateResource(ResDesc::Buf<GpuArticulationSpatialVector>(2 * m_stats.m_slot_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledVelocityContributions");
+			m_r_block_topology = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledConstraintBlockTopology>(m_stats.m_slot_capacity, {}).usage(EUsage::Default), job, "Physics:CoupledVelocityBlockTopology");
+			m_r_scratch = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledConstraintSolveScratch>(m_stats.m_slot_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:CoupledVelocityScratch");
+			m_r_contributions = m_gpu.CreateResource(ResDesc::Buf<GpuArticulationSpatialVector>(2 * m_stats.m_slot_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:CoupledVelocityContributions");
 		}
 
 		if (m_target_count > m_stats.m_target_capacity)
 		{
 			m_stats.m_target_capacity = std::max(m_target_count, std::max(1, 2 * m_stats.m_target_capacity));
-			m_r_targets = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledConstraintTarget>(m_stats.m_target_capacity, {}).usage(EUsage::Default), cmd_list, "Physics:CoupledVelocityTargets");
-			m_r_target_impulses = m_gpu.CreateResource(ResDesc::Buf<GpuArticulationSpatialVector>(m_stats.m_target_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledVelocityTargetImpulses");
+			m_r_targets = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledConstraintTarget>(m_stats.m_target_capacity, {}).usage(EUsage::Default), job, "Physics:CoupledVelocityTargets");
+			m_r_target_impulses = m_gpu.CreateResource(ResDesc::Buf<GpuArticulationSpatialVector>(m_stats.m_target_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:CoupledVelocityTargetImpulses");
 		}
 
-		EnsureCoupledVelocityBuffer<uint32_t>(m_gpu, cmd_list, m_r_adjacency, m_adjacency_count, m_stats.m_adjacency_capacity, EUsage::Default, "Physics:CoupledVelocityAdjacency");
+		EnsureCoupledVelocityBuffer<uint32_t>(m_gpu, job, m_r_adjacency, m_adjacency_count, m_stats.m_adjacency_capacity, EUsage::Default, "Physics:CoupledVelocityAdjacency");
 		if (m_island_count > m_stats.m_island_capacity)
 		{
 			m_stats.m_island_capacity = std::max(m_island_count, std::max(1, 2 * m_stats.m_island_capacity));
-			m_r_islands = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledConstraintIsland>(m_stats.m_island_capacity, {}).usage(EUsage::Default), cmd_list, "Physics:CoupledVelocityIslands");
-			m_r_island_states = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledConstraintIslandState>(m_stats.m_island_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledVelocityIslandStates");
-			m_r_island_failures = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(m_stats.m_island_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledVelocityIslandFailures");
-			m_r_frame_failures = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledConstraintFailureState>(m_stats.m_island_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledVelocityFrameFailures");
+			m_r_islands = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledConstraintIsland>(m_stats.m_island_capacity, {}).usage(EUsage::Default), job, "Physics:CoupledVelocityIslands");
+			m_r_island_states = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledConstraintIslandState>(m_stats.m_island_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:CoupledVelocityIslandStates");
+			m_r_island_failures = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(m_stats.m_island_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:CoupledVelocityIslandFailures");
+			m_r_frame_failures = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledConstraintFailureState>(m_stats.m_island_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:CoupledVelocityFrameFailures");
 		}
-		EnsureCoupledVelocityBuffer<uint32_t>(m_gpu, cmd_list, m_r_island_blocks, m_island_block_count, m_stats.m_island_block_capacity, EUsage::Default, "Physics:CoupledVelocityIslandBlocks");
+		EnsureCoupledVelocityBuffer<uint32_t>(m_gpu, job, m_r_island_blocks, m_island_block_count, m_stats.m_island_block_capacity, EUsage::Default, "Physics:CoupledVelocityIslandBlocks");
 
 		if (m_articulation_range_count > m_stats.m_articulation_range_capacity)
 		{
 			m_stats.m_articulation_range_capacity = std::max(m_articulation_range_count, std::max(1, 2 * m_stats.m_articulation_range_capacity));
-			m_r_articulation_islands = m_gpu.CreateResource(ResDesc::Buf<int>(m_stats.m_articulation_range_capacity, {}).usage(EUsage::Default), cmd_list, "Physics:CoupledVelocityArticulationIslands");
-			m_r_tree_selection = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(m_stats.m_articulation_range_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledVelocityTreeSelection");
-			m_r_tree_results = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(m_stats.m_articulation_range_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledVelocityTreeResults");
+			m_r_articulation_islands = m_gpu.CreateResource(ResDesc::Buf<int>(m_stats.m_articulation_range_capacity, {}).usage(EUsage::Default), job, "Physics:CoupledVelocityArticulationIslands");
+			m_r_tree_selection = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(m_stats.m_articulation_range_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:CoupledVelocityTreeSelection");
+			m_r_tree_results = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(m_stats.m_articulation_range_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:CoupledVelocityTreeResults");
 		}
 	}
 

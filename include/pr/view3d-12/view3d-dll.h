@@ -774,6 +774,10 @@ namespace pr
 			float m_inner_angle;
 			float m_outer_angle;
 			float m_cast_shadow;
+			int   m_shadow_cascades;   // Directional lights only: the number of shadow cascades. Zero means use the scene shadow settings
+			int   m_shadow_resolution; // Directional lights only: requested size of each shadow cascade view (in pixels). Zero means use the scene shadow settings
+			float m_shadow_distance;   // Directional lights only: distance from the camera beyond which the light casts no shadows. Zero means use the scene shadow settings
+			float m_shadow_fade_start; // Directional lights only: distance from the camera at which shadows start to fade out. Zero means 90% of the shadow distance
 			BOOL m_cam_relative;
 			BOOL m_on;
 		};
@@ -781,7 +785,8 @@ namespace pr
 		{
 			int   m_atlas_size;             // Width and height of the square shadow atlas (in pixels). Must be a power of two
 			int   m_directional_resolution; // Requested size of each directional light cascade view (in pixels)
-			int   m_spot_resolution;        // Largest size of a spot light shadow view (in pixels)
+			int   m_far_cascade_resolution; // Requested size of each directional light cascade after the first (in pixels). Zero means the same as 'm_directional_resolution'
+			int   m_spot_resolution;          // Largest size of a spot light shadow view (in pixels)
 			int   m_point_resolution;       // Largest size of each of the six point light shadow views (in pixels)
 			int   m_max_shadow_lights;      // The maximum number of lights that cast shadows. Zero disables shadows
 			int   m_cascade_count;          // The number of cascades for directional lights, in [1,4]
@@ -1105,9 +1110,10 @@ extern "C"
 {
 	// Dll Context ****************************
 	
-	// Initialise calls are reference counted and must be matched with Shutdown calls
-	// 'initialise_error_cb' is used to report dll initialisation errors only (i.e. it isn't stored)
-	// Note: this function is not thread safe, avoid race calls
+	// Initialise calls are reference counted and must be matched with Shutdown calls.
+	// The first Initialise call binds View3D to the calling thread. Later Initialise calls, and all Shutdown calls, must be made on that thread until
+	// the last Shutdown call; calls from other threads fail. 'global_error_cb' receives initialisation errors and, until the matching Shutdown call,
+	// errors associated with the dll (see View3D_GlobalErrorCBSet).
 	VIEW3D_API pr::view3d::DllHandle __stdcall View3D_Initialise(pr::view3d::ReportErrorCB global_error_cb);
 	VIEW3D_API void __stdcall View3D_Shutdown(pr::view3d::DllHandle context);
 
@@ -1318,6 +1324,7 @@ extern "C"
 	VIEW3D_API BOOL __stdcall View3D_WindowAnimating(pr::view3d::Window window);
 	VIEW3D_API double __stdcall View3D_WindowAnimTimeGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_WindowAnimTimeSet(pr::view3d::Window window, double time_s);
+	VIEW3D_API double __stdcall View3D_WindowFlipbookDuration(pr::view3d::Window window);
 
 	// Return the DPI of the monitor that 'window' is displayed on
 	VIEW3D_API pr::view3d::Vec2 __stdcall View3D_WindowDpiScale(pr::view3d::Window window);

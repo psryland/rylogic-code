@@ -59,7 +59,37 @@
     <ClInclude Include="src\view3d-12\forward.h">
       <Filter>view3d-12</Filter>
     </ClInclude>
-    <ClCompile Include="src\view3d-12\render_tests.cpp">
+    <ClInclude Include="src\view3d-12\render_test_support.h">
+      <Filter>view3d-12</Filter>
+    </ClInclude>
+    <ClCompile Include="src\view3d-12\render_test_support.cpp">
+      <Filter>view3d-12</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-12\render_tests_pipeline.cpp">
+      <Filter>view3d-12</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-12\render_tests_procedural_vertex.cpp">
+      <Filter>view3d-12</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-12\render_tests_procedural_surface.cpp">
+      <Filter>view3d-12</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-12\render_tests_colour.cpp">
+      <Filter>view3d-12</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-12\render_tests_shadows.cpp">
+      <Filter>view3d-12</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-12\render_tests_post_effects.cpp">
+      <Filter>view3d-12</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-12\render_tests_surface_normals.cpp">
+      <Filter>view3d-12</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-12\render_tests_env_map.cpp">
+      <Filter>view3d-12</Filter>
+    </ClCompile>
+    <ClCompile Include="src\view3d-12\render_tests_ui.cpp">
       <Filter>view3d-12</Filter>
     </ClCompile>
     <ClCompile Include="src\view3d-12\raycast_lifetime.cpp">
