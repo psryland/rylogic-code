@@ -66,9 +66,8 @@ namespace pr::network
 		Socket& operator = (Socket const&) = delete;
 		Socket& operator=(nullptr_t)
 		{
-			this->~Socket();
-			m_socket = INVALID_SOCKET;
-			return *this;
+			// Swap in an empty socket so the temporary closes the current one
+			return *this = Socket{};
 		}
 		~Socket()
 		{

@@ -50,13 +50,13 @@ namespace pr::physics
 
 		// Create or retain a typed UAV buffer with geometric high-water growth.
 		template <typename Type>
-		void EnsureBuffer(Gpu& gpu, CmdList& cmd_list, D3DPtr<ID3D12Resource>& resource, int required_count, int& capacity, char const* name)
+		void EnsureBuffer(Gpu& gpu, GpuJob& job, D3DPtr<ID3D12Resource>& resource, int required_count, int& capacity, char const* name)
 		{
 			if (required_count <= capacity)
 				return;
 
 			auto const grown_capacity = std::max(required_count, std::max(1, capacity * 2));
-			resource = gpu.CreateResource(ResDesc::Buf<Type>(grown_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, name);
+			resource = gpu.CreateResource(ResDesc::Buf<Type>(grown_capacity, {}).usage(EUsage::UnorderedAccess), job, name);
 			capacity = grown_capacity;
 		}
 
@@ -168,7 +168,7 @@ namespace pr::physics
 
 		// Both impulse and work streams follow the compact canonical mobility ranges.
 		auto const velocity_delta_count = m_mobility.m_velocity_delta_count;
-		ResizeBuffers(job.m_cmd_list, m_mobility.m_mobility_count, m_mobility.m_mobility_count, velocity_delta_count);
+		ResizeBuffers(job, m_mobility.m_mobility_count, m_mobility.m_mobility_count, velocity_delta_count);
 		m_impulse_count = m_mobility.m_mobility_count;
 		m_work_count = m_mobility.m_mobility_count;
 		m_velocity_delta_count = velocity_delta_count;
@@ -383,11 +383,11 @@ namespace pr::physics
 	}
 
 	// Create or grow typed impulse, link-response, and generalized-response buffers for the active packed forest.
-	void GpuArticulationImpulseAba::ResizeBuffers(CmdList& cmd_list, int link_count, int work_count, int velocity_count)
+	void GpuArticulationImpulseAba::ResizeBuffers(GpuJob& job, int link_count, int work_count, int velocity_count)
 	{
-		EnsureBuffer<GpuArticulationSpatialVector>(m_gpu, cmd_list, m_r_link_impulses, link_count, m_stats.m_link_impulse_capacity, "Articulation impulse ABA link impulses");
-		EnsureBuffer<GpuArticulationSpatialVector>(m_gpu, cmd_list, m_r_work, work_count, m_stats.m_work_capacity, "Articulation impulse ABA work");
-		EnsureBuffer<float>(m_gpu, cmd_list, m_r_velocity_deltas, velocity_count, m_stats.m_velocity_delta_capacity, "Articulation impulse ABA velocity deltas");
+		EnsureBuffer<GpuArticulationSpatialVector>(m_gpu, job, m_r_link_impulses, link_count, m_stats.m_link_impulse_capacity, "Articulation impulse ABA link impulses");
+		EnsureBuffer<GpuArticulationSpatialVector>(m_gpu, job, m_r_work, work_count, m_stats.m_work_capacity, "Articulation impulse ABA work");
+		EnsureBuffer<float>(m_gpu, job, m_r_velocity_deltas, velocity_count, m_stats.m_velocity_delta_capacity, "Articulation impulse ABA velocity deltas");
 		m_stats.m_allocated_feature_bytes =
 			static_cast<size_t>(m_stats.m_link_impulse_capacity + m_stats.m_work_capacity) *
 				sizeof(GpuArticulationSpatialVector) +

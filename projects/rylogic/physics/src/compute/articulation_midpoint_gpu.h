@@ -100,7 +100,7 @@ namespace pr::physics
 		void ReleaseBuffers();
 
 		// Create or geometrically grow the exact P, V, V, and A integration scratch ranges.
-		void ResizeBuffers(CmdList& cmd_list);
+		void ResizeBuffers(GpuJob& job);
 
 		// Bind shared ABA resources and integration-only scratch for one fused substep.
 		void Dispatch(GpuJob& job, float dt, ID3D12Resource* external_forces, ID3D12Resource* proxy_bodies);

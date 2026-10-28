@@ -37,7 +37,7 @@ namespace pr::physics
 			auto const count = std::max(size_t{1}, data.size());
 			auto const bytes = count * sizeof(T);
 			if (!resource || resource->GetDesc().Width < bytes)
-				resource = gpu.CreateResource(ResDesc::Buf<T>(count, {}), job.m_cmd_list, name);
+				resource = gpu.CreateResource(ResDesc::Buf<T>(count, {}), job, name);
 
 			// Stage the source bytes and make the recorded copy visible to subsequent shader reads.
 			job.m_barriers.Transition(resource.get(), D3D12_RESOURCE_STATE_COPY_DEST);
@@ -163,7 +163,7 @@ namespace pr::physics
 			auto buffer = ResDesc::Buf<uint64_t>(query_count, {});
 			buffer.HeapProps = HeapProps(D3D12_HEAP_TYPE_READBACK);
 			buffer.DefaultState = D3D12_RESOURCE_STATE_COPY_DEST;
-			m_query_readback = m_gpu.CreateResource(buffer, job.m_cmd_list, "WorldContacts:Timestamps");
+			m_query_readback = m_gpu.CreateResource(buffer, job, "WorldContacts:Timestamps");
 			Check(job.m_queue->GetTimestampFrequency(&m_frequency));
 			m_queries = std::move(queries);
 			m_query_capacity = query_count;
@@ -274,7 +274,7 @@ namespace pr::physics
 		auto const candidate_count = std::max<size_t>(1, m_instances.size() * max_samples);
 		if (!m_candidates || m_candidates->GetDesc().Width < candidate_count * sizeof(Candidate))
 		{
-			m_candidates = m_gpu.CreateResource(ResDesc::Buf<Candidate>(candidate_count, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "WorldContacts:Candidates");
+			m_candidates = m_gpu.CreateResource(ResDesc::Buf<Candidate>(candidate_count, {}).usage(EUsage::UnorderedAccess), job, "WorldContacts:Candidates");
 			job.m_barriers.Transition(m_candidates.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Commit();
 		}
@@ -289,7 +289,7 @@ namespace pr::physics
 		// Upload the current instance list and reserve a status word shared by all internal substeps.
 		UploadStream(m_gpu, job, m_instance_buffer, std::span<Instance const>(m_instances), "WorldContacts:Instances");
 		if (!m_status)
-			m_status = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(StatusWordCount, {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "WorldContacts:Status");
+			m_status = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(StatusWordCount, {}).usage(EUsage::UnorderedAccess), job, "WorldContacts:Status");
 
 		// Clear status before the first world-contact dispatch can report a failure.
 		job.m_barriers.Transition(m_status.get(), D3D12_RESOURCE_STATE_COPY_DEST);

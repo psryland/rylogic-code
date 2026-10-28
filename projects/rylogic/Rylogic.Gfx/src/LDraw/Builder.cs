@@ -376,6 +376,7 @@ namespace Rylogic.LDraw
 		private LdrTransform? m_bake = null;
 		private LdrFont? m_font = null;
 		private LdrRootAnimation? m_root_anim = null;
+		private LdrFlipbook? m_flipbook = null;
 
 		/// <summary>Object name</summary>
 		public TDerived name(Serialiser.Name name)
@@ -542,6 +543,18 @@ namespace Rylogic.LDraw
 			return (TDerived)this;
 		}
 
+		/// <summary>Show the children of this object one at a time, as animation frames</summary>
+		public LdrFlipbook flipbook()
+		{
+			m_flipbook ??= new();
+			return m_flipbook;
+		}
+		public TDerived flipbook(Action<LdrFlipbook> a)
+		{
+			a(flipbook());
+			return (TDerived)this;
+		}
+
 		/// <inheritdoc/>
 		public override void WriteTo(IWriter writer)
 		{
@@ -549,6 +562,7 @@ namespace Rylogic.LDraw
 			if (m_font != null) m_font.WriteTo(writer);
 			if (m_bake != null) m_bake.WriteTo(writer);
 			if (m_root_anim != null) m_root_anim.WriteTo(writer);
+			if (m_flipbook != null) m_flipbook.WriteTo(writer);
 			base.WriteTo(writer);
 		}
 	}
@@ -967,6 +981,38 @@ namespace Rylogic.LDraw
 				if (m_accel is v4 acc) res.Write(EKeyword.Accel, acc.xyz);
 				if (m_ang_velocity is v4 ang_vel) res.Write(EKeyword.AngVelocity, ang_vel.xyz);
 				if (m_ang_accel is v4 ang_acc) res.Write(EKeyword.AngAccel, ang_acc.xyz);
+			});
+		}
+	}
+
+	/// <summary>Shows the direct children of an object one at a time, using the animation time to choose the visible child</summary>
+	public class LdrFlipbook
+	{
+		// Unset properties use the parser defaults
+		private string? m_style = null;
+		private float? m_frame_rate = null;
+
+		/// <summary>Playback style: NoAnimation|Once|Repeat|PingPong</summary>
+		public LdrFlipbook style(string style)
+		{
+			m_style = style;
+			return this;
+		}
+
+		/// <summary>Frames per second</summary>
+		public LdrFlipbook frame_rate(float frames_per_second)
+		{
+			m_frame_rate = frames_per_second;
+			return this;
+		}
+
+		// Write to 'out'
+		public void WriteTo(IWriter res)
+		{
+			res.Write(EKeyword.Flipbook, () =>
+			{
+				if (m_style != null) res.Write(EKeyword.Style, m_style);
+				if (m_frame_rate != null) res.Write(EKeyword.FrameRate, m_frame_rate.Value);
 			});
 		}
 	}
@@ -3168,6 +3214,17 @@ namespace Rylogic.UnitTests
 		}
 
 		[Test]
+		public void TestFlipbook()
+		{
+			var builder = new LDraw.Builder();
+			var grp = builder.Group("fb").flipbook(x => x.style("PingPong").frame_rate(4));
+			grp.Box("f0").box(1);
+			grp.Box("f1").box(2);
+			var str = builder.ToString();
+			Assert.Equal("*Group fb FFFFFFFF {*Flipbook {*Style {PingPong} *FrameRate {4}} *Box f0 FFFFFFFF {*Data {1 1 1}} *Box f1 FFFFFFFF {*Data {2 2 2}}}", str);
+		}
+
+		[Test]
 		public void TestInstance()
 		{
 			var builder = new LDraw.Builder();
@@ -3451,7 +3508,9 @@ namespace Rylogic.UnitTests
 		}
 	}
 
+	// Serial because View3d is a single-threaded process singleton, shared with other fixtures that use it.
 	[TestFixture]
+	[TestFlags(EUnitTestFlags.Serial)]
 	public class TestLdrawBulderBinary
 	{
 		[Test]
@@ -3501,6 +3560,18 @@ namespace Rylogic.UnitTests
 		{
 			var builder = new LDraw.Builder();
 			builder.Group("g", 0xFF00FF00u);
+			var mem = builder.ToBinary().ToArray();
+			Assert.True(mem.Length > 0);
+			View3dValidator.ValidateBinary(builder);
+		}
+
+		[Test]
+		public void TestBinaryFlipbook()
+		{
+			var builder = new LDraw.Builder();
+			var grp = builder.Group("fb").flipbook(x => x.style("Repeat").frame_rate(2));
+			grp.Box("f0").box(1);
+			grp.Box("f1").box(2);
 			var mem = builder.ToBinary().ToArray();
 			Assert.True(mem.Length > 0);
 			View3dValidator.ValidateBinary(builder);

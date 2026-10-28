@@ -54,7 +54,7 @@
 		<NativeUnitTestRun Include="-flags:Quick" />
 	</ItemGroup>
 	<Target Name="RunUnitTests" AfterTargets="Build" Condition="'$(MSBuildProjectName)' == 'unittests' AND '$(RunUnitTests)' != 'false'">
-		<RunRylogicUnitTests TargetPath="$(TargetPath)" IsManaged="false" ProjectRoot="$(RylogicRoot)" Arguments="%(NativeUnitTestRun.Identity)" />
+		<RunRylogicUnitTests TargetPath="$(TargetPath)" IsManaged="false" ProjectRoot="$(RylogicRoot)" Arguments="-asserts:stderr %(NativeUnitTestRun.Identity)" />
 	</Target>
 
 	<!--

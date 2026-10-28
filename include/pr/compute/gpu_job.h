@@ -337,6 +337,7 @@ namespace pr::compute
 
 #if PR_UNITTESTS
 #include "pr/common/unittests.h"
+#include "pr/compute/utility/update_resource.h"
 namespace pr::compute::tests
 {
 	// Check that the per-job reuse caches return a cached GPU location only for an exact match.
@@ -412,6 +413,183 @@ namespace pr::compute::tests
 
 			// Complete the job so the view heap's pending sync point is signalled before it is destroyed
 			job.Run();
+		}
+	};
+
+	// Check resource creation and sub-resource updates against what the GPU actually copies.
+	PRUnitTestClass(GpuResourceTests)
+	{
+		// A readback copy of one texture subresource. 'Row' is valid once the job that recorded the copy has completed.
+		struct SubresourceReadback
+		{
+			GpuReadbackBuffer::Allocation m_staging;
+			D3D12_PLACED_SUBRESOURCE_FOOTPRINT m_layout;
+
+			// Return the first element of row 'y'
+			template <typename T> T const* Row(int y) const
+			{
+				// The footprint offset is relative to the allocation, so the row pitch is the only layout needed
+				return type_ptr<T>(m_staging.ptr<uint8_t>() + m_layout.Footprint.RowPitch * y);
+			}
+		};
+
+		// Record a copy of subresource 'sub' of 'tex' into 'job's readback buffer. 'tex' must be in the COPY_SOURCE state.
+		static SubresourceReadback ReadBackSubresource(GraphicsJob& job, ID3D12Resource* tex, uint32_t sub)
+		{
+			// Get the layout of the subresource and stage space for it
+			auto desc = tex->GetDesc();
+			auto total_size = 0ULL;
+			SubresourceReadback rb = {};
+			job.m_device->GetCopyableFootprints(&desc, sub, 1, 0ULL, &rb.m_layout, nullptr, nullptr, &total_size);
+			rb.m_staging = job.m_readback.Alloc(s_cast<int64_t>(total_size), D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+
+			// Copy the subresource into the staging memory
+			auto placed = rb.m_layout;
+			placed.Offset = s_cast<UINT64>(rb.m_staging.m_ofs);
+			D3D12_TEXTURE_COPY_LOCATION dst = { .pResource = rb.m_staging.m_res, .Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, .PlacedFootprint = placed };
+			D3D12_TEXTURE_COPY_LOCATION src = { .pResource = tex, .Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, .SubresourceIndex = sub };
+			job.m_cmd_list.CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+			return rb;
+		}
+
+		// A descriptor heap must hold exactly 'capacity' descriptors, including a capacity of one.
+		PRUnitTestMethod(DescriptorHeapHoldsCapacityDescriptors, Extended)
+		{
+			// One null SRV fits, and a second overflows
+			ComGpu gpu;
+			ComputeJob job(gpu, "DescriptorHeapCapacity", 0xFF000000, 1);
+			D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {
+				.Format = DXGI_FORMAT_R32_UINT,
+				.ViewDimension = D3D12_SRV_DIMENSION_BUFFER,
+				.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+				.Buffer = { .FirstElement = 0, .NumElements = 1, .StructureByteStride = 0, .Flags = D3D12_BUFFER_SRV_FLAG_NONE },
+			};
+			job.m_view_heap.Add(nullptr, srv_desc);
+			PR_THROWS(job.m_view_heap.Add(nullptr, srv_desc), std::runtime_error);
+			job.Run();
+		}
+
+		// Setting the default state back to COMMON must replace a previously stored state.
+		PRUnitTestMethod(DefaultResStateCanBeSetToCommon, Extended)
+		{
+			ComGpu gpu;
+			ComputeJob job(gpu, "DefaultResState", 0xFF000000);
+			auto buf = gpu.CreateResource(ResDesc::Buf<int>(4, {}), job, "DefaultState");
+			DefaultResState(buf.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			PR_EXPECT(DefaultResState(static_cast<ID3D12Resource const*>(buf.get())) == D3D12_RESOURCE_STATE_COPY_DEST);
+			DefaultResState(buf.get(), D3D12_RESOURCE_STATE_COMMON);
+			PR_EXPECT(DefaultResState(static_cast<ID3D12Resource const*>(buf.get())) == D3D12_RESOURCE_STATE_COMMON);
+			job.Run();
+		}
+
+		// The staging allocation must cover every mip footprint, including the aligned offsets between mips.
+		PRUnitTestMethod(UpdateSubresourceStagesAllMips, Extended)
+		{
+			// A 5x3 texture with two mips needs an aligned offset before mip 1
+			GfxGpu gpu;
+			GraphicsJob job(gpu, "UpdateSubresourceMips", 0xFF000000);
+			auto tex = gpu.CreateResource(ResDesc::Tex2D(Image(5, 3, nullptr, DXGI_FORMAT_R32_FLOAT), 2), job, "Mips");
+			GfxUpdateSubresourceScope update(job.m_cmd_list, job.m_upload, tex.get(), 0, 0, 2, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+
+			// The last row of the last mip must end inside the allocation. The padding after the last row is not needed by the copy.
+			auto const& last = update.m_layout.back();
+			auto rows = 1LL * last.Footprint.Height * last.Footprint.Depth;
+			auto end = s_cast<int64_t>(last.Offset) + last.Footprint.RowPitch * (rows - 1) + last.Footprint.Width * s_cast<int64_t>(sizeof(float));
+			PR_EXPECT(end <= update.m_staging.m_ofs + update.m_staging.m_size);
+
+			// Copy both mips so the debug layer validates the staged footprints
+			float const mip0[15] = {};
+			float const mip1[2] = {};
+			Image const images[] = { Image(5, 3, mip0, DXGI_FORMAT_R32_FLOAT), Image(2, 1, mip1, DXGI_FORMAT_R32_FLOAT) };
+			update.Write(images);
+			update.Commit();
+			job.Run();
+		}
+
+		// A partial texture update must copy the staged box to its position in the texture.
+		PRUnitTestMethod(UpdateSubresourceCopiesPartialBox, Extended)
+		{
+			// Update a 3x2 box at (1,1) of a zero-initialised 5x3 texture
+			GfxGpu gpu;
+			GraphicsJob job(gpu, "UpdateSubresourceBox", 0xFF000000);
+			auto tex = gpu.CreateResource(ResDesc::Tex2D(Image(5, 3, nullptr, DXGI_FORMAT_R32_FLOAT), 1), job, "Box");
+			float const box[] = { 1, 2, 3, 4, 5, 6 };
+			GfxUpdateSubresourceScope update(job.m_cmd_list, job.m_upload, tex.get(), 0, 0, 1, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT, { 1, 1, 0 }, { 3, 2, 1 });
+			update.Write(Image(3, 2, box, DXGI_FORMAT_R32_FLOAT));
+			update.Commit(EFinalState::Override, D3D12_RESOURCE_STATE_COPY_SOURCE);
+			auto readback = ReadBackSubresource(job, tex.get(), 0);
+			job.Run();
+
+			// Only the box changes, and it holds the staged values in order
+			for (int y = 0; y != 3; ++y)
+			{
+				for (int x = 0; x != 5; ++x)
+				{
+					auto in_box = x >= 1 && x < 4 && y >= 1 && y < 3;
+					auto expected = in_box ? box[(y - 1) * 3 + (x - 1)] : 0.0f;
+					PR_EXPECT(readback.Row<float>(y)[x] == expected);
+				}
+			}
+		}
+
+		// An update clipped to nothing stages no memory, so 'ptr' must reject access while 'Write' and 'Commit' do nothing.
+		PRUnitTestMethod(UpdateSubresourceClippedAwayHasNoStaging, Extended)
+		{
+			// Update a box that starts outside a 4x4 texture
+			GfxGpu gpu;
+			GraphicsJob job(gpu, "UpdateSubresourceClipped", 0xFF000000);
+			auto tex = gpu.CreateResource(ResDesc::Tex2D(Image(4, 4, nullptr, DXGI_FORMAT_R32_FLOAT), 1), job, "Clipped");
+			GfxUpdateSubresourceScope update(job.m_cmd_list, job.m_upload, tex.get(), 0, 0, 1, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT, { 4, 0, 0 }, { 2, 2, 1 });
+			PR_EXPECT(update.m_layout.empty());
+			PR_THROWS(update.ptr<float>(), std::runtime_error);
+			PR_THROWS(update.ptr<float>(iv3(0, 0, 0)), std::runtime_error);
+
+			// 'Write' and 'Commit' record nothing, so the job still runs cleanly
+			float const data[] = { 1, 2, 3, 4 };
+			update.Write(Image(2, 2, data, DXGI_FORMAT_R32_FLOAT), true);
+			update.Commit();
+			job.Run();
+		}
+
+		// Restoring after an update must return each subresource to its own prior state, not the state of another array slice.
+		PRUnitTestMethod(UpdateSubresourceRestoresSliceState, Extended)
+		{
+			// Put slice 1 of a two-slice array in a different state from slice 0
+			GfxGpu gpu;
+			GraphicsJob job(gpu, "UpdateSubresourceRestore", 0xFF000000);
+			auto desc = ResDesc::Tex2D(Image(4, 4, nullptr, DXGI_FORMAT_R32_FLOAT), 1);
+			desc.DepthOrArraySize = 2;
+			auto tex = gpu.CreateResource(desc, job, "Array");
+			job.m_barriers.Transition(tex.get(), D3D12_RESOURCE_STATE_COPY_SOURCE, 1);
+			job.m_barriers.Commit();
+
+			// Update slice 1 and restore its state
+			float const pixels[16] = {};
+			GfxUpdateSubresourceScope update(job.m_cmd_list, job.m_upload, tex.get(), 1, 0, 1, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT);
+			update.Write(Image(4, 4, pixels, DXGI_FORMAT_R32_FLOAT));
+			update.Commit(EFinalState::Restore);
+
+			// Each slice keeps its own state
+			auto state = job.m_cmd_list.ResState(tex.get());
+			PR_EXPECT(state[0] == D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+			PR_EXPECT(state[1] == D3D12_RESOURCE_STATE_COPY_SOURCE);
+			job.Run();
+		}
+
+		// Initial data must be staged and copied by the job that creates the resource, and the 'Gpu' must not wait on work it never submitted.
+		PRUnitTestMethod(CreateResourceStagesInitialDataInJob, Extended)
+		{
+			// Create a buffer with initial data and read it back in the same job
+			ComGpu gpu;
+			ComputeJob job(gpu, "CreateResourceInitData", 0xFF000000);
+			int const data[] = { 3, 1, 4, 1, 5 };
+			auto buf = gpu.CreateResource(ResDesc::Buf<int>(_countof(data), data).def_state(D3D12_RESOURCE_STATE_COPY_SOURCE), job, "InitData");
+			auto readback = job.m_readback.Alloc(sizeof(data), alignof(int));
+			job.m_cmd_list.CopyBufferRegion(readback.m_res, readback.m_ofs, buf.get(), 0, sizeof(data));
+			job.Run();
+
+			// The read back values match the initial data
+			PR_EXPECT(std::equal(std::begin(data), std::end(data), readback.ptr<int>()));
 		}
 	};
 }

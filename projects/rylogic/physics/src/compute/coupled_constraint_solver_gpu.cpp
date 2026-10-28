@@ -75,9 +75,9 @@ namespace pr::physics
 	}
 
 	// Return the common rigid pseudo storage used by independent and articulation-coupled constraints.
-	D3DPtr<ID3D12Resource> GpuCoupledConstraintSolver::RigidPseudoVelocityStorage(CmdList& cmd_list, int body_count)
+	D3DPtr<ID3D12Resource> GpuCoupledConstraintSolver::RigidPseudoVelocityStorage(GpuJob& job, int body_count)
 	{
-		return m_prepare.m_constraints.PseudoVelocityStorage(cmd_list, body_count);
+		return m_prepare.m_constraints.PseudoVelocityStorage(job, body_count);
 	}
 
 	// Execute one transactional detached coupled position sweep.

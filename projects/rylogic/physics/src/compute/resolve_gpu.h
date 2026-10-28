@@ -84,6 +84,6 @@ namespace pr::physics
 	private:
 
 		// Resize the GPU buffers to support ???
-		void ResizeBuffers(CmdList& cmd_list, int body_count, int max_contacts, int max_materials);
+		void ResizeBuffers(GpuJob& job, int body_count, int max_contacts, int max_materials);
 	};
 }

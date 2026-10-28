@@ -128,7 +128,7 @@ namespace pr::physics
 		void ReleaseBuffers();
 
 		// Create or geometrically grow topology and detached transaction buffers.
-		void ResizeBuffers(CmdList& cmd_list);
+		void ResizeBuffers(GpuJob& job);
 
 		// Bind one coupled phase against the complete stable resource layout.
 		void Dispatch(GpuJob& job, ComputeStep& step, int phase, int attempt_index, int item_count, int body_count, ID3D12Resource* bodies, int substep_index);

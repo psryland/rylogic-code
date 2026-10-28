@@ -1354,15 +1354,25 @@ namespace pr::view3d::ui::tests
 		ApplyControls(engine, { MakeWorldRoot(1, ERootPolicy::OcclusionFaded, 120.0f, 60.0f, WorldParams(Vec3{ 0, 0, 10 })) });
 		engine.Update(Viewport(256, 128, 96.0f, 0.0, camera));
 
+		// Changing only the view format needs a typeless resolved-depth resource. A view of a fully typed resource must use the resource's
+		// own format, and an invalid view removes the device, which every test on this adapter shares.
+		auto heap_props = D3D12_HEAP_PROPERTIES{ .Type = D3D12_HEAP_TYPE_DEFAULT };
+		auto tex = fixture->resolved_depth->GetDesc();
+		tex.Format = DXGI_FORMAT_R32_TYPELESS;
+		Microsoft::WRL::ComPtr<ID3D12Resource> typeless_depth;
+		PR_EXPECT(SUCCEEDED(fixture->device->CreateCommittedResource(&heap_props, D3D12_HEAP_FLAG_NONE, &tex, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, nullptr, IID_PPV_ARGS(&typeless_depth))));
+
 		auto renderer = Renderer(fixture->device.Get(), MakeConfig());
 		PR_EXPECT(renderer.Record(MakeWorldPass(*fixture, EPass::Prepare, camera), engine.DrawPackets()) == EStatus::Success);
-		PR_EXPECT(renderer.Record(MakeWorldPass(*fixture, EPass::OcclusionFaded, camera), engine.DrawPackets()) == EStatus::Success);
+		auto faded = MakeWorldPass(*fixture, EPass::OcclusionFaded, camera);
+		faded.m_resolved_depth.m_resource = typeless_depth.Get();
+		PR_EXPECT(renderer.Record(faded, engine.DrawPackets()) == EStatus::Success);
 		PR_EXPECT(renderer.ResolvedDepthViewEpoch() == 1);
 
 		// A depth-format change is the other way the host's resource identity moves underneath a
 		// cached descriptor, and it must invalidate the view for the same reason.
-		auto reformatted = MakeWorldPass(*fixture, EPass::OcclusionFaded, camera);
-		reformatted.m_resolved_depth.m_srv_format = DXGI_FORMAT_R16_UNORM;
+		auto reformatted = faded;
+		reformatted.m_resolved_depth.m_srv_format = DXGI_FORMAT_R32_UINT;
 		PR_EXPECT(renderer.Record(reformatted, engine.DrawPackets()) == EStatus::Success);
 		PR_EXPECT(renderer.ResolvedDepthViewEpoch() == 2);
 

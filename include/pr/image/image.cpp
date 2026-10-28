@@ -6,7 +6,6 @@
 
 #include "pr/common/assert.h"
 #include "pr/maths/maths.h"
-#include <new>
 #include <d3d9.h>
 #include <d3dx9.h>
 #include <d3dx9tex.h>
@@ -20,8 +19,9 @@ using namespace pr::image;
 //*****
 // Constructor
 ImageInfo::ImageInfo(const char* filename)
+	:ImageInfo()
 {
-	new (this) ImageInfo;
+	// Start from the default description, then fill in the image details from the file
 	m_filename = filename;
 	Verify(D3DXGetImageInfoFromFile(m_filename.c_str(), static_cast<D3DXIMAGE_INFO*>(this)));
 }

@@ -147,27 +147,27 @@ namespace pr::physics
 	}
 
 	// Create or grow feature-dependent buffers while preserving stable-slot capacity.
-	bool GpuConstraintSolver::ResizeBuffers(CmdList& cmd_list, int capacity)
+	bool GpuConstraintSolver::ResizeBuffers(GpuJob& job, int capacity)
 	{
 		// Dispatch arguments have fixed size, independent of retained slot capacity.
 		if (m_r_colour_dispatch == nullptr)
-			m_r_colour_dispatch = m_gpu.CreateResource(ResDesc::Buf<DispatchArguments>(MaxColours, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ConstraintColourDispatch");
+			m_r_colour_dispatch = m_gpu.CreateResource(ResDesc::Buf<DispatchArguments>(MaxColours, {}).usage(EUsage::UnorderedAccess), job, "Physics:ConstraintColourDispatch");
 
 		capacity = std::max(1, capacity);
 		if (m_r_endpoints != nullptr && m_capacity >= capacity)
 			return false;
 
-		m_r_endpoints = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintEndpoint>(capacity, {}), cmd_list, "Physics:ConstraintEndpoints");
-		m_r_descriptors = m_gpu.CreateResource(ResDesc::Buf<GpuD6ConstraintDesc>(capacity, {}), cmd_list, "Physics:ConstraintDescriptors");
-		m_r_blocks = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintBlock>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ConstraintBlocks");
-		m_r_rows = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintRow>(GpuConstraintRowsPerBlock * capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ConstraintRows");
-		m_r_state = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintSolverState>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ConstraintSolverState");
+		m_r_endpoints = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintEndpoint>(capacity, {}), job, "Physics:ConstraintEndpoints");
+		m_r_descriptors = m_gpu.CreateResource(ResDesc::Buf<GpuD6ConstraintDesc>(capacity, {}), job, "Physics:ConstraintDescriptors");
+		m_r_blocks = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintBlock>(capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:ConstraintBlocks");
+		m_r_rows = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintRow>(GpuConstraintRowsPerBlock * capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:ConstraintRows");
+		m_r_state = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintSolverState>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:ConstraintSolverState");
 		m_capacity = capacity;
 		return true;
 	}
 
 	// Create or grow shared rigid pseudo-twist storage for either independent or coupled position correction.
-	void GpuConstraintSolver::EnsurePseudoVelocityStorage(CmdList& cmd_list, int body_count)
+	void GpuConstraintSolver::EnsurePseudoVelocityStorage(GpuJob& job, int body_count)
 	{
 		if (body_count < 0)
 			throw std::invalid_argument("Constraint pseudo-velocity body count cannot be negative");
@@ -177,18 +177,18 @@ namespace pr::physics
 			return;
 
 		m_body_capacity = std::max(1, body_count);
-		m_r_pseudo_velocities = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintPseudoVelocity>(m_body_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ConstraintPseudoVelocities");
+		m_r_pseudo_velocities = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintPseudoVelocity>(m_body_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:ConstraintPseudoVelocities");
 	}
 
 	// Return adequately sized rigid pseudo storage for a shared position solve.
-	D3DPtr<ID3D12Resource> GpuConstraintSolver::PseudoVelocityStorage(CmdList& cmd_list, int body_count)
+	D3DPtr<ID3D12Resource> GpuConstraintSolver::PseudoVelocityStorage(GpuJob& job, int body_count)
 	{
-		EnsurePseudoVelocityStorage(cmd_list, body_count);
+		EnsurePseudoVelocityStorage(job, body_count);
 		return m_r_pseudo_velocities;
 	}
 
 	// Create or geometrically grow the optional per-slot overload latch.
-	void GpuConstraintSolver::EnsureBreakStateStorage(CmdList& cmd_list, int slot_count)
+	void GpuConstraintSolver::EnsureBreakStateStorage(GpuJob& job, int slot_count)
 	{
 		if (slot_count < 0)
 			throw std::invalid_argument("Constraint break-state slot count cannot be negative");
@@ -199,7 +199,7 @@ namespace pr::physics
 			? 2 * m_break_capacity
 			: std::numeric_limits<int>::max();
 		m_break_capacity = std::max(slot_count, std::max(1, doubled_capacity));
-		m_r_break_states = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintBreakState>(m_break_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:ConstraintBreakStates");
+		m_r_break_states = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintBreakState>(m_break_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:ConstraintBreakStates");
 	}
 
 	// Upload shared frame-local endpoints and changed persistent descriptors, returning whether independent rigid work is active.
@@ -227,7 +227,7 @@ namespace pr::physics
 		if (m_breakable_count < 0 || m_breakable_count > m_slot_count)
 			throw std::invalid_argument("GPU breakable constraint count is outside the stable-slot range");
 
-		auto const resized = ResizeBuffers(job.m_cmd_list, m_slot_count);
+		auto const resized = ResizeBuffers(job, m_slot_count);
 		auto endpoints = upload.m_endpoints;
 		auto descriptor_dirty = std::vector<bool>(m_slot_count, resized || m_descriptor_shadow.size() != upload.m_descriptors.size());
 		auto const reset_all = resized || m_source != upload.m_source;
@@ -348,7 +348,7 @@ namespace pr::physics
 		// Break latches are frame-local and exist only when at least one active descriptor has a finite threshold.
 		if (m_breakable_count != 0)
 		{
-			EnsureBreakStateStorage(job.m_cmd_list, m_slot_count);
+			EnsureBreakStateStorage(job, m_slot_count);
 			auto break_upload = job.m_upload.Alloc<GpuConstraintBreakState>(m_slot_count);
 			for (int index = 0; index != m_slot_count; ++index)
 			{
@@ -481,7 +481,7 @@ namespace pr::physics
 		pix::BeginEvent(job.m_cmd_list.get(), 0xFF8A5FD3, "Physics::CompileConstraints");
 
 		// Allocate split-correction state only after the optional lane has active work.
-		EnsurePseudoVelocityStorage(job.m_cmd_list, body_count);
+		EnsurePseudoVelocityStorage(job, body_count);
 
 		// A continuation recompiles changed geometry but retains the accumulator that has already been applied to authoritative momentum.
 		m_retain_current_impulses = retain_current_impulses;
@@ -723,7 +723,7 @@ namespace pr::physics
 			throw std::invalid_argument("Constraint break-state readback span is smaller than the stable-slot stream");
 
 		auto const body_count = static_cast<int>(bodies.size());
-		auto r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(std::max(1, body_count), {}).usage(EUsage::UnorderedAccess), job.m_cmd_list, "Physics:ConstraintTestBodies");
+		auto r_bodies = m_gpu.CreateResource(ResDesc::Buf<GpuRigidBody>(std::max(1, body_count), {}).usage(EUsage::UnorderedAccess), job, "Physics:ConstraintTestBodies");
 		job.m_barriers.Transition(r_bodies.get(), D3D12_RESOURCE_STATE_COPY_DEST);
 		job.m_barriers.Commit();
 		auto body_upload = job.m_upload.Alloc<GpuRigidBody>(std::max(1, body_count));

@@ -95,7 +95,7 @@ namespace pr::compute
 		using SyncPoints = pr::deque<SyncPoint>;
 
 		HeapPtr    m_heap;     // The shader visible heap for descriptors.
-		int        m_size;     // The total size of the heap
+		int        m_size;     // The number of slots in the heap ('capacity' + 1)
 		GpuSync*   m_gsync;    // The GPU fence marking GPU progress.
 		SyncPoints m_sync;     // Positions in the ring buffer and associated sync points.
 		Lookup     m_lookup;   // A lookup for descriptors added since the last sync point.
@@ -105,9 +105,10 @@ namespace pr::compute
 	
 	public:
 	
-		GpuDescriptorHeap(int size, GpuSync& gsync)
+		// Create a ring buffer heap that can hold up to 'capacity' descriptors that the GPU has not finished using
+		GpuDescriptorHeap(int capacity, GpuSync& gsync)
 			:m_heap()
-			,m_size(size)
+			,m_size(capacity + 1)
 			,m_gsync(&gsync)
 			,m_sync()
 			,m_lookup()
@@ -115,7 +116,8 @@ namespace pr::compute
 			,m_des_size(s_cast<int>(device()->GetDescriptorHandleIncrementSize(HeapType)))
 			,m_head()
 		{
-			if (size < 1)
+			// The ring buffer keeps one slot empty so that a full ring can be told apart from an empty one, so 'm_size' includes that slot.
+			if (capacity < 1)
 				throw std::runtime_error("Heap capacity must be >= 1");
 
 			// Create the GPU heap

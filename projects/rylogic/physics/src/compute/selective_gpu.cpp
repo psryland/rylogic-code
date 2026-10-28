@@ -154,7 +154,7 @@ namespace pr::physics
 		Check(m_gpu->CreateCommandSignature(&desc, nullptr, __uuidof(ID3D12CommandSignature), (void**)m_cmd_sig.address_of()));
 	}
 
-	void GpuSelectiveRefresher::ResizeBuffers(CmdList& cmd_list, int body_count, int max_pairs, int max_contacts)
+	void GpuSelectiveRefresher::ResizeBuffers(GpuJob& job, int body_count, int max_pairs, int max_contacts)
 	{
 		body_count = std::max(1, body_count);
 		max_pairs = std::max(1, max_pairs);
@@ -162,12 +162,12 @@ namespace pr::physics
 
 		if (m_r_problem_bodies == nullptr || m_body_capacity < body_count)
 		{
-			m_r_problem_bodies = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(body_count, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:SelectiveProblemBodies");
+			m_r_problem_bodies = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(body_count, {}).usage(EUsage::UnorderedAccess), job, "Physics:SelectiveProblemBodies");
 			m_body_capacity = body_count;
 		}
 		if (m_r_metrics == nullptr)
 		{
-			m_r_metrics = m_gpu.CreateResource(ResDesc::Buf<GpuSelectiveRefreshMetrics>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:SelectiveMetrics");
+			m_r_metrics = m_gpu.CreateResource(ResDesc::Buf<GpuSelectiveRefreshMetrics>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:SelectiveMetrics");
 		}
 		if (m_max_pairs < max_pairs || m_max_contacts < max_contacts)
 		{
@@ -175,15 +175,15 @@ namespace pr::physics
 			{
 				if (work_set.m_counters == nullptr || work_set.m_max_pairs < max_pairs)
 				{
-					work_set.m_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:SelectiveCounters");
-					work_set.m_pairs = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionPair>(max_pairs, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:SelectivePairs");
-					work_set.m_cd_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:SelectiveCDDispatch");
+					work_set.m_counters = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionCounters>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:SelectiveCounters");
+					work_set.m_pairs = m_gpu.CreateResource(ResDesc::Buf<GpuCollisionPair>(max_pairs, {}).usage(EUsage::UnorderedAccess), job, "Physics:SelectivePairs");
+					work_set.m_cd_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:SelectiveCDDispatch");
 					work_set.m_max_pairs = max_pairs;
 				}
 				if (work_set.m_contacts == nullptr || work_set.m_max_contacts < max_contacts)
 				{
-					work_set.m_contacts = m_gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(max_contacts, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:SelectiveContacts");
-					work_set.m_resolve_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:SelectiveResolveDispatch");
+					work_set.m_contacts = m_gpu.CreateResource(ResDesc::Buf<GpuResolveContact>(max_contacts, {}).usage(EUsage::UnorderedAccess), job, "Physics:SelectiveContacts");
+					work_set.m_resolve_dispatch = m_gpu.CreateResource(ResDesc::Buf<D3D12_DISPATCH_ARGUMENTS>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:SelectiveResolveDispatch");
 					work_set.m_max_contacts = max_contacts;
 				}
 			}
@@ -241,7 +241,7 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> bodies)
 	{
 		auto& work_set = m_work_sets[pass_index & 1];
-		ResizeBuffers(job.m_cmd_list, body_count, max_pairs, max_contacts);
+		ResizeBuffers(job, body_count, max_pairs, max_contacts);
 
 		cbSelectiveRefresh cb_selective = {
 			.g_max_pairs = max_pairs,

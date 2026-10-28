@@ -89,7 +89,7 @@ namespace pr::physics
 		void ReleaseBuffers();
 
 		// Create or geometrically grow stable-slot metadata and preconditioner buffers.
-		void ResizeBuffers(CmdList& cmd_list);
+		void ResizeBuffers(GpuJob& job);
 
 		// Record the preparation pass against explicit production or diagnostic resources.
 		void Run(

@@ -59,7 +59,7 @@ namespace pr::physics
 		bool PreparePosition(GpuJob& job, float timestep, int body_count, ID3D12Resource* bodies, GpuPositionPseudoBuffers const& shared_pseudo = {}, int iteration_count = -1);
 
 		// Return the common rigid pseudo storage used by independent and articulation-coupled constraints.
-		D3DPtr<ID3D12Resource> RigidPseudoVelocityStorage(CmdList& cmd_list, int body_count);
+		D3DPtr<ID3D12Resource> RigidPseudoVelocityStorage(GpuJob& job, int body_count);
 
 		// Execute one transactional detached coupled position sweep.
 		void SolvePositionIteration(GpuJob& job, ID3D12Resource* bodies, int substep_index);

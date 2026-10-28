@@ -175,7 +175,7 @@ namespace pr::physics::atmosphere
 		{
 			// All solver fields are plain structured buffers used by raw GPU virtual address root descriptors.
 			auto desc = ResDesc::Buf<Type>(count, {}).usage(EUsage::UnorderedAccess).def_state(D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-			return gpu.CreateResource(desc, job.m_cmd_list, name);
+			return gpu.CreateResource(desc, job, name);
 		}
 
 		// Return one valid placeholder element because D3D12 root SRVs need a non-null resource address.
@@ -183,7 +183,7 @@ namespace pr::physics::atmosphere
 		{
 			// Empty caller spans bind to this harmless one-element buffer.
 			auto desc = ResDesc::Buf<Type>(1, {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-			return gpu.CreateResource(desc, job.m_cmd_list, name);
+			return gpu.CreateResource(desc, job, name);
 		}
 
 		// Pack two non-negative drag coefficients as 16-bit floats, 'lo' in the low half, to match UnpackDragPair in atmosphere.hlsl.
@@ -903,9 +903,9 @@ namespace pr::physics::atmosphere
 			m_divergence_buffer = CreateBuffer<float>(m_gpu, job, MultigridCellCount(), "Atmosphere:Divergence");
 			m_residual_buffer = CreateBuffer<float>(m_gpu, job, MultigridCellCount(), "Atmosphere:Residual");
 			m_source_sentinel = CreateSrvSentinel<GpuHeatSource>(m_gpu, job, "Atmosphere:SourceSentinel");
-			m_floor_height = m_gpu.CreateResource(ResDesc::Buf<float>(grid.ColumnCount() + MultigridColumnCount(), {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE), job.m_cmd_list, "Atmosphere:FloorHeightAndActiveMask");
-			m_floor_temperature = m_gpu.CreateResource(ResDesc::Buf<float>(grid.ColumnCount(), {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE), job.m_cmd_list, "Atmosphere:FloorTemperature");
-			m_outside_air = m_gpu.CreateResource(ResDesc::Buf<GpuOutsideAir>(grid.ColumnCount(), {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE), job.m_cmd_list, "Atmosphere:OutsideAir");
+			m_floor_height = m_gpu.CreateResource(ResDesc::Buf<float>(grid.ColumnCount() + MultigridColumnCount(), {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE), job, "Atmosphere:FloorHeightAndActiveMask");
+			m_floor_temperature = m_gpu.CreateResource(ResDesc::Buf<float>(grid.ColumnCount(), {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE), job, "Atmosphere:FloorTemperature");
+			m_outside_air = m_gpu.CreateResource(ResDesc::Buf<GpuOutsideAir>(grid.ColumnCount(), {}).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE), job, "Atmosphere:OutsideAir");
 			auto const floors = grid.m_floor_heights.empty() ? FlatFloors() : grid.m_floor_heights;
 			UploadFloors(job, floors);
 			UploadActiveMask(job);

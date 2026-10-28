@@ -113,6 +113,7 @@ public sealed class TestUiProgressBar
 
 /// <summary>Slider managed descriptors, typed events, JSON authoring, semantics, and native interaction.</summary>
 [TestFixture]
+[TestFlags(EUnitTestFlags.Serial)] // Uses the single-threaded View3d singleton via UiTestDevice
 public sealed class TestUiSlider
 {
 	/// <summary>Managed descriptors snapshot all range fields and expose a typed numeric proposal accessor.</summary>
@@ -212,6 +213,7 @@ public sealed class TestUiSlider
 
 /// <summary>ComboBox managed descriptors, typed events, JSON authoring, and native interaction.</summary>
 [TestFixture]
+[TestFlags(EUnitTestFlags.Serial)] // Uses the single-threaded View3d singleton via UiTestDevice
 public sealed class TestUiComboBox
 {
 	/// <summary>Managed descriptors snapshot all item and selection fields and expose the shared numeric proposal accessor.</summary>
@@ -675,6 +677,7 @@ public sealed class TestUiEventsAndSemantics
 
 /// <summary>Validates owner-thread affinity for UiRuntime; none of this requires a live device since EnsureOwner runs before any device access.</summary>
 [TestFixture]
+[TestFlags(EUnitTestFlags.Serial)] // Uses the single-threaded View3d singleton via UiTestDevice
 public sealed class TestUiLifecycle
 {
 	/// <summary>CreateContext and Dispose must reject a call from any OS thread other than the one that constructed the runtime.</summary>
@@ -746,6 +749,7 @@ public sealed class TestUiLifecycle
 /// asserting anything) when no live D3D12 device is available via UiTestDevice.Lease in the current environment.
 /// </summary>
 [TestFixture]
+[TestFlags(EUnitTestFlags.Serial)] // Uses the single-threaded View3d singleton via UiTestDevice
 public sealed class TestUiContext
 {
 	/// <summary>Apply a hand-built transaction, then exercise revision rejection, viewport update, event drain, semantic capture, and disposal.</summary>

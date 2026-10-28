@@ -164,8 +164,8 @@ namespace pr
 
 	private:	// Don't allow these
 		CMemDC() {}
-		CMemDC(const CMemDC&) {}
-		CMemDC& operator = (const CMemDC&) {}
+		CMemDC(const CMemDC&) = delete;
+		CMemDC& operator = (const CMemDC&) = delete;
 
 	protected: // Shouldn't be called directly
 		BOOL	Attach(HDC hDC)	{ return CDC::Attach(hDC); }

@@ -18,7 +18,7 @@ namespace pr::physics::tests
 			auto& gpu = SharedTestGpu();
 			auto& job = gpu.m_job;
 			auto desc = compute::ResDesc::Buf<uint32_t>(16, {}).usage(compute::EUsage::UnorderedAccess);
-			auto res = gpu.CreateResource(desc, job.m_cmd_list, "GpuTests:Used");
+			auto res = gpu.CreateResource(desc, job, "GpuTests:Used");
 			job.m_barriers.Transition(res.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 			job.m_barriers.Commit();
 			job.m_cmd_list.Use(res.get());
@@ -43,8 +43,8 @@ namespace pr::physics::tests
 			auto& gpu = SharedTestGpu();
 			auto& job = gpu.m_job;
 			auto desc = compute::ResDesc::Buf<uint32_t>(4, {}).def_state(D3D12_RESOURCE_STATE_COMMON);
-			auto src = gpu.CreateResource(desc, job.m_cmd_list, "GpuTests:FlushSrc");
-			auto dst = gpu.CreateResource(desc, job.m_cmd_list, "GpuTests:FlushDst");
+			auto src = gpu.CreateResource(desc, job, "GpuTests:FlushSrc");
+			auto dst = gpu.CreateResource(desc, job, "GpuTests:FlushDst");
 			std::array<uint32_t, 4> const values = { 1, 2, 3, 0xDEADBEEF };
 
 			// First segment: upload into 'src' and execute it without waiting.

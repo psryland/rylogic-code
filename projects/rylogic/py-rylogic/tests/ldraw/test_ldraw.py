@@ -17,3 +17,12 @@ class TestLDraw(unittest.TestCase):
 		ldr_cmd.transform_object('MyPoints', Mat4.Identity())
 		s = builder.ToString()
 		b = builder.ToBytes()
+
+	def test_flipbook(self):
+		# The flipbook modifier is written before the frames it controls
+		builder = Builder()
+		grp = builder.Group("fb").flipbook("PingPong", 4)
+		grp.Box("f0").dim(1)
+		grp.Box("f1").dim(2)
+		self.assertEqual(builder.ToString(), "*Group fb {*Flipbook {*Style {PingPong} *FrameRate {4.0}} *Box f0 {*Data {1.0 1.0 1.0}} *Box f1 {*Data {2.0 2.0 2.0}}}")
+		self.assertGreater(len(builder.ToBytes()), 0)

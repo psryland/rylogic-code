@@ -107,7 +107,7 @@ namespace pr::physics
 		void ReleaseBuffers();
 
 		// Create or grow typed impulse, link-response, and generalized-response buffers for the active packed forest.
-		void ResizeBuffers(CmdList& cmd_list, int link_count, int work_count, int velocity_count);
+		void ResizeBuffers(GpuJob& job, int link_count, int work_count, int velocity_count);
 
 		// Bind and dispatch one transactional evaluate or commit pass using caller-owned selection and result streams.
 		void DispatchTransactional(GpuJob& job, ComputeStep& step, ID3D12Resource* selection, ID3D12Resource* results);

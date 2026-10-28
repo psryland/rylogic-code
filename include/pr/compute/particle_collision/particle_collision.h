@@ -99,7 +99,7 @@ namespace pr::compute::particle_collision
 			// Create the primitives buffer
 			{
 				ResDesc desc = ResDesc::Buf<Prim>(setup.PrimitiveCapacity, setup.CollisionInitData).def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).usage(EUsage::UnorderedAccess);
-				m_r_primitives = m_gpu->CreateResource(desc, job.m_cmd_list, "ParticleCollision:Primitives");
+				m_r_primitives = m_gpu->CreateResource(desc, job, "ParticleCollision:Primitives");
 				m_capacity = setup.PrimitiveCapacity;
 			}
 		}

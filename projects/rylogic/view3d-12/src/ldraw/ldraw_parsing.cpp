@@ -470,6 +470,49 @@ namespace pr::rdr12::ldraw
 		}
 	}
 
+	// Parse a flipbook description. Invalid values are reported and leave 'flipbook' disabled.
+	void ParseFlipbook(IReader& reader, ParseParams& pp, Flipbook& flipbook)
+	{
+		// Read the flipbook properties. The default frame rate matches the default in the Animation Controls UI.
+		auto section = reader.SectionScope();
+		auto loc = reader.Loc();
+		auto info = Flipbook{ .m_style = EAnimStyle::Once, .m_frame_rate = 24.0 };
+		for (EKeyword kw; reader.NextKeyword(kw);)
+		{
+			switch (kw)
+			{
+				case EKeyword::Style:
+				{
+					info.m_style = reader.Enum<EAnimStyle>();
+					break;
+				}
+				case EKeyword::FrameRate:
+				{
+					info.m_frame_rate = reader.Real<double>();
+					break;
+				}
+				default:
+				{
+					pp.ReportError(EParseError::UnknownKeyword, reader.Loc(), std::format("Keyword '{}' is not valid within *Flipbook", EKeyword_::ToStringA(kw)));
+					break;
+				}
+			}
+		}
+
+		// A flipbook has a finite number of frames, so it needs a positive rate and a style that maps time into the frame sequence
+		if (!(info.m_frame_rate > 0.0) || !std::isfinite(info.m_frame_rate))
+		{
+			pp.ReportError(EParseError::InvalidValue, loc, "*Flipbook *FrameRate must be a positive number of frames per second");
+			return;
+		}
+		if (info.m_style == EAnimStyle::Continuous)
+		{
+			pp.ReportError(EParseError::InvalidValue, loc, "*Flipbook does not support the 'Continuous' style. Use Once, Repeat, PingPong, or NoAnimation");
+			return;
+		}
+		flipbook = info;
+	}
+
 	// Parse a texture description
 	void ParseTexture(IReader& reader, ParseParams& pp, TextureInfo& tex)
 	{
@@ -693,6 +736,14 @@ namespace pr::rdr12::ldraw
 				obj->m_root_anim.m_simple->m_avel = anim_info.m_avel;
 				obj->m_root_anim.m_simple->m_aacc = anim_info.m_aacc;
 				obj->Flags(ELdrFlags::Animated, true);
+				return true;
+			}
+			case EKeyword::Flipbook:
+			{
+				ParseFlipbook(reader, pp, obj->m_flipbook);
+				if (obj->m_flipbook)
+					obj->Flags(ELdrFlags::Animated, true);
+
 				return true;
 			}
 			case EKeyword::Hidden:
@@ -6190,6 +6241,8 @@ namespace pr::rdr12::ldraw
 				obj->m_colour_blend = source->m_colour_blend;
 				obj->m_group_tint = source->m_group_tint;
 				obj->m_root_anim = source->m_root_anim;
+				obj->m_flipbook = source->m_flipbook;
+				obj->m_anim_time_s = source->m_anim_time_s;
 				obj->m_screen_space = source->m_screen_space;
 				obj->m_flags_local = source->m_flags_local;
 				obj->m_flags_recursive = source->m_flags_recursive;
@@ -6661,7 +6714,11 @@ namespace pr::rdr12::ldraw
 			if (AllSet(flags, EUpdateObject::Flags))
 				std::swap(object->m_flags_recursive, rhs->m_flags_recursive);
 			if (AllSet(flags, EUpdateObject::Animation))
+			{
 				std::swap(object->m_root_anim, rhs->m_root_anim);
+				std::swap(object->m_flipbook, rhs->m_flipbook);
+				std::swap(object->m_anim_time_s, rhs->m_anim_time_s);
+			}
 			if (AllSet(flags, EUpdateObject::GroupTint))
 				std::swap(object->m_group_tint, rhs->m_group_tint);
 			if (AllSet(flags, EUpdateObject::Reflectivity))

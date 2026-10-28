@@ -22,7 +22,8 @@ namespace pr::rdr12
 	{
 		int   m_atlas_size;             // Width and height of the square shadow atlas (in pixels)
 		int   m_directional_resolution; // Requested size of each directional light cascade view (in pixels)
-		int   m_spot_resolution;        // Largest size of a spot light shadow view (in pixels). Smaller sizes are used for lights that cover less of the screen
+		int   m_far_cascade_resolution; // Requested size of each directional light cascade after the first (in pixels). Zero means the same as 'm_directional_resolution'
+		int   m_spot_resolution;         // Largest size of a spot light shadow view (in pixels). Smaller sizes are used for lights that cover less of the screen
 		int   m_point_resolution;       // Largest size of each of the six point light shadow views (in pixels). Smaller sizes are used for lights that cover less of the screen
 		int   m_max_shadow_lights;      // The maximum number of lights that cast shadows. Zero disables shadows
 		int   m_cascade_count;          // The number of cascades for directional lights, in [1, MaxShadowCascades]
@@ -38,6 +39,7 @@ namespace pr::rdr12
 		ShadowSettings()
 			:m_atlas_size(4096)
 			,m_directional_resolution(1024)
+			,m_far_cascade_resolution(0)
 			,m_spot_resolution(1024)
 			,m_point_resolution(1024)
 			,m_max_shadow_lights(4)
@@ -350,6 +352,34 @@ namespace pr::rdr12::tests
 			settings.m_shadow_distance = 1.0f;
 			BuildShadowViews({ &sun, 1 }, BBox(v4(0, 100, 0, 1), v4(1, 1, 1, 0)), camera, settings, set);
 			PR_EXPECT(set.empty());
+
+			// Cascades after the first use the far cascade resolution
+			settings = ShadowSettings{};
+			settings.m_directional_resolution = 2048;
+			settings.m_far_cascade_resolution = 512;
+			BuildShadowViews({ &sun, 1 }, bounds, camera, settings, set);
+			PR_EXPECT(All(set.m_light_views[0] == iv2(0, 3)));
+			PR_EXPECT(set.m_views[0].m_atlas_rect.SizeX() == 2048);
+			PR_EXPECT(set.m_views[1].m_atlas_rect.SizeX() == 512 && set.m_views[2].m_atlas_rect.SizeX() == 512);
+
+			// A light's own shadow layout replaces the scene's cascade count, resolution, distance, and fade
+			auto sky = sun;
+			sky.m_direction = v4(0, 0, -1, 0);
+			sky.m_shadow_cascades = 1;
+			sky.m_shadow_resolution = 256;
+			sky.m_shadow_distance = 40.0f;
+			sky.m_shadow_fade_start = 15.0f;
+			Light lights[] = { sun, sky };
+			BuildShadowViews(lights, bounds, camera, settings, set);
+			PR_EXPECT(All(set.m_light_views[0] == iv2(0, 3)));
+			PR_EXPECT(All(set.m_light_views[1] == iv2(3, 1)));
+			PR_EXPECT(set.m_views[3].m_atlas_rect.SizeX() == 256);
+			PR_EXPECT(FEql(set.m_views[3].m_fade_depth, v2(15.0f, 40.0f)));
+
+			// Without a fade start, the shadows fade over the last 10% of the light's shadow distance
+			lights[1].m_shadow_fade_start = 0.0f;
+			BuildShadowViews(lights, bounds, camera, settings, set);
+			PR_EXPECT(FEql(set.m_views[3].m_fade_depth, v2(36.0f, 40.0f)));
 		}
 
 		// Cascade projections are stable under sub-texel camera moves. Snapping keeps the shadow texel grid fixed in world space,

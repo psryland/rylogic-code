@@ -1348,11 +1348,10 @@ namespace pr
 			}
 			Brush& operator =(Brush const& rhs)
 			{
+				// Swap in a non-owning copy so the temporary releases any brush this object owned
 				if (this != &rhs)
-				{
-					this->~Brush();
-					new (this) Brush(rhs.m_obj, false);
-				}
+					*this = Brush(rhs);
+
 				return *this;
 			}
 			operator HBRUSH() const
@@ -1439,11 +1438,10 @@ namespace pr
 			}
 			Image& operator = (Image const& rhs)
 			{
+				// Swap in a non-owning copy so the temporary releases any image this object owned
 				if (this != &rhs)
-				{
-					this->~Image();
-					new (this) Image(rhs.m_obj, rhs.m_type, false);
-				}
+					*this = Image(rhs);
+
 				return *this;
 			}
 			operator HBITMAP() const
@@ -1662,11 +1660,10 @@ namespace pr
 			}
 			Accel& operator = (Accel const& rhs)
 			{
+				// Swap in a non-owning copy so the temporary releases any table this object owned
 				if (this != &rhs)
-				{
-					this->~Accel();
-					new (this) Accel(rhs.m_obj, false);
-				}
+					*this = Accel(rhs);
+
 				return *this;
 			}
 			operator HACCEL() const

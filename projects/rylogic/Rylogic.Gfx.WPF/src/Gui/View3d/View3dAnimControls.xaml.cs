@@ -26,6 +26,7 @@ namespace Rylogic.Gui.WPF
 			Pause = Command.Create(this, PauseInternal);
 			StepBack = Command.Create(this, StepBackInternal);
 			StepForward = Command.Create(this, StepForwardInternal);
+			FitRange = Command.Create(this, FitRangeInternal);
 			DataContext = this;
 		}
 
@@ -265,6 +266,20 @@ namespace Rylogic.Gui.WPF
 		{
 			if (ViewWindow == null) return;
 			ViewWindow.AnimControl(View3d.EAnimCommand.Step, +StepSize);
+		}
+
+		/// <summary>Set the frame range to cover every frame of the flipbooks in the scene</summary>
+		public Command FitRange { get; }
+		private void FitRangeInternal()
+		{
+			// Leave the range unchanged when there is nothing to fit to
+			if (ViewWindow == null) return;
+			var duration_s = ViewWindow.FlipbookDuration;
+			if (duration_s <= 0) return;
+
+			// The slider counts frames at 'FrameRate', which can differ from the flipbook frame rates
+			Frame0 = 0;
+			FrameN = Math.Max(1, (int)Math.Ceiling(duration_s * FrameRate - 1e-6));
 		}
 
 		/// <summary>Enter scrub mode before the slider can update its value from the mouse down event.</summary>

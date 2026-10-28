@@ -23,6 +23,7 @@
 #include "ufbx/ufbx.h"
 #include "ufbx/extra/ufbx_os.h"
 
+#include "pr/common/assert_reporting.h"
 #include "pr/common/to.h"
 #include "pr/common/cast.h"
 #include "pr/common/bit_fields.h"
@@ -2078,8 +2079,11 @@ extern "C"
 	// DLL entry point
 	BOOL APIENTRY DllMain(HINSTANCE hInstance, DWORD ul_reason_for_call, LPVOID)
 	{
-		(void)ul_reason_for_call;
+		// Record the module handle, and apply the process's assert reporting choice when first loaded.
 		g_instance = hInstance;
+		if (ul_reason_for_call == DLL_PROCESS_ATTACH)
+			pr::ApplyAssertReportingFromEnvironment();
+
 		return TRUE;
 	}
 

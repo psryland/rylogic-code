@@ -152,7 +152,8 @@ namespace pr::view3d::ui::tests
 		PR_EXPECT(diagnostics.control_count == 0);
 	}
 
-	PRUnitTest(ShutdownFailsWithResourceInUseWhileContextIsAlive, Quick)
+	// Serial because the final-token check requires that no other test holds a runtime token at the same time
+	PRUnitTest(ShutdownFailsWithResourceInUseWhileContextIsAlive, Quick | Serial)
 	{
 		auto runtime = Runtime{};
 		auto device = FakeDevice{};

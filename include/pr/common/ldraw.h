@@ -195,6 +195,7 @@ namespace pr::ldraw
 		inline static constexpr NameValue Far = {"*Far", 3170376174};
 		inline static constexpr NameValue FilePath = {"*FilePath", 1962937316};
 		inline static constexpr NameValue Filter = {"*Filter", 3353438327};
+		inline static constexpr NameValue Flipbook = {"*Flipbook", 198275595};
 		inline static constexpr NameValue Font = {"*Font", 659427984};
 		inline static constexpr NameValue ForeColour = {"*ForeColour", 3815865055};
 		inline static constexpr NameValue Format = {"*Format", 3114108242};
@@ -1928,6 +1929,50 @@ namespace pr::ldraw
 				Append(out, "}");
 			}
 		};
+		struct Flipbook
+		{
+			// Shows the direct children of an object one at a time, using the animation time to choose the visible child.
+			// Unset properties use the parser defaults, so an enabled flipbook with no properties is still written.
+			std::optional<std::string> m_style; // NoAnimation|Once|Repeat|PingPong
+			std::optional<float> m_frame_rate;  // Frames per second
+			bool m_enabled = false;
+
+			Flipbook& style(std::string_view style) // NoAnimation|Once|Repeat|PingPong
+			{
+				m_style = std::string(style);
+				return *this;
+			}
+			Flipbook& frame_rate(float frames_per_second)
+			{
+				m_frame_rate = frames_per_second;
+				return *this;
+			}
+
+			explicit operator bool() const
+			{
+				return m_enabled;
+			}
+			friend void Append(bytebuf& out, Flipbook const& fb)
+			{
+				if (!fb) return;
+				auto s = Append(out, seri::Header{ EKeywords::Flipbook });
+				if (fb.m_style)
+					Append(out, seri::Header{ EKeywords::Style }, *fb.m_style);
+				if (fb.m_frame_rate)
+					Append(out, seri::Header{ EKeywords::FrameRate }, *fb.m_frame_rate);
+			}
+			friend void Append(textbuf& out, Flipbook const& fb)
+			{
+				if (!fb) return;
+				Append(out, EKeywords::Flipbook, "{");
+				if (fb.m_style)
+					Append(out, EKeywords::Style, "{", *fb.m_style, "}");
+				if (fb.m_frame_rate)
+					Append(out, EKeywords::FrameRate, "{", *fb.m_frame_rate, "}");
+
+				Append(out, "}");
+			}
+		};
 		struct Animation
 		{
 			struct Style_
@@ -2327,6 +2372,7 @@ namespace pr::ldraw
 		seri::NoZTest m_no_ztest;
 		seri::NoZWrite m_no_zwrite;
 		seri::RootAnimation m_root_anim;
+		seri::Flipbook m_flipbook;
 		seri::O2W m_o2w;
 		
 		LdrBase(seri::Name name = {}, seri::Colour colour = {})
@@ -2356,6 +2402,7 @@ namespace pr::ldraw
 			m_no_ztest = {};
 			m_no_zwrite = {};
 			m_root_anim = {};
+			m_flipbook = {};
 			m_o2w = {};
 		}
 
@@ -2476,6 +2523,19 @@ namespace pr::ldraw
 		{
 			return m_root_anim;
 		}
+		LdrBase& flipbook(std::invocable<seri::Flipbook&> auto&& cb)
+		{
+			// Show the children of this object one at a time, as animation frames
+			m_flipbook.m_enabled = true;
+			cb(m_flipbook);
+			return *this;
+		}
+		seri::Flipbook& flipbook()
+		{
+			// Show the children of this object one at a time, as animation frames
+			m_flipbook.m_enabled = true;
+			return m_flipbook;
+		}
 		LdrBase& o2w(std::invocable<seri::O2W&> auto&& cb)
 		{
 			cb(m_o2w);
@@ -2521,6 +2581,7 @@ namespace pr::ldraw
 			m_no_ztest = rhs.m_no_ztest;
 			m_no_zwrite = rhs.m_no_zwrite;
 			m_root_anim = rhs.m_root_anim;
+			m_flipbook = rhs.m_flipbook;
 			m_o2w = rhs.m_o2w;
 			return *this;
 		}
@@ -2528,13 +2589,13 @@ namespace pr::ldraw
 		// Serializing
 		virtual void Write(textbuf& out) const
 		{
-			Append(out, m_group_tint, m_hide, m_wire, m_axis_id, m_solid, m_refl, m_left_handed, m_screen_space, m_no_ztest, m_no_zwrite, m_root_anim, m_o2w);
+			Append(out, m_group_tint, m_hide, m_wire, m_axis_id, m_solid, m_refl, m_left_handed, m_screen_space, m_no_ztest, m_no_zwrite, m_root_anim, m_flipbook, m_o2w);
 			for (auto const& child : m_children)
 				child->Write(out);
 		}
 		virtual void Write(bytebuf& out) const
 		{
-			Append(out, m_group_tint, m_hide, m_wire, m_axis_id, m_solid, m_refl, m_left_handed, m_screen_space, m_no_ztest, m_no_zwrite, m_root_anim, m_o2w);
+			Append(out, m_group_tint, m_hide, m_wire, m_axis_id, m_solid, m_refl, m_left_handed, m_screen_space, m_no_ztest, m_no_zwrite, m_root_anim, m_flipbook, m_o2w);
 			for (auto const& child : m_children)
 				child->Write(out);
 		}
@@ -5653,6 +5714,25 @@ namespace pr::ldraw
 				"		*Data {1 2 3 1 1 1 ff00ff00}\n"
 				"	}\n"
 				"}");
+		}
+		PRUnitTestMethod(Flipbook, Quick)
+		{
+			// The flipbook modifier is written before the frames it controls
+			Builder builder;
+			auto& grp = builder.Group("fb");
+			grp.flipbook().style("PingPong").frame_rate(4);
+			grp.Box("f0").box(1, 1, 1);
+			grp.Box("f1").box(2, 2, 2);
+			auto ldr = builder.ToString(ESaveFlags::Flat);
+			PR_EXPECT(ldr == "*Group fb {*Flipbook {*Style {PingPong} *FrameRate {4}} *Box f0 {*Data {1 1 1}} *Box f1 {*Data {2 2 2}}}");
+
+			// An empty flipbook is still written, so the parser defaults apply
+			Builder builder2;
+			builder2.Group("fb").flipbook();
+			PR_EXPECT(builder2.ToString(ESaveFlags::Flat) == "*Group fb {*Flipbook {}}");
+
+			auto bdr = builder.ToBinary();
+			PR_EXPECT(!bdr.empty());
 		}
 		PRUnitTestMethod(LineBox, Quick)
 		{

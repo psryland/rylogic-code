@@ -21,6 +21,10 @@ namespace pr::rdr12
 		,m_inner_angle(constants<float>::tau_by_4)
 		,m_outer_angle(constants<float>::tau_by_4)
 		,m_cast_shadow(0.0f)
+		,m_shadow_cascades(0)
+		,m_shadow_resolution(0)
+		,m_shadow_distance(0.0f)
+		,m_shadow_fade_start(0.0f)
 		,m_cam_relative(false)
 		,m_on(true)
 	{}
@@ -66,6 +70,10 @@ namespace pr::rdr12
 		x(Rng  ,= rdr12::ldraw::HashI("Rng" ))\
 		x(FOff ,= rdr12::ldraw::HashI("FOff"))\
 		x(Shdw ,= rdr12::ldraw::HashI("Shdw"))\
+		x(SCas ,= rdr12::ldraw::HashI("SCas"))\
+		x(SRes ,= rdr12::ldraw::HashI("SRes"))\
+		x(SDst ,= rdr12::ldraw::HashI("SDst"))\
+		x(SFad ,= rdr12::ldraw::HashI("SFad"))\
 		x(On   ,= rdr12::ldraw::HashI("On"  ))\
 		x(CRel ,= rdr12::ldraw::HashI("CRel"))
 		PR_ENUM_MEMBERS2(PR_ENUM)
@@ -91,6 +99,10 @@ namespace pr::rdr12
 			<< "  *" << ELightKW::Rng  << "{" << m_range << "}\n"
 			<< "  *" << ELightKW::FOff << "{" << m_falloff << "}\n"
 			<< "  *" << ELightKW::Shdw << "{" << m_cast_shadow << "}\n"
+			<< "  *" << ELightKW::SCas << "{" << m_shadow_cascades << "}\n"
+			<< "  *" << ELightKW::SRes << "{" << m_shadow_resolution << "}\n"
+			<< "  *" << ELightKW::SDst << "{" << m_shadow_distance << "}\n"
+			<< "  *" << ELightKW::SFad << "{" << m_shadow_fade_start << "}\n"
 			<< "  *" << ELightKW::On   << "{" << m_on << "}\n"
 			<< "  *" << ELightKW::CRel << "{" << m_cam_relative << "}\n"
 			;
@@ -120,6 +132,10 @@ namespace pr::rdr12
 				case ELightKW::Rng:  light.m_range = reader.Real<float>(); break;
 				case ELightKW::FOff: light.m_falloff = reader.Real<float>(); break;
 				case ELightKW::Shdw: light.m_cast_shadow = reader.Real<float>(); break;
+				case ELightKW::SCas: light.m_shadow_cascades = reader.Int<int>(10); break;
+				case ELightKW::SRes: light.m_shadow_resolution = reader.Int<int>(10); break;
+				case ELightKW::SDst: light.m_shadow_distance = reader.Real<float>(); break;
+				case ELightKW::SFad: light.m_shadow_fade_start = reader.Real<float>(); break;
 				case ELightKW::On:   light.m_on = reader.Bool(); break;
 				case ELightKW::CRel: light.m_cam_relative = reader.Bool(); break;
 			}

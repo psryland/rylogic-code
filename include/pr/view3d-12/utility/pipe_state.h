@@ -138,10 +138,10 @@ namespace pr::rdr12
 		}
 		PipeState& operator=(PipeState const& rhs)
 		{
+			// Copy first so a failed allocation leaves '*this' unchanged, then swap the copy in
 			if (this == &rhs) return *this;
-			this->~PipeState();
-			new (this) PipeState(rhs);
-			return *this;
+			auto copy = PipeState(rhs);
+			return *this = std::move(copy);
 		}
 		~PipeState()
 		{

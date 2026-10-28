@@ -129,7 +129,7 @@ namespace pr::physics
 		void ReleaseBuffers();
 
 		// Create or grow all typed buffers required by the current packed forest.
-		void ResizeBuffers(CmdList& cmd_list, GpuArticulationUpload const& upload);
+		void ResizeBuffers(GpuJob& job, GpuArticulationUpload const& upload);
 
 		// Bind the shared root layout and dispatch one non-empty level or root range.
 		void Dispatch(GpuJob& job, ComputeStep& step, GpuArticulationLevel const& level, int item_count);

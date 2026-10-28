@@ -103,7 +103,7 @@ namespace pr::physics
 		void ApplyPosition(GpuJob& job, float timestep, int body_count, int position_iterations, D3DPtr<ID3D12Resource> bodies);
 
 		// Return adequately sized rigid pseudo storage for a shared position solve; the caller initializes it before use.
-		D3DPtr<ID3D12Resource> PseudoVelocityStorage(CmdList& cmd_list, int body_count);
+		D3DPtr<ID3D12Resource> PseudoVelocityStorage(GpuJob& job, int body_count);
 
 		// Execute one complete coloured physical block-PGS sweep.
 		void SolveVelocityIteration(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies);
@@ -138,13 +138,13 @@ namespace pr::physics
 	private:
 
 		// Create or grow feature-dependent buffers while preserving stable-slot capacity.
-		bool ResizeBuffers(CmdList& cmd_list, int capacity);
+		bool ResizeBuffers(GpuJob& job, int capacity);
 
 		// Create or grow shared rigid pseudo-twist storage for either independent or coupled position correction.
-		void EnsurePseudoVelocityStorage(CmdList& cmd_list, int body_count);
+		void EnsurePseudoVelocityStorage(GpuJob& job, int body_count);
 
 		// Create or geometrically grow the optional per-slot overload latch.
-		void EnsureBreakStateStorage(CmdList& cmd_list, int slot_count);
+		void EnsureBreakStateStorage(GpuJob& job, int slot_count);
 
 		// Bind the common constraint root signature and resources for one compute step.
 		// 'colour_dispatch' is written only by the colouring step. Other steps must pass a UAV-state placeholder, because the arguments buffer is

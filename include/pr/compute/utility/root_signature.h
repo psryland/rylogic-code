@@ -4,6 +4,7 @@
 //*********************************************
 #pragma once
 #include "pr/compute/forward.h"
+#include "pr/compute/utility/wrappers.h"
 
 namespace pr::compute
 {

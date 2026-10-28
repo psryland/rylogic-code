@@ -1021,6 +1021,18 @@ namespace Rylogic.Gfx
 			/// <summary>Shadow strength. Values > 0 cast shadows</summary>
 			public float CastShadow;
 
+			/// <summary>Directional lights only: the number of shadow cascades. Zero means use the scene shadow settings</summary>
+			public int ShadowCascades;
+
+			/// <summary>Directional lights only: requested size of each shadow cascade view (in pixels). Zero means use the scene shadow settings</summary>
+			public int ShadowResolution;
+
+			/// <summary>Directional lights only: distance from the camera beyond which the light casts no shadows. Zero means use the scene shadow settings</summary>
+			public float ShadowDistance;
+
+			/// <summary>Directional lights only: distance from the camera at which shadows start to fade out. Zero means 90% of the shadow distance</summary>
+			public float ShadowFadeStart;
+
 			/// <summary>True if the light should move with the camera</summary>
 			public bool CameraRelative;
 
@@ -1182,6 +1194,9 @@ namespace Rylogic.Gfx
 			/// <summary>Requested size of each directional light cascade view (in pixels)</summary>
 			public int DirectionalResolution;
 
+			/// <summary>Requested size of each directional light cascade after the first (in pixels). Zero means the same as 'DirectionalResolution'</summary>
+			public int FarCascadeResolution;
+
 			/// <summary>Largest size of a spot light shadow view (in pixels). Lights that cover less of the screen use smaller views</summary>
 			public int SpotResolution;
 
@@ -1225,6 +1240,7 @@ namespace Rylogic.Gfx
 				{
 					AtlasSize = 4096,
 					DirectionalResolution = 1024,
+					FarCascadeResolution = 0,
 					SpotResolution = 1024,
 					PointResolution = 1024,
 					MaxShadowLights = 4,
@@ -2135,6 +2151,7 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern bool View3D_WindowAnimating(HWindow window);
 		[DllImport(Dll)] private static extern double View3D_WindowAnimTimeGet(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_WindowAnimTimeSet(HWindow window, double time_s);
+		[DllImport(Dll)] private static extern double View3D_WindowFlipbookDuration(HWindow window);
 
 		// Return the DPI of the monitor that 'window' is displayed on
 		[DllImport(Dll)] private static extern v2 View3D_WindowDpiScale(HWindow window);

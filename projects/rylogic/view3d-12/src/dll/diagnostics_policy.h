@@ -29,7 +29,8 @@ namespace pr::rdr12
 namespace pr::rdr12::tests
 {
 	// Environment selection is CPU-only and does not create or mutate a graphics device.
-	PRUnitTest(DeviceDebugEnvironment, Quick)
+	// Serial because it changes 'VIEW3D_DEVICE_DEBUG' for the whole process, and View3D initialisation in other tests reads it.
+	PRUnitTest(DeviceDebugEnvironment, Quick | Serial)
 	{
 		// Restore the exact process value even when an assertion fails.
 		struct Restore

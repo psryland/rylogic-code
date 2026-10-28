@@ -54,17 +54,11 @@ namespace pr::physics
 		{
 			return m_gpu;
 		}
-		
-		// Access the GPU upload buffer
-		GpuUploadBuffer& UploadBuffer()
-		{
-			return m_gpu.UploadBuffer();
-		}
 
-		// Allocate a DX resource
-		D3DPtr<ID3D12Resource> CreateResource(::pr::compute::ResDesc const& desc, CmdList& cmd_list, std::string_view name)
+		// Allocate a DX resource. See 'compute::Gpu::CreateResource' for how initial data is staged.
+		D3DPtr<ID3D12Resource> CreateResource(::pr::compute::ResDesc const& desc, GpuJob& job, std::string_view name)
 		{
-			return m_gpu.CreateResource(desc, cmd_list, name);
+			return m_gpu.CreateResource(desc, job, name);
 		}
 	};
 }

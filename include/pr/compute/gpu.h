@@ -4,14 +4,12 @@
 //**********************************
 #pragma once
 #include "pr/compute/forward.h"
-#include "pr/compute/utility/gpu_sync.h"
-#include "pr/compute/utility/cmd_alloc.h"
-#include "pr/compute/utility/cmd_list.h"
-#include "pr/compute/resource/gpu_transfer_buffer.h"
 
 namespace pr::compute
 {
-	// A DirectX 12 instance for running compute shaders
+	template <D3D12_COMMAND_LIST_TYPE QueueType> struct GpuJob;
+
+	// A DirectX 12 device and command queue for running compute shaders. Work is recorded and submitted by 'GpuJob's, which own their fences.
 	template <D3D12_COMMAND_LIST_TYPE ListType>
 	class Gpu
 	{
@@ -23,16 +21,6 @@ namespace pr::compute
 		D3DPtr<ID3D12Device4> m_device;
 		D3DPtr<ID3D12CommandQueue> m_cmd_queue;
 
-		// GPU fence helper
-		GpuSync m_gsync;
-
-		// Command lists/allocators
-		CmdAllocPool<ListType> m_cmd_alloc_pool;
-		CmdListPool<ListType> m_cmd_list_pool;
-
-		// Upload memory buffer for initialising resources
-		GpuUploadBuffer m_upload_buffer;
-		
 	public:
 
 		Gpu(ID3D12Device4* existing_device, ID3D12CommandQueue* existing_queue);
@@ -76,14 +64,9 @@ namespace pr::compute
 			return device();
 		}
 
-		// Access the GPU upload buffer
-		GpuUploadBuffer& UploadBuffer()
-		{
-			return m_upload_buffer;
-		}
-
-		// Allocate a DX resource
-		D3DPtr<ID3D12Resource> CreateResource(ResDesc const& desc, CmdList<ListType>& cmd_list, std::string_view name);
+		// Allocate a DX resource. Initial data is staged in 'job's upload buffer and copied by 'job's command list,
+		// so the resource is only initialised once 'job' has been submitted and completed.
+		D3DPtr<ID3D12Resource> CreateResource(ResDesc const& desc, GpuJob<ListType>& job, std::string_view name);
 	};
 
 	using GfxGpu = Gpu<D3D12_COMMAND_LIST_TYPE_DIRECT>;

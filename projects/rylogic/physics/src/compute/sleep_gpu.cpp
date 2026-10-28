@@ -100,24 +100,24 @@ namespace pr::physics
 	}
 
 	// Resize the buffers to support 'capacity' sleep islands.
-	void GpuSleepManager::ResizeIslandBuffers(CmdList& cmd_list, int capacity)
+	void GpuSleepManager::ResizeIslandBuffers(GpuJob& job, int capacity)
 	{
 		capacity = std::max(1, capacity);
 
 		if (m_r_sleep_islands == nullptr || m_island_capacity < capacity)
 		{
-			m_r_sleep_islands = m_gpu.CreateResource(ResDesc::Buf<GpuSleepIsland>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:SleepIslands");
+			m_r_sleep_islands = m_gpu.CreateResource(ResDesc::Buf<GpuSleepIsland>(capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:SleepIslands");
 			m_island_capacity = capacity;
 		}
 	}
-	void GpuSleepManager::ResizeBodyBuffers(CmdList& cmd_list, int capacity)
+	void GpuSleepManager::ResizeBodyBuffers(GpuJob& job, int capacity)
 	{
 		capacity = std::max(1, capacity);
 
 		if (m_r_sleep_parents == nullptr || m_body_capacity < capacity)
 		{
-			m_r_sleep_parents = m_gpu.CreateResource(ResDesc::Buf<int>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:SleepParents");
-			m_r_sleep_stats = m_gpu.CreateResource(ResDesc::Buf<GpuSleepIslandStats>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:SleepStats");
+			m_r_sleep_parents = m_gpu.CreateResource(ResDesc::Buf<int>(capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:SleepParents");
+			m_r_sleep_stats = m_gpu.CreateResource(ResDesc::Buf<GpuSleepIslandStats>(capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:SleepStats");
 			m_body_capacity = capacity;
 		}
 	}
@@ -125,7 +125,7 @@ namespace pr::physics
 	// Upload staged sleep islands to the GPU.
 	void GpuSleepManager::Upload(GpuJob& job, std::span<GpuSleepIsland const> islands)
 	{
-		ResizeIslandBuffers(job.m_cmd_list, static_cast<int>(islands.size()));
+		ResizeIslandBuffers(job, static_cast<int>(islands.size()));
 		if (islands.empty())
 			return;
 
@@ -191,7 +191,7 @@ namespace pr::physics
 		if (body_count == 0 || !m_config.sleeping_enabled)
 			return;
 
-		ResizeBodyBuffers(job.m_cmd_list, body_count);
+		ResizeBodyBuffers(job, body_count);
 		assert(bodies != nullptr);
 		assert(counters != nullptr);
 		assert(contacts != nullptr);

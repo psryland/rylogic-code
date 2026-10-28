@@ -53,6 +53,7 @@
 
 // Rylogic dependencies are centralized here so sibling audio headers remain module-local.
 #include "pr/common/assert.h"
+#include "pr/common/assert_reporting.h"
 #include "pr/common/cast.h"
 #include "pr/common/fmt.h"
 #include "pr/common/hresult.h"

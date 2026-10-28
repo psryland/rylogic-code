@@ -106,6 +106,7 @@ public sealed class RunRylogicUnitTests : Task
 	}
 
 	// Run a child process and capture its output so MSBuild reports it under the owning project.
+	// Native modules in the process report assertion failures to stderr (see pr/common/assert_reporting.h), because a dialog would block the build.
 	private static Tuple<int, string, string> RunProcess(string exe_path, string arguments, string working_dir)
 	{
 		var stdout = new StringBuilder();
@@ -116,6 +117,7 @@ public sealed class RunRylogicUnitTests : Task
 			process.StartInfo.FileName = exe_path;
 			process.StartInfo.Arguments = arguments;
 			process.StartInfo.WorkingDirectory = working_dir;
+			process.StartInfo.Environment["PR_ASSERTS_TO_STDERR"] = "1";
 			process.StartInfo.UseShellExecute = false;
 			process.StartInfo.RedirectStandardOutput = true;
 			process.StartInfo.RedirectStandardError = true;

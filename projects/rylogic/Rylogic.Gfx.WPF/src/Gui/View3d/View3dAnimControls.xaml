@@ -236,6 +236,7 @@
 			<ColumnDefinition Width="Auto"/>
 			<ColumnDefinition Width="*"/>
 			<ColumnDefinition Width="Auto"/>
+			<ColumnDefinition Width="Auto"/>
 		</Grid.ColumnDefinitions>
 
 		<!-- Frame0 -->
@@ -294,5 +295,17 @@
 					/>
 			</TextBox.InputBindings>
 		</TextBox>
+
+		<!-- Fit the frame range to the flipbooks in the scene -->
+		<Button
+			Grid.Row="0"
+			Grid.Column="3"
+			Content="Fit"
+			Command="{Binding FitRange}"
+			ToolTip="Set the frame range to cover every frame of the flipbooks in the scene."
+			VerticalAlignment="Center"
+			Padding="6,0,6,0"
+			Margin="3"
+			/>
 	</Grid>
 </Grid>

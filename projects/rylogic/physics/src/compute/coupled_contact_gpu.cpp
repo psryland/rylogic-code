@@ -76,14 +76,14 @@ namespace pr::physics
 
 		// Create or retain one typed UAV resource using geometric high-water growth.
 		template <typename Type>
-		void EnsureCoupledContactBuffer(Gpu& gpu, CmdList& cmd_list, D3DPtr<ID3D12Resource>& resource, int required_count, int& capacity, char const* name)
+		void EnsureCoupledContactBuffer(Gpu& gpu, GpuJob& job, D3DPtr<ID3D12Resource>& resource, int required_count, int& capacity, char const* name)
 		{
 			if (required_count <= capacity)
 				return;
 
 			auto const doubled_capacity = capacity <= std::numeric_limits<int>::max() / 2 ? 2 * capacity : std::numeric_limits<int>::max();
 			capacity = std::max(required_count, std::max(1, doubled_capacity));
-			resource = gpu.CreateResource(ResDesc::Buf<Type>(capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, name);
+			resource = gpu.CreateResource(ResDesc::Buf<Type>(capacity, {}).usage(EUsage::UnorderedAccess), job, name);
 		}
 
 		// Cover a bounded work range without exceeding a dispatch dimension or overflowing the ceiling division.
@@ -349,7 +349,7 @@ namespace pr::physics
 		m_r_contacts = std::move(contacts);
 		m_r_bodies = std::move(bodies);
 		m_r_materials = std::move(materials);
-		ResizeBuffers(job.m_cmd_list);
+		ResizeBuffers(job);
 
 		// Rebuild fixed-configuration factors before contact blocks query exact self-link response.
 		m_mobility.Run(job);
@@ -360,7 +360,7 @@ namespace pr::physics
 		DispatchCommon(job, m_cs_prepare, static_cast<int>(ECoupledContactPhase::Velocity), m_max_contacts);
 
 		// Stable radix order gives every target a deterministic contiguous endpoint segment reused by all outer sweeps.
-		m_endpoint_sorter.Bind(job.m_cmd_list, 2 * m_max_contacts, m_r_endpoint_keys, m_r_endpoint_order);
+		m_endpoint_sorter.Bind(job, 2 * m_max_contacts, m_r_endpoint_keys, m_r_endpoint_order);
 		m_endpoint_sorter.Sort("Physics::SortCoupledContactEndpoints", job.m_cmd_list);
 		m_stats.m_dispatch_count += m_endpoint_sorter.SortDispatchCount();
 		job.m_barriers.UAV(m_r_endpoint_keys.get());
@@ -422,12 +422,12 @@ namespace pr::physics
 				m_stats.m_rigid_pseudo_capacity = 0;
 				m_shared_rigid_pseudo = false;
 			}
-			EnsureCoupledContactBuffer<GpuConstraintPseudoVelocity>(m_gpu, job.m_cmd_list, m_r_rigid_pseudo, std::max(1, m_rigid_body_count), m_stats.m_rigid_pseudo_capacity, "Physics:CoupledContactRigidPseudo");
+			EnsureCoupledContactBuffer<GpuConstraintPseudoVelocity>(m_gpu, job, m_r_rigid_pseudo, std::max(1, m_rigid_body_count), m_stats.m_rigid_pseudo_capacity, "Physics:CoupledContactRigidPseudo");
 		}
 
 		// Articulation contacts cover the complete packed forest, so their storage also admits every coupled joint.
-		EnsureCoupledContactBuffer<GpuArticulationSpatialVector>(m_gpu, job.m_cmd_list, m_r_link_pseudo, std::max(1, m_mobility_count), m_stats.m_link_pseudo_capacity, "Physics:CoupledContactLinkPseudo");
-		EnsureCoupledContactBuffer<float>(m_gpu, job.m_cmd_list, m_r_generalized_pseudo, std::max(1, m_velocity_delta_count), m_stats.m_generalized_pseudo_capacity, "Physics:CoupledContactGeneralizedPseudo");
+		EnsureCoupledContactBuffer<GpuArticulationSpatialVector>(m_gpu, job, m_r_link_pseudo, std::max(1, m_mobility_count), m_stats.m_link_pseudo_capacity, "Physics:CoupledContactLinkPseudo");
+		EnsureCoupledContactBuffer<float>(m_gpu, job, m_r_generalized_pseudo, std::max(1, m_velocity_delta_count), m_stats.m_generalized_pseudo_capacity, "Physics:CoupledContactGeneralizedPseudo");
 		m_position_active = true;
 		UpdateMemoryStats();
 		DispatchCommon(job, m_cs_prepare_position, static_cast<int>(ECoupledContactPhase::Position), m_work_count);
@@ -484,7 +484,7 @@ namespace pr::physics
 	}
 
 	// Create or geometrically grow all contact, endpoint, target, participant, and tree transaction buffers.
-	void GpuCoupledContactSolver::ResizeBuffers(CmdList& cmd_list)
+	void GpuCoupledContactSolver::ResizeBuffers(GpuJob& job)
 	{
 		// Contact-indexed streams grow as one unit so endpoint offsets remain exactly 2*contact_idx across every retained resource.
 		if (m_max_contacts > m_stats.m_contact_capacity)
@@ -495,22 +495,22 @@ namespace pr::physics
 				: maximum_capacity;
 			m_stats.m_contact_capacity = std::max(m_max_contacts, std::max(1, doubled_capacity));
 			auto const endpoint_capacity = 2 * m_stats.m_contact_capacity;
-			m_r_blocks = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledContactBlock>(m_stats.m_contact_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledContactBlocks");
-			m_r_scratch = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledContactScratch>(m_stats.m_contact_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledContactScratch");
-			m_r_contributions = m_gpu.CreateResource(ResDesc::Buf<GpuArticulationSpatialVector>(endpoint_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledContactContributions");
-			m_r_endpoint_keys = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(endpoint_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledContactEndpointKeys");
-			m_r_endpoint_order = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(endpoint_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledContactEndpointOrder");
+			m_r_blocks = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledContactBlock>(m_stats.m_contact_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:CoupledContactBlocks");
+			m_r_scratch = m_gpu.CreateResource(ResDesc::Buf<GpuCoupledContactScratch>(m_stats.m_contact_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:CoupledContactScratch");
+			m_r_contributions = m_gpu.CreateResource(ResDesc::Buf<GpuArticulationSpatialVector>(endpoint_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:CoupledContactContributions");
+			m_r_endpoint_keys = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(endpoint_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:CoupledContactEndpointKeys");
+			m_r_endpoint_order = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(endpoint_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:CoupledContactEndpointOrder");
 		}
 
-		EnsureCoupledContactBuffer<GpuArticulationSpatialVector>(m_gpu, cmd_list, m_r_target_impulses, m_target_count, m_stats.m_target_capacity, "Physics:CoupledContactTargetImpulses");
-		EnsureCoupledContactBuffer<uint32_t>(m_gpu, cmd_list, m_r_participant_degrees, m_participant_count, m_stats.m_participant_capacity, "Physics:CoupledContactParticipantDegrees");
-		EnsureCoupledContactBuffer<uint32_t>(m_gpu, cmd_list, m_r_tree_selection, m_articulation_count, m_stats.m_tree_capacity, "Physics:CoupledContactTreeSelection");
+		EnsureCoupledContactBuffer<GpuArticulationSpatialVector>(m_gpu, job, m_r_target_impulses, m_target_count, m_stats.m_target_capacity, "Physics:CoupledContactTargetImpulses");
+		EnsureCoupledContactBuffer<uint32_t>(m_gpu, job, m_r_participant_degrees, m_participant_count, m_stats.m_participant_capacity, "Physics:CoupledContactParticipantDegrees");
+		EnsureCoupledContactBuffer<uint32_t>(m_gpu, job, m_r_tree_selection, m_articulation_count, m_stats.m_tree_capacity, "Physics:CoupledContactTreeSelection");
 		if (m_r_tree_results == nullptr || m_r_tree_results->GetDesc().Width < static_cast<UINT64>(m_stats.m_tree_capacity) * sizeof(uint32_t))
-			m_r_tree_results = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(m_stats.m_tree_capacity, {}).usage(EUsage::UnorderedAccess), cmd_list, "Physics:CoupledContactTreeResults");
+			m_r_tree_results = m_gpu.CreateResource(ResDesc::Buf<uint32_t>(m_stats.m_tree_capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:CoupledContactTreeResults");
 		auto state_capacity = m_r_state != nullptr ? 1 : 0;
 		auto sentinel_capacity = m_r_uav_sentinel != nullptr ? 1 : 0;
-		EnsureCoupledContactBuffer<GpuCoupledContactState>(m_gpu, cmd_list, m_r_state, 1, state_capacity, "Physics:CoupledContactState");
-		EnsureCoupledContactBuffer<uint32_t>(m_gpu, cmd_list, m_r_uav_sentinel, 1, sentinel_capacity, "Physics:CoupledContactUavSentinel");
+		EnsureCoupledContactBuffer<GpuCoupledContactState>(m_gpu, job, m_r_state, 1, state_capacity, "Physics:CoupledContactState");
+		EnsureCoupledContactBuffer<uint32_t>(m_gpu, job, m_r_uav_sentinel, 1, sentinel_capacity, "Physics:CoupledContactUavSentinel");
 		UpdateMemoryStats();
 	}
 
