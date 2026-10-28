@@ -106,11 +106,12 @@ namespace pr::rdr12
 	void RenderSmap::CreateAtlas(ShadowSettings const& settings)
 	{
 		// The atlas is a depth buffer that is also read as a texture. The typeless format allows both views.
+		// Float depth keeps fine depth steps when a view's depth range is long, which happens because each view's range covers all shadow casters.
 		ResourceFactory factory(rdr());
-		auto td = ResDesc::Tex2D(Image(settings.m_atlas_size, settings.m_atlas_size, nullptr, DXGI_FORMAT_R16_TYPELESS), 1, EUsage::DepthStencil)
+		auto td = ResDesc::Tex2D(Image(settings.m_atlas_size, settings.m_atlas_size, nullptr, DXGI_FORMAT_R32_TYPELESS), 1, EUsage::DepthStencil)
 			.def_state(D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
-			.clear(DXGI_FORMAT_D16_UNORM, D3D12_DEPTH_STENCIL_VALUE{ .Depth = 1.0f, .Stencil = 0 });
-		auto desc = TextureDesc(AutoId, td).srv_format(DXGI_FORMAT_R16_UNORM).dsv_format(DXGI_FORMAT_D16_UNORM).name("ShadowAtlas");
+			.clear(DXGI_FORMAT_D32_FLOAT, D3D12_DEPTH_STENCIL_VALUE{ .Depth = 1.0f, .Stencil = 0 });
+		auto desc = TextureDesc(AutoId, td).srv_format(DXGI_FORMAT_R32_FLOAT).dsv_format(DXGI_FORMAT_D32_FLOAT).name("ShadowAtlas");
 		m_atlas = factory.CreateTexture2D(desc);
 		m_settings = settings;
 
@@ -148,7 +149,7 @@ namespace pr::rdr12
 				DXGI_FORMAT_UNKNOWN,
 				DXGI_FORMAT_UNKNOWN,
 			},
-			.DSVFormat = DXGI_FORMAT_D16_UNORM,
+			.DSVFormat = DXGI_FORMAT_D32_FLOAT,
 			.SampleDesc = MultiSamp{},
 			.NodeMask = 0U,
 			.CachedPSO = {
