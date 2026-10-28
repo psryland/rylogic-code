@@ -2141,6 +2141,25 @@ namespace pr::rdr12
 		m_anim_data.m_clock.store(clock);
 	}
 
+	// Return the longest time needed to show every frame of any flipbook in this window
+	seconds_t V3dWindow::FlipbookDuration() const
+	{
+		// Flipbooks can be nested anywhere in an object tree, so search every object recursively
+		assert(std::this_thread::get_id() == m_main_thread_id);
+		auto duration_s = 0.0;
+		for (auto& obj : m_objects)
+		{
+			obj->Apply([&](ldraw::LdrObject const* ob)
+			{
+				if (ob->m_flipbook)
+					duration_s = std::max(duration_s, ob->m_flipbook.Duration(static_cast<int>(ob->m_child.size())));
+
+				return true;
+			}, "");
+		}
+		return seconds_t(duration_s);
+	}
+
 	// Called when the animation time has changed
 	void V3dWindow::AnimationStep(view3d::EAnimCommand command, seconds_t anim_time)
 	{

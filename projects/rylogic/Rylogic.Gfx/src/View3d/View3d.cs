@@ -2151,6 +2151,7 @@ namespace Rylogic.Gfx
 		[DllImport(Dll)] private static extern bool View3D_WindowAnimating(HWindow window);
 		[DllImport(Dll)] private static extern double View3D_WindowAnimTimeGet(HWindow window);
 		[DllImport(Dll)] private static extern void View3D_WindowAnimTimeSet(HWindow window, double time_s);
+		[DllImport(Dll)] private static extern double View3D_WindowFlipbookDuration(HWindow window);
 
 		// Return the DPI of the monitor that 'window' is displayed on
 		[DllImport(Dll)] private static extern v2 View3D_WindowDpiScale(HWindow window);

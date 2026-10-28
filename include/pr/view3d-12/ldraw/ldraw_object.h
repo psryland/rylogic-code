@@ -58,32 +58,41 @@ namespace pr::rdr12::ldraw
 	{
 		// Notes:
 		//  - This type is akin to the 'Pose' type.
-		//    It's a runtime instance of the simple animation data
-		//    Each LdrObject has one of these with it's own time value
+		//    It's a runtime instance of the simple animation data. The animation time is owned by the LdrObject.
 
 		RootAnimationPtr m_simple = {};
-		double m_time_s = {};
-
-		// Set the animation time
-		void AnimTime(double time_s)
-		{
-			m_time_s = time_s;
-		}
 
 		// Returns the root relative to the origin (i.e., the root motion) at the given time
 		m4x4 RootToAnim(double time_s) const
 		{
 			return m_simple ? m_simple->EvaluateAtTime(time_s) : m4x4::Identity();
 		}
-		m4x4 RootToAnim() const
-		{
-			return RootToAnim(m_time_s);
-		}
 
 		// Has animation?
 		explicit operator bool() const
 		{
 			return m_simple != nullptr;
+		}
+	};
+
+	// Shows the direct children of an object one at a time, like the pages of a flipbook.
+	// Child 'i' is the visible frame for animation times in [i / frame_rate, (i + 1) / frame_rate), with 'm_style' mapping
+	// times outside [0, frame_count / frame_rate] back into that range. 'EAnimStyle::Continuous' is not a valid style.
+	struct Flipbook
+	{
+		EAnimStyle m_style = EAnimStyle::Once;
+		double m_frame_rate = 0.0; // Frames per second. Zero means "not a flipbook"
+
+		// Return the index of the visible child at 'time_s' given 'frame_count' children. Returns -1 if there are no children.
+		int FrameIndex(double time_s, int frame_count) const;
+
+		// Return the animation time (in seconds) needed to show every one of 'frame_count' frames once. Returns zero for 'NoAnimation'.
+		double Duration(int frame_count) const;
+
+		// Is this object a flipbook?
+		explicit operator bool() const
+		{
+			return m_frame_rate > 0.0;
 		}
 	};
 
@@ -105,6 +114,8 @@ namespace pr::rdr12::ldraw
 		Colour32          m_base_colour;     // The original colour of this object
 		Colour32          m_group_tint;      // A colour channel max applied recursively to all child objects
 		RootAnimation     m_root_anim;       // Animation of the model root position
+		Flipbook          m_flipbook;        // Shows one child at a time based on the animation time
+		double            m_anim_time_s;     // The animation time of this object
 		BBoxInstance      m_bbox_instance;   // Used for rendering the bounding box for this instance
 		Sub               m_screen_space;    // True if this object should be rendered in screen space
 		ELdrFlags         m_flags_local;     // Property flags controlling meta behaviour of this object only. DON'T USE DIRECTLY, use Flags()
@@ -186,7 +197,7 @@ namespace pr::rdr12::ldraw
 		//  - O2W,O2P are for unanimated object positions. This is because get/set should be symmetric.
 		//  - To find the animated O2W/O2P at an animation time, access the 'm_root_anim' and 'm_pose' members.
 		//    'm_root_anim' can be simply applied to the o2p transform, (see AddToScene() for reference).
-		//    Use 'O2W() * m_root_anim.RootToWorld() * m_pose->RootToAnim()' to find the animated root bone position.
+		//    Use 'O2W() * m_root_anim.RootToAnim(m_anim_time_s) * m_pose->RootToAnim()' to find the animated root bone position.
 
 		// Get/Set the object to world transform of this object or the first child object matching 'name' (see Apply)
 		// Notes: It is more efficient to set O2P.
@@ -317,3 +328,84 @@ namespace pr::rdr12::ldraw
 	// Validate an ldr object pointer
 	void Validate(LdrObject const* object);
 }
+
+#if PR_UNITTESTS
+#include "pr/common/unittests.h"
+namespace pr::rdr12::ldraw::tests
+{
+	PRUnitTestClass(FlipbookTests)
+	{
+		// Flipbook frame selection, using 4 frames at 2 fps so the sequence lasts 2 seconds
+		static Flipbook Make(EAnimStyle style)
+		{
+			return Flipbook{ .m_style = style, .m_frame_rate = 2.0 };
+		}
+
+		PRUnitTestMethod(FrameBoundaries, Quick)
+		{
+			// Each frame starts exactly at k / frame_rate and the end time shows the last frame
+			auto fb = Make(EAnimStyle::Once);
+			PR_EXPECT(fb.FrameIndex(0.0, 4) == 0);
+			PR_EXPECT(fb.FrameIndex(0.25, 4) == 0);
+			PR_EXPECT(fb.FrameIndex(0.5, 4) == 1);
+			PR_EXPECT(fb.FrameIndex(1.0, 4) == 2);
+			PR_EXPECT(fb.FrameIndex(1.5, 4) == 3);
+			PR_EXPECT(fb.FrameIndex(1.99, 4) == 3);
+			PR_EXPECT(fb.FrameIndex(2.0, 4) == 3);
+
+			// Seeking to a computed frame time must not round down to the previous frame
+			PR_EXPECT(fb.FrameIndex(3 * (1.0 / 2.0) * (1.0 - 1e-12), 4) == 3);
+		}
+		PRUnitTestMethod(Duration, Quick)
+		{
+			// Animated styles need one frame period per frame; 'NoAnimation' only ever shows the first frame
+			PR_EXPECT(Make(EAnimStyle::Once).Duration(4) == 2.0);
+			PR_EXPECT(Make(EAnimStyle::Repeat).Duration(4) == 2.0);
+			PR_EXPECT(Make(EAnimStyle::PingPong).Duration(4) == 2.0);
+			PR_EXPECT(Make(EAnimStyle::NoAnimation).Duration(4) == 0.0);
+			PR_EXPECT(Make(EAnimStyle::Once).Duration(0) == 0.0);
+		}
+		PRUnitTestMethod(Once, Quick)
+		{
+			// Times outside the sequence hold the first or last frame
+			auto fb = Make(EAnimStyle::Once);
+			PR_EXPECT(fb.FrameIndex(-1.0, 4) == 0);
+			PR_EXPECT(fb.FrameIndex(10.0, 4) == 3);
+		}
+		PRUnitTestMethod(Repeat, Quick)
+		{
+			// The sequence restarts after its duration
+			auto fb = Make(EAnimStyle::Repeat);
+			PR_EXPECT(fb.FrameIndex(2.0, 4) == 0);
+			PR_EXPECT(fb.FrameIndex(2.6, 4) == 1);
+			PR_EXPECT(fb.FrameIndex(-0.25, 4) == 3);
+		}
+		PRUnitTestMethod(PingPong, Quick)
+		{
+			// The sequence plays forward and then backward
+			auto fb = Make(EAnimStyle::PingPong);
+			PR_EXPECT(fb.FrameIndex(1.75, 4) == 3);
+			PR_EXPECT(fb.FrameIndex(2.25, 4) == 3);
+			PR_EXPECT(fb.FrameIndex(2.75, 4) == 2);
+			PR_EXPECT(fb.FrameIndex(3.75, 4) == 0);
+			PR_EXPECT(fb.FrameIndex(4.25, 4) == 0);
+		}
+		PRUnitTestMethod(NoAnimation, Quick)
+		{
+			// The first frame is always shown
+			auto fb = Make(EAnimStyle::NoAnimation);
+			PR_EXPECT(fb.FrameIndex(1.5, 4) == 0);
+		}
+		PRUnitTestMethod(FrameCounts, Quick)
+		{
+			// No children means no visible frame, and a single child is always visible
+			auto fb = Make(EAnimStyle::Repeat);
+			PR_EXPECT(fb.FrameIndex(1.0, 0) == -1);
+			PR_EXPECT(fb.FrameIndex(0.0, 1) == 0);
+			PR_EXPECT(fb.FrameIndex(0.7, 1) == 0);
+			PR_EXPECT(!Flipbook{});
+			PR_EXPECT(!!fb);
+		}
+	};
+}
+#endif

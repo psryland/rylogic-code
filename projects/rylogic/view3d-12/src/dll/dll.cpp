@@ -1283,6 +1283,19 @@ VIEW3D_API void __stdcall View3D_WindowAnimTimeSet(view3d::Window window, double
 	CatchAndReport(View3D_WindowAnimTimeSet, window, );
 }
 
+// Return the longest time needed to show every frame of any flipbook in 'window'. Zero if there are no flipbooks.
+VIEW3D_API double __stdcall View3D_WindowFlipbookDuration(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->FlipbookDuration().count();
+	}
+	CatchAndReport(View3D_WindowFlipbookDuration, window, 0.0);
+}
+
 // Return the DPI of the monitor that 'window' is displayed on
 VIEW3D_API view3d::Vec2 __stdcall View3D_WindowDpiScale(view3d::Window window)
 {
