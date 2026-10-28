@@ -917,16 +917,16 @@ namespace render_tests
 
 namespace pr::unittests::view3d12
 {
-	PRUnitTest(View3d12_ProceduralVertexAbi, Extended)
+	PRUnitTest(View3d12_ProceduralVertexAbi, Extended | Serial)
 	{
 		render_tests::ProceduralVertexAbiTests();
 		render_tests::ProceduralVertexBufferTests();
 	}
-	PRUnitTest(View3d12_GeneratedVertexInput, Extended)
+	PRUnitTest(View3d12_GeneratedVertexInput, Extended | Serial)
 	{
 		render_tests::GeneratedVertexInputTests();
 	}
-	PRUnitTest(View3d12_ProceduralVertexLighting, Extended)
+	PRUnitTest(View3d12_ProceduralVertexLighting, Extended | Serial)
 	{
 		render_tests::ProceduralVertexLightingTests();
 	}

@@ -366,16 +366,16 @@ namespace pr::unittests::view3d12
 	{
 		render_tests::DescriptorBindingTests();
 	}
-	PRUnitTest(View3d12_DescriptorBindingRender, Extended)
+	PRUnitTest(View3d12_DescriptorBindingRender, Extended | Serial)
 	{
 		render_tests::DescriptorBindingRenderTests(1);
 		render_tests::DescriptorBindingRenderTests(4);
 	}
-	PRUnitTest(View3d12_CameraTransform, Extended)
+	PRUnitTest(View3d12_CameraTransform, Extended | Serial)
 	{
 		render_tests::CameraTransformTests();
 	}
-	PRUnitTest(View3d12_SceneHandoff, Extended)
+	PRUnitTest(View3d12_SceneHandoff, Extended | Serial)
 	{
 		render_tests::SceneHandoffTests(1);
 		render_tests::SceneHandoffTests(4);
@@ -384,5 +384,19 @@ namespace pr::unittests::view3d12
 	{
 		// Serial because the native part turns on GPU-based validation, a process-wide setting that would also apply to devices other running tests create.
 		render_tests::RayCastLifetimeTests();
+	}
+	PRUnitTest(View3d12_InitialiseThreadAffinity, Extended | Serial)
+	{
+		// A client on another thread must be rejected, because the dll context is bound to the thread that created it
+		render_tests::Fixture fixture(1);
+		auto errors = std::vector<std::string>{};
+		auto handle = pr::view3d::DllHandle{};
+		std::thread([&]
+		{
+			// Attempt to join the existing context from a different thread
+			handle = View3D_Initialise({&errors, render_tests::ReportError});
+		}).join();
+		PR_EXPECT(handle == nullptr);
+		PR_EXPECT(errors.size() == 1);
 	}
 }

@@ -2,7 +2,8 @@
 #include "forward.h"
 
 // Shared fixture and pixel helpers for the view3d-12 renderer tests.
-// Register each area's tests in its own source file. CPU-only tests are 'Quick'; tests that render and read back on the GPU are 'Extended'.
+// Register each area's tests in its own source file. CPU-only tests are 'Quick'; tests that render and read back on the GPU are 'Extended | Serial'.
+// GPU tests are 'Serial' because View3D binds its dll context to the thread that first initialises it, so fixtures on other test threads cannot share it.
 // Tests with an MSAA-dependent path run both single-sampled and 4x multisampled.
 namespace render_tests
 {

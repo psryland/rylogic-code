@@ -126,11 +126,11 @@ namespace render_tests
 
 namespace pr::unittests::view3d12
 {
-	PRUnitTest(View3d12_EnvMapCaptureExclude, Extended)
+	PRUnitTest(View3d12_EnvMapCaptureExclude, Extended | Serial)
 	{
 		render_tests::EnvMapCaptureExcludeTests();
 	}
-	PRUnitTest(View3d12_EnvMapProbe, Extended)
+	PRUnitTest(View3d12_EnvMapProbe, Extended | Serial)
 	{
 		render_tests::EnvMapProbeTests();
 	}

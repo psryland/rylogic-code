@@ -343,15 +343,15 @@ namespace render_tests
 
 namespace pr::unittests::view3d12
 {
-	PRUnitTest(View3d12_DetailNormals, Extended)
+	PRUnitTest(View3d12_DetailNormals, Extended | Serial)
 	{
 		render_tests::DetailNormalsTests();
 	}
-	PRUnitTest(View3d12_DetailStrengthMap, Extended)
+	PRUnitTest(View3d12_DetailStrengthMap, Extended | Serial)
 	{
 		render_tests::DetailStrengthMapTests();
 	}
-	PRUnitTest(View3d12_ModelNormalMap, Extended)
+	PRUnitTest(View3d12_ModelNormalMap, Extended | Serial)
 	{
 		render_tests::ModelNormalMapTests();
 	}

@@ -225,12 +225,12 @@ namespace render_tests
 
 namespace pr::unittests::view3d12
 {
-	PRUnitTest(View3d12_Shadows, Extended)
+	PRUnitTest(View3d12_Shadows, Extended | Serial)
 	{
 		render_tests::ShadowTests(1);
 		render_tests::ShadowTests(4);
 	}
-	PRUnitTest(View3d12_DirectionalShadows, Extended)
+	PRUnitTest(View3d12_DirectionalShadows, Extended | Serial)
 	{
 		render_tests::DirectionalShadowTests(1);
 		render_tests::DirectionalShadowTests(4);

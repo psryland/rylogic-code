@@ -139,11 +139,11 @@ namespace render_tests
 
 namespace pr::unittests::view3d12
 {
-	PRUnitTest(View3d12_UIProviderOrder, Extended)
+	PRUnitTest(View3d12_UIProviderOrder, Extended | Serial)
 	{
 		render_tests::UIProviderOrderTests();
 	}
-	PRUnitTest(View3d12_ImGuiProvider, Extended)
+	PRUnitTest(View3d12_ImGuiProvider, Extended | Serial)
 	{
 		render_tests::ImGuiProviderTests();
 	}

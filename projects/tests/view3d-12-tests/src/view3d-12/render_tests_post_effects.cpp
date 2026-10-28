@@ -251,12 +251,12 @@ namespace render_tests
 
 namespace pr::unittests::view3d12
 {
-	PRUnitTest(View3d12_PostEffects, Extended)
+	PRUnitTest(View3d12_PostEffects, Extended | Serial)
 	{
 		render_tests::PostEffectTests(1);
 		render_tests::PostEffectTests(4);
 	}
-	PRUnitTest(View3d12_Dither, Extended)
+	PRUnitTest(View3d12_Dither, Extended | Serial)
 	{
 		render_tests::DitherTests(1);
 		render_tests::DitherTests(4);

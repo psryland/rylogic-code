@@ -411,11 +411,11 @@ namespace render_tests
 
 namespace pr::unittests::view3d12
 {
-	PRUnitTest(View3d12_ProceduralSurface, Extended)
+	PRUnitTest(View3d12_ProceduralSurface, Extended | Serial)
 	{
 		render_tests::ProceduralSurfaceTests();
 	}
-	PRUnitTest(View3d12_ProceduralPixelFamily, Extended)
+	PRUnitTest(View3d12_ProceduralPixelFamily, Extended | Serial)
 	{
 		render_tests::ProceduralPixelFamilyTests();
 	}

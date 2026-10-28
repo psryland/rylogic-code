@@ -228,12 +228,12 @@ namespace render_tests
 
 namespace pr::unittests::view3d12
 {
-	PRUnitTest(View3d12_ColourBlend, Extended)
+	PRUnitTest(View3d12_ColourBlend, Extended | Serial)
 	{
 		render_tests::ColourBlendTests(1);
 		render_tests::ColourBlendTests(4);
 	}
-	PRUnitTest(View3d12_AlphaLayering, Extended)
+	PRUnitTest(View3d12_AlphaLayering, Extended | Serial)
 	{
 		render_tests::AlphaLayeringTests(1);
 		render_tests::AlphaLayeringTests(4);
