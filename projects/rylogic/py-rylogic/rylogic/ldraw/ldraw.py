@@ -184,6 +184,7 @@ class EKeyword(Enum):
 	Far = 3170376174
 	FilePath = 1962937316
 	Filter = 3353438327
+	Flipbook = 198275595
 	Font = 659427984
 	ForeColour = 3815865055
 	Format = 3114108242
@@ -471,6 +472,18 @@ class _LdrO2W:
 		if self.m_o2w.is_identity: return bytes()
 		if self.m_o2w.is_translation: return struct.pack('<IIIIfff', EKeyword.O2W.value, 20, EKeyword.Pos.value, 12, self.m_o2w.w.x, self.m_o2w.w.y, self.m_o2w.w.z)
 		return struct.pack('<IIII', EKeyword.O2W.value, 72, EKeyword.M4x4.value, 64) + _Pack(self.m_o2w)
+class _LdrFlipbook:
+	# Shows the direct children of an object one at a time, using the animation time to choose the visible child.
+	# Unset properties use the parser defaults.
+	def __init__(self, style: Optional[str]=None, frame_rate: Optional[float]=None):
+		super().__init__()
+		self.m_style = style
+		self.m_frame_rate = frame_rate
+	def _WriteTo(self, out: List[str]|bytearray):
+		_Write(out, EKeyword.Flipbook, lambda: (
+			_Write(out, EKeyword.Style, self.m_style) if self.m_style is not None else None,
+			_Write(out, EKeyword.FrameRate, float(self.m_frame_rate)) if self.m_frame_rate is not None else None,
+		))
 
 class _LdrObj:
 	def __init__(self):
@@ -528,6 +541,7 @@ class _LdrBase(_LdrObj):
 		self.m_colour :_LdrColour = _LdrColour()
 		self.m_wire :_LdrWireframe = _LdrWireframe()
 		self.m_solid :_LdrSolid = _LdrSolid()
+		self.m_flipbook :Optional[_LdrFlipbook] = None
 
 	def name(self, name: str):
 		self.m_name = _LdrName(name)
@@ -549,8 +563,14 @@ class _LdrBase(_LdrObj):
 		self.m_o2w = _LdrO2W(o2w=Mat4(Vec4(xyz.x, 0, 0, 0), Vec4(0, xyz.y, 0, 0), Vec4(0, 0, xyz.z, 0), Vec4(0, 0, 0, 1)))
 		return self
 
+	# Show the children of this object one at a time, as animation frames. 'style' is one of NoAnimation|Once|Repeat|PingPong.
+	def flipbook(self, style: Optional[str]=None, frame_rate: Optional[float]=None):
+		self.m_flipbook = _LdrFlipbook(style, frame_rate)
+		return self
+
 	def _WriteTo(self, out: List[str]|bytearray):
 		_Append(out, self.m_axis_id, self.m_wire, self.m_solid, self.m_o2w)
+		if self.m_flipbook is not None: self.m_flipbook._WriteTo(out)
 		super()._WriteTo(out)
 
 class LdrPoint(_LdrBase):

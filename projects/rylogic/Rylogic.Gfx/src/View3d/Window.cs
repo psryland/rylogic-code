@@ -773,6 +773,12 @@ namespace Rylogic.Gfx
 				set => View3D_WindowAnimTimeSet(Handle, value);
 			}
 
+			/// <summary>The longest time (in seconds) needed to show every frame of any flipbook in this window. Zero if there are no flipbooks.</summary>
+			public double FlipbookDuration
+			{
+				get => View3D_WindowFlipbookDuration(Handle);
+			}
+
 			/// <summary>Is animation currently running</summary>
 			public bool Animating => View3D_WindowAnimating(Handle);
 

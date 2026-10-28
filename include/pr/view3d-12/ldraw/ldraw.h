@@ -96,6 +96,7 @@ namespace pr::rdr12::ldraw
 		x(Far                      )\
 		x(FilePath                 )\
 		x(Filter                   )\
+		x(Flipbook                 )\
 		x(Font                     )\
 		x(ForeColour               )\
 		x(Format                   )\

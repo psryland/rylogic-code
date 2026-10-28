@@ -68,6 +68,7 @@ enum <uint> EKeyword
 	Far = 3170376174,
 	FilePath = 1962937316,
 	Filter = 3353438327,
+	Flipbook = 198275595,
 	Font = 659427984,
 	ForeColour = 3815865055,
 	Format = 3114108242,

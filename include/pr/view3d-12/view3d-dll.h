@@ -1323,6 +1323,7 @@ extern "C"
 	VIEW3D_API BOOL __stdcall View3D_WindowAnimating(pr::view3d::Window window);
 	VIEW3D_API double __stdcall View3D_WindowAnimTimeGet(pr::view3d::Window window);
 	VIEW3D_API void __stdcall View3D_WindowAnimTimeSet(pr::view3d::Window window, double time_s);
+	VIEW3D_API double __stdcall View3D_WindowFlipbookDuration(pr::view3d::Window window);
 
 	// Return the DPI of the monitor that 'window' is displayed on
 	VIEW3D_API pr::view3d::Vec2 __stdcall View3D_WindowDpiScale(pr::view3d::Window window);
