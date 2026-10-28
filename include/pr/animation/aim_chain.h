@@ -10,6 +10,8 @@
 namespace pr::animation
 {
 	// Turn a Neck chain so that its last bone faces 'target' (a model-space point, w = 1).
+	//  - The turn is split into a yaw about the model's up axis (+Z) and a change of elevation. So a target behind the head turns it sideways towards
+	//    the target and never pitches it over or under. When the limits stop the yaw short, the head still matches the target's elevation.
 	//  - The turn is shared out along the chain: each bone, from the base, takes an equal share of the turn that is still needed.
 	//    So a neck curves smoothly instead of bending at one joint.
 	//  - Each bone's limit caps its swing and twist from its rest orientation relative to its parent (see 'JointLimit'). If a limit is hit, later bones
@@ -38,21 +40,55 @@ namespace pr::animation
 		// Turn each bone about its head by its share of the remaining turn
 		for (int i = 0; i != count; ++i)
 		{
-			// The remaining turn rotates the last bone's facing direction onto the direction from its head to the target
+			// The remaining turn rotates the last bone's facing direction onto the direction from its head to the target. Measure it as the yaw between
+			// the two directions seen from above, and the change of elevation between them. The shortest arc between the directions is not used
+			// because, for a target behind the head, it swings the head over the top or down under the body.
 			auto face = Rotate(pose.model[last].rot * ~rig.rest_model[last].rot, chain.forward);
 			auto want = Normalise(target - pose.model[last].pos, face);
-			auto remaining = quat(face, want);
-			auto share = Slerp(Identity<quat>(), remaining, 1.0f / (count - i));
+			auto yaw = std::atan2(face.x * want.y - face.y * want.x, face.x * want.x + face.y * want.y);
+			auto rise = std::asin(Clamp(want.z, -1.0f, 1.0f)) - std::asin(Clamp(face.z, -1.0f, 1.0f));
+			auto side = Normalise(Cross(face, v4::ZAxis()), v4::XAxis());
 
-			// Apply the share in model space, then limit the bone's rotation from its rest orientation in bone space
+			// This bone's share is the same fraction of the yaw and of the elevation change
+			auto fraction = 1.0f / (count - i);
+			auto yaw_share = yaw * fraction;
+			auto rise_share = rise * fraction;
+
+			// Apply the share in model space, as a rotation from the bone's rest orientation in bone space. The elevation change turns about the
+			// facing's horizontal side axis after the yaw, so it raises or lowers the head whatever part of the yaw is applied.
 			auto b = bones[i];
 			auto const& bone = rig.bones[b];
 			auto parent_rot = bone.parent < 0 ? Identity<quat>() : pose.model[bone.parent].rot;
-			auto local_rot = ~parent_rot * share * pose.model[b].rot;
-			if (!bone.limit.IsFree())
-				local_rot = bone.rest.rot * bone.limit.Clamp(~bone.rest.rot * local_rot);
+			auto from_rest = [&](float yaw_angle)
+			{
+				auto turn = quat(v4::ZAxis(), yaw_angle);
+				return ~bone.rest.rot * ~parent_rot * quat(Rotate(turn, side), rise_share) * turn * pose.model[b].rot;
+			};
+			auto within = [&](quat rot)
+			{
+				return FEqlOrientation(bone.limit.Clamp(rot), rot, 1e-5f);
+			};
 
-			pose.local[b].rot = Normalise(local_rot);
+			// A limit stops the yaw short rather than clamping it, because clamping the swing and twist separately turns a clipped yaw into a pitch or
+			// a roll. Find the largest part of the yaw share that the limit allows by bisection, then clamp anything that is still outside the limit.
+			auto rot = from_rest(yaw_share);
+			if (!bone.limit.IsFree())
+			{
+				// Search between no yaw and the full yaw share
+				if (!within(rot))
+				{
+					auto lo = 0.0f, hi = 1.0f;
+					for (int k = 0; k != 16; ++k)
+					{
+						auto mid = 0.5f * (lo + hi);
+						(within(from_rest(yaw_share * mid)) ? lo : hi) = mid;
+					}
+					rot = from_rest(yaw_share * lo);
+				}
+				rot = bone.limit.Clamp(rot);
+			}
+
+			pose.local[b].rot = Normalise(bone.rest.rot * rot);
 
 			// Recompute the model transforms of this bone and the rest of the chain
 			for (int j = i; j != count; ++j)
@@ -116,6 +152,27 @@ namespace pr::animation::tests
 				PR_EXPECT(Sqr(st.swing.x / rx) + Sqr(st.swing.y / rz) <= 1.0f + 1e-3f);
 				PR_EXPECT(st.twist >= limit.min_twist - 1e-4f && st.twist <= limit.max_twist + 1e-4f);
 			}
+		}
+		PRUnitTestMethod(TargetBehindTurnsSideways, Quick)
+		{
+			// A target behind and a little below a limited neck turns the head sideways, at the target's elevation, instead of pitching it over or under
+			auto desc = TestRigDesc();
+			auto limit = JointLimit{ .swing = { .min_x = -0.4f, .max_x = 0.4f, .min_z = -0.4f, .max_z = 0.4f }, .min_twist = -0.4f, .max_twist = 0.4f };
+			for (auto b : desc.chains[1].bones)
+				desc.bones[b].limit = limit;
+
+			auto limited = Rig(std::move(desc));
+			auto pose = Pose(limited);
+			auto const& neck = limited.chains[1];
+			auto head = neck.bones.back();
+			auto target = limited.rest_model[head].pos - neck.forward * 5.0f + v4(0.3f, 0, -0.5f, 0);
+			AimChain(limited, neck, pose, target);
+
+			// The head matches the target's elevation and turns as far as the limits allow towards the target's side
+			auto face = Rotate(pose.model[head].rot * ~limited.rest_model[head].rot, neck.forward);
+			auto want = Normalise(target - pose.model[head].pos);
+			PR_EXPECT(FEqlAbsolute(face.z, want.z, 0.01f));
+			PR_EXPECT(face.x > 0.3f);
 		}
 		PRUnitTestMethod(SwingTwistRoundTrip, Quick)
 		{

@@ -15,7 +15,7 @@ namespace pr::animation
 {
 	// Pose every Spine, Neck, Leg and Arm chain of 'rig' to meet 'targets' (one per chain, see 'Target').
 	//  - Chains are solved base-first, so a limb follows the spine it hangs from.
-	//  - Bones outside these chains keep their local transforms. Tail chains are posed afterwards by 'TailSolver'.
+	//  - Bones outside these chains keep their local transforms. Tail chains are posed afterwards by 'Locomotion'.
 	//  - On return, all model transforms in 'pose' are current.
 	inline void SolvePose(Rig const& rig, std::span<Target const> targets, Pose& pose)
 	{

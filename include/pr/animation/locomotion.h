@@ -8,13 +8,22 @@
 //  - Each step builds a guide pose: the family's stance plus the repeating body motion of its cycles, blended between the two cycles either side
 //    of the body's speed and scaled down towards a standstill. The guide sets the shape of the body, the necks, the tails, any digits, and the
 //    hanging limbs. It never moves the feet.
-//  - Walking limbs step in the footfall order of the family's cycles. Planted feet stay fixed in the world, swinging feet arc to a predicted
-//    landing point on the ground, and a standing character steps until its feet are back beneath it. Stride and cadence follow the body's
-//    actual speed, so the movement is never a playback of the authored cycles.
+//  - Walking limbs step in the footfall order of the family's cycles. Planted feet stay fixed in the world, swinging feet arc up and out from
+//    the body to a predicted landing point on the ground, and a standing character steps until its feet are back beneath it. Stride and cadence
+//    follow the body's actual speed, so the movement is never a playback of the authored cycles.
+//  - A raised foot turns with its limb, keeping the stance's angle at the ankle or wrist, and turns back to the ground's orientation as it comes
+//    down to land.
+//  - A planted foot or hand lies flat on the ground. Its sole is the plane through its contact and the contacts at the tips of its digits in
+//    the rest pose. The digits of a planted foot lie along that plane with their tips on it.
 //  - The pelvis and chest follow the height of the ground under the hind and fore feet, so the body pitches on slopes. The cycles' hip height
 //    sets how high the legs carry the body above the ground, blended by speed.
+//  - The pelvis and chest turn about the up axis in time with the legs and arms by the cycles' spine sway, so the spine bends from side to
+//    side as the limbs step. While the body turns, the chest leads into the turn and the pelvis trails it.
 //  - Neck chains turn to look at a world point, fading in and out.
-//  - Tail chains take their shape from the guide and are lifted out of the ground.
+//  - Each tail trails behind its base along the ground like a rope, as one smooth curve: the first bone continues the line of the spine with a
+//    small bend down, and each later bone bends a little at a time, steeply down while it can and then flatter, until the tail's skin rests
+//    on the ground. The first bone heads across the ground with the swaying hips, and the dragged rope behind it sets which way each later bone
+//    heads, so the sway travels down the tail as an 'S' wave. The first bone's joint limits are measured from the guide's tail shape.
 //  - A body that stays unsupported falls with its walking limbs spread out from the body, and they swing down to the ground when it lands.
 //
 // The body's motion comes from outside (for example, a physics simulation); the controller does not move the character's origin.
@@ -29,7 +38,6 @@
 #include "pr/animation/targets.h"
 #include "pr/animation/target_path.h"
 #include "pr/animation/solve.h"
-#include "pr/animation/tail.h"
 #include "pr/animation/gait.h"
 
 namespace pr::animation
@@ -97,8 +105,12 @@ namespace pr::animation
 		v4 ground = v4::Origin();             // The point on the ground beneath the foot's contact, ignoring the swing's arc
 		v4 stance_contact = v4::Origin();     // The limb's contact point in the family's stance, in model space, on the ground plane (z = 0)
 		quat stance_rot = Identity<quat>();   // The end bone's model-space orientation in the family's stance
-		float support = 1.0f;                 // In [0,1]. How much the limb stands on 'foot'. Otherwise it hangs from the body as in the guide pose.
+		quat stance_bend = Identity<quat>();  // The end bone's orientation relative to the limb's middle bone in the family's stance
+		float free = 0.0f;                    // In [0,1]. How much a raised foot turns with its limb, from the orientation of 'foot' (0) to 'stance_bend' (1).
+		float support = 1.0f;                  // In [0,1]. How much the limb stands on 'foot'. Otherwise it hangs from the body as in the guide pose.
 		float reach = 0.0f;                   // The limb's length from its root joint to its contact. Ground rays for the foot reach this far either side of it.
+		v4 sole_up = v4::YAxis();             // The unit normal of the sole or palm in the end bone's space, pointing away from the ground. See 'Locomotion::FindSole'.
+		std::vector<int> digits;              // The digit chains attached to the limb's end bone
 	};
 
 	// Animates a rig from its body's motion. See the top of this file.
@@ -122,8 +134,9 @@ namespace pr::animation
 			, m_probe_hits()
 			, m_rot_offset(rig.bones.size())
 			, m_pos_offset(rig.bones.size())
-			, m_tail()
-			, m_tail_effectors()
+			, m_tail_bones()
+			, m_tail_ground()
+			, m_ropes(rig.chains.size())
 			, m_legs()
 			, m_leg_reach(0.0f)
 			, m_spine(-1)
@@ -132,6 +145,7 @@ namespace pr::animation
 			, m_prev_family(0)
 			, m_family_weight(1.0f)
 			, m_gait_speed(0.0f)
+			, m_turn_rate(0.0f)
 			, m_look(v4::Origin())
 			, m_look_weight(0.0f)
 			, m_phase(0.0f)
@@ -161,6 +175,7 @@ namespace pr::animation
 					{
 						auto contact = LimbContact(rig, rig.chains[chain]);
 						m_limbs.push_back(LimbState{ .chain = chain, .contact = contact, .footfall = foot, .reach = ChainLength(chain, rig.rest_model[rig.contacts[contact].bone] * rig.contacts[contact].offset) });
+						FindSole(m_limbs.back());
 					}
 				}
 			}
@@ -246,7 +261,7 @@ namespace pr::animation
 			UseStance(m_family);
 		}
 
-		// Turn the neck chains towards 'world_point', or back to rest if it is empty, over 'fade_s' seconds (> 0)
+		// Turn the neck chains to face 'world_point', or back to rest if it is empty, over 'fade_s' seconds (> 0)
 		void SetLook(std::optional<v4> world_point, float fade_s)
 		{
 			// Fading out keeps the last point so that the head turns back along the same path
@@ -291,6 +306,7 @@ namespace pr::animation
 
 			// The cycle blend and the body motion follow a smoothed speed, so that footfall timing and body motion change gradually
 			m_gait_speed += ((moving ? speed : 0.0f) - m_gait_speed) * std::min(dt / BodyResponse, 1.0f);
+			m_turn_rate += (Dot(body.angular_velocity, m_up) - m_turn_rate) * std::min(dt / BodyResponse, 1.0f);
 
 			// Blend the limbs' support and timing towards the chosen family
 			m_family_weight.Step(dt);
@@ -315,11 +331,12 @@ namespace pr::animation
 				limb.land = FootOnGround(limb, m_probe_rays[k], hits[k], m_landings[k].body_rot);
 			}
 
-			// Move each foot along its swing, then find the ground beneath it
-			auto swing_height = SwingHeight(family);
+			// Move each foot along its swing, then find the ground beneath it. Feet swing outward, away from the body's midline, which is the
+			// model's X = 0 plane.
 			for (auto& limb : m_limbs)
 			{
-				MoveSwingingFoot(limb, swing_height * m_up);
+				auto side = limb.stance_contact.x > 0 ? 1.0f : limb.stance_contact.x < 0 ? -1.0f : 0.0f;
+				MoveSwingingFoot(limb, limb.footfall.swing_height * m_up, Rotate(body.model_to_world.rot, v4(side * limb.footfall.swing_out, 0, 0, 0)));
 				limb.ground = GroundUnder(limb);
 			}
 
@@ -341,6 +358,8 @@ namespace pr::animation
 			// Bones that no chain solver poses, such as digits and tails, take their shape from the guide
 			std::copy(m_guide.local.begin(), m_guide.local.end(), m_pose.local.begin());
 			SolvePose(m_rig, m_targets, m_pose);
+			TurnRaisedFeet();
+			PlantDigits();
 			StepTails(body.model_to_world, world_to_model, ground);
 		}
 
@@ -360,6 +379,22 @@ namespace pr::animation
 
 		// The seconds that the limbs take to spread out once airborne, or to fold back in on landing
 		static constexpr float FallResponse = 0.3f;
+
+		// The seconds of turning by which the chest leads into a turn and the pelvis trails it, and the largest angle (radians) of each
+		static constexpr float SpineLeadTime = 0.25f;
+		static constexpr float MaxSpineLead = 0.5f;
+
+		// The fraction of the swing height above which a raised foot turns fully with its limb. Below it, the foot turns towards the ground's orientation.
+		static constexpr float FreeFootHeight = 0.5f;
+
+		// The largest angle (radians) by which each tail joint bends away from the bone before it, so that a trailing tail curves smoothly to the ground
+		static constexpr float TailBend = 0.35f;
+
+		// The number of steps over the first tail bone's swing range that are checked for its droop limits
+		static constexpr int TailSwingSamples = 32;
+
+		// The number of halvings used to find each tail bone's steepest droop that stays clear of the ground
+		static constexpr int TailBisections = 16;
 
 		// A bone motion with its bone index resolved
 		struct BoneTrack
@@ -400,6 +435,15 @@ namespace pr::animation
 			int joint;     // The joint's index within the chain, where the chain's base is 0
 		};
 
+		// One bone of a tail being planned over the ground
+		struct TailBone
+		{
+			v4 across;     // The bone's unit heading across the ground (world space)
+			float length;  // The bone's length
+			float along;   // The distance along the bone from its head to the skin point that must stay above the ground
+			float depth;   // The distance of that skin point below the line of the bone
+		};
+
 		Rig const& m_rig;
 		GaitDesc m_gait;
 		std::vector<FamilyData> m_families;        // Parallel to 'm_gait.families'
@@ -415,8 +459,9 @@ namespace pr::animation
 		std::vector<GroundHit> m_probe_hits;       // The answers to the latest ground query
 		std::vector<v4> m_rot_offset;              // Per bone, this step's rotation-vector motion (scratch)
 		std::vector<v4> m_pos_offset;              // Per bone, this step's position motion (scratch)
-		TailSolver m_tail;
-		std::vector<fabrik::Effector<float>> m_tail_effectors;
+		std::vector<TailBone> m_tail_bones;              // The bones of the tail being planned (scratch)
+		std::vector<float> m_tail_ground;                // The ground height beneath each joint of the tail being planned (scratch)
+		std::vector<std::vector<v4>> m_ropes; // Per chain, the world-space tail joint positions from the previous step. Empty for other chains, and until a tail is first posed.
 		std::vector<int> m_legs;    // Indices into 'm_limbs' of the limbs that carry the hips at the cycles' hip height
 		float m_leg_reach;          // The mean reach of 'm_legs', which scales the cycles' hip height
 		int m_spine;                // The spine chain index, or -1 if the rig has none
@@ -425,6 +470,7 @@ namespace pr::animation
 		int m_prev_family;          // The family being blended from
 		Fade m_family_weight;       // From the previous family (0) to the current family (1)
 		float m_gait_speed;         // The smoothed speed that selects cycles and scales body motion
+		float m_turn_rate;          // The smoothed rate of turning about the body's up direction, in radians per second
 		v4 m_look;                  // World-space look point
 		Fade m_look_weight;         // How strongly the necks face 'm_look'
 		float m_phase;              // The step cycle position in [0,1)
@@ -523,6 +569,7 @@ namespace pr::animation
 				limb.stance_contact = model[contact.bone] * contact.offset;
 				limb.stance_contact.z = 0.0f;
 				limb.stance_rot = model[m_rig.chains[limb.chain].bones.back()].rot;
+				limb.stance_bend = ~model[m_rig.chains[limb.chain].bones[1]].rot * limb.stance_rot;
 			}
 		}
 
@@ -555,14 +602,6 @@ namespace pr::animation
 			return Lerp(cycles[b.lo].stride, cycles[b.hi].stride, b.t);
 		}
 
-		// The height that swinging feet are lifted at the current speed
-		float SwingHeight(GaitFamily const& family) const
-		{
-			// Blend between the cycles either side of the smoothed speed
-			auto b = Bracket(family, m_gait_speed);
-			return Lerp(family.cycles[b.lo].swing_height, family.cycles[b.hi].swing_height, b.t);
-		}
-
 		// The model-space height by which family 'f' raises its hips above its stance at the current speed
 		float HipLift(int f) const
 		{
@@ -573,7 +612,16 @@ namespace pr::animation
 			return (hip_height - family.cycles.front().hip_height) * m_leg_reach;
 		}
 
-		// Blend each limb's support between the previous and current families, and take its timing from the family that it walks in
+		// The spine sway angle (radians) of family 'f' at the current speed
+		float SpineSway(int f) const
+		{
+			// Blend between the cycles either side of the smoothed speed
+			auto const& family = m_gait.families[f];
+			auto b = Bracket(family, m_gait_speed);
+			return Lerp(family.cycles[b.lo].spine_sway, family.cycles[b.hi].spine_sway, b.t);
+		}
+
+		// Blend each limb's support between the previous and current families, and take its timing and swing from the family that it walks in
 		void UpdateLimbs()
 		{
 			// A limb that walks in the current family uses its timing there; otherwise it keeps the previous family's timing while it fades out
@@ -591,7 +639,7 @@ namespace pr::animation
 				if (f < 0)
 					continue;
 
-				// Blend the timing between the cycles either side of the speed. Touchdowns blend the short way around the cycle.
+				// Blend the timing and swing between the cycles either side of the speed. Touchdowns blend the short way around the cycle.
 				auto const& family = m_gait.families[f];
 				auto index = m_families[f].limb_footfall[i];
 				auto b = Bracket(family, m_gait_speed);
@@ -600,6 +648,8 @@ namespace pr::animation
 				auto shift = Frac(hi.touchdown - lo.touchdown + 0.5f) - 0.5f;
 				limb.footfall.touchdown = Frac(lo.touchdown + shift * b.t);
 				limb.footfall.duty = Lerp(lo.duty, hi.duty, b.t);
+				limb.footfall.swing_height = Lerp(lo.swing_height, hi.swing_height, b.t);
+				limb.footfall.swing_out = Lerp(lo.swing_out, hi.swing_out, b.t);
 			}
 		}
 
@@ -729,16 +779,84 @@ namespace pr::animation
 			return GroundRay{ .origin = point + up * reach, .direction = -up, .length = 2.0f * reach };
 		}
 
-		// The end bone frame that puts the limb's contact on the ground at 'hit', with the stance's orientation relative to the body, tilted from
-		// the body's up to the ground's normal. A ray that found no ground leaves the foot reaching to the end of the ray.
+		// The end bone frame that puts the limb's contact on the ground at 'hit', with the sole flat on the ground and turned like the stance's
+		// orientation relative to the body. A ray that found no ground leaves the foot reaching to the end of the ray.
 		xform FootOnGround(LimbState const& limb, GroundRay const& ray, GroundHit const& hit, quat const& body_rot) const
 		{
-			// Turn the stance orientation from the body's up to the ground's normal
+			// Turn the stance orientation by the shortest arc that lays the sole on the ground, which keeps the stance's heading
 			auto const& contact = m_rig.contacts[limb.contact];
 			auto point = hit.hit ? hit.point : ray.origin + ray.direction * ray.length;
 			auto normal = hit.hit ? hit.normal : -ray.direction;
-			auto rot = Normalise(quat(Rotate(body_rot, v4::ZAxis()), normal) * body_rot * limb.stance_rot);
+			auto stance = body_rot * limb.stance_rot;
+			auto rot = Normalise(quat(Rotate(stance, limb.sole_up), normal) * stance);
 			return xform(point - Rotate(rot, contact.offset.w0()), rot);
+		}
+
+		// Set the limb's digit chains and sole normal from the rig's rest pose. The sole is the plane through the limb's contact and the contacts
+		// at the tips of its digits. A limb with fewer than three such contacts, or with contacts in a line, uses its contact's normal instead.
+		void FindSole(LimbState& limb) const
+		{
+			// Gather the contacts in the end bone's space. Digit chains hang directly from the end bone.
+			auto end = m_rig.chains[limb.chain].bones.back();
+			auto to_end = Invert(m_rig.rest_model[end]);
+			std::vector<v4> points = { m_rig.contacts[limb.contact].offset };
+			for (int c = 0, cend = static_cast<int>(m_rig.chains.size()); c != cend; ++c)
+			{
+				auto const& chain = m_rig.chains[c];
+				if (chain.role != EChainRole::Digit || m_rig.bones[chain.bones.front()].parent != end)
+					continue;
+
+				limb.digits.push_back(c);
+				if (auto tip = DigitContact(c); tip >= 0)
+					points.push_back(to_end * m_rig.rest_model[chain.bones.back()] * m_rig.contacts[tip].offset);
+			}
+
+			// Fit a plane by least squares. Its normal is the direction in which the points spread least: the cross product of the two
+			// directions in which they spread most, taken from whichever pair of axes gives the best conditioned answer.
+			auto centre = v4::Zero();
+			for (auto p : points)
+				centre += p.w0();
+
+			centre /= static_cast<float>(points.size());
+			auto xx = 0.0f, xy = 0.0f, xz = 0.0f, yy = 0.0f, yz = 0.0f, zz = 0.0f;
+			for (auto p : points)
+			{
+				// Accumulate the spread about the centre
+				auto r = p.w0() - centre;
+				xx += r.x * r.x; xy += r.x * r.y; xz += r.x * r.z;
+				yy += r.y * r.y; yz += r.y * r.z; zz += r.z * r.z;
+			}
+			auto det_x = yy * zz - yz * yz;
+			auto det_y = xx * zz - xz * xz;
+			auto det_z = xx * yy - xy * xy;
+			auto det_max = std::max({ det_x, det_y, det_z });
+			if (points.size() < 3 || det_max <= 1e-6f * Sqr(xx + yy + zz))
+			{
+				// The contact's normal points out of the skin, towards the ground
+				limb.sole_up = -m_rig.contacts[limb.contact].normal;
+				return;
+			}
+			auto normal =
+				det_max == det_x ? v4(det_x, xz * yz - xy * zz, xy * yz - xz * yy, 0) :
+				det_max == det_y ? v4(xz * yz - xy * zz, det_y, xy * xz - yz * xx, 0) :
+				v4(xy * yz - xz * yy, xy * xz - yz * xx, det_z, 0);
+
+			// The end bone is above its sole, so the normal points from the plane towards the bone's origin
+			normal = Normalise(normal);
+			limb.sole_up = Dot(normal, centre) > 0 ? -normal : normal;
+		}
+
+		// The contact on the last bone of digit chain 'c', or -1 if it has none
+		int DigitContact(int c) const
+		{
+			// The first contact found on the bone is used
+			auto tip = m_rig.chains[c].bones.back();
+			for (int k = 0, kend = static_cast<int>(m_rig.contacts.size()); k != kend; ++k)
+			{
+				if (m_rig.contacts[k].bone == tip)
+					return k;
+			}
+			return -1;
 		}
 
 		// Find the foot frame beneath each stance contact for a body at 'model_to_world'
@@ -868,10 +986,18 @@ namespace pr::animation
 			return length;
 		}
 
-		// Move a swinging foot from lift-off towards its landing, raised by up to 'lift', touching down at the end of the swing
-		static void MoveSwingingFoot(LimbState& limb, v4 lift)
+		// The fraction of the way from lift-off to landing that a swinging foot has moved at swing progress 's'. It starts and ends at rest.
+		static float SwingEase(float s)
+		{
+			return s * s * (3.0f - 2.0f * s);
+		}
+
+		// Move a swinging foot from lift-off towards its landing, raised by up to 'lift' and moved out by up to 'out', touching down at the end
+		// of the swing. Sets how freely the foot turns with its limb from how high it is raised.
+		static void MoveSwingingFoot(LimbState& limb, v4 lift, v4 out)
 		{
 			// Only swinging feet move
+			limb.free = 0.0f;
 			if (limb.state != EFootState::Swing)
 				return;
 
@@ -882,11 +1008,17 @@ namespace pr::animation
 				return;
 			}
 
-			// Move smoothly from lift-off to landing, raised by an arc that is flat at both ends
+			// Move smoothly from lift-off to landing, raised by an arc that is flat at both ends, and bowed outwards by a broader arc so that the
+			// foot moves out as it lifts and back in as it lands
 			auto s = limb.swing;
-			auto ease = s * s * s * (10.0f + s * (-15.0f + 6.0f * s));
+			auto ease = SwingEase(s);
 			auto arc = 64.0f * Cube(s * (1.0f - s));
-			limb.foot = xform(limb.lift.pos + (limb.land.pos - limb.lift.pos) * ease + lift * arc, Slerp(limb.lift.rot, limb.land.rot, ease));
+			auto bow = 16.0f * Sqr(s * (1.0f - s));
+			limb.foot = xform(limb.lift.pos + (limb.land.pos - limb.lift.pos) * ease + lift * arc + out * bow, Slerp(limb.lift.rot, limb.land.rot, ease));
+
+			// The foot only needs to match the ground near it
+			auto h = Clamp(arc / FreeFootHeight, 0.0f, 1.0f);
+			limb.free = h * h * (3.0f - 2.0f * h);
 		}
 
 		// Lift a foot from where it is, for a swing lasting 'window' of the step cycle
@@ -897,6 +1029,72 @@ namespace pr::animation
 			limb.swing_window = window;
 			limb.lift = limb.foot;
 			limb.land = limb.foot;
+		}
+
+		// Turn the end bone of each raised foot from its goal orientation towards the stance's bend at the ankle or wrist, by how freely the foot
+		// turns with its limb. The end bone keeps its position, so the limb's pose does not change.
+		void TurnRaisedFeet()
+		{
+			// The end bone's descendants, such as digits, are updated with the rest of the pose afterwards
+			for (auto const& limb : m_limbs)
+			{
+				if (limb.free == 0)
+					continue;
+
+				auto const& bones = m_rig.chains[limb.chain].bones;
+				auto const& end = m_pose.model[bones.back()];
+				auto bent = m_pose.model[bones[1]].rot * limb.stance_bend;
+				m_pose.SetModel(m_rig, bones.back(), xform(end.pos, Normalise(Slerp(end.rot, bent, limb.free * limb.support))));
+			}
+		}
+
+		// Lay the digits of each planted foot or hand on its sole's plane, by how firmly the foot is planted. Each digit bone turns to lie
+		// parallel to the plane, then the whole digit hinges at its base so that its tip contact touches the plane. Raised feet keep the guide's digits.
+		void PlantDigits()
+		{
+			// Digit bones are posed from their parents' current frames. Their descendants are updated with the rest of the pose afterwards.
+			for (auto const& limb : m_limbs)
+			{
+				// A foot is planted by how much it carries the limb and how close it is to the ground
+				auto planted = limb.support * (1.0f - limb.free);
+				if (planted == 0 || limb.digits.empty())
+					continue;
+
+				auto const& end = m_pose.model[m_rig.chains[limb.chain].bones.back()];
+				auto up = Rotate(end.rot, limb.sole_up);
+				auto sole = end * m_rig.contacts[limb.contact].offset;
+				for (auto c : limb.digits)
+				{
+					// Turn each bone by the shortest arc that removes the part of its direction across the plane
+					auto const& bones = m_rig.chains[c].bones;
+					for (auto b : bones)
+					{
+						auto frame = m_pose.model[m_rig.bones[b].parent] * m_pose.local[b];
+						auto dir = Rotate(frame.rot, v4::YAxis());
+						auto flat = dir - up * Dot(dir, up);
+						auto turn = LengthSq(flat) > tiny<float> ? Slerp(Identity<quat>(), quat(dir, Normalise(flat)), planted) : Identity<quat>();
+						m_pose.SetModel(m_rig, b, xform(frame.pos, Normalise(turn * frame.rot)));
+					}
+
+					// Hinge the digit at its base so that its tip contact is on the plane, keeping the tip's direction across the plane.
+					// A base too high above the plane for the tip to reach it is left as it is.
+					auto contact = DigitContact(c);
+					if (contact < 0)
+						continue;
+
+					auto const& base = m_pose.model[bones.front()];
+					auto to_tip = m_pose.model[bones.back()] * m_rig.contacts[contact].offset - base.pos;
+					auto height = Dot(base.pos - sole, up);
+					auto across = to_tip - up * Dot(to_tip, up);
+					auto reach_sq = LengthSq(to_tip) - Sqr(height);
+					if (reach_sq <= 0 || LengthSq(across) <= tiny<float>)
+						continue;
+
+					auto target = Normalise(across) * Sqrt(reach_sq) - up * height;
+					auto hinge = Slerp(Identity<quat>(), quat(to_tip, target), planted);
+					m_pose.SetModel(m_rig, bones.front(), xform(base.pos, Normalise(hinge * base.rot)));
+				}
+			}
 		}
 
 		// The point on the ground beneath a limb's contact, ignoring the swing's arc
@@ -911,8 +1109,7 @@ namespace pr::animation
 				}
 				case EFootState::Swing:
 				{
-					auto s = limb.swing;
-					auto ease = s * s * s * (10.0f + s * (-15.0f + 6.0f * s));
+					auto ease = SwingEase(limb.swing);
 					return ContactOf(limb, limb.lift) + (ContactOf(limb, limb.land) - ContactOf(limb, limb.lift)) * ease;
 				}
 				default:
@@ -922,7 +1119,8 @@ namespace pr::animation
 			}
 		}
 
-		// Raise or lower the guide's pelvis and chest by the height of the ground under the hind and fore feet, pitching the body between them
+		// Raise or lower the guide's pelvis and chest by the height of the ground under the hind and fore feet, pitching the body between them, and
+		// turn them about the up axis with the walking limbs and into turns
 		void StepSpine(float dt, xform const& world_to_model)
 		{
 			// Hind feet are legs and fore feet are arms. With only one group, the body moves without pitching.
@@ -959,8 +1157,43 @@ namespace pr::animation
 			auto const& chest0 = m_guide_targets[m_spine].frame;
 			auto span = chest0.pos - pelvis0.pos;
 			auto pitch = quat(Normalise(span), Normalise(span + v4::ZAxis() * (fore - hind)));
-			m_targets[m_spine].base = xform(pelvis0.pos + v4::ZAxis() * hind, Normalise(pitch * pelvis0.rot));
-			m_targets[m_spine].frame = xform(chest0.pos + v4::ZAxis() * fore, Normalise(pitch * chest0.rot));
+
+			// Each end also turns about the up axis by its girdle's sway, and the chest leads into a turn while the pelvis trails. The ends
+			// turn about their own positions, so the spine bends between them without moving its ends.
+			auto [pelvis_yaw, chest_yaw] = GirdleSway();
+			auto lead = Clamp(m_turn_rate * SpineLeadTime, -MaxSpineLead, MaxSpineLead);
+			auto pelvis_turn = quat(v4::ZAxis(), pelvis_yaw - lead);
+			auto chest_turn = quat(v4::ZAxis(), chest_yaw + lead);
+			m_targets[m_spine].base = xform(pelvis0.pos + v4::ZAxis() * hind, Normalise(pelvis_turn * pitch * pelvis0.rot));
+			m_targets[m_spine].frame = xform(chest0.pos + v4::ZAxis() * fore, Normalise(chest_turn * pitch * chest0.rot));
+		}
+
+		// The yaw angles (radians, about model +Z) of the pelvis and the chest that swing each walking limb's root joint forward as its foot lands
+		// and back as it lifts. Each limb turns its girdle by the cycles' spine sway times cos(2 pi (phase - touchdown)), in the direction that
+		// moves its side forward (-Y) at touchdown. Each girdle takes the mean over its limbs, weighted by how much each limb walks, so that
+		// a pair of limbs half a cycle apart turn it together and limbs that hang do not turn it.
+		std::pair<float, float> GirdleSway() const
+		{
+			// The sway grows with speed up to the slowest cycle's speed, like the guide's motion
+			auto w = m_family_weight.Value();
+			auto slowest = m_gait.families[m_family].cycles.front().speed;
+			auto amplitude = Lerp(SpineSway(m_prev_family), SpineSway(m_family), w) * std::min(m_gait_speed / slowest, 1.0f);
+
+			// Turning a girdle by a small angle 'a' about +Z moves a point at lateral offset 'x' by 'a * x' along Y, so a root joint on the +X
+			// side moves forward for a negative angle
+			float yaw[2] = {};
+			int count[2] = {};
+			for (auto const& limb : m_limbs)
+			{
+				auto i = limb.footfall.role == EChainRole::Leg ? 0 : 1;
+				auto side = limb.stance_contact.x > 0 ? 1.0f : limb.stance_contact.x < 0 ? -1.0f : 0.0f;
+				yaw[i] -= side * limb.support * std::cos(math::constants<float>::tau * (m_phase - limb.footfall.touchdown));
+				count[i] += 1;
+			}
+			return {
+				count[0] != 0 ? amplitude * yaw[0] / count[0] : 0.0f,
+				count[1] != 0 ? amplitude * yaw[1] / count[1] : 0.0f,
+			};
 		}
 
 		// Turn each neck from its guide aim towards the look point by the look weight
@@ -971,7 +1204,7 @@ namespace pr::animation
 			auto look = world_to_model * m_look;
 			for (int c = 0, cend = static_cast<int>(m_rig.chains.size()); c != cend; ++c)
 			{
-				// Rotate the guide aim point about the neck's base, so that a zero weight gives the guide aim exactly
+				// Rotate the guide aim point about the neck's base onto the look direction, so that a zero weight gives the guide aim exactly
 				auto const& chain = m_rig.chains[c];
 				if (chain.role != EChainRole::Neck)
 					continue;
@@ -983,47 +1216,240 @@ namespace pr::animation
 			}
 		}
 
-		// Lift any part of each tail that is below the ground back onto the ground, measured along the body's up direction
+		// Trail each tail behind the body like a rope lying on the ground, as one smooth curve that continues the spine, bends down, and flattens onto the ground.
+		//  - The tail's base keeps its position from the guide, and the first bone keeps its heading across the ground from the swaying hips. Each
+		//    later joint is pulled from where it was last step towards the joint in front of it until it is one bone length away, so the hips' sway
+		//    travels down the tail as an 'S' wave. This dragged rope sets only the heading of each bone across the ground.
+		//  - The first bone droops as steeply as its joint limits allow about the guide's first bone, but bends down from the line of the spine
+		//    (from the chest back through the pelvis) by no more than 'TailBend'. Each later bone bends up or down from the bone before it by at
+		//    most 'TailBend', and droops no more than the first bone's joint limits allow. Each bone takes the steepest droop that keeps the tail
+		//    clear of the ground, assuming the bones after it flatten as fast as they can.
+		//  - A bone is clear of the ground when its Tail contact, a point on the skin beneath the bone, is above the ground. A bone without a Tail
+		//    contact keeps its tip above the ground instead. The ground is measured along the body's up direction beneath each joint of the rope.
 		void StepTails(xform const& model_to_world, xform const& world_to_model, IGround const& ground)
 		{
-			// Gather the joints of every tail, so that one ground query covers all of them. Each joint's ray comes down to the joint from as
-			// far above it as the joint is from the tail's base, which is attached to the body, so a hit means the joint is buried.
+			// Drag each tail's joints after the joint in front of them, and gather them so that one ground query covers every tail
 			m_tail_joints.clear();
 			m_probe_rays.clear();
 			for (int c = 0, cend = static_cast<int>(m_rig.chains.size()); c != cend; ++c)
 			{
-				// Check each joint after the base, which is attached to the body
+				// Only tails trail
 				auto const& chain = m_rig.chains[c];
 				if (chain.role != EChainRole::Tail)
 					continue;
 
+				// A tail that has not been posed yet, or that the body has moved away from at once, starts from the guide's shape
 				auto count = static_cast<int>(chain.bones.size());
-				auto base = model_to_world * m_pose.model[chain.bones.front()].pos;
-				for (int k = 1; k <= count; ++k)
+				auto& rope = m_ropes[c];
+				auto length = TailLength(c, model_to_world);
+				if (static_cast<int>(rope.size()) != count + 1 || LengthSq(rope[0] - TailJointPos(c, 0, model_to_world)) > Sqr(length))
 				{
-					auto joint = model_to_world * (k != count ? m_pose.model[chain.bones[k]].pos : m_pose.Tip(m_rig, chain.bones.back()));
-					auto reach = Length(joint - base);
+					rope.resize(count + 1);
+					for (int k = 0; k <= count; ++k)
+						rope[k] = TailJointPos(c, k, model_to_world);
+				}
+
+				// The base follows the body, and the first bone takes the guide's heading across the ground, turned with the hips as they sway. It keeps
+				// its reach and height from last step, which the plan below set. Updating in order means each later joint follows the new position of
+				// the one in front, so each swing of the first bone travels down the tail as a wave.
+				auto first = rope[1] - rope[0];
+				auto parent = m_rig.bones[chain.bones[0]].parent;
+				auto sway = parent >= 0 ? m_pose.model[parent].rot * ~m_guide.model[parent].rot : Identity<quat>();
+				auto link = model_to_world * Rotate(sway, GuideLink(c));
+				rope[0] = TailJointPos(c, 0, model_to_world);
+				rope[1] = rope[0] + Normalise(Across(link), Normalise(Across(first), Normalise(Perpendicular(m_up)))) * Length(Across(first)) + m_up * Dot(first, m_up);
+				for (int k = 2; k <= count; ++k)
+				{
+					auto guide = TailJointPos(c, k, model_to_world) - TailJointPos(c, k - 1, model_to_world);
+					rope[k] = rope[k - 1] + Normalise(rope[k] - rope[k - 1], Normalise(guide)) * Length(guide);
+				}
+				for (int k = 0; k <= count; ++k)
+				{
 					m_tail_joints.push_back(TailJoint{ .chain = c, .joint = k });
-					m_probe_rays.push_back(GroundRay{ .origin = joint + m_up * reach, .direction = -m_up, .length = reach });
+					m_probe_rays.push_back(RayBeneath(rope[k], m_up, length));
 				}
 			}
 
-			// Pull each buried joint up to the ground above it. The joints of one tail are adjacent in the query.
+			// Plan each tail's curve over the ground, then turn each bone onto the plan. The joints of one tail are adjacent in the query.
 			auto hits = ProbeGround(ground);
 			for (int j = 0, jend = static_cast<int>(m_tail_joints.size()); j != jend;)
 			{
-				// Gather the effectors of one tail, then solve it if any joint was buried
-				auto chain = m_tail_joints[j].chain;
-				m_tail_effectors.clear();
-				for (; j != jend && m_tail_joints[j].chain == chain; ++j)
+				// Record the ground height beneath each joint. Where no ground is in reach, the ground is far enough below that the tail hangs freely.
+				auto c = m_tail_joints[j].chain;
+				auto const& chain = m_rig.chains[c];
+				auto count = static_cast<int>(chain.bones.size());
+				auto& rope = m_ropes[c];
+				auto length = TailLength(c, model_to_world);
+				auto base_height = Height(rope[0]);
+				m_tail_ground.resize(count + 1);
+				for (; j != jend && m_tail_joints[j].chain == c; ++j)
+					m_tail_ground[m_tail_joints[j].joint] = hits[j].hit ? Height(hits[j].point) : base_height - 2 * length;
+
+				// Measure each bone, its heading across the ground from the dragged rope (or the guide where the rope is vertical), and the point of its
+				// skin that must stay above the ground: 'along' the bone from its head and 'depth' below the line of the bone.
+				m_tail_bones.resize(count);
+				for (int i = 0; i != count; ++i)
 				{
-					if (hits[j].hit)
-						m_tail_effectors.push_back(fabrik::Effector<float>{ .joint = m_tail_joints[j].joint, .target = world_to_model * hits[j].point });
+					auto guide = TailJointPos(c, i + 1, model_to_world) - TailJointPos(c, i, model_to_world);
+					auto bone_length = Length(guide);
+					auto& bone = m_tail_bones[i];
+					bone = TailBone{
+						.across = Normalise(Across(rope[i + 1] - rope[i]), Normalise(Across(guide), Normalise(Perpendicular(m_up)))),
+						.length = bone_length,
+						.along = bone_length,
+						.depth = 0.0f,
+					};
+					for (auto const& contact : m_rig.contacts)
+					{
+						// The contact's depth is its distance from the bone's line, because the skin beneath the bone faces the ground
+						if (contact.kind != EContactKind::Tail || contact.bone != chain.bones[i])
+							continue;
+
+						bone.along = contact.offset.y;
+						bone.depth = Sqrt(Sqr(contact.offset.x) + Sqr(contact.offset.z));
+						break;
+					}
 				}
-				if (!m_tail_effectors.empty())
-					m_tail.Solve(m_rig, chain, m_pose, m_tail_effectors, fabrik::Settings<float>{});
+
+				// The first bone's droop (radians below the ground plane) is limited by its swing about the guide's first bone.
+				// Sample the swing range because the droop is not monotonic over a wide range, and a free joint may hang straight down.
+				// The swing axis is the bone's +X axis, made exactly perpendicular to the link in case the link is not along the bone's +Y axis.
+				auto const& first = m_guide.model[chain.bones[0]];
+				auto link = GuideLink(c);
+				auto bone_x = Rotate(first.rot, v4::XAxis());
+				auto link_dir = Normalise(link);
+				auto const& limit = m_rig.bones[chain.bones[0]].limit.swing;
+				auto rest_dir = Normalise(model_to_world * link_dir);
+				auto swing_axis = Normalise(model_to_world * Normalise(bone_x - link_dir * Dot(bone_x, link_dir), Perpendicular(link_dir)));
+				auto droop_lo = std::numeric_limits<float>::max();
+				auto droop_hi = std::numeric_limits<float>::lowest();
+				for (int s = 0; s <= TailSwingSamples; ++s)
+				{
+					auto angle = limit.min_x + (limit.max_x - limit.min_x) * s / TailSwingSamples;
+					auto droop = Droop(Rotate(quat(swing_axis, angle), rest_dir));
+					droop_lo = std::min(droop_lo, droop);
+					droop_hi = std::max(droop_hi, droop);
+				}
+
+				// The first bone also bends down from the line of the spine, continued back past the pelvis, by no more than the bend limit, so that
+				// the spine and tail form one smooth curve. Later bones may droop as far as the first bone's joint limits allow.
+				auto droop_max = std::min(droop_hi, math::constants<float>::tau_by_4);
+				if (m_spine >= 0)
+				{
+					auto spine = model_to_world * (m_targets[m_spine].base.pos - m_targets[m_spine].frame.pos);
+					droop_hi = std::max(droop_lo, std::min(droop_hi, Droop(Normalise(spine)) + TailBend));
+				}
+
+				// True if bone 'i', with its head at 'height' and drooping by 'droop', and the bones after it flattening as fast as they can, stay clear of the ground
+				auto clear = [&](int i, float droop, float height)
+				{
+					// Walk down the rest of the tail, checking each bone's skin point against the ground interpolated between its joints
+					for (; i != count; ++i, droop = std::max(droop - TailBend, -math::constants<float>::tau_by_4))
+					{
+						auto const& bone = m_tail_bones[i];
+						auto sin = std::sin(droop);
+						auto skin = height - bone.along * sin - bone.depth * std::cos(droop);
+						auto t = bone.along / bone.length;
+						if (skin < m_tail_ground[i] + (m_tail_ground[i + 1] - m_tail_ground[i]) * t)
+							return false;
+
+						height -= bone.length * sin;
+					}
+					return true;
+				};
+
+				// Choose each bone's droop in turn: the steepest that stays clear, or the flattest allowed where none does. Clearance only improves as a
+				// bone flattens, so a bisection finds the steepest clear droop.
+				auto droop = 0.0f;
+				auto height = base_height;
+				for (int i = 0; i != count; ++i)
+				{
+					// Bones after the first bend up or down from the bone before by at most the bend limit
+					auto lo = i == 0 ? droop_lo : std::max(droop - TailBend, -math::constants<float>::tau_by_4);
+					auto hi = i == 0 ? std::min(droop_hi, math::constants<float>::tau_by_4) : std::max(droop, std::min(droop + TailBend, droop_max));
+					if (clear(i, hi, height))
+					{
+						droop = hi;
+					}
+					else if (!clear(i, lo, height))
+					{
+						droop = lo;
+					}
+					else
+					{
+						for (int n = 0; n != TailBisections; ++n)
+						{
+							auto mid = 0.5f * (lo + hi);
+							(clear(i, mid, height) ? lo : hi) = mid;
+						}
+						droop = lo;
+					}
+
+					// Place the bone's end along its heading at the chosen droop
+					auto const& bone = m_tail_bones[i];
+					auto direction = bone.across * std::cos(droop) - m_up * std::sin(droop);
+					rope[i + 1] = rope[i] + direction * bone.length;
+					height -= bone.length * std::sin(droop);
+
+					// Turn the bone by the shortest arc from its guide direction onto the planned direction. Its head follows its parent's new pose,
+					// which keeps the bone on the rope because the rope's bone lengths come from the same pose.
+					auto b = chain.bones[i];
+					auto parent = m_rig.bones[b].parent;
+					auto frame = parent < 0 ? m_pose.local[b] : m_pose.model[parent] * m_pose.local[b];
+					auto turn = quat(Rotate(frame.rot, v4::YAxis()), Normalise(world_to_model * direction));
+					m_pose.SetModel(m_rig, b, xform(frame.pos, Normalise(turn * frame.rot)));
+				}
 			}
 			m_pose.UpdateModel(m_rig);
+		}
+
+		// The model-space vector of the first bone of tail chain 'c' in the guide pose, from its head to the next joint
+		v4 GuideLink(int c) const
+		{
+			// The next joint is the head of the second bone, or the first bone's tip when there is only one
+			auto const& bones = m_rig.chains[c].bones;
+			auto const& first = m_guide.model[bones[0]];
+			return (bones.size() != 1 ? m_guide.model[bones[1]].pos : first * v4(0, m_rig.bones[bones[0]].length, 0, 1)) - first.pos;
+		}
+
+		// The world-space position of joint 'k' of tail chain 'c' in the current pose. Joint 0 is the head of the chain's first bone, and joint 'k'
+		// (k >= 1) is the end of chain bone 'k - 1': the head of the next chain bone, or the tip of the last bone.
+		v4 TailJointPos(int c, int k, xform const& model_to_world) const
+		{
+			auto const& bones = m_rig.chains[c].bones;
+			auto count = static_cast<int>(bones.size());
+			return model_to_world * (k != count ? m_pose.model[bones[k]].pos : m_pose.Tip(m_rig, bones.back()));
+		}
+
+		// The length of tail chain 'c' in the current pose, from its base to its tip
+		float TailLength(int c, xform const& model_to_world) const
+		{
+			auto length = 0.0f;
+			for (int k = 1, kend = static_cast<int>(m_rig.chains[c].bones.size()); k <= kend; ++k)
+				length += Length(TailJointPos(c, k, model_to_world) - TailJointPos(c, k - 1, model_to_world));
+
+			return length;
+		}
+
+		// The height of the world-space point 'point' along the body's up direction
+		float Height(v4 point) const
+		{
+			// Measure from the world origin so that heights of different points can be compared
+			return Dot(point - v4::Origin(), m_up);
+		}
+
+		// The part of the world-space vector 'vec' across the ground, perpendicular to the body's up direction
+		v4 Across(v4 vec) const
+		{
+			// Remove the part along the up direction
+			return vec - m_up * Dot(vec, m_up);
+		}
+
+		// The angle (radians) by which the unit world-space direction 'dir' points below the ground plane. Negative for directions that point up.
+		float Droop(v4 dir) const
+		{
+			// Clamp against rounding outside the domain of asin
+			return std::asin(Clamp(-Dot(dir, m_up), -1.0f, 1.0f));
 		}
 	};
 }
@@ -1071,7 +1497,8 @@ namespace pr::animation::tests
 	{
 		PRUnitTestMethod(StandingAtRest, Quick)
 		{
-			// A still body on flat ground holds the stance, which for the test gait is the rest pose, and does not step
+			// A still body on flat ground holds the stance, which for the test gait is the rest pose, and does not step. The tail, which cannot
+			// reach the ground, curves down from its base instead.
 			auto rig = TestRig();
 			auto loco = Locomotion(rig, TestGait());
 			auto ground = TestGround();
@@ -1079,8 +1506,14 @@ namespace pr::animation::tests
 				loco.Step(1.0f / 60, BodyState{}, ground);
 
 			PR_EXPECT(loco.phase() == 0.0f);
+			auto const& tail = rig.chains[4].bones;
 			for (int b = 0, bend = static_cast<int>(rig.bones.size()); b != bend; ++b)
+			{
+				if (std::find(tail.begin() + 1, tail.end(), b) != tail.end())
+					continue;
+
 				PR_EXPECT(FEqlAbsolute(loco.pose().model[b].pos, rig.rest_model[b].pos, 1e-3f));
+			}
 		}
 		PRUnitTestMethod(WalkingPlantsFeet, Quick)
 		{
@@ -1214,6 +1647,53 @@ namespace pr::animation::tests
 			auto chest = rig.BoneIndex("chest");
 			PR_EXPECT(loco.pose().model[chest].pos.z < rig.rest_model[chest].pos.z - 0.05f);
 		}
+		PRUnitTestMethod(SolesAndDigitsLieOnSlope, Quick)
+		{
+			// A foot with three toes, the middle one curled up in the rest pose, stands on a slope. The sole faces along the ground's normal
+			// and every toe tip touches the ground.
+			auto desc = TestRigDesc();
+			auto foot = 8;
+			auto foot_model = xform::Identity();
+			for (auto b = foot; b != -1; b = desc.bones[b].parent)
+				foot_model = desc.bones[b].rest * foot_model;
+
+			auto add_toe = [&](char const* name, v4 head, v4 tip)
+			{
+				// Each toe is one bone hanging from the foot, with a contact at its tip
+				auto dir = tip - head;
+				auto model = xform(head, quat(v4::YAxis(), Normalise(dir)));
+				desc.bones.push_back(Bone{ .name = name, .parent = foot, .rest = Invert(foot_model) * model, .length = Length(dir) });
+				auto bone = static_cast<int>(desc.bones.size()) - 1;
+				desc.chains.push_back(Chain{ .role = EChainRole::Digit, .side = ESide::Left, .bones = { bone } });
+				desc.contacts.push_back(Contact{ .name = std::string(name) + ".tip", .bone = bone, .offset = v4(0, Length(dir), 0, 1), .normal = Invert(model) * v4(0, 0, -1, 0), .kind = EContactKind::Sole });
+			};
+			add_toe("toe.0.L", v4(0.15f, -0.2f, 0, 1), v4(0.1f, -0.3f, 0, 1));
+			add_toe("toe.1.L", v4(0.2f, -0.2f, 0, 1), v4(0.2f, -0.3f, 0.05f, 1));
+			add_toe("toe.2.L", v4(0.25f, -0.2f, 0, 1), v4(0.3f, -0.3f, 0, 1));
+			auto rig = Rig(desc);
+
+			// Stand still on the slope until the feet settle
+			auto gait = TestGait();
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround(0.2f);
+			auto normal = Normalise(v4(0, -0.2f, 1, 0));
+			auto dt = 1.0f / 60;
+			auto body = BodyState{};
+			for (int i = 0; i != 180; ++i)
+				loco.Step(dt, body, ground);
+
+			auto const& leg = loco.limbs()[0];
+			PR_EXPECT(leg.digits.size() == 3);
+			PR_EXPECT(FEqlAbsolute(Rotate(loco.pose().model[foot].rot, leg.sole_up), normal, 1e-3f));
+			for (auto const& contact : rig.contacts)
+			{
+				if (contact.name.ends_with(".tip"))
+				{
+					auto tip = loco.pose().model[contact.bone] * contact.offset;
+					PR_EXPECT(FEqlAbsolute(Dot(tip.w0(), normal), 0.0f, 1e-3f));
+				}
+			}
+		}
 		PRUnitTestMethod(HipHeightFollowsLegs, Quick)
 		{
 			// The legs carry the hip joint at the cycles' hip height, as a fraction of the leg's reach: the slowest cycle's height when standing,
@@ -1346,6 +1826,83 @@ namespace pr::animation::tests
 
 			PR_EXPECT(FEqlAbsolute(loco.pose().model[chest].pos.x, 0.0f, 1e-3f));
 		}
+		PRUnitTestMethod(SpineSwaysWithLimbs, Quick)
+		{
+			// Walking straight, the pelvis turns with the leg and the chest with the arm, half a cycle apart, so they turn in opposite directions.
+			// Each girdle moves its limb's side forward when the foot lands. Standing still, the sway dies away.
+			auto rig = TestRig();
+			auto gait = TestGait();
+			auto& walk = gait.families[0].cycles[0];
+			walk.motion.clear();
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .velocity = v4(0, -walk.speed, 0, 0) };
+
+			// The pelvis and chest bones point forward (-Y), so a turn by 'a' about +Z points them along (sin a, -cos a)
+			auto yaw = [](xform const& frame)
+			{
+				auto dir = Rotate(frame.rot, v4::YAxis());
+				return std::atan2(dir.x, -dir.y);
+			};
+			for (int i = 0; i != 120; ++i)
+			{
+				body.model_to_world.pos += body.velocity * dt;
+				loco.Step(dt, body, ground);
+			}
+
+			// The leg is on the +X side and lands at phase 0; the arm lands half a cycle later
+			for (int i = 0; i != 60; ++i)
+			{
+				body.model_to_world.pos += body.velocity * dt;
+				loco.Step(dt, body, ground);
+				auto expected = walk.spine_sway * std::cos(math::constants<float>::tau * loco.phase());
+				PR_EXPECT(FEqlAbsolute(yaw(loco.targets()[0].base), -expected, 5e-3f));
+				PR_EXPECT(FEqlAbsolute(yaw(loco.targets()[0].frame), +expected, 5e-3f));
+			}
+
+			// Standing still, the sway dies away
+			body.velocity = v4::Zero();
+			for (int i = 0; i != 300; ++i)
+				loco.Step(dt, body, ground);
+
+			PR_EXPECT(FEqlAbsolute(yaw(loco.targets()[0].base), 0.0f, 1e-3f));
+			PR_EXPECT(FEqlAbsolute(yaw(loco.targets()[0].frame), 0.0f, 1e-3f));
+		}
+		PRUnitTestMethod(SpineLeadsTurns, Quick)
+		{
+			// Turning on the spot to the left (+Z), the chest turns into the turn and the pelvis away from it. They straighten once the turn stops.
+			auto rig = TestRig();
+			auto gait = TestGait();
+			for (auto& cycle : gait.families[0].cycles)
+			{
+				cycle.motion.clear();
+				cycle.spine_sway = 0.0f;
+			}
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .angular_velocity = v4(0, 0, 1.0f, 0) };
+			auto yaw = [](xform const& frame)
+			{
+				auto dir = Rotate(frame.rot, v4::YAxis());
+				return std::atan2(dir.x, -dir.y);
+			};
+			for (int i = 0; i != 120; ++i)
+			{
+				body.model_to_world.rot = Normalise(quat(v4::ZAxis(), body.angular_velocity.z * dt) * body.model_to_world.rot);
+				loco.Step(dt, body, ground);
+			}
+			PR_EXPECT(yaw(loco.targets()[0].frame) > 0.2f);
+			PR_EXPECT(yaw(loco.targets()[0].base) < -0.2f);
+
+			body.angular_velocity = v4::Zero();
+			for (int i = 0; i != 300; ++i)
+				loco.Step(dt, body, ground);
+
+			PR_EXPECT(FEqlAbsolute(yaw(loco.targets()[0].base), 0.0f, 1e-3f));
+			PR_EXPECT(FEqlAbsolute(yaw(loco.targets()[0].frame), 0.0f, 1e-3f));
+		}
 		PRUnitTestMethod(FamilyChangesWalkingLimbs, Quick)
 		{
 			// Changing from the quadruped to the bipedal family fades the arm's support out, after which it hangs in the guide pose and only
@@ -1411,6 +1968,161 @@ namespace pr::animation::tests
 				loco.Step(1.0f / 60, BodyState{}, ground);
 
 			PR_EXPECT(Dot(facing(), neck.forward) > 0.999f);
+		}
+		PRUnitTestMethod(SwingingFeetMoveOutAndTurnFreely, Quick)
+		{
+			// Mid-swing, feet are further from the body's centre line than where they lift off and land, and turn freely with their limb.
+			// Feet on the ground are not free to turn.
+			auto rig = TestRig();
+			auto gait = TestGait();
+			auto const& walk = gait.families[0].cycles[0];
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .velocity = v4(0, -walk.speed, 0, 0) };
+			auto mid_swings = 0;
+			for (int i = 0; i != 120; ++i)
+			{
+				body.model_to_world.pos += body.velocity * dt;
+				loco.Step(dt, body, ground);
+				for (auto const& limb : loco.limbs())
+				{
+					if (limb.state != EFootState::Swing)
+					{
+						PR_EXPECT(limb.free == 0.0f);
+						continue;
+					}
+					if (limb.swing < 0.4f || limb.swing > 0.6f)
+						continue;
+
+					PR_EXPECT(std::abs(limb.foot.pos.x) > std::max(std::abs(limb.lift.pos.x), std::abs(limb.land.pos.x)) + 0.5f * limb.footfall.swing_out);
+					PR_EXPECT(limb.free > 0.9f);
+					++mid_swings;
+				}
+			}
+			PR_EXPECT(mid_swings != 0);
+		}
+		PRUnitTestMethod(TailTrailsBehind, Quick)
+		{
+			// The test rig's tail is too short to reach flat ground from the hips, so it curves down towards it. With a raised ridge beneath the tail,
+			// between the feet, the tail curves down onto the ridge behind the body when walking forward. Either way, the tail bends by no more than the
+			// bend limit at each joint, droops no more than the first bone's joint limits, and the tail's skin contacts stay above the ground.
+			struct RidgeGround : IGround
+			{
+				// Flat ground at height 0, with a ridge of height 'm_height' along the Y axis that is narrower than the stance
+				float m_height;
+
+				explicit RidgeGround(float height)
+					: m_height(height)
+				{
+				}
+				void Probe(std::span<GroundRay const> rays, std::span<GroundHit> hits) const override
+				{
+					// Only vertical rays are needed by the tail, so measure each ray's drop to the ground beneath its origin
+					for (size_t i = 0; i != rays.size(); ++i)
+					{
+						auto const& ray = rays[i];
+						auto height = std::abs(ray.origin.x) < 0.15f ? m_height : 0.0f;
+						auto t = Clamp((ray.origin.z - height) / -ray.direction.z, 0.0f, ray.length + 1);
+						hits[i] = t <= ray.length
+							? GroundHit{ .point = ray.origin + ray.direction * t, .normal = v4::ZAxis(), .hit = true }
+							: GroundHit{ .point = ray.origin + ray.direction * ray.length, .normal = -ray.direction, .hit = false };
+					}
+				}
+			};
+
+			auto rig = TestRig();
+			auto gait = TestGait();
+			auto const& walk = gait.families[0].cycles[0];
+			auto const& tail = rig.chains[4];
+			auto dt = 1.0f / 60;
+
+			// The first tail bone can droop by up to 0.6 radians, and each tail bone has a skin contact beneath its middle
+			auto depth = 0.04f;
+			auto max_droop = 0.6f;
+			for (auto b : tail.bones)
+			{
+				rig.bones[b].limit.swing = { .min_x = -max_droop, .max_x = max_droop, .min_z = -max_droop, .max_z = max_droop };
+				rig.contacts.push_back(Contact{ .name = rig.bones[b].name + ".skin", .bone = b, .offset = v4(0, 0.15f, -depth, 1), .normal = v4(0, 0, -1, 0), .kind = EContactKind::Tail });
+			}
+
+			for (auto ridge : { 0.0f, 0.6f })
+			{
+				auto loco = Locomotion(rig, gait);
+				auto ground = RidgeGround(ridge);
+				auto body = BodyState{ .velocity = v4(0, -walk.speed, 0, 0) };
+				for (int i = 0; i != 120; ++i)
+				{
+					body.model_to_world.pos += body.velocity * dt;
+					loco.Step(dt, body, ground);
+				}
+
+				// Check that the tail bends within the bend limit, runs behind the body, and keeps its skin above the ground
+				auto count = static_cast<int>(tail.bones.size());
+				auto joint = [&](int k) { return k != count ? loco.pose().model[tail.bones[k]].pos : loco.pose().Tip(rig, tail.bones.back()); };
+				auto droop = [&](int k) { auto d = Normalise(joint(k + 1) - joint(k)); return std::asin(-d.z); };
+				auto clearance = std::numeric_limits<float>::max();
+				for (int k = 0; k != count; ++k)
+				{
+					PR_EXPECT(droop(k) < max_droop + 0.02f);
+					PR_EXPECT(k == 0 || droop(k) < droop(k - 1) + 0.35f + 0.02f);
+					PR_EXPECT(k == 0 || droop(k) > droop(k - 1) - 0.35f - 0.02f);
+					PR_EXPECT(joint(k + 1).y > joint(k).y);
+					clearance = std::min(clearance, (loco.pose().model[tail.bones[k]] * v4(0, 0.15f, -depth, 1)).z - ridge);
+				}
+				PR_EXPECT(clearance > -0.01f);
+				PR_EXPECT(joint(count).z < joint(0).z - 0.3f);
+				if (ridge != 0)
+					PR_EXPECT(clearance < 0.01f);
+
+				// The first bone bends down from the line of the spine, from the chest back through the pelvis, by no more than the bend limit
+				auto spine = Normalise(loco.targets()[0].base.pos - loco.targets()[0].frame.pos);
+				PR_EXPECT(droop(0) < std::asin(-spine.z) + 0.35f + 0.02f);
+			}
+		}
+		PRUnitTestMethod(TailWavesWithHips, Quick)
+		{
+			// Walking straight, the first tail bone turns with the swaying hips, and the sway travels down the tail, so the tip swings too and at
+			// times bends the other way from the base
+			auto rig = TestRig();
+			auto gait = TestGait();
+			auto const& walk = gait.families[0].cycles[0];
+			auto const& tail = rig.chains[4];
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .velocity = v4(0, -walk.speed, 0, 0) };
+
+			// The tail points backwards (+Y), so a turn by 'a' about +Z points a bone across the ground along (-sin a, cos a)
+			auto count = static_cast<int>(tail.bones.size());
+			auto joint = [&](int k) { return k != count ? loco.pose().model[tail.bones[k]].pos : loco.pose().Tip(rig, tail.bones.back()); };
+			auto heading = [&](int k) { auto d = joint(k + 1) - joint(k); return std::atan2(-d.x, d.y); };
+			auto pelvis_yaw = [&] { auto d = Rotate(loco.targets()[0].base.rot, v4::YAxis()); return std::atan2(d.x, -d.y); };
+			for (int i = 0; i != 120; ++i)
+			{
+				body.model_to_world.pos += body.velocity * dt;
+				loco.Step(dt, body, ground);
+			}
+
+			// Over two cycles, compare the first bone with the hips, and record the swing of the last bone
+			auto tip_lo = std::numeric_limits<float>::max();
+			auto tip_hi = std::numeric_limits<float>::lowest();
+			auto opposed = false;
+			auto base_hi = 0.0f;
+			for (int i = 0; i != 120; ++i)
+			{
+				body.model_to_world.pos += body.velocity * dt;
+				loco.Step(dt, body, ground);
+				auto tip = heading(count - 1);
+				base_hi = std::max(base_hi, std::abs(heading(0)));
+				tip_lo = std::min(tip_lo, tip);
+				tip_hi = std::max(tip_hi, tip);
+				opposed |= heading(0) * tip < -1e-4f;
+				PR_EXPECT(FEqlAbsolute(heading(0), pelvis_yaw(), 0.02f));
+			}
+			PR_EXPECT(base_hi > 0.5f * walk.spine_sway);
+			PR_EXPECT(tip_lo < -0.02f && tip_hi > 0.02f);
+			PR_EXPECT(opposed);
 		}
 	};
 }

@@ -1,7 +1,7 @@
 """Build a '.gait' description from an armature's movement cycles, and write it to a file.
 
 The '.gait' schema is owned by 'pr/animation/gait.h' in the Rylogic code library. A gait holds guidance for the runtime's procedural locomotion, not
-animation to play back: per family, a stance; and per cycle, the speed, stride, swing height, footfall timing, and the first two harmonics of the body's
+animation to play back: per family, a stance; and per cycle, the speed, stride, each walking limb's footfall timing and swing, and the first two harmonics of the body's
 repeating motion. All values are in model space (see 'rig_desc.ModelSpace').
 
 A movement cycle is a looping action that moves the armature's root bone forward by one stride. Its frame range covers exactly one cycle, so the pose at
@@ -19,7 +19,7 @@ from mathutils import Matrix, Quaternion, Vector
 
 from .rig_desc import BonesParentFirst, ModelSpace
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 6
 
 # The number of harmonics in each bone motion
 HARMONICS = 2
@@ -52,6 +52,7 @@ class _Limb:
 	side: str          # The '.gait' side
 	bones: list[str]   # The chain's bones, base to end
 	contact: Any       # The contact on the end bone (a 'RYLOGIC_PG_RigContact')
+	swing_out: float   # The authored outward swing of the foot (see 'RYLOGIC_PG_RigChain.swing_out')
 
 
 @dataclass
@@ -75,7 +76,7 @@ def WalkingLimbs(armature: bpy.types.Armature) -> list[_Limb]:
 		end = chain.bones[-1].name
 		contact = next((c for c in armature.rylogic_rig.contacts if c.bone == end and c.kind == kind), None)
 		if contact is not None:
-			limbs.append(_Limb(role=chain.role.lower(), side=chain.side.lower(), bones=[ref.name for ref in chain.bones], contact=contact))
+			limbs.append(_Limb(role=chain.role.lower(), side=chain.side.lower(), bones=[ref.name for ref in chain.bones], contact=contact, swing_out=chain.swing_out))
 
 	return limbs
 
@@ -89,7 +90,7 @@ def BuildGaitDesc(armature_obj: bpy.types.Object, context: bpy.types.Context) ->
 	# Group the exported cycles by family, keeping the order in which families first appear. Unexported cycles are not measured, so they may be unfinished.
 	space = ModelSpace(armature_obj)
 	limbs = WalkingLimbs(armature_obj.data)
-	families: dict[str, list[tuple[str, float, _Samples]]] = {}
+	families: dict[str, list[tuple[str, float, float, _Samples]]] = {}
 	for cycle in armature_obj.data.rylogic_rig.cycles:
 		if not cycle.use_export:
 			continue
@@ -97,13 +98,13 @@ def BuildGaitDesc(armature_obj: bpy.types.Object, context: bpy.types.Context) ->
 		if cycle.action is None:
 			raise ValueError(f"Cycle '{cycle.name}' has no action")
 
-		families.setdefault(cycle.family, []).append((cycle.name, cycle.hip_height, _SampleAction(armature_obj, context, space, cycle.action)))
+		families.setdefault(cycle.family, []).append((cycle.name, cycle.hip_height, cycle.spine_sway, _SampleAction(armature_obj, context, space, cycle.action)))
 
 	# Measure each cycle, then order each family's cycles by speed. The family's stance is the mean pose of its slowest cycle, the nearest to standing.
 	out: list[dict[str, Any]] = []
 	root = _RootBone(armature_obj.data)
 	for family, cycles in families.items():
-		measured = sorted((_MeasureCycle(armature_obj.data, space, root, limbs, name, hip_height, samples) for name, hip_height, samples in cycles), key=lambda c: c[0]["speed"])
+		measured = sorted((_MeasureCycle(armature_obj.data, space, root, limbs, name, hip_height, spine_sway, samples) for name, hip_height, spine_sway, samples in cycles), key=lambda c: c[0]["speed"])
 		out.append({"name": family, "stance": measured[0][1], "cycles": [cycle for cycle, _ in measured]})
 
 	return {"schema_version": SCHEMA_VERSION, "families": out}
@@ -136,10 +137,15 @@ def ValidateGaitDesc(desc: dict[str, Any]) -> list[str]:
 				errors.append(f"{cctx} does not move the root bone forward")
 			if not 0 < cycle["hip_height"] <= 1:
 				errors.append(f"{cctx} needs a hip height in (0,1]")
+			if not 0 <= cycle["spine_sway"] < math.pi / 2:
+				errors.append(f"{cctx} needs a spine sway in [0,pi/2)")
 			if not cycle["footfalls"]:
 				errors.append(f"{cctx} has no planted feet")
 			if [(f["role"], f["side"]) for f in cycle["footfalls"]] != limbs:
 				errors.append(f"{cctx} plants different limbs to cycle '{cycles[0]['name']}'")
+			for f in cycle["footfalls"]:
+				if not f["swing_out"] >= 0:
+					errors.append(f"{cctx} needs a swing out of at least 0 for the {f['side']} {f['role']}")
 
 	return errors
 
@@ -185,8 +191,8 @@ def _SampleAction(armature_obj: bpy.types.Object, context: bpy.types.Context, sp
 	return _Samples(frames=end - start, fps=scene.render.fps / scene.render.fps_base, model=model)
 
 
-def _MeasureCycle(armature: bpy.types.Armature, space: ModelSpace, root: str, limbs: list[_Limb], name: str, hip_height: float, samples: _Samples) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-	"""Measure one sampled cycle, which carries the hips at 'hip_height' (see the cycle property). Returns its '.gait' cycle and the stance of its mean pose.
+def _MeasureCycle(armature: bpy.types.Armature, space: ModelSpace, root: str, limbs: list[_Limb], name: str, hip_height: float, spine_sway: float, samples: _Samples) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+	"""Measure one sampled cycle, which carries the hips at 'hip_height' and sways the spine by 'spine_sway' (see the cycle properties). Returns its '.gait' cycle and the stance of its mean pose.
 
 	Raises ValueError if the root bone does not move forward, or if the cycle does not loop (see '_CheckLoops').
 	"""
@@ -206,15 +212,13 @@ def _MeasureCycle(armature: bpy.types.Armature, space: ModelSpace, root: str, li
 	# The walking contacts' mean body-relative position is where the feet stand on average, which is the model origin by convention.
 	footfalls: list[dict[str, Any]] = []
 	walking: set[str] = set()
-	swing_height = 0.0
 	feet_centre = Vector()
 	for limb in limbs:
 		points = _ContactPoints(limb, samples, space.scale)
-		footfall, lift = _Footfall(limb, points, samples, stride)
+		footfall = _Footfall(limb, points, samples, stride)
 		if footfall is not None:
 			footfalls.append(footfall)
 			walking.update(limb.bones)
-			swing_height = max(swing_height, lift)
 			feet_centre += sum((points[i] - travel * phases[i] for i in range(n)), Vector()) / n
 
 	if footfalls:
@@ -265,7 +269,7 @@ def _MeasureCycle(armature: bpy.types.Armature, space: ModelSpace, root: str, li
 		if _Amplitude(harmonics) >= MIN_ROTATION_AMPLITUDE:
 			motion.append({"bone": bone.name, "channel": "rotation", "harmonics": harmonics})
 
-	cycle = {"name": name, "speed": speed, "stride": stride, "swing_height": swing_height, "hip_height": hip_height, "footfalls": footfalls, "motion": motion}
+	cycle = {"name": name, "speed": speed, "stride": stride, "hip_height": hip_height, "spine_sway": spine_sway, "footfalls": footfalls, "motion": motion}
 	return cycle, stance
 
 
@@ -300,9 +304,9 @@ def _ContactPoints(limb: _Limb, samples: _Samples, scale: float) -> list[Vector]
 	return [samples.model[i][end] @ offset for i in range(samples.frames + 1)]
 
 
-def _Footfall(limb: _Limb, points: list[Vector], samples: _Samples, stride: float) -> tuple[dict[str, Any] | None, float]:
+def _Footfall(limb: _Limb, points: list[Vector], samples: _Samples, stride: float) -> dict[str, Any] | None:
 	"""Find when a limb's contact is planted from its sampled positions, in a cycle whose body moves 'stride' forward.
-	Returns its footfall, or None if the limb does not walk, and the height that it lifts."""
+	Returns its footfall, including the height that it lifts and its authored swing out, or None if the limb does not walk."""
 	# A contact is planted from frame i to i+1 while it stays still and near the ground, so the planted frames count the time spent planted.
 	# The ground is the lowest still height, which excludes a foot paused high in its swing and a swing that dips below the ground.
 	n = samples.frames
@@ -311,7 +315,7 @@ def _Footfall(limb: _Limb, points: list[Vector], samples: _Samples, stride: floa
 	low, high = min(heights), max(heights)
 	still = [(points[i + 1] - points[i]).length * samples.fps < PLANTED_SPEED_FRACTION * body_speed for i in range(n)]
 	if not any(still):
-		return None, 0.0
+		return None
 
 	ground = min(heights[i] for i in range(n) if still[i]) + max(PLANTED_HEIGHT_FRACTION * (high - low), 1e-5)
 	planted = [still[i] and heights[i] <= ground for i in range(n)]
@@ -319,7 +323,7 @@ def _Footfall(limb: _Limb, points: list[Vector], samples: _Samples, stride: floa
 	# The limb walks if it is planted for part of the cycle. Touchdown is the start of the longest planted run.
 	count = sum(planted)
 	if count == 0 or count == n:
-		return None, 0.0
+		return None
 
 	best_start, best_length = 0, 0
 	for i in range(n):
@@ -330,8 +334,7 @@ def _Footfall(limb: _Limb, points: list[Vector], samples: _Samples, stride: floa
 			if length > best_length:
 				best_start, best_length = i, length
 
-	footfall = {"role": limb.role, "side": limb.side, "touchdown": best_start / n, "duty": count / n}
-	return footfall, high - low
+	return {"role": limb.role, "side": limb.side, "touchdown": best_start / n, "duty": count / n, "swing_height": high - low, "swing_out": limb.swing_out}
 
 
 def _RestLocal(space: ModelSpace, bone: bpy.types.Bone) -> Quaternion:

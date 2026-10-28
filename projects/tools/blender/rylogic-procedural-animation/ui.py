@@ -106,6 +106,7 @@ class RYLOGIC_PT_rig(Panel):
 			match chain.role:
 				case "LEG" | "ARM":
 					box.prop(chain, "pole")
+					box.prop(chain, "swing_out")
 				case "NECK":
 					box.prop(chain, "forward")
 				case _:
@@ -147,6 +148,7 @@ class RYLOGIC_PT_rig(Panel):
 			box.prop(cycle, "family")
 			box.prop(cycle, "action")
 			box.prop(cycle, "hip_height")
+			box.prop(cycle, "spine_sway")
 
 		# Hold planted feet still while the body moves over them
 		layout.prop(rig, "pin_live", icon="PINNED", toggle=True)
@@ -161,7 +163,7 @@ class RYLOGIC_PT_rig(Panel):
 
 
 class RYLOGIC_PT_rig_bone(Panel):
-	"""The active bone's joint limit and stiffness."""
+	"""The active bone's joint limit."""
 
 	bl_label = "Rylogic Rig Joint"
 	bl_space_type = "PROPERTIES"
@@ -184,8 +186,6 @@ class RYLOGIC_PT_rig_bone(Panel):
 			row.label(text=label)
 			row.prop(joint, low, text="Min")
 			row.prop(joint, high, text="Max")
-
-		layout.prop(joint, "stiffness")
 
 
 CLASSES = (

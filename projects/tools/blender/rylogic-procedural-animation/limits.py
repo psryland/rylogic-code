@@ -84,13 +84,12 @@ def MirrorPartners(armature: bpy.types.Armature) -> tuple[dict[str, str], list[s
 
 
 def MirrorJoint(source, target) -> None:
-	"""Set the 'target' joint's limit and stiffness to the mirror image of 'source'."""
+	"""Set the 'target' joint's limit to the mirror image of 'source'."""
 	# Swing X is unchanged, while swing Z and twist ranges are negated, which also swaps their ends
 	target.use_limit = source.use_limit
 	target.swing_x_min, target.swing_x_max = source.swing_x_min, source.swing_x_max
 	target.swing_z_min, target.swing_z_max = -source.swing_z_max, -source.swing_z_min
 	target.twist_min, target.twist_max = -source.twist_max, -source.twist_min
-	target.stiffness = source.stiffness
 
 
 def SwingRotation(swing_x: float, swing_z: float) -> Quaternion:
