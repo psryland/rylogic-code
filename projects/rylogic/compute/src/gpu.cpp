@@ -65,11 +65,11 @@ namespace pr::compute
 			Check(m_device->CreateCommandQueue(&queue_desc, __uuidof(ID3D12CommandQueue), (void**)m_cmd_queue.address_of()));
 		}
 
-		// Check feature support
-		D3D12_FEATURE_DATA_SHADER_MODEL ShaderModel = { .HighestShaderModel = D3D_SHADER_MODEL_5_1 };
-		Check(m_device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &ShaderModel, sizeof(D3D12_FEATURE_DATA_SHADER_MODEL)));
-		if (ShaderModel.HighestShaderModel < D3D_SHADER_MODEL_5_1)
-			throw std::runtime_error("DirectX device does not support Compute Shaders 4.x");
+		// Require Shader Model 6.6 because the compute shaders are compiled for it
+		D3D12_FEATURE_DATA_SHADER_MODEL shader_model = { .HighestShaderModel = D3D_SHADER_MODEL_6_6 };
+		Check(m_device->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &shader_model, sizeof(D3D12_FEATURE_DATA_SHADER_MODEL)));
+		if (shader_model.HighestShaderModel < D3D_SHADER_MODEL_6_6)
+			throw std::runtime_error("DirectX device does not support Shader Model 6.6");
 	}
 
 	// Allocate a DX resource
