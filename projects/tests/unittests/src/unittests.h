@@ -26,7 +26,6 @@
 #include "pr/animation/rig.h"
 #include "pr/animation/solve.h"
 #include "pr/animation/spine_fit.h"
-#include "pr/animation/tail.h"
 #include "pr/animation/target_path.h"
 #include "pr/animation/targets.h"
 #include "pr/animation/two_bone_ik.h"

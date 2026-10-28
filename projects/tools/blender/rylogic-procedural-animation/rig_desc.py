@@ -94,9 +94,6 @@ def BuildRigDesc(armature_obj: bpy.types.Object) -> dict[str, Any]:
 				"twist": [joint.twist_min, joint.twist_max],
 			}
 
-		if joint.stiffness != 0:
-			desc["stiffness"] = joint.stiffness
-
 		bones.append(desc)
 
 	# Describe each chain. Directions are authored in armature space.

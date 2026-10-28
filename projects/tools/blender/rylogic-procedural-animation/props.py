@@ -44,7 +44,7 @@ def _MaxAngle(name: str, default_degrees: float, description: str) -> FloatPrope
 
 
 class RYLOGIC_PG_RigBone(PropertyGroup):
-	"""The joint limit and stiffness of one bone.
+	"""The joint limit of one bone.
 
 	The limit is the bone's rotation range from its rest pose, split into a swing and a twist (see 'JointLimit' in 'pr/animation/rig.h'). The twist is
 	the rotation about the bone's own +Y axis. The swing moves the bone's +Y axis, and is measured about the bone's rest +X and +Z axes, so bone roll
@@ -58,7 +58,6 @@ class RYLOGIC_PG_RigBone(PropertyGroup):
 	swing_z_max: _MaxAngle("Swing Z Max", 45, "The most positive swing about the bone's rest +Z axis")
 	twist_min: _MinAngle("Twist Min", -180, "The most negative twist about the bone's +Y axis")
 	twist_max: _MaxAngle("Twist Max", 180, "The most positive twist about the bone's +Y axis")
-	stiffness: FloatProperty(name="Stiffness", min=0.0, max=1.0, default=0.0, description="Tail bones only. How strongly the bone returns towards its rest direction")
 
 
 def SelectBones(armature_obj: bpy.types.Object, names: list[str]) -> None:
@@ -118,6 +117,7 @@ class RYLOGIC_PG_RigChain(PropertyGroup):
 	bones: CollectionProperty(name="Bones", type=RYLOGIC_PG_RigBoneRef, description="Bones from base to end. Each bone is the parent of the next")
 	active_bone: IntProperty(name="Active Bone", default=0)
 	pole: FloatVectorProperty(name="Pole", size=3, default=(0.0, -1.0, 0.0), description="Leg and arm only. The rest-pose armature-space direction that the middle joint bends towards")
+	swing_out: FloatProperty(name="Swing Out", default=0.0, min=0.0, subtype='DISTANCE', description="Leg and arm only. The distance by which the limb's foot moves out, away from the body's centre line, at the middle of its swing, so that the raised limb swings around rather than straight up and down, e.g. 0.02 m for an upright biped or 0.06 m for a lizard")
 	forward: FloatVectorProperty(name="Forward", size=3, default=(0.0, -1.0, 0.0), description="Neck only. The rest-pose armature-space direction that the last bone faces")
 
 

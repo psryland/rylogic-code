@@ -16,8 +16,7 @@
 //        "swing_x": [-0.3, 1.2],         //   [min, max] swing about the bone's rest +X axis
 //        "swing_z": [0.0, 0.0],          //   [min, max] swing about the bone's rest +Z axis. A zero-width range makes a hinge about +X.
 //        "twist": [-0.1, 0.1]            //   [min, max] twist about the bone's +Y axis. Each range is within [-pi, pi] and contains 0.
-//      },
-//      "stiffness": 0.2                  // optional, in [0,1]
+//      }
 //    }],
 //    "chains": [{
 //      "role": "spine" | "neck" | "leg" | "arm" | "tail" | "digit",
@@ -214,9 +213,6 @@ namespace pr::animation
 			});
 
 			// Optional members
-			if (auto stiffness = obj.find("stiffness"))
-				bone.stiffness = ReadFloat(*stiffness, context + ".stiffness");
-
 			if (auto limit_value = obj.find("limit"))
 			{
 				// A limit gives all three ranges
@@ -301,9 +297,6 @@ namespace pr::animation
 					{ "twist", json::Array{ bone.limit.min_twist, bone.limit.max_twist } },
 				};
 			}
-			if (bone.stiffness != 0)
-				obj["stiffness"] = bone.stiffness;
-
 			bones.push_back(std::move(obj));
 		}
 		root["bones"] = std::move(bones);
@@ -403,7 +396,6 @@ namespace pr::animation::tests
 			auto desc = TestRigDesc();
 			desc.bones[13].limit = JointLimit{ .swing = { .min_x = -0.5f, .max_x = 0.25f, .min_z = 0.0f, .max_z = 0.0f } };
 			desc.bones[14].limit = JointLimit{ .swing = { .min_x = -0.3f, .max_x = 0.3f, .min_z = -0.2f, .max_z = 0.4f }, .min_twist = -0.1f, .max_twist = 0.15f };
-			desc.bones[14].stiffness = 0.4f;
 
 			auto text = json::Write(WriteRigDesc(desc));
 			auto read = ReadRigDesc(json::Read(std::string_view(text)));
@@ -413,7 +405,7 @@ namespace pr::animation::tests
 			{
 				auto const& l = read.bones[i];
 				auto const& r = desc.bones[i];
-				PR_EXPECT(l.name == r.name && l.parent == r.parent && l.length == r.length && l.stiffness == r.stiffness);
+				PR_EXPECT(l.name == r.name && l.parent == r.parent && l.length == r.length);
 				PR_EXPECT(FEql(l.rest.pos, r.rest.pos) && FEql(l.rest.rot, r.rest.rot));
 				PR_EXPECT(l.limit.swing.min_x == r.limit.swing.min_x && l.limit.swing.max_x == r.limit.swing.max_x);
 				PR_EXPECT(l.limit.swing.min_z == r.limit.swing.min_z && l.limit.swing.max_z == r.limit.swing.max_z);

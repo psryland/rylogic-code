@@ -7,8 +7,8 @@
 //  - 'Pose' holds local and model-space bone transforms (pose.h).
 //  - 'TargetPath' and 'Fade' move targets and layer weights smoothly with quintic curves (target_path.h).
 //  - 'Layer' and 'ApplyLayers' combine per-chain targets (targets.h).
-//  - 'SolvePose' poses spine, neck and limb chains (solve.h), and 'TailSolver' poses tails with FABRIK (tail.h).
-//  - 'GaitDesc' describes how a character steps (gait.h), and 'Locomotion' poses a rig from its body's motion over the ground (locomotion.h).
+//  - 'SolvePose' poses spine, neck and limb chains (solve.h).
+//  - 'GaitDesc' describes how a character steps (gait.h), and 'Locomotion' poses a rig, including its tails and digits, from its body's motion over the ground (locomotion.h).
 #pragma once
 #include "pr/animation/forward.h"
 #include "pr/animation/rig.h"
@@ -17,7 +17,6 @@
 #include "pr/animation/two_bone_ik.h"
 #include "pr/animation/spine_fit.h"
 #include "pr/animation/aim_chain.h"
-#include "pr/animation/tail.h"
 #include "pr/animation/target_path.h"
 #include "pr/animation/targets.h"
 #include "pr/animation/solve.h"

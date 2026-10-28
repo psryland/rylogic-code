@@ -13,7 +13,7 @@ namespace pr::animation
 	//  - Spine: 'base' is the first bone's frame (pelvis) and 'frame' is the last bone's frame (chest).
 	//  - Leg, Arm: 'frame' is the end bone's frame (foot, hand) and 'pole' is the direction the middle joint bends towards (unit, w = 0).
 	//  - Neck: 'frame.pos' is the point the last bone faces.
-	//  - Tail, Digit: unused. Tails are posed by 'TailSolver'.
+	//  - Tail, Digit: unused. Tails are posed by 'Locomotion'.
 	struct Target
 	{
 		xform frame = xform::Identity();

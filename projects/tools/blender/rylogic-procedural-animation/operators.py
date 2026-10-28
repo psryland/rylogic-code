@@ -240,7 +240,7 @@ class RYLOGIC_OT_rig_check_limits(_ArmatureOperator):
 
 
 class RYLOGIC_OT_rig_symmetrize_limits(_ArmatureOperator):
-	"""Copy the joint limit and stiffness of each selected bone, mirrored, to its left/right partner"""
+	"""Copy the joint limit of each selected bone, mirrored, to its left/right partner"""
 
 	bl_idname = "rylogic_rig.symmetrize_limits"
 	bl_label = "Symmetrize Limits"

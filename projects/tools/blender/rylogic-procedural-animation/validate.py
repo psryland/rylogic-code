@@ -50,8 +50,6 @@ def ValidateRigDesc(desc: dict[str, Any]) -> list[str]:
 			errors.append(f"Bone '{name}' has a non-unit rest rotation")
 		if not bone.get("length", 0) > 0:
 			errors.append(f"Bone '{name}' has no length")
-		if not 0 <= bone.get("stiffness", 0) <= 1:
-			errors.append(f"Bone '{name}' has stiffness outside [0,1]")
 
 		errors.extend(_ValidateLimit(name, bone.get("limit")))
 

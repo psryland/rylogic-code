@@ -22,7 +22,7 @@ namespace pr::animation
 		// Three bones (upper, lower, end) posed by two-bone IK. For example: upper arm, forearm, hand.
 		Arm,
 
-		// Bones from the tail base to the tip, posed by FABRIK
+		// Bones from the tail base to the tip, posed by 'Locomotion' along a curve planned over the ground
 		Tail,
 
 		// Toes and fingers. Not posed by the core solvers; their local transforms are kept.
@@ -37,13 +37,13 @@ namespace pr::animation
 		Right,
 	};
 
-	// A bone's rotation limit relative to its rest orientation under its parent.
+	// A bone's rotation limit relative to its rest orientation under its parent. Tails measure it from the guide pose instead (see 'Locomotion').
 	//  - The bone's rotation from rest is split into a swing and a twist. The twist is the rotation about the bone's own +Y axis. The swing then moves
 	//    the bone's +Y axis, and is limited about the bone's rest +X and +Z axes (see 'fabrik::SwingLimit'). So a hinge is a swing range on one axis
 	//    with a zero-width range on the other, and a ball joint such as a hip or shoulder uses both swing ranges and a twist range.
 	//  - Bone roll decides the swing axes, so roll a bone until its rest +X axis is the main bend axis of its joint.
 	//  - Every range must lie in [-pi, pi] and contain zero, so the rest pose is always allowed. The default allows any rotation.
-	//  - Tail chains pass the swing limit to FABRIK, which only solves bone directions and so ignores twist (see fabrik.h).
+	//  - Tail chains use only the first bone's swing about its +X axis, which limits how far the tail's base droops or lifts.
 	//  - Neck chains limit both swing and twist.
 	//  - Other chains ignore limits.
 	struct JointLimit
@@ -121,7 +121,6 @@ namespace pr::animation
 		xform rest;               // The rest transform relative to the parent (model space for root bones). Unit scale.
 		float length = 0.0f;      // The distance from the bone's head to its tip along its local +Y axis. Must be positive.
 		JointLimit limit;         // Rotation limit relative to the parent
-		float stiffness = 0.0f;   // In [0,1]. Tail chains: how strongly the bone returns towards its rest direction (see fabrik.h).
 	};
 
 	// A chain of bones with a role
@@ -183,40 +182,6 @@ namespace pr::animation
 		return rest_model;
 	}
 
-	// Return the FABRIK joints for a tail chain. Joint 0 is the head of the chain's first bone. Joint 'k' (k >= 1) is the end of chain bone 'k - 1':
-	// the head of the next chain bone, or the tip of the last bone.
-	inline std::vector<fabrik::Joint<float>> TailJoints(std::span<Bone const> bones, std::span<xform const> rest_model, Chain const& chain)
-	{
-		// The rest positions of the joints
-		auto count = static_cast<int>(chain.bones.size());
-		std::vector<v4> positions(count + 1);
-		for (int k = 0; k != count; ++k)
-			positions[k] = rest_model[chain.bones[k]].pos;
-
-		auto const& last = rest_model[chain.bones.back()];
-		positions[count] = last * v4(0, bones[chain.bones.back()].length, 0, 1);
-
-		// One FABRIK joint per position, each with the limit and stiffness of the bone that ends there.
-		// The swing axis is the bone's rest +X axis, made exactly perpendicular to the link in case the link is not along the bone's +Y axis.
-		std::vector<fabrik::Joint<float>> joints(count + 1);
-		for (int k = 1; k <= count; ++k)
-		{
-			auto const& bone = bones[chain.bones[k - 1]];
-			auto offset = positions[k] - positions[k - 1];
-			auto rest_dir = Normalise(offset);
-			auto bone_x = Rotate(rest_model[chain.bones[k - 1]].rot, v4::XAxis());
-			joints[k] = fabrik::Joint<float>{
-				.parent = k - 1,
-				.rest_dir = rest_dir,
-				.length = Length(offset),
-				.swing_axis = Normalise(bone_x - rest_dir * Dot(bone_x, rest_dir), Perpendicular(rest_dir)),
-				.limit = bone.limit.swing,
-				.stiffness = bone.stiffness,
-			};
-		}
-		return joints;
-	}
-
 	// Check a rig description. Returns a description of each problem found, or an empty list if the rig is valid.
 	inline std::vector<std::string> Validate(RigDesc const& desc)
 	{
@@ -249,8 +214,6 @@ namespace pr::animation
 				errors.push_back(std::format("Bone '{}' has a non-unit rest scale", bone.name));
 			if (!(bone.length > 0))
 				errors.push_back(std::format("Bone '{}' has no length", bone.name));
-			if (bone.stiffness < 0 || bone.stiffness > 1)
-				errors.push_back(std::format("Bone '{}' has stiffness outside [0,1]", bone.name));
 
 			// The limit ranges must contain the rest pose
 			if (!bone.limit.IsValid())
@@ -339,10 +302,13 @@ namespace pr::animation
 				}
 				case EChainRole::Tail:
 				{
-					// The tail joints must form a valid FABRIK chain
-					auto joints = TailJoints(bones, rest_model, chain);
-					if (!fabrik::IsValid<float>(joints))
-						errors.push_back(std::format("Tail chain {} has zero-length links or invalid limits", c));
+					// Each bone must reach the next bone's head, so that the tail's joints are distinct
+					auto zero_link = false;
+					for (int i = 1, iend = static_cast<int>(chain.bones.size()); i < iend; ++i)
+						zero_link |= FEqlAbsolute(rest_model[chain.bones[i]].pos, rest_model[chain.bones[i - 1]].pos, 1e-6f);
+
+					if (zero_link)
+						errors.push_back(std::format("Tail chain {} has zero-length links", c));
 
 					break;
 				}
@@ -454,7 +420,6 @@ namespace pr::animation
 		BodyAxis body_axis;
 		std::vector<xform> rest_model;                          // The model-space rest transform of each bone
 		std::vector<int> solve_order;                          // Chain indices ordered so that ancestor chains are solved first
-		std::vector<std::vector<fabrik::Joint<float>>> tails;  // FABRIK joints for each tail chain (empty for other roles)
 
 		// Construct from a rig description. Throws 'std::invalid_argument' listing every problem if the description is invalid.
 		explicit Rig(RigDesc desc)
@@ -464,7 +429,6 @@ namespace pr::animation
 			, body_axis()
 			, rest_model()
 			, solve_order()
-			, tails()
 		{
 			// Reject invalid descriptions at the load boundary so the solvers can rely on them
 			auto errors = Validate(desc);
@@ -481,16 +445,11 @@ namespace pr::animation
 			contacts = std::move(desc.contacts);
 			body_axis = desc.body_axis;
 
-			// Cache the rest pose and per-chain solver data
+			// Cache the rest pose and the chain solve order
 			rest_model = RestModelTransforms(bones);
-			tails.resize(chains.size());
 			for (int c = 0, cend = static_cast<int>(chains.size()); c != cend; ++c)
-			{
-				if (chains[c].role == EChainRole::Tail)
-					tails[c] = TailJoints(bones, rest_model, chains[c]);
-
 				solve_order.push_back(c);
-			}
+
 
 			// A chain's base bone comes after every ancestor's bones, so ordering by base bone solves ancestors first
 			std::sort(solve_order.begin(), solve_order.end(), [&](int l, int r) { return chains[l].bones.front() < chains[r].bones.front(); });
@@ -560,9 +519,10 @@ namespace pr::animation::tests
 		};
 
 		// The foot's sole is under its head, facing down, and the hand's palm likewise
+		auto down = v4(0, 0, -1, 0);
 		std::vector<Contact> contacts = {
-			Contact{ .name = "sole.L", .bone = 8, .offset = v4(0, 0.1f, 0, 1), .normal = v4(0, 0, 1, 0), .kind = EContactKind::Sole },
-			Contact{ .name = "palm.L", .bone = 11, .offset = v4(0, 0.05f, 0, 1), .normal = v4(0, 0, 1, 0), .kind = EContactKind::Palm },
+			Contact{ .name = "sole.L", .bone = 8, .offset = v4(0, 0.1f, 0, 1), .normal = Invert(model[8]) * down, .kind = EContactKind::Sole },
+			Contact{ .name = "palm.L", .bone = 11, .offset = v4(0, 0.05f, 0, 1), .normal = Invert(model[11]) * down, .kind = EContactKind::Palm },
 		};
 		// The body axis runs from the hips to the neck
 		return RigDesc{ .bones = std::move(bones), .chains = std::move(chains), .contacts = std::move(contacts), .body_axis = { .from = 1, .to = 4 } };
@@ -587,8 +547,6 @@ namespace pr::animation::tests
 			// The spine is solved before the chains attached to it
 			auto rig = TestRig();
 			PR_EXPECT(rig.solve_order.front() == 0);
-			PR_EXPECT(rig.tails[4].size() == 4);
-			PR_EXPECT(rig.tails[0].empty());
 		}
 		PRUnitTestMethod(ValidationErrors, Quick)
 		{

@@ -15,7 +15,7 @@
 // A '.gait' file is a JSON gait description:
 //
 //  {
-//    "schema_version": 4,
+//    "schema_version": 6,
 //    "families": [{
 //      "name": "quadruped",
 //      "stance": [{                        // The family's standing pose. Bones that are not listed keep their rest rotation.
@@ -27,14 +27,15 @@
 //        "name": "walk",
 //        "speed": 0.5,                     // the body's speed in the example cycle
 //        "stride": 0.3,                    // the distance the body moves in one cycle of the example
-//        "swing_height": 0.04,             // the height that a foot is lifted in the middle of its swing
 //        "hip_height": 0.5,                // in (0,1]. The height of the hip joints above the ground, as a fraction of the legs' reach.
 //        "spine_sway": 0.3,                // in [0,pi/2). The angle, in radians, by which the hips and shoulders swing with the walking limbs.
 //        "footfalls": [{                   // the walking limbs. Every cycle of a family has the same limbs in the same order.
 //          "role": "leg" | "arm",          // the limb is the rig chain with this role and side
 //          "side": "left" | "right",
 //          "touchdown": 0.0,               // in [0,1). The phase at which the foot touches the ground.
-//          "duty": 0.75                    // in (0,1). The fraction of the cycle that the foot is on the ground.
+//          "duty": 0.75,                   // in (0,1). The fraction of the cycle that the foot is on the ground.
+//          "swing_height": 0.04,           // the height that the foot is lifted in the middle of its swing
+//          "swing_out": 0.02               // the distance that the foot swings outward, away from the body's midline, in the middle of its swing
 //        }],
 //        "motion": [{                      // the repeating motion of bones outside the walking limbs
 //          "bone": "spine",
@@ -67,7 +68,7 @@
 namespace pr::animation
 {
 	// The '.gait' schema version that this code reads and writes
-	inline constexpr int GaitSchemaVersion = 4;
+	inline constexpr int GaitSchemaVersion = 6;
 
 	// The number of harmonics in each bone motion
 	inline constexpr int GaitHarmonics = 2;
@@ -79,6 +80,8 @@ namespace pr::animation
 		ESide side = ESide::Left;
 		float touchdown = 0.0f;     // In [0,1). The phase at which the foot touches the ground.
 		float duty = 0.75f;         // In (0,1). The fraction of the cycle that the foot is on the ground.
+		float swing_height = 0.05f; // The height that the foot is lifted in the middle of its swing. Must not be negative.
+		float swing_out = 0.0f;     // The distance that the foot swings outward, away from the body's midline, in the middle of its swing. Must not be negative.
 	};
 
 	// What a bone motion moves
@@ -112,7 +115,6 @@ namespace pr::animation
 		std::string name;
 		float speed = 1.0f;                // The body's speed in the example. Must be positive.
 		float stride = 0.5f;               // The distance the body moves per cycle in the example. Must be positive.
-		float swing_height = 0.05f;        // The height that a foot is lifted in the middle of its swing. Must not be negative.
 		float hip_height = 0.5f;           // In (0,1]. The height of the hip joints above the ground, as a fraction of the legs' reach.
 		float spine_sway = 0.0f;           // In [0,pi/2). The angle, in radians, by which the hips and shoulders swing with the walking limbs.
 		std::vector<Footfall> footfalls;   // The walking limbs
@@ -245,8 +247,8 @@ namespace pr::animation
 				auto cctx = std::format("{} cycle '{}'", ctx, cycle.name);
 				if (!(cycle.speed > 0) || (c != 0 && !(cycle.speed > family.cycles[c - 1].speed)))
 					errors.push_back(std::format("{} must have a positive speed, faster than the cycle before it", cctx));
-				if (!(cycle.stride > 0) || !(cycle.swing_height >= 0))
-					errors.push_back(std::format("{} must have a positive stride and a swing height that is not negative", cctx));
+				if (!(cycle.stride > 0))
+					errors.push_back(std::format("{} must have a positive stride", cctx));
 				if (!(cycle.hip_height > 0 && cycle.hip_height <= 1))
 					errors.push_back(std::format("{} must have a hip height in (0,1]", cctx));
 				if (!(cycle.spine_sway >= 0 && cycle.spine_sway < math::constants<float>::tau_by_4))
@@ -274,6 +276,8 @@ namespace pr::animation
 						errors.push_back(std::format("{} has no sole or palm contact on its end bone", fctx));
 					if (!(foot.touchdown >= 0 && foot.touchdown < 1) || !(foot.duty > 0 && foot.duty < 1))
 						errors.push_back(std::format("{} must have a touchdown in [0,1) and a duty in (0,1)", fctx));
+					if (!(foot.swing_height >= 0) || !(foot.swing_out >= 0))
+						errors.push_back(std::format("{} must have a swing height and swing out that are not negative", fctx));
 					if (i < first.size() && (first[i].role != foot.role || first[i].side != foot.side))
 						errors.push_back(std::format("{} is not the same limb as in the family's first cycle", fctx));
 
@@ -342,7 +346,6 @@ namespace pr::animation
 					.name = ReadString(Member(cobj, "name", cctx), cctx + ".name"),
 					.speed = ReadFloat(Member(cobj, "speed", cctx), cctx + ".speed"),
 					.stride = ReadFloat(Member(cobj, "stride", cctx), cctx + ".stride"),
-					.swing_height = ReadFloat(Member(cobj, "swing_height", cctx), cctx + ".swing_height"),
 					.hip_height = ReadFloat(Member(cobj, "hip_height", cctx), cctx + ".hip_height"),
 					.spine_sway = ReadFloat(Member(cobj, "spine_sway", cctx), cctx + ".spine_sway"),
 				});
@@ -358,6 +361,8 @@ namespace pr::animation
 						.side = ParseEnum<ESide>(ReadString(Member(obj, "side", ictx), ictx + ".side"), SideNames, ictx + ".side"),
 						.touchdown = ReadFloat(Member(obj, "touchdown", ictx), ictx + ".touchdown"),
 						.duty = ReadFloat(Member(obj, "duty", ictx), ictx + ".duty"),
+						.swing_height = ReadFloat(Member(obj, "swing_height", ictx), ictx + ".swing_height"),
+						.swing_out = ReadFloat(Member(obj, "swing_out", ictx), ictx + ".swing_out"),
 					});
 				}
 
@@ -422,6 +427,8 @@ namespace pr::animation
 						{ "side", EnumName(foot.side, SideNames) },
 						{ "touchdown", foot.touchdown },
 						{ "duty", foot.duty },
+						{ "swing_height", foot.swing_height },
+						{ "swing_out", foot.swing_out },
 					});
 				}
 				json::Array motions;
@@ -441,7 +448,6 @@ namespace pr::animation
 					{ "name", cycle.name },
 					{ "speed", cycle.speed },
 					{ "stride", cycle.stride },
-					{ "swing_height", cycle.swing_height },
 					{ "hip_height", cycle.hip_height },
 					{ "spine_sway", cycle.spine_sway },
 					{ "footfalls", std::move(footfalls) },
@@ -494,12 +500,11 @@ namespace pr::animation::tests
 			.name = "walk",
 			.speed = 0.8f,
 			.stride = 0.5f,
-			.swing_height = 0.1f,
 			.hip_height = rest_hip_height,
 			.spine_sway = 0.2f,
 			.footfalls = {
-				Footfall{ .role = EChainRole::Leg, .side = ESide::Left, .touchdown = 0.0f, .duty = 0.75f },
-				Footfall{ .role = EChainRole::Arm, .side = ESide::Left, .touchdown = 0.5f, .duty = 0.75f },
+				Footfall{ .role = EChainRole::Leg, .side = ESide::Left, .touchdown = 0.0f, .duty = 0.75f, .swing_height = 0.1f, .swing_out = 0.04f },
+				Footfall{ .role = EChainRole::Arm, .side = ESide::Left, .touchdown = 0.5f, .duty = 0.75f, .swing_height = 0.08f, .swing_out = 0.02f },
 			},
 			.motion = {
 				BoneMotion{ .bone = "spine", .channel = EMotionChannel::Rotation, .harmonics = { Harmonic{ .sin = v4(0, 0, 0.1f, 0) }, Harmonic{} } },
@@ -510,21 +515,19 @@ namespace pr::animation::tests
 			.name = "trot",
 			.speed = 1.6f,
 			.stride = 0.8f,
-			.swing_height = 0.15f,
 			.hip_height = rest_hip_height,
 			.spine_sway = 0.3f,
 			.footfalls = {
-				Footfall{ .role = EChainRole::Leg, .side = ESide::Left, .touchdown = 0.0f, .duty = 0.5f },
-				Footfall{ .role = EChainRole::Arm, .side = ESide::Left, .touchdown = 0.5f, .duty = 0.5f },
+				Footfall{ .role = EChainRole::Leg, .side = ESide::Left, .touchdown = 0.0f, .duty = 0.5f, .swing_height = 0.15f, .swing_out = 0.05f },
+				Footfall{ .role = EChainRole::Arm, .side = ESide::Left, .touchdown = 0.5f, .duty = 0.5f, .swing_height = 0.12f, .swing_out = 0.03f },
 			},
 		};
 		auto biped = GaitCycle{
 			.name = "walk",
 			.speed = 0.8f,
 			.stride = 0.5f,
-			.swing_height = 0.1f,
 			.hip_height = rest_hip_height,
-			.footfalls = { Footfall{ .role = EChainRole::Leg, .side = ESide::Left, .touchdown = 0.0f, .duty = 0.6f } },
+			.footfalls = { Footfall{ .role = EChainRole::Leg, .side = ESide::Left, .touchdown = 0.0f, .duty = 0.6f, .swing_height = 0.1f } },
 		};
 		return GaitDesc{
 			.families = {
@@ -558,8 +561,8 @@ namespace pr::animation::tests
 
 			auto const& l = read.families[0].cycles[0];
 			auto const& r = gait.families[0].cycles[0];
-			PR_EXPECT(l.name == r.name && l.speed == r.speed && l.stride == r.stride && l.swing_height == r.swing_height && l.hip_height == r.hip_height && l.spine_sway == r.spine_sway);
-			PR_EXPECT(l.footfalls.size() == 2 && l.footfalls[1].role == EChainRole::Arm && l.footfalls[1].touchdown == 0.5f && l.footfalls[1].duty == 0.75f);
+			PR_EXPECT(l.name == r.name && l.speed == r.speed && l.stride == r.stride && l.hip_height == r.hip_height && l.spine_sway == r.spine_sway);
+			PR_EXPECT(l.footfalls.size() == 2 && l.footfalls[1].role == EChainRole::Arm && l.footfalls[1].touchdown == 0.5f && l.footfalls[1].duty == 0.75f && l.footfalls[1].swing_height == 0.08f && l.footfalls[1].swing_out == 0.02f);
 			PR_EXPECT(l.motion.size() == 2 && l.motion[1].channel == EMotionChannel::Position);
 			PR_EXPECT(FEqlAbsolute(l.motion[0].harmonics[0].sin, r.motion[0].harmonics[0].sin, 1e-6f));
 			PR_EXPECT(FEqlAbsolute(l.motion[1].harmonics[1].cos, r.motion[1].harmonics[1].cos, 1e-6f));
