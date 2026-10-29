@@ -315,7 +315,7 @@ namespace pr::physics
 	// Equivalent to EvolveKick(dt/2) + EvolveDrift(dt) + EvolveKick(dt/2).
 	void Evolve(RigidBody& rb, float elapsed_seconds)
 	{
-		auto ws_force = rb.ForceWS();
+		auto ws_force = rb.ForceWS() + rb.GravityForceWS();
 		auto half_impulse = ws_force * (elapsed_seconds * 0.5f);
 
 		// Step 1: Half-kick — advance momentum by half-step

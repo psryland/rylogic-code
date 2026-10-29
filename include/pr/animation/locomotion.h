@@ -3,8 +3,9 @@
 //  Copyright (c) Rylogic Ltd 2026
 //*****************************************************************************
 // Poses a character's body to follow its motion through the world, guided by a gait description (see gait.h):
-//  - The caller chooses a movement family, such as "bipedal" or "quadruped". A change of family blends smoothly from the old family's stance
-//    and walking limbs to the new family's.
+//  - The caller requests a movement family, such as "bipedal" or "quadruped". The character moves in the requested family while the ground
+//    beneath its feet is no steeper than the family's slope limit, and otherwise in the first family of the gait that the ground allows. A
+//    change of family blends smoothly from the old family's stance and walking limbs to the new family's.
 //  - Each step builds a guide pose: the family's stance plus the repeating body motion of its cycles, blended between the two cycles either side
 //    of the body's speed and scaled down towards a standstill. The guide sets the shape of the body, the necks, the tails, any digits, and the
 //    hanging limbs. It never moves the feet.
@@ -75,6 +76,7 @@ namespace pr::animation
 		v4 velocity = {};           // Linear velocity (w = 0)
 		v4 angular_velocity = {};   // Axis * radians per second (w = 0)
 		bool supported = true;      // False while the body is not resting on the ground, for example when falling. Brief losses are ignored, see 'Locomotion::AirborneDelay'.
+		v4 gravity = {};            // The world-space acceleration due to gravity (w = 0), or zero if there is none. Families with a slope limit need it.
 	};
 
 	// What a walking limb's foot is doing
@@ -143,15 +145,19 @@ namespace pr::animation
 			, m_terrain()
 			, m_family(0)
 			, m_prev_family(0)
+			, m_requested(0)
+			, m_request_blend_s(1.0f)
+			, m_request_pending(false)
 			, m_family_weight(1.0f)
 			, m_gait_speed(0.0f)
 			, m_turn_rate(0.0f)
-			, m_look(v4::Origin())
+			, m_look()
 			, m_look_weight(0.0f)
 			, m_phase(0.0f)
 			, m_unsupported_s(0.0f)
 			, m_fall(0.0f)
 			, m_up(v4::ZAxis())
+			, m_ground_up(v4::ZAxis())
 			, m_started(false)
 		{
 			// Reject gaits that do not fit the rig at the construction boundary so that stepping can rely on them
@@ -238,35 +244,42 @@ namespace pr::animation
 			return m_phase;
 		}
 
-		// The index of the movement family in 'gait().families' that the character is moving in, or blending to
+		// The index of the movement family in 'gait().families' that the character is moving in, or blending to. This is the requested family
+		// unless the ground is too steep for it.
 		int family() const
 		{
 			return m_family;
 		}
 
-		// Blend to the movement family at 'index' in 'gait().families' over 'blend_s' seconds (> 0). A change during a blend starts from the
-		// family that was being blended to.
-		void SetFamily(int index, float blend_s)
+		// Request the movement family at 'index' in 'gait().families'. Each step blends to it over 'blend_s' seconds (> 0) once the ground allows
+		// it, and the same blend time is used when the ground forces a change to another family. A change during a blend starts from the family
+		// that was being blended to.
+		void RequestFamily(int index, float blend_s)
 		{
-			// Choosing the current family changes nothing
 			pr_assert(index >= 0 && index < static_cast<int>(m_families.size()) && "Family index out of range");
-			if (index == m_family)
-				return;
-
-			// Feet find their new neutral positions from the new stance, and step to them as the limbs' support changes
-			m_prev_family = m_family;
-			m_family = index;
-			m_family_weight = Fade(0.0f);
-			m_family_weight.Start(1.0f, blend_s);
-			UseStance(m_family);
+			pr_assert(blend_s > 0 && "Family blend time must be positive");
+			m_requested = index;
+			m_request_blend_s = blend_s;
+			m_request_pending = true;
 		}
 
-		// Turn the neck chains to face 'world_point', or back to rest if it is empty, over 'fade_s' seconds (> 0)
+		// True once the latest requested family has been chosen by a step and any blend to it has finished. The chosen family is 'family()', which
+		// differs from the request on ground too steep for it.
+		bool family_settled() const
+		{
+			return !m_request_pending && m_family_weight.Finished();
+		}
+
+		// Turn the neck chains to face 'world_point', or back to rest if it is empty, over 'fade_s' seconds (> 0). A head that already faces a point
+		// moves its gaze smoothly to the new point over the same time.
 		void SetLook(std::optional<v4> world_point, float fade_s)
 		{
-			// Fading out keeps the last point so that the head turns back along the same path
-			if (world_point)
-				m_look = *world_point;
+			// Fading out keeps the last point so that the head turns back along the same path. A head at rest starts facing the new point at once,
+			// because its weight hides the jump.
+			if (world_point && m_look_weight.Value() == 0 && m_look_weight.Finished())
+				m_look = TargetPath(xform(*world_point, Identity<quat>()));
+			else if (world_point)
+				m_look.Retarget(xform(*world_point, Identity<quat>()), fade_s);
 
 			m_look_weight.Start(world_point ? 1.0f : 0.0f, fade_s);
 		}
@@ -277,6 +290,9 @@ namespace pr::animation
 			// Find where each foot would stand beneath the body now. Planting, settling and lifting all compare the feet with these frames.
 			m_up = Rotate(body.model_to_world.rot, v4::ZAxis());
 			FindNeutralFeet(body.model_to_world, ground);
+
+			// Move in the requested family if the ground beneath the feet allows it, otherwise in the first family that it allows
+			ChooseFamily(body.gravity);
 
 			// The first step plants every foot beneath the body
 			if (!m_started)
@@ -396,6 +412,10 @@ namespace pr::animation
 		// The number of halvings used to find each tail bone's steepest droop that stays clear of the ground
 		static constexpr int TailBisections = 16;
 
+		// The angle (radians) by which the ground must be less steep than a family's slope limit before the character changes to that family,
+		// so that ground close to the limit does not switch families back and forth
+		static constexpr float SlopeMargin = 0.05f;
+
 		// A bone motion with its bone index resolved
 		struct BoneTrack
 		{
@@ -468,15 +488,19 @@ namespace pr::animation
 		TargetPath m_terrain;       // The smoothed ground height under the hind feet (pos.x) and fore feet (pos.y), in model space
 		int m_family;               // The family being moved in, or blended to
 		int m_prev_family;          // The family being blended from
+		int m_requested;            // The family that the caller wants to move in
+		float m_request_blend_s;    // The seconds over which a change of family blends
+		bool m_request_pending;     // True from 'RequestFamily' until the next step has chosen a family
 		Fade m_family_weight;       // From the previous family (0) to the current family (1)
 		float m_gait_speed;         // The smoothed speed that selects cycles and scales body motion
 		float m_turn_rate;          // The smoothed rate of turning about the body's up direction, in radians per second
-		v4 m_look;                  // World-space look point
+		TargetPath m_look;          // The world-space look point (pos), which moves smoothly to each new point
 		Fade m_look_weight;         // How strongly the necks face 'm_look'
 		float m_phase;              // The step cycle position in [0,1)
 		float m_unsupported_s;      // How long the body has been continuously unsupported, in seconds
 		float m_fall;               // In [0,1]. How far the limbs are spread out for falling.
 		v4 m_up;                    // The body's up direction (model +Z) in world space this step
+		v4 m_ground_up;             // The mean unit normal of the ground beneath the feet this step, in world space
 		bool m_started;               // False until the feet have been planted
 
 		// Return the fractional part of 'x'
@@ -859,7 +883,7 @@ namespace pr::animation
 			return -1;
 		}
 
-		// Find the foot frame beneath each stance contact for a body at 'model_to_world'
+		// Find the foot frame beneath each stance contact for a body at 'model_to_world', and the mean normal of the ground found there
 		void FindNeutralFeet(xform const& model_to_world, IGround const& ground)
 		{
 			// One query covers every limb
@@ -868,8 +892,53 @@ namespace pr::animation
 				m_probe_rays.push_back(RayBeneath(model_to_world * limb.stance_contact, m_up, limb.reach));
 
 			auto hits = ProbeGround(ground);
+			auto normal = v4::Zero();
 			for (int i = 0, iend = static_cast<int>(m_limbs.size()); i != iend; ++i)
+			{
+				// Rays that find no ground say nothing about its slope
 				m_neutral[i] = FootOnGround(m_limbs[i], m_probe_rays[i], hits[i], model_to_world.rot);
+				if (hits[i].hit)
+					normal += hits[i].normal;
+			}
+			m_ground_up = Normalise(normal, m_up);
+		}
+
+		// True if family 'f' can be used on the ground beneath the feet. A family that is not the current one needs ground that is less steep
+		// by 'SlopeMargin'. Families with a slope limit cannot be used without gravity.
+		bool AllowsGround(int f, v4 gravity) const
+		{
+			// A family without a slope limit can be used anywhere
+			auto const& family = m_gait.families[f];
+			if (family.max_slope >= math::constants<float>::tau_by_2)
+				return true;
+			if (LengthSq(gravity) == 0)
+				return false;
+
+			auto limit = family.max_slope - (f == m_family ? 0.0f : SlopeMargin);
+			return Dot(m_ground_up, -Normalise(gravity)) >= std::cos(limit);
+		}
+
+		// Change to the requested family if the ground allows it, otherwise to the first family in the gait that it allows. If the ground allows
+		// no family, the current one is kept.
+		void ChooseFamily(v4 gravity)
+		{
+			// Prefer the request, then the gait's order
+			m_request_pending = false;
+			auto f = m_requested;
+			for (int i = 0, iend = static_cast<int>(m_families.size()); i != iend && !AllowsGround(f, gravity); ++i)
+			{
+				// Try each family in order until the ground allows one
+				f = i;
+			}
+			if (f == m_family || !AllowsGround(f, gravity))
+				return;
+
+			// Feet find their new neutral positions from the new stance, and step to them as the limbs' support changes
+			m_prev_family = m_family;
+			m_family = f;
+			m_family_weight = Fade(0.0f);
+			m_family_weight.Start(1.0f, m_request_blend_s);
+			UseStance(m_family);
 		}
 
 		// True if limb 'i' is planted further than the settle distance from its neutral position
@@ -1200,8 +1269,9 @@ namespace pr::animation
 		void StepNecks(float dt, xform const& world_to_model)
 		{
 			m_look_weight.Step(dt);
+			m_look.Step(dt);
 			auto weight = m_look_weight.Value();
-			auto look = world_to_model * m_look;
+			auto look = world_to_model * m_look.Frame().pos;
 			for (int c = 0, cend = static_cast<int>(m_rig.chains.size()); c != cend; ++c)
 			{
 				// Rotate the guide aim point about the neck's base onto the look direction, so that a zero weight gives the guide aim exactly
@@ -1912,17 +1982,20 @@ namespace pr::animation::tests
 			auto loco = Locomotion(rig, gait);
 			auto ground = TestGround();
 			auto dt = 1.0f / 60;
-			auto body = BodyState{ .velocity = v4(0, -gait.families[0].cycles[0].speed, 0, 0) };
+			auto body = BodyState{ .velocity = v4(0, -gait.families[0].cycles[0].speed, 0, 0), .gravity = v4(0, 0, -9.8f, 0) };
 			loco.Step(0, body, ground);
 			PR_EXPECT(loco.limbs().size() == 2 && loco.limbs()[1].support == 1.0f);
 
-			loco.SetFamily(FamilyIndex(gait, "bipedal"), 0.5f);
-			PR_EXPECT(loco.family() == 1);
+			loco.RequestFamily(FamilyIndex(gait, "bipedal"), 0.5f);
+			PR_EXPECT(loco.family() == 0);
+			PR_EXPECT(!loco.family_settled());
 			for (int i = 0; i != 15; ++i)
 			{
 				body.model_to_world.pos += body.velocity * dt;
 				loco.Step(dt, body, ground);
 			}
+			PR_EXPECT(loco.family() == 1);
+			PR_EXPECT(!loco.family_settled());
 			auto const& arm = loco.limbs()[1];
 			PR_EXPECT(arm.support > 0.0f && arm.support < 1.0f);
 
@@ -1931,6 +2004,7 @@ namespace pr::animation::tests
 				body.model_to_world.pos += body.velocity * dt;
 				loco.Step(dt, body, ground);
 			}
+			PR_EXPECT(loco.family_settled());
 			PR_EXPECT(arm.support == 0.0f && arm.state == EFootState::Stance);
 			PR_EXPECT(loco.limbs()[0].support == 1.0f);
 
@@ -1941,6 +2015,43 @@ namespace pr::animation::tests
 
 			auto hand = rig.BoneIndex("hand.L");
 			PR_EXPECT(FEqlAbsolute(loco.pose().model[hand].pos, rig.rest_model[hand].pos, 1e-3f));
+		}
+		PRUnitTestMethod(FamilySlopeLimit, Quick)
+		{
+			// The bipedal family is refused without gravity and on ground steeper than its slope limit, where the character falls back to the
+			// quadruped family. It is used again once the ground is level enough, while the request stands.
+			auto rig = TestRig();
+			auto gait = TestGait();
+			auto loco = Locomotion(rig, gait);
+			auto biped = FamilyIndex(gait, "bipedal");
+			auto limit = gait.families[biped].max_slope;
+			auto dt = 1.0f / 60;
+			auto level = TestGround();
+			auto steep = TestGround(std::tan(limit + 0.1f));
+			auto body = BodyState{};
+			loco.RequestFamily(biped, 0.5f);
+			loco.Step(dt, body, level);
+			PR_EXPECT(loco.family() == 0);
+
+			body.gravity = v4(0, 0, -9.8f, 0);
+			loco.Step(dt, body, level);
+			PR_EXPECT(loco.family() == biped);
+
+			loco.Step(dt, body, steep);
+			PR_EXPECT(loco.family() == 0);
+
+			// A request that the ground refuses still settles, in the family that the ground allows
+			for (int i = 0; i != 60; ++i)
+				loco.Step(dt, body, steep);
+
+			PR_EXPECT(loco.family_settled() && loco.family() == 0);
+			// Ground just inside the limit does not bring the bipedal family back, because changing family needs a margin
+			auto inside = TestGround(std::tan(limit - 0.01f));
+			loco.Step(dt, body, inside);
+			PR_EXPECT(loco.family() == 0);
+
+			loco.Step(dt, body, level);
+			PR_EXPECT(loco.family() == biped);
 		}
 		PRUnitTestMethod(LookFadesInAndOut, Quick)
 		{
@@ -1962,6 +2073,17 @@ namespace pr::animation::tests
 				loco.Step(1.0f / 60, BodyState{}, ground);
 
 			PR_EXPECT(Dot(facing(), Normalise(look - loco.pose().model[head].pos)) > 0.95f);
+
+			// A new look point moves the gaze there smoothly rather than at once
+			auto before = facing();
+			auto moved = v4(3, 1.1f, 1.2f, 1);
+			loco.SetLook(moved, 0.25f);
+			loco.Step(1.0f / 60, BodyState{}, ground);
+			PR_EXPECT(Dot(facing(), before) > 0.99f);
+			for (int i = 0; i != 60; ++i)
+				loco.Step(1.0f / 60, BodyState{}, ground);
+
+			PR_EXPECT(Dot(facing(), Normalise(moved - loco.pose().model[head].pos)) > 0.95f);
 
 			loco.SetLook(std::nullopt, 0.25f);
 			for (int i = 0; i != 60; ++i)

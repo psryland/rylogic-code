@@ -103,11 +103,17 @@ def GenerateTemplate(armature_obj: bpy.types.Object, context: bpy.types.Context,
 		_RestorePose(armature_obj, saved_pose)
 		scene.frame_set(saved_frame)
 
-	# Register the cycle
-	cycle = armature.rylogic_rig.cycles.add()
+	# Register the cycle, adding its family if the rig does not have it yet. Upright bipeds stand against gravity on gentle ground; others follow the ground.
+	rig = armature.rylogic_rig
+	if template.family not in rig.families:
+		family = rig.families.add()
+		family.name = template.family
+		family.up, family.max_slope = ("GRAVITY", math.radians(25)) if template.family == "bipedal" else ("SURFACE", math.pi)
+
+	cycle = rig.cycles.add()
 	cycle.name, cycle.family, cycle.action = template.name, template.family, action
 	cycle.hip_height, cycle.spine_sway = template.hip_height, template.spine_sway
-	armature.rylogic_rig.active_cycle = len(armature.rylogic_rig.cycles) - 1
+	rig.active_cycle = len(rig.cycles) - 1
 	return action
 
 

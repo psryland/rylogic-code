@@ -1816,10 +1816,6 @@ namespace pr::physics::tests
 				auto const t0 = clock::now();
 				for (int i = 0; i != steps; ++i)
 				{
-					// Gravity is a per-frame force and must be reapplied before every step.
-					for (auto& body : h.m_bodies)
-						body.GravityWS(AnalyticGravityWS);
-
 					h.m_engine.Step(StepSize, std::span{h.m_bodies}, i * double(StepSize));
 					h.m_buoyancy.CompleteStep();
 					for (int b = 0; b != isize(h.m_bodies); ++b)

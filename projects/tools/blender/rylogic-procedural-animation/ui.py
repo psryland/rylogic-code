@@ -1,5 +1,7 @@
 """Properties-editor panels for the rig description."""
 
+import math
+
 import bpy
 from bpy.types import Panel, UIList
 
@@ -24,6 +26,17 @@ class RYLOGIC_UL_rig_contacts(UIList):
 		row = layout.row()
 		row.prop(item, "name", text="", emboss=False, icon="SNAP_FACE")
 		row.label(text=f"{item.kind.title()} on {item.bone}")
+
+
+class RYLOGIC_UL_rig_families(UIList):
+	"""Lists an armature's gait families."""
+
+	def draw_item(self, context, layout, data, item, icon, active_data, active_property, index):
+		# Show the editable name with its posture
+		row = layout.row()
+		row.prop(item, "name", text="", emboss=False, icon="ARMATURE_DATA")
+		slope = "any slope" if item.max_slope >= math.pi else f"up to {math.degrees(item.max_slope):.0f}°"
+		row.label(text=f"{item.up.title()} up, {slope}")
 
 
 class RYLOGIC_UL_rig_cycles(UIList):
@@ -134,6 +147,19 @@ class RYLOGIC_PT_rig(Panel):
 		box.prop_search(rig, "body_axis_from", armature, "bones", text="From")
 		box.prop_search(rig, "body_axis_to", armature, "bones", text="To")
 
+		# Families: the postures that cycles belong to, in the runtime's order of preference
+		layout.label(text="Families")
+		row = layout.row()
+		row.template_list("RYLOGIC_UL_rig_families", "", rig, "families", rig, "active_family", rows=2)
+		column = row.column(align=True)
+		column.operator("rylogic_rig.item_add", icon="ADD", text="").collection = "FAMILIES"
+		column.operator("rylogic_rig.item_remove", icon="REMOVE", text="").collection = "FAMILIES"
+		if 0 <= rig.active_family < len(rig.families):
+			family = rig.families[rig.active_family]
+			box = layout.box()
+			box.prop(family, "up")
+			box.prop(family, "max_slope")
+
 		# Movement cycles: example actions that guide the runtime's procedural locomotion, exported as a '.gait'
 		layout.label(text="Movement Cycles")
 		row = layout.row()
@@ -145,7 +171,7 @@ class RYLOGIC_PT_rig(Panel):
 		if 0 <= rig.active_cycle < len(rig.cycles):
 			cycle = rig.cycles[rig.active_cycle]
 			box = layout.box()
-			box.prop(cycle, "family")
+			box.prop_search(cycle, "family", rig, "families")
 			box.prop(cycle, "action")
 			box.prop(cycle, "hip_height")
 			box.prop(cycle, "spine_sway")
@@ -191,6 +217,7 @@ class RYLOGIC_PT_rig_bone(Panel):
 CLASSES = (
 	RYLOGIC_UL_rig_chains,
 	RYLOGIC_UL_rig_contacts,
+	RYLOGIC_UL_rig_families,
 	RYLOGIC_UL_rig_cycles,
 	RYLOGIC_PT_rig,
 	RYLOGIC_PT_rig_bone,

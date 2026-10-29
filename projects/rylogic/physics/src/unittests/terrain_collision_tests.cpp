@@ -1119,13 +1119,11 @@ namespace pr::physics::tests
 			// Removing resting support wakes the body on the next submitted frame.
 			body.Sleeping(true);
 			engine.Terrain(std::nullopt);
-			body.GravityWS(v4(0, 0, -9.81f, 0));
 			auto z = body.O2W().pos.z;
 			engine.Step(0.1f, bodies);
 			PR_EXPECT(!body.Sleeping());
 
-			// GravityWS does not accumulate forces while asleep; the caller supplies it again after the environment wakes the body.
-			body.GravityWS(v4(0, 0, -9.81f, 0));
+			// Gravity persists, so the woken body falls without the caller supplying it again.
 			engine.Step(0.1f, bodies);
 			PR_EXPECT(body.O2W().pos.z < z - 0.01f);
 

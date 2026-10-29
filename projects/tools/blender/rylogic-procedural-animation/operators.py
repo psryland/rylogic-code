@@ -405,7 +405,7 @@ def _ReportUnmatched(operator: Operator, unmatched: list[str]) -> None:
 
 
 # The rig's editable lists
-_COLLECTIONS = [("CHAINS", "Chains", ""), ("CONTACTS", "Contacts", ""), ("CYCLES", "Movement Cycles", "")]
+_COLLECTIONS = [("CHAINS", "Chains", ""), ("CONTACTS", "Contacts", ""), ("FAMILIES", "Families", ""), ("CYCLES", "Movement Cycles", "")]
 
 
 class RYLOGIC_OT_gait_validate(_ArmatureOperator):
@@ -501,6 +501,10 @@ class RYLOGIC_OT_rig_item_add(_ArmatureOperator):
 				contact = rig.contacts.add()
 				contact.name = f"contact.{len(rig.contacts)}"
 				rig.active_contact = len(rig.contacts) - 1
+			case "FAMILIES":
+				family = rig.families.add()
+				family.name = f"family.{len(rig.families)}"
+				rig.active_family = len(rig.families) - 1
 			case "CYCLES":
 				cycle = rig.cycles.add()
 				cycle.name = f"cycle.{len(rig.cycles)}"
@@ -532,6 +536,10 @@ class RYLOGIC_OT_rig_item_remove(_ArmatureOperator):
 				if 0 <= rig.active_contact < len(rig.contacts):
 					rig.contacts.remove(rig.active_contact)
 					rig.active_contact = max(0, min(rig.active_contact, len(rig.contacts) - 1))
+			case "FAMILIES":
+				if 0 <= rig.active_family < len(rig.families):
+					rig.families.remove(rig.active_family)
+					rig.active_family = max(0, min(rig.active_family, len(rig.families) - 1))
 			case "CYCLES":
 				if 0 <= rig.active_cycle < len(rig.cycles):
 					rig.cycles.remove(rig.active_cycle)

@@ -40,7 +40,9 @@ so constraints and IK count.
 
 Movement cycles are example actions that guide the runtime's procedural locomotion. They are not played back: the runtime measures stride, speed,
 footfall order and timing, and the body's sway from them, then places the feet itself. Each cycle belongs to a family (e.g. 'bipedal', 'quadruped',
-'climb'), and game logic chooses the family. Within a family, the runtime blends the cycles by speed. To author a cycle:
+'climb'): a posture listed under 'Families' with the direction the body stands up along (the ground's normal, or against gravity) and the steepest
+ground it can be used on. Game logic requests a family; the runtime falls back to the first family in list order that suits the ground. Within a
+family, the runtime blends the cycles by speed. Adding a template cycle adds its family if it is missing. To author a cycle:
 	1. Under 'Movement Cycles', add a cycle from a template (the preset button), or add an empty cycle and assign an action. A template keys a
 	   standard footfall pattern from the rig's leg chains and sole/palm contacts, as a starting point.
 	2. Refine the action by hand. Its frame range is one loop: the pose at the last frame is the pose at the first frame, moved forward by one

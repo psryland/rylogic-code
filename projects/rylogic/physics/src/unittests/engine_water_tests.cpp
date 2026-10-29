@@ -34,11 +34,11 @@ namespace pr::physics::tests
 		// Step one body for 'frames' frames of 1/60 s with 'substeps' internal substeps.
 		static void Run(Engine& engine, RigidBody& body, int frames, int substeps)
 		{
-			// Gravity is re-applied each frame, as callers are required to do.
+			// Gravity persists on the body, so each frame only submits the step.
 			auto* bodies = &body;
+			body.GravityWS(v4{ 0, 0, -Gravity, 0 });
 			for (int i = 0; i != frames; ++i)
 			{
-				body.GravityWS(v4{ 0, 0, -Gravity, 0 });
 				engine.BeginStep(Engine::StepInput{
 					.m_bodies = std::span<RigidBody*>{ &bodies, 1 },
 					.m_elapsed_seconds = 1.0f / 60.0f,

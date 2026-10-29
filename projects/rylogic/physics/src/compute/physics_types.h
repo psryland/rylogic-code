@@ -391,12 +391,14 @@ namespace pr::physics
 	// Pack a RigidBody's dynamic state into the flat GPU buffer format.
 	inline GpuRigidBody PackDynamics(RigidBody const& rb, int shape_id)
 	{
+		// The packed force is the step's frame-constant force, so it includes gravity as well as the accumulated forces.
+		auto ws_force = rb.m_ws_force + rb.GravityForceWS();
 		return GpuRigidBody {
 			.o2w = rb.m_o2w,
 			.momentum_ang = rb.m_ws_momentum.ang,
 			.momentum_lin = rb.m_ws_momentum.lin,
-			.force_ang = rb.m_ws_force.ang,
-			.force_lin = rb.m_ws_force.lin,
+			.force_ang = ws_force.ang,
+			.force_lin = ws_force.lin,
 			.ws_gravity = rb.m_ws_gravity,
 			.inertia_inv_diagonal = rb.m_os_inertia_inv.m_diagonal,
 			.inertia_inv_products = rb.m_os_inertia_inv.m_products,

@@ -175,12 +175,11 @@ struct GpuRigidBody
 	float4 momentum_ang;
 	float4 momentum_lin;
 
-	// World-space force accumulator [angular, linear] at centre of mass
+	// World-space force at centre of mass [angular, linear]. The packed force already includes gravity.
 	float4 force_ang;
 	float4 force_lin;
 
-	// Each body has its own gravity vector to define local "down" for this object. This value is updated
-	// via the Gravity methods and should be called each frame to apply the gravity force to the body (even static bodies).
+	// Each body has its own gravity vector to define local "down" for this object. The force it causes is part of the packed force.
 	float4 ws_gravity;
 
 	// Object-space inverse inertia (compact symmetric 3x3)

@@ -298,8 +298,7 @@ namespace pr::physics
 		MomentumWS(v8force{});
 	}
 
-	// Apply gravity to the body. This should be called each frame to apply the gravity force
-	// to the body, even for static bodies in order to define the "down" direction for the body.
+	// Get/Set the gravitational acceleration acting on the body.
 	v4 RigidBody::GravityWS() const
 	{
 		return m_ws_gravity;
@@ -307,18 +306,18 @@ namespace pr::physics
 	void RigidBody::GravityWS(v4 ws_gravity)
 	{
 		m_ws_gravity = ws_gravity;
-		if (Sleeping())
-			return;
+	}
 
+	// The force that gravity applies to the body in the next step (measured at the centre of mass).
+	v8force RigidBody::GravityForceWS() const
+	{
+		// Sleeping bodies stay at rest, and infinite-mass bodies are not moved by forces.
 		auto mass = Mass();
-		if (mass < InfiniteMass * 0.5f)
-		{
-			auto ws_com = O2W().rot * m_os_com;
-			auto ws_at = O2W().rot * CentreOfMassOS();
-			auto spatial_force = v8force{v4::Zero(), m_ws_gravity * mass};
-			spatial_force = Shift(spatial_force, ws_com - ws_at);
-			AccumulateForceWS(spatial_force);
-		}
+		if (Sleeping() || mass >= InfiniteMass * 0.5f)
+			return v8force{};
+
+		// Gravity acts at the centre of mass, so it produces no torque there.
+		return v8force{v4::Zero(), m_ws_gravity * mass};
 	}
 
 	// Return the body's state flags

@@ -46,8 +46,8 @@ namespace pr::physics
 		// be constant need to be applied each frame.
 		v8force m_ws_force;
 
-		// Each body has its own gravity vector to define local "down" for this object. This value is updated
-		// via the Gravity methods and should be called each frame to apply the gravity force to the body (even static bodies).
+		// Each body has its own gravity vector to define local "down" for this object. It persists between steps, and each step
+		// applies it as a force on the body when the body is awake and has finite mass (see GravityForceWS).
 		v4 m_ws_gravity;
 
 		// Inverse inertia, measured at the centre of mass (CoM() == 0, block-diagonal).
@@ -165,10 +165,14 @@ namespace pr::physics
 		void ZeroForces();
 		void ZeroMomentum();
 
-		// Apply gravity to the body. This should be called each frame to apply the gravity force
-		// to the body, even for static bodies in order to define the "down" direction for the body.
+		// Get/Set the gravitational acceleration acting on the body. The value persists until changed, and every step applies it as a force at
+		// the centre of mass of an awake, finite-mass body. Setting it does not accumulate a force, so it can be set any number of times per step.
+		// Static bodies use it to define their "down" direction.
 		v4 GravityWS() const;
 		void GravityWS(v4 ws_gravity);
+
+		// The force that gravity applies to the body in the next step (measured at the centre of mass). Zero for sleeping or infinite-mass bodies.
+		v8force GravityForceWS() const;
 
 		// Return the body's state flags
 		ERigidBodyStateFlags StateFlags() const;
