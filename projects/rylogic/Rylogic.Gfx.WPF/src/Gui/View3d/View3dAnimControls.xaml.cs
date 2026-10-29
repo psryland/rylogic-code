@@ -16,6 +16,8 @@ namespace Rylogic.Gui.WPF
 		//  - There is conflicting control of the main slider thumb position. While an animation is playing
 		//    we want the thumb to represent the current animation clock. While not playing, the thumb becomes
 		//    authoritative, setting the animation clock when moved.
+		//  - The frame range follows the duration of the animated content in the scene until the user edits
+		//    Frame0 or FrameN. The 'FitRange' command refits the range and resumes following the scene.
 
 		public View3dAnimControls()
 		{
@@ -41,10 +43,12 @@ namespace Rylogic.Gui.WPF
 			if (old_value != null)
 			{
 				old_value.OnAnimationEvent -= HandleAnimationEvent;
+				old_value.OnSceneChanged -= HandleSceneChanged;
 			}
 			if (new_value != null)
 			{
 				new_value.OnAnimationEvent += HandleAnimationEvent;
+				new_value.OnSceneChanged += HandleSceneChanged;
 			}
 			if (ThumbDragging)
 			{
@@ -56,6 +60,7 @@ namespace Rylogic.Gui.WPF
 			NotifyPropertyChanged(nameof(AnimClock));
 			NotifyPropertyChanged(nameof(Frame));
 			NotifyPropertyChanged(nameof(SliderFrame));
+			AutoFitRange();
 
 			// Handlers
 			void HandleAnimationEvent(object? sender, View3d.AnimationEventArgs e)
@@ -69,6 +74,18 @@ namespace Rylogic.Gui.WPF
 					NotifyPropertyChanged(nameof(Frame));
 					NotifyPropertyChanged(nameof(SliderFrame));
 				}
+			}
+			void HandleSceneChanged(object? sender, View3d.SceneChangedEventArgs e)
+			{
+				// Loading a source can raise many scene changes, so refit once after the current batch has been processed
+				if (m_auto_fit_pending) return;
+				m_auto_fit_pending = true;
+				Dispatcher.BeginInvoke(() =>
+				{
+					// Fit to the scene as it is after the batch of changes
+					m_auto_fit_pending = false;
+					AutoFitRange();
+				}, System.Windows.Threading.DispatcherPriority.Background);
 			}
 		}
 		public static readonly DependencyProperty ViewWindowProperty = Gui_.DPRegister<View3dAnimControls>(nameof(ViewWindow), null, Gui_.EDPFlags.None);
@@ -132,6 +149,7 @@ namespace Rylogic.Gui.WPF
 				NotifyPropertyChanged(nameof(FrameRate));
 				NotifyPropertyChanged(nameof(Frame));
 				NotifyPropertyChanged(nameof(SliderFrame));
+				AutoFitRange();
 			}
 		}
 
@@ -150,12 +168,13 @@ namespace Rylogic.Gui.WPF
 			}
 		}
 
-		/// <summary>The start frame</summary>
+		/// <summary>The start frame. Setting this stops the range from following the scene until 'FitRange' is used.</summary>
 		public int Frame0
 		{
 			get => m_frame0;
 			set
 			{
+				m_range_user_edited = true;
 				if (Frame0 == value) return;
 				m_frame0 = value;
 				NotifyPropertyChanged(nameof(Frame0));
@@ -192,12 +211,13 @@ namespace Rylogic.Gui.WPF
 			}
 		}
 
-		/// <summary>The end frame</summary>
+		/// <summary>The end frame. Setting this stops the range from following the scene until 'FitRange' is used.</summary>
 		public int FrameN
 		{
 			get => m_frameN;
 			set
 			{
+				m_range_user_edited = true;
 				if (FrameN == value) return;
 				m_frameN = value;
 				NotifyPropertyChanged(nameof(FrameN));
@@ -216,9 +236,11 @@ namespace Rylogic.Gui.WPF
 		}
 		private double m_slider_frame;
 		private double m_step_size;
-		private double m_frame_rate = 24.0;
+		private double m_frame_rate = 30.0;
 		private int m_frame0;
 		private int m_frameN = 100;
+		private bool m_range_user_edited;
+		private bool m_auto_fit_pending;
 		private bool m_thumb_dragging;
 		private bool m_relative_time;
 
@@ -268,18 +290,36 @@ namespace Rylogic.Gui.WPF
 			ViewWindow.AnimControl(View3d.EAnimCommand.Step, +StepSize);
 		}
 
-		/// <summary>Set the frame range to cover every frame of the flipbooks in the scene</summary>
+		/// <summary>Set the frame range to cover the animated content in the scene, and follow later scene changes</summary>
 		public Command FitRange { get; }
 		private void FitRangeInternal()
 		{
-			// Leave the range unchanged when there is nothing to fit to
-			if (ViewWindow == null) return;
-			var duration_s = ViewWindow.FlipbookDuration;
+			// An explicit fit hands control of the range back to the scene
+			m_range_user_edited = false;
+			AutoFitRange();
+		}
+
+		/// <summary>Fit the frame range to the animated content in the scene, unless the user has chosen the range</summary>
+		private void AutoFitRange()
+		{
+			// Leave the range unchanged when the user owns it or there is nothing to fit to
+			if (m_range_user_edited || ViewWindow == null) return;
+			var duration_s = ViewWindow.AnimationDuration;
 			if (duration_s <= 0) return;
 
-			// The slider counts frames at 'FrameRate', which can differ from the flipbook frame rates
-			Frame0 = 0;
-			FrameN = Math.Max(1, (int)Math.Ceiling(duration_s * FrameRate - 1e-6));
+			// The slider counts frames at 'FrameRate', which can differ from the frame rates of the animated content.
+			// Write the fields directly because the public setters mark the range as user edited.
+			var frameN = Math.Max(1, (int)Math.Ceiling(duration_s * FrameRate - 1e-6));
+			if (m_frame0 != 0)
+			{
+				m_frame0 = 0;
+				NotifyPropertyChanged(nameof(Frame0));
+			}
+			if (m_frameN != frameN)
+			{
+				m_frameN = frameN;
+				NotifyPropertyChanged(nameof(FrameN));
+			}
 		}
 
 		/// <summary>Enter scrub mode before the slider can update its value from the mouse down event.</summary>

@@ -2141,18 +2141,23 @@ namespace pr::rdr12
 		m_anim_data.m_clock.store(clock);
 	}
 
-	// Return the longest time needed to show every frame of any flipbook in this window
-	seconds_t V3dWindow::FlipbookDuration() const
+	// Return the longest time needed to play the animated content (flipbooks, root animations, skinned poses) in this window once
+	seconds_t V3dWindow::AnimationDuration() const
 	{
-		// Flipbooks can be nested anywhere in an object tree, so search every object recursively
+		// Animated content can be nested anywhere in an object tree, so search every object recursively
 		assert(std::this_thread::get_id() == m_main_thread_id);
 		auto duration_s = 0.0;
 		for (auto& obj : m_objects)
 		{
 			obj->Apply([&](ldraw::LdrObject const* ob)
 			{
+				// Objects can have any combination of animation sources
 				if (ob->m_flipbook)
 					duration_s = std::max(duration_s, ob->m_flipbook.Duration(static_cast<int>(ob->m_child.size())));
+				if (ob->m_root_anim)
+					duration_s = std::max(duration_s, ob->m_root_anim.m_simple->Duration());
+				if (ob->m_pose)
+					duration_s = std::max(duration_s, ob->m_pose->Duration());
 
 				return true;
 			}, "");

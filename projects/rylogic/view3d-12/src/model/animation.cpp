@@ -81,6 +81,30 @@ namespace pr::rdr12
 		return m4x4{ ang, lin };
 	}
 
+	// Return the animation time (in seconds) needed to play one period. Returns zero for 'NoAnimation'.
+	double RootAnimation::Duration() const
+	{
+		// Periodic and continuous styles count one period, because that is the span that defines the motion
+		switch (m_style)
+		{
+			case EAnimStyle::NoAnimation:
+			{
+				return 0.0;
+			}
+			case EAnimStyle::Once:
+			case EAnimStyle::Repeat:
+			case EAnimStyle::Continuous:
+			case EAnimStyle::PingPong:
+			{
+				return m_period;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown animation style");
+			}
+		}
+	}
+
 	// Ref-counting clean up function
 	void RootAnimation::RefCountZero(RefCounted<RootAnimation>* doomed)
 	{

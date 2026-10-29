@@ -190,6 +190,9 @@ namespace pr::rdr12
 		// Return a transform representing the offset added by this object at time 'time_s'
 		m4x4 EvaluateAtTime(double time_s) const;
 
+		// Return the animation time (in seconds) needed to play one period. Returns zero for 'NoAnimation'.
+		double Duration() const;
+
 		// Ref-counting clean up function
 		static void RefCountZero(RefCounted<RootAnimation>* doomed);
 	};
