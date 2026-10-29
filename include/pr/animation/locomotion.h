@@ -6,8 +6,8 @@
 //  - The caller requests a movement family, such as "bipedal" or "quadruped". The character moves in the requested family while the ground
 //    beneath its feet is no steeper than the family's slope limit, and otherwise in the first family of the gait that the ground allows. A
 //    change of family blends smoothly from the old family's stance and walking limbs to the new family's.
-//  - Each step builds a guide pose: the family's stance plus the repeating body motion of its cycles, blended between the two cycles either side
-//    of the body's speed and scaled down towards a standstill. The guide sets the shape of the body, the necks, the tails, any digits, and the
+//  - Each step builds a guide pose: the stance plus the repeating body motion of the family's cycles, both blended between the two cycles either side
+//    of the body's speed, with the motion scaled down towards a standstill. The guide sets the shape of the body, the necks, the tails, any digits, and the
 //    hanging limbs. It never moves the feet.
 //  - Walking limbs step in the footfall order of the family's cycles. Planted feet stay fixed in the world, swinging feet arc up and out from
 //    the body to a predicted landing point on the ground, and a standing character steps until its feet are back beneath it. Stride and cadence
@@ -518,8 +518,8 @@ namespace pr::animation
 		// A family with its names resolved
 		struct FamilyData
 		{
-			std::vector<xform> stance_local;             // Per bone, the stance transform relative to the parent bone
-			std::vector<xform> stance_model;             // Per bone, the stance transform in model space
+			std::vector<std::vector<xform>> stance_local; // Per cycle, per bone, the stance transform relative to the parent bone
+			std::vector<xform> stance_model;             // Per bone, the slowest cycle's stance transform in model space
 			std::vector<std::vector<BoneTrack>> tracks;  // Per cycle, the bone motions
 			std::vector<int> limb_footfall;              // Per limb in 'm_limbs', its footfall index in the family's cycles, or -1 if it does not walk
 		};
@@ -630,44 +630,48 @@ namespace pr::animation
 		// Resolve the bone and limb names of 'family'
 		FamilyData ResolveFamily(GaitFamily const& family) const
 		{
-			// The stance starts from the rest pose. Listed bones replace their rotation, and root bones may also replace their position.
 			FamilyData data;
-			for (auto const& bone : m_rig.bones)
-				data.stance_local.push_back(bone.rest);
-
-			for (auto const& bone : family.stance)
-			{
-				auto& local = data.stance_local[m_rig.BoneIndex(bone.bone)];
-				local.rot = bone.rotation;
-				if (bone.position)
-					local.pos = *bone.position;
-			}
-			data.stance_model = ModelFrames(data.stance_local);
-
-			// Raise or lower the root bones so that the stance carries the hip joints at the slowest cycle's hip height. The authored height
-			// of the hips is ignored because the body's height should follow the legs, not the pose that the cycles happened to be made in.
-			if (!m_legs.empty())
-			{
-				auto hip_z = 0.0f;
-				for (auto i : m_legs)
-					hip_z += data.stance_model[m_rig.chains[m_limbs[i].chain].bones.front()].pos.z / static_cast<float>(m_legs.size());
-
-				auto lift = family.cycles.front().hip_height * m_leg_reach - hip_z;
-				for (int b = 0, bend = static_cast<int>(m_rig.bones.size()); b != bend; ++b)
-				{
-					if (m_rig.bones[b].parent < 0)
-						data.stance_local[b].pos.z += lift;
-				}
-				data.stance_model = ModelFrames(data.stance_local);
-			}
-
-			// Each cycle's bone motions
 			for (auto const& cycle : family.cycles)
 			{
+				// The stance starts from the rest pose. Listed bones replace their rotation, and root bones may also replace their position.
+				auto& stance = data.stance_local.emplace_back();
+				for (auto const& bone : m_rig.bones)
+					stance.push_back(bone.rest);
+
+				for (auto const& bone : cycle.stance)
+				{
+					auto& local = stance[m_rig.BoneIndex(bone.bone)];
+					local.rot = bone.rotation;
+					if (bone.position)
+						local.pos = *bone.position;
+				}
+
+				// Raise or lower the root bones so that every stance carries the hip joints at the slowest cycle's hip height. The authored height
+				// of the hips is ignored because the body's height should follow the legs, not the pose that the cycles happened to be made in.
+				// 'HipLift' adds the change in hip height between the cycles.
+				if (!m_legs.empty())
+				{
+					auto model = ModelFrames(stance);
+					auto hip_z = 0.0f;
+					for (auto i : m_legs)
+						hip_z += model[m_rig.chains[m_limbs[i].chain].bones.front()].pos.z / static_cast<float>(m_legs.size());
+
+					auto lift = family.cycles.front().hip_height * m_leg_reach - hip_z;
+					for (int b = 0, bend = static_cast<int>(m_rig.bones.size()); b != bend; ++b)
+					{
+						if (m_rig.bones[b].parent < 0)
+							stance[b].pos.z += lift;
+					}
+				}
+
+				// Each cycle's bone motions
 				auto& tracks = data.tracks.emplace_back();
 				for (auto const& motion : cycle.motion)
 					tracks.push_back(BoneTrack{ .bone = m_rig.BoneIndex(motion.bone), .channel = motion.channel, .harmonics = motion.harmonics });
 			}
+
+			// The slowest cycle's stance places the limbs' neutral contacts, because a standing body holds it
+			data.stance_model = ModelFrames(data.stance_local.front());
 
 			// Map the controller's limbs to the family's footfalls
 			auto const& footfalls = family.cycles[0].footfalls;
@@ -798,15 +802,15 @@ namespace pr::animation
 			}
 		}
 
-		// Set 'm_guide' to the blended family stance plus the cycles' body motion, scaled by 'amplitude'
+		// Set 'm_guide' to the blended stance plus the cycles' body motion, scaled by 'amplitude'
 		void BuildGuide(float amplitude)
 		{
-			// Blend the stances of the previous and current families
+			// Blend each family's stance between its cycles either side of the speed, then blend the previous and current families
 			auto w = m_family_weight.Value();
-			auto const& prev = m_families[m_prev_family].stance_local;
-			auto const& curr = m_families[m_family].stance_local;
+			auto prev = StanceBlend(m_prev_family);
+			auto curr = StanceBlend(m_family);
 			for (int b = 0, bend = static_cast<int>(m_rig.bones.size()); b != bend; ++b)
-				m_guide.local[b] = w == 1.0f ? curr[b] : BlendFrame(prev[b], curr[b], w);
+				m_guide.local[b] = w == 1.0f ? curr(b) : BlendFrame(prev(b), curr(b), w);
 
 			// Sum the motion of both families, each blended between its cycles either side of the speed
 			std::fill(m_rot_offset.begin(), m_rot_offset.end(), v4::Zero());
@@ -832,6 +836,19 @@ namespace pr::animation
 				local.pos += m_pos_offset[b];
 			}
 			m_guide.UpdateModel(m_rig);
+		}
+
+		// A function that returns the local stance frame of a bone in family 'f', blended between the cycles either side of the current speed
+		auto StanceBlend(int f) const
+		{
+			// The bracketing cycles are the same cycle outside the family's speed range
+			auto b = Bracket(m_gait.families[f], m_gait_speed);
+			auto const& lo = m_families[f].stance_local[b.lo];
+			auto const& hi = m_families[f].stance_local[b.hi];
+			return [&lo, &hi, t = b.t](int bone)
+			{
+				return t == 0 ? lo[bone] : BlendFrame(lo[bone], hi[bone], t);
+			};
 		}
 
 		// Add the motion of family 'f' at the current phase, scaled by 'weight', to the motion offsets

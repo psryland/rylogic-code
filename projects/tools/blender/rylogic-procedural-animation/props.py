@@ -138,7 +138,7 @@ class RYLOGIC_PG_RigContact(PropertyGroup):
 
 
 class RYLOGIC_PG_GaitFamily(PropertyGroup):
-	"""A posture: a group of movement cycles that share a stance and walking limbs. The name is the built-in 'name' property, which cycles refer to.
+	"""A posture: a group of movement cycles that share walking limbs. The name is the built-in 'name' property, which cycles refer to.
 
 	The order of the families is their order in the '.gait', which is the runtime's order of preference when a family cannot be used on the ground.
 	"""

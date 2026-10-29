@@ -1,7 +1,7 @@
 """Build a '.gait' description from an armature's movement cycles, and write it to a file.
 
 The '.gait' schema is owned by 'pr/animation/gait.h' in the Rylogic code library. A gait holds guidance for the runtime's procedural locomotion, not
-animation to play back: per family, its posture (the up direction and steepest usable ground), its top speed, whether it walks or swims and its body wave, and its stance; and per cycle, the speed, stride, each walking limb's footfall timing and swing, and the first two harmonics of the body's
+animation to play back: per family, its posture (the up direction and steepest usable ground), its top speed, whether it walks or swims and its body wave; and per cycle, the speed, stride, mean pose (its stance), each walking limb's footfall timing and swing, and the first two harmonics of the body's
 repeating motion. All values are in model space (see 'rig_desc.ModelSpace').
 
 A movement cycle is a looping action that moves the armature's root bone forward by one stride. Its frame range covers exactly one cycle, so the pose at
@@ -19,7 +19,7 @@ from mathutils import Matrix, Quaternion, Vector
 
 from .rig_desc import BonesParentFirst, ModelSpace
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # The number of harmonics in each bone motion
 HARMONICS = 2
@@ -104,7 +104,8 @@ def BuildGaitDesc(armature_obj: bpy.types.Object, context: bpy.types.Context) ->
 		swing_out = {"leg": cycle.leg_swing_out, "arm": cycle.arm_swing_out}
 		families.setdefault(cycle.family, []).append((cycle.name, params, swing_out, _SampleAction(armature_obj, context, space, cycle.action)))
 
-	# Measure each cycle, then order each family's cycles by speed. The family's stance is the mean pose of its slowest cycle, the nearest to standing.
+	# Measure each cycle, then order each family's cycles by speed. Each cycle's stance is its mean pose. Swimming limbs never stand, even when a
+	# stroke holds a hand still in the water, so water families have no walking limbs.
 	# Families are written in the order of the Families list, and those without exported cycles are left out.
 	out: list[dict[str, Any]] = []
 	root = _RootBone(armature_obj.data)
@@ -113,11 +114,12 @@ def BuildGaitDesc(armature_obj: bpy.types.Object, context: bpy.types.Context) ->
 		if not cycles:
 			continue
 
-		measured = sorted((_MeasureCycle(armature_obj.data, space, root, limbs, name, params, swing_out, samples) for name, params, swing_out, samples in cycles), key=lambda c: c[0]["speed"])
+		walkers = limbs if family.medium != "WATER" else []
+		measured = sorted((_MeasureCycle(armature_obj.data, space, root, walkers, name, params, swing_out, samples) for name, params, swing_out, samples in cycles), key=lambda c: c["speed"])
 		out.append({
 			"name": family.name, "up": family.up.lower(), "max_slope": family.max_slope, "max_speed": family.max_speed, "medium": family.medium.lower(),
 			"wave": {"amplitude": family.wave_amplitude, "wavelength": family.wave_wavelength, "growth": family.wave_growth},
-			"stance": measured[0][1], "cycles": [cycle for cycle, _ in measured],
+			"cycles": measured,
 		})
 
 	return {"schema_version": SCHEMA_VERSION, "families": out}
@@ -220,9 +222,9 @@ def _SampleAction(armature_obj: bpy.types.Object, context: bpy.types.Context, sp
 	return _Samples(frames=end - start, fps=scene.render.fps / scene.render.fps_base, model=model)
 
 
-def _MeasureCycle(armature: bpy.types.Armature, space: ModelSpace, root: str, limbs: list[_Limb], name: str, params: dict[str, float], swing_out: dict[str, float], samples: _Samples) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _MeasureCycle(armature: bpy.types.Armature, space: ModelSpace, root: str, limbs: list[_Limb], name: str, params: dict[str, float], swing_out: dict[str, float], samples: _Samples) -> dict[str, Any]:
 	"""Measure one sampled cycle. 'params' holds the cycle's authored parameters, such as its hip height and spine sway, by '.gait' name (see the cycle properties).
-	'swing_out' holds the cycle's authored swing out by '.gait' limb role. Returns its '.gait' cycle and the stance of its mean pose.
+	'swing_out' holds the cycle's authored swing out by '.gait' limb role. Returns its '.gait' cycle, whose stance is its mean pose.
 
 	Raises ValueError if the root bone does not move forward, or if the cycle does not loop (see '_CheckLoops').
 	"""
@@ -299,8 +301,8 @@ def _MeasureCycle(armature: bpy.types.Armature, space: ModelSpace, root: str, li
 		if _Amplitude(harmonics) >= MIN_ROTATION_AMPLITUDE:
 			motion.append({"bone": bone.name, "channel": "rotation", "harmonics": harmonics})
 
-	cycle = {"name": name, "speed": speed, "stride": stride, **params, "footfalls": footfalls, "motion": motion}
-	return cycle, stance
+	cycle = {"name": name, "speed": speed, "stride": stride, **params, "stance": stance, "footfalls": footfalls, "motion": motion}
+	return cycle
 
 
 def _CheckLoops(name: str, samples: _Samples, travel: Vector) -> None:

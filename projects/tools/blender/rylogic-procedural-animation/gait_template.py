@@ -56,8 +56,8 @@ TEMPLATE_ITEMS = [
 	("BIPEDAL_WALK", "Bipedal Walk", "Legs only, alternating"),
 	("QUADRUPED_WALK", "Quadruped Walk", "Four-beat walk: left hind, left fore, right hind, right fore"),
 	("QUADRUPED_TROT", "Quadruped Trot", "Diagonal pairs step together"),
-	("SWIM_PADDLE", "Swim Paddle", "Slow swimming: the limbs fold back along the body and paddle gently"),
-	("SWIM_GLIDE", "Swim Glide", "Fast swimming: the limbs fold back along the body and stay still"),
+	("SWIM_PADDLE", "Swim Paddle", "Slow swimming and floating: the limbs spread out to the sides and scull gently"),
+	("SWIM_GLIDE", "Swim Glide", "Fast swimming: the limbs tuck in, with bent elbows and knees, and the hands and feet against the body"),
 ]
 
 
@@ -68,17 +68,17 @@ class _SwimTemplate:
 	name: str
 	frames: int          # Frames per cycle
 	stride: float        # The distance moved per cycle, as a multiple of the leg length
-	paddle: float        # The angle, in radians, by which each limb swings forward and back about its tucked direction
+	paddle: float        # The angle, in radians, by which each limb sweeps forward and back about the body's up axis
+	limb: tuple[tuple[float, float, float], ...]  # Per bone of a limb chain, its direction as (back, out, down) amounts. Later bones use the last entry.
 
 
 SWIM_TEMPLATES = {
-	"SWIM_PADDLE": _SwimTemplate("paddle", 24, 0.8, math.radians(25)),
-	"SWIM_GLIDE": _SwimTemplate("glide", 16, 1.6, 0.0),
-}
+	# Floating: the limbs reach out to the sides, a little back and down, so that they steady the body like outriggers
+	"SWIM_PADDLE": _SwimTemplate("paddle", 24, 0.8, math.radians(25), ((0.3, 1.0, 0.25),)),
 
-# The direction in which a swimming limb points: back, plus these fractions of outward and down
-TUCK_OUT = 0.35
-TUCK_DOWN = 0.15
+	# Swimming fast: the upper bone points back and out, the lower bone folds back in towards the body, and the hand or foot lies back along the flank
+	"SWIM_GLIDE": _SwimTemplate("glide", 16, 1.6, 0.0, ((0.6, 0.7, 0.3), (1.0, -0.5, 0.0), (1.0, -0.1, 0.0))),
+}
 
 
 def RotationPath(pose_bone: bpy.types.PoseBone) -> str:
@@ -160,8 +160,8 @@ def _GenerateSwim(armature_obj: bpy.types.Object, context: bpy.types.Context, te
 	"""Key a new swimming cycle, add it to the armature's movement cycles, and return it. See 'GenerateTemplate'.
 
 	The body lies along the water: the spine pitches about its base until it points forward and level, carrying the neck and head with it, and each
-	tail runs straight back from its base in line with the spine. Each leg and arm lies straight back along the body, pointing back, out, and a little
-	down. A paddling cycle swings each limb forward and back about the axis across the body, with each side and each girdle half a cycle apart.
+	tail runs straight back from its base in line with the spine. Each bone of each leg and arm points in the template's direction for it, on the
+	limb's own side. A paddling cycle sweeps each limb forward and back about the body's up axis, with each side and each girdle half a cycle apart.
 	"""
 	# Template sizes are in armature space, relative to the length of the first leg chain
 	armature = armature_obj.data
@@ -208,7 +208,7 @@ def _GenerateSwim(armature_obj: bpy.types.Object, context: bpy.types.Context, te
 			body[ref.name] = Matrix.Translation(head) @ (turn @ posed).to_4x4()
 			head = head - forward * armature.bones[ref.name].length
 
-	# Key each frame: the root carried forward, the levelled body, and each upper limb turned to its tucked direction plus its paddle swing
+	# Key each frame: the root carried forward, the levelled body, and each limb posed in the template's directions plus its paddle sweep
 	scene = context.scene
 	root = BonesParentFirst(armature)[0].name
 	animation_data = armature_obj.animation_data or armature_obj.animation_data_create()
@@ -221,14 +221,15 @@ def _GenerateSwim(armature_obj: bpy.types.Object, context: bpy.types.Context, te
 			travel = Matrix.Translation(forward * stride * phase)
 			pose = {root: travel @ rest[root]} | {name: travel @ matrix for name, matrix in body.items()}
 			for chain in limbs:
-				# Lay the limb straight back and out to its own side, swung about the axis across the body. Each bone of the chain turns to the
-				# swung direction from the end of the one before it; the bones below the chain, such as digits, keep their rest pose relative to it.
+				# Each bone of the chain points in its template direction on the limb's own side, swept about the body's up axis, starting from the
+				# end of the one before it. The bones below the chain, such as digits, keep their rest pose relative to it.
 				head = Posed(chain.bones[0].name).to_translation()
 				out = lateral if head.dot(lateral) > 0 else -lateral
-				tucked = (-forward + out * TUCK_OUT - up * TUCK_DOWN).normalized()
 				offset = (0.0 if chain.side != "RIGHT" else 0.5) + (0.0 if chain.role == "LEG" else 0.5)
-				direction = Matrix.Rotation(template.paddle * math.sin(2 * math.pi * (phase - offset)), 3, lateral) @ tucked
-				for ref in chain.bones:
+				sweep = Matrix.Rotation(template.paddle * math.sin(2 * math.pi * (phase - offset)), 3, up)
+				for b, ref in enumerate(chain.bones):
+					back, outward, down = template.limb[min(b, len(template.limb) - 1)]
+					direction = sweep @ (-forward * back + out * outward - up * down).normalized()
 					posed = Posed(ref.name).to_3x3()
 					turn = (posed @ Vector((0, 1, 0))).rotation_difference(direction).to_matrix()
 					pose[ref.name] = travel @ Matrix.Translation(head) @ (turn @ posed).to_4x4()

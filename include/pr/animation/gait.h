@@ -16,7 +16,7 @@
 // A '.gait' file is a JSON gait description:
 //
 //  {
-//    "schema_version": 10,
+//    "schema_version": 11,
 //    "families": [{
 //      "name": "quadruped",
 //      "up": "surface" | "gravity",        // the direction that the body stands up along: the ground's normal, or against gravity
@@ -28,11 +28,6 @@
 //        "wavelength": 1.0,                // > 0. The length of one wave, in body lengths.
 //        "growth": 1.0                     // >= 0. The ratio of the amplitude at the tail tip to the amplitude at the head end.
 //      },
-//      "stance": [{                        // The family's standing pose. Bones that are not listed keep their rest rotation.
-//        "bone": "hips",
-//        "rotation": [x, y, z, w],         // rotation relative to the parent bone, as a unit quaternion
-//        "position": [x, y, z]             // root bones only, and optional: the model-space position
-//      }],
 //      "cycles": [{
 //        "name": "walk",
 //        "speed": 0.5,                     // the body's speed in the example cycle
@@ -41,6 +36,11 @@
 //        "spine_sway": 0.3,                // in [0,pi/2). The angle, in radians, by which the hips and shoulders swing with the walking limbs.
 //        "weight_shift": 0.0,              // in [0,1]. How far the body moves sideways over each planted foot, as a fraction of the foot's distance from the midline.
 //        "arm_swing": 0.0,                 // in [0,pi/2). The angle, in radians, by which each hanging arm swings against the leg on its side.
+//        "stance": [{                      // The cycle's mean pose. Bones that are not listed keep their rest rotation.
+//          "bone": "hips",
+//          "rotation": [x, y, z, w],       // rotation relative to the parent bone, as a unit quaternion
+//          "position": [x, y, z]           // root bones only, and optional: the model-space position
+//        }],
 //        "footfalls": [{                   // the walking limbs. Every cycle of a family has the same limbs in the same order.
 //          "role": "leg" | "arm",          // the limb is the rig chain with this role and side
 //          "side": "left" | "right",
@@ -63,6 +63,10 @@
 //
 // A "rotation" motion is a rotation vector (axis * angle) in the bone's own frame, applied after the bone's stance rotation. A "position" motion
 // is a model-space offset of a root bone's stance position. Either is the sum over harmonics k = 1, 2 of cos(2 pi k phase) * cos_k + sin(2 pi k phase) * sin_k.
+//
+// A cycle's stance is its mean pose. The stance blends between the cycles either side of the body's speed, like the motion, and a body slower than
+// the slowest cycle holds that cycle's stance. So a family's pose can change with speed: a swimmer might spread its limbs while it floats and
+// tuck them in to swim fast.
 //
 // The hip height sets how high the body is carried, independently of the authored poses: a crouching quadruped might use 0.5, and an upright
 // biped 0.9. The legs are the walking limbs with the "leg" role (all walking limbs if there are none). A leg's reach is its rest length from its
@@ -99,7 +103,7 @@
 namespace pr::animation
 {
 	// The '.gait' schema version that this code reads and writes
-	inline constexpr int GaitSchemaVersion = 10;
+	inline constexpr int GaitSchemaVersion = 11;
 
 	// The number of harmonics in each bone motion
 	inline constexpr int GaitHarmonics = 2;
@@ -140,6 +144,14 @@ namespace pr::animation
 		std::array<Harmonic, GaitHarmonics> harmonics = {};
 	};
 
+	// One bone of a cycle's stance
+	struct StanceBone
+	{
+		std::string bone;
+		quat rotation = Identity<quat>();  // Relative to the parent bone
+		std::optional<v4> position;        // Root bones only: the model-space position (w = 1)
+	};
+
 	// One example movement cycle
 	struct GaitCycle
 	{
@@ -150,16 +162,9 @@ namespace pr::animation
 		float spine_sway = 0.0f;           // In [0,pi/2). The angle, in radians, by which the hips and shoulders swing with the walking limbs.
 		float weight_shift = 0.0f;         // In [0,1]. How far the body moves sideways over each planted foot, as a fraction of the foot's distance from the midline.
 		float arm_swing = 0.0f;            // In [0,pi/2). The angle, in radians, by which each hanging arm swings against the leg on its side.
+		std::vector<StanceBone> stance;    // The mean pose
 		std::vector<Footfall> footfalls;   // The walking limbs
 		std::vector<BoneMotion> motion;    // The repeating motion of bones outside the walking limbs
-	};
-
-	// One bone of a family's stance
-	struct StanceBone
-	{
-		std::string bone;
-		quat rotation = Identity<quat>();  // Relative to the parent bone
-		std::optional<v4> position;        // Root bones only: the model-space position (w = 1)
 	};
 
 	// The direction that a family's body stands up along
@@ -190,7 +195,7 @@ namespace pr::animation
 		float growth = 1.0f;     // >= 0. The ratio of the amplitude at the tail tip to the amplitude at the head end.
 	};
 
-	// A group of movement cycles that share a stance and a set of walking limbs
+	// A group of movement cycles that share a posture and a set of walking limbs
 	struct GaitFamily
 	{
 		std::string name;
@@ -199,7 +204,6 @@ namespace pr::animation
 		float max_speed = 0.0f;            // > 0. The fastest that the character should move in this family. It may exceed the fastest cycle's speed.
 		EFamilyMedium medium = EFamilyMedium::Ground;
 		BodyWave wave;
-		std::vector<StanceBone> stance;
 		std::vector<GaitCycle> cycles;     // Ordered by increasing speed
 	};
 
@@ -299,23 +303,6 @@ namespace pr::animation
 			if (family.medium == EFamilyMedium::Water && std::any_of(family.cycles.begin(), family.cycles.end(), [](GaitCycle const& c) { return !c.footfalls.empty(); }))
 				errors.push_back(std::format("{} swims, so its cycles must have no footfalls", ctx));
 
-			// Stance bones must exist, appear once, and give positions only for root bones
-			for (size_t s = 0; s != family.stance.size(); ++s)
-			{
-				auto const& bone = family.stance[s];
-				auto index = rig.BoneIndex(bone.bone);
-				if (index < 0)
-					errors.push_back(std::format("{} stance names unknown bone '{}'", ctx, bone.bone));
-				else if (bone.position && rig.bones[index].parent >= 0)
-					errors.push_back(std::format("{} stance gives a position for '{}', which is not a root bone", ctx, bone.bone));
-
-				for (size_t t = 0; t != s; ++t)
-				{
-					if (family.stance[t].bone == bone.bone)
-						errors.push_back(std::format("{} stance repeats bone '{}'", ctx, bone.bone));
-				}
-			}
-
 			for (size_t c = 0; c != family.cycles.size(); ++c)
 			{
 				// Cycles are ordered by speed so that the controller can find the two either side of a speed
@@ -333,6 +320,23 @@ namespace pr::animation
 					errors.push_back(std::format("{} must have a weight shift in [0,1]", cctx));
 				if (!(cycle.arm_swing >= 0 && cycle.arm_swing < math::constants<float>::tau_by_4))
 					errors.push_back(std::format("{} must have an arm swing in [0,pi/2)", cctx));
+
+				for (size_t s = 0; s != cycle.stance.size(); ++s)
+				{
+					// Stance bones must exist, appear once, and give positions only for root bones
+					auto const& bone = cycle.stance[s];
+					auto index = rig.BoneIndex(bone.bone);
+					if (index < 0)
+						errors.push_back(std::format("{} stance names unknown bone '{}'", cctx, bone.bone));
+					else if (bone.position && rig.bones[index].parent >= 0)
+						errors.push_back(std::format("{} stance gives a position for '{}', which is not a root bone", cctx, bone.bone));
+
+					for (size_t t = 0; t != s; ++t)
+					{
+						if (cycle.stance[t].bone == bone.bone)
+							errors.push_back(std::format("{} stance repeats bone '{}'", cctx, bone.bone));
+					}
+				}
 
 				// The walking limbs must match the family's first cycle, so that cycles blend limb by limb
 				auto const& first = family.cycles[0].footfalls;
@@ -415,20 +419,6 @@ namespace pr::animation
 				.wavelength = ReadFloat(Member(wave, "wavelength", wctx), wctx + ".wavelength"),
 				.growth = ReadFloat(Member(wave, "growth", wctx), wctx + ".growth"),
 			};
-			auto const& stance = ReadArray(Member(fobj, "stance", fctx), fctx + ".stance");
-			for (size_t s = 0; s != stance.size(); ++s)
-			{
-				// The position is optional
-				auto sctx = std::format("{}.stance[{}]", fctx, s);
-				auto const& sobj = ReadObject(stance[s], sctx);
-				auto& bone = family.stance.emplace_back(StanceBone{
-					.bone = ReadString(Member(sobj, "bone", sctx), sctx + ".bone"),
-					.rotation = ReadQuat(Member(sobj, "rotation", sctx), sctx + ".rotation"),
-				});
-				if (auto position = sobj.find("position"))
-					bone.position = ReadVec(*position, 1, sctx + ".position");
-			}
-
 			auto const& cycles = ReadArray(Member(fobj, "cycles", fctx), fctx + ".cycles");
 			for (size_t c = 0; c != cycles.size(); ++c)
 			{
@@ -444,6 +434,20 @@ namespace pr::animation
 					.weight_shift = ReadFloat(Member(cobj, "weight_shift", cctx), cctx + ".weight_shift"),
 					.arm_swing = ReadFloat(Member(cobj, "arm_swing", cctx), cctx + ".arm_swing"),
 				});
+
+				// Read the stance. The position is optional.
+				auto const& stance = ReadArray(Member(cobj, "stance", cctx), cctx + ".stance");
+				for (size_t s = 0; s != stance.size(); ++s)
+				{
+					auto sctx = std::format("{}.stance[{}]", cctx, s);
+					auto const& sobj = ReadObject(stance[s], sctx);
+					auto& bone = cycle.stance.emplace_back(StanceBone{
+						.bone = ReadString(Member(sobj, "bone", sctx), sctx + ".bone"),
+						.rotation = ReadQuat(Member(sobj, "rotation", sctx), sctx + ".rotation"),
+					});
+					if (auto position = sobj.find("position"))
+						bone.position = ReadVec(*position, 1, sctx + ".position");
+				}
 
 				// Read the footfalls
 				auto const& footfalls = ReadArray(Member(cobj, "footfalls", cctx), cctx + ".footfalls");
@@ -499,20 +503,20 @@ namespace pr::animation
 		json::Array families;
 		for (auto const& family : gait.families)
 		{
-			// Write the stance. Only root bones may have a position.
-			json::Array stance;
-			for (auto const& bone : family.stance)
-			{
-				json::Object obj{ { "bone", bone.bone }, { "rotation", WriteQuat(bone.rotation) } };
-				if (bone.position)
-					obj["position"] = WriteVec(*bone.position);
-
-				stance.push_back(std::move(obj));
-			}
-
 			json::Array cycles;
 			for (auto const& cycle : family.cycles)
 			{
+				// Write the stance. Only root bones may have a position.
+				json::Array stance;
+				for (auto const& bone : cycle.stance)
+				{
+					json::Object obj{ { "bone", bone.bone }, { "rotation", WriteQuat(bone.rotation) } };
+					if (bone.position)
+						obj["position"] = WriteVec(*bone.position);
+
+					stance.push_back(std::move(obj));
+				}
+
 				// Write the footfalls and the bone motions
 				json::Array footfalls;
 				for (auto const& foot : cycle.footfalls)
@@ -547,6 +551,7 @@ namespace pr::animation
 					{ "spine_sway", cycle.spine_sway },
 					{ "weight_shift", cycle.weight_shift },
 					{ "arm_swing", cycle.arm_swing },
+					{ "stance", std::move(stance) },
 					{ "footfalls", std::move(footfalls) },
 					{ "motion", std::move(motions) },
 				});
@@ -558,7 +563,6 @@ namespace pr::animation
 				{ "max_speed", family.max_speed },
 				{ "medium", EnumName(family.medium, FamilyMediumNames) },
 				{ "wave", json::Object{ { "amplitude", family.wave.amplitude }, { "wavelength", family.wave.wavelength }, { "growth", family.wave.growth } } },
-				{ "stance", std::move(stance) },
 				{ "cycles", std::move(cycles) },
 			});
 		}
@@ -596,7 +600,7 @@ namespace pr::animation::tests
 	//  - "swim": no limb walks. The body wave bends the spine and tail, growing towards the tail tip, and the arm paddles in the slower cycle.
 	inline GaitDesc TestGait()
 	{
-		// Both families stand in the rest pose, so their stances are empty. The rest pose carries the leg's hip joint at z = 1, and the leg reaches
+		// Every cycle stands in the rest pose, so the stances are empty. The rest pose carries the leg's hip joint at z = 1, and the leg reaches
 		// from (0.2,0,1) through (0.2,-0.1,0.5) and (0.2,0,0) to its sole at (0.2,-0.1,0).
 		auto rest_hip_height = 1.0f / (2.0f * Sqrt(0.26f) + 0.1f);
 		auto walk = GaitCycle{
@@ -665,8 +669,8 @@ namespace pr::animation::tests
 			// Writing then reading a gait reproduces it, including stance positions and harmonics
 			auto rig = TestRig();
 			auto gait = TestGait();
-			gait.families[0].stance.push_back(StanceBone{ .bone = "root", .rotation = quat(v4::ZAxis(), 0.1f), .position = v4(0, 0, 0.1f, 1) });
-			gait.families[0].stance.push_back(StanceBone{ .bone = "spine", .rotation = quat(v4::XAxis(), 0.2f) });
+			gait.families[0].cycles[1].stance.push_back(StanceBone{ .bone = "root", .rotation = quat(v4::ZAxis(), 0.1f), .position = v4(0, 0, 0.1f, 1) });
+			gait.families[0].cycles[1].stance.push_back(StanceBone{ .bone = "spine", .rotation = quat(v4::XAxis(), 0.2f) });
 			PR_EXPECT(Validate(gait, rig).empty());
 
 			auto text = json::Write(WriteGaitDesc(gait));
@@ -680,7 +684,8 @@ namespace pr::animation::tests
 			PR_EXPECT(read.families[2].medium == EFamilyMedium::Water && read.families[2].wave.amplitude == 1.5f && read.families[2].wave.wavelength == 1.0f && read.families[2].wave.growth == 2.0f);
 			PR_EXPECT(read.families[2].cycles.size() == 2 && read.families[2].cycles[0].footfalls.empty());
 
-			auto const& stance = read.families[0].stance;
+			PR_EXPECT(read.families[0].cycles[0].stance.empty());
+			auto const& stance = read.families[0].cycles[1].stance;
 			PR_EXPECT(stance.size() == 2 && stance[0].position && !stance[1].position);
 			PR_EXPECT(FEqlAbsolute(*stance[0].position, v4(0, 0, 0.1f, 1), 1e-6f));
 			PR_EXPECT(FEqlOrientation(stance[1].rotation, quat(v4::XAxis(), 0.2f), 1e-6f));
