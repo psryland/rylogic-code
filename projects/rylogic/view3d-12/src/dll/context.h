@@ -81,13 +81,16 @@ namespace pr::rdr12
 		// Replace the constants of every procedural vertex shader on the nuggets of 'object'.
 		void ObjectProceduralConstants(ldraw::LdrObject* object, std::span<std::byte const> constants);
 
-		// Replace the buffer of every procedural shader on the nuggets of 'object', or unbind it with null.
-		void ObjectProceduralBuffer(ldraw::LdrObject* object, D3DPtr<ID3D12Resource> buffer);
+		// Replace the buffer at 'slot' of every procedural shader on the nuggets of 'object', or unbind it with null.
+		void ObjectProceduralBuffer(ldraw::LdrObject* object, int slot, D3DPtr<ID3D12Resource> buffer);
 
-		// Overwrite 'data' at byte 'offset' of each distinct buffer bound to the procedural shaders on the nuggets of 'object'.
+		// Return the buffer at 'slot' of the first procedural shader on the nuggets of 'object', or null if there is none.
+		D3DPtr<ID3D12Resource> ObjectProceduralBuffer(ldraw::LdrObject* object, int slot) const;
+
+		// Overwrite 'data' at byte 'offset' of each distinct slot 0 buffer bound to the procedural shaders on the nuggets of 'object'.
 		void ObjectProceduralBufferWrite(ldraw::LdrObject* object, size_t offset, std::span<std::byte const> data);
 
-		// Run caller compute once over each distinct buffer bound to the procedural shaders on the nuggets of 'object'. See ProceduralShader::BufferDispatch.
+		// Run caller compute once over each distinct slot 0 buffer bound to the procedural shaders on the nuggets of 'object'. See ProceduralShader::BufferDispatch.
 		void ObjectProceduralBufferDispatch(ldraw::LdrObject* object, std::span<BYTE const> cs_bytecode, std::span<std::byte const> constants, iv3 groups);
 
 		// Replace the detail-normal layers of every nugget of 'object' that has detail normals.

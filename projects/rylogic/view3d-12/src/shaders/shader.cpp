@@ -57,7 +57,7 @@ namespace pr::rdr12
 		,m_ps_bytecode()
 		,m_pixel_family()
 		,m_constants()
-		,m_buffer(buffer)
+		,m_buffers{buffer}
 		,m_writer()
 		,m_dispatch_cs()
 		,m_dispatch_sig()
@@ -120,25 +120,42 @@ namespace pr::rdr12
 		std::copy(constants.begin(), constants.end(), m_constants.begin());
 	}
 
-	// Replace the buffer bound by later draws.
-	void ProceduralShader::Buffer(D3DPtr<ID3D12Resource> buffer)
+	// Replace the buffer bound at 'slot' by later draws.
+	void ProceduralShader::Buffer(int slot, D3DPtr<ID3D12Resource> buffer)
 	{
+		// Callers may rebind the same buffer every frame, which needs no change.
+		if (slot < 0 || slot >= BufferSlotCount)
+			throw std::invalid_argument("Procedural buffer slot is out of range");
+		if (m_buffers[slot] == buffer)
+			return;
+
 		// Frames already recorded may still read the old buffer, so its release waits for them.
-		rdr().DeferRelease(m_buffer);
-		m_buffer = buffer;
+		rdr().DeferRelease(m_buffers[slot]);
+		m_buffers[slot] = buffer;
 
 		// Record the resting state so that graphics-queue updates transition from, and back to, the state that draws expect.
-		if (m_buffer != nullptr)
-			::pr::compute::DefaultResState(m_buffer.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+		if (buffer != nullptr)
+			::pr::compute::DefaultResState(buffer.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 	}
 
-	// Overwrite part of the bound buffer for later frames.
+	// Return the buffer bound at 'slot'.
+	D3DPtr<ID3D12Resource> const& ProceduralShader::Buffer(int slot) const
+	{
+		// Slots outside the fixed range do not exist.
+		if (slot < 0 || slot >= BufferSlotCount)
+			throw std::invalid_argument("Procedural buffer slot is out of range");
+
+		return m_buffers[slot];
+	}
+
+	// Overwrite part of the slot 0 buffer for later frames.
 	void ProceduralShader::BufferWrite(size_t offset, std::span<std::byte const> data)
 	{
 		// Shaders read the buffer in 4-byte words, and a write must stay inside it.
-		if (m_buffer == nullptr)
+		auto* buffer = m_buffers[0].get();
+		if (buffer == nullptr)
 			throw std::invalid_argument("Procedural shader has no buffer to write");
-		auto const buffer_size = s_cast<size_t>(m_buffer->GetDesc().Width);
+		auto const buffer_size = s_cast<size_t>(buffer->GetDesc().Width);
 		if (offset % 4 != 0 || data.size() % 4 != 0 || data.empty() || offset > buffer_size || data.size() > buffer_size - offset)
 			throw std::invalid_argument("Procedural shader buffer writes must be non-empty 4-byte aligned ranges within the buffer");
 
@@ -146,19 +163,20 @@ namespace pr::rdr12
 		if (m_writer == nullptr)
 			m_writer = std::make_unique<ResourceFactory>(rdr());
 
-		::pr::compute::UpdateSubresourceScope map(m_writer->CmdList(), m_writer->UploadBuffer(), m_buffer.get(), 4, s_cast<int>(offset), s_cast<int>(data.size()));
+		::pr::compute::UpdateSubresourceScope map(m_writer->CmdList(), m_writer->UploadBuffer(), buffer, 4, s_cast<int>(offset), s_cast<int>(data.size()));
 		std::memcpy(map.ptr<std::byte>(), data.data(), data.size());
 		map.Commit(::pr::compute::EFinalState::Restore);
 		m_writer->FlushToGpu(EGpuFlush::Async);
 	}
 
-	// Run caller compute over the bound buffer for later frames.
+	// Run caller compute over the slot 0 buffer for later frames.
 	void ProceduralShader::BufferDispatch(std::span<BYTE const> cs_bytecode, std::span<std::byte const> constants, iv3 groups)
 	{
 		// Validate the dispatch contract before recording GPU work.
-		if (m_buffer == nullptr)
+		auto* buffer = m_buffers[0].get();
+		if (buffer == nullptr)
 			throw std::invalid_argument("Procedural shader has no buffer to dispatch over");
-		if (!AllSet(m_buffer->GetDesc().Flags, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
+		if (!AllSet(buffer->GetDesc().Flags, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS))
 			throw std::invalid_argument("Procedural buffer dispatch requires a buffer that allows unordered access");
 		if (cs_bytecode.empty())
 			throw std::invalid_argument("Procedural buffer dispatch requires compute bytecode");
@@ -194,46 +212,52 @@ namespace pr::rdr12
 		// Expose the buffer for writing, dispatch, then return it to the state that draws read it in. The transition back also orders the writes before later reads.
 		auto& cmd_list = m_writer->CmdList();
 		::pr::compute::BarrierBatch barriers(cmd_list);
-		barriers.Transition(m_buffer.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		barriers.Transition(buffer, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		barriers.Commit();
 		cmd_list.SetPipelineState(m_dispatch_pso.get());
 		cmd_list.SetComputeRootSignature(m_dispatch_sig.get());
 		cmd_list.SetComputeRootConstantBufferView(0, cbuf);
-		cmd_list.SetComputeRootUnorderedAccessView(1, m_buffer.get());
+		cmd_list.SetComputeRootUnorderedAccessView(1, buffer);
 		cmd_list.Dispatch(groups);
-		barriers.Transition(m_buffer.get(), D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+		barriers.Transition(buffer, D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
 		barriers.Commit();
 		m_writer->FlushToGpu(EGpuFlush::Async);
 	}
 
-	// Bind the copied constants and optional buffer through the render-step-specific reserved root slots.
+	// Bind the copied constants and optional buffers through the render-step-specific reserved root slots.
 	void ProceduralShader::SetupElement(ID3D12GraphicsCommandList* cmd_list, GpuUploadBuffer& upload, Scene const&, CameraTransforms const&, DrawListElement const*)
 	{
 		// Upload the current copy each draw; identical content is shared within the frame.
 		auto gpu_address = upload.Add(m_constants, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, true).VirtualAddress();
-		auto buffer_address = m_buffer != nullptr ? m_buffer->GetGPUVirtualAddress() : D3D12_GPU_VIRTUAL_ADDRESS{};
-		auto Bind = [&](UINT cbuf_slot, UINT buffer_slot)
+		auto Bind = [&](UINT cbuf_slot, std::array<UINT, BufferSlotCount> const& buffer_slots)
 		{
-			// The buffer slot stays unbound for shaders created without a buffer, because they must not declare it.
+			// Empty buffer slots stay unbound, because shaders must not declare a slot without a buffer.
 			cmd_list->SetGraphicsRootConstantBufferView(cbuf_slot, gpu_address);
-			if (buffer_address != 0)
-				cmd_list->SetGraphicsRootShaderResourceView(buffer_slot, buffer_address);
+			for (int i = 0; i != BufferSlotCount; ++i)
+			{
+				// Bind each populated slot to its reserved root parameter.
+				if (m_buffers[i] != nullptr)
+					cmd_list->SetGraphicsRootShaderResourceView(buffer_slots[i], m_buffers[i]->GetGPUVirtualAddress());
+			}
 		};
 		switch (m_rdr_step)
 		{
 			case ERenderStep::RenderForward:
 			{
-				Bind(static_cast<UINT>(shaders::fwd::ERootParam::CBufProcedural), static_cast<UINT>(shaders::fwd::ERootParam::ProceduralBuffer));
+				using shaders::fwd::ERootParam;
+				Bind(static_cast<UINT>(ERootParam::CBufProcedural), { static_cast<UINT>(ERootParam::ProceduralBuffer0), static_cast<UINT>(ERootParam::ProceduralBuffer1) });
 				return;
 			}
 			case ERenderStep::RayCast:
 			{
-				Bind(static_cast<UINT>(shaders::ray_cast::ERootParam::CBufProcedural), static_cast<UINT>(shaders::ray_cast::ERootParam::ProceduralBuffer));
+				using shaders::ray_cast::ERootParam;
+				Bind(static_cast<UINT>(ERootParam::CBufProcedural), { static_cast<UINT>(ERootParam::ProceduralBuffer0), static_cast<UINT>(ERootParam::ProceduralBuffer1) });
 				return;
 			}
 			case ERenderStep::ShadowMap:
 			{
-				Bind(static_cast<UINT>(shaders::smap::ERootParam::CBufProcedural), static_cast<UINT>(shaders::smap::ERootParam::ProceduralBuffer));
+				using shaders::smap::ERootParam;
+				Bind(static_cast<UINT>(ERootParam::CBufProcedural), { static_cast<UINT>(ERootParam::ProceduralBuffer0), static_cast<UINT>(ERootParam::ProceduralBuffer1) });
 				return;
 			}
 			default:
@@ -246,8 +270,11 @@ namespace pr::rdr12
 	// Destroy the concrete shader rather than the base subobject.
 	void ProceduralShader::Delete()
 	{
-		// Release copied bytecode and constants with the shader handle. The GPU may still be reading the buffer, or running a queued dispatch, from in-flight work.
-		rdr().DeferRelease(m_buffer);
+		// Release copied bytecode and constants with the shader handle. The GPU may still be reading the buffers, or running a queued dispatch, from in-flight work.
+		for (auto const& buffer : m_buffers)
+			rdr().DeferRelease(buffer);
+
+
 		rdr().DeferRelease(m_dispatch_pso);
 		rdr().DeferRelease(m_dispatch_sig);
 		::pr::compute::Delete<ProceduralShader>(this);

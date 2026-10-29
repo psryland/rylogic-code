@@ -5,12 +5,21 @@ ConstantBuffer<View3DElementIndex> g_element : register(VIEW3D_FORWARD_ELEMENT_I
 StructuredBuffer<View3DForwardElement> g_elements : register(VIEW3D_FORWARD_ELEMENTS_REGISTER);
 static const View3DForwardElement g_nugget = g_elements[g_element.index];
 ConstantBuffer<ProceduralConstants> g_procedural : register(VIEW3D_PROCEDURAL_FORWARD_CONSTANTS_REGISTER);
-ByteAddressBuffer g_buffer : register(VIEW3D_PROCEDURAL_BUFFER_REGISTER);
+ByteAddressBuffer g_buffer : register(VIEW3D_PROCEDURAL_BUFFER0_REGISTER);
+ByteAddressBuffer g_buffer1 : register(VIEW3D_PROCEDURAL_BUFFER1_REGISTER);
 
 // Emit generated geometry whose colour comes from the last float4 of the caller's 1024-element immutable buffer.
 View3DForwardVertexOut VSMain(uint vertex_id : SV_VertexID)
 {
 	// Reading the final element proves the whole caller buffer was copied, not only its first bytes.
 	float4 colour = asfloat(g_buffer.Load4(1023 * 16));
+	return View3DProceduralForwardVertex(ProceduralPosition(vertex_id, g_procedural), g_procedural.normal, colour, float2(0, 0), float2(0, 0), g_frame, g_nugget);
+}
+
+// Emit generated geometry whose colour is the first float4 of the buffer bound at slot 1.
+View3DForwardVertexOut VSMainSlot1(uint vertex_id : SV_VertexID)
+{
+	// Only slot 1 is declared, so the draw succeeds without a slot 0 buffer.
+	float4 colour = asfloat(g_buffer1.Load4(0));
 	return View3DProceduralForwardVertex(ProceduralPosition(vertex_id, g_procedural), g_procedural.normal, colour, float2(0, 0), float2(0, 0), g_frame, g_nugget);
 }

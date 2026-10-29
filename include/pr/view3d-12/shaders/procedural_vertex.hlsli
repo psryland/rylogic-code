@@ -23,10 +23,12 @@
 #define VIEW3D_SHADOW_ELEMENTS_REGISTER t2
 #define VIEW3D_PROCEDURAL_SHADOW_CONSTANTS_REGISTER b2
 
-// The optional caller-owned GPU buffer is a ByteAddressBuffer, visible to all stages, at this register in every supported render step.
-// Declare it only when a buffer is bound; the root slot is unbound otherwise. The caller may replace the buffer between frames.
-// It is bound as a root descriptor, so it has no bounds checking and GetDimensions is undefined: pass sizes/offsets through the constants.
-#define VIEW3D_PROCEDURAL_BUFFER_REGISTER t14
+// Optional caller-owned GPU buffers are ByteAddressBuffers, visible to all stages, at these registers in every supported render step.
+// Declare a slot only when a buffer is bound there; the root slot is unbound otherwise. The caller may replace the buffers between frames.
+// They are bound as root descriptors, so they have no bounds checking and GetDimensions is undefined: pass sizes/offsets through the constants.
+// Slot 0 is the object's own buffer; slot 1 typically shares a buffer owned by another object.
+#define VIEW3D_PROCEDURAL_BUFFER0_REGISTER t14
+#define VIEW3D_PROCEDURAL_BUFFER1_REGISTER t23
 
 // The per-draw index into the step's element constants table. Bind as 'ConstantBuffer<View3DElementIndex>' at the step's element index register.
 // The table is a 'StructuredBuffer' of the step's element type at the step's elements register, with one entry per drawn element.
