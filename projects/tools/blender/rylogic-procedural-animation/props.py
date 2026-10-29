@@ -141,6 +141,7 @@ class RYLOGIC_PG_GaitFamily(PropertyGroup):
 
 	up: EnumProperty(name="Up", items=FAMILY_UPS, default="SURFACE", description="The direction that the body stands up along")
 	max_slope: FloatProperty(name="Max Slope", subtype="ANGLE", min=math.radians(0.1), max=math.pi, default=math.pi, description="The steepest ground, from level, on which the family can be used. 180 degrees allows any ground")
+	max_speed: FloatProperty(name="Max Speed", unit="VELOCITY", min=0.01, default=1.0, description="The fastest that the character should move in this family. It may exceed the fastest cycle's speed")
 
 
 class RYLOGIC_PG_GaitCycle(PropertyGroup):

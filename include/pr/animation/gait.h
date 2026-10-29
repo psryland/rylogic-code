@@ -16,11 +16,12 @@
 // A '.gait' file is a JSON gait description:
 //
 //  {
-//    "schema_version": 8,
+//    "schema_version": 9,
 //    "families": [{
 //      "name": "quadruped",
 //      "up": "surface" | "gravity",        // the direction that the body stands up along: the ground's normal, or against gravity
 //      "max_slope": 3.14159,               // in (0,pi]. The steepest ground, in radians from level, on which the family can be used.
+//      "max_speed": 1.5,                   // > 0. The fastest that the character should move in this family. It may exceed the fastest cycle's speed.
 //      "stance": [{                        // The family's standing pose. Bones that are not listed keep their rest rotation.
 //        "bone": "hips",
 //        "rotation": [x, y, z, w],         // rotation relative to the parent bone, as a unit quaternion
@@ -83,7 +84,7 @@
 namespace pr::animation
 {
 	// The '.gait' schema version that this code reads and writes
-	inline constexpr int GaitSchemaVersion = 8;
+	inline constexpr int GaitSchemaVersion = 9;
 
 	// The number of harmonics in each bone motion
 	inline constexpr int GaitHarmonics = 2;
@@ -162,6 +163,7 @@ namespace pr::animation
 		std::string name;
 		EFamilyUp up = EFamilyUp::Surface;
 		float max_slope = math::constants<float>::tau_by_2; // In (0,pi]. The steepest ground, in radians from level, on which the family can be used.
+		float max_speed = 0.0f;            // > 0. The fastest that the character should move in this family. It may exceed the fastest cycle's speed.
 		std::vector<StanceBone> stance;
 		std::vector<GaitCycle> cycles;     // Ordered by increasing speed
 	};
@@ -254,6 +256,8 @@ namespace pr::animation
 				errors.push_back(std::format("{} has no cycles", ctx));
 			if (!(family.max_slope > 0 && family.max_slope <= math::constants<float>::tau_by_2))
 				errors.push_back(std::format("{} has a max slope outside (0,pi]", ctx));
+			if (!(family.max_speed > 0))
+				errors.push_back(std::format("{} needs a max speed greater than zero", ctx));
 
 			// Stance bones must exist, appear once, and give positions only for root bones
 			for (size_t s = 0; s != family.stance.size(); ++s)
@@ -361,6 +365,7 @@ namespace pr::animation
 				.name = ReadString(Member(fobj, "name", fctx), fctx + ".name"),
 				.up = ParseEnum<EFamilyUp>(ReadString(Member(fobj, "up", fctx), fctx + ".up"), FamilyUpNames, fctx + ".up"),
 				.max_slope = ReadFloat(Member(fobj, "max_slope", fctx), fctx + ".max_slope"),
+				.max_speed = ReadFloat(Member(fobj, "max_speed", fctx), fctx + ".max_speed"),
 			});
 			auto const& stance = ReadArray(Member(fobj, "stance", fctx), fctx + ".stance");
 			for (size_t s = 0; s != stance.size(); ++s)
@@ -502,6 +507,7 @@ namespace pr::animation
 				{ "name", family.name },
 				{ "up", EnumName(family.up, FamilyUpNames) },
 				{ "max_slope", family.max_slope },
+				{ "max_speed", family.max_speed },
 				{ "stance", std::move(stance) },
 				{ "cycles", std::move(cycles) },
 			});
@@ -579,8 +585,8 @@ namespace pr::animation::tests
 		};
 		return GaitDesc{
 			.families = {
-				GaitFamily{ .name = "quadruped", .cycles = { walk, trot } },
-				GaitFamily{ .name = "bipedal", .up = EFamilyUp::Gravity, .max_slope = 0.4f, .cycles = { biped } },
+				GaitFamily{ .name = "quadruped", .max_speed = trot.speed, .cycles = { walk, trot } },
+				GaitFamily{ .name = "bipedal", .up = EFamilyUp::Gravity, .max_slope = 0.4f, .max_speed = 1.5f, .cycles = { biped } },
 			},
 		};
 	}
@@ -602,7 +608,7 @@ namespace pr::animation::tests
 			PR_EXPECT(read.families.size() == 2);
 			PR_EXPECT(read.families[0].name == "quadruped" && read.families[1].name == "bipedal");
 			PR_EXPECT(read.families[0].up == EFamilyUp::Surface && read.families[0].max_slope == gait.families[0].max_slope);
-			PR_EXPECT(read.families[1].up == EFamilyUp::Gravity && read.families[1].max_slope == 0.4f);
+			PR_EXPECT(read.families[1].up == EFamilyUp::Gravity && read.families[1].max_slope == 0.4f && read.families[1].max_speed == 1.5f);
 
 			auto const& stance = read.families[0].stance;
 			PR_EXPECT(stance.size() == 2 && stance[0].position && !stance[1].position);
@@ -645,14 +651,15 @@ namespace pr::animation::tests
 				PR_EXPECT(std::string_view(ex.what()).find("gait.families[0].cycles[0].footfalls[0].role") != std::string_view::npos);
 			}
 
-			// Gaits that do not fit the rig are reported: unordered speeds, a limb missing from one cycle, a position on a non-root bone, and a zero slope limit
+			// Gaits that do not fit the rig are reported: unordered speeds, a limb missing from one cycle, a position on a non-root bone, a zero slope limit, and a zero speed limit
 			auto gait = TestGait();
 			auto& quad = gait.families[0];
 			quad.cycles[1].speed = quad.cycles[0].speed;
 			quad.cycles[1].footfalls.pop_back();
 			quad.cycles[0].motion[0].channel = EMotionChannel::Position;
 			gait.families[1].max_slope = 0.0f;
-			PR_EXPECT(Validate(gait, rig).size() == 4);
+			gait.families[1].max_speed = 0.0f;
+			PR_EXPECT(Validate(gait, rig).size() == 5);
 		}
 	};
 }
