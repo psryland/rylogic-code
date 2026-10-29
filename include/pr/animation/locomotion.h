@@ -21,6 +21,8 @@
 //  - The pelvis and chest turn about the up axis in time with the legs and arms by the cycles' spine sway, so the spine bends from side to
 //    side as the limbs step. While the body turns, the chest leads into the turn and the pelvis trails it.
 //  - Neck chains turn to look at a world point, fading in and out.
+//  - The body breathes at a rate and depth set by the caller. Each breath moves the chest out from the front of the body and tilts it back, so
+//    the spine arches, and rolls the shoulders back. The necks keep aiming where the guide aims, so the head moves only a little.
 //  - Each tail trails behind its base along the ground like a rope, as one smooth curve: the first bone continues the line of the spine with a
 //    small bend down, and each later bone bends a little at a time, steeply down while it can and then flatter, until the tail's skin rests
 //    on the ground. The first bone heads across the ground with the swaying hips, and the dragged rope behind it sets which way each later bone
@@ -77,6 +79,14 @@ namespace pr::animation
 		v4 angular_velocity = {};   // Axis * radians per second (w = 0)
 		bool supported = true;      // False while the body is not resting on the ground, for example when falling. Brief losses are ignored, see 'Locomotion::AirborneDelay'.
 		v4 gravity = {};            // The world-space acceleration due to gravity (w = 0), or zero if there is none. Families with a slope limit need it.
+	};
+
+	// A breathing motion. Each breath eases in and out, peaking halfway through the breath. Zero depths give no motion.
+	struct Breath
+	{
+		float rate = 0.0f;       // Breaths per second (>= 0)
+		float chest = 0.0f;      // How far the chest moves out from the front of the body at the peak of a breath, in metres (>= 0)
+		float shoulders = 0.0f;  // How far the shoulders roll back at the peak of a breath, in radians (>= 0)
 	};
 
 	// What a walking limb's foot is doing
@@ -153,6 +163,9 @@ namespace pr::animation
 			, m_turn_rate(0.0f)
 			, m_look()
 			, m_look_weight(0.0f)
+			, m_breath()
+			, m_breath_phase(0.0f)
+			, m_shoulders()
 			, m_phase(0.0f)
 			, m_unsupported_s(0.0f)
 			, m_fall(0.0f)
@@ -210,6 +223,25 @@ namespace pr::animation
 			{
 				if (rig.chains[c].role == EChainRole::Spine)
 					m_spine = c;
+			}
+
+			// Breathing rolls each shoulder back, where a shoulder is the bone that carries an arm and belongs to no chain. Back is away from the
+			// front of the body, which faces along the spine turned a quarter turn forward about model +X. The roll turns the arm's root joint
+			// back about the shoulder's head.
+			if (m_spine >= 0)
+			{
+				auto const& spine = rig.chains[m_spine].bones;
+				auto back = -Normalise(Cross(v4::XAxis(), rig.rest_model[spine.back()].pos - rig.rest_model[spine.front()].pos));
+				for (auto const& chain : rig.chains)
+				{
+					auto shoulder = chain.role == EChainRole::Arm ? rig.bones[chain.bones.front()].parent : -1;
+					if (shoulder < 0 || std::any_of(rig.chains.begin(), rig.chains.end(), [=](Chain const& c) { return std::find(c.bones.begin(), c.bones.end(), shoulder) != c.bones.end(); }))
+						continue;
+
+					auto reach = rig.rest_model[chain.bones.front()].pos - rig.rest_model[shoulder].pos;
+					auto axis = Normalise(Cross(reach, back));
+					m_shoulders.push_back(Shoulder{ .bone = shoulder, .axis = Rotate(~rig.rest_model[shoulder].rot, axis) });
+				}
 			}
 
 			// Stand in the first family's stance
@@ -282,6 +314,14 @@ namespace pr::animation
 				m_look.Retarget(xform(*world_point, Identity<quat>()), fade_s);
 
 			m_look_weight.Start(world_point ? 1.0f : 0.0f, fade_s);
+		}
+
+		// Breathe with 'breath' from the next step. The breath continues from where it is, so changes of rate do not jump, but changes of depth
+		// show at once; callers that change depth suddenly should ease it.
+		void SetBreath(Breath const& breath)
+		{
+			pr_assert(breath.rate >= 0 && breath.chest >= 0 && breath.shoulders >= 0 && "Breath values must not be negative");
+			m_breath = breath;
 		}
 
 		// Advance by 'dt' seconds (>= 0) and pose the rig for 'body' on 'ground'
@@ -357,6 +397,7 @@ namespace pr::animation
 			}
 
 			// Build the guide pose. Its motion grows with speed up to the slowest cycle's speed, so a standing character holds the stance.
+			m_breath_phase = Frac(m_breath_phase + m_breath.rate * dt);
 			BuildGuide(std::min(m_gait_speed / slowest.speed, 1.0f));
 			PoseTargets(m_rig, m_guide.model, m_guide_targets);
 			std::copy(m_guide_targets.begin(), m_guide_targets.end(), m_targets.begin());
@@ -448,6 +489,13 @@ namespace pr::animation
 			quat body_rot; // The body's predicted orientation at the landing
 		};
 
+		// A bone that breathing rolls back
+		struct Shoulder
+		{
+			int bone;
+			v4 axis;       // The unit axis, in the bone's own frame, about which a positive angle rolls the shoulder back
+		};
+
 		// A tail joint whose height is checked against the ground
 		struct TailJoint
 		{
@@ -496,6 +544,9 @@ namespace pr::animation
 		float m_turn_rate;          // The smoothed rate of turning about the body's up direction, in radians per second
 		TargetPath m_look;          // The world-space look point (pos), which moves smoothly to each new point
 		Fade m_look_weight;         // How strongly the necks face 'm_look'
+		Breath m_breath;            // The caller's breathing motion
+		float m_breath_phase;       // The breath cycle position in [0,1)
+		std::vector<Shoulder> m_shoulders; // The bones that breathing rolls back
 		float m_phase;              // The step cycle position in [0,1)
 		float m_unsupported_s;      // How long the body has been continuously unsupported, in seconds
 		float m_fall;               // In [0,1]. How far the limbs are spread out for falling.
@@ -702,6 +753,8 @@ namespace pr::animation
 			std::fill(m_pos_offset.begin(), m_pos_offset.end(), v4::Zero());
 			AddMotion(m_prev_family, (1.0f - w) * amplitude);
 			AddMotion(m_family, w * amplitude);
+			for (auto const& shoulder : m_shoulders)
+				m_rot_offset[shoulder.bone] += shoulder.axis * (m_breath.shoulders * Inhale());
 
 			// Root bones carry the hips at the hip height of the cycles either side of the speed
 			auto lift = v4(0, 0, Lerp(HipLift(m_prev_family), HipLift(m_family), w), 0);
@@ -1278,6 +1331,23 @@ namespace pr::animation
 			auto chest_turn = quat(v4::ZAxis(), chest_yaw + lead);
 			m_targets[m_spine].base = xform(pelvis0.pos + v4(pelvis_shift, 0, hind, 0), Normalise(pelvis_turn * pitch * pelvis0.rot));
 			m_targets[m_spine].frame = xform(chest0.pos + v4(chest_shift, 0, fore, 0), Normalise(chest_turn * pitch * chest0.rot));
+
+			// Breathing moves the chest out from the front of the body, which faces along the spine turned a quarter turn forward about model +X,
+			// and tilts it back by the angle that the move turns the spine through, so the spine arches
+			auto breath = m_breath.chest * Inhale();
+			if (breath != 0)
+			{
+				auto& chest = m_targets[m_spine].frame;
+				auto front = Normalise(Cross(v4::XAxis(), span));
+				auto arch = quat(Normalise(span), Normalise(span - front * breath));
+				chest = xform(chest.pos + front * breath, Normalise(arch * chest.rot));
+			}
+		}
+
+		// How far through its in-and-out motion the current breath is: 0 at the start and end of the breath, and 1 halfway
+		float Inhale() const
+		{
+			return 0.5f * (1.0f - std::cos(math::constants<float>::tau * m_breath_phase));
 		}
 
 		// The sideways offsets (model X) of the pelvis and the chest that move the body's weight over the walking limbs. Each limb pulls its girdle
@@ -2209,6 +2279,30 @@ namespace pr::animation::tests
 				loco.Step(1.0f / 60, BodyState{}, ground);
 
 			PR_EXPECT(Dot(facing(), neck.forward) > 0.999f);
+		}
+		PRUnitTestMethod(BreathingMovesTheChest, Quick)
+		{
+			// At the peak of a breath the chest has moved out from the front of the body, which for the test rig's level spine is down, and it is
+			// back where it started at the end of the breath
+			auto rig = TestRig();
+			auto still = Locomotion(rig, TestGait());
+			auto breathing = Locomotion(rig, TestGait());
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			breathing.SetBreath(Breath{ .rate = 1.0f, .chest = 0.02f, .shoulders = 0.1f });
+			for (int i = 0; i != 30; ++i)
+			{
+				still.Step(dt, BodyState{}, ground);
+				breathing.Step(dt, BodyState{}, ground);
+			}
+			PR_EXPECT(FEqlAbsolute(breathing.targets()[0].frame.pos - still.targets()[0].frame.pos, v4(0, 0, -0.02f, 0), 1e-4f));
+
+			for (int i = 0; i != 30; ++i)
+			{
+				still.Step(dt, BodyState{}, ground);
+				breathing.Step(dt, BodyState{}, ground);
+			}
+			PR_EXPECT(FEqlAbsolute(breathing.targets()[0].frame.pos, still.targets()[0].frame.pos, 1e-4f));
 		}
 		PRUnitTestMethod(SwingingFeetMoveOutAndTurnFreely, Quick)
 		{
