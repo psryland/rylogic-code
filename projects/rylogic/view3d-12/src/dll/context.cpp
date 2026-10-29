@@ -632,18 +632,36 @@ namespace pr::rdr12
 		});
 	}
 
-	// Replace the buffer of every procedural shader used by the nuggets of 'object'.
-	void Context::ObjectProceduralBuffer(ldraw::LdrObject* object, D3DPtr<ID3D12Resource> buffer)
+	// Replace the buffer at 'slot' of every procedural shader used by the nuggets of 'object'.
+	void Context::ObjectProceduralBuffer(ldraw::LdrObject* object, int slot, D3DPtr<ID3D12Resource> buffer)
 	{
 		// Each shader holds its own reference to the buffer.
 		ForEachProceduralShader(object, [&](ProceduralShader& shader)
 		{
 			// Draws recorded after this bind the new buffer.
-			shader.Buffer(buffer);
+			shader.Buffer(slot, buffer);
 		});
 	}
 
-	// Overwrite part of each distinct buffer used by the procedural shaders of 'object'.
+	// Return the buffer at 'slot' of the first procedural shader used by the nuggets of 'object'.
+	D3DPtr<ID3D12Resource> Context::ObjectProceduralBuffer(ldraw::LdrObject* object, int slot) const
+	{
+		// Shaders on one object normally share their buffers, so the first shader is representative.
+		auto result = D3DPtr<ID3D12Resource>{};
+		auto found = false;
+		ForEachProceduralShader(object, [&](ProceduralShader& shader)
+		{
+			// Later shaders are ignored once the first has been seen.
+			if (found)
+				return;
+
+			result = shader.Buffer(slot);
+			found = true;
+		});
+		return result;
+	}
+
+	// Overwrite part of each distinct slot 0 buffer used by the procedural shaders of 'object'.
 	void Context::ObjectProceduralBufferWrite(ldraw::LdrObject* object, size_t offset, std::span<std::byte const> data)
 	{
 		// Shaders may share one buffer, which needs only one copy.
@@ -651,7 +669,7 @@ namespace pr::rdr12
 		ForEachProceduralShader(object, [&](ProceduralShader& shader)
 		{
 			// Each buffer is written once, by the first shader that binds it.
-			auto* buffer = shader.m_buffer.get();
+			auto* buffer = shader.m_buffers[0].get();
 			if (std::find(written.begin(), written.end(), buffer) != written.end())
 				return;
 
@@ -660,7 +678,7 @@ namespace pr::rdr12
 		});
 	}
 
-	// Run caller compute once over each distinct buffer used by the procedural shaders of 'object'.
+	// Run caller compute once over each distinct slot 0 buffer used by the procedural shaders of 'object'.
 	void Context::ObjectProceduralBufferDispatch(ldraw::LdrObject* object, std::span<BYTE const> cs_bytecode, std::span<std::byte const> constants, iv3 groups)
 	{
 		// Shaders may share one buffer, and a second dispatch would apply the update twice.
@@ -668,7 +686,7 @@ namespace pr::rdr12
 		ForEachProceduralShader(object, [&](ProceduralShader& shader)
 		{
 			// Each buffer is updated once, by the first shader that binds it.
-			auto* buffer = shader.m_buffer.get();
+			auto* buffer = shader.m_buffers[0].get();
 			if (std::find(dispatched.begin(), dispatched.end(), buffer) != dispatched.end())
 				return;
 

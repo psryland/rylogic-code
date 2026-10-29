@@ -473,6 +473,86 @@ namespace render_tests
 		std::cout << "PASS procedural vertex buffer\n";
 	}
 
+	// Prove a buffer bound to procedural slot 1 is readable at its register, can be queried back, and that invalid slots are rejected.
+	void ProceduralBufferSlotTests()
+	{
+		// Build a forward procedural triangle with no slot 0 buffer, whose colour lives only in a shared buffer bound at slot 1.
+		Fixture fixture(1);
+		std::cout << "Procedural buffer slots: slot 1 binding and query\n";
+		auto constants = ProceduralVertexConstants{
+			.m_positions = {
+				api::Vec4{-25, -25, -10, 1},
+				api::Vec4{+25, -25, -10, 1},
+				api::Vec4{0, +25, -10, 1},
+			},
+			.m_colour = api::Vec4{0, 1, 0, 1},
+		};
+		auto shader = View3D_ShaderCreate(api::ShaderOptions{
+			.m_struct_size = sizeof(api::ShaderOptions),
+			.m_version = api::ShaderOptions::CurrentVersion,
+			.m_stage = api::EShaderStage::Vertex,
+			.m_bytecode = compiled::procedural_vertex_buffer1,
+			.m_bytecode_size = sizeof(compiled::procedural_vertex_buffer1),
+			.m_dbg_name = "ProceduralBufferSlot1",
+			.m_procedural = {
+				.m_rdr_step = api::ERenderStep::ForwardRender,
+				.m_constants = &constants,
+				.m_constants_size = sizeof(constants),
+			},
+		});
+		Require(shader != nullptr, "Procedural slot shader creation failed");
+		fixture.m_shaders.push_back(shader);
+		auto placeholder = api::Vertex{};
+		uint32_t indices[] = {70000, 70001, 70002};
+		auto nugget = api::Nugget{};
+		nugget.m_topo = api::ETopo::TriList;
+		nugget.m_geom = api::EGeom::Vert;
+		nugget.m_v0 = 0;
+		nugget.m_v1 = 1;
+		nugget.m_cull_mode = api::ECullMode::None;
+		nugget.m_tint = 0xFFFFFFFF;
+		nugget.m_shaders[0] = api::Nugget::Shader{shader, api::ERenderStep::ForwardRender, 0};
+		auto options = api::ObjectCreateOptions{
+			.m_struct_size = sizeof(api::ObjectCreateOptions),
+			.m_version = api::ObjectCreateOptions::CurrentVersion,
+			.m_vertex_source = api::EVertexSource::ProceduralVertexId,
+			.m_vcount_logical = 70003,
+			.m_bbox = api::BBox{
+				.centre = api::Vec4{0, 0, -10, 1},
+				.radius = api::Vec4{25, 25, 0, 0},
+			},
+		};
+		auto object = View3D_ObjectCreateU32("ProceduralBufferSlot1", 0xFFFFFFFF, 1, 3, 1, &placeholder, indices, &nugget, options, GUID{});
+		Require(object != nullptr, "Procedural slot object creation failed");
+		fixture.m_objects.push_back(object);
+
+		// Bind a renderer buffer at slot 1, then drop the caller's reference so only the shader keeps it alive.
+		auto colour = api::Vec4{1, 0, 1, 1};
+		auto buffer = View3D_ProceduralBufferCreate(sizeof(colour), &colour, sizeof(colour), FALSE, "ProceduralBufferSlot1");
+		Require(buffer != nullptr, "Procedural slot buffer creation failed");
+		View3D_ObjectProceduralBufferSet(object, 1, buffer);
+		View3D_ObjectProceduralBufferSet(object, 1, buffer);
+		static_cast<IUnknown*>(buffer)->Release();
+		Require(View3D_ObjectProceduralBufferGet(object, 1) == buffer, "Procedural slot 1 query returned the wrong buffer");
+		Require(View3D_ObjectProceduralBufferGet(object, 0) == nullptr, "Procedural slot 0 query returned a buffer that was never bound");
+		fixture.CheckErrors();
+
+		// Slots outside the fixed range are reported and change nothing.
+		View3D_ObjectProceduralBufferSet(object, api::ProceduralBinding::BufferSlotCount, nullptr);
+		Require(!fixture.m_errors.empty() && fixture.m_errors.back().find("slot") != std::string::npos, "Invalid procedural buffer slot was not reported");
+		fixture.m_errors.clear();
+		Require(View3D_ObjectProceduralBufferGet(object, -1) == nullptr, "Invalid procedural buffer slot query returned a buffer");
+		Require(!fixture.m_errors.empty(), "Invalid procedural buffer slot query was not reported");
+		fixture.m_errors.clear();
+
+		// The rendered colour can only come from the slot 1 buffer.
+		View3D_WindowAddObject(fixture.m_window, object);
+		Expect(fixture.Image(), 1, 0, 1);
+		fixture.CheckErrors();
+		fixture.CheckDebugLayer();
+		std::cout << "PASS procedural buffer slots\n";
+	}
+
 	// Prove a GPU-generated object receives its optional caller input at t0, and that malformed input descriptors are rejected.
 	void GeneratedVertexInputTests()
 	{
@@ -921,6 +1001,7 @@ namespace pr::unittests::view3d12
 	{
 		render_tests::ProceduralVertexAbiTests();
 		render_tests::ProceduralVertexBufferTests();
+		render_tests::ProceduralBufferSlotTests();
 	}
 	PRUnitTest(View3d12_GeneratedVertexInput, Extended | Serial)
 	{

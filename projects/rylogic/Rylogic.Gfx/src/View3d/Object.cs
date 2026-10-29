@@ -710,24 +710,25 @@ namespace Rylogic.Gfx
 			}
 
 			/// <summary>
-			/// Replace the buffer of every procedural shader on this object's own nuggets, or unbind it with null. Later frames bind the new buffer.
-			/// The shaders take their own references. The caller keeps the buffer contents valid until the frames that use them have finished on the
-			/// graphics queue (see View3d.AddGfxQueueSyncPoint). The buffer must rest in D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE whenever the graphics
-			/// queue is not updating it. A shader that declares the buffer must not be drawn while none is bound.</summary>
-			public void ProceduralBufferSet(Rylogic.D3D12.ResourceLease? buffer)
+			/// Replace the buffer at 'slot' (0 or 1) of every procedural shader on this object's own nuggets, or unbind it with null. Later frames bind
+			/// the new buffer. Slot 0 is the object's own buffer, which ProceduralBufferWrite and ProceduralBufferDispatch update. The shaders take their own
+			/// references. The caller keeps the buffer contents valid until the frames that use them have finished on the graphics queue
+			/// (see View3d.AddGfxQueueSyncPoint). The buffer must rest in D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE whenever the graphics queue is not
+			/// updating it. A shader that declares a slot must not be drawn while no buffer is bound there.</summary>
+			public void ProceduralBufferSet(int slot, Rylogic.D3D12.ResourceLease? buffer)
 			{
 				// The pointer is pinned only for the call; View3D adds its own reference.
 				if (buffer == null)
 				{
-					View3D_ObjectProceduralBufferSet(Handle, IntPtr.Zero);
+					View3D_ObjectProceduralBufferSet(Handle, slot, IntPtr.Zero);
 					return;
 				}
 				using var borrowed = buffer.Borrow();
-				View3D_ObjectProceduralBufferSet(Handle, borrowed.Handle);
+				View3D_ObjectProceduralBufferSet(Handle, slot, borrowed.Handle);
 			}
 
 			/// <summary>
-			/// Overwrite part of each distinct buffer bound to the procedural shaders on this object's own nuggets, starting at byte 'offset'.
+			/// Overwrite part of each distinct slot 0 buffer bound to the procedural shaders on this object's own nuggets, starting at byte 'offset'.
 			/// The copy runs on the graphics queue between the frames already submitted and later frames, so no frame sees a partial write.
 			/// 'offset' and the byte size of 'data' must be multiples of 4, with 'data' not empty, inside every such buffer. Other queues must not
 			/// use the buffers while this work is in flight.</summary>
@@ -739,7 +740,7 @@ namespace Rylogic.Gfx
 			}
 
 			/// <summary>
-			/// Run a compiled compute shader once over each distinct buffer bound to the procedural shaders on this object's own nuggets. The shader
+			/// Run a compiled compute shader once over each distinct slot 0 buffer bound to the procedural shaders on this object's own nuggets. The shader
 			/// sees a copy of 'constants' (1 to 65536 bytes) at b0 and the whole buffer as a RWByteAddressBuffer at u0. The dispatch runs on the
 			/// graphics queue between the frames already submitted and later frames. Each buffer must allow unordered access.</summary>
 			public unsafe void ProceduralBufferDispatch<T>(ReadOnlySpan<byte> cs_bytecode, ReadOnlySpan<T> constants, int groups_x, int groups_y, int groups_z) where T : unmanaged

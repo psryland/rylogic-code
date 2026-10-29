@@ -16,7 +16,8 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto CBufFrame = ECBufReg::b0;
 		inline static constexpr auto CBufNugget = ECBufReg::b1;
 		inline static constexpr auto CBufProcedural = ECBufReg::b2;
-		inline static constexpr auto ProceduralBuffer = ESRVReg::t14;
+		inline static constexpr auto ProceduralBuffer0 = ESRVReg::t14;
+		inline static constexpr auto ProceduralBuffer1 = ESRVReg::t23;
 	};
 	
 	RayCast::RayCast(Renderer& rdr)
@@ -27,7 +28,8 @@ namespace pr::rdr12::shaders
 			.CBuf(EReg::CBufFrame)
 			.CBuf(EReg::CBufNugget)
 			.CBuf(EReg::CBufProcedural, D3D12_SHADER_VISIBILITY_VERTEX)
-			.SRV(EReg::ProceduralBuffer, D3D12_SHADER_VISIBILITY_VERTEX)
+			.SRV(EReg::ProceduralBuffer0, D3D12_SHADER_VISIBILITY_VERTEX)
+			.SRV(EReg::ProceduralBuffer1, D3D12_SHADER_VISIBILITY_VERTEX)
 			.Create(rdr.d3d(), "RayCastVertSig");
 	}
 

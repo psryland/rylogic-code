@@ -18,7 +18,8 @@ namespace pr::rdr12::shaders
 			DiffTexture,
 			DiffTextureSampler,
 			ShadowViews,
-			ProceduralBuffer,
+			ProceduralBuffer0,
+			ProceduralBuffer1,
 			Elements,
 		};
 

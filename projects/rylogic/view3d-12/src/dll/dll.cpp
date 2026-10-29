@@ -2355,17 +2355,31 @@ VIEW3D_API void __stdcall View3D_ObjectProceduralConstantsSet(view3d::Object obj
 	CatchAndReport(View3D_ObjectProceduralConstantsSet, , );
 }
 
-// Replace the buffer of every procedural shader used by an object's nuggets.
-VIEW3D_API void __stdcall View3D_ObjectProceduralBufferSet(view3d::Object object, void* buffer)
+// Replace the buffer at 'slot' of every procedural shader used by an object's nuggets.
+static_assert(view3d::ProceduralBinding::BufferSlotCount == ProceduralShader::BufferSlotCount);
+VIEW3D_API void __stdcall View3D_ObjectProceduralBufferSet(view3d::Object object, int slot, void* buffer)
 {
 	try
 	{
-		// The shaders take their own references, so the caller keeps ownership of its reference.
+		// The shaders take their own references, so the caller keeps ownership of its reference. The shaders validate the slot.
 		Validate(object);
 		DllLockGuard;
-		Dll().ObjectProceduralBuffer(object, D3DPtr<ID3D12Resource>(static_cast<ID3D12Resource*>(buffer), true));
+		Dll().ObjectProceduralBuffer(object, slot, D3DPtr<ID3D12Resource>(static_cast<ID3D12Resource*>(buffer), true));
 	}
 	CatchAndReport(View3D_ObjectProceduralBufferSet, , );
+}
+
+// Return the buffer at 'slot' of the first procedural shader used by an object's nuggets.
+VIEW3D_API void* __stdcall View3D_ObjectProceduralBufferGet(view3d::Object object, int slot)
+{
+	try
+	{
+		// The returned pointer is borrowed; the shaders keep the reference that keeps it alive.
+		Validate(object);
+		DllLockGuard;
+		return Dll().ObjectProceduralBuffer(object, slot).get();
+	}
+	CatchAndReport(View3D_ObjectProceduralBufferGet, , nullptr);
 }
 
 // Overwrite part of the buffer of every procedural shader used by an object's nuggets.

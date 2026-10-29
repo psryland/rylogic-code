@@ -43,7 +43,8 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto SkyTexture = ESRVReg::t18;
 		inline static constexpr auto EnvMapDistance = ESRVReg::t21;
 		inline static constexpr auto SkyHistory = ESRVReg::t22;
-		inline static constexpr auto ProceduralBuffer = ESRVReg::t14;
+		inline static constexpr auto ProceduralBuffer0 = ESRVReg::t14;
+		inline static constexpr auto ProceduralBuffer1 = ESRVReg::t23;
 		inline static constexpr auto Lights = ESRVReg::t15;
 		inline static constexpr auto ShadowViews = ESRVReg::t16;
 		inline static constexpr auto Elements = ESRVReg::t17;
@@ -117,7 +118,8 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::SkyTexture, 3)
 			.SRV(EReg::Lights, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::ShadowViews, D3D12_SHADER_VISIBILITY_PIXEL)
-			.SRV(EReg::ProceduralBuffer, D3D12_SHADER_VISIBILITY_ALL)
+			.SRV(EReg::ProceduralBuffer0, D3D12_SHADER_VISIBILITY_ALL)
+			.SRV(EReg::ProceduralBuffer1, D3D12_SHADER_VISIBILITY_ALL)
 			.SRV(EReg::Elements)
 			.SRV(EReg::EnvMapPrev, 1)
 			.SRV(EReg::EnvMapDistance, 1, D3D12_SHADER_VISIBILITY_PIXEL)
