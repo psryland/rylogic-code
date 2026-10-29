@@ -106,6 +106,31 @@ namespace pr::rdr12
 		}
 	}
 
+	// Return the animation time (in seconds) at which one pass through 'm_time_range' ends, including the bias. Returns zero for 'NoAnimation'.
+	double Pose::Duration() const
+	{
+		// Invert the 'SrcAnimTime' mapping to find the time that reaches the end of the range. A negative stretch plays backwards but covers the same span.
+		switch (m_style)
+		{
+			case EAnimStyle::NoAnimation:
+			{
+				return 0.0;
+			}
+			case EAnimStyle::Once:
+			case EAnimStyle::Repeat:
+			case EAnimStyle::Continuous:
+			case EAnimStyle::PingPong:
+			{
+				assert(m_stretch != 0.0 && "A zero stretch never advances the animation");
+				return std::max(0.0, m_bias + m_time_range.size() / std::abs(m_stretch));
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown animation style");
+			}
+		}
+	}
+
 	// Return the time value relative to 'm_time_range' from the source animatino
 	double Pose::SrcAnimTime(double time) const
 	{

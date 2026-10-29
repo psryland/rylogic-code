@@ -414,8 +414,8 @@ namespace pr::rdr12
 		seconds_t AnimTime() const;
 		void AnimTime(seconds_t clock);
 
-		// Return the longest time needed to show every frame of any flipbook in this window. Zero if there are no flipbooks.
-		seconds_t FlipbookDuration() const;
+		// Return the longest time needed to play the animated content (flipbooks, root animations, skinned poses) in this window once. Zero if nothing is animated.
+		seconds_t AnimationDuration() const;
 
 		// Called when the animation time has changed
 		void AnimationStep(view3d::EAnimCommand command, seconds_t anim_time);

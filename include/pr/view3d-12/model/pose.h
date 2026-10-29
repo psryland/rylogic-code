@@ -52,6 +52,9 @@ namespace pr::rdr12
 		// True if the current animation time is within the time range of this animation
 		bool IsAnimating() const;
 
+		// Return the animation time (in seconds) at which one pass through 'm_time_range' ends, including the bias. Returns zero for 'NoAnimation'.
+		double Duration() const;
+
 		// Return the time value relative to 'm_time_range' from the source animatino
 		double SrcAnimTime(double time) const;
 

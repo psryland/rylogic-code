@@ -476,7 +476,7 @@ namespace pr::rdr12::ldraw
 		// Read the flipbook properties. The default frame rate matches the default in the Animation Controls UI.
 		auto section = reader.SectionScope();
 		auto loc = reader.Loc();
-		auto info = Flipbook{ .m_style = EAnimStyle::Once, .m_frame_rate = 24.0 };
+		auto info = Flipbook{ .m_style = EAnimStyle::Once, .m_frame_rate = 30.0 };
 		for (EKeyword kw; reader.NextKeyword(kw);)
 		{
 			switch (kw)
