@@ -6,14 +6,15 @@ a smooth arc. Templates that walk on arms pitch the spine forward until it is le
 every walking limb reaches the ground under it with its joints bent, and the stride is shortened if a limb cannot reach the ends of its stance. Arms
 that do not walk hang down at the body's sides. The rest of the body keeps its rest pose. Limb lengths set the stride and swing height, so the same
 template suits any size of rig. Swimming templates walk on no limbs: the root moves forward, the spine pitches level with the tails straight behind
-it, and each limb folds back along the body, paddling gently in the slower cycle.
+it, the neck curves up to hold the head level above the water, and each limb folds back along the body with its hand or foot flat, paddling gently
+in the slower cycle.
 """
 
 import math
 from dataclasses import dataclass
 
 import bpy
-from mathutils import Matrix, Vector
+from mathutils import Matrix, Quaternion, Vector
 
 from .gait_desc import WalkingLimbs, _Limb
 from .rig_desc import BonesParentFirst
@@ -159,9 +160,10 @@ def GenerateTemplate(armature_obj: bpy.types.Object, context: bpy.types.Context,
 def _GenerateSwim(armature_obj: bpy.types.Object, context: bpy.types.Context, template: _SwimTemplate) -> bpy.types.Action:
 	"""Key a new swimming cycle, add it to the armature's movement cycles, and return it. See 'GenerateTemplate'.
 
-	The body lies along the water: the spine pitches about its base until it points forward and level, carrying the neck and head with it, and each
-	tail runs straight back from its base in line with the spine. Each bone of each leg and arm points in the template's direction for it, on the
-	limb's own side. A paddling cycle sweeps each limb forward and back about the body's up axis, with each side and each girdle half a cycle apart.
+	The body lies along the water: the spine pitches about its base until it points forward and level, and each tail runs straight back from its base
+	in line with the spine. The neck curves up from the spine so that the head keeps its rest orientation, facing forward and level. Each bone of each
+	leg and arm points in the template's direction for it, on the limb's own side, except that the end bone lies level with its palm or sole facing
+	down. A paddling cycle sweeps each limb forward and back about the body's up axis, with each side and each girdle half a cycle apart.
 	"""
 	# Template sizes are in armature space, relative to the length of the first leg chain
 	armature = armature_obj.data
@@ -208,6 +210,22 @@ def _GenerateSwim(armature_obj: bpy.types.Object, context: bpy.types.Context, te
 			body[ref.name] = Matrix.Translation(head) @ (turn @ posed).to_4x4()
 			head = head - forward * armature.bones[ref.name].length
 
+	# Hold the head up out of the water, facing forward. Each neck bone takes back an equal share of the spine's pitch, so the neck curves up from
+	# the levelled spine and the last bone, the head, returns to its rest orientation, which faces forward and level.
+	unpitch = pitch.to_quaternion().inverted()
+	for chain in rig.chains:
+		if chain.role != "NECK" or not chain.bones:
+			continue
+
+		head = Posed(chain.bones[0].name).to_translation()
+		for b, ref in enumerate(chain.bones):
+			rotation = (Quaternion().slerp(unpitch, (b + 1) / len(chain.bones)) @ Posed(ref.name).to_quaternion()).to_matrix()
+			body[ref.name] = Matrix.Translation(head) @ rotation.to_4x4()
+			head = head + rotation @ Vector((0, armature.bones[ref.name].length, 0))
+
+	# The palm or sole of each limb's end bone faces down, so that the hand or foot lies flat on the water
+	contacts = {contact.bone: Vector(contact.normal) for contact in rig.contacts if contact.kind in ("SOLE", "PALM")}
+
 	# Key each frame: the root carried forward, the levelled body, and each limb posed in the template's directions plus its paddle sweep
 	scene = context.scene
 	root = BonesParentFirst(armature)[0].name
@@ -228,11 +246,22 @@ def _GenerateSwim(armature_obj: bpy.types.Object, context: bpy.types.Context, te
 				offset = (0.0 if chain.side != "RIGHT" else 0.5) + (0.0 if chain.role == "LEG" else 0.5)
 				sweep = Matrix.Rotation(template.paddle * math.sin(2 * math.pi * (phase - offset)), 3, up)
 				for b, ref in enumerate(chain.bones):
+					# The end bone lies level, so that its hand or foot is flat on the water
 					back, outward, down = template.limb[min(b, len(template.limb) - 1)]
-					direction = sweep @ (-forward * back + out * outward - up * down).normalized()
+					end = b == len(chain.bones) - 1
+					direction = sweep @ (-forward * back + out * outward - up * (0.0 if end else down)).normalized()
 					posed = Posed(ref.name).to_3x3()
 					turn = (posed @ Vector((0, 1, 0))).rotation_difference(direction).to_matrix()
-					pose[ref.name] = travel @ Matrix.Translation(head) @ (turn @ posed).to_4x4()
+					oriented = turn @ posed
+
+					# Roll the end bone about its length until its palm or sole faces as nearly down as it can
+					if end and ref.name in contacts:
+						normal = oriented @ contacts[ref.name]
+						facing, target = normal - direction * normal.dot(direction), -up - direction * -up.dot(direction)
+						if facing.length > 1e-6 and target.length > 1e-6:
+							oriented = facing.rotation_difference(target).to_matrix() @ oriented
+
+					pose[ref.name] = travel @ Matrix.Translation(head) @ oriented.to_4x4()
 					head = head + direction * armature.bones[ref.name].length
 
 			poses.append(pose)

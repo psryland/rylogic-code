@@ -2584,6 +2584,28 @@ extern "C"
 		});
 	}
 
+	// Sample the current water surface height at each position.
+	PhysicsStatus __stdcall Physics_EngineWaterHeights(PhysicsEngineHandle engine, double time_s, pr::physics::Vector2d const* xy, double* heights, std::int32_t count)
+	{
+		return pr::physics::ApiCall([&]
+		{
+			// Water is replaced only between frames on the owner thread, so the owner can read it at any time.
+			auto scope = pr::physics::EngineScope(engine);
+			auto& record = *scope;
+			pr::physics::RequireOwner(record);
+			if (count < 0 || (count != 0 && (xy == nullptr || heights == nullptr)))
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid water height arrays");
+
+			auto const* water = record.m_engine->Water();
+			if (water == nullptr)
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "The engine has no water");
+
+			// Evaluate each position on the same field that the buoyancy step reads.
+			for (std::int32_t i = 0; i != count; ++i)
+				heights[i] = water->m_field.Height(pr::physics::terrain::v2d{ xy[i].x, xy[i].y }, time_s);
+		});
+	}
+
 	// Replace the wind sea applied to water; null leaves wind-sea elements at their table-maximum amplitude.
 	PhysicsStatus __stdcall Physics_EngineWaterWindSeaSet(PhysicsEngineHandle engine, pr::physics::WindSeaDesc const* wind_sea)
 	{

@@ -1069,6 +1069,10 @@ extern "C"
 	// Applies to the current water and to later Physics_EngineWaterSet calls. Only valid between completed frames.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineWaterWindSeaSet(pr::physics::EngineHandle engine, pr::physics::WindSeaDesc const* wind_sea);
 
+	// Write the water-surface height at each of the 'count' world-space XY positions in 'xy' to 'heights', at simulation time 'time_s'.
+	// This is the surface that buoyancy uses: the same elements, wind sea, and depth correction. Fails when the engine has no water.
+	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineWaterHeights(pr::physics::EngineHandle engine, double time_s, pr::physics::Vector2d const* xy, double* heights, std::int32_t count);
+
 	// Write the wind-sea table of 'spectrum' for a wind blowing over 'fetch' metres of open water. 'rows' holds bands * speed_count rows, where
 	// row r of band b is at [b * speed_count + r] and describes a steady wind of r * 'speed_step' m/s. Each row is (amplitude of an element
 	// travelling downwind (m), alignment exponent, crest sharpness, sum of alignment weights); see wind_sea.hlsli.

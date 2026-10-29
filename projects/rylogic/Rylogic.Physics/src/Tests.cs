@@ -105,7 +105,13 @@ public sealed class TestPhysics
 		using var engine = runtime.CreateEngine();
 		ExpectStatus(EStatus.InvalidArgument, () => engine.SetWater(new WaterConfiguration(0, density: 0)));
 		ExpectStatus(EStatus.InvalidArgument, () => engine.SetWater(new WaterConfiguration(double.NaN)));
+		ExpectStatus(EStatus.InvalidArgument, () => engine.WaterHeights(0, new Vector2d[1], new double[1]));
 		engine.SetWater(new WaterConfiguration(2, linear_drag_rate: 2));
+
+		// Still water reports its level everywhere.
+		var still = new double[1];
+		engine.WaterHeights(5, new[] { new Vector2d(13, -7) }, still);
+		Assert.Equal(2.0, still[0]);
 
 		// A sphere of half the water's density floats with its centre on the surface.
 		using var shape = engine.CreateSphere(0.5f);
@@ -168,6 +174,15 @@ public sealed class TestPhysics
 		engine.SetWaterBathymetry(new Vector2d(-100, -100), 200, 2, 2, heights);
 		engine.SetWaterWindSea(grid, table, winds);
 		engine.SetWater(new WaterConfiguration(0, repeat_period: 1024), elements.AsSpan(0, long_only));
+
+		// The surface heights move with the waves, and the query needs one output per position.
+		var points = new[] { new Vector2d(-50, -50), new Vector2d(-50, -50), new Vector2d(30, -70) };
+		var surface = new double[points.Length];
+		engine.WaterHeights(0, points.AsSpan(0, 2), surface.AsSpan(0, 2));
+		engine.WaterHeights(3.7, points.AsSpan(1), surface.AsSpan(1));
+		Assert.True(Array.TrueForAll(surface, h => !double.IsNaN(h) && !double.IsInfinity(h)));
+		Assert.True(surface[0] != surface[1] && Array.Exists(surface, h => h != 0));
+		Assert.Throws<ArgumentException>(() => engine.WaterHeights(0, points, surface.AsSpan(1)));
 		Assert.Throws<ArgumentException>(() => engine.SetWaterBathymetry(new Vector2d(0, 0), 1, 3, 3, heights));
 		Assert.Throws<ArgumentException>(() => engine.SetWaterWindSea(grid, table, winds.AsSpan(1)));
 		ExpectStatus(EStatus.InvalidArgument, () => engine.SetWater(new WaterConfiguration(0, breaking_ratio: 0), elements.AsSpan(0, long_only)));
