@@ -16,12 +16,18 @@
 // A '.gait' file is a JSON gait description:
 //
 //  {
-//    "schema_version": 9,
+//    "schema_version": 10,
 //    "families": [{
 //      "name": "quadruped",
 //      "up": "surface" | "gravity",        // the direction that the body stands up along: the ground's normal, or against gravity
 //      "max_slope": 3.14159,               // in (0,pi]. The steepest ground, in radians from level, on which the family can be used.
 //      "max_speed": 1.5,                   // > 0. The fastest that the character should move in this family. It may exceed the fastest cycle's speed.
+//      "medium": "ground" | "water",       // what the body moves through: it stands on the ground, or swims at the water's surface
+//      "wave": {                           // a side-to-side wave that travels along the spine and tails from the head end to the tail tip
+//        "amplitude": 0.0,                 // >= 0. The peak bend at the head end, in radians per body length. Zero for no wave.
+//        "wavelength": 1.0,                // > 0. The length of one wave, in body lengths.
+//        "growth": 1.0                     // >= 0. The ratio of the amplitude at the tail tip to the amplitude at the head end.
+//      },
 //      "stance": [{                        // The family's standing pose. Bones that are not listed keep their rest rotation.
 //        "bone": "hips",
 //        "rotation": [x, y, z, w],         // rotation relative to the parent bone, as a unit quaternion
@@ -74,6 +80,15 @@
 // The arm swing turns each hanging arm about its shoulder, forward and back, opposite to the walking leg on the same side: the arm is furthest
 // back as that leg's foot lands. It does nothing to arms that walk.
 //
+// A water family swims rather than stands. Its cycles have no footfalls, so every limb hangs from the body in its stance and the cycles'
+// motion, for example tucked along the body with paddling strokes. The body does not need the ground to support it, and the body and its
+// tails ignore the ground beneath them.
+//
+// The wave bends each bone of the spine and tail chains about the body's up axis, so the body swims like an eel. The body length 'L' is the
+// total length of the spine and tail chains, and 's' is a bone's distance along them from the head end of the spine. A bone of length 'l'
+// bends by amplitude * Lerp(1, growth, s/L) * (l/L) * sin(2 pi (phase - s / (wavelength * L))), so the wave travels from the head to the tail
+// tip once per cycle. The wave grows with speed in the same way as the cycles' motion.
+//
 // A family's up direction says how the body stands. A crawling family stands up along the ground's normal, so it can climb walls. An upright
 // family stands against gravity, so it needs ground that is close to level; its slope limit is the steepest ground on which it can balance.
 #pragma once
@@ -84,7 +99,7 @@
 namespace pr::animation
 {
 	// The '.gait' schema version that this code reads and writes
-	inline constexpr int GaitSchemaVersion = 9;
+	inline constexpr int GaitSchemaVersion = 10;
 
 	// The number of harmonics in each bone motion
 	inline constexpr int GaitHarmonics = 2;
@@ -157,6 +172,24 @@ namespace pr::animation
 		Gravity,
 	};
 
+	// What a family's body moves through
+	enum class EFamilyMedium
+	{
+		// Standing on the ground
+		Ground,
+
+		// Swimming at the water's surface
+		Water,
+	};
+
+	// A side-to-side wave that travels along the spine and tails. See the top of this file.
+	struct BodyWave
+	{
+		float amplitude = 0.0f;  // >= 0. The peak bend at the head end, in radians per body length.
+		float wavelength = 1.0f; // > 0. The length of one wave, in body lengths.
+		float growth = 1.0f;     // >= 0. The ratio of the amplitude at the tail tip to the amplitude at the head end.
+	};
+
 	// A group of movement cycles that share a stance and a set of walking limbs
 	struct GaitFamily
 	{
@@ -164,6 +197,8 @@ namespace pr::animation
 		EFamilyUp up = EFamilyUp::Surface;
 		float max_slope = math::constants<float>::tau_by_2; // In (0,pi]. The steepest ground, in radians from level, on which the family can be used.
 		float max_speed = 0.0f;            // > 0. The fastest that the character should move in this family. It may exceed the fastest cycle's speed.
+		EFamilyMedium medium = EFamilyMedium::Ground;
+		BodyWave wave;
 		std::vector<StanceBone> stance;
 		std::vector<GaitCycle> cycles;     // Ordered by increasing speed
 	};
@@ -177,6 +212,7 @@ namespace pr::animation
 	// The names of 'EMotionChannel' values in the file, in enum order
 	inline constexpr std::array<std::string_view, 2> MotionChannelNames = { "rotation", "position" };
 	inline constexpr std::array<std::string_view, 2> FamilyUpNames = { "surface", "gravity" };
+	inline constexpr std::array<std::string_view, 2> FamilyMediumNames = { "ground", "water" };
 
 	// Evaluate a bone motion at 'phase'
 	inline v4 Evaluate(std::array<Harmonic, GaitHarmonics> const& harmonics, float phase)
@@ -258,6 +294,10 @@ namespace pr::animation
 				errors.push_back(std::format("{} has a max slope outside (0,pi]", ctx));
 			if (!(family.max_speed > 0))
 				errors.push_back(std::format("{} needs a max speed greater than zero", ctx));
+			if (!(family.wave.amplitude >= 0) || !(family.wave.wavelength > 0) || !(family.wave.growth >= 0))
+				errors.push_back(std::format("{} needs a wave with an amplitude >= 0, a wavelength > 0, and a growth >= 0", ctx));
+			if (family.medium == EFamilyMedium::Water && std::any_of(family.cycles.begin(), family.cycles.end(), [](GaitCycle const& c) { return !c.footfalls.empty(); }))
+				errors.push_back(std::format("{} swims, so its cycles must have no footfalls", ctx));
 
 			// Stance bones must exist, appear once, and give positions only for root bones
 			for (size_t s = 0; s != family.stance.size(); ++s)
@@ -366,7 +406,15 @@ namespace pr::animation
 				.up = ParseEnum<EFamilyUp>(ReadString(Member(fobj, "up", fctx), fctx + ".up"), FamilyUpNames, fctx + ".up"),
 				.max_slope = ReadFloat(Member(fobj, "max_slope", fctx), fctx + ".max_slope"),
 				.max_speed = ReadFloat(Member(fobj, "max_speed", fctx), fctx + ".max_speed"),
+				.medium = ParseEnum<EFamilyMedium>(ReadString(Member(fobj, "medium", fctx), fctx + ".medium"), FamilyMediumNames, fctx + ".medium"),
 			});
+			auto wctx = fctx + ".wave";
+			auto const& wave = ReadObject(Member(fobj, "wave", fctx), wctx);
+			family.wave = BodyWave{
+				.amplitude = ReadFloat(Member(wave, "amplitude", wctx), wctx + ".amplitude"),
+				.wavelength = ReadFloat(Member(wave, "wavelength", wctx), wctx + ".wavelength"),
+				.growth = ReadFloat(Member(wave, "growth", wctx), wctx + ".growth"),
+			};
 			auto const& stance = ReadArray(Member(fobj, "stance", fctx), fctx + ".stance");
 			for (size_t s = 0; s != stance.size(); ++s)
 			{
@@ -508,6 +556,8 @@ namespace pr::animation
 				{ "up", EnumName(family.up, FamilyUpNames) },
 				{ "max_slope", family.max_slope },
 				{ "max_speed", family.max_speed },
+				{ "medium", EnumName(family.medium, FamilyMediumNames) },
+				{ "wave", json::Object{ { "amplitude", family.wave.amplitude }, { "wavelength", family.wave.wavelength }, { "growth", family.wave.growth } } },
 				{ "stance", std::move(stance) },
 				{ "cycles", std::move(cycles) },
 			});
@@ -543,6 +593,7 @@ namespace pr::animation::tests
 	// A gait for the test rig (see 'TestRigDesc'), whose stances are its rest pose:
 	//  - "quadruped": the leg and arm step half a cycle apart, in a walk and a faster trot. The walk sways the spine and bobs the root, and both cycles swing the hips and shoulders.
 	//  - "bipedal": only the leg steps, shifting the body's weight over it, and the arm hangs and swings. It stands against gravity on ground up to 0.4 radians from level.
+	//  - "swim": no limb walks. The body wave bends the spine and tail, growing towards the tail tip, and the arm paddles in the slower cycle.
 	inline GaitDesc TestGait()
 	{
 		// Both families stand in the rest pose, so their stances are empty. The rest pose carries the leg's hip joint at z = 1, and the leg reaches
@@ -583,10 +634,26 @@ namespace pr::animation::tests
 			.arm_swing = 0.3f,
 			.footfalls = { Footfall{ .role = EChainRole::Leg, .side = ESide::Left, .touchdown = 0.0f, .duty = 0.6f, .swing_height = 0.1f } },
 		};
+		auto paddle = GaitCycle{
+			.name = "paddle",
+			.speed = 0.4f,
+			.stride = 0.4f,
+			.hip_height = rest_hip_height,
+			.motion = {
+				BoneMotion{ .bone = "arm.L", .channel = EMotionChannel::Rotation, .harmonics = { Harmonic{ .sin = v4(0.3f, 0, 0, 0) }, Harmonic{} } },
+			},
+		};
+		auto glide = GaitCycle{
+			.name = "glide",
+			.speed = 1.2f,
+			.stride = 0.8f,
+			.hip_height = rest_hip_height,
+		};
 		return GaitDesc{
 			.families = {
 				GaitFamily{ .name = "quadruped", .max_speed = trot.speed, .cycles = { walk, trot } },
 				GaitFamily{ .name = "bipedal", .up = EFamilyUp::Gravity, .max_slope = 0.4f, .max_speed = 1.5f, .cycles = { biped } },
+				GaitFamily{ .name = "swim", .max_speed = 2.0f, .medium = EFamilyMedium::Water, .wave = { .amplitude = 1.5f, .wavelength = 1.0f, .growth = 2.0f }, .cycles = { paddle, glide } },
 			},
 		};
 	}
@@ -605,10 +672,13 @@ namespace pr::animation::tests
 			auto text = json::Write(WriteGaitDesc(gait));
 			auto read = ReadGaitDesc(json::Read(std::string_view(text)));
 			PR_EXPECT(Validate(read, rig).empty());
-			PR_EXPECT(read.families.size() == 2);
+			PR_EXPECT(read.families.size() == 3);
 			PR_EXPECT(read.families[0].name == "quadruped" && read.families[1].name == "bipedal");
 			PR_EXPECT(read.families[0].up == EFamilyUp::Surface && read.families[0].max_slope == gait.families[0].max_slope);
 			PR_EXPECT(read.families[1].up == EFamilyUp::Gravity && read.families[1].max_slope == 0.4f && read.families[1].max_speed == 1.5f);
+			PR_EXPECT(read.families[0].medium == EFamilyMedium::Ground && read.families[0].wave.amplitude == 0.0f);
+			PR_EXPECT(read.families[2].medium == EFamilyMedium::Water && read.families[2].wave.amplitude == 1.5f && read.families[2].wave.wavelength == 1.0f && read.families[2].wave.growth == 2.0f);
+			PR_EXPECT(read.families[2].cycles.size() == 2 && read.families[2].cycles[0].footfalls.empty());
 
 			auto const& stance = read.families[0].stance;
 			PR_EXPECT(stance.size() == 2 && stance[0].position && !stance[1].position);
@@ -651,7 +721,8 @@ namespace pr::animation::tests
 				PR_EXPECT(std::string_view(ex.what()).find("gait.families[0].cycles[0].footfalls[0].role") != std::string_view::npos);
 			}
 
-			// Gaits that do not fit the rig are reported: unordered speeds, a limb missing from one cycle, a position on a non-root bone, a zero slope limit, and a zero speed limit
+			// Gaits that do not fit the rig are reported: unordered speeds, a limb missing from one cycle, a position on a non-root bone, a zero slope limit,
+			// a zero speed limit, a zero wavelength, and a swimming family with footfalls
 			auto gait = TestGait();
 			auto& quad = gait.families[0];
 			quad.cycles[1].speed = quad.cycles[0].speed;
@@ -659,7 +730,11 @@ namespace pr::animation::tests
 			quad.cycles[0].motion[0].channel = EMotionChannel::Position;
 			gait.families[1].max_slope = 0.0f;
 			gait.families[1].max_speed = 0.0f;
-			PR_EXPECT(Validate(gait, rig).size() == 5);
+			gait.families[1].wave.wavelength = 0.0f;
+			for (auto& cycle : gait.families[2].cycles)
+				cycle.footfalls = quad.cycles[0].footfalls;
+
+			PR_EXPECT(Validate(gait, rig).size() == 7);
 		}
 	};
 }

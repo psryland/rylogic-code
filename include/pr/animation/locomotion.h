@@ -28,6 +28,9 @@
 //    on the ground. The first bone heads across the ground with the swaying hips, and the dragged rope behind it sets which way each later bone
 //    heads, so the sway travels down the tail as an 'S' wave. The first bone's joint limits are measured from the guide's tail shape.
 //  - A body that stays unsupported falls with its walking limbs spread out from the body, and they swing down to the ground when it lands.
+//  - A swimming family (medium "water") has no walking limbs, so every limb hangs from the body in the guide pose, and the body is never
+//    airborne. The body and tails ignore the ground beneath them, and the family's body wave bends the spine and tails from side to side.
+//    While the body enters or leaves the water, the body's height and the tails blend between following the ground and floating.
 //
 // The body's motion comes from outside (for example, a physics simulation); the controller does not move the character's origin.
 // Model space has +Z up. The body's up is the model's +Z axis in world space, so the body may stand on any surface: a slope, a wall, or a ceiling.
@@ -166,6 +169,7 @@ namespace pr::animation
 			, m_breath()
 			, m_breath_phase(0.0f)
 			, m_shoulders()
+			, m_wave_bones()
 			, m_phase(0.0f)
 			, m_unsupported_s(0.0f)
 			, m_fall(0.0f)
@@ -241,6 +245,51 @@ namespace pr::animation
 					auto reach = rig.rest_model[chain.bones.front()].pos - rig.rest_model[shoulder].pos;
 					auto axis = Normalise(Cross(reach, back));
 					m_shoulders.push_back(Shoulder{ .bone = shoulder, .axis = Rotate(~rig.rest_model[shoulder].rot, axis) });
+				}
+			}
+
+			// The body wave bends the joints along the spine, from the chest end to the pelvis, and on down each tail. A bone's rotation bends the
+			// body at its head. The spine's base bone is left out, because turning it would turn the whole body rather than bend it.
+			auto spine_length = 0.0f;
+			auto tail_length = 0.0f;
+			if (m_spine >= 0)
+			{
+				// Spine bones run from the pelvis to the chest, so a bone's head is the sum of its own and later bone lengths from the chest end.
+				// Turning a spine bone turns the head end of the body relative to the tail end, which bends the body the opposite way to a tail bone.
+				auto const& spine = rig.chains[m_spine].bones;
+				for (auto b : spine)
+					spine_length += rig.bones[b].length;
+
+				auto s = spine_length;
+				for (size_t k = 0; k != spine.size(); ++k)
+				{
+					if (k != 0)
+						m_wave_bones.push_back(WaveBone{ .bone = spine[k], .s = s, .length = rig.bones[spine[k]].length, .sign = -1.0f });
+
+					s -= rig.bones[spine[k]].length;
+				}
+			}
+			for (auto const& chain : rig.chains)
+			{
+				// Tail bones run from the base to the tip
+				if (chain.role != EChainRole::Tail)
+					continue;
+
+				auto s = spine_length;
+				for (auto b : chain.bones)
+				{
+					m_wave_bones.push_back(WaveBone{ .bone = b, .s = s, .length = rig.bones[b].length, .sign = 1.0f });
+					s += rig.bones[b].length;
+				}
+				tail_length = std::max(tail_length, s - spine_length);
+			}
+			if (auto body_length = spine_length + tail_length; body_length > 0)
+			{
+				// Distances and lengths are measured in body lengths
+				for (auto& bone : m_wave_bones)
+				{
+					bone.s /= body_length;
+					bone.length /= body_length;
 				}
 			}
 
@@ -347,13 +396,14 @@ namespace pr::animation
 
 			// Contact with the ground can drop out for a moment, for example as the body bumps over uneven ground, while the feet are still on it.
 			// Only a support loss that lasts longer than 'AirborneDelay' lifts the feet off the ground, so brief losses do not interrupt the stepping.
+			// A swimming body is held up by the water, so it is never airborne.
+			auto const& family = m_gait.families[m_family];
 			m_unsupported_s = body.supported ? 0.0f : m_unsupported_s + dt;
-			auto airborne = m_unsupported_s > AirborneDelay;
+			auto airborne = family.medium != EFamilyMedium::Water && m_unsupported_s > AirborneDelay;
 			m_fall = Clamp(m_fall + (airborne ? dt : -dt) / FallResponse, 0.0f, 1.0f);
 
 			// Measure the speed along the surface that the feet must keep up with, including turning on the spot. The family's slowest cycle sets
 			// what counts as moving.
-			auto const& family = m_gait.families[m_family];
 			auto const& slowest = family.cycles.front();
 			auto tangential = body.velocity - m_up * Dot(body.velocity, m_up);
 			auto turn = Dot(body.angular_velocity, m_up) * TurnRadius();
@@ -496,6 +546,15 @@ namespace pr::animation
 			v4 axis;       // The unit axis, in the bone's own frame, about which a positive angle rolls the shoulder back
 		};
 
+		// A bone that the body wave bends
+		struct WaveBone
+		{
+			int bone;
+			float s;       // The distance of the bone's head from the head end of the spine, in body lengths
+			float length;  // The bone's length, in body lengths
+			float sign;    // +1 if turning the bone bends the body the way that a tail bone does, -1 for the opposite way
+		};
+
 		// A tail joint whose height is checked against the ground
 		struct TailJoint
 		{
@@ -547,7 +606,8 @@ namespace pr::animation
 		Breath m_breath;            // The caller's breathing motion
 		float m_breath_phase;       // The breath cycle position in [0,1)
 		std::vector<Shoulder> m_shoulders; // The bones that breathing rolls back
-		float m_phase;              // The step cycle position in [0,1)
+		std::vector<WaveBone> m_wave_bones; // The bones that the body wave bends
+		float m_phase;               // The step cycle position in [0,1)
 		float m_unsupported_s;      // How long the body has been continuously unsupported, in seconds
 		float m_fall;               // In [0,1]. How far the limbs are spread out for falling.
 		v4 m_up;                    // The body's up direction (model +Z) in world space this step
@@ -811,6 +871,31 @@ namespace pr::animation
 					}
 				}
 			}
+			AddWave(f, weight);
+		}
+
+		// Add the body wave of family 'f' at the current phase, scaled by 'weight', to the rotation offsets. See the top of gait.h.
+		void AddWave(int f, float weight)
+		{
+			// Each bone bends about the body's up axis (model +Z) in the family's stance, expressed in the bone's own frame
+			auto const& wave = m_gait.families[f].wave;
+			if (weight == 0 || wave.amplitude == 0)
+				return;
+
+			auto const& model = m_families[f].stance_model;
+			for (auto const& bone : m_wave_bones)
+			{
+				auto amplitude = wave.amplitude * Lerp(1.0f, wave.growth, bone.s) * bone.length;
+				auto angle = bone.sign * amplitude * std::sin(math::constants<float>::tau * (m_phase - bone.s / wave.wavelength));
+				m_rot_offset[bone.bone] += Rotate(~model[bone.bone].rot, v4::ZAxis()) * (angle * weight);
+			}
+		}
+
+		// How much the body swims, blended between the previous family (0 or 1) and the current family (0 or 1)
+		float WaterWeight() const
+		{
+			auto water = [&](int f) { return m_gait.families[f].medium == EFamilyMedium::Water ? 1.0f : 0.0f; };
+			return Lerp(water(m_prev_family), water(m_family), m_family_weight.Value());
 		}
 
 		// The end bone frame of a hanging limb: its frame in the guide pose, carried by the body. Legs hang from the pelvis and arms from the chest.
@@ -1310,6 +1395,11 @@ namespace pr::animation
 			auto hind = count[0] != 0 ? height[0] / count[0] : count[1] != 0 ? height[1] / count[1] : 0.0f;
 			auto fore = count[1] != 0 ? hind + (height[1] / count[1] - hind) * (count[0] != 0 ? arm_support / count[1] : 1.0f) : hind;
 
+			// A swimming body floats, so the ground beneath it does not move it
+			auto dry = 1.0f - WaterWeight();
+			hind *= dry;
+			fore *= dry;
+
 			// Follow the ground heights smoothly so that steps on uneven ground do not jolt the body. The guide's own motion is not smoothed.
 			m_terrain.Retarget(xform(v4(hind, fore, 0, 1), Identity<quat>()), BodyResponse);
 			m_terrain.Step(dt);
@@ -1442,6 +1532,17 @@ namespace pr::animation
 		//    contact keeps its tip above the ground instead. The ground is measured along the body's up direction beneath each joint of the rope.
 		void StepTails(xform const& model_to_world, xform const& world_to_model, IGround const& ground)
 		{
+			// A swimming tail keeps the guide's shape, which carries the body wave, and does not trail on the ground. Its rope restarts from the
+			// guide's shape when the body leaves the water.
+			auto water = WaterWeight();
+			if (water == 1.0f)
+			{
+				for (int c = 0, cend = static_cast<int>(m_rig.chains.size()); c != cend; ++c)
+					m_ropes[c].clear();
+
+				return;
+			}
+
 			// Drag each tail's joints after the joint in front of them, and gather them so that one ground query covers every tail
 			m_tail_joints.clear();
 			m_probe_rays.clear();
@@ -1612,6 +1713,19 @@ namespace pr::animation
 					auto frame = parent < 0 ? m_pose.local[b] : m_pose.model[parent] * m_pose.local[b];
 					auto turn = quat(Rotate(frame.rot, v4::YAxis()), Normalise(world_to_model * direction));
 					m_pose.SetModel(m_rig, b, xform(frame.pos, Normalise(turn * frame.rot)));
+				}
+			}
+
+			// While the body enters or leaves the water, each tail bone turns from the plan towards its guide shape by how much the body swims
+			if (water != 0)
+			{
+				for (auto const& chain : m_rig.chains)
+				{
+					if (chain.role != EChainRole::Tail)
+						continue;
+
+					for (auto b : chain.bones)
+						m_pose.local[b].rot = Slerp(m_pose.local[b].rot, m_guide.local[b].rot, water);
 				}
 			}
 			m_pose.UpdateModel(m_rig);
@@ -2458,6 +2572,47 @@ namespace pr::animation::tests
 			PR_EXPECT(base_hi > 0.5f * walk.spine_sway);
 			PR_EXPECT(tip_lo < -0.02f && tip_hi > 0.02f);
 			PR_EXPECT(opposed);
+		}
+		PRUnitTestMethod(SwimmingWavesTheBody, Quick)
+		{
+			// A swimming body, held up by the water, never spreads its limbs as if falling. No limb walks, so every limb hangs. The body wave
+			// swings the tail tip from side to side, further than the tail base, and the tail floats rather than curving down to the ground.
+			auto rig = TestRig();
+			auto gait = TestGait();
+			auto swim = FamilyIndex(gait, "swim");
+			auto const& glide = gait.families[swim].cycles.back();
+			auto const& tail = rig.chains[4];
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .velocity = v4(0, -glide.speed, 0, 0), .supported = false };
+			loco.RequestFamily(swim, 0.5f);
+			for (int i = 0; i != 120; ++i)
+			{
+				body.model_to_world.pos += body.velocity * dt;
+				loco.Step(dt, body, ground);
+			}
+			PR_EXPECT(loco.family() == swim && loco.family_settled());
+
+			// Over two cycles, record the sideways swing of the tail's base and tip
+			auto tip_lo = std::numeric_limits<float>::max();
+			auto tip_hi = std::numeric_limits<float>::lowest();
+			auto base_hi = 0.0f;
+			for (int i = 0; i != 120; ++i)
+			{
+				body.model_to_world.pos += body.velocity * dt;
+				loco.Step(dt, body, ground);
+				for (auto const& limb : loco.limbs())
+					PR_EXPECT(limb.support == 0.0f && limb.state == EFootState::Stance);
+
+				auto tip = loco.pose().Tip(rig, tail.bones.back());
+				tip_lo = std::min(tip_lo, tip.x);
+				tip_hi = std::max(tip_hi, tip.x);
+				base_hi = std::max(base_hi, std::abs(loco.pose().model[tail.bones.front()].pos.x));
+				PR_EXPECT(tip.z > rig.rest_model[tail.bones.front()].pos.z - 0.5f * rig.bones[tail.bones.front()].length);
+			}
+			PR_EXPECT(tip_lo < -0.02f && tip_hi > 0.02f);
+			PR_EXPECT(tip_hi - tip_lo > 2 * base_hi);
 		}
 	};
 }

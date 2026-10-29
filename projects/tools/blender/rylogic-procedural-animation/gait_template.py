@@ -5,7 +5,8 @@ A template moves the root bone forward along the model's forward axis (-Y) by on
 a smooth arc. Templates that walk on arms pitch the spine forward until it is level, so that the arms can reach the ground. The body is lowered until
 every walking limb reaches the ground under it with its joints bent, and the stride is shortened if a limb cannot reach the ends of its stance. Arms
 that do not walk hang down at the body's sides. The rest of the body keeps its rest pose. Limb lengths set the stride and swing height, so the same
-template suits any size of rig.
+template suits any size of rig. Swimming templates walk on no limbs: the root moves forward, the spine pitches level with the tails straight behind
+it, and each limb folds back along the body, paddling gently in the slower cycle.
 """
 
 import math
@@ -55,7 +56,29 @@ TEMPLATE_ITEMS = [
 	("BIPEDAL_WALK", "Bipedal Walk", "Legs only, alternating"),
 	("QUADRUPED_WALK", "Quadruped Walk", "Four-beat walk: left hind, left fore, right hind, right fore"),
 	("QUADRUPED_TROT", "Quadruped Trot", "Diagonal pairs step together"),
+	("SWIM_PADDLE", "Swim Paddle", "Slow swimming: the limbs fold back along the body and paddle gently"),
+	("SWIM_GLIDE", "Swim Glide", "Fast swimming: the limbs fold back along the body and stay still"),
 ]
+
+
+@dataclass(frozen=True)
+class _SwimTemplate:
+	"""A standard swimming cycle. No limb walks; the runtime adds the body wave (see the family's wave properties)."""
+
+	name: str
+	frames: int          # Frames per cycle
+	stride: float        # The distance moved per cycle, as a multiple of the leg length
+	paddle: float        # The angle, in radians, by which each limb swings forward and back about its tucked direction
+
+
+SWIM_TEMPLATES = {
+	"SWIM_PADDLE": _SwimTemplate("paddle", 24, 0.8, math.radians(25)),
+	"SWIM_GLIDE": _SwimTemplate("glide", 16, 1.6, 0.0),
+}
+
+# The direction in which a swimming limb points: back, plus these fractions of outward and down
+TUCK_OUT = 0.35
+TUCK_DOWN = 0.15
 
 
 def RotationPath(pose_bone: bpy.types.PoseBone) -> str:
@@ -76,6 +99,10 @@ def GenerateTemplate(armature_obj: bpy.types.Object, context: bpy.types.Context,
 
 	Raises ValueError if the armature lacks a walking limb that the template steps. The armature's current action and frame are restored.
 	"""
+	# Swimming templates have no walking limbs, so they are posed without IK
+	if template_id in SWIM_TEMPLATES:
+		return _GenerateSwim(armature_obj, context, SWIM_TEMPLATES[template_id])
+
 	# Find the limbs that the template steps, in the template's order
 	template = TEMPLATES[template_id]
 	limbs = {(limb.role.upper(), limb.side.upper()): limb for limb in WalkingLimbs(armature_obj.data)}
@@ -125,6 +152,112 @@ def GenerateTemplate(armature_obj: bpy.types.Object, context: bpy.types.Context,
 	cycle.hip_height, cycle.spine_sway = template.hip_height, template.spine_sway
 	cycle.weight_shift, cycle.arm_swing = template.weight_shift, template.arm_swing
 	cycle.leg_swing_out, cycle.arm_swing_out = template.swing_out * leg_length, 0.5 * template.swing_out * leg_length
+	rig.active_cycle = len(rig.cycles) - 1
+	return action
+
+
+def _GenerateSwim(armature_obj: bpy.types.Object, context: bpy.types.Context, template: _SwimTemplate) -> bpy.types.Action:
+	"""Key a new swimming cycle, add it to the armature's movement cycles, and return it. See 'GenerateTemplate'.
+
+	The body lies along the water: the spine pitches about its base until it points forward and level, carrying the neck and head with it, and each
+	tail runs straight back from its base in line with the spine. Each leg and arm lies straight back along the body, pointing back, out, and a little
+	down. A paddling cycle swings each limb forward and back about the axis across the body, with each side and each girdle half a cycle apart.
+	"""
+	# Template sizes are in armature space, relative to the length of the first leg chain
+	armature = armature_obj.data
+	rig = armature.rylogic_rig
+	limbs = [chain for chain in rig.chains if chain.role in ("LEG", "ARM") and chain.bones]
+	legs = [chain for chain in limbs if chain.role == "LEG"]
+	if not legs:
+		raise ValueError("A swimming template needs a leg chain to size the stride")
+
+	leg_length = sum(armature.bones[ref.name].length for ref in legs[0].bones)
+	stride = template.stride * leg_length
+	to_armature = armature_obj.matrix_world.to_3x3().inverted()
+	forward = (to_armature @ Vector((0, -1, 0))).normalized()
+	up = (to_armature @ Vector((0, 0, 1))).normalized()
+	lateral = forward.cross(up).normalized()
+
+	# Pitch the spine about the head of its first bone until the line from there to the end of its last bone points forward. The pitch turns
+	# everything that hangs from the first spine bone, including the tails, limbs, neck, and head. A rig without a spine keeps its rest pose.
+	rest = {bone.name: bone.matrix_local.copy() for bone in armature.bones}
+	pitch, pitched = Matrix.Identity(4), None
+	spine = next((chain for chain in rig.chains if chain.role == "SPINE" and chain.bones), None)
+	if spine is not None:
+		pitched = armature.bones[spine.bones[0].name]
+		pivot = pitched.head_local.copy()
+		along = armature.bones[spine.bones[-1].name].tail_local - pivot
+		along -= lateral * along.dot(lateral)
+		pitch = Matrix.Translation(pivot) @ along.rotation_difference(forward).to_matrix().to_4x4() @ Matrix.Translation(-pivot)
+
+	def Posed(name: str) -> Matrix:
+		"""The armature-space matrix of a bone in the pitched body."""
+		bone = armature.bones[name]
+		return pitch @ rest[name] if pitched is not None and (bone == pitched or pitched in bone.parent_recursive) else rest[name]
+
+	# Lay each tail bone straight back from the end of the one before it, so the tail continues the line of the spine
+	body = {} if pitched is None else {pitched.name: pitch @ rest[pitched.name]}
+	for chain in rig.chains:
+		if chain.role != "TAIL" or not chain.bones:
+			continue
+
+		head = Posed(chain.bones[0].name).to_translation()
+		for ref in chain.bones:
+			posed = Posed(ref.name).to_3x3()
+			turn = (posed @ Vector((0, 1, 0))).rotation_difference(-forward).to_matrix()
+			body[ref.name] = Matrix.Translation(head) @ (turn @ posed).to_4x4()
+			head = head - forward * armature.bones[ref.name].length
+
+	# Key each frame: the root carried forward, the levelled body, and each upper limb turned to its tucked direction plus its paddle swing
+	scene = context.scene
+	root = BonesParentFirst(armature)[0].name
+	animation_data = armature_obj.animation_data or armature_obj.animation_data_create()
+	saved_action, saved_frame, saved_pose = animation_data.action, scene.frame_current, _SavePose(armature_obj)
+	try:
+		poses = []
+		for i in range(template.frames + 1):
+			# Move the root first, because the body's rest positions are relative to it
+			phase = i / template.frames
+			travel = Matrix.Translation(forward * stride * phase)
+			pose = {root: travel @ rest[root]} | {name: travel @ matrix for name, matrix in body.items()}
+			for chain in limbs:
+				# Lay the limb straight back and out to its own side, swung about the axis across the body. Each bone of the chain turns to the
+				# swung direction from the end of the one before it; the bones below the chain, such as digits, keep their rest pose relative to it.
+				head = Posed(chain.bones[0].name).to_translation()
+				out = lateral if head.dot(lateral) > 0 else -lateral
+				tucked = (-forward + out * TUCK_OUT - up * TUCK_DOWN).normalized()
+				offset = (0.0 if chain.side != "RIGHT" else 0.5) + (0.0 if chain.role == "LEG" else 0.5)
+				direction = Matrix.Rotation(template.paddle * math.sin(2 * math.pi * (phase - offset)), 3, lateral) @ tucked
+				for ref in chain.bones:
+					posed = Posed(ref.name).to_3x3()
+					turn = (posed @ Vector((0, 1, 0))).rotation_difference(direction).to_matrix()
+					pose[ref.name] = travel @ Matrix.Translation(head) @ (turn @ posed).to_4x4()
+					head = head + direction * armature.bones[ref.name].length
+
+			poses.append(pose)
+
+		action = bpy.data.actions.new(f"{armature_obj.name}.swim.{template.name}")
+		animation_data.action = action
+		_KeyPoses(armature_obj, context, poses)
+		action.use_frame_range = True
+		action.frame_start, action.frame_end = 1, 1 + template.frames
+	finally:
+		# Leave the authoring state as it was
+		animation_data.action = saved_action
+		_RestorePose(armature_obj, saved_pose)
+		scene.frame_set(saved_frame)
+
+	# Register the cycle, adding a swimming family if the rig does not have it yet. Swimmers follow the water's surface on any slope.
+	if "swim" not in rig.families:
+		family = rig.families.add()
+		family.name = "swim"
+		family.up, family.max_slope, family.medium = "SURFACE", math.pi, "WATER"
+		family.wave_amplitude, family.wave_wavelength, family.wave_growth = 1.0, 1.0, 2.0
+
+	cycle = rig.cycles.add()
+	cycle.name, cycle.family, cycle.action = template.name, "swim", action
+	cycle.hip_height, cycle.spine_sway, cycle.weight_shift, cycle.arm_swing = 0.5, 0.0, 0.0, 0.0
+	cycle.leg_swing_out, cycle.arm_swing_out = 0.0, 0.0
 	rig.active_cycle = len(rig.cycles) - 1
 	return action
 
