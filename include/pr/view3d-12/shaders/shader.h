@@ -37,7 +37,8 @@ namespace pr::rdr12
 		static constexpr size_t SlotCount = static_cast<size_t>(EForwardPixelSlot::AlphaCollect) + 1;
 		std::array<ByteCode, SlotCount> m_code;
 
-		// The stock family whose entry points this family replaces, or null for a stock family. Its pixel shader identifies the slot to replace.
+		// The stock family whose entry points this family replaces, or null for a base stock family. Its pixel shader identifies the slot to replace.
+		// Stock variant families, such as detail normals, replace a base stock family and can themselves be replaced by a procedural family.
 		ForwardPixelFamily const* m_replaces;
 
 		// Return the entry point for 'slot'.

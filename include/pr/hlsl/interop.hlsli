@@ -49,9 +49,11 @@
 	//                   indirectly). No effect in C++ (where ordinary inlining decisions apply).
 	//                   Use sparingly on large functions that have multiple call sites in the same
 	//                   compute shader, where inlining produces excessive bytecode and slow compiles.
+	//   hlsl_unroll   - request that DXC fully unroll the following constant-bounded loop, so that array indices inside it are constants. A runtime
+	//                   index forces a shader array into slow local memory on GPUs. No effect in C++.
 	#define odr template <typename = void>
 	#define hlsl_noinline
-
+	#define hlsl_unroll
 #else
 
 	#define numthreads(kernel, x, y, z) [numthreads(x, y, z)]
@@ -73,6 +75,7 @@
 	// to emit one shared DXIL function body instead of duplicating it at every call site.
 	#define odr
 	#define hlsl_noinline [noinline]
+	#define hlsl_unroll [unroll]
 
 	#define assert(x)
 

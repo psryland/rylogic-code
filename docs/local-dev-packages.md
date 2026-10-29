@@ -49,6 +49,9 @@ flowchart LR
   The pointer only moves forward, under a cross-process mutex.
 - **Cache retention.** After the pointer advances, older owned development versions are removed from the NuGet cache, keeping the new version
   and the one it replaced. Managed projects in the same build restored against the replaced version before the publish, so it must stay available.
+  Several checkouts can share one NuGet cache, so each publish registers its pointer file in `<cache>\rylogic.native\.local-pointers.txt`, and
+  cleanup keeps every version that a registered pointer still names. A checkout registers when it publishes, so after clearing the cache (or
+  before a checkout's first publish with this rule) its version is protected only once it publishes again.
   Versions that are in use (for example a DLL loaded by a running process) are left alone and removed by a later publish.
 
 Building a single native project in Visual Studio does not refresh the package. Build `Rylogic.Native.Dev` (or the solution) to publish.

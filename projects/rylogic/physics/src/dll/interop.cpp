@@ -2510,8 +2510,6 @@ extern "C"
 			{
 				// Invalid values are caller errors, reported without changing the current water.
 				auto const& c = pr::physics::RequireStruct(water);
-				if (c.reserved != 0)
-					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid water reserved field");
 				if (c.element_count < 0 || (c.element_count != 0 && c.elements == nullptr))
 					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Invalid water element array");
 
@@ -2524,6 +2522,7 @@ extern "C"
 
 					auto field = pr::physics::terrain::water::WaterField{ c.level, elements };
 					field.BreakingRatio(c.breaking_ratio);
+					field.ShoreSharpness(c.shore_sharpness);
 					field.RepeatPeriod(c.repeat_period);
 					field.TerrainHeights(record.m_water_bathymetry);
 					field.WindSea(record.m_water_wind_sea);

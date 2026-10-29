@@ -141,6 +141,84 @@ namespace render_tests
 		auto translucent_tilted = fixture.Image();
 		Require(std::abs(brightness(translucent_tilted) / brightness(translucent_flat) - 1.342f) < 0.05f, (std::string("Translucent detail-normal layer tilted the lighting normal incorrectly: flat ") + std::to_string(brightness(translucent_flat)) + ", tilted " + std::to_string(brightness(translucent_tilted))).c_str());
 
+		// Procedural pixel families for detail-normal materials. The fixture family rotates the stock detail shading's channels (rgb -> gbr).
+		auto family_constants = ProceduralVertexConstants{};
+		auto family_options = [&family_constants](api::EForwardPixelModel model, std::array<api::ShaderByteCode, api::ProceduralBinding::ForwardPixelCount> const& family)
+		{
+			// A pixel-only family keeps the stock vertex shader, so it shades the fixture's buffered quads.
+			auto options = api::ShaderOptions{
+				.m_struct_size = sizeof(api::ShaderOptions),
+				.m_version = api::ShaderOptions::CurrentVersion,
+				.m_stage = api::EShaderStage::Pixel,
+				.m_dbg_name = "ProceduralDetailFamilyTest",
+				.m_procedural = {
+					.m_rdr_step = api::ERenderStep::ForwardRender,
+					.m_constants = &family_constants,
+					.m_constants_size = sizeof(family_constants),
+					.m_forward_pixel_model = model,
+				},
+			};
+			std::ranges::copy(family, std::begin(options.m_procedural.m_forward_pixel));
+			return options;
+		};
+		auto detail_shader = View3D_ShaderCreate(family_options(api::EForwardPixelModel::SimpleDetail, {{
+			{compiled::procedural_pixel_detail_opaque, sizeof(compiled::procedural_pixel_detail_opaque)},
+			{compiled::procedural_pixel_detail_reflection_attrs, sizeof(compiled::procedural_pixel_detail_reflection_attrs)},
+			{compiled::procedural_pixel_detail_alpha_collect, sizeof(compiled::procedural_pixel_detail_alpha_collect)},
+		}}));
+		auto simple_shader = View3D_ShaderCreate(family_options(api::EForwardPixelModel::Simple, {{
+			{compiled::procedural_pixel_opaque, sizeof(compiled::procedural_pixel_opaque)},
+			{compiled::procedural_pixel_reflection_attrs, sizeof(compiled::procedural_pixel_reflection_attrs)},
+			{compiled::procedural_pixel_alpha_collect, sizeof(compiled::procedural_pixel_alpha_collect)},
+		}}));
+		Require(detail_shader != nullptr && simple_shader != nullptr, "Detail-normal procedural family shader creation failed");
+		fixture.m_shaders.push_back(detail_shader);
+		fixture.m_shaders.push_back(simple_shader);
+		auto green = [](std::vector<unsigned char> const& image)
+		{
+			// Measure the green channel at the image centre.
+			return Linear(image[(64 * ImageSize + 64) * 4 + 1]);
+		};
+		auto red = [](std::vector<unsigned char> const& image)
+		{
+			// Measure the red channel at the image centre.
+			return Linear(image[(64 * ImageSize + 64) * 4 + 0]);
+		};
+
+		// The stock detail shading of a green quad is the reference for the family's rotated output.
+		fixture.Clear();
+		auto stock_detail = fixture.Quad(10, 0xFFFFFFFF, 45, nullptr, 0, 0xFF00FF00, false, true);
+		View3D_ObjectNuggetDetailNormalsSet(stock_detail, texture.get(), sampler.get(), nullptr, 0);
+		View3D_ObjectDetailNormalLayersSet(stock_detail, &layer, 1, 0.0f);
+		fixture.CheckErrors();
+		auto stock_detail_image = fixture.Image();
+		Require(green(stock_detail_image) > 0.1f, "Stock detail-normal shading did not render the green quad");
+
+		// A detail-normal family replaces the detail variant, so it shows the tilted lighting in the rotated channel.
+		fixture.Clear();
+		auto family_detail = fixture.Quad(10, 0xFFFFFFFF, 45, detail_shader, 0, 0xFF00FF00, false, true);
+		View3D_ObjectNuggetDetailNormalsSet(family_detail, texture.get(), sampler.get(), nullptr, 0);
+		View3D_ObjectDetailNormalLayersSet(family_detail, &layer, 1, 0.0f);
+		fixture.CheckErrors();
+		auto family_image = fixture.Image();
+		Require(std::abs(red(family_image) - green(stock_detail_image)) < 0.02f && green(family_image) < 0.02f, (std::string("Detail-normal family did not rotate the detail shading: stock green ") + std::to_string(green(stock_detail_image)) + ", family red " + std::to_string(red(family_image))).c_str());
+
+		// A detail-normal family drawn without detail normals fails at render time.
+		fixture.Clear();
+		fixture.Quad(10, 0xFFFFFFFF, 45, detail_shader, 0, 0xFF00FF00, false, true);
+		View3D_WindowRender(fixture.m_window);
+		Require(!fixture.m_errors.empty() && fixture.m_errors.back().find("Detail-normal forward pixel families require") != std::string::npos, "A material without detail normals accepted a detail-normal pixel family");
+		fixture.m_errors.clear();
+
+		// A simple family drawn with detail normals fails at render time instead of silently dropping the detail tilt.
+		fixture.Clear();
+		auto simple_detail = fixture.Quad(10, 0xFFFFFFFF, 45, simple_shader, 0, 0xFF00FF00, false, true);
+		View3D_ObjectNuggetDetailNormalsSet(simple_detail, texture.get(), sampler.get(), nullptr, 0);
+		View3D_WindowRender(fixture.m_window);
+		Require(!fixture.m_errors.empty() && fixture.m_errors.back().find("without detail normals") != std::string::npos, "A detail-normal material accepted a simple pixel family");
+		fixture.m_errors.clear();
+		fixture.Clear();
+
 		// Any GPU validation error fails the fixture.
 		fixture.CheckDebugLayer();
 		std::cout << "PASS detail normals\n";

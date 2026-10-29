@@ -71,7 +71,7 @@ namespace pr::rdr12
 			throw std::invalid_argument("Procedural pixel shaders are only supported for the forward render step");
 		if (vs_bytecode.empty() && pixel_family.empty())
 			throw std::invalid_argument("A procedural shader must replace the vertex shader, the forward pixel shaders, or both");
-		if (replaces.m_replaces != nullptr)
+		if (&replaces != &shader_code::forward_family && &replaces != &shader_code::forward_pbr_family && &replaces != &shader_code::forward_detail_family)
 			throw std::invalid_argument("A procedural pixel family must replace a stock forward pixel family");
 
 		// Retain stable storage for the bytecode referenced by the pipeline state. An empty vertex stage leaves the stock vertex shader in place.

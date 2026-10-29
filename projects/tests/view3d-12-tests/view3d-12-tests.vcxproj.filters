@@ -116,6 +116,9 @@
     <ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_pixel_pbr_family.hlsl">
       <Filter>view3d-12\shaders</Filter>
     </ShaderBuild>
+    <ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_pixel_detail_family.hlsl">
+      <Filter>view3d-12\shaders</Filter>
+    </ShaderBuild>
     <ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_vertex_buffer.hlsl">
       <Filter>view3d-12\shaders</Filter>
     </ShaderBuild>

@@ -226,10 +226,10 @@ internal static unsafe partial class Native
 		internal float m_quadratic_drag_coefficient;
 		internal float m_angular_drag_rate;
 		internal float m_breaking_ratio;
+		internal float m_shore_sharpness;
 		internal float m_repeat_period;
-		internal WaterFieldElement* m_elements;
 		internal int m_element_count;
-		internal int m_reserved;
+		internal WaterFieldElement* m_elements;
 	}
 
 	/// <summary>Native terrain-height grid for water depth correction; see physics-dll.h. The heights are borrowed for the duration of the call.</summary>

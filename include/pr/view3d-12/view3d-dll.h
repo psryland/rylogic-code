@@ -838,8 +838,9 @@ namespace pr
 		// The stock forward material shading that a procedural forward pixel family is built on and replaces.
 		enum class EForwardPixelModel : int
 		{
-			Simple, // Stock simple-material shading. See 'pr/view3d-12/shaders/forward_pixel.hlsli'.
-			Pbr,    // Stock PBR shading without extra texture-coordinate streams. See 'pr/view3d-12/shaders/forward_pixel_pbr.hlsli'.
+			Simple,       // Stock simple-material shading. See 'pr/view3d-12/shaders/forward_pixel.hlsli'.
+			Pbr,          // Stock PBR shading without extra texture-coordinate streams. See 'pr/view3d-12/shaders/forward_pixel_pbr.hlsli'.
+			SimpleDetail, // Stock simple-material shading with detail normals. See 'pr/view3d-12/shaders/forward_pixel_detail.hlsli'.
 		};
 		// Caller-owned shader bytecode, copied when the shader is created.
 		struct ShaderByteCode
@@ -860,8 +861,8 @@ namespace pr
 			void const* m_buffer;    // Optional immutable data, copied once and bound as a raw root SRV (ByteAddressBuffer, no bounds) at VIEW3D_PROCEDURAL_BUFFER_REGISTER. Null for none.
 			size_t m_buffer_size;    // Size of 'm_buffer' in bytes. A non-zero multiple of 4 up to MaxBufferSize when 'm_buffer' is not null, otherwise 0.
 
-			// Forward pixel family that replaces the stock forward pixel shaders of the 'm_forward_pixel_model' material type. All entries are null, or all are
-			// valid, and only for ForwardRender. Optional for the Vertex stage and required for the Pixel stage. Materials of the other type reject the family.
+			// Forward pixel family that replaces the stock forward pixel shaders of the 'm_forward_pixel_model' material model. All entries are null, or all are
+			// valid, and only for ForwardRender. Optional for the Vertex stage and required for the Pixel stage. Materials of other models reject the family.
 			// Order: Opaque, ReflectionAttrs, AlphaCollect. See 'pr/view3d-12/shaders/forward_pixel.hlsli'.
 			EForwardPixelModel m_forward_pixel_model;
 			ShaderByteCode m_forward_pixel[ForwardPixelCount];
@@ -1755,8 +1756,8 @@ extern "C"
 	// A detail strength map varies an object's detail-normal layers over its surface. Each texel holds (x, y, z, w): x scales the height of every
 	// layer and y adds to the base slope variance, both finite and non-negative; (z, w) = (cos a, sin a) is a unit vector that turns the layers'
 	// pattern by angle 'a' from their u direction toward their v direction, about the texel's centre. The texture coordinates of a world position
-	// 'p' are u = dot(p.xyz, row_u.xyz) + row_u.w and v = dot(p.xyz, row_v.xyz) + row_v.w, where [0,1] spans the grid. Each fragment blends the
-	// layers of the nearest 2x2 texels with bilinear weights, and positions outside the grid use the nearest edge texels. A new map is
+	// 'p' are u = dot(p.xyz, row_u.xyz) + row_u.w and v = dot(p.xyz, row_v.xyz) + row_v.w, where [0,1] spans the grid. Each fragment filters the
+	// texels bilinearly, including the angle vectors, and positions outside the grid use the nearest edge texels. A new map is
 	// (1, 0, 1, 0) everywhere with the identity XY projection. Release using View3D_DetailStrengthMapRelease. Returns null on failure.
 	VIEW3D_API pr::view3d::DetailStrengthMap __stdcall View3D_DetailStrengthMapCreate(int width, int height);
 	VIEW3D_API void __stdcall View3D_DetailStrengthMapRelease(pr::view3d::DetailStrengthMap map);

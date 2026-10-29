@@ -3941,6 +3941,11 @@ VIEW3D_API view3d::Shader __stdcall View3D_ShaderCreate(view3d::ShaderOptions co
 				replaces = &shader_code::forward_pbr_family;
 				break;
 			}
+			case view3d::EForwardPixelModel::SimpleDetail:
+			{
+				replaces = &shader_code::forward_detail_family;
+				break;
+			}
 			default:
 			{
 				throw std::invalid_argument("Procedural forward pixel model is not supported");
