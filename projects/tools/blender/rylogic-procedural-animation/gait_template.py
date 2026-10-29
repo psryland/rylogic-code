@@ -3,8 +3,9 @@
 A template moves the root bone forward along the model's forward axis (-Y) by one stride per cycle, and steps each walking limb (see
 'gait_desc.WalkingLimbs') in a standard footfall pattern: a planted foot stays still on the ground, and a swinging foot moves to its next landing in
 a smooth arc. Templates that walk on arms pitch the spine forward until it is level, so that the arms can reach the ground. The body is lowered until
-every walking limb reaches the ground under it with its joints bent, and the stride is shortened if a limb cannot reach the ends of its stance. The
-rest of the body keeps its rest pose. Limb lengths set the stride and swing height, so the same template suits any size of rig.
+every walking limb reaches the ground under it with its joints bent, and the stride is shortened if a limb cannot reach the ends of its stance. Arms
+that do not walk hang down at the body's sides. The rest of the body keeps its rest pose. Limb lengths set the stride and swing height, so the same
+template suits any size of rig.
 """
 
 import math
@@ -20,6 +21,12 @@ from .rig_desc import BonesParentFirst
 STANCE_REACH = 0.85
 MAX_REACH = 0.95
 
+# The directions in which arms that do not walk hang: down, plus these fractions of outward, back, and forward
+HANG_UPPER_OUT = 0.30
+HANG_UPPER_BACK = 0.15
+HANG_FORE_OUT = 0.18
+HANG_FORE_FORWARD = 0.35
+
 
 @dataclass(frozen=True)
 class _Template:
@@ -34,14 +41,15 @@ class _Template:
 	spine_sway: float                               # The cycle's spine sway in radians (see 'RYLOGIC_PG_GaitCycle.spine_sway')
 	weight_shift: float                             # The cycle's weight shift (see 'RYLOGIC_PG_GaitCycle.weight_shift')
 	arm_swing: float                                # The cycle's arm swing in radians (see 'RYLOGIC_PG_GaitCycle.arm_swing')
+	swing_out: float                                # The walking legs' swing out, as a multiple of the leg length; walking arms swing out half as far (see 'RYLOGIC_PG_GaitCycle.leg_swing_out')
 	duty: float                                     # The fraction of the cycle that each foot is planted
 	touchdowns: dict[tuple[str, str], float]        # The touchdown phase of each walking limb, by (role, side)
 
 
 TEMPLATES = {
-	"BIPEDAL_WALK": _Template("bipedal", "walk", 24, 1.0, 0.15, 0.9, 0.1, 0.7, 0.4, 0.6, {("LEG", "LEFT"): 0.0, ("LEG", "RIGHT"): 0.5}),
-	"QUADRUPED_WALK": _Template("quadruped", "walk", 24, 1.0, 0.15, 0.5, 0.25, 0.0, 0.0, 0.75, {("LEG", "LEFT"): 0.0, ("ARM", "LEFT"): 0.25, ("LEG", "RIGHT"): 0.5, ("ARM", "RIGHT"): 0.75}),
-	"QUADRUPED_TROT": _Template("quadruped", "trot", 16, 1.4, 0.2, 0.5, 0.35, 0.0, 0.0, 0.5, {("LEG", "LEFT"): 0.0, ("ARM", "RIGHT"): 0.0, ("LEG", "RIGHT"): 0.5, ("ARM", "LEFT"): 0.5}),
+	"BIPEDAL_WALK": _Template("bipedal", "walk", 24, 1.0, 0.15, 0.9, 0.1, 0.42, 0.4, 0.0, 0.6, {("LEG", "LEFT"): 0.0, ("LEG", "RIGHT"): 0.5}),
+	"QUADRUPED_WALK": _Template("quadruped", "walk", 24, 1.0, 0.15, 0.5, 0.25, 0.0, 0.0, 0.2, 0.75, {("LEG", "LEFT"): 0.0, ("ARM", "LEFT"): 0.25, ("LEG", "RIGHT"): 0.5, ("ARM", "RIGHT"): 0.75}),
+	"QUADRUPED_TROT": _Template("quadruped", "trot", 16, 1.4, 0.2, 0.5, 0.35, 0.0, 0.0, 0.2, 0.5, {("LEG", "LEFT"): 0.0, ("ARM", "RIGHT"): 0.0, ("LEG", "RIGHT"): 0.5, ("ARM", "LEFT"): 0.5}),
 }
 TEMPLATE_ITEMS = [
 	("BIPEDAL_WALK", "Bipedal Walk", "Legs only, alternating"),
@@ -116,6 +124,7 @@ def GenerateTemplate(armature_obj: bpy.types.Object, context: bpy.types.Context,
 	cycle.name, cycle.family, cycle.action = template.name, template.family, action
 	cycle.hip_height, cycle.spine_sway = template.hip_height, template.spine_sway
 	cycle.weight_shift, cycle.arm_swing = template.weight_shift, template.arm_swing
+	cycle.leg_swing_out, cycle.arm_swing_out = template.swing_out * leg_length, 0.5 * template.swing_out * leg_length
 	rig.active_cycle = len(rig.cycles) - 1
 	return action
 
@@ -124,7 +133,7 @@ def GenerateTemplate(armature_obj: bpy.types.Object, context: bpy.types.Context,
 class _Body:
 	"""The pose of the body at the start of a cycle, in armature space."""
 
-	bones: dict[str, Matrix]       # The posed body bones, parents first; the bones below them follow at rest
+	bones: dict[str, Matrix]       # The posed body bones and hanging arms, parents first; the bones below them follow at rest
 	neutral: dict[str, Matrix]     # Each walking limb's end bone, standing on the ground at the middle of its stance
 	base: dict[str, Vector]        # Each walking limb's chain base: the head of its first bone
 	reach: dict[str, float]        # Each walking limb's reach: the length of the chain above its end bone
@@ -196,6 +205,25 @@ def _BodyPose(armature: bpy.types.Armature, limbs: list[_Limb], forward: Vector,
 	bones = {root: lower @ rest[root]}
 	if pitched is not None:
 		bones[pitched.name] = lower @ pitch @ rest[pitched.name]
+
+	# Hang the arms that do not walk down at the body's sides, with the elbows a little back and bent, rather than leaving them at rest
+	walking = {limb.bones[0] for limb in limbs}
+	for chain in armature.rylogic_rig.chains:
+		if chain.role != "ARM" or len(chain.bones) < 3 or chain.bones[0].name in walking:
+			continue
+
+		upper, fore = chain.bones[0].name, chain.bones[1].name
+		head = Posed(upper).to_translation()
+		out = lateral if head.dot(lateral) > 0 else -lateral
+		hang = {upper: (-up + out * HANG_UPPER_OUT - forward * HANG_UPPER_BACK).normalized(), fore: (-up + out * HANG_FORE_OUT + forward * HANG_FORE_FORWARD).normalized()}
+
+		# Turn the upper arm, then the forearm from the upper arm's new end. The bones below the forearm keep their rest pose relative to it.
+		for name in (upper, fore):
+			bone, posed = armature.bones[name], Posed(name)
+			turn = (posed.to_3x3() @ Vector((0, 1, 0))).rotation_difference(hang[name]).to_matrix()
+			matrix = Matrix.Translation(head) @ (turn @ posed.to_3x3()).to_4x4()
+			bones[name] = lower @ matrix
+			head = head + hang[name] * bone.length
 
 	return _Body(bones=bones, neutral=neutral, base={end: head - up * drop for end, head in base.items()}, reach=reach)
 

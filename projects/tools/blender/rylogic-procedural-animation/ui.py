@@ -119,7 +119,6 @@ class RYLOGIC_PT_rig(Panel):
 			match chain.role:
 				case "LEG" | "ARM":
 					box.prop(chain, "pole")
-					box.prop(chain, "swing_out")
 				case "NECK":
 					box.prop(chain, "forward")
 				case _:
@@ -177,6 +176,8 @@ class RYLOGIC_PT_rig(Panel):
 			box.prop(cycle, "spine_sway")
 			box.prop(cycle, "weight_shift")
 			box.prop(cycle, "arm_swing")
+			box.prop(cycle, "leg_swing_out")
+			box.prop(cycle, "arm_swing_out")
 
 		# Hold planted feet still while the body moves over them
 		layout.prop(rig, "pin_live", icon="PINNED", toggle=True)

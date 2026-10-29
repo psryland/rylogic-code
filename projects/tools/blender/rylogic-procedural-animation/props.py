@@ -121,7 +121,6 @@ class RYLOGIC_PG_RigChain(PropertyGroup):
 	bones: CollectionProperty(name="Bones", type=RYLOGIC_PG_RigBoneRef, description="Bones from base to end. Each bone is the parent of the next")
 	active_bone: IntProperty(name="Active Bone", default=0)
 	pole: FloatVectorProperty(name="Pole", size=3, default=(0.0, -1.0, 0.0), description="Leg and arm only. The rest-pose armature-space direction that the middle joint bends towards")
-	swing_out: FloatProperty(name="Swing Out", default=0.0, min=0.0, subtype='DISTANCE', description="Leg and arm only. The distance by which the limb's foot moves out, away from the body's centre line, at the middle of its swing, so that the raised limb swings around rather than straight up and down, e.g. 0.02 m for an upright biped or 0.06 m for a lizard")
 	forward: FloatVectorProperty(name="Forward", size=3, default=(0.0, -1.0, 0.0), description="Neck only. The rest-pose armature-space direction that the last bone faces")
 
 
@@ -152,9 +151,10 @@ class RYLOGIC_PG_GaitCycle(PropertyGroup):
 	use_export: BoolProperty(name="Export", default=True, description="Include the cycle in the '.gait'. Turn off to keep an unfinished cycle without validating or exporting it")
 	hip_height: FloatProperty(name="Hip Height", default=0.5, min=0.05, max=1.0, description="The height at which the legs carry the hip joints above the ground, as a fraction of the legs' reach, e.g. 0.5 for a crouching quadruped or 0.9 for an upright biped. The runtime sets the body's height from this, not from the action's poses")
 	spine_sway: FloatProperty(name="Spine Sway", default=0.25, min=0.0, max=1.5, subtype='ANGLE', description="The angle by which the hips and shoulders turn with the walking limbs, so that each limb's side moves forward as its foot lands, e.g. 0.1 rad for an upright biped or 0.3 rad for a lizard. The runtime adds this to the action's own spine motion")
-	weight_shift: FloatProperty(name="Weight Shift", default=0.0, min=0.0, max=1.0, subtype='FACTOR', description="How far the body moves sideways over each planted foot, as a fraction of the foot's distance from the midline, most strongly at the middle of its stance, e.g. 0.7 for an upright biped or 0 for a crawler. The runtime adds this to the action's own body motion")
+	weight_shift: FloatProperty(name="Weight Shift", default=0.0, min=0.0, max=1.0, subtype='FACTOR', description="How far the body moves sideways over each planted foot, as a fraction of the foot's distance from the midline, most strongly at the middle of its stance, e.g. 0.4 for an upright biped or 0 for a crawler. The runtime adds this to the action's own body motion")
 	arm_swing: FloatProperty(name="Arm Swing", default=0.0, min=0.0, max=1.5, subtype='ANGLE', description="The angle by which each hanging arm swings forward and back about its shoulder, opposite to the walking leg on its side, e.g. 0.4 rad for an upright biped. Arms that walk do not swing")
-
+	leg_swing_out: FloatProperty(name="Leg Swing Out", default=0.0, min=0.0, subtype='DISTANCE', description="The distance by which each walking leg's foot moves out, away from the body's centre line, at the middle of its swing, so that the raised leg swings around rather than straight up and down, e.g. 0 for an upright biped or 0.06 m for a lizard")
+	arm_swing_out: FloatProperty(name="Arm Swing Out", default=0.0, min=0.0, subtype='DISTANCE', description="The distance by which each walking arm's hand moves out, away from the body's centre line, at the middle of its swing (see Leg Swing Out). Arms that do not walk ignore it")
 
 class RYLOGIC_PG_Rig(PropertyGroup):
 	"""The chains, contacts, families and movement cycles of an armature."""
