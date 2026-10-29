@@ -113,6 +113,7 @@ public sealed class Engine :IDisposable
 				m_quadratic_drag_coefficient = c.m_quadratic_drag_coefficient,
 				m_angular_drag_rate = c.m_angular_drag_rate,
 				m_breaking_ratio = c.m_breaking_ratio,
+				m_shore_sharpness = c.m_shore_sharpness,
 				m_repeat_period = c.m_repeat_period,
 				m_elements = element_ptr,
 				m_element_count = elements.Length,

@@ -14,20 +14,25 @@ public readonly struct WaterConfiguration
 	/// <summary>Default ratio of the largest (crest to trough) wave height to the water depth.</summary>
 	public const float DefaultBreakingRatio = 0.78f;
 
+	/// <summary>Default crest sharpness of waves at the breaking height. Zero leaves crests unchanged.</summary>
+	public const float DefaultShoreSharpness = 0.0f;
+
 	public readonly double m_level;
 	public readonly float m_density;
 	public readonly float m_linear_drag_rate;
 	public readonly float m_quadratic_drag_coefficient;
 	public readonly float m_angular_drag_rate;
 	public readonly float m_breaking_ratio;
+	public readonly float m_shore_sharpness;
 	public readonly float m_repeat_period;
 
 	/// <summary>
 	/// Specify the still-water level in metres and the water's density and drag. 'breaking_ratio' limits the total wave amplitude to half this
-	/// fraction of the depth where terrain heights are known (see <see cref="Engine.SetWaterBathymetry"/>). 'repeat_period' (s) is the period after
-	/// which every wave element repeats, so the engine can wrap long clocks without losing precision; zero means the elements are not periodic.
+	/// fraction of the depth where terrain heights are known (see <see cref="Engine.SetWaterBathymetry"/>). 'shore_sharpness', in [0, 0.9], is the
+	/// crest sharpness that waves reach at the breaking height; crests sharpen towards it as waves approach breaking. 'repeat_period' (s) is the
+	/// period after which every wave element repeats, so the engine can wrap long clocks without losing precision; zero means the elements are not periodic.
 	/// </summary>
-	public WaterConfiguration(double level, float density = 1000.0f, float linear_drag_rate = 0.5f, float quadratic_drag_coefficient = 0.5f, float angular_drag_rate = 0.5f, float breaking_ratio = DefaultBreakingRatio, float repeat_period = 0.0f)
+	public WaterConfiguration(double level, float density = 1000.0f, float linear_drag_rate = 0.5f, float quadratic_drag_coefficient = 0.5f, float angular_drag_rate = 0.5f, float breaking_ratio = DefaultBreakingRatio, float shore_sharpness = DefaultShoreSharpness, float repeat_period = 0.0f)
 	{
 		m_level = level;
 		m_density = density;
@@ -35,6 +40,7 @@ public readonly struct WaterConfiguration
 		m_quadratic_drag_coefficient = quadratic_drag_coefficient;
 		m_angular_drag_rate = angular_drag_rate;
 		m_breaking_ratio = breaking_ratio;
+		m_shore_sharpness = shore_sharpness;
 		m_repeat_period = repeat_period;
 	}
 }

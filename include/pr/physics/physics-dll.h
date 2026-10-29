@@ -627,7 +627,8 @@ namespace pr::physics
 	// A water surface with buoyancy and drag for every dynamic body. Density is kg/m³ and drag rates are 1/s.
 	// The surface is the still-water 'level' plus 'element_count' elements from 'elements'; the engine copies them.
 	// Wave amplitudes are corrected for depth only after terrain heights are supplied with Physics_EngineWaterBathymetrySet.
-	// 'breaking_ratio' limits the total wave amplitude to half this fraction of the depth. 'repeat_period' (s) is the period
+	// 'breaking_ratio' limits the total wave amplitude to half this fraction of the depth. 'shore_sharpness' is the crest sharpness waves reach at the
+	// breaking height, in [0, 0.9]; zero leaves crests unchanged. 'repeat_period' (s) is the period
 	// of the wave motion; the engine samples waves at time modulo this period, so element frequencies should repeat within it.
 	// Zero means no wrap.
 	struct WaterDesc
@@ -639,10 +640,10 @@ namespace pr::physics
 		float quadratic_drag_coefficient;
 		float angular_drag_rate;
 		float breaking_ratio;
+		float shore_sharpness;
 		float repeat_period;
-		WaterElement const* elements;
 		std::int32_t element_count;
-		std::int32_t reserved;
+		WaterElement const* elements;
 	};
 	static_assert(sizeof(WaterDesc) == 56);
 

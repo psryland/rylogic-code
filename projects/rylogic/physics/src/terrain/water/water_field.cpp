@@ -147,6 +147,7 @@ namespace pr::physics::terrain::water
 		, m_bathymetry()
 		, m_wind_sea()
 		, m_breaking_ratio(DefaultBreakingRatio)
+		, m_shore_sharpness(DefaultShoreSharpness)
 		, m_repeat_period()
 	{
 		Level(level);
@@ -160,6 +161,7 @@ namespace pr::physics::terrain::water
 		, m_bathymetry()
 		, m_wind_sea()
 		, m_breaking_ratio(DefaultBreakingRatio)
+		, m_shore_sharpness(DefaultShoreSharpness)
 		, m_repeat_period()
 	{
 		// Zero level with no elements is already a valid flat field.
@@ -216,7 +218,7 @@ namespace pr::physics::terrain::water
 
 		// Elements outside the wind sea keep their own values, which consumers already have.
 		auto buffer = std::array<WaterFieldElement, MaxElementCount>{};
-		auto const elements = Localise(v2{static_cast<float>(xy.x), static_cast<float>(xy.y)}, buffer);
+		auto const elements = Localise(v2{static_cast<float>(xy.x), static_cast<float>(xy.y)}, buffer, false);
 		for (auto i = 0LL; i != std::ssize(elements); ++i)
 		{
 			auto const& element = elements[i];
@@ -243,6 +245,20 @@ namespace pr::physics::terrain::water
 	{
 		RequirePositive(ratio, "breaking ratio");
 		m_breaking_ratio = ratio;
+	}
+
+	// The crest sharpness that waves reach at the breaking height.
+	float WaterField::ShoreSharpness() const noexcept
+	{
+		return m_shore_sharpness;
+	}
+	void WaterField::ShoreSharpness(float sharpness)
+	{
+		RequireFinite(sharpness, "shore sharpness");
+		if (!(sharpness >= 0.0f && sharpness <= shared::WaterFieldMaxCrestSharpness))
+			throw std::invalid_argument(std::format("Water field shore sharpness must be in [0, {}]", shared::WaterFieldMaxCrestSharpness));
+
+		m_shore_sharpness = sharpness;
 	}
 
 	// The period after which every element repeats exactly.
@@ -313,11 +329,11 @@ namespace pr::physics::terrain::water
 		auto const t = LocalTime(time_s);
 		auto const depth = WaveDepth(xy);
 		auto buffer = std::array<WaterFieldElement, MaxElementCount>{};
-		auto const elements = Localise(xy_f, buffer);
-		auto const scale = BreakingScale(elements, depth);
+		auto const elements = Localise(xy_f, buffer, true);
+		auto const correction = Correction(elements, depth);
 		auto height = 0.0;
 		for (auto const& element : elements)
-			height += shared::WaterFieldElementHeight(shared::WaterFieldDepthCorrected(element, depth, scale), xy_f, t);
+			height += shared::WaterFieldElementHeight(shared::WaterFieldDepthCorrected(element, depth, correction.m_breaking_scale, correction.m_min_sharpness), xy_f, t);
 
 		return m_level + height;
 	}
@@ -330,13 +346,13 @@ namespace pr::physics::terrain::water
 		auto const t = LocalTime(time_s);
 		auto const depth = WaveDepth(xy);
 		auto buffer = std::array<WaterFieldElement, MaxElementCount>{};
-		auto const elements = Localise(xy_f, buffer);
-		auto const scale = BreakingScale(elements, depth);
+		auto const elements = Localise(xy_f, buffer, true);
+		auto const correction = Correction(elements, depth);
 		auto sample = WaterSample{.m_height = m_level, .m_gradient_xy = v2d::Zero()};
 		for (auto const& element : elements)
 		{
 			// Each contribution is (height, dh/dx, dh/dy).
-			auto const contribution = shared::WaterFieldElementHeightAndGradient(shared::WaterFieldDepthCorrected(element, depth, scale), xy_f, t);
+			auto const contribution = shared::WaterFieldElementHeightAndGradient(shared::WaterFieldDepthCorrected(element, depth, correction.m_breaking_scale, correction.m_min_sharpness), xy_f, t);
 			sample.m_height += contribution.x;
 			sample.m_gradient_xy += v2d{contribution.y, contribution.z};
 		}
@@ -353,13 +369,13 @@ namespace pr::physics::terrain::water
 		auto const t = LocalTime(time_s);
 		auto const depth = WaveDepth(v2d{xy.x, xy.y});
 		auto buffer = std::array<WaterFieldElement, MaxElementCount>{};
-		auto const elements = Localise(xy, buffer);
-		auto const scale = BreakingScale(elements, depth);
+		auto const elements = Localise(xy, buffer, true);
+		auto const correction = Correction(elements, depth);
 		auto gradient = v2::Zero();
 		for (auto const& element : elements)
 		{
 			// Each contribution is (height, gradient.x, gradient.y); only the gradient is needed.
-			auto const contribution = shared::WaterFieldElementHeightAndPressureGradient(shared::WaterFieldDepthCorrected(element, depth, scale), xy, t, gravity);
+			auto const contribution = shared::WaterFieldElementHeightAndPressureGradient(shared::WaterFieldDepthCorrected(element, depth, correction.m_breaking_scale, correction.m_min_sharpness), xy, t, gravity);
 			gradient += v2{contribution.y, contribution.z};
 		}
 		return gradient;
@@ -372,14 +388,14 @@ namespace pr::physics::terrain::water
 		auto const t = LocalTime(time_s);
 		auto const depth = WaveDepth(v2d{pos_ws.x, pos_ws.y});
 		auto buffer = std::array<WaterFieldElement, MaxElementCount>{};
-		auto const elements = Localise(v2{pos_ws.x, pos_ws.y}, buffer);
-		auto const scale = BreakingScale(elements, depth);
+		auto const elements = Localise(v2{pos_ws.x, pos_ws.y}, buffer, true);
+		auto const correction = Correction(elements, depth);
 		auto velocity = v4::Zero();
 		auto const level = static_cast<float>(m_level);
 		for (auto const& element : elements)
 		{
 			// Each contribution is a world-space velocity.
-			auto const contribution = shared::WaterFieldElementVelocity(shared::WaterFieldDepthCorrected(element, depth, scale), pos_ws.xyz, t, level);
+			auto const contribution = shared::WaterFieldElementVelocity(shared::WaterFieldDepthCorrected(element, depth, correction.m_breaking_scale, correction.m_min_sharpness), pos_ws.xyz, t, level);
 			velocity += v4{contribution.x, contribution.y, contribution.z, 0};
 		}
 		return velocity;
@@ -425,22 +441,27 @@ namespace pr::physics::terrain::water
 	}
 
 	// Return the elements with their local amplitude and sharpness at 'xy'.
-	std::span<WaterFieldElement const> WaterField::Localise(v2 xy, std::span<WaterFieldElement, MaxElementCount> buffer) const
+	std::span<WaterFieldElement const> WaterField::Localise(v2 xy, std::span<WaterFieldElement, MaxElementCount> buffer, bool compact) const
 	{
 		// Without a wind sea every element keeps its own values.
 		if (m_wind_sea == nullptr)
 			return m_elements;
 
-		// Find each band's local state once, then apply it to the band's elements.
+		// Find each band's local state once, then apply it to the band's elements. Elements that are calm here add nothing to any sample,
+		// so 'compact' drops them to save their evaluation.
 		auto bands = std::array<WindSeaBand, MaxElementCount>{};
 		m_wind_sea->Bands(xy, std::span{bands}.first(m_wind_sea->Grid().band_count));
-		for (auto i = 0LL; i != std::ssize(m_elements); ++i)
+		auto count = size_t{};
+		for (auto const& element : m_elements)
 		{
-			auto const& element = m_elements[i];
 			auto const band = shared::WaterFieldWindSeaBand(element);
-			buffer[i] = band >= 0 ? shared::WindSeaElement(element, bands[band]) : element;
+			auto const local = band >= 0 ? shared::WindSeaElement(element, bands[band]) : element;
+			if (compact && local.wave.x == 0.0f)
+				continue;
+
+			buffer[count++] = local;
 		}
-		return std::span<WaterFieldElement const>{buffer.data(), m_elements.size()};
+		return std::span<WaterFieldElement const>{buffer.data(), count};
 	}
 
 	// Return the amplitude bound near a point whose deepest water, including the swash allowance, is 'max_depth'.
@@ -450,24 +471,29 @@ namespace pr::physics::terrain::water
 		if (m_bathymetry == nullptr)
 			return m_amplitude_bound;
 
-		// Shoaling can at most double an amplitude, and breaking limits the total to half the breaking height of the deepest water.
+		// Shoaling can at most double an amplitude, and shore sharpening can raise each crest by at most a factor of 1 + ShoreSharpness.
+		// Breaking limits the total to half the breaking height of the deepest water.
 		if (!(max_depth > 0.0))
 			return 0.0;
 
-		return std::min(shared::WaterFieldMaxShoaling * m_amplitude_bound, 0.5 * m_breaking_ratio * max_depth);
+		return std::min(shared::WaterFieldMaxShoaling * (1.0 + m_shore_sharpness) * m_amplitude_bound, 0.5 * m_breaking_ratio * max_depth);
 	}
 
-	// Return the breaking scale of 'elements' for 'depth'.
-	float WaterField::BreakingScale(std::span<WaterFieldElement const> elements, float depth) const
+	// Return the depth correction of 'elements' for 'depth'.
+	WaterField::DepthCorrection WaterField::Correction(std::span<WaterFieldElement const> elements, float depth) const
 	{
-		// Deep water everywhere needs no limiting.
+		// Deep water everywhere needs no correction.
 		if (m_bathymetry == nullptr)
-			return 1.0f;
+			return DepthCorrection{.m_breaking_scale = 1.0f, .m_min_sharpness = 0.0f};
 
 		auto total = 0.0f;
 		for (auto const& element : elements)
 			total += shared::WaterFieldElementAmplitudeBound(element) * shared::WaterFieldShoaling(element, depth);
 
-		return shared::WaterFieldBreakingScale(total, depth, m_breaking_ratio);
+		auto const min_sharpness = shared::WaterFieldShoreSharpness(total, depth, m_breaking_ratio, m_shore_sharpness);
+		return DepthCorrection{
+			.m_breaking_scale = shared::WaterFieldBreakingScale(total, min_sharpness, depth, m_breaking_ratio),
+			.m_min_sharpness = min_sharpness,
+		};
 	}
 }

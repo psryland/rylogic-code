@@ -47,12 +47,16 @@ namespace pr::physics::terrain::water
 		std::shared_ptr<Bathymetry const> m_bathymetry;
 		std::shared_ptr<water::WindSea const> m_wind_sea;
 		float m_breaking_ratio;
+		float m_shore_sharpness;
 		double m_repeat_period;
 
 	public:
 
 		// Default ratio of breaking wave height to water depth.
 		static constexpr float DefaultBreakingRatio = 0.78f;
+
+		// Default crest sharpness of waves at the breaking height. Zero leaves crests unchanged.
+		static constexpr float DefaultShoreSharpness = 0.0f;
 
 		// Construct a validated water field. Throws invalid_argument for non-finite values, unknown element types,
 		// non-unit wave directions, non-positive wavelengths, crest sharpness outside [0, WaterFieldMaxCrestSharpness], or more than MaxElementCount elements.
@@ -85,6 +89,11 @@ namespace pr::physics::terrain::water
 		// Ratio of the largest wave height (crest to trough) to the water depth. Only used with a bathymetry.
 		float BreakingRatio() const noexcept;
 		void BreakingRatio(float ratio);
+
+		// The crest sharpness that waves reach at the breaking height, in [0, WaterFieldMaxCrestSharpness]. Crests sharpen towards it as waves
+		// approach the breaking height in shallow water (see shared::WaterFieldShoreSharpness). Only used with a bathymetry.
+		float ShoreSharpness() const noexcept;
+		void ShoreSharpness(float sharpness);
 
 		// The period after which every element repeats exactly, or zero when elements are not periodic.
 		// Callers own the periodicity: every element's time term must repeat after this period.
@@ -128,12 +137,20 @@ namespace pr::physics::terrain::water
 		void UpdateBounds();
 
 		// Return the elements with their local amplitude and sharpness at 'xy', using 'buffer' when they differ from the stored elements.
-		std::span<WaterFieldElement const> Localise(v2 xy, std::span<WaterFieldElement, MaxElementCount> buffer) const;
+		// With 'compact', wind-sea elements that are calm at 'xy' are left out; otherwise there is one element per stored element, in order.
+		std::span<WaterFieldElement const> Localise(v2 xy, std::span<WaterFieldElement, MaxElementCount> buffer, bool compact) const;
 
 		// Return the amplitude bound near a point whose deepest water, including the swash allowance, is 'max_depth'.
 		double AmplitudeBound(double max_depth) const noexcept;
 
-		// Return the breaking scale of 'elements' for 'depth'. See water_depth.hlsli.
-		float BreakingScale(std::span<WaterFieldElement const> elements, float depth) const;
+		// The breaking scale and smallest crest sharpness shared by every element at one point. See water_depth.hlsli.
+		struct DepthCorrection
+		{
+			float m_breaking_scale;
+			float m_min_sharpness;
+		};
+
+		// Return the depth correction of 'elements' for 'depth'.
+		DepthCorrection Correction(std::span<WaterFieldElement const> elements, float depth) const;
 	};
 }

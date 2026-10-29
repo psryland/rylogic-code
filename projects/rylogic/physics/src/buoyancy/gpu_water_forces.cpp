@@ -31,6 +31,7 @@ namespace pr::physics
 			float m_quadratic_drag_coefficient;
 			float m_angular_drag_rate;
 			float m_breaking_ratio;
+			float m_shore_sharpness;
 			int m_wind_sea;
 		};
 		static_assert(sizeof(CBufWaterForces) % sizeof(uint32_t) == 0);
@@ -201,6 +202,7 @@ namespace pr::physics
 			.m_quadratic_drag_coefficient = m_config.m_quadratic_drag_coefficient,
 			.m_angular_drag_rate = m_config.m_angular_drag_rate,
 			.m_breaking_ratio = m_config.m_field.BreakingRatio(),
+			.m_shore_sharpness = m_config.m_field.ShoreSharpness(),
 			.m_wind_sea = m_config.m_field.WindSea() != nullptr ? 1 : 0,
 		};
 		job.m_cmd_list.SetPipelineState(m_step.m_pso.get());

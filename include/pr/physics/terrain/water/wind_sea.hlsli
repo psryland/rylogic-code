@@ -50,7 +50,8 @@ struct WindSeaGrid
 //   x = amplitude (m) of an element travelling exactly downwind.
 //   y = alignment exponent e. An element at angle delta from downwind has amplitude x * cos(delta/2)^(2e), so larger values keep the waves
 //       closer to the wind direction. Zero gives the same amplitude in every direction.
-//   z = crest sharpness of the band's elements, in [0, WaterFieldMaxCrestSharpness] (see WaterFieldWaveProfile).
+//   z = crest sharpness of an element travelling exactly downwind, in [0, WaterFieldMaxCrestSharpness] (see WaterFieldWaveProfile). Other
+//       elements are less sharp; see WindSeaSharpness.
 //   w = sum over the band's directions of cos(delta/2)^(4e), for directions spread evenly over the full circle. The band's variance is
 //       0.5 * x² * w, so x * x * w is twice the band's variance.
 typedef float4 WindSeaTableRow;
@@ -61,7 +62,7 @@ struct WindSeaBand
 	float2 direction; // Unit downwind direction, or zero in calm air.
 	float amplitude;  // Amplitude (m) of an element travelling exactly downwind.
 	float exponent;   // Alignment exponent; see WindSeaTableRow.
-	float sharpness;  // Crest sharpness of the band's elements.
+	float sharpness;  // Crest sharpness of an element travelling exactly downwind.
 };
 
 // Return the wind-sea band of 'element', or -1 when the element is not part of a wind sea and keeps its own amplitude.
@@ -137,13 +138,24 @@ odr float WindSeaAmplitude(float2 direction, WindSeaBand band)
 	return band.amplitude * pow(alignment, band.exponent);
 }
 
+// Return the crest sharpness of a wind-sea element travelling in unit 'direction' in a band whose state is 'band'.
+// The sharpness is full downwind and falls quickly away from it to zero across the wind and upwind, so only waves the wind drives have peaked crests.
+odr float WindSeaSharpness(float2 direction, WindSeaBand band)
+{
+	// cos(delta)^4 keeps most of the sharpness near downwind (0.56 at 30 degrees), then decays with a long tail (0.25 at 45, 0.06 at 60 degrees).
+	// Sharp crests travelling across each other would otherwise form a visible lattice of crossing ridges. Calm air has no direction, so no sharpness.
+	float c = saturate(dot(direction, band.direction));
+	float c2 = c * c;
+	return band.sharpness * c2 * c2;
+}
+
 // Return a copy of the wind-sea 'element' with the amplitude and crest sharpness of its band's state 'band'.
 odr WaterFieldElement WindSeaElement(WaterFieldElement element, WindSeaBand band)
 {
 	// Only the amplitude and sharpness depend on the wind; the direction, wavelength, and phase are fixed.
 	WaterFieldElement result = element;
 	result.wave.x = WindSeaAmplitude(element.position.xy, band);
-	result.timing.x = band.sharpness;
+	result.timing.x = WindSeaSharpness(element.position.xy, band);
 	return result;
 }
 

@@ -333,6 +333,47 @@ namespace pr::physics::terrain::water::tests
 			PR_EXPECT(dry.MinHeight(v2d{-5.0, -5.0}, v2d{5.0, 5.0}) == 0.0);
 		}
 
+		// Crests near the breaking height sharpen towards the shore sharpness, but the total still respects the breaking limit and height bounds.
+		PRUnitTestMethod(ShoreSharpnessPeaksBreakingWaves, Quick)
+		{
+			// A long wave in half a metre of water is at its breaking height.
+			auto const long_wave = GerstnerWave(v2{1.0f, 0.0f}, 2.0f, 2000.0f, 56.0f, 0.0f);
+			auto const heights = std::array{-0.5f, -0.5f, -0.5f, -0.5f};
+			auto const terrain = std::make_shared<Bathymetry const>(v2d{-1000.0, -1000.0}, 2000.0, 2, 2, heights);
+			auto const long_swash = static_cast<double>(shared::WaterFieldSwashRatio) * std::sqrt(2.0) * 2.0;
+			auto const limit = 0.5 * WaterField::DefaultBreakingRatio * (0.5 + long_swash);
+			auto const extremes = [](WaterField const& field)
+			{
+				// Highest crest and deepest trough over one wavelength.
+				auto hi = -1e30, lo = 1e30;
+				for (auto i = 0; i != 2000; ++i)
+				{
+					auto const h = field.Height(v2d{1.0 * i, 0.0}, 0.0);
+					hi = std::max(hi, h);
+					lo = std::min(lo, h);
+				}
+				return std::pair{hi, lo};
+			};
+
+			// Without shore sharpness the sine crest and trough are symmetric.
+			auto smooth = WaterField(0.0, std::span{&long_wave, 1});
+			smooth.TerrainHeights(terrain);
+			auto const [smooth_hi, smooth_lo] = extremes(smooth);
+			PR_EXPECT(FEqlAbsolute(smooth_hi, -smooth_lo, 1e-3 * smooth_hi));
+
+			// With shore sharpness the crest is higher than the trough is deep, and the total crest stays within the breaking limit and bounds.
+			auto peaked = WaterField(0.0, std::span{&long_wave, 1});
+			peaked.TerrainHeights(terrain);
+			peaked.ShoreSharpness(0.8f);
+			auto const [peaked_hi, peaked_lo] = extremes(peaked);
+			PR_EXPECT(peaked_hi > 4.0 * -peaked_lo);
+			PR_EXPECT(peaked_hi <= limit + 1e-5);
+			PR_EXPECT(peaked.MaxHeight(v2d{-5.0, -5.0}, v2d{2000.0, 5.0}) >= peaked_hi - 1e-5);
+
+			PR_THROWS(peaked.ShoreSharpness(-0.1f), std::invalid_argument);
+			PR_THROWS(peaked.ShoreSharpness(shared::WaterFieldMaxCrestSharpness + 0.01f), std::invalid_argument);
+		}
+
 		// The wind-sea table follows the wind, and the spectrum produces band-tagged elements that bound the table and repeat after the repeat period.
 		PRUnitTestMethod(WaveSpectrumFollowsWeather, Quick)
 		{
@@ -507,6 +548,23 @@ namespace pr::physics::terrain::water::tests
 				east->Bands(v2{30.0f, 70.0f}, band_states);
 				PR_EXPECT(FEqlAbsolute(local[i].x, shared::WindSeaAmplitude(elements[i].position.xy, band_states[b]), 1e-6f));
 				PR_EXPECT(local[i].x <= elements[i].wave.x);
+				PR_EXPECT(FEqlAbsolute(local[i].y, shared::WindSeaSharpness(elements[i].position.xy, band_states[b]), 1e-6f));
+				PR_EXPECT(local[i].y <= band_states[b].sharpness);
+			}
+
+			// Crest sharpness is full downwind, decays quickly away from it, and is zero across the wind and upwind.
+			{
+				auto band = shared::WindSeaBand{.direction = v2{1.0f, 0.0f}, .amplitude = 1.0f, .exponent = 1.0f, .sharpness = 0.8f};
+				auto const at = [&](float degrees)
+				{
+					// Sharpness of an element travelling 'degrees' from downwind.
+					auto const r = degrees * 3.14159265f / 180.0f;
+					return shared::WindSeaSharpness(v2{std::cos(r), std::sin(r)}, band);
+				};
+				PR_EXPECT(FEqlAbsolute(at(0.0f), 0.8f, 1e-6f));
+				PR_EXPECT(FEqlAbsolute(at(45.0f), 0.2f, 1e-5f));
+				PR_EXPECT(FEqlAbsolute(at(90.0f), 0.0f, 1e-6f));
+				PR_EXPECT(at(180.0f) == 0.0f);
 			}
 
 			// Turning the wind slightly moves the surface slightly, so a smoothly turning wind never makes the surface jump.

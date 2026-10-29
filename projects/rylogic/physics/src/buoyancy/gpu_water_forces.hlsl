@@ -30,6 +30,7 @@ struct CBufWaterForces
 	float quadratic_drag_coefficient;
 	float angular_drag_rate;
 	float breaking_ratio;
+	float shore_sharpness;
 	int wind_sea; // Non-zero when wind-sea elements take their local amplitude and sharpness from 'g_local_waves'.
 };
 
@@ -144,6 +145,7 @@ void CSWaterForces(uint3 dtid : SV_DispatchThreadID)
 	float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
 
 	// Correct the wave amplitudes for the water depth under the body: shoaling first, then one common limit at the breaking height.
+	// Crests sharpen as they near the breaking height.
 	float shoaled_amplitude = 0.0f;
 	for (int s = 0; s != g.element_count; ++s)
 	{
@@ -151,7 +153,8 @@ void CSWaterForces(uint3 dtid : SV_DispatchThreadID)
 		shoaled_amplitude += WaterFieldElementAmplitudeBound(element) * WaterFieldShoaling(element, candidate.depth);
 	}
 
-	float breaking_scale = WaterFieldBreakingScale(shoaled_amplitude, candidate.depth, g.breaking_ratio);
+	float min_sharpness = WaterFieldShoreSharpness(shoaled_amplitude, candidate.depth, g.breaking_ratio, g.shore_sharpness);
+	float breaking_scale = WaterFieldBreakingScale(shoaled_amplitude, min_sharpness, candidate.depth, g.breaking_ratio);
 
 	// Sample the water surface at the proxy centre and treat it locally as a plane.
 	// Lateral pressure gradients from wave motion are sampled at the same point.
@@ -159,7 +162,7 @@ void CSWaterForces(uint3 dtid : SV_DispatchThreadID)
 	float2 pressure_gradient = float2(0.0f, 0.0f);
 	for (int e = 0; e != g.element_count; ++e)
 	{
-		WaterFieldElement element = WaterFieldDepthCorrected(LocalElement(dtid.x, e), candidate.depth, breaking_scale);
+		WaterFieldElement element = WaterFieldDepthCorrected(LocalElement(dtid.x, e), candidate.depth, breaking_scale, min_sharpness);
 		surface += WaterFieldElementHeightAndGradient(element, centre_ws.xy, g.time_s);
 		if (gravity > 0.0f)
 			pressure_gradient += WaterFieldElementHeightAndPressureGradient(element, centre_ws.xy, g.time_s, gravity).yz;
@@ -196,7 +199,7 @@ void CSWaterForces(uint3 dtid : SV_DispatchThreadID)
 	float inv_mass = body.os_com_and_invmass.w;
 	float3 water_velocity = float3(0.0f, 0.0f, 0.0f);
 	for (int v = 0; v != g.element_count; ++v)
-		water_velocity += WaterFieldElementVelocity(WaterFieldDepthCorrected(LocalElement(dtid.x, v), candidate.depth, breaking_scale), wet.centre_ws, g.time_s, g.water_level);
+		water_velocity += WaterFieldElementVelocity(WaterFieldDepthCorrected(LocalElement(dtid.x, v), candidate.depth, breaking_scale, min_sharpness), wet.centre_ws, g.time_s, g.water_level);
 
 	float3 relative_momentum = body.momentum_lin.xyz - water_velocity / inv_mass;
 	float linear_decay = 1.0f - exp(-g.linear_drag_rate * fraction * g.dt);

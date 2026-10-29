@@ -6,8 +6,9 @@
 // Waves entering shallow water change height (shoaling) and break when they become too tall for the depth.
 // These helpers scale element amplitudes by the local water depth so the unchanged evaluators in water_field.hlsli can be reused:
 //   1. For every element, add Amplitude * WaterFieldShoaling(element, depth) to a running total.
-//   2. Compute scale = WaterFieldBreakingScale(total, depth, breaking_ratio).
-//   3. Evaluate WaterFieldDepthCorrected(element, depth, scale) instead of the element itself.
+//   2. Compute sharpness = WaterFieldShoreSharpness(total, depth, breaking_ratio, shore_sharpness), then
+//      scale = WaterFieldBreakingScale(total, sharpness, depth, breaking_ratio).
+//   3. Evaluate WaterFieldDepthCorrected(element, depth, scale, sharpness) instead of the element itself.
 // The depth is the still-water level minus the terrain height at the sample point, plus the swash allowance (see WaterFieldSwashDepth).
 // A very large depth (for example 1e30) disables every correction.
 // The wavelength, direction, and speed are not changed (no refraction). Surface slopes and velocities use the corrected amplitude at the sample point
@@ -86,20 +87,14 @@ odr float WaterFieldShoaling(WaterFieldElement element, float depth)
 // Return the factor that limits the total shoaled amplitude to a breaking wave height.
 // A wave breaks when its crest-to-trough height exceeds 'breaking_ratio' * depth (about 0.78 for real waves). The amplitude is half the height,
 // so every element is scaled down by the same factor until the sum of amplitudes is at most 0.5 * breaking_ratio * depth.
-odr float WaterFieldBreakingScale(float total_amplitude, float depth, float breaking_ratio)
+// 'total_amplitude' is the sum of the elements' shoaled amplitude bounds before their sharpness is raised to 'min_sharpness'. Raising the
+// sharpness of a crest from r to max(r, m) multiplies its height by at most 1 + m, so the limit still holds after WaterFieldDepthCorrected.
+odr float WaterFieldBreakingScale(float total_amplitude, float min_sharpness, float depth, float breaking_ratio)
 {
 	// No waves, or no water, need no limiting.
+	float total = total_amplitude * (1.0f + min_sharpness);
 	float limit = 0.5f * breaking_ratio * max(depth, 0.0f);
-	return total_amplitude > limit ? limit / total_amplitude : 1.0f;
-}
-
-// Return a copy of 'element' with its amplitude corrected for 'depth' and limited by 'breaking_scale'.
-odr WaterFieldElement WaterFieldDepthCorrected(WaterFieldElement element, float depth, float breaking_scale)
-{
-	// The evaluators read the amplitude from wave.x for every element type.
-	WaterFieldElement result = element;
-	result.wave.x *= WaterFieldShoaling(element, depth) * breaking_scale;
-	return result;
+	return total > limit ? limit / total : 1.0f;
 }
 
 // Return how close waves of 'total_amplitude' are to breaking in water 'depth' deep, from zero (half the breaking height or less) to one (breaking).
@@ -109,6 +104,29 @@ odr float WaterFieldBreakingCloseness(float total_amplitude, float depth, float 
 	// Closeness grows over the last half of the range up to the breaking height.
 	float limit = 0.5f * breaking_ratio * max(depth, 0.0f);
 	return limit > 0.0f ? saturate(2.0f * total_amplitude / limit - 1.0f) : 0.0f;
+}
+
+// Return the smallest crest sharpness of waves whose shoaled amplitudes add up to 'total_amplitude' in water 'depth' deep.
+// Real waves become peaked as they approach the breaking height, so the sharpness rises from zero to 'shore_sharpness' with the breaking closeness.
+// Zero 'shore_sharpness' leaves every crest unchanged.
+odr float WaterFieldShoreSharpness(float total_amplitude, float depth, float breaking_ratio, float shore_sharpness)
+{
+	return shore_sharpness * WaterFieldBreakingCloseness(total_amplitude, depth, breaking_ratio);
+}
+
+// Return a copy of 'element' with its amplitude corrected for 'depth' and limited by 'breaking_scale', and the crest sharpness of sine and
+// Gerstner waves raised to at least 'min_sharpness' (see WaterFieldShoreSharpness).
+odr WaterFieldElement WaterFieldDepthCorrected(WaterFieldElement element, float depth, float breaking_scale, float min_sharpness)
+{
+	// The evaluators read the amplitude from wave.x for every element type.
+	WaterFieldElement result = element;
+	result.wave.x *= WaterFieldShoaling(element, depth) * breaking_scale;
+
+	// Only wave elements store a crest sharpness, in timing.x.
+	if (element.info.x == WaterFieldElementSineWave || element.info.x == WaterFieldElementGerstnerWave)
+		result.timing.x = max(result.timing.x, min(min_sharpness, WaterFieldMaxCrestSharpness));
+
+	return result;
 }
 
 // Return the per-element Gerstner steepness for a sum of waves whose amplitudes add up to 'total_amplitude' and whose slopes k*A add up to
