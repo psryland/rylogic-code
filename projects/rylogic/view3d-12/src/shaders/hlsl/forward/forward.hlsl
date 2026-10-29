@@ -261,8 +261,8 @@ float3 ResolvePbrMaterialWorldNormal(PSIn In, bool is_front_face, float2 normal_
 	if (dot(normal, normal) == 0.0f || g_pbr.procedural_params0.x == 0.0f)
 		return normal;
 
-	ProceduralSurfaceSample procedural = EvaluateProceduralSurface(In.ws_vert);
-	return ProceduralWorldNormal(In, normal, procedural.height);
+	ProceduralSurfaceSample procedural = EvaluateProceduralSurface(In.ws_vert, ProceduralFootprint(In.ws_vert));
+	return ProceduralWorldNormal(normal, procedural.gradient);
 }
 
 // Forward VS
@@ -435,7 +435,7 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 	ProceduralSurfaceSample procedural = (ProceduralSurfaceSample)0;
 	if (g_pbr.procedural_params0.x != 0.0f)
 	{
-		procedural = EvaluateProceduralSurface(In.ws_vert);
+		procedural = EvaluateProceduralSurface(In.ws_vert, ProceduralFootprint(In.ws_vert));
 		albedo *= procedural.albedo;
 		roughness = clamp(procedural.roughness, 0.04f, 1.0f);
 	}
@@ -454,7 +454,7 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 		return Out;
 	}
 	if (g_pbr.procedural_params0.x != 0.0f)
-		normal = ProceduralWorldNormal(In, normal, procedural.height);
+		normal = ProceduralWorldNormal(normal, procedural.gradient);
 
 	// Evaluate direct PBR lighting using the shared PBR material lighting helper.
 	float3 view = normalize(g_frame.cam.c2w[3].xyz - In.ws_vert.xyz);
