@@ -32,14 +32,16 @@ class _Template:
 	swing_height: float                             # The foot lift, as a multiple of the leg length
 	hip_height: float                               # The cycle's hip height (see 'RYLOGIC_PG_GaitCycle.hip_height')
 	spine_sway: float                               # The cycle's spine sway in radians (see 'RYLOGIC_PG_GaitCycle.spine_sway')
+	weight_shift: float                             # The cycle's weight shift (see 'RYLOGIC_PG_GaitCycle.weight_shift')
+	arm_swing: float                                # The cycle's arm swing in radians (see 'RYLOGIC_PG_GaitCycle.arm_swing')
 	duty: float                                     # The fraction of the cycle that each foot is planted
 	touchdowns: dict[tuple[str, str], float]        # The touchdown phase of each walking limb, by (role, side)
 
 
 TEMPLATES = {
-	"BIPEDAL_WALK": _Template("bipedal", "walk", 24, 1.0, 0.15, 0.9, 0.1, 0.6, {("LEG", "LEFT"): 0.0, ("LEG", "RIGHT"): 0.5}),
-	"QUADRUPED_WALK": _Template("quadruped", "walk", 24, 1.0, 0.15, 0.5, 0.25, 0.75, {("LEG", "LEFT"): 0.0, ("ARM", "LEFT"): 0.25, ("LEG", "RIGHT"): 0.5, ("ARM", "RIGHT"): 0.75}),
-	"QUADRUPED_TROT": _Template("quadruped", "trot", 16, 1.4, 0.2, 0.5, 0.35, 0.5, {("LEG", "LEFT"): 0.0, ("ARM", "RIGHT"): 0.0, ("LEG", "RIGHT"): 0.5, ("ARM", "LEFT"): 0.5}),
+	"BIPEDAL_WALK": _Template("bipedal", "walk", 24, 1.0, 0.15, 0.9, 0.1, 0.7, 0.4, 0.6, {("LEG", "LEFT"): 0.0, ("LEG", "RIGHT"): 0.5}),
+	"QUADRUPED_WALK": _Template("quadruped", "walk", 24, 1.0, 0.15, 0.5, 0.25, 0.0, 0.0, 0.75, {("LEG", "LEFT"): 0.0, ("ARM", "LEFT"): 0.25, ("LEG", "RIGHT"): 0.5, ("ARM", "RIGHT"): 0.75}),
+	"QUADRUPED_TROT": _Template("quadruped", "trot", 16, 1.4, 0.2, 0.5, 0.35, 0.0, 0.0, 0.5, {("LEG", "LEFT"): 0.0, ("ARM", "RIGHT"): 0.0, ("LEG", "RIGHT"): 0.5, ("ARM", "LEFT"): 0.5}),
 }
 TEMPLATE_ITEMS = [
 	("BIPEDAL_WALK", "Bipedal Walk", "Legs only, alternating"),
@@ -113,6 +115,7 @@ def GenerateTemplate(armature_obj: bpy.types.Object, context: bpy.types.Context,
 	cycle = rig.cycles.add()
 	cycle.name, cycle.family, cycle.action = template.name, template.family, action
 	cycle.hip_height, cycle.spine_sway = template.hip_height, template.spine_sway
+	cycle.weight_shift, cycle.arm_swing = template.weight_shift, template.arm_swing
 	rig.active_cycle = len(rig.cycles) - 1
 	return action
 

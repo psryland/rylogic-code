@@ -636,13 +636,23 @@ namespace pr::animation
 			return (hip_height - family.cycles.front().hip_height) * m_leg_reach;
 		}
 
-		// The spine sway angle (radians) of family 'f' at the current speed
-		float SpineSway(int f) const
+		// The value of a cycle parameter of family 'f' at the current speed
+		float CycleValue(int f, float GaitCycle::* value) const
 		{
 			// Blend between the cycles either side of the smoothed speed
 			auto const& family = m_gait.families[f];
 			auto b = Bracket(family, m_gait_speed);
-			return Lerp(family.cycles[b.lo].spine_sway, family.cycles[b.hi].spine_sway, b.t);
+			return Lerp(family.cycles[b.lo].*value, family.cycles[b.hi].*value, b.t);
+		}
+
+		// The size of a cycle's walking motion, such as its spine sway, blended between the previous and current families. It grows with speed up to
+		// the slowest cycle's speed, like the guide's motion, so that a standing body holds still.
+		float WalkAmplitude(float GaitCycle::* value) const
+		{
+			// Blend the families, then scale by how fast the body walks
+			auto w = m_family_weight.Value();
+			auto slowest = m_gait.families[m_family].cycles.front().speed;
+			return Lerp(CycleValue(m_prev_family, value), CycleValue(m_family, value), w) * std::min(m_gait_speed / slowest, 1.0f);
 		}
 
 		// Blend each limb's support between the previous and current families, and take its timing and swing from the family that it walks in
@@ -751,10 +761,20 @@ namespace pr::animation
 		}
 
 		// The end bone frame of a hanging limb: its frame in the guide pose, carried by the body. Legs hang from the pelvis and arms from the chest.
+		// Hanging arms also swing with the walk (see 'ArmSwing').
 		xform HangingFrame(LimbState const& limb) const
 		{
+			// Swing the guide frame about the limb's root joint
+			auto const& bones = m_rig.chains[limb.chain].bones;
+			auto guide_end = m_guide.model[bones.back()];
+			if (limb.footfall.role == EChainRole::Arm)
+			{
+				auto root = m_guide.model[bones.front()].pos;
+				auto swing = quat(v4::XAxis(), ArmSwing(limb));
+				guide_end = xform(root + Rotate(swing, guide_end.pos - root), Normalise(swing * guide_end.rot));
+			}
+
 			// Without a spine the body does not move relative to the guide
-			auto guide_end = m_guide.model[m_rig.chains[limb.chain].bones.back()];
 			if (m_spine < 0)
 				return guide_end;
 
@@ -762,6 +782,28 @@ namespace pr::animation
 			auto const& actual = leg ? m_targets[m_spine].base : m_targets[m_spine].frame;
 			auto const& guide = leg ? m_guide_targets[m_spine].base : m_guide_targets[m_spine].frame;
 			return actual * Invert(guide) * guide_end;
+		}
+
+		// The angle (radians, about model +X) by which a hanging arm swings: the cycles' arm swing times cos(2 pi (phase - touchdown)) of the
+		// walking leg on the same side. A positive angle moves the hand backwards (+Y), so the arm is furthest back as that leg's foot lands
+		// and swings forward as the leg swings back. Arms with no walking leg on their side do not swing.
+		float ArmSwing(LimbState const& arm) const
+		{
+			// Follow the most supporting leg on the arm's side
+			auto side = arm.stance_contact.x < 0;
+			LimbState const* leg = nullptr;
+			for (auto const& limb : m_limbs)
+			{
+				if (limb.footfall.role != EChainRole::Leg || (limb.stance_contact.x < 0) != side || limb.support == 0)
+					continue;
+				if (leg == nullptr || limb.support > leg->support)
+					leg = &limb;
+			}
+			if (leg == nullptr)
+				return 0.0f;
+
+			// The swing grows with speed, like the guide's motion
+			return WalkAmplitude(&GaitCycle::arm_swing) * leg->support * std::cos(math::constants<float>::tau * (m_phase - leg->footfall.touchdown));
 		}
 
 		// The distance from the model origin at which turning on the spot moves the feet: the mean horizontal distance of the stance
@@ -1188,8 +1230,8 @@ namespace pr::animation
 			}
 		}
 
-		// Raise or lower the guide's pelvis and chest by the height of the ground under the hind and fore feet, pitching the body between them, and
-		// turn them about the up axis with the walking limbs and into turns
+		// Raise or lower the guide's pelvis and chest by the height of the ground under the hind and fore feet, pitching the body between them,
+		// shift them sideways over the walking limbs, and turn them about the up axis with the walking limbs and into turns
 		void StepSpine(float dt, xform const& world_to_model)
 		{
 			// Hind feet are legs and fore feet are arms. With only one group, the body moves without pitching.
@@ -1230,11 +1272,45 @@ namespace pr::animation
 			// Each end also turns about the up axis by its girdle's sway, and the chest leads into a turn while the pelvis trails. The ends
 			// turn about their own positions, so the spine bends between them without moving its ends.
 			auto [pelvis_yaw, chest_yaw] = GirdleSway();
+			auto [pelvis_shift, chest_shift] = WeightShift();
 			auto lead = Clamp(m_turn_rate * SpineLeadTime, -MaxSpineLead, MaxSpineLead);
 			auto pelvis_turn = quat(v4::ZAxis(), pelvis_yaw - lead);
 			auto chest_turn = quat(v4::ZAxis(), chest_yaw + lead);
-			m_targets[m_spine].base = xform(pelvis0.pos + v4::ZAxis() * hind, Normalise(pelvis_turn * pitch * pelvis0.rot));
-			m_targets[m_spine].frame = xform(chest0.pos + v4::ZAxis() * fore, Normalise(chest_turn * pitch * chest0.rot));
+			m_targets[m_spine].base = xform(pelvis0.pos + v4(pelvis_shift, 0, hind, 0), Normalise(pelvis_turn * pitch * pelvis0.rot));
+			m_targets[m_spine].frame = xform(chest0.pos + v4(chest_shift, 0, fore, 0), Normalise(chest_turn * pitch * chest0.rot));
+		}
+
+		// The sideways offsets (model X) of the pelvis and the chest that move the body's weight over the walking limbs. Each limb pulls its girdle
+		// towards its side by the cycles' weight shift times its distance from the midline times cos(2 pi (phase - touchdown - duty/2)), most
+		// strongly at the middle of its stance, so that two limbs half a cycle apart carry the girdle from over one foot to over the other.
+		// Each girdle takes the mean over its limbs, weighted by how much each limb walks. A girdle whose limbs hang moves with the other girdle,
+		// so that a body standing on its hind legs shifts as a whole.
+		std::pair<float, float> WeightShift() const
+		{
+			// The shift grows with speed, like the guide's motion
+			auto amplitude = WalkAmplitude(&GaitCycle::weight_shift);
+			if (amplitude == 0)
+				return {};
+
+			float shift[2] = {};
+			float support[2] = {};
+			int count[2] = {};
+			for (auto const& limb : m_limbs)
+			{
+				auto i = limb.footfall.role == EChainRole::Leg ? 0 : 1;
+				auto mid_stance = limb.footfall.touchdown + 0.5f * limb.footfall.duty;
+				shift[i] += limb.support * limb.stance_contact.x * std::cos(math::constants<float>::tau * (m_phase - mid_stance));
+				support[i] += limb.support;
+				count[i] += 1;
+			}
+
+			// The fore girdle moves from the hind girdle's shift to its own as its limbs take weight, like its height (see 'StepSpine')
+			auto hind = count[0] != 0 ? amplitude * shift[0] / count[0] : 0.0f;
+			auto fore = count[1] != 0 ? hind + (amplitude * shift[1] / count[1] - hind) * (count[0] != 0 ? support[1] / count[1] : 1.0f) : hind;
+			if (count[0] == 0)
+				hind = fore;
+
+			return { hind, fore };
 		}
 
 		// The yaw angles (radians, about model +Z) of the pelvis and the chest that swing each walking limb's root joint forward as its foot lands
@@ -1243,10 +1319,8 @@ namespace pr::animation
 		// a pair of limbs half a cycle apart turn it together and limbs that hang do not turn it.
 		std::pair<float, float> GirdleSway() const
 		{
-			// The sway grows with speed up to the slowest cycle's speed, like the guide's motion
-			auto w = m_family_weight.Value();
-			auto slowest = m_gait.families[m_family].cycles.front().speed;
-			auto amplitude = Lerp(SpineSway(m_prev_family), SpineSway(m_family), w) * std::min(m_gait_speed / slowest, 1.0f);
+			// The sway grows with speed, like the guide's motion
+			auto amplitude = WalkAmplitude(&GaitCycle::spine_sway);
 
 			// Turning a girdle by a small angle 'a' about +Z moves a point at lateral offset 'x' by 'a * x' along Y, so a root joint on the +X
 			// side moves forward for a negative angle
@@ -1938,6 +2012,51 @@ namespace pr::animation::tests
 
 			PR_EXPECT(FEqlAbsolute(yaw(loco.targets()[0].base), 0.0f, 1e-3f));
 			PR_EXPECT(FEqlAbsolute(yaw(loco.targets()[0].frame), 0.0f, 1e-3f));
+		}
+		PRUnitTestMethod(BipedShiftsWeightAndSwingsArms, Quick)
+		{
+			// Walking on the hind legs, the pelvis and chest move sideways over the planted leg, most strongly at the middle of its stance, and
+			// the hanging arm swings about its shoulder against the leg on its side. Standing still, both die away.
+			auto rig = TestRig();
+			auto gait = TestGait();
+			auto biped = FamilyIndex(gait, "bipedal");
+			auto const& walk = gait.families[biped].cycles[0];
+			auto const& leg = walk.footfalls[0];
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .velocity = v4(0, -walk.speed, 0, 0), .gravity = v4(0, 0, -9.8f, 0) };
+			loco.RequestFamily(biped, 0.5f);
+			for (int i = 0; i != 120; ++i)
+			{
+				body.model_to_world.pos += body.velocity * dt;
+				loco.Step(dt, body, ground);
+			}
+			PR_EXPECT(loco.family_settled() && loco.family() == biped);
+
+			// The arm hangs straight down from its shoulder at (0.2,-0.9,1) to the hand at (0.2,-0.9,0), so turning it by 'a' about +X moves
+			// the hand to y = -0.9 + sin(a)
+			auto const& arm = loco.limbs()[1];
+			auto contact_x = loco.limbs()[0].stance_contact.x;
+			for (int i = 0; i != 60; ++i)
+			{
+				body.model_to_world.pos += body.velocity * dt;
+				loco.Step(dt, body, ground);
+				auto tau = math::constants<float>::tau;
+				auto shift = walk.weight_shift * contact_x * std::cos(tau * (loco.phase() - leg.touchdown - 0.5f * leg.duty));
+				auto swing = walk.arm_swing * std::cos(tau * (loco.phase() - leg.touchdown));
+				PR_EXPECT(FEqlAbsolute(loco.targets()[0].base.pos.x, shift, 5e-3f));
+				PR_EXPECT(FEqlAbsolute(loco.targets()[0].frame.pos.x, shift, 5e-3f));
+				PR_EXPECT(FEqlAbsolute(loco.targets()[arm.chain].frame.pos.y, -0.9f + std::sin(swing), 5e-3f));
+			}
+
+			// Standing still, the body returns over the midline and the arm hangs straight
+			body.velocity = v4::Zero();
+			for (int i = 0; i != 300; ++i)
+				loco.Step(dt, body, ground);
+
+			PR_EXPECT(FEqlAbsolute(loco.targets()[0].base.pos.x, 0.0f, 1e-3f));
+			PR_EXPECT(FEqlAbsolute(loco.targets()[arm.chain].frame.pos.y, -0.9f, 1e-3f));
 		}
 		PRUnitTestMethod(SpineLeadsTurns, Quick)
 		{

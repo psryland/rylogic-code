@@ -175,6 +175,8 @@ class RYLOGIC_PT_rig(Panel):
 			box.prop(cycle, "action")
 			box.prop(cycle, "hip_height")
 			box.prop(cycle, "spine_sway")
+			box.prop(cycle, "weight_shift")
+			box.prop(cycle, "arm_swing")
 
 		# Hold planted feet still while the body moves over them
 		layout.prop(rig, "pin_live", icon="PINNED", toggle=True)

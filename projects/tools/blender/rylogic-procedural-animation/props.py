@@ -152,6 +152,8 @@ class RYLOGIC_PG_GaitCycle(PropertyGroup):
 	use_export: BoolProperty(name="Export", default=True, description="Include the cycle in the '.gait'. Turn off to keep an unfinished cycle without validating or exporting it")
 	hip_height: FloatProperty(name="Hip Height", default=0.5, min=0.05, max=1.0, description="The height at which the legs carry the hip joints above the ground, as a fraction of the legs' reach, e.g. 0.5 for a crouching quadruped or 0.9 for an upright biped. The runtime sets the body's height from this, not from the action's poses")
 	spine_sway: FloatProperty(name="Spine Sway", default=0.25, min=0.0, max=1.5, subtype='ANGLE', description="The angle by which the hips and shoulders turn with the walking limbs, so that each limb's side moves forward as its foot lands, e.g. 0.1 rad for an upright biped or 0.3 rad for a lizard. The runtime adds this to the action's own spine motion")
+	weight_shift: FloatProperty(name="Weight Shift", default=0.0, min=0.0, max=1.0, subtype='FACTOR', description="How far the body moves sideways over each planted foot, as a fraction of the foot's distance from the midline, most strongly at the middle of its stance, e.g. 0.7 for an upright biped or 0 for a crawler. The runtime adds this to the action's own body motion")
+	arm_swing: FloatProperty(name="Arm Swing", default=0.0, min=0.0, max=1.5, subtype='ANGLE', description="The angle by which each hanging arm swings forward and back about its shoulder, opposite to the walking leg on its side, e.g. 0.4 rad for an upright biped. Arms that walk do not swing")
 
 
 class RYLOGIC_PG_Rig(PropertyGroup):
