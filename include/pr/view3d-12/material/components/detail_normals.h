@@ -17,7 +17,7 @@ namespace pr::rdr12::materials
 		// Animate a layer by changing the w offsets. 'm_height_scale' converts one unit of the map's height per texture unit into world height.
 		// Smooth world noise scales the layer's height by a factor in [1 - m_weight_noise, 1 + m_weight_noise], which hides the tiling. The noise
 		// has 'm_noise_frequency' cells per texture unit. It follows the orientation and scale of the layer's projection but not its offsets, so a
-		// scrolling layer does not drag its noise.
+		// scrolling layer does not drag its noise, and a strength map's turn does not turn it.
 		// Smooth world noise from the same cells also shifts the layer's texture coordinates by up to 'm_warp' texture units in u and v. This
 		// bends the straight rows of repeated tiles, so the repetition does not line up across a large area. The normal is computed as if the
 		// map were not warped, so keep m_warp * m_noise_frequency well below 1 to avoid a visible stretch of the map.
@@ -35,9 +35,9 @@ namespace pr::rdr12::materials
 	// about the world origin; (1, 0) leaves the layers unturned. Patterns are drawn only in 16 fixed directions, so an angle between two of them
 	// cross-fades their patterns, and a changing angle fades between patterns instead of moving them. The texture coordinates of a world position 'p' are
 	// u = dot(p.xyz, m_row_u.xyz) + m_row_u.w and v = dot(p.xyz, m_row_v.xyz) + m_row_v.w, where [0,1] spans the grid with texel (0,0) at
-	// u,v = 0. Each fragment blends the layers of the nearest 2x2 texels with bilinear weights, each texel's layers drawn at its own strength
-	// and angle, and positions outside the grid use the nearest edge texels. Texels that share a fixed direction share its pattern. The slopes of
-	// a blend of different directions are scaled up so that it is as contrasted as one pattern. When 'm_visualise' is set, the shaded colour is replaced by the height strength,
+	// u,v = 0. Each fragment filters the texels bilinearly, including the angle vectors, and positions outside the grid use the nearest edge
+	// texels. The fragment draws the two fixed directions either side of its filtered angle at its filtered strength, so neighbouring texels
+	// more than one direction apart blend through the angles between them. The slopes of a cross-fade are scaled up so that it is as contrasted as one pattern. When 'm_visualise' is set, the shaded colour is replaced by the height strength,
 	// from blue at 0 to red at 2 or more. Use on the renderer owner thread.
 	struct DetailStrengthMap : RefCounted<DetailStrengthMap>
 	{

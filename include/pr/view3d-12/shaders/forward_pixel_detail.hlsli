@@ -46,76 +46,106 @@ float2 DetailStrength(float3 ws)
 	return max(g_roughness_texture.SampleLevel(g_roughness_sampler, uv, 0).xy, 0.0f);
 }
 
-// Return a pseudo-random value in [0,1) for lattice cell 'cell' of the noise pattern selected by 'seed'.
-float DetailNoiseHash(int2 cell, uint seed)
+// Return 32 pseudo-random bits for lattice cell 'cell' of the noise patterns selected by 'seed'.
+uint DetailNoiseHash(int2 cell, uint seed)
 {
 	// Mix the cell coordinates and seed so neighbouring cells and patterns are uncorrelated.
 	uint h = (uint(cell.x) * 0x8DA6B343u) ^ (uint(cell.y) * 0xD8163841u) ^ (seed * 0xCB1AB31Fu);
 	h = (h ^ (h >> 16)) * 0x7FEB352Du;
 	h = (h ^ (h >> 15)) * 0x846CA68Bu;
 	h ^= h >> 16;
-	return float(h) * (1.0f / 4294967296.0f);
+	return h;
 }
 
-// Return smooth value noise in [0,1] at 'p', measured in noise cells. 'seed' selects an independent pattern.
-float DetailValueNoise(float2 p, uint seed)
+// Return three independent smooth value noises in [0,1] at 'p', measured in noise cells. 'seed' selects an independent set of patterns.
+float3 DetailValueNoise3(float2 p, uint seed)
 {
-	// Blend the random values at the four surrounding lattice points with a smooth curve, so the noise has no creases at cell edges.
+	// Each lattice point's hash is split into three groups of bits, one random value per pattern. Blending the values at the four surrounding
+	// lattice points with a smooth curve gives noise without creases at cell edges. Ten or eleven bits per value are far finer than visible.
 	float2 cell = floor(p);
 	float2 f = p - cell;
 	f = f * f * (3.0f - 2.0f * f);
 	int2 c = int2(cell);
-	float n00 = DetailNoiseHash(c, seed);
-	float n10 = DetailNoiseHash(c + int2(1, 0), seed);
-	float n01 = DetailNoiseHash(c + int2(0, 1), seed);
-	float n11 = DetailNoiseHash(c + int2(1, 1), seed);
-	return lerp(lerp(n00, n10, f.x), lerp(n01, n11, f.x), f.y);
+	uint4 h = uint4(DetailNoiseHash(c, seed), DetailNoiseHash(c + int2(1, 0), seed), DetailNoiseHash(c + int2(0, 1), seed), DetailNoiseHash(c + int2(1, 1), seed));
+	float4 n0 = float4(h & 0x7FFu) * (1.0f / 2048.0f);
+	float4 n1 = float4((h >> 11) & 0x7FFu) * (1.0f / 2048.0f);
+	float4 n2 = float4(h >> 22) * (1.0f / 1024.0f);
+	float4 w = float4((1.0f - f.x) * (1.0f - f.y), f.x * (1.0f - f.y), (1.0f - f.x) * f.y, f.x * f.y);
+	return float3(dot(n0, w), dot(n1, w), dot(n2, w));
 }
 
-// Return smooth noise in [-1,1] at 'p', measured in noise cells. 'seed' selects an independent pattern.
-float DetailNoiseWarp(float2 p, uint seed)
-{
-	// Centre the value noise on zero so that the average shift is zero.
-	return 2.0f * DetailValueNoise(p, seed) - 1.0f;
-}
+// The number of direction slots that one fragment has: the two fixed directions either side of its filtered angle.
+static const int DetailMaxFragmentDirections = 2;
 
-// Add the layers at world position 'ws' to 'gradient', scaled by 'gradient_weight', and to 'variance', scaled by 'variance_weight'. The layers are
-// drawn at height scale 'strength' and turned by 'turn' = (cos a, sin a) from their u direction toward their v direction about the world origin.
-// 'ws_dx' and 'ws_dy' are the screen derivatives of 'ws', which select the mip level, because callers may run this in non-uniform flow control.
-void AccumulateDetailLayers(float3 ws, float3 ws_dx, float3 ws_dy, float2 turn, float strength, float gradient_weight, float variance_weight, inout float3 gradient, inout float variance)
+// The fixed directions that one fragment draws its layers in, with the weights and strength of each. A slot with zero 'variance_weight' is not
+// drawn. Every loop over the slots or layers is unrolled so that all array indices are constant, because a runtime index forces the arrays
+// into slow local memory on GPUs.
+struct DetailDirections
 {
-	// Turning the pattern turns the projection rows, so the turned rows give the texture coordinates directly.
-	for (int i = 0; i != g_detail.info.x; ++i)
+	float2 turn[DetailMaxFragmentDirections];            // (cos a, sin a), turning a layer from its u direction toward its v direction.
+	float strength[DetailMaxFragmentDirections];         // Height scale of the direction's pattern.
+	float gradient_weight[DetailMaxFragmentDirections];  // Scale applied to the direction's slopes.
+	float variance_weight[DetailMaxFragmentDirections];  // Scale applied to the direction's unresolved slope variance. Zero for an unused slot.
+};
+
+// Add the layers at world position 'ws', drawn in every direction of 'dirs', to 'gradient' and to 'variance'. 'ws_dx' and 'ws_dy' are the screen
+// derivatives of 'ws', which select the mip level, because callers may run this in non-uniform flow control.
+void AccumulateDetailLayers(float3 ws, float3 ws_dx, float3 ws_dy, DetailDirections dirs, inout float3 gradient, inout float variance)
+{
+	[unroll]
+	for (int i = 0; i != DetailNormalsMaxLayers; ++i)
 	{
-		// Find the layer's texture coordinates in its turned projection. The noise coordinates ignore the rows' offsets, so a layer that scrolls
-		// (and wraps its offset) does not move or jump its noise.
+		// Unrolling over the largest layer count selects each layer's packed constants by a fixed component.
+		if (i == g_detail.info.x)
+			break;
+
+		// Project the position and its derivatives onto the layer's unturned rows. A turn by (c, s) maps these to the turned coordinates
+		// (c u + s v, c v - s u), so every direction reuses them. The noise coordinates ignore the rows' offsets, so a layer that scrolls (and
+		// wraps its offset) does not move or jump its noise.
 		float4 row_u = g_detail.row_u[i];
 		float4 row_v = g_detail.row_v[i];
-		float3 turned_u = turn.x * row_u.xyz + turn.y * row_v.xyz;
-		float3 turned_v = turn.x * row_v.xyz - turn.y * row_u.xyz;
-		float2 proj = float2(dot(ws, turned_u), dot(ws, turned_v));
-		float2 uv = proj + float2(row_u.w, row_v.w);
-		float2 noise_uv = proj * g_detail.noise_frequency[i];
+		float2 proj = float2(dot(ws, row_u.xyz), dot(ws, row_v.xyz));
+		float2 proj_dx = float2(dot(ws_dx, row_u.xyz), dot(ws_dx, row_v.xyz));
+		float2 proj_dy = float2(dot(ws_dy, row_u.xyz), dot(ws_dy, row_v.xyz));
+		float2 offset = float2(row_u.w, row_v.w);
 
-		// World noise varies the layer's weight about 1 so that different layers dominate in different places. Each layer uses its own
-		// noise pattern, selected by the layer index.
-		float noise = DetailValueNoise(noise_uv, uint(i));
-		float scale = strength * g_detail.height_scale[i] * (1.0f + g_detail.weight_noise[i] * (2.0f * noise - 1.0f));
+		// World noise varies the layer's weight about 1 so that different layers dominate in different places, and two more noise patterns shift
+		// the texture coordinates smoothly, which bends the rows of repeated tiles so they do not line up over large areas. Each layer uses its
+		// own patterns, selected by the layer index. The noise is in the unturned projection, so every direction shares it.
+		float3 noise = DetailValueNoise3(proj * g_detail.noise_frequency[i], uint(i));
+		float layer_scale = g_detail.height_scale[i] * (1.0f + g_detail.weight_noise[i] * (2.0f * noise.x - 1.0f));
+		float2 warp = g_detail.warp[i] * (2.0f * noise.yz - 1.0f);
 
-		// Two more noise patterns shift the texture coordinates smoothly, which bends the rows of repeated tiles so they do not line up over
-		// large areas. Seeds above the layer limit keep these patterns independent of every layer's weight noise.
-		float2 warp = float2(DetailNoiseWarp(noise_uv, uint(DetailNormalsMaxLayers + 2 * i)), DetailNoiseWarp(noise_uv, uint(DetailNormalsMaxLayers + 2 * i + 1)));
-		uv += g_detail.warp[i] * warp;
+		// Sum the slopes of every direction, turned back into the unturned (u, v) frame, and their unresolved variance.
+		float2 slope_sum = float2(0, 0);
+		float unresolved_sum = 0.0f;
+		[unroll]
+		for (int d = 0; d != DetailMaxFragmentDirections; ++d)
+		{
+			// Turn the coordinates and derivatives into this direction's frame. The warp's own derivatives are small, so the turned derivatives
+			// select the mip level.
+			if (dirs.variance_weight[d] == 0.0f)
+				continue;
 
-		// Each layer's map slope is per texture unit, so the chain rule through the turned rows gives the world-space height gradient.
-		// The map's blue channel holds half the mean square slope. Mip filtering averages it as well as the slopes, so the gap between the mean
-		// square and the square of the mean is the slope variance that the filtered normal no longer shows. It is scaled by the mean squared
-		// length of the rows. The warp's own derivatives are small, so the turned rows give the texture-coordinate derivatives.
-		float4 texel = g_normal_texture.SampleGrad(g_normal_sampler, uv, float2(dot(ws_dx, turned_u), dot(ws_dx, turned_v)), float2(dot(ws_dy, turned_u), dot(ws_dy, turned_v)));
-		float2 slope = texel.xy * 2.0f - 1.0f;
-		float unresolved = max(2.0f * texel.z - dot(slope, slope), 0.0f);
-		gradient += gradient_weight * scale * (slope.x * turned_u + slope.y * turned_v);
-		variance += variance_weight * scale * scale * 0.5f * (dot(turned_u, turned_u) + dot(turned_v, turned_v)) * unresolved;
+			float2 t = dirs.turn[d];
+			float2 uv = float2(t.x * proj.x + t.y * proj.y, t.x * proj.y - t.y * proj.x) + offset + warp;
+			float2 uv_dx = float2(t.x * proj_dx.x + t.y * proj_dx.y, t.x * proj_dx.y - t.y * proj_dx.x);
+			float2 uv_dy = float2(t.x * proj_dy.x + t.y * proj_dy.y, t.x * proj_dy.y - t.y * proj_dy.x);
+
+			// The map's blue channel holds half the mean square slope. Mip filtering averages it as well as the slopes, so the gap between the mean
+			// square and the square of the mean is the slope variance that the filtered normal no longer shows.
+			float4 texel = g_normal_texture.SampleGrad(g_normal_sampler, uv, uv_dx, uv_dy);
+			float2 slope = texel.xy * 2.0f - 1.0f;
+			float unresolved = max(2.0f * texel.z - dot(slope, slope), 0.0f);
+			float scale = dirs.strength[d] * layer_scale;
+			slope_sum += dirs.gradient_weight[d] * scale * float2(t.x * slope.x - t.y * slope.y, t.y * slope.x + t.x * slope.y);
+			unresolved_sum += dirs.variance_weight[d] * scale * scale * unresolved;
+		}
+
+		// Each layer's map slope is per texture unit, so the chain rule through the rows gives the world-space height gradient. The variance is
+		// scaled by the mean squared length of the rows, which turning does not change.
+		gradient += slope_sum.x * row_u.xyz + slope_sum.y * row_v.xyz;
+		variance += unresolved_sum * 0.5f * (dot(row_u.xyz, row_u.xyz) + dot(row_v.xyz, row_v.xyz));
 	}
 }
 
@@ -134,99 +164,50 @@ PSIn ApplyDetailNormals(PSIn In)
 	float3 ws = In.ws_vert.xyz;
 	float3 ws_dx = ddx(ws);
 	float3 ws_dy = ddy(ws);
-	float3 gradient = float3(0, 0, 0);
 	float variance = g_detail.surface.x;
+	DetailDirections dirs = (DetailDirections)0;
 	if (g_detail.info.y == 0)
 	{
-		AccumulateDetailLayers(ws, ws_dx, ws_dy, float2(1, 0), 1.0f, 1.0f, 1.0f, gradient, variance);
+		dirs.turn[0] = float2(1, 0);
+		dirs.strength[0] = 1.0f;
+		dirs.gradient_weight[0] = 1.0f;
+		dirs.variance_weight[0] = 1.0f;
 	}
 	else
 	{
-		// Find the 2x2 texels around the fragment and their bilinear weights. Outside the grid both texels of a column or row clamp to the edge
-		// texel, so that texel takes the whole weight and is drawn once.
-		uint width, height;
-		g_roughness_texture.GetDimensions(width, height);
-		int2 last = int2(width, height) - 1;
-		float2 size = float2(width, height);
+		// Filter the strength map bilinearly. The filtered angle vector turns smoothly between texel centres; its length does not matter.
+		// The map's projection puts [0,1] across the grid, and its clamp sampler extends the edge texels beyond it.
 		float2 uv = float2(dot(ws, g_detail.strength_row_u.xyz) + g_detail.strength_row_u.w, dot(ws, g_detail.strength_row_v.xyz) + g_detail.strength_row_v.w);
-		float2 t = uv * size - 0.5f;
-		float2 f = t - floor(t);
-		int2 c0 = clamp(int2(floor(t)), 0, last);
-		int2 c1 = clamp(int2(floor(t)) + 1, 0, last);
-		if (c0.x == c1.x) f.x = 0.0f;
-		if (c0.y == c1.y) f.y = 0.0f;
+		float4 texel = g_roughness_texture.SampleLevel(g_roughness_sampler, uv, 0);
+		float strength = max(texel.x, 0.0f);
+		variance += max(texel.y, 0.0f);
 
-		// Patterns are drawn only in fixed directions, so a changing angle cross-fades between fixed patterns instead of moving one.
-		// Each texel splits its weight between the two fixed directions either side of its angle, and texels that share a direction share its
-		// pattern, so each distinct direction is gathered once: its total weight, and its total of weight times strength.
-		int dir_index[8];
-		float dir_weight[8];
-		float dir_strength[8];
-		int dir_count = 0;
-		for (int k = 0; k != 4; ++k)
-		{
-			// Select the corner's texel and bilinear weight, and add its base slope variance. Texels without weight or strength add no pattern.
-			int2 cell = int2((k & 1) != 0 ? c1.x : c0.x, (k & 2) != 0 ? c1.y : c0.y);
-			float weight = ((k & 1) != 0 ? f.x : 1.0f - f.x) * ((k & 2) != 0 ? f.y : 1.0f - f.y);
-			float4 texel = g_roughness_texture.Load(int3(cell, 0));
-			variance += weight * max(texel.y, 0.0f);
-			if (weight == 0.0f || texel.x <= 0.0f)
-				continue;
+		// Patterns are drawn only in fixed directions, so a changing angle cross-fades between the two fixed patterns either side of it
+		// instead of moving one. Opposite angles can filter to a zero vector, which leaves the layers unturned. atan2 is in [-pi, pi], so
+		// adding a full turn keeps the steps positive. The second direction is the first turned by one step.
+		float2 angle = dot(texel.zw, texel.zw) != 0.0f ? texel.zw : float2(1, 0);
+		float steps = atan2(angle.y, angle.x) * (DetailTurnDirections / 6.28318530718f) + DetailTurnDirections;
+		float first = floor(steps);
+		float fade = steps - first;
+		float2 step_turn = float2(cos(6.28318530718f / DetailTurnDirections), sin(6.28318530718f / DetailTurnDirections));
+		sincos(first * (6.28318530718f / DetailTurnDirections), dirs.turn[0].y, dirs.turn[0].x);
+		dirs.turn[1] = float2(dirs.turn[0].x * step_turn.x - dirs.turn[0].y * step_turn.y, dirs.turn[0].y * step_turn.x + dirs.turn[0].x * step_turn.y);
 
-			// Measure the angle in steps between fixed directions. atan2 is in [-pi, pi], so adding a full turn keeps the steps positive.
-			float steps = atan2(texel.w, texel.z) * (DetailTurnDirections / 6.28318530718f) + DetailTurnDirections;
-			float first = floor(steps);
-			float fade = steps - first;
-			for (int j = 0; j != 2; ++j)
-			{
-				// Add this side's share to its direction's totals, adding the direction if no other texel uses it yet.
-				float share = weight * (j == 0 ? 1.0f - fade : fade);
-				if (share == 0.0f)
-					continue;
-
-				int dir = (int(first) + j) % DetailTurnDirections;
-				int slot = dir_count;
-				for (int s = 0; s != dir_count; ++s)
-				{
-					// Find the direction among those already gathered.
-					if (dir_index[s] == dir)
-						slot = s;
-				}
-				if (slot == dir_count)
-				{
-					// Start the totals of a new direction.
-					dir_index[slot] = dir;
-					dir_weight[slot] = 0.0f;
-					dir_strength[slot] = 0.0f;
-					++dir_count;
-				}
-				dir_weight[slot] += share;
-				dir_strength[slot] += share * texel.x;
-			}
-		}
-
-		// Patterns in different directions are unrelated, so a weighted sum of them has a smaller spread of slopes than any one of them: the
-		// square root of the sum of the squared weights, instead of the sum of the weights. Scaling the slopes by the ratio of the two keeps the
-		// contrast steady through a cross-fade. The unresolved variance is an average, so it keeps the plain weights.
-		float total_weight = 0.0f;
-		float total_square = 0.0f;
-		for (int d = 0; d != dir_count; ++d)
-		{
-			// Sum the weights and their squares.
-			total_weight += dir_weight[d];
-			total_square += dir_weight[d] * dir_weight[d];
-		}
-		float contrast = dir_count != 0 ? total_weight * rsqrt(total_square) : 1.0f;
-
-		// Draw each direction once, at the weighted mean strength of the texels that share it.
-		for (int n = 0; n != dir_count; ++n)
-		{
-			// Find the direction's turn, then draw its layers.
-			float2 turn;
-			sincos(dir_index[n] * (6.28318530718f / DetailTurnDirections), turn.y, turn.x);
-			AccumulateDetailLayers(ws, ws_dx, ws_dy, turn, dir_strength[n] / dir_weight[n], contrast * dir_weight[n], dir_weight[n], gradient, variance);
-		}
+		// Both directions draw at the filtered strength, and a fragment without strength draws neither. Patterns in different directions are
+		// unrelated, so a weighted sum of them has a smaller spread of slopes than either one: the square root of the sum of the squared weights,
+		// instead of the sum of the weights, which is 1. Scaling the slopes by the inverse of that keeps the contrast steady through a cross-fade.
+		// The unresolved variance is an average, so it keeps the plain weights.
+		float2 share = strength > 0.0f ? float2(1.0f - fade, fade) : float2(0, 0);
+		float contrast = rsqrt((1.0f - fade) * (1.0f - fade) + fade * fade);
+		dirs.strength[0] = strength;
+		dirs.strength[1] = strength;
+		dirs.variance_weight[0] = share.x;
+		dirs.variance_weight[1] = share.y;
+		dirs.gradient_weight[0] = contrast * share.x;
+		dirs.gradient_weight[1] = contrast * share.y;
 	}
+	float3 gradient = float3(0, 0, 0);
+	AccumulateDetailLayers(ws, ws_dx, ws_dy, dirs, gradient, variance);
 	g_unresolved_slope_variance = variance;
 
 	// A height field displaced along the normal tilts the normal against the tangential part of its gradient.

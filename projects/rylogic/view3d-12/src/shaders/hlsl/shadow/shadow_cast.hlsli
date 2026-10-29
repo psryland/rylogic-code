@@ -21,11 +21,20 @@ int ShadowCubeFace(float3 light_to_point)
 	return light_to_point.z >= 0 ? 4 : 5;
 }
 
+// The widest shadow filter, in shadow texels, used in this shader. Lights use their own filter size up to this width. Pixel-shader variants whose
+// surfaces hide soft shadow edges may lower it to 1 before shading, which reads one hardware-filtered comparison over 2x2 texels.
+static int g_shadow_filter_max = 7;
+
 // Return the fraction of a 'filter_size' x 'filter_size' texel area around 'atlas_uv' that is closer to the light than depth 'z'.
-// Bilinear comparison samples each cover 2x2 texels, so the area is covered with 9 samples (5x5) or 16 samples (7x7).
+// Bilinear comparison samples each cover 2x2 texels, so the area is covered with 9 samples (5x5) or 16 samples (7x7). A 'filter_size' of 1 or less
+// takes a single sample, which covers the 2x2 texels nearest 'atlas_uv'.
 // The sample positions and weights give a smooth filter whose centre follows 'atlas_uv' continuously (Castano, "Shadow Mapping Summary", 2013).
 float FilteredShadow(Texture2D<float> atlas, SamplerComparisonState cmp_sampler, float2 atlas_uv, float z, float2 atlas_dim, int filter_size)
 {
+	// One bilinear comparison sample needs none of the filter's weights.
+	if (filter_size <= 1)
+		return atlas.SampleCmpLevelZero(cmp_sampler, atlas_uv, z);
+
 	// Find the texel centre nearest to 'atlas_uv' and the sub-texel offset (s,t) from it, in [0,1)
 	float2 uv = atlas_uv * atlas_dim;
 	float2 base = floor(uv + 0.5f);
@@ -130,9 +139,12 @@ float ShadowVisibility(Texture2D<float> atlas, SamplerComparisonState cmp_sample
 			return 1.0f;
 
 		// Map to the view's region of the atlas. Keep the filter footprint inside the region so neighbouring views are never sampled.
+		// The filter width is the light's, limited by 'g_shadow_filter_max'. Testing the limit first lets a constant limit of 1 remove the
+		// wider filters from the compiled shader.
 		float2 atlas_uv = uv * view.atlas_rect.xy + view.atlas_rect.zw;
 		atlas_uv = clamp(atlas_uv, view.atlas_rect.zw + margin * texel, view.atlas_rect.zw + view.atlas_rect.xy - margin * texel);
-		return lerp(FilteredShadow(atlas, cmp_sampler, atlas_uv, ss_pos.z, atlas_dim, (int)view.bias.y), 1.0f, fade);
+		int filter_size = g_shadow_filter_max > 1 ? min((int)view.bias.y, g_shadow_filter_max) : 1;
+		return lerp(FilteredShadow(atlas, cmp_sampler, atlas_uv, ss_pos.z, atlas_dim, filter_size), 1.0f, fade);
 	}
 	return 1.0f;
 }

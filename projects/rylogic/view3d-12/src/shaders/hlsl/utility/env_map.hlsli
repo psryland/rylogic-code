@@ -14,12 +14,24 @@
 // The most coarse march samples one pixel takes. The pixels of a 2x2 quad test different positions, so the quad tests four times as many.
 static const int EnvMapMarchMaxLaneSteps = 8;
 
+// The most coarse march samples one pixel takes in this shader, at most 'EnvMapMarchMaxLaneSteps'. Pixel-shader variants whose reflections are
+// blurred or broken up may lower it before shading to save time, at the cost of missing thin surfaces in the reflection.
+static int g_env_map_max_lane_steps = EnvMapMarchMaxLaneSteps;
+
 // The most halving steps used to refine a hit
 static const int EnvMapMarchMaxRefineSteps = 6;
+
+// The most halving steps used to refine a hit in this shader, at most 'EnvMapMarchMaxRefineSteps'. Pixel-shader variants with blurred or broken
+// up reflections may lower it before shading to save time, at the cost of less exact positions of reflected edges.
+static int g_env_map_max_refine_steps = EnvMapMarchMaxRefineSteps;
 
 // The most extra samples used to search near the closest approach of a ray whose coarse samples all missed. Each one shrinks the searched
 // interval by about 0.618.
 static const int EnvMapMarchMaxNearMissSteps = 5;
+
+// True to search near the closest approach of rays whose coarse samples all missed. Pixel-shader variants with blurred or broken up reflections may
+// clear it before shading to save time, at the cost of missing thin surfaces that fall between coarse samples.
+static bool g_env_map_near_miss_search = true;
 
 // Stored distances at or above this are treated as infinitely distant. Nothing rendered (the far plane) stores exactly 1, but filtering between
 // far-plane texels and distant geometry gives values just below it.
@@ -112,10 +124,11 @@ void EnvMapDirections(float3 ws_pos, float3 ws_dir, float2 ss_pos, float importa
 		uint face_w, face_h, mips;
 		g_envmap_texture.GetDimensions(0, face_w, face_h, mips);
 		float texel = 2.0f / face_w * exp2(lod);
-		int budget = max(1, (int)ceil(EnvMapMarchMaxLaneSteps * saturate(importance)));
+		int max_lane_steps = clamp(g_env_map_max_lane_steps, 1, EnvMapMarchMaxLaneSteps);
+		int budget = max(1, (int)ceil(max_lane_steps * saturate(importance)));
 		int lane_steps = clamp((int)ceil(ray.span / (4.0f * texel)), 1, budget);
 		lane_steps = max(max(lane_steps, QuadReadAcrossX(lane_steps)), max(QuadReadAcrossY(lane_steps), QuadReadAcrossDiagonal(lane_steps)));
-		lane_steps = clamp(lane_steps, 1, EnvMapMarchMaxLaneSteps);
+		lane_steps = clamp(lane_steps, 1, max_lane_steps);
 
 		// March the coarse samples. The quad's pixels interleave their samples, so pixel 'k' tests fractions (4j + k + 1)/N of its own ray, where
 		// N is the quad's total sample count. The march stops at the first sample behind the captured surface. Fraction 0 is the reflecting
@@ -192,7 +205,7 @@ void EnvMapDirections(float3 ws_pos, float3 ws_dir, float2 ss_pos, float importa
 		// A ray can pass behind a thin part of a surface, such as just below the top edge of a wall, entirely between its samples. If no sample
 		// found a hit but one came close to a surface, search around it for a point behind that surface. Each step keeps the part of the interval
 		// that holds the smaller gap (a golden-section search), and stops at the first point behind the surface. Rays that only saw the sky skip this.
-		if (hi > 1.0f && s_near <= 1.0f)
+		if (g_env_map_near_miss_search && hi > 1.0f && s_near <= 1.0f)
 		{
 			// Search between the neighbouring samples of this pixel, which were both in front of the surface
 			const float golden = 0.618034f;
@@ -246,7 +259,8 @@ void EnvMapDirections(float3 ws_pos, float3 ws_dir, float2 ss_pos, float importa
 		// inside the bounds sees the infinitely distant environment, so it keeps its own direction.
 		if (hi <= 1.0f)
 		{
-			int refine_steps = clamp((int)ceil(log2(max((hi - lo) * ray.span / texel, 1.0f))), 0, EnvMapMarchMaxRefineSteps);
+			int max_refine_steps = clamp(g_env_map_max_refine_steps, 0, EnvMapMarchMaxRefineSteps);
+			int refine_steps = clamp((int)ceil(log2(max((hi - lo) * ray.span / texel, 1.0f))), 0, max_refine_steps);
 			for (int i = 0; i != refine_steps; ++i)
 			{
 				// Keep the half that still crosses the surface
