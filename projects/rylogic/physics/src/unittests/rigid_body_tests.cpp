@@ -402,10 +402,14 @@ namespace pr::physics::tests
 			rb.GravityWS(v4{0, -9.8f, 0, 0});
 			PR_EXPECT(rb.Sleeping());
 			PR_EXPECT(FEql(rb.ForceWS(), v8force{}));
+			PR_EXPECT(FEql(rb.GravityForceWS(), v8force{}));
 
+			// Setting gravity stores it without accumulating force, so repeated sets never compound.
 			rb.Wake();
 			rb.GravityWS(v4{0, -9.8f, 0, 0});
-			PR_EXPECT(FEql(rb.ForceWS(), v8force{0, 0, 0, 0, -49.0f, 0}));
+			rb.GravityWS(v4{0, -9.8f, 0, 0});
+			PR_EXPECT(FEql(rb.ForceWS(), v8force{}));
+			PR_EXPECT(FEql(rb.GravityForceWS(), v8force{0, 0, 0, 0, -49.0f, 0}));
 
 			rb.ZeroForces();
 			rb.Sleep();

@@ -427,7 +427,7 @@ public readonly struct BodyCommand
 		return new BodyCommand(body, EBodyCommand.ApplyImpulse, m4x4.Identity, impulse, v4.Zero);
 	}
 
-	/// <summary>Set local down and apply gravity for this frame; submit each frame to maintain acceleration.</summary>
+	/// <summary>Set the body's gravitational acceleration, which also defines its local down. The value persists and every step applies it.</summary>
 	public static BodyCommand SetGravity(BodyHandle body, v4 gravity)
 	{
 		return new BodyCommand(body, EBodyCommand.SetGravity, m4x4.Identity, new SpatialVector(v4.Zero, gravity), v4.Zero);

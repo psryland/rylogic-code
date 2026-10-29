@@ -6,8 +6,9 @@
 // Blender), but it holds only guidance: the stance, the footfall pattern, the stride, and the size and timing of the body's motion. The
 // locomotion controller (see locomotion.h) generates the actual movement procedurally from this guidance and from the body's motion.
 //
-// The movement is grouped into families, such as "bipedal" and "quadruped". The caller chooses the family. Within a family, the cycles are
-// ordered by speed, and the controller blends between the two cycles either side of the current speed.
+// The movement is grouped into families, such as "bipedal" and "quadruped". The caller requests a family, and the controller uses it while the
+// ground is no steeper than the family's slope limit. Within a family, the cycles are ordered by speed, and the controller blends between the two
+// cycles either side of the current speed.
 //
 // Lengths are in model units, speeds in model units per second, and angles in radians. A cycle's phase is in [0,1), and phase 0 is the start of
 // the example cycle. Footfalls and body motion share this phase.
@@ -15,9 +16,11 @@
 // A '.gait' file is a JSON gait description:
 //
 //  {
-//    "schema_version": 6,
+//    "schema_version": 8,
 //    "families": [{
 //      "name": "quadruped",
+//      "up": "surface" | "gravity",        // the direction that the body stands up along: the ground's normal, or against gravity
+//      "max_slope": 3.14159,               // in (0,pi]. The steepest ground, in radians from level, on which the family can be used.
 //      "stance": [{                        // The family's standing pose. Bones that are not listed keep their rest rotation.
 //        "bone": "hips",
 //        "rotation": [x, y, z, w],         // rotation relative to the parent bone, as a unit quaternion
@@ -29,6 +32,8 @@
 //        "stride": 0.3,                    // the distance the body moves in one cycle of the example
 //        "hip_height": 0.5,                // in (0,1]. The height of the hip joints above the ground, as a fraction of the legs' reach.
 //        "spine_sway": 0.3,                // in [0,pi/2). The angle, in radians, by which the hips and shoulders swing with the walking limbs.
+//        "weight_shift": 0.0,              // in [0,1]. How far the body moves sideways over each planted foot, as a fraction of the foot's distance from the midline.
+//        "arm_swing": 0.0,                 // in [0,pi/2). The angle, in radians, by which each hanging arm swings against the leg on its side.
 //        "footfalls": [{                   // the walking limbs. Every cycle of a family has the same limbs in the same order.
 //          "role": "leg" | "arm",          // the limb is the rig chain with this role and side
 //          "side": "left" | "right",
@@ -60,6 +65,16 @@
 // moves forward as its foot lands and back as it lifts. The hips swing with the legs and the shoulders with the arms. When diagonal limbs move
 // together, the hips and shoulders swing in opposite directions and the spine bends from side to side, as in a lizard's walk. An upright
 // biped might use a small sway, so that its hips turn a little with each step.
+//
+// The weight shift moves the body sideways over the feet that carry it. Each walking limb pulls its end of the body towards its side by the
+// weight shift times its distance from the midline, most strongly at the middle of its stance. With two legs half a cycle apart, the hips move
+// from over one foot to over the other, as a walking biped shifts its weight. A crawler might use none.
+//
+// The arm swing turns each hanging arm about its shoulder, forward and back, opposite to the walking leg on the same side: the arm is furthest
+// back as that leg's foot lands. It does nothing to arms that walk.
+//
+// A family's up direction says how the body stands. A crawling family stands up along the ground's normal, so it can climb walls. An upright
+// family stands against gravity, so it needs ground that is close to level; its slope limit is the steepest ground on which it can balance.
 #pragma once
 #include "pr/animation/forward.h"
 #include "pr/animation/rig.h"
@@ -68,7 +83,7 @@
 namespace pr::animation
 {
 	// The '.gait' schema version that this code reads and writes
-	inline constexpr int GaitSchemaVersion = 6;
+	inline constexpr int GaitSchemaVersion = 8;
 
 	// The number of harmonics in each bone motion
 	inline constexpr int GaitHarmonics = 2;
@@ -117,6 +132,8 @@ namespace pr::animation
 		float stride = 0.5f;               // The distance the body moves per cycle in the example. Must be positive.
 		float hip_height = 0.5f;           // In (0,1]. The height of the hip joints above the ground, as a fraction of the legs' reach.
 		float spine_sway = 0.0f;           // In [0,pi/2). The angle, in radians, by which the hips and shoulders swing with the walking limbs.
+		float weight_shift = 0.0f;         // In [0,1]. How far the body moves sideways over each planted foot, as a fraction of the foot's distance from the midline.
+		float arm_swing = 0.0f;            // In [0,pi/2). The angle, in radians, by which each hanging arm swings against the leg on its side.
 		std::vector<Footfall> footfalls;   // The walking limbs
 		std::vector<BoneMotion> motion;    // The repeating motion of bones outside the walking limbs
 	};
@@ -129,10 +146,22 @@ namespace pr::animation
 		std::optional<v4> position;        // Root bones only: the model-space position (w = 1)
 	};
 
+	// The direction that a family's body stands up along
+	enum class EFamilyUp
+	{
+		// The ground's normal
+		Surface,
+
+		// The direction opposite to gravity
+		Gravity,
+	};
+
 	// A group of movement cycles that share a stance and a set of walking limbs
 	struct GaitFamily
 	{
 		std::string name;
+		EFamilyUp up = EFamilyUp::Surface;
+		float max_slope = math::constants<float>::tau_by_2; // In (0,pi]. The steepest ground, in radians from level, on which the family can be used.
 		std::vector<StanceBone> stance;
 		std::vector<GaitCycle> cycles;     // Ordered by increasing speed
 	};
@@ -145,6 +174,7 @@ namespace pr::animation
 
 	// The names of 'EMotionChannel' values in the file, in enum order
 	inline constexpr std::array<std::string_view, 2> MotionChannelNames = { "rotation", "position" };
+	inline constexpr std::array<std::string_view, 2> FamilyUpNames = { "surface", "gravity" };
 
 	// Evaluate a bone motion at 'phase'
 	inline v4 Evaluate(std::array<Harmonic, GaitHarmonics> const& harmonics, float phase)
@@ -222,6 +252,8 @@ namespace pr::animation
 				errors.push_back(std::format("{} repeats an earlier family's name", ctx));
 			if (family.cycles.empty())
 				errors.push_back(std::format("{} has no cycles", ctx));
+			if (!(family.max_slope > 0 && family.max_slope <= math::constants<float>::tau_by_2))
+				errors.push_back(std::format("{} has a max slope outside (0,pi]", ctx));
 
 			// Stance bones must exist, appear once, and give positions only for root bones
 			for (size_t s = 0; s != family.stance.size(); ++s)
@@ -253,6 +285,10 @@ namespace pr::animation
 					errors.push_back(std::format("{} must have a hip height in (0,1]", cctx));
 				if (!(cycle.spine_sway >= 0 && cycle.spine_sway < math::constants<float>::tau_by_4))
 					errors.push_back(std::format("{} must have a spine sway in [0,pi/2)", cctx));
+				if (!(cycle.weight_shift >= 0 && cycle.weight_shift <= 1))
+					errors.push_back(std::format("{} must have a weight shift in [0,1]", cctx));
+				if (!(cycle.arm_swing >= 0 && cycle.arm_swing < math::constants<float>::tau_by_4))
+					errors.push_back(std::format("{} must have an arm swing in [0,pi/2)", cctx));
 
 				// The walking limbs must match the family's first cycle, so that cycles blend limb by limb
 				auto const& first = family.cycles[0].footfalls;
@@ -318,10 +354,14 @@ namespace pr::animation
 		auto const& families = ReadArray(Member(root, "families", "gait"), "gait.families");
 		for (size_t f = 0; f != families.size(); ++f)
 		{
-			// Read the family's name and stance
+			// Read the family's name, posture and stance
 			auto fctx = std::format("gait.families[{}]", f);
 			auto const& fobj = ReadObject(families[f], fctx);
-			auto& family = gait.families.emplace_back(GaitFamily{ .name = ReadString(Member(fobj, "name", fctx), fctx + ".name") });
+			auto& family = gait.families.emplace_back(GaitFamily{
+				.name = ReadString(Member(fobj, "name", fctx), fctx + ".name"),
+				.up = ParseEnum<EFamilyUp>(ReadString(Member(fobj, "up", fctx), fctx + ".up"), FamilyUpNames, fctx + ".up"),
+				.max_slope = ReadFloat(Member(fobj, "max_slope", fctx), fctx + ".max_slope"),
+			});
 			auto const& stance = ReadArray(Member(fobj, "stance", fctx), fctx + ".stance");
 			for (size_t s = 0; s != stance.size(); ++s)
 			{
@@ -348,6 +388,8 @@ namespace pr::animation
 					.stride = ReadFloat(Member(cobj, "stride", cctx), cctx + ".stride"),
 					.hip_height = ReadFloat(Member(cobj, "hip_height", cctx), cctx + ".hip_height"),
 					.spine_sway = ReadFloat(Member(cobj, "spine_sway", cctx), cctx + ".spine_sway"),
+					.weight_shift = ReadFloat(Member(cobj, "weight_shift", cctx), cctx + ".weight_shift"),
+					.arm_swing = ReadFloat(Member(cobj, "arm_swing", cctx), cctx + ".arm_swing"),
 				});
 
 				// Read the footfalls
@@ -450,12 +492,16 @@ namespace pr::animation
 					{ "stride", cycle.stride },
 					{ "hip_height", cycle.hip_height },
 					{ "spine_sway", cycle.spine_sway },
+					{ "weight_shift", cycle.weight_shift },
+					{ "arm_swing", cycle.arm_swing },
 					{ "footfalls", std::move(footfalls) },
 					{ "motion", std::move(motions) },
 				});
 			}
 			families.push_back(json::Object{
 				{ "name", family.name },
+				{ "up", EnumName(family.up, FamilyUpNames) },
+				{ "max_slope", family.max_slope },
 				{ "stance", std::move(stance) },
 				{ "cycles", std::move(cycles) },
 			});
@@ -490,7 +536,7 @@ namespace pr::animation::tests
 {
 	// A gait for the test rig (see 'TestRigDesc'), whose stances are its rest pose:
 	//  - "quadruped": the leg and arm step half a cycle apart, in a walk and a faster trot. The walk sways the spine and bobs the root, and both cycles swing the hips and shoulders.
-	//  - "bipedal": only the leg steps, and the arm hangs.
+	//  - "bipedal": only the leg steps, shifting the body's weight over it, and the arm hangs and swings. It stands against gravity on ground up to 0.4 radians from level.
 	inline GaitDesc TestGait()
 	{
 		// Both families stand in the rest pose, so their stances are empty. The rest pose carries the leg's hip joint at z = 1, and the leg reaches
@@ -527,12 +573,14 @@ namespace pr::animation::tests
 			.speed = 0.8f,
 			.stride = 0.5f,
 			.hip_height = rest_hip_height,
+			.weight_shift = 0.5f,
+			.arm_swing = 0.3f,
 			.footfalls = { Footfall{ .role = EChainRole::Leg, .side = ESide::Left, .touchdown = 0.0f, .duty = 0.6f, .swing_height = 0.1f } },
 		};
 		return GaitDesc{
 			.families = {
 				GaitFamily{ .name = "quadruped", .cycles = { walk, trot } },
-				GaitFamily{ .name = "bipedal", .cycles = { biped } },
+				GaitFamily{ .name = "bipedal", .up = EFamilyUp::Gravity, .max_slope = 0.4f, .cycles = { biped } },
 			},
 		};
 	}
@@ -553,6 +601,8 @@ namespace pr::animation::tests
 			PR_EXPECT(Validate(read, rig).empty());
 			PR_EXPECT(read.families.size() == 2);
 			PR_EXPECT(read.families[0].name == "quadruped" && read.families[1].name == "bipedal");
+			PR_EXPECT(read.families[0].up == EFamilyUp::Surface && read.families[0].max_slope == gait.families[0].max_slope);
+			PR_EXPECT(read.families[1].up == EFamilyUp::Gravity && read.families[1].max_slope == 0.4f);
 
 			auto const& stance = read.families[0].stance;
 			PR_EXPECT(stance.size() == 2 && stance[0].position && !stance[1].position);
@@ -562,6 +612,9 @@ namespace pr::animation::tests
 			auto const& l = read.families[0].cycles[0];
 			auto const& r = gait.families[0].cycles[0];
 			PR_EXPECT(l.name == r.name && l.speed == r.speed && l.stride == r.stride && l.hip_height == r.hip_height && l.spine_sway == r.spine_sway);
+			auto const& lb = read.families[1].cycles[0];
+			auto const& rb = gait.families[1].cycles[0];
+			PR_EXPECT(lb.weight_shift == rb.weight_shift && lb.arm_swing == rb.arm_swing);
 			PR_EXPECT(l.footfalls.size() == 2 && l.footfalls[1].role == EChainRole::Arm && l.footfalls[1].touchdown == 0.5f && l.footfalls[1].duty == 0.75f && l.footfalls[1].swing_height == 0.08f && l.footfalls[1].swing_out == 0.02f);
 			PR_EXPECT(l.motion.size() == 2 && l.motion[1].channel == EMotionChannel::Position);
 			PR_EXPECT(FEqlAbsolute(l.motion[0].harmonics[0].sin, r.motion[0].harmonics[0].sin, 1e-6f));
@@ -592,13 +645,14 @@ namespace pr::animation::tests
 				PR_EXPECT(std::string_view(ex.what()).find("gait.families[0].cycles[0].footfalls[0].role") != std::string_view::npos);
 			}
 
-			// Gaits that do not fit the rig are reported: unordered speeds, a limb missing from one cycle, and a position on a non-root bone
+			// Gaits that do not fit the rig are reported: unordered speeds, a limb missing from one cycle, a position on a non-root bone, and a zero slope limit
 			auto gait = TestGait();
 			auto& quad = gait.families[0];
 			quad.cycles[1].speed = quad.cycles[0].speed;
 			quad.cycles[1].footfalls.pop_back();
 			quad.cycles[0].motion[0].channel = EMotionChannel::Position;
-			PR_EXPECT(Validate(gait, rig).size() == 3);
+			gait.families[1].max_slope = 0.0f;
+			PR_EXPECT(Validate(gait, rig).size() == 4);
 		}
 	};
 }

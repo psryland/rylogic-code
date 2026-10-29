@@ -33,8 +33,8 @@ failure-source diagnostics, caching and checkpoint requirements. API version 3 r
 is 40 bytes. Descriptor-header version 2 is unchanged because it is also embedded in native checkpoint format 3. No serialized layout changes, and
 native checkpoints still exclude configured world surfaces.
 
-Gravity commands apply force for one frame, not persistent acceleration. Submit gravity each frame. A nonzero initial `BodyOptions.Gravity` also adds force
-for the first frame, so do not apply it twice when using a per-frame gravity command.
+Gravity is a persistent acceleration: `BodyOptions.Gravity`, `SetGravity` and `SetState` store it, and every step applies it to each awake body.
+Setting it again replaces the value; it never adds a second force.
 
 `CopyEvents` reports procedural terrain and boundary collisions as `EPhysicsEvent.WorldContact`. Exactly one body handle is invalid: it identifies the
 engine-owned world endpoint, not a missing user body. Ordinary `Contact` events retain two valid body handles. Both use world-space points, an A-to-B normal,

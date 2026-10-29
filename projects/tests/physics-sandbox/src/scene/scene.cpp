@@ -912,9 +912,8 @@ namespace physics_sandbox
 	// Apply frame-constant gravity and submit all requested internal GPU substeps without waiting.
 	void Scene::BeginPhysicsFrame(float dt, int substep_count, double time_s, StepProfile& profile)
 	{
-		// The engine snapshots this frame force and restores it before every GPU-resident substep.
+		// Bodies keep their gravity between steps, so the current setting (including zero) is stored on every frame.
 		auto const gravity_beg = Clock::now();
-		if (LengthSq(m_gravity) != 0)
 		{
 			for (auto& body : m_body)
 				body.GravityWS(m_gravity);

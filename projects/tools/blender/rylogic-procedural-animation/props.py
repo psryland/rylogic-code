@@ -31,6 +31,10 @@ CONTACT_KINDS = [
 	("FINGER", "Finger", "The tip of a finger"),
 	("TAIL", "Tail", "A point on the tail"),
 ]
+FAMILY_UPS = [
+	("SURFACE", "Surface", "The body stands up along the ground's normal, e.g. a quadruped on a slope"),
+	("GRAVITY", "Gravity", "The body stands up against gravity, e.g. an upright biped"),
+]
 
 
 def _MinAngle(name: str, default_degrees: float, description: str) -> FloatProperty:
@@ -117,7 +121,6 @@ class RYLOGIC_PG_RigChain(PropertyGroup):
 	bones: CollectionProperty(name="Bones", type=RYLOGIC_PG_RigBoneRef, description="Bones from base to end. Each bone is the parent of the next")
 	active_bone: IntProperty(name="Active Bone", default=0)
 	pole: FloatVectorProperty(name="Pole", size=3, default=(0.0, -1.0, 0.0), description="Leg and arm only. The rest-pose armature-space direction that the middle joint bends towards")
-	swing_out: FloatProperty(name="Swing Out", default=0.0, min=0.0, subtype='DISTANCE', description="Leg and arm only. The distance by which the limb's foot moves out, away from the body's centre line, at the middle of its swing, so that the raised limb swings around rather than straight up and down, e.g. 0.02 m for an upright biped or 0.06 m for a lizard")
 	forward: FloatVectorProperty(name="Forward", size=3, default=(0.0, -1.0, 0.0), description="Neck only. The rest-pose armature-space direction that the last bone faces")
 
 
@@ -130,18 +133,31 @@ class RYLOGIC_PG_RigContact(PropertyGroup):
 	normal: FloatVectorProperty(name="Normal", size=3, default=(0.0, 0.0, -1.0), description="The outward surface direction in the bone's rest space")
 
 
+class RYLOGIC_PG_GaitFamily(PropertyGroup):
+	"""A posture: a group of movement cycles that share a stance and walking limbs. The name is the built-in 'name' property, which cycles refer to.
+
+	The order of the families is their order in the '.gait', which is the runtime's order of preference when a family cannot be used on the ground.
+	"""
+
+	up: EnumProperty(name="Up", items=FAMILY_UPS, default="SURFACE", description="The direction that the body stands up along")
+	max_slope: FloatProperty(name="Max Slope", subtype="ANGLE", min=math.radians(0.1), max=math.pi, default=math.pi, description="The steepest ground, from level, on which the family can be used. 180 degrees allows any ground")
+
+
 class RYLOGIC_PG_GaitCycle(PropertyGroup):
 	"""An example movement cycle: a looping action that moves the root bone forward by one stride. The name is the built-in 'name' property."""
 
 	action: PointerProperty(name="Action", type=bpy.types.Action, description="The cycle's action. Its frame range covers exactly one cycle")
-	family: StringProperty(name="Family", default="quadruped", description="The group of cycles that share a stance and walking limbs, e.g. 'bipedal' or 'quadruped'")
+	family: StringProperty(name="Family", default="quadruped", description="The name of the cycle's family (see Families), e.g. 'bipedal' or 'quadruped'")
 	use_export: BoolProperty(name="Export", default=True, description="Include the cycle in the '.gait'. Turn off to keep an unfinished cycle without validating or exporting it")
 	hip_height: FloatProperty(name="Hip Height", default=0.5, min=0.05, max=1.0, description="The height at which the legs carry the hip joints above the ground, as a fraction of the legs' reach, e.g. 0.5 for a crouching quadruped or 0.9 for an upright biped. The runtime sets the body's height from this, not from the action's poses")
 	spine_sway: FloatProperty(name="Spine Sway", default=0.25, min=0.0, max=1.5, subtype='ANGLE', description="The angle by which the hips and shoulders turn with the walking limbs, so that each limb's side moves forward as its foot lands, e.g. 0.1 rad for an upright biped or 0.3 rad for a lizard. The runtime adds this to the action's own spine motion")
-
+	weight_shift: FloatProperty(name="Weight Shift", default=0.0, min=0.0, max=1.0, subtype='FACTOR', description="How far the body moves sideways over each planted foot, as a fraction of the foot's distance from the midline, most strongly at the middle of its stance, e.g. 0.4 for an upright biped or 0 for a crawler. The runtime adds this to the action's own body motion")
+	arm_swing: FloatProperty(name="Arm Swing", default=0.0, min=0.0, max=1.5, subtype='ANGLE', description="The angle by which each hanging arm swings forward and back about its shoulder, opposite to the walking leg on its side, e.g. 0.4 rad for an upright biped. Arms that walk do not swing")
+	leg_swing_out: FloatProperty(name="Leg Swing Out", default=0.0, min=0.0, subtype='DISTANCE', description="The distance by which each walking leg's foot moves out, away from the body's centre line, at the middle of its swing, so that the raised leg swings around rather than straight up and down, e.g. 0 for an upright biped or 0.06 m for a lizard")
+	arm_swing_out: FloatProperty(name="Arm Swing Out", default=0.0, min=0.0, subtype='DISTANCE', description="The distance by which each walking arm's hand moves out, away from the body's centre line, at the middle of its swing (see Leg Swing Out). Arms that do not walk ignore it")
 
 class RYLOGIC_PG_Rig(PropertyGroup):
-	"""The chains, contacts and movement cycles of an armature."""
+	"""The chains, contacts, families and movement cycles of an armature."""
 
 	chains: CollectionProperty(name="Chains", type=RYLOGIC_PG_RigChain)
 	active_chain: IntProperty(name="Active Chain", default=0, update=_OnActiveChainChanged, description="The chain shown below. Selecting a chain selects its bones")
@@ -157,6 +173,8 @@ class RYLOGIC_PG_Rig(PropertyGroup):
 	rom_action: PointerProperty(name="Range of Motion", type=bpy.types.Action, description="An action whose keyframes pose the armature at the extremes of each joint's range of motion")
 	rom_mirror: BoolProperty(name="Mirror Samples", default=True, description="Derive the same, mirrored, limits for left and right bones from the poses of either side. Turn off for asymmetric rigs")
 	rom_padding: FloatProperty(name="Padding", subtype="ANGLE", min=0.0, max=math.radians(45), default=math.radians(5), description="Extra range added beyond the posed extremes when deriving limits")
+	families: CollectionProperty(name="Families", type=RYLOGIC_PG_GaitFamily)
+	active_family: IntProperty(name="Active Family", default=0)
 	cycles: CollectionProperty(name="Movement Cycles", type=RYLOGIC_PG_GaitCycle)
 	active_cycle: IntProperty(name="Active Cycle", default=0)
 	pin_live: BoolProperty(name="Live Pin", default=False, update=lambda rig, context: _OnPinLiveChanged(rig, context), description="In Pose Mode, hold the selected chain bones still as the frame changes, bending the chains above them with IK. With Auto Key on, each frame change keys the solved pose")
@@ -200,6 +218,7 @@ CLASSES = (
 	RYLOGIC_PG_RigBoneRef,
 	RYLOGIC_PG_RigChain,
 	RYLOGIC_PG_RigContact,
+	RYLOGIC_PG_GaitFamily,
 	RYLOGIC_PG_GaitCycle,
 	RYLOGIC_PG_Rig,
 )
