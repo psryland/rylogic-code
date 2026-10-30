@@ -220,6 +220,10 @@ namespace pr::rdr12
 		, m_produce_sig()
 		, m_produce_pso()
 		, m_revision()
+		, m_scratch_bytes()
+		, m_scratch_high_water()
+		, m_upload_bytes()
+		, m_producer_dispatches()
 		, m_mutex()
 	{
 		// Check the description. The payload is addressed in 4-byte words by shaders, so its size is a whole number of words.
@@ -263,7 +267,15 @@ namespace pr::rdr12
 			m_rdr->DeferRelease(m_produce_sig);
 
 		for (auto& [key, view] : m_views)
+		{
+			// The readback buffer stays mapped for its lifetime.
 			m_rdr->DeferRelease(view.m_res);
+			if (view.m_readback != nullptr)
+			{
+				view.m_readback->Unmap(0, nullptr);
+				m_rdr->DeferRelease(view.m_readback);
+			}
+		}
 	}
 
 	// The number of block slots.
@@ -397,11 +409,18 @@ namespace pr::rdr12
 	// Record the pending uploads and producer dispatches into 'cmd_list'.
 	void Population::Flush(GfxCmdList& cmd_list, GpuUploadBuffer& upload, GpuViewHeap& heap)
 	{
-		// Take the pending work, so callers can queue more while this frame records.
+		// Take the pending work, so callers can queue more while this frame records. The diagnostics count the work as it is taken.
 		std::vector<PendingWork> pending;
 		{
 			std::lock_guard lock(m_mutex);
 			pending.swap(m_pending);
+			for (auto const& p : pending)
+			{
+				if (p.m_pso == nullptr)
+					m_upload_bytes += isize(p.m_data);
+				else
+					++m_producer_dispatches;
+			}
 		}
 		if (pending.empty())
 			return;
@@ -508,10 +527,146 @@ namespace pr::rdr12
 			if (view.m_res != nullptr)
 				m_rdr->DeferRelease(view.m_res);
 
+			m_scratch_bytes += size - view.m_size;
+			m_scratch_high_water = std::max(m_scratch_high_water, m_scratch_bytes);
 			view.m_res = CreateBuffer(m_rdr->d3d(), size, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, "Population:View");
 			view.m_size = size;
 		}
 		return view.m_res.get();
+	}
+
+	// Record a copy of a classification's list header into the view's readback ring.
+	void Population::ReadBackDiagnostics(GfxCmdList& cmd_list, GpuSync const& gsync, uint64_t view_key, PopulationViewStats const& cpu)
+	{
+		std::lock_guard lock(m_mutex);
+		auto& view = m_views.at(view_key);
+
+		// Views get their readback ring on first use. Readback buffers stay mapped, because the GPU only writes them and the CPU reads completed slots.
+		if (view.m_readback == nullptr)
+		{
+			auto heap = D3D12_HEAP_PROPERTIES{ .Type = D3D12_HEAP_TYPE_READBACK };
+			auto desc = D3D12_RESOURCE_DESC{
+				.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER,
+				.Alignment = 0,
+				.Width = s_cast<uint64_t>(ReadbackSlots * PopulationHeaderSize),
+				.Height = 1,
+				.DepthOrArraySize = 1,
+				.MipLevels = 1,
+				.Format = DXGI_FORMAT_UNKNOWN,
+				.SampleDesc = { .Count = 1, .Quality = 0 },
+				.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+				.Flags = D3D12_RESOURCE_FLAG_NONE,
+			};
+			Check(m_rdr->d3d()->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, __uuidof(ID3D12Resource), (void**)view.m_readback.address_of()));
+			DefaultResState(view.m_readback.get(), D3D12_RESOURCE_STATE_COPY_DEST);
+			DebugName(view.m_readback, "Population:Diagnostics");
+
+			void* mapped = nullptr;
+			Check(view.m_readback->Map(0, nullptr, &mapped));
+			view.m_mapped = static_cast<std::byte const*>(mapped);
+		}
+
+		// Publish completed slots first, so the slot reused below is the oldest. If every slot is still pending, the oldest result is superseded.
+		// Copies on one queue complete in order, so the slot's earlier copy cannot land after this one.
+		PollDiagnostics();
+		auto slot_index = 0;
+		for (int i = 1; i != ReadbackSlots; ++i)
+		{
+			if (view.m_slots[i].m_sequence < view.m_slots[slot_index].m_sequence)
+				slot_index = i;
+		}
+
+		// The copy completes with the next sync point on 'gsync'.
+		auto& slot = view.m_slots[slot_index];
+		slot.m_fence = gsync.m_fence;
+		slot.m_sync_point = gsync.NextSyncPoint();
+		slot.m_sequence = ++view.m_sequence;
+		slot.m_cpu = cpu;
+		cmd_list.CopyBufferRegion(view.m_readback.get(), s_cast<uint64_t>(slot_index * PopulationHeaderSize), view.m_res.get(), 0, PopulationHeaderSize);
+	}
+
+	// Return the current diagnostics.
+	PopulationStats Population::Stats()
+	{
+		// Publish completed readbacks, then report the CPU state with them.
+		std::lock_guard lock(m_mutex);
+		PollDiagnostics();
+
+		auto stats = PopulationStats{
+			.m_instance_capacity = m_instance_capacity,
+			.m_block_capacity = BlockCapacity(),
+			.m_active_blocks = 0,
+			.m_admitted_instances = 0,
+			.m_resident_bytes = int64_t(m_instance_capacity) * sizeof(PopulationInstance) + int64_t(BlockCapacity()) * sizeof(uint32_t) + m_payload_size,
+			.m_scratch_bytes = m_scratch_bytes,
+			.m_scratch_high_water = m_scratch_high_water,
+			.m_upload_bytes = m_upload_bytes,
+			.m_producer_dispatches = m_producer_dispatches,
+			.m_views = 0,
+			.m_classified = {},
+		};
+		for (auto const& blk : m_blocks)
+		{
+			if (!blk.m_active)
+				continue;
+
+			++stats.m_active_blocks;
+			stats.m_admitted_instances += blk.m_capacity;
+		}
+
+		// Sum the latest completed classification of each view.
+		for (auto const& [key, view] : m_views)
+		{
+			if (view.m_latest_sequence == 0)
+				continue;
+
+			auto const& v = view.m_latest;
+			auto& sum = stats.m_classified;
+			++stats.m_views;
+			sum.m_blocks_rejected += v.m_blocks_rejected;
+			sum.m_blocks_overflow += v.m_blocks_overflow;
+			sum.m_instances_tested += v.m_instances_tested;
+			sum.m_entries_emitted += v.m_entries_emitted;
+			for (int lod = 0; lod != PopulationMaxLods; ++lod)
+				sum.m_entries_per_lod[lod] += v.m_entries_per_lod[lod];
+
+			sum.m_indirect_draws += v.m_indirect_draws;
+			sum.m_live_count_violations += v.m_live_count_violations;
+		}
+		return stats;
+	}
+
+	// Publish readback slots whose copies have completed.
+	void Population::PollDiagnostics()
+	{
+		for (auto& [key, view] : m_views)
+		{
+			for (int i = 0; i != ReadbackSlots; ++i)
+			{
+				// Skip empty slots and copies that the GPU has not finished.
+				auto& slot = view.m_slots[i];
+				if (slot.m_fence == nullptr || slot.m_fence->GetCompletedValue() < slot.m_sync_point)
+					continue;
+
+				// Combine the CPU counters with the header's GPU counters, keeping only the newest classification.
+				if (slot.m_sequence > view.m_latest_sequence)
+				{
+					// Header words: per-LOD entry counts at COUNTS, and the tested/emitted/live-count counters at DIAG. See 'population_cull.hlsl'.
+					uint32_t header[PopulationHeaderSize / 4];
+					memcpy(&header[0], view.m_mapped + int64_t(i) * PopulationHeaderSize, sizeof(header));
+					auto stats = slot.m_cpu;
+					for (int lod = 0; lod != PopulationMaxLods; ++lod)
+						stats.m_entries_per_lod[lod] = header[PopulationHeaderCounts / 4 + lod];
+
+					stats.m_instances_tested = header[PopulationHeaderDiag / 4 + 0];
+					stats.m_entries_emitted = header[PopulationHeaderDiag / 4 + 1];
+					stats.m_live_count_violations = header[PopulationHeaderDiag / 4 + 2];
+					view.m_latest = stats;
+					view.m_latest_sequence = slot.m_sequence;
+				}
+				slot.m_fence = nullptr;
+			}
+		}
 	}
 
 	// Ref-counting clean up function
@@ -565,7 +720,7 @@ namespace pr::rdr12
 	}
 
 	// Classify 'pop' for 'view'.
-	PopulationViewLists PopulationCuller::Cull(GfxCmdList& cmd_list, GpuUploadBuffer& upload, Population& pop, PopulationViewDesc const& view, ERenderStep step)
+	PopulationViewLists PopulationCuller::Cull(GfxCmdList& cmd_list, GpuUploadBuffer& upload, GpuSync const& gsync, Population& pop, PopulationViewDesc const& view, ERenderStep step)
 	{
 		auto const& proto = *pop.m_prototype.get();
 		auto lod_count = isize(proto.m_lods);
@@ -589,6 +744,7 @@ namespace pr::rdr12
 		// Select the blocks that can contain visible instances. The GPU tests individual instances within these.
 		auto visible = std::vector<VisibleBlock>{};
 		auto max_capacity = 0;
+		auto cpu_stats = PopulationViewStats{};
 		{
 			std::lock_guard lock(pop.m_mutex);
 			for (int b = 0, bend = isize(pop.m_blocks); b != bend; ++b)
@@ -597,19 +753,30 @@ namespace pr::rdr12
 				if (!blk.m_active)
 					continue;
 				if (!std::ranges::all_of(planes, [&](v4 const& p) { return BoxInside(p, blk.m_bbox); }))
+				{
+					++cpu_stats.m_blocks_rejected;
 					continue;
+				}
 				if (proto.m_draw_distance > 0)
 				{
 					// Instance spheres are inside the box, so the box is beyond the draw distance only when its closest point is.
 					auto closest = Max(Abs(blk.m_bbox.Centre().w0() - view.m_range_origin.w0()) - blk.m_bbox.Radius().w0(), v4::Zero());
 					if (Length(closest) > proto.m_draw_distance)
+					{
+						++cpu_stats.m_blocks_rejected;
 						continue;
+					}
+				}
+
+				// One dispatch row per visible block. Blocks beyond the dispatch limit are not drawn, and are reported.
+				if (isize(visible) == MaxVisibleBlocks)
+				{
+					++cpu_stats.m_blocks_overflow;
+					continue;
 				}
 
 				visible.push_back(VisibleBlock{ .first = s_cast<uint32_t>(blk.m_first), .capacity = s_cast<uint32_t>(blk.m_capacity), .block = s_cast<uint32_t>(b), .pad = 0 });
 				max_capacity = std::max(max_capacity, blk.m_capacity);
-				if (isize(visible) == MaxVisibleBlocks)
-					break;
 			}
 		}
 
@@ -720,7 +887,12 @@ namespace pr::rdr12
 			barriers.Commit();
 		}
 
-		// Leave the view buffer readable as draw arguments and by the vertex and pixel shaders.
+		// Copy the list header to the diagnostics readback ring, then leave the view buffer readable as draw arguments and by the vertex and pixel shaders.
+		cpu_stats.m_indirect_draws = isize(lists.m_draws);
+		barriers.Transition(scratch, D3D12_RESOURCE_STATE_COPY_SOURCE);
+		barriers.Commit();
+		pop.ReadBackDiagnostics(cmd_list, gsync, view.m_key, cpu_stats);
+
 		barriers.Transition(scratch, D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT | ShaderReadState);
 		barriers.Commit();
 		return lists;

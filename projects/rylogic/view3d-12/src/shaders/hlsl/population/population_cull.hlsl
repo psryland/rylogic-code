@@ -21,7 +21,8 @@
 // The size of an indirect draw argument record (D3D12_DRAW_INDEXED_ARGUMENTS, and D3D12_DRAW_ARGUMENTS padded to the same size).
 static const uint ArgStride = 20;
 
-// Diagnostic counters in the header, at VIEW3D_POPULATION_HEADER_DIAG.
+// Diagnostic counters in the header, at VIEW3D_POPULATION_HEADER_DIAG. After the draws, the renderer copies the header to a readback buffer
+// without waiting for the GPU; 'Population::Stats' reads the copy once the GPU has completed the frame (see View3D_PopulationStats).
 static const uint DiagTested = 0;    // Live instance slots tested.
 static const uint DiagEmitted = 1;   // List entries written.
 static const uint DiagLiveCount = 2; // Blocks whose live count exceeded their capacity.

@@ -544,7 +544,7 @@ namespace pr::rdr12
 		auto view = PopulationCameraView(reinterpret_cast<uint64_t>(this), scn().m_cam, scn().m_viewport.Height);
 		m_population_lists.reserve(populations.size());
 		for (auto pop : populations)
-			m_population_lists.push_back(rdr().PopulationCulling().Cull(m_cmd_list, m_upload_buffer, *pop.get(), view, m_step_id));
+			m_population_lists.push_back(rdr().PopulationCulling().Cull(m_cmd_list, m_upload_buffer, m_gsync, *pop.get(), view, m_step_id));
 
 		// Each (LOD, nugget) draw takes its element constants from the LOD's proxy instance. 'm_population_lists' no longer changes, so the references are stable.
 		for (auto const& lists : m_population_lists)

@@ -2833,6 +2833,44 @@ VIEW3D_API void __stdcall View3D_PopulationProduce(view3d::Population population
 	CatchAndReport(View3D_PopulationProduce, , );
 }
 
+// Read the population's diagnostics.
+VIEW3D_API BOOL __stdcall View3D_PopulationStats(view3d::Population population, view3d::PopulationStats& stats)
+{
+	try
+	{
+		Validate(population);
+		DllLockGuard;
+		auto s = population->Stats();
+		auto const& c = s.m_classified;
+		stats = view3d::PopulationStats{
+			.m_instance_capacity = s.m_instance_capacity,
+			.m_block_capacity = s.m_block_capacity,
+			.m_active_blocks = s.m_active_blocks,
+			.m_admitted_instances = s.m_admitted_instances,
+			.m_resident_bytes = s.m_resident_bytes,
+			.m_scratch_bytes = s.m_scratch_bytes,
+			.m_scratch_high_water = s.m_scratch_high_water,
+			.m_upload_bytes = s.m_upload_bytes,
+			.m_producer_dispatches = s.m_producer_dispatches,
+			.m_views = s.m_views,
+			.m_blocks_rejected = c.m_blocks_rejected,
+			.m_blocks_overflow = c.m_blocks_overflow,
+			.m_instances_tested = c.m_instances_tested,
+			.m_entries_emitted = c.m_entries_emitted,
+			.m_entries_per_lod = {},
+			.m_indirect_draws = c.m_indirect_draws,
+			.m_live_count_violations = c.m_live_count_violations,
+		};
+		static_assert(std::size(view3d::PopulationStats{}.m_entries_per_lod) == PopulationMaxLods);
+		static_assert(sizeof(view3d::PopulationStats) == 24 * 8, "Must match 'View3d.PopulationStats' in Rylogic.Gfx");
+		for (int lod = 0; lod != PopulationMaxLods; ++lod)
+			stats.m_entries_per_lod[lod] = c.m_entries_per_lod[lod];
+
+		return TRUE;
+	}
+	CatchAndReport(View3D_PopulationStats, , FALSE);
+}
+
 // Blend a retained source cubemap and independent direction frames into an existing atmosphere.
 VIEW3D_API BOOL __stdcall View3D_ObjectBlendProceduralSky(view3d::Object object, view3d::CubeMap background, float weight, view3d::Mat4x4 const& world_to_sky, view3d::Mat4x4 const& world_to_background)
 {

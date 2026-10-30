@@ -76,6 +76,74 @@ public sealed partial class View3d
 	}
 
 	/// <summary>
+	/// Diagnostics of a population. Matches 'view3d::PopulationStats'. The capacity, block, memory, and upload counters are current. The classification
+	/// counters are the latest classification of each view that the GPU has completed, summed over 'Views' views, so they lag by the frames in flight.
+	/// </summary>
+	[StructLayout(LayoutKind.Sequential)]
+	public unsafe struct PopulationStats
+	{
+		/// <summary>The number of instance slots.</summary>
+		public long InstanceCapacity;
+
+		/// <summary>The number of block slots.</summary>
+		public long BlockCapacity;
+
+		/// <summary>Blocks that are set and not removed.</summary>
+		public long ActiveBlocks;
+
+		/// <summary>The sum of the active blocks' capacities: the most instances that can be live.</summary>
+		public long AdmittedInstances;
+
+		/// <summary>The size of the instance, live count, and payload buffers in bytes.</summary>
+		public long ResidentBytes;
+
+		/// <summary>The size of all per-view classification buffers in bytes.</summary>
+		public long ScratchBytes;
+
+		/// <summary>The largest value 'ScratchBytes' has had.</summary>
+		public long ScratchHighWater;
+
+		/// <summary>The total bytes copied to the GPU by instance, block, and payload updates.</summary>
+		public long UploadBytes;
+
+		/// <summary>The total number of producer dispatches recorded.</summary>
+		public long ProducerDispatches;
+
+		/// <summary>The number of views with completed classification counters.</summary>
+		public long Views;
+
+		/// <summary>Active blocks skipped by the block test (frustum or draw distance).</summary>
+		public long BlocksRejected;
+
+		/// <summary>Visible blocks not drawn because a view exceeded 65535 visible blocks.</summary>
+		public long BlocksOverflow;
+
+		/// <summary>Live instance slots tested by the GPU.</summary>
+		public long InstancesTested;
+
+		/// <summary>Visible list entries written. An instance in a LOD transition writes two.</summary>
+		public long EntriesEmitted;
+
+		/// <summary>Visible list entries of each LOD. Use 'EntriesForLod'.</summary>
+		public fixed long EntriesPerLod[8];
+
+		/// <summary>Indirect draws: one per (LOD, nugget) pair.</summary>
+		public long IndirectDraws;
+
+		/// <summary>Visible blocks whose live count exceeded their capacity. The live count is clamped.</summary>
+		public long LiveCountViolations;
+
+		/// <summary>The visible list entries of LOD 'lod'.</summary>
+		public readonly long EntriesForLod(int lod)
+		{
+			if (lod < 0 || lod >= 8)
+				throw new ArgumentOutOfRangeException(nameof(lod));
+
+			return EntriesPerLod[lod];
+		}
+	}
+
+	/// <summary>
 	/// The shared LOD models and draw distance of a population. The prototype keeps its own reference to the LOD models, so the source objects may be
 	/// disposed afterwards. Use on the render owner thread while the View3d context is alive.
 	/// </summary>
@@ -171,6 +239,15 @@ public sealed partial class View3d
 				View3D_PopulationProduce(Live, cs, checked((nuint)cs_bytecode.Length), cb, checked((nuint)(constants.Length * sizeof(T))), groups_x, groups_y, groups_z);
 		}
 
+		/// <summary>Read the diagnostics without waiting for the GPU. See PopulationStats.</summary>
+		public PopulationStats Stats()
+		{
+			if (!View3D_PopulationStats(Live, out var stats))
+				throw new InvalidOperationException("Failed to read the population diagnostics.");
+
+			return stats;
+		}
+
 		/// <summary>Release this reference; windows that show the population keep their own. Repeated disposal is harmless.</summary>
 		public void Dispose()
 		{
@@ -219,6 +296,9 @@ public sealed partial class View3d
 	private static extern unsafe void View3D_PopulationProduce(IntPtr population, void* cs_bytecode, nuint cs_bytecode_size, void* constants, nuint constants_size, int groups_x, int groups_y, int groups_z);
 
 	[DllImport(Dll)]
+	private static extern bool View3D_PopulationStats(IntPtr population, out PopulationStats stats);
+
+	[DllImport(Dll)]
 	private static extern void View3D_WindowAddPopulation(IntPtr window, IntPtr population);
 
 	[DllImport(Dll)]
@@ -238,6 +318,7 @@ public class PopulationTests
 		Assert.Equal(64, Marshal.SizeOf<View3d.PopulationInstance>());
 		Assert.Equal(48, (int)Marshal.OffsetOf<View3d.PopulationInstance>(nameof(View3d.PopulationInstance.Tint)));
 		Assert.Equal(16, Marshal.SizeOf<View3d.PopulationLod>());
+		Assert.Equal(24 * 8, Marshal.SizeOf<View3d.PopulationStats>());
 
 		// A translation lands in the 'w' component of each row
 		var instance = new View3d.PopulationInstance(m4x4.Translation(1, 2, 3), Colour32.Red);

@@ -50,6 +50,9 @@
      <ClCompile Include="src\interactive\demos_procedural.cpp">
       <Filter>interactive</Filter>
     </ClCompile>
+    <ClCompile Include="src\interactive\demos_population.cpp">
+      <Filter>interactive</Filter>
+    </ClCompile>
     <ClCompile Include="src\interactive\view3d_ui_demo.cpp">
       <Filter>interactive</Filter>
     </ClCompile>

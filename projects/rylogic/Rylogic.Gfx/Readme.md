@@ -115,6 +115,41 @@ authored environment to this sky unless a separate reflection source is intended
 `View3D_ObjectCreateProceduralSky`, `View3D_ObjectUpdateProceduralSky` and `View3D_ObjectBlendProceduralSky`;
 destruction uses `View3D_ObjectDelete`.
 
+## Populations (GPU-driven instancing)
+
+`View3d.Population` draws many placements of one `View3d.PopulationPrototype` (up to 8 LODs, most detailed first). Each frame, for each
+consuming view (the main camera and each shadow view), the GPU tests the instances, selects their LODs, and draws each (LOD, nugget) pair with
+one indirect draw. The CPU work per frame does not depend on the instance count. The shader contract, including the rules for custom population
+shaders and GPU producers, is in `pr/view3d-12/shaders/population.hlsli`.
+
+```csharp
+using var prototype = new View3d.PopulationPrototype(new[]
+{
+	new View3d.PopulationLod(detailed, min_size: 24, transition: 0.4f), // Projected radius in pixels
+	new View3d.PopulationLod(simple, min_size: 6, transition: 0.4f),
+	new View3d.PopulationLod(impostor, min_size: 1.5f),
+}, draw_distance: 250);
+using var population = new View3d.Population(prototype, instance_capacity: 65536, block_capacity: 1024);
+population.InstancesUpdate(0, instances);                        // Slots [0, instances.Length)
+population.BlockSet(0, bbox, first: 0, capacity: 64, live_count: 64); // Draws slots [first, first + live_count)
+window.AddPopulation(population);
+```
+
+- **Ownership**: the LOD objects supply models only and are not added to a window. Remove the population from every window before disposing
+  it. Capacities are fixed at creation, and the caller chooses them; out-of-range blocks, slots, and payload ranges are rejected.
+- **Blocks**: the CPU tests each active block's bounds against each view. The bounds must contain the bounding spheres of the block's live
+  instances. Live instances of a block are contiguous, so changing a live count thins or grows a block without moving instances.
+- **Producers**: `Produce` queues a caller compute shader that writes instances, live counts, and payload on the GPU before the next frame's
+  classification. The caller still declares the block bounds on the CPU. Live counts above a block's capacity are clamped and reported.
+- **Diagnostics**: `Stats()` returns `PopulationStats` without waiting for the GPU. The CPU fields (capacities, active blocks, resident,
+  scratch, and uploaded bytes, producer dispatches) are current. The classification counters (blocks rejected and overflowing, instances
+  tested, entries per LOD, indirect draws, live-count violations) are the latest the GPU has completed, so they lag the displayed frame by
+  the frames in flight, and are summed over every view that has drawn the population. A view that stops drawing keeps its last counters.
+  An instance in a LOD transition writes an entry in both LOD lists, so entries can exceed visible instances.
+
+The `population_field` demo in `view3d-12-tests` (`--interactive --demo population_field`) shows a deterministic 65536-instance field with
+its diagnostics. It is a measurement fixture only; performance budgets for populations have not been set.
+
 ## Rylogic.Gfx.UI (View3DUI managed API)
 
 `Rylogic.Gfx.UI` is a WPF-free managed wrapper over the native `view3d-ui.dll`. It exposes copyable, value-typed

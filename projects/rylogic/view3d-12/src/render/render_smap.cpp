@@ -462,7 +462,7 @@ namespace pr::rdr12
 					HashWord(key, s_cast<uint64_t>(view_index[i]));
 					auto desc = PopulationProjectionView(key, views[i].m_w2s, s_cast<float>(views[i].m_atlas_rect.SizeY()), range_origin);
 					auto shadow = PopulationShadow{
-						.m_lists = rdr().PopulationCulling().Cull(m_cmd_list, m_upload_buffer, *caster.m_pop.get(), desc, m_step_id),
+						.m_lists = rdr().PopulationCulling().Cull(m_cmd_list, m_upload_buffer, m_gsync, *caster.m_pop.get(), desc, m_step_id),
 						.m_view = i,
 						.m_first_element = isize(pop_dles),
 					};

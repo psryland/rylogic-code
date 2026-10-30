@@ -141,12 +141,42 @@ namespace pr::rdr12
 		bool m_active;
 	};
 
+	// Counters of one population classification. GPU counters come from the classification's list header, read back without waiting.
+	struct PopulationViewStats
+	{
+		int64_t m_blocks_rejected;                   // Active blocks skipped by the CPU block test (frustum or draw distance).
+		int64_t m_blocks_overflow;                   // Visible blocks dropped because the view exceeded 'PopulationCuller::MaxVisibleBlocks'.
+		int64_t m_instances_tested;                  // Live instance slots tested by the GPU.
+		int64_t m_entries_emitted;                   // Visible list entries written. An instance in a LOD transition writes two.
+		int64_t m_entries_per_lod[PopulationMaxLods]; // Visible list entries of each LOD.
+		int64_t m_indirect_draws;                    // Indirect draw records ((LOD, nugget) pairs) of the view.
+		int64_t m_live_count_violations;             // Visible blocks whose GPU live count exceeded their capacity.
+	};
+
+	// Diagnostics of a population. CPU counters are current. GPU counters are the sum, over the views that have classified the population, of each view's
+	// latest classification whose results the GPU has completed, so they lag the CPU by the frames in flight.
+	struct PopulationStats
+	{
+		int64_t m_instance_capacity;   // The number of instance slots.
+		int64_t m_block_capacity;      // The number of block slots.
+		int64_t m_active_blocks;       // Blocks defined by 'SetBlock' and not removed.
+		int64_t m_admitted_instances;  // The sum of the active blocks' capacities: the most instances that can be live.
+		int64_t m_resident_bytes;      // The size of the instance, live count, and payload buffers.
+		int64_t m_scratch_bytes;       // The size of all per-view classification buffers.
+		int64_t m_scratch_high_water;  // The largest value 'm_scratch_bytes' has had.
+		int64_t m_upload_bytes;        // The total bytes copied to the GPU by instance, block, and payload updates.
+		int64_t m_producer_dispatches; // The total number of producer dispatches recorded.
+		int64_t m_views;               // The number of views with completed GPU counters.
+		PopulationViewStats m_classified; // The latest completed classification counters, summed over views.
+	};
+
 	// A retained set of placements of one prototype. Instances live in GPU buffers; the caller updates ranges, not individual objects.
 	struct Population : RefCounted<Population>
 	{
 		using GfxCmdList = ::pr::compute::GfxCmdList;
 		using GpuUploadBuffer = ::pr::compute::GpuUploadBuffer;
 		using GpuViewHeap = ::pr::compute::GpuDescriptorHeap<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV>;
+		using GpuSync = ::pr::compute::GpuSync;
 
 		// An identity-transform instance that supplies element constants for a LOD's nuggets. Population draws place vertices with the instance records.
 		struct Proxy
@@ -158,11 +188,27 @@ namespace pr::rdr12
 			#undef PR_RDR_INST
 		};
 
+		// A slot of a view's diagnostics readback ring: a copy of one classification's list header, valid once 'm_fence' reaches 'm_sync_point'.
+		struct ViewReadback
+		{
+			D3DPtr<ID3D12Fence> m_fence;    // The fence of the queue that executes the copy. Null when the slot holds no pending copy.
+			uint64_t m_sync_point = 0;      // The fence value that marks the copy complete.
+			int64_t m_sequence = 0;         // The view's classification number, so newer results replace older ones.
+			PopulationViewStats m_cpu = {}; // The CPU counters of the classification. GPU counters are added when the copy completes.
+		};
+		inline static constexpr int ReadbackSlots = 3;
+
 		// The per-view classification output: the list header, indirect arguments, and visible lists. See 'population_cull.hlsl'.
 		struct ViewScratch
 		{
 			D3DPtr<ID3D12Resource> m_res;
-			int64_t m_size;
+			int64_t m_size = 0;
+			D3DPtr<ID3D12Resource> m_readback;            // Readback buffer of 'ReadbackSlots' list headers.
+			std::byte const* m_mapped = nullptr;          // Persistent CPU mapping of 'm_readback'.
+			std::array<ViewReadback, ReadbackSlots> m_slots;
+			int64_t m_sequence = 0;                       // The number of classifications recorded for this view.
+			int64_t m_latest_sequence = 0;                // The classification number of 'm_latest'. Zero when no counters have completed.
+			PopulationViewStats m_latest = {};            // The counters of the latest completed classification.
 		};
 
 		// Content work waiting for the next frame's preparation commands: a range copy, or a producer dispatch when 'm_pso' is not null.
@@ -190,6 +236,10 @@ namespace pr::rdr12
 		D3DPtr<ID3D12RootSignature> m_produce_sig;   // The producer root signature. See 'population.hlsli' for the bindings.
 		D3DPtr<ID3D12PipelineState> m_produce_pso;   // The pipeline for the most recent producer bytecode.
 		uint64_t m_revision;                         // Incremented by every content change, for cache invalidation.
+		int64_t m_scratch_bytes;                     // The size of all view buffers.
+		int64_t m_scratch_high_water;                // The largest value of 'm_scratch_bytes'.
+		int64_t m_upload_bytes;                      // The total bytes copied by 'Flush'.
+		int64_t m_producer_dispatches;               // The total dispatches recorded by 'Flush'.
 		std::mutex m_mutex;
 
 		// Create a population with fixed instance, block, and payload capacities. Resources are created up front, so admission fails here, not mid-frame.
@@ -228,6 +278,13 @@ namespace pr::rdr12
 		// Return the classification scratch buffer for 'view_key', growing it to at least 'size' bytes.
 		ID3D12Resource* ViewBuffer(uint64_t view_key, int64_t size);
 
+		// Record a copy of the list header of 'view_key's classification into the view's readback ring. 'scratch' must be in the copy source state.
+		// 'gsync' is the timeline that will execute 'cmd_list', and 'cpu' holds the CPU counters of the classification. Nothing waits for the GPU.
+		void ReadBackDiagnostics(GfxCmdList& cmd_list, GpuSync const& gsync, uint64_t view_key, PopulationViewStats const& cpu);
+
+		// Return the current diagnostics. GPU counters include only classifications that the GPU has already completed.
+		PopulationStats Stats();
+
 		// Ref-counting clean up function
 		static void RefCountZero(RefCounted<Population>* doomed);
 
@@ -235,6 +292,9 @@ namespace pr::rdr12
 
 		// Queue a copy of 'data' to 'dst' at byte offset 'ofs'.
 		void Enqueue(ID3D12Resource* dst, int64_t ofs, std::span<std::byte const> data);
+
+		// Publish readback slots whose copies have completed. Callers hold 'm_mutex'.
+		void PollDiagnostics();
 	};
 
 	// The consuming view of a population classification.
@@ -284,6 +344,7 @@ namespace pr::rdr12
 	{
 		using GfxCmdList = ::pr::compute::GfxCmdList;
 		using GpuUploadBuffer = ::pr::compute::GpuUploadBuffer;
+		using GpuSync = ::pr::compute::GpuSync;
 
 		// The size of an indirect argument record. Non-indexed records are padded to the indexed size.
 		inline static constexpr int ArgStride = 20;
@@ -307,8 +368,8 @@ namespace pr::rdr12
 		explicit PopulationCuller(Renderer& rdr);
 
 		// Classify 'pop' for 'view', recording compute work into 'cmd_list'. 'step' selects the nuggets that have a material pass for that render step.
-		// Leaves the compute root signature and PSO changed.
-		PopulationViewLists Cull(GfxCmdList& cmd_list, GpuUploadBuffer& upload, Population& pop, PopulationViewDesc const& view, ERenderStep step);
+		// 'gsync' is the timeline that executes 'cmd_list'; it dates the diagnostics readback. Leaves the compute root signature and PSO changed.
+		PopulationViewLists Cull(GfxCmdList& cmd_list, GpuUploadBuffer& upload, GpuSync const& gsync, Population& pop, PopulationViewDesc const& view, ERenderStep step);
 
 		// The command signature for an indexed or non-indexed draw.
 		ID3D12CommandSignature* DrawSignature(bool indexed);

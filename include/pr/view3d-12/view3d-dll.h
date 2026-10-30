@@ -744,6 +744,31 @@ namespace pr
 			float m_min_size;     // The minimum projected radius, in pixels, of the prototype bounding sphere at which this LOD is drawn.
 			float m_transition;   // The dithered transition band above 'm_min_size', as a fraction of 'm_min_size'. Zero is an abrupt switch.
 		};
+
+		// Diagnostics of a population. See View3D_PopulationStats.
+		struct PopulationStats
+		{
+			// Current CPU state.
+			int64_t m_instance_capacity;   // The number of instance slots.
+			int64_t m_block_capacity;      // The number of block slots.
+			int64_t m_active_blocks;       // Blocks that are set and not removed.
+			int64_t m_admitted_instances;  // The sum of the active blocks' capacities: the most instances that can be live.
+			int64_t m_resident_bytes;      // The size of the instance, live count, and payload buffers.
+			int64_t m_scratch_bytes;       // The size of all per-view classification buffers.
+			int64_t m_scratch_high_water;  // The largest value 'm_scratch_bytes' has had.
+			int64_t m_upload_bytes;        // The total bytes copied to the GPU by instance, block, and payload updates.
+			int64_t m_producer_dispatches; // The total number of producer dispatches recorded.
+
+			// The latest classification of each view that the GPU has completed, summed over 'm_views' views.
+			int64_t m_views;                 // The number of views with completed counters.
+			int64_t m_blocks_rejected;       // Active blocks skipped by the block test (frustum or draw distance).
+			int64_t m_blocks_overflow;       // Visible blocks not drawn because a view exceeded 65535 visible blocks.
+			int64_t m_instances_tested;      // Live instance slots tested by the GPU.
+			int64_t m_entries_emitted;       // Visible list entries written. An instance in a LOD transition writes two.
+			int64_t m_entries_per_lod[8];    // Visible list entries of each LOD.
+			int64_t m_indirect_draws;        // Indirect draws: one per (LOD, nugget) pair.
+			int64_t m_live_count_violations; // Visible blocks whose live count exceeded their capacity. The live count is clamped.
+		};
 		struct VICount
 		{
 			int m_vcount;
@@ -1695,6 +1720,10 @@ extern "C"
 	// nothing is read back to the CPU. Blocks still come from View3D_PopulationBlockSet, whose bounds must contain every instance the producer makes live.
 	// Writes outside the buffers are discarded. The pipeline for the most recent bytecode is cached per population.
 	VIEW3D_API void __stdcall View3D_PopulationProduce(pr::view3d::Population population, void const* cs_bytecode, size_t cs_bytecode_size, void const* constants, size_t constants_size, int groups_x, int groups_y, int groups_z);
+
+	// Read the population's diagnostics. Classification counters are copied back from the GPU asynchronously, so they describe the latest classification
+	// of each view that the GPU has already completed, typically a few frames old. The call never waits for the GPU. Returns false on failure.
+	VIEW3D_API BOOL __stdcall View3D_PopulationStats(pr::view3d::Population population, pr::view3d::PopulationStats& stats);
 
 	// Create an ldr object using a callback to populate the model data.
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateWithCallback(char const* name, pr::view3d::Colour colour, int vcount, int icount, int ncount, pr::view3d::EditObjectCB edit_cb, GUID const& context_id);

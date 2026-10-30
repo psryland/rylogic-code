@@ -349,6 +349,233 @@ namespace render_tests
 		fixture.CheckDebugLayer();
 		std::cout << "PASS population producers, update ordering, discarded writes, and payloads: MSAA " << samples << '\n';
 	}
+
+	// Read the diagnostics of 'population', failing the test if the call fails
+	api::PopulationStats PopulationStats(Fixture& fixture, api::Population population)
+	{
+		auto stats = api::PopulationStats{};
+		Require(View3D_PopulationStats(population, stats) != FALSE, "Reading population diagnostics failed");
+		fixture.CheckErrors();
+		return stats;
+	}
+
+	// Verify the population diagnostics: CPU state, memory and upload accounting, GPU classification counters, contract errors, and capacity boundaries
+	void PopulationStatsTests()
+	{
+		// The orthographic fixture view covers x/y in [-50,50]. Block 0 is in view, block 1 is outside it, and block 2 is not set.
+		Fixture fixture(1);
+		auto quad = PopulationQuad(fixture);
+		auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
+		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0));
+		auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 8, 3, 16));
+		Require(population != nullptr, "Population creation failed");
+
+		// Nothing has been classified before the population is drawn
+		auto stats = PopulationStats(fixture, population.get());
+		Require(stats.m_instance_capacity == 8 && stats.m_block_capacity == 3, "Population capacities are wrong");
+		Require(stats.m_resident_bytes == 8 * 64 + 3 * 4 + 16, "Population resident bytes are wrong");
+		Require(stats.m_views == 0 && stats.m_active_blocks == 0 && stats.m_upload_bytes == 0, "A new population reported activity");
+
+		// Three of four instances are enabled in the visible block; the hidden block's instance is never tested
+		api::PopulationInstance instances[] =
+		{
+			PopulationInstanceAt(-30, 0, -50, 0xFFFF0000),
+			PopulationInstanceAt(+30, 0, -50, 0xFF00FF00),
+			PopulationInstanceAt(0, +30, -50, 0xFF0000FF),
+			PopulationInstanceAt(0, -30, -50, 0xFFFFFFFF),
+			PopulationInstanceAt(200, 0, -50, 0xFFFFFFFF),
+		};
+		instances[3].m_flags = api::EPopulationInstanceFlags::None;
+		View3D_PopulationInstancesUpdate(population.get(), 0, instances, 5);
+		View3D_PopulationBlockSet(population.get(), 0, api::BBox{ .centre = {0, 0, -50, 1}, .radius = {40, 40, 10, 0} }, 0, 4, 4);
+		View3D_PopulationBlockSet(population.get(), 1, api::BBox{ .centre = {200, 0, -50, 1}, .radius = {10, 10, 10, 0} }, 4, 4, 1);
+		View3D_WindowAddPopulation(fixture.m_window, population.get());
+		fixture.Image();
+		stats = PopulationStats(fixture, population.get());
+		Require(stats.m_active_blocks == 2 && stats.m_admitted_instances == 8, "Population block accounting is wrong");
+		Require(stats.m_upload_bytes == 3 * 4 + 5 * 64 + 2 * 4, "Population upload bytes are wrong");
+		Require(stats.m_scratch_bytes > 0 && stats.m_scratch_high_water >= stats.m_scratch_bytes, "Population scratch accounting is wrong");
+		Require(stats.m_views == 1, "Population diagnostics did not complete for the camera view");
+		Require(stats.m_blocks_rejected == 1 && stats.m_blocks_overflow == 0, "Population block rejection count is wrong");
+		Require(stats.m_instances_tested == 4 && stats.m_entries_emitted == 3 && stats.m_entries_per_lod[0] == 3, "Population classification counters are wrong");
+		Require(stats.m_indirect_draws == 1 && stats.m_live_count_violations == 0, "Population draw or contract counters are wrong");
+
+		// A producer that publishes a live count beyond the block capacity is clamped and reported, and producer work is counted
+		PopulationProduce(population.get(), PopulationProducerConstants{ .m_count = 4, .m_live = 10, .m_columns = 2, .m_tint = 0xFFFFFFFF, .m_x = -30, .m_y = -30, .m_z = -50, .m_spacing = 60 });
+		fixture.Image();
+		stats = PopulationStats(fixture, population.get());
+		Require(stats.m_producer_dispatches == 1, "Population producer dispatches were not counted");
+		Require(stats.m_live_count_violations == 1 && stats.m_instances_tested == 4 && stats.m_entries_emitted == 4, "A live count beyond the block capacity was not clamped and reported");
+
+		// Exact capacity boundaries: a block ending at the instance capacity with every slot live is accepted; one slot further is not
+		View3D_PopulationBlockSet(population.get(), 2, api::BBox{ .centre = {0, 0, -50, 1}, .radius = {40, 40, 10, 0} }, 4, 4, 4);
+		fixture.CheckErrors();
+		View3D_PopulationBlockSet(population.get(), 2, api::BBox{ .centre = {0, 0, -50, 1}, .radius = {40, 40, 10, 0} }, 5, 4, 4);
+		Require(!fixture.m_errors.empty(), "A block beyond the instance capacity was accepted");
+		fixture.m_errors.clear();
+		View3D_PopulationBlockSet(population.get(), 2, api::BBox{ .centre = {0, 0, -50, 1}, .radius = {40, 40, 10, 0} }, 4, 4, 5);
+		Require(!fixture.m_errors.empty(), "A live count beyond the block capacity was accepted");
+		fixture.m_errors.clear();
+		View3D_PopulationBlockSet(population.get(), 3, api::BBox{ .centre = {0, 0, -50, 1}, .radius = {40, 40, 10, 0} }, 0, 1, 1);
+		Require(!fixture.m_errors.empty(), "A block index beyond the block capacity was accepted");
+		fixture.m_errors.clear();
+		View3D_PopulationInstancesUpdate(population.get(), 7, instances, 1);
+		fixture.CheckErrors();
+		View3D_PopulationInstancesUpdate(population.get(), 7, instances, 2);
+		Require(!fixture.m_errors.empty(), "An instance update beyond the instance capacity was accepted");
+		fixture.m_errors.clear();
+		View3D_PopulationPayloadUpdate(population.get(), 12, instances, 4);
+		fixture.CheckErrors();
+		View3D_PopulationPayloadUpdate(population.get(), 12, instances, 8);
+		Require(!fixture.m_errors.empty(), "A payload update beyond the payload size was accepted");
+		fixture.m_errors.clear();
+
+		// Blocks beyond the visible block limit (65535) of one classification are reported rather than drawn
+		constexpr int Blocks = 65536;
+		auto many = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), Blocks, Blocks, 0));
+		Require(many != nullptr, "Population creation failed");
+		for (int i = 0; i != Blocks; ++i)
+			View3D_PopulationBlockSet(many.get(), i, api::BBox{ .centre = {0, 0, -50, 1}, .radius = {10, 10, 10, 0} }, i, 1, 0);
+
+		View3D_WindowAddPopulation(fixture.m_window, many.get());
+		fixture.Image();
+		stats = PopulationStats(fixture, many.get());
+		Require(stats.m_blocks_overflow == 1 && stats.m_blocks_rejected == 0 && stats.m_instances_tested == 0, "Visible block overflow was not reported");
+		View3D_WindowRemovePopulation(fixture.m_window, many.get());
+
+		fixture.CheckDebugLayer();
+		std::cout << "PASS population diagnostics, contract errors, and capacity boundaries\n";
+	}
+
+	// Verify GPU visibility and LOD selection against an independent CPU reference, under a perspective camera
+	void PopulationReferenceTests()
+	{
+		// A 90 degree perspective camera at the origin looking down -z. The frustum side planes are |x| = -z and |y| = -z, and the projected radius
+		// in pixels of a sphere of radius 'r' at distance 'd' is r * (ImageSize / 2) / d, because tan(45) = 1.
+		Fixture fixture(1);
+		View3D_CameraOrthographicSet(fixture.m_window, FALSE);
+		constexpr float RightAngle = 1.57079633f;
+		View3D_CameraFovSet(fixture.m_window, api::Vec2{ RightAngle, RightAngle });
+		View3D_CameraClipPlanesSet(fixture.m_window, 1, 1000, api::EClipPlanes::Both);
+		fixture.CheckErrors();
+
+		// Three LODs of the 10x10 quad, whose bounding sphere radius is sqrt(50). LOD 1 fades into LOD 2 over projected radii [6, 9).
+		auto quad = PopulationQuad(fixture);
+		api::PopulationLod lods[] =
+		{
+			{ .m_object = quad, .m_min_size = 16, .m_transition = 0 },
+			{ .m_object = quad, .m_min_size = 6, .m_transition = 0.5f },
+			{ .m_object = quad, .m_min_size = 2, .m_transition = 0 },
+		};
+		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(lods, 3, 0));
+		Require(prototype != nullptr, "Population prototype creation failed");
+
+		// The reference classification of one instance: the LOD lists it appears in. Instances near a decision boundary are not generated, so float
+		// rounding cannot change the result. 'margin' is false for such instances.
+		auto const radius = std::sqrt(50.0f);
+		auto const half_size = 0.5f * ImageSize;
+		struct Reference { int lod0; int lod1; bool margin; };
+		auto reference = [&](float x, float y, float z) -> Reference
+		{
+			// Visible spheres are inside all four side planes. Plane distances are scaled by 1/sqrt(2) because the plane normals have length sqrt(2).
+			auto margin = true;
+			auto inside = true;
+			for (auto side : { -z - x, -z + x, -z - y, -z + y })
+			{
+				auto d = side / std::sqrt(2.0f);
+				margin &= std::abs(d + radius) > 1.0f;
+				inside &= d >= -radius;
+			}
+			if (!inside)
+				return { -1, -1, margin };
+
+			// The most detailed LOD whose minimum size the projected radius reaches, plus the next LOD inside a transition band.
+			auto size = radius * half_size / std::sqrt(x * x + y * y + z * z);
+			for (auto edge : { 16.0f, 9.0f, 6.0f, 2.0f })
+				margin &= std::abs(size - edge) > 0.03f * edge;
+
+			if (size >= 16) return { 0, -1, margin };
+			if (size >= 9) return { 1, -1, margin };
+			if (size >= 6) return { 1, 2, margin };
+			if (size >= 2) return { 2, -1, margin };
+			return { -1, -1, margin };
+		};
+
+		// Generate a deterministic scatter in blocks of 64 slots, spanning near and far, inside and outside the view. Every tenth instance is disabled,
+		// and the last block is exactly full (live == capacity == the remaining instance capacity).
+		constexpr int BlockSlots = 64, BlockCount = 6;
+		auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), BlockSlots * BlockCount, BlockCount, 0));
+		Require(population != nullptr, "Population creation failed");
+		auto rng = uint32_t{ 12345 };
+		auto random = [&](float lo, float hi)
+		{
+			rng = rng * 1664525u + 1013904223u;
+			return lo + (hi - lo) * static_cast<float>(rng >> 8) / 16777216.0f;
+		};
+		int64_t expected_lod[3] = {};
+		int64_t expected_tested = 0;
+		for (int b = 0; b != BlockCount; ++b)
+		{
+			// Each block's live instances are packed at its start, and the block bound contains every live sphere
+			auto live = b == BlockCount - 1 ? BlockSlots : 40 + 4 * b;
+			auto block = std::vector<api::PopulationInstance>{};
+			auto lo = api::Vec4{ +1e9f, +1e9f, +1e9f, 1 };
+			auto hi = api::Vec4{ -1e9f, -1e9f, -1e9f, 1 };
+			for (; static_cast<int>(block.size()) != live;)
+			{
+				// Reject candidates near a decision boundary
+				auto z = random(-300.0f, -5.0f);
+				auto x = random(-1.5f, 1.5f) * -z;
+				auto y = random(-1.5f, 1.5f) * -z;
+				auto ref = reference(x, y, z);
+				if (!ref.margin)
+					continue;
+
+				// Record the instance and its reference classification
+				auto index = b * BlockSlots + static_cast<int>(block.size());
+				block.push_back(PopulationInstanceAt(x, y, z, 0xFFFFFFFF));
+				if (index % 10 == 9)
+				{
+					block.back().m_flags = api::EPopulationInstanceFlags::None;
+				}
+				else
+				{
+					if (ref.lod0 >= 0) ++expected_lod[ref.lod0];
+					if (ref.lod1 >= 0) ++expected_lod[ref.lod1];
+				}
+				lo = api::Vec4{ std::min(lo.x, x - radius), std::min(lo.y, y - radius), std::min(lo.z, z - radius), 1 };
+				hi = api::Vec4{ std::max(hi.x, x + radius), std::max(hi.y, y + radius), std::max(hi.z, z + radius), 1 };
+			}
+
+			// The blocks overlap the view, so the GPU tests every live slot
+			View3D_PopulationInstancesUpdate(population.get(), b * BlockSlots, block.data(), live);
+			auto bbox = api::BBox{ .centre = { 0.5f * (lo.x + hi.x), 0.5f * (lo.y + hi.y), 0.5f * (lo.z + hi.z), 1 }, .radius = { 0.5f * (hi.x - lo.x), 0.5f * (hi.y - lo.y), 0.5f * (hi.z - lo.z), 0 } };
+			View3D_PopulationBlockSet(population.get(), b, bbox, b * BlockSlots, BlockSlots, live);
+			expected_tested += live;
+		}
+		View3D_WindowAddPopulation(fixture.m_window, population.get());
+		fixture.CheckErrors();
+
+		// The GPU classification matches the reference per LOD
+		fixture.Image();
+		auto stats = PopulationStats(fixture, population.get());
+		Require(stats.m_views == 1 && stats.m_blocks_rejected == 0, "Population reference blocks were rejected");
+		Require(stats.m_instances_tested == expected_tested, "Population reference tested count differs from the CPU reference");
+		Require(expected_lod[0] > 0 && expected_lod[1] > 0 && expected_lod[2] > 0, "Population reference scatter does not cover every LOD");
+		for (int lod = 0; lod != 3; ++lod)
+		{
+			// Report the first LOD that differs
+			if (stats.m_entries_per_lod[lod] != expected_lod[lod])
+				std::cout << "LOD " << lod << ": GPU " << stats.m_entries_per_lod[lod] << ", reference " << expected_lod[lod] << '\n';
+
+			Require(stats.m_entries_per_lod[lod] == expected_lod[lod], "Population LOD classification differs from the CPU reference");
+		}
+		Require(stats.m_entries_emitted == expected_lod[0] + expected_lod[1] + expected_lod[2], "Population emitted count differs from the CPU reference");
+		Require(stats.m_indirect_draws == 3, "Population draws one indirect draw per (LOD, nugget)");
+
+		fixture.CheckDebugLayer();
+		std::cout << "PASS population visibility and LOD selection match the CPU reference (" << stats.m_entries_emitted << " entries)\n";
+	}
 }
 
 namespace pr::unittests::view3d12
@@ -367,5 +594,13 @@ namespace pr::unittests::view3d12
 	{
 		render_tests::PopulationProducerTests(1);
 		render_tests::PopulationProducerTests(4);
+	}
+	PRUnitTest(View3d12_PopulationStats, Extended | Serial)
+	{
+		render_tests::PopulationStatsTests();
+	}
+	PRUnitTest(View3d12_PopulationReference, Extended | Serial)
+	{
+		render_tests::PopulationReferenceTests();
 	}
 }

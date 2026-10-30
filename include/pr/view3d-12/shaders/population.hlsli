@@ -51,7 +51,8 @@
 #define VIEW3D_POPULATION_PRODUCER_LIVE_COUNTS_REGISTER u1
 #define VIEW3D_POPULATION_PRODUCER_PAYLOAD_REGISTER u2
 
-// Byte offsets of the per-view list header. The header holds 'VIEW3D_POPULATION_MAX_LODS' uints for each field.
+// Byte offsets of the per-view list header. The header holds 'VIEW3D_POPULATION_MAX_LODS' uints for each field. The DIAG field holds
+// renderer diagnostic counters, which callers read through View3D_PopulationStats rather than from shaders.
 #define VIEW3D_POPULATION_HEADER_COUNTS 0
 #define VIEW3D_POPULATION_HEADER_OFFSETS 32
 #define VIEW3D_POPULATION_HEADER_CURSORS 64
