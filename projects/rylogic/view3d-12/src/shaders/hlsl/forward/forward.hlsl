@@ -324,6 +324,51 @@ PSInTexN VSForwardTexN(VSIn In, uint vertex_id : SV_VertexID)
 	return Out;
 }
 
+// Population draw bindings (see 'pr/view3d-12/shaders/population.hlsli')
+StructuredBuffer<View3DPopulationInstance> g_pop_instances : register(t24);
+ByteAddressBuffer g_pop_view : register(t25);
+ConstantBuffer<View3DPopulationDraw> g_pop_draw : register(b8);
+
+// Place a vertex, computed with the population's identity-transform proxy element, at the population instance for 'instance_id'.
+PSIn PlacePopulationVertex(PSIn base, uint instance_id)
+{
+	// Find the source instance through the per-view list, then apply its transform and tint and project with the frame camera.
+	View3DPopulationEntry entry = View3DPopulationFetch(g_pop_view, g_pop_draw, instance_id);
+	View3DPopulationInstance inst = g_pop_instances[entry.source];
+
+	PSIn Out = base;
+	Out.ws_vert = View3DPopulationTransform(inst, base.ws_vert);
+	Out.ws_norm = View3DPopulationTransformNormal(inst, base.ws_norm);
+	Out.ss_vert = mul(Out.ws_vert, g_frame.cam.w2s);
+	Out.diff = base.diff * View3DPopulationTint(inst);
+	Out.dither = entry.dither;
+	return Out;
+}
+
+// Forward VS for population draws
+PSIn VSForwardPopulation(VSIn In, uint instance_id : SV_InstanceID)
+{
+	return PlacePopulationVertex(VSForward(In), instance_id);
+}
+
+// Forward VS for population draws of PBR materials that use optional texture-coordinate lanes
+PSInTexN VSForwardTexNPopulation(VSIn In, uint vertex_id : SV_VertexID, uint instance_id : SV_InstanceID)
+{
+	// Place the shared vertex fields; the optional lanes do not depend on the placement.
+	PSInTexN Out = VSForwardTexN(In, vertex_id);
+	PSIn base = (PSIn)0;
+	base.ws_vert = Out.ws_vert;
+	base.ws_norm = Out.ws_norm;
+	base.diff = Out.diff;
+	base = PlacePopulationVertex(base, instance_id);
+	Out.ws_vert = base.ws_vert;
+	Out.ws_norm = base.ws_norm;
+	Out.ss_vert = base.ss_vert;
+	Out.diff = base.diff;
+	Out.dither = base.dither;
+	return Out;
+}
+
 // Mean square slope of surface detail too fine for the interpolated normal to show. Pixel-shader variants that know it set it before shading.
 // The stock shaders leave it at zero, so their reflections stay mirror-sharp.
 static float g_unresolved_slope_variance = 0.0f;

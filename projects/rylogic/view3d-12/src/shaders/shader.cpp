@@ -297,6 +297,8 @@ namespace pr::rdr12
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_alpha_collect_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_alpha_collect_pbr_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_texn_pbr_vs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_population_vs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(forward_texn_population_vs.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_texn_pbr_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_reflection_attrs_texn_pbr_ps.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(forward_alpha_collect_texn_pbr_ps.h)
@@ -315,6 +317,8 @@ namespace pr::rdr12
 		ByteCode const forward_alpha_collect_ps(compiled::forward_alpha_collect_ps);
 		ByteCode const forward_alpha_collect_pbr_ps(compiled::forward_alpha_collect_pbr_ps);
 		ByteCode const forward_texn_pbr_vs(compiled::forward_texn_pbr_vs);
+		ByteCode const forward_population_vs(compiled::forward_population_vs);
+		ByteCode const forward_texn_population_vs(compiled::forward_texn_population_vs);
 		ByteCode const forward_texn_pbr_ps(compiled::forward_texn_pbr_ps);
 		ByteCode const forward_reflection_attrs_texn_pbr_ps(compiled::forward_reflection_attrs_texn_pbr_ps);
 		ByteCode const forward_alpha_collect_texn_pbr_ps(compiled::forward_alpha_collect_texn_pbr_ps);
@@ -407,5 +411,18 @@ namespace pr::rdr12
 		ByteCode const mipmap_generator_cs(compiled::mipmap_generator_cs);
 		ByteCode const env_map_distance_cs(compiled::env_map_distance_cs);
 		ByteCode const skinning_cs(compiled::skinning_cs);
+
+		// Population visibility, LOD classification, and draw argument generation
+		namespace compiled
+		{
+			#include PR_RDR_SHADER_COMPILED_DIR(population_clear_cs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(population_count_cs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(population_prefix_cs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(population_scatter_cs.h)
+		}
+		ByteCode const population_clear_cs(compiled::population_clear_cs);
+		ByteCode const population_count_cs(compiled::population_count_cs);
+		ByteCode const population_prefix_cs(compiled::population_prefix_cs);
+		ByteCode const population_scatter_cs(compiled::population_scatter_cs);
 	}
 }

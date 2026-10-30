@@ -97,6 +97,7 @@
 		<ClCompile Include="src\view3d-12\render_tests_procedural_vertex.cpp" />
 		<ClCompile Include="src\view3d-12\render_tests_procedural_surface.cpp" />
 		<ClCompile Include="src\view3d-12\render_tests_colour.cpp" />
+		<ClCompile Include="src\view3d-12\render_tests_population.cpp" />
 		<ClCompile Include="src\view3d-12\render_tests_shadows.cpp" />
 		<ClCompile Include="src\view3d-12\render_tests_post_effects.cpp" />
 		<ClCompile Include="src\view3d-12\render_tests_surface_normals.cpp" />

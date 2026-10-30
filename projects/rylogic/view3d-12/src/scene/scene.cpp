@@ -1,4 +1,4 @@
-﻿//*********************************************
+//*********************************************
 // View 3d
 //  Copyright (c) Rylogic Ltd 2022
 //*********************************************
@@ -7,6 +7,7 @@
 #include "pr/view3d-12/main/renderer.h"
 #include "pr/view3d-12/instance/instance.h"
 #include "pr/view3d-12/model/model.h"
+#include "pr/view3d-12/population/population.h"
 #include "pr/view3d-12/render/render_step.h"
 #include "pr/view3d-12/ray_tracing/ray_tracing_model.h"
 #include "pr/view3d-12/ray_tracing/render_ray_tracing.h"
@@ -60,6 +61,7 @@ namespace pr::rdr12
 		, m_resolved_lights()
 		, m_dropped_lights()
 		, m_cloud_sky()
+		, m_populations()
 		, m_post_effects(*wnd.m_rdr)
 	{
 		// Initialise the scene camera to match the full window
@@ -197,6 +199,30 @@ namespace pr::rdr12
 		// Remove from each render step
 		for (auto& rs : m_render_steps)
 			rs->RemoveInstance(inst);
+	}
+
+	// Add a retained population to the scene
+	void Scene::AddPopulation(PopulationPtr pop)
+	{
+		// Populations are retained, so repeated adds from scenes rebuilt each frame must not duplicate draws.
+		if (pop == nullptr)
+			throw std::invalid_argument("Population must not be null");
+		if (std::ranges::find(m_populations, pop) != m_populations.end())
+			return;
+
+		m_populations.push_back(pop);
+	}
+
+	// Remove a population from the scene
+	void Scene::RemovePopulation(Population const& pop)
+	{
+		pr::erase_if(m_populations, [&](PopulationPtr const& p) { return p.get() == &pop; });
+	}
+
+	// The populations in the scene
+	std::span<PopulationPtr const> Scene::Populations() const
+	{
+		return m_populations;
 	}
 
 	// Set the render steps to use for rendering the scene
@@ -451,6 +477,10 @@ namespace pr::rdr12
 
 		// Make sure the scene is up to date
 		OnUpdateScene(*this, { frame.m_prepare, frame.m_upload });
+
+		// Record population content changes before any render step reads the populations
+		for (auto& pop : m_populations)
+			pop->Flush(frame.m_prepare, frame.m_upload);
 
 		// Resolve the lights for this frame before any render step reads them
 		m_dropped_lights = ResolveLights(m_lights, m_frame_lights, m_cam.CameraToWorld(), m_resolved_lights);

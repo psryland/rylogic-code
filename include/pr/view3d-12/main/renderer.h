@@ -6,6 +6,7 @@
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/main/settings.h"
 #include "pr/view3d-12/model/skinned_geometry.h"
+#include "pr/view3d-12/population/population.h"
 #include "pr/view3d-12/ray_tracing/ray_tracing_support.h"
 #include "pr/view3d-12/resource/resource_store.h"
 #include "pr/view3d-12/utility/features.h"
@@ -88,6 +89,7 @@ namespace pr::rdr12
 		// Storage of resources
 		ResourceStore m_res_store;
 		SkinnedGeometryCache m_skinned_geometry;
+		PopulationCuller m_population_culler;
 
 		// Release resources acquired in the constructor body
 		void Teardown();
@@ -211,6 +213,9 @@ namespace pr::rdr12
 
 		// Access the shared compute-skinned geometry cache.
 		SkinnedGeometryCache& SkinnedGeometry();
+
+		// Access the shared population classification pipeline.
+		PopulationCuller& PopulationCulling();
 
 		// Return the current-pose object/root-space bounding box for a skinned model/pose pair.
 		std::optional<BBox> SkinnedModelBBox(Model const& model, Pose const& pose) const;

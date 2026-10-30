@@ -529,6 +529,18 @@ namespace Rylogic.Gfx
 				View3D_WindowRemoveAllObjects(Handle);
 			}
 
+			/// <summary>Add a population to the window. The window keeps its own reference.</summary>
+			public void AddPopulation(Population population)
+			{
+				View3D_WindowAddPopulation(Handle, population.Handle);
+			}
+
+			/// <summary>Remove a population from the window</summary>
+			public void RemovePopulation(Population population)
+			{
+				View3D_WindowRemovePopulation(Handle, population.Handle);
+			}
+
 			/// <summary>Return the number of objects in a window</summary>
 			public int ObjectCount => View3D_WindowObjectCount(Handle);
 

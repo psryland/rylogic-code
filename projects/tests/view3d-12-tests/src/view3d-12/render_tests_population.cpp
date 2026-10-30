@@ -1,0 +1,143 @@
+#include "forward.h"
+#include "render_test_support.h"
+
+namespace render_tests
+{
+	// Create an unlit white 10x10 quad at the model origin, facing the camera. The object is not added to the window.
+	api::Object PopulationQuad(Fixture& fixture)
+	{
+		// Vertex-only geometry so the instance tint alone decides the pixel colour
+		api::Vertex verts[] =
+		{
+			{{-5,-5,0,1}, {}, {}, 0xFFFFFFFF, 0},
+			{{+5,-5,0,1}, {}, {}, 0xFFFFFFFF, 0},
+			{{+5,+5,0,1}, {}, {}, 0xFFFFFFFF, 0},
+			{{-5,+5,0,1}, {}, {}, 0xFFFFFFFF, 0},
+		};
+		UINT16 indices[] = {0,1,2,0,2,3};
+		auto nugget = api::Nugget{};
+		nugget.m_topo = api::ETopo::TriList;
+		nugget.m_geom = api::EGeom::Vert;
+		nugget.m_cull_mode = api::ECullMode::None;
+		nugget.m_tint = 0xFFFFFFFF;
+		auto object = View3D_ObjectCreate("PopulationQuad", 0xFFFFFFFF, 4, 6, 1, verts, indices, &nugget, GUID{});
+		Require(object != nullptr, "Population quad creation failed");
+		fixture.m_objects.push_back(object);
+		return object;
+	}
+
+	// Make an enabled instance record translated to (x, y, z) with 'tint'
+	api::PopulationInstance PopulationInstanceAt(float x, float y, float z, unsigned tint)
+	{
+		// Rows of an affine transform with identity rotation
+		auto instance = api::PopulationInstance{};
+		instance.m_o2w[0] = api::Vec4{1, 0, 0, x};
+		instance.m_o2w[1] = api::Vec4{0, 1, 0, y};
+		instance.m_o2w[2] = api::Vec4{0, 0, 1, z};
+		instance.m_tint = tint;
+		instance.m_flags = api::EPopulationInstanceFlags::Enabled;
+		return instance;
+	}
+
+	// Verify GPU-culled population rendering: block live counts, instance flags, draw distance, and scene removal
+	void PopulationTests(int samples)
+	{
+		// The orthographic camera maps world x in [-50,50] to pixels [0,128]. Instances at x = -30 and x = +30 land near pixels 26 and 102.
+		Fixture fixture(samples);
+		auto quad = PopulationQuad(fixture);
+		auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
+		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0));
+		Require(prototype != nullptr, "Population prototype creation failed");
+		auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 8, 2, 0));
+		Require(population != nullptr, "Population creation failed");
+		fixture.CheckErrors();
+
+		// Two instances in one block, whose bound contains both instance spheres
+		api::PopulationInstance instances[] =
+		{
+			PopulationInstanceAt(-30, 0, -50, 0xFFFF0000),
+			PopulationInstanceAt(+30, 0, -50, 0xFF00FF00),
+		};
+		auto bbox = api::BBox{ .centre = {0, 0, -50, 1}, .radius = {40, 10, 10, 0} };
+		View3D_PopulationInstancesUpdate(population.get(), 0, instances, 2);
+		View3D_PopulationBlockSet(population.get(), 0, bbox, 0, 4, 2);
+		View3D_WindowAddPopulation(fixture.m_window, population.get());
+		fixture.CheckErrors();
+		{
+			auto image = fixture.Image();
+			Expect(image, 1, 0, 0, 26, 64);
+			Expect(image, 0, 1, 0, 102, 64);
+			Expect(image, 0, 0, 0, 64, 64);
+		}
+
+		// Only the first 'live_count' slots of a block are drawn
+		View3D_PopulationBlockSet(population.get(), 0, bbox, 0, 4, 1);
+		fixture.CheckErrors();
+		{
+			auto image = fixture.Image();
+			Expect(image, 1, 0, 0, 26, 64);
+			Expect(image, 0, 0, 0, 102, 64);
+		}
+
+		// Disabled instances are skipped, and instance updates are shown from the next frame
+		View3D_PopulationBlockSet(population.get(), 0, bbox, 0, 4, 2);
+		instances[0].m_flags = api::EPopulationInstanceFlags::None;
+		instances[1].m_tint = 0xFF0000FF;
+		View3D_PopulationInstancesUpdate(population.get(), 0, instances, 2);
+		fixture.CheckErrors();
+		{
+			auto image = fixture.Image();
+			Expect(image, 0, 0, 0, 26, 64);
+			Expect(image, 0, 0, 1, 102, 64);
+		}
+
+		// A second block of the same population draws alongside the first
+		auto extra = PopulationInstanceAt(0, 30, -50, 0xFFFFFFFF);
+		View3D_PopulationInstancesUpdate(population.get(), 4, &extra, 1);
+		View3D_PopulationBlockSet(population.get(), 1, api::BBox{ .centre = {0, 30, -50, 1}, .radius = {10, 10, 10, 0} }, 4, 4, 1);
+		fixture.CheckErrors();
+		{
+			auto image = fixture.Image();
+			Expect(image, 1, 1, 1, 64, 26);
+			Expect(image, 0, 0, 1, 102, 64);
+		}
+
+		// Removing a block stops drawing its instances
+		View3D_PopulationBlockRemove(population.get(), 1);
+		fixture.CheckErrors();
+		Expect(fixture.Image(), 0, 0, 0, 64, 26);
+
+		// Removing the population from the window clears it
+		View3D_WindowRemovePopulation(fixture.m_window, population.get());
+		fixture.CheckErrors();
+		Expect(fixture.Image(), 0, 0, 0, 102, 64);
+
+		// Instances beyond the prototype draw distance are not drawn. The instances are 50 units from the camera.
+		auto near_prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 20));
+		auto near_population = api::PopulationPtr(View3D_PopulationCreate(near_prototype.get(), 8, 2, 0));
+		Require(near_population != nullptr, "Population creation failed");
+		View3D_PopulationInstancesUpdate(near_population.get(), 0, instances, 2);
+		View3D_PopulationBlockSet(near_population.get(), 0, bbox, 0, 4, 2);
+		View3D_WindowAddPopulation(fixture.m_window, near_population.get());
+		fixture.CheckErrors();
+		Expect(fixture.Image(), 0, 0, 0, 102, 64);
+		View3D_WindowRemovePopulation(fixture.m_window, near_population.get());
+
+		// Invalid contracts are reported rather than drawn
+		View3D_PopulationBlockSet(population.get(), 0, bbox, 6, 4, 2);
+		Require(!fixture.m_errors.empty(), "A block beyond the instance capacity was accepted");
+		fixture.m_errors.clear();
+
+		fixture.CheckDebugLayer();
+		std::cout << "PASS population block live counts, instance flags, draw distance, and removal: MSAA " << samples << '\n';
+	}
+}
+
+namespace pr::unittests::view3d12
+{
+	PRUnitTest(View3d12_Population, Extended | Serial)
+	{
+		render_tests::PopulationTests(1);
+		render_tests::PopulationTests(4);
+	}
+}

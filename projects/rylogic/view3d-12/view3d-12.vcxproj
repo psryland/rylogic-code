@@ -132,6 +132,7 @@
     <ClCompile Include="src\model\pose.cpp" />
     <ClCompile Include="src\model\skeleton.cpp" />
     <ClCompile Include="src\model\skinned_geometry.cpp" />
+    <ClCompile Include="src\population\population.cpp" />
     <ClCompile Include="src\model\skin.cpp" />
     <ClCompile Include="src\openxr\openxr.cpp" />
     <ClCompile Include="src\ray_tracing\ray_tracing_diagnostic.cpp" />
@@ -266,6 +267,7 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\pose.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\skeleton.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\skinned_geometry.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\population\population.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\skin.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\model\vertex_layout.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\openxr\openxr.h" />
@@ -365,8 +367,9 @@
     <None Include="src\shaders\hlsl\utility\env_map.hlsli" />
     <None Include="src\shaders\hlsl\utility\tri_table.hlsli" />
     <ShaderBuild Include="src\shaders\hlsl\skinned\skinning.hlsl" ComputeEntryPoints="skinning_cs=CSSkinning" />
+    <ShaderBuild Include="src\shaders\hlsl\population\population_cull.hlsl" ComputeEntryPoints="population_clear_cs=CSPopClear;population_count_cs=CSPopCount;population_prefix_cs=CSPopPrefix;population_scatter_cs=CSPopScatter" />
     <ShaderBuild Include="src\shaders\hlsl\shadow\shadow_map.hlsl" VertexEntryPoints="shadow_map_vs=VSShadowMap" PixelEntryPoints="shadow_map_ps=PSShadowMap" />
-    <ShaderBuild Include="src\shaders\hlsl\forward\forward.hlsl" VertexEntryPoints="forward_vs=VSForward;forward_texn_pbr_vs=VSForwardTexN" PixelEntryPoints="forward_texn_pbr_ps=PSForwardPbrTexN;forward_reflection_attrs_texn_pbr_ps=PSForwardPbrTexNReflectionAttrs;forward_alpha_collect_texn_pbr_ps=PSForwardPbrTexNAlphaCollect;forward_radial_fade_ps=PSForwardRadialFade" />
+    <ShaderBuild Include="src\shaders\hlsl\forward\forward.hlsl" VertexEntryPoints="forward_vs=VSForward;forward_texn_pbr_vs=VSForwardTexN;forward_population_vs=VSForwardPopulation;forward_texn_population_vs=VSForwardTexNPopulation" PixelEntryPoints="forward_texn_pbr_ps=PSForwardPbrTexN;forward_reflection_attrs_texn_pbr_ps=PSForwardPbrTexNReflectionAttrs;forward_alpha_collect_texn_pbr_ps=PSForwardPbrTexNAlphaCollect;forward_radial_fade_ps=PSForwardRadialFade" />
     <ShaderBuild Include="src\shaders\hlsl\forward\detail_normals.hlsl" PixelEntryPoints="forward_detail_ps=PSForwardDetail;forward_reflection_attrs_detail_ps=PSForwardDetailReflectionAttrs;forward_alpha_collect_detail_ps=PSForwardDetailAlphaCollect" />
     <ShaderBuild Include="src\shaders\hlsl\forward\forward_pbr.hlsl" PixelEntryPoints="forward_pbr_ps=PSForwardPbr;forward_reflection_attrs_pbr_ps=PSForwardPbrReflectionAttrs;forward_alpha_collect_pbr_ps=PSForwardPbrAlphaCollect" />
     <ShaderBuild Include="src\shaders\hlsl\forward\forward_simple.hlsl" PixelEntryPoints="forward_ps=PSForward;forward_reflection_attrs_ps=PSForwardReflectionAttrs;forward_alpha_collect_ps=PSForwardAlphaCollect" />

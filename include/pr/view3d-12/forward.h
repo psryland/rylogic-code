@@ -297,6 +297,12 @@ namespace pr::rdr12
 	// Instances
 	struct BaseInstance;
 
+	// Populations
+	struct PopulationPrototype;
+	struct Population;
+	using PopulationPrototypePtr = RefPtr<PopulationPrototype>;
+	using PopulationPtr = RefPtr<Population>;
+
 	// Animation
 	struct RootAnimation;
 	struct KeyFrameAnimation;

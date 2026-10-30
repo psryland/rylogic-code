@@ -33,6 +33,8 @@ namespace pr
 		struct Sampler;
 		struct Shader;
 		struct WeatherMap;
+		struct PopulationPrototype;
+		struct Population;
 		namespace materials
 		{
 			struct DetailStrengthMap;
@@ -54,6 +56,8 @@ namespace pr
 		using Sampler = rdr12::Sampler*;
 		using Shader = rdr12::Shader*;
 		using WeatherMap = rdr12::WeatherMap*;
+		using PopulationPrototype = rdr12::PopulationPrototype*;
+		using Population = rdr12::Population*;
 		using DetailStrengthMap = rdr12::materials::DetailStrengthMap*;
 		using Window = rdr12::V3dWindow*;
 		using Colour = unsigned int;
@@ -714,6 +718,32 @@ namespace pr
 			Vec4 centre;
 			Vec4 radius;
 		};
+
+		// Flags of a population instance. Matches VIEW3D_POPULATION_FLAG_* in 'pr/view3d-12/shaders/population.hlsli'.
+		enum class EPopulationInstanceFlags : uint32_t
+		{
+			None = 0,
+			Enabled = 1 << 0, // Only enabled instances are drawn.
+			_flags_enum = 0,
+		};
+
+		// One placement of a population prototype. Matches 'View3DPopulationInstance' in 'pr/view3d-12/shaders/population.hlsli'.
+		struct PopulationInstance
+		{
+			Vec4 m_o2w[3];                      // Rows of the affine instance-to-world transform: world[i] = dot(m_o2w[i], (p,1)).
+			Colour m_tint;                      // Multiplies the vertex colour.
+			EPopulationInstanceFlags m_flags;
+			uint32_t m_payload;                 // Caller payload index, interpreted only by caller shaders.
+			uint32_t m_reserved;                // Must be zero.
+		};
+
+		// One level of detail of a population prototype. See View3D_PopulationPrototypeCreate.
+		struct PopulationLod
+		{
+			Object m_object;      // Supplies the LOD's model. Child objects are not used.
+			float m_min_size;     // The minimum projected radius, in pixels, of the prototype bounding sphere at which this LOD is drawn.
+			float m_transition;   // The dithered transition band above 'm_min_size', as a fraction of 'm_min_size'. Zero is an abrupt switch.
+		};
 		struct VICount
 		{
 			int m_vcount;
@@ -1252,6 +1282,10 @@ extern "C"
 	// Remove all objects 'window'
 	VIEW3D_API void __stdcall View3D_WindowRemoveAllObjects(pr::view3d::Window window);
 
+	// Add/Remove a population to/from a window. The window keeps its own reference. Adding a population that is already in the window does nothing.
+	VIEW3D_API void __stdcall View3D_WindowAddPopulation(pr::view3d::Window window, pr::view3d::Population population);
+	VIEW3D_API void __stdcall View3D_WindowRemovePopulation(pr::view3d::Window window, pr::view3d::Population population);
+
 	// Enumerate the GUIDs associated with 'window'
 	VIEW3D_API void __stdcall View3D_WindowEnumGuids(pr::view3d::Window window, pr::view3d::EnumGuidsCB enum_guids_cb);
 
@@ -1624,6 +1658,35 @@ extern "C"
 
 	// Copy the CPU grid to the GPU so later frames show the edits.
 	VIEW3D_API void __stdcall View3D_WeatherMapUpload(pr::view3d::WeatherMap weather);
+
+	// Populations ******************************
+	// A population draws many placements of one prototype with GPU instancing. Instances live in GPU buffers and are grouped into caller-owned blocks.
+	// Population LOD materials must be opaque and must not override the forward vertex shader.
+
+	// Create a prototype from 'lod_count' LODs, ordered from most to least detailed. Each LOD draws the model of its object. The prototype keeps its own
+	// reference to the models, so the objects may be deleted afterwards. LOD thresholds must strictly decrease, and transition bands must not overlap.
+	// 'draw_distance' is the maximum camera distance of a drawn instance's bounding sphere; zero is unlimited. Release using
+	// View3D_PopulationPrototypeRelease. Returns null on failure.
+	VIEW3D_API pr::view3d::PopulationPrototype __stdcall View3D_PopulationPrototypeCreate(pr::view3d::PopulationLod const* lods, int lod_count, float draw_distance);
+	VIEW3D_API void __stdcall View3D_PopulationPrototypeRelease(pr::view3d::PopulationPrototype prototype);
+
+	// Create a population of 'prototype' with fixed capacities. GPU resources are created here, so later updates do not allocate. 'payload_size' is the
+	// size in bytes of an optional caller payload buffer for custom shaders; zero means no payload. Release using View3D_PopulationRelease. Returns null on failure.
+	VIEW3D_API pr::view3d::Population __stdcall View3D_PopulationCreate(pr::view3d::PopulationPrototype prototype, int instance_capacity, int block_capacity, int payload_size);
+	VIEW3D_API void __stdcall View3D_PopulationRelease(pr::view3d::Population population);
+
+	// Define block 'index' as the instance slots [first, first + capacity), of which the first 'live_count' are drawn. 'bbox' is a world-space bound that
+	// must contain the bounding sphere of every live instance. Blocks outside the view are skipped without testing their instances.
+	VIEW3D_API void __stdcall View3D_PopulationBlockSet(pr::view3d::Population population, int index, pr::view3d::BBox bbox, int first, int capacity, int live_count);
+
+	// Stop drawing block 'index'.
+	VIEW3D_API void __stdcall View3D_PopulationBlockRemove(pr::view3d::Population population, int index);
+
+	// Copy 'count' instance records into the slots [first, first + count). The data is copied during the call and shown from the next frame.
+	VIEW3D_API void __stdcall View3D_PopulationInstancesUpdate(pr::view3d::Population population, int first, pr::view3d::PopulationInstance const* instances, int count);
+
+	// Copy 'size' bytes into the payload buffer at byte offset 'ofs'. The data is copied during the call and shown from the next frame.
+	VIEW3D_API void __stdcall View3D_PopulationPayloadUpdate(pr::view3d::Population population, int64_t ofs, void const* data, int64_t size);
 
 	// Create an ldr object using a callback to populate the model data.
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateWithCallback(char const* name, pr::view3d::Colour colour, int vcount, int icount, int ncount, pr::view3d::EditObjectCB edit_cb, GUID const& context_id);
@@ -2012,6 +2075,8 @@ namespace pr::view3d
 			void operator()(Sampler p) noexcept { if (p) View3D_SamplerRelease(p); }
 			void operator()(Shader p) noexcept { if (p) View3D_ShaderRelease(p); }
 			void operator()(WeatherMap p) noexcept { if (p) View3D_WeatherMapRelease(p); }
+			void operator()(PopulationPrototype p) noexcept { if (p) View3D_PopulationPrototypeRelease(p); }
+			void operator()(Population p) noexcept { if (p) View3D_PopulationRelease(p); }
 			void operator()(DetailStrengthMap p) noexcept { if (p) View3D_DetailStrengthMapRelease(p); }
 			void operator()(Window p) noexcept { if (p) View3D_WindowDestroy(p); }
 		};
@@ -2024,6 +2089,8 @@ namespace pr::view3d
 	using SamplerPtr = std::unique_ptr<rdr12::Sampler, impl::Deleter>;
 	using ShaderPtr  = std::unique_ptr<rdr12::Shader, impl::Deleter>;
 	using WeatherMapPtr = std::unique_ptr<rdr12::WeatherMap, impl::Deleter>;
+	using PopulationPrototypePtr = std::unique_ptr<rdr12::PopulationPrototype, impl::Deleter>;
+	using PopulationPtr = std::unique_ptr<rdr12::Population, impl::Deleter>;
 	using DetailStrengthMapPtr = std::unique_ptr<rdr12::materials::DetailStrengthMap, impl::Deleter>;
 	using WindowPtr  = std::unique_ptr<rdr12::V3dWindow, impl::Deleter>;
 }

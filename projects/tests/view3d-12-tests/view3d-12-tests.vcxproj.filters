@@ -77,6 +77,9 @@
     <ClCompile Include="src\view3d-12\render_tests_colour.cpp">
       <Filter>view3d-12</Filter>
     </ClCompile>
+    <ClCompile Include="src\view3d-12\render_tests_population.cpp">
+      <Filter>view3d-12</Filter>
+    </ClCompile>
     <ClCompile Include="src\view3d-12\render_tests_shadows.cpp">
       <Filter>view3d-12</Filter>
     </ClCompile>

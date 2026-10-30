@@ -509,6 +509,13 @@ namespace pr::compute
 			SetGraphicsRootConstantBufferView(m_root_sig_idx++, address);
 		}
 
+		// Bind a shader resource buffer to a graphics root parameter
+		template <RootParamIdx Idx> void SetGraphicsRootShaderResourceView(Idx RootParameterIndex, GpuAddress address)
+		{
+			Use(address.m_res);
+			m_list->SetGraphicsRootShaderResourceView(s_cast<UINT>(RootParameterIndex), address.VirtualAddress());
+		}
+
 		// Bind a constant buffer to a compute root parameter
 		template <RootParamIdx Idx> void SetComputeRootConstantBufferView(Idx RootParameterIndex, GpuAddress address)
 		{

@@ -277,6 +277,9 @@ namespace pr::rdr12
 			m_elements = shaders::Forward::UploadElements(m_upload_buffer, scn(), CameraTransforms(scn().m_cam), std::span{ *drawlist });
 		}
 
+		// Classify the populations before any draws, so the classification can overlap earlier work on the GPU.
+		CullPopulations();
+
 		// Bind the descriptor heaps
 		auto des_heaps = { wnd().m_heap_view.get(), wnd().m_heap_samp.get() };
 		m_cmd_list.SetDescriptorHeaps({ des_heaps.begin(), des_heaps.size() });
@@ -326,11 +329,14 @@ namespace pr::rdr12
 			}
 			bind_render_targets();
 
-			// Draw the opaques
+			// Draw the opaques, then the populations, which are opaque. Without a K-buffer, sorted alpha draws follow on this list after the populations.
 			auto drawlist = m_drawlist.lock();
-			auto opaques = std::span{ *drawlist }.subspan(0, s_cast<size_t>(kbuf ? boundaries[ESortGroup::Alpha] : s_cast<int>(drawlist->size())));
+			auto alpha_start = boundaries[ESortGroup::Alpha];
 			auto pix_opaque = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF7EB8E5, "View3D::Opaque");
-			DrawNuggets(frame, m_cmd_list, pipe_state, opaques, 0, ESubPass::Opaque);
+			DrawNuggets(frame, m_cmd_list, pipe_state, std::span{ *drawlist }.subspan(0, s_cast<size_t>(alpha_start)), 0, ESubPass::Opaque);
+			DrawPopulations(frame, pipe_state);
+			if (!kbuf)
+				DrawNuggets(frame, m_cmd_list, pipe_state, std::span{ *drawlist }.subspan(s_cast<size_t>(alpha_start)), alpha_start, ESubPass::Opaque);
 		}
 
 		// Render the alpha nuggets
@@ -522,9 +528,57 @@ namespace pr::rdr12
 		cmd_list.SetGraphicsRootDescriptorTable(shaders::fwd::ERootParam::AlphaRtAttrs, alpha_rt_attrs);
 	}
 
-	// Add the nuggets in the draw list to 'cmd_list' for rendering.
-	void RenderForward::DrawNuggets(Frame& frame, GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist, int first_index, ESubPass sub_pass)
+	// Classify the scene's populations for the camera and build the population draws.
+	void RenderForward::CullPopulations()
 	{
+		// Population draws reference the classification results, so rebuild both each frame.
+		m_population_lists.resize(0);
+		m_population_dles.resize(0);
+		m_population_draws.resize(0);
+		auto populations = scn().Populations();
+		if (populations.empty())
+			return;
+
+		// Record the classification on the opaque command list, which also records the draws that consume it.
+		auto pix_cull = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5AC8A0, "View3D::PopulationCull");
+		auto view = PopulationCameraView(reinterpret_cast<uint64_t>(this), scn().m_cam, scn().m_viewport.Height);
+		m_population_lists.reserve(populations.size());
+		for (auto pop : populations)
+			m_population_lists.push_back(rdr().PopulationCulling().Cull(m_cmd_list, m_upload_buffer, *pop.get(), view, m_step_id));
+
+		// Each (LOD, nugget) draw takes its element constants from the LOD's proxy instance. 'm_population_lists' no longer changes, so the references are stable.
+		for (auto const& lists : m_population_lists)
+		{
+			for (auto const& draw : lists.m_draws)
+			{
+				m_population_dles.push_back(DrawListElement{ .m_sort_key = draw.m_nugget->m_sort_key, .m_nugget = draw.m_nugget, .m_instance = &draw.m_proxy->m_base });
+				m_population_draws.push_back(PopulationDrawRef{ .m_lists = &lists, .m_draw = &draw });
+			}
+		}
+	}
+
+	// Draw the classified populations into the opaque targets.
+	void RenderForward::DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state)
+	{
+		// Nothing to draw without populations.
+		if (m_population_dles.empty())
+			return;
+
+		// Population draws select element constants from their own table, so swap it in, then restore the drawlist's table for later draws.
+		auto pix_population = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5AC8A0, "View3D::Populations");
+		auto drawlist_elements = m_elements;
+		m_elements = shaders::Forward::UploadElements(m_upload_buffer, scn(), CameraTransforms(scn().m_cam), m_population_dles);
+		BindFrameResources(m_cmd_list);
+		DrawNuggets(frame, m_cmd_list, pipe_state, m_population_dles, 0, ESubPass::Opaque, m_population_draws);
+		m_elements = drawlist_elements;
+		BindFrameResources(m_cmd_list);
+	}
+
+	// Add the nuggets in the draw list to 'cmd_list' for rendering.
+	void RenderForward::DrawNuggets(Frame& frame, GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist, int first_index, ESubPass sub_pass, std::span<PopulationDrawRef const> populations)
+	{
+		assert(populations.empty() || populations.size() == drawlist.size());
+
 		// Keep camera inversion and default projection composition outside the per-nugget loop.
 		auto const camera = CameraTransforms(scn().m_cam);
 		Descriptor last_tex = {}, last_sam = {};
@@ -627,13 +681,36 @@ namespace pr::rdr12
 			if (ctx.m_root_signature_changed)
 				frame_resources_bound = false;
 
+			// Population draws place vertices with the population vertex shaders, and read the instance records and visible lists.
+			auto const* population = populations.empty() ? nullptr : &populations[s_cast<size_t>(&dle - drawlist.data())];
+			if (population != nullptr)
+			{
+				// Population admission rejects forward vertex shader overlays, so only the stock forward vertex shaders are expected here.
+				auto vs = desc.Get<EPipeState::VS>().pShaderBytecode;
+				if (vs == shader_code::forward_vs.pShaderBytecode)
+					desc.Apply(PSO<EPipeState::VS>(shader_code::forward_population_vs));
+				else if (vs == shader_code::forward_texn_pbr_vs.pShaderBytecode)
+					desc.Apply(PSO<EPipeState::VS>(shader_code::forward_texn_population_vs));
+				else
+					throw std::logic_error("Population draw has a vertex shader without a population variant");
+
+				// The payload slot needs a valid address even when the population has no payload, so it aliases the instance records.
+				auto const& lists = *population->m_lists;
+				auto const& pop = *lists.m_population;
+				auto draw = PopulationDraw{ .lod = s_cast<uint32_t>(population->m_draw->m_lod), .list_base = lists.m_list_base, .pad0 = 0, .pad1 = 0 };
+				cmd_list.SetGraphicsRootShaderResourceView(shaders::fwd::ERootParam::PopulationInstances, GpuAddress(pop.m_instances));
+				cmd_list.SetGraphicsRootShaderResourceView(shaders::fwd::ERootParam::PopulationView, GpuAddress(lists.m_scratch));
+				cmd_list.SetGraphicsRootShaderResourceView(shaders::fwd::ERootParam::PopulationPayload, pop.m_payload != nullptr ? GpuAddress(pop.m_payload) : GpuAddress(pop.m_instances));
+				cmd_list.SetGraphicsRoot32BitConstants(shaders::fwd::ERootParam::PopulationDraw, draw);
+			}
+
 			// Draw the nugget.
-			DrawNugget(cmd_list, nugget, desc, pipe_state_bound, pipe_state_hash);
+			DrawNugget(cmd_list, nugget, desc, pipe_state_bound, pipe_state_hash, population);
 		}
 	}
 
 	// Draw a single nugget
-	void RenderForward::DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash)
+	void RenderForward::DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash, PopulationDrawRef const* population)
 	{
 		auto set_pipe_state = [&]
 		{
@@ -644,6 +721,24 @@ namespace pr::rdr12
 			cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
 			pipe_state_bound = true;
 			pipe_state_hash = hash;
+		};
+
+		// Ordinary draws draw one instance. Population draws take their instance counts from the classification's argument records.
+		auto draw_indexed = [&]
+		{
+			// Keep indexed draws at base-vertex zero because optional model vertex streams use SV_VertexID to read buffers parallel to the primary vertex buffer.
+			if (population != nullptr)
+				cmd_list.ExecuteIndirect(rdr().PopulationCulling().DrawSignature(true), 1, population->m_lists->m_scratch, s_cast<UINT64>(population->m_draw->m_args_indexed));
+			else
+				cmd_list.DrawIndexedInstanced(s_cast<size_t>(nugget.m_irange.size()), 1U, s_cast<size_t>(nugget.m_irange.m_beg), 0, 0U);
+		};
+		auto draw_vertices = [&]
+		{
+			// Draw the nugget's vertex range without indices.
+			if (population != nullptr)
+				cmd_list.ExecuteIndirect(rdr().PopulationCulling().DrawSignature(false), 1, population->m_lists->m_scratch, s_cast<UINT64>(population->m_draw->m_args_vertex));
+			else
+				cmd_list.DrawInstanced(s_cast<size_t>(nugget.m_vrange.size()), 1U, s_cast<size_t>(nugget.m_vrange.m_beg), 0U);
 		};
 
 		// Resolve the effective fill mode: per-nugget override wins, else scene-level
@@ -663,18 +758,10 @@ namespace pr::rdr12
 
 			set_pipe_state();
 			if (nugget.m_irange.empty())
-			{
-				cmd_list.DrawInstanced(
-					s_cast<size_t>(nugget.m_vrange.size()), 1U,
-					s_cast<size_t>(nugget.m_vrange.m_beg), 0U);
-			}
+				draw_vertices();
 			else
-			{
-				// Keep indexed draws at base-vertex zero because optional model vertex streams use SV_VertexID to read buffers parallel to the primary vertex buffer.
-				cmd_list.DrawIndexedInstanced(
-					s_cast<size_t>(nugget.m_irange.size()), 1U,
-					s_cast<size_t>(nugget.m_irange.m_beg), 0, 0U);
-			}
+				draw_indexed();
+
 		}
 
 		// Render wire frame over solid for 'SolidWire' mode
@@ -690,10 +777,7 @@ namespace pr::rdr12
 			desc.Apply(PSO<EPipeState::FillMode>(D3D12_FILL_MODE_WIREFRAME));
 			desc.Apply(PSO<EPipeState::BlendState0>({FALSE}));
 			set_pipe_state();
-
-			cmd_list.DrawIndexedInstanced(
-				s_cast<size_t>(nugget.m_irange.size()), 1U,
-				s_cast<size_t>(nugget.m_irange.m_beg), 0, 0U);
+			draw_indexed();
 
 			// Restore it
 			desc.Apply(PSO<EPipeState::FillMode>(prev_fill_mode));
@@ -708,10 +792,7 @@ namespace pr::rdr12
 			desc.Apply(PSO<EPipeState::GS>(wnd().m_diag.m_gs_fillmode_points->m_code.GS));
 			cmd_list.IASetPrimitiveTopology(ETopo::PointList);
 			set_pipe_state();
-
-			cmd_list.DrawInstanced(
-				s_cast<size_t>(nugget.m_vrange.size()), 1U,
-				s_cast<size_t>(nugget.m_vrange.m_beg), 0U);
+			draw_vertices();
 		}
 	}
 }
