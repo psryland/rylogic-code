@@ -30,6 +30,7 @@
 //  - A body that stays unsupported falls with its walking limbs spread out from the body, and they swing down to the ground when it lands.
 //  - A swimming family (medium "water") has no walking limbs, so every limb hangs from the body in the guide pose, and the body is never
 //    airborne. The body and tails ignore the ground beneath them, and the family's body wave bends the spine and tails from side to side.
+//    Its cycles play at the caller's stroke speed rather than the body's measured speed, because strokes push the body rather than follow it.
 //    While the body enters or leaves the water, the body's height and the tails blend between following the ground and floating.
 //
 // The body's motion comes from outside (for example, a physics simulation); the controller does not move the character's origin.
@@ -82,6 +83,7 @@ namespace pr::animation
 		v4 angular_velocity = {};   // Axis * radians per second (w = 0)
 		bool supported = true;      // False while the body is not resting on the ground, for example when falling. Brief losses are ignored, see 'Locomotion::AirborneDelay'.
 		v4 gravity = {};            // The world-space acceleration due to gravity (w = 0), or zero if there is none. Families with a slope limit need it.
+		float stroke_speed = 0.0f;  // The speed that a water family's strokes would drive the body at, in m/s (>= 0). Water families play their cycles at this speed rather than the measured velocity, and never slower than their slowest cycle, see 'Locomotion::Advance'.
 	};
 
 	// A breathing motion. Each breath eases in and out, peaking halfway through the breath. Zero depths give no motion.
@@ -403,11 +405,14 @@ namespace pr::animation
 			m_fall = Clamp(m_fall + (airborne ? dt : -dt) / FallResponse, 0.0f, 1.0f);
 
 			// Measure the speed along the surface that the feet must keep up with, including turning on the spot. The family's slowest cycle sets
-			// what counts as moving.
+			// what counts as moving. A swimmer's strokes cause its motion through the water rather than follow it, and waves move the body without
+			// any stroking, so a water family uses the caller's stroke speed instead of the measured velocity. A swimmer must keep stroking to hold
+			// its place in the water, so it never strokes slower than its slowest cycle.
 			auto const& slowest = family.cycles.front();
 			auto tangential = body.velocity - m_up * Dot(body.velocity, m_up);
+			auto travel_sq = family.medium == EFamilyMedium::Water ? Sqr(std::max(body.stroke_speed, slowest.speed)) : LengthSq(tangential);
 			auto turn = Dot(body.angular_velocity, m_up) * TurnRadius();
-			auto speed = Sqrt(LengthSq(tangential) + Sqr(turn));
+			auto speed = Sqrt(travel_sq + Sqr(turn));
 			auto moving = !airborne && speed >= StandSpeedFraction * slowest.speed;
 
 			// The cycle blend and the body motion follow a smoothed speed, so that footfall timing and body motion change gradually
@@ -2594,42 +2599,45 @@ namespace pr::animation::tests
 		{
 			// A swimming body, held up by the water, never spreads its limbs as if falling. No limb walks, so every limb hangs. The body wave
 			// swings the tail tip from side to side, further than the tail base, and the tail floats rather than curving down to the ground.
+			// The strokes follow the stroke speed rather than the measured velocity, so a body held still in the water still waves. A swimmer that
+			// is not stroking anywhere keeps stroking at its slowest cycle, so it waves too.
 			auto rig = TestRig();
 			auto gait = TestGait();
 			auto swim = FamilyIndex(gait, "swim");
 			auto const& glide = gait.families[swim].cycles.back();
 			auto const& tail = rig.chains[4];
-			auto loco = Locomotion(rig, gait);
 			auto ground = TestGround();
 			auto dt = 1.0f / 60;
-			auto body = BodyState{ .velocity = v4(0, -glide.speed, 0, 0), .supported = false };
-			loco.RequestFamily(swim, 0.5f);
-			for (int i = 0; i != 120; ++i)
+			for (auto stroke_speed : { glide.speed, 0.0f })
 			{
-				body.model_to_world.pos += body.velocity * dt;
-				loco.Step(dt, body, ground);
-			}
-			PR_EXPECT(loco.family() == swim && loco.family_settled());
+				// Settle into the swim family
+				auto loco = Locomotion(rig, gait);
+				auto body = BodyState{ .supported = false, .stroke_speed = stroke_speed };
+				loco.RequestFamily(swim, 0.5f);
+				for (int i = 0; i != 120; ++i)
+					loco.Step(dt, body, ground);
 
-			// Over two cycles, record the sideways swing of the tail's base and tip
-			auto tip_lo = std::numeric_limits<float>::max();
-			auto tip_hi = std::numeric_limits<float>::lowest();
-			auto base_hi = 0.0f;
-			for (int i = 0; i != 120; ++i)
-			{
-				body.model_to_world.pos += body.velocity * dt;
-				loco.Step(dt, body, ground);
-				for (auto const& limb : loco.limbs())
-					PR_EXPECT(limb.support == 0.0f && limb.state == EFootState::Stance);
+				PR_EXPECT(loco.family() == swim && loco.family_settled());
 
-				auto tip = loco.pose().Tip(rig, tail.bones.back());
-				tip_lo = std::min(tip_lo, tip.x);
-				tip_hi = std::max(tip_hi, tip.x);
-				base_hi = std::max(base_hi, std::abs(loco.pose().model[tail.bones.front()].pos.x));
-				PR_EXPECT(tip.z > rig.rest_model[tail.bones.front()].pos.z - 0.5f * rig.bones[tail.bones.front()].length);
+				// Over two cycles, record the sideways swing of the tail's base and tip
+				auto tip_lo = std::numeric_limits<float>::max();
+				auto tip_hi = std::numeric_limits<float>::lowest();
+				auto base_hi = 0.0f;
+				for (int i = 0; i != 120; ++i)
+				{
+					loco.Step(dt, body, ground);
+					for (auto const& limb : loco.limbs())
+						PR_EXPECT(limb.support == 0.0f && limb.state == EFootState::Stance);
+
+					auto tip = loco.pose().Tip(rig, tail.bones.back());
+					tip_lo = std::min(tip_lo, tip.x);
+					tip_hi = std::max(tip_hi, tip.x);
+					base_hi = std::max(base_hi, std::abs(loco.pose().model[tail.bones.front()].pos.x));
+					PR_EXPECT(tip.z > rig.rest_model[tail.bones.front()].pos.z - 0.5f * rig.bones[tail.bones.front()].length);
+				}
+				PR_EXPECT(tip_lo < -0.02f && tip_hi > 0.02f);
+				PR_EXPECT(tip_hi - tip_lo > 2 * base_hi);
 			}
-			PR_EXPECT(tip_lo < -0.02f && tip_hi > 0.02f);
-			PR_EXPECT(tip_hi - tip_lo > 2 * base_hi);
 		}
 	};
 }

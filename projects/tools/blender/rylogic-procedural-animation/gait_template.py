@@ -71,14 +71,16 @@ class _SwimTemplate:
 	stride: float        # The distance moved per cycle, as a multiple of the leg length
 	paddle: float        # The angle, in radians, by which each limb sweeps forward and back about the body's up axis
 	limb: tuple[tuple[float, float, float], ...]  # Per bone of a limb chain, its direction as (back, out, down) amounts. Later bones use the last entry.
+	power: tuple[float, float, float] | None      # The end bone's direction as (back, out, down) during the power stroke, or None to keep it level throughout
 
 
 SWIM_TEMPLATES = {
-	# Floating: the limbs reach out to the sides, a little back and down, so that they steady the body like outriggers
-	"SWIM_PADDLE": _SwimTemplate("paddle", 24, 0.8, math.radians(25), ((0.3, 1.0, 0.25),)),
+	# Floating and slow swimming: the upper bones reach out to the sides like outriggers, and the elbows and knees bend so the lower bones reach down.
+	# The hands and feet feather: on the power stroke they hang down with the palm or sole pushing back, and on the return they lie level and edge-on.
+	"SWIM_PADDLE": _SwimTemplate("paddle", 24, 0.8, math.radians(25), ((0.3, 1.0, 0.25), (0.3, 0.4, 1.0), (0.4, 0.8, 0.0)), (0.1, 0.3, 1.0)),
 
 	# Swimming fast: the upper bone points back and out, the lower bone folds back in towards the body, and the hand or foot lies back along the flank
-	"SWIM_GLIDE": _SwimTemplate("glide", 16, 1.6, 0.0, ((0.6, 0.7, 0.3), (1.0, -0.5, 0.0), (1.0, -0.1, 0.0))),
+	"SWIM_GLIDE": _SwimTemplate("glide", 16, 1.6, 0.0, ((0.6, 0.7, 0.3), (1.0, -0.5, 0.0), (1.0, -0.1, 0.0)), None),
 }
 
 # The total angle, in radians, by which a swimming tail curves down from the line of the spine by its tip
@@ -166,8 +168,10 @@ def _GenerateSwim(armature_obj: bpy.types.Object, context: bpy.types.Context, te
 	The body lies along the water: the spine pitches about its base until it points forward and level, and each tail runs back from its base in line
 	with the spine, curving gently down so that it trails under the water. The neck curves up from the spine so that the head keeps its rest
 	orientation, facing forward and level. Each bone of each leg and arm points in the template's direction for it, on the limb's own side, except that
-	the end bone lies level with its palm or sole facing down. The roll that turns the palm or sole down is shared along the limb, so that no single
-	joint twists far. A paddling cycle sweeps each limb forward and back about the body's up axis, with each side and each girdle half a cycle apart.
+	the end bone lies level with its palm or sole facing down. A template with a power stroke turns the end bone down with its palm or sole facing back
+	while the limb sweeps backwards, and returns it level while the limb sweeps forwards, so the hand or foot feathers. The roll that turns the palm or
+	sole is shared along the limb, so that no single joint twists far. A paddling cycle sweeps each limb forward and back about the body's up axis, with
+	each side and each girdle half a cycle apart.
 	"""
 	# Template sizes are in armature space, relative to the length of the first leg chain
 	armature = armature_obj.data
@@ -250,21 +254,33 @@ def _GenerateSwim(armature_obj: bpy.types.Object, context: bpy.types.Context, te
 				head = Posed(chain.bones[0].name).to_translation()
 				out = lateral if head.dot(lateral) > 0 else -lateral
 				offset = (0.0 if chain.side != "RIGHT" else 0.5) + (0.0 if chain.role == "LEG" else 0.5)
-				sweep = Matrix.Rotation(template.paddle * math.sin(2 * math.pi * (phase - offset)), 3, up)
+				angle = 2 * math.pi * (phase - offset)
+				sweep = Matrix.Rotation(template.paddle * math.sin(angle), 3, up)
+
+				# The power stroke is the half of the sweep in which the limb moves backwards. Its weight is 1 for most of that half and 0 for most of
+				# the return, changing over the ends of the sweep, so the hand or foot turns while it is slowest.
+				back0, out0, down0 = template.limb[0]
+				backwards = up.cross(-forward * back0 + out * out0 - up * down0).dot(-forward)
+				power = min(max(0.5 + math.cos(angle) * math.copysign(1.0, backwards), 0.0), 1.0) if template.power is not None else 0.0
 				heads, orients = [], []
 				for b, ref in enumerate(chain.bones):
-					# The end bone lies level, so that its hand or foot is flat on the water
+					# The end bone lies level, so that its hand or foot is flat on the water, except that a power stroke turns it down
 					back, outward, down = template.limb[min(b, len(template.limb) - 1)]
 					end = b == len(chain.bones) - 1
 					direction = sweep @ (-forward * back + out * outward - up * (0.0 if end else down)).normalized()
+					if end and power > 0.0:
+						back, outward, down = template.power
+						direction = direction.lerp(sweep @ (-forward * back + out * outward - up * down).normalized(), power).normalized()
+
 					posed = Posed(ref.name).to_3x3()
 					turn = (posed @ Vector((0, 1, 0))).rotation_difference(direction).to_matrix()
 					oriented = turn @ posed
 
-					# Roll the end bone about its length until its palm or sole faces as nearly down as it can
+					# Roll the end bone about its length until its palm or sole faces as nearly down as it can, or back during a power stroke
 					if end and ref.name in contacts:
 						normal = oriented @ contacts[ref.name]
-						facing, target = normal - direction * normal.dot(direction), -up - direction * -up.dot(direction)
+						facing_dir = (-up).lerp(sweep @ -forward, power).normalized()
+						facing, target = normal - direction * normal.dot(direction), facing_dir - direction * facing_dir.dot(direction)
 						if facing.length > 1e-6 and target.length > 1e-6:
 							oriented = facing.rotation_difference(target).to_matrix() @ oriented
 
