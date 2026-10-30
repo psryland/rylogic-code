@@ -100,6 +100,7 @@ float SampleCloudShadow(float4 ws_pos, float4 ws_to_light)
 #include "view3d-12/src/shaders/hlsl/utility/env_map.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/procedural_surface.hlsli"
 #include "pr/hlsl/camera.hlsli"
+#include "pr/view3d-12/shaders/population.hlsli"
 
 // PS output format
 struct PSOut
@@ -128,6 +129,7 @@ PSIn ToPSIn(PSInTexN In)
 	Out.diff = In.diff;
 	Out.tex0 = In.tex0;
 	Out.idx0 = In.idx0;
+	Out.dither = In.dither;
 	return Out;
 }
 
@@ -304,6 +306,7 @@ PSInTexN VSForwardTexN(VSIn In, uint vertex_id : SV_VertexID)
 	Out.diff = base.diff;
 	Out.tex0 = base.tex0;
 	Out.idx0 = base.idx0;
+	Out.dither = base.dither;
 
 	// Optional streams follow the model vertex-buffer order. SV_VertexID is already the model-buffer index for both indexed and non-indexed draws.
 	if (g_pbr.texcoord_count > 0)
@@ -332,6 +335,9 @@ PSOut ForwardShade(PSIn In, bool is_front_face)
 	//  - 'ss_vert:SV_Position' in the pixel shader already has x,y,z divided by w (w unchanged)
 	//  - Models without normals can still use 'HasNormals' as true. For this case, and normal to
 	//    the light source is used.
+
+	// Population LOD transitions discard their dithered pixels first. Ordinary draws keep every pixel.
+	View3DPopulationClipDither(In.dither, In.ss_vert.xy);
 
 	PSOut Out = (PSOut)0;
 
@@ -387,6 +393,9 @@ float4 DitherOutput(float4 colour, float4 ss_vert)
 // Direct-lighting PBR pixel shader path using the supplied UV coordinates for each texture slot.
 PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 metallic_uv, float2 roughness_uv, float2 emissive_uv, float2 normal_uv)
 {
+	// Population LOD transitions discard their dithered pixels first. Ordinary draws keep every pixel.
+	View3DPopulationClipDither(In.dither, In.ss_vert.xy);
+
 	PSOut Out = (PSOut)0;
 
 	// Resolve the scalar and texture-backed material inputs into a linear base colour.

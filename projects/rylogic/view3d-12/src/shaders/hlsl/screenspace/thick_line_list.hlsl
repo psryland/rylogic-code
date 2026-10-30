@@ -14,7 +14,7 @@ ConstantBuffer<CBufScreenSpace> g_ss : register(b3);
 [maxvertexcount(18)]
 void GSThickLineList(line PSIn In[2], inout TriangleStream<PSIn> OutStream)
 {
-	PSIn Out;
+	PSIn Out = (PSIn)0;
 	
 	// Clip the line against the near plane
 	float4 p0 = In[0].ss_vert;

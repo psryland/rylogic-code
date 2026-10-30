@@ -1,4 +1,4 @@
-﻿//***********************************************
+//***********************************************
 // Renderer
 //  Copyright (c) Rylogic Ltd 2010
 //***********************************************
@@ -14,7 +14,7 @@ ConstantBuffer<CBufScreenSpace> g_ss : register(b3);
 [maxvertexcount(3)]
 void GSArrowHead(point PSIn In[1], inout TriangleStream<PSIn> OutStream)
 {
-	PSIn Out;
+	PSIn Out = (PSIn)0;
 
 	// Size (in pixels) of the sprite. Use the size in the input tex0.xy unless it's zero,
 	float w = In[0].tex0.x > 0.0001f ? In[0].tex0.x : g_ss.size.x * 0.5f;

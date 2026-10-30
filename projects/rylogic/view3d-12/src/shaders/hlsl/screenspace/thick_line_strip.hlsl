@@ -19,7 +19,7 @@ void GSThickLineStrip(lineadj PSIn In[4], inout TriangleStream<PSIn> OutStream)
 	//  - There is no decent way to handle lines that fold back on themselves, so if two adjacent line segments
 	//    are degenerate or fold back to accutely, they're treated as start/end sections with end caps.
 
-	PSIn Out;
+	PSIn Out = (PSIn)0;
 
 	float4 p0 = In[0].ss_vert;
 	float4 p1 = In[1].ss_vert;

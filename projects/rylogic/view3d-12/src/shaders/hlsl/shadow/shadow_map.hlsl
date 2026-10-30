@@ -10,6 +10,7 @@
 #include "pr/hlsl/interop.hlsli"
 #include "view3d-12/src/shaders/hlsl/lighting/lighting_cbuf.hlsli"
 #include "view3d-12/src/shaders/hlsl/shadow/shadow_map_cbuf.hlsli"
+#include "pr/view3d-12/shaders/population.hlsli"
 
 // Constant buffers
 ConstantBuffer<CBufDrawViews> resource(g_draw, b0);
@@ -32,6 +33,7 @@ struct PSIn_ShadowMap
 	float4 ss_vert :SV_POSITION;
 	float4 diff :COLOR0;
 	float2 tex0 :TEXCOORD0;
+	uint dither :DITHER0; // Population LOD dither word, zero for ordinary draws
 	uint viewport :SV_ViewportArrayIndex;
 };
 
@@ -61,6 +63,9 @@ PSIn_ShadowMap VSShadowMap(VSIn In, uint instance_id :SV_InstanceID)
 // Default SMAP PS. Only used to discard transparent texels. Depth is written by the rasterizer.
 void PSShadowMap(PSIn_ShadowMap In)
 {
+	// Population LOD transitions discard their dithered pixels first. Ordinary draws keep every pixel.
+	View3DPopulationClipDither(In.dither, In.ss_vert.xy);
+
 	// Texture2D (with transform)
 	float4 diff = In.diff;
 	if (HasTex0(g_nugget.flags))
