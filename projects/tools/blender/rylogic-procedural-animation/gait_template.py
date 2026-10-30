@@ -72,6 +72,7 @@ class _SwimTemplate:
 	paddle: float        # The angle, in radians, by which each limb sweeps forward and back about the body's up axis
 	limb: tuple[tuple[float, float, float], ...]  # Per bone of a limb chain, its direction as (back, out, down) amounts. Later bones use the last entry.
 	power: tuple[float, float, float] | None      # The end bone's direction as (back, out, down) during the power stroke, or None to keep it level throughout
+	tucked: bool = False  # The limbs lie against the body: the palms face the body, and the feet only pitch about the ankle relative to the shins
 
 
 SWIM_TEMPLATES = {
@@ -79,8 +80,9 @@ SWIM_TEMPLATES = {
 	# The hands and feet feather: on the power stroke they hang down with the palm or sole pushing back, and on the return they lie level and edge-on.
 	"SWIM_PADDLE": _SwimTemplate("paddle", 24, 0.8, math.radians(25), ((0.3, 1.0, 0.25), (0.3, 0.4, 1.0), (0.4, 0.8, 0.0)), (0.1, 0.3, 1.0)),
 
-	# Swimming fast: the upper bone points back and out, the lower bone folds back in towards the body, and the hand or foot lies back along the flank
-	"SWIM_GLIDE": _SwimTemplate("glide", 16, 1.6, 0.0, ((0.6, 0.7, 0.3), (1.0, -0.5, 0.0), (1.0, -0.1, 0.0)), None),
+	# Swimming fast: the upper bone points back and out, the lower bone folds back in towards the body, and the hand or foot lies back along the flank.
+	# The palms turn in against the body, and the feet keep the shins' roll, pitching back at the ankles.
+	"SWIM_GLIDE": _SwimTemplate("glide", 16, 1.6, 0.0, ((0.6, 0.7, 0.3), (1.0, -0.5, 0.0), (1.0, -0.1, 0.0)), None, tucked=True),
 }
 
 # The total angle, in radians, by which a swimming tail curves down from the line of the spine by its tip
@@ -170,7 +172,8 @@ def _GenerateSwim(armature_obj: bpy.types.Object, context: bpy.types.Context, te
 	orientation, facing forward and level. Each bone of each leg and arm points in the template's direction for it, on the limb's own side, except that
 	the end bone lies level with its palm or sole facing down. A template with a power stroke turns the end bone down with its palm or sole facing back
 	while the limb sweeps backwards, and returns it level while the limb sweeps forwards, so the hand or foot feathers. The roll that turns the palm or
-	sole is shared along the limb, so that no single joint twists far. A paddling cycle sweeps each limb forward and back about the body's up axis, with
+	sole is shared along the limb, so that no single joint twists far. A tucked template turns each palm to face the body, and poses each foot from its
+	shin with only a pitch about the ankle, so the foot does not twist. A paddling cycle sweeps each limb forward and back about the body's up axis, with
 	each side and each girdle half a cycle apart.
 	"""
 	# Template sizes are in armature space, relative to the length of the first leg chain
@@ -276,10 +279,11 @@ def _GenerateSwim(armature_obj: bpy.types.Object, context: bpy.types.Context, te
 					turn = (posed @ Vector((0, 1, 0))).rotation_difference(direction).to_matrix()
 					oriented = turn @ posed
 
-					# Roll the end bone about its length until its palm or sole faces as nearly down as it can, or back during a power stroke
-					if end and ref.name in contacts:
+					# Roll the end bone about its length until its palm or sole faces as nearly down as it can, or back during a power stroke. A tucked
+					# palm faces the body instead. A tucked foot is not rolled, because it is posed from its shin after the twist is shared (see below).
+					if end and ref.name in contacts and not (template.tucked and chain.role == "LEG"):
 						normal = oriented @ contacts[ref.name]
-						facing_dir = (-up).lerp(sweep @ -forward, power).normalized()
+						facing_dir = -out if template.tucked else (-up).lerp(sweep @ -forward, power).normalized()
 						facing, target = normal - direction * normal.dot(direction), facing_dir - direction * facing_dir.dot(direction)
 						if facing.length > 1e-6 and target.length > 1e-6:
 							oriented = facing.rotation_difference(target).to_matrix() @ oriented
@@ -288,10 +292,23 @@ def _GenerateSwim(armature_obj: bpy.types.Object, context: bpy.types.Context, te
 					orients.append(oriented)
 					head = head + direction * armature.bones[ref.name].length
 
-				# Share the end bone's roll along the limb, so that no single joint twists far
+				# Share the end bone's roll along the limb, so that no single joint twists far. A tucked foot instead keeps its shin's roll and only
+				# pitches about its ankle, whose hinge is the foot's rest side (X) axis relative to the shin. It turns about that hinge until it points
+				# as nearly along its template direction as it can.
 				names = [ref.name for ref in chain.bones]
 				parent = armature.bones[names[0]].parent
-				_SpreadTwist(armature, names, orients, Matrix.Identity(3) if parent is None else Posed(parent.name).to_3x3())
+				parent_orient = Matrix.Identity(3) if parent is None else Posed(parent.name).to_3x3()
+				if template.tucked and chain.role == "LEG" and len(names) > 1:
+					_SpreadTwist(armature, names[:-1], orients[:-1], parent_orient)
+					foot, shin = armature.bones[names[-1]], armature.bones[names[-2]]
+					base = orients[-2] @ shin.matrix_local.to_3x3().inverted() @ foot.matrix_local.to_3x3()
+					hinge, along = base @ Vector((1, 0, 0)), base @ Vector((0, 1, 0))
+					wanted = orients[-1] @ Vector((0, 1, 0))
+					wanted -= hinge * wanted.dot(hinge)
+					angle = math.atan2(hinge.dot(along.cross(wanted)), along.dot(wanted)) if wanted.length > 1e-6 else 0.0
+					orients[-1] = Matrix.Rotation(angle, 3, hinge) @ base
+				else:
+					_SpreadTwist(armature, names, orients, parent_orient)
 				for name, head, oriented in zip(names, heads, orients):
 					pose[name] = travel @ Matrix.Translation(head) @ oriented.to_4x4()
 
