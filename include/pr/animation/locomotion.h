@@ -21,8 +21,8 @@
 //  - The pelvis and chest turn about the up axis in time with the legs and arms by the cycles' spine sway, so the spine bends from side to
 //    side as the limbs step. While the body turns, the chest leads into the turn and the pelvis trails it.
 //  - Neck chains turn to look at a world point, fading in and out.
-//  - The body breathes at a rate and depth set by the caller. Each breath moves the chest out from the front of the body and tilts it back, so
-//    the spine arches, and rolls the shoulders back. The necks keep aiming where the guide aims, so the head moves only a little.
+//  - The body breathes at a rate and depth set by the caller. Each breath turns the chest bone about its head so that its tip moves out from the
+//    front of the body, so the rib cage swells, and rolls the shoulders back. The necks keep aiming where the guide aims, so the head moves only a little.
 //  - Each tail trails behind its base along the ground like a rope, as one smooth curve: the first bone continues the line of the spine with a
 //    small bend down, and each later bone bends a little at a time, steeply down while it can and then flatter, until the tail's skin rests
 //    on the ground. The first bone heads across the ground with the swaying hips, and the dragged rope behind it sets which way each later bone
@@ -32,6 +32,7 @@
 //    airborne. The body and tails ignore the ground beneath them, and the family's body wave bends the spine and tails from side to side.
 //    Its cycles play at the caller's stroke speed rather than the body's measured speed, because strokes push the body rather than follow it.
 //    While the body enters or leaves the water, the body's height and the tails blend between following the ground and floating.
+//    A swimmer that the caller asks to right itself turns its limbs towards its lowest side as it leans, so the low limbs reach out and the high limbs fold in.
 //
 // The body's motion comes from outside (for example, a physics simulation); the controller does not move the character's origin.
 // Model space has +Z up. The body's up is the model's +Z axis in world space, so the body may stand on any surface: a slope, a wall, or a ceiling.
@@ -84,13 +85,15 @@ namespace pr::animation
 		bool supported = true;      // False while the body is not resting on the ground, for example when falling. Brief losses are ignored, see 'Locomotion::AirborneDelay'.
 		v4 gravity = {};            // The world-space acceleration due to gravity (w = 0), or zero if there is none. Families with a slope limit need it.
 		float stroke_speed = 0.0f;  // The speed that a water family's strokes would drive the body at, in m/s (>= 0). Water families play their cycles at this speed rather than the measured velocity, and never slower than their slowest cycle, see 'Locomotion::Advance'.
+		float calm_tilt = 0.0f;     // The tilt (radians) up to which a swimming body makes no effort to right itself, see 'Locomotion::RightingReach'. Needs 'gravity'.
+		float rough_tilt = 0.0f;    // The tilt (radians, > 'calm_tilt' to enable righting) at which a swimming body's limbs reach fully towards its lowest side. Zero disables righting.
 	};
 
 	// A breathing motion. Each breath eases in and out, peaking halfway through the breath. Zero depths give no motion.
 	struct Breath
 	{
 		float rate = 0.0f;       // Breaths per second (>= 0)
-		float chest = 0.0f;      // How far the chest moves out from the front of the body at the peak of a breath, in metres (>= 0)
+		float chest = 0.0f;      // How far the tip of the chest bone moves out from the front of the body at the peak of a breath, in metres (>= 0)
 		float shoulders = 0.0f;  // How far the shoulders roll back at the peak of a breath, in radians (>= 0)
 	};
 
@@ -175,6 +178,7 @@ namespace pr::animation
 			, m_phase(0.0f)
 			, m_unsupported_s(0.0f)
 			, m_fall(0.0f)
+			, m_lean()
 			, m_up(v4::ZAxis())
 			, m_ground_up(v4::ZAxis())
 			, m_started(false)
@@ -404,6 +408,20 @@ namespace pr::animation
 			auto airborne = family.medium != EFamilyMedium::Water && m_unsupported_s > AirborneDelay;
 			m_fall = Clamp(m_fall + (airborne ? dt : -dt) / FallResponse, 0.0f, 1.0f);
 
+			// Find how a righting body leans: world down seen from the body, flattened onto the body's horizontal plane, points at its lowest side, which
+			// may be to the side, forward, or back. The limbs reach towards that side by a fraction that grows from 0 at the calm tilt to 1 at the rough
+			// tilt. The tilt is measured 'RightingLead' seconds ahead at the body's current rate of turning, so the limbs ease off before the body swings
+			// back through upright rather than after, which damps the rocking instead of feeding it.
+			m_lean = v4{};
+			if (body.rough_tilt > body.calm_tilt && LengthSq(body.gravity) > 0)
+			{
+				auto down = Rotate(~PredictBody(body, RightingLead).rot, Normalise(body.gravity));
+				auto across = v4(down.x, down.y, 0, 0);
+				auto tilt = std::atan2(Length(across), -down.z);
+				if (LengthSq(across) > Sqr(tiny<float>))
+					m_lean = Normalise(across) * Clamp((tilt - body.calm_tilt) / (body.rough_tilt - body.calm_tilt), 0.0f, 1.0f);
+			}
+
 			// Measure the speed along the surface that the feet must keep up with, including turning on the spot. The family's slowest cycle sets
 			// what counts as moving. A swimmer's strokes cause its motion through the water rather than follow it, and waves move the body without
 			// any stroking, so a water family uses the caller's stroke speed instead of the measured velocity. A swimmer must keep stroking to hold
@@ -491,6 +509,11 @@ namespace pr::animation
 
 		// The seconds that the limbs take to spread out once airborne, or to fold back in on landing
 		static constexpr float FallResponse = 0.3f;
+
+		// The furthest that a swimmer's limb ends reach towards its lowest side, as a fraction of each limb's length, and the seconds ahead at which its
+		// lean is measured, see 'RightingOffset'
+		static constexpr float RightingReach = 0.5f;
+		static constexpr float RightingLead = 0.3f;
 
 		// The seconds of turning by which the chest leads into a turn and the pelvis trails it, and the largest angle (radians) of each
 		static constexpr float SpineLeadTime = 0.25f;
@@ -615,6 +638,7 @@ namespace pr::animation
 		float m_phase;               // The step cycle position in [0,1)
 		float m_unsupported_s;      // How long the body has been continuously unsupported, in seconds
 		float m_fall;               // In [0,1]. How far the limbs are spread out for falling.
+		v4 m_lean;                  // The model-space direction (z = 0) of a righting swimmer's lowest side, with length in [0,1] for how far its limbs reach that way, see 'RightingOffset'
 		v4 m_up;                    // The body's up direction (model +Z) in world space this step
 		v4 m_ground_up;             // The mean unit normal of the ground beneath the feet this step, in world space
 		bool m_started;               // False until the feet have been planted
@@ -934,6 +958,11 @@ namespace pr::animation
 				guide_end = xform(root + Rotate(swing, guide_end.pos - root), Normalise(swing * guide_end.rot));
 			}
 
+			// A swimmer that leans moves each limb end towards its lowest side. The limbs on the low side reach out, where the water lifts them
+			// furthest from the body, and the limbs on the high side fold in, so the limbs' buoyancy turns the body back upright. The chain solver
+			// keeps an end that moves out of reach at full stretch.
+			guide_end.pos += RightingOffset(limb);
+
 			// Without a spine the body does not move relative to the guide
 			if (m_spine < 0)
 				return guide_end;
@@ -942,6 +971,18 @@ namespace pr::animation
 			auto const& actual = leg ? m_targets[m_spine].base : m_targets[m_spine].frame;
 			auto const& guide = leg ? m_guide_targets[m_spine].base : m_guide_targets[m_spine].frame;
 			return actual * Invert(guide) * guide_end;
+		}
+
+		// The model-space offset of a hanging limb's end towards the body's lowest side: up to 'RightingReach' of the limb's length as the body tilts
+		// from its calm tilt to its rough tilt (see 'BodyState'), scaled by how much it swims. Zero when the body does not right itself.
+		v4 RightingOffset(LimbState const& limb) const
+		{
+			// Scale the reach by the limb's own length so that every limb reaches in proportion to its size
+			auto length = 0.0f;
+			for (auto bone : m_rig.chains[limb.chain].bones)
+				length += m_rig.bones[bone].length;
+
+			return m_lean * (RightingReach * length * WaterWeight());
 		}
 
 		// The angle (radians, about model +X) by which a hanging arm swings: the cycles' arm swing times cos(2 pi (phase - touchdown)) of the
@@ -1444,15 +1485,16 @@ namespace pr::animation
 			m_targets[m_spine].base = xform(pelvis0.pos + v4(pelvis_shift, 0, hind, 0), Normalise(pelvis_turn * pitch * pelvis0.rot));
 			m_targets[m_spine].frame = xform(chest0.pos + v4(chest_shift, 0, fore, 0), Normalise(chest_turn * pitch * chest0.rot));
 
-			// Breathing moves the chest out from the front of the body, which faces along the spine turned a quarter turn forward about model +X,
-			// and tilts it back by the angle that the move turns the spine through, so the spine arches
+			// Breathing turns the chest bone about its head so that its tip moves out from the front of the body, which faces along the spine
+			// turned a quarter turn forward about model +X. The chest's head stays in place, so the rib cage swells rather than the belly.
 			auto breath = m_breath.chest * Inhale();
 			if (breath != 0)
 			{
 				auto& chest = m_targets[m_spine].frame;
 				auto front = Normalise(Cross(v4::XAxis(), span));
-				auto arch = quat(Normalise(span), Normalise(span - front * breath));
-				chest = xform(chest.pos + front * breath, Normalise(arch * chest.rot));
+				auto tip = Rotate(chest.rot, v4::YAxis()) * m_rig.bones[m_rig.chains[m_spine].bones.back()].length;
+				auto swell = quat(Normalise(tip), Normalise(tip + front * breath));
+				chest.rot = Normalise(swell * chest.rot);
 			}
 		}
 
@@ -2416,29 +2458,36 @@ namespace pr::animation::tests
 
 			PR_EXPECT(Dot(facing(), neck.forward) > 0.999f);
 		}
-		PRUnitTestMethod(BreathingMovesTheChest, Quick)
+		PRUnitTestMethod(BreathingSwellsTheChest, Quick)
 		{
-			// At the peak of a breath the chest has moved out from the front of the body, which for the test rig's level spine is down, and it is
-			// back where it started at the end of the breath
+			// At the peak of a breath the chest bone has turned about its head so that its tip has moved out from the front of the body, which for
+			// the test rig's level spine is down, and it is back where it started at the end of the breath
 			auto rig = TestRig();
 			auto still = Locomotion(rig, TestGait());
 			auto breathing = Locomotion(rig, TestGait());
 			auto ground = TestGround();
 			auto dt = 1.0f / 60;
+			auto tip = [&](Locomotion const& loco)
+			{
+				// The model-space tip of the chest bone (test rig bone 3)
+				auto const& chest = loco.targets()[0].frame;
+				return chest.pos + Rotate(chest.rot, v4::YAxis()) * rig.bones[3].length;
+			};
 			breathing.SetBreath(Breath{ .rate = 1.0f, .chest = 0.02f, .shoulders = 0.1f });
 			for (int i = 0; i != 30; ++i)
 			{
 				still.Step(dt, BodyState{}, ground);
 				breathing.Step(dt, BodyState{}, ground);
 			}
-			PR_EXPECT(FEqlAbsolute(breathing.targets()[0].frame.pos - still.targets()[0].frame.pos, v4(0, 0, -0.02f, 0), 1e-4f));
+			PR_EXPECT(FEqlAbsolute(breathing.targets()[0].frame.pos, still.targets()[0].frame.pos, 1e-4f));
+			PR_EXPECT(FEqlAbsolute(tip(breathing) - tip(still), v4(0, 0, -0.02f, 0), 1e-3f));
 
 			for (int i = 0; i != 30; ++i)
 			{
 				still.Step(dt, BodyState{}, ground);
 				breathing.Step(dt, BodyState{}, ground);
 			}
-			PR_EXPECT(FEqlAbsolute(breathing.targets()[0].frame.pos, still.targets()[0].frame.pos, 1e-4f));
+			PR_EXPECT(FEqlAbsolute(tip(breathing), tip(still), 1e-4f));
 		}
 		PRUnitTestMethod(SwingingFeetMoveOutAndTurnFreely, Quick)
 		{
@@ -2637,6 +2686,49 @@ namespace pr::animation::tests
 				}
 				PR_EXPECT(tip_lo < -0.02f && tip_hi > 0.02f);
 				PR_EXPECT(tip_hi - tip_lo > 2 * base_hi);
+			}
+		}
+		PRUnitTestMethod(SwimmerRightsItself, Quick)
+		{
+			// A swimmer rolled onto its +X side and nose down reaches every limb towards its lowest side when it rights itself: each limb end moves
+			// towards +X and forwards (-Y) compared with the same body that does not right itself. A body swinging back through upright reaches the other way.
+			auto rig = TestRig();
+			auto gait = TestGait();
+			auto swim = FamilyIndex(gait, "swim");
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto rot = quat(v4::YAxis(), 0.6f) * quat(v4::XAxis(), 0.3f);
+			auto still = Locomotion(rig, gait);
+			auto righting = Locomotion(rig, gait);
+			auto body = BodyState{ .model_to_world = xform(v4::Origin(), rot), .supported = false, .gravity = v4(0, 0, -9.8f, 0) };
+			still.RequestFamily(swim, 0.5f);
+			righting.RequestFamily(swim, 0.5f);
+			for (int i = 0; i != 120; ++i)
+			{
+				still.Step(dt, body, ground);
+				righting.Step(dt, BodyState{ .model_to_world = body.model_to_world, .supported = false, .gravity = body.gravity, .calm_tilt = 0.0f, .rough_tilt = 0.1f }, ground);
+			}
+
+			// Compare the limb ends of the two bodies
+			PR_EXPECT(!righting.limbs().empty());
+			for (auto const& limb : righting.limbs())
+			{
+				auto end = rig.chains[limb.chain].bones.back();
+				auto delta = righting.pose().model[end].pos - still.pose().model[end].pos;
+				PR_EXPECT(delta.x > 0.01f);
+				PR_EXPECT(delta.y < -0.005f);
+			}
+
+			// The same lean while the body swings back upright fast enough to pass through it within the lead time turns the limbs the other way
+			auto swinging = Locomotion(rig, gait);
+			swinging.RequestFamily(swim, 0.5f);
+			for (int i = 0; i != 120; ++i)
+				swinging.Step(dt, BodyState{ .model_to_world = body.model_to_world, .angular_velocity = v4(0, -4.0f, 0, 0), .supported = false, .gravity = body.gravity, .calm_tilt = 0.0f, .rough_tilt = 0.1f }, ground);
+
+			for (auto const& limb : swinging.limbs())
+			{
+				auto end = rig.chains[limb.chain].bones.back();
+				PR_EXPECT(swinging.pose().model[end].pos.x - still.pose().model[end].pos.x < -0.01f);
 			}
 		}
 	};
