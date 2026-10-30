@@ -81,6 +81,9 @@ SWIM_TEMPLATES = {
 	"SWIM_GLIDE": _SwimTemplate("glide", 16, 1.6, 0.0, ((0.6, 0.7, 0.3), (1.0, -0.5, 0.0), (1.0, -0.1, 0.0))),
 }
 
+# The total angle, in radians, by which a swimming tail curves down from the line of the spine by its tip
+TAIL_DROOP = math.radians(30)
+
 
 def RotationPath(pose_bone: bpy.types.PoseBone) -> str:
 	"""Return the data path of the pose bone's rotation channel for its rotation mode."""
@@ -160,10 +163,11 @@ def GenerateTemplate(armature_obj: bpy.types.Object, context: bpy.types.Context,
 def _GenerateSwim(armature_obj: bpy.types.Object, context: bpy.types.Context, template: _SwimTemplate) -> bpy.types.Action:
 	"""Key a new swimming cycle, add it to the armature's movement cycles, and return it. See 'GenerateTemplate'.
 
-	The body lies along the water: the spine pitches about its base until it points forward and level, and each tail runs straight back from its base
-	in line with the spine. The neck curves up from the spine so that the head keeps its rest orientation, facing forward and level. Each bone of each
-	leg and arm points in the template's direction for it, on the limb's own side, except that the end bone lies level with its palm or sole facing
-	down. A paddling cycle sweeps each limb forward and back about the body's up axis, with each side and each girdle half a cycle apart.
+	The body lies along the water: the spine pitches about its base until it points forward and level, and each tail runs back from its base in line
+	with the spine, curving gently down so that it trails under the water. The neck curves up from the spine so that the head keeps its rest
+	orientation, facing forward and level. Each bone of each leg and arm points in the template's direction for it, on the limb's own side, except that
+	the end bone lies level with its palm or sole facing down. The roll that turns the palm or sole down is shared along the limb, so that no single
+	joint twists far. A paddling cycle sweeps each limb forward and back about the body's up axis, with each side and each girdle half a cycle apart.
 	"""
 	# Template sizes are in armature space, relative to the length of the first leg chain
 	armature = armature_obj.data
@@ -197,18 +201,20 @@ def _GenerateSwim(armature_obj: bpy.types.Object, context: bpy.types.Context, te
 		bone = armature.bones[name]
 		return pitch @ rest[name] if pitched is not None and (bone == pitched or pitched in bone.parent_recursive) else rest[name]
 
-	# Lay each tail bone straight back from the end of the one before it, so the tail continues the line of the spine
+	# Lay each tail bone back from the end of the one before it, in line with the spine but curving gently down, so that the tail trails under the
+	# water rather than sticking out of it. Each bone bends down by an equal share of the total droop.
 	body = {} if pitched is None else {pitched.name: pitch @ rest[pitched.name]}
 	for chain in rig.chains:
 		if chain.role != "TAIL" or not chain.bones:
 			continue
 
 		head = Posed(chain.bones[0].name).to_translation()
-		for ref in chain.bones:
+		for b, ref in enumerate(chain.bones):
+			direction = Matrix.Rotation(TAIL_DROOP * (b + 1) / len(chain.bones), 3, lateral) @ -forward
 			posed = Posed(ref.name).to_3x3()
-			turn = (posed @ Vector((0, 1, 0))).rotation_difference(-forward).to_matrix()
+			turn = (posed @ Vector((0, 1, 0))).rotation_difference(direction).to_matrix()
 			body[ref.name] = Matrix.Translation(head) @ (turn @ posed).to_4x4()
-			head = head - forward * armature.bones[ref.name].length
+			head = head + direction * armature.bones[ref.name].length
 
 	# Hold the head up out of the water, facing forward. Each neck bone takes back an equal share of the spine's pitch, so the neck curves up from
 	# the levelled spine and the last bone, the head, returns to its rest orientation, which faces forward and level.
@@ -245,6 +251,7 @@ def _GenerateSwim(armature_obj: bpy.types.Object, context: bpy.types.Context, te
 				out = lateral if head.dot(lateral) > 0 else -lateral
 				offset = (0.0 if chain.side != "RIGHT" else 0.5) + (0.0 if chain.role == "LEG" else 0.5)
 				sweep = Matrix.Rotation(template.paddle * math.sin(2 * math.pi * (phase - offset)), 3, up)
+				heads, orients = [], []
 				for b, ref in enumerate(chain.bones):
 					# The end bone lies level, so that its hand or foot is flat on the water
 					back, outward, down = template.limb[min(b, len(template.limb) - 1)]
@@ -261,8 +268,16 @@ def _GenerateSwim(armature_obj: bpy.types.Object, context: bpy.types.Context, te
 						if facing.length > 1e-6 and target.length > 1e-6:
 							oriented = facing.rotation_difference(target).to_matrix() @ oriented
 
-					pose[ref.name] = travel @ Matrix.Translation(head) @ oriented.to_4x4()
+					heads.append(head)
+					orients.append(oriented)
 					head = head + direction * armature.bones[ref.name].length
+
+				# Share the end bone's roll along the limb, so that no single joint twists far
+				names = [ref.name for ref in chain.bones]
+				parent = armature.bones[names[0]].parent
+				_SpreadTwist(armature, names, orients, Matrix.Identity(3) if parent is None else Posed(parent.name).to_3x3())
+				for name, head, oriented in zip(names, heads, orients):
+					pose[name] = travel @ Matrix.Translation(head) @ oriented.to_4x4()
 
 			poses.append(pose)
 
@@ -290,6 +305,33 @@ def _GenerateSwim(armature_obj: bpy.types.Object, context: bpy.types.Context, te
 	cycle.leg_swing_out, cycle.arm_swing_out = 0.0, 0.0
 	rig.active_cycle = len(rig.cycles) - 1
 	return action
+
+
+def _SpreadTwist(armature: bpy.types.Armature, names: list[str], orients: list[Matrix], parent: Matrix) -> None:
+	"""Roll the bones of a chain about their own lengths so that the chain's total twist is shared equally between its joints.
+
+	'names' are the chain's bones, parents first, and 'orients' are their armature-space orientations, which are updated in place. 'parent' is the
+	armature-space orientation of the first bone's parent, or identity if it has none. The direction of every bone, and the whole orientation of the
+	last bone, are unchanged.
+	"""
+	# Each bone's rest orientation relative to its parent, for measuring how far the pose twists it
+	rests = [armature.bones[name].matrix_local.to_3x3() for name in names]
+	base = armature.bones[names[0]].parent
+	rest_locals = [(Matrix.Identity(3) if base is None else base.matrix_local.to_3x3()).inverted() @ rests[0]]
+	rest_locals += [rests[b - 1].inverted() @ rests[b] for b in range(1, len(names))]
+
+	def Twist(b: int) -> float:
+		"""The twist of bone 'b' about its own length, relative to its parent and to its rest pose."""
+		posed_parent = parent if b == 0 else orients[b - 1]
+		local = rest_locals[b].inverted() @ posed_parent.inverted() @ orients[b]
+		return local.to_quaternion().to_swing_twist('Y')[1]
+
+	# Working down the chain, give each bone an equal share of the twist still left below it. Rolling a bone changes its children's twists, so the
+	# remainder is measured again at each step, and the last bone, which is never rolled, takes what is left.
+	for b in range(len(names) - 1):
+		remaining = sum(Twist(k) for k in range(b, len(names)))
+		delta = remaining / (len(names) - b) - Twist(b)
+		orients[b] = orients[b] @ Matrix.Rotation(delta, 3, 'Y')
 
 
 @dataclass
