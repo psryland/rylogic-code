@@ -146,6 +146,7 @@ namespace pr::rdr12
 	{
 		using GfxCmdList = ::pr::compute::GfxCmdList;
 		using GpuUploadBuffer = ::pr::compute::GpuUploadBuffer;
+		using GpuViewHeap = ::pr::compute::GpuDescriptorHeap<D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV>;
 
 		// An identity-transform instance that supplies element constants for a LOD's nuggets. Population draws place vertices with the instance records.
 		struct Proxy
@@ -164,12 +165,14 @@ namespace pr::rdr12
 			int64_t m_size;
 		};
 
-		// A range copy waiting for the next frame's preparation commands.
-		struct PendingUpload
+		// Content work waiting for the next frame's preparation commands: a range copy, or a producer dispatch when 'm_pso' is not null.
+		struct PendingWork
 		{
-			ID3D12Resource* m_dst;
-			int64_t m_ofs;
-			std::vector<std::byte> m_data;
+			ID3D12Resource* m_dst;              // The copy destination. Unused by dispatches.
+			int64_t m_ofs;                      // The copy destination byte offset. Unused by dispatches.
+			std::vector<std::byte> m_data;      // The bytes to copy, or the producer constants.
+			D3DPtr<ID3D12PipelineState> m_pso;  // The producer pipeline, or null for a copy.
+			iv3 m_groups;                       // The producer thread-group counts.
 		};
 
 		Renderer* m_rdr;
@@ -182,7 +185,10 @@ namespace pr::rdr12
 		std::vector<PopulationBlock> m_blocks;       // Indexed by block index. The size is the block capacity.
 		std::vector<Proxy> m_proxies;                // One per prototype LOD. Sized once, so instance addresses are stable.
 		std::unordered_map<uint64_t, ViewScratch> m_views; // Classification scratch, keyed by consuming view.
-		std::vector<PendingUpload> m_pending;        // Uploads recorded by the next 'Flush'.
+		std::vector<PendingWork> m_pending;          // Uploads and producer dispatches recorded by the next 'Flush', in submission order.
+		std::vector<uint8_t> m_produce_cs;           // The bytecode of the cached producer pipeline.
+		D3DPtr<ID3D12RootSignature> m_produce_sig;   // The producer root signature. See 'population.hlsli' for the bindings.
+		D3DPtr<ID3D12PipelineState> m_produce_pso;   // The pipeline for the most recent producer bytecode.
 		uint64_t m_revision;                         // Incremented by every content change, for cache invalidation.
 		std::mutex m_mutex;
 
@@ -210,8 +216,14 @@ namespace pr::rdr12
 		// Copy 'data' into the payload buffer at byte offset 'ofs'. The data is copied during this call.
 		void UpdatePayload(int64_t ofs, std::span<uint8_t const> data);
 
-		// Record the pending uploads into 'cmd_list'. Call before any consumer of this frame reads the population.
-		void Flush(GfxCmdList& cmd_list, GpuUploadBuffer& upload);
+		// Queue a dispatch of the compute shader 'cs' that writes instances, block live counts, and payload on the GPU. 'constants' (1 to 65536 bytes)
+		// are copied during this call. The dispatch runs in the next frame, in order with other updates, before any consumer reads the population.
+		// See 'population.hlsli' for the bindings. Writes outside the buffers are discarded.
+		void Produce(std::span<uint8_t const> cs, std::span<std::byte const> constants, iv3 groups);
+
+		// Record the pending uploads and producer dispatches into 'cmd_list'. Call before any consumer of this frame reads the population.
+		// Producer dispatches bind their buffers through descriptors in 'heap', which this call sets on 'cmd_list'.
+		void Flush(GfxCmdList& cmd_list, GpuUploadBuffer& upload, GpuViewHeap& heap);
 
 		// Return the classification scratch buffer for 'view_key', growing it to at least 'size' bytes.
 		ID3D12Resource* ViewBuffer(uint64_t view_key, int64_t size);

@@ -39,6 +39,25 @@ namespace render_tests
 		return instance;
 	}
 
+	// Constants of the 'population_producer' test shader
+	struct PopulationProducerConstants
+	{
+		uint32_t m_count;    // Instances to write
+		uint32_t m_live;     // Live count to publish for block 0
+		uint32_t m_columns;  // Grid columns
+		uint32_t m_tint;     // Instance tint, 0xAARRGGBB
+		float m_x, m_y, m_z; // Position of instance 0
+		float m_spacing;     // Grid spacing
+	};
+
+	// Queue the 'population_producer' test shader on 'population'
+	void PopulationProduce(api::Population population, PopulationProducerConstants const& constants)
+	{
+		// One thread per instance, in groups of 64
+		auto groups = static_cast<int>((constants.m_count + 63) / 64);
+		View3D_PopulationProduce(population, compiled::population_producer, sizeof(compiled::population_producer), &constants, sizeof(constants), std::max(groups, 1), 1, 1);
+	}
+
 	// Verify GPU-culled population rendering: block live counts, instance flags, draw distance, and scene removal
 	void PopulationTests(int samples)
 	{
@@ -219,12 +238,116 @@ namespace render_tests
 		auto side_shadowed = image("Cached shadow views missed an instance update");
 		Require(right_shadow(side_shadowed) < 0.5f * right_shadow(side_lit), "Shadow missing from a population outside the camera view");
 
+		// A producer that empties the block invalidates cached shadow views, so the shadow disappears
+		PopulationProduce(population.get(), PopulationProducerConstants{ .m_count = 0, .m_live = 0, .m_columns = 1, .m_tint = 0xFFFFFFFF, .m_x = 60, .m_y = 0, .m_z = -40, .m_spacing = 0 });
+		Require(ImageDifference(image("Cached shadow views missed a producer update"), side_lit) == 0, "Population shadow remained after a producer emptied its block");
+
+		// A producer that restores the instance restores the shadow
+		PopulationProduce(population.get(), PopulationProducerConstants{ .m_count = 1, .m_live = 1, .m_columns = 1, .m_tint = 0xFFFFFFFF, .m_x = 60, .m_y = 0, .m_z = -40, .m_spacing = 0 });
+		Require(ImageDifference(image("Cached shadow views missed a producer update"), side_shadowed) == 0, "Population shadow differs after a producer restored it");
+
 		// Removing the population from the window removes its shadow
 		View3D_WindowRemovePopulation(fixture.m_window, population.get());
 		Require(ImageDifference(image("Cached shadow views missed a population removal"), side_lit) == 0, "Population shadow remained after the population was removed");
 
 		fixture.CheckDebugLayer();
 		std::cout << "PASS population shadows, off-screen casters, and cached shadow views: MSAA " << samples << '\n';
+	}
+
+	// Verify GPU producers: generated instances and live counts, ordering with CPU updates, discarded out-of-range writes, payloads, and argument checks
+	void PopulationProducerTests(int samples)
+	{
+		// A population whose only block starts empty, so everything drawn comes from the producer.
+		// The producer places a 2-column grid from (-30,0,-50) with spacing 60, so instances 0 and 1 land near pixels (26,64) and (102,64).
+		Fixture fixture(samples);
+		auto quad = PopulationQuad(fixture);
+		auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
+		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0));
+		auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 8, 1, 0));
+		Require(population != nullptr, "Population creation failed");
+		auto bbox = api::BBox{ .centre = {0, 30, -50, 1}, .radius = {40, 40, 10, 0} };
+		View3D_PopulationBlockSet(population.get(), 0, bbox, 0, 4, 0);
+		View3D_WindowAddPopulation(fixture.m_window, population.get());
+		fixture.CheckErrors();
+		Expect(fixture.Image(), 0, 0, 0, 26, 64);
+
+		// The producer writes instances and the block's live count
+		auto constants = PopulationProducerConstants{ .m_count = 2, .m_live = 2, .m_columns = 2, .m_tint = 0xFFFF0000, .m_x = -30, .m_y = 0, .m_z = -50, .m_spacing = 60 };
+		PopulationProduce(population.get(), constants);
+		fixture.CheckErrors();
+		{
+			auto image = fixture.Image();
+			Expect(image, 1, 0, 0, 26, 64);
+			Expect(image, 1, 0, 0, 102, 64);
+			Expect(image, 0, 0, 0, 64, 64);
+		}
+
+		// A later dispatch replaces the generated content
+		constants.m_live = 1;
+		constants.m_tint = 0xFF00FF00;
+		PopulationProduce(population.get(), constants);
+		fixture.CheckErrors();
+		{
+			auto image = fixture.Image();
+			Expect(image, 0, 1, 0, 26, 64);
+			Expect(image, 0, 0, 0, 102, 64);
+		}
+
+		// Dispatches and CPU updates apply in the order they were queued
+		constants.m_live = 2;
+		constants.m_tint = 0xFFFF0000;
+		PopulationProduce(population.get(), constants);
+		auto blue = PopulationInstanceAt(30, 0, -50, 0xFF0000FF);
+		View3D_PopulationInstancesUpdate(population.get(), 1, &blue, 1);
+		fixture.CheckErrors();
+		{
+			auto image = fixture.Image();
+			Expect(image, 1, 0, 0, 26, 64);
+			Expect(image, 0, 0, 1, 102, 64);
+		}
+		View3D_PopulationInstancesUpdate(population.get(), 1, &blue, 1);
+		PopulationProduce(population.get(), constants);
+		fixture.CheckErrors();
+		Expect(fixture.Image(), 1, 0, 0, 102, 64);
+
+		// Writes beyond the instance buffer and the null payload view are discarded, and a live count beyond the block capacity is clamped.
+		// The first four grid cells (two rows) are drawn; the second row lies at y = 60, outside the camera view.
+		constants.m_count = 20;
+		constants.m_live = 10;
+		constants.m_tint = 0xFFFFFFFF;
+		PopulationProduce(population.get(), constants);
+		fixture.CheckErrors();
+		{
+			auto image = fixture.Image();
+			Expect(image, 1, 1, 1, 26, 64);
+			Expect(image, 1, 1, 1, 102, 64);
+		}
+
+		// A producer can also write a population payload
+		auto payload_population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 4, 1, 16));
+		Require(payload_population != nullptr, "Population creation failed");
+		View3D_PopulationBlockSet(payload_population.get(), 0, api::BBox{ .centre = {0, -30, -50, 1}, .radius = {10, 10, 10, 0} }, 0, 4, 0);
+		View3D_WindowAddPopulation(fixture.m_window, payload_population.get());
+		PopulationProduce(payload_population.get(), PopulationProducerConstants{ .m_count = 1, .m_live = 1, .m_columns = 1, .m_tint = 0xFF00FF00, .m_x = 0, .m_y = -30, .m_z = -50, .m_spacing = 0 });
+		fixture.CheckErrors();
+		Expect(fixture.Image(), 0, 1, 0, 64, 102);
+
+		// Invalid producer arguments are reported
+		auto bytes = std::span{ compiled::population_producer };
+		View3D_PopulationProduce(population.get(), bytes.data(), 0, &constants, sizeof(constants), 1, 1, 1);
+		Require(!fixture.m_errors.empty(), "Empty producer bytecode was accepted");
+		fixture.m_errors.clear();
+		View3D_PopulationProduce(population.get(), bytes.data(), bytes.size(), &constants, 0, 1, 1, 1);
+		Require(!fixture.m_errors.empty(), "Empty producer constants were accepted");
+		fixture.m_errors.clear();
+		View3D_PopulationProduce(population.get(), bytes.data(), bytes.size(), &constants, sizeof(constants), 0, 1, 1);
+		Require(!fixture.m_errors.empty(), "An empty producer dispatch was accepted");
+		fixture.m_errors.clear();
+		Require(View3D_PopulationCreate(prototype.get(), 4, 1, 6) == nullptr, "A payload size that is not a multiple of 4 was accepted");
+		fixture.m_errors.clear();
+
+		fixture.CheckDebugLayer();
+		std::cout << "PASS population producers, update ordering, discarded writes, and payloads: MSAA " << samples << '\n';
 	}
 }
 
@@ -239,5 +362,10 @@ namespace pr::unittests::view3d12
 	{
 		render_tests::PopulationShadowTests(1);
 		render_tests::PopulationShadowTests(4);
+	}
+	PRUnitTest(View3d12_PopulationProducer, Extended | Serial)
+	{
+		render_tests::PopulationProducerTests(1);
+		render_tests::PopulationProducerTests(4);
 	}
 }

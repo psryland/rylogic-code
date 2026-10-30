@@ -2815,6 +2815,24 @@ VIEW3D_API void __stdcall View3D_PopulationPayloadUpdate(view3d::Population popu
 	CatchAndReport(View3D_PopulationPayloadUpdate, , );
 }
 
+// Queue a GPU producer dispatch for a population
+VIEW3D_API void __stdcall View3D_PopulationProduce(view3d::Population population, void const* cs_bytecode, size_t cs_bytecode_size, void const* constants, size_t constants_size, int groups_x, int groups_y, int groups_z)
+{
+	try
+	{
+		// The population validates the bytecode, constants, and group counts.
+		Validate(population);
+		if (cs_bytecode == nullptr || constants == nullptr)
+			throw std::invalid_argument("Population producer bytecode and constants are required");
+
+		DllLockGuard;
+		auto bytecode = std::span(static_cast<uint8_t const*>(cs_bytecode), cs_bytecode_size);
+		auto data = std::span(static_cast<std::byte const*>(constants), constants_size);
+		population->Produce(bytecode, data, iv3(groups_x, groups_y, groups_z));
+	}
+	CatchAndReport(View3D_PopulationProduce, , );
+}
+
 // Blend a retained source cubemap and independent direction frames into an existing atmosphere.
 VIEW3D_API BOOL __stdcall View3D_ObjectBlendProceduralSky(view3d::Object object, view3d::CubeMap background, float weight, view3d::Mat4x4 const& world_to_sky, view3d::Mat4x4 const& world_to_background)
 {

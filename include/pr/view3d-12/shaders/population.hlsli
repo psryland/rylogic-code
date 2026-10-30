@@ -42,7 +42,8 @@
 //  - Constants: 'ConstantBuffer<T>', the caller's constants.
 //  - Instances: 'RWStructuredBuffer<View3DPopulationInstance>', the population's instance records.
 //  - LiveCounts: 'RWStructuredBuffer<uint>', one live instance count per block. A block draws instances [first, first + live count).
-//  - Payload: 'RWByteAddressBuffer', the caller's optional payload. Unbound when the population has no payload.
+//  - Payload: 'RWByteAddressBuffer', the caller's optional payload. A null view, which reads zero and discards writes, when the population has no payload.
+// Producer views cover exactly the population buffers, so writes outside them are discarded.
 // A producer must keep each live count within its block's capacity, and keep the live instances inside the block's published bounds.
 // The renderer clamps live counts to capacity and reports the violation through the population diagnostics.
 #define VIEW3D_POPULATION_PRODUCER_CONSTANTS_REGISTER b0

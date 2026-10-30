@@ -66,6 +66,15 @@ namespace pr::rdr12
 			View,
 		};
 
+		// Root parameters of population producers. See the producer bindings in 'population.hlsli'.
+		enum class EProduceParam
+		{
+			Constants,
+			Instances,
+			LiveCounts,
+			Payload,
+		};
+
 		// The state that shaders read population buffers in.
 		constexpr auto ShaderReadState = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
 
@@ -207,21 +216,26 @@ namespace pr::rdr12
 		, m_proxies(prototype != nullptr ? prototype->m_lods.size() : 0)
 		, m_views()
 		, m_pending()
+		, m_produce_cs()
+		, m_produce_sig()
+		, m_produce_pso()
 		, m_revision()
 		, m_mutex()
 	{
-		// Check the description.
+		// Check the description. The payload is addressed in 4-byte words by shaders, so its size is a whole number of words.
 		if (prototype == nullptr)
 			throw std::invalid_argument("A population requires a prototype");
 		if (instance_capacity <= 0 || block_capacity <= 0 || payload_size < 0)
 			throw std::invalid_argument("Population capacities must be positive, and the payload size non-negative");
+		if (payload_size % 4 != 0)
+			throw std::invalid_argument("The population payload size must be a multiple of 4 bytes");
 
-		// Create the GPU buffers up front, so capacity failures happen here rather than mid-frame.
+		// Create the GPU buffers up front, so capacity failures happen here rather than mid-frame. GPU producers write them through unordered access.
 		auto device = rdr.d3d();
-		m_instances = CreateBuffer(device, int64_t(instance_capacity) * sizeof(PopulationInstance), D3D12_RESOURCE_FLAG_NONE, "Population:Instances");
-		m_live_counts = CreateBuffer(device, int64_t(block_capacity) * sizeof(uint32_t), D3D12_RESOURCE_FLAG_NONE, "Population:LiveCounts");
+		m_instances = CreateBuffer(device, int64_t(instance_capacity) * sizeof(PopulationInstance), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, "Population:Instances");
+		m_live_counts = CreateBuffer(device, int64_t(block_capacity) * sizeof(uint32_t), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, "Population:LiveCounts");
 		if (payload_size != 0)
-			m_payload = CreateBuffer(device, payload_size, D3D12_RESOURCE_FLAG_NONE, "Population:Payload");
+			m_payload = CreateBuffer(device, payload_size, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, "Population:Payload");
 
 		// Each LOD draws through a proxy at the origin. Population vertices are placed by the instance records, not by the proxy transform.
 		for (int i = 0, iend = isize(m_proxies); i != iend; ++i)
@@ -243,6 +257,10 @@ namespace pr::rdr12
 		m_rdr->DeferRelease(m_live_counts);
 		if (m_payload != nullptr)
 			m_rdr->DeferRelease(m_payload);
+		if (m_produce_pso != nullptr)
+			m_rdr->DeferRelease(m_produce_pso);
+		if (m_produce_sig != nullptr)
+			m_rdr->DeferRelease(m_produce_sig);
 
 		for (auto& [key, view] : m_views)
 			m_rdr->DeferRelease(view.m_res);
@@ -328,11 +346,59 @@ namespace pr::rdr12
 		++m_revision;
 	}
 
-	// Record the pending uploads into 'cmd_list'.
-	void Population::Flush(GfxCmdList& cmd_list, GpuUploadBuffer& upload)
+	// Queue a producer dispatch for the next frame.
+	void Population::Produce(std::span<uint8_t const> cs, std::span<std::byte const> constants, iv3 groups)
 	{
-		// Take the pending uploads, so callers can queue more while this frame records.
-		std::vector<PendingUpload> pending;
+		// Validate the dispatch before recording any GPU work.
+		if (cs.empty())
+			throw std::invalid_argument("A population producer requires compute bytecode");
+		if (constants.empty() || constants.size() > D3D12_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * 16ULL)
+			throw std::invalid_argument("Population producer constants must contain 1 to 65536 bytes");
+		for (int i = 0; i != 3; ++i)
+		{
+			// Each dimension must be a positive count within the D3D12 limit.
+			if (groups[i] <= 0 || groups[i] > D3D12_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION)
+				throw std::invalid_argument("Population producer thread-group counts are invalid");
+		}
+
+		std::lock_guard lock(m_mutex);
+
+		// All producers share one binding layout, so the root signature is created once.
+		if (m_produce_sig == nullptr)
+		{
+			m_produce_sig = RootSig(ERootSigFlags::ComputeOnly)
+				.CBuf(hlsl::ECBufReg::b0)
+				.UAV(hlsl::EUAVReg::u0, 1)
+				.UAV(hlsl::EUAVReg::u1, 1)
+				.UAV(hlsl::EUAVReg::u2, 1)
+				.Create(m_rdr->d3d(), "PopulationProducerSig");
+		}
+
+		// Rebuild the pipeline only when the bytecode changes. Queued dispatches hold their own reference to the old pipeline.
+		if (!std::ranges::equal(cs, m_produce_cs))
+		{
+			if (m_produce_pso != nullptr)
+				m_rdr->DeferRelease(m_produce_pso);
+
+			m_produce_cs.assign(cs.begin(), cs.end());
+			m_produce_pso = ComputePSO(m_produce_sig.get(), std::span<uint8_t const>(m_produce_cs)).Create(m_rdr->d3d(), "PopulationProducerPSO");
+		}
+
+		m_pending.push_back(PendingWork{
+			.m_dst = nullptr,
+			.m_ofs = 0,
+			.m_data = std::vector<std::byte>(constants.begin(), constants.end()),
+			.m_pso = m_produce_pso,
+			.m_groups = groups,
+		});
+		++m_revision;
+	}
+
+	// Record the pending uploads and producer dispatches into 'cmd_list'.
+	void Population::Flush(GfxCmdList& cmd_list, GpuUploadBuffer& upload, GpuViewHeap& heap)
+	{
+		// Take the pending work, so callers can queue more while this frame records.
+		std::vector<PendingWork> pending;
 		{
 			std::lock_guard lock(m_mutex);
 			pending.swap(m_pending);
@@ -340,26 +406,95 @@ namespace pr::rdr12
 		if (pending.empty())
 			return;
 
-		// Move every destination to the copy state in one batch.
+		// Record the work in submission order, so a later update of the same bytes wins, whether it is a copy or a dispatch.
 		BarrierBatch barriers(cmd_list);
-		for (auto const& p : pending)
-			barriers.Transition(p.m_dst, D3D12_RESOURCE_STATE_COPY_DEST);
-
-		barriers.Commit();
-
-		// Copy each range in submission order, so later updates of the same bytes win.
-		for (auto const& p : pending)
+		auto heap_set = false;
+		for (auto i = pending.begin(); i != pending.end();)
 		{
-			auto alloc = upload.Alloc(isize(p.m_data), 16);
-			memcpy(alloc.m_mem + alloc.m_ofs, p.m_data.data(), p.m_data.size());
-			cmd_list.CopyBufferRegion(p.m_dst, s_cast<uint64_t>(p.m_ofs), alloc);
+			// Record a run of copies with one batch of barriers on each side.
+			if (i->m_pso == nullptr)
+			{
+				// Move every destination to the copy state in one batch.
+				auto end = std::find_if(i, pending.end(), [](PendingWork const& p) { return p.m_pso != nullptr; });
+				for (auto p = i; p != end; ++p)
+					barriers.Transition(p->m_dst, D3D12_RESOURCE_STATE_COPY_DEST);
+
+				barriers.Commit();
+
+				// Copy each range in order.
+				for (auto p = i; p != end; ++p)
+				{
+					auto alloc = upload.Alloc(isize(p->m_data), 16);
+					memcpy(alloc.m_mem + alloc.m_ofs, p->m_data.data(), p->m_data.size());
+					cmd_list.CopyBufferRegion(p->m_dst, s_cast<uint64_t>(p->m_ofs), alloc);
+				}
+
+				// Leave the buffers readable by the culling and drawing shaders.
+				for (auto p = i; p != end; ++p)
+					barriers.Transition(p->m_dst, ShaderReadState);
+
+				barriers.Commit();
+				i = end;
+				continue;
+			}
+
+			// Record a producer dispatch. Descriptor tables bound the views to the buffer sizes, so writes outside the buffers are discarded.
+			{
+				if (!heap_set)
+				{
+					auto heaps = { heap.get() };
+					cmd_list.SetDescriptorHeaps({ heaps.begin(), heaps.size() });
+					heap_set = true;
+				}
+
+				auto instances_uav = D3D12_UNORDERED_ACCESS_VIEW_DESC{
+					.Format = DXGI_FORMAT_UNKNOWN,
+					.ViewDimension = D3D12_UAV_DIMENSION_BUFFER,
+					.Buffer = { .FirstElement = 0, .NumElements = s_cast<UINT>(m_instance_capacity), .StructureByteStride = sizeof(PopulationInstance), .CounterOffsetInBytes = 0, .Flags = D3D12_BUFFER_UAV_FLAG_NONE },
+				};
+				auto live_counts_uav = D3D12_UNORDERED_ACCESS_VIEW_DESC{
+					.Format = DXGI_FORMAT_UNKNOWN,
+					.ViewDimension = D3D12_UAV_DIMENSION_BUFFER,
+					.Buffer = { .FirstElement = 0, .NumElements = s_cast<UINT>(BlockCapacity()), .StructureByteStride = sizeof(uint32_t), .CounterOffsetInBytes = 0, .Flags = D3D12_BUFFER_UAV_FLAG_NONE },
+				};
+
+				// Populations without a payload bind a null view, which reads zero and discards writes.
+				auto payload_uav = D3D12_UNORDERED_ACCESS_VIEW_DESC{
+					.Format = DXGI_FORMAT_R32_TYPELESS,
+					.ViewDimension = D3D12_UAV_DIMENSION_BUFFER,
+					.Buffer = { .FirstElement = 0, .NumElements = s_cast<UINT>(std::max(m_payload_size / 4, 1)), .StructureByteStride = 0, .CounterOffsetInBytes = 0, .Flags = D3D12_BUFFER_UAV_FLAG_RAW },
+				};
+
+				barriers.Transition(m_instances.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				barriers.Transition(m_live_counts.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+				if (m_payload != nullptr)
+					barriers.Transition(m_payload.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+
+				barriers.Commit();
+
+				auto cbuf = upload.Alloc(isize(i->m_data), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+				memcpy(cbuf.m_mem + cbuf.m_ofs, i->m_data.data(), i->m_data.size());
+				cmd_list.SetComputeRootSignature(m_produce_sig.get());
+				cmd_list.SetPipelineState(i->m_pso.get());
+				cmd_list.SetComputeRootConstantBufferView(EProduceParam::Constants, cbuf);
+				cmd_list.SetComputeRootDescriptorTable(EProduceParam::Instances, heap.Add(m_instances.get(), instances_uav));
+				cmd_list.SetComputeRootDescriptorTable(EProduceParam::LiveCounts, heap.Add(m_live_counts.get(), live_counts_uav));
+				cmd_list.SetComputeRootDescriptorTable(EProduceParam::Payload, heap.Add(m_payload.get(), payload_uav));
+				cmd_list.Dispatch(i->m_groups);
+
+				// Return the buffers to the state that consumers read them in. The transition also orders the writes before later reads.
+				barriers.Transition(m_instances.get(), ShaderReadState);
+				barriers.Transition(m_live_counts.get(), ShaderReadState);
+				if (m_payload != nullptr)
+					barriers.Transition(m_payload.get(), ShaderReadState);
+
+				barriers.Commit();
+
+				// The command list may execute after the cached pipeline is replaced, so this reference is released once the GPU is done with it.
+				m_rdr->DeferRelease(i->m_pso);
+				++i;
+			}
 		}
-
-		// Leave the buffers readable by the culling and drawing shaders.
-		for (auto const& p : pending)
-			barriers.Transition(p.m_dst, ShaderReadState);
-
-		barriers.Commit();
 	}
 
 	// Return the classification scratch buffer for 'view_key'.
@@ -388,10 +523,12 @@ namespace pr::rdr12
 	// Queue a copy of 'data' to 'dst' at byte offset 'ofs'. Callers hold 'm_mutex' or have exclusive access.
 	void Population::Enqueue(ID3D12Resource* dst, int64_t ofs, std::span<std::byte const> data)
 	{
-		m_pending.push_back(PendingUpload{
+		m_pending.push_back(PendingWork{
 			.m_dst = dst,
 			.m_ofs = ofs,
 			.m_data = std::vector<std::byte>(data.begin(), data.end()),
+			.m_pso = nullptr,
+			.m_groups = iv3::Zero(),
 		});
 	}
 

@@ -111,7 +111,7 @@ public sealed partial class View3d
 	{
 		/// <summary>
 		/// Create a population of 'prototype' with fixed capacities. 'payload_size' is the size in bytes of an optional caller payload buffer for custom
-		/// shaders; zero means no payload.
+		/// shaders; zero means no payload, and it must be a multiple of 4.
 		/// </summary>
 		public Population(PopulationPrototype prototype, int instance_capacity, int block_capacity, int payload_size = 0)
 		{
@@ -158,6 +158,19 @@ public sealed partial class View3d
 			}
 		}
 
+		/// <summary>
+		/// Generate population content on the GPU. Queues one dispatch of the compiled compute shader 'cs_bytecode', which sees a copy of 'constants'
+		/// (1 to 65536 bytes) and writes instances, block live counts, and payload through the producer bindings in 'population.hlsli'. Dispatches and
+		/// other updates run at the start of the next frame in the order they were queued. Block bounds still come from BlockSet.
+		/// </summary>
+		public unsafe void Produce<T>(ReadOnlySpan<byte> cs_bytecode, ReadOnlySpan<T> constants, int groups_x, int groups_y, int groups_z) where T : unmanaged
+		{
+			// The bytecode and constants are pinned only for the call; View3D copies them.
+			fixed (byte* cs = cs_bytecode)
+			fixed (T* cb = constants)
+				View3D_PopulationProduce(Live, cs, checked((nuint)cs_bytecode.Length), cb, checked((nuint)(constants.Length * sizeof(T))), groups_x, groups_y, groups_z);
+		}
+
 		/// <summary>Release this reference; windows that show the population keep their own. Repeated disposal is harmless.</summary>
 		public void Dispose()
 		{
@@ -201,6 +214,9 @@ public sealed partial class View3d
 
 	[DllImport(Dll)]
 	private static extern unsafe void View3D_PopulationPayloadUpdate(IntPtr population, long ofs, void* data, long size);
+
+	[DllImport(Dll)]
+	private static extern unsafe void View3D_PopulationProduce(IntPtr population, void* cs_bytecode, nuint cs_bytecode_size, void* constants, nuint constants_size, int groups_x, int groups_y, int groups_z);
 
 	[DllImport(Dll)]
 	private static extern void View3D_WindowAddPopulation(IntPtr window, IntPtr population);

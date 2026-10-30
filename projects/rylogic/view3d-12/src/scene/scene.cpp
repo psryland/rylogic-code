@@ -480,7 +480,7 @@ namespace pr::rdr12
 
 		// Record population content changes before any render step reads the populations
 		for (auto& pop : m_populations)
-			pop->Flush(frame.m_prepare, frame.m_upload);
+			pop->Flush(frame.m_prepare, frame.m_upload, wnd().m_heap_view);
 
 		// Resolve the lights for this frame before any render step reads them
 		m_dropped_lights = ResolveLights(m_lights, m_frame_lights, m_cam.CameraToWorld(), m_resolved_lights);

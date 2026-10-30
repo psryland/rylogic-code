@@ -101,6 +101,9 @@
     <ShaderBuild Include="src\view3d-12\shaders\hlsl\generated_vertex_input.hlsl">
       <Filter>view3d-12\shaders</Filter>
     </ShaderBuild>
+    <ShaderBuild Include="src\view3d-12\shaders\hlsl\population_producer.hlsl">
+      <Filter>view3d-12\shaders</Filter>
+    </ShaderBuild>
     <ShaderBuild Include="src\view3d-12\shaders\hlsl\fade_vertex.hlsl">
       <Filter>view3d-12\shaders</Filter>
     </ShaderBuild>

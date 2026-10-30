@@ -1671,7 +1671,8 @@ extern "C"
 	VIEW3D_API void __stdcall View3D_PopulationPrototypeRelease(pr::view3d::PopulationPrototype prototype);
 
 	// Create a population of 'prototype' with fixed capacities. GPU resources are created here, so later updates do not allocate. 'payload_size' is the
-	// size in bytes of an optional caller payload buffer for custom shaders; zero means no payload. Release using View3D_PopulationRelease. Returns null on failure.
+	// size in bytes of an optional caller payload buffer for custom shaders; zero means no payload, and it must be a multiple of 4. Release using
+	// View3D_PopulationRelease. Returns null on failure.
 	VIEW3D_API pr::view3d::Population __stdcall View3D_PopulationCreate(pr::view3d::PopulationPrototype prototype, int instance_capacity, int block_capacity, int payload_size);
 	VIEW3D_API void __stdcall View3D_PopulationRelease(pr::view3d::Population population);
 
@@ -1687,6 +1688,13 @@ extern "C"
 
 	// Copy 'size' bytes into the payload buffer at byte offset 'ofs'. The data is copied during the call and shown from the next frame.
 	VIEW3D_API void __stdcall View3D_PopulationPayloadUpdate(pr::view3d::Population population, int64_t ofs, void const* data, int64_t size);
+
+	// Generate population content on the GPU. Queues one dispatch of the caller-compiled compute shader 'cs_bytecode', which sees a copy of the 1 to 65536
+	// 'constants' bytes and writes instances, block live counts, and payload through the producer bindings in 'pr/view3d-12/shaders/population.hlsli'.
+	// Dispatches and other updates run at the start of the next frame in the order they were queued, before any render step reads the population, and
+	// nothing is read back to the CPU. Blocks still come from View3D_PopulationBlockSet, whose bounds must contain every instance the producer makes live.
+	// Writes outside the buffers are discarded. The pipeline for the most recent bytecode is cached per population.
+	VIEW3D_API void __stdcall View3D_PopulationProduce(pr::view3d::Population population, void const* cs_bytecode, size_t cs_bytecode_size, void const* constants, size_t constants_size, int groups_x, int groups_y, int groups_z);
 
 	// Create an ldr object using a callback to populate the model data.
 	VIEW3D_API pr::view3d::Object __stdcall View3D_ObjectCreateWithCallback(char const* name, pr::view3d::Colour colour, int vcount, int icount, int ncount, pr::view3d::EditObjectCB edit_cb, GUID const& context_id);
