@@ -36,7 +36,7 @@ class RYLOGIC_UL_rig_families(UIList):
 		row = layout.row()
 		row.prop(item, "name", text="", emboss=False, icon="ARMATURE_DATA")
 		slope = "any slope" if item.max_slope >= math.pi else f"up to {math.degrees(item.max_slope):.0f}°"
-		row.label(text=f"{item.up.title()} up, {slope}, {item.max_speed:.2f} m/s")
+		row.label(text=f"{item.medium.title()}, {item.up.title()} up, {slope}, {item.max_speed:.2f} m/s")
 
 
 class RYLOGIC_UL_rig_cycles(UIList):
@@ -159,6 +159,11 @@ class RYLOGIC_PT_rig(Panel):
 			box.prop(family, "up")
 			box.prop(family, "max_slope")
 			box.prop(family, "max_speed")
+			box.prop(family, "medium")
+			column = box.column(align=True)
+			column.prop(family, "wave_amplitude")
+			column.prop(family, "wave_wavelength")
+			column.prop(family, "wave_growth")
 
 		# Movement cycles: example actions that guide the runtime's procedural locomotion, exported as a '.gait'
 		layout.label(text="Movement Cycles")

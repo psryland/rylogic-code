@@ -197,6 +197,24 @@ public sealed class Engine :IDisposable
 		Native.Check(Native.Physics_EngineWaterWindSeaSet(Handle, null));
 	}
 
+	/// <summary>
+	/// Write the water-surface height at each world-space XY position in 'xy' to the same index of 'heights', at simulation time 'time_s'.
+	/// This is the surface that moves bodies: the same elements, wind sea, and depth correction. The engine must have water.
+	/// </summary>
+	public unsafe void WaterHeights(double time_s, ReadOnlySpan<Vector2d> xy, Span<double> heights)
+	{
+		EnsureOwner();
+		if (heights.Length != xy.Length)
+			throw new ArgumentException("One height is required for each position");
+
+		// Borrow the caller's arrays for the duration of the call.
+		fixed (Vector2d* xy_ptr = xy)
+		fixed (double* heights_ptr = heights)
+		{
+			Native.Check(Native.Physics_EngineWaterHeights(Handle, time_s, xy_ptr, heights_ptr, xy.Length));
+		}
+	}
+
 	/// <summary>Create a sphere collision shape.</summary>
 	public unsafe Shape CreateSphere(float radius, ShapeOptions? options = null, bool hollow = false)
 	{

@@ -35,6 +35,10 @@ FAMILY_UPS = [
 	("SURFACE", "Surface", "The body stands up along the ground's normal, e.g. a quadruped on a slope"),
 	("GRAVITY", "Gravity", "The body stands up against gravity, e.g. an upright biped"),
 ]
+FAMILY_MEDIUMS = [
+	("GROUND", "Ground", "The family walks on the ground"),
+	("WATER", "Water", "The family swims at the water's surface. Its cycles must not plant any feet; the limbs hang from the body in the cycle's pose"),
+]
 
 
 def _MinAngle(name: str, default_degrees: float, description: str) -> FloatProperty:
@@ -134,7 +138,7 @@ class RYLOGIC_PG_RigContact(PropertyGroup):
 
 
 class RYLOGIC_PG_GaitFamily(PropertyGroup):
-	"""A posture: a group of movement cycles that share a stance and walking limbs. The name is the built-in 'name' property, which cycles refer to.
+	"""A posture: a group of movement cycles that share walking limbs. The name is the built-in 'name' property, which cycles refer to.
 
 	The order of the families is their order in the '.gait', which is the runtime's order of preference when a family cannot be used on the ground.
 	"""
@@ -142,7 +146,10 @@ class RYLOGIC_PG_GaitFamily(PropertyGroup):
 	up: EnumProperty(name="Up", items=FAMILY_UPS, default="SURFACE", description="The direction that the body stands up along")
 	max_slope: FloatProperty(name="Max Slope", subtype="ANGLE", min=math.radians(0.1), max=math.pi, default=math.pi, description="The steepest ground, from level, on which the family can be used. 180 degrees allows any ground")
 	max_speed: FloatProperty(name="Max Speed", unit="VELOCITY", min=0.01, default=1.0, description="The fastest that the character should move in this family. It may exceed the fastest cycle's speed")
-
+	medium: EnumProperty(name="Medium", items=FAMILY_MEDIUMS, default="GROUND", description="Whether the family walks on the ground or swims in water")
+	wave_amplitude: FloatProperty(name="Wave Amplitude", min=0.0, default=0.0, description="The peak bend of the body wave at the head end, in radians per body length. The runtime bends the spine and tails from side to side in a wave that travels from head to tail. Zero for no wave")
+	wave_wavelength: FloatProperty(name="Wave Wavelength", min=0.01, default=1.0, description="The length of one body wave, in body lengths (spine plus longest tail)")
+	wave_growth: FloatProperty(name="Wave Growth", min=0.0, default=1.0, description="How much the bend grows from the head end to the tail tip, e.g. 2 for a tail tip that bends twice as much as the chest")
 
 class RYLOGIC_PG_GaitCycle(PropertyGroup):
 	"""An example movement cycle: a looping action that moves the root bone forward by one stride. The name is the built-in 'name' property."""

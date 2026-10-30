@@ -424,6 +424,7 @@ internal static unsafe partial class Native
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineWaterSet(ulong engine, WaterDesc* water);
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineWaterBathymetrySet(ulong engine, WaterBathymetryDesc* bathymetry);
 	[DllImport(Dll)] internal static extern EStatus Physics_EngineWaterWindSeaSet(ulong engine, WindSeaDesc* wind_sea);
+	[DllImport(Dll)] internal static extern EStatus Physics_EngineWaterHeights(ulong engine, double time_s, Vector2d* xy, double* heights, int count);
 	[DllImport(Dll)] internal static extern EStatus Physics_WaveSpectrumSeaTable(WaveSpectrumLayout* spectrum, float fetch, float speed_step, v4* rows, int row_count);
 	[DllImport(Dll)] internal static extern EStatus Physics_WaveSpectrumRelax(float* values, float* targets, int count, float dt, float time_constant);
 	[DllImport(Dll)] internal static extern EStatus Physics_WaveSpectrumElements(WaveSpectrumLayout* spectrum, v4* rows, int row_count, float min_wavelength, WaterFieldElement* elements, int capacity, int* element_count);
