@@ -520,6 +520,79 @@ namespace pr::physics::tests
 			auto axial = (cylinder_volume * 0.5f * 0.0625f + ends_volume * 0.4f * 0.0625f) / (cylinder_volume + ends_volume);
 			PR_EXPECT(FEqlRelative(capsule.m_os_unit_inertia.z.z, axial, 0.0001f));
 		}
+		PRUnitTestMethod(ShellMassProperties_Sphere, Quick)
+		{
+			// A beach-ball-like thin spherical shell has mass 4πr²·areal_density and unit inertia (2/3)r² about its centre
+			auto pi = float(constants<double>::tau_by_2);
+			auto r = 0.15f;
+			auto areal_density = 0.2f;
+			auto mp = CalcMassProperties(ShapeSphere(r), areal_density, EMassDistribution::Shell);
+			PR_EXPECT(FEqlRelative(mp.m_mass, 4.0f * pi * Sqr(r) * areal_density, 0.0001f));
+			PR_EXPECT(FEqlRelative(mp.m_os_unit_inertia.x.x, (2.0f / 3.0f) * Sqr(r), 0.0001f));
+			PR_EXPECT(FEqlRelative(mp.m_os_unit_inertia.y.y, (2.0f / 3.0f) * Sqr(r), 0.0001f));
+			PR_EXPECT(FEqlRelative(mp.m_os_unit_inertia.z.z, (2.0f / 3.0f) * Sqr(r), 0.0001f));
+			PR_EXPECT(FEql(mp.m_centre_of_mass, v4{}));
+		}
+		PRUnitTestMethod(ShellMassProperties_Cube, Quick)
+		{
+			// A cube shell with side s has I = (5/18)ms² about every centroidal axis
+			auto s = 2.0f;
+			auto mp = CalcMassProperties(ShapeBox(v4{s, s, s, 0}), 1.0f, EMassDistribution::Shell);
+			PR_EXPECT(FEqlRelative(mp.m_mass, 6.0f * Sqr(s), 0.0001f));
+			PR_EXPECT(FEqlRelative(mp.m_os_unit_inertia.x.x, (5.0f / 18.0f) * Sqr(s), 0.0001f));
+			PR_EXPECT(FEqlRelative(mp.m_os_unit_inertia.y.y, (5.0f / 18.0f) * Sqr(s), 0.0001f));
+			PR_EXPECT(FEqlRelative(mp.m_os_unit_inertia.z.z, (5.0f / 18.0f) * Sqr(s), 0.0001f));
+		}
+		PRUnitTestMethod(ShellMassProperties_PolytopeMatchesBox, Quick)
+		{
+			// An offset, non-cubic box polytope shell must match the analytic box shell placed at the same offset. Both report inertia about
+			// the root origin, so this also checks the area-weighted centre of mass and the parallel-axis terms of the triangle integration.
+			using namespace pr::collision;
+			auto h = v4{0.5f, 1.0f, 1.5f, 0};
+			auto offset = v4{1.0f, -2.0f, 0.5f, 0};
+			v4 pts[] = {
+				v4{-h.x,-h.y,-h.z,1} + offset, v4{+h.x,-h.y,-h.z,1} + offset, v4{+h.x,+h.y,-h.z,1} + offset, v4{-h.x,+h.y,-h.z,1} + offset,
+				v4{-h.x,-h.y,+h.z,1} + offset, v4{+h.x,-h.y,+h.z,1} + offset, v4{+h.x,+h.y,+h.z,1} + offset, v4{-h.x,+h.y,+h.z,1} + offset,
+			};
+			auto buf = BuildPolytopeFromPoints(pts);
+			auto& poly = buf.as<ShapePolytope>();
+			auto box = ShapeBox(2.0f * h, m4x4::Translation(offset.w1()));
+
+			auto mp_poly = CalcMassProperties(poly, 1.0f, EMassDistribution::Shell);
+			auto mp_box = CalcMassProperties(box, 1.0f, EMassDistribution::Shell);
+			PR_EXPECT(FEqlRelative(mp_poly.m_mass, mp_box.m_mass, 0.0001f));
+			PR_EXPECT(FEqlAbsolute(mp_poly.m_centre_of_mass, mp_box.m_centre_of_mass, 0.0001f));
+			PR_EXPECT(FEqlAbsolute(mp_poly.m_os_unit_inertia.x, mp_box.m_os_unit_inertia.x, 0.001f));
+			PR_EXPECT(FEqlAbsolute(mp_poly.m_os_unit_inertia.y, mp_box.m_os_unit_inertia.y, 0.001f));
+			PR_EXPECT(FEqlAbsolute(mp_poly.m_os_unit_inertia.z, mp_box.m_os_unit_inertia.z, 0.001f));
+		}
+		PRUnitTestMethod(ShellMassProperties_Capsule, Quick)
+		{
+			// A zero-length capsule shell is a spherical shell
+			auto pi = float(constants<double>::tau_by_2);
+			auto sphere = CalcMassProperties(ShapeLine(0.0f, 0.5f), 1.0f, EMassDistribution::Shell);
+			auto expected = CalcMassProperties(ShapeSphere(0.5f), 1.0f, EMassDistribution::Shell);
+			PR_EXPECT(FEqlRelative(sphere.m_mass, expected.m_mass, 0.0001f));
+			PR_EXPECT(FEqlRelative(sphere.m_os_unit_inertia.x.x, expected.m_os_unit_inertia.x.x, 0.0001f));
+			PR_EXPECT(FEqlRelative(sphere.m_os_unit_inertia.z.z, expected.m_os_unit_inertia.z.z, 0.0001f));
+
+			// A capsule shell is an open cylinder plus a spherical shell, with the unit mass split by area
+			auto L = 0.5f;
+			auto r = 0.25f;
+			auto capsule = CalcMassProperties(ShapeLine(L, r), 1.0f, EMassDistribution::Shell);
+			auto cylinder_area = 2.0f * pi * r * L;
+			auto ends_area = 4.0f * pi * Sqr(r);
+			PR_EXPECT(FEqlRelative(capsule.m_mass, cylinder_area + ends_area, 0.0001f));
+			auto axial = (cylinder_area * Sqr(r) + ends_area * (2.0f / 3.0f) * Sqr(r)) / (cylinder_area + ends_area);
+			PR_EXPECT(FEqlRelative(capsule.m_os_unit_inertia.z.z, axial, 0.0001f));
+		}
+		PRUnitTestMethod(ShellMassProperties_RejectsShapesWithoutVolume, Quick)
+		{
+			// Triangles and zero-radius lines enclose no volume, so they cannot carry a shell
+			auto triangle = ShapeTriangle(v4{0, 0, 0, 1}, v4{1, 0, 0, 1}, v4{0, 1, 0, 1});
+			PR_THROWS(CalcMassProperties(triangle, 1.0f, EMassDistribution::Shell), std::invalid_argument);
+			PR_THROWS(CalcMassProperties(ShapeLine(1.0f, 0.0f), 1.0f, EMassDistribution::Shell), std::invalid_argument);
+		}
 		PRUnitTestMethod(TriangleInertia_RightTriangleXY, Extended)
 		{
 			// Right triangle in XY plane: (0,0,0), (3,0,0), (0,4,0)

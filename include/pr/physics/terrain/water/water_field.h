@@ -125,8 +125,9 @@ namespace pr::physics::terrain::water
 		// Sample the surface height and slope at a world-space XY position and simulation time.
 		WaterSample Sample(v2d xy, double time_s) const;
 
-		// Sample the dimensionless lateral pressure gradient used by buoyancy forces. Zero for non-positive gravity.
-		v2 PressureGradient(v2 xy, double time_s, float gravity) const;
+		// Sample the dimensionless dynamic pressure gradient used by buoyancy forces: -(orbital acceleration)/g as (d/dx, d/dy, d/dz, 0).
+		// The total pressure gradient is rho*g*(dynamic - up). Zero for non-positive gravity.
+		v4 PressureGradient(v2 xy, double time_s, float gravity) const;
 
 		// Sample the world-space water particle velocity (w = 0) at a world-space position.
 		v4 Velocity(v4 pos_ws, double time_s) const;

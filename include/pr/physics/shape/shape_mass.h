@@ -9,13 +9,11 @@
 
 namespace pr::physics
 {
-	// Return the unit inertia for the sphere
+	// Return the solid unit inertia for the sphere: 'Ixx = Iyy = Izz = (2/5)mr^2'
 	inline m3x3 UnitInertia(ShapeSphere const& shape)
 	{
-		// A solid sphere:  'Ixx = Iyy = Izz = (2/5)mr^2'
-		// A hollow sphere: 'Ixx = Iyy = Izz = (2/3)mr^2'
 		auto inertia = m3x3{};
-		inertia.x.x = float(shape.m_hollow ? (2.0/3.0) : (2.0/5.0)) * Sqr(shape.m_radius);
+		inertia.x.x = (2.0f / 5.0f) * Sqr(shape.m_radius);
 		inertia.y.y = inertia.x.x;
 		inertia.z.z = inertia.x.x;
 		return inertia;
@@ -171,33 +169,155 @@ namespace pr::physics
 		return mp;
 	}
 
-	// Return the mass properties
-	inline MassProperties CalcMassProperties(ShapeSphere const& shape, float density)
+	// Return the shape-local mass properties of a thin uniform shell on the surface of a sphere. 'areal_density' is in kg/m².
+	inline MassProperties ShellMassProperties(ShapeSphere const& shape, float areal_density)
 	{
-		auto volume = float((2.0/3.0) * constants<double>::tau * shape.m_radius * shape.m_radius * shape.m_radius);
-
-		MassProperties mp;
-		mp.m_centre_of_mass  = v4{};
-		mp.m_mass            = volume * density;
-		mp.m_os_unit_inertia = UnitInertia(shape);
-		return TransformMassProperties(mp, shape.m_base.m_s2r);
+		// A spherical shell has 'I = (2/3)mr^2' about every axis through its centre
+		auto r = shape.m_radius;
+		auto area = 2.0f * float(constants<double>::tau) * Sqr(r);
+		auto unit_inertia = m3x3::Scale((2.0f / 3.0f) * Sqr(r));
+		return MassProperties(unit_inertia, v4{}, area * areal_density);
 	}
 
-	// Return the mass properties
-	inline MassProperties CalcMassProperties(ShapeBox const& shape, float density)
+	// Return the shape-local mass properties of a thin uniform shell on the surface of a box. 'areal_density' is in kg/m².
+	inline MassProperties ShellMassProperties(ShapeBox const& shape, float areal_density)
 	{
-		auto volume = 8.0f * shape.m_radius.x * shape.m_radius.y * shape.m_radius.z;
-
-		MassProperties mp;
-		mp.m_centre_of_mass  = v4{};
-		mp.m_mass            = volume * density;
-		mp.m_os_unit_inertia = UnitInertia(shape);
-		return TransformMassProperties(mp, shape.m_base.m_s2r);
+		// Sum the six face plates. For the axis 'h0', with the other half extents 'h1' and 'h2', the two plates normal to h0 contribute
+		// (1/3)A(h1²+h2²), and each other pair contributes A times the squared offset of the plate plus (1/3) of the in-plane half extent squared.
+		auto h = shape.m_radius;
+		auto AxisSecondMoment = [](float h0, float h1, float h2)
+		{
+			return
+				(8.0f / 3.0f) * h1 * h2 * (Sqr(h1) + Sqr(h2)) +
+				8.0f * h0 * h2 * (Sqr(h1) + Sqr(h2) / 3.0f) +
+				8.0f * h0 * h1 * (Sqr(h1) / 3.0f + Sqr(h2));
+		};
+		auto area = 8.0f * (h.x * h.y + h.y * h.z + h.z * h.x);
+		auto unit_inertia = m3x3{};
+		unit_inertia.x.x = AxisSecondMoment(h.x, h.y, h.z) / area;
+		unit_inertia.y.y = AxisSecondMoment(h.y, h.z, h.x) / area;
+		unit_inertia.z.z = AxisSecondMoment(h.z, h.x, h.y) / area;
+		return MassProperties(unit_inertia, v4{}, area * areal_density);
 	}
 
-	// Return the mass properties
-	inline MassProperties CalcMassProperties(ShapeTriangle const& shape, float density)
+	// Return the shape-local mass properties of a thin uniform shell on the surface of a capsule (a line with a positive radius).
+	// 'areal_density' is in kg/m².
+	inline MassProperties ShellMassProperties(ShapeLine const& shape, float areal_density)
 	{
+		// A zero-radius line has no surface to hold a shell
+		auto L = 2.0f * shape.m_hlength;
+		auto r = shape.m_radius;
+		if (!(r > math::tiny<float>))
+			throw std::invalid_argument("Shell mass distribution requires a line with a positive radius (a capsule)");
+
+		// Split the unit mass between the open cylinder (area 2πrL) and the two hemispherical ends (area 4πr²) in proportion to their areas.
+		auto m_cyl = L / (L + 2.0f * r);
+		auto m_ends = 1.0f - m_cyl;
+
+		// An open cylindrical shell has Ixx = r²/2 + L²/12 and Izz = r². A hemispherical shell has (2/3)r² about its flat face centre and its
+		// centroid sits r/2 from that face. Moving that inertia to the capsule centre, a distance L/2 + r/2 away, gives (2/3)r² + L²/4 + Lr/2.
+		auto unit_inertia = m3x3{};
+		unit_inertia.x.x = m_cyl * (0.5f * Sqr(r) + Sqr(L) / 12.0f) + m_ends * ((2.0f / 3.0f) * Sqr(r) + 0.25f * Sqr(L) + 0.5f * L * r);
+		unit_inertia.y.y = unit_inertia.x.x;
+		unit_inertia.z.z = m_cyl * Sqr(r) + m_ends * (2.0f / 3.0f) * Sqr(r);
+
+		auto area = float(constants<double>::tau) * r * (L + 2.0f * r);
+		return MassProperties(unit_inertia, v4{}, area * areal_density);
+	}
+
+	// Return the shape-local mass properties of a thin uniform shell on the hull faces of a polytope. 'areal_density' is in kg/m².
+	// The inertia is measured about the shape origin, like the solid polytope.
+	inline MassProperties ShellMassProperties(ShapePolytope const& shape, float areal_density)
+	{
+		// Treat each hull face as a uniform triangular plate. A triangle (a, b, c) with area A has first moment A(a+b+c)/3
+		// and second moment ∫ x xᵀ dA = (A/12)(aaᵀ + bbᵀ + ccᵀ + ssᵀ), where s = a + b + c.
+		auto area = 0.0f;
+		auto first_moment = v4{};
+		auto diagonal = v4{}; // Accumulate second moments [x*x, y*y, z*z]
+		auto off_diag = v4{}; // Accumulate second moments [y*z, x*z, x*y]
+		for (ShapePolyFace const *f = shape.face_beg(), *fend = shape.face_end(); f != fend; ++f)
+		{
+			// Face area and centroid contribution
+			auto a = shape.vertex(f->m_index[0]).w0();
+			auto b = shape.vertex(f->m_index[1]).w0();
+			auto c = shape.vertex(f->m_index[2]).w0();
+			auto s = a + b + c;
+			auto face_area = 0.5f * Length(Cross(b - a, c - a));
+			area += face_area;
+			first_moment += face_area * s / 3.0f;
+
+			// Face second moment contribution
+			for (int i = 0, j = 1, k = 2; i != 3; ++i, (++j) %= 3, (++k) %= 3)
+			{
+				diagonal[i] += (face_area / 12.0f) * (a[i] * a[i] + b[i] * b[i] + c[i] * c[i] + s[i] * s[i]);
+				off_diag[i] += (face_area / 12.0f) * (a[j] * a[k] + b[j] * b[k] + c[j] * c[k] + s[j] * s[k]);
+			}
+		}
+		if (!(area > 0.0f))
+			throw std::invalid_argument("Shell mass distribution requires a polytope with a positive surface area");
+
+		// Convert the per-unit-area second moments into the per-unit-mass inertia about the origin
+		diagonal /= area;
+		off_diag /= area;
+		auto unit_inertia = m3x3{
+			v4{diagonal.y + diagonal.z , -off_diag.z              , -off_diag.y             , 0},
+			v4{-off_diag.z             , diagonal.x + diagonal.z  , -off_diag.x             , 0},
+			v4{-off_diag.y             , -off_diag.x              , diagonal.x + diagonal.y , 0}};
+
+		return MassProperties(unit_inertia, (first_moment / area).w0(), area * areal_density);
+	}
+
+	// Return the mass properties. See EMassDistribution for the meaning of 'density'.
+	inline MassProperties CalcMassProperties(ShapeSphere const& shape, float density, EMassDistribution distribution = EMassDistribution::Solid)
+	{
+		switch (distribution)
+		{
+			case EMassDistribution::Solid:
+			{
+				auto volume = float((2.0/3.0) * constants<double>::tau * shape.m_radius * shape.m_radius * shape.m_radius);
+				auto mp = MassProperties(UnitInertia(shape), v4{}, volume * density);
+				return TransformMassProperties(mp, shape.m_base.m_s2r);
+			}
+			case EMassDistribution::Shell:
+			{
+				return TransformMassProperties(ShellMassProperties(shape, density), shape.m_base.m_s2r);
+			}
+			default:
+			{
+				throw std::invalid_argument("Unknown mass distribution");
+			}
+		}
+	}
+
+	// Return the mass properties. See EMassDistribution for the meaning of 'density'.
+	inline MassProperties CalcMassProperties(ShapeBox const& shape, float density, EMassDistribution distribution = EMassDistribution::Solid)
+	{
+		switch (distribution)
+		{
+			case EMassDistribution::Solid:
+			{
+				auto volume = 8.0f * shape.m_radius.x * shape.m_radius.y * shape.m_radius.z;
+				auto mp = MassProperties(UnitInertia(shape), v4{}, volume * density);
+				return TransformMassProperties(mp, shape.m_base.m_s2r);
+			}
+			case EMassDistribution::Shell:
+			{
+				return TransformMassProperties(ShellMassProperties(shape, density), shape.m_base.m_s2r);
+			}
+			default:
+			{
+				throw std::invalid_argument("Unknown mass distribution");
+			}
+		}
+	}
+
+	// Return the mass properties. A triangle is already a surface, so 'density' is mass per unit area and only the solid distribution is valid.
+	inline MassProperties CalcMassProperties(ShapeTriangle const& shape, float density, EMassDistribution distribution = EMassDistribution::Solid)
+	{
+		// A triangle encloses no volume, so it cannot have a shell
+		if (distribution != EMassDistribution::Solid)
+			throw std::invalid_argument("Triangle shapes only support the solid mass distribution");
+
 		MassProperties mp;
 		mp.m_centre_of_mass  = (1.0f / 3.0f) * (shape.m_v.x + shape.m_v.y + shape.m_v.z).w0();
 		mp.m_mass            = 0.5f * Length(Cross(shape.m_v.y - shape.m_v.x, shape.m_v.z - shape.m_v.y)) * density;
@@ -205,37 +325,60 @@ namespace pr::physics
 		return TransformMassProperties(mp, shape.m_base.m_s2r);
 	}
 
-	// Return the mass properties for the line shape
-	inline MassProperties CalcMassProperties(ShapeLine const& shape, float density)
+	// Return the mass properties for the line shape. See EMassDistribution for the meaning of 'density'.
+	// The shell distribution requires a positive radius (a capsule).
+	inline MassProperties CalcMassProperties(ShapeLine const& shape, float density, EMassDistribution distribution = EMassDistribution::Solid)
 	{
-		// A line with radius is a capsule: a cylinder of length 2*m_hlength plus a sphere made of its two hemispherical ends.
-		// For zero-thickness lines, use a small minimum volume to avoid zero mass.
-		auto L = 2.0f * shape.m_hlength;
-		auto r = shape.m_radius;
-		auto volume = (r > math::tiny<float>)
-			? float(constants<double>::tau_by_2) * Sqr(r) * (L + (4.0f / 3.0f) * r)  // pi * r^2 * L + (4/3) * pi * r^3
-			: L * math::tiny<float>;                                                 // Fallback: thin rod with minimal cross-section
+		switch (distribution)
+		{
+			case EMassDistribution::Solid:
+			{
+				// A line with radius is a capsule: a cylinder of length 2*m_hlength plus a sphere made of its two hemispherical ends.
+				// For zero-thickness lines, use a small minimum volume to avoid zero mass.
+				auto L = 2.0f * shape.m_hlength;
+				auto r = shape.m_radius;
+				auto volume = (r > math::tiny<float>)
+					? float(constants<double>::tau_by_2) * Sqr(r) * (L + (4.0f / 3.0f) * r)  // pi * r^2 * L + (4/3) * pi * r^3
+					: L * math::tiny<float>;                                                 // Fallback: thin rod with minimal cross-section
 
-		MassProperties mp;
-		mp.m_centre_of_mass  = v4{};
-		mp.m_mass            = volume * density;
-		mp.m_os_unit_inertia = UnitInertia(shape);
-		return TransformMassProperties(mp, shape.m_base.m_s2r);
+				auto mp = MassProperties(UnitInertia(shape), v4{}, volume * density);
+				return TransformMassProperties(mp, shape.m_base.m_s2r);
+			}
+			case EMassDistribution::Shell:
+			{
+				return TransformMassProperties(ShellMassProperties(shape, density), shape.m_base.m_s2r);
+			}
+			default:
+			{
+				throw std::invalid_argument("Unknown mass distribution");
+			}
+		}
 	}
 
-	// Return mass properties for the polytope
-	inline MassProperties CalcMassProperties(ShapePolytope const& shape, float density)
+	// Return mass properties for the polytope. See EMassDistribution for the meaning of 'density'.
+	inline MassProperties CalcMassProperties(ShapePolytope const& shape, float density, EMassDistribution distribution = EMassDistribution::Solid)
 	{
-		MassProperties mp;
-		mp.m_centre_of_mass  = CalcCentreOfMass(shape);
-		mp.m_mass            = CalcVolume(shape) * density;
-		mp.m_os_unit_inertia = UnitInertia(shape);
-		return TransformMassProperties(mp, shape.m_base.m_s2r);
+		switch (distribution)
+		{
+			case EMassDistribution::Solid:
+			{
+				auto mp = MassProperties(UnitInertia(shape), CalcCentreOfMass(shape), CalcVolume(shape) * density);
+				return TransformMassProperties(mp, shape.m_base.m_s2r);
+			}
+			case EMassDistribution::Shell:
+			{
+				return TransformMassProperties(ShellMassProperties(shape, density), shape.m_base.m_s2r);
+			}
+			default:
+			{
+				throw std::invalid_argument("Unknown mass distribution");
+			}
+		}
 	}
 
 	// Calculate the mass properties of a shape (forward declaration for the array aggregation)
 	template <typename = void>
-	inline MassProperties CalcMassProperties(Shape const& shape, float density);
+	inline MassProperties CalcMassProperties(Shape const& shape, float density, EMassDistribution distribution = EMassDistribution::Solid);
 
 	// Return mass properties for a composite (array of convex primitives).
 	// Each child's CalcMassProperties folds that child's own shape-to-root transform, and a child's
@@ -243,7 +386,8 @@ namespace pr::physics
 	// results are already expressed about the root origin. Because the child inertias all reference
 	// that one common point they add directly; masses and first moments (m*com) also sum. The array's
 	// own s2r must not be applied again here, or it would be counted twice.
-	inline MassProperties CalcMassProperties(ShapeArray const& shape, float density)
+	// The distribution applies to every child, so a shell array is a set of separate closed skins rather than the skin of the union.
+	inline MassProperties CalcMassProperties(ShapeArray const& shape, float density, EMassDistribution distribution = EMassDistribution::Solid)
 	{
 		auto total_mass = 0.0f;
 		auto first_moment = v4{}; // Sum of m_i * com_i (about the root origin)
@@ -251,7 +395,7 @@ namespace pr::physics
 
 		for (Shape const* i = shape.begin(), *i_end = shape.end(); i != i_end; i = next(i))
 		{
-			auto cmp = CalcMassProperties(*i, density);
+			auto cmp = CalcMassProperties(*i, density, distribution);
 			total_mass += cmp.m_mass;
 			first_moment += cmp.m_mass * cmp.m_centre_of_mass;
 			inertia_o += Inertia{cmp.m_os_unit_inertia, cmp.m_mass}.To3x3();
@@ -264,19 +408,19 @@ namespace pr::physics
 		return mp;
 	}
 
-	// Calculate the mass properties of a shape
+	// Calculate the mass properties of a shape. See EMassDistribution for the meaning of 'density'.
 	template <typename>
-	inline MassProperties CalcMassProperties(Shape const& shape, float density)
+	inline MassProperties CalcMassProperties(Shape const& shape, float density, EMassDistribution distribution)
 	{
 		switch (shape.m_type)
 		{
 		default: assert("Unknown primitive type" && false); return MassProperties();
-		case EShape::Sphere:   return CalcMassProperties(shape_cast<ShapeSphere>(shape), density);
-		case EShape::Box:      return CalcMassProperties(shape_cast<ShapeBox>(shape), density);
-		case EShape::Line:     return CalcMassProperties(shape_cast<ShapeLine>(shape), density);
-		case EShape::Triangle: return CalcMassProperties(shape_cast<ShapeTriangle>(shape), density);
-		case EShape::Polytope: return CalcMassProperties(shape_cast<ShapePolytope>(shape), density);
-		case EShape::Array:    return CalcMassProperties(shape_cast<ShapeArray>(shape), density);
+		case EShape::Sphere:   return CalcMassProperties(shape_cast<ShapeSphere>(shape), density, distribution);
+		case EShape::Box:      return CalcMassProperties(shape_cast<ShapeBox>(shape), density, distribution);
+		case EShape::Line:     return CalcMassProperties(shape_cast<ShapeLine>(shape), density, distribution);
+		case EShape::Triangle: return CalcMassProperties(shape_cast<ShapeTriangle>(shape), density, distribution);
+		case EShape::Polytope: return CalcMassProperties(shape_cast<ShapePolytope>(shape), density, distribution);
+		case EShape::Array:    return CalcMassProperties(shape_cast<ShapeArray>(shape), density, distribution);
 		}
 	}
 }

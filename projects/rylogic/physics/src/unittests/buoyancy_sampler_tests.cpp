@@ -28,7 +28,7 @@ namespace pr::physics::tests
 			v4 m_velocity = v4::Zero();
 
 			float Height(v2 uv) const { return m_level + m_a * uv.x + m_b * uv.y; }
-			v2 PressureGradient(v2, float) const { return v2{m_a, m_b}; }
+			v4 PressureGradient(v2, float) const { return v4{m_a, m_b, 0.0f, 0.0f}; }
 			v4 Velocity(v4) const { return m_velocity; }
 		};
 
@@ -296,10 +296,11 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(half.m_drag_force_ws, v4{-1000,0,0,0}, 0.05f));
 			PR_EXPECT(FEqlAbsolute(half.m_drag_torque_ws, v4{0,500,0,0}, 1.0f));
 
-			// The default's 18 intervals put a row exactly on the dry boundary, missing half that row's area.
+			// The default's 18 intervals put a row exactly on the waterline. Partial cell wetness counts that row as half wet,
+			// which recovers the exact half-face drag.
 			cfg.m_surface_spacing = surface::DefaultSpacing;
 			auto const boundary = SampleHull(box.m_base, 41, body, WaterFrame{}, TestField{}, cfg);
-			PR_EXPECT(FEqlAbsolute(boundary.m_drag_force_ws, v4{-1000.0f * (17.0f / 18.0f),0,0,0}, 0.05f));
+			PR_EXPECT(FEqlAbsolute(boundary.m_drag_force_ws, v4{-1000,0,0,0}, 0.05f));
 			PR_EXPECT(FEqlAbsolute(boundary.m_drag_torque_ws, v4{0,500,0,0}, 1.0f));
 
 			// Sphere windward-normal drag integrates n_x cubed, not the projected disk with a constant normal.

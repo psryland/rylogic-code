@@ -552,6 +552,12 @@ namespace pr::physics::tests
 			h.m_bodies[0].NeverSleep(true);
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
+			// Disable added mass and radiation damping so the expected velocity depends only on the drag and waterline stiffness terms.
+			auto config = h.m_buoyancy.GetConfig();
+			config.m_added_mass_coefficient = 0.0f;
+			config.m_radiation_damping = 0.0f;
+			h.m_buoyancy.SetConfig(config);
+
 			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
 			h.m_buoyancy.CompleteStep();
@@ -559,11 +565,17 @@ namespace pr::physics::tests
 			PR_EXPECT(!h.m_buoyancy.LatestDiagnostics(0, 0).m_valid);
 
 			// Prove the buoyancy force is actually applied to the rigid body, not merely reported in the
-			// diagnostic record. The body also receives m*g during integration (it carries its own
-			// gravity vector), so the net Z force is buoyancy + m*g = 19620 + 500*(-9.81) = 14715 N.
+			// diagnostic record. The body also receives m*g (it carries its own gravity vector), so the
+			// explicit net Z force is buoyancy + m*g = 19620 + 500*(-9.81) = 14715 N. The implicit buoyancy
+			// solve divides the net force by (1 + h*D/m + h^2*K/(2m)), where D = rho*V_wet/tau is the volume
+			// drag rate (2 m^3 wet, tau = 5 s) and K = rho*g*A the waterline stiffness (A = 4 m^2).
 			auto const dt = 1.0f / 60.0f;
-			auto const expected_velocity = (19620.0f / 500.0f + AnalyticGravityWS.z) * dt;
-			PR_EXPECT(FEqlAbsolute(h.m_bodies[0].VelocityWS().lin, v4{0.0f, 0.0f, expected_velocity, 0.0f}, 1e-2f));
+			auto const mass = 500.0f;
+			auto const drag = 1000.0f * 2.0f / 5.0f;
+			auto const stiffness = 1000.0f * 9.81f * 4.0f;
+			auto const implicit_scale = 1.0f + dt * drag / mass + 0.5f * dt * dt * stiffness / mass;
+			auto const expected_velocity = (19620.0f / mass + AnalyticGravityWS.z) * dt / implicit_scale;
+			PR_EXPECT(FEqlAbsolute(h.m_bodies[0].VelocityWS().lin, v4{0.0f, 0.0f, expected_velocity, 0.0f}, 2e-3f));
 		}
 
 		// Fully-dry fast path. A box positioned entirely above the z=0 water surface must
@@ -671,7 +683,7 @@ namespace pr::physics::tests
 		struct FlatField
 		{
 			float Height(v2) const { return 0.0f; }
-			v2 PressureGradient(v2, float) const { return v2::Zero(); }
+			v4 PressureGradient(v2, float) const { return v4::Zero(); }
 			v4 Velocity(v4) const { return v4::Zero(); }
 		};
 
@@ -716,6 +728,7 @@ namespace pr::physics::tests
 				.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 				.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
 				.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
+				.m_added_mass_coefficient = config.m_added_mass_coefficient,
 				.m_surface_spacing = config.m_surface_spacing,
 				.m_volume_spacing = config.m_volume_spacing,
 			};
@@ -915,6 +928,7 @@ namespace pr::physics::tests
 				.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 				.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
 				.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
+				.m_added_mass_coefficient = config.m_added_mass_coefficient,
 				.m_surface_spacing = config.m_surface_spacing,
 				.m_volume_spacing = config.m_volume_spacing,
 			};
@@ -984,6 +998,7 @@ namespace pr::physics::tests
 						.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 						.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
 						.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
+						.m_added_mass_coefficient = config.m_added_mass_coefficient,
 						.m_surface_spacing = config.m_surface_spacing,
 						.m_volume_spacing = config.m_volume_spacing,
 					};
@@ -1076,8 +1091,8 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(linear_only.m_drag_torque_ws, v4::Zero(), 1.0e-5f));
 		}
 
-		// A fully-submerged box under a long wave receives the configured orbital acceleration
-		// integrated over displaced volume: F_x = -rho*V*A*omega^2 at phase zero.
+		// A fully-submerged box under a long wave receives the configured orbital acceleration integrated over displaced volume and its added mass:
+		// F_x = -(1 + Ca)*rho*V*A*omega^2 at phase zero.
 		PRUnitTestMethod(GpuCompositeWavePressureHorizontalForce, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
@@ -1118,7 +1133,9 @@ namespace pr::physics::tests
 			auto const volume = diag.m_volume_m3;
 			auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * volume;
 
-			auto const expected_force_x = -AnalyticFluidDensity * volume * amplitude * omega * omega;
+			// The fluid acceleration acts on the displaced fluid (Froude-Krylov) and on the added mass, so the inertia coefficient is 1 + Ca.
+			auto const inertia_coefficient = 1.0f + h.m_buoyancy.GetConfig().m_added_mass_coefficient;
+			auto const expected_force_x = -inertia_coefficient * AnalyticFluidDensity * volume * amplitude * omega * omega;
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.x, expected_force_x, std::max(std::abs(expected_force_x) * 0.02f, 25.0f)));
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.y, 0.0f, 25.0f));
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, std::abs(rho_g_v) * 0.01f));
@@ -1328,8 +1345,9 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), 25.0f));
 		}
 
-		// A quadratic drag impulse is limited at the minimum-relative-energy point so an explicit step
-		// cannot reverse the body's velocity and turn nominal damping into an energy source.
+		// Quadratic drag goes through the implicit solve using its secant damping rate, so one step of pure quadratic drag gives the
+		// exact solution v' = v / (1 + h*c*v/m) and cannot reverse the body's velocity. For this 2x2x1, 500 kg box with 12 m^2
+		// tangential area moving at 1 m/s, c = 0.5*rho*Ct*A = 60000 N.s^2/m^2 and h*c*v/m = 2, so v' = 1/3 m/s.
 		PRUnitTestMethod(GpuCompositeTangentialDragDoesNotOvershoot, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
@@ -1346,17 +1364,22 @@ namespace pr::physics::tests
 				.m_angular_drag_time_constant_s = 0.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 10.0f,
+				.m_added_mass_coefficient = 0.0f,
 				.m_volume_spacing = HarnessVolumeSpacing,
 				.m_enable_diagnostics = true,
 			});
 
 			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
-			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
+			auto const dt = 1.0f / 60.0f;
+			h.m_engine.Step(dt, std::span{h.m_bodies});
 			h.m_buoyancy.CompleteStep();
 
+			// The 2% tolerance covers the area quadrature of the surface samples.
+			auto const c = 0.5f * h.m_buoyancy.GetConfig().m_fluid_density * h.m_buoyancy.GetConfig().m_tangential_drag_coefficient * 12.0f;
+			auto const expected_vx = 1.0f / (1.0f + dt * c / 500.0f);
 			auto const velocity = h.m_bodies[0].VelocityWS().lin;
-			PR_EXPECT(velocity.x >= -1e-4f);
-			PR_EXPECT(velocity.x <= 0.05f);
+			PR_EXPECT(velocity.x > 0.0f);
+			PR_EXPECT(FEqlAbsolute(velocity.x, expected_vx, expected_vx * 0.02f));
 		}
 
 		// Rigid and articulation registrations share one dispatch while resolving the ordinary-body prefix and hidden-proxy suffix independently.

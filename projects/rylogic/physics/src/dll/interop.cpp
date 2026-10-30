@@ -32,6 +32,7 @@ namespace
 	using PhysicsStructId = pr::physics::EStructId;
 	using PhysicsMotionType = pr::physics::EMotionType;
 	using PhysicsMassMode = pr::physics::EMassMode;
+	using PhysicsBodyMassDistribution = pr::physics::EBodyMassDistribution;
 	using PhysicsBodyCommandType = pr::physics::ECommand;
 	using PhysicsEventType = pr::physics::EEvent;
 	using PhysicsBodyFlags = pr::physics::EBodyFlags;
@@ -2886,7 +2887,6 @@ extern "C"
 			auto native = pr::collision::ShapeSphere{
 				value.radius,
 				pr::physics::ToNative(value.common.shape_to_root),
-				value.hollow != 0,
 				value.common.material_id,
 				static_cast<pr::collision::Shape::EFlags>(value.common.flags)};
 			*shape = pr::physics::StoreShape(record, native);
@@ -3122,6 +3122,29 @@ extern "C"
 			body_record->m_body = std::make_unique<pr::physics::RigidBody>(shape_record.Shape(), pr::physics::ToNative(value.object_to_world), pr::physics::Inertia::Infinite());
 			if (value.motion_type == PhysicsMotionType::Dynamic)
 			{
+				// Derive mass properties from the shape using the requested mass distribution. Shapes that cannot hold a shell are caller errors.
+				auto DeriveMassProperties = [&](bool is_density)
+				{
+					// Translate the ABI distribution
+					auto distribution = pr::physics::EMassDistribution::Solid;
+					switch (value.mass_distribution)
+					{
+						case PhysicsBodyMassDistribution::Solid: { distribution = pr::physics::EMassDistribution::Solid; break; }
+						case PhysicsBodyMassDistribution::Shell: { distribution = pr::physics::EMassDistribution::Shell; break; }
+						default: { throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Unknown body mass distribution"); }
+					}
+
+					// Report unsupported shape and distribution combinations as invalid arguments
+					try
+					{
+						body_record->m_body->Shape(shape_record.Shape(), value.mass_or_density, is_density, distribution);
+					}
+					catch (std::invalid_argument const& ex)
+					{
+						throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, ex.what());
+					}
+				};
+
 				switch (value.mass_mode)
 				{
 					case PhysicsMassMode::ExplicitInertia:
@@ -3134,7 +3157,7 @@ extern "C"
 						if (!(value.mass_or_density > 0.0f))
 							throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Body mass must be positive");
 
-						body_record->m_body->Shape(shape_record.Shape(), value.mass_or_density, false);
+						DeriveMassProperties(false);
 						break;
 					}
 					case PhysicsMassMode::Density:
@@ -3142,7 +3165,7 @@ extern "C"
 						if (!(value.mass_or_density > 0.0f))
 							throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Body density must be positive");
 
-						body_record->m_body->Shape(shape_record.Shape(), value.mass_or_density, true);
+						DeriveMassProperties(true);
 						break;
 					}
 					default:

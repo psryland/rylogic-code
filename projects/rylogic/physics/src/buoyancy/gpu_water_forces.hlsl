@@ -157,15 +157,15 @@ void CSWaterForces(uint3 dtid : SV_DispatchThreadID)
 	float breaking_scale = WaterFieldBreakingScale(shoaled_amplitude, min_sharpness, candidate.depth, g.breaking_ratio);
 
 	// Sample the water surface at the proxy centre and treat it locally as a plane.
-	// Lateral pressure gradients from wave motion are sampled at the same point.
+	// The dynamic pressure gradient from the waves' orbital acceleration is sampled at the same point.
 	float3 surface = float3(g.water_level, 0.0f, 0.0f);
-	float2 pressure_gradient = float2(0.0f, 0.0f);
+	float3 pressure_gradient = float3(0.0f, 0.0f, 0.0f);
 	for (int e = 0; e != g.element_count; ++e)
 	{
 		WaterFieldElement element = WaterFieldDepthCorrected(LocalElement(dtid.x, e), candidate.depth, breaking_scale, min_sharpness);
 		surface += WaterFieldElementHeightAndGradient(element, centre_ws.xy, g.time_s);
 		if (gravity > 0.0f)
-			pressure_gradient += WaterFieldElementHeightAndPressureGradient(element, centre_ws.xy, g.time_s, gravity).yz;
+			pressure_gradient += WaterFieldElementHeightAndPressureGradient(element, centre_ws.xy, g.time_s, gravity).yzw;
 	}
 	float3 up = normalize(float3(-surface.y, -surface.z, 1.0f));
 	float3 surface_ws = float3(centre_ws.xy, surface.x);
@@ -190,8 +190,8 @@ void CSWaterForces(uint3 dtid : SV_DispatchThreadID)
 	float fraction = saturate(wet.volume / proxy_volume);
 	float volume = fraction * candidate.volume;
 
-	// Buoyancy opposes gravity with the displaced water's weight, tilted by the wave pressure gradient.
-	float3 force = g.density * gravity * volume * float3(-pressure_gradient.x, -pressure_gradient.y, 1.0f);
+	// Buoyancy opposes gravity with the displaced water's weight, adjusted by the waves' dynamic pressure gradient.
+	float3 force = g.density * gravity * volume * (float3(0.0f, 0.0f, 1.0f) - pressure_gradient);
 
 	// Linear drag acts on the velocity relative to the water at the centre of buoyancy.
 	// The linear term is an exact exponential decay over the substep and the quadratic term is limited to the remaining relative momentum,

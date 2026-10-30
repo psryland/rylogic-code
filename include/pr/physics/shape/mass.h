@@ -7,6 +7,16 @@
 
 namespace pr::physics
 {
+	// How mass is spread over a shape.
+	//  Solid: mass fills the shape volume, and 'density' is mass per unit volume (kg/m³).
+	//  Shell: mass is a thin uniform skin on the shape surface, and 'density' is mass per unit area (kg/m²).
+	//  Shell is valid only for shapes that enclose a volume (sphere, box, capsule (line with radius), polytope), or arrays of them.
+	enum class EMassDistribution
+	{
+		Solid,
+		Shell,
+	};
+
 	// Mass properties of a collision shape
 	struct MassProperties
 	{

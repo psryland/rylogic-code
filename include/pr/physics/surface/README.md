@@ -106,8 +106,9 @@ derivation settings, they apply at registration/shape refresh; existing registra
 drag; lift and volume damping come from volume samples. Both settings are spacings, so the sample cost of a body follows its size:
 `buoyancy::VolumeSampleCounts` gives each primitive `ceil(volume / spacing^3)` samples, but at least
 `buoyancy::MinVolumeSamplesPerPrimitive` (8) so small primitives still change buoyancy smoothly as they cross the waterline.
-A 2 x 2 x 1 m box gets 500 volume samples at the default; a 100 m^3 hull gets 12500. The volume error is concentrated at the
-waterline, where the wet volume changes in steps of roughly one sample layer; fully wet or fully dry primitives are exact.
+A 2 x 2 x 1 m box gets 500 volume samples at the default; a 100 m^3 hull gets 12500. Each sample stands for a cell, and a cell
+crossing the waterline contributes its submerged fraction (`buoyancy::CellWetFraction`), so the wet volume and the lift change
+continuously with depth; fully wet or fully dry primitives are exact.
 `BuoyancySampleDensityTests::SampleDensitySweep` (Extended | Stress) measures the floating behaviour (drop, tilt, push and wave
 responses of four shapes) across a grid of surface and volume spacings against a dense 0.02 m / 0.02 m reference, and reports where
 the defaults sit on that grid.
@@ -121,14 +122,32 @@ Surface dispatch uses group X for the hull-local group and Y for the hull, avoid
 X dimension. Hull-count, cumulative count, and patch-upload bounds are checked before allocation or
 dispatch. Per-sample primitive selection and sibling containment retain the existing primitive walk.
 
-Volume distribution, sample hash/indexing, tetrahedron selection, weights, lift, linear/angular
-volume damping, gravity frame, wet tests, sibling ownership, and surface-drag impulse limiting are
-unchanged. Surface forces still multiply each sample's `m_darea`.
+Volume distribution, sample hash/indexing, tetrahedron selection, weights, gravity frame, and sibling ownership are
+unchanged by streaming. Surface forces multiply each sample's `m_darea` by the cell's submerged fraction. The vertical extent of
+a surface cell is `sqrt(m_darea) * sin(tilt)` (`buoyancy::SurfaceCellHeight`), so cells on steep faces wet gradually and
+horizontal cells wet as a step. This keeps drag continuous when the wetted patch of a small body is smaller than one cell.
 
-Strict point wet/dry and sibling-cull tests approximate discontinuous boundaries. A waterline through
-nodes or an overlapping/abutting primitive seam can therefore have spacing-dependent quadrature
-error; exact partial-wet area or clipped CSG reconstruction is not promised. Refining spacing reduces
-this error. Per-face area conservation alone is not a proof of integrated force or torque accuracy.
+Buoyancy is applied with a linearly implicit step. Each sample adds its damping rates and waterline stiffness to per-hull
+moment sums, from which the reduce builds a coupled 6 x 6 (linear and angular) Jacobian. The body's force and torque are
+replaced by the effective values of solving `(I + (h (D + (h/2) K + beta K_heave) + M_a) M^-1) W_eff = W + predictor + F_rad`,
+so stiff drag and buoyancy on light bodies cannot overshoot and launch the body. Diagnostics report the sampled wrench, before the implicit solve.
+
+The wave model includes the hydrodynamic terms that keep floating bodies on moving water:
+- Each wet sample feels the dynamic pressure gradient of the water field, including the vertical fluid acceleration, scaled by
+  `1 + m_added_mass_coefficient` (the displaced fluid plus the entrained added mass, like the Morison inertia coefficient).
+- The added mass `M_a = Ca * rho * V_wet` (`m_added_mass_coefficient`, default 0.5) also enters the implicit solve, so a light body's
+  response to water forces is limited by the fluid it must accelerate.
+- The waterline predictor measures how fast the body is being immersed relative to the moving surface: `-(v . N - dh/dt)`, with
+  `N = up - grad(h)`. It uses the surface's own slope and rise rate rather than the water particle velocity, which decays with depth
+  and would underestimate how fast a trough-to-crest surface rises.
+- Heave radiation damping (`m_radiation_damping`, default 1) models the energy a heaving body loses by making waves. The rate uses the
+  long-wave estimate `B = rho omega^3 A^2 / (2g)`, from the hull's waterline stiffness and mass, and is applied implicitly along `up` only.
+  Applying it to the rotational stiffness would turn small asymmetries in the sample layout into false spin.
+
+Sibling-cull tests approximate discontinuous boundaries. An overlapping/abutting primitive seam can therefore have
+spacing-dependent quadrature error, and the linear wet-fraction model is an approximation for curved or tilted cells; exact
+clipped CSG reconstruction is not promised. Refining spacing reduces this error. Per-face area conservation alone is not a proof
+of integrated force or torque accuracy.
 
 ## Sampled cylindrical world boundary
 

@@ -32,7 +32,7 @@ namespace physics_sandbox
 			if (!body.density && !(body.mass > 0.0f))
 				return physics::Inertia::Infinite();
 
-			auto mass_properties = physics::CalcMassProperties(*shape, body.density.value_or(1.0f));
+			auto mass_properties = physics::CalcMassProperties(*shape, body.density.value_or(1.0f), body.mass_distribution);
 			if (!body.density)
 				mass_properties.m_mass = body.mass;
 

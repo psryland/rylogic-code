@@ -20,6 +20,14 @@ public enum EMassMode
 	Density = 2,
 }
 
+/// <summary>Selects how mass derived from a body's shape is spread. Shell places the mass in a thin surface skin, so a density is in kg/m².
+/// Shell requires shapes that enclose a volume (sphere, box, capsule, polytope, or compounds of them).</summary>
+public enum EMassDistribution
+{
+	Solid = 0,
+	Shell = 1,
+}
+
 /// <summary>Identifies a bulk body mutation applied on the engine owner thread.</summary>
 public enum EBodyCommand
 {
@@ -354,6 +362,7 @@ public sealed class BodyOptions
 	public ulong UserTag { get; set; }
 	public EMotionType MotionType { get; set; } = EMotionType.Dynamic;
 	public EMassMode MassMode { get; set; } = EMassMode.Density;
+	public EMassDistribution MassDistribution { get; set; } = EMassDistribution.Solid;
 	public float MassOrDensity { get; set; } = 1000.0f;
 	public EBodyFlags Flags { get; set; } = EBodyFlags.Enabled;
 }

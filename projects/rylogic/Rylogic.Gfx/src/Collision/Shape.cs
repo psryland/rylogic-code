@@ -52,9 +52,9 @@ struct ShapeSphere
 {
 	public Shape m_base;
 	public float m_radius;
-	public int m_hollow;
 	public int pad0;
 	public int pad1;
+	public int pad2;
 }
 
 // A box collision shape

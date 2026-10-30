@@ -1167,6 +1167,29 @@ namespace physics_sandbox::diag
 				Emit(log, std::format("  body {} contacts: none\n", body_index));
 		}
 
+		// Report how far a traced body's lowest point sits above the water surface under its centre. A positive gap means the
+		// body is airborne. The surface height is taken at the centre, so for large tilted bodies the gap is approximate.
+		void PrintWaterClearance(std::ofstream& log, Scene const& scene, int body_index)
+		{
+			// Only water scenes with a valid traced body have a clearance.
+			if (!scene.m_water || body_index < 0 || body_index >= std::ssize(scene.m_body))
+				return;
+
+			auto const& body = scene.m_body[body_index];
+			if (!body.HasShape())
+				return;
+
+			// The support vertex in the downward direction is the shape's true lowest point, unlike a bounding box,
+			// which is loose for rotated shapes.
+			auto const s2w = body.O2W() * body.Shape().m_s2r;
+			auto sup_id = 0;
+			auto const lowest_ws = s2w * collision::SupportVertex(body.Shape(), InvertAffine(s2w) * v4{0, 0, -1, 0}, 0, sup_id);
+			auto const pos = body.O2W().pos;
+			auto const surface = scene.m_water->surface.Height(physics::terrain::v2d{pos.x, pos.y}, scene.m_clock);
+			auto const clearance = lowest_ws.z - surface;
+			Emit(log, std::format("  water surface={:8.4f} clearance={:8.4f} {}\n", surface, clearance, clearance > 0 ? "AIRBORNE" : "wet"));
+		}
+
 		void PrintCpuGroundContact(std::ofstream& log, Scene const& scene, int body_index, int ground_body_index)
 		{
 			if (body_index < 0 || body_index >= std::ssize(scene.m_body))
@@ -1769,6 +1792,7 @@ namespace physics_sandbox::diag
 				{
 					PrintBodyTrace(log, step + 1, scene.m_clock, options.m_trace_body, before, after, TotalKineticEnergy(scene), trace_contacts);
 					PrintCpuGroundContact(log, scene, options.m_trace_body, ground_body_index);
+					PrintWaterClearance(log, scene, options.m_trace_body);
 				}
 
 				continue;

@@ -36,7 +36,7 @@
 // physics engine, and so gravity-frame water fields can be plugged in for tests. A water field
 // type must provide:
 //    float Height(v2 uv) const;                         // signed height along 'up' at planar coords (u,v), relative to 'ref'
-//    v2    PressureGradient(v2 uv, float gravity) const;// dimensionless lateral pressure gradient
+//    v4    PressureGradient(v2 uv, float gravity) const;// dimensionless dynamic pressure gradient (-a_fluid/g) along (t0, t1, up)
 //    v4    Velocity(v4 pos_ws) const;                   // world-space fluid velocity (w = 0)
 #pragma once
 #include <vector>
@@ -66,6 +66,7 @@ namespace pr::physics::buoyancy
 		float m_angular_drag_time_constant_s = 0.0f; // rotational volume-drag e-fold time; <= 0 disables it
 		float m_quadratic_drag_coefficient = 0.0f;  // form-drag Cd; <= 0 disables quadratic drag
 		float m_tangential_drag_coefficient = 0.0f; // surface-shear Ct; <= 0 disables tangential drag
+		float m_added_mass_coefficient = 0.0f;      // Ca; the wave force becomes the Morison inertia force (1 + Ca)*rho*dV*a_fluid
 		float m_surface_spacing = DefaultSurfaceSpacing; // maximum surface cell diameter in shape-local units
 		float m_volume_spacing = DefaultVolumeSpacing;   // typical distance between volume samples in shape-local units (see VolumeSampleCounts)
 	};
@@ -636,6 +637,7 @@ namespace pr::physics::buoyancy
 					continue;
 
 				auto const dvol = volume[k] / static_cast<float>(vol_counts[k]);
+				auto const cell_height = VolumeCellHeight(dvol);
 				for (int i = 0; i != vol_counts[k]; ++i)
 				{
 					auto const sample = EmitVolumeSample(*prims[k], SampleIndex(hull_id, static_cast<int>(k), i), dvol, vol_tables[k]);
@@ -657,21 +659,25 @@ namespace pr::physics::buoyancy
 					auto const u = Dot3(sample_ws - ref, t0);
 					auto const v = Dot3(sample_ws - ref, t1);
 					auto const h = water.Height(v2{u, v});
-					if (signed_height >= h)
+					auto const wet_fraction = CellWetFraction(signed_height, h, cell_height);
+					if (wet_fraction <= 0.0f)
 					{
 						if (debug)
 							debug->m_samples.push_back({ sample_ws.w1(), v4::Zero(), static_cast<int>(k), ESampleKind::VolumeDry });
 						continue; // dry
 					}
 
+					// Only the submerged part of the sample's cell displaces water or feels volume damping. The wave's orbital
+					// acceleration also drives the water attached to the body, so its pressure gradient is scaled by (1 + Ca).
+					auto const wet_dvol = sample.m_dvol * wet_fraction;
 					auto const grad = water.PressureGradient(v2{u, v}, g_mag);
-					auto const grad_ws = grad.x * t0 + grad.y * t1;
-					auto const dF = (cfg.m_fluid_density * g_mag * sample.m_dvol) * (up - grad_ws);
+					auto const grad_ws = grad.x * t0 + grad.y * t1 + grad.z * up;
+					auto const dF = (cfg.m_fluid_density * g_mag * wet_dvol) * (up - (1.0f + cfg.m_added_mass_coefficient) * grad_ws);
 
 					buoy_force += dF;
 					buoy_torque += Cross(sample_ws - com_ws, dF);
-					wet_volume += sample.m_dvol;
-					wet_moment += sample_ws * sample.m_dvol;
+					wet_volume += wet_dvol;
+					wet_moment += sample_ws * wet_dvol;
 
 					// Independent translational and rotational point velocities allow linear wave
 					// following and roll damping to be tuned without changing the sampled wet geometry.
@@ -680,9 +686,9 @@ namespace pr::physics::buoyancy
 						auto const r = sample_ws - com_ws;
 						auto drag_dF = v4::Zero();
 						if (c_linear > 0.0f)
-							drag_dF -= (c_linear * sample.m_dvol) * (body.m_vel_lin_ws - water.Velocity(sample_ws));
+							drag_dF -= (c_linear * wet_dvol) * (body.m_vel_lin_ws - water.Velocity(sample_ws));
 						if (c_angular > 0.0f)
-							drag_dF -= (c_angular * sample.m_dvol) * Cross(body.m_omega_ws, r);
+							drag_dF -= (c_angular * wet_dvol) * Cross(body.m_omega_ws, r);
 
 						drag_force += drag_dF;
 						drag_torque += Cross(r, drag_dF);
@@ -692,8 +698,8 @@ namespace pr::physics::buoyancy
 					{
 						debug->m_samples.push_back({ sample_ws.w1(), v4::Zero(), static_cast<int>(k), ESampleKind::VolumeWet });
 						debug->m_prim_buoy_force_ws[k] += dF;
-						debug->m_prim_wet_moment_ws[k] += sample_ws * sample.m_dvol;
-						debug->m_prim_wet_volume[k] += sample.m_dvol;
+						debug->m_prim_wet_moment_ws[k] += sample_ws * wet_dvol;
+						debug->m_prim_wet_volume[k] += wet_dvol;
 					}
 				}
 			}
@@ -735,9 +741,13 @@ namespace pr::physics::buoyancy
 					auto const sample_ws = body.m_o2w * p_root;
 					auto const normal_ws = Normalise((body.m_o2w * n_root).w0(), v4::Zero());
 
+					// Each sample stands for a surface cell, so drag acts on the cell's submerged area. This keeps drag continuous
+					// as the body moves or rotates, even when the wetted region is smaller than one cell.
 					auto const u = Dot3(sample_ws - ref, t0);
 					auto const v = Dot3(sample_ws - ref, t1);
-					if (Dot3(sample_ws - ref, up) >= water.Height(v2{u, v}))
+					auto const cell_height = SurfaceCellHeight(sample.m_darea, Dot3(normal_ws, up));
+					auto const wet_darea = sample.m_darea * CellWetFraction(Dot3(sample_ws - ref, up), water.Height(v2{u, v}), cell_height);
+					if (wet_darea <= 0.0f)
 					{
 						if (debug)
 							debug->m_samples.push_back({ sample_ws.w1(), normal_ws, static_cast<int>(k), ESampleKind::SurfaceDry });
@@ -750,7 +760,7 @@ namespace pr::physics::buoyancy
 
 					auto dF = v4::Zero();
 					if (cfg.m_quadratic_drag_coefficient > 0.0f && v_n > 0.0f)
-						dF += (-0.5f * cfg.m_fluid_density * cfg.m_quadratic_drag_coefficient * sample.m_darea * v_n * v_n) * normal_ws;
+						dF += (-0.5f * cfg.m_fluid_density * cfg.m_quadratic_drag_coefficient * wet_darea * v_n * v_n) * normal_ws;
 
 					// Tangential drag opposes the complete in-plane relative velocity. The |v_t| * v_t
 					// form is quadratic in speed while remaining continuous through zero.
@@ -758,7 +768,7 @@ namespace pr::physics::buoyancy
 					{
 						auto const v_t = v_rel - v_n * normal_ws;
 						auto const speed_t = Length(v_t);
-						dF += (-0.5f * cfg.m_fluid_density * cfg.m_tangential_drag_coefficient * sample.m_darea * speed_t) * v_t;
+						dF += (-0.5f * cfg.m_fluid_density * cfg.m_tangential_drag_coefficient * wet_darea * speed_t) * v_t;
 					}
 
 					drag_force += dF;
