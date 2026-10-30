@@ -30,7 +30,8 @@ static const uint DiagLiveCount = 2; // Blocks whose live count exceeded their c
 struct CullConstants
 {
 	float4 planes[4];                                // World-space side planes of the view frustum. Inside means 'dot(plane.xyz, p) + plane.w >= 0'.
-	float4 eye;                                      // xyz = world-space camera position, w = 1 for orthographic projections.
+	float4 eye;                                      // xyz = world-space projection origin, w = 1 for orthographic projections.
+	float4 range_origin;                             // xyz = world-space point that the draw distance is measured from.
 	float4 bound;                                    // xyz = instance-space centre of the prototype bounding sphere, w = radius.
 	float4 lod_size[VIEW3D_POPULATION_MAX_LODS / 4]; // The minimum projected radius (pixels) of each LOD.
 	float4 lod_fade[VIEW3D_POPULATION_MAX_LODS / 4]; // The transition width of each LOD, as a fraction of its minimum size.
@@ -124,11 +125,11 @@ Classification Classify(uint source)
 	}
 
 	// Reject instances beyond the draw distance.
-	float dist = length(centre - g_cull.eye.xyz);
-	if (g_cull.draw_distance > 0 && dist - radius > g_cull.draw_distance)
+	if (g_cull.draw_distance > 0 && length(centre - g_cull.range_origin.xyz) - radius > g_cull.draw_distance)
 		return result;
 
 	// The projected radius in pixels. Orthographic projections do not depend on distance.
+	float dist = length(centre - g_cull.eye.xyz);
 	float size = g_cull.eye.w != 0 ? radius * g_cull.size_scale : radius * g_cull.size_scale / max(dist, 1e-6f);
 
 	// Select the most detailed LOD whose minimum size the instance reaches. Below the last LOD's minimum size, the instance is not drawn.

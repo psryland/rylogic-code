@@ -39,6 +39,9 @@ namespace render_tests
 	// Count differing RGB bytes so GPU channel tests do not depend on one hand-picked lattice value.
 	size_t ImageDifference(std::vector<unsigned char> const& lhs, std::vector<unsigned char> const& rhs);
 
+	// Average linear red over the image pixels [x0,x1) x [y0,y1).
+	float RegionRed(std::vector<unsigned char> const& image, int x0, int x1, int y0, int y1);
+
 	// Assert compositing against linear source-over expectations, allowing RGBA8 quantization.
 	void Expect(std::vector<unsigned char> const& image, float red, float green, float blue, int x = 64, int y = 64);
 

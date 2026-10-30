@@ -79,6 +79,7 @@ namespace pr::rdr12
 		, m_element_views()
 		, m_dirty()
 		, m_volatile()
+		, m_casters()
 	{
 		// Create the atlas and pipeline state for the scene's current settings
 		CreateAtlas(m_settings);
@@ -272,6 +273,40 @@ namespace pr::rdr12
 			}
 		}
 
+		// Find the active blocks and the content hash of each population. The blocks grow the caster bounds, so populations outside the camera view still cast shadows.
+		auto const range_origin = scn().m_cam.CameraToWorld().pos;
+		m_casters.resize(0);
+		for (auto pop : scn().Populations())
+		{
+			// Populations without active blocks draw nothing
+			auto caster = PopulationCaster{ .m_pop = pop, .m_blocks = {}, .m_hash = HashSeed, .m_views = 0 };
+			auto revision = pop->ActiveBlocks([&](BBox const& bbox)
+			{
+				// Record the block for view selection, and include it in the casters
+				caster.m_blocks.push_back(bbox);
+				Grow(caster_bounds, bbox);
+			});
+			if (caster.m_blocks.empty())
+				continue;
+
+			// Hash everything that can change the depth the population writes into a view. The revision covers blocks, instances, and payload.
+			// The draw distance is measured from the scene camera, so the camera position matters only when the prototype has a draw distance.
+			auto const& proto = *pop->m_prototype.get();
+			auto& h = caster.m_hash;
+			HashPtr(h, pop.get());
+			HashWord(h, revision);
+			HashPtr(h, &proto);
+			for (auto const& lod : proto.m_lods)
+			{
+				HashPtr(h, lod.m_model.get());
+				HashWord(h, lod.m_model->m_revision);
+			}
+			if (proto.m_draw_distance > 0)
+				HashMix(h, range_origin);
+
+			m_casters.push_back(std::move(caster));
+		}
+
 		// Describe the scene camera. Directional light cascades cover depth ranges of this view, and the size of the
 		// view of each point or spot light on screen chooses the resolution of its shadow views.
 		auto const& cam = scn().m_cam;
@@ -353,6 +388,21 @@ namespace pr::rdr12
 				forced |= mask;
 		}
 
+		// Add each population to the content of the views that can see one of its active blocks
+		for (auto& caster : m_casters)
+		{
+			// Find the views that can see the population
+			caster.m_views = 0;
+			for (int v = 0; v != view_count; ++v)
+			{
+				if (std::ranges::any_of(caster.m_blocks, [&](BBox const& bbox) { return volumes[v].Sees(bbox.Lower(), bbox.Upper()); }))
+				{
+					caster.m_views |= 1U << v;
+					HashWord(hashes[v], caster.m_hash);
+				}
+			}
+		}
+
 		// Compare with the content already in the atlas
 		m_dirty = m_cache.Update({ rects.data(), s_cast<size_t>(view_count) }, { hashes.data(), s_cast<size_t>(view_count) }, m_settings.m_cache_views) | forced;
 	}
@@ -384,6 +434,48 @@ namespace pr::rdr12
 		auto des_heaps = { wnd().m_heap_view.get(), wnd().m_heap_samp.get() };
 		m_cmd_list.SetDescriptorHeaps({ des_heaps.begin(), des_heaps.size() });
 
+		// Classify each population for each view being rendered that can see it. Classification is compute work, so record it before the depth pass.
+		// Each classification supplies element constants for its (LOD, nugget) draws, in draw order, from the population element table.
+		struct PopulationShadow
+		{
+			PopulationViewLists m_lists; // The classification for one view
+			int m_view;                  // The index of the view in 'views'
+			int m_first_element;         // The index of the element constants of 'm_lists.m_draws[0]' in the population element table
+		};
+		pr::vector<PopulationShadow> pop_shadows;
+		pr::vector<DrawListElement> pop_dles;
+		if (!m_casters.empty())
+		{
+			// Measure the draw distance from the scene camera, as the forward pass does. Each view slot keeps its own classification buffer.
+			auto pix_cull = pix::EventScope<ID3D12GraphicsCommandList>(m_cmd_list.get(), 0xFF5AC8A0, "View3D::PopulationShadowCull");
+			auto const range_origin = scn().m_cam.CameraToWorld().pos;
+			for (auto& caster : m_casters)
+			{
+				for (int i = 0, iend = isize(views); i != iend; ++i)
+				{
+					// Only views that can see an active block need a classification
+					if ((caster.m_views & (1U << view_index[i])) == 0)
+						continue;
+
+					auto key = HashSeed;
+					HashPtr(key, this);
+					HashWord(key, s_cast<uint64_t>(view_index[i]));
+					auto desc = PopulationProjectionView(key, views[i].m_w2s, s_cast<float>(views[i].m_atlas_rect.SizeY()), range_origin);
+					auto shadow = PopulationShadow{
+						.m_lists = rdr().PopulationCulling().Cull(m_cmd_list, m_upload_buffer, *caster.m_pop.get(), desc, m_step_id),
+						.m_view = i,
+						.m_first_element = isize(pop_dles),
+					};
+
+					// The LOD proxy instances supply the element constants. Instance records place the vertices.
+					for (auto const& draw : shadow.m_lists.m_draws)
+						pop_dles.push_back(DrawListElement{ .m_sort_key = draw.m_nugget->m_sort_key, .m_nugget = draw.m_nugget, .m_instance = &draw.m_proxy->m_base });
+
+					pop_shadows.push_back(std::move(shadow));
+				}
+			}
+		}
+
 		// Bind the atlas as the depth target and clear only the regions being rendered
 		auto& atlas = *m_atlas.get();
 		BarrierBatch barriers(m_cmd_list);
@@ -401,11 +493,20 @@ namespace pr::rdr12
 		// Upload the transforms of the views being rendered, and the constants of every element that some view can see
 		m_cmd_list.SetGraphicsRootSignature(m_shader.m_signature.get());
 		auto views_gpu = UploadShadowViews(m_upload_buffer, { views.data(), views.size() }, m_settings);
+		auto elements_gpu = D3D12_GPU_VIRTUAL_ADDRESS{};
 		{
 			auto drawlist = m_drawlist.lock();
 			assert(m_element_views.size() == drawlist->size() && "Draw list changed between Prepare and Execute");
-			auto elements_gpu = shaders::ShadowMap::UploadElements(m_upload_buffer, std::span{ *drawlist }, std::span{ m_element_views.data(), m_element_views.size() });
+			elements_gpu = shaders::ShadowMap::UploadElements(m_upload_buffer, std::span{ *drawlist }, std::span{ m_element_views.data(), m_element_views.size() });
 			m_shader.SetupFrame(m_cmd_list.get(), views_gpu, elements_gpu);
+		}
+
+		// Upload the element constants of the population draws. Every entry is drawn, so every entry is written.
+		auto pop_elements_gpu = D3D12_GPU_VIRTUAL_ADDRESS{};
+		if (!pop_dles.empty())
+		{
+			pr::vector<uint32_t> pop_mask(pop_dles.size(), ~0U);
+			pop_elements_gpu = shaders::ShadowMap::UploadElements(m_upload_buffer, std::span{ pop_dles.data(), pop_dles.size() }, std::span{ pop_mask.data(), pop_mask.size() });
 		}
 
 		// Per-element projections use the scene camera
@@ -529,6 +630,98 @@ namespace pr::rdr12
 					m_cmd_list.DrawIndexedInstanced(s_cast<size_t>(nugget.m_irange.size()), batch_views.size(), s_cast<size_t>(nugget.m_irange.m_beg), 0, 0U);
 				else
 					m_cmd_list.DrawInstanced(s_cast<size_t>(nugget.m_vrange.size()), batch_views.size(), s_cast<size_t>(nugget.m_vrange.m_beg), 0U);
+			}
+
+			// Draw the populations classified for the views in this batch. A classification belongs to one view, so its draws render into that view only.
+			// The population element table replaces the draw list table for these draws, then the draw list table is restored for the next batch.
+			if (std::ranges::any_of(pop_shadows, [&](PopulationShadow const& s) { return s.m_view >= batch_beg && s.m_view < batch_end; }))
+			{
+				m_shader.SetupFrame(m_cmd_list.get(), views_gpu, pop_elements_gpu);
+				for (auto const& shadow : pop_shadows)
+				{
+					// Skip classifications for views outside this batch
+					if (shadow.m_view < batch_beg || shadow.m_view >= batch_end)
+						continue;
+
+					auto const& lists = shadow.m_lists;
+					auto const& pop = *lists.m_population;
+					auto const view = s_cast<uint32_t>(shadow.m_view);
+					for (int d = 0, dend = isize(lists.m_draws); d != dend; ++d)
+					{
+						// Filter out nuggets that can't cast shadows, in the same way as 'AddNuggets'
+						auto const& draw = lists.m_draws[d];
+						auto const& nugget = *draw.m_nugget;
+						auto const& dle = pop_dles[shadow.m_first_element + d];
+						if (AnySet(nugget.m_nflags, ENuggetFlag::ShadowCastExclude))
+							continue;
+						if (nugget.FillMode() != EFillMode::Default && nugget.FillMode() != EFillMode::Solid)
+							continue;
+
+						// The classification only includes nuggets with a pass for this step
+						auto const& material = nugget.mat();
+						auto const* pass = material.Pass(m_step_id);
+						pr_assert(pass != nullptr && "Population draws only include nuggets with a shadow pass");
+
+						// Set the pipeline state and geometry
+						auto desc = m_default_pipe_state;
+						desc.Apply(PSO<EPipeState::TopologyType>(To<D3D12_PRIMITIVE_TOPOLOGY_TYPE>(nugget.m_topo)));
+						if (IsStripTopo(nugget.m_topo))
+							desc.Apply(PSO<EPipeState::IBStripCutValue>(StripCutValue(nugget.m_model->m_ib_view.Format)));
+
+						m_cmd_list.IASetPrimitiveTopology(nugget.m_topo);
+						m_cmd_list.IASetVertexBuffers(0U, { &nugget.m_model->m_vb_view, 1 });
+						m_cmd_list.IASetIndexBuffer(&nugget.m_model->m_ib_view);
+
+						// Select the draw's element constants, then let the material bind per-draw resources and pipeline overrides
+						shaders::ShadowMap::SetupElement(m_cmd_list.get(), shadow.m_first_element + d);
+						auto ctx = MaterialPassContext{
+							.m_step_id = m_step_id,
+							.m_wnd = wnd(),
+							.m_scene = scn(),
+							.m_camera = camera,
+							.m_dle = dle,
+							.m_material = material,
+							.m_cmd_list = m_cmd_list,
+							.m_upload = m_upload_buffer,
+							.m_pipe_state = desc,
+							.m_shader = &m_shader,
+							.m_default_tex = m_default_tex.get(),
+							.m_default_sam = m_default_sam.get(),
+							.m_last_tex = &last_tex,
+							.m_last_sam = &last_sam,
+						};
+						pass->Bind(ctx);
+						pass->ApplyPipeline(ctx);
+						if (ctx.m_root_signature_changed)
+						{
+							last_tex = {};
+							last_sam = {};
+						}
+
+						// Population admission rejects shadow vertex shader overlays, so only the stock shadow vertex shader is expected here
+						if (desc.Get<EPipeState::VS>().pShaderBytecode != shader_code::shadow_map_vs.pShaderBytecode)
+							throw std::logic_error("Population shadow draw has a vertex shader without a population variant");
+
+						desc.Apply(PSO<EPipeState::VS>(shader_code::shadow_map_population_vs));
+						desc.Apply(PSO<EPipeState::DepthClipEnable>(clamp_depth ? FALSE : TRUE));
+
+						// Bind the instance records and visible lists. The payload slot needs a valid address, so it aliases the instance records when there is no payload.
+						auto pop_draw = PopulationDraw{ .lod = s_cast<uint32_t>(draw.m_lod), .list_base = lists.m_list_base, .pad0 = 0, .pad1 = 0 };
+						m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationInstances, GpuAddress(pop.m_instances));
+						m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationView, GpuAddress(lists.m_scratch));
+						m_cmd_list.SetGraphicsRootShaderResourceView(shaders::smap::ERootParam::PopulationPayload, pop.m_payload != nullptr ? GpuAddress(pop.m_payload) : GpuAddress(pop.m_instances));
+						m_cmd_list.SetGraphicsRoot32BitConstants(shaders::smap::ERootParam::PopulationDraw, pop_draw);
+
+						// Draw into the classification's view, taking the instance counts from its argument records
+						m_shader.SetupDrawViews(m_cmd_list.get(), { &view, 1 }, batch_beg);
+						m_cmd_list.SetPipelineState(m_pipe_state_pool.Get(desc));
+						if (!nugget.m_irange.empty())
+							m_cmd_list.ExecuteIndirect(rdr().PopulationCulling().DrawSignature(true), 1, lists.m_scratch, s_cast<UINT64>(draw.m_args_indexed));
+						else
+							m_cmd_list.ExecuteIndirect(rdr().PopulationCulling().DrawSignature(false), 1, lists.m_scratch, s_cast<UINT64>(draw.m_args_vertex));
+					}
+				}
+				m_shader.SetupFrame(m_cmd_list.get(), views_gpu, elements_gpu);
 			}
 		}
 

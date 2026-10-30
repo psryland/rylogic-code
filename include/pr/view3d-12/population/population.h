@@ -113,7 +113,8 @@ namespace pr::rdr12
 		// The LODs, from most to least detailed.
 		vector<PopulationLod> m_lods;
 
-		// Instances whose bounding sphere is further than this from the camera are not drawn. Zero means unlimited.
+		// Instances whose bounding sphere is further than this from the scene camera are not drawn. Zero means unlimited.
+		// Shadow views measure the distance from the scene camera too, so instances cast shadows only while they are within the draw distance.
 		float m_draw_distance;
 
 		// The instance-space bounding sphere of all LODs (xyz = centre, w = radius). Derived from the LOD model bounding boxes.
@@ -200,6 +201,9 @@ namespace pr::rdr12
 		// Stop drawing block 'index'.
 		void RemoveBlock(int index);
 
+		// Call 'fn' with the bounds of each active block, and return the content revision consistent with those blocks.
+		uint64_t ActiveBlocks(std::function<void(BBox const&)> fn);
+
 		// Copy 'instances' into slots [first, first + instances.size()). The data is copied during this call.
 		void UpdateInstances(int first, std::span<PopulationInstance const> instances);
 
@@ -230,8 +234,11 @@ namespace pr::rdr12
 		// World to screen (clip) transform. Supplies the frustum side planes.
 		m4x4 m_w2s;
 
-		// The world-space camera position.
+		// The world-space projection origin, used for projected sizes. Unused by orthographic projections.
 		v4 m_eye;
+
+		// The world-space point that the prototype draw distance is measured from.
+		v4 m_range_origin;
 
 		// Projected radius in pixels = radius * size_scale / distance (perspective), or radius * size_scale (orthographic).
 		float m_size_scale;
@@ -304,4 +311,8 @@ namespace pr::rdr12
 
 	// Describe the view of 'cam' rendered into a viewport 'viewport_height' pixels high.
 	PopulationViewDesc PopulationCameraView(uint64_t key, Camera const& cam, float viewport_height);
+
+	// Describe a view with world to clip transform 'w2s' (a perspective or orthographic projection of an orthonormal view) rendered into a viewport
+	// 'viewport_height' pixels high. The draw distance is measured from 'range_origin'.
+	PopulationViewDesc PopulationProjectionView(uint64_t key, m4x4 const& w2s, float viewport_height, v4 range_origin);
 }

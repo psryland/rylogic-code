@@ -7,6 +7,7 @@
 #include "pr/view3d-12/render/drawlist_element.h"
 #include "pr/view3d-12/model/nugget.h"
 #include "pr/view3d-12/instance/instance.h"
+#include "pr/view3d-12/population/population.h"
 #include "view3d-12/src/shaders/common.h"
 
 namespace pr::rdr12::shaders
@@ -25,6 +26,10 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto Elements = ESRVReg::t2;
 		inline static constexpr auto ProceduralBuffer0 = ESRVReg::t14;
 		inline static constexpr auto ProceduralBuffer1 = ESRVReg::t23;
+		inline static constexpr auto PopulationInstances = ESRVReg::t24;
+		inline static constexpr auto PopulationView = ESRVReg::t25;
+		inline static constexpr auto PopulationPayload = ESRVReg::t26;
+		inline static constexpr auto PopulationDraw = ECBufReg::b8;
 	};
 
 	ShadowMap::ShadowMap(Renderer& rdr)
@@ -51,6 +56,10 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::ProceduralBuffer0, D3D12_SHADER_VISIBILITY_VERTEX)
 			.SRV(EReg::ProceduralBuffer1, D3D12_SHADER_VISIBILITY_VERTEX)
 			.SRV(EReg::Elements)
+			.SRV(EReg::PopulationInstances, D3D12_SHADER_VISIBILITY_ALL)
+			.SRV(EReg::PopulationView, D3D12_SHADER_VISIBILITY_ALL)
+			.SRV(EReg::PopulationPayload, D3D12_SHADER_VISIBILITY_ALL)
+			.U32<PopulationDraw>(EReg::PopulationDraw)
 			.Create(rdr.d3d(), "ShadowMapSig");
 	}
 

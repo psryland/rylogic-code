@@ -348,9 +348,11 @@ namespace pr::rdr12
 		namespace compiled
 		{
 			#include PR_RDR_SHADER_COMPILED_DIR(shadow_map_vs.h)
+			#include PR_RDR_SHADER_COMPILED_DIR(shadow_map_population_vs.h)
 			#include PR_RDR_SHADER_COMPILED_DIR(shadow_map_ps.h)
 		}
 		ByteCode const shadow_map_vs(compiled::shadow_map_vs);
+		ByteCode const shadow_map_population_vs(compiled::shadow_map_population_vs);
 		ByteCode const shadow_map_ps(compiled::shadow_map_ps);
 
 		// Screen Space

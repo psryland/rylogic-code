@@ -22,6 +22,7 @@ namespace pr::rdr12
 		{
 			v4 planes[4];
 			v4 eye;
+			v4 range_origin;
 			v4 bound;
 			v4 lod_size[PopulationMaxLods / 4];
 			v4 lod_fade[PopulationMaxLods / 4];
@@ -34,7 +35,7 @@ namespace pr::rdr12
 			uint32_t pad1;
 			uint32_t pad2;
 		};
-		static_assert(sizeof(CullConstants) == 192, "Must match CullConstants in population_cull.hlsl");
+		static_assert(sizeof(CullConstants) == 208, "Must match CullConstants in population_cull.hlsl");
 
 		// A block that passed the CPU culling test. Mirrors 'VisibleBlock' in 'population_cull.hlsl'.
 		struct VisibleBlock
@@ -120,28 +121,27 @@ namespace pr::rdr12
 		}
 
 		// Reject materials that population draws cannot honour. Population draws are opaque, so blended transparency is not supported,
-		// and vertices are placed by the stock population vertex shaders, so forward vertex shader overlays are not supported. Alpha testing is supported.
+		// and vertices are placed by the stock population vertex shaders, so forward and shadow vertex shader overlays are not supported. Alpha testing is supported.
 		void ValidateMaterials(Population::Proxy const& proxy, Model const& model)
 		{
-			// Check every nugget, including dependents, that has a forward pass.
+			// Check every nugget, including dependents.
 			for (auto& nugget : Enumerate(model.m_nuggets))
 			{
 				for (auto& nug : nugget.Dependents())
 				{
+					// Blending only matters for nuggets that have a forward pass
 					auto const& material = nug.mat();
 					auto const* pass = material.Pass(ERenderStep::RenderForward);
-					if (pass == nullptr)
-						continue;
-
-					if (pass->RequiresAlpha(proxy.m_base, material, nug))
+					if (pass != nullptr && pass->RequiresAlpha(proxy.m_base, material, nug))
 						throw std::invalid_argument(std::format("Population model '{}' has a material that requires alpha blending", model.m_name));
 
+					// Vertex shader overlays would replace the population vertex shaders of the forward and shadow passes
 					if (auto const* overlays = material.Component<materials::ShaderOverlays>())
 					{
 						for (auto const& entry : overlays->m_overlays)
 						{
-							if (entry.m_rdr_step == ERenderStep::RenderForward && entry.m_overlay->m_code.VS)
-								throw std::invalid_argument(std::format("Population model '{}' has a material with a forward vertex shader overlay", model.m_name));
+							if ((entry.m_rdr_step == ERenderStep::RenderForward || entry.m_rdr_step == ERenderStep::ShadowMap) && entry.m_overlay->m_code.VS)
+								throw std::invalid_argument(std::format("Population model '{}' has a material with a forward or shadow vertex shader overlay", model.m_name));
 						}
 					}
 				}
@@ -285,6 +285,19 @@ namespace pr::rdr12
 		std::lock_guard lock(m_mutex);
 		m_blocks[index].m_active = false;
 		++m_revision;
+	}
+
+	// Call 'fn' with the bounds of each active block, and return the content revision read under the same lock.
+	uint64_t Population::ActiveBlocks(std::function<void(BBox const&)> fn)
+	{
+		// The lock keeps the blocks and the revision consistent with each other.
+		std::lock_guard lock(m_mutex);
+		for (auto const& blk : m_blocks)
+		{
+			if (blk.m_active)
+				fn(blk.m_bbox);
+		}
+		return m_revision;
 	}
 
 	// Copy 'instances' into slots [first, first + instances.size()).
@@ -451,7 +464,7 @@ namespace pr::rdr12
 				if (proto.m_draw_distance > 0)
 				{
 					// Instance spheres are inside the box, so the box is beyond the draw distance only when its closest point is.
-					auto closest = Max(Abs(blk.m_bbox.Centre().w0() - view.m_eye.w0()) - blk.m_bbox.Radius().w0(), v4::Zero());
+					auto closest = Max(Abs(blk.m_bbox.Centre().w0() - view.m_range_origin.w0()) - blk.m_bbox.Radius().w0(), v4::Zero());
 					if (Length(closest) > proto.m_draw_distance)
 						continue;
 				}
@@ -497,6 +510,7 @@ namespace pr::rdr12
 			cb.planes[i] = planes[i];
 
 		cb.eye = v4{ view.m_eye.x, view.m_eye.y, view.m_eye.z, view.m_orthographic ? 1.0f : 0.0f };
+		cb.range_origin = view.m_range_origin.w1();
 		cb.bound = proto.m_bound;
 		for (int lod = 0; lod != lod_count; ++lod)
 		{
@@ -611,8 +625,37 @@ namespace pr::rdr12
 			.m_key = key,
 			.m_w2s = c2s * InvertOrthonormal(c2w),
 			.m_eye = c2w.pos,
+			.m_range_origin = c2w.pos,
 			.m_size_scale = 0.5f * viewport_height * c2s.y.y,
 			.m_orthographic = cam.Orthographic(),
+		};
+	}
+
+	// Describe a view given by its world to clip transform.
+	PopulationViewDesc PopulationProjectionView(uint64_t key, m4x4 const& w2s, float viewport_height, v4 range_origin)
+	{
+		// Clip w is the fourth row. Orthographic projections have a constant clip w, so the row has no xyz part.
+		auto row3 = v4{ w2s.x.w, w2s.y.w, w2s.z.w, w2s.w.w };
+		auto orthographic = Length(row3.xyz) <= 1e-6f * Abs(row3.w);
+
+		// A perspective eye maps to clip x = y = w = 0, so the inverse maps the clip direction (0,0,1,0) to a homogeneous multiple of the eye.
+		// Orthographic projections have no eye position, and their projected size does not depend on distance.
+		auto eye = range_origin.w1();
+		if (!orthographic)
+		{
+			auto h = Invert(w2s) * v4{ 0, 0, 1, 0 };
+			eye = h / h.w;
+		}
+
+		// Clip y is the second row. Its xyz length is the projection's y scale because the view part of 'w2s' is orthonormal.
+		auto row1 = v4{ w2s.x.y, w2s.y.y, w2s.z.y, w2s.w.y };
+		return PopulationViewDesc{
+			.m_key = key,
+			.m_w2s = w2s,
+			.m_eye = eye,
+			.m_range_origin = range_origin.w1(),
+			.m_size_scale = 0.5f * viewport_height * Length(row1.xyz),
+			.m_orthographic = orthographic,
 		};
 	}
 

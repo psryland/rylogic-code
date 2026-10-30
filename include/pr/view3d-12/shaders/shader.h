@@ -148,6 +148,7 @@ namespace pr::rdr12
 
 		// Shadows
 		extern ByteCode const shadow_map_vs;
+		extern ByteCode const shadow_map_population_vs;
 		extern ByteCode const shadow_map_ps;
 
 		// Screen Space

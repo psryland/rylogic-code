@@ -21,6 +21,10 @@ namespace pr::rdr12::shaders
 			ProceduralBuffer0,
 			ProceduralBuffer1,
 			Elements,
+			PopulationInstances,
+			PopulationView,
+			PopulationPayload,
+			PopulationDraw,
 		};
 
 		enum class ESampParam

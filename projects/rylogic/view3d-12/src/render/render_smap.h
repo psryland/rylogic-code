@@ -7,6 +7,7 @@
 #include "pr/view3d-12/render/render_step.h"
 #include "pr/view3d-12/shaders/shader_smap.h"
 #include "pr/view3d-12/lighting/shadow_view.h"
+#include "pr/view3d-12/population/population.h"
 
 namespace pr::rdr12
 {
@@ -26,6 +27,10 @@ namespace pr::rdr12
 		//    the view transform, its atlas region, and every element the view can see. Elements drawn with a custom vertex shader
 		//    (e.g. procedural geometry) can change without the hash changing, so views that see them are rendered every frame.
 		//    Changes to texture content (alpha clipped casters) are not detected.
+		//  - Populations cast shadows. Each view that sees an active block classifies the population on the GPU, then draws the visible
+		//    instances with indirect draws into that single view. Each (population, view) pair keeps its own classification buffer.
+		//    A population is part of a view's content hash through its content revision, its prototype's LOD models, and, when the
+		//    prototype has a draw distance, the scene camera position, because the draw distance is measured from the scene camera.
 
 		using GfxCmdList = ::pr::compute::GfxCmdList;
 
@@ -36,6 +41,15 @@ namespace pr::rdr12
 			v4 m_upper;      // World space upper corner of the element bounds. Valid when 'm_cull' is true
 			uint64_t m_hash; // Hash of everything that can change the depth the element writes into a view
 			bool m_cull;     // True if the bounds are known, so views that cannot see the element can skip it
+		};
+
+		// A population that can cast shadows this frame
+		struct PopulationCaster
+		{
+			PopulationPtr m_pop;       // Keeps the population alive until the frame's draws are recorded
+			std::vector<BBox> m_blocks; // World space bounds of the active blocks
+			uint64_t m_hash;           // Hash of everything that can change the depth the population writes into a view
+			uint32_t m_views;          // Bit mask of the views that can see an active block
 		};
 
 	private:
@@ -51,6 +65,7 @@ namespace pr::rdr12
 		pr::vector<uint32_t> m_element_views; // Per draw list element, a bit mask of the views that can see it
 		uint32_t m_dirty;                 // Bit mask of the views to render this frame
 		std::unordered_set<Nugget const*> m_volatile; // Nuggets drawn with a custom vertex shader. Views that see them are rendered every frame
+		pr::vector<PopulationCaster> m_casters; // The scene's populations for the current frame. Valid from 'Prepare' until the next frame.
 
 	public:
 

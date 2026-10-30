@@ -131,6 +131,101 @@ namespace render_tests
 		fixture.CheckDebugLayer();
 		std::cout << "PASS population block live counts, instance flags, draw distance, and removal: MSAA " << samples << '\n';
 	}
+
+	// Verify that populations cast shadows, including from outside the camera view, and that cached shadow views follow population changes
+	void PopulationShadowTests(int samples)
+	{
+		// A lit receiver at depth 60 and a population caster: one 10x10 quad instance at depth 40.
+		// A point light at (30,0,-20) projects the caster at x = 0 onto the receiver over x in [-40,-20] and y in [-10,10], which is pixels [13,38] x [51,77].
+		Fixture fixture(samples);
+		auto receiver = fixture.Quad(60, 0xFFFFFFFF, 45, nullptr, 0, 0xFFFFFFFF, false, true);
+		(void)receiver;
+		auto quad = PopulationQuad(fixture);
+		auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
+		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0));
+		auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 4, 1, 0));
+		Require(population != nullptr, "Population creation failed");
+
+		// Replace the default directional light with a single shadow casting point light
+		auto main_light = View3D_LightGet(fixture.m_window, 0);
+		main_light.m_on = FALSE;
+		View3D_LightSet(fixture.m_window, 0, main_light);
+		View3D_AmbientSet(fixture.m_window, 0xFF000000);
+		auto light = api::Light{};
+		light.m_type = api::ELight::Point;
+		light.m_position = api::Vec4{30, 0, -20, 1};
+		light.m_direction = api::Vec4{0, 0, -1, 0};
+		light.m_diffuse = 0xFFFFFFFF;
+		light.m_specular = 0xFF000000;
+		light.m_specular_power = 1;
+		light.m_intensity = 1;
+		light.m_range = 500;
+		light.m_falloff = 0;
+		light.m_inner_angle = 0.5f;
+		light.m_outer_angle = 1.2f;
+		light.m_cast_shadow = 1.0f;
+		light.m_cam_relative = FALSE;
+		light.m_on = TRUE;
+		auto light_index = View3D_LightAdd(fixture.m_window, light);
+		fixture.CheckErrors();
+
+		// Render with cached shadow views, then check that the result matches a render without caching, so stale views are detected
+		auto settings = View3D_ShadowSettingsGet(fixture.m_window);
+		auto image = [&](char const* message)
+		{
+			// Two cached renders, so the second reuses the cached views when nothing changed
+			settings.m_cache_views = TRUE;
+			View3D_ShadowSettingsSet(fixture.m_window, settings);
+			fixture.Image();
+			auto cached = fixture.Image();
+			settings.m_cache_views = FALSE;
+			View3D_ShadowSettingsSet(fixture.m_window, settings);
+			auto uncached = fixture.Image();
+			fixture.CheckErrors();
+			Require(ImageDifference(cached, uncached) == 0, message);
+			return cached;
+		};
+		auto left_shadow = [](std::vector<unsigned char> const& img) { return RegionRed(img, 18, 34, 56, 72); };
+		auto right_shadow = [](std::vector<unsigned char> const& img) { return RegionRed(img, 80, 100, 56, 72); };
+
+		// The receiver without any caster
+		auto unshadowed = image("Cached shadow views differ without casters");
+
+		// A population instance casts a shadow
+		auto instance = PopulationInstanceAt(0, 0, -40, 0xFFFFFFFF);
+		View3D_PopulationInstancesUpdate(population.get(), 0, &instance, 1);
+		View3D_PopulationBlockSet(population.get(), 0, api::BBox{ .centre = {0, 0, -40, 1}, .radius = {10, 10, 10, 0} }, 0, 4, 1);
+		View3D_WindowAddPopulation(fixture.m_window, population.get());
+		fixture.CheckErrors();
+		auto shadowed = image("Cached shadow views missed an added population");
+		Require(left_shadow(shadowed) < 0.5f * left_shadow(unshadowed), "Population shadow missing");
+		Require(std::abs(right_shadow(shadowed) - right_shadow(unshadowed)) < 0.02f, "Population shadow darkened a region the caster cannot shade");
+
+		// Removing the block removes the shadow, and restoring it restores the shadow
+		View3D_PopulationBlockRemove(population.get(), 0);
+		Require(ImageDifference(image("Cached shadow views missed a block removal"), unshadowed) == 0, "Population shadow remained after its block was removed");
+		View3D_PopulationBlockSet(population.get(), 0, api::BBox{ .centre = {0, 0, -40, 1}, .radius = {10, 10, 10, 0} }, 0, 4, 1);
+		Require(ImageDifference(image("Cached shadow views missed a block change"), shadowed) == 0, "Population shadow differs after its block was restored");
+
+		// A caster outside the camera view still casts a shadow into the view. With the light at (100,0,-20), an instance at x = 60
+		// shades the receiver over x in [10,30]. The block moves with the instance, so the shadow follows an instance update.
+		light.m_position = api::Vec4{100, 0, -20, 1};
+		View3D_LightSet(fixture.m_window, light_index, light);
+		View3D_PopulationBlockRemove(population.get(), 0);
+		auto side_lit = image("Cached shadow views differ for the side light");
+		instance = PopulationInstanceAt(60, 0, -40, 0xFFFFFFFF);
+		View3D_PopulationInstancesUpdate(population.get(), 0, &instance, 1);
+		View3D_PopulationBlockSet(population.get(), 0, api::BBox{ .centre = {60, 0, -40, 1}, .radius = {10, 10, 10, 0} }, 0, 4, 1);
+		auto side_shadowed = image("Cached shadow views missed an instance update");
+		Require(right_shadow(side_shadowed) < 0.5f * right_shadow(side_lit), "Shadow missing from a population outside the camera view");
+
+		// Removing the population from the window removes its shadow
+		View3D_WindowRemovePopulation(fixture.m_window, population.get());
+		Require(ImageDifference(image("Cached shadow views missed a population removal"), side_lit) == 0, "Population shadow remained after the population was removed");
+
+		fixture.CheckDebugLayer();
+		std::cout << "PASS population shadows, off-screen casters, and cached shadow views: MSAA " << samples << '\n';
+	}
 }
 
 namespace pr::unittests::view3d12
@@ -139,5 +234,10 @@ namespace pr::unittests::view3d12
 	{
 		render_tests::PopulationTests(1);
 		render_tests::PopulationTests(4);
+	}
+	PRUnitTest(View3d12_PopulationShadows, Extended | Serial)
+	{
+		render_tests::PopulationShadowTests(1);
+		render_tests::PopulationShadowTests(4);
 	}
 }

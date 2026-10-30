@@ -60,6 +60,34 @@ PSIn_ShadowMap VSShadowMap(VSIn In, uint instance_id :SV_InstanceID)
 	return Out;
 }
 
+// Population draw bindings (see 'pr/view3d-12/shaders/population.hlsli')
+StructuredBuffer<View3DPopulationInstance> g_pop_instances : register(t24);
+ByteAddressBuffer g_pop_view : register(t25);
+ConstantBuffer<View3DPopulationDraw> g_pop_draw : register(b8);
+
+// SMAP VS for population draws. A population draw renders into the single view given by 'g_draw.views[0][0]', so the instance index selects
+// the population list entry, not a view.
+PSIn_ShadowMap VSShadowMapPopulation(VSIn In, uint instance_id :SV_InstanceID)
+{
+	// Find the instance record for this draw instance, and the draw's view
+	PSIn_ShadowMap Out = (PSIn_ShadowMap)0;
+	View3DPopulationEntry entry = View3DPopulationFetch(g_pop_view, g_pop_draw, instance_id);
+	View3DPopulationInstance inst = g_pop_instances[entry.source];
+	uint view = g_draw.views[0][0];
+	Out.viewport = view - g_draw.info.x;
+
+	// Place the vertex with the element's model transform and the instance transform, then project into the shadow view
+	float4 os_vert = mul(In.vert, g_nugget.m2o);
+	float4 ws_vert = View3DPopulationTransform(inst, mul(os_vert, g_nugget.o2w));
+	Out.ss_vert = mul(ws_vert, g_shadow_views[view].w2s);
+
+	// Tinting, alpha cut-out texture coordinates, and the LOD transition dither
+	Out.diff = In.diff * g_nugget.tint * View3DPopulationTint(inst);
+	Out.tex0 = mul(float4(In.tex0, 0, 1), g_nugget.tex2surf0).xy;
+	Out.dither = entry.dither;
+	return Out;
+}
+
 // Default SMAP PS. Only used to discard transparent texels. Depth is written by the rasterizer.
 void PSShadowMap(PSIn_ShadowMap In)
 {
