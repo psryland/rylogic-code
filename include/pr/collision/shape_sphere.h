@@ -13,14 +13,12 @@ namespace pr::collision
 	{
 		Shape m_base;
 		float m_radius;
-		int m_hollow;
-		int pad[2];
+		int pad[3];
 
 		ShapeSphere() = default;
-		explicit ShapeSphere(float radius, m4x4 const& shape_to_root = m4x4::Identity(), bool hollow = false, MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
+		explicit ShapeSphere(float radius, m4x4 const& shape_to_root = m4x4::Identity(), MaterialId material_id = 0, Shape::EFlags flags = Shape::EFlags::None)
 			: m_base(EShape::Sphere, sizeof(ShapeSphere), shape_to_root, BBox::Reset(), material_id, flags)
 			, m_radius(radius)
-			, m_hollow(hollow)
 			, pad()
 		{
 			m_base.m_bbox = CalcBBox(*this);

@@ -359,24 +359,24 @@ namespace pr::physics::terrain::water
 		return sample;
 	}
 
-	// Sample the dimensionless lateral pressure gradient used by buoyancy forces.
-	v2 WaterField::PressureGradient(v2 xy, double time_s, float gravity) const
+	// Sample the dimensionless dynamic pressure gradient used by buoyancy forces.
+	v4 WaterField::PressureGradient(v2 xy, double time_s, float gravity) const
 	{
 		// Without gravity there is no hydrostatic pressure to form a gradient.
 		if (!(gravity > tiny<float>))
-			return v2::Zero();
+			return v4::Zero();
 
 		auto const t = LocalTime(time_s);
 		auto const depth = WaveDepth(v2d{xy.x, xy.y});
 		auto buffer = std::array<WaterFieldElement, MaxElementCount>{};
 		auto const elements = Localise(xy, buffer, true);
 		auto const correction = Correction(elements, depth);
-		auto gradient = v2::Zero();
+		auto gradient = v4::Zero();
 		for (auto const& element : elements)
 		{
-			// Each contribution is (height, gradient.x, gradient.y); only the gradient is needed.
+			// Each contribution is (height, gradient.x, gradient.y, gradient.z); only the gradient is needed.
 			auto const contribution = shared::WaterFieldElementHeightAndPressureGradient(shared::WaterFieldDepthCorrected(element, depth, correction.m_breaking_scale, correction.m_min_sharpness), xy, t, gravity);
-			gradient += v2{contribution.y, contribution.z};
+			gradient += v4{contribution.y, contribution.z, contribution.w, 0.0f};
 		}
 		return gradient;
 	}

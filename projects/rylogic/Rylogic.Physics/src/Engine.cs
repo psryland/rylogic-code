@@ -216,14 +216,13 @@ public sealed class Engine :IDisposable
 	}
 
 	/// <summary>Create a sphere collision shape.</summary>
-	public unsafe Shape CreateSphere(float radius, ShapeOptions? options = null, bool hollow = false)
+	public unsafe Shape CreateSphere(float radius, ShapeOptions? options = null)
 	{
 		EnsureOwner();
 		var desc = new Native.SphereShape
 		{
 			m_common = Native.ShapeCommon.From<Native.SphereShape>(options),
 			m_radius = radius,
-			m_hollow = hollow ? 1 : 0,
 		};
 		Native.Check(Native.Physics_ShapeCreateSphere(Handle, &desc, out var handle));
 		return AddShape(handle);
@@ -323,6 +322,7 @@ public sealed class Engine :IDisposable
 			m_user_tag = options.UserTag,
 			m_motion_type = options.MotionType,
 			m_mass_mode = options.MassMode,
+			m_mass_distribution = options.MassDistribution,
 			m_mass_or_density = options.MassOrDensity,
 			m_flags = options.Flags,
 		};

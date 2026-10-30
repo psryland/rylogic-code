@@ -297,6 +297,9 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <None Include="scenes\beach_ball_waves.json">
+      <Filter>scenes</Filter>
+    </None>
     <None Include="scenes\box_vs_sphere.json">
       <Filter>scenes</Filter>
     </None>

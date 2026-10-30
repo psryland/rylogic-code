@@ -10,7 +10,7 @@ namespace Rylogic.Physics;
 internal static unsafe partial class Native
 {
 	internal const string Dll = "physics";
-	internal const uint ApiVersion = 0x00060200U;
+	internal const uint ApiVersion = 0x00070000U;
 	internal const uint StructVersion = 2U;
 	private static IntPtr m_module;
 
@@ -289,7 +289,6 @@ internal static unsafe partial class Native
 	{
 		internal ShapeCommon m_common;
 		internal float m_radius;
-		internal int m_hollow;
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
@@ -328,6 +327,7 @@ internal static unsafe partial class Native
 		internal ulong m_user_tag;
 		internal EMotionType m_motion_type;
 		internal EMassMode m_mass_mode;
+		internal EMassDistribution m_mass_distribution;
 		internal float m_mass_or_density;
 		internal EBodyFlags m_flags;
 	}

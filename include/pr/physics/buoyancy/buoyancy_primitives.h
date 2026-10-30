@@ -23,6 +23,8 @@
 #pragma once
 #include <cmath>
 #include <vector>
+#include <cmath>
+#include <algorithm>
 #include <cstdint>
 #include <stdexcept>
 #include "pr/collision/shape.h"
@@ -46,6 +48,31 @@ namespace pr::physics::buoyancy
 	// The fewest volume samples given to a primitive with positive volume. Primitives much smaller than the volume spacing would
 	// otherwise get a single sample, which makes their buoyancy switch on or off as the water passes their centre.
 	inline constexpr int MinVolumeSamplesPerPrimitive = 8;
+
+	// Return the vertical extent given to a volume sample of volume 'dvol'. Each sample stands for a cube-shaped cell of its own
+	// volume, so a sample is wet by the fraction of that cell below the water surface rather than switching fully on or off.
+	inline float VolumeCellHeight(float dvol)
+	{
+		return std::cbrt(dvol);
+	}
+
+	// Return the submerged fraction of a sample cell centred 'signed_height' along up, given the water height at the same
+	// planar position and the cell's vertical extent. The fraction rises linearly from 0, when the cell top touches the surface,
+	// to 1, when the cell bottom is under it. This makes sampled forces continuous functions of depth. A zero extent gives a step.
+	// Mirrored in HLSL by BuoyWetFraction.
+	inline float CellWetFraction(float signed_height, float water_height, float cell_height)
+	{
+		// The tiny floor keeps a zero-height cell a step function instead of 0/0 at the surface.
+		return std::clamp((water_height - signed_height) / std::max(cell_height, 1e-6f) + 0.5f, 0.0f, 1.0f);
+	}
+
+	// Return the vertical extent of a surface cell with area 'darea' whose unit normal has component 'normal_dot_up' along up.
+	// A cell of side sqrt(darea) tilted by angle theta from horizontal spans sqrt(darea) * sin(theta) vertically, so a cell on a
+	// steep face wets gradually while a horizontal cell wets all at once. Mirrored in HLSL by BuoySurfaceCellHeight.
+	inline float SurfaceCellHeight(float darea, float normal_dot_up)
+	{
+		return std::sqrt(darea * std::max(0.0f, 1.0f - normal_dot_up * normal_dot_up));
+	}
 
 	// The convex primitive types the sampled-composite backend understands. Values are fixed so
 	// they can be uploaded verbatim and switched on in HLSL.

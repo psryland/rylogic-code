@@ -133,6 +133,7 @@ namespace physics_sandbox::scene_loader
 		v4 tri_verts[3] = { v4(1,0,0,1), v4(0,1,0,1), v4(-1,0,0,1) }; // Triangle vertices as offsets from origin (only valid when shape_type == Triangle)
 		std::vector<v4> polytope_verts = {};                          // Convex hull vertices (only valid when shape_type == Polytope)
 		std::vector<BodyDesc> compound_children = {};                 // Primitive children placed by their 'position' and 'rotation' in body space (only valid when shape_type == Compound)
+		physics::EMassDistribution mass_distribution = physics::EMassDistribution::Solid; // Shell when the shape is 'hollow'; 'density' is then areal (kg/m²)
 
 		float mass = 0;          // 0 = static (immovable) body with infinite mass
 		std::optional<float> density = {}; // Derives mass from the final collision shape

@@ -261,7 +261,36 @@ namespace physics_sandbox::scene_loader
 
 			throw std::runtime_error(pr::FmtS("Scene references unknown shape '%.*s'", static_cast<int>(shape_name.size()), shape_name.data()));
 		}
-		BodyDesc ReadShape(pr::json::Value const& jshape)
+		// Read the optional 'hollow' flag, which gives the body a thin-shell mass distribution. A shell needs a closed surface around a volume,
+		// so the flag is rejected on triangles and infinitely thin lines. Compound children cannot set it because mass distribution applies to
+		// the whole body; set it on the compound instead.
+		void ReadMassDistribution(BodyDesc& desc, pr::json::Object const& jshape_obj, bool is_compound_child)
+		{
+			// Default to a solid body when the flag is absent or false
+			auto const* jhollow = jshape_obj.find("hollow");
+			if (jhollow == nullptr || !jhollow->to<bool>())
+				return;
+
+			// Only shapes that enclose a volume can have a shell
+			if (is_compound_child)
+				throw std::runtime_error("Compound shape children cannot be 'hollow'; set 'hollow' on the compound shape instead");
+			if (desc.shape_type == BodyDesc::EShape::Triangle)
+				throw std::runtime_error("Triangle shapes cannot be 'hollow' because they enclose no volume");
+			if (desc.shape_type == BodyDesc::EShape::Line && !(desc.line_thickness > 0.0f))
+				throw std::runtime_error("Line shapes can only be 'hollow' when they have a positive 'thickness'");
+			if (desc.shape_type == BodyDesc::EShape::Compound)
+			{
+				for (auto const& child : desc.compound_children)
+				{
+					if (child.shape_type == BodyDesc::EShape::Triangle || (child.shape_type == BodyDesc::EShape::Line && !(child.line_thickness > 0.0f)))
+						throw std::runtime_error("A 'hollow' compound shape requires every child to enclose a volume");
+				}
+			}
+
+			desc.mass_distribution = physics::EMassDistribution::Shell;
+		}
+
+		BodyDesc ReadShape(pr::json::Value const& jshape, bool is_compound_child = false)
 		{
 			BodyDesc desc;
 			auto const& jshape_obj = jshape.to_object();
@@ -318,7 +347,7 @@ namespace physics_sandbox::scene_loader
 				for (auto const& jchild : children)
 				{
 					// Each child is a primitive shape object with an optional body-space placement.
-					auto child = ReadShape(jchild);
+					auto child = ReadShape(jchild, true);
 					if (child.shape_type == BodyDesc::EShape::Compound)
 						throw std::runtime_error("Compound shape children must be primitive shapes");
 
@@ -336,6 +365,7 @@ namespace physics_sandbox::scene_loader
 				throw std::runtime_error(pr::FmtS("Unknown shape type: '%s'", shape_type.c_str()));
 			}
 
+			ReadMassDistribution(desc, jshape_obj, is_compound_child);
 			return desc;
 		}
 		BodyDesc ReadShapeRef(pr::json::Value const& jshape, NamedShapeMap const& shapes)
@@ -357,6 +387,7 @@ namespace physics_sandbox::scene_loader
 			body.tri_verts[2] = shape.tri_verts[2];
 			body.polytope_verts = std::move(shape.polytope_verts);
 			body.compound_children = std::move(shape.compound_children);
+			body.mass_distribution = shape.mass_distribution;
 		}
 
 		// Generate a uniformly distributed direction over the unit sphere.
@@ -449,6 +480,7 @@ namespace physics_sandbox::scene_loader
 				auto desc = BodyDesc{};
 				desc.shape_type = BodyDesc::EShape::Box;
 				desc.box_dimensions = ReadVec3Range(jshape_obj["dimensions"], 0.0f, selector, index, count, rng);
+				ReadMassDistribution(desc, jshape_obj, false);
 				return desc;
 			}
 			if (shape_type == "sphere")
@@ -456,6 +488,7 @@ namespace physics_sandbox::scene_loader
 				auto desc = BodyDesc{};
 				desc.shape_type = BodyDesc::EShape::Sphere;
 				desc.sphere_radius = ReadFloatRange(jshape_obj["radius"], selector, index, count, rng);
+				ReadMassDistribution(desc, jshape_obj, false);
 				return desc;
 			}
 			if (shape_type == "line")
@@ -465,6 +498,8 @@ namespace physics_sandbox::scene_loader
 				desc.line_length = ReadFloatRange(jshape_obj["length"], selector, index, count, rng);
 				if (auto const* thickness = jshape_obj.find("thickness"))
 					desc.line_thickness = ReadFloatRange(*thickness, selector, index, count, rng);
+
+				ReadMassDistribution(desc, jshape_obj, false);
 				return desc;
 			}
 			if (shape_type == "polytope")
@@ -480,10 +515,15 @@ namespace physics_sandbox::scene_loader
 				for (auto const& vertex : vertices)
 					desc.polytope_verts.push_back(ReadVec3Range(vertex, 1.0f, selector, index, count, rng));
 
+				ReadMassDistribution(desc, jshape_obj, false);
 				return desc;
 			}
 			if (shape_type == "random_convex")
-				return ReadRandomConvexShape(jshape_obj, index, count, rng);
+			{
+				auto desc = ReadRandomConvexShape(jshape_obj, index, count, rng);
+				ReadMassDistribution(desc, jshape_obj, false);
+				return desc;
+			}
 
 			return ReadShape(shape);
 		}
@@ -1583,6 +1623,12 @@ namespace physics_sandbox::scene_loader
 					desc.terrain = ReadTerrain(*jterrain);
 				return desc;
 			}
+
+			// Parse one shape description from in-memory JSON text.
+			BodyDesc ParseShape(std::string_view text)
+			{
+				return ReadShape(pr::json::Read(text));
+			}
 		}
 
 		PRUnitTestClass(SceneLoaderTerrainTests)
@@ -1639,6 +1685,53 @@ namespace physics_sandbox::scene_loader
 				PR_THROWS(ParseTerrain(R"json({"scene":{"terrain":{"surface_spacing":0}}})json"), std::exception);
 				PR_THROWS(ParseTerrain(R"json({"scene":{"terrain":{"surface_spacing":-0.1}}})json"), std::exception);
 				PR_THROWS(ParseTerrain(R"json({"scene":{"terrain":{"recipe":{"regional_base":{"wavelength":0}}}}})json"), std::exception);
+			}
+		};
+
+		PRUnitTestClass(SceneLoaderShapeTests)
+		{
+			// The 'hollow' shape flag selects a thin-shell mass distribution for shapes that enclose a volume
+			PRUnitTestMethod(HollowFlagSelectsShellMassDistribution, Quick)
+			{
+				// Absent and explicitly false flags keep the solid default
+				PR_EXPECT(ParseShape(R"json({"type":"sphere","radius":0.15})json").mass_distribution == physics::EMassDistribution::Solid);
+				PR_EXPECT(ParseShape(R"json({"type":"sphere","radius":0.15,"hollow":false})json").mass_distribution == physics::EMassDistribution::Solid);
+
+				// Every volume-enclosing shape accepts the flag
+				PR_EXPECT(ParseShape(R"json({"type":"sphere","radius":0.15,"hollow":true})json").mass_distribution == physics::EMassDistribution::Shell);
+				PR_EXPECT(ParseShape(R"json({"type":"box","dimensions":[1,2,3],"hollow":true})json").mass_distribution == physics::EMassDistribution::Shell);
+				PR_EXPECT(ParseShape(R"json({"type":"line","length":1,"thickness":0.2,"hollow":true})json").mass_distribution == physics::EMassDistribution::Shell);
+				PR_EXPECT(ParseShape(R"json({"type":"polytope","vertices":[[0,0,0],[1,0,0],[0,1,0],[0,0,1]],"hollow":true})json").mass_distribution == physics::EMassDistribution::Shell);
+				PR_EXPECT(ParseShape(R"json({"type":"compound","hollow":true,"children":[{"type":"sphere","radius":0.5},{"type":"box","dimensions":[1,1,1],"position":[1,0,0]}]})json").mass_distribution == physics::EMassDistribution::Shell);
+
+				// Named shapes carry the flag onto the body
+				auto body = BodyDesc{};
+				AssignShape(body, ParseShape(R"json({"type":"sphere","radius":0.15,"hollow":true})json"));
+				PR_EXPECT(body.mass_distribution == physics::EMassDistribution::Shell);
+			}
+
+			// Shells need a closed surface around a volume, and mass distribution belongs to the whole body
+			PRUnitTestMethod(RejectsHollowShapesWithoutVolume, Quick)
+			{
+				PR_THROWS(ParseShape(R"json({"type":"triangle","vertices":[[0,0,0],[1,0,0],[0,1,0]],"hollow":true})json"), std::exception);
+				PR_THROWS(ParseShape(R"json({"type":"line","length":1,"hollow":true})json"), std::exception);
+				PR_THROWS(ParseShape(R"json({"type":"compound","children":[{"type":"sphere","radius":0.5,"hollow":true}]})json"), std::exception);
+				PR_THROWS(ParseShape(R"json({"type":"compound","hollow":true,"children":[{"type":"line","length":1}]})json"), std::exception);
+			}
+
+			// The beach-ball demo depends on named hollow shapes reaching its bodies
+			PRUnitTestMethod(BeachBallSceneUsesShellBalls, Quick)
+			{
+				auto const desc = LoadFromFile("projects\\tests\\physics-sandbox\\scenes\\beach_ball_waves.json");
+				auto ball_count = 0;
+				for (auto const& body : desc.bodies)
+				{
+					// Balls are hollow and the boat is solid
+					auto const is_ball = body.name.starts_with("ball-");
+					PR_EXPECT(body.mass_distribution == (is_ball ? physics::EMassDistribution::Shell : physics::EMassDistribution::Solid));
+					ball_count += is_ball ? 1 : 0;
+				}
+				PR_EXPECT(ball_count == 7);
 			}
 		};
 

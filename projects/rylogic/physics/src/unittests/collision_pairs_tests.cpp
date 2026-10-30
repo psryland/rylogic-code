@@ -987,7 +987,7 @@ namespace pr::physics::tests
 			auto inner_ofs = data.size();
 			data.push_back<collision::ShapeArray>();
 			data.push_back(collision::ShapeBox(v4{0.5f, 0.5f, 0.5f, 0}, m4x4::Translation(0.0f, 0, 0), 12));
-			data.push_back(collision::ShapeSphere(0.25f, m4x4::Translation(1.0f, 0, 0), false, 13));
+			data.push_back(collision::ShapeSphere(0.25f, m4x4::Translation(1.0f, 0, 0), 13));
 			data.at_byte_ofs<collision::ShapeArray>(inner_ofs).Complete(2);
 
 			data.push_back(collision::ShapeBox(v4{0.5f, 0.5f, 0.5f, 0}, m4x4::Translation(3.0f, 0, 0), 14));
@@ -1112,7 +1112,7 @@ namespace pr::physics::tests
 			CompoundShape dumbbell;
 			BuildDumbbell(dumbbell, 0.5f, 1, 2);
 
-			auto ball = collision::ShapeSphere(0.24f, m4x4::Identity(), false, 3);
+			auto ball = collision::ShapeSphere(0.24f, m4x4::Identity(), 3);
 
 			RigidBody bodies[2];
 			bodies[0].Shape(dumbbell.shape(), 1.0f);

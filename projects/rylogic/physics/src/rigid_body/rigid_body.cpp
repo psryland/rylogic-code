@@ -77,7 +77,7 @@ namespace pr::physics
 	}
 
 	// Set the shape and derive mass properties from the shape.
-	void RigidBody::Shape(collision::Shape const* shape, float mass, bool mass_is_actually_density)
+	void RigidBody::Shape(collision::Shape const* shape, float mass, bool mass_is_actually_density, EMassDistribution distribution)
 	{
 		// Set the shape
 		Shape(shape);
@@ -85,7 +85,7 @@ namespace pr::physics
 		if (mass > 0 && mass < InfiniteMass)
 		{
 			// Derive the mass properties from the shape
-			auto mp = CalcMassProperties(*m_shape, mass_is_actually_density ? mass : 1.0f);
+			auto mp = CalcMassProperties(*m_shape, mass_is_actually_density ? mass : 1.0f, distribution);
 			if (!mass_is_actually_density) mp.m_mass = mass;
 			SetMassProperties(Inertia{ mp }, mp.m_centre_of_mass);
 		}

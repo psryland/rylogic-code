@@ -99,8 +99,8 @@ namespace pr::physics
 		// Set the shape only, leave the mass properties unchanged
 		void Shape(collision::Shape const* shape);
 
-		// Set the shape and derive mass properties from the shape.
-		void Shape(collision::Shape const* shape, float mass, bool mass_is_actually_density = false);
+		// Set the shape and derive mass properties from the shape. 'distribution' selects a solid or thin-shell mass layout (see EMassDistribution).
+		void Shape(collision::Shape const* shape, float mass, bool mass_is_actually_density = false, EMassDistribution distribution = EMassDistribution::Solid);
 
 		// Set the shape and mass properties explicitly
 		void Shape(collision::Shape const* shape, Inertia inertia, v4 com = v4{});

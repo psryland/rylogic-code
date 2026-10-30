@@ -562,7 +562,7 @@ namespace physics_sandbox
 			physics::terrain::water::WaterField const* m_surface;
 			float m_time;
 			float Height(v2 uv) const { return static_cast<float>(m_surface->Height(physics::terrain::v2d{uv.x, uv.y}, m_time)); }
-			v2 PressureGradient(v2 uv, float gravity) const { return m_surface->PressureGradient(uv, m_time, gravity); }
+			v4 PressureGradient(v2 uv, float gravity) const { return m_surface->PressureGradient(uv, m_time, gravity); }
 			v4 Velocity(v4 pos_ws) const { return m_surface->Velocity(pos_ws, m_time); }
 		};
 		auto const water = WaterAdapter{ &m_water->surface, static_cast<float>(m_clock) };
@@ -576,6 +576,7 @@ namespace physics_sandbox
 			.m_angular_drag_time_constant_s = gpu_cfg.m_angular_drag_time_constant_s,
 			.m_quadratic_drag_coefficient = gpu_cfg.m_quadratic_drag_coefficient,
 			.m_tangential_drag_coefficient = gpu_cfg.m_tangential_drag_coefficient,
+			.m_added_mass_coefficient = gpu_cfg.m_added_mass_coefficient,
 			.m_surface_spacing = gpu_cfg.m_surface_spacing,
 			.m_volume_spacing = gpu_cfg.m_volume_spacing,
 		};
@@ -1252,9 +1253,9 @@ namespace physics_sandbox
 				// Resolve density after the final collision shape exists so generated scale variants
 				// retain equal density using the rigid body's existing mass-property path.
 				if (bd.density)
-					body.Shape(shape, *bd.density, true);
+					body.Shape(shape, *bd.density, true, bd.mass_distribution);
 				else
-					body.Shape(shape, bd.mass);
+					body.Shape(shape, bd.mass, false, bd.mass_distribution);
 
 				body.VelocityWS(bd.angular_velocity, bd.velocity);
 				body.NeverSleep(bd.never_sleep);

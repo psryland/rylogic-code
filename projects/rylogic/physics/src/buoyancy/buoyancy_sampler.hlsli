@@ -323,6 +323,20 @@ odr bool BuoyIsInsideAnyOtherSibling(in_(StructuredBuffer<BuoyPrimitive>) prims,
 // (surface) so reductions accumulate weighted sums (different primitives have different densities).
 //
 
+// Return the submerged fraction of a sample cell centred 'signed_height' along up, given the water height at the same planar
+// position and the cell's vertical extent. Mirrors buoyancy::CellWetFraction.
+odr float BuoyWetFraction(float signed_height, float water_height, float cell_height)
+{
+	return saturate((water_height - signed_height) / max(cell_height, 1e-6f) + 0.5f);
+}
+
+// Return the vertical extent of a surface cell with area 'darea' whose unit normal has component 'normal_dot_up' along up.
+// Mirrors buoyancy::SurfaceCellHeight.
+odr float BuoySurfaceCellHeight(float darea, float normal_dot_up)
+{
+	return sqrt(darea * max(0.0f, 1.0f - normal_dot_up * normal_dot_up));
+}
+
 // Emit the i'th low-discrepancy volume sample for a primitive, weighted by 'dvol' (= measure/N).
 // 'pos_local' is returned with w=1. Mirrors EmitVolumeSample.
 odr void BuoyEmitVolumeSample(in_(BuoyPrimitive) prim, uint index, float dvol,

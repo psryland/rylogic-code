@@ -38,18 +38,24 @@ namespace pr::physics
 			float m_angular_drag_coefficient;
 			float m_quadratic_drag_coefficient;
 			float m_tangential_drag_coefficient;
+			float m_added_mass_coefficient;
+			float m_radiation_damping;
 			float m_time_step_s;
 			int m_enable_diagnostics;
+			int m_jacobian_base;   // partial index of the first per-hull record holding the volume pass's implicit-solve terms
+			int m_final_reduce;    // non-zero when this pass's reduce is the last buoyancy pass and applies the implicit solve
+			int m_pad0;
+			int m_pad1;
+			int m_pad2;
 		};
 		static_assert(sizeof(CBufGpuBuoyancy) % sizeof(uint32_t) == 0);
 
+		// Mirrors HLSL BuoyancySums; see gpu_buoyancy.hlsl for the meaning of each sum. The host only sizes the buffer.
 		struct GpuBuoyancyPartial
 		{
-			v4 m_force_ws;
-			v4 m_torque_ws;
-			v4 m_moment_ws_volume;
+			float m_sums[39];
 		};
-		static_assert(sizeof(GpuBuoyancyPartial) == 48);
+		static_assert(sizeof(GpuBuoyancyPartial) == 156);
 
 		struct GpuBuoyancyDiagnostic
 		{
@@ -83,13 +89,16 @@ namespace pr::physics
 
 		// Per-primitive sample bookkeeping for the volume pass. m_count is the number of volume
 		// samples assigned to this primitive and m_dvol is the per-sample volume weight (primitive
-		// volume / count). Mirrors HLSL BuoyVolPrimRecord.
+		// volume / count). m_cell_height is buoyancy::VolumeCellHeight(m_dvol), computed on the host so
+		// the GPU and the CPU oracle use the same value. Mirrors HLSL BuoyVolPrimRecord.
 		struct GpuBuoyVolPrimRecord
 		{
 			int m_count;
 			float m_dvol;
+			float m_cell_height;
+			float m_pad;
 		};
-		static_assert(sizeof(GpuBuoyVolPrimRecord) == 8);
+		static_assert(sizeof(GpuBuoyVolPrimRecord) == 16);
 
 		// Per-hull header for the sampled-composite surface (drag) pass. Mirrors HLSL BuoySurfHeader.
 		// Layout-identical to GpuBuoyVolHeader, but m_total_surface_samples counts surface samples and
@@ -275,6 +284,10 @@ namespace pr::physics
 			std::vector<float> m_vol_dvol;
 			int m_total_volume_samples = 0;
 			float m_eps = 0.0f;
+
+			// Half of the largest volume cell height (see buoyancy::VolumeCellHeight). A volume sample is partly wet while its
+			// cell top is below the surface, so a body is only certainly dry when its lowest point is this far above the water.
+			float m_max_half_cell_height = 0.0f;
 
 			// Registration-time body-space AABB enclosing every primitive in the hull. Used by the
 			// host-side flat-water dry broadphase cull to conservatively test whether the whole body
@@ -524,10 +537,12 @@ namespace pr::physics
 			auto vol_counts = buoyancy::VolumeSampleCounts(volumes, m_config.m_volume_spacing);
 			auto vol_dvol = std::vector<float>(prims.size(), 0.0f);
 			auto total_volume_samples = 0;
+			auto max_cell_height = 0.0f;
 			for (std::size_t k = 0; k != prims.size(); ++k)
 			{
 				auto const count = vol_counts[k];
 				vol_dvol[k] = count > 0 ? volumes[k] / static_cast<float>(count) : 0.0f;
+				max_cell_height = std::max(max_cell_height, buoyancy::VolumeCellHeight(vol_dvol[k]));
 				total_volume_samples += count;
 			}
 
@@ -552,6 +567,7 @@ namespace pr::physics
 			data->m_vol_dvol = std::move(vol_dvol);
 			data->m_total_volume_samples = total_volume_samples;
 			data->m_eps = std::max(1e-6f, extent * 1e-5f);
+			data->m_max_half_cell_height = 0.5f * max_cell_height;
 			data->m_obb_os = bbox;
 			data->m_surface_plans = std::move(surface_plans);
 			data->m_total_surface_samples = total_surface_samples;
@@ -821,6 +837,14 @@ namespace pr::physics
 			{
 				throw std::runtime_error("GpuBuoyancy tangential drag coefficient must be a finite, non-negative value");
 			}
+			if (!std::isfinite(config.m_added_mass_coefficient) || config.m_added_mass_coefficient < 0.0f)
+			{
+				throw std::runtime_error("GpuBuoyancy added-mass coefficient must be a finite, non-negative value");
+			}
+			if (!std::isfinite(config.m_radiation_damping) || config.m_radiation_damping < 0.0f)
+			{
+				throw std::runtime_error("GpuBuoyancy radiation damping must be a finite, non-negative value");
+			}
 			if (config.m_polytope_tessellation == 0)
 			{
 				throw std::runtime_error("GpuBuoyancy polytope tessellation must select the face fan (negative) or a positive grid resolution");
@@ -919,8 +943,9 @@ namespace pr::physics
 
 			// Strict margin: the band [level, level+margin] still produces zero on the GPU (its
 			// per-primitive dry fast-path / all-dry samples), so a positive margin is always safe and
-			// avoids host/GPU float divergence right at the waterline.
-			auto const margin = std::max(shape_data.m_eps, 1e-4f);
+			// avoids host/GPU float divergence right at the waterline. The half cell height covers volume
+			// samples whose cells are partly wet while their centres are above the surface.
+			auto const margin = std::max(shape_data.m_eps, 1e-4f) + shape_data.m_max_half_cell_height;
 			return lowest > WaterMaxHeight() + margin;
 		}
 
@@ -1155,9 +1180,12 @@ namespace pr::physics
 			if (hull_count > 65535 / groups_per_hull)
 				throw std::runtime_error("Buoyancy hull population exceeds the volume dispatch dimension");
 
+			// The partials buffer holds the larger of the two sample passes' partials, followed by one record per hull that carries
+			// the volume pass's implicit-solve terms to the surface reduce (the surface sample pass overwrites the partials before it).
+			auto const jacobian_base = hull_count * std::max(groups_per_hull, surf_groups_per_hull);
 			EnsureGpuCapacity(
 				args.m_job,
-				hull_count * std::max(groups_per_hull, surf_groups_per_hull),
+				jacobian_base + hull_count,
 				m_config.m_enable_diagnostics ? hull_count : 1);
 
 			// Phase 2: sum geometry sizes across unique active collision shapes. Bodies sharing a shape
@@ -1247,6 +1275,8 @@ namespace pr::physics
 					records[prim_base + k] = GpuBuoyVolPrimRecord{
 						.m_count = shape_data.m_vol_counts[k],
 						.m_dvol = shape_data.m_vol_dvol[k],
+						.m_cell_height = buoyancy::VolumeCellHeight(shape_data.m_vol_dvol[k]),
+						.m_pad = 0.0f,
 					};
 
 					// The shared face-plane buffer keeps sibling containment identical in both passes.
@@ -1340,6 +1370,12 @@ namespace pr::physics
 			auto const angular_drag_coefficient = m_config.m_angular_drag_time_constant_s > 0.0f
 				? m_config.m_fluid_density / m_config.m_angular_drag_time_constant_s
 				: 0.0f;
+
+			// Surface drag runs only when either drag coefficient is enabled. The last reduce to run applies the implicit solve.
+			auto const surf_quad_coefficient = std::max(0.0f, m_config.m_quadratic_drag_coefficient);
+			auto const surf_tangent_coefficient = std::max(0.0f, m_config.m_tangential_drag_coefficient);
+			auto const have_surface_pass = (surf_quad_coefficient > 0.0f || surf_tangent_coefficient > 0.0f) && active_stats.m_max_surface_samples > 0;
+
 			auto const cb = CBufGpuBuoyancy{
 				.m_hull_count = hull_count,
 				.m_groups_per_hull = groups_per_hull,
@@ -1352,11 +1388,15 @@ namespace pr::physics
 				.m_angular_drag_coefficient = angular_drag_coefficient,
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
+				.m_added_mass_coefficient = m_config.m_added_mass_coefficient,
+				.m_radiation_damping = m_config.m_radiation_damping,
 				.m_time_step_s = args.m_dt,
 				.m_enable_diagnostics = m_config.m_enable_diagnostics ? 1 : 0,
+				.m_jacobian_base = jacobian_base,
+				.m_final_reduce = have_surface_pass ? 0 : 1,
 			};
 
-			// Phase 6: sample displaced volume and reduce it directly into each body's force/torque accumulators.
+			// Phase 6: sample displaced volume and reduce it into each body's force/torque accumulators.
 			RecordVolumePass(args, cb, addresses);
 
 			// Phase 7: optionally sample surface drag. This reuses the per-threadgroup partials buffer (sized above for the
@@ -1364,10 +1404,7 @@ namespace pr::physics
 			// ADD drag force/torque onto the body accumulator and the existing diagnostic record. The
 			// cbuffer carries the surface group count and both surface-drag coefficients. Skip the
 			// surface pass when both are disabled, even if linear damping is active.
-			auto const surf_quad_coefficient = std::max(0.0f, m_config.m_quadratic_drag_coefficient);
-			auto const surf_tangent_coefficient = std::max(0.0f, m_config.m_tangential_drag_coefficient);
-			auto const have_drag = surf_quad_coefficient > 0.0f || surf_tangent_coefficient > 0.0f;
-			if (have_drag && active_stats.m_max_surface_samples > 0)
+			if (have_surface_pass)
 			{
 				auto const cb_surf = CBufGpuBuoyancy{
 					.m_hull_count = hull_count,
@@ -1381,8 +1418,12 @@ namespace pr::physics
 					.m_angular_drag_coefficient = 0.0f,
 					.m_quadratic_drag_coefficient = surf_quad_coefficient,
 					.m_tangential_drag_coefficient = surf_tangent_coefficient,
+					.m_added_mass_coefficient = 0.0f,
+					.m_radiation_damping = m_config.m_radiation_damping,
 					.m_time_step_s = args.m_dt,
 					.m_enable_diagnostics = m_config.m_enable_diagnostics ? 1 : 0,
+					.m_jacobian_base = jacobian_base,
+					.m_final_reduce = 1,
 				};
 
 				RecordSurfacePass(args, cb_surf, addresses);

@@ -48,7 +48,7 @@ namespace pr::physics
 
 namespace pr::physics
 {
-	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00060200U;
+	inline constexpr std::uint32_t PHYSICS_API_VERSION = 0x00070000U;
 	inline constexpr std::uint32_t PHYSICS_STRUCT_VERSION = 2U;
 	inline constexpr std::uint32_t PHYSICS_CHECKPOINT_VERSION = 3U;
 
@@ -269,7 +269,6 @@ namespace pr::physics
 	{
 		ShapeCommon common;
 		float radius;
-		std::int32_t hollow;
 	};
 
 	struct BoxShape
@@ -309,6 +308,14 @@ namespace pr::physics
 		ExplicitInertia = 0,
 		Mass = 1,
 		Density = 2,
+	};
+
+	// How mass derived from the shape is spread (ignored for ExplicitInertia). 'Shell' places the mass in a thin skin on the shape surface,
+	// so a Density 'mass_or_density' is in kg/m². Shell requires shapes that enclose a volume (sphere, box, capsule, polytope, or compounds of them).
+	enum class EBodyMassDistribution : std::int32_t
+	{
+		Solid = 0,
+		Shell = 1,
 	};
 
 	enum class EBodyFlags : std::uint32_t
@@ -354,6 +361,7 @@ namespace pr::physics
 		std::uint64_t user_tag;
 		EMotionType motion_type;
 		EMassMode mass_mode;
+		EBodyMassDistribution mass_distribution;
 		float mass_or_density;
 		EBodyFlags flags;
 	};

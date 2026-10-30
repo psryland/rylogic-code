@@ -27,7 +27,7 @@ namespace pr::physics::terrain::water::tests
 			auto const sample = field.Sample(v2d{1.0, -3.0}, 0.5);
 			PR_EXPECT(sample.m_height == 2.5);
 			PR_EXPECT(All(sample.m_gradient_xy == v2d::Zero()));
-			PR_EXPECT(All(field.PressureGradient(v2{1.0f, 2.0f}, 0.5f, 9.8f) == v2::Zero()));
+			PR_EXPECT(All(field.PressureGradient(v2{1.0f, 2.0f}, 0.5f, 9.8f) == v4::Zero()));
 			PR_EXPECT(All(field.Velocity(v4{0.5f, -2.0f, 0.25f, 1.0f}, 0.7f) == v4::Zero()));
 
 			// Zero-amplitude elements remain flat.
@@ -88,22 +88,26 @@ namespace pr::physics::terrain::water::tests
 			}
 		}
 
-		// The lateral pressure gradient follows the configured orbital acceleration and equals the slope under deep-water dispersion.
+		// The dynamic pressure gradient follows the configured orbital acceleration, and its lateral part equals the slope under deep-water dispersion.
 		PRUnitTestMethod(PressureGradientFollowsOrbitalAcceleration, Quick)
 		{
 			auto const gravity = 9.8f;
 			auto const wave = SineWave(v2{1.0f, 0.0f}, 0.6f, 20.0f, 0.5f);
 			auto const field = WaterField(0.0, std::span{&wave, 1});
-			auto const expected = v2{0.6f * 0.5f * 0.5f / gravity, 0.0f};
-			PR_EXPECT(FEqlAbsolute(field.PressureGradient(v2::Zero(), 0.0f, gravity), expected, 1e-6f));
-			PR_EXPECT(All(field.PressureGradient(v2::Zero(), 0.0f, 0.0f) == v2::Zero()));
+			auto const scale = 0.6f * 0.5f * 0.5f / gravity;
+			PR_EXPECT(FEqlAbsolute(field.PressureGradient(v2::Zero(), 0.0f, gravity), v4{scale, 0.0f, 0.0f, 0.0f}, 1e-6f));
+			PR_EXPECT(All(field.PressureGradient(v2::Zero(), 0.0f, 0.0f) == v4::Zero()));
+
+			// At the crest (x = wavelength/4) the water accelerates downward, so the vertical pressure gradient falls by A*omega^2.
+			PR_EXPECT(FEqlAbsolute(field.PressureGradient(v2{5.0f, 0.0f}, 0.0f, gravity), v4{0.0f, 0.0f, scale, 0.0f}, 1e-6f));
 
 			// With omega^2 = g*k the orbital acceleration equals the geometric slope.
 			auto const k = constants<float>::tau / 20.0f;
 			auto const dispersive = SineWave(v2{1.0f, 0.0f}, 0.6f, 20.0f, std::sqrt(gravity * k));
 			auto const dispersive_field = WaterField(0.0, std::span{&dispersive, 1});
 			auto const slope = dispersive_field.Sample(v2d::Zero(), 0.0).m_gradient_xy;
-			PR_EXPECT(FEqlAbsolute(dispersive_field.PressureGradient(v2::Zero(), 0.0f, gravity), v2{static_cast<float>(slope.x), static_cast<float>(slope.y)}, 1e-6f));
+			auto const lateral = dispersive_field.PressureGradient(v2::Zero(), 0.0f, gravity);
+			PR_EXPECT(FEqlAbsolute(v2{lateral.x, lateral.y}, v2{static_cast<float>(slope.x), static_cast<float>(slope.y)}, 1e-6f));
 		}
 
 		// The orbital velocity is consistent with the height: at the still-water level the vertical component equals dh/dt,

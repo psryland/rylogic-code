@@ -49,6 +49,19 @@ namespace pr::physics
 			// hydrostatic motion. Set to zero to disable tangential drag.
 			float m_tangential_drag_coefficient = 0.35f;
 
+			// Added-mass coefficient (dimensionless). A body cannot accelerate relative to the water without also accelerating the
+			// water around it. Each wet volume sample adds Ca * fluid_density * dV of translational inertia at the centre of mass,
+			// and the wave's lateral pressure gradient also drives that water, giving the Morison inertia force (1 + Ca) * rho * dV * a_fluid.
+			// For light bodies the added mass is many times the body mass, which is why they follow the water instead of bouncing off it.
+			// 0.5 is the value for a sphere. Set to zero to disable added mass.
+			float m_added_mass_coefficient = 0.5f;
+
+			// Scale of the wave-radiation damping (dimensionless; 1 is the physical estimate, 0 disables it).
+			// A floating body that moves up and down relative to the water makes surface waves, and the energy they carry away
+			// damps the motion. For light bodies this damping is very strong, which is why they settle onto the water instead of
+			// bouncing on it. It is estimated from the waterline stiffness (see ApplyImplicitResponse in gpu_buoyancy.hlsl).
+			float m_radiation_damping = 1.0f;
+
 			// Maximum surface-cell diameter in shape-local metres. Applies at registration/shape refresh;
 			// existing registrations retain their immutable plans. No sample-count budget truncates coverage.
 			float m_surface_spacing = buoyancy::DefaultSurfaceSpacing;

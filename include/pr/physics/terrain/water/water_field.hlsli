@@ -233,9 +233,13 @@ odr float3 WaterFieldElementHeightAndGradient(WaterFieldElement element, float2 
 	}
 }
 
-// Return one element's height and dimensionless lateral pressure-gradient contribution.
-// Waves contribute A*omega^2/g*P'(phase), matching their orbital acceleration; this equals the geometric slope when omega^2 = g*k.
-odr float3 WaterFieldElementHeightAndPressureGradient(WaterFieldElement element, float2 world_xy, float time, float gravity)
+// Return one element's height (x) and its dimensionless dynamic pressure-gradient contribution (yzw = d/dx, d/dy, d/dz).
+// The dynamic pressure gradient is -a/g, where 'a' is the water's orbital acceleration at the surface. The total pressure gradient is then
+// rho*g*(dynamic - up), so water at a crest (accelerating downward) pushes up less than still water, and water in a trough pushes up more.
+// Waves contribute A*omega^2/g*(P'(phase) along the wave direction, P(phase) vertically); the lateral part equals the geometric slope when
+// omega^2 = g*k. The vertical part uses -P as the profile's second derivative, which is exact for sine waves and approximate for sharp crests.
+// Radial packets provide only a lateral component.
+odr float4 WaterFieldElementHeightAndPressureGradient(WaterFieldElement element, float2 world_xy, float time, float gravity)
 {
 	switch (element.info.x)
 	{
@@ -244,15 +248,43 @@ odr float3 WaterFieldElementHeightAndPressureGradient(WaterFieldElement element,
 		{
 			float omega = WaterFieldWaveAngularFrequency(element);
 			float2 profile = WaterFieldWaveProfile(WaterFieldWavePhase(element, world_xy, time), element.timing.x);
-			float pressure_gradient = element.wave.x * omega * omega * profile.y / gravity;
-			return float3(element.wave.x * profile.x, element.position.x * pressure_gradient, element.position.y * pressure_gradient);
+			float scale = element.wave.x * omega * omega / gravity;
+			return float4(element.wave.x * profile.x, element.position.x * scale * profile.y, element.position.y * scale * profile.y, scale * profile.x);
 		}
 		case WaterFieldElementRadialPacket:
 		{
 			// The soft bound limits one packet to one unit of lateral pressure gradient without clipping its shape.
 			WaterFieldRadialPacketSample packet = WaterFieldEvaluateRadialPacket(element, world_xy);
 			float bounded_pressure_gradient = packet.radial_pressure_acceleration / (max(gravity, 1.0e-4f) + abs(packet.radial_pressure_acceleration));
-			return float3(packet.height, packet.radial_direction.x * bounded_pressure_gradient, packet.radial_direction.y * bounded_pressure_gradient);
+			return float4(packet.height, packet.radial_direction.x * bounded_pressure_gradient, packet.radial_direction.y * bounded_pressure_gradient, 0.0f);
+		}
+		default:
+		{
+			return float4(0.0f, 0.0f, 0.0f, 0.0f);
+		}
+	}
+}
+
+// Return one element's surface slope and rise rate at a fixed horizontal position: (dh/dx, dh/dy, dh/dt).
+// A point moving with velocity v at the surface becomes more immersed at the rate dh/dt + dot(v.xy, slope) - v.z, so this is what
+// a floating body's waterline responds to. It differs from the water-particle velocity, which decays below the still-water level.
+odr float3 WaterFieldElementSurfaceRates(WaterFieldElement element, float2 world_xy, float time)
+{
+	switch (element.info.x)
+	{
+		case WaterFieldElementSineWave:
+		case WaterFieldElementGerstnerWave:
+		{
+			float k = tau / element.wave.y;
+			float omega = WaterFieldWaveAngularFrequency(element);
+			float2 profile = WaterFieldWaveProfile(WaterFieldWavePhase(element, world_xy, time), element.timing.x);
+			float rate = element.wave.x * profile.y;
+			return float3(element.position.x * k * rate, element.position.y * k * rate, omega * rate);
+		}
+		case WaterFieldElementRadialPacket:
+		{
+			WaterFieldRadialPacketSample packet = WaterFieldEvaluateRadialPacket(element, world_xy);
+			return float3(packet.radial_direction.x * packet.radial_height_gradient, packet.radial_direction.y * packet.radial_height_gradient, packet.vertical_velocity);
 		}
 		default:
 		{

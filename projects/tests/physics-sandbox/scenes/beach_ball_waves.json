@@ -1,0 +1,66 @@
+{
+	"scene": {
+		"demo": {
+			"command": "beach-ball-waves",
+			"name": "Beach Balls on Strong Waves",
+			"group": "Buoyancy",
+			"order": 2
+		},
+		"description": "Light bodies on strong, steep but non-breaking deep-water waves. Seven 0.06 kg, 0.15 m radius beach balls (hollow-sphere inertia, ~1.1 cm draft) sit along the main wave direction at different wave phases, and a light 4 x 1.6 x 0.6 m, 400 kg boat floats at y = 8. Both waves use the deep-water dispersion relation (omega = sqrt(g*k)): a 12 m swell with 0.75 m amplitude (ka = 0.39, T = 2.8 s) and a 6 m cross-wave with 0.25 m amplitude (ka = 0.26). The largest combined downward surface acceleration (about 6.4 m/s^2) stays below g, so a real floating body never leaves the surface; any body that jumps clear of the water shows a simulation artefact. Bodies start near their floating draft.",
+		"camera": {
+			"position": [0.0, -18.0, 7.0],
+			"lookat": [0.0, 2.0, 0.0]
+		},
+		"gravity": [0.0, 0.0, -9.81],
+		"physics": {
+			"substeps": 1
+		},
+		"material": {
+			"elasticity": 0.0,
+			"friction": 0.0
+		},
+		"water": {
+			"level": 0.0,
+			"size": [60.0, 60.0],
+			"grid": [192, 192],
+			"colour": "0xA02080FF",
+			"waves": [
+				{
+					"direction": [1.0, 0.0],
+					"wavelength": 12.0,
+					"amplitude": 0.75,
+					"phase_speed": 2.2664
+				},
+				{
+					"direction": [0.8, 0.6],
+					"wavelength": 6.0,
+					"amplitude": 0.25,
+					"phase_speed": 3.2052
+				}
+			]
+		},
+		"shapes": {
+			"beach-ball": {
+				"name": "beach-ball",
+				"type": "sphere",
+				"radius": 0.15,
+				"hollow": true
+			},
+			"boat": {
+				"name": "boat",
+				"type": "box",
+				"dimensions": [4.0, 1.6, 0.6]
+			}
+		},
+		"bodies": [
+			{ "name": "ball-0", "shape": "beach-ball", "colour": "FFE04040", "mass": 0.06, "position": [-9.0, 0.0,  0.651], "never_sleep": true },
+			{ "name": "ball-1", "shape": "beach-ball", "colour": "FFF0A030", "mass": 0.06, "position": [-6.0, 0.0,  0.377], "never_sleep": true },
+			{ "name": "ball-2", "shape": "beach-ball", "colour": "FFF0E040", "mass": 0.06, "position": [-3.0, 0.0, -0.758], "never_sleep": true },
+			{ "name": "ball-3", "shape": "beach-ball", "colour": "FF40D040", "mass": 0.06, "position": [ 0.0, 0.0,  0.139], "never_sleep": true },
+			{ "name": "ball-4", "shape": "beach-ball", "colour": "FF40C0F0", "mass": 0.06, "position": [ 3.0, 0.0,  1.036], "never_sleep": true },
+			{ "name": "ball-5", "shape": "beach-ball", "colour": "FF6060F0", "mass": 0.06, "position": [ 6.0, 0.0, -0.099], "never_sleep": true },
+			{ "name": "ball-6", "shape": "beach-ball", "colour": "FFC060F0", "mass": 0.06, "position": [ 9.0, 0.0, -0.373], "never_sleep": true },
+			{ "name": "boat", "shape": "boat", "colour": "FFEEA040", "mass": 400.0, "position": [0.0, 8.0, 0.0], "never_sleep": true }
+		]
+	}
+}
