@@ -943,6 +943,38 @@ namespace pr::rdr12::ldraw::tests
 			PR_EXPECT(!reader.NextKeyword(kw));
 			PR_EXPECT(reader.Loc().m_offset == isize(bin));
 		}
+		PRUnitTestMethod(TestTextureSampler, Quick)
+		{
+			// Sampler modes are named in the builder API but must be stored as the enum values that the binary reader expects
+			Builder builder;
+			builder.Sphere("S").sphere(1).texture([](pr::ldraw::seri::Texture& tex)
+			{
+				tex.filepath("#checker3").addr("Mirror", "Clamp").filter("Anisotropic");
+			});
+			auto const bin = builder.ToBinary();
+			Dump(bin);
+
+			mem_istream<char> src(type_span<char>(bin));
+			BinaryReader reader(src, {});
+
+			EKeyword kw;
+			PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Sphere);
+			{
+				// Skip the sphere's other fields to reach the texture
+				auto sphere = reader.SectionScope();
+				while (reader.NextKeyword(kw) && kw != EKeyword::Texture) {}
+				PR_EXPECT(kw == EKeyword::Texture);
+
+				auto texture = reader.SectionScope();
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::FilePath);
+				PR_EXPECT(reader.String<string32>() == "#checker3");
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Addr);
+				PR_EXPECT(reader.Enum<EAddrMode>() == EAddrMode::Mirror);
+				PR_EXPECT(reader.Enum<EAddrMode>() == EAddrMode::Clamp);
+				PR_EXPECT(reader.NextKeyword(kw) && kw == EKeyword::Filter);
+				PR_EXPECT(reader.Enum<EFilter>() == EFilter::Anisotropic);
+			}
+		}
 	};
 }
 #endif
