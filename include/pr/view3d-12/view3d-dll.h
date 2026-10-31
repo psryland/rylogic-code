@@ -1689,7 +1689,8 @@ extern "C"
 	// Population LOD materials must be opaque. Forward and shadow vertex shaders are either the stock shaders, or procedural shaders written for populations:
 	// the LOD object is created with EVertexSource::ProceduralVertexId, and its shaders place each vertex at its instance using the population bindings
 	// (see population.hlsli). Shadow views that see a population with a procedural shadow vertex shader are rendered every frame, because its output can
-	// change without any change to the population.
+	// change without any change to the population. LOD nuggets with ENuggetFlag::ShadowCastExclude are not drawn into shadow views, and a population
+	// whose LOD nuggets all exclude shadow casting is not a shadow caster.
 
 	// Create a prototype from 'lod_count' LODs, ordered from most to least detailed. Each LOD draws the model of its object. The prototype keeps its own
 	// reference to the models, so the objects may be deleted afterwards. LOD thresholds must strictly decrease, and transition bands must not overlap.

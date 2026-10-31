@@ -1066,6 +1066,7 @@ extern "C"
 
 	// Replace or disable the independent infinite-height cylindrical boundary between completed frames; null removes it.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineCylindricalBoundarySet(pr::physics::EngineHandle engine, pr::physics::CylindricalBoundaryDesc const* boundary);
+
 	// Replace or disable the water environment between completed frames; null removes it. Water does not change native checkpoint content.
 	PHYSICS_API pr::physics::EStatus __stdcall Physics_EngineWaterSet(pr::physics::EngineHandle engine, pr::physics::WaterDesc const* water);
 
