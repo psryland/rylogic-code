@@ -83,6 +83,7 @@
 		<ClCompile Include="src\interactive\demos_lighting.cpp" />
 		<ClCompile Include="src\interactive\demos_effects.cpp" />
 		<ClCompile Include="src\interactive\demos_procedural.cpp" />
+		<ClCompile Include="src\interactive\demos_population.cpp" />
 		<ClCompile Include="src\interactive\view3d_ui_demo.cpp" />
 		<None Include="src\interactive\StreamingTest.csx" />
 	</ItemGroup>
@@ -97,6 +98,7 @@
 		<ClCompile Include="src\view3d-12\render_tests_procedural_vertex.cpp" />
 		<ClCompile Include="src\view3d-12\render_tests_procedural_surface.cpp" />
 		<ClCompile Include="src\view3d-12\render_tests_colour.cpp" />
+		<ClCompile Include="src\view3d-12\render_tests_population.cpp" />
 		<ClCompile Include="src\view3d-12\render_tests_shadows.cpp" />
 		<ClCompile Include="src\view3d-12\render_tests_post_effects.cpp" />
 		<ClCompile Include="src\view3d-12\render_tests_surface_normals.cpp" />
@@ -113,6 +115,7 @@
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\procedural_pixel_detail_family.hlsl" PixelEntryPoints="procedural_pixel_detail_opaque=PSRotateDetail;procedural_pixel_detail_reflection_attrs=PSRotateDetailReflectionAttrs;procedural_pixel_detail_alpha_collect=PSRotateDetailAlphaCollect" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\wave_grid.hlsl" VertexEntryPoints="wave_grid=VSMain" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\generated_vertex_input.hlsl" ComputeEntryPoints="generated_vertex_input=CSMain" />
+		<ShaderBuild Include="src\view3d-12\shaders\hlsl\population_producer.hlsl" ComputeEntryPoints="population_producer=CSMain" />
 		<None Include="src\view3d-12\shaders\hlsl\procedural_vertex_common.hlsli" />
 	</ItemGroup>
 

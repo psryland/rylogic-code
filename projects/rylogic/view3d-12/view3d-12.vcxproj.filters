@@ -7,6 +7,12 @@
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\scene\procedural_sky.h">
       <Filter>pr</Filter>
     </ClInclude>
+    <ClCompile Include="src\population\population.cpp">
+      <Filter>src\population</Filter>
+    </ClCompile>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\population\population.h">
+      <Filter>pr</Filter>
+    </ClInclude>
     <ClCompile Include="src\scene\weather_map.cpp">
       <Filter>src\scene</Filter>
     </ClCompile>
@@ -44,6 +50,12 @@
     </Filter>
     <Filter Include="src\utility">
       <UniqueIdentifier>{797d7894-b0d2-4f27-a30c-0c6f78c44c6c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\population">
+      <UniqueIdentifier>{cb9be0d1-835d-4a98-aab9-b932e83cd36d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\shaders\hlsl\population">
+      <UniqueIdentifier>{c9c62405-5707-41cf-ab06-c385ca060cdd}</UniqueIdentifier>
     </Filter>
     <Filter Include="src\scene">
       <UniqueIdentifier>{aa510495-67b8-4fe1-bf0c-7214e4b69a55}</UniqueIdentifier>
@@ -837,6 +849,9 @@
     </ShaderBuild>
     <ShaderBuild Include="src\shaders\hlsl\screenspace\point_sprites.hlsl">
       <Filter>src\shaders\hlsl\screenspace</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\shaders\hlsl\population\population_cull.hlsl">
+      <Filter>src\shaders\hlsl\population</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\shaders\hlsl\shadow\shadow_map.hlsl">
       <Filter>src\shaders\hlsl\shadow</Filter>

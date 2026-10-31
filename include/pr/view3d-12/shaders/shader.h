@@ -124,6 +124,8 @@ namespace pr::rdr12
 		extern ByteCode const forward_alpha_collect_ps;
 		extern ByteCode const forward_alpha_collect_pbr_ps;
 		extern ByteCode const forward_texn_pbr_vs;
+		extern ByteCode const forward_population_vs;
+		extern ByteCode const forward_texn_population_vs;
 		extern ByteCode const forward_texn_pbr_ps;
 		extern ByteCode const forward_reflection_attrs_texn_pbr_ps;
 		extern ByteCode const forward_alpha_collect_texn_pbr_ps;
@@ -146,6 +148,7 @@ namespace pr::rdr12
 
 		// Shadows
 		extern ByteCode const shadow_map_vs;
+		extern ByteCode const shadow_map_population_vs;
 		extern ByteCode const shadow_map_ps;
 
 		// Screen Space
@@ -177,6 +180,12 @@ namespace pr::rdr12
 
 		// Skinning
 		extern ByteCode const skinning_cs;
+
+		// Population visibility, LOD classification, and draw argument generation
+		extern ByteCode const population_clear_cs;
+		extern ByteCode const population_count_cs;
+		extern ByteCode const population_prefix_cs;
+		extern ByteCode const population_scatter_cs;
 
 		// Environment map face distances
 		extern ByteCode const env_map_distance_cs;

@@ -98,6 +98,15 @@ namespace pr::rdr12
 			RemoveInstance(inst.m_base);
 		}
 
+		// Add a population to the scene. Populations are retained, so 'ClearDrawlists' does not remove them. Adding a population that is already in the scene has no effect.
+		void AddPopulation(PopulationPtr pop);
+
+		// Remove a population from the scene.
+		void RemovePopulation(Population const& pop);
+
+		// The populations in the scene.
+		std::span<PopulationPtr const> Populations() const;
+
 		// Raised just before the drawlist is sorted. Handlers should add/remove
 		// instances from the scene, or add/remove render steps as required.
 		// Runs during frame recording: exceptions here do not provide a recoverable pre-frame rejection boundary.
@@ -187,6 +196,9 @@ namespace pr::rdr12
 
 		// The sky whose clouds shade the current frame. See 'CloudSky'.
 		ProceduralSky const* m_cloud_sky;
+
+		// Retained populations drawn by this scene.
+		std::vector<PopulationPtr> m_populations;
 
 		// Post-processing effects applied after the scene is composited.
 		PostProcessing m_post_effects;

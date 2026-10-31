@@ -100,6 +100,7 @@ float SampleCloudShadow(float4 ws_pos, float4 ws_to_light)
 #include "view3d-12/src/shaders/hlsl/utility/env_map.hlsli"
 #include "view3d-12/src/shaders/hlsl/forward/procedural_surface.hlsli"
 #include "pr/hlsl/camera.hlsli"
+#include "pr/view3d-12/shaders/population.hlsli"
 
 // PS output format
 struct PSOut
@@ -128,6 +129,7 @@ PSIn ToPSIn(PSInTexN In)
 	Out.diff = In.diff;
 	Out.tex0 = In.tex0;
 	Out.idx0 = In.idx0;
+	Out.dither = In.dither;
 	return Out;
 }
 
@@ -304,6 +306,7 @@ PSInTexN VSForwardTexN(VSIn In, uint vertex_id : SV_VertexID)
 	Out.diff = base.diff;
 	Out.tex0 = base.tex0;
 	Out.idx0 = base.idx0;
+	Out.dither = base.dither;
 
 	// Optional streams follow the model vertex-buffer order. SV_VertexID is already the model-buffer index for both indexed and non-indexed draws.
 	if (g_pbr.texcoord_count > 0)
@@ -321,6 +324,51 @@ PSInTexN VSForwardTexN(VSIn In, uint vertex_id : SV_VertexID)
 	return Out;
 }
 
+// Population draw bindings (see 'pr/view3d-12/shaders/population.hlsli')
+StructuredBuffer<View3DPopulationInstance> g_pop_instances : register(t24);
+ByteAddressBuffer g_pop_view : register(t25);
+ConstantBuffer<View3DPopulationDraw> g_pop_draw : register(b8);
+
+// Place a vertex, computed with the population's identity-transform proxy element, at the population instance for 'instance_id'.
+PSIn PlacePopulationVertex(PSIn base, uint instance_id)
+{
+	// Find the source instance through the per-view list, then apply its transform and tint and project with the frame camera.
+	View3DPopulationEntry entry = View3DPopulationFetch(g_pop_view, g_pop_draw, instance_id);
+	View3DPopulationInstance inst = g_pop_instances[entry.source];
+
+	PSIn Out = base;
+	Out.ws_vert = View3DPopulationTransform(inst, base.ws_vert);
+	Out.ws_norm = View3DPopulationTransformNormal(inst, base.ws_norm);
+	Out.ss_vert = mul(Out.ws_vert, g_frame.cam.w2s);
+	Out.diff = base.diff * View3DPopulationTint(inst);
+	Out.dither = entry.dither;
+	return Out;
+}
+
+// Forward VS for population draws
+PSIn VSForwardPopulation(VSIn In, uint instance_id : SV_InstanceID)
+{
+	return PlacePopulationVertex(VSForward(In), instance_id);
+}
+
+// Forward VS for population draws of PBR materials that use optional texture-coordinate lanes
+PSInTexN VSForwardTexNPopulation(VSIn In, uint vertex_id : SV_VertexID, uint instance_id : SV_InstanceID)
+{
+	// Place the shared vertex fields; the optional lanes do not depend on the placement.
+	PSInTexN Out = VSForwardTexN(In, vertex_id);
+	PSIn base = (PSIn)0;
+	base.ws_vert = Out.ws_vert;
+	base.ws_norm = Out.ws_norm;
+	base.diff = Out.diff;
+	base = PlacePopulationVertex(base, instance_id);
+	Out.ws_vert = base.ws_vert;
+	Out.ws_norm = base.ws_norm;
+	Out.ss_vert = base.ss_vert;
+	Out.diff = base.diff;
+	Out.dither = base.dither;
+	return Out;
+}
+
 // Mean square slope of surface detail too fine for the interpolated normal to show. Pixel-shader variants that know it set it before shading.
 // The stock shaders leave it at zero, so their reflections stay mirror-sharp.
 static float g_unresolved_slope_variance = 0.0f;
@@ -332,6 +380,9 @@ PSOut ForwardShade(PSIn In, bool is_front_face)
 	//  - 'ss_vert:SV_Position' in the pixel shader already has x,y,z divided by w (w unchanged)
 	//  - Models without normals can still use 'HasNormals' as true. For this case, and normal to
 	//    the light source is used.
+
+	// Population LOD transitions discard their dithered pixels first. Ordinary draws keep every pixel.
+	View3DPopulationClipDither(In.dither, In.ss_vert.xy);
 
 	PSOut Out = (PSOut)0;
 
@@ -387,6 +438,9 @@ float4 DitherOutput(float4 colour, float4 ss_vert)
 // Direct-lighting PBR pixel shader path using the supplied UV coordinates for each texture slot.
 PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 metallic_uv, float2 roughness_uv, float2 emissive_uv, float2 normal_uv)
 {
+	// Population LOD transitions discard their dithered pixels first. Ordinary draws keep every pixel.
+	View3DPopulationClipDither(In.dither, In.ss_vert.xy);
+
 	PSOut Out = (PSOut)0;
 
 	// Resolve the scalar and texture-backed material inputs into a linear base colour.

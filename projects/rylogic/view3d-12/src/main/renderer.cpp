@@ -275,6 +275,7 @@ namespace pr::rdr12
 		,m_keep_alive(m_gsync)
 		,m_res_store(rdr())
 		,m_skinned_geometry(rdr())
+		,m_population_culler(rdr())
 	{
 		try
 		{
@@ -382,6 +383,12 @@ namespace pr::rdr12
 	SkinnedGeometryCache& Renderer::SkinnedGeometry()
 	{
 		return m_skinned_geometry;
+	}
+
+	// Access the shared population classification pipeline.
+	PopulationCuller& Renderer::PopulationCulling()
+	{
+		return m_population_culler;
 	}
 
 	// Return the current-pose object/root-space bounding box for a skinned model/pose pair.

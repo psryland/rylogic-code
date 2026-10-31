@@ -48,6 +48,7 @@
 #include "pr/view3d-12/model/animation.h"
 #include "pr/view3d-12/model/animator.h"
 #include "pr/view3d-12/instance/instance.h"
+#include "pr/view3d-12/population/population.h"
 #include "pr/view3d-12/material/material_simple.h"
 #include "pr/view3d-12/material/material_pbr.h"
 #include "pr/view3d-12/texture/texture_desc.h"

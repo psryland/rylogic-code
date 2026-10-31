@@ -52,6 +52,10 @@ namespace pr::rdr12::shaders
 			EnvMapDistance,
 			SkyHistory,
 			SkyHistoryOut,
+			PopulationInstances,
+			PopulationView,
+			PopulationPayload,
+			PopulationDraw,
 		};
 
 		enum class ESampParam

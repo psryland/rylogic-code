@@ -5,6 +5,7 @@
 #pragma once
 #include "pr/view3d-12/forward.h"
 #include "pr/view3d-12/render/render_step.h"
+#include "pr/view3d-12/population/population.h"
 #include "pr/view3d-12/shaders/shader_forward.h"
 #include "pr/view3d-12/utility/pipe_state.h"
 
@@ -29,6 +30,13 @@ namespace pr::rdr12
 		// The procedural sky's low cloud accumulated over frames. See AccumulateLowCloud in procedural_sky.hlsl.
 		struct SkyHistory;
 
+		// One population draw: the classified lists of a population and a (LOD, nugget) draw within them.
+		struct PopulationDrawRef
+		{
+			PopulationViewLists const* m_lists;
+			PopulationViewDraw const* m_draw;
+		};
+
 		shaders::Forward m_shader;
 		GfxCmdList m_cmd_list;
 		GfxCmdList m_alp_list;
@@ -39,6 +47,9 @@ namespace pr::rdr12
 		SamplerPtr m_default_sam;
 		D3D12_GPU_VIRTUAL_ADDRESS m_elements = {}; // This frame's element constants table, one entry per drawlist element
 		std::unique_ptr<SkyHistory> m_sky_history;
+		std::vector<PopulationViewLists> m_population_lists; // This frame's classification of each scene population
+		std::vector<DrawListElement> m_population_dles;      // One element per population draw, referencing the LOD proxies
+		std::vector<PopulationDrawRef> m_population_draws;   // Parallel to 'm_population_dles'
 	public:
 
 		explicit RenderForward(Scene& scene);
@@ -67,10 +78,17 @@ namespace pr::rdr12
 		// Set up shader resources used by the alpha collection pass.
 		void BindAlphaResources(Frame& frame, GfxCmdList& cmd_list);
 
-		// Add the nuggets in the draw list to 'cmd_list' for rendering. 'first_index' is the position of 'drawlist[0]' in the step's drawlist.
-		void DrawNuggets(Frame& frame, GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist, int first_index, ESubPass sub_pass);
+		// Classify the scene's populations for the camera, recording the compute work into the opaque command list, and build the population draws.
+		void CullPopulations();
 
-		// Draw a single nugget
-		void DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash);
+		// Draw the classified populations into the opaque targets. Restores the frame resources of the step's drawlist afterwards.
+		void DrawPopulations(Frame& frame, PipeStateDesc const& pipe_state);
+
+		// Add the nuggets in the draw list to 'cmd_list' for rendering. 'first_index' is the position of 'drawlist[0]' in the step's drawlist.
+		// 'populations' is empty for ordinary draws, or parallel to 'drawlist' for population draws.
+		void DrawNuggets(Frame& frame, GfxCmdList& cmd_list, PipeStateDesc const& default_pipe_state, std::span<DrawListElement const> drawlist, int first_index, ESubPass sub_pass, std::span<PopulationDrawRef const> populations = {});
+
+		// Draw a single nugget. 'population' is null for an ordinary draw, otherwise the nugget is drawn indirectly for each classified population instance.
+		void DrawNugget(GfxCmdList& cmd_list, Nugget const& nugget, PipeStateDesc& desc, bool& pipe_state_bound, int& pipe_state_hash, PopulationDrawRef const* population);
 	};
 }

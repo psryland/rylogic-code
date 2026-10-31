@@ -8,7 +8,7 @@
 #include "pr/hlsl/camera.hlsli"
 
 // Contract version implemented by the public ShaderOptions descriptor.
-#define VIEW3D_PROCEDURAL_VERTEX_VERSION 5
+#define VIEW3D_PROCEDURAL_VERTEX_VERSION 6
 
 // Renderer-owned and caller-owned constants occupy these fixed stage-local registers.
 #define VIEW3D_FORWARD_FRAME_REGISTER b0
@@ -81,6 +81,7 @@ struct View3DForwardVertexOut
 	float4 diff : COLOR0;
 	float2 tex0 : TEXCOORD0;
 	float2 idx0 : INDICES0;
+	uint dither : DITHER0; // Population LOD dither word, zero for ordinary draws. See 'pr/view3d-12/shaders/population.hlsli'.
 };
 
 // Stock per-nugget constants consumed by a procedural RayCast vertex wrapper.
@@ -121,6 +122,7 @@ struct View3DShadowVertexOut
 	float4 ss_vert : SV_POSITION;
 	float4 diff : COLOR0;
 	float2 tex0 : TEXCOORD0;
+	uint dither : DITHER0; // Population LOD dither word, zero for ordinary draws. See 'pr/view3d-12/shaders/population.hlsli'.
 	uint viewport : SV_ViewportArrayIndex;
 };
 

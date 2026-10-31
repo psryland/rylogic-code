@@ -26,6 +26,7 @@
 #include "pr/view3d-12/texture/texture_cube.h"
 #include "pr/view3d-12/scene/procedural_sky.h"
 #include "pr/view3d-12/scene/weather_map.h"
+#include "pr/view3d-12/population/population.h"
 #include "pr/view3d-12/sampler/sampler_desc.h"
 #include "pr/view3d-12/sampler/sampler.h"
 #include "pr/view3d-12/shaders/shader_procedural.h"
@@ -881,6 +882,34 @@ VIEW3D_API void __stdcall View3D_WindowRemoveAllObjects(view3d::Window window)
 		window->RemoveAllObjects();
 	}
 	CatchAndReport(View3D_WindowRemoveAllObjects, window,);
+}
+
+// Add/Remove a population to/from a window
+VIEW3D_API void __stdcall View3D_WindowAddPopulation(view3d::Window window, view3d::Population population)
+{
+	try
+	{
+		Validate(window);
+		Validate(population);
+
+		DllLockGuard;
+		window->m_scene.AddPopulation(rdr12::PopulationPtr(population, true));
+		window->Invalidate();
+	}
+	CatchAndReport(View3D_WindowAddPopulation, window,);
+}
+VIEW3D_API void __stdcall View3D_WindowRemovePopulation(view3d::Window window, view3d::Population population)
+{
+	try
+	{
+		Validate(window);
+		Validate(population);
+
+		DllLockGuard;
+		window->m_scene.RemovePopulation(*population);
+		window->Invalidate();
+	}
+	CatchAndReport(View3D_WindowRemovePopulation, window,);
 }
 
 // Enumerate the GUIDs associated with 'window'
@@ -2667,6 +2696,179 @@ VIEW3D_API void __stdcall View3D_WeatherMapUpload(view3d::WeatherMap weather)
 		weather->Upload();
 	}
 	CatchAndReport(View3D_WeatherMapUpload, , );
+}
+
+// Create a population prototype. The caller owns the returned reference.
+VIEW3D_API view3d::PopulationPrototype __stdcall View3D_PopulationPrototypeCreate(view3d::PopulationLod const* lods, int lod_count, float draw_distance)
+{
+	try
+	{
+		// Each LOD takes its own reference to the object's model, so the prototype does not depend on the object's lifetime.
+		if (lod_count < 0 || (lods == nullptr && lod_count != 0))
+			throw std::invalid_argument("Population LOD array is invalid");
+
+		DllLockGuard;
+		auto rdr_lods = pr::vector<rdr12::PopulationLod>{};
+		for (auto const& lod : std::span{ lods, s_cast<size_t>(lod_count) })
+		{
+			Validate(lod.m_object);
+			if (lod.m_object->m_model == nullptr)
+				throw std::invalid_argument("Population LOD object has no model");
+
+			rdr_lods.push_back(rdr12::PopulationLod{ .m_model = lod.m_object->m_model, .m_min_size = lod.m_min_size, .m_transition = lod.m_transition });
+		}
+		auto prototype = rdr12::PopulationPrototypePtr(new rdr12::PopulationPrototype(rdr_lods, draw_distance), true);
+		return prototype.release();
+	}
+	CatchAndReport(View3D_PopulationPrototypeCreate, , nullptr);
+}
+VIEW3D_API void __stdcall View3D_PopulationPrototypeRelease(view3d::PopulationPrototype prototype)
+{
+	try
+	{
+		// Release is idempotent
+		if (!prototype) return;
+		DllLockGuard;
+		prototype->Release();
+	}
+	CatchAndReport(View3D_PopulationPrototypeRelease, , );
+}
+
+// Create a population. The caller owns the returned reference.
+VIEW3D_API view3d::Population __stdcall View3D_PopulationCreate(view3d::PopulationPrototype prototype, int instance_capacity, int block_capacity, int payload_size)
+{
+	try
+	{
+		Validate(prototype);
+		DllLockGuard;
+		auto population = rdr12::PopulationPtr(new rdr12::Population(Dll().m_rdr, rdr12::PopulationPrototypePtr(prototype, true), instance_capacity, block_capacity, payload_size), true);
+		return population.release();
+	}
+	CatchAndReport(View3D_PopulationCreate, , nullptr);
+}
+VIEW3D_API void __stdcall View3D_PopulationRelease(view3d::Population population)
+{
+	try
+	{
+		// Release is idempotent
+		if (!population) return;
+		DllLockGuard;
+		population->Release();
+	}
+	CatchAndReport(View3D_PopulationRelease, , );
+}
+
+// Define or remove a block of instance slots
+VIEW3D_API void __stdcall View3D_PopulationBlockSet(view3d::Population population, int index, view3d::BBox bbox, int first, int capacity, int live_count)
+{
+	try
+	{
+		Validate(population);
+		DllLockGuard;
+		population->SetBlock(index, To<pr::BBox>(bbox), first, capacity, live_count);
+	}
+	CatchAndReport(View3D_PopulationBlockSet, , );
+}
+VIEW3D_API void __stdcall View3D_PopulationBlockRemove(view3d::Population population, int index)
+{
+	try
+	{
+		Validate(population);
+		DllLockGuard;
+		population->RemoveBlock(index);
+	}
+	CatchAndReport(View3D_PopulationBlockRemove, , );
+}
+
+// Copy instance records into a range of slots
+VIEW3D_API void __stdcall View3D_PopulationInstancesUpdate(view3d::Population population, int first, view3d::PopulationInstance const* instances, int count)
+{
+	// The public record has the layout of the native record, so the caller's array is copied without conversion.
+	static_assert(sizeof(view3d::PopulationInstance) == sizeof(rdr12::PopulationInstance));
+	static_assert(offsetof(view3d::PopulationInstance, m_tint) == offsetof(rdr12::PopulationInstance, tint));
+	static_assert(offsetof(view3d::PopulationInstance, m_flags) == offsetof(rdr12::PopulationInstance, flags));
+	static_assert(offsetof(view3d::PopulationInstance, m_payload) == offsetof(rdr12::PopulationInstance, payload));
+	try
+	{
+		Validate(population);
+		if (count < 0 || (instances == nullptr && count != 0))
+			throw std::invalid_argument("Population instance array is invalid");
+
+		DllLockGuard;
+		population->UpdateInstances(first, std::span{ reinterpret_cast<rdr12::PopulationInstance const*>(instances), s_cast<size_t>(count) });
+	}
+	CatchAndReport(View3D_PopulationInstancesUpdate, , );
+}
+
+// Copy bytes into the payload buffer
+VIEW3D_API void __stdcall View3D_PopulationPayloadUpdate(view3d::Population population, int64_t ofs, void const* data, int64_t size)
+{
+	try
+	{
+		Validate(population);
+		if (size < 0 || (data == nullptr && size != 0))
+			throw std::invalid_argument("Population payload data is invalid");
+
+		DllLockGuard;
+		population->UpdatePayload(ofs, std::span{ static_cast<uint8_t const*>(data), s_cast<size_t>(size) });
+	}
+	CatchAndReport(View3D_PopulationPayloadUpdate, , );
+}
+
+// Queue a GPU producer dispatch for a population
+VIEW3D_API void __stdcall View3D_PopulationProduce(view3d::Population population, void const* cs_bytecode, size_t cs_bytecode_size, void const* constants, size_t constants_size, int groups_x, int groups_y, int groups_z)
+{
+	try
+	{
+		// The population validates the bytecode, constants, and group counts.
+		Validate(population);
+		if (cs_bytecode == nullptr || constants == nullptr)
+			throw std::invalid_argument("Population producer bytecode and constants are required");
+
+		DllLockGuard;
+		auto bytecode = std::span(static_cast<uint8_t const*>(cs_bytecode), cs_bytecode_size);
+		auto data = std::span(static_cast<std::byte const*>(constants), constants_size);
+		population->Produce(bytecode, data, iv3(groups_x, groups_y, groups_z));
+	}
+	CatchAndReport(View3D_PopulationProduce, , );
+}
+
+// Read the population's diagnostics.
+VIEW3D_API BOOL __stdcall View3D_PopulationStats(view3d::Population population, view3d::PopulationStats& stats)
+{
+	try
+	{
+		Validate(population);
+		DllLockGuard;
+		auto s = population->Stats();
+		auto const& c = s.m_classified;
+		stats = view3d::PopulationStats{
+			.m_instance_capacity = s.m_instance_capacity,
+			.m_block_capacity = s.m_block_capacity,
+			.m_active_blocks = s.m_active_blocks,
+			.m_admitted_instances = s.m_admitted_instances,
+			.m_resident_bytes = s.m_resident_bytes,
+			.m_scratch_bytes = s.m_scratch_bytes,
+			.m_scratch_high_water = s.m_scratch_high_water,
+			.m_upload_bytes = s.m_upload_bytes,
+			.m_producer_dispatches = s.m_producer_dispatches,
+			.m_views = s.m_views,
+			.m_blocks_rejected = c.m_blocks_rejected,
+			.m_blocks_overflow = c.m_blocks_overflow,
+			.m_instances_tested = c.m_instances_tested,
+			.m_entries_emitted = c.m_entries_emitted,
+			.m_entries_per_lod = {},
+			.m_indirect_draws = c.m_indirect_draws,
+			.m_live_count_violations = c.m_live_count_violations,
+		};
+		static_assert(std::size(view3d::PopulationStats{}.m_entries_per_lod) == PopulationMaxLods);
+		static_assert(sizeof(view3d::PopulationStats) == 24 * 8, "Must match 'View3d.PopulationStats' in Rylogic.Gfx");
+		for (int lod = 0; lod != PopulationMaxLods; ++lod)
+			stats.m_entries_per_lod[lod] = c.m_entries_per_lod[lod];
+
+		return TRUE;
+	}
+	CatchAndReport(View3D_PopulationStats, , FALSE);
 }
 
 // Blend a retained source cubemap and independent direction frames into an existing atmosphere.

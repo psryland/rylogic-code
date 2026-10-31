@@ -18,9 +18,10 @@ namespace view3d_test
 	std::unique_ptr<IDemo> CreateUnderwaterDemo(DemoContext const& ctx);
 	std::unique_ptr<IDemo> CreateDitherDemo(DemoContext const& ctx);
 	std::unique_ptr<IDemo> CreateWaveGridDemo(DemoContext const& ctx);
+	std::unique_ptr<IDemo> CreatePopulationFieldDemo(DemoContext const& ctx);
 
 	// All demos, in menu order
-	static std::array<DemoInfo, 8> const s_catalogue =
+	static std::array<DemoInfo, 9> const s_catalogue =
 	{{
 		{L"Scene", "audio_box", L"Spatial Audio", L"A tone plays from the rotating box. O toggles occlusion. E/R/T/Space change the step mode.", &CreateAudioBoxDemo},
 		{L"Scene", "ui_gallery", L"UI Gallery", L"The view3d UI controls. The slider changes the size of the box.", &CreateUiGalleryDemo},
@@ -30,6 +31,7 @@ namespace view3d_test
 		{L"Effects", "underwater", L"Underwater", L"The underwater post effect, with a water surface plane at a controllable height.", &CreateUnderwaterDemo},
 		{L"Effects", "dither", L"Dither", L"Dithering to hide colour banding in smooth gradients.", &CreateDitherDemo},
 		{L"Procedural", "wave_grid", L"Wave Grid", L"A grid animated by a procedural vertex shader. Vertex positions are computed from the vertex index.", &CreateWaveGridDemo},
+		{L"Procedural", "population_field", L"Population Field", L"65536 instances culled and LOD-selected on the GPU. The density slider changes the block live counts. The panel shows the population diagnostics.", &CreatePopulationFieldDemo},
 	}};
 
 	// All demos, in menu order

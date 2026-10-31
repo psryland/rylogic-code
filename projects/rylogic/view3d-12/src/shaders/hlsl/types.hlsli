@@ -99,6 +99,7 @@ struct PSIn
 	float4 diff    semantic(COLOR0);
 	float2 tex0    semantic(TEXCOORD0);
 	float2 idx0    semantic(INDICES0);
+	uint   dither  semantic(DITHER0); // Population LOD dither word, zero for ordinary draws. See 'pr/view3d-12/shaders/population.hlsli'.
 };
 
 // Pixel shader input for material variants that interpolate optional texture-coordinate lanes.
@@ -114,6 +115,7 @@ struct PSInTexN
 	float2 tex3    semantic(TEXCOORD3);
 	float2 tex4    semantic(TEXCOORD4);
 	float2 idx0    semantic(INDICES0);
+	uint   dither  semantic(DITHER0); // Population LOD dither word, zero for ordinary draws. See 'pr/view3d-12/shaders/population.hlsli'.
 };
 
 // Compute shader input

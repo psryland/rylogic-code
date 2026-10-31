@@ -22,6 +22,8 @@
 // ShaderOptions::m_procedural.m_forward_pixel in that order with 'm_forward_pixel_model' set to EForwardPixelModel::Simple.
 // Changes made to 'In' by the shading function are used for the reflection attributes. For PBR materials, see 'forward_pixel_pbr.hlsli'.
 // For simple materials with detail normals, see 'forward_pixel_detail.hlsli'.
+// ForwardShade discards the pixels excluded by population LOD dithering. A shading function that does not call ForwardShade must call
+// 'View3DPopulationClipDither(In.dither, In.ss_vert.xy)' itself to be usable with populations. See 'pr/view3d-12/shaders/population.hlsli'.
 //
 // Resources:
 //  - The stock forward resources are declared by this header (for example 'g_frame', 'g_nugget', 'g_lights').

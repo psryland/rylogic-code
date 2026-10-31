@@ -63,6 +63,7 @@ namespace render_tests::compiled
 	#include "procedural_pixel_detail_alpha_collect.h"
 	#include "unsupported_pixel.h"
 	#include "generated_vertex_input.h"
+	#include "population_producer.h"
 }
 
 namespace render_tests

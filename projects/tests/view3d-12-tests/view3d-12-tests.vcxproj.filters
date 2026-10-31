@@ -50,6 +50,9 @@
      <ClCompile Include="src\interactive\demos_procedural.cpp">
       <Filter>interactive</Filter>
     </ClCompile>
+    <ClCompile Include="src\interactive\demos_population.cpp">
+      <Filter>interactive</Filter>
+    </ClCompile>
     <ClCompile Include="src\interactive\view3d_ui_demo.cpp">
       <Filter>interactive</Filter>
     </ClCompile>
@@ -77,6 +80,9 @@
     <ClCompile Include="src\view3d-12\render_tests_colour.cpp">
       <Filter>view3d-12</Filter>
     </ClCompile>
+    <ClCompile Include="src\view3d-12\render_tests_population.cpp">
+      <Filter>view3d-12</Filter>
+    </ClCompile>
     <ClCompile Include="src\view3d-12\render_tests_shadows.cpp">
       <Filter>view3d-12</Filter>
     </ClCompile>
@@ -96,6 +102,9 @@
       <Filter>view3d-12</Filter>
     </ClCompile>
     <ShaderBuild Include="src\view3d-12\shaders\hlsl\generated_vertex_input.hlsl">
+      <Filter>view3d-12\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\view3d-12\shaders\hlsl\population_producer.hlsl">
       <Filter>view3d-12\shaders</Filter>
     </ShaderBuild>
     <ShaderBuild Include="src\view3d-12\shaders\hlsl\fade_vertex.hlsl">

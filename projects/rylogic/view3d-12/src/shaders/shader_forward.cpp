@@ -8,6 +8,7 @@
 #include "pr/view3d-12/render/drawlist_element.h"
 #include "pr/view3d-12/model/nugget.h"
 #include "pr/view3d-12/instance/instance.h"
+#include "pr/view3d-12/population/population.h"
 #include "view3d-12/src/shaders/common.h"
 
 namespace pr::rdr12::shaders
@@ -52,6 +53,10 @@ namespace pr::rdr12::shaders
 		inline static constexpr auto AlphaDepth = EUAVReg::u1;
 		inline static constexpr auto AlphaRtAttrs = EUAVReg::u2;
 		inline static constexpr auto SkyHistoryOut = EUAVReg::u3;
+		inline static constexpr auto PopulationInstances = ESRVReg::t24;
+		inline static constexpr auto PopulationView = ESRVReg::t25;
+		inline static constexpr auto PopulationPayload = ESRVReg::t26;
+		inline static constexpr auto PopulationDraw = ECBufReg::b8;
 	};
 	struct ESamp
 	{
@@ -125,6 +130,10 @@ namespace pr::rdr12::shaders
 			.SRV(EReg::EnvMapDistance, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.SRV(EReg::SkyHistory, 1, D3D12_SHADER_VISIBILITY_PIXEL)
 			.UAV(EReg::SkyHistoryOut, 1)
+			.SRV(EReg::PopulationInstances, D3D12_SHADER_VISIBILITY_ALL)
+			.SRV(EReg::PopulationView, D3D12_SHADER_VISIBILITY_ALL)
+			.SRV(EReg::PopulationPayload, D3D12_SHADER_VISIBILITY_ALL)
+			.U32<PopulationDraw>(EReg::PopulationDraw)
 			.Create(rdr.d3d(), "ForwardSig");
 	}
 
