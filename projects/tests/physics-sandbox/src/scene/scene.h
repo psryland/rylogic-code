@@ -30,7 +30,6 @@ namespace physics_sandbox
 			int m_body_index = -1;
 			int m_articulation_index = -1;
 			int m_link_index = -1;
-			uint32_t m_hull_id = 0;
 		};
 
 		struct StepProfile

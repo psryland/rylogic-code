@@ -308,7 +308,7 @@
     <ShaderBuild Include="src\atmosphere\atmosphere.hlsl" ComputeEntryPoints="CSInitialise;CSAdvect;CSVorticity;CSForcesHeat;CSDivergence;CSMgSmooth;CSMgSmallLevels;CSMgResidual;CSMgRestrict;CSMgProlongate;CSNormalisePressure;CSProject;CSInitialiseTracers;CSAdvectTracers">
       <StampDir>$(ProjectDir)src\atmosphere\compiled\$(Configuration)\</StampDir>
     </ShaderBuild>
-    <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl" ComputeEntryPoints="CSBuoyancyVolumeSamples;CSBuoyancyVolumeReduce;CSBuoyancyDragSurfaceSamples;CSBuoyancyDragSurfaceReduce">
+    <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl" ComputeEntryPoints="CSBuoyancySurfaceSamples;CSBuoyancySurfaceReduce">
       <StampDir>$(ProjectDir)src\buoyancy\compiled\$(Configuration)\</StampDir>
     </ShaderBuild>
     <ShaderBuild Include="src\buoyancy\gpu_water_forces.hlsl" ComputeEntryPoints="CSWaterForces">

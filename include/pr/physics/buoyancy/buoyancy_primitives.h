@@ -7,7 +7,7 @@
 // A buoyant body is described by a collision::Shape which is either a single convex primitive
 // (Box / Sphere / Capsule / Triangle / Polytope) or a collision::ShapeArray of such primitives. The sampled
 // composite buoyancy backend treats the body as the OR-union of those primitives and samples it
-// volumetrically (buoyancy) and over its surface (drag).
+// over its surface: water pressure on the wet surface gives buoyancy, and the relative flow gives drag.
 //
 // This header flattens a collision::Shape into an owned, immutable CompositeHull whose layout is
 // already the layout the GPU buffers will use. We flatten/copy at registration time (rather than
@@ -16,14 +16,12 @@
 //    compacted or relocated, which would dangle a stored pointer or shift the trailing arrays.
 //  - the GPU upload in a later phase needs a contiguous, type-stable descriptor array anyway.
 //
-// Capture all immutable geometry and volume-selection data the sampler kernels need. Box, Sphere and
-// Capsule (a collision::ShapeLine with a positive radius) are fully parameterised analytically. Triangle stores its three vertices. Polytope stores its
-// surface topology, interior tetrahedralisation, and cumulative tet volumes. Surface quadrature plans
-// are built separately by surface/surface_sampling.h and do not require interior tetrahedra.
+// Capture all immutable geometry the sampler kernels need. Box, Sphere and Capsule (a collision::ShapeLine with a positive radius)
+// are fully parameterised analytically. Triangle stores its three vertices. Polytope stores its surface topology (vertices and
+// face planes). Surface quadrature plans are built separately by BuildSurfacePlan.
 #pragma once
 #include <cmath>
 #include <vector>
-#include <cmath>
 #include <algorithm>
 #include <cstdint>
 #include <stdexcept>
@@ -34,27 +32,19 @@
 #include "pr/collision/shape_triangle.h"
 #include "pr/collision/shape_polytope.h"
 #include "pr/collision/shape_array.h"
+#include "pr/physics/surface/surface_sampling.h"
 
 namespace pr::physics::buoyancy
 {
-	// Default buoyancy sample densities, shared by the GPU pass, the CPU oracle and diagnostic overlays.
-	// Surface spacing is the maximum surface cell diameter in metres (drag only). Volume spacing is the typical distance in metres
-	// between volume samples (lift and volume damping); each primitive gets about volume / spacing^3 samples, so the sample count
-	// grows with the size of the body. BuoyancySampleDensityTests reports the behavioural error of these values against a dense
-	// reference (0.02 m, 0.02 m); see that test before changing them.
+	// Default buoyancy surface sample density, shared by the GPU pass, the CPU oracle and diagnostic overlays. The spacing is the
+	// maximum surface cell diameter in metres. Water pressure (buoyancy) and drag are both integrated over these surface cells.
+	// BuoyancySampleDensityTests reports the behavioural error of this value against a dense reference; see that test before changing it.
 	inline constexpr float DefaultSurfaceSpacing = 0.25f;
-	inline constexpr float DefaultVolumeSpacing = 0.20f;
 
-	// The fewest volume samples given to a primitive with positive volume. Primitives much smaller than the volume spacing would
-	// otherwise get a single sample, which makes their buoyancy switch on or off as the water passes their centre.
-	inline constexpr int MinVolumeSamplesPerPrimitive = 8;
-
-	// Return the vertical extent given to a volume sample of volume 'dvol'. Each sample stands for a cube-shaped cell of its own
-	// volume, so a sample is wet by the fraction of that cell below the water surface rather than switching fully on or off.
-	inline float VolumeCellHeight(float dvol)
-	{
-		return std::cbrt(dvol);
-	}
+	// The fewest surface samples given to a primitive. A light body floats with a shallow draft, so only the few cells near its
+	// lowest point are wet. With too few cells their discrete layout gives a wrong floating height and false torques, so small
+	// primitives are sampled more finely than the spacing alone would give. Primitives that already have this many samples keep their spacing.
+	inline constexpr uint32_t MinSurfaceSamplesPerPrimitive = 128;
 
 	// Return the submerged fraction of a sample cell centred 'signed_height' along up, given the water height at the same
 	// planar position and the cell's vertical extent. The fraction rises linearly from 0, when the cell top touches the surface,
@@ -88,8 +78,8 @@ namespace pr::physics::buoyancy
 	// GPU-ready descriptor for one convex primitive of a composite hull. The byte layout is the ABI
 	// the compute kernels will read, so it is 16-byte aligned and pinned by a static_assert. The
 	// offset/count fields index the parallel geometry arrays on the owning CompositeHull; the offsets
-	// are absolute element indices into those arrays, while tet/face vertex indices are stored
-	// relative to this primitive's own vertex block (see m_tet_ofs / m_face_ofs documentation).
+	// are absolute element indices into those arrays, while face vertex indices are stored
+	// relative to this primitive's own vertex block (see m_face_ofs documentation).
 	struct alignas(16) GpuPrimitive
 	{
 		// Shape-local -> centre-of-mass-root transform (shapes are authored in COM-root space).
@@ -98,9 +88,7 @@ namespace pr::physics::buoyancy
 		// EPrimitiveType value for this primitive.
 		int m_type;
 
-		// Index of this primitive within its composite (0-based child order). This is the
-		// sibling-cull priority: volume samples are owned by the lowest-index primitive that
-		// contains them.
+		// Index of this primitive within its composite (0-based child order).
 		int m_sibling_index;
 
 		// Surface vertices for this primitive in CompositeHull::m_verts (polytope face verts and the
@@ -108,24 +96,13 @@ namespace pr::physics::buoyancy
 		int m_vert_ofs;
 		int m_vert_count;
 
-		// Interior tetrahedralisation vertices for this primitive in CompositeHull::m_volume_verts
-		// (polytopes only; empty otherwise).
-		int m_volume_vert_ofs;
-		int m_volume_vert_count;
-
-		// Interior tetrahedra for this primitive in CompositeHull::m_tets. Each tet's corner indices
-		// are RELATIVE to this primitive's volume-vertex block (add m_volume_vert_ofs to index
-		// m_volume_verts).
-		int m_tet_ofs;
-		int m_tet_count;
-
 		// Outward face planes / face vertex triples for this primitive in CompositeHull::m_face_planes
 		// and CompositeHull::m_face_verts (polytopes only). Face vertex indices are RELATIVE to this
 		// primitive's surface-vertex block (add m_vert_ofs to index m_verts).
 		int m_face_ofs;
 		int m_face_count;
 
-		// Padding to keep the integer block at 48 bytes (12 ints) so m_params starts 16-aligned.
+		// Padding to keep the integer block at 32 bytes (8 ints) so m_params starts 16-aligned.
 		int m_pad0;
 		int m_pad1;
 
@@ -133,20 +110,17 @@ namespace pr::physics::buoyancy
 		// capsule stores its radius in x and the half-length of its Z-axis segment in y. Unused for polytope/triangle.
 		v4 m_params;
 	};
-	static_assert(sizeof(GpuPrimitive) == 128, "GpuPrimitive must be 128 bytes for the GPU ABI");
+	static_assert(sizeof(GpuPrimitive) == 112, "GpuPrimitive must be 112 bytes for the GPU ABI");
 	static_assert((sizeof(GpuPrimitive) & 0xf) == 0, "GpuPrimitive must be 16-byte aligned");
 
 	// An owned, immutable flattening of a collision::Shape into the sampled-composite model. The
 	// primitive descriptors index the concatenated geometry arrays. All arrays are empty for a hull
-	// built from boxes/spheres only; polytopes contribute surface verts + faces + tet geometry, and
+	// built from boxes/spheres only; polytopes contribute surface verts + faces, and
 	// triangles contribute their three surface verts.
 	struct CompositeHull
 	{
 		std::vector<GpuPrimitive> m_primitives; // one descriptor per convex primitive (child order)
 		std::vector<v4> m_verts;                // surface verts (polytope face verts, triangle corners)
-		std::vector<v4> m_volume_verts;         // interior tetrahedralisation verts (polytopes)
-		std::vector<iv4> m_tets;                // tet corners, relative to each primitive's volume block
-		std::vector<float> m_tet_cdf;            // cumulative tet volumes, parallel to m_tets
 		std::vector<v4> m_face_planes;          // outward face planes (xyz = normal, w = distance)
 		std::vector<iv4> m_face_verts;          // face vertex triples, relative to each primitive's vert block
 
@@ -162,7 +136,7 @@ namespace pr::physics::buoyancy
 		// Append one convex primitive's geometry to 'out', producing its GpuPrimitive descriptor.
 		// 'shape' must be a single convex primitive (not a ShapeArray). 'sibling_index' is the
 		// primitive's position within the owning composite.
-		inline GpuPrimitive FlattenPrimitive(collision::Shape const& shape, int sibling_index, int polytope_tessellation, CompositeHull& out)
+		inline GpuPrimitive FlattenPrimitive(collision::Shape const& shape, int sibling_index, CompositeHull& out)
 		{
 			using namespace collision;
 
@@ -215,25 +189,8 @@ namespace pr::physics::buoyancy
 				}
 				case EShape::Polytope:
 				{
-					// Polytopes carry full topology: surface verts + face planes/triples for surface
-					// sampling, and an interior tetrahedralisation for volume sampling. Collision-only
-					// polytopes normally omit the latter, so derive it without modifying the source shape.
+					// Polytopes carry their surface topology: verts + face planes/triples for surface sampling and the sibling inside test.
 					auto const& poly = shape_cast<ShapePolytope>(shape);
-					auto derived_verts = std::vector<v4>{};
-					auto derived_tets = std::vector<ShapePolytope::Tet>{};
-					if (poly.m_tet_count == 0 || poly.m_volume_vert_count == 0)
-					{
-						if (polytope_tessellation == 0)
-							throw std::runtime_error("Composite hull polytope is missing its interior tetrahedralisation and derivation is disabled");
-
-						if (polytope_tessellation < 0)
-							TetrahedralisePolytope(poly, derived_verts, derived_tets);
-						else
-							TessellatePolytope(poly, polytope_tessellation, derived_verts, derived_tets);
-						if (derived_verts.empty() || derived_tets.empty())
-							throw std::runtime_error("Composite hull polytope interior tetrahedralisation failed");
-					}
-
 					prim.m_type = static_cast<int>(EPrimitiveType::Polytope);
 
 					// Surface verts.
@@ -252,44 +209,6 @@ namespace pr::physics::buoyancy
 						out.m_face_verts.push_back(iv4{ face.m_index[0], face.m_index[1], face.m_index[2], 0 });
 					}
 
-					// Interior tetrahedralisation verts.
-					prim.m_volume_vert_ofs = static_cast<int>(out.m_volume_verts.size());
-					prim.m_tet_ofs = static_cast<int>(out.m_tets.size());
-					if (!derived_tets.empty())
-					{
-						prim.m_volume_vert_count = static_cast<int>(derived_verts.size());
-						prim.m_tet_count = static_cast<int>(derived_tets.size());
-						out.m_volume_verts.insert(out.m_volume_verts.end(), derived_verts.begin(), derived_verts.end());
-						for (auto const& tet : derived_tets)
-							out.m_tets.push_back(iv4{ tet.m_corner[0], tet.m_corner[1], tet.m_corner[2], tet.m_corner[3] });
-					}
-					else
-					{
-						prim.m_volume_vert_count = poly.m_volume_vert_count;
-						prim.m_tet_count = poly.m_tet_count;
-						for (int i = 0; i != poly.m_volume_vert_count; ++i)
-							out.m_volume_verts.push_back(poly.volume_vertex(static_cast<std::size_t>(i)));
-
-						for (int t = 0; t != poly.m_tet_count; ++t)
-						{
-							auto const& tet = poly.tet(t);
-							out.m_tets.push_back(iv4{ tet.m_corner[0], tet.m_corner[1], tet.m_corner[2], tet.m_corner[3] });
-						}
-					}
-
-					// Accumulate in tet order so each entry is the exact running sum used by the former
-					// shader scan. The CDF stays parallel to m_tets, allowing m_tet_ofs to index both.
-					auto accum = 0.0f;
-					for (auto t = 0; t != prim.m_tet_count; ++t)
-					{
-						auto const& tet = out.m_tets[prim.m_tet_ofs + t];
-						auto const a = out.m_volume_verts[prim.m_volume_vert_ofs + tet.x];
-						auto const b = out.m_volume_verts[prim.m_volume_vert_ofs + tet.y];
-						auto const c = out.m_volume_verts[prim.m_volume_vert_ofs + tet.z];
-						auto const d = out.m_volume_verts[prim.m_volume_vert_ofs + tet.w];
-						accum += std::abs(Dot3(a - d, Cross(b - d, c - d))) / 6.0f;
-						out.m_tet_cdf.push_back(accum);
-					}
 					return prim;
 				}
 				default:
@@ -302,9 +221,8 @@ namespace pr::physics::buoyancy
 
 	// Flatten a collision::Shape into an owned CompositeHull. A ShapeArray is decomposed into its
 	// child primitives in child order (the sibling-cull priority); any other shape is treated as a
-	// single primitive. For missing polytope tetrahedra, a negative 'polytope_tessellation' selects
-	// the exact face fan, a positive value selects the stratified grid, and zero rejects the shape.
-	inline CompositeHull FlattenShape(collision::Shape const& hull, int polytope_tessellation = 0)
+	// single primitive.
+	inline CompositeHull FlattenShape(collision::Shape const& hull)
 	{
 		using namespace collision;
 
@@ -315,12 +233,33 @@ namespace pr::physics::buoyancy
 			auto const& arr = shape_cast<ShapeArray>(hull);
 			auto sibling = 0;
 			for (Shape const* s = arr.begin(), *e = arr.end(); s != e; s = next(s), ++sibling)
-				out.m_primitives.push_back(impl::FlattenPrimitive(*s, sibling, polytope_tessellation, out));
+				out.m_primitives.push_back(impl::FlattenPrimitive(*s, sibling, out));
 		}
 		else
 		{
-			out.m_primitives.push_back(impl::FlattenPrimitive(hull, 0, polytope_tessellation, out));
+			out.m_primitives.push_back(impl::FlattenPrimitive(hull, 0, out));
 		}
 		return out;
+	}
+
+	// Build the surface sampling plan for one buoyancy primitive. Cells are at most 'spacing' across, and the spacing is reduced
+	// until the primitive has at least MinSurfaceSamplesPerPrimitive samples. A primitive that reaches the minimum at 'spacing'
+	// gets exactly surface::BuildPlan(prim, spacing). The GPU pass and the CPU oracle both use this plan.
+	inline surface::Plan BuildSurfacePlan(collision::Shape const& prim, float spacing)
+	{
+		// Most primitives already have enough samples at the requested spacing.
+		auto plan = surface::BuildPlan(prim, spacing);
+
+		// The sample count grows about as 1/spacing^2, so scale the spacing by sqrt(count / minimum) and rebuild. Grid boundary
+		// nodes make the count grow more slowly than that for coarse grids, so repeat until the minimum is met; this takes a few
+		// iterations at most. A plan without area (a zero-size primitive) has no pressure to resolve and cannot be refined.
+		auto const has_area = std::ranges::any_of(plan.m_patches, [](surface::SurfacePatch const& patch) { return patch.m_measure > 0.0f; });
+		while (has_area && plan.m_count < MinSurfaceSamplesPerPrimitive)
+		{
+			// Refine the spacing in proportion to the shortfall.
+			spacing *= static_cast<float>(std::sqrt(static_cast<double>(std::max(plan.m_count, 1u)) / MinSurfaceSamplesPerPrimitive));
+			plan = surface::BuildPlan(prim, spacing);
+		}
+		return plan;
 	}
 }

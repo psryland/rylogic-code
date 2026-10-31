@@ -2,7 +2,8 @@
 // Physics Engine
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
-// Water-field buoyancy pass for composite collision-shape hulls.
+// Water-field buoyancy pass for composite collision-shape hulls. Buoyancy and drag are both integrated over surface samples
+// of the hull: water pressure on each wet surface cell gives the buoyancy, and the relative flow gives the drag.
 
 #include "pr/hlsl/core.hlsli"
 #include "pr/hlsl/interop.hlsli"
@@ -24,19 +25,15 @@ struct CBufGpuBuoyancy
 	float water_level;
 	float water_max_height;         // conservative upper bound of the water surface over all positions
 	float fluid_density;
-	float linear_drag_coefficient;  // fluid_density / linear_drag_time_constant, applied per wet dV
-	float angular_drag_coefficient; // fluid_density / angular_drag_time_constant, applied per wet dV
+	float linear_drag_coefficient;  // fluid_density / linear_drag_time_constant, applied per wet water-column volume
+	float angular_drag_coefficient; // fluid_density / angular_drag_time_constant, applied per wet water-column volume
 	float quadratic_drag_coefficient;
 	float tangential_drag_coefficient;
-	float added_mass_coefficient;   // Ca: wet volume pass adds Ca*rho*dV of translational inertia per sample
+	float added_mass_coefficient;   // Ca: each wet water column adds Ca*rho*dV of translational inertia
 	float radiation_damping;        // scale of the wave-radiation damping applied by the implicit solve
 	float time_step_s;
 	int enable_diagnostics;
-	int jacobian_base;  // partial index of the first per-hull record holding the volume pass's implicit-solve terms
-	int final_reduce;   // non-zero when this pass's reduce is the last buoyancy pass and applies the implicit solve
 	int pad0;
-	int pad1;
-	int pad2;
 };
 
 #include "pr/physics/terrain/water/water_field.hlsli"
@@ -47,7 +44,7 @@ struct CBufGpuBuoyancy
 // Jacobians of these terms (linear and angular, including the coupling between them) are exactly described by the moments
 // of d and k below, so the implicit solve does not need per-sample matrices.
 //   force_ws, torque_ws        - hydrodynamic force and torque about the body's centre of mass.
-//   moment_ws_volume           - (sum of sample_ws*dV, sum of dV) over wet volume, for diagnostics only.
+//   moment_ws_volume           - (sum of centroid_ws*dV, sum of dV) over the wet water columns, for diagnostics only.
 //   predictor                  - change in the waterline wrench over the step, linearised in the current relative velocity:
 //                                xyz = torque, w = force along up.
 //   damping_lin                - sum of d over damping that resists the body's linear velocity (N.s/m).
@@ -58,7 +55,7 @@ struct CBufGpuBuoyancy
 //   stiffness                  - sum of waterline stiffness k (N/m).
 //   stiffness_moment           - sum of k*s.
 //   stiffness_ss_diag/off      - sum of k*s*s^T: (xx, yy, zz) and (xy, xz, yz).
-//   added_mass                 - mass of water that must accelerate with the body, Ca*rho*(wet dV) (kg). It is
+//   added_mass                 - mass of water that must accelerate with the body, Ca*rho*(wet volume) (kg). It is
 //                                treated as isotropic translational inertia at the centre of mass.
 //   heave_rate                 - sum of k*(rate the waterline rises out of the water due to the body's linear velocity) (N/s).
 //                                Radiation damping resists it.
@@ -98,66 +95,33 @@ StructuredBuffer<WaterFieldElement> resource(g_water_field, t1);
 RWStructuredBuffer<BuoyancySums> resource(g_partials, u1);
 RWStructuredBuffer<GpuBuoyancyDiagnostic> resource(g_diagnostics, u2);
 
-// --- Sampled-composite volume-pass bindings ---
-// Per-hull header for the composite volume pass: one record per registered composite hull. The
-// header locates the hull's primitive block in g_prims / g_vol_prim_records and carries the stable
-// per-hull sample seed and inside-test epsilon computed once at registration.
-struct BuoyVolHeader
-{
-	int body_index;            // index into g_bodies
-	int prim_base;             // start of this hull's primitives in g_prims / g_vol_prim_records
-	int prim_count;            // number of convex primitives in this hull
-	int total_volume_samples;  // actual emitted volume sample count (sum of per-primitive counts)
-	uint hull_id;              // stable per-hull seed for the deterministic sample hash
-	float eps;                 // scale-relative inside-test slack (sibling cull)
-	int pad0;
-	int pad1;
-};
-
-// Per-primitive volume-sample record, parallel to g_prims. Maps a flat sample index to its owning
-// primitive (via the cumulative counts) and supplies that primitive's per-sample volume weight.
-struct BuoyVolPrimRecord
-{
-	int count;          // volume samples allocated to this primitive
-	float dvol;         // per-sample volume weight (= primitive_volume / count)
-	float cell_height;  // height of the cube with volume dvol; the depth over which a sample goes from dry to fully wet
-	float pad;
-};
-
-StructuredBuffer<BuoyVolHeader> resource(g_vol_headers, t2);
-StructuredBuffer<BuoyPrimitive> resource(g_prims, t3);
-StructuredBuffer<float4> resource(g_volume_verts, t4);
-StructuredBuffer<int4> resource(g_tets, t5);
-StructuredBuffer<float4> resource(g_face_planes, t6);
-StructuredBuffer<BuoyVolPrimRecord> resource(g_vol_prim_records, t7);
-StructuredBuffer<float> resource(g_tet_cdf, t12);
-
-// --- Sampled-composite surface-pass bindings ---
-// Per-hull header for the composite surface (drag) pass: one record per registered composite hull.
-// Layout-identical to BuoyVolHeader, but the sample-count field counts surface samples and the
-// primitive block is indexed into g_surf_prim_records (parallel to g_prims) instead of the volume
-// records. The body index, hull seed and inside-test epsilon are the same per-hull values.
+// --- Sampled-composite bindings ---
+// Per-hull header: one record per registered composite hull. It locates the hull's primitive block in g_prims /
+// g_surf_prim_records and carries the inside-test epsilon computed once at registration.
 struct BuoySurfHeader
 {
 	int body_index;             // index into g_bodies
 	int prim_base;              // start of this hull's primitives in g_prims / g_surf_prim_records
 	int prim_count;             // number of convex primitives in this hull
 	int total_surface_samples;  // actual emitted surface sample count (sum of per-primitive counts)
-	uint hull_id;               // stable per-hull seed for the deterministic sample hash
 	float eps;                  // scale-relative inside-test slack (sibling cull)
 	int pad0;
 	int pad1;
+	int pad2;
 };
 
-// Per-primitive counts and compact patch ranges, parallel to g_prims.
+// Per-primitive counts and compact patch ranges, parallel to g_prims. 'half_cell_height' is half the largest surface cell
+// height of the primitive; a cell can be partly wet while its sample is up to this far above the water.
 struct BuoySurfPrimRecord
 {
 	int count;
 	int patch_begin;
 	int patch_count;
-	int pad;
+	float half_cell_height;
 };
 
+StructuredBuffer<BuoyPrimitive> resource(g_prims, t3);
+StructuredBuffer<float4> resource(g_face_planes, t6);
 StructuredBuffer<BuoySurfHeader> resource(g_surf_headers, t8);
 StructuredBuffer<SurfacePatch> resource(g_surface_patches, t9);
 StructuredBuffer<BuoySurfPrimRecord> resource(g_surf_prim_records, t11);
@@ -167,18 +131,7 @@ groupshared BuoyancySums s_wave_sums[BUOYANCY_SAMPLE_THREAD_COUNT / 4];
 groupshared float3 s_body_linear_velocity_ws;
 groupshared float3 s_body_angular_velocity_ws;
 
-// Evaluate the scene-described water height at a world-space XY position.
-float EvaluateWaterHeight(float2 xy_ws)
-{
-	float height = g.water_level;
-	for (int element_index = 0; element_index != g.water_field_count; ++element_index)
-	{
-		height += WaterFieldElementHeight(g_water_field[element_index], xy_ws, g.time_s);
-	}
-	return height;
-}
-
-// Evaluate the water height (x) and the dimensionless dynamic pressure gradient (yzw) required by the volume pass.
+// Evaluate the water height (x) and the dimensionless dynamic pressure gradient (yzw) at a world-space XY position.
 // Orbital velocity is evaluated separately only for accepted wet samples, avoiding exponentials for the common fully-dry case.
 // Each wave contributes its orbital acceleration divided by -g (see WaterFieldElementHeightAndPressureGradient).
 // For a dispersion-consistent gravity wave (omega^2 = g*k), the lateral part equals its geometric slope.
@@ -192,10 +145,10 @@ float4 EvaluateWaterHeightAndPressureGradient(float2 xy_ws, float gravity)
 }
 
 // Evaluate the scene-described water particle velocity (orbital flow) at a world-space position.
-// Linear deep-water (Airy) theory, consistent with EvaluateWaterHeight:
+// Linear deep-water (Airy) theory, consistent with EvaluateWaterHeightAndPressureGradient:
 //   u_along_d = -A*omega * e^(k*z) * sin(phase)   (horizontal, along the wave direction)
 //   w_up      =  A*omega * e^(k*z) * cos(phase)   (vertical)
-// where z is the signed height relative to the still-water level (clamped <= 0). The drag pass
+// where z is the signed height relative to the still-water level (clamped <= 0). The sample pass
 // subtracts this from the body velocity to form the relative flow at each wetted surface sample.
 float3 EvaluateWaterVelocity(float3 pos_ws)
 {
@@ -322,6 +275,19 @@ void AddPointDamping(inout BuoyancySums sums, float3 r, float d_lin, float d_ang
 	sums.damping_ang_rr_off += d_ang * float3(r.x * r.y, r.x * r.z, r.y * r.z);
 }
 
+// Add the damping of a vertical water column of length 'len' whose centroid is at offset 'r' from the centre of mass. Linear terms
+// only need the centroid, but the second moment of the column includes its length, (len^2/12)*up*up^T. Columns from different
+// samples are added and subtracted to form the wet volume, and only the exact second moments keep their sum positive.
+void AddColumnDamping(inout BuoyancySums sums, float3 r, float3 up, float len, float d_lin, float d_ang)
+{
+	float3 r_len = (len * 0.28867513f) * up; // len / sqrt(12)
+	sums.damping_lin += d_lin;
+	sums.damping_lin_moment += d_lin * r;
+	sums.damping_ang_moment += d_ang * r;
+	sums.damping_ang_rr_diag += d_ang * (r * r + r_len * r_len);
+	sums.damping_ang_rr_off += d_ang * (float3(r.x * r.y, r.x * r.z, r.y * r.z) + float3(r_len.x * r_len.y, r_len.x * r_len.z, r_len.y * r_len.z));
+}
+
 // Add the waterline stiffness 'k' of a partly wet sample with s = cross(r, up).
 void AddWaterlineStiffness(inout BuoyancySums sums, float3 s, float k)
 {
@@ -393,267 +359,21 @@ BuoyancySums ReduceGroup(BuoyancySums sums, uint thread_index, uint thread_count
 	return sums;
 }
 
-// Evaluate a block of composite-hull volume samples (sampled-composite backend) and write one
-// partial record for the reducer. Each in-fluid sample contributes a Froude-Krylov pressure-gradient
-// force dF = rho*|g|*dV*(up - grad_ws), volume-weighted linear damping, and their torque about the
-// body's centre of mass. Diagnostic mode also accumulates (sample_ws*dV, dV) to recover wet volume
-// and centre of buoyancy. Overlap regions are counted once via the lowest-index-sibling cull, so the
-// union volume of arbitrary overlapping convex primitives is unbiased. This mirrors the volume pass
-// of the CPU oracle SampleHull (include/pr/physics/buoyancy/buoyancy_sampler.h).
+// Evaluate a block of composite-hull surface samples and write one partial record for the reducer. Samples (point + outward
+// normal + area) cover the union boundary of the hull's primitives; samples inside another sibling primitive are culled.
+// Each wet sample contributes:
+//   - water pressure on its cell, which gives the buoyancy force and torque,
+//   - the vertical water column between the cell and the water surface, which carries the volume terms: added mass, the
+//     wave's lateral dynamic pressure, linear and angular volume damping, and the diagnostic wet volume,
+//   - the waterline stiffness, predictor and heave rate used by the implicit solve,
+//   - quadratic form drag on windward cells and tangential skin drag.
+// The math mirrors the CPU oracle SampleHull (include/pr/physics/buoyancy/buoyancy_sampler.h).
 //
-// Sample indexing: groups are laid out [hull 0 groups][hull 1 groups]..., g.groups_per_hull groups
-// per hull. Each thread streams flat sample indices with a stride of one hull's thread population, so
-// hulls with more samples than threads are fully covered. The flat sample index within a hull selects a primitive by walking the per-primitive
-// cumulative counts (g_vol_prim_records, parallel to g_prims); the residual is the primitive-local
-// sample ordinal fed to the deterministic hash. Threads beyond a hull's emitted sample count, and
-// samples on static / zero-mass bodies or under (near-)zero gravity, contribute zero.
-numthreads(CSBuoyancyVolumeSamples, BUOYANCY_SAMPLE_THREAD_COUNT, 1, 1)
-void CSBuoyancyVolumeSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
-{
-	int global_group_index = int(group_id.x);
-	int hull_index = global_group_index / g.groups_per_hull;
-	int hull_group_index = global_group_index - hull_index * g.groups_per_hull;
-	int thread_index = int(group_thread_id.x);
-	int sample_index = hull_group_index * BUOYANCY_SAMPLE_THREAD_COUNT + thread_index;
-
-	BuoyancySums sums = (BuoyancySums)0;
-
-	// Body velocity is invariant across all samples in a threadgroup. Reconstruct angular velocity
-	// once instead of repeating the inverse-inertia rotation in every sample thread. Damping and the
-	// waterline predictor both need it.
-	if (thread_index == 0)
-	{
-		s_body_linear_velocity_ws = float3(0.0f, 0.0f, 0.0f);
-		s_body_angular_velocity_ws = float3(0.0f, 0.0f, 0.0f);
-		if (hull_index < g.hull_count)
-		{
-			BuoyVolHeader header = g_vol_headers[hull_index];
-			GpuRigidBody body = g_bodies[header.body_index];
-			float inv_mass = body.os_com_and_invmass.w;
-			if ((body.state_flags & ERigidBodyStateFlags_Static) == 0 && inv_mass > 0.0f)
-			{
-				float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
-				float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
-				s_body_linear_velocity_ws = inv_mass * body.momentum_lin.xyz;
-				s_body_angular_velocity_ws = mul(ws_iinv, body.momentum_ang.xyz);
-			}
-		}
-	}
-	GroupMemoryBarrierWithGroupSync();
-
-	if (hull_index < g.hull_count)
-	{
-		BuoyVolHeader header = g_vol_headers[hull_index];
-		// Stream every ordinal while retaining a bounded number of reduction partials per hull.
-		for (; sample_index < header.total_volume_samples; sample_index += g.groups_per_hull * BUOYANCY_SAMPLE_THREAD_COUNT)
-		{
-			GpuRigidBody body = g_bodies[header.body_index];
-
-			// Static / zero-mass bodies have no buoyant response.
-			bool dynamic = (body.state_flags & ERigidBodyStateFlags_Static) == 0 && body.os_com_and_invmass.w > 0.0f;
-
-			// Gravity defines the buoyancy "up" axis; guard the normalise against (near-)zero gravity.
-			float3 gravity_ws = body.ws_gravity.xyz;
-			float g_mag = length(gravity_ws);
-
-			if (dynamic && g_mag > BUOY_TINY)
-			{
-				// Map the flat sample index to its owning primitive k and primitive-local ordinal by
-				// walking the per-primitive cumulative counts (parallel to g_prims).
-				int k = 0;
-				int local_i = sample_index;
-				float dvol = 0.0f;
-				float cell_height = 0.0f;
-				bool found = false;
-				for (int pp = 0; pp != header.prim_count; ++pp)
-				{
-					BuoyVolPrimRecord rec = g_vol_prim_records[header.prim_base + pp];
-					if (local_i < rec.count)
-					{
-						k = pp;
-						dvol = rec.dvol;
-						cell_height = rec.cell_height;
-						found = true;
-						break;
-					}
-					local_i -= rec.count;
-				}
-
-				if (found)
-				{
-					BuoyPrimitive prim = g_prims[header.prim_base + k];
-
-					// Fully-dry early-out. This is a per-sample skip, NOT an early return:
-					// the group-wide ReduceGroup below must be reached by every thread, so we only
-					// suppress the per-sample work and leave force/torque/moment at zero. A sample is
-					// partly wet while its centre is less than half a cell above the water, and the water
-					// height never exceeds water_max_height, so a box/sphere whose lowest support point is
-					// at least half a cell above that bound has every sample dry. Skipping it avoids the
-					// emit + sibling cull + water eval and contributes exactly zero, so results are
-					// unchanged. Only box/sphere have a cheap support test; other primitives fall through to sampling.
-					bool fully_dry = false;
-					{
-						float3 up_dry = -gravity_ws / g_mag;
-						float4x4 s2w = mul(prim.m_s2r, body.o2w);
-						float lo, hi;
-						fully_dry = BuoySupportAlongUp(prim, s2w, up_dry, lo, hi) && lo >= g.water_max_height + 0.5f * cell_height;
-					}
-
-					if (!fully_dry)
-					{
-						// Emit a volume sample in shape-local space, then lift to COM-root and world.
-						float4 pos_local;
-						float weight;
-						BuoyEmitVolumeSample(prim, BuoySampleIndex(header.hull_id, k, local_i), dvol, g_volume_verts, g_tets, g_tet_cdf, pos_local, weight);
-						float3 p_root = mul(float4(pos_local.xyz, 1.0f), prim.m_s2r).xyz;
-
-						// Lowest-index-sibling cull: a lower-index primitive owns any shared volume, so the
-						// union volume is counted exactly once without bias.
-						if (!BuoyIsInsideAnyLowerSibling(g_prims, header.prim_base, k, p_root, header.eps, g_face_planes))
-						{
-							float3 up = -gravity_ws / g_mag;
-							float3 sample_ws = mul(float4(p_root, 1.0f), body.o2w).xyz;
-
-							// Wet test along -gravity. The flat-ocean water field is parameterised in world
-							// XY with height measured along world Z; for gravity along -Z (the phase-11 box
-							// parity gate) this matches signed-height-along-up exactly. Each sample stands for a
-							// cell of height cell_height, so it is wet in proportion to how much of that cell is
-							// under the surface. This makes buoyancy a continuous function of depth.
-							float signed_height = dot(sample_ws, up);
-							float4 hg = EvaluateWaterHeightAndPressureGradient(sample_ws.xy, g_mag);
-							float wet_fraction = BuoyWetFraction(signed_height, hg.x, cell_height);
-							if (wet_fraction > 0.0f)
-							{
-								// Froude-Krylov pressure-gradient force per unit volume. Hydrostatic pressure gives 'up'; the wave's
-								// orbital acceleration adds a dynamic gradient, so water at a crest supports less than still water and a
-								// floating body accelerates with it instead of being left behind. The same acceleration also drives the
-								// water attached to the body (added mass), so the dynamic term is scaled by the Morison coefficient (1 + Ca).
-								float wet_dvol = weight * wet_fraction;
-								float3 grad_ws = hg.yzw;
-								float3 dF = (g.fluid_density * g_mag * wet_dvol) * (up - (1.0f + g.added_mass_coefficient) * grad_ws);
-								sums.added_mass += g.added_mass_coefficient * g.fluid_density * wet_dvol;
-								float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
-								float3 r = sample_ws - com_ws;
-
-								// The water-particle velocity is needed by linear damping only.
-								bool partly_wet = wet_fraction < 1.0f;
-								float3 water_velocity_ws = float3(0.0f, 0.0f, 0.0f);
-								if (g.linear_drag_coefficient > 0.0f)
-									water_velocity_ws = EvaluateWaterVelocity(sample_ws);
-
-								// Split translational and rotational point velocities so wave following and
-								// roll damping remain independently tunable over the same wet-volume samples.
-								// Each damping term also adds its rate to the Jacobian for the implicit solve.
-								if (g.linear_drag_coefficient > 0.0f)
-								{
-									float d_lin = g.linear_drag_coefficient * wet_dvol;
-									dF -= d_lin * (s_body_linear_velocity_ws - water_velocity_ws);
-									AddPointDamping(sums, r, d_lin, 0.0f);
-								}
-								if (g.angular_drag_coefficient > 0.0f)
-								{
-									float d_ang = g.angular_drag_coefficient * wet_dvol;
-									dF -= d_ang * cross(s_body_angular_velocity_ws, r);
-									AddPointDamping(sums, r, 0.0f, d_ang);
-								}
-
-								// A partly wet cell's buoyancy changes by rho*|g|*dvol for each cell height of immersion. Record that
-								// stiffness, and the change in buoyancy that the current immersion rate will cause over the step. The
-								// immersion rate follows the surface, not the water particles: a point moving with velocity v becomes more
-								// immersed at dh/dt + dot(v.xy, slope) - v.z = -(dot(v, n) - dh/dt), where n = up - slope. So a body
-								// riding the wave, including one sliding along its slope, is not resisted by it. 'heave_rate' records the
-								// part due to the body's linear velocity, which the radiation damping resists.
-								if (partly_wet)
-								{
-									float3 surface_rates = EvaluateWaterSurfaceRates(sample_ws.xy);
-									float3 normal = up - float3(surface_rates.xy, 0.0f);
-									float stiffness = g.fluid_density * g_mag * weight / cell_height;
-									float3 r_up = cross(r, up);
-									float3 v_point = s_body_linear_velocity_ws + cross(s_body_angular_velocity_ws, r);
-									float delta_force = -g.time_step_s * stiffness * (dot(v_point, normal) - surface_rates.z);
-									AddWaterlineStiffness(sums, r_up, stiffness);
-									sums.predictor += float4(delta_force * r_up, delta_force);
-									sums.heave_rate += stiffness * (dot(s_body_linear_velocity_ws, normal) - surface_rates.z);
-								}
-
-								sums.force_ws += dF;
-								sums.torque_ws += cross(r, dF);
-								if (g.enable_diagnostics != 0)
-									sums.moment_ws_volume += float4(sample_ws * wet_dvol, wet_dvol);
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	sums = ReduceGroup(sums, uint(thread_index), BUOYANCY_SAMPLE_THREAD_COUNT);
-	if (thread_index == 0)
-		g_partials[global_group_index] = sums;
-}
-
-// Reduce all volume partials for one composite hull, add the buoyancy and volume-damping force/torque
-// to the body accumulator, and write a diagnostic record. Quadratic drag is added by the later
-// surface-sample pass. The hull's body is read via the volume header. When this is the last buoyancy
-// pass, the implicit solve is applied here; otherwise the solve terms are stored for the surface reduce.
-numthreads(CSBuoyancyVolumeReduce, BUOYANCY_REDUCE_THREAD_COUNT, 1, 1)
-void CSBuoyancyVolumeReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
-{
-	int hull_index = int(group_id.x);
-	int thread_index = int(group_thread_id.x);
-	int partial_index = hull_index * g.groups_per_hull + thread_index;
-
-	BuoyancySums sums = (BuoyancySums)0;
-	if (hull_index < g.hull_count && thread_index < g.groups_per_hull)
-		sums = g_partials[partial_index];
-
-	sums = ReduceGroup(sums, uint(thread_index), BUOYANCY_REDUCE_THREAD_COUNT);
-	if (thread_index == 0 && hull_index < g.hull_count)
-	{
-		BuoyVolHeader header = g_vol_headers[hull_index];
-
-		GpuRigidBody body = g_bodies[header.body_index];
-		bool dynamic = (body.state_flags & ERigidBodyStateFlags_Static) == 0 && body.os_com_and_invmass.w > 0.0f;
-		if (dynamic)
-		{
-			body.force_lin.xyz += sums.force_ws;
-			body.force_ang.xyz += sums.torque_ws;
-			if (g.final_reduce != 0)
-				ApplyImplicitResponse(body, sums);
-
-			g_bodies[header.body_index] = body;
-		}
-
-		// The surface pass overwrites the per-group partials, so carry the solve terms in a per-hull record beyond them.
-		// The force and torque are already in the body accumulator; the surface reduce uses only the solve terms.
-		if (g.final_reduce == 0)
-			g_partials[g.jacobian_base + hull_index] = sums;
-
-		if (g.enable_diagnostics != 0)
-		{
-			// Wet volume + centre of buoyancy are validation outputs and do not participate in force application.
-			float volume = sums.moment_ws_volume.w;
-			float has_volume = volume > BUOY_TINY ? 1.0f : 0.0f;
-			float3 centre_buoyancy_ws = has_volume != 0.0f ? sums.moment_ws_volume.xyz / volume : float3(0.0f, 0.0f, 0.0f);
-			g_diagnostics[hull_index].force_ws = float4(sums.force_ws, 0.0f);
-			g_diagnostics[hull_index].torque_ws = float4(sums.torque_ws, 0.0f);
-			g_diagnostics[hull_index].centre_buoyancy_ws = float4(centre_buoyancy_ws, has_volume);
-			g_diagnostics[hull_index].volume_m3 = volume;
-			g_diagnostics[hull_index].valid = 1;
-			g_diagnostics[hull_index].pad0 = 0.0f;
-			g_diagnostics[hull_index].pad1 = 0.0f;
-		}
-	}
-}
-
-// Sampled-composite surface (drag) sample pass. Mirrors CSBuoyancyVolumeSamples but emits SURFACE
-// samples (point + outward normal + per-sample area) over the union boundary, deduplicated by the
-// any-other-sibling exterior-side cull, and accumulates quadratic drag. The math mirrors the CPU oracle:
-//   dF = -0.5*rho*Cd*dA*max(0,v_n)^2 * n   (quadratic, windward faces only)
-// where v_rel = v_point - v_water and v_n = dot(v_rel, n).
-numthreads(CSBuoyancyDragSurfaceSamples, BUOYANCY_SAMPLE_THREAD_COUNT, 1, 1)
-void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
+// Sample indexing: groups are laid out [hull 0 groups][hull 1 groups]..., g.groups_per_hull groups per hull. Each thread
+// streams flat sample indices with a stride of one hull's thread population, so hulls with more samples than threads are
+// fully covered. The flat sample index within a hull selects a primitive by walking the per-primitive cumulative counts.
+numthreads(CSBuoyancySurfaceSamples, BUOYANCY_SAMPLE_THREAD_COUNT, 1, 1)
+void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 {
 	int hull_index = int(group_id.y);
 	int hull_group_index = int(group_id.x);
@@ -666,14 +386,13 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 	// The surface pass evaluates independent dimensionless normal and tangential drag coefficients.
 	float c_quad = g.quadratic_drag_coefficient;
 	float c_tangent = g.tangential_drag_coefficient;
-	bool have_drag = c_quad > 0.0f || c_tangent > 0.0f;
 
 	// The same body state applies to all samples in this group, so reconstruct its velocities once.
 	if (thread_index == 0)
 	{
 		s_body_linear_velocity_ws = float3(0.0f, 0.0f, 0.0f);
 		s_body_angular_velocity_ws = float3(0.0f, 0.0f, 0.0f);
-		if (have_drag && hull_index < g.hull_count)
+		if (hull_index < g.hull_count)
 		{
 			BuoySurfHeader header = g_surf_headers[hull_index];
 			GpuRigidBody body = g_bodies[header.body_index];
@@ -689,7 +408,7 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 	}
 	GroupMemoryBarrierWithGroupSync();
 
-	if (have_drag && hull_index < g.hull_count)
+	if (hull_index < g.hull_count)
 	{
 		BuoySurfHeader header = g_surf_headers[hull_index];
 		// Stream every ordinal while retaining a bounded number of reduction partials per hull.
@@ -697,7 +416,7 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 		{
 			GpuRigidBody body = g_bodies[header.body_index];
 
-			// Static / zero-mass bodies have no drag response (mirrors the volume-pass guard).
+			// Static / zero-mass bodies have no hydrodynamic response.
 			bool dynamic = (body.state_flags & ERigidBodyStateFlags_Static) == 0 && body.os_com_and_invmass.w > 0.0f;
 
 			// Gravity defines the buoyancy "up" axis; guard the normalise against (near-)zero gravity.
@@ -712,6 +431,7 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 				int local_i = sample_index;
 				int patch_begin = 0;
 				int patch_count = 0;
+				float half_cell_height = 0.0f;
 				bool found = false;
 				for (int pp = 0; pp != header.prim_count; ++pp)
 				{
@@ -721,6 +441,7 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 						k = pp;
 						patch_begin = rec.patch_begin;
 						patch_count = rec.patch_count;
+						half_cell_height = rec.half_cell_height;
 						found = true;
 						break;
 					}
@@ -731,16 +452,16 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 				{
 					BuoyPrimitive prim = g_prims[header.prim_base + k];
 
-					// Fully-dry early-out (mirror of the volume kernel). A per-sample skip, not an
-					// early return, so every thread still reaches ReduceGroup below. A box/sphere whose
-					// lowest support point is at or above water_max_height is entirely dry. Its surface
-					// cells lie on or above that point, so skipping it is consistent with the cell geometry.
+					// Fully-dry early-out. A per-sample skip, not an early return, so every thread still reaches ReduceGroup below.
+					// Every sample of the primitive lies at or above its lowest support point, and a cell can only be wet while its
+					// sample is less than half a cell height above the water, so a primitive whose lowest point is that far above
+					// water_max_height is entirely dry.
 					bool fully_dry = false;
 					{
 						float3 up_dry = -gravity_ws / g_mag;
 						float4x4 s2w = mul(prim.m_s2r, body.o2w);
 						float lo, hi;
-						fully_dry = BuoySupportAlongUp(prim, s2w, up_dry, lo, hi) && lo >= g.water_max_height;
+						fully_dry = BuoySupportAlongUp(prim, s2w, up_dry, lo, hi) && lo >= g.water_max_height + half_cell_height;
 					}
 
 					if (!fully_dry)
@@ -773,17 +494,87 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 							float3 sample_ws = mul(float4(p_root, 1.0f), body.o2w).xyz;
 							float3 normal_ws = BuoyNormaliseOrZero(mul(float4(n_root, 0.0f), body.o2w).xyz);
 
-							// Each sample stands for a surface cell, so drag acts on the cell's submerged area (see buoyancy::CellWetFraction).
+							// Each sample stands for a surface cell, so forces act on the cell's submerged area (see buoyancy::CellWetFraction).
 							float signed_height = dot(sample_ws, up);
-							float wet_weight = weight * BuoyWetFraction(signed_height, EvaluateWaterHeight(sample_ws.xy), BuoySurfaceCellHeight(weight, dot(normal_ws, up)));
+							float n_up = dot(normal_ws, up);
+							float cell_height = BuoySurfaceCellHeight(weight, n_up);
+							float4 hg = EvaluateWaterHeightAndPressureGradient(sample_ws.xy, g_mag);
+							float wet_fraction = BuoyWetFraction(signed_height, hg.x, cell_height);
+							float wet_weight = weight * wet_fraction;
 							if (wet_weight > 0.0f)
 							{
 								float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
+								float3 r = sample_ws - com_ws;
 
 								// Relative flow at the sample (body velocity minus wave-orbital water flow).
-								float3 v_point = s_body_linear_velocity_ws + cross(s_body_angular_velocity_ws, sample_ws - com_ws);
-								float3 v_rel = v_point - EvaluateWaterVelocity(sample_ws);
+								float3 water_velocity_ws = EvaluateWaterVelocity(sample_ws);
+								float3 v_point = s_body_linear_velocity_ws + cross(s_body_angular_velocity_ws, r);
+								float3 v_rel = v_point - water_velocity_ws;
 								float v_n = dot(v_rel, normal_ws);
+
+								// Hydrostatic pressure under the local wave surface acts along the inward normal. 'depth_area' is the
+								// integral of depth over the wet part of the cell: the cell spans depths (depth +/- cell_height/2), so a
+								// partly wet cell has mean wet depth (depth + cell_height/2)/2, which equals 'depth' when it becomes fully wet.
+								// Acting along the normal, the pressure gives the exact torque for any sample count.
+								float depth = hg.x - signed_height;
+								float wet_depth = wet_fraction < 1.0f ? 0.5f * (depth + 0.5f * cell_height) : depth;
+								float depth_area = wet_weight * wet_depth;
+
+								// The vertical water column between this sample and the surface has signed volume depth_area*(-n.up).
+								// These columns sum to the wet volume (divergence theorem; there is no pressure at the waterplane), so they
+								// carry the volume terms: added mass, the wave's dynamic pressure, and volume damping.
+								float dvol = -n_up * depth_area;
+								float3 r_col = r + (0.5f * wet_depth) * up;
+								float3 grad_ws = hg.yzw;
+								float grad_up = dot(grad_ws, up);
+								float3 surface_rates = EvaluateWaterSurfaceRates(sample_ws.xy);
+								float3 slope_ws = float3(surface_rates.xy, 0.0f);
+
+								// The wave's vertical acceleration scales the pressure: water under a crest supports less than still water.
+								// The horizontal resultant of the pressure is evaluated from the columns instead of the sampled normals:
+								// by the divergence theorem it is exactly -rho*g*(integral of the surface slope over the wet volume), and the
+								// few cells near the waterline of a light body do not cancel accurately. The Froude-Krylov force uses
+								// (1 + Ca)*grad instead of the slope, so the attached water is accelerated by the wave as well. The torque uses
+								// the sampled pressure, which acts along the normals, plus the column correction for the difference between
+								// the gradient and the slope.
+								float rho_g = g.fluid_density * g_mag;
+								float3 dF_pressure = -(rho_g * (1.0f - (1.0f + g.added_mass_coefficient) * grad_up) * depth_area) * normal_ws;
+								float3 grad_lat = grad_ws - grad_up * up;
+								float3 dF_lateral = -(rho_g * dvol * (1.0f + g.added_mass_coefficient)) * grad_lat;
+								float3 dF_column = dF_lateral + (rho_g * dvol) * slope_ws;
+								sums.force_ws += dot(dF_pressure, up) * up + dF_lateral;
+								sums.torque_ws += cross(r, dF_pressure) + cross(r_col, dF_column);
+								sums.added_mass += g.added_mass_coefficient * g.fluid_density * dvol;
+
+								// Volume damping of the column. Translation is resisted relative to the water; rotation uses the column's
+								// exact second moment.
+								if (g.linear_drag_coefficient > 0.0f || g.angular_drag_coefficient > 0.0f)
+								{
+									float d_lin = g.linear_drag_coefficient * dvol;
+									float d_ang = g.angular_drag_coefficient * dvol;
+									float3 f_lin = -d_lin * (s_body_linear_velocity_ws - water_velocity_ws);
+									float3 f_ang = -d_ang * cross(s_body_angular_velocity_ws, r_col);
+									float3 w_horizontal = s_body_angular_velocity_ws - dot(s_body_angular_velocity_ws, up) * up;
+									float3 t_ang = cross(r_col, f_ang) - (d_ang * wet_depth * wet_depth / 12.0f) * w_horizontal;
+									sums.force_ws += f_lin + f_ang;
+									sums.torque_ws += cross(r_col, f_lin) + t_ang;
+									AddColumnDamping(sums, r_col, up, wet_depth, d_lin, d_ang);
+								}
+
+								// Waterline stiffness: raising the sample by dz reduces depth_area by wet_weight*dz, so the vertical force
+								// changes by -rho*g*wet_weight*(-n.up)*dz. Summed over the wet surface this is rho*g*(waterplane area), and
+								// fully submerged bodies get zero. The predictor is the change in this waterline force over the step for the
+								// point's velocity relative to the moving water surface, and the heave rate is the same rate for the body's
+								// linear velocity only (see ApplyImplicitResponse).
+								float stiffness = rho_g * wet_weight * -n_up;
+								float3 r_up = cross(r, up);
+								float3 surface_normal = up - slope_ws;
+								float delta_force = -g.time_step_s * stiffness * (dot(v_point, surface_normal) - surface_rates.z);
+								AddWaterlineStiffness(sums, r_up, stiffness);
+								sums.predictor += float4(delta_force * r_up, delta_force);
+								sums.heave_rate += stiffness * (dot(s_body_linear_velocity_ws, surface_normal) - surface_rates.z);
+								if (g.enable_diagnostics != 0)
+									sums.moment_ws_volume += float4((com_ws + r_col) * dvol, dvol);
 
 								// Quadratic form drag acts only on faces moving outward into the fluid. The implicit solve uses
 								// its secant damping rate, 0.5*rho*Cd*dA*v_n (force / speed). For pure quadratic drag this makes
@@ -807,8 +598,7 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 									damping += d_tangent;
 								}
 
-								// Each sample's damping rate resists the full velocity of its point, treated as isotropic.
-								float3 r = sample_ws - com_ws;
+								// Each sample's drag damping rate resists the full velocity of its point, treated as isotropic.
 								sums.force_ws += dF;
 								sums.torque_ws += cross(r, dF);
 								AddPointDamping(sums, r, damping, damping);
@@ -825,14 +615,11 @@ void CSBuoyancyDragSurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_i
 		g_partials[global_group_index] = sums;
 }
 
-// Reduce all surface partials for one composite hull, ADD the drag force/torque to the body
-// accumulator, and apply the implicit solve using the combined volume and surface Jacobians. The
-// diagnostic already holds the volume pass's buoyancy force/torque (this pass runs after the volume
-// reduce), so the diagnostic force_ws/torque_ws become the combined buoyancy + drag result (matching
-// the legacy convention). Diagnostics report the sampled wrench, before the implicit solve. Volume,
-// COB and the moment sum are produced by the volume pass and left untouched here.
-numthreads(CSBuoyancyDragSurfaceReduce, BUOYANCY_REDUCE_THREAD_COUNT, 1, 1)
-void CSBuoyancyDragSurfaceReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
+// Reduce all surface partials for one composite hull, add the hydrodynamic force/torque to the body accumulator, and apply
+// the implicit solve. Diagnostics report the sampled wrench (buoyancy + drag) before the implicit solve, with the wet volume
+// and centre of buoyancy recovered from the water columns.
+numthreads(CSBuoyancySurfaceReduce, BUOYANCY_REDUCE_THREAD_COUNT, 1, 1)
+void CSBuoyancySurfaceReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
 {
 	int hull_index = int(group_id.x);
 	int thread_index = int(group_thread_id.x);
@@ -845,27 +632,31 @@ void CSBuoyancyDragSurfaceReduce(uint3 GID(group_id), uint3 GTID(group_thread_id
 	sums = ReduceGroup(sums, uint(thread_index), BUOYANCY_REDUCE_THREAD_COUNT);
 	if (thread_index == 0 && hull_index < g.hull_count)
 	{
+		// Apply the hull's wrench through the implicit solve.
 		BuoySurfHeader header = g_surf_headers[hull_index];
-
 		GpuRigidBody body = g_bodies[header.body_index];
 		bool dynamic = (body.state_flags & ERigidBodyStateFlags_Static) == 0 && body.os_com_and_invmass.w > 0.0f;
-		float4 drag_force_ws = float4(sums.force_ws, 0.0f);
-		float4 drag_torque_ws = float4(sums.torque_ws, 0.0f);
 		if (dynamic)
 		{
-			// Combine the volume pass's solve terms with this pass's drag damping, then solve. The volume record's force and
-			// torque are already in the body accumulator, so only its solve terms are combined.
-			BuoyancySums terms = AddSums(g_partials[g.jacobian_base + hull_index], sums);
-			body.force_lin += drag_force_ws;
-			body.force_ang += drag_torque_ws;
-			ApplyImplicitResponse(body, terms);
+			body.force_lin.xyz += sums.force_ws;
+			body.force_ang.xyz += sums.torque_ws;
+			ApplyImplicitResponse(body, sums);
 			g_bodies[header.body_index] = body;
 		}
 
+		// Wet volume and centre of buoyancy are validation outputs and do not participate in force application.
 		if (g.enable_diagnostics != 0)
 		{
-			g_diagnostics[hull_index].force_ws += drag_force_ws;
-			g_diagnostics[hull_index].torque_ws += drag_torque_ws;
+			float volume = sums.moment_ws_volume.w;
+			float has_volume = volume > BUOY_TINY ? 1.0f : 0.0f;
+			float3 centre_buoyancy_ws = has_volume != 0.0f ? sums.moment_ws_volume.xyz / volume : float3(0.0f, 0.0f, 0.0f);
+			g_diagnostics[hull_index].force_ws = float4(sums.force_ws, 0.0f);
+			g_diagnostics[hull_index].torque_ws = float4(sums.torque_ws, 0.0f);
+			g_diagnostics[hull_index].centre_buoyancy_ws = float4(centre_buoyancy_ws, has_volume);
+			g_diagnostics[hull_index].volume_m3 = volume;
+			g_diagnostics[hull_index].valid = 1;
+			g_diagnostics[hull_index].pad0 = 0.0f;
+			g_diagnostics[hull_index].pad1 = 0.0f;
 		}
 	}
 }

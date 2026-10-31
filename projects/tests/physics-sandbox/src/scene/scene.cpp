@@ -426,7 +426,6 @@ namespace physics_sandbox
 			m_buoyancy_hulls.push_back(m_gpu_buoyancy->RegisterCompositeHull(body, body_index, m_buoyancy_generation));
 			m_buoyancy_debug_targets.push_back(BuoyancyDebugTarget{
 				.m_body_index = body_index,
-				.m_hull_id = static_cast<uint32_t>(body_index),
 			});
 		}
 
@@ -450,7 +449,6 @@ namespace physics_sandbox
 				m_buoyancy_debug_targets.push_back(BuoyancyDebugTarget{
 					.m_articulation_index = articulation_index,
 					.m_link_index = link_index,
-					.m_hull_id = static_cast<uint32_t>(stable_index),
 				});
 			};
 
@@ -554,7 +552,7 @@ namespace physics_sandbox
 
 		// Adapter exposing the scene's WaterField through the sampler's water-field concept. Only
 		// valid for the default flat WaterFrame{} (up=+Z, t0=+X, t1=+Y, ref=origin): the sampler calls
-		// Height/Gradient with planar coords (u,v) = (sample.x, sample.y) and treats the returned value
+		// Height/Slope with planar coords (u,v) = (sample.x, sample.y) and treats the returned value
 		// as the signed height along 'up'. WaterField::Height returns the absolute world-Z surface height,
 		// which equals the signed height along +Z from the origin only because ref=origin and up=+Z.
 		struct WaterAdapter
@@ -562,6 +560,7 @@ namespace physics_sandbox
 			physics::terrain::water::WaterField const* m_surface;
 			float m_time;
 			float Height(v2 uv) const { return static_cast<float>(m_surface->Height(physics::terrain::v2d{uv.x, uv.y}, m_time)); }
+			v2 Slope(v2 uv) const { auto const s = m_surface->Sample(physics::terrain::v2d{uv.x, uv.y}, m_time); return v2{static_cast<float>(s.m_gradient_xy.x), static_cast<float>(s.m_gradient_xy.y)}; }
 			v4 PressureGradient(v2 uv, float gravity) const { return m_surface->PressureGradient(uv, m_time, gravity); }
 			v4 Velocity(v4 pos_ws) const { return m_surface->Velocity(pos_ws, m_time); }
 		};
@@ -578,7 +577,6 @@ namespace physics_sandbox
 			.m_tangential_drag_coefficient = gpu_cfg.m_tangential_drag_coefficient,
 			.m_added_mass_coefficient = gpu_cfg.m_added_mass_coefficient,
 			.m_surface_spacing = gpu_cfg.m_surface_spacing,
-			.m_volume_spacing = gpu_cfg.m_volume_spacing,
 		};
 
 		// Map a sample classification to a display colour.
@@ -586,17 +584,14 @@ namespace physics_sandbox
 		{
 			switch (kind)
 			{
-				case ESampleKind::VolumeWet:     return 0xFF3060FFU; // blue: contributes buoyancy
-				case ESampleKind::VolumeDry:     return 0x40808080U; // faint grey: above water
-				case ESampleKind::VolumeCulled:  return 0xFF802020U; // dark red: owned by a lower sibling
-				case ESampleKind::SurfaceActive: return 0xFF30FF30U; // green: contributes drag
+				case ESampleKind::SurfaceActive: return 0xFF30FF30U; // green: contributes buoyancy and drag
 				case ESampleKind::SurfaceDry:    return 0x40404040U; // faint dark: above water
 				case ESampleKind::SurfaceCulled: return 0xFFFF8020U; // orange: interior (non-union) surface
 				default:                         return 0xFFFFFFFFU;
 			}
 		};
 
-		// Sampling + display tuning. Volume and surface densities match the GPU buoyancy configuration. The cloud is
+		// Sampling + display tuning. Surface densities match the GPU buoyancy configuration. The cloud is
 		// decimated at draw time so dense hulls stay renderable. Forces are large (~2e4 N) so arrows are
 		// scaled down to world units.
 		constexpr int MaxDrawSamples = 16384;
@@ -604,7 +599,7 @@ namespace physics_sandbox
 		constexpr float TorqueScale = 1.0e-4f; // N.m  -> world units
 		constexpr float NormalLen = 0.1f;      // length of surface-normal whiskers
 
-		// The sample cloud lives inside (volume samples) and on the surface of the opaque body meshes, so
+		// The sample cloud lives on the surface of the opaque body meshes, so
 		// without disabling the depth test it would be entirely occluded by the bodies. Render the whole
 		// debug group on top (no z-test) so the wet/dry classification cloud and force arrows are visible
 		// through the geometry. no_ztest on the group is inherited by the child points/lines.
@@ -654,27 +649,13 @@ namespace physics_sandbox
 			}
 			assert("A buoyancy diagnostic target must have a collision shape" && shape != nullptr);
 
-			// The collision polytope intentionally omits volume-only tetrahedra. Rebuild them only
-			// while the expensive CPU debug overlay is enabled so ordinary scene loading and stepping
-			// retain the compact collision representation.
-			auto derived_shape = byte_data<16>{};
-			if (shape->m_type == collision::EShape::Polytope)
-			{
-				auto const& poly = collision::shape_cast<collision::ShapePolytope>(*shape);
-				if (poly.m_tet_count == 0)
-				{
-					derived_shape = collision::BuildPolytopeFromPoints(poly.verts(), poly.m_base.m_s2r, poly.m_base.m_material_id, poly.m_base.m_flags, m_gpu_buoyancy->GetConfig().m_polytope_tessellation);
-					shape = &derived_shape.as<collision::Shape>();
-				}
-			}
-
 			// The flat-water adapter is only valid when gravity is ~ -Z. Assert so a future tilted-gravity
 			// scene fails loudly here instead of silently mis-classifying samples.
 			assert("BuildBuoyancyDebugGfx assumes a flat -Z gravity water frame" &&
 				(Sqr(state.m_gravity_ws.x) + Sqr(state.m_gravity_ws.y)) <= 1e-3f * Max(1e-6f, LengthSq(state.m_gravity_ws.w0())));
 
 			auto debug = SampleDebug{};
-			auto const result = SampleHull(*shape, target.m_hull_id, state, WaterFrame{}, water, cfg, &debug);
+			auto const result = SampleHull(*shape, state, WaterFrame{}, water, cfg, &debug);
 
 			// Decimated sample cloud, with green whiskers on active surface samples.
 			auto const stride = std::max<size_t>(1, debug.m_samples.size() / MaxDrawSamples);
@@ -2080,13 +2061,12 @@ namespace physics_sandbox::tests
 			auto const force = body.ForceWS();
 			scene.VisualMode(EVisualMode::ContactPriority);
 			scene.m_sample_overlays.Surface(true);
-			scene.m_sample_overlays.Volume(true);
 			scene.m_sample_overlays.Reset();
 			scene.SleepingTransparency(false);
 			PR_EXPECT(!scene.SleepingTransparency() && !body.m_sleeping_transparency);
 			PR_EXPECT(body.Sleeping() && scene.m_articulation[0].Sleeping() && FEql(body.ForceWS(), force));
 			PR_EXPECT(scene.AllowSleeping() && scene.VisualMode() == EVisualMode::ContactPriority);
-			PR_EXPECT(scene.m_sample_overlays.m_surface_enabled && scene.m_sample_overlays.m_volume_enabled && !scene.m_sample_overlays.m_refresh_pending);
+			PR_EXPECT(scene.m_sample_overlays.m_surface_enabled && !scene.m_sample_overlays.m_refresh_pending);
 
 			// The existing opacity calculation is shared by rigid-body and articulation graphics.
 			auto const colour = Colour32(0xFF12AB34U);
@@ -2113,7 +2093,6 @@ namespace physics_sandbox::tests
 			scene.LoadScene(scene_desc);
 			auto& overlays = scene.m_sample_overlays;
 			overlays.Surface(true);
-			overlays.Volume(true);
 			overlays.Reset();
 			auto const old_shape = &scene.m_body[0].Shape();
 			overlays.m_models.try_emplace(old_shape);
@@ -2126,7 +2105,7 @@ namespace physics_sandbox::tests
 			// A headless reset needs no renderer fence, but follows the same cache-before-shape retirement order.
 			scene.LoadScene(scene_desc);
 			PR_EXPECT(overlays.m_models.empty() && overlays.m_instances.empty());
-			PR_EXPECT(overlays.m_surface_enabled && overlays.m_volume_enabled);
+			PR_EXPECT(overlays.m_surface_enabled);
 			PR_EXPECT(scene.VisualMode() == EVisualMode::Normal);
 		}
 

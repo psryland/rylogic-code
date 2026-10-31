@@ -17,13 +17,11 @@ namespace pr::physics
 {
 	namespace
 	{
-		// Sampled-composite volume-pass tunables. Each primitive's volume sample count follows its volume at the configured
-		// volume spacing (see buoyancy::VolumeSampleCounts); positions are
-		// hash-derived per frame, but counts are fixed at registration. At most the reduce thread count of
-		// groups serve each hull (the reducer sums one partial per group on a single thread group); larger
-		// hulls stream additional samples through the same threads.
-		static constexpr int BuoyancyVolumeThreadCount = 256;
-		static constexpr int BuoyancyVolumeReduceThreadCount = 128;
+		// Sampled-composite pass tunables. Surface sample counts are fixed at registration (see buoyancy::BuildSurfacePlan).
+		// At most the reduce thread count of groups serve each hull (the reducer sums one partial per group on a single
+		// thread group); larger hulls stream additional samples through the same threads.
+		static constexpr int BuoyancySampleThreadCount = 256;
+		static constexpr int BuoyancyReduceThreadCount = 128;
 
 		struct CBufGpuBuoyancy
 		{
@@ -42,11 +40,7 @@ namespace pr::physics
 			float m_radiation_damping;
 			float m_time_step_s;
 			int m_enable_diagnostics;
-			int m_jacobian_base;   // partial index of the first per-hull record holding the volume pass's implicit-solve terms
-			int m_final_reduce;    // non-zero when this pass's reduce is the last buoyancy pass and applies the implicit solve
 			int m_pad0;
-			int m_pad1;
-			int m_pad2;
 		};
 		static_assert(sizeof(CBufGpuBuoyancy) % sizeof(uint32_t) == 0);
 
@@ -69,60 +63,30 @@ namespace pr::physics
 		};
 		static_assert(sizeof(GpuBuoyancyDiagnostic) == 64);
 
-		// Per-hull header for the sampled-composite volume pass. Mirrors HLSL BuoyVolHeader. The body
-		// index is the body's STEP index (into the engine body list) resolved at dispatch time; the
-		// hull id is the stable registration index used to seed the sample hash so positions do not
-		// jitter when bodies are reordered. m_prim_base/m_prim_count index the concatenated primitive
-		// array uploaded for this dispatch.
-		struct GpuBuoyVolHeader
-		{
-			int m_body_index;
-			int m_prim_base;
-			int m_prim_count;
-			int m_total_volume_samples;
-			uint32_t m_hull_id;
-			float m_eps;
-			int m_pad0;
-			int m_pad1;
-		};
-		static_assert(sizeof(GpuBuoyVolHeader) == 32);
-
-		// Per-primitive sample bookkeeping for the volume pass. m_count is the number of volume
-		// samples assigned to this primitive and m_dvol is the per-sample volume weight (primitive
-		// volume / count). m_cell_height is buoyancy::VolumeCellHeight(m_dvol), computed on the host so
-		// the GPU and the CPU oracle use the same value. Mirrors HLSL BuoyVolPrimRecord.
-		struct GpuBuoyVolPrimRecord
-		{
-			int m_count;
-			float m_dvol;
-			float m_cell_height;
-			float m_pad;
-		};
-		static_assert(sizeof(GpuBuoyVolPrimRecord) == 16);
-
-		// Per-hull header for the sampled-composite surface (drag) pass. Mirrors HLSL BuoySurfHeader.
-		// Layout-identical to GpuBuoyVolHeader, but m_total_surface_samples counts surface samples and
-		// the primitive block is indexed into the surface record array.
+		// Per-hull header for the sampled-composite pass. Mirrors HLSL BuoySurfHeader. The body index is the body's STEP index
+		// (into the engine body list) resolved at dispatch time. m_prim_base/m_prim_count index the concatenated primitive array
+		// uploaded for this dispatch.
 		struct GpuBuoySurfHeader
 		{
 			int m_body_index;
 			int m_prim_base;
 			int m_prim_count;
 			int m_total_surface_samples;
-			uint32_t m_hull_id;
 			float m_eps;
 			int m_pad0;
 			int m_pad1;
+			int m_pad2;
 		};
 		static_assert(sizeof(GpuBuoySurfHeader) == 32);
 
-		// Per-primitive surface counts and compact patch range. Mirrors HLSL BuoySurfPrimRecord.
+		// Per-primitive surface counts, compact patch range, and half of the largest cell height (for the dry early-out).
+		// Mirrors HLSL BuoySurfPrimRecord.
 		struct GpuBuoySurfPrimRecord
 		{
 			int m_count;
 			int m_patch_begin;
 			int m_patch_count;
-			int m_pad;
+			float m_half_cell_height;
 		};
 		static_assert(sizeof(GpuBuoySurfPrimRecord) == 16);
 
@@ -179,51 +143,8 @@ namespace pr::physics
 			return compiler.Compile();
 		}
 
-		// Create the sampled-composite volume-sample compute step. The root signature mirrors the
-		// resource access order of CSBuoyancyVolumeSamples: constants (b0), the body accumulator (u0),
-		// the water-field SRV (t1), the volume-pass SRVs (t2..t7), the tet CDF (t12), then the partials UAV
-		// (u1). The legacy box-hull SRV (t0) and diagnostics UAV (u2) are unused by this kernel.
-		::pr::compute::ComputeStep CreateVolumeStep(ID3D12Device* device)
-		{
-			auto step = ::pr::compute::ComputeStep{};
-			step.m_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
-				.U32<CBufGpuBuoyancy>(hlsl::ECBufReg::b0)
-				.UAV(hlsl::EUAVReg::u0)
-				.SRV(hlsl::ESRVReg::t1)
-				.SRV(hlsl::ESRVReg::t2)
-				.SRV(hlsl::ESRVReg::t3)
-				.SRV(hlsl::ESRVReg::t4)
-				.SRV(hlsl::ESRVReg::t5)
-				.SRV(hlsl::ESRVReg::t6)
-				.SRV(hlsl::ESRVReg::t7)
-				.SRV(hlsl::ESRVReg::t12)
-				.UAV(hlsl::EUAVReg::u1)
-				.Create(device, "Physics.GpuBuoyancy.Volume.RootSig");
-
-			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSBuoyancyVolumeSamples")).Create(device, "Physics.GpuBuoyancy.Volume.PSO");
-			return step;
-		}
-
-		// Create the sampled-composite volume-reduce compute step. The root signature mirrors the
-		// resource access order of CSBuoyancyVolumeReduce: constants (b0), the body accumulator (u0),
-		// the per-hull headers SRV (t2), the partials UAV (u1), then the diagnostics UAV (u2).
-		::pr::compute::ComputeStep CreateVolumeReduceStep(ID3D12Device* device)
-		{
-			auto step = ::pr::compute::ComputeStep{};
-			step.m_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
-				.U32<CBufGpuBuoyancy>(hlsl::ECBufReg::b0)
-				.UAV(hlsl::EUAVReg::u0)
-				.SRV(hlsl::ESRVReg::t2)
-				.UAV(hlsl::EUAVReg::u1)
-				.UAV(hlsl::EUAVReg::u2)
-				.Create(device, "Physics.GpuBuoyancy.VolumeReduce.RootSig");
-
-			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSBuoyancyVolumeReduce")).Create(device, "Physics.GpuBuoyancy.VolumeReduce.PSO");
-			return step;
-		}
-
-		// Create the sampled-composite surface-sample (drag) compute step. The root signature mirrors
-		// the resource access order of CSBuoyancyDragSurfaceSamples: constants (b0), the body
+		// Create the sampled-composite surface-sample compute step. The root signature mirrors
+		// the resource access order of CSBuoyancySurfaceSamples: constants (b0), the body
 		// accumulator (u0), the water-field SRV (t1, for water height/velocity), the primitives SRV (t3) and
 		// face planes SRV (t6, for the sibling cull), headers (t8), patches (t9), primitive records (t11), then the
 		// partials UAV (u1). Root descriptors need not be contiguous.
@@ -242,27 +163,26 @@ namespace pr::physics
 				.UAV(hlsl::EUAVReg::u1)
 				.Create(device, "Physics.GpuBuoyancy.Surface.RootSig");
 
-			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSBuoyancyDragSurfaceSamples")).Create(device, "Physics.GpuBuoyancy.Surface.PSO");
+			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSBuoyancySurfaceSamples")).Create(device, "Physics.GpuBuoyancy.Surface.PSO");
 			return step;
 		}
 
 		// Create the sampled-composite surface-reduce compute step. The root signature mirrors the
-		// resource access order of CSBuoyancyDragSurfaceReduce: constants (b0), the body accumulator
-		// (u0), water field (t1), the per-hull surface headers SRV (t8), the partials UAV (u1), then the
-		// diagnostics UAV (u2). The surface reduce ADDS drag force/torque to the body and diagnostic.
+		// resource access order of CSBuoyancySurfaceReduce: constants (b0), the body accumulator
+		// (u0), the per-hull surface headers SRV (t8), the partials UAV (u1), then the diagnostics UAV (u2).
+		// The reduce adds the hydrodynamic force/torque to the body and writes the diagnostic.
 		::pr::compute::ComputeStep CreateSurfaceReduceStep(ID3D12Device* device)
 		{
 			auto step = ::pr::compute::ComputeStep{};
 			step.m_sig = ::pr::compute::RootSig(::pr::compute::ERootSigFlags::ComputeOnly)
 				.U32<CBufGpuBuoyancy>(hlsl::ECBufReg::b0)
 				.UAV(hlsl::EUAVReg::u0)
-				.SRV(hlsl::ESRVReg::t1)
 				.SRV(hlsl::ESRVReg::t8)
 				.UAV(hlsl::EUAVReg::u1)
 				.UAV(hlsl::EUAVReg::u2)
 				.Create(device, "Physics.GpuBuoyancy.SurfaceReduce.RootSig");
 
-			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSBuoyancyDragSurfaceReduce")).Create(device, "Physics.GpuBuoyancy.SurfaceReduce.PSO");
+			step.m_pso = ::pr::compute::ComputePSO(step.m_sig.get(), CompileBuoyancyShader(L"CSBuoyancySurfaceReduce")).Create(device, "Physics.GpuBuoyancy.SurfaceReduce.PSO");
 			return step;
 		}
 	}
@@ -276,17 +196,13 @@ namespace pr::physics
 		{
 			buoyancy::CompositeHull m_hull;
 
-			// Volume-pass sample plan, computed once at registration. m_vol_counts[k] is the number of
-			// volume samples assigned to primitive k (proportional to its volume) and m_vol_dvol[k] is
-			// the matching per-sample volume weight (primitive volume / count). m_total_volume_samples
-			// is the sum of m_vol_counts. m_eps is the scale-relative inside-test slack for sibling culling.
-			std::vector<int> m_vol_counts;
-			std::vector<float> m_vol_dvol;
-			int m_total_volume_samples = 0;
+			// Scale-relative inside-test slack for sibling culling.
 			float m_eps = 0.0f;
 
-			// Half of the largest volume cell height (see buoyancy::VolumeCellHeight). A volume sample is partly wet while its
-			// cell top is below the surface, so a body is only certainly dry when its lowest point is this far above the water.
+			// Half of the largest surface cell height per primitive, and over the whole hull (see buoyancy::SurfaceCellHeight).
+			// A surface cell is partly wet while its sample is less than this far above the surface, so a primitive or body is
+			// only certainly dry when its lowest point is this far above the water.
+			std::vector<float> m_half_cell_heights;
 			float m_max_half_cell_height = 0.0f;
 
 			// Registration-time body-space AABB enclosing every primitive in the hull. Used by the
@@ -294,16 +210,14 @@ namespace pr::physics
 			// is above the water line along its local up (-gravity) axis.
 			BBox m_obb_os = BBox::Reset();
 
-			// Feature-preserving surface patches are cached per primitive, not per emitted sample.
+			// Feature-preserving surface patches are cached per primitive, not per emitted sample (see buoyancy::BuildSurfacePlan).
 			std::vector<surface::Plan> m_surface_plans;
 			int m_total_surface_samples = 0;
 		};
 		struct ShapeCacheKey
 		{
 			collision::Shape const* m_shape;
-			int m_polytope_tessellation;
 			float m_surface_spacing;
-			float m_volume_spacing;
 
 			friend bool operator ==(ShapeCacheKey const&, ShapeCacheKey const&) = default;
 		};
@@ -312,22 +226,19 @@ namespace pr::physics
 			std::size_t operator()(ShapeCacheKey const& key) const noexcept
 			{
 				auto hash = std::hash<collision::Shape const*>{}(key.m_shape);
-				hash ^= std::hash<int>{}(key.m_polytope_tessellation) + 0x9e3779b9U + (hash << 6) + (hash >> 2);
-				hash ^= std::hash<float>{}(key.m_volume_spacing) + 0x9e3779b9U + (hash << 6) + (hash >> 2);
 				return hash ^ (std::hash<float>{}(key.m_surface_spacing) + 0x9e3779b9U + (hash << 6) + (hash >> 2));
 			}
 		};
 		struct CompositeSlot
 		{
 			// Per-target registration state. Expensive shape-derived data is shared; only identity,
-			// lifetime, deterministic sample seeding, target resolution, and rigid-body wake state remain per target.
+			// lifetime, target resolution, and rigid-body wake state remain per target.
 			int m_generation = -1;
 			bool m_active = false;
 			RigidBody* m_body = nullptr;
 			Articulation* m_articulation = nullptr;
 			LinkHandle m_link = {};
 			bool m_prev_never_sleep = false;
-			uint32_t m_hull_id = 0;
 			multicast::AutoSub m_shape_change_sub;
 			std::shared_ptr<CompositeShape const> m_shape_data;
 		};
@@ -347,7 +258,6 @@ namespace pr::physics
 			int m_body_index;
 			int m_body_generation;
 			int m_body_step_index;
-			uint32_t m_hull_id;
 			int m_shape_index;
 		};
 		struct ActiveShape
@@ -363,7 +273,6 @@ namespace pr::physics
 		};
 		struct ActiveHullStats
 		{
-			int m_max_volume_samples;
 			int m_max_surface_samples;
 		};
 
@@ -378,12 +287,6 @@ namespace pr::physics
 		struct DispatchAddresses
 		{
 			GpuAddress m_water_field;
-			GpuAddress m_volume_headers;
-			GpuAddress m_volume_primitives;
-			GpuAddress m_volume_records;
-			GpuAddress m_volume_verts;
-			GpuAddress m_tets;
-			GpuAddress m_tet_cdf;
 			GpuAddress m_face_planes;
 			GpuAddress m_surface_headers;
 			GpuAddress m_surface_primitives;
@@ -399,8 +302,6 @@ namespace pr::physics
 		bool m_supports_rigid_bodies;
 
 		// Immutable compute pipelines and the engine subscription used to append buoyancy work to each GPU step.
-		::pr::compute::ComputeStep m_volume_step;
-		::pr::compute::ComputeStep m_volume_reduce_step;
 		::pr::compute::ComputeStep m_surface_step;
 		::pr::compute::ComputeStep m_surface_reduce_step;
 		multicast::AutoSub m_external_force_sub;
@@ -420,7 +321,7 @@ namespace pr::physics
 		std::vector<PendingDiagnostic> m_pending_diagnostics;
 		::pr::compute::GpuReadbackBuffer::Allocation m_pending_readback;
 
-		// Grow-only GPU outputs shared by the volume and surface passes. They are recreated only when a
+		// Grow-only GPU outputs of the sample and reduce passes. They are recreated only when a
 		// dispatch exceeds the largest hull/group population seen previously.
 		D3DPtr<ID3D12Resource> m_r_partials;
 		D3DPtr<ID3D12Resource> m_r_diagnostics;
@@ -439,8 +340,6 @@ namespace pr::physics
 			,m_step_index_resolver(std::move(step_index_resolver))
 			,m_body_state_resolver(std::move(body_state_resolver))
 			,m_supports_rigid_bodies(supports_rigid_bodies)
-			,m_volume_step(CreateVolumeStep(device))
-			,m_volume_reduce_step(CreateVolumeReduceStep(device))
 			,m_surface_step(CreateSurfaceStep(device))
 			,m_surface_reduce_step(CreateSurfaceReduceStep(device))
 			,m_external_force_sub(engine.ExternalForces += [this](Engine& sender, Engine::ExternalForceArgs const& args)
@@ -511,49 +410,34 @@ namespace pr::physics
 		}
 
 		// Return shared derived data for a collision shape, creating it once per shape pointer and
-		// tessellation, surface-spacing and volume-spacing settings. Weak cache entries do not extend the source shape's lifetime.
+		// surface-spacing setting. Weak cache entries do not extend the source shape's lifetime.
 		std::shared_ptr<CompositeShape const> GetOrCreateCompositeShape(collision::Shape const& shape)
 		{
-			auto const key = ShapeCacheKey{ &shape, m_config.m_polytope_tessellation, m_config.m_surface_spacing, m_config.m_volume_spacing };
+			auto const key = ShapeCacheKey{ &shape, m_config.m_surface_spacing };
 			if (auto iter = m_shape_cache.find(key); iter != m_shape_cache.end())
 			{
 				if (auto existing = iter->second.lock())
 					return existing;
 			}
 
-			auto flattened = buoyancy::FlattenShape(shape, m_config.m_polytope_tessellation);
+			auto flattened = buoyancy::FlattenShape(shape);
 			if (flattened.Empty())
 				throw std::runtime_error("Composite buoyancy hull contains no primitives");
 
+			// Build the surface plans in the same primitive order as the flattened GPU descriptors, rejecting an unrepresentable
+			// hull before registration. The largest cell of each primitive bounds how far above the water a wet sample can be.
 			auto const prims = buoyancy::CollectPrimitives(shape);
-			auto volumes = std::vector<float>(prims.size(), 0.0f);
-			for (std::size_t k = 0; k != prims.size(); ++k)
-			{
-				volumes[k] = buoyancy::PrimitiveVolume(*prims[k]);
-			}
-
-			// Build the volume plan in the same primitive order as the flattened GPU descriptors. Counts follow each primitive's volume
-			// so the sample spacing, rather than the sample count, is the same for every hull.
-			auto vol_counts = buoyancy::VolumeSampleCounts(volumes, m_config.m_volume_spacing);
-			auto vol_dvol = std::vector<float>(prims.size(), 0.0f);
-			auto total_volume_samples = 0;
-			auto max_cell_height = 0.0f;
-			for (std::size_t k = 0; k != prims.size(); ++k)
-			{
-				auto const count = vol_counts[k];
-				vol_dvol[k] = count > 0 ? volumes[k] / static_cast<float>(count) : 0.0f;
-				max_cell_height = std::max(max_cell_height, buoyancy::VolumeCellHeight(vol_dvol[k]));
-				total_volume_samples += count;
-			}
-
-			// Derive surface counts from coverage, rejecting an unrepresentable hull before registration.
 			auto surface_plans = std::vector<surface::Plan>(prims.size());
+			auto half_cell_heights = std::vector<float>(prims.size(), 0.0f);
 			auto total_surface_samples = 0;
 			for (std::size_t k = 0; k != prims.size(); ++k)
 			{
-				surface_plans[k] = surface::BuildPlan(*prims[k], m_config.m_surface_spacing);
+				surface_plans[k] = buoyancy::BuildSurfacePlan(*prims[k], m_config.m_surface_spacing);
 				if (surface_plans[k].m_count > surface::MaxSampleCount - total_surface_samples)
 					throw std::runtime_error("Buoyancy surface hull exceeds representable sample count");
+
+				for (uint32_t i = 0; i != surface_plans[k].m_count; ++i)
+					half_cell_heights[k] = std::max(half_cell_heights[k], 0.5f * std::sqrt(surface::EmitSurfaceSample(surface_plans[k], i).m_darea));
 
 				total_surface_samples += static_cast<int>(surface_plans[k].m_count);
 			}
@@ -563,11 +447,9 @@ namespace pr::physics
 
 			auto data = std::make_shared<CompositeShape>();
 			data->m_hull = std::move(flattened);
-			data->m_vol_counts = std::move(vol_counts);
-			data->m_vol_dvol = std::move(vol_dvol);
-			data->m_total_volume_samples = total_volume_samples;
 			data->m_eps = std::max(1e-6f, extent * 1e-5f);
-			data->m_max_half_cell_height = 0.5f * max_cell_height;
+			data->m_max_half_cell_height = std::ranges::max(half_cell_heights);
+			data->m_half_cell_heights = std::move(half_cell_heights);
 			data->m_obb_os = bbox;
 			data->m_surface_plans = std::move(surface_plans);
 			data->m_total_surface_samples = total_surface_samples;
@@ -641,7 +523,6 @@ namespace pr::physics
 
 			slot.m_generation = body_generation;
 			slot.m_active = true;
-			slot.m_hull_id = static_cast<uint32_t>(body_index);
 			slot.m_shape_data = std::move(shape_data);
 			slot.m_shape_change_sub = std::move(shape_change_sub);
 
@@ -728,7 +609,6 @@ namespace pr::physics
 			slot.m_active = true;
 			slot.m_articulation = &articulation;
 			slot.m_link = link;
-			slot.m_hull_id = static_cast<uint32_t>(body_index);
 			slot.m_shape_data = std::move(shape_data);
 		}
 
@@ -816,7 +696,6 @@ namespace pr::physics
 		void SetConfig(Config const& config)
 		{
 			surface::ValidateSpacing(config.m_surface_spacing);
-			buoyancy::ValidateVolumeSpacing(config.m_volume_spacing);
 			if (!std::isfinite(config.m_fluid_density) || config.m_fluid_density < 0.0f)
 			{
 				throw std::runtime_error("GpuBuoyancy fluid density must be a finite, non-negative value");
@@ -844,10 +723,6 @@ namespace pr::physics
 			if (!std::isfinite(config.m_radiation_damping) || config.m_radiation_damping < 0.0f)
 			{
 				throw std::runtime_error("GpuBuoyancy radiation damping must be a finite, non-negative value");
-			}
-			if (config.m_polytope_tessellation == 0)
-			{
-				throw std::runtime_error("GpuBuoyancy polytope tessellation must select the face fan (negative) or a positive grid resolution");
 			}
 
 			m_config = config;
@@ -906,15 +781,15 @@ namespace pr::physics
 			m_pending_diagnostics.clear();
 			m_pending_readback = {};
 
-			// All buoyancy now flows through the sampled-composite volume/surface dispatch.
+			// All buoyancy flows through the sampled-composite surface dispatch.
 			DispatchComposite(args);
 		}
 
 		// Host-side dry broadphase cull. Returns true when the body's registration-time AABB lies entirely
 		// above the water field's maximum height measured along the body's local up (-gravity) axis. The
-		// AABB encloses every primitive and the GPU wet test is 'height along up < water height', so every
-		// volume and surface sample is guaranteed dry and the body contributes exactly zero buoyancy and
-		// drag - bit-identical to the GPU readback (which fast-paths dry boxes/spheres and produces all-dry
+		// AABB encloses every primitive and a surface cell is only wet while its sample is less than half a cell
+		// height above the water, so every sample is guaranteed dry and the body contributes exactly zero buoyancy
+		// and drag - bit-identical to the GPU readback (which fast-paths dry boxes/spheres and produces all-dry
 		// samples for polytopes and triangles).
 		bool IsFullyDry(CompositeShape const& shape_data, BodyState const& bs) const
 		{
@@ -943,7 +818,7 @@ namespace pr::physics
 
 			// Strict margin: the band [level, level+margin] still produces zero on the GPU (its
 			// per-primitive dry fast-path / all-dry samples), so a positive margin is always safe and
-			// avoids host/GPU float divergence right at the waterline. The half cell height covers volume
+			// avoids host/GPU float divergence right at the waterline. The half cell height covers surface
 			// samples whose cells are partly wet while their centres are above the surface.
 			auto const margin = std::max(shape_data.m_eps, 1e-4f) + shape_data.m_max_half_cell_height;
 			return lowest > WaterMaxHeight() + margin;
@@ -1052,55 +927,14 @@ namespace pr::physics
 					.m_body_index = body_index,
 					.m_body_generation = slot.m_generation,
 					.m_body_step_index = body_step_index,
-					.m_hull_id = slot.m_hull_id,
 					.m_shape_index = shape_index,
 				});
-				stats.m_max_volume_samples = std::max(stats.m_max_volume_samples, slot.m_shape_data->m_total_volume_samples);
 				stats.m_max_surface_samples = std::max(stats.m_max_surface_samples, slot.m_shape_data->m_total_surface_samples);
 			}
 			return stats;
 		}
 
-		// Record volume sampling followed by reduction into the ordinary body force accumulators.
-		void RecordVolumePass(Engine::ExternalForceArgs const& args, CBufGpuBuoyancy const& cb, DispatchAddresses const& addresses)
-		{
-			// Evaluate all volume samples into one partial record per hull/threadgroup. Root parameter
-			// order must match CreateVolumeStep: b0, u0(bodies), t1(water field), t2(headers), t3(prims),
-			// t4(volume_verts), t5(tets), t6(face_planes), t7(records), t12(tet_cdf), u1(partials).
-			args.m_job.m_cmd_list.SetPipelineState(m_volume_step.m_pso.get());
-			args.m_job.m_cmd_list.SetComputeRootSignature(m_volume_step.m_sig.get());
-			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
-			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_water_field);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_volume_headers);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_volume_primitives);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_volume_verts);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_tets);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_face_planes);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_volume_records);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_tet_cdf);
-			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials);
-			args.m_job.m_cmd_list.Dispatch(cb.m_hull_count * cb.m_groups_per_hull, 1, 1);
-			args.m_job.m_barriers.UAV(m_r_partials.get()).Commit();
-
-			// Reduce per-threadgroup partials to one body force/torque accumulation. Diagnostic output
-			// is optional, but its dummy UAV remains bound to keep one root-signature layout.
-			args.m_job.m_cmd_list.SetPipelineState(m_volume_reduce_step.m_pso.get());
-			args.m_job.m_cmd_list.SetComputeRootSignature(m_volume_reduce_step.m_sig.get());
-			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
-			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_volume_headers);
-			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials);
-			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diagnostics);
-			args.m_job.m_cmd_list.Dispatch(cb.m_hull_count, 1, 1);
-			args.m_job.m_barriers.UAV(args.m_bodies);
-			if (cb.m_enable_diagnostics != 0)
-				args.m_job.m_barriers.UAV(m_r_diagnostics.get());
-
-			args.m_job.m_barriers.Commit();
-		}
-
-		// Record surface sampling followed by reduction that adds drag to the volume-pass result.
+		// Record surface sampling followed by reduction into the ordinary body force accumulators and the implicit solve.
 		void RecordSurfacePass(Engine::ExternalForceArgs const& args, CBufGpuBuoyancy const& cb, DispatchAddresses const& addresses)
 		{
 			// Evaluate all surface samples into one partial record per hull/threadgroup. Root parameter
@@ -1121,14 +955,13 @@ namespace pr::physics
 			args.m_job.m_cmd_list.Dispatch(cb.m_groups_per_hull, cb.m_hull_count, 1);
 			args.m_job.m_barriers.UAV(m_r_partials.get()).Commit();
 
-			// Reduce the surface partials and add drag to the body and existing diagnostic. Root parameter
-			// order must match CreateSurfaceReduceStep: b0, u0(bodies), t1(water field), t8(surf_headers),
-			// u1(partials), u2(diagnostics).
+			// Reduce the surface partials into the body and diagnostic. Root parameter order must match
+			// CreateSurfaceReduceStep: b0, u0(bodies), t8(surf_headers), u1(partials), u2(diagnostics). Diagnostic
+			// output is optional, but its dummy UAV remains bound to keep one root-signature layout.
 			args.m_job.m_cmd_list.SetPipelineState(m_surface_reduce_step.m_pso.get());
 			args.m_job.m_cmd_list.SetComputeRootSignature(m_surface_reduce_step.m_sig.get());
 			args.m_job.m_cmd_list.AddComputeRoot32BitConstants(cb);
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(args.m_bodies);
-			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_water_field);
 			args.m_job.m_cmd_list.AddComputeRootShaderResourceView(addresses.m_surface_headers);
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_partials);
 			args.m_job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_diagnostics);
@@ -1149,7 +982,7 @@ namespace pr::physics
 			args.m_job.m_barriers.Transition(m_r_diagnostics.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS).Commit();
 		}
 
-		// Prepare transient inputs and record the volume, optional drag, and diagnostic readback phases.
+		// Prepare transient inputs and record the surface pass and the diagnostic readback.
 		void DispatchComposite(Engine::ExternalForceArgs const& args)
 		{
 			if (args.m_body_count == 0)
@@ -1168,39 +1001,26 @@ namespace pr::physics
 
 			// Groups are laid out [hull0 groups][hull1 groups]..., with a UNIFORM group count per hull
 			// (the kernel derives the hull from global_group_index / groups_per_hull). Size it for the
-			// busiest hull, capped at one partial per reduce thread; additional volume samples stream through
-			// the same threads so the configured count is never truncated.
-			auto const groups_per_hull = std::clamp((active_stats.m_max_volume_samples + BuoyancyVolumeThreadCount - 1) / BuoyancyVolumeThreadCount, 1, BuoyancyVolumeReduceThreadCount);
+			// busiest hull, capped at one partial per reduce thread; additional samples stream through
+			// the same threads so the registered count is never truncated.
+			auto const groups_per_hull = std::clamp((active_stats.m_max_surface_samples + BuoyancySampleThreadCount - 1) / BuoyancySampleThreadCount, 1, BuoyancyReduceThreadCount);
+			if (hull_count > 65535)
+				throw std::runtime_error("Buoyancy hull population exceeds the dispatch dimension");
 
-			// Surface counts follow coverage rather than a sample budget. Additional samples stream through
-			// the same threads, keeping partial storage within the reducer's capacity without losing samples.
-			auto const surf_groups_per_hull = std::clamp((active_stats.m_max_surface_samples + BuoyancyVolumeThreadCount - 1) / BuoyancyVolumeThreadCount, 1, BuoyancyVolumeReduceThreadCount);
-
-			// Surface threads stream additional ordinals; only partial-reduction storage is bounded.
-			if (hull_count > 65535 / groups_per_hull)
-				throw std::runtime_error("Buoyancy hull population exceeds the volume dispatch dimension");
-
-			// The partials buffer holds the larger of the two sample passes' partials, followed by one record per hull that carries
-			// the volume pass's implicit-solve terms to the surface reduce (the surface sample pass overwrites the partials before it).
-			auto const jacobian_base = hull_count * std::max(groups_per_hull, surf_groups_per_hull);
 			EnsureGpuCapacity(
 				args.m_job,
-				jacobian_base + hull_count,
+				hull_count * groups_per_hull,
 				m_config.m_enable_diagnostics ? hull_count : 1);
 
 			// Phase 2: sum geometry sizes across unique active collision shapes. Bodies sharing a shape
 			// point at the same primitive block, so immutable data is uploaded only once per dispatch.
 			// Each upload uses at least one element because empty arrays still need a valid address.
 			auto total_prims = 0;
-			auto total_volume_verts = 0;
-			auto total_tets = 0;
 			auto total_face_planes = 0;
 			auto total_patches = uint64_t{0};
 			for (auto const& active_shape : m_active_shapes)
 			{
 				total_prims += static_cast<int>(active_shape.m_shape_data->m_hull.m_primitives.size());
-				total_volume_verts += static_cast<int>(active_shape.m_shape_data->m_hull.m_volume_verts.size());
-				total_tets += static_cast<int>(active_shape.m_shape_data->m_hull.m_tets.size());
 				total_face_planes += static_cast<int>(active_shape.m_shape_data->m_hull.m_face_planes.size());
 				for (auto const& plan : active_shape.m_shape_data->m_surface_plans)
 					total_patches += plan.m_patches.size();
@@ -1208,39 +1028,21 @@ namespace pr::physics
 			if (total_patches > static_cast<uint64_t>(std::numeric_limits<int>::max()) / sizeof(surface::SurfacePatch))
 				throw std::runtime_error("Buoyancy surface patch upload exceeds addressable buffer size");
 
-			auto upload_headers = args.m_job.m_upload.template Alloc<GpuBuoyVolHeader>(hull_count);
-			auto upload_prims = args.m_job.m_upload.template Alloc<buoyancy::GpuPrimitive>(std::max(total_prims, 1));
-			auto upload_records = args.m_job.m_upload.template Alloc<GpuBuoyVolPrimRecord>(std::max(total_prims, 1));
-			auto upload_volume_verts = args.m_job.m_upload.template Alloc<v4>(std::max(total_volume_verts, 1));
-			auto upload_tets = args.m_job.m_upload.template Alloc<iv4>(std::max(total_tets, 1));
-			auto upload_tet_cdf = args.m_job.m_upload.template Alloc<float>(std::max(total_tets, 1));
 			auto upload_face_planes = args.m_job.m_upload.template Alloc<v4>(std::max(total_face_planes, 1));
-
-			// Surface emission reads compact patches; a separate primitive copy supplies transforms and
-			// containment planes without changing the volume pass's geometry offsets.
 			auto upload_surf_headers = args.m_job.m_upload.template Alloc<GpuBuoySurfHeader>(hull_count);
 			auto upload_surf_prims = args.m_job.m_upload.template Alloc<buoyancy::GpuPrimitive>(std::max(total_prims, 1));
 			auto upload_surf_records = args.m_job.m_upload.template Alloc<GpuBuoySurfPrimRecord>(std::max(total_prims, 1));
 			auto upload_patches = args.m_job.m_upload.template Alloc<surface::SurfacePatch>(std::max(static_cast<int>(total_patches), 1));
 
-			auto headers = upload_headers.ptr<GpuBuoyVolHeader>();
-			auto prims = upload_prims.ptr<buoyancy::GpuPrimitive>();
-			auto records = upload_records.ptr<GpuBuoyVolPrimRecord>();
-			auto volume_verts = upload_volume_verts.ptr<v4>();
-			auto tets = upload_tets.ptr<iv4>();
-			auto tet_cdf = upload_tet_cdf.ptr<float>();
 			auto face_planes = upload_face_planes.ptr<v4>();
-
 			auto surf_headers = upload_surf_headers.ptr<GpuBuoySurfHeader>();
 			auto surf_prims = upload_surf_prims.ptr<buoyancy::GpuPrimitive>();
 			auto surf_records = upload_surf_records.ptr<GpuBuoySurfPrimRecord>();
 			auto patches = upload_patches.ptr<surface::SurfacePatch>();
 
 			// Phase 3: concatenate each unique shape's geometry and sample records into shared buffers.
-			// Tet-corner and face-vertex indices remain relative to each primitive's vertex block.
+			// Face-vertex indices remain relative to each primitive's vertex block.
 			auto prim_base = 0;
-			auto vvert_base = 0;
-			auto tet_base = 0;
 			auto face_base = 0;
 			auto patch_base = 0;
 			for (auto& active_shape : m_active_shapes)
@@ -1251,57 +1053,33 @@ namespace pr::physics
 				active_shape.m_prim_base = prim_base;
 				active_shape.m_prim_count = prim_count;
 
-				for (auto i = 0; i != static_cast<int>(hull.m_volume_verts.size()); ++i)
-					volume_verts[vvert_base + i] = hull.m_volume_verts[i];
-				for (auto i = 0; i != static_cast<int>(hull.m_tets.size()); ++i)
-				{
-					tets[tet_base + i] = hull.m_tets[i];
-					tet_cdf[tet_base + i] = hull.m_tet_cdf[i];
-				}
 				for (auto i = 0; i != static_cast<int>(hull.m_face_planes.size()); ++i)
 					face_planes[face_base + i] = hull.m_face_planes[i];
 
 				for (auto k = 0; k != prim_count; ++k)
 				{
-					// Copy the primitive descriptor and shift its absolute array offsets into the shared
-					// buffers. m_vert_ofs is left unchanged: the surface-vertex array is not bound for the
-					// volume pass, so its offset is unused here.
+					// Copy the primitive descriptor and shift its face offset into the shared face-plane buffer. m_vert_ofs is
+					// left unchanged: the surface-vertex array is not bound, so its offset is unused here.
 					auto p = hull.m_primitives[k];
-					p.m_volume_vert_ofs += vvert_base;
-					p.m_tet_ofs += tet_base;
 					p.m_face_ofs += face_base;
-					prims[prim_base + k] = p;
-
-					records[prim_base + k] = GpuBuoyVolPrimRecord{
-						.m_count = shape_data.m_vol_counts[k],
-						.m_dvol = shape_data.m_vol_dvol[k],
-						.m_cell_height = buoyancy::VolumeCellHeight(shape_data.m_vol_dvol[k]),
-						.m_pad = 0.0f,
-					};
-
-					// The shared face-plane buffer keeps sibling containment identical in both passes.
-					auto sp = hull.m_primitives[k];
-					sp.m_face_ofs += face_base;
-					surf_prims[prim_base + k] = sp;
+					surf_prims[prim_base + k] = p;
 
 					surf_records[prim_base + k] = GpuBuoySurfPrimRecord{
 						.m_count = static_cast<int>(shape_data.m_surface_plans[k].m_count),
 						.m_patch_begin = patch_base,
 						.m_patch_count = static_cast<int>(shape_data.m_surface_plans[k].m_patches.size()),
-						.m_pad = 0,
+						.m_half_cell_height = shape_data.m_half_cell_heights[k],
 					};
 					for (auto const& patch : shape_data.m_surface_plans[k].m_patches)
 						patches[patch_base++] = patch;
 				}
 
 				prim_base += prim_count;
-				vvert_base += static_cast<int>(hull.m_volume_verts.size());
-				tet_base += static_cast<int>(hull.m_tets.size());
 				face_base += static_cast<int>(hull.m_face_planes.size());
 			}
 
-			// Phase 4: emit per-body headers that reference the shared shape blocks. Body index,
-			// generation, and deterministic hull seed remain distinct for each registration.
+			// Phase 4: emit per-body headers that reference the shared shape blocks. Body index and
+			// generation remain distinct for each registration.
 			assert(!m_config.m_enable_diagnostics || m_pending_diagnostics.capacity() >= m_composite_hulls.size());
 			for (auto index = 0; index != hull_count; ++index)
 			{
@@ -1309,25 +1087,15 @@ namespace pr::physics
 				auto const& active_shape = m_active_shapes[active_hull.m_shape_index];
 				auto const& shape_data = *active_shape.m_shape_data;
 
-				headers[index] = GpuBuoyVolHeader{
-					.m_body_index = active_hull.m_body_step_index,
-					.m_prim_base = active_shape.m_prim_base,
-					.m_prim_count = active_shape.m_prim_count,
-					.m_total_volume_samples = shape_data.m_total_volume_samples,
-					.m_hull_id = active_hull.m_hull_id,
-					.m_eps = shape_data.m_eps,
-					.m_pad0 = 0,
-					.m_pad1 = 0,
-				};
 				surf_headers[index] = GpuBuoySurfHeader{
 					.m_body_index = active_hull.m_body_step_index,
 					.m_prim_base = active_shape.m_prim_base,
 					.m_prim_count = active_shape.m_prim_count,
 					.m_total_surface_samples = shape_data.m_total_surface_samples,
-					.m_hull_id = active_hull.m_hull_id,
 					.m_eps = shape_data.m_eps,
 					.m_pad0 = 0,
 					.m_pad1 = 0,
+					.m_pad2 = 0,
 				};
 				if (m_config.m_enable_diagnostics)
 				{
@@ -1338,7 +1106,7 @@ namespace pr::physics
 				}
 			}
 
-			// Phase 5: finish the transient inputs with the active water field. The volume kernel needs
+			// Phase 5: finish the transient inputs with the active water field. The sample kernel needs
 			// t1 bound even for a flat field, so always allocate and zero at least one element.
 			auto const water_elements = m_water_field.Elements();
 			auto const water_field_count = static_cast<int>(water_elements.size());
@@ -1349,12 +1117,6 @@ namespace pr::physics
 
 			auto const addresses = DispatchAddresses{
 				.m_water_field = upload_water_field,
-				.m_volume_headers = upload_headers,
-				.m_volume_primitives = upload_prims,
-				.m_volume_records = upload_records,
-				.m_volume_verts = upload_volume_verts,
-				.m_tets = upload_tets,
-				.m_tet_cdf = upload_tet_cdf,
 				.m_face_planes = upload_face_planes,
 				.m_surface_headers = upload_surf_headers,
 				.m_surface_primitives = upload_surf_prims,
@@ -1362,19 +1124,13 @@ namespace pr::physics
 				.m_surface_patches = upload_patches,
 			};
 
-			// Translational and rotational damping share the wet-volume samples but have independent
-			// rho/tau coefficients. Quadratic drag remains disabled in this pass.
+			// Translational and rotational damping act on the wet water columns with independent rho/tau coefficients.
 			auto const linear_drag_coefficient = m_config.m_linear_drag_time_constant_s > 0.0f
 				? m_config.m_fluid_density / m_config.m_linear_drag_time_constant_s
 				: 0.0f;
 			auto const angular_drag_coefficient = m_config.m_angular_drag_time_constant_s > 0.0f
 				? m_config.m_fluid_density / m_config.m_angular_drag_time_constant_s
 				: 0.0f;
-
-			// Surface drag runs only when either drag coefficient is enabled. The last reduce to run applies the implicit solve.
-			auto const surf_quad_coefficient = std::max(0.0f, m_config.m_quadratic_drag_coefficient);
-			auto const surf_tangent_coefficient = std::max(0.0f, m_config.m_tangential_drag_coefficient);
-			auto const have_surface_pass = (surf_quad_coefficient > 0.0f || surf_tangent_coefficient > 0.0f) && active_stats.m_max_surface_samples > 0;
 
 			auto const cb = CBufGpuBuoyancy{
 				.m_hull_count = hull_count,
@@ -1386,48 +1142,17 @@ namespace pr::physics
 				.m_fluid_density = m_config.m_fluid_density,
 				.m_linear_drag_coefficient = linear_drag_coefficient,
 				.m_angular_drag_coefficient = angular_drag_coefficient,
-				.m_quadratic_drag_coefficient = 0.0f,
-				.m_tangential_drag_coefficient = 0.0f,
+				.m_quadratic_drag_coefficient = m_config.m_quadratic_drag_coefficient,
+				.m_tangential_drag_coefficient = m_config.m_tangential_drag_coefficient,
 				.m_added_mass_coefficient = m_config.m_added_mass_coefficient,
 				.m_radiation_damping = m_config.m_radiation_damping,
 				.m_time_step_s = args.m_dt,
 				.m_enable_diagnostics = m_config.m_enable_diagnostics ? 1 : 0,
-				.m_jacobian_base = jacobian_base,
-				.m_final_reduce = have_surface_pass ? 0 : 1,
+				.m_pad0 = 0,
 			};
 
-			// Phase 6: sample displaced volume and reduce it into each body's force/torque accumulators.
-			RecordVolumePass(args, cb, addresses);
-
-			// Phase 7: optionally sample surface drag. This reuses the per-threadgroup partials buffer (sized above for the
-			// larger of the volume / surface group counts) and runs AFTER the volume reduce so it can
-			// ADD drag force/torque onto the body accumulator and the existing diagnostic record. The
-			// cbuffer carries the surface group count and both surface-drag coefficients. Skip the
-			// surface pass when both are disabled, even if linear damping is active.
-			if (have_surface_pass)
-			{
-				auto const cb_surf = CBufGpuBuoyancy{
-					.m_hull_count = hull_count,
-					.m_groups_per_hull = surf_groups_per_hull,
-					.m_water_field_count = water_field_count,
-					.m_time_s = static_cast<float>(args.m_time_s),
-					.m_water_level = static_cast<float>(m_water_field.Level()),
-					.m_water_max_height = WaterMaxHeight(),
-					.m_fluid_density = m_config.m_fluid_density,
-					.m_linear_drag_coefficient = 0.0f,
-					.m_angular_drag_coefficient = 0.0f,
-					.m_quadratic_drag_coefficient = surf_quad_coefficient,
-					.m_tangential_drag_coefficient = surf_tangent_coefficient,
-					.m_added_mass_coefficient = 0.0f,
-					.m_radiation_damping = m_config.m_radiation_damping,
-					.m_time_step_s = args.m_dt,
-					.m_enable_diagnostics = m_config.m_enable_diagnostics ? 1 : 0,
-					.m_jacobian_base = jacobian_base,
-					.m_final_reduce = 1,
-				};
-
-				RecordSurfacePass(args, cb_surf, addresses);
-			}
+			// Phase 6: sample the wet surface and reduce it into each body's force/torque accumulators.
+			RecordSurfacePass(args, cb, addresses);
 
 			// Diagnostic publication is opt-in and only the final substep is observable after the frame's single wait.
 			// Production force application does not allocate or record this diagnostic transfer.
@@ -1435,10 +1160,9 @@ namespace pr::physics
 				RecordDiagnosticReadback(args, hull_count);
 		}
 
-		// Resize GPU buffers used by the diagnostic dispatches. 'partial_capacity' is the number of
-		// per-threadgroup partial records the volume pass will write and 'diagnostic_capacity'
-		// is the number of per-hull diagnostic records the reduce pass will write. The volume and
-		// surface dispatches both route through here so the buffers grow to the larger demand.
+		// Resize GPU buffers used by the buoyancy dispatches. 'partial_capacity' is the number of
+		// per-threadgroup partial records the sample pass will write and 'diagnostic_capacity'
+		// is the number of per-hull diagnostic records the reduce pass will write.
 		void EnsureGpuCapacity(GpuJob& job, int partial_capacity, int diagnostic_capacity)
 		{
 			if (partial_capacity > m_partial_capacity)
