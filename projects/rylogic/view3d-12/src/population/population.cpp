@@ -10,6 +10,7 @@
 #include "pr/view3d-12/material/material_pass.h"
 #include "pr/view3d-12/material/components/shader_overlays.h"
 #include "pr/view3d-12/shaders/shader.h"
+#include "pr/view3d-12/shaders/shader_procedural.h"
 
 namespace pr::rdr12
 {
@@ -129,8 +130,9 @@ namespace pr::rdr12
 			return Dot(n, bbox.Centre().w0()) + plane.w + Dot(Abs(n), bbox.Radius().w0()) >= 0;
 		}
 
-		// Reject materials that population draws cannot honour. Population draws are opaque, so blended transparency is not supported,
-		// and vertices are placed by the stock population vertex shaders, so forward and shadow vertex shader overlays are not supported. Alpha testing is supported.
+		// Reject materials that population draws cannot honour. Population draws are opaque, so blended transparency is not supported. Alpha testing is supported.
+		// Forward and shadow overlays must keep the stock root signature, because it holds the population bindings. Their vertex shaders must come from
+		// procedural overlays, which are written for the population contract; other vertex shader overlays do not place vertices at instances.
 		void ValidateMaterials(Population::Proxy const& proxy, Model const& model)
 		{
 			// Check every nugget, including dependents.
@@ -144,13 +146,17 @@ namespace pr::rdr12
 					if (pass != nullptr && pass->RequiresAlpha(proxy.m_base, material, nug))
 						throw std::invalid_argument(std::format("Population model '{}' has a material that requires alpha blending", model.m_name));
 
-					// Vertex shader overlays would replace the population vertex shaders of the forward and shadow passes
+					// Only the forward and shadow passes draw populations
 					if (auto const* overlays = material.Component<materials::ShaderOverlays>())
 					{
 						for (auto const& entry : overlays->m_overlays)
 						{
-							if ((entry.m_rdr_step == ERenderStep::RenderForward || entry.m_rdr_step == ERenderStep::ShadowMap) && entry.m_overlay->m_code.VS)
-								throw std::invalid_argument(std::format("Population model '{}' has a material with a forward or shadow vertex shader overlay", model.m_name));
+							if (entry.m_rdr_step != ERenderStep::RenderForward && entry.m_rdr_step != ERenderStep::ShadowMap)
+								continue;
+							if (entry.m_overlay->m_signature)
+								throw std::invalid_argument(std::format("Population model '{}' has a material with a forward or shadow overlay that replaces the root signature", model.m_name));
+							if (entry.m_overlay->m_code.VS && dynamic_cast<ProceduralShader const*>(entry.m_overlay.get()) == nullptr)
+								throw std::invalid_argument(std::format("Population model '{}' has a material with a non-procedural forward or shadow vertex shader overlay", model.m_name));
 						}
 					}
 				}
@@ -922,6 +928,22 @@ namespace pr::rdr12
 				fn(dep);
 			}
 		}
+	}
+
+	// Return the overlay whose vertex shader 'material' applies for 'step', or null if the stock vertex shader is used.
+	Shader const* PopulationVertexOverlay(Material const& material, ERenderStep step)
+	{
+		// Overlays are applied in order, so the last vertex shader overlay for the step is the one in effect
+		Shader const* result = nullptr;
+		if (auto const* overlays = material.Component<materials::ShaderOverlays>())
+		{
+			for (auto const& entry : overlays->m_overlays)
+			{
+				if (entry.m_rdr_step == step && entry.m_overlay->m_code.VS)
+					result = entry.m_overlay.get();
+			}
+		}
+		return result;
 	}
 
 	// Describe the view of 'cam' rendered into a viewport 'viewport_height' pixels high.

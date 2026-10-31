@@ -3,7 +3,7 @@
 
 namespace render_tests
 {
-	// Create one copied procedural vertex shader through the public descriptor.
+	// Create one copied procedural vertex shader through the public descriptor (see render_test_support.h)
 	api::Shader ProceduralVertexShader(api::ERenderStep rdr_step, unsigned char const* bytecode, size_t bytecode_size, ProceduralVertexConstants const& constants)
 	{
 		// Supply only the bounded stage, bytecode, constants, and diagnostic name owned by this ABI.

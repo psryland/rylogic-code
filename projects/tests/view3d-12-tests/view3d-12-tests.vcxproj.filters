@@ -107,6 +107,15 @@
     <ShaderBuild Include="src\view3d-12\shaders\hlsl\population_producer.hlsl">
       <Filter>view3d-12\shaders</Filter>
     </ShaderBuild>
+    <ShaderBuild Include="src\view3d-12\shaders\hlsl\population_procedural_forward.hlsl">
+      <Filter>view3d-12\shaders</Filter>
+    </ShaderBuild>
+    <ShaderBuild Include="src\view3d-12\shaders\hlsl\population_procedural_shadow.hlsl">
+      <Filter>view3d-12\shaders</Filter>
+    </ShaderBuild>
+    <None Include="src\view3d-12\shaders\hlsl\population_procedural_common.hlsli">
+      <Filter>view3d-12\shaders</Filter>
+    </None>
     <ShaderBuild Include="src\view3d-12\shaders\hlsl\fade_vertex.hlsl">
       <Filter>view3d-12\shaders</Filter>
     </ShaderBuild>

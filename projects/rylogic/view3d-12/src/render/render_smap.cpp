@@ -279,7 +279,7 @@ namespace pr::rdr12
 		for (auto pop : scn().Populations())
 		{
 			// Populations without active blocks draw nothing
-			auto caster = PopulationCaster{ .m_pop = pop, .m_blocks = {}, .m_hash = HashSeed, .m_views = 0 };
+			auto caster = PopulationCaster{ .m_pop = pop, .m_blocks = {}, .m_hash = HashSeed, .m_views = 0, .m_volatile = false };
 			auto revision = pop->ActiveBlocks([&](BBox const& bbox)
 			{
 				// Record the block for view selection, and include it in the casters
@@ -300,6 +300,13 @@ namespace pr::rdr12
 			{
 				HashPtr(h, lod.m_model.get());
 				HashWord(h, lod.m_model->m_revision);
+
+				// Custom shadow vertex shaders can change the geometry without any change to the population, in the same way as for ordinary nuggets
+				PopulationNuggets(*lod.m_model.get(), ERenderStep::ShadowMap, [&](Nugget const& nug)
+				{
+					if (PopulationVertexOverlay(nug.mat(), ERenderStep::ShadowMap) != nullptr)
+						caster.m_volatile = true;
+				});
 			}
 			if (proto.m_draw_distance > 0)
 				HashMix(h, range_origin);
@@ -388,7 +395,8 @@ namespace pr::rdr12
 				forced |= mask;
 		}
 
-		// Add each population to the content of the views that can see one of its active blocks
+		// Add each population to the content of the views that can see one of its active blocks. As for elements, views that see a population
+		// with a custom shadow vertex shader are always rendered.
 		for (auto& caster : m_casters)
 		{
 			// Find the views that can see the population
@@ -401,6 +409,8 @@ namespace pr::rdr12
 					HashWord(hashes[v], caster.m_hash);
 				}
 			}
+			if (caster.m_volatile)
+				forced |= caster.m_views;
 		}
 
 		// Compare with the content already in the atlas
@@ -698,11 +708,18 @@ namespace pr::rdr12
 							last_sam = {};
 						}
 
-						// Population admission rejects shadow vertex shader overlays, so only the stock shadow vertex shader is expected here
-						if (desc.Get<EPipeState::VS>().pShaderBytecode != shader_code::shadow_map_vs.pShaderBytecode)
-							throw std::logic_error("Population shadow draw has a vertex shader without a population variant");
+						// Procedural vertex shader overlays (accepted by population admission) place population vertices themselves, so they are kept.
+						// The stock shadow vertex shader is swapped for its population variant.
+						auto vs = desc.Get<EPipeState::VS>().pShaderBytecode;
+						auto const* overlay = PopulationVertexOverlay(material, m_step_id);
+						if (overlay == nullptr || vs != overlay->m_code.VS.pShaderBytecode)
+						{
+							// Only the stock shadow vertex shader has a population variant
+							if (vs != shader_code::shadow_map_vs.pShaderBytecode)
+								throw std::logic_error("Population shadow draw has a vertex shader without a population variant");
 
-						desc.Apply(PSO<EPipeState::VS>(shader_code::shadow_map_population_vs));
+							desc.Apply(PSO<EPipeState::VS>(shader_code::shadow_map_population_vs));
+						}
 						desc.Apply(PSO<EPipeState::DepthClipEnable>(clamp_depth ? FALSE : TRUE));
 
 						// Bind the instance records and visible lists. The payload slot needs a valid address, so it aliases the instance records when there is no payload.

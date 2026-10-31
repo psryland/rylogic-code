@@ -58,6 +58,106 @@ namespace render_tests
 		View3D_PopulationProduce(population, compiled::population_producer, sizeof(compiled::population_producer), &constants, sizeof(constants), std::max(groups, 1), 1, 1);
 	}
 
+	// Replace the default directional light with a single shadow casting point light at 'position'. Returns the light index.
+	int PopulationShadowLightAdd(Fixture& fixture, api::Vec4 position)
+	{
+		// Turn off the default light and ambient so only the point light lights the scene
+		auto main_light = View3D_LightGet(fixture.m_window, 0);
+		main_light.m_on = FALSE;
+		View3D_LightSet(fixture.m_window, 0, main_light);
+		View3D_AmbientSet(fixture.m_window, 0xFF000000);
+
+		// A wide spot cone pointing into the scene, with a range that covers all test geometry
+		auto light = api::Light{};
+		light.m_type = api::ELight::Point;
+		light.m_position = position;
+		light.m_direction = api::Vec4{0, 0, -1, 0};
+		light.m_diffuse = 0xFFFFFFFF;
+		light.m_specular = 0xFF000000;
+		light.m_specular_power = 1;
+		light.m_intensity = 1;
+		light.m_range = 500;
+		light.m_falloff = 0;
+		light.m_inner_angle = 0.5f;
+		light.m_outer_angle = 1.2f;
+		light.m_cast_shadow = 1.0f;
+		light.m_cam_relative = FALSE;
+		light.m_on = TRUE;
+		auto light_index = View3D_LightAdd(fixture.m_window, light);
+		fixture.CheckErrors();
+		return light_index;
+	}
+
+	// Render with cached shadow views, and require the result to match a render without caching, so stale cached views fail with 'message'
+	std::vector<unsigned char> CachedShadowImage(Fixture& fixture, char const* message)
+	{
+		// Two cached renders, so the second reuses the cached views when nothing changed
+		auto settings = View3D_ShadowSettingsGet(fixture.m_window);
+		settings.m_cache_views = TRUE;
+		View3D_ShadowSettingsSet(fixture.m_window, settings);
+		fixture.Image();
+		auto cached = fixture.Image();
+
+		// The uncached reference
+		settings.m_cache_views = FALSE;
+		View3D_ShadowSettingsSet(fixture.m_window, settings);
+		auto uncached = fixture.Image();
+		fixture.CheckErrors();
+		Require(ImageDifference(cached, uncached) == 0, message);
+		return cached;
+	}
+
+	// Create a population LOD that generates a 10x10 quad from SV_VertexID in procedural forward and shadow shaders.
+	// The quad is moved by the offset in 'm_positions[0]' of the procedural constants, which can change without re-publishing the population.
+	api::Object PopulationProceduralQuad(Fixture& fixture)
+	{
+		// Forward and shadow shaders share the constants, so one update moves the quad in both passes
+		auto constants = ProceduralVertexConstants{
+			.m_positions = { api::Vec4{0, 0, 0, 0}, api::Vec4{}, api::Vec4{} },
+			.m_colour = api::Vec4{1, 1, 1, 1},
+		};
+		auto forward = ProceduralVertexShader(api::ERenderStep::ForwardRender, compiled::population_procedural_forward, sizeof(compiled::population_procedural_forward), constants);
+		auto shadow = ProceduralVertexShader(api::ERenderStep::ShadowMap, compiled::population_procedural_shadow, sizeof(compiled::population_procedural_shadow), constants);
+		Require(forward != nullptr && shadow != nullptr, "Population procedural shader creation failed");
+		fixture.m_shaders.push_back(forward);
+		fixture.m_shaders.push_back(shadow);
+
+		// Vertex IDs 0..3 select the quad corners. The bounds include every offset the tests use.
+		auto placeholder = api::Vertex{};
+		uint32_t indices[] = {0, 1, 2, 0, 2, 3};
+		auto nugget = api::Nugget{};
+		nugget.m_topo = api::ETopo::TriList;
+		nugget.m_geom = api::EGeom::Vert;
+		nugget.m_v0 = 0;
+		nugget.m_v1 = 1;
+		nugget.m_cull_mode = api::ECullMode::None;
+		nugget.m_tint = 0xFFFFFFFF;
+		nugget.m_shaders[0] = api::Nugget::Shader{forward, api::ERenderStep::ForwardRender, 0};
+		nugget.m_shaders[1] = api::Nugget::Shader{shadow, api::ERenderStep::ShadowMap, 0};
+		auto options = api::ObjectCreateOptions{
+			.m_struct_size = sizeof(api::ObjectCreateOptions),
+			.m_version = api::ObjectCreateOptions::CurrentVersion,
+			.m_vertex_source = api::EVertexSource::ProceduralVertexId,
+			.m_vcount_logical = 4,
+			.m_bbox = api::BBox{ .centre = {0, 0, 0, 1}, .radius = {30, 5, 1, 0} },
+		};
+		auto object = View3D_ObjectCreateU32("PopulationProceduralQuad", 0xFFFFFFFF, 1, 6, 1, &placeholder, indices, &nugget, options, GUID{});
+		Require(object != nullptr, "Population procedural quad creation failed");
+		fixture.m_objects.push_back(object);
+		return object;
+	}
+
+	// Set the offset of a 'PopulationProceduralQuad'
+	void PopulationProceduralOffset(api::Object object, float x, float y, float z)
+	{
+		// Every procedural shader on the object reads the same constants
+		auto constants = ProceduralVertexConstants{
+			.m_positions = { api::Vec4{x, y, z, 0}, api::Vec4{}, api::Vec4{} },
+			.m_colour = api::Vec4{1, 1, 1, 1},
+		};
+		View3D_ObjectProceduralConstantsSet(object, &constants, sizeof(constants));
+	}
+
 	// Verify GPU-culled population rendering: block live counts, instance flags, draw distance, and scene removal
 	void PopulationTests(int samples)
 	{
@@ -164,45 +264,11 @@ namespace render_tests
 		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0));
 		auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 4, 1, 0));
 		Require(population != nullptr, "Population creation failed");
-
-		// Replace the default directional light with a single shadow casting point light
-		auto main_light = View3D_LightGet(fixture.m_window, 0);
-		main_light.m_on = FALSE;
-		View3D_LightSet(fixture.m_window, 0, main_light);
-		View3D_AmbientSet(fixture.m_window, 0xFF000000);
-		auto light = api::Light{};
-		light.m_type = api::ELight::Point;
-		light.m_position = api::Vec4{30, 0, -20, 1};
-		light.m_direction = api::Vec4{0, 0, -1, 0};
-		light.m_diffuse = 0xFFFFFFFF;
-		light.m_specular = 0xFF000000;
-		light.m_specular_power = 1;
-		light.m_intensity = 1;
-		light.m_range = 500;
-		light.m_falloff = 0;
-		light.m_inner_angle = 0.5f;
-		light.m_outer_angle = 1.2f;
-		light.m_cast_shadow = 1.0f;
-		light.m_cam_relative = FALSE;
-		light.m_on = TRUE;
-		auto light_index = View3D_LightAdd(fixture.m_window, light);
-		fixture.CheckErrors();
-
-		// Render with cached shadow views, then check that the result matches a render without caching, so stale views are detected
-		auto settings = View3D_ShadowSettingsGet(fixture.m_window);
+		auto light_index = PopulationShadowLightAdd(fixture, api::Vec4{30, 0, -20, 1});
 		auto image = [&](char const* message)
 		{
-			// Two cached renders, so the second reuses the cached views when nothing changed
-			settings.m_cache_views = TRUE;
-			View3D_ShadowSettingsSet(fixture.m_window, settings);
-			fixture.Image();
-			auto cached = fixture.Image();
-			settings.m_cache_views = FALSE;
-			View3D_ShadowSettingsSet(fixture.m_window, settings);
-			auto uncached = fixture.Image();
-			fixture.CheckErrors();
-			Require(ImageDifference(cached, uncached) == 0, message);
-			return cached;
+			// Every image in this test checks the cached shadow views against an uncached render
+			return CachedShadowImage(fixture, message);
 		};
 		auto left_shadow = [](std::vector<unsigned char> const& img) { return RegionRed(img, 18, 34, 56, 72); };
 		auto right_shadow = [](std::vector<unsigned char> const& img) { return RegionRed(img, 80, 100, 56, 72); };
@@ -228,6 +294,7 @@ namespace render_tests
 
 		// A caster outside the camera view still casts a shadow into the view. With the light at (100,0,-20), an instance at x = 60
 		// shades the receiver over x in [10,30]. The block moves with the instance, so the shadow follows an instance update.
+		auto light = View3D_LightGet(fixture.m_window, light_index);
 		light.m_position = api::Vec4{100, 0, -20, 1};
 		View3D_LightSet(fixture.m_window, light_index, light);
 		View3D_PopulationBlockRemove(population.get(), 0);
@@ -576,6 +643,75 @@ namespace render_tests
 		fixture.CheckDebugLayer();
 		std::cout << "PASS population visibility and LOD selection match the CPU reference (" << stats.m_entries_emitted << " entries)\n";
 	}
+
+	// Verify procedural vertex shaders on population LODs: per-vertex deformation from procedural constants in the forward and shadow passes,
+	// and shadow views that follow constant changes without a population update.
+	void PopulationProceduralVertexTests(int samples)
+	{
+		// A red instance at (-30,0,-50). The orthographic camera maps world x in [-50,50] to pixels [0,128].
+		{
+			Fixture fixture(samples);
+			auto quad = PopulationProceduralQuad(fixture);
+			auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
+			auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0));
+			auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 4, 1, 0));
+			Require(population != nullptr, "Population with a procedural vertex LOD was rejected");
+			auto instance = PopulationInstanceAt(-30, 0, -50, 0xFFFF0000);
+			View3D_PopulationInstancesUpdate(population.get(), 0, &instance, 1);
+			View3D_PopulationBlockSet(population.get(), 0, api::BBox{ .centre = {-20, 0, -50, 1}, .radius = {20, 10, 10, 0} }, 0, 4, 1);
+			View3D_WindowAddPopulation(fixture.m_window, population.get());
+			fixture.CheckErrors();
+			{
+				auto image = fixture.Image();
+				Expect(image, 1, 0, 0, 26, 64);
+				Expect(image, 0, 0, 0, 51, 64);
+			}
+
+			// Moving the generated vertices by 20 units moves the instance to world x = -10, near pixel 51
+			PopulationProceduralOffset(quad, 20, 0, 0);
+			fixture.CheckErrors();
+			{
+				auto image = fixture.Image();
+				Expect(image, 0, 0, 0, 26, 64);
+				Expect(image, 1, 0, 0, 51, 64);
+			}
+			fixture.CheckDebugLayer();
+		}
+
+		// A lit receiver at depth 60 and a caster instance at (60,0,-40), outside the camera view. With the light at (100,0,-20), a caster at x = c
+		// shades the receiver over x in [2c-110, 2c-90]: pixels [80,100] for c = 60, and pixels [56,72] for c = 50.
+		{
+			Fixture fixture(samples);
+			auto receiver = fixture.Quad(60, 0xFFFFFFFF, 45, nullptr, 0, 0xFFFFFFFF, false, true);
+			(void)receiver;
+			PopulationShadowLightAdd(fixture, api::Vec4{100, 0, -20, 1});
+			auto middle_shadow = [](std::vector<unsigned char> const& img) { return RegionRed(img, 56, 72, 56, 72); };
+			auto right_shadow = [](std::vector<unsigned char> const& img) { return RegionRed(img, 80, 100, 56, 72); };
+			auto lit = CachedShadowImage(fixture, "Cached shadow views differ without casters");
+
+			// The procedural caster casts a shadow
+			auto quad = PopulationProceduralQuad(fixture);
+			auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
+			auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0));
+			auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 4, 1, 0));
+			Require(population != nullptr, "Population with a procedural vertex LOD was rejected");
+			auto instance = PopulationInstanceAt(60, 0, -40, 0xFFFFFFFF);
+			View3D_PopulationInstancesUpdate(population.get(), 0, &instance, 1);
+			View3D_PopulationBlockSet(population.get(), 0, api::BBox{ .centre = {55, 0, -40, 1}, .radius = {15, 10, 10, 0} }, 0, 4, 1);
+			View3D_WindowAddPopulation(fixture.m_window, population.get());
+			auto shadowed = CachedShadowImage(fixture, "Cached shadow views missed a procedural population");
+			Require(right_shadow(shadowed) < 0.5f * right_shadow(lit), "Procedural population shadow missing");
+			Require(std::abs(middle_shadow(shadowed) - middle_shadow(lit)) < 0.02f, "Procedural population shadow darkened a region the caster cannot shade");
+
+			// Changing only the procedural constants moves the shadow, and cached shadow views follow the change
+			PopulationProceduralOffset(quad, -10, 0, 0);
+			auto moved = CachedShadowImage(fixture, "Cached shadow views missed a procedural constant change");
+			Require(middle_shadow(moved) < 0.5f * middle_shadow(lit), "Procedural population shadow did not follow the generated vertices");
+			Require(std::abs(right_shadow(moved) - right_shadow(lit)) < 0.02f, "Procedural population shadow remained at its old position");
+			fixture.CheckDebugLayer();
+		}
+		std::cout << "PASS population procedural vertex shaders in forward and shadow passes: MSAA " << samples << '\n';
+	}
 }
 
 namespace pr::unittests::view3d12
@@ -602,5 +738,10 @@ namespace pr::unittests::view3d12
 	PRUnitTest(View3d12_PopulationReference, Extended | Serial)
 	{
 		render_tests::PopulationReferenceTests();
+	}
+	PRUnitTest(View3d12_PopulationProceduralVertex, Extended | Serial)
+	{
+		render_tests::PopulationProceduralVertexTests(1);
+		render_tests::PopulationProceduralVertexTests(4);
 	}
 }
