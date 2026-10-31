@@ -521,9 +521,13 @@ namespace pr::rdr12
 		}
 		#endif
 
-		// Ensure the back buffer is available for rendering
-		m_gsync.Wait(bb_main.m_sync_point);
-		m_gsync.Wait(bb_post.m_sync_point);
+		// Ensure the back buffer is available for rendering. The swap chain buffer's sync point bounds the number of frames in flight to the
+		// buffer count. The MSAA target is shared by every frame, but all frames run in order on the graphics queue, so the CPU only waits
+		// for it when there is no swap chain buffer to bound the frames in flight.
+		if (bb_post.m_render_target != nullptr)
+			m_gsync.Wait(bb_post.m_sync_point);
+		else
+			m_gsync.Wait(bb_main.m_sync_point);
 
 		// Bind D2D to the current swap chain render target
 		if (AllSet(m_swap_chain_flags, DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE))
