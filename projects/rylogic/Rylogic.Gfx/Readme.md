@@ -135,8 +135,9 @@ population.BlockSet(0, bbox, first: 0, capacity: 64, live_count: 64); // Draws s
 window.AddPopulation(population);
 ```
 
-- **Ownership**: the LOD objects supply models only and are not added to a window. Remove the population from every window before disposing
-  it. Capacities are fixed at creation, and the caller chooses them; out-of-range blocks, slots, and payload ranges are rejected.
+- **Ownership**: the LOD objects supply models only and are not added to a window. The prototype keeps its own reference to the LOD models,
+  populations keep their prototype, and windows keep the populations they show, so `RemovePopulation` stops drawing and disposal order is free.
+  Capacities are fixed at creation, and the caller chooses them; out-of-range blocks, slots, and payload ranges are rejected.
 - **Blocks**: the CPU tests each active block's bounds against each view. The bounds must contain the bounding spheres of the block's live
   instances. Live instances of a block are contiguous, so changing a live count thins or grows a block without moving instances.
 - **Producers**: `Produce` queues a caller compute shader that writes instances, live counts, and payload on the GPU before the next frame's
