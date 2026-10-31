@@ -204,9 +204,11 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\constraint\constraint_desc.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\constraint\constraint_ids.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\constraint\constraint_set.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\atmosphere\air.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\atmosphere\atmosphere.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\buoyancy_primitives.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\gpu_buoyancy.h" />
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\wave_resistance.hlsli" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine_water.h" />
     <ClInclude Include="src\buoyancy\gpu_water_forces.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\diagnostics\body_history.h" />

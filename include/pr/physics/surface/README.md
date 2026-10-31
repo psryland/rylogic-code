@@ -118,7 +118,9 @@ Per wet cell, with `n` the outward normal and `depth_area` the wet area times th
   centre. The horizontal force is that column's share of the dynamic pressure gradient, `-rho g dvol (1 + Ca) grad_lateral`, and
   the column also carries the added mass `Ca rho dvol` and the linear/angular volume damping. Summing columns gives the wet
   volume and its centre, which are exact for a closed hull below a flat surface.
-- Tangential skin drag uses the wet area.
+- Tangential skin drag uses the wet area. Its coefficient (default 0.01) is a skin-friction value; it is not raised to stand in for the other drag terms.
+- Air form drag uses the same windward model and Cd on the dry part of each cell, relative to the still air set by `GpuBuoyancy::SetAir` (`physics::Air`, density 1.2 by default). Primitives entirely above the water are not evaluated, so this covers only floating bodies.
+  It matters for light bodies with a large area above the water. Primitives entirely above the water are not evaluated, so they feel no air drag.
 - The signed waterline stiffness is `rho g wet_area (-n . up)`.
 
 `BuoyancySampleDensityTests::SampleDensitySweep` (Extended | Stress) measures the floating behaviour (drop, tilt, push and wave
@@ -135,7 +137,7 @@ dispatch. Per-sample primitive selection and sibling containment retain the exis
 
 Buoyancy is applied with a linearly implicit step. Each sample adds its damping rates and waterline stiffness to per-hull
 moment sums, from which the reduce builds a coupled 6 x 6 (linear and angular) Jacobian. The body's force and torque are
-replaced by the effective values of solving `(I + (h (D + (h/2) K + beta K_heave) + M_a) M^-1) W_eff = W + predictor + F_rad`,
+replaced by the effective values of solving `(I + (h (D + (h/2) K + beta K_heave + C_wave) + M_a) M^-1) W_eff = W + predictor + F_rad + F_wave`,
 so stiff drag and buoyancy on light bodies cannot overshoot and launch the body. Diagnostics report the sampled wrench, before the implicit solve.
 
 The wave model includes the hydrodynamic terms that keep floating bodies on moving water:
@@ -149,6 +151,12 @@ The wave model includes the hydrodynamic terms that keep floating bodies on movi
 - Heave radiation damping (`m_radiation_damping`, default 1) models the energy a heaving body loses by making waves. The rate uses the
   long-wave estimate `B = rho omega^3 A^2 / (2g)`, from the hull's waterline stiffness and mass, and is applied implicitly along `up` only.
   Applying it to the rotational stiffness would turn small asymmetries in the sample layout into false spin.
+- Wave-making resistance (`m_wave_resistance`, default 1) is the drag a body feels from the waves it makes while moving through the water.
+  The hull's weight is treated as a Gaussian pressure patch on the surface, with spreads taken from the waterplane moments, and the
+  linear-theory resistance of a patch moving at speed `U` relative to the water under the hull is integrated by `WaveResistance` in
+  `pr/physics/buoyancy/wave_resistance.hlsli`. The force is zero for slow bodies, peaks when the made waves are about as long as the
+  hull (`U ~ sqrt(g L)`), and falls as `1/U^2` for fast bodies. It is applied implicitly as a horizontal damping `C_wave = R/U` about
+  the water velocity (`F_wave`), at the centre of mass. Linear theory overestimates the resistance of blunt hulls; the config scales it.
 
 Sibling-cull tests approximate discontinuous boundaries. An overlapping/abutting primitive seam can therefore have
 spacing-dependent quadrature error, and the linear wet-fraction model is an approximation for curved or tilted cells; exact

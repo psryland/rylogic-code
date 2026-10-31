@@ -575,6 +575,7 @@ namespace physics_sandbox
 			.m_angular_drag_time_constant_s = gpu_cfg.m_angular_drag_time_constant_s,
 			.m_quadratic_drag_coefficient = gpu_cfg.m_quadratic_drag_coefficient,
 			.m_tangential_drag_coefficient = gpu_cfg.m_tangential_drag_coefficient,
+			.m_air_density = m_gpu_buoyancy->GetAir().m_density,
 			.m_added_mass_coefficient = gpu_cfg.m_added_mass_coefficient,
 			.m_surface_spacing = gpu_cfg.m_surface_spacing,
 		};

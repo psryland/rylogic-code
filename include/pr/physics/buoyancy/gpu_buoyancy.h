@@ -5,6 +5,7 @@
 #pragma once
 #include "pr/physics/forward.h"
 #include "pr/physics/integrator/engine.h"
+#include "pr/physics/atmosphere/air.h"
 #include "pr/physics/buoyancy/buoyancy_primitives.h"
 #include "pr/physics/surface/surface_sampling.h"
 #include "pr/physics/terrain/water/water_field.h"
@@ -46,9 +47,10 @@ namespace pr::physics
 			// Tangential quadratic drag coefficient (dimensionless). This models unresolved surface
 			// shear independently of normal form drag:
 			//   dF_t = -0.5 * fluid_density * Ct * dA * |v_t| * v_t
-			// A modest value primarily resists fast sliding and tumbling without suppressing slow
-			// hydrostatic motion. Set to zero to disable tangential drag.
-			float m_tangential_drag_coefficient = 0.35f;
+			// The default is a typical skin-friction value for a smooth hull. Motion relative to the water is resisted mainly by
+			// the separately modelled form drag, added mass, wave radiation, wave-making resistance, and air drag, so Ct does not
+			// need to be raised to make up for them. Set to zero to disable tangential drag.
+			float m_tangential_drag_coefficient = 0.01f;
 
 			// Added-mass coefficient (dimensionless). A body cannot accelerate relative to the water without also accelerating the
 			// water around it. Each wet water column adds Ca * fluid_density * dV of translational inertia at the centre of mass,
@@ -62,6 +64,15 @@ namespace pr::physics
 			// damps the motion. For light bodies this damping is very strong, which is why they settle onto the water instead of
 			// bouncing on it. It is estimated from the waterline stiffness (see ApplyImplicitResponse in gpu_buoyancy.hlsl).
 			float m_radiation_damping = 1.0f;
+
+			// Scale of the steady wave-making resistance (dimensionless; 1 is the physical estimate, 0 disables it).
+			// A floating body moving horizontally relative to the surface water leaves a wake of waves behind it, and the energy
+			// they carry away resists the motion. The resistance is the linear-theory value for a pressure patch with the body's
+			// displaced weight and waterplane shape (see pr/physics/buoyancy/wave_resistance.hlsli). It is negligible for slow
+			// bodies, peaks when the body moves at about the speed of waves as long as its waterline, and falls at higher speeds.
+			// It stops light bodies from surfing down wave faces. Blunt hulls make less wave resistance than linear theory
+			// predicts, so values below 1 can be used for them.
+			float m_wave_resistance = 1.0f;
 
 			// Maximum surface-cell diameter in shape-local metres. Buoyancy and drag are both integrated over these cells.
 			// Small primitives are sampled more finely so each gets at least buoyancy::MinSurfaceSamplesPerPrimitive samples
@@ -174,6 +185,16 @@ namespace pr::physics
 
 		// Return the water field used by buoyancy force dispatches.
 		terrain::water::WaterField const& GetWaterField() const;
+
+		// Set the air above the water. The dry part of each surface cell of a body that touches the water feels the quadratic
+		// form drag (Config::m_quadratic_drag_coefficient) relative to this air. This is small for dense bodies but significant
+		// for light bodies with a large area, such as a beach ball. Primitives entirely above the highest water surface are not
+		// evaluated, so bodies flying clear of the water feel no air drag from this module. Takes effect on the next call to
+		// Engine::ExternalForces.
+		void SetAir(Air const& air);
+
+		// Return the air used by buoyancy force dispatches.
+		Air const& GetAir() const;
 
 		// Set the tunable buoyancy parameters. Fluid parameters take effect on the next call to
 		// Engine::ExternalForces; surface spacing applies to later registrations and shape refreshes.

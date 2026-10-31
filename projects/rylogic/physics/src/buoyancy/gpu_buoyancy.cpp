@@ -40,16 +40,17 @@ namespace pr::physics
 			float m_radiation_damping;
 			float m_time_step_s;
 			int m_enable_diagnostics;
-			int m_pad0;
+			float m_wave_resistance;
+			float m_air_density;
 		};
 		static_assert(sizeof(CBufGpuBuoyancy) % sizeof(uint32_t) == 0);
 
 		// Mirrors HLSL BuoyancySums; see gpu_buoyancy.hlsl for the meaning of each sum. The host only sizes the buffer.
 		struct GpuBuoyancyPartial
 		{
-			float m_sums[39];
+			float m_sums[42];
 		};
-		static_assert(sizeof(GpuBuoyancyPartial) == 156);
+		static_assert(sizeof(GpuBuoyancyPartial) == 168);
 
 		struct GpuBuoyancyDiagnostic
 		{
@@ -308,6 +309,7 @@ namespace pr::physics
 
 		// Runtime settings and registration-owned hull data. Hull slots are indexed by stable body index.
 		terrain::water::WaterField m_water_field;
+		Air m_air;
 		Config m_config;
 		std::unordered_map<ShapeCacheKey, std::weak_ptr<CompositeShape const>, ShapeCacheHash> m_shape_cache;
 		std::vector<CompositeSlot> m_composite_hulls;
@@ -683,6 +685,23 @@ namespace pr::physics
 			return m_water_field;
 		}
 
+		// Set the air above the water used by subsequent buoyancy force dispatches.
+		void SetAir(Air const& air)
+		{
+			if (!std::isfinite(air.m_density) || air.m_density < 0.0f)
+			{
+				throw std::invalid_argument("GpuBuoyancy air density must be a finite, non-negative value");
+			}
+
+			m_air = air;
+		}
+
+		// Return the air used by buoyancy force dispatches.
+		Air const& GetAir() const
+		{
+			return m_air;
+		}
+
 		// Return a float upper bound on every GPU-evaluated water height. The shader adds float element terms to a float level,
 		// so the double bound is widened by one ulp plus a relative rounding allowance per element before it is used as a dry test.
 		float WaterMaxHeight() const
@@ -723,6 +742,10 @@ namespace pr::physics
 			if (!std::isfinite(config.m_radiation_damping) || config.m_radiation_damping < 0.0f)
 			{
 				throw std::runtime_error("GpuBuoyancy radiation damping must be a finite, non-negative value");
+			}
+			if (!std::isfinite(config.m_wave_resistance) || config.m_wave_resistance < 0.0f)
+			{
+				throw std::runtime_error("GpuBuoyancy wave resistance must be a finite, non-negative value");
 			}
 
 			m_config = config;
@@ -1148,7 +1171,8 @@ namespace pr::physics
 				.m_radiation_damping = m_config.m_radiation_damping,
 				.m_time_step_s = args.m_dt,
 				.m_enable_diagnostics = m_config.m_enable_diagnostics ? 1 : 0,
-				.m_pad0 = 0,
+				.m_wave_resistance = m_config.m_wave_resistance,
+				.m_air_density = m_air.m_density,
 			};
 
 			// Phase 6: sample the wet surface and reduce it into each body's force/torque accumulators.
@@ -1322,6 +1346,18 @@ namespace pr::physics
 	terrain::water::WaterField const& GpuBuoyancy::GetWaterField() const
 	{
 		return m_impl->GetWaterField();
+	}
+
+	// Set the air above the water used by subsequent buoyancy force dispatches.
+	void GpuBuoyancy::SetAir(Air const& air)
+	{
+		m_impl->SetAir(air);
+	}
+
+	// Return the air used by buoyancy force dispatches.
+	Air const& GpuBuoyancy::GetAir() const
+	{
+		return m_impl->GetAir();
 	}
 
 	// Set the tunable buoyancy parameters used by subsequent dispatches.

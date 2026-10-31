@@ -251,6 +251,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\rigid_body\rigid_body.h">
       <Filter>src\rigid_body</Filter>
     </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\atmosphere\air.h">
+      <Filter>src\atmosphere</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\atmosphere\atmosphere.h">
       <Filter>src\atmosphere</Filter>
     </ClInclude>
@@ -264,6 +267,9 @@
       <Filter>src\buoyancy</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\gpu_buoyancy.h">
+      <Filter>src\buoyancy</Filter>
+    </ClInclude>
+    <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\wave_resistance.hlsli">
       <Filter>src\buoyancy</Filter>
     </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\physics\utility\field.h">

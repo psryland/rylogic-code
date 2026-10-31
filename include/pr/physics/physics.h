@@ -25,5 +25,6 @@
 #include "pr/physics/integrator/contact_priority.h"
 #include "pr/physics/buoyancy/gpu_buoyancy.h"
 #include "pr/physics/terrain/water/wave_spectrum.h"
+#include "pr/physics/atmosphere/air.h"
 #include "pr/physics/atmosphere/atmosphere.h"
 #include "pr/physics/utility/ldraw.h"

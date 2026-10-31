@@ -8,6 +8,7 @@
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/buoyancy/gpu_buoyancy.h"
 #include "pr/physics/buoyancy/buoyancy_sampler.h"
+#include "pr/physics/buoyancy/wave_resistance.hlsli"
 #include "pr/physics/shape/shape_builder.h"
 #include "pr/physics/terrain/water/wave_spectrum.h"
 #include "pr/physics/terrain/water/wind_sea.h"
@@ -50,6 +51,74 @@ namespace pr::physics::tests
 			check(+0.25f, true, 1.0f, v4{0.0f, 0.0f, -0.125f, 1.0f});
 			check(0.0f, true, 2.0f, v4{0.0f, 0.0f, -0.25f, 1.0f});
 			check(-1.0f, true, 4.0f, v4{0.0f, 0.0f, -1.0f, 1.0f});
+		}
+
+		// The quadrature of the wave-resistance integral matches a finely resolved reference for any patch shape.
+		PRUnitTestMethod(WaveResistanceIntegralMatchesReference, Quick)
+		{
+			// Reference: trapezoid rule in double precision over t = tan(theta), far beyond where the integrand vanishes.
+			auto reference = [](double a, double b)
+			{
+				// The integrand is 2*exp(-(1 + t^2)*(a^2 + b^2*t^2))*(1 + t^2)^(3/2), which decays to zero well before t = 100.
+				constexpr int count = 400000;
+				constexpr double t_end = 100.0;
+				auto const dt = t_end / count;
+				auto sum = 0.0;
+				for (int i = 0; i != count; ++i)
+				{
+					auto const t = (i + 0.5) * dt;
+					auto const s = 1.0 + t * t;
+					sum += std::exp(-s * (a * a + b * b * t * t)) * s * std::sqrt(s);
+				}
+				return 2.0 * sum * dt;
+			};
+			for (auto a : {0.05f, 0.3f, 1.0f, 2.0f, 4.0f})
+			{
+				for (auto b : {0.05f, 0.3f, 1.0f, 3.0f, 30.0f})
+				{
+					auto const expected = reference(a, b);
+					auto const actual = buoyancy::WaveResistanceIntegral(a, b);
+					PR_EXPECT(std::abs(actual - expected) <= 0.005 * expected);
+				}
+			}
+		}
+
+		// A wide patch makes the same waves as a line of 2D patches, whose resistance is known in closed form:
+		// I -> sqrt(pi) * exp(-a_along^2) / a_across as the patch becomes much wider than the waves it makes.
+		PRUnitTestMethod(WaveResistanceIntegralWidePatchLimit, Quick)
+		{
+			for (auto a : {0.5f, 1.0f, 2.0f})
+			{
+				auto const b = 200.0f;
+				auto const expected = std::sqrt(tau / 2.0f) * std::exp(-a * a) / b;
+				auto const actual = buoyancy::WaveResistanceIntegral(a, b);
+				PR_EXPECT(std::abs(actual - expected) <= 0.01f * expected);
+			}
+		}
+
+		// The resistance of a beach-ball sized patch vanishes at rest and at low speed, peaks near the speed of waves as long as
+		// the patch, and falls as 1/U^2 at high speed.
+		PRUnitTestMethod(WaveResistanceSpeedDependence, Quick)
+		{
+			// 0.06 kg displaced in fresh water by a waterplane of radius 0.055 m, whose Gaussian spread is half the radius.
+			auto const volume = 0.06f / 1000.0f;
+			auto const sigma = 0.0275f;
+			auto resistance = [=](float speed)
+			{
+				return buoyancy::WaveResistance(1000.0f, 9.81f, volume, speed, sigma, sigma);
+			};
+			PR_EXPECT(resistance(0.0f) == 0.0f);
+			PR_EXPECT(resistance(0.15f) == 0.0f);
+
+			// The peak is near U = sqrt(g*sigma) = 0.52 m/s, and is a sizable fraction of the displaced weight.
+			auto const hump = resistance(0.5f);
+			PR_EXPECT(resistance(0.3f) < 0.01f * hump);
+			PR_EXPECT(resistance(1.0f) < hump);
+			PR_EXPECT(hump > 0.1f * 0.06f * 9.81f);
+
+			// Far above the hump speed the patch acts like a point load, and doubling the speed quarters the resistance.
+			auto const ratio = resistance(10.0f) / resistance(20.0f);
+			PR_EXPECT(std::abs(ratio - 4.0f) < 0.2f);
 		}
 	};
 
@@ -608,6 +677,7 @@ namespace pr::physics::tests
 				.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 				.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
 				.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
+				.m_air_density = h.m_buoyancy.GetAir().m_density,
 				.m_added_mass_coefficient = config.m_added_mass_coefficient,
 				.m_surface_spacing = config.m_surface_spacing,
 			};
@@ -802,6 +872,7 @@ namespace pr::physics::tests
 				.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 				.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
 				.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
+				.m_air_density = h.m_buoyancy.GetAir().m_density,
 				.m_added_mass_coefficient = config.m_added_mass_coefficient,
 				.m_surface_spacing = config.m_surface_spacing,
 			};
@@ -871,6 +942,7 @@ namespace pr::physics::tests
 						.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 						.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
 						.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
+						.m_air_density = h.m_buoyancy.GetAir().m_density,
 						.m_added_mass_coefficient = config.m_added_mass_coefficient,
 						.m_surface_spacing = config.m_surface_spacing,
 							};

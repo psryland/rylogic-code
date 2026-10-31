@@ -603,6 +603,33 @@ namespace pr::physics::tests
 			PR_EXPECT(std::abs(r.m_drag_force_ws.z) < 0.05f * std::abs(expected_fx));
 		}
 
+		// Air drag on a half-submerged unit box translating at 2 m/s acts on the dry upper half of the +X face:
+		// F_x = -0.5*rho_air*Cd*(0.5 m^2)*v^2, in addition to the water drag on the lower half.
+		PRUnitTestMethod(AirDragOnDryArea, Extended)
+		{
+			auto box = ShapeBox(v4{1.0f, 1.0f, 1.0f, 0.0f});
+			auto body = BodyState{};
+			body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
+			body.m_vel_lin_ws = v4{2.0f, 0.0f, 0.0f, 0.0f};
+
+			// Compare with and without air so the difference isolates the air term.
+			auto const water = TestField{.m_level = 0.0f};
+			auto cfg = SamplerConfig{
+				.m_fluid_density = 1000.0f,
+				.m_quadratic_drag_coefficient = 1.0f,
+			};
+			auto const without_air = SampleHull(box.m_base, body, WaterFrame{}, water, cfg);
+			cfg.m_air_density = 1.2f;
+			auto const with_air = SampleHull(box.m_base, body, WaterFrame{}, water, cfg);
+
+			auto const expected_fx = -0.5f * cfg.m_air_density * cfg.m_quadratic_drag_coefficient * 0.5f * 4.0f;
+			auto const air_force = with_air.m_drag_force_ws - without_air.m_drag_force_ws;
+			PR_EXPECT(FEqlRelative(air_force.x, expected_fx, 0.05f));
+			PR_EXPECT(std::abs(air_force.y) < 0.05f * std::abs(expected_fx));
+			PR_EXPECT(std::abs(air_force.z) < 0.05f * std::abs(expected_fx));
+			PR_EXPECT(FEqlAbsolute(with_air.m_buoyancy_force_ws, without_air.m_buoyancy_force_ws, 1e-6f));
+		}
+
 		// Tangential drag on a translating fully submerged unit box acts on the four faces parallel to
 		// motion. Their combined area is 4 m^2, giving F_x = -0.5*rho*Ct*A_tangent*|v_t|*v_t.
 		PRUnitTestMethod(TangentialDragTranslation, Extended)

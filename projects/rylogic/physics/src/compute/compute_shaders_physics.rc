@@ -34,6 +34,7 @@ src/buoyancy/gpu_buoyancy.hlsl  TEXT DISCARDABLE "src/buoyancy/gpu_buoyancy.hlsl
 src/buoyancy/gpu_water_forces.hlsl TEXT DISCARDABLE "src/buoyancy/gpu_water_forces.hlsl"
 src/atmosphere/atmosphere.hlsl TEXT DISCARDABLE "src/atmosphere/atmosphere.hlsl"
 src/buoyancy/buoyancy_sampler.hlsli TEXT DISCARDABLE "src/buoyancy/buoyancy_sampler.hlsli"
+pr/physics/buoyancy/wave_resistance.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\buoyancy\\wave_resistance.hlsli"
 pr/physics/surface/surface_sampling.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\surface\\surface_sampling.hlsli"
 pr/physics/terrain/water/water_field_types.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\terrain\\water\\water_field_types.hlsli"
 pr/physics/terrain/water/water_field.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\terrain\\water\\water_field.hlsli"

@@ -1490,7 +1490,8 @@ namespace physics_sandbox::diag
 		if (
 			options.m_buoyancy_linear_drag_time_constant_s ||
 			options.m_buoyancy_angular_drag_time_constant_s ||
-			options.m_buoyancy_tangential_drag_coefficient)
+			options.m_buoyancy_tangential_drag_coefficient ||
+			options.m_buoyancy_wave_resistance)
 		{
 			if (!scene.m_gpu_buoyancy)
 				throw std::runtime_error("Scene diagnostic buoyancy overrides require a water scene");
@@ -1502,7 +1503,19 @@ namespace physics_sandbox::diag
 				config.m_angular_drag_time_constant_s = *options.m_buoyancy_angular_drag_time_constant_s;
 			if (options.m_buoyancy_tangential_drag_coefficient)
 				config.m_tangential_drag_coefficient = *options.m_buoyancy_tangential_drag_coefficient;
+			if (options.m_buoyancy_wave_resistance)
+				config.m_wave_resistance = *options.m_buoyancy_wave_resistance;
 			scene.m_gpu_buoyancy->SetConfig(config);
+		}
+		if (options.m_air_density)
+		{
+			// Air forces are currently applied only by the buoyancy module, to the dry parts of floating bodies.
+			if (!scene.m_gpu_buoyancy)
+				throw std::runtime_error("Scene diagnostic -air_density requires a water scene");
+
+			auto air = scene.m_gpu_buoyancy->GetAir();
+			air.m_density = *options.m_air_density;
+			scene.m_gpu_buoyancy->SetAir(air);
 		}
 		Emit(log, std::format(
 			"load_profile,total_ms={:.4f},prepare_ms={:.4f},bbox_ms={:.4f},shapes_ms={:.4f},bodies_ms={:.4f},buoyancy_ms={:.4f},bodies={},articulations={},constraints={},shapes={}\n",
@@ -1520,10 +1533,12 @@ namespace physics_sandbox::diag
 		{
 			auto const& config = scene.m_gpu_buoyancy->GetConfig();
 			Emit(log, std::format(
-				"buoyancy_config,linear_drag_time_constant_s={:.5f},angular_drag_time_constant_s={:.5f},tangential_drag_coefficient={:.5f}\n",
+				"buoyancy_config,linear_drag_time_constant_s={:.5f},angular_drag_time_constant_s={:.5f},tangential_drag_coefficient={:.5f},wave_resistance={:.5f},air_density={:.5f}\n",
 				config.m_linear_drag_time_constant_s,
 				config.m_angular_drag_time_constant_s,
-				config.m_tangential_drag_coefficient));
+				config.m_tangential_drag_coefficient,
+				config.m_wave_resistance,
+				scene.m_gpu_buoyancy->GetAir().m_density));
 		}
 		PrintPolytopeProfile(log, scene);
 		auto dzhanibekov_metric = options.m_dzhanibekov_metric ? CreateDzhanibekovMetric(scene) : DzhanibekovMetricState{};

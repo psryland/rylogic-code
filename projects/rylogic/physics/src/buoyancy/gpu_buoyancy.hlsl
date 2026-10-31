@@ -33,10 +33,12 @@ struct CBufGpuBuoyancy
 	float radiation_damping;        // scale of the wave-radiation damping applied by the implicit solve
 	float time_step_s;
 	int enable_diagnostics;
-	int pad0;
+	float wave_resistance;          // scale of the steady wave-making resistance applied by the implicit solve
+	float air_density;              // density of the still air acting on the dry part of each cell
 };
 
 #include "pr/physics/terrain/water/water_field.hlsli"
+#include "pr/physics/buoyancy/wave_resistance.hlsli"
 
 // One threadgroup's (or one hull's) sums over its samples. Each sample at offset r from the centre of mass contributes a
 // damping rate d that resists the velocity of its point, and partly wet samples contribute a waterline stiffness k that
@@ -44,7 +46,8 @@ struct CBufGpuBuoyancy
 // Jacobians of these terms (linear and angular, including the coupling between them) are exactly described by the moments
 // of d and k below, so the implicit solve does not need per-sample matrices.
 //   force_ws, torque_ws        - hydrodynamic force and torque about the body's centre of mass.
-//   moment_ws_volume           - (sum of centroid_ws*dV, sum of dV) over the wet water columns, for diagnostics only.
+//   moment_ws                  - sum of centroid_ws*dV over the wet water columns, for diagnostics only.
+//   volume                     - sum of dV over the wet water columns, which is the displaced volume (m^3).
 //   predictor                  - change in the waterline wrench over the step, linearised in the current relative velocity:
 //                                xyz = torque, w = force along up.
 //   damping_lin                - sum of d over damping that resists the body's linear velocity (N.s/m).
@@ -59,11 +62,14 @@ struct CBufGpuBuoyancy
 //                                treated as isotropic translational inertia at the centre of mass.
 //   heave_rate                 - sum of k*(rate the waterline rises out of the water due to the body's linear velocity) (N/s).
 //                                Radiation damping resists it.
+//   waterline_water_velocity   - sum of k*(water velocity) (N.s^-1). Divided by the stiffness, it is the mean water velocity under
+//                                the waterplane (over the wet surface projected onto it). The wave-making resistance is relative to it.
 struct BuoyancySums
 {
 	float3 force_ws;
 	float3 torque_ws;
-	float4 moment_ws_volume;
+	float3 moment_ws;
+	float volume;
 	float4 predictor;
 	float damping_lin;
 	float3 damping_lin_moment;
@@ -76,6 +82,7 @@ struct BuoyancySums
 	float3 stiffness_ss_off;
 	float added_mass;
 	float heave_rate;
+	float3 waterline_water_velocity;
 };
 
 struct GpuBuoyancyDiagnostic
@@ -188,9 +195,9 @@ float3x3 BuoyOuter(float3 a, float3 b)
 //   W(v + dv) ~= W + predictor - D*dv - (h/2)*K*dv
 // where v = (linear, angular) velocity, D is the 6x6 damping Jacobian and K the 6x6 waterline stiffness Jacobian, and finds the
 // effective wrench W_eff whose velocity change dv = h*M^-1*W_eff satisfies it:
-//   (I + (h*(D + (h/2)*K + beta*K_heave) + M_a)*M^-1)*W_eff = W + predictor + F_rad
-// where M_a is the added mass of the water that accelerates with the body (see BuoyancySums::added_mass), and beta*K_heave and
-// F_rad are the wave-radiation damping of heave (see below).
+//   (I + (h*(D + (h/2)*K + beta*K_heave + C_wave) + M_a)*M^-1)*W_eff = W + predictor + F_rad + F_wave
+// where M_a is the added mass of the water that accelerates with the body (see BuoyancySums::added_mass), beta*K_heave and
+// F_rad are the wave-radiation damping of heave, and C_wave and F_wave are the wave-making resistance (see below).
 // The (h^2/2) factor matches the integrator's position update, x' = x + h*v + (h/2)*dv. The predictor (-h*K*v_rel) is
 // required for stability: it accounts for the waterline moving during the step. Every other force in the accumulator,
 // including gravity, goes through the same solve, so the result is consistent at equilibrium (dv = 0 when the net force is 0).
@@ -231,14 +238,46 @@ void ApplyImplicitResponse(inout GpuRigidBody body, BuoyancySums terms)
 		heave_damping_force = -beta * terms.heave_rate;
 	}
 
-	// Assemble A = D + (h/2)*K + beta*K_heave in 3x3 blocks: a_fv is the force caused by linear velocity, a_fw the force caused by
+	// Wave-making resistance. A body moving horizontally relative to the surface water leaves a wake of waves behind it, and the energy
+	// they carry away resists the motion (see wave_resistance.hlsli). The body is modelled as a Gaussian pressure patch whose load is
+	// the displaced volume and whose shape has the second moments of the waterplane. The waterplane moments are stored for
+	// s = cross(r, up), and dot(s, cross(e, up)) = dot(r, e) for a horizontal direction e, so the spread along the motion uses
+	// cross(along, up) and the spread across it uses 'along' itself. The force acts horizontally at the centre of mass, against
+	// the velocity relative to the mean water velocity under the waterplane. It is applied through its secant damping rate R/U,
+	// so the implicit step reduces the relative speed without reversing it, like the quadratic drag.
+	float3x3 ss = build_symmetric_3x3(terms.stiffness_ss_diag, terms.stiffness_ss_off);
+	float wave_damping = 0.0f;
+	float3 wave_velocity = float3(0.0f, 0.0f, 0.0f);
+	if (g.wave_resistance > 0.0f && terms.stiffness > 0.0f && terms.volume > 0.0f && g.fluid_density > 0.0f)
+	{
+		float inv_stiffness = 1.0f / terms.stiffness;
+		wave_velocity = inv_mass * body.momentum_lin.xyz - terms.waterline_water_velocity * inv_stiffness;
+		wave_velocity -= dot(wave_velocity, up) * up;
+		float speed = length(wave_velocity);
+		if (speed > BUOY_TINY)
+		{
+			// Central second moments of the waterplane along and across the direction of motion. Wet cells facing up have
+			// negative weight, so a waterplane that is nearly awash can have no positive spread; it makes no waves.
+			float3 along = wave_velocity / speed;
+			float3 along_s = cross(along, up);
+			float3 centroid_s = terms.stiffness_moment * inv_stiffness;
+			float var_along = dot(along_s, mul(ss, along_s)) * inv_stiffness - dot(centroid_s, along_s) * dot(centroid_s, along_s);
+			float var_across = dot(along, mul(ss, along)) * inv_stiffness - dot(centroid_s, along) * dot(centroid_s, along);
+			if (var_along > 0.0f && var_across > 0.0f)
+			{
+				float resistance = WaveResistance(g.fluid_density, g_mag, terms.volume, speed, sqrt(var_along), sqrt(var_across));
+				wave_damping = g.wave_resistance * resistance / speed;
+			}
+		}
+	}
+
+	// Assemble A = D + (h/2)*K + beta*K_heave + C_wave in 3x3 blocks: a_fv is the force caused by linear velocity, a_fw the force caused by
 	// angular velocity, a_tv the torque caused by linear velocity, and a_tw the torque caused by angular velocity. A point at r moving
 	// with cross(w, r) has force -d*cross(w, r) = d*cross(r, w) and torque -d*cross(r, cross(w, r)) = -d*(|r|^2*I - r*r^T)*w.
 	float hk = 0.5f * h;
 	float3x3 identity = Identity3x3();
 	float3x3 rr = build_symmetric_3x3(terms.damping_ang_rr_diag, terms.damping_ang_rr_off);
-	float3x3 ss = build_symmetric_3x3(terms.stiffness_ss_diag, terms.stiffness_ss_off);
-	float3x3 a_fv = terms.damping_lin * identity + ((hk + beta) * terms.stiffness) * BuoyOuter(up, up);
+	float3x3 a_fv = terms.damping_lin * identity + ((hk + beta) * terms.stiffness) * BuoyOuter(up, up) + wave_damping * (identity - BuoyOuter(up, up));
 	float3x3 a_fw = -BuoySkew(terms.damping_ang_moment) + hk * BuoyOuter(up, terms.stiffness_moment);
 	float3x3 a_tv = BuoySkew(terms.damping_lin_moment) + hk * BuoyOuter(terms.stiffness_moment, up);
 	float3x3 a_tw = (rr._11 + rr._22 + rr._33) * identity - rr + hk * ss;
@@ -253,8 +292,8 @@ void ApplyImplicitResponse(inout GpuRigidBody body, BuoyancySums terms)
 
 	// Solve N*(force, torque) = (force', torque') by eliminating the force block. n_ff = I + (positive semi-definite) is
 	// always invertible, and so is its Schur complement because N's eigenvalues are at least one for physical damping.
-	// The radiation damping force is added along up.
-	float3 force = body.force_lin.xyz + (terms.predictor.w + heave_damping_force) * up;
+	// The radiation damping force is added along up, and the wave-making resistance horizontally.
+	float3 force = body.force_lin.xyz + (terms.predictor.w + heave_damping_force) * up - wave_damping * wave_velocity;
 	float3 torque = body.force_ang.xyz + terms.predictor.xyz;
 	float3x3 n_ff_inv = Invert(n_ff);
 	float3x3 schur = n_tt - mul(n_tf, mul(n_ff_inv, n_ft));
@@ -302,7 +341,8 @@ BuoyancySums AddSums(BuoyancySums a, BuoyancySums b)
 {
 	a.force_ws += b.force_ws;
 	a.torque_ws += b.torque_ws;
-	a.moment_ws_volume += b.moment_ws_volume;
+	a.moment_ws += b.moment_ws;
+	a.volume += b.volume;
 	a.predictor += b.predictor;
 	a.damping_lin += b.damping_lin;
 	a.damping_lin_moment += b.damping_lin_moment;
@@ -315,6 +355,7 @@ BuoyancySums AddSums(BuoyancySums a, BuoyancySums b)
 	a.stiffness_ss_off += b.stiffness_ss_off;
 	a.added_mass += b.added_mass;
 	a.heave_rate += b.heave_rate;
+	a.waterline_water_velocity += b.waterline_water_velocity;
 	return a;
 }
 
@@ -328,8 +369,9 @@ BuoyancySums ReduceGroup(BuoyancySums sums, uint thread_index, uint thread_count
 		sums.force_ws = WaveActiveSum(sums.force_ws);
 		sums.torque_ws = WaveActiveSum(sums.torque_ws);
 		if (g.enable_diagnostics != 0)
-			sums.moment_ws_volume = WaveActiveSum(sums.moment_ws_volume);
+			sums.moment_ws = WaveActiveSum(sums.moment_ws);
 
+		sums.volume = WaveActiveSum(sums.volume);
 		sums.predictor = WaveActiveSum(sums.predictor);
 		sums.damping_lin = WaveActiveSum(sums.damping_lin);
 		sums.damping_lin_moment = WaveActiveSum(sums.damping_lin_moment);
@@ -342,6 +384,7 @@ BuoyancySums ReduceGroup(BuoyancySums sums, uint thread_index, uint thread_count
 		sums.stiffness_ss_off = WaveActiveSum(sums.stiffness_ss_off);
 		sums.added_mass = WaveActiveSum(sums.added_mass);
 		sums.heave_rate = WaveActiveSum(sums.heave_rate);
+		sums.waterline_water_velocity = WaveActiveSum(sums.waterline_water_velocity);
 	}
 	uint lane_count = WaveGetLaneCount();
 	if (WaveIsFirstLane())
@@ -367,6 +410,7 @@ BuoyancySums ReduceGroup(BuoyancySums sums, uint thread_index, uint thread_count
 //     wave's lateral dynamic pressure, linear and angular volume damping, and the diagnostic wet volume,
 //   - the waterline stiffness, predictor and heave rate used by the implicit solve,
 //   - quadratic form drag on windward cells and tangential skin drag.
+// The dry part of each cell feels the same form drag from the still air.
 // The math mirrors the CPU oracle SampleHull (include/pr/physics/buoyancy/buoyancy_sampler.h).
 //
 // Sample indexing: groups are laid out [hull 0 groups][hull 1 groups]..., g.groups_per_hull groups per hull. Each thread
@@ -501,14 +545,27 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 							float4 hg = EvaluateWaterHeightAndPressureGradient(sample_ws.xy, g_mag);
 							float wet_fraction = BuoyWetFraction(signed_height, hg.x, cell_height);
 							float wet_weight = weight * wet_fraction;
+							float dry_weight = weight - wet_weight;
+							float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
+							float3 r = sample_ws - com_ws;
+							float3 v_point = s_body_linear_velocity_ws + cross(s_body_angular_velocity_ws, r);
+
+							// Air form drag on the dry part of the cell, which matters for light bodies with a large area above the water.
+							// It uses the water's windward model and coefficient, relative to still air.
+							float v_n_air = dot(v_point, normal_ws);
+							if (c_quad > 0.0f && g.air_density > 0.0f && dry_weight > 0.0f && v_n_air > 0.0f)
+							{
+								float d_air = 0.5f * g.air_density * c_quad * dry_weight * v_n_air;
+								float3 dF_air = -(d_air * v_n_air) * normal_ws;
+								sums.force_ws += dF_air;
+								sums.torque_ws += cross(r, dF_air);
+								AddPointDamping(sums, r, d_air, d_air);
+							}
+
 							if (wet_weight > 0.0f)
 							{
-								float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
-								float3 r = sample_ws - com_ws;
-
 								// Relative flow at the sample (body velocity minus wave-orbital water flow).
 								float3 water_velocity_ws = EvaluateWaterVelocity(sample_ws);
-								float3 v_point = s_body_linear_velocity_ws + cross(s_body_angular_velocity_ws, r);
 								float3 v_rel = v_point - water_velocity_ws;
 								float v_n = dot(v_rel, normal_ws);
 
@@ -573,8 +630,10 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 								AddWaterlineStiffness(sums, r_up, stiffness);
 								sums.predictor += float4(delta_force * r_up, delta_force);
 								sums.heave_rate += stiffness * (dot(s_body_linear_velocity_ws, surface_normal) - surface_rates.z);
+								sums.waterline_water_velocity += stiffness * water_velocity_ws;
+								sums.volume += dvol;
 								if (g.enable_diagnostics != 0)
-									sums.moment_ws_volume += float4((com_ws + r_col) * dvol, dvol);
+									sums.moment_ws += (com_ws + r_col) * dvol;
 
 								// Quadratic form drag acts only on faces moving outward into the fluid. The implicit solve uses
 								// its secant damping rate, 0.5*rho*Cd*dA*v_n (force / speed). For pure quadratic drag this makes
@@ -647,9 +706,9 @@ void CSBuoyancySurfaceReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
 		// Wet volume and centre of buoyancy are validation outputs and do not participate in force application.
 		if (g.enable_diagnostics != 0)
 		{
-			float volume = sums.moment_ws_volume.w;
+			float volume = sums.volume;
 			float has_volume = volume > BUOY_TINY ? 1.0f : 0.0f;
-			float3 centre_buoyancy_ws = has_volume != 0.0f ? sums.moment_ws_volume.xyz / volume : float3(0.0f, 0.0f, 0.0f);
+			float3 centre_buoyancy_ws = has_volume != 0.0f ? sums.moment_ws / volume : float3(0.0f, 0.0f, 0.0f);
 			g_diagnostics[hull_index].force_ws = float4(sums.force_ws, 0.0f);
 			g_diagnostics[hull_index].torque_ws = float4(sums.torque_ws, 0.0f);
 			g_diagnostics[hull_index].centre_buoyancy_ws = float4(centre_buoyancy_ws, has_volume);

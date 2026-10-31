@@ -18,7 +18,8 @@
 //    -n.up * (depth * wet area). The columns sum to the submerged volume, so they carry the volume
 //    terms: the wave's lateral pressure force, linear/angular volume damping, and the wet volume and
 //    centre of buoyancy diagnostics.
-//  - Quadratic form drag and tangential surface drag act on the same wet surface samples.
+//  - Quadratic form drag and tangential surface drag act on the same wet surface samples. The dry part of each cell feels
+//    form drag from the still air.
 //  - Overlap is deduplicated by sibling-cull: a surface sample lies on the union boundary iff its
 //    exterior side is outside every OTHER primitive, so it is dropped if any other sibling contains the
 //    slightly outward-offset point (or strictly contains the sample). This avoids counting
@@ -67,6 +68,7 @@ namespace pr::physics::buoyancy
 		float m_angular_drag_time_constant_s = 0.0f; // rotational water-column drag e-fold time; <= 0 disables it
 		float m_quadratic_drag_coefficient = 0.0f;  // form-drag Cd; <= 0 disables quadratic drag
 		float m_tangential_drag_coefficient = 0.0f; // surface-shear Ct; <= 0 disables tangential drag
+		float m_air_density = 0.0f;                 // kg/m^3; form drag on the dry part of each cell; <= 0 disables air drag
 		float m_added_mass_coefficient = 0.0f;      // Ca; the wave force becomes the Morison inertia force (1 + Ca)*rho*dV*a_fluid
 		float m_surface_spacing = DefaultSurfaceSpacing; // maximum surface cell diameter in shape-local units (see BuildSurfacePlan)
 	};
@@ -357,6 +359,19 @@ namespace pr::physics::buoyancy
 				auto const h = water.Height(uv);
 				auto const wet_fraction = CellWetFraction(signed_height, h, cell_height);
 				auto const wet_weight = sample.m_darea * wet_fraction;
+				auto const r = sample_ws - com_ws;
+				auto const v_point = body.m_vel_lin_ws + Cross(body.m_omega_ws, r);
+
+				// Air form drag on the dry part of the cell, using the water's windward model relative to still air.
+				auto const dry_weight = sample.m_darea - wet_weight;
+				auto const v_n_air = Dot3(v_point, normal_ws);
+				if (cfg.m_quadratic_drag_coefficient > 0.0f && cfg.m_air_density > 0.0f && dry_weight > 0.0f && v_n_air > 0.0f)
+				{
+					auto const dF_air = (-0.5f * cfg.m_air_density * cfg.m_quadratic_drag_coefficient * dry_weight * v_n_air * v_n_air) * normal_ws;
+					drag_force += dF_air;
+					drag_torque += Cross(r, dF_air);
+				}
+
 				if (wet_weight <= 0.0f)
 				{
 					if (debug)
@@ -366,7 +381,6 @@ namespace pr::physics::buoyancy
 
 				// Hydrostatic pressure acts along the inward normal on the wet part of the cell. A partly wet cell spans depths
 				// (depth +/- cell_height/2), so its wet part has mean depth (depth + cell_height/2)/2.
-				auto const r = sample_ws - com_ws;
 				auto const depth = h - signed_height;
 				auto const wet_depth = wet_fraction < 1.0f ? 0.5f * (depth + 0.5f * cell_height) : depth;
 				auto const depth_area = wet_weight * wet_depth;
@@ -410,7 +424,6 @@ namespace pr::physics::buoyancy
 				}
 
 				// Quadratic form drag acts only on faces moving outward into the fluid.
-				auto const v_point = body.m_vel_lin_ws + Cross(body.m_omega_ws, r);
 				auto const v_rel = v_point - water_velocity;
 				auto const v_n = Dot3(v_rel, normal_ws);
 				auto dF = v4::Zero();
