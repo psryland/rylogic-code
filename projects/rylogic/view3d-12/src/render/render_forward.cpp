@@ -685,14 +685,20 @@ namespace pr::rdr12
 			auto const* population = populations.empty() ? nullptr : &populations[s_cast<size_t>(&dle - drawlist.data())];
 			if (population != nullptr)
 			{
-				// Population admission rejects forward vertex shader overlays, so only the stock forward vertex shaders are expected here.
+				// Procedural vertex shader overlays (accepted by population admission) place population vertices themselves, so they are kept.
+				// Stock vertex shaders are swapped for their population variants.
 				auto vs = desc.Get<EPipeState::VS>().pShaderBytecode;
-				if (vs == shader_code::forward_vs.pShaderBytecode)
-					desc.Apply(PSO<EPipeState::VS>(shader_code::forward_population_vs));
-				else if (vs == shader_code::forward_texn_pbr_vs.pShaderBytecode)
-					desc.Apply(PSO<EPipeState::VS>(shader_code::forward_texn_population_vs));
-				else
-					throw std::logic_error("Population draw has a vertex shader without a population variant");
+				auto const* overlay = PopulationVertexOverlay(material, m_step_id);
+				if (overlay == nullptr || vs != overlay->m_code.VS.pShaderBytecode)
+				{
+					// Only stock vertex shaders have population variants
+					if (vs == shader_code::forward_vs.pShaderBytecode)
+						desc.Apply(PSO<EPipeState::VS>(shader_code::forward_population_vs));
+					else if (vs == shader_code::forward_texn_pbr_vs.pShaderBytecode)
+						desc.Apply(PSO<EPipeState::VS>(shader_code::forward_texn_population_vs));
+					else
+						throw std::logic_error("Population draw has a vertex shader without a population variant");
+				}
 
 				// The payload slot needs a valid address even when the population has no payload, so it aliases the instance records.
 				auto const& lists = *population->m_lists;

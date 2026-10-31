@@ -116,6 +116,9 @@
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\wave_grid.hlsl" VertexEntryPoints="wave_grid=VSMain" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\generated_vertex_input.hlsl" ComputeEntryPoints="generated_vertex_input=CSMain" />
 		<ShaderBuild Include="src\view3d-12\shaders\hlsl\population_producer.hlsl" ComputeEntryPoints="population_producer=CSMain" />
+		<ShaderBuild Include="src\view3d-12\shaders\hlsl\population_procedural_forward.hlsl" VertexEntryPoints="population_procedural_forward=VSMain" />
+		<ShaderBuild Include="src\view3d-12\shaders\hlsl\population_procedural_shadow.hlsl" VertexEntryPoints="population_procedural_shadow=VSMain" />
+		<None Include="src\view3d-12\shaders\hlsl\population_procedural_common.hlsli" />
 		<None Include="src\view3d-12\shaders\hlsl\procedural_vertex_common.hlsli" />
 	</ItemGroup>
 

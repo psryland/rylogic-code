@@ -1686,7 +1686,10 @@ extern "C"
 
 	// Populations ******************************
 	// A population draws many placements of one prototype with GPU instancing. Instances live in GPU buffers and are grouped into caller-owned blocks.
-	// Population LOD materials must be opaque and must not override the forward vertex shader.
+	// Population LOD materials must be opaque. Forward and shadow vertex shaders are either the stock shaders, or procedural shaders written for populations:
+	// the LOD object is created with EVertexSource::ProceduralVertexId, and its shaders place each vertex at its instance using the population bindings
+	// (see population.hlsli). Shadow views that see a population with a procedural shadow vertex shader are rendered every frame, because its output can
+	// change without any change to the population.
 
 	// Create a prototype from 'lod_count' LODs, ordered from most to least detailed. Each LOD draws the model of its object. The prototype keeps its own
 	// reference to the models, so the objects may be deleted afterwards. LOD thresholds must strictly decrease, and transition bands must not overlap.

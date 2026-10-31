@@ -382,6 +382,10 @@ namespace pr::rdr12
 	// Return the nuggets of a LOD that draw for 'step': the default dependents of each top-level nugget, that are not hidden and have a material pass.
 	void PopulationNuggets(Model const& model, ERenderStep step, std::function<void(Nugget const&)> fn);
 
+	// Return the overlay whose vertex shader 'material' applies for 'step', or null if the stock vertex shader is used.
+	// Population admission only accepts procedural overlays here, and their vertex shaders place population vertices themselves (see population.hlsli).
+	Shader const* PopulationVertexOverlay(Material const& material, ERenderStep step);
+
 	// Describe the view of 'cam' rendered into a viewport 'viewport_height' pixels high.
 	PopulationViewDesc PopulationCameraView(uint64_t key, Camera const& cam, float viewport_height);
 

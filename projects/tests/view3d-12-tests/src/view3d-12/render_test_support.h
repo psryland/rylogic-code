@@ -97,6 +97,9 @@ namespace render_tests
 		std::array<unsigned char, api::ProceduralBinding::ConstantsSize - 5 * sizeof(api::Vec4)> m_padding;
 	};
 	static_assert(sizeof(ProceduralVertexConstants) == api::ProceduralBinding::ConstantsSize);
+
+	// Create one copied procedural vertex shader through the public descriptor.
+	api::Shader ProceduralVertexShader(api::ERenderStep rdr_step, unsigned char const* bytecode, size_t bytecode_size, ProceduralVertexConstants const& constants);
 	static_assert(sizeof(api::ProceduralBinding) == 96);
 	static_assert(offsetof(api::ProceduralBinding, m_forward_pixel_model) == 40);
 	static_assert(sizeof(api::ShaderOptions) == 136);

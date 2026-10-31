@@ -50,6 +50,7 @@ namespace pr::rdr12
 			std::vector<BBox> m_blocks; // World space bounds of the active blocks
 			uint64_t m_hash;           // Hash of everything that can change the depth the population writes into a view
 			uint32_t m_views;          // Bit mask of the views that can see an active block
+			bool m_volatile;           // True if a LOD uses a custom shadow vertex shader, whose output can change without the hash changing
 		};
 
 	private:

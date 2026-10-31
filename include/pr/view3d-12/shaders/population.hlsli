@@ -15,6 +15,13 @@
 // Smooth LOD transitions use screen-door dithering, not alpha blending. During a transition, one instance appears in two adjacent LOD lists
 // with complementary dither masks. Every pixel shader used by a population material must call 'View3DPopulationClipDither' (the stock forward
 // and shadow pixel shaders do). The dither value is zero for ordinary (non-population) draws, which keeps every pixel.
+//
+// A LOD can generate or deform its vertices with procedural vertex shaders (see procedural_vertex.hlsli). The LOD object must use the
+// ProceduralVertexId vertex source, and its procedural ForwardRender and ShadowMap vertex shaders replace the stock population vertex shaders.
+// Each wrapper builds its vertex with the procedural helpers, finds its instance with 'View3DPopulationFetch', and places the vertex with
+// 'View3DPopulationForwardVertex' or 'View3DPopulationShadowVertex'. Use the same deformation code in both wrappers so shadows match the surface.
+// The renderer cannot detect changes that only the shaders see (such as new procedural constants), so shadow views that contain such a
+// population re-render every frame instead of using their cached content.
 #ifndef PR_VIEW3D_POPULATION_HLSLI
 #define PR_VIEW3D_POPULATION_HLSLI
 #include "pr/view3d-12/shaders/procedural_vertex.hlsli"

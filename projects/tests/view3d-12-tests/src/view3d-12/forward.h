@@ -64,6 +64,8 @@ namespace render_tests::compiled
 	#include "unsupported_pixel.h"
 	#include "generated_vertex_input.h"
 	#include "population_producer.h"
+	#include "population_procedural_forward.h"
+	#include "population_procedural_shadow.h"
 }
 
 namespace render_tests

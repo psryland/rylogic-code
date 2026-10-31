@@ -142,6 +142,10 @@ window.AddPopulation(population);
   instances. Live instances of a block are contiguous, so changing a live count thins or grows a block without moving instances.
 - **Producers**: `Produce` queues a caller compute shader that writes instances, live counts, and payload on the GPU before the next frame's
   classification. The caller still declares the block bounds on the CPU. Live counts above a block's capacity are clamped and reported.
+- **Procedural vertex shaders**: a LOD object created with the `ProceduralVertexId` vertex source can generate or deform its vertices with
+  procedural ForwardRender and ShadowMap vertex shaders that place each vertex at its instance (see `population.hlsli`). The model bounds and
+  block bounds must contain the deformed vertices. Shadow views that contain such a population re-render every frame, because procedural
+  constant changes are not visible to the shadow cache.
 - **Diagnostics**: `Stats()` returns `PopulationStats` without waiting for the GPU. The CPU fields (capacities, active blocks, resident,
   scratch, and uploaded bytes, producer dispatches) are current. The classification counters (blocks rejected and overflowing, instances
   tested, entries per LOD, indirect draws, live-count violations) are the latest the GPU has completed, so they lag the displayed frame by
