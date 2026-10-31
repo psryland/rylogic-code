@@ -597,6 +597,7 @@ namespace pr::animation
 			float length;  // The bone's length
 			float along;   // The distance along the bone from its head to the skin point that must stay above the ground
 			float depth;   // The distance of that skin point below the line of the bone
+			float ground;  // The droop of the bone when the skin beneath both of its joints rests on the ground. The tail flattens no further than this.
 		};
 
 		Rig const& m_rig;
@@ -1590,8 +1591,9 @@ namespace pr::animation
 		//    travels down the tail as an 'S' wave. This dragged rope sets only the heading of each bone across the ground.
 		//  - The first bone droops as steeply as its joint limits allow about the guide's first bone, but bends down from the line of the spine
 		//    (from the chest back through the pelvis) by no more than 'TailBend'. Each later bone bends up or down from the bone before it by at
-		//    most 'TailBend', and droops no more than the first bone's joint limits allow. Each bone takes the steepest droop that keeps the tail
-		//    clear of the ground, assuming the bones after it flatten as fast as they can.
+		//    most 'TailBend', but no flatter than it would rest on the ground with its tapering skin, so the tail never curls up off the ground. It droops no more than the first
+		//    bone's joint limits allow. Each bone takes the steepest droop that keeps the tail clear of the ground, assuming the bones after it flatten
+		//    as fast as they can.
 		//  - A bone is clear of the ground when its Tail contact, a point on the skin beneath the bone, is above the ground. A bone without a Tail
 		//    contact keeps its tip above the ground instead. The ground is measured along the body's up direction beneath each joint of the rope.
 		void StepTails(xform const& model_to_world, xform const& world_to_model, IGround const& ground)
@@ -1677,6 +1679,7 @@ namespace pr::animation
 						.length = bone_length,
 						.along = bone_length,
 						.depth = 0.0f,
+						.ground = 0.0f,
 					};
 					for (auto const& contact : m_rig.contacts)
 					{
@@ -1688,6 +1691,29 @@ namespace pr::animation
 						bone.depth = Sqrt(Sqr(contact.offset.x) + Sqr(contact.offset.z));
 						break;
 					}
+				}
+
+				// Find the droop of each bone when the tail rests on the ground. A tapering tail is thinner at each joint than the one before, so its line
+				// slopes down even on flat ground. The skin depth at a joint is interpolated between the skin points on either side of it. The tip is a point.
+				auto joint_depth = [&](int j)
+				{
+					// The base and tip have skin on one side only
+					if (j == 0)
+						return m_tail_bones[0].depth;
+					if (j == count)
+						return 0.0f;
+
+					auto const& a = m_tail_bones[j - 1];
+					auto const& b = m_tail_bones[j];
+					auto gap = (a.length - a.along) + b.along;
+					return gap > 0 ? a.depth + (b.depth - a.depth) * (a.length - a.along) / gap : a.depth;
+				};
+				for (int i = 0; i != count; ++i)
+				{
+					// The drop between the lowest heights of the bone's joints sets its resting droop
+					auto& bone = m_tail_bones[i];
+					auto drop = (m_tail_ground[i] + joint_depth(i)) - (m_tail_ground[i + 1] + joint_depth(i + 1));
+					bone.ground = std::asin(std::clamp(drop / bone.length, -1.0f, 1.0f));
 				}
 
 				// The first bone's droop (radians below the ground plane) is limited by its swing about the guide's first bone.
@@ -1719,11 +1745,18 @@ namespace pr::animation
 					droop_hi = std::max(droop_lo, std::min(droop_hi, Droop(Normalise(spine)) + TailBend));
 				}
 
+				// The flattest droop of bone 'i' after a bone drooping by 'prev'. It bends up by at most the bend limit, but no flatter than it would rest
+				// on the ground, so that the tail never curls up off the ground. A bone after one that is already flatter than that keeps its line.
+				auto flattest = [&](int i, float prev)
+				{
+					return std::max(prev - TailBend, std::min(m_tail_bones[i].ground, prev));
+				};
+
 				// True if bone 'i', with its head at 'height' and drooping by 'droop', and the bones after it flattening as fast as they can, stay clear of the ground
 				auto clear = [&](int i, float droop, float height)
 				{
 					// Walk down the rest of the tail, checking each bone's skin point against the ground interpolated between its joints
-					for (; i != count; ++i, droop = std::max(droop - TailBend, -math::constants<float>::tau_by_4))
+					for (;; droop = flattest(i, droop))
 					{
 						auto const& bone = m_tail_bones[i];
 						auto sin = std::sin(droop);
@@ -1733,8 +1766,9 @@ namespace pr::animation
 							return false;
 
 						height -= bone.length * sin;
+						if (++i == count)
+							return true;
 					}
-					return true;
 				};
 
 				// Choose each bone's droop in turn: the steepest that stays clear, or the flattest allowed where none does. Clearance only improves as a
@@ -1744,7 +1778,7 @@ namespace pr::animation
 				for (int i = 0; i != count; ++i)
 				{
 					// Bones after the first bend up or down from the bone before by at most the bend limit
-					auto lo = i == 0 ? droop_lo : std::max(droop - TailBend, -math::constants<float>::tau_by_4);
+					auto lo = i == 0 ? droop_lo : flattest(i, droop);
 					auto hi = i == 0 ? std::min(droop_hi, math::constants<float>::tau_by_4) : std::max(droop, std::min(droop + TailBend, droop_max));
 					if (clear(i, hi, height))
 					{
@@ -2525,8 +2559,9 @@ namespace pr::animation::tests
 		PRUnitTestMethod(TailTrailsBehind, Quick)
 		{
 			// The test rig's tail is too short to reach flat ground from the hips, so it curves down towards it. With a raised ridge beneath the tail,
-			// between the feet, the tail curves down onto the ridge behind the body when walking forward. Either way, the tail bends by no more than the
-			// bend limit at each joint, droops no more than the first bone's joint limits, and the tail's skin contacts stay above the ground.
+			// between the feet, the tail curves down onto the ridge behind the body when walking forward, and a high ridge makes it lie along the ridge.
+			// In every case, the tail bends by no more than the bend limit at each joint, droops no more than the first bone's joint limits, never
+			// flattens and then droops again in a hump, and the tail's skin contacts stay above the ground.
 			struct RidgeGround : IGround
 			{
 				// Flat ground at height 0, with a ridge of height 'm_height' along the Y axis that is narrower than the stance
@@ -2557,16 +2592,18 @@ namespace pr::animation::tests
 			auto const& tail = rig.chains[4];
 			auto dt = 1.0f / 60;
 
-			// The first tail bone can droop by up to 0.6 radians, and each tail bone has a skin contact beneath its middle
-			auto depth = 0.04f;
+			// The first tail bone can droop by up to 0.6 radians, and each tail bone has a skin contact beneath its middle. The tail tapers, so the
+			// skin is shallower beneath each bone than the one before.
+			auto depth = [](int k) { return 0.06f - 0.02f * k; };
 			auto max_droop = 0.6f;
-			for (auto b : tail.bones)
+			for (int k = 0; k != static_cast<int>(tail.bones.size()); ++k)
 			{
+				auto b = tail.bones[k];
 				rig.bones[b].limit.swing = { .min_x = -max_droop, .max_x = max_droop, .min_z = -max_droop, .max_z = max_droop };
-				rig.contacts.push_back(Contact{ .name = rig.bones[b].name + ".skin", .bone = b, .offset = v4(0, 0.15f, -depth, 1), .normal = v4(0, 0, -1, 0), .kind = EContactKind::Tail });
+				rig.contacts.push_back(Contact{ .name = rig.bones[b].name + ".skin", .bone = b, .offset = v4(0, 0.15f, -depth(k), 1), .normal = v4(0, 0, -1, 0), .kind = EContactKind::Tail });
 			}
 
-			for (auto ridge : { 0.0f, 0.6f })
+			for (auto ridge : { 0.0f, 0.7f, 0.85f })
 			{
 				auto loco = Locomotion(rig, gait);
 				auto ground = RidgeGround(ridge);
@@ -2588,11 +2625,13 @@ namespace pr::animation::tests
 					PR_EXPECT(k == 0 || droop(k) < droop(k - 1) + 0.35f + 0.02f);
 					PR_EXPECT(k == 0 || droop(k) > droop(k - 1) - 0.35f - 0.02f);
 					PR_EXPECT(joint(k + 1).y > joint(k).y);
-					clearance = std::min(clearance, (loco.pose().model[tail.bones[k]] * v4(0, 0.15f, -depth, 1)).z - ridge);
+					PR_EXPECT(k == 0 || k == count - 1 || droop(k) > std::min(droop(k - 1), droop(k + 1)) - 0.02f);
+					clearance = std::min(clearance, (loco.pose().model[tail.bones[k]] * v4(0, 0.15f, -depth(k), 1)).z - ridge);
 				}
 				PR_EXPECT(clearance > -0.01f);
-				PR_EXPECT(joint(count).z < joint(0).z - 0.3f);
-				if (ridge != 0)
+				if (ridge == 0)
+					PR_EXPECT(joint(count).z < joint(0).z - 0.3f);
+				else
 					PR_EXPECT(clearance < 0.01f);
 
 				// The first bone bends down from the line of the spine, from the chest back through the pelvis, by no more than the bend limit
