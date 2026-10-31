@@ -48,9 +48,9 @@ namespace pr::physics
 		// Mirrors HLSL BuoyancySums; see gpu_buoyancy.hlsl for the meaning of each sum. The host only sizes the buffer.
 		struct GpuBuoyancyPartial
 		{
-			float m_sums[42];
+			float m_sums[49];
 		};
-		static_assert(sizeof(GpuBuoyancyPartial) == 168);
+		static_assert(sizeof(GpuBuoyancyPartial) == 196);
 
 		struct GpuBuoyancyDiagnostic
 		{

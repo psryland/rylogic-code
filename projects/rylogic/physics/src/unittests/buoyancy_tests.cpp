@@ -53,13 +53,13 @@ namespace pr::physics::tests
 			check(-1.0f, true, 4.0f, v4{0.0f, 0.0f, -1.0f, 1.0f});
 		}
 
-		// The quadrature of the wave-resistance integral matches a finely resolved reference for any patch shape.
+		// The quadrature of the wave-resistance integral matches a finely resolved reference for any patch shape and depth.
 		PRUnitTestMethod(WaveResistanceIntegralMatchesReference, Quick)
 		{
 			// Reference: trapezoid rule in double precision over t = tan(theta), far beyond where the integrand vanishes.
-			auto reference = [](double a, double b)
+			auto reference = [](double a, double b, double c)
 			{
-				// The integrand is 2*exp(-(1 + t^2)*(a^2 + b^2*t^2))*(1 + t^2)^(3/2), which decays to zero well before t = 100.
+				// The integrand is 2*exp(-(1 + t^2)*(a^2 + 2c + b^2*t^2))*(1 + t^2)^(3/2), which decays to zero well before t = 100.
 				constexpr int count = 400000;
 				constexpr double t_end = 100.0;
 				auto const dt = t_end / count;
@@ -68,17 +68,33 @@ namespace pr::physics::tests
 				{
 					auto const t = (i + 0.5) * dt;
 					auto const s = 1.0 + t * t;
-					sum += std::exp(-s * (a * a + b * b * t * t)) * s * std::sqrt(s);
+					sum += std::exp(-s * (a * a + 2.0 * c + b * b * t * t)) * s * std::sqrt(s);
 				}
 				return 2.0 * sum * dt;
 			};
+
+			// Surface patches of any shape.
 			for (auto a : {0.05f, 0.3f, 1.0f, 2.0f, 4.0f})
 			{
 				for (auto b : {0.05f, 0.3f, 1.0f, 3.0f, 30.0f})
 				{
-					auto const expected = reference(a, b);
-					auto const actual = buoyancy::WaveResistanceIntegral(a, b);
+					auto const expected = reference(a, b, 0.0);
+					auto const actual = buoyancy::WaveResistanceIntegral(a, b, 0.0f);
 					PR_EXPECT(std::abs(actual - expected) <= 0.005 * expected);
+				}
+			}
+
+			// Patches below the surface, including a point-like patch with no length along the motion.
+			for (auto a : {0.0f, 0.3f, 1.0f})
+			{
+				for (auto b : {0.05f, 1.0f, 30.0f})
+				{
+					for (auto c : {0.01f, 0.2f, 2.0f})
+					{
+						auto const expected = reference(a, b, c);
+						auto const actual = buoyancy::WaveResistanceIntegral(a, b, c);
+						PR_EXPECT(std::abs(actual - expected) <= 0.005 * expected);
+					}
 				}
 			}
 		}
@@ -91,7 +107,7 @@ namespace pr::physics::tests
 			{
 				auto const b = 200.0f;
 				auto const expected = std::sqrt(tau / 2.0f) * std::exp(-a * a) / b;
-				auto const actual = buoyancy::WaveResistanceIntegral(a, b);
+				auto const actual = buoyancy::WaveResistanceIntegral(a, b, 0.0f);
 				PR_EXPECT(std::abs(actual - expected) <= 0.01f * expected);
 			}
 		}
@@ -105,7 +121,7 @@ namespace pr::physics::tests
 			auto const sigma = 0.0275f;
 			auto resistance = [=](float speed)
 			{
-				return buoyancy::WaveResistance(1000.0f, 9.81f, volume, speed, sigma, sigma);
+				return buoyancy::WaveResistance(1000.0f, 9.81f, volume, speed, sigma, sigma, 0.0f);
 			};
 			PR_EXPECT(resistance(0.0f) == 0.0f);
 			PR_EXPECT(resistance(0.15f) == 0.0f);
@@ -119,6 +135,29 @@ namespace pr::physics::tests
 			// Far above the hump speed the patch acts like a point load, and doubling the speed quarters the resistance.
 			auto const ratio = resistance(10.0f) / resistance(20.0f);
 			PR_EXPECT(std::abs(ratio - 4.0f) < 0.2f);
+		}
+
+		// A displaced volume with no length along the motion stays finite once it is below the surface, and deeper volumes make
+		// fewer waves, so the resistance falls with depth.
+		PRUnitTestMethod(WaveResistanceDepthDependence, Quick)
+		{
+			// A dense ball of radius 0.15 m that is nearly submerged: its volume is 0.0141 m^3 and the waterplane has vanished.
+			auto const volume = 0.0141f;
+			auto const sigma = 0.067f;
+			auto resistance = [=](float sigma_along, float depth)
+			{
+				return buoyancy::WaveResistance(1000.0f, 9.81f, volume, 1.0f, sigma_along, sigma, depth);
+			};
+
+			// The resistance is finite with no length along the motion, and below the displaced weight.
+			auto const shallow = resistance(0.0f, 0.15f);
+			PR_EXPECT(std::isfinite(shallow) && shallow > 0.0f);
+			PR_EXPECT(shallow < 1000.0f * 9.81f * volume);
+
+			// Depth acts like extra length along the motion, and a deeper volume has less resistance.
+			PR_EXPECT(std::abs(resistance(0.0f, 0.15f) - resistance(std::sqrt(2.0f * 0.15f / (9.81f)), 0.0f)) <= 1e-3f * shallow);
+			PR_EXPECT(resistance(0.0f, 0.3f) < shallow);
+			PR_EXPECT(resistance(0.0f, 1.0f) < 0.1f * shallow);
 		}
 	};
 

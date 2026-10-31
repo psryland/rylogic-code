@@ -1383,7 +1383,11 @@ namespace physics_sandbox
 			}
 			if (use_sphere_prototype)
 			{
-				builder.Sphere(sphere_prototype_name).sphere(1).facets(5).hide();
+				// Spheres are rotationally symmetric, so a checker texture is needed to make their spin visible.
+				builder.Sphere(sphere_prototype_name).sphere(1).facets(5).texture([](ldraw::seri::Texture& tex)
+				{
+					tex.filepath("#checker3").addr("Wrap", "Wrap");
+				}).hide();
 				++prototype_count;
 			}
 			if (use_thin_line_prototype)

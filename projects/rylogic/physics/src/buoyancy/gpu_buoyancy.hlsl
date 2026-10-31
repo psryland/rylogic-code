@@ -46,8 +46,14 @@ struct CBufGpuBuoyancy
 // Jacobians of these terms (linear and angular, including the coupling between them) are exactly described by the moments
 // of d and k below, so the implicit solve does not need per-sample matrices.
 //   force_ws, torque_ws        - hydrodynamic force and torque about the body's centre of mass.
-//   moment_ws                  - sum of centroid_ws*dV over the wet water columns, for diagnostics only.
 //   volume                     - sum of dV over the wet water columns, which is the displaced volume (m^3).
+//   volume_moment              - sum of r*dV over the wet water columns, with r the column centroid relative to the centre of mass.
+//   volume_rr_diag/off         - sum of r*r^T*dV over the same columns: (xx, yy, zz) and (xy, xz, yz). Only its horizontal part is
+//                                used, which is exact for the columns (vertical columns have no horizontal extent).
+//   volume_depth               - sum of (column centroid depth below the surface)*dV, so divided by the volume it is the mean depth
+//                                of the displaced volume (m).
+//   volume_water_velocity      - sum of (water velocity)*dV, so divided by the volume it is the mean water velocity over the
+//                                displaced volume (m/s). The wave-making resistance is relative to it.
 //   predictor                  - change in the waterline wrench over the step, linearised in the current relative velocity:
 //                                xyz = torque, w = force along up.
 //   damping_lin                - sum of d over damping that resists the body's linear velocity (N.s/m).
@@ -62,14 +68,16 @@ struct CBufGpuBuoyancy
 //                                treated as isotropic translational inertia at the centre of mass.
 //   heave_rate                 - sum of k*(rate the waterline rises out of the water due to the body's linear velocity) (N/s).
 //                                Radiation damping resists it.
-//   waterline_water_velocity   - sum of k*(water velocity) (N.s^-1). Divided by the stiffness, it is the mean water velocity under
-//                                the waterplane (over the wet surface projected onto it). The wave-making resistance is relative to it.
 struct BuoyancySums
 {
 	float3 force_ws;
 	float3 torque_ws;
-	float3 moment_ws;
 	float volume;
+	float3 volume_moment;
+	float3 volume_rr_diag;
+	float3 volume_rr_off;
+	float volume_depth;
+	float3 volume_water_velocity;
 	float4 predictor;
 	float damping_lin;
 	float3 damping_lin_moment;
@@ -82,7 +90,6 @@ struct BuoyancySums
 	float3 stiffness_ss_off;
 	float added_mass;
 	float heave_rate;
-	float3 waterline_water_velocity;
 };
 
 struct GpuBuoyancyDiagnostic
@@ -238,34 +245,36 @@ void ApplyImplicitResponse(inout GpuRigidBody body, BuoyancySums terms)
 		heave_damping_force = -beta * terms.heave_rate;
 	}
 
-	// Wave-making resistance. A body moving horizontally relative to the surface water leaves a wake of waves behind it, and the energy
+	// Wave-making resistance. A body moving horizontally relative to the water leaves a wake of waves behind it, and the energy
 	// they carry away resists the motion (see wave_resistance.hlsli). The body is modelled as a Gaussian pressure patch whose load is
-	// the displaced volume and whose shape has the second moments of the waterplane. The waterplane moments are stored for
-	// s = cross(r, up), and dot(s, cross(e, up)) = dot(r, e) for a horizontal direction e, so the spread along the motion uses
-	// cross(along, up) and the spread across it uses 'along' itself. The force acts horizontally at the centre of mass, against
-	// the velocity relative to the mean water velocity under the waterplane. It is applied through its secant damping rate R/U,
-	// so the implicit step reduces the relative speed without reversing it, like the quadratic drag.
+	// the displaced volume, whose shape has the horizontal second moments of the displaced volume, and which acts at the mean depth
+	// of the displaced volume. Volume moments are used rather than waterplane moments because they stay well defined as the body
+	// submerges, where the waterplane shrinks to nothing. The force acts horizontally at the centre of mass, against the velocity
+	// relative to the mean water velocity over the displaced volume. It is applied through its secant damping rate R/U, so the
+	// implicit step reduces the relative speed without reversing it, like the quadratic drag.
 	float3x3 ss = build_symmetric_3x3(terms.stiffness_ss_diag, terms.stiffness_ss_off);
 	float wave_damping = 0.0f;
 	float3 wave_velocity = float3(0.0f, 0.0f, 0.0f);
-	if (g.wave_resistance > 0.0f && terms.stiffness > 0.0f && terms.volume > 0.0f && g.fluid_density > 0.0f)
+	if (g.wave_resistance > 0.0f && terms.volume > BUOY_TINY && g.fluid_density > 0.0f)
 	{
-		float inv_stiffness = 1.0f / terms.stiffness;
-		wave_velocity = inv_mass * body.momentum_lin.xyz - terms.waterline_water_velocity * inv_stiffness;
+		float inv_volume = 1.0f / terms.volume;
+		wave_velocity = inv_mass * body.momentum_lin.xyz - terms.volume_water_velocity * inv_volume;
 		wave_velocity -= dot(wave_velocity, up) * up;
 		float speed = length(wave_velocity);
 		if (speed > BUOY_TINY)
 		{
-			// Central second moments of the waterplane along and across the direction of motion. Wet cells facing up have
-			// negative weight, so a waterplane that is nearly awash can have no positive spread; it makes no waves.
+			// Central second moments of the displaced volume along and across the direction of motion. The column sums are
+			// signed, so sampling noise can make a tiny spread negative; such a body makes no waves.
 			float3 along = wave_velocity / speed;
-			float3 along_s = cross(along, up);
-			float3 centroid_s = terms.stiffness_moment * inv_stiffness;
-			float var_along = dot(along_s, mul(ss, along_s)) * inv_stiffness - dot(centroid_s, along_s) * dot(centroid_s, along_s);
-			float var_across = dot(along, mul(ss, along)) * inv_stiffness - dot(centroid_s, along) * dot(centroid_s, along);
-			if (var_along > 0.0f && var_across > 0.0f)
+			float3 across = cross(up, along);
+			float3x3 vrr = build_symmetric_3x3(terms.volume_rr_diag, terms.volume_rr_off);
+			float3 volume_centre = terms.volume_moment * inv_volume;
+			float var_along = dot(along, mul(vrr, along)) * inv_volume - dot(volume_centre, along) * dot(volume_centre, along);
+			float var_across = dot(across, mul(vrr, across)) * inv_volume - dot(volume_centre, across) * dot(volume_centre, across);
+			float depth = max(terms.volume_depth * inv_volume, 0.0f);
+			if (var_across > 0.0f && (var_along > 0.0f || depth > 0.0f))
 			{
-				float resistance = WaveResistance(g.fluid_density, g_mag, terms.volume, speed, sqrt(var_along), sqrt(var_across));
+				float resistance = WaveResistance(g.fluid_density, g_mag, terms.volume, speed, sqrt(max(var_along, 0.0f)), sqrt(var_across), depth);
 				wave_damping = g.wave_resistance * resistance / speed;
 			}
 		}
@@ -341,8 +350,12 @@ BuoyancySums AddSums(BuoyancySums a, BuoyancySums b)
 {
 	a.force_ws += b.force_ws;
 	a.torque_ws += b.torque_ws;
-	a.moment_ws += b.moment_ws;
 	a.volume += b.volume;
+	a.volume_moment += b.volume_moment;
+	a.volume_rr_diag += b.volume_rr_diag;
+	a.volume_rr_off += b.volume_rr_off;
+	a.volume_depth += b.volume_depth;
+	a.volume_water_velocity += b.volume_water_velocity;
 	a.predictor += b.predictor;
 	a.damping_lin += b.damping_lin;
 	a.damping_lin_moment += b.damping_lin_moment;
@@ -355,23 +368,23 @@ BuoyancySums AddSums(BuoyancySums a, BuoyancySums b)
 	a.stiffness_ss_off += b.stiffness_ss_off;
 	a.added_mass += b.added_mass;
 	a.heave_rate += b.heave_rate;
-	a.waterline_water_velocity += b.waterline_water_velocity;
 	return a;
 }
 
 // Sum a record over all threads of the group. Every thread must call this; the result is only valid in thread 0.
 // Lanes are summed with wave intrinsics, so shared memory holds one record per wave instead of one per thread.
-// The diagnostic volume moment is skipped when diagnostics are off because it is zero.
 BuoyancySums ReduceGroup(BuoyancySums sums, uint thread_index, uint thread_count)
 {
 	// Sum within each wave and publish one record per wave.
 	{
 		sums.force_ws = WaveActiveSum(sums.force_ws);
 		sums.torque_ws = WaveActiveSum(sums.torque_ws);
-		if (g.enable_diagnostics != 0)
-			sums.moment_ws = WaveActiveSum(sums.moment_ws);
-
 		sums.volume = WaveActiveSum(sums.volume);
+		sums.volume_moment = WaveActiveSum(sums.volume_moment);
+		sums.volume_rr_diag = WaveActiveSum(sums.volume_rr_diag);
+		sums.volume_rr_off = WaveActiveSum(sums.volume_rr_off);
+		sums.volume_depth = WaveActiveSum(sums.volume_depth);
+		sums.volume_water_velocity = WaveActiveSum(sums.volume_water_velocity);
 		sums.predictor = WaveActiveSum(sums.predictor);
 		sums.damping_lin = WaveActiveSum(sums.damping_lin);
 		sums.damping_lin_moment = WaveActiveSum(sums.damping_lin_moment);
@@ -384,7 +397,6 @@ BuoyancySums ReduceGroup(BuoyancySums sums, uint thread_index, uint thread_count
 		sums.stiffness_ss_off = WaveActiveSum(sums.stiffness_ss_off);
 		sums.added_mass = WaveActiveSum(sums.added_mass);
 		sums.heave_rate = WaveActiveSum(sums.heave_rate);
-		sums.waterline_water_velocity = WaveActiveSum(sums.waterline_water_velocity);
 	}
 	uint lane_count = WaveGetLaneCount();
 	if (WaveIsFirstLane())
@@ -630,10 +642,14 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 								AddWaterlineStiffness(sums, r_up, stiffness);
 								sums.predictor += float4(delta_force * r_up, delta_force);
 								sums.heave_rate += stiffness * (dot(s_body_linear_velocity_ws, surface_normal) - surface_rates.z);
-								sums.waterline_water_velocity += stiffness * water_velocity_ws;
+
+								// Volume moments of the column, for the wave-making resistance and the diagnostic centre of buoyancy.
 								sums.volume += dvol;
-								if (g.enable_diagnostics != 0)
-									sums.moment_ws += (com_ws + r_col) * dvol;
+								sums.volume_moment += dvol * r_col;
+								sums.volume_rr_diag += dvol * r_col * r_col;
+								sums.volume_rr_off += dvol * float3(r_col.x * r_col.y, r_col.x * r_col.z, r_col.y * r_col.z);
+								sums.volume_depth += dvol * (0.5f * wet_depth);
+								sums.volume_water_velocity += dvol * water_velocity_ws;
 
 								// Quadratic form drag acts only on faces moving outward into the fluid. The implicit solve uses
 								// its secant damping rate, 0.5*rho*Cd*dA*v_n (force / speed). For pure quadratic drag this makes
@@ -708,7 +724,8 @@ void CSBuoyancySurfaceReduce(uint3 GID(group_id), uint3 GTID(group_thread_id))
 		{
 			float volume = sums.volume;
 			float has_volume = volume > BUOY_TINY ? 1.0f : 0.0f;
-			float3 centre_buoyancy_ws = has_volume != 0.0f ? sums.moment_ws / volume : float3(0.0f, 0.0f, 0.0f);
+			float3 com_ws = mul(float4(body.os_com_and_invmass.xyz, 1.0f), body.o2w).xyz;
+			float3 centre_buoyancy_ws = has_volume != 0.0f ? com_ws + sums.volume_moment / volume : float3(0.0f, 0.0f, 0.0f);
 			g_diagnostics[hull_index].force_ws = float4(sums.force_ws, 0.0f);
 			g_diagnostics[hull_index].torque_ws = float4(sums.torque_ws, 0.0f);
 			g_diagnostics[hull_index].centre_buoyancy_ws = float4(centre_buoyancy_ws, has_volume);

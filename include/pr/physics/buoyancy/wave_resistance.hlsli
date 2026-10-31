@@ -13,8 +13,15 @@
 // of the pressure at wave number k in direction theta from the motion. The pressure under a floating body is rho*g*(draft),
 // so its total is rho*g*V, the weight of the displaced water. It is modelled as an elliptical Gaussian with standard deviations
 // sigma_along (in the direction of motion) and sigma_across, for which
-//   R = rho * g * V^2 * k0^3 / (2*pi) * I(k0*sigma_along, k0*sigma_across)
-// with the dimensionless integral I (see WaveResistanceIntegral).
+//   R = rho * g * V^2 * k0^3 / (2*pi) * I(k0*sigma_along, k0*sigma_across, k0*depth)
+// with the dimensionless integral I (see WaveResistanceIntegral). The spread is the horizontal spread of the displaced volume,
+// because the pressure is the weight of the displaced water above each point.
+//
+// The displaced volume is below the surface, not on it. A disturbance at depth f reaches the surface reduced by exp(-k*f) for
+// waves of wave number k, so the waves it makes carry energy reduced by exp(-2*k*f). 'depth' is the mean depth of the displaced
+// volume below the surface. This keeps the resistance finite when the waterplane is very small, for example for a dense body
+// that is nearly or fully submerged, which would otherwise act as a point load on the surface. A deeply submerged body makes
+// almost no waves.
 //
 // The resistance depends on the speed through k0*sigma, which is 1/Fr^2 for a Froude number Fr = U/sqrt(g*sigma):
 //   - slow bodies (k0*sigma >> 1) make waves much shorter than themselves, which cancel, and the resistance vanishes,
@@ -30,18 +37,21 @@ namespace pr::physics::buoyancy
 {
 #endif
 
-// Dimensionless wave-resistance integral of a Gaussian pressure patch, with a_along = k0*sigma_along and a_across = k0*sigma_across:
-//   I = integral(-pi/2..pi/2) exp(-sec^4(theta)*(a_along^2*cos^2(theta) + a_across^2*sin^2(theta))) * sec^5(theta) dtheta
-// Requires a_along > 0 and a_across > 0. The result is accurate to a fraction of a percent; it is zero where it is below e^-40.
-odr float WaveResistanceIntegral(float a_along, float a_across)
+// Dimensionless wave-resistance integral of a Gaussian pressure patch at depth, with a_along = k0*sigma_along,
+// a_across = k0*sigma_across and c_depth = k0*depth:
+//   I = integral(-pi/2..pi/2) exp(-sec^4(theta)*(a_along^2*cos^2(theta) + a_across^2*sin^2(theta)) - 2*c_depth*sec^2(theta)) * sec^5(theta) dtheta
+// Requires a_across > 0, c_depth >= 0, and a_along > 0 or c_depth > 0. The result is accurate to a fraction of a percent; it is
+// zero where it is below e^-40.
+odr float WaveResistanceIntegral(float a_along, float a_across, float c_depth)
 {
 	// With t = tan(theta) the integral becomes 2 * integral(0..inf) exp(-E(t)) * (1 + t^2)^(3/2) dt, where
-	// E(t) = (1 + t^2)*(a_along^2 + a_across^2*t^2). E is at least a_along^2*(1 + t^2), a_along^2 + a_across^2*t^2, and
-	// a_across^2*t^4, so the integrand is negligible beyond the smallest t at which one of these bounds reaches 'e_max'.
-	// Using all three keeps the sample spacing small compared with the width of the integrand for any patch shape.
+	// E(t) = (1 + t^2)*(a2 + a_across^2*t^2) and a2 = a_along^2 + 2*c_depth, so depth has the same effect as length along the motion.
+	// E is at least a2*(1 + t^2), a2 + a_across^2*t^2, and a_across^2*t^4, so the integrand is negligible beyond the smallest t at
+	// which one of these bounds reaches 'e_max'. Using all three keeps the sample spacing small compared with the width of the
+	// integrand for any patch shape.
 	static const float e_max = 40.0f;
 	static const int count = 32;
-	float a2 = a_along * a_along;
+	float a2 = a_along * a_along + 2.0f * c_depth;
 	float b2 = a_across * a_across;
 	if (a2 >= e_max)
 		return 0.0f;
@@ -62,9 +72,10 @@ odr float WaveResistanceIntegral(float a_along, float a_across)
 }
 
 // Steady wave-making resistance (N) of a floating body that displaces 'volume' (m^3) of fluid of density 'density' and moves
-// horizontally at 'speed' (m/s) relative to the surface water, under gravity 'gravity' (m/s^2). 'sigma_along' and 'sigma_across'
-// are the standard deviations (m) of the body's waterplane along and across the direction of motion; both must be positive.
-odr float WaveResistance(float density, float gravity, float volume, float speed, float sigma_along, float sigma_across)
+// horizontally at 'speed' (m/s) relative to the water, under gravity 'gravity' (m/s^2). 'sigma_along' and 'sigma_across' are the
+// standard deviations (m) of the displaced volume along and across the direction of motion, and 'depth' (m) is its mean depth
+// below the surface. 'sigma_across' must be positive, 'depth' must not be negative, and 'sigma_along' or 'depth' must be positive.
+odr float WaveResistance(float density, float gravity, float volume, float speed, float sigma_along, float sigma_across, float depth)
 {
 	// A body at rest makes no waves. Otherwise evaluate the integral first, because k0 overflows long before the
 	// integral becomes non-zero at low speed.
@@ -72,7 +83,7 @@ odr float WaveResistance(float density, float gravity, float volume, float speed
 		return 0.0f;
 
 	float k0 = gravity / (speed * speed);
-	float integral = WaveResistanceIntegral(k0 * sigma_along, k0 * sigma_across);
+	float integral = WaveResistanceIntegral(k0 * sigma_along, k0 * sigma_across, k0 * depth);
 	if (integral == 0.0f)
 		return 0.0f;
 
