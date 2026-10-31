@@ -914,6 +914,7 @@ namespace pr::rdr12
 	void PopulationNuggets(Model const& model, ERenderStep step, std::function<void(Nugget const&)> fn)
 	{
 		// Populations draw the default variant of each nugget, in the same way as an instance without overrides.
+		// Nuggets that do not cast shadows are skipped in the shadow pass, as they are for ordinary instances.
 		for (auto& nug : Enumerate(model.m_nuggets))
 		{
 			for (auto const& dep : nug.Dependents())
@@ -921,6 +922,8 @@ namespace pr::rdr12
 				if (dep.m_variant != DefaultNugget)
 					continue;
 				if (AllSet(dep.m_nflags, ENuggetFlag::Hidden))
+					continue;
+				if (step == ERenderStep::ShadowMap && AllSet(dep.m_nflags, ENuggetFlag::ShadowCastExclude))
 					continue;
 				if (dep.mat().Pass(step) == nullptr)
 					continue;

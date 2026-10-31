@@ -3,8 +3,8 @@
 
 namespace render_tests
 {
-	// Create an unlit white 10x10 quad at the model origin, facing the camera. The object is not added to the window.
-	api::Object PopulationQuad(Fixture& fixture)
+	// Create an unlit white 10x10 quad at the model origin, facing the camera, with nugget flags 'nflags'. The object is not added to the window.
+	api::Object PopulationQuad(Fixture& fixture, api::ENuggetFlag nflags = api::ENuggetFlag::None)
 	{
 		// Vertex-only geometry so the instance tint alone decides the pixel colour
 		api::Vertex verts[] =
@@ -20,6 +20,7 @@ namespace render_tests
 		nugget.m_geom = api::EGeom::Vert;
 		nugget.m_cull_mode = api::ECullMode::None;
 		nugget.m_tint = 0xFFFFFFFF;
+		nugget.m_nflags = nflags;
 		auto object = View3D_ObjectCreate("PopulationQuad", 0xFFFFFFFF, 4, 6, 1, verts, indices, &nugget, GUID{});
 		Require(object != nullptr, "Population quad creation failed");
 		fixture.m_objects.push_back(object);
@@ -316,6 +317,19 @@ namespace render_tests
 		// Removing the population from the window removes its shadow
 		View3D_WindowRemovePopulation(fixture.m_window, population.get());
 		Require(ImageDifference(image("Cached shadow views missed a population removal"), side_lit) == 0, "Population shadow remained after the population was removed");
+
+		// A population whose LOD nuggets exclude shadow casting casts no shadow
+		auto excluded_quad = PopulationQuad(fixture, api::ENuggetFlag::ShadowCastExclude);
+		auto excluded_lods = api::PopulationLod{ .m_object = excluded_quad, .m_min_size = 0, .m_transition = 0 };
+		auto excluded_prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&excluded_lods, 1, 0));
+		auto excluded = api::PopulationPtr(View3D_PopulationCreate(excluded_prototype.get(), 4, 1, 0));
+		Require(excluded != nullptr, "Shadow-excluded population creation failed");
+		View3D_PopulationInstancesUpdate(excluded.get(), 0, &instance, 1);
+		View3D_PopulationBlockSet(excluded.get(), 0, api::BBox{ .centre = {60, 0, -40, 1}, .radius = {10, 10, 10, 0} }, 0, 4, 1);
+		View3D_WindowAddPopulation(fixture.m_window, excluded.get());
+		fixture.CheckErrors();
+		Require(ImageDifference(image("Cached shadow views differ with a shadow-excluded population"), side_lit) == 0, "A shadow-excluded population cast a shadow");
+		View3D_WindowRemovePopulation(fixture.m_window, excluded.get());
 
 		fixture.CheckDebugLayer();
 		std::cout << "PASS population shadows, off-screen casters, and cached shadow views: MSAA " << samples << '\n';

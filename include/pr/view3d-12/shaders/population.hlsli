@@ -21,7 +21,8 @@
 // Each wrapper builds its vertex with the procedural helpers, finds its instance with 'View3DPopulationFetch', and places the vertex with
 // 'View3DPopulationForwardVertex' or 'View3DPopulationShadowVertex'. Use the same deformation code in both wrappers so shadows match the surface.
 // The renderer cannot detect changes that only the shaders see (such as new procedural constants), so shadow views that contain such a
-// population re-render every frame instead of using their cached content.
+// population re-render every frame instead of using their cached content. LOD nuggets with the ShadowCastExclude nugget flag are not drawn
+// into shadow views, so such a LOD needs no ShadowMap vertex shader.
 #ifndef PR_VIEW3D_POPULATION_HLSLI
 #define PR_VIEW3D_POPULATION_HLSLI
 #include "pr/view3d-12/shaders/procedural_vertex.hlsli"

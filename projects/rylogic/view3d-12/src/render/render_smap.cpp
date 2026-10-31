@@ -278,6 +278,15 @@ namespace pr::rdr12
 		m_casters.resize(0);
 		for (auto pop : scn().Populations())
 		{
+			// Populations whose LODs have no shadow-casting nuggets are not casters, so they do not grow the caster bounds
+			auto const& proto = *pop->m_prototype.get();
+			auto casts = false;
+			for (auto const& lod : proto.m_lods)
+				PopulationNuggets(*lod.m_model.get(), ERenderStep::ShadowMap, [&](Nugget const&) { casts = true; });
+
+			if (!casts)
+				continue;
+
 			// Populations without active blocks draw nothing
 			auto caster = PopulationCaster{ .m_pop = pop, .m_blocks = {}, .m_hash = HashSeed, .m_views = 0, .m_volatile = false };
 			auto revision = pop->ActiveBlocks([&](BBox const& bbox)
@@ -291,7 +300,6 @@ namespace pr::rdr12
 
 			// Hash everything that can change the depth the population writes into a view. The revision covers blocks, instances, and payload.
 			// The draw distance is measured from the scene camera, so the camera position matters only when the prototype has a draw distance.
-			auto const& proto = *pop->m_prototype.get();
 			auto& h = caster.m_hash;
 			HashPtr(h, pop.get());
 			HashWord(h, revision);
