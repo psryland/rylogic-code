@@ -88,7 +88,7 @@ boundaries, not continuously, and are excluded from timed physics steps. Profile
 `terrain_gpu_ms` (GPU timestamps across all substeps); other timings remain host durations.
 Omit `-scan` for timing because contact-event collection has a significant independent cost.
 Headless physics rate does not measure interactive/rendered FPS. Sample overlays start off.
-Capsule surface points/normals and capsule volume sampling are both supported; see below.
+Capsule surface points/normals are supported; see below.
 The diagnostic's CPU penetration measurement expands compound shapes into leaf pairs because the CPU narrow phase has no array pairs.
 
 ## Compound shapes
@@ -106,15 +106,14 @@ direction. Boxes, spheres and zero-radius lines still use shared meshes scaled p
 
 ## Sample overlays
 
-The **View → Overlays and diagnostics** submenu has three independent checked options:
+The **View → Overlays and diagnostics** submenu has two independent checked options:
 
 - **Surface samples + normals**: amber sample points and green outward-normal segments, 0.1 scene units long.
-- **Volume samples**: blue interior sample points.
 - **Sleeping-body transparency**: the existing reduced-opacity sleep diagnostic, enabled by default. Turning it off restores the ordinary body colour/opacity
   regardless of sleep state. It applies to rigid bodies and articulation links, preserves contact-priority colours, and never changes or wakes physics state.
 
-All three options work together with either **View → Normal** or **View → Contact Priority**, and retain their selections across scene reload/reset.
-The two sample overlays start disabled and include sleeping dynamic rigid bodies and movable articulation links.
+Both options work together with either **View → Normal** or **View → Contact Priority**, and retain their selections across scene reload/reset.
+The sample overlay starts disabled and includes sleeping dynamic rigid bodies and movable articulation links.
 Static bodies/ground, fixed-world articulation chains and shapeless links are excluded. A fixed joint below a movable joint is included.
 No buoyancy registration, water or submerged state is required. The **B** key retains its separate buoyancy wetness/culling/force diagnostic.
 
@@ -125,36 +124,28 @@ This is a geometry visualization, not a new physics sampling policy.
 - Surface geometry comes from `physics::surface::BuildPlan` and `EmitSurfaceSample` at the spacing of the physics the scene exercises:
   the scene's `GpuBuoyancy::Config::m_surface_spacing` (default `buoyancy::DefaultSurfaceSpacing`) when it has water, otherwise the terrain's
   `surface_spacing` when it has terrain, otherwise the shared `surface::DefaultSpacing`.
+  Buoyancy's per-primitive minimum sample count (`buoyancy::BuildSurfacePlan`) is not applied, so small primitives may show fewer points than buoyancy uses.
   See `include/pr/physics/surface/README.md` for its feature, area-weight and coverage contracts. Every surviving sample is drawn; there is no display decimation.
   Corners/edges retain separate face-normal segments, rather than a single averaged normal.
 - The spacing is chosen at scene load, so the overlay does not follow later changes to a live buoyancy configuration.
-- Volume geometry uses the existing buoyancy `VolumeSampleCounts`, `BuildVolumeSampleTable`, `SampleIndex` and `EmitVolumeSample` functions at
-  **`buoyancy::DefaultVolumeSpacing` (0.2 m)**: each child gets about `volume / spacing^3` samples (at least 8), so larger shapes show more points. Overlap ownership may reduce the final count.
-  Display seed/hull identity is **0** so the same shape can share one cached model. The distribution is the existing one, but need not match a registered hull's exact sample identities.
-- Polytopes lacking volume tetrahedra get an owned, temporary exact face-fan decomposition through the existing collision builder, only when volume display is requested.
-  Original collision geometry, physics caches, volume counts/distribution, forces and sleep state are not modified.
 - Compound children already store shape-to-root transforms. These are applied once during geometry creation; rigid-body or link root-to-world transforms
   are applied by persistent renderer instances. The array's transform is not applied again.
-- Existing compound ownership rules remove enclosed/overlapped surface contributions and volume samples owned by earlier children. These are geometry ownership
+- Existing compound ownership rules remove enclosed/overlapped surface contributions. These are geometry ownership
   tests, not wetness filters. The display inherits their finite epsilon and coincident-boundary behavior.
 
 Surface display supports boxes, spheres, capsules/thin lines, triangles, convex polytopes and nested arrays of those primitives.
 Every leaf's shape-to-root transform is applied once. Capsules show their true outward normals; zero-area points/segments show positions without invented normal lines.
 Surface ownership includes capsule containment, so enclosed sibling surfaces are not displayed.
-Volume display uses the shared buoyancy box/sphere/capsule/polytope emitter and flat-array traversal; triangles have no interior samples.
-Capsule volume samples are split between the cylinder and the two hemispherical caps in proportion to their volumes.
-Thin (zero-radius) lines and nested arrays remain explicitly unsupported for volume display.
 Unsupported geometry, invalid plans, allocation failures or unrepresentable renderer buffers are reported
-in the status bar with the affected target count, overlay type and first reason. Surface and volume models are built and fail independently:
-an unsupported volume display (e.g. a nested array) does not hide its valid surface points/normals. An affected overlay is not partially displayed within a hull,
+in the status bar with the affected target count, overlay type and first reason. An affected overlay is not partially displayed within a hull,
 and failed unchanged overlays are not retried every frame.
 Very large valid shapes may take time and memory to visualize; this is not a throughput promise.
 
 ## Cache and renderer ownership
 
-The scene owns one immutable model pair per collision-shape pointer and separate persistent instances per target. CPU sample vectors are discarded after upload.
+The scene owns one immutable model per collision-shape pointer and separate persistent instances per target. CPU sample vectors are discarded after upload.
 Steady frames only select targets, look up cached objects and update transforms; sampling/model construction happens on first use or after invalidation.
-The two options invalidate the cache when changed. Scene replacement clears it before releasing shapes; `Body::Shape` changes mark it stale.
+The overlay option and spacing invalidate the cache when changed. Scene replacement clears it before releasing shapes; `Body::Shape` changes mark it stale.
 Direct mutation of otherwise immutable shape storage must also call `m_sample_overlays.Invalidate()`.
 
 The UI completes GPU work and clears draw lists before reset/load/test-scenario replacement or destruction. Deferred overlay invalidation is consumed after
@@ -162,7 +153,7 @@ clearing the previous draw lists and waiting for the GPU. Instances are not reti
 Overlays disable depth testing/writing and explicitly use the post-alpha sort group so opaque geometry does not hide interior points.
 
 For a shape with `S` emitted samples and `K` convex children, first-use ownership filtering performs at most `O(S*K)` containment queries, plus each query's
-primitive cost. Surface-plan setup is inherited from the shared sampler; volume polytope CDF lookup is logarithmic in tetrahedron count.
+primitive cost. Surface-plan setup is inherited from the shared sampler.
 Uploaded geometry and transient generation storage are `O(S)`. Steady-frame overlay work is expected `O(number of targets)` hash lookup/transform work,
 excluding rendering; articulation mobility is cached at scene construction.
 
@@ -171,14 +162,14 @@ excluding rendering; articulation mobility is cached at scene construction.
 The sandbox owns `SampleOverlayTests`, `SampleOverlayMenuTests` and `SceneSampleOverlayTests`; select them with
 `physics-sandbox.exe -unittests SampleOverlayTests SampleOverlayMenuTests SceneSampleOverlayTests`.
 They cover menu independence, sleeping/static selection, articulation mobility, compound transforms and incident normals, ownership,
-unchanged volume emission, surface-only polytope derivation, deterministic output, real renderer model sharing and reset/shape invalidation.
+surface-only polytopes, deterministic output, real renderer model sharing and reset/shape invalidation.
 Sleeping-transparency tests also check its enabled default, option independence, preserved RGB/source opacity and unchanged sleeping/force state.
-An actual off-screen GPU readback checks surface points, normals and volume points inside an opaque occluder. Its paired negative cases deliberately
+An actual off-screen GPU readback checks surface points and normals inside an opaque occluder. Its paired negative cases deliberately
 select the pre-opaque sort group and verify the same geometry is hidden, proving draw order rather than merely inspecting depth flags.
-Capsule tests also check shared-emitter parity, nested transforms, surface-union ownership, capsule volume containment, thin-line points-only rendering,
-and persistent surface instances when the independent volume overlay reports an unsupported-shape error.
+Capsule tests also check shared-emitter parity, nested transforms, surface-union ownership, thin-line points-only rendering
+and cached surface models for nested arrays.
 
-Paul should visually check both options individually and together in a mixed/compound scene, with each base view mode and a sleeping body.
-Check that normals point outward, volume points remain visible through the regular object rendering, and resetting or loading a scene with both options
+Paul should visually check the sample overlay in a mixed/compound scene, with each base view mode and a sleeping body.
+Check that normals point outward, points remain visible through the regular object rendering, and resetting or loading a scene with the overlay
 enabled updates the clouds without leaving old objects. No automated screenshot or interactive-app driving is required.
 Toggle **Sleeping-body transparency** off/on with sleeping rigid bodies and articulation links; verify their ordinary appearance is restored without waking them.

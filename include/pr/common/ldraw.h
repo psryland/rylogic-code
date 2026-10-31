@@ -1699,14 +1699,27 @@ namespace pr::ldraw
 		{
 			struct Addr_
 			{
+				// Mode names and their 'D3D12_TEXTURE_ADDRESS_MODE' values. The binary format stores the value because the reader parses enums as integers.
+				static constexpr std::pair<std::string_view, int> Modes[] = { {"Wrap", 1}, {"Mirror", 2}, {"Clamp", 3}, {"Border", 4}, {"MirrorOnce", 5} };
+
 				std::string modeU, modeV;
 				Addr_() : modeU("Wrap"), modeV("Wrap") {}
 				Addr_(std::string u, std::string v) : modeU(u), modeV(v) {}
 				Addr_(TToString auto u, TToString auto v) : Addr_(conv(u), conv(v)) {}
+				static int Value(std::string_view mode)
+				{
+					// Map a mode name to its numeric value
+					for (auto const& [name, value] : Modes)
+					{
+						if (name == mode)
+							return value;
+					}
+					throw std::runtime_error(std::format("Unknown texture address mode: {}", mode));
+				}
 				friend void Append(bytebuf& out, Addr_ const& a)
 				{
 					auto s = Append(out, Header{ EKeywords::Addr });
-					Append(out, a.modeU, a.modeV);
+					Append(out, Value(a.modeU), Value(a.modeV));
 				}
 				friend void Append(textbuf& out, Addr_ const& a)
 				{
@@ -1715,14 +1728,31 @@ namespace pr::ldraw
 			};
 			struct Filter_
 			{
+				// Filter names and their 'D3D12_FILTER' values. The binary format stores the value because the reader parses enums as integers.
+				static constexpr std::pair<std::string_view, int> Filters[] =
+				{
+					{"Point", 0x00}, {"PointPointLinear", 0x01}, {"PointLinearPoint", 0x04}, {"PointLinearLinear", 0x05},
+					{"LinearPointPoint", 0x10}, {"LinearPointLinear", 0x11}, {"LinearLinearPoint", 0x14}, {"Linear", 0x15}, {"Anisotropic", 0x55},
+				};
+
 				std::string filter;
 				Filter_() : filter("Point") {}
 				Filter_(std::string f) : filter(f) {}
 				Filter_(TToString auto f) : Filter_(conv(f)) {}
+				static int Value(std::string_view filter)
+				{
+					// Map a filter name to its numeric value
+					for (auto const& [name, value] : Filters)
+					{
+						if (name == filter)
+							return value;
+					}
+					throw std::runtime_error(std::format("Unknown texture filter: {}", filter));
+				}
 				friend void Append(bytebuf& out, Filter_ const& f)
 				{
 					auto s = Append(out, Header{ EKeywords::Filter });
-					Append(out, f.filter);
+					Append(out, Value(f.filter));
 				}
 				friend void Append(textbuf& out, Filter_ const& f)
 				{
@@ -4743,6 +4773,7 @@ namespace pr::ldraw
 		};
 		std::vector<SphereData> m_spheres;
 		seri::Facets m_facets;
+		seri::Texture m_tex;
 
 		LdrSphere(seri::Name name, seri::Colour colour)
 		:LdrBase(name, colour)
@@ -4765,6 +4796,15 @@ namespace pr::ldraw
 		{
 			m_facets = seri::Facets(divisions);
 			return *this;
+		}
+		LdrSphere& texture(std::invocable<seri::Texture&> auto&& cb)
+		{
+			cb(m_tex);
+			return *this;
+		}
+		seri::Texture& texture()
+		{
+			return m_tex;
 		}
 
 		virtual void Write(textbuf& out) const override
@@ -4798,6 +4838,7 @@ namespace pr::ldraw
 					Append(out, "}");
 				}
 				Append(out, m_facets);
+				Append(out, m_tex);
 				LdrBase::Write(out);
 			}
 			Append(out, "}");
@@ -4831,6 +4872,7 @@ namespace pr::ldraw
 					}
 				}
 				Append(out, m_facets);
+				Append(out, m_tex);
 				LdrBase::Write(out);
 			}
 		}

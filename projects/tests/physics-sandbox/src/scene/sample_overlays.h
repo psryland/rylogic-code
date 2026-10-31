@@ -7,21 +7,18 @@ namespace physics_sandbox
 	struct SampleOverlayGeometry
 	{
 		std::vector<physics::surface::SurfaceSample> m_surface;
-		std::vector<v4> m_volume;
 	};
 
 	// Additive geometry overlays, independent of base scene visualisation and physics registration.
 	// Refresh/Reset require cleared renderer draw lists and completed GPU work before releasing instances.
 	struct SampleOverlays
 	{
-		static constexpr float VolumeSpacing = physics::buoyancy::DefaultVolumeSpacing;
 		static constexpr float NormalLength = 0.1f;
 
 		// Immutable models shared across bodies with identical collision shape pointers.
 		struct Model
 		{
 			rdr12::ldraw::LdrObjectPtr m_surface;
-			rdr12::ldraw::LdrObjectPtr m_volume;
 			std::string m_error;
 		};
 
@@ -30,11 +27,9 @@ namespace physics_sandbox
 		{
 			collision::Shape const* m_shape = nullptr;
 			rdr12::ldraw::LdrObjectPtr m_surface;
-			rdr12::ldraw::LdrObjectPtr m_volume;
 		};
 
 		bool m_surface_enabled = false;
-		bool m_volume_enabled = false;
 		bool m_refresh_pending = false;
 		float m_surface_spacing = physics::surface::DefaultSpacing;
 		std::unordered_map<collision::Shape const*, Model> m_models;
@@ -42,9 +37,9 @@ namespace physics_sandbox
 		int m_failed_targets = 0;
 		std::string m_first_error;
 
-		// Build geometry using the existing surface/volume emitters and compound sibling ownership rules.
+		// Build geometry using the existing surface emitter and compound sibling ownership rules.
 		// 'surface_spacing' is the maximum surface cell diameter in shape-local units (see surface::BuildPlan).
-		static SampleOverlayGeometry BuildGeometry(collision::Shape const& shape, bool surface, bool volume, float surface_spacing = physics::surface::DefaultSpacing);
+		static SampleOverlayGeometry BuildGeometry(collision::Shape const& shape, float surface_spacing = physics::surface::DefaultSpacing);
 
 		// Include all shaped non-static bodies, without inspecting or changing their sleeping state.
 		static bool Eligible(physics::RigidBody const& body);
@@ -52,12 +47,11 @@ namespace physics_sandbox
 		// Include links with a floating root or a movable joint on their ancestor path.
 		static bool Eligible(physics::Articulation const& articulation, physics::LinkHandle link);
 
-		// Return whether either additive overlay is enabled.
+		// Return whether the additive overlay is enabled.
 		bool Enabled() const;
 
-		// Change an independent overlay option; defer resource retirement until the renderer-safe refresh point.
+		// Change the overlay option; defer resource retirement until the renderer-safe refresh point.
 		void Surface(bool enabled);
-		void Volume(bool enabled);
 
 		// Set the surface sample spacing to display, matching the physics consumer that the scene exercises. Changing it rebuilds cached geometry.
 		void SurfaceSpacing(float spacing);

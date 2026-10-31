@@ -8,6 +8,7 @@
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/buoyancy/gpu_buoyancy.h"
 #include "pr/physics/buoyancy/buoyancy_sampler.h"
+#include "pr/physics/buoyancy/wave_resistance.hlsli"
 #include "pr/physics/shape/shape_builder.h"
 #include "pr/physics/terrain/water/wave_spectrum.h"
 #include "pr/physics/terrain/water/wind_sea.h"
@@ -51,11 +52,114 @@ namespace pr::physics::tests
 			check(0.0f, true, 2.0f, v4{0.0f, 0.0f, -0.25f, 1.0f});
 			check(-1.0f, true, 4.0f, v4{0.0f, 0.0f, -1.0f, 1.0f});
 		}
-	};
 
-	// Volume sample spacing used by the GPU tests. The analytic tolerances below were calibrated at about 8192 samples on a 2 x 2 x 1 m box,
-	// so the tests pin this spacing rather than following the (cheaper) shipped default.
-	static constexpr float HarnessVolumeSpacing = 0.08f;
+		// The quadrature of the wave-resistance integral matches a finely resolved reference for any patch shape and depth.
+		PRUnitTestMethod(WaveResistanceIntegralMatchesReference, Quick)
+		{
+			// Reference: trapezoid rule in double precision over t = tan(theta), far beyond where the integrand vanishes.
+			auto reference = [](double a, double b, double c)
+			{
+				// The integrand is 2*exp(-(1 + t^2)*(a^2 + 2c + b^2*t^2))*(1 + t^2)^(3/2), which decays to zero well before t = 100.
+				constexpr int count = 400000;
+				constexpr double t_end = 100.0;
+				auto const dt = t_end / count;
+				auto sum = 0.0;
+				for (int i = 0; i != count; ++i)
+				{
+					auto const t = (i + 0.5) * dt;
+					auto const s = 1.0 + t * t;
+					sum += std::exp(-s * (a * a + 2.0 * c + b * b * t * t)) * s * std::sqrt(s);
+				}
+				return 2.0 * sum * dt;
+			};
+
+			// Surface patches of any shape.
+			for (auto a : {0.05f, 0.3f, 1.0f, 2.0f, 4.0f})
+			{
+				for (auto b : {0.05f, 0.3f, 1.0f, 3.0f, 30.0f})
+				{
+					auto const expected = reference(a, b, 0.0);
+					auto const actual = buoyancy::WaveResistanceIntegral(a, b, 0.0f);
+					PR_EXPECT(std::abs(actual - expected) <= 0.005 * expected);
+				}
+			}
+
+			// Patches below the surface, including a point-like patch with no length along the motion.
+			for (auto a : {0.0f, 0.3f, 1.0f})
+			{
+				for (auto b : {0.05f, 1.0f, 30.0f})
+				{
+					for (auto c : {0.01f, 0.2f, 2.0f})
+					{
+						auto const expected = reference(a, b, c);
+						auto const actual = buoyancy::WaveResistanceIntegral(a, b, c);
+						PR_EXPECT(std::abs(actual - expected) <= 0.005 * expected);
+					}
+				}
+			}
+		}
+
+		// A wide patch makes the same waves as a line of 2D patches, whose resistance is known in closed form:
+		// I -> sqrt(pi) * exp(-a_along^2) / a_across as the patch becomes much wider than the waves it makes.
+		PRUnitTestMethod(WaveResistanceIntegralWidePatchLimit, Quick)
+		{
+			for (auto a : {0.5f, 1.0f, 2.0f})
+			{
+				auto const b = 200.0f;
+				auto const expected = std::sqrt(tau / 2.0f) * std::exp(-a * a) / b;
+				auto const actual = buoyancy::WaveResistanceIntegral(a, b, 0.0f);
+				PR_EXPECT(std::abs(actual - expected) <= 0.01f * expected);
+			}
+		}
+
+		// The resistance of a beach-ball sized patch vanishes at rest and at low speed, peaks near the speed of waves as long as
+		// the patch, and falls as 1/U^2 at high speed.
+		PRUnitTestMethod(WaveResistanceSpeedDependence, Quick)
+		{
+			// 0.06 kg displaced in fresh water by a waterplane of radius 0.055 m, whose Gaussian spread is half the radius.
+			auto const volume = 0.06f / 1000.0f;
+			auto const sigma = 0.0275f;
+			auto resistance = [=](float speed)
+			{
+				return buoyancy::WaveResistance(1000.0f, 9.81f, volume, speed, sigma, sigma, 0.0f);
+			};
+			PR_EXPECT(resistance(0.0f) == 0.0f);
+			PR_EXPECT(resistance(0.15f) == 0.0f);
+
+			// The peak is near U = sqrt(g*sigma) = 0.52 m/s, and is a sizable fraction of the displaced weight.
+			auto const hump = resistance(0.5f);
+			PR_EXPECT(resistance(0.3f) < 0.01f * hump);
+			PR_EXPECT(resistance(1.0f) < hump);
+			PR_EXPECT(hump > 0.1f * 0.06f * 9.81f);
+
+			// Far above the hump speed the patch acts like a point load, and doubling the speed quarters the resistance.
+			auto const ratio = resistance(10.0f) / resistance(20.0f);
+			PR_EXPECT(std::abs(ratio - 4.0f) < 0.2f);
+		}
+
+		// A displaced volume with no length along the motion stays finite once it is below the surface, and deeper volumes make
+		// fewer waves, so the resistance falls with depth.
+		PRUnitTestMethod(WaveResistanceDepthDependence, Quick)
+		{
+			// A dense ball of radius 0.15 m that is nearly submerged: its volume is 0.0141 m^3 and the waterplane has vanished.
+			auto const volume = 0.0141f;
+			auto const sigma = 0.067f;
+			auto resistance = [=](float sigma_along, float depth)
+			{
+				return buoyancy::WaveResistance(1000.0f, 9.81f, volume, 1.0f, sigma_along, sigma, depth);
+			};
+
+			// The resistance is finite with no length along the motion, and below the displaced weight.
+			auto const shallow = resistance(0.0f, 0.15f);
+			PR_EXPECT(std::isfinite(shallow) && shallow > 0.0f);
+			PR_EXPECT(shallow < 1000.0f * 9.81f * volume);
+
+			// Depth acts like extra length along the motion, and a deeper volume has less resistance.
+			PR_EXPECT(std::abs(resistance(0.0f, 0.15f) - resistance(std::sqrt(2.0f * 0.15f / (9.81f)), 0.0f)) <= 1e-3f * shallow);
+			PR_EXPECT(resistance(0.0f, 0.3f) < shallow);
+			PR_EXPECT(resistance(0.0f, 1.0f) < 0.1f * shallow);
+		}
+	};
 
 	// Retain the heavyweight GPU queue across test methods while keeping the body resolver bound to stable storage.
 	struct HarnessStorage
@@ -75,7 +179,6 @@ namespace pr::physics::tests
 				m_engine.Device(),
 				m_engine,
 				GpuBuoyancy::Config{
-					.m_volume_spacing = HarnessVolumeSpacing,
 					.m_enable_diagnostics = enable_diagnostics,
 				},
 				[](int stable_body_index)
@@ -127,7 +230,6 @@ namespace pr::physics::tests
 			m_engine.ResetCaches();
 			m_buoyancy.SetWaterField(terrain::water::WaterField{});
 			m_buoyancy.SetConfig(GpuBuoyancy::Config{
-				.m_volume_spacing = HarnessVolumeSpacing,
 				.m_enable_diagnostics = enable_diagnostics,
 			});
 		}
@@ -137,13 +239,11 @@ namespace pr::physics::tests
 	// GPU-vs-oracle cases validate deterministic sampling as well as force and diagnostic readback.
 	PRUnitTestClass(BuoyancyCompositeHostTests)
 	{
-		// Keep the GPU pass and CPU oracle on the shared buoyancy sample densities.
+		// Keep the GPU pass and CPU oracle on the shared buoyancy sample density.
 		PRUnitTestMethod(SharedSampleDensityDefaults, Extended)
 		{
 			PR_EXPECT(GpuBuoyancy::Config{}.m_surface_spacing == buoyancy::DefaultSurfaceSpacing);
-			PR_EXPECT(GpuBuoyancy::Config{}.m_volume_spacing == buoyancy::DefaultVolumeSpacing);
 			PR_EXPECT(buoyancy::SamplerConfig{}.m_surface_spacing == buoyancy::DefaultSurfaceSpacing);
-			PR_EXPECT(buoyancy::SamplerConfig{}.m_volume_spacing == buoyancy::DefaultVolumeSpacing);
 		}
 
 		// A single box flattens to one analytic Box primitive carrying its half-extents and no geometry.
@@ -162,13 +262,12 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(p.m_params, v4{half.x, half.y, half.z, 0.0f}, 1e-6f));
 
 			// Boxes are analytic: no concatenated geometry on the hull.
-			PR_EXPECT(p.m_vert_count == 0 && p.m_volume_vert_count == 0 && p.m_tet_count == 0 && p.m_face_count == 0);
-			PR_EXPECT(hull.m_verts.empty() && hull.m_volume_verts.empty() && hull.m_tets.empty() && hull.m_tet_cdf.empty() && hull.m_face_planes.empty());
+			PR_EXPECT(p.m_vert_count == 0 && p.m_face_count == 0);
+			PR_EXPECT(hull.m_verts.empty() && hull.m_face_planes.empty() && hull.m_face_verts.empty());
 		}
 
-		// The face fan for the stress-scene octahedron has one shared centre, one copy of each surface
-		// vertex, and one tetrahedron per face while preserving volume and first moment.
-		PRUnitTestMethod(FlattenOctahedronFaceFan, Extended)
+		// The stress-scene octahedron flattens to one polytope primitive holding one copy of each surface vertex and one plane per face.
+		PRUnitTestMethod(FlattenOctahedronSurface, Extended)
 		{
 			auto const points = std::array{
 				v4{+0.7f, 0.0f, 0.0f, 1.0f},
@@ -180,37 +279,12 @@ namespace pr::physics::tests
 			};
 			auto shape = collision::BuildPolytopeFromPoints(points);
 			auto const& poly = shape.as<collision::ShapePolytope>();
-			auto const hull = buoyancy::FlattenShape(poly, -1);
-			auto const logical_bytes =
-				hull.m_primitives.size() * sizeof(hull.m_primitives[0]) +
-				hull.m_verts.size() * sizeof(hull.m_verts[0]) +
-				hull.m_volume_verts.size() * sizeof(hull.m_volume_verts[0]) +
-				hull.m_tets.size() * sizeof(hull.m_tets[0]) +
-				hull.m_tet_cdf.size() * sizeof(hull.m_tet_cdf[0]) +
-				hull.m_face_planes.size() * sizeof(hull.m_face_planes[0]) +
-				hull.m_face_verts.size() * sizeof(hull.m_face_verts[0]);
+			auto const hull = buoyancy::FlattenShape(collision::shape_cast(poly));
 			PR_EXPECT(hull.m_primitives.size() == 1);
 			PR_EXPECT(hull.m_verts.size() == 6);
-			PR_EXPECT(hull.m_volume_verts.size() == 7);
-			PR_EXPECT(hull.m_tets.size() == 8);
-			PR_EXPECT(hull.m_tet_cdf.size() == 8);
 			PR_EXPECT(hull.m_face_planes.size() == 8);
-			PR_EXPECT(logical_bytes == 752);
-
-			auto volume = 0.0f;
-			auto first_moment = v4::Zero();
-			for (auto const& tet : hull.m_tets)
-			{
-				auto const a = hull.m_volume_verts[tet.x];
-				auto const b = hull.m_volume_verts[tet.y];
-				auto const c = hull.m_volume_verts[tet.z];
-				auto const d = hull.m_volume_verts[tet.w];
-				auto const tet_volume = tetramesh::Volume(a, b, c, d);
-				volume += tet_volume;
-				first_moment += (tet_volume * (a + b + c + d) / 4.0f).w0();
-			}
-			PR_EXPECT(FEqlRelative(volume, buoyancy::PrimitiveVolume(poly), 1e-5f));
-			PR_EXPECT(FEqlAbsolute(first_moment, v4::Zero(), 1e-6f));
+			PR_EXPECT(hull.m_face_verts.size() == 8);
+			PR_EXPECT(hull.m_primitives[0].m_face_count == 8);
 		}
 
 		// A ShapeArray of two boxes flattens to two Box primitives in child order with distinct transforms.
@@ -264,7 +338,7 @@ namespace pr::physics::tests
 			auto const& p = hull.m_primitives[0];
 			PR_EXPECT(p.m_type == static_cast<int>(buoyancy::EPrimitiveType::Sphere));
 			PR_EXPECT(FEqlAbsolute(p.m_params.x, 2.5f, 1e-6f));
-			PR_EXPECT(hull.m_verts.empty() && hull.m_volume_verts.empty());
+			PR_EXPECT(hull.m_verts.empty());
 		}
 
 		// A triangle flattens to one Triangle primitive contributing its three surface corners.
@@ -281,74 +355,9 @@ namespace pr::physics::tests
 			PR_EXPECT(hull.m_verts.size() == 3);
 		}
 
-		// A tessellated polytope flattens to one Polytope primitive whose concatenated tet geometry
-		// conserves the polytope's volume.
-		PRUnitTestMethod(FlattenPolytopeTessellated, Extended)
-		{
-			v4 pts[] = {
-				v4{-1, -1, -1, 1}, v4{ 1, -1, -1, 1},
-				v4{-1,  1, -1, 1}, v4{ 1,  1, -1, 1},
-				v4{-1, -1,  1, 1}, v4{ 1, -1,  1, 1},
-				v4{-1,  1,  1, 1}, v4{ 1,  1,  1, 1},
-			};
-			auto buf = collision::BuildPolytopeFromPoints(pts, m4x4::Identity(), 0, collision::Shape::EFlags::None, 4);
-			auto& poly = buf.as<collision::ShapePolytope>();
-
-			auto const hull = buoyancy::FlattenShape(collision::shape_cast(poly));
-			PR_EXPECT(hull.m_primitives.size() == 1);
-
-			auto const& p = hull.m_primitives[0];
-			PR_EXPECT(p.m_type == static_cast<int>(buoyancy::EPrimitiveType::Polytope));
-			PR_EXPECT(p.m_vert_count == poly.m_vert_count);
-			PR_EXPECT(p.m_face_count == poly.m_face_count);
-			PR_EXPECT(p.m_tet_count == poly.m_tet_count && p.m_tet_count > 0);
-			PR_EXPECT(p.m_volume_vert_count == poly.m_volume_vert_count && p.m_volume_vert_count > 0);
-
-			// The descriptor counts must match the lengths of the concatenated geometry arrays.
-			PR_EXPECT(isize(hull.m_verts) == p.m_vert_count);
-			PR_EXPECT(isize(hull.m_volume_verts) == p.m_volume_vert_count);
-			PR_EXPECT(isize(hull.m_tets) == p.m_tet_count);
-			PR_EXPECT(hull.m_tet_cdf.size() == hull.m_tets.size());
-			PR_EXPECT(isize(hull.m_face_planes) == p.m_face_count);
-
-			// Volume conservation: the cube has volume 8, and each CDF entry must equal the running
-			// volume in tet order. Tet indices are relative to this single primitive and absolute here.
-			auto sum = 0.0f;
-			for (auto i = 0; i != isize(hull.m_tets); ++i)
-			{
-				auto const& t = hull.m_tets[i];
-				auto a = hull.m_volume_verts[t.x];
-				auto b = hull.m_volume_verts[t.y];
-				auto c = hull.m_volume_verts[t.z];
-				auto d = hull.m_volume_verts[t.w];
-				sum += tetramesh::Volume(a, b, c, d);
-				PR_EXPECT(FEqlRelative(hull.m_tet_cdf[i], sum, 1e-6f));
-			}
-			PR_EXPECT(FEqlRelative(sum, 8.0f, 1e-4f));
-		}
-
-		// A polytope without an interior tessellation cannot supply volume samples, so flattening throws.
-		PRUnitTestMethod(FlattenPolytopeMissingTetsThrows, Extended)
-		{
-			v4 pts[] = {
-				v4{-1, -1, -1, 1}, v4{ 1, -1, -1, 1},
-				v4{-1,  1, -1, 1}, v4{ 1,  1, -1, 1},
-				v4{-1, -1,  1, 1}, v4{ 1, -1,  1, 1},
-				v4{-1,  1,  1, 1}, v4{ 1,  1,  1, 1},
-			};
-			auto buf = collision::BuildPolytopeFromPoints(pts); // tess_resolution defaults to 0 => no tets
-			auto& poly = buf.as<collision::ShapePolytope>();
-			PR_EXPECT(poly.m_tet_count == 0);
-
-			auto threw = false;
-			try { (void)buoyancy::FlattenShape(collision::shape_cast(poly)); }
-			catch (std::exception const&) { threw = true; }
-			PR_EXPECT(threw);
-		}
-
-		// A collision-only polytope can be converted to compact buoyancy geometry without changing the
-		// source shape. The face fan contributes one centre vertex and one tetrahedron per surface face.
-		PRUnitTestMethod(FlattenPolytopeDerivesMissingTets, Extended)
+		// A collision polytope flattens to one Polytope primitive whose concatenated surface geometry matches the source shape.
+		// No interior tessellation is needed because buoyancy is integrated over the surface.
+		PRUnitTestMethod(FlattenPolytopeSurface, Extended)
 		{
 			v4 pts[] = {
 				v4{-1, -1, -1, 1}, v4{ 1, -1, -1, 1},
@@ -358,14 +367,17 @@ namespace pr::physics::tests
 			};
 			auto buf = collision::BuildPolytopeFromPoints(pts);
 			auto const& poly = buf.as<collision::ShapePolytope>();
-			auto const hull = buoyancy::FlattenShape(collision::shape_cast(poly), -1);
-
+			auto const hull = buoyancy::FlattenShape(collision::shape_cast(poly));
 			PR_EXPECT(poly.m_tet_count == 0);
 			PR_EXPECT(hull.m_primitives.size() == 1);
-			PR_EXPECT(hull.m_primitives[0].m_tet_count == poly.m_face_count);
-			PR_EXPECT(hull.m_primitives[0].m_volume_vert_count == poly.m_vert_count + 1);
-			PR_EXPECT(hull.m_tet_cdf.size() == hull.m_tets.size());
-			PR_EXPECT(FEqlRelative(buoyancy::PrimitiveVolume(collision::shape_cast(poly)), 8.0f, 1e-4f));
+
+			// The descriptor counts must match the source shape and the lengths of the concatenated geometry arrays.
+			auto const& p = hull.m_primitives[0];
+			PR_EXPECT(p.m_type == static_cast<int>(buoyancy::EPrimitiveType::Polytope));
+			PR_EXPECT(p.m_vert_count == poly.m_vert_count);
+			PR_EXPECT(p.m_face_count == poly.m_face_count);
+			PR_EXPECT(isize(hull.m_verts) == p.m_vert_count);
+			PR_EXPECT(isize(hull.m_face_planes) == p.m_face_count);
 		}
 
 		// A thin line has no volume or outward normal, so the composite model rejects it.
@@ -378,7 +390,7 @@ namespace pr::physics::tests
 			PR_EXPECT(threw);
 		}
 
-		// A capsule flattens to one analytic Capsule primitive, and its volume samples fill the capsule uniformly.
+		// A capsule flattens to one analytic Capsule primitive carrying its radius and half-length.
 		PRUnitTestMethod(FlattenCapsule, Extended)
 		{
 			auto capsule = collision::ShapeLine(3.0f, 0.5f);
@@ -390,27 +402,6 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(p.m_params.x, 0.5f, 1e-6f));
 			PR_EXPECT(FEqlAbsolute(p.m_params.y, 1.5f, 1e-6f));
 
-			// Volume is a cylinder plus one sphere.
-			auto const pi = static_cast<float>(math::constants<double>::tau_by_2);
-			auto const cylinder = pi * 0.25f * 3.0f;
-			auto const caps = (4.0f / 3.0f) * pi * 0.125f;
-			auto const volume = buoyancy::PrimitiveVolume(collision::shape_cast(capsule));
-			PR_EXPECT(FEqlRelative(volume, cylinder + caps, 1e-5f));
-
-			// Every sample lies inside, the samples are centred, and the cap fraction matches the cap volume fraction.
-			auto const table = buoyancy::BuildVolumeSampleTable(collision::shape_cast(capsule));
-			auto const count = 8192;
-			auto in_caps = 0;
-			auto centre = v4::Zero();
-			for (int i = 0; i != count; ++i)
-			{
-				auto const s = buoyancy::EmitVolumeSample(collision::shape_cast(capsule), buoyancy::SampleIndex(7u, 0, i), 1.0f, table);
-				PR_EXPECT(buoyancy::ContainsLocal(collision::shape_cast(capsule), s.m_pos_local, 1e-5f));
-				in_caps += std::abs(s.m_pos_local.z) > 1.5f ? 1 : 0;
-				centre += s.m_pos_local.w0();
-			}
-			PR_EXPECT(FEqlAbsolute(static_cast<float>(in_caps) / count, caps / (cylinder + caps), 0.02f));
-			PR_EXPECT(Length(centre / static_cast<float>(count)) < 0.02f);
 		}
 
 		// Registering a composite hull twice for the same body is an error.
@@ -432,7 +423,7 @@ namespace pr::physics::tests
 		}
 
 		// Registration derives an untessellated collision polytope directly from the rigid body. A
-		// fully submerged cube reports its exact total volume because every generated sample is wet.
+		// fully submerged cube reports its exact total volume because every surface water column is wet.
 		PRUnitTestMethod(GpuCompositeDerivesBodyPolytope, Extended)
 		{
 			v4 pts[] = {
@@ -503,9 +494,8 @@ namespace pr::physics::tests
 
 		// Phase-11 GATE: a single box registered through the sampled-composite path must reproduce
 		// the closed-form analytic box result (volume / force / centre-of-buoyancy / torque) to within
-		// Monte-Carlo sampling error. This is the first end-to-end exercise of DispatchComposite plus
-		// both volume kernels; it supersedes the old "Apply() throws" note (the force kernels have
-		// landed, so Apply no longer throws for the composite path and a full Engine::Step is safe).
+		// surface quadrature error. This is the first end-to-end exercise of DispatchComposite plus
+		// the surface kernels.
 		//
 		// Setup mirrors BuoyancyAnalyticTests::GpuDiagnosticMatchesAnalyticBox: a 2x2x1 box of mass
 		// 500 kg at identity, flat water at z = 0, per-body gravity = AnalyticGravityWS. Half the box
@@ -531,10 +521,8 @@ namespace pr::physics::tests
 			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
 			PR_EXPECT(diag.m_valid);
 
-			// Low-discrepancy volume sampling of a symmetric half-submerged box leaves a small residual
-			// in the symmetric-cancellation quantities (lateral force, COB x/y, torque). Tolerances are
-			// the measured residual plus margin; the dominant quantities (wet volume, vertical force)
-			// converge tightly because they are sums of equal-weight wet samples.
+			// Surface cells straddling the waterline are integrated with a partial-cell approximation, and the symmetric-cancellation
+			// quantities (lateral force, COB x/y, torque) carry float rounding. Tolerances are the measured residual plus margin.
 			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 2.0f, 0.005f));
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws, v4{0.0f, 0.0f, 19620.0f, 0.0f}, 25.0f));
 			PR_EXPECT(FEqlAbsolute(diag.m_centre_buoyancy_ws, v4{0.0f, 0.0f, -0.25f, 1.0f}, 0.002f));
@@ -567,7 +555,7 @@ namespace pr::physics::tests
 			// Prove the buoyancy force is actually applied to the rigid body, not merely reported in the
 			// diagnostic record. The body also receives m*g (it carries its own gravity vector), so the
 			// explicit net Z force is buoyancy + m*g = 19620 + 500*(-9.81) = 14715 N. The implicit buoyancy
-			// solve divides the net force by (1 + h*D/m + h^2*K/(2m)), where D = rho*V_wet/tau is the volume
+			// solve divides the net force by (1 + h*D/m + h^2*K/(2m)), where D = rho*V_wet/tau is the water-column
 			// drag rate (2 m^3 wet, tau = 5 s) and K = rho*g*A the waterline stiffness (A = 4 m^2).
 			auto const dt = 1.0f / 60.0f;
 			auto const mass = 500.0f;
@@ -683,14 +671,14 @@ namespace pr::physics::tests
 		struct FlatField
 		{
 			float Height(v2) const { return 0.0f; }
+			v2 Slope(v2) const { return v2::Zero(); }
 			v4 PressureGradient(v2, float) const { return v4::Zero(); }
 			v4 Velocity(v4) const { return v4::Zero(); }
 		};
 
-		// A partially submerged resolution-5 polytope compares the GPU tet-CDF binary search with the
-		// CPU oracle. Partial submersion makes the result depend on the selected tet and sample position,
-		// unlike the fully submerged volume check where every selection contributes the same weight.
-		PRUnitTestMethod(GpuCompositePolytopeCdfMatchesOracle, Extended)
+		// A partially submerged polytope compares the GPU surface cells with the CPU oracle. Partial submersion makes the result
+		// depend on each cell's position and wet fraction, unlike the fully submerged check where every column is fully wet.
+		PRUnitTestMethod(GpuCompositePolytopeMatchesOracle, Extended)
 		{
 			v4 pts[] = {
 				v4{+0.7f, 0.0f, 0.0f, 1.0f},
@@ -716,8 +704,8 @@ namespace pr::physics::tests
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
 			h.m_buoyancy.CompleteStep();
 
-			// Feed the same tessellated shape, transform, stable hull id, and sample spacings to the CPU
-			// oracle so any CDF offset or binary-search boundary error changes the sampled wet volume.
+			// Feed the same shape, transform, and sample spacing to the CPU oracle so any cell placement or wet-fraction error
+			// changes the sampled wet volume.
 			auto const oracle_body = buoyancy::BodyState{
 				.m_o2w = o2w,
 				.m_gravity_ws = AnalyticGravityWS,
@@ -728,13 +716,12 @@ namespace pr::physics::tests
 				.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 				.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
 				.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
+				.m_air_density = h.m_buoyancy.GetAir().m_density,
 				.m_added_mass_coefficient = config.m_added_mass_coefficient,
 				.m_surface_spacing = config.m_surface_spacing,
-				.m_volume_spacing = config.m_volume_spacing,
 			};
 			auto const oracle = buoyancy::SampleHull(
 				collision::shape_cast(poly),
-				0,
 				oracle_body,
 				buoyancy::WaterFrame{},
 				FlatField{},
@@ -748,10 +735,9 @@ namespace pr::physics::tests
 		}
 
 		// Composite union volume: two concentric boxes (a big 2x2x1 and a small 1x1x0.5 fully inside it)
-		// must report the union volume, NOT the sum. The lower-index volume sibling-cull means every
-		// sample of the inner box lands inside the outer box (a lower-index sibling) and is discarded, so
-		// the submerged union is exactly the outer box's half (2 m^3) rather than 2 + 0.25 = 2.25 m^3.
-		// This is the key composite-dedup test: without the cull the volume (and buoyancy force) would be
+		// must report the union volume, NOT the sum. Surface cells inside a sibling primitive are culled, so
+		// every cell of the inner box is discarded and the submerged union is exactly the outer box's half
+		// (2 m^3) rather than 2 + 0.25 = 2.25 m^3. Without the cull the volume (and buoyancy force) would be
 		// inflated by the embedded inner primitive.
 		PRUnitTestMethod(GpuCompositeOverlappingBoxesUnionVolume, Extended)
 		{
@@ -782,7 +768,7 @@ namespace pr::physics::tests
 			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
 			PR_EXPECT(diag.m_valid);
 
-			// Union submerged volume is the outer box half (2 m^3), proving the inner box's samples were
+			// Union submerged volume is the outer box half (2 m^3), proving the inner box's cells were
 			// deduplicated. The buoyancy force and COB therefore match the single-box half-submerged case.
 			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 2.0f, 0.01f));
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws, v4{0.0f, 0.0f, 19620.0f, 0.0f}, 50.0f));
@@ -792,11 +778,9 @@ namespace pr::physics::tests
 
 		// A fully-submerged sphere registered through the composite backend must reproduce the closed-form
 		// sphere buoyancy: V = 4/3*pi*R^3, force = (0, 0, rho*|g|*V) straight up, centre of buoyancy at the
-		// sphere centre, zero torque. Tolerances are looser than the box case because the sphere volume
-		// sampler maps a Halton radius through pow(u, 1/3) (the oracle uses std::cbrt) so individual sample
-		// positions differ slightly; with the sphere fully submerged every sample is wet, so the net volume
-		// and vertical force are insensitive to that difference and only the symmetric-cancellation
-		// quantities (lateral force, COB drift, torque) carry the residual noise.
+		// sphere centre, zero torque. Tolerances are looser than the box case because the curved surface is
+		// integrated with flat cells, and the symmetric-cancellation quantities (lateral force, COB drift,
+		// torque) carry the residual quadrature noise.
 		PRUnitTestMethod(GpuCompositeSphereMatchesAnalytic, Extended)
 		{
 			auto const radius = 1.0f;
@@ -821,7 +805,7 @@ namespace pr::physics::tests
 			auto const volume = (4.0f / 3.0f) * (constants<float>::tau / 2.0f) * radius * radius * radius;
 			auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * volume;
 
-			// Volume and vertical force converge tightly (sums of equal-weight wet samples).
+			// Volume and vertical force converge tightly (sums of fully wet water columns).
 			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, volume, volume * 0.01f));
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, std::abs(rho_g_v) * 0.01f));
 			// Lateral force cancels by symmetry; COB sits at the sphere centre; torque vanishes.
@@ -844,7 +828,7 @@ namespace pr::physics::tests
 
 			Harness h;
 			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
-				.m_volume_spacing = 0.07f,
+				.m_surface_spacing = 0.1f,
 				.m_enable_diagnostics = true,
 			});
 			h.m_bodies.emplace_back();
@@ -853,7 +837,7 @@ namespace pr::physics::tests
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
-			// Fully submerged: every sample is wet, so volume, lift and centre of buoyancy are exact up to sampling noise.
+			// Fully submerged: every water column is wet, so volume, lift and centre of buoyancy are exact up to quadrature error.
 			{
 				h.m_bodies[0].O2W(m4x4::Transform(axis, 0.6f, v4{0.0f, 0.0f, -5.0f, 1.0f}));
 				h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
@@ -882,11 +866,10 @@ namespace pr::physics::tests
 		}
 
 		// GPU-vs-oracle parity with drag active. A fully-submerged box translating and yawing exercises
-		// volume-based linear damping plus normal and tangential quadratic surface drag. The CPU sampler
-		// is the deterministic reference oracle: fed the same stable hull id (0), the same volume and surface
-		// spacing, the same flat water frame and the same body state, it walks the identical hash and cull,
-		// so the GPU combined force/torque must match the oracle's buoyancy+drag sum to within single-precision
-		// sampling noise. This validates both sampled integration passes, not just buoyancy. The GPU diagnostic
+		// water-column linear damping plus normal and tangential quadratic surface drag. The CPU sampler
+		// is the deterministic reference oracle: fed the same surface spacing, the same flat water frame and
+		// the same body state, it walks the identical surface cells and cull, so the GPU combined force/torque
+		// must match the oracle's buoyancy+drag sum to within single-precision noise. The GPU diagnostic
 		// force/torque are the combined buoyancy and drag values, which we compare against the oracle sum.
 		PRUnitTestMethod(GpuCompositeMatchesOracleWithDrag, Extended)
 		{
@@ -915,7 +898,7 @@ namespace pr::physics::tests
 			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
 			PR_EXPECT(diag.m_valid);
 
-			// Match volume spacing/hash, surface spacing, flat water, and the dispatch-time body state.
+			// Match the surface spacing, flat water, and the dispatch-time body state.
 			auto oracle_body = buoyancy::BodyState{
 				.m_o2w = o2w,
 				.m_gravity_ws = AnalyticGravityWS,
@@ -928,20 +911,20 @@ namespace pr::physics::tests
 				.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 				.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
 				.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
+				.m_air_density = h.m_buoyancy.GetAir().m_density,
 				.m_added_mass_coefficient = config.m_added_mass_coefficient,
 				.m_surface_spacing = config.m_surface_spacing,
-				.m_volume_spacing = config.m_volume_spacing,
 			};
 			auto const frame = buoyancy::WaterFrame{};
 			auto const field = FlatField{};
-			auto const oracle = buoyancy::SampleHull(collision::shape_cast(box), 0, oracle_body, frame, field, oracle_cfg);
+			auto const oracle = buoyancy::SampleHull(collision::shape_cast(box), oracle_body, frame, field, oracle_cfg);
 			PR_EXPECT(oracle.m_valid);
 
 			auto const expected_force = oracle.m_buoyancy_force_ws + oracle.m_drag_force_ws;
 			auto const expected_torque = oracle.m_buoyancy_torque_ws + oracle.m_drag_torque_ws;
 
-			// Volume matches tightly (fully submerged, equal-weight samples). Force/torque carry sampling
-			// noise from the sampled drag integrals, so use a small tolerance about the oracle magnitude.
+			// Volume matches tightly (fully submerged columns). Force/torque carry float noise from the
+			// sampled drag integrals, so use a small tolerance about the oracle magnitude.
 			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, oracle.m_volume_m3, oracle.m_volume_m3 * 0.01f));
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws, expected_force, std::max(Length(expected_force) * 0.02f, 5.0f)));
 			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, expected_torque, std::max(Length(expected_torque) * 0.05f, 5.0f)));
@@ -998,11 +981,11 @@ namespace pr::physics::tests
 						.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 						.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
 						.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
+						.m_air_density = h.m_buoyancy.GetAir().m_density,
 						.m_added_mass_coefficient = config.m_added_mass_coefficient,
 						.m_surface_spacing = config.m_surface_spacing,
-						.m_volume_spacing = config.m_volume_spacing,
-					};
-					auto const oracle = buoyancy::SampleHull(*shape, 0, oracle_body, buoyancy::WaterFrame{}, FlatField{}, oracle_cfg);
+							};
+					auto const oracle = buoyancy::SampleHull(*shape, oracle_body, buoyancy::WaterFrame{}, FlatField{}, oracle_cfg);
 					h.m_engine.Step(0.0001f, std::span{h.m_bodies});
 					h.m_buoyancy.CompleteStep();
 					auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
@@ -1016,31 +999,32 @@ namespace pr::physics::tests
 			}
 		}
 
-		// Wet-volume linear damping should produce the same acceleration for equal-density geometrically
+		// Water-column linear damping should produce the same acceleration for equal-density geometrically
 		// similar bodies because their mass and damping force both scale with volume.
 		PRUnitTestMethod(LinearDragTimeConstantIsScaleIndependent, Extended)
 		{
 			auto const frame = buoyancy::WaterFrame{};
 			auto const field = FlatField{};
-			auto const body = buoyancy::BodyState{
-				.m_o2w = m4x4::Translation(0.0f, 0.0f, -10.0f),
-				.m_gravity_ws = AnalyticGravityWS,
-				.m_vel_lin_ws = v4{3.0f, -1.0f, 0.5f, 0.0f},
-			};
 			auto const config = buoyancy::SamplerConfig{
 				.m_fluid_density = 1000.0f,
 				.m_linear_drag_time_constant_s = 2.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
-				.m_volume_spacing = 0.0625f, // exact in binary, so each box gets 4096 samples with an exactly representable weight
+				.m_surface_spacing = 0.0625f, // exact in binary, so each box face gets an exactly representable cell area
 			};
 
 			auto const drag_per_volume = [&](float scale)
 			{
-				// Scale the sample spacing with the body so every size sees the same, geometrically similar sample pattern.
+				// Scale the sample spacing and depth with the body so every size sees the same, geometrically similar water columns.
+				// The scales are powers of two, so the scaled sums are exact and the per-volume results match bit for bit.
 				auto scaled = config;
-				scaled.m_volume_spacing *= scale;
+				scaled.m_surface_spacing *= scale;
+				auto const body = buoyancy::BodyState{
+					.m_o2w = m4x4::Translation(0.0f, 0.0f, -2.0f * scale),
+					.m_gravity_ws = AnalyticGravityWS,
+					.m_vel_lin_ws = v4{3.0f, -1.0f, 0.5f, 0.0f},
+				};
 				auto const box = collision::ShapeBox(v4{scale, scale, scale, 0.0f});
-				auto const result = buoyancy::SampleHull(collision::shape_cast(box), 0, body, frame, field, scaled);
+				auto const result = buoyancy::SampleHull(collision::shape_cast(box), body, frame, field, scaled);
 				return result.m_drag_force_ws / result.m_volume_m3;
 			};
 
@@ -1053,7 +1037,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlRelative(medium_drag, expected, 1.0e-5f));
 		}
 
-		// Rotational volume drag integrates the sampled lever arms independently of translational damping.
+		// Rotational water-column drag integrates the column lever arms independently of translational damping.
 		// A symmetric fully submerged box therefore receives negligible net force and the closed-form
 		// opposing torque -rho/tau * V*(dx^2+dy^2)/12 about its Z axis.
 		PRUnitTestMethod(AngularDragTimeConstantUsesWetGeometry, Extended)
@@ -1071,10 +1055,10 @@ namespace pr::physics::tests
 				.m_fluid_density = 1000.0f,
 				.m_linear_drag_time_constant_s = 0.0f,
 				.m_angular_drag_time_constant_s = 1.0f,
-				.m_volume_spacing = 0.08f,
+				.m_surface_spacing = 0.08f,
 			};
 
-			auto const result = buoyancy::SampleHull(collision::shape_cast(box), 0, body, frame, field, config);
+			auto const result = buoyancy::SampleHull(collision::shape_cast(box), body, frame, field, config);
 			auto const volume = dimensions.x * dimensions.y * dimensions.z;
 			auto const polar_volume_moment = volume * (dimensions.x * dimensions.x + dimensions.y * dimensions.y) / 12.0f;
 			auto const expected_torque_z = -(config.m_fluid_density / config.m_angular_drag_time_constant_s) * polar_volume_moment;
@@ -1086,7 +1070,7 @@ namespace pr::physics::tests
 			// With angular damping disabled, pure rotation must not leak into the independent linear term.
 			config.m_linear_drag_time_constant_s = 0.1f;
 			config.m_angular_drag_time_constant_s = 0.0f;
-			auto const linear_only = buoyancy::SampleHull(collision::shape_cast(box), 0, body, frame, field, config);
+			auto const linear_only = buoyancy::SampleHull(collision::shape_cast(box), body, frame, field, config);
 			PR_EXPECT(FEqlAbsolute(linear_only.m_drag_force_ws, v4::Zero(), 1.0e-5f));
 			PR_EXPECT(FEqlAbsolute(linear_only.m_drag_torque_ws, v4::Zero(), 1.0e-5f));
 		}
@@ -1110,7 +1094,6 @@ namespace pr::physics::tests
 				.m_angular_drag_time_constant_s = 0.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
-				.m_volume_spacing = HarnessVolumeSpacing,
 				.m_enable_diagnostics = true,
 			});
 
@@ -1165,7 +1148,7 @@ namespace pr::physics::tests
 
 		// Composite port of the legacy GpuLinearDragForce check, asserting the wet-volume linear-drag closed form.
 		// A fully-submerged box translating at v = (1,0,0) in flat water sees a uniform relative flow at every
-		// wet volume sample, so the linear drag integral collapses to F = -c_lin * V * v, where c_lin is
+		// wet water column, so the linear drag integral collapses to F = -c_lin * V * v, where c_lin is
 		// fluid_density / tau. Quadratic drag is disabled so the horizontal force is purely the linear term.
 		PRUnitTestMethod(GpuCompositeLinearDragForce, Extended)
 		{
@@ -1183,7 +1166,6 @@ namespace pr::physics::tests
 			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
-				.m_volume_spacing = HarnessVolumeSpacing,
 				.m_enable_diagnostics = true,
 			});
 
@@ -1208,7 +1190,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), 25.0f));
 		}
 
-		// The GPU volume pass must apply the angular coefficient only to rotational point velocity.
+		// The GPU pass must apply the angular coefficient only to rotational point velocity.
 		// Symmetric fully submerged geometry cancels the force while preserving its opposing drag torque.
 		PRUnitTestMethod(GpuCompositeAngularDragTorque, Extended)
 		{
@@ -1226,7 +1208,6 @@ namespace pr::physics::tests
 				.m_angular_drag_time_constant_s = 1.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
-				.m_volume_spacing = HarnessVolumeSpacing,
 				.m_enable_diagnostics = true,
 			});
 
@@ -1273,7 +1254,6 @@ namespace pr::physics::tests
 				.m_linear_drag_time_constant_s = 0.0f,
 				.m_angular_drag_time_constant_s = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
-				.m_volume_spacing = HarnessVolumeSpacing,
 				.m_enable_diagnostics = true,
 			});
 
@@ -1320,7 +1300,6 @@ namespace pr::physics::tests
 				.m_angular_drag_time_constant_s = 0.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.05f,
-				.m_volume_spacing = HarnessVolumeSpacing,
 				.m_enable_diagnostics = true,
 			});
 
@@ -1365,7 +1344,6 @@ namespace pr::physics::tests
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 10.0f,
 				.m_added_mass_coefficient = 0.0f,
-				.m_volume_spacing = HarnessVolumeSpacing,
 				.m_enable_diagnostics = true,
 			});
 
@@ -1407,7 +1385,6 @@ namespace pr::physics::tests
 				.m_angular_drag_time_constant_s = 0.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
-				.m_volume_spacing = HarnessVolumeSpacing,
 				.m_enable_diagnostics = true,
 			});
 
@@ -1447,6 +1424,53 @@ namespace pr::physics::tests
 			PR_EXPECT(articulation.RootVelocity().lin.z > 0.0f);
 			link_registration.Reset();
 			PR_EXPECT(!articulation.NeverSleep());
+		}
+
+		// A light hollow ball (0.06 kg, r = 0.15 m) dropped onto calm water settles at the analytic floating height. The ball displaces
+		// m/rho = 6e-5 m^3, a spherical cap 1.14 cm deep, so its centre rests at z = 0.1386 m. The shallow draft wets only a few cells
+		// near the lowest point, so this checks that the per-primitive surface sample minimum resolves light bodies.
+		PRUnitTestMethod(GpuCompositeLightSphereFloatHeight, Extended)
+		{
+			auto const radius = 0.15f;
+			auto const mass = 0.06f;
+			auto sphere = collision::ShapeSphere(radius);
+			Harness h(false);
+			h.m_bodies.emplace_back();
+			h.m_bodies[0].Shape(collision::shape_cast(&sphere), mass, false, EMassDistribution::Shell);
+			h.m_bodies[0].O2W(m4x4::Translation(0.0f, 0.0f, radius));
+			h.m_bodies[0].GravityWS(AnalyticGravityWS);
+			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
+
+			// Solve the cap depth d of the displaced volume pi*d^2*(3r - d)/3 by bisection.
+			auto const displaced = mass / AnalyticFluidDensity;
+			auto lo = 0.0f;
+			auto hi = radius;
+			for (int i = 0; i != 60; ++i)
+			{
+				auto const d = 0.5f * (lo + hi);
+				auto const cap = (constants<float>::tau / 2.0f) * d * d * (3.0f * radius - d) / 3.0f;
+				(cap < displaced ? lo : hi) = d;
+			}
+			auto const expected_z = radius - 0.5f * (lo + hi);
+
+			// Settle for 8 s, then average the height over the final 2 s.
+			auto const dt = 1.0f / 60.0f;
+			auto mean_z = 0.0;
+			auto count = 0;
+			for (int i = 0; i != 600; ++i)
+			{
+				h.m_engine.Step(dt, std::span{h.m_bodies}, i * double(dt));
+				h.m_buoyancy.CompleteStep();
+				if (i < 480)
+					continue;
+
+				mean_z += h.m_bodies[0].O2W().pos.z;
+				++count;
+			}
+			mean_z /= count;
+			PR_EXPECT(FEqlAbsolute(expected_z, 0.1386f, 2e-4f));
+			PR_EXPECT(FEqlAbsolute(static_cast<float>(mean_z), expected_z, 0.003f));
+			PR_EXPECT(Length(h.m_bodies[0].VelocityWS().lin) < 0.05f);
 		}
 
 		// Performance benchmark for the SampledComposite dispatch. This drives 1, 10, and 100 identical
@@ -1559,10 +1583,10 @@ namespace pr::physics::tests
 		}
 	};
 
-	// Measures how the buoyancy sample densities change the motion of floating bodies, relative to a dense reference.
-	// Every (surface spacing, volume spacing) grid point runs the same scenarios through the real Engine and GpuBuoyancy.
-	// Each scenario reduces its trajectory to behavioural metrics, and a grid point passes when every metric is within
-	// 5% of the reference. The test logs the whole grid and the cheapest robust pair, and requires the defaults to pass.
+	// Measures how the buoyancy surface sample density changes the motion of floating bodies, relative to a dense reference.
+	// Every surface spacing runs the same scenarios through the real Engine and GpuBuoyancy. Each scenario reduces its
+	// trajectory to behavioural metrics, and a spacing passes when every metric is within 5% of the reference. The test
+	// logs every spacing and the cheapest robust one, and reports where the default sits.
 	PRUnitTestClass(BuoyancySampleDensityTests)
 	{
 		// One behavioural measurement of a trajectory. Errors are measured relative to max(|reference|, m_floor) so a
@@ -1811,7 +1835,6 @@ namespace pr::physics::tests
 			// Grid axes, densest first. The first entry of each axis is the reference. Wave amplitudes stay below the breaking
 			// steepness (height/length ~ 1/7) because a sine field beyond that makes floating bodies tumble chaotically.
 			static constexpr float spacings[] = {0.02f, 0.04f, 0.08f, 0.16f, 0.25f, 0.35f, 0.5f, 0.75f, 1.0f};
-			static constexpr float volume_spacings[] = {0.02f, 0.025f, 0.03f, 0.04f, 0.05f, 0.06f, 0.08f, 0.1f, 0.125f, 0.16f, 0.2f, 0.25f, 0.35f, 0.5f};
 			static constexpr float wave_amplitudes[] = {0.1f, 0.25f, 0.4f};
 			auto const wave_omega = std::sqrt(Length(AnalyticGravityWS) * float(constants<double>::tau) / WaveLength);
 			auto const roll0 = 30.0 * constants<double>::tau / 360.0;
@@ -1829,7 +1852,7 @@ namespace pr::physics::tests
 			// Step the harness bodies for 'duration' seconds, recording every body after each step.
 			auto run = [](Harness& h, double duration, std::vector<std::vector<Sample>>& traj, double& step_ms)
 			{
-				// Registration keeps each body awake and binds it to the current sample densities.
+				// Registration keeps each body awake and binds it to the current sample density.
 				auto regs = std::vector<GpuBuoyancy::Registration>{};
 				for (int b = 0; b != isize(h.m_bodies); ++b)
 					regs.push_back(h.m_buoyancy.RegisterCompositeHull(h.m_bodies[b], b, 0));
@@ -1850,14 +1873,13 @@ namespace pr::physics::tests
 				step_ms += std::chrono::duration<double, std::milli>(clock::now() - t0).count() / steps;
 			};
 
-			// Run every scenario at one grid point and reduce the trajectories to metrics in a fixed order.
-			auto measure = [&](float spacing, float volume_spacing, double& step_ms)
+			// Run every scenario at one spacing and reduce the trajectories to metrics in a fixed order.
+			auto measure = [&](float spacing, double& step_ms)
 			{
 				auto metrics = std::vector<Metric>{};
 				auto traj = std::vector<std::vector<Sample>>{};
 				auto const config = GpuBuoyancy::Config{
 					.m_surface_spacing = spacing,
-					.m_volume_spacing = volume_spacing,
 				};
 
 				// Flat water: drop, tilt and push scenarios for every shape in one engine.
@@ -1903,99 +1925,71 @@ namespace pr::physics::tests
 				return metrics;
 			};
 
-			// Per-body sample cost of a grid point, summed over the test shapes.
-			auto cost = [&](float spacing, float volume_spacing)
+			// Mean per-body surface sample count at one spacing, including the buoyancy per-primitive minimum.
+			auto cost = [&](float spacing)
 			{
 				auto total = 0.0;
 				for (auto const* shape : shapes)
 				{
-					auto volumes = std::vector<float>{};
 					for (auto const* prim : buoyancy::CollectPrimitives(*shape))
-					{
-						// Each primitive contributes its own volume samples and surface cells.
-						volumes.push_back(buoyancy::PrimitiveVolume(*prim));
-						total += surface::BuildPlan(*prim, spacing).m_count;
-					}
-					for (auto n : buoyancy::VolumeSampleCounts(volumes, volume_spacing))
-						total += n;
+						total += buoyancy::BuildSurfacePlan(*prim, spacing).m_count;
 				}
 				return total / shape_count;
 			};
 
-			// Measure the reference, then every grid point against it.
+			// Measure the reference, then every spacing against it.
 			auto ref_ms = 0.0;
-			auto const reference = measure(spacings[0], volume_spacings[0], ref_ms);
-			out << "\n  [density sweep] reference: spacing " << spacings[0] << " m, " << volume_spacings[0] << " m volume spacing, " << ref_ms << " ms/step\n";
+			auto const reference = measure(spacings[0], ref_ms);
+			out << "\n  [density sweep] reference: spacing " << spacings[0] << " m, " << ref_ms << " ms/step\n";
 			for (auto const& m : reference)
 				out << std::format("    {:<32} {:+.5f}\n", m.m_name, m.m_value);
 
 			constexpr int ns = int(std::size(spacings));
-			constexpr int nv = int(std::size(volume_spacings));
-			double error[ns][nv] = {};
-			double step_ms[ns][nv] = {};
-			std::string failures[ns][nv];
+			double error[ns] = {};
+			double step_ms[ns] = {};
+			std::string failures[ns];
 			for (int i = 0; i != ns; ++i)
 			{
-				for (int j = 0; j != nv; ++j)
-				{
-					auto const metrics = measure(spacings[i], volume_spacings[j], step_ms[i][j]);
-					std::tie(error[i][j], failures[i][j]) = Compare(metrics, reference);
-					out << std::format("    spacing {:.2f}, volume {:.3f}: max error {:6.2f}%, {:.2f} ms/step, {:.0f} samples/body; failing:{}\n",
-						spacings[i], volume_spacings[j], 100.0 * error[i][j], step_ms[i][j], cost(spacings[i], volume_spacings[j]), failures[i][j]
-					);
-				}
+				auto const metrics = measure(spacings[i], step_ms[i]);
+				std::tie(error[i], failures[i]) = Compare(metrics, reference);
+				out << std::format("    spacing {:.2f}: max error {:6.2f}%, {:.2f} ms/step, {:.0f} samples/body; failing:{}\n",
+					spacings[i], 100.0 * error[i], step_ms[i], cost(spacings[i]), failures[i]
+				);
 			}
 
-			// A pair is robust when it and every denser pair pass, so the choice does not rely on a lucky cancellation.
-			auto robust = [&](int i, int j)
+			// A spacing is robust when it and every denser spacing pass, so the choice does not rely on a lucky cancellation.
+			auto robust = [&](int i)
 			{
 				for (int a = 0; a <= i; ++a)
 				{
-					for (int b = 0; b <= j; ++b)
-					{
-						if (error[a][b] > Tolerance)
-							return false;
-					}
+					if (error[a] > Tolerance)
+						return false;
 				}
 				return true;
 			};
 
-			// Print the grid of maximum errors; '*' marks robust passes.
-			out << "\n  [density sweep] max metric error (%) by surface spacing (rows) and volume spacing (columns); * = robust pass\n        ";
-			for (auto v : volume_spacings)
-				out << std::format("{:>9.3f}", v);
-
-			out << "\n";
-			auto best = std::pair<int, int>{-1, -1};
+			// The cheapest robust spacing is the coarsest one, because cost falls as spacing grows.
+			auto best = -1;
 			for (int i = 0; i != ns; ++i)
 			{
-				out << std::format("    {:4.2f}", spacings[i]);
-				for (int j = 0; j != nv; ++j)
-				{
-					// Track the cheapest robust pair.
-					auto const ok = robust(i, j);
-					out << std::format("{:>8.1f}{}", 100.0 * error[i][j], ok ? "*" : " ");
-					if (ok && (best.first == -1 || cost(spacings[i], volume_spacings[j]) < cost(spacings[best.first], volume_spacings[best.second])))
-						best = {i, j};
-				}
-				out << "\n";
+				if (robust(i))
+					best = i;
 			}
-			PR_EXPECT(best.first != -1);
-			if (best.first != -1)
+			PR_EXPECT(best != -1);
+			if (best != -1)
 			{
-				out << std::format("  [density sweep] cheapest robust pair: spacing {:.2f} m, volume spacing {:.3f} m ({:.0f} samples/body vs {:.0f} reference)\n",
-					spacings[best.first], volume_spacings[best.second], cost(spacings[best.first], volume_spacings[best.second]), cost(spacings[0], volume_spacings[0])
+				out << std::format("  [density sweep] cheapest robust spacing: {:.2f} m ({:.0f} samples/body vs {:.0f} reference)\n",
+					spacings[best], cost(spacings[best]), cost(spacings[0])
 				);
 			}
 
-			// Report where the shipped defaults sit on the grid. The defaults are a cost/accuracy choice, so this is informational.
+			// Report where the shipped default sits. The default is a cost/accuracy choice, so this is informational.
 			auto const di = std::ranges::find(spacings, buoyancy::DefaultSurfaceSpacing) - std::begin(spacings);
-			auto const dj = std::ranges::find(volume_spacings, buoyancy::DefaultVolumeSpacing) - std::begin(volume_spacings);
-			PR_EXPECT(di != ns && dj != nv);
-			if (di != ns && dj != nv)
+			PR_EXPECT(di != ns);
+			if (di != ns)
 			{
-				out << std::format("  [density sweep] defaults: spacing {:.2f} m, volume spacing {:.3f} m: max error {:.2f}%, {}robust; failing:{}\n",
-					spacings[di], volume_spacings[dj], 100.0 * error[di][dj], robust(int(di), int(dj)) ? "" : "not ", failures[di][dj]
+				out << std::format("  [density sweep] default: spacing {:.2f} m: max error {:.2f}%, {}robust; failing:{}\n",
+					spacings[di], 100.0 * error[di], robust(int(di)) ? "" : "not ", failures[di]
 				);
 			}
 		}

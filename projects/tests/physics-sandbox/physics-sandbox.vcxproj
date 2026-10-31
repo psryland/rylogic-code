@@ -214,6 +214,7 @@
     <None Include="scenes\articulation_robot_motors.json" />
     <None Include="scenes\articulation_two_robot_load.json" />
     <None Include="scenes\beach_ball_waves.json" />
+    <None Include="scenes\wave_drift.json" />
     <None Include="scenes\box_vs_sphere.json" />
     <None Include="scenes\brick_pyramid.json" />
     <None Include="scenes\brick_wall.json" />

@@ -23,7 +23,6 @@ namespace physics_sandbox
 				MenuItem(MenuItem::Separator),
 				MenuItem(L"&Overlays and diagnostics", Menu(Menu::EKind::Popup, {
 					MenuItem(L"&Surface samples + normals", MenuID::SurfaceSamples),
-					MenuItem(L"&Volume samples", MenuID::VolumeSamples),
 					MenuItem(L"Sleeping-body &transparency", MenuID::SleepingTransparency, MenuItem::EState::Checked),
 				})),
 				MenuItem(L"&Atmosphere", Menu(Menu::EKind::Popup, {
@@ -47,7 +46,6 @@ namespace physics_sandbox
 			// Overlay submenus mirror the current scene state whenever the View menu opens or a command changes.
 			auto const menu = ::GetSubMenu(view_menu, 3);
 			::CheckMenuItem(menu, MenuID::SurfaceSamples, MF_BYCOMMAND | (overlays.m_surface_enabled ? MF_CHECKED : MF_UNCHECKED));
-			::CheckMenuItem(menu, MenuID::VolumeSamples, MF_BYCOMMAND | (overlays.m_volume_enabled ? MF_CHECKED : MF_UNCHECKED));
 			::CheckMenuItem(menu, MenuID::SleepingTransparency, MF_BYCOMMAND | (sleeping_transparency ? MF_CHECKED : MF_UNCHECKED));
 		}
 
@@ -380,14 +378,11 @@ namespace physics_sandbox
 				return true;
 			}
 
-			// Each overlay can accompany either base mode and the other overlay.
-			if (id == MenuID::SurfaceSamples || id == MenuID::VolumeSamples)
+			// The sample overlay can accompany either base mode.
+			if (id == MenuID::SurfaceSamples)
 			{
 				auto& overlays = m_scene.m_sample_overlays;
-				if (id == MenuID::SurfaceSamples)
-					overlays.Surface(!overlays.m_surface_enabled);
-				else
-					overlays.Volume(!overlays.m_volume_enabled);
+				overlays.Surface(!overlays.m_surface_enabled);
 
 				UpdateVisualModeMenu();
 				Render(0);
@@ -936,30 +931,27 @@ namespace physics_sandbox::tests
 		}
 	};
 
-	// The native menu exposes independent overlays outside the base-mode radio group.
+	// The native menu exposes the sample overlay outside the base-mode radio group.
 	PRUnitTestClass(SampleOverlayMenuTests)
 	{
 		// Check actual menu state without opening or driving an application window.
-		PRUnitTestMethod(BothOverlaysAccompanyEitherBaseMode, Quick)
+		PRUnitTestMethod(OverlayAccompaniesEitherBaseMode, Quick)
 		{
 			auto const menu = CreateViewMenu();
 			auto const submenu = ::GetSubMenu(menu, 3);
 			auto overlays = SampleOverlays{};
-			PR_EXPECT(submenu != nullptr && ::GetMenuItemCount(submenu) == 3);
+			PR_EXPECT(submenu != nullptr && ::GetMenuItemCount(submenu) == 2);
 			PR_EXPECT((::GetMenuState(submenu, MenuID::SleepingTransparency, MF_BYCOMMAND) & MF_CHECKED) != 0);
 			for (auto mode : {MenuID::VisualModeNormal, MenuID::VisualModeContactPriority})
 			{
 				::CheckMenuRadioItem(menu, MenuID::VisualModeNormal, MenuID::VisualModeContactPriority, mode, MF_BYCOMMAND);
 				overlays.Surface(true);
-				overlays.Volume(true);
 				UpdateOverlayMenu(menu, overlays, true);
 				PR_EXPECT((::GetMenuState(menu, mode, MF_BYCOMMAND) & MF_CHECKED) != 0);
 				PR_EXPECT((::GetMenuState(submenu, MenuID::SurfaceSamples, MF_BYCOMMAND) & MF_CHECKED) != 0);
-				PR_EXPECT((::GetMenuState(submenu, MenuID::VolumeSamples, MF_BYCOMMAND) & MF_CHECKED) != 0);
 				overlays.Surface(false);
 				UpdateOverlayMenu(menu, overlays, false);
 				PR_EXPECT((::GetMenuState(submenu, MenuID::SurfaceSamples, MF_BYCOMMAND) & MF_CHECKED) == 0);
-				PR_EXPECT((::GetMenuState(submenu, MenuID::VolumeSamples, MF_BYCOMMAND) & MF_CHECKED) != 0);
 				PR_EXPECT((::GetMenuState(menu, mode, MF_BYCOMMAND) & MF_CHECKED) != 0);
 				PR_EXPECT((::GetMenuState(submenu, MenuID::SleepingTransparency, MF_BYCOMMAND) & MF_CHECKED) == 0);
 			}

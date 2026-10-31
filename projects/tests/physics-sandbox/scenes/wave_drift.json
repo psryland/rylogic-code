@@ -1,0 +1,59 @@
+{
+	"scene": {
+		"demo": {
+			"command": "wave-drift",
+			"name": "Free Drift in a Regular Wave",
+			"group": "Buoyancy",
+			"order": 3
+		},
+		"description": "Free-drift test in a single long-crested deep-water wave: 12 m wavelength, 0.5 m amplitude (ka = 0.26), omega = sqrt(g*k) = 2.266 rad/s (T = 2.77 s, phase speed c = 4.33 m/s). The wave travels towards -x. A small floating body should follow the water: it moves on a near-circular orbit of radius ~a = 0.5 m (peak orbital speed a*omega = 1.13 m/s) and drifts slowly with the wave at about the Stokes drift u_s = a^2*omega*k = 0.30 m/s. It must never approach the phase speed (surfing). Eight hollow balls start in a line along y at the crest (x = 15), each at its floating draft with the crest orbital velocity. Balls 0-3 sweep size (radius 0.075, 0.15, 0.3, 0.5 m) at beach-ball density (4.24 kg/m^3, 0.06 kg for r = 0.15). Balls 4-7 sweep density at radius 0.15 m (25, 100, 400, 800 kg/m^3). The 400 kg, 4 x 1.6 x 0.6 m boat starts on the crest with the orbital velocity; it is a third of a wavelength long, so its orbit is about 17% smaller.",
+		"camera": {
+			"position": [2.0, -22.0, 9.0],
+			"lookat": [2.0, 2.0, 0.0]
+		},
+		"gravity": [0.0, 0.0, -9.81],
+		"physics": {
+			"substeps": 1
+		},
+		"material": {
+			"elasticity": 0.0,
+			"friction": 0.0
+		},
+		"water": {
+			"level": 0.0,
+			"size": [80.0, 40.0],
+			"grid": [256, 128],
+			"colour": "0xA02080FF",
+			"waves": [
+				{
+					"direction": [1.0, 0.0],
+					"wavelength": 12.0,
+					"amplitude": 0.5,
+					"phase_speed": 2.2664
+				}
+			]
+		},
+		"shapes": {
+			"ball-r075": { "name": "ball-r075", "type": "sphere", "radius": 0.075, "hollow": true },
+			"ball-r15": { "name": "ball-r15", "type": "sphere", "radius": 0.15, "hollow": true },
+			"ball-r30": { "name": "ball-r30", "type": "sphere", "radius": 0.30, "hollow": true },
+			"ball-r50": { "name": "ball-r50", "type": "sphere", "radius": 0.50, "hollow": true },
+			"boat": {
+				"name": "boat",
+				"type": "box",
+				"dimensions": [4.0, 1.6, 0.6]
+			}
+		},
+		"bodies": [
+			{ "name": "ball-r075-d4", "shape": "ball-r075", "colour": "FFE04040", "mass": 0.0075, "position": [15.0, -7.0, 0.5693], "velocity": [-1.133, 0.0, 0.0], "never_sleep": true },
+			{ "name": "ball-r15-d4", "shape": "ball-r15", "colour": "FFF0A030", "mass": 0.06, "position": [15.0, -5.5, 0.6386], "velocity": [-1.133, 0.0, 0.0], "never_sleep": true },
+			{ "name": "ball-r30-d4", "shape": "ball-r30", "colour": "FFF0E040", "mass": 0.48, "position": [15.0, -4.0, 0.7771], "velocity": [-1.133, 0.0, 0.0], "never_sleep": true },
+			{ "name": "ball-r50-d4", "shape": "ball-r50", "colour": "FF40D040", "mass": 2.2222, "position": [15.0, -2.5, 0.9619], "velocity": [-1.133, 0.0, 0.0], "never_sleep": true },
+			{ "name": "ball-r15-d25", "shape": "ball-r15", "colour": "FF40C0F0", "mass": 0.3534, "position": [15.0, -1.0, 0.6217], "velocity": [-1.133, 0.0, 0.0], "never_sleep": true },
+			{ "name": "ball-r15-d100", "shape": "ball-r15", "colour": "FF4060F0", "mass": 1.4137, "position": [15.0, 0.5, 0.5913], "velocity": [-1.133, 0.0, 0.0], "never_sleep": true },
+			{ "name": "ball-r15-d400", "shape": "ball-r15", "colour": "FFA040F0", "mass": 5.6549, "position": [15.0, 2.0, 0.5201], "velocity": [-1.133, 0.0, 0.0], "never_sleep": true },
+			{ "name": "ball-r15-d800", "shape": "ball-r15", "colour": "FFF040C0", "mass": 11.3097, "position": [15.0, 3.5, 0.4361], "velocity": [-1.133, 0.0, 0.0], "never_sleep": true },
+			{ "name": "boat", "shape": "boat", "colour": "FFEEA040", "mass": 400.0, "position": [15.0, 8.0, 0.7375], "velocity": [-0.937, 0.0, 0.0], "never_sleep": true }
+		]
+	}
+}

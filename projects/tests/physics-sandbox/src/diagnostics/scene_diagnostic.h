@@ -37,6 +37,8 @@ namespace physics_sandbox::diag
 		std::optional<float> m_buoyancy_linear_drag_time_constant_s = {};
 		std::optional<float> m_buoyancy_angular_drag_time_constant_s = {};
 		std::optional<float> m_buoyancy_tangential_drag_coefficient = {};
+		std::optional<float> m_buoyancy_wave_resistance = {};
+		std::optional<float> m_air_density = {};
 		bool m_scan_bodies = false;
 		bool m_scan_non_spheres = false;
 		bool m_column_metric = false;

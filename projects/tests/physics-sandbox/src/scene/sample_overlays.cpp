@@ -5,7 +5,7 @@ namespace physics_sandbox
 	namespace
 	{
 		// Reject unsupported children before constructing a partial or misleading union visualization.
-		void ValidatePrimitive(collision::Shape const& shape, bool volume)
+		void ValidatePrimitive(collision::Shape const& shape)
 		{
 			switch (shape.m_type)
 			{
@@ -13,29 +13,18 @@ namespace physics_sandbox
 				case collision::EShape::Sphere:
 				case collision::EShape::Triangle:
 				case collision::EShape::Polytope:
-				{
-					return;
-				}
 				case collision::EShape::Line:
 				{
-					// A thin line has no volume; capsules use the shared buoyancy volume emitter.
-					if (volume && collision::shape_cast<collision::ShapeLine>(shape).m_radius == 0)
-						throw std::runtime_error("thin line volume sampling is unsupported because a thin line has no volume");
-
 					return;
-				}
-				case collision::EShape::Array:
-				{
-					throw std::runtime_error("nested arrays are unsupported by the existing volume traversal");
 				}
 				default:
 				{
-					throw std::runtime_error(std::format("unsupported {} overlay shape type {}", volume ? "volume" : "surface", static_cast<int>(shape.m_type)));
+					throw std::runtime_error(std::format("unsupported surface overlay shape type {}", static_cast<int>(shape.m_type)));
 				}
 			}
 		}
 
-		// Surface geometry follows collision leaves without acquiring volume-emitter restrictions.
+		// Surface geometry follows collision leaves, including nested arrays.
 		std::vector<collision::Shape const*> SurfacePrimitives(collision::Shape const& root)
 		{
 			auto primitives = std::vector<collision::Shape const*>{};
@@ -55,7 +44,7 @@ namespace physics_sandbox
 					}
 					default:
 					{
-						ValidatePrimitive(shape, false);
+						ValidatePrimitive(shape);
 						primitives.push_back(&shape);
 						return;
 					}
@@ -111,7 +100,7 @@ namespace physics_sandbox
 			return instance;
 		}
 
-		// Upload the complete cached shape cloud once, keeping surface and volume models independently selectable.
+		// Upload the complete cached shape cloud once.
 		SampleOverlays::Model BuildModels(rdr12::Renderer& renderer, SampleOverlayGeometry const& geometry)
 		{
 			auto model = SampleOverlays::Model{};
@@ -142,133 +131,53 @@ namespace physics_sandbox
 
 				model.m_surface = parsed.m_objects.front();
 			}
-			if (!geometry.m_volume.empty())
-			{
-				ldraw::Builder builder;
-				auto& points = builder.Point("volume_samples", 0xFF40C0FFU).size(2.0f);
-				for (auto const& point : geometry.m_volume)
-					points.pt(point);
-
-				auto parsed = rdr12::ldraw::Parse(renderer, builder.ToBinary());
-				if (parsed.m_objects.empty())
-					throw std::runtime_error("volume overlay model creation produced no object");
-
-				model.m_volume = parsed.m_objects.front();
-			}
 			return model;
 		}
 	}
 
-	SampleOverlayGeometry SampleOverlays::BuildGeometry(collision::Shape const& shape, bool surface, bool volume, float surface_spacing)
+	SampleOverlayGeometry SampleOverlays::BuildGeometry(collision::Shape const& shape, float surface_spacing)
 	{
-		using namespace physics::buoyancy;
 		auto geometry = SampleOverlayGeometry{};
-		if (!surface && !volume)
-			return geometry;
 
 		// Child transforms already target the shape root; the array's transform must not be applied a second time.
-		auto const primitives = surface && !volume ? SurfacePrimitives(shape) : CollectPrimitives(shape);
+		auto const primitives = SurfacePrimitives(shape);
 		auto root_to_shape = std::vector<m4x4>{};
 		for (auto const* primitive : primitives)
-		{
-			ValidatePrimitive(*primitive, volume);
 			root_to_shape.push_back(InvertOrthonormal(primitive->m_s2r));
-		}
+
 		auto const extent = MaxElement(collision::CalcBBox(shape).m_radius.w0());
 		auto const epsilon = std::max(1e-6f, extent * 1e-5f);
 
 		// Preserve all incident face contributions that survive the existing union-boundary ownership test.
-		if (surface)
+		auto plans = std::vector<physics::surface::Plan>{};
+		auto count = size_t{0};
+		for (auto const* primitive : primitives)
 		{
-			auto plans = std::vector<physics::surface::Plan>{};
-			auto count = size_t{0};
-			for (auto const* primitive : primitives)
-			{
-				plans.push_back(physics::surface::BuildPlan(*primitive, surface_spacing));
-				count += plans.back().m_count;
-				ValidatePointCount(count);
-			}
-			geometry.m_surface.reserve(count);
-			for (size_t k = 0; k != primitives.size(); ++k)
-			{
-				for (uint32_t i = 0; i != plans[k].m_count; ++i)
-				{
-					auto sample = physics::surface::EmitSurfaceSample(plans[k], i);
-					sample.m_pos_local = primitives[k]->m_s2r * sample.m_pos_local;
-					sample.m_normal_local = Normalise((primitives[k]->m_s2r * sample.m_normal_local).w0(), v4::Zero());
-					auto const probe = sample.m_pos_local + epsilon * sample.m_normal_local;
-					auto culled = false;
-					for (size_t j = 0; j != primitives.size() && !culled; ++j)
-					{
-						if (j == k)
-							continue;
-
-						// Cull only contributions owned by another leaf's surface neighbourhood or strict interior.
-						culled = ContainsSurfaceSibling(*primitives[j], root_to_shape[j] * probe, epsilon) ||
-							ContainsSurfaceSibling(*primitives[j], root_to_shape[j] * sample.m_pos_local, -epsilon);
-					}
-					if (!culled)
-						geometry.m_surface.push_back(sample);
-				}
-			}
-		}
-
-		// Missing polytope volume geometry is derived once with the existing exact face-fan routine, never per frame.
-		if (volume)
-		{
-			auto derived = std::vector<byte_data<16>>(primitives.size());
-			auto volume_shapes = primitives;
-			auto tables = std::vector<VolumeSampleTable>(primitives.size());
-			auto measures = std::vector<float>(primitives.size());
-			for (size_t k = 0; k != primitives.size(); ++k)
-			{
-				switch (primitives[k]->m_type)
-				{
-					case collision::EShape::Polytope:
-					{
-						auto const& poly = collision::shape_cast<collision::ShapePolytope>(*primitives[k]);
-						if (poly.m_tet_count == 0 || poly.m_volume_vert_count == 0)
-						{
-							derived[k] = collision::BuildPolytopeFromPoints(poly.verts(), poly.m_base.m_s2r, poly.m_base.m_material_id, poly.m_base.m_flags, -1);
-							volume_shapes[k] = &derived[k].as<collision::Shape>();
-						}
-						break;
-					}
-					case collision::EShape::Box:
-					case collision::EShape::Sphere:
-					case collision::EShape::Line:
-					case collision::EShape::Triangle:
-					{
-						break;
-					}
-					default:
-					{
-						throw std::runtime_error("Unexpected volume overlay primitive");
-					}
-				}
-				tables[k] = BuildVolumeSampleTable(*volume_shapes[k]);
-				measures[k] = tables[k].m_total;
-			}
-			auto const counts = VolumeSampleCounts(measures, VolumeSpacing);
-			auto count = size_t{0};
-			for (auto n : counts)
-				count += n;
-
+			plans.push_back(physics::surface::BuildPlan(*primitive, surface_spacing));
+			count += plans.back().m_count;
 			ValidatePointCount(count);
-			geometry.m_volume.reserve(count);
-			for (size_t k = 0; k != primitives.size(); ++k)
+		}
+		geometry.m_surface.reserve(count);
+		for (size_t k = 0; k != primitives.size(); ++k)
+		{
+			for (uint32_t i = 0; i != plans[k].m_count; ++i)
 			{
-				for (int i = 0; i != counts[k]; ++i)
+				auto sample = physics::surface::EmitSurfaceSample(plans[k], i);
+				sample.m_pos_local = primitives[k]->m_s2r * sample.m_pos_local;
+				sample.m_normal_local = Normalise((primitives[k]->m_s2r * sample.m_normal_local).w0(), v4::Zero());
+				auto const probe = sample.m_pos_local + epsilon * sample.m_normal_local;
+				auto culled = false;
+				for (size_t j = 0; j != primitives.size() && !culled; ++j)
 				{
-					auto const sample = EmitVolumeSample(*volume_shapes[k], SampleIndex(0, static_cast<int>(k), i), measures[k] / counts[k], tables[k]);
-					auto const point = volume_shapes[k]->m_s2r * sample.m_pos_local;
-					auto culled = false;
-					for (size_t j = 0; j != k && !culled; ++j)
-						culled = ContainsLocal(*primitives[j], root_to_shape[j] * point, epsilon);
+					if (j == k)
+						continue;
 
-					if (!culled)
-						geometry.m_volume.push_back(point);
+					// Cull only contributions owned by another leaf's surface neighbourhood or strict interior.
+					culled = ContainsSurfaceSibling(*primitives[j], root_to_shape[j] * probe, epsilon) ||
+						ContainsSurfaceSibling(*primitives[j], root_to_shape[j] * sample.m_pos_local, -epsilon);
 				}
+				if (!culled)
+					geometry.m_surface.push_back(sample);
 			}
 		}
 		return geometry;
@@ -305,7 +214,7 @@ namespace physics_sandbox
 
 	bool SampleOverlays::Enabled() const
 	{
-		return m_surface_enabled || m_volume_enabled;
+		return m_surface_enabled;
 	}
 
 	void SampleOverlays::Surface(bool enabled)
@@ -314,14 +223,6 @@ namespace physics_sandbox
 			Invalidate();
 
 		m_surface_enabled = enabled;
-	}
-
-	void SampleOverlays::Volume(bool enabled)
-	{
-		if (m_volume_enabled != enabled)
-			Invalidate();
-
-		m_volume_enabled = enabled;
 	}
 
 	void SampleOverlays::SurfaceSpacing(float spacing)
@@ -362,32 +263,18 @@ namespace physics_sandbox
 		auto& model = iter->second;
 		if (inserted)
 		{
-			// Preserve each successful overlay even when the other emitter rejects the shape.
-			auto build = [&](bool surface)
+			// Build the surface model only while its overlay is enabled.
+			if (m_surface_enabled)
 			{
 				try
 				{
-					auto part = BuildModels(renderer, BuildGeometry(shape, surface, !surface, m_surface_spacing));
-					if (surface)
-						model.m_surface = std::move(part.m_surface);
-					else
-						model.m_volume = std::move(part.m_volume);
+					model = BuildModels(renderer, BuildGeometry(shape, m_surface_spacing));
 				}
 				catch (std::exception const& ex)
 				{
-					if (!model.m_error.empty())
-						model.m_error += "; ";
-
-					// Identify the failed overlay without discarding the independently valid model.
-					model.m_error += std::format("{}: {}", surface ? "surface" : "volume", ex.what());
+					model.m_error = std::format("surface: {}", ex.what());
 				}
-			};
-			if (m_surface_enabled)
-				build(true);
-
-			// Volume support is checked separately from surface support.
-			if (m_volume_enabled)
-				build(false);
+			}
 		}
 		if (!model.m_error.empty())
 		{
@@ -395,7 +282,7 @@ namespace physics_sandbox
 			if (m_first_error.empty())
 				m_first_error = model.m_error;
 		}
-		if (!model.m_surface && !model.m_volume)
+		if (!model.m_surface)
 			return;
 
 		// Retain separate object instances for all targets until a renderer-safe reset, including offscreen/sleeping bodies.
@@ -407,17 +294,11 @@ namespace physics_sandbox
 		{
 			instance.m_shape = &shape;
 			instance.m_surface = InstanceOf(model.m_surface);
-			instance.m_volume = InstanceOf(model.m_volume);
 		}
 		if (m_surface_enabled && instance.m_surface)
 		{
 			instance.m_surface->O2W(root_to_world);
 			instance.m_surface->AddToScene(scene);
-		}
-		if (m_volume_enabled && instance.m_volume)
-		{
-			instance.m_volume->O2W(root_to_world);
-			instance.m_volume->AddToScene(scene);
 		}
 	}
 }
@@ -425,31 +306,25 @@ namespace physics_sandbox
 #if PR_UNITTESTS
 namespace physics_sandbox::tests
 {
-	// Geometry, selection and renderer-instance contracts for the two additive sample overlays.
+	// Geometry, selection and renderer-instance contracts for the additive sample overlay.
 	PRUnitTestClass(SampleOverlayTests)
 	{
-		// Disabling overlays must not inspect unsupported geometry or allocate sample clouds.
-		PRUnitTestMethod(IndependentOptionsAndDisabledGeneration, Quick)
+		// Toggling the overlay defers refresh, and a thin line produces its plain surface plan.
+		PRUnitTestMethod(OptionTogglingAndThinLineGeometry, Quick)
 		{
 			auto overlays = SampleOverlays{};
 			auto const line = collision::ShapeLine(1.0f);
-			auto const empty = overlays.BuildGeometry(line, false, false);
-			PR_EXPECT(empty.m_surface.empty() && empty.m_volume.empty());
 			PR_EXPECT(!overlays.Enabled() && !overlays.m_refresh_pending);
 			overlays.Surface(true);
-			overlays.Volume(true);
-			PR_EXPECT(overlays.m_surface_enabled && overlays.m_volume_enabled && overlays.m_refresh_pending);
+			PR_EXPECT(overlays.m_surface_enabled && overlays.m_refresh_pending);
 			overlays.Reset();
 			PR_EXPECT(overlays.Enabled() && !overlays.m_refresh_pending);
 			overlays.Surface(false);
-			PR_EXPECT(!overlays.m_surface_enabled && overlays.m_volume_enabled);
-			overlays.Volume(false);
 			PR_EXPECT(!overlays.Enabled());
-			PR_EXPECT(overlays.BuildGeometry(line, true, false).m_surface.size() == physics::surface::BuildPlan(line).m_count);
-			PR_THROWS(overlays.BuildGeometry(line, false, true), std::runtime_error);
+			PR_EXPECT(overlays.BuildGeometry(line).m_surface.size() == physics::surface::BuildPlan(line).m_count);
 		}
 
-		// Shared surface emission preserves capsule normals and nested leaf transforms without volume flattening.
+		// Shared surface emission preserves capsule normals and nested leaf transforms.
 		PRUnitTestMethod(CapsuleAndNestedSurfaceGeometry, Quick)
 		{
 			// Deliberately displaced array transforms expose accidental reapplication of already-root-relative leaf transforms.
@@ -464,7 +339,7 @@ namespace physics_sandbox::tests
 			compound.m_root.Complete(2);
 
 			// Compare every capsule contribution with the shared emitter after exactly one leaf transform.
-			auto const geometry = SampleOverlays::BuildGeometry(compound.m_root, true, false);
+			auto const geometry = SampleOverlays::BuildGeometry(compound.m_root);
 			auto const plan = physics::surface::BuildPlan(compound.m_capsule);
 			PR_EXPECT(geometry.m_surface.size() == plan.m_count + physics::surface::BuildPlan(compound.m_box).m_count);
 			for (uint32_t i = 0; i != plan.m_count; ++i)
@@ -476,7 +351,7 @@ namespace physics_sandbox::tests
 				PR_EXPECT(actual.m_darea == expected.m_darea);
 			}
 
-			// A capsule owns its enclosed sibling surface and volume, and its volume samples fill only the capsule.
+			// A capsule hides the surface of an enclosed sibling.
 			struct Overlap
 			{
 				collision::ShapeArray m_root;
@@ -484,33 +359,26 @@ namespace physics_sandbox::tests
 				collision::ShapeSphere m_inner{0.1f};
 			} overlap;
 			overlap.m_root.Complete(2);
-			PR_EXPECT(SampleOverlays::BuildGeometry(overlap.m_root, true, false).m_surface.size() == physics::surface::BuildPlan(overlap.m_capsule).m_count);
-			auto const filled = SampleOverlays::BuildGeometry(overlap.m_root, false, true);
-			PR_EXPECT(!filled.m_volume.empty());
-			for (auto const& point : filled.m_volume)
-			{
-				// The capsule owns every sample, including those that fall inside the enclosed sphere.
-				PR_EXPECT(physics::buoyancy::ContainsLocal(overlap.m_capsule.m_base, point, 1e-5f));
-			}
+			PR_EXPECT(SampleOverlays::BuildGeometry(overlap.m_root).m_surface.size() == physics::surface::BuildPlan(overlap.m_capsule).m_count);
 
 			// Thin lines retain endpoint-inclusive positions and do not invent a unique outward normal.
 			auto const thin = collision::ShapeLine(1);
-			auto const points = SampleOverlays::BuildGeometry(thin, true, false);
+			auto const points = SampleOverlays::BuildGeometry(thin);
 			PR_EXPECT(points.m_surface.size() == 8);
 			PR_EXPECT(points.m_surface.front().m_pos_local.z == -0.5f && points.m_surface.back().m_pos_local.z == 0.5f);
 			for (auto const& sample : points.m_surface)
 				PR_EXPECT(LengthSq(sample.m_normal_local) == 0 && sample.m_darea == 0);
 		}
 
-		// An unsupported volume overlay must neither hide nor rebuild the independent valid surface model.
-		PRUnitTestMethod(CapsuleSurfaceSurvivesVolumeFailure, Quick)
+		// A nested-array capsule uploads a cached, transformed surface model, and a zero-radius line uploads points only.
+		PRUnitTestMethod(NestedCapsuleSurfaceModel, Quick)
 		{
 			auto renderer = rdr12::Renderer(rdr12::RdrSettings(GetModuleHandle(nullptr)));
 			auto window = rdr12::Window(renderer, rdr12::WndSettings(nullptr, true, renderer.Settings()).Size(96, 96));
 			auto scene = rdr12::Scene(window);
 			auto overlays = SampleOverlays{};
 
-			// Nested arrays remain unsupported by the volume traversal, while their capsule surface is valid.
+			// Surface traversal flattens nested arrays down to the capsule leaf.
 			struct Nested
 			{
 				collision::ShapeArray m_root;
@@ -521,30 +389,27 @@ namespace physics_sandbox::tests
 			nested.m_root.Complete(1);
 			auto const& capsule = nested.m_root.m_base;
 			overlays.Surface(true);
-			overlays.Volume(true);
 			overlays.Reset();
 			overlays.BeginFrame();
 			overlays.Add(scene, renderer, &capsule, capsule, m4x4::Translation(2, 3, 4));
 
-			// The surface instance remains valid and transformed despite the explicit volume failure.
+			// The surface instance is valid and transformed.
 			auto const first = overlays.m_instances.at(&capsule).m_surface;
 			window.WaitForGpu();
 			scene.ClearDrawlists();
 			PR_EXPECT(first != nullptr && first->m_child.size() == 2);
-			PR_EXPECT(overlays.m_instances.at(&capsule).m_volume == nullptr);
-			PR_EXPECT(overlays.m_failed_targets == 1 && overlays.m_first_error.find("volume: nested arrays") != std::string::npos);
+			PR_EXPECT(overlays.m_failed_targets == 0);
 			PR_EXPECT(FEql(first->O2W().pos, v4(2, 3, 4, 1)));
 
-			// A later frame reuses the same successful model and cached failure rather than rebuilding either.
+			// A later frame reuses the same model rather than rebuilding it.
 			overlays.BeginFrame();
 			overlays.Add(scene, renderer, &capsule, capsule, m4x4::Identity());
 			window.WaitForGpu();
 			scene.ClearDrawlists();
 			PR_EXPECT(overlays.m_instances.at(&capsule).m_surface == first);
-			PR_EXPECT(overlays.m_failed_targets == 1 && overlays.m_models.size() == 1);
+			PR_EXPECT(overlays.m_failed_targets == 0 && overlays.m_models.size() == 1);
 
 			// A zero-radius line uploads a points-only surface model, not degenerate normal lines.
-			overlays.Volume(false);
 			overlays.Reset();
 			auto thin = collision::ShapeLine(1);
 			overlays.BeginFrame();
@@ -566,11 +431,10 @@ namespace physics_sandbox::tests
 			PR_EXPECT(SampleOverlays::Eligible(body));
 			body.Sleeping(true);
 			auto const force = body.ForceWS();
-			auto const geometry = SampleOverlays::BuildGeometry(body.Shape(), true, true);
+			auto const geometry = SampleOverlays::BuildGeometry(body.Shape());
 			PR_EXPECT(SampleOverlays::Eligible(body) && body.Sleeping());
 			PR_EXPECT(FEql(body.ForceWS(), force));
 			PR_EXPECT(!SampleOverlays::Eligible(ground) && !SampleOverlays::Eligible(shapeless));
-			PR_EXPECT(geometry.m_volume.size() == physics::buoyancy::VolumeSampleCounts({1.0f}, SampleOverlays::VolumeSpacing)[0]);
 			PR_EXPECT(geometry.m_surface.size() == physics::surface::BuildPlan(box).m_count);
 		}
 
@@ -607,12 +471,9 @@ namespace physics_sandbox::tests
 				collision::ShapeBox m_b{v4{0.2f, 0.4f, 0.6f, 0}, m4x4::Translation(2.0f, 0.0f, 0.0f)};
 			} compound;
 			compound.m_array.Complete(2);
-			auto const geometry = SampleOverlays::BuildGeometry(compound.m_array, true, true);
+			auto const geometry = SampleOverlays::BuildGeometry(compound.m_array);
 			auto const plan = physics::surface::BuildPlan(compound.m_a);
-			auto const child_volume = 0.2f * 0.4f * 0.6f;
-			auto const child_count = physics::buoyancy::VolumeSampleCounts({child_volume}, SampleOverlays::VolumeSpacing)[0];
 			PR_EXPECT(geometry.m_surface.size() == 2 * plan.m_count);
-			PR_EXPECT(geometry.m_volume.size() == 2 * size_t(child_count));
 			auto const root_to_world = m4x4::Transform(RotationRad<m3x3>(0.3f, 0.1f, 0.5f), v4{3, 5, 7, 1});
 			auto corner_normals = 0;
 			for (uint32_t i = 0; i != plan.m_count; ++i)
@@ -628,19 +489,12 @@ namespace physics_sandbox::tests
 			}
 			PR_EXPECT(corner_normals == 3);
 
-			// Keep the existing primitive allocation, hashed index and volume emitter, not a second point distribution.
-			auto const table = physics::buoyancy::BuildVolumeSampleTable(compound.m_a);
-			for (int i = 0; i != child_count; ++i)
-			{
-				auto const sample = physics::buoyancy::EmitVolumeSample(compound.m_a, physics::buoyancy::SampleIndex(0, 0, i), table.m_total / child_count, table);
-				PR_EXPECT(FEql(geometry.m_volume[i], compound.m_a.m_base.m_s2r * sample.m_pos_local));
-			}
 		}
 
-		// An enclosed child must not appear as an exposed surface or a second set of interior ownership samples.
+		// An enclosed child must not appear as an exposed surface.
 		PRUnitTestMethod(CompoundUnionOwnership, Quick)
 		{
-			// The first primitive owns the complete overlap volume.
+			// The outer box hides the complete surface of the inner box.
 			struct Compound
 			{
 				collision::ShapeArray m_array;
@@ -648,34 +502,27 @@ namespace physics_sandbox::tests
 				collision::ShapeBox m_inner{v4{1, 1, 1, 0}};
 			} compound;
 			compound.m_array.Complete(2);
-			auto const geometry = SampleOverlays::BuildGeometry(compound.m_array, true, true);
-			auto const counts = physics::buoyancy::VolumeSampleCounts({8.0f, 1.0f}, SampleOverlays::VolumeSpacing);
+			auto const geometry = SampleOverlays::BuildGeometry(compound.m_array);
 			PR_EXPECT(geometry.m_surface.size() == physics::surface::BuildPlan(compound.m_outer).m_count);
-			PR_EXPECT(geometry.m_volume.size() == counts[0]);
 			for (auto const& sample : geometry.m_surface)
 				PR_EXPECT(Abs(MaxElement(Abs(sample.m_pos_local.w0())) - 1.0f) < 1e-6f);
 		}
 
-		// Volume visualization derives missing tetrahedra without modifying the original surface-only polytope.
+		// A surface-only polytope samples its faces, and repeated requests produce identical geometry.
 		PRUnitTestMethod(SurfaceOnlyPolytopeAndDeterministicSphere, Quick)
 		{
 			auto const points = std::vector<v4>{{0, 0, 0, 1}, {1, 0, 0, 1}, {0, 1, 0, 1}, {0, 0, 1, 1}};
 			auto buffer = collision::BuildPolytopeFromPoints(points, m4x4::Identity(), 0, collision::Shape::EFlags::None, 0);
 			auto const& poly = buffer.as<collision::ShapePolytope>();
 			PR_EXPECT(poly.m_tet_count == 0);
-			auto const surface = SampleOverlays::BuildGeometry(poly, true, false);
-			auto const volume = SampleOverlays::BuildGeometry(poly, false, true);
-			PR_EXPECT(!surface.m_surface.empty() && surface.m_volume.empty());
-			PR_EXPECT(volume.m_surface.empty() && volume.m_volume.size() == physics::buoyancy::VolumeSampleCounts({1.0f / 6.0f}, SampleOverlays::VolumeSpacing)[0]);
-			PR_EXPECT(poly.m_tet_count == 0);
-			for (auto const& point : volume.m_volume)
-				PR_EXPECT(physics::buoyancy::ContainsLocal(poly, InvertOrthonormal(poly.m_base.m_s2r) * point, 1e-5f));
+			auto const surface = SampleOverlays::BuildGeometry(poly);
+			PR_EXPECT(!surface.m_surface.empty());
 
 			// A repeated display request has the same point order, normals and weights.
 			auto const sphere = collision::ShapeSphere(0.3f);
-			auto const a = SampleOverlays::BuildGeometry(sphere, true, true);
-			auto const b = SampleOverlays::BuildGeometry(sphere, true, true);
-			PR_EXPECT(a.m_surface.size() == b.m_surface.size() && a.m_volume.size() == b.m_volume.size());
+			auto const a = SampleOverlays::BuildGeometry(sphere);
+			auto const b = SampleOverlays::BuildGeometry(sphere);
+			PR_EXPECT(a.m_surface.size() == b.m_surface.size());
 			for (size_t i = 0; i != a.m_surface.size(); ++i)
 			{
 				PR_EXPECT(FEql(a.m_surface[i].m_pos_local, b.m_surface[i].m_pos_local));
@@ -683,8 +530,6 @@ namespace physics_sandbox::tests
 				PR_EXPECT(a.m_surface[i].m_darea == b.m_surface[i].m_darea);
 				PR_EXPECT(Abs(Length(a.m_surface[i].m_pos_local.w0()) - 0.3f) < 1e-6f);
 			}
-			for (size_t i = 0; i != a.m_volume.size(); ++i)
-				PR_EXPECT(FEql(a.m_volume[i], b.m_volume[i]));
 		}
 
 		// Read actual off-screen pixels: samples inside an opaque box must be drawn after it, not merely disable depth.
@@ -710,14 +555,12 @@ namespace physics_sandbox::tests
 			auto const inner = collision::ShapeBox(v4{0.5f, 0.5f, 0.5f, 0});
 			auto overlays = SampleOverlays{};
 			auto job = pr::compute::GpuJob<D3D12_COMMAND_LIST_TYPE_DIRECT>(renderer.d3d(), "OverlayReadback", 0);
-			for (int test_case = 0; test_case != 4; ++test_case)
+			for (int test_case = 0; test_case != 2; ++test_case)
 			{
-				// Cover both overlay types and falsify the draw-order guard locally, without publishing a broken application binary.
-				auto const surface = test_case < 2;
-				auto const underlay = (test_case & 1) != 0;
+				// Falsify the draw-order guard locally, without publishing a broken application binary.
+				auto const underlay = test_case != 0;
 				scene.ClearDrawlists();
-				overlays.Surface(surface);
-				overlays.Volume(!surface);
+				overlays.Surface(true);
 				overlays.Reset();
 				overlays.BeginFrame();
 				overlays.Add(scene, renderer, &inner, inner, m4x4::Identity());
@@ -725,7 +568,7 @@ namespace physics_sandbox::tests
 				{
 					scene.ClearDrawlists();
 					auto const& instance = overlays.m_instances.at(&inner);
-					auto object = surface ? instance.m_surface : instance.m_volume;
+					auto object = instance.m_surface;
 					object->SortGroup(rdr12::ESortGroup::PreOpaques, "");
 					object->AddToScene(scene);
 				}
@@ -756,7 +599,6 @@ namespace physics_sandbox::tests
 				// The occluder/background are neutral; only true foreground sample/normal colours can contribute chromatic pixels.
 				auto amber = 0;
 				auto green = 0;
-				auto blue = 0;
 				for (UINT y = 0; y != desc.Height; ++y)
 				{
 					auto const* row = readback.ptr<uint8_t>() + y * footprint.Footprint.RowPitch;
@@ -765,16 +607,13 @@ namespace physics_sandbox::tests
 						auto const* pixel = row + 4 * x;
 						amber += pixel[0] > pixel[1] + 20 && pixel[1] > pixel[2] + 20;
 						green += pixel[1] > pixel[0] + 20 && pixel[1] > pixel[2] + 20;
-						blue += pixel[2] > pixel[0] + 40;
 					}
 				}
 				scene.ClearDrawlists();
 				if (underlay)
-					PR_EXPECT(amber == 0 && green == 0 && blue == 0);
-				else if (surface)
-					PR_EXPECT(amber > 0 && green > 0);
+					PR_EXPECT(amber == 0 && green == 0);
 				else
-					PR_EXPECT(blue > 0);
+					PR_EXPECT(amber > 0 && green > 0);
 			}
 
 			// Retire model instances only after the last submitted frame and its draw-list references are finished.
@@ -788,16 +627,15 @@ namespace physics_sandbox::tests
 		{
 			auto renderer = rdr12::Renderer(rdr12::RdrSettings(GetModuleHandle(nullptr)));
 			auto const box = collision::ShapeBox(v4{0.2f, 0.2f, 0.2f, 0});
-			auto model = BuildModels(renderer, SampleOverlays::BuildGeometry(box, true, true));
+			auto model = BuildModels(renderer, SampleOverlays::BuildGeometry(box));
 			auto a = InstanceOf(model.m_surface);
 			auto b = InstanceOf(model.m_surface);
-			auto volume = InstanceOf(model.m_volume);
 			a->O2W(m4x4::Translation(1.0f, 2.0f, 3.0f));
 			b->O2W(m4x4::Translation(4.0f, 5.0f, 6.0f));
 			PR_EXPECT(a.get() != b.get() && !a->m_child.empty());
 			PR_EXPECT(a->m_child[0]->m_model == b->m_child[0]->m_model);
 			PR_EXPECT(!FEql(a->O2W(), b->O2W()));
-			for (auto const& instance : {a, b, volume})
+			for (auto const& instance : {a, b})
 			{
 				instance->Apply([](auto* object)
 				{
@@ -809,8 +647,8 @@ namespace physics_sandbox::tests
 
 			// Model ownership remains valid after template retirement while persistent instances still hold the resources.
 			model = {};
-			PR_EXPECT(a->m_child[0]->m_model != nullptr && volume->m_model != nullptr);
-			a = b = volume = nullptr;
+			PR_EXPECT(a->m_child[0]->m_model != nullptr);
+			a = b = nullptr;
 			renderer.FlushDeferredReleases();
 		}
 	};

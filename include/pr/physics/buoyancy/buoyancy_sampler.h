@@ -4,38 +4,40 @@
 //*********************************************
 // Deterministic CPU buoyancy sampler.
 //
-// This is the reference oracle for the GPU buoyancy sampler. Volume emission mirrors the GPU hash
-// and low-discrepancy sequence; surface emission compiles the shared surface_sampling.hlsli implementation.
-// Both paths use the same per-sample weights and cull rules so GPU kernels can be validated against it.
+// This is the reference oracle for the GPU buoyancy pass (gpu_buoyancy.hlsl). Surface emission compiles the shared
+// surface_sampling.hlsli implementation and uses the same per-sample weights, cull rules, and force terms, so the GPU
+// kernels can be validated against it.
 //
-// Concept (locked design):
-//  - Buoyancy is a VOLUME integral. The submerged union of a body's convex primitives is sampled
-//    volumetrically; each accepted sample contributes a Froude-Krylov pressure-gradient force and
-//    a per-sample torque. This needs no surface reconstruction (no CSG / seam / cap clipping) and
-//    handles arbitrary overlapping, possibly non-convex composites.
-//  - Linear damping is a VOLUME integral over accepted wet samples. This gives equal-density bodies
-//    the configured velocity time constant independently of scale.
-//  - Quadratic drag is a SURFACE integral. Per-primitive surface samples emit (point, normal, dA)
-//    tuples and contribute independent windward-normal form drag and tangential surface drag.
-//  - Overlap is deduplicated by sibling-cull, with DIFFERENT rules for the two passes:
-//      Volume : a sample is owned by the LOWEST-index primitive that contains it, so a volume
-//               sample is dropped if any LOWER-index sibling contains it (unbiased union volume).
-//      Surface: a surface sample lies on the union boundary iff its exterior side is outside every
-//               OTHER primitive, so it is dropped if any other sibling contains the slightly
-//               outward-offset point (or strictly contains the sample). This avoids counting
-//               internal/embedded surfaces and correctly drops shared faces of abutting primitives.
-//  - Every sample carries its own weight (dV or dA); reductions are weighted sums, never
-//    count x constant, because different primitives have different sample densities.
+// Concept:
+//  - Buoyancy is a SURFACE integral of water pressure. Each primitive's surface is covered by samples
+//    (point, outward normal, area dA), and each wet sample feels the hydrostatic pressure at its depth
+//    along its inward normal. A partly wet cell uses the mean depth of its wet part, so forces change
+//    smoothly as cells cross the waterline. This needs no surface reconstruction (no CSG / seam / cap
+//    clipping) and handles arbitrary overlapping, possibly non-convex composites.
+//  - The vertical water column between each wet sample and the water surface has signed volume
+//    -n.up * (depth * wet area). The columns sum to the submerged volume, so they carry the volume
+//    terms: the wave's lateral pressure force, linear/angular volume damping, and the wet volume and
+//    centre of buoyancy diagnostics.
+//  - Quadratic form drag and tangential surface drag act on the same wet surface samples. The dry part of each cell feels
+//    form drag from the still air.
+//  - Overlap is deduplicated by sibling-cull: a surface sample lies on the union boundary iff its
+//    exterior side is outside every OTHER primitive, so it is dropped if any other sibling contains the
+//    slightly outward-offset point (or strictly contains the sample). This avoids counting
+//    internal/embedded surfaces and correctly drops shared faces of abutting primitives. Coplanar
+//    faces of overlapping primitives are kept only by the lowest-index primitive.
+//  - Every sample carries its own area weight; reductions are weighted sums, never count x constant,
+//    because different primitives have different sample densities.
 //
 // Gravity frame (no baked-in gravity direction):
 //  The water surface is a height field along the local "up" axis = -normalize(gravity), NOT world
-//  Z. All wet/dry tests, the FK slope force, and the drag velocity are expressed against a
+//  Z. All wet/dry tests, the pressure force, and the drag velocity are expressed against a
 //  WaterFrame {up, t0, t1, ref}; world-Z flat water is just the special case up=+Z,t0=+X,t1=+Y.
 //
 // The water surface is supplied as a template parameter so this header does not depend on the
 // physics engine, and so gravity-frame water fields can be plugged in for tests. A water field
 // type must provide:
 //    float Height(v2 uv) const;                         // signed height along 'up' at planar coords (u,v), relative to 'ref'
+//    v2    Slope(v2 uv) const;                          // surface slope (dh/du, dh/dv) at planar coords (u,v)
 //    v4    PressureGradient(v2 uv, float gravity) const;// dimensionless dynamic pressure gradient (-a_fluid/g) along (t0, t1, up)
 //    v4    Velocity(v4 pos_ws) const;                   // world-space fluid velocity (w = 0)
 #pragma once
@@ -62,13 +64,13 @@ namespace pr::physics::buoyancy
 	struct SamplerConfig
 	{
 		float m_fluid_density = 1000.0f;            // kg/m^3
-		float m_linear_drag_time_constant_s = 0.0f; // translational volume-drag e-fold time; <= 0 disables it
-		float m_angular_drag_time_constant_s = 0.0f; // rotational volume-drag e-fold time; <= 0 disables it
+		float m_linear_drag_time_constant_s = 0.0f; // translational water-column drag e-fold time; <= 0 disables it
+		float m_angular_drag_time_constant_s = 0.0f; // rotational water-column drag e-fold time; <= 0 disables it
 		float m_quadratic_drag_coefficient = 0.0f;  // form-drag Cd; <= 0 disables quadratic drag
 		float m_tangential_drag_coefficient = 0.0f; // surface-shear Ct; <= 0 disables tangential drag
+		float m_air_density = 0.0f;                 // kg/m^3; form drag on the dry part of each cell; <= 0 disables air drag
 		float m_added_mass_coefficient = 0.0f;      // Ca; the wave force becomes the Morison inertia force (1 + Ca)*rho*dV*a_fluid
-		float m_surface_spacing = DefaultSurfaceSpacing; // maximum surface cell diameter in shape-local units
-		float m_volume_spacing = DefaultVolumeSpacing;   // typical distance between volume samples in shape-local units (see VolumeSampleCounts)
+		float m_surface_spacing = DefaultSurfaceSpacing; // maximum surface cell diameter in shape-local units (see BuildSurfacePlan)
 	};
 
 	// Rigid-body kinematics needed to place samples in world space and evaluate point velocities.
@@ -110,7 +112,7 @@ namespace pr::physics::buoyancy
 	struct HullResult
 	{
 		bool m_valid = false;             // true when any submerged volume was sampled
-		float m_volume_m3 = 0.0f;         // submerged union volume (diagnostic)
+		float m_volume_m3 = 0.0f;         // submerged union volume, summed from the water columns (diagnostic)
 		v4 m_centre_buoyancy_ws = v4::Zero();
 		v4 m_buoyancy_force_ws = v4::Zero();
 		v4 m_buoyancy_torque_ws = v4::Zero();
@@ -118,34 +120,24 @@ namespace pr::physics::buoyancy
 		v4 m_drag_torque_ws = v4::Zero();
 	};
 
-	// A volume sample in shape-local space with its volume weight.
-	struct VolumeSample
-	{
-		v4 m_pos_local = v4::Origin();
-		float m_dvol = 0.0f;
-	};
-
 	// Classification of a single sample emitted during SampleHull, recorded only when a debug
 	// collector is supplied. Mirrors the exact cull/wet branches so a visualiser can render the
 	// real sampler decisions rather than an independent re-derivation.
 	enum class ESampleKind
 	{
-		VolumeWet,       // volume sample inside the wetted union, contributes buoyancy
-		VolumeDry,       // volume sample above the water surface
-		VolumeCulled,    // volume sample owned by a lower-index sibling primitive
-		SurfaceActive,   // surface sample on the wetted union boundary, contributes drag
+		SurfaceActive,   // surface sample on the wetted union boundary, contributes buoyancy and drag
 		SurfaceDry,      // surface sample above the water surface
 		SurfaceCulled,   // surface sample interior to another primitive (not on the union boundary)
 	};
 
 	// One recorded sample for debug visualisation: world-space position, world-space outward
-	// normal (zero for volume samples), owning primitive index and classification.
+	// normal, owning primitive index and classification.
 	struct SampleDebugRecord
 	{
 		v4 m_pos_ws = v4::Origin();
 		v4 m_normal_ws = v4::Zero();
 		int m_prim_index = 0;
-		ESampleKind m_kind = ESampleKind::VolumeDry;
+		ESampleKind m_kind = ESampleKind::SurfaceDry;
 	};
 
 	// Optional out-parameter collector for SampleHull. When passed, every sample's classification is
@@ -153,10 +145,10 @@ namespace pr::physics::buoyancy
 	// the sample cloud and per-primitive force arrows. Data-only: no render/LDraw dependencies here.
 	struct SampleDebug
 	{
-		std::vector<SampleDebugRecord> m_samples;   // every classified sample (volume + surface)
+		std::vector<SampleDebugRecord> m_samples;   // every classified surface sample
 		std::vector<v4> m_prim_buoy_force_ws;       // per-primitive accepted buoyancy force
-		std::vector<v4> m_prim_wet_moment_ws;       // per-primitive sum(sample_ws * dV) over wet samples
-		std::vector<float> m_prim_wet_volume;       // per-primitive accepted wet volume
+		std::vector<v4> m_prim_wet_moment_ws;       // per-primitive sum(column_centroid_ws * dV) over wet samples
+		std::vector<float> m_prim_wet_volume;       // per-primitive signed water-column volume
 
 		// Clear the sample list and (re)size the per-primitive accumulators for a fresh hull pass.
 		void Reset(size_t prim_count)
@@ -175,153 +167,6 @@ namespace pr::physics::buoyancy
 				: v4::Origin();
 		}
 	};
-
-	//
-	// Deterministic low-discrepancy sample generation (mirrorable in HLSL)
-	//
-
-	// 32-bit integer hash (Wang/lowbias style). Only used to derive a bounded, reproducible Halton
-	// index offset per primitive so different primitives sample different windows of the sequence.
-	inline uint32_t HashU32(uint32_t x)
-	{
-		x ^= x >> 16;
-		x *= 0x7feb352du;
-		x ^= x >> 15;
-		x *= 0x846ca68bu;
-		x ^= x >> 16;
-		return x;
-	}
-
-	// Combine two 32-bit hashes into one.
-	inline uint32_t HashCombine(uint32_t a, uint32_t b)
-	{
-		return HashU32(a ^ (b + 0x9e3779b9u + (a << 6) + (a >> 2)));
-	}
-
-	// Van der Corput / Halton radical inverse of 'index' in 'base'. Float accumulation matches the
-	// natural HLSL implementation. 'index' is expected to be small (offset is bounded below) so the
-	// float precision of the inverse stays high.
-	inline float RadicalInverse(uint32_t index, uint32_t base)
-	{
-		auto const inv_base = 1.0f / static_cast<float>(base);
-		auto f = inv_base;
-		auto result = 0.0f;
-		for (; index != 0; index /= base, f *= inv_base)
-			result += static_cast<float>(index % base) * f;
-
-		return result;
-	}
-
-	// Per-primitive Halton index for the i'th sample (0-based). The bounded hash offset keeps the
-	// index small (good float precision) while decorrelating primitives; +1 skips the 0 endpoint.
-	inline uint32_t SampleIndex(uint32_t hull_id, int primitive_index, int i)
-	{
-		auto const offset = HashCombine(hull_id, static_cast<uint32_t>(primitive_index)) % 4096u;
-		return 1u + offset + static_cast<uint32_t>(i);
-	}
-
-	//
-	// Per-primitive measures (used to allocate samples and to weight each sample)
-	//
-
-	// Return the volume of a single convex primitive (shape-local). Triangles are zero-volume.
-	inline float PrimitiveVolume(collision::Shape const& shape)
-	{
-		using namespace collision;
-		switch (shape.m_type)
-		{
-			case EShape::Box:
-			{
-				auto const& box = shape_cast<ShapeBox>(shape);
-				return 8.0f * box.m_radius.x * box.m_radius.y * box.m_radius.z;
-			}
-			case EShape::Sphere:
-			{
-				auto const& sph = shape_cast<ShapeSphere>(shape);
-				return (4.0f / 3.0f) * static_cast<float>(math::constants<double>::tau_by_2) * sph.m_radius * sph.m_radius * sph.m_radius;
-			}
-			case EShape::Line:
-			{
-				// A capsule is a cylinder plus two hemispherical caps that together form one sphere.
-				auto const& line = shape_cast<ShapeLine>(shape);
-				auto const pi = static_cast<float>(math::constants<double>::tau_by_2);
-				auto const r = line.m_radius;
-				return pi * r * r * (2.0f * line.m_hlength) + (4.0f / 3.0f) * pi * r * r * r;
-			}
-			case EShape::Polytope:
-			{
-				auto const& poly = shape_cast<ShapePolytope>(shape);
-				if (poly.m_tet_count == 0 || poly.m_volume_vert_count == 0)
-					return CalcVolume(poly);
-
-				auto vol = 0.0f;
-				for (int t = 0; t != poly.m_tet_count; ++t)
-				{
-					auto const& tet = poly.tet(t);
-					auto const a = poly.volume_vertex(tet.m_corner[0]);
-					auto const b = poly.volume_vertex(tet.m_corner[1]);
-					auto const c = poly.volume_vertex(tet.m_corner[2]);
-					auto const d = poly.volume_vertex(tet.m_corner[3]);
-					vol += std::abs(Dot3(a - d, Cross(b - d, c - d))) / 6.0f;
-				}
-				return vol;
-			}
-			case EShape::Triangle:
-			{
-				return 0.0f;
-			}
-			default:
-			{
-				return 0.0f;
-			}
-		}
-	}
-
-	// Precomputed volume-sampling acceleration table for one primitive. Built once per primitive per
-	// SampleHull call and reused across that primitive's (potentially thousands of) volume samples,
-	// replacing the previous design that recomputed the total volume and re-scanned the tet list for
-	// every individual sample. For polytopes it holds the cumulative tet-volume CDF (m_tet_cdf[t] =
-	// sum of tet volumes [0..t], so m_tet_cdf.back() == total) which a sample picks from by binary
-	// search. For analytic primitives (box/sphere/triangle) only m_total is meaningful.
-	struct VolumeSampleTable
-	{
-		std::vector<float> m_tet_cdf; // cumulative tet volumes; empty for non-polytopes
-		float m_total = 0.0f;         // total primitive volume (CDF back, or analytic volume)
-	};
-
-	// Build the volume-sampling table for one primitive. For polytopes this walks the tets once,
-	// hoisting the volume-vert / tet base pointers out of the loop so the ShapePolytope blob-offset
-	// chain (vert_beg -> ... -> volume_vert_beg / tet_beg) is resolved a single time rather than on
-	// every vertex fetch. The cumulative sums are accumulated in tet order so m_total is bit-identical
-	// to PrimitiveVolume() and the GPU oracle's per-tet running sum, preserving sample parity.
-	inline VolumeSampleTable BuildVolumeSampleTable(collision::Shape const& shape)
-	{
-		using namespace collision;
-		auto table = VolumeSampleTable{};
-		if (shape.m_type != EShape::Polytope)
-		{
-			table.m_total = PrimitiveVolume(shape);
-			return table;
-		}
-
-		auto const& poly = shape_cast<ShapePolytope>(shape);
-		auto const* vv = poly.volume_vert_beg();
-		auto const* tets = poly.tet_beg();
-		table.m_tet_cdf.resize(static_cast<size_t>(poly.m_tet_count));
-		auto accum = 0.0f;
-		for (int t = 0; t != poly.m_tet_count; ++t)
-		{
-			auto const& tet = tets[t];
-			auto const a = vv[tet.m_corner[0]];
-			auto const b = vv[tet.m_corner[1]];
-			auto const c = vv[tet.m_corner[2]];
-			auto const d = vv[tet.m_corner[3]];
-			accum += std::abs(Dot3(a - d, Cross(b - d, c - d))) / 6.0f;
-			table.m_tet_cdf[static_cast<size_t>(t)] = accum;
-		}
-		table.m_total = accum;
-		return table;
-	}
 
 	//
 	// Inside tests (shape-local space). 'eps' is a small slack so boundary samples register.
@@ -380,119 +225,6 @@ namespace pr::physics::buoyancy
 	}
 
 	//
-	// Per-primitive sample emission
-	//
-
-	// Emit the i'th low-discrepancy volume sample for a primitive, weighted by 'dvol' (= measure/N).
-	// 'vtable' is the primitive's precomputed VolumeSampleTable (built once by the caller); for
-	// polytopes it supplies the total volume and the cumulative tet CDF so this routine does O(log
-	// tets) work per sample instead of the previous O(tets) total-recompute + linear scan.
-	inline VolumeSample EmitVolumeSample(collision::Shape const& shape, uint32_t index, float dvol, VolumeSampleTable const& vtable)
-	{
-		using namespace collision;
-		switch (shape.m_type)
-		{
-			case EShape::Box:
-			{
-				auto const& box = shape_cast<ShapeBox>(shape);
-				auto const u = RadicalInverse(index, 2);
-				auto const v = RadicalInverse(index, 3);
-				auto const w = RadicalInverse(index, 5);
-				auto const p = v4{(2.0f * u - 1.0f) * box.m_radius.x, (2.0f * v - 1.0f) * box.m_radius.y, (2.0f * w - 1.0f) * box.m_radius.z, 1.0f};
-				return VolumeSample{p, dvol};
-			}
-			case EShape::Sphere:
-			{
-				auto const& sph = shape_cast<ShapeSphere>(shape);
-				auto const a = RadicalInverse(index, 2); // radius via cube-root for uniform density in the ball
-				auto const b = RadicalInverse(index, 3); // cos(theta) mapped to [-1,1]
-				auto const c = RadicalInverse(index, 5); // azimuth
-				auto const r = sph.m_radius * std::cbrt(a);
-				auto const z = 1.0f - 2.0f * b;
-				auto const rho = std::sqrt(std::max(0.0f, 1.0f - z * z));
-				auto const phi = static_cast<float>(math::constants<double>::tau) * c;
-				auto const dir = v4{rho * std::cos(phi), rho * std::sin(phi), z, 0.0f};
-				return VolumeSample{(dir * r).w1(), dvol};
-			}
-			case EShape::Line:
-			{
-				auto const& line = shape_cast<ShapeLine>(shape);
-				auto const pick = RadicalInverse(index, 2);
-				auto const a = RadicalInverse(index, 3);
-				auto const b = RadicalInverse(index, 5);
-				auto const c = RadicalInverse(index, 7);
-
-				// Choose the cylinder or the caps with probability proportional to their volumes, so the constant weight
-				// 'dvol' stays unbiased. The two hemispherical caps together form one sphere of the capsule radius.
-				auto const pi = static_cast<float>(math::constants<double>::tau_by_2);
-				auto const radius = line.m_radius;
-				auto const cylinder = pi * radius * radius * (2.0f * line.m_hlength);
-				auto const total = cylinder + (4.0f / 3.0f) * pi * radius * radius * radius;
-				if (pick * total < cylinder)
-				{
-					// Uniform point in the cylinder: square-root radius for uniform area density in each disc.
-					auto const r = radius * std::sqrt(a);
-					auto const phi = static_cast<float>(math::constants<double>::tau) * b;
-					return VolumeSample{v4{r * std::cos(phi), r * std::sin(phi), (2.0f * c - 1.0f) * line.m_hlength, 1.0f}, dvol};
-				}
-				else
-				{
-					// Uniform point in a sphere, then move each half to the matching end of the segment.
-					auto const r = radius * std::cbrt(a);
-					auto const z = 1.0f - 2.0f * b;
-					auto const rho = std::sqrt(std::max(0.0f, 1.0f - z * z));
-					auto const phi = static_cast<float>(math::constants<double>::tau) * c;
-					auto p = v4{rho * std::cos(phi), rho * std::sin(phi), z, 0.0f} * r;
-					p.z += p.z >= 0.0f ? line.m_hlength : -line.m_hlength;
-					return VolumeSample{p.w1(), dvol};
-				}
-			}
-			case EShape::Polytope:
-			{
-				auto const& poly = shape_cast<ShapePolytope>(shape);
-				auto const pick = RadicalInverse(index, 2);
-				auto const s_in = RadicalInverse(index, 3);
-				auto const t_in = RadicalInverse(index, 5);
-				auto const u_in = RadicalInverse(index, 7);
-
-				// Hoist the blob-offset base pointers so the ShapePolytope accessor chain is resolved
-				// once for this sample rather than on each of the eight volume_vertex fetches below.
-				auto const* vv = poly.volume_vert_beg();
-				auto const* tets = poly.tet_beg();
-
-				// Pick a tetrahedron with probability proportional to its volume. With p_tet =
-				// V_tet/V_total, a constant per-sample weight dvol = V_total/N is the unbiased estimator.
-				// The cumulative CDF is monotonic, so a binary search finds the first tet whose running
-				// sum reaches the target - identical selection to the old linear scan (the CDF entries
-				// are the same running sums, in the same order) but O(log tets) instead of O(tets).
-				auto const& cdf = vtable.m_tet_cdf;
-				auto const target = pick * vtable.m_total;
-				auto const it = std::lower_bound(cdf.begin(), cdf.end(), target);
-				auto const chosen = it != cdf.end() ? static_cast<int>(it - cdf.begin()) : poly.m_tet_count - 1;
-
-				// Uniform barycentric point in the chosen tet (Rocchini & Cignoni fold).
-				auto s = s_in, t = t_in, u = u_in;
-				if (s + t > 1.0f) { s = 1.0f - s; t = 1.0f - t; }
-				if (t + u > 1.0f) { auto const tmp = u; u = 1.0f - s - t; t = 1.0f - tmp; }
-				else if (s + t + u > 1.0f) { auto const tmp = u; u = s + t + u - 1.0f; s = 1.0f - t - tmp; }
-				auto const aw = 1.0f - s - t - u;
-
-				auto const& tet = tets[chosen];
-				auto const A = vv[tet.m_corner[0]];
-				auto const B = vv[tet.m_corner[1]];
-				auto const C = vv[tet.m_corner[2]];
-				auto const D = vv[tet.m_corner[3]];
-				auto const p = (A * aw + B * s + C * t + D * u);
-				return VolumeSample{p.w1(), dvol};
-			}
-			default:
-			{
-				return VolumeSample{v4::Origin(), 0.0f};
-			}
-		}
-	}
-
-	//
 	// Helpers
 	//
 
@@ -515,40 +247,6 @@ namespace pr::physics::buoyancy
 		return prims;
 	}
 
-	// Throw unless 'spacing' is a usable volume sample spacing.
-	inline void ValidateVolumeSpacing(float spacing)
-	{
-		if (!std::isfinite(spacing) || spacing <= 0.0f)
-			throw std::runtime_error("Volume sample spacing must be finite and positive");
-	}
-
-	// Return the number of volume samples for each primitive so that samples are about 'spacing' apart.
-	// Each primitive with positive volume gets ceil(volume / spacing^3) samples, but no fewer than MinVolumeSamplesPerPrimitive.
-	// Primitives with no volume get none. Throws if the spacing is invalid or the hull total is not representable as an int.
-	inline std::vector<int> VolumeSampleCounts(std::vector<float> const& volume, float spacing)
-	{
-		// Validate here so every caller (GPU registration, CPU oracle, overlays) rejects the same inputs.
-		ValidateVolumeSpacing(spacing);
-		auto const cell = static_cast<double>(spacing) * spacing * spacing;
-
-		// Use double arithmetic so large hulls at fine spacing are detected rather than overflowing.
-		auto counts = std::vector<int>(volume.size(), 0);
-		auto total = 0.0;
-		for (size_t i = 0; i != volume.size(); ++i)
-		{
-			if (!(volume[i] > 0.0f))
-				continue;
-
-			auto const n = std::max<double>(MinVolumeSamplesPerPrimitive, std::ceil(volume[i] / cell));
-			total += n;
-			if (!(total <= static_cast<double>(std::numeric_limits<int>::max())))
-				throw std::runtime_error("Buoyancy volume hull exceeds representable sample count");
-
-			counts[i] = static_cast<int>(n);
-		}
-		return counts;
-	}
-
 	//
 	// Top-level sampler
 	//
@@ -556,13 +254,10 @@ namespace pr::physics::buoyancy
 	// Sample buoyancy + drag for a hull. 'water' is any type satisfying the water-field concept
 	// documented at the top of this file. Returns aggregated world-space force/torque + diagnostics.
 	// When 'debug' is non-null, every sample's classification and the per-primitive accepted buoyancy
-	// partials are recorded for visualisation; the physical result is unchanged whether debug is set or
-	// not. Note that when debug is non-null the surface pass runs even with drag disabled (so surface
-	// classifications are still recorded), but it contributes zero drag because the coefficients are zero.
+	// partials are recorded for visualisation; the physical result is unchanged whether debug is set or not.
 	template <typename TWater>
 	inline HullResult SampleHull(
 		collision::Shape const& hull,
-		uint32_t hull_id,
 		BodyState const& body,
 		WaterFrame const& frame,
 		TWater const& water,
@@ -571,47 +266,37 @@ namespace pr::physics::buoyancy
 	{
 		using namespace collision;
 
-		// Validate resolution independently of the optional drag/debug pass.
+		// Validate the resolution before doing any work.
 		surface::ValidateSpacing(cfg.m_surface_spacing);
-		ValidateVolumeSpacing(cfg.m_volume_spacing);
-		auto const have_drag = cfg.m_quadratic_drag_coefficient > 0.0f || cfg.m_tangential_drag_coefficient > 0.0f;
 		auto result = HullResult{};
 
 		auto const prims = CollectPrimitives(hull);
-		if (prims.empty())
-		{
-			if (debug)
-				debug->Reset(0);
-			return result;
-		}
-
 		if (debug)
 			debug->Reset(prims.size());
 
-		// Pre-compute per-primitive transforms (shape-local <-> COM-root) and measures.
+		// Without gravity there is no "up" for the water and no pressure, so the GPU pass applies nothing.
+		auto const g_mag = Length(body.m_gravity_ws.w0());
+		if (prims.empty() || !(g_mag > math::constants<float>::tiny))
+			return result;
+
+		// Pre-compute per-primitive transforms (shape-local <-> COM-root) and surface plans.
 		auto s2r = std::vector<m4x4>(prims.size());
 		auto r2s = std::vector<m4x4>(prims.size());
-		auto volume = std::vector<float>(prims.size(), 0.0f);
 		auto surface_plans = std::vector<surface::Plan>(prims.size());
-		auto vol_tables = std::vector<VolumeSampleTable>(prims.size());
 		for (size_t k = 0; k != prims.size(); ++k)
 		{
 			s2r[k] = prims[k]->m_s2r;
 			r2s[k] = InvertOrthonormal(prims[k]->m_s2r);
-			vol_tables[k] = BuildVolumeSampleTable(*prims[k]);
-			volume[k] = vol_tables[k].m_total;
-			if (have_drag || debug != nullptr)
-				surface_plans[k] = surface::BuildPlan(*prims[k], cfg.m_surface_spacing);
+			surface_plans[k] = BuildSurfacePlan(*prims[k], cfg.m_surface_spacing);
 		}
-
-		auto const vol_counts = VolumeSampleCounts(volume, cfg.m_volume_spacing);
 
 		auto const up = frame.m_up;
 		auto const t0 = frame.m_t0;
 		auto const t1 = frame.m_t1;
 		auto const ref = frame.m_ref;
 		auto const com_ws = body.m_o2w * body.m_centre_of_mass_os.w1();
-		auto const g_mag = Length(body.m_gravity_ws.w0());
+		auto const rho_g = cfg.m_fluid_density * g_mag;
+		auto const ca = cfg.m_added_mass_coefficient;
 
 		// A scale-relative epsilon for inside tests so boundary samples register without leaking.
 		auto bbox = CalcBBox(hull);
@@ -626,156 +311,143 @@ namespace pr::physics::buoyancy
 		auto drag_torque = v4::Zero();
 		auto const c_linear = cfg.m_linear_drag_time_constant_s > 0.0f ? cfg.m_fluid_density / cfg.m_linear_drag_time_constant_s : 0.0f;
 		auto const c_angular = cfg.m_angular_drag_time_constant_s > 0.0f ? cfg.m_fluid_density / cfg.m_angular_drag_time_constant_s : 0.0f;
+		auto const w_horizontal = body.m_omega_ws - Dot3(body.m_omega_ws, up) * up;
 
-		// Volume pass: Froude-Krylov pressure-gradient force and linear/angular damping over the submerged
-		// union, deduplicated by the lowest-index-sibling rule.
-		if (g_mag > math::constants<float>::tiny)
-		{
-			for (size_t k = 0; k != prims.size(); ++k)
-			{
-				if (vol_counts[k] == 0)
-					continue;
-
-				auto const dvol = volume[k] / static_cast<float>(vol_counts[k]);
-				auto const cell_height = VolumeCellHeight(dvol);
-				for (int i = 0; i != vol_counts[k]; ++i)
-				{
-					auto const sample = EmitVolumeSample(*prims[k], SampleIndex(hull_id, static_cast<int>(k), i), dvol, vol_tables[k]);
-					auto const p_root = s2r[k] * sample.m_pos_local;
-
-					// Lowest-index-sibling cull: skip if any lower-index primitive owns this volume.
-					auto culled = false;
-					for (size_t j = 0; j != k && !culled; ++j)
-						culled = ContainsLocal(*prims[j], r2s[j] * p_root, eps);
-					if (culled)
-					{
-						if (debug)
-							debug->m_samples.push_back({ (body.m_o2w * p_root).w1(), v4::Zero(), static_cast<int>(k), ESampleKind::VolumeCulled });
-						continue;
-					}
-
-					auto const sample_ws = body.m_o2w * p_root;
-					auto const signed_height = Dot3(sample_ws - ref, up);
-					auto const u = Dot3(sample_ws - ref, t0);
-					auto const v = Dot3(sample_ws - ref, t1);
-					auto const h = water.Height(v2{u, v});
-					auto const wet_fraction = CellWetFraction(signed_height, h, cell_height);
-					if (wet_fraction <= 0.0f)
-					{
-						if (debug)
-							debug->m_samples.push_back({ sample_ws.w1(), v4::Zero(), static_cast<int>(k), ESampleKind::VolumeDry });
-						continue; // dry
-					}
-
-					// Only the submerged part of the sample's cell displaces water or feels volume damping. The wave's orbital
-					// acceleration also drives the water attached to the body, so its pressure gradient is scaled by (1 + Ca).
-					auto const wet_dvol = sample.m_dvol * wet_fraction;
-					auto const grad = water.PressureGradient(v2{u, v}, g_mag);
-					auto const grad_ws = grad.x * t0 + grad.y * t1 + grad.z * up;
-					auto const dF = (cfg.m_fluid_density * g_mag * wet_dvol) * (up - (1.0f + cfg.m_added_mass_coefficient) * grad_ws);
-
-					buoy_force += dF;
-					buoy_torque += Cross(sample_ws - com_ws, dF);
-					wet_volume += wet_dvol;
-					wet_moment += sample_ws * wet_dvol;
-
-					// Independent translational and rotational point velocities allow linear wave
-					// following and roll damping to be tuned without changing the sampled wet geometry.
-					if (c_linear > 0.0f || c_angular > 0.0f)
-					{
-						auto const r = sample_ws - com_ws;
-						auto drag_dF = v4::Zero();
-						if (c_linear > 0.0f)
-							drag_dF -= (c_linear * wet_dvol) * (body.m_vel_lin_ws - water.Velocity(sample_ws));
-						if (c_angular > 0.0f)
-							drag_dF -= (c_angular * wet_dvol) * Cross(body.m_omega_ws, r);
-
-						drag_force += drag_dF;
-						drag_torque += Cross(r, drag_dF);
-					}
-
-					if (debug)
-					{
-						debug->m_samples.push_back({ sample_ws.w1(), v4::Zero(), static_cast<int>(k), ESampleKind::VolumeWet });
-						debug->m_prim_buoy_force_ws[k] += dF;
-						debug->m_prim_wet_moment_ws[k] += sample_ws * wet_dvol;
-						debug->m_prim_wet_volume[k] += wet_dvol;
-					}
-				}
-			}
-		}
-
-		// Surface pass: normal form drag and tangential surface drag over the wetted union boundary,
+		// Integrate pressure, water-column terms, and drag over the wetted union boundary,
 		// deduplicated by the any-other-sibling exterior-side rule.
-		if (have_drag || debug != nullptr)
+		for (size_t k = 0; k != prims.size(); ++k)
 		{
-			for (size_t k = 0; k != prims.size(); ++k)
+			auto const& plan = surface_plans[k];
+			for (uint32_t i = 0; i != plan.m_count; ++i)
 			{
-				auto const& plan = surface_plans[k];
-				for (uint32_t i = 0; i != plan.m_count; ++i)
+				auto const sample = surface::EmitSurfaceSample(plan, i);
+				auto const p_root = s2r[k] * sample.m_pos_local;
+				auto const n_root = Normalise((s2r[k] * sample.m_normal_local).w0(), v4::Zero());
+
+				// A surface sample is on the union boundary iff its exterior side is outside every
+				// other primitive. Cull if any other sibling contains the slightly-outward point or
+				// strictly contains the sample itself. The outward point is 'eps' outside a coplanar
+				// sibling face, so lower-index siblings use a wider slack: coplanar faces are then kept
+				// by exactly one primitive (the lowest index) rather than by all or none.
+				auto const probe_root = p_root + n_root * eps;
+				auto culled = false;
+				for (size_t j = 0; j != prims.size() && !culled; ++j)
 				{
-					auto const sample = surface::EmitSurfaceSample(plan, i);
-					auto const p_root = s2r[k] * sample.m_pos_local;
-					auto const n_root = Normalise((s2r[k] * sample.m_normal_local).w0(), v4::Zero());
-
-					// A surface sample is on the union boundary iff its exterior side is outside every
-					// other primitive. Cull if any other sibling contains the slightly-outward point or
-					// strictly contains the sample itself.
-					auto const probe_root = p_root + n_root * eps;
-					auto culled = false;
-					for (size_t j = 0; j != prims.size() && !culled; ++j)
-					{
-						if (j == k)
-							continue;
-						culled =
-							ContainsLocal(*prims[j], r2s[j] * probe_root, eps) ||
-							ContainsLocal(*prims[j], r2s[j] * p_root, -eps);
-					}
-					if (culled)
-					{
-						if (debug)
-							debug->m_samples.push_back({ (body.m_o2w * p_root).w1(), Normalise((body.m_o2w * n_root).w0(), v4::Zero()), static_cast<int>(k), ESampleKind::SurfaceCulled });
+					if (j == k)
 						continue;
-					}
 
-					auto const sample_ws = body.m_o2w * p_root;
-					auto const normal_ws = Normalise((body.m_o2w * n_root).w0(), v4::Zero());
-
-					// Each sample stands for a surface cell, so drag acts on the cell's submerged area. This keeps drag continuous
-					// as the body moves or rotates, even when the wetted region is smaller than one cell.
-					auto const u = Dot3(sample_ws - ref, t0);
-					auto const v = Dot3(sample_ws - ref, t1);
-					auto const cell_height = SurfaceCellHeight(sample.m_darea, Dot3(normal_ws, up));
-					auto const wet_darea = sample.m_darea * CellWetFraction(Dot3(sample_ws - ref, up), water.Height(v2{u, v}), cell_height);
-					if (wet_darea <= 0.0f)
-					{
-						if (debug)
-							debug->m_samples.push_back({ sample_ws.w1(), normal_ws, static_cast<int>(k), ESampleKind::SurfaceDry });
-						continue; // dry
-					}
-
-					auto const v_point = body.m_vel_lin_ws + Cross(body.m_omega_ws, sample_ws - com_ws);
-					auto const v_rel = v_point - water.Velocity(sample_ws);
-					auto const v_n = Dot3(v_rel, normal_ws);
-
-					auto dF = v4::Zero();
-					if (cfg.m_quadratic_drag_coefficient > 0.0f && v_n > 0.0f)
-						dF += (-0.5f * cfg.m_fluid_density * cfg.m_quadratic_drag_coefficient * wet_darea * v_n * v_n) * normal_ws;
-
-					// Tangential drag opposes the complete in-plane relative velocity. The |v_t| * v_t
-					// form is quadratic in speed while remaining continuous through zero.
-					if (cfg.m_tangential_drag_coefficient > 0.0f)
-					{
-						auto const v_t = v_rel - v_n * normal_ws;
-						auto const speed_t = Length(v_t);
-						dF += (-0.5f * cfg.m_fluid_density * cfg.m_tangential_drag_coefficient * wet_darea * speed_t) * v_t;
-					}
-
-					drag_force += dF;
-					drag_torque += Cross(sample_ws - com_ws, dF);
-
+					culled =
+						ContainsLocal(*prims[j], r2s[j] * probe_root, j < k ? 2.0f * eps : 0.5f * eps) ||
+						ContainsLocal(*prims[j], r2s[j] * p_root, -eps);
+				}
+				if (culled)
+				{
 					if (debug)
-						debug->m_samples.push_back({ sample_ws.w1(), normal_ws, static_cast<int>(k), ESampleKind::SurfaceActive });
+						debug->m_samples.push_back({ (body.m_o2w * p_root).w1(), Normalise((body.m_o2w * n_root).w0(), v4::Zero()), static_cast<int>(k), ESampleKind::SurfaceCulled });
+					continue;
+				}
+
+				auto const sample_ws = body.m_o2w * p_root;
+				auto const normal_ws = Normalise((body.m_o2w * n_root).w0(), v4::Zero());
+
+				// Each sample stands for a surface cell, so forces act on the cell's submerged area. This keeps the forces
+				// continuous as the body moves or rotates, even when the wetted region is smaller than one cell.
+				auto const uv = v2{Dot3(sample_ws - ref, t0), Dot3(sample_ws - ref, t1)};
+				auto const signed_height = Dot3(sample_ws - ref, up);
+				auto const n_up = Dot3(normal_ws, up);
+				auto const cell_height = SurfaceCellHeight(sample.m_darea, n_up);
+				auto const h = water.Height(uv);
+				auto const wet_fraction = CellWetFraction(signed_height, h, cell_height);
+				auto const wet_weight = sample.m_darea * wet_fraction;
+				auto const r = sample_ws - com_ws;
+				auto const v_point = body.m_vel_lin_ws + Cross(body.m_omega_ws, r);
+
+				// Air form drag on the dry part of the cell, using the water's windward model relative to still air.
+				auto const dry_weight = sample.m_darea - wet_weight;
+				auto const v_n_air = Dot3(v_point, normal_ws);
+				if (cfg.m_quadratic_drag_coefficient > 0.0f && cfg.m_air_density > 0.0f && dry_weight > 0.0f && v_n_air > 0.0f)
+				{
+					auto const dF_air = (-0.5f * cfg.m_air_density * cfg.m_quadratic_drag_coefficient * dry_weight * v_n_air * v_n_air) * normal_ws;
+					drag_force += dF_air;
+					drag_torque += Cross(r, dF_air);
+				}
+
+				if (wet_weight <= 0.0f)
+				{
+					if (debug)
+						debug->m_samples.push_back({ sample_ws.w1(), normal_ws, static_cast<int>(k), ESampleKind::SurfaceDry });
+					continue; // dry
+				}
+
+				// Hydrostatic pressure acts along the inward normal on the wet part of the cell. A partly wet cell spans depths
+				// (depth +/- cell_height/2), so its wet part has mean depth (depth + cell_height/2)/2.
+				auto const depth = h - signed_height;
+				auto const wet_depth = wet_fraction < 1.0f ? 0.5f * (depth + 0.5f * cell_height) : depth;
+				auto const depth_area = wet_weight * wet_depth;
+
+				// The vertical water column between the sample and the surface has signed volume -n.up * depth_area.
+				// The columns sum to the wet volume, so they carry the volume terms.
+				auto const dvol = -n_up * depth_area;
+				auto const r_col = r + (0.5f * wet_depth) * up;
+				auto const grad = water.PressureGradient(uv, g_mag);
+				auto const grad_ws = grad.x * t0 + grad.y * t1 + grad.z * up;
+				auto const grad_up = Dot3(grad_ws, up);
+				auto const slope = water.Slope(uv);
+				auto const slope_ws = slope.x * t0 + slope.y * t1;
+
+				// The vertical pressure force comes from the sampled normals, scaled by the wave's vertical acceleration.
+				// The horizontal force comes from the columns: the Froude-Krylov force (1 + Ca) * grad on each column's volume.
+				// The torque uses the sampled pressure plus the column correction for the difference between the gradient and
+				// the slope (see CSBuoyancySurfaceSamples in gpu_buoyancy.hlsl).
+				auto const dF_pressure = -(rho_g * (1.0f - (1.0f + ca) * grad_up) * depth_area) * normal_ws;
+				auto const grad_lat = grad_ws - grad_up * up;
+				auto const dF_lateral = -(rho_g * dvol * (1.0f + ca)) * grad_lat;
+				auto const dF_column = dF_lateral + (rho_g * dvol) * slope_ws;
+				auto const dF_buoy = Dot3(dF_pressure, up) * up + dF_lateral;
+				buoy_force += dF_buoy;
+				buoy_torque += Cross(r, dF_pressure) + Cross(r_col, dF_column);
+				wet_volume += dvol;
+				wet_moment += (com_ws + r_col).w0() * dvol;
+
+				// Volume damping of the column. Translation is resisted relative to the water; rotation uses the column's
+				// exact second moment.
+				auto const water_velocity = water.Velocity(sample_ws);
+				if (c_linear > 0.0f || c_angular > 0.0f)
+				{
+					auto const d_lin = c_linear * dvol;
+					auto const d_ang = c_angular * dvol;
+					auto const f_lin = -d_lin * (body.m_vel_lin_ws - water_velocity);
+					auto const f_ang = -d_ang * Cross(body.m_omega_ws, r_col);
+					auto const t_ang = Cross(r_col, f_ang) - (d_ang * wet_depth * wet_depth / 12.0f) * w_horizontal;
+					drag_force += f_lin + f_ang;
+					drag_torque += Cross(r_col, f_lin) + t_ang;
+				}
+
+				// Quadratic form drag acts only on faces moving outward into the fluid.
+				auto const v_rel = v_point - water_velocity;
+				auto const v_n = Dot3(v_rel, normal_ws);
+				auto dF = v4::Zero();
+				if (cfg.m_quadratic_drag_coefficient > 0.0f && v_n > 0.0f)
+					dF += (-0.5f * cfg.m_fluid_density * cfg.m_quadratic_drag_coefficient * wet_weight * v_n * v_n) * normal_ws;
+
+				// Tangential drag opposes the complete in-plane relative velocity. The |v_t| * v_t
+				// form is quadratic in speed while remaining continuous through zero.
+				if (cfg.m_tangential_drag_coefficient > 0.0f)
+				{
+					auto const v_t = v_rel - v_n * normal_ws;
+					auto const speed_t = Length(v_t);
+					dF += (-0.5f * cfg.m_fluid_density * cfg.m_tangential_drag_coefficient * wet_weight * speed_t) * v_t;
+				}
+
+				drag_force += dF;
+				drag_torque += Cross(r, dF);
+
+				if (debug)
+				{
+					debug->m_samples.push_back({ sample_ws.w1(), normal_ws, static_cast<int>(k), ESampleKind::SurfaceActive });
+					debug->m_prim_buoy_force_ws[k] += dF_buoy;
+					debug->m_prim_wet_moment_ws[k] += (com_ws + r_col).w0() * dvol;
+					debug->m_prim_wet_volume[k] += dvol;
 				}
 			}
 		}

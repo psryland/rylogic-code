@@ -184,6 +184,10 @@ namespace physics_sandbox
 			options.m_buoyancy_angular_drag_time_constant_s = cmd("buoyancy_angular_drag_time_constant").as<float>();
 		if (cmd.count("buoyancy_tangential_drag"))
 			options.m_buoyancy_tangential_drag_coefficient = cmd("buoyancy_tangential_drag").as<float>();
+		if (cmd.count("buoyancy_wave_resistance"))
+			options.m_buoyancy_wave_resistance = cmd("buoyancy_wave_resistance").as<float>();
+		if (cmd.count("air_density"))
+			options.m_air_density = cmd("air_density").as<float>();
 		if (cmd.count("scan"))
 			options.m_scan_bodies = true;
 		if (cmd.count("scan_non_spheres"))

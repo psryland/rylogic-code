@@ -11,7 +11,6 @@ namespace physics_sandbox
 		static constexpr int VisualModeNormal = 3001;
 		static constexpr int VisualModeContactPriority = 3002;
 		static constexpr int SurfaceSamples = 3011;
-		static constexpr int VolumeSamples = 3012;
 		static constexpr int SleepingTransparency = 3013;
 		static constexpr int AtmosphereGrid = 3020;
 		static constexpr int AtmosphereParticles = 3021;

@@ -2,20 +2,16 @@
 // Physics Engine
 //  Copyright (c) Rylogic Ltd 2026
 //************************************
-// GPU sampled-composite buoyancy: per-primitive volume emission and containment.
+// GPU sampled-composite buoyancy: per-primitive containment, support and surface-cell helpers.
 //
 // This module is the HLSL mirror of the deterministic CPU oracle in
 // include/pr/physics/buoyancy/buoyancy_sampler.h. Every function here must reproduce the oracle's
-// arithmetic to single-precision noise so the GPU kernels can be validated against the CPU sampler
-// (Tier-2 parity tests). Keep the two files in lock-step: the hash sequence, the radical-inverse
-// bases, the per-primitive volume maps and the tet CDF scans are all parity-critical.
+// arithmetic to single-precision noise so the GPU kernels can be validated against the CPU sampler.
 // Surface emission is shared directly through pr/physics/surface/surface_sampling.hlsli.
 //
 // Binding-agnostic: the geometry-reading functions take the composite-hull StructuredBuffers as
 // parameters (resolved at compile time by the including kernel TU). The kernel declares the buffers
-// at whatever registers it needs and passes them through; this module pins no registers. Tet and
-// face vertex indices are stored RELATIVE to each primitive's own block, so callers add the
-// primitive's m_volume_vert_ofs (tets) or m_vert_ofs (faces) when indexing the shared arrays.
+// at whatever registers it needs and passes them through; this module pins no registers.
 #ifndef PR_PHYSICS_BUOYANCY_SAMPLER_HLSLI
 #define PR_PHYSICS_BUOYANCY_SAMPLER_HLSLI
 
@@ -43,7 +39,7 @@ static const int BUOY_PRIM_CAPSULE = 4;
 // module reproduces the oracle's Normalise(v, fallback) threshold exactly.
 static const float BUOY_TINY = 1.00000007e-05f;
 
-// HLSL mirror of pr::physics::buoyancy::GpuPrimitive (128-byte GPU ABI). The kernel reads an array
+// HLSL mirror of pr::physics::buoyancy::GpuPrimitive (112-byte GPU ABI). The kernel reads an array
 // of these; the layout (offsets/counts) is documented in buoyancy_primitives.h.
 struct BuoyPrimitive
 {
@@ -56,10 +52,6 @@ struct BuoyPrimitive
 	int m_sibling_index;    // child order (sibling-cull priority)
 	int m_vert_ofs;         // surface verts block start (in the shared verts buffer)
 	int m_vert_count;
-	int m_volume_vert_ofs;  // interior tet verts block start (in the shared volume-verts buffer)
-	int m_volume_vert_count;
-	int m_tet_ofs;          // tets block start (in the shared tets buffer)
-	int m_tet_count;
 	int m_face_ofs;         // face planes / face verts block start (in the shared face buffers)
 	int m_face_count;
 	int m_pad0;
@@ -67,48 +59,6 @@ struct BuoyPrimitive
 
 	float4 m_params;        // box: half-extents in xyz; sphere: radius in x; capsule: radius in x, half-length in y; else unused
 };
-
-//
-// Deterministic hash + low-discrepancy sequence (mirror of buoyancy_sampler.h)
-//
-
-// 32-bit integer hash (Wang/lowbias variant) - identical mixing constants to the oracle's HashU32.
-odr uint BuoyHashU32(uint x)
-{
-	x ^= x >> 16;
-	x *= 0x7feb352du;
-	x ^= x >> 15;
-	x *= 0x846ca68bu;
-	x ^= x >> 16;
-	return x;
-}
-
-// Combine two 32-bit hashes into one (mirror of HashCombine).
-odr uint BuoyHashCombine(uint a, uint b)
-{
-	return BuoyHashU32(a ^ (b + 0x9e3779b9u + (a << 6) + (a >> 2)));
-}
-
-// Van der Corput / Halton radical inverse of 'index' in 'base'. Float accumulation order matches the
-// oracle so the two sequences agree bit-for-bit for the small indices used here.
-odr float BuoyRadicalInverse(uint index, uint base)
-{
-	float inv_base = 1.0f / (float)base;
-	float f = inv_base;
-	float result = 0.0f;
-	for (; index != 0; index /= base, f *= inv_base)
-		result += (float)(index % base) * f;
-
-	return result;
-}
-
-// Per-primitive Halton index for the i'th sample (0-based). The bounded hash offset keeps the index
-// small (good float precision) while decorrelating primitives; +1 skips the 0 endpoint.
-odr uint BuoySampleIndex(uint hull_id, int primitive_index, int i)
-{
-	uint offset = BuoyHashCombine(hull_id, (uint)primitive_index) % 4096u;
-	return 1u + offset + (uint)i;
-}
 
 // Normalise a 3-vector, returning zero when its length is at or below BUOY_TINY. Mirrors the
 // oracle's Normalise(v, v4::Zero()) so transformed/face normals degrade identically.
@@ -170,53 +120,6 @@ odr bool BuoySupportAlongUp(in_(BuoyPrimitive) prim, float4x4 s2w, float3 up, ou
 }
 
 //
-// Per-primitive measures (allocate samples + weight each sample). Shape-local space.
-//
-
-// Volume of a single convex primitive. Triangles are zero-volume.
-odr float BuoyPrimitiveVolume(in_(BuoyPrimitive) prim, in_(StructuredBuffer<float4>) volume_verts, in_(StructuredBuffer<int4>) tets)
-{
-	switch (prim.m_type)
-	{
-		case BUOY_PRIM_BOX:
-		{
-			return 8.0f * prim.m_params.x * prim.m_params.y * prim.m_params.z;
-		}
-		case BUOY_PRIM_SPHERE:
-		{
-			// (4/3)*pi*r^3 - 'tau*0.5f' is pi to float precision, matching the oracle's tau_by_2.
-			float r = prim.m_params.x;
-			return (4.0f / 3.0f) * (tau * 0.5f) * r * r * r;
-		}
-		case BUOY_PRIM_CAPSULE:
-		{
-			// Cylinder plus two hemispherical caps that together form one sphere (mirror of PrimitiveVolume).
-			float r = prim.m_params.x;
-			float pi = tau * 0.5f;
-			return pi * r * r * (2.0f * prim.m_params.y) + (4.0f / 3.0f) * pi * r * r * r;
-		}
-		case BUOY_PRIM_POLYTOPE:
-		{
-			float vol = 0.0f;
-			for (int t = 0; t != prim.m_tet_count; ++t)
-			{
-				int4 tet = tets[prim.m_tet_ofs + t];
-				float3 a = volume_verts[prim.m_volume_vert_ofs + tet.x].xyz;
-				float3 b = volume_verts[prim.m_volume_vert_ofs + tet.y].xyz;
-				float3 c = volume_verts[prim.m_volume_vert_ofs + tet.z].xyz;
-				float3 d = volume_verts[prim.m_volume_vert_ofs + tet.w].xyz;
-				vol += abs(dot(a - d, cross(b - d, c - d))) / 6.0f;
-			}
-			return vol;
-		}
-		default:
-		{
-			return 0.0f;
-		}
-	}
-}
-
-//
 // Inside test (shape-local space). 'eps' is a small slack so boundary samples register.
 //
 
@@ -266,13 +169,9 @@ odr bool BuoyContainsLocal(in_(BuoyPrimitive) prim, float3 p_local, float eps, i
 }
 
 //
-// Sibling-cull helpers. The volume and surface passes deduplicate overlapping primitives
-// with DIFFERENT rules, mirroring SampleHull in buoyancy_sampler.h:
-//  * Volume  -> lowest-index-sibling owns the overlap: cull if ANY lower-index sibling (j < k)
-//               contains the sample. Gives an unbiased union volume.
-//  * Surface -> a sample is on the union boundary iff its slightly-outward probe is outside EVERY
-//               other sibling (j != k): cull if any other sibling contains the +eps probe OR
-//               strictly (-eps) contains the sample itself.
+// Sibling-cull helpers, mirroring SampleHull in buoyancy_sampler.h. A surface sample is on the union
+// boundary iff its slightly-outward probe is outside EVERY other sibling (j != k): cull if any other
+// sibling contains the +eps probe OR strictly (-eps) contains the sample itself.
 // 'prim_base' is the absolute start of the hull's primitive block in the shared primitive buffer,
 // 'prim_count' the number of siblings, and 'k' the local sibling index (0..prim_count-1). Points are
 // in COM-root space; each sibling's r2s = InvertOrthonormal(m_s2r) maps the root point into that
@@ -286,23 +185,11 @@ odr float3 BuoyRootToLocal(in_(BuoyPrimitive) prim, float3 p_root)
 	return mul(float4(p_root, 1.0f), r2s).xyz;
 }
 
-// Volume cull: true if any lower-index sibling (j < k) contains 'p_root'. Mirrors the SampleHull
-// lowest-index-sibling rule (j != 0..k-1, ContainsLocal(prim_j, r2s_j * p_root, +eps)).
-odr bool BuoyIsInsideAnyLowerSibling(in_(StructuredBuffer<BuoyPrimitive>) prims, int prim_base, int k, float3 p_root, float eps, in_(StructuredBuffer<float4>) face_planes)
-{
-	for (int j = 0; j != k; ++j)
-	{
-		BuoyPrimitive sib = prims[prim_base + j];
-		if (BuoyContainsLocal(sib, BuoyRootToLocal(sib, p_root), eps, face_planes))
-			return true;
-	}
-	return false;
-}
-
 // Surface cull: true if any other sibling (j != k) hides this surface sample from the union
 // boundary. Mirrors the SampleHull any-other-sibling rule: cull if a sibling contains the slightly
 // outward probe (p_root + n_root*eps) OR strictly contains the sample itself (-eps). 'n_root' is the
-// outward sample normal in COM-root space.
+// outward sample normal in COM-root space. The probe is 'eps' outside a coplanar sibling face, so
+// lower-index siblings use a wider slack: coplanar faces are kept only by the lowest-index primitive.
 odr bool BuoyIsInsideAnyOtherSibling(in_(StructuredBuffer<BuoyPrimitive>) prims, int prim_base, int prim_count, int k, float3 p_root, float3 n_root, float eps, in_(StructuredBuffer<float4>) face_planes)
 {
 	float3 probe_root = p_root + n_root * eps;
@@ -312,7 +199,8 @@ odr bool BuoyIsInsideAnyOtherSibling(in_(StructuredBuffer<BuoyPrimitive>) prims,
 			continue;
 
 		BuoyPrimitive sib = prims[prim_base + j];
-		if (BuoyContainsLocal(sib, BuoyRootToLocal(sib, probe_root), eps, face_planes) ||
+		float probe_slack = j < k ? 2.0f * eps : 0.5f * eps;
+		if (BuoyContainsLocal(sib, BuoyRootToLocal(sib, probe_root), probe_slack, face_planes) ||
 			BuoyContainsLocal(sib, BuoyRootToLocal(sib, p_root), -eps, face_planes))
 			return true;
 	}
@@ -320,7 +208,7 @@ odr bool BuoyIsInsideAnyOtherSibling(in_(StructuredBuffer<BuoyPrimitive>) prims,
 }
 
 //
-// (surface) so reductions accumulate weighted sums (different primitives have different densities).
+// Surface-cell wetting helpers. Each surface sample stands for a cell, which wets gradually as it crosses the waterline.
 //
 
 // Return the submerged fraction of a sample cell centred 'signed_height' along up, given the water height at the same planar
@@ -335,125 +223,6 @@ odr float BuoyWetFraction(float signed_height, float water_height, float cell_he
 odr float BuoySurfaceCellHeight(float darea, float normal_dot_up)
 {
 	return sqrt(darea * max(0.0f, 1.0f - normal_dot_up * normal_dot_up));
-}
-
-// Emit the i'th low-discrepancy volume sample for a primitive, weighted by 'dvol' (= measure/N).
-// 'pos_local' is returned with w=1. Mirrors EmitVolumeSample.
-odr void BuoyEmitVolumeSample(in_(BuoyPrimitive) prim, uint index, float dvol,
-	in_(StructuredBuffer<float4>) volume_verts, in_(StructuredBuffer<int4>) tets, in_(StructuredBuffer<float>) tet_cdf,
-	out_(float4) pos_local, out_(float) weight)
-{
-	weight = dvol;
-	switch (prim.m_type)
-	{
-		case BUOY_PRIM_BOX:
-		{
-			float u = BuoyRadicalInverse(index, 2);
-			float v = BuoyRadicalInverse(index, 3);
-			float w = BuoyRadicalInverse(index, 5);
-			pos_local = float4((2.0f * u - 1.0f) * prim.m_params.x, (2.0f * v - 1.0f) * prim.m_params.y, (2.0f * w - 1.0f) * prim.m_params.z, 1.0f);
-			return;
-		}
-		case BUOY_PRIM_SPHERE:
-		{
-			float a = BuoyRadicalInverse(index, 2); // radius via cube-root for uniform density in the ball
-			float b = BuoyRadicalInverse(index, 3); // cos(theta) mapped to [-1,1]
-			float c = BuoyRadicalInverse(index, 5); // azimuth
-
-			// PARITY NOTE: the oracle uses std::cbrt(a); HLSL has no cbrt so this uses pow(a,1/3).
-			// These are not bit-identical and can flip a sphere sample's wet/dry state right at the
-			// waterline. This is the known sphere parity risk; it does NOT affect box parity (the
-			// phase-11 gate). Reconcile (match the oracle to this approximation, or use looser sphere
-			// tolerances) when sphere parity tests are written.
-			float r = prim.m_params.x * pow(a, 1.0f / 3.0f);
-			float z = 1.0f - 2.0f * b;
-			float rho = sqrt(max(0.0f, 1.0f - z * z));
-			float phi = tau * c;
-			float3 dir = float3(rho * cos(phi), rho * sin(phi), z);
-			pos_local = float4(dir * r, 1.0f);
-			return;
-		}
-		case BUOY_PRIM_CAPSULE:
-		{
-			float pick = BuoyRadicalInverse(index, 2);
-			float a = BuoyRadicalInverse(index, 3);
-			float b = BuoyRadicalInverse(index, 5);
-			float c = BuoyRadicalInverse(index, 7);
-
-			// Choose the cylinder or the caps in proportion to their volumes (mirror of EmitVolumeSample).
-			float pi = tau * 0.5f;
-			float radius = prim.m_params.x;
-			float hlength = prim.m_params.y;
-			float cylinder = pi * radius * radius * (2.0f * hlength);
-			float total = cylinder + (4.0f / 3.0f) * pi * radius * radius * radius;
-			if (pick * total < cylinder)
-			{
-				// Uniform point in the cylinder.
-				float r = radius * sqrt(a);
-				float phi = tau * b;
-				pos_local = float4(r * cos(phi), r * sin(phi), (2.0f * c - 1.0f) * hlength, 1.0f);
-			}
-			else
-			{
-				// Uniform point in a sphere, with each half moved to the matching segment end. The cube root has the
-				// same parity note as BUOY_PRIM_SPHERE.
-				float r = radius * pow(a, 1.0f / 3.0f);
-				float z = 1.0f - 2.0f * b;
-				float rho = sqrt(max(0.0f, 1.0f - z * z));
-				float phi = tau * c;
-				float3 p = float3(rho * cos(phi), rho * sin(phi), z) * r;
-				p.z += p.z >= 0.0f ? hlength : -hlength;
-				pos_local = float4(p, 1.0f);
-			}
-			return;
-		}
-		case BUOY_PRIM_POLYTOPE:
-		{
-			float pick = BuoyRadicalInverse(index, 2);
-			float s_in = BuoyRadicalInverse(index, 3);
-			float t_in = BuoyRadicalInverse(index, 5);
-			float u_in = BuoyRadicalInverse(index, 7);
-
-			// Pick a tetrahedron with probability proportional to its volume. The cumulative table is
-			// built once per shared shape in tet order, so binary search selects the same first running
-			// sum at or above the target without recalculating or linearly scanning tet volumes.
-			float total = tet_cdf[prim.m_tet_ofs + prim.m_tet_count - 1];
-			float target = pick * total;
-			int first = 0;
-			int last = prim.m_tet_count;
-			while (first != last)
-			{
-				int mid = first + (last - first) / 2;
-				if (tet_cdf[prim.m_tet_ofs + mid] >= target)
-					last = mid;
-				else
-					first = mid + 1;
-			}
-			int chosen = min(first, prim.m_tet_count - 1);
-
-			// Uniform barycentric point in the chosen tet (Rocchini & Cignoni fold).
-			float s = s_in, t = t_in, u = u_in;
-			if (s + t > 1.0f) { s = 1.0f - s; t = 1.0f - t; }
-			if (t + u > 1.0f) { float tmp = u; u = 1.0f - s - t; t = 1.0f - tmp; }
-			else if (s + t + u > 1.0f) { float tmp = u; u = s + t + u - 1.0f; s = 1.0f - t - tmp; }
-			float aw = 1.0f - s - t - u;
-
-			int4 ct = tets[prim.m_tet_ofs + chosen];
-			float3 A = volume_verts[prim.m_volume_vert_ofs + ct.x].xyz;
-			float3 B = volume_verts[prim.m_volume_vert_ofs + ct.y].xyz;
-			float3 C = volume_verts[prim.m_volume_vert_ofs + ct.z].xyz;
-			float3 D = volume_verts[prim.m_volume_vert_ofs + ct.w].xyz;
-			float3 p = A * aw + B * s + C * t + D * u;
-			pos_local = float4(p, 1.0f);
-			return;
-		}
-		default:
-		{
-			pos_local = float4(0, 0, 0, 1);
-			weight = 0.0f;
-			return;
-		}
-	}
 }
 
 #ifdef __cplusplus

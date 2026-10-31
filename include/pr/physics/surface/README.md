@@ -28,7 +28,7 @@ may reduce positions separately; terrain contact selection belongs to the engine
 For unchanged geometry and spacing, primitive-local ordinal, position, normal, and weight are
 deterministic. Surface identities do not depend on body registration IDs or frame order. Compound
 callers enumerate primitive children in their existing order and apply each child's shape-to-root
-transform once. Build plans directly from the primitive geometry, not from volume tetrahedra.
+transform once. Build plans directly from the primitive geometry.
 
 ## Geometry and weighting
 
@@ -100,40 +100,48 @@ limits, not quality controls; callers must choose a coarser spacing or smaller g
 Allocation/device resource failures propagate normally. Extremely large valid sample populations
 can still be expensive and are not a real-time latency guarantee.
 
-`GpuBuoyancy::Config::m_surface_spacing` and `m_volume_spacing` are part of the immutable shape-cache key. Like polytope
-derivation settings, they apply at registration/shape refresh; existing registrations retain their plans. They default to
-`buoyancy::DefaultSurfaceSpacing` (0.25 m) and `buoyancy::DefaultVolumeSpacing` (0.2 m). Surface samples only drive
-drag; lift and volume damping come from volume samples. Both settings are spacings, so the sample cost of a body follows its size:
-`buoyancy::VolumeSampleCounts` gives each primitive `ceil(volume / spacing^3)` samples, but at least
-`buoyancy::MinVolumeSamplesPerPrimitive` (8) so small primitives still change buoyancy smoothly as they cross the waterline.
-A 2 x 2 x 1 m box gets 500 volume samples at the default; a 100 m^3 hull gets 12500. Each sample stands for a cell, and a cell
-crossing the waterline contributes its submerged fraction (`buoyancy::CellWetFraction`), so the wet volume and the lift change
-continuously with depth; fully wet or fully dry primitives are exact.
+`GpuBuoyancy::Config::m_surface_spacing` is part of the immutable shape-cache key. Like polytope derivation settings, it applies at
+registration/shape refresh; existing registrations retain their plans. It defaults to `buoyancy::DefaultSurfaceSpacing` (0.25 m).
+Buoyancy has no volume samples: the water pressure (lift), added mass, damping and drag are all integrated over the surface samples.
+Buoyancy plans come from `buoyancy::BuildSurfacePlan`, which wraps `surface::BuildPlan` and refines the spacing of small primitives until
+each has at least `buoyancy::MinSurfaceSamplesPerPrimitive` (128) samples. A light body floats with a shallow draft, so only the few
+cells near its lowest point are wet, and too few cells give a wrong floating height and false torques. A primitive that already has 128
+samples keeps exactly its `surface::BuildPlan` at the configured spacing, so large primitives get no extra samples. Terrain and other
+`surface::BuildPlan` callers do not get this minimum.
+
+Each wet surface sample stands for a cell of area `dA` whose vertical extent is `sqrt(dA) * sin(tilt)` (`buoyancy::SurfaceCellHeight`).
+A cell crossing the waterline contributes its submerged fraction (`buoyancy::CellWetFraction`) and the mean depth of its wet part, so
+the force changes continuously with depth; cells on steep faces wet gradually and horizontal cells wet as a step.
+Per wet cell, with `n` the outward normal and `depth_area` the wet area times the wet depth:
+- The hydrostatic pressure force is `-rho g (1 - (1 + Ca) grad . up) depth_area n`; only its vertical part is summed as force.
+- The cell also stands for the vertical water column above it, of volume `dvol = -(n . up) depth_area`, acting at the column
+  centre. The horizontal force is that column's share of the dynamic pressure gradient, `-rho g dvol (1 + Ca) grad_lateral`, and
+  the column also carries the added mass `Ca rho dvol` and the linear/angular volume damping. Summing columns gives the wet
+  volume and its centre, which are exact for a closed hull below a flat surface.
+- Tangential skin drag uses the wet area. Its coefficient (default 0.01) is a skin-friction value; it is not raised to stand in for the other drag terms.
+- Air form drag uses the same windward model and Cd on the dry part of each cell, relative to the still air set by `GpuBuoyancy::SetAir` (`physics::Air`, density 1.2 by default). Primitives entirely above the water are not evaluated, so this covers only floating bodies.
+  It matters for light bodies with a large area above the water. Primitives entirely above the water are not evaluated, so they feel no air drag.
+- The signed waterline stiffness is `rho g wet_area (-n . up)`.
+
 `BuoyancySampleDensityTests::SampleDensitySweep` (Extended | Stress) measures the floating behaviour (drop, tilt, push and wave
-responses of four shapes) across a grid of surface and volume spacings against a dense 0.02 m / 0.02 m reference, and reports where
-the defaults sit on that grid.
+responses of four shapes) across a grid of surface spacings against a dense reference, and reports where the default sits on that grid.
 Terrain keeps its separate `surface::DefaultSpacing`; explicit caller overrides remain available.
-`SamplerConfig::m_surface_spacing` and `m_volume_spacing` control each CPU oracle evaluation; `SampleHull` takes no separate
+`SamplerConfig::m_surface_spacing` controls each CPU oracle evaluation; `SampleHull` takes no separate
 sample count and there is no alternate Halton surface path.
 
-GPU surface and volume threads stream all ordinals using grid-stride loops. At most 128 groups per hull produce
+GPU surface threads stream all ordinals using grid-stride loops. At most 128 groups per hull produce
 reduction partials, regardless of sample count; the limit is on **partial storage, not emission**.
 Surface dispatch uses group X for the hull-local group and Y for the hull, avoiding a large flattened
 X dimension. Hull-count, cumulative count, and patch-upload bounds are checked before allocation or
 dispatch. Per-sample primitive selection and sibling containment retain the existing primitive walk.
 
-Volume distribution, sample hash/indexing, tetrahedron selection, weights, gravity frame, and sibling ownership are
-unchanged by streaming. Surface forces multiply each sample's `m_darea` by the cell's submerged fraction. The vertical extent of
-a surface cell is `sqrt(m_darea) * sin(tilt)` (`buoyancy::SurfaceCellHeight`), so cells on steep faces wet gradually and
-horizontal cells wet as a step. This keeps drag continuous when the wetted patch of a small body is smaller than one cell.
-
 Buoyancy is applied with a linearly implicit step. Each sample adds its damping rates and waterline stiffness to per-hull
 moment sums, from which the reduce builds a coupled 6 x 6 (linear and angular) Jacobian. The body's force and torque are
-replaced by the effective values of solving `(I + (h (D + (h/2) K + beta K_heave) + M_a) M^-1) W_eff = W + predictor + F_rad`,
+replaced by the effective values of solving `(I + (h (D + (h/2) K + beta K_heave + C_wave) + M_a) M^-1) W_eff = W + predictor + F_rad + F_wave`,
 so stiff drag and buoyancy on light bodies cannot overshoot and launch the body. Diagnostics report the sampled wrench, before the implicit solve.
 
 The wave model includes the hydrodynamic terms that keep floating bodies on moving water:
-- Each wet sample feels the dynamic pressure gradient of the water field, including the vertical fluid acceleration, scaled by
+- Each wet cell feels the dynamic pressure gradient of the water field, including the vertical fluid acceleration, scaled by
   `1 + m_added_mass_coefficient` (the displaced fluid plus the entrained added mass, like the Morison inertia coefficient).
 - The added mass `M_a = Ca * rho * V_wet` (`m_added_mass_coefficient`, default 0.5) also enters the implicit solve, so a light body's
   response to water forces is limited by the fluid it must accelerate.
@@ -143,6 +151,12 @@ The wave model includes the hydrodynamic terms that keep floating bodies on movi
 - Heave radiation damping (`m_radiation_damping`, default 1) models the energy a heaving body loses by making waves. The rate uses the
   long-wave estimate `B = rho omega^3 A^2 / (2g)`, from the hull's waterline stiffness and mass, and is applied implicitly along `up` only.
   Applying it to the rotational stiffness would turn small asymmetries in the sample layout into false spin.
+- Wave-making resistance (`m_wave_resistance`, default 1) is the drag a body feels from the waves it makes while moving through the water.
+  The hull's weight is treated as a Gaussian pressure patch on the surface, with spreads taken from the waterplane moments, and the
+  linear-theory resistance of a patch moving at speed `U` relative to the water under the hull is integrated by `WaveResistance` in
+  `pr/physics/buoyancy/wave_resistance.hlsli`. The force is zero for slow bodies, peaks when the made waves are about as long as the
+  hull (`U ~ sqrt(g L)`), and falls as `1/U^2` for fast bodies. It is applied implicitly as a horizontal damping `C_wave = R/U` about
+  the water velocity (`F_wave`), at the centre of mass. Linear theory overestimates the resistance of blunt hulls; the config scales it.
 
 Sibling-cull tests approximate discontinuous boundaries. An overlapping/abutting primitive seam can therefore have
 spacing-dependent quadrature error, and the linear wet-fraction model is an approximation for curved or tilted cells; exact
@@ -224,9 +238,9 @@ without retaining previous-frame body geometry.
 `BuoyancySamplerTests` covers box corner normals, face areas, balance and cell diagonals; sphere
 geodesic coverage/area; triangle vertices, edge/interior coverage and first moments (including
 slender/degenerate inputs); surface-only polytopes; invalid plans; analytic full/half-wet force and
-torque; and bit-identical volume/lift/damping results when only surface spacing changes.
+torque; and agreement with the analytic displaced volume and lift.
 
 `BuoyancyCompositeHostTests` executes actual GPU shaders. Its streaming parity test exceeds 32,768
 samples and compares full/partial-wet, rotated boxes, spheres, polytopes, and a transformed mixed
 box/sphere/triangle compound against the CPU oracle. Existing drag, impulse-limit, articulation,
-overlap, wave-pressure, and volume regressions remain part of that class.
+overlap, wave-pressure, and floating-height regressions remain part of that class.
