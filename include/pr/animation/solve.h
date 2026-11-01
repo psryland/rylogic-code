@@ -14,14 +14,14 @@
 namespace pr::animation
 {
 	// Pose every Spine, Neck, Leg and Arm chain of 'rig' to meet 'targets' (one per chain, see 'Target').
+	//  - On entry, the model transforms in 'pose' must be current for its local transforms.
 	//  - Chains are solved base-first, so a limb follows the spine it hangs from.
 	//  - Bones outside these chains keep their local transforms. Tail chains are posed afterwards by 'Locomotion'.
 	//  - On return, all model transforms in 'pose' are current.
 	inline void SolvePose(Rig const& rig, std::span<Target const> targets, Pose& pose)
 	{
-		// Start from current model transforms, then solve each chain after its ancestors
+		// Solve each chain after its ancestors
 		pr_assert(targets.size() == rig.chains.size() && "One target per chain is required");
-		pose.UpdateModel(rig);
 		for (auto c : rig.solve_order)
 		{
 			// Each role has its own solver
@@ -56,8 +56,8 @@ namespace pr::animation
 				}
 			}
 
-			// Bring the chain's descendants along before solving them. Only the chain's subtree can have moved.
-			pose.UpdateModel(rig, rig.chain_subtrees[c]);
+			// Bring the chain's descendants along. Solved chains below this one are refreshed after their own solve (see 'Rig::solve_refresh').
+			pose.UpdateModel(rig, rig.solve_refresh[c]);
 		}
 	}
 }

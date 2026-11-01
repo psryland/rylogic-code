@@ -164,8 +164,12 @@ namespace pr::physics::terrain::landscape::tests
 			auto const down = RayCast(flat, origin, v4d{0, 0, -2, 0}, {.m_max_distance = 20, .m_tolerance = 0.0001});
 			PR_EXPECT(down.m_hit && std::abs(down.m_distance - 10) <= 0.0001);
 
-			// Vertical rays only need their end points, and planar crossings refine in a few secant estimates.
-			PR_EXPECT(down.m_samples <= 5);
+			// Vertical rays need one sample. A planar crossing within one search step is bracketed by the tangent-plane prediction and closed
+			// by one more sample.
+			PR_EXPECT(down.m_samples == 1);
+			auto const close_hit = RayCast(Plane{v2d{0.3, -0.2}}, v4d{0, 0, 1, 1}, v4d{0.05, 0, -1, 0}, {.m_max_distance = 2, .m_max_horizontal_step = 0.05, .m_tolerance = 0.002});
+			PR_EXPECT(close_hit.m_hit && close_hit.m_samples == 3);
+			PR_EXPECT(close_hit.m_position.z <= 0.3 * close_hit.m_position.x && close_hit.m_position.z >= 0.3 * close_hit.m_position.x - 0.002);
 			auto const oblique = RayCast(flat, origin, v4d{1, 0, -0.1, 0});
 			PR_EXPECT(oblique.m_hit && std::abs(oblique.m_distance - std::sqrt(10100.0)) <= 0.01);
 			auto const steep = RayCast(Plane{v2d{0.3, -0.2}}, origin, v4d{0.05, 0, -1, 0}, {.m_max_distance = 20, .m_max_horizontal_step = 0.05, .m_tolerance = 0.002});
