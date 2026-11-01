@@ -105,7 +105,7 @@ namespace pr::animation
 	// Where a hand holds something, in world space
 	struct Grasp
 	{
-		v4 point = v4::Origin();  // The point that the palm's contact touches (w = 1)
+		v4 point = v4::Origin();  // The point that the palm's grip point touches (w = 1), see 'LimbState::grip'
 		v4 palm = -v4::ZAxis();   // The unit direction that the palm faces, towards the held thing (w = 0)
 		v4 fingers = -v4::YAxis(); // The direction that the fingers point (w = 0), not parallel to 'palm'. Only its part across the palm is used.
 	};
@@ -143,6 +143,7 @@ namespace pr::animation
 		float support = 1.0f;                  // In [0,1]. How much the limb stands on 'foot'. Otherwise it hangs from the body as in the guide pose.
 		float reach = 0.0f;                   // The limb's length from its root joint to its contact. Ground rays for the foot reach this far either side of it.
 		v4 sole_up = v4::YAxis();             // The unit normal of the sole or palm in the end bone's space, pointing away from the ground. See 'Locomotion::FindSole'.
+		v4 grip = v4::Origin();               // The point on the palm that a grasp holds, in the end bone's space. See 'Locomotion::FindSole'.
 		std::vector<int> digits;              // The digit chains attached to the limb's end bone
 	};
 
@@ -622,6 +623,9 @@ namespace pr::animation
 		static constexpr int StoopSamples = 8;
 		static constexpr int StoopBisections = 8;
 
+		// How far a hand's grip point is from its contact towards its digits' base joints, as a fraction of that distance. See 'FindSole'.
+		static constexpr float GripAlongPalm = 0.5f;
+
 		// The seconds of turning by which the chest leads into a turn and the pelvis trails it, and the largest angle (radians) of each
 		static constexpr float SpineLeadTime = 0.25f;
 		static constexpr float MaxSpineLead = 0.5f;
@@ -1094,7 +1098,7 @@ namespace pr::animation
 			return actual * Invert(guide) * guide_end;
 		}
 
-		// The end bone frame (model space) that puts the palm contact of 'limb' on the grasp point, with the palm facing the grasp's direction and the
+		// The end bone frame (model space) that puts the grip point of 'limb' on the grasp point, with the palm facing the grasp's direction and the
 		// fingers pointing as near to the grasp's finger direction as the palm allows. The grasp sets the whole orientation, so the hand does not
 		// follow its usual goal's swing. The fingers run along the end bone (+Y), and the palm faces away from its 'sole_up' normal.
 		xform GraspFrame(LimbState const& limb, Grasp const& grasp, xform const& world_to_model) const
@@ -1111,9 +1115,9 @@ namespace pr::animation
 			auto twist = quat(facing, std::atan2(Dot(Cross(fingers, aim), facing), Dot(fingers, aim)));
 			auto rot = Normalise(twist * turn);
 
-			// Place the bone so that its palm contact is on the grasp point
+			// Place the bone so that its grip point is on the grasp point
 			auto point = world_to_model * grasp.point;
-			return xform(point - Rotate(rot, m_rig.contacts[limb.contact].offset.w0()), rot);
+			return xform(point - Rotate(rot, limb.grip.w0()), rot);
 		}
 
 		// The pelvis and chest frames of the spine after stooping by 's' in [0,1], from its 'pelvis' and 'chest' frames when upright. The pelvis sinks and
@@ -1285,14 +1289,15 @@ namespace pr::animation
 			return xform(point - Rotate(rot, contact.offset.w0()), rot);
 		}
 
-		// Set the limb's digit chains and sole normal from the rig's rest pose. The sole is the plane through the limb's contact and the contacts
-		// at the tips of its digits. A limb with fewer than three such contacts, or with contacts in a line, uses its contact's normal instead.
+		// Set the limb's digit chains, sole normal and grip point from the rig's rest pose
 		void FindSole(LimbState& limb) const
 		{
-			// Gather the contacts in the end bone's space. Digit chains hang directly from the end bone.
+			// Gather the contacts and the digits' base joints in the end bone's space. Digit chains hang directly from the end bone.
 			auto end = m_rig.chains[limb.chain].bones.back();
 			auto to_end = Invert(m_rig.rest_model[end]);
-			std::vector<v4> points = { m_rig.contacts[limb.contact].offset };
+			auto contact = m_rig.contacts[limb.contact].offset;
+			auto knuckles = v4::Zero();
+			std::vector<v4> points = { contact };
 			for (int c = 0, cend = static_cast<int>(m_rig.chains.size()); c != cend; ++c)
 			{
 				auto const& chain = m_rig.chains[c];
@@ -1300,10 +1305,27 @@ namespace pr::animation
 					continue;
 
 				limb.digits.push_back(c);
+				knuckles += (to_end * m_rig.rest_model[chain.bones.front()]).pos.w0();
 				if (auto tip = DigitContact(c); tip >= 0)
 					points.push_back(to_end * m_rig.rest_model[chain.bones.back()] * m_rig.contacts[tip].offset);
 			}
+			limb.sole_up = SoleNormal(limb, points);
 
+			// The grip point is on the palm, part way from the contact towards the digits' base joints. Only the move across the palm is
+			// used, so the point stays on the palm's surface. A limb without digits grips at its contact.
+			limb.grip = contact;
+			if (!limb.digits.empty())
+			{
+				auto along = knuckles / static_cast<float>(limb.digits.size()) - contact.w0();
+				along -= limb.sole_up * Dot(along, limb.sole_up);
+				limb.grip = contact + along * GripAlongPalm;
+			}
+		}
+
+		// The unit normal of the sole of 'limb' in the end bone's space, pointing away from the ground. The sole is the plane through 'points', which
+		// are the limb's contact and the contacts at the tips of its digits. Fewer than three points, or points in a line, use the contact's normal instead.
+		v4 SoleNormal(LimbState const& limb, std::span<v4 const> points) const
+		{
 			// Fit a plane by least squares. Its normal is the direction in which the points spread least: the cross product of the two
 			// directions in which they spread most, taken from whichever pair of axes gives the best conditioned answer.
 			auto centre = v4::Zero();
@@ -1326,8 +1348,7 @@ namespace pr::animation
 			if (points.size() < 3 || det_max <= 1e-6f * Sqr(xx + yy + zz))
 			{
 				// The contact's normal points out of the skin, towards the ground
-				limb.sole_up = -m_rig.contacts[limb.contact].normal;
-				return;
+				return -m_rig.contacts[limb.contact].normal;
 			}
 			auto normal =
 				det_max == det_x ? v4(det_x, xz * yz - xy * zz, xy * yz - xz * yy, 0) :
@@ -1336,7 +1357,7 @@ namespace pr::animation
 
 			// The end bone is above its sole, so the normal points from the plane towards the bone's origin
 			normal = Normalise(normal);
-			limb.sole_up = Dot(normal, centre) > 0 ? -normal : normal;
+			return Dot(normal, centre) > 0 ? -normal : normal;
 		}
 
 		// The contact on the last bone of digit chain 'c', or -1 if it has none
@@ -2352,6 +2373,15 @@ namespace pr::animation::tests
 					PR_EXPECT(FEqlAbsolute(Dot(tip.w0(), normal), 0.0f, 1e-3f));
 				}
 			}
+
+			// The grip point is on the sole's plane, moved from the contact towards the toes' base joints
+			auto contact = rig.contacts[leg.contact].offset;
+			auto knuckles = v4::Zero();
+			for (auto c : leg.digits)
+				knuckles += (Invert(rig.rest_model[foot]) * rig.rest_model[rig.chains[c].bones.front()]).pos.w0() / 3.0f;
+
+			PR_EXPECT(FEqlAbsolute(Dot(leg.grip - contact, leg.sole_up), 0.0f, 1e-5f));
+			PR_EXPECT(Dot(leg.grip - contact, knuckles - contact.w0()) > 1e-4f);
 		}
 		PRUnitTestMethod(ModelTransformsAreCurrent, Quick)
 		{
@@ -2778,11 +2808,13 @@ namespace pr::animation::tests
 			PR_EXPECT(loco.family_settled() && loco.family() == biped);
 			auto rest = loco.pose().model;
 
-			// The palm contact is on the hand bone, and the palm faces away from the limb's sole normal. The body is at the origin, so model space is world space.
+			// The grip point is on the hand bone, and the palm faces away from the limb's sole normal. The test rig's hand has no digits, so it grips at its
+			// contact. The body is at the origin, so model space is world space.
 			auto const& arm = loco.limbs()[1];
 			auto hand = rig.chains[arm.chain].bones.back();
 			auto foot = rig.chains[loco.limbs()[0].chain].bones.back();
-			auto palm_point = [&] { return loco.pose().model[hand] * rig.contacts[arm.contact].offset; };
+			PR_EXPECT(FEqlAbsolute(arm.grip, rig.contacts[arm.contact].offset, 1e-6f));
+			auto palm_point = [&] { return loco.pose().model[hand] * arm.grip; };
 			auto palm_facing = [&] { return Rotate(loco.pose().model[hand].rot, -arm.sole_up); };
 			auto finger_pointing = [&] { return Rotate(loco.pose().model[hand].rot, v4::YAxis()); };
 
