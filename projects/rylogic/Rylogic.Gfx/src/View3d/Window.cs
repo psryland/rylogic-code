@@ -372,6 +372,12 @@ namespace Rylogic.Gfx
 			/// <summary>The DPI of the monitor this window is on</summary>
 			public PointF DpiScale => View3D_WindowDpiScale(Handle).ToPointF();
 
+			/// <summary>
+			/// An auto-reset event that is signalled when the GPU has released the back buffer that the next render draws into, so rendering will not block.
+			/// Each render re-arms it. Wait on it before rendering, e.g. in a message loop, to keep that wait outside the render call. The window owns the handle.
+			/// </summary>
+			public IntPtr FrameReadyEvent => View3D_WindowFrameReadyEvent(Handle);
+
 			/// <summary>Import/Export a settings string</summary>
 			public string Settings
 			{

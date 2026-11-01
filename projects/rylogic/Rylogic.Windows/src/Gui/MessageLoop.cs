@@ -84,22 +84,47 @@ namespace Rylogic.Windows.Gui
 		// Notes:
 		//  - A message loop designed for simulation applications
 		//    This loop sleeps the thread until the next frame is due or until messages arrive.
+		//  - A loop can have a ready handle, such as an event signalled when a render target is free. A due loop then waits for its handle
+		//    while still pumping messages, so the step starts when the resource is free instead of blocking inside the step.
 		public delegate void StepFunc(TimeSpan elapsed);
 
 		/// <summary>A loop represents a process that should be run at a given frame rate</summary>
-		public class Loop(StepFunc step, int step_rate_ms, bool variable)
+		public class Loop(StepFunc step, int step_rate_ms, bool variable, IntPtr ready_handle)
 		{
 			public StepFunc Step = step;                    // The function to step in the loop
 			public long Clock = 0;                          // The time this loop was last stepped (in ms)
 			public int StepRateMS = step_rate_ms;           // (Minimum) step rate
 			public bool IsVariable = variable;              // Variable step rate
+			public IntPtr ReadyHandle = ready_handle;       // Optional handle that must be signalled before a due loop steps. Zero for timer-only loops
+			public bool ReadyAcquired = false;              // True once a wait on 'ReadyHandle' has succeeded for the next step
 			public Buf8 AvrStepTime = new();                // Last 8 execution times of the loop (in ms, capped at 255)
 			public long NextStepTime => Clock + StepRateMS; // The next time to run this loop
+			public long ReadyDeadline => NextStepTime + StepRateMS; // The time a due loop steps without its ready handle
+			internal readonly IntPtr[] m_ready_handles = [ready_handle]; // Reusable wait array for polling 'ReadyHandle'
 			public struct Buf8
 			{
 				public ulong u64;
 				public void Add(byte v) => u64 = (u64 << 8 & ~0xFFUL) | v;
 				public readonly double Avr() => BitConverter.GetBytes(u64).Average(x => (double)x);
+			}
+
+			/// <summary>True when a due loop may step at 'now'. A successful poll consumes one signal from 'ReadyHandle'.</summary>
+			public bool IsReady(long now)
+			{
+				// Timer-only loops, and loops whose signal has already been consumed, are ready as soon as they are due.
+				if (ReadyHandle == IntPtr.Zero || ReadyAcquired)
+					return true;
+
+				// Poll the handle without waiting. Successful waits on auto-reset objects consume the signal, so remember it.
+				const int WAIT_OBJECT_0 = 0;
+				if (User32.MsgWaitForMultipleObjects(1, m_ready_handles, false, 0, 0) == WAIT_OBJECT_0)
+				{
+					ReadyAcquired = true;
+					return true;
+				}
+
+				// Step without the signal after one extra period, because a step that produced no work (e.g. nothing was presented) never signals it.
+				return now >= ReadyDeadline;
 			}
 		}
 
@@ -110,6 +135,7 @@ namespace Rylogic.Windows.Gui
 		private readonly Stopwatch m_clock = new();             // High performance clock
 		private readonly LoopCont m_loop = [];                  // The loops to execute
 		private readonly LoopOrder m_order = [];                // A priority queue of loops. The loop at position 0 is the next to be stepped
+		private readonly List<Loop> m_blocked = [];             // Due loops waiting for their ready handles, in wait-array order after the deadline timer
 		private long m_last_step_loops = 0;                     // The last time StepLoops was called.
 
 		public SimMessageLoop()
@@ -121,7 +147,19 @@ namespace Rylogic.Windows.Gui
 		/// fixed loops advance by one period per callback. Callback work consumes the current deadline rather than adding a fixed delay.</summary>
 		public void AddLoop(float frame_rate, bool variable, StepFunc step)
 		{
-			m_loop.Add(new Loop(step, (int)(1000f / frame_rate), variable));
+			AddLoop(frame_rate, variable, IntPtr.Zero, step);
+		}
+
+		/// <summary>
+		/// Add a loop that steps once it is due and 'ready_handle' is signalled, so the period is the minimum interval between steps.
+		/// The loop consumes one signal per step by waiting on the handle, which suits auto-reset events and semaphores.
+		/// If the handle is not signalled within one period after the step is due, the loop steps anyway, at half the requested rate, so steps that
+		/// do not release the handle cannot stall the loop. The caller owns 'ready_handle' and must keep it valid while the loop runs.
+		/// Zero gives a timer-only loop.
+		/// </summary>
+		public void AddLoop(float frame_rate, bool variable, IntPtr ready_handle, StepFunc step)
+		{
+			m_loop.Add(new Loop(step, (int)(1000f / frame_rate), variable, ready_handle));
 			m_order.Add(m_loop.Count - 1);
 		}
 
@@ -133,7 +171,9 @@ namespace Rylogic.Windows.Gui
 			if (deadline_timer.IsInvalid)
 				throw new Win32Exception(Marshal.GetLastWin32Error(), "Creating the high-resolution simulation-loop timer failed.");
 
-			var timer_handles = new[] { deadline_timer.DangerousGetHandle() };
+			// The wait array holds the deadline timer followed by the ready handles of any blocked loops.
+			var wait_handles = new IntPtr[1 + m_loop.Count];
+			wait_handles[0] = deadline_timer.DangerousGetHandle();
 			m_clock.Start();
 			m_last_step_loops = 0;
 
@@ -143,10 +183,19 @@ namespace Rylogic.Windows.Gui
 				// Step any pending loops and get the time till the next loop to be stepped.
 				var timeout = StepLoops();
 
-				// Arm a high-resolution deadline without preventing queued window messages from waking the owner thread earlier.
-				var wait_result = WaitForMessagesOrDeadline(deadline_timer, timer_handles, timeout);
+				// Arm a high-resolution deadline without preventing queued window messages or ready handles from waking the owner thread earlier.
+				for (var i = 0; i != m_blocked.Count; ++i)
+					wait_handles[1 + i] = m_blocked[i].ReadyHandle;
+
+				var wait_result = WaitForMessagesOrDeadline(deadline_timer, wait_handles, 1 + m_blocked.Count, timeout);
 				if (wait_result == -1)
 					throw new Win32Exception("MsgWaitForMultipleObjects failed");
+
+				// A signalled ready handle has been consumed by the wait, so record it against its loop.
+				var blocked_index = wait_result - 1;
+				if (blocked_index >= 0 && blocked_index < m_blocked.Count)
+					m_blocked[blocked_index].ReadyAcquired = true;
+
 				for (Win32.MESSAGE msg; User32.PeekMessage(out msg, IntPtr.Zero, 0, 0, Win32.EPeekMessageFlags.Remove);)
 				{
 					// Exit the message pump?
@@ -159,8 +208,8 @@ namespace Rylogic.Windows.Gui
 			}
 		}
 
-		/// <summary>Wait until either the exact relative frame deadline or new window input becomes available.</summary>
-		private static int WaitForMessagesOrDeadline(SafeWaitHandle deadline_timer, IntPtr[] timer_handles, int timeout_milliseconds)
+		/// <summary>Wait until the exact relative frame deadline, a ready handle, or new window input becomes available.</summary>
+		private static int WaitForMessagesOrDeadline(SafeWaitHandle deadline_timer, IntPtr[] wait_handles, int wait_count, int timeout_milliseconds)
 		{
 			// Poll without arming the timer when callbacks remain overdue.
 			if (timeout_milliseconds <= 0)
@@ -171,13 +220,14 @@ namespace Rylogic.Windows.Gui
 			if (!Kernel32.SetWaitableTimer(deadline_timer, ref due_time, 0, IntPtr.Zero, IntPtr.Zero, false))
 				throw new Win32Exception(Marshal.GetLastWin32Error(), "Arming the high-resolution simulation-loop timer failed.");
 
-			return User32.MsgWaitForMultipleObjects(timer_handles.Length, timer_handles, false, -1, Win32.QS_ALLPOSTMESSAGE | Win32.QS_ALLINPUT | Win32.QS_ALLEVENTS);
+			return User32.MsgWaitForMultipleObjects(wait_count, wait_handles, false, -1, Win32.QS_ALLPOSTMESSAGE | Win32.QS_ALLINPUT | Win32.QS_ALLEVENTS);
 		}
 
 		// Call 'Step' on all loops that are pending
 		// Returns the time in milliseconds until the next loop needs to be stepped
 		public int StepLoops()
 		{
+			m_blocked.Clear();
 			if (m_loop.Count == 0)
 				return int.MaxValue;
 
@@ -200,20 +250,41 @@ namespace Rylogic.Windows.Gui
 				m_order.Sort(NextToRun);
 				int NextToRun(int lhs, int rhs) => m_loop[lhs].NextStepTime.CompareTo(m_loop[rhs].NextStepTime);
 
-				// Get the next due to be stepped
-				var loop = m_loop[m_order[0]];
-				var time_till_step = (int)(loop.NextStepTime - m_last_step_loops);
-				if (time_till_step > 0)
+				// Find the soonest due loop that is ready. Due loops still waiting on their ready handle are skipped so they cannot delay other loops.
+				var loop = (Loop?)null;
+				var wake_time = long.MaxValue;
+				m_blocked.Clear();
+				foreach (var index in m_order)
+				{
+					// Loops are sorted by due time, so the first loop that is not yet due bounds the wait for all remaining loops.
+					var candidate = m_loop[index];
+					if (candidate.NextStepTime > m_last_step_loops)
+					{
+						wake_time = Math.Min(wake_time, candidate.NextStepTime);
+						break;
+					}
+
+					// Step the first due loop that is ready. Otherwise wait for its handle, or for the deadline that lets it step without one.
+					if (candidate.IsReady(m_last_step_loops))
+					{
+						loop = candidate;
+						break;
+					}
+					wake_time = Math.Min(wake_time, candidate.ReadyDeadline);
+					m_blocked.Add(candidate);
+				}
+				if (loop == null)
 				{
 					// Callback work has already consumed part of this deadline; do not add another full period before pumping.
-					return (int)Math.Max(0L, loop.NextStepTime - m_clock.ElapsedMilliseconds);
+					return (int)Math.Max(0L, Math.Min(wake_time - m_clock.ElapsedMilliseconds, int.MaxValue));
 				}
 
 				// Elapsed time for the loop step, either a fixed value or the wall time since last stepped
 				var elapsed_ms = loop.IsVariable ? m_last_step_loops - loop.Clock : loop.StepRateMS;
 
-				// Step the loop
+				// Step the loop. The ready signal is consumed by this step.
 				var t0 = m_clock.ElapsedMilliseconds;
+				loop.ReadyAcquired = false;
 				loop.Step(TimeSpan.FromMilliseconds(elapsed_ms));
 				loop.Clock += elapsed_ms;
 				var t1 = m_clock.ElapsedMilliseconds - t0;
@@ -227,6 +298,7 @@ namespace Rylogic.Windows.Gui
 			// loops still need stepping. This allows the message queue still to be processed though.
 			// Loop at 'm_avr' to see the last 8 loop execution times in ms.
 			//OutputDebugStringA("SimMessagePump: WARNING - loops are staving the message queue\n");
+			m_blocked.Clear();
 			return 0;
 		}
 	};

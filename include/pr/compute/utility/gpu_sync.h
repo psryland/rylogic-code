@@ -125,6 +125,12 @@ namespace pr::compute
 			return m_sync;
 		}
 
+		// Signal 'event' when the GPU reaches 'sync_point'. The event is signalled at once if the sync point has already been reached.
+		void NotifyOnCompletion(uint64_t sync_point, HANDLE event) const
+		{
+			Check(m_fence->SetEventOnCompletion(sync_point, event));
+		}
+
 		// Wait until the given sync point value is reached.
 		// Returns true if 'sync_point' is reached, false it timeout.
 		bool Wait(uint64_t sync_point, DWORD timeout = INFINITE) const

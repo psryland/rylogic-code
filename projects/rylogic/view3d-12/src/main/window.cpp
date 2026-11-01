@@ -69,6 +69,7 @@ namespace pr::rdr12
 	Window::Window(Renderer& rdr, WndSettings const& settings)
 		:WindowBase(rdr, settings)
 		, m_gsync(rdr.D3DDevice())
+		, m_frame_ready(::CreateEventExW(nullptr, nullptr, CREATE_EVENT_INITIAL_SET, EVENT_ALL_ACCESS))
 		, m_swap_bb(settings.m_buffer_count)
 		, m_msaa_bb()
 		, m_bb_index()
@@ -103,6 +104,7 @@ namespace pr::rdr12
 		//  https://www.mvps.org/directx/articles/using_w-buffers.htm
 
 		auto device = rdr.D3DDevice();
+		Check(static_cast<bool>(m_frame_ready), "Creating the frame-ready event failed");
 
 		// Validate settings
 		if (AllSet(m_swap_chain_flags, DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE) && !AllSet(m_rdr->Settings().m_options, ERdrOptions::BGRASupport))
@@ -387,6 +389,12 @@ namespace pr::rdr12
 		// Scenes use this to update viewport dimensions and scissor rects.
 		BackBufferSizeChangedEventArgs args(size, true);
 		rdr().BackBufferSizeChanged(*this, args);
+	}
+
+	// An auto-reset event that is signalled when the next NewFrame will not block
+	HANDLE Window::FrameReadyEvent() const
+	{
+		return m_frame_ready;
 	}
 
 	// Get/Set whether the swap chain owns an output in DXGI exclusive fullscreen mode
@@ -726,6 +734,11 @@ namespace pr::rdr12
 		frame.bb_post().m_sync_point = sync_point;
 		m_frame_output = frame_output;
 		++m_bb_index %= BBCount();
+
+		// Signal the frame-ready event once the GPU releases the back buffer that the next NewFrame waits for
+		auto& bb_next_post = BBCount() != 0 ? m_swap_bb[BBIndex()] : BackBuffer::Null();
+		auto& bb_next = bb_next_post.m_render_target != nullptr ? bb_next_post : m_msaa_bb;
+		m_gsync.NotifyOnCompletion(bb_next.m_sync_point, m_frame_ready);
 
 		// Signal the renderer's deferred-deletion fence on the same queue
 		rdr().AddDeferredSyncPoint();
