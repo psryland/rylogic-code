@@ -817,6 +817,11 @@ namespace pr::physics
 				{
 					// Contact depths are stale collision-pass values, so each sweep applies only its share of the intended total correction.
 					auto* pseudo_buffer = rigid_pseudo != nullptr ? rigid_pseudo.get() : m_resolver.m_r_colours.get();
+
+					// Constraint block responses are fixed during the sweeps, so they are built once before the contact binding.
+					if (m_constraint_solver != nullptr)
+						m_constraint_solver->PreparePositionSolve(m_job, m_dt, m_rigid_body_count, m_push_out_steps, m_bodies);
+
 					BindPositionSolve(pseudo_buffer);
 
 					// Retain the exact per-colour dependencies, including detached pseudo state when another solver shares it.
@@ -871,6 +876,11 @@ namespace pr::physics
 				pix::DetailScope detail(m_job.m_cmd_list.get(), "Resolve::Velocity");
 				// Gauss-Seidel sweeps re-read momentum changed by earlier colours and constraints; CSResolve guards against energy injection.
 				auto const has_constraint_work = m_constraint_solver != nullptr || m_coupled_constraint_solver != nullptr || m_coupled_contact_solver != nullptr;
+
+				// Constraint block responses depend on the transforms left by the position phase, so they are built here once per substep.
+				if (m_constraint_solver != nullptr && m_solver_iterations > 0)
+					m_constraint_solver->PrepareVelocitySolve(m_job, m_dt, m_rigid_body_count, m_bodies);
+
 				BindVelocitySolve();
 
 				// The body dependency is identical for every physical impulse batch.

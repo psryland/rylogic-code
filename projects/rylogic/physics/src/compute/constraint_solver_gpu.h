@@ -49,8 +49,10 @@ namespace pr::physics
 		ComputeStep m_cs_assign_colours;
 		ComputeStep m_cs_apply_warm_start;
 		ComputeStep m_cs_clear_pseudo_velocity;
+		ComputeStep m_cs_prepare_position_solve;
 		ComputeStep m_cs_solve_position;
 		ComputeStep m_cs_apply_position;
+		ComputeStep m_cs_prepare_velocity_solve;
 		ComputeStep m_cs_solve_velocity;
 		ComputeStep m_cs_detect_breakage;
 		ComputeStep m_cs_apply_warm_start_fused;
@@ -64,6 +66,7 @@ namespace pr::physics
 		D3DPtr<ID3D12Resource> m_r_pseudo_velocities;
 		D3DPtr<ID3D12Resource> m_r_break_states;
 		D3DPtr<ID3D12Resource> m_r_colour_dispatch;
+		D3DPtr<ID3D12Resource> m_r_solve_cache;
 		D3DPtr<ID3D12CommandSignature> m_cmd_sig;
 		std::vector<GpuConstraintEndpoint> m_endpoint_shadow;
 		std::vector<ConstraintEndpointIdentity> m_endpoint_identity_shadow;
@@ -96,6 +99,9 @@ namespace pr::physics
 		// Apply retained physical impulses before the new velocity solve.
 		void ApplyWarmStart(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies);
 
+		// Build each block's split-position response once before the position iterations. Call after every position producer is initialized.
+		void PreparePositionSolve(GpuJob& job, float timestep, int body_count, int position_iterations, D3DPtr<ID3D12Resource> bodies);
+
 		// Execute one coloured split-position sweep using already initialized shared pseudo velocity, without clearing it or changing physical momentum.
 		void SolvePositionIteration(GpuJob& job, float timestep, int body_count, int position_iterations, D3DPtr<ID3D12Resource> bodies);
 
@@ -104,6 +110,9 @@ namespace pr::physics
 
 		// Return adequately sized rigid pseudo storage for a shared position solve; the caller initializes it before use.
 		D3DPtr<ID3D12Resource> PseudoVelocityStorage(GpuJob& job, int body_count);
+
+		// Build each block's physical response once before the velocity iterations. Call after the last body transform change in the substep.
+		void PrepareVelocitySolve(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies);
 
 		// Execute one complete coloured physical block-PGS sweep.
 		void SolveVelocityIteration(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies);

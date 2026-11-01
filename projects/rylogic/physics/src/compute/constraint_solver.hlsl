@@ -7,9 +7,11 @@
 //   2. CSAssignConstraintColours
 //   3. CSApplyConstraintWarmStart, once per colour
 //   4. CSClearConstraintPseudoVelocity
-//   5. CSSolveConstraintPosition, fixed iterations and once per colour
-//   6. CSApplyConstraintPosition
-//   7. CSSolveConstraintVelocity, fixed iterations and once per colour
+//   5. CSPrepareConstraintPositionSolve, once before the position iterations
+//   6. CSSolveConstraintPosition, fixed iterations and once per colour
+//   7. CSApplyConstraintPosition
+//   8. CSPrepareConstraintVelocitySolve, once after every transform change and before the velocity iterations
+//   9. CSSolveConstraintVelocity, fixed iterations and once per colour
 //
 // Resource layout:
 //   b0: cbConstraintSolver                         - per-dispatch constants
@@ -22,6 +24,7 @@
 //   u4: RWStructuredBuffer<GpuConstraintPseudoVelocity> - per-body split-correction state
 //   u5: RWStructuredBuffer<GpuConstraintBreakState> - optional stable-slot overload latches
 //   u6: RWStructuredBuffer<DispatchArguments>      - per-colour indirect arguments written by CSAssignConstraintColours
+//   u7: RWStructuredBuffer<GpuConstraintSolveCache> - per-slot block response inverse for the current solve phase
 //
 // Matrices use the row-vector convention from resolve.hlsl. HLSL rows map to C++ columns,
 // mul(v, M) transforms a vector, and mul(local, parent) composes local-to-parent-to-world.
@@ -67,6 +70,7 @@ RWStructuredBuffer<GpuConstraintSolverState> resource(g_constraint_state, u3);
 RWStructuredBuffer<GpuConstraintPseudoVelocity> resource(g_pseudo_velocities, u4);
 RWStructuredBuffer<GpuConstraintBreakState> resource(g_break_states, u5);
 RWStructuredBuffer<DispatchArguments> resource(g_constraint_colour_dispatch, u6);
+RWStructuredBuffer<GpuConstraintSolveCache> resource(g_solve_cache, u7);
 
 #define PR_CONSTRAINT_SOLVER_OPS_CPP_NAMESPACE constraint_solver_ops_detail
 #include "physics/src/compute/constraint_solver_ops.hlsli"
@@ -605,18 +609,75 @@ bool PrepareConstraintInverse(uint slot_idx, uint active_mask, bool physical_sol
 	return false;
 }
 
+// Store one block's active-row inverse for a solve phase. Body transforms, inertia, rows, and compliance are fixed during the phase's iterations,
+// so the response is built once per phase rather than once per iteration. Inactive, coupled, and zero-response blocks store no rows.
+void PrepareConstraintSolveCache(uint slot_idx, bool physical_solve)
+{
+	// Start from an empty entry so skipped blocks never reuse an earlier phase's inverse.
+	GpuConstraintSolveCache cache;
+	for (int idx = 0; idx != 36; ++idx)
+		cache.inverse[idx] = 0.0f;
+	cache.active_axes = 0u;
+	cache.row_count = 0;
+	cache.pad0 = 0u;
+	cache.pad1 = 0u;
+
+	// Only blocks that a sweep visits are prepared, so failures are latched for the same blocks as a per-iteration build.
+	// The serial overflow fallback visits every active block; coloured sweeps visit only coloured blocks.
+	GpuConstraintBlock block = g_blocks[slot_idx];
+	bool visited = g_constraint_state[0].colour_overflow != 0u
+		? AllSet(block.flags, ConstraintBlockFlags_Active)
+		: block.colour < MaxColours;
+	if (visited && !AllSet(g_endpoints[slot_idx].flags, GpuConstraintEndpointFlags_Coupled))
+	{
+		uint active_axes[6];
+		int row_count;
+		uint active_mask = physical_solve ? block.velocity_mask : block.position_mask;
+		if (PrepareConstraintInverse(slot_idx, active_mask, physical_solve, active_axes, row_count, cache.inverse))
+		{
+			// Four bits per row hold the canonical axis index.
+			for (int row_idx = 0; row_idx != row_count; ++row_idx)
+				cache.active_axes |= active_axes[row_idx] << (4u * (uint)row_idx);
+
+			cache.row_count = row_count;
+		}
+	}
+	g_solve_cache[slot_idx] = cache;
+}
+
+// Build the split-position response inverse of every stable slot. Dispatch after warm start and before the position iterations.
+numthreads(CSPrepareConstraintPositionSolve, ConstraintThreadCount, 1, 1)
+void CSPrepareConstraintPositionSolve(int3 DTID(dtid))
+{
+	if (dtid.x >= g.slot_count)
+		return;
+
+	PrepareConstraintSolveCache((uint)dtid.x, false);
+}
+
+// Build the physical response inverse of every stable slot. Dispatch after the last transform change and before the velocity iterations.
+numthreads(CSPrepareConstraintVelocitySolve, ConstraintThreadCount, 1, 1)
+void CSPrepareConstraintVelocitySolve(int3 DTID(dtid))
+{
+	if (dtid.x >= g.slot_count)
+		return;
+
+	PrepareConstraintSolveCache((uint)dtid.x, true);
+}
+
 // Solve one warm-started physical D6 block and commit finite projected impulses immediately.
 void SolveConstraintVelocityBlock(uint slot_idx)
 {
-	if (AllSet(g_endpoints[slot_idx].flags, GpuConstraintEndpointFlags_Coupled))
+	// A failure earlier in this phase clears the masks, after which the block no longer contributes.
+	GpuConstraintBlock block = g_blocks[slot_idx];
+	GpuConstraintSolveCache cache = g_solve_cache[slot_idx];
+	int row_count = cache.row_count;
+	if (row_count == 0 || block.velocity_mask == 0u)
 		return;
 
-	GpuConstraintBlock block = g_blocks[slot_idx];
 	uint active_axes[6];
-	int row_count;
-	float inverse[36];
-	if (!PrepareConstraintInverse(slot_idx, block.velocity_mask, true, active_axes, row_count, inverse))
-		return;
+	for (int row_idx = 0; row_idx != row_count; ++row_idx)
+		active_axes[row_idx] = (cache.active_axes >> (4u * (uint)row_idx)) & 0xFu;
 
 	float residual[6];
 	float candidate[6];
@@ -632,7 +693,7 @@ void SolveConstraintVelocityBlock(uint slot_idx)
 	{
 		float correction = 0.0f;
 		for (int column = 0; column != row_count; ++column)
-			correction += inverse[row_idx * 6 + column] * residual[column];
+			correction += cache.inverse[row_idx * 6 + column] * residual[column];
 		GpuConstraintRow row = g_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx]];
 		candidate[row_idx] = row.bounds.z - g.relaxation * correction;
 		lower[row_idx] = row.bounds.x;
@@ -640,7 +701,7 @@ void SolveConstraintVelocityBlock(uint slot_idx)
 	}
 
 	// Saturated rows alter the optimal free impulses through the full response; reject the whole block on numerical failure.
-	if (!ProjectConstraintBox(row_count, inverse, candidate, lower, upper, projected))
+	if (!ProjectConstraintBox(row_count, cache.inverse, candidate, lower, upper, projected))
 	{
 		FailConstraintBlock(slot_idx);
 		return;
@@ -719,15 +780,16 @@ void ApplyConstraintRowPseudoImpulse(GpuConstraintBlock block, GpuConstraintRow 
 // Solve one hard passive position block against the accumulated split pseudo-twist.
 void SolveConstraintPositionBlock(uint slot_idx)
 {
-	if (AllSet(g_endpoints[slot_idx].flags, GpuConstraintEndpointFlags_Coupled))
+	// A failure earlier in this phase clears the masks, after which the block no longer contributes.
+	GpuConstraintBlock block = g_blocks[slot_idx];
+	GpuConstraintSolveCache cache = g_solve_cache[slot_idx];
+	int row_count = cache.row_count;
+	if (row_count == 0 || block.position_mask == 0u)
 		return;
 
-	GpuConstraintBlock block = g_blocks[slot_idx];
 	uint active_axes[6];
-	int row_count;
-	float inverse[36];
-	if (!PrepareConstraintInverse(slot_idx, block.position_mask, false, active_axes, row_count, inverse))
-		return;
+	for (int row_idx = 0; row_idx != row_count; ++row_idx)
+		active_axes[row_idx] = (cache.active_axes >> (4u * (uint)row_idx)) & 0xFu;
 
 	float residual[6];
 	float candidate[6];
@@ -745,7 +807,7 @@ void SolveConstraintPositionBlock(uint slot_idx)
 	{
 		float correction = 0.0f;
 		for (int column = 0; column != row_count; ++column)
-			correction += inverse[row_idx * 6 + column] * residual[column];
+			correction += cache.inverse[row_idx * 6 + column] * residual[column];
 		GpuConstraintRow row = g_rows[slot_idx * GpuConstraintRowsPerBlock + active_axes[row_idx]];
 		uint state = (block.row_states >> (2u * active_axes[row_idx])) & 3u;
 		float2 bounds = ConstraintImpulseBounds(state, 3.402823466e+38f);
@@ -755,7 +817,7 @@ void SolveConstraintPositionBlock(uint slot_idx)
 	}
 
 	// Unilateral hard rows use the same response-metric box solve as physical constraints.
-	if (!ProjectConstraintBox(row_count, inverse, candidate, lower, upper, impulse))
+	if (!ProjectConstraintBox(row_count, cache.inverse, candidate, lower, upper, impulse))
 	{
 		FailConstraintBlock(slot_idx);
 		return;

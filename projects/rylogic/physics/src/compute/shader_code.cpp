@@ -180,8 +180,10 @@ namespace pr::physics::shader_code
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(assign_constraint_colours_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(apply_constraint_warm_start_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(clear_constraint_pseudo_velocity_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(prepare_constraint_position_solve_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(solve_constraint_position_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(apply_constraint_position_cs.h)
+		#include PR_PHYSICS_SHADER_COMPILED_DIR(prepare_constraint_velocity_solve_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(solve_constraint_velocity_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(detect_broken_constraints_cs.h)
 		#include PR_PHYSICS_SHADER_COMPILED_DIR(apply_constraint_warm_start_fused_cs.h)
@@ -215,8 +217,10 @@ namespace pr::physics::shader_code
 	ByteCode const assign_constraint_colours(compiled::assign_constraint_colours_cs);
 	ByteCode const apply_constraint_warm_start(compiled::apply_constraint_warm_start_cs);
 	ByteCode const clear_constraint_pseudo_velocity(compiled::clear_constraint_pseudo_velocity_cs);
+	ByteCode const prepare_constraint_position_solve(compiled::prepare_constraint_position_solve_cs);
 	ByteCode const solve_constraint_position(compiled::solve_constraint_position_cs);
 	ByteCode const apply_constraint_position(compiled::apply_constraint_position_cs);
+	ByteCode const prepare_constraint_velocity_solve(compiled::prepare_constraint_velocity_solve_cs);
 	ByteCode const solve_constraint_velocity(compiled::solve_constraint_velocity_cs);
 	ByteCode const detect_broken_constraints(compiled::detect_broken_constraints_cs);
 	ByteCode const apply_constraint_warm_start_fused(compiled::apply_constraint_warm_start_fused_cs);

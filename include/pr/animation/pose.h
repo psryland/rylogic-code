@@ -39,6 +39,18 @@ namespace pr::animation
 			}
 		}
 
+		// Recompute the model-space transforms of 'bones' from their local transforms. 'bones' must be in bone order,
+		// and the parent of each listed bone must either be listed or already have a current model transform.
+		void UpdateModel(Rig const& rig, std::span<int const> bones)
+		{
+			// Listed parents are updated before their children because the list is in bone order
+			for (auto i : bones)
+			{
+				auto parent = rig.bones[i].parent;
+				model[i] = parent < 0 ? local[i] : model[parent] * local[i];
+			}
+		}
+
 		// Set the model-space transform of 'bone'. The parent's model transform must be current. Descendants are not updated.
 		void SetModel(Rig const& rig, int bone, xform const& xf)
 		{

@@ -67,6 +67,7 @@ namespace pr::physics
 		, m_colours()
 		, m_colour_dispatch(MaxColours, DispatchArguments{})
 		, m_state(1, GpuConstraintSolverState{})
+		, m_solve_cache()
 	{
 	}
 
@@ -94,9 +95,12 @@ namespace pr::physics
 		ApplyWarmStart();
 		ClearPseudoVelocity();
 
+		if (m_config.m_position_iterations > 0)
+			PreparePositionSolve();
 		for (int iteration = 0; iteration != m_config.m_position_iterations; ++iteration)
 			SolvePosition();
 		ApplyPosition();
+		PrepareVelocitySolve();
 		for (int iteration = 0; iteration != m_config.m_velocity_iterations; ++iteration)
 			SolveVelocity();
 		DetectBreakage();
@@ -122,6 +126,7 @@ namespace pr::physics
 		m_endpoints.assign(buffers.m_endpoints.begin(), buffers.m_endpoints.end());
 		m_descriptors.assign(buffers.m_descriptors.begin(), buffers.m_descriptors.end());
 		m_pseudo_velocities.assign(buffers.m_bodies.size(), GpuConstraintPseudoVelocity{});
+		m_solve_cache.assign(buffers.m_endpoints.size(), GpuConstraintSolveCache{});
 		m_break_states.resize(buffers.m_endpoints.size());
 		for (int index = 0; index != m_slot_count; ++index)
 		{
@@ -228,6 +233,42 @@ namespace pr::physics
 		}
 	}
 
+	// Dispatch one invocation per stable slot to build the split-position response cache.
+	void ConstraintInteropRunner::PreparePositionSolve()
+	{
+		g = MakeConstraintConstants(m_config, m_dt, m_previous_dt, m_body_count, m_slot_count);
+		g_constraint_bodies.assign(ConstraintSpanOf(m_bodies));
+		g_endpoints.assign(ConstraintSpanOf(m_endpoints));
+		g_blocks.assign(ConstraintSpanOf(m_blocks));
+		g_rows.assign(ConstraintSpanOf(m_rows));
+		g_constraint_state.assign(ConstraintSpanOf(m_state));
+		g_solve_cache.assign(ConstraintSpanOf(m_solve_cache));
+
+		hlsl::GpuEmulator emulator(CSPrepareConstraintPositionSolve, CSPrepareConstraintPositionSolve_NumThreads);
+		emulator.Dispatch({ConstraintThreadGroupCount(m_slot_count), 1, 1});
+		m_blocks.assign(g_blocks.begin(), g_blocks.end());
+		m_state.assign(g_constraint_state.begin(), g_constraint_state.end());
+		m_solve_cache.assign(g_solve_cache.begin(), g_solve_cache.end());
+	}
+
+	// Dispatch one invocation per stable slot to build the physical response cache from the final transforms.
+	void ConstraintInteropRunner::PrepareVelocitySolve()
+	{
+		g = MakeConstraintConstants(m_config, m_dt, m_previous_dt, m_body_count, m_slot_count);
+		g_constraint_bodies.assign(ConstraintSpanOf(m_bodies));
+		g_endpoints.assign(ConstraintSpanOf(m_endpoints));
+		g_blocks.assign(ConstraintSpanOf(m_blocks));
+		g_rows.assign(ConstraintSpanOf(m_rows));
+		g_constraint_state.assign(ConstraintSpanOf(m_state));
+		g_solve_cache.assign(ConstraintSpanOf(m_solve_cache));
+
+		hlsl::GpuEmulator emulator(CSPrepareConstraintVelocitySolve, CSPrepareConstraintVelocitySolve_NumThreads);
+		emulator.Dispatch({ConstraintThreadGroupCount(m_slot_count), 1, 1});
+		m_blocks.assign(g_blocks.begin(), g_blocks.end());
+		m_state.assign(g_constraint_state.begin(), g_constraint_state.end());
+		m_solve_cache.assign(g_solve_cache.begin(), g_solve_cache.end());
+	}
+
 	// Execute one fixed-order coloured physical PGS sweep.
 	void ConstraintInteropRunner::SolveVelocity()
 	{
@@ -243,6 +284,7 @@ namespace pr::physics
 			g_blocks.assign(ConstraintSpanOf(m_blocks));
 			g_rows.assign(ConstraintSpanOf(m_rows));
 			g_constraint_state.assign(ConstraintSpanOf(m_state));
+			g_solve_cache.assign(ConstraintSpanOf(m_solve_cache));
 
 			hlsl::GpuEmulator emulator(CSSolveConstraintVelocity, CSSolveConstraintVelocity_NumThreads);
 			emulator.Dispatch({static_cast<int>(args.ThreadGroupCountX), 1, 1});
@@ -293,6 +335,7 @@ namespace pr::physics
 			g_rows.assign(ConstraintSpanOf(m_rows));
 			g_constraint_state.assign(ConstraintSpanOf(m_state));
 			g_pseudo_velocities.assign(ConstraintSpanOf(m_pseudo_velocities));
+			g_solve_cache.assign(ConstraintSpanOf(m_solve_cache));
 
 			hlsl::GpuEmulator emulator(CSSolveConstraintPosition, CSSolveConstraintPosition_NumThreads);
 			emulator.Dispatch({static_cast<int>(args.ThreadGroupCountX), 1, 1});

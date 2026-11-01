@@ -420,6 +420,7 @@ namespace pr::animation
 		BodyAxis body_axis;
 		std::vector<xform> rest_model;                          // The model-space rest transform of each bone
 		std::vector<int> solve_order;                          // Chain indices ordered so that ancestor chains are solved first
+		std::vector<std::vector<int>> chain_subtrees;          // Per chain: its base bone and every descendant of it, in bone order
 
 		// Construct from a rig description. Throws 'std::invalid_argument' listing every problem if the description is invalid.
 		explicit Rig(RigDesc desc)
@@ -429,6 +430,7 @@ namespace pr::animation
 			, body_axis()
 			, rest_model()
 			, solve_order()
+			, chain_subtrees()
 		{
 			// Reject invalid descriptions at the load boundary so the solvers can rely on them
 			auto errors = Validate(desc);
@@ -453,6 +455,22 @@ namespace pr::animation
 
 			// A chain's base bone comes after every ancestor's bones, so ordering by base bone solves ancestors first
 			std::sort(solve_order.begin(), solve_order.end(), [&](int l, int r) { return chains[l].bones.front() < chains[r].bones.front(); });
+
+			// Cache the bones that a chain's solve can move. Parents come before children, so one pass from the base bone finds every descendant.
+			chain_subtrees.resize(chains.size());
+			std::vector<bool> in_subtree(bones.size());
+			for (int c = 0, cend = static_cast<int>(chains.size()); c != cend; ++c)
+			{
+				// A bone is in the subtree when it is the base bone or its parent is in the subtree
+				auto base = chains[c].bones.front();
+				std::fill(in_subtree.begin(), in_subtree.end(), false);
+				for (int b = base, bend = static_cast<int>(bones.size()); b != bend; ++b)
+				{
+					in_subtree[b] = b == base || (bones[b].parent >= base && in_subtree[bones[b].parent]);
+					if (in_subtree[b])
+						chain_subtrees[c].push_back(b);
+				}
+			}
 		}
 
 		// Return the index of the bone called 'name', or -1 if there is none
@@ -547,6 +565,16 @@ namespace pr::animation::tests
 			// The spine is solved before the chains attached to it
 			auto rig = TestRig();
 			PR_EXPECT(rig.solve_order.front() == 0);
+		}
+		PRUnitTestMethod(ChainSubtrees, Quick)
+		{
+			// Each chain's subtree holds its base bone and every descendant, in bone order, and nothing else
+			auto rig = TestRig();
+			PR_EXPECT(rig.chain_subtrees[0] == std::vector<int>({ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 }));
+			PR_EXPECT(rig.chain_subtrees[1] == std::vector<int>({ 4, 5 }));
+			PR_EXPECT(rig.chain_subtrees[2] == std::vector<int>({ 6, 7, 8 }));
+			PR_EXPECT(rig.chain_subtrees[3] == std::vector<int>({ 9, 10, 11 }));
+			PR_EXPECT(rig.chain_subtrees[4] == std::vector<int>({ 12, 13, 14 }));
 		}
 		PRUnitTestMethod(ValidationErrors, Quick)
 		{

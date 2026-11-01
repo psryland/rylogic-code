@@ -12,7 +12,7 @@
 namespace pr::compute
 {
 	template <D3D12_COMMAND_LIST_TYPE ListType>
-	Gpu<ListType>::Gpu(ID3D12Device4* existing_device, ID3D12CommandQueue* existing_queue)
+	Gpu<ListType>::Gpu(ID3D12Device4* existing_device, ID3D12CommandQueue* existing_queue, D3D12_COMMAND_QUEUE_PRIORITY priority)
 		: m_device(existing_device, true)
 		, m_cmd_queue(existing_queue, true)
 	{
@@ -58,7 +58,7 @@ namespace pr::compute
 		{
 			D3D12_COMMAND_QUEUE_DESC queue_desc = {
 				.Type = ListType,
-				.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL,
+				.Priority = priority,
 				.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE,
 				.NodeMask = 0,
 			};

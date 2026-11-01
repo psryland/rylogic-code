@@ -57,6 +57,12 @@ namespace pr::physics
 		// Reset per-body pseudo twists before split-position iterations.
 		void ClearPseudoVelocity();
 
+		// Build each slot's split-position response once before the position sweeps.
+		void PreparePositionSolve();
+
+		// Build each slot's physical response once before the velocity sweeps.
+		void PrepareVelocitySolve();
+
 		// Execute one complete coloured velocity sweep.
 		void SolveVelocity();
 
@@ -107,5 +113,6 @@ namespace pr::physics
 		std::vector<uint32_t> m_colours;
 		std::vector<DispatchArguments> m_colour_dispatch;
 		std::vector<GpuConstraintSolverState> m_state;
+		std::vector<GpuConstraintSolveCache> m_solve_cache;
 	};
 }

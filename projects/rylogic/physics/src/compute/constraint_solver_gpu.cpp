@@ -47,6 +47,7 @@ namespace pr::physics
 			inline static constexpr auto PseudoVelocities = EUAVReg::u4;
 			inline static constexpr auto BreakStates = EUAVReg::u5;
 			inline static constexpr auto ColourDispatch = EUAVReg::u6;
+			inline static constexpr auto SolveCache = EUAVReg::u7;
 		};
 
 		// Compare endpoint semantics while ignoring frame-local body-index changes caused only by submission order.
@@ -69,8 +70,10 @@ namespace pr::physics
 		, m_cs_assign_colours()
 		, m_cs_apply_warm_start()
 		, m_cs_clear_pseudo_velocity()
+		, m_cs_prepare_position_solve()
 		, m_cs_solve_position()
 		, m_cs_apply_position()
+		, m_cs_prepare_velocity_solve()
 		, m_cs_solve_velocity()
 		, m_cs_detect_breakage()
 		, m_cs_apply_warm_start_fused()
@@ -84,6 +87,7 @@ namespace pr::physics
 		, m_r_pseudo_velocities()
 		, m_r_break_states()
 		, m_r_colour_dispatch()
+		, m_r_solve_cache()
 		, m_cmd_sig()
 		, m_endpoint_shadow()
 		, m_endpoint_identity_shadow()
@@ -113,7 +117,8 @@ namespace pr::physics
 			.UAV(EReg::State)
 			.UAV(EReg::PseudoVelocities)
 			.UAV(EReg::BreakStates)
-			.UAV(EReg::ColourDispatch);
+			.UAV(EReg::ColourDispatch)
+			.UAV(EReg::SolveCache);
 		auto const root_sig = sig.Create(m_gpu, "Physics:ConstraintSolverSig");
 
 		auto compile_step = [&](ComputeStep& step, shader_code::ByteCode const& bytecode, char const* name)
@@ -126,8 +131,10 @@ namespace pr::physics
 		compile_step(m_cs_assign_colours, shader_code::assign_constraint_colours, "AssignConstraintColours");
 		compile_step(m_cs_apply_warm_start, shader_code::apply_constraint_warm_start, "ApplyConstraintWarmStart");
 		compile_step(m_cs_clear_pseudo_velocity, shader_code::clear_constraint_pseudo_velocity, "ClearConstraintPseudoVelocity");
+		compile_step(m_cs_prepare_position_solve, shader_code::prepare_constraint_position_solve, "PrepareConstraintPositionSolve");
 		compile_step(m_cs_solve_position, shader_code::solve_constraint_position, "SolveConstraintPosition");
 		compile_step(m_cs_apply_position, shader_code::apply_constraint_position, "ApplyConstraintPosition");
+		compile_step(m_cs_prepare_velocity_solve, shader_code::prepare_constraint_velocity_solve, "PrepareConstraintVelocitySolve");
 		compile_step(m_cs_solve_velocity, shader_code::solve_constraint_velocity, "SolveConstraintVelocity");
 		compile_step(m_cs_detect_breakage, shader_code::detect_broken_constraints, "DetectBrokenConstraints");
 		compile_step(m_cs_apply_warm_start_fused, shader_code::apply_constraint_warm_start_fused, "ApplyConstraintWarmStartFused");
@@ -162,6 +169,7 @@ namespace pr::physics
 		m_r_blocks = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintBlock>(capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:ConstraintBlocks");
 		m_r_rows = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintRow>(GpuConstraintRowsPerBlock * capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:ConstraintRows");
 		m_r_state = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintSolverState>(1, {}).usage(EUsage::UnorderedAccess), job, "Physics:ConstraintSolverState");
+		m_r_solve_cache = m_gpu.CreateResource(ResDesc::Buf<GpuConstraintSolveCache>(capacity, {}).usage(EUsage::UnorderedAccess), job, "Physics:ConstraintSolveCache");
 		m_capacity = capacity;
 		return true;
 	}
@@ -409,6 +417,7 @@ namespace pr::physics
 		auto* break_states = m_r_break_states != nullptr ? m_r_break_states.get() : m_r_state.get();
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(break_states);
 		job.m_cmd_list.AddComputeRootUnorderedAccessView(colour_dispatch);
+		job.m_cmd_list.AddComputeRootUnorderedAccessView(m_r_solve_cache);
 	}
 
 	// Insert UAV ordering between dependent compiler, colouring, and solver passes.
@@ -419,6 +428,7 @@ namespace pr::physics
 		job.m_barriers.UAV(m_r_rows.get());
 		job.m_barriers.UAV(m_r_state.get());
 		job.m_barriers.UAV(m_r_pseudo_velocities.get());
+		job.m_barriers.UAV(m_r_solve_cache.get());
 		job.m_barriers.Commit();
 	}
 
@@ -449,6 +459,7 @@ namespace pr::physics
 			uav_barrier(m_r_rows.get()),
 			uav_barrier(m_r_state.get()),
 			uav_barrier(m_r_pseudo_velocities.get()),
+			uav_barrier(m_r_solve_cache.get()),
 		};
 
 		// The fused kernel walks every occupied colour inside one group; the trailing barrier orders the whole sweep before later work.
@@ -511,6 +522,7 @@ namespace pr::physics
 		job.m_barriers.Transition(m_r_state.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_pseudo_velocities.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Transition(m_r_colour_dispatch.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+		job.m_barriers.Transition(m_r_solve_cache.get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 		job.m_barriers.Commit();
 
 		auto const group_count = static_cast<UINT>((m_slot_count + ConstraintThreadCount - 1) / ConstraintThreadCount);
@@ -543,6 +555,20 @@ namespace pr::physics
 		RecordColourSweep(job, m_cs_apply_warm_start, m_cs_apply_warm_start_fused, timestep, body_count, std::max(1, m_config.push_out_iterations), bodies);
 	}
 
+	// Build each block's split-position response once, because transforms and rows are fixed during the position iterations.
+	void GpuConstraintSolver::PreparePositionSolve(GpuJob& job, float timestep, int body_count, int position_iterations, D3DPtr<ID3D12Resource> bodies)
+	{
+		// Skip the build when no position sweep will read it.
+		if (!Active() || position_iterations <= 0)
+			return;
+
+		Bind(job, m_cs_prepare_position_solve, timestep, body_count, 0, position_iterations, bodies, m_r_state.get());
+		job.m_barriers.Commit();
+		job.m_cmd_list.Dispatch(static_cast<UINT>((m_slot_count + ConstraintThreadCount - 1) / ConstraintThreadCount), 1, 1);
+		++m_dispatch_count;
+		CommitUavBarriers(job, bodies);
+	}
+
 	// Execute one coloured split-position sweep against initialized shared pseudo velocity without clearing accumulated corrections.
 	void GpuConstraintSolver::SolvePositionIteration(GpuJob& job, float timestep, int body_count, int position_iterations, D3DPtr<ID3D12Resource> bodies)
 	{
@@ -560,6 +586,20 @@ namespace pr::physics
 
 		Bind(job, m_cs_apply_position, timestep, body_count, 0, position_iterations, bodies, m_r_state.get());
 		job.m_cmd_list.Dispatch(static_cast<UINT>((body_count + ConstraintThreadCount - 1) / ConstraintThreadCount), 1, 1);
+		++m_dispatch_count;
+		CommitUavBarriers(job, bodies);
+	}
+
+	// Build each block's physical response once, because transforms and rows are fixed during the velocity iterations.
+	void GpuConstraintSolver::PrepareVelocitySolve(GpuJob& job, float timestep, int body_count, D3DPtr<ID3D12Resource> bodies)
+	{
+		// The cache is only read by the velocity sweeps of an active lane.
+		if (!Active())
+			return;
+
+		Bind(job, m_cs_prepare_velocity_solve, timestep, body_count, 0, std::max(1, m_config.push_out_iterations), bodies, m_r_state.get());
+		job.m_barriers.Commit();
+		job.m_cmd_list.Dispatch(static_cast<UINT>((m_slot_count + ConstraintThreadCount - 1) / ConstraintThreadCount), 1, 1);
 		++m_dispatch_count;
 		CommitUavBarriers(job, bodies);
 	}
@@ -671,7 +711,8 @@ namespace pr::physics
 			sizeof(GpuConstraintEndpoint) +
 			sizeof(GpuD6ConstraintDesc) +
 			sizeof(GpuConstraintBlock) +
-			GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow);
+			GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow) +
+			sizeof(GpuConstraintSolveCache);
 		auto const logical_bytes =
 			static_cast<size_t>(m_slot_count) * slot_bytes +
 			(m_slot_count != 0 ? sizeof(GpuConstraintSolverState) : 0) +
@@ -736,9 +777,11 @@ namespace pr::physics
 		{
 			Prepare(job, timestep, body_count, r_bodies);
 			ApplyWarmStart(job, timestep, body_count, r_bodies);
+			PreparePositionSolve(job, timestep, body_count, m_config.push_out_iterations, r_bodies);
 			for (int iteration = 0; iteration != std::max(0, m_config.push_out_iterations); ++iteration)
 				SolvePositionIteration(job, timestep, body_count, m_config.push_out_iterations, r_bodies);
 			ApplyPosition(job, timestep, body_count, m_config.push_out_iterations, r_bodies);
+			PrepareVelocitySolve(job, timestep, body_count, r_bodies);
 			for (int iteration = 0; iteration != std::max(0, m_config.solver_iterations); ++iteration)
 				SolveVelocityIteration(job, timestep, body_count, r_bodies);
 			DetectBreakage(job, timestep, 0, body_count, r_bodies);

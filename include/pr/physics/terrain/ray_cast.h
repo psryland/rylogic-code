@@ -7,11 +7,11 @@
 
 namespace pr::physics::terrain
 {
-	// Bounds the search distance, sample spacing, refinement interval, and total surface evaluations.
+	// Bounds the search distance, horizontal sample spacing, refinement interval, and total surface evaluations.
 	struct RayCastOptions
 	{
 		double m_max_distance = 10000.0;
-		double m_max_step = 1.0;
+		double m_max_horizontal_step = 1.0; // The largest horizontal distance between successive search samples
 		double m_tolerance = 0.01;
 		int m_max_samples = 32768;
 	};
@@ -27,16 +27,18 @@ namespace pr::physics::terrain
 	};
 
 	// Search along a finite ray, normalizing its direction so distances are in surface units.
-	// Surface must provide Sample(v2d). An origin on or below ground hits immediately. Detected above/below brackets
-	// are refined to m_tolerance in ray distance, returning the below-ground endpoint. Narrow or grazing intersections
-	// between samples can be missed: this is not a conservative collision query or a guaranteed earliest intersection.
-	// Uses O(1) storage and at most m_max_samples evaluations; exhaustion and invalid surface values throw, not report a miss.
+	// Surface must provide Sample(v2d). An origin on or below ground hits immediately. Search samples are at most
+	// m_max_horizontal_step apart horizontally, so a steep ray needs few samples and a vertical ray needs only its two ends.
+	// Detected above/below brackets are refined to m_tolerance in ray distance, returning the below-ground endpoint.
+	// Surface features narrower than the horizontal step can be missed: this is not a conservative collision query or a
+	// guaranteed earliest intersection. Uses O(1) storage and at most m_max_samples evaluations; exhaustion and invalid
+	// surface values throw, not report a miss.
 	template <typename Surface>
 	RayCastResult RayCast(Surface const& surface, v4d origin, v4d direction, RayCastOptions const& options = {})
 	{
 		if (!IsFinite(origin) || origin.w != 1 || !IsFinite(direction) || direction.w != 0 ||
 			!std::isfinite(options.m_max_distance) || options.m_max_distance < 0 ||
-			!std::isfinite(options.m_max_step) || options.m_max_step <= 0 ||
+			!std::isfinite(options.m_max_horizontal_step) || options.m_max_horizontal_step <= 0 ||
 			!std::isfinite(options.m_tolerance) || options.m_tolerance <= 0 ||
 			options.m_max_samples < 1 || options.m_max_samples > 1'000'000)
 			throw std::invalid_argument("Invalid terrain ray or search limits");
@@ -67,37 +69,71 @@ namespace pr::physics::terrain
 
 			return sample;
 		};
+		auto clearance = [&](double distance, SurfaceSample const& at)
+		{
+			// Height of the ray above the surface; positive means the ray point is above ground
+			return origin.z + direction.z * distance - at.m_height;
+		};
+
+		// A height surface only varies horizontally, so the ray distance between search samples is the horizontal step
+		// scaled by the ray's horizontal speed. A vertical ray cannot pass through a feature, so it only checks its far end.
+		auto const horizontal_speed = std::hypot(direction.x, direction.y);
+		auto const step = horizontal_speed * options.m_max_distance > options.m_max_horizontal_step
+			? options.m_max_horizontal_step / horizontal_speed
+			: options.m_max_distance;
+
 		auto lower = 0.0;
 		auto upper = 0.0;
 		auto sample = evaluate(upper);
-		while (origin.z + direction.z * upper > sample.m_height)
+		auto lower_clearance = clearance(upper, sample);
+		auto upper_clearance = lower_clearance;
+		while (upper_clearance > 0)
 		{
 			if (upper == options.m_max_distance)
 				return result;
 
 			lower = upper;
-			upper = std::min(upper + options.m_max_step, options.m_max_distance);
+			lower_clearance = upper_clearance;
+			upper = std::min(upper + step, options.m_max_distance);
 			if (upper == lower)
 				throw std::runtime_error("Terrain raycast step is below coordinate precision");
 
 			sample = evaluate(upper);
+			upper_clearance = clearance(upper, sample);
 		}
 
-		// Refine the first detected entry without implying that unobserved intersections were excluded.
+		// Refine the detected entry without implying that unobserved intersections were excluded. The secant estimate is
+		// exact for a planar surface, and keeping it at least half a tolerance inside the bracket lets the next estimate
+		// close the bracket from the other side. Bisect after two estimates in a row fail to halve the bracket, which bounds
+		// the cost on badly curved surfaces to a small multiple of plain bisection.
+		auto slow_estimates = 0;
 		while (upper - lower > options.m_tolerance)
 		{
-			auto const middle = lower + (upper - lower) * 0.5;
-			if (middle == lower || middle == upper)
+			auto const width = upper - lower;
+			auto middle = lower + width * 0.5;
+			if (slow_estimates < 2)
+			{
+				auto const margin = options.m_tolerance * 0.5;
+				auto const secant = lower + width * lower_clearance / (lower_clearance - upper_clearance);
+				middle = std::clamp(secant, lower + margin, upper - margin);
+			}
+			if (middle <= lower || middle >= upper)
 				throw std::runtime_error("Terrain raycast tolerance is below coordinate precision");
 
-			auto const midpoint_sample = evaluate(middle);
-			if (origin.z + direction.z * middle > midpoint_sample.m_height)
+			auto const middle_sample = evaluate(middle);
+			auto const middle_clearance = clearance(middle, middle_sample);
+			if (middle_clearance > 0)
+			{
 				lower = middle;
+				lower_clearance = middle_clearance;
+			}
 			else
 			{
 				upper = middle;
-				sample = midpoint_sample;
+				upper_clearance = middle_clearance;
+				sample = middle_sample;
 			}
+			slow_estimates = upper - lower > width * 0.5 ? slow_estimates + 1 : 0;
 		}
 		result.m_hit = true;
 		result.m_distance = upper;
