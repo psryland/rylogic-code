@@ -23,7 +23,7 @@
 //  - Neck chains turn to look at a world point, fading in and out.
 //  - The body breathes at a rate and depth set by the caller. Each breath turns the chest bone about its head so that its tip moves out from the
 //    front of the body, so the rib cage swells, and rolls the shoulders back. The necks keep aiming where the guide aims, so the head moves only a little.
-//    Callers can move things held against the chest with the breath, see 'Locomotion::breath_swell'.
+//    Callers can move things held against the chest with the chest's motion, see 'Locomotion::chest_motion'.
 //  - Each tail trails behind its base along the ground like a rope, as one smooth curve: the first bone continues the line of the spine with a
 //    small bend down, and each later bone bends a little at a time, steeply down while it can and then flatter, until the tail's skin rests
 //    on the ground. The first bone heads across the ground with the swaying hips, and the dragged rope behind it sets which way each later bone
@@ -188,7 +188,8 @@ namespace pr::animation
 			, m_look_weight(0.0f)
 			, m_breath()
 			, m_breath_phase(0.0f)
-			, m_breath_swell(xform::Identity())
+			, m_chest_stance(xform::Identity())
+			, m_chest_motion(xform::Identity())
 			, m_reaches()
 			, m_stoop(0.0f)
 			, m_shoulders()
@@ -446,11 +447,12 @@ namespace pr::animation
 			return m_stoop;
 		}
 
-		// The model-space transform that the latest step's breath applied to the chest: a turn about the chest bone's head. Applying it to a model-space
-		// point held against the chest moves the point with the breath. It is the identity when the body is not breathing.
-		xform const& breath_swell() const
+		// The model-space transform that moves the chest from its stance to where this step put it: the body's sway, weight shift, lean into turns,
+		// pitch over the ground, the cycles' motion, any stoop, and the breath. Applying it to a model-space point held against the still chest moves
+		// the point with the chest. It is the identity for a rig without a spine and for a body standing still on level ground without breathing.
+		xform const& chest_motion() const
 		{
-			return m_breath_swell;
+			return m_chest_motion;
 		}
 
 		// Advance by 'dt' seconds (>= 0) and pose the rig for 'body' on 'ground'
@@ -752,7 +754,8 @@ namespace pr::animation
 		Fade m_look_weight;         // How strongly the necks face 'm_look'
 		Breath m_breath;            // The caller's breathing motion
 		float m_breath_phase;       // The breath cycle position in [0,1)
-		xform m_breath_swell;       // The model-space turn that the latest breath applied to the chest, see 'breath_swell'
+		xform m_chest_stance;       // The chest bone's model-space frame in this step's stance, before any motion
+		xform m_chest_motion;       // The model-space move of the chest from 'm_chest_stance' to this step's chest target, see 'chest_motion'
 		std::vector<Reach> m_reaches; // The walking arms, which can reach for grasps
 		float m_stoop;              // In [0,1]. How far the body stoops for its grasps, see 'Stooped'.
 		std::vector<Shoulder> m_shoulders; // The bones that breathing rolls back
@@ -977,6 +980,18 @@ namespace pr::animation
 			{
 				if (m_rig.bones[b].parent < 0)
 					m_pos_offset[b] += lift;
+			}
+
+			// Record the chest's frame in the stance at this hip height, before any motion, so 'chest_motion' can measure the chest's movement from it.
+			// Parents come before their children, so the frame builds from the chest bone up to its root.
+			if (m_spine >= 0)
+			{
+				auto b = m_rig.chains[m_spine].bones.back();
+				m_chest_stance = m_guide.local[b];
+				for (; m_rig.bones[b].parent >= 0; b = m_rig.bones[b].parent)
+					m_chest_stance = m_guide.local[m_rig.bones[b].parent] * m_chest_stance;
+
+				m_chest_stance.pos += lift;
 			}
 
 			// Rotations apply in the bone's own frame after the stance rotation. Positions are model-space offsets of root bones.
@@ -1737,17 +1752,17 @@ namespace pr::animation
 			// Breathing turns the chest bone about its head so that its tip moves out from the front of the body, which faces along the spine
 			// turned a quarter turn forward about model +X. The chest's head stays in place, so the rib cage swells rather than the belly.
 			auto breath = m_breath.chest * Inhale();
-			m_breath_swell = xform::Identity();
 			if (breath != 0)
 			{
-				// Record the turn about the chest's head as a model-space transform too, so callers can move held things with it
 				auto& chest = m_targets[m_spine].frame;
 				auto front = Normalise(Cross(v4::XAxis(), span));
 				auto tip = Rotate(chest.rot, v4::YAxis()) * m_rig.bones[m_rig.chains[m_spine].bones.back()].length;
 				auto swell = quat(Normalise(tip), Normalise(tip + front * breath));
 				chest.rot = Normalise(swell * chest.rot);
-				m_breath_swell = xform(chest.pos - Rotate(swell, chest.pos.w0()), swell);
 			}
+
+			// Record how far the chest has moved from its stance, so callers can move held things with it
+			m_chest_motion = m_targets[m_spine].frame * Invert(m_chest_stance);
 		}
 
 		// How far through its in-and-out motion the current breath is: 0 at the start and end of the breath, and 1 halfway
@@ -2864,9 +2879,9 @@ namespace pr::animation::tests
 			PR_EXPECT(FEqlAbsolute(breathing.targets()[0].frame.pos, still.targets()[0].frame.pos, 1e-4f));
 			PR_EXPECT(FEqlAbsolute(tip(breathing) - tip(still), v4(0, 0, -0.02f, 0), 1e-3f));
 
-			// The reported swell moves a point on the still chest to where the breathing chest has it
-			PR_EXPECT(FEqlAbsolute(breathing.breath_swell() * tip(still), tip(breathing), 1e-4f));
-			PR_EXPECT(FEqlAbsolute(still.breath_swell().pos, v4::Origin(), 1e-6f));
+			// The reported chest motion moves a point on the still chest to where the breathing chest has it
+			PR_EXPECT(FEqlAbsolute(breathing.chest_motion() * tip(still), tip(breathing), 1e-4f));
+			PR_EXPECT(FEqlAbsolute(still.chest_motion().pos, v4::Origin(), 1e-6f));
 
 			for (int i = 0; i != 30; ++i)
 			{
