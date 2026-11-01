@@ -30,6 +30,7 @@ CONTACT_KINDS = [
 	("PALM", "Palm", "The underside of a hand"),
 	("FINGER", "Finger", "The tip of a finger"),
 	("TAIL", "Tail", "A point on the tail"),
+	("GRIP", "Grip", "The point on a hand that holds a grasped object, with its normal out of the gripping skin"),
 ]
 FAMILY_UPS = [
 	("SURFACE", "Surface", "The body stands up along the ground's normal, e.g. a quadruped on a slope"),
@@ -177,7 +178,7 @@ class RYLOGIC_PG_Rig(PropertyGroup):
 	show_limits: BoolProperty(name="Limits", default=True, description="Draw each joint's swing (orange) and twist (yellow) limits. A bone outside its limit is drawn in red even when this is off")
 	show_poles: BoolProperty(name="Poles", default=True, description="Draw the outward bend direction (magenta) of each leg and arm chain")
 	show_facing: BoolProperty(name="Facing", default=True, description="Draw the forward direction (sky blue) of each neck chain")
-	show_contacts: BoolProperty(name="Contacts", default=True, description="Draw each contact point and its surface normal (green)")
+	show_contacts: BoolProperty(name="Contacts", default=True, description="Draw each contact point and its surface normal (green, or blue for grips)")
 	rom_action: PointerProperty(name="Range of Motion", type=bpy.types.Action, description="An action whose keyframes pose the armature at the extremes of each joint's range of motion")
 	rom_mirror: BoolProperty(name="Mirror Samples", default=True, description="Derive the same, mirrored, limits for left and right bones from the poses of either side. Turn off for asymmetric rigs")
 	rom_padding: FloatProperty(name="Padding", subtype="ANGLE", min=0.0, max=math.radians(45), default=math.radians(5), description="Extra range added beyond the posed extremes when deriving limits")

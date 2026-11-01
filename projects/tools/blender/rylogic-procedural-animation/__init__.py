@@ -4,6 +4,9 @@ A rig description names the solvable chains of an armature (spine, neck, legs, a
 are placed on surfaces. It is written as a '.rig' JSON file next to the skinned model, and cooked by the p3d tool's '-Rig' command, which is the canonical
 validation. The schema is owned by 'pr/animation/rig_json.h' in the Rylogic code library.
 
+The Rylogic Rig panel, in the armature's Data properties, holds the validate and export tools. Its sections are collapsible sub-panels: Overlay,
+Skeleton (Chains, Body Axis, Range of Motion), Contacts, and Locomotion (Families, Movement Cycles). Drag a section's header to reorder it.
+
 Joint limits bound each bone's rotation from its rest pose as a swing of the bone's direction and a twist about it (see 'limits.py'). The swing range is
 set separately about the bone's rest +X and +Z axes, so roll the bone to align those axes with the joint. A zero-width range on one swing axis makes a
 hinge about the other. Limits can be set by hand in the Bone properties, or derived from poses:
@@ -22,9 +25,13 @@ hinge about the other. Limits can be set by hand in the Bone properties, or deri
 Mirroring needs left and right bones whose names differ only by side and whose rest transforms are mirror images, as Blender's Symmetrize makes them.
 
 Contacts are points on a bone, with an outward surface normal, that are placed on surfaces, e.g. the soles of the feet. Point the normal out of the
-part of the body that touches the surface. Add a contact in the Rylogic Rig panel, then press 'Pick on Surface' and click the skinned mesh. The
-contact moves to the clicked point on the bone that most deforms that face, with the face's normal. This works on a posed mesh. Esc or right-click
-cancels.
+part of the body that touches the surface. Add a contact in the Contacts section, then press 'Pick on Surface' and move the mouse over the skinned
+mesh. The contact follows the mouse, on the bone that most deforms the face under it and with the face's normal, and a click keeps it. This works on
+a posed mesh. Esc or right-click puts the contact back. The offset and normal can then be fine-tuned by hand.
+
+A GRIP contact on a hand bone is the point that holds a grasped object. Place it on the skin that wraps around a held thing, e.g. mid-way along the
+inside of the fingers. Picking a grip keeps it on its bone, even over a finger, so set the bone to the hand first. A hand without one grips at its
+PALM contact.
 
 Selecting a chain in the panel selects its bones. Selecting a bone makes a chain and a contact that use it active, unless the active ones already do.
 
@@ -32,7 +39,8 @@ The body axis is the line from the head of its 'From' bone (e.g. the hips) to th
 capsule lies along this line as the body bends and rears up. Both bones are required.
 
 The viewport overlay draws swing limits (orange), twist limits (yellow), limb poles (magenta), the neck's facing direction (sky blue) and contacts
-(green). Limb poles and facing directions are fixed rest-pose model-space directions. The toggles under 'Show Overlay' hide each type. In Pose Mode
+(green, or blue for grips). The contact that is active in the Contacts list is drawn with thicker lines. Limb poles and facing directions are fixed rest-pose model-space directions. The Overlay section's header switches the
+overlay on and off, and its toggles hide each type. In Pose Mode
 with bones selected, only the overlays of the selected bones are drawn. A bone whose current pose is outside its joint limit is drawn in red, with its
 limit, whatever the selection and the 'Limits' toggle, so that animating past a limit is noticed while posing or playing an action. 'Check Limits'
 plays the active movement cycle's action and lists each bone that leaves its limit, by how much, and on which frames. Both check the evaluated pose,

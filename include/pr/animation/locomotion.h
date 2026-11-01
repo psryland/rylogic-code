@@ -143,7 +143,7 @@ namespace pr::animation
 		float support = 1.0f;                  // In [0,1]. How much the limb stands on 'foot'. Otherwise it hangs from the body as in the guide pose.
 		float reach = 0.0f;                   // The limb's length from its root joint to its contact. Ground rays for the foot reach this far either side of it.
 		v4 sole_up = v4::YAxis();             // The unit normal of the sole or palm in the end bone's space, pointing away from the ground. See 'Locomotion::FindSole'.
-		v4 grip = v4::Origin();               // The point on the palm that a grasp holds, in the end bone's space. See 'Locomotion::FindSole'.
+		v4 grip = v4::Origin();               // The point on the hand that a grasp holds, in the end bone's space. See 'Locomotion::FindSole'.
 		std::vector<int> digits;              // The digit chains attached to the limb's end bone
 	};
 
@@ -622,9 +622,6 @@ namespace pr::animation
 		static constexpr float StoopResponse = 0.3f;
 		static constexpr int StoopSamples = 8;
 		static constexpr int StoopBisections = 8;
-
-		// How far a hand's grip point is from its contact towards its digits' base joints, as a fraction of that distance. See 'FindSole'.
-		static constexpr float GripAlongPalm = 0.5f;
 
 		// The seconds of turning by which the chest leads into a turn and the pelvis trails it, and the largest angle (radians) of each
 		static constexpr float SpineLeadTime = 0.25f;
@@ -1292,12 +1289,10 @@ namespace pr::animation
 		// Set the limb's digit chains, sole normal and grip point from the rig's rest pose
 		void FindSole(LimbState& limb) const
 		{
-			// Gather the contacts and the digits' base joints in the end bone's space. Digit chains hang directly from the end bone.
+			// Gather the contacts in the end bone's space. Digit chains hang directly from the end bone.
 			auto end = m_rig.chains[limb.chain].bones.back();
 			auto to_end = Invert(m_rig.rest_model[end]);
-			auto contact = m_rig.contacts[limb.contact].offset;
-			auto knuckles = v4::Zero();
-			std::vector<v4> points = { contact };
+			std::vector<v4> points = { m_rig.contacts[limb.contact].offset };
 			for (int c = 0, cend = static_cast<int>(m_rig.chains.size()); c != cend; ++c)
 			{
 				auto const& chain = m_rig.chains[c];
@@ -1305,20 +1300,21 @@ namespace pr::animation
 					continue;
 
 				limb.digits.push_back(c);
-				knuckles += (to_end * m_rig.rest_model[chain.bones.front()]).pos.w0();
 				if (auto tip = DigitContact(c); tip >= 0)
 					points.push_back(to_end * m_rig.rest_model[chain.bones.back()] * m_rig.contacts[tip].offset);
 			}
 			limb.sole_up = SoleNormal(limb, points);
 
-			// The grip point is on the palm, part way from the contact towards the digits' base joints. Only the move across the palm is
-			// used, so the point stays on the palm's surface. A limb without digits grips at its contact.
-			limb.grip = contact;
-			if (!limb.digits.empty())
+			// A grasp holds the end bone's authored grip contact, which lies on the skin that wraps around a held thing. A limb without one grips at its contact.
+			limb.grip = m_rig.contacts[limb.contact].offset;
+			for (auto const& contact : m_rig.contacts)
 			{
-				auto along = knuckles / static_cast<float>(limb.digits.size()) - contact.w0();
-				along -= limb.sole_up * Dot(along, limb.sole_up);
-				limb.grip = contact + along * GripAlongPalm;
+				// The first grip contact on the end bone is used
+				if (contact.kind != EContactKind::Grip || contact.bone != end)
+					continue;
+
+				limb.grip = contact.offset;
+				break;
 			}
 		}
 
@@ -2350,6 +2346,7 @@ namespace pr::animation::tests
 			add_toe("toe.0.L", v4(0.15f, -0.2f, 0, 1), v4(0.1f, -0.3f, 0, 1));
 			add_toe("toe.1.L", v4(0.2f, -0.2f, 0, 1), v4(0.2f, -0.3f, 0.05f, 1));
 			add_toe("toe.2.L", v4(0.25f, -0.2f, 0, 1), v4(0.3f, -0.3f, 0, 1));
+			desc.contacts.push_back(Contact{ .name = "grip.L", .bone = foot, .offset = v4(0.02f, 0.15f, -0.01f, 1), .normal = v4(0, 0, -1, 0), .kind = EContactKind::Grip });
 			auto rig = Rig(desc);
 
 			// Stand still on the slope until the feet settle
@@ -2374,14 +2371,8 @@ namespace pr::animation::tests
 				}
 			}
 
-			// The grip point is on the sole's plane, moved from the contact towards the toes' base joints
-			auto contact = rig.contacts[leg.contact].offset;
-			auto knuckles = v4::Zero();
-			for (auto c : leg.digits)
-				knuckles += (Invert(rig.rest_model[foot]) * rig.rest_model[rig.chains[c].bones.front()]).pos.w0() / 3.0f;
-
-			PR_EXPECT(FEqlAbsolute(Dot(leg.grip - contact, leg.sole_up), 0.0f, 1e-5f));
-			PR_EXPECT(Dot(leg.grip - contact, knuckles - contact.w0()) > 1e-4f);
+			// The grip point is the end bone's authored grip contact
+			PR_EXPECT(FEqlAbsolute(leg.grip, rig.contacts.back().offset, 1e-6f));
 		}
 		PRUnitTestMethod(ModelTransformsAreCurrent, Quick)
 		{

@@ -52,7 +52,7 @@ class RYLOGIC_UL_rig_cycles(UIList):
 
 
 class RYLOGIC_PT_rig(Panel):
-	"""The armature's procedural-animation rig: chains, contacts and tools."""
+	"""The armature's procedural-animation rig. Its sections are sub-panels, so each one can be collapsed and reordered."""
 
 	bl_label = "Rylogic Rig"
 	bl_space_type = "PROPERTIES"
@@ -66,22 +66,10 @@ class RYLOGIC_PT_rig(Panel):
 	def draw(self, context):
 		# Tools that act on the whole rig
 		layout = self.layout
-		armature = context.active_object.data
-		rig = armature.rylogic_rig
 		row = layout.row(align=True)
 		row.operator("rylogic_rig.validate", icon="CHECKMARK")
 		row.operator("rylogic_rig.validate_native", icon="CHECKMARK")
-		row = layout.row(align=True)
-		row.operator("rylogic_rig.export", icon="EXPORT")
-		row.prop(rig, "show_overlay", toggle=True, icon="OVERLAY")
-
-		# Visibility of each type of overlay, greyed out while the whole overlay is hidden
-		row = layout.row(align=True)
-		row.active = rig.show_overlay
-		row.prop(rig, "show_limits", toggle=True)
-		row.prop(rig, "show_poles", toggle=True)
-		row.prop(rig, "show_facing", toggle=True)
-		row.prop(rig, "show_contacts", toggle=True)
+		layout.operator("rylogic_rig.export", icon="EXPORT")
 
 		# The most recent validation result
 		if operators.LAST_REPORT:
@@ -91,88 +79,210 @@ class RYLOGIC_PT_rig(Panel):
 			if len(operators.LAST_REPORT) > 12:
 				box.label(text=f"... and {len(operators.LAST_REPORT) - 12} more (see the Info editor)")
 
-		# Range of motion: capture extreme poses into an action, then derive the joint limits from them
-		layout.label(text="Range of Motion")
-		box = layout.box()
-		box.prop(rig, "rom_action")
-		row = box.row(align=True)
-		row.prop(rig, "rom_padding")
-		row.prop(rig, "rom_mirror", toggle=True, icon="MOD_MIRROR")
-		row = box.row(align=True)
-		row.operator("rylogic_rig.capture_pose", icon="KEYFRAME")
-		row.operator("rylogic_rig.derive_limits", icon="CON_ROTLIMIT")
-		row.operator("rylogic_rig.symmetrize_limits", icon="MOD_MIRROR")
-		box.operator("rylogic_rig.copy_ik_limits", icon="CON_KINEMATIC")
 
-		# Chains, with the active chain's details
-		layout.label(text="Chains")
+class _RigSubPanel:
+	"""Shared settings for the sections of the Rylogic Rig panel. Each section sets 'bl_parent_id' to the panel that contains it."""
+
+	bl_space_type = "PROPERTIES"
+	bl_region_type = "WINDOW"
+	bl_context = "data"
+	bl_parent_id = "RYLOGIC_PT_rig"
+
+	@classmethod
+	def poll(cls, context):
+		return operators.ActiveArmature(context) is not None
+
+
+class RYLOGIC_PT_rig_overlay(_RigSubPanel, Panel):
+	"""Which parts of the rig the viewport overlay draws."""
+
+	bl_label = "Overlay"
+
+	def draw_header(self, context):
+		# The whole overlay is switched on and off from the section's header
+		self.layout.prop(context.active_object.data.rylogic_rig, "show_overlay", text="")
+
+	def draw(self, context):
+		# Visibility of each type of overlay, greyed out while the whole overlay is hidden
+		rig = context.active_object.data.rylogic_rig
+		row = self.layout.row(align=True)
+		row.active = rig.show_overlay
+		row.prop(rig, "show_limits", toggle=True)
+		row.prop(rig, "show_poles", toggle=True)
+		row.prop(rig, "show_facing", toggle=True)
+		row.prop(rig, "show_contacts", toggle=True)
+
+
+class RYLOGIC_PT_rig_skeleton(_RigSubPanel, Panel):
+	"""The skeleton's structure: chains, the body axis and joint ranges of motion."""
+
+	bl_label = "Skeleton"
+
+	def draw(self, context):
+		# The section's content is in its sub-panels
+		pass
+
+
+class RYLOGIC_PT_rig_chains(_RigSubPanel, Panel):
+	"""The bone chains, with the active chain's details."""
+
+	bl_label = "Chains"
+	bl_parent_id = "RYLOGIC_PT_rig_skeleton"
+
+	def draw(self, context):
+		# The list of chains
+		layout = self.layout
+		rig = context.active_object.data.rylogic_rig
 		row = layout.row()
 		row.template_list("RYLOGIC_UL_rig_chains", "", rig, "chains", rig, "active_chain", rows=4)
 		column = row.column(align=True)
 		column.operator("rylogic_rig.item_add", icon="ADD", text="").collection = "CHAINS"
 		column.operator("rylogic_rig.item_remove", icon="REMOVE", text="").collection = "CHAINS"
-		if 0 <= rig.active_chain < len(rig.chains):
-			chain = rig.chains[rig.active_chain]
-			box = layout.box()
-			box.prop(chain, "role")
-			box.prop(chain, "side")
-			match chain.role:
-				case "LEG" | "ARM":
-					box.prop(chain, "pole")
-				case "NECK":
-					box.prop(chain, "forward")
-				case _:
-					pass
-			box.label(text="Bones: " + ", ".join(ref.name for ref in chain.bones))
-			box.operator("rylogic_rig.chain_assign", icon="BONE_DATA")
+		if not 0 <= rig.active_chain < len(rig.chains):
+			return
 
-		# Contacts, with the active contact's details
-		layout.label(text="Contacts")
+		# The active chain, with the direction that suits its role
+		chain = rig.chains[rig.active_chain]
+		box = layout.box()
+		box.prop(chain, "role")
+		box.prop(chain, "side")
+		match chain.role:
+			case "LEG" | "ARM":
+				box.prop(chain, "pole")
+			case "NECK":
+				box.prop(chain, "forward")
+			case _:
+				pass
+		box.label(text="Bones: " + ", ".join(ref.name for ref in chain.bones))
+		box.operator("rylogic_rig.chain_assign", icon="BONE_DATA")
+
+
+class RYLOGIC_PT_rig_body_axis(_RigSubPanel, Panel):
+	"""The body axis that the collision capsule follows."""
+
+	bl_label = "Body Axis"
+	bl_parent_id = "RYLOGIC_PT_rig_skeleton"
+
+	def draw(self, context):
+		# The bones that the axis runs between
+		armature = context.active_object.data
+		rig = armature.rylogic_rig
+		column = self.layout.column()
+		column.prop_search(rig, "body_axis_from", armature, "bones", text="From")
+		column.prop_search(rig, "body_axis_to", armature, "bones", text="To")
+
+
+class RYLOGIC_PT_rig_range_of_motion(_RigSubPanel, Panel):
+	"""Capture extreme poses into an action, then derive the joint limits from them."""
+
+	bl_label = "Range of Motion"
+	bl_parent_id = "RYLOGIC_PT_rig_skeleton"
+	bl_options = {"DEFAULT_CLOSED"}
+
+	def draw(self, context):
+		# The action that holds the poses, and the tools that use it
+		layout = self.layout
+		rig = context.active_object.data.rylogic_rig
+		layout.prop(rig, "rom_action")
+		row = layout.row(align=True)
+		row.prop(rig, "rom_padding")
+		row.prop(rig, "rom_mirror", toggle=True, icon="MOD_MIRROR")
+		row = layout.row(align=True)
+		row.operator("rylogic_rig.capture_pose", icon="KEYFRAME")
+		row.operator("rylogic_rig.derive_limits", icon="CON_ROTLIMIT")
+		row.operator("rylogic_rig.symmetrize_limits", icon="MOD_MIRROR")
+		layout.operator("rylogic_rig.copy_ik_limits", icon="CON_KINEMATIC")
+
+
+class RYLOGIC_PT_rig_contacts(_RigSubPanel, Panel):
+	"""The contact points, with the active contact's details."""
+
+	bl_label = "Contacts"
+
+	def draw(self, context):
+		# The list of contacts
+		layout = self.layout
+		armature = context.active_object.data
+		rig = armature.rylogic_rig
 		row = layout.row()
 		row.template_list("RYLOGIC_UL_rig_contacts", "", rig, "contacts", rig, "active_contact", rows=4)
 		column = row.column(align=True)
 		column.operator("rylogic_rig.item_add", icon="ADD", text="").collection = "CONTACTS"
 		column.operator("rylogic_rig.item_remove", icon="REMOVE", text="").collection = "CONTACTS"
-		if 0 <= rig.active_contact < len(rig.contacts):
-			contact = rig.contacts[rig.active_contact]
-			box = layout.box()
-			box.operator("rylogic_rig.contact_pick", icon="EYEDROPPER")
-			box.prop_search(contact, "bone", armature, "bones")
-			box.prop(contact, "kind")
+		if not 0 <= rig.active_contact < len(rig.contacts):
+			return
 
-		# The body axis that the collision capsule follows
-		layout.label(text="Body Axis")
+		# The active contact. Placing it on the mesh sets its bone, offset and normal, which can then be fine-tuned by hand.
+		contact = rig.contacts[rig.active_contact]
 		box = layout.box()
-		box.prop_search(rig, "body_axis_from", armature, "bones", text="From")
-		box.prop_search(rig, "body_axis_to", armature, "bones", text="To")
+		box.operator("rylogic_rig.contact_pick", icon="EYEDROPPER")
+		box.prop(contact, "kind")
+		box.prop_search(contact, "bone", armature, "bones")
+		row = box.row()
+		row.column().prop(contact, "offset")
+		row.column().prop(contact, "normal")
 
-		# Families: the postures that cycles belong to, in the runtime's order of preference
-		layout.label(text="Families")
+
+class RYLOGIC_PT_rig_locomotion(_RigSubPanel, Panel):
+	"""The postures and example movement cycles that guide the runtime's procedural locomotion."""
+
+	bl_label = "Locomotion"
+
+	def draw(self, context):
+		# The section's content is in its sub-panels
+		pass
+
+
+class RYLOGIC_PT_rig_families(_RigSubPanel, Panel):
+	"""The postures that cycles belong to, in the runtime's order of preference."""
+
+	bl_label = "Families"
+	bl_parent_id = "RYLOGIC_PT_rig_locomotion"
+
+	def draw(self, context):
+		# The list of families
+		layout = self.layout
+		rig = context.active_object.data.rylogic_rig
 		row = layout.row()
 		row.template_list("RYLOGIC_UL_rig_families", "", rig, "families", rig, "active_family", rows=2)
 		column = row.column(align=True)
 		column.operator("rylogic_rig.item_add", icon="ADD", text="").collection = "FAMILIES"
 		column.operator("rylogic_rig.item_remove", icon="REMOVE", text="").collection = "FAMILIES"
-		if 0 <= rig.active_family < len(rig.families):
-			family = rig.families[rig.active_family]
-			box = layout.box()
-			box.prop(family, "up")
-			box.prop(family, "max_slope")
-			box.prop(family, "max_speed")
-			box.prop(family, "medium")
-			column = box.column(align=True)
-			column.prop(family, "wave_amplitude")
-			column.prop(family, "wave_wavelength")
-			column.prop(family, "wave_growth")
+		if not 0 <= rig.active_family < len(rig.families):
+			return
 
-		# Movement cycles: example actions that guide the runtime's procedural locomotion, exported as a '.gait'
-		layout.label(text="Movement Cycles")
+		# The active family
+		family = rig.families[rig.active_family]
+		box = layout.box()
+		box.prop(family, "up")
+		box.prop(family, "max_slope")
+		box.prop(family, "max_speed")
+		box.prop(family, "medium")
+		column = box.column(align=True)
+		column.prop(family, "wave_amplitude")
+		column.prop(family, "wave_wavelength")
+		column.prop(family, "wave_growth")
+
+
+class RYLOGIC_PT_rig_cycles(_RigSubPanel, Panel):
+	"""Example actions that guide the runtime's procedural locomotion, exported as a '.gait', and the tools for authoring them."""
+
+	bl_label = "Movement Cycles"
+	bl_parent_id = "RYLOGIC_PT_rig_locomotion"
+
+	def draw(self, context):
+		# The list of cycles
+		layout = self.layout
+		armature = context.active_object.data
+		rig = armature.rylogic_rig
 		row = layout.row()
 		row.template_list("RYLOGIC_UL_rig_cycles", "", rig, "cycles", rig, "active_cycle", rows=3)
 		column = row.column(align=True)
 		column.operator("rylogic_rig.item_add", icon="ADD", text="").collection = "CYCLES"
 		column.operator("rylogic_rig.item_remove", icon="REMOVE", text="").collection = "CYCLES"
 		column.operator_menu_enum("rylogic_rig.gait_template", "template", icon="PRESET_NEW", text="")
+
+		# The active cycle
 		if 0 <= rig.active_cycle < len(rig.cycles):
 			cycle = rig.cycles[rig.active_cycle]
 			box = layout.box()
@@ -187,7 +297,7 @@ class RYLOGIC_PT_rig(Panel):
 
 		# Hold planted feet still while the body moves over them
 		layout.prop(rig, "pin_live", icon="PINNED", toggle=True)
-		pinned = pin.PinnedBones(context.active_object) if rig.pin_live and context.active_object.data == armature else []
+		pinned = pin.PinnedBones(context.active_object) if rig.pin_live else []
 		if pinned:
 			layout.label(text=f"Pinned: {', '.join(pinned)}")
 
@@ -229,6 +339,15 @@ CLASSES = (
 	RYLOGIC_UL_rig_families,
 	RYLOGIC_UL_rig_cycles,
 	RYLOGIC_PT_rig,
+	RYLOGIC_PT_rig_overlay,
+	RYLOGIC_PT_rig_skeleton,
+	RYLOGIC_PT_rig_chains,
+	RYLOGIC_PT_rig_body_axis,
+	RYLOGIC_PT_rig_range_of_motion,
+	RYLOGIC_PT_rig_contacts,
+	RYLOGIC_PT_rig_locomotion,
+	RYLOGIC_PT_rig_families,
+	RYLOGIC_PT_rig_cycles,
 	RYLOGIC_PT_rig_bone,
 )
 
