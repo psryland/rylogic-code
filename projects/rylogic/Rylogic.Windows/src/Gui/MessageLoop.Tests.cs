@@ -113,6 +113,67 @@ public class TestSimMessageLoop
 		Assert.Equal(1, calls);
 	}
 
+	/// <summary>A due loop with a ready handle waits for one signal and consumes it when it steps.</summary>
+	[Test]
+	public void ReadyHandleGatesDueLoop()
+	{
+		// A stopped clock keeps the loop due but before its ready deadline, so only the semaphore controls the step.
+		using var ready = new Semaphore(0, 1);
+		var pump = new SimMessageLoop();
+		var calls = 0;
+		pump.AddLoop(60, true, ready.SafeWaitHandle.DangerousGetHandle(), _ => ++calls);
+		var loop = Field<SimMessageLoop.LoopCont>(pump, "m_loop")[0];
+		loop.Clock = -16;
+		Assert.Equal(16, pump.StepLoops());
+		Assert.Equal(0, calls);
+		Assert.Equal(1, Field<System.Collections.Generic.List<SimMessageLoop.Loop>>(pump, "m_blocked").Count);
+
+		// Signalling the handle releases exactly one step and the step consumes the signal.
+		ready.Release();
+		Assert.Equal(16, pump.StepLoops());
+		Assert.Equal(1, calls);
+		Assert.False(ready.WaitOne(0));
+		Assert.False(loop.ReadyAcquired);
+	}
+
+	/// <summary>A loop whose handle is never signalled still steps one period after it became due.</summary>
+	[Test]
+	public void ReadyDeadlineStepsWithoutSignal()
+	{
+		// The stopped clock sits exactly on the ready deadline.
+		using var ready = new Semaphore(0, 1);
+		var pump = new SimMessageLoop();
+		var calls = 0;
+		pump.AddLoop(60, true, ready.SafeWaitHandle.DangerousGetHandle(), _ => ++calls);
+		var loop = Field<SimMessageLoop.LoopCont>(pump, "m_loop")[0];
+		loop.Clock = -32;
+		Assert.Equal(16, pump.StepLoops());
+		Assert.Equal(1, calls);
+		Assert.Equal(0L, loop.Clock);
+	}
+
+	/// <summary>The pump wakes on a ready handle signalled from another thread, before the ready deadline.</summary>
+	[Test]
+	public void PumpWakesOnReadyHandle()
+	{
+		// A one-second period makes the ready deadline far later than the signal, so an early step proves the handle woke the pump.
+		User32.PeekMessage(out _, IntPtr.Zero, 0, 0, 0);
+		using var ready = new Semaphore(0, 1);
+		var pump = new SimMessageLoop(1);
+		var clock = Field<Stopwatch>(pump, "m_clock");
+		var step_time = 0L;
+		pump.AddLoop(1, true, ready.SafeWaitHandle.DangerousGetHandle(), _ =>
+		{
+			step_time = clock.ElapsedMilliseconds;
+			User32.PostQuitMessage(5);
+		});
+		Field<SimMessageLoop.LoopCont>(pump, "m_loop")[0].Clock = -1000;
+		using var signaller = new Timer(_ => ready.Release(), null, 50, Timeout.Infinite);
+		Assert.Equal(5, pump.Run());
+		Assert.True(step_time >= 40 && step_time < 900);
+		Assert.False(ready.WaitOne(0));
+	}
+
 	/// <summary>Read only the scheduler's own private fixture state, not runtime stopwatch implementation fields.</summary>
 	private static T Field<T>(SimMessageLoop pump, string name)
 	{

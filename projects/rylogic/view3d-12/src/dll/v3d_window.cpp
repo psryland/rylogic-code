@@ -314,6 +314,12 @@ namespace pr::rdr12
 		return m_wnd.Dpi();
 	}
 
+	// An event that is signalled when the next render will not block on its back buffer. See Window::FrameReadyEvent
+	HANDLE V3dWindow::FrameReadyEvent() const
+	{
+		return m_wnd.FrameReadyEvent();
+	}
+
 	// Get/Set the back buffer size
 	iv2 V3dWindow::BackBufferSize() const
 	{

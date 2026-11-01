@@ -2156,6 +2156,9 @@ namespace Rylogic.Gfx
 		// Return the DPI of the monitor that 'window' is displayed on
 		[DllImport(Dll)] private static extern v2 View3D_WindowDpiScale(HWindow window);
 
+		// Return the handle signalled when the window's swap chain can queue another frame (null unless created with a max frame latency)
+		[DllImport(Dll)] private static extern IntPtr View3D_WindowFrameReadyEvent(HWindow window);
+
 		// Set the global environment map for the window
 		[DllImport(Dll)] private static extern void View3D_WindowEnvMapSet(HWindow window, HCubeMap env_map);
 

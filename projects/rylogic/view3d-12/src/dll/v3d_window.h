@@ -162,6 +162,9 @@ namespace pr::rdr12
 		// The DPI of the monitor that this window is displayed on
 		v2 Dpi() const;
 
+		// An event that is signalled when the next render will not block on its back buffer. See Window::FrameReadyEvent
+		HANDLE FrameReadyEvent() const;
+
 		// Get/Set the back buffer size
 		iv2 BackBufferSize() const;
 		void BackBufferSize(iv2 sz, bool force_recreate);

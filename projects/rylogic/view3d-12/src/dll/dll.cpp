@@ -1338,6 +1338,19 @@ VIEW3D_API view3d::Vec2 __stdcall View3D_WindowDpiScale(view3d::Window window)
 	CatchAndReport(View3d_WindowDPI, window, {});
 }
 
+// Return the event that is signalled when the next render of the window will not block on its back buffer
+VIEW3D_API HANDLE __stdcall View3D_WindowFrameReadyEvent(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->FrameReadyEvent();
+	}
+	CatchAndReport(View3D_WindowFrameReadyEvent, window, nullptr);
+}
+
 // Set the global environment map for the window
 VIEW3D_API void __stdcall View3D_WindowEnvMapSet(view3d::Window window, view3d::CubeMap env_map)
 {

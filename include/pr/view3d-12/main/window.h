@@ -57,6 +57,7 @@ namespace pr::rdr12
 		using OpenXRPtr = std::unique_ptr<openxr::OpenXR>;
 
 		GpuSync                      m_gsync;            // GPU fence for frames
+		Handle                       m_frame_ready;      // Auto-reset event signalled when the next NewFrame's back buffer is released by the GPU. See FrameReadyEvent
 		BackBuffers                  m_swap_bb;          // Back buffer render targets from the swap chain.
 		BackBuffer                   m_msaa_bb;          // The MSAA back buffer render target
 		BackBuffer*                  m_frame_output = nullptr; // Borrowed final target from the last submitted frame
@@ -104,6 +105,11 @@ namespace pr::rdr12
 		// Get/Set whether the swap chain owns an output in DXGI exclusive fullscreen mode
 		bool FullScreen() const;
 		void FullScreen(bool fullscreen);
+
+		// An auto-reset event that is signalled when the GPU has released the back buffer that the next NewFrame renders into, so NewFrame
+		// will not block. Each Present re-arms it. Callers can wait on it before rendering to keep that wait outside the render call.
+		// The window owns the handle. It remains valid until the window is destroyed.
+		HANDLE FrameReadyEvent() const;
 
 		// Get/Set the multi sampling used. Changing the multi-sampling is like resizing the MSAA back buffer only.
 		MultiSamp MultiSampling() const;
