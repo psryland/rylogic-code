@@ -157,6 +157,7 @@ namespace pr::animation
 			, m_tail_bones()
 			, m_tail_ground()
 			, m_ropes(rig.chains.size())
+			, m_finish_refresh()
 			, m_legs()
 			, m_leg_reach(0.0f)
 			, m_spine(-1)
@@ -210,6 +211,24 @@ namespace pr::animation
 			}
 			m_neutral.resize(m_limbs.size());
 
+			// Finishing the pose moves the limbs' end bones and digits, and the tails, after the chains are solved. Cache those bones and every
+			// descendant of them, so that one pass over just these bones makes the pose's model transforms current again. Parents come before children.
+			{
+				std::vector<bool> moved(rig.bones.size());
+				for (auto const& limb : m_limbs)
+					moved[rig.chains[limb.chain].bones.back()] = true;
+				for (auto const& chain : rig.chains)
+				{
+					if (chain.role == EChainRole::Tail)
+						moved[chain.bones.front()] = true;
+				}
+				for (int b = 0, bend = static_cast<int>(rig.bones.size()); b != bend; ++b)
+				{
+					moved[b] = moved[b] || (rig.bones[b].parent >= 0 && moved[rig.bones[b].parent]);
+					if (moved[b])
+						m_finish_refresh.push_back(b);
+				}
+			}
 			// The legs carry the hips at the cycles' hip height. Rigs that walk on no legs measure the hip height on all of their walking limbs.
 			for (int i = 0, iend = static_cast<int>(m_limbs.size()); i != iend; ++i)
 			{
@@ -485,12 +504,17 @@ namespace pr::animation
 			}
 			StepNecks(dt, world_to_model);
 
-			// Bones that no chain solver poses, such as digits and tails, take their shape from the guide
+			// Bones that no chain solver poses, such as digits and tails, take their shape from the guide. The guide's model transforms are
+			// already current for its local transforms, so the pose starts from both.
 			std::copy(m_guide.local.begin(), m_guide.local.end(), m_pose.local.begin());
+			std::copy(m_guide.model.begin(), m_guide.model.end(), m_pose.model.begin());
 			SolvePose(m_rig, m_targets, m_pose);
 			TurnRaisedFeet();
 			PlantDigits();
 			StepTails(body.model_to_world, world_to_model, ground);
+
+			// Bring the bones moved since the solve, and their descendants, up to date
+			m_pose.UpdateModel(m_rig, m_finish_refresh);
 		}
 
 	private:
@@ -618,6 +642,7 @@ namespace pr::animation
 		std::vector<TailBone> m_tail_bones;              // The bones of the tail being planned (scratch)
 		std::vector<float> m_tail_ground;                // The ground height beneath each joint of the tail being planned (scratch)
 		std::vector<std::vector<v4>> m_ropes; // Per chain, the world-space tail joint positions from the previous step. Empty for other chains, and until a tail is first posed.
+		std::vector<int> m_finish_refresh;    // The bones, in bone order, whose model transforms can be stale after the pose is finished
 		std::vector<int> m_legs;    // Indices into 'm_limbs' of the limbs that carry the hips at the cycles' hip height
 		float m_leg_reach;          // The mean reach of 'm_legs', which scales the cycles' hip height
 		int m_spine;                // The spine chain index, or -1 if the rig has none
@@ -1348,7 +1373,7 @@ namespace pr::animation
 		// turns with its limb. The end bone keeps its position, so the limb's pose does not change.
 		void TurnRaisedFeet()
 		{
-			// The end bone's descendants, such as digits, are updated with the rest of the pose afterwards
+			// The end bone's descendants, such as digits, are updated once the pose is finished (see 'm_finish_refresh')
 			for (auto const& limb : m_limbs)
 			{
 				if (limb.free == 0)
@@ -1365,7 +1390,7 @@ namespace pr::animation
 		// parallel to the plane, then the whole digit hinges at its base so that its tip contact touches the plane. Raised feet keep the guide's digits.
 		void PlantDigits()
 		{
-			// Digit bones are posed from their parents' current frames. Their descendants are updated with the rest of the pose afterwards.
+			// Digit bones are posed from their parents' current frames. Their descendants are updated once the pose is finished (see 'm_finish_refresh').
 			for (auto const& limb : m_limbs)
 			{
 				// A foot is planted by how much it carries the limb and how close it is to the ground
@@ -1826,7 +1851,6 @@ namespace pr::animation
 						m_pose.local[b].rot = Slerp(m_pose.local[b].rot, m_guide.local[b].rot, water);
 				}
 			}
-			m_pose.UpdateModel(m_rig);
 		}
 
 		// The model-space vector of the first bone of tail chain 'c' in the guide pose, from its head to the next joint
@@ -2117,6 +2141,41 @@ namespace pr::animation::tests
 				{
 					auto tip = loco.pose().model[contact.bone] * contact.offset;
 					PR_EXPECT(FEqlAbsolute(Dot(tip.w0(), normal), 0.0f, 1e-3f));
+				}
+			}
+		}
+		PRUnitTestMethod(ModelTransformsAreCurrent, Quick)
+		{
+			// While walking on a slope, every bone's model transform after each step matches its local transform under its parent's model transform,
+			// including a digit under the foot and the tail
+			auto desc = TestRigDesc();
+			auto foot = 8;
+			auto foot_model = xform::Identity();
+			for (auto b = foot; b != -1; b = desc.bones[b].parent)
+				foot_model = desc.bones[b].rest * foot_model;
+
+			auto toe_model = xform(v4(0.2f, -0.2f, 0, 1), quat(v4::YAxis(), v4(0, -1, 0, 0)));
+			desc.bones.push_back(Bone{ .name = "toe.L", .parent = foot, .rest = Invert(foot_model) * toe_model, .length = 0.1f });
+			desc.chains.push_back(Chain{ .role = EChainRole::Digit, .side = ESide::Left, .bones = { static_cast<int>(desc.bones.size()) - 1 } });
+			auto rig = Rig(desc);
+
+			auto gait = TestGait();
+			auto const& walk = gait.families[0].cycles[0];
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround(0.2f);
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .velocity = v4(0, -walk.speed, 0, 0) };
+			for (int i = 0; i != 120; ++i)
+			{
+				// Compare each bone with a recompute from its parent
+				body.model_to_world.pos += body.velocity * dt;
+				loco.Step(dt, body, ground);
+				auto const& pose = loco.pose();
+				for (int b = 0, bend = static_cast<int>(rig.bones.size()); b != bend; ++b)
+				{
+					auto parent = rig.bones[b].parent;
+					auto expected = parent < 0 ? pose.local[b] : pose.model[parent] * pose.local[b];
+					PR_EXPECT(FEqlAbsolute(pose.model[b].pos, expected.pos, 1e-4f) && FEqlOrientation(pose.model[b].rot, expected.rot, 1e-3f));
 				}
 			}
 		}

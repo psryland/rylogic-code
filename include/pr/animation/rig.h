@@ -29,6 +29,30 @@ namespace pr::animation
 		Digit,
 	};
 
+	// True if 'SolvePose' poses chains with 'role'
+	inline bool IsSolvedRole(EChainRole role)
+	{
+		switch (role)
+		{
+			case EChainRole::Spine:
+			case EChainRole::Neck:
+			case EChainRole::Leg:
+			case EChainRole::Arm:
+			{
+				return true;
+			}
+			case EChainRole::Tail:
+			case EChainRole::Digit:
+			{
+				return false;
+			}
+			default:
+			{
+				throw std::invalid_argument("Unknown chain role");
+			}
+		}
+	}
+
 	// Which side of the body a chain is on
 	enum class ESide
 	{
@@ -420,7 +444,7 @@ namespace pr::animation
 		BodyAxis body_axis;
 		std::vector<xform> rest_model;                          // The model-space rest transform of each bone
 		std::vector<int> solve_order;                          // Chain indices ordered so that ancestor chains are solved first
-		std::vector<std::vector<int>> chain_subtrees;          // Per chain: its base bone and every descendant of it, in bone order
+		std::vector<std::vector<int>> solve_refresh;           // Per chain: the bones, in bone order, whose model transforms 'SolvePose' recomputes after solving it
 
 		// Construct from a rig description. Throws 'std::invalid_argument' listing every problem if the description is invalid.
 		explicit Rig(RigDesc desc)
@@ -430,7 +454,7 @@ namespace pr::animation
 			, body_axis()
 			, rest_model()
 			, solve_order()
-			, chain_subtrees()
+			, solve_refresh()
 		{
 			// Reject invalid descriptions at the load boundary so the solvers can rely on them
 			auto errors = Validate(desc);
@@ -456,19 +480,29 @@ namespace pr::animation
 			// A chain's base bone comes after every ancestor's bones, so ordering by base bone solves ancestors first
 			std::sort(solve_order.begin(), solve_order.end(), [&](int l, int r) { return chains[l].bones.front() < chains[r].bones.front(); });
 
-			// Cache the bones that a chain's solve can move. Parents come before children, so one pass from the base bone finds every descendant.
-			chain_subtrees.resize(chains.size());
+			// Cache the bones that solving a chain can move: its base bone and every descendant. A solved chain further down the hierarchy is solved
+			// later, and its solver needs only its ancestors to be current, so its subtree is left for its own refresh. This updates each bone once.
+			// Chains that 'SolvePose' does not solve need no refresh.
+			solve_refresh.resize(chains.size());
+			std::vector<bool> solved_base(bones.size());
+			for (auto const& chain : chains)
+				solved_base[chain.bones.front()] = IsSolvedRole(chain.role);
+
 			std::vector<bool> in_subtree(bones.size());
 			for (int c = 0, cend = static_cast<int>(chains.size()); c != cend; ++c)
 			{
-				// A bone is in the subtree when it is the base bone or its parent is in the subtree
+				// Parents come before children, so one pass from the base bone finds every descendant. A bone is refreshed when it is the base bone,
+				// or when its parent is refreshed and it does not start another solved chain.
+				if (!IsSolvedRole(chains[c].role))
+					continue;
+
 				auto base = chains[c].bones.front();
 				std::fill(in_subtree.begin(), in_subtree.end(), false);
 				for (int b = base, bend = static_cast<int>(bones.size()); b != bend; ++b)
 				{
-					in_subtree[b] = b == base || (bones[b].parent >= base && in_subtree[bones[b].parent]);
+					in_subtree[b] = b == base || (bones[b].parent >= base && in_subtree[bones[b].parent] && !solved_base[b]);
 					if (in_subtree[b])
-						chain_subtrees[c].push_back(b);
+						solve_refresh[c].push_back(b);
 				}
 			}
 		}
@@ -566,15 +600,16 @@ namespace pr::animation::tests
 			auto rig = TestRig();
 			PR_EXPECT(rig.solve_order.front() == 0);
 		}
-		PRUnitTestMethod(ChainSubtrees, Quick)
+		PRUnitTestMethod(SolveRefresh, Quick)
 		{
-			// Each chain's subtree holds its base bone and every descendant, in bone order, and nothing else
+			// Each solved chain refreshes its base bone and descendants, in bone order, except the subtrees of solved chains below it.
+			// The tail is not solved, so the spine refreshes it and it has no refresh of its own.
 			auto rig = TestRig();
-			PR_EXPECT(rig.chain_subtrees[0] == std::vector<int>({ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14 }));
-			PR_EXPECT(rig.chain_subtrees[1] == std::vector<int>({ 4, 5 }));
-			PR_EXPECT(rig.chain_subtrees[2] == std::vector<int>({ 6, 7, 8 }));
-			PR_EXPECT(rig.chain_subtrees[3] == std::vector<int>({ 9, 10, 11 }));
-			PR_EXPECT(rig.chain_subtrees[4] == std::vector<int>({ 12, 13, 14 }));
+			PR_EXPECT(rig.solve_refresh[0] == std::vector<int>({ 1, 2, 3, 12, 13, 14 }));
+			PR_EXPECT(rig.solve_refresh[1] == std::vector<int>({ 4, 5 }));
+			PR_EXPECT(rig.solve_refresh[2] == std::vector<int>({ 6, 7, 8 }));
+			PR_EXPECT(rig.solve_refresh[3] == std::vector<int>({ 9, 10, 11 }));
+			PR_EXPECT(rig.solve_refresh[4].empty());
 		}
 		PRUnitTestMethod(ValidationErrors, Quick)
 		{

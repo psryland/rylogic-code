@@ -28,8 +28,10 @@ namespace pr::physics::terrain
 
 	// Search along a finite ray, normalizing its direction so distances are in surface units.
 	// Surface must provide Sample(v2d). An origin on or below ground hits immediately. Search samples are at most
-	// m_max_horizontal_step apart horizontally, so a steep ray needs few samples and a vertical ray needs only its two ends.
+	// m_max_horizontal_step apart horizontally, so a steep ray needs few samples. Within that spacing, each search sample is placed
+	// just past the crossing predicted from the previous sample's height and slope, so a locally planar surface is usually found with one search sample.
 	// Detected above/below brackets are refined to m_tolerance in ray distance, returning the below-ground endpoint.
+	// A vertical ray sees one surface height along its whole length, so it needs one sample and returns its exact crossing.
 	// Surface features narrower than the horizontal step can be missed: this is not a conservative collision query or a
 	// guaranteed earliest intersection. Uses O(1) storage and at most m_max_samples evaluations; exhaustion and invalid
 	// surface values throw, not report a miss.
@@ -76,7 +78,7 @@ namespace pr::physics::terrain
 		};
 
 		// A height surface only varies horizontally, so the ray distance between search samples is the horizontal step
-		// scaled by the ray's horizontal speed. A vertical ray cannot pass through a feature, so it only checks its far end.
+		// scaled by the ray's horizontal speed.
 		auto const horizontal_speed = std::hypot(direction.x, direction.y);
 		auto const step = horizontal_speed * options.m_max_distance > options.m_max_horizontal_step
 			? options.m_max_horizontal_step / horizontal_speed
@@ -87,14 +89,38 @@ namespace pr::physics::terrain
 		auto sample = evaluate(upper);
 		auto lower_clearance = clearance(upper, sample);
 		auto upper_clearance = lower_clearance;
+
+		// A vertical ray stays over the origin's surface point, so the origin's clearance gives the exact crossing
+		if (horizontal_speed == 0 && upper_clearance > 0)
+		{
+			// A ray that rises, or falls less than the clearance, misses
+			if (direction.z >= 0 || upper_clearance > -direction.z * options.m_max_distance)
+				return result;
+
+			auto const crossing = upper_clearance / -direction.z;
+			result.m_hit = true;
+			result.m_distance = crossing;
+			result.m_position = origin + direction * crossing;
+			result.m_surface = sample;
+			return result;
+		}
+
+		// March until a sample is below ground. The surface's tangent plane at the last sample predicts where the ray meets it. Sampling slightly
+		// past that point, but never further than the step, usually brackets the crossing within a tolerance without weakening the step's spacing.
 		while (upper_clearance > 0)
 		{
 			if (upper == options.m_max_distance)
 				return result;
 
+			// The clearance changes by the ray's rise less the surface's rise beneath it, per unit of ray distance
+			auto next = std::min(upper + step, options.m_max_distance);
+			auto const descent = direction.z - (sample.m_gradient_xy.x * direction.x + sample.m_gradient_xy.y * direction.y);
+			if (descent < 0)
+				next = std::min(next, upper + upper_clearance / -descent + options.m_tolerance * 0.4);
+
 			lower = upper;
 			lower_clearance = upper_clearance;
-			upper = std::min(upper + step, options.m_max_distance);
+			upper = next;
 			if (upper == lower)
 				throw std::runtime_error("Terrain raycast step is below coordinate precision");
 
@@ -104,8 +130,10 @@ namespace pr::physics::terrain
 
 		// Refine the detected entry without implying that unobserved intersections were excluded. The secant estimate is
 		// exact for a planar surface, and keeping it at least half a tolerance inside the bracket lets the next estimate
-		// close the bracket from the other side. Bisect after two estimates in a row fail to halve the bracket, which bounds
-		// the cost on badly curved surfaces to a small multiple of plain bisection.
+		// close the bracket from the other side. An estimate within half a tolerance of one end probes nearly a tolerance from
+		// that end instead, so that the crossing is likely between the probe and that end, which closes the bracket at once.
+		// Bisect after two estimates in a row fail to halve the bracket, which bounds the cost on badly curved surfaces to a
+		// small multiple of plain bisection.
 		auto slow_estimates = 0;
 		while (upper - lower > options.m_tolerance)
 		{
@@ -114,8 +142,12 @@ namespace pr::physics::terrain
 			if (slow_estimates < 2)
 			{
 				auto const margin = options.m_tolerance * 0.5;
+				auto const closing = options.m_tolerance * 0.9;
 				auto const secant = lower + width * lower_clearance / (lower_clearance - upper_clearance);
-				middle = std::clamp(secant, lower + margin, upper - margin);
+				middle =
+					upper - secant < margin ? upper - closing :
+					secant - lower < margin ? lower + closing :
+					std::clamp(secant, lower + margin, upper - margin);
 			}
 			if (middle <= lower || middle >= upper)
 				throw std::runtime_error("Terrain raycast tolerance is below coordinate precision");
