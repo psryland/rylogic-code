@@ -73,6 +73,7 @@ namespace pr::rdr12
 		Frame                        m_frame;            // Class for managing the rendering of a frame (for reuse)
 		DiagState                    m_diag;             // Diagnostic variables
 		int64_t                      m_frame_number;     // The number of times 'RenderFrame' has been called.
+		double                       m_frame_wait_s;     // Host seconds the latest NewFrame spent blocked waiting for its back buffer. See FrameWaitSeconds
 		UINT                         m_vsync;            // Present SyncInterval value
 		float                        m_dither_amount;    // Output dither noise amplitude in 8-bit sRGB steps. Zero disables dithering. See render/output_dithering.md.
 		bool                         m_idle;             // True while the window is occluded
@@ -107,9 +108,13 @@ namespace pr::rdr12
 		void FullScreen(bool fullscreen);
 
 		// An auto-reset event that is signalled when the GPU has released the back buffer that the next NewFrame renders into, so NewFrame
-		// will not block. Each Present re-arms it. Callers can wait on it before rendering to keep that wait outside the render call.
-		// The window owns the handle. It remains valid until the window is destroyed.
+		// will not block. Each Present clears and re-arms it, so a signal never refers to an earlier frame. Callers can wait on it before
+		// rendering to keep that wait outside the render call. The window owns the handle. It remains valid until the window is destroyed.
 		HANDLE FrameReadyEvent() const;
+
+		// The host time, in seconds, that the latest NewFrame spent blocked waiting for the GPU to release its back buffer.
+		// This is zero when the caller waited for FrameReadyEvent before rendering.
+		double FrameWaitSeconds() const;
 
 		// Get/Set the multi sampling used. Changing the multi-sampling is like resizing the MSAA back buffer only.
 		MultiSamp MultiSampling() const;
