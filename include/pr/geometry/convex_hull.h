@@ -57,8 +57,6 @@ namespace pr::hull
 		using VIndex = VIdx;
 		using FaceType = FaceT;
 
-		static constexpr int MaxVisFaceCount = 64;
-
 		std::span<V const> m_verts;               // Vertex container
 		VIdx* m_vbeg;                              // Start of the vert index container
 		VIdx* m_vhull_last;                        // One past the last vert index that is on the convex hull
@@ -71,10 +69,8 @@ namespace pr::hull
 		V* m_hs_beg;                               // Start of the half space buffer
 		V* m_hs_last;                              // Pointer into the half space buffer, equivalent position to flast
 		V* m_hs_end;                               // End of the half space buffer
-		int m_vis_face_count;                      // The number of visible faces
-		int m_vis_face_buf1[MaxVisFaceCount];      // Double buffer for the
-		int m_vis_face_buf2[MaxVisFaceCount];      //  indices of visible faces
-		int* m_visible_face;                       // Pointer to one of the m_vis_face_buf's
+		float m_eps;                               // Distance within which a point counts as on a plane, scaled to the size of the point set
+		std::vector<int> m_visible;                // Indices of the faces that can see the vertex being added (working space)
 
 		HullGenerator(std::span<V const> verts, VIdx* vbeg, VIdx* vend, FaceT* fbeg, FaceT* fend)
 			: m_verts(verts)
@@ -89,10 +85,8 @@ namespace pr::hull
 			, m_hs_beg(m_half_spaces.data())
 			, m_hs_last(m_half_spaces.data())
 			, m_hs_end(m_half_spaces.data() + m_half_spaces.size())
-			, m_vis_face_count(0)
-			, m_vis_face_buf1()
-			, m_vis_face_buf2()
-			, m_visible_face(m_vis_face_buf1)
+			, m_eps(PlaneTolerance(verts, vbeg, vend))
+			, m_visible()
 		{}
 		HullGenerator(HullGenerator&&) = delete;
 		HullGenerator(HullGenerator const&) = delete;
@@ -128,7 +122,7 @@ namespace pr::hull
 
 				// If the span is zero then all verts must lie
 				// in a plane parallel to the XY plane.
-				if (dmax - dmin < math::tiny<float>)
+				if (dmax - dmin <= m_eps)
 					return false;
 			}
 
@@ -154,8 +148,8 @@ namespace pr::hull
 					if (d > dmax) { dmax = d; vmax = i; }
 				}
 
-				// If all verts lie on the zaxis...
-				if (dmax < math::tiny<float>)
+				// If all verts lie on the zaxis... ('d' is a squared distance)
+				if (dmax <= Sqr(m_eps))
 					return false;
 			}
 
@@ -176,8 +170,8 @@ namespace pr::hull
 					if (Abs(d) > dmax) { dmax = Abs(d); vmax = i; flip = d < 0.0f; }
 				}
 
-				// If all verts lie on in the plane...
-				if (dmax < math::tiny<float>)
+				// If all verts lie on in the plane... ('axis' is not normalised, so scale the tolerance by its length)
+				if (dmax <= m_eps * Length(axis))
 					return false;
 			}
 
@@ -202,38 +196,41 @@ namespace pr::hull
 			return true;
 		}
 
-		// Move vert indices that are inside the current hull to the 'non-hull' end of the range.
-		// Records the vertex with the greatest distance from any face in the hull, this must be
-		// a vertex on the convex hull because it is the extreme vertex in the direction of the
-		// face normal. Returns this extreme vert, also caches the indices of the faces that can
-		// see this max vert.
+		// The distance within which a point counts as lying on a face plane. Plane distances are computed in float, so their rounding error grows with the size
+		// of the coordinates. Using one tolerance for every visibility test keeps those tests consistent with each other, so nearly coplanar points cannot
+		// make a face look visible from one test and hidden from another.
+		static float PlaneTolerance(std::span<V const> verts, VIdx const* vbeg, VIdx const* vend)
+		{
+			// Sum the largest coordinate magnitude on each axis, then allow a few float rounding steps of that size.
+			auto max_abs = V{};
+			for (auto i = vbeg; i != vend; ++i)
+			{
+				auto const& v = verts[*i];
+				max_abs.x = Max(max_abs.x, Abs(v.x));
+				max_abs.y = Max(max_abs.y, Abs(v.y));
+				max_abs.z = Max(max_abs.z, Abs(v.z));
+			}
+			return 10.0f * limits<float>::epsilon() * (max_abs.x + max_abs.y + max_abs.z);
+		}
+
+		// Move vert indices that are inside the current hull (or within the plane tolerance of it) to the 'non-hull' end of the range.
+		// Returns the vertex with the greatest distance outside any face of the hull. This must be a vertex on the final convex hull
+		// because it is the extreme vertex in the direction of that face's normal. Returns 'm_vnon_hull' when no vertices remain.
 		VIdx* PartitionVerts()
 		{
 			using std::swap;
 
-			m_vis_face_count = 0;
 			auto max_dist = 0.0f;
 			auto max_vert = m_vnon_hull;
 			for (auto v = m_vhull_last; v != m_vnon_hull;)
 			{
-				// Find the maximum distance of 'v' from the faces of the hull
+				// Find the maximum distance of 'v' in front of the faces of the hull
 				auto dist = 0.0f;
-				int vis_count = 0, face_index = 0;
-				for (auto plane = m_hs_beg; plane != m_hs_last; ++plane, ++face_index)
-				{
-					auto d = Dot(*plane, m_verts[*v]);
-					if (d <= 0.0f)
-						continue; // behind 'plane'
+				for (auto plane = m_hs_beg; plane != m_hs_last; ++plane)
+					dist = Max(dist, Dot(*plane, m_verts[*v]));
 
-					dist = Max(dist, d);
-					if (vis_count < MaxVisFaceCount)
-						m_visible_face[vis_count] = face_index;
-
-					++vis_count;
-				}
-
-				// If this vert is within all half spaces then it's not a hull vert
-				if (dist == 0.0f)
+				// A vert within the tolerance of every half space is not a hull vert
+				if (dist <= m_eps)
 				{
 					swap(*v, *(--m_vnon_hull));
 					continue;
@@ -244,89 +241,68 @@ namespace pr::hull
 				{
 					max_dist = dist;
 					max_vert = v;
-					m_vis_face_count = vis_count;
-					SwapVisFaceDblBuffer();
 				}
 				++v;
 			}
-			SwapVisFaceDblBuffer();
 			return max_vert;
 		}
 
-		// Expand the convex hull to include 'v'.
-		void GrowHull(VIdx* v)
+		// Expand the convex hull to include 'v', a vert that is more than the plane tolerance in front of at least one face.
+		// Returns false if the face container does not have room for the new faces.
+		bool GrowHull(VIdx* v)
 		{
 			using std::swap;
 
-			// Move 'v' into the convex hull
+			// Find the faces that can see 'v'. The same tolerance as 'PartitionVerts' guarantees at least one.
+			auto const& vert = m_verts[*v];
+			m_visible.resize(0);
+			for (auto plane = m_hs_beg; plane != m_hs_last; ++plane)
+			{
+				if (Dot(*plane, vert) > m_eps)
+					m_visible.push_back(static_cast<int>(plane - m_hs_beg));
+			}
+			assert(!m_visible.empty() && "PartitionVerts should only return verts that can see a face");
+
+			// Collect the horizon: the edges of the visible faces that are not shared by two visible faces. At most 3 edges per face.
+			std::vector<typename Perimeter::Edge> edge_buf(3 * m_visible.size());
+			Perimeter perimeter(edge_buf.data(), static_cast<int>(edge_buf.size()));
+			for (auto i : m_visible)
+			{
+				VIndex a, b, c;
+				GetFace(m_fbeg[i], a, b, c);
+				perimeter.AddEdge(a, b);
+				perimeter.AddEdge(b, c);
+				perimeter.AddEdge(c, a);
+			}
+
+			// The new faces only close the hull if the horizon is one simple loop (the visible faces form a disc). Rounding error can break this
+			// when 'v' is within a few rounding steps of the hull. Such a vert adds nothing of value, so treat it as not on the hull.
+			if (!perimeter.IsSimpleLoop())
+			{
+				swap(*v, *(--m_vnon_hull));
+				return true;
+			}
+
+			// Check there is room for the new faces. One face is added per horizon edge after the visible faces are removed.
+			auto new_face_count = perimeter.m_last - perimeter.m_beg;
+			if ((m_fend - m_flast) + static_cast<ptrdiff_t>(m_visible.size()) < new_face_count)
+				return false;
+
+			// Remove the visible faces. 'm_visible' is in increasing order, so erasing from the back by swapping with the last face never moves a visible face.
+			for (auto i = m_visible.size(); i-- != 0; )
+			{
+				swap(m_fbeg[m_visible[i]], *(--m_flast));
+				swap(m_hs_beg[m_visible[i]], *(--m_hs_last));
+			}
+
+			// Move 'v' into the convex hull and add a face for each horizon edge
 			swap(*v, *m_vhull_last);
 			auto v_idx = static_cast<VIndex>(m_vhull_last - m_vbeg);
-			auto const& vert = m_verts[*m_vhull_last];
 			++m_vhull_last;
-
-			// Allocate memory for the edges remaining when the faces that can
-			// see 'v' are removed. The number of perimeter edges will ultimately be
-			// 2 * vis_face_count, however in the worst case we can receive the faces
-			// in an order that doesn't sharing any edges so allow for 3 edges for each face.
-			int max_edge_count = 3 * m_vis_face_count;
-			std::vector<typename Perimeter::Edge> edge_buf(max_edge_count);
-			Perimeter perimeter(edge_buf.data(), max_edge_count);
-
-			// If the number of visible faces is less than the size of
-			// the visible face cache then we don't need to retest the faces.
-			if (m_vis_face_count <= MaxVisFaceCount)
-			{
-				for (auto i = m_visible_face + m_vis_face_count; i-- != m_visible_face; )
-				{
-					auto face = m_fbeg + *i;
-					auto plane = m_hs_beg + *i;
-
-					VIndex a, b, c;
-					GetFace(*face, a, b, c);
-
-					// Add the edges of 'face' to the edge stack
-					perimeter.AddEdge(a, b);
-					perimeter.AddEdge(b, c);
-					perimeter.AddEdge(c, a);
-
-					// Erase 'face'
-					swap(*face, *(--m_flast));
-					swap(*plane, *(--m_hs_last));
-				}
-			}
-			// Otherwise we need to test all faces again for being able to see 'v'
-			else
-			{
-				auto plane = m_hs_beg;
-				for (auto face = m_fbeg; !(face == m_flast); )
-				{
-					// Ignore faces that face away or are edge on to 'v'
-					if (Dot(*plane, vert) <= 0.0f)
-					{
-						++face;
-						++plane;
-						continue;
-					}
-
-					VIndex a, b, c;
-					GetFace(*face, a, b, c);
-
-					// Add the edges of 'face' to the edge stack
-					perimeter.AddEdge(a, b);
-					perimeter.AddEdge(b, c);
-					perimeter.AddEdge(c, a);
-
-					// Erase 'face'
-					swap(*face, *(--m_flast));
-					swap(*plane, *(--m_hs_last));
-				}
-			}
-
-			// Add faces for each remaining edge
 			for (auto edge = perimeter.m_beg; edge != perimeter.m_last; ++edge)
-			{
 				AddFace(v_idx, edge->m_i0, edge->m_i1);
-			}
+
+			return true;
 		}
 
 		// Add a face to the face container
@@ -346,12 +322,6 @@ namespace pr::hull
 			++m_hs_last;
 		}
 
-		// Swap the visible face double buffer
-		void SwapVisFaceDblBuffer()
-		{
-			m_visible_face = m_visible_face == m_vis_face_buf1 ? m_vis_face_buf2 : m_vis_face_buf1;
-		}
-
 		// A structure used to keep track of the perimeter edges as faces are removed from the hull.
 		struct Perimeter
 		{
@@ -365,6 +335,8 @@ namespace pr::hull
 				, m_last(m_beg)
 				, m_end(m_beg + count)
 			{}
+
+			// Add a directed edge, or cancel it against its reverse if that is already present.
 			void AddEdge(VIndex i0, VIndex i1)
 			{
 				for (auto e = m_beg; e != m_last; ++e)
@@ -376,9 +348,40 @@ namespace pr::hull
 					*e = *(--m_last);
 					return;
 				}
+				assert(m_last != m_end && "Perimeter edge buffer overflow");
 				m_last->m_i0 = i0;
 				m_last->m_i1 = i1;
 				++m_last;
+			}
+
+			// True if the edges form one closed loop that visits each vertex once.
+			bool IsSimpleLoop() const
+			{
+				// A loop needs at least three edges, and each vertex may start only one edge.
+				auto count = m_last - m_beg;
+				if (count < 3)
+					return false;
+
+				for (auto e = m_beg; e != m_last; ++e)
+				{
+					for (auto f = e + 1; f != m_last; ++f)
+					{
+						if (f->m_i0 == e->m_i0)
+							return false;
+					}
+				}
+
+				// Follow the edges from the first one. With unique start vertices, returning to the start after 'count' steps means one loop covers every edge.
+				auto edge = m_beg;
+				for (auto step = 1; step != count; ++step)
+				{
+					auto next = std::find_if(m_beg, m_last, [&](Edge const& x) { return x.m_i0 == edge->m_i1; });
+					if (next == m_last || next == m_beg)
+						return false;
+
+					edge = next;
+				}
+				return edge->m_i1 == m_beg->m_i0;
 			}
 		};
 	};
@@ -420,22 +423,14 @@ namespace pr::hull
 
 		// Test the unclassified verts and move any that are within the convex hull to
 		// the 'non-hull' end of the range. 'v' is the vert most not in the convex hull.
-		// 'vis_count' is the number of faces of the current hull that can "see" 'v'
 		auto v = data.PartitionVerts();
 
 		// While there are unclassified verts remaining
 		while (data.m_vhull_last != data.m_vnon_hull)
 		{
-			// Check there is enough space in the face range to expand the convex hull.
-			// Since the hull is convex, the faces that can see 'v' will form one connected
-			// polygon. This means the number of perimeter edges will be 2 + vis_face_count.
-			// Since we're also removing vis_face_count faces, the number of new faces added
-			// will be 2.
-			if (data.m_fend - data.m_flast < 2)
+			// Expand the convex hull to include 'v'. Stop if the face range has no room for the new faces.
+			if (!data.GrowHull(v))
 				break;
-
-			// Expand the convex hull to include 'v'
-			data.GrowHull(v);
 
 			// Test the unclassified verts and move any that are within the convex hull to
 			// the 'non-hull' end of the range. Find a new most not in the convex hull vertex.
@@ -620,6 +615,59 @@ namespace pr::geometry::tests
 			PR_EXPECT(RunHull(pts, 6, vc, fc));
 			PR_EXPECT(vc == 6);
 			PR_EXPECT(fc == 8); // Octahedron has 8 triangular faces
+		}
+
+		// Many points lying exactly on shared planes (as produced by cutting a point cloud with planes) must still give a closed, manifold hull at any scale
+		PRUnitTestMethod(CoplanarFacetsStayManifold, Quick)
+		{
+			for (auto scale : { 0.01f, 0.1f, 1.0f, 10.0f, 1000.0f })
+			{
+				for (auto seed = 1u; seed != 9u; ++seed)
+				{
+					// A lumpy sphere of points with several sides flattened by projecting the points beyond a plane onto it
+					auto rng = seed * 2654435761u;
+					auto next = [&] { rng = rng * 1664525u + 1013904223u; return static_cast<float>(rng >> 8) / static_cast<float>(1u << 24); };
+					std::vector<v4> pts;
+					for (int i = 0; i != 120; ++i)
+					{
+						auto dir = Normalise(v4{ next() - 0.5f, next() - 0.5f, next() - 0.5f, 0 });
+						pts.push_back(dir * (1.0f - 0.2f * next()) + v4::Origin());
+					}
+					for (int cut = 0; cut != 6; ++cut)
+					{
+						auto n = Normalise(v4{ next() - 0.5f, next() - 0.5f, next() - 0.5f, 0 });
+						auto offset = 0.5f + 0.3f * next();
+						for (auto& p : pts)
+						{
+							auto excess = Dot3(p, n) - offset;
+							if (excess > 0)
+								p -= n * excess;
+						}
+					}
+					for (auto& p : pts)
+						p = (p - v4::Origin()) * scale + v4::Origin();
+
+					size_t vc = 0, fc = 0;
+					std::vector<int> indices(pts.size());
+					for (int i = 0; i != static_cast<int>(pts.size()); ++i) indices[i] = i;
+					std::vector<int> faces(2 * (pts.size() - 2) * 3);
+					PR_EXPECT(hull::ConvexHull(std::span<v4 const>{pts}, std::span<int>{indices}, std::span<int>{faces}, vc, fc));
+					PR_EXPECT(fc >= 4);
+					PR_EXPECT(fc <= 2 * (vc - 2));
+
+					// Every directed edge appears once, and its reverse once, so the faces close the hull without non-manifold edges
+					std::vector<std::pair<int, int>> edges;
+					for (size_t f = 0; f != fc; ++f)
+					{
+						for (int k = 0; k != 3; ++k)
+							edges.emplace_back(faces[f * 3 + k], faces[f * 3 + (k + 1) % 3]);
+					}
+					std::ranges::sort(edges);
+					PR_EXPECT(std::ranges::adjacent_find(edges) == edges.end());
+					for (auto const& [a, b] : edges)
+						PR_EXPECT(std::ranges::binary_search(edges, std::pair{ b, a }));
+				}
+			}
 		}
 	};
 }
