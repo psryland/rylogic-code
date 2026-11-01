@@ -23,7 +23,11 @@ namespace pr::compute
 
 	public:
 
-		Gpu(ID3D12Device4* existing_device, ID3D12CommandQueue* existing_queue);
+		// Borrow 'existing_device' and 'existing_queue' when provided, otherwise create them. 'priority' applies only to a created queue.
+		Gpu(ID3D12Device4* existing_device, ID3D12CommandQueue* existing_queue, D3D12_COMMAND_QUEUE_PRIORITY priority);
+		Gpu(ID3D12Device4* existing_device, ID3D12CommandQueue* existing_queue)
+			: Gpu(existing_device, existing_queue, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL)
+		{}
 		Gpu(ID3D12Device4* existing_device = nullptr)
 			: Gpu(existing_device, nullptr)
 		{}

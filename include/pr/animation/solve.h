@@ -56,8 +56,8 @@ namespace pr::animation
 				}
 			}
 
-			// Bring the chain's descendants along before solving them
-			pose.UpdateModel(rig);
+			// Bring the chain's descendants along before solving them. Only the chain's subtree can have moved.
+			pose.UpdateModel(rig, rig.chain_subtrees[c]);
 		}
 	}
 }

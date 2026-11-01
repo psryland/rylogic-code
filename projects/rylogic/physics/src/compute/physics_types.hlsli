@@ -506,6 +506,16 @@ struct GpuConstraintBlock
 	uint pad0;
 };
 
+// Per-slot inverse of one solve phase's active block response. Row 'i' solves canonical axis '(active_axes >> (4 * i)) & 0xF'; a zero row count skips the block.
+struct GpuConstraintSolveCache
+{
+	float inverse[36];
+	uint active_axes;
+	int row_count;
+	uint pad0;
+	uint pad1;
+};
+
 // Optional per-slot overload state. A full stable-slot stream prevents event-capacity overflow from dropping a required break.
 struct GpuConstraintBreakState
 {

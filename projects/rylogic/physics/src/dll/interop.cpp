@@ -250,6 +250,8 @@ namespace pr::physics
 		};
 
 		// Owns one compute device and queue for all ABI engines created against the same caller-supplied device identity.
+		// The queue has high priority because each engine step blocks its caller until the GPU completes, so rendering
+		// work sharing the device should not delay it.
 		struct InteropGpuBackend
 		{
 			void* m_external_device;
@@ -257,7 +259,7 @@ namespace pr::physics
 
 			explicit InteropGpuBackend(void* external_device)
 				: m_external_device(external_device)
-				, m_gpu(static_cast<ID3D12Device4*>(external_device))
+				, m_gpu(static_cast<ID3D12Device4*>(external_device), nullptr, D3D12_COMMAND_QUEUE_PRIORITY_HIGH)
 			{}
 		};
 

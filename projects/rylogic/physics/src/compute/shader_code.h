@@ -96,8 +96,10 @@ namespace pr::physics::shader_code
 	extern ByteCode const assign_constraint_colours;
 	extern ByteCode const apply_constraint_warm_start;
 	extern ByteCode const clear_constraint_pseudo_velocity;
+	extern ByteCode const prepare_constraint_position_solve;
 	extern ByteCode const solve_constraint_position;
 	extern ByteCode const apply_constraint_position;
+	extern ByteCode const prepare_constraint_velocity_solve;
 	extern ByteCode const solve_constraint_velocity;
 	extern ByteCode const detect_broken_constraints;
 	extern ByteCode const apply_constraint_warm_start_fused;

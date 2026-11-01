@@ -141,6 +141,7 @@ namespace pr::physics::tests
 			runner.AssignColours();
 			PR_EXPECT(runner.ColourOverflow());
 			PR_EXPECT(runner.FrameState().failure_slot_plus_one == static_cast<uint32_t>(slot_count));
+			runner.PrepareVelocitySolve();
 			runner.SolveVelocity();
 			PR_EXPECT(runner.FrameState().failure_slot_plus_one == static_cast<uint32_t>(slot_count));
 			PR_THROWS(runner.Store(buffers), std::exception);
@@ -172,6 +173,7 @@ namespace pr::physics::tests
 			runner.Load(buffers);
 			runner.CompileConstraints();
 			runner.AssignColours();
+			runner.PrepareVelocitySolve();
 			runner.SolveVelocity();
 			PR_EXPECT(runner.FrameState().failure_slot_plus_one == 3u);
 
@@ -1138,7 +1140,8 @@ namespace pr::physics::tests
 				sizeof(GpuConstraintEndpoint) +
 				sizeof(GpuD6ConstraintDesc) +
 				sizeof(GpuConstraintBlock) +
-				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow);
+				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow) +
+				sizeof(GpuConstraintSolveCache);
 			auto const expected_logical_bytes =
 				static_cast<size_t>(first_stats.m_slot_count) * slot_bytes +
 				sizeof(GpuConstraintSolverState) +
@@ -1281,7 +1284,8 @@ namespace pr::physics::tests
 				sizeof(GpuConstraintEndpoint) +
 				sizeof(GpuD6ConstraintDesc) +
 				sizeof(GpuConstraintBlock) +
-				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow);
+				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow) +
+				sizeof(GpuConstraintSolveCache);
 			auto const expected_logical_bytes =
 				slot_bytes +
 				sizeof(GpuConstraintSolverState) +
@@ -1357,7 +1361,8 @@ namespace pr::physics::tests
 				sizeof(GpuConstraintEndpoint) +
 				sizeof(GpuD6ConstraintDesc) +
 				sizeof(GpuConstraintBlock) +
-				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow);
+				GpuConstraintRowsPerBlock * sizeof(GpuConstraintRow) +
+				sizeof(GpuConstraintSolveCache);
 			auto const expected_small_logical_bytes =
 				static_cast<size_t>(SmallSlotCount) * slot_bytes +
 				sizeof(GpuConstraintSolverState) +

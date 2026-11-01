@@ -161,10 +161,16 @@ namespace pr::physics::terrain::landscape::tests
 			};
 			auto const flat = Plane{};
 			auto const origin = v4d{0, 0, 10, 1};
-			auto const down = RayCast(flat, origin, v4d{0, 0, -2, 0});
-			PR_EXPECT(down.m_hit && std::abs(down.m_distance - 10) <= 0.01);
+			auto const down = RayCast(flat, origin, v4d{0, 0, -2, 0}, {.m_max_distance = 20, .m_tolerance = 0.0001});
+			PR_EXPECT(down.m_hit && std::abs(down.m_distance - 10) <= 0.0001);
+
+			// Vertical rays only need their end points, and planar crossings refine in a few secant estimates.
+			PR_EXPECT(down.m_samples <= 5);
 			auto const oblique = RayCast(flat, origin, v4d{1, 0, -0.1, 0});
 			PR_EXPECT(oblique.m_hit && std::abs(oblique.m_distance - std::sqrt(10100.0)) <= 0.01);
+			auto const steep = RayCast(Plane{v2d{0.3, -0.2}}, origin, v4d{0.05, 0, -1, 0}, {.m_max_distance = 20, .m_max_horizontal_step = 0.05, .m_tolerance = 0.002});
+			PR_EXPECT(steep.m_hit && std::abs(steep.m_position.z - 0.3 * steep.m_position.x) <= 0.002);
+			PR_EXPECT(steep.m_samples <= 30);
 			auto const horizontal = RayCast(Plane{v2d{0.5, 0}}, origin, v4d::XAxis());
 			PR_EXPECT(horizontal.m_hit && std::abs(horizontal.m_distance - 20) <= 0.01);
 			PR_EXPECT(RayCast(flat, v4d::Origin(), v4d::ZAxis()).m_distance == 0);
@@ -173,8 +179,8 @@ namespace pr::physics::terrain::landscape::tests
 			PR_EXPECT(!RayCast(flat, origin, -v4d::ZAxis(), {.m_max_distance = 9}).m_hit);
 			PR_EXPECT(RayCast(flat, origin, -v4d::ZAxis(), {.m_max_distance = 10}).m_hit);
 			PR_THROWS(RayCast(flat, origin, v4d::Zero()), std::invalid_argument);
-			PR_THROWS(RayCast(flat, origin, v4d::ZAxis(), {.m_max_step = 0}), std::invalid_argument);
-			PR_THROWS(RayCast(flat, origin, v4d::ZAxis(), {.m_max_samples = 2}), std::runtime_error);
+			PR_THROWS(RayCast(flat, origin, v4d::ZAxis(), {.m_max_horizontal_step = 0}), std::invalid_argument);
+			PR_THROWS(RayCast(flat, origin, v4d::XAxis(), {.m_max_distance = 20, .m_max_samples = 2}), std::runtime_error);
 
 			// A narrow ridge demonstrates why sampling resolution is not a conservative intersection guarantee.
 			struct Ridge
@@ -186,8 +192,8 @@ namespace pr::physics::terrain::landscape::tests
 				}
 			};
 			auto const grazing_origin = v4d{0, 0, 1, 1};
-			PR_EXPECT(!RayCast(Ridge{}, grazing_origin, v4d::XAxis(), {.m_max_distance = 1, .m_max_step = 1}).m_hit);
-			auto const ridge_hit = RayCast(Ridge{}, grazing_origin, v4d::XAxis(), {.m_max_distance = 1, .m_max_step = 0.01, .m_tolerance = 0.0001});
+			PR_EXPECT(!RayCast(Ridge{}, grazing_origin, v4d::XAxis(), {.m_max_distance = 1, .m_max_horizontal_step = 1}).m_hit);
+			auto const ridge_hit = RayCast(Ridge{}, grazing_origin, v4d::XAxis(), {.m_max_distance = 1, .m_max_horizontal_step = 0.01, .m_tolerance = 0.0001});
 			PR_EXPECT(ridge_hit.m_hit);
 			PR_EXPECT(std::abs(ridge_hit.m_distance - (0.5 - std::sqrt(std::log(2.0) / 400))) <= 0.0001);
 
