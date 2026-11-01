@@ -165,6 +165,7 @@ namespace pr::animation
 		Palm,
 		Finger,
 		Tail,
+		Grip, // The point on a hand's end bone that holds a grasped object. Its normal points out of the gripping surface.
 	};
 
 	// A named point on a bone where the body touches the ground or an object. For example: a sole, a toe tip, or a palm.
@@ -370,6 +371,7 @@ namespace pr::animation
 				case EContactKind::Palm:
 				case EContactKind::Finger:
 				case EContactKind::Tail:
+				case EContactKind::Grip:
 				{
 					break;
 				}

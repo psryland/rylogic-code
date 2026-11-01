@@ -12,7 +12,7 @@ from mathutils import Matrix, Quaternion, Vector
 LIMIT_RANGES = ("swing_x", "swing_z", "twist")
 CHAIN_ROLES = ("spine", "neck", "leg", "arm", "tail", "digit")
 SIDES = ("centre", "left", "right")
-CONTACT_KINDS = ("sole", "toe", "palm", "finger", "tail")
+CONTACT_KINDS = ("sole", "toe", "palm", "finger", "tail", "grip")
 
 
 def ValidateRigDesc(desc: dict[str, Any]) -> list[str]:

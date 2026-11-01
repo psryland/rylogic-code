@@ -23,6 +23,7 @@
 //  - Neck chains turn to look at a world point, fading in and out.
 //  - The body breathes at a rate and depth set by the caller. Each breath turns the chest bone about its head so that its tip moves out from the
 //    front of the body, so the rib cage swells, and rolls the shoulders back. The necks keep aiming where the guide aims, so the head moves only a little.
+//    Callers can move things held against the chest with the chest's motion, see 'Locomotion::chest_motion'.
 //  - Each tail trails behind its base along the ground like a rope, as one smooth curve: the first bone continues the line of the spine with a
 //    small bend down, and each later bone bends a little at a time, steeply down while it can and then flatter, until the tail's skin rests
 //    on the ground. The first bone heads across the ground with the swaying hips, and the dragged rope behind it sets which way each later bone
@@ -33,6 +34,10 @@
 //    Its cycles play at the caller's stroke speed rather than the body's measured speed, because strokes push the body rather than follow it.
 //    While the body enters or leaves the water, the body's height and the tails blend between following the ground and floating.
 //    A swimmer that the caller asks to right itself turns its limbs towards its lowest side as it leans, so the low limbs reach out and the high limbs fold in.
+//  - The caller can move an arm's palm to a grasp: a world point that the palm touches, the direction that it faces, and the direction that its
+//    fingers point, so the grasp sets the hand's whole orientation and the arm's usual swing does not turn it. The hand fades to and
+//    from the grasp. A grasp beyond the arms' reach makes the body stoop: the hips sink and move back and the spine pitches forward, by the
+//    least amount that brings every grasping arm within reach.
 //
 // The body's motion comes from outside (for example, a physics simulation); the controller does not move the character's origin.
 // Model space has +Z up. The body's up is the model's +Z axis in world space, so the body may stand on any surface: a slope, a wall, or a ceiling.
@@ -97,6 +102,14 @@ namespace pr::animation
 		float shoulders = 0.0f;  // How far the shoulders roll back at the peak of a breath, in radians (>= 0)
 	};
 
+	// Where a hand holds something, in world space
+	struct Grasp
+	{
+		v4 point = v4::Origin();  // The point that the palm's grip point touches (w = 1), see 'LimbState::grip'
+		v4 palm = -v4::ZAxis();   // The unit direction that the palm faces, towards the held thing (w = 0)
+		v4 fingers = -v4::YAxis(); // The direction that the fingers point (w = 0), not parallel to 'palm'. Only its part across the palm is used.
+	};
+
 	// What a walking limb's foot is doing
 	enum class EFootState
 	{
@@ -130,6 +143,7 @@ namespace pr::animation
 		float support = 1.0f;                  // In [0,1]. How much the limb stands on 'foot'. Otherwise it hangs from the body as in the guide pose.
 		float reach = 0.0f;                   // The limb's length from its root joint to its contact. Ground rays for the foot reach this far either side of it.
 		v4 sole_up = v4::YAxis();             // The unit normal of the sole or palm in the end bone's space, pointing away from the ground. See 'Locomotion::FindSole'.
+		v4 grip = v4::Origin();               // The point on the hand that a grasp holds, in the end bone's space. See 'Locomotion::FindSole'.
 		std::vector<int> digits;              // The digit chains attached to the limb's end bone
 	};
 
@@ -174,6 +188,10 @@ namespace pr::animation
 			, m_look_weight(0.0f)
 			, m_breath()
 			, m_breath_phase(0.0f)
+			, m_chest_stance(xform::Identity())
+			, m_chest_motion(xform::Identity())
+			, m_reaches()
+			, m_stoop(0.0f)
 			, m_shoulders()
 			, m_wave_bones()
 			, m_phase(0.0f)
@@ -210,6 +228,13 @@ namespace pr::animation
 				}
 			}
 			m_neutral.resize(m_limbs.size());
+
+			// Every arm among the limbs can reach for a grasp
+			for (int i = 0, iend = static_cast<int>(m_limbs.size()); i != iend; ++i)
+			{
+				if (rig.chains[m_limbs[i].chain].role == EChainRole::Arm)
+					m_reaches.push_back(Reach{ .limb = i, .grasp = Grasp{}, .weight = Fade(), .held = false });
+			}
 
 			// Finishing the pose moves the limbs' end bones and digits, and the tails, after the chains are solved. Cache those bones and every
 			// descendant of them, so that one pass over just these bones makes the pose's model transforms current again. Parents come before children.
@@ -398,6 +423,38 @@ namespace pr::animation
 			m_breath = breath;
 		}
 
+		// Move the palm of the arm on 'side' to 'grasp', given in world space, or back to the arm's usual pose if it is empty, over 'fade_s' seconds (> 0).
+		// The rig must have a walking arm on 'side'. A grasp on something that moves should be set again every step; only a change between holding
+		// and letting go starts a new fade. A grasp beyond the arm's reach makes the body stoop (see the file header).
+		void SetReach(ESide side, std::optional<Grasp> const& grasp, float fade_s)
+		{
+			// Find the arm. A hand that lets go keeps its last grasp so that it fades back from where it was.
+			pr_assert(fade_s > 0 && "Fade time must be positive");
+			auto it = std::find_if(m_reaches.begin(), m_reaches.end(), [&](Reach const& r) { return m_rig.chains[m_limbs[r.limb].chain].side == side; });
+			pr_assert(it != m_reaches.end() && "The rig has no walking arm on this side");
+			if (grasp)
+				it->grasp = *grasp;
+
+			if (it->held != grasp.has_value())
+				it->weight.Start(grasp ? 1.0f : 0.0f, fade_s);
+
+			it->held = grasp.has_value();
+		}
+
+		// How far the body is stooping for its grasps, in [0,1]
+		float stoop() const
+		{
+			return m_stoop;
+		}
+
+		// The model-space transform that moves the chest from its stance to where this step put it: the body's sway, weight shift, lean into turns,
+		// pitch over the ground, the cycles' motion, any stoop, and the breath. Applying it to a model-space point held against the still chest moves
+		// the point with the chest. It is the identity for a rig without a spine and for a body standing still on level ground without breathing.
+		xform const& chest_motion() const
+		{
+			return m_chest_motion;
+		}
+
 		// Advance by 'dt' seconds (>= 0) and pose the rig for 'body' on 'ground'
 		void Step(float dt, BodyState const& body, IGround const& ground)
 		{
@@ -496,11 +553,26 @@ namespace pr::animation
 
 			// Pose the body, then the chains that hang from it. A limb's goal moves from its hanging frame to its foot as it takes weight.
 			auto world_to_model = Invert(body.model_to_world);
+			for (auto& reach : m_reaches)
+				reach.weight.Step(dt);
+
 			StepSpine(dt, world_to_model);
 			for (auto const& limb : m_limbs)
 			{
 				auto foot = world_to_model * limb.foot;
 				m_targets[limb.chain].frame = limb.support == 1.0f ? foot : BlendFrame(HangingFrame(limb), foot, limb.support);
+			}
+
+			// Grasping hands move from their usual goals to their grasps
+			for (auto const& reach : m_reaches)
+			{
+				auto weight = reach.weight.Value();
+				if (weight == 0)
+					continue;
+
+				auto const& limb = m_limbs[reach.limb];
+				auto& frame = m_targets[limb.chain].frame;
+				frame = BlendFrame(frame, GraspFrame(limb, reach.grasp, world_to_model), weight);
 			}
 			StepNecks(dt, world_to_model);
 
@@ -538,6 +610,20 @@ namespace pr::animation
 		// lean is measured, see 'RightingOffset'
 		static constexpr float RightingReach = 0.5f;
 		static constexpr float RightingLead = 0.3f;
+
+		// How a full stoop moves the body: the pelvis sinks and moves back (+Y) by these fractions of the legs' reach, and the spine turns forward about
+		// the pelvis by 'StoopPitch' radians, the pelvis itself turning by 'StoopPelvisShare' of that so that the hips bend. See 'Stooped'.
+		static constexpr float StoopDrop = 0.45f;
+		static constexpr float StoopBack = 0.2f;
+		static constexpr float StoopPitch = 1.0f;
+		static constexpr float StoopPelvisShare = 0.5f;
+
+		// The fraction of an arm's reach within which a body stoops to bring its grasp, the seconds that the stoop takes to follow what the grasps need,
+		// and the number of even steps, then halvings, used to find the least stoop that brings a grasp within reach
+		static constexpr float StoopReach = 0.95f;
+		static constexpr float StoopResponse = 0.3f;
+		static constexpr int StoopSamples = 8;
+		static constexpr int StoopBisections = 8;
 
 		// The seconds of turning by which the chest leads into a turn and the pelvis trails it, and the largest angle (radians) of each
 		static constexpr float SpineLeadTime = 0.25f;
@@ -589,6 +675,15 @@ namespace pr::animation
 		{
 			int limb;      // Index into 'm_limbs'
 			quat body_rot; // The body's predicted orientation at the landing
+		};
+
+		// An arm that can reach for a grasp
+		struct Reach
+		{
+			int limb;      // Index into 'm_limbs'
+			Grasp grasp;   // The latest grasp, in world space
+			Fade weight;   // How strongly the hand holds 'grasp'
+			bool held;     // True while the caller asks the hand to hold 'grasp'
 		};
 
 		// A bone that breathing rolls back
@@ -659,6 +754,10 @@ namespace pr::animation
 		Fade m_look_weight;         // How strongly the necks face 'm_look'
 		Breath m_breath;            // The caller's breathing motion
 		float m_breath_phase;       // The breath cycle position in [0,1)
+		xform m_chest_stance;       // The chest bone's model-space frame in this step's stance, before any motion
+		xform m_chest_motion;       // The model-space move of the chest from 'm_chest_stance' to this step's chest target, see 'chest_motion'
+		std::vector<Reach> m_reaches; // The walking arms, which can reach for grasps
+		float m_stoop;              // In [0,1]. How far the body stoops for its grasps, see 'Stooped'.
 		std::vector<Shoulder> m_shoulders; // The bones that breathing rolls back
 		std::vector<WaveBone> m_wave_bones; // The bones that the body wave bends
 		float m_phase;               // The step cycle position in [0,1)
@@ -883,6 +982,18 @@ namespace pr::animation
 					m_pos_offset[b] += lift;
 			}
 
+			// Record the chest's frame in the stance at this hip height, before any motion, so 'chest_motion' can measure the chest's movement from it.
+			// Parents come before their children, so the frame builds from the chest bone up to its root.
+			if (m_spine >= 0)
+			{
+				auto b = m_rig.chains[m_spine].bones.back();
+				m_chest_stance = m_guide.local[b];
+				for (; m_rig.bones[b].parent >= 0; b = m_rig.bones[b].parent)
+					m_chest_stance = m_guide.local[m_rig.bones[b].parent] * m_chest_stance;
+
+				m_chest_stance.pos += lift;
+			}
+
 			// Rotations apply in the bone's own frame after the stance rotation. Positions are model-space offsets of root bones.
 			for (int b = 0, bend = static_cast<int>(m_rig.bones.size()); b != bend; ++b)
 			{
@@ -999,6 +1110,111 @@ namespace pr::animation
 			return actual * Invert(guide) * guide_end;
 		}
 
+		// The end bone frame (model space) that puts the grip point of 'limb' on the grasp point, with the palm facing the grasp's direction and the
+		// fingers pointing as near to the grasp's finger direction as the palm allows. The grasp sets the whole orientation, so the hand does not
+		// follow its usual goal's swing. The fingers run along the end bone (+Y), and the palm faces away from its 'sole_up' normal.
+		xform GraspFrame(LimbState const& limb, Grasp const& grasp, xform const& world_to_model) const
+		{
+			// Turn the bone's palm direction onto the grasp's palm direction
+			auto palm = -limb.sole_up;
+			auto facing = Rotate(world_to_model.rot, grasp.palm);
+			auto turn = quat(palm, facing);
+
+			// Then twist about the palm direction so the fingers point along the part of the grasp's finger direction that lies across the palm
+			auto fingers = Rotate(turn, Normalise(v4::YAxis() - palm * Dot(v4::YAxis(), palm)));
+			auto aim = Rotate(world_to_model.rot, grasp.fingers);
+			aim = Normalise(aim - facing * Dot(aim, facing));
+			auto twist = quat(facing, std::atan2(Dot(Cross(fingers, aim), facing), Dot(fingers, aim)));
+			auto rot = Normalise(twist * turn);
+
+			// Place the bone so that its grip point is on the grasp point
+			auto point = world_to_model * grasp.point;
+			return xform(point - Rotate(rot, limb.grip.w0()), rot);
+		}
+
+		// The pelvis and chest frames of the spine after stooping by 's' in [0,1], from its 'pelvis' and 'chest' frames when upright. The pelvis sinks and
+		// moves back, and the spine turns forward about it, so planted legs bend at the knees and the shoulders move down and forward.
+		std::pair<xform, xform> Stooped(float s, xform const& pelvis, xform const& chest) const
+		{
+			// Turning about model +X by a positive angle moves an upright spine forward (-Y)
+			auto shift = v4(0, StoopBack * s, -StoopDrop * s, 0) * m_leg_reach;
+			auto pitch = quat(v4::XAxis(), StoopPitch * s);
+			auto hips = quat(v4::XAxis(), StoopPelvisShare * StoopPitch * s);
+			auto base = xform(pelvis.pos + shift, Normalise(hips * pelvis.rot));
+			auto frame = xform(base.pos + Rotate(pitch, chest.pos - pelvis.pos), Normalise(pitch * chest.rot));
+			return { base, frame };
+		}
+
+		// The stoop, in [0,1], that the grasping hands need from the spine's upright targets this step. Each hand needs the least stoop that brings its
+		// grasp within 'StoopReach' of its arm's reach from the arm's root, or the stoop that brings it closest if none does, scaled by how strongly
+		// the hand holds its grasp. The body stoops as far as the hand that needs most.
+		float StoopNeeded(xform const& world_to_model) const
+		{
+			// The arm roots move with the chest, like hanging arms (see 'HangingFrame')
+			if (m_spine < 0)
+				return 0.0f;
+
+			auto const& pelvis = m_targets[m_spine].base;
+			auto const& chest = m_targets[m_spine].frame;
+			auto chest_from_guide = Invert(m_guide_targets[m_spine].frame);
+			auto need = 0.0f;
+			for (auto const& reach : m_reaches)
+			{
+				// Measure how far beyond reach the grasp is at a stoop of 's'
+				auto weight = reach.weight.Value();
+				if (weight == 0)
+					continue;
+
+				auto const& limb = m_limbs[reach.limb];
+				auto root = chest_from_guide * m_guide.model[m_rig.chains[limb.chain].bones.front()].pos;
+				auto point = world_to_model * reach.grasp.point;
+				auto excess = [&](float s)
+				{
+					// Carry the root with the stooped chest
+					auto stooped = Stooped(s, pelvis, chest).second;
+					return Length(stooped * root - point) - StoopReach * limb.reach;
+				};
+				if (excess(0.0f) <= 0)
+					continue;
+
+				// Step through the stoops evenly for the first within reach, keeping the closest in case none is
+				auto lo = 0.0f, hi = 1.0f, best = 0.0f, best_excess = excess(0.0f);
+				auto found = false;
+				for (int k = 1; k <= StoopSamples && !found; ++k)
+				{
+					auto s = static_cast<float>(k) / StoopSamples;
+					auto e = excess(s);
+					found = e <= 0;
+					if (found)
+						hi = s;
+					else
+						lo = s;
+
+					if (e < best_excess)
+					{
+						best = s;
+						best_excess = e;
+					}
+				}
+
+				// Narrow the step that comes within reach down to its least stoop
+				if (found)
+				{
+					for (int k = 0; k != StoopBisections; ++k)
+					{
+						auto mid = 0.5f * (lo + hi);
+						if (excess(mid) <= 0)
+							hi = mid;
+						else
+							lo = mid;
+					}
+					best = hi;
+				}
+				need = std::max(need, weight * best);
+			}
+			return need;
+		}
+
 		// The model-space offset of a hanging limb's end towards the body's lowest side: up to 'RightingReach' of the limb's length as the body tilts
 		// from its calm tilt to its rough tilt (see 'BodyState'), scaled by how much it swims. Zero when the body does not right itself.
 		v4 RightingOffset(LimbState const& limb) const
@@ -1085,8 +1301,7 @@ namespace pr::animation
 			return xform(point - Rotate(rot, contact.offset.w0()), rot);
 		}
 
-		// Set the limb's digit chains and sole normal from the rig's rest pose. The sole is the plane through the limb's contact and the contacts
-		// at the tips of its digits. A limb with fewer than three such contacts, or with contacts in a line, uses its contact's normal instead.
+		// Set the limb's digit chains, sole normal and grip point from the rig's rest pose
 		void FindSole(LimbState& limb) const
 		{
 			// Gather the contacts in the end bone's space. Digit chains hang directly from the end bone.
@@ -1103,7 +1318,25 @@ namespace pr::animation
 				if (auto tip = DigitContact(c); tip >= 0)
 					points.push_back(to_end * m_rig.rest_model[chain.bones.back()] * m_rig.contacts[tip].offset);
 			}
+			limb.sole_up = SoleNormal(limb, points);
 
+			// A grasp holds the end bone's authored grip contact, which lies on the skin that wraps around a held thing. A limb without one grips at its contact.
+			limb.grip = m_rig.contacts[limb.contact].offset;
+			for (auto const& contact : m_rig.contacts)
+			{
+				// The first grip contact on the end bone is used
+				if (contact.kind != EContactKind::Grip || contact.bone != end)
+					continue;
+
+				limb.grip = contact.offset;
+				break;
+			}
+		}
+
+		// The unit normal of the sole of 'limb' in the end bone's space, pointing away from the ground. The sole is the plane through 'points', which
+		// are the limb's contact and the contacts at the tips of its digits. Fewer than three points, or points in a line, use the contact's normal instead.
+		v4 SoleNormal(LimbState const& limb, std::span<v4 const> points) const
+		{
 			// Fit a plane by least squares. Its normal is the direction in which the points spread least: the cross product of the two
 			// directions in which they spread most, taken from whichever pair of axes gives the best conditioned answer.
 			auto centre = v4::Zero();
@@ -1126,8 +1359,7 @@ namespace pr::animation
 			if (points.size() < 3 || det_max <= 1e-6f * Sqr(xx + yy + zz))
 			{
 				// The contact's normal points out of the skin, towards the ground
-				limb.sole_up = -m_rig.contacts[limb.contact].normal;
-				return;
+				return -m_rig.contacts[limb.contact].normal;
 			}
 			auto normal =
 				det_max == det_x ? v4(det_x, xz * yz - xy * zz, xy * yz - xz * yy, 0) :
@@ -1136,7 +1368,7 @@ namespace pr::animation
 
 			// The end bone is above its sole, so the normal points from the plane towards the bone's origin
 			normal = Normalise(normal);
-			limb.sole_up = Dot(normal, centre) > 0 ? -normal : normal;
+			return Dot(normal, centre) > 0 ? -normal : normal;
 		}
 
 		// The contact on the last bone of digit chain 'c', or -1 if it has none
@@ -1511,6 +1743,12 @@ namespace pr::animation
 			m_targets[m_spine].base = xform(pelvis0.pos + v4(pelvis_shift, 0, hind, 0), Normalise(pelvis_turn * pitch * pelvis0.rot));
 			m_targets[m_spine].frame = xform(chest0.pos + v4(chest_shift, 0, fore, 0), Normalise(chest_turn * pitch * chest0.rot));
 
+			// Stoop as far as the grasping hands need. The stoop follows the need smoothly, so a hand may briefly stretch for a grasp before the body
+			// brings it within reach.
+			m_stoop += (StoopNeeded(world_to_model) - m_stoop) * std::min(dt / StoopResponse, 1.0f);
+			if (m_stoop > 0)
+				std::tie(m_targets[m_spine].base, m_targets[m_spine].frame) = Stooped(m_stoop, m_targets[m_spine].base, m_targets[m_spine].frame);
+
 			// Breathing turns the chest bone about its head so that its tip moves out from the front of the body, which faces along the spine
 			// turned a quarter turn forward about model +X. The chest's head stays in place, so the rib cage swells rather than the belly.
 			auto breath = m_breath.chest * Inhale();
@@ -1522,6 +1760,9 @@ namespace pr::animation
 				auto swell = quat(Normalise(tip), Normalise(tip + front * breath));
 				chest.rot = Normalise(swell * chest.rot);
 			}
+
+			// Record how far the chest has moved from its stance, so callers can move held things with it
+			m_chest_motion = m_targets[m_spine].frame * Invert(m_chest_stance);
 		}
 
 		// How far through its in-and-out motion the current breath is: 0 at the start and end of the breath, and 1 halfway
@@ -2120,6 +2361,7 @@ namespace pr::animation::tests
 			add_toe("toe.0.L", v4(0.15f, -0.2f, 0, 1), v4(0.1f, -0.3f, 0, 1));
 			add_toe("toe.1.L", v4(0.2f, -0.2f, 0, 1), v4(0.2f, -0.3f, 0.05f, 1));
 			add_toe("toe.2.L", v4(0.25f, -0.2f, 0, 1), v4(0.3f, -0.3f, 0, 1));
+			desc.contacts.push_back(Contact{ .name = "grip.L", .bone = foot, .offset = v4(0.02f, 0.15f, -0.01f, 1), .normal = v4(0, 0, -1, 0), .kind = EContactKind::Grip });
 			auto rig = Rig(desc);
 
 			// Stand still on the slope until the feet settle
@@ -2143,6 +2385,9 @@ namespace pr::animation::tests
 					PR_EXPECT(FEqlAbsolute(Dot(tip.w0(), normal), 0.0f, 1e-3f));
 				}
 			}
+
+			// The grip point is the end bone's authored grip contact
+			PR_EXPECT(FEqlAbsolute(leg.grip, rig.contacts.back().offset, 1e-6f));
 		}
 		PRUnitTestMethod(ModelTransformsAreCurrent, Quick)
 		{
@@ -2551,6 +2796,65 @@ namespace pr::animation::tests
 
 			PR_EXPECT(Dot(facing(), neck.forward) > 0.999f);
 		}
+		PRUnitTestMethod(HandsReachForGrasps, Quick)
+		{
+			// Standing on its hind legs, a hand moves its palm onto a grasp facing the grasp's direction. A grasp beyond the arm's reach makes the body
+			// stoop just enough, with the foot kept planted, and letting go returns the body and the hand to where they were.
+			auto rig = TestRig();
+			auto gait = TestGait();
+			auto biped = FamilyIndex(gait, "bipedal");
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .gravity = v4(0, 0, -9.8f, 0) };
+			loco.RequestFamily(biped, 0.25f);
+			for (int i = 0; i != 120; ++i)
+				loco.Step(dt, body, ground);
+
+			PR_EXPECT(loco.family_settled() && loco.family() == biped);
+			auto rest = loco.pose().model;
+
+			// The grip point is on the hand bone, and the palm faces away from the limb's sole normal. The test rig's hand has no digits, so it grips at its
+			// contact. The body is at the origin, so model space is world space.
+			auto const& arm = loco.limbs()[1];
+			auto hand = rig.chains[arm.chain].bones.back();
+			auto foot = rig.chains[loco.limbs()[0].chain].bones.back();
+			PR_EXPECT(FEqlAbsolute(arm.grip, rig.contacts[arm.contact].offset, 1e-6f));
+			auto palm_point = [&] { return loco.pose().model[hand] * arm.grip; };
+			auto palm_facing = [&] { return Rotate(loco.pose().model[hand].rot, -arm.sole_up); };
+			auto finger_pointing = [&] { return Rotate(loco.pose().model[hand].rot, v4::YAxis()); };
+
+			// A grasp within reach needs no stoop, and the hand turns so its fingers point along the grasp's finger direction
+			auto within = Grasp{ .point = v4(0.2f, -1.3f, 0.5f, 1), .palm = v4(-1, 0, 0, 0), .fingers = v4(0, -1, 0, 0) };
+			loco.SetReach(ESide::Left, within, 0.25f);
+			for (int i = 0; i != 60; ++i)
+				loco.Step(dt, body, ground);
+
+			PR_EXPECT(FEqlAbsolute(palm_point(), within.point, 1e-2f));
+			PR_EXPECT(Dot(palm_facing(), within.palm) > 0.99f);
+			PR_EXPECT(Dot(finger_pointing(), within.fingers) > 0.9f);
+			PR_EXPECT(loco.stoop() == 0.0f);
+
+			// A grasp near the ground beyond the arm's reach lowers the body, with the foot where it was
+			auto low = Grasp{ .point = v4(0.2f, -1.3f, 0.02f, 1), .palm = v4(-1, 0, 0, 0) };
+			loco.SetReach(ESide::Left, low, 0.25f);
+			for (int i = 0; i != 120; ++i)
+				loco.Step(dt, body, ground);
+
+			PR_EXPECT(loco.stoop() > 0.01f && loco.stoop() < 0.5f);
+			PR_EXPECT(loco.targets()[0].base.pos.z < rest[rig.chains[0].bones.front()].pos.z - 0.01f);
+			PR_EXPECT(FEqlAbsolute(palm_point(), low.point, 1e-2f));
+			PR_EXPECT(FEqlAbsolute(loco.pose().model[foot].pos, rest[foot].pos, 1e-3f));
+
+			// Letting go returns to the pose before the reach
+			loco.SetReach(ESide::Left, std::nullopt, 0.25f);
+			for (int i = 0; i != 180; ++i)
+				loco.Step(dt, body, ground);
+
+			PR_EXPECT(loco.stoop() < 1e-3f);
+			for (int b = 0, bend = static_cast<int>(rig.bones.size()); b != bend; ++b)
+				PR_EXPECT(FEqlAbsolute(loco.pose().model[b].pos, rest[b].pos, 2e-3f));
+		}
 		PRUnitTestMethod(BreathingSwellsTheChest, Quick)
 		{
 			// At the peak of a breath the chest bone has turned about its head so that its tip has moved out from the front of the body, which for
@@ -2574,6 +2878,10 @@ namespace pr::animation::tests
 			}
 			PR_EXPECT(FEqlAbsolute(breathing.targets()[0].frame.pos, still.targets()[0].frame.pos, 1e-4f));
 			PR_EXPECT(FEqlAbsolute(tip(breathing) - tip(still), v4(0, 0, -0.02f, 0), 1e-3f));
+
+			// The reported chest motion moves a point on the still chest to where the breathing chest has it
+			PR_EXPECT(FEqlAbsolute(breathing.chest_motion() * tip(still), tip(breathing), 1e-4f));
+			PR_EXPECT(FEqlAbsolute(still.chest_motion().pos, v4::Origin(), 1e-6f));
 
 			for (int i = 0; i != 30; ++i)
 			{

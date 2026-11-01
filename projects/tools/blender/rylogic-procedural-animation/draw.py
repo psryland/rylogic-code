@@ -19,7 +19,10 @@ COLOUR_TWIST = (1.0, 0.85, 0.1, 1.0)
 COLOUR_POLE = (0.9, 0.2, 0.9, 1.0)
 COLOUR_FORWARD = (0.1, 0.85, 0.95, 1.0)
 COLOUR_CONTACT = (0.2, 0.95, 0.3, 1.0)
+COLOUR_GRIP = (0.25, 0.55, 1.0, 1.0)
 COLOUR_VIOLATION = (1.0, 0.1, 0.1, 1.0)
+WIDTH = 2.0
+WIDTH_ACTIVE = 5.0
 SEGMENTS = 24
 
 _handle = None
@@ -27,7 +30,7 @@ _handle = None
 
 def _Draw() -> None:
 	"""Draw the overlay for every visible armature that has it enabled."""
-	# Gather line segments per colour, then draw each colour as one batch
+	# Gather line segments per (colour, width), then draw each as one batch
 	lines: dict[tuple, list[Vector]] = {}
 	for obj in bpy.context.visible_objects:
 		if obj.type == "ARMATURE" and obj.mode != "EDIT" and obj.data.rylogic_rig.show_overlay:
@@ -37,9 +40,9 @@ def _Draw() -> None:
 		return
 
 	shader = gpu.shader.from_builtin("UNIFORM_COLOR")
-	gpu.state.line_width_set(2.0)
 	gpu.state.depth_test_set("NONE")
-	for colour, points in lines.items():
+	for (colour, width), points in lines.items():
+		gpu.state.line_width_set(width)
 		batch = batch_for_shader(shader, "LINES", {"pos": points})
 		shader.uniform_float("color", colour)
 		batch.draw(shader)
@@ -75,11 +78,11 @@ def _AddArmature(obj: bpy.types.Object, lines: dict[tuple, list[Vector]]) -> Non
 		apex = (world @ pose_bone.matrix).to_translation()
 		length = bone.length * world.to_scale().y
 		if violated:
-			lines.setdefault(COLOUR_VIOLATION, []).extend([apex, (world @ pose_bone.matrix @ Vector((0, bone.length, 0)))])
+			lines.setdefault((COLOUR_VIOLATION, WIDTH), []).extend([apex, (world @ pose_bone.matrix @ Vector((0, bone.length, 0)))])
 		if not (_IsFull(joint.swing_x_min, joint.swing_x_max) and _IsFull(joint.swing_z_min, joint.swing_z_max)):
-			_AddSwing(lines.setdefault(COLOUR_VIOLATION if violated else COLOUR_SWING, []), apex, frame.to_3x3(), joint, length)
+			_AddSwing(lines.setdefault((COLOUR_VIOLATION if violated else COLOUR_SWING, WIDTH), []), apex, frame.to_3x3(), joint, length)
 		if not _IsFull(joint.twist_min, joint.twist_max):
-			_AddTwist(lines.setdefault(COLOUR_VIOLATION if violated else COLOUR_TWIST, []), apex, frame.to_3x3(), joint.twist_min, joint.twist_max, length)
+			_AddTwist(lines.setdefault((COLOUR_VIOLATION if violated else COLOUR_TWIST, WIDTH), []), apex, frame.to_3x3(), joint.twist_min, joint.twist_max, length)
 
 	# Limb poles from the middle joint, and the neck's facing direction from its last bone
 	rotation = world.to_quaternion()
@@ -92,16 +95,17 @@ def _AddArmature(obj: bpy.types.Object, lines: dict[tuple, list[Vector]]) -> Non
 			case "LEG" | "ARM" if rig.show_poles and len(bones) == 3:
 				start = (world @ bones[1].matrix).to_translation()
 				size = sum(bone.bone.length for bone in bones) * 0.3 * world.to_scale().y
-				lines.setdefault(COLOUR_POLE, []).extend([start, start + (rotation @ Vector(chain.pole)).normalized() * size])
+				lines.setdefault((COLOUR_POLE, WIDTH), []).extend([start, start + (rotation @ Vector(chain.pole)).normalized() * size])
 			case "NECK" if rig.show_facing:
 				start = (world @ bones[-1].matrix).to_translation()
 				size = sum(bone.bone.length for bone in bones) * world.to_scale().y
-				lines.setdefault(COLOUR_FORWARD, []).extend([start, start + (rotation @ Vector(chain.forward)).normalized() * size])
+				lines.setdefault((COLOUR_FORWARD, WIDTH), []).extend([start, start + (rotation @ Vector(chain.forward)).normalized() * size])
 			case _:
 				pass
 
-	# Contacts as a small cross with a normal line
-	for contact in rig.contacts if rig.show_contacts else []:
+	# Contacts as a small cross with a normal line. Grips are drawn in their own colour, as they hold objects rather than touch the ground.
+	# The contact that is active in the panel is drawn with thicker lines, so that the one being edited can be found.
+	for index, contact in enumerate(rig.contacts if rig.show_contacts else []):
 		pose_bone = pose.bones.get(contact.bone)
 		if pose_bone is None or not Shown([contact.bone]):
 			continue
@@ -112,7 +116,8 @@ def _AddArmature(obj: bpy.types.Object, lines: dict[tuple, list[Vector]]) -> Non
 		size = pose_bone.bone.length * 0.25 * world.to_scale().y
 		side = normal.orthogonal().normalized() * size * 0.3
 		other = normal.cross(side)
-		lines.setdefault(COLOUR_CONTACT, []).extend([point, point + normal * size, point - side, point + side, point - other, point + other])
+		colour = COLOUR_GRIP if contact.kind == "GRIP" else COLOUR_CONTACT
+		lines.setdefault((colour, WIDTH_ACTIVE if index == rig.active_contact else WIDTH), []).extend([point, point + normal * size, point - side, point + side, point - other, point + other])
 
 
 def _IsFull(low: float, high: float) -> bool:

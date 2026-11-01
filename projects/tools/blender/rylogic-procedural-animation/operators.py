@@ -273,7 +273,8 @@ class RYLOGIC_OT_rig_symmetrize_limits(_ArmatureOperator):
 
 
 class RYLOGIC_OT_rig_contact_pick(_ArmatureOperator):
-	"""Click on the armature's mesh to place the active contact there, facing out of the surface, on the bone that most deforms that spot"""
+	"""Move the active contact over the armature's mesh with the mouse, facing out of the surface, and click to keep it. It goes on the bone that most
+	deforms that spot, except that a grip stays on its hand bone"""
 
 	bl_idname = "rylogic_rig.contact_pick"
 	bl_label = "Pick on Surface"
@@ -285,61 +286,92 @@ class RYLOGIC_OT_rig_contact_pick(_ArmatureOperator):
 		return armature_obj is not None and 0 <= armature_obj.data.rylogic_rig.active_contact < len(armature_obj.data.rylogic_rig.contacts)
 
 	def invoke(self, context, event):
-		# Wait for a click anywhere in the window, because the button lives in the Properties editor rather than the 3D view
-		self.armature_name = ActiveArmature(context).name
+		# Wait for a click anywhere in the window, because the button lives in the Properties editor rather than the 3D view.
+		# Remember the contact's placement so that cancelling restores it after the live preview has moved it.
+		armature_obj = ActiveArmature(context)
+		rig = armature_obj.data.rylogic_rig
+		contact = rig.contacts[rig.active_contact]
+		self.armature_name = armature_obj.name
+		self.original = (contact.bone, tuple(contact.offset), tuple(contact.normal))
 		context.window.cursor_modal_set("EYEDROPPER")
-		context.workspace.status_text_set("Click the mesh where the contact touches the ground.  Esc / Right-click: cancel")
+		context.workspace.status_text_set("Move over the mesh to place the contact, click to keep it.  Esc / Right-click: cancel")
 		context.window_manager.modal_handler_add(self)
 		return {"RUNNING_MODAL"}
 
 	def modal(self, context, event):
-		# Leave view navigation working while picking
-		if event.type in {"ESC", "RIGHTMOUSE"} and event.value == "PRESS":
+		# Cancelling puts the contact back where it was
+		armature_obj = bpy.data.objects.get(self.armature_name)
+		if armature_obj is None:
 			self._End(context)
 			return {"CANCELLED"}
-		if event.type != "LEFTMOUSE" or event.value != "PRESS":
+
+		rig = armature_obj.data.rylogic_rig
+		contact = rig.contacts[rig.active_contact]
+		if event.type in {"ESC", "RIGHTMOUSE"} and event.value == "PRESS":
+			contact.bone, contact.offset, contact.normal = self.original
+			self._End(context)
+			return {"CANCELLED"}
+
+		# The contact follows the mouse over the mesh, and a click keeps it. Other events pass through so that view navigation still works.
+		click = event.type == "LEFTMOUSE" and event.value == "PRESS"
+		if event.type != "MOUSEMOVE" and not click:
 			return {"PASS_THROUGH"}
 
+		placement = self._Placement(context, event, armature_obj, contact)
+		if placement is not None:
+			contact.bone, contact.offset, contact.normal = placement
+			_RedrawViews(context)
+
 		# A click away from a 3D view, or off the mesh, leaves the pick running so the user can try again
-		armature_obj = bpy.data.objects.get(self.armature_name)
-		ray = _MouseRay(context, event)
-		if armature_obj is None or ray is None:
+		if not click:
+			return {"PASS_THROUGH"}
+		if placement is None:
+			self.report({"WARNING"}, f"Click on a mesh deformed by '{armature_obj.name}'")
 			return {"RUNNING_MODAL"}
+
+		self.report({"INFO"}, f"Placed '{contact.name}' on '{contact.bone}'")
+		self._End(context)
+		return {"FINISHED"}
+
+	def _Placement(self, context, event, armature_obj, contact) -> tuple[str, Vector, Vector] | None:
+		"""Return the contact's bone, offset and normal at the mesh point under the mouse, or None if the mouse is not over the armature's mesh."""
+		# Find the deformed mesh under the mouse
+		ray = _MouseRay(context, event)
+		if ray is None:
+			return None
 
 		depsgraph = context.evaluated_depsgraph_get()
 		hit, location, _, face, mesh_obj, _ = context.scene.ray_cast(depsgraph, *ray)
 		if not hit or not _Deforms(mesh_obj, armature_obj):
-			self.report({"WARNING"}, f"Click on a mesh deformed by '{armature_obj.name}'")
-			return {"RUNNING_MODAL"}
+			return None
 
+		# A grip belongs to its hand bone, even over skin that a finger bone deforms more, because the runtime holds the hand's grip contact
+		keep = contact.bone if contact.kind == "GRIP" and contact.bone in armature_obj.data.bones else None
 		try:
-			bone, offset, direction = ContactFromSurface(armature_obj, mesh_obj.evaluated_get(depsgraph), location, face)
-		except ValueError as error:
-			self.report({"WARNING"}, str(error))
-			return {"RUNNING_MODAL"}
-
-		# Place the active contact
-		rig = armature_obj.data.rylogic_rig
-		contact = rig.contacts[rig.active_contact]
-		contact.bone, contact.offset, contact.normal = bone, offset, direction
-		self.report({"INFO"}, f"Placed '{contact.name}' on '{bone}'")
-		self._End(context)
-		return {"FINISHED"}
+			return ContactFromSurface(armature_obj, mesh_obj.evaluated_get(depsgraph), location, face, keep)
+		except ValueError:
+			return None
 
 	def _End(self, context) -> None:
 		"""Restore the cursor and status bar, and redraw so that the panel shows the new values."""
 		context.window.cursor_modal_restore()
 		context.workspace.status_text_set(None)
-		for area in context.window.screen.areas:
-			area.tag_redraw()
+		_RedrawViews(context)
 
 
-def ContactFromSurface(armature_obj: bpy.types.Object, mesh_eval: bpy.types.Object, location: Vector, face: int) -> tuple[str, Vector, Vector]:
+def _RedrawViews(context: bpy.types.Context) -> None:
+	"""Redraw every area of the window, so that the overlay and panels show changed rig values."""
+	for area in context.window.screen.areas:
+		area.tag_redraw()
+
+
+def ContactFromSurface(armature_obj: bpy.types.Object, mesh_eval: bpy.types.Object, location: Vector, face: int, bone: str | None = None) -> tuple[str, Vector, Vector]:
 	"""Return the bone, bone-space offset and bone-space normal of a contact at a world-space surface point of an evaluated (posed) mesh.
 
 	The normal is the shaded normal at the point (see ShadedNormal), so it follows the smooth surface that is rendered rather than the faceted mesh.
 
-	The bone is the deforming bone with the most weight over the vertices of the hit face. Raises ValueError if no bone of the armature weights that face.
+	The bone is 'bone' when given. Otherwise it is the deforming bone with the most weight over the vertices of the hit face, and ValueError is raised if no
+	bone of the armature weights that face.
 	"""
 	# Total each bone's weight over the hit face's vertices
 	bones = armature_obj.data.bones
@@ -351,11 +383,11 @@ def ContactFromSurface(armature_obj: bpy.types.Object, mesh_eval: bpy.types.Obje
 			if name in bones and bones[name].use_deform:
 				totals[name] = totals.get(name, 0.0) + element.weight
 
-	if not totals:
+	if bone is None and not totals:
 		raise ValueError("No bone deforms the picked face")
 
 	# Express the point and direction in the bone's current frame, which has the same axes as its rest frame
-	name = max(totals, key=totals.get)
+	name = bone if bone is not None else max(totals, key=totals.get)
 	frame = armature_obj.matrix_world @ armature_obj.pose.bones[name].matrix
 	offset = frame.inverted_safe() @ location
 	direction = (frame.to_3x3().inverted_safe() @ ShadedNormal(mesh_eval, location, face)).normalized()
