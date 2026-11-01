@@ -168,6 +168,9 @@ namespace pr::rdr12
 				.sun_intensity = 1.0f,
 				.blend_weight = 1.0f,
 				.world_to_cube = m4x4::Identity(),
+				.moon_direction = Normalise(v4(-0.5f, -0.3f, 0.5f, 0)),
+				.moon_light_direction = Normalise(v4(0.5f, 0.3f, -0.5f, 0)),
+				.sky_to_stars = m4x4::Identity(),
 				.clouds = {
 					.sun_direction = Normalise(v4(0.5f, 0.3f, 0.8f, 0)),
 					.shadow_strength = 1.0f,
@@ -176,7 +179,7 @@ namespace pr::rdr12
 				},
 			}
 		{
-			static_assert(sizeof(m_cbuf) == 368);
+			static_assert(sizeof(m_cbuf) == 464);
 			m_code.VS = shader_code::procedural_sky_vs;
 			m_code.PS = shader_code::procedural_sky_ps;
 
@@ -300,6 +303,22 @@ namespace pr::rdr12
 		factory.FlushToGpu(EGpuFlush::Block);
 	}
 
+	// True when 'matrix' is a finite pure rotation of directions, with no scale or translation.
+	static bool IsDirectionRotation(m4x4 const& matrix)
+	{
+		// Reject any non-finite component before testing orthonormality.
+		for (auto column : {matrix.x, matrix.y, matrix.z, matrix.pos})
+		{
+			for (auto value : {column.x, column.y, column.z, column.w})
+			{
+				if (!std::isfinite(value))
+					return false;
+			}
+		}
+		return IsOrthonormal(matrix.rot, 0.0001f) && matrix.x.w == 0 && matrix.y.w == 0 && matrix.z.w == 0 &&
+			matrix.pos.x == 0 && matrix.pos.y == 0 && matrix.pos.z == 0 && matrix.pos.w == 1;
+	}
+
 	// Reject invalid values before modifying the live shader so failed updates leave the previous sky intact.
 	void ProceduralSky::Update(ProceduralSkySettings const& settings)
 	{
@@ -324,6 +343,23 @@ namespace pr::rdr12
 			if (!std::isfinite(flash.w) || flash.w < 0 || (flash.w > 0 && (!std::isfinite(flash.x) || !std::isfinite(flash.y) || !std::isfinite(flash.z) || flash.z <= 0)))
 				throw std::invalid_argument("Procedural sky lightning requires a finite nonnegative brightness, and a finite position and positive radius when visible");
 		}
+
+		// The moon's directions only matter while it is shown, so a hidden moon may leave them unset.
+		auto moon_direction = settings.m_moon_direction;
+		auto moon_light_direction = settings.m_moon_light_direction;
+		moon_direction.w = 0;
+		moon_light_direction.w = 0;
+		if (!std::isfinite(settings.m_moon_intensity) || settings.m_moon_intensity < 0)
+			throw std::invalid_argument("Procedural sky requires a finite nonnegative moon intensity");
+		if (settings.m_moon_intensity > 0)
+		{
+			auto moon_sq = LengthSq(moon_direction);
+			auto light_sq = LengthSq(moon_light_direction);
+			if (!std::isfinite(moon_sq) || moon_sq <= 0 || !std::isfinite(light_sq) || light_sq <= 0)
+				throw std::invalid_argument("Procedural sky requires finite nonzero moon and moon light directions when the moon is shown");
+		}
+		if (!IsDirectionRotation(settings.m_sky_to_stars))
+			throw std::invalid_argument("Procedural sky requires the sky-to-stars transform to be a finite rotation");
 
 		// Align the wind frames with the wind. The first update aligns frame 1 immediately. Later, once any cross-fade has finished, a wind that
 		// has turned too far from frame 1 starts a cross-fade to a new frame. The new frame keeps the old frame's offsets, which is harmless
@@ -388,6 +424,15 @@ namespace pr::rdr12
 		m_shader->m_cbuf.time = s_cast<float>(std::fmod(settings.m_time, s_cast<double>(PR_SKY_TIME_PERIOD)));
 		for (int i = 0; i != PR_SKY_LIGHTNING_MAX; ++i)
 			m_shader->m_cbuf.lightning[i] = settings.m_lightning[i].w > 0 ? settings.m_lightning[i] : v4::Zero();
+
+		// A hidden moon keeps its previous directions, which the shader does not read.
+		m_shader->m_cbuf.moon_intensity = settings.m_moon_intensity;
+		if (settings.m_moon_intensity > 0)
+		{
+			m_shader->m_cbuf.moon_direction = Normalise(moon_direction);
+			m_shader->m_cbuf.moon_light_direction = Normalise(moon_light_direction);
+		}
+		m_shader->m_cbuf.sky_to_stars = settings.m_sky_to_stars;
 	}
 
 	// Retain the weather map; the shader reads its area and texture each frame.
@@ -430,20 +475,6 @@ namespace pr::rdr12
 			throw std::invalid_argument("Sky blend weight must be in [0,1], or 1 when no cubemap is supplied");
 
 		// Only direction rotations are accepted; translation and scale belong to the caller's scene geometry.
-		auto valid_rotation = [](m4x4 const& matrix)
-		{
-			for (auto column : {matrix.x, matrix.y, matrix.z, matrix.pos})
-			{
-				for (auto value : {column.x, column.y, column.z, column.w})
-				{
-					if (!std::isfinite(value))
-						return false;
-				}
-			}
-			return IsOrthonormal(matrix.rot, 0.0001f) && matrix.x.w == 0 && matrix.y.w == 0 && matrix.z.w == 0 &&
-				matrix.pos.x == 0 && matrix.pos.y == 0 && matrix.pos.z == 0 && matrix.pos.w == 1;
-		};
-
 		// A cube map orientation may also be a mirror (see TextureCube::m_cube2w), so its handedness is normalised before the rotation check
 		auto valid_cube_orientation = [&](m4x4 const& matrix)
 		{
@@ -451,9 +482,9 @@ namespace pr::rdr12
 			if (Triple(rotation.x, rotation.y, rotation.z) < 0)
 				rotation.z = -rotation.z;
 
-			return valid_rotation(rotation);
+			return IsDirectionRotation(rotation);
 		};
-		if (!valid_rotation(world_to_sky) || !valid_rotation(world_to_background) ||
+		if (!IsDirectionRotation(world_to_sky) || !IsDirectionRotation(world_to_background) ||
 			(background && (!valid_cube_orientation(background->m_cube2w) || &background->rdr() != &m_shader->rdr())))
 			throw std::invalid_argument("Sky direction transforms must be finite rotations, the cubemap orientation must be orthonormal, and the cubemap must belong to this renderer");
 

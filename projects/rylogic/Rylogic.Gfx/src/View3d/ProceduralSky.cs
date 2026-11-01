@@ -50,6 +50,28 @@ public sealed partial class View3d
 		public float CloudShadowStrength;
 
 		/// <summary>
+		/// Brightness of the moon, finite and nonnegative. 0 hides the moon, 1 is a full moon on a clear night. The moon is drawn additively, so it
+		/// is naturally faint in a daytime sky. It also adds a dim moonlit glow to the night sky and hides the faintest stars.
+		/// </summary>
+		public float MoonIntensity;
+
+		/// <summary>Direction toward the moon. Finite and nonzero when the moon is shown.</summary>
+		public v4 MoonDirection;
+
+		/// <summary>
+		/// Direction from the moon toward the light that lights it, which sets the phase: MoonDirection is a new moon and -MoonDirection is a full moon.
+		/// It is independent of the sun direction, so the moon's cycle may run separately from the day. Finite and nonzero when the moon is shown.
+		/// </summary>
+		public v4 MoonLightDirection;
+
+		/// <summary>
+		/// Rotation from the sky frame into the star frame (Z = north celestial pole, X = right ascension 0h). The stars, Milky Way and Magellanic Clouds
+		/// are fixed in the star frame, so turning this sets the observer's latitude and wheels the stars through the night. Must be a rotation.
+		/// <see cref="CelestialClock"/> can compute this, with matching sun and moon directions, from a simple Sun–Earth–Moon model.
+		/// </summary>
+		public m4x4 SkyToStars;
+
+		/// <summary>
 		/// Lightning flash 'i' inside the cloud: xy = position in the sky frame, z = radius (> 0), w = finite brightness (>= 0, 1 is a strong flash,
 		/// 0 is no flash). The caller decides when flashes happen and how they flicker; the sky shows each flash's current brightness.
 		/// </summary>
@@ -73,7 +95,7 @@ public sealed partial class View3d
 			m_lightning[i * 4 + 3] = flash.w;
 		}
 
-		/// <summary>Default settings: a clear midday sky with no wind.</summary>
+		/// <summary>Default settings: a clear midday sky with no wind, no moon, and the stars seen from the north pole.</summary>
 		public static ProceduralSkySettings Default
 		{
 			get
@@ -84,6 +106,9 @@ public sealed partial class View3d
 					SunColour = new v4(1f, 0.95f, 0.85f, 1f),
 					SunIntensity = 1f,
 					CloudShadowStrength = 1f,
+					MoonDirection = new v4(-0.5f, -0.3f, 0.5f, 0f),
+					MoonLightDirection = new v4(0.5f, 0.3f, -0.5f, 0f),
+					SkyToStars = m4x4.Identity,
 				};
 			}
 		}
@@ -292,12 +317,18 @@ public class ProceduralSkyTests
 	public void SettingsLayoutAndLightning()
 	{
 		var settings = View3d.ProceduralSkySettings.Default;
-		Assert.Equal(128, Marshal.SizeOf<View3d.ProceduralSkySettings>());
+		Assert.Equal(232, Marshal.SizeOf<View3d.ProceduralSkySettings>());
 		Assert.Equal(48, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.Time)).ToInt32());
 		Assert.Equal(56, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.HiddenCloudLayers)).ToInt32());
 		Assert.Equal(60, Marshal.OffsetOf<View3d.ProceduralSkySettings>("m_lightning").ToInt32());
 		Assert.Equal(124, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.CloudShadowStrength)).ToInt32());
+		Assert.Equal(128, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.MoonIntensity)).ToInt32());
+		Assert.Equal(132, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.MoonDirection)).ToInt32());
+		Assert.Equal(148, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.MoonLightDirection)).ToInt32());
+		Assert.Equal(164, Marshal.OffsetOf<View3d.ProceduralSkySettings>(nameof(View3d.ProceduralSkySettings.SkyToStars)).ToInt32());
 		Assert.Equal(1f, settings.CloudShadowStrength);
+		Assert.Equal(0f, settings.MoonIntensity);
+		Assert.Equal(m4x4.Identity, settings.SkyToStars);
 		Assert.Equal(v4.Zero, settings.Lightning(3));
 
 		settings.SetLightning(2, new v4(100, -200, 3000, 0.5f));

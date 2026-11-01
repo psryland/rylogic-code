@@ -24,6 +24,7 @@
 #include "pr/view3d-12/texture/texture_desc.h"
 #include "pr/view3d-12/texture/texture_2d.h"
 #include "pr/view3d-12/texture/texture_cube.h"
+#include "pr/view3d-12/scene/celestial_clock.h"
 #include "pr/view3d-12/scene/procedural_sky.h"
 #include "pr/view3d-12/scene/weather_map.h"
 #include "pr/view3d-12/population/population.h"
@@ -2586,7 +2587,12 @@ static rdr12::ProceduralSkySettings ToSkySettings(view3d::ProceduralSkySettings 
 		.m_time = s.m_time,
 		.m_hidden_cloud_layers = s.m_hidden_cloud_layers,
 		.m_cloud_shadow_strength = s.m_cloud_shadow_strength,
+		.m_moon_intensity = s.m_moon_intensity,
+		.m_moon_direction = To<v4>(s.m_moon_direction),
+		.m_moon_light_direction = To<v4>(s.m_moon_light_direction),
+		.m_sky_to_stars = To<m4x4>(s.m_sky_to_stars),
 	};
+	static_assert(sizeof(view3d::ProceduralSkySettings) == 232, "Must match the managed View3d.ProceduralSkySettings layout");
 	static_assert(std::extent_v<decltype(view3d::ProceduralSkySettings::m_lightning)> == rdr12::ProceduralSkySettings::LightningMax);
 	for (int i = 0; i != rdr12::ProceduralSkySettings::LightningMax; ++i)
 		settings.m_lightning[i] = To<v4>(s.m_lightning[i]);
@@ -2908,6 +2914,22 @@ VIEW3D_API BOOL __stdcall View3D_ObjectBlendProceduralSky(view3d::Object object,
 		return TRUE;
 	}
 	CatchAndReport(View3D_ObjectBlendProceduralSky, , FALSE);
+}
+
+// Evaluate the Sun–Earth–Moon model. It is pure maths, so it needs no context or lock.
+VIEW3D_API void __stdcall View3D_CelestialEvaluate(float latitude, double day, double moon_age, view3d::CelestialState& state)
+{
+	// Copy field by field because the DLL vector types differ from the renderer's.
+	static_assert(sizeof(view3d::CelestialState) == 116, "Must match the managed View3d.CelestialState layout");
+	auto clock = rdr12::CelestialClock{ .m_latitude = latitude, .m_day = day, .m_moon_age = moon_age };
+	auto sky = clock.Evaluate();
+	state = view3d::CelestialState{
+		.m_sun_direction = To<view3d::Vec4>(sky.m_sun_direction),
+		.m_moon_direction = To<view3d::Vec4>(sky.m_moon_direction),
+		.m_moon_light_direction = To<view3d::Vec4>(sky.m_moon_light_direction),
+		.m_sky_to_stars = To<view3d::Mat4x4>(sky.m_sky_to_stars),
+		.m_lit_fraction = sky.m_lit_fraction,
+	};
 }
 
 // Create an ldr object using a callback to populate the model data.

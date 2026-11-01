@@ -640,6 +640,10 @@ namespace pr
 		// 'm_hidden_cloud_layers' is a bit mask: bit i hides cloud layer i (0 = low, 1 = mid, 2 = cirrus). Zero shows all layers.
 		// 'm_lightning' are flashes inside the cloud: xy = position in the sky frame, z = radius (> 0), w = finite brightness (>= 0, 0 = no flash).
 		// 'm_cloud_shadow_strength' in [0,1] scales how much the clouds shade the scene's directional light that follows the sun (0 = no cloud shadows).
+		// 'm_moon_intensity' (finite, >= 0) is the moon's brightness: 0 hides the moon, 1 is a full moon on a clear night.
+		// 'm_moon_direction' points toward the moon. 'm_moon_light_direction' points from the moon toward the light that lights it, which sets the phase:
+		// equal to m_moon_direction is a new moon, equal to -m_moon_direction is a full moon. Both must be finite and nonzero when the moon is shown.
+		// 'm_sky_to_stars' rotates sky-frame directions into the star frame (Z = north celestial pole, X = right ascension 0h). Must be a rotation.
 		struct ProceduralSkySettings
 		{
 			Vec4 m_sun_direction = { 0.5f, 0.3f, 0.8f, 0.0f };
@@ -652,6 +656,21 @@ namespace pr
 			uint32_t m_hidden_cloud_layers = 0;
 			Vec4 m_lightning[4] = {};
 			float m_cloud_shadow_strength = 1.0f;
+			float m_moon_intensity = 0.0f;
+			Vec4 m_moon_direction = { -0.5f, -0.3f, 0.5f, 0.0f };
+			Vec4 m_moon_light_direction = { 0.5f, 0.3f, -0.5f, 0.0f };
+			Mat4x4 m_sky_to_stars = { {1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1} };
+		};
+
+		// Sun, moon and star state from the Sun–Earth–Moon model, in the procedural sky's frame (+Z up, +Y north, +X east). See CelestialState
+		// in pr/view3d-12/scene/celestial_clock.h. The directions and rotation can be copied directly into ProceduralSkySettings.
+		struct CelestialState
+		{
+			Vec4 m_sun_direction;
+			Vec4 m_moon_direction;
+			Vec4 m_moon_light_direction;
+			Mat4x4 m_sky_to_stars;
+			float m_lit_fraction;
 		};
 
 		// Whole-screen underwater post effect. Colours are sRGB ARGB; alpha is ignored.
@@ -1669,6 +1688,11 @@ extern "C"
 	// Retain and blend a source cube map (0=cubemap, 1=atmosphere). Direction transforms must be finite rotations.
 	// The cubemap's own orientation is composed with world_to_background. Null background requires weight 1. FALSE leaves the sky unchanged.
 	VIEW3D_API BOOL __stdcall View3D_ObjectBlendProceduralSky(pr::view3d::Object object, pr::view3d::CubeMap background, float weight, pr::view3d::Mat4x4 const& world_to_sky, pr::view3d::Mat4x4 const& world_to_background);
+
+	// Place the sun, moon and stars for an observer at 'latitude' (degrees in [-90, 90], negative is south), 'day' days since midnight at the start of
+	// 1 January (the fraction is the time of day), and 'moon_age' days since the last new moon. Any finite day and moon age are valid because both repeat.
+	// See CelestialClock in pr/view3d-12/scene/celestial_clock.h. Needs no View3D context.
+	VIEW3D_API void __stdcall View3D_CelestialEvaluate(float latitude, double day, double moon_age, pr::view3d::CelestialState& state);
 
 	// Create a 'width' x 'height' grid (each in [2,4096]) of cloud cover over the sky-frame XY area [area_min, area_max), initially clear.
 	// Cover fades to the sky's default cover over the outer 10% of the area. Edits apply to the CPU copy; call View3D_WeatherMapUpload to show them.
