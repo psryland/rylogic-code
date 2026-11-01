@@ -320,6 +320,12 @@ namespace pr::rdr12
 		return m_wnd.FrameReadyEvent();
 	}
 
+	// The host time the latest render spent blocked waiting for its back buffer. See Window::FrameWaitSeconds
+	double V3dWindow::FrameWaitSeconds() const
+	{
+		return m_wnd.FrameWaitSeconds();
+	}
+
 	// Get/Set the back buffer size
 	iv2 V3dWindow::BackBufferSize() const
 	{

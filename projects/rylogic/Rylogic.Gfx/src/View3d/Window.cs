@@ -374,9 +374,12 @@ namespace Rylogic.Gfx
 
 			/// <summary>
 			/// An auto-reset event that is signalled when the GPU has released the back buffer that the next render draws into, so rendering will not block.
-			/// Each render re-arms it. Wait on it before rendering, e.g. in a message loop, to keep that wait outside the render call. The window owns the handle.
+			/// Each render clears and re-arms it. Wait on it before rendering, e.g. in a message loop, to keep that wait outside the render call. The window owns the handle.
 			/// </summary>
 			public IntPtr FrameReadyEvent => View3D_WindowFrameReadyEvent(Handle);
+
+			/// <summary>The host time, in seconds, that the latest render spent blocked waiting for its back buffer. Zero when the caller waited for <see cref="FrameReadyEvent"/>.</summary>
+			public double FrameWaitSeconds => View3D_WindowFrameWaitSeconds(Handle);
 
 			/// <summary>Import/Export a settings string</summary>
 			public string Settings

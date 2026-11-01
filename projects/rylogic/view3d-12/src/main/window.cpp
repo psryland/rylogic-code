@@ -83,6 +83,7 @@ namespace pr::rdr12
 		, m_frame(rdr.d3d(), m_gsync, m_cmd_alloc_pool, m_msaa_bb, BackBuffer::Null())
 		, m_diag(*this)
 		, m_frame_number()
+		, m_frame_wait_s()
 		, m_vsync(settings.m_vsync)
 		, m_dither_amount(0.0f)
 		, m_idle(false)
@@ -397,6 +398,12 @@ namespace pr::rdr12
 		return m_frame_ready;
 	}
 
+	// The host time the latest NewFrame spent blocked waiting for its back buffer
+	double Window::FrameWaitSeconds() const
+	{
+		return m_frame_wait_s;
+	}
+
 	// Get/Set whether the swap chain owns an output in DXGI exclusive fullscreen mode
 	bool Window::FullScreen() const
 	{
@@ -531,11 +538,14 @@ namespace pr::rdr12
 
 		// Ensure the back buffer is available for rendering. The swap chain buffer's sync point bounds the number of frames in flight to the
 		// buffer count. The MSAA target is shared by every frame, but all frames run in order on the graphics queue, so the CPU only waits
-		// for it when there is no swap chain buffer to bound the frames in flight.
+		// for it when there is no swap chain buffer to bound the frames in flight. Time the wait so callers can separate it from CPU work.
+		auto wait_start = std::chrono::steady_clock::now();
 		if (bb_post.m_render_target != nullptr)
 			m_gsync.Wait(bb_post.m_sync_point);
 		else
 			m_gsync.Wait(bb_main.m_sync_point);
+
+		m_frame_wait_s = seconds_t(std::chrono::steady_clock::now() - wait_start).count();
 
 		// Bind D2D to the current swap chain render target
 		if (AllSet(m_swap_chain_flags, DXGI_SWAP_CHAIN_FLAG_GDI_COMPATIBLE))
@@ -735,9 +745,12 @@ namespace pr::rdr12
 		m_frame_output = frame_output;
 		++m_bb_index %= BBCount();
 
-		// Signal the frame-ready event once the GPU releases the back buffer that the next NewFrame waits for
+		// Signal the frame-ready event once the GPU releases the back buffer that the next NewFrame waits for.
+		// Clear any earlier signal first. A frame rendered without waiting for the event (e.g. a caller's timeout fallback) leaves the previous
+		// notification's signal unconsumed, and that stale signal would otherwise release every later frame one buffer early, so NewFrame blocks.
 		auto& bb_next_post = BBCount() != 0 ? m_swap_bb[BBIndex()] : BackBuffer::Null();
 		auto& bb_next = bb_next_post.m_render_target != nullptr ? bb_next_post : m_msaa_bb;
+		::ResetEvent(m_frame_ready);
 		m_gsync.NotifyOnCompletion(bb_next.m_sync_point, m_frame_ready);
 
 		// Signal the renderer's deferred-deletion fence on the same queue

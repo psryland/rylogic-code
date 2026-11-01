@@ -2158,6 +2158,7 @@ namespace Rylogic.Gfx
 
 		// Return the handle signalled when the window's swap chain can queue another frame (null unless created with a max frame latency)
 		[DllImport(Dll)] private static extern IntPtr View3D_WindowFrameReadyEvent(HWindow window);
+		[DllImport(Dll)] private static extern double View3D_WindowFrameWaitSeconds(HWindow window);
 
 		// Set the global environment map for the window
 		[DllImport(Dll)] private static extern void View3D_WindowEnvMapSet(HWindow window, HCubeMap env_map);

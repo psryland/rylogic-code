@@ -1390,9 +1390,13 @@ extern "C"
 	VIEW3D_API pr::view3d::Vec2 __stdcall View3D_WindowDpiScale(pr::view3d::Window window);
 
 	// Return an auto-reset event that is signalled when the GPU has released the back buffer that the next render of 'window' draws into,
-	// so starting that render will not block waiting for the GPU or the display. Each render re-arms the event. Wait on it before rendering
-	// to keep that wait outside the render call, e.g. in a message loop. The window owns the handle; do not close it.
+	// so starting that render will not block waiting for the GPU or the display. Each render clears and re-arms the event. Wait on it before
+	// rendering to keep that wait outside the render call, e.g. in a message loop. The window owns the handle; do not close it.
 	VIEW3D_API HANDLE __stdcall View3D_WindowFrameReadyEvent(pr::view3d::Window window);
+
+	// Return the host time, in seconds, that the latest render of 'window' spent blocked waiting for the GPU to release its back buffer.
+	// This is zero when the caller waited for the frame-ready event before rendering.
+	VIEW3D_API double __stdcall View3D_WindowFrameWaitSeconds(pr::view3d::Window window);
 
 	// Set the global environment map for the window
 	VIEW3D_API void __stdcall View3D_WindowEnvMapSet(pr::view3d::Window window, pr::view3d::CubeMap env_map);

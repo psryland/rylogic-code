@@ -1351,6 +1351,19 @@ VIEW3D_API HANDLE __stdcall View3D_WindowFrameReadyEvent(view3d::Window window)
 	CatchAndReport(View3D_WindowFrameReadyEvent, window, nullptr);
 }
 
+// Return the host time the latest render of the window spent blocked waiting for its back buffer
+VIEW3D_API double __stdcall View3D_WindowFrameWaitSeconds(view3d::Window window)
+{
+	try
+	{
+		Validate(window);
+
+		DllLockGuard;
+		return window->FrameWaitSeconds();
+	}
+	CatchAndReport(View3D_WindowFrameWaitSeconds, window, 0.0);
+}
+
 // Set the global environment map for the window
 VIEW3D_API void __stdcall View3D_WindowEnvMapSet(view3d::Window window, view3d::CubeMap env_map)
 {
