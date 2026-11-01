@@ -115,21 +115,41 @@ float3 DaytimeSkyDepth(float view_z, float sun_z, float heavy)
 	return lerp(1.0, float3(0.16, 0.23, 0.35), daytime * overhead);
 }
 
-// Add the sun disc and its glow to the sky radiance 'sky' along 'view_dir', and darken views below the horizon.
-// 'time' is in seconds, wrapped at PR_SKY_TIME_PERIOD, and slowly moves the soft rays in the glow.
-float3 AtmosphericSky(float3 sky, float3 view_dir, float3 sun_dir, float3 sun_light, float time)
+// Angular radius of the drawn sun disc, in radians. Slightly larger than the real sun so it reads at game fields of view.
+static const float SunRadius = 0.0065;
+
+// Add the sun disc and its glow to the sky radiance 'sky' along 'view_dir', and darken views below the horizon. 'pixel_angle' is the angle one
+// pixel covers. 'time' is in seconds, wrapped at PR_SKY_TIME_PERIOD, and slowly moves the soft rays in the glow.
+float3 AtmosphericSky(float3 sky, float3 view_dir, float3 sun_dir, float3 sun_light, float pixel_angle, float time)
 {
-	// The sun disc, reddened by the same path through the atmosphere as sunlight on the ground.
+	// The angle from the sun (radians) is approximated by the chord length, which is accurate near the sun where the disc and glow matter.
+	// The sun is reddened by the same path through the atmosphere as sunlight on the ground. A low sun is seen through much more haze,
+	// so its glow is wider and stronger, which also keeps it visible against the bright twilight sky.
 	float cos_sun = dot(view_dir, sun_dir);
-	float3 sun_seen = sun_light * SunTransmittance(sun_dir.z, 1.0);
-	sky += 40.0 * sun_seen * smoothstep(0.99985, 0.99993, cos_sun) * step(-0.02, sun_dir.z);
-
-	// A bright hazy glow around the sun, from light scattered slightly forward by haze. The phase function above is too broad to show it.
-	// The angle from the sun (radians) is approximated by the chord length, which is accurate near the sun where the glow matters.
-	// A tight bright core blends into a wide faint halo. Clouds are composited over this, so thick cloud hides the glow.
 	float sun_angle = sqrt(max(2.0 * (1.0 - cos_sun), 0.0));
+	float3 sun_seen = sun_light * SunTransmittance(sun_dir.z, 1.0);
+	float low = smoothstep(0.25, 0.0, sun_dir.z);
+	float risen = smoothstep(-0.03, 0.0, sun_dir.z);
 
-	// Soft rays that slowly drift and shimmer in the halo. The angle around the sun is measured in a world-fixed frame so the rays do not turn
+	// The disc is far brighter than the display range, so it saturates to white by day. At sunset only its red and green saturate, so it
+	// is yellow-white. Its edge is antialiased over a pixel, and the limb is slightly darker.
+	// A low sun looks larger, as the real setting sun appears to, so its disc grows by a fifth.
+	float radius = SunRadius * (1.0 + 0.2 * low);
+	float edge = max(pixel_angle, radius * 0.08);
+	float disc = 1.0 - smoothstep(radius - edge, radius + edge, sun_angle);
+	float limb = lerp(0.6, 1.0, sqrt(saturate(1.0 - sun_angle * sun_angle / (radius * radius))));
+	sky += 300.0 * sun_seen * disc * limb * step(-0.02, sun_dir.z);
+
+	// Bloom: the overexposed sun spills a little past its edge, so the white disc fades into the sky over a few disc radii.
+	// It is much brighter and wider for a low sun, where the dim reddened light would otherwise leave no glow; its tail then runs from yellow to orange.
+	float outside = max(sun_angle - radius, 0.0);
+	float bloom = lerp(3.0, 45.0, low) * exp(-outside / lerp(0.006, 0.011, low));
+
+	// A small pale aureole around the bloom, from light scattered slightly forward by haze. The phase function above is too broad to show it.
+	// Around a low sun it is stronger and wider, giving the sunset sun a yellow-orange glow.
+	float aureole = (1.0 + 5.0 * low) * 0.35 * exp(-sun_angle / lerp(0.03, 0.045, low));
+
+	// Soft rays that slowly drift and shimmer in a faint halo. The angle around the sun is measured in a world-fixed frame so the rays do not turn
 	// with the camera. That frame has no fixed reference when the sun is exactly overhead, so another axis is used then.
 	// Only whole multiples of the angle are used, so there is no seam where atan2 wraps. Time rates are whole cycles per PR_SKY_TIME_PERIOD,
 	// so the motion is continuous when the CPU wraps the time. The rays fade out near the centre, where the angle around the sun is undefined.
@@ -138,15 +158,12 @@ float3 AtmosphericSky(float3 sky, float3 view_dir, float3 sun_dir, float3 sun_li
 	float around = atan2(dot(view_dir, cross(sun_dir, side)), dot(view_dir, side));
 	float w = 6.2831853 * time / PR_SKY_TIME_PERIOD;
 	float rays = 0.5 * sin(7.0 * around + 10.0 * w) + 0.3 * sin(13.0 * around - 17.0 * w) + 0.2 * sin(23.0 * around + 29.0 * w);
-
-	// A low sun is seen through much more haze, so its glow and shimmer are stronger. This also keeps the glow visible against the bright
-	// twilight sky, even though the sunlight reaching the eye is heavily dimmed.
-	float low = smoothstep(0.2, 0.0, sun_dir.z);
 	float halo = 1.0 + lerp(0.3, 0.6, low) * rays * smoothstep(0.0, 0.03, sun_angle);
+	float rayed = (1.0 + 3.0 * low) * 0.2 * halo * exp(-sun_angle / 0.06);
 
-	// A tight bright core blends into a wide faint halo carrying the rays.
-	float glow = (1.0 + 3.0 * low) * (1.125 * exp(-sun_angle / 0.02) + 0.2625 * halo * exp(-sun_angle / 0.12));
-	sky += sun_seen * glow * smoothstep(-0.03, 0.0, sun_dir.z);
+	// A low sun also warms a wide patch of the haze around it, without rays.
+	float warm = low * 0.9 * exp(-sun_angle / 0.15);
+	sky += sun_seen * (bloom + aureole + rayed + warm) * risen;
 
 	// Below the horizon the background is darker, standing in for ground or sea.
 	float below = saturate(-view_dir.z * 3.0);
@@ -170,14 +187,120 @@ float Unorm(uint h)
 	return (h & 0xFFFFFFu) / 16777215.0;
 }
 
-// Twinkling point stars on a sphere of hashed cells. 'pixel_size' is the pixel footprint on that sphere.
-float3 Stars(float3 dir, float pixel_size, float time)
+// Smooth value noise in [0,1] on a unit lattice. Different seeds give unrelated patterns.
+float ValueNoise(float3 p, uint seed)
+{
+	// Blend the hashed values at the eight surrounding lattice points with a smooth weight, so the noise has no visible creases.
+	int3 i = int3(floor(p));
+	float3 f = p - floor(p);
+	float3 u = f * f * (3.0 - 2.0 * f);
+	float n000 = Unorm(LatticeHash(i + int3(0, 0, 0), seed));
+	float n100 = Unorm(LatticeHash(i + int3(1, 0, 0), seed));
+	float n010 = Unorm(LatticeHash(i + int3(0, 1, 0), seed));
+	float n110 = Unorm(LatticeHash(i + int3(1, 1, 0), seed));
+	float n001 = Unorm(LatticeHash(i + int3(0, 0, 1), seed));
+	float n101 = Unorm(LatticeHash(i + int3(1, 0, 1), seed));
+	float n011 = Unorm(LatticeHash(i + int3(0, 1, 1), seed));
+	float n111 = Unorm(LatticeHash(i + int3(1, 1, 1), seed));
+	float n00 = lerp(n000, n100, u.x);
+	float n10 = lerp(n010, n110, u.x);
+	float n01 = lerp(n001, n101, u.x);
+	float n11 = lerp(n011, n111, u.x);
+	return lerp(lerp(n00, n10, u.y), lerp(n01, n11, u.y), u.z);
+}
+
+// Value noise summed over 'octaves' doublings of frequency, with each octave at half the weight. Returns about [0,1], centred near 0.5.
+float Fbm(float3 p, uint seed, int octaves)
+{
+	// Each octave adds finer, fainter detail. The octaves are offset so their lattices do not line up.
+	float sum = 0;
+	float weight = 0.5;
+	float total = 0;
+	for (int i = 0; i != octaves; ++i)
+	{
+		sum += weight * ValueNoise(p, seed + i);
+		total += weight;
+		p = p * 2.03 + 17.1;
+		weight *= 0.5;
+	}
+	return sum / total;
+}
+
+// The galactic frame in the star frame: unit vectors toward the galactic north pole and the galactic centre (in Sagittarius).
+static const float3 GalacticPole = float3(-0.86767, -0.19808, 0.45598);
+static const float3 GalacticCentre = float3(-0.05488, -0.87344, -0.48383);
+
+// Star-frame directions of the large and small Magellanic Clouds and the Coalsack dark nebula beside the Southern Cross.
+static const float3 LargeMagellanicCloud = float3(0.05477, 0.34159, -0.93825);
+static const float3 SmallMagellanicCloud = float3(0.28742, 0.06736, -0.95543);
+static const float3 Coalsack = float3(-0.44609, -0.09971, -0.88942);
+
+// How much of the galactic plane lies along 'stars_dir' (a star-frame direction), in [0,1]. Used to crowd stars toward the Milky Way.
+float GalacticPlane(float3 stars_dir)
+{
+	// The plane fades within about 15 degrees of galactic latitude.
+	float sin_b = dot(stars_dir, GalacticPole);
+	return exp(-sin_b * sin_b / (2.0 * 0.13 * 0.13));
+}
+
+// Diffuse light of the Milky Way and the Magellanic Clouds along 'stars_dir' (a star-frame direction), as linear radiance.
+float3 MilkyWay(float3 stars_dir)
+{
+	// Galactic latitude 'b' and longitude 'l' (both radians). Longitude is 0 toward the galactic centre and 90 degrees toward Cygnus.
+	float3 toward_cygnus = cross(GalacticPole, GalacticCentre);
+	float b = asin(clamp(dot(stars_dir, GalacticPole), -1.0, 1.0));
+	float l = atan2(dot(stars_dir, toward_cygnus), dot(stars_dir, GalacticCentre));
+
+	// Clumpy star clouds. The noise is read in the star frame, so the clumps turn with the stars.
+	float clumps = Fbm(stars_dir * 9.0, 101u, 4);
+	float fine = Fbm(stars_dir * 40.0, 131u, 2);
+	float texture = lerp(0.35, 1.5, smoothstep(0.3, 0.75, clumps)) * lerp(0.75, 1.2, fine);
+
+	// The disc of the galaxy is a narrow band with a faint wide skirt. It is brightest toward the centre and fades toward the anticentre in Orion.
+	float along = 0.3 + 0.7 * exp(-l * l / (2.0 * 0.9 * 0.9));
+	float band = exp(-b * b / (2.0 * 0.07 * 0.07)) + 0.25 * exp(-b * b / (2.0 * 0.2 * 0.2));
+	float3 disc = float3(0.8, 0.88, 1.0) * band * along * texture;
+
+	// The central bulge is a broad warm glow around the galactic centre, in Scorpius and Sagittarius.
+	float bulge = exp(-(l * l / (2.0 * 0.26 * 0.26) + b * b / (2.0 * 0.14 * 0.14)));
+	float3 core = float3(1.0, 0.85, 0.65) * 1.6 * bulge * lerp(0.5, 1.3, clumps);
+
+	// Dark dust lanes run along the plane from the Coalsack through the centre to Cygnus (the Great Rift; the "Emu in the sky" seen from
+	// the south). They are ragged, so noise breaks them into lanes and knots. The Coalsack is a dark patch about 7 degrees across.
+	float lane = exp(-(b - 0.01) * (b - 0.01) / (2.0 * 0.03 * 0.03));
+	float span = smoothstep(-1.25, -0.95, l) * smoothstep(1.5, 1.15, l);
+	float dust = lane * span * smoothstep(0.35, 0.65, Fbm(stars_dir * 14.0, 151u, 3));
+	float coalsack_angle = length(stars_dir - Coalsack);
+	dust = max(dust, exp(-coalsack_angle * coalsack_angle / (2.0 * 0.035 * 0.035)));
+	float3 light = (disc + core) * (1.0 - 0.85 * dust);
+
+	// The Magellanic Clouds are small separate galaxies: faint grainy patches near the south celestial pole.
+	float lmc_angle = length(stars_dir - LargeMagellanicCloud);
+	float smc_angle = length(stars_dir - SmallMagellanicCloud);
+	float magellanic = 0.9 * exp(-lmc_angle * lmc_angle / (2.0 * 0.05 * 0.05)) + 0.5 * exp(-smc_angle * smc_angle / (2.0 * 0.028 * 0.028));
+	light += float3(0.85, 0.88, 1.0) * magellanic * lerp(0.6, 1.3, fine);
+
+	// The overall level suits a dark, moonless sky.
+	return light * 0.012;
+}
+
+// Twinkle in [0.5, 1] for a star with random values 'r' in [0,1]. Rates are whole cycles per PR_SKY_TIME_PERIOD, so the twinkle is continuous when
+// the CPU wraps the time.
+float Twinkle(float2 r, float time)
+{
+	float cycles = 15.0 + floor(40.0 * r.x);
+	return 0.75 + 0.25 * sin(6.2831853 * cycles * time / PR_SKY_TIME_PERIOD + r.y * 6.283);
+}
+
+// Twinkling background stars on a sphere of hashed cells around 'stars_dir' (a star-frame direction). 'pixel_size' is the pixel footprint on that
+// sphere. 'crowding' in [0,1] adds more stars, used along the Milky Way.
+float3 Stars(float3 stars_dir, float pixel_size, float crowding, float time)
 {
 	// One possible star per cell of a grid around a sphere of radius 300; most cells are empty.
-	float3 p = dir * 300.0;
+	float3 p = stars_dir * 300.0;
 	int3 cell = int3(floor(p));
 	uint h = LatticeHash(cell, 7u);
-	if (Unorm(h) < 0.993)
+	if (Unorm(h) < 0.993 - 0.012 * crowding)
 		return 0;
 
 	// Place the star inside the cell, then measure its distance along the sphere.
@@ -188,13 +311,139 @@ float3 Stars(float3 dir, float pixel_size, float time)
 	// Keep stars at least a pixel wide so they do not flicker as the camera turns. Most stars are faint, a few are bright.
 	float sigma = max(pixel_size * 0.6, 0.04);
 	float shape = exp(-d * d / (sigma * sigma));
-	float brightness = 0.15 + 2.0 * pow(r.x, 6.0);
-
-	// Twinkle rates are whole cycles per PR_SKY_TIME_PERIOD, so the twinkle is continuous when the CPU wraps the time.
-	float cycles = 15.0 + floor(40.0 * r.y);
-	float twinkle = 0.75 + 0.25 * sin(6.2831853 * cycles * time / PR_SKY_TIME_PERIOD + r.z * 6.283);
+	float brightness = 0.15 + 1.2 * pow(r.x, 6.0);
 	float3 colour = lerp(float3(0.75, 0.85, 1.0), float3(1.0, 0.9, 0.75), r.y);
-	return colour * brightness * twinkle * shape;
+	return colour * brightness * Twinkle(r.yz, time) * shape;
+}
+
+// The brightest stars of both hemispheres, so the familiar constellations appear, with the southern sky in more detail: the Southern Cross
+// and its Pointers (Rigil Kentaurus and Hadar), Canopus, Achernar and the stars of Scorpius. xyz is the star-frame direction, and w is the
+// visual magnitude (smaller is brighter).
+#define PR_SKY_NAMED_STAR_COUNT 38
+static const float4 NamedStars[PR_SKY_NAMED_STAR_COUNT] = {
+	float4(-0.18745, 0.93922, -0.28763, -1.46), // Sirius
+	float4(-0.06322, 0.60274, -0.79543, -0.74), // Canopus
+	float4(-0.37386, -0.31262, -0.87321, -0.27), // Rigil Kentaurus (Alpha Centauri)
+	float4(-0.78379, -0.52698, 0.32857, -0.05), // Arcturus
+	float4(0.12509, -0.76941, 0.62639, 0.03), // Vega
+	float4(0.13050, 0.68232, 0.71932, 0.08), // Capella
+	float4(0.19506, 0.97036, -0.14266, 0.13), // Rigel
+	float4(-0.41810, 0.90382, 0.09107, 0.34), // Procyon
+	float4(0.49272, 0.22381, -0.84092, 0.46), // Achernar
+	float4(0.02089, 0.99144, 0.12892, 0.50), // Betelgeuse
+	float4(-0.42394, -0.25428, -0.86926, 0.61), // Hadar
+	float4(0.45922, -0.87484, 0.15416, 0.76), // Altair
+	float4(-0.44941, -0.05240, -0.89179, 0.76), // Acrux
+	float4(0.34391, 0.89497, 0.28417, 0.86), // Aldebaran
+	float4(-0.34481, -0.82641, -0.44514, 0.96), // Antares
+	float4(-0.91408, -0.35635, -0.19357, 0.97), // Spica
+	float4(-0.39151, 0.79116, 0.46987, 1.14), // Pollux
+	float4(0.83734, -0.23358, -0.49428, 1.16), // Fomalhaut
+	float4(0.45565, -0.53619, 0.71055, 1.25), // Deneb
+	float4(-0.49379, -0.10433, -0.86330, 1.25), // Mimosa
+	float4(-0.86450, 0.45787, 0.20735, 1.35), // Regulus
+	float4(-0.22135, 0.84639, -0.48438, 1.50), // Adhara
+	float4(-0.09164, -0.79226, -0.60326, 1.62), // Shaula
+	float4(-0.53797, -0.07361, -0.83974, 1.64), // Gacrux
+	float4(-0.25883, 0.23061, -0.93799, 1.67), // Miaplacidus
+	float4(0.10359, 0.99440, -0.02098, 1.69), // Alnilam
+	float4(0.60293, -0.31980, -0.73089, 1.74), // Alnair
+	float4(0.08380, 0.99591, -0.03391, 1.77), // Alnitak
+	float4(-0.36295, 0.57230, -0.73535, 1.83), // Regor
+	float4(0.08688, -0.82068, -0.56475, 1.85), // Kaus Australis
+	float4(-0.29557, 0.41243, -0.86171, 1.86), // Avior
+	float4(-0.07226, -0.72780, -0.68197, 1.86), // Sargas
+	float4(0.32559, -0.44143, -0.83614, 1.94), // Peacock
+	float4(0.21409, -0.87057, -0.44302, 2.05), // Nunki
+	float4(0.12183, 0.99254, -0.00522, 2.23), // Mintaka
+	float4(-0.46037, -0.80006, -0.38465, 2.29), // Dschubba
+	float4(-0.51766, -0.03426, -0.85490, 2.80), // Delta Crucis
+	float4(-0.49178, -0.04597, -0.86950, 3.60), // Epsilon Crucis
+};
+
+// The B-V colour index of each named star, in the same order: negative is blue-white, about 0.6 is yellow, and above 1.5 is orange-red.
+static const float NamedStarColourIndex[PR_SKY_NAMED_STAR_COUNT] = {
+	0.00, 0.15, 0.71, 1.23, 0.00, 0.80, -0.03, 0.42, -0.16, 1.85, -0.23, 0.22, -0.24, 1.54, 1.83, -0.23, 1.00, 0.09, 0.09,
+	-0.24, -0.11, -0.21, -0.22, 1.60, 0.07, -0.18, -0.07, -0.20, -0.22, -0.03, 1.20, 0.40, -0.20, -0.13, -0.22, -0.12, -0.23, 1.40,
+};
+
+// The named bright stars along 'stars_dir' (a star-frame direction). 'pixel_angle' is the angle one pixel covers.
+float3 NamedStarLight(float3 stars_dir, float pixel_angle, float time)
+{
+	// Each star is a small spot at least a pixel wide. Brighter stars are drawn slightly larger, the way the eye and a camera see them.
+	float3 light = 0;
+	float sigma = max(pixel_angle * 0.6, 0.04 / 300.0);
+	for (int i = 0; i != PR_SKY_NAMED_STAR_COUNT; ++i)
+	{
+		// Skip stars more than a few spot widths away, which is nearly all of them.
+		float4 star = NamedStars[i];
+		float d = length(stars_dir - star.xyz);
+		float brightness = 1.6 * pow(10.0, -0.4 * star.w);
+		float s = sigma * (1.0 + 0.35 * log2(1.0 + brightness));
+		if (d > 4.0 * s)
+			continue;
+
+		// Colour from the colour index: blue-white for hot stars, through white and yellow, to orange-red for cool giants.
+		float bv = NamedStarColourIndex[i];
+		float3 colour = bv < 0.4
+			? lerp(float3(0.7, 0.8, 1.0), float3(1.0, 0.97, 0.92), saturate((bv + 0.3) / 0.7))
+			: lerp(float3(1.0, 0.97, 0.92), float3(1.0, 0.7, 0.45), saturate((bv - 0.4) / 1.4));
+		float2 r = float2(frac(i * 0.618034), frac(i * 0.414214));
+		light += colour * brightness * Twinkle(r, time) * exp(-d * d / (s * s));
+	}
+	return light;
+}
+
+// Angular radius of the drawn moon, in radians. Slightly larger than the sun, as a large moon reads better at game fields of view.
+static const float MoonRadius = 0.0085;
+
+// Add the moon along 'view_dir'. 'moon_dir' is the unit direction toward the moon, and 'light_dir' the unit direction from the moon toward the sun.
+// 'moonlight' is the moon's radiance at full brightness after the atmosphere. 'pixel_angle' is the angle one pixel covers.
+// Returns the disc's radiance in rgb and its coverage of the view in a, which hides the stars behind it.
+float4 MoonDisc(float3 view_dir, float3 moon_dir, float3 light_dir, float3 moonlight, float pixel_angle)
+{
+	// Position on the disc in units of the moon's radius, in a frame that keeps the moon upright relative to the horizon.
+	float3 offset = view_dir - moon_dir * dot(view_dir, moon_dir);
+	float3 across = cross(moon_dir, float3(0, 0, 1));
+	across = dot(across, across) > 1e-6 ? normalize(across) : float3(1, 0, 0);
+	float3 up = cross(across, moon_dir);
+	float2 uv = float2(dot(offset, across), dot(offset, up)) / MoonRadius;
+	float r2 = dot(uv, uv);
+	float edge = max(pixel_angle / MoonRadius, 0.04);
+	if (dot(view_dir, moon_dir) < 0 || r2 > (1.0 + edge) * (1.0 + edge))
+		return 0;
+
+	// The surface normal of the sphere facing the viewer. The phase comes from lighting that sphere from the sun's side, with a slightly soft terminator.
+	float depth = sqrt(saturate(1.0 - r2));
+	float3 local = float3(uv, depth);
+	float3 normal = uv.x * across + uv.y * up - depth * moon_dir;
+	float lit = smoothstep(-0.05, 0.15, dot(normal, light_dir));
+
+	// The dark maria are large smooth patches fixed on the moon's face, with fine mottling over the whole surface.
+	float maria = smoothstep(0.45, 0.62, Fbm(local * 2.2, 211u, 3));
+	float mottle = Fbm(local * 9.0, 223u, 2);
+	float albedo = lerp(1.0, 0.55, maria) * lerp(0.85, 1.1, mottle);
+
+	// Earthshine faintly lights the dark side. The edge is antialiased over a pixel.
+	float coverage = 1.0 - smoothstep(1.0 - edge, 1.0 + edge, sqrt(r2));
+	return float4(moonlight * albedo * (lit + 0.015) * coverage, coverage);
+}
+
+// The light of the moon along 'view_dir': its disc, plus a soft halo from haze that grows with the lit fraction. 'brightness' is the moon's
+// radiance at full brightness above the atmosphere. 'pixel_angle' is the angle one pixel covers.
+// Returns the radiance in rgb and the disc's coverage of the view in a.
+float4 Moon(float3 view_dir, float3 moon_dir, float3 light_dir, float brightness, float pixel_angle)
+{
+	// The moon is reddened by its path through the atmosphere, as the sun is, normalised so a high moon keeps its colour. It sets below the horizon.
+	float3 seen = brightness * float3(1.0, 0.97, 0.92) * SunTransmittance(moon_dir.z, 1.0) / SunTransmittance(1.0, 1.0);
+	seen *= smoothstep(-0.02, 0.01, moon_dir.z) * saturate(view_dir.z * 50.0 + 1.0);
+
+	// The fraction of the visible face that is lit: 0 for a new moon, 1 for a full moon.
+	float lit_fraction = 0.5 - 0.5 * dot(light_dir, moon_dir);
+	float moon_angle = length(view_dir - moon_dir);
+	float3 halo = seen * lit_fraction * 0.04 * exp(-moon_angle / 0.04);
+	float4 disc = MoonDisc(view_dir, moon_dir, light_dir, seen, pixel_angle);
+	return float4(disc.rgb + halo, disc.a);
 }
 
 // The colour and radiance of lightning light in cloud at brightness 1.
@@ -585,12 +834,44 @@ float3 ProceduralSkyColour(float3 dir, float3 cam, float pixel_angle, uint2 pixe
 	float heavy = smoothstep(0.6, 1.0, CloudCover(clouds, cam.xy));
 	float3 air = SkyRadiance(dir, sun_dir, sun_top);
 	float3 haze = air * DaytimeSkyDepth(dir.z, sun_dir.z, heavy);
-	float3 sky = AtmosphericSky(haze, dir, sun_dir, sun_top, g_sky.time);
+	float3 sky = AtmosphericSky(haze, dir, sun_dir, sun_top, pixel_angle, g_sky.time);
 
-	// Stars appear in the darkening sky before sunset and fade out near the horizon where the air is thick.
-	float star_visibility = smoothstep(0.08, -0.08, sun_dir.z) * saturate(dir.z * 5.0);
+	// The moon lights the night air faintly, in proportion to its lit fraction. The sky model's constant night floor is already in 'air'.
+	// 'moon_level' (0 to 1) is how strongly that light washes out the faint stars.
+	float3 moon_dir = g_sky.moon_direction.xyz;
+	float3 moon_light_dir = g_sky.moon_light_direction.xyz;
+	float3 moon_air = 0;
+	float moon_level = 0;
+	if (g_sky.moon_intensity > 0)
+	{
+		float lit_fraction = 0.5 - 0.5 * dot(moon_light_dir, moon_dir);
+		float3 moon_top = sun_top * 0.012 * g_sky.moon_intensity * lit_fraction;
+		moon_air = SkyRadiance(dir, moon_dir, moon_top) - float3(0.002, 0.003, 0.006);
+		moon_level = saturate(g_sky.moon_intensity * lit_fraction) * smoothstep(-0.05, 0.1, moon_dir.z);
+		sky += moon_air;
+		air += moon_air;
+	}
+
+	// The moon is drawn in front of the stars. By day the bright sky leaves it faint and washed out, as in reality.
+	float4 moon = 0;
+	if (g_sky.moon_intensity > 0)
+	{
+		float daylight = smoothstep(-0.1, 0.2, sun_dir.z);
+		moon = Moon(dir, moon_dir, moon_light_dir, 3.0 * g_sky.moon_intensity * lerp(1.0, 0.12, daylight), pixel_angle);
+	}
+
+	// Stars and the Milky Way appear in the darkening sky before sunset and fade out near the horizon where the air is thick. They turn with
+	// the star frame. Moonlight washes out the faint ones, and the diffuse Milky Way most of all.
+	float star_visibility = smoothstep(0.08, -0.08, sun_dir.z) * saturate(dir.z * 5.0) * (1.0 - moon.a);
 	if (star_visibility > 0)
-		sky += Stars(dir, pixel_angle * 300.0, g_sky.time) * star_visibility;
+	{
+		float3 stars_dir = mul(float4(dir, 0), g_sky.sky_to_stars).xyz;
+		float3 night = Stars(stars_dir, pixel_angle * 300.0, GalacticPlane(stars_dir), g_sky.time) * (1.0 - 0.6 * moon_level);
+		night += NamedStarLight(stars_dir, pixel_angle, g_sky.time);
+		night += MilkyWay(stars_dir) * (1.0 - 0.85 * moon_level);
+		sky += night * star_visibility;
+	}
+	sky += moon.rgb;
 
 	// Under heavy cloud little sunlight reaches the air below it, so the clear air seen toward the horizon and below it is dim and grey.
 	float gloom = lerp(1.0, 0.17, heavy);

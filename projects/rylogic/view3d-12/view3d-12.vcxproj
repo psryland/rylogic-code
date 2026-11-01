@@ -98,6 +98,7 @@
   <ItemGroup>
     <ClCompile Include="src\instance\instance.cpp" />
     <ClCompile Include="src\scene\procedural_sky.cpp" />
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\scene\celestial_clock.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\scene\procedural_sky.h" />
     <ClCompile Include="src\scene\weather_map.cpp" />
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\scene\weather_map.h" />

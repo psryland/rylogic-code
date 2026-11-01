@@ -46,6 +46,23 @@ namespace pr::rdr12
 		// Strength of the low and mid clouds' shadows on the scene, in [0,1]. 0 casts no cloud shadows.
 		// Cloud shadows dim the scene's directional light that shines from the sky's sun.
 		float m_cloud_shadow_strength = 1.0f;
+
+		// Brightness of the moon, finite and nonnegative. 0 hides the moon, 1 is a full moon on a clear night. The moon is drawn additively,
+		// so it is naturally faint against a daytime sky. The moon also adds a dim moonlit glow to the night sky and hides the faintest stars.
+		float m_moon_intensity = 0.0f;
+
+		// Direction toward the moon. Must be finite and nonzero when the moon is shown; it is normalised by the sky.
+		v4 m_moon_direction = v4(-0.5f, -0.3f, 0.5f, 0);
+
+		// Direction from the moon toward the light that lights it (the sun). It sets the moon's phase: equal to m_moon_direction (the sun is
+		// behind the moon) is a new moon, and equal to -m_moon_direction (the sun is behind the viewer) is a full moon. It is independent of
+		// m_sun_direction, so callers may run the moon's cycle separately from the day. Must be finite and nonzero when the moon is shown.
+		v4 m_moon_light_direction = v4(0.5f, 0.3f, -0.5f, 0);
+
+		// Rotation from the sky frame into the star frame, where Z is the north celestial pole and X points toward right ascension 0h.
+		// Stars, the Milky Way and the Magellanic Clouds are fixed in the star frame, so the caller turns this to set the observer's latitude
+		// and to wheel the stars through the night. Must be a rotation (orthonormal, no translation).
+		m4x4 m_sky_to_stars = m4x4::Identity();
 	};
 
 	// Owns a Z-up atmospheric sky with an optional retained cubemap. Create, update and release on the renderer owner thread.

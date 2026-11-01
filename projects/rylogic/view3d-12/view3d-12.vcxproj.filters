@@ -4,6 +4,9 @@
     <ClCompile Include="src\scene\procedural_sky.cpp">
       <Filter>src\scene</Filter>
     </ClCompile>
+    <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\scene\celestial_clock.h">
+      <Filter>pr</Filter>
+    </ClInclude>
     <ClInclude Include="$(RylogicRoot)include\pr\view3d-12\scene\procedural_sky.h">
       <Filter>pr</Filter>
     </ClInclude>
