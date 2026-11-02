@@ -1046,6 +1046,9 @@ namespace physics_sandbox
 		m_physics.Config(physics::EngineConfig{
 			.max_collision_pairs = scene_desc.physics_max_collision_pairs,
 			.sleeping_enabled = m_allow_sleeping,
+			.sleep_velocity_threshold_lin = scene_desc.physics_sleep_velocity_threshold_lin,
+			.sleep_velocity_threshold_ang = scene_desc.physics_sleep_velocity_threshold_ang,
+			.sleep_delay_s = scene_desc.physics_sleep_delay_s,
 			.solver_iterations = scene_desc.physics_solver_iterations,
 			.push_out_iterations = scene_desc.physics_position_iterations,
 			.broadphase_aabb_margin = scene_desc.physics_broadphase_aabb_margin,
@@ -1338,9 +1341,10 @@ namespace physics_sandbox
 			if (use_sphere_prototype)
 			{
 				// Spheres are rotationally symmetric, so a checker texture is needed to make their spin visible.
+				// '#checker2' has enough contrast to stay visible after the body colour tints it.
 				builder.Sphere(sphere_prototype_name).sphere(1).facets(5).texture([](ldraw::seri::Texture& tex)
 				{
-					tex.filepath("#checker3").addr("Wrap", "Wrap");
+					tex.filepath("#checker2").addr("Wrap", "Wrap");
 				}).hide();
 				++prototype_count;
 			}

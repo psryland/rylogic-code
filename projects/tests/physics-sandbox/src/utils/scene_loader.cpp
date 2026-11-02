@@ -1403,6 +1403,24 @@ namespace physics_sandbox::scene_loader
 				if (desc.physics_substeps < 1 || desc.physics_substeps > max_substeps)
 					throw std::runtime_error(std::format("Scene physics.substeps must be in the range [1, {}]", max_substeps));
 			}
+			if (auto* jsleep_lin = jphysics_obj.find("sleep_velocity_threshold_lin"))
+			{
+				desc.physics_sleep_velocity_threshold_lin = jsleep_lin->to<float>();
+				if (!std::isfinite(desc.physics_sleep_velocity_threshold_lin) || desc.physics_sleep_velocity_threshold_lin < 0.0f)
+					throw std::runtime_error("Scene physics.sleep_velocity_threshold_lin must be finite and non-negative");
+			}
+			if (auto* jsleep_ang = jphysics_obj.find("sleep_velocity_threshold_ang"))
+			{
+				desc.physics_sleep_velocity_threshold_ang = jsleep_ang->to<float>();
+				if (!std::isfinite(desc.physics_sleep_velocity_threshold_ang) || desc.physics_sleep_velocity_threshold_ang < 0.0f)
+					throw std::runtime_error("Scene physics.sleep_velocity_threshold_ang must be finite and non-negative");
+			}
+			if (auto* jsleep_delay = jphysics_obj.find("sleep_delay_s"))
+			{
+				desc.physics_sleep_delay_s = jsleep_delay->to<float>();
+				if (!std::isfinite(desc.physics_sleep_delay_s) || desc.physics_sleep_delay_s < 0.0f)
+					throw std::runtime_error("Scene physics.sleep_delay_s must be finite and non-negative");
+			}
 			if (auto* jsolver_iterations = jphysics_obj.find("solver_iterations"))
 			{
 				desc.physics_solver_iterations = jsolver_iterations->to<int>();
@@ -1756,6 +1774,19 @@ namespace physics_sandbox::scene_loader
 					ball_count += is_ball ? 1 : 0;
 				}
 				PR_EXPECT(ball_count == 7);
+			}
+
+			// The spinning beach ball lowers the engine sleep thresholds so the slowly drifting ball stays awake; other scenes keep the engine defaults.
+			PRUnitTestMethod(SceneSleepThresholdsOverrideEngineDefaults, Quick)
+			{
+				auto const spinning = LoadFromFile("projects\\tests\\physics-sandbox\\scenes\\spinning_beach_ball.json");
+				PR_EXPECT(spinning.physics_sleep_velocity_threshold_lin == 0.02f);
+				PR_EXPECT(spinning.physics_sleep_velocity_threshold_ang == 0.1f);
+				PR_EXPECT(spinning.physics_sleep_delay_s == physics::EngineConfig{}.sleep_delay_s);
+
+				auto const waves = LoadFromFile("projects\\tests\\physics-sandbox\\scenes\\beach_ball_waves.json");
+				PR_EXPECT(waves.physics_sleep_velocity_threshold_lin == physics::EngineConfig{}.sleep_velocity_threshold_lin);
+				PR_EXPECT(waves.physics_sleep_velocity_threshold_ang == physics::EngineConfig{}.sleep_velocity_threshold_ang);
 			}
 		};
 

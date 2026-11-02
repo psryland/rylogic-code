@@ -24,6 +24,9 @@ namespace physics_sandbox::scene_loader
 	//             "support_contact_slop_scale": 0.005, // Slop fraction for load-bearing support contacts
 	//             "warm_start_scale": 0.90,     // Previous-frame impulse fraction used to seed the solver
 	//             "max_collision_pairs": 131072,// Override EngineConfig collision pair/contact capacity
+	//             "sleep_velocity_threshold_lin": 0.25, // Bodies slower than this (m/s) for 'sleep_delay_s' may sleep
+	//             "sleep_velocity_threshold_ang": 1.5,  // Bodies spinning slower than this (rad/s) for 'sleep_delay_s' may sleep
+	//             "sleep_delay_s": 1.0,         // Time a body must stay below both thresholds before it sleeps
 	//             "selective_refresh_passes": 1, // Extra narrowphase/resolve passes over problematic contacts
 	//             "selective_refresh_body_limit": 256, // Disable selective refresh above this body count; 0 = unlimited
 	//             "selective_refresh_contact_limit": 512, // Disable selective refresh after dense previous-frame contact graphs; 0 = unlimited
@@ -359,6 +362,9 @@ namespace physics_sandbox::scene_loader
 		float physics_support_contact_slop_scale = physics::EngineConfig{}.support_contact_slop_scale;
 		float physics_warm_start_scale = physics::EngineConfig{}.warm_start_scale;
 		int physics_max_collision_pairs = physics::EngineConfig{}.max_collision_pairs;
+		float physics_sleep_velocity_threshold_lin = physics::EngineConfig{}.sleep_velocity_threshold_lin;
+		float physics_sleep_velocity_threshold_ang = physics::EngineConfig{}.sleep_velocity_threshold_ang;
+		float physics_sleep_delay_s = physics::EngineConfig{}.sleep_delay_s;
 		int physics_selective_refresh_passes = physics::EngineConfig{}.selective_refresh_passes;
 		int physics_selective_refresh_max_pairs = physics::EngineConfig{}.selective_refresh_max_pairs;
 		int physics_selective_refresh_body_limit = physics::EngineConfig{}.selective_refresh_body_limit;
