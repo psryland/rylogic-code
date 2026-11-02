@@ -714,6 +714,10 @@ namespace pr
 			float m_roughness_max;
 			float m_detail;
 			float m_warp;
+			float m_near_feature_scale;
+			float m_near_normal_strength;
+			float m_near_fade_start;
+			float m_near_fade_end;
 			float m_pad1;
 			float m_pad2;
 			float m_pad3;

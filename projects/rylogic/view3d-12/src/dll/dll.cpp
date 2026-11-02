@@ -3612,6 +3612,10 @@ namespace
 			.m_roughness_max = surface.m_roughness_max,
 			.m_detail = surface.m_detail,
 			.m_warp = surface.m_warp,
+			.m_near_feature_scale = surface.m_near_feature_scale,
+			.m_near_normal_strength = surface.m_near_normal_strength,
+			.m_near_fade_start = surface.m_near_fade_start,
+			.m_near_fade_end = surface.m_near_fade_end,
 		};
 		result.Validate();
 		return result;
@@ -3636,6 +3640,10 @@ namespace
 			.m_roughness_max = surface.m_roughness_max,
 			.m_detail = surface.m_detail,
 			.m_warp = surface.m_warp,
+			.m_near_feature_scale = surface.m_near_feature_scale,
+			.m_near_normal_strength = surface.m_near_normal_strength,
+			.m_near_fade_start = surface.m_near_fade_start,
+			.m_near_fade_end = surface.m_near_fade_end,
 		};
 	}
 
@@ -3649,6 +3657,10 @@ namespace
 			.m_feature_scale = 1.0f,
 			.m_coordinate_origin = {0, 0, 0, 1},
 			.m_axis_scale = {1, 1, 1, 0},
+			.m_near_feature_scale = 0.5f,
+			.m_near_normal_strength = 0.0f,
+			.m_near_fade_start = 3.0f,
+			.m_near_fade_end = 10.0f,
 		};
 		switch (preset)
 		{

@@ -69,6 +69,24 @@ public enum ETreeNodeFlags
 	DefaultOpen = 1 << 5,
 }
 
+/// <summary>Colour editor flags. Values match ImGuiColorEditFlags.</summary>
+[Flags]
+public enum EColorEditFlags
+{
+	None = 0,
+	NoPicker = 1 << 2,
+	NoOptions = 1 << 3,
+	NoSmallPreview = 1 << 4,
+	NoInputs = 1 << 5,
+	NoTooltip = 1 << 6,
+	NoLabel = 1 << 7,
+	DisplayRGB = 1 << 20,
+	DisplayHSV = 1 << 21,
+	DisplayHex = 1 << 22,
+	PickerHueBar = 1 << 25,
+	PickerHueWheel = 1 << 26,
+}
+
 /// <summary>
 /// An immediate-mode Dear ImGui context, implemented by the dynamically loaded 'imgui.dll'.
 /// Attach it to a View3D window to draw each completed frame into that window's final overlay pass.
@@ -78,7 +96,7 @@ public enum ETreeNodeFlags
 public sealed unsafe class ImGuiUI : IDisposable
 {
 	/// <summary>Version of the 'imgui.dll' exports that this wrapper expects.</summary>
-	internal const uint ApiVersion = 0x00020000U;
+	internal const uint ApiVersion = 0x00020001U;
 
 	private const string Dll = "imgui";
 	private static IntPtr s_module;
@@ -466,6 +484,29 @@ public sealed unsafe class ImGuiUI : IDisposable
 			return ImGui_Combo(Ctx, label, p_current, p_items, -1);
 	}
 
+	/// <summary>An RGB colour editor with a swatch that opens a colour picker. Returns true when the colour changed. The alpha of 'colour' is preserved.</summary>
+	public bool ColorEdit3(string label, ref Colour32 colour, EColorEditFlags flags = EColorEditFlags.None)
+	{
+		// ImGui edits normalised floats. Byte values survive the round trip because the result is rounded, not truncated.
+		var rgb = stackalloc float[3] { colour.R / 255f, colour.G / 255f, colour.B / 255f };
+		if (!ImGui_ColorEdit3(Ctx, label, rgb, (int)flags))
+			return false;
+
+		// Report a change only when it changes the 8-bit colour.
+		var edited = new Colour32(colour.A, ToByte(rgb[0]), ToByte(rgb[1]), ToByte(rgb[2]));
+		if (edited.ARGB == colour.ARGB)
+			return false;
+
+		colour = edited;
+		return true;
+
+		// Convert one normalised channel to the nearest byte.
+		static byte ToByte(float value)
+		{
+			return (byte)Math.Max(0, Math.Min(255, (int)Math.Round(value * 255.0)));
+		}
+	}
+
 	/// <summary>A line graph of 'values'. NaN scale limits are found from the data. Zero sizes use defaults.</summary>
 	public void PlotLines(string label, float[] values, string? overlay = null, float scale_min = float.NaN, float scale_max = float.NaN, float width = 0f, float height = 0f)
 	{
@@ -578,6 +619,7 @@ public sealed unsafe class ImGuiUI : IDisposable
 	[DllImport(Dll)][return: MarshalAs(UnmanagedType.U1)] private static extern bool ImGui_InputFloat(IntPtr ctx, [MarshalAs(UnmanagedType.LPUTF8Str)] string label, float* v, float step, float step_fast, [MarshalAs(UnmanagedType.LPUTF8Str)] string format, int flags);
 	[DllImport(Dll)][return: MarshalAs(UnmanagedType.U1)] private static extern bool ImGui_InputText(IntPtr ctx, [MarshalAs(UnmanagedType.LPUTF8Str)] string label, byte* buf, UIntPtr buf_size, int flags);
 	[DllImport(Dll)][return: MarshalAs(UnmanagedType.U1)] private static extern bool ImGui_Combo(IntPtr ctx, [MarshalAs(UnmanagedType.LPUTF8Str)] string label, int* current_item, byte* items_separated_by_zeros, int popup_max_height_in_items);
+	[DllImport(Dll)][return: MarshalAs(UnmanagedType.U1)] private static extern bool ImGui_ColorEdit3(IntPtr ctx, [MarshalAs(UnmanagedType.LPUTF8Str)] string label, float* col, int flags);
 	[DllImport(Dll)] private static extern void ImGui_PlotLines(IntPtr ctx, [MarshalAs(UnmanagedType.LPUTF8Str)] string label, float* values, int values_count, int values_offset, [MarshalAs(UnmanagedType.LPUTF8Str)] string? overlay_text, float scale_min, float scale_max, float graph_w, float graph_h);
 
 	#endregion

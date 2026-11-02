@@ -16,7 +16,7 @@ struct ProceduralSurfaceSample
 	// Channels share one noise evaluation so their visible structure remains coherent.
 
 	float3 albedo;
-	float3 gradient; // World-space gradient of the band-limited height field, in height units per metre.
+	float3 gradient; // World-space slope of the band-limited bump height field, already scaled by the normal strengths.
 	float roughness;
 };
 
@@ -91,9 +91,9 @@ float ProceduralOctaveFade(float footprint, float frequency)
 	return saturate(2.0f - 2.0f * cells_per_pixel);
 }
 
-// Evaluate a compact four-octave field without texture lookup or finite spatial extent, band-limited to a pixel 'footprint' in base cells.
+// Evaluate a compact field of 'octaves' noise layers without texture lookup or finite spatial extent, band-limited to a pixel 'footprint' in base cells.
 // Returns the value in 'x' and its gradient with respect to 'coordinate' in 'yzw'.
-float4 ProceduralFbm(int3 base_cell, float3 coordinate, uint seed, float detail, float footprint)
+float4 ProceduralFbm(int3 base_cell, float3 coordinate, uint seed, float detail, float footprint, int octaves)
 {
 	// Accumulate integer-scaled octaves so split-cell addressing remains translation invariant.
 	// A fading octave is blended towards its mean (0.5), not towards zero, and keeps its share of 'weight_sum'. This keeps the average value,
@@ -104,7 +104,7 @@ float4 ProceduralFbm(int3 base_cell, float3 coordinate, uint seed, float detail,
 	float weight = 0.5f;
 	float weight_sum = 0.0f;
 	float frequency = 1.0f;
-	for (int octave = 0; octave != 4; ++octave)
+	for (int octave = 0; octave != octaves; ++octave)
 	{
 		// Each octave doubles spatial frequency while the caller controls persistence.
 		// Noise at 'coordinate * frequency' has a gradient with respect to 'coordinate' that is 'frequency' times the noise gradient.
@@ -136,6 +136,16 @@ float3 ProceduralCoordinate(float4 ws_vert)
 		dot(ws_vert.xyz, g_pbr.procedural_coord_z.xyz) + g_pbr.procedural_coord_z.w);
 }
 
+// Convert an interpolated world position into the split near-layer coordinate supplied by the CPU.
+float3 ProceduralNearCoordinate(float4 ws_vert)
+{
+	// The near rows have the same form as the base rows, at the near feature scale.
+	return float3(
+		dot(ws_vert.xyz, g_pbr.procedural_near_x.xyz) + g_pbr.procedural_near_x.w,
+		dot(ws_vert.xyz, g_pbr.procedural_near_y.xyz) + g_pbr.procedural_near_y.w,
+		dot(ws_vert.xyz, g_pbr.procedural_near_z.xyz) + g_pbr.procedural_near_z.w);
+}
+
 // Return the size of the pixel at 'ws_vert' in base noise cells, for EvaluateProceduralSurface.
 // This uses screen derivatives, so call it from uniform control flow.
 float ProceduralFootprint(float4 ws_vert)
@@ -157,9 +167,9 @@ ProceduralSurfaceSample EvaluateProceduralSurface(float4 ws_vert, float footprin
 	float detail = g_pbr.procedural_params1.x;
 	float warp = g_pbr.procedural_params1.y;
 	float3 coordinate = ProceduralCoordinate(ws_vert);
-	float4 warp_noise = ProceduralFbm(base_cell, coordinate + 19.17f, seed ^ 0x68bc21ebu, detail, footprint);
+	float4 warp_noise = ProceduralFbm(base_cell, coordinate + 19.17f, seed ^ 0x68bc21ebu, detail, footprint, 4);
 	coordinate += (warp_noise.x - 0.5f) * warp;
-	float4 broad = ProceduralFbm(base_cell, coordinate, seed, detail, footprint);
+	float4 broad = ProceduralFbm(base_cell, coordinate, seed, detail, footprint, 4);
 
 	// The fine layer has eight cells per base cell and fades to its mean like an fBm octave.
 	float fine_fade = ProceduralOctaveFade(footprint, 8.0f);
@@ -176,12 +186,27 @@ ProceduralSurfaceSample EvaluateProceduralSurface(float4 ws_vert, float footprin
 
 	// The height is the broad field. The warp adds the same offset to all three axes, so by the chain rule the gradient with respect to the
 	// unwarped coordinate is the broad gradient plus 'warp' times the warp-field gradient times the sum of the broad gradient's components.
-	// The coordinate rows map world positions to coordinates, so the world gradient is the coordinate gradient multiplied by those rows.
+	// The coordinate rows map world positions to coordinates, so the world gradient is the coordinate gradient multiplied by those rows. The normal
+	// strength is the bump height for a full swing of the noise, so it scales the slope.
 	float3 coordinate_gradient = broad.yzw + warp * warp_noise.yzw * dot(broad.yzw, float3(1, 1, 1));
-	float3 world_gradient =
+	float3 world_gradient = g_pbr.procedural_params0.y * (
 		coordinate_gradient.x * g_pbr.procedural_coord_x.xyz +
 		coordinate_gradient.y * g_pbr.procedural_coord_y.xyz +
-		coordinate_gradient.z * g_pbr.procedural_coord_z.xyz;
+		coordinate_gradient.z * g_pbr.procedural_coord_z.xyz);
+
+	// The near layer adds finer bumps close to the camera. It fades out between the near fade distances, and is not evaluated beyond them.
+	// It uses its own unwarped coordinate at the near feature scale; its pixel footprint is the base footprint times the near cells per base cell.
+	float near_strength = g_pbr.procedural_params2.x;
+	float near_fade = near_strength * (1.0f - smoothstep(g_pbr.procedural_params2.y, g_pbr.procedural_params2.z, length(g_frame.cam.c2w[3].xyz - ws_vert.xyz)));
+	[branch] if (near_fade > 0.0f)
+	{
+		// Two octaves of near noise, band-limited to the pixel footprint like the base layer.
+		float4 near_noise = ProceduralFbm(g_pbr.procedural_near_cell.xyz, ProceduralNearCoordinate(ws_vert), seed ^ 0x2c1b3c6du, detail, footprint * g_pbr.procedural_params2.w, 2);
+		world_gradient += near_fade * (
+			near_noise.y * g_pbr.procedural_near_x.xyz +
+			near_noise.z * g_pbr.procedural_near_y.xyz +
+			near_noise.w * g_pbr.procedural_near_z.xyz);
+	}
 
 	ProceduralSurfaceSample result = (ProceduralSurfaceSample)0;
 	result.albedo = colour;
@@ -195,7 +220,7 @@ float3 ProceduralWorldNormal(float3 normal, float3 gradient)
 {
 	// Only the part of the gradient along the surface tilts the normal, so remove its component along the normal.
 	float3 surface_gradient = gradient - dot(gradient, normal) * normal;
-	return normalize(normal - g_pbr.procedural_params0.y * surface_gradient);
+	return normalize(normal - surface_gradient);
 }
 
 #endif

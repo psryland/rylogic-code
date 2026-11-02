@@ -26,7 +26,7 @@ struct ID3D12GraphicsCommandList;
 namespace pr::rdr12::imgui
 {
 	// Version of the DLL's exported functions that this header expects
-	constexpr std::uint32_t ApiVersion = 0x00020000U;
+	constexpr std::uint32_t ApiVersion = 0x00020001U;
 
 	// Opaque DLL context handle. Defined within the DLL.
 	struct Context;
@@ -110,6 +110,7 @@ namespace pr::rdr12::imgui
 		x(, InputFloat         , bool (__stdcall*)(Context& ctx, char const* label, float* v, float step, float step_fast, char const* format, int flags))\
 		x(, InputText          , bool (__stdcall*)(Context& ctx, char const* label, char* buf, size_t buf_size, int flags))\
 		x(, Combo              , bool (__stdcall*)(Context& ctx, char const* label, int* current_item, char const* items_separated_by_zeros, int popup_max_height_in_items))\
+		x(, ColorEdit3         , bool (__stdcall*)(Context& ctx, char const* label, float* col, int flags))\
 		x(, PlotLines          , void (__stdcall*)(Context& ctx, char const* label, float const* values, int values_count, int values_offset, char const* overlay_text, float scale_min, float scale_max, float graph_w, float graph_h))
 		#define PR_IMGUI_FUNCTION_MEMBERS(prefix, name, function_type) using prefix##name##Fn = function_type; prefix##name##Fn prefix##name = {};
 		PR_IMGUI_API(PR_IMGUI_FUNCTION_MEMBERS)
@@ -373,6 +374,10 @@ namespace pr::rdr12::imgui
 		bool Combo(char const* label, int* current_item, char const* items_separated_by_zeros, int popup_max_height_in_items = -1)
 		{
 			return ImGuiDll::get().Combo(*m_ctx, label, current_item, items_separated_by_zeros, popup_max_height_in_items);
+		}
+		bool ColorEdit3(char const* label, float* col, int flags = 0)
+		{
+			return ImGuiDll::get().ColorEdit3(*m_ctx, label, col, flags);
 		}
 		void PlotLines(char const* label, float const* values, int values_count, int values_offset = 0, char const* overlay_text = nullptr, float scale_min = FLT_MAX, float scale_max = FLT_MAX, float graph_w = 0, float graph_h = 0)
 		{

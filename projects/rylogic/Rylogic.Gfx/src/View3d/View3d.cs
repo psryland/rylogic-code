@@ -1278,6 +1278,10 @@ namespace Rylogic.Gfx
 			public float m_roughness_max;
 			public float m_detail;
 			public float m_warp;
+			public float m_near_feature_scale;
+			public float m_near_normal_strength;
+			public float m_near_fade_start;
+			public float m_near_fade_end;
 			private float m_pad1;
 			private float m_pad2;
 			private float m_pad3;

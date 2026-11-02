@@ -33,6 +33,56 @@ namespace pr::rdr12
 			return static_cast<int32_t>(static_cast<uint32_t>(wrapped));
 		}
 
+		// Shader rows that map positions to cell-local noise coordinates at one feature scale, and the wrapped integer cell they are relative to.
+		struct ProceduralRows
+		{
+			v4 x, y, z;
+			iv4 cell; // xyz = wrapped cell, w = 0
+		};
+
+		// Return the coordinate rows for noise whose cells are 'feature_scale' units across.
+		ProceduralRows ProceduralCoordinateRows(m4x4 const& coordinate_from_world, materials::ProceduralSurface const& surface, float feature_scale)
+		{
+			// Split translation into an integer lattice cell and a small fractional value so camera motion and large origins do not consume shader mantissa bits.
+			auto scaled_translation = std::array<double, 3>{
+				(static_cast<double>(coordinate_from_world.w.x) - surface.m_coordinate_origin.x) * surface.m_axis_scale.x / feature_scale,
+				(static_cast<double>(coordinate_from_world.w.y) - surface.m_coordinate_origin.y) * surface.m_axis_scale.y / feature_scale,
+				(static_cast<double>(coordinate_from_world.w.z) - surface.m_coordinate_origin.z) * surface.m_axis_scale.z / feature_scale,
+			};
+			auto cell = std::array<double, 3>{
+				std::floor(scaled_translation[0]),
+				std::floor(scaled_translation[1]),
+				std::floor(scaled_translation[2]),
+			};
+			auto reciprocal_scale = v4{
+				surface.m_axis_scale.x / feature_scale,
+				surface.m_axis_scale.y / feature_scale,
+				surface.m_axis_scale.z / feature_scale,
+				0,
+			};
+			return ProceduralRows{
+				.x = v4{
+					coordinate_from_world.x.x * reciprocal_scale.x,
+					coordinate_from_world.y.x * reciprocal_scale.x,
+					coordinate_from_world.z.x * reciprocal_scale.x,
+					static_cast<float>(scaled_translation[0] - cell[0]),
+				},
+				.y = v4{
+					coordinate_from_world.x.y * reciprocal_scale.y,
+					coordinate_from_world.y.y * reciprocal_scale.y,
+					coordinate_from_world.z.y * reciprocal_scale.y,
+					static_cast<float>(scaled_translation[1] - cell[1]),
+				},
+				.z = v4{
+					coordinate_from_world.x.z * reciprocal_scale.z,
+					coordinate_from_world.y.z * reciprocal_scale.z,
+					coordinate_from_world.z.z * reciprocal_scale.z,
+					static_cast<float>(scaled_translation[2] - cell[2]),
+				},
+				.cell = iv4{WrappedCell(cell[0]), WrappedCell(cell[1]), WrappedCell(cell[2]), 0},
+			};
+		}
+
 		// Convert a procedural surface coordinate contract into precision-preserving shader rows.
 		void SetProceduralConstants(shaders::fwd::CBufPbrSurface& cb, MaterialPassContext const& ctx, materials::ProceduralSurface const& surface)
 		{
@@ -56,55 +106,26 @@ namespace pr::rdr12
 				}
 			}
 
-			// Split translation into an integer lattice cell and a small fractional value so camera motion and large origins do not consume shader mantissa bits.
-			auto scaled_translation = std::array<double, 3>{
-				(static_cast<double>(coordinate_from_world.w.x) - surface.m_coordinate_origin.x) * surface.m_axis_scale.x / surface.m_feature_scale,
-				(static_cast<double>(coordinate_from_world.w.y) - surface.m_coordinate_origin.y) * surface.m_axis_scale.y / surface.m_feature_scale,
-				(static_cast<double>(coordinate_from_world.w.z) - surface.m_coordinate_origin.z) * surface.m_axis_scale.z / surface.m_feature_scale,
-			};
-			auto cell = std::array<double, 3>{
-				std::floor(scaled_translation[0]),
-				std::floor(scaled_translation[1]),
-				std::floor(scaled_translation[2]),
-			};
-			auto reciprocal_scale = v4{
-				surface.m_axis_scale.x / surface.m_feature_scale,
-				surface.m_axis_scale.y / surface.m_feature_scale,
-				surface.m_axis_scale.z / surface.m_feature_scale,
-				0,
-			};
+			// The base and near layers use the same split coordinate form, each at its own feature scale.
+			auto base_rows = ProceduralCoordinateRows(coordinate_from_world, surface, surface.m_feature_scale);
+			auto near_rows = ProceduralCoordinateRows(coordinate_from_world, surface, surface.m_near_feature_scale);
 
 			// Upload generic channel and coordinate parameters; presets are only factories for these values.
 			cb.procedural_colour0 = surface.m_palette[0].rgba;
 			cb.procedural_colour1 = surface.m_palette[1].rgba;
 			cb.procedural_colour2 = surface.m_palette[2].rgba;
 			cb.procedural_colour3 = surface.m_palette[3].rgba;
-			cb.procedural_coord_x = v4{
-				coordinate_from_world.x.x * reciprocal_scale.x,
-				coordinate_from_world.y.x * reciprocal_scale.x,
-				coordinate_from_world.z.x * reciprocal_scale.x,
-				static_cast<float>(scaled_translation[0] - cell[0]),
-			};
-			cb.procedural_coord_y = v4{
-				coordinate_from_world.x.y * reciprocal_scale.y,
-				coordinate_from_world.y.y * reciprocal_scale.y,
-				coordinate_from_world.z.y * reciprocal_scale.y,
-				static_cast<float>(scaled_translation[1] - cell[1]),
-			};
-			cb.procedural_coord_z = v4{
-				coordinate_from_world.x.z * reciprocal_scale.z,
-				coordinate_from_world.y.z * reciprocal_scale.z,
-				coordinate_from_world.z.z * reciprocal_scale.z,
-				static_cast<float>(scaled_translation[2] - cell[2]),
-			};
-			cb.procedural_cell_seed = iv4{
-				WrappedCell(cell[0]),
-				WrappedCell(cell[1]),
-				WrappedCell(cell[2]),
-				static_cast<int32_t>(surface.m_seed),
-			};
+			cb.procedural_coord_x = base_rows.x;
+			cb.procedural_coord_y = base_rows.y;
+			cb.procedural_coord_z = base_rows.z;
+			cb.procedural_cell_seed = iv4{base_rows.cell.x, base_rows.cell.y, base_rows.cell.z, static_cast<int32_t>(surface.m_seed)};
 			cb.procedural_params0 = v4{1, surface.m_normal_strength, surface.m_roughness_min, surface.m_roughness_max};
 			cb.procedural_params1 = v4{surface.m_detail, surface.m_warp, 0, 0};
+			cb.procedural_near_x = near_rows.x;
+			cb.procedural_near_y = near_rows.y;
+			cb.procedural_near_z = near_rows.z;
+			cb.procedural_near_cell = near_rows.cell;
+			cb.procedural_params2 = v4{surface.m_near_normal_strength, surface.m_near_fade_start, surface.m_near_fade_end, surface.m_feature_scale / surface.m_near_feature_scale};
 		}
 
 		// The material pass used by physically-based materials.
@@ -867,5 +888,11 @@ namespace pr::rdr12
 
 		if (!std::isfinite(m_detail) || m_detail < 0.0f || m_detail > 1.0f || !std::isfinite(m_warp) || m_warp < 0.0f)
 			throw std::invalid_argument("Procedural surface detail must be in [0,1] and warp must be finite and nonnegative");
+
+		if (!std::isfinite(m_near_feature_scale) || m_near_feature_scale <= 0.0f || !std::isfinite(m_near_normal_strength) || m_near_normal_strength < 0.0f)
+			throw std::invalid_argument("Procedural surface near feature scale must be finite and positive, and near normal strength must be finite and nonnegative");
+
+		if (!std::isfinite(m_near_fade_start) || !std::isfinite(m_near_fade_end) || m_near_fade_start < 0.0f || m_near_fade_end <= m_near_fade_start)
+			throw std::invalid_argument("Procedural surface near fade range must satisfy 0 <= start < end");
 	}
 }

@@ -48,6 +48,13 @@ positions. Object coordinates intentionally move with each object. Translation i
 lattice cell plus a small fractional coordinate before upload; set `m_coordinate_origin` near very large working
 coordinates to preserve local detail. The hash domain repeats only after `2^32` lattice cells per axis.
 
+An optional near detail layer adds finer bumps close to the camera. It changes normals only and is unwarped. Set
+`m_near_feature_scale` to its cell size, and `m_near_normal_strength` to its bump height, which should stay in
+proportion to the near scale. The layer is at full strength closer than `m_near_fade_start` (world distance from
+the camera), fades out smoothly by `m_near_fade_end`, and is not evaluated beyond it. A near strength of zero
+(the preset default) turns it off. Because it depends on camera distance, a surface with the near layer is not
+camera-invariant.
+
 Forward opaque/alpha rendering and its reflection-attribute side buffer evaluate all three channels. Shadow-map
 and ray-cast paths retain their geometry behavior because neither shades visible material channels. Deferred
 G-buffer/direct-lighting and DXR secondary-hit material shading reject procedural surfaces with a View3D diagnostic
