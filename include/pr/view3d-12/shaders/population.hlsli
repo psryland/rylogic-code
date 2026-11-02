@@ -13,7 +13,8 @@
 // so they stay perpendicular to surfaces under nonuniform scale. Projective transforms are not supported.
 //
 // Smooth LOD transitions use screen-door dithering, not alpha blending. During a transition, one instance appears in two adjacent LOD lists
-// with complementary dither masks. Every pixel shader used by a population material must call 'View3DPopulationClipDither' (the stock forward
+// with complementary dither masks. Prototype distance fade bands use the same dither, so a far prototype can take over from a near one.
+// Every pixel shader used by a population material must call 'View3DPopulationClipDither' (the stock forward
 // and shadow pixel shaders do). The dither value is zero for ordinary (non-population) draws, which keeps every pixel.
 //
 // A LOD can generate or deform its vertices with procedural vertex shaders (see procedural_vertex.hlsli). The LOD object must use the
@@ -69,7 +70,8 @@
 
 // Bit fields of the dither word in 'View3DPopulationEntry.dither'.
 //  - Bits 0-15: coverage, as unorm16.
-//  - Bits 16-29: a seed derived from the source instance index, so the mask does not depend on the list order.
+//  - Bits 16-29: a seed derived from the instance origin, so the mask does not depend on the list order, and instances with the same origin in
+//    different populations get the same mask.
 //  - Bit 30: dithering is active. Zero means the entry is fully drawn.
 //  - Bit 31: complementary. The entry keeps exactly the pixels that the non-complementary entry with the same coverage and seed discards.
 #define VIEW3D_POPULATION_DITHER_COVERAGE_MASK 0x0000FFFFu

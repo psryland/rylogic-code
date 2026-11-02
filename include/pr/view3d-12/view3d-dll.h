@@ -764,6 +764,13 @@ namespace pr
 			float m_transition;   // The dithered transition band above 'm_min_size', as a fraction of 'm_min_size'. Zero is an abrupt switch.
 		};
 
+		// A camera distance band [m_start, m_start + m_width] in which population instances fade in or out. Zero start and width means unused.
+		struct PopulationFade
+		{
+			float m_start; // The distance at which the band begins.
+			float m_width; // The width of the band. Zero is an abrupt switch at 'm_start'.
+		};
+
 		// Diagnostics of a population. See View3D_PopulationStats.
 		struct PopulationStats
 		{
@@ -1727,9 +1734,12 @@ extern "C"
 
 	// Create a prototype from 'lod_count' LODs, ordered from most to least detailed. Each LOD draws the model of its object. The prototype keeps its own
 	// reference to the models, so the objects may be deleted afterwards. LOD thresholds must strictly decrease, and transition bands must not overlap.
-	// 'draw_distance' is the maximum camera distance of a drawn instance's bounding sphere; zero is unlimited. Release using
-	// View3D_PopulationPrototypeRelease. Returns null on failure.
-	VIEW3D_API pr::view3d::PopulationPrototype __stdcall View3D_PopulationPrototypeCreate(pr::view3d::PopulationLod const* lods, int lod_count, float draw_distance);
+	// 'draw_distance' is the maximum camera distance of a drawn instance's bounding sphere; zero is unlimited. 'fade_in' and 'fade_out' are camera
+	// distance bands, measured to the instance origin, in which instances fade in or out with a dither. Instances nearer than a used fade-in band or
+	// further than a used fade-out band are not drawn. Equal fade-in and fade-out bands on two prototypes hand over instances with the same origin
+	// without gaps or double coverage. The fade-in band must end before the fade-out band starts, and when either is used, the instance origin must lie
+	// inside the bounding sphere of the LOD models. Release using View3D_PopulationPrototypeRelease. Returns null on failure.
+	VIEW3D_API pr::view3d::PopulationPrototype __stdcall View3D_PopulationPrototypeCreate(pr::view3d::PopulationLod const* lods, int lod_count, float draw_distance, pr::view3d::PopulationFade fade_in, pr::view3d::PopulationFade fade_out);
 	VIEW3D_API void __stdcall View3D_PopulationPrototypeRelease(pr::view3d::PopulationPrototype prototype);
 
 	// Create a population of 'prototype' with fixed capacities. GPU resources are created here, so later updates do not allocate. 'payload_size' is the

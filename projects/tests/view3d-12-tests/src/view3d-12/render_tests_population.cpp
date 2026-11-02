@@ -166,7 +166,7 @@ namespace render_tests
 		Fixture fixture(samples);
 		auto quad = PopulationQuad(fixture);
 		auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
-		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0));
+		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0, {}, {}));
 		Require(prototype != nullptr, "Population prototype creation failed");
 		auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 8, 2, 0));
 		Require(population != nullptr, "Population creation failed");
@@ -233,7 +233,7 @@ namespace render_tests
 		Expect(fixture.Image(), 0, 0, 0, 102, 64);
 
 		// Instances beyond the prototype draw distance are not drawn. The instances are 50 units from the camera.
-		auto near_prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 20));
+		auto near_prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 20, {}, {}));
 		auto near_population = api::PopulationPtr(View3D_PopulationCreate(near_prototype.get(), 8, 2, 0));
 		Require(near_population != nullptr, "Population creation failed");
 		View3D_PopulationInstancesUpdate(near_population.get(), 0, instances, 2);
@@ -243,13 +243,81 @@ namespace render_tests
 		Expect(fixture.Image(), 0, 0, 0, 102, 64);
 		View3D_WindowRemovePopulation(fixture.m_window, near_population.get());
 
+		// Instances nearer than the start of a fade-in band are not drawn, and instances beyond it are. The visible instance's origin is
+		// sqrt(30^2 + 50^2) = 58.3 units from the camera.
+		auto fade_population = [&](float draw_distance, api::PopulationFade fade_in, api::PopulationFade fade_out, unsigned tint)
+		{
+			// One population of the visible instance, recoloured with 'tint'
+			auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, draw_distance, fade_in, fade_out));
+			Require(prototype != nullptr, "Population prototype creation failed");
+			auto pop = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 8, 2, 0));
+			Require(pop != nullptr, "Population creation failed");
+			auto tinted = instances[1];
+			tinted.m_tint = tint;
+			View3D_PopulationInstancesUpdate(pop.get(), 0, &tinted, 1);
+			View3D_PopulationBlockSet(pop.get(), 0, bbox, 0, 4, 1);
+			return pop;
+		};
+		{
+			// A fade-in band that starts beyond the instance hides it
+			auto far_population = fade_population(0, { .m_start = 100, .m_width = 0 }, {}, 0xFF0000FF);
+			View3D_WindowAddPopulation(fixture.m_window, far_population.get());
+			fixture.CheckErrors();
+			Expect(fixture.Image(), 0, 0, 0, 102, 64);
+			View3D_WindowRemovePopulation(fixture.m_window, far_population.get());
+		}
+		{
+			// A fade-in band that ends before the instance draws it fully
+			auto mid_population = fade_population(0, { .m_start = 20, .m_width = 10 }, {}, 0xFF0000FF);
+			View3D_WindowAddPopulation(fixture.m_window, mid_population.get());
+			fixture.CheckErrors();
+			Expect(fixture.Image(), 0, 0, 1, 102, 64);
+			View3D_WindowRemovePopulation(fixture.m_window, mid_population.get());
+		}
+		{
+			// A near population fading out and a far population fading in over the same band cover each pixel of the instance exactly once.
+			// The instance is 46% of the way through the band [40, 80], so both colours appear.
+			auto band = api::PopulationFade{ .m_start = 40, .m_width = 40 };
+			auto near_fade = fade_population(0, {}, band, 0xFFFF0000);
+			auto far_fade = fade_population(0, band, {}, 0xFF00FF00);
+			View3D_WindowAddPopulation(fixture.m_window, near_fade.get());
+			View3D_WindowAddPopulation(fixture.m_window, far_fade.get());
+			fixture.CheckErrors();
+
+			// Count the interior pixels of the quad, which spans pixels [96, 109) on each axis around (102, 64)
+			auto image = fixture.Image();
+			auto red = 0, green = 0, total = 0;
+			for (int y = 59; y != 70; ++y)
+			{
+				for (int x = 97; x != 108; ++x)
+				{
+					// Each pixel must be drawn by exactly one population
+					auto pixel = image.data() + (y * ImageSize + x) * 4;
+					auto is_red = pixel[0] > 128 && pixel[1] < 64;
+					auto is_green = pixel[1] > 128 && pixel[0] < 64;
+					Require(is_red || is_green, "A pixel of a cross-faded instance was drawn by neither or both populations");
+					red += is_red ? 1 : 0;
+					green += is_green ? 1 : 0;
+					++total;
+				}
+			}
+			Require(red > total / 4 && green > total / 4, "A cross-faded instance did not show both populations");
+			View3D_WindowRemovePopulation(fixture.m_window, near_fade.get());
+			View3D_WindowRemovePopulation(fixture.m_window, far_fade.get());
+		}
+
+		// Overlapping fade bands are rejected
+		auto overlapping = View3D_PopulationPrototypeCreate(&lods, 1, 0, { .m_start = 10, .m_width = 20 }, { .m_start = 20, .m_width = 10 });
+		Require(overlapping == nullptr && !fixture.m_errors.empty(), "Overlapping population fade bands were accepted");
+		fixture.m_errors.clear();
+
 		// Invalid contracts are reported rather than drawn
 		View3D_PopulationBlockSet(population.get(), 0, bbox, 6, 4, 2);
 		Require(!fixture.m_errors.empty(), "A block beyond the instance capacity was accepted");
 		fixture.m_errors.clear();
 
 		fixture.CheckDebugLayer();
-		std::cout << "PASS population block live counts, instance flags, draw distance, and removal: MSAA " << samples << '\n';
+		std::cout << "PASS population block live counts, instance flags, draw range, fade bands, and removal: MSAA " << samples << '\n';
 	}
 
 	// Verify that populations cast shadows, including from outside the camera view, and that cached shadow views follow population changes
@@ -262,7 +330,7 @@ namespace render_tests
 		(void)receiver;
 		auto quad = PopulationQuad(fixture);
 		auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
-		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0));
+		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0, {}, {}));
 		auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 4, 1, 0));
 		Require(population != nullptr, "Population creation failed");
 		auto light_index = PopulationShadowLightAdd(fixture, api::Vec4{30, 0, -20, 1});
@@ -321,7 +389,7 @@ namespace render_tests
 		// A population whose LOD nuggets exclude shadow casting casts no shadow
 		auto excluded_quad = PopulationQuad(fixture, api::ENuggetFlag::ShadowCastExclude);
 		auto excluded_lods = api::PopulationLod{ .m_object = excluded_quad, .m_min_size = 0, .m_transition = 0 };
-		auto excluded_prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&excluded_lods, 1, 0));
+		auto excluded_prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&excluded_lods, 1, 0, {}, {}));
 		auto excluded = api::PopulationPtr(View3D_PopulationCreate(excluded_prototype.get(), 4, 1, 0));
 		Require(excluded != nullptr, "Shadow-excluded population creation failed");
 		View3D_PopulationInstancesUpdate(excluded.get(), 0, &instance, 1);
@@ -343,7 +411,7 @@ namespace render_tests
 		Fixture fixture(samples);
 		auto quad = PopulationQuad(fixture);
 		auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
-		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0));
+		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0, {}, {}));
 		auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 8, 1, 0));
 		Require(population != nullptr, "Population creation failed");
 		auto bbox = api::BBox{ .centre = {0, 30, -50, 1}, .radius = {40, 40, 10, 0} };
@@ -447,7 +515,7 @@ namespace render_tests
 		Fixture fixture(1);
 		auto quad = PopulationQuad(fixture);
 		auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
-		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0));
+		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0, {}, {}));
 		auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 8, 3, 16));
 		Require(population != nullptr, "Population creation failed");
 
@@ -548,7 +616,7 @@ namespace render_tests
 			{ .m_object = quad, .m_min_size = 6, .m_transition = 0.5f },
 			{ .m_object = quad, .m_min_size = 2, .m_transition = 0 },
 		};
-		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(lods, 3, 0));
+		auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(lods, 3, 0, {}, {}));
 		Require(prototype != nullptr, "Population prototype creation failed");
 
 		// The reference classification of one instance: the LOD lists it appears in. Instances near a decision boundary are not generated, so float
@@ -667,7 +735,7 @@ namespace render_tests
 			Fixture fixture(samples);
 			auto quad = PopulationProceduralQuad(fixture);
 			auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
-			auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0));
+			auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0, {}, {}));
 			auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 4, 1, 0));
 			Require(population != nullptr, "Population with a procedural vertex LOD was rejected");
 			auto instance = PopulationInstanceAt(-30, 0, -50, 0xFFFF0000);
@@ -706,7 +774,7 @@ namespace render_tests
 			// The procedural caster casts a shadow
 			auto quad = PopulationProceduralQuad(fixture);
 			auto lods = api::PopulationLod{ .m_object = quad, .m_min_size = 0, .m_transition = 0 };
-			auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0));
+			auto prototype = api::PopulationPrototypePtr(View3D_PopulationPrototypeCreate(&lods, 1, 0, {}, {}));
 			auto population = api::PopulationPtr(View3D_PopulationCreate(prototype.get(), 4, 1, 0));
 			Require(population != nullptr, "Population with a procedural vertex LOD was rejected");
 			auto instance = PopulationInstanceAt(60, 0, -40, 0xFFFFFFFF);
