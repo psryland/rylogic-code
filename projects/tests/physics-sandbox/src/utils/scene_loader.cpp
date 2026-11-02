@@ -996,6 +996,7 @@ namespace physics_sandbox::scene_loader
 					value = jvalue->to<float>();
 			};
 			read("density", config.m_density);
+			read("gravity", config.m_gravity);
 			read("linear_drag_time_constant", config.m_linear_drag_time_constant_s);
 			read("angular_drag_time_constant", config.m_angular_drag_time_constant_s);
 			read("quadratic_drag_coefficient", config.m_quadratic_drag_coefficient);

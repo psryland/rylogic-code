@@ -28,13 +28,15 @@
 //  - Every sample carries its own area weight; reductions are weighted sums, never count x constant,
 //    because different primitives have different sample densities.
 //
-// Gravity frame (no baked-in gravity direction):
-//  The water surface is a height field along the local "up" axis = -normalize(gravity), NOT world
-//  Z. All wet/dry tests, the pressure force, and the drag velocity are expressed against a
+// Water frame (no baked-in up direction):
+//  The water surface is a height field along the frame's "up" axis, NOT necessarily world Z.
+//  All wet/dry tests, the pressure force, and the drag velocity are expressed against a
 //  WaterFrame {up, t0, t1, ref}; world-Z flat water is just the special case up=+Z,t0=+X,t1=+Y.
+//  The water's gravity (SamplerConfig::m_gravity) acts along -up. The gravity that moves the body
+//  plays no part in the water forces.
 //
 // The water surface is supplied as a template parameter so this header does not depend on the
-// physics engine, and so gravity-frame water fields can be plugged in for tests. A water field
+// physics engine, and so other water frames can be plugged in for tests. A water field
 // type must provide:
 //    float Height(v2 uv) const;                         // signed height along 'up' at planar coords (u,v), relative to 'ref'
 //    v2    Slope(v2 uv) const;                          // surface slope (dh/du, dh/dv) at planar coords (u,v)
@@ -64,6 +66,7 @@ namespace pr::physics::buoyancy
 	struct SamplerConfig
 	{
 		float m_fluid_density = 1000.0f;            // kg/m^3
+		float m_gravity = 9.81f;                    // magnitude of the gravity acting on the water, along -up (m/s^2); must be positive
 		float m_linear_drag_time_constant_s = 0.0f; // translational water-column drag e-fold time; <= 0 disables it
 		float m_angular_drag_time_constant_s = 0.0f; // rotational water-column drag e-fold time; <= 0 disables it
 		float m_quadratic_drag_coefficient = 0.0f;  // form-drag Cd; <= 0 disables quadratic drag
@@ -78,12 +81,11 @@ namespace pr::physics::buoyancy
 	{
 		m4x4 m_o2w = m4x4::Identity();   // collision-shape root -> world
 		v4 m_centre_of_mass_os = v4::Zero(); // centre of mass relative to the collision-shape root
-		v4 m_gravity_ws = v4::Zero();    // world-space gravity for this body (w = 0)
 		v4 m_vel_lin_ws = v4::Zero();    // linear velocity of the centre of mass (w = 0)
 		v4 m_omega_ws = v4::Zero();      // angular velocity (w = 0)
 	};
 
-	// Gravity-aligned water frame. 'up' is the local opposite-of-gravity direction; (t0,t1) span the
+	// Water frame. 'up' is the direction opposite to the water's gravity; (t0,t1) span the
 	// plane perpendicular to 'up'; 'ref' is a point on the still-water surface. The height field is
 	// parameterised over (t0,t1) and measured along 'up'.
 	struct WaterFrame
@@ -93,15 +95,13 @@ namespace pr::physics::buoyancy
 		v4 m_t1 = v4::YAxis();
 		v4 m_ref = v4::Origin();
 
-		// Build a frame from a gravity vector. 'up' = -normalize(gravity); tangents are arbitrary but
-		// orthonormal. Falls back to world axes when gravity is ~zero.
-		static WaterFrame FromGravity(v4 gravity_ws, v4 ref)
+		// Build a frame from a unit 'up' direction. The tangents are arbitrary but orthonormal.
+		static WaterFrame FromUp(v4 up, v4 ref)
 		{
+			// Complete an orthonormal basis around 'up'.
 			auto frame = WaterFrame{};
 			frame.m_ref = ref.w1();
-
-			auto const g_len = Length(gravity_ws.w0());
-			frame.m_up = g_len > math::constants<float>::tiny ? Normalise(-gravity_ws.w0()) : v4::ZAxis();
+			frame.m_up = up.w0();
 			frame.m_t0 = Normalise(Perpendicular(frame.m_up));
 			frame.m_t1 = Cross(frame.m_up, frame.m_t0);
 			return frame;
@@ -266,18 +266,21 @@ namespace pr::physics::buoyancy
 	{
 		using namespace collision;
 
-		// Validate the resolution before doing any work.
+		// Validate the resolution and the water's gravity before doing any work.
 		surface::ValidateSpacing(cfg.m_surface_spacing);
+		if (!std::isfinite(cfg.m_gravity) || cfg.m_gravity <= 0.0f)
+			throw std::invalid_argument("Water gravity must be finite and positive");
+
 		auto result = HullResult{};
 
 		auto const prims = CollectPrimitives(hull);
 		if (debug)
 			debug->Reset(prims.size());
 
-		// Without gravity there is no "up" for the water and no pressure, so the GPU pass applies nothing.
-		auto const g_mag = Length(body.m_gravity_ws.w0());
-		if (prims.empty() || !(g_mag > math::constants<float>::tiny))
+		if (prims.empty())
 			return result;
+
+		auto const g_mag = cfg.m_gravity;
 
 		// Pre-compute per-primitive transforms (shape-local <-> COM-root) and surface plans.
 		auto s2r = std::vector<m4x4>(prims.size());

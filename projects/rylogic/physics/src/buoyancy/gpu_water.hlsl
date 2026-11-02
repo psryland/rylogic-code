@@ -33,7 +33,11 @@ struct CBufGpuWater
 	int enable_diagnostics;
 	float wave_resistance;          // scale of the steady wave-making resistance applied by the implicit solve
 	float air_density;              // density of the still air acting on the dry part of each cell
+	float gravity;                  // magnitude of the gravity acting on the water (m/s^2), along -WaterUp
 };
+
+// The water surface is a height field over world XY, so the water's up is always world +Z, whatever gravity each body feels.
+static const float3 WaterUp = float3(0.0f, 0.0f, 1.0f);
 
 #include "pr/physics/terrain/water/water_field.hlsli"
 #include "pr/physics/buoyancy/wave_resistance.hlsli"
@@ -220,13 +224,13 @@ float3x3 BuoyOuter(float3 a, float3 b)
 // amount of numerical damping of motion the step cannot resolve; resolved motion converges to the explicit result.
 void ApplyImplicitResponse(inout GpuRigidBody body, BuoyancySums terms)
 {
-	// The solve needs a step length and an up direction. Without either there is nothing to stabilise.
+	// The solve needs a step length. The water's up and gravity belong to the water, not to the body.
 	float h = g.time_step_s;
-	float g_mag = length(body.ws_gravity.xyz);
-	if (h <= 0.0f || g_mag <= BUOY_TINY)
+	if (h <= 0.0f)
 		return;
 
-	float3 up = -body.ws_gravity.xyz / g_mag;
+	float g_mag = g.gravity;
+	float3 up = WaterUp;
 	float inv_mass = body.os_com_and_invmass.w;
 	float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
 	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
@@ -473,9 +477,8 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 				s_body_angular_velocity_ws = mul(ws_iinv, body.momentum_ang.xyz);
 			}
 
-			// The highest point of the hull's bounding box along 'up' in its current pose. The water columns end there (see the column terms below).
-			float g_mag = length(body.ws_gravity.xyz);
-			float3 up = g_mag > BUOY_TINY ? -body.ws_gravity.xyz / g_mag : float3(0.0f, 0.0f, 1.0f);
+			// The highest point of the hull's bounding box along the water's up in its current pose. The water columns end there (see the column terms below).
+			float3 up = WaterUp;
 			float3 centre_ws = mul(float4(header.bbox_centre_os.xyz, 1.0f), body.o2w).xyz;
 			float3 extent = abs(mul((float3x3)body.o2w, up)) * header.bbox_radius_os.xyz;
 			s_hull_top = dot(centre_ws, up) + extent.x + extent.y + extent.z;
@@ -493,12 +496,7 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 
 			// Static / zero-mass bodies have no hydrodynamic response.
 			bool dynamic = (body.state_flags & ERigidBodyStateFlags_Static) == 0 && body.os_com_and_invmass.w > 0.0f;
-
-			// Gravity defines the buoyancy "up" axis; guard the normalise against (near-)zero gravity.
-			float3 gravity_ws = body.ws_gravity.xyz;
-			float g_mag = length(gravity_ws);
-
-			if (dynamic && g_mag > BUOY_TINY)
+			if (dynamic)
 			{
 				// Map the flat sample index to its owning primitive k and primitive-local ordinal by
 				// walking the per-primitive cumulative counts (parallel to g_prims).
@@ -533,10 +531,9 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 					// water_max_height is entirely dry.
 					bool fully_dry = false;
 					{
-						float3 up_dry = -gravity_ws / g_mag;
 						float4x4 s2w = mul(prim.m_s2r, body.o2w);
 						float lo, hi;
-						fully_dry = BuoySupportAlongUp(prim, s2w, up_dry, lo, hi) && lo >= header.water_max_height + half_cell_height;
+						fully_dry = BuoySupportAlongUp(prim, s2w, WaterUp, lo, hi) && lo >= header.water_max_height + half_cell_height;
 					}
 
 					if (!fully_dry)
@@ -565,7 +562,7 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 						// other sibling primitive (interior embedded surfaces are not wetted).
 						if (!BuoyIsInsideAnyOtherSibling(g_prims, header.prim_base, header.prim_count, k, p_root, n_root, header.eps, g_face_planes))
 						{
-							float3 up = -gravity_ws / g_mag;
+							float3 up = WaterUp;
 							float3 sample_ws = mul(float4(p_root, 1.0f), body.o2w).xyz;
 							float3 normal_ws = BuoyNormaliseOrZero(mul(float4(n_root, 0.0f), body.o2w).xyz);
 
@@ -573,7 +570,7 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 							float signed_height = dot(sample_ws, up);
 							float n_up = dot(normal_ws, up);
 							float cell_height = BuoySurfaceCellHeight(weight, n_up);
-							float4 hg = EvaluateWaterHeightAndPressureGradient(header, sample_ws.xy, g_mag);
+							float4 hg = EvaluateWaterHeightAndPressureGradient(header, sample_ws.xy, g.gravity);
 							float wet_fraction = BuoyWetFraction(signed_height, hg.x, cell_height);
 							float wet_weight = weight * wet_fraction;
 							float dry_weight = weight - wet_weight;
@@ -634,7 +631,7 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 								// The difference between the column force and the sampled lateral pressure is also a pressure effect, but how it is
 								// spread over the surface is not known. Applying it at the columns would put it through the centre of buoyancy,
 								// which would make a floating sphere spin in waves, so it adds force only.
-								float rho_g = g.fluid_density * g_mag;
+								float rho_g = g.fluid_density * g.gravity;
 								float3 dF_pressure = -(rho_g * (1.0f - (1.0f + g.added_mass_coefficient) * grad_up) * depth_area) * normal_ws;
 								float3 grad_lat = grad_ws - grad_up * up;
 								float3 dF_lateral = -(rho_g * dvol * (1.0f + g.added_mass_coefficient)) * grad_lat;

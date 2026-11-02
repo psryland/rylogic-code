@@ -635,6 +635,7 @@ namespace pr::physics
 	// A water surface with buoyancy, drag, added mass, and wave damping for every dynamic shaped body and articulation link.
 	// The force parameters match 'pr::physics::WaterConfig'; see engine_water.h for their meaning and defaults. Densities are kg/m³, time constants
 	// are seconds, and 'surface_spacing' is in metres. 'air_density' is the air that acts on the dry part of bodies touching the water.
+	// 'gravity' (m/s², positive) is the gravity of the water itself, acting along world -Z; the gravity of each body does not change the water forces.
 	// The surface is the still-water 'level' plus 'element_count' elements from 'elements'; the engine copies them.
 	// Wave amplitudes are corrected for depth only after terrain heights are supplied with Physics_EngineWaterBathymetrySet.
 	// 'breaking_ratio' limits the total wave amplitude to half this fraction of the depth. 'shore_sharpness' is the crest sharpness waves reach at the
@@ -646,6 +647,7 @@ namespace pr::physics
 		StructHeader header;
 		double level;
 		float density;
+		float gravity;
 		float linear_drag_time_constant;
 		float angular_drag_time_constant;
 		float quadratic_drag_coefficient;
@@ -661,7 +663,7 @@ namespace pr::physics
 		std::int32_t element_count;
 		WaterElement const* elements;
 	};
-	static_assert(sizeof(WaterDesc) == 80);
+	static_assert(sizeof(WaterDesc) == 88);
 
 	// Terrain heights sampled on a regular world-space grid, used to correct waves for water depth.
 	// Node (i, j) is at origin + (i, j) * cell_size and its height is heights[j * width + i]. The engine copies the heights.

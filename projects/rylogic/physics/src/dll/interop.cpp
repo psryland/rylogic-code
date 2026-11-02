@@ -2532,6 +2532,7 @@ extern "C"
 					config = pr::physics::WaterConfig{
 						.m_field = std::move(field),
 						.m_density = c.density,
+						.m_gravity = c.gravity,
 						.m_linear_drag_time_constant_s = c.linear_drag_time_constant,
 						.m_angular_drag_time_constant_s = c.angular_drag_time_constant,
 						.m_quadratic_drag_coefficient = c.quadratic_drag_coefficient,

@@ -38,7 +38,7 @@ namespace physics_sandbox::scene_loader
 	//             "grid": [32, 32],            // Optional visual mesh cell count
 	//             "colour": "0x602080FF",      // Optional ARGB water mesh colour
 	//             "forces": {                  // Optional water force parameters for Engine::Water; omitted values use the physics::WaterConfig defaults
-	//                 "density": 1025.0, "linear_drag_time_constant": 5.0, "angular_drag_time_constant": 0.75,
+	//                 "density": 1025.0, "gravity": 9.81, "linear_drag_time_constant": 5.0, "angular_drag_time_constant": 0.75,
 	//                 "quadratic_drag_coefficient": 1.05, "tangential_drag_coefficient": 0.01, "added_mass_coefficient": 0.5,
 	//                 "radiation_damping": 1.0, "wave_resistance": 1.0, "surface_spacing": 0.25, "air_density": 1.2
 	//             },

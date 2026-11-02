@@ -222,6 +222,7 @@ internal static unsafe partial class Native
 		internal NativeHeader m_header;
 		internal double m_level;
 		internal float m_density;
+		internal float m_gravity;
 		internal float m_linear_drag_time_constant;
 		internal float m_angular_drag_time_constant;
 		internal float m_quadratic_drag_coefficient;

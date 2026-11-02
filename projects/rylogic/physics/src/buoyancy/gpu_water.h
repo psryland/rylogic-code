@@ -46,8 +46,9 @@ namespace pr::physics
 			v4 m_com_ws;
 			float m_speed;
 
-			// World-space gravity acting on the hull.
-			v4 m_gravity_ws;
+			// Magnitude of the gravity acting on the body (m/s^2). It only bounds how far the body can move towards the water in a frame;
+			// the water forces use the water's own gravity (see WaterConfig::m_gravity).
+			float m_fall_acceleration;
 
 			// Index of the hull's body in the GPU body buffer.
 			int m_step_index;
