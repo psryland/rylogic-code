@@ -168,6 +168,9 @@ void CSAppendCollisionEvents(int3 DTID(dtid))
 	// Geometry and its frame must come from the same collision sample, before positional correction moves the bodies.
 	collision_event.b2a = contact.b2a;
 	CollisionEventRelativeVelocity(body_a, body_b, collision_event.relative_velocity_ang, collision_event.relative_velocity_lin);
+
+	// The event reports the whole momentum change the contact caused: the solver accumulator (warm start, normal and friction) plus the uncached bias impulse.
+	collision_event.impulse = float4(contact.warmstart_impulse.xyz + contact.bias_impulse * contact.axis.xyz, 0.0f);
 	collision_event.body_idx_a = contact.body_idx_a;
 	collision_event.body_idx_b = contact.body_idx_b;
 	collision_event.mat_id_a = contact.mat_id_a;

@@ -147,7 +147,7 @@ namespace pr::physics
 	}
 
 	// Prepare cached primitive plans, this frame's instances, and timing capacity for the requested substeps.
-	void GpuWorldContacts::Upload(GpuJob& job, ShapeCache const& shapes, std::span<GpuRigidBody const> bodies, int substeps)
+	void GpuWorldContacts::Upload(GpuJob& job, ShapeCache const& shapes, std::span<GpuRigidBody const> bodies, int substeps, uint32_t world_layer, uint32_t world_mask)
 	{
 		// Query each substep separately so intervening solver/other physics commands do not inflate terrain GPU time.
 		if (substeps < 1 || uint64_t(substeps) * 2 * sizeof(uint64_t) > INT_MAX)
@@ -224,13 +224,15 @@ namespace pr::physics
 			UploadStream(m_gpu, job, m_recipe, std::span(&recipe, 1), "WorldContacts:Recipe");
 		}
 
-		// Skip infinite-mass bodies and generate missing plans only when a shape first becomes dynamic.
+		// Skip infinite-mass bodies and bodies whose collision filter rejects the world. Generate missing plans only when a shape first becomes dynamic.
 		m_instances.clear();
 		m_max_samples[0] = m_max_samples[1] = 0;
 		for (uint32_t i = 0; i != bodies.size(); ++i)
 		{
 			auto const& body = bodies[i];
 			if (body.os_com_and_invmass.w == 0 || body.shape_id < 0)
+				continue;
+			if (!CollisionFilterPasses(body.collision_layer, body.collision_mask, world_layer, world_mask))
 				continue;
 
 			// Compound leaves retain their packed indices and child identities in the per-frame stream.

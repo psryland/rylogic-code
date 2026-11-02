@@ -79,6 +79,9 @@ namespace physics_sandbox
 		std::vector<physics::RigidBody*> m_body_ptrs;
 		std::vector<physics::Articulation*> m_articulation_ptrs;
 
+		// Rigid bodies that never make contacts with each other. Indices into 'm_body' are the source; the pointer pairs are a view rebuilt with 'm_body_ptrs'.
+		std::vector<std::pair<int, int>> m_collision_ignore_indices;
+		std::vector<physics::Engine::CollisionIgnorePair> m_collision_ignore_pairs;
 		// One renderer binding per shaped articulation link.
 		std::vector<ArticulationVisual> m_articulation_visuals;
 

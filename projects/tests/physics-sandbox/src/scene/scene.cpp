@@ -246,6 +246,8 @@ namespace physics_sandbox
 		, m_constraints()
 		, m_body_ptrs()
 		, m_articulation_ptrs()
+		, m_collision_ignore_indices()
+		, m_collision_ignore_pairs()
 		, m_articulation_visuals()
 		, m_shape_buffer()
 		, m_gpu_buoyancy()
@@ -323,6 +325,8 @@ namespace physics_sandbox
 		m_articulation_visuals.clear();
 		m_body_ptrs.clear();
 		m_articulation_ptrs.clear();
+		m_collision_ignore_pairs.clear();
+		m_collision_ignore_indices.clear();
 		m_body.clear();
 		m_articulation.clear();
 
@@ -342,6 +346,12 @@ namespace physics_sandbox
 			body.SleepingTransparency(m_sleeping_transparency);
 		}
 		m_sample_overlays.Invalidate();
+
+		// Ignore pairs point at bodies, so they follow 'm_body' addresses.
+		m_collision_ignore_pairs.clear();
+		m_collision_ignore_pairs.reserve(m_collision_ignore_indices.size());
+		for (auto const& [a, b] : m_collision_ignore_indices)
+			m_collision_ignore_pairs.push_back({ .m_body_a = &m_body[a], .m_body_b = &m_body[b] });
 
 		m_articulation_ptrs.clear();
 		m_articulation_ptrs.reserve(m_articulation.size());
@@ -915,6 +925,7 @@ namespace physics_sandbox
 			.m_bodies = m_body_ptrs,
 			.m_articulations = m_articulation_ptrs,
 			.m_constraints = m_constraints.Count() != 0 ? &m_constraints : nullptr,
+			.m_collision_ignore_pairs = m_collision_ignore_pairs,
 			.m_elapsed_seconds = dt,
 			.m_substep_count = substep_count,
 			.m_time_s = time_s,
@@ -1246,6 +1257,7 @@ namespace physics_sandbox
 					body.VelocityWS(bd.angular_velocity, bd.velocity);
 
 				body.NeverSleep(bd.never_sleep);
+				body.CollisionFilter(bd.collision_layer, bd.collision_mask);
 				if (bd.sleeping)
 					body.Sleep();
 				body.m_colour = bd.colour ? *bd.colour : RandomRGB(scene_rng, 0.0f, 1.0f);
@@ -1281,6 +1293,35 @@ namespace physics_sandbox
 				ground.m_colour = scene_desc.ground->colour ? *scene_desc.ground->colour : RandomRGB(scene_rng, 0.0f, 1.0f);
 				m_body.push_back(std::move(ground));
 				m_ground_body_index = isize(m_body) - 1;
+			}
+
+			// Resolve named ignore pairs to scene body indices. Scene bodies come first in 'm_body', so a scene body index is also its 'm_body' index.
+			for (auto const& [name_a, name_b] : scene_desc.collision_ignore_pairs)
+			{
+				auto find_body = [&](std::string const& name)
+				{
+					// Names must be unique; an ambiguous or unknown name is a scene authoring error.
+					auto found = -1;
+					for (auto i = 0; i != num_scene_bodies; ++i)
+					{
+						if (scene_desc.bodies[i].name != name)
+							continue;
+						if (found != -1)
+							throw std::runtime_error(pr::FmtS("Collision ignore pair names '%s', which is not unique", name.c_str()));
+
+						found = i;
+					}
+					if (found == -1)
+						throw std::runtime_error(pr::FmtS("Collision ignore pair names unknown body '%s'", name.c_str()));
+
+					return found;
+				};
+				auto a = find_body(name_a);
+				auto b = find_body(name_b);
+				if (a == b)
+					throw std::runtime_error(pr::FmtS("Collision ignore pair names body '%s' twice", name_a.c_str()));
+
+				m_collision_ignore_indices.emplace_back(a, b);
 			}
 
 			// Scene files can instantiate objects directly asleep. Build those initial islands explicitly during load so Engine::Step() can

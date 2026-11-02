@@ -5,6 +5,7 @@
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/shape/shape_mass.h"
 #include "pr/physics/utility/misc.h"
+#include "src/compute/physics_types.hlsli"
 
 namespace pr::physics
 {
@@ -39,9 +40,12 @@ namespace pr::physics
 		,m_ws_gravity()
 		,m_os_inertia_inv()
 		,m_dynamic_inertia_inv()
+		,m_motion(ERigidBodyMotion::Dynamic)
 		,m_shape(collision::shape_cast(shape))
 		,m_state_flags(ERigidBodyStateFlags::None)
 		,m_sleep()
+		,m_collision_layer(DefaultCollisionLayer)
+		,m_collision_mask(DefaultCollisionMask)
 	{
 		SetMassProperties(inertia);
 	}
@@ -255,14 +259,13 @@ namespace pr::physics
 		// Every switch starts from a clean motion state. Island membership changes with the motion type, so it is invalidated by Wake.
 		m_ws_momentum = v8force{};
 		m_ws_force = v8force{};
+		m_motion = motion;
 		switch (motion)
 		{
 			case ERigidBodyMotion::Static:
 			{
-				// Static bodies have infinite mass and no motion
+				// Keep the body's own mass properties for a later switch, but do not move
 				assert("Static bodies cannot have a velocity" && FEql(ws_velocity, v8motion{}));
-				m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::Kinematic, false);
-				m_dynamic_inertia_inv = InertiaInv::Zero();
 				UpdateSolverInertia();
 				break;
 			}
@@ -270,7 +273,6 @@ namespace pr::physics
 			{
 				// Use the body's own mass properties again, and convert the release velocity to momentum
 				assert("Dynamic bodies need finite mass properties" && m_dynamic_inertia_inv.InvMass() > 0.0f);
-				m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::Kinematic, false);
 				UpdateSolverInertia();
 				m_ws_momentum = InertiaWS() * ws_velocity;
 				break;
@@ -278,7 +280,6 @@ namespace pr::physics
 			case ERigidBodyMotion::Kinematic:
 			{
 				// Keep the body's own mass properties and move at the given twist
-				m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::Kinematic, true);
 				UpdateSolverInertia();
 				m_ws_momentum = v8force{ws_velocity.ang, ws_velocity.lin};
 				break;
@@ -289,7 +290,12 @@ namespace pr::physics
 			}
 		}
 
-		// Start the new motion type awake and outside any sleep island
+		// Start the new motion type awake and outside any sleep island. Cached contact impulses were computed for the old mass, so the next step ignores them.
+		// The rest of a sleeping island loses a member, so the engine wakes it in the next step.
+		if (Sleeping() && m_sleep.m_island_id >= 0)
+			m_sleep.m_left_island_id = m_sleep.m_island_id;
+
+		m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::ResetWarmStart, true);
 		Wake();
 	}
 	bool RigidBody::Kinematic() const
@@ -476,6 +482,26 @@ namespace pr::physics
 		m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::NeverSleep, never_sleep);
 	}
 
+	// Get/Set the collision filter.
+	uint32_t RigidBody::CollisionLayer() const
+	{
+		return m_collision_layer;
+	}
+	uint32_t RigidBody::CollisionMask() const
+	{
+		return m_collision_mask;
+	}
+	void RigidBody::CollisionFilter(uint32_t layer, uint32_t mask)
+	{
+		// A change can add or remove contacts that a sleeping body depends on, so the body must be awake to find its new contacts
+		if (layer == m_collision_layer && mask == m_collision_mask)
+			return;
+
+		m_collision_layer = layer;
+		m_collision_mask = mask;
+		Wake();
+	}
+
 	// Invalidate cached sleep island membership.
 	void RigidBody::InvalidateSleepIsland()
 	{
@@ -581,13 +607,35 @@ namespace pr::physics
 		UpdateSolverInertia();
 	}
 
-	// Set the solver inertia and the Static flag from the dynamic mass properties and the Kinematic flag.
+	// Set the solver inertia and the Static and Kinematic flags from the motion type and the dynamic mass properties.
 	void RigidBody::UpdateSolverInertia()
 	{
-		// Kinematic bodies are immovable to the solver. Other bodies are static exactly when their own mass is infinite.
-		auto kinematic = Kinematic();
-		m_os_inertia_inv = kinematic ? InertiaInv::Zero() : m_dynamic_inertia_inv;
-		m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::Static, !kinematic && m_dynamic_inertia_inv.InvMass() == 0.0f);
+		// Static and kinematic bodies are immovable to the solver. Dynamic bodies are static exactly when their own mass is infinite.
+		auto movable = false;
+		switch (m_motion)
+		{
+			case ERigidBodyMotion::Static:
+			case ERigidBodyMotion::Kinematic:
+			{
+				movable = false;
+				break;
+			}
+			case ERigidBodyMotion::Dynamic:
+			{
+				movable = m_dynamic_inertia_inv.InvMass() != 0.0f;
+				break;
+			}
+			default:
+			{
+				throw std::invalid_argument("Unknown rigid body motion type");
+			}
+		}
+
+		// Derive the solver state the integrator and the GPU read
+		auto kinematic = m_motion == ERigidBodyMotion::Kinematic;
+		m_os_inertia_inv = movable ? m_dynamic_inertia_inv : InertiaInv::Zero();
+		m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::Kinematic, kinematic);
+		m_state_flags = SetBits(m_state_flags, ERigidBodyStateFlags::Static, !movable && !kinematic);
 	}
 
 	// Return the kinetic energy of the body

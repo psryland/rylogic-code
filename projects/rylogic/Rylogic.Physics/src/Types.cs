@@ -38,10 +38,11 @@ public enum EBodyCommand
 	ApplyForce = 4,
 	ApplyImpulse = 5,
 	SetGravity = 6,
-	SetKinematicTransform = 7,
+	SetKinematicTarget = 7,
 	SetEnabled = 8,
 	Wake = 9,
 	Sleep = 10,
+	SetMotionType = 11,
 }
 
 /// <summary>Identifies a buffered event produced by a completed step.</summary>
@@ -327,6 +328,10 @@ public sealed class EngineOptions
 	public float ConstraintMaxPositionSpeed { get; set; } = 2.0f;
 	public float ConstraintRegularization { get; set; } = 1.0e-6f;
 	public float ConstraintWarmStartFactor { get; set; } = 0.85f;
+
+	/// <summary>Collision filter of the world surfaces (terrain and cylindrical boundary). See BodyOptions.CollisionLayer.</summary>
+	public uint WorldCollisionLayer { get; set; } = 1U;
+	public uint WorldCollisionMask { get; set; } = 0xFFFFFFFFU;
 }
 
 /// <summary>Material properties consumed by native contact resolution.</summary>
@@ -365,6 +370,13 @@ public sealed class BodyOptions
 	public EMassDistribution MassDistribution { get; set; } = EMassDistribution.Solid;
 	public float MassOrDensity { get; set; } = 1000.0f;
 	public EBodyFlags Flags { get; set; } = EBodyFlags.Enabled;
+
+	/// <summary>
+	/// Collision filter. Two bodies collide only when each is in a layer that the other's mask accepts: (a.layer &amp; b.mask) != 0 and
+	/// (b.layer &amp; a.mask) != 0. World surfaces use EngineOptions.WorldCollisionLayer/Mask in the same way. A zero layer or mask collides with nothing.
+	/// </summary>
+	public uint CollisionLayer { get; set; } = 1U;
+	public uint CollisionMask { get; set; } = 0xFFFFFFFFU;
 }
 
 /// <summary>A fixed-layout bulk body mutation.</summary>
@@ -397,10 +409,22 @@ public readonly struct BodyCommand
 		return new BodyCommand(body, EBodyCommand.SetTransform, object_to_world, SpatialVector.Zero, v4.Zero);
 	}
 
-	/// <summary>Create a kinematic world-transform replacement command.</summary>
-	public static BodyCommand SetKinematicTransform(BodyHandle body, m4x4 object_to_world)
+	/// <summary>
+	/// Move a kinematic body to 'object_to_world' by the end of the next step. The engine derives the twist that reaches the target, so the body
+	/// pushes and carries dynamic bodies on the way. The target applies to one step only; afterwards the body keeps moving at that twist.
+	/// </summary>
+	public static BodyCommand SetKinematicTarget(BodyHandle body, m4x4 object_to_world)
 	{
-		return new BodyCommand(body, EBodyCommand.SetKinematicTransform, object_to_world, SpatialVector.Zero, v4.Zero);
+		return new BodyCommand(body, EBodyCommand.SetKinematicTarget, object_to_world, SpatialVector.Zero, v4.Zero);
+	}
+
+	/// <summary>
+	/// Change a body's motion type. 'velocity' is the world-space release velocity for Dynamic or the twist for Kinematic, and must be zero for Static.
+	/// Switching to Dynamic needs finite stored mass. The body wakes, and any pending kinematic target is dropped.
+	/// </summary>
+	public static BodyCommand SetMotionType(BodyHandle body, EMotionType motion_type, SpatialVector velocity)
+	{
+		return new BodyCommand(body, EBodyCommand.SetMotionType, m4x4.Identity, velocity, v4.Zero, (uint)motion_type);
 	}
 
 	/// <summary>Create a world-space angular and linear velocity replacement command.</summary>
@@ -474,9 +498,14 @@ public struct BodySnapshot
 	public ulong m_user_tag;
 	public EMotionType m_motion_type;
 	public EBodyFlags m_flags;
+	public uint m_collision_layer;
+	public uint m_collision_mask;
 }
 
-/// <summary>The complete mutable state of one rigid body outside a pending step.</summary>
+/// <summary>
+/// The complete mutable state of one rigid body outside a pending step. 'm_inertia' is always the body's own mass properties, which static and
+/// kinematic bodies keep for a later switch to Dynamic. Dynamic bodies take 'm_momentum'; kinematic bodies take 'm_velocity' as their twist.
+/// </summary>
 public readonly struct RigidBodyState
 {
 	public readonly m4x4 m_object_to_world;
@@ -488,8 +517,10 @@ public readonly struct RigidBodyState
 	public readonly ulong m_user_tag;
 	public readonly EMotionType m_motion_type;
 	public readonly EBodyFlags m_flags;
+	public readonly uint m_collision_layer;
+	public readonly uint m_collision_mask;
 
-	/// <summary>Create an immutable body-state value.</summary>
+	/// <summary>Create an immutable body-state value. See BodyOptions.CollisionLayer for the collision filter.</summary>
 	public RigidBodyState(
 		m4x4 object_to_world,
 		BodyInertia inertia,
@@ -499,7 +530,9 @@ public readonly struct RigidBodyState
 		v4 gravity,
 		ulong user_tag,
 		EMotionType motion_type,
-		EBodyFlags flags)
+		EBodyFlags flags,
+		uint collision_layer,
+		uint collision_mask)
 	{
 		m_object_to_world = object_to_world;
 		m_inertia = inertia;
@@ -510,6 +543,8 @@ public readonly struct RigidBodyState
 		m_user_tag = user_tag;
 		m_motion_type = motion_type;
 		m_flags = flags;
+		m_collision_layer = collision_layer;
+		m_collision_mask = collision_mask;
 	}
 }
 
@@ -546,6 +581,14 @@ public struct PhysicsEvent
 	public int m_failure_iteration_count;
 	public float m_failure_relaxation;
 	public float m_failure_merit_change;
+
+	// Contact impulses and velocity, in world space. Zero for events that are not contacts.
+	//  m_normal_impulse: the total impulse along 'm_normal' that the solver applied to B during the substep (A receives the negation). Never negative.
+	//  m_tangent_impulse: the friction impulse applied to B during the substep, perpendicular to 'm_normal'.
+	//  m_relative_velocity: the velocity of B relative to A at the centre of the contact points, after the substep's solve.
+	public float m_normal_impulse;
+	public v4 m_tangent_impulse;
+	public v4 m_relative_velocity;
 }
 
 /// <summary>Timing and capacity measurements for the most recently completed step.</summary>

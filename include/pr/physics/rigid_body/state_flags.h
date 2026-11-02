@@ -28,6 +28,10 @@ namespace pr::physics
 		// True if the body follows a caller-driven velocity (twist) and has infinite mass. Static is clear for kinematic bodies.
 		Kinematic = 1 << 4,
 
+		// True for the first step after a motion type change. Contacts involving the body ignore cached impulses from before the change.
+		// The engine clears it after that step.
+		ResetWarmStart = 1 << 5,
+
 		_flags_enum = 0,
 	};
 

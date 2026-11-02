@@ -99,6 +99,7 @@ static const int ERigidBodyStateFlags_Sleeping = 1 << 1;
 static const int ERigidBodyStateFlags_NeverSleep = 1 << 2;
 static const int ERigidBodyStateFlags_Collided = 1 << 3;
 static const int ERigidBodyStateFlags_Kinematic = 1 << 4;
+static const int ERigidBodyStateFlags_ResetWarmStart = 1 << 5;
 
 // Collision shape types:
 static const int SHAPE_SPHERE   = 0;
@@ -209,7 +210,24 @@ struct GpuRigidBody
 
 	// Sleeping state for this body.
 	GpuSleepData sleep;
+
+	// Collision filter: the layer bits this body is in, and the layer bits it can collide with (see CollisionFilterPasses).
+	uint collision_layer;
+	uint collision_mask;
+	uint pad_filter0;
+	uint pad_filter1;
 };
+
+// The collision filter of a body that has not been given one: in layer 1 and collides with every layer.
+static const uint DefaultCollisionLayer = 1U;
+static const uint DefaultCollisionMask = 0xFFFFFFFFU;
+
+// True if two collision filters allow contact. Each side must be in a layer that the other side's mask accepts.
+inline bool CollisionFilterPasses(uint layer_a, uint mask_a, uint layer_b, uint mask_b)
+{
+	return (layer_a & mask_b) != 0 && (layer_b & mask_a) != 0;
+}
+
 struct GpuSleepIsland
 {
 	BBox bbox_ws;
@@ -318,7 +336,7 @@ struct GpuResolveContact
 	float4 warmstart_impulse; // Accumulated physical impulse from the velocity solver, in body A space.
 	int child_idx_b;        // Leaf index within body B's compound shape (0 for a single-shape body)
 	float approach_speed;   // Pre-solve normal relative speed at the centroid (negative = closing). Written by CSComputeCollisionTimes; drives restitution.
-	int pad2;
+	float bias_impulse;     // Accumulated normal Baumgarte bias impulse on B for this solve. It changes momentum but is never cached for warm starting.
 	int pad3;
 	float4 friction_impulses[GpuContactMaxPoints]; // Per-point physical tangent accumulators for this solve; not replayed across contact frames.
 };
@@ -752,6 +770,7 @@ struct GpuCollisionEvent
 	row_major float4x4 b2a;
 	float4 relative_velocity_ang;
 	float4 relative_velocity_lin;
+	float4 impulse; // Total contact impulse (normal and friction) applied to B during the substep, in A space. A receives the negation.
 	int body_idx_a;
 	int body_idx_b;
 	int mat_id_a;

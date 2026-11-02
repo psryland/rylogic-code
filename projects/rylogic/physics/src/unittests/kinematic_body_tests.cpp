@@ -77,7 +77,7 @@ namespace pr::physics::tests
 
 	PRUnitTestClass(KinematicBodyTests)
 	{
-		// A non-kinematic body is static exactly when its mass is infinite.
+		// A dynamic body is static when its mass is infinite. A body switched to Static keeps its own mass properties and stays static.
 		PRUnitTestMethod(MotionFollowsMass, Quick)
 		{
 			// Finite mass makes a dynamic body; infinite mass makes a static body
@@ -86,15 +86,26 @@ namespace pr::physics::tests
 			PR_EXPECT(dynamic.Motion() == ERigidBodyMotion::Dynamic);
 			PR_EXPECT(fixed.Motion() == ERigidBodyMotion::Static);
 
-			// Switching to Static discards the dynamic mass
+			// Switching to Static makes the solver mass infinite but keeps the body's own mass
+			auto const dynamic_inertia = dynamic.DynamicInertiaInvOS();
 			dynamic.Motion(ERigidBodyMotion::Static, v8motion{});
 			PR_EXPECT(dynamic.Motion() == ERigidBodyMotion::Static);
 			PR_EXPECT(dynamic.InvMass() == 0.0f);
-			PR_EXPECT(dynamic.DynamicInertiaInvOS().InvMass() == 0.0f);
+			PR_EXPECT(dynamic.DynamicInertiaInvOS() == dynamic_inertia);
 
-			// Restoring finite mass properties makes the body dynamic again
-			dynamic.SetMassProperties(Inertia::Sphere(1, 5.0f));
+			// Changing the mass properties of a static body does not make it dynamic
+			dynamic.SetMassProperties(Inertia::Sphere(1, 2.0f));
+			PR_EXPECT(dynamic.Motion() == ERigidBodyMotion::Static);
+			PR_EXPECT(dynamic.InvMass() == 0.0f);
+
+			// Switching back to Dynamic uses the stored mass again
+			dynamic.Motion(ERigidBodyMotion::Dynamic, v8motion{});
 			PR_EXPECT(dynamic.Motion() == ERigidBodyMotion::Dynamic);
+			PR_EXPECT(FEql(dynamic.Mass(), 2.0f));
+
+			// Restoring finite mass properties on an infinite-mass dynamic body makes it movable again
+			fixed.SetMassProperties(Inertia::Sphere(1, 5.0f));
+			PR_EXPECT(fixed.Motion() == ERigidBodyMotion::Dynamic);
 		}
 
 		// A kinematic body has infinite solver mass, keeps its own mass properties, and reports its twist as its velocity.
@@ -356,6 +367,100 @@ namespace pr::physics::tests
 			run(10, 0);
 			PR_EXPECT(!bodies[0].Sleeping());
 			PR_EXPECT(bodies[0].O2W().pos.z > 0.55f);
+		}
+	};
+
+	// Switching motion type starts the body cold: no cached contact impulses, and no sleeping island left resting on it.
+	PRUnitTestClass(MotionSwitchTests)
+	{
+		// A motion switch flags the body to ignore cached impulses. The flag reaches the GPU and is cleared when the step result is unpacked.
+		PRUnitTestMethod(SwitchFlagsWarmStartReset, Quick)
+		{
+			// Every switch sets the flag
+			auto rb = RigidBody{nullptr, m4x4::Identity(), Inertia::Sphere(1, 2.0f)};
+			PR_EXPECT(!AllSet(rb.StateFlags(), ERigidBodyStateFlags::ResetWarmStart));
+			for (auto motion : {ERigidBodyMotion::Kinematic, ERigidBodyMotion::Static, ERigidBodyMotion::Dynamic})
+			{
+				// The flag is packed for the GPU and cleared by unpacking the result
+				rb.Motion(motion, v8motion{});
+				PR_EXPECT(AllSet(rb.StateFlags(), ERigidBodyStateFlags::ResetWarmStart));
+				auto const dyn = PackDynamics(rb, 0);
+				PR_EXPECT(AllSet(static_cast<ERigidBodyStateFlags>(dyn.state_flags), ERigidBodyStateFlags::ResetWarmStart));
+				UnpackDynamics(dyn, rb);
+				PR_EXPECT(!AllSet(rb.StateFlags(), ERigidBodyStateFlags::ResetWarmStart));
+				PR_EXPECT(rb.Motion() == motion);
+			}
+		}
+
+		// A body that switched motion type gets no warm-start impulse from the previous step's contacts.
+		PRUnitTestMethod(SwitchStartsContactsCold, Extended)
+		{
+			// Two overlapping spheres moving towards each other. Solve once to fill the warm-start cache.
+			auto shape = collision::ShapeSphere{0.5f};
+			auto const initial_o2w_a = m4x4::Translation(-0.4f, 0, 0);
+			auto const initial_o2w_b = m4x4::Translation(+0.4f, 0, 0);
+			auto const initial_velocity_a = v8motion{v4::Zero(), +v4::XAxis()};
+			auto const initial_velocity_b = v8motion{v4::Zero(), -v4::XAxis()};
+			auto body_a = RigidBody{&shape, initial_o2w_a, Inertia::Sphere(shape.m_radius, 1.0f)};
+			auto body_b = RigidBody{&shape, initial_o2w_b, Inertia::Sphere(shape.m_radius, 1.0f)};
+			body_a.VelocityWS(initial_velocity_a);
+			body_b.VelocityWS(initial_velocity_b);
+			auto bodies = std::array<RigidBody*, 2>{&body_a, &body_b};
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+			auto config = EngineConfig{};
+			config.sleeping_enabled = false;
+			config.selective_refresh_passes = 0;
+			config.push_out_iterations = 0;
+			config.solver_iterations = 1;
+			config.velocity_baumgarte = 0.0f;
+			config.warm_start_scale = 1.0f;
+			engine.Config(config);
+			engine.Step(1.0f / 60.0f, bodies);
+
+			// Replay the same contact with iterative solving disabled, so only a warm start could change the velocities.
+			// Switching 'a' to Dynamic again (with its initial velocity) must discard the cached impulse.
+			body_a.O2W(initial_o2w_a);
+			body_b.O2W(initial_o2w_b);
+			body_a.Motion(ERigidBodyMotion::Dynamic, initial_velocity_a);
+			body_b.VelocityWS(initial_velocity_b);
+			config.solver_iterations = 0;
+			engine.Config(config);
+			engine.Step(1.0f / 60.0f, bodies);
+
+			// Neither sphere was pushed, and the flag was consumed by the step
+			PR_EXPECT(body_a.VelocityWS().lin.x > 0.5f);
+			PR_EXPECT(body_b.VelocityWS().lin.x < -0.5f);
+			PR_EXPECT(!AllSet(body_a.StateFlags(), ERigidBodyStateFlags::ResetWarmStart));
+		}
+
+		// Switching the motion type of a body in a sleeping island wakes the rest of that island in the next step. Other islands stay asleep.
+		PRUnitTestMethod(SwitchWakesSleepingIsland, Extended)
+		{
+			// Two touching sleeping boxes form one island. A third sleeping box far away forms another.
+			auto box = collision::ShapeBox{v4{1, 1, 1, 0}};
+			auto& engine = SharedEngine();
+			ResetEngineForNextTest(engine);
+
+			RigidBody bodies[3];
+			for (int i = 0; i != 3; ++i)
+			{
+				// Sleeping boxes along x
+				bodies[i].Shape(collision::shape_cast(&box), 1.0f);
+				bodies[i].O2W(m4x4::Translation(i != 2 ? 0.99f * static_cast<float>(i) : 10.0f, 0, 0));
+				bodies[i].Sleep();
+			}
+			engine.UpdateSleepIslands(bodies);
+
+			// Hold one island member still. The switch itself wakes only that body.
+			bodies[1].Motion(ERigidBodyMotion::Kinematic, v8motion{});
+			PR_EXPECT(bodies[0].Sleeping());
+			PR_EXPECT(!bodies[1].Sleeping());
+
+			// The next step wakes the rest of its island, but not the other island
+			engine.Step(1.0f / 60.0f, bodies);
+			PR_EXPECT(!bodies[0].Sleeping());
+			PR_EXPECT(bodies[2].Sleeping());
 		}
 	};
 }

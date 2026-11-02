@@ -10,8 +10,8 @@ namespace Rylogic.Physics;
 internal static unsafe partial class Native
 {
 	internal const string Dll = "physics";
-	internal const uint ApiVersion = 0x00070000U;
-	internal const uint StructVersion = 2U;
+	internal const uint ApiVersion = 0x00080000U;
+	internal const uint StructVersion = 3U;
 	private static IntPtr m_module;
 
 	/// <summary>Load the configuration-appropriate native runtime before the first P/Invoke.</summary>
@@ -94,6 +94,8 @@ internal static unsafe partial class Native
 		internal float m_constraint_max_position_speed;
 		internal float m_constraint_regularization;
 		internal float m_constraint_warm_start_factor;
+		internal uint m_world_collision_layer;
+		internal uint m_world_collision_mask;
 
 		/// <summary>Convert caller-facing options into the exact ABI layout.</summary>
 		internal static EngineConfig From(EngineOptions options)
@@ -152,6 +154,8 @@ internal static unsafe partial class Native
 				m_constraint_max_position_speed = options.ConstraintMaxPositionSpeed,
 				m_constraint_regularization = options.ConstraintRegularization,
 				m_constraint_warm_start_factor = options.ConstraintWarmStartFactor,
+				m_world_collision_layer = options.WorldCollisionLayer,
+				m_world_collision_mask = options.WorldCollisionMask,
 			};
 		}
 
@@ -211,6 +215,8 @@ internal static unsafe partial class Native
 				ConstraintMaxPositionSpeed = m_constraint_max_position_speed,
 				ConstraintRegularization = m_constraint_regularization,
 				ConstraintWarmStartFactor = m_constraint_warm_start_factor,
+				WorldCollisionLayer = m_world_collision_layer,
+				WorldCollisionMask = m_world_collision_mask,
 			};
 		}
 	}
@@ -330,6 +336,8 @@ internal static unsafe partial class Native
 		internal EMassDistribution m_mass_distribution;
 		internal float m_mass_or_density;
 		internal EBodyFlags m_flags;
+		internal uint m_collision_layer;
+		internal uint m_collision_mask;
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
@@ -347,6 +355,16 @@ internal static unsafe partial class Native
 		internal ulong m_user_tag;
 		internal EMotionType m_motion_type;
 		internal EBodyFlags m_flags;
+		internal uint m_collision_layer;
+		internal uint m_collision_mask;
+	}
+
+	/// <summary>An unordered pair of bodies; see Physics_BodyCollisionIgnoreCopy.</summary>
+	[StructLayout(LayoutKind.Sequential)]
+	internal struct BodyPair
+	{
+		internal BodyHandle m_body_a;
+		internal BodyHandle m_body_b;
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
@@ -444,6 +462,8 @@ internal static unsafe partial class Native
 	[DllImport(Dll)] internal static extern EStatus Physics_BodyDestroy(ulong engine, ulong body);
 	[DllImport(Dll)] internal static extern EStatus Physics_BodyStateGet(ulong engine, ulong body, BodyState* state);
 	[DllImport(Dll)] internal static extern EStatus Physics_BodyStateSet(ulong engine, ulong body, BodyState* state);
+	[DllImport(Dll)] internal static extern EStatus Physics_BodyCollisionIgnoreSet(ulong engine, ulong body_a, ulong body_b, int ignore);
+	[DllImport(Dll)] internal static extern EStatus Physics_BodyCollisionIgnoreCopy(ulong engine, BodyPair* pairs, uint capacity, out uint required);
 	[DllImport(Dll)] internal static extern EStatus Physics_CommandsApply(ulong engine, BodyCommand* commands, uint command_count);
 	[DllImport(Dll)] internal static extern EStatus Physics_BeginStep(ulong engine, float elapsed_seconds, double absolute_time_seconds, BodyCommand* commands, uint command_count);
 	[DllImport(Dll)] internal static extern EStatus Physics_BeginStepEx(ulong engine, float elapsed_seconds, double absolute_time_seconds, uint substep_count, BodyCommand* commands, uint command_count);

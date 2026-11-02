@@ -6,7 +6,7 @@
 			"group": "Collision and Contacts",
 			"order": 10
 		},
-		"description": "Kinematic bodies move at a fixed velocity and push dynamic bodies without being slowed: a spinning paddle sweeps through box stacks, a moving platform and a turntable carry boxes by friction.",
+		"description": "Kinematic bodies move at a fixed velocity and push dynamic bodies without being slowed: a spinning paddle sweeps through box stacks, a moving platform and a turntable carry boxes by friction. The paddle passes through the white crate (ignore pair) and the purple crate (collision layer 2 is outside the paddle's mask).",
 		"gravity": [0, 0, -9.81],
 		"material": {
 			"friction": 0.8,
@@ -32,7 +32,23 @@
 				"colour": "0xFFE04040",
 				"position": [-6.0, 0.0, 0.65],
 				"angular_velocity": [0, 0, 1.0],
-				"kinematic": true
+				"kinematic": true,
+				"collision_mask": 1
+			},
+			{
+				"name": "ghost_crate",
+				"shape": "crate",
+				"mass": 5.0,
+				"colour": "0xFFE0E0E0",
+				"position": [-6.0, -3.0, 0.3]
+			},
+			{
+				"name": "phantom_crate",
+				"shape": "crate",
+				"mass": 5.0,
+				"colour": "0xFFB040E0",
+				"position": [-6.0, 3.0, 0.3],
+				"collision_layer": 2
 			},
 			{
 				"name": "moving_platform",
@@ -71,6 +87,7 @@
 				"position": [9.0, 4.0, 0.85]
 			}
 		],
+		"collision_ignore_pairs": [["paddle", "ghost_crate"]],
 		"body_generators": [
 			{
 				"name": "stack_ne_#",

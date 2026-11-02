@@ -219,11 +219,13 @@ Implement **A (body layer/mask) and C (ignore pairs)**. Do not implement B or D 
 
 ### Data and ABI [Proposal]
 
-- `BodyDesc`, `BodyState`, `BodySnapshot`: add `uint32 collision_layer` (default `1`) and `uint32 collision_mask` (default `0xFFFFFFFF`). Add an engine-level
-  `world_collision_layer` (default `1`) in `PhysicsEngineConfig` for terrain, boundary and water contacts.
+- `BodyDesc`, `BodyState`, `BodySnapshot`: add `uint32 collision_layer` and `uint32 collision_mask`. The native `RigidBody` defaults are layer `1` and mask
+  `0xFFFFFFFF`. The ABI has no hidden defaults: callers set both fields, and a zero layer collides with nothing. Add an engine-level `world_collision_layer`
+  and `world_collision_mask` (defaults `1` and `0xFFFFFFFF`) in `PhysicsEngineConfig` for terrain and cylindrical boundary contacts. Water applies buoyancy
+  forces, not contacts, so it is not filtered.
 - New functions:
   - `Physics_BodyCollisionIgnoreSet(engine, body_a, body_b, int ignore)` — add or remove an ignore pair. Idempotent.
-  - `Physics_BodyCollisionIgnoreCount/Copy` — for checkpoint and debugging.
+  - `Physics_BodyCollisionIgnoreCopy` — for checkpoint and debugging. It always reports the pair count in `required`, so no separate Count function is needed.
 - Interop keeps a set of ignore pairs keyed by stable body handles. Destroying a body removes its pairs. Disabled bodies keep their pairs.
 
 ### Where the filter is applied [Proposal]
@@ -244,8 +246,8 @@ This section lists options and hooks only. The design is a future task.
 
 ### Hooks this plan adds [Proposal]
 
-- `Event` gains `normal_impulse` (sum over points of the accumulated normal impulse in the substep, from `warmstart_impulse`), `tangent_impulse` (v4), and
-  `relative_velocity` (v4, at the first contact point, along A to B). Managed `PhysicsEvent` gets the same fields.
+- `Event` gains `normal_impulse` (the normal impulse the contact applied to B in the substep: the solver accumulator `warmstart_impulse` plus the uncached
+  Baumgarte bias impulse), `tangent_impulse` (v4), and `relative_velocity` (v4, at the manifold centre, along A to B). Managed `PhysicsEvent` gets the same fields.
 - Events where one body is kinematic are reported like any other contact, so the game can find all contacts of the carried toy by its handle.
 - Optional: `Physics_BodyContactImpulseGet(body)` returns the total impulse and moment on a body over the last step, summed on the GPU. This avoids walking all events.
   It is useful for kinematic bodies, where the solver throws the impulse away.
@@ -277,7 +279,7 @@ This section lists options and hooks only. The design is a future task.
 | `BodyState` / `BodySnapshot` | Add `collision_layer`, `collision_mask`. `velocity` reports the twist for kinematic bodies. |
 | `Event` | Add `normal_impulse`, `tangent_impulse`, `relative_velocity`. |
 | `PhysicsEngineConfig` | Add `world_collision_layer`, `world_collision_mask`. |
-| Functions | `Physics_BodyCollisionIgnoreSet`, `Physics_BodyCollisionIgnoreCount`, `Physics_BodyCollisionIgnoreCopy`, optional `Physics_BodyContactImpulseGet`. |
+| Functions | `Physics_BodyCollisionIgnoreSet`, `Physics_BodyCollisionIgnoreCopy` (also reports the count), optional `Physics_BodyContactImpulseGet`. |
 | Checkpoint | Store kinematic twist, saved dynamic inertia, stored target, layer/mask per body, and the ignore-pair list. |
 | Managed `Types.cs` | `BodyOptions.CollisionLayer/CollisionMask`; `BodyCommand.SetKinematicTarget(...)`, `BodyCommand.SetMotionType(body, EMotionType, SpatialVector velocity)`; new fields in `RigidBodyState`, `BodySnapshot`, `PhysicsEvent`, `EngineOptions`. |
 | Managed `RigidBody.cs` / `Engine.cs` | `RigidBody.SetCollisionIgnored(RigidBody other, bool ignore)` and `Engine.SetCollisionIgnored(BodyHandle, BodyHandle, bool)`. `Native.cs` gets the new imports and struct fields. |
@@ -347,7 +349,12 @@ Each milestone builds and passes its own tests before the next one starts.
 - [x] Milestone 2: GPU shaders read velocity through `body_twist.hlsli`. `KinematicPushesDynamicCpu` and `KinematicPushesDynamicGpu` pass. Sandbox `-scenediag` stack scene is unchanged.
 - [x] Milestone 3: kinematic bodies drift by their twist on the CPU and GPU (`KinematicDriftFollowsTwist`, `KinematicDriftGpu`), `SetKinematicTarget` reaches its pose with substeps (`TargetReachedWithSubsteps`), and a moving platform carries a box by friction (`PlatformCarriesBoxByFriction`). Sandbox `-scenediag` stack scene is unchanged.
 - [x] Milestone 4: the broadphase rejects kinematic-static and kinematic-kinematic pairs, and a moving kinematic body admits pairs with sleeping bodies and disturbs their islands (`KinematicSleepTests`: `NoKinematicStaticOrKinematicPairs`, `MovingKinematicWakesSleepingIsland`, `SleepOnStillKinematicPlatform`).
-- [x] Sandbox demo: scene JSON accepts `"kinematic": true`, and `scenes\kinematic_pusher.json` (demo `kinematic-pusher`) has a spinning paddle, a moving platform and a turntable. `-scenediag` shows the kinematic bodies push sleeping boxes (worst depth 0.05 m over 600 steps). Extend it with ignore pairs and layer/mask after Milestones 6-7.
+- [x] Milestone 5: Static is an explicit motion type that keeps the stored mass. A motion switch sets a per-body `ResetWarmStart` flag so the body's contacts start cold for one step, and the engine wakes the sleep island the body left at the start of the next step. The `SetMotionType` command validates against the motion type pending earlier in the batch. Tests: `MotionSwitchTests` (`SwitchFlagsWarmStartReset`, `SwitchStartsContactsCold`, `SwitchWakesSleepingIsland`) and `SetMotionTypeCommand`. While testing, `PhysicsDllConcurrencyTests` was made `Serial` and the shared DLL test context was made thread-safe, which fixed a leaked context token that made the test process hang on exit.
+- [x] Milestone 6: `Physics_BodyCollisionIgnoreSet` / `Physics_BodyCollisionIgnoreCopy` store canonical, sorted ignore pairs per engine. `Engine::StepInput::m_collision_ignore_pairs` adds them to the broadphase exclusion table, skipping pairs with a body that is not stepped. Destroying a body removes its pairs, and a checkpoint read clears them until Milestone 9 persists them. Tests: `PhysicsDllCollisionFilterTests` (`IgnorePairSuppressesContacts`, `DestroyRemovesIgnorePairs`).
+- [x] Milestone 7: `RigidBody::CollisionFilter(layer, mask)` (32-bit) is packed into `GpuRigidBody`, which grows to 272 bytes. Two bodies collide only when each one's layer is in the other's mask (`CollisionFilterPasses` in `physics_types.hlsli`, shared by the GPU sweep and `BroadphaseBrute`). `EngineConfig::world_collision_layer/mask` filter terrain and boundary contacts in `GpuWorldContacts`. Tests: `LayerMaskMatrix` (four filter combinations plus the world boundary) and `CollisionPairTests.CollisionFilterMatchesCpuReference`.
+- [x] Milestone 8: `GpuCollisionEvent` carries the contact's impulse on B (256 bytes). The resolver records its Baumgarte bias impulse in `GpuResolveContact::bias_impulse`, because that impulse changes momentum but is kept out of the warm-start cache; the event impulse is the solver accumulator plus the bias. `Event` reports `normal_impulse`, `tangent_impulse` and `relative_velocity` (at the manifold centre, after the solve) in world space. The optional per-body impulse sum was not added. Tests: `PhysicsDllEventImpulseTests` (`RestingBoxReportsWeight` checks a momentum balance over 30 steps; `KinematicHitReportsImpulseAndVelocity`).
+- [x] Milestone 9: the checkpoint is version 4 and stores the ignore pairs, validated before the engine changes. Kinematic targets are not stored, because a target lives only within one `ApplyCommands`/`BeginStep` and none can be pending when a checkpoint is written; a restored Kinematic body keeps its twist. ABI version `0x00080000`, struct version 3. The managed API renames `SetKinematicTransform` to `SetKinematicTarget` and adds `SetMotionType`, `CollisionLayer`/`CollisionMask` (bodies and world), `SetCollisionIgnored`, `GetCollisionIgnoredPairs` and the event impulse fields. Tests: `PhysicsDllCollisionFilterTests.CheckpointKeepsFilterAndKinematicState` (17), managed `KinematicAndFilterRoundTrip` (18) and `KinematicCarryAndRelease` (19).
+- [x] Sandbox demo: scene JSON accepts `"kinematic": true`, per-body `"collision_layer"`/`"collision_mask"` and a scene-level `"collision_ignore_pairs"` list of body names. `scenes\kinematic_pusher.json` (demo `kinematic-pusher`) has a spinning paddle, a moving platform and a turntable. The paddle passes through a white crate (ignore pair) and a purple crate (layer 2, outside the paddle's mask). `-scenediag` shows the kinematic bodies push sleeping boxes (worst depth 0.09 m over 600 steps).
 
 ## Decisions
 
@@ -358,3 +365,5 @@ Resolved open questions (2026-11-02):
 3. A kinematic body with no new target keeps moving at its last twist.
 4. No maximum kinematic push impulse in this plan. It is deferred to the carrier-feedback task.
 5. Layer and mask are 32-bit.
+6. Static is stored as an explicit motion type, not inferred from infinite mass, so a Static body keeps the mass it needs to become Dynamic later.
+7. A motion switch records the sleep island the body leaves, and the engine wakes that island at the start of the next step. `Pack` does not change bodies.

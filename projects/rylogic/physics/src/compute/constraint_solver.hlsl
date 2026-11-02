@@ -109,6 +109,13 @@ float3 ConstraintCentreOfMass(int body_idx)
 	return body.o2w[3].xyz + mul(body.os_com_and_invmass.xyz, (float3x3)body.o2w);
 }
 
+// Return true when an endpoint body changed motion type since the last step, so impulses cached against its old mass are not valid.
+bool ConstraintBodyResetsWarmStart(int body_idx)
+{
+	// World endpoints have no body and never reset.
+	return body_idx >= 0 && AllSet(g_constraint_bodies[body_idx].state_flags, ERigidBodyStateFlags_ResetWarmStart);
+}
+
 // Compose an endpoint-local compact frame with its body transform, or return it directly for world endpoints.
 float4x4 ConstraintFrameToWorld(GpuConstraintFrame frame, int body_idx)
 {
@@ -259,7 +266,11 @@ void CSCompileConstraints(int3 DTID(dtid))
 	float3 anchor_offset_b = endpoint.body_idx_b >= 0 ? frame_b[3].xyz - ConstraintCentreOfMass(endpoint.body_idx_b) : float3(0, 0, 0);
 	bool reset_warm_start =
 		g.retain_current_impulses == 0 &&
-		AllSet(endpoint.flags, GpuConstraintEndpointFlags_ResetWarmStart);
+		(
+			AllSet(endpoint.flags, GpuConstraintEndpointFlags_ResetWarmStart) ||
+			ConstraintBodyResetsWarmStart(endpoint.body_idx_a) ||
+			ConstraintBodyResetsWarmStart(endpoint.body_idx_b)
+		);
 
 	// Frame A defines all six canonical world axes, matching the CPU compiler.
 	for (uint axis_idx = 0; axis_idx != GpuConstraintRowsPerBlock; ++axis_idx)

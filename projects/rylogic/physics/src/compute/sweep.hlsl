@@ -130,6 +130,9 @@ odr bool CollisionExcluded(int body_idx_a, int body_idx_b)
 // Returns false when the pair buffer is full, telling the caller to stop emitting.
 odr bool StorePair(int rbA_idx, int rbB_idx, in_(GpuRigidBody) rb, in_(GpuRigidBody) other_rb, bool filter_connected)
 {
+	// Collision filters are a cheap bit test, so check them before the exclusion table lookup
+	if (!CollisionFilterPasses(rb.collision_layer, rb.collision_mask, other_rb.collision_layer, other_rb.collision_mask))
+		return true;
 	if (filter_connected && CollisionExcluded(rbA_idx, rbB_idx))
 		return true;
 

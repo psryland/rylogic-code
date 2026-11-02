@@ -411,11 +411,22 @@ float3 WarmStartNormalImpulse(GpuResolveContact c, float3 impulse)
 	return normal_impulse > 1e-6f ? normal_impulse * c.axis.xyz : float3(0, 0, 0);
 }
 
+// Return true when 'body_idx' changed motion type since the last step, so impulses cached against its old mass are not valid.
+bool ResetsWarmStart(int body_idx)
+{
+	// Only bodies in the body buffer carry state flags. World endpoints never reset.
+	return body_idx >= 0 && body_idx < g.body_count && AllSet(g_bodies[body_idx].state_flags, ERigidBodyStateFlags_ResetWarmStart);
+}
+
 // Looks up the previous-frame normal impulse for this canonical body pair and projects it onto the current contact normal.
 bool LoadWarmStartImpulse(GpuResolveContact c, out_(float3) impulse)
 {
 	impulse = float3(0, 0, 0);
 	if (g.warm_start_capacity <= 0 || g.warm_start_scale <= 0.0f)
+		return false;
+
+	// A body whose motion type changed starts its contacts cold, because the cached impulse was computed for its old mass.
+	if (ResetsWarmStart(c.body_idx_a) || ResetsWarmStart(c.body_idx_b))
 		return false;
 
 	uint key = WarmStartKey(c);
@@ -1287,7 +1298,8 @@ void ResolveContact(uint idx)
 			float3 applied_bias_impulse = ApplyLinearBiasImpulse(bodyA, bodyB, Jn_bias_centroid * axis, rot_a);
 
 			// Baumgarte bias is a one-frame positional correction, not a reusable support impulse. Persisting it into the warm-start cache replays stale
-			// push-out on the next frame and can keep resting contact networks subtly energised.
+			// push-out on the next frame and can keep resting contact networks subtly energised. It still changes momentum, so record it for contact reports.
+			c.bias_impulse += dot(applied_bias_impulse, axis);
 			any_impulse = any_impulse || any(applied_bias_impulse != float3(0, 0, 0));
 		}
 	}

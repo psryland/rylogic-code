@@ -118,12 +118,21 @@ namespace pr::physics
 			int m_substep_count;
 		};
 
+		// An unordered pair of rigid bodies that never make contacts with each other.
+		struct CollisionIgnorePair
+		{
+			RigidBody const* m_body_a;
+			RigidBody const* m_body_b;
+		};
+
 		// Complete input for one submitted frame. Intermediate substeps remain GPU-resident and do not permit CPU state inspection.
+		// 'm_collision_ignore_pairs' may name bodies that are not in 'm_bodies'; those pairs have no effect for this frame.
 		struct StepInput
 		{
 			std::span<RigidBody*> m_bodies;
 			std::span<Articulation*> m_articulations;
 			ConstraintSet const* m_constraints = nullptr;
+			std::span<CollisionIgnorePair const> m_collision_ignore_pairs;
 			float m_elapsed_seconds = 0.0f;
 			int m_substep_count = 1;
 			double m_time_s = 0.0;
@@ -438,6 +447,9 @@ namespace pr::physics
 		}
 
 	private:
+
+		// Wake the sleeping islands that bodies left when their motion type changed, and clear the record of them.
+		static void WakeLeftSleepIslands(std::span<RigidBody*> rigid_bodies);
 
 		// Pack the body data into GPU buffers for the current frame.
 		void Pack(std::span<RigidBody*> rigid_bodies);
