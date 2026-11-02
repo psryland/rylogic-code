@@ -26,6 +26,7 @@ namespace pr::physics::tests
 			return WaterConfig{
 				.m_field = terrain::water::WaterField{ level },
 				.m_density = Density,
+				.m_gravity = Gravity,
 			};
 		}
 
@@ -36,6 +37,7 @@ namespace pr::physics::tests
 			return WaterConfig{
 				.m_field = std::move(field),
 				.m_density = Density,
+				.m_gravity = Gravity,
 				.m_linear_drag_time_constant_s = 0.0f,
 				.m_angular_drag_time_constant_s = 0.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
@@ -55,12 +57,12 @@ namespace pr::physics::tests
 			return hull;
 		}
 
-		// Step 'bodies' for 'frames' frames of 1/60 s with 'substeps' internal substeps, starting at frame 'first_frame'.
-		static void Run(Engine& engine, std::span<RigidBody*> bodies, int frames, int substeps, int first_frame = 0)
+		// Step 'bodies' for 'frames' frames of 1/60 s with 'substeps' internal substeps, starting at frame 'first_frame', with each body under 'gravity_ws'.
+		static void Run(Engine& engine, std::span<RigidBody*> bodies, int frames, int substeps, int first_frame = 0, v4 gravity_ws = v4{ 0, 0, -Gravity, 0 })
 		{
 			// Gravity persists on the bodies, so each frame only submits the step.
 			for (auto* body : bodies)
-				body->GravityWS(v4{ 0, 0, -Gravity, 0 });
+				body->GravityWS(gravity_ws);
 
 			for (int i = first_frame; i != first_frame + frames; ++i)
 			{
@@ -73,11 +75,11 @@ namespace pr::physics::tests
 				engine.CompleteStep();
 			}
 		}
-		static void Run(Engine& engine, RigidBody& body, int frames, int substeps, int first_frame = 0)
+		static void Run(Engine& engine, RigidBody& body, int frames, int substeps, int first_frame = 0, v4 gravity_ws = v4{ 0, 0, -Gravity, 0 })
 		{
 			// Forward a single body as a one-element span.
 			auto* bodies = &body;
-			Run(engine, std::span<RigidBody*>{ &bodies, 1 }, frames, substeps, first_frame);
+			Run(engine, std::span<RigidBody*>{ &bodies, 1 }, frames, substeps, first_frame, gravity_ws);
 		}
 
 		// Remove the water from the shared engine without leaving its wake request pending for the next test.
@@ -130,6 +132,14 @@ namespace pr::physics::tests
 			bad.m_density = -1.0f;
 			PR_THROWS(bad.Validate(), std::invalid_argument);
 
+			// The water's gravity must be finite and positive.
+			for (auto gravity : { 0.0f, -Gravity, float(NAN), float(INFINITY) })
+			{
+				// Each bad gravity value is rejected.
+				bad = config;
+				bad.m_gravity = gravity;
+				PR_THROWS(bad.Validate(), std::invalid_argument);
+			}
 			bad = config;
 			bad.m_linear_drag_time_constant_s = NAN;
 			PR_THROWS(bad.Validate(), std::invalid_argument);
@@ -315,6 +325,74 @@ namespace pr::physics::tests
 
 			PR_EXPECT(FEqlAbsolute(body.O2W().pos.z, -5.0f, 1e-3f));
 			PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.z, 0.0f, 1e-3f));
+		}
+
+		PRUnitTestMethod(TiltedBodyGravityDoesNotMoveWaterSurface, Quick)
+		{
+			// A body whose own gravity is tilted 30 degrees from -Z, held just above the water and far from the origin, is dry.
+			// The water surface is a height field along world Z, so the body's gravity must not change which points are under water.
+			auto const tilt = 30.0f * constants<float>::tau / 360.0f;
+			auto const gravity_ws = Gravity * v4{ 0, std::sin(tilt), -std::cos(tilt), 0 };
+			auto sphere = collision::ShapeSphere(0.5f);
+			auto make = [&]
+			{
+				// The sphere's lowest point is 0.1 m above the water, close enough that the host cull still sends it to the GPU.
+				auto body = RigidBody{};
+				body.Shape(collision::shape_cast(&sphere), 1.0f);
+				body.O2W(m4x4::Translation(4, 299, -99.4f));
+				return body;
+			};
+
+			// Run the same body without water and with water, recording the water force on the first frame.
+			auto& engine = AwakeEngine();
+			auto dry = make();
+			Run(engine, dry, 1, 1, 0, gravity_ws);
+
+			auto config = FlatWater(-100.0);
+			config.m_enable_diagnostics = true;
+			engine.Water(config);
+			auto wet_world = make();
+			PR_EXPECT(GpuWater::MayBeWet(HullOf(wet_world), config.m_field, FrameTime));
+			Run(engine, wet_world, 1, 1, 0, gravity_ws);
+			auto const* diag = engine.WaterDiagnosticsFor(wet_world);
+			auto const volume = diag != nullptr ? diag->m_volume_m3 : 0.0f;
+			auto const force = diag != nullptr ? diag->m_force_ws : v4::Zero();
+			ClearWater(engine);
+
+			// No water acts on the body, so it moves exactly as it does without water.
+			PR_EXPECT(volume == 0.0f);
+			PR_EXPECT(All(force == v4::Zero()));
+			PR_EXPECT(All(dry.O2W().pos == wet_world.O2W().pos));
+			PR_EXPECT(All(dry.VelocityWS().lin == wet_world.VelocityWS().lin));
+		}
+
+		PRUnitTestMethod(BuoyancyUsesWaterGravity, Quick)
+		{
+			// A fully submerged 1 m^3 box whose own gravity is tilted feels buoyancy of density * water gravity * volume along world +Z.
+			// The water's gravity differs from the body's gravity, so the force shows which one the water uses.
+			auto const water_gravity = 5.0f;
+			auto const tilt = 30.0f * constants<float>::tau / 360.0f;
+			auto const gravity_ws = Gravity * v4{ 0, std::sin(tilt), -std::cos(tilt), 0 };
+			auto box = collision::ShapeBox(v4{ 1, 1, 1, 0 });
+			auto body = RigidBody{};
+			body.Shape(collision::shape_cast(&box), Density);
+			body.O2W(m4x4::Translation(0, 0, -20));
+
+			// One frame from rest, with only pressure forces so the result is the analytic buoyancy.
+			auto& engine = AwakeEngine();
+			auto config = PressureOnly(terrain::water::WaterField{ 0.0 }, 0.0f);
+			config.m_gravity = water_gravity;
+			config.m_enable_diagnostics = true;
+			engine.Water(config);
+			Run(engine, body, 1, 1, 0, gravity_ws);
+			auto const* diag = engine.WaterDiagnosticsFor(body);
+			PR_EXPECT(diag != nullptr);
+			auto const force = diag != nullptr ? diag->m_force_ws : v4::Zero();
+			auto const volume = diag != nullptr ? diag->m_volume_m3 : 0.0f;
+			ClearWater(engine);
+
+			PR_EXPECT(FEqlRelative(volume, 1.0f, 1e-3f));
+			PR_EXPECT(FEqlRelative(force, v4{ 0, 0, Density * water_gravity, 0 }, 1e-3f));
 		}
 
 		PRUnitTestMethod(DeepBodyDampingIsDepthIndependent, Quick)

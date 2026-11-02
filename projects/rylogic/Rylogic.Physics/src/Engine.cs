@@ -109,6 +109,7 @@ public sealed class Engine :IDisposable
 				m_header = NativeHeader.Create<Native.WaterDesc>(),
 				m_level = c.m_level,
 				m_density = c.m_density,
+				m_gravity = c.m_gravity,
 				m_linear_drag_time_constant = c.m_linear_drag_time_constant,
 				m_angular_drag_time_constant = c.m_angular_drag_time_constant,
 				m_quadratic_drag_coefficient = c.m_quadratic_drag_coefficient,

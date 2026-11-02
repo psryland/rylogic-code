@@ -36,6 +36,7 @@ namespace pr::physics
 			int m_enable_diagnostics;
 			float m_wave_resistance;
 			float m_air_density;
+			float m_gravity;
 		};
 		static_assert(sizeof(CBufWater) % sizeof(uint32_t) == 0);
 
@@ -160,6 +161,10 @@ namespace pr::physics
 		surface::ValidateSpacing(m_surface_spacing);
 		if (!std::isfinite(m_density) || m_density <= 0.0f)
 			throw std::invalid_argument("Water density must be finite and positive");
+
+		// Gravity gives the water its pressure and its wave speeds, so it must be positive.
+		if (!std::isfinite(m_gravity) || m_gravity <= 0.0f)
+			throw std::invalid_argument("Water gravity must be finite and positive");
 
 		// The remaining coefficients scale forces, so they must not be negative.
 		RequireNonNegative(m_quadratic_drag_coefficient, "quadratic drag coefficient");
@@ -291,14 +296,11 @@ namespace pr::physics
 			auto const water_max_height = std::nextafter(static_cast<float>(bound), std::numeric_limits<float>::infinity());
 
 			// Skip hulls whose whole shape is above that surface. The shader would find every sample dry, so this does not change the result.
+			// Heights are measured along world +Z, the water's up.
 			auto const& shape = GetOrCreateShape(*hull.m_shape);
-			auto const g = hull.m_gravity_ws.w0();
-			if (LengthSq(g) > 1e-12f)
-			{
-				auto const lowest = LowestAlong(hull.m_o2w, shape.m_bbox_os, -Normalise(g));
-				if (lowest > water_max_height + std::max(shape.m_eps, 1e-4f) + shape.m_max_half_cell_height)
-					continue;
-			}
+			auto const lowest = LowestAlong(hull.m_o2w, shape.m_bbox_os, v4::ZAxis());
+			if (lowest > water_max_height + std::max(shape.m_eps, 1e-4f) + shape.m_max_half_cell_height)
+				continue;
 
 			// Bodies sharing a shape share one block of uploaded geometry.
 			auto [iter, added] = m_active_shape_index.try_emplace(&shape, isize(m_active_shapes));
@@ -442,6 +444,7 @@ namespace pr::physics
 			.m_enable_diagnostics = config.m_enable_diagnostics ? 1 : 0,
 			.m_wave_resistance = config.m_wave_resistance,
 			.m_air_density = config.m_air.m_density,
+			.m_gravity = config.m_gravity,
 		};
 
 		// Evaluate the surface samples into one partial record per hull and thread group.
@@ -585,7 +588,7 @@ namespace pr::physics
 			.m_bbox_ws = body.BBoxWS(),
 			.m_com_ws = body.CentreOfMassPositionWS(),
 			.m_speed = Length(body.VelocityWS().lin),
-			.m_gravity_ws = body.GravityWS(),
+			.m_fall_acceleration = Length(body.GravityWS().w0()),
 			.m_step_index = step_index,
 			.m_key = HullKey{ &body, -1 },
 		};
@@ -611,7 +614,7 @@ namespace pr::physics
 			.m_bbox_ws = o2w * collision::CalcBBox(*desc.m_shape),
 			.m_com_ws = l2w * com_ls.w1(),
 			.m_speed = Length(velocity.lin + Cross(velocity.ang, com_ls.w0())),
-			.m_gravity_ws = articulation.GravityWS(link),
+			.m_fall_acceleration = Length(articulation.GravityWS(link).w0()),
 			.m_step_index = step_index,
 			.m_key = HullKey{ &articulation, static_cast<int>(link.m_index) },
 		};
@@ -624,8 +627,8 @@ namespace pr::physics
 		// Rotation about the centre of mass cannot move any point further than this sphere, whatever the frame's spin.
 		auto const reach = Length(hull.m_bbox_ws.m_centre - hull.m_com_ws) + Length(hull.m_bbox_ws.m_radius.w0());
 
-		// Allow for the current velocity plus twice gravity's displacement over the frame, to cover other bounded forces.
-		auto const drop = hull.m_speed * elapsed_s + Length(hull.m_gravity_ws.w0()) * elapsed_s * elapsed_s;
+		// Allow for the current velocity plus twice the body's own gravity displacement over the frame, to cover other bounded forces.
+		auto const drop = hull.m_speed * elapsed_s + hull.m_fall_acceleration * elapsed_s * elapsed_s;
 
 		// The highest surface over the area the hull can cover this frame. Over dry land this is the still-water level, so land bodies cost no GPU work.
 		auto const range = static_cast<double>(reach + drop);

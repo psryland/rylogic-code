@@ -652,10 +652,10 @@ namespace pr::physics::tests
 			// changes the sampled wet volume.
 			auto const oracle_body = buoyancy::BodyState{
 				.m_o2w = o2w,
-				.m_gravity_ws = AnalyticGravityWS,
 			};
 			auto const oracle_cfg = buoyancy::SamplerConfig{
 				.m_fluid_density = config.m_density,
+				.m_gravity = config.m_gravity,
 				.m_linear_drag_time_constant_s = config.m_linear_drag_time_constant_s,
 				.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 				.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
@@ -834,12 +834,12 @@ namespace pr::physics::tests
 			// Match the surface spacing, flat water, and the dispatch-time body state.
 			auto oracle_body = buoyancy::BodyState{
 				.m_o2w = o2w,
-				.m_gravity_ws = AnalyticGravityWS,
 				.m_vel_lin_ws = vel_lin,
 				.m_omega_ws = omega,
 			};
 			auto oracle_cfg = buoyancy::SamplerConfig{
 				.m_fluid_density = config.m_density,
+				.m_gravity = config.m_gravity,
 				.m_linear_drag_time_constant_s = config.m_linear_drag_time_constant_s,
 				.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 				.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
@@ -903,12 +903,12 @@ namespace pr::physics::tests
 					auto const oracle_body = buoyancy::BodyState{
 						.m_o2w = o2w,
 						.m_centre_of_mass_os = body.CentreOfMassOS(),
-						.m_gravity_ws = AnalyticGravityWS,
 						.m_vel_lin_ws = velocity,
 						.m_omega_ws = omega,
 					};
 					auto const oracle_cfg = buoyancy::SamplerConfig{
 						.m_fluid_density = config.m_density,
+						.m_gravity = config.m_gravity,
 						.m_linear_drag_time_constant_s = config.m_linear_drag_time_constant_s,
 						.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 						.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
@@ -951,7 +951,6 @@ namespace pr::physics::tests
 				scaled.m_surface_spacing *= scale;
 				auto const body = buoyancy::BodyState{
 					.m_o2w = m4x4::Translation(0.0f, 0.0f, -2.0f * scale),
-					.m_gravity_ws = AnalyticGravityWS,
 					.m_vel_lin_ws = v4{3.0f, -1.0f, 0.5f, 0.0f},
 				};
 				auto const box = collision::ShapeBox(v4{scale, scale, scale, 0.0f});
@@ -977,7 +976,6 @@ namespace pr::physics::tests
 			auto const box = collision::ShapeBox(dimensions);
 			auto const body = buoyancy::BodyState{
 				.m_o2w = m4x4::Translation(0.0f, 0.0f, -10.0f),
-				.m_gravity_ws = AnalyticGravityWS,
 				.m_omega_ws = v4{0.0f, 0.0f, 1.0f, 0.0f},
 			};
 			auto const frame = buoyancy::WaterFrame{};
