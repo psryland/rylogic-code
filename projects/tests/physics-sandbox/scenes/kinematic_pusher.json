@@ -1,0 +1,109 @@
+{
+	"scene": {
+		"demo": {
+			"command": "kinematic-pusher",
+			"name": "Kinematic Pusher and Platforms",
+			"group": "Collision and Contacts",
+			"order": 10
+		},
+		"description": "Kinematic bodies move at a fixed velocity and push dynamic bodies without being slowed: a spinning paddle sweeps through box stacks, a moving platform and a turntable carry boxes by friction.",
+		"gravity": [0, 0, -9.81],
+		"material": {
+			"friction": 0.8,
+			"elasticity": 0.0
+		},
+		"camera": {
+			"position": [2, -18, 12],
+			"lookat": [0, 0, 0]
+		},
+		"ground_plane": {
+			"height": 0.0
+		},
+		"shapes": {
+			"crate": { "name": "crate", "type": "box", "dimensions": [0.6, 0.6, 0.6] },
+			"paddle": { "name": "paddle", "type": "box", "dimensions": [8.0, 0.3, 1.0] },
+			"platform": { "name": "platform", "type": "box", "dimensions": [3.0, 3.0, 0.3] }
+		},
+		"bodies": [
+			{
+				"name": "paddle",
+				"shape": "paddle",
+				"mass": 50.0,
+				"colour": "0xFFE04040",
+				"position": [-6.0, 0.0, 0.65],
+				"angular_velocity": [0, 0, 1.0],
+				"kinematic": true
+			},
+			{
+				"name": "moving_platform",
+				"shape": "platform",
+				"mass": 50.0,
+				"colour": "0xFF4080E0",
+				"position": [4.0, -8.0, 0.4],
+				"velocity": [0, 0.5, 0],
+				"kinematic": true
+			},
+			{
+				"name": "rider_0",
+				"shape": "crate",
+				"mass": 5.0,
+				"position": [3.5, -8.0, 0.85]
+			},
+			{
+				"name": "rider_1",
+				"shape": "crate",
+				"mass": 5.0,
+				"position": [4.5, -7.5, 0.85]
+			},
+			{
+				"name": "turntable",
+				"shape": "platform",
+				"mass": 50.0,
+				"colour": "0xFF40C060",
+				"position": [8.0, 4.0, 0.4],
+				"angular_velocity": [0, 0, 0.6],
+				"kinematic": true
+			},
+			{
+				"name": "turntable_rider",
+				"shape": "crate",
+				"mass": 5.0,
+				"position": [9.0, 4.0, 0.85]
+			}
+		],
+		"body_generators": [
+			{
+				"name": "stack_ne_#",
+				"selector": "linear",
+				"instance_count": 3,
+				"shape": "crate",
+				"mass": 5.0,
+				"position": [[-3.88, 2.12, 0.3], [-3.88, 2.12, 1.5]]
+			},
+			{
+				"name": "stack_nw_#",
+				"selector": "linear",
+				"instance_count": 3,
+				"shape": "crate",
+				"mass": 5.0,
+				"position": [[-8.12, 2.12, 0.3], [-8.12, 2.12, 1.5]]
+			},
+			{
+				"name": "stack_sw_#",
+				"selector": "linear",
+				"instance_count": 3,
+				"shape": "crate",
+				"mass": 5.0,
+				"position": [[-8.12, -2.12, 0.3], [-8.12, -2.12, 1.5]]
+			},
+			{
+				"name": "stack_se_#",
+				"selector": "linear",
+				"instance_count": 3,
+				"shape": "crate",
+				"mass": 5.0,
+				"position": [[-3.88, -2.12, 0.3], [-3.88, -2.12, 1.5]]
+			}
+		]
+	}
+}

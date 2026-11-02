@@ -369,6 +369,9 @@
     <None Include="scenes\simultaneous_impact_1000.json">
       <Filter>scenes</Filter>
     </None>
+    <None Include="scenes\kinematic_pusher.json">
+      <Filter>scenes</Filter>
+    </None>
     <None Include="scenes\stacked_column.json">
       <Filter>scenes</Filter>
     </None>

@@ -147,8 +147,9 @@ void CSDisturbIslands(int3 dtid : SV_DispatchThreadID)
 	int body_idx = pair_idx / g.island_count;
 	int island_idx = pair_idx - body_idx * g.island_count;
 
+	// A moving kinematic body disturbs islands like an awake dynamic body. A still one does not, so bodies can sleep on it like on static ground.
 	GpuRigidBody body = g_bodies[body_idx];
-	if (!ActuallyAwake(body))
+	if (!ActuallyAwake(body) && !MovingKinematicBody(body))
 		return;
 
 	// Ignore invalid, awake, or already-disturbed-free islands. Only valid sleeping islands can be disturbed by moving awake bodies.

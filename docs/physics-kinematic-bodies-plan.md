@@ -345,6 +345,10 @@ Each milestone builds and passes its own tests before the next one starts.
 
 - [x] Milestone 1: `KinematicBodyTests` (CPU) and `PhysicsDllKinematicTests` (ABI) pass. Sandbox `-scenediag` stack scene is unchanged.
 - [x] Milestone 2: GPU shaders read velocity through `body_twist.hlsli`. `KinematicPushesDynamicCpu` and `KinematicPushesDynamicGpu` pass. Sandbox `-scenediag` stack scene is unchanged.
+- [x] Milestone 3: kinematic bodies drift by their twist on the CPU and GPU (`KinematicDriftFollowsTwist`, `KinematicDriftGpu`), `SetKinematicTarget` reaches its pose with substeps (`TargetReachedWithSubsteps`), and a moving platform carries a box by friction (`PlatformCarriesBoxByFriction`). Sandbox `-scenediag` stack scene is unchanged.
+- [x] Milestone 4: the broadphase rejects kinematic-static and kinematic-kinematic pairs, and a moving kinematic body admits pairs with sleeping bodies and disturbs their islands (`KinematicSleepTests`: `NoKinematicStaticOrKinematicPairs`, `MovingKinematicWakesSleepingIsland`, `SleepOnStillKinematicPlatform`).
+- [x] Sandbox demo: scene JSON accepts `"kinematic": true`, and `scenes\kinematic_pusher.json` (demo `kinematic-pusher`) has a spinning paddle, a moving platform and a turntable. `-scenediag` shows the kinematic bodies push sleeping boxes (worst depth 0.05 m over 600 steps). Extend it with ignore pairs and layer/mask after Milestones 6-7.
+
 ## Decisions
 
 Resolved open questions (2026-11-02):

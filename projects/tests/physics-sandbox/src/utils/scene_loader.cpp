@@ -753,6 +753,12 @@ namespace physics_sandbox::scene_loader
 		if (auto* javl = jbody.find("angular_velocity"))
 			desc.angular_velocity = ReadVec3(*javl, 0.0f);
 
+		// Kinematic bodies follow their velocity and have no sleep state of their own
+		if (auto* jkinematic = jbody.find("kinematic"))
+			desc.kinematic = jkinematic->to<bool>();
+		if (desc.kinematic && jbody.find("sleeping") != nullptr)
+			throw std::runtime_error("A kinematic body cannot have a 'sleeping' state");
+
 		// Initial sleep state
 		if (auto* jsleeping = jbody.find("sleeping"))
 			desc.sleeping = jsleeping->to<bool>();

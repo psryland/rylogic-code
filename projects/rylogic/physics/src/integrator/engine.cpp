@@ -885,7 +885,7 @@ namespace pr::physics
 				m_gpu_coupled_contact_solver->Deactivate();
 
 			// Persistent constraints may wake sleeping bodies, while active articulations always require their independent pure-tree dispatch.
-			if (m_config.sleeping_enabled && m_cache->AwakeDynamicCount() == 0 && !m_constraints_active && !m_coupled_constraints_active && articulations.empty() &&
+			if (m_config.sleeping_enabled && m_cache->MovingBodyCount() == 0 && !m_constraints_active && !m_coupled_constraints_active && articulations.empty() &&
 				!(m_gpu_world_contacts && m_gpu_world_contacts->m_boundary))
 			{
 				if (m_gpu_articulation_midpoint != nullptr)
@@ -1260,7 +1260,7 @@ namespace pr::physics
 			// Clear prior-frame collision state only in detached staging so a rejected mixed frame cannot mutate caller-owned bodies.
 			auto dyn = PackDynamics(*body, shape_id);
 			dyn.state_flags = static_cast<uint32_t>(SetBits(static_cast<ERigidBodyStateFlags>(dyn.state_flags), ERigidBodyStateFlags::Collided, false));
-			m_cache->CountAwakeDynamic(*body);
+			m_cache->CountMovingBody(*body);
 			m_cache->PackSleepIsland(*body, dyn);
 			m_cache->AddBroadphaseSortSample(dyn);
 			m_cache->m_rb_dynamics.push_back(dyn);
@@ -1335,7 +1335,7 @@ namespace pr::physics
 		}
 	}
 
-	// Mark sleeping islands disturbed by awake bodies before broadphase filtering.
+	// Mark sleeping islands disturbed by awake dynamic or moving kinematic bodies before broadphase filtering.
 	void Engine::SleepWake()
 	{
 		auto body_count = m_cache->RigidBodyCount();

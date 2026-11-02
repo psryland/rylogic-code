@@ -209,6 +209,16 @@ void CSIntegrate(int3 DTID(dtid))
 
 	// Load the body's dynamic state
 	GpuRigidBody body = g_bodies[idx];
+
+	// Kinematic bodies follow their twist and ignore forces. They have no sleep state of their own.
+	if (KinematicBody(body))
+	{
+		KinematicDrift(body, g.dt);
+		g_bodies[idx] = body;
+		UpdateAABB(body, idx);
+		return;
+	}
+
 	float half_dt = g.dt * 0.5f;
 	float inv_mass = body.os_com_and_invmass.w;
 	float3 os_com = body.os_com_and_invmass.xyz;

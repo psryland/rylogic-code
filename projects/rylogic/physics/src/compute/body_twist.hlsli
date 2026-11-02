@@ -29,6 +29,13 @@ inline bool KinematicBody(in_(GpuRigidBody) body)
 	return AllSet(body.state_flags, ERigidBodyStateFlags_Kinematic);
 }
 
+// True if the body is kinematic and its twist is not zero. A kinematic body has no sleep state; it is asleep exactly when it is not moving.
+inline bool MovingKinematicBody(in_(GpuRigidBody) body)
+{
+	// The momentum slots of a kinematic body hold its twist
+	return KinematicBody(body) && (any(body.momentum_ang.xyz) || any(body.momentum_lin.xyz));
+}
+
 // Return the world-space twist of a body. Bodies with zero inverse mass that are not kinematic have zero twist.
 inline BodyTwist BodyTwistWS(in_(GpuRigidBody) body)
 {
@@ -59,6 +66,29 @@ inline void AddBodyMomentumWS(inout_(GpuRigidBody) body, float3 ang, float3 lin)
 
 	body.momentum_ang.xyz += ang;
 	body.momentum_lin.xyz += lin;
+}
+
+// Move a kinematic body by its twist for 'dt' seconds and clear its forces, which have no effect on infinite mass.
+// The rotation is about the centre of mass and uses the exact exponential map, so several drifts with the same twist give the same pose as one drift over the total time.
+inline void KinematicDrift(inout_(GpuRigidBody) body, float dt)
+{
+	// Rotate about the centre of mass, then rebuild the model origin from the moved centre of mass
+	// Transform the centre of mass as a point rather than indexing the translation row. DXC reads 'o2w[3]' of a row_major member
+	// in an inout struct parameter as the matrix column, which loses the translation.
+	float3 os_com = body.os_com_and_invmass.xyz;
+	float3x3 rot = (float3x3)body.o2w;
+	float3 com_ws = mul(float4(os_com, 1), body.o2w).xyz;
+	float3x3 new_rot = orthonorm3x3(mul(rot, rodrigues_rotation(body.momentum_ang.xyz * dt)));
+	float3 new_pos = com_ws + body.momentum_lin.xyz * dt - mul(os_com, new_rot);
+	body.o2w = float4x4(
+		float4(new_rot[0], 0),
+		float4(new_rot[1], 0),
+		float4(new_rot[2], 0),
+		float4(new_pos, 1));
+
+	// Forces are re-applied each step, and infinite mass ignores them
+	body.force_ang = float4(0, 0, 0, 0);
+	body.force_lin = float4(0, 0, 0, 0);
 }
 
 #ifdef __cplusplus

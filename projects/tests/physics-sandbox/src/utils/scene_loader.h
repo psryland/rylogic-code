@@ -86,6 +86,7 @@ namespace physics_sandbox::scene_loader
 	//                 "rotation": [rx, ry, rz],             // Optional, Euler angles in degrees (X, Y, Z order)
 	//                 "velocity": [vx, vy, vz],             // Optional
 	//                 "angular_velocity": [wx, wy, wz],     // Optional
+	//                 "kinematic": true,                    // Optional: move at 'velocity'/'angular_velocity' regardless of contacts
 	//                 "sleeping": true                      // Optional
 	//             },
 	//             { "name": "s1", "shape": { "type": "sphere", "radius": 1.0 }, ... },
@@ -142,6 +143,7 @@ namespace physics_sandbox::scene_loader
 		std::optional<v4> z_axis = {}; // Optional world direction for the body's local Z axis
 		v4 velocity = Zero<v4>();
 		v4 angular_velocity = Zero<v4>();
+		bool kinematic = false; // Moves at 'velocity' and 'angular_velocity' (at the centre of mass) with infinite mass
 		bool sleeping = false;
 		bool never_sleep = false;
 	};

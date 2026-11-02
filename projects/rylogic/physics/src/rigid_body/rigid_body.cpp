@@ -124,11 +124,11 @@ namespace pr::physics
 		Wake(); // For performance, assume any o2w change is a wake-up signal as well
 	}
 
-	// Extrapolate the position based on the current momentum and forces
+	// Extrapolate the position based on the current velocity and forces. Kinematic bodies have zero solver inertia, so forces do not accelerate them.
 	m4x4 RigidBody::O2W(float dt) const
 	{
 		return Abs(dt) > math::tiny<float>
-			? ExtrapolateO2W(O2W(), CentreOfMassOS(), MomentumWS(), ForceWS(), InertiaInvWS(), dt)
+			? ExtrapolateO2W(O2W(), CentreOfMassOS(), VelocityWS(), InertiaInvWS() * ForceWS(), dt)
 			: O2W();
 	}
 

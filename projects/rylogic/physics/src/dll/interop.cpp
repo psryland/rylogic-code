@@ -227,6 +227,9 @@ namespace pr::physics
 			bool m_enabled = true;
 			bool m_sleep_before_step = false;
 			std::uint32_t m_constraint_refs = 0;
+
+			// The pose a kinematic body must reach at the end of the next step. Cleared when the step completes.
+			std::optional<m4x4> m_kinematic_target;
 		};
 
 		// Owns one immutable articulation topology and the shape handles retained by its physical links.
@@ -1764,10 +1767,10 @@ namespace pr::physics
 
 						break;
 					}
-					case PhysicsBodyCommandType::SetKinematicTransform:
+					case PhysicsBodyCommandType::SetKinematicTarget:
 					{
 						if (!body.Kinematic())
-							throw ApiException(PhysicsStatus::InvalidArgument, "Kinematic transform command requires a kinematic body");
+							throw ApiException(PhysicsStatus::InvalidArgument, "Kinematic target command requires a kinematic body");
 
 						break;
 					}
@@ -1833,9 +1836,10 @@ namespace pr::physics
 						body.GravityWS(ToNative(command.value.linear));
 						break;
 					}
-					case PhysicsBodyCommandType::SetKinematicTransform:
+					case PhysicsBodyCommandType::SetKinematicTarget:
 					{
-						body.O2W(ToNative(command.transform));
+						// The twist that reaches the target is derived when the step duration is known (see SetKinematicTwists)
+						record.m_kinematic_target = ToNative(command.transform);
 						break;
 					}
 					case PhysicsBodyCommandType::SetEnabled:
@@ -1861,6 +1865,19 @@ namespace pr::physics
 			}
 		}
 
+		// Return the constant twist that moves 'body' from its current pose to 'target' in 'elapsed_seconds'. The angular part takes the shortest rotation,
+		// so a target more than half a turn from the current orientation is reached the short way round.
+		v8motion KinematicTwistToTarget(RigidBody const& body, m4x4 const& target, float elapsed_seconds)
+		{
+			// The twist is about the centre of mass, the same point the integrator drifts
+			auto const com_os = body.CentreOfMassOS();
+			auto const com_now = body.CentreOfMassPositionWS();
+			auto const com_target = target.pos + target.rot * com_os;
+			auto const rot_delta = target.rot * Transpose(body.O2W().rot);
+			auto const ang = LogMap3x3(rot_delta);
+			return v8motion{v4{ang.x, ang.y, ang.z, 0} / elapsed_seconds, (com_target - com_now) / elapsed_seconds};
+		}
+
 		// Validate, gather every enabled object lane, and submit one frame with all internal substeps GPU-resident.
 		void BeginStep(EngineRecord& engine, float elapsed_seconds, double absolute_time_seconds, std::uint32_t substep_count, PhysicsBodyCommand const* commands, std::uint32_t command_count)
 		{
@@ -1881,6 +1898,11 @@ namespace pr::physics
 			{
 				if (!slot.m_object || !slot.m_object->m_enabled)
 					continue;
+
+				// Kinematic targets become the twist that reaches them by the end of this step
+				auto& record = *slot.m_object;
+				if (record.m_kinematic_target)
+					record.m_body->KinematicTwistWS(KinematicTwistToTarget(*record.m_body, *record.m_kinematic_target, elapsed_seconds));
 
 				slot.m_object->m_sleep_before_step = slot.m_object->m_body->Sleeping();
 				engine.m_step_bodies.push_back(slot.m_object->m_body.get());
@@ -1921,6 +1943,19 @@ namespace pr::physics
 					engine.m_events.clear();
 				}
 				throw;
+			}
+
+			// Kinematic bodies end the step exactly at their targets, removing integration round-off. Targets apply to one step only.
+			for (auto& slot : engine.m_bodies)
+			{
+				if (!slot.m_object || !slot.m_object->m_kinematic_target)
+					continue;
+
+				auto& record = *slot.m_object;
+				if (record.m_enabled)
+					record.m_body->O2W(*record.m_kinematic_target);
+
+				record.m_kinematic_target.reset();
 			}
 
 			// Lifecycle events are derived only after native readback has produced the completed state.

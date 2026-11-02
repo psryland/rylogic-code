@@ -70,7 +70,7 @@ namespace pr::physics
 		std::vector<int> m_sleep_gpu_to_cpu_island_id;
 		std::unordered_map<int, int> m_sleep_cpu_to_gpu_island_id;
 		int m_next_sleep_island_id;
-		int m_awake_dynamic_count;
+		int m_moving_body_count;
 		double m_broadphase_axis_sum[3] = {};
 		double m_broadphase_axis_sum_sq[3] = {};
 		int m_broadphase_axis_sample_count;
@@ -89,7 +89,7 @@ namespace pr::physics
 			, m_sleep_gpu_to_cpu_island_id()
 			, m_sleep_cpu_to_gpu_island_id()
 			, m_next_sleep_island_id()
-			, m_awake_dynamic_count()
+			, m_moving_body_count()
 			, m_broadphase_axis_sample_count()
 			, m_broadphase_sort_axis()
 			, m_history()
@@ -106,7 +106,7 @@ namespace pr::physics
 			// Reset the GPU staging buffer for body dynamics.
 			m_rb_dynamics.resize(0);
 			m_rigid_body_count = 0;
-			m_awake_dynamic_count = 0;
+			m_moving_body_count = 0;
 			m_broadphase_axis_sum[0] = 0.0;
 			m_broadphase_axis_sum[1] = 0.0;
 			m_broadphase_axis_sum[2] = 0.0;
@@ -136,7 +136,7 @@ namespace pr::physics
 			m_sleep_gpu_to_cpu_island_id.clear();
 			m_sleep_cpu_to_gpu_island_id.clear();
 			m_next_sleep_island_id = 0;
-			m_awake_dynamic_count = 0;
+			m_moving_body_count = 0;
 			m_broadphase_axis_sum[0] = 0.0;
 			m_broadphase_axis_sum[1] = 0.0;
 			m_broadphase_axis_sum[2] = 0.0;
@@ -173,10 +173,10 @@ namespace pr::physics
 			return static_cast<int>(m_sleep_islands.size());
 		}
 
-		// Number of dynamic bodies that can move this frame.
-		int AwakeDynamicCount() const
+		// Number of bodies that can move this frame (see CountMovingBody).
+		int MovingBodyCount() const
 		{
-			return m_awake_dynamic_count;
+			return m_moving_body_count;
 		}
 
 		// Accumulate AABB-centre variance so broadphase can sort along the longest spread.
@@ -222,11 +222,35 @@ namespace pr::physics
 			return m_broadphase_sort_axis;
 		}
 
-		// Track whether the body requires GPU work this frame.
-		void CountAwakeDynamic(RigidBody const& body)
+		// Track whether the body requires GPU work this frame. Awake dynamic bodies and kinematic bodies with a non-zero twist both move.
+		void CountMovingBody(RigidBody const& body)
 		{
-			if (body.InvMass() > 0.0f && !body.Sleeping() && !AllSet(body.m_state_flags, ERigidBodyStateFlags::Static))
-				++m_awake_dynamic_count;
+			// Classify the body by its motion type
+			switch (body.Motion())
+			{
+				case ERigidBodyMotion::Static:
+				{
+					return;
+				}
+				case ERigidBodyMotion::Dynamic:
+				{
+					if (!body.Sleeping())
+						++m_moving_body_count;
+
+					return;
+				}
+				case ERigidBodyMotion::Kinematic:
+				{
+					if (body.KinematicTwistWS() != v8motion{})
+						++m_moving_body_count;
+
+					return;
+				}
+				default:
+				{
+					throw std::runtime_error("Unknown rigid body motion type");
+				}
+			}
 		}
 
 		// Map a sleeping dynamic body onto a dense GPU island and grow that island's bounds.

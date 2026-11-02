@@ -1041,17 +1041,18 @@ namespace pr::unittests
 				PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &command, 1) == EStatus::InvalidArgument);
 			}
 
-			// The kinematic transform command moves a kinematic body, and is rejected for a dynamic body
+			// The kinematic target command is accepted for a kinematic body, and is rejected for a dynamic body.
+			// The body moves to the target during the next step, so the pose is unchanged until then.
 			auto other = MakeBody(fix.m_api, fix.m_engine, shape, Translation(5, 0, 0), EMotionType::Dynamic);
 			auto move = BodyCommand{
 				.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
 				.body = body,
-				.type = ECommand::SetKinematicTransform,
+				.type = ECommand::SetKinematicTarget,
 				.transform = Translation(1, 0, 2),
 			};
 			PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &move, 1) == EStatus::Success);
 			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
-			PR_EXPECT(FEqlAbsolute(state.object_to_world.w.x, 1.0f, 1e-6f));
+			PR_EXPECT(FEqlAbsolute(state.object_to_world.w.x, 0.0f, 1e-6f));
 			move.body = other;
 			PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &move, 1) == EStatus::InvalidArgument);
 
@@ -1111,6 +1112,115 @@ namespace pr::unittests
 
 			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body) == EStatus::Success);
 			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
+		}
+
+		// A kinematic target is reached exactly at the end of the step for any substep count. The body reports the derived twist as its velocity,
+		// and keeps moving at that twist when no new target is given.
+		PRUnitTestMethod(TargetReachedWithSubsteps, Extended)
+		{
+			// A target that is translated and turned about z
+			auto const elapsed = 1.0f / 60.0f;
+			auto const angle = 0.6f;
+			auto target = Translation(1.0f, -0.5f, 2.3f);
+			target.x = {std::cos(angle), std::sin(angle), 0, 0};
+			target.y = {-std::sin(angle), std::cos(angle), 0, 0};
+
+			for (auto substeps : {1U, 4U, 8U})
+			{
+				// A fresh kinematic box for each substep count
+				auto fix = PhysicsFixture{};
+				auto shape = MakeBox(fix.m_api, fix.m_engine, {0.5f, 0.5f, 0.5f, 0});
+				auto body = MakeBody(fix.m_api, fix.m_engine, shape, Translation(0, 0, 2), EMotionType::Kinematic);
+				auto command = BodyCommand{
+					.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
+					.body = body,
+					.type = ECommand::SetKinematicTarget,
+					.transform = target,
+				};
+				PR_EXPECT(fix.m_api.StepEx(fix.m_engine, elapsed, 0.0, substeps, &command, 1) == EStatus::Success);
+
+				// The body is at the target
+				auto state = BodyState{};
+				PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+				auto const& o2w = state.object_to_world;
+				PR_EXPECT(FEqlAbsolute(o2w.x.x, target.x.x, 1e-5f) && FEqlAbsolute(o2w.x.y, target.x.y, 1e-5f) && FEqlAbsolute(o2w.y.x, target.y.x, 1e-5f));
+				PR_EXPECT(FEqlAbsolute(o2w.w.x, 1.0f, 1e-5f) && FEqlAbsolute(o2w.w.y, -0.5f, 1e-5f) && FEqlAbsolute(o2w.w.z, 2.3f, 1e-5f));
+
+				// The snapshot velocity is the twist that reached the target
+				auto count = std::uint32_t{1};
+				auto snapshot = BodySnapshot{};
+				PR_EXPECT(fix.m_api.SnapshotCopy(fix.m_engine, &snapshot, 1, &count) == EStatus::Success);
+				PR_EXPECT(FEqlRelative(snapshot.velocity.linear.x, 1.0f / elapsed, 1e-4f));
+				PR_EXPECT(FEqlRelative(snapshot.velocity.linear.y, -0.5f / elapsed, 1e-4f));
+				PR_EXPECT(FEqlRelative(snapshot.velocity.linear.z, 0.3f / elapsed, 1e-4f));
+				PR_EXPECT(FEqlRelative(snapshot.velocity.angular.z, angle / elapsed, 1e-4f));
+				PR_EXPECT(FEqlAbsolute(snapshot.velocity.angular.x, 0.0f, 1e-3f) && FEqlAbsolute(snapshot.velocity.angular.y, 0.0f, 1e-3f));
+
+				// With no new target, the body keeps moving at the same twist
+				PR_EXPECT(fix.m_api.StepEx(fix.m_engine, elapsed, elapsed, substeps, nullptr, 0) == EStatus::Success);
+				PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+				PR_EXPECT(FEqlAbsolute(state.object_to_world.w.x, 2.0f, 1e-4f) && FEqlAbsolute(state.object_to_world.w.z, 2.6f, 1e-4f));
+				PR_EXPECT(FEqlAbsolute(state.object_to_world.x.x, std::cos(2 * angle), 1e-4f) && FEqlAbsolute(state.object_to_world.x.y, std::sin(2 * angle), 1e-4f));
+
+				PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body) == EStatus::Success);
+				PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
+			}
+		}
+
+		// Friction on a moving kinematic platform carries a resting dynamic box along with it.
+		PRUnitTestMethod(PlatformCarriesBoxByFriction, Extended)
+		{
+			// A wide kinematic platform with a dynamic box resting on its top face. The default material is frictionless and elastic, so use a grippy, inelastic one.
+			auto fix = PhysicsFixture{};
+			auto const material = MaterialProperties{
+				.header = {sizeof(MaterialProperties), PHYSICS_STRUCT_VERSION},
+				.id = 0,
+				.static_friction = 0.8f,
+				.normal_elasticity = 0.0f,
+				.tangential_elasticity = 0.0f,
+				.torsional_elasticity = 0.0f,
+				.density = 1000.0f,
+			};
+			PR_EXPECT(fix.m_api.MaterialSet(fix.m_engine, &material) == EStatus::Success);
+			auto platform_shape = MakeBox(fix.m_api, fix.m_engine, {8.0f, 8.0f, 0.5f, 0});
+			auto box_shape = MakeBox(fix.m_api, fix.m_engine, {0.5f, 0.5f, 0.5f, 0});
+			auto platform = MakeBody(fix.m_api, fix.m_engine, platform_shape, Identity(), EMotionType::Kinematic);
+			auto box = MakeBody(fix.m_api, fix.m_engine, box_shape, Translation(0, 0, 0.5f), EMotionType::Dynamic);
+
+			// Give the box gravity and move the platform along +x
+			auto const speed = 1.0f;
+			BodyCommand const commands[] = {
+				BodyCommand{
+					.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
+					.body = box,
+					.type = ECommand::SetGravity,
+					.value = {.angular = {0, 0, 0, 0}, .linear = {0, 0, -9.8f, 0}},
+				},
+				BodyCommand{
+					.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
+					.body = platform,
+					.type = ECommand::SetVelocity,
+					.value = {.angular = {0, 0, 0, 0}, .linear = {speed, 0, 0, 0}},
+				},
+			};
+			PR_EXPECT(fix.m_api.Step(fix.m_engine, 1.0f / 60.0f, 0.0, commands, 2) == EStatus::Success);
+			for (auto i = 1; i != 60; ++i)
+				PR_EXPECT(fix.m_api.Step(fix.m_engine, 1.0f / 60.0f, i / 60.0, nullptr, 0) == EStatus::Success);
+
+			// The box rides on the platform at the platform's speed
+			auto platform_state = BodyState{};
+			auto box_state = BodyState{};
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, platform, &platform_state) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, box, &box_state) == EStatus::Success);
+			PR_EXPECT(FEqlAbsolute(platform_state.object_to_world.w.x, speed, 1e-4f));
+			PR_EXPECT(FEqlAbsolute(box_state.velocity.linear.x, speed, 0.05f));
+			PR_EXPECT(FEqlAbsolute(box_state.object_to_world.w.z, 0.5f, 0.02f));
+			PR_EXPECT(box_state.object_to_world.w.x > 0.5f * speed);
+
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, box) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, platform) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, box_shape) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, platform_shape) == EStatus::Success);
 		}
 	};
 

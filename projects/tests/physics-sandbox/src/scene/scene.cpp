@@ -1239,7 +1239,12 @@ namespace physics_sandbox
 				else
 					body.Shape(shape, bd.mass, false, bd.mass_distribution);
 
-				body.VelocityWS(bd.angular_velocity, bd.velocity);
+				// Kinematic bodies take the scene velocity as their twist; other bodies take it as their initial velocity
+				if (bd.kinematic)
+					body.Motion(physics::ERigidBodyMotion::Kinematic, v8motion{bd.angular_velocity, bd.velocity});
+				else
+					body.VelocityWS(bd.angular_velocity, bd.velocity);
+
 				body.NeverSleep(bd.never_sleep);
 				if (bd.sleeping)
 					body.Sleep();

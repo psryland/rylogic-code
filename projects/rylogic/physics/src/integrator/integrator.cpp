@@ -7,6 +7,7 @@
 #include "pr/physics/shape/inertia.h"
 #include "src/collision/shape_cache.h"
 #include "src/compute/physics_types.h"
+#include "src/compute/body_twist.hlsli"
 
 namespace pr::physics
 {
@@ -101,6 +102,13 @@ namespace pr::physics
 	// This mirrors the GPU compute shader exactly, allowing A/B comparison for debugging.
 	void Evolve(GpuRigidBody& dyn, float elapsed_seconds)
 	{
+		// Kinematic bodies follow their twist and ignore forces, the same as the shader
+		if (KinematicBody(dyn))
+		{
+			KinematicDrift(dyn, elapsed_seconds);
+			return;
+		}
+
 		auto half_dt = elapsed_seconds * 0.5f;
 		auto inv_mass = dyn.os_com_and_invmass.w;
 		auto os_com = v4{dyn.os_com_and_invmass.x, dyn.os_com_and_invmass.y, dyn.os_com_and_invmass.z, 0};

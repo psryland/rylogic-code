@@ -335,7 +335,7 @@ namespace pr::physics
 		ApplyForce = 4,
 		ApplyImpulse = 5,
 		SetGravity = 6,
-		SetKinematicTransform = 7,
+		SetKinematicTarget = 7,
 		SetEnabled = 8,
 		Wake = 9,
 		Sleep = 10,
