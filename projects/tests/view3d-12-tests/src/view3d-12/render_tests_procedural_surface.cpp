@@ -164,6 +164,27 @@ namespace render_tests
 		expect_rotated(draw_surface(pbr_shader, 10), stock_image);
 		fixture.CheckErrors();
 
+		// The roughness-scaling overload must shade a smooth surface as if the material had the scaled roughness.
+		auto rough_options = pbr_options;
+		rough_options.m_procedural.m_forward_pixel[0] = {compiled::procedural_pixel_rough_opaque, sizeof(compiled::procedural_pixel_rough_opaque)};
+		rough_options.m_procedural.m_forward_pixel[1] = {compiled::procedural_pixel_rough_reflection_attrs, sizeof(compiled::procedural_pixel_rough_reflection_attrs)};
+		rough_options.m_procedural.m_forward_pixel[2] = {compiled::procedural_pixel_rough_alpha_collect, sizeof(compiled::procedural_pixel_rough_alpha_collect)};
+		auto rough_shader = View3D_ShaderCreate(rough_options);
+		Require(rough_shader != nullptr, "Roughness-scaling PBR pixel family shader creation failed");
+		fixture.m_shaders.push_back(rough_shader);
+		auto smooth_surface = surface;
+		smooth_surface.m_roughness_min = smooth_surface.m_roughness_max = 0.04f;
+		auto rough_surface = surface;
+		rough_surface.m_roughness_min = rough_surface.m_roughness_max = 1.0f;
+		surface = smooth_surface;
+		auto smooth_image = draw_surface(nullptr, 10);
+		auto scaled_image = draw_surface(rough_shader, 10);
+		surface = rough_surface;
+		auto rough_image = draw_surface(nullptr, 10);
+		Require(ImageDifference(smooth_image, rough_image) > 50, "Smooth and rough PBR surfaces rendered the same, so the roughness scale test proves nothing");
+		Require(ImageDifference(scaled_image, rough_image) == 0, "Roughness-scaled PBR shading did not match the material with the scaled roughness");
+		fixture.CheckErrors();
+
 		// Promotion to PBR rejects a family written for simple materials.
 		fixture.Clear();
 		auto simple_promoted = fixture.Quad(10, 0xFFFFFFFF, 45, pixel_shader, 0, 0xFFFFFFFF, false, true);
