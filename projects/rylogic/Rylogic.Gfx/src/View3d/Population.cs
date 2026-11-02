@@ -144,6 +144,27 @@ public sealed partial class View3d
 	}
 
 	/// <summary>
+	/// A camera distance band [Start, Start + Width] in which population instances fade in or out. The default (zero start and width) is unused.
+	/// Matches 'view3d::PopulationFade'.
+	/// </summary>
+	[StructLayout(LayoutKind.Sequential)]
+	public struct PopulationFade
+	{
+		/// <summary>The distance at which the band begins.</summary>
+		public float Start;
+
+		/// <summary>The width of the band. Zero is an abrupt switch at 'Start'.</summary>
+		public float Width;
+
+		/// <summary>Create a band.</summary>
+		public PopulationFade(float start, float width)
+		{
+			Start = start;
+			Width = width;
+		}
+	}
+
+	/// <summary>
 	/// The shared LOD models and draw distance of a population. The prototype keeps its own reference to the LOD models, so the source objects may be
 	/// disposed afterwards. Use on the render owner thread while the View3d context is alive.
 	/// </summary>
@@ -152,10 +173,14 @@ public sealed partial class View3d
 		/// <summary>
 		/// Create a prototype from LODs ordered from most to least detailed. LOD thresholds must strictly decrease, and transition bands must not overlap.
 		/// 'draw_distance' is the maximum camera distance of a drawn instance's bounding sphere; zero is unlimited.
+		/// 'fade_in' and 'fade_out' are camera distance bands, measured to the instance origin, in which instances fade in or out with a dither.
+		/// Instances nearer than a used fade-in band or further than a used fade-out band are not drawn. Equal fade-in and fade-out bands on two
+		/// prototypes hand over instances with the same origin without gaps or double coverage. The fade-in band must end before the fade-out band
+		/// starts, and when either is used, the instance origin must lie inside the bounding sphere of the LOD models.
 		/// </summary>
-		public PopulationPrototype(PopulationLod[] lods, float draw_distance = 0f)
+		public PopulationPrototype(PopulationLod[] lods, float draw_distance = 0f, PopulationFade fade_in = default, PopulationFade fade_out = default)
 		{
-			Handle = View3D_PopulationPrototypeCreate(lods, lods.Length, draw_distance);
+			Handle = View3D_PopulationPrototypeCreate(lods, lods.Length, draw_distance, fade_in, fade_out);
 			if (Handle == IntPtr.Zero)
 				throw new InvalidOperationException("Failed to create the population prototype.");
 		}
@@ -269,7 +294,7 @@ public sealed partial class View3d
 	}
 
 	[DllImport(Dll)]
-	private static extern IntPtr View3D_PopulationPrototypeCreate([In] PopulationLod[] lods, int lod_count, float draw_distance);
+	private static extern IntPtr View3D_PopulationPrototypeCreate([In] PopulationLod[] lods, int lod_count, float draw_distance, PopulationFade fade_in, PopulationFade fade_out);
 
 	[DllImport(Dll)]
 	private static extern void View3D_PopulationPrototypeRelease(IntPtr prototype);

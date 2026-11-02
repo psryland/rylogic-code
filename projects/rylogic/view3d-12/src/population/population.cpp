@@ -35,8 +35,9 @@ namespace pr::rdr12
 			uint32_t pad0;
 			uint32_t pad1;
 			uint32_t pad2;
+			v4 fade;
 		};
-		static_assert(sizeof(CullConstants) == 208, "Must match CullConstants in population_cull.hlsl");
+		static_assert(sizeof(CullConstants) == 224, "Must match CullConstants in population_cull.hlsl");
 
 		// A block that passed the CPU culling test. Mirrors 'VisibleBlock' in 'population_cull.hlsl'.
 		struct VisibleBlock
@@ -122,12 +123,44 @@ namespace pr::rdr12
 			return sig;
 		}
 
-		// True if a world-space box is on the inside of 'plane'. The test is conservative: a box crossing the plane counts as inside.
-		bool BoxInside(v4 const& plane, BBox const& bbox)
+		// True if a world-space box may hold instances that are visible: it is on the inside of all four 'planes', when 'draw_distance' is positive
+		// its closest point is within 'draw_distance' of 'origin', when 'fade_in' is used its furthest point is at least the band start from 'origin',
+		// and when 'fade_out' is used its closest point is within the band end of 'origin'. The fade tests assume the box contains the instance origins.
+		// The test is conservative: a box crossing a plane or a distance limit counts as visible.
+		// This runs for every block of every population in every view, so it uses plain scalar maths, which stays cheap in unoptimised builds.
+		bool BlockVisible(v4 const (&planes)[4], v4 const& origin, float draw_distance, PopulationFade fade_in, PopulationFade fade_out, BBox const& bbox)
 		{
-			// Compare the box's projected half-size along the plane normal with the signed distance of its centre.
-			auto n = plane.w0();
-			return Dot(n, bbox.Centre().w0()) + plane.w + Dot(Abs(n), bbox.Radius().w0()) >= 0;
+			// Compare the box's projected half-size along each plane normal with the signed distance of its centre.
+			auto const& c = bbox.m_centre;
+			auto const& r = bbox.m_radius;
+			for (auto const& p : planes)
+			{
+				if (p.x * c.x + p.y * c.y + p.z * c.z + p.w + std::abs(p.x) * r.x + std::abs(p.y) * r.y + std::abs(p.z) * r.z < 0)
+					return false;
+			}
+
+			// Instance spheres and origins are inside the box, so the box is beyond a far limit only when its closest point is.
+			constexpr auto unlimited = std::numeric_limits<float>::infinity();
+			auto far_limit = std::min(draw_distance > 0 ? draw_distance : unlimited, fade_out.used() ? fade_out.end() : unlimited);
+			if (far_limit != unlimited)
+			{
+				auto dx = std::max(std::abs(c.x - origin.x) - r.x, 0.0f);
+				auto dy = std::max(std::abs(c.y - origin.y) - r.y, 0.0f);
+				auto dz = std::max(std::abs(c.z - origin.z) - r.z, 0.0f);
+				if (dx * dx + dy * dy + dz * dz > far_limit * far_limit)
+					return false;
+			}
+
+			// Every instance origin is nearer than the box's furthest point, so the whole box is too near when its furthest point is.
+			if (fade_in.used())
+			{
+				auto dx = std::abs(c.x - origin.x) + r.x;
+				auto dy = std::abs(c.y - origin.y) + r.y;
+				auto dz = std::abs(c.z - origin.z) + r.z;
+				if (dx * dx + dy * dy + dz * dz < fade_in.m_start * fade_in.m_start)
+					return false;
+			}
+			return true;
 		}
 
 		// Reject materials that population draws cannot honour. Population draws are opaque, so blended transparency is not supported. Alpha testing is supported.
@@ -165,17 +198,31 @@ namespace pr::rdr12
 	}
 
 	// Validate 'lods' and create a prototype.
-	PopulationPrototype::PopulationPrototype(std::span<PopulationLod const> lods, float draw_distance)
+	PopulationPrototype::PopulationPrototype(std::span<PopulationLod const> lods, float draw_distance, PopulationFade fade_in, PopulationFade fade_out)
 		: RefCounted<PopulationPrototype>()
 		, m_lods(lods.begin(), lods.end())
 		, m_draw_distance(draw_distance)
+		, m_fade_in(fade_in)
+		, m_fade_out(fade_out)
 		, m_bound()
 	{
-		// Check the LOD count and draw distance.
+		// Check the LOD count and the draw range.
 		if (lods.empty() || isize(lods) > PopulationMaxLods)
 			throw std::invalid_argument(std::format("A population prototype needs 1 to {} LODs", PopulationMaxLods));
 		if (!(draw_distance >= 0) || !std::isfinite(draw_distance))
 			throw std::invalid_argument("Population draw distance must be finite and non-negative");
+
+		// Check the fade bands. Bands must not overlap, because an instance has one distance dither at a time.
+		for (auto const& fade : { fade_in, fade_out })
+		{
+			// Reject negative or non-finite values.
+			if (!(fade.m_start >= 0) || !std::isfinite(fade.m_start) || !(fade.m_width >= 0) || !std::isfinite(fade.m_width))
+				throw std::invalid_argument("Population fade bands must have finite, non-negative starts and widths");
+		}
+		if (fade_in.used() && fade_out.used() && !(fade_in.end() <= fade_out.m_start))
+			throw std::invalid_argument("Population fade-in band must end before the fade-out band starts");
+		if (fade_in.used() && draw_distance > 0 && !(fade_in.m_start < draw_distance))
+			throw std::invalid_argument("Population fade-in band must start within the draw distance");
 
 		// Check each LOD, and that thresholds decrease without overlapping transition bands.
 		for (int i = 0, iend = isize(lods); i != iend; ++i)
@@ -200,6 +247,10 @@ namespace pr::rdr12
 			throw std::invalid_argument("Population LOD models have no valid bounds");
 
 		m_bound = bbox.Centre().w0() + v4{ 0, 0, 0, Length(bbox.Radius().xyz) };
+
+		// Block culling for the fade bands treats block bounds as bounds of the instance origins.
+		if ((fade_in.used() || fade_out.used()) && !(Length(m_bound.xyz) <= m_bound.w))
+			throw std::invalid_argument("Population fade bands need the instance origin inside the prototype bounding sphere");
 	}
 
 	// Ref-counting clean up function
@@ -752,26 +803,18 @@ namespace pr::rdr12
 		auto max_capacity = 0;
 		auto cpu_stats = PopulationViewStats{};
 		{
+			// Index the raw block array, because checked vector indexing dominates this loop in unoptimised builds.
 			std::lock_guard lock(pop.m_mutex);
+			auto const* blocks = pop.m_blocks.data();
 			for (int b = 0, bend = isize(pop.m_blocks); b != bend; ++b)
 			{
-				auto const& blk = pop.m_blocks[b];
+				auto const& blk = blocks[b];
 				if (!blk.m_active)
 					continue;
-				if (!std::ranges::all_of(planes, [&](v4 const& p) { return BoxInside(p, blk.m_bbox); }))
+				if (!BlockVisible(planes, view.m_range_origin, proto.m_draw_distance, proto.m_fade_in, proto.m_fade_out, blk.m_bbox))
 				{
 					++cpu_stats.m_blocks_rejected;
 					continue;
-				}
-				if (proto.m_draw_distance > 0)
-				{
-					// Instance spheres are inside the box, so the box is beyond the draw distance only when its closest point is.
-					auto closest = Max(Abs(blk.m_bbox.Centre().w0() - view.m_range_origin.w0()) - blk.m_bbox.Radius().w0(), v4::Zero());
-					if (Length(closest) > proto.m_draw_distance)
-					{
-						++cpu_stats.m_blocks_rejected;
-						continue;
-					}
 				}
 
 				// One dispatch row per visible block. Blocks beyond the dispatch limit are not drawn, and are reported.
@@ -832,6 +875,10 @@ namespace pr::rdr12
 		cb.lod_count = s_cast<uint32_t>(lod_count);
 		cb.arg_count = s_cast<uint32_t>(args.size());
 		cb.list_base = s_cast<uint32_t>(list_base);
+
+		// An unused fade-out band starts beyond any distance. An unused fade-in band is already [0, 0], which rejects nothing.
+		auto fade_out_start = proto.m_fade_out.used() ? proto.m_fade_out.m_start : std::numeric_limits<float>::max();
+		cb.fade = v4{ proto.m_fade_in.m_start, proto.m_fade_in.m_width, fade_out_start, proto.m_fade_out.m_width };
 
 		// Upload the per-view inputs. Root SRVs need a valid address even when a table is empty.
 		auto upload_table = [&]<typename T>(std::vector<T> const& table)

@@ -140,6 +140,9 @@ window.AddPopulation(population);
   Capacities are fixed at creation, and the caller chooses them; out-of-range blocks, slots, and payload ranges are rejected.
 - **Blocks**: the CPU tests each active block's bounds against each view. The bounds must contain the bounding spheres of the block's live
   instances. Live instances of a block are contiguous, so changing a live count thins or grows a block without moving instances.
+- **Fade bands**: `fade_in` and `fade_out` are camera distance bands, measured to each instance origin, in which instances fade with a dither.
+  Two prototypes with an equal fade-out and fade-in band hand instances over (for example, near models to far impostors) without gaps or
+  double coverage. When either band is used, the instance origin must lie inside the LOD model bounds.
 - **Producers**: `Produce` queues a caller compute shader that writes instances, live counts, and payload on the GPU before the next frame's
   classification. The caller still declares the block bounds on the CPU. Live counts above a block's capacity are clamped and reported.
 - **Procedural vertex shaders**: a LOD object created with the `ProceduralVertexId` vertex source can generate or deform its vertices with

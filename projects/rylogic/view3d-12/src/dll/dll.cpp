@@ -2731,7 +2731,7 @@ VIEW3D_API void __stdcall View3D_WeatherMapUpload(view3d::WeatherMap weather)
 }
 
 // Create a population prototype. The caller owns the returned reference.
-VIEW3D_API view3d::PopulationPrototype __stdcall View3D_PopulationPrototypeCreate(view3d::PopulationLod const* lods, int lod_count, float draw_distance)
+VIEW3D_API view3d::PopulationPrototype __stdcall View3D_PopulationPrototypeCreate(view3d::PopulationLod const* lods, int lod_count, float draw_distance, view3d::PopulationFade fade_in, view3d::PopulationFade fade_out)
 {
 	try
 	{
@@ -2749,7 +2749,9 @@ VIEW3D_API view3d::PopulationPrototype __stdcall View3D_PopulationPrototypeCreat
 
 			rdr_lods.push_back(rdr12::PopulationLod{ .m_model = lod.m_object->m_model, .m_min_size = lod.m_min_size, .m_transition = lod.m_transition });
 		}
-		auto prototype = rdr12::PopulationPrototypePtr(new rdr12::PopulationPrototype(rdr_lods, draw_distance), true);
+		auto rdr_fade_in = rdr12::PopulationFade{ .m_start = fade_in.m_start, .m_width = fade_in.m_width };
+		auto rdr_fade_out = rdr12::PopulationFade{ .m_start = fade_out.m_start, .m_width = fade_out.m_width };
+		auto prototype = rdr12::PopulationPrototypePtr(new rdr12::PopulationPrototype(rdr_lods, draw_distance, rdr_fade_in, rdr_fade_out), true);
 		return prototype.release();
 	}
 	CatchAndReport(View3D_PopulationPrototypeCreate, , nullptr);

@@ -37,13 +37,14 @@ struct CullConstants
 	float4 lod_size[VIEW3D_POPULATION_MAX_LODS / 4]; // The minimum projected radius (pixels) of each LOD.
 	float4 lod_fade[VIEW3D_POPULATION_MAX_LODS / 4]; // The transition width of each LOD, as a fraction of its minimum size.
 	float size_scale;                                // Projected radius in pixels = radius * size_scale / distance (no division for orthographic).
-	float draw_distance;                             // Instances further than this are culled. Zero means unlimited.
+	float draw_distance;                             // Instances whose bounding sphere is further than this are culled. Zero means unlimited.
 	uint lod_count;                                  // The number of LODs in the prototype.
 	uint arg_count;                                  // The number of indirect argument records.
 	uint list_base;                                  // Byte offset of the first list entry.
 	uint pad0;
 	uint pad1;
 	uint pad2;
+	float4 fade;                                     // Origin distance bands: x,y = fade-in start and width, z,w = fade-out start and width. See Classify.
 };
 
 // A block that passed the CPU culling test.
@@ -86,14 +87,22 @@ float Packed(float4 arr[VIEW3D_POPULATION_MAX_LODS / 4], uint i)
 	return arr[i / 4][i % 4];
 }
 
-// Hash an instance index to a dither seed, so the dither pattern of an instance does not depend on its list position.
-uint DitherSeed(uint source)
+// Hash an instance origin to a dither seed. The pattern does not depend on the list position, and instances with the same origin in different
+// populations get the same seed, so their distance fades can be exactly complementary.
+uint DitherSeed(float3 origin)
 {
-	uint h = source * 0x9E3779B1u;
+	uint3 b = asuint(origin);
+	uint h = b.x * 0x9E3779B1u ^ b.y * 0x85EBCA77u ^ b.z * 0xC2B2AE3Du;
 	h ^= h >> 15;
 	h *= 0x85EBCA77u;
 	h ^= h >> 13;
 	return h & VIEW3D_POPULATION_DITHER_SEED_MASK;
+}
+
+// Return a dither word with 'coverage' in [0,1].
+uint DitherWord(uint seed, float coverage)
+{
+	return VIEW3D_POPULATION_DITHER_ACTIVE | (seed << VIEW3D_POPULATION_DITHER_SEED_SHIFT) | uint(saturate(coverage) * 65535.0f + 0.5f);
 }
 
 // Decide which LOD lists 'source' appears in for this view.
@@ -125,9 +134,27 @@ Classification Classify(uint source)
 			return result;
 	}
 
-	// Reject instances beyond the draw distance.
-	if (g_cull.draw_distance > 0 && length(centre - g_cull.range_origin.xyz) - radius > g_cull.draw_distance)
+	// Reject instances beyond the draw distance, measured to the closest point of the bounding sphere.
+	float nearest = length(centre - g_cull.range_origin.xyz) - radius;
+	if (g_cull.draw_distance > 0 && nearest > g_cull.draw_distance)
 		return result;
+
+	// Reject instances outside the fade bands, measured to the instance origin. The origin is the same for every prototype that draws an
+	// instance, so populations with matching bands make the same decision.
+	float3 origin = float3(inst.o2w[0].w, inst.o2w[1].w, inst.o2w[2].w);
+	float od = length(origin - g_cull.range_origin.xyz);
+	float4 fade = g_cull.fade;
+	if (od < fade.x || od >= fade.z + fade.w)
+		return result;
+
+	// Inside a band, both directions use the fade-out coverage computed from the same band values. A fade-in entry takes the complementary
+	// mask, so a fade-in band and a fade-out band with equal values together cover each pixel of an instance exactly once.
+	uint seed = DitherSeed(origin);
+	uint fade_word = 0;
+	if (od < fade.x + fade.y)
+		fade_word = DitherWord(seed, 1 - (od - fade.x) / fade.y) | VIEW3D_POPULATION_DITHER_COMPLEMENT;
+	else if (od > fade.z)
+		fade_word = DitherWord(seed, 1 - (od - fade.z) / fade.w);
 
 	// The projected radius in pixels. Orthographic projections do not depend on distance.
 	float dist = length(centre - g_cull.eye.xyz);
@@ -141,14 +168,20 @@ Classification Classify(uint source)
 
 	result.lod0 = lod;
 
+	// A distance fade replaces the LOD transition, because an entry has one coverage. The LOD switch inside a fade band is abrupt.
+	if (fade_word != 0)
+	{
+		result.dither0 = fade_word;
+		return result;
+	}
+
 	// Within the transition band above the minimum size, the LOD fades out with a screen-door dither and the next LOD fades in with the
 	// complementary mask. The last LOD fades to nothing.
 	float t = Packed(g_cull.lod_size, lod);
 	float w = Packed(g_cull.lod_fade, lod);
 	if (w > 0 && size < t * (1 + w))
 	{
-		float coverage = saturate((size - t) / (t * w));
-		uint word = VIEW3D_POPULATION_DITHER_ACTIVE | (DitherSeed(source) << VIEW3D_POPULATION_DITHER_SEED_SHIFT) | uint(coverage * 65535.0f + 0.5f);
+		uint word = DitherWord(seed, (size - t) / (t * w));
 		result.dither0 = word;
 		if (lod + 1 != g_cull.lod_count)
 		{
