@@ -262,6 +262,7 @@ class RYLOGIC_PT_rig_families(_RigSubPanel, Panel):
 		column.prop(family, "wave_amplitude")
 		column.prop(family, "wave_wavelength")
 		column.prop(family, "wave_growth")
+		box.prop(family, "mirror_name")
 
 
 class RYLOGIC_PT_rig_cycles(_RigSubPanel, Panel):

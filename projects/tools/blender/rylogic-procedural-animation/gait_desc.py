@@ -4,8 +4,10 @@ The '.gait' schema is owned by 'pr/animation/gait.h' in the Rylogic code library
 animation to play back: per family, its posture (the up direction and steepest usable ground), its top speed, whether it walks or swims and its body wave; and per cycle, the speed, stride, mean pose (its stance), each walking limb's footfall timing and swing, and the first two harmonics of the body's
 repeating motion. All values are in model space (see 'rig_desc.ModelSpace').
 
-A movement cycle is a looping action that moves the armature's root bone forward by one stride. Its frame range covers exactly one cycle, so the pose at
-the last frame is the pose at the first frame moved forward by the stride. Feet that stay still on the ground while the body moves are 'planted'.
+A movement cycle is a looping action that moves the armature's root bone by one stride. Its frame range covers exactly one cycle, so the pose at
+the last frame is the pose at the first frame moved by the stride. Feet that stay still on the ground while the body moves are 'planted'.
+Most cycles move forward, but a family may travel in any horizontal direction, as long as all of its cycles agree. A family with a mirror name is
+also written a second time as its left-right mirror image, so that a crab that runs to its right can also run to its left.
 """
 
 import json
@@ -17,9 +19,10 @@ from typing import Any
 import bpy
 from mathutils import Matrix, Quaternion, Vector
 
+from .limits import MirrorPartners
 from .rig_desc import BonesParentFirst, ModelSpace
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 # The number of harmonics in each bone motion
 HARMONICS = 2
@@ -43,13 +46,16 @@ MIN_STANCE_ANGLE = math.radians(0.1)
 LOOP_ROTATION_TOLERANCE = math.radians(1.0)
 LOOP_POSITION_FRACTION = 0.01
 
+# The largest angle, in radians, between the travel directions of two cycles of the same family
+TRAVEL_ANGLE_TOLERANCE = math.radians(15.0)
+
 
 @dataclass
 class _Limb:
 	"""A leg or arm chain that can walk, with the contact that it stands on."""
 
-	role: str          # The '.gait' role: "leg" or "arm"
-	side: str          # The '.gait' side
+	role: str          # "leg" or "arm", which selects the cycle's swing out
+	side: str          # The chain's side, e.g. "LEFT"; the template generator uses it
 	bones: list[str]   # The chain's bones, base to end
 	contact: Any       # The contact on the end bone (a 'RYLOGIC_PG_RigContact')
 
@@ -106,7 +112,7 @@ def BuildGaitDesc(armature_obj: bpy.types.Object, context: bpy.types.Context) ->
 
 	# Measure each cycle, then order each family's cycles by speed. Each cycle's stance is its mean pose. Swimming limbs never stand, even when a
 	# stroke holds a hand still in the water, so water families have no walking limbs.
-	# Families are written in the order of the Families list, and those without exported cycles are left out.
+	# Families are written in the order of the Families list, each followed by its mirror image if it has one, and those without exported cycles are left out.
 	out: list[dict[str, Any]] = []
 	root = _RootBone(armature_obj.data)
 	for family in rig.families:
@@ -115,12 +121,19 @@ def BuildGaitDesc(armature_obj: bpy.types.Object, context: bpy.types.Context) ->
 			continue
 
 		walkers = limbs if family.medium != "WATER" else []
-		measured = sorted((_MeasureCycle(armature_obj.data, space, root, walkers, name, params, swing_out, samples) for name, params, swing_out, samples in cycles), key=lambda c: c["speed"])
-		out.append({
-			"name": family.name, "up": family.up.lower(), "max_slope": family.max_slope, "max_speed": family.max_speed, "medium": family.medium.lower(),
-			"wave": {"amplitude": family.wave_amplitude, "wavelength": family.wave_wavelength, "growth": family.wave_growth},
-			"cycles": measured,
-		})
+		variants = [(family.name, [samples for _, _, _, samples in cycles])]
+		if family.mirror_name:
+			variants.append((family.mirror_name, [_MirrorSamples(armature_obj.data, space, samples) for _, _, _, samples in cycles]))
+
+		for family_name, sampled in variants:
+			# Measure every cycle, and take the family's travel direction from them
+			measured = [_MeasureCycle(armature_obj.data, space, root, walkers, name, params, swing_out, samples) for (name, params, swing_out, _), samples in zip(cycles, sampled)]
+			out.append({
+				"name": family_name, "travel": _FamilyTravel(family_name, measured),
+				"up": family.up.lower(), "max_slope": family.max_slope, "max_speed": family.max_speed, "medium": family.medium.lower(),
+				"wave": {"amplitude": family.wave_amplitude, "wavelength": family.wave_wavelength, "growth": family.wave_growth},
+				"cycles": sorted((cycle for cycle, _ in measured), key=lambda c: c["speed"]),
+			})
 
 	return {"schema_version": SCHEMA_VERSION, "families": out}
 
@@ -148,18 +161,21 @@ def ValidateGaitDesc(desc: dict[str, Any]) -> list[str]:
 		wave = family["wave"]
 		if not (wave["amplitude"] >= 0 and wave["wavelength"] > 0 and wave["growth"] >= 0):
 			errors.append(f"{ctx} needs a wave with an amplitude >= 0, a wavelength > 0, and a growth >= 0")
+		travel = family["travel"]
+		if abs(travel[2]) > 1e-4 or abs(math.hypot(*travel) - 1) > 1e-3:
+			errors.append(f"{ctx} needs a horizontal unit travel direction")
 
 		# Ground families walk, so every cycle plants feet. Water families swim, so no cycle does.
 		swims = family["medium"] == "water"
 		cycles = family["cycles"]
-		limbs = [(f["role"], f["side"]) for f in cycles[0]["footfalls"]] if cycles else []
+		limbs = [f["contact"] for f in cycles[0]["footfalls"]] if cycles else []
 		for i, cycle in enumerate(cycles):
 			# Cycles blend by speed, so each must be faster than the one before, and all must walk on the same limbs
 			cctx = f"{ctx} cycle '{cycle['name']}'"
 			if i != 0 and not cycle["speed"] > cycles[i - 1]["speed"]:
 				errors.append(f"{cctx} has the same speed as cycle '{cycles[i - 1]['name']}'")
 			if not cycle["stride"] > 0:
-				errors.append(f"{cctx} does not move the root bone forward")
+				errors.append(f"{cctx} does not move the root bone")
 			if not 0 < cycle["hip_height"] <= 1:
 				errors.append(f"{cctx} needs a hip height in (0,1]")
 			if not 0 <= cycle["spine_sway"] < math.pi / 2:
@@ -172,11 +188,11 @@ def ValidateGaitDesc(desc: dict[str, Any]) -> list[str]:
 				errors.append(f"{cctx} plants feet, but its family swims")
 			if not swims and not cycle["footfalls"]:
 				errors.append(f"{cctx} has no planted feet")
-			if [(f["role"], f["side"]) for f in cycle["footfalls"]] != limbs:
+			if [f["contact"] for f in cycle["footfalls"]] != limbs:
 				errors.append(f"{cctx} plants different limbs to cycle '{cycles[0]['name']}'")
 			for f in cycle["footfalls"]:
 				if not f["swing_out"] >= 0:
-					errors.append(f"{cctx} needs a swing out of at least 0 for the {f['side']} {f['role']}")
+					errors.append(f"{cctx} needs a swing out of at least 0 for contact '{f['contact']}'")
 
 	return errors
 
@@ -199,7 +215,7 @@ def _RootBone(armature: bpy.types.Armature) -> str:
 
 def _SampleAction(armature_obj: bpy.types.Object, context: bpy.types.Context, space: ModelSpace, action: bpy.types.Action) -> _Samples:
 	"""Play 'action' on the armature and record the model-space pose of every bone at each frame of its range, including the last."""
-	# The frame range covers one cycle: the last frame repeats the first, moved forward by one stride
+	# The frame range covers one cycle: the last frame repeats the first, moved by one stride
 	start, end = (int(round(f)) for f in action.frame_range)
 	if end - start < 4:
 		raise ValueError(f"Action '{action.name}' needs at least 4 frames in its frame range")
@@ -222,18 +238,19 @@ def _SampleAction(armature_obj: bpy.types.Object, context: bpy.types.Context, sp
 	return _Samples(frames=end - start, fps=scene.render.fps / scene.render.fps_base, model=model)
 
 
-def _MeasureCycle(armature: bpy.types.Armature, space: ModelSpace, root: str, limbs: list[_Limb], name: str, params: dict[str, float], swing_out: dict[str, float], samples: _Samples) -> dict[str, Any]:
+def _MeasureCycle(armature: bpy.types.Armature, space: ModelSpace, root: str, limbs: list[_Limb], name: str, params: dict[str, float], swing_out: dict[str, float], samples: _Samples) -> tuple[dict[str, Any], Vector]:
 	"""Measure one sampled cycle. 'params' holds the cycle's authored parameters, such as its hip height and spine sway, by '.gait' name (see the cycle properties).
-	'swing_out' holds the cycle's authored swing out by '.gait' limb role. Returns its '.gait' cycle, whose stance is its mean pose.
+	'swing_out' holds the cycle's authored swing out by '.gait' limb role. Returns its '.gait' cycle, whose stance is its mean pose, and the root's model-space
+	travel over one cycle.
 
-	Raises ValueError if the root bone does not move forward, or if the cycle does not loop (see '_CheckLoops').
+	Raises ValueError if the root bone does not move, or if the cycle does not loop (see '_CheckLoops').
 	"""
 	# The body moves steadily by one stride per cycle. Body-relative values remove that travel.
 	n = samples.frames
 	travel = samples.model[n][root].to_translation() - samples.model[0][root].to_translation()
 	stride = travel.length
 	if stride < 1e-6:
-		raise ValueError(f"Cycle '{name}' does not move the root bone '{root}' forward")
+		raise ValueError(f"Cycle '{name}' does not move the root bone '{root}'")
 
 	_CheckLoops(name, samples, travel)
 
@@ -302,11 +319,56 @@ def _MeasureCycle(armature: bpy.types.Armature, space: ModelSpace, root: str, li
 			motion.append({"bone": bone.name, "channel": "rotation", "harmonics": harmonics})
 
 	cycle = {"name": name, "speed": speed, "stride": stride, **params, "stance": stance, "footfalls": footfalls, "motion": motion}
-	return cycle
+	return cycle, travel
+
+
+def _FamilyTravel(family: str, measured: list[tuple[dict[str, Any], Vector]]) -> list[float]:
+	"""Return a family's horizontal unit travel direction: the mean direction of its cycles' travel.
+
+	Raises ValueError if a cycle travels mostly vertically, or in a different direction to the family's other cycles.
+	"""
+	# Average the cycles' horizontal travel directions
+	directions: list[tuple[str, Vector]] = []
+	for cycle, travel in measured:
+		horizontal = Vector((travel.x, travel.y, 0.0))
+		if horizontal.length < 0.5 * travel.length:
+			raise ValueError(f"Family '{family}' cycle '{cycle['name']}' travels mostly vertically")
+
+		directions.append((cycle["name"], horizontal.normalized()))
+
+	mean = sum((d for _, d in directions), Vector()).normalized()
+
+	# Cycles blend by speed, so they must all travel the same way
+	for name, direction in directions:
+		if direction.angle(mean) > TRAVEL_ANGLE_TOLERANCE:
+			raise ValueError(f"Family '{family}' cycle '{name}' travels in a different direction to the family's other cycles")
+
+	return _List(mean)
+
+
+def _MirrorSamples(armature: bpy.types.Armature, space: ModelSpace, samples: _Samples) -> _Samples:
+	"""Return the left-right mirror image of a sampled cycle. Each bone takes the reflected pose of its mirror partner.
+
+	The reflection is across the armature's X = 0 plane. Raises ValueError if a bone has no mirror partner and is not on the centre line.
+	"""
+	# Find each bone's mirror partner; centre bones are their own partners
+	partners, unmatched = MirrorPartners(armature)
+	if unmatched:
+		raise ValueError(f"Armature '{armature.name}' cannot be mirrored: bones {', '.join(sorted(unmatched))} have no mirror partner")
+
+	# The armature-space reflection, expressed in the rigid model space. Reflecting the bone frame as well keeps each transform rigid and right-handed,
+	# as in 'MirrorPartners'.
+	to_model = Matrix.LocRotScale(space.location, space.rotation, None)
+	flip = Matrix.Diagonal((-1.0, 1.0, 1.0, 1.0))
+	reflect = to_model @ flip @ to_model.inverted()
+
+	# Each mirrored bone takes its partner's reflected pose
+	model = [{bone: reflect @ pose[partners.get(bone, bone)] @ flip for bone in pose} for pose in samples.model]
+	return _Samples(frames=samples.frames, fps=samples.fps, model=model)
 
 
 def _CheckLoops(name: str, samples: _Samples, travel: Vector) -> None:
-	"""Raise ValueError, naming the worst bones, if the pose at the last frame is not the pose at the first frame moved forward by 'travel'."""
+	"""Raise ValueError, naming the worst bones, if the pose at the last frame is not the pose at the first frame moved by 'travel'."""
 	# Compare each bone's model-space rotation and travel-corrected position between the first and last frames
 	first, last = samples.model[0], samples.model[samples.frames]
 	position_tolerance = LOOP_POSITION_FRACTION * travel.length
@@ -325,7 +387,7 @@ def _CheckLoops(name: str, samples: _Samples, travel: Vector) -> None:
 	mismatches.sort(reverse=True)
 	worst = ", ".join(text for _, text in mismatches[:3])
 	more = f" and {len(mismatches) - 3} more" if len(mismatches) > 3 else ""
-	raise ValueError(f"Cycle '{name}' does not loop: the last frame does not match the first frame moved forward by one stride. Worst bones: {worst}{more}")
+	raise ValueError(f"Cycle '{name}' does not loop: the last frame does not match the first frame moved by one stride. Worst bones: {worst}{more}")
 
 
 def _ContactPoints(limb: _Limb, samples: _Samples, scale: float) -> list[Vector]:
@@ -337,7 +399,7 @@ def _ContactPoints(limb: _Limb, samples: _Samples, scale: float) -> list[Vector]
 
 
 def _Footfall(limb: _Limb, points: list[Vector], samples: _Samples, stride: float, swing_out: float) -> dict[str, Any] | None:
-	"""Find when a limb's contact is planted from its sampled positions, in a cycle whose body moves 'stride' forward.
+	"""Find when a limb's contact is planted from its sampled positions, in a cycle whose body moves by 'stride'.
 	Returns its footfall, including the height that it lifts and the cycle's authored 'swing_out' for the limb, or None if the limb does not walk."""
 	# A contact is planted from frame i to i+1 while it stays still and near the ground, so the planted frames count the time spent planted.
 	# The ground is the lowest still height, which excludes a foot paused high in its swing and a swing that dips below the ground.
@@ -366,7 +428,7 @@ def _Footfall(limb: _Limb, points: list[Vector], samples: _Samples, stride: floa
 			if length > best_length:
 				best_start, best_length = i, length
 
-	return {"role": limb.role, "side": limb.side, "touchdown": best_start / n, "duty": count / n, "swing_height": high - low, "swing_out": swing_out}
+	return {"contact": limb.contact.name, "touchdown": best_start / n, "duty": count / n, "swing_height": high - low, "swing_out": swing_out}
 
 
 def _RestLocal(space: ModelSpace, bone: bpy.types.Bone) -> Quaternion:

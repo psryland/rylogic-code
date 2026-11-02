@@ -223,7 +223,7 @@ namespace pr::animation
 			{
 				for (auto const& foot : family.cycles[0].footfalls)
 				{
-					auto chain = LimbChain(rig, foot.role, foot.side);
+					auto chain = LimbChain(rig, foot.contact);
 					if (std::none_of(m_limbs.begin(), m_limbs.end(), [=](LimbState const& l) { return l.chain == chain; }))
 					{
 						auto contact = LimbContact(rig, rig.chains[chain]);
@@ -857,7 +857,7 @@ namespace pr::animation
 			auto const& footfalls = family.cycles[0].footfalls;
 			for (auto const& limb : m_limbs)
 			{
-				auto it = std::find_if(footfalls.begin(), footfalls.end(), [&](Footfall const& f) { return LimbChain(m_rig, f.role, f.side) == limb.chain; });
+				auto it = std::find_if(footfalls.begin(), footfalls.end(), [&](Footfall const& f) { return LimbChain(m_rig, f.contact) == limb.chain; });
 				data.limb_footfall.push_back(it != footfalls.end() ? static_cast<int>(it - footfalls.begin()) : -1);
 			}
 			return data;
@@ -1114,7 +1114,7 @@ namespace pr::animation
 			// Swing the guide frame about the limb's root joint
 			auto const& bones = m_rig.chains[limb.chain].bones;
 			auto guide_end = m_guide.model[bones.back()];
-			if (limb.footfall.role == EChainRole::Arm)
+			if (m_rig.chains[limb.chain].role == EChainRole::Arm)
 			{
 				auto root = m_guide.model[bones.front()].pos;
 				auto swing = quat(v4::XAxis(), ArmSwing(limb));
@@ -1130,7 +1130,7 @@ namespace pr::animation
 			if (m_spine < 0)
 				return guide_end;
 
-			auto leg = limb.footfall.role == EChainRole::Leg;
+			auto leg = m_rig.chains[limb.chain].role == EChainRole::Leg;
 			auto const& actual = leg ? m_targets[m_spine].base : m_targets[m_spine].frame;
 			auto const& guide = leg ? m_guide_targets[m_spine].base : m_guide_targets[m_spine].frame;
 			return actual * Invert(guide) * guide_end;
@@ -1263,7 +1263,7 @@ namespace pr::animation
 			LimbState const* leg = nullptr;
 			for (auto const& limb : m_limbs)
 			{
-				if (limb.footfall.role != EChainRole::Leg || (limb.stance_contact.x < 0) != side || limb.support == 0)
+				if (m_rig.chains[limb.chain].role != EChainRole::Leg || (limb.stance_contact.x < 0) != side || limb.support == 0)
 					continue;
 				if (leg == nullptr || limb.support > leg->support)
 					leg = &limb;
@@ -1571,7 +1571,7 @@ namespace pr::animation
 			auto const& chain = m_rig.chains[limb.chain];
 			auto root = model[chain.bones.front()].pos;
 			auto side = root.x < 0 ? -1.0f : 1.0f;
-			auto fore = limb.footfall.role == EChainRole::Leg ? 1.0f : -1.0f;
+			auto fore = m_rig.chains[limb.chain].role == EChainRole::Leg ? 1.0f : -1.0f;
 			auto direction = Normalise(v4(side, 0.6f * fore, 0.2f, 0));
 
 			// Keep a little bend in the limb, and place the end bone so that its contact is at the reach point
@@ -1907,7 +1907,7 @@ namespace pr::animation
 				if (limb.state == EFootState::Air)
 					continue;
 
-				auto i = limb.footfall.role == EChainRole::Leg ? 0 : 1;
+				auto i = m_rig.chains[limb.chain].role == EChainRole::Leg ? 0 : 1;
 				height[i] += (world_to_model * limb.ground).z;
 				count[i] += 1;
 				arm_support += i == 1 ? limb.support : 0.0f;
@@ -1991,7 +1991,7 @@ namespace pr::animation
 			int count[2] = {};
 			for (auto const& limb : m_limbs)
 			{
-				auto i = limb.footfall.role == EChainRole::Leg ? 0 : 1;
+				auto i = m_rig.chains[limb.chain].role == EChainRole::Leg ? 0 : 1;
 				auto mid_stance = limb.footfall.touchdown + 0.5f * limb.footfall.duty;
 				shift[i] += limb.support * limb.stance_contact.x * std::cos(math::constants<float>::tau * (m_phase - mid_stance));
 				support[i] += limb.support;
@@ -2022,7 +2022,7 @@ namespace pr::animation
 			int count[2] = {};
 			for (auto const& limb : m_limbs)
 			{
-				auto i = limb.footfall.role == EChainRole::Leg ? 0 : 1;
+				auto i = m_rig.chains[limb.chain].role == EChainRole::Leg ? 0 : 1;
 				auto side = limb.stance_contact.x > 0 ? 1.0f : limb.stance_contact.x < 0 ? -1.0f : 0.0f;
 				yaw[i] -= side * limb.support * std::cos(math::constants<float>::tau * (m_phase - limb.footfall.touchdown));
 				count[i] += 1;

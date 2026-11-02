@@ -16,9 +16,10 @@
 // A '.gait' file is a JSON gait description:
 //
 //  {
-//    "schema_version": 11,
+//    "schema_version": 12,
 //    "families": [{
 //      "name": "quadruped",
+//      "travel": [x, y, z],                // the model-space direction that the body moves in this family's cycles (unit, z = 0). Forward is [0, -1, 0].
 //      "up": "surface" | "gravity",        // the direction that the body stands up along: the ground's normal, or against gravity
 //      "max_slope": 3.14159,               // in (0,pi]. The steepest ground, in radians from level, on which the family can be used.
 //      "max_speed": 1.5,                   // > 0. The fastest that the character should move in this family. It may exceed the fastest cycle's speed.
@@ -42,8 +43,7 @@
 //          "position": [x, y, z]           // root bones only, and optional: the model-space position
 //        }],
 //        "footfalls": [{                   // the walking limbs. Every cycle of a family has the same limbs in the same order.
-//          "role": "leg" | "arm",          // the limb is the rig chain with this role and side
-//          "side": "left" | "right",
+//          "contact": "sole.L",            // the limb is the leg or arm chain that stands on this rig contact (a sole for legs, a palm for arms)
 //          "touchdown": 0.0,               // in [0,1). The phase at which the foot touches the ground.
 //          "duty": 0.75,                   // in (0,1). The fraction of the cycle that the foot is on the ground.
 //          "swing_height": 0.04,           // the height that the foot is lifted in the middle of its swing
@@ -93,6 +93,10 @@
 // bends by amplitude * Lerp(1, growth, s/L) * (l/L) * sin(2 pi (phase - s / (wavelength * L))), so the wave travels from the head to the tail
 // tip once per cycle. The wave grows with speed in the same way as the cycles' motion.
 //
+// A family's travel direction is the way that the body moves relative to its model frame. Most families move forward, but a crab, for
+// example, can run sideways. The controller follows the body's actual motion whatever its direction; the caller uses the travel direction to
+// choose a family and to turn the body so that the family's travel direction points where it wants to go.
+//
 // A family's up direction says how the body stands. A crawling family stands up along the ground's normal, so it can climb walls. An upright
 // family stands against gravity, so it needs ground that is close to level; its slope limit is the steepest ground on which it can balance.
 #pragma once
@@ -103,7 +107,7 @@
 namespace pr::animation
 {
 	// The '.gait' schema version that this code reads and writes
-	inline constexpr int GaitSchemaVersion = 11;
+	inline constexpr int GaitSchemaVersion = 12;
 
 	// The number of harmonics in each bone motion
 	inline constexpr int GaitHarmonics = 2;
@@ -111,8 +115,7 @@ namespace pr::animation
 	// When a walking limb's foot is on the ground during a cycle
 	struct Footfall
 	{
-		EChainRole role = EChainRole::Leg;
-		ESide side = ESide::Left;
+		std::string contact;        // The name of the rig contact that the limb stands on. The limb is the leg or arm chain that ends with it.
 		float touchdown = 0.0f;     // In [0,1). The phase at which the foot touches the ground.
 		float duty = 0.75f;         // In (0,1). The fraction of the cycle that the foot is on the ground.
 		float swing_height = 0.05f; // The height that the foot is lifted in the middle of its swing. Must not be negative.
@@ -199,6 +202,7 @@ namespace pr::animation
 	struct GaitFamily
 	{
 		std::string name;
+		v4 travel = -v4::YAxis();          // The model-space direction that the body moves in this family's cycles (unit, z = 0, w = 0)
 		EFamilyUp up = EFamilyUp::Surface;
 		float max_slope = math::constants<float>::tau_by_2; // In (0,pi]. The steepest ground, in radians from level, on which the family can be used.
 		float max_speed = 0.0f;            // > 0. The fastest that the character should move in this family. It may exceed the fastest cycle's speed.
@@ -252,13 +256,18 @@ namespace pr::animation
 		return -1;
 	}
 
-	// Return the index of the Leg or Arm chain of 'rig' with 'role' and 'side', or -1 if there is none
-	inline int LimbChain(Rig const& rig, EChainRole role, ESide side)
+	// Return the index of the Leg or Arm chain of 'rig' that stands on the contact called 'contact' (see 'LimbContact'), or -1 if there is none
+	inline int LimbChain(Rig const& rig, std::string_view contact)
 	{
-		// Rigs have at most one chain per role and side
+		// Find the contact, then the limb chain whose stance contact it is
 		for (int c = 0, cend = static_cast<int>(rig.chains.size()); c != cend; ++c)
 		{
-			if (rig.chains[c].role == role && rig.chains[c].side == side)
+			auto const& chain = rig.chains[c];
+			if (chain.role != EChainRole::Leg && chain.role != EChainRole::Arm)
+				continue;
+
+			auto index = LimbContact(rig, chain);
+			if (index >= 0 && rig.contacts[index].name == contact)
 				return c;
 		}
 		return -1;
@@ -294,6 +303,8 @@ namespace pr::animation
 				errors.push_back(std::format("{} repeats an earlier family's name", ctx));
 			if (family.cycles.empty())
 				errors.push_back(std::format("{} has no cycles", ctx));
+			if (!(std::abs(family.travel.z) <= 1e-4f && std::abs(Length(family.travel) - 1) <= 1e-3f && family.travel.w == 0))
+				errors.push_back(std::format("{} needs a unit, horizontal travel direction", ctx));
 			if (!(family.max_slope > 0 && family.max_slope <= math::constants<float>::tau_by_2))
 				errors.push_back(std::format("{} has a max slope outside (0,pi]", ctx));
 			if (!(family.max_speed > 0))
@@ -345,29 +356,21 @@ namespace pr::animation
 
 				for (size_t i = 0; i != cycle.footfalls.size(); ++i)
 				{
-					// Each footfall names a distinct limb chain that has a contact to stand on
+					// Each footfall names the contact of a distinct leg or arm chain
 					auto const& foot = cycle.footfalls[i];
 					auto fctx = std::format("{} footfall {}", cctx, i);
-					if (foot.role != EChainRole::Leg && foot.role != EChainRole::Arm)
-					{
-						errors.push_back(std::format("{} is not a leg or an arm", fctx));
-						continue;
-					}
-					auto chain = LimbChain(rig, foot.role, foot.side);
-					if (chain < 0)
-						errors.push_back(std::format("{} has no matching chain in the rig", fctx));
-					else if (LimbContact(rig, rig.chains[chain]) < 0)
-						errors.push_back(std::format("{} has no sole or palm contact on its end bone", fctx));
+					if (LimbChain(rig, foot.contact) < 0)
+						errors.push_back(std::format("{} names '{}', which is not the sole of a leg or the palm of an arm in the rig", fctx, foot.contact));
 					if (!(foot.touchdown >= 0 && foot.touchdown < 1) || !(foot.duty > 0 && foot.duty < 1))
 						errors.push_back(std::format("{} must have a touchdown in [0,1) and a duty in (0,1)", fctx));
 					if (!(foot.swing_height >= 0) || !(foot.swing_out >= 0))
 						errors.push_back(std::format("{} must have a swing height and swing out that are not negative", fctx));
-					if (i < first.size() && (first[i].role != foot.role || first[i].side != foot.side))
+					if (i < first.size() && first[i].contact != foot.contact)
 						errors.push_back(std::format("{} is not the same limb as in the family's first cycle", fctx));
 
 					for (size_t j = 0; j != i; ++j)
 					{
-						if (cycle.footfalls[j].role == foot.role && cycle.footfalls[j].side == foot.side)
+						if (cycle.footfalls[j].contact == foot.contact)
 							errors.push_back(std::format("{} repeats footfall {}", fctx, j));
 					}
 				}
@@ -407,7 +410,8 @@ namespace pr::animation
 			auto const& fobj = ReadObject(families[f], fctx);
 			auto& family = gait.families.emplace_back(GaitFamily{
 				.name = ReadString(Member(fobj, "name", fctx), fctx + ".name"),
-				.up = ParseEnum<EFamilyUp>(ReadString(Member(fobj, "up", fctx), fctx + ".up"), FamilyUpNames, fctx + ".up"),
+				.travel = ReadVec(Member(fobj, "travel", fctx), 0, fctx + ".travel"),
+				.up =  ParseEnum<EFamilyUp>(ReadString(Member(fobj, "up", fctx), fctx + ".up"), FamilyUpNames, fctx + ".up"),
 				.max_slope = ReadFloat(Member(fobj, "max_slope", fctx), fctx + ".max_slope"),
 				.max_speed = ReadFloat(Member(fobj, "max_speed", fctx), fctx + ".max_speed"),
 				.medium = ParseEnum<EFamilyMedium>(ReadString(Member(fobj, "medium", fctx), fctx + ".medium"), FamilyMediumNames, fctx + ".medium"),
@@ -456,8 +460,7 @@ namespace pr::animation
 					auto ictx = std::format("{}.footfalls[{}]", cctx, i);
 					auto const& obj = ReadObject(footfalls[i], ictx);
 					cycle.footfalls.push_back(Footfall{
-						.role = ParseEnum<EChainRole>(ReadString(Member(obj, "role", ictx), ictx + ".role"), ChainRoleNames, ictx + ".role"),
-						.side = ParseEnum<ESide>(ReadString(Member(obj, "side", ictx), ictx + ".side"), SideNames, ictx + ".side"),
+						.contact = ReadString(Member(obj, "contact", ictx), ictx + ".contact"),
 						.touchdown = ReadFloat(Member(obj, "touchdown", ictx), ictx + ".touchdown"),
 						.duty = ReadFloat(Member(obj, "duty", ictx), ictx + ".duty"),
 						.swing_height = ReadFloat(Member(obj, "swing_height", ictx), ictx + ".swing_height"),
@@ -522,8 +525,7 @@ namespace pr::animation
 				for (auto const& foot : cycle.footfalls)
 				{
 					footfalls.push_back(json::Object{
-						{ "role", EnumName(foot.role, ChainRoleNames) },
-						{ "side", EnumName(foot.side, SideNames) },
+						{ "contact", foot.contact },
 						{ "touchdown", foot.touchdown },
 						{ "duty", foot.duty },
 						{ "swing_height", foot.swing_height },
@@ -558,7 +560,8 @@ namespace pr::animation
 			}
 			families.push_back(json::Object{
 				{ "name", family.name },
-				{ "up", EnumName(family.up, FamilyUpNames) },
+				{ "travel", WriteVec(family.travel) },
+				{ "up",  EnumName(family.up, FamilyUpNames) },
 				{ "max_slope", family.max_slope },
 				{ "max_speed", family.max_speed },
 				{ "medium", EnumName(family.medium, FamilyMediumNames) },
@@ -610,8 +613,8 @@ namespace pr::animation::tests
 			.hip_height = rest_hip_height,
 			.spine_sway = 0.2f,
 			.footfalls = {
-				Footfall{ .role = EChainRole::Leg, .side = ESide::Left, .touchdown = 0.0f, .duty = 0.75f, .swing_height = 0.1f, .swing_out = 0.04f },
-				Footfall{ .role = EChainRole::Arm, .side = ESide::Left, .touchdown = 0.5f, .duty = 0.75f, .swing_height = 0.08f, .swing_out = 0.02f },
+				Footfall{ .contact = "sole.L", .touchdown = 0.0f, .duty = 0.75f, .swing_height = 0.1f, .swing_out = 0.04f },
+				Footfall{ .contact = "palm.L", .touchdown = 0.5f, .duty = 0.75f, .swing_height = 0.08f, .swing_out = 0.02f },
 			},
 			.motion = {
 				BoneMotion{ .bone = "spine", .channel = EMotionChannel::Rotation, .harmonics = { Harmonic{ .sin = v4(0, 0, 0.1f, 0) }, Harmonic{} } },
@@ -625,8 +628,8 @@ namespace pr::animation::tests
 			.hip_height = rest_hip_height,
 			.spine_sway = 0.3f,
 			.footfalls = {
-				Footfall{ .role = EChainRole::Leg, .side = ESide::Left, .touchdown = 0.0f, .duty = 0.5f, .swing_height = 0.15f, .swing_out = 0.05f },
-				Footfall{ .role = EChainRole::Arm, .side = ESide::Left, .touchdown = 0.5f, .duty = 0.5f, .swing_height = 0.12f, .swing_out = 0.03f },
+				Footfall{ .contact = "sole.L", .touchdown = 0.0f, .duty = 0.5f, .swing_height = 0.15f, .swing_out = 0.05f },
+				Footfall{ .contact = "palm.L", .touchdown = 0.5f, .duty = 0.5f, .swing_height = 0.12f, .swing_out = 0.03f },
 			},
 		};
 		auto biped = GaitCycle{
@@ -636,7 +639,7 @@ namespace pr::animation::tests
 			.hip_height = rest_hip_height,
 			.weight_shift = 0.5f,
 			.arm_swing = 0.3f,
-			.footfalls = { Footfall{ .role = EChainRole::Leg, .side = ESide::Left, .touchdown = 0.0f, .duty = 0.6f, .swing_height = 0.1f } },
+			.footfalls = { Footfall{ .contact = "sole.L", .touchdown = 0.0f, .duty = 0.6f, .swing_height = 0.1f } },
 		};
 		auto paddle = GaitCycle{
 			.name = "paddle",
@@ -656,7 +659,7 @@ namespace pr::animation::tests
 		return GaitDesc{
 			.families = {
 				GaitFamily{ .name = "quadruped", .max_speed = trot.speed, .cycles = { walk, trot } },
-				GaitFamily{ .name = "bipedal", .up = EFamilyUp::Gravity, .max_slope = 0.4f, .max_speed = 1.5f, .cycles = { biped } },
+				GaitFamily{ .name = "bipedal", .travel = v4::XAxis(), .up = EFamilyUp::Gravity, .max_slope = 0.4f, .max_speed = 1.5f, .cycles = { biped } },
 				GaitFamily{ .name = "swim", .max_speed = 2.0f, .medium = EFamilyMedium::Water, .wave = { .amplitude = 1.5f, .wavelength = 1.0f, .growth = 2.0f }, .cycles = { paddle, glide } },
 			},
 		};
@@ -678,6 +681,7 @@ namespace pr::animation::tests
 			PR_EXPECT(Validate(read, rig).empty());
 			PR_EXPECT(read.families.size() == 3);
 			PR_EXPECT(read.families[0].name == "quadruped" && read.families[1].name == "bipedal");
+			PR_EXPECT(FEqlAbsolute(read.families[0].travel, -v4::YAxis(), 1e-6f) && FEqlAbsolute(read.families[1].travel, v4::XAxis(), 1e-6f));
 			PR_EXPECT(read.families[0].up == EFamilyUp::Surface && read.families[0].max_slope == gait.families[0].max_slope);
 			PR_EXPECT(read.families[1].up == EFamilyUp::Gravity && read.families[1].max_slope == 0.4f && read.families[1].max_speed == 1.5f);
 			PR_EXPECT(read.families[0].medium == EFamilyMedium::Ground && read.families[0].wave.amplitude == 0.0f);
@@ -696,7 +700,7 @@ namespace pr::animation::tests
 			auto const& lb = read.families[1].cycles[0];
 			auto const& rb = gait.families[1].cycles[0];
 			PR_EXPECT(lb.weight_shift == rb.weight_shift && lb.arm_swing == rb.arm_swing);
-			PR_EXPECT(l.footfalls.size() == 2 && l.footfalls[1].role == EChainRole::Arm && l.footfalls[1].touchdown == 0.5f && l.footfalls[1].duty == 0.75f && l.footfalls[1].swing_height == 0.08f && l.footfalls[1].swing_out == 0.02f);
+			PR_EXPECT(l.footfalls.size() == 2 && l.footfalls[1].contact == "palm.L" && l.footfalls[1].touchdown == 0.5f && l.footfalls[1].duty == 0.75f && l.footfalls[1].swing_height == 0.08f && l.footfalls[1].swing_out == 0.02f);
 			PR_EXPECT(l.motion.size() == 2 && l.motion[1].channel == EMotionChannel::Position);
 			PR_EXPECT(FEqlAbsolute(l.motion[0].harmonics[0].sin, r.motion[0].harmonics[0].sin, 1e-6f));
 			PR_EXPECT(FEqlAbsolute(l.motion[1].harmonics[1].cos, r.motion[1].harmonics[1].cos, 1e-6f));
@@ -715,7 +719,7 @@ namespace pr::animation::tests
 			auto rig = TestRig();
 			auto text = json::Write(WriteGaitDesc(TestGait()));
 			auto bad = text;
-			bad.replace(bad.find("\"leg\""), 5, "\"wing\"");
+			bad.replace(bad.find("\"surface\""), 9, "\"wing\"");
 			try
 			{
 				(void)ReadGaitDesc(json::Read(std::string_view(bad)));
@@ -723,11 +727,11 @@ namespace pr::animation::tests
 			}
 			catch (std::runtime_error const& ex)
 			{
-				PR_EXPECT(std::string_view(ex.what()).find("gait.families[0].cycles[0].footfalls[0].role") != std::string_view::npos);
+				PR_EXPECT(std::string_view(ex.what()).find("gait.families[0].up") != std::string_view::npos);
 			}
 
 			// Gaits that do not fit the rig are reported: unordered speeds, a limb missing from one cycle, a position on a non-root bone, a zero slope limit,
-			// a zero speed limit, a zero wavelength, and a swimming family with footfalls
+			// a zero speed limit, a zero wavelength, a swimming family with footfalls, a footfall on an unknown contact, and a vertical travel direction
 			auto gait = TestGait();
 			auto& quad = gait.families[0];
 			quad.cycles[1].speed = quad.cycles[0].speed;
@@ -739,7 +743,10 @@ namespace pr::animation::tests
 			for (auto& cycle : gait.families[2].cycles)
 				cycle.footfalls = quad.cycles[0].footfalls;
 
-			PR_EXPECT(Validate(gait, rig).size() == 7);
+			gait.families[1].cycles[0].footfalls[0].contact = "sole.R";
+			gait.families[2].travel = v4::ZAxis();
+
+			PR_EXPECT(Validate(gait, rig).size() == 9);
 		}
 	};
 }

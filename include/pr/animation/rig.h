@@ -179,6 +179,7 @@ namespace pr::animation
 	};
 
 	// The line through the body that a collision shape follows. It runs from the head of bone 'from' to the head of bone 'to'.
+	// When 'from' and 'to' are the same bone, the axis runs along that bone, from its head to its tip.
 	struct BodyAxis
 	{
 		int from = -1;            // The bone whose head is the start of the axis, e.g. the hips
@@ -382,11 +383,11 @@ namespace pr::animation
 			}
 		}
 
-		// The body axis needs two existing bones with separate heads, so that it has a direction
+		// The body axis needs existing bones with separate ends, so that it has a direction. A single bone has a positive length, so it always has one.
 		auto const& axis = desc.body_axis;
 		if (axis.from < 0 || axis.from >= bone_count || axis.to < 0 || axis.to >= bone_count)
 			errors.push_back(std::format("The body axis refers to bones {} and {}, which must both exist", axis.from, axis.to));
-		else if (FEqlAbsolute(rest_model[axis.from].pos, rest_model[axis.to].pos, 1e-6f))
+		else if (axis.from != axis.to && FEqlAbsolute(rest_model[axis.from].pos, rest_model[axis.to].pos, 1e-6f))
 			errors.push_back(std::format("The body axis bones '{}' and '{}' have the same head", bones[axis.from].name, bones[axis.to].name));
 
 		return errors;
@@ -636,6 +637,11 @@ namespace pr::animation::tests
 			expect_error([](RigDesc& d) { d.body_axis.to = 99; });
 			expect_error([](RigDesc& d) { d.body_axis.to = 12; });
 			PR_EXPECT(Validate(desc).empty());
+
+			// A single-bone body axis runs along that bone, so it is valid
+			auto single = desc;
+			single.body_axis.to = single.body_axis.from;
+			PR_EXPECT(Validate(single).empty());
 		}
 		PRUnitTestMethod(InvalidRigThrows, Quick)
 		{
