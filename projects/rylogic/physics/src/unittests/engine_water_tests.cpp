@@ -317,6 +317,51 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(body.VelocityWS().lin.z, 0.0f, 1e-3f));
 		}
 
+		PRUnitTestMethod(DeepBodyDampingIsDepthIndependent, Quick)
+		{
+			// A buoyant capsule (Petri's Actor) released spinning and tilted far below the surface rises steadily while its spin decays.
+			// Its motion does not depend on the depth of water above it, because a fully submerged body's volume terms come from its own volume.
+			auto capsule = collision::ShapeLine(0.55f, 0.125f);
+			auto rise = [&](float depth)
+			{
+				// Three seconds of rising, with the drag settings used by Petri.
+				auto body = RigidBody{};
+				body.Shape(collision::shape_cast(&capsule), 25.0f);
+				body.O2W(m4x4::Transform(v4::XAxis(), 0.5f, v4{ 0, 0, -depth, 1 }));
+				body.VelocityWS(v4{ 3.0f, 0, 0, 0 }, v4{ 0, 2.0f, 0.5f, 0 });
+
+				auto& engine = AwakeEngine();
+				auto water = FlatWater(0.0);
+				water.m_density = 1025.0f;
+				water.m_linear_drag_time_constant_s = 0.5f;
+				water.m_angular_drag_time_constant_s = 0.5f;
+				water.m_quadratic_drag_coefficient = 0.5f;
+				engine.Water(water);
+
+				auto max_spin = 0.0f;
+				auto max_speed = 0.0f;
+				for (int i = 0; i != 180; ++i)
+				{
+					Run(engine, body, 1, 1, i);
+					max_spin = std::max(max_spin, Length(body.VelocityWS().ang));
+					max_speed = std::max(max_speed, Length(body.VelocityWS().lin));
+				}
+				ClearWater(engine);
+				return std::tuple{ body.VelocityWS(), max_spin, max_speed };
+			};
+			auto [vel40, max_spin40, max_speed40] = rise(40.0f);
+			auto [vel100, max_spin100, max_speed100] = rise(100.0f);
+
+			// The spin only decays, the rise stays bounded, and the depth makes no difference.
+			PR_EXPECT(max_spin40 <= 3.0f + 1e-3f);
+			PR_EXPECT(Length(vel40.ang) < 0.3f);
+			PR_EXPECT(max_speed40 < 2.5f);
+			PR_EXPECT(FEqlAbsolute(max_spin40, max_spin100, 1e-2f));
+			PR_EXPECT(FEqlAbsolute(max_speed40, max_speed100, 1e-2f));
+			PR_EXPECT(FEqlAbsolute(vel40.ang, vel100.ang, 1e-2f));
+			PR_EXPECT(FEqlAbsolute(vel40.lin, vel100.lin, 1e-2f));
+		}
+
 		PRUnitTestMethod(SphereFloatsAtAnalyticDraft, Quick)
 		{
 			// A sphere of half the water's density settles with its centre on the surface. Wave-radiation damping settles the bob without tuned drag.

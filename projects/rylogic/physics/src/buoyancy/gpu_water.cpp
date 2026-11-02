@@ -71,8 +71,10 @@ namespace pr::physics
 			int m_element_base;
 			int m_element_count;
 			float m_water_max_height;
+			v4 m_bbox_centre_os;
+			v4 m_bbox_radius_os;
 		};
-		static_assert(sizeof(GpuWaterHeader) == 32);
+		static_assert(sizeof(GpuWaterHeader) == 64);
 
 		// Per-primitive surface counts, compact patch range, and half of the largest cell height (for the dry early-out). Mirrors HLSL BuoySurfPrimRecord.
 		struct GpuWaterPrimRecord
@@ -398,6 +400,8 @@ namespace pr::physics
 				.m_element_base = active.m_element_base,
 				.m_element_count = active.m_element_count,
 				.m_water_max_height = active.m_water_max_height,
+				.m_bbox_centre_os = shape.m_bbox_os.m_centre,
+				.m_bbox_radius_os = shape.m_bbox_os.m_radius,
 			};
 		}
 

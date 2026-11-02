@@ -124,6 +124,8 @@ struct BuoySurfHeader
 	int element_base;           // start of this hull's water elements in g_water_field
 	int element_count;          // number of water elements acting on this hull
 	float water_max_height;     // conservative upper bound of the water surface the hull can reach this frame
+	float4 bbox_centre_os;      // centre of the hull's object-space bounding box (xyz)
+	float4 bbox_radius_os;      // half extents of the hull's object-space bounding box (xyz)
 };
 
 // Per-primitive counts and compact patch ranges, parallel to g_prims. 'half_cell_height' is half the largest surface cell
@@ -146,6 +148,7 @@ StructuredBuffer<BuoySurfPrimRecord> resource(g_surf_prim_records, t11);
 groupshared BuoyancySums s_wave_sums[BUOYANCY_SAMPLE_THREAD_COUNT / 4];
 groupshared float3 s_body_linear_velocity_ws;
 groupshared float3 s_body_angular_velocity_ws;
+groupshared float s_hull_top;
 
 // Evaluate the water height (x) and the dimensionless dynamic pressure gradient (yzw) at a world-space XY position.
 // Orbital velocity is evaluated separately only for accepted wet samples, avoiding exponentials for the common fully-dry case.
@@ -456,6 +459,7 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 	{
 		s_body_linear_velocity_ws = float3(0.0f, 0.0f, 0.0f);
 		s_body_angular_velocity_ws = float3(0.0f, 0.0f, 0.0f);
+		s_hull_top = 0.0f;
 		if (hull_index < g.hull_count)
 		{
 			BuoySurfHeader header = g_surf_headers[hull_index];
@@ -468,6 +472,13 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 				s_body_linear_velocity_ws = inv_mass * body.momentum_lin.xyz;
 				s_body_angular_velocity_ws = mul(ws_iinv, body.momentum_ang.xyz);
 			}
+
+			// The highest point of the hull's bounding box along 'up' in its current pose. The water columns end there (see the column terms below).
+			float g_mag = length(body.ws_gravity.xyz);
+			float3 up = g_mag > BUOY_TINY ? -body.ws_gravity.xyz / g_mag : float3(0.0f, 0.0f, 1.0f);
+			float3 centre_ws = mul(float4(header.bbox_centre_os.xyz, 1.0f), body.o2w).xyz;
+			float3 extent = abs(mul((float3x3)body.o2w, up)) * header.bbox_radius_os.xyz;
+			s_hull_top = dot(centre_ws, up) + extent.x + extent.y + extent.z;
 		}
 	}
 	GroupMemoryBarrierWithGroupSync();
@@ -600,8 +611,15 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 								// The vertical water column between this sample and the surface has signed volume depth_area*(-n.up).
 								// These columns sum to the wet volume (divergence theorem; there is no pressure at the waterplane), so they
 								// carry the volume terms: added mass, the wave's dynamic pressure, and volume damping.
-								float dvol = -n_up * depth_area;
-								float3 r_col = r + (0.5f * wet_depth) * up;
+								// Each column ends at the lower of the surface and the hull's top. This removes the same length 'col_clip' from the
+								// top and bottom columns at the same horizontal position, so their sums are unchanged on the closed surface, and
+								// no cap exists where the clip is non-zero because the hull lies wholly below the surface there. Without the clip, a
+								// deep body's volume moments are differences of terms that grow with the depth, and their sampling error can far
+								// exceed the body's true moments, which makes the volume damping inject spin.
+								float col_clip = max(0.0f, hg.x - s_hull_top);
+								float col_len = max(0.0f, wet_depth - col_clip);
+								float dvol = -n_up * wet_weight * col_len;
+								float3 r_col = r + (0.5f * col_len) * up;
 								float3 grad_ws = hg.yzw;
 								float grad_up = dot(grad_ws, up);
 								float3 surface_rates = EvaluateWaterSurfaceRates(header, sample_ws.xy);
@@ -633,10 +651,10 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 									float3 f_lin = -d_lin * (s_body_linear_velocity_ws - water_velocity_ws);
 									float3 f_ang = -d_ang * cross(s_body_angular_velocity_ws, r_col);
 									float3 w_horizontal = s_body_angular_velocity_ws - dot(s_body_angular_velocity_ws, up) * up;
-									float3 t_ang = cross(r_col, f_ang) - (d_ang * wet_depth * wet_depth / 12.0f) * w_horizontal;
+									float3 t_ang = cross(r_col, f_ang) - (d_ang * col_len * col_len / 12.0f) * w_horizontal;
 									sums.force_ws += f_lin + f_ang;
 									sums.torque_ws += cross(r_col, f_lin) + t_ang;
-									AddColumnDamping(sums, r_col, up, wet_depth, d_lin, d_ang);
+									AddColumnDamping(sums, r_col, up, col_len, d_lin, d_ang);
 								}
 
 								// Waterline stiffness: raising the sample by dz reduces depth_area by wet_weight*dz, so the pressure force
@@ -659,7 +677,7 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 								sums.volume_moment += dvol * r_col;
 								sums.volume_rr_diag += dvol * r_col * r_col;
 								sums.volume_rr_off += dvol * float3(r_col.x * r_col.y, r_col.x * r_col.z, r_col.y * r_col.z);
-								sums.volume_depth += dvol * (0.5f * wet_depth);
+								sums.volume_depth += dvol * (col_clip + 0.5f * col_len);
 								sums.volume_water_velocity += dvol * water_velocity_ws;
 
 								// Quadratic form drag acts only on faces moving outward into the fluid. The implicit solve uses
