@@ -299,7 +299,7 @@ namespace pr::rdr12
 				continue;
 
 			// Hash everything that can change the depth the population writes into a view. The revision covers blocks, instances, and payload.
-			// The draw distance is measured from the scene camera, so the camera position matters only when the prototype has a draw distance.
+			// The draw range is measured from the scene camera, so the camera position matters only when the prototype limits the range.
 			auto& h = caster.m_hash;
 			HashPtr(h, pop.get());
 			HashWord(h, revision);
@@ -316,7 +316,7 @@ namespace pr::rdr12
 						caster.m_volatile = true;
 				});
 			}
-			if (proto.m_draw_distance > 0)
+			if (proto.m_draw_distance > 0 || proto.m_fade_in.used() || proto.m_fade_out.used())
 				HashMix(h, range_origin);
 
 			m_casters.push_back(std::move(caster));

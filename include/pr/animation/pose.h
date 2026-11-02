@@ -66,6 +66,17 @@ namespace pr::animation
 			// Bones point along their local +Y axis
 			return model[bone] * v4(0, rig.bones[bone].length, 0, 1);
 		}
+
+		// The model-space start and end of the rig's body axis (see 'BodyAxis')
+		std::pair<v4, v4> BodyAxisEnds(Rig const& rig) const
+		{
+			// A single-bone axis runs along that bone, from its head to its tip
+			auto const& axis = rig.body_axis;
+			if (axis.from == axis.to)
+				return { model[axis.from].pos, Tip(rig, axis.from) };
+
+			return { model[axis.from].pos, model[axis.to].pos };
+		}
 	};
 }
 
@@ -97,6 +108,24 @@ namespace pr::animation::tests
 			auto rig = TestRig();
 			auto pose = Pose(rig);
 			PR_EXPECT(FEqlAbsolute(pose.Tip(rig, rig.BoneIndex("shin.L")), rig.rest_model[rig.BoneIndex("foot.L")].pos, 1e-5f));
+		}
+		PRUnitTestMethod(BodyAxisEnds, Quick)
+		{
+			// A two-bone axis joins the bones' heads
+			auto rig = TestRig();
+			auto pose = Pose(rig);
+			auto [from, to] = pose.BodyAxisEnds(rig);
+			PR_EXPECT(FEqlAbsolute(from, rig.rest_model[rig.body_axis.from].pos, 1e-5f));
+			PR_EXPECT(FEqlAbsolute(to, rig.rest_model[rig.body_axis.to].pos, 1e-5f));
+
+			// A single-bone axis runs from the bone's head to its tip
+			auto desc = TestRigDesc();
+			desc.body_axis.to = desc.body_axis.from;
+			auto single = Rig(desc);
+			auto single_pose = Pose(single);
+			auto [head, tip] = single_pose.BodyAxisEnds(single);
+			PR_EXPECT(FEqlAbsolute(head, single.rest_model[single.body_axis.from].pos, 1e-5f));
+			PR_EXPECT(FEqlAbsolute(tip, single_pose.Tip(single, single.body_axis.from), 1e-5f));
 		}
 	};
 }

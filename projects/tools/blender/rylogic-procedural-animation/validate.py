@@ -79,13 +79,13 @@ def ValidateRigDesc(desc: dict[str, Any]) -> list[str]:
 		if contact.get("kind") not in CONTACT_KINDS:
 			errors.append(f"Contact '{name}' has an unknown kind '{contact.get('kind')}'")
 
-	# The body axis needs two bones with separate heads to define a direction
+	# The body axis needs existing bones with separate ends to define a direction. A single bone runs from its head to its tip, so it always has one.
 	body_axis = desc.get("body_axis", {})
 	ends = [body_axis.get("from", ""), body_axis.get("to", "")]
 	for key, name in zip(("from", "to"), ends):
 		if name not in index_of:
 			errors.append(f"The body axis '{key}' bone '{name}' does not exist. Set it in the rig's Body Axis panel")
-	if all(name in index_of for name in ends):
+	if all(name in index_of for name in ends) and ends[0] != ends[1]:
 		heads = [rest_model[index_of[name]].to_translation() for name in ends]
 		if (heads[1] - heads[0]).length <= 1e-6:
 			errors.append(f"The body axis bones '{ends[0]}' and '{ends[1]}' have the same head")

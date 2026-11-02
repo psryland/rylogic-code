@@ -6,7 +6,7 @@ namespace Rylogic.Physics;
 
 /// <summary>
 /// Water that applies buoyancy, drag, added mass, and wave damping to every dynamic shaped body and articulation link. The surface is a height field
-/// over world XY (+Z up): the still-water level plus optional wave elements (see <see cref="Engine.SetWater"/>). Forces are integrated over surface
+/// over world XY (+Z up) with its own gravity along -Z: the still-water level plus optional wave elements (see <see cref="Engine.SetWater"/>). Forces are integrated over surface
 /// cells that cover each body's shape and applied implicitly, so light bodies settle onto the water instead of bouncing. Water is not a collision
 /// contact, so material restitution has no effect on it. Bodies that cannot reach the surface during a step cost no water work.
 /// The force parameters match the native WaterConfig; see pr/physics/integrator/engine_water.h for their full meaning.
@@ -24,6 +24,7 @@ public readonly struct WaterConfiguration
 
 	public readonly double m_level;
 	public readonly float m_density;
+	public readonly float m_gravity;
 	public readonly float m_linear_drag_time_constant;
 	public readonly float m_angular_drag_time_constant;
 	public readonly float m_quadratic_drag_coefficient;
@@ -47,12 +48,14 @@ public readonly struct WaterConfiguration
 	/// touching the water. 'breaking_ratio' limits the total wave amplitude to half this fraction of the depth where terrain heights are known
 	/// (see <see cref="Engine.SetWaterBathymetry"/>). 'shore_sharpness', in [0, 0.9], is the crest sharpness that waves reach at the breaking height.
 	/// 'repeat_period' (s) is the period after which every wave element repeats, so the engine can wrap long clocks without losing precision; zero
-	/// means the elements are not periodic.
+	/// means the elements are not periodic. 'gravity' (m/s², positive) is the gravity of the water itself, acting along world -Z. It sets the
+	/// water pressure and wave speeds; the gravity of each body does not change the water forces.
 	/// </summary>
-	public WaterConfiguration(double level, float density = 1000.0f, float linear_drag_time_constant = 5.0f, float angular_drag_time_constant = 0.75f, float quadratic_drag_coefficient = 1.05f, float tangential_drag_coefficient = 0.01f, float added_mass_coefficient = 0.5f, float radiation_damping = 1.0f, float wave_resistance = 1.0f, float surface_spacing = DefaultSurfaceSpacing, float air_density = 1.2f, float breaking_ratio = DefaultBreakingRatio, float shore_sharpness = DefaultShoreSharpness, float repeat_period = 0.0f)
+	public WaterConfiguration(double level, float density = 1000.0f, float linear_drag_time_constant = 5.0f, float angular_drag_time_constant = 0.75f, float quadratic_drag_coefficient = 1.05f, float tangential_drag_coefficient = 0.01f, float added_mass_coefficient = 0.5f, float radiation_damping = 1.0f, float wave_resistance = 1.0f, float surface_spacing = DefaultSurfaceSpacing, float air_density = 1.2f, float breaking_ratio = DefaultBreakingRatio, float shore_sharpness = DefaultShoreSharpness, float repeat_period = 0.0f, float gravity = 9.81f)
 	{
 		m_level = level;
 		m_density = density;
+		m_gravity = gravity;
 		m_linear_drag_time_constant = linear_drag_time_constant;
 		m_angular_drag_time_constant = angular_drag_time_constant;
 		m_quadratic_drag_coefficient = quadratic_drag_coefficient;

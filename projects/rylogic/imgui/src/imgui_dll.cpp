@@ -46,7 +46,7 @@ namespace dll
 	namespace bridge = pr::view3d::ui;
 
 	// Version of this DLL's exported functions. Must match the client header and the managed wrapper.
-	constexpr std::uint32_t ApiVersion = 0x00020000U;
+	constexpr std::uint32_t ApiVersion = 0x00020001U;
 
 	struct InitArgs
 	{
@@ -755,6 +755,10 @@ extern "C"
 	__declspec(dllexport) bool __stdcall ImGui_Combo(Context& ctx, char const* label, int* current_item, char const* items_separated_by_zeros, int popup_max_height_in_items)
 	{
 		return Call(ctx, [&] { return ImGui::Combo(label, current_item, items_separated_by_zeros, popup_max_height_in_items); });
+	}
+	__declspec(dllexport) bool __stdcall ImGui_ColorEdit3(Context& ctx, char const* label, float* col, int flags)
+	{
+		return Call(ctx, [&] { return ImGui::ColorEdit3(label, col, static_cast<ImGuiColorEditFlags>(flags)); });
 	}
 	__declspec(dllexport) void __stdcall ImGui_PlotLines(Context& ctx, char const* label, float const* values, int values_count, int values_offset, char const* overlay_text, float scale_min, float scale_max, float graph_w, float graph_h)
 	{

@@ -64,7 +64,8 @@ public sealed class TestPhysics
 		Assert.Equal(204, Marshal.OffsetOf<Native.AtmosphereDesc>(nameof(Native.AtmosphereDesc.m_tracer_break_height)).ToInt32());
 		Assert.Equal(WaterFieldElement.SizeInBytes, sizeof(WaterFieldElement));
 		Assert.Equal(8, Marshal.OffsetOf<Native.WaterDesc>(nameof(Native.WaterDesc.m_level)).ToInt32());
-		Assert.Equal(72, Marshal.OffsetOf<Native.WaterDesc>(nameof(Native.WaterDesc.m_elements)).ToInt32());
+		Assert.Equal(20, Marshal.OffsetOf<Native.WaterDesc>(nameof(Native.WaterDesc.m_gravity)).ToInt32());
+		Assert.Equal(80, Marshal.OffsetOf<Native.WaterDesc>(nameof(Native.WaterDesc.m_elements)).ToInt32());
 		Assert.Equal(40, Marshal.OffsetOf<Native.WaterBathymetryDesc>(nameof(Native.WaterBathymetryDesc.m_heights)).ToInt32());
 		Assert.Equal(48, Marshal.OffsetOf<Native.WindSeaDesc>(nameof(Native.WindSeaDesc.m_table)).ToInt32());
 		Assert.Equal(8, Marshal.OffsetOf<CylindricalBoundaryConfiguration>(nameof(CylindricalBoundaryConfiguration.m_centre)).ToInt32());
@@ -104,6 +105,7 @@ public sealed class TestPhysics
 		using var runtime = new Physics();
 		using var engine = runtime.CreateEngine();
 		ExpectStatus(EStatus.InvalidArgument, () => engine.SetWater(new WaterConfiguration(0, density: 0)));
+		ExpectStatus(EStatus.InvalidArgument, () => engine.SetWater(new WaterConfiguration(0, gravity: 0)));
 		ExpectStatus(EStatus.InvalidArgument, () => engine.SetWater(new WaterConfiguration(double.NaN)));
 		ExpectStatus(EStatus.InvalidArgument, () => engine.WaterHeights(0, new Vector2d[1], new double[1]));
 		engine.SetWater(new WaterConfiguration(2, linear_drag_time_constant: 0.5f));

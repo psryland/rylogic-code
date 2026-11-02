@@ -495,8 +495,8 @@ namespace physics_sandbox
 	// sample points coloured by classification, surface-sample normal whiskers, and per-primitive +
 	// total buoyancy force/torque arrows. This is an approximate debugging aid, not a frame-exact
 	// mirror of the GPU pass: it samples the post-step body transform with the current clock, so it
-	// lags the GPU buoyancy result by roughly one frame. Only valid for the current flat-ocean scene
-	// (gravity ~ -Z); a tilted-gravity scene would need a gravity-derived water frame here.
+	// lags the GPU buoyancy result by roughly one frame. The water is always a height field along world +Z,
+	// whatever the gravity of each body.
 	void Scene::BuildBuoyancyDebugGfx()
 	{
 		using namespace pr::physics::buoyancy;
@@ -527,6 +527,7 @@ namespace physics_sandbox
 		auto const& gpu_cfg = *water_config;
 		auto const cfg = SamplerConfig{
 			.m_fluid_density = gpu_cfg.m_density,
+			.m_gravity = gpu_cfg.m_gravity,
 			.m_linear_drag_time_constant_s = gpu_cfg.m_linear_drag_time_constant_s,
 			.m_angular_drag_time_constant_s = gpu_cfg.m_angular_drag_time_constant_s,
 			.m_quadratic_drag_coefficient = gpu_cfg.m_quadratic_drag_coefficient,
@@ -584,7 +585,6 @@ namespace physics_sandbox
 				shape = &body.Shape();
 				state.m_o2w = body.O2W();
 				state.m_centre_of_mass_os = body.CentreOfMassOS();
-				state.m_gravity_ws = body.GravityWS();
 				state.m_vel_lin_ws = vel.lin;
 				state.m_omega_ws = vel.ang;
 			}
@@ -600,16 +600,10 @@ namespace physics_sandbox
 				shape = desc.m_shape;
 				state.m_o2w = shape_to_world;
 				state.m_centre_of_mass_os = shape_com;
-				state.m_gravity_ws = articulation.GravityWS(link);
 				state.m_vel_lin_ws = shape_to_world.rot * (shape_velocity.lin + Cross(shape_velocity.ang, shape_com));
 				state.m_omega_ws = shape_to_world.rot * shape_velocity.ang;
 			}
 			assert("A buoyancy diagnostic target must have a collision shape" && shape != nullptr);
-
-			// The flat-water adapter is only valid when gravity is ~ -Z. Assert so a future tilted-gravity
-			// scene fails loudly here instead of silently mis-classifying samples.
-			assert("BuildBuoyancyDebugGfx assumes a flat -Z gravity water frame" &&
-				(Sqr(state.m_gravity_ws.x) + Sqr(state.m_gravity_ws.y)) <= 1e-3f * Max(1e-6f, LengthSq(state.m_gravity_ws.w0())));
 
 			auto debug = SampleDebug{};
 			auto const result = SampleHull(*shape, state, WaterFrame{}, water, cfg, &debug);

@@ -460,7 +460,7 @@ class RYLOGIC_OT_gait_validate(_ArmatureOperator):
 			lines.append("Valid gait")
 			for family in desc["families"]:
 				for cycle in family["cycles"]:
-					steps = ", ".join(f"{f['role']} {f['side']} @{f['touchdown']:.2f}/{f['duty']:.2f}" for f in cycle["footfalls"])
+					steps = ", ".join(f"{f['contact']} @{f['touchdown']:.2f}/{f['duty']:.2f}" for f in cycle["footfalls"])
 					lines.append(f"{family['name']}.{cycle['name']}: speed {cycle['speed']:.3g}, stride {cycle['stride']:.3g}; {steps}")
 
 		_SetReport(lines)

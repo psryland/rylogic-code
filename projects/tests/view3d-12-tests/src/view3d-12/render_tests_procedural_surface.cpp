@@ -164,6 +164,27 @@ namespace render_tests
 		expect_rotated(draw_surface(pbr_shader, 10), stock_image);
 		fixture.CheckErrors();
 
+		// The roughness-scaling overload must shade a smooth surface as if the material had the scaled roughness.
+		auto rough_options = pbr_options;
+		rough_options.m_procedural.m_forward_pixel[0] = {compiled::procedural_pixel_rough_opaque, sizeof(compiled::procedural_pixel_rough_opaque)};
+		rough_options.m_procedural.m_forward_pixel[1] = {compiled::procedural_pixel_rough_reflection_attrs, sizeof(compiled::procedural_pixel_rough_reflection_attrs)};
+		rough_options.m_procedural.m_forward_pixel[2] = {compiled::procedural_pixel_rough_alpha_collect, sizeof(compiled::procedural_pixel_rough_alpha_collect)};
+		auto rough_shader = View3D_ShaderCreate(rough_options);
+		Require(rough_shader != nullptr, "Roughness-scaling PBR pixel family shader creation failed");
+		fixture.m_shaders.push_back(rough_shader);
+		auto smooth_surface = surface;
+		smooth_surface.m_roughness_min = smooth_surface.m_roughness_max = 0.04f;
+		auto rough_surface = surface;
+		rough_surface.m_roughness_min = rough_surface.m_roughness_max = 1.0f;
+		surface = smooth_surface;
+		auto smooth_image = draw_surface(nullptr, 10);
+		auto scaled_image = draw_surface(rough_shader, 10);
+		surface = rough_surface;
+		auto rough_image = draw_surface(nullptr, 10);
+		Require(ImageDifference(smooth_image, rough_image) > 50, "Smooth and rough PBR surfaces rendered the same, so the roughness scale test proves nothing");
+		Require(ImageDifference(scaled_image, rough_image) == 0, "Roughness-scaled PBR shading did not match the material with the scaled roughness");
+		fixture.CheckErrors();
+
 		// Promotion to PBR rejects a family written for simple materials.
 		fixture.Clear();
 		auto simple_promoted = fixture.Quad(10, 0xFFFFFFFF, 45, pixel_shader, 0, 0xFFFFFFFF, false, true);
@@ -254,6 +275,24 @@ namespace render_tests
 		channels.m_normal_strength = 1.2f;
 		View3D_ObjectNuggetProceduralSurfaceSet(object, channels, nullptr, 0);
 		Require(ImageDifference(flat_normal, fixture.Image()) > 100, "Procedural normal channel did not affect rendered output");
+
+		// The near layer bumps normals only within its fade distances of the camera, and validation rejects an empty fade range.
+		auto near_layer = channels;
+		near_layer.m_normal_strength = 0.0f;
+		near_layer.m_near_feature_scale = 4.0f;
+		near_layer.m_near_normal_strength = 1.0f;
+		near_layer.m_near_fade_start = 100.0f;
+		near_layer.m_near_fade_end = 200.0f;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, near_layer, nullptr, 0);
+		Require(ImageDifference(flat_normal, fixture.Image()) > 100, "Procedural near layer did not affect rendered output inside its fade range");
+		near_layer.m_near_fade_start = 1.0f;
+		near_layer.m_near_fade_end = 2.0f;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, near_layer, nullptr, 0);
+		Require(ImageDifference(flat_normal, fixture.Image()) == 0, "Procedural near layer affected rendered output beyond its fade range");
+		near_layer.m_near_fade_end = near_layer.m_near_fade_start;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, near_layer, nullptr, 0);
+		Require(!fixture.m_errors.empty() && fixture.m_errors.back().find("near fade range") != std::string::npos, "Procedural surface accepted an empty near fade range");
+		fixture.m_errors.clear();
 		channels.m_normal_strength = 0.0f;
 		channels.m_roughness_min = channels.m_roughness_max = 0.04f;
 		View3D_ObjectNuggetProceduralSurfaceSet(object, channels, nullptr, 0);

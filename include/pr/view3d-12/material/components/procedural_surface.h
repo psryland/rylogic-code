@@ -35,6 +35,14 @@ namespace pr::rdr12::materials
 		float m_detail = 0.5f;
 		float m_warp = 0.0f;
 
+		// Optional finer bump layer near the camera. It changes normals only. It is at full strength closer than 'm_near_fade_start' (world
+		// distance from the camera) and has gone beyond 'm_near_fade_end'. Like 'm_normal_strength', 'm_near_normal_strength' is the bump height,
+		// in world units, for a full swing of the noise, so keep it in proportion to 'm_near_feature_scale'. Zero strength turns the layer off.
+		float m_near_feature_scale = 0.5f;
+		float m_near_normal_strength = 0.0f;
+		float m_near_fade_start = 3.0f;
+		float m_near_fade_end = 10.0f;
+
 		// Validate the caller-owned coordinate and channel ranges.
 		void Validate() const;
 	};

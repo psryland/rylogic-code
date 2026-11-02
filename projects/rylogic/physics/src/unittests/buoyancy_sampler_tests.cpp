@@ -335,7 +335,7 @@ namespace pr::physics::tests
 		{
 			// Keep the exact half-face reference between grid rows rather than on a wet/dry sample boundary.
 			auto box = ShapeBox(v4{2, 2, 2, 0});
-			auto body = BodyState{.m_gravity_ws = v4{0,0,-9.81f,0}, .m_vel_lin_ws = v4::XAxis()};
+			auto body = BodyState{.m_vel_lin_ws = v4::XAxis()};
 			auto cfg = SamplerConfig{.m_quadratic_drag_coefficient = 1.0f, .m_surface_spacing = 0.1f};
 			auto const full = SampleHull(box.m_base, body, WaterFrame{}, TestField{.m_level = 10}, cfg);
 			auto const half = SampleHull(box.m_base, body, WaterFrame{}, TestField{}, cfg);
@@ -445,7 +445,6 @@ namespace pr::physics::tests
 			auto const sample_at_draft = [&](float draft)
 			{
 				auto body = BodyState{};
-				body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 				body.m_o2w = m4x4::Translation(0.0f, 0.0f, radius - draft);
 				return SampleHull(sphere.m_base, body, WaterFrame{}, TestField{}, SamplerConfig{});
 			};
@@ -482,7 +481,6 @@ namespace pr::physics::tests
 			auto box = ShapeBox(half * 2.0f);
 
 			auto body = BodyState{};
-			body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 
 			auto const frame = WaterFrame{}; // up=+Z, ref=origin
 			auto const water = TestField{.m_level = 10.0f}; // well above the box
@@ -498,13 +496,34 @@ namespace pr::physics::tests
 			PR_EXPECT(Length(r.m_buoyancy_torque_ws) < 20.0f); // symmetric => ~zero (sampling noise floor)
 		}
 
+		// The water's own gravity sets the pressure, so buoyancy scales with SamplerConfig::m_gravity, and a water without positive gravity is rejected.
+		PRUnitTestMethod(ConfigGravityScalesBuoyancy, Extended)
+		{
+			// Sample a fully submerged box in water with a weaker gravity.
+			auto box = ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
+			auto const body = BodyState{};
+			auto const water = TestField{.m_level = 10.0f};
+			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f, .m_gravity = 5.0f};
+			auto const r = SampleHull(box.m_base, body, WaterFrame{}, water, cfg);
+			PR_EXPECT(r.m_valid);
+			PR_EXPECT(FEqlRelative(r.m_buoyancy_force_ws, v4{0.0f, 0.0f, 1000.0f * 5.0f * 4.0f, 0.0f}, 1e-3f));
+
+			// Zero, negative, and non-finite water gravity are invalid.
+			for (auto bad : {0.0f, -9.81f, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()})
+			{
+				// Each bad gravity value must throw.
+				auto bad_cfg = cfg;
+				bad_cfg.m_gravity = bad;
+				PR_THROWS(SampleHull(box.m_base, body, WaterFrame{}, water, bad_cfg), std::invalid_argument);
+			}
+		}
+
 		// A collision-shape pose and its centre of mass remain independent so offset articulation links report torque about the physical mass centre.
 		PRUnitTestMethod(OffsetCentreOfMass, Extended)
 		{
 			auto box = ShapeBox(v4{2.0f, 2.0f, 2.0f, 0.0f});
 			auto body = BodyState{
 				.m_centre_of_mass_os = v4{1.0f, 0.0f, 0.0f, 0.0f},
-				.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f},
 			};
 			auto const water = TestField{.m_level = 10.0f};
 			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
@@ -525,7 +544,6 @@ namespace pr::physics::tests
 			auto const z = 0.0f; // box centred on the water plane -> half submerged
 			auto body = BodyState{};
 			body.m_o2w = m4x4::Translation(0.0f, 0.0f, z);
-			body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 
 			auto const frame = WaterFrame{};
 			auto const water = TestField{};
@@ -549,7 +567,6 @@ namespace pr::physics::tests
 			// Fully submerged
 			{
 				auto body = BodyState{};
-				body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 				auto const water = TestField{.m_level = 10.0f};
 				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
 				auto const r = SampleHull(sphere.m_base, body, WaterFrame{}, water, cfg);
@@ -560,7 +577,6 @@ namespace pr::physics::tests
 			// Partially submerged (water at z = 0.3)
 			{
 				auto body = BodyState{};
-				body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 				auto const water = TestField{.m_level = 0.3f};
 				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
 				auto const r = SampleHull(sphere.m_base, body, WaterFrame{}, water, cfg);
@@ -586,7 +602,6 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(mp.m_centre_of_mass.w0(), v4::Zero(), 1e-3f)); // symmetric => CoM at origin
 
 			auto body = BodyState{};
-			body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 			auto const water = TestField{.m_level = 10.0f};
 			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
 
@@ -604,8 +619,7 @@ namespace pr::physics::tests
 			auto const volume = 2.0f * 2.0f * 1.0f;
 
 			auto body = BodyState{};
-			body.m_gravity_ws = v4{0.0f, -9.81f, 0.0f, 0.0f}; // gravity along -Y
-			auto const frame = WaterFrame::FromGravity(body.m_gravity_ws, v4::Origin());
+			auto const frame = WaterFrame::FromUp(v4::YAxis(), v4::Origin()); // water up along +Y
 			PR_EXPECT(FEqlAbsolute(frame.m_up, v4{0.0f, 1.0f, 0.0f, 0.0f}, 1e-5f));
 
 			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
@@ -634,7 +648,6 @@ namespace pr::physics::tests
 			auto box = ShapeBox(v4{1.0f, 1.0f, 1.0f, 0.0f});
 			auto body = BodyState{};
 			body.m_o2w = m4x4::Translation(0.0f, 0.0f, 10.0f); // high above water
-			body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 			auto const water = TestField{}; // level 0
 			auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
 
@@ -653,7 +666,6 @@ namespace pr::physics::tests
 			auto const a_front = (2.0f * half.y) * (2.0f * half.z); // +X face area = 1
 
 			auto body = BodyState{};
-			body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 			body.m_vel_lin_ws = v4{1.0f, 0.0f, 0.0f, 0.0f};
 
 			auto const water = TestField{.m_level = 10.0f}; // fully submerged
@@ -678,7 +690,6 @@ namespace pr::physics::tests
 		{
 			auto box = ShapeBox(v4{1.0f, 1.0f, 1.0f, 0.0f});
 			auto body = BodyState{};
-			body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 			body.m_vel_lin_ws = v4{2.0f, 0.0f, 0.0f, 0.0f};
 
 			// Compare with and without air so the difference isolates the air term.
@@ -705,7 +716,6 @@ namespace pr::physics::tests
 		{
 			auto box = ShapeBox(v4{1.0f, 1.0f, 1.0f, 0.0f});
 			auto body = BodyState{};
-			body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 			body.m_vel_lin_ws = v4{1.0f, 0.0f, 0.0f, 0.0f};
 
 			auto const water = TestField{.m_level = 10.0f};
@@ -790,7 +800,6 @@ namespace pr::physics::tests
 			{
 				auto box = ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 				auto body = BodyState{};
-				body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 				auto const water = TestField{.m_level = 10.0f};
 				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f}; // drag off
 
@@ -838,7 +847,6 @@ namespace pr::physics::tests
 				auto* hull = sb.BuildShape(data, mp, model_to_com);
 
 				auto body = BodyState{};
-				body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f};
 				auto const water = TestField{.m_level = 10.0f};
 				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
 
@@ -868,8 +876,7 @@ namespace pr::physics::tests
 			{
 				auto box = ShapeBox(v4{2.0f, 2.0f, 2.0f, 0.0f});
 				auto body = BodyState{};
-				body.m_gravity_ws = v4{0.0f, 0.0f, -9.81f, 0.0f}; // box centred on z=0 water plane
-				auto const water = TestField{};
+				auto const water = TestField{}; // box centred on z=0 water plane
 				auto const cfg = SamplerConfig{.m_fluid_density = 1000.0f};
 
 				auto dbg = SampleDebug{};

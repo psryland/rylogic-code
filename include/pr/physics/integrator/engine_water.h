@@ -12,6 +12,8 @@ namespace pr::physics
 {
 	// A water environment that applies buoyancy, drag, added mass, and wave damping to every dynamic shaped rigid body and articulation link in the engine.
 	// The water surface is a height field over world XY with +Z up. A point is wet when it is below the sampled water surface.
+	// The water has its own gravity (see m_gravity), which acts along -Z. The gravity of each body only moves that body; it does not change the
+	// water's up direction or pressure, so a body with a custom gravity direction still sees the same water surface.
 	// Each body's collision shape is covered by surface cells (see m_surface_spacing). The water pressure, drag, and inertia forces are integrated over the
 	// wet cells, and the dry part of each cell feels air drag. The result is applied with a linearly implicit update, so light bodies settle onto the water
 	// instead of bouncing off it. Water is not a collision contact, so material restitution has no effect on it.
@@ -27,9 +29,13 @@ namespace pr::physics
 		// The sampled water surface.
 		terrain::water::WaterField m_field;
 
-		// Water density (kg/m^3). Buoyancy is the integral of the water pressure, |gravity| * density * depth, over the wet surface cells,
-		// which equals |gravity| * density per unit submerged volume.
+		// Water density (kg/m^3). Buoyancy is the integral of the water pressure, m_gravity * density * depth, over the wet surface cells,
+		// which equals m_gravity * density per unit submerged volume.
 		float m_density = 1000.0f;
+
+		// Magnitude of the gravity acting on the water (m/s^2). It acts along world -Z. It sets the water pressure, the wave speeds, the
+		// waterline stiffness, and the wave damping terms. Must be finite and positive.
+		float m_gravity = 9.81f;
 
 		// Linear viscous drag time-constant (seconds). Each wet surface cell stands for the vertical water column between it and the water surface,
 		// with signed volume dV (the columns sum to the submerged volume). Each column contributes
@@ -87,7 +93,8 @@ namespace pr::physics
 		// Disabled by default so production stepping does not pay for validation data.
 		bool m_enable_diagnostics = false;
 
-		// Throw invalid_argument unless every parameter is finite, the densities, drag coefficients, and scales are non-negative, and the spacing is valid.
+		// Throw invalid_argument unless every parameter is finite, the density and gravity are positive, the drag coefficients and scales are
+		// non-negative, and the spacing is valid.
 		void Validate() const;
 	};
 

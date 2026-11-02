@@ -107,6 +107,28 @@ namespace pr::rdr12
 		float m_transition;
 	};
 
+	// A distance band [m_start, m_start + m_width] in which instances fade in or out. A band with zero start and zero width is unused.
+	struct PopulationFade
+	{
+		// The distance at which the band begins.
+		float m_start;
+
+		// The width of the band. Zero means an abrupt switch at 'm_start'.
+		float m_width;
+
+		// True if the band has any effect.
+		bool used() const
+		{
+			return m_start + m_width > 0;
+		}
+
+		// The distance at which the band ends.
+		float end() const
+		{
+			return m_start + m_width;
+		}
+	};
+
 	// Reusable geometry, materials, and LOD policy shared by populations. Immutable after creation.
 	struct PopulationPrototype : RefCounted<PopulationPrototype>
 	{
@@ -117,11 +139,19 @@ namespace pr::rdr12
 		// Shadow views measure the distance from the scene camera too, so instances cast shadows only while they are within the draw distance.
 		float m_draw_distance;
 
+		// Distance bands, measured from the scene camera to each instance's origin, in which instances fade in or out with a screen-door dither.
+		// Instances nearer than the start of a used 'm_fade_in' and further than the end of a used 'm_fade_out' are not drawn. A fade-in band and a
+		// fade-out band with the same start and width give exactly complementary masks to instances with the same origin, so two prototypes can hand
+		// instances over without gaps or double coverage. Within a band, the distance fade replaces any LOD transition dither. When either band is
+		// used, the instance origin must lie inside the prototype bounding sphere, so that block bounds also bound the instance origins.
+		PopulationFade m_fade_in;
+		PopulationFade m_fade_out;
+
 		// The instance-space bounding sphere of all LODs (xyz = centre, w = radius). Derived from the LOD model bounding boxes.
 		v4 m_bound;
 
 		// Validate 'lods' and create a prototype. Throws std::invalid_argument for invalid descriptions.
-		PopulationPrototype(std::span<PopulationLod const> lods, float draw_distance);
+		PopulationPrototype(std::span<PopulationLod const> lods, float draw_distance, PopulationFade fade_in, PopulationFade fade_out);
 
 		// Ref-counting clean up function
 		static void RefCountZero(RefCounted<PopulationPrototype>* doomed);

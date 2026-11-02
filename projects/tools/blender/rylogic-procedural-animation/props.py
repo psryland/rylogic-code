@@ -151,9 +151,10 @@ class RYLOGIC_PG_GaitFamily(PropertyGroup):
 	wave_amplitude: FloatProperty(name="Wave Amplitude", min=0.0, default=0.0, description="The peak bend of the body wave at the head end, in radians per body length. The runtime bends the spine and tails from side to side in a wave that travels from head to tail. Zero for no wave")
 	wave_wavelength: FloatProperty(name="Wave Wavelength", min=0.01, default=1.0, description="The length of one body wave, in body lengths (spine plus longest tail)")
 	wave_growth: FloatProperty(name="Wave Growth", min=0.0, default=1.0, description="How much the bend grows from the head end to the tail tip, e.g. 2 for a tail tip that bends twice as much as the chest")
+	mirror_name: StringProperty(name="Mirror Name", default="", description="If not empty, the export also writes a left-right mirror image of this family under this name, e.g. so that a crab that runs to its right can also run to its left. The rig must be symmetric")
 
 class RYLOGIC_PG_GaitCycle(PropertyGroup):
-	"""An example movement cycle: a looping action that moves the root bone forward by one stride. The name is the built-in 'name' property."""
+	"""An example movement cycle: a looping action that moves the root bone by one stride, usually forward. The name is the built-in 'name' property."""
 
 	action: PointerProperty(name="Action", type=bpy.types.Action, description="The cycle's action. Its frame range covers exactly one cycle")
 	family: StringProperty(name="Family", default="quadruped", description="The name of the cycle's family (see Families), e.g. 'bipedal' or 'quadruped'")
@@ -172,8 +173,8 @@ class RYLOGIC_PG_Rig(PropertyGroup):
 	active_chain: IntProperty(name="Active Chain", default=0, update=_OnActiveChainChanged, description="The chain shown below. Selecting a chain selects its bones")
 	contacts: CollectionProperty(name="Contacts", type=RYLOGIC_PG_RigContact)
 	active_contact: IntProperty(name="Active Contact", default=0)
-	body_axis_from: StringProperty(name="Body Axis From", description="The bone whose head is the rear end of the body axis, e.g. the hips. The collision capsule's axis passes through both bone heads")
-	body_axis_to: StringProperty(name="Body Axis To", description="The bone whose head is the front end of the body axis, e.g. the neck. The collision capsule's axis passes through both bone heads")
+	body_axis_from: StringProperty(name="Body Axis From", description="The bone whose head is the rear end of the body axis, e.g. the hips. The collision shapes follow the axis. Set both ends to the same bone to run the axis along that bone, from its head to its tip")
+	body_axis_to: StringProperty(name="Body Axis To", description="The bone whose head is the front end of the body axis, e.g. the neck. The collision shapes follow the axis. Set both ends to the same bone to run the axis along that bone, from its head to its tip")
 	show_overlay: BoolProperty(name="Show Overlay", default=True, description="Draw joint limits, poles, facing directions and contacts in the viewport")
 	show_limits: BoolProperty(name="Limits", default=True, description="Draw each joint's swing (orange) and twist (yellow) limits. A bone outside its limit is drawn in red even when this is off")
 	show_poles: BoolProperty(name="Poles", default=True, description="Draw the outward bend direction (magenta) of each leg and arm chain")
