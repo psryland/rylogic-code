@@ -78,7 +78,6 @@ namespace pr::physics
 
 		friend struct Engine;
 		friend struct EngineBufferCache;
-		friend struct BodyHistory;
 		friend GpuRigidBody PackDynamics(RigidBody const& rb, int shape_id);
 		friend void UnpackDynamics(GpuRigidBody const& dyn, RigidBody& rb);
 

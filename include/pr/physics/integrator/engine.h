@@ -42,6 +42,7 @@ namespace pr::physics
 			double m_broadphase_ms = 0;
 			double m_collide_ms = 0;
 			double m_terrain_gpu_ms = 0; // GPU timestamp sum across terrain substeps; other timings measure host work/waits.
+			double m_water_gpu_ms = 0; // GPU timestamp sum across water substeps.
 			double m_resolve_ms = 0;
 			double m_selective_ms = 0;
 			int m_selective_refresh_pass_count = 0; // Recorded across all internal substeps.
@@ -60,7 +61,6 @@ namespace pr::physics
 			double m_sleep_island_unpack_ms = 0;
 			double m_body_unpack_ms = 0;
 			double m_articulation_unpack_ms = 0;
-			double m_unpack_diagnostics_ms = 0;
 			int m_substep_count = 0;
 			int m_submission_count = 0;
 			int m_wait_count = 0;
@@ -222,8 +222,8 @@ namespace pr::physics
 		std::unique_ptr<struct GpuWorldContacts, Deleter<struct GpuWorldContacts>> m_gpu_world_contacts;
 		bool m_world_surfaces_changed = false;
 
-		// Lazily created water-force pipeline, retained while water is disabled so re-enabling it does not recompile.
-		std::unique_ptr<struct GpuWaterForces, Deleter<struct GpuWaterForces>> m_gpu_water_forces;
+		// Lazily created water pipeline, retained while water is disabled so re-enabling it does not recompile.
+		std::unique_ptr<struct GpuWater, Deleter<struct GpuWater>> m_gpu_water;
 		bool m_water_active = false;
 
 		// GPU collision resolver
@@ -303,6 +303,11 @@ namespace pr::physics
 
 		// Return the active water environment, or null when there is none.
 		WaterConfig const* Water() const;
+
+		// Return the water forces applied to a body or articulation link in the final substep of the last completed step. Returns null unless
+		// WaterConfig::m_enable_diagnostics is set and the body or link was wet and awake in that step.
+		WaterDiagnostics const* WaterDiagnosticsFor(RigidBody const& body) const;
+		WaterDiagnostics const* WaterDiagnosticsFor(Articulation const& articulation, LinkHandle link) const;
 
 		// Identify the owned static endpoint used by terrain and boundary contacts; it is not a caller-owned body.
 		bool IsWorldContactBody(RigidBody const* body) const;

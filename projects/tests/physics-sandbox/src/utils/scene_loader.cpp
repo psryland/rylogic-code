@@ -994,7 +994,32 @@ namespace physics_sandbox::scene_loader
 			}
 		}
 
-		water.surface = physics::terrain::water::WaterField(level, elements);
+		water.forces.m_field = physics::terrain::water::WaterField(level, elements);
+
+		// Optional water force parameters. Omitted values keep the WaterConfig defaults.
+		if (auto const* jforces = jwater_obj.find("forces"))
+		{
+			auto& config = water.forces;
+			auto const& jforces_obj = jforces->to_object();
+			auto read = [&](char const* key, float& value)
+			{
+				// Overwrite the default only when the key is present.
+				if (auto const* jvalue = jforces_obj.find(key))
+					value = jvalue->to<float>();
+			};
+			read("density", config.m_density);
+			read("gravity", config.m_gravity);
+			read("linear_drag_time_constant", config.m_linear_drag_time_constant_s);
+			read("angular_drag_time_constant", config.m_angular_drag_time_constant_s);
+			read("quadratic_drag_coefficient", config.m_quadratic_drag_coefficient);
+			read("tangential_drag_coefficient", config.m_tangential_drag_coefficient);
+			read("added_mass_coefficient", config.m_added_mass_coefficient);
+			read("radiation_damping", config.m_radiation_damping);
+			read("wave_resistance", config.m_wave_resistance);
+			read("surface_spacing", config.m_surface_spacing);
+			read("air_density", config.m_air.m_density);
+		}
+		water.forces.Validate();
 		return water;
 	}
 
@@ -1274,7 +1299,7 @@ namespace physics_sandbox::scene_loader
 				// Air rests on the higher of the ground and the still water surface.
 				auto height = surface->Sample(pr::physics::terrain::v2d{ pos.x, pos.y }).m_height;
 				if (water != nullptr)
-					height = std::max(height, water->surface.Level());
+					height = std::max(height, water->forces.m_field.Level());
 
 				return static_cast<float>(height);
 			});
@@ -1390,6 +1415,24 @@ namespace physics_sandbox::scene_loader
 				auto const max_substeps = physics::EngineConfig{}.max_internal_substeps;
 				if (desc.physics_substeps < 1 || desc.physics_substeps > max_substeps)
 					throw std::runtime_error(std::format("Scene physics.substeps must be in the range [1, {}]", max_substeps));
+			}
+			if (auto* jsleep_lin = jphysics_obj.find("sleep_velocity_threshold_lin"))
+			{
+				desc.physics_sleep_velocity_threshold_lin = jsleep_lin->to<float>();
+				if (!std::isfinite(desc.physics_sleep_velocity_threshold_lin) || desc.physics_sleep_velocity_threshold_lin < 0.0f)
+					throw std::runtime_error("Scene physics.sleep_velocity_threshold_lin must be finite and non-negative");
+			}
+			if (auto* jsleep_ang = jphysics_obj.find("sleep_velocity_threshold_ang"))
+			{
+				desc.physics_sleep_velocity_threshold_ang = jsleep_ang->to<float>();
+				if (!std::isfinite(desc.physics_sleep_velocity_threshold_ang) || desc.physics_sleep_velocity_threshold_ang < 0.0f)
+					throw std::runtime_error("Scene physics.sleep_velocity_threshold_ang must be finite and non-negative");
+			}
+			if (auto* jsleep_delay = jphysics_obj.find("sleep_delay_s"))
+			{
+				desc.physics_sleep_delay_s = jsleep_delay->to<float>();
+				if (!std::isfinite(desc.physics_sleep_delay_s) || desc.physics_sleep_delay_s < 0.0f)
+					throw std::runtime_error("Scene physics.sleep_delay_s must be finite and non-negative");
 			}
 			if (auto* jsolver_iterations = jphysics_obj.find("solver_iterations"))
 			{
@@ -1759,6 +1802,19 @@ namespace physics_sandbox::scene_loader
 				}
 				PR_EXPECT(ball_count == 7);
 			}
+
+			// The spinning beach ball lowers the engine sleep thresholds so the slowly drifting ball stays awake; other scenes keep the engine defaults.
+			PRUnitTestMethod(SceneSleepThresholdsOverrideEngineDefaults, Quick)
+			{
+				auto const spinning = LoadFromFile("projects\\tests\\physics-sandbox\\scenes\\spinning_beach_ball.json");
+				PR_EXPECT(spinning.physics_sleep_velocity_threshold_lin == 0.02f);
+				PR_EXPECT(spinning.physics_sleep_velocity_threshold_ang == 0.1f);
+				PR_EXPECT(spinning.physics_sleep_delay_s == physics::EngineConfig{}.sleep_delay_s);
+
+				auto const waves = LoadFromFile("projects\\tests\\physics-sandbox\\scenes\\beach_ball_waves.json");
+				PR_EXPECT(waves.physics_sleep_velocity_threshold_lin == physics::EngineConfig{}.sleep_velocity_threshold_lin);
+				PR_EXPECT(waves.physics_sleep_velocity_threshold_ang == physics::EngineConfig{}.sleep_velocity_threshold_ang);
+			}
 		};
 
 		PRUnitTestClass(SceneLoaderAtmosphereTests)
@@ -1772,7 +1828,7 @@ namespace physics_sandbox::scene_loader
 
 				auto const& grid = desc.atmosphere->m_config.m_grid;
 				auto const surface = pr::physics::terrain::landscape::BaselineSurface(desc.terrain->surface);
-				auto const level = static_cast<float>(desc.water->surface.Level());
+				auto const level = static_cast<float>(desc.water->forces.m_field.Level());
 				auto const band = desc.atmosphere->m_config.m_open_edge_band;
 				auto const edge_level = grid.FloorHeight(iv2{ 0, 0 });
 				auto water_columns = 0;

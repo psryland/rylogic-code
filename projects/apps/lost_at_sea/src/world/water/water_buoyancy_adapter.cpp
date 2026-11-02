@@ -8,8 +8,8 @@
 
 namespace las::water
 {
-	// Copy one immutable LaS field snapshot into GPU buoyancy for the matching simulation time.
-	void BuoyancyAdapter::SetField(physics::GpuBuoyancy& buoyancy, Snapshot const& snapshot, double simulation_time_s)
+	// Copy one immutable LaS field snapshot into the water configuration for the matching simulation time.
+	void BuoyancyAdapter::SetField(physics::WaterConfig& water, Snapshot const& snapshot, double simulation_time_s)
 	{
 		// The physics step must consume the same immutable field value that rendering received for this simulation time.
 		if (!std::isfinite(simulation_time_s) || snapshot.m_time_s != static_cast<float>(simulation_time_s))
@@ -19,6 +19,6 @@ namespace las::water
 		if (!std::isfinite(snapshot.WaterLevel()))
 			throw std::invalid_argument("Water snapshot level must be finite");
 
-		buoyancy.SetWaterField(snapshot.m_field);
+		water.m_field = snapshot.m_field;
 	}
 }

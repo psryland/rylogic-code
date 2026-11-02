@@ -6,7 +6,7 @@
 			"order": 150,
 			"command": "buoyant-articulation"
 		},
-		"description": "GPU buoyancy applied independently to the links of a floating tree.",
+		"description": "Engine water forces applied to each link of a floating tree.",
 		"gravity": [
 			0.0,
 			0.0,
@@ -84,8 +84,7 @@
 					"shape": "root-shape",
 					"mass": 420.0,
 					"collide_parent": false,
-					"collide_self": false,
-					"buoyant": true
+					"collide_self": false
 				},
 				"links": [
 					{
@@ -95,7 +94,6 @@
 						"mass": 95.0,
 						"collide_parent": false,
 						"collide_self": false,
-						"buoyant": true,
 						"joint": {
 							"parent_frame": {
 								"position": [
@@ -131,7 +129,6 @@
 						"mass": 95.0,
 						"collide_parent": false,
 						"collide_self": false,
-						"buoyant": true,
 						"joint": {
 							"parent_frame": {
 								"position": [
@@ -167,7 +164,6 @@
 						"mass": 95.0,
 						"collide_parent": false,
 						"collide_self": false,
-						"buoyant": true,
 						"joint": {
 							"parent_frame": {
 								"position": [
@@ -203,7 +199,6 @@
 						"mass": 95.0,
 						"collide_parent": false,
 						"collide_self": false,
-						"buoyant": true,
 						"joint": {
 							"parent_frame": {
 								"position": [

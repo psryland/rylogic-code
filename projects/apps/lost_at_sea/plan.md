@@ -54,7 +54,7 @@ A sailing game set in a procedurally generated archipelago. The core game loop i
 ### Physics
 - Use the compute physics engine for the active ship rigid body.
 - LAS owns physics stepping through `PhysicsSystem`, which keeps `physics::Engine` on the simulation owner thread, applies gravity, submits GPU work with `BeginStep()`, and publishes immutable snapshots after `CompleteStep()`. This lets CPU task-graph work overlap the GPU physics step without moving thread-affine command-list resources onto generic worker threads.
-- `physics::GpuBuoyancy` derives immutable sampled-volume and sampled-surface descriptors from registered collision shapes, then writes force and torque directly into the GPU rigid-body accumulators before integration.
+- `physics::Engine::Water` applies the sampled water model to every dynamic body. It derives immutable sampled-volume and sampled-surface descriptors from each collision shape, then writes force and torque directly into the GPU rigid-body accumulators before integration.
 - LAS supplies its ocean waves through the generic water-surface interface. Production stepping performs no diagnostic readback by default.
 - Wet-volume damping has independent linear and angular time constants; normal and tangential quadratic surface drag handle faster relative motion.
 
@@ -120,7 +120,7 @@ Current implementation: use the generic physics-engine buoyancy module with LAS 
 - **2.2 Done - External force seam**: Add a pre-integrate `EventHandler` hook to the compute physics engine. The hook runs after body upload and before integration, receives `dt` plus absolute simulation time, and lets subscribers add to GPU body force/torque accumulators without readback.
 - **2.3 Done - LAS physics integration**: Route the ship through `PhysicsSystem` and the compute physics engine with gravity only. `PhysicsSystem` owns the body and stable handle table, `Ship` owns the handle/render instance, and the old CPU ocean impulses, drag, terrain correction, and `Evolve()` path have been removed.
 - **2.3a Done - Split-step physics**: Split `physics::Engine::Step()` into `BeginStep()`/`CompleteStep()` while preserving `Step()` as the blocking wrapper. LAS submits the GPU physics step before generic step-graph work and completes it before render-visible snapshots are published.
-- **2.4 Done - Generic `GpuBuoyancy` module**: Register rigid bodies and derive immutable volume/surface descriptors from their box, sphere, triangle, polytope, or composite collision shapes.
+- **2.4 Done - Generic sampled water model** (now `physics::Engine::Water`): Derive immutable volume/surface descriptors from their box, sphere, triangle, polytope, or composite collision shapes.
 - **2.5 Done - Static buoyancy validation**: Focused tests enable diagnostic readback and compare sampled GPU volume, force, centre of buoyancy, and torque against CPU and analytic references.
 - **2.6 Done - No-readback force application**: Deterministic reductions write final force and torque directly to `GpuRigidBody.force_*`; runtime diagnostics are disabled by default.
 - **2.7 Done - Wave input**: Evaluate the configured ocean waves in the buoyancy compute shader using the shared water-surface parameter layout.

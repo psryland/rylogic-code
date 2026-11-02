@@ -32,8 +32,8 @@
 //      "offset": [x, y, z],              // bone-space point
 //      "normal": [x, y, z]               // bone-space outward surface direction
 //    }],
-//    "body_axis": {                      // the line from the head of bone 'from' to the head of bone 'to' that a body collision shape follows
-//      "from": "hips",
+//    "body_axis": {                      // the line from the head of bone 'from' to the head of bone 'to' that a body collision shape follows.
+//      "from": "hips",                   //   when 'from' and 'to' name the same bone, the line runs along that bone from its head to its tip
 //      "to": "neck"
 //    }
 //  }

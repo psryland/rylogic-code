@@ -300,6 +300,9 @@
     <None Include="scenes\wave_drift.json">
       <Filter>scenes</Filter>
     </None>
+    <None Include="scenes\spinning_beach_ball.json">
+      <Filter>scenes</Filter>
+    </None>
     <None Include="scenes\beach_ball_waves.json">
       <Filter>scenes</Filter>
     </None>
@@ -403,6 +406,9 @@
       <Filter>scenes</Filter>
     </None>
     <None Include="scenes\floater.json">
+      <Filter>scenes</Filter>
+    </None>
+    <None Include="scenes\buoyancy_boats.json">
       <Filter>scenes</Filter>
     </None>
     <None Include="scenes\buoyancy_stress_1000.json">

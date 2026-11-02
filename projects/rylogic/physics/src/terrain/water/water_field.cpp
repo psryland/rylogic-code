@@ -210,20 +210,23 @@ namespace pr::physics::terrain::water
 		UpdateBounds();
 	}
 
-	// Write the local amplitude and crest sharpness of every element at 'xy'.
-	void WaterField::LocalWaves(v2d xy, std::span<v2> waves) const
+	// Return the elements as they act at 'xy', localised for the wind sea and corrected for depth.
+	std::span<WaterFieldElement const> WaterField::LocalElements(v2d xy, std::span<WaterFieldElement, MaxElementCount> buffer) const
 	{
-		if (std::ssize(waves) != std::ssize(m_elements))
-			throw std::invalid_argument(std::format("Water field local waves must hold {} values", std::ssize(m_elements)));
+		// Use the same localisation and correction sequence as the samplers, so evaluating the result matches Height, Sample, and Velocity.
+		auto const xy_f = v2{static_cast<float>(xy.x), static_cast<float>(xy.y)};
+		auto const depth = WaveDepth(xy);
+		auto const elements = Localise(xy_f, buffer, true);
+		auto const correction = Correction(elements, depth);
 
-		// Elements outside the wind sea keep their own values, which consumers already have.
-		auto buffer = std::array<WaterFieldElement, MaxElementCount>{};
-		auto const elements = Localise(v2{static_cast<float>(xy.x), static_cast<float>(xy.y)}, buffer, false);
-		for (auto i = 0LL; i != std::ssize(elements); ++i)
-		{
-			auto const& element = elements[i];
-			waves[i] = m_wind_sea != nullptr && shared::WaterFieldWindSeaBand(element) >= 0 ? v2{element.wave.x, element.timing.x} : v2::Zero();
-		}
+		// Localise returns the stored elements without a wind sea, so the corrected copies always go into 'buffer'.
+		auto const count = elements.size();
+		if (elements.data() != buffer.data())
+			std::copy(elements.begin(), elements.end(), buffer.begin());
+		for (size_t i = 0; i != count; ++i)
+			buffer[i] = shared::WaterFieldDepthCorrected(buffer[i], depth, correction.m_breaking_scale, correction.m_min_sharpness);
+
+		return std::span<WaterFieldElement const>{buffer.data(), count};
 	}
 
 	// The terrain heights used for depth correction.
@@ -371,14 +374,14 @@ namespace pr::physics::terrain::water
 		auto buffer = std::array<WaterFieldElement, MaxElementCount>{};
 		auto const elements = Localise(xy, buffer, true);
 		auto const correction = Correction(elements, depth);
-		auto gradient = v4::Zero();
+		auto flow = shared::WaterFieldFlowSampleZero();
+		auto const pos = v3{xy.x, xy.y, static_cast<float>(m_level)};
 		for (auto const& element : elements)
 		{
-			// Each contribution is (height, gradient.x, gradient.y, gradient.z); only the gradient is needed.
-			auto const contribution = shared::WaterFieldElementHeightAndPressureGradient(shared::WaterFieldDepthCorrected(element, depth, correction.m_breaking_scale, correction.m_min_sharpness), xy, t, gravity);
-			gradient += v4{contribution.y, contribution.z, contribution.w, 0.0f};
+			// Only the pressure gradient part of the flow state is needed.
+			shared::WaterFieldAccumulateFlow(shared::WaterFieldDepthCorrected(element, depth, correction.m_breaking_scale, correction.m_min_sharpness), pos, t, pos.z, gravity, flow);
 		}
-		return gradient;
+		return v4{flow.height_pressure_gradient.y, flow.height_pressure_gradient.z, flow.height_pressure_gradient.w, 0.0f};
 	}
 
 	// Sample the world-space water particle velocity at a world-space position.
@@ -390,15 +393,14 @@ namespace pr::physics::terrain::water
 		auto buffer = std::array<WaterFieldElement, MaxElementCount>{};
 		auto const elements = Localise(v2{pos_ws.x, pos_ws.y}, buffer, true);
 		auto const correction = Correction(elements, depth);
-		auto velocity = v4::Zero();
+		auto flow = shared::WaterFieldFlowSampleZero();
 		auto const level = static_cast<float>(m_level);
 		for (auto const& element : elements)
 		{
-			// Each contribution is a world-space velocity.
-			auto const contribution = shared::WaterFieldElementVelocity(shared::WaterFieldDepthCorrected(element, depth, correction.m_breaking_scale, correction.m_min_sharpness), pos_ws.xyz, t, level);
-			velocity += v4{contribution.x, contribution.y, contribution.z, 0};
+			// Only the velocity part of the flow state is needed. The pressure gradient's gravity is irrelevant here, so any positive value serves.
+			shared::WaterFieldAccumulateFlow(shared::WaterFieldDepthCorrected(element, depth, correction.m_breaking_scale, correction.m_min_sharpness), pos_ws.xyz, t, level, 1.0f, flow);
 		}
-		return velocity;
+		return v4{flow.velocity.x, flow.velocity.y, flow.velocity.z, 0};
 	}
 
 	// Recompute the amplitude bound and swash depth.

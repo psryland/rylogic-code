@@ -209,8 +209,10 @@ float3 PerturbWorldNormal(PSIn In, float3 normal, float2 normal_uv)
 	float3 dp1_perp = cross(normal, dp1);
 	float3 tangent = dp2_perp * duv1.x + dp1_perp * duv2.x;
 	float3 bitangent = dp2_perp * duv1.y + dp1_perp * duv2.y;
+	// The frame length scales with (world size of a pixel x UV size of a pixel)^2, so it is tiny for fine textures seen close up.
+	// Only a frame with no UV change across the pixel (zero, or NaN from degenerate derivatives) has no usable direction; reject only that case.
 	float frame_len = max(dot(tangent, tangent), dot(bitangent, bitangent));
-	if (frame_len < TINY)
+	if (!(frame_len > 0.0f))
 		return normal;
 
 	float inv_frame_len = rsqrt(frame_len);
@@ -436,7 +438,8 @@ float4 DitherOutput(float4 colour, float4 ss_vert)
 }
 
 // Direct-lighting PBR pixel shader path using the supplied UV coordinates for each texture slot.
-PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 metallic_uv, float2 roughness_uv, float2 emissive_uv, float2 normal_uv)
+// 'roughness_scale' multiplies the fully resolved material roughness, including any procedural roughness, before lighting.
+PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 metallic_uv, float2 roughness_uv, float2 emissive_uv, float2 normal_uv, float roughness_scale)
 {
 	// Population LOD transitions discard their dithered pixels first. Ordinary draws keep every pixel.
 	View3DPopulationClipDither(In.dither, In.ss_vert.xy);
@@ -494,6 +497,9 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 		roughness = clamp(procedural.roughness, 0.04f, 1.0f);
 	}
 
+	// Apply the caller's per-fragment roughness scale last, so it also scales procedural roughness.
+	roughness = clamp(roughness * roughness_scale, 0.04f, 1.0f);
+
 	// Without a usable normal there is no surface orientation, so leave the material effectively unlit.
 	if (!HasNormals(g_nugget.flags))
 	{
@@ -538,8 +544,9 @@ PSOut PSForwardPbrSampledUV(PSIn In, bool is_front_face, float2 base_uv, float2 
 }
 
 // Direct-lighting PBR pixel shader path shared by concrete fast-path and optional texture-coordinate entry points.
+// 'roughness_scale' multiplies the resolved material roughness; see PSForwardPbrSampledUV.
 template <typename TIn>
-PSOut PSForwardPbrImpl(TIn In, bool is_front_face)
+PSOut PSForwardPbrImpl(TIn In, bool is_front_face, float roughness_scale)
 {
 	return PSForwardPbrSampledUV(
 		ToPSIn(In),
@@ -548,7 +555,15 @@ PSOut PSForwardPbrImpl(TIn In, bool is_front_face)
 		PbrSlotUV(In, g_pbr.metallic_texcoord, g_pbr.metallic_uv_transform),
 		PbrSlotUV(In, g_pbr.roughness_texcoord, g_pbr.roughness_uv_transform),
 		PbrSlotUV(In, g_pbr.emissive_texcoord, g_pbr.emissive_uv_transform),
-		PbrSlotUV(In, g_pbr.normal_texcoord, g_pbr.normal_uv_transform));
+		PbrSlotUV(In, g_pbr.normal_texcoord, g_pbr.normal_uv_transform),
+		roughness_scale);
+}
+
+// Direct-lighting PBR pixel shader path with the material's own roughness.
+template <typename TIn>
+PSOut PSForwardPbrImpl(TIn In, bool is_front_face)
+{
+	return PSForwardPbrImpl(In, is_front_face, 1.0f);
 }
 
 // Direct-lighting PBR pixel shader path with optional texture-coordinate lanes.

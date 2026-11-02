@@ -215,10 +215,12 @@
     <None Include="scenes\articulation_two_robot_load.json" />
     <None Include="scenes\beach_ball_waves.json" />
     <None Include="scenes\wave_drift.json" />
+    <None Include="scenes\spinning_beach_ball.json" />
     <None Include="scenes\box_vs_sphere.json" />
     <None Include="scenes\brick_pyramid.json" />
     <None Include="scenes\brick_wall.json" />
     <None Include="scenes\brick_wall_2000.json" />
+    <None Include="scenes\buoyancy_boats.json" />
     <None Include="scenes\buoyancy_stress_1000.json" />
     <None Include="scenes\constraint_pendulum.json" />
     <None Include="scenes\constraint_four_bar.json" />

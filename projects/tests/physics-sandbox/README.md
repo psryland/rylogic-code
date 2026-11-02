@@ -85,7 +85,7 @@ physics-sandbox.exe -scenediag -scene projects\tests\physics-sandbox\scenes\terr
 height drop, finite state, mechanical energy and maximum normal penetration on an independent
 0.05 m surface reference grid using CPU FP64 terrain queries. These checks happen at report
 boundaries, not continuously, and are excluded from timed physics steps. Profile CSV adds
-`terrain_gpu_ms` (GPU timestamps across all substeps); other timings remain host durations.
+`terrain_gpu_ms` and `water_gpu_ms` (GPU timestamps across all substeps); other timings remain host durations.
 Omit `-scan` for timing because contact-event collection has a significant independent cost.
 Headless physics rate does not measure interactive/rendered FPS. Sample overlays start off.
 Capsule surface points/normals are supported; see below.
@@ -122,9 +122,9 @@ No buoyancy registration, water or submerged state is required. The **B** key re
 This is a geometry visualization, not a new physics sampling policy.
 
 - Surface geometry comes from `physics::surface::BuildPlan` and `EmitSurfaceSample` at the spacing of the physics the scene exercises:
-  the scene's `GpuBuoyancy::Config::m_surface_spacing` (default `buoyancy::DefaultSurfaceSpacing`) when it has water, otherwise the terrain's
+  the scene's `WaterConfig::m_surface_spacing` (default `buoyancy::DefaultSurfaceSpacing`) when it has water, otherwise the terrain's
   `surface_spacing` when it has terrain, otherwise the shared `surface::DefaultSpacing`.
-  Buoyancy's per-primitive minimum sample count (`buoyancy::BuildSurfacePlan`) is not applied, so small primitives may show fewer points than buoyancy uses.
+  Buoyancy's per-hull minimum sample count (`buoyancy::BuildHullSurfacePlans`) is not applied, so small hulls may show fewer points than buoyancy uses.
   See `include/pr/physics/surface/README.md` for its feature, area-weight and coverage contracts. Every surviving sample is drawn; there is no display decimation.
   Corners/edges retain separate face-normal segments, rather than a single averaged normal.
 - The spacing is chosen at scene load, so the overlay does not follow later changes to a live buoyancy configuration.

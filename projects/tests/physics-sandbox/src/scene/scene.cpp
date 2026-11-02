@@ -34,6 +34,7 @@ namespace physics_sandbox
 			lhs.m_broadphase_ms += rhs.m_broadphase_ms;
 			lhs.m_collide_ms += rhs.m_collide_ms;
 			lhs.m_terrain_gpu_ms += rhs.m_terrain_gpu_ms;
+			lhs.m_water_gpu_ms += rhs.m_water_gpu_ms;
 			lhs.m_resolve_ms += rhs.m_resolve_ms;
 			lhs.m_selective_ms += rhs.m_selective_ms;
 			lhs.m_sleepupdate_ms += rhs.m_sleepupdate_ms;
@@ -51,7 +52,6 @@ namespace physics_sandbox
 			lhs.m_sleep_island_unpack_ms += rhs.m_sleep_island_unpack_ms;
 			lhs.m_body_unpack_ms += rhs.m_body_unpack_ms;
 			lhs.m_articulation_unpack_ms += rhs.m_articulation_unpack_ms;
-			lhs.m_unpack_diagnostics_ms += rhs.m_unpack_diagnostics_ms;
 			lhs.m_substep_count += rhs.m_substep_count;
 			lhs.m_submission_count += rhs.m_submission_count;
 			lhs.m_wait_count += rhs.m_wait_count;
@@ -250,10 +250,7 @@ namespace physics_sandbox
 		, m_collision_ignore_pairs()
 		, m_articulation_visuals()
 		, m_shape_buffer()
-		, m_gpu_buoyancy()
-		, m_buoyancy_hulls()
 		, m_buoyancy_debug_targets()
-		, m_buoyancy_generation()
 		, m_show_buoyancy_debug(false)
 		, m_buoyancy_debug_gfx()
 		, m_gravity(v4::Zero())
@@ -297,14 +294,11 @@ namespace physics_sandbox
 		}
 	}
 
-	// Release all scene-owned diagnostic buoyancy resources before replacing bodies or the module.
+	// Release the buoyancy debug resources before replacing bodies.
 	void Scene::ClearBuoyancy()
 	{
-		m_buoyancy_hulls.clear();
 		m_buoyancy_debug_targets.clear();
 		m_buoyancy_debug_gfx = nullptr;
-		m_gpu_buoyancy.reset();
-		++m_buoyancy_generation;
 	}
 
 	// Release all caller-owned simulation objects in dependency order after engine work is complete.
@@ -315,6 +309,7 @@ namespace physics_sandbox
 
 		// Remove external-force registrations, terrain, and engine-side pointer caches before invalidating their caller-owned targets.
 		ClearBuoyancy();
+		m_physics.Water(std::nullopt);
 		m_physics.Terrain(std::nullopt);
 		m_constraints = physics::ConstraintSet{};
 		m_ground_body_index = -1;
@@ -385,86 +380,46 @@ namespace physics_sandbox
 		}
 	}
 
-	// Register every dynamic scene body for buoyancy when the scene contains water.
+	// Give the engine the scene's water and list the buoyancy debug targets.
 	void Scene::ConfigureBuoyancy(scene_loader::SceneDesc const& scene_desc)
 	{
+		// The engine applies water forces to every dynamic body and articulation link, using their collision shapes.
 		if (!scene_desc.water)
 			return;
 
-		m_gpu_buoyancy = std::make_unique<physics::GpuBuoyancy>(
-			m_physics.Device(),
-			m_physics,
-			physics::GpuBuoyancy::Config{},
-			[this](int stable_body_index)
-			{
-				return stable_body_index >= 0 && stable_body_index < isize(m_body)
-					? stable_body_index
-					: -1;
-			},
-			[this](int stable_body_index)
-			{
-				auto body_state = physics::GpuBuoyancy::BodyState{};
-				if (stable_body_index < 0 || stable_body_index >= isize(m_body))
-					return body_state;
+		m_physics.Water(scene_desc.water->forces);
 
-				auto const& body = m_body[stable_body_index];
-				body_state.m_o2w = body.O2W();
-				body_state.m_centre_of_mass_os = body.CentreOfMassOS();
-				body_state.m_ws_gravity = body.GravityWS();
-				body_state.m_valid = true;
-				return body_state;
-			});
-		m_gpu_buoyancy->SetWaterField(scene_desc.water->surface);
-
-		// Ground and other infinite-mass bodies cannot respond to buoyancy. All dynamic bodies use
-		// their existing collision shapes, so scene descriptions need no parallel hull geometry.
-		auto buoyant_link_count = 0;
-		for (auto const& articulation : scene_desc.articulations)
-		{
-			buoyant_link_count += articulation.m_root.m_buoyant ? 1 : 0;
-			for (auto const& link : articulation.m_links)
-				buoyant_link_count += link.m_buoyant ? 1 : 0;
-		}
-		m_buoyancy_hulls.reserve(scene_desc.bodies.size() + buoyant_link_count);
-		m_buoyancy_debug_targets.reserve(scene_desc.bodies.size() + buoyant_link_count);
+		// The debug overlay draws the same bodies and links. Ground and other infinite-mass bodies do not respond to water.
+		m_buoyancy_debug_targets.reserve(scene_desc.bodies.size());
 		for (auto body_index = 0; body_index != isize(scene_desc.bodies); ++body_index)
 		{
-			auto& body = m_body[body_index];
+			auto const& body = m_body[body_index];
 			if (!body.HasShape() || body.Mass() >= physics::InfiniteMass * 0.5f)
 				continue;
 
-			m_buoyancy_hulls.push_back(m_gpu_buoyancy->RegisterCompositeHull(body, body_index, m_buoyancy_generation));
 			m_buoyancy_debug_targets.push_back(BuoyancyDebugTarget{
 				.m_body_index = body_index,
 			});
 		}
-
-		// Articulation buoyancy is opt-in per link because each registration participates through the complete tree response.
-		auto buoyant_link_index = 0;
 		for (auto articulation_index = 0; articulation_index != isize(scene_desc.articulations); ++articulation_index)
 		{
+			// The root of a fixed articulation does not move, so it has no water response.
 			auto const& source = scene_desc.articulations[articulation_index];
-			auto& articulation = m_articulation[articulation_index];
-			auto register_link = [&](scene_loader::ArticulationChildDesc const& link, int link_index)
+			auto add_link = [&](scene_loader::ArticulationChildDesc const& link, int link_index)
 			{
-				if (!link.m_buoyant)
+				if (!link.m_has_shape)
 					return;
 
-				auto const stable_index = isize(m_body) + buoyant_link_index++;
-				m_buoyancy_hulls.push_back(m_gpu_buoyancy->RegisterCompositeHull(
-					articulation,
-					articulation.LinkAt(link_index),
-					stable_index,
-					m_buoyancy_generation));
 				m_buoyancy_debug_targets.push_back(BuoyancyDebugTarget{
 					.m_articulation_index = articulation_index,
 					.m_link_index = link_index,
 				});
 			};
 
-			register_link(source.m_root, 0);
+			if (source.m_root_type != physics::EArticulationRootType::Fixed)
+				add_link(source.m_root, 0);
 			for (auto link_index = 0; link_index != isize(source.m_links); ++link_index)
-				register_link(source.m_links[link_index], link_index + 1);
+				add_link(source.m_links[link_index], link_index + 1);
 		}
 	}
 
@@ -550,14 +505,15 @@ namespace physics_sandbox
 	// sample points coloured by classification, surface-sample normal whiskers, and per-primitive +
 	// total buoyancy force/torque arrows. This is an approximate debugging aid, not a frame-exact
 	// mirror of the GPU pass: it samples the post-step body transform with the current clock, so it
-	// lags the GPU buoyancy result by roughly one frame. Only valid for the current flat-ocean scene
-	// (gravity ~ -Z); a tilted-gravity scene would need a gravity-derived water frame here.
+	// lags the GPU buoyancy result by roughly one frame. The water is always a height field along world +Z,
+	// whatever the gravity of each body.
 	void Scene::BuildBuoyancyDebugGfx()
 	{
 		using namespace pr::physics::buoyancy;
 
 		m_buoyancy_debug_gfx = nullptr;
-		if (m_rdr == nullptr || m_gpu_buoyancy == nullptr || !m_water.has_value() || m_buoyancy_debug_targets.empty())
+		auto const* water_config = m_physics.Water();
+		if (m_rdr == nullptr || water_config == nullptr || !m_water.has_value() || m_buoyancy_debug_targets.empty())
 			return;
 
 		// Adapter exposing the scene's WaterField through the sampler's water-field concept. Only
@@ -574,18 +530,19 @@ namespace physics_sandbox
 			v4 PressureGradient(v2 uv, float gravity) const { return m_surface->PressureGradient(uv, m_time, gravity); }
 			v4 Velocity(v4 pos_ws) const { return m_surface->Velocity(pos_ws, m_time); }
 		};
-		auto const water = WaterAdapter{ &m_water->surface, static_cast<float>(m_clock) };
+		auto const water = WaterAdapter{ &m_water->forces.m_field, static_cast<float>(m_clock) };
 
-		// Match the buoyancy module's runtime fluid configuration so the visualised forces track the
+		// Match the engine's runtime water configuration so the visualised forces track the
 		// GPU pass as closely as the one-frame lag allows.
-		auto const& gpu_cfg = m_gpu_buoyancy->GetConfig();
+		auto const& gpu_cfg = *water_config;
 		auto const cfg = SamplerConfig{
-			.m_fluid_density = gpu_cfg.m_fluid_density,
+			.m_fluid_density = gpu_cfg.m_density,
+			.m_gravity = gpu_cfg.m_gravity,
 			.m_linear_drag_time_constant_s = gpu_cfg.m_linear_drag_time_constant_s,
 			.m_angular_drag_time_constant_s = gpu_cfg.m_angular_drag_time_constant_s,
 			.m_quadratic_drag_coefficient = gpu_cfg.m_quadratic_drag_coefficient,
 			.m_tangential_drag_coefficient = gpu_cfg.m_tangential_drag_coefficient,
-			.m_air_density = m_gpu_buoyancy->GetAir().m_density,
+			.m_air_density = gpu_cfg.m_air.m_density,
 			.m_added_mass_coefficient = gpu_cfg.m_added_mass_coefficient,
 			.m_surface_spacing = gpu_cfg.m_surface_spacing,
 		};
@@ -638,7 +595,6 @@ namespace physics_sandbox
 				shape = &body.Shape();
 				state.m_o2w = body.O2W();
 				state.m_centre_of_mass_os = body.CentreOfMassOS();
-				state.m_gravity_ws = body.GravityWS();
 				state.m_vel_lin_ws = vel.lin;
 				state.m_omega_ws = vel.ang;
 			}
@@ -654,16 +610,10 @@ namespace physics_sandbox
 				shape = desc.m_shape;
 				state.m_o2w = shape_to_world;
 				state.m_centre_of_mass_os = shape_com;
-				state.m_gravity_ws = articulation.GravityWS(link);
 				state.m_vel_lin_ws = shape_to_world.rot * (shape_velocity.lin + Cross(shape_velocity.ang, shape_com));
 				state.m_omega_ws = shape_to_world.rot * shape_velocity.ang;
 			}
 			assert("A buoyancy diagnostic target must have a collision shape" && shape != nullptr);
-
-			// The flat-water adapter is only valid when gravity is ~ -Z. Assert so a future tilted-gravity
-			// scene fails loudly here instead of silently mis-classifying samples.
-			assert("BuildBuoyancyDebugGfx assumes a flat -Z gravity water frame" &&
-				(Sqr(state.m_gravity_ws.x) + Sqr(state.m_gravity_ws.y)) <= 1e-3f * Max(1e-6f, LengthSq(state.m_gravity_ws.w0())));
 
 			auto debug = SampleDebug{};
 			auto const result = SampleHull(*shape, state, WaterFrame{}, water, cfg, &debug);
@@ -940,8 +890,6 @@ namespace physics_sandbox
 
 		auto const physics_beg = Clock::now();
 		m_physics.CompleteStep();
-		if (m_gpu_buoyancy != nullptr)
-			m_gpu_buoyancy->CompleteStep();
 		profile.m_physics_ms += ElapsedMs(physics_beg, Clock::now());
 		AddProfile(profile.m_engine, m_physics.LastStepProfile());
 		UpdateArticulationGfx();
@@ -1103,6 +1051,9 @@ namespace physics_sandbox
 		m_physics.Config(physics::EngineConfig{
 			.max_collision_pairs = scene_desc.physics_max_collision_pairs,
 			.sleeping_enabled = m_allow_sleeping,
+			.sleep_velocity_threshold_lin = scene_desc.physics_sleep_velocity_threshold_lin,
+			.sleep_velocity_threshold_ang = scene_desc.physics_sleep_velocity_threshold_ang,
+			.sleep_delay_s = scene_desc.physics_sleep_delay_s,
 			.solver_iterations = scene_desc.physics_solver_iterations,
 			.push_out_iterations = scene_desc.physics_position_iterations,
 			.broadphase_aabb_margin = scene_desc.physics_broadphase_aabb_margin,
@@ -1338,8 +1289,8 @@ namespace physics_sandbox
 			m_atmosphere_gfx = std::make_unique<AtmosphereVisual>(m_physics.Device(), *m_rdr, m_shader_cache, std::move(*scene_desc.atmosphere));
 
 		// Show the surface samples used by the physics that this scene exercises: buoyancy in water scenes, otherwise terrain collision.
-		if (m_gpu_buoyancy)
-			m_sample_overlays.SurfaceSpacing(m_gpu_buoyancy->GetConfig().m_surface_spacing);
+		if (scene_desc.water)
+			m_sample_overlays.SurfaceSpacing(scene_desc.water->forces.m_surface_spacing);
 		else if (scene_desc.terrain)
 			m_sample_overlays.SurfaceSpacing(scene_desc.terrain->surface_spacing);
 
@@ -1430,9 +1381,10 @@ namespace physics_sandbox
 			if (use_sphere_prototype)
 			{
 				// Spheres are rotationally symmetric, so a checker texture is needed to make their spin visible.
+				// '#checker2' has enough contrast to stay visible after the body colour tints it.
 				builder.Sphere(sphere_prototype_name).sphere(1).facets(5).texture([](ldraw::seri::Texture& tex)
 				{
-					tex.filepath("#checker3").addr("Wrap", "Wrap");
+					tex.filepath("#checker2").addr("Wrap", "Wrap");
 				}).hide();
 				++prototype_count;
 			}
@@ -1568,7 +1520,7 @@ namespace physics_sandbox
 			DbgLog("  Ground: %s (height=%.2f)\n", scene_desc.ground ? "yes" : "no", scene_desc.ground ? scene_desc.ground->height : 0.0f);
 			if (!scene_desc.terrain)
 				DbgLog("  Terrain: no\n");
-			DbgLog("  Water: %s (level=%.2f waves=%d)\n", scene_desc.water ? "yes" : "no", scene_desc.water ? scene_desc.water->surface.Level() : 0.0, scene_desc.water ? isize(scene_desc.water->surface.Elements()) : 0);
+			DbgLog("  Water: %s (level=%.2f waves=%d)\n", scene_desc.water ? "yes" : "no", scene_desc.water ? scene_desc.water->forces.m_field.Level() : 0.0, scene_desc.water ? isize(scene_desc.water->forces.m_field.Elements()) : 0);
 			DbgLog("  Material: elasticity=%.2f friction=%.2f\n", mat.m_elasticity_norm, mat.m_friction_static);
 			for (int i = 0; i != std::ssize(m_body); ++i)
 			{
@@ -2180,7 +2132,7 @@ namespace physics_sandbox::tests
 			// Water scenes display the buoyancy configuration, taking precedence over any terrain.
 			scene_desc.water = scene_loader::WaterDesc{};
 			scene.LoadScene(scene_desc);
-			PR_EXPECT(overlays.m_surface_spacing == scene.m_gpu_buoyancy->GetConfig().m_surface_spacing);
+			PR_EXPECT(overlays.m_surface_spacing == scene.m_physics.Water()->m_surface_spacing);
 			PR_EXPECT(overlays.m_surface_spacing == physics::buoyancy::DefaultSurfaceSpacing);
 
 			// Scenes without either consumer return to the shared default.

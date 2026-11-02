@@ -4,7 +4,7 @@
 //*********************************************
 // Deterministic CPU buoyancy sampler.
 //
-// This is the reference oracle for the GPU buoyancy pass (gpu_buoyancy.hlsl). Surface emission compiles the shared
+// This is the reference oracle for the GPU water pass (gpu_water.hlsl). Surface emission compiles the shared
 // surface_sampling.hlsli implementation and uses the same per-sample weights, cull rules, and force terms, so the GPU
 // kernels can be validated against it.
 //
@@ -28,13 +28,15 @@
 //  - Every sample carries its own area weight; reductions are weighted sums, never count x constant,
 //    because different primitives have different sample densities.
 //
-// Gravity frame (no baked-in gravity direction):
-//  The water surface is a height field along the local "up" axis = -normalize(gravity), NOT world
-//  Z. All wet/dry tests, the pressure force, and the drag velocity are expressed against a
+// Water frame (no baked-in up direction):
+//  The water surface is a height field along the frame's "up" axis, NOT necessarily world Z.
+//  All wet/dry tests, the pressure force, and the drag velocity are expressed against a
 //  WaterFrame {up, t0, t1, ref}; world-Z flat water is just the special case up=+Z,t0=+X,t1=+Y.
+//  The water's gravity (SamplerConfig::m_gravity) acts along -up. The gravity that moves the body
+//  plays no part in the water forces.
 //
 // The water surface is supplied as a template parameter so this header does not depend on the
-// physics engine, and so gravity-frame water fields can be plugged in for tests. A water field
+// physics engine, and so other water frames can be plugged in for tests. A water field
 // type must provide:
 //    float Height(v2 uv) const;                         // signed height along 'up' at planar coords (u,v), relative to 'ref'
 //    v2    Slope(v2 uv) const;                          // surface slope (dh/du, dh/dv) at planar coords (u,v)
@@ -47,6 +49,7 @@
 #include <limits>
 #include <stdexcept>
 #include <algorithm>
+#include <bit>
 #include "pr/collision/shape.h"
 #include "pr/collision/shape_box.h"
 #include "pr/collision/shape_sphere.h"
@@ -59,18 +62,19 @@
 
 namespace pr::physics::buoyancy
 {
-	// Tunable fluid parameters used by the sampler. Mirrors the runtime GpuBuoyancy::Config fields
+	// Tunable fluid parameters used by the sampler. Mirrors the runtime WaterConfig fields
 	// the sampler cares about, but kept independent so this header has no engine dependency.
 	struct SamplerConfig
 	{
 		float m_fluid_density = 1000.0f;            // kg/m^3
+		float m_gravity = 9.81f;                    // magnitude of the gravity acting on the water, along -up (m/s^2); must be positive
 		float m_linear_drag_time_constant_s = 0.0f; // translational water-column drag e-fold time; <= 0 disables it
 		float m_angular_drag_time_constant_s = 0.0f; // rotational water-column drag e-fold time; <= 0 disables it
 		float m_quadratic_drag_coefficient = 0.0f;  // form-drag Cd; <= 0 disables quadratic drag
 		float m_tangential_drag_coefficient = 0.0f; // surface-shear Ct; <= 0 disables tangential drag
 		float m_air_density = 0.0f;                 // kg/m^3; form drag on the dry part of each cell; <= 0 disables air drag
 		float m_added_mass_coefficient = 0.0f;      // Ca; the wave force becomes the Morison inertia force (1 + Ca)*rho*dV*a_fluid
-		float m_surface_spacing = DefaultSurfaceSpacing; // maximum surface cell diameter in shape-local units (see BuildSurfacePlan)
+		float m_surface_spacing = DefaultSurfaceSpacing; // maximum surface cell diameter in shape-local units (see BuildHullSurfacePlans)
 	};
 
 	// Rigid-body kinematics needed to place samples in world space and evaluate point velocities.
@@ -78,12 +82,11 @@ namespace pr::physics::buoyancy
 	{
 		m4x4 m_o2w = m4x4::Identity();   // collision-shape root -> world
 		v4 m_centre_of_mass_os = v4::Zero(); // centre of mass relative to the collision-shape root
-		v4 m_gravity_ws = v4::Zero();    // world-space gravity for this body (w = 0)
 		v4 m_vel_lin_ws = v4::Zero();    // linear velocity of the centre of mass (w = 0)
 		v4 m_omega_ws = v4::Zero();      // angular velocity (w = 0)
 	};
 
-	// Gravity-aligned water frame. 'up' is the local opposite-of-gravity direction; (t0,t1) span the
+	// Water frame. 'up' is the direction opposite to the water's gravity; (t0,t1) span the
 	// plane perpendicular to 'up'; 'ref' is a point on the still-water surface. The height field is
 	// parameterised over (t0,t1) and measured along 'up'.
 	struct WaterFrame
@@ -93,15 +96,13 @@ namespace pr::physics::buoyancy
 		v4 m_t1 = v4::YAxis();
 		v4 m_ref = v4::Origin();
 
-		// Build a frame from a gravity vector. 'up' = -normalize(gravity); tangents are arbitrary but
-		// orthonormal. Falls back to world axes when gravity is ~zero.
-		static WaterFrame FromGravity(v4 gravity_ws, v4 ref)
+		// Build a frame from a unit 'up' direction. The tangents are arbitrary but orthonormal.
+		static WaterFrame FromUp(v4 up, v4 ref)
 		{
+			// Complete an orthonormal basis around 'up'.
 			auto frame = WaterFrame{};
 			frame.m_ref = ref.w1();
-
-			auto const g_len = Length(gravity_ws.w0());
-			frame.m_up = g_len > math::constants<float>::tiny ? Normalise(-gravity_ws.w0()) : v4::ZAxis();
+			frame.m_up = up.w0();
 			frame.m_t0 = Normalise(Perpendicular(frame.m_up));
 			frame.m_t1 = Cross(frame.m_up, frame.m_t0);
 			return frame;
@@ -247,6 +248,141 @@ namespace pr::physics::buoyancy
 		return prims;
 	}
 
+	// Return the scale-relative slack used by the sibling inside tests of a hull, so boundary samples register without leaking.
+	inline float HullInsideSlack(collision::Shape const& hull)
+	{
+		auto const bbox = collision::CalcBBox(hull);
+		return std::max(1e-6f, MaxElement(bbox.m_radius.w0()) * 1e-5f);
+	}
+
+	// Return true if a sibling of primitive 'k' hides the COM-root surface point 'p_root' (outward normal 'n_root') from the union
+	// boundary of the hull. 'r2s' maps COM-root space into each primitive's shape space. A surface sample is on the union boundary iff
+	// its exterior side is outside every OTHER primitive, so it is hidden if any other sibling contains the slightly-outward point or
+	// strictly contains the sample itself. The outward point is 'eps' outside a coplanar sibling face, so lower-index siblings use a
+	// wider slack: coplanar faces are then kept by exactly one primitive (the lowest index) rather than by all or none.
+	inline bool IsCulledBySibling(std::vector<collision::Shape const*> const& prims, std::vector<m4x4> const& r2s, size_t k, v4 p_root, v4 n_root, float eps)
+	{
+		auto const probe_root = p_root + n_root * eps;
+		for (size_t j = 0; j != prims.size(); ++j)
+		{
+			if (j == k)
+				continue;
+
+			if (ContainsLocal(*prims[j], r2s[j] * probe_root, j < k ? 2.0f * eps : 0.5f * eps) ||
+				ContainsLocal(*prims[j], r2s[j] * p_root, -eps))
+				return true;
+		}
+		return false;
+	}
+
+	// The surface plan of one primitive of a hull, classified by the sibling cull. 'm_plan' holds the patches with at least one sample on
+	// the hull's union boundary, and bit i of 'm_visible' (word i/32, bit i%32) is set when sample i of 'm_plan' is on that boundary.
+	// 'm_hidden' holds the patches that siblings hide completely; they never contribute and are kept only for debug visualisation.
+	struct HullPrimitivePlan
+	{
+		surface::Plan m_plan;
+		surface::Plan m_hidden;
+		std::vector<uint32_t> m_visible;
+
+		// True when sample 'i' of 'm_plan' is on the hull's union boundary.
+		bool IsVisible(uint32_t i) const
+		{
+			return (m_visible[i / 32] >> (i % 32)) & 1;
+		}
+	};
+
+	namespace impl
+	{
+		// Build the plans of 'prims' at one spacing and classify every sample with the sibling cull (see BuildHullSurfacePlans).
+		inline std::vector<HullPrimitivePlan> ClassifyHullSurfacePlans(std::vector<collision::Shape const*> const& prims, std::vector<m4x4> const& r2s, float eps, float spacing)
+		{
+			auto plans = std::vector<HullPrimitivePlan>(prims.size());
+			for (size_t k = 0; k != prims.size(); ++k)
+			{
+				// Classify every sample with the sibling cull. A single primitive has no siblings, so all of its samples are visible.
+				auto const full = surface::BuildPlan(*prims[k], spacing);
+				auto& out = plans[k];
+				auto visible = std::vector<bool>{};
+				auto begin = 0u;
+				for (auto const& patch : full.m_patches)
+				{
+					// Patches that siblings hide completely move to 'm_hidden' and give up their ordinals.
+					auto const count = patch.m_sample_end - begin;
+					auto const first = visible.size();
+					auto hidden = 0u;
+					for (uint32_t i = 0; i != count; ++i)
+					{
+						auto const sample = surface::EmitSurfaceSample(patch, i);
+						auto const p_root = prims[k]->m_s2r * sample.m_pos_local;
+						auto const n_root = Normalise((prims[k]->m_s2r * sample.m_normal_local).w0(), v4::Zero());
+						auto const culled = prims.size() != 1 && IsCulledBySibling(prims, r2s, k, p_root, n_root, eps);
+						visible.push_back(!culled);
+						hidden += culled ? 1 : 0;
+					}
+					auto& dst = hidden == count ? out.m_hidden : out.m_plan;
+					if (hidden == count)
+						visible.resize(first);
+
+					dst.m_patches.push_back(patch);
+					dst.m_count += count;
+					dst.m_patches.back().m_sample_end = dst.m_count;
+					begin = patch.m_sample_end;
+				}
+
+				// Pack the per-sample classification into the bit mask.
+				out.m_visible.assign((visible.size() + 31) / 32, 0u);
+				for (size_t i = 0; i != visible.size(); ++i)
+					out.m_visible[i / 32] |= visible[i] ? 1u << (i % 32) : 0u;
+			}
+			return plans;
+		}
+	}
+
+	// Build the surface plans of every primitive of a hull, classified by the sibling cull (see HullPrimitivePlan). Cells are at most 'spacing'
+	// across. The spacing of the whole hull is reduced until the hull has at least MinSurfaceSamplesPerHull visible samples, so a hull that
+	// reaches the minimum at 'spacing' gets exactly surface::BuildPlan(prim, spacing) for each primitive. Samples are fixed in the hull's own
+	// frame, so the cull depends only on the shape. Callers that cache shapes run it once rather than for every sample on every step.
+	// The GPU pass and the CPU oracle both use these plans.
+	inline std::vector<HullPrimitivePlan> BuildHullSurfacePlans(collision::Shape const& hull, float spacing)
+	{
+		// Shape-space transforms and the inside-test slack for the sibling cull.
+		auto const prims = CollectPrimitives(hull);
+		auto const eps = HullInsideSlack(hull);
+		auto r2s = std::vector<m4x4>(prims.size());
+		for (size_t k = 0; k != prims.size(); ++k)
+			r2s[k] = InvertOrthonormal(prims[k]->m_s2r);
+
+		// Most hulls already have enough samples at the requested spacing.
+		auto plans = impl::ClassifyHullSurfacePlans(prims, r2s, eps, spacing);
+		auto const visible_count = [&]
+		{
+			// Count the set mask bits of every primitive.
+			auto count = 0u;
+			for (auto const& plan : plans)
+			{
+				for (auto word : plan.m_visible)
+					count += static_cast<uint32_t>(std::popcount(word));
+			}
+			return count;
+		};
+
+		// The sample count grows about as 1/spacing^2, so scale the spacing by sqrt(count / minimum) and rebuild. Grid boundary nodes make
+		// the count grow more slowly than that for coarse grids, so repeat until the minimum is met; this takes a few iterations at most.
+		// A hull without visible area (zero-size primitives) has no pressure to resolve and cannot be refined.
+		auto const has_area = std::ranges::any_of(plans, [](HullPrimitivePlan const& plan)
+		{
+			// Any visible patch with area can be refined.
+			return std::ranges::any_of(plan.m_plan.m_patches, [](surface::SurfacePatch const& patch) { return patch.m_measure > 0.0f; });
+		});
+		for (auto count = visible_count(); has_area && count < MinSurfaceSamplesPerHull; count = visible_count())
+		{
+			// Refine the spacing in proportion to the shortfall.
+			spacing *= static_cast<float>(std::sqrt(static_cast<double>(std::max(count, 1u)) / MinSurfaceSamplesPerHull));
+			plans = impl::ClassifyHullSurfacePlans(prims, r2s, eps, spacing);
+		}
+		return plans;
+	}
+
 	//
 	// Top-level sampler
 	//
@@ -266,28 +402,44 @@ namespace pr::physics::buoyancy
 	{
 		using namespace collision;
 
-		// Validate the resolution before doing any work.
+		// Validate the resolution and the water's gravity before doing any work.
 		surface::ValidateSpacing(cfg.m_surface_spacing);
+		if (!std::isfinite(cfg.m_gravity) || cfg.m_gravity <= 0.0f)
+			throw std::invalid_argument("Water gravity must be finite and positive");
+
 		auto result = HullResult{};
 
 		auto const prims = CollectPrimitives(hull);
 		if (debug)
 			debug->Reset(prims.size());
 
-		// Without gravity there is no "up" for the water and no pressure, so the GPU pass applies nothing.
-		auto const g_mag = Length(body.m_gravity_ws.w0());
-		if (prims.empty() || !(g_mag > math::constants<float>::tiny))
+		if (prims.empty())
 			return result;
 
-		// Pre-compute per-primitive transforms (shape-local <-> COM-root) and surface plans.
+		auto const g_mag = cfg.m_gravity;
+
+		// Pre-compute the per-primitive shape-local -> COM-root transforms and the cull-classified surface plans.
 		auto s2r = std::vector<m4x4>(prims.size());
-		auto r2s = std::vector<m4x4>(prims.size());
-		auto surface_plans = std::vector<surface::Plan>(prims.size());
 		for (size_t k = 0; k != prims.size(); ++k)
-		{
 			s2r[k] = prims[k]->m_s2r;
-			r2s[k] = InvertOrthonormal(prims[k]->m_s2r);
-			surface_plans[k] = BuildSurfacePlan(*prims[k], cfg.m_surface_spacing);
+
+		auto const surface_plans = BuildHullSurfacePlans(hull, cfg.m_surface_spacing);
+
+		// Record the samples of fully hidden patches for visualisation; they never contribute.
+		if (debug)
+		{
+			for (size_t k = 0; k != prims.size(); ++k)
+			{
+				// Emit each hidden sample in world space.
+				auto const& hidden = surface_plans[k].m_hidden;
+				for (uint32_t i = 0; i != hidden.m_count; ++i)
+				{
+					auto const sample = surface::EmitSurfaceSample(hidden, i);
+					auto const p_root = s2r[k] * sample.m_pos_local;
+					auto const n_root = Normalise((s2r[k] * sample.m_normal_local).w0(), v4::Zero());
+					debug->m_samples.push_back({ (body.m_o2w * p_root).w1(), Normalise((body.m_o2w * n_root).w0(), v4::Zero()), static_cast<int>(k), ESampleKind::SurfaceCulled });
+				}
+			}
 		}
 
 		auto const up = frame.m_up;
@@ -297,11 +449,6 @@ namespace pr::physics::buoyancy
 		auto const com_ws = body.m_o2w * body.m_centre_of_mass_os.w1();
 		auto const rho_g = cfg.m_fluid_density * g_mag;
 		auto const ca = cfg.m_added_mass_coefficient;
-
-		// A scale-relative epsilon for inside tests so boundary samples register without leaking.
-		auto bbox = CalcBBox(hull);
-		auto const extent = MaxElement(bbox.m_radius.w0());
-		auto const eps = std::max(1e-6f, extent * 1e-5f);
 
 		auto wet_volume = 0.0f;
 		auto wet_moment = v4::Zero();
@@ -317,30 +464,15 @@ namespace pr::physics::buoyancy
 		// deduplicated by the any-other-sibling exterior-side rule.
 		for (size_t k = 0; k != prims.size(); ++k)
 		{
-			auto const& plan = surface_plans[k];
+			auto const& plan = surface_plans[k].m_plan;
 			for (uint32_t i = 0; i != plan.m_count; ++i)
 			{
 				auto const sample = surface::EmitSurfaceSample(plan, i);
 				auto const p_root = s2r[k] * sample.m_pos_local;
 				auto const n_root = Normalise((s2r[k] * sample.m_normal_local).w0(), v4::Zero());
 
-				// A surface sample is on the union boundary iff its exterior side is outside every
-				// other primitive. Cull if any other sibling contains the slightly-outward point or
-				// strictly contains the sample itself. The outward point is 'eps' outside a coplanar
-				// sibling face, so lower-index siblings use a wider slack: coplanar faces are then kept
-				// by exactly one primitive (the lowest index) rather than by all or none.
-				auto const probe_root = p_root + n_root * eps;
-				auto culled = false;
-				for (size_t j = 0; j != prims.size() && !culled; ++j)
-				{
-					if (j == k)
-						continue;
-
-					culled =
-						ContainsLocal(*prims[j], r2s[j] * probe_root, j < k ? 2.0f * eps : 0.5f * eps) ||
-						ContainsLocal(*prims[j], r2s[j] * p_root, -eps);
-				}
-				if (culled)
+				// Samples hidden by a sibling are not on the union boundary (see HullPrimitivePlan).
+				if (!surface_plans[k].IsVisible(i))
 				{
 					if (debug)
 						debug->m_samples.push_back({ (body.m_o2w * p_root).w1(), Normalise((body.m_o2w * n_root).w0(), v4::Zero()), static_cast<int>(k), ESampleKind::SurfaceCulled });
@@ -392,20 +524,16 @@ namespace pr::physics::buoyancy
 				auto const grad = water.PressureGradient(uv, g_mag);
 				auto const grad_ws = grad.x * t0 + grad.y * t1 + grad.z * up;
 				auto const grad_up = Dot3(grad_ws, up);
-				auto const slope = water.Slope(uv);
-				auto const slope_ws = slope.x * t0 + slope.y * t1;
 
 				// The vertical pressure force comes from the sampled normals, scaled by the wave's vertical acceleration.
 				// The horizontal force comes from the columns: the Froude-Krylov force (1 + Ca) * grad on each column's volume.
-				// The torque uses the sampled pressure plus the column correction for the difference between the gradient and
-				// the slope (see CSBuoyancySurfaceSamples in gpu_buoyancy.hlsl).
+				// The torque uses only the sampled pressure, which acts along the normals (see CSBuoyancySurfaceSamples in gpu_water.hlsl).
 				auto const dF_pressure = -(rho_g * (1.0f - (1.0f + ca) * grad_up) * depth_area) * normal_ws;
 				auto const grad_lat = grad_ws - grad_up * up;
 				auto const dF_lateral = -(rho_g * dvol * (1.0f + ca)) * grad_lat;
-				auto const dF_column = dF_lateral + (rho_g * dvol) * slope_ws;
 				auto const dF_buoy = Dot3(dF_pressure, up) * up + dF_lateral;
 				buoy_force += dF_buoy;
-				buoy_torque += Cross(r, dF_pressure) + Cross(r_col, dF_column);
+				buoy_torque += Cross(r, dF_pressure);
 				wet_volume += dvol;
 				wet_moment += (com_ws + r_col).w0() * dvol;
 

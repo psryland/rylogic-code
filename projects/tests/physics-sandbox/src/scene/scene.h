@@ -91,11 +91,8 @@ namespace physics_sandbox
 		// Storage for shapes loaded in the scene file.
 		byte_data<16> m_shape_buffer;
 
-		// Optional diagnostic buoyancy module and the RAII hull registrations owned by the loaded scene.
-		std::unique_ptr<physics::GpuBuoyancy> m_gpu_buoyancy;
-		std::vector<physics::GpuBuoyancy::Registration> m_buoyancy_hulls;
+		// The bodies and articulation links drawn by the buoyancy debug overlay. The engine applies water forces to all of them.
 		std::vector<BuoyancyDebugTarget> m_buoyancy_debug_targets;
-		int m_buoyancy_generation;
 
 		// When set, BuildBuoyancyDebugGfx() is run each frame and the resulting sample-cloud/force
 		// overlay is drawn. Toggled by the sandbox UI ('B' key).
@@ -272,7 +269,7 @@ namespace physics_sandbox
 		// Release all scene-owned diagnostic buoyancy resources before replacing bodies or the module.
 		void ClearBuoyancy();
 
-		// Register every dynamic scene body for buoyancy when the scene contains water.
+		// Give the engine the scene's water and list the buoyancy debug targets.
 		void ConfigureBuoyancy(scene_loader::SceneDesc const& scene_desc);
 
 		// Create the water mesh visual described by a loaded scene.

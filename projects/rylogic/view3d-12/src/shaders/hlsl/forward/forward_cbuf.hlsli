@@ -157,6 +157,13 @@ struct CBufPbrSurface// :reg(b4)
 	int4 procedural_cell_seed;         // xyz = wrapped base cell, w = deterministic seed
 	float4 procedural_params0;         // x = enabled, y = normal strength, z/w = roughness min/max
 	float4 procedural_params1;         // x = detail, y = warp
+
+	// Near detail layer. Its rows and cell use the same split coordinate form as the base layer, but at the near feature scale.
+	float4 procedural_near_x;
+	float4 procedural_near_y;
+	float4 procedural_near_z;
+	int4 procedural_near_cell;         // xyz = wrapped near cell, w unused
+	float4 procedural_params2;         // x = near normal strength, y/z = near fade start/end distance, w = near cells per base cell
 };
 
 // Constants used for diagnostic shaders.

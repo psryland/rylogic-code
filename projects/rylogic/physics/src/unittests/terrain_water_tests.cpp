@@ -146,7 +146,8 @@ namespace pr::physics::terrain::water::tests
 			auto const above_vel = single_field.Velocity(v4{0.3f, 0.0f, 0.75f, 1.0f}, 0.4f);
 			PR_EXPECT(FEqlAbsolute(above_vel, surface_vel, 1e-6f));
 		}
-
+
+
 		// The crest profile is a sine at zero sharpness. Sharper profiles keep the crest-to-trough height, raise the crest, flatten the trough,
 		// keep a zero mean, and have an exact phase derivative.
 		PRUnitTestMethod(CrestProfileSharpensCrests, Quick)
@@ -543,18 +544,27 @@ namespace pr::physics::terrain::water::tests
 			mixed.push_back(fixed_wave);
 			field.Elements(mixed);
 			field.WindSea(east);
-			auto local = std::vector<v2>(mixed.size());
-			field.LocalWaves(v2d{30.0, 70.0}, local);
-			PR_EXPECT(local.back().x == 0.0f && local.back().y == 0.0f);
+			auto buffer = std::array<WaterFieldElement, MaxElementCount>{};
+			auto const local = field.LocalElements(v2d{30.0, 70.0}, buffer);
+			PR_EXPECT(!local.empty() && std::memcmp(&local.back(), &fixed_wave, sizeof(fixed_wave)) == 0);
+
+			// Local copies keep the stored order, with calm elements removed.
+			east->Bands(v2{30.0f, 70.0f}, band_states);
+			auto j = size_t{};
 			for (size_t i = 0; i != elements.size(); ++i)
 			{
+				// Each local wind-sea element takes its amplitude and sharpness from the band state at the point.
 				auto const b = shared::WaterFieldWindSeaBand(elements[i]);
-				east->Bands(v2{30.0f, 70.0f}, band_states);
-				PR_EXPECT(FEqlAbsolute(local[i].x, shared::WindSeaAmplitude(elements[i].position.xy, band_states[b]), 1e-6f));
-				PR_EXPECT(local[i].x <= elements[i].wave.x);
-				PR_EXPECT(FEqlAbsolute(local[i].y, shared::WindSeaSharpness(elements[i].position.xy, band_states[b]), 1e-6f));
-				PR_EXPECT(local[i].y <= band_states[b].sharpness);
+				auto const expected = shared::WindSeaElement(elements[i], band_states[b]);
+				PR_EXPECT(FEqlAbsolute(expected.wave.x, shared::WindSeaAmplitude(elements[i].position.xy, band_states[b]), 1e-6f));
+				PR_EXPECT(expected.wave.x <= elements[i].wave.x);
+				if (expected.wave.x == 0.0f)
+					continue;
+
+				PR_EXPECT(j < local.size() && std::memcmp(&local[j], &expected, sizeof(expected)) == 0);
+				++j;
 			}
+			PR_EXPECT(j + 1 == local.size());
 
 			// Crest sharpness is full downwind, decays quickly away from it, and is zero across the wind and upwind.
 			{

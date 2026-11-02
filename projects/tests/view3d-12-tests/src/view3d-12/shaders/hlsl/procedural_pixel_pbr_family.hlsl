@@ -15,3 +15,13 @@ float4 RotateShadePbr(inout PSIn In, bool is_front_face)
 
 // Generate the three PBR forward pixel entry points.
 VIEW3D_FORWARD_PBR_PIXEL_ENTRY_POINTS(RotatePbr, RotateShadePbr)
+
+// Scale the stock PBR roughness by 25, so a material with roughness 0.04 should shade the same as a material with roughness 1.
+float4 RoughShadePbr(inout PSIn In, bool is_front_face)
+{
+	// The scaled roughness is clamped to 1 by the stock shading.
+	return ForwardShadePbr(In, is_front_face, 25.0f).diff;
+}
+
+// Generate the three roughness-scaling PBR forward pixel entry points.
+VIEW3D_FORWARD_PBR_PIXEL_ENTRY_POINTS(RoughPbr, RoughShadePbr)

@@ -2731,7 +2731,7 @@ VIEW3D_API void __stdcall View3D_WeatherMapUpload(view3d::WeatherMap weather)
 }
 
 // Create a population prototype. The caller owns the returned reference.
-VIEW3D_API view3d::PopulationPrototype __stdcall View3D_PopulationPrototypeCreate(view3d::PopulationLod const* lods, int lod_count, float draw_distance)
+VIEW3D_API view3d::PopulationPrototype __stdcall View3D_PopulationPrototypeCreate(view3d::PopulationLod const* lods, int lod_count, float draw_distance, view3d::PopulationFade fade_in, view3d::PopulationFade fade_out)
 {
 	try
 	{
@@ -2749,7 +2749,9 @@ VIEW3D_API view3d::PopulationPrototype __stdcall View3D_PopulationPrototypeCreat
 
 			rdr_lods.push_back(rdr12::PopulationLod{ .m_model = lod.m_object->m_model, .m_min_size = lod.m_min_size, .m_transition = lod.m_transition });
 		}
-		auto prototype = rdr12::PopulationPrototypePtr(new rdr12::PopulationPrototype(rdr_lods, draw_distance), true);
+		auto rdr_fade_in = rdr12::PopulationFade{ .m_start = fade_in.m_start, .m_width = fade_in.m_width };
+		auto rdr_fade_out = rdr12::PopulationFade{ .m_start = fade_out.m_start, .m_width = fade_out.m_width };
+		auto prototype = rdr12::PopulationPrototypePtr(new rdr12::PopulationPrototype(rdr_lods, draw_distance, rdr_fade_in, rdr_fade_out), true);
 		return prototype.release();
 	}
 	CatchAndReport(View3D_PopulationPrototypeCreate, , nullptr);
@@ -3610,6 +3612,10 @@ namespace
 			.m_roughness_max = surface.m_roughness_max,
 			.m_detail = surface.m_detail,
 			.m_warp = surface.m_warp,
+			.m_near_feature_scale = surface.m_near_feature_scale,
+			.m_near_normal_strength = surface.m_near_normal_strength,
+			.m_near_fade_start = surface.m_near_fade_start,
+			.m_near_fade_end = surface.m_near_fade_end,
 		};
 		result.Validate();
 		return result;
@@ -3634,6 +3640,10 @@ namespace
 			.m_roughness_max = surface.m_roughness_max,
 			.m_detail = surface.m_detail,
 			.m_warp = surface.m_warp,
+			.m_near_feature_scale = surface.m_near_feature_scale,
+			.m_near_normal_strength = surface.m_near_normal_strength,
+			.m_near_fade_start = surface.m_near_fade_start,
+			.m_near_fade_end = surface.m_near_fade_end,
 		};
 	}
 
@@ -3647,6 +3657,10 @@ namespace
 			.m_feature_scale = 1.0f,
 			.m_coordinate_origin = {0, 0, 0, 1},
 			.m_axis_scale = {1, 1, 1, 0},
+			.m_near_feature_scale = 0.5f,
+			.m_near_normal_strength = 0.0f,
+			.m_near_fade_start = 3.0f,
+			.m_near_fade_end = 10.0f,
 		};
 		switch (preset)
 		{

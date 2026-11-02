@@ -100,14 +100,14 @@ limits, not quality controls; callers must choose a coarser spacing or smaller g
 Allocation/device resource failures propagate normally. Extremely large valid sample populations
 can still be expensive and are not a real-time latency guarantee.
 
-`GpuBuoyancy::Config::m_surface_spacing` is part of the immutable shape-cache key. Like polytope derivation settings, it applies at
+`WaterConfig::m_surface_spacing` is part of the immutable shape-cache key. Like polytope derivation settings, it applies at
 registration/shape refresh; existing registrations retain their plans. It defaults to `buoyancy::DefaultSurfaceSpacing` (0.25 m).
 Buoyancy has no volume samples: the water pressure (lift), added mass, damping and drag are all integrated over the surface samples.
-Buoyancy plans come from `buoyancy::BuildSurfacePlan`, which wraps `surface::BuildPlan` and refines the spacing of small primitives until
-each has at least `buoyancy::MinSurfaceSamplesPerPrimitive` (128) samples. A light body floats with a shallow draft, so only the few
-cells near its lowest point are wet, and too few cells give a wrong floating height and false torques. A primitive that already has 128
-samples keeps exactly its `surface::BuildPlan` at the configured spacing, so large primitives get no extra samples. Terrain and other
-`surface::BuildPlan` callers do not get this minimum.
+Buoyancy plans come from `buoyancy::BuildHullSurfacePlans`, which builds `surface::BuildPlan` for every primitive of a hull and refines the
+spacing of the whole hull until it has at least `buoyancy::MinSurfaceSamplesPerHull` (128) visible samples. A light body floats with a
+shallow draft, so only the few cells near its lowest point are wet, and too few cells give a wrong floating height and false torques. A hull
+that already has 128 visible samples keeps exactly `surface::BuildPlan` at the configured spacing for each primitive, so large hulls, and
+compounds of many small primitives, get no extra samples. Terrain and other `surface::BuildPlan` callers do not get this minimum.
 
 Each wet surface sample stands for a cell of area `dA` whose vertical extent is `sqrt(dA) * sin(tilt)` (`buoyancy::SurfaceCellHeight`).
 A cell crossing the waterline contributes its submerged fraction (`buoyancy::CellWetFraction`) and the mean depth of its wet part, so
@@ -119,7 +119,7 @@ Per wet cell, with `n` the outward normal and `depth_area` the wet area times th
   the column also carries the added mass `Ca rho dvol` and the linear/angular volume damping. Summing columns gives the wet
   volume and its centre, which are exact for a closed hull below a flat surface.
 - Tangential skin drag uses the wet area. Its coefficient (default 0.01) is a skin-friction value; it is not raised to stand in for the other drag terms.
-- Air form drag uses the same windward model and Cd on the dry part of each cell, relative to the still air set by `GpuBuoyancy::SetAir` (`physics::Air`, density 1.2 by default). Primitives entirely above the water are not evaluated, so this covers only floating bodies.
+- Air form drag uses the same windward model and Cd on the dry part of each cell, relative to the still air in `WaterConfig::m_air` (`physics::Air`, density 1.2 by default). Primitives entirely above the water are not evaluated, so this covers only floating bodies.
   It matters for light bodies with a large area above the water. Primitives entirely above the water are not evaluated, so they feel no air drag.
 - The signed waterline stiffness is `rho g wet_area (-n . up)`.
 

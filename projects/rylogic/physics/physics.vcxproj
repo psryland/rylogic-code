@@ -130,8 +130,7 @@
     <ClCompile Include="src\articulation\articulation_kinematics.cpp" />
     <ClCompile Include="src\articulation\articulation_gpu_data.cpp" />
     <ClCompile Include="src\atmosphere\atmosphere.cpp" />
-    <ClCompile Include="src\buoyancy\gpu_buoyancy.cpp" />
-    <ClCompile Include="src\buoyancy\gpu_water_forces.cpp" />
+    <ClCompile Include="src\buoyancy\gpu_water.cpp" />
     <ClCompile Include="src\utility\shader_recipes.cpp" />
     <ClCompile Include="src\collision\broadphase_brute.cpp" />
     <ClCompile Include="src\collision\contact.cpp" />
@@ -207,11 +206,9 @@
     <ClInclude Include="$(RylogicRoot)include\pr\physics\atmosphere\air.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\atmosphere\atmosphere.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\buoyancy_primitives.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\gpu_buoyancy.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\buoyancy\wave_resistance.hlsli" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine_water.h" />
-    <ClInclude Include="src\buoyancy\gpu_water_forces.h" />
-    <ClInclude Include="$(RylogicRoot)include\pr\physics\diagnostics\body_history.h" />
+    <ClInclude Include="src\buoyancy\gpu_water.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\forward.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\engine_config.h" />
     <ClInclude Include="$(RylogicRoot)include\pr\physics\integrator\contact_priority.h" />
@@ -311,10 +308,7 @@
     <ShaderBuild Include="src\atmosphere\atmosphere.hlsl" ComputeEntryPoints="CSInitialise;CSAdvect;CSVorticity;CSForcesHeat;CSDivergence;CSMgSmooth;CSMgSmallLevels;CSMgResidual;CSMgRestrict;CSMgProlongate;CSNormalisePressure;CSProject;CSInitialiseTracers;CSAdvectTracers">
       <StampDir>$(ProjectDir)src\atmosphere\compiled\$(Configuration)\</StampDir>
     </ShaderBuild>
-    <ShaderBuild Include="src\buoyancy\gpu_buoyancy.hlsl" ComputeEntryPoints="CSBuoyancySurfaceSamples;CSBuoyancySurfaceReduce">
-      <StampDir>$(ProjectDir)src\buoyancy\compiled\$(Configuration)\</StampDir>
-    </ShaderBuild>
-    <ShaderBuild Include="src\buoyancy\gpu_water_forces.hlsl" ComputeEntryPoints="CSWaterForces">
+    <ShaderBuild Include="src\buoyancy\gpu_water.hlsl" ComputeEntryPoints="CSBuoyancySurfaceSamples;CSBuoyancySurfaceReduce">
       <StampDir>$(ProjectDir)src\buoyancy\compiled\$(Configuration)\</StampDir>
     </ShaderBuild>
   </ItemGroup>

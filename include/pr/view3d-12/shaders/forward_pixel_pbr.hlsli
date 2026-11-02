@@ -16,6 +16,8 @@
 //   }
 //   VIEW3D_FORWARD_PBR_PIXEL_ENTRY_POINTS(My, MyShade)
 //
+// An overload of ForwardShadePbr also takes a per-fragment roughness scale, for surfaces whose roughness varies within one material.
+//
 // This generates PSMy, PSMyReflectionAttrs and PSMyAlphaCollect.
 // Compile each with '-T ps_6_6 -HV 2021' and the Rylogic native include directory on the include path, then pass the bytecode to
 // ShaderOptions::m_procedural.m_forward_pixel in that order with 'm_forward_pixel_model' set to EForwardPixelModel::Pbr.
@@ -37,6 +39,15 @@ PSOut ForwardShadePbr(PSIn In, bool is_front_face)
 {
 	// All PBR texture slots read TEXCOORD_0 in this family.
 	return PSForwardPbrImpl(In, is_front_face);
+}
+
+// Shade a PBR fragment with the stock PBR forward shading, with the material roughness multiplied by 'roughness_scale'.
+// The scale applies after textures and the procedural surface have resolved the roughness, and the result is clamped to the usual [0.04, 1] range.
+// Use it for roughness that varies across one material, such as surface types blended by vertex data. The colour is linear and not yet dithered.
+PSOut ForwardShadePbr(PSIn In, bool is_front_face, float roughness_scale)
+{
+	// All PBR texture slots read TEXCOORD_0 in this family.
+	return PSForwardPbrImpl(In, is_front_face, roughness_scale);
 }
 
 // Return the RT reflection attributes for a PBR fragment with final colour 'diff'.

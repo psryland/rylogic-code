@@ -24,6 +24,9 @@ namespace physics_sandbox::scene_loader
 	//             "support_contact_slop_scale": 0.005, // Slop fraction for load-bearing support contacts
 	//             "warm_start_scale": 0.90,     // Previous-frame impulse fraction used to seed the solver
 	//             "max_collision_pairs": 131072,// Override EngineConfig collision pair/contact capacity
+	//             "sleep_velocity_threshold_lin": 0.25, // Bodies slower than this (m/s) for 'sleep_delay_s' may sleep
+	//             "sleep_velocity_threshold_ang": 1.5,  // Bodies spinning slower than this (rad/s) for 'sleep_delay_s' may sleep
+	//             "sleep_delay_s": 1.0,         // Time a body must stay below both thresholds before it sleeps
 	//             "selective_refresh_passes": 1, // Extra narrowphase/resolve passes over problematic contacts
 	//             "selective_refresh_body_limit": 256, // Disable selective refresh above this body count; 0 = unlimited
 	//             "selective_refresh_contact_limit": 512, // Disable selective refresh after dense previous-frame contact graphs; 0 = unlimited
@@ -34,6 +37,11 @@ namespace physics_sandbox::scene_loader
 	//             "size": [20, 20],            // Optional visual mesh size; omitted/zero means auto-size to scene
 	//             "grid": [32, 32],            // Optional visual mesh cell count
 	//             "colour": "0x602080FF",      // Optional ARGB water mesh colour
+	//             "forces": {                  // Optional water force parameters for Engine::Water; omitted values use the physics::WaterConfig defaults
+	//                 "density": 1025.0, "gravity": 9.81, "linear_drag_time_constant": 5.0, "angular_drag_time_constant": 0.75,
+	//                 "quadratic_drag_coefficient": 1.05, "tangential_drag_coefficient": 0.01, "added_mass_coefficient": 0.5,
+	//                 "radiation_damping": 1.0, "wave_resistance": 1.0, "surface_spacing": 0.25, "air_density": 1.2
+	//             },
 	//             "waves": [
 	//                 { "direction": [1, 0], "wavelength": 8.0, "amplitude": 0.25, "phase_speed": 1.5 } // "period" is accepted as a wavelength alias
 	//             ]
@@ -194,7 +202,6 @@ namespace physics_sandbox::scene_loader
 		m4x4 m_shape_to_link = m4x4::Identity();
 		bool m_collide_parent = false;
 		bool m_collide_self = true;
-		bool m_buoyant = false;
 	};
 
 	// Describes a fixed- or floating-root reduced-coordinate articulation.
@@ -283,7 +290,9 @@ namespace physics_sandbox::scene_loader
 	// Parsed description of a water field and its sandbox visual mesh.
 	struct WaterDesc
 	{
-		physics::terrain::water::WaterField surface;
+		// The water force parameters passed to physics::Engine::Water. Its field is the water surface.
+		physics::WaterConfig forces;
+
 		v2 size = v2::Zero();
 		iv2 grid = iv2(32, 32);
 		Colour32 colour = Colour32(0x602080FFU);
@@ -360,6 +369,9 @@ namespace physics_sandbox::scene_loader
 		float physics_support_contact_slop_scale = physics::EngineConfig{}.support_contact_slop_scale;
 		float physics_warm_start_scale = physics::EngineConfig{}.warm_start_scale;
 		int physics_max_collision_pairs = physics::EngineConfig{}.max_collision_pairs;
+		float physics_sleep_velocity_threshold_lin = physics::EngineConfig{}.sleep_velocity_threshold_lin;
+		float physics_sleep_velocity_threshold_ang = physics::EngineConfig{}.sleep_velocity_threshold_ang;
+		float physics_sleep_delay_s = physics::EngineConfig{}.sleep_delay_s;
 		int physics_selective_refresh_passes = physics::EngineConfig{}.selective_refresh_passes;
 		int physics_selective_refresh_max_pairs = physics::EngineConfig{}.selective_refresh_max_pairs;
 		int physics_selective_refresh_body_limit = physics::EngineConfig{}.selective_refresh_body_limit;

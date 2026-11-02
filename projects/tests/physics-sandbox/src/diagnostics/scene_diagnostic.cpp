@@ -186,12 +186,12 @@ namespace physics_sandbox::diag
 				m_engine.m_sleep_island_unpack_ms += profile.m_engine.m_sleep_island_unpack_ms;
 				m_engine.m_body_unpack_ms += profile.m_engine.m_body_unpack_ms;
 				m_engine.m_articulation_unpack_ms += profile.m_engine.m_articulation_unpack_ms;
-				m_engine.m_unpack_diagnostics_ms += profile.m_engine.m_unpack_diagnostics_ms;
 				m_engine.m_substep_count += profile.m_engine.m_substep_count;
 				m_engine.m_submission_count += profile.m_engine.m_submission_count;
 				m_engine.m_wait_count += profile.m_engine.m_wait_count;
 				m_engine.m_readback_copy_count += profile.m_engine.m_readback_copy_count;
 				m_engine.m_terrain_gpu_ms += profile.m_engine.m_terrain_gpu_ms;
+				m_engine.m_water_gpu_ms += profile.m_engine.m_water_gpu_ms;
 			}
 
 			void Reset()
@@ -782,12 +782,12 @@ namespace physics_sandbox::diag
 				<< ',' << average(profile.m_engine.m_sleep_island_unpack_ms)
 				<< ',' << average(profile.m_engine.m_body_unpack_ms)
 				<< ',' << average(profile.m_engine.m_articulation_unpack_ms)
-				<< ',' << average(profile.m_engine.m_unpack_diagnostics_ms)
 				<< ',' << average(profile.m_engine.m_substep_count)
 				<< ',' << average(profile.m_engine.m_submission_count)
 				<< ',' << average(profile.m_engine.m_wait_count)
 				<< ',' << average(profile.m_engine.m_readback_copy_count)
 				<< ',' << average(profile.m_engine.m_terrain_gpu_ms)
+				<< ',' << average(profile.m_engine.m_water_gpu_ms)
 				<< ',' << RigidStateHash(scene)
 				<< '\n';
 			Emit(log, row.str());
@@ -1185,7 +1185,7 @@ namespace physics_sandbox::diag
 			auto sup_id = 0;
 			auto const lowest_ws = s2w * collision::SupportVertex(body.Shape(), InvertAffine(s2w) * v4{0, 0, -1, 0}, 0, sup_id);
 			auto const pos = body.O2W().pos;
-			auto const surface = scene.m_water->surface.Height(physics::terrain::v2d{pos.x, pos.y}, scene.m_clock);
+			auto const surface = scene.m_water->forces.m_field.Height(physics::terrain::v2d{pos.x, pos.y}, scene.m_clock);
 			auto const clearance = lowest_ws.z - surface;
 			Emit(log, std::format("  water surface={:8.4f} clearance={:8.4f} {}\n", surface, clearance, clearance > 0 ? "AIRBORNE" : "wet"));
 		}
@@ -1333,7 +1333,7 @@ namespace physics_sandbox::diag
 		Emit(log, std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
 		Emit(log, std::format("steps={} dt={:.8f} report_interval={}\n", options.m_steps, options.m_dt, options.m_report_interval));
 		if (options.m_engine_profile)
-			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,constraint_pack_ms,articulation_pack_ms,upload_ms,constraint_upload_ms,articulation_upload_ms,external_forces_ms,integrate_ms,articulation_integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms,gpu_prepare_ms,gpu_execute_ms,gpu_wait_ms,gpu_reset_ms,readback_access_ms,body_readback_copy_ms,contact_readback_copy_ms,collision_events_ms,sleep_island_unpack_ms,body_unpack_ms,articulation_unpack_ms,unpack_diagnostics_ms,substeps,submissions,waits,readback_copies,terrain_gpu_ms,rigid_state_hash\n");
+			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,constraint_pack_ms,articulation_pack_ms,upload_ms,constraint_upload_ms,articulation_upload_ms,external_forces_ms,integrate_ms,articulation_integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms,gpu_prepare_ms,gpu_execute_ms,gpu_wait_ms,gpu_reset_ms,readback_access_ms,body_readback_copy_ms,contact_readback_copy_ms,collision_events_ms,sleep_island_unpack_ms,body_unpack_ms,articulation_unpack_ms,substeps,submissions,waits,readback_copies,terrain_gpu_ms,water_gpu_ms,rigid_state_hash\n");
 		else if (options.m_column_metric)
 			Emit(log, "column_metric=true\n");
 		else if (options.m_pyramid_metric)
@@ -1493,10 +1493,10 @@ namespace physics_sandbox::diag
 			options.m_buoyancy_tangential_drag_coefficient ||
 			options.m_buoyancy_wave_resistance)
 		{
-			if (!scene.m_gpu_buoyancy)
+			if (scene.m_physics.Water() == nullptr)
 				throw std::runtime_error("Scene diagnostic buoyancy overrides require a water scene");
 
-			auto config = scene.m_gpu_buoyancy->GetConfig();
+			auto config = *scene.m_physics.Water();
 			if (options.m_buoyancy_linear_drag_time_constant_s)
 				config.m_linear_drag_time_constant_s = *options.m_buoyancy_linear_drag_time_constant_s;
 			if (options.m_buoyancy_angular_drag_time_constant_s)
@@ -1505,17 +1505,17 @@ namespace physics_sandbox::diag
 				config.m_tangential_drag_coefficient = *options.m_buoyancy_tangential_drag_coefficient;
 			if (options.m_buoyancy_wave_resistance)
 				config.m_wave_resistance = *options.m_buoyancy_wave_resistance;
-			scene.m_gpu_buoyancy->SetConfig(config);
+			scene.m_physics.Water(config);
 		}
 		if (options.m_air_density)
 		{
-			// Air forces are currently applied only by the buoyancy module, to the dry parts of floating bodies.
-			if (!scene.m_gpu_buoyancy)
+			// Air forces are currently applied only by the engine's water pass, to the dry parts of floating bodies.
+			if (scene.m_physics.Water() == nullptr)
 				throw std::runtime_error("Scene diagnostic -air_density requires a water scene");
 
-			auto air = scene.m_gpu_buoyancy->GetAir();
-			air.m_density = *options.m_air_density;
-			scene.m_gpu_buoyancy->SetAir(air);
+			auto config = *scene.m_physics.Water();
+			config.m_air.m_density = *options.m_air_density;
+			scene.m_physics.Water(config);
 		}
 		Emit(log, std::format(
 			"load_profile,total_ms={:.4f},prepare_ms={:.4f},bbox_ms={:.4f},shapes_ms={:.4f},bodies_ms={:.4f},buoyancy_ms={:.4f},bodies={},articulations={},constraints={},shapes={}\n",
@@ -1529,16 +1529,16 @@ namespace physics_sandbox::diag
 			scene.m_articulation.size(),
 			scene.m_constraints.Count(),
 			scene.m_last_load_profile.m_shape_count));
-		if (scene.m_gpu_buoyancy)
+		if (auto const* config_ptr = scene.m_physics.Water())
 		{
-			auto const& config = scene.m_gpu_buoyancy->GetConfig();
+			auto const& config = *config_ptr;
 			Emit(log, std::format(
 				"buoyancy_config,linear_drag_time_constant_s={:.5f},angular_drag_time_constant_s={:.5f},tangential_drag_coefficient={:.5f},wave_resistance={:.5f},air_density={:.5f}\n",
 				config.m_linear_drag_time_constant_s,
 				config.m_angular_drag_time_constant_s,
 				config.m_tangential_drag_coefficient,
 				config.m_wave_resistance,
-				scene.m_gpu_buoyancy->GetAir().m_density));
+				config.m_air.m_density));
 		}
 		PrintPolytopeProfile(log, scene);
 		auto dzhanibekov_metric = options.m_dzhanibekov_metric ? CreateDzhanibekovMetric(scene) : DzhanibekovMetricState{};
