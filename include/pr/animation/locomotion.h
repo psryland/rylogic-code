@@ -616,6 +616,15 @@ namespace pr::animation
 		// The fraction of the slowest cycle's stride that a planted foot may be from its neutral position before a standing body steps
 		static constexpr float SettleFraction = 0.15f;
 
+		// The angle (radians) that a planted foot may be turned from its neutral orientation before a standing body steps
+		static constexpr float SettleTwist = 0.2f;
+
+		// How far a planted foot may drift from its neutral position, as a fraction of the current stride, or turn from its neutral orientation
+		// (radians), before it steps out of turn, and the largest fraction of the supporting limbs that may be swinging when it does
+		static constexpr float StrainFraction = 0.75f;
+		static constexpr float StrainTwist = 0.5f;
+		static constexpr float MaxEarlySwingFraction = 0.5f;
+
 		// The seconds that the body takes to follow changes of ground height and speed
 		static constexpr float BodyResponse = 0.2f;
 
@@ -791,7 +800,7 @@ namespace pr::animation
 		float m_fall;               // In [0,1]. How far the limbs are spread out for falling.
 		v4 m_lean;                  // The model-space direction (z = 0) of a righting swimmer's lowest side, with length in [0,1] for how far its limbs reach that way, see 'RightingOffset'
 		v4 m_up;                    // The body's up direction (model +Z) in world space this step
-		v4 m_ground_up;             // The mean unit normal of the ground beneath the feet this step, in world space
+		v4 m_ground_up;             // The mean unit normal of the ground last found beneath the feet, in world space
 		bool m_started;               // False until the feet have been planted
 
 		// Return the fractional part of 'x'
@@ -1439,7 +1448,10 @@ namespace pr::animation
 				if (hits[i].hit)
 					normal += hits[i].normal;
 			}
-			m_ground_up = Normalise(normal, m_up);
+
+			// When no foot finds ground, the last measured slope is the best evidence of it. The body's up is not: an upright body would make any slope look level.
+			if (LengthSq(normal) != 0)
+				m_ground_up = Normalise(normal);
 		}
 
 		// True if family 'f' can be used on the ground beneath the feet. A family that is not the current one needs ground that is less steep
@@ -1480,15 +1492,58 @@ namespace pr::animation
 			UseStance(m_family);
 		}
 
-		// True if limb 'i' is planted further than the settle distance from its neutral position
-		bool IsDisplaced(int i) const
+		// The distance along the surface from limb 'i's neutral contact to its foot's contact
+		float FootDrift(int i) const
 		{
 			// Only the distance along the surface matters; the neutral frame is already on the ground
 			auto const& limb = m_limbs[i];
 			auto offset = ContactOf(limb, limb.foot) - ContactOf(limb, m_neutral[i]);
 			offset -= m_up * Dot(offset, m_up);
+			return Length(offset);
+		}
+
+		// The angle (radians, in [0, pi]) by which limb 'i's foot is turned about the body's up axis away from its neutral orientation
+		float FootTwist(int i) const
+		{
+			// Take the part of the foot's rotation, relative to its neutral frame, that turns about up
+			auto rel = m_limbs[i].foot.rot * ~m_neutral[i].rot;
+			auto s = rel.x * m_up.x + rel.y * m_up.y + rel.z * m_up.z;
+			return std::abs(2.0f * std::atan2(rel.w < 0 ? -s : s, std::abs(rel.w)));
+		}
+
+		// True if limb 'i' is planted further than the settle distance from its neutral position, or turned further than the settle angle
+		bool IsDisplaced(int i) const
+		{
+			// The settle distance scales with the slowest cycle so that small and large bodies settle alike
 			auto settle = SettleFraction * m_gait.families[m_family].cycles.front().stride;
-			return LengthSq(offset) > Sqr(settle);
+			return FootDrift(i) > settle || FootTwist(i) > SettleTwist;
+		}
+
+		// True if planted limb 'i' has drifted or turned so far from its neutral frame that it must step now rather than wait for its swing.
+		// This happens when the body turns or speeds up faster than the stepping can follow.
+		bool IsStrained(int i) const
+		{
+			// The drift limit scales with the current stride, because a planted foot normally drifts by up to half a stride before it lifts
+			auto const& family = m_gait.families[m_family];
+			auto stride = Stride(family, std::max(m_gait_speed, family.cycles.front().speed));
+			return FootDrift(i) > StrainFraction * stride || FootTwist(i) > StrainTwist;
+		}
+
+		// True if limb 'i' can lift without leaving too little support: no more than 'MaxEarlySwingFraction' of the supporting limbs may swing at once
+		bool CanLiftEarly(int i) const
+		{
+			// Count the limbs carrying weight, and those of them already in the air
+			auto supporting = 0;
+			auto swinging = 0;
+			for (int k = 0, kend = static_cast<int>(m_limbs.size()); k != kend; ++k)
+			{
+				if (m_limbs[k].support == 0)
+					continue;
+
+				supporting += 1;
+				swinging += m_limbs[k].state != EFootState::Stance ? 1 : 0;
+			}
+			return m_limbs[i].support != 0 && swinging + 1 <= static_cast<int>(MaxEarlySwingFraction * supporting);
 		}
 
 		// True if a standing body must keep stepping: a supporting foot is swinging or is away from its neutral position
@@ -1544,6 +1599,11 @@ namespace pr::animation
 			constexpr float min_swing_window = 0.05f;
 			if (limb.state == EFootState::Stance && local >= duty && 1.0f - local > min_swing_window && (moving || IsDisplaced(i)))
 				StartSwing(limb, 1.0f - local);
+
+			// A planted foot that the body has dragged or turned too far steps now, out of turn, so that the limb does not twist under the body.
+			// The early swing lasts as long as a normal swing, and only while enough other feet stay planted.
+			if (limb.state == EFootState::Stance && local < duty && IsStrained(i) && CanLiftEarly(i))
+				StartSwing(limb, 1.0f - duty);
 
 			if (limb.state != EFootState::Swing)
 				return;
@@ -2880,6 +2940,71 @@ namespace pr::animation::tests
 
 			PR_EXPECT(FEqlAbsolute(yaw(loco.targets()[0].base), 0.0f, 1e-3f));
 			PR_EXPECT(FEqlAbsolute(yaw(loco.targets()[0].frame), 0.0f, 1e-3f));
+		}
+		PRUnitTestMethod(SuddenTurnsStepTwistedFeet, Quick)
+		{
+			// A body that turns suddenly while both feet are planted lifts one twisted foot out of turn at once, keeping the other planted for support.
+			// Once the body stands still, the feet settle square beneath it, including after a turn too small to strain them.
+			auto rig = TestRig();
+			auto gait = TestGait();
+			auto const& walk = gait.families[0].cycles[0];
+			auto loco = Locomotion(rig, gait);
+			auto ground = TestGround();
+			auto dt = 1.0f / 60;
+			auto body = BodyState{ .velocity = v4(0, -walk.speed, 0, 0) };
+			loco.Step(0, body, ground);
+			auto rest = std::vector<quat>{};
+			for (auto const& limb : loco.limbs())
+				rest.push_back(limb.foot.rot);
+
+			auto twist = [&](int l)
+			{
+				// The foot's yaw, about world up, away from its rest orientation carried round with the body
+				auto rel = loco.limbs()[l].foot.rot * ~(body.model_to_world.rot * rest[l]);
+				return std::abs(2.0f * std::atan2(rel.w < 0 ? -rel.z : rel.z, std::abs(rel.w)));
+			};
+			auto planted = [&]
+			{
+				// True while every foot is on the ground
+				return std::all_of(loco.limbs().begin(), loco.limbs().end(), [](LimbState const& limb) { return limb.state == EFootState::Stance; });
+			};
+
+			// Walk until both feet are planted, then turn the body sharply in one step
+			for (int i = 0; i != 60 || !planted(); ++i)
+			{
+				body.model_to_world.pos += body.velocity * dt;
+				loco.Step(dt, body, ground);
+			}
+			body.model_to_world.rot = Normalise(quat(v4::ZAxis(), 0.8f) * body.model_to_world.rot);
+			loco.Step(dt, body, ground);
+
+			auto swinging = 0;
+			for (auto const& limb : loco.limbs())
+				swinging += limb.state == EFootState::Swing ? 1 : 0;
+
+			PR_EXPECT(swinging == 1);
+
+			// Stand still until the feet settle
+			body.velocity = v4::Zero();
+			for (int i = 0; i != 600; ++i)
+				loco.Step(dt, body, ground);
+
+			for (int l = 0, lend = static_cast<int>(loco.limbs().size()); l != lend; ++l)
+			{
+				PR_EXPECT(loco.limbs()[l].state == EFootState::Stance);
+				PR_EXPECT(twist(l) <= 0.2f + 1e-3f);
+			}
+
+			// A standing body that turns a little on the spot steps its turned feet square again
+			body.model_to_world.rot = Normalise(quat(v4::ZAxis(), 0.3f) * body.model_to_world.rot);
+			for (int i = 0; i != 600; ++i)
+				loco.Step(dt, body, ground);
+
+			for (int l = 0, lend = static_cast<int>(loco.limbs().size()); l != lend; ++l)
+			{
+				PR_EXPECT(loco.limbs()[l].state == EFootState::Stance);
+				PR_EXPECT(twist(l) <= 0.2f + 1e-3f);
+			}
 		}
 		PRUnitTestMethod(FamilyChangesWalkingLimbs, Quick)
 		{
