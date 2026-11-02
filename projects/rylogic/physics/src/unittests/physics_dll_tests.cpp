@@ -996,6 +996,124 @@ namespace pr::unittests
 		}
 	};
 
+	// Verify the public kinematic motion type: creation, state round trips, command rules, and release to dynamic.
+	PRUnitTestClass(PhysicsDllKinematicTests)
+	{
+		PRUnitTestMethod(CreateStepAndCommands, Extended)
+		{
+			// A kinematic box created with finite mass, with gravity set and sleeping disabled
+			auto fix = PhysicsFixture{};
+			auto shape = MakeBox(fix.m_api, fix.m_engine, {0.5f, 0.5f, 0.5f, 0});
+			auto body = MakeBody(fix.m_api, fix.m_engine, shape, Translation(0, 0, 2), EMotionType::Kinematic);
+			auto state = BodyState{};
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(state.motion_type == EMotionType::Kinematic);
+			PR_EXPECT(state.inertia.centre_of_mass_and_mass.w > 0.0f && state.inertia.centre_of_mass_and_mass.w < 1.0e6f);
+			state.gravity = {0, 0, -9.8f, 0};
+			state.flags = static_cast<EBodyFlags>(static_cast<std::uint32_t>(state.flags) | static_cast<std::uint32_t>(EBodyFlags::NeverSleep));
+			PR_EXPECT(fix.m_api.BodyStateSet(fix.m_engine, body, &state) == EStatus::Success);
+
+			// Gravity does not move a kinematic body
+			for (auto i = 0; i != 30; ++i)
+				PR_EXPECT(fix.m_api.Step(fix.m_engine, 1.0f / 60.0f, 0.0, nullptr, 0) == EStatus::Success);
+
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(state.motion_type == EMotionType::Kinematic);
+			PR_EXPECT(FEqlAbsolute(state.object_to_world.w.z, 2.0f, 1e-6f));
+
+			// Snapshots report the motion type
+			auto count = std::uint32_t{1};
+			auto snapshot = BodySnapshot{};
+			PR_EXPECT(fix.m_api.SnapshotCopy(fix.m_engine, &snapshot, 1, &count) == EStatus::Success);
+			PR_EXPECT(count == 1 && snapshot.body == body && snapshot.motion_type == EMotionType::Kinematic);
+
+			// Momentum, force and impulse commands are rejected for kinematic bodies
+			for (auto type : {ECommand::SetMomentum, ECommand::SetForce, ECommand::ApplyForce, ECommand::ApplyImpulse})
+			{
+				// Each command would change momentum, which a kinematic body does not have
+				auto command = BodyCommand{
+					.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
+					.body = body,
+					.type = type,
+					.value = {.angular = {0, 0, 0, 0}, .linear = {1, 0, 0, 0}},
+					.at = {0, 0, 0, 0},
+				};
+				PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &command, 1) == EStatus::InvalidArgument);
+			}
+
+			// The kinematic transform command moves a kinematic body, and is rejected for a dynamic body
+			auto other = MakeBody(fix.m_api, fix.m_engine, shape, Translation(5, 0, 0), EMotionType::Dynamic);
+			auto move = BodyCommand{
+				.header = {sizeof(BodyCommand), PHYSICS_STRUCT_VERSION},
+				.body = body,
+				.type = ECommand::SetKinematicTransform,
+				.transform = Translation(1, 0, 2),
+			};
+			PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &move, 1) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(FEqlAbsolute(state.object_to_world.w.x, 1.0f, 1e-6f));
+			move.body = other;
+			PR_EXPECT(fix.m_api.CommandsApply(fix.m_engine, &move, 1) == EStatus::InvalidArgument);
+
+			// Kinematic bodies are created at rest
+			auto desc = BodyDesc{
+				.header = {sizeof(BodyDesc), PHYSICS_STRUCT_VERSION},
+				.shape = shape,
+				.object_to_world = Identity(),
+				.momentum = {.angular = {0, 0, 0, 0}, .linear = {1, 0, 0, 0}},
+				.motion_type = EMotionType::Kinematic,
+				.mass_mode = EMassMode::Density,
+				.mass_or_density = 1.0f,
+				.flags = EBodyFlags::Enabled,
+			};
+			auto rejected = BodyHandle{};
+			PR_EXPECT(fix.m_api.BodyCreate(fix.m_engine, &desc, &rejected) == EStatus::InvalidArgument);
+
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, other) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
+		}
+		PRUnitTestMethod(StateSwitchKeepsMassAndReleases, Extended)
+		{
+			// A dynamic body with known mass
+			auto fix = PhysicsFixture{};
+			auto shape = MakeBox(fix.m_api, fix.m_engine, {0.5f, 0.5f, 0.5f, 0});
+			auto body = MakeBody(fix.m_api, fix.m_engine, shape, Identity(), EMotionType::Dynamic);
+			auto state = BodyState{};
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			auto const inertia = state.inertia;
+			auto const mass = inertia.centre_of_mass_and_mass.w;
+
+			// Switch to kinematic with a twist. The body keeps its mass and has no momentum.
+			state.motion_type = EMotionType::Kinematic;
+			state.momentum = {.angular = {0, 0, 0, 0}, .linear = {3, 0, 0, 0}};
+			state.velocity = {.angular = {0, 0, 0.5f, 0}, .linear = {1, 0, 0, 0}};
+			PR_EXPECT(fix.m_api.BodyStateSet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(state.motion_type == EMotionType::Kinematic);
+			PR_EXPECT(FEqlRelative(state.inertia.centre_of_mass_and_mass.w, mass, 1e-5f) && FEqlRelative(state.inertia.diagonal.x, inertia.diagonal.x, 1e-5f));
+			PR_EXPECT(state.momentum.linear.x == 0.0f && state.momentum.angular.z == 0.0f);
+			PR_EXPECT(state.velocity.linear.x == 1.0f && state.velocity.angular.z == 0.5f);
+
+			// Release to dynamic. The new velocity comes only from the given momentum.
+			state.motion_type = EMotionType::Dynamic;
+			state.momentum = {.angular = {0, 0, 0, 0}, .linear = {0, 2 * mass, 0, 0}};
+			PR_EXPECT(fix.m_api.BodyStateSet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(fix.m_api.BodyStateGet(fix.m_engine, body, &state) == EStatus::Success);
+			PR_EXPECT(state.motion_type == EMotionType::Dynamic);
+			PR_EXPECT(FEqlRelative(state.inertia.centre_of_mass_and_mass.w, mass, 1e-5f) && FEqlRelative(state.inertia.diagonal.x, inertia.diagonal.x, 1e-5f));
+			PR_EXPECT(FEqlAbsolute(state.velocity.linear.x, 0.0f, 1e-6f) && FEqlAbsolute(state.velocity.linear.y, 2.0f, 1e-5f));
+			PR_EXPECT(FEqlAbsolute(state.velocity.angular.z, 0.0f, 1e-6f));
+
+			// A dynamic state needs a finite, positive mass
+			state.inertia.centre_of_mass_and_mass.w = 0.0f;
+			PR_EXPECT(fix.m_api.BodyStateSet(fix.m_engine, body, &state) == EStatus::InvalidArgument);
+
+			PR_EXPECT(fix.m_api.BodyDestroy(fix.m_engine, body) == EStatus::Success);
+			PR_EXPECT(fix.m_api.ShapeDestroy(fix.m_engine, shape) == EStatus::Success);
+		}
+	};
+
 	// Verify public articulation and persistent-constraint ownership, state, stepping, and diagnostics.
 	PRUnitTestClass(PhysicsDllConstraintTests)
 	{

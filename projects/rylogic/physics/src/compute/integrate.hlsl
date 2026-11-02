@@ -27,6 +27,7 @@
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "pr/hlsl/bounding_box.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
+#include "physics/src/compute/body_twist.hlsli"
 
 #ifdef __cplusplus
 namespace pr::physics {
@@ -153,16 +154,12 @@ void SymplecticAngularDrift(inout float3x3 rot, float3 momentum_ang, float3 iner
 	}
 }
 
-// True when the body's current momentum represents linear and angular velocities below the configured sleep thresholds.
-bool LowVelocity(GpuRigidBody body, float inv_mass)
+// True when the body's current twist is below the configured sleep thresholds.
+bool LowVelocity(GpuRigidBody body)
 {
-	float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
-	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
-	float3 vel_lin = inv_mass * body.momentum_lin.xyz;
-	float3 vel_ang = mul(ws_iinv, body.momentum_ang.xyz);
-
-	return dot(vel_lin, vel_lin) < sqr(g.sleep_velocity_threshold_lin) &&
-		dot(vel_ang, vel_ang) < sqr(g.sleep_velocity_threshold_ang);
+	BodyTwist twist = BodyTwistWS(body);
+	return dot(twist.lin, twist.lin) < sqr(g.sleep_velocity_threshold_lin) &&
+		dot(twist.ang, twist.ang) < sqr(g.sleep_velocity_threshold_ang);
 }
 
 // Compute the world-space AABB for a body and write it to the output buffers.
@@ -221,7 +218,7 @@ void CSIntegrate(int3 DTID(dtid))
 	body.momentum_lin += body.force_lin * half_dt;
 
 	// ---- Sleep check: if body is sleeping and momentum is below thresholds, skip dynamics ----
-	bool low_velocity = inv_mass > 0.0f && LowVelocity(body, inv_mass);
+	bool low_velocity = inv_mass > 0.0f && LowVelocity(body);
 
 	bool force_awake = !g.sleeping_enabled || AllSet(body.state_flags, ERigidBodyStateFlags_NeverSleep);
 	if (force_awake)

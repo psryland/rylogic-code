@@ -25,6 +25,20 @@ namespace pr::physics
 		// in the current step. Cleared at the start of each step.
 		Collided = 1 << 3,
 
+		// True if the body follows a caller-driven velocity (twist) and has infinite mass. Static is clear for kinematic bodies.
+		Kinematic = 1 << 4,
+
 		_flags_enum = 0,
+	};
+
+	// How a rigid body moves.
+	//  - Static: infinite mass, never moves.
+	//  - Dynamic: finite mass, moved by forces, impulses and contacts.
+	//  - Kinematic: infinite mass, moved only by its caller-driven velocity (twist). It pushes dynamic bodies but is never pushed.
+	enum class ERigidBodyMotion :int
+	{
+		Static,
+		Dynamic,
+		Kinematic,
 	};
 }

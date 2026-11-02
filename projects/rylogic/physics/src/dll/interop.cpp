@@ -224,7 +224,6 @@ namespace pr::physics
 			std::unique_ptr<RigidBody> m_body;
 			PhysicsShapeHandle m_shape = {};
 			std::uint64_t m_user_tag = {};
-			PhysicsMotionType m_motion_type = PhysicsMotionType::Dynamic;
 			bool m_enabled = true;
 			bool m_sleep_before_step = false;
 			std::uint32_t m_constraint_refs = 0;
@@ -1284,21 +1283,64 @@ namespace pr::physics
 		}
 
 		// Reject unknown body participation modes before constructing or mutating native state.
-		void RequireMotionType(PhysicsMotionType motion_type)
+		ERigidBodyMotion RequireMotionType(PhysicsMotionType motion_type)
 		{
 			switch (motion_type)
 			{
 				case PhysicsMotionType::Static:
+				{
+					return ERigidBodyMotion::Static;
+				}
 				case PhysicsMotionType::Dynamic:
+				{
+					return ERigidBodyMotion::Dynamic;
+				}
 				case PhysicsMotionType::Kinematic:
 				{
-					return;
+					return ERigidBodyMotion::Kinematic;
 				}
 				default:
 				{
 					throw ApiException(PhysicsStatus::InvalidArgument, "Body motion type is invalid");
 				}
 			}
+		}
+
+		// Convert a native motion type to its ABI value.
+		PhysicsMotionType ToAbi(ERigidBodyMotion motion)
+		{
+			switch (motion)
+			{
+				case ERigidBodyMotion::Static:
+				{
+					return PhysicsMotionType::Static;
+				}
+				case ERigidBodyMotion::Dynamic:
+				{
+					return PhysicsMotionType::Dynamic;
+				}
+				case ERigidBodyMotion::Kinematic:
+				{
+					return PhysicsMotionType::Kinematic;
+				}
+				default:
+				{
+					throw std::invalid_argument("Unknown rigid body motion type");
+				}
+			}
+		}
+
+		// Reject a full body state whose motion type cannot use its mass properties. Dynamic bodies need finite, positive mass.
+		void RequireBodyStateMotion(PhysicsBodyState const& state)
+		{
+			// Only dynamic bodies are moved by their mass properties
+			auto motion = RequireMotionType(state.motion_type);
+			if (motion != ERigidBodyMotion::Dynamic)
+				return;
+
+			auto const mass = state.inertia.centre_of_mass_and_mass.w;
+			if (!(mass > 0.0f && mass < InfiniteMass))
+				throw ApiException(PhysicsStatus::InvalidArgument, "Dynamic body state needs a finite, positive mass");
 		}
 
 		// Return one stable native link handle from the ABI's immutable topological index.
@@ -1630,13 +1672,13 @@ namespace pr::physics
 			state.body = handle;
 			state.shape = record.m_shape;
 			CopyLayout(state.object_to_world, record.m_body->O2W());
-			CopyLayout(state.inertia, Inertia(record.m_body->InertiaOS(), record.m_body->CentreOfMassOS()));
+			CopyLayout(state.inertia, Inertia(Invert(record.m_body->DynamicInertiaInvOS()), record.m_body->CentreOfMassOS()));
 			CopyLayout(state.momentum, record.m_body->MomentumWS());
 			CopyLayout(state.velocity, record.m_body->VelocityWS());
 			CopyLayout(state.force, record.m_body->ForceWS());
 			CopyLayout(state.gravity, record.m_body->GravityWS());
 			state.user_tag = record.m_user_tag;
-			state.motion_type = record.m_motion_type;
+			state.motion_type = ToAbi(record.m_body->Motion());
 			state.flags = BodyFlags(record);
 		}
 
@@ -1649,18 +1691,48 @@ namespace pr::physics
 			body.SetMassProperties(Translate(at_com, com, ETranslateInertia::AwayFromCoM), com);
 		}
 
+		// Apply a validated full body state (see RequireBodyStateMotion). The inertia is always stored as the body's own mass properties. Dynamic bodies
+		// take 'momentum'; kinematic bodies take 'velocity' as their twist; static bodies have no motion.
 		void ApplyBodyState(BodyRecord& record, PhysicsBodyState const& state)
 		{
-			record.m_body->O2W(ToNative(state.object_to_world));
-			SetBodyInertia(*record.m_body, state.inertia);
-			record.m_body->MomentumWS(ToForce(state.momentum));
-			record.m_body->ForceWS(ToForce(state.force));
-			record.m_body->GravityWS(ToNative(state.gravity));
-			record.m_body->NeverSleep(HasFlag(state.flags, PhysicsBodyFlags::NeverSleep));
-			record.m_body->Sleeping(HasFlag(state.flags, PhysicsBodyFlags::Sleeping));
+			// Set the pose and mass properties before switching motion type, so the switch uses the new mass
+			auto& body = *record.m_body;
+			body.O2W(ToNative(state.object_to_world));
+			SetBodyInertia(body, state.inertia);
+
+			// Switch motion type and set the matching motion state. The switch clears forces, so forces are set afterwards.
+			auto const motion = RequireMotionType(state.motion_type);
+			switch (motion)
+			{
+				case ERigidBodyMotion::Static:
+				{
+					body.Motion(motion, v8motion{});
+					break;
+				}
+				case ERigidBodyMotion::Dynamic:
+				{
+					body.Motion(motion, v8motion{});
+					body.MomentumWS(ToForce(state.momentum));
+					break;
+				}
+				case ERigidBodyMotion::Kinematic:
+				{
+					body.Motion(motion, ToMotion(state.velocity));
+					break;
+				}
+				default:
+				{
+					throw ApiException(PhysicsStatus::InvalidArgument, "Body motion type is invalid");
+				}
+			}
+
+			// Apply the remaining state
+			body.ForceWS(ToForce(state.force));
+			body.GravityWS(ToNative(state.gravity));
+			body.NeverSleep(HasFlag(state.flags, PhysicsBodyFlags::NeverSleep));
+			body.Sleeping(HasFlag(state.flags, PhysicsBodyFlags::Sleeping));
 			record.m_enabled = HasFlag(state.flags, PhysicsBodyFlags::Enabled);
 			record.m_user_tag = state.user_tag;
-			record.m_motion_type = state.motion_type;
 		}
 
 		// Validate every command before applying any command so a failed batch has no partial effect.
@@ -1672,22 +1744,37 @@ namespace pr::physics
 			for (auto i = std::uint32_t{}; i != count; ++i)
 			{
 				RequireStruct(&commands[i]);
-				RequireBody(engine, commands[i].body);
+				auto const& body = *RequireBody(engine, commands[i].body).m_body;
 				switch (commands[i].type)
 				{
 					case PhysicsBodyCommandType::SetTransform:
 					case PhysicsBodyCommandType::SetVelocity:
-					case PhysicsBodyCommandType::SetMomentum:
-					case PhysicsBodyCommandType::SetForce:
-					case PhysicsBodyCommandType::ApplyImpulse:
 					case PhysicsBodyCommandType::SetGravity:
-					case PhysicsBodyCommandType::SetKinematicTransform:
 					case PhysicsBodyCommandType::SetEnabled:
 					case PhysicsBodyCommandType::Wake:
 					case PhysicsBodyCommandType::Sleep:
 						break;
+					case PhysicsBodyCommandType::SetMomentum:
+					case PhysicsBodyCommandType::SetForce:
+					case PhysicsBodyCommandType::ApplyImpulse:
+					{
+						// Kinematic bodies are moved only by their twist
+						if (body.Kinematic())
+							throw ApiException(PhysicsStatus::InvalidArgument, "Kinematic bodies cannot take momentum, forces or impulses");
+
+						break;
+					}
+					case PhysicsBodyCommandType::SetKinematicTransform:
+					{
+						if (!body.Kinematic())
+							throw ApiException(PhysicsStatus::InvalidArgument, "Kinematic transform command requires a kinematic body");
+
+						break;
+					}
 					case PhysicsBodyCommandType::ApplyForce:
 					{
+						if (body.Kinematic())
+							throw ApiException(PhysicsStatus::InvalidArgument, "Kinematic bodies cannot take momentum, forces or impulses");
 						if (commands[i].at.w != 0.0f)
 							throw ApiException(PhysicsStatus::InvalidArgument, "Force application point must be an offset from the model origin");
 
@@ -1748,9 +1835,6 @@ namespace pr::physics
 					}
 					case PhysicsBodyCommandType::SetKinematicTransform:
 					{
-						if (record.m_motion_type != PhysicsMotionType::Kinematic)
-							throw ApiException(PhysicsStatus::InvalidArgument, "Kinematic transform command requires a kinematic body");
-
 						body.O2W(ToNative(command.transform));
 						break;
 					}
@@ -1898,7 +1982,7 @@ namespace pr::physics
 			CopyLayout(snapshot.momentum, record.m_body->MomentumWS());
 			CopyLayout(snapshot.velocity, record.m_body->VelocityWS());
 			snapshot.user_tag = record.m_user_tag;
-			snapshot.motion_type = record.m_motion_type;
+			snapshot.motion_type = ToAbi(record.m_body->Motion());
 			snapshot.flags = BodyFlags(record);
 			return snapshot;
 		}
@@ -3117,14 +3201,17 @@ extern "C"
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Body output pointer is null");
 			pr::physics::RequireKnownFlags(value.flags, static_cast<std::uint32_t>(PhysicsBodyFlags::Enabled) | static_cast<std::uint32_t>(PhysicsBodyFlags::Sleeping) | static_cast<std::uint32_t>(PhysicsBodyFlags::NeverSleep), "Body flags");
 			pr::physics::RequireConsistentSleepFlags(value.flags, PhysicsBodyFlags::Sleeping, PhysicsBodyFlags::NeverSleep, "Body flags");
-			pr::physics::RequireMotionType(value.motion_type);
+			auto const motion = pr::physics::RequireMotionType(value.motion_type);
+			if (motion == pr::physics::ERigidBodyMotion::Kinematic && !(value.momentum.angular.x == 0 && value.momentum.angular.y == 0 && value.momentum.angular.z == 0 && value.momentum.linear.x == 0 && value.momentum.linear.y == 0 && value.momentum.linear.z == 0))
+				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Kinematic bodies are created at rest; set their velocity with a command");
 
 			auto& shape_record = pr::physics::RequireShape(record, value.shape);
 			auto body_record = std::make_unique<pr::physics::BodyRecord>();
 			body_record->m_body = std::make_unique<pr::physics::RigidBody>(shape_record.Shape(), pr::physics::ToNative(value.object_to_world), pr::physics::Inertia::Infinite());
-			if (value.motion_type == PhysicsMotionType::Dynamic)
+			if (motion != pr::physics::ERigidBodyMotion::Static)
 			{
-				// Derive mass properties from the shape using the requested mass distribution. Shapes that cannot hold a shell are caller errors.
+				// Derive mass properties from the shape using the requested mass distribution. Kinematic bodies keep them for a later switch to Dynamic.
+				// Shapes that cannot hold a shell are caller errors.
 				auto DeriveMassProperties = [&](bool is_density)
 				{
 					// Translate the ABI distribution
@@ -3176,13 +3263,17 @@ extern "C"
 					}
 				}
 			}
-			body_record->m_body->MomentumWS(pr::physics::ToForce(value.momentum));
+			// Kinematic bodies keep their mass properties but start at rest. Other bodies take the initial momentum.
+			if (motion == pr::physics::ERigidBodyMotion::Kinematic)
+				body_record->m_body->Motion(motion, pr::v8motion{});
+			else
+				body_record->m_body->MomentumWS(pr::physics::ToForce(value.momentum));
+
 			body_record->m_body->GravityWS(pr::physics::ToNative(value.gravity));
 			body_record->m_body->NeverSleep(pr::physics::HasFlag(value.flags, PhysicsBodyFlags::NeverSleep));
 			body_record->m_body->Sleeping(pr::physics::HasFlag(value.flags, PhysicsBodyFlags::Sleeping));
 			body_record->m_shape = value.shape;
 			body_record->m_user_tag = value.user_tag;
-			body_record->m_motion_type = value.motion_type;
 			body_record->m_enabled = pr::physics::HasFlag(value.flags, PhysicsBodyFlags::Enabled);
 
 			auto [slot, index] = pr::physics::AllocateSlot(record.m_bodies);
@@ -3243,7 +3334,7 @@ extern "C"
 				throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Body shape cannot be changed through BodyStateSet");
 			pr::physics::RequireKnownFlags(value.flags, static_cast<std::uint32_t>(PhysicsBodyFlags::Enabled) | static_cast<std::uint32_t>(PhysicsBodyFlags::Sleeping) | static_cast<std::uint32_t>(PhysicsBodyFlags::NeverSleep), "Body state flags");
 			pr::physics::RequireConsistentSleepFlags(value.flags, PhysicsBodyFlags::Sleeping, PhysicsBodyFlags::NeverSleep, "Body state flags");
-			pr::physics::RequireMotionType(value.motion_type);
+			pr::physics::RequireBodyStateMotion(value);
 
 			pr::physics::ApplyBodyState(body_record, value);
 		});
@@ -4006,7 +4097,7 @@ extern "C"
 					throw pr::physics::ApiException(PhysicsStatus::InvalidArgument, "Checkpoint body cookie is invalid");
 				pr::physics::RequireKnownFlags(entry.m_state.flags, static_cast<std::uint32_t>(PhysicsBodyFlags::Enabled) | static_cast<std::uint32_t>(PhysicsBodyFlags::Sleeping) | static_cast<std::uint32_t>(PhysicsBodyFlags::NeverSleep), "Checkpoint body flags");
 				pr::physics::RequireConsistentSleepFlags(entry.m_state.flags, PhysicsBodyFlags::Sleeping, PhysicsBodyFlags::NeverSleep, "Checkpoint body flags");
-				pr::physics::RequireMotionType(entry.m_state.motion_type);
+				pr::physics::RequireBodyStateMotion(entry.m_state);
 
 				bodies.push_back(entry.m_state);
 				max_body_index = std::max(max_body_index, pr::physics::ChildIndex(entry.m_state.body));

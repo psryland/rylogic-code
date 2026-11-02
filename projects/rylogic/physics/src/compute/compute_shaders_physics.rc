@@ -3,7 +3,7 @@
 //
 // Touch this comment any time an .hlsl/.hlsli file referenced below is edited so MSBuild
 // invalidates compute_shaders_physics.res — RC dependency tracking does not follow .hlsl edits.
-// Touched: 2026-10-02 (atmosphere tracers, CBuf tidy)
+// Touched: 2026-11-02 (kinematic body twist in solvers)
 src/surface/gpu_world_contacts.hlsl TEXT DISCARDABLE "src/surface/gpu_world_contacts.hlsl"
 pr/physics/terrain/landscape/baseline_surface.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\terrain\\landscape\\baseline_surface.hlsli"
 pr/physics/terrain/landscape/baseline_types.hlsli TEXT DISCARDABLE "..\\..\\..\\include\\pr\\physics\\terrain\\landscape\\baseline_types.hlsli"
@@ -26,6 +26,7 @@ src/compute/gjk.hlsli           TEXT DISCARDABLE "src/compute/gjk.hlsli"
 src/compute/integrate.hlsl      TEXT DISCARDABLE "src/compute/integrate.hlsl"
 src/compute/frame_output.hlsl   TEXT DISCARDABLE "src/compute/frame_output.hlsl"
 src/compute/physics_types.hlsli TEXT DISCARDABLE "src/compute/physics_types.hlsli"
+src/compute/body_twist.hlsli    TEXT DISCARDABLE "src/compute/body_twist.hlsli"
 src/compute/resolve.hlsl        TEXT DISCARDABLE "src/compute/resolve.hlsl"
 src/compute/selective.hlsl      TEXT DISCARDABLE "src/compute/selective.hlsl"
 src/compute/sleep.hlsl          TEXT DISCARDABLE "src/compute/sleep.hlsl"

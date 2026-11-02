@@ -350,6 +350,8 @@ namespace pr::physics
 		Vector4 centre_of_mass_and_mass;
 	};
 
+	// Body creation parameters. Dynamic and Kinematic bodies derive or take mass properties according to 'mass_mode'. Kinematic bodies are created at rest,
+	// so 'momentum' must be zero for them.
 	struct BodyDesc
 	{
 		StructHeader header;
@@ -366,6 +368,9 @@ namespace pr::physics
 		EBodyFlags flags;
 	};
 
+	// Full body state. 'inertia' is always the body's own mass properties, which kinematic bodies keep for a later switch to Dynamic.
+	// Dynamic bodies take 'momentum' and report 'velocity'. Kinematic bodies take 'velocity' as their twist and report zero 'momentum'.
+	// A Dynamic state needs a finite, positive mass.
 	struct BodyState
 	{
 		StructHeader header;

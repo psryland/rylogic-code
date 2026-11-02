@@ -33,6 +33,7 @@
 #include "pr/hlsl/quaternions.hlsli"
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
+#include "physics/src/compute/body_twist.hlsli"
 
 #ifdef __cplusplus
 namespace pr::physics {
@@ -510,23 +511,20 @@ void CSApplyConstraintWarmStart(int3 DTID(dtid))
 	ApplyConstraintBlockWarmStart(slot_idx);
 }
 
-// Return the current physical row velocity J*v from world-space momenta.
+// Return the current physical row velocity J*v from world-space body twists. Kinematic bodies contribute their twist even though they are never mutated.
 float ConstraintRowVelocity(GpuConstraintBlock block, GpuConstraintRow row)
 {
+	// Sum the contribution of each endpoint that refers to a body
 	float velocity = 0.0f;
-	if (ConstraintBodyDynamic(block.body_idx_a))
+	if (block.body_idx_a >= 0 && block.body_idx_a < g.body_count)
 	{
-		GpuRigidBody body = g_constraint_bodies[block.body_idx_a];
-		float3 angular = mul(ConstraintInverseInertia(block.body_idx_a), body.momentum_ang.xyz);
-		float3 linear_velocity = body.os_com_and_invmass.w * body.momentum_lin.xyz;
-		velocity += dot(row.jacobian_a_ang.xyz, angular) + dot(row.jacobian_a_lin.xyz, linear_velocity);
+		BodyTwist twist = BodyTwistWS(g_constraint_bodies[block.body_idx_a]);
+		velocity += dot(row.jacobian_a_ang.xyz, twist.ang) + dot(row.jacobian_a_lin.xyz, twist.lin);
 	}
-	if (ConstraintBodyDynamic(block.body_idx_b))
+	if (block.body_idx_b >= 0 && block.body_idx_b < g.body_count)
 	{
-		GpuRigidBody body = g_constraint_bodies[block.body_idx_b];
-		float3 angular = mul(ConstraintInverseInertia(block.body_idx_b), body.momentum_ang.xyz);
-		float3 linear_velocity = body.os_com_and_invmass.w * body.momentum_lin.xyz;
-		velocity += dot(row.jacobian_b_ang.xyz, angular) + dot(row.jacobian_b_lin.xyz, linear_velocity);
+		BodyTwist twist = BodyTwistWS(g_constraint_bodies[block.body_idx_b]);
+		velocity += dot(row.jacobian_b_ang.xyz, twist.ang) + dot(row.jacobian_b_lin.xyz, twist.lin);
 	}
 	return velocity;
 }

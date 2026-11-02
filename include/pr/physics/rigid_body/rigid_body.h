@@ -39,6 +39,7 @@ namespace pr::physics
 
 		// World space spatial momentum, measured at the centre of mass.
 		// For bodies with CoM at the model origin, this is equivalent to model-origin momentum.
+		// Kinematic bodies have infinite mass, so this slot holds their twist instead (see KinematicTwistWS).
 		v8force m_ws_momentum;
 
 		// The external forces and torques applied to this body (in world space), measured at the centre of mass.
@@ -50,9 +51,13 @@ namespace pr::physics
 		// applies it as a force on the body when the body is awake and has finite mass (see GravityForceWS).
 		v4 m_ws_gravity;
 
-		// Inverse inertia, measured at the centre of mass (CoM() == 0, block-diagonal).
+		// Inverse inertia used by the solver, measured at the centre of mass (CoM() == 0, block-diagonal).
 		// For articulated bodies, the inertia can be shifted to joint frames using Translate()/To6x6().
+		// This equals 'm_dynamic_inertia_inv' for dynamic and static bodies, and is infinite for kinematic bodies.
 		InertiaInv m_os_inertia_inv;
+
+		// The body's own mass properties, measured at the centre of mass. Kinematic bodies keep them here so they can become dynamic again.
+		InertiaInv m_dynamic_inertia_inv;
 
 		// Collision shape
 		collision::Shape const* m_shape;
@@ -74,6 +79,9 @@ namespace pr::physics
 
 		// Add force without changing sleep state.
 		void AccumulateForceWS(v8force const& ws_force);
+
+		// Set the solver inertia and the Static flag from the dynamic mass properties and the Kinematic flag.
+		void UpdateSolverInertia();
 
 	public:
 
@@ -134,7 +142,7 @@ namespace pr::physics
 		// Return the absolute world-space position of the centre of mass.
 		v4 CentreOfMassPositionWS() const;
 
-		// InertiaInv (use 'SetMassProperties' to change)
+		// The solver inverse inertia (use 'SetMassProperties' to change). Infinite for static and kinematic bodies.
 		InertiaInv InertiaInvOS() const;
 		InertiaInv InertiaInvWS() const;
 		Inertia InertiaOS() const;
@@ -147,13 +155,29 @@ namespace pr::physics
 		Inertia InertiaOS(m4x4 const& o2a) const;
 		InertiaInv InertiaInvOS(m4x4 const& o2a) const;
 
-		// Get/Set the momentum of the rigid body
+		// The body's own mass properties, measured at the centre of mass. These are kept while the body is kinematic.
+		InertiaInv DynamicInertiaInvOS() const;
+
+		// Get/Set how the body moves. Switching resets the motion state:
+		//  - Static: the dynamic mass properties become infinite; momentum, twist and forces are cleared.
+		//  - Dynamic: the dynamic mass properties are used again (they must be finite); momentum is set from 'ws_velocity'.
+		//  - Kinematic: the dynamic mass properties are kept; the twist is set to 'ws_velocity'.
+		// 'ws_velocity' is measured at the centre of mass. Forces are cleared and the body is woken in every case.
+		ERigidBodyMotion Motion() const;
+		void Motion(ERigidBodyMotion motion, v8motion const& ws_velocity);
+		bool Kinematic() const;
+
+		// Get/Set the velocity of a kinematic body (world space, measured at the centre of mass). Only valid for kinematic bodies.
+		v8motion KinematicTwistWS() const;
+		void KinematicTwistWS(v8motion const& ws_twist);
+
+		// Get/Set the momentum of the rigid body. Kinematic bodies report zero momentum and must not have it set.
 		v8force MomentumWS() const;
 		v8force MomentumOS() const;
 		void MomentumWS(v8force const& ws_momentum);
 		void MomentumOS(v8force const& os_momentum);
 
-		// Get/Set the velocity
+		// Get/Set the velocity. For kinematic bodies this is the twist.
 		v8motion VelocityWS() const;
 		v8motion VelocityOS() const;
 		void VelocityWS(v8motion const& ws_velocity);
@@ -207,6 +231,7 @@ namespace pr::physics
 		// Set the mass properties of the body.
 		// 'os_inertia' is the inertia for the body, measured at the model origin (not CoM) (in object space)
 		// 'os_model_to_com' is the vector from the model origin to the body's centre of mass (in object space)
+		// A non-kinematic body is static exactly when its mass is infinite. A kinematic body stores the mass properties for later use and stays kinematic.
 		void SetMassProperties(Inertia const& os_inertia, v4 os_model_to_com = v4{});
 
 		// Return the kinetic energy of the body

@@ -7,6 +7,7 @@
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "pr/hlsl/vector.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
+#include "physics/src/compute/body_twist.hlsli"
 
 #ifdef __cplusplus
 namespace pr::physics {
@@ -48,33 +49,21 @@ RWStructuredBuffer<float> resource(g_output_positions, u14);
 RWStructuredBuffer<float> resource(g_output_velocities, u15);
 RWStructuredBuffer<float> resource(g_output_accelerations, u16);
 
-// Return one body's world-space angular velocity from its compact inverse inertia and momentum.
-float3 CollisionEventAngularVelocityWS(GpuRigidBody body)
-{
-	float inv_mass = body.os_com_and_invmass.w;
-	float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
-	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
-	return mul(ws_iinv, body.momentum_ang.xyz);
-}
-
 // Capture B's post-solve velocity field relative to A at A's model origin, expressed in A space.
 void CollisionEventRelativeVelocity(GpuRigidBody body_a, GpuRigidBody body_b, out_(float4) relative_angular, out_(float4) relative_linear)
 {
+	// Move each centre-of-mass twist to A's model origin, then express the difference in A space
 	float3x3 rot_a = (float3x3)body_a.o2w;
 	float3x3 rot_b = (float3x3)body_b.o2w;
-	float3 omega_a_ws = CollisionEventAngularVelocityWS(body_a);
-	float3 omega_b_ws = CollisionEventAngularVelocityWS(body_b);
+	BodyTwist twist_a = BodyTwistWS(body_a);
+	BodyTwist twist_b = BodyTwistWS(body_b);
 	float3 origin_a_ws = body_a.o2w[3].xyz;
 	float3 com_a_ws = body_a.o2w[3].xyz + mul(body_a.os_com_and_invmass.xyz, rot_a);
 	float3 com_b_ws = body_b.o2w[3].xyz + mul(body_b.os_com_and_invmass.xyz, rot_b);
-	float3 velocity_a_ws =
-		body_a.os_com_and_invmass.w * body_a.momentum_lin.xyz +
-		cross(omega_a_ws, origin_a_ws - com_a_ws);
-	float3 velocity_b_ws =
-		body_b.os_com_and_invmass.w * body_b.momentum_lin.xyz +
-		cross(omega_b_ws, origin_a_ws - com_b_ws);
+	float3 velocity_a_ws = twist_a.lin + cross(twist_a.ang, origin_a_ws - com_a_ws);
+	float3 velocity_b_ws = twist_b.lin + cross(twist_b.ang, origin_a_ws - com_b_ws);
 
-	relative_angular = float4(mul(rot_a, omega_b_ws - omega_a_ws), 0.0f);
+	relative_angular = float4(mul(rot_a, twist_b.ang - twist_a.ang), 0.0f);
 	relative_linear = float4(mul(rot_a, velocity_b_ws - velocity_a_ws), 0.0f);
 }
 

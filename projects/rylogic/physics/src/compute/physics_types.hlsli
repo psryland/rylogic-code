@@ -98,6 +98,7 @@ static const int ERigidBodyStateFlags_Static = 1 << 0;
 static const int ERigidBodyStateFlags_Sleeping = 1 << 1;
 static const int ERigidBodyStateFlags_NeverSleep = 1 << 2;
 static const int ERigidBodyStateFlags_Collided = 1 << 3;
+static const int ERigidBodyStateFlags_Kinematic = 1 << 4;
 
 // Collision shape types:
 static const int SHAPE_SPHERE   = 0;

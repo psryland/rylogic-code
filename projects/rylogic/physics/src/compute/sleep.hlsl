@@ -7,6 +7,7 @@
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "pr/hlsl/bounding_box.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
+#include "physics/src/compute/body_twist.hlsli"
 
 #ifdef __cplusplus
 namespace pr::physics {
@@ -54,15 +55,12 @@ odr bool ActuallyAwake(in_(GpuRigidBody) body)
 // True if 'body' is below the sleep velocity threshold and can potentially go to sleep
 odr bool LowVelocity(in_(GpuRigidBody) body)
 {
+	// Only bodies with finite mass can sleep
 	float inv_mass = body.os_com_and_invmass.w;
-	float3x3 os_iinv = inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
-	float3x3 ws_iinv = rotate_inertia_inv(os_iinv, (float3x3)body.o2w);
-	float3 vel_lin = inv_mass * body.momentum_lin.xyz;
-	float3 vel_ang = mul(ws_iinv, body.momentum_ang.xyz);
-
+	BodyTwist twist = BodyTwistWS(body);
 	return inv_mass > 0.0f &&
-		dot(vel_lin, vel_lin) < sqr(g.sleep_velocity_threshold_lin) &&
-		dot(vel_ang, vel_ang) < sqr(g.sleep_velocity_threshold_ang);
+		dot(twist.lin, twist.lin) < sqr(g.sleep_velocity_threshold_lin) &&
+		dot(twist.ang, twist.ang) < sqr(g.sleep_velocity_threshold_ang);
 }
 
 // Find the representative body for a dynamic connected component. Static bodies are stored as parent -1 and are never part of a sleep island.

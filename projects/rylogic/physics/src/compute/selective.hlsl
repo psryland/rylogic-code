@@ -10,6 +10,7 @@
 #include "pr/hlsl/spatial_algebra.hlsli"
 #include "pr/hlsl/bounding_box.hlsli"
 #include "physics/src/compute/physics_types.hlsli"
+#include "physics/src/compute/body_twist.hlsli"
 
 #ifdef __cplusplus
 namespace pr::physics {
@@ -62,18 +63,12 @@ bool SleepingBody(in_(GpuRigidBody) body)
 		AllSet(body.state_flags, ERigidBodyStateFlags_Sleeping);
 }
 
-float3x3 OsInverseInertia(in_(GpuRigidBody) body)
-{
-	float inv_mass = body.os_com_and_invmass.w;
-	return inv_mass * build_symmetric_3x3(body.inertia_inv_diagonal.xyz, body.inertia_inv_products.xyz);
-}
-
 float3 BodyVelocityAtPoint(in_(GpuRigidBody) body, float3 pt_in_a, float3 com_in_a, float3x3 rot_a)
 {
-	float inv_mass = body.os_com_and_invmass.w;
-	float3x3 ws_iinv = rotate_inertia_inv(OsInverseInertia(body), (float3x3)body.o2w);
-	float3 omega_in_a = mul(rot_a, mul(ws_iinv, body.momentum_ang.xyz));
-	float3 v_com_in_a = mul(rot_a, inv_mass * body.momentum_lin.xyz);
+	// Express the body's twist in A space and add the lever-arm term for the point.
+	BodyTwist twist = BodyTwistWS(body);
+	float3 omega_in_a = mul(rot_a, twist.ang);
+	float3 v_com_in_a = mul(rot_a, twist.lin);
 	return v_com_in_a + cross(omega_in_a, pt_in_a - com_in_a);
 }
 
