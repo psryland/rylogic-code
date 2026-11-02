@@ -49,6 +49,7 @@
 #include <limits>
 #include <stdexcept>
 #include <algorithm>
+#include <bit>
 #include "pr/collision/shape.h"
 #include "pr/collision/shape_box.h"
 #include "pr/collision/shape_sphere.h"
@@ -73,7 +74,7 @@ namespace pr::physics::buoyancy
 		float m_tangential_drag_coefficient = 0.0f; // surface-shear Ct; <= 0 disables tangential drag
 		float m_air_density = 0.0f;                 // kg/m^3; form drag on the dry part of each cell; <= 0 disables air drag
 		float m_added_mass_coefficient = 0.0f;      // Ca; the wave force becomes the Morison inertia force (1 + Ca)*rho*dV*a_fluid
-		float m_surface_spacing = DefaultSurfaceSpacing; // maximum surface cell diameter in shape-local units (see BuildSurfacePlan)
+		float m_surface_spacing = DefaultSurfaceSpacing; // maximum surface cell diameter in shape-local units (see BuildHullSurfacePlans)
 	};
 
 	// Rigid-body kinematics needed to place samples in world space and evaluate point velocities.
@@ -247,6 +248,141 @@ namespace pr::physics::buoyancy
 		return prims;
 	}
 
+	// Return the scale-relative slack used by the sibling inside tests of a hull, so boundary samples register without leaking.
+	inline float HullInsideSlack(collision::Shape const& hull)
+	{
+		auto const bbox = collision::CalcBBox(hull);
+		return std::max(1e-6f, MaxElement(bbox.m_radius.w0()) * 1e-5f);
+	}
+
+	// Return true if a sibling of primitive 'k' hides the COM-root surface point 'p_root' (outward normal 'n_root') from the union
+	// boundary of the hull. 'r2s' maps COM-root space into each primitive's shape space. A surface sample is on the union boundary iff
+	// its exterior side is outside every OTHER primitive, so it is hidden if any other sibling contains the slightly-outward point or
+	// strictly contains the sample itself. The outward point is 'eps' outside a coplanar sibling face, so lower-index siblings use a
+	// wider slack: coplanar faces are then kept by exactly one primitive (the lowest index) rather than by all or none.
+	inline bool IsCulledBySibling(std::vector<collision::Shape const*> const& prims, std::vector<m4x4> const& r2s, size_t k, v4 p_root, v4 n_root, float eps)
+	{
+		auto const probe_root = p_root + n_root * eps;
+		for (size_t j = 0; j != prims.size(); ++j)
+		{
+			if (j == k)
+				continue;
+
+			if (ContainsLocal(*prims[j], r2s[j] * probe_root, j < k ? 2.0f * eps : 0.5f * eps) ||
+				ContainsLocal(*prims[j], r2s[j] * p_root, -eps))
+				return true;
+		}
+		return false;
+	}
+
+	// The surface plan of one primitive of a hull, classified by the sibling cull. 'm_plan' holds the patches with at least one sample on
+	// the hull's union boundary, and bit i of 'm_visible' (word i/32, bit i%32) is set when sample i of 'm_plan' is on that boundary.
+	// 'm_hidden' holds the patches that siblings hide completely; they never contribute and are kept only for debug visualisation.
+	struct HullPrimitivePlan
+	{
+		surface::Plan m_plan;
+		surface::Plan m_hidden;
+		std::vector<uint32_t> m_visible;
+
+		// True when sample 'i' of 'm_plan' is on the hull's union boundary.
+		bool IsVisible(uint32_t i) const
+		{
+			return (m_visible[i / 32] >> (i % 32)) & 1;
+		}
+	};
+
+	namespace impl
+	{
+		// Build the plans of 'prims' at one spacing and classify every sample with the sibling cull (see BuildHullSurfacePlans).
+		inline std::vector<HullPrimitivePlan> ClassifyHullSurfacePlans(std::vector<collision::Shape const*> const& prims, std::vector<m4x4> const& r2s, float eps, float spacing)
+		{
+			auto plans = std::vector<HullPrimitivePlan>(prims.size());
+			for (size_t k = 0; k != prims.size(); ++k)
+			{
+				// Classify every sample with the sibling cull. A single primitive has no siblings, so all of its samples are visible.
+				auto const full = surface::BuildPlan(*prims[k], spacing);
+				auto& out = plans[k];
+				auto visible = std::vector<bool>{};
+				auto begin = 0u;
+				for (auto const& patch : full.m_patches)
+				{
+					// Patches that siblings hide completely move to 'm_hidden' and give up their ordinals.
+					auto const count = patch.m_sample_end - begin;
+					auto const first = visible.size();
+					auto hidden = 0u;
+					for (uint32_t i = 0; i != count; ++i)
+					{
+						auto const sample = surface::EmitSurfaceSample(patch, i);
+						auto const p_root = prims[k]->m_s2r * sample.m_pos_local;
+						auto const n_root = Normalise((prims[k]->m_s2r * sample.m_normal_local).w0(), v4::Zero());
+						auto const culled = prims.size() != 1 && IsCulledBySibling(prims, r2s, k, p_root, n_root, eps);
+						visible.push_back(!culled);
+						hidden += culled ? 1 : 0;
+					}
+					auto& dst = hidden == count ? out.m_hidden : out.m_plan;
+					if (hidden == count)
+						visible.resize(first);
+
+					dst.m_patches.push_back(patch);
+					dst.m_count += count;
+					dst.m_patches.back().m_sample_end = dst.m_count;
+					begin = patch.m_sample_end;
+				}
+
+				// Pack the per-sample classification into the bit mask.
+				out.m_visible.assign((visible.size() + 31) / 32, 0u);
+				for (size_t i = 0; i != visible.size(); ++i)
+					out.m_visible[i / 32] |= visible[i] ? 1u << (i % 32) : 0u;
+			}
+			return plans;
+		}
+	}
+
+	// Build the surface plans of every primitive of a hull, classified by the sibling cull (see HullPrimitivePlan). Cells are at most 'spacing'
+	// across. The spacing of the whole hull is reduced until the hull has at least MinSurfaceSamplesPerHull visible samples, so a hull that
+	// reaches the minimum at 'spacing' gets exactly surface::BuildPlan(prim, spacing) for each primitive. Samples are fixed in the hull's own
+	// frame, so the cull depends only on the shape. Callers that cache shapes run it once rather than for every sample on every step.
+	// The GPU pass and the CPU oracle both use these plans.
+	inline std::vector<HullPrimitivePlan> BuildHullSurfacePlans(collision::Shape const& hull, float spacing)
+	{
+		// Shape-space transforms and the inside-test slack for the sibling cull.
+		auto const prims = CollectPrimitives(hull);
+		auto const eps = HullInsideSlack(hull);
+		auto r2s = std::vector<m4x4>(prims.size());
+		for (size_t k = 0; k != prims.size(); ++k)
+			r2s[k] = InvertOrthonormal(prims[k]->m_s2r);
+
+		// Most hulls already have enough samples at the requested spacing.
+		auto plans = impl::ClassifyHullSurfacePlans(prims, r2s, eps, spacing);
+		auto const visible_count = [&]
+		{
+			// Count the set mask bits of every primitive.
+			auto count = 0u;
+			for (auto const& plan : plans)
+			{
+				for (auto word : plan.m_visible)
+					count += static_cast<uint32_t>(std::popcount(word));
+			}
+			return count;
+		};
+
+		// The sample count grows about as 1/spacing^2, so scale the spacing by sqrt(count / minimum) and rebuild. Grid boundary nodes make
+		// the count grow more slowly than that for coarse grids, so repeat until the minimum is met; this takes a few iterations at most.
+		// A hull without visible area (zero-size primitives) has no pressure to resolve and cannot be refined.
+		auto const has_area = std::ranges::any_of(plans, [](HullPrimitivePlan const& plan)
+		{
+			// Any visible patch with area can be refined.
+			return std::ranges::any_of(plan.m_plan.m_patches, [](surface::SurfacePatch const& patch) { return patch.m_measure > 0.0f; });
+		});
+		for (auto count = visible_count(); has_area && count < MinSurfaceSamplesPerHull; count = visible_count())
+		{
+			// Refine the spacing in proportion to the shortfall.
+			spacing *= static_cast<float>(std::sqrt(static_cast<double>(std::max(count, 1u)) / MinSurfaceSamplesPerHull));
+			plans = impl::ClassifyHullSurfacePlans(prims, r2s, eps, spacing);
+		}
+		return plans;
+	}
+
 	//
 	// Top-level sampler
 	//
@@ -282,15 +418,28 @@ namespace pr::physics::buoyancy
 
 		auto const g_mag = cfg.m_gravity;
 
-		// Pre-compute per-primitive transforms (shape-local <-> COM-root) and surface plans.
+		// Pre-compute the per-primitive shape-local -> COM-root transforms and the cull-classified surface plans.
 		auto s2r = std::vector<m4x4>(prims.size());
-		auto r2s = std::vector<m4x4>(prims.size());
-		auto surface_plans = std::vector<surface::Plan>(prims.size());
 		for (size_t k = 0; k != prims.size(); ++k)
-		{
 			s2r[k] = prims[k]->m_s2r;
-			r2s[k] = InvertOrthonormal(prims[k]->m_s2r);
-			surface_plans[k] = BuildSurfacePlan(*prims[k], cfg.m_surface_spacing);
+
+		auto const surface_plans = BuildHullSurfacePlans(hull, cfg.m_surface_spacing);
+
+		// Record the samples of fully hidden patches for visualisation; they never contribute.
+		if (debug)
+		{
+			for (size_t k = 0; k != prims.size(); ++k)
+			{
+				// Emit each hidden sample in world space.
+				auto const& hidden = surface_plans[k].m_hidden;
+				for (uint32_t i = 0; i != hidden.m_count; ++i)
+				{
+					auto const sample = surface::EmitSurfaceSample(hidden, i);
+					auto const p_root = s2r[k] * sample.m_pos_local;
+					auto const n_root = Normalise((s2r[k] * sample.m_normal_local).w0(), v4::Zero());
+					debug->m_samples.push_back({ (body.m_o2w * p_root).w1(), Normalise((body.m_o2w * n_root).w0(), v4::Zero()), static_cast<int>(k), ESampleKind::SurfaceCulled });
+				}
+			}
 		}
 
 		auto const up = frame.m_up;
@@ -300,11 +449,6 @@ namespace pr::physics::buoyancy
 		auto const com_ws = body.m_o2w * body.m_centre_of_mass_os.w1();
 		auto const rho_g = cfg.m_fluid_density * g_mag;
 		auto const ca = cfg.m_added_mass_coefficient;
-
-		// A scale-relative epsilon for inside tests so boundary samples register without leaking.
-		auto bbox = CalcBBox(hull);
-		auto const extent = MaxElement(bbox.m_radius.w0());
-		auto const eps = std::max(1e-6f, extent * 1e-5f);
 
 		auto wet_volume = 0.0f;
 		auto wet_moment = v4::Zero();
@@ -320,30 +464,15 @@ namespace pr::physics::buoyancy
 		// deduplicated by the any-other-sibling exterior-side rule.
 		for (size_t k = 0; k != prims.size(); ++k)
 		{
-			auto const& plan = surface_plans[k];
+			auto const& plan = surface_plans[k].m_plan;
 			for (uint32_t i = 0; i != plan.m_count; ++i)
 			{
 				auto const sample = surface::EmitSurfaceSample(plan, i);
 				auto const p_root = s2r[k] * sample.m_pos_local;
 				auto const n_root = Normalise((s2r[k] * sample.m_normal_local).w0(), v4::Zero());
 
-				// A surface sample is on the union boundary iff its exterior side is outside every
-				// other primitive. Cull if any other sibling contains the slightly-outward point or
-				// strictly contains the sample itself. The outward point is 'eps' outside a coplanar
-				// sibling face, so lower-index siblings use a wider slack: coplanar faces are then kept
-				// by exactly one primitive (the lowest index) rather than by all or none.
-				auto const probe_root = p_root + n_root * eps;
-				auto culled = false;
-				for (size_t j = 0; j != prims.size() && !culled; ++j)
-				{
-					if (j == k)
-						continue;
-
-					culled =
-						ContainsLocal(*prims[j], r2s[j] * probe_root, j < k ? 2.0f * eps : 0.5f * eps) ||
-						ContainsLocal(*prims[j], r2s[j] * p_root, -eps);
-				}
-				if (culled)
+				// Samples hidden by a sibling are not on the union boundary (see HullPrimitivePlan).
+				if (!surface_plans[k].IsVisible(i))
 				{
 					if (debug)
 						debug->m_samples.push_back({ (body.m_o2w * p_root).w1(), Normalise((body.m_o2w * n_root).w0(), v4::Zero()), static_cast<int>(k), ESampleKind::SurfaceCulled });

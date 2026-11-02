@@ -103,11 +103,11 @@ can still be expensive and are not a real-time latency guarantee.
 `WaterConfig::m_surface_spacing` is part of the immutable shape-cache key. Like polytope derivation settings, it applies at
 registration/shape refresh; existing registrations retain their plans. It defaults to `buoyancy::DefaultSurfaceSpacing` (0.25 m).
 Buoyancy has no volume samples: the water pressure (lift), added mass, damping and drag are all integrated over the surface samples.
-Buoyancy plans come from `buoyancy::BuildSurfacePlan`, which wraps `surface::BuildPlan` and refines the spacing of small primitives until
-each has at least `buoyancy::MinSurfaceSamplesPerPrimitive` (128) samples. A light body floats with a shallow draft, so only the few
-cells near its lowest point are wet, and too few cells give a wrong floating height and false torques. A primitive that already has 128
-samples keeps exactly its `surface::BuildPlan` at the configured spacing, so large primitives get no extra samples. Terrain and other
-`surface::BuildPlan` callers do not get this minimum.
+Buoyancy plans come from `buoyancy::BuildHullSurfacePlans`, which builds `surface::BuildPlan` for every primitive of a hull and refines the
+spacing of the whole hull until it has at least `buoyancy::MinSurfaceSamplesPerHull` (128) visible samples. A light body floats with a
+shallow draft, so only the few cells near its lowest point are wet, and too few cells give a wrong floating height and false torques. A hull
+that already has 128 visible samples keeps exactly `surface::BuildPlan` at the configured spacing for each primitive, so large hulls, and
+compounds of many small primitives, get no extra samples. Terrain and other `surface::BuildPlan` callers do not get this minimum.
 
 Each wet surface sample stands for a cell of area `dA` whose vertical extent is `sqrt(dA) * sin(tilt)` (`buoyancy::SurfaceCellHeight`).
 A cell crossing the waterline contributes its submerged fraction (`buoyancy::CellWetFraction`) and the mean depth of its wet part, so

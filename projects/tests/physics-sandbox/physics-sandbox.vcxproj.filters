@@ -405,6 +405,9 @@
     <None Include="scenes\floater.json">
       <Filter>scenes</Filter>
     </None>
+    <None Include="scenes\buoyancy_boats.json">
+      <Filter>scenes</Filter>
+    </None>
     <None Include="scenes\buoyancy_stress_1000.json">
       <Filter>scenes</Filter>
     </None>

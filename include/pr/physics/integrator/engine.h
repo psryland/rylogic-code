@@ -42,6 +42,7 @@ namespace pr::physics
 			double m_broadphase_ms = 0;
 			double m_collide_ms = 0;
 			double m_terrain_gpu_ms = 0; // GPU timestamp sum across terrain substeps; other timings measure host work/waits.
+			double m_water_gpu_ms = 0; // GPU timestamp sum across water substeps.
 			double m_resolve_ms = 0;
 			double m_selective_ms = 0;
 			int m_selective_refresh_pass_count = 0; // Recorded across all internal substeps.
@@ -60,7 +61,6 @@ namespace pr::physics
 			double m_sleep_island_unpack_ms = 0;
 			double m_body_unpack_ms = 0;
 			double m_articulation_unpack_ms = 0;
-			double m_unpack_diagnostics_ms = 0;
 			int m_substep_count = 0;
 			int m_submission_count = 0;
 			int m_wait_count = 0;

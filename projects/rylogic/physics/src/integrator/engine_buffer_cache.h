@@ -4,25 +4,12 @@
 //*********************************************
 #pragma once
 #include "pr/physics/forward.h"
-#include "pr/physics/diagnostics/body_history.h"
 #include "src/compute/physics_types.h"
 #include "src/collision/shape_cache.h"
 #include "src/diagnostics/physics_log.h"
 
 namespace pr::physics
 {
-	struct NullBodyHistory
-	{
-		template <typename... Args> void BeginFrame(Args&&...)
-		{
-		}
-		template <typename... Args> void EndFrame(Args&&...)
-		{
-		}
-		void Reset()
-		{
-		}
-	};
 	struct NullPhysicsLog
 	{
 		int m_frame = 0;
@@ -50,7 +37,6 @@ namespace pr::physics
 		{
 		}
 	};
-	using BodyHistoryT = std::conditional_t<PR_PHYSICS_DIAGNOSTICS != 0, BodyHistory, NullBodyHistory>;
 	using PhysicsLogT = std::conditional_t<PR_PHYSICS_DIAGNOSTICS != 0, PhysicsLog, NullPhysicsLog>;
 
 	struct EngineBufferCache
@@ -77,7 +63,6 @@ namespace pr::physics
 		int m_broadphase_sort_axis;
 
 		// Diagnostics
-		BodyHistoryT m_history;
 		PhysicsLogT m_log;
 
 		EngineBufferCache()
@@ -92,13 +77,12 @@ namespace pr::physics
 			, m_awake_dynamic_count()
 			, m_broadphase_axis_sample_count()
 			, m_broadphase_sort_axis()
-			, m_history()
 			, m_log()
 		{
 		}
 
 		// Prepare for a new Engine::Step()
-		void NewFrame(std::span<RigidBody*> rigid_bodies)
+		void NewFrame()
 		{
 			// Purge unused shapes from the cache
 			m_shape_cache.BeginFrame();
@@ -120,8 +104,6 @@ namespace pr::physics
 			m_sleep_islands.resize(0);
 			m_sleep_gpu_to_cpu_island_id.resize(0);
 			m_sleep_cpu_to_gpu_island_id.clear();
-
-			m_history.BeginFrame(rigid_bodies);
 		}
 
 		// Drop all cached state.
@@ -145,7 +127,6 @@ namespace pr::physics
 			m_broadphase_axis_sum_sq[2] = 0.0;
 			m_broadphase_axis_sample_count = 0;
 			m_broadphase_sort_axis = 0;
-			m_history.Reset();
 			m_log.Close();
 		}
 

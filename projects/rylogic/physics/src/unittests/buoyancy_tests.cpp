@@ -1788,14 +1788,14 @@ namespace pr::physics::tests
 				return metrics;
 			};
 
-			// Mean per-body surface sample count at one spacing, including the buoyancy per-primitive minimum.
+			// Mean per-body surface sample count at one spacing, including the buoyancy per-hull minimum and excluding hidden patches.
 			auto cost = [&](float spacing)
 			{
 				auto total = 0.0;
 				for (auto const* shape : shapes)
 				{
-					for (auto const* prim : buoyancy::CollectPrimitives(*shape))
-						total += buoyancy::BuildSurfacePlan(*prim, spacing).m_count;
+					for (auto const& plan : buoyancy::BuildHullSurfacePlans(*shape, spacing))
+						total += plan.m_plan.m_count;
 				}
 				return total / shape_count;
 			};

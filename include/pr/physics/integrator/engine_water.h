@@ -81,9 +81,9 @@ namespace pr::physics
 		// be used for them.
 		float m_wave_resistance = 1.0f;
 
-		// Maximum surface-cell diameter in shape-local metres. Buoyancy and drag are both integrated over these cells. Small primitives are sampled
-		// more finely so each gets at least buoyancy::MinSurfaceSamplesPerPrimitive samples (see buoyancy::BuildSurfacePlan). Smaller values cost
-		// more GPU work per body.
+		// Maximum surface-cell diameter in shape-local metres. Buoyancy and drag are both integrated over these cells. Small hulls are sampled
+		// more finely so each gets at least buoyancy::MinSurfaceSamplesPerHull visible samples (see buoyancy::BuildHullSurfacePlans). Smaller
+		// values cost more GPU work per body.
 		float m_surface_spacing = buoyancy::DefaultSurfaceSpacing;
 
 		// The air above the water. Only bodies that touch the water feel air drag from this model; bodies flying clear of the water feel none.

@@ -22,7 +22,8 @@ namespace pr::physics
 		struct CBufWater
 		{
 			int m_hull_count;
-			int m_groups_per_hull;
+			int m_group_count;
+			int m_dispatch_width;
 			float m_time_s;
 			float m_water_level;
 			float m_fluid_density;
@@ -60,32 +61,27 @@ namespace pr::physics
 		};
 		static_assert(sizeof(GpuWaterDiagnostic) == 64);
 
-		// Per-hull header. Mirrors HLSL BuoySurfHeader. 'm_prim_base' and 'm_prim_count' index the frame's concatenated primitive array, and
-		// 'm_element_base' and 'm_element_count' index the frame's concatenated local water elements.
+		// Per-hull header. Mirrors HLSL BuoySurfHeader. 'm_prim_base' and 'm_prim_count' index the resident primitive and record arrays,
+		// 'm_element_base' and 'm_element_count' index the frame's concatenated local water elements, and 'm_group_base' and 'm_group_count'
+		// are the hull's range of sample groups and reduction partials.
 		struct GpuWaterHeader
 		{
 			int m_body_index;
 			int m_prim_base;
 			int m_prim_count;
 			int m_total_surface_samples;
-			float m_eps;
 			int m_element_base;
 			int m_element_count;
 			float m_water_max_height;
+			int m_group_base;
+			int m_group_count;
+			int m_pad0;
+			int m_pad1;
+			int m_pad2;
 			v4 m_bbox_centre_os;
 			v4 m_bbox_radius_os;
 		};
-		static_assert(sizeof(GpuWaterHeader) == 64);
-
-		// Per-primitive surface counts, compact patch range, and half of the largest cell height (for the dry early-out). Mirrors HLSL BuoySurfPrimRecord.
-		struct GpuWaterPrimRecord
-		{
-			int m_count;
-			int m_patch_begin;
-			int m_patch_count;
-			float m_half_cell_height;
-		};
-		static_assert(sizeof(GpuWaterPrimRecord) == 16);
+		static_assert(sizeof(GpuWaterHeader) == 80);
 
 		// Compile one water kernel. The constructor and precompilation share this so their cache keys match.
 		std::vector<uint8_t> CompileWaterKernel(wchar_t const* entry_point, IShaderCache* shader_cache)
@@ -196,17 +192,17 @@ namespace pr::physics
 		, m_surface_step()
 		, m_reduce_step()
 		, m_shapes()
+		, m_visible()
+		, m_prims()
+		, m_records()
+		, m_patches()
 		, m_active()
-		, m_active_shapes()
-		, m_active_shape_index()
 		, m_elements()
-		, m_groups_per_hull()
+		, m_group_count()
+		, m_dispatch_width()
 		, m_elements_addr(nullptr)
-		, m_face_planes_addr(nullptr)
 		, m_headers_addr(nullptr)
-		, m_prims_addr(nullptr)
-		, m_records_addr(nullptr)
-		, m_patches_addr(nullptr)
+		, m_group_hulls_addr(nullptr)
 		, m_r_partials()
 		, m_r_diagnostics()
 		, m_partial_capacity()
@@ -214,9 +210,15 @@ namespace pr::physics
 		, m_pending_readback()
 		, m_pending_keys()
 		, m_diagnostics()
+		, m_queries()
+		, m_query_readback()
+		, m_query_capacity()
+		, m_query_count()
+		, m_frequency()
+		, m_gpu_ms()
 	{
-		// The sample pass reads the bodies, water elements, primitives, face planes (for the sibling cull), headers, patches, and primitive records,
-		// and writes one partial sum per thread group. Root parameter order must match the binding order in Apply.
+		// The sample pass reads the bodies, water elements, primitives, sample visibility masks, headers, patches, primitive records,
+		// and the hull of each group, and writes one partial sum per thread group. Root parameter order must match the binding order in Apply.
 		m_config.Validate();
 		m_surface_step.m_sig = RootSig(ERootSigFlags::ComputeOnly)
 			.U32<CBufWater>(hlsl::ECBufReg::b0)
@@ -227,6 +229,7 @@ namespace pr::physics
 			.SRV(hlsl::ESRVReg::t8)
 			.SRV(hlsl::ESRVReg::t9)
 			.SRV(hlsl::ESRVReg::t11)
+			.SRV(hlsl::ESRVReg::t12)
 			.UAV(hlsl::EUAVReg::u1)
 			.Create(gpu, "Physics.Water.Samples.RootSig");
 		m_surface_step.m_pso = ComputePSO(m_surface_step.m_sig.get(), CompileSampleKernel(shader_cache)).Cache(shader_cache).Create(gpu, "Physics.Water.Samples.PSO");
@@ -248,7 +251,7 @@ namespace pr::physics
 		// Shape data depends on the surface spacing only.
 		config.Validate();
 		if (config.m_surface_spacing != m_config.m_surface_spacing)
-			m_shapes.clear();
+			ClearShapes();
 
 		m_config = std::move(config);
 	}
@@ -257,25 +260,39 @@ namespace pr::physics
 	void GpuWater::Reset()
 	{
 		// Pointers to caller-owned shapes may now be dangling or reused.
-		m_shapes.clear();
+		ClearShapes();
 		m_diagnostics.clear();
 	}
 
-	// Select and stage the hulls that may be wet this frame.
-	void GpuWater::BeginFrame(GpuJob& job, std::span<Hull const> hulls, float elapsed_s)
+	// Forget every cached shape and its resident geometry.
+	void GpuWater::ClearShapes()
 	{
-		// Start an empty frame. Diagnostics are only recorded for frames that dispatch.
+		// Emptying the host arrays makes the next sync upload from the start, so the buffers can be reused.
+		m_shapes.clear();
+		auto clear = [](auto& arr)
+		{
+			arr.m_cpu.clear();
+			arr.m_uploaded = 0;
+		};
+		clear(m_visible);
+		clear(m_prims);
+		clear(m_records);
+		clear(m_patches);
+	}
+
+	// Select and stage the hulls that may be wet this frame.
+	void GpuWater::BeginFrame(GpuJob& job, std::span<Hull const> hulls, float elapsed_s, int substeps)
+	{
+		// Start an empty frame. Diagnostics and timestamps are only recorded for frames that dispatch.
 		m_active.clear();
-		m_active_shapes.clear();
-		m_active_shape_index.clear();
 		m_elements.clear();
 		m_pending_keys.clear();
 		m_pending_readback = {};
+		m_query_count = 0;
 
 		// Select the wet hulls and find the local water elements of each.
 		auto const& field = m_config.m_field;
 		auto const level = field.Level();
-		auto max_samples = 0;
 		auto buffer = std::array<terrain::water::WaterFieldElement, terrain::water::MaxElementCount>{};
 		for (auto const& hull : hulls)
 		{
@@ -302,106 +319,85 @@ namespace pr::physics
 			if (lowest > water_max_height + std::max(shape.m_eps, 1e-4f) + shape.m_max_half_cell_height)
 				continue;
 
-			// Bodies sharing a shape share one block of uploaded geometry.
-			auto [iter, added] = m_active_shape_index.try_emplace(&shape, isize(m_active_shapes));
-			if (added)
-				m_active_shapes.push_back(&shape);
-
 			m_active.push_back(ActiveHull{
 				.m_step_index = hull.m_step_index,
-				.m_shape_index = iter->second,
+				.m_shape = &shape,
 				.m_element_base = isize(m_elements),
 				.m_element_count = isize(elements),
 				.m_water_max_height = water_max_height,
+				.m_group_base = 0,
+				.m_group_count = 0,
 				.m_key = hull.m_key,
 			});
 			m_elements.insert(m_elements.end(), elements.begin(), elements.end());
-			max_samples = std::max(max_samples, shape.m_total_surface_samples);
 		}
 		if (m_active.empty())
 			return;
 
-		// Size the dispatch. Groups are laid out per hull with a uniform count, sized for the busiest hull.
+		// Give each hull only the sample groups its own surface needs, so small hulls do not pay for the largest one. Each group's partial
+		// is reduced by one thread of the hull's reduce group, which bounds the groups per hull; larger hulls stream extra samples through them.
 		auto const hull_count = isize(m_active);
 		if (hull_count > 65535)
 			throw std::runtime_error("Water hull count exceeds the dispatch dimension");
 
-		m_groups_per_hull = std::clamp((max_samples + SampleThreadCount - 1) / SampleThreadCount, 1, ReduceThreadCount);
-		EnsureGpuCapacity(job, hull_count * m_groups_per_hull, m_config.m_enable_diagnostics ? hull_count : 1);
-
-		// Count the geometry of the unique shapes. Each upload has at least one entry because empty arrays still need a valid address.
-		auto total_prims = 0;
-		auto total_face_planes = 0;
-		auto total_patches = size_t{0};
-		for (auto shape : m_active_shapes)
+		m_group_count = 0;
+		for (auto& active : m_active)
 		{
-			total_prims += isize(shape->m_hull.m_primitives);
-			total_face_planes += isize(shape->m_hull.m_face_planes);
-			for (auto const& plan : shape->m_surface_plans)
-				total_patches += plan.m_patches.size();
+			active.m_group_base = m_group_count;
+			active.m_group_count = std::clamp((active.m_shape->m_total_surface_samples + SampleThreadCount - 1) / SampleThreadCount, 1, ReduceThreadCount);
+			m_group_count += active.m_group_count;
 		}
-		if (total_patches > static_cast<size_t>(std::numeric_limits<int>::max()) / sizeof(surface::SurfacePatch))
-			throw std::runtime_error("Water surface patch upload exceeds the addressable buffer size");
+		m_dispatch_width = std::min(m_group_count, 65535);
+		EnsureGpuCapacity(job, m_group_count, m_config.m_enable_diagnostics ? hull_count : 1);
 
-		auto upload_face_planes = job.m_upload.Alloc<v4>(std::max(total_face_planes, 1));
-		auto upload_prims = job.m_upload.Alloc<buoyancy::GpuPrimitive>(std::max(total_prims, 1));
-		auto upload_records = job.m_upload.Alloc<GpuWaterPrimRecord>(std::max(total_prims, 1));
-		auto upload_patches = job.m_upload.Alloc<surface::SurfacePatch>(std::max(static_cast<int>(total_patches), 1));
+		// Grow the timestamp storage to two queries per substep before any substep is recorded.
+		if (substeps < 1)
+			throw std::runtime_error("Water substep count must be positive");
+
+		if (m_query_capacity < 2 * substeps)
+		{
+			auto const query_count = 2 * substeps;
+			auto desc = D3D12_QUERY_HEAP_DESC{.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP, .Count = s_cast<UINT>(query_count)};
+			auto queries = D3DPtr<ID3D12QueryHeap>{};
+			Check(m_gpu->CreateQueryHeap(&desc, __uuidof(ID3D12QueryHeap), (void**)queries.address_of()));
+			auto readback = ResDesc::Buf<uint64_t>(query_count, {});
+			readback.HeapProps = HeapProps(D3D12_HEAP_TYPE_READBACK);
+			readback.DefaultState = D3D12_RESOURCE_STATE_COPY_DEST;
+			m_query_readback = m_gpu.CreateResource(readback, job, "Physics.Water.Timestamps");
+			Check(job.m_queue->GetTimestampFrequency(&m_frequency));
+			m_queries = std::move(queries);
+			m_query_capacity = query_count;
+		}
+
+		// Upload the geometry of shapes built since the last frame. Steady-state frames upload nothing here.
+		SyncResident(job, m_visible, "Physics.Water.Visible");
+		SyncResident(job, m_prims, "Physics.Water.Prims");
+		SyncResident(job, m_records, "Physics.Water.PrimRecords");
+		SyncResident(job, m_patches, "Physics.Water.Patches");
+
+		// Emit one header per hull referencing its shape's resident geometry, its local elements, and its sample groups, and map each group to its hull.
 		auto upload_headers = job.m_upload.Alloc<GpuWaterHeader>(hull_count);
 		auto upload_elements = job.m_upload.Alloc<terrain::water::WaterFieldElement>(std::max(isize(m_elements), 1));
-
-		// Concatenate each unique shape's geometry and sample records. Face-vertex indices stay relative to each primitive's vertex block,
-		// and the surface-vertex array is not bound, so only the face offset needs shifting into the shared buffer.
-		auto face_planes = upload_face_planes.ptr<v4>();
-		auto prims = upload_prims.ptr<buoyancy::GpuPrimitive>();
-		auto records = upload_records.ptr<GpuWaterPrimRecord>();
-		auto patches = upload_patches.ptr<surface::SurfacePatch>();
-		auto prim_bases = std::vector<int>(m_active_shapes.size());
-		auto prim_base = 0;
-		auto face_base = 0;
-		auto patch_base = 0;
-		for (int s = 0, send = isize(m_active_shapes); s != send; ++s)
-		{
-			auto const& shape = *m_active_shapes[s];
-			auto const& hull = shape.m_hull;
-			std::copy(hull.m_face_planes.begin(), hull.m_face_planes.end(), face_planes + face_base);
-			for (int k = 0, kend = isize(hull.m_primitives); k != kend; ++k)
-			{
-				auto prim = hull.m_primitives[k];
-				prim.m_face_ofs += face_base;
-				prims[prim_base + k] = prim;
-
-				auto const& plan = shape.m_surface_plans[k];
-				records[prim_base + k] = GpuWaterPrimRecord{
-					.m_count = static_cast<int>(plan.m_count),
-					.m_patch_begin = patch_base,
-					.m_patch_count = isize(plan.m_patches),
-					.m_half_cell_height = shape.m_half_cell_heights[k],
-				};
-				for (auto const& patch : plan.m_patches)
-					patches[patch_base++] = patch;
-			}
-
-			prim_bases[s] = prim_base;
-			prim_base += isize(hull.m_primitives);
-			face_base += isize(hull.m_face_planes);
-		}
-
-		// Emit one header per hull referencing its shape block and local elements.
+		auto upload_group_hulls = job.m_upload.Alloc<int>(m_group_count);
 		auto headers = upload_headers.ptr<GpuWaterHeader>();
+		auto group_hulls = upload_group_hulls.ptr<int>();
 		for (int i = 0; i != hull_count; ++i)
 		{
 			auto const& active = m_active[i];
-			auto const& shape = *m_active_shapes[active.m_shape_index];
+			auto const& shape = *active.m_shape;
+			std::fill_n(group_hulls + active.m_group_base, active.m_group_count, i);
 			headers[i] = GpuWaterHeader{
 				.m_body_index = active.m_step_index,
-				.m_prim_base = prim_bases[active.m_shape_index],
-				.m_prim_count = isize(shape.m_hull.m_primitives),
+				.m_prim_base = shape.m_prim_base,
+				.m_prim_count = shape.m_prim_count,
 				.m_total_surface_samples = shape.m_total_surface_samples,
-				.m_eps = shape.m_eps,
 				.m_element_base = active.m_element_base,
 				.m_element_count = active.m_element_count,
 				.m_water_max_height = active.m_water_max_height,
+				.m_group_base = active.m_group_base,
+				.m_group_count = active.m_group_count,
+				.m_pad0 = 0,
+				.m_pad1 = 0,
 				.m_bbox_centre_os = shape.m_bbox_os.m_centre,
 				.m_bbox_radius_os = shape.m_bbox_os.m_radius,
 			};
@@ -411,12 +407,9 @@ namespace pr::physics
 		memset(upload_elements.ptr<std::byte>(), 0, sizeof(terrain::water::WaterFieldElement));
 		std::copy(m_elements.begin(), m_elements.end(), upload_elements.ptr<terrain::water::WaterFieldElement>());
 
-		m_face_planes_addr = upload_face_planes;
-		m_prims_addr = upload_prims;
-		m_records_addr = upload_records;
-		m_patches_addr = upload_patches;
 		m_headers_addr = upload_headers;
 		m_elements_addr = upload_elements;
+		m_group_hulls_addr = upload_group_hulls;
 	}
 
 	// Record one substep's sampled water forces.
@@ -430,7 +423,8 @@ namespace pr::physics
 		auto const& config = m_config;
 		auto const cb = CBufWater{
 			.m_hull_count = isize(m_active),
-			.m_groups_per_hull = m_groups_per_hull,
+			.m_group_count = m_group_count,
+			.m_dispatch_width = m_dispatch_width,
 			.m_time_s = config.m_field.LocalTime(time_s),
 			.m_water_level = static_cast<float>(config.m_field.Level()),
 			.m_fluid_density = config.m_density,
@@ -447,20 +441,28 @@ namespace pr::physics
 			.m_gravity = config.m_gravity,
 		};
 
-		// Evaluate the surface samples into one partial record per hull and thread group.
+		// Bracket this substep's water work with timestamps so other GPU stages are not counted.
+		if (m_query_count + 2 > m_query_capacity)
+			throw std::runtime_error("Water timestamp capacity exceeded");
+
 		auto& cmd_list = job.m_cmd_list;
+		cmd_list.get()->EndQuery(m_queries.get(), D3D12_QUERY_TYPE_TIMESTAMP, m_query_count++);
+
+		// Evaluate the surface samples into one partial record per thread group. The groups are tiled into a 2D grid because one
+		// dispatch dimension is limited to 65535 groups.
 		cmd_list.SetPipelineState(m_surface_step.m_pso.get());
 		cmd_list.SetComputeRootSignature(m_surface_step.m_sig.get());
 		cmd_list.AddComputeRoot32BitConstants(cb);
 		cmd_list.AddComputeRootUnorderedAccessView(bodies);
 		cmd_list.AddComputeRootShaderResourceView(m_elements_addr);
-		cmd_list.AddComputeRootShaderResourceView(m_prims_addr);
-		cmd_list.AddComputeRootShaderResourceView(m_face_planes_addr);
+		cmd_list.AddComputeRootShaderResourceView(m_prims.m_res.get());
+		cmd_list.AddComputeRootShaderResourceView(m_visible.m_res.get());
 		cmd_list.AddComputeRootShaderResourceView(m_headers_addr);
-		cmd_list.AddComputeRootShaderResourceView(m_patches_addr);
-		cmd_list.AddComputeRootShaderResourceView(m_records_addr);
+		cmd_list.AddComputeRootShaderResourceView(m_patches.m_res.get());
+		cmd_list.AddComputeRootShaderResourceView(m_records.m_res.get());
+		cmd_list.AddComputeRootShaderResourceView(m_group_hulls_addr);
 		cmd_list.AddComputeRootUnorderedAccessView(m_r_partials.get());
-		cmd_list.Dispatch(m_groups_per_hull, cb.m_hull_count, 1);
+		cmd_list.Dispatch(m_dispatch_width, (m_group_count + m_dispatch_width - 1) / m_dispatch_width, 1);
 		job.m_barriers.UAV(m_r_partials.get()).Commit();
 
 		// Reduce the partials into each body's force accumulators. The diagnostics buffer stays bound even when unused, so there is one root layout.
@@ -477,6 +479,11 @@ namespace pr::physics
 			job.m_barriers.UAV(m_r_diagnostics.get());
 
 		job.m_barriers.Commit();
+		cmd_list.get()->EndQuery(m_queries.get(), D3D12_QUERY_TYPE_TIMESTAMP, m_query_count++);
+
+		// The final substep copies the frame's timestamps out for CompleteStep.
+		if (final_substep)
+			cmd_list.get()->ResolveQueryData(m_queries.get(), D3D12_QUERY_TYPE_TIMESTAMP, 0, m_query_count, m_query_readback.get(), 0);
 
 		// Only the final substep's diagnostics are observable after the frame, so only it is read back.
 		if (config.m_enable_diagnostics && final_substep)
@@ -495,6 +502,23 @@ namespace pr::physics
 	// Publish the diagnostics of the completed step.
 	void GpuWater::CompleteStep()
 	{
+		// Sum the paired substep intervals, so GPU work between the water dispatches is not counted. Dry frames record no queries.
+		m_gpu_ms = 0;
+		if (m_query_count != 0)
+		{
+			void* mapped = nullptr;
+			auto range = D3D12_RANGE{0, sizeof(uint64_t) * m_query_count};
+			Check(m_query_readback->Map(0, &range, &mapped));
+			auto const* ticks = static_cast<uint64_t const*>(mapped);
+			auto elapsed = uint64_t{};
+			for (int i = 0; i + 1 < m_query_count; i += 2)
+				elapsed += ticks[i + 1] - ticks[i];
+
+			auto written = D3D12_RANGE{};
+			m_query_readback->Unmap(0, &written);
+			m_gpu_ms = 1000.0 * static_cast<double>(elapsed) / m_frequency;
+		}
+
 		// Hulls that were not evaluated in this step have no diagnostics.
 		m_diagnostics.clear();
 		if (m_pending_keys.empty())
@@ -582,12 +606,13 @@ namespace pr::physics
 		if (body.InvMass() == 0.0f || body.Sleeping() || !body.HasShape())
 			return false;
 
+		// The centre of mass moves at the linear momentum over the mass, which avoids forming the world-space inverse inertia.
 		hull = Hull{
 			.m_shape = &body.Shape(),
 			.m_o2w = body.O2W(),
 			.m_bbox_ws = body.BBoxWS(),
 			.m_com_ws = body.CentreOfMassPositionWS(),
-			.m_speed = Length(body.VelocityWS().lin),
+			.m_speed = Length(body.MomentumWS().lin) * body.InvMass(),
 			.m_fall_acceleration = Length(body.GravityWS().w0()),
 			.m_step_index = step_index,
 			.m_key = HullKey{ &body, -1 },
@@ -641,48 +666,90 @@ namespace pr::physics
 	GpuWater::CompositeShape const& GpuWater::GetOrCreateShape(collision::Shape const& shape)
 	{
 		// Collision shapes are immutable while cached, so pointer identity is a stable key (see Reset).
-		auto& slot = m_shapes[&shape];
-		if (slot != nullptr)
-			return *slot;
+		if (auto iter = m_shapes.find(&shape); iter != m_shapes.end())
+			return *iter->second;
 
 		// Flatten the shape into the primitive layout used by the shader.
-		auto data = std::make_unique<CompositeShape>();
-		data->m_hull = buoyancy::FlattenShape(shape);
-		if (data->m_hull.Empty())
-		{
-			m_shapes.erase(&shape);
+		auto const hull = buoyancy::FlattenShape(shape);
+		if (hull.Empty())
 			throw std::runtime_error("Water hull contains no primitives");
-		}
 
-		// Build the surface plans in the same primitive order as the flattened descriptors. The largest cell of each primitive bounds how far above
-		// the water a wet sample can be.
-		auto const prims = buoyancy::CollectPrimitives(shape);
-		data->m_surface_plans.resize(prims.size());
-		data->m_half_cell_heights.assign(prims.size(), 0.0f);
-		for (size_t k = 0; k != prims.size(); ++k)
+		// Build the cull-classified surface plans in the same primitive order as the flattened descriptors. The largest cell of each primitive
+		// bounds how far above the water a wet sample can be.
+		auto data = std::make_unique<CompositeShape>();
+		auto const plans = buoyancy::BuildHullSurfacePlans(shape, m_config.m_surface_spacing);
+		auto half_cell_heights = std::vector<float>(plans.size(), 0.0f);
+		auto patch_count = size_t{0};
+		for (size_t k = 0; k != plans.size(); ++k)
 		{
-			auto& plan = data->m_surface_plans[k];
-			plan = buoyancy::BuildSurfacePlan(*prims[k], m_config.m_surface_spacing);
+			auto const& plan = plans[k].m_plan;
 			if (plan.m_count > surface::MaxSampleCount - static_cast<uint32_t>(data->m_total_surface_samples))
-			{
-				m_shapes.erase(&shape);
 				throw std::runtime_error("Water hull exceeds the representable surface sample count");
-			}
 
-			for (uint32_t i = 0; i != plan.m_count; ++i)
-				data->m_half_cell_heights[k] = std::max(data->m_half_cell_heights[k], 0.5f * std::sqrt(surface::EmitSurfaceSample(plan, i).m_darea));
+			for (auto const& patch : plan.m_patches)
+				half_cell_heights[k] = std::max(half_cell_heights[k], 0.5f * std::sqrt(surface::MaxSampleArea(patch)));
 
 			data->m_total_surface_samples += static_cast<int>(plan.m_count);
+			patch_count += plan.m_patches.size();
 		}
+		if (m_patches.m_cpu.size() + patch_count > static_cast<size_t>(std::numeric_limits<int>::max()) / sizeof(surface::SurfacePatch))
+			throw std::runtime_error("Water surface patches exceed the addressable buffer size");
 
-		// Bounds for the dry cull and a scale-relative slack for the sibling inside test.
+		// Bounds and a scale-relative slack for the dry cull.
 		auto const bbox = collision::CalcBBox(shape);
 		data->m_bbox_os = bbox;
-		data->m_eps = std::max(1e-6f, MaxElement(bbox.m_radius.w0()) * 1e-5f);
-		data->m_max_half_cell_height = std::ranges::max(data->m_half_cell_heights);
+		data->m_eps = buoyancy::HullInsideSlack(shape);
+		data->m_max_half_cell_height = std::ranges::max(half_cell_heights);
 
+		// Append the geometry to the resident arrays. The shader reads only the primitive descriptors, patches, and visibility masks, so only
+		// the patch and mask offsets need rebasing into the shared arrays.
+		data->m_prim_base = isize(m_prims.m_cpu);
+		data->m_prim_count = isize(hull.m_primitives);
+		for (int k = 0; k != data->m_prim_count; ++k)
+		{
+			m_prims.m_cpu.push_back(hull.m_primitives[k]);
+
+			auto const& plan = plans[k].m_plan;
+			m_records.m_cpu.push_back(PrimRecord{
+				.m_count = static_cast<int>(plan.m_count),
+				.m_patch_begin = isize(m_patches.m_cpu),
+				.m_patch_count = isize(plan.m_patches),
+				.m_half_cell_height = half_cell_heights[k],
+				.m_visible_base = isize(m_visible.m_cpu),
+			});
+			m_patches.m_cpu.insert(m_patches.m_cpu.end(), plan.m_patches.begin(), plan.m_patches.end());
+			m_visible.m_cpu.insert(m_visible.m_cpu.end(), plans[k].m_visible.begin(), plans[k].m_visible.end());
+		}
+
+		auto& slot = m_shapes[&shape];
 		slot = std::move(data);
 		return *slot;
+	}
+
+	// Upload the newly appended entries of a resident array.
+	template <typename T>
+	void GpuWater::SyncResident(GpuJob& job, ResidentArray<T>& arr, std::string_view name)
+	{
+		// A replaced buffer is empty, so everything is uploaded into it. Capacity doubles so that a stream of new shapes costs amortised
+		// linear uploads. An empty array still gets one entry because the shader binding needs a valid address.
+		auto const count = isize(arr.m_cpu);
+		if (arr.m_res == nullptr || count > arr.m_capacity)
+		{
+			arr.m_capacity = std::max({ count, 2 * arr.m_capacity, 1 });
+			arr.m_res = m_gpu.CreateResource(ResDesc::Buf<T>(arr.m_capacity, {}), job, name);
+			arr.m_uploaded = 0;
+		}
+		if (arr.m_uploaded == count)
+			return;
+
+		// Copy only the tail. Earlier entries are unchanged, so work already recorded that reads them is unaffected.
+		auto const added = count - arr.m_uploaded;
+		auto upload = job.m_upload.Alloc<T>(added);
+		memcpy(upload.ptr<T>(), arr.m_cpu.data() + arr.m_uploaded, added * sizeof(T));
+		job.m_barriers.Transition(arr.m_res.get(), D3D12_RESOURCE_STATE_COPY_DEST).Commit();
+		job.m_cmd_list.CopyBufferRegion(arr.m_res.get(), static_cast<UINT64>(arr.m_uploaded) * sizeof(T), upload);
+		job.m_barriers.Transition(arr.m_res.get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE).Commit();
+		arr.m_uploaded = count;
 	}
 
 	// Grow the output buffers as needed.

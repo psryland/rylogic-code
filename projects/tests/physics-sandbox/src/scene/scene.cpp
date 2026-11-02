@@ -34,6 +34,7 @@ namespace physics_sandbox
 			lhs.m_broadphase_ms += rhs.m_broadphase_ms;
 			lhs.m_collide_ms += rhs.m_collide_ms;
 			lhs.m_terrain_gpu_ms += rhs.m_terrain_gpu_ms;
+			lhs.m_water_gpu_ms += rhs.m_water_gpu_ms;
 			lhs.m_resolve_ms += rhs.m_resolve_ms;
 			lhs.m_selective_ms += rhs.m_selective_ms;
 			lhs.m_sleepupdate_ms += rhs.m_sleepupdate_ms;
@@ -51,7 +52,6 @@ namespace physics_sandbox
 			lhs.m_sleep_island_unpack_ms += rhs.m_sleep_island_unpack_ms;
 			lhs.m_body_unpack_ms += rhs.m_body_unpack_ms;
 			lhs.m_articulation_unpack_ms += rhs.m_articulation_unpack_ms;
-			lhs.m_unpack_diagnostics_ms += rhs.m_unpack_diagnostics_ms;
 			lhs.m_substep_count += rhs.m_substep_count;
 			lhs.m_submission_count += rhs.m_submission_count;
 			lhs.m_wait_count += rhs.m_wait_count;
