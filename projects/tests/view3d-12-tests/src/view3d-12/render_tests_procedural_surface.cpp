@@ -275,6 +275,24 @@ namespace render_tests
 		channels.m_normal_strength = 1.2f;
 		View3D_ObjectNuggetProceduralSurfaceSet(object, channels, nullptr, 0);
 		Require(ImageDifference(flat_normal, fixture.Image()) > 100, "Procedural normal channel did not affect rendered output");
+
+		// The near layer bumps normals only within its fade distances of the camera, and validation rejects an empty fade range.
+		auto near_layer = channels;
+		near_layer.m_normal_strength = 0.0f;
+		near_layer.m_near_feature_scale = 4.0f;
+		near_layer.m_near_normal_strength = 1.0f;
+		near_layer.m_near_fade_start = 100.0f;
+		near_layer.m_near_fade_end = 200.0f;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, near_layer, nullptr, 0);
+		Require(ImageDifference(flat_normal, fixture.Image()) > 100, "Procedural near layer did not affect rendered output inside its fade range");
+		near_layer.m_near_fade_start = 1.0f;
+		near_layer.m_near_fade_end = 2.0f;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, near_layer, nullptr, 0);
+		Require(ImageDifference(flat_normal, fixture.Image()) == 0, "Procedural near layer affected rendered output beyond its fade range");
+		near_layer.m_near_fade_end = near_layer.m_near_fade_start;
+		View3D_ObjectNuggetProceduralSurfaceSet(object, near_layer, nullptr, 0);
+		Require(!fixture.m_errors.empty() && fixture.m_errors.back().find("near fade range") != std::string::npos, "Procedural surface accepted an empty near fade range");
+		fixture.m_errors.clear();
 		channels.m_normal_strength = 0.0f;
 		channels.m_roughness_min = channels.m_roughness_max = 0.04f;
 		View3D_ObjectNuggetProceduralSurfaceSet(object, channels, nullptr, 0);
