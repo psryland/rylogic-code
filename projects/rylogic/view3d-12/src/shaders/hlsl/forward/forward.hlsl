@@ -209,8 +209,10 @@ float3 PerturbWorldNormal(PSIn In, float3 normal, float2 normal_uv)
 	float3 dp1_perp = cross(normal, dp1);
 	float3 tangent = dp2_perp * duv1.x + dp1_perp * duv2.x;
 	float3 bitangent = dp2_perp * duv1.y + dp1_perp * duv2.y;
+	// The frame length scales with (world size of a pixel x UV size of a pixel)^2, so it is tiny for fine textures seen close up.
+	// Only a frame with no UV change across the pixel (zero, or NaN from degenerate derivatives) has no usable direction; reject only that case.
 	float frame_len = max(dot(tangent, tangent), dot(bitangent, bitangent));
-	if (frame_len < TINY)
+	if (!(frame_len > 0.0f))
 		return normal;
 
 	float inv_frame_len = rsqrt(frame_len);
