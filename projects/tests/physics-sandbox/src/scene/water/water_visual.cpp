@@ -92,7 +92,7 @@ namespace physics_sandbox
 				auto const index = index_of(ix, iy);
 				auto const xy_ws = WaterXY(extent, water.grid, ix, iy);
 				auto& vert = buffers.m_vcont[index];
-				vert.m_vert = v4(xy_ws.x, xy_ws.y, static_cast<float>(water.surface.Level()), 1.0f);
+				vert.m_vert = v4(xy_ws.x, xy_ws.y, static_cast<float>(water.forces.m_field.Level()), 1.0f);
 				vert.m_diff = water.colour;
 				vert.m_norm = v4::ZAxis();
 				vert.m_tex0 = v2(float(ix) / float(water.grid.x), float(iy) / float(water.grid.y));
@@ -118,13 +118,13 @@ namespace physics_sandbox
 			}
 		}
 
-		auto const wave_height = static_cast<float>(water.surface.MaxHeight() - water.surface.Level());
+		auto const wave_height = static_cast<float>(water.forces.m_field.MaxHeight() - water.forces.m_field.Level());
 		buffers.m_name = "Water";
 		buffers.m_bbox = BBox(
-			v4(0.0f, 0.0f, static_cast<float>(water.surface.Level()), 1.0f),
+			v4(0.0f, 0.0f, static_cast<float>(water.forces.m_field.Level()), 1.0f),
 			v4(0.5f * extent.x, 0.5f * extent.y, wave_height, 0.0f));
 
-		auto shader = rdr12::Shader::Create<WaterShader>(rdr, water.surface);
+		auto shader = rdr12::Shader::Create<WaterShader>(rdr, water.forces.m_field);
 		buffers.m_ncont.push_back(
 			rdr12::NuggetDesc(rdr12::ETopo::TriList, rdr12::EGeom::Vert | rdr12::EGeom::Colr | rdr12::EGeom::Norm | rdr12::EGeom::Tex0)
 				.alpha_geom()

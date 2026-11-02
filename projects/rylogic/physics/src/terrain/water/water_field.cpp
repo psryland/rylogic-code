@@ -210,20 +210,23 @@ namespace pr::physics::terrain::water
 		UpdateBounds();
 	}
 
-	// Write the local amplitude and crest sharpness of every element at 'xy'.
-	void WaterField::LocalWaves(v2d xy, std::span<v2> waves) const
+	// Return the elements as they act at 'xy', localised for the wind sea and corrected for depth.
+	std::span<WaterFieldElement const> WaterField::LocalElements(v2d xy, std::span<WaterFieldElement, MaxElementCount> buffer) const
 	{
-		if (std::ssize(waves) != std::ssize(m_elements))
-			throw std::invalid_argument(std::format("Water field local waves must hold {} values", std::ssize(m_elements)));
+		// Use the same localisation and correction sequence as the samplers, so evaluating the result matches Height, Sample, and Velocity.
+		auto const xy_f = v2{static_cast<float>(xy.x), static_cast<float>(xy.y)};
+		auto const depth = WaveDepth(xy);
+		auto const elements = Localise(xy_f, buffer, true);
+		auto const correction = Correction(elements, depth);
 
-		// Elements outside the wind sea keep their own values, which consumers already have.
-		auto buffer = std::array<WaterFieldElement, MaxElementCount>{};
-		auto const elements = Localise(v2{static_cast<float>(xy.x), static_cast<float>(xy.y)}, buffer, false);
-		for (auto i = 0LL; i != std::ssize(elements); ++i)
-		{
-			auto const& element = elements[i];
-			waves[i] = m_wind_sea != nullptr && shared::WaterFieldWindSeaBand(element) >= 0 ? v2{element.wave.x, element.timing.x} : v2::Zero();
-		}
+		// Localise returns the stored elements without a wind sea, so the corrected copies always go into 'buffer'.
+		auto const count = elements.size();
+		if (elements.data() != buffer.data())
+			std::copy(elements.begin(), elements.end(), buffer.begin());
+		for (size_t i = 0; i != count; ++i)
+			buffer[i] = shared::WaterFieldDepthCorrected(buffer[i], depth, correction.m_breaking_scale, correction.m_min_sharpness);
+
+		return std::span<WaterFieldElement const>{buffer.data(), count};
 	}
 
 	// The terrain heights used for depth correction.

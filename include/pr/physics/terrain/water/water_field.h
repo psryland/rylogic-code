@@ -82,9 +82,10 @@ namespace pr::physics::terrain::water
 		std::shared_ptr<water::WindSea const> const& WindSea() const noexcept;
 		void WindSea(std::shared_ptr<water::WindSea const> wind_sea);
 
-		// Write the local amplitude (x) and crest sharpness (y) of every element at 'xy' into 'waves' (one per element, in element order),
-		// before any depth correction. Elements that do not follow a wind sea report zero; they keep their own values.
-		void LocalWaves(v2d xy, std::span<v2> waves) const;
+		// Return the elements as they act at 'xy': with their local wind-sea amplitude and sharpness, corrected for the local water depth, and
+		// without elements that are calm there. The result is written into 'buffer'. Evaluating these elements with the shared element functions
+		// gives the same surface as this field near 'xy' (exactly at 'xy'), so a consumer can find them once and reuse them over a small area.
+		std::span<WaterFieldElement const> LocalElements(v2d xy, std::span<WaterFieldElement, MaxElementCount> buffer) const;
 
 		// Ratio of the largest wave height (crest to trough) to the water depth. Only used with a bathymetry.
 		float BreakingRatio() const noexcept;

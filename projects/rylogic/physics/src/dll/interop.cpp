@@ -2532,9 +2532,15 @@ extern "C"
 					config = pr::physics::WaterConfig{
 						.m_field = std::move(field),
 						.m_density = c.density,
-						.m_linear_drag_rate = c.linear_drag_rate,
+						.m_linear_drag_time_constant_s = c.linear_drag_time_constant,
+						.m_angular_drag_time_constant_s = c.angular_drag_time_constant,
 						.m_quadratic_drag_coefficient = c.quadratic_drag_coefficient,
-						.m_angular_drag_rate = c.angular_drag_rate,
+						.m_tangential_drag_coefficient = c.tangential_drag_coefficient,
+						.m_added_mass_coefficient = c.added_mass_coefficient,
+						.m_radiation_damping = c.radiation_damping,
+						.m_wave_resistance = c.wave_resistance,
+						.m_surface_spacing = c.surface_spacing,
+						.m_air = pr::physics::Air{ .m_density = c.air_density },
 					};
 					config->Validate();
 				}

@@ -34,6 +34,11 @@ namespace physics_sandbox::scene_loader
 	//             "size": [20, 20],            // Optional visual mesh size; omitted/zero means auto-size to scene
 	//             "grid": [32, 32],            // Optional visual mesh cell count
 	//             "colour": "0x602080FF",      // Optional ARGB water mesh colour
+	//             "forces": {                  // Optional water force parameters for Engine::Water; omitted values use the physics::WaterConfig defaults
+	//                 "density": 1025.0, "linear_drag_time_constant": 5.0, "angular_drag_time_constant": 0.75,
+	//                 "quadratic_drag_coefficient": 1.05, "tangential_drag_coefficient": 0.01, "added_mass_coefficient": 0.5,
+	//                 "radiation_damping": 1.0, "wave_resistance": 1.0, "surface_spacing": 0.25, "air_density": 1.2
+	//             },
 	//             "waves": [
 	//                 { "direction": [1, 0], "wavelength": 8.0, "amplitude": 0.25, "phase_speed": 1.5 } // "period" is accepted as a wavelength alias
 	//             ]
@@ -187,7 +192,6 @@ namespace physics_sandbox::scene_loader
 		m4x4 m_shape_to_link = m4x4::Identity();
 		bool m_collide_parent = false;
 		bool m_collide_self = true;
-		bool m_buoyant = false;
 	};
 
 	// Describes a fixed- or floating-root reduced-coordinate articulation.
@@ -276,7 +280,9 @@ namespace physics_sandbox::scene_loader
 	// Parsed description of a water field and its sandbox visual mesh.
 	struct WaterDesc
 	{
-		physics::terrain::water::WaterField surface;
+		// The water force parameters passed to physics::Engine::Water. Its field is the water surface.
+		physics::WaterConfig forces;
+
 		v2 size = v2::Zero();
 		iv2 grid = iv2(32, 32);
 		Colour32 colour = Colour32(0x602080FFU);

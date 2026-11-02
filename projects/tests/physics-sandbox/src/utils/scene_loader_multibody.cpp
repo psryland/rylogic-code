@@ -291,8 +291,6 @@ namespace physics_sandbox::scene_loader
 				desc.m_collide_parent = field->to<bool>();
 			if (auto const* field = object.find("collide_self"))
 				desc.m_collide_self = field->to<bool>();
-			if (auto const* field = object.find("buoyant"))
-				desc.m_buoyant = field->to<bool>();
 
 			return desc;
 		}

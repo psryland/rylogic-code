@@ -26,7 +26,6 @@ namespace las
 		// Physics registration owned by the ship.
 		PhysicsSystem& m_physics;
 		PhysicsSystem::BodyHandle m_body_handle;
-		PhysicsSystem::BuoyancyHullRegistration m_buoyancy_hull;
 		float m_hull_volume_m3;
 		std::atomic<float> m_requested_density_kg_m3;
 		std::atomic<float> m_applied_density_kg_m3;
@@ -63,8 +62,8 @@ namespace las
 		// Apply pending tuning requests on the simulation owner thread.
 		void ApplyTuning();
 
-		// Return the latest read-back buoyancy diagnostics for the ship hull.
-		physics::GpuBuoyancy::Diagnostics BuoyancyDiagnostics() const;
+		// Return the water forces on the ship from the last step, or empty when it was dry or asleep.
+		std::optional<physics::WaterDiagnostics> BuoyancyDiagnostics() const;
 
 		// Prepare shader constant buffers for rendering (thread-safe).
 		void PrepareRender(v4 camera_world_pos);

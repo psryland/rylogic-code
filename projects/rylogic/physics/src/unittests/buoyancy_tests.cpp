@@ -6,7 +6,7 @@
 #include "pr/common/unittests.h"
 #include "pr/physics/articulation/articulation.h"
 #include "pr/physics/rigid_body/rigid_body.h"
-#include "pr/physics/buoyancy/gpu_buoyancy.h"
+#include "pr/physics/integrator/engine.h"
 #include "pr/physics/buoyancy/buoyancy_sampler.h"
 #include "pr/physics/buoyancy/wave_resistance.hlsli"
 #include "pr/physics/shape/shape_builder.h"
@@ -161,88 +161,97 @@ namespace pr::physics::tests
 		}
 	};
 
-	// Retain the heavyweight GPU queue across test methods while keeping the body resolver bound to stable storage.
+	// Retain the heavyweight GPU queue across test methods while keeping the body storage stable.
 	struct HarnessStorage
 	{
 		std::vector<RigidBody> m_bodies;
 		Engine m_engine;
-		GpuBuoyancy m_buoyancy;
 
-		explicit HarnessStorage(bool enable_diagnostics)
+		HarnessStorage()
 			: m_bodies()
 			, m_engine(
 				EngineConfig{},
 				&SharedTestShaderCache(),
 				SharedTestGpu().m_gpu.device(),
 				SharedTestGpu().m_gpu.queue())
-			, m_buoyancy(
-				m_engine.Device(),
-				m_engine,
-				GpuBuoyancy::Config{
-					.m_enable_diagnostics = enable_diagnostics,
-				},
-				[](int stable_body_index)
-				{
-					return stable_body_index;
-				},
-				[this](int stable_body_index)
-				{
-					auto body_state = GpuBuoyancy::BodyState{};
-					if (stable_body_index < 0 || stable_body_index >= isize(m_bodies))
-						return body_state;
-
-					body_state.m_o2w = m_bodies[stable_body_index].O2W();
-					body_state.m_centre_of_mass_os = m_bodies[stable_body_index].CentreOfMassOS();
-					body_state.m_ws_gravity = m_bodies[stable_body_index].GravityWS();
-					body_state.m_valid = true;
-					return body_state;
-				})
 		{}
 	};
 
-	// Return independent retained fixtures for diagnostic and production configurations.
-	// Fixtures are per-class because they use the class's GPU fixture (see SharedTestGpu).
-	static HarnessStorage& SharedHarnessStorage(bool enable_diagnostics)
+	// Return the retained fixture. Fixtures are per-class because they use the class's GPU fixture (see SharedTestGpu).
+	static HarnessStorage& SharedHarnessStorage()
 	{
-		// One fixture per configuration, shared by the tests of the class running on the calling thread.
-		thread_local auto diagnostic = std::unique_ptr<HarnessStorage>{};
-		thread_local auto production = std::unique_ptr<HarnessStorage>{};
-		auto& slot = enable_diagnostics ? diagnostic : production;
-		return ClassFixture(slot, [=] { return std::make_unique<HarnessStorage>(enable_diagnostics); });
+		// One fixture shared by the tests of the class running on the calling thread.
+		thread_local auto storage = std::unique_ptr<HarnessStorage>{};
+		return ClassFixture(storage, [] { return std::make_unique<HarnessStorage>(); });
 	}
 
-	// Present isolated per-method body state while reusing the configuration's long-lived GPU resources.
+	// The water forces read back for one body, with a flag for whether the engine reported any.
+	struct HarnessDiagnostics : WaterDiagnostics
+	{
+		bool m_valid = false;
+	};
+
+	// Present isolated per-method body and water state while reusing the long-lived engine and GPU resources.
 	struct Harness
 	{
 		HarnessStorage& m_storage;
 		std::vector<RigidBody>& m_bodies;
 		Engine& m_engine;
-		GpuBuoyancy& m_buoyancy;
+		WaterConfig m_config;
 
 		explicit Harness(bool enable_diagnostics = true)
-			: m_storage(SharedHarnessStorage(enable_diagnostics))
+			: m_storage(SharedHarnessStorage())
 			, m_bodies(m_storage.m_bodies)
 			, m_engine(m_storage.m_engine)
-			, m_buoyancy(m_storage.m_buoyancy)
+			, m_config()
 		{
 			// Restore all mutable fixture state so retained GPU resources cannot couple otherwise-independent test methods.
 			m_bodies.clear();
 			m_engine.ResetCaches();
-			m_buoyancy.SetWaterField(terrain::water::WaterField{});
-			m_buoyancy.SetConfig(GpuBuoyancy::Config{
-				.m_enable_diagnostics = enable_diagnostics,
-			});
+			m_config.m_enable_diagnostics = enable_diagnostics;
+			m_engine.Water(m_config);
+		}
+
+		// Replace the water parameters, keeping the current water surface.
+		void SetConfig(WaterConfig config)
+		{
+			config.m_field = m_config.m_field;
+			m_config = config;
+			m_engine.Water(m_config);
+		}
+		WaterConfig const& GetConfig() const
+		{
+			return m_config;
+		}
+
+		// Replace the water surface, keeping the current parameters.
+		void SetWaterField(terrain::water::WaterField field)
+		{
+			m_config.m_field = std::move(field);
+			m_engine.Water(m_config);
+		}
+
+		// Return the water forces on body 'i' in the last completed step.
+		HarnessDiagnostics Diagnostics(int i) const
+		{
+			auto result = HarnessDiagnostics{};
+			if (auto const* diag = m_engine.WaterDiagnosticsFor(m_bodies[i]))
+			{
+				static_cast<WaterDiagnostics&>(result) = *diag;
+				result.m_valid = true;
+			}
+			return result;
 		}
 	};
 
-	// Coverage for sampled-composite hull flattening, registration lifetime, and GPU integration.
+	// Coverage for sampled-composite hull flattening and the engine's GPU water pass.
 	// GPU-vs-oracle cases validate deterministic sampling as well as force and diagnostic readback.
 	PRUnitTestClass(BuoyancyCompositeHostTests)
 	{
 		// Keep the GPU pass and CPU oracle on the shared buoyancy sample density.
 		PRUnitTestMethod(SharedSampleDensityDefaults, Extended)
 		{
-			PR_EXPECT(GpuBuoyancy::Config{}.m_surface_spacing == buoyancy::DefaultSurfaceSpacing);
+			PR_EXPECT(WaterConfig{}.m_surface_spacing == buoyancy::DefaultSurfaceSpacing);
 			PR_EXPECT(buoyancy::SamplerConfig{}.m_surface_spacing == buoyancy::DefaultSurfaceSpacing);
 		}
 
@@ -404,25 +413,7 @@ namespace pr::physics::tests
 
 		}
 
-		// Registering a composite hull twice for the same body is an error.
-		PRUnitTestMethod(CompositeDoubleRegisterThrows, Extended)
-		{
-			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
-			Harness h;
-			h.m_bodies.emplace_back();
-			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
-			h.m_bodies[0].O2W(m4x4::Identity());
-
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
-			PR_EXPECT(static_cast<bool>(reg));
-
-			auto threw = false;
-			try { auto reg2 = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0); }
-			catch (std::exception const&) { threw = true; }
-			PR_EXPECT(threw);
-		}
-
-		// Registration derives an untessellated collision polytope directly from the rigid body. A
+		// The water pass derives an untessellated collision polytope directly from the rigid body. A
 		// fully submerged cube reports its exact total volume because every surface water column is wet.
 		PRUnitTestMethod(GpuCompositeDerivesBodyPolytope, Extended)
 		{
@@ -441,17 +432,15 @@ namespace pr::physics::tests
 			h.m_bodies[0].O2W(m4x4::Translation(0.0f, 0.0f, -5.0f));
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-			h.m_buoyancy.CompleteStep();
 
-			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			auto const diag = h.Diagnostics(0);
 			PR_EXPECT(poly.m_tet_count == 0);
 			PR_EXPECT(diag.m_valid);
 			PR_EXPECT(FEqlRelative(diag.m_volume_m3, 8.0f, 1e-4f));
 		}
 
-		// A live registration follows RigidBody::ShapeChange. Replacing a submerged box with a sphere
+		// The water pass follows RigidBody::ShapeChange. Replacing a submerged box with a sphere
 		// updates the cached geometry before the next step rather than applying forces from stale data.
 		PRUnitTestMethod(GpuCompositeRefreshesChangedBodyShape, Extended)
 		{
@@ -464,35 +453,16 @@ namespace pr::physics::tests
 			h.m_bodies[0].O2W(m4x4::Translation(0.0f, 0.0f, -5.0f));
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 			h.m_bodies[0].Shape(collision::shape_cast(&sphere));
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-			h.m_buoyancy.CompleteStep();
 
 			auto const expected_volume = (4.0f / 3.0f) * constants<float>::tau_by_2;
-			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			auto const diag = h.Diagnostics(0);
 			PR_EXPECT(diag.m_valid);
 			PR_EXPECT(FEqlRelative(diag.m_volume_m3, expected_volume, 1e-4f));
 		}
 
-		// Registration marks the body NeverSleep, and releasing the handle restores the prior flag.
-		PRUnitTestMethod(CompositeUnregisterRestoresNeverSleep, Extended)
-		{
-			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
-			Harness h;
-			h.m_bodies.emplace_back();
-			h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
-			h.m_bodies[0].O2W(m4x4::Identity());
-			h.m_bodies[0].NeverSleep(false);
-
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
-			PR_EXPECT(h.m_bodies[0].NeverSleep() == true);
-
-			reg.Reset();
-			PR_EXPECT(h.m_bodies[0].NeverSleep() == false);
-		}
-
-		// Phase-11 GATE: a single box registered through the sampled-composite path must reproduce
+		// Phase-11 GATE: a single box sampled through the composite path must reproduce
 		// the closed-form analytic box result (volume / force / centre-of-buoyancy / torque) to within
 		// surface quadrature error. This is the first end-to-end exercise of DispatchComposite plus
 		// the surface kernels.
@@ -513,12 +483,9 @@ namespace pr::physics::tests
 			h.m_bodies[0].NeverSleep(true);
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
-
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-			h.m_buoyancy.CompleteStep();
 
-			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			auto const diag = h.Diagnostics(0);
 			PR_EXPECT(diag.m_valid);
 
 			// Surface cells straddling the waterline are integrated with a partial-cell approximation, and the symmetric-cancellation
@@ -541,16 +508,14 @@ namespace pr::physics::tests
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
 			// Disable added mass and radiation damping so the expected velocity depends only on the drag and waterline stiffness terms.
-			auto config = h.m_buoyancy.GetConfig();
+			auto config = h.GetConfig();
 			config.m_added_mass_coefficient = 0.0f;
 			config.m_radiation_damping = 0.0f;
-			h.m_buoyancy.SetConfig(config);
+			h.SetConfig(config);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-			h.m_buoyancy.CompleteStep();
 
-			PR_EXPECT(!h.m_buoyancy.LatestDiagnostics(0, 0).m_valid);
+			PR_EXPECT(!h.Diagnostics(0).m_valid);
 
 			// Prove the buoyancy force is actually applied to the rigid body, not merely reported in the
 			// diagnostic record. The body also receives m*g (it carries its own gravity vector), so the
@@ -566,13 +531,8 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(h.m_bodies[0].VelocityWS().lin, v4{0.0f, 0.0f, expected_velocity, 0.0f}, 2e-3f));
 		}
 
-		// Fully-dry fast path. A box positioned entirely above the z=0 water surface must
-		// contribute zero buoyancy. The GPU per-sample fully-dry early-out
-		// (BuoySupportAlongUp + lo >= water_max_height) suppresses all samples for the primitive.
-		// The result is identical to the per-sample wet test (every sample is dry anyway), so this test
-		// is a regression guard for the support-interval math driving the fast path, not a behaviour
-		// change. The body still receives m*g, so only buoyancy must be zero, verified via the
-		// diagnostic record.
+		// Fully-dry fast path. A box positioned entirely above the z=0 water surface must contribute zero buoyancy.
+		// The engine's dry cull skips it before dispatch, so it has no diagnostic record.
 		PRUnitTestMethod(GpuCompositeBoxFullyDryContributesZero, Extended)
 		{
 			auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
@@ -585,18 +545,11 @@ namespace pr::physics::tests
 			h.m_bodies[0].NeverSleep(true);
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
-
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-			h.m_buoyancy.CompleteStep();
 
-			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
-			PR_EXPECT(diag.m_valid);
-
-			// A fully-dry primitive displaces no fluid: zero volume, force, COB-moment, and torque.
-			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 0.0f, 1e-4f));
-			PR_EXPECT(FEqlAbsolute(diag.m_force_ws, v4::Zero(), 1e-3f));
-			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), 1e-3f));
+			// A fully-dry body is culled before dispatch, so it gets no water forces and reports no diagnostics.
+			auto const diag = h.Diagnostics(0);
+			PR_EXPECT(!diag.m_valid);
 		}
 
 		// Host-side dry broadphase cull must NOT cull a body that straddles the water line. A box
@@ -614,12 +567,9 @@ namespace pr::physics::tests
 			h.m_bodies[0].NeverSleep(true);
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
-
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-			h.m_buoyancy.CompleteStep();
 
-			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			auto const diag = h.Diagnostics(0);
 			PR_EXPECT(diag.m_valid);
 
 			// Not culled: the lower half (z=[-0.5,0]) is submerged, displacing 2*2*0.5 = 2 m^3.
@@ -640,24 +590,20 @@ namespace pr::physics::tests
 				// Each run uses a fresh harness so the diagnostics come from this placement only.
 				auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 				Harness h;
-				h.m_buoyancy.SetWaterField(terrain::water::WaterField(0.0, std::span{&wave, 1}));
+				h.SetWaterField(terrain::water::WaterField(0.0, std::span{&wave, 1}));
 				h.m_bodies.emplace_back();
 				h.m_bodies[0].Shape(collision::shape_cast(&box), 500.0f);
 				h.m_bodies[0].O2W(m4x4::Translation(v4{crest_x, 0.0f, centre_z, 1.0f}));
 				h.m_bodies[0].NeverSleep(true);
 				h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
-				auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 				h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-				h.m_buoyancy.CompleteStep();
-				return h.m_buoyancy.LatestDiagnostics(0, 0);
+				return h.Diagnostics(0);
 			};
 
-			// Lowest point at z=0.6 is above the 0.5 crest bound: culled, zero buoyancy.
+			// Lowest point at z=0.6 is above the 0.5 crest bound: culled, so not dispatched and no diagnostics.
 			auto const dry = run(1.1f);
-			PR_EXPECT(dry.m_valid);
-			PR_EXPECT(FEqlAbsolute(dry.m_volume_m3, 0.0f, 1e-4f));
-			PR_EXPECT(FEqlAbsolute(dry.m_force_ws, v4::Zero(), 1e-3f));
+			PR_EXPECT(!dry.m_valid);
 
 			// Lowest point at z=0.25 is above the still-water level but 0.25 m below the crest: 2*2*0.25 = 1 m^3 wet.
 			auto const wet = run(0.75f);
@@ -699,10 +645,8 @@ namespace pr::physics::tests
 			h.m_bodies[0].NeverSleep(true);
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
-			auto const config = h.m_buoyancy.GetConfig();
+			auto const config = h.GetConfig();
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-			h.m_buoyancy.CompleteStep();
 
 			// Feed the same shape, transform, and sample spacing to the CPU oracle so any cell placement or wet-fraction error
 			// changes the sampled wet volume.
@@ -711,12 +655,12 @@ namespace pr::physics::tests
 				.m_gravity_ws = AnalyticGravityWS,
 			};
 			auto const oracle_cfg = buoyancy::SamplerConfig{
-				.m_fluid_density = config.m_fluid_density,
+				.m_fluid_density = config.m_density,
 				.m_linear_drag_time_constant_s = config.m_linear_drag_time_constant_s,
 				.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 				.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
 				.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
-				.m_air_density = h.m_buoyancy.GetAir().m_density,
+				.m_air_density = h.GetConfig().m_air.m_density,
 				.m_added_mass_coefficient = config.m_added_mass_coefficient,
 				.m_surface_spacing = config.m_surface_spacing,
 			};
@@ -726,7 +670,7 @@ namespace pr::physics::tests
 				buoyancy::WaterFrame{},
 				FlatField{},
 				oracle_cfg);
-			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			auto const diag = h.Diagnostics(0);
 
 			PR_EXPECT(oracle.m_valid && diag.m_valid);
 			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, oracle.m_volume_m3, std::max(oracle.m_volume_m3 * 0.002f, 1e-4f)));
@@ -760,12 +704,9 @@ namespace pr::physics::tests
 			h.m_bodies[0].NeverSleep(true);
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
-
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-			h.m_buoyancy.CompleteStep();
 
-			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			auto const diag = h.Diagnostics(0);
 			PR_EXPECT(diag.m_valid);
 
 			// Union submerged volume is the outer box half (2 m^3), proving the inner box's cells were
@@ -776,7 +717,7 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(diag.m_torque_ws, v4::Zero(), 15.0f));
 		}
 
-		// A fully-submerged sphere registered through the composite backend must reproduce the closed-form
+		// A fully-submerged sphere sampled through the composite backend must reproduce the closed-form
 		// sphere buoyancy: V = 4/3*pi*R^3, force = (0, 0, rho*|g|*V) straight up, centre of buoyancy at the
 		// sphere centre, zero torque. Tolerances are looser than the box case because the curved surface is
 		// integrated with flat cells, and the symmetric-cancellation quantities (lateral force, COB drift,
@@ -794,12 +735,9 @@ namespace pr::physics::tests
 			h.m_bodies[0].NeverSleep(true);
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
-
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-			h.m_buoyancy.CompleteStep();
 
-			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			auto const diag = h.Diagnostics(0);
 			PR_EXPECT(diag.m_valid);
 
 			auto const volume = (4.0f / 3.0f) * (constants<float>::tau / 2.0f) * radius * radius * radius;
@@ -827,7 +765,7 @@ namespace pr::physics::tests
 			auto const axis = Normalise(v4{1.0f, 1.0f, 0.0f, 0.0f});
 
 			Harness h;
-			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
+			h.SetConfig(WaterConfig{
 				.m_surface_spacing = 0.1f,
 				.m_enable_diagnostics = true,
 			});
@@ -835,15 +773,13 @@ namespace pr::physics::tests
 			h.m_bodies[0].Shape(collision::shape_cast(&capsule), 500.0f);
 			h.m_bodies[0].NeverSleep(true);
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
 			// Fully submerged: every water column is wet, so volume, lift and centre of buoyancy are exact up to quadrature error.
 			{
 				h.m_bodies[0].O2W(m4x4::Transform(axis, 0.6f, v4{0.0f, 0.0f, -5.0f, 1.0f}));
 				h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-				h.m_buoyancy.CompleteStep();
 
-				auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+				auto const diag = h.Diagnostics(0);
 				auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * volume;
 				PR_EXPECT(diag.m_valid);
 				PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, volume, volume * 0.01f));
@@ -856,9 +792,8 @@ namespace pr::physics::tests
 				h.m_bodies[0].O2W(m4x4::Transform(axis, 0.6f, v4::Origin()));
 				h.m_bodies[0].VelocityWS(v4::Zero(), v4::Zero());
 				h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-				h.m_buoyancy.CompleteStep();
 
-				auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+				auto const diag = h.Diagnostics(0);
 				PR_EXPECT(diag.m_valid);
 				PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 0.5f * volume, volume * 0.02f));
 				PR_EXPECT(diag.m_centre_buoyancy_ws.z < 0.0f);
@@ -887,15 +822,13 @@ namespace pr::physics::tests
 			// Start-of-step velocity drives the drag pass; capture it for the oracle before stepping.
 			h.m_bodies[0].VelocityWS(omega, vel_lin);
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
 			// Use the runtime configuration rather than duplicating its defaults in the oracle.
-			auto const config = h.m_buoyancy.GetConfig();
+			auto const config = h.GetConfig();
 
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-			h.m_buoyancy.CompleteStep();
 
-			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			auto const diag = h.Diagnostics(0);
 			PR_EXPECT(diag.m_valid);
 
 			// Match the surface spacing, flat water, and the dispatch-time body state.
@@ -906,12 +839,12 @@ namespace pr::physics::tests
 				.m_omega_ws = omega,
 			};
 			auto oracle_cfg = buoyancy::SamplerConfig{
-				.m_fluid_density = config.m_fluid_density,
+				.m_fluid_density = config.m_density,
 				.m_linear_drag_time_constant_s = config.m_linear_drag_time_constant_s,
 				.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 				.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
 				.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
-				.m_air_density = h.m_buoyancy.GetAir().m_density,
+				.m_air_density = h.GetConfig().m_air.m_density,
 				.m_added_mass_coefficient = config.m_added_mass_coefficient,
 				.m_surface_spacing = config.m_surface_spacing,
 			};
@@ -955,9 +888,9 @@ namespace pr::physics::tests
 				for (auto level_offset : {-3.0f, 0.13f})
 				{
 					Harness h;
-					auto config = h.m_buoyancy.GetConfig();
+					auto config = h.GetConfig();
 					config.m_surface_spacing = 0.035f;
-					h.m_buoyancy.SetConfig(config);
+					h.SetConfig(config);
 					auto const o2w = m4x4::Transform(v4::YAxis(), 0.23f, v4{0.3f, -0.2f, level_offset, 1});
 					auto const velocity = v4{1.1f, -0.4f, 0.3f, 0};
 					auto const omega = v4{0.2f, -0.3f, 0.4f, 0};
@@ -967,7 +900,6 @@ namespace pr::physics::tests
 					body.O2W(o2w);
 					body.GravityWS(AnalyticGravityWS);
 					body.VelocityWS(omega, velocity);
-					auto registration = h.m_buoyancy.RegisterCompositeHull(body, 0, 0);
 					auto const oracle_body = buoyancy::BodyState{
 						.m_o2w = o2w,
 						.m_centre_of_mass_os = body.CentreOfMassOS(),
@@ -976,19 +908,18 @@ namespace pr::physics::tests
 						.m_omega_ws = omega,
 					};
 					auto const oracle_cfg = buoyancy::SamplerConfig{
-						.m_fluid_density = config.m_fluid_density,
+						.m_fluid_density = config.m_density,
 						.m_linear_drag_time_constant_s = config.m_linear_drag_time_constant_s,
 						.m_angular_drag_time_constant_s = config.m_angular_drag_time_constant_s,
 						.m_quadratic_drag_coefficient = config.m_quadratic_drag_coefficient,
 						.m_tangential_drag_coefficient = config.m_tangential_drag_coefficient,
-						.m_air_density = h.m_buoyancy.GetAir().m_density,
+						.m_air_density = h.GetConfig().m_air.m_density,
 						.m_added_mass_coefficient = config.m_added_mass_coefficient,
 						.m_surface_spacing = config.m_surface_spacing,
 							};
 					auto const oracle = buoyancy::SampleHull(*shape, oracle_body, buoyancy::WaterFrame{}, FlatField{}, oracle_cfg);
 					h.m_engine.Step(0.0001f, std::span{h.m_bodies});
-					h.m_buoyancy.CompleteStep();
-					auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+					auto const diag = h.Diagnostics(0);
 					auto const force = oracle.m_buoyancy_force_ws + oracle.m_drag_force_ws;
 					auto const torque = oracle.m_buoyancy_torque_ws + oracle.m_drag_torque_ws;
 					PR_EXPECT(diag.m_valid);
@@ -1089,7 +1020,7 @@ namespace pr::physics::tests
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 
 			// Disable all drag terms so the lateral force is purely from the wave pressure field.
-			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
+			h.SetConfig(WaterConfig{
 				.m_linear_drag_time_constant_s = 0.0f,
 				.m_angular_drag_time_constant_s = 0.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
@@ -1102,14 +1033,12 @@ namespace pr::physics::tests
 			auto const amplitude = 0.5f;
 			auto const omega = 0.4f;
 			auto const wave = terrain::water::SineWave(v2{1.0f, 0.0f}, amplitude, wavelength, omega);
-			h.m_buoyancy.SetWaterField(terrain::water::WaterField(0.0, std::span{&wave, 1}));
+			h.SetWaterField(terrain::water::WaterField(0.0, std::span{&wave, 1}));
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-			h.m_buoyancy.CompleteStep();
 
-			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			auto const diag = h.Diagnostics(0);
 			PR_EXPECT(diag.m_valid);
 
 			// The box is fully submerged, so the sampled volume is the full box (4 m^3) up to sampling noise.
@@ -1117,33 +1046,11 @@ namespace pr::physics::tests
 			auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * volume;
 
 			// The fluid acceleration acts on the displaced fluid (Froude-Krylov) and on the added mass, so the inertia coefficient is 1 + Ca.
-			auto const inertia_coefficient = 1.0f + h.m_buoyancy.GetConfig().m_added_mass_coefficient;
+			auto const inertia_coefficient = 1.0f + h.GetConfig().m_added_mass_coefficient;
 			auto const expected_force_x = -inertia_coefficient * AnalyticFluidDensity * volume * amplitude * omega * omega;
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.x, expected_force_x, std::max(std::abs(expected_force_x) * 0.02f, 25.0f)));
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.y, 0.0f, 25.0f));
 			PR_EXPECT(FEqlAbsolute(diag.m_force_ws.z, rho_g_v, std::abs(rho_g_v) * 0.01f));
-		}
-
-		// The composite shaders read element amplitudes directly, so a field with a wind sea is rejected rather than evaluated at its bounds.
-		PRUnitTestMethod(WindSeaFieldIsRejected, Extended)
-		{
-			using namespace terrain::water;
-
-			// A minimal wind sea: one band's table and a calm 2x2 grid.
-			auto const spectrum = WaveSpectrum{};
-			auto const bands = spectrum.Layout().m_bands;
-			constexpr int speed_count = 2;
-			auto table = std::vector<WindSeaTableRow>(static_cast<size_t>(bands) * speed_count);
-			spectrum.SeaTable(10000.0f, 0.5f, table);
-			auto const grid = WindSeaGrid{.origin = {0.0f, 0.0f}, .cell_size = 100.0f, .speed_step = 0.5f, .dims = {2, 2}, .band_count = bands, .speed_count = speed_count, .level_count = bands};
-			auto const winds = std::vector<v2>(static_cast<size_t>(4 * bands), v2{0.0f, 0.0f});
-			auto field = WaterField(0.0);
-			field.WindSea(std::make_shared<WindSea const>(grid, table, winds));
-
-			// The previous field is kept when the new one is rejected.
-			Harness h;
-			PR_THROWS(h.m_buoyancy.SetWaterField(field), std::invalid_argument);
-			PR_EXPECT(h.m_buoyancy.GetWaterField().WindSea() == nullptr);
 		}
 
 		// Composite port of the legacy GpuLinearDragForce check, asserting the wet-volume linear-drag closed form.
@@ -1163,22 +1070,20 @@ namespace pr::physics::tests
 			h.m_bodies[0].VelocityWS(v4::Zero(), v4{1.0f, 0.0f, 0.0f, 0.0f});
 
 			// Isolate linear drag by disabling both surface-drag terms.
-			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
+			h.SetConfig(WaterConfig{
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
 				.m_enable_diagnostics = true,
 			});
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-			h.m_buoyancy.CompleteStep();
 
-			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			auto const diag = h.Diagnostics(0);
 			PR_EXPECT(diag.m_valid);
 
-			auto const config = h.m_buoyancy.GetConfig();
-			auto const c_lin = config.m_fluid_density / config.m_linear_drag_time_constant_s;
+			auto const config = h.GetConfig();
+			auto const c_lin = config.m_density / config.m_linear_drag_time_constant_s;
 			auto const expected_force_x = -c_lin * diag.m_volume_m3 * 1.0f;
 			auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * diag.m_volume_m3;
 
@@ -1203,7 +1108,7 @@ namespace pr::physics::tests
 			h.m_bodies[0].NeverSleep(true);
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 			h.m_bodies[0].VelocityWS(v4{0.0f, 0.0f, 1.0f, 0.0f}, v4::Zero());
-			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
+			h.SetConfig(WaterConfig{
 				.m_linear_drag_time_constant_s = 0.0f,
 				.m_angular_drag_time_constant_s = 1.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
@@ -1211,16 +1116,14 @@ namespace pr::physics::tests
 				.m_enable_diagnostics = true,
 			});
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-			h.m_buoyancy.CompleteStep();
 
-			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
-			auto const config = h.m_buoyancy.GetConfig();
+			auto const diag = h.Diagnostics(0);
+			auto const config = h.GetConfig();
 			auto const volume = dimensions.x * dimensions.y * dimensions.z;
 			auto const polar_volume_moment = volume * (dimensions.x * dimensions.x + dimensions.y * dimensions.y) / 12.0f;
-			auto const expected_torque_z = -(config.m_fluid_density / config.m_angular_drag_time_constant_s) * polar_volume_moment;
-			auto const rho_g_v = config.m_fluid_density * Length(AnalyticGravityWS) * volume;
+			auto const expected_torque_z = -(config.m_density / config.m_angular_drag_time_constant_s) * polar_volume_moment;
+			auto const rho_g_v = config.m_density * Length(AnalyticGravityWS) * volume;
 
 			PR_EXPECT(diag.m_valid);
 			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, volume, 0.01f));
@@ -1250,27 +1153,25 @@ namespace pr::physics::tests
 			h.m_bodies[0].VelocityWS(v4::Zero(), v4{1.0f, 0.0f, 0.0f, 0.0f});
 
 			// Other drag terms are disabled so the lateral force is purely normal quadratic form drag.
-			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
+			h.SetConfig(WaterConfig{
 				.m_linear_drag_time_constant_s = 0.0f,
 				.m_angular_drag_time_constant_s = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
 				.m_enable_diagnostics = true,
 			});
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-			h.m_buoyancy.CompleteStep();
 
-			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			auto const diag = h.Diagnostics(0);
 			PR_EXPECT(diag.m_valid);
 
-			auto const config = h.m_buoyancy.GetConfig();
+			auto const config = h.GetConfig();
 			auto const hy = 1.0f;
 			auto const hz = 0.5f;
 			auto const front_face_area = (2.0f * hy) * (2.0f * hz);
 			auto const v_n = 1.0f;
-			auto const expected_drag_x = -0.5f * config.m_fluid_density * config.m_quadratic_drag_coefficient * front_face_area * v_n * v_n;
+			auto const expected_drag_x = -0.5f * config.m_density * config.m_quadratic_drag_coefficient * front_face_area * v_n * v_n;
 			auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * diag.m_volume_m3;
 
 			PR_EXPECT(FEqlAbsolute(diag.m_volume_m3, 4.0f, 0.01f));
@@ -1295,7 +1196,7 @@ namespace pr::physics::tests
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 			h.m_bodies[0].VelocityWS(v4::Zero(), v4{1.0f, 0.0f, 0.0f, 0.0f});
 
-			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
+			h.SetConfig(WaterConfig{
 				.m_linear_drag_time_constant_s = 0.0f,
 				.m_angular_drag_time_constant_s = 0.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
@@ -1303,16 +1204,14 @@ namespace pr::physics::tests
 				.m_enable_diagnostics = true,
 			});
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 			h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-			h.m_buoyancy.CompleteStep();
 
-			auto const diag = h.m_buoyancy.LatestDiagnostics(0, 0);
+			auto const diag = h.Diagnostics(0);
 			auto const tangent_area = 12.0f;
 			auto const expected_drag_x =
 				-0.5f *
-				h.m_buoyancy.GetConfig().m_fluid_density *
-				h.m_buoyancy.GetConfig().m_tangential_drag_coefficient *
+				h.GetConfig().m_density *
+				h.GetConfig().m_tangential_drag_coefficient *
 				tangent_area;
 			auto const rho_g_v = AnalyticFluidDensity * Length(AnalyticGravityWS) * diag.m_volume_m3;
 
@@ -1338,7 +1237,7 @@ namespace pr::physics::tests
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
 			h.m_bodies[0].VelocityWS(v4::Zero(), v4{1.0f, 0.0f, 0.0f, 0.0f});
 
-			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
+			h.SetConfig(WaterConfig{
 				.m_linear_drag_time_constant_s = 0.0f,
 				.m_angular_drag_time_constant_s = 0.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
@@ -1347,20 +1246,18 @@ namespace pr::physics::tests
 				.m_enable_diagnostics = true,
 			});
 
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 			auto const dt = 1.0f / 60.0f;
 			h.m_engine.Step(dt, std::span{h.m_bodies});
-			h.m_buoyancy.CompleteStep();
 
 			// The 2% tolerance covers the area quadrature of the surface samples.
-			auto const c = 0.5f * h.m_buoyancy.GetConfig().m_fluid_density * h.m_buoyancy.GetConfig().m_tangential_drag_coefficient * 12.0f;
+			auto const c = 0.5f * h.GetConfig().m_density * h.GetConfig().m_tangential_drag_coefficient * 12.0f;
 			auto const expected_vx = 1.0f / (1.0f + dt * c / 500.0f);
 			auto const velocity = h.m_bodies[0].VelocityWS().lin;
 			PR_EXPECT(velocity.x > 0.0f);
 			PR_EXPECT(FEqlAbsolute(velocity.x, expected_vx, expected_vx * 0.02f));
 		}
 
-		// Rigid and articulation registrations share one dispatch while resolving the ordinary-body prefix and hidden-proxy suffix independently.
+		// Rigid bodies and articulation links share one dispatch, and each receives its own water forces.
 		PRUnitTestMethod(GpuCompositeMixedRigidAndArticulationLinks, Extended)
 		{
 			auto const dimensions = v4{1.0f, 1.0f, 1.0f, 0.0f};
@@ -1380,28 +1277,13 @@ namespace pr::physics::tests
 			auto articulation = builder.Build();
 			articulation.GravityWS(root, AnalyticGravityWS);
 			auto forest = std::array{&articulation};
-			h.m_buoyancy.SetConfig(GpuBuoyancy::Config{
+			h.SetConfig(WaterConfig{
 				.m_linear_drag_time_constant_s = 0.0f,
 				.m_angular_drag_time_constant_s = 0.0f,
 				.m_quadratic_drag_coefficient = 0.0f,
 				.m_tangential_drag_coefficient = 0.0f,
 				.m_enable_diagnostics = true,
 			});
-
-			auto rigid_registration = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
-
-			// Releasing one of several link registrations must not restore the shared tree policy early.
-			{
-				auto first_sleep_owner = h.m_buoyancy.RegisterCompositeHull(articulation, root, 2, 0);
-				auto second_sleep_owner = h.m_buoyancy.RegisterCompositeHull(articulation, root, 3, 0);
-				first_sleep_owner.Reset();
-				PR_EXPECT(articulation.NeverSleep());
-				second_sleep_owner.Reset();
-				PR_EXPECT(!articulation.NeverSleep());
-			}
-
-			auto link_registration = h.m_buoyancy.RegisterCompositeHull(articulation, root, 1, 0);
-			PR_EXPECT(articulation.NeverSleep());
 			auto bodies = std::array<RigidBody*, 1>{&h.m_bodies[0]};
 
 			// Both mostly submerged low-density targets receive more upward buoyancy than downward gravity.
@@ -1410,20 +1292,21 @@ namespace pr::physics::tests
 				.m_articulations = std::span{forest},
 				.m_elapsed_seconds = 1.0f / 60.0f,
 			});
-			h.m_buoyancy.CompleteStep();
 
-			auto const rigid_diagnostic = h.m_buoyancy.LatestDiagnostics(0, 0);
-			auto const link_diagnostic = h.m_buoyancy.LatestDiagnostics(1, 0);
+			auto const rigid_diagnostic = h.Diagnostics(0);
+			auto const* link_diagnostic_ptr = h.m_engine.WaterDiagnosticsFor(articulation, root);
 			PR_EXPECT(rigid_diagnostic.m_valid);
-			PR_EXPECT(link_diagnostic.m_valid);
+			PR_EXPECT(link_diagnostic_ptr != nullptr);
+			if (link_diagnostic_ptr == nullptr)
+				return;
+
+			auto const& link_diagnostic = *link_diagnostic_ptr;
 			PR_EXPECT(rigid_diagnostic.m_volume_m3 > 0.70f);
 			PR_EXPECT(link_diagnostic.m_volume_m3 > 0.70f);
 			PR_EXPECT(rigid_diagnostic.m_force_ws.z > 0.0f);
 			PR_EXPECT(link_diagnostic.m_force_ws.z > 0.0f);
 			PR_EXPECT(h.m_bodies[0].VelocityWS().lin.z > 0.0f);
 			PR_EXPECT(articulation.RootVelocity().lin.z > 0.0f);
-			link_registration.Reset();
-			PR_EXPECT(!articulation.NeverSleep());
 		}
 
 		// A light hollow ball (0.06 kg, r = 0.15 m) dropped onto calm water settles at the analytic floating height. The ball displaces
@@ -1439,7 +1322,6 @@ namespace pr::physics::tests
 			h.m_bodies[0].Shape(collision::shape_cast(&sphere), mass, false, EMassDistribution::Shell);
 			h.m_bodies[0].O2W(m4x4::Translation(0.0f, 0.0f, radius));
 			h.m_bodies[0].GravityWS(AnalyticGravityWS);
-			auto reg = h.m_buoyancy.RegisterCompositeHull(h.m_bodies[0], 0, 0);
 
 			// Solve the cap depth d of the displaced volume pi*d^2*(3r - d)/3 by bisection.
 			auto const displaced = mass / AnalyticFluidDensity;
@@ -1460,7 +1342,6 @@ namespace pr::physics::tests
 			for (int i = 0; i != 600; ++i)
 			{
 				h.m_engine.Step(dt, std::span{h.m_bodies}, i * double(dt));
-				h.m_buoyancy.CompleteStep();
 				if (i < 480)
 					continue;
 
@@ -1494,7 +1375,6 @@ namespace pr::physics::tests
 				for (auto i = 0; i != warmup; ++i)
 				{
 					h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-					h.m_buoyancy.CompleteStep();
 				}
 
 				std::vector<double> samples;
@@ -1503,7 +1383,6 @@ namespace pr::physics::tests
 				{
 					auto const t0 = clock::now();
 					h.m_engine.Step(1.0f / 60.0f, std::span{h.m_bodies});
-					h.m_buoyancy.CompleteStep();
 					auto const t1 = clock::now();
 					samples.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
 				}
@@ -1519,8 +1398,6 @@ namespace pr::physics::tests
 			{
 				auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 				Harness h;
-				std::vector<GpuBuoyancy::Registration> regs;
-				regs.reserve(count);
 
 				for (auto i = 0; i != count; ++i)
 				{
@@ -1530,13 +1407,10 @@ namespace pr::physics::tests
 					h.m_bodies[i].NeverSleep(true);
 					h.m_bodies[i].GravityWS(AnalyticGravityWS);
 				}
-				for (auto i = 0; i != count; ++i)
-					regs.push_back(h.m_buoyancy.RegisterCompositeHull(h.m_bodies[i], i, 0));
-
 				auto const median_ms = time_steps(h, warmup, measure);
 				out << "  [benchmark] " << count << " identical box bodies: median step " << median_ms << " ms\n";
 
-				auto const diag = h.m_buoyancy.LatestDiagnostics(count - 1, 0);
+				auto const diag = h.Diagnostics(count - 1);
 				PR_EXPECT(diag.m_valid);
 			};
 
@@ -1548,8 +1422,6 @@ namespace pr::physics::tests
 				auto box = collision::ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
 				auto sphere = collision::ShapeSphere(1.0f);
 				Harness h;
-				std::vector<GpuBuoyancy::Registration> regs;
-				regs.reserve(count);
 
 				for (auto i = 0; i != count; ++i)
 				{
@@ -1562,15 +1434,10 @@ namespace pr::physics::tests
 					h.m_bodies[i].NeverSleep(true);
 					h.m_bodies[i].GravityWS(AnalyticGravityWS);
 				}
-				for (auto i = 0; i != count; ++i)
-				{
-					regs.push_back(h.m_buoyancy.RegisterCompositeHull(h.m_bodies[i], i, 0));
-				}
-
 				auto const median_ms = time_steps(h, warmup, measure);
 				out << "  [benchmark] " << count << " heterogeneous box/sphere bodies: median step " << median_ms << " ms\n";
 
-				auto const diag = h.m_buoyancy.LatestDiagnostics(count - 1, 0);
+				auto const diag = h.Diagnostics(count - 1);
 				PR_EXPECT(diag.m_valid);
 			};
 
@@ -1584,7 +1451,7 @@ namespace pr::physics::tests
 	};
 
 	// Measures how the buoyancy surface sample density changes the motion of floating bodies, relative to a dense reference.
-	// Every surface spacing runs the same scenarios through the real Engine and GpuBuoyancy. Each scenario reduces its
+	// Every surface spacing runs the same scenarios through the real Engine water pass. Each scenario reduces its
 	// trajectory to behavioural metrics, and a spacing passes when every metric is within 5% of the reference. The test
 	// logs every spacing and the cheapest robust one, and reports where the default sits.
 	PRUnitTestClass(BuoyancySampleDensityTests)
@@ -1852,10 +1719,9 @@ namespace pr::physics::tests
 			// Step the harness bodies for 'duration' seconds, recording every body after each step.
 			auto run = [](Harness& h, double duration, std::vector<std::vector<Sample>>& traj, double& step_ms)
 			{
-				// Registration keeps each body awake and binds it to the current sample density.
-				auto regs = std::vector<GpuBuoyancy::Registration>{};
-				for (int b = 0; b != isize(h.m_bodies); ++b)
-					regs.push_back(h.m_buoyancy.RegisterCompositeHull(h.m_bodies[b], b, 0));
+				// Keep every body awake so a settled body cannot sleep and freeze its trajectory.
+				for (auto& body : h.m_bodies)
+					body.NeverSleep(true);
 
 				traj.assign(h.m_bodies.size(), {});
 				auto const steps = static_cast<int>(std::lround(duration / StepSize));
@@ -1863,7 +1729,6 @@ namespace pr::physics::tests
 				for (int i = 0; i != steps; ++i)
 				{
 					h.m_engine.Step(StepSize, std::span{h.m_bodies}, i * double(StepSize));
-					h.m_buoyancy.CompleteStep();
 					for (int b = 0; b != isize(h.m_bodies); ++b)
 					{
 						auto const& body = h.m_bodies[b];
@@ -1878,14 +1743,14 @@ namespace pr::physics::tests
 			{
 				auto metrics = std::vector<Metric>{};
 				auto traj = std::vector<std::vector<Sample>>{};
-				auto const config = GpuBuoyancy::Config{
+				auto const config = WaterConfig{
 					.m_surface_spacing = spacing,
 				};
 
 				// Flat water: drop, tilt and push scenarios for every shape in one engine.
 				{
 					Harness h(false);
-					h.m_buoyancy.SetConfig(config);
+					h.SetConfig(config);
 					for (int s = 0; s != shape_count; ++s)
 					{
 						auto const y = 10.0f * (3 * s);
@@ -1910,9 +1775,9 @@ namespace pr::physics::tests
 				for (auto amplitude : wave_amplitudes)
 				{
 					Harness h(false);
-					h.m_buoyancy.SetConfig(config);
+					h.SetConfig(config);
 					auto const wave = terrain::water::SineWave(v2{1.0f, 0.0f}, amplitude, WaveLength, wave_omega);
-					h.m_buoyancy.SetWaterField(terrain::water::WaterField(0.0, std::span{&wave, 1}));
+					h.SetWaterField(terrain::water::WaterField(0.0, std::span{&wave, 1}));
 					for (int s = 0; s != shape_count; ++s)
 						add_body(h, shapes[s], m4x4::Translation(0.0f, 10.0f * s, 0.0f), v4::Zero());
 

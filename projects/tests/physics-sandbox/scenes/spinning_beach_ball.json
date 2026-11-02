@@ -1,0 +1,36 @@
+{
+	"scene": {
+		"demo": {
+			"command": "spinning-beach-ball",
+			"name": "Spinning Beach Ball on Flat Water",
+			"group": "Buoyancy",
+			"order": 4
+		},
+		"description": "A hollow 60 g beach ball (radius 0.15 m, I = 2/3*m*r^2 = 9e-4 kg.m^2) spinning at 20 rad/s about a horizontal axis is dropped from 0.85 m onto flat sea water. It uses the engine's sampled water forces (Engine::Water), as Petri does. At rest the ball floats with about 1 cm draft, so only a small part of its volume is wet. Added mass, wave radiation damping and wetted-surface drag should stop the ball bouncing within about a second and remove most of its spin, whatever its collision elasticity, because water is not a collision contact.",
+		"camera": {
+			"position": [0.0, -3.0, 1.2],
+			"lookat": [0.0, 0.0, 0.2]
+		},
+		"gravity": [0.0, 0.0, -9.81],
+		"material": {
+			"elasticity": 0.7,
+			"friction": 0.5
+		},
+		"water": {
+			"level": 0.0,
+			"size": [10.0, 10.0],
+			"grid": [32, 32],
+			"colour": "0xA02080FF",
+			"forces": {
+				"density": 1025.0,
+				"quadratic_drag_coefficient": 0.5
+			}
+		},
+		"shapes": {
+			"beach-ball": { "name": "beach-ball", "type": "sphere", "radius": 0.15, "hollow": true }
+		},
+		"bodies": [
+			{ "name": "beach-ball", "shape": "beach-ball", "colour": "FFF0A030", "mass": 0.06, "position": [0.0, 0.0, 1.0], "angular_velocity": [14.14, 14.14, 0.0] }
+		]
+	}
+}

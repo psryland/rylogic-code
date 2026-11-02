@@ -982,7 +982,31 @@ namespace physics_sandbox::scene_loader
 			}
 		}
 
-		water.surface = physics::terrain::water::WaterField(level, elements);
+		water.forces.m_field = physics::terrain::water::WaterField(level, elements);
+
+		// Optional water force parameters. Omitted values keep the WaterConfig defaults.
+		if (auto const* jforces = jwater_obj.find("forces"))
+		{
+			auto& config = water.forces;
+			auto const& jforces_obj = jforces->to_object();
+			auto read = [&](char const* key, float& value)
+			{
+				// Overwrite the default only when the key is present.
+				if (auto const* jvalue = jforces_obj.find(key))
+					value = jvalue->to<float>();
+			};
+			read("density", config.m_density);
+			read("linear_drag_time_constant", config.m_linear_drag_time_constant_s);
+			read("angular_drag_time_constant", config.m_angular_drag_time_constant_s);
+			read("quadratic_drag_coefficient", config.m_quadratic_drag_coefficient);
+			read("tangential_drag_coefficient", config.m_tangential_drag_coefficient);
+			read("added_mass_coefficient", config.m_added_mass_coefficient);
+			read("radiation_damping", config.m_radiation_damping);
+			read("wave_resistance", config.m_wave_resistance);
+			read("surface_spacing", config.m_surface_spacing);
+			read("air_density", config.m_air.m_density);
+		}
+		water.forces.Validate();
 		return water;
 	}
 
@@ -1262,7 +1286,7 @@ namespace physics_sandbox::scene_loader
 				// Air rests on the higher of the ground and the still water surface.
 				auto height = surface->Sample(pr::physics::terrain::v2d{ pos.x, pos.y }).m_height;
 				if (water != nullptr)
-					height = std::max(height, water->surface.Level());
+					height = std::max(height, water->forces.m_field.Level());
 
 				return static_cast<float>(height);
 			});
@@ -1746,7 +1770,7 @@ namespace physics_sandbox::scene_loader
 
 				auto const& grid = desc.atmosphere->m_config.m_grid;
 				auto const surface = pr::physics::terrain::landscape::BaselineSurface(desc.terrain->surface);
-				auto const level = static_cast<float>(desc.water->surface.Level());
+				auto const level = static_cast<float>(desc.water->forces.m_field.Level());
 				auto const band = desc.atmosphere->m_config.m_open_edge_band;
 				auto const edge_level = grid.FloorHeight(iv2{ 0, 0 });
 				auto water_columns = 0;

@@ -14,7 +14,7 @@ namespace pr::physics
 		static_assert(std::is_same_v<BoundsSorter, ContactSorter>);
 		auto recipes = ContactSorter::ShaderRecipes();
 		AppendWorldContactShaderRecipes(recipes);
-		AppendWaterForceShaderRecipes(recipes);
+		AppendWaterShaderRecipes(recipes);
 		atmosphere::AppendAtmosphereShaderRecipes(recipes);
 		return recipes;
 	}
