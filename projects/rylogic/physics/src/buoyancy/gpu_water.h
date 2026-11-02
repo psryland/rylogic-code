@@ -11,7 +11,8 @@
 namespace pr::physics
 {
 	// Sampled water forces for the engine's dynamic shaped bodies and articulation links. See WaterConfig for the force model.
-	// Once per frame the host selects the hulls that may touch the water and stages their geometry and local water elements. Each internal
+	// Shape geometry is uploaded once, when a shape is first seen, and stays resident on the GPU.
+	// Once per frame the host selects the hulls that may touch the water and stages their headers and local water elements. Each internal
 	// substep then evaluates every selected hull's surface cells on the GPU from the hull's current pose, so the forces follow the body between
 	// substeps. Frames without wet hulls record no GPU work.
 	struct GpuWater
@@ -55,21 +56,42 @@ namespace pr::physics
 			HullKey m_key;
 		};
 
-		// Immutable geometry and surface sample plans shared by every hull that uses the same collision shape.
+		// Per-primitive surface counts, compact patch range, half of the largest cell height (for the dry early-out), and the first word of the
+		// primitive's sample visibility mask in the resident mask array (see buoyancy::HullPrimitivePlan). Mirrors HLSL BuoySurfPrimRecord.
+		struct PrimRecord
+		{
+			int m_count;
+			int m_patch_begin;
+			int m_patch_count;
+			float m_half_cell_height;
+			int m_visible_base;
+		};
+		static_assert(sizeof(PrimRecord) == 20);
+
+		// A grow-only GPU copy of a host array that is only ever appended to. Only the entries added since the last sync are uploaded.
+		template <typename T>
+		struct ResidentArray
+		{
+			std::vector<T> m_cpu;
+			D3DPtr<ID3D12Resource> m_res;
+			int m_capacity = 0;
+			int m_uploaded = 0;
+		};
+
+		// Per-shape values used to select and stage a hull, shared by every hull that uses the same collision shape. The shape's geometry and surface
+		// sample plans live in the resident arrays (see GetOrCreateShape).
 		struct CompositeShape
 		{
-			buoyancy::CompositeHull m_hull;
-
-			// Feature-preserving surface patches per primitive (see buoyancy::BuildSurfacePlan).
-			std::vector<surface::Plan> m_surface_plans;
+			// The shape's block of primitives and records in the resident arrays, and the total surface samples over those primitives.
+			int m_prim_base = 0;
+			int m_prim_count = 0;
 			int m_total_surface_samples = 0;
 
-			// Half of the largest surface cell height per primitive, and over the whole hull. A surface cell is partly wet while its sample is less than
-			// this far above the surface, so a primitive is only certainly dry when its lowest point is this far above the water.
-			std::vector<float> m_half_cell_heights;
+			// Half of the largest surface cell height over the whole hull. A surface cell is partly wet while its sample is less than this far above
+			// the surface, so the hull is only certainly dry when its lowest point is this far above the water.
 			float m_max_half_cell_height = 0.0f;
 
-			// Scale-relative inside-test slack for sibling culling.
+			// Scale-relative slack for the host-side dry cull.
 			float m_eps = 0.0f;
 
 			// Shape-root-space bounds enclosing every primitive, for the host-side dry cull.
@@ -80,10 +102,12 @@ namespace pr::physics
 		struct ActiveHull
 		{
 			int m_step_index;
-			int m_shape_index;
+			CompositeShape const* m_shape;
 			int m_element_base;
 			int m_element_count;
 			float m_water_max_height;
+			int m_group_base;
+			int m_group_count;
 			HullKey m_key;
 		};
 
@@ -95,20 +119,27 @@ namespace pr::physics
 		// Shape-derived data keyed by the caller-owned shape. Cleared whenever caller shapes may have changed or been destroyed (see Engine::ResetCaches).
 		std::unordered_map<collision::Shape const*, std::unique_ptr<CompositeShape>> m_shapes;
 
-		// This frame's selected hulls, their unique shapes in upload order, and their local water elements.
-		std::vector<ActiveHull> m_active;
-		std::vector<CompositeShape const*> m_active_shapes;
-		std::unordered_map<CompositeShape const*, int> m_active_shape_index;
-		std::vector<terrain::water::WaterFieldElement> m_elements;
-		int m_groups_per_hull;
+		// The geometry of every cached shape, resident on the GPU. Each shape is appended once when it is first built, with its patch and
+		// visibility-mask offsets already rebased into these arrays, so frames only upload the per-hull headers and water elements. The arrays
+		// are emptied with 'm_shapes', and like it they grow with the number of distinct shapes seen until then.
+		ResidentArray<uint32_t> m_visible;
+		ResidentArray<buoyancy::GpuPrimitive> m_prims;
+		ResidentArray<PrimRecord> m_records;
+		ResidentArray<surface::SurfacePatch> m_patches;
 
-		// Upload addresses of the frame's inputs. Upload memory stays valid for the whole recorded frame, so every substep reuses them.
+		// This frame's selected hulls and their local water elements.
+		std::vector<ActiveHull> m_active;
+		std::vector<terrain::water::WaterFieldElement> m_elements;
+
+		// The total number of sample groups over all active hulls, and the width of the 2D grid they are dispatched as.
+		int m_group_count;
+		int m_dispatch_width;
+
+		// Upload addresses of the frame's per-hull inputs and of the hull index of each sample group. Upload memory stays valid for the whole
+		// recorded frame, so every substep reuses them.
 		GpuAddress m_elements_addr;
-		GpuAddress m_face_planes_addr;
 		GpuAddress m_headers_addr;
-		GpuAddress m_prims_addr;
-		GpuAddress m_records_addr;
-		GpuAddress m_patches_addr;
+		GpuAddress m_group_hulls_addr;
 
 		// Grow-only outputs of the sample and reduce passes.
 		D3DPtr<ID3D12Resource> m_r_partials;
@@ -121,6 +152,15 @@ namespace pr::physics
 		std::vector<HullKey> m_pending_keys;
 		std::unordered_map<HullKey, WaterDiagnostics, HullKeyHash> m_diagnostics;
 
+		// GPU timestamps around each substep's water dispatches, and the GPU time they measured in the last completed step (ms).
+		// This is queue time, so it excludes host recording and waiting.
+		D3DPtr<ID3D12QueryHeap> m_queries;
+		D3DPtr<ID3D12Resource> m_query_readback;
+		int m_query_capacity;
+		int m_query_count;
+		uint64_t m_frequency;
+		double m_gpu_ms;
+
 		// Compile the water pipelines. 'shader_cache' is optional; when given, compiled kernels are reused across runs.
 		GpuWater(Gpu& gpu, WaterConfig config, IShaderCache* shader_cache);
 
@@ -130,15 +170,21 @@ namespace pr::physics
 		// Forget all cached shape data and diagnostics. Call when caller-owned shapes may have changed or been destroyed.
 		void Reset();
 
-		// Select the hulls that may be wet during a frame of 'elapsed_s' seconds and stage their inputs for every substep.
-		void BeginFrame(GpuJob& job, std::span<Hull const> hulls, float elapsed_s);
+		// Select the hulls that may be wet during a frame of 'elapsed_s' seconds and stage their inputs for each of its 'substeps' substeps.
+		void BeginFrame(GpuJob& job, std::span<Hull const> hulls, float elapsed_s, int substeps);
 
 		// Record one substep's force evaluation into the body force accumulators. Must run after every other force has been accumulated,
 		// because the implicit response treats them as part of the body's load. Records nothing when the frame has no wet hulls.
 		void Apply(GpuJob& job, ID3D12Resource* bodies, float dt, double time_s, bool final_substep);
 
-		// Publish the diagnostics read back by the completed step.
+		// Publish the diagnostics and GPU time read back by the completed step.
 		void CompleteStep();
+
+		// Return the GPU time of the water dispatches in the last completed step (ms). Zero for dry frames.
+		double GpuTimeMs() const
+		{
+			return m_gpu_ms;
+		}
 
 		// Return the diagnostics of a hull from the last completed step, or null when the hull was not evaluated (dry, asleep, or diagnostics off).
 		WaterDiagnostics const* Diagnostics(HullKey key) const;
@@ -158,8 +204,15 @@ namespace pr::physics
 
 	private:
 
-		// Return the cached shape data for 'shape', building it on first use.
+		// Return the cached shape data for 'shape', building it and appending its geometry to the resident arrays on first use.
 		CompositeShape const& GetOrCreateShape(collision::Shape const& shape);
+
+		// Forget every cached shape and its resident geometry. The GPU buffers are kept for reuse.
+		void ClearShapes();
+
+		// Upload the entries of 'arr' added since its last sync, replacing its GPU buffer when it is too small.
+		template <typename T>
+		void SyncResident(GpuJob& job, ResidentArray<T>& arr, std::string_view name);
 
 		// Ensure the partials and diagnostics buffers can hold this frame's output.
 		void EnsureGpuCapacity(GpuJob& job, int partial_capacity, int diagnostic_capacity);

@@ -186,12 +186,12 @@ namespace physics_sandbox::diag
 				m_engine.m_sleep_island_unpack_ms += profile.m_engine.m_sleep_island_unpack_ms;
 				m_engine.m_body_unpack_ms += profile.m_engine.m_body_unpack_ms;
 				m_engine.m_articulation_unpack_ms += profile.m_engine.m_articulation_unpack_ms;
-				m_engine.m_unpack_diagnostics_ms += profile.m_engine.m_unpack_diagnostics_ms;
 				m_engine.m_substep_count += profile.m_engine.m_substep_count;
 				m_engine.m_submission_count += profile.m_engine.m_submission_count;
 				m_engine.m_wait_count += profile.m_engine.m_wait_count;
 				m_engine.m_readback_copy_count += profile.m_engine.m_readback_copy_count;
 				m_engine.m_terrain_gpu_ms += profile.m_engine.m_terrain_gpu_ms;
+				m_engine.m_water_gpu_ms += profile.m_engine.m_water_gpu_ms;
 			}
 
 			void Reset()
@@ -782,12 +782,12 @@ namespace physics_sandbox::diag
 				<< ',' << average(profile.m_engine.m_sleep_island_unpack_ms)
 				<< ',' << average(profile.m_engine.m_body_unpack_ms)
 				<< ',' << average(profile.m_engine.m_articulation_unpack_ms)
-				<< ',' << average(profile.m_engine.m_unpack_diagnostics_ms)
 				<< ',' << average(profile.m_engine.m_substep_count)
 				<< ',' << average(profile.m_engine.m_submission_count)
 				<< ',' << average(profile.m_engine.m_wait_count)
 				<< ',' << average(profile.m_engine.m_readback_copy_count)
 				<< ',' << average(profile.m_engine.m_terrain_gpu_ms)
+				<< ',' << average(profile.m_engine.m_water_gpu_ms)
 				<< ',' << RigidStateHash(scene)
 				<< '\n';
 			Emit(log, row.str());
@@ -1333,7 +1333,7 @@ namespace physics_sandbox::diag
 		Emit(log, std::format("Scene diagnostic scene: {}\n", options.m_scene_filepath.string()));
 		Emit(log, std::format("steps={} dt={:.8f} report_interval={}\n", options.m_steps, options.m_dt, options.m_report_interval));
 		if (options.m_engine_profile)
-			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,constraint_pack_ms,articulation_pack_ms,upload_ms,constraint_upload_ms,articulation_upload_ms,external_forces_ms,integrate_ms,articulation_integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms,gpu_prepare_ms,gpu_execute_ms,gpu_wait_ms,gpu_reset_ms,readback_access_ms,body_readback_copy_ms,contact_readback_copy_ms,collision_events_ms,sleep_island_unpack_ms,body_unpack_ms,articulation_unpack_ms,unpack_diagnostics_ms,substeps,submissions,waits,readback_copies,terrain_gpu_ms,rigid_state_hash\n");
+			Emit(log, "profile,step,time_s,samples,contacts,scene_step_ms,physics_ms,new_frame_ms,pack_ms,constraint_pack_ms,articulation_pack_ms,upload_ms,constraint_upload_ms,articulation_upload_ms,external_forces_ms,integrate_ms,articulation_integrate_ms,sleepwake_ms,broadphase_ms,collide_ms,resolve_ms,selective_ms,sleepupdate_ms,readback_ms,gpu_run_ms,unpack_ms,gpu_prepare_ms,gpu_execute_ms,gpu_wait_ms,gpu_reset_ms,readback_access_ms,body_readback_copy_ms,contact_readback_copy_ms,collision_events_ms,sleep_island_unpack_ms,body_unpack_ms,articulation_unpack_ms,substeps,submissions,waits,readback_copies,terrain_gpu_ms,water_gpu_ms,rigid_state_hash\n");
 		else if (options.m_column_metric)
 			Emit(log, "column_metric=true\n");
 		else if (options.m_pyramid_metric)

@@ -331,6 +331,52 @@ namespace pr::physics::surface
 		return plan;
 	}
 
+	// An upper bound on the area weight of any sample that 'patch' emits, in O(1). The bound is exact for flat, strip and cylinder
+	// patches, and tight at the face centre for sphere patches.
+	inline float MaxSampleArea(SurfacePatch const& patch)
+	{
+		switch (patch.m_kind)
+		{
+			case 0:
+			case 4:
+			{
+				// Interior nodes carry the full grid-cell weight and boundary nodes carry less.
+				return patch.m_measure / (static_cast<float>(patch.m_nu) * static_cast<float>(patch.m_nv));
+			}
+			case 1:
+			{
+				// The strip weights depend only on the taper (see EmitSurfaceSample), and the collapsed tip of a full taper has its own weight.
+				auto const t = patch.m_taper;
+				auto weight = patch.m_measure * std::max(std::abs(3.0f - t), std::abs(3.0f - 2.0f * t)) / (6.0f * static_cast<float>(patch.m_nv));
+				if (t == 1.0f)
+					weight = std::max(weight, patch.m_measure / 6.0f);
+
+				return weight;
+			}
+			case 2:
+			case 3:
+			{
+				// A node owns a quarter of each of up to four incident cells. A cell of a plane at distance 'h' from the sphere centre
+				// subtends a solid angle no greater than its planar area divided by h^2, because every point of the cell is at least 'h' away.
+				auto const cross = Cross(patch.m_u.w0(), patch.m_v.w0());
+				auto const cross_len = Length(cross);
+				auto const h = std::abs(Dot3(patch.m_origin, cross)) / cross_len;
+				assert(h > 0.0f && "Sphere patches must lie on a plane that does not pass through the sphere centre");
+				auto const cell_area = cross_len / (static_cast<float>(patch.m_nu) * static_cast<float>(patch.m_nv));
+				return patch.m_measure * cell_area / (h * h);
+			}
+			case 5:
+			{
+				// Segments carry position only.
+				return 0.0f;
+			}
+			default:
+			{
+				throw std::runtime_error("Unknown surface patch kind");
+			}
+		}
+	}
+
 	// Emit a stable primitive-local identity in O(log patch count), with no per-sample allocation.
 	inline SurfaceSample EmitSurfaceSample(Plan const& plan, uint32_t index)
 	{

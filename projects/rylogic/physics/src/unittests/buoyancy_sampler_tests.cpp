@@ -295,6 +295,41 @@ namespace pr::physics::tests
 			PR_THROWS(surface::BuildPlan(sphere.m_base), std::runtime_error);
 		}
 
+		// The O(1) per-patch weight bound must cover every emitted sample of every patch kind, and stay tight for spheres.
+		PRUnitTestMethod(MaxSampleAreaBoundsEmittedWeights, Quick)
+		{
+			v4 points[] = {v4{1,0,0,1}, v4{-1,0.2f,0,1}, v4{0,1.3f,0,1}, v4{0,-1,0.4f,1}, v4{0,0,1,1}, v4{0.3f,0,-1,1}};
+			auto poly_buffer = BuildPolytopeFromPoints(points, m4x4::Identity(), 0, Shape::EFlags::None, 0);
+			auto box = ShapeBox(v4{2, 0.7f, 0.5f, 0});
+			auto sphere = ShapeSphere(0.8f);
+			auto capsule = ShapeLine(1.5f, 0.3f);
+			auto thin = ShapeLine(1.0f);
+			auto triangle = ShapeTriangle(v4{-1,0,0,1}, v4{2,0,0,1}, v4{0,0.3f,0,1});
+			Shape const* shapes[] = {&box.m_base, &sphere.m_base, &capsule.m_base, &thin.m_base, &triangle.m_base, &poly_buffer.as<ShapePolytope>().m_base};
+			for (auto const* shape : shapes)
+			{
+				// Compare each patch's bound with the largest weight it actually emits.
+				for (auto spacing : {0.37f, 0.11f})
+				{
+					auto const plan = surface::BuildPlan(*shape, spacing);
+					auto begin = 0u;
+					for (auto const& patch : plan.m_patches)
+					{
+						auto emitted = 0.0f;
+						for (auto i = begin; i != patch.m_sample_end; ++i)
+							emitted = std::max(emitted, surface::EmitSurfaceSample(plan, i).m_darea);
+
+						auto const bound = surface::MaxSampleArea(patch);
+						PR_EXPECT(emitted <= bound * (1.0f + 1e-5f));
+						if (patch.m_kind == 2)
+							PR_EXPECT(bound <= 1.2f * emitted);
+
+						begin = patch.m_sample_end;
+					}
+				}
+			}
+		}
+
 		// Known full/half-wet drag checks area, first moments and symmetry, and the water-column volume is independent of resolution.
 		PRUnitTestMethod(SurfaceForceTorqueAndVolumePreservation, Extended)
 		{
@@ -339,13 +374,26 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlRelative(coarse.m_drag_torque_ws, fine.m_drag_torque_ws, 0.02f));
 		}
 
-		// Buoyancy plans keep the configured spacing for large primitives and refine small primitives to the minimum sample count.
+		// Buoyancy plans keep the configured spacing for large hulls and refine small hulls to the minimum visible sample count.
 		PRUnitTestMethod(SurfacePlanMinimumSamples, Extended)
 		{
+			// Total visible samples and total plan samples of a hull at 'spacing'.
+			auto visible = [](collision::Shape const& hull, float spacing)
+			{
+				// Count the set mask bits of every primitive.
+				auto count = 0u;
+				for (auto const& plan : BuildHullSurfacePlans(hull, spacing))
+				{
+					for (auto word : plan.m_visible)
+						count += static_cast<uint32_t>(std::popcount(word));
+				}
+				return count;
+			};
+
 			// A large box already has enough samples, so its buoyancy plan is the plain surface plan.
 			auto box = ShapeBox(v4{2.0f, 2.0f, 1.0f, 0.0f});
-			PR_EXPECT(surface::BuildPlan(box.m_base, DefaultSurfaceSpacing).m_count >= MinSurfaceSamplesPerPrimitive);
-			PR_EXPECT(BuildSurfacePlan(box.m_base, DefaultSurfaceSpacing).m_count == surface::BuildPlan(box.m_base, DefaultSurfaceSpacing).m_count);
+			PR_EXPECT(surface::BuildPlan(box.m_base, DefaultSurfaceSpacing).m_count >= MinSurfaceSamplesPerHull);
+			PR_EXPECT(BuildHullSurfacePlans(box.m_base, DefaultSurfaceSpacing)[0].m_plan.m_count == surface::BuildPlan(box.m_base, DefaultSurfaceSpacing).m_count);
 
 			// Small primitives of every type are refined until they reach the minimum.
 			auto sphere = ShapeSphere(0.15f);
@@ -354,13 +402,34 @@ namespace pr::physics::tests
 			auto triangle = ShapeTriangle(v4{0, 0, 0, 1}, v4{0.1f, 0, 0, 1}, v4{0, 0.1f, 0, 1});
 			for (auto const* shape : {&sphere.m_base, &small_box.m_base, &capsule.m_base, &triangle.m_base})
 			{
-				PR_EXPECT(surface::BuildPlan(*shape, DefaultSurfaceSpacing).m_count < MinSurfaceSamplesPerPrimitive);
-				PR_EXPECT(BuildSurfacePlan(*shape, DefaultSurfaceSpacing).m_count >= MinSurfaceSamplesPerPrimitive);
+				PR_EXPECT(surface::BuildPlan(*shape, DefaultSurfaceSpacing).m_count < MinSurfaceSamplesPerHull);
+				PR_EXPECT(visible(*shape, DefaultSurfaceSpacing) >= MinSurfaceSamplesPerHull);
+			}
+
+			// The minimum applies to the whole hull. A compound of small primitives that has enough samples in total keeps the
+			// configured spacing, even though each primitive alone would be below the minimum.
+			ShapeBuilder sb;
+			for (int i = 0; i != 8; ++i)
+				sb.AddShape(ShapeBox(v4{0.4f, 0.4f, 0.4f, 0.0f}, m4x4::Translation(0.5f * i, 0.0f, 0.0f)));
+
+			byte_data<16> data;
+			MassProperties mp;
+			v4 model_to_com;
+			auto* compound = sb.BuildShape(data, mp, model_to_com);
+			auto const prims = CollectPrimitives(*compound);
+			auto const plans = BuildHullSurfacePlans(*compound, DefaultSurfaceSpacing);
+			PR_EXPECT(visible(*compound, DefaultSurfaceSpacing) >= MinSurfaceSamplesPerHull);
+			for (size_t k = 0; k != prims.size(); ++k)
+			{
+				// Each primitive keeps its plain plan at the configured spacing.
+				auto const plain = surface::BuildPlan(*prims[k], DefaultSurfaceSpacing).m_count;
+				PR_EXPECT(plain < MinSurfaceSamplesPerHull);
+				PR_EXPECT(plans[k].m_plan.m_count + plans[k].m_hidden.m_count == plain);
 			}
 
 			// A zero-area primitive has no pressure to resolve, so it is not refined.
 			auto thin = ShapeLine(0.2f);
-			PR_EXPECT(BuildSurfacePlan(thin.m_base, DefaultSurfaceSpacing).m_count == surface::BuildPlan(thin.m_base, DefaultSurfaceSpacing).m_count);
+			PR_EXPECT(BuildHullSurfacePlans(thin.m_base, DefaultSurfaceSpacing)[0].m_plan.m_count == surface::BuildPlan(thin.m_base, DefaultSurfaceSpacing).m_count);
 		}
 
 		// A light hollow ball (0.06 kg, r = 0.15 m) floats with a 1.14 cm draft. Only a few cells near the lowest point are wet, but the
@@ -661,7 +730,58 @@ namespace pr::physics::tests
 			PR_EXPECT(FEqlAbsolute(r.m_drag_torque_ws, v4::Zero(), std::abs(expected_fx) * 0.05f));
 		}
 
-		// The optional debug collector records every sample classification and the per-primitive
+		// The cached sibling-cull classification of a compound hull agrees with the per-sample rule and loses no samples.
+		PRUnitTestMethod(HullSurfacePlansMatchSiblingCull, Quick)
+		{
+			// Overlapping boxes with a shared coplanar face, so the hull has visible, mixed, and hidden patches.
+			ShapeBuilder sb;
+			sb.AddShape(ShapeBox(v4{2.0f, 1.0f, 1.0f, 0.0f}, m4x4::Translation(+0.5f, 0.0f, 0.0f)));
+			sb.AddShape(ShapeBox(v4{2.0f, 1.0f, 1.0f, 0.0f}, m4x4::Translation(-0.5f, 0.0f, 0.0f)));
+			sb.AddShape(ShapeBox(v4{1.0f, 1.0f, 1.0f, 0.0f}, m4x4::Translation(0.0f, 0.0f, +1.0f)));
+
+			byte_data<16> data;
+			MassProperties mp;
+			v4 model_to_com;
+			auto* hull = sb.BuildShape(data, mp, model_to_com);
+
+			auto const prims = CollectPrimitives(*hull);
+			auto const eps = HullInsideSlack(*hull);
+			auto r2s = std::vector<m4x4>{};
+			for (auto const* prim : prims)
+				r2s.push_back(InvertOrthonormal(prim->m_s2r));
+
+			// Every sample is either kept or hidden, the mask matches the per-sample rule, and every hidden sample is culled.
+			auto const plans = BuildHullSurfacePlans(*hull, DefaultSurfaceSpacing);
+			PR_EXPECT(plans.size() == prims.size());
+			auto any_hidden = false;
+			auto any_masked = false;
+			for (size_t k = 0; k != prims.size(); ++k)
+			{
+				// Check each primitive's plans sample by sample.
+				auto const& p = plans[k];
+				PR_EXPECT(p.m_plan.m_count + p.m_hidden.m_count == surface::BuildPlan(*prims[k], DefaultSurfaceSpacing).m_count);
+				PR_EXPECT(p.m_visible.size() == (p.m_plan.m_count + 31) / 32);
+				auto culled = [&](surface::Plan const& plan, uint32_t i)
+				{
+					auto const sample = surface::EmitSurfaceSample(plan, i);
+					auto const p_root = prims[k]->m_s2r * sample.m_pos_local;
+					auto const n_root = Normalise((prims[k]->m_s2r * sample.m_normal_local).w0(), v4::Zero());
+					return IsCulledBySibling(prims, r2s, k, p_root, n_root, eps);
+				};
+				for (uint32_t i = 0; i != p.m_plan.m_count; ++i)
+				{
+					// A cleared bit must be exactly a culled sample.
+					PR_EXPECT(p.IsVisible(i) == !culled(p.m_plan, i));
+					any_masked |= !p.IsVisible(i);
+				}
+				for (uint32_t i = 0; i != p.m_hidden.m_count; ++i)
+					PR_EXPECT(culled(p.m_hidden, i));
+
+				any_hidden |= p.m_hidden.m_count != 0;
+			}
+			PR_EXPECT(any_hidden);
+			PR_EXPECT(any_masked);
+		}
 		// accepted buoyancy partials, without changing the physical result.
 		PRUnitTestMethod(DebugCollector, Extended)
 		{
@@ -694,7 +814,7 @@ namespace pr::physics::tests
 				}
 
 				// Fully submerged single box: all surface samples are wet and active, none dry or culled.
-				PR_EXPECT(surf_active == static_cast<int>(BuildSurfacePlan(box.m_base, cfg.m_surface_spacing).m_count));
+				PR_EXPECT(surf_active == static_cast<int>(BuildHullSurfacePlans(box.m_base, cfg.m_surface_spacing)[0].m_plan.m_count));
 				PR_EXPECT(surf_dry == 0);
 				PR_EXPECT(surf_culled == 0);
 

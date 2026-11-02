@@ -18,7 +18,7 @@
 //
 // Capture all immutable geometry the sampler kernels need. Box, Sphere and Capsule (a collision::ShapeLine with a positive radius)
 // are fully parameterised analytically. Triangle stores its three vertices. Polytope stores its surface topology (vertices and
-// face planes). Surface quadrature plans are built separately by BuildSurfacePlan.
+// face planes). Surface quadrature plans are built separately by BuildHullSurfacePlans.
 #pragma once
 #include <cmath>
 #include <vector>
@@ -41,10 +41,11 @@ namespace pr::physics::buoyancy
 	// BuoyancySampleDensityTests reports the behavioural error of this value against a dense reference; see that test before changing it.
 	inline constexpr float DefaultSurfaceSpacing = 0.25f;
 
-	// The fewest surface samples given to a primitive. A light body floats with a shallow draft, so only the few cells near its
+	// The fewest visible surface samples given to a hull. A light body floats with a shallow draft, so only the few cells near its
 	// lowest point are wet. With too few cells their discrete layout gives a wrong floating height and false torques, so small
-	// primitives are sampled more finely than the spacing alone would give. Primitives that already have this many samples keep their spacing.
-	inline constexpr uint32_t MinSurfaceSamplesPerPrimitive = 128;
+	// hulls are sampled more finely than the spacing alone would give. Hulls that already have this many samples keep their spacing.
+	// The minimum applies to the whole hull, not to each primitive, so a compound of many small primitives is not over-sampled.
+	inline constexpr uint32_t MinSurfaceSamplesPerHull = 128;
 
 	// Return the submerged fraction of a sample cell centred 'signed_height' along up, given the water height at the same
 	// planar position and the cell's vertical extent. The fraction rises linearly from 0, when the cell top touches the surface,
@@ -240,26 +241,5 @@ namespace pr::physics::buoyancy
 			out.m_primitives.push_back(impl::FlattenPrimitive(hull, 0, out));
 		}
 		return out;
-	}
-
-	// Build the surface sampling plan for one buoyancy primitive. Cells are at most 'spacing' across, and the spacing is reduced
-	// until the primitive has at least MinSurfaceSamplesPerPrimitive samples. A primitive that reaches the minimum at 'spacing'
-	// gets exactly surface::BuildPlan(prim, spacing). The GPU pass and the CPU oracle both use this plan.
-	inline surface::Plan BuildSurfacePlan(collision::Shape const& prim, float spacing)
-	{
-		// Most primitives already have enough samples at the requested spacing.
-		auto plan = surface::BuildPlan(prim, spacing);
-
-		// The sample count grows about as 1/spacing^2, so scale the spacing by sqrt(count / minimum) and rebuild. Grid boundary
-		// nodes make the count grow more slowly than that for coarse grids, so repeat until the minimum is met; this takes a few
-		// iterations at most. A plan without area (a zero-size primitive) has no pressure to resolve and cannot be refined.
-		auto const has_area = std::ranges::any_of(plan.m_patches, [](surface::SurfacePatch const& patch) { return patch.m_measure > 0.0f; });
-		while (has_area && plan.m_count < MinSurfaceSamplesPerPrimitive)
-		{
-			// Refine the spacing in proportion to the shortfall.
-			spacing *= static_cast<float>(std::sqrt(static_cast<double>(std::max(plan.m_count, 1u)) / MinSurfaceSamplesPerPrimitive));
-			plan = surface::BuildPlan(prim, spacing);
-		}
-		return plan;
 	}
 }

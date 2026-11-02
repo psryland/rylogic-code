@@ -8,7 +8,6 @@
 #include "pr/physics/rigid_body/rigid_body.h"
 #include "pr/physics/collision/contact.h"
 #include "pr/physics/shape/inertia.h"
-#include "pr/physics/diagnostics/body_history.h"
 #include "src/articulation/articulation_gpu_data.h"
 #include "src/articulation/articulation_internal.h"
 #include "src/compute/articulation_link_proxies_gpu.h"
@@ -799,7 +798,7 @@ namespace pr::physics
 
 			{
 				auto profile_scope = ProfileScope<&Engine::StepProfile::m_new_frame_ms>(m_last_step_profile);
-				m_cache->NewFrame(bodies);
+				m_cache->NewFrame();
 			}
 
 			// Pack all bodies into a GPU-friendly format
@@ -930,6 +929,7 @@ namespace pr::physics
 			{
 				auto profile_scope = ProfileScope<&Engine::StepProfile::m_external_forces_ms>(m_last_step_profile);
 				auto hulls = std::vector<GpuWater::Hull>{};
+				hulls.reserve(bodies.size());
 				auto hull = GpuWater::Hull{};
 				for (int i = 0, iend = isize(bodies); i != iend; ++i)
 				{
@@ -951,7 +951,7 @@ namespace pr::physics
 							hulls.push_back(hull);
 					}
 				}
-				m_gpu_water->BeginFrame(m_gpu->m_job, hulls, input.m_elapsed_seconds);
+				m_gpu_water->BeginFrame(m_gpu->m_job, hulls, input.m_elapsed_seconds, input.m_substep_count);
 			}
 
 			// Shared stable-slot streams back both the independent and articulation-coupled constraint lanes.
@@ -1153,9 +1153,12 @@ namespace pr::physics
 
 		CompleteGpuJob(m_gpu->m_job, m_pending_step.m_run, m_last_step_profile);
 
-		// Publish the water diagnostics read back by this step.
+		// Publish the water diagnostics and GPU time read back by this step.
 		if (m_gpu_water)
+		{
 			m_gpu_water->CompleteStep();
+			m_last_step_profile.m_water_gpu_ms = m_gpu_water->GpuTimeMs();
+		}
 
 		// Unpack the results back into the caller-owned bodies.
 		auto output_committed = false;
@@ -1248,7 +1251,7 @@ namespace pr::physics
 				// Rebuild the staging state from the caller-owned bodies. Bodies that are already sleeping but have no island id are deliberately
 				// left out of the uploaded island list; the GPU contact graph below creates their first transient ids.
 				auto profile_scope = ProfileScope<&Engine::StepProfile::m_new_frame_ms>(m_last_step_profile);
-				m_cache->NewFrame(rigid_bodies);
+				m_cache->NewFrame();
 			}
 			{
 				auto profile_scope = ProfileScope<&Engine::StepProfile::m_pack_ms>(m_last_step_profile);
@@ -1985,22 +1988,6 @@ namespace pr::physics
 		// Non-convergence is observable without rejecting a safely published frame or repeating the event on later frames.
 		if (!coupled_failure_events.empty() && CoupledConstraintFailures)
 			CoupledConstraintFailures(*this, coupled_failure_events);
-
-		if constexpr (PR_PHYSICS_DIAGNOSTICS)
-		{
-			auto profile_scope = ProfileScope<&Engine::StepProfile::m_unpack_diagnostics_ms>(m_last_step_profile);
-
-			// Look for anomolies in the dynamics and log them.
-			m_cache->m_history.EndFrame(rigid_bodies, [](RigidBody const& rb0, RigidBody const& rb1)
-			{
-				// Return true if rb0 was below ground and rb1 is worse
-				float ground_z = -0.5f;
-				if (rb0.O2W().pos.z < ground_z && rb1.O2W().pos.z < rb0.O2W().pos.z)
-					return true;
-
-				return false;
-			});
-		}
 	}
 
 	// Narrow phase collision detection.
