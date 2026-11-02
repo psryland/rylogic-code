@@ -23,7 +23,7 @@
 #include "pr/physics/integrator/engine_config.h"
 #include "pr/physics/integrator/impulse.h"
 #include "pr/physics/integrator/contact_priority.h"
-#include "pr/physics/buoyancy/gpu_buoyancy.h"
+#include "pr/physics/integrator/engine_water.h"
 #include "pr/physics/terrain/water/wave_spectrum.h"
 #include "pr/physics/atmosphere/air.h"
 #include "pr/physics/atmosphere/atmosphere.h"

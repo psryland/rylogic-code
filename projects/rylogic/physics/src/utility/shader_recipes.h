@@ -14,7 +14,7 @@ namespace pr::physics
 	void AppendWorldContactShaderRecipes(std::vector<ShaderRecipe>& recipes);
 
 	// Add the recipe for the water-force kernel.
-	void AppendWaterForceShaderRecipes(std::vector<ShaderRecipe>& recipes);
+	void AppendWaterShaderRecipes(std::vector<ShaderRecipe>& recipes);
 
 	namespace atmosphere
 	{

@@ -28,7 +28,7 @@
 #include "src/integrator/engine_buffer_cache.h"
 #include "src/collision/shape_cache.h"
 #include "src/surface/gpu_world_contacts.h"
-#include "src/buoyancy/gpu_water_forces.h"
+#include "src/buoyancy/gpu_water.h"
 #include "src/materials/material_map.h"
 #include "src/diagnostics/physics_log.h"
 #include "src/diagnostics/dbg_physics.h"
@@ -249,8 +249,8 @@ namespace pr::physics
 		m_gpu_world_contacts = std::move(replacement);
 	}
 
-	// Destroy the water-force pipeline where its complete type is available.
-	void Deleter<GpuWaterForces>::operator()(GpuWaterForces* value) const
+	// Destroy the water pipeline where its complete type is available.
+	void Deleter<GpuWater>::operator()(GpuWater* value) const
 	{
 		delete value;
 	}
@@ -270,24 +270,30 @@ namespace pr::physics
 		auto changed = water.has_value() != m_water_active;
 		if (water && !changed)
 		{
-			auto const& current = m_gpu_water_forces->m_config;
+			auto const& current = m_gpu_water->m_config;
 			changed =
 				water->m_field.Level() != current.m_field.Level() ||
 				water->m_field.TerrainHeights() != current.m_field.TerrainHeights() ||
 				water->m_density != current.m_density ||
-				water->m_linear_drag_rate != current.m_linear_drag_rate ||
+				water->m_linear_drag_time_constant_s != current.m_linear_drag_time_constant_s ||
+				water->m_angular_drag_time_constant_s != current.m_angular_drag_time_constant_s ||
 				water->m_quadratic_drag_coefficient != current.m_quadratic_drag_coefficient ||
-				water->m_angular_drag_rate != current.m_angular_drag_rate;
+				water->m_tangential_drag_coefficient != current.m_tangential_drag_coefficient ||
+				water->m_added_mass_coefficient != current.m_added_mass_coefficient ||
+				water->m_radiation_damping != current.m_radiation_damping ||
+				water->m_wave_resistance != current.m_wave_resistance ||
+				water->m_surface_spacing != current.m_surface_spacing ||
+				water->m_air.m_density != current.m_air.m_density;
 		}
 
 		// Keep the compiled pipeline and only replace its configuration.
 		if (water)
 		{
 			water->Validate();
-			if (m_gpu_water_forces == nullptr)
-				m_gpu_water_forces.reset(new GpuWaterForces(*m_gpu, std::move(*water), m_shader_cache));
+			if (m_gpu_water == nullptr)
+				m_gpu_water.reset(new GpuWater(*m_gpu, std::move(*water), m_shader_cache));
 			else
-				m_gpu_water_forces->m_config = std::move(*water);
+				m_gpu_water->Config(std::move(*water));
 		}
 
 		// Resting bodies must re-evaluate their support against the new water.
@@ -296,7 +302,17 @@ namespace pr::physics
 	}
 	WaterConfig const* Engine::Water() const
 	{
-		return m_water_active ? &m_gpu_water_forces->m_config : nullptr;
+		return m_water_active ? &m_gpu_water->m_config : nullptr;
+	}
+
+	// Return the water diagnostics of a body or articulation link from the last completed step.
+	WaterDiagnostics const* Engine::WaterDiagnosticsFor(RigidBody const& body) const
+	{
+		return m_water_active ? m_gpu_water->Diagnostics(GpuWater::HullKey{ &body, -1 }) : nullptr;
+	}
+	WaterDiagnostics const* Engine::WaterDiagnosticsFor(Articulation const& articulation, LinkHandle link) const
+	{
+		return m_water_active ? m_gpu_water->Diagnostics(GpuWater::HullKey{ &articulation, static_cast<int>(link.m_index) }) : nullptr;
 	}
 
 	// Identify only this engine's current world endpoint, not arbitrary shapeless or static bodies.
@@ -563,6 +579,10 @@ namespace pr::physics
 			throw std::runtime_error("Engine::RefreshShapeTransform cannot run while a step is pending");
 
 		m_cache->m_shape_cache.RefreshTransform(shape);
+
+		// Water geometry is flattened from the same shapes.
+		if (m_gpu_water)
+			m_gpu_water->Reset();
 	}
 
 	// Drop all internally-cached references to caller-supplied data.
@@ -575,6 +595,8 @@ namespace pr::physics
 		m_cache->Reset();
 		if (m_gpu_world_contacts)
 			m_gpu_world_contacts->Reset();
+		if (m_gpu_water)
+			m_gpu_water->Reset();
 
 		// Solver caches share the same topology lifetime as the geometry plans.
 		m_gpu_resolver->InvalidateWarmStart();
@@ -713,7 +735,7 @@ namespace pr::physics
 
 		// A moving water surface can reach resting bodies without any environment change.
 		if (m_water_active)
-			m_gpu_water_forces->WakeInSurfaceBand(input.m_bodies);
+			m_gpu_water->WakeInSurfaceBand(input.m_bodies, input.m_articulations);
 
 		// Keep the world endpoint last among rigid bodies so contacts can address it before articulation proxies.
 		if (m_gpu_world_contacts && (!input.m_bodies.empty() || !input.m_articulations.empty()))
@@ -907,7 +929,29 @@ namespace pr::physics
 			if (m_water_active)
 			{
 				auto profile_scope = ProfileScope<&Engine::StepProfile::m_external_forces_ms>(m_last_step_profile);
-				m_gpu_water_forces->BeginFrame(m_gpu->m_job, bodies, input.m_elapsed_seconds);
+				auto hulls = std::vector<GpuWater::Hull>{};
+				auto hull = GpuWater::Hull{};
+				for (int i = 0, iend = isize(bodies); i != iend; ++i)
+				{
+					if (GpuWater::MakeHull(*bodies[i], i, hull))
+						hulls.push_back(hull);
+				}
+
+				// Articulation links are addressed through their proxy bodies, which follow the rigid bodies in packed link order.
+				for (int a = 0, aend = isize(articulations); a != aend; ++a)
+				{
+					auto const& articulation = *articulations[a];
+					if (articulation.Sleeping())
+						continue;
+
+					auto const proxy_base = m_cache->RigidBodyCount() + articulation_upload.m_articulations[a].link_offset;
+					for (int link_index = 0; link_index != articulation.LinkCount(); ++link_index)
+					{
+						if (GpuWater::MakeHull(articulation, articulation.LinkAt(link_index), proxy_base + link_index, hull))
+							hulls.push_back(hull);
+					}
+				}
+				m_gpu_water->BeginFrame(m_gpu->m_job, hulls, input.m_elapsed_seconds);
 			}
 
 			// Shared stable-slot streams back both the independent and articulation-coupled constraint lanes.
@@ -1004,10 +1048,11 @@ namespace pr::physics
 					{
 						auto profile_scope = ProfileScope<&Engine::StepProfile::m_external_forces_ms>(m_last_step_profile);
 						auto const substep_time_s = input.m_time_s + static_cast<double>(dt) * substep_index;
-						if (m_water_active)
-							m_gpu_water_forces->Apply(m_gpu->m_job, m_gpu_integrator->Bodies().get(), dt, substep_time_s);
-
 						ApplyExternalForces(dt, substep_time_s, substep_index, input.m_substep_count);
+
+						// Water goes last because its implicit response treats the other accumulated forces as part of the body's load.
+						if (m_water_active)
+							m_gpu_water->Apply(m_gpu->m_job, m_gpu_integrator->Bodies().get(), dt, substep_time_s, substep_index + 1 == input.m_substep_count);
 					}
 
 					// Advance both independent prediction lanes before any shared collision or constraint work so every broadphase consumer sees current-substep poses.
@@ -1107,6 +1152,10 @@ namespace pr::physics
 		}
 
 		CompleteGpuJob(m_gpu->m_job, m_pending_step.m_run, m_last_step_profile);
+
+		// Publish the water diagnostics read back by this step.
+		if (m_gpu_water)
+			m_gpu_water->CompleteStep();
 
 		// Unpack the results back into the caller-owned bodies.
 		auto output_committed = false;

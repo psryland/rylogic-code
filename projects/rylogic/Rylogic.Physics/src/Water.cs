@@ -5,9 +5,11 @@ using Rylogic.Maths;
 namespace Rylogic.Physics;
 
 /// <summary>
-/// Water that applies buoyancy and drag to every dynamic body. The surface is a height field over world XY (+Z up): the still-water level plus
-/// optional wave elements (see <see cref="Engine.SetWater"/>). Bodies that cannot reach the surface during a step cost no water work.
-/// Density is kg/m³ and drag rates are 1/s at full submersion.
+/// Water that applies buoyancy, drag, added mass, and wave damping to every dynamic shaped body and articulation link. The surface is a height field
+/// over world XY (+Z up): the still-water level plus optional wave elements (see <see cref="Engine.SetWater"/>). Forces are integrated over surface
+/// cells that cover each body's shape and applied implicitly, so light bodies settle onto the water instead of bouncing. Water is not a collision
+/// contact, so material restitution has no effect on it. Bodies that cannot reach the surface during a step cost no water work.
+/// The force parameters match the native WaterConfig; see pr/physics/integrator/engine_water.h for their full meaning.
 /// </summary>
 public readonly struct WaterConfiguration
 {
@@ -17,28 +19,49 @@ public readonly struct WaterConfiguration
 	/// <summary>Default crest sharpness of waves at the breaking height. Zero leaves crests unchanged.</summary>
 	public const float DefaultShoreSharpness = 0.0f;
 
+	/// <summary>Default maximum surface-cell diameter (m).</summary>
+	public const float DefaultSurfaceSpacing = 0.25f;
+
 	public readonly double m_level;
 	public readonly float m_density;
-	public readonly float m_linear_drag_rate;
+	public readonly float m_linear_drag_time_constant;
+	public readonly float m_angular_drag_time_constant;
 	public readonly float m_quadratic_drag_coefficient;
-	public readonly float m_angular_drag_rate;
+	public readonly float m_tangential_drag_coefficient;
+	public readonly float m_added_mass_coefficient;
+	public readonly float m_radiation_damping;
+	public readonly float m_wave_resistance;
+	public readonly float m_surface_spacing;
+	public readonly float m_air_density;
 	public readonly float m_breaking_ratio;
 	public readonly float m_shore_sharpness;
 	public readonly float m_repeat_period;
 
 	/// <summary>
-	/// Specify the still-water level in metres and the water's density and drag. 'breaking_ratio' limits the total wave amplitude to half this
-	/// fraction of the depth where terrain heights are known (see <see cref="Engine.SetWaterBathymetry"/>). 'shore_sharpness', in [0, 0.9], is the
-	/// crest sharpness that waves reach at the breaking height; crests sharpen towards it as waves approach breaking. 'repeat_period' (s) is the
-	/// period after which every wave element repeats, so the engine can wrap long clocks without losing precision; zero means the elements are not periodic.
+	/// Specify the still-water level (m) and the water's density (kg/m³) and force model.
+	/// 'linear_drag_time_constant' and 'angular_drag_time_constant' (s) are the e-folding times of the viscous volume drag for a fully submerged
+	/// body with the water's density; zero or less disables them. 'quadratic_drag_coefficient' is the normal form-drag coefficient and
+	/// 'tangential_drag_coefficient' the skin-friction coefficient. 'added_mass_coefficient' is the fraction of displaced water that moves with a body.
+	/// 'radiation_damping' and 'wave_resistance' scale the wave-making damping (1 is the physical estimate, 0 disables it). 'surface_spacing' (m) is the
+	/// largest surface-cell diameter; smaller values are more accurate and cost more. 'air_density' (kg/m³) is the air acting on the dry part of bodies
+	/// touching the water. 'breaking_ratio' limits the total wave amplitude to half this fraction of the depth where terrain heights are known
+	/// (see <see cref="Engine.SetWaterBathymetry"/>). 'shore_sharpness', in [0, 0.9], is the crest sharpness that waves reach at the breaking height.
+	/// 'repeat_period' (s) is the period after which every wave element repeats, so the engine can wrap long clocks without losing precision; zero
+	/// means the elements are not periodic.
 	/// </summary>
-	public WaterConfiguration(double level, float density = 1000.0f, float linear_drag_rate = 0.5f, float quadratic_drag_coefficient = 0.5f, float angular_drag_rate = 0.5f, float breaking_ratio = DefaultBreakingRatio, float shore_sharpness = DefaultShoreSharpness, float repeat_period = 0.0f)
+	public WaterConfiguration(double level, float density = 1000.0f, float linear_drag_time_constant = 5.0f, float angular_drag_time_constant = 0.75f, float quadratic_drag_coefficient = 1.05f, float tangential_drag_coefficient = 0.01f, float added_mass_coefficient = 0.5f, float radiation_damping = 1.0f, float wave_resistance = 1.0f, float surface_spacing = DefaultSurfaceSpacing, float air_density = 1.2f, float breaking_ratio = DefaultBreakingRatio, float shore_sharpness = DefaultShoreSharpness, float repeat_period = 0.0f)
 	{
 		m_level = level;
 		m_density = density;
-		m_linear_drag_rate = linear_drag_rate;
+		m_linear_drag_time_constant = linear_drag_time_constant;
+		m_angular_drag_time_constant = angular_drag_time_constant;
 		m_quadratic_drag_coefficient = quadratic_drag_coefficient;
-		m_angular_drag_rate = angular_drag_rate;
+		m_tangential_drag_coefficient = tangential_drag_coefficient;
+		m_added_mass_coefficient = added_mass_coefficient;
+		m_radiation_damping = radiation_damping;
+		m_wave_resistance = wave_resistance;
+		m_surface_spacing = surface_spacing;
+		m_air_density = air_density;
 		m_breaking_ratio = breaking_ratio;
 		m_shore_sharpness = shore_sharpness;
 		m_repeat_period = repeat_period;

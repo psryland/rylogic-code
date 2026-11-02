@@ -144,12 +144,14 @@ namespace las
 			ui.Text(text);
 
 			ui.Separator();
-			auto diagnostics = m_ship.BuoyancyDiagnostics();
-			if (!diagnostics.m_valid)
+			auto const water = m_ship.BuoyancyDiagnostics();
+			if (!water)
 			{
-				ui.Text("Buoyancy diagnostics pending");
+				ui.Text("No buoyancy diagnostics (dry or asleep)");
 				return;
 			}
+
+			auto const& diagnostics = *water;
 
 			auto submerged_percent = 100.0f * diagnostics.m_volume_m3 / m_ship.HullVolume();
 			*std::format_to(text, "Displaced volume: {:.3f} m3 ({:.1f}%)", diagnostics.m_volume_m3, submerged_percent) = 0;

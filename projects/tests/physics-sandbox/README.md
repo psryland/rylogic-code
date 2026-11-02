@@ -122,7 +122,7 @@ No buoyancy registration, water or submerged state is required. The **B** key re
 This is a geometry visualization, not a new physics sampling policy.
 
 - Surface geometry comes from `physics::surface::BuildPlan` and `EmitSurfaceSample` at the spacing of the physics the scene exercises:
-  the scene's `GpuBuoyancy::Config::m_surface_spacing` (default `buoyancy::DefaultSurfaceSpacing`) when it has water, otherwise the terrain's
+  the scene's `WaterConfig::m_surface_spacing` (default `buoyancy::DefaultSurfaceSpacing`) when it has water, otherwise the terrain's
   `surface_spacing` when it has terrain, otherwise the shared `surface::DefaultSpacing`.
   Buoyancy's per-primitive minimum sample count (`buoyancy::BuildSurfacePlan`) is not applied, so small primitives may show fewer points than buoyancy uses.
   See `include/pr/physics/surface/README.md` for its feature, area-weight and coverage contracts. Every surviving sample is drawn; there is no display decimation.

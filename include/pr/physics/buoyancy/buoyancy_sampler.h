@@ -4,7 +4,7 @@
 //*********************************************
 // Deterministic CPU buoyancy sampler.
 //
-// This is the reference oracle for the GPU buoyancy pass (gpu_buoyancy.hlsl). Surface emission compiles the shared
+// This is the reference oracle for the GPU water pass (gpu_water.hlsl). Surface emission compiles the shared
 // surface_sampling.hlsli implementation and uses the same per-sample weights, cull rules, and force terms, so the GPU
 // kernels can be validated against it.
 //
@@ -59,7 +59,7 @@
 
 namespace pr::physics::buoyancy
 {
-	// Tunable fluid parameters used by the sampler. Mirrors the runtime GpuBuoyancy::Config fields
+	// Tunable fluid parameters used by the sampler. Mirrors the runtime WaterConfig fields
 	// the sampler cares about, but kept independent so this header has no engine dependency.
 	struct SamplerConfig
 	{
@@ -392,20 +392,16 @@ namespace pr::physics::buoyancy
 				auto const grad = water.PressureGradient(uv, g_mag);
 				auto const grad_ws = grad.x * t0 + grad.y * t1 + grad.z * up;
 				auto const grad_up = Dot3(grad_ws, up);
-				auto const slope = water.Slope(uv);
-				auto const slope_ws = slope.x * t0 + slope.y * t1;
 
 				// The vertical pressure force comes from the sampled normals, scaled by the wave's vertical acceleration.
 				// The horizontal force comes from the columns: the Froude-Krylov force (1 + Ca) * grad on each column's volume.
-				// The torque uses the sampled pressure plus the column correction for the difference between the gradient and
-				// the slope (see CSBuoyancySurfaceSamples in gpu_buoyancy.hlsl).
+				// The torque uses only the sampled pressure, which acts along the normals (see CSBuoyancySurfaceSamples in gpu_water.hlsl).
 				auto const dF_pressure = -(rho_g * (1.0f - (1.0f + ca) * grad_up) * depth_area) * normal_ws;
 				auto const grad_lat = grad_ws - grad_up * up;
 				auto const dF_lateral = -(rho_g * dvol * (1.0f + ca)) * grad_lat;
-				auto const dF_column = dF_lateral + (rho_g * dvol) * slope_ws;
 				auto const dF_buoy = Dot3(dF_pressure, up) * up + dF_lateral;
 				buoy_force += dF_buoy;
-				buoy_torque += Cross(r, dF_pressure) + Cross(r_col, dF_column);
+				buoy_torque += Cross(r, dF_pressure);
 				wet_volume += dvol;
 				wet_moment += (com_ws + r_col).w0() * dvol;
 

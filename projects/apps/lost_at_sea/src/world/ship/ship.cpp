@@ -85,7 +85,6 @@ namespace las
 	Ship::Ship(Renderer& rdr, PhysicsSystem& physics, v4 location)
 		:m_physics(physics)
 		,m_body_handle(PhysicsSystem::BodyHandle::Invalid())
-		,m_buoyancy_hull()
 		,m_hull_volume_m3()
 		,m_requested_density_kg_m3(InitialAverageDensityKgM3)
 		,m_applied_density_kg_m3(InitialAverageDensityKgM3)
@@ -110,7 +109,6 @@ namespace las
 			auto const& hull = shape_cast<ShapePolytope>(m_physics.BodyShape(m_body_handle));
 			m_hull_volume_m3 = CalcVolume(hull);
 			m_inst.m_model = CreateHullModel(rdr, hull);
-			m_buoyancy_hull = m_physics.RegisterBuoyancyHull(m_body_handle);
 		}
 		catch (...)
 		{
@@ -122,10 +120,9 @@ namespace las
 		}
 	}
 
-	// Destroy the ship's physics registration while the rigid body is still alive.
+	// Destroy the ship's physics body.
 	Ship::~Ship()
 	{
-		m_buoyancy_hull.Reset();
 		if (m_physics.IsValid(m_body_handle))
 		{
 			m_physics.DestroyBody(m_body_handle);
@@ -188,8 +185,8 @@ namespace las
 		m_applied_density_kg_m3.store(requested_density, std::memory_order_relaxed);
 	}
 
-	// Return the latest read-back buoyancy diagnostics for the ship hull.
-	physics::GpuBuoyancy::Diagnostics Ship::BuoyancyDiagnostics() const
+	// Return the water forces on the ship from the last step, or empty when it was dry or asleep.
+	std::optional<physics::WaterDiagnostics> Ship::BuoyancyDiagnostics() const
 	{
 		return m_physics.LatestBuoyancyDiagnostics(m_body_handle);
 	}

@@ -11,10 +11,11 @@ namespace las
 	namespace
 	{
 		// Return the physical seawater configuration used by Lost at Sea buoyancy.
-		physics::GpuBuoyancy::Config BuoyancyConfig()
+		physics::WaterConfig SeawaterConfig()
 		{
-			auto config = physics::GpuBuoyancy::Config{};
-			config.m_fluid_density = PhysicsSystem::SeawaterDensityKgM3;
+			// Diagnostics feed the ship's buoyancy UI.
+			auto config = physics::WaterConfig{};
+			config.m_density = PhysicsSystem::SeawaterDensityKgM3;
 			config.m_enable_diagnostics = true;
 			return config;
 		}
@@ -52,73 +53,14 @@ namespace las
 		,m_o2w(m4x4::Identity())
 		,m_step_index(-1)
 		,m_valid()
+		,m_water()
 	{}
-
-	// Create an owned buoyancy hull registration.
-	PhysicsSystem::BuoyancyHullRegistration::BuoyancyHullRegistration(PhysicsSystem& physics, BodyHandle handle)
-		:m_physics(&physics)
-		,m_handle(handle)
-	{
-	}
-
-	// Construct an empty buoyancy hull registration.
-	PhysicsSystem::BuoyancyHullRegistration::BuoyancyHullRegistration()
-		:m_physics()
-		,m_handle(BodyHandle::Invalid())
-	{
-	}
-
-	// Move a buoyancy hull registration without releasing it.
-	PhysicsSystem::BuoyancyHullRegistration::BuoyancyHullRegistration(BuoyancyHullRegistration&& rhs) noexcept
-		:m_physics(std::exchange(rhs.m_physics, nullptr))
-		,m_handle(std::exchange(rhs.m_handle, BodyHandle::Invalid()))
-	{
-	}
-
-	// Release the current registration and then take ownership of another one.
-	PhysicsSystem::BuoyancyHullRegistration& PhysicsSystem::BuoyancyHullRegistration::operator=(BuoyancyHullRegistration&& rhs) noexcept
-	{
-		if (this != &rhs)
-		{
-			Reset();
-			m_physics = std::exchange(rhs.m_physics, nullptr);
-			m_handle = std::exchange(rhs.m_handle, BodyHandle::Invalid());
-		}
-		return *this;
-	}
-
-	// Release the buoyancy hull registration when ownership leaves scope.
-	PhysicsSystem::BuoyancyHullRegistration::~BuoyancyHullRegistration()
-	{
-		Reset();
-	}
-
-	// Release the buoyancy hull registration if one is owned.
-	void PhysicsSystem::BuoyancyHullRegistration::Reset() noexcept
-	{
-		auto* physics = std::exchange(m_physics, nullptr);
-		auto handle = std::exchange(m_handle, BodyHandle::Invalid());
-		if (physics != nullptr)
-		{
-			physics->ReleaseBuoyancyHull(handle);
-		}
-	}
-
-	// Return true if this object owns a buoyancy hull registration.
-	bool PhysicsSystem::BuoyancyHullRegistration::IsValid() const
-	{
-		return m_physics != nullptr && m_handle.IsValid();
-	}
 
 	// Construct the LAS physics facade on the simulation owner thread.
 	PhysicsSystem::PhysicsSystem(Renderer& rdr)
 		:m_owner_thread_id(std::this_thread::get_id())
 		,m_engine(physics::EngineConfig{}, nullptr, rdr.D3DDevice())
-		,m_gpu_buoyancy(std::make_unique<physics::GpuBuoyancy>(rdr.D3DDevice(), m_engine,
-			BuoyancyConfig(),
-			[this](int body_slot_index) { return BodySlotStepIndex(body_slot_index); },
-			[this](int body_slot_index) { return BodySlotState(body_slot_index); })
-		)
+		,m_water_config(SeawaterConfig())
 		,m_body_slots()
 		,m_free_slots()
 		,m_step_bodies()
@@ -159,7 +101,6 @@ namespace las
 			m_free_slots.pop_back();
 
 			auto& slot = m_body_slots[slot_index];
-			slot.m_buoyancy_hull.Reset();
 			slot.m_shape_data = std::move(shape_data);
 			slot.m_body = std::move(body);
 			slot.m_step_index = -1;
@@ -174,7 +115,6 @@ namespace las
 			.m_body = std::move(body),
 			.m_generation = 0,
 			.m_step_index = -1,
-			.m_buoyancy_hull = {},
 		});
 		auto handle = BodyHandle{ slot_index, 0 };
 		PublishSnapshots();
@@ -192,7 +132,6 @@ namespace las
 		}
 
 		auto& slot = Slot(handle);
-		ReleaseBuoyancyHull(handle);
 		slot.m_body.reset();
 		slot.m_shape_data.clear();
 		slot.m_step_index = -1;
@@ -272,62 +211,14 @@ namespace las
 		body.VelocityWS(velocity_ws);
 	}
 
-	// Return the latest GPU buoyancy diagnostic record for a body.
-	physics::GpuBuoyancy::Diagnostics PhysicsSystem::LatestBuoyancyDiagnostics(BodyHandle handle) const
+	// Return the water forces on a body from the last step, or empty when the body was dry or asleep.
+	std::optional<physics::WaterDiagnostics> PhysicsSystem::LatestBuoyancyDiagnostics(BodyHandle handle) const
 	{
+		// Destroyed or stale handles have no water forces.
 		if (!IsValid(handle))
-			return physics::GpuBuoyancy::Diagnostics{};
+			return std::nullopt;
 
-		return m_gpu_buoyancy->LatestDiagnostics(handle.m_index, handle.m_generation);
-	}
-
-	// Register a physics body's collision shape for buoyancy.
-	PhysicsSystem::BuoyancyHullRegistration PhysicsSystem::RegisterBuoyancyHull(BodyHandle handle)
-	{
-		CheckOwnerThread();
-		CheckNoStepPending("PhysicsSystem::RegisterBuoyancyHull");
-
-		auto& slot = Slot(handle);
-		if (slot.m_buoyancy_hull)
-		{
-			throw std::runtime_error("A buoyancy hull is already registered for this body");
-		}
-
-		slot.m_buoyancy_hull = m_gpu_buoyancy->RegisterCompositeHull(*slot.m_body, handle.m_index, handle.m_generation);
-		return BuoyancyHullRegistration{ *this, handle };
-	}
-
-	// Release a buoyancy hull registration during RAII cleanup.
-	void PhysicsSystem::ReleaseBuoyancyHull(BodyHandle handle) noexcept
-	{
-		if (!handle.IsValid())
-		{
-			return;
-		}
-
-		if (std::this_thread::get_id() != m_owner_thread_id)
-		{
-			PR_ASSERT(PR_DBG, false, "PhysicsSystem buoyancy hull registration released from the wrong thread");
-			std::terminate();
-		}
-		if (m_step_pending)
-		{
-			PR_ASSERT(PR_DBG, false, "PhysicsSystem buoyancy hull registration released while a physics step is pending");
-			std::terminate();
-		}
-
-		if (handle.m_index < 0 || handle.m_index >= static_cast<int>(m_body_slots.size()))
-		{
-			return;
-		}
-
-		auto& slot = m_body_slots[handle.m_index];
-		if (slot.m_generation != handle.m_generation)
-		{
-			return;
-		}
-
-		slot.m_buoyancy_hull.Reset();
+		return Snapshot(handle).m_water;
 	}
 
 	// Submit GPU physics work against the matching immutable water snapshot without waiting for completion.
@@ -336,8 +227,9 @@ namespace las
 		CheckOwnerThread();
 		CheckNoStepPending("PhysicsSystem::BeginStep");
 
-		// Copy the field before Engine::BeginStep invokes external-force generators, ensuring every buoyancy dispatch in this step sees this exact value snapshot.
-		water::BuoyancyAdapter::SetField(*m_gpu_buoyancy, water_snapshot, time_s);
+		// Give the engine the field before the step so every water dispatch in this step sees this exact value snapshot.
+		water::BuoyancyAdapter::SetField(m_water_config, water_snapshot, time_s);
+		m_engine.Water(m_water_config);
 
 		m_step_pending = true;
 		m_engine_step_pending = false;
@@ -374,7 +266,6 @@ namespace las
 			{
 				m_engine.CompleteStep();
 				m_engine_step_pending = false;
-				m_gpu_buoyancy->CompleteStep();
 			}
 
 			PublishSnapshots();
@@ -466,38 +357,6 @@ namespace las
 		return m_body_slots[handle.m_index];
 	}
 
-	// Return the compact body index used by the current physics step for a body slot.
-	int PhysicsSystem::BodySlotStepIndex(int body_slot_index) const
-	{
-		CheckOwnerThread();
-		if (body_slot_index < 0 || body_slot_index >= static_cast<int>(m_body_slots.size()))
-		{
-			return -1;
-		}
-
-		auto const& slot = m_body_slots[body_slot_index];
-		return slot.m_body != nullptr ? slot.m_step_index : -1;
-	}
-
-	// Return the live body state used by owner-thread diagnostic systems.
-	physics::GpuBuoyancy::BodyState PhysicsSystem::BodySlotState(int body_slot_index) const
-	{
-		CheckOwnerThread();
-		if (body_slot_index < 0 || body_slot_index >= static_cast<int>(m_body_slots.size()))
-			return physics::GpuBuoyancy::BodyState{};
-
-		auto const& slot = m_body_slots[body_slot_index];
-		if (slot.m_body == nullptr)
-			return physics::GpuBuoyancy::BodyState{};
-
-		auto state = physics::GpuBuoyancy::BodyState{};
-		state.m_o2w = slot.m_body->O2W();
-		state.m_centre_of_mass_os = slot.m_body->CentreOfMassOS();
-		state.m_ws_gravity = slot.m_body->GravityWS();
-		state.m_valid = true;
-		return state;
-	}
-
 	// Rebuild the compact body list submitted to the physics engine.
 	void PhysicsSystem::BuildStepBodyList()
 	{
@@ -534,6 +393,10 @@ namespace las
 			snapshot.m_step_index = slot.m_step_index;
 			snapshot.m_valid = slot.m_body != nullptr;
 			snapshot.m_o2w = snapshot.m_valid ? slot.m_body->O2W() : m4x4::Identity();
+
+			// Copy the water diagnostics so other threads never read engine-owned memory.
+			auto const* water = snapshot.m_valid ? m_engine.WaterDiagnosticsFor(*slot.m_body) : nullptr;
+			snapshot.m_water = water != nullptr ? std::optional{ *water } : std::nullopt;
 		}
 	}
 }

@@ -300,6 +300,9 @@
     <None Include="scenes\wave_drift.json">
       <Filter>scenes</Filter>
     </None>
+    <None Include="scenes\spinning_beach_ball.json">
+      <Filter>scenes</Filter>
+    </None>
     <None Include="scenes\beach_ball_waves.json">
       <Filter>scenes</Filter>
     </None>

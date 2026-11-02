@@ -16,14 +16,12 @@
 #define BUOYANCY_SAMPLE_THREAD_COUNT 256
 #define BUOYANCY_REDUCE_THREAD_COUNT 128
 
-struct CBufGpuBuoyancy
+struct CBufGpuWater
 {
 	int hull_count;
 	int groups_per_hull;
-	int water_field_count;
-	float time_s;
+	float time_s;                   // water-field time, already wrapped by WaterField::LocalTime
 	float water_level;
-	float water_max_height;         // conservative upper bound of the water surface over all positions
 	float fluid_density;
 	float linear_drag_coefficient;  // fluid_density / linear_drag_time_constant, applied per wet water-column volume
 	float angular_drag_coefficient; // fluid_density / angular_drag_time_constant, applied per wet water-column volume
@@ -41,10 +39,11 @@ struct CBufGpuBuoyancy
 #include "pr/physics/buoyancy/wave_resistance.hlsli"
 
 // One threadgroup's (or one hull's) sums over its samples. Each sample at offset r from the centre of mass contributes a
-// damping rate d that resists the velocity of its point, and partly wet samples contribute a waterline stiffness k that
-// resists the vertical displacement of their point, up.(dx + dtheta x r) = up.dx + s.dtheta with s = r x up. The 6x6
-// Jacobians of these terms (linear and angular, including the coupling between them) are exactly described by the moments
-// of d and k below, so the implicit solve does not need per-sample matrices.
+// damping rate d that resists the velocity of its point, and wet samples contribute a waterline stiffness k that resists
+// the vertical displacement of their point, up.(dx + dtheta x r) = up.dx + s.dtheta with s = r x up. The pressure change
+// caused by that displacement acts along the sample's normal n, so its torque is k*t with t = (r x n)/(n.up), which is zero
+// for a sphere. The 6x6 Jacobians of these terms (linear and angular, including the coupling between them) are exactly
+// described by the moments of d and k below, so the implicit solve does not need per-sample matrices.
 //   force_ws, torque_ws        - hydrodynamic force and torque about the body's centre of mass.
 //   volume                     - sum of dV over the wet water columns, which is the displaced volume (m^3).
 //   volume_moment              - sum of r*dV over the wet water columns, with r the column centroid relative to the centre of mass.
@@ -62,8 +61,9 @@ struct CBufGpuBuoyancy
 //                                It describes the force caused by angular velocity.
 //   damping_ang_rr_diag/off    - sum of d*r*r^T over the same damping: (xx, yy, zz) and (xy, xz, yz).
 //   stiffness                  - sum of waterline stiffness k (N/m).
-//   stiffness_moment           - sum of k*s.
-//   stiffness_ss_diag/off      - sum of k*s*s^T: (xx, yy, zz) and (xy, xz, yz).
+//   stiffness_moment           - sum of k*s. It describes the vertical force caused by angular velocity.
+//   stiffness_torque_moment    - sum of k*t. It describes the torque caused by linear velocity.
+//   stiffness_ts_x/y/z         - rows of sum of k*t*s^T. It describes the torque caused by angular velocity.
 //   added_mass                 - mass of water that must accelerate with the body, Ca*rho*(wet volume) (kg). It is
 //                                treated as isotropic translational inertia at the centre of mass.
 //   heave_rate                 - sum of k*(rate the waterline rises out of the water due to the body's linear velocity) (N/s).
@@ -86,13 +86,15 @@ struct BuoyancySums
 	float3 damping_ang_rr_off;
 	float stiffness;
 	float3 stiffness_moment;
-	float3 stiffness_ss_diag;
-	float3 stiffness_ss_off;
+	float3 stiffness_torque_moment;
+	float3 stiffness_ts_x;
+	float3 stiffness_ts_y;
+	float3 stiffness_ts_z;
 	float added_mass;
 	float heave_rate;
 };
 
-struct GpuBuoyancyDiagnostic
+struct GpuWaterDiagnostic
 {
 	float4 force_ws;
 	float4 torque_ws;
@@ -103,15 +105,15 @@ struct GpuBuoyancyDiagnostic
 	float pad1;
 };
 
-ConstantBuffer<CBufGpuBuoyancy> resource(g, b0);
+ConstantBuffer<CBufGpuWater> resource(g, b0);
 RWStructuredBuffer<GpuRigidBody> resource(g_bodies, u0);
 StructuredBuffer<WaterFieldElement> resource(g_water_field, t1);
 RWStructuredBuffer<BuoyancySums> resource(g_partials, u1);
-RWStructuredBuffer<GpuBuoyancyDiagnostic> resource(g_diagnostics, u2);
+RWStructuredBuffer<GpuWaterDiagnostic> resource(g_diagnostics, u2);
 
 // --- Sampled-composite bindings ---
-// Per-hull header: one record per registered composite hull. It locates the hull's primitive block in g_prims /
-// g_surf_prim_records and carries the inside-test epsilon computed once at registration.
+// Per-hull header: one record per hull in the dispatch. It locates the hull's primitive block in g_prims / g_surf_prim_records and its
+// local water elements in g_water_field, and carries the inside-test epsilon of its shape.
 struct BuoySurfHeader
 {
 	int body_index;             // index into g_bodies
@@ -119,9 +121,9 @@ struct BuoySurfHeader
 	int prim_count;             // number of convex primitives in this hull
 	int total_surface_samples;  // actual emitted surface sample count (sum of per-primitive counts)
 	float eps;                  // scale-relative inside-test slack (sibling cull)
-	int pad0;
-	int pad1;
-	int pad2;
+	int element_base;           // start of this hull's water elements in g_water_field
+	int element_count;          // number of water elements acting on this hull
+	float water_max_height;     // conservative upper bound of the water surface the hull can reach this frame
 };
 
 // Per-primitive counts and compact patch ranges, parallel to g_prims. 'half_cell_height' is half the largest surface cell
@@ -149,11 +151,12 @@ groupshared float3 s_body_angular_velocity_ws;
 // Orbital velocity is evaluated separately only for accepted wet samples, avoiding exponentials for the common fully-dry case.
 // Each wave contributes its orbital acceleration divided by -g (see WaterFieldElementHeightAndPressureGradient).
 // For a dispersion-consistent gravity wave (omega^2 = g*k), the lateral part equals its geometric slope.
-float4 EvaluateWaterHeightAndPressureGradient(float2 xy_ws, float gravity)
+// Each hull evaluates its own local elements, which the host has already localised for the wind sea and corrected for depth.
+float4 EvaluateWaterHeightAndPressureGradient(BuoySurfHeader header, float2 xy_ws, float gravity)
 {
 	float4 result = float4(g.water_level, 0.0f, 0.0f, 0.0f);
-	for (int element_index = 0; element_index != g.water_field_count; ++element_index)
-		result += WaterFieldElementHeightAndPressureGradient(g_water_field[element_index], xy_ws, g.time_s, gravity);
+	for (int element_index = 0; element_index != header.element_count; ++element_index)
+		result += WaterFieldElementHeightAndPressureGradient(g_water_field[header.element_base + element_index], xy_ws, g.time_s, gravity);
 
 	return result;
 }
@@ -164,22 +167,22 @@ float4 EvaluateWaterHeightAndPressureGradient(float2 xy_ws, float gravity)
 //   w_up      =  A*omega * e^(k*z) * cos(phase)   (vertical)
 // where z is the signed height relative to the still-water level (clamped <= 0). The sample pass
 // subtracts this from the body velocity to form the relative flow at each wetted surface sample.
-float3 EvaluateWaterVelocity(float3 pos_ws)
+float3 EvaluateWaterVelocity(BuoySurfHeader header, float3 pos_ws)
 {
 	float3 velocity = float3(0.0f, 0.0f, 0.0f);
-	for (int element_index = 0; element_index != g.water_field_count; ++element_index)
+	for (int element_index = 0; element_index != header.element_count; ++element_index)
 	{
-		velocity += WaterFieldElementVelocity(g_water_field[element_index], pos_ws, g.time_s, g.water_level);
+		velocity += WaterFieldElementVelocity(g_water_field[header.element_base + element_index], pos_ws, g.time_s, g.water_level);
 	}
 	return velocity;
 }
 
 // Evaluate the water surface slope and rise rate at a horizontal position: (dh/dx, dh/dy, dh/dt). See WaterFieldElementSurfaceRates.
-float3 EvaluateWaterSurfaceRates(float2 xy_ws)
+float3 EvaluateWaterSurfaceRates(BuoySurfHeader header, float2 xy_ws)
 {
 	float3 rates = float3(0.0f, 0.0f, 0.0f);
-	for (int element_index = 0; element_index != g.water_field_count; ++element_index)
-		rates += WaterFieldElementSurfaceRates(g_water_field[element_index], xy_ws, g.time_s);
+	for (int element_index = 0; element_index != header.element_count; ++element_index)
+		rates += WaterFieldElementSurfaceRates(g_water_field[header.element_base + element_index], xy_ws, g.time_s);
 
 	return rates;
 }
@@ -252,7 +255,6 @@ void ApplyImplicitResponse(inout GpuRigidBody body, BuoyancySums terms)
 	// submerges, where the waterplane shrinks to nothing. The force acts horizontally at the centre of mass, against the velocity
 	// relative to the mean water velocity over the displaced volume. It is applied through its secant damping rate R/U, so the
 	// implicit step reduces the relative speed without reversing it, like the quadratic drag.
-	float3x3 ss = build_symmetric_3x3(terms.stiffness_ss_diag, terms.stiffness_ss_off);
 	float wave_damping = 0.0f;
 	float3 wave_velocity = float3(0.0f, 0.0f, 0.0f);
 	if (g.wave_resistance > 0.0f && terms.volume > BUOY_TINY && g.fluid_density > 0.0f)
@@ -288,8 +290,8 @@ void ApplyImplicitResponse(inout GpuRigidBody body, BuoyancySums terms)
 	float3x3 rr = build_symmetric_3x3(terms.damping_ang_rr_diag, terms.damping_ang_rr_off);
 	float3x3 a_fv = terms.damping_lin * identity + ((hk + beta) * terms.stiffness) * BuoyOuter(up, up) + wave_damping * (identity - BuoyOuter(up, up));
 	float3x3 a_fw = -BuoySkew(terms.damping_ang_moment) + hk * BuoyOuter(up, terms.stiffness_moment);
-	float3x3 a_tv = BuoySkew(terms.damping_lin_moment) + hk * BuoyOuter(terms.stiffness_moment, up);
-	float3x3 a_tw = (rr._11 + rr._22 + rr._33) * identity - rr + hk * ss;
+	float3x3 a_tv = BuoySkew(terms.damping_lin_moment) + hk * BuoyOuter(terms.stiffness_torque_moment, up);
+	float3x3 a_tw = (rr._11 + rr._22 + rr._33) * identity - rr + hk * float3x3(terms.stiffness_ts_x, terms.stiffness_ts_y, terms.stiffness_ts_z);
 
 	// Form N = I + (h*A + M_a)*M^-1 in blocks, where M_a is the added mass. The body's momentum change is h*W_eff, but
 	// the hydrodynamic wrench also contains -M_a*dv/h because the attached water must change velocity too, so the
@@ -336,13 +338,15 @@ void AddColumnDamping(inout BuoyancySums sums, float3 r, float3 up, float len, f
 	sums.damping_ang_rr_off += d_ang * (float3(r.x * r.y, r.x * r.z, r.y * r.z) + float3(r_len.x * r_len.y, r_len.x * r_len.z, r_len.y * r_len.z));
 }
 
-// Add the waterline stiffness 'k' of a partly wet sample with s = cross(r, up).
-void AddWaterlineStiffness(inout BuoyancySums sums, float3 s, float k)
+// Add the waterline stiffness 'k' of a wet sample with s = cross(r, up) and torque moment kt = k*t (see BuoyancySums).
+void AddWaterlineStiffness(inout BuoyancySums sums, float3 s, float k, float3 kt)
 {
 	sums.stiffness += k;
 	sums.stiffness_moment += k * s;
-	sums.stiffness_ss_diag += k * s * s;
-	sums.stiffness_ss_off += k * float3(s.x * s.y, s.x * s.z, s.y * s.z);
+	sums.stiffness_torque_moment += kt;
+	sums.stiffness_ts_x += kt.x * s;
+	sums.stiffness_ts_y += kt.y * s;
+	sums.stiffness_ts_z += kt.z * s;
 }
 
 // Component-wise sum of two records.
@@ -364,8 +368,10 @@ BuoyancySums AddSums(BuoyancySums a, BuoyancySums b)
 	a.damping_ang_rr_off += b.damping_ang_rr_off;
 	a.stiffness += b.stiffness;
 	a.stiffness_moment += b.stiffness_moment;
-	a.stiffness_ss_diag += b.stiffness_ss_diag;
-	a.stiffness_ss_off += b.stiffness_ss_off;
+	a.stiffness_torque_moment += b.stiffness_torque_moment;
+	a.stiffness_ts_x += b.stiffness_ts_x;
+	a.stiffness_ts_y += b.stiffness_ts_y;
+	a.stiffness_ts_z += b.stiffness_ts_z;
 	a.added_mass += b.added_mass;
 	a.heave_rate += b.heave_rate;
 	return a;
@@ -393,8 +399,10 @@ BuoyancySums ReduceGroup(BuoyancySums sums, uint thread_index, uint thread_count
 		sums.damping_ang_rr_off = WaveActiveSum(sums.damping_ang_rr_off);
 		sums.stiffness = WaveActiveSum(sums.stiffness);
 		sums.stiffness_moment = WaveActiveSum(sums.stiffness_moment);
-		sums.stiffness_ss_diag = WaveActiveSum(sums.stiffness_ss_diag);
-		sums.stiffness_ss_off = WaveActiveSum(sums.stiffness_ss_off);
+		sums.stiffness_torque_moment = WaveActiveSum(sums.stiffness_torque_moment);
+		sums.stiffness_ts_x = WaveActiveSum(sums.stiffness_ts_x);
+		sums.stiffness_ts_y = WaveActiveSum(sums.stiffness_ts_y);
+		sums.stiffness_ts_z = WaveActiveSum(sums.stiffness_ts_z);
 		sums.added_mass = WaveActiveSum(sums.added_mass);
 		sums.heave_rate = WaveActiveSum(sums.heave_rate);
 	}
@@ -517,7 +525,7 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 						float3 up_dry = -gravity_ws / g_mag;
 						float4x4 s2w = mul(prim.m_s2r, body.o2w);
 						float lo, hi;
-						fully_dry = BuoySupportAlongUp(prim, s2w, up_dry, lo, hi) && lo >= g.water_max_height + half_cell_height;
+						fully_dry = BuoySupportAlongUp(prim, s2w, up_dry, lo, hi) && lo >= header.water_max_height + half_cell_height;
 					}
 
 					if (!fully_dry)
@@ -554,7 +562,7 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 							float signed_height = dot(sample_ws, up);
 							float n_up = dot(normal_ws, up);
 							float cell_height = BuoySurfaceCellHeight(weight, n_up);
-							float4 hg = EvaluateWaterHeightAndPressureGradient(sample_ws.xy, g_mag);
+							float4 hg = EvaluateWaterHeightAndPressureGradient(header, sample_ws.xy, g_mag);
 							float wet_fraction = BuoyWetFraction(signed_height, hg.x, cell_height);
 							float wet_weight = weight * wet_fraction;
 							float dry_weight = weight - wet_weight;
@@ -577,7 +585,7 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 							if (wet_weight > 0.0f)
 							{
 								// Relative flow at the sample (body velocity minus wave-orbital water flow).
-								float3 water_velocity_ws = EvaluateWaterVelocity(sample_ws);
+								float3 water_velocity_ws = EvaluateWaterVelocity(header, sample_ws);
 								float3 v_rel = v_point - water_velocity_ws;
 								float v_n = dot(v_rel, normal_ws);
 
@@ -596,7 +604,7 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 								float3 r_col = r + (0.5f * wet_depth) * up;
 								float3 grad_ws = hg.yzw;
 								float grad_up = dot(grad_ws, up);
-								float3 surface_rates = EvaluateWaterSurfaceRates(sample_ws.xy);
+								float3 surface_rates = EvaluateWaterSurfaceRates(header, sample_ws.xy);
 								float3 slope_ws = float3(surface_rates.xy, 0.0f);
 
 								// The wave's vertical acceleration scales the pressure: water under a crest supports less than still water.
@@ -604,15 +612,16 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 								// by the divergence theorem it is exactly -rho*g*(integral of the surface slope over the wet volume), and the
 								// few cells near the waterline of a light body do not cancel accurately. The Froude-Krylov force uses
 								// (1 + Ca)*grad instead of the slope, so the attached water is accelerated by the wave as well. The torque uses
-								// the sampled pressure, which acts along the normals, plus the column correction for the difference between
-								// the gradient and the slope.
+								// only the sampled pressure, which acts along the normals, so pressure cannot spin a sphere about its centre.
+								// The difference between the column force and the sampled lateral pressure is also a pressure effect, but how it is
+								// spread over the surface is not known. Applying it at the columns would put it through the centre of buoyancy,
+								// which would make a floating sphere spin in waves, so it adds force only.
 								float rho_g = g.fluid_density * g_mag;
 								float3 dF_pressure = -(rho_g * (1.0f - (1.0f + g.added_mass_coefficient) * grad_up) * depth_area) * normal_ws;
 								float3 grad_lat = grad_ws - grad_up * up;
 								float3 dF_lateral = -(rho_g * dvol * (1.0f + g.added_mass_coefficient)) * grad_lat;
-								float3 dF_column = dF_lateral + (rho_g * dvol) * slope_ws;
 								sums.force_ws += dot(dF_pressure, up) * up + dF_lateral;
-								sums.torque_ws += cross(r, dF_pressure) + cross(r_col, dF_column);
+								sums.torque_ws += cross(r, dF_pressure);
 								sums.added_mass += g.added_mass_coefficient * g.fluid_density * dvol;
 
 								// Volume damping of the column. Translation is resisted relative to the water; rotation uses the column's
@@ -630,17 +639,19 @@ void CSBuoyancySurfaceSamples(uint3 GID(group_id), uint3 GTID(group_thread_id))
 									AddColumnDamping(sums, r_col, up, wet_depth, d_lin, d_ang);
 								}
 
-								// Waterline stiffness: raising the sample by dz reduces depth_area by wet_weight*dz, so the vertical force
-								// changes by -rho*g*wet_weight*(-n.up)*dz. Summed over the wet surface this is rho*g*(waterplane area), and
-								// fully submerged bodies get zero. The predictor is the change in this waterline force over the step for the
-								// point's velocity relative to the moving water surface, and the heave rate is the same rate for the body's
-								// linear velocity only (see ApplyImplicitResponse).
+								// Waterline stiffness: raising the sample by dz reduces depth_area by wet_weight*dz, so the pressure force
+								// changes by rho*g*wet_weight*n*dz. Its vertical part, -rho*g*wet_weight*(-n.up)*dz, sums to rho*g*(waterplane
+								// area) over the wet surface, and fully submerged bodies get zero. Its torque, rho*g*wet_weight*cross(r, n)*dz,
+								// passes through the centre of a sphere. The predictor is the change in this waterline force over the step
+								// for the point's velocity relative to the moving water surface, and the heave rate is the same rate for the
+								// body's linear velocity only (see ApplyImplicitResponse).
 								float stiffness = rho_g * wet_weight * -n_up;
 								float3 r_up = cross(r, up);
+								float3 k_torque = -rho_g * wet_weight * cross(r, normal_ws);
 								float3 surface_normal = up - slope_ws;
-								float delta_force = -g.time_step_s * stiffness * (dot(v_point, surface_normal) - surface_rates.z);
-								AddWaterlineStiffness(sums, r_up, stiffness);
-								sums.predictor += float4(delta_force * r_up, delta_force);
+								float rise_rate = -g.time_step_s * (dot(v_point, surface_normal) - surface_rates.z);
+								AddWaterlineStiffness(sums, r_up, stiffness, k_torque);
+								sums.predictor += float4(rise_rate * k_torque, rise_rate * stiffness);
 								sums.heave_rate += stiffness * (dot(s_body_linear_velocity_ws, surface_normal) - surface_rates.z);
 
 								// Volume moments of the column, for the wave-making resistance and the diagnostic centre of buoyancy.
