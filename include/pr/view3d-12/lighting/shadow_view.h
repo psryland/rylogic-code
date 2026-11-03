@@ -17,7 +17,8 @@ namespace pr::rdr12
 	// The maximum number of cascades for a directional light. Must match 'MaxShadowCascades' in lighting_cbuf.hlsli.
 	inline static constexpr int MaxShadowCascades = 4;
 
-	// Scene-wide shadow rendering settings
+	// Scene-wide shadow rendering settings. Directional cascade visibility blends automatically across the outer 10% of each
+	// filter-safe map region, including when cascade resolutions differ. The split distribution controls spacing, not border blending.
 	struct ShadowSettings
 	{
 		int   m_atlas_size;             // Width and height of the square shadow atlas (in pixels)
